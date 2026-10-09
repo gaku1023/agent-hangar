@@ -12,7 +12,7 @@ import { HOME_RECENT_MAX, presentHome } from './home.ts';
 import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
-import { buildItems, presentSession, sessionActions, type SessionProps } from './session.ts';
+import { buildItems, presentSession, sessionActions, summarizerLabel, type SessionProps } from './session.ts';
 import { presentSessions } from './sessions.ts';
 import { homePath } from './accounts.ts';
 import { presentSettings } from './settings.ts';
@@ -395,8 +395,7 @@ describe('presentSession', () => {
     const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.items.map((i) => i.kind)).toEqual(['user', 'tool', 'assistant']);
     expect(p.items[1]).toMatchObject({ kind: 'tool', summary: 'Agent x', result: { text: 'done', isError: false }, subagent: { agentId: 'abc', label: 'Agent x' } });
-    expect(p).toMatchObject({ name: 'name-s1', live: 'busy', tokens: '1.2M', turns: 2, loaded: 6, total: 6, hasMore: false, projectName: 'alpha' });
-    expect(p.summary).toMatchObject({ title: 't', sourceLabel: '自動', stateLabel: '済んだ' });
+    expect(p).toMatchObject({ name: 'name-s1', live: 'busy', loaded: 6, total: 6, hasMore: false });
     const state = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), showThinking: true, showRaw: true } } };
     const q = presentSession(state, store, NOW, 's1');
     expect(q.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'meta', 'assistant']);
@@ -438,19 +437,6 @@ describe('presentSession', () => {
     const failed = setEventsLoading(setEventsLoading(storeWith(), k, true), k, false);
     expect(presentSession(initialState(), failed, NOW, 's1').turnsPending).toBe(false);
   });
-  it('実行中なら状態と経過の札を作り、変更数を渡す', () => {
-    const store = storeWith();
-    expect(presentSession(initialState(), store, NOW, 's1')).toMatchObject({ liveLabel: '作業中 2 時間', filesChanged: 1 });
-    expect(presentSession(initialState(), store, NOW, 's2').liveLabel).toBeNull();
-  });
-  // Home の要対応と休みの札は最後の動きから数える。同じセッションで待ちの長さが 2 つに割れないよう揃える。
-  it('入力待ちと休みは最後の動きから、作業中は始まりから数える', () => {
-    const store = storeWith();
-    store.sessions.s1 = { ...store.sessions.s1!, live: 'waiting' };
-    expect(presentSession(initialState(), store, NOW, 's1').liveLabel).toBe('入力待ち 1 分');
-    store.sessions.s1 = { ...store.sessions.s1!, live: 'idle' };
-    expect(presentSession(initialState(), store, NOW, 's1').liveLabel).toBe('休み 1 分');
-  });
   it('遡って足したページも seq の順に並べ、残りは総数と持っている数で決める', () => {
     let store = storeWith();
     const k = eventsKey('s1', null);
@@ -470,27 +456,26 @@ describe('presentSession', () => {
     expect(p.items.map((i) => ('text' in i ? i.text : ''))).toEqual(['oldest', 'older', 'newer', 'newest']);
     expect(p).toMatchObject({ hasMore: false, loaded: 4 });
   });
-  it('要約の詳細に出す要約器とモデルと生成の時刻を作る', () => {
+  it('要約の作成元に出す要約器とモデルを作る（冒頭の 1 枚の作成元の行になる）', () => {
+    // 種類は source_id が決める。モデル名から推測しない。
+    expect(summarizerLabel('lmstudio', 'gemma-4-26b-a4b-it-heretic')).toBe('LM Studio / gemma-4-26b-a4b-it-heretic');
+    expect(summarizerLabel('claude-headless', 'haiku')).toBe('claude / haiku');
+    // claude を名に含むモデルを LM Studio で使っても、LM Studio のままである。
+    expect(summarizerLabel('lmstudio', 'claude-ish-7b')).toBe('LM Studio / claude-ish-7b');
+    // モデル名を言えなかったときは種類だけを出す。
+    expect(summarizerLabel('lmstudio', null)).toBe('LM Studio');
+    // source_id を持たない古い行は、種類が分からないので不明と出す。
+    expect(summarizerLabel(null, 'gemma-4-26b-a4b-it-heretic')).toBe('不明 / gemma-4-26b-a4b-it-heretic');
+    // 土台の要約は要約器を通していないので、種類もモデルも無い。
+    expect(summarizerLabel(null, null)).toBeNull();
+  });
+  it('冒頭の 1 枚の作成元の行に、要約器とモデルと生成の時刻が入る', () => {
     const store = storeWith();
     const at = NOW - 3_600_000;
-    const sum = (over: Partial<SessionSummaryDto>): SessionSummaryDto => ({ title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: null, sourceModel: null, basedOnTurns: 5, updatedAt: at, ...over });
-    store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: 'gemma-4-26b-a4b-it-heretic' }) });
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ sourceLabel: '事後', summarizerLabel: 'LM Studio / gemma-4-26b-a4b-it-heretic', generatedAt: absoluteTime(at) });
-    // 種類は source_id が決める。モデル名から推測しない。
-    store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'claude-headless', sourceModel: 'haiku' }) });
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'claude / haiku' });
-    // claude を名に含むモデルを LM Studio で使っても、LM Studio のままである。
-    store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: 'claude-ish-7b' }) });
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'LM Studio / claude-ish-7b' });
-    // モデル名を言えなかったときは種類だけを出す。
-    store.sessions.s1 = session('s1', { summary: sum({ sourceId: 'lmstudio', sourceModel: null }) });
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: 'LM Studio' });
-    // source_id を持たない古い行は、種類が分からないので不明と出す。
-    store.sessions.s1 = session('s1', { summary: sum({ sourceId: null, sourceModel: 'gemma-4-26b-a4b-it-heretic' }) });
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: '不明 / gemma-4-26b-a4b-it-heretic' });
-    // 土台の要約は要約器を通していないので、種類もモデルも無い。
-    store.sessions.s1 = session('s1');
-    expect(presentSession(initialState(), store, NOW, 's1').summary).toMatchObject({ summarizerLabel: null, generatedAt: absoluteTime(1) });
+    store.sessions.s1 = session('s1', { live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 5, updatedAt: at } });
+    const line = presentSession(initialState(), store, NOW, 's1').lead!.summary!.sourceLine;
+    expect(line).toContain('LM Studio / gemma');
+    expect(line).toContain(absoluteTime(at));
   });
   it('真ん中の頁から開いた本文は、新しい行がまだあることと跳び先を持ち、遡り終えたら古い行のボタンを出さない', () => {
     let store = storeWith();
@@ -760,10 +745,10 @@ describe('presentSession（見出しの操作、A1）', () => {
   });
 });
 
-describe('presentSession（終わった画面の右欄、E1）', () => {
+describe('presentSession（冒頭の 1 枚の変更したファイル）', () => {
   const call = (seq: number, name: string, input: Record<string, unknown>): TranscriptEvent => ({ kind: 'tool_call', seq, toolId: `t${seq}`, name, input, summary: name });
   const result = (seq: number, text: string): TranscriptEvent => ({ kind: 'tool_result', seq, toolId: `t${seq - 1}`, text, isError: false });
-  it('変更したファイルを最初に触った順に、足した行と消した行の数と、新しいファイルかを添えて並べる', () => {
+  it('サーバの一覧が届く前は、読み込んだ本文から、最初に触った順に、足した行と消した行の数と、新しいファイルかを添えて並べる', () => {
     let store = storeWith();
     store.sessions.s2 = { ...store.sessions.s2!, live: null, stats: { ...store.sessions.s2!.stats, filesChanged: 4 } };
     const events: TranscriptEvent[] = [
@@ -775,37 +760,22 @@ describe('presentSession（終わった画面の右欄、E1）', () => {
       call(6, 'MultiEdit', { file_path: '/elsewhere/c.md', edits: [{ old_string: 'a', new_string: 'b' }] }),
     ];
     store = applyEventsPage(store, eventsKey('s2', null), { sessionId: 's2', events, total: events.length, nextSeq: null }, false);
-    const p = presentSession(initialState(), store, NOW, 's2');
-    expect(p.changedFiles).toEqual([
+    const files = presentSession(initialState(), store, NOW, 's2').lead!.files;
+    expect(files.rows.map((r) => ({ path: r.path, dir: r.dir, base: r.base, added: r.added, removed: r.removed, created: r.created }))).toEqual([
       { path: '/w/alpha/src/a.ts', dir: 'src/', base: 'a.ts', added: 2, removed: 2, created: false },
       { path: '/w/alpha/src/new.ts', dir: 'src/', base: 'new.ts', added: 3, removed: 0, created: true },
       { path: '/elsewhere/c.md', dir: '/elsewhere/', base: 'c.md', added: 1, removed: 1, created: false },
     ]);
-    // 統計にはもう 1 つある（サブエージェントの編集も数に入る）。
-    // 主線は全部読み込んでいるので、残りはサブエージェントの変更である。
-    expect(p.changedMore).toBe(1);
-    expect(p.changedNote).toBe('ほか 1 件はサブエージェントの変更です');
+    // 統計にはもう 1 つある（サブエージェントの編集も数に入る）。件数は統計の数を使う。
+    expect(files.count).toBe(4);
   });
-  it('主線を読み切っていなければ、残りは古い本文を読み込むと出ると言う。サブエージェントを見ていて主線を読んでいなければ数だけ出す', () => {
-    let store = storeWith();
-    store.sessions.s2 = { ...store.sessions.s2!, live: null, stats: { ...store.sessions.s2!.stats, filesChanged: 3 } };
-    const events: TranscriptEvent[] = [{ kind: 'user', seq: 10, text: 'go' }, call(11, 'Edit', { file_path: '/w/alpha/src/a.ts', old_string: 'x', new_string: 'y' })];
-    const partial = applyEventsPage(store, eventsKey('s2', null), { sessionId: 's2', events, total: 40, nextSeq: null }, false);
-    const p = presentSession(initialState(), partial, NOW, 's2');
-    expect(p.changedMore).toBe(2);
-    expect(p.changedNote).toBe('ほか 2 件は、古い本文を読み込むと出ます');
-    const agent = { ...initialState(), sessionView: { s2: { ...defaultSessionView(), agentId: 'ag1' } } };
-    const q = presentSession(agent, store, NOW, 's2');
-    expect(q.changedFiles).toEqual([]);
-    expect(q.changedMore).toBe(3);
-    expect(q.changedNote).toBeNull();
-  });
-  it('TODO はそのセッションのプロジェクトのものを出す', () => {
+  it('サブエージェントを見ていて主線をまだ読んでいなければ、読み込んだ本文からは出さない', () => {
     const store = storeWith();
-    const todo = (id: string, projectId: string): TodoDto => ({ id, projectId, text: id, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null });
-    store.todos = { a: todo('a', 'alpha'), b: todo('b', 'beta') };
-    expect(presentSession(initialState(), store, NOW, 's2').todos.map((t) => t.id)).toEqual(['a']);
-    expect(presentSession(initialState(), store, NOW, 's3').todos).toEqual([]);
+    store.sessions.s2 = { ...store.sessions.s2!, live: null, stats: { ...store.sessions.s2!.stats, filesChanged: 3 } };
+    const agent = { ...initialState(), sessionView: { s2: { ...defaultSessionView(), agentId: 'ag1' } } };
+    const q = presentSession(agent, store, NOW, 's2').lead!.files;
+    expect(q.rows).toEqual([]);
+    expect(q.count).toBe(3);
   });
 });
 
@@ -856,7 +826,7 @@ describe('newSessionTarget', () => {
   });
 });
 
-describe('presentSession（右ペインの灯）', () => {
+describe('presentSession（現在の帯の状態）', () => {
   // 最新の側から読んだ窓（seq 700 から）。今のターンの頭は窓より新しい 705 で、会話全体は 900 件ある。
   const user = (seq: number): TranscriptEvent => ({ kind: 'user', seq, text: `指示 ${seq}` });
   const callAt = (seq: number): TranscriptEvent => ({ kind: 'tool_call', seq, toolId: `t${seq}`, name: 'Read', input: { file_path: '/w/a.ts' }, summary: 'Read' });
@@ -873,28 +843,21 @@ describe('presentSession（右ペインの灯）', () => {
     const p = presentSession(initialState(), live(900, 7, 705), NOW, 's1');
     expect(p.turnsComplete).toBe(false);
     // 窓の最初の指示（700）からではなく 705 から数えるので 6 手、ターンは窓の 1 ではなく統計の 7。
-    expect(p.livePane!.lamp).toEqual({ tone: 'busy', head: '作業中', sub: 'ターン 7・6 手目' });
+    expect(p.strip).toMatchObject({ tone: 'busy', state: '作業中', sub: 'ターン 7、ツール呼び出し 6 回目' });
   });
   it('全部を読み込んでいれば、ターンの番号は目次の数', () => {
     const p = presentSession(initialState(), live(11, 7, 705), NOW, 's1');
     expect(p.turnsComplete).toBe(true);
-    expect(p.livePane!.lamp.sub).toBe('ターン 1・6 手目');
+    expect(p.strip!.sub).toBe('ターン 1、ツール呼び出し 6 回目');
   });
   it('統計も無く全部も読めていなければ、ターンの番号は出さず手の数だけ', () => {
     const p = presentSession(initialState(), live(900, 0, 705), NOW, 's1');
-    expect(p.livePane!.lamp).toEqual({ tone: 'busy', head: '作業中', sub: '6 手目' });
+    expect(p.strip).toMatchObject({ tone: 'busy', state: '作業中', sub: 'ツール呼び出し 6 回目' });
   });
   it('digest がまだ無ければ、窓の最後のターンの頭から数える', () => {
     const store = live(900, 7, 705);
     store.liveDigests = {};
-    expect(presentSession(initialState(), store, NOW, 's1').livePane!.lamp.sub).toBe('ターン 7・10 手目');
-  });
-  it('右ペインの比率は、そのセッションの値があればそれ、無ければ最後に動かした値', () => {
-    const store = live(900, 7, 705);
-    const last = { ...initialState(), livePaneSplit: 0.4 };
-    expect(presentSession(last, store, NOW, 's1').livePaneSplit).toBe(0.4);
-    const own = { ...last, sessionView: { s1: { ...defaultSessionView(), livePaneSplit: 0.2 } } };
-    expect(presentSession(own, store, NOW, 's1').livePaneSplit).toBe(0.2);
+    expect(presentSession(initialState(), store, NOW, 's1').strip!.sub).toBe('ターン 7、ツール呼び出し 10 回目');
   });
 });
 
@@ -1254,9 +1217,8 @@ describe('presentSession のフェーズ 3 の項目', () => {
       summaryFailed: { s1: 'LM Studio に繋がりません' },
     };
     const p = presentSession(initialState(), store, NOW, 's1');
-    expect(p.contextPercent).toBe(25);
-    expect(p.cost).toBe('$0.50');
-    expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
+    expect(p.lead!.cost).toBe('$0.50');
+    expect(p.lead!.artifacts.items.map((a) => a.id)).toEqual(['a1']);
     expect(p.summaryPending).toBe(true);
     expect(p.summaryError).toBe('LM Studio に繋がりません');
     expect(p.canPromote).toBe(true);
@@ -1332,10 +1294,9 @@ describe('presentSession のフェーズ 3 の項目（値が無いとき）', (
     expect(p.fromScratch).toBe(true);
     expect(p.summaryPending).toBe(false);
     expect(p.summaryError).toBeNull();
-    expect(p.contextPercent).toBeNull();
-    expect(p.cost).toBe('');
+    expect(p.lead!.cost).toBeNull();
     // 別のセッションのアーティファクトは出さない。
-    expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
+    expect(p.lead!.artifacts.items.map((a) => a.id)).toEqual(['a1']);
   });
   it('プロジェクトに属さないセッションは昇格できない', () => {
     const store = storeWith();
@@ -1822,21 +1783,21 @@ describe('presentSettings の通知', () => {
   });
 });
 
-describe('presentSession の、区切りを付けたので止めた知らせ', () => {
+describe('presentSession の、区切りを付けたので止めた知らせ（冒頭の 1 枚）', () => {
   const stopped = (status: 'paused' | 'done' | 'archived', over: Partial<SessionDto> = {}) => {
     const store = storeWith();
     store.sessions.s2 = session('s2', { stoppedByStatus: true, state: { status, note: null, returnOn: status === 'paused' ? '2026-10-03' : null, returnTime: null, setBy: 'conversation', setAt: NOW - 60_000, candidate: null }, ...over });
-    return presentSession(initialState(), store, NOW, 's2').stoppedNote;
+    return presentSession(initialState(), store, NOW, 's2').lead!.stopped;
   };
   it('止めた訳を状態の語で言い、再開で続けられると添える', () => {
-    expect(stopped('paused')).toBe('Paused にしたので止めました。再開で続けられます');
-    expect(stopped('done')).toBe('Done にしたので止めました。再開で続けられます');
-    expect(stopped('archived')).toBe('Archived にしたので止めました。再開で続けられます');
+    expect(stopped('paused')).toBe('Paused にしたので停止しました。再開で続けられます');
+    expect(stopped('done')).toBe('Done にしたので停止しました。再開で続けられます');
+    expect(stopped('archived')).toBe('Archived にしたので停止しました。再開で続けられます');
   });
   it('止めていないセッションでは出さない', () => {
     expect(stopped('paused', { stoppedByStatus: false })).toBeNull();
     const store = storeWith();
-    expect(presentSession(initialState(), store, NOW, 's2').stoppedNote).toBeNull();
+    expect(presentSession(initialState(), store, NOW, 's2').lead!.stopped).toBeNull();
   });
   it('また動いている間は出さない。バックグラウンドの本体が止まり切る前などに、動きの語と食い違わせない', () => {
     expect(stopped('paused', { live: 'idle' })).toBeNull();

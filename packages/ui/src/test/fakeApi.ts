@@ -9,7 +9,7 @@ type Extras = Pick<
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull'
   | 'retention' | 'retentionPreview' | 'writeRetention'
-  | 'live' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
+  | 'live' | 'sessionFiles' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
 >;
 
@@ -85,6 +85,7 @@ export function fakeApiExtras(): Extras {
     retentionPreview: vi.fn(async () => unused()),
     writeRetention: vi.fn(async () => unused()),
     live: vi.fn(async (sessionId: string) => ({ sessionId, turnStartSeq: null, intent: null, agents: [] })),
+    sessionFiles: vi.fn(async () => ({ files: [] })),
     // アカウントは既定で 2 件の固定データを返す。切り替えの結果は使うテストが自分で上書きする。
     accounts: vi.fn(async () => accountsFixture),
     setCurrentAccount: vi.fn(async () => accountsFixture),

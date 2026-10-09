@@ -3,14 +3,27 @@
 // ?open=info|perm で、その部品のポップオーバーを開いた形で出す。例の値は作り物である。
 // 札の列（LaunchChips）は ?state=first|regular|bypass|extras と ?w=（列の幅 px。起動ダイアログの本文は 520）で出す。
 // ?only=band で、ホームの帯と引き出しの 4 つの形だけを出す（撮るとき用）。
+// ?only=session で、セッション画面 C の部品（現在の帯、冒頭の 1 枚、見出しの札、目次だけの右パネル）を出す（preview/session.tsx）。
 import { useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
+// 本番（src/main.tsx）と同じ順で読む。順が違うと、同じ名前の規則（.chip など）の勝ち負けが変わる。
 import '../src/styles/tokens.css';
 import '../src/styles/base.css';
-import '../src/styles/controls.css';
+import '../src/styles/workbench.css';
+import '../src/styles/split.css';
+import '../src/styles/rows.css';
 import '../src/styles/home.css';
+import '../src/styles/session.css';
+import '../src/styles/strip.css';
+import '../src/styles/transcript.css';
+import '../src/styles/palette.css';
+import '../src/styles/settings.css';
+import '../src/styles/readiness.css';
+import '../src/styles/sync.css';
+import '../src/styles/controls.css';
+import { SessionCases } from './session.tsx';
 import { presentHomeBand, type BandGroup, type HomeBandProps } from '../src/presenters/home.ts';
 import { translator } from '@agent-hangar/shared';
 import { HomeBand } from '../src/views/HomeBand.tsx';
@@ -163,7 +176,9 @@ function BandCases() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(only === 'band' ? (
+createRoot(document.getElementById('root')!).render(only === 'session' ? (
+  <LanguageRoot language="ja"><SessionCases /></LanguageRoot>
+) : only === 'band' ? (
   <div style={{ maxWidth: 960, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
     <h1 style={{ margin: 0, fontSize: 'var(--fs-lg)' }}>ホームの帯と引き出し</h1>
     <BandCases />

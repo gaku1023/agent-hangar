@@ -508,8 +508,6 @@ a:hover { text-decoration: underline; }
 .tab-close:hover, .tab-add:hover { background: var(--surface-2); color: var(--ink); }
 .tab-selected .tab-close { color: var(--term-fg); }
 .tab-selected .tab-close:hover { color: var(--term-fg); background: rgba(255, 255, 255, 0.12); }
-/* 高さは決め打ちにせず、.session-screen の縦の flex から窓の残りを受け取る（session.css）。 */
-.split { display: grid; gap: calc(var(--u) * 2); }
 /* 端末は墨色の不透明な板。ぼかしは掛けない（xterm の描画を重くしないため）。
    xterm のスクロールバーや装飾は z-index を持つので、isolation で重なりを板の中に閉じる。
    閉じないと、ヘッダの下をくぐったときに、それらが浮いたヘッダの上に描かれる。 */
@@ -522,58 +520,19 @@ a:hover { text-decoration: underline; }
 .term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
 @keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
 @media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
-/* 耳の下の板は、左上だけを角張らせて耳とつなぐ。分割しているときは左の板をつなぐ。 */
-.tabs + .split > .term-pane, .tabs + .split > .split-h > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
+/* 耳の下の板は、左上だけを角張らせて耳とつなぐ。耳の直下は現在の帯（なければターミナル）で、分割しているときは左の板をつなぐ。 */
+.tabs + .c-body > .c-main > :first-child:is(.term-pane, .now-strip), .tabs + .c-body > .c-main > .split-h:first-child > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
 /* 初めてつなぐときは、最初のデータが届くまで面を透明にし、届いたら --dur で現す（設計書 ⑨）。一度描いたタブは付け替えても透明にしない。 */
 .term-host { flex: 1; min-height: 0; padding: var(--u); transition: opacity var(--dur) var(--ease-out); }
 .term-host[data-painted='false'] { opacity: 0; }
 .term-hint { padding: var(--u) calc(var(--u) * 3); background: var(--waiting); color: #fff; font-size: var(--fs-sm); }
 .term-status { position: absolute; right: calc(var(--u) * 2); bottom: calc(var(--u) * 2); font-size: var(--fs-xs); color: var(--term-fg); opacity: 0.7; }
-/* 会話の列は白い読む面にする。余白は中身の側（.tr-pane-inner）に持たせ、閉じた列（0px）に何も残さない。 */
-.tr-pane { min-width: 0; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; display: flex; flex-direction: column; }
-.tr-pane-inner { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: calc(var(--u) * 2) calc(var(--u) * 3); }
-/* 閉じた列は、閉じる動きが終わったら影も見せない。 */
-.tr-pane[data-collapsed='true']:not([data-leaving]) { visibility: hidden; }
 .tr-toggle { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: calc(var(--u) * 7); border: 0; background: transparent; cursor: pointer; color: var(--ink-2); height: var(--row-h); align-self: flex-start; }
-.tr-pane .turns .tr-toggle { margin-left: calc(var(--u) * -2); }
 /* タブの帯の右端の、右の欄を開くボタン。帯の高さ（row-h）の下端に揃え、入る形で現れる。 */
 .tabs-trailing { margin-left: auto; align-self: center; }
 .tab-pane-open { gap: calc(var(--u) * 1.5); animation: enter var(--dur) var(--ease-out); }
 .tab-pane-open kbd { font-size: var(--fs-xs); color: var(--ink-3); }
 
-/* 実行中の右ペイン。見出し、上の段（いま）、境目、目次の順に縦に積む。色は端末の縁の灯と同じ語彙（作業中は杏、入力待ちは赤、休みは灰）。 */
-.live { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: calc(var(--u) * 2); }
-.live[data-dragging] { cursor: row-resize; user-select: none; }
-/* 上の段は、境目の比率（--live-split、ペインの高さに対する割合）を高さそのものにする（設計書 ④）。中身が短ければ下に余白が残り、あふれた分はこの中でスクロールする。
-   窓が低くて目次の下限を押すときは縮む（flex-shrink）。どちらの端でも、ランプの 1 行は残す。 */
-.live-top { display: flex; flex-direction: column; gap: calc(var(--u) * 2); flex: 0 1 calc(var(--live-split, 0.5) * 100%); min-height: calc(var(--row-h) + var(--u) * 3); overflow-y: auto; overscroll-behavior: contain; }
-.live-top > * { flex: none; }
-/* 離した後と既定へ戻すときは滑らせる。ドラッグの間は指に追従させる。 */
-.live:not([data-dragging]) > .live-top { transition: flex-basis var(--dur) var(--ease-out); }
-/* 下に続きがあるときは、下の端 28px をぼかして消す。行の途中で切れて見えると、スクロールできることに気付きにくい。 */
-.live-top[data-more] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
-/* 境目。掴める幅は 9px 取り、見た目は 1px の線にする。触れるか掴むかフォーカスすると、線を太くして藍にする。 */
-.live-divider { position: relative; flex: none; height: 9px; margin: calc(var(--u) * -1) 0; cursor: row-resize; touch-action: none; outline: none; }
-.live-divider::before { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--line); transition: background var(--dur-fast) var(--ease-out), height var(--dur-fast) var(--ease-out), top var(--dur-fast) var(--ease-out); }
-.live-divider:hover::before, .live-divider:focus-visible::before, .live[data-dragging] > .live-divider::before { top: 3px; height: 3px; border-radius: 2px; background: var(--accent); }
-/* 目次は、見出しの 1 行と「最新へ」の行より縮めない（上の段を 1 まで引いても、目次が消えない）。 */
-.live-toc { display: flex; flex-direction: column; flex: 1 1 0; min-height: calc(var(--row-h) * 2 + var(--u) * 2 + 1px); }
-/* 成果物の行。題名だけを 1 行で出し、押すと開く。VS Code で開けるものは右端に小さな印のボタンを添える。 */
-.live-artifact { display: flex; align-items: center; gap: var(--u); min-width: 0; }
-.live-artifact-open { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; height: var(--row-h); padding: 0 calc(var(--u) * 1.75); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-.live-artifact-open:hover { background: var(--surface-2); }
-.live-artifact-icon { flex: none; width: 14px; text-align: center; }
-.live-artifact-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.live-artifact-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
-.live-artifact-editor { flex: none; justify-content: center; width: calc(var(--row-h) - 6px); padding: 0; }
-.live-pane-head { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); font-size: var(--fs-sm); }
-.live-lamp { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out); }
-.live-lamp[data-tone='aside'] { color: var(--ink); background: color-mix(in srgb, var(--busy) 6%, var(--surface)); }
-.live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }
-.live-lamp[data-tone='idle'] { color: var(--ink-2); background: var(--surface-2); }
-/* 見出しは折らず、補足だけを残りの幅で折る。長い見出し（「バックグラウンドで 2 本」）と長い補足が並んでも、見出しが 2 行に割れないようにする。 */
-.live-lamp-head { flex: none; white-space: nowrap; }
-.live-lamp-sub { flex: 1; min-width: 0; margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); text-align: right; text-wrap: balance; }
 .live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
 .live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; }
 .live-dot[data-tone='wait'] { background: var(--waiting); }
@@ -582,32 +541,8 @@ a:hover { text-decoration: underline; }
 .live-dot[data-tone='error'] { background: var(--error); }
 @keyframes live-pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none !important; } }
-/* 意図の箱。文の入れ替えの間は、古い文の控え（.live-intent-ghost）を同じ位置に重ねる。 */
+/* ホームの実行中の札の意図（home.css が続きを持つ）。切り替え前の右パネルの意図の箱から引き継いだ規則で、ホームの切り替えで見直す。 */
 .live-intent { position: relative; overflow: hidden; padding: calc(var(--u) * 1.25) calc(var(--u) * 2.25); border-left: 3px solid var(--cand); border-radius: 0 var(--r) var(--r) 0; background: var(--cand-soft); font-size: var(--fs); transition: opacity var(--dur-fast) var(--ease-out); }
-.live-intent-now { display: block; }
-.live-intent-ghost { position: absolute; top: calc(var(--u) * 1.25); left: calc(var(--u) * 2.25); right: calc(var(--u) * 2.25); pointer-events: none; }
-.live-intent[data-stale='true'] { opacity: 0.55; }
-.live-intent-meta { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--cand); }
-.live-intent-none { font-size: var(--fs-sm); color: var(--ink-3); }
-.live-sec { display: flex; flex-direction: column; gap: 2px; }
-.live-label { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
-.live-step { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs); transition: color var(--dur) var(--ease-out); }
-.live-step[data-mark='now'] { color: var(--busy); font-weight: 600; }
-.live-step[data-mark='fail'] .live-step-ic { color: var(--error); }
-.live-step-ic { flex: none; width: 14px; text-align: center; font-size: var(--fs-xs); color: var(--idle); }
-.live-step-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.live-step-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
-.live-lane { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; column-gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 0.75) calc(var(--u) * 1.75); border: 0; border-radius: var(--r); background: transparent; color: var(--ink); font: inherit; font-size: var(--fs); text-align: left; cursor: pointer; transition: background var(--dur) var(--ease-out); }
-.live-lane:hover:not(:disabled) { background: var(--surface-2); }
-.live-lane:disabled { cursor: default; }
-.live-lane[data-tone='error'] { background: color-mix(in srgb, var(--error) 9%, var(--surface)); }
-.live-lane[data-tone='done'] { background: color-mix(in srgb, var(--idle) 9%, var(--surface)); }
-.live-lane-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.live-lane-time { font-size: var(--fs-xs); color: var(--ink-3); }
-.live-lane-line { grid-column: 2 / 4; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--dur) var(--ease-out); }
-.live-lane[data-tone='error'] .live-lane-line { color: var(--error); }
-.live-lane[data-tone='done'] .live-lane-line { color: var(--idle); }
-.live-chip { align-self: flex-start; font-size: var(--fs-xs); border: 1px solid var(--line-strong); border-radius: var(--r-pill); padding: 0 calc(var(--u) * 2); }
 .turn-band { display: flex; gap: 1px; height: 4px; margin: 0 calc(var(--u) * 2) calc(var(--u) * 1) 52px; overflow: hidden; border-radius: 2px; }
 .turn-band i { flex: 0 1 8px; }
 .turn-band i[data-k='read'] { background: color-mix(in srgb, var(--ink-3) 55%, var(--surface)); }

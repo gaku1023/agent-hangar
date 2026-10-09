@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitCount } from './nowFit.ts';
+import { fitCount, fitCountWithMore } from './nowFit.ts';
 
 describe('fitCount（「いま」の列に丸ごと入る項目の数）', () => {
   it('全部入るなら、「ほか N」を置かずに全部を数える', () => {
@@ -20,5 +20,21 @@ describe('fitCount（「いま」の列に丸ごと入る項目の数）', () =>
   });
   it('幅がまだ測れていない（0）ときは、全部を出す', () => {
     expect(fitCount([80, 80], 12, 0, 40)).toBe(2);
+  });
+});
+
+describe('fitCountWithMore（「ほか N」を必ず置くときに、丸ごと入る項目の数）', () => {
+  it('「ほか N」の分を空けて、丸ごと入る数を数える。全部入っても札は置く', () => {
+    // 80 + 12 + 80 + 12 + 40 = 224 は入る。
+    expect(fitCountWithMore([80, 80], 12, 224, 40)).toBe(2);
+    expect(fitCountWithMore([80, 80, 80], 12, 224, 40)).toBe(2);
+    expect(fitCountWithMore([80, 80, 80], 12, 223, 40)).toBe(1);
+  });
+  it('1 つも入らなければ 0（札だけが残る）。札も入らないときも 0', () => {
+    expect(fitCountWithMore([300, 80], 12, 100, 40)).toBe(0);
+    expect(fitCountWithMore([80], 12, 20, 40)).toBe(0);
+  });
+  it('幅がまだ測れていない（0）ときは、全部を出す', () => {
+    expect(fitCountWithMore([80, 80], 12, 0, 40)).toBe(2);
   });
 });

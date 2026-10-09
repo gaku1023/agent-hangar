@@ -86,7 +86,22 @@ export type RunKind = 'start' | 'resume' | 'fork';
 export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
 export type TerminalApp = 'terminal' | 'iterm';
 /** 1 回の起動または再開。tmux 上の寿命と一致する。 */
-export type RunDto = { id: string; sessionId: string; deviceId: string; kind: RunKind; tmuxName: string; pid: number | null; startedAt: number; endedAt: number | null; endReason: EndReason | null; heartbeatAt: number };
+export type RunDto = {
+  id: string; sessionId: string; deviceId: string; kind: RunKind; tmuxName: string; pid: number | null; startedAt: number; endedAt: number | null; endReason: EndReason | null; heartbeatAt: number;
+  /**
+   * 起動のときに選んだ権限モード（`LaunchParams.permissionMode` の値）。サーバが `runs.launch_params` から読んで組む。
+   * 選ばなかった起動と、hangar の外で起動したセッション（ターミナルの包み方からの起動）は値が無く、鍵ごと送らない。
+   * 起動のあとに Claude の中で切り替えた値は分からない。
+   */
+  permissionMode?: string | null;
+};
+/**
+ * `GET /api/sessions/:id/files`。そのセッションが編集系のツール（Edit、Write、MultiEdit、NotebookEdit）で変えたファイルの一覧。
+ * `event_index` の呼び出しをパスでまとめたもので、読み込んだトランスクリプトの窓には依らない。索引した順に並ぶ。
+ * edits はそのパスへの呼び出しの回数。agentId は、メイン会話が一度も触れておらずサブエージェントだけが触ったときの、最初のサブエージェントの id で、それ以外は null。
+ * 足した行と消した行の数は `event_index` に無いので持たない。
+ */
+export type SessionFilesDto = { files: { path: string; edits: number; agentId: string | null }[] };
 /** セッション画面のタブ。agent タブの id は run の id と同じ。 */
 export type TabDto = { id: string; runId: string; sessionId: string; kind: 'agent' | 'shell'; title: string; tmuxName: string; createdAt: number; closedAt: number | null };
 export type LaunchResultDto = { run: RunDto; sessionId: string; tabs: TabDto[] };

@@ -11,10 +11,8 @@ import { motionEase, motionMs, motionValue } from './motion.ts';
 export type PaneShape = { cols: string; gap: string };
 
 export const PANE_SHAPE = {
-  /** 実行中（.split）。開いた列は今と同じ minmax(240px, 26%)。 */
-  split: { open: { cols: 'minmax(0, 1fr) minmax(240px, 26%)', gap: 'calc(var(--u) * 2)' }, closed: { cols: 'minmax(0, 1fr) 0px', gap: '0px' } },
-  /** 終わった画面（.session-body）。 */
-  rail: { open: { cols: 'minmax(0, 1fr) 340px', gap: 'calc(var(--u) * 3)' }, closed: { cols: 'minmax(0, 1fr) 0px', gap: '0px' } },
+  /** セッション画面の本体（.c-body）。右は目次だけの 240px で、実行中も終わった後も同じである。 */
+  toc: { open: { cols: 'minmax(0, 1fr) 240px', gap: 'calc(var(--u) * 2)' }, closed: { cols: 'minmax(0, 1fr) 0px', gap: '0px' } },
 } as const satisfies Record<string, { open: PaneShape; closed: PaneShape }>;
 
 const ID = 'pane-motion';

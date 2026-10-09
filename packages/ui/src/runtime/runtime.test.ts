@@ -117,6 +117,30 @@ describe('createRuntime', () => {
     await flush();
     expect(api.live).toHaveBeenCalledTimes(2);
   });
+  it('セッションを開くとき、変更したファイルの一覧も取り、run が終わったら取り直す', async () => {
+    const files = [{ path: '/w/a.ts', edits: 2, agentId: null }];
+    const sessionFiles = vi.fn(async () => ({ files }));
+    const { rt, api, setHash } = harness({ sessionFiles });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.sessionFiles).toHaveBeenCalledTimes(1);
+    expect(api.sessionFiles).toHaveBeenCalledWith('s1');
+    expect(rt.getStore().sessionFiles.s1).toEqual(files);
+    // 実行中に増えた分は、終わったときに取り直す。
+    rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: { ...aliveRun, endedAt: 5, endReason: 'exited' } } });
+    await flush();
+    expect(api.sessionFiles).toHaveBeenCalledTimes(2);
+  });
+  it('変更したファイルの一覧を取れなくても、知らせは出さない（補助の表示）', async () => {
+    const sessionFiles = vi.fn(async () => { throw new Error('500'); });
+    const { rt, setHash } = harness({ sessionFiles });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(rt.getStore().sessionFiles.s1).toBeUndefined();
+    expect(rt.getState().toasts).toEqual([]);
+  });
   it('生きた run の無いセッションでは要約を取らない', async () => {
     const { rt, api, setHash } = harness();
     rt.start();
@@ -355,32 +379,16 @@ describe('createRuntime', () => {
     b.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
     expect(b.store.get('sv:s1')).not.toHaveProperty('summaryOpen');
   });
-  it('右ペインの上下の比率を起動時に読み戻す。数でない値や範囲の外は丸める', () => {
+  it('古い保存に残る右ペインの境目の比率は、読み戻すときに捨て、書き戻さない', () => {
     const a = harness();
     a.store.set('livePane.split', 0.35);
+    a.store.set('sv:s1', { showThinking: true, livePaneSplit: 0.25 });
     a.rt.start();
-    expect(a.rt.getState().livePaneSplit).toBe(0.35);
-    const b = harness();
-    b.store.set('livePane.split', 'half');
-    b.rt.start();
-    expect(b.rt.getState().livePaneSplit).toBe(0.5);
-    const c = harness();
-    c.store.set('livePane.split', 3);
-    c.rt.start();
-    expect(c.rt.getState().livePaneSplit).toBe(1);
-  });
-  it('セッションごとの右ペインの比率を起動時に読み戻す。数でない値は持たないものとし、範囲の外は丸める', () => {
-    const a = harness();
-    a.store.set('sv:s1', { livePaneSplit: 0.25 });
-    a.store.set('sv:s2', { livePaneSplit: 'half' });
-    a.store.set('sv:s3', { livePaneSplit: 3 });
-    a.store.set('sv:s4', { showRaw: true });
-    a.rt.start();
-    const sv = a.rt.getState().sessionView;
-    expect(sv.s1?.livePaneSplit).toBe(0.25);
-    expect(sv.s2?.livePaneSplit).toBeNull();
-    expect(sv.s3?.livePaneSplit).toBe(1);
-    expect(sv.s4?.livePaneSplit).toBeNull();
+    expect(a.rt.getState()).not.toHaveProperty('livePaneSplit');
+    expect(a.rt.getState().sessionView.s1).toMatchObject({ showThinking: true });
+    expect(a.rt.getState().sessionView.s1).not.toHaveProperty('livePaneSplit');
+    a.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
+    expect(a.store.get('sv:s1')).not.toHaveProperty('livePaneSplit');
   });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();

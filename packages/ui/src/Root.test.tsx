@@ -177,7 +177,7 @@ describe('Root', () => {
     act(() => setHash('#/session/s1'));
     await flush();
     const group = screen.getByRole('radiogroup', { name: 'サブエージェント' });
-    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['主線', 'agent-1']);
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['メイン会話', 'agent-1']);
   });
   it('ターミナルの状態は SessionScreen まで届く', async () => {
     const run: RunDto = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: Date.now(), endedAt: null, endReason: null, heartbeatAt: 1 };
