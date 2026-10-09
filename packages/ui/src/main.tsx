@@ -16,11 +16,13 @@ import './styles/settings.css';
 import './styles/readiness.css';
 import './styles/sync.css';
 import './styles/controls.css';
+import './styles/notices.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';
 import { createHashLocation } from './runtime/hashLocation.ts';
 import { createRuntime } from './runtime/runtime.ts';
+import { createSafeStorage } from './runtime/safeStorage.ts';
 import { createDesktopBridge } from './runtime/desktop.ts';
 import { FONT_SIZE_KEY, createTerminalHost } from './runtime/terminals.ts';
 import { createWs } from './runtime/ws.ts';
@@ -86,11 +88,7 @@ const runtime = createRuntime({
   api,
   ws: (h) => createWs({ url: `${wsProto}://${location.host}/ws`, ...h }),
   location: createHashLocation(history, location, (cb) => { window.addEventListener('hashchange', cb); return () => window.removeEventListener('hashchange', cb); }),
-  storage: {
-    get: (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : undefined; } catch { return undefined; } },
-    set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 容量超過などは無視 */ } },
-    keys: () => { try { return Object.keys(localStorage); } catch { return []; } },
-  },
+  storage: createSafeStorage(() => localStorage),
   setTimeout: (fn, ms) => window.setTimeout(fn, ms),
   terminals,
   // ダイアログは状態が変わった次の描画で現れる。画面の移り変わりで包むと描き替えがさらに遅れるので、現れるまで次の描画ごとに探す。

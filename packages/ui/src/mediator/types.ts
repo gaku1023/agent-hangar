@@ -230,6 +230,11 @@ export type State = {
    * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。
    */
   sectionsOpen: Record<string, 'archived'[]>;
+  /**
+   * ベルの一覧で既読にした行の鍵（種類、対象、事実の版）。新しいものが後ろ。端末ごとに localStorage に残し、起動時に読み戻す。
+   * 一覧の行は事実から Presenter が組み、ここは既読の鍵だけを持つ（mediator/notices.ts）。
+   */
+  noticesRead: string[];
   /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
   retentionBannerDismissed: boolean;
   /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */

@@ -14,6 +14,7 @@ import { listKeys } from './keys/list.ts';
 import { mcpKeys } from './keys/mcp.ts';
 import { newProjectKeys } from './keys/newProject.ts';
 import { newSessionKeys } from './keys/newSession.ts';
+import { noticesKeys } from './keys/notices.ts';
 import { pauseKeys } from './keys/pause.ts';
 import { platformKeys } from './keys/platform.ts';
 import { projectKeys } from './keys/project.ts';
@@ -64,6 +65,7 @@ export const MESSAGES = {
   ...mcpKeys,
   ...newProjectKeys,
   ...newSessionKeys,
+  ...noticesKeys,
   ...pauseKeys,
   ...platformKeys,
   ...projectKeys,
