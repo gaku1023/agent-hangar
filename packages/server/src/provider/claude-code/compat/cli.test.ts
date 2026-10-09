@@ -81,7 +81,7 @@ describe('subcommandsFromHelp', () => {
   it('Commands の節が無い出力は、組み込みの一覧を使い、ずれを 1 件だけ返す', () => {
     expect(subcommandsFromHelp('Usage: claude\nUnknown format\n')).toEqual({ subcommands: BUILTIN_SUBCOMMANDS, drifts: [{ contract: 'cli', value: 'help.commands=(missing)', version: null }] });
   });
-  it('組み込みの一覧は 2.1.292 の Commands で、--help に無い daemon と project を持たない', () => {
+  it('組み込みの一覧は 2.1.295 の Commands で、--help に無い daemon と project を持たない', () => {
     expect(BUILTIN_SUBCOMMANDS).toContain('purge');
     expect(BUILTIN_SUBCOMMANDS).not.toContain('daemon');
     expect(BUILTIN_SUBCOMMANDS).not.toContain('project');

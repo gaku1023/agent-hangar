@@ -616,6 +616,33 @@ DB のマイグレーションを要らない形にするためにファイル�
 確認リストの claude の行は Settings の `claudePath` だけを見るので、そこが空でも互換の要約には版が載る。
 画面に出すのは設定の確認リストの 1 行だけで、ヘッダーと知らせの札には出さない。
 
+#### 確かめた版と見本
+
+確かめた版は、見本のうち最も新しい版である（`VERIFIED_CLAUDE_VERSION`、README にも書く）。
+手元の claude がそれより新しいときは「未確認の版」として知らせるが、止めはしない。
+
+見本は `packages/server/test/fixtures/claude/<版>/` にあり、`npm run capture-claude-fixtures` で採る（`packages/server/test/capture/`）。
+採る道具は、一時ディレクトリで本物の claude を haiku、effort low で動かし、決めた筋書き（タスクの道具を使う、ファイルを書く、Bash を動かす、作業中に次の指示を積む、サブエージェントを使う、終える）を流す。
+権限の確認で止まらないよう、`--permission-mode dontAsk` と `--allowedTools` で、筋書きで使う道具だけを許す。
+利用者の設定、MCP、スキルは読ませない（`--setting-sources project`、`--strict-mcp-config`、`--disable-slash-commands`）。
+フォルダの信頼の画面は、画面を読んで「Yes, I trust this folder」を選ぶ。
+終えるときは、休みの入力の欄へ Ctrl+C を間を置いて 2 回送る（`/exit` は指示として渡り、余計なターンになる）。
+statusline の JSON は、`--settings` で差し込んだスクリプトで写す。
+tmux は専用のソケットを `-S` で名指しし、止めるのはそのソケットのそのセッションだけで、`kill-server` は呼ばない。
+終えたら、一時ディレクトリとホームと設定の置き場のパス、ホスト名、どのメールアドレスも、組織名、組織の識別子、使用率、戻る時刻、費用と時間の累計（statusline と `cost-state` の行）を決まった値に伏せる。
+system-reminder の塊と考えの塊は中身を伏せ、添付は積んだ指示のほかは種類だけにする。
+伏せ残し（手元の CLAUDE.md の行を含む）があれば、ファイルと行の場所だけを値を出さずに示し、書き出さない。
+伏せた後に筋書きの 2 つの指示が残っているかも確かめる。
+最後に `claude purge <作業ディレクトリ> -y` で、その会話の記録を設定の置き場から消す。
+Claude の使用量を使うので CI では動かさず、動かす前に利用者に聞く。
+採っているあいだ、動いている hangar はこの会話を一覧に出し、後始末の後は消えた会話として扱う。
+
+見本の試験（`packages/server/test/claudeFixtures.test.ts`）は、すべての版の見本について、ずれが 0 件であることと、主な読み取り（ターンの数、積んだ指示、道具、サブエージェント、題名、使用量、ターンの終わり）が筋書きどおりに取れることを確かめる。
+`--help` から作ったサブコマンドの一覧が組み込みの一覧と同じであることは、最も新しい見本でだけ確かめる。
+組み込みの一覧は最も新しい版に合わせるので、古い見本とは違ってよい。
+見本に手元のパスやメールアドレスが残っていないことも、この試験が確かめる。
+手書きの見本（同じ置き場の直下）は、見本に現れない端のケースのために残す。
+
 #### 週に 1 度の照合
 
 GitHub Actions の `claude-compat`（`.github/workflows/claude-compat.yml`）が、週に 1 度と手動で、最新の claude を npm（`@anthropic-ai/claude-code`）から入れ、`claude --help` のサブコマンドと引数を最も新しい見本と突き合わせる（`packages/server/test/claudeLive.test.ts`）。
