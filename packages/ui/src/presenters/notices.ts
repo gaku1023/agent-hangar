@@ -9,12 +9,12 @@ import { countExpiring } from './retention.ts';
 import { limitedWord } from './syncLabel.ts';
 
 /**
- * ベルの一覧の種類。並びは 2.11.2 の決めたとおり、リマインダー、同期、互換、保持期間で、最後に通知の誘いを置く。
+ * ベルの一覧の種類。並びは 2.11.2 の決めたとおり、リマインダー、同期、互換、保持期間、設定の同期で送らなかった項目で、最後に通知の誘いを置く。
  * 通知の誘い（notify）は、右下の積みの上に添えていたものを、ここへ移した（PR 29）。
- * 設定の同期で送らなかった項目と、更新の案内は、事実の出どころがまだ無いので、いまは行を作らない。
+ * 更新の案内は、事実の出どころがまだ無いので、いまは行を作らない。
  * 足すときは、種類をここに足し、BUILDERS に事実から行を組む関数を 1 つ足すだけで済む。
  */
-export type NoticeKind = 'reminder' | 'sync' | 'compat' | 'retention' | 'notify';
+export type NoticeKind = 'reminder' | 'sync' | 'compat' | 'retention' | 'config' | 'notify';
 /** 行の色の意味。err は赤（失敗）、warn は黄（気づいてほしい）、info は青（案内）。 */
 export type NoticeTone = 'err' | 'warn' | 'info';
 
@@ -148,6 +148,21 @@ function retention({ store, now, t }: Ctx): Draft[] {
 }
 
 /**
+ * 設定の同期で送らなかった項目（落とした権限の規則、秘密らしい文字列のあった項目）。
+ * 事実は ConfigSyncDto の unsent（件数）で、件数が 0 に戻れば行も消える。同期を切っているとき、サーバがまだ知らない（古い）ときも作らない。
+ * 鍵に件数を入れるので、件数が変わればまた未読になる。行からは、設定の同期の節の送らなかった項目の行（at=unsent）が開く。
+ */
+function configUnsent({ store, t }: Ctx): Draft[] {
+  const c = store.configSync;
+  if (!c || !c.enabled || c.unsent <= 0) return [];
+  return [{
+    key: `config|unsent|${c.unsent}`, kind: 'config', tone: 'warn', icon: 'settings', kindLabel: t('notices.kind.config'),
+    title: t('notices.config.unsent', { n: c.unsent }), detail: t('notices.config.unsentDetail'), when: null,
+    action: { label: t('notices.config.open'), intent: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } },
+  }];
+}
+
+/**
  * 通知の誘い。通知を出せる環境なのに受け取っていないときだけ行にする。
  * OS で切られているときは勧めない（直し方は設定の通知の節に出す）。
  * 受け取りを入れると事実が無くなり、行も消える。
@@ -163,7 +178,7 @@ function notifyOffer({ store, t }: Ctx): Draft[] {
 }
 
 /** 種類の並び。この順に行を並べる。 */
-const BUILDERS: readonly ((c: Ctx) => Draft[])[] = [reminders, syncFacts, compat, retention, notifyOffer];
+const BUILDERS: readonly ((c: Ctx) => Draft[])[] = [reminders, syncFacts, compat, retention, configUnsent, notifyOffer];
 
 /**
  * ベルの一覧。行は事実から毎回組み、一覧そのものは保存しない。事実が無くなれば行も消える（閉じても残るのは、事実が残る間のことである）。

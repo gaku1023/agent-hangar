@@ -93,6 +93,9 @@ describe('設定の節の選び方', () => {
   it('アカウントの位置へ移る印は、at=accounts のときだけ立つ', () => {
     expect(at('accounts').focus).toBe('accounts');
     expect(at('sync').focus).toBeNull();
+    // ベルの「送らなかった項目」の行から来たときは、クラウド同期の節の送らなかった項目の位置へ移る。
+    expect(at('unsent').section).toBe('cloud');
+    expect(at('unsent').focus).toBe('unsent');
     expect(at('integrations').focus).toBeNull();
     expect(at(undefined).focus).toBeNull();
   });
