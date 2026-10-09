@@ -21,8 +21,6 @@ export type RuntimeEvent =
   | { type: 'workspaceDirs.loaded'; dirs: WorkspaceDirDto[] }
   // Finder で選ばれたフォルダ。取り消したときは届かない。
   | { type: 'folder.picked'; path: string }
-  // 「次の入力待ちへ」の行き先。入力待ちが無ければ null。ストアを見ないと決まらないので、ランタイムが決めて返す。
-  | { type: 'waiting.resolved'; sessionId: string | null }
   // 入力待ちのセッションの一覧（hangar のセッションの id）。
   // 変わったときだけランタイムが届ける。
   // live.update はプロバイダの id で届き、hangar のセッションに引き当てるにはストアが要るからである。
@@ -116,7 +114,6 @@ export type Effect =
   | { kind: 'api.regenerateSummary'; sessionId: string }
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.testSummarizer' }
-  | { kind: 'waiting.next'; from: string | null }
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }

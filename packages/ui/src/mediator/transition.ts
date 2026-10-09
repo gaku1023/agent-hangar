@@ -42,8 +42,10 @@ export function transition(state: State, store: Store, input: Input): Step {
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
   // ストアを読む領域には、ここでストアを添える。
+  const screen = (s: State, i: Input) => screenStep(s, store, i);
   const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbenchStep]) {
+  const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
+  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbench]) {
     const r = step(state, input);
     // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
     // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。

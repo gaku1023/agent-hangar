@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { SyncStatusBody } from '@agent-hangar/shared';
 import type { Input, Overlay, SessionViewState } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
-import type { RunDto, TabDto } from '@agent-hangar/shared';
+import type { RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
@@ -1391,27 +1391,40 @@ describe('開いたら端末にフォーカス', () => {
 });
 
 describe('次の入力待ちへ（C5）', () => {
-  it('どの入力待ちへ移るかはストアを見て決めるので、ランタイムに問う', () => {
-    expect(run([intent({ type: 'session.nextWaiting' })]).effects).toEqual([{ kind: 'waiting.next', from: null }]);
-    const onS1 = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;
-    expect(run([intent({ type: 'session.nextWaiting' })], onS1).effects).toEqual([{ kind: 'waiting.next', from: 's1' }]);
+  // 入力待ちのセッションを、待ち始めた順（渡した順）に持つストア。
+  const waitingStore = (...ids: string[]): Store => ({ ...initialStore(), sessions: Object.fromEntries(ids.map((id, n) => [id, { id, live: 'waiting', lastActivityAt: n + 1, parked: false } as SessionDto])) });
+  const opened = (id: string, start?: State) => run([intent({ type: 'session.open', id, focus: 'terminal' })], start);
+  it('どの入力待ちへ移るかはストアを見て決め、ターミナルで答える経路（session.open の focus: terminal）で開く', () => {
+    expect(run([intent({ type: 'session.nextWaiting' })], undefined, waitingStore('s2', 's3'))).toEqual(opened('s2'));
   });
-  it('決まったセッションは、ターミナルで答える経路（session.open の focus: terminal）で開く', () => {
-    const via = run([runtime({ type: 'waiting.resolved', sessionId: 's2' })]);
-    const direct = run([intent({ type: 'session.open', id: 's2', focus: 'terminal' })]);
-    expect(via).toEqual(direct);
+  it('いまいるセッションの次へ移り、末尾の次は先頭へ戻る', () => {
+    const on = (id: string) => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })]).state;
+    expect(run([intent({ type: 'session.nextWaiting' })], on('s2'), waitingStore('s2', 's3'))).toEqual(opened('s3', on('s2')));
+    expect(run([intent({ type: 'session.nextWaiting' })], on('s3'), waitingStore('s2', 's3'))).toEqual(opened('s2', on('s3')));
+    // 入力待ちでないセッションにいれば、先頭へ移る。
+    expect(run([intent({ type: 'session.nextWaiting' })], on('s9'), waitingStore('s2', 's3'))).toEqual(opened('s2', on('s9')));
   });
   it('入力待ちが無ければ短く知らせる', () => {
-    expect(run([runtime({ type: 'waiting.resolved', sessionId: null })]).effects).toEqual([{ kind: 'toast', level: 'info', message: '入力待ちのセッションはありません' }]);
+    expect(run([intent({ type: 'session.nextWaiting' })]).effects).toEqual([{ kind: 'toast', level: 'info', message: '入力待ちのセッションはありません' }]);
   });
   it('パレットからも出せて、パレットは閉じる', () => {
-    const opened = run([intent({ type: 'palette.open' })]).state;
-    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:next-waiting', label: '次の入力待ちへ' } })], opened);
+    const palette = run([intent({ type: 'palette.open' })]).state;
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:next-waiting', label: '次の入力待ちへ' } })], palette, waitingStore('s2'));
     expect(a.state.overlay).toEqual({ kind: 'none' });
-    expect(a.effects).toEqual([{ kind: 'waiting.next', from: null }]);
+    expect(a.effects).toEqual(opened('s2').effects);
+    // 入力待ちが無くても、パレットは閉じる。
+    const none = run([intent({ type: 'palette.run', command: { id: 'cmd:next-waiting', label: '次の入力待ちへ' } })], palette);
+    expect(none.state.overlay).toEqual({ kind: 'none' });
+    expect(none.effects).toEqual([{ kind: 'toast', level: 'info', message: '入力待ちのセッションはありません' }]);
     // パレットの上でキーを打ったときも、パレットは閉じる。
-    const b = run([intent({ type: 'session.nextWaiting' })], opened);
+    const b = run([intent({ type: 'session.nextWaiting' })], palette, waitingStore('s2'));
     expect(b.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('パレットを閉じて未解決のプロジェクトの問いが出るなら、その裏では画面を移さない', () => {
+    const palette: State = { ...run([intent({ type: 'palette.open' })]).state, unresolvedQueue: ['p1'] };
+    const r = run([intent({ type: 'session.nextWaiting' })], palette, waitingStore('s2'));
+    expect(r.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(r.effects).toEqual([]);
   });
 });
 

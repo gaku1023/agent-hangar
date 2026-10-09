@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, liveSessionIds, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, liveSessionIds, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import type { Notifier } from './notifier.ts';
@@ -528,7 +528,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         setStore({ ...store, summarizerTest: null });
         deps.api.testSummarizer().then((r) => setStore({ ...store, summarizerTest: r })).catch(fail);
         return;
-      case 'waiting.next': dispatch({ kind: 'runtime', event: { type: 'waiting.resolved', sessionId: nextWaitingSession(store, e.from) } }); return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
       // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。
       case 'api.syncNow': deps.api.syncNow().then(syncStatus).catch(fail); return;
