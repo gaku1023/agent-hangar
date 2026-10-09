@@ -2,6 +2,7 @@ import type { CompatState } from '@agent-hangar/shared';
 import type { CompatProps } from '../presenters/compat.ts';
 import { CopyButton } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 
 /**
  * ずれの中身（A4）。止めた機能は常に出し、契約、値、版、最初に見た時刻、止めた機能の表は「ずれ N 件の中身」で畳む。
@@ -11,20 +12,21 @@ import { Icon } from './primitives/Icon.tsx';
  */
 export function CompatDrifts(props: { c: CompatProps }) {
   const c = props.c;
+  const t = useT();
   if (c.state !== 'drift' || c.rows === null) return null;
   return (
     <>
       {c.stops && c.stops.length > 0 && (
-        <ul className="cp-stops" aria-label="止めた機能">
+        <ul className="cp-stops" aria-label={t('compat.section.stopsAria')}>
           {c.stops.map((s) => <li key={s}>{s}</li>)}
         </ul>
       )}
       <details className="cp-more">
-        <summary><Icon name="chevron" />{`ずれ ${c.count} 件の中身`}</summary>
+        <summary><Icon name="chevron" />{t('compat.section.moreSummary', { n: c.count })}</summary>
         <div className="cp-more-body">
           <table className="cp-tab">
             <colgroup><col className="c-k" /><col /><col className="c-v" /><col className="c-t" /><col className="c-f" /></colgroup>
-            <thead><tr><th>契約</th><th>値</th><th>版</th><th>最初に見た</th><th>止めた機能</th></tr></thead>
+            <thead><tr><th>{t('compat.section.colContract')}</th><th>{t('compat.section.colValue')}</th><th>{t('compat.section.colVersion')}</th><th>{t('compat.section.colFirstSeen')}</th><th>{t('compat.section.colStop')}</th></tr></thead>
             <tbody>
               {c.rows.map((r) => (
                 <tr key={r.key}>
@@ -32,14 +34,14 @@ export function CompatDrifts(props: { c: CompatProps }) {
                   <td><code>{r.value}</code></td>
                   <td className="cp-n">{r.version}</td>
                   <td className="cp-n">{r.firstSeen}</td>
-                  <td>{r.stop ?? <span className="faint">なし</span>}</td>
+                  <td>{r.stop ?? <span className="faint">{t('compat.table.none')}</span>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div className="cp-foot">
-            <span className="faint">記録はこの PC の <code>~/.agent-hangar/compat.json</code> にあります</span>
-            {c.report && <CopyButton text={c.report} ariaLabel="報告用に写す" label="報告用に写す" />}
+            <span className="faint">{t('compat.section.recordBefore')}<code>~/.agent-hangar/compat.json</code>{t('compat.section.recordAfter')}</span>
+            {c.report && <CopyButton text={c.report} ariaLabel={t('compat.section.copyReport')} label={t('compat.section.copyReport')} />}
           </div>
         </div>
       </details>
@@ -58,10 +60,11 @@ const BADGE_TONE: Record<CompatState, 'ok' | 'info' | 'warn'> = { ok: 'ok', unve
  */
 export function CompatSection(props: { compat: CompatProps | null }) {
   const c = props.compat;
+  const t = useT();
   return (
     <section className="cp-sec">
       <h3 className="h2">
-        Claude Code との互換
+        {t('compat.section.title')}
         {c && (
           <span className="badge" data-tone={BADGE_TONE[c.state]}>
             {c.state === 'ok' && <Icon name="check" />}
@@ -70,17 +73,17 @@ export function CompatSection(props: { compat: CompatProps | null }) {
           </span>
         )}
       </h3>
-      <div className="muted">hangar は Claude Code の会話の記録、状態のファイル、statusline、<code>~/.claude</code> の項目、CLI の出力、画面の文字を読んでいます。知らない形に出会ったら、ここに出します。</div>
-      {c === null ? <div className="faint" style={{ marginTop: 4 }}>確かめています</div> : (
+      <div className="muted">{t('compat.section.leadBefore')}<code>~/.claude</code>{t('compat.section.leadAfter')}</div>
+      {c === null ? <div className="faint" style={{ marginTop: 4 }}>{t('compat.section.checking')}</div> : (
         <div className="cp-vers">
-          <span>手元の版 <code>{c.localVersion}</code></span>
-          <span>確かめた版 <code>{c.verifiedVersion}</code></span>
+          <span>{t('compat.section.installed')} <code>{c.localVersion}</code></span>
+          <span>{t('compat.section.verified')} <code>{c.verifiedVersion}</code></span>
           {c.state === 'unverified' && <span className="faint">{c.lead}</span>}
         </div>
       )}
       {c !== null && c.state === 'drift' && (
         <>
-          <div className="cp-lead">{`${c.lead}。`}</div>
+          <div className="cp-lead">{t('compat.section.sentence', { text: c.lead })}</div>
           <CompatDrifts c={c} />
         </>
       )}

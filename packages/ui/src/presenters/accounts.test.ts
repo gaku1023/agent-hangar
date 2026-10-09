@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { AccountDto } from '@agent-hangar/shared';
+import { translator, type AccountDto } from '@agent-hangar/shared';
 import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { isPickableAccount, presentAccount, presentAccounts, type AccountView } from './accounts.ts';
 import { resetsLabel } from './format.ts';
 
+const ja = translator('ja');
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const NOW = new Date(2026, 9, 6, 12, 0).getTime();
@@ -15,7 +16,7 @@ const usage = (five: number | null, ago: number | null, resetsAt: number | null 
   sevenDay: five === null ? null : { usedPercent: 41, resetsAt: NOW + 24 * HOUR },
   updatedAt: ago === null ? null : NOW - ago,
 });
-const view = (over: Partial<AccountDto> = {}) => presentAccount(acc(over), 'primary', NOW);
+const view = (over: Partial<AccountDto> = {}) => presentAccount(ja, acc(over), 'primary', NOW);
 
 describe('presentAccount', () => {
   it('プランの表示：既知は頭を大文字に、知らない値はそのまま、認証が未読なら null', () => {

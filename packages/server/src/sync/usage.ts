@@ -6,19 +6,7 @@ import type { Timers } from './engine.ts';
 export const USAGE_POLL_MS = 5 * 60_000;
 
 const INVALID = 'トークンが無効です';
-const UNIT: Record<string, string> = { 'GB-months': 'GB-月', Count: '回' };
-const ROW_LABEL: [prefix: string, label: string][] = [
-  ['R2 Data Storage', 'R2 の保存'],
-  ['R2 Storage Class A Operations', 'R2 の書く操作'],
-  ['R2 Storage Class B Operations', 'R2 の読む操作'],
-];
-const rowLabel = (name: string): string => ROW_LABEL.find(([p]) => name.startsWith(p))?.[1] ?? name;
-
-function planLabel(p: NonNullable<Extract<CloudUsageBody, { configured: true }>['plan']>): string {
-  if (p.workersPaid) return 'Workers Paid';
-  const r2 = p.items.some((i) => i.id === 'r2_paid') ? ' · R2 従量' : '';
-  return `Workers 無料${r2}`;
-}
+// 行の名前と単位は Cloudflare の語のまま返す。画面の言語に直すのは UI の側である（presenters/cloudUsage.ts）。
 
 /**
  * 数の分からない形。トークンが無い端末、古い Worker、一時停止や上限で問い合わせていないとき、一度も取れないまま失敗したときに使う。
@@ -45,11 +33,11 @@ export function toUsageDto(body: CloudUsageBody | null, o: { now: number; stale:
     source: 'cloudflare',
     fetchedAt: body.fetchedAt,
     today: body.today ? { d1RowsWritten: body.today.d1RowsWritten, workersRequests: body.today.workersRequests, resetAt: base.today.resetAt } : (o.lastGood?.today ?? base.today),
-    plan: body.plan ? { label: planLabel(body.plan), workersPaid: body.plan.workersPaid } : (o.lastGood?.plan ?? null),
+    plan: body.plan ? { workersPaid: body.plan.workersPaid, r2Paid: body.plan.items.some((i) => i.id === 'r2_paid') } : (o.lastGood?.plan ?? null),
     month: body.month
       ? {
           periodStart: body.month.periodStart, periodEnd: body.plan?.periodEnd ?? o.lastGood?.month?.periodEnd ?? null, throughDay: body.month.throughDay, billedUsd: body.month.billedUsd,
-          rows: body.month.services.map((s) => ({ label: rowLabel(s.name), consumed: s.consumed, unit: UNIT[s.unit] ?? s.unit, included: r2Included(s.name) })),
+          rows: body.month.services.map((s) => ({ label: s.name, consumed: s.consumed, unit: s.unit, included: r2Included(s.name) })),
         }
       : (o.lastGood?.month ?? null),
     stale: o.stale || body.errors.length > 0,

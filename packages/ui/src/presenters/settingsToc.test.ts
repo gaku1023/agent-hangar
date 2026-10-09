@@ -107,8 +107,8 @@ describe('設定の節の選び方', () => {
 });
 
 describe('言語の行', () => {
-  it('作ってあるが、まだ出さない（最後の PR で切り替える）', () => {
-    expect(present(store()).language.visible).toBe(false);
+  it('目次の「一般」の状態は通知の状態だけで、言語の名前は添えない', () => {
+    expect(row(present(store({ settings: { ...SETTINGS, language: 'en' }, notify: { available: true, on: true, blocked: false } })).toc, 'general').state).toBe('Notifications on');
   });
   it('いまの言語を値として渡す', () => {
     expect(present(store({ settings: { ...SETTINGS, language: 'en' } })).language.value).toBe('en');

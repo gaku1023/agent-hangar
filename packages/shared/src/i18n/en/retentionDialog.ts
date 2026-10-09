@@ -2,9 +2,9 @@ import type { retentionDialogKeys } from '../keys/retentionDialog.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const retentionDialogEn: AreaDictionary<typeof retentionDialogKeys> = {
-  'retentionDialog.period.days': '{n} days',
+  'retentionDialog.period.days': '{n} {n|day|days}',
   'retentionDialog.period.oneDay': '1 day',
-  'retentionDialog.period.years': '{n} years',
+  'retentionDialog.period.years': '{n} {n|year|years}',
   'retentionDialog.period.oneYear': '1 year',
   'retentionDialog.title.shrink': 'Shorten the transcript retention period to {period}',
   'retentionDialog.title.set': 'Set the transcript retention period to {period}',

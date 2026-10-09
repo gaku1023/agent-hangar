@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProjectDto, SessionDto, SessionStateDto } from '@agent-hangar/shared';
+import { translator, type ProjectDto, type SessionDto, type SessionStateDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
@@ -7,6 +7,8 @@ import { presentHome } from './home.ts';
 import { presentPause } from './pause.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel, returnOnRowLabel } from './row.ts';
 import { returnKey } from './row.ts';
+
+const ja = translator('ja');
 
 /** 戻る時刻（HH:MM）つきの Paused。2026-10-05（月）の 12:00 を今にする。 */
 const at = (h: number, min = 0, d = 5) => new Date(2026, 9, d, h, min).getTime();
@@ -30,22 +32,22 @@ const rowOf = (s: SessionDto, now = NOW) => {
 
 describe('returnOnLabel の時刻', () => {
   it('時刻があれば日の後ろに添える。過ぎた日は日数だけを言う', () => {
-    expect(returnOnLabel('2026-10-05', 0, '13:30')).toBe('今日 13:30');
-    expect(returnOnLabel('2026-10-06', null, '13:30')).toBe('10/6（火）13:30');
-    expect(returnOnLabel('2026-10-02', 3, '13:30')).toBe('3 日過ぎ');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30')).toBe('今日 13:30');
+    expect(returnOnLabel(ja, '2026-10-06', null, '13:30')).toBe('10/6（火）13:30');
+    expect(returnOnLabel(ja, '2026-10-02', 3, '13:30')).toBe('3 日過ぎ');
   });
   it('時刻が無ければ今までどおり', () => {
-    expect(returnOnLabel('2026-10-05', 0)).toBe('今日');
-    expect(returnOnLabel('2026-10-05', 0, null)).toBe('今日');
-    expect(returnOnLabel('2026-10-06', null, null)).toBe('10/6（火）');
+    expect(returnOnLabel(ja, '2026-10-05', 0)).toBe('今日');
+    expect(returnOnLabel(ja, '2026-10-05', 0, null)).toBe('今日');
+    expect(returnOnLabel(ja, '2026-10-06', null, null)).toBe('10/6（火）');
   });
   it('形の違う時刻は出さない', () => {
-    expect(returnOnLabel('2026-10-05', 0, '25:00')).toBe('今日');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '25:00')).toBe('今日');
   });
   it('提案の札にも時刻を出す', () => {
-    expect(candidateLabel({ status: 'paused', returnOn: '2026-10-06', returnTime: '13:30' })).toBe('Paused · 10/6（火）13:30？');
-    expect(candidateLabel({ status: 'paused', returnOn: '2026-10-06', returnTime: null })).toBe('Paused · 10/6（火）？');
-    expect(candidateLabel({ status: 'paused', returnOn: '2026-10-06' })).toBe('Paused · 10/6（火）？');
+    expect(candidateLabel(ja, { status: 'paused', returnOn: '2026-10-06', returnTime: '13:30' })).toBe('Paused · 10/6（火）13:30？');
+    expect(candidateLabel(ja, { status: 'paused', returnOn: '2026-10-06', returnTime: null })).toBe('Paused · 10/6（火）？');
+    expect(candidateLabel(ja, { status: 'paused', returnOn: '2026-10-06' })).toBe('Paused · 10/6（火）？');
   });
 });
 
@@ -116,27 +118,27 @@ describe('presentPause の時刻', () => {
 
 describe('returnOnRowLabel（行の時刻の列は 72px）', () => {
   it('先の日の時刻つきは曜日を省いて列に収める。ほかは returnOnLabel と同じ', () => {
-    expect(returnOnRowLabel('2026-10-06', null, '13:30')).toBe('10/6 13:30');
-    expect(returnOnRowLabel('2026-12-31', null, '13:30')).toBe('12/31 13:30');
-    expect(returnOnRowLabel('2026-10-06', null, null)).toBe('10/6（火）');
-    expect(returnOnRowLabel('2026-10-05', 0, '13:30')).toBe('今日 13:30');
-    expect(returnOnRowLabel('2026-10-02', 3, '13:30')).toBe('3 日過ぎ');
-    expect(returnOnRowLabel(null, null, '13:30')).toBe('日付なし');
+    expect(returnOnRowLabel(ja, '2026-10-06', null, '13:30')).toBe('10/6 13:30');
+    expect(returnOnRowLabel(ja, '2026-12-31', null, '13:30')).toBe('12/31 13:30');
+    expect(returnOnRowLabel(ja, '2026-10-06', null, null)).toBe('10/6（火）');
+    expect(returnOnRowLabel(ja, '2026-10-05', 0, '13:30')).toBe('今日 13:30');
+    expect(returnOnRowLabel(ja, '2026-10-02', 3, '13:30')).toBe('3 日過ぎ');
+    expect(returnOnRowLabel(ja, null, null, '13:30')).toBe('日付なし');
   });
 });
 
 describe('時刻を過ぎた当日の札は、過ぎた長さを言う', () => {
   it('returnOnLabel：1 分未満は「いま」、60 分未満は分、それ以上は時間（切り捨て）', () => {
-    expect(returnOnLabel('2026-10-05', 0, '13:30', 0)).toBe('いま');
-    expect(returnOnLabel('2026-10-05', 0, '13:30', 3)).toBe('3 分過ぎ');
-    expect(returnOnLabel('2026-10-05', 0, '13:30', 59)).toBe('59 分過ぎ');
-    expect(returnOnLabel('2026-10-05', 0, '13:30', 60)).toBe('1 時間過ぎ');
-    expect(returnOnLabel('2026-10-05', 0, '13:30', 150)).toBe('2 時間過ぎ');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 0)).toBe('いま');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 3)).toBe('3 分過ぎ');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 59)).toBe('59 分過ぎ');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 60)).toBe('1 時間過ぎ');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', 150)).toBe('2 時間過ぎ');
     // 時刻の前（過ぎた長さが無い）は時刻を言う。行の短い札も同じ。
-    expect(returnOnLabel('2026-10-05', 0, '13:30', null)).toBe('今日 13:30');
-    expect(returnOnRowLabel('2026-10-05', 0, '13:30', 3)).toBe('3 分過ぎ');
+    expect(returnOnLabel(ja, '2026-10-05', 0, '13:30', null)).toBe('今日 13:30');
+    expect(returnOnRowLabel(ja, '2026-10-05', 0, '13:30', 3)).toBe('3 分過ぎ');
     // 前の日に過ぎたものは日数のまま。
-    expect(returnOnLabel('2026-10-02', 3, '13:30', null)).toBe('3 日過ぎ');
+    expect(returnOnLabel(ja, '2026-10-02', 3, '13:30', null)).toBe('3 日過ぎ');
   });
   it('行は、当日の時刻を過ぎてからの分を渡す。時刻の前、時刻なし、前の日は null', () => {
     const past = (s: SessionDto, now: number) => presentSessionRow(s, storeOf([s]), now).returnPastMin;

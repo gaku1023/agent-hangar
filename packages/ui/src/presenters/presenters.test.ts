@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { addDays, localDate } from '@agent-hangar/shared';
+import { addDays, localDate, translator } from '@agent-hangar/shared';
 import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
@@ -20,6 +20,8 @@ import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
 import { presentRetentionDialog } from './retentionDialog.ts';
 import { presentShell } from './shell.ts';
 import { presentToasts } from './toasts.ts';
+
+const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
@@ -48,15 +50,15 @@ describe('format', () => {
     expect(presentShell(initialState(), store, now).usage).toMatchObject({ fiveHour: 28, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00' });
   });
   it('相対時刻', () => {
-    expect(relativeTime(NOW - 30_000, NOW)).toBe('1 分未満前');
-    expect(relativeTime(NOW - 3 * 60_000, NOW)).toBe('3 分前');
-    expect(relativeTime(NOW - 2 * 3_600_000, NOW)).toBe('2 時間前');
-    expect(relativeTime(NOW - 30 * 3_600_000, NOW)).toBe('昨日');
-    expect(relativeTime(NOW - 5 * 86_400_000, NOW)).toBe('5 日前');
-    const old = relativeTime(NOW - 40 * 86_400_000, NOW);
-    expect(old).toBe(absoluteTime(NOW - 40 * 86_400_000).slice(0, 10));
+    expect(relativeTime(ja, NOW - 30_000, NOW)).toBe('1 分未満前');
+    expect(relativeTime(ja, NOW - 3 * 60_000, NOW)).toBe('3 分前');
+    expect(relativeTime(ja, NOW - 2 * 3_600_000, NOW)).toBe('2 時間前');
+    expect(relativeTime(ja, NOW - 30 * 3_600_000, NOW)).toBe('昨日');
+    expect(relativeTime(ja, NOW - 5 * 86_400_000, NOW)).toBe('5 日前');
+    const old = relativeTime(ja, NOW - 40 * 86_400_000, NOW);
+    expect(old).toBe(absoluteTime(ja, NOW - 40 * 86_400_000).slice(0, 10));
     expect(old).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(relativeTime(null, NOW)).toBe('不明');
+    expect(relativeTime(ja, null, NOW)).toBe('不明');
   });
   it('モデル名とトークン', () => {
     expect(shortModel('claude-fable-5-1')).toBe('fable 5.1');
@@ -135,10 +137,10 @@ describe('ローカルコマンドの記録', () => {
     sys(5, '<local-command-stdout>Set model to opus</local-command-stdout>'),
   ];
   it('決まり文句と空の出力は落とし、コマンドは 1 行に、出力は中身だけにする', () => {
-    expect(buildItems(events, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['/exit', '/model opus', 'Set model to opus']);
+    expect(buildItems(events, { showThinking: false, showRaw: false, subagents: [] }, ja).map((i) => 'text' in i ? i.text : '')).toEqual(['/exit', '/model opus', 'Set model to opus']);
   });
   it('生の記録を出すときはそのまま出す', () => {
-    expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] }).filter((i) => i.kind === 'system')).toHaveLength(5);
+    expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] }, ja).filter((i) => i.kind === 'system')).toHaveLength(5);
   });
   it('! で打ったシェルは「! コマンド」に、出力は中身だけに、タスクの知らせは要旨だけにする', () => {
     const ev = [
@@ -148,12 +150,12 @@ describe('ローカルコマンドの記録', () => {
       sys(23, '<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent "調べもの" finished</summary>\n</task-notification>'),
       sys(24, '<system-reminder>内部の注意書き</system-reminder>'),
     ];
-    expect(buildItems(ev, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['! git status', 'clean', 'Agent "調べもの" finished']);
+    expect(buildItems(ev, { showThinking: false, showRaw: false, subagents: [] }, ja).map((i) => 'text' in i ? i.text : '')).toEqual(['! git status', 'clean', 'Agent "調べもの" finished']);
   });
   it('読み込んだスキルの本文は、スキルの名前の 1 行にする', () => {
     const skill = sys(9, 'Base directory for this skill: /Users/me/.claude/plugins/cache/x/superpowers/6.3.0/skills/brainstorming\n\n# Brainstorming Ideas Into Designs\n\n長い本文…');
-    expect(buildItems([skill], { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['スキル brainstorming を読み込みました']);
-    expect(buildItems([skill], { showThinking: false, showRaw: true, subagents: [] })[0]).toMatchObject({ text: skill.text });
+    expect(buildItems([skill], { showThinking: false, showRaw: false, subagents: [] }, ja).map((i) => 'text' in i ? i.text : '')).toEqual(['スキル brainstorming を読み込みました']);
+    expect(buildItems([skill], { showThinking: false, showRaw: true, subagents: [] }, ja)[0]).toMatchObject({ text: skill.text });
   });
 });
 
@@ -164,17 +166,17 @@ describe('本文のツール', () => {
     { kind: 'tool_call' as const, seq: 2, toolId: 'u', name: 'Read', input: { file_path: '/w/app/a.ts' }, summary: 'Read /w/app/a.ts' },
   ];
   it('種類ごとの見せ方を持ち、パスは作業ディレクトリからの相対にする', () => {
-    const items = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    const items = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' }, ja);
     expect(items[0]).toMatchObject({ kind: 'tool', view: { step: 'run', head: { main: 'npm test', meta: [{ text: '0', tone: 'ok' }] } }, raw: null });
     expect(items[1]).toMatchObject({ kind: 'tool', view: { step: 'read', head: { main: 'a.ts' } } });
   });
   it('生の入力の JSON は、生の記録を出すときだけ持つ', () => {
-    const [item] = buildItems(ev, { showThinking: false, showRaw: true, subagents: [], cwd: '/w/app' });
+    const [item] = buildItems(ev, { showThinking: false, showRaw: true, subagents: [], cwd: '/w/app' }, ja);
     expect(item).toMatchObject({ raw: { input: '{\n  "command": "npm test"\n}', result: 'ok' } });
   });
   it('同じ呼び出しと結果の見せ方は、描き直すたびには作らない', () => {
-    const a = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
-    const b = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' });
+    const a = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' }, ja);
+    const b = buildItems(ev, { showThinking: false, showRaw: false, subagents: [], cwd: '/w/app' }, ja);
     expect(a[0]!.kind === 'tool' && b[0]!.kind === 'tool' && a[0]!.view === b[0]!.view).toBe(true);
   });
 });
@@ -186,10 +188,10 @@ describe('本文の無い system', () => {
     { kind: 'system' as const, seq: 3, ts: 1, text: '留守の間の要約', subtype: 'away_summary' },
   ];
   it('種類の名前しか無い行は落とし、本文のある行は残す', () => {
-    expect(buildItems(events, { showThinking: false, showRaw: false, subagents: [] }).map((i) => 'text' in i ? i.text : '')).toEqual(['留守の間の要約']);
+    expect(buildItems(events, { showThinking: false, showRaw: false, subagents: [] }, ja).map((i) => 'text' in i ? i.text : '')).toEqual(['留守の間の要約']);
   });
   it('生の記録を出すときは種類の名前だけの行も出す', () => {
-    expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] })).toHaveLength(3);
+    expect(buildItems(events, { showThinking: false, showRaw: true, subagents: [] }, ja)).toHaveLength(3);
   });
 });
 
@@ -430,16 +432,16 @@ describe('presentSession', () => {
   });
   it('要約の作成元に出す要約器とモデルを作る（冒頭の 1 枚の作成元の行になる）', () => {
     // 種類は source_id が決める。モデル名から推測しない。
-    expect(summarizerLabel('lmstudio', 'gemma-4-26b-a4b-it-heretic')).toBe('LM Studio / gemma-4-26b-a4b-it-heretic');
-    expect(summarizerLabel('claude-headless', 'haiku')).toBe('claude / haiku');
+    expect(summarizerLabel('lmstudio', 'gemma-4-26b-a4b-it-heretic', ja)).toBe('LM Studio / gemma-4-26b-a4b-it-heretic');
+    expect(summarizerLabel('claude-headless', 'haiku', ja)).toBe('claude / haiku');
     // claude を名に含むモデルを LM Studio で使っても、LM Studio のままである。
-    expect(summarizerLabel('lmstudio', 'claude-ish-7b')).toBe('LM Studio / claude-ish-7b');
+    expect(summarizerLabel('lmstudio', 'claude-ish-7b', ja)).toBe('LM Studio / claude-ish-7b');
     // モデル名を言えなかったときは種類だけを出す。
-    expect(summarizerLabel('lmstudio', null)).toBe('LM Studio');
+    expect(summarizerLabel('lmstudio', null, ja)).toBe('LM Studio');
     // source_id を持たない古い行は、種類が分からないので不明と出す。
-    expect(summarizerLabel(null, 'gemma-4-26b-a4b-it-heretic')).toBe('不明 / gemma-4-26b-a4b-it-heretic');
+    expect(summarizerLabel(null, 'gemma-4-26b-a4b-it-heretic', ja)).toBe('不明 / gemma-4-26b-a4b-it-heretic');
     // 土台の要約は要約器を通していないので、種類もモデルも無い。
-    expect(summarizerLabel(null, null)).toBeNull();
+    expect(summarizerLabel(null, null, ja)).toBeNull();
   });
   it('冒頭の 1 枚の作成元の行に、要約器とモデルと生成の時刻が入る', () => {
     const store = storeWith();
@@ -447,7 +449,7 @@ describe('presentSession', () => {
     store.sessions.s1 = session('s1', { live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 5, updatedAt: at } });
     const line = presentSession(initialState(), store, NOW, 's1').lead!.summary!.sourceLine;
     expect(line).toContain('LM Studio / gemma');
-    expect(line).toContain(absoluteTime(at));
+    expect(line).toContain(absoluteTime(ja, at));
   });
   it('真ん中の頁から開いた本文は、新しい行がまだあることと跳び先を持ち、遡り終えたら古い行のボタンを出さない', () => {
     let store = storeWith();
@@ -699,20 +701,20 @@ describe('presentSession（見出しの操作、A1）', () => {
   });
   it('hangar の外で動いているときは、つなぐか引き取るを「…」に入れる', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canFork: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
-    const a = sessionActions(facts);
+    const a = sessionActions(facts, ja);
     expect(a.primary.id).toBe('openEditor');
     expect(ids(a)).toEqual(['attach', 'fork', 'regenerate']);
-    expect(ids(sessionActions({ ...facts, outsideOpen: 'adopt' }))[0]).toBe('adopt');
+    expect(ids(sessionActions({ ...facts, outsideOpen: 'adopt' }, ja))[0]).toBe('adopt');
   });
   it('昇格はメニューに入れ、要約の作成中と失敗は作り直すに 1 行添え、本文が消えた会話では作り直しを出さない', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: null, lock: null, remoteOnly: false, hasTranscript: true, canResume: true, canFork: true, canResumeHere: false, outsideOpen: null, canPromote: true, gone: null, summaryPending: true, summaryError: null, fromScratch: true };
-    const a = sessionActions(facts);
+    const a = sessionActions(facts, ja);
     expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote']);
     expect(a.menu[2]!.note).toBe('作成しています');
     // スクラッチで始めたセッションの再開は、作業ディレクトリがスクラッチのままであることを添える。
     expect(a.primary.note).toBe('再開しても作業ディレクトリはスクラッチのままです');
-    expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }).menu[2]!.note).toBe('前回は作成できませんでした');
-    expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }))).not.toContain('regenerate');
+    expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
+    expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
   });
 });
 
@@ -759,7 +761,7 @@ describe('presentSession（transcript を表示中の帯、F1）', () => {
     store = applyEventsPage(store, eventsKey('s1', null), { sessionId: 's1', events, total: 2, nextSeq: null }, false);
     const at = (turnJump: State['sessionView'][string]['turnJump'], openTurn: number | null = 0) => presentSession({ ...initialState(), sessionView: { s1: { ...defaultSessionView(), openTurn, turnJump } } }, store, NOW, 's1').transcriptBand;
     expect(at(null)).toBeNull();
-    expect(at({ seq: 0, status: 'found', runId: 'r1' })).toEqual({ when: absoluteTime(Date.parse('2026-09-02T03:09:41Z')).slice(11, 16) });
+    expect(at({ seq: 0, status: 'found', runId: 'r1' })).toEqual({ when: absoluteTime(ja, Date.parse('2026-09-02T03:09:41Z')).slice(11, 16) });
     // 着けなかったときも、サーバは transcript を開いたままにする。
     expect(at({ seq: 0, status: 'notFound', runId: 'r1' })).not.toBeNull();
     // 答えを待つ間は、まだ transcript に入ったか分からない。
@@ -1012,9 +1014,9 @@ const scratchProject = (): ProjectDto => ({ ...project('sc'), name: 'スクラ�
 
 describe('書式', () => {
   it('percentLabel と costLabel', () => {
-    expect(percentLabel(null)).toBe('未取得');
-    expect(percentLabel(47.4)).toBe('47%');
-    expect(percentLabel(0)).toBe('0%');
+    expect(percentLabel(ja, null)).toBe('未取得');
+    expect(percentLabel(ja, 47.4)).toBe('47%');
+    expect(percentLabel(ja, 0)).toBe('0%');
     expect(costLabel(null)).toBe('');
     expect(costLabel(1.234)).toBe('$1.23');
   });
@@ -1083,7 +1085,7 @@ describe('presentShell のアカウント', () => {
     expect(p.account?.working).toBe(false);
     expect(p.account?.list.map((a) => a.id)).toEqual(['primary', 'a1']);
     expect(p.account?.list.map((a) => a.current)).toEqual([true, false]);
-    expect(p.usage).toEqual({ fiveHour: 82, sevenDay: 41, fiveHourResets: resetsLabel(FIVE_RESETS, NOW), sevenDayResets: resetsLabel(SEVEN_RESETS, NOW), updatedLabel: relativeTime(500, NOW) });
+    expect(p.usage).toEqual({ fiveHour: 82, sevenDay: 41, fiveHourResets: resetsLabel(FIVE_RESETS, NOW), sevenDayResets: resetsLabel(SEVEN_RESETS, NOW), updatedLabel: relativeTime(ja, 500, NOW) });
   });
   it('いまのアカウントが大学なら、ホームでも大学を出す', () => {
     const p = presentShell(initialState(), { ...two(), accounts: { ...accountsFixture, currentId: 'a1' } }, NOW);
@@ -1157,8 +1159,8 @@ describe('presentProject の右レール', () => {
     ]);
   });
   it('アーティファクトのカードは題名と最終公開と編集の可否を持つ', () => {
-    expect(presentArtifactCard(artDto('a1'), NOW)).toEqual({ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false });
-    const manual = presentArtifactCard(artDto('a2', { title: null, favicon: null, description: null, filePath: '/w/alpha/x.html', fileExists: true }), NOW);
+    expect(presentArtifactCard(ja, artDto('a1'), NOW)).toEqual({ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false });
+    const manual = presentArtifactCard(ja, artDto('a2', { title: null, favicon: null, description: null, filePath: '/w/alpha/x.html', fileExists: true }), NOW);
     expect(manual).toMatchObject({ title: 'a2', favicon: '📄', canOpenEditor: true });
   });
 });
@@ -1539,7 +1541,8 @@ describe('セッションのロック（フェーズ 4）', () => {
 describe('保持期間の言い方と期限', () => {
   const DAY = 86_400_000;
   it('日数と大きさの言い方', () => {
-    expect([30, 90, 365, 3650, 45, 730].map(daysLabel)).toEqual(['30 日', '90 日', '1 年', '10 年', '45 日', '2 年']);
+    expect([30, 90, 365, 3650, 45, 730].map((d) => daysLabel(ja, d))).toEqual(['30 日', '90 日', '1 年', '10 年', '45 日', '2 年']);
+    expect([1, 30, 365, 730].map((d) => daysLabel(translator('en'), d))).toEqual(['1 day', '30 days', '1 year', '2 years']);
     expect([1_610_612_736, 18 * 1024 ** 3, 52_428_800, 2048, 0].map(bytesLabel)).toEqual(['1.5 GB', '18 GB', '50 MB', '2 KB', '0 KB']);
   });
   it('本文の印は 4 通り', () => {
@@ -1827,19 +1830,19 @@ describe('presentSessionRow のセッションの状態', () => {
 
 describe('戻る日と提案の札の文言', () => {
   it('今日は「今日」、過ぎたものは「N 日過ぎ」、先のものは月日と曜日', () => {
-    expect(returnOnLabel('2026-10-01', 0)).toBe('今日');
-    expect(returnOnLabel('2026-09-28', 3)).toBe('3 日過ぎ');
-    expect(returnOnLabel('2026-10-02', null)).toBe('10/2（金）');
-    expect(returnOnLabel('2026-12-31', null)).toBe('12/31（木）');
+    expect(returnOnLabel(ja, '2026-10-01', 0)).toBe('今日');
+    expect(returnOnLabel(ja, '2026-09-28', 3)).toBe('3 日過ぎ');
+    expect(returnOnLabel(ja, '2026-10-02', null)).toBe('10/2（金）');
+    expect(returnOnLabel(ja, '2026-12-31', null)).toBe('12/31（木）');
   });
   it('戻る日が無いか壊れているときは、NaN や undefined を返さず「日付なし」', () => {
-    expect(returnOnLabel(null, null)).toBe('日付なし');
-    expect(returnOnLabel('2026-02-30', null)).toBe('日付なし');
-    expect(returnOnLabel('いつか', null)).toBe('日付なし');
-    expect(returnOnLabel('', 0)).toBe('日付なし');
+    expect(returnOnLabel(ja, null, null)).toBe('日付なし');
+    expect(returnOnLabel(ja, '2026-02-30', null)).toBe('日付なし');
+    expect(returnOnLabel(ja, 'いつか', null)).toBe('日付なし');
+    expect(returnOnLabel(ja, '', 0)).toBe('日付なし');
   });
   it('提案の札は「Done にする？」か「Paused · 日？」', () => {
-    expect(candidateLabel({ status: 'done', returnOn: null })).toBe('Done にする？');
-    expect(candidateLabel({ status: 'paused', returnOn: '2026-10-05' })).toBe('Paused · 10/5（月）？');
+    expect(candidateLabel(ja, { status: 'done', returnOn: null })).toBe('Done にする？');
+    expect(candidateLabel(ja, { status: 'paused', returnOn: '2026-10-05' })).toBe('Paused · 10/5（月）？');
   });
 });

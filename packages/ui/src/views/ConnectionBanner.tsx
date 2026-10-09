@@ -2,6 +2,7 @@ import { useEmit } from '../intent/chain.tsx';
 import { DESKTOP_LOG_PATH, type ConnProps } from '../presenters/shell.ts';
 import { CopyButton } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 
 /**
  * 接続が切れているあいだだけ降りてくる帯。
@@ -11,38 +12,39 @@ import { Icon } from './primitives/Icon.tsx';
  */
 export function ConnectionBanner(props: ConnProps) {
   const emit = useEmit();
+  const t = useT();
   if (!props.visible) return null;
   if (props.hard) {
     return (
-      <div className="conn-banner" data-hard="true" role="status" aria-label="接続の状態">
+      <div className="conn-banner" data-hard="true" role="status" aria-label={t('conn.banner.label')}>
         <Icon name="warning" />
-        <b>サーバに戻れません</b>
+        <b>{t('conn.hard.title')}</b>
         {props.desktop
           ? (
             <>
-              <span>アプリを再起動してください</span>
-              <button className="btn btn-sm" onClick={() => emit({ type: 'shell.openLog' })}><Icon name="log" />ログを開く</button>
-              <button className="btn btn-sm" onClick={() => emit({ type: 'shell.restart' })}><Icon name="restart" />再起動</button>
+              <span>{t('conn.hard.restartPrompt')}</span>
+              <button className="btn btn-sm" onClick={() => emit({ type: 'shell.openLog' })}><Icon name="log" />{t('conn.hard.openLog')}</button>
+              <button className="btn btn-sm" onClick={() => emit({ type: 'shell.restart' })}><Icon name="restart" />{t('conn.hard.restart')}</button>
             </>
           )
           : (
             <>
               {/* 殻の無いブラウザからはアプリを起こし直せない。場所を写して、ログを自分で開けるようにする。 */}
-              <span>{`アプリを再起動してください。ログ: ${DESKTOP_LOG_PATH}`}</span>
-              <CopyButton text={DESKTOP_LOG_PATH} name="ログの場所" label="場所をコピー" />
+              <span>{t('conn.hard.browserHint', { path: DESKTOP_LOG_PATH })}</span>
+              <CopyButton text={DESKTOP_LOG_PATH} name={t('conn.hard.logName')} label={t('conn.hard.copyLocation')} />
             </>
           )}
       </div>
     );
   }
   return (
-    <div className="conn-banner" role="status" aria-label="接続の状態">
+    <div className="conn-banner" role="status" aria-label={t('conn.banner.label')}>
       <Icon name="unlink" />
-      <b>接続が切れています</b>
+      <b>{t('conn.lost.title')}</b>
       {/* 伝えたいのは WebSocket の状態ではなく、その結果として画面が止まっていることである。 */}
       <span>{props.staleLabel}</span>
       <span className="conn-retry">{props.retryLabel}</span>
-      <button className="btn btn-sm" onClick={() => emit({ type: 'conn.retry' })}>今すぐ再接続</button>
+      <button className="btn btn-sm" onClick={() => emit({ type: 'conn.retry' })}>{t('conn.lost.retryNow')}</button>
     </div>
   );
 }

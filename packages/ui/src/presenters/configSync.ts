@@ -224,7 +224,7 @@ export type ConfigConflictsDialogProps = { part: 'conflicts'; loading: boolean; 
 /** 片側の「いつ」。時刻だけを言い、名前は札の文が言う。消えていれば「消えています」。 */
 function sideWhen(t: Translate, side: ConfigConflictDto['local']): string {
   if (!side) return t('configSyncUi.conflict.gone');
-  return side.at === null ? '' : absoluteTime(side.at);
+  return side.at === null ? '' : absoluteTime(t, side.at);
 }
 
 function presentConflicts(state: State, store: Store, t: Translate): ConfigConflictsDialogProps {
@@ -278,7 +278,7 @@ export type ConfigSyncSectionProps = {
 };
 
 function backupRow(t: Translate, store: Store, g: ConfigBackupGenerationDto): ConfigBackupRowProps {
-  return { name: g.name, when: g.at === null ? g.name : absoluteTime(g.at), files: t('configSyncUi.word.count', { n: g.files }), command: hangarCommand(store, `config restore ${g.name}`) };
+  return { name: g.name, when: g.at === null ? g.name : absoluteTime(t, g.at), files: t('configSyncUi.word.count', { n: g.files }), command: hangarCommand(store, `config restore ${g.name}`) };
 }
 
 export function presentConfigSection(store: Store, now: number, focusUnsent = false): ConfigSyncSectionProps {
@@ -295,10 +295,10 @@ export function presentConfigSection(store: Store, now: number, focusUnsent = fa
     needsCloud: c === null,
     enabled: c?.enabled ?? false,
     workerPending: c?.workerPending ?? false,
-    lastSent: c?.lastSentAt != null ? relativeTime(c.lastSentAt, now) : null,
+    lastSent: c?.lastSentAt != null ? relativeTime(t, c.lastSentAt, now) : null,
     approval: c?.approval ?? 'each',
     native: store.desktop,
-    order: c?.applyOrder ? { count: c.applyOrder.count, when: relativeTime(c.applyOrder.createdAt, now), command: hangarCommand(store, 'config apply') } : null,
+    order: c?.applyOrder ? { count: c.applyOrder.count, when: relativeTime(t, c.applyOrder.createdAt, now), command: hangarCommand(store, 'config apply') } : null,
     incoming: { count: c?.incoming ?? 0, held: c?.held ?? 0, from: from.length === 0 ? null : from.join(t('configSyncUi.peek.sep')) },
     awaiting: c?.approval === 'each' ? inbox.filter(needsPick).length : 0,
     conflicts: c?.conflicts ?? 0,

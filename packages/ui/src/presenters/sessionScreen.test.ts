@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { RunDto, SessionDto, SettingsDto, TranscriptEvent } from '@agent-hangar/shared';
+import { translator, type RunDto, type SessionDto, type SettingsDto, type TranscriptEvent } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { applyEventsPage, eventsKey, initialStore, type Store } from '../store/store.ts';
 import { absoluteTime } from './format.ts';
 import { presentSession } from './session.ts';
+
+const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const stats = { turns: 11, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: 41, costUsd: 0.42 };
@@ -82,7 +84,7 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
       expect(row('モデル').value).toBe('sonnet 4.5');
       expect(row('effort レベル').value).toBe('high');
       expect(row('権限モード').value).toBe('Accept edits');
-      expect(row('開始').value).toBe(absoluteTime(NOW - 3_600_000));
+      expect(row('開始').value).toBe(absoluteTime(ja, NOW - 3_600_000));
       expect(row('作業ディレクトリ')).toMatchObject({ value: '/w/web-shop', mono: true });
       expect(row('起動').value).toMatch(/^新しいセッション \d{2}:\d{2}$/);
       expect(row('ターンとトークン').value).toBe('11 ターン、20k トークン');

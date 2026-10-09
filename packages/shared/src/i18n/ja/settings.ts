@@ -32,7 +32,6 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.heading.title': '設定',
   'settings.toc.label': '設定のナビゲーション',
   'settings.toc.row': '{name}、{state}',
-  'settings.toc.separator': '、',
   'settings.fix.count': '要修正 {n}',
   'settings.toc.checking': '確認中',
   'settings.toc.allFound': 'すべて検出',

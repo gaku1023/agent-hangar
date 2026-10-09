@@ -180,7 +180,7 @@ function stripLanes(i: LiveInput, t: Translate): NowStripProps['lanes'] {
   const agents = [...(i.digest?.agents ?? [])].sort((a, b) => TONE_ORDER[a.state] - TONE_ORDER[b.state]);
   const items = agents.slice(0, STRIP_LANES).map((a): StripLane => {
     const end = a.state === 'running' ? i.now : a.lastAt ?? i.now;
-    const elapsed = a.startedAt === null ? '' : durationLabel(Math.max(0, end - a.startedAt));
+    const elapsed = a.startedAt === null ? '' : durationLabel(t, Math.max(0, end - a.startedAt));
     const quoted = a.state !== 'running' && a.report !== null;
     const endNote = a.endNote === null ? null : a.endNote === 'failed' ? t('session.lane.end.failed') : a.endNote === 'killed' ? t('session.lane.end.killed') : a.endNote;
     // 済みは報告（引用）、無ければ終わりの知らせの訳を添えた「完了」。失敗は報告、最後の手、「失敗」の順。動いている本は最後の手か「開始直後」。

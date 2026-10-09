@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { translator, type SessionDto } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
 import { presentNowStrip } from '../presenters/live.ts';
+import { presentTool } from '../presenters/tools.ts';
 import { presentDetails, presentLeadCard, presentSessionBadges, sessionActions, type SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { toolItem } from '../test/items.ts';
@@ -44,9 +45,10 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
  * 見出しの操作は presenter が事実から決める。
  * 画面の試験でも同じ関数で作り、事実と操作が食い違わないようにする。
  */
-const SS = (props: SessionProps) => <SessionScreen {...props} actions={sessionActions(props)} />;
+const SS = (props: SessionProps) => <SessionScreen {...props} actions={sessionActions(props, ja)} />;
 /** 「…」のメニューを開いて、その中の項目を返す。 */
 const menu = () => { fireEvent.click(screen.getByRole('button', { name: 'ほかの操作' })); return within(screen.getByRole('menu', { name: 'ほかの操作' })); };
+const menuOf = (name: string) => { fireEvent.click(screen.getByRole('button', { name })); return within(screen.getByRole('menu', { name })); };
 const tocCols = (c: HTMLElement) => (c.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns;
 
 describe('SessionScreen（終わった画面）', () => {
@@ -826,5 +828,57 @@ describe('SessionScreen（本文が消えた会話）', () => {
     render(<IntentRoot onIntent={() => {}}><SS {...props} lead={lead} oneLiner={null} gone={{ ...gone, canExtend: false }} /></IntentRoot>);
     expect(screen.queryByRole('button', { name: '保持期間を延ばす…' })).toBeNull();
     expect(screen.getByText('要約はありません')).toBeInTheDocument();
+  });
+});
+
+describe('SessionScreen（英語）', () => {
+  const en = translator('en');
+  const JAPANESE = /[぀-ヿ㐀-鿿]/;
+  const noJapanese = () => expect(document.body.textContent ?? '').not.toMatch(JAPANESE);
+  const call = (name: string, input: unknown) => ({ kind: 'tool_call' as const, seq: 1, toolId: 't1', name, input, summary: name });
+  const enTool = (name: string, input: unknown, result: { text: string; isError: boolean }) => ({ ...toolItem(1, name, input, result, { subagent: { agentId: 'abc', label: 'x' } }), view: presentTool(call(name, input), result, '/w/app', en) });
+  const enProps = (over: Partial<SessionProps> = {}): SessionProps => {
+    const props: SessionProps = { ...base, items: [{ kind: 'user', seq: 0, text: 'hi', when: '10:00' }, enTool('Write', { file_path: '/w/app/a.ts', content: 'a\nb' }, { text: 'File created successfully', isError: false })], turnRows: [], lead: null, ...over };
+    return { ...props, actions: sessionActions(props, en) };
+  };
+  it('終わった画面：操作、切り替え、続きの読み込み、ツールの行が英語で出る', () => {
+    render(<IntentRoot onIntent={() => {}}><LanguageRoot language="en"><SessionScreen {...enProps()} /></LanguageRoot></IntentRoot>);
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeInTheDocument();
+    expect(menuOf('More actions').getByRole('menuitem', { name: /Fork/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show thinking' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Main conversation' })).toBeInTheDocument();
+    expect(screen.getByText('Load older lines (6 left)')).toBeInTheDocument();
+    expect(screen.getByText(/New file/)).toBeInTheDocument();
+    expect(screen.getByText('2 lines')).toBeInTheDocument();
+    expect(screen.getByText('View subagent abc')).toBeInTheDocument();
+    noJapanese();
+  });
+  it('押せない再開の理由と、本文が消えた会話の注記が英語で出る', () => {
+    const blocked = enProps({ canResume: false, canFork: false, remoteOnly: true, hasTranscript: false });
+    const { unmount } = render(<IntentRoot onIntent={() => {}}><LanguageRoot language="en"><SessionScreen {...blocked} /></LanguageRoot></IntentRoot>);
+    expect(screen.getAllByText('Running on Another computer. Available once it stops or stops responding').length).toBeGreaterThan(0);
+    unmount();
+    const gone = { note: en('session.gone.note', { period: '30 days' }), canExtend: true, extendTo: 365 };
+    render(<IntentRoot onIntent={() => {}}><LanguageRoot language="en"><SessionScreen {...enProps({ gone, hasTranscript: false, items: [] })} /></LanguageRoot></IntentRoot>);
+    expect(screen.getByRole('note')).toHaveTextContent('Claude Code retention period (30 days)');
+    expect(screen.getByRole('button', { name: 'Extend retention period…' })).toBeInTheDocument();
+  });
+  it('実行中の画面：タブ、案内、ターミナルの帯と切断のカードが英語で出る', () => {
+    const h: TerminalHost = { ...host, status: (id) => (id === 't1' ? 'closed' : 'connected'), link: (id) => (id === 't1' ? { retryAt: Date.now() + 5000, dropped: true, gaveUp: false, detached: false } : { retryAt: null, dropped: false, gaveUp: false, detached: false }) };
+    const props = enProps({ live: 'busy', run: { id: 'r1', kind: 'start', alive: true, started: '1 minute ago' }, selectedTab: 'r1', canSplit: true, split: { left: 'r1', right: 't1' }, trustHint: true, transcriptBand: { when: '12:09' },
+      tabs: [{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'Shell 1', kind: 'shell', selected: false, closable: true }] });
+    render(<IntentRoot onIntent={() => {}}><LanguageRoot language="en"><TerminalHostContext.Provider value={h}><SessionScreen {...props} /></TerminalHostContext.Provider></LanguageRoot></IntentRoot>);
+    expect(screen.getByLabelText('Close Shell 1')).toBeInTheDocument();
+    expect(screen.getByLabelText('Add shell tab')).toBeInTheDocument();
+    expect(screen.getByLabelText('Split side by side')).toBeInTheDocument();
+    expect(screen.getByRole('separator', { name: 'Left and right width' })).toHaveAttribute('aria-valuetext', 'Left 50%');
+    expect(screen.getByText('Transcript view')).toBeInTheDocument();
+    expect(screen.getByText('Turn from 12:09 · Claude keeps working in the background')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Back to latest/ })).toBeInTheDocument();
+    const right = within(screen.getByTestId('term-t1'));
+    expect(right.getByText('Terminal disconnected')).toBeInTheDocument();
+    expect(right.getByText('The shell is still running. Reconnecting in 5 seconds.')).toBeInTheDocument();
+    expect(right.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
+    expect(screen.getAllByRole('status').some((e) => (e.textContent ?? '').includes('If a trust dialog appears'))).toBe(true);
   });
 });

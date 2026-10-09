@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useRef, useSt
 import { createPortal } from 'react-dom';
 import { isComposing } from '../ime.ts';
 import { Icon } from './Icon.tsx';
+import { useT } from './language.tsx';
 import { arrangeSections, highlight, place, SEARCH_MIN, type ListboxAction, type ListboxGroup, type ListboxOption, type Placement } from './listboxModel.ts';
 
 export type ListboxProps = {
@@ -32,6 +33,7 @@ export type ListboxProps = {
  * 止めないと、起動ダイアログの Enter（起動）と Esc（閉じる）が同時に走る。
  */
 export function Listbox(props: ListboxProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -95,8 +97,8 @@ export function Listbox(props: ListboxProps) {
     if (!open) return;
     // 面の外を押したら閉じる。フォーカスは押した先に任せ、顔へは戻さない。
     const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (pop.current?.contains(t) || face.current?.contains(t)) return;
+      const target = e.target as Node;
+      if (pop.current?.contains(target) || face.current?.contains(target)) return;
       hide(false);
     };
     document.addEventListener('mousedown', onDown);
@@ -177,7 +179,7 @@ export function Listbox(props: ListboxProps) {
           <span className="listbox-face-label">{selected.label}</span>
           {props.showSubInFace && (selected.faceSub ?? selected.sub) && <span className="listbox-face-sub">{selected.faceSub ?? selected.sub}</span>}
         </span>
-      ) : <span id={faceValueId} className="listbox-face-placeholder">{props.placeholder ?? '選んでください'}</span>}
+      ) : <span id={faceValueId} className="listbox-face-placeholder">{props.placeholder ?? t('primitives.listbox.placeholder')}</span>}
       <Icon name="chevronDown" />
     </>
   );
@@ -192,14 +194,14 @@ export function Listbox(props: ListboxProps) {
         {props.renderFace ? props.renderFace(selected) : defaultFace}
       </button>
       {/* aria-label が顔の中身を上書きするため、renderFace の顔では選んだ値を顔の外の隠し要素で読み上げさせる。 */}
-      {props.renderFace && <span id={faceValueId} hidden>{selected?.label ?? props.placeholder ?? '選んでください'}</span>}
+      {props.renderFace && <span id={faceValueId} hidden>{selected?.label ?? props.placeholder ?? t('primitives.listbox.placeholder')}</span>}
       {props.name && <input type="hidden" name={props.name} value={props.value ?? ''} />}
       {open && createPortal(
         <div ref={pop} className="listbox-pop" style={style} data-up={pos?.up ? 'true' : undefined} data-scrolled={scrolled ? 'true' : undefined} onKeyDown={onPopKey}>
           {searchable && (
             <div className="listbox-search">
               <Icon name="search" />
-              <input ref={input} role="combobox" aria-label={props.searchPlaceholder ?? `${props.label}を探す`} placeholder={props.searchPlaceholder ?? `${props.label}を探す`}
+              <input ref={input} role="combobox" aria-label={props.searchPlaceholder ?? t('primitives.listbox.search', { label: props.label })} placeholder={props.searchPlaceholder ?? t('primitives.listbox.search', { label: props.label })}
                 aria-expanded="true" aria-controls={listId} aria-autocomplete="list" aria-activedescendant={activeId}
                 value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} />
             </div>
@@ -216,7 +218,7 @@ export function Listbox(props: ListboxProps) {
                     {s.items.map(option)}
                   </div>
                 ))}
-              {!items.length && <div className="listbox-empty">一致するものはありません</div>}
+              {!items.length && <div className="listbox-empty">{t('common.empty.noMatch')}</div>}
             </div>
             {acts.length > 0 && (
               <div className="listbox-acts" role="group">
@@ -234,7 +236,7 @@ export function Listbox(props: ListboxProps) {
           </div>
           {searchable && (
             <div className="listbox-keys" aria-hidden="true">
-              <span><kbd>↑</kbd><kbd>↓</kbd> 移動</span><span><kbd>Enter</kbd> 決める</span><span><kbd>Esc</kbd> 閉じる</span>
+              <span><kbd>↑</kbd><kbd>↓</kbd> {t('primitives.listbox.hintMove')}</span><span><kbd>Enter</kbd> {t('primitives.listbox.hintChoose')}</span><span><kbd>Esc</kbd> {t('common.button.close')}</span>
             </div>
           )}
         </div>,

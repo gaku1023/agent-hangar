@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useEmit } from '../intent/chain.tsx';
-import { APPROVE_TEXT, LOGGED_OUT_TEXT, homePath, type AccountView } from '../presenters/accounts.ts';
+import type { Translate } from '@agent-hangar/shared';
+import { approveText, homePath, loggedOutText, type AccountView } from '../presenters/accounts.ts';
 import type { AccountSettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
+import { useT } from './primitives/language.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 
 /**
@@ -13,8 +15,8 @@ import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 const SWAP_GUARD_MS = 600;
 
 /** 選べる色の呼び名。読み上げと title に使う。知らない色は #rrggbb のまま呼ぶ。 */
-const COLOR_NAMES: Record<string, string> = { '#2a57b8': '青', '#7a4a9e': '紫', '#2b7048': '緑', '#c77a1a': '橙', '#a2452f': '赤茶' };
-const colorName = (c: string) => COLOR_NAMES[c] ?? c;
+const COLOR_KEYS = { '#2a57b8': 'account.colorName.blue', '#7a4a9e': 'account.colorName.purple', '#2b7048': 'account.colorName.green', '#c77a1a': 'account.colorName.orange', '#a2452f': 'account.colorName.brown' } as const;
+const colorName = (t: Translate, c: string): string => (Object.hasOwn(COLOR_KEYS, c) ? t(COLOR_KEYS[c as keyof typeof COLOR_KEYS]) : c);
 
 /**
  * 状態の文を、本体と添え書きに分ける。
@@ -22,11 +24,11 @@ const colorName = (c: string) => COLOR_NAMES[c] ?? c;
  * ログインし直しの途中は、「プラン・メール」を出したまま、承認の添え書きを足す。
  * 初めてのログインの途中は、承認の添え書きだけ。
  */
-function stateParts(a: AccountView): { main: string; hint: string } {
-  const who = [a.plan, a.email].filter((x): x is string => x !== null).join('・');
+function stateParts(t: Translate, a: AccountView): { main: string; hint: string } {
+  const who = [a.plan, a.email].filter((x): x is string => x !== null).join(t('account.settings.whoSeparator'));
   switch (a.auth) {
-    case 'out': return { main: LOGGED_OUT_TEXT, hint: '' };
-    case 'running': return a.loggedIn ? { main: who, hint: APPROVE_TEXT } : { main: '', hint: APPROVE_TEXT };
+    case 'out': return { main: loggedOutText(t), hint: '' };
+    case 'running': return a.loggedIn ? { main: who, hint: approveText(t) } : { main: '', hint: approveText(t) };
     case 'in': return { main: who, hint: '' };
     case 'unknown': return { main: '', hint: '' };
   }
@@ -40,6 +42,7 @@ function stateParts(a: AccountView): { main: string; hint: string } {
  */
 function NameField(props: { account: AccountView; onDone: () => void }) {
   const emit = useEmit();
+  const t = useT();
   const a = props.account;
   const [v, setV] = useState(a.name);
   const input = useRef<HTMLInputElement>(null);
@@ -56,12 +59,13 @@ function NameField(props: { account: AccountView; onDone: () => void }) {
     if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); finish(true); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
   };
-  return <input ref={input} className="input account-set-input" aria-label={`${a.name}の名前`} value={v} spellCheck={false} autoComplete="off" onChange={(e) => setV(e.target.value)} onBlur={() => finish(true)} onKeyDown={onKey} />;
+  return <input ref={input} className="input account-set-input" aria-label={t('account.settings.nameFor', { name: a.name })} value={v} spellCheck={false} autoComplete="off" onChange={(e) => setV(e.target.value)} onBlur={() => finish(true)} onKeyDown={onKey} />;
 }
 
 /** 色を選ぶ帯。5 色の点が並び、押すと保存して閉じる。いまの色を押したときは何も送らない。 */
 function ColorBand(props: { account: AccountView; colors: string[]; onDone: () => void }) {
   const emit = useEmit();
+  const t = useT();
   const a = props.account;
   const band = useRef<HTMLDivElement>(null);
   // いまの色へフォーカスを送る（radio の作法）。
@@ -71,9 +75,9 @@ function ColorBand(props: { account: AccountView; colors: string[]; onDone: () =
     props.onDone();
   };
   return (
-    <div ref={band} className="account-set-colors" role="radiogroup" aria-label={`${a.name}の色`} onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); props.onDone(); } }}>
+    <div ref={band} className="account-set-colors" role="radiogroup" aria-label={t('account.settings.colorFor', { name: a.name })} onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); props.onDone(); } }}>
       {props.colors.map((c) => (
-        <button key={c} type="button" role="radio" className="account-set-color" aria-checked={c === a.color} aria-label={colorName(c)} title={colorName(c)} onClick={() => pick(c)}>
+        <button key={c} type="button" role="radio" className="account-set-color" aria-checked={c === a.color} aria-label={colorName(t, c)} title={colorName(t, c)} onClick={() => pick(c)}>
           <span className="st-dot" style={{ color: c }} aria-hidden="true" />
         </button>
       ))}
@@ -84,10 +88,11 @@ function ColorBand(props: { account: AccountView; colors: string[]; onDone: () =
 /** アカウント 1 行。色の点、名前（と札）、置き場、状態、右端の操作。 */
 function AccountRow(props: { account: AccountView; colors: string[] }) {
   const emit = useEmit();
+  const t = useT();
   const a = props.account;
   const [editing, setEditing] = useState(false);
   const [coloring, setColoring] = useState(false);
-  const { main, hint } = stateParts(a);
+  const { main, hint } = stateParts(t, a);
   const kind = a.auth === 'out' ? 'login' : a.auth === 'running' ? 'cancel' : null;
   const [guarded, setGuarded] = useState(false);
   const prevKind = useRef(kind);
@@ -97,19 +102,19 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
     prevKind.current = kind;
     if (before === null || kind === null || before === kind) { setGuarded(false); return undefined; }
     setGuarded(true);
-    const t = setTimeout(() => setGuarded(false), SWAP_GUARD_MS);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setGuarded(false), SWAP_GUARD_MS);
+    return () => clearTimeout(timer);
   }, [kind]);
   const state = [main, hint].filter((x) => x !== '').join(' ');
   const path = homePath(a.dir);
   const items: MenuItem[] = [
-    { key: 'rename', label: '名前を変える', onSelect: () => { setColoring(false); setEditing(true); } },
-    { key: 'color', label: '色を変える', onSelect: () => { setEditing(false); setColoring(true); } },
+    { key: 'rename', label: t('account.menu.rename'), onSelect: () => { setColoring(false); setEditing(true); } },
+    { key: 'color', label: t('account.menu.color'), onSelect: () => { setEditing(false); setColoring(true); } },
     // 未ログインは行に「ログイン」を直に出し、途中は「やめる」を出すので、メニューには置かない。
-    ...(a.auth === 'out' || a.auth === 'running' ? [] : [{ key: 'login', label: 'ログインし直す', onSelect: () => emit({ type: 'account.login', accountId: a.id }) }]),
-    { key: 'refresh', label: '状態を読み直す', onSelect: () => emit({ type: 'account.refresh', accountId: a.id }) },
+    ...(a.auth === 'out' || a.auth === 'running' ? [] : [{ key: 'login', label: t('account.menu.loginAgain'), onSelect: () => emit({ type: 'account.login', accountId: a.id }) }]),
+    { key: 'refresh', label: t('account.menu.refresh'), onSelect: () => emit({ type: 'account.refresh', accountId: a.id }) },
     // 押せない項目は消さずに、理由を出す。確認は account.remove を受けた側が出す。
-    { key: 'remove', label: '一覧から外す', danger: true, disabled: a.primary ? '最初のアカウントは外せません' : null, onSelect: () => emit({ type: 'account.remove', accountId: a.id }) },
+    { key: 'remove', label: t('account.menu.remove'), danger: true, disabled: a.primary ? t('account.menu.primaryLocked') : null, onSelect: () => emit({ type: 'account.remove', accountId: a.id }) },
   ];
   return (
     <li className="account-set">
@@ -119,7 +124,7 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
           {editing
             ? <NameField account={a} onDone={() => setEditing(false)} />
             : <b className="account-set-name" title={a.name}>{a.name}</b>}
-          {a.current && <span className="account-set-tag" data-kind="current">いま</span>}
+          {a.current && <span className="account-set-tag" data-kind="current">{t('account.settings.current')}</span>}
         </span>
         <span className="account-set-dir mono" title={a.dir}>{path}</span>
         <span className="account-set-state" data-auth={a.auth} title={state}>
@@ -127,9 +132,9 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
           {hint !== '' && <span className="account-set-approve">{hint}</span>}
         </span>
         <span className="account-set-acts">
-          {a.auth === 'out' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id })}>ログイン</button>}
-          {a.auth === 'running' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login.cancel', accountId: a.id })}>やめる</button>}
-          <MenuButton label={`${a.name}の操作`} items={items} minWidth={240} />
+          {a.auth === 'out' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login', accountId: a.id })}>{t('account.settings.login')}</button>}
+          {a.auth === 'running' && <button type="button" className="btn btn-sm" disabled={guarded} onClick={() => emit({ type: 'account.login.cancel', accountId: a.id })}>{t('account.settings.cancel')}</button>}
+          <MenuButton label={t('account.settings.actionsFor', { name: a.name })} items={items} minWidth={240} />
         </span>
       </div>
       {coloring && <ColorBand account={a} colors={props.colors} onDone={() => setColoring(false)} />}
@@ -147,6 +152,7 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
  */
 export function AccountSettings(props: AccountSettingsProps) {
   const emit = useEmit();
+  const t = useT();
   const [name, setName] = useState('');
   const next = name.trim();
   const add = () => {
@@ -156,18 +162,18 @@ export function AccountSettings(props: AccountSettingsProps) {
   };
   return (
     <section id="settings-accounts" className="account-set-section" aria-labelledby="settings-accounts-h">
-      <h3 className="h2" id="settings-accounts-h">アカウント</h3>
-      <div className="muted">Claude Code のアカウントを足すと、設定・スキル・履歴は共有したまま、ログインだけを切り替えられます。hangar はログインの中身を読みません。</div>
-      <ul className="list account-set-list" aria-label="アカウントの一覧">
+      <h3 className="h2" id="settings-accounts-h">{t('account.settings.heading')}</h3>
+      <div className="muted">{t('account.settings.lead')}</div>
+      <ul className="list account-set-list" aria-label={t('account.settings.listAria')}>
         {props.list.map((a) => <AccountRow key={a.id} account={a} colors={props.colors} />)}
       </ul>
       <div className="account-set-add">
-        <input className="input" aria-label="アカウントの名前" placeholder="名前（例：大学）" value={name} spellCheck={false} autoComplete="off"
+        <input className="input" aria-label={t('account.settings.nameAria')} placeholder={t('account.settings.namePlaceholder')} value={name} spellCheck={false} autoComplete="off"
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); add(); } }} />
-        <button type="button" className="btn btn-primary" disabled={next === ''} onClick={add}>追加してログイン</button>
+        <button type="button" className="btn btn-primary" disabled={next === ''} onClick={add}>{t('account.settings.add')}</button>
       </div>
-      <div className="faint account-set-help">ブラウザが開くので、足したいアカウントで承認してください。終わると、ここにメールアドレスが出ます。</div>
+      <div className="faint account-set-help">{t('account.settings.help')}</div>
     </section>
   );
 }

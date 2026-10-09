@@ -1,4 +1,4 @@
-import type { SessionDto } from '@agent-hangar/shared';
+import type { SessionDto, Translate } from '@agent-hangar/shared';
 
 /** 保持期間の周知で使う決まりと言い方。帯、確認、一覧、詳細、設定画面の presenter がここを通す。 */
 export const DAY_MS = 86_400_000;
@@ -15,7 +15,11 @@ export const RETENTION_CHOICES = [30, 90, 365, 3650] as const;
 /** 帯と詳細から延ばすときの行き先。 */
 export const EXTEND_TO = 365;
 
-export const daysLabel = (days: number): string => (days % 365 === 0 ? `${days / 365} 年` : `${days} 日`);
+/** 日数の言い方。365 の倍数なら年、それ以外は日で言う。 */
+export function daysLabel(t: Translate, days: number): string {
+  if (days % 365 === 0) return days / 365 === 1 ? t('retentionDialog.period.oneYear') : t('retentionDialog.period.years', { n: days / 365 });
+  return days === 1 ? t('retentionDialog.period.oneDay') : t('retentionDialog.period.days', { n: days });
+}
 
 export function bytesLabel(bytes: number): string {
   const GB = 1024 ** 3;

@@ -285,7 +285,7 @@ export type CloudUsageDto = {
   notice: string | null;
   limits: { d1RowsPerDay: number; workersRequestsPerDay: number };
   today: { d1RowsWritten: number | null; workersRequests: number | null; resetAt: number };
-  plan: { label: string; workersPaid: boolean } | null;
+  plan: { workersPaid: boolean; r2Paid: boolean } | null;
   month: { periodStart: string; periodEnd: string | null; throughDay: string | null; billedUsd: number; rows: { label: string; consumed: number; unit: string; included: number | null }[] } | null;
 };
 

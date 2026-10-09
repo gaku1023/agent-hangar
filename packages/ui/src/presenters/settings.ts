@@ -49,12 +49,6 @@ const shellLabel = (t: Translate, s: ShellHookStateDto | null): string => {
  */
 export type SettingsTocRow = { id: SettingsSection; title: string; state: string; tone: 'default' | 'warn'; label: string };
 
-/**
- * 言語の行。作ってあるが、辞書が埋まるまで出さない（段 4 の PR 25 で visible を true にする）。
- * 出さない間は、目次の一般の状態にも言語を言わない。
- */
-export const LANGUAGE_ROW_VISIBLE = false;
-
 /** 会話の保持の節。押しても保存せず、確認（retention.edit）を開く。 */
 export type RetentionSettingsProps = { days: number; options: { value: string; label: string }[]; writable: boolean; reason: string | null; valueLabel: string; bar: UsageBarProps | null; syncNote: boolean };
 
@@ -106,7 +100,7 @@ export type SettingsProps = {
   /** 左の目次。節ごとに、名前と今の状態の 1 行を持つ。 */
   toc: SettingsTocRow[];
   /** 一般の先頭の言語の行。visible が false の間は描かない。 */
-  language: { visible: boolean; value: Language };
+  language: { value: Language };
   /** 連携の節を開いたとき、アカウントの位置へ移る印。ヘッダーのアカウントの設定から来たときだけ入る。 */
   focus: 'accounts' | 'unsent' | null;
 };
@@ -117,13 +111,14 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
   if (!r) return null;
   const values = [...new Set<number>([...RETENTION_CHOICES, r.days])].sort((a, b) => a - b);
   const projected = r.usage ? r.usage.dailyBytes * r.days : null;
+  const t = translatorOf(store);
   return {
     days: r.days,
-    options: values.map((d) => ({ value: String(d), label: daysLabel(d) })),
+    options: values.map((d) => ({ value: String(d), label: daysLabel(t, d) })),
     writable: r.writable,
     reason: r.unwritableReason,
-    valueLabel: daysLabel(r.days),
-    bar: usageBar(r.usage, projected, r.days, translatorOf(store)),
+    valueLabel: daysLabel(t, r.days),
+    bar: usageBar(r.usage, projected, r.days, t),
     // 設定の同期が入っていれば、cleanupPeriodDays も他の PC へ運ぶ。
     syncNote: store.configSync?.enabled === true,
   };
@@ -139,10 +134,9 @@ function presentToc(a: {
   const fix = (n: number, ok: string): St => (n > 0 ? { state: t('settings.fix.count', { n }), tone: 'warn' } : { state: ok, tone: 'default' });
   const checking: St = { state: t('settings.toc.checking'), tone: 'default' };
   const state: Record<SettingsSection, St> = {
-    // 言語の行を出していない間は、言語を言わない。
-    general: { state: [LANGUAGE_ROW_VISIBLE ? t(a.language === 'ja' ? 'settings.general.language.ja' : 'settings.general.language.en') : null, !a.notify.available ? t('settings.toc.notifyUnavailable') : a.notify.on ? t('settings.toc.notifyOn') : t('settings.toc.notifyOff')].filter((x): x is string => x !== null).join(t('settings.toc.separator')), tone: 'default' },
+    general: { state: !a.notify.available ? t('settings.toc.notifyUnavailable') : a.notify.on ? t('settings.toc.notifyOn') : t('settings.toc.notifyOff'), tone: 'default' },
     cloud: {
-      state: a.cloud.state === 'idle' && a.sync?.lastPullAt != null ? t('settings.toc.cloudReceived', { state: a.cloudWord, time: relativeTime(a.sync.lastPullAt, a.now) }) : a.cloudWord,
+      state: a.cloud.state === 'idle' && a.sync?.lastPullAt != null ? t('settings.toc.cloudReceived', { state: a.cloudWord, time: relativeTime(t, a.sync.lastPullAt, a.now) }) : a.cloudWord,
       tone: a.cloudTone === 'warn' || a.cloudTone === 'stop' ? 'warn' : 'default',
     },
     integrations: a.readiness ? fix(a.todo.link, t('settings.toc.noIssues')) : checking,
@@ -186,14 +180,14 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     paused: (sync?.state === 'paused' && sync.limitedUntil === null) || sync?.paused === true,
     limited: sync?.state === 'paused' && sync.limitedUntil !== null,
     once: sync?.state === 'paused' && sync.oncePass,
-    lastPullAt: relativeTime(sync?.lastPullAt ?? null, now),
+    lastPullAt: relativeTime(t, sync?.lastPullAt ?? null, now),
     pending: sync?.pending ?? 0,
     sweepPending: sync?.sweepPending ?? null,
     skipped: sync?.skipped ?? [],
-    devices: store.devices.map((d) => ({ id: d.id, name: d.name, platform: d.platform, lastSeen: relativeTime(d.lastSeenAt, now), self: d.self })),
+    devices: store.devices.map((d) => ({ id: d.id, name: d.name, platform: d.platform, lastSeen: relativeTime(t, d.lastSeenAt, now), self: d.self })),
     joinToken: store.joinToken,
     joinTokenExpiresAt: store.joinTokenExpiresAt,
-    usage: presentCloudUsage(store.cloudUsage, sync, now),
+    usage: presentCloudUsage(t, store.cloudUsage, sync, now),
   };
   const at = state.screen.name === 'settings' ? state.screen.at : undefined;
   const h = store.shellHook;
@@ -205,11 +199,11 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   };
   const r = store.readiness;
   const verify = {
-    workspace: r ? workspaceLine(r.workspace) : null,
-    tmux: r ? toolLine('tmux', r.tools.tmux) : null,
-    claude: r ? toolLine('claude', r.tools.claude) : null,
-    code: r ? toolLine('code', r.tools.code) : null,
-    node: r ? toolLine('node', r.tools.node) : null,
+    workspace: r ? workspaceLine(t, r.workspace) : null,
+    tmux: r ? toolLine(t, 'tmux', r.tools.tmux) : null,
+    claude: r ? toolLine(t, 'claude', r.tools.claude) : null,
+    code: r ? toolLine(t, 'code', r.tools.code) : null,
+    node: r ? toolLine(t, 'node', r.tools.node) : null,
   };
   // compat の無い古いサーバの答えでは、互換の節を「確かめています」のままにする。
   const compatSummary = r ? readinessCompat(r) : undefined;
@@ -223,14 +217,14 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     configSync: presentConfigSection(store, now, at === 'unsent'),
     shell,
     verify, todo,
-    compat: compatSummary ? presentCompat(compatSummary, store.compat, store.version) : null,
+    compat: compatSummary ? presentCompat(t, compatSummary, store.compat, store.version) : null,
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。
     commands: { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install' },
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
     // 進んでいる間はヘッダーと同じ文にし、終わっていれば数を出す。
-    indexLabel: indexProgressLabel(store.index) ?? t('settings.info.index.counts', { sessions: Object.keys(store.sessions).length, projects: Object.keys(store.projects).length }),
+    indexLabel: indexProgressLabel(t, store.index) ?? t('settings.info.index.counts', { sessions: Object.keys(store.sessions).length, projects: Object.keys(store.projects).length }),
     sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length,
     tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null,
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
@@ -242,7 +236,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
     toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now }),
-    language: { visible: LANGUAGE_ROW_VISIBLE, value: storeLanguage(store) },
+    language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },
   };

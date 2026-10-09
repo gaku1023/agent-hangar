@@ -1,0 +1,30 @@
+import type { terminalKeys } from '../keys/terminal.ts';
+import type { AreaDictionary } from '../messageSpec.ts';
+
+export const terminalEn: AreaDictionary<typeof terminalKeys> = {
+  'terminal.band.title': 'Transcript view',
+  'terminal.band.sub': 'Claude keeps working in the background',
+  'terminal.band.subWhen': 'Turn from {when} · Claude keeps working in the background',
+  'terminal.band.latest': 'Back to latest',
+  'terminal.off.failed': 'Could not connect to terminal',
+  'terminal.off.detached': 'Detached from terminal',
+  'terminal.off.dropped': 'Terminal disconnected',
+  'terminal.off.failedBody': 'Reconnect, or reopen the session.',
+  'terminal.off.agentRunning': 'Claude is still running.',
+  'terminal.off.shellRunning': 'The shell is still running.',
+  'terminal.off.gaveUp': 'Could not connect.',
+  'terminal.off.retryIn': 'Reconnecting in {n} {n|second|seconds}.',
+  'terminal.off.retrying': 'Reconnecting.',
+  'terminal.off.reconnect': 'Reconnect',
+  'terminal.off.reattach': 'Reconnect',
+  'terminal.status.closed': 'Not connected',
+  'terminal.status.connecting': 'Connecting',
+  'terminal.tab.close': 'Close {title}',
+  'terminal.tab.addShell': 'Add shell tab',
+  'terminal.tab.split': 'Split side by side',
+  'terminal.tab.splitTitle': 'Split side by side (⌘\\)',
+  'terminal.tab.splitNeedsTwo': 'Needs two tabs',
+  'terminal.split.width': 'Left and right width',
+  'terminal.split.valueText': 'Left {percent}%',
+  'terminal.off.then': '{first} {next}',
+};

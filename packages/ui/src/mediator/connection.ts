@@ -1,7 +1,9 @@
+import { translatorOf } from '../presenters/i18n.ts';
+import type { Store } from '../store/store.ts';
 import type { Effect, Input, State, Step } from './types.ts';
 
 /** connection 領域：WebSocket の状態と再接続。開いたら必ず bootstrap を取り直す。 */
-export function connectionStep(state: State, input: Input): Step | null {
+export function connectionStep(state: State, store: Store, input: Input): Step | null {
   // 待ち時間を飛ばして今すぐ試す。自動の再接続とは別に、人が押せる道を残す。
   if (input.kind === 'intent') return input.intent.type === 'conn.retry' ? { state, effects: [{ kind: 'ws.connect' }] } : null;
   if (input.kind !== 'runtime') return null;
@@ -9,7 +11,7 @@ export function connectionStep(state: State, input: Input): Step | null {
     case 'ws.open': {
       const effects: Effect[] = [{ kind: 'api.bootstrap' }];
       // 一度も切れていない最初の接続は「追いついた」ではないので黙る。
-      if (state.reconnectAttempt > 0) effects.push({ kind: 'toast', level: 'info', message: '最新の状態に追いつきました' });
+      if (state.reconnectAttempt > 0) effects.push({ kind: 'toast', level: 'info', message: translatorOf(store)('mediator.connection.caughtUp') });
       return { state: { ...state, connection: 'connected', reconnectAttempt: 0, staleSince: null, nextRetryAt: null }, effects };
     }
     case 'ws.close': {

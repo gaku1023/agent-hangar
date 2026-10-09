@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import type { Intent, SessionStatus, StatusFilter } from '@agent-hangar/shared';
+import type { Intent, SessionStatus, StatusFilter, Translate } from '@agent-hangar/shared';
 import { useEmit, type Emit } from '../intent/chain.tsx';
-import { ACTIVE_LABEL, CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
+import { ACTIVE_LABEL, candidateLabel, candidateSourceLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem } from '../presenters/listItem.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -10,15 +10,11 @@ import { RelativeTime } from './primitives/RelativeTime.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import { VirtualList } from './primitives/VirtualList.tsx';
 
-/** 本文が消えた会話の印の説明。行ごとに変わらない決まり文句なので、空の一覧の文言と同じく View に置く。 */
-const GONE_LABEL = '要約のみ。本文は Claude Code の保持期間で削除されたとみられます';
-/** 会話の中で利用者が選んだ状態（set_by が conversation）の札の注記。hangar は会話での承認を確かめられないので、後から分かるようにする。 */
-const CONVERSATION_NOTE = '会話で承認';
 /**
  * 動きの語。入力待ちと実行中だけを語にし、止まっているものは点だけにする。
  * 休みは実行中に数える（shared の liveFilterOf と同じ）。細かい区別は点が読み上げるので、語は読み上げに重ねない。
  */
-const LIVE_WORD = { waiting: '入力待ち', busy: '実行中', idle: '実行中' } as const;
+const LIVE_WORD_KEY = { waiting: 'list.live.waiting', busy: 'list.live.running', idle: 'list.live.running' } as const;
 
 /**
  * 行の中の操作の器のクリックを止める。止めないと、押したときに行も開く。
@@ -27,13 +23,13 @@ const LIVE_WORD = { waiting: '入力待ち', busy: '実行中', idle: '実行中
 const stopClick = (e: ReactMouseEvent) => e.stopPropagation();
 
 /** 「⋯」の 4 択（A2）。打鍵の印は試作 rest.html の A2 のとおり。付いている状態と、外すものの無い「Active に戻す」は理由を添えて押せなくする。 */
-function stateItems(r: SessionRowProps, emit: Emit): MenuItem[] {
+function stateItems(t: Translate, r: SessionRowProps, emit: Emit): MenuItem[] {
   const set = (status: SessionStatus | null) => () => emit({ type: 'session.state.set', id: r.id, status });
   return [
-    { key: 'paused', label: 'Paused にする…', kbd: 'p', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'menu' }) },
-    { key: 'done', label: 'Done にする', kbd: 'd', disabled: r.state === 'done' ? 'すでに Done です' : null, onSelect: set('done') },
-    { key: 'archived', label: 'Archived にする', kbd: 'a', disabled: r.state === 'archived' ? 'すでに Archived です' : null, onSelect: set('archived') },
-    { key: 'active', label: 'Active に戻す', kbd: 'u', disabled: r.state === null && r.candidate === null ? 'すでに Active です' : null, onSelect: set(null) },
+    { key: 'paused', label: t('row.menu.paused'), kbd: 'p', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'menu' }) },
+    { key: 'done', label: t('row.menu.done'), kbd: 'd', disabled: r.state === 'done' ? t('row.menu.alreadyDone') : null, onSelect: set('done') },
+    { key: 'archived', label: t('row.menu.archived'), kbd: 'a', disabled: r.state === 'archived' ? t('row.menu.alreadyArchived') : null, onSelect: set('archived') },
+    { key: 'active', label: t('row.menu.active'), kbd: 'u', disabled: r.state === null && r.candidate === null ? t('row.menu.alreadyActive') : null, onSelect: set(null) },
   ];
 }
 
@@ -42,21 +38,21 @@ function stateItems(r: SessionRowProps, emit: Emit): MenuItem[] {
  * ポップの頭に根拠の一文、出どころ、時刻を置き、項目は 確定・日を変える（Paused のみ）・却下。打鍵の印は Q1 の試作のとおり y と n。
  * onClose は閉じたときにフォーカスを行へ戻すために呼び側から受ける（札は確定・却下で消えるので）。
  */
-function candidatePop(r: SessionRowProps, emit: Emit, onClose: (how: MenuCloseHow) => void) {
+function candidatePop(t: Translate, r: SessionRowProps, emit: Emit, onClose: (how: MenuCloseHow) => void) {
   const c = r.candidate!;
   const items: MenuItem[] = [
-    { key: 'confirm', label: '確定', kbd: 'y', onSelect: () => emit({ type: 'session.state.confirm', id: r.id }) },
-    ...(c.status === 'paused' ? [{ key: 'date', label: '日を変える', kbd: 'c', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'candidate' }) }] : []),
-    { key: 'reject', label: '却下', kbd: 'n', onSelect: () => emit({ type: 'session.state.reject', id: r.id }) },
+    { key: 'confirm', label: t('row.menu.confirm'), kbd: 'y', onSelect: () => emit({ type: 'session.state.confirm', id: r.id }) },
+    ...(c.status === 'paused' ? [{ key: 'date', label: t('row.menu.changeDate'), kbd: 'c', onSelect: () => emit({ type: 'session.pause.open', id: r.id, from: 'candidate' }) }] : []),
+    { key: 'reject', label: t('row.menu.dismiss'), kbd: 'n', onSelect: () => emit({ type: 'session.state.reject', id: r.id }) },
   ];
   const head = (
     <>
-      <b className="menu-head-q">{c.status === 'done' ? 'Done にしますか' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null, c.returnTime) : '日付なし'} にしますか`}</b>
-      <span>{c.note ?? '根拠は書かれていません'}</span>
-      <small>出どころ：{CANDIDATE_SOURCE_LABEL[c.source]} · {c.ago}</small>
+      <b className="menu-head-q">{c.status === 'done' ? t('row.candidate.askDone') : t('row.candidate.askPaused', { date: returnOnLabel(t, c.returnOn, null, c.returnTime) })}</b>
+      <span>{c.note ?? t('projectScreen.todo.noNote')}</span>
+      <small>{t('row.candidate.source', { source: candidateSourceLabel(t, c.source), ago: c.ago })}</small>
     </>
   );
-  return <MenuButton label={`${r.name} への Claude の提案`} face={candidateShortLabel(c)} title={candidateLabel(c)} faceClassName="row-cand" items={items} head={head} minWidth={260} onClose={onClose} />;
+  return <MenuButton label={t('row.candidate.menuLabel', { name: r.name })} face={candidateShortLabel(t, c)} title={candidateLabel(t, c)} faceClassName="row-cand" items={items} head={head} minWidth={260} onClose={onClose} />;
 }
 
 /** 2 段の行の高さ。tokens.css の --session-row-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
@@ -77,9 +73,6 @@ type RowsSource = { rows: SessionRowProps[]; items?: never } | { items: ListItem
  * project は 1 つのプロジェクトの画面の一覧で、search と同じ行から、プロジェクト名（見出しにある）だけを除いたもの。
  */
 export type RowVariant = 'recent' | 'project' | 'search';
-
-/** 行が無いときに出す文言。emptyText で差し替えられる。 */
-const DEFAULT_EMPTY_TEXT = 'セッションはまだありません';
 
 /** 行を開く Intent。検索の結果の行は、抜粋の一致へ跳ぶ先を添える。 */
 const openIntent = (r: SessionRowProps) => (r.jump ? { type: 'session.open' as const, id: r.id, seq: r.jump.seq, q: r.jump.q } : { type: 'session.open' as const, id: r.id });
@@ -248,10 +241,10 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     e.preventDefault();
   };
 
-  if (items.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div>}</div>;
+  if (items.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? t('row.empty.default')}</div>}</div>;
 
   const memoEditor = (r: SessionRowProps) => (
-    <input className="input memo-input" autoFocus aria-label={`${r.name} のメモ`} value={draft} onChange={(e) => setDraft(e.target.value)} onClick={(e) => e.stopPropagation()}
+    <input className="input memo-input" autoFocus aria-label={t('row.note.label', { name: r.name })} value={draft} onChange={(e) => setDraft(e.target.value)} onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         // 入力欄のキーは行にも一覧にも渡さない。
         if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(r.id); }
@@ -284,17 +277,18 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     );
   };
 
+  const goneLabel = t('row.gone.label');
   // 右端。時刻と、動きの語と「⋯」。
   const side = (r: SessionRowProps) => (
     <span className="row-side">
       {/* 本文の期限の印、動きの語、「⋯」を時刻の左に並べる。状態と提案の札は左の状態の列にある（F1）。
           消えかけは琥珀のチップで先に知らせ、消えた会話は文字の無い印だけにする。消えた会話は数百件に上るので、文字を並べると一覧が騒がしくなる。 */}
       <span className="row-when">
-        {r.transcript === 'expiring' && <span className="row-soon">まもなく削除</span>}
-        {r.transcript === 'gone' && <span className="row-gone" title={GONE_LABEL}><Icon name="transcriptGone" label={GONE_LABEL} /></span>}
-        {r.live && <span className="row-live" data-live={r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{LIVE_WORD[r.live]}</span>}
+        {r.transcript === 'expiring' && <span className="row-soon">{t('row.soon.delete')}</span>}
+        {r.transcript === 'gone' && <span className="row-gone" title={goneLabel}><Icon name="transcriptGone" label={goneLabel} /></span>}
+        {r.live && <span className="row-live" data-live={r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{t(LIVE_WORD_KEY[r.live])}</span>}
         <span className="row-act row-more" onClick={stopClick}>
-          <MenuButton label={`${r.name} の状態`} items={stateItems(r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />
+          <MenuButton label={t('row.menu.stateLabel', { name: r.name })} items={stateItems(t, r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />
         </span>
         {time(r)}
       </span>
@@ -308,7 +302,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const time = (r: SessionRowProps) => (
     <span className="row-time">
       {r.state === 'paused'
-        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={`${r.returnTime ? `戻る時刻 ${returnOnLabel(r.returnOn, r.overdueDays, r.returnTime)}` : '戻る日'} · 最後の活動 ${r.when}`}>{returnOnRowLabel(r.returnOn, r.overdueDays, r.returnTime, r.returnPastMin)}</span>
+        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={t('row.return.titleLast', { title: r.returnTime ? t('row.return.titleTime', { date: returnOnLabel(t, r.returnOn, r.overdueDays, r.returnTime) }) : t('row.return.titleDate'), when: r.when })}>{returnOnRowLabel(t, r.returnOn, r.overdueDays, r.returnTime, r.returnPastMin)}</span>
         : <RelativeTime label={r.when} abs={r.whenAbs} />}
     </span>
   );
@@ -319,9 +313,9 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const status = (r: SessionRowProps) => (
     <span className="row-status">
       {r.state
-        ? badge(r.state, STATUS_LABEL[r.state], <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? CONVERSATION_NOTE : undefined}>{STATUS_LABEL[r.state]}</span>)
+        ? badge(r.state, STATUS_LABEL[r.state], <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? t('row.conversation.note') : undefined}>{STATUS_LABEL[r.state]}</span>)
         : r.candidate
-          ? <span className="row-act" onClick={stopClick}>{candidatePop(r, emit, (how) => candidateClosed(r.id, how))}</span>
+          ? <span className="row-act" onClick={stopClick}>{candidatePop(t, r, emit, (how) => candidateClosed(r.id, how))}</span>
           : badge('active', ACTIVE_LABEL, <span className="row-sq" data-s="active">{ACTIVE_LABEL}</span>)}
     </span>
   );
@@ -329,7 +323,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   // 行の状態の札（Done・Archived の四角の札と、Paused の戻る日の札）。Sessions ではそのタブへ移るボタンにする（★ の E）。
   // 行が開かないよう、クリックは行へ渡さない。Enter はボタンのものなので、行の打鍵（onKeyDown）は横取りしない。
   const badge = (status: StatusFilter, label: string, node: ReactNode) => (props.badgeIntent ? (
-    <button type="button" className="badge-link" aria-label={`${label} のセッションだけを見る`} onClick={(e) => { e.stopPropagation(); emit(props.badgeIntent!(status)); }}>{node}</button>
+    <button type="button" className="badge-link" aria-label={t('row.badge.filter', { label })} onClick={(e) => { e.stopPropagation(); emit(props.badgeIntent!(status)); }}>{node}</button>
   ) : node);
 
   // 検索の結果の組の見出し。行ではないので、カーソルもフォーカスも止まらない。
@@ -348,7 +342,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       <StatusDot status={r.live} aside={r.aside} />
       {statusColumn && status(r)}
       <span className="row-main">
-        <span className="row-name">{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
+        <span className="row-name">{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}</span>
         {sub(r)}
       </span>
       {side(r)}

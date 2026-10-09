@@ -1,5 +1,6 @@
 import { percentLabel } from '../../presenters/format.ts';
 import { foldAt } from '../headerFold.ts';
+import { useT } from './language.tsx';
 import { RollingNumber } from './RollingNumber.tsx';
 
 /**
@@ -10,8 +11,9 @@ import { RollingNumber } from './RollingNumber.tsx';
  * 棒はヘッダーが狭いときに畳む（headerFold.ts）。見出しと数字は残す。
  */
 export function UsageGauge(props: { label: string; short?: string; percent: number | null; resets?: string | null; updated?: string | null }) {
+  const t = useT();
   const pct = props.percent === null ? 0 : Math.max(0, Math.min(100, props.percent));
-  const title = `${props.label} ${percentLabel(props.percent)}${props.resets ? `、${props.resets} に戻ります` : ''}${props.updated ? `、最終更新 ${props.updated}` : ''}`;
+  const title = `${props.label} ${percentLabel(t, props.percent)}${props.resets ? t('header.gauge.resetsTitle', { time: props.resets }) : ''}${props.updated ? t('header.gauge.updatedTitle', { time: props.updated }) : ''}`;
   return (
     <span className="gauge" title={title}>
       {props.short && <span className="gauge-key" aria-hidden="true">{props.short}</span>}

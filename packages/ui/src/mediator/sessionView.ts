@@ -1,3 +1,4 @@
+import { translatorOf } from '../presenters/i18n.ts';
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
 import { aliveRunOf, currentRunOf, tabsOf, type Store } from '../store/store.ts';
 
@@ -222,7 +223,7 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
       const tabs = run ? tabsOf(store, run.id) : [];
       const left = view.selectedTab ?? tabs[0]?.id ?? null;
       const right = tabs.find((t) => t.id !== left);
-      if (!right) return { state, effects: [{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }] };
+      if (!right) return { state, effects: [{ kind: 'toast', level: 'info', message: translatorOf(store)('mediator.sessionView.splitNeedsTwoTabs') }] };
       return patch(state, sid, { split: true, splitTab: right.id });
     }
     case 'tab.close': {

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useEmit } from '../../intent/chain.tsx';
 import type { State } from '../../mediator/types.ts';
 import { Icon } from './Icon.tsx';
+import { useT } from './language.tsx';
 
 /**
  * 最後にクリップボードへ写せた文（Mediator の copied）。
@@ -43,21 +44,23 @@ export function useCopy(text: string): { copied: boolean; press: () => void } {
  * ariaLabel は読み上げの名前をそのまま決める。見えている文がコピーの語でないとき（報告用に写す）に使う。
  */
 export function CopyButton(props: { text: string; name?: string; label?: string; ariaLabel?: string }) {
+  const t = useT();
   const { copied, press } = useCopy(props.text);
   return (
-    <button type="button" className="copy-btn" data-copied={copied ? 'true' : undefined} aria-label={props.ariaLabel ?? `${props.name ?? props.text} をコピー`} onClick={press}>
+    <button type="button" className="copy-btn" data-copied={copied ? 'true' : undefined} aria-label={props.ariaLabel ?? t('primitives.commandLine.copyLabel', { name: props.name ?? props.text })} onClick={press}>
       <Icon name={copied ? 'check' : 'copy'} />
-      {props.label !== undefined && <span>{copied ? 'コピーしました' : props.label}</span>}
+      {props.label !== undefined && <span>{copied ? t('common.button.copied') : props.label}</span>}
     </button>
   );
 }
 
 /** ターミナルで打つコマンドの行（設定の D1）。薄い地のコードと、右端のコピー。 */
 export function CommandLine(props: { command: string }) {
+  const t = useT();
   return (
     <div className="cmd-line">
       <code>{props.command}</code>
-      <CopyButton text={props.command} label="コピー" />
+      <CopyButton text={props.command} label={t('common.button.copy')} />
     </div>
   );
 }

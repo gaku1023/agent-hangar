@@ -1,4 +1,5 @@
-import { APPROVE_TEXT, LOGGED_OUT_TEXT, type AccountGauge, type AccountView } from '../../presenters/accounts.ts';
+import { approveText, loggedOutText, type AccountGauge, type AccountView } from '../../presenters/accounts.ts';
+import { useT } from './language.tsx';
 
 /**
  * アカウント 1 つ分の、色の点・名前・プラン・メールと、5 時間と週の使用率の 2 本の棒。
@@ -12,6 +13,7 @@ import { APPROVE_TEXT, LOGGED_OUT_TEXT, type AccountGauge, type AccountView } fr
  */
 export function AccountMeters(props: { account: AccountView; showResets: boolean }) {
   const a = props.account;
+  const t = useT();
   const noValue = a.fiveHour === null && a.sevenDay === null;
   const again = a.auth === 'running' && a.loggedIn;
   return (
@@ -21,12 +23,12 @@ export function AccountMeters(props: { account: AccountView; showResets: boolean
         <b className="account-meters-name">{a.name}</b>
         {a.plan !== null && <span className="account-plan">{a.plan}</span>}
       </span>
-      <span className="account-mail mono" data-auth={a.auth}>{a.auth === 'out' ? LOGGED_OUT_TEXT : a.auth === 'running' && !a.loggedIn ? APPROVE_TEXT : a.email ?? ''}</span>
-      {again && <span className="account-approve">{APPROVE_TEXT}</span>}
-      {noValue ? <span className="account-none">まだ値がありません</span> : (
+      <span className="account-mail mono" data-auth={a.auth}>{a.auth === 'out' ? loggedOutText(t) : a.auth === 'running' && !a.loggedIn ? approveText(t) : a.email ?? ''}</span>
+      {again && <span className="account-approve">{approveText(t)}</span>}
+      {noValue ? <span className="account-none">{t('account.meters.noValue')}</span> : (
         <>
-          <Row name={a.name} label="5 時間枠の使用率" short="5 時間" gauge={a.fiveHour} showResets={props.showResets} />
-          <Row name={a.name} label="週の枠の使用率" short="週" gauge={a.sevenDay} showResets={props.showResets} />
+          <Row name={a.name} label={t('account.meters.fiveHourLabel')} short={t('account.meters.fiveHourShort')} gauge={a.fiveHour} showResets={props.showResets} />
+          <Row name={a.name} label={t('account.meters.weekLabel')} short={t('account.meters.weekShort')} gauge={a.sevenDay} showResets={props.showResets} />
         </>
       )}
       {a.note !== null && <span className="account-note" data-tone={a.note.tone}>{a.note.text}</span>}
@@ -35,6 +37,7 @@ export function AccountMeters(props: { account: AccountView; showResets: boolean
 }
 
 function Row(props: { name: string; label: string; short: string; gauge: AccountGauge | null; showResets: boolean }) {
+  const t = useT();
   const g = props.gauge;
   const pct = g === null ? 0 : Math.max(0, Math.min(100, g.percent));
   const high = g?.high === true;
@@ -45,7 +48,7 @@ function Row(props: { name: string; label: string; short: string; gauge: Account
         <span className="gauge-fill" data-high={high ? 'true' : undefined} style={{ width: `${pct}%` }} />
       </span>
       <span className="account-row-num mono" data-high={high ? 'true' : undefined}>{g === null ? '—' : `${Math.round(g.percent)}%`}</span>
-      <span className="account-row-resets">{props.showResets && g?.resets ? `${g.resets} に戻る` : ''}</span>
+      <span className="account-row-resets">{props.showResets && g?.resets ? t('account.meters.resetsAt', { time: g.resets }) : ''}</span>
     </span>
   );
 }

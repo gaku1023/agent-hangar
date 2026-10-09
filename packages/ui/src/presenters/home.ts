@@ -1,4 +1,4 @@
-import { ASIDE_FREE, asideHead, asideOf } from '../lib/aside.ts';
+import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
 import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type Intent, type LiveStatus, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
@@ -52,11 +52,7 @@ export type ConfirmCard = TodoConfirmCard | SessionConfirmCard;
 export type HomeCards = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[] };
 
 /** 問いの文が取れなかった入力待ち（権限の確認など）に出す文。 */
-export const NO_QUESTION = '入力を待っています';
-/** 今日戻るの理由が無いときに出す文。 */
-const NO_REASON = '理由は書かれていません';
-/** 提案の根拠が無いときに出す文。TODO の候補（presenters/project.ts）と同じ言い方にする。 */
-const NO_NOTE = '根拠は書かれていません';
+export const noQuestionText = (t: Translate): string => t('home.card.noQuestion');
 
 /** summary がツール名そのもの、または「ツール名+半角空白」で始まるなら、その分を削る。 */
 function stripLeadingTool(tool: string, summary: string): string {
@@ -70,7 +66,8 @@ function stripLeadingTool(tool: string, summary: string): string {
  * alive は hangar の run が生きているセッションで、生きているものは出さない。
  */
 export function returningCards(store: Store, now: number, alive: Set<string> = runningSessionIds(store)): ReturnCard[] {
-  const name = (s: SessionDto) => s.name ?? '（名前なし）';
+  const tr = translatorOf(store);
+  const name = (s: SessionDto) => s.name ?? tr('common.label.noName');
   const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
   // 今日戻る（C1）。戻る日の古い順で、欠けた日と壊れた日を先頭に、同じ日の中は新しい順にする。
   // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
@@ -84,36 +81,37 @@ export function returningCards(store: Store, now: number, alive: Set<string> = r
       const r = on !== null && isReturnOn(on) ? on : null;
       const t = r !== null && typeof s.state?.returnTime === 'string' && isReturnTime(s.state.returnTime) ? s.state.returnTime : null;
       // 当日の時刻つきは、時刻の前から札に出す（朝のうちに今日の予定として見える）。塗るのは時刻を過ぎてからにする。
-      return { id: s.id, name: name(s), projectName: projectName(s), reason: s.state?.note || NO_REASON, returnOn: r, returnTime: t, overdueDays: r ? overdueDays(r, now) : null, due: r === null || returnDue(r, t, now), pastMin: r ? returnPastMinutes(r, t, now) : null };
+      return { id: s.id, name: name(s), projectName: projectName(s), reason: s.state?.note || tr('home.card.noReason'), returnOn: r, returnTime: t, overdueDays: r ? overdueDays(r, now) : null, due: r === null || returnDue(r, t, now), pastMin: r ? returnPastMinutes(r, t, now) : null };
     });
 }
 
 export function presentHome(_state: State, store: Store, now: number): HomeCards {
   const sessions = Object.values(store.sessions);
+  const t = translatorOf(store);
   const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
-  const name = (s: SessionDto) => s.name ?? '（名前なし）';
+  const name = (s: SessionDto) => s.name ?? t('common.label.noName');
   // Claude のレジストリに載る前の run も実行中に数える。
   // 信頼確認のダイアログ待ちの run が Home のどこにも出ないと、セッション画面への戻り道がなくなる。
   const alive = runningSessionIds(store);
 
   // 長く待っているものほど先に答えたいので、最後に動いた時刻の古い順に並べる。
   const waiting = sessions.filter((s) => s.live === 'waiting').sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
-  const attention = waiting.map((s) => ({ id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? NO_QUESTION, answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s) }));
+  const attention = waiting.map((s) => ({ id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? noQuestionText(t), answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s) }));
 
   const returning = returningCards(store, now, alive);
 
   // 確かめる。TODO の完了の候補とセッションの状態の提案を、候補になった時刻の古い順に混ぜる。
   // 放っておくと溜まるので、長く待っているものほど先に出す。
   const candidates = Object.values(store.todos)
-    .map((t) => ({ t, c: presentTodoCandidate(t, store, now) }))
-    .filter((x): x is { t: typeof x.t; c: NonNullable<typeof x.c> } => x.c !== null);
+    .map((todo) => ({ todo, c: presentTodoCandidate(todo, store, now) }))
+    .filter((x): x is { todo: typeof x.todo; c: NonNullable<typeof x.c> } => x.c !== null);
   const proposed = sessions.filter((s) => !!s.state?.candidate);
   const confirm = [
-    ...candidates.map(({ t, c }): { at: number; card: ConfirmCard } => ({ at: t.candidate!.at, card: { kind: 'todo', id: t.id, text: t.text, projectId: t.projectId, projectName: store.projects[t.projectId]?.name ?? '未分類', sessionName: c.sessionName, ago: c.ago, note: c.note } })),
+    ...candidates.map(({ todo, c }): { at: number; card: ConfirmCard } => ({ at: todo.candidate!.at, card: { kind: 'todo', id: todo.id, text: todo.text, projectId: todo.projectId, projectName: store.projects[todo.projectId]?.name ?? t('common.label.uncategorized'), sessionName: c.sessionName, ago: c.ago, note: c.note } })),
     ...proposed.map((s): { at: number; card: ConfirmCard } => {
       const c = s.state!.candidate!;
       // 札の文言は行の提案の札（第 1 段の candidateLabel）と同じにする。
-      return { at: c.at, card: { kind: 'session', id: s.id, name: name(s), projectName: projectName(s), status: c.status, label: candidateLabel(c), note: c.note || NO_NOTE, ago: relativeTime(c.at, now) } };
+      return { at: c.at, card: { kind: 'session', id: s.id, name: name(s), projectName: projectName(s), status: c.status, label: candidateLabel(t, c), note: c.note || t('projectScreen.todo.noNote'), ago: relativeTime(t, c.at, now) } };
     }),
   ].sort((a, b) => (a.at - b.at) || a.card.id.localeCompare(b.card.id)).map((x) => x.card);
 
@@ -124,12 +122,12 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     const aside = asideOf(s.live, s.liveAside);
     const working = s.live === 'busy' && aside === null;
     const activity = working && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
-    const note = activity ? null : aside ? `${asideHead(aside)}。${ASIDE_FREE}` : s.live === 'idle' ? `休み。最後の返答から ${durationLabel(now - (s.lastActivityAt ?? now))}` : s.live === 'busy' ? '作業中' : '起動しています';
-    const meta = [projectName(s) ?? '未分類', shortModel(s.stats.model), s.stats.effort ?? ''].filter((x) => x !== '').join(' · ');
+    const note = activity ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : s.live === 'idle' ? t('home.card.idleNote', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : s.live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
+    const meta = [projectName(s) ?? t('common.label.uncategorized'), shortModel(s.stats.model), s.stats.effort ?? ''].filter((x) => x !== '').join(' · ');
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
     const said = store.liveDigests[s.id]?.intent;
     const intent = working && said && said.inThisTurn ? said.text : null;
-    return { id: s.id, name: name(s), live: s.live, aside: aside !== null, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
+    return { id: s.id, name: name(s), live: s.live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent) };
   });
 
   return { attention, returning, confirm, running };
@@ -206,7 +204,7 @@ function attentionRow(t: Translate, a: AttentionCard): BandRow {
 
 function returnRow(t: Translate, r: ReturnCard): BandRow {
   const open: Intent = { type: 'session.open', id: r.id };
-  const text = r.returnOn === null ? t('home.band.noDate') : returnOnLabel(r.returnOn, r.overdueDays, r.returnTime, r.pastMin);
+  const text = r.returnOn === null ? t('home.band.noDate') : returnOnLabel(t, r.returnOn, r.overdueDays, r.returnTime, r.pastMin);
   const lead: BandLead = { kind: 'tag', text, tone: r.due ? 'due' : 'soon', ...(r.returnTime ? { title: t('home.band.reminderTime', { time: r.returnTime }) } : {}) };
   return {
     key: `return:${r.id}`, lead, name: r.name, context: r.projectName ?? t('common.label.uncategorized'), text: r.reason, detail: null, tone: null, trail: [], open,

@@ -49,7 +49,7 @@ function conditionsOf(t: Translate, text: string, f: SearchFilter, store: Store)
   if (f.status) out.push(tabLabel(t, f.status));
   if (f.live) out.push(liveWord(t, f.live));
   if (f.days) out.push(periodWord(t, f.days));
-  if (f.until !== undefined) out.push(t('list.cond.until', { date: absoluteTime(f.until).slice(0, 10) }));
+  if (f.until !== undefined) out.push(t('list.cond.until', { date: absoluteTime(t, f.until).slice(0, 10) }));
   if (f.projectId) out.push(store.projects[f.projectId]?.name ?? t('list.cond.missingProject'));
   if (f.file) out.push(f.file);
   return out;

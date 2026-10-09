@@ -51,7 +51,7 @@ export const projectScreenEn: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.note.placeholder': 'Write a note for this project',
   'projectScreen.note.write': 'Write a note',
   'projectScreen.artifact.empty': 'No artifacts yet',
-  'projectScreen.artifact.versions': '{n} updates',
+  'projectScreen.artifact.versions': '{n} {n|update|updates}',
   'projectScreen.artifact.openEditor': 'Open in VS Code',
   'projectScreen.artifact.urlLabel': 'Artifact URL',
   'projectScreen.artifact.addButton': 'Add',
