@@ -1,6 +1,6 @@
 # 初期プロンプト欄の候補と添付
 
-2026-10-06。試作は利用者の手元の `~/workspace/hangar-explainers/prompt-input-2026-10-06/index.html`（この PC のスキルの名前と回数が入るので、リポジトリには置かない）。
+2026-10-06。試作は利用者の手元の `~/workspace/design-notes/prompt-input-2026-10-06/index.html`（この PC のスキルの名前と回数が入るので、リポジトリには置かない）。
 
 ## 利用者の要望
 

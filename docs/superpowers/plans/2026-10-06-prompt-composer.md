@@ -2862,7 +2862,7 @@ UI とデスクトップをビルドする。手順は、このリポジトリ�
 
 - [ ] **Step 4: WebKit で撮って確かめる**
 
-確認用のサーバを、利用者のものと別のポートと別の `HANGAR_HOME` で起こす（`env -u HANGAR_PARENT_PID -u HANGAR_RUN_ID -u HANGAR_CLOUD_DIR …` で、受け継いだ変数を外す）。`~/workspace/hangar-explainers/design-shots.mjs` の `newSession` の撮り方にならい、次を 900×600 と 1512×868 で撮って、目で見る。
+確認用のサーバを、利用者のものと別のポートと別の `HANGAR_HOME` で起こす（`env -u HANGAR_PARENT_PID -u HANGAR_RUN_ID -u HANGAR_CLOUD_DIR …` で、受け継いだ変数を外す）。`~/workspace/design-notes/design-shots.mjs` の `newSession` の撮り方にならい、次を 900×600 と 1512×868 で撮って、目で見る。
 
 1. `/` を打った直後（よく使う、群、札）。
 2. `/g` まで打った後（絞り込み、塗り）。

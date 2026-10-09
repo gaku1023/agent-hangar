@@ -8,8 +8,8 @@ describe('cardPathLabel', () => {
     expect(cardPathLabel('/Users/a/workspace/agent-hangar', 'agent-hangar', '/Users/a/workspace/')).toBeNull();
   });
   it('フォルダ名が NFD で届いても、名前と同じとみなす', () => {
-    const nfd = '無検閲モデル'.normalize('NFD');
-    expect(cardPathLabel(`/Users/a/workspace/${nfd}`, '無検閲モデル', '/Users/a/workspace')).toBeNull();
+    const nfd = 'ご注文ガイド'.normalize('NFD');
+    expect(cardPathLabel(`/Users/a/workspace/${nfd}`, 'ご注文ガイド', '/Users/a/workspace')).toBeNull();
   });
   it('ワークスペースの下で名前と違うときは、ワークスペースからの相対で出す', () => {
     expect(cardPathLabel('/Users/a/workspace/tools/hangar', 'hangar', '/Users/a/workspace')).toBe('tools/hangar');

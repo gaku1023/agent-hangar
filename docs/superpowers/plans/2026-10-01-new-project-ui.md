@@ -1869,7 +1869,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ```tsx
 describe('NewProjectDialog', () => {
-  const base: NewProjectProps = { dirs: [{ name: 'hangar-explainers', path: '/w/hangar-explainers' }, { name: 'RPG2', path: '/w/RPG2' }], workspaceRoot: '/w', desktop: true, picked: null, submitting: false, error: null };
+  const base: NewProjectProps = { dirs: [{ name: 'design-notes', path: '/w/design-notes' }, { name: 'Puzzle2', path: '/w/Puzzle2' }], workspaceRoot: '/w', desktop: true, picked: null, submitting: false, error: null };
   const collect = (over: Partial<NewProjectProps> = {}) => {
     const out: Intent[] = [];
     const view = render(<IntentRoot onIntent={(i) => out.push(i)}><NewProjectDialog {...base} {...over} /></IntentRoot>);
@@ -1891,17 +1891,17 @@ describe('NewProjectDialog', () => {
   it('既存のフォルダを登録：一覧から選ぶと名前に basename が入り、直した名前で送る', () => {
     const { out } = collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
-    fireEvent.click(screen.getByRole('option', { name: 'hangar-explainers' }));
-    expect(screen.getByLabelText('プロジェクト名')).toHaveValue('hangar-explainers');
-    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'explainers' } });
+    fireEvent.click(screen.getByRole('option', { name: 'design-notes' }));
+    expect(screen.getByLabelText('プロジェクト名')).toHaveValue('design-notes');
+    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'notes' } });
     fireEvent.click(screen.getByRole('button', { name: '作成' }));
-    expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/hangar-explainers', name: 'explainers' }, startSession: false });
+    expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/design-notes', name: 'notes' }, startSession: false });
   });
   it('既存のフォルダを登録：一覧は名前で絞れ、パスを打っても選べる', () => {
     const { out } = collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
-    fireEvent.change(screen.getByLabelText('未登録のフォルダを探す'), { target: { value: 'rpg' } });
-    expect(screen.queryByRole('option', { name: 'hangar-explainers' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('未登録のフォルダを探す'), { target: { value: 'puz' } });
+    expect(screen.queryByRole('option', { name: 'design-notes' })).toBeNull();
     fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: '/Users/me/thesis' } });
     expect(screen.getByLabelText('プロジェクト名')).toHaveValue('thesis');
     fireEvent.click(screen.getByRole('button', { name: '作成して始める' }));

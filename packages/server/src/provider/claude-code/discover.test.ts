@@ -9,7 +9,7 @@ import { hasTranscriptFile, listRemoteTranscriptFiles, listTranscriptFiles, mang
 describe('mangleCwd', () => {
   it('英数字以外を 1 文字ずつ - にする', () => {
     expect(mangleCwd('/Users/me/workspace/alpha')).toBe('-Users-me-workspace-alpha');
-    expect(mangleCwd('/Users/me/workspace/父店-誕生日制作2025-09')).toBe('-Users-me-workspace---------2025-09');
+    expect(mangleCwd('/Users/me/workspace/町内-夏祭り資料2025-09')).toBe('-Users-me-workspace---------2025-09');
   });
 });
 
