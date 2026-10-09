@@ -5,8 +5,9 @@ import { Icon, type IconName } from './Icon.tsx';
  * 一覧の 1 行。tone の danger は赤い字（Bypass permissions）、tag は行の右の小さな文字（「前回」）。
  * lead は行の頭の印（icon の代わりに自由な中身を置く。effort の棒など）。
  * separatorBefore は、この行の前に細い線を引く。
+ * disabled の行は選べない（押しても Enter でも onPick を呼ばない）。理由は tag に書く。印は動かせるので、読み上げで理由に届く。
  */
-export type PickItem = { value: string; label: string; icon?: IconName; lead?: ReactNode; tone?: 'danger'; tag?: string; separatorBefore?: boolean };
+export type PickItem = { value: string; label: string; icon?: IconName; lead?: ReactNode; tone?: 'danger'; tag?: string; separatorBefore?: boolean; disabled?: boolean };
 
 /**
  * 小さい縦の一覧（Popover の中に置く、択一の面）。
@@ -30,7 +31,7 @@ export function PickList(props: { label: string; value: string; items: PickItem[
       case 'ArrowUp': setActive((a) => Math.max(a - 1, 0)); break;
       case 'Home': setActive(0); break;
       case 'End': setActive(last); break;
-      case 'Enter': case ' ': { const item = props.items[active]; if (item) props.onPick(item.value); break; }
+      case 'Enter': case ' ': { const item = props.items[active]; if (item && !item.disabled) props.onPick(item.value); break; }
       default: return;
     }
     e.preventDefault();
@@ -43,8 +44,8 @@ export function PickList(props: { label: string; value: string; items: PickItem[
       {props.items.map((item, i) => (
         <Fragment key={item.value}>
           {item.separatorBefore && i > 0 && <div className="pick-sep" aria-hidden="true" />}
-          <div id={optId(i)} role="option" className="pick-li" aria-selected={item.value === props.value} data-active={i === active ? 'true' : undefined} data-danger={item.tone === 'danger' ? 'true' : undefined}
-            onMouseMove={() => { if (i !== active) setActive(i); }} onClick={() => props.onPick(item.value)}>
+          <div id={optId(i)} role="option" className="pick-li" aria-selected={item.value === props.value} aria-disabled={item.disabled ? 'true' : undefined} data-active={i === active ? 'true' : undefined} data-danger={item.tone === 'danger' ? 'true' : undefined}
+            onMouseMove={() => { if (i !== active) setActive(i); }} onClick={() => { if (!item.disabled) props.onPick(item.value); }}>
             {plain ? null : item.lead ?? (item.icon ? <Icon name={item.icon} /> : <span className="pick-nolead" />)}
             <span className="pick-label">{item.label}</span>
             <span className="pick-end">

@@ -83,6 +83,15 @@ describe('LaunchChips（札の列）', () => {
       expect(outer).not.toHaveBeenCalled();
       expect(chip('モデル、claude-x')).toBeInTheDocument();
     });
+    it('一覧に無いモデルの名前は、打つたびに値を渡す。Enter を押さずに閉じても残る', () => {
+      const onChange = vi.fn();
+      render(<Host onChange={onChange} />);
+      fireEvent.click(chip('モデル、既定'));
+      fireEvent.change(screen.getByRole('textbox', { name: 'ほかのモデルの名前' }), { target: { value: 'claude-z' } });
+      expect(onChange).toHaveBeenLastCalledWith({ model: 'claude-z' });
+      fireEvent.keyDown(screen.getByRole('dialog', { name: 'モデル' }), { key: 'Escape' });
+      expect(chip('モデル、claude-z')).toBeInTheDocument();
+    });
     it('一覧に無い値は、開いたとき欄に入っている', () => {
       render(<Host initial={{ model: 'claude-y' }} />);
       fireEvent.click(chip('モデル、claude-y'));
@@ -249,6 +258,27 @@ describe('LaunchChips（札の列）', () => {
       expect(within(pop).getByRole('option', { name: '仕事用' })).toHaveAttribute('aria-selected', 'true');
       fireEvent.click(within(pop).getByRole('option', { name: '個人用' }));
       expect(onAccount).toHaveBeenCalledWith('home');
+    });
+    it('札と一覧の行に色の点を添える', () => {
+      const options = [{ value: 'work', label: '仕事用', color: '#3b6ef5' }, { value: 'home', label: '個人用', color: '#c2410c' }];
+      render(<LaunchChips values={BASE} onChange={() => {}} account={{ value: 'work', options, onChange: () => {} }} />);
+      const opener = screen.getByRole('button', { name: 'アカウント、仕事用' });
+      expect((opener.querySelector('.st-dot') as HTMLElement).style.color).toBe('rgb(59, 110, 245)');
+      fireEvent.click(opener);
+      const dots = within(screen.getByRole('listbox', { name: 'アカウント' })).getAllByRole('option').map((o) => (o.querySelector('.st-dot') as HTMLElement).style.color);
+      expect(dots).toEqual(['rgb(59, 110, 245)', 'rgb(194, 65, 12)']);
+    });
+    it('選べないアカウントは理由を添え、押しても選べない', () => {
+      const onAccount = vi.fn();
+      const options = [{ value: 'work', label: '仕事用' }, { value: 'home', label: '個人用', disabled: true, tag: '未ログイン' }];
+      render(<LaunchChips values={BASE} onChange={() => {}} account={{ value: 'work', options, onChange: onAccount }} />);
+      fireEvent.click(screen.getByRole('button', { name: 'アカウント、仕事用' }));
+      const row = screen.getByRole('option', { name: /個人用/ });
+      expect(row).toHaveAttribute('aria-disabled', 'true');
+      expect(row).toHaveTextContent('未ログイン');
+      fireEvent.click(row);
+      expect(onAccount).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog', { name: 'アカウント' })).toBeInTheDocument();
     });
   });
 });

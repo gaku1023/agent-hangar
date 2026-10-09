@@ -152,11 +152,6 @@
 .stepper-input { width: 44px; border: 0; outline: 0; background: none; text-align: center; font-family: var(--font-mono); font-size: var(--fs); font-weight: 600; color: var(--ink); -moz-appearance: textfield; }
 .stepper-input::-webkit-inner-spin-button, .stepper-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
-/* 起動ダイアログの詳細。左に値の名前、右に選ぶ部品を並べる。 */
-.launch-options { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: calc(var(--u) * 2.5); margin: calc(var(--u) * 2) 0; }
-.launch-option-label { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-2); }
-.launch-option-label-top { align-self: start; padding-top: calc(var(--u) * 2); }
-.launch-danger { margin-top: calc(var(--u) * 1.5); }
 .effort-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 10px; }
 .effort-bars i { width: 2.5px; border-radius: 1px; background: currentColor; opacity: 0.25; }
 .effort-bars i[data-on='true'] { opacity: 1; }
@@ -249,6 +244,16 @@ button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); resize: vertical; }
 .launch-hint { padding: calc(var(--u) * 1) calc(var(--u) * 1) 0; font-size: var(--fs-xs); color: var(--ink-3); }
 
+/* 新しいセッションのダイアログ（N2）。主役は大きな初期プロンプトの欄で、150px から始める。 */
+.pc[data-hero='true'] .pc-input { min-height: 150px; }
+.dialog.dialog-new-session { width: 640px; }
+.dialog-new-session .dialog-body { gap: calc(var(--u) * 3); }
+.dialog-new-session .faint { font-size: var(--fs-sm); }
+/* 札の下の「前回と同じ」の行。右端の「既定に戻す」は文字だけの操作である。 */
+.prev-line { display: flex; align-items: center; flex-wrap: wrap; gap: calc(var(--u) * 2); min-height: 22px; font-size: var(--fs-sm); }
+/* 下端の一言（そのまま ⌘↵ で）。キャンセルと起動の間の余白に右寄せで置く。 */
+.dialog-hint { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-xs); color: var(--ink-3); text-align: right; }
+
 /* 択一の縦の一覧（views/primitives/PickList.tsx、PermissionList.tsx）。
    焦点は一覧が受け、行の印（data-active）が動く。選んでいる行は青く、check が出る。
    Bypass permissions は線の下に赤い字で置き、選んでも赤いままにする。 */
@@ -267,6 +272,9 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .pick-li[aria-selected='true'] .pick-end > .icon { visibility: visible; }
 .pick-li[data-danger='true'], .pick-li[data-danger='true'] > .icon, .pick-li[data-danger='true'] .pick-end > .icon { color: var(--error); }
 .pick-li[data-danger='true'][aria-selected='true'] { background: color-mix(in srgb, var(--error) 8%, var(--surface)); }
+.pick-li[aria-disabled='true'] { cursor: not-allowed; }
+.pick-li[aria-disabled='true'] > :not(.pick-end), .pick-li[aria-disabled='true'] .pick-label { opacity: 0.55; }
+.pick-li > .st-dot { justify-self: center; }
 .pick-sep { height: 1px; margin: 5px calc(var(--u) * 1.5); background: var(--line-strong); }
 
 /* 作成のダイアログの、未登録のフォルダの一覧。開いたままの Listbox の面と同じ見た目にする。 */
@@ -309,13 +317,5 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 
 .account-pop-foot { display: flex; justify-content: flex-end; padding: 0 calc(var(--u) * 1); }
 
-/* 新規セッションのダイアログの札（views/AccountCards.tsx）。選び方の見た目は .account-card をそのまま使う（青い 2px の輪と淡い地）。
-   .option-cards と同じ 2 列の grid で、3 件以上は折り返す。右上の一言は無いので名前の行の余地は要らず、
-   枠が戻る時刻の列も出さない（注記が言う）。札の高さは行でそろえ、中身は上から並べる。 */
-.account-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u) * 1.5); }
-.account-choices .account-card { display: flex; flex-direction: column; justify-content: flex-start; min-width: 0; }
-.account-choices .account-card .account-meters-head { padding-right: 0; }
-.account-choices .account-row { grid-template-columns: 40px minmax(0, 1fr) 36px; }
-.account-choices .account-row-resets { display: none; }
 .account-settings { padding: var(--u) calc(var(--u) * 2); border: 0; border-radius: 8px; background: none; color: var(--accent); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
 .account-settings:hover { background: rgba(255, 255, 255, 0.92); }
