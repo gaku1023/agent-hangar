@@ -3105,7 +3105,7 @@ D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、�
 
 段 4 の PR 14 で、サーバの側を作り直した（設計は `docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md`）。
 `~/.claude` へ書く殻の命令と CLI は PR 16 で入れた（「適用と世代へ戻す」）。
-画面（PR 17）と、Worker の側（PR 15）はこの後に入る。
+Worker の側は PR 15 で入った（下の「互換の版」）。画面（PR 17）はこの後に入る。
 旧実装（`sync/claudeConfig.ts`、`file_sync` の設定の行、`/sync/config/*`、`SettingsDto.syncClaudeConfig`）は、PR 18 で消すまで残る。
 新しい実装は `sync/config/` にあり、既定は切である。
 
@@ -3228,8 +3228,33 @@ skills、commands、agents は実行される指示なので、他の PC から�
 Worker の版は、同期の 2xx の応答の見出しから `CloudClient.lastWorkerCompat()` が返す。まだ Worker と話していないあいだは null で、送らないが、更新待ちとは言わない。
 版が届いていないとき、`ConfigSyncDto.workerPending` が真になる（スイッチが入っているときだけ）。画面は「Worker の更新待ち」を出す。この状態が変わったときは `config.update` を配り直す。
 受け取る側は止めない。行が無ければ取りに行くものも無いからである。
-PR 15 が、この表を知る Worker を配備するときに、Worker の `COMPAT_VERSION` をこの値に上げる。
+PR 15 が、Worker の名乗る版（shared の `COMPAT_VERSION`）をこの値の 3 に上げた。
 `MIN_WORKER_COMPAT` と `MIN_DEVICE_COMPAT` は上げない。上げると、配備前の Worker を使う端末が全部止まる。
+
+**Worker の側（PR 15）。**
+Worker に足した経路も、D1 の表も、移行も無い。
+束の本体は既存の `PUT /files/config/<端末>/.hangar/config-bundle.hgr`（kind は `config`、自端末の鍵だけ書ける）と `GET /files/<鍵>` で運び、束の行は既存の `POST /changes` と `GET /changes`、`GET /rows` で運ぶ。
+`changes` と `rows` は表名と行 ID と payload を文字列で預かるだけなので、`config_snapshots` の行のための D1 の表は要らない。
+Worker が表名を断るのは `packages/cloud/src/changes.ts` の `SHARED_TABLES`（shared の一覧）で、PR 14 がこの一覧に表を足したので、この版の Worker は行を受ける。
+Worker の変更は、名乗る版を 3 に上げることだけである（`COMPAT_VERSION` は殻の `health.rs` の写しと同じ定数なので、殻の写しも 3 に上げた）。
+`packages/cloud/test/config-bundle.test.ts` が、行の受け取りと別の端末への配り（`GET /changes` と `GET /rows`）、取り下げの行、目録の上限（payload 128 KiB）、版 2 の端末の push、束の置き直しと他端末の上書きの拒否を縛る。
+
+配備の手順は次のとおりである。
+実物への配備は利用者が打つ（`hangar setup cloud` をもう一度実行して Worker を入れ替える）。D1 の移行は無い。
+1. Worker を先に配備する。配備した時点で、Worker は版 3 を名乗る。版 2 の端末は、下限（2）以上なので断られず、今までどおり同期できる。
+2. 端末を入れ替える。新しい端末（PR 14 以降）は、Worker の応答の見出しで版 3 を見るまで、スイッチが入っていても束も行も送らない（`workerPending`）。見たあとで送り始める。
+3. 端末を先に入れ替えて Worker が版 2 のままのときは、端末は黙って待つ。Worker が版 2 のままで束の行を送ると、他の表の同期まで止まるので、送らない。
+4. 版 2 の端末と版 3 の端末が混ざっても、束の行を送るのは版 3 の端末だけで、版 2 の端末は `config_snapshots` の行を `rows` から受け取っても、知らない表として捨てる。旧実装の設定の同期は、この間も旧い索引（`config/<端末>/<相対パス>`）を使う。
+5. 殻と 4177 のサーバは一致で比べるので、入れ替えた殻は、入れ替える前のサーバ（版 2。利用者の `npm run dev` など）を採らない。
+無料枠への影響は、束 1 回の送信につき R2 の PUT が 1 回（class A）、D1 の書き込みが `files` の 3 文（削除、挿入、`devices` の更新）と `changes` の 3 文（変更ログと `rows` の鏡と `devices` の更新）で、件数に依らない。束は端末ごとに 1 つなので、旧実装（項目ごとに PUT 1 回と D1 3 文）より、変更の多い日ほど軽い。
+送り直すのは束の指紋が変わったときだけである。
+
+旧実装の置き場（R2 の `config/<端末>/<相対パス>` と `files` の kind が `config` の行）の後始末は、`cleanupLegacyConfig`（`packages/cloud/src/cleanup.ts`）として実装してあるが、関門 `LEGACY_CONFIG_CLEANUP_ENABLED` は閉じている。
+旧実装を積んだ端末は、これを読んで取り込むので、旧実装が端末から消える前に消せない。
+旧実装を消す PR 18 が、関門を開け、かつ Worker の `MIN_DEVICE_COMPAT` を旧実装を持たない版へ上げてから配備する。
+関門を開けた Worker は、cold start のたびに 100 件ずつ（最大 5 回）、束の本体と索引（相対パスが `.hangar/config-bundle.hgr`）を除く設定の索引と本体を消し、取り切ったら `meta` に印を置いて以後は読むだけで帰る。
+D1 の書き込みは消した行の数で、旧実装の項目の総数が 1 度かかるだけである。R2 の削除は無料である。
+束の本体は孤児の掃除（`sweep.ts`）の対象に今までもならない（索引があるため）。
 
 **手元にあるが運ばないもの。**
 リンク、1 MiB を超えるファイル、読めないファイル、件数の上限（5000）を超えたファイル、リンクのディレクトリの下、読めない `settings.json`（リンク、大きすぎる、JSON でない、オブジェクトでない）、リンクのメモリの置き場は、項目として集めない。
@@ -3451,7 +3476,7 @@ D1 の Time Travel（無料枠で 7 日）で巻き戻せる。
 
 hangar の部品のうち、別々に上がりうるのは、端末どうし（同期で Worker を挟む）、端末と Worker、殻と 4177 で動いている既存のサーバである。
 UI とサーバと CLI は同じ束で配るので、版番号を持たない。
-別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 2）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
+別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 3。版 3 は、Worker が設定の束の行を受け取る版で、下限は上げていない）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
 古い版のための分岐を部品ごとに抱える代わりに、下限より古い相手とは話さずに、理由を出して止まる。
 
 **見出し。**
