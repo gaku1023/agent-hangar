@@ -274,11 +274,11 @@ describe('その他', () => {
     const b = run([intent({ type: 'toast.dismiss', id: a.state.toasts[0]!.id })], a.state);
     expect(b.state.toasts).toHaveLength(1);
   });
-  it('設定と状態変更と索引の作り直しは API 効果', () => {
-    const { effects } = run([intent({ type: 'project.setStatus', id: 'p1', status: 'paused' }), intent({ type: 'settings.update', patch: { workspaceRoot: '/w' } }), intent({ type: 'index.rebuild' })]);
-    expect(effects[0]).toEqual({ kind: 'api.setProjectStatus', projectId: 'p1', status: 'paused' });
-    expect(effects[1]).toEqual({ kind: 'api.updateSettings', patch: { workspaceRoot: '/w' } });
-    expect(effects[2]).toEqual({ kind: 'api.rebuildIndex' });
+  // プロジェクトの状態の変更は Mediator を通らない（runtime/intentTable.test.ts）。
+  it('設定と索引の作り直しは API 効果', () => {
+    const { effects } = run([intent({ type: 'settings.update', patch: { workspaceRoot: '/w' } }), intent({ type: 'index.rebuild' })]);
+    expect(effects[0]).toEqual({ kind: 'api.updateSettings', patch: { workspaceRoot: '/w' } });
+    expect(effects[1]).toEqual({ kind: 'api.rebuildIndex' });
   });
 });
 
@@ -321,17 +321,13 @@ describe('起動', () => {
     // スクラッチはプロジェクトが無くても送信できる。
     expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
-  it('再開、フォーク、停止、外部で開くは API 効果', () => {
-    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
+  // 外部で開く操作は Mediator を通らない（runtime/intentTable.test.ts）。
+  it('再開、フォーク、停止は API 効果', () => {
+    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
     expect(effects).toEqual([
       { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
-      { kind: 'api.openTerminalApp', runId: 'r1', tabId: 't1' }, { kind: 'api.openTerminalApp', runId: 'r1', tabId: null },
-      { kind: 'api.openEditor', sessionId: 's1' }, { kind: 'api.projectOpenEditor', projectId: 'p1' }, { kind: 'api.projectOpenTerminal', projectId: 'p1' },
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
-  });
-  it('変更したファイルを押すと、そのファイルを VS Code で開く', () => {
-    expect(run([intent({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts' })]).effects).toEqual([{ kind: 'api.openEditor', sessionId: 's1', file: '/w/a.ts' }]);
   });
 });
 
@@ -810,37 +806,18 @@ describe('昇格', () => {
 });
 
 describe('作業台の操作', () => {
-  it('TODO とメモとアーティファクトと要約は api 効果になる', () => {
+  // TODO の切り替えと削除、メモ、アーティファクト、要約の作り直しと試しは Mediator を通らない（runtime/intentTable.test.ts）。
+  it('TODO の追加は api 効果になる', () => {
     const r = run([
       intent({ type: 'todo.add', projectId: 'p1', text: '買う' }),
-      intent({ type: 'todo.toggle', id: 't1' }),
-      intent({ type: 'todo.remove', id: 't1' }),
-      intent({ type: 'todo.confirm', id: 't1' }),
-      intent({ type: 'todo.reject', id: 't1' }),
-      intent({ type: 'memo.save', projectId: 'p1', markdown: '# m' }),
-      intent({ type: 'session.setMemo', id: 's1', text: '一行' }),
-      intent({ type: 'artifact.open', id: 'a1' }),
-      intent({ type: 'artifact.openEditor', id: 'a1' }),
-      intent({ type: 'artifact.add', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' }),
-      intent({ type: 'summary.regenerate', sessionId: 's1' }),
-      intent({ type: 'summarizer.test' }),
     ]);
     expect(r.effects).toEqual([
       { kind: 'api.addTodo', projectId: 'p1', text: '買う' }, { kind: 'focus', target: 'todoInput' },
-      { kind: 'api.toggleTodo', id: 't1' }, { kind: 'api.removeTodo', id: 't1' },
-      { kind: 'api.confirmTodo', id: 't1' }, { kind: 'api.rejectTodo', id: 't1' },
-      { kind: 'api.saveMemo', projectId: 'p1', markdown: '# m' },
-      { kind: 'api.setSessionMemo', sessionId: 's1', text: '一行' },
-      { kind: 'api.openArtifact', id: 'a1' },
-      { kind: 'api.openArtifactEditor', id: 'a1' },
-      { kind: 'api.addArtifact', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' },
-      { kind: 'api.regenerateSummary', sessionId: 's1' },
-      { kind: 'api.testSummarizer' },
     ]);
     expect(r.state).toEqual(initialState());
   });
-  it('空の TODO と空の URL は何もしない', () => {
-    const r = run([intent({ type: 'todo.add', projectId: 'p1', text: '   ' }), intent({ type: 'artifact.add', projectId: 'p1', url: ' ' })]);
+  it('空の TODO は何もしない', () => {
+    const r = run([intent({ type: 'todo.add', projectId: 'p1', text: '   ' })]);
     expect(r.effects).toEqual([]);
   });
   it('split.resize は中間層で処理済みなので無視する', () => {
@@ -1569,7 +1546,6 @@ describe('セッションの状態', () => {
       intent({ type: 'session.state.set', id: 's1', status: null }),
       intent({ type: 'session.state.confirm', id: 's1' }),
       intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' }),
-      intent({ type: 'session.state.reject', id: 's1' }),
       intent({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' }),
       intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05', returnTime: '21:50' }),
     ]);
@@ -1579,7 +1555,6 @@ describe('セッションの状態', () => {
       { kind: 'api.setSessionState', id: 's1', body: { status: null } },
       { kind: 'api.confirmSessionState', id: 's1', body: {} },
       { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05' } },
-      { kind: 'api.rejectSessionState', id: 's1' },
       { kind: 'api.setSessionState', id: 's1', body: { status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' } },
       { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05', returnTime: '21:50' } },
     ]);
@@ -1603,21 +1578,7 @@ describe('セッションの状態', () => {
 
 describe('アカウント', () => {
   const effectsOf = (i: Extract<Input, { kind: 'intent' }>['intent'], start: State = initialState()) => run([intent(i)], start).effects;
-  it('読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは、それぞれの Effect を 1 つ出す', () => {
-    expect(effectsOf({ type: 'accounts.load' })).toEqual([{ kind: 'api.accounts.load' }]);
-    expect(effectsOf({ type: 'account.choose', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.setCurrent', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '研究室', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室', color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.login', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.login', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.login.cancel', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.cancelLogin', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.refresh', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.refresh', accountId: 'a1' }]);
-  });
-  it('更新の名前は前後の空白を落とし、空になれば patch に入れず、patch が空なら Effect を出さない', () => {
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '  研究室 ' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ' })).toEqual([]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1' })).toEqual([]);
-  });
+  // 読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは Mediator を通らない（runtime/intentTable.test.ts）。
   it('追加は名前の前後の空白を落とし、空白だけなら何も出さない', () => {
     expect(effectsOf({ type: 'account.add', name: '  大学 ' })).toEqual([{ kind: 'api.accounts.add', name: '大学' }]);
     const blank = run([intent({ type: 'account.add', name: '   ' })]);
