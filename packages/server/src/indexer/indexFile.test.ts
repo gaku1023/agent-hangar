@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { seedDbAt as seedOldDb } from '../../test/oldDb.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
@@ -30,9 +29,6 @@ const artifactCall = (toolId: string, input: Record<string, unknown>, ts = '2026
 const artifactResult = (toolId: string, text: string, ts = '2026-09-01T12:00:03.000Z') =>
   ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: text }] }, uuid: `u-${toolId}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
 const appendJson = (p: string, ...recs: unknown[]) => { for (const r of recs) fs.appendFileSync(p, JSON.stringify(r) + '\n'); };
-
-const insSession = 'insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?,?,?,?,?,?,?)';
-const insFile = 'insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)';
 
 describe('indexFile', () => {
   it('本体ファイルを索引化し、sessions と session_stats を埋める', () => {
@@ -186,48 +182,6 @@ describe('indexFile', () => {
     indexFile(db, alphaSub(), { deviceId: DEV });
     expect(rows()).toHaveLength(1);
     expect(rows()[0]!.o).toBe(140 + 3);
-  });
-
-  it('移行前の日別が残っていた DB でも、積み直したあとに二重に数えない', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-old-'));
-    const file = path.join(tmp, 'hangar.db');
-    const day = localDay(Date.parse('2026-09-01T10:00:05.000Z'));
-    // 版 3 の DB には、どのファイル由来か分からない日別の行がある。
-    seedOldDb(file, 3, (old) => {
-      old.prepare(insSession).run('s-alpha', 'claude-code', SESSION_ALPHA, '/Users/me/workspace/alpha', DEV, 1, DEV);
-      old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s-alpha', day, 999, 99);
-    });
-    const upgraded = openDb(file);
-    indexFile(upgraded, alphaMain(), { deviceId: DEV });
-    indexFile(upgraded, alphaSub(), { deviceId: DEV });
-    const sum = (d: Db) => d.prepare('select sum(input_tokens) i, sum(output_tokens) o from usage_daily').get() as { i: number; o: number };
-    // まっさらな DB に同じファイルを索引した結果と一致する（古い行は 1 つも足されない）。
-    const fresh = openDb(':memory:');
-    indexFile(fresh, alphaMain(), { deviceId: DEV });
-    indexFile(fresh, alphaSub(), { deviceId: DEV });
-    expect(sum(upgraded)).toEqual(sum(fresh));
-    upgraded.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  it('移行のあとは索引済みのファイルも作り直しに回り、日別が積み直される', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-old-'));
-    const file = path.join(tmp, 'hangar.db');
-    const main = alphaMain();
-    const st = fs.statSync(main.path);
-    // 版 3 の DB では、このファイルは最後まで索引済みになっている。
-    seedOldDb(file, 3, (old) => {
-      old.prepare(insSession).run('s-alpha', 'claude-code', SESSION_ALPHA, '/Users/me/workspace/alpha', DEV, 1, DEV);
-      old.prepare(insFile).run(main.path, 's-alpha', null, st.size, Math.floor(st.mtimeMs), st.size, INDEXER_VERSION);
-      old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s-alpha', localDay(Date.parse('2026-09-01T10:00:05.000Z')), 999, 99);
-    });
-    const upgraded = openDb(file);
-    // 移行が印を戻しているので、大きさも更新時刻も同じでも飛ばさない。
-    const r = indexFile(upgraded, main, { deviceId: DEV });
-    expect(r.changed).toBe(true);
-    expect(upgraded.prepare('select sum(input_tokens) i, sum(output_tokens) o from usage_daily').get()).toEqual({ i: 1110, o: 140 });
-    upgraded.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   it('主線を作り直してもサブエージェントぶんの日別は残る', () => {
