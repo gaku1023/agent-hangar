@@ -450,27 +450,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'badge': notifier?.badge(e.count); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
-      case 'api.toggleTodo': {
-        // 反転の基準はストアの現在値にする。View は done の値を持たない。
-        const t = store.todos[e.id];
-        if (!t) return;
-        // 候補の欄を押したときは確定と同じに扱う。候補は未完なので、素直に反転すると done: false を送って何も起きない。
-        if (t.candidate && !t.done) deps.api.confirmTodo(e.id).catch(fail);
-        else deps.api.setTodoDone(e.id, !t.done).catch(fail);
-        return;
-      }
-      case 'api.confirmTodo': deps.api.confirmTodo(e.id).catch(fail); return;
-      case 'api.rejectTodo': deps.api.rejectTodo(e.id).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
-      case 'api.removeTodo': deps.api.removeTodo(e.id).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
-      // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
-      case 'api.saveMemo': deps.api.saveMemo(e.projectId, e.markdown).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
-      case 'api.openArtifact': deps.api.openArtifact(e.id).catch(fail); return;
-      case 'api.openArtifactEditor': deps.api.openArtifactEditor(e.id).catch(fail); return;
-      case 'api.addArtifact': deps.api.addArtifact(e.projectId, e.url).then((a) => setStore({ ...store, artifacts: { ...store.artifacts, [a.id]: a } })).catch(fail); return;
       case 'api.promote':
         deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles })
           .then((r) => {

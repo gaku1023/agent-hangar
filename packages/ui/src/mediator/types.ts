@@ -93,18 +93,10 @@ export type Effect =
   | { kind: 'badge'; count: number }
   | { kind: 'storage.save'; key: string; value: unknown }
   | { kind: 'api.addTodo'; projectId: string; text: string }
-  | { kind: 'api.toggleTodo'; id: string }
-  | { kind: 'api.removeTodo'; id: string }
-  | { kind: 'api.confirmTodo'; id: string }
-  | { kind: 'api.rejectTodo'; id: string }
   // セッションの状態。本文には渡されたものだけを載せる。
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
   | { kind: 'api.loadMemo'; projectId: string }
-  | { kind: 'api.saveMemo'; projectId: string; markdown: string }
-  | { kind: 'api.openArtifact'; id: string }
-  | { kind: 'api.openArtifactEditor'; id: string }
-  | { kind: 'api.addArtifact'; projectId: string; url: string }
   | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }
   | { kind: 'api.createProject'; place: ProjectPlace; startSession: boolean }
   | { kind: 'api.createProjectThenLaunch'; place: ProjectPlace; params: LaunchParams }

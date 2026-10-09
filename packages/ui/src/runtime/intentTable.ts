@@ -51,6 +51,25 @@ export const intentTable = {
   'session.setMemo': (i) => call((api) => api.setSessionMemo(i.id, i.text), { apply: (store, s) => ({ ...store, sessions: { ...store.sessions, [s.id]: s } }) }),
   // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
   'summary.regenerate': (i) => call((api) => api.regenerateSummary(i.sessionId)),
+
+  // 反転の基準は Store の今の値にする。View は done の値を持たない。
+  // 候補の欄を押したときは確定と同じに扱う。候補は未完なので、素直に反転すると done: false を送って何も起きない。
+  'todo.toggle': (i, store) => {
+    const t = store.todos[i.id];
+    if (!t) return null;
+    return t.candidate && !t.done ? call((api) => api.confirmTodo(i.id)) : call((api) => api.setTodoDone(i.id, !t.done));
+  },
+  'todo.remove': (i) => call((api) => api.removeTodo(i.id)),
+  'todo.confirm': (i) => call((api) => api.confirmTodo(i.id)),
+  'todo.reject': (i) => call((api) => api.rejectTodo(i.id)),
+  // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
+  'memo.save': (i) => call((api) => api.saveMemo(i.projectId, i.markdown), { apply: (store, m) => ({ ...store, memos: { ...store.memos, [m.projectId]: m } }) }),
+  'artifact.open': (i) => call((api) => api.openArtifact(i.id)),
+  'artifact.openEditor': (i) => call((api) => api.openArtifactEditor(i.id)),
+  'artifact.add': (i) => {
+    const url = i.url.trim();
+    return url ? call((api) => api.addArtifact(i.projectId, url), { apply: (store, a) => ({ ...store, artifacts: { ...store.artifacts, [a.id]: a } }) }) : null;
+  },
 } satisfies Rows;
 
 /** 表にある Intent。Mediator の入力の型からは、これを外す（mediator/types.ts の MediatedIntent）。 */
