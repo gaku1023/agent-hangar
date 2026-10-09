@@ -1,4 +1,4 @@
-import type { LiveAsideDto, LiveStatus } from './api.ts';
+import type { LiveAsideDto, LiveStatus } from '@agent-hangar/shared';
 
 /** 見出し、点の読み上げ、パレットで「裏だけ動いている」を言う語。Claude Code の言葉（background）に合わせる。 */
 export const ASIDE_WORD = 'バックグラウンドで作業中';

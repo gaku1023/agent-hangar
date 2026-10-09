@@ -1,4 +1,5 @@
-import { parseQuery, type Intent, type SearchFilter, type StatusFilter } from '@agent-hangar/shared';
+import { type Intent, type SearchFilter, type StatusFilter } from '@agent-hangar/shared';
+import { parseQuery } from '../lib/searchTokens.ts';
 import type { KeyboardEvent } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import { SECTION_TAB, type SectionId } from '../presenters/sections.ts';
