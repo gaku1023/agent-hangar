@@ -654,7 +654,7 @@ tmux で `claude` を直接起動すると異常終了時の出力が失われ�
 包みの中身が変わったときはサーバの起動時に書き直すが、走っている run の bash は台本を読みながら進むので、その場で書き換えずに別のファイルから rename で入れ替える。
 起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`）と `HANGAR_CLOUD_DIR` を `-u` で外す。
 Windows は名前を包みへ `HANGAR_UNSET_ENV` で渡し、包みが消してから claude を起こす。
-tmux の新しいセッションは tmux サーバの全体の環境を継ぎ、tmux サーバを Claude Code のセッションの中から起こしていると、そこに別のセッションの印が残る。
+tmux の新しいセッションは、`PATH` のほかは tmux サーバの全体の環境を継ぐ（`PATH` は下に書くとおり起こした側の値になる）。tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境に別のセッションの印が残る。
 印を持って始まった claude は、そのセッションの子として振る舞う（再開の一覧と履歴から外れる、裏のセッションと見なす、別のセッションの名前やソケットを使う）。
 2026-10-08 に、利用者の既定の tmux サーバでこの状態を見つけた。
 `HANGAR_HOME` は外さない。statusline の台本と `hangar` の CLI が、claude の中で置き場を知るのに読む。
