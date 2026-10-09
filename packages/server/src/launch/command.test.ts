@@ -34,4 +34,13 @@ describe('shellTabCommand', () => {
     expect(shellTabCommand({ env: { SHELL: '/usr/bin/bash' }, platform: 'win32' })).toEqual(['powershell.exe', '-NoLogo']);
     expect(shellTabCommand({ shell: 'pwsh.exe', env: {}, platform: 'win32' })).toEqual(['pwsh.exe', '-NoLogo']);
   });
+  // シェルのタブも tmux サーバの環境を継ぐ。別のセッションの印を持ったシェルで claude を打つと、その claude は子のセッションと見なされる。
+  it('外す変数は、macOS と Linux では env -u で外してからシェルを起こす', () => {
+    expect(shellTabCommand({ env: { SHELL: '/bin/zsh' }, platform: 'darwin', unset: ['CLAUDECODE', 'HANGAR_PORT'] })).toEqual(['env', '-u', 'CLAUDECODE', '-u', 'HANGAR_PORT', '/bin/zsh', '-l']);
+    expect(shellTabCommand({ env: { SHELL: '/bin/zsh' }, platform: 'darwin', unset: [] })).toEqual(['/bin/zsh', '-l']);
+  });
+  // PowerShell の前に置ける env コマンドが無い。Windows のタブは外さない（claude の run は包みが外す）。
+  it('Windows では外す変数を受けても、PowerShell をそのまま起こす', () => {
+    expect(shellTabCommand({ env: {}, platform: 'win32', unset: ['CLAUDECODE'] })).toEqual(['powershell.exe', '-NoLogo']);
+  });
 });

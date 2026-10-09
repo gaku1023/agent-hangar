@@ -957,9 +957,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     openUrl: (url) => new Promise<void>((resolve, reject) => execFile('open', [url], (err) => (err ? reject(err) : resolve()))),
   };
 
-  // 配布版（Tauri のバンドル）では UI の置き場所を環境変数で受ける。
-  // 無ければリポジトリ内の packages/ui/dist を使う。
-  const uiDist = opts.uiDist ?? process.env.HANGAR_UI_DIST ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
+  // 配布版（Tauri のバンドル）では UI の置き場所を環境変数 HANGAR_UI_DIST で受ける。
+  // 入口（main.ts）が読んで消してから opts.uiDist で渡す。無ければリポジトリ内の packages/ui/dist を使う。
+  const uiDist = opts.uiDist ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../ui/dist');
   const app = createApp({
     cloudUsage,
     accounts: accountsDeps,

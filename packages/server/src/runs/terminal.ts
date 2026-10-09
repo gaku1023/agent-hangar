@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
 import { RunError } from './errors.ts';
 
 /** ターミナルの包み方から届く起動の頼み。 */
@@ -65,9 +66,11 @@ export function splitTerminalArgs(args: string[]): { resume: string | null; rest
 /**
  * tmux のセッションに渡さない変数。
  * 端末の種類と大きさは tmux が自分の値を入れる。外の端末の名前（TERM_PROGRAM など）を渡すと、中の claude が iTerm2 だと思って tmux を越えない列を送る。
- * シェルの状態と、hangar と Claude Code が中で立てる印も渡さない。
+ * シェルの状態と、hangar が中で立てる印（HANGAR_ で始まるもの）も渡さない。
+ * Claude Code が子に立てる印は、run の起こし方と同じ一覧（provider/claude-code/compat/childEnv.ts）で落とす。
+ * 外の端末が Claude Code のセッションの中から起きていると、そのセッションの印を持っている。
  */
-const DROPPED = new Set(['TMUX', 'TMUX_PANE', 'TERM', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'TERM_SESSION_ID', 'ITERM_SESSION_ID', 'ITERM_PROFILE', 'LC_TERMINAL', 'LC_TERMINAL_VERSION', 'SHLVL', 'PWD', 'OLDPWD', '_', 'COLUMNS', 'LINES', 'CLAUDECODE', 'CLAUDE_CODE_SESSION_KIND', 'CLAUDE_CODE_ENTRYPOINT']);
+const DROPPED = new Set(['TMUX', 'TMUX_PANE', 'TERM', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'TERM_SESSION_ID', 'ITERM_SESSION_ID', 'ITERM_PROFILE', 'LC_TERMINAL', 'LC_TERMINAL_VERSION', 'SHLVL', 'PWD', 'OLDPWD', '_', 'COLUMNS', 'LINES', ...CLAUDE_CHILD_ENV]);
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 

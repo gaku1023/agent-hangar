@@ -65,6 +65,62 @@ pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
     out.join(":")
 }
 
+/// サーバへ渡さない、殻が受け継いだ変数。
+///
+/// 殻を Claude Code のセッションの Bash から起こすと（`open` や osascript の launch）、
+/// 呼び手のセッションの印が殻に入る。そのまま渡すと、サーバが起こす tmux サーバと claude まで届き、
+/// hangar の claude が別のセッションの子として振る舞う（再開の一覧から外れる、別のセッションのソケットへ話しかける）。
+/// 後ろの 6 つは hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
+///
+/// 正本は `packages/server/src/launch/env.ts` の `SERVER_DROPPED_ENV` で、ここはその写しである。
+/// サーバも起動の最初に同じ名前を自分の環境から消す。
+/// 片方だけ変えると `apps/desktop/test/config.test.ts` の「殻がサーバへ渡さない変数」が落ちる。
+pub const INHERITED_ENV_DROPPED: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "AI_AGENT",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "CLAUDE_CODE_SESSION_KIND",
+    "CLAUDE_CODE_SESSION_NAME",
+    "CLAUDE_JOB_DIR",
+    "CLAUDE_BG_BACKEND",
+    "CLAUDE_BG_SOURCE",
+    "HANGAR_PARENT_PID",
+    "HANGAR_PORT",
+    "HANGAR_UI_DIST",
+    "HANGAR_RUN_ID",
+    "HANGAR_UNSET_ENV",
+    "HANGAR_CLOUD_DIR",
+];
+
+/// `node server.mjs` のコマンド。受け継いだ印を外してから、殻が渡す値を入れる。
+/// 外すのを先にする。逆の順だと、入れた `HANGAR_PORT` などまで消える。
+fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
+    let path = augmented_path(
+        std::env::var("PATH").ok().as_deref(),
+        &crate::paths::user_home(),
+    );
+    let mut cmd = Command::new(node);
+    for name in INHERITED_ENV_DROPPED {
+        cmd.env_remove(name);
+    }
+    cmd.arg(dir.join("server.mjs"))
+        .env("PATH", path)
+        .env("HANGAR_PARENT_PID", std::process::id().to_string())
+        .env("HANGAR_PORT", PORT.to_string())
+        .env("HANGAR_UI_DIST", dir.join("ui"))
+        .env("HANGAR_HOME", hangar_home);
+    cmd
+}
+
 /// `node server.mjs` を起動する。標準出力と標準エラーはログファイルに追記する。
 /// UI の置き場は、同梱の場所を環境変数で教える。
 /// 単一ファイルにまとめた server.mjs からは、相対では届かないためである。
@@ -76,17 +132,7 @@ pub fn spawn_server(
 ) -> std::io::Result<ServerProcess> {
     let out = OpenOptions::new().create(true).append(true).open(log)?;
     let err = out.try_clone()?;
-    let path = augmented_path(
-        std::env::var("PATH").ok().as_deref(),
-        &crate::paths::user_home(),
-    );
-    let child = Command::new(node)
-        .arg(dir.join("server.mjs"))
-        .env("PATH", path)
-        .env("HANGAR_PARENT_PID", std::process::id().to_string())
-        .env("HANGAR_PORT", PORT.to_string())
-        .env("HANGAR_UI_DIST", dir.join("ui"))
-        .env("HANGAR_HOME", hangar_home)
+    let child = server_command(node, dir, hangar_home)
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err))
@@ -233,6 +279,34 @@ mod tests {
         assert_eq!(conf["bundle"]["resources"]["../server-dist"], "server");
     }
 
+    // 外す一覧のどの名前も、子へは「消す」として渡る。殻が入れ直す 3 つだけは、殻の値になる。
+    // 試験のプロセスの環境に頼らずに、組み立てたコマンドそのものを見る。
+    #[test]
+    fn server_command_drops_inherited_markers_and_sets_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let cmd = server_command(Path::new("/bin/sh"), dir.path(), home.path());
+        let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
+        let own = ["HANGAR_PARENT_PID", "HANGAR_PORT", "HANGAR_UI_DIST"];
+        for name in INHERITED_ENV_DROPPED {
+            let v = envs.get(std::ffi::OsStr::new(name));
+            if own.contains(name) {
+                assert!(matches!(v, Some(Some(_))), "{name}: {v:?}");
+            } else {
+                assert_eq!(v, Some(&None), "{name}");
+            }
+        }
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("HANGAR_PORT")),
+            Some(&Some(std::ffi::OsStr::new("4177")))
+        );
+        // statusline の台本と hangar の CLI が claude の中で読む置き場は、殻の値で渡す。
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("HANGAR_HOME")),
+            Some(&Some(home.path().as_os_str()))
+        );
+    }
+
     #[test]
     fn spawn_passes_env_and_stop_terminates() {
         // Node の代わりに /bin/sh を使い、server.mjs をシェルスクリプトにして環境変数と停止を確かめる。
@@ -240,7 +314,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("server.mjs"),
-            "echo \"pid=$HANGAR_PARENT_PID ui=$HANGAR_UI_DIST cloud=$HANGAR_CLOUD_DIR port=$HANGAR_PORT home=$HANGAR_HOME path=$PATH\"\ntrap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n",
+            "echo \"pid=$HANGAR_PARENT_PID ui=$HANGAR_UI_DIST cloud=$HANGAR_CLOUD_DIR port=$HANGAR_PORT home=$HANGAR_HOME path=$PATH\"\necho \"leak=[$CLAUDECODE$CLAUDE_CODE_SESSION_ID$CLAUDE_CODE_CHILD_SESSION$HANGAR_RUN_ID]\"\ntrap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n",
         )
         .unwrap();
         let log = home.path().join("desktop.log");
@@ -255,12 +329,10 @@ mod tests {
             text.contains(&format!("ui={}", dir.path().join("ui").display())),
             "{text}"
         );
-        // サーバは HANGAR_CLOUD_DIR を読まないので渡さない。
-        // 試験を走らせる人の環境に残っていることはあるので、同梱の cloud/ を指していないことだけを見る。
-        assert!(
-            !text.contains(&format!("cloud={}", dir.path().join("cloud").display())),
-            "{text}"
-        );
+        // サーバは HANGAR_CLOUD_DIR を読まないので渡さない。試験を走らせる人の環境に残っていても外す。
+        assert!(text.contains("cloud= port="), "{text}");
+        // Claude Code のセッションから試験を走らせると、試験のプロセスはそのセッションの印を持っている。それも渡さない。
+        assert!(text.contains("leak=[]"), "{text}");
         assert!(text.contains("port=4177"), "{text}");
         assert!(
             text.contains(&format!("home={}", home.path().display())),
