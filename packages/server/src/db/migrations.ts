@@ -345,4 +345,21 @@ create index usage_snapshots_account_at on usage_snapshots (account, at);
 create index if not exists runs_session_started on runs (session_id, started_at);
 `,
   },
+  {
+    // 段 1 で消した端末の無料枠の見張り（D4）が端末に残したものを、1 回だけ消す。
+    // quota: で始まる鍵は、日ごとの数え（quota:<yyyy-MM-dd>）と、見張りが止めた日（quota:pausedDay）である。
+    // pausedReason は止めた理由で、見張りが止めたとき quota、利用者が止めたとき user だった。
+    // 見張りが止めた一時停止は解く。
+    // 見張りはもう無く、上限に当たれば Cloudflare が断り、端末は次の UTC の 0 時まで退く（sync/engine.ts）。
+    // 残すと入れ替えた後も止まったままになり、画面は利用者が止めたものとして見せる。
+    // 利用者が止めた一時停止（user と、理由の無い古いもの）はそのまま残す。
+    // Worker の meta の d1_rows:* は、Worker の側（段 1 の PR 6）で消す。
+    // Claude Code の設定の同期の記録（file_sync の config の行と、configPullConfirmed などの鍵）は、設定の同期を残すので触らない。
+    version: 16,
+    sql: `
+delete from sync_state where key = 'paused' and exists (select 1 from sync_state where key = 'pausedReason' and value = 'quota');
+delete from sync_state where key = 'pausedReason';
+delete from sync_state where key like 'quota:%';
+`,
+  },
 ];

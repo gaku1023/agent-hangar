@@ -79,6 +79,32 @@ describe('openDb', () => {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+  it('version 16 で見張りの名残を消し、見張りが止めた一時停止だけを解く', () => {
+    const seedState = (rows: [string, string][]): string => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
+      seedDbAt(path.join(tmp, 'hangar.db'), 15, (db) => {
+        const st = db.prepare('insert into sync_state (key, value) values (?, ?)');
+        for (const [k, v] of rows) st.run(k, v);
+      });
+      return tmp;
+    };
+    const keysAfter = (tmp: string): string[] => {
+      const db = openDb(path.join(tmp, 'hangar.db'));
+      try {
+        return (db.prepare('select key from sync_state order by key').all() as { key: string }[]).map((r) => r.key);
+      } finally {
+        db.close();
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    };
+    const common: [string, string][] = [['quota:2026-10-07', '{"rows":1,"requests":1}'], ['quota:pausedDay', 'quota:2026-10-07'], ['lastSeq', '9'], ['skipped:transcripts/dev-b/u1.jsonl.gz', '{}']];
+    // 見張りが止めていた端末は、一時停止も解く。
+    expect(keysAfter(seedState([...common, ['paused', '1'], ['pausedReason', 'quota']]))).toEqual(['lastSeq', 'skipped:transcripts/dev-b/u1.jsonl.gz']);
+    // 利用者が止めていた端末は、止めたまま。
+    expect(keysAfter(seedState([...common, ['paused', '1'], ['pausedReason', 'user']]))).toEqual(['lastSeq', 'paused', 'skipped:transcripts/dev-b/u1.jsonl.gz']);
+    // 理由の無い古い一時停止も、利用者が止めたものとして残す。
+    expect(keysAfter(seedState([...common, ['paused', '1']]))).toEqual(['lastSeq', 'paused', 'skipped:transcripts/dev-b/u1.jsonl.gz']);
+  });
 });
 
 describe('upsertShared', () => {
