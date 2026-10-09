@@ -234,7 +234,6 @@ fn wait_ready_with(
 /// サーバは索引づけより先に待ち受けを始めるので、`/health` が返った時点ではまだ済んでいないことがある。
 /// 済む前に移ると、UI は索引づけの間 API の応答を待たされる（100 件溜まっていたとき最大 1.4 秒、2026-09-30 の実測）。
 /// ふだんは 0.2 秒で済むので、起動はほとんど長くならない。
-/// 進み具合を載せない古いサーバは、済んだものとして扱う（`health::boot_state`）。
 /// 待つ間に子が終わったか、応答が途切れたまま戻らなければ、落ちたサーバへ移らず失敗の文を出す。
 fn wait_for_ready(app: &AppHandle, addr: SocketAddr, deadline: Duration) -> Result<(), String> {
     let t0 = Instant::now();
@@ -479,17 +478,52 @@ fn accept_server_dir(
     inside.then_some(dir)
 }
 
+/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文（2026-10-09 に利用者が選んだ、案 B と C を合わせたもの）。
+/// どちらが古いかで言い分け、文の下に、そのポートで待ち受けているプロセスを調べる命令を添える。
+/// 殻はそのサーバを止めない。利用者が自分で起こしたもの（hangar start や npm run dev）かもしれないからである。
+/// 止めてから「もう一度試す」を押せば、起動をやり直して同梱のサーバを起こす（`retry_boot`）。
+fn refusal_message(port: u16, theirs: u64, ours: u64) -> String {
+    let head = if theirs < ours {
+        format!(
+            "{port} で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
+             そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。"
+        )
+    } else {
+        format!(
+            "この Hangar.app が、{port} で動いている hangar のサーバより古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
+             Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。"
+        )
+    };
+    // lsof は macOS と Linux にしか無い。Windows のデスクトップのアプリはまだ作っておらず（殻のクレートは `std::os::unix` を条件なしに使うので、いまは Windows で組み上がらない）、確かめられる命令が無いので、そこでは添えない。
+    if cfg!(windows) {
+        head
+    } else {
+        format!("{head}\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:{port} -sTCP:LISTEN")
+    }
+}
+
 /// 同梱サーバを起こす。成功したら `Ok(())`。
-/// 既に 4177 で hangar が動いていれば、子は起こさずそれを使う。
+/// 既に 4177 で互換の版の合う hangar が動いていれば、子は起こさずそれを使う。
+/// 版の合わない hangar が動いていれば、採らずに理由を返す（そのサーバは止めない）。
 fn start_server(
     app: &AppHandle,
     hangar_home: &std::path::Path,
     addr: SocketAddr,
 ) -> Result<(), String> {
-    if health::probe_health(addr) {
-        // hangar start などで既にサーバがいる。子は起こさず、そのサーバを使う。
-        log("adopting the server already listening on 4177");
-        return Ok(());
+    match health::probe_existing(addr, health::COMPAT_VERSION) {
+        health::Existing::Adopt => {
+            // hangar start などで既にサーバがいる。子は起こさず、そのサーバを使う。
+            log("adopting the server already listening on 4177");
+            return Ok(());
+        }
+        health::Existing::Mismatch { theirs } => {
+            log(&format!(
+                "refusing the server on 4177 (compat {theirs}, ours {})",
+                health::COMPAT_VERSION
+            ));
+            return Err(refusal_message(addr.port(), theirs, health::COMPAT_VERSION));
+        }
+        health::Existing::Absent => {}
     }
     // 読み取り専用の写しから走っていないか先に見る。
     // ここでは検疫属性を外せないので、外せないまま Node にネイティブを読ませることになる。
@@ -1366,6 +1400,61 @@ mod tests {
         let url = server::entry_url(server::PORT, "secret-token", "#/home");
         for part in ["?t=", "secret-token", "http", "127.0.0.1", &url] {
             assert!(!BOOT_FINISH_JS.contains(part), "{part}");
+        }
+    }
+
+    // 採らなかった理由の文は、どちらの向きでも、相手と自分の版、ポート、次の一手を言う。
+    // 読み込み画面は「もう一度試す」と「ログを開く」を出すので、文はそのボタンへつなぐ。
+    #[test]
+    fn the_refusal_names_both_versions_the_port_and_the_next_step() {
+        for (theirs, ours) in [(0, 1), (2, 1)] {
+            let m = refusal_message(server::PORT, theirs, ours);
+            assert!(m.contains(&format!("版 {theirs}")), "{m}");
+            assert!(m.contains(&format!("版 {ours}")), "{m}");
+            assert!(m.contains(&server::PORT.to_string()), "{m}");
+            assert!(m.contains("もう一度試す"), "{m}");
+        }
+    }
+
+    // 利用者が選んだ文（2026-10-09、案 B と C を合わせたもの）をそのまま留める。
+    // どちらが古いかで言い分け、アプリが古いときだけ入れ替えを案内し、文の下に相手を調べる命令を添える。
+    #[test]
+    #[cfg(not(windows))]
+    fn the_refusal_reads_as_chosen() {
+        assert_eq!(
+            refusal_message(4177, 0, 1),
+            "4177 で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 0、この Hangar.app は版 1）。\n\
+             そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。\n\
+             動いているサーバは次で調べられます。\n\
+             lsof -nP -iTCP:4177 -sTCP:LISTEN"
+        );
+        assert_eq!(
+            refusal_message(4177, 2, 1),
+            "この Hangar.app が、4177 で動いている hangar のサーバより古い版です（動いているサーバは版 2、この Hangar.app は版 1）。\n\
+             Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。\n\
+             動いているサーバは次で調べられます。\n\
+             lsof -nP -iTCP:4177 -sTCP:LISTEN"
+        );
+    }
+
+    // 相手を調べる命令は、渡されたポートで書く（4177 に決め打ちしない）。
+    // lsof の無い Windows では命令を添えない。
+    #[test]
+    fn the_refusal_shows_how_to_find_the_server_on_the_given_port() {
+        for (theirs, ours) in [(0, 1), (2, 1)] {
+            let m = refusal_message(4390, theirs, ours);
+            assert!(m.contains("4390 で動いている hangar のサーバ"), "{m}");
+            assert!(!m.contains("4177"), "{m}");
+            if cfg!(windows) {
+                assert!(!m.contains("lsof"), "{m}");
+            } else {
+                assert!(
+                    m.ends_with(
+                        "\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:4390 -sTCP:LISTEN"
+                    ),
+                    "{m}"
+                );
+            }
         }
     }
 }

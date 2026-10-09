@@ -46,7 +46,7 @@ export async function probeHealth(port: number, timeoutMs = 1000): Promise<boole
 /**
  * そのポートの hangar が起動を済ませたか。
  * `/health` は待ち受けた時点で 200 を返し、索引などの起動の残りが済むと `ready` が真になる。
- * `ready` を持たない応答は、済んだものとみなす（.app の health.rs の boot_state と同じ扱い）。
+ * `ready` が真のときだけ済んだとみなす。`hangar start` が待つのは自分で起こした同じ束のサーバで、`ready` は必ずある（.app の health.rs の boot_state も、`ready` の無い応答を読まない）。
  */
 export async function probeReady(port: number, timeoutMs = 1000): Promise<boolean> {
   try {
@@ -56,7 +56,7 @@ export async function probeReady(port: number, timeoutMs = 1000): Promise<boolea
       return false;
     }
     const body = (await r.json()) as { ok?: unknown; ready?: unknown };
-    return body.ok === true && body.ready !== false;
+    return body.ok === true && body.ready === true;
   } catch {
     return false;
   }

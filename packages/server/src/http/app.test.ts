@@ -197,7 +197,8 @@ describe('auth', () => {
   // 片側だけ変えられないよう、応答の形をここで固定する。
   // .app は /health が返った後も ready が真になるまで起動画面に残り、index の件数を起動画面に出す（lib.rs の wait_for_ready）。
   // 鍵の要らない経路なので、載せるのは段階と件数だけにする。
-  // compat は互換の版番号で、殻が既存のサーバを採る前に自分の同梱するサーバの版と比べる（段 1 の PR 7）。
+  // compat は互換の版番号で、殻は既存のサーバを、自分と同じ版のときだけ採る（health.rs の judge_existing）。外すと版 0 と読まれ、.app はそのサーバを採らない。
+  // ready を外すと、.app はそのサーバを応答の無いものとして扱い、起動画面で待ったまま諦める（health.rs の boot_state）。
   it('/health は ok と文字列の version に、互換の版と、起動が済んだかと索引の進み具合を添えて返す', async () => {
     const res = await get('/health', {});
     expect(res.status).toBe(200);
