@@ -251,7 +251,7 @@ describe('store の同期', () => {
     expect(s.devices).toHaveLength(1);
   });
   it('使用量は bootstrap で入り、sync.usage で差し替わる。無い bootstrap は null', () => {
-    const usage: CloudUsageDto = { source: 'estimate', fetchedAt: null, stale: false, notice: null, limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000, stopRatio: 0.8 }, today: { d1RowsWritten: 1, workersRequests: null, resetAt: 2 }, plan: null, month: null };
+    const usage: CloudUsageDto = { source: 'unknown', fetchedAt: null, stale: false, notice: null, limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 }, today: { d1RowsWritten: null, workersRequests: null, resetAt: 2 }, plan: null, month: null };
     expect(initialStore().cloudUsage).toBeNull();
     expect(applyBootstrap(initialStore(), boot).cloudUsage).toBeNull();
     let s = applyBootstrap(initialStore(), { ...boot, cloudUsage: usage });

@@ -1153,7 +1153,7 @@ describe('同期の経路', () => {
   });
 
   it('GET /api/sync/usage は今の値を、refresh=1 は取り直した値を返す', async () => {
-    const dto = { source: 'estimate', fetchedAt: null, stale: false, notice: null, limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000, stopRatio: 0.8 }, today: { d1RowsWritten: 1, workersRequests: 2, resetAt: 3 }, plan: null, month: null };
+    const dto = { source: 'unknown', fetchedAt: null, stale: false, notice: null, limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 }, today: { d1RowsWritten: null, workersRequests: null, resetAt: 3 }, plan: null, month: null };
     const refreshed = { ...dto, today: { ...dto.today, d1RowsWritten: 9 } };
     app = createApp({ ...deps, cloudUsage: { current: () => dto as never, refresh: async () => refreshed as never } });
     expect((await json(await get('/api/sync/usage'))).body).toEqual(dto);

@@ -27,7 +27,6 @@ export function CloudUsage(props: CloudUsageProps) {
               {b.pct === null ? <span /> : (
                 <div className="cu-meter" data-tone={b.tone} role="meter" aria-label={b.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={b.pct}>
                   <i style={{ width: `${Math.min(100, b.pct)}%` }} />
-                  {b.tickPct !== null && <span className="cu-tick" style={{ left: `${b.tickPct}%` }} />}
                 </div>
               )}
               <span className="cu-n mono">{b.value}</span>

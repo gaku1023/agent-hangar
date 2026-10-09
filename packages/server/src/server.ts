@@ -507,8 +507,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   // 本文と設定の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。
   const client = rawClient ? countingClient(rawClient, engine.quota) : null;
-  // 設定の「使用量と費用」。数える client を通すので、要求は無料枠の勘定に入る。
-  const cloudUsage = new CloudUsagePoller({ client, quota: engine.quota, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
+  // 設定の「使用量と費用」。
+  const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
   const uploader = client
     ? new TranscriptUploader({
         db, deviceId: device.id, claudeDir, client, key: fileKey, state: syncState,

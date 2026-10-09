@@ -927,11 +927,11 @@ const USAGE: CloudUsageProps = {
     { key: 'plan', label: 'プラン', value: 'Workers 無料', sub: 'R2 従量', tone: 'ok' },
   ],
   bars: [
-    { label: 'D1 の書き込み', when: '今日', pct: 68.12, tickPct: 80, value: '68,120 / 100,000 行', tone: 'warn' },
-    { label: 'R2 の保存', when: '今月', pct: 1.65, tickPct: null, value: '0.17 / 10 GB-月', tone: 'ok' },
-    { label: 'R2 Infrequent Access Data Retrieval', when: '今月', pct: null, tickPct: null, value: '3 GB', tone: 'ok' },
+    { label: 'D1 の書き込み', when: '今日', pct: 68.12, value: '68,120 / 100,000 行', tone: 'warn' },
+    { label: 'R2 の保存', when: '今月', pct: 1.65, value: '0.17 / 10 GB-月', tone: 'ok' },
+    { label: 'R2 Infrequent Access Data Retrieval', when: '今月', pct: null, value: '3 GB', tone: 'ok' },
   ],
-  splitAfter: 1, legend: ['あと 11,880 行で同期を止めます · 9:00 に戻る'], source: 'Cloudflare の数 · 2 分前', strip: null, command: null,
+  splitAfter: 1, legend: ['あと 13,880 行で無料枠の上限です · 9:00 に戻る'], source: 'Cloudflare の数 · 2 分前', strip: null, command: null,
 };
 
 describe('CloudUsage', () => {
@@ -947,8 +947,8 @@ describe('CloudUsage', () => {
     expect(within(sec).getByText('Cloudflare の数 · 2 分前')).toBeTruthy();
   });
   it('停止の帯は alert、案内のコマンドは等幅で出す', () => {
-    render(<CloudUsage {...USAGE} strip={{ tone: 'stop', text: '無料枠の 80% に届いたので同期を止めました。' }} command="npm run hangar -- setup cloud --usage-token" />);
-    expect(screen.getByRole('alert').textContent).toContain('同期を止めました');
+    render(<CloudUsage {...USAGE} strip={{ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を止めています。9:00 に枠が戻ると、自動で再開します。' }} command="npm run hangar -- setup cloud --usage-token" />);
+    expect(screen.getByRole('alert').textContent).toContain('同期を止めています');
     expect(screen.getByText('npm run hangar -- setup cloud --usage-token').className).toContain('mono');
   });
   it('凡例が空でも崩れず、出典だけ描く', () => {

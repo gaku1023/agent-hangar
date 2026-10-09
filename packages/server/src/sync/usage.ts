@@ -1,13 +1,11 @@
-import { CLOUD_FREE_LIMITS, r2Included, type CloudUsageBody, type CloudUsageDto } from '@agent-hangar/shared';
+import { CLOUD_FREE_LIMITS, nextUtcMidnight, r2Included, type CloudUsageBody, type CloudUsageDto } from '@agent-hangar/shared';
 import type { CloudClient } from './client.ts';
 import type { Timers } from './engine.ts';
-import type { QuotaCounter } from './quota.ts';
 
 /** 使用量を取りに行く間隔。1 台あたり 1 日 288 回で、Workers の枠の 0.3% にあたる。 */
 export const USAGE_POLL_MS = 5 * 60_000;
 
 const INVALID = 'トークンが無効です';
-const nextUtcMidnight = (now: number): number => { const d = new Date(now); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); };
 const UNIT: Record<string, string> = { 'GB-months': 'GB-月', Count: '回' };
 const ROW_LABEL: [prefix: string, label: string][] = [
   ['R2 Data Storage', 'R2 の保存'],
@@ -22,23 +20,26 @@ function planLabel(p: NonNullable<Extract<CloudUsageBody, { configured: true }>[
   return `Workers 無料${r2}`;
 }
 
-/** 見積もりの形。トークンが無い端末、古い Worker、一度も取れないまま失敗したときに使う。 */
-function estimate(o: { quota: QuotaCounter; now: number; stale: boolean; notice: string | null }): CloudUsageDto {
+/**
+ * 数の分からない形。トークンが無い端末、古い Worker、一時停止や上限で問い合わせていないとき、一度も取れないまま失敗したときに使う。
+ * hangar は量を数えないので（段 1、D4）、今日の数は null にする。
+ */
+function unknown(o: { now: number; stale: boolean; notice: string | null }): CloudUsageDto {
   return {
-    source: 'estimate', fetchedAt: null, stale: o.stale, notice: o.notice,
-    limits: { d1RowsPerDay: CLOUD_FREE_LIMITS.d1RowsPerDay, workersRequestsPerDay: CLOUD_FREE_LIMITS.workersRequestsPerDay, stopRatio: o.quota.ratio },
-    today: { d1RowsWritten: o.quota.d1().rows, workersRequests: o.quota.today().requests, resetAt: nextUtcMidnight(o.now) },
+    source: 'unknown', fetchedAt: null, stale: o.stale, notice: o.notice,
+    limits: { d1RowsPerDay: CLOUD_FREE_LIMITS.d1RowsPerDay, workersRequestsPerDay: CLOUD_FREE_LIMITS.workersRequestsPerDay },
+    today: { d1RowsWritten: null, workersRequests: null, resetAt: nextUtcMidnight(o.now) },
     plan: null, month: null,
   };
 }
 
-export function toUsageDto(body: CloudUsageBody | null, o: { quota: QuotaCounter; now: number; stale: boolean; lastGood: CloudUsageDto | null }): CloudUsageDto {
-  if (body === null || !body.configured) return o.stale && o.lastGood ? { ...o.lastGood, stale: true } : estimate({ ...o, notice: null });
+export function toUsageDto(body: CloudUsageBody | null, o: { now: number; stale: boolean; lastGood: CloudUsageDto | null }): CloudUsageDto {
+  if (body === null || !body.configured) return o.stale && o.lastGood ? { ...o.lastGood, stale: true } : unknown({ ...o, notice: null });
   const invalid = body.errors.find((e) => e.message.startsWith(INVALID));
-  if (invalid && !body.today && !body.plan && !body.month) return estimate({ ...o, notice: invalid.message });
-  // 今日の数が無いまま見積もりを Cloudflare の数として出さない。前に取れた今日の数も無ければ見積もりの姿にする。
-  if (!body.today && !o.lastGood?.today) return estimate({ ...o, stale: true, notice: invalid?.message ?? null });
-  const base = estimate({ ...o, notice: null });
+  if (invalid && !body.today && !body.plan && !body.month) return unknown({ ...o, notice: invalid.message });
+  // 今日の数が無いまま Cloudflare の数として出さない。前に取れた今日の数も無ければ「数は不明」の姿にする。
+  if (!body.today && !o.lastGood?.today) return unknown({ ...o, stale: true, notice: invalid?.message ?? null });
+  const base = unknown({ ...o, notice: null });
   return {
     ...base,
     source: 'cloudflare',
@@ -75,7 +76,7 @@ export class CloudUsagePoller {
   private readonly now: () => number;
   private readonly timers: Pick<Timers, 'setInterval' | 'clearInterval'>;
 
-  constructor(private readonly o: { client: CloudClient | null; quota: QuotaCounter; isPaused: () => boolean; broadcast: (u: CloudUsageDto) => void; now?: () => number; timers?: Pick<Timers, 'setInterval' | 'clearInterval'> }) {
+  constructor(private readonly o: { client: CloudClient | null; isPaused: () => boolean; broadcast: (u: CloudUsageDto) => void; now?: () => number; timers?: Pick<Timers, 'setInterval' | 'clearInterval'> }) {
     this.now = o.now ?? (() => Date.now());
     this.timers = o.timers ?? REAL_TIMERS;
   }
@@ -95,11 +96,11 @@ export class CloudUsagePoller {
     if (this.timer) { this.timers.clearInterval(this.timer); this.timer = null; }
   }
 
-  /** 決して reject しない。呼び手の多くは結果を捨てる（void）ので、落ちればプロセスごと落ちる。 */
+  /** 決して reject しない。呼び手の多くは結果を捨てる（void）ので、落ちればプロセスごと落ちる。一時停止と上限で退いている間は外と話さない（isPaused）。 */
   refresh(): Promise<CloudUsageDto | null> {
     if (!this.o.client || this.stopped) return Promise.resolve(this.o.client ? this.last : null);
     try {
-      if (this.o.isPaused()) return Promise.resolve(this.last ?? this.publish(toUsageDto(null, { quota: this.o.quota, now: this.now(), stale: false, lastGood: null })));
+      if (this.o.isPaused()) return Promise.resolve(this.last ?? this.publish(toUsageDto(null, { now: this.now(), stale: false, lastGood: null })));
     } catch {
       return Promise.resolve(this.last);
     }
@@ -115,10 +116,10 @@ export class CloudUsagePoller {
     } catch {
       if (this.stopped) return this.last;
       // 同期は止めない。トーストも出さない。設定画面の出どころの文だけで知らせる。
-      return this.publish(toUsageDto(null, { quota: this.o.quota, now, stale: true, lastGood: this.lastGood }));
+      return this.publish(toUsageDto(null, { now, stale: true, lastGood: this.lastGood }));
     }
     if (this.stopped) return this.last;
-    const dto = toUsageDto(body, { quota: this.o.quota, now, stale: false, lastGood: this.lastGood });
+    const dto = toUsageDto(body, { now, stale: false, lastGood: this.lastGood });
     if (dto.source === 'cloudflare' && !dto.stale) this.lastGood = dto;
     return this.publish(dto);
   }

@@ -187,17 +187,18 @@ export type ConfigPreviewDto = { entries: ConfigPreviewEntryDto[]; confirmed: bo
 export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number; remoteSize: number };
 
 /**
- * 設定の「使用量と費用」に出す形。端末のサーバが Worker の /usage か見積もりから作る。
- * source が estimate のときは plan と month が null で、today は hangar の見積もりである。
+ * 設定の「使用量と費用」に出す形。端末のサーバが Worker の /usage から作る。
+ * source が unknown のときは、Cloudflare の数を取れていない（トークンが無い、一時停止や上限で問い合わせていない、取れないまま失敗した）。
+ * そのとき今日の数は null で、plan と month も null である。hangar は量を数えない（段 1、D4）。
  * stale は最後の取得が失敗していること（値は最後に取れたもの）。notice はトークンの失効など、画面に添える 1 行。
  */
 export type CloudUsageDto = {
-  source: 'cloudflare' | 'estimate';
+  source: 'cloudflare' | 'unknown';
   fetchedAt: number | null;
   stale: boolean;
   notice: string | null;
-  limits: { d1RowsPerDay: number; workersRequestsPerDay: number; stopRatio: number };
-  today: { d1RowsWritten: number; workersRequests: number | null; resetAt: number };
+  limits: { d1RowsPerDay: number; workersRequestsPerDay: number };
+  today: { d1RowsWritten: number | null; workersRequests: number | null; resetAt: number };
   plan: { label: string; workersPaid: boolean } | null;
   month: { periodStart: string; periodEnd: string | null; throughDay: string | null; billedUsd: number; rows: { label: string; consumed: number; unit: string; included: number | null }[] } | null;
 };

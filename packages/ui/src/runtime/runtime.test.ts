@@ -875,7 +875,7 @@ describe('フェーズ 3 の効果', () => {
   it('設定を開くと使用量を取り直す', async () => {
     const dto: CloudUsageDto = {
       source: 'cloudflare', fetchedAt: 1_000, stale: false, notice: null,
-      limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000, stopRatio: 0.8 },
+      limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 },
       today: { d1RowsWritten: 23_480, workersRequests: 4_120, resetAt: 2_000 },
       plan: { label: 'Workers 無料 · R2 従量', workersPaid: false }, month: null,
     };
