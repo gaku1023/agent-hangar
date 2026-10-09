@@ -158,7 +158,8 @@ export function IntentBoundary(props: { handle: IntentHandler; children: ReactNo
 
 中間層で処理する Intent は、その層だけで完結する見た目の操作に限る。
 たとえば `SplitPane` はペーンの幅変更を処理し、`TabStrip` はタブのドラッグ並び替えを処理する。
-それ以外はすべて `Root` に届き、Mediator が裁定する。
+それ以外はすべて `Root` に届く。
+API を 1 回呼ぶだけのものは Runtime が表で引いて実行し（後述）、残りは Mediator が裁定する。
 
 Intent の一覧は型が正である。
 `packages/shared/src/intent.ts` の `Intent` を見る。
@@ -208,6 +209,31 @@ Intent の一覧は型が正である。
 
 状態機械の実装は `packages/ui/src/mediator/` に置き、領域ごとにファイルを分ける。
 テストは「入力の列を与えて最終状態と効果の列を検証する」形で書く。
+
+### API を 1 回呼ぶだけの Intent の表
+
+状態を変えず、API を 1 回呼ぶだけの Intent は、Mediator も Effect も通さない。
+Runtime が Intent を受けたとき、`packages/ui/src/runtime/intentTable.ts` の表（Intent の kind から API の呼び出しへ）を引き、あればそれを実行する。
+無ければ、今までどおり `transition` へ渡す。
+Intent と Effect の 2 つの定義を持つと、画面を作り替えるたびに 2 か所を触ることになるからである。
+
+表の 1 行は、Intent の中身と Store（読むだけ）から呼び出しを組む小さな関数である。
+応答の扱いは共通の形にまとめてある。
+呼ぶ前に Store に当てるもの、応答を Store に当てるもの、応答から出す知らせの 3 つで、行は要るものだけを書く。
+失敗は、どの行もトーストにする。
+行が null を返せば、何も呼ばない（空の URL、Store に無い TODO など）。
+
+表に載せるのは、次をすべて満たすものだけである。
+State を読まない。
+State を変えない。
+応答を Mediator へ戻さない。
+API を呼ぶのが 1 回である。
+1 つでも外れるものは Mediator に残す。
+同じ Effect をほかの遷移も出すもの（索引の作り直しはパレットからも出る）も、Effect が残るので移さない。
+
+表の鍵は Intent の kind の部分集合で、型が止める。
+Mediator の入力の型（`MediatedIntent`）は表の kind を除いてあるので、表にある kind を領域の `switch` に書くと型が合わなくなる。
+どの Intent が表にあるかは、表が正である。
 
 ### 画面ごとの構成
 
