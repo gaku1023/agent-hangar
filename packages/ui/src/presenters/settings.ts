@@ -124,8 +124,8 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
     reason: r.unwritableReason,
     valueLabel: daysLabel(r.days),
     bar: usageBar(r.usage, projected, r.days, translatorOf(store)),
-    // 設定の同期が入っていれば、cleanupPeriodDays も他の PC へ運ぶ。旧実装が残るあいだは、旧実装のスイッチも見る（段 4 の PR 18 で消す）。
-    syncNote: store.configSync?.enabled === true || (store.settings?.syncClaudeConfig ?? false),
+    // 設定の同期が入っていれば、cleanupPeriodDays も他の PC へ運ぶ。
+    syncNote: store.configSync?.enabled === true,
   };
 }
 

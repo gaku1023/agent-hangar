@@ -77,13 +77,13 @@ describe('設定の同期の経路（作り直した実装）', () => {
     }
   });
 
-  it('作っていない端末（クラウドに参加していない）では 404 で、旧実装の経路は別である', async () => {
+  it('作っていない端末（クラウドに参加していない）では 404 で、旧実装の経路は無い', async () => {
     const bare = createApp({ ...t.deps, configBundle: null });
     for (const p of PATHS) expect([p, (await bare.request(p, { headers: H })).status]).toEqual([p, 404]);
     expect((await bare.request('/api/config-sync/apply-order', { method: 'PUT', headers: { ...H, 'content-type': 'application/json' }, body: '{"items":[]}' })).status).toBe(404);
     expect(((await (await bare.request('/api/config-sync/inbox', { headers: H })).json()) as { error: string }).error).toBe('クラウド同期が設定されていません');
-    // 旧実装の経路は、この依存に関わらず今までの形のまま（testDeps の configSync）。
-    expect((await bare.request('/api/sync/config/preview', { headers: H })).status).toBe(200);
+    // 旧実装の経路（/api/sync/config/*）は、段 4 の PR 18 で消した。この依存に関わらず無い。
+    expect((await bare.request('/api/sync/config/preview', { headers: H })).status).toBe(404);
   });
 
   it('状態と、送る一覧と、送らなかった項目', async () => {

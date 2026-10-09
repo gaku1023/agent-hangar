@@ -41,9 +41,11 @@ export async function cleanupStage1(env: Env, now: number): Promise<boolean> {
  * 段 4 の PR 14 以降の束は、config/<端末>/.hangar/config-bundle.hgr の 1 オブジェクトと共有表 config_snapshots の行である。
  * 束の本体と索引は残し、それ以外の config の行と本体だけを消す。
  *
- * この関門（LEGACY_CONFIG_CLEANUP_ENABLED）は、旧実装を削除する PR 18 が true にする。
- * 旧実装を積んだ端末は、この索引と本体を読んで取り込むので、旧実装が端末から消える前に消してはいけない。
- * 関門が閉じている間は、何も消さず、印も置かない。
+ * この関門（LEGACY_CONFIG_CLEANUP_ENABLED）は、旧実装を削除する段 4 の PR 18 が開けた。
+ * 旧実装を積んだ端末は、この索引と本体を読んで取り込み、置き直しもするので、旧実装が端末から消える前に消してはいけない。
+ * そこで同じ PR が、Worker が端末に求める下限（compat.ts の MIN_DEVICE_COMPAT）を、旧実装を持たない版 4 へ上げた。
+ * この Worker を配備すると、旧実装を持つ版 3 までの端末は 426 で断られ、断られた端末はこの掃除と競り合わない。
+ * 関門を閉じて呼べば（enabled に false を渡せば）、何も消さず、印も置かない。
  *
  * 1 回の呼び出しは、100 件を 1 まとまりとして最大 maxRounds まとまりまでを消す。
  * D1 の書き込みは消した行の数だけで、無料枠の 1 日 10 万行に対して、旧実装の項目の総数（端末ごとに多くて数千）が 1 度かかるだけである。
@@ -51,7 +53,7 @@ export async function cleanupStage1(env: Env, now: number): Promise<boolean> {
  * 取り切れなければ次の cold start に続きを任せ、取り切ったときに印を置く。
  * R2 を先に消してから索引を消す。倒れたときは、本体の無い索引が残り、孤児の掃除（sweep.ts）が拾う。
  */
-export const LEGACY_CONFIG_CLEANUP_ENABLED = false;
+export const LEGACY_CONFIG_CLEANUP_ENABLED = true;
 export const META_LEGACY_CONFIG_CLEANUP = 'legacy_config_cleanup';
 export const LEGACY_CONFIG_BATCH = 100;
 const LEGACY_CONFIG_MAX_ROUNDS = 5;

@@ -21,7 +21,6 @@ function setup(o: { paused: boolean; compatBlocked?: boolean; limited?: boolean;
       state: { get: () => (o.paused ? '1' : null) },
     },
     puller: { pullNow: step('files') },
-    configSync: { pushChanged: step('config') },
     uploader: { sweep: (limit) => { calls.push(`sweep(${limit})`); }, idle: step('upload.idle') },
     cloudUsage: { refresh: step('usage') },
     isPaused: () => o.haltedDuringPass ?? false,
@@ -60,7 +59,7 @@ describe('今すぐ同期', () => {
     await done;
     await t.once.pass.idle();
     // 本文は走査の上限を外して上げきる。
-    expect(t.calls).toEqual(['metadata(evenIfPaused)', 'files', 'config', 'sweep(Infinity)', 'upload.idle', 'usage']);
+    expect(t.calls).toEqual(['metadata(evenIfPaused)', 'files', 'sweep(Infinity)', 'upload.idle', 'usage']);
     expect(t.once.pass.active()).toBe(false);
     expect(t.toasts).toEqual([{ level: 'info', message: '1 回だけ同期しました。同期は一時停止のままです' }]);
   });
@@ -120,10 +119,10 @@ describe('今すぐ同期', () => {
   });
 
   it('繋がらない段があっても、残りの段は試す', async () => {
-    const t = setup({ paused: true, failing: ['files', 'config'] });
+    const t = setup({ paused: true, failing: ['files', 'usage'] });
     stop = t.once.stopTicker;
     await t.once.syncNow();
     await t.once.pass.idle();
-    expect(t.calls).toEqual(['metadata(evenIfPaused)', 'files', 'config', 'sweep(Infinity)', 'upload.idle', 'usage']);
+    expect(t.calls).toEqual(['metadata(evenIfPaused)', 'files', 'sweep(Infinity)', 'upload.idle', 'usage']);
   });
 });

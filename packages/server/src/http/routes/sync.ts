@@ -6,9 +6,9 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, syncStatusOf, tooLargeResult } from './common.ts';
 
 /** 同期の経路が使う依存。 */
-export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'joinToken' | 'configSync' | 'configBundle'> & LanguageDeps;
+export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'joinToken' | 'configBundle'> & LanguageDeps;
 
-/** 同期の経路。状態、今すぐ同期、一時停止、前面化、使用量、端末の一覧、参加トークン、Claude Code 設定の下見と取り込み（旧実装）、作り直した設定の同期（/config-sync/*）を持つ。 */
+/** 同期の経路。状態、今すぐ同期、一時停止、前面化、使用量、端末の一覧、参加トークン、設定の同期（/config-sync/*）を持つ。 */
 export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
   const tr = translatorOf(deps.language);
   const syncStatus = syncStatusOf(deps);
@@ -32,10 +32,8 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
   api.get('/devices', (c) => c.json(deps.devices()));
   // 参加トークンは全セッションの読み書き権を持つ。ログには出さず、UI が押したときだけ取りに来る。
   api.get('/sync/joinToken', (c) => c.json({ token: deps.joinToken() }));
-  api.get('/sync/config/preview', (c) => (deps.configSync ? c.json(deps.configSync.preview()) : c.json({ error: tr('sync.error.notConfigured') }, 404)));
-  api.post('/sync/config/pull', async (c) => (deps.configSync ? c.json(await deps.configSync.pull()) : c.json({ error: tr('sync.error.notConfigured') }, 404)));
 
-  // 作り直した設定の同期。旧実装の /sync/config/* とは別の経路で、~/.claude に書く操作は持たない。
+  // 設定の同期。~/.claude に書く操作は持たない。
   // 書くのは hangar の置き場の「適用の指示書」だけで、適用は殻の命令と hangar config apply が行う。
   const bundle = async (c: Context, fn: (api: NonNullable<typeof deps.configBundle>) => unknown | Promise<unknown>, empty = false) => {
     const api = deps.configBundle;

@@ -7,10 +7,10 @@ import { backupsRoot } from '../../config/cloud.ts';
  *
  * - `<home>/claude-config/inbox/<端末の ID>/`：他の PC の束を開いた写し（目録と中身）。
  * - `<home>/claude-config/apply-order.json`：承諾した項目の「適用の指示書」。殻の命令と hangar config apply が読み、適用が済むか取り消されたら消す。
- * - `<home>/backups/claude-config/<時刻>/`：適用の前に取る控えの世代。書くのは適用する側で、サーバは数えるだけである。旧実装と同じ場所を使う。
+ * - `<home>/backups/claude-config/<時刻>/`：適用の前に取る控えの世代。書くのは適用する側で、サーバは数えるだけである。旧実装が使っていた場所と同じである。
  */
 
-/** クラウドに置く束の、端末の下での相対パス。旧実装の設定ファイルの名前の外（先頭が .hangar/）で、旧実装は受け取らない。 */
+/** クラウドに置く束の、端末の下での相対パス。先頭が .hangar/ なので、旧実装が残した設定の索引（config/<端末>/<相対パス>）と区別できる。Worker の旧実装の掃除（cloud の cleanup.ts）は、この相対パスだけを残す。 */
 export const BUNDLE_PATH = '.hangar/config-bundle.hgr';
 
 export const configSyncDir = (home: string): string => path.join(home, 'claude-config');

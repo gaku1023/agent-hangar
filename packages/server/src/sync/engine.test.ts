@@ -243,18 +243,6 @@ describe('SyncEngine の push', () => {
     expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
     e.stop();
   });
-
-  it('setClaudeConfigStatus は status に載り、購読へ配る', async () => {
-    const e = make();
-    await e.start();
-    const seen: { enabled: boolean; confirmed: boolean }[] = [];
-    e.on({ status: (s) => seen.push(s.claudeConfig) });
-    expect(e.status().claudeConfig).toEqual({ enabled: false, confirmed: false });
-    e.setClaudeConfigStatus({ enabled: true, confirmed: false });
-    expect(e.status().claudeConfig).toEqual({ enabled: true, confirmed: false });
-    expect(seen).toEqual([{ enabled: true, confirmed: false }]);
-    e.stop();
-  });
 });
 
 /**

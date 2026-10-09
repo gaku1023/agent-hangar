@@ -14,7 +14,6 @@ export type SyncStateKey =
   | 'lastPullAt'
   | 'paused'
   | 'lastError'
-  | 'configPullConfirmed'
   | 'snapshotDone'
   | 'transcriptsFrom'
   | 'limitedUntil'

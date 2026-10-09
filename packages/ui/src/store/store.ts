@@ -1,6 +1,6 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigPreviewDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -42,10 +42,10 @@ export type Store = {
   // 未取得は null で、View は「読み込んでいます」を出す。
   usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; shellHook: ShellHookDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   // クラウド同期（フェーズ 4）。同期を設定していない間は sync が off のまま届く。
-  // joinToken と configPreview は押したときだけ取りに行く値なので、未取得は null である。
+  // joinToken は押したときだけ取りに行く値なので、未取得は null である。
   // 設定の「使用量と費用」。未取得は null である。
   cloudUsage: CloudUsageDto | null;
-  sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
+  sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null;
   // 設定の同期（作り直した実装）の状態。クラウドに参加していない端末は届かないので null である。
   configSync: ConfigSyncDto | null; configDetail: ConfigDetail;
   // Claude Code の会話の保持期間。下見は確認を開いたときだけ取りに行く値なので、未取得は null である。
@@ -77,7 +77,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, artifacts: {}, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null, configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
+    cloudUsage: null, sync: null, devices: [], joinToken: null, configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
   };
@@ -470,7 +470,6 @@ export function applyPickedFolder(store: Store, path: string): Store {
 }
 
 /** Claude Code の設定の下見を入れる。閉じるときに null で捨てる。 */
-export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | null): Store { return { ...store, configPreview: preview }; }
 
 /** 設定の同期の中身を 1 つ入れる。 */
 export function applyConfigDetail<P extends ConfigDetailPart>(store: Store, part: P, value: ConfigDetail[P]): Store {

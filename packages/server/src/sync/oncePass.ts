@@ -17,7 +17,6 @@ export type OncePassDeps = {
     state: { get(key: 'paused'): string | null };
   };
   puller: { pullNow(): Promise<unknown> } | null;
-  configSync: { pushChanged(): Promise<unknown> } | null;
   uploader: { sweep(limit?: number): unknown; idle(): Promise<void> } | null;
   cloudUsage: { refresh(): Promise<unknown> };
   /** 本文と設定の出し入れを止めるか（sync/halt.ts の syncHalted）。1 巡の最中でも、版と上限では真になる。 */
@@ -37,7 +36,7 @@ export type OncePassDeps = {
  * 利用者が押した「今すぐ同期」を組む。
  * 止まっていれば 1 巡だけ通し（PausedPass）、止まっていなければ今までどおりエンジンに頼む。
  *
- * 一時停止のまま押したときの 1 巡は、メタデータの送受信、他端末の本文と設定の受け取り、設定の押し出し、取り残した本文の全部、の順に回す。
+ * 一時停止のまま押したときの 1 巡は、メタデータの送受信、他端末の本文の受け取り、取り残した本文の全部、の順に回す。
  * 本文は走査の上限（1 回 20 件）を外して上げきる。次の走査は止まっていて来ないからである。
  * 上げ直しの間隔（10 分）は外さないので、続けて押しても同じ本文を運び直さない。
  * 終わりに使用量を取り直す。止まっている間は取りに行かないので、押した分の枠がここでしか見えない。
@@ -62,7 +61,6 @@ export function createOncePass(deps: OncePassDeps): { pass: PausedPass; syncNow(
     rest: async () => {
       // 版で断られた後は本文の降ろしにも行かない（1 巡の最中でも isPaused は版の止まりで真になる）。
       await passStep('files', async () => { if (!deps.isPaused()) await deps.puller?.pullNow(); });
-      await passStep('config', async () => { await deps.configSync?.pushChanged(); });
       await passStep('upload', async () => { if (deps.uploader) { deps.uploader.sweep(Infinity); await deps.uploader.idle(); } });
       await passStep('usage', () => deps.cloudUsage.refresh());
     },

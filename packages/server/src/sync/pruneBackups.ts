@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { backupsRoot } from '../config/cloud.ts';
-import { BACKUP_GENERATIONS } from './claudeConfig.ts';
+
+/** 本文の控えを残す世代の数。これを超えた古い順に消す。 */
+export const BACKUP_GENERATIONS = 20;
 
 /**
  * 控えを新しい方から数えて `keep` 件だけ残し、古いものを消す。消した数を返す。
  *
- * 設定の控え（`claudeConfig.ts` の `pruneBackups`）は名前が `yyyyMMdd-HHmmss` のディレクトリなので
+ * 設定の控え（`backups/claude-config/`）は名前が `yyyyMMdd-HHmmss` のディレクトリなので
  * 辞書順がそのまま時刻順になるが、本文の控え（`<uuid>-<時刻>.jsonl`）とメモの控え
  * （`session-<ID>-<時刻>.md`）は名前が ID で始まるので、辞書順では時刻の順に並ばない。
  * そこで更新時刻で並べ、同じ秒に並んだものは名前で決める（控えは作った時刻がそのまま更新時刻になる）。
@@ -95,7 +97,7 @@ function listBackupFiles(root: string, kind: string): { dir: string; files: { n:
 /**
  * 本文とメモの控えを刈る口を作る。
  *
- * 本文の控えに残す数は、設定の控えと同じ `BACKUP_GENERATIONS`（20）にする。
+ * 本文の控えに残す数は `BACKUP_GENERATIONS`（20）にする。
  * 覚える数が 1 つで済み、「控えは直近 20 回ぶん」という説明が同じになる。
  * 本文の控えはセッション 1 本ぶんの大きさがあるので、これ以上は溜めない。
  * セッションの名前とメモの控えだけは、件数と日数の両方で刈る（`pruneMemoBackups`。新しい方から `MEMO_BACKUP_KEEP_COUNT` 件は残し、超えた分のうち `MEMO_BACKUP_KEEP_DAYS` 日より古いものだけを消す）。

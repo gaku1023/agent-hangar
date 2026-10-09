@@ -30,7 +30,7 @@ function fakeTool(name: string, line: string, mode = 0o755): string {
 
 const baseSettings = (over: Partial<Settings> = {}): Settings => ({
   workspaceRoot: path.join(tmp, 'ws'), claudeDir: path.join(tmp, 'claude'), tmuxPath: null, terminalApp: 'terminal', codePath: null,
-  lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null,
+  lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null,
   ...over,
 });
 

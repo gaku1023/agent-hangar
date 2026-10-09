@@ -107,7 +107,7 @@ describe('FakeCloudClient', () => {
     // 端末ごとに写しを持つので、別の端末は自分の接頭辞へ置く。他人の下へは書けない。
     await expect(a.asDevice('b').putFile(m, Readable.from([Buffer.from('2')]))).rejects.toMatchObject({ status: 403 });
     expect(await a.asDevice('b').putFile({ ...m, key: 'config/b/skills/x/SKILL.md' }, Readable.from([Buffer.from('2')]))).toEqual({ seq: 2 });
-    // 鍵が別なので写しは 2 つ並ぶ。どちらを採るかは受け取る側（claudeConfig）が相対パスで決める。
+    // 鍵が別なので写しは 2 つ並ぶ。どちらを採るかは受け取る側が決める。
     const l = await a.listFiles(0, 500);
     expect(l.files.map((f) => [f.seq, f.deviceId])).toEqual([[1, 'a'], [2, 'b']]);
     expect((await a.listFiles(1, 500)).files.map((f) => f.seq)).toEqual([2]);

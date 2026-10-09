@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigPreviewDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -97,8 +97,6 @@ export type ApiClient = {
   resumeHere(sessionId: string, overwrite: boolean): Promise<LaunchResultDto>;
   /** 全セッションの読み書き権を持つ秘密なので、押したときだけ取りに行く。 */
   joinToken(): Promise<{ token: string | null }>;
-  configPreview(): Promise<ConfigPreviewDto>;
-  configPull(): Promise<{ applied: number; conflicts: number }>;
   // 設定の同期（作り直した実装）。同期を組んでいない端末のサーバは 404 を返す。読む経路はどれも ~/.claude に触れず、書くのは hangar の置き場の指示書だけである。
   configSyncState(): Promise<ConfigSyncDto>;
   configOutgoing(): Promise<ConfigOutgoingDto>;
@@ -213,8 +211,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     syncFocus: () => post('/api/sync/focus'),
     resumeHere: (sessionId, overwrite) => post(`/api/sessions/${sessionId}/resume-here`, { overwrite }),
     joinToken: () => call('/api/sync/joinToken'),
-    configPreview: () => call('/api/sync/config/preview'),
-    configPull: () => post('/api/sync/config/pull'),
     configSyncState: () => call('/api/config-sync'),
     configOutgoing: () => call('/api/config-sync/outgoing'),
     configInbox: () => call('/api/config-sync/inbox'),

@@ -48,7 +48,7 @@ export function presentRetentionDialog(state: State, store: Store, now: number):
     lines: p?.lines ?? null,
     bar: usageBar(store.retention?.usage ?? null, p?.projectedBytes ?? null, o.days, t),
     backupDir: p ? `${p.backupDir}/` : '',
-    otherPcs: store.configSync?.enabled === true || (store.settings?.syncClaudeConfig ?? false),
+    otherPcs: store.configSync?.enabled === true,
     shrinkNote: lost > 0 ? t('retentionDialog.notice.shrink', { n: lost }) : null,
     reloaded: o.reloaded,
     showOther: o.from === 'banner',

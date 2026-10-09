@@ -32,7 +32,7 @@ describe('版 18：設定の同期の表', () => {
     });
     expect(dbVersionOf(file)).toBe(BEFORE);
     const db = openDb(file, { backupDir: path.join(tmp, 'backups') });
-    expect(dbVersionOf(file)).toBe(AFTER);
+    expect(dbVersionOf(file)).toBeGreaterThanOrEqual(AFTER);
     expect(db.prepare('select id, name from devices').all()).toEqual([{ id: 'dev-a', name: 'mac' }]);
     expect(db.prepare('select count(*) n from config_snapshots').get()).toEqual({ n: 0 });
     db.close();

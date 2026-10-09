@@ -986,7 +986,7 @@ describe('画面に入るときの読み込み', () => {
   });
 });
 
-const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
+const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
 
 describe('同期', () => {
   it('sync.status は State を変えない（同期の状態は Store だけが持つ）', () => {
@@ -1002,15 +1002,9 @@ describe('同期', () => {
     const { effects } = run([runtime({ type: 'window.focus' })]);
     expect(effects).toEqual([{ kind: 'api.syncFocus' }]);
   });
-  it('参加トークンの再表示と設定の下見と取り込み', () => {
+  it('参加トークンの再表示', () => {
     const a = run([intent({ type: 'sync.joinToken.show' })]);
     expect(a.effects).toEqual([{ kind: 'api.joinToken' }]);
-    const b = run([intent({ type: 'sync.config.preview' })]);
-    expect(b.state.overlay).toEqual({ kind: 'configPreview' });
-    expect(b.effects).toEqual([{ kind: 'api.configPreview' }]);
-    const c = run([intent({ type: 'sync.config.apply' })], b.state);
-    expect(c.state.overlay).toEqual({ kind: 'none' });
-    expect(c.effects).toEqual([{ kind: 'api.configPull' }]);
   });
 });
 
@@ -1134,12 +1128,6 @@ describe('この PC で再開', () => {
     // 閉じても昇格や起動の状態を巻き込まない。
     expect(closed.state).toEqual(initialState());
   });
-  it('設定の下見のダイアログも overlay.close で閉じ、取り込みは走らない', () => {
-    const open = run([intent({ type: 'sync.config.preview' })]);
-    const closed = run([intent({ type: 'overlay.close' })], open.state);
-    expect(closed.state.overlay).toEqual({ kind: 'none' });
-    expect(closed.effects).toEqual([]);
-  });
   it('409 の割り込みは、出ていた未解決プロジェクトのダイアログを確認に替える。確認を閉じれば何も出ない', () => {
     const r = run([intent({ type: 'project.resolve.open', id: 'p1' }), runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
     expect(r.state.overlay.kind).toBe('confirm');
@@ -1220,7 +1208,6 @@ describe('ダイアログを開いている間の画面の移動', () => {
     ['新しいセッション', run([intent({ type: 'session.new.open', scratch: true })], at).state],
     ['昇格', run([intent({ type: 'session.promote.open', id: 's1' })], at).state],
     ['保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' })], at).state],
-    ['設定の取り込み', run([intent({ type: 'sync.config.preview' })], at).state],
     ['設定の同期のダイアログ', run([intent({ type: 'configSync.open', part: 'send' })], at).state],
   ];
   const moves: Input[] = [

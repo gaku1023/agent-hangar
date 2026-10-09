@@ -11,7 +11,7 @@ import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { fakeMotionTokens } from './test/motion.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
 
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
 const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
@@ -529,17 +529,6 @@ describe('フェーズ 4 のオーバーレイ', () => {
     expect(screen.queryByRole('dialog', { name: '一覧から削除しますか' })).toBeNull();
     expect(screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' })).toBeInTheDocument();
     expect(screen.getByLabelText('新しいパス')).toHaveFocus();
-  });
-
-  it('取り込みの下見は store の一覧をそのまま出す', async () => {
-    const { rt } = await mounted({ api: { configPreview: async () => ({ confirmed: false, entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 2, remoteDevice: 'mini', size: 10 }] }) } });
-    act(() => rt.emit({ type: 'sync.config.preview' }));
-    await flush();
-    expect(screen.getByRole('dialog', { name: '~/.claude に取り込む内容' })).toBeInTheDocument();
-    expect(screen.getByText('CLAUDE.md')).toBeInTheDocument();
-    key({ key: 'Escape' });
-    await flush();
-    expect(screen.queryByRole('dialog', { name: '~/.claude に取り込む内容' })).toBeNull();
   });
 });
 

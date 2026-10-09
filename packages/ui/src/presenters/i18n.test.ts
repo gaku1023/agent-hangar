@@ -3,7 +3,7 @@ import type { SettingsDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
 import { storeLanguage, translatorOf } from './i18n.ts';
 
-const settings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null, ...over });
+const settings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null, ...over });
 const withSettings = (s: SettingsDto | null): Store => ({ ...initialStore(), settings: s });
 
 describe('Presenter から辞書を引く', () => {

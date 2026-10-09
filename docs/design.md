@@ -800,7 +800,7 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 入口 1 つにまとめると、CLI の束（`cliEntry.ts`）がサーバの大半を抱えることになるためである。
 
 Claude Code の事情と hangar 自身の物（DB、tmux、同期）が 1 つのファイルに混ざっているものは、まだ外に残してある。
-索引（`indexer/`）、本文の読み出し（`transcript/read.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/claudeConfig.ts`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、run の寿命（`runs/manager.ts`）などである。
+索引（`indexer/`）、本文の読み出し（`transcript/read.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/config/`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、run の寿命（`runs/manager.ts`）などである。
 これらを割るのは振る舞いに触るので、別の変更で行う。
 
 ### 保存先と読み方
@@ -1360,7 +1360,7 @@ HTTP の層は `packages/server/src/http/` にある。
 | `prompt.ts` | 初期プロンプト欄の候補と添付（`/prompt`、`/drops`） |
 | `settings.ts` | 設定 |
 | `retention.ts` | Claude Code の保持期間 |
-| `sync.ts` | 同期の状態と操作、端末の一覧、クラウドの使用量、設定の同期（旧実装の `/sync/config/*` と、作り直した実装の `/config-sync/*`） |
+| `sync.ts` | 同期の状態と操作、端末の一覧、クラウドの使用量、設定の同期（`/config-sync/*`。旧実装の `/sync/config/*` は段 4 の PR 18 で消した） |
 | `usage.ts` | statusline の受け口と使用量 |
 | `system.ts` | 索引の作り直し、準備の確かめ、互換、要約器 |
 
@@ -2628,7 +2628,7 @@ MCP サーバー、ステータスライン、シェル連携の見出しの右�
 契約だけでは、CLI の 4 つの出力、statusline の自動で直す単位、レジストリの項目ごとに、止めるものが 1 つに決まらないからである。
 判定はホームの帯の始める前の確認の互換の行と同じもの（`compatState` と `presentCompat`）を使う。
 準備の確かめが届く前と、`compat` の無い古いサーバの答えでは、節の本文の下に「確かめています」と出す。
-クラウド同期の節は 1 頁に、上から、状態（見出しの右の札と、状態、最終受信、未送信の変更、未送信のトランスクリプト）、操作（今すぐ同期、同期を一時停止、参加トークンを表示）、PC の一覧、Claude Code の設定を同期する印と取り込む内容の下見、Cloudflare の使用量と料金を置く。
+クラウド同期の節は 1 頁に、上から、状態（見出しの右の札と、状態、最終受信、未送信の変更、未送信のトランスクリプト）、操作（今すぐ同期、同期を一時停止、参加トークンを表示）、PC の一覧、Claude Code の設定の同期（常設の行。中身はダイアログで見せる。「設定の同期の作り直し」の節の「画面（PR 17）」）、Cloudflare の使用量と料金を置く。
 同期していない人には、1 文の説明と 2 つのボタン（クラウドを用意して始める、参加トークンで参加）と、押せないスイッチの 1 行（Claude Code の設定の同期）だけを出す。
 2 つのボタンは、押すとターミナルで打つコマンド（`hangar setup cloud`、`hangar join <token>`）を出すだけで、クラウドの用意と参加はアプリから行わない。
 月の予算の行は置かない（Cloudflare の月の予算で止める仕組みは段 5 で作る）。
@@ -3220,15 +3220,18 @@ D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、�
 段 4 の PR 14 で、サーバの側を作り直した（設計は `docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md`）。
 `~/.claude` へ書く殻の命令と CLI は PR 16 で入れた（「適用と世代へ戻す」）。
 Worker の側は PR 15 で入った（下の「互換の版」）。画面は PR 17 で入った（下の「画面（PR 17）」）。
-旧実装（`sync/claudeConfig.ts`、`file_sync` の設定の行、`/sync/config/*`、`SettingsDto.syncClaudeConfig`）は、PR 18 で消すまで残る。
-新しい実装は `sync/config/` にあり、既定は切である。
+旧実装（`sync/claudeConfig.ts`、`file_sync` の設定の行、`/sync/config/*`、`SettingsDto.syncClaudeConfig`）は、PR 18 で消した（下の「旧実装の削除（PR 18）」）。
+実装は `sync/config/` にあり、既定は切である。
 
-**旧実装との住み分け。**
-スイッチは別である（旧は `syncClaudeConfig`、新は settings.json の `configBundleSync`。設定の画面は PR 17 から新しい方だけを動かし、入れるときに旧実装を切る）。
-表も別である（新は `config_snapshots`、`config_base`、`config_unsent`。旧は `file_sync`）。
-クラウドの鍵も別である（新は `config/<端末 ID>/.hangar/config-bundle.hgr` の 1 オブジェクト。旧は `config/<端末 ID>/<相対パス>`）。
-旧実装は、先頭が `.hangar/` の相対パスを設定ファイルとして数えないので、新しい束を受け取らない（試験で見ている）。
-控えの置き場 `backups/claude-config/` だけは、旧実装と同じ場所を使う。
+**旧実装の削除（PR 18）。**
+消したもの：`sync/claudeConfig.ts`（と試験）、設定の取り込みの HTTP（`GET /api/sync/config/preview`、`POST /api/sync/config/pull`）、`sync/configSyncApi.ts`、画面の `ConfigPreviewDialog` と、その Intent（`sync.config.preview`、`sync.config.apply`）と効果と Store の値、`SettingsDto.syncClaudeConfig` と `SyncStatusDto.claudeConfig`、降ろし手 `RemotePuller` の `onConfigEntries`、一時停止の 1 巡の設定の押し出しの段、辞書の旧い行。
+`RemotePuller` は設定（kind が `config`）の索引を降ろさず、`filesSeq` だけ通り過ぎる。束の本体は設定の同期が、束の行を見て自分で取りに行く。
+`settings.json` に旧スイッチ（`syncClaudeConfig`）が残っていても、読み込みのときに未知の鍵として捨てる（`config/paths.ts` の `loadSettings`）。保存し直すと消える。
+旧スイッチを入れていた人の設定は、そのまま起動でき、旧い同期は動かない。新しい実装は、設定の画面で入れ直したときだけ動く。
+`PATCH /api/settings` が旧スイッチだけを送られたときは、ほかの未知の鍵と同じに 400（更新できる設定が無い）である。
+スキーマの版 19 が、端末に残った旧実装の記録を 1 回だけ消す。`file_sync` の kind が `config` の行、`sync_state` の `configPullConfirmed`、`configPending`、`skipped:(config)` である。
+最後の鍵は、残すと取り直しが設定の索引を本文として降ろそうとするので消す。設定の同期の新しい表（`config_*`）と、本文の記録には触らない。
+控えの置き場 `backups/claude-config/` は、旧実装の世代（記録なし）と新しい世代が同じ場所に並ぶ。
 
 **運ぶもの。**
 単位は項目で、`file:<相対パス>`（`CLAUDE.md`、`keybindings.json`、`skills/**`、`commands/**`、`agents/**`、`memory/**`）、`settings:<鍵>`（`settings.json` の鍵 1 つ）、`memory:<プロジェクトの id>/<相対パス>`（プロジェクトのメモリ）の 3 種類の id を持つ。
@@ -3326,7 +3329,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
 設計は段 4 の設計書の 2.5（a1、b1、c2、d1、e2）である。
 設定の「クラウド同期」の節の「Claude Code の設定を同期」に常設の行を並べ、中身はダイアログで見せる。
 スイッチは `SettingsDto.configBundleSync`（`PATCH /api/settings`）で動かす。
-入れるときは送る一覧（a1）を見せて承諾を取り、承諾すると `{ configBundleSync: true, syncClaudeConfig: false }` を送る（旧実装を同時に切る）。
+入れるときは送る一覧（a1）を見せて承諾を取り、承諾すると `{ configBundleSync: true }` を送る。
 切るのは確認なしにその場で保存する。
 入れた直後は、サーバが次の周期を待たずに送受信を 1 回回す（`boot/sync.ts` の `publishConfigSync`）。
 `ConfigSyncDto.workerPending` が真のあいだは、行の下に「Worker の更新待ち」の帯を出し、`hangar setup cloud` をもう一度実行して Worker を入れ替えるよう案内する。
@@ -3390,17 +3393,24 @@ Worker の変更は、名乗る版を 3 に上げることだけである（`COM
 1. Worker を先に配備する。配備した時点で、Worker は版 3 を名乗る。版 2 の端末は、下限（2）以上なので断られず、今までどおり同期できる。
 2. 端末を入れ替える。新しい端末（PR 14 以降）は、Worker の応答の見出しで版 3 を見るまで、スイッチが入っていても束も行も送らない（`workerPending`）。見たあとで送り始める。
 3. 端末を先に入れ替えて Worker が版 2 のままのときは、端末は黙って待つ。Worker が版 2 のままで束の行を送ると、他の表の同期まで止まるので、送らない。
-4. 版 2 の端末と版 3 の端末が混ざっても、束の行を送るのは版 3 の端末だけで、版 2 の端末は `config_snapshots` の行を `rows` から受け取っても、知らない表として捨てる。旧実装の設定の同期は、この間も旧い索引（`config/<端末>/<相対パス>`）を使う。
+4. 版 2 の端末と版 3 の端末が混ざっても、束の行を送るのは版 3 の端末だけで、版 2 の端末は `config_snapshots` の行を `rows` から受け取っても、知らない表として捨てる。旧実装の設定の同期は、この間も旧い索引（`config/<端末>/<相対パス>`）を使った（PR 18 が消した。版 4 の下限は、その端末を断る）。
 5. 殻と 4177 のサーバは一致で比べるので、入れ替えた殻は、入れ替える前のサーバ（版 2。利用者の `npm run dev` など）を採らない。
 無料枠への影響は、束 1 回の送信につき R2 の PUT が 1 回（class A）、D1 の書き込みが `files` の 3 文（削除、挿入、`devices` の更新）と `changes` の 3 文（変更ログと `rows` の鏡と `devices` の更新）で、件数に依らない。束は端末ごとに 1 つなので、旧実装（項目ごとに PUT 1 回と D1 3 文）より、変更の多い日ほど軽い。
 送り直すのは束の指紋が変わったときだけである。
 
-旧実装の置き場（R2 の `config/<端末>/<相対パス>` と `files` の kind が `config` の行）の後始末は、`cleanupLegacyConfig`（`packages/cloud/src/cleanup.ts`）として実装してあるが、関門 `LEGACY_CONFIG_CLEANUP_ENABLED` は閉じている。
-旧実装を積んだ端末は、これを読んで取り込むので、旧実装が端末から消える前に消せない。
-旧実装を消す PR 18 が、関門を開け、かつ Worker の `MIN_DEVICE_COMPAT` を旧実装を持たない版へ上げてから配備する。
+旧実装の置き場（R2 の `config/<端末>/<相対パス>` と `files` の kind が `config` の行）の後始末は、`cleanupLegacyConfig`（`packages/cloud/src/cleanup.ts`）である。PR 15 が実装し、関門 `LEGACY_CONFIG_CLEANUP_ENABLED` は閉じてあった。
+旧実装を積んだ端末は、この索引と本体を読んで取り込み、置き直しもするので、旧実装が端末から消える前に消せない。
+PR 18 が関門を開け、同時に Worker の `MIN_DEVICE_COMPAT` を 4 へ上げた（`COMPAT_VERSION` も 4。旧実装を持たない最初の版）。
+関門を開ける条件は「この Worker が配備されたとき、版 3 までの端末は 426 で断られ、旧い置き場に触れない」ことである。この 2 つは同じコミットに入れてあり、片方だけを配備する道は無い。
+版 3 の端末は PR 15 から PR 17 までの版で、旧実装の設定の同期を積んでいる。版の下限を 4 にしなければ、掃除のあとも旧い端末が旧い置き場を作り直す。
 関門を開けた Worker は、cold start のたびに 100 件ずつ（最大 5 回）、束の本体と索引（相対パスが `.hangar/config-bundle.hgr`）を除く設定の索引と本体を消し、取り切ったら `meta` に印を置いて以後は読むだけで帰る。
 D1 の書き込みは消した行の数で、旧実装の項目の総数が 1 度かかるだけである。R2 の削除は無料である。
 束の本体は孤児の掃除（`sweep.ts`）の対象に今までもならない（索引があるため）。
+
+**配備の順（PR 18）。**
+この版の Worker は、版 4 未満の端末をすべて断る。同期に参加している端末を先にすべてこの版へ入れ替えてから、`hangar setup cloud` をもう一度実行して Worker を配備する（「互換の版番号」の「いつ上げるか」と同じ決まりである）。
+先に Worker を配備すると、入れ替えていない端末は 426 で止まり、画面に「この PC の hangar を更新する」と出る。入れ替えれば止まっていた間の差分から続く。
+配備した Worker は、最初の cold start で旧い置き場の掃除を走らせる。1 度だけで、無料枠への影響は上の見積もりのとおりである。実物のクラウドへの配備と掃除は、利用者がやる前に確かめる。
 
 **手元にあるが運ばないもの。**
 リンク、1 MiB を超えるファイル、読めないファイル、件数の上限（5000）を超えたファイル、リンクのディレクトリの下、読めない `settings.json`（リンク、大きすぎる、JSON でない、オブジェクトでない）、リンクのメモリの置き場は、項目として集めない。
@@ -3622,7 +3632,7 @@ D1 の Time Travel（無料枠で 7 日）で巻き戻せる。
 
 hangar の部品のうち、別々に上がりうるのは、端末どうし（同期で Worker を挟む）、端末と Worker、殻と 4177 で動いている既存のサーバである。
 UI とサーバと CLI は同じ束で配るので、版番号を持たない。
-別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 3。版 3 は、Worker が設定の束の行を受け取る版で、下限は上げていない）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
+別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 4。版 3 は、Worker が設定の束の行を受け取る版。版 4 は、設定の同期の旧実装を消した版で、段 4 の PR 18 が Worker の下限を 4 に上げた）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
 古い版のための分岐を部品ごとに抱える代わりに、下限より古い相手とは話さずに、理由を出して止まる。
 
 **見出し。**
@@ -3637,7 +3647,7 @@ Worker は、端末に求める下限 `MIN_DEVICE_COMPAT`（`packages/cloud/src/
 下限より古い端末の要求には、スキーマの用意にも認証にも進まずに、426 と `{ error: 'upgrade required', minCompat, compat }` を返す。
 `/health` だけは版を問わずに通す。
 版を確かめに来る口だからである。
-いまの下限は 1 で、見出しの無い端末（版 0）は 426 で断る。
+いまの下限は 4 で、見出しの無い端末（版 0）も、旧実装の設定の同期を持つ版 3 までの端末も、426 で断る（版の経緯の表）。
 段 1 の PR 6 で、同期に参加する端末がすべて版 1 に上がったのを確かめてから上げた。
 
 **端末の下限。**
@@ -3688,6 +3698,8 @@ Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端�
 | --- | --- | --- |
 | 1 | 版番号そのもの。見出しを持たない相手を版 0 として断る | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を 1 に |
 | 2 | セッションの名前とメモを、`sessions` の payload ではなく `session_notes` の行で運ぶ | どちらも 2 に |
+| 3 | Worker が設定の束の行（共有表 `config_snapshots`）を受け取る。端末は Worker の版が 3 に届くまで束の行を送らない | 上げない |
+| 4 | 設定の同期の旧実装を消す（項目ごとに R2 の `config/<端末>/<相対パス>` へ置く方式）。Worker は旧い置き場を掃除する | `MIN_DEVICE_COMPAT` を 4 に（`MIN_WORKER_COMPAT` は 1 のまま） |
 
 版 2 で下限を両方とも上げたのは、版 1 と版 2 が混ざると名前とメモが消えるからである。
 版 1 の端末は `session_notes` を知らない表として捨て、名前とメモを `sessions` の payload に載せる。版 2 の端末はその 2 つの列を知らない列として捨てる。
@@ -3809,6 +3821,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   スキーマを変えるときは、起点を書き換えずに、次の版（17 から）を一覧の末尾に足す。
   版 17 は、セッションの名前とメモを `session_notes` へ移した（「セッションの名前とメモ」）。
   版 18 は、設定の同期の作り直し用に `config_snapshots`（共有）、`config_base`、`config_unsent`（端末ローカル）を足した（「設定の同期の作り直し」）。
+  版 19 は、旧実装の設定の同期が端末に残した記録（`file_sync` の kind が `config` の行と、`sync_state` の `configPullConfirmed`、`configPending`、`skipped:(config)`）を消した（「設定の同期の作り直し」の「旧実装の削除（PR 18）」）。
   足した版は今までと同じに扱う。既存の DB には控えを取ってからその版だけを当て、新しい DB には起点から順に当てる。
   畳む前のマイグレーションは、試験の側（`packages/server/test/legacyMigrations.ts`）に残してある。
   `db/baseline.test.ts` が、起点だけを当てた DB と版 1 から順に当てた DB で、`sqlite_master` の全行（表、索引、FTS の仮想表とその影の表）、表ごとの列（順、型、not null、既定値、主キー）、外部キー、索引の列、表の中身が一致することを突き合わせる。

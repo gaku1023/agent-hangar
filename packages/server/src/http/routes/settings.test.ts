@@ -122,7 +122,6 @@ describe('routes', () => {
     // 画面の入力と同じく 200 までにする。
     expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
     expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約器を許す」の値の形が違います');
-    expect(await error({ syncClaudeConfig: 'yes' })).toBe('「Claude Code の設定を同期する」の値の形が違います');
     expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、ほかの宛先は、設定の「外部の要約器を許す」を入れてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
@@ -132,7 +131,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, configApproval: 'each', configBundleSync: false, nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, nodePath: null, claudePath: null, language: 'ja' });
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -256,7 +255,7 @@ describe('設定の往復', () => {
 
   it('SettingsDto の項目はすべて UI から往復できる', async () => {
     // 受け口に 1 つでも項目が足りないと、UI の操作は 400 で弾かれ、その機能が丸ごと死ぬ。
-    // 実物の確認では syncClaudeConfig がそれで、Claude Code 設定の同期を UI から入れられなかった。
+    // 実物の確認では旧い設定の同期のスイッチがそれで、設定の同期を UI から入れられなかった。
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws3-'));
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cd-'));
     try {
@@ -272,7 +271,6 @@ describe('設定の往復', () => {
         ['summaryFallback', false],
         ['summaryHourlyCap', 7],
         ['allowExternalSummarizer', true],
-        ['syncClaudeConfig', true],
         ['configApproval', 'auto'],
         ['configBundleSync', true],
         ['nodePath', exe('node')],
@@ -310,9 +308,6 @@ describe('設定の往復', () => {
     expect((await json(await get('/api/settings'))).body.configBundleSync).toBe(false);
     expect((await (await patch({ configBundleSync: true })).json()).configBundleSync).toBe(true);
     expect((await json(await get('/api/bootstrap'))).body.settings.configBundleSync).toBe(true);
-    // 旧実装のスイッチと同じ要求で切り替えられる（画面は、新しい実装を入れるとき旧実装を切る）。
-    const both = await (await patch({ configBundleSync: false, syncClaudeConfig: false })).json();
-    expect([both.configBundleSync, both.syncClaudeConfig]).toEqual([false, false]);
     for (const v of ['true', 1, null, []]) {
       const r = await patch({ configBundleSync: v });
       expect([v, r.status]).toEqual([v, 400]);
@@ -364,20 +359,15 @@ describe('設定の往復', () => {
     expect((await (await patch({ lmStudioModel: '   ' })).json()).lmStudioModel).toBeNull();
   });
 
-  it('Claude Code 設定の同期は、入れて、切って、また入れられる', async () => {
-    // UI のチェックは settings.update の patch を 1 つ送るだけである。
-    for (const want of [true, false, true]) {
-      const r = await patch({ syncClaudeConfig: want });
-      expect(r.status).toBe(200);
-      expect((await r.json()).syncClaudeConfig).toBe(want);
-      expect((await json(await get('/api/bootstrap'))).body.settings.syncClaudeConfig).toBe(want);
-    }
-  });
-
-  it('真偽値でない syncClaudeConfig は 400 で断る', async () => {
-    const r = await patch({ syncClaudeConfig: 'yes' });
+  it('旧い設定の同期のスイッチ（syncClaudeConfig）はもう受けない。単独の要求は 400 で、混ざっても保存しない', async () => {
+    // 旧実装は段 4 の PR 18 で消した。旧い画面や手書きの要求が送っても、設定に残さない。
+    const r = await patch({ syncClaudeConfig: true });
     expect(r.status).toBe(400);
-    expect((await r.json()).error).toBe('「Claude Code の設定を同期する」の値の形が違います');
+    expect((await r.json()).error).toBe('更新できる設定が含まれていません');
+    const mixed = await patch({ configBundleSync: true, syncClaudeConfig: true });
+    expect(mixed.status).toBe(200);
+    expect(await mixed.json()).not.toHaveProperty('syncClaudeConfig');
+    expect((await json(await get('/api/bootstrap'))).body.settings).not.toHaveProperty('syncClaudeConfig');
   });
 });
 

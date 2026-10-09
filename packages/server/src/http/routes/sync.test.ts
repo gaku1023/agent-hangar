@@ -25,7 +25,7 @@ describe('同期の経路', () => {
 
   it('同期の経路も認証の下にある', async () => {
     // 参加トークンは全セッションの読み書き権を持つ。鍵の無い要求と別サイトからの要求は入口で断る。
-    for (const p of ['/api/sync/status', '/api/sync/joinToken', '/api/devices', '/api/sync/config/preview']) {
+    for (const p of ['/api/sync/status', '/api/sync/joinToken', '/api/devices']) {
       expect((await get(p, {})).status).toBe(401);
       expect((await get(p, { ...H, origin: 'https://evil.example' })).status).toBe(403);
     }
@@ -34,11 +34,12 @@ describe('同期の経路', () => {
     expect(calls).toEqual([]);
   });
 
-  it('bootstrap に sync と devices が乗り、設定に syncClaudeConfig が出る', async () => {
+  it('bootstrap に sync と devices が乗り、設定に旧い設定の同期のスイッチは出ない', async () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.sync).toMatchObject({ state: 'idle', pending: 0, deviceCount: 2 });
     expect(body.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true, shell: null }]);
-    expect(body.settings.syncClaudeConfig).toBe(false);
+    expect(body.settings).not.toHaveProperty('syncClaudeConfig');
+    expect(body.sync).not.toHaveProperty('claudeConfig');
     expect(body.sessions[0].lock).toBeNull();
     expect(body.sessions[0].remoteOnly).toBe(false);
   });
@@ -77,13 +78,16 @@ describe('同期の経路', () => {
     expect((await json(await get('/api/sync/status'))).body.sweepPending).toBeNull();
   });
 
-  it('参加トークンと端末一覧と設定の下見', async () => {
+  it('参加トークンと端末一覧', async () => {
     expect((await json(await get('/api/sync/joinToken'))).body).toEqual({ token: 'tok-abc' });
     expect((await json(await get('/api/devices'))).body).toHaveLength(1);
-    const p = await json(await get('/api/sync/config/preview'));
-    expect(p.body.entries[0]).toMatchObject({ path: 'CLAUDE.md', action: 'create' });
-    expect((await json(await post('/api/sync/config/pull'))).body).toEqual({ applied: 1, conflicts: 0 });
-    expect(calls).toEqual(['configPull']);
+  });
+
+  it('旧い設定の同期の経路（/api/sync/config/*）は無い', async () => {
+    // 段 4 の PR 18 で旧実装ごと消した。作り直した実装は /api/config-sync/* だけである。
+    expect((await get('/api/sync/config/preview')).status).toBe(404);
+    expect((await post('/api/sync/config/pull')).status).toBe(404);
+    expect(calls).toEqual([]);
   });
 
   it('GET /api/sync/usage は今の値を、refresh=1 は取り直した値を返す', async () => {
@@ -100,10 +104,8 @@ describe('同期の経路', () => {
     expect((await json(await get('/api/bootstrap'))).body.cloudUsage).toBeNull();
   });
 
-  it('同期が未設定なら設定の経路は 404 で、参加トークンは null', async () => {
-    app = createApp({ ...deps, configSync: null, joinToken: () => null });
-    expect((await get('/api/sync/config/preview')).status).toBe(404);
-    expect((await post('/api/sync/config/pull')).status).toBe(404);
+  it('同期が未設定なら参加トークンは null', async () => {
+    app = createApp({ ...deps, joinToken: () => null });
     expect((await json(await get('/api/sync/joinToken'))).body).toEqual({ token: null });
   });
 });

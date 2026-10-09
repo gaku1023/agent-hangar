@@ -25,7 +25,7 @@ import { RunError } from '../runs/manager.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import type { AccountsDeps } from './accounts.ts';
-import type { AppDeps, ConfigSyncApi, ExternalApi, RunsApi, SummaryApi, SummaryEnqueueOpts, SyncApi } from './app.ts';
+import type { AppDeps, ExternalApi, RunsApi, SummaryApi, SummaryEnqueueOpts, SyncApi } from './app.ts';
 
 export const TOKEN = 'test-token';
 /** 認証つきの要求の見出し。 */
@@ -39,7 +39,7 @@ export const endedRun: RunDto = { ...run, id: 'dead', tmuxName: 'hangar-dead', e
 export const deadAgentTab: TabDto = { ...agentTab, id: 'dead', runId: 'dead', tmuxName: 'hangar-dead' };
 export const deadShellTab: TabDto = { ...shellTab, id: 'dead-t1', runId: 'dead', tmuxName: 'hangar-dead-t1' };
 export const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: null, basedOnTurns: 3 } };
-export const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false };
+export const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false };
 export const READY: ReadinessDto = {
   tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
   workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
@@ -159,7 +159,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
   // 行の変化を配る層。経路は行を書くだけで、画面へのイベントはこの層が組んで events へ渡す（tick の終わりに出る）。
   const publisher = new Publisher({ db, deviceId: 'd', live: () => [], hub: { broadcast: (e) => { events.push(e); } } });
   const sync: SyncFakeState = { calls: [], skipped: [], sweepPending: null, oncePass: false, resumeHereResult: launched };
-  let settings: SettingsDto = { workspaceRoot: ws, claudeDir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
+  let settings: SettingsDto = { workspaceRoot: ws, claudeDir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
   const runs = fakeRuns();
   const external = fakeExternal();
   const usage = new UsageTracker(db);
@@ -180,11 +180,6 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     onFocus: async () => { sync.calls.push('focus'); },
     pullBeforeLaunch: async () => { sync.calls.push('beforeLaunch'); return true; },
   };
-  const configSync: ConfigSyncApi = {
-    preview: () => ({ entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 5, remoteDevice: 'mini', size: 3 }], confirmed: false }),
-    pull: async () => { sync.calls.push('configPull'); return { applied: 1, conflicts: 0 }; },
-  };
-
   const deps: AppDeps = {
     db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: '0.0.0-test',
     settings: () => settings, language: languageReader(() => settings), updateSettings: (p) => (settings = { ...settings, ...p }),
@@ -201,7 +196,6 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     syncSweep: () => sync.sweepPending,
     syncOncePass: () => sync.oncePass,
     resumeHere: (id: string, overwrite: boolean) => { sync.calls.push(`resumeHere:${id}:${overwrite}`); return sync.resumeHereResult; },
-    configSync,
     configBundle: null,
     joinToken: () => 'tok-abc' as string | null,
     devices: () => [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true, shell: null }],

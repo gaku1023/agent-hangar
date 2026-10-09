@@ -46,7 +46,7 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * activity は実行中のときだけ値を持ち、実行中でなければ null である。
  */
 export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null };
-export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
+export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
 /**
  * Claude Code の会話の保持期間。
  * source は値がどこで決まったかで、default はユーザー設定にキーが無い（既定の 30 日）ことを表す。
@@ -182,7 +182,7 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
  * paused は利用者が同期を一時停止しているか（sync_state の paused の印）である。
  * 版で止まって state が error のときも、一時停止していれば true になる。
  */
-export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; limitedUntil: number | null };
+export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。
@@ -209,12 +209,8 @@ export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt
 export type ShellHookStateDto = 'on' | 'off' | 'unsupported';
 /** Settings の「外のターミナル」。state はこの PC の状態、command は入れるために貼るコマンド。 */
 export type ShellHookDto = { state: ShellHookStateDto; zshrc: string; line: string; command: string };
-export type ConfigPreviewAction = 'create' | 'overwrite' | 'conflict' | 'skip';
-export type ConfigPreviewEntryDto = { path: string; action: ConfigPreviewAction; localMtime: number | null; remoteMtime: number; remoteDevice: string; size: number };
-export type ConfigPreviewDto = { entries: ConfigPreviewEntryDto[]; confirmed: boolean };
 /**
- * Claude Code の設定の同期（作り直した実装。docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md）の形。
- * 旧実装の ConfigPreviewDto とは別で、旧実装が残るあいだは両方がある。
+ * Claude Code の設定の同期（docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md）の形。
  */
 /** 運ぶ項目の種類。settings は settings.json の鍵 1 つが 1 項目で、memory はプロジェクトのメモリと ~/.claude/memory の下のファイル。 */
 export type ConfigItemKind = 'claude-md' | 'settings' | 'keybindings' | 'skills' | 'commands' | 'agents' | 'memory';

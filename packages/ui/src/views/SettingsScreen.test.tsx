@@ -275,7 +275,7 @@ describe('設定のクラウド同期', () => {
     expect(screen.getByText(/持つ人は全セッションを読み書きできます/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '参加トークン をコピー' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
-    // 入っているスイッチを切るのは、その場で保存する。旧実装のスイッチには触らない。
+    // 入っているスイッチを切るのは、その場で保存する。
     fireEvent.click(screen.getByRole('switch', { name: 'この PC で有効にする' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { configBundleSync: false } });
   });

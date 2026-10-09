@@ -93,7 +93,6 @@ export function bootHttp(p: {
     language: home.language,
     updateSettings: (patch) => applySettingsPatch({
       home: home.home, box: settings,
-      unconfirmConfigPull: sync.unconfirmConfigPull,
       applyTmux: (s) => { const t = tmuxOf(s); runs.runs.setPanes(panesOf(t)); relay.setTmux(t); },
       onTmuxPath: runs.writeShellScript,
       onClaudePath: () => {
@@ -123,7 +122,6 @@ export function bootHttp(p: {
     syncSweep: sync.feed.sweep,
     syncOncePass: sync.feed.oncePass,
     resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
-    configSync: sync.configSync,
     configBundle: sync.configBundle,
     joinToken: sync.joinToken,
     devices: () => listDevices(db, device.id),

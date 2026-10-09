@@ -18,12 +18,11 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
 
   const patch = (p: Parameters<typeof applySettingsPatch>[1]): Settings => applySettingsPatch({
     home, box,
-    unconfirmConfigPull: () => { calls.push('unconfirm'); },
     applyTmux: (s) => { calls.push(`tmux ${s.tmuxPath}`); },
     onTmuxPath: () => { calls.push('shell'); },
     onClaudePath: (s) => { calls.push(`claude ${s.claudePath}`); },
     onSummaryCap: () => { calls.push('cap'); },
-    publishConfigSync: (s) => { calls.push(`publish ${s.syncClaudeConfig}`); },
+    publishConfigSync: (s) => { calls.push(`publish ${s.configBundleSync}`); },
   }, p);
 
   it('書き替えた値を返し、置き場と settings.json の両方に残す', () => {
@@ -31,19 +30,6 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
     expect(s.lmStudioModel).toBe('m1');
     expect(box.current).toBe(s);
     expect(loadSettings(home).lmStudioModel).toBe('m1');
-  });
-
-  it('設定の同期を切って入れ直すと、取り込みの確認をもう一度求める', () => {
-    // ~/.claude を書き換える同期なので、入れるときには必ず確認を取る（決定 2）。
-    // 確認の印は sync_state に残り続けるので、切った時点で降ろさないと、
-    // 気に入らなくて切った利用者が入れ直したときに無確認で ~/.claude が書き換わる。
-    patch({ syncClaudeConfig: true });
-    expect(calls).not.toContain('unconfirm');
-    patch({ syncClaudeConfig: false });
-    expect(calls.filter((c) => c === 'unconfirm').length).toBe(1);
-    // 切ったままの書き替えでは、もう降ろさない。
-    patch({ lmStudioModel: 'm2' });
-    expect(calls.filter((c) => c === 'unconfirm').length).toBe(1);
   });
 
   it('tmux の口は毎回渡し直し、包みの本体は tmuxPath の欄が来たときだけ書き直す', () => {
@@ -64,10 +50,10 @@ describe('設定の書き替えを部品へ行き渡らせる', () => {
     expect(calls).toContain('cap');
   });
 
-  it('設定の同期の入り切りは、どの書き替えの後にも表示へ載せ直す。順は、確認を降ろす、部品、表示である', () => {
-    patch({ syncClaudeConfig: true });
+  it('設定の同期の入り切りは、どの書き替えの後にも表示へ載せ直す。順は、部品、表示である', () => {
+    patch({ configBundleSync: true });
     calls.length = 0;
-    patch({ syncClaudeConfig: false, tmuxPath: '/t', claudePath: '/c', summaryHourlyCap: 1 });
-    expect(calls).toEqual(['unconfirm', 'tmux /t', 'shell', 'claude /c', 'cap', 'publish false']);
+    patch({ configBundleSync: false, tmuxPath: '/t', claudePath: '/c', summaryHourlyCap: 1 });
+    expect(calls).toEqual(['tmux /t', 'shell', 'claude /c', 'cap', 'publish false']);
   });
 });

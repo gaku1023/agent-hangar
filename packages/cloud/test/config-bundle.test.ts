@@ -90,11 +90,12 @@ afterEach(async () => {
 describe('互換の版（束を受け取れる Worker）', () => {
   it('Worker は束の行を知る版（CONFIG_BUNDLE_MIN_WORKER_COMPAT）を名乗り、/health にも見出しにも載せる', async () => {
     expect(CONFIG_BUNDLE_MIN_WORKER_COMPAT).toBe(3);
+    // 段 4 の PR 18 で名乗る版は 4 になった（旧実装を消した版）。束の行を知る版（3）以上であれば、端末は束の行を送る。
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(CONFIG_BUNDLE_MIN_WORKER_COMPAT);
     const h = await cloud.RAW.fetch('https://x/health');
-    expect(((await h.json()) as { compat: number }).compat).toBe(CONFIG_BUNDLE_MIN_WORKER_COMPAT);
+    expect(((await h.json()) as { compat: number }).compat).toBe(COMPAT_VERSION);
     const r = await cloud.SELF.fetch('https://x/changes?since=0', { headers: { authorization: `Bearer ${tokA}` } });
-    expect(r.headers.get(COMPAT_HEADER)).toBe(String(CONFIG_BUNDLE_MIN_WORKER_COMPAT));
+    expect(r.headers.get(COMPAT_HEADER)).toBe(String(COMPAT_VERSION));
   });
 });
 
@@ -137,15 +138,18 @@ describe('共有表 config_snapshots（POST /changes と GET /changes と GET /r
     expect((await pull(tokB)).changes.map((c) => c.tableName)).toEqual(['projects', 'config_snapshots']);
   });
 
-  it('版 2 を名乗る古い端末の push も、表を問わず今までどおり通る（Worker は名乗りで表を選ばない）', async () => {
-    const v2 = { [COMPAT_HEADER]: '2' };
+  it('版 3 までを名乗る端末の push は、表を問わず 426 で断られる（下限は旧実装を持たない版 4。段 4 の PR 18）', async () => {
     const project = { tableName: 'projects', rowId: 'p1', op: 'upsert', updatedAt: 5, payload: { id: 'p1', name: 'p', status: 'active', is_scratch: 0, updated_at: 5, deleted_at: null, origin_device: 'dev-a' } };
-    const old = await push(tokA, [project], v2);
-    expect(old.status).toBe(200);
-    expect(old.headers.get(COMPAT_HEADER)).toBe(String(COMPAT_VERSION));
-    expect(await old.json()).toMatchObject({ accepted: 1 });
-    // 版を名乗る端末が束の行を送ることはない（端末は Worker の版を見てから送る）が、送られても Worker は困らない。
-    expect((await push(tokA, [snapshot('dev-a', 6)], v2)).status).toBe(200);
+    for (const v of ['2', '3']) {
+      const old = await push(tokA, [project], { [COMPAT_HEADER]: v });
+      expect([v, old.status]).toEqual([v, 426]);
+      expect(old.headers.get(COMPAT_HEADER)).toBe(String(COMPAT_VERSION));
+      expect((await push(tokA, [snapshot('dev-a', 6)], { [COMPAT_HEADER]: v })).status).toBe(426);
+    }
+    // 断った要求は、何も書いていない。
+    expect((await pull(tokB)).changes).toEqual([]);
+    // 版 4 を名乗る端末は、束の行も、ほかの表の行も、1 回で通る。
+    expect((await push(tokA, [project, snapshot('dev-a', 6)], { [COMPAT_HEADER]: '4' })).status).toBe(200);
   });
 
   it('知らない表の行は、これまでどおり 400 で丸ごと断る', async () => {

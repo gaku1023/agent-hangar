@@ -9,8 +9,7 @@ import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
-import { BACKUP_GENERATIONS } from '../sync/claudeConfig.ts';
-import { MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS } from '../sync/pruneBackups.ts';
+import { BACKUP_GENERATIONS, MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS } from '../sync/pruneBackups.ts';
 import { memoLossHandlers, toastVia } from '../sync/notices.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { answerAll, fakeWorker, fileSink, recorder, refuse, type Answer, type Seen } from '../../test/fake-worker.ts';
@@ -129,11 +128,10 @@ describe('同期の組み立て', () => {
     expect(b.status()).toMatchObject({ state: 'off', url: null, pending: expect.any(Number), skipped: [], sweepPending: null, oncePass: false });
     // 参加していないので、参加トークンも設定の同期も無い。
     expect(b.sync.joinToken()).toBeNull();
-    expect(b.sync.configSync).toBeNull();
+    expect(b.sync.configBundle).toBeNull();
     expect(b.sync.uploader).toBeNull();
     expect(() => b.sync.engine.onFocus()).not.toThrow();
     await expect(b.sync.syncNow()).resolves.toBeUndefined();
-    expect(() => b.sync.unconfirmConfigPull()).not.toThrow();
     expect(b.sync.cloudUsage.current()).toBeNull();
   });
 
@@ -149,10 +147,9 @@ describe('同期の組み立て', () => {
     const jt = b.sync.joinToken();
     expect(typeof jt).toBe('string');
     expect((jt ?? '').length).toBeGreaterThan(0);
-    // 設定の同期の部品も組み上がっている（未確認なので confirmed は false）。
-    const preview = b.sync.configSync!.preview();
-    expect(preview.confirmed).toBe(false);
-    expect(Array.isArray(preview.entries)).toBe(true);
+    // 設定の同期の部品も組み上がっている（スイッチは既定で切）。
+    expect(b.sync.configBundle).not.toBeNull();
+    expect(b.status()).not.toHaveProperty('claudeConfig');
     expect(b.sync.uploader).not.toBeNull();
   });
 
@@ -242,27 +239,6 @@ describe('同期の組み立て', () => {
     expect(after.status.sweepPending).toBe(0);
     expect(after.status.skipped).toEqual([]);
   }, 20000);
-
-  it('設定の取り込みの確認は、一度取り込めば立ち、降ろせばもう一度求める', async () => {
-    // 設定の同期を切ったときに降ろす口である（config/settingsUpdate.ts が呼ぶ）。
-    joinTo(NOWHERE);
-    const b = boot();
-    const confirmed = (): boolean => b.sync.configSync!.preview().confirmed;
-    expect(confirmed()).toBe(false);
-    // 一度だけ確認して取り込む。相手の設定は 1 件も無いので、ここで外へは出ない。
-    await b.sync.configSync!.pull();
-    expect(confirmed()).toBe(true);
-    b.sync.unconfirmConfigPull();
-    expect(confirmed()).toBe(false);
-  });
-
-  it('設定の同期の入り切りは、いまの設定と確認の印から表示へ載せ直す', () => {
-    joinTo(NOWHERE);
-    const b = boot();
-    b.h.settings.current = { ...b.h.settings.current, syncClaudeConfig: true };
-    b.sync.publishConfigSync();
-    expect(b.status().claudeConfig).toEqual({ enabled: true, confirmed: false });
-  });
 
   it('走査の間隔は設定の同期と揃えてある', () => {
     // 片方だけ直すと、また兄弟の経路が食い違う。
@@ -622,7 +598,7 @@ describe('互換の版', () => {
   });
 });
 
-describe('作り直した設定の同期の組み立て', () => {
+describe('設定の同期の組み立て', () => {
   it('cloud.json が無ければ作らない', () => {
     expect(boot().sync.configBundle).toBeNull();
   });
@@ -642,11 +618,11 @@ describe('作り直した設定の同期の組み立て', () => {
     expect(bundle.outgoing().items.map((i) => i.id)).toEqual(['file:CLAUDE.md']);
   });
 
-  it('スイッチは旧実装の syncClaudeConfig と別で、承諾の仕方は設定から読む', () => {
+  it('スイッチは configBundleSync だけで、旧い syncClaudeConfig が残っていても読まない。承諾の仕方は設定から読む', () => {
     joinTo(NOWHERE);
     const b = boot();
     const bundle = b.sync.configBundle!;
-    b.h.settings.current = { ...b.h.settings.current, syncClaudeConfig: true };
+    b.h.settings.current = { ...b.h.settings.current, syncClaudeConfig: true } as typeof b.h.settings.current;
     expect(bundle.dto().enabled).toBe(false);
     b.h.settings.current = { ...b.h.settings.current, configBundleSync: true, configApproval: 'auto' };
     expect(bundle.dto()).toMatchObject({ enabled: true, approval: 'auto' });
