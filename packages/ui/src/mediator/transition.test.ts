@@ -274,11 +274,11 @@ describe('その他', () => {
     const b = run([intent({ type: 'toast.dismiss', id: a.state.toasts[0]!.id })], a.state);
     expect(b.state.toasts).toHaveLength(1);
   });
-  it('設定と状態変更と索引の作り直しは API 効果', () => {
-    const { effects } = run([intent({ type: 'project.setStatus', id: 'p1', status: 'paused' }), intent({ type: 'settings.update', patch: { workspaceRoot: '/w' } }), intent({ type: 'index.rebuild' })]);
-    expect(effects[0]).toEqual({ kind: 'api.setProjectStatus', projectId: 'p1', status: 'paused' });
-    expect(effects[1]).toEqual({ kind: 'api.updateSettings', patch: { workspaceRoot: '/w' } });
-    expect(effects[2]).toEqual({ kind: 'api.rebuildIndex' });
+  // プロジェクトの状態の変更は Mediator を通らない（runtime/intentTable.test.ts）。
+  it('設定と索引の作り直しは API 効果', () => {
+    const { effects } = run([intent({ type: 'settings.update', patch: { workspaceRoot: '/w' } }), intent({ type: 'index.rebuild' })]);
+    expect(effects[0]).toEqual({ kind: 'api.updateSettings', patch: { workspaceRoot: '/w' } });
+    expect(effects[1]).toEqual({ kind: 'api.rebuildIndex' });
   });
 });
 
@@ -322,11 +322,11 @@ describe('起動', () => {
     expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
   it('再開、フォーク、停止、外部で開くは API 効果', () => {
-    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
+    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' })]);
     expect(effects).toEqual([
       { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
       { kind: 'api.openTerminalApp', runId: 'r1', tabId: 't1' }, { kind: 'api.openTerminalApp', runId: 'r1', tabId: null },
-      { kind: 'api.openEditor', sessionId: 's1' }, { kind: 'api.projectOpenEditor', projectId: 'p1' }, { kind: 'api.projectOpenTerminal', projectId: 'p1' },
+      { kind: 'api.openEditor', sessionId: 's1' },
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
   });

@@ -67,7 +67,6 @@ export function transition(state: State, store: Store, input: Input): Step {
   }
   const i = input.intent;
   switch (i.type) {
-    case 'project.setStatus': return { state, effects: [{ kind: 'api.setProjectStatus', projectId: i.id, status: i.status }] };
     case 'index.rebuild': return { state, effects: [{ kind: 'api.rebuildIndex' }] };
     case 'toast.dismiss': return { state: { ...state, toasts: state.toasts.filter((t) => t.id !== i.id) }, effects: [] };
     default: return { state, effects: [] };

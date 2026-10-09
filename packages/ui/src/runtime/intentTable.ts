@@ -1,0 +1,57 @@
+import type { Intent } from '@agent-hangar/shared';
+import type { Store } from '../store/store.ts';
+import type { ApiClient } from './api.ts';
+
+/** iTerm2 で開けず、Terminal.app に落ちたときの知らせ。 */
+export const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
+
+/** 応答を受けた後にすること。apply は応答が着いた時点の Store に当てる。toast は情報の知らせである。 */
+export type CallDone = { apply?: (store: Store) => Store; toast?: string };
+/**
+ * API の呼び出し 1 回と、その前後の扱い。
+ * before は呼ぶ前に Store に当てる（実行中だと分かるよう、前の結果を消すなど）。
+ * 失敗の扱いは行ごとに持たない。どの行も、Runtime がトーストにする。
+ */
+export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone> };
+
+type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => string | null };
+
+/** 行の共通の形。API を呼び、応答を Store に当て、知らせがあれば添える。応答の型は、ここで閉じる。 */
+function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): ApiCall {
+  const { before, apply, toast } = after;
+  return {
+    ...(before ? { before } : {}),
+    run: (api) => run(api).then((r) => {
+      const message = toast?.(r) ?? null;
+      return { ...(apply ? { apply: (store: Store) => apply(store, r) } : {}), ...(message !== null ? { toast: message } : {}) };
+    }),
+  };
+}
+
+type Rows = { [K in Intent['type']]?: (intent: Extract<Intent, { type: K }>, store: Store) => ApiCall | null };
+
+/**
+ * API を 1 回呼ぶだけの Intent の表。
+ * ここにある Intent は、Mediator も Effect も通らない。Runtime が受けて、この表で引いた呼び出しをそのまま実行する。
+ * 行は、Intent の中身と Store（読むだけ）から呼び出しを組む。null を返せば何も呼ばない。
+ * State を読むもの、State を変えるもの、応答を Mediator へ戻すもの、API を 2 回以上呼ぶものは、ここへ置かず Mediator に残す。
+ */
+export const intentTable = {
+  // 画面の正は後から届く project.upsert なので、返り値は Store に入れない。
+  'project.setStatus': (i) => call((api) => api.setProjectStatus(i.id, i.status)),
+  'project.openEditor': (i) => call((api) => api.projectOpenEditor(i.id)),
+  'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: (r) => (r.fellBack ? FELL_BACK : null) }),
+} satisfies Rows;
+
+/** 表にある Intent。Mediator の入力の型からは、これを外す（mediator/types.ts の MediatedIntent）。 */
+export type TableIntent = Extract<Intent, { type: keyof typeof intentTable }>;
+
+export function isTableIntent(intent: Intent): intent is TableIntent {
+  return Object.hasOwn(intentTable, intent.type);
+}
+
+/** 表を引く。行と Intent の型は鍵で対になっているので、ここで 1 度だけ型を合わせる。 */
+export function intentCall(intent: TableIntent, store: Store): ApiCall | null {
+  const row = intentTable[intent.type] as (intent: TableIntent, store: Store) => ApiCall | null;
+  return row(intent, store);
+}

@@ -17,6 +17,7 @@ import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/
 import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
+import { FELL_BACK, intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
 import type { Notifier } from './notifier.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -68,7 +69,6 @@ export type Runtime = {
   start(): void; stop(): void;
 };
 
-const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
 /** OS（システム設定）で通知が切られているときの知らせ。 */
 const NOTIFY_BLOCKED = '通知が切られています。システム設定の「通知」で Hangar を許可してください';
 /** 通知の許可を読み直す間隔の下限。窓に戻ると focus と visibilitychange が続けて来るので、まとめて 1 度にする。 */
@@ -308,7 +308,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           .catch((err) => { if (seq === searchSeq) setStore(applySearch(store, store.search.params ?? params, store.search.result, false)); fail(err); });
         return;
       }
-      case 'api.setProjectStatus': deps.api.setProjectStatus(e.projectId, e.status).catch(fail); return;
       case 'api.resolveProject': deps.api.resolveProject(e.projectId, e.action).catch(fail); return;
       case 'api.updateSettings': {
         const field = e.field;
@@ -408,8 +407,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.leaveTranscript(e.runId).catch(() => {});
         return;
       }
-      case 'api.projectOpenEditor': deps.api.projectOpenEditor(e.projectId).catch(fail); return;
-      case 'api.projectOpenTerminal': deps.api.projectOpenTerminal(e.projectId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
       case 'terminal.connect': { const id = resolveTab(e.sessionId, e.tabId); if (id) deps.terminals.connect(id); return; }
       case 'terminal.disconnect': deps.terminals.disconnect(e.tabId); return;
       case 'terminal.disconnectSession':
@@ -597,7 +594,31 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     }, () => {});
   }
 
+  /**
+   * 表で引いた呼び出しを実行する（runtime/intentTable.ts）。
+   * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、どの行もトーストにする。
+   */
+  function runCall(c: ApiCall): void {
+    if (c.before) setStore(c.before(store));
+    c.run(deps.api).then((done) => {
+      if (done.apply) setStore(done.apply(store));
+      if (done.toast !== undefined) toast(done.toast);
+    }).catch(fail);
+  }
+
+  /**
+   * View の Intent を受ける。
+   * 表にあれば、Mediator を通さずに API を呼ぶ。無ければ、今までどおり Mediator へ渡す。
+   */
+  function emit(intent: Intent): void {
+    if (!isTableIntent(intent)) { dispatch({ kind: 'intent', intent }); return; }
+    const c = intentCall(intent, store);
+    if (c) runCall(c);
+  }
+
   function dispatch(input: Input): void {
+    // 型では表の Intent を渡せないが、型を外して渡されても Mediator へは入れない。
+    if (input.kind === 'intent' && isTableIntent(input.intent)) { emit(input.intent); return; }
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
@@ -621,7 +642,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   return {
     dispatch,
-    emit: (intent) => dispatch({ kind: 'intent', intent }),
+    emit,
     getState: () => shown,
     getStore: () => store,
     subscribe: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },

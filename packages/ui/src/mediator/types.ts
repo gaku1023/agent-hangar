@@ -1,4 +1,5 @@
-import type { IndexProgressDto, Intent, LaunchParams, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { TableIntent } from '../runtime/intentTable.ts';
 
 /**
  * 検索の問い合わせ。期間を日数のまま持つ。
@@ -41,8 +42,15 @@ export type RuntimeEvent =
   // クリップボードに写せた。写せなかったときはランタイムがトーストで知らせ、これは届かない。
   | { type: 'clipboard.copied'; text: string };
 
+/**
+ * Mediator が裁定する Intent。
+ * API を 1 回呼ぶだけの Intent は Runtime が表で引いて実行する（runtime/intentTable.ts）ので、ここには入らない。
+ * 表にある kind を領域の switch に書くと、型が合わなくなる（二重に扱わない）。
+ */
+export type MediatedIntent = Exclude<Intent, TableIntent>;
+
 export type Input =
-  | { kind: 'intent'; intent: Intent }
+  | { kind: 'intent'; intent: MediatedIntent }
   | { kind: 'server'; event: ServerEvent }
   | { kind: 'runtime'; event: RuntimeEvent }
   // Store が変わった。中身は運ばない。Mediator は渡された Store を読み、そこから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）を合わせる。
@@ -57,7 +65,6 @@ export type Effect =
   // aroundSeq は検索の結果から開いたときの跳び先で、開いたときに最新の側ではなくその周りを読む。
   | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number; aroundSeq?: number }
   | { kind: 'api.search'; params: SearchQuery }
-  | { kind: 'api.setProjectStatus'; projectId: string; status: ProjectStatus }
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }
   | { kind: 'api.updateSettings'; patch: Partial<SettingsDto>; field?: string }
   | { kind: 'api.readiness' }
@@ -69,7 +76,6 @@ export type Effect =
   | { kind: 'api.openTerminalApp'; runId: string; tabId: string | null } | { kind: 'api.openEditor'; sessionId: string; file?: string }
   | { kind: 'api.jumpToPrompt'; sessionId: string; runId: string; seq: number; heads: string[]; index: number; from: 'top' | 'bottom' }
   | { kind: 'api.leaveTranscript'; runId: string }
-  | { kind: 'api.projectOpenEditor'; projectId: string } | { kind: 'api.projectOpenTerminal'; projectId: string }
   | { kind: 'terminal.connect'; sessionId: string; tabId: string | null } | { kind: 'terminal.disconnect'; tabId: string }
   | { kind: 'terminal.disconnectSession'; sessionId: string }
   | { kind: 'ws.connect' } | { kind: 'ws.reconnectAfter'; ms: number }
