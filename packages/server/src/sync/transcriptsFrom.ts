@@ -30,7 +30,7 @@ export function transcriptsFrom(state: SyncStateStore): number {
  * 時刻として読めない値（0 以下、無限、NaN）を渡されたときは 0（床なし）を刻む。
  *
  * 呼び出し元は 2 つある。
- * 本筋は CLI で、クラウドの設定を作る（setup cloud）か参加する（join）ときに stampTranscriptsFrom が呼ぶ。
+ * 本筋は CLI で、クラウドの設定を作る（setup cloud）か参加する（join）ときに、openTranscriptsFloor で先に開いた口の stamp が刻む。
  * もう 1 つはサーバ起動時の保険で、cloud.json があるのに DB に床の行が無いときだけ効く（DB を作り直した端末などで、本文を全部上げないため）。
  */
 export function markTranscriptsFrom(state: SyncStateStore, floor: number): void {
@@ -39,26 +39,51 @@ export function markTranscriptsFrom(state: SyncStateStore, floor: number): void 
 }
 
 /**
- * クラウドを使い始めた時刻を home の索引に刻む。
- * cloud.json を書くのと同じ場所（setup cloud と join）から呼ぶ。
+ * 開いて刻んで閉じる近道で、試験が使う。
+ * 戻り値は刻んだ後の床である。
+ */
+export function stampTranscriptsFrom(home: string, now: number): number {
+  const floor = openTranscriptsFloor(home);
+  try {
+    return floor.stamp(now);
+  } finally {
+    floor.close();
+  }
+}
+
+/**
+ * 床を刻むための DB を、先に開いておく。
+ * クラウドを使い始めた時刻を home の索引に刻む口で、本番の setup cloud と join が使う。
  *
  * 「使い始めた時刻」の本当の出どころはここである。
  * サーバ側の推測に任せると、床を刻まない古いサーバが先に起動した端末で床の無い隙が生まれる。
  * 実物では、その隙に入った新しいサーバが「もう同期した端末だ」と誤って判断し、
  * 上げないと決めた過去の本文を 105 件（148 MB）上げてしまった。
- *
  * 既に床があれば動かさないので、参加し直しても床は最初の参加のままである。
- * 戻り値は刻んだ後の床である。
+ *
+ * setup cloud と join は、Worker の配備や参加の要求の後で床を刻む。
+ * そこで初めて DB を開くと、マイグレーションの前の控え（db/backup.ts）が取れないときに、
+ * Cloudflare に資源を作り、参加し、cloud.json を書いた後で止まり、参加トークンも出ない。
+ * 処理の先頭でこれを呼べば、控えとマイグレーションは外に何も作らないうちに済む（取れなければここで投げる）。
+ * 刻むのは stamp（戻り値は刻んだ後の床）、閉じるのは close で、呼び手は finally で閉じる。
  */
-export function stampTranscriptsFrom(home: string, now: number): number {
+export function openTranscriptsFloor(home: string): { stamp(now: number): number; close(): void } {
   const db = openDb(dbPath(home));
+  let state: SyncStateStore;
   try {
-    const state = new SyncStateStore(db);
-    markTranscriptsFrom(state, now);
-    return transcriptsFrom(state);
-  } finally {
+    state = new SyncStateStore(db);
+  } catch (e) {
+    // 開いた口を漏らさない。
     db.close();
+    throw e;
   }
+  return {
+    stamp: (now) => {
+      markTranscriptsFrom(state, now);
+      return transcriptsFrom(state);
+    },
+    close: () => db.close(),
+  };
 }
 
 /**

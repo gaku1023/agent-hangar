@@ -2488,7 +2488,8 @@ Worker の `changes` は、受信から 14 日を過ぎ、かつ接続した全�
 そちらは今までどおり全部同期するので、他端末からも一覧と検索の結果は揃う。
 
 区切りの時刻は `sync_state` の `transcriptsFrom` に置く。
-刻むのは `hangar setup cloud` と `hangar join` で、`cloud.json` を書くのと同じ時点である（`sync/transcriptsFrom.ts` の `stampTranscriptsFrom`）。
+刻むのは `hangar setup cloud` と `hangar join` で、`cloud.json` を書くのと同じ時点である。
+両者は処理の先頭で `sync/transcriptsFrom.ts` の `openTranscriptsFloor` を開いておき（DB の控えが取れなければ、外に何も作らずにそこで止まる）、`cloud.json` を書いた後にその `stamp` で刻む。
 「使い始めた時刻」の出どころは、クラウドの設定を作った時点そのものだからである。
 サーバの起動まで待つと、区切りを刻まない古いサーバが先に走る隙ができる。
 実物でそれが起きた。
@@ -2825,6 +2826,8 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   控えが取れなければマイグレーションを当てず、理由を出して起動を止める。
   「控えが取れなければ書かない」の原則に合わせた。
   刈るのは控えの形の名前のものだけで、置き場に利用者が置いたファイルには触れない。
+  `hangar setup cloud` と `hangar join` は、Cloudflare に資源を作る前と参加の要求を出す前に DB を開き、床を刻むまで閉じない（`openTranscriptsFloor`）。
+  控えが取れなければ、外に何も作らず、`cloud.json` も書かずに止まる。
 - 既知の限界：無料枠の数え直しと孤児の掃除は、偽のクラウドとローカルの workerd（miniflare）の試験だけで確かめた（2026-09-20）。
   実物の Cloudflare では動かしていない。
 - 既知の限界：フェーズ 4 の実物確認は、1 台の Mac の上で `HANGAR_HOME` と `HANGAR_CLAUDE_DIR` を分けて 2 端末を模して行った（2026-09-19 の決定）。実際に別のマシンから参加することは確かめていない。
