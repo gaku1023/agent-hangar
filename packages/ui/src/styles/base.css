@@ -533,9 +533,6 @@ a:hover { text-decoration: underline; }
 .tab-pane-open { gap: calc(var(--u) * 1.5); animation: enter var(--dur) var(--ease-out); }
 .tab-pane-open kbd { font-size: var(--fs-xs); color: var(--ink-3); }
 
-   窓が低くて目次の下限を押すときは縮む（flex-shrink）。どちらの端でも、ランプの 1 行は残す。 */
-/* 成果物の行。題名だけを 1 行で出し、押すと開く。VS Code で開けるものは右端に小さな印のボタンを添える。 */
-/* 見出しは折らず、補足だけを残りの幅で折る。長い見出し（「バックグラウンドで 2 本」）と長い補足が並んでも、見出しが 2 行に割れないようにする。 */
 .live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
 .live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; }
 .live-dot[data-tone='wait'] { background: var(--waiting); }
