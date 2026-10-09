@@ -13,17 +13,30 @@ import type { Db } from './open.ts';
  */
 export type RowOrigin = 'write' | 'apply' | 'touch';
 export type RowOp = 'upsert' | 'delete';
-export type RowChange = { db: Db; table: string; rowId: string; op: RowOp; origin: RowOrigin };
+/**
+ * `at` は、その変化が起きた順番（プロセスで 1 本の通し番号）である。知らせが届いた順ではない。
+ * トランザクションの中の変化は確定まで知らせが遅れるので、起きた順は届いた順からは分からない。
+ * 配る層は、手で配られたイベントと行の変化のどちらが後かを、これと `rowChangeClock()` で比べる。
+ */
+export type RowChange = { db: Db; table: string; rowId: string; op: RowOp; origin: RowOrigin; at: number };
 
 type RowChangeListener = (c: RowChange) => void;
 
 const listeners = new Set<RowChangeListener>();
 
+/** 変化の通し番号。変化が起きるたびに 1 つ進む。 */
+let clock = 0;
+
+/** いままでに起きた変化の通し番号。`RowChange.at` がこの値以下なら、その変化はもう起きている。 */
+export function rowChangeClock(): number {
+  return clock;
+}
+
 /**
  * 外側のトランザクションの中で起きた変化。確定を待ってから配る。
  * seq は changes の連番で、write のときだけ持つ（巻き戻ったかを見分けるのに使う）。
  */
-type PendingNotice = { table: string; rowId: string; op: RowOp; origin: RowOrigin; seq: number | null };
+type PendingNotice = { table: string; rowId: string; op: RowOp; origin: RowOrigin; seq: number | null; at: number };
 const pending = new Map<Db, PendingNotice[]>();
 
 /**
@@ -105,8 +118,8 @@ function drain(db: Db): void {
       if (p.seq !== null && alive.get(p.seq, p.table, p.rowId) === undefined) continue;
       const key = `${p.origin}\u0000${p.table}\u0000${p.rowId}`;
       const cur = merged.get(key);
-      if (cur) cur.op = p.op;
-      else merged.set(key, { db, table: p.table, rowId: p.rowId, op: p.op, origin: p.origin });
+      if (cur) { cur.op = p.op; cur.at = p.at; }
+      else merged.set(key, { db, table: p.table, rowId: p.rowId, op: p.op, origin: p.origin, at: p.at });
     }
     for (const c of merged.values()) deliver(c);
   } catch (e) {
@@ -120,7 +133,8 @@ function drain(db: Db): void {
  * ここで配ってしまうと、購読は確定前の値（MemoStore.adoptFile が直す前の updated_at）を読み、
  * 購読が DB に書けばその書き込みごと外側の巻き戻しに巻き込まれる。
  */
-function note(db: Db, n: PendingNotice): void {
+function note(db: Db, o: Omit<PendingNotice, 'at'>): void {
+  const n: PendingNotice = { ...o, at: ++clock };
   if (db.inTransaction) {
     const queue = pending.get(db);
     if (queue) { queue.push(n); return; }
@@ -130,7 +144,7 @@ function note(db: Db, n: PendingNotice): void {
     return;
   }
   drain(db);
-  deliver({ db, table: n.table, rowId: n.rowId, op: n.op, origin: n.origin });
+  deliver({ db, table: n.table, rowId: n.rowId, op: n.op, origin: n.origin, at: n.at });
 }
 
 /**

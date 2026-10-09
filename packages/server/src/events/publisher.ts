@@ -1,6 +1,6 @@
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { getArtifact } from '../artifacts/queries.ts';
-import { onRowChange, settleRowChanges, type RowChange, type RowOrigin } from '../db/notify.ts';
+import { onRowChange, rowChangeClock, settleRowChanges, type RowChange, type RowOrigin } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listDevices } from '../db/queries.ts';
 import { memoFromDb } from '../projects/memo.ts';
@@ -42,10 +42,6 @@ const KINDS = {
   project: {
     build: (ctx, id) => { const p = getProject(ctx.db, ctx.deviceId, ctx.live(), id); return p ? { type: 'project.upsert', project: p } : null; },
     idOf: (ev) => (ev.type === 'project.upsert' ? ev.project.id : null),
-  },
-  projectUnresolved: {
-    build: (_ctx, id) => ({ type: 'project.unresolved', projectId: id }),
-    idOf: (ev) => (ev.type === 'project.unresolved' ? ev.projectId : null),
   },
   // 端末は一覧ごと配るので、ID は持たない。
   devices: {
@@ -99,12 +95,16 @@ const TABLES: Record<string, TableRule> = {
   },
   projects: { to: self('project') },
   // ルートの行は、そのプロジェクトの DTO（この端末のパスと、解決しているか）に載る。
-  // この端末のルートが消えた（resolved が 0 になった）ときだけは、project.unresolved で知らせる。画面はそれを見て、置き場の選び直しを出す。
+  // この端末のルートが未解決になった書き込みだけは、ここでは配らない。
+  // それを書くのはルートの確かめ（checkProjectRoots）で、解決済みから未解決へ移ったときである。
+  // そのときは呼び手（server.ts の checkRoots）が project.unresolved を手で渡す。画面はそれで置き場の選び直しを開くので、遷移を知っている側だけが出す。
+  // 同期で降りた行と名指しは遷移ではないので、未解決のままでも project.upsert にする。
   project_roots: {
     to: (c, ctx) => {
       const r = ctx.db.prepare('select project_id, device_id, resolved, deleted_at from project_roots where id = ?').get(c.rowId) as { project_id: string; device_id: string; resolved: number; deleted_at: number | null } | undefined;
       if (!r) return [];
-      return r.device_id === ctx.deviceId && r.resolved === 0 && r.deleted_at === null ? [['projectUnresolved', r.project_id]] : [['project', r.project_id]];
+      if (c.origin === 'write' && r.device_id === ctx.deviceId && r.resolved === 0 && r.deleted_at === null) return [];
+      return [['project', r.project_id]];
     },
   },
   devices: { to: () => [['devices', '']] },
@@ -126,7 +126,9 @@ function explicitKey(ev: ServerEvent): string | null {
 }
 
 /** 列に並ぶもの。呼び手が渡したイベントか、tick の終わりに組む行。dead は、後から同じ行が知らされて並び直したもの。 */
-type Item = { ev: ServerEvent } | { kind: KindName; id: string; key: string; dead: boolean };
+type Item =
+  | { ev: ServerEvent; /** 渡された時点までに起きていた行の変化の通し番号。 */ at: number }
+  | { kind: KindName; id: string; key: string; /** この行の最後の変化の通し番号。 */ at: number; dead: boolean };
 
 export type PublisherDeps = {
   db: Db;
@@ -156,9 +158,10 @@ export class Publisher {
     for (const [kind, id] of rule.to(c, this.deps)) {
       const key = keyOf(kind, id);
       // 同じ行がもう並んでいれば、最後に知らされた位置へ並び直す。配るのは 1 回のままである。
+      // 変化の順番は、起きたのが最も後のものを持つ（知らせは起きた順に届くとは限らない）。
       const cur = this.rows.get(key);
       if (cur) cur.dead = true;
-      const item = { kind, id, key, dead: false };
+      const item = { kind, id, key, at: Math.max(c.at, cur?.at ?? 0), dead: false };
       this.rows.set(key, item);
       this.queue.push(item);
     }
@@ -167,11 +170,11 @@ export class Publisher {
 
   /**
    * 表の変化に対応しない知らせを渡す。EventHub と同じ形なので、hub を受け取る部品へそのまま渡せる。
-   * 行のイベント（session.upsert など）を手で渡してもよい。そのときは、同じ tick にこの層が同じ行を重ねて配ることはしない。
+   * 行のイベント（session.upsert など）を手で渡してもよい。その行の最後の書き込みより後に渡されたものなら、同じ tick にこの層が同じ行を重ねて配ることはしない。
    */
   broadcast(ev: ServerEvent): void {
     if (!this.off) return;
-    this.queue.push({ ev });
+    this.queue.push({ ev, at: rowChangeClock() });
     this.schedule();
   }
 
@@ -184,9 +187,11 @@ export class Publisher {
   /**
    * 溜めた分を配る。ふだんは tick の終わりに自分で呼ぶ。閉じる前と試験からは、直に呼べる。
    *
-   * 呼び手が同じ行のイベントを手で配っていた tick では、この層の分は出さない。
+   * 呼び手が同じ行のイベントを、その行の最後の変化より後に手で配っていた tick では、この層の分は出さない。
    * HTTP と MCP の経路がまだ手で配っているあいだ、同じ行が二重に届かないようにするためである。
    * 手で配られた方は、数も中身もそのまま渡す。
+   * 手で配られた後に同じ行がまた変わっていたら、手の分は古いので、この層も最新の中身を配る（2 つ届くが、最後に届くのは最新である）。
+   * 前後は並びではなく、変化の通し番号で比べる。トランザクションの中の変化は知らせが遅れて届くので、並びでは前後が分からない。
    */
   flush(): void {
     this.scheduled = false;
@@ -198,17 +203,18 @@ export class Publisher {
     this.queue = [];
     this.rows = new Map();
     this.scheduled = false;
-    const explicit = new Set<string>();
+    // 鍵ごとに、最後に手で配られた時点。
+    const explicit = new Map<string, number>();
     for (const it of queue) {
       if (!('ev' in it)) continue;
       const key = explicitKey(it.ev);
-      if (key !== null) explicit.add(key);
+      if (key !== null) explicit.set(key, Math.max(it.at, explicit.get(key) ?? 0));
     }
     const active = this.deps.active ? this.deps.active() : true;
     for (const it of queue) {
       try {
         if ('ev' in it) { this.deps.hub.broadcast(it.ev); continue; }
-        if (it.dead || explicit.has(it.key) || !active) continue;
+        if (it.dead || (explicit.get(it.key) ?? -1) >= it.at || !active) continue;
         const ev = KINDS[it.kind].build(this.deps, it.id);
         if (ev) this.deps.hub.broadcast(ev);
       } catch (e) {

@@ -127,16 +127,31 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([{ type: 'project.upsert', project: getProject(t.db, ME, [], 'p1') }]);
   });
 
-  it('この端末のルートが消えた（resolved が 0 になった）ときは、project.unresolved を配る', () => {
+  it('この端末のルートが消えた書き込みでは、何も配らない。遷移を知っている checkRoots が project.unresolved を手で渡す', () => {
     const t = setup();
     seedProject(t.db);
     t.reset();
     const root = t.db.prepare('select * from project_roots where id = ?').get('root-p1') as Record<string, unknown>;
     upsertShared(t.db, 'project_roots', { ...root, resolved: 0 }, ME);
     t.publisher.flush();
-    expect(t.sent).toEqual([{ type: 'project.unresolved', projectId: 'p1' }]);
-    t.reset();
+    expect(t.sent).toEqual([]);
     upsertShared(t.db, 'project_roots', { ...root, resolved: 1 }, ME);
+    t.publisher.flush();
+    expect(t.types()).toEqual(['project.upsert']);
+  });
+
+  it('未解決のままのこの端末のルートが同期で降りても名指しされても、project.unresolved は出さず project.upsert にする', () => {
+    // project.unresolved は画面で置き場の選び直しを開く。解決済みから未解決へ移ったときだけ出すものである。
+    const t = setup();
+    seedProject(t.db);
+    const root = t.db.prepare('select * from project_roots where id = ?').get('root-p1') as Record<string, unknown>;
+    upsertShared(t.db, 'project_roots', { ...root, resolved: 0 }, ME);
+    t.reset();
+    noteApplied(t.db, 'project_roots', 'root-p1', 'upsert');
+    t.publisher.flush();
+    expect(t.types()).toEqual(['project.upsert']);
+    t.reset();
+    touchRow(t.db, 'project_roots', 'root-p1');
     t.publisher.flush();
     expect(t.types()).toEqual(['project.upsert']);
   });
@@ -268,18 +283,60 @@ describe('明示のイベントとの畳み込み', () => {
     expect(t.sent).toEqual([{ type: 'session.upsert', session: mine }]);
   });
 
-  it('手で配る方が先でも後でも、トランザクションの中の書き込みでも、1 つにまとまる', async () => {
+  it('書いた後に手で配れば、トランザクションの中の書き込みでも 1 つにまとまり、届く中身は最新である', async () => {
     const t = setup();
     seedProject(t.db);
     t.reset();
-    const p = getProject(t.db, ME, [], 'p1')!;
     const row = t.db.prepare('select * from projects where id = ?').get('p1') as Record<string, unknown>;
     t.db.transaction(() => { upsertShared(t.db, 'projects', { ...row, status: 'paused' }, ME); })();
-    // 確定を待つ知らせはまだ届いていない。ここで手の配りが先に並ぶ。
+    // 確定を待つ知らせはまだ届いていない。書いた後に組んだ手の配りが先に並ぶ。
+    const p = getProject(t.db, ME, [], 'p1')!;
     t.publisher.broadcast({ type: 'project.upsert', project: p });
     await Promise.resolve();
     await Promise.resolve();
     expect(t.sent).toEqual([{ type: 'project.upsert', project: p }]);
+    expect(p.status).toBe('paused');
+  });
+
+  it('手で配った後に同じ行がまた書かれたら、最後に届くのは最新の中身である', () => {
+    const t = setup();
+    seedSession(t.db);
+    t.reset();
+    const row = t.db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
+    upsertShared(t.db, 'sessions', { ...row, memo: 'v1' }, ME);
+    t.publisher.broadcast({ type: 'session.upsert', session: getSession(t.db, [], 's1', { deviceId: ME })! });
+    upsertShared(t.db, 'sessions', { ...row, memo: 'v2' }, ME);
+    t.publisher.flush();
+    expect(upserts(t.sent).at(-1)!.session.memo).toBe('v2');
+  });
+
+  it('手の配りの後、配る前に別の流れ（先に並んでいたマイクロタスク）が同じ行を書いても、最新の中身が届く', async () => {
+    const t = setup();
+    seedSession(t.db);
+    t.reset();
+    const row = t.db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
+    // 準備で並んだこの層の番を先に済ませ、ここからの並びだけにする。
+    await Promise.resolve();
+    // 索引の続きのように、この層の番より前に並んでいた仕事。
+    queueMicrotask(() => { upsertShared(t.db, 'sessions', { ...row, memo: 'v2' }, ME); });
+    upsertShared(t.db, 'sessions', { ...row, memo: 'v1' }, ME);
+    t.publisher.broadcast({ type: 'session.upsert', session: getSession(t.db, [], 's1', { deviceId: ME })! });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(upserts(t.sent).at(-1)!.session.memo).toBe('v2');
+  });
+
+  it('手で配った後にトランザクションの中でまた書かれても、最新の中身が届く', async () => {
+    const t = setup();
+    seedSession(t.db);
+    t.reset();
+    const row = t.db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
+    t.publisher.broadcast({ type: 'session.upsert', session: getSession(t.db, [], 's1', { deviceId: ME })! });
+    t.db.transaction(() => { upsertShared(t.db, 'sessions', { ...row, memo: 'v2' }, ME); })();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(upserts(t.sent).at(-1)!.session.memo).toBe('v2');
   });
 
   it('呼び手が同じイベントを 2 回手で配れば、今までどおり 2 回届く', () => {

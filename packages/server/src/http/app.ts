@@ -899,7 +899,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(t);
   });
 
-  // メモ。DB とファイルの両方に書き、ファイルの外部編集は MemoStore の監視が配る。
+  // メモ。DB とファイルの両方に書く。ファイルの外部編集は MemoStore の監視が取り込み、配る層（events/publisher.ts）が配る。
   api.get('/projects/:id/memo', (c) => {
     const id = c.req.param('id');
     if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);

@@ -175,12 +175,16 @@ export const STOP_WATCHDOG_MS = 8_000;
  * 戻ったときに紐づけ直さないと、次の起動まで未分類のままになり、プロジェクトにも出てこない。
  * 戻ったルートが無いときは何もしない。起動時の 1 回目はたいていこちらを通るので、全件を舐めない。
  *
- * 画面へは配らない。配るのは events/publisher.ts で、ここが書いた行の知らせから組む。
- * 消えたルートは project.unresolved、戻ったルートは project.upsert、紐づけ直したセッションは session.upsert になる。
+ *
+ * 消えたもの（解決済みから未解決へ移ったルート）は、ここが project.unresolved で知らせる。
+ * 画面はそれで置き場の選び直しを開くので、遷移を知っているここだけが出す。
+ * ほかは画面へ配らない。配るのは events/publisher.ts で、ここが書いた行の知らせから組む。
+ * 戻ったルートは project.upsert、紐づけ直したセッションは session.upsert になる。
  * 紐づけ直しで中身が変わったプロジェクトだけは、行を書いていないので、ここで名指しする。
  */
-export function checkRoots(o: { db: Db; deviceId: string }): { unresolved: string[]; recovered: string[] } {
+export function checkRoots(o: { db: Db; deviceId: string; broadcast: (ev: ServerEvent) => void }): { unresolved: string[]; recovered: string[] } {
   const r = checkProjectRoots(o.db, o.deviceId);
+  for (const id of r.unresolved) o.broadcast({ type: 'project.unresolved', projectId: id });
   if (r.recovered.length === 0) return r;
   const unassigned = (o.db.prepare('select id from sessions where project_id is null and deleted_at is null').all() as { id: string }[]).map((x) => x.id);
   assignSessions(o.db, o.deviceId);
@@ -997,7 +1001,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 取り込んだメモは project_memos の行を書くので、memo.update とプロジェクトの配り直しは events/publisher.ts が受け持つ。
   memos.reconcileAll();
   const stopMemoWatch = memos.watch(() => undefined);
-  const checkRootsNow = () => checkRoots({ db, deviceId: device.id });
+  const checkRootsNow = () => checkRoots({ db, deviceId: device.id, broadcast: (ev) => hub.broadcast(ev) });
   checkRootsNow();
   const rootTimer = setInterval(checkRootsNow, ROOT_CHECK_MS);
   rootTimer.unref();

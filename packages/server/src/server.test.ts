@@ -809,10 +809,10 @@ describe('ルートの復帰', () => {
    * checkRoots は行の変化を知らせるだけで、画面へ配るのは配る層（events/publisher.ts）である。
    * 本番と同じ組で動かし、その 1 回で配られたイベントを sent に貯める。
    */
-  function delivered<T>(db: ReturnType<typeof openDb>, sent: ServerEvent[], run: () => T): T {
+  function delivered<T>(db: ReturnType<typeof openDb>, sent: ServerEvent[], run: (publisher: Publisher) => T): T {
     const publisher = new Publisher({ db, deviceId: 'd', live: () => [], hub: { broadcast: (ev) => { sent.push(ev); } } });
     try {
-      const r = run();
+      const r = run(publisher);
       publisher.flush();
       return r;
     } finally {
@@ -835,7 +835,7 @@ describe('ルートの復帰', () => {
     const db = fixture(ws);
     const sent: ServerEvent[] = [];
     try {
-      const r = delivered(db, sent, () => checkRoots({ db, deviceId: 'd' }));
+      const r = delivered(db, sent, (publisher) => checkRoots({ db, deviceId: 'd', broadcast: (ev) => publisher.broadcast(ev) }));
       expect(r.recovered).toEqual(['p1']);
       expect(projectIdOf(db)).toBe('p1');
       expect(sent.filter((e) => e.type === 'session.upsert').map((e) => (e as Extract<ServerEvent, { type: 'session.upsert' }>).session.id)).toEqual(['s1']);
@@ -852,7 +852,7 @@ describe('ルートの復帰', () => {
     try {
       upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
       upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: gone, resolved: 1 }, 'd');
-      const r = delivered(db, sent, () => checkRoots({ db, deviceId: 'd' }));
+      const r = delivered(db, sent, (publisher) => checkRoots({ db, deviceId: 'd', broadcast: (ev) => publisher.broadcast(ev) }));
       expect(r.unresolved).toEqual(['p1']);
       expect(sent).toEqual([{ type: 'project.unresolved', projectId: 'p1' }]);
     } finally {
@@ -868,7 +868,7 @@ describe('ルートの復帰', () => {
       upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
       upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: ws, resolved: 1 }, 'd');
       upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: null, cwd: '/somewhere/else', home_device: 'd' }, 'd');
-      expect(delivered(db, sent, () => checkRoots({ db, deviceId: 'd' }))).toEqual({ unresolved: [], recovered: [] });
+      expect(delivered(db, sent, (publisher) => checkRoots({ db, deviceId: 'd', broadcast: (ev) => publisher.broadcast(ev) }))).toEqual({ unresolved: [], recovered: [] });
       expect(sent).toEqual([]);
       expect(projectIdOf(db)).toBeNull();
     } finally {
