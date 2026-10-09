@@ -120,6 +120,8 @@ describe('NowStrip の「ノート」の札', () => {
     expect(save).toBeEnabled();
     fireEvent.click(save);
     expect(m.onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '決済は v3。テストは checkout/ 以下' });
+    // 保存が通って本文が戻ってきたら、書き換えのない状態に戻る（通らなかったときは、書いたものが残って押せるまま）。
+    m.rerender({ note: '決済は v3。テストは checkout/ 以下' });
     expect(save).toBeDisabled();
   });
 

@@ -113,6 +113,12 @@ describe('presentProject の右パネル', () => {
     const proposed = dto('a1', { state: st({ candidate: { status: 'done', note: 'n', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW - H } }) });
     expect(presentProject(initialState(), storeOf([proposed]), NOW, 'alpha').pendingTodos).toBe(0);
   });
+  it('ノートは本文と、中身があるかを返す。メモが無いプロジェクトも空のノートとして返す（読む表示の出し分けは中身で決める）', () => {
+    expect(presentProject(initialState(), storeOf([]), NOW, 'alpha').note).toEqual({ text: '', filled: false });
+    const memo = (markdown: string) => ({ memos: { alpha: { projectId: 'alpha', markdown, updatedAt: 5 } } });
+    expect(presentProject(initialState(), storeOf([], memo('決済は v3')), NOW, 'alpha').note).toEqual({ text: '決済は v3', filled: true });
+    expect(presentProject(initialState(), storeOf([], memo('  \n')), NOW, 'alpha').note.filled).toBe(false);
+  });
   it('候補の TODO の、根拠が無いとき、出したセッションが手元に無いときの文は、言語に従う', () => {
     const t = todo('t1', { candidate: { sessionId: 'gone', note: null, at: NOW - 60_000 } });
     const ja = storeOf([]);

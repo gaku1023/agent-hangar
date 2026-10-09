@@ -184,7 +184,7 @@ Root
 │  └─ Main
 │     ├─ HomeScreen         HomeBand（錠剤 + 引き出し） / SessionList（タブ、欄、絞り込み、行）
 │     ├─ ProjectsScreen     節 × n → ProjectRow（行の表）
-│     ├─ ProjectScreen      ProjectHeader / SessionList / RightRail(TodoList, MemoEditor, ArtifactCards)
+│     ├─ ProjectScreen      ProjectHeader / SessionList / RightRail(TodoList, EditableNote, ArtifactCards)
 │     ├─ SessionScreen      SessionHeader(SummaryPanel) / TabStrip / SplitPane → TerminalPane | TranscriptPane
 │     └─ SettingsScreen     各設定セクション
 └─ Overlays
@@ -2311,7 +2311,8 @@ Done は畳まずに全件を出し、行が多ければページ送り（ホー
 **右パネル。** TODO、ノート、アーティファクトを白い面に載せ、折りたためる（「右パネルを閉じる」「右パネルを開く」）。
 TODO の見出しに件数と、完了の候補が付いた未完の TODO の数の札「確認待ち N」を置く。
 セッションの状態の提案は数えない。そちらは一覧のタブの「確認待ち」が言う。
-ノートの空は「ノートを編集」の 1 行に畳み、押すと欄が開く。
+ノートは読む表示で出し、見出しの右の「ノートを編集」（空なら「ノートを書く」）を押したときだけ入力欄にする。
+欄の中の操作はセッション画面の冒頭の 1 枚と同じ部品（`views/EditableNote.tsx`）で、⌘Enter（Ctrl+Enter）かボタンで保存して読む表示に戻り、Esc は保存せずに戻って書きかけを捨てる。
 TODO とアーティファクトが空のときは、足す欄があれば別の行では断らない（TODO は欄の薄い字が言う）。
 TODO の完了の候補の行は、背景を淡い紫（`--cand-soft`）にしてチェック欄を半分塗りにし、行の下に根拠の一文、出したセッションの名前（押すとそのセッションを開く。見つからなければ「不明なセッション」でリンクにしない）、候補になってからの時間、「確定」「却下」を常に見せる。
 候補の行のチェック欄を押したときは、反転ではなく「確定」と同じに扱う。
@@ -2427,6 +2428,9 @@ xterm のインスタンスとスクロールバッファは残すので、戻�
 - 現在の帯（`views/NowStrip.tsx`、値は `presenters/live.ts` の `presentNowStrip`）。上の段落のとおり。
 - ノートの編集（`views/NoteEditor.tsx`）。帯の「ノート」の札のポップオーバーと、冒頭の 1 枚の中で同じ欄を使う。
   保存は `session.setMemo`（⌘Enter でもよい）。外で書き換えられたときは、書きかけの下書きを捨てずに知らせる。
+  下書きの扱いは `useNoteDraft` にあり、保存しても下書きは消さない。保存が通らず本文が変わらなかったときは、開き直すと書いたものが残っていて、そのまま保存し直せる。失敗はトーストが知らせる。
+- 読む表示と編集の欄を切り替えるノート（`views/EditableNote.tsx`）。冒頭の 1 枚とプロジェクトの画面の右パネルが使う。
+  見出しの行は呼び手が組み、その右にボタンを置く。Esc で編集をやめ、書きかけを捨てる。保存すると読む表示に戻る。
 - 冒頭の 1 枚（`views/LeadCard.tsx`、値は `presenters/session.ts` の `presentLeadCard`）。上の段落のとおり。
 - 見出しの名前の横の札（`views/SessionBadges.tsx`、`presentSessionBadges`）。
 - 目次だけの右パネル（`views/TocPane.tsx`）。240px の細い列で、中身は `TurnIndex`。開閉のボタンは `TocToggle`（既定は ⌘J と同じ `transcript.toggle`。狭い窓では渡された関数を呼ぶ）。

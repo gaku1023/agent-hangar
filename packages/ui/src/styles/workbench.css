@@ -56,10 +56,6 @@
 .rail-add .input { flex: 1; min-width: 0; }
 .rail-add .btn { flex: none; }
 
-/* メモ。保存は右端に置き、外部の更新の知らせは左に並べる。 */
-.memo-area { width: 100%; resize: vertical; }
-.memo-open { align-self: flex-start; }
-.memo-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
 
 /* アーティファクトのカード。右レールでは 1 列に積む。 */
 .artifacts { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
@@ -90,6 +86,10 @@
 /* 右レールの節の見出し。名前、件数、（TODO は）確認待ちの札を横に並べる。 */
 .rail-h { display: flex; align-items: center; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
 .rail-n { font-weight: 500; color: var(--ink-3); }
+/* 見出しの右に操作の置ける節（ノート）。ボタンを h2 の外に出し、見出しの名前にボタンの文字が混ざらないようにする。 */
+.rail-head { display: flex; align-items: center; justify-content: space-between; gap: calc(var(--u) * 2); min-height: calc(var(--row-h) - 6px); margin: 0 0 calc(var(--u) * 2); }
+.rail-head .rail-h { margin: 0; }
+.rail-panel .note-text { margin: 0; }
 /* (i) の面の下の操作と、名前を変える欄。 */
 .pop-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--line); }
 .pop-acts .btn[data-copied='true'] { color: var(--st-done); }

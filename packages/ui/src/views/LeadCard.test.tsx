@@ -165,6 +165,19 @@ describe('LeadCard のノート', () => {
     expect(within(card()).getByRole('textbox', { name: 'ノート' })).toHaveValue('詳細の頁は別のセッションで');
     expect(within(card()).queryByRole('button', { name: 'ノートを編集' })).toBeNull();
   });
+  it('⌘Enter で保存すると session.setMemo を出して読む表示に戻り、Esc では保存せずに戻る', () => {
+    const { onIntent } = mount({ session: session({ memo: '元' }) });
+    fireEvent.click(within(card()).getByRole('button', { name: 'ノートを編集' }));
+    fireEvent.change(within(card()).getByRole('textbox', { name: 'ノート' }), { target: { value: '新' } });
+    fireEvent.keyDown(within(card()).getByRole('textbox', { name: 'ノート' }), { key: 'Enter', metaKey: true });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '新' });
+    expect(within(card()).queryByRole('textbox')).toBeNull();
+    onIntent.mockClear();
+    fireEvent.click(within(card()).getByRole('button', { name: 'ノートを編集' }));
+    fireEvent.keyDown(within(card()).getByRole('textbox', { name: 'ノート' }), { key: 'Escape' });
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(within(card()).queryByRole('textbox')).toBeNull();
+  });
 });
 
 describe('LeadCard の英語', () => {
