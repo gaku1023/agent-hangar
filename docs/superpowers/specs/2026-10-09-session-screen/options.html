@@ -523,7 +523,7 @@ const PROJECT = { name: 'web-shop', path: '~/code/web-shop' };
 const LIVE = {
   id: 's1', name: '決済フォームの検証を直す', live: 'waiting', waited: '4 分', q: '既存のテストを書き換えてよいですか？',
   one: '入力の検証をサーバ側へ寄せ、フォームのテストを更新中',
-  model: 'opus', effort: 'high', perm: 'Accept edits', ctx: 41, cost: '$0.86', turns: 9, tokens: '31k', started: '08:52', files: 2, account: '会社',
+  model: 'opus', effort: 'high', perm: 'Accept edits', ctx: 41, cost: '$0.86', turns: 9, tokens: '31k', started: '08:52', files: 2, account: '仕事用',
   note: '決済は Stripe の v3。テストは checkout/ 以下に置く',
   intent: 'フォームの検証をサーバ側へ寄せる', intentAt: '10:01', intentSince: 3,
   steps: [['done', 'Read', 'src/checkout/form.ts', '10:01'], ['done', 'Read', 'src/checkout/form.test.ts', '10:02'], ['wait', 'AskUserQuestion', '既存のテストを書き換えてよいですか？', '10:03']],
@@ -540,7 +540,7 @@ const LIVE = {
 const ENDED = {
   id: 's7', name: '画像の遅延読み込み', live: null, status: 'done', statusAt: '10/6', when: '3 日前',
   one: 'IntersectionObserver で置き換え、PR #88 をマージ',
-  model: 'sonnet', effort: '', perm: 'Accept edits', cost: '$0.42', turns: 11, tokens: '20k', started: '10/6 09:30', ended: '10/6 12:10', files: 5, pr: '#88', account: '会社',
+  model: 'sonnet', effort: '', perm: 'Accept edits', cost: '$0.42', turns: 11, tokens: '20k', started: '10/6 09:30', ended: '10/6 12:10', files: 5, pr: '#88', account: '仕事用',
   note: '詳細の頁は別のセッションで',
   sum: '商品一覧の画像を IntersectionObserver で遅延読み込みにし、LCP を 3.1 秒から 1.8 秒に縮めて PR #88 をマージした。先頭の 4 枚は即時に読む。枠の高さは固定にすると決めた（ターン 6）。',
   next: ['詳細の頁の画像にも同じ部品を使う'], prog: '完了', src: '作成元 事後、LM Studio / qwen3-8b、10/6 18:40 生成',
