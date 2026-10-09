@@ -13,6 +13,8 @@ import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
+import { translatorOf } from '../presenters/i18n.ts';
+import { readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, appendSearchResult, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
@@ -144,16 +146,20 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
   const failWith = (what: string, e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: `${what}: ${errMsg(e)}` } });
   /**
-   * 準備の確かめを取りに行く。設定画面の検証と、空のホームの確認リストが同じ値を読む。
+   * 準備の確かめを取りに行く。設定画面の検証と、ホームの帯の始める前の確認が同じ値を読む。
    * Claude Code との互換にずれがあれば、続けてずれの中身（GET /api/compat）も取る。止めた機能の一覧は常に出すので（A4）、開くのを待たない。
    * ずれが無ければ、前に取った中身を捨てる。compat の無い古いサーバの答えでは取りに行かない。
    * 要求には番号を振り、最新の要求の答えだけを取る（検索の searchSeq と同じ作り）。
    * 答えが順番を違えて着いても、古い答えが新しい答えを上書きせず、古い答えに続けて取ったずれの中身も入れない。
+   * 前の答えで帯に直すものがあり、この答えでは無くなっていたら、そろったことをトーストで 1 回知らせる（設計書 2.11.4）。
+   * 前の答えが無い（起動して最初に取った）ときは、そろったのではなく、はじめから問題が無いので知らせない。
    */
   const loadReadiness = () => {
     const seq = ++readinessSeq;
     deps.api.readiness().then((r) => {
       if (seq !== readinessSeq) return;
+      const before = store.readiness;
+      if (before && readinessPending(before) && !readinessPending(r)) toast(translatorOf(store)(readinessComplete(r) ? 'home.ready.toast.done' : 'home.ready.toast.required'));
       const drifts = readinessCompat(r)?.driftCount ?? 0;
       if (drifts > 0) {
         setStore({ ...store, readiness: r });
@@ -249,8 +255,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
-          // セッションが 1 つも無ければ、ホームは準備の確認リストを出す。その中身をここで取りに行く。
-          if (b.sessions.length === 0) loadReadiness();
+          // ホームの帯は、直すものがあれば始める前の確認を出す。誰にでも出すので、起動のたびにその中身を取りに行く（遅れは 1 回の which の数回分）。
+          loadReadiness();
         }).catch(fail);
         return;
       case 'api.loadEvents': {

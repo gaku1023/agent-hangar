@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { translator, type Intent } from '@agent-hangar/shared';
+import { translator, type Intent, type ReadinessDto } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { presentHomeBand, type AttentionCard, type BandGroup, type ConfirmCard, type ReturnCard, type RunningCard } from '../presenters/home.ts';
+import { presentReadiness } from '../presenters/readiness.ts';
 import { HomeBand } from './HomeBand.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
@@ -175,5 +176,81 @@ describe('HomeBand の行', () => {
     expect(drawer).toHaveTextContent('Edit a.ts');
     expect(drawer).toHaveTextContent('作業中 5分');
     expect(drawer).toHaveTextContent('40%');
+  });
+});
+
+describe('HomeBand の始める前の確認（2.11.4）', () => {
+  const READY: ReadinessDto = {
+    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    workspace: { path: '/Users/me/workspace', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: 'bash x', scriptPath: '/Users/me/.claude/statusline.sh', installed: false },
+    commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+    compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
+  };
+  const band = presentReadiness(READY, ja)!;
+  const open = () => mount(none, { extra: [band.group], note: band.note });
+  const drawer = () => within(screen.getByRole('region', { name: 'セットアップの確認' }));
+
+  it('錠剤は「6 つ中 3 つ」で、進みの棒と帯の文を添える。確認の群だけのときは引き出しが開いている', () => {
+    const { container } = open();
+    const chip = pill(/^セットアップの確認 6 つ中 3 つ$/);
+    expect(chip).toHaveAttribute('aria-expanded', 'true');
+    expect(chip.closest('.count-chip')).toHaveAttribute('data-tone', 'warn');
+    expect(container.querySelector('.band-prog > span')).toHaveStyle({ width: '50%' });
+    expect(container.querySelector('.band-text')).toHaveTextContent('要修正 3。tmux と claude があるので始められます');
+  });
+
+  it('直すものだけを 1 行ずつ出す。任意の行には「任意」の札があり、右端のボタンは 1 つ', () => {
+    open();
+    const rows = drawer().getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]!).getByText('プロジェクトの親フォルダ')).toBeInTheDocument();
+    expect(within(rows[0]!).queryByText('任意')).toBeNull();
+    expect(within(rows[1]!).getByText('MCP サーバー')).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('任意')).toBeInTheDocument();
+    expect(within(rows[2]!).getByText('任意')).toBeInTheDocument();
+    for (const r of rows) expect(within(r).getAllByRole('button')).toHaveLength(1);
+    expect(within(rows[1]!).getByText('hangar mcp install')).toBeInTheDocument();
+  });
+
+  it('印は色だけでなく読み上げの名前でも状態を言う', () => {
+    open();
+    const rows = drawer().getAllByRole('listitem');
+    expect(within(rows[0]!).getByRole('img', { name: '準備できていません' })).toBeInTheDocument();
+    expect(within(rows[1]!).getByRole('img', { name: '未設定' })).toBeInTheDocument();
+  });
+
+  it('「設定を開く」は設定へ、「コマンドをコピー」は命令を写す', () => {
+    const { onIntent } = open();
+    fireEvent.click(screen.getByRole('button', { name: '設定を開く、プロジェクトの親フォルダ' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+    fireEvent.click(screen.getByRole('button', { name: 'コマンドをコピー、MCP サーバー' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
+  });
+
+  it('済んだものは 1 行に畳む。押すと見つかった場所の行が開き、もう一度押すと閉じる', () => {
+    open();
+    const fold = screen.getByRole('button', { name: 'tmux、claude、Claude Code との互換性は準備完了' });
+    expect(fold).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('/opt/homebrew/bin/tmux（3.4）')).toBeNull();
+    fireEvent.click(fold);
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('/opt/homebrew/bin/tmux（3.4）')).toBeInTheDocument();
+    expect(within(drawer().getByText('/opt/homebrew/bin/tmux（3.4）').closest('li')!).getByRole('img', { name: '準備できています' })).toBeInTheDocument();
+    fireEvent.click(fold);
+    expect(screen.queryByText('/opt/homebrew/bin/tmux（3.4）')).toBeNull();
+  });
+
+  it('検索の最中は、引き出しを閉じて錠剤を件数だけの札にする', () => {
+    mount(none, { extra: [band.group], note: band.note, searching: true });
+    expect(screen.queryByRole('region', { name: 'セットアップの確認' })).toBeNull();
+    expect(screen.getByText('セットアップの確認').closest('.count-chip')).toHaveTextContent('6 つ中 3 つ');
+  });
+
+  it('English では語が替わる', () => {
+    const en = translator('en');
+    const b = presentReadiness(READY, en)!;
+    render(<LanguageRoot language="en"><IntentRoot onIntent={() => {}}><HomeBand {...presentHomeBand(none, en, [b.group])} note={b.note} /></IntentRoot></LanguageRoot>);
+    expect(screen.getByRole('button', { name: /^Setup check 3 of 6$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'tmux, claude, Claude Code compatibility: ready' })).toBeInTheDocument();
   });
 });

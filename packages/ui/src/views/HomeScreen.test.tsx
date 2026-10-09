@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { translator, type Intent } from '@agent-hangar/shared';
+import { translator, type Intent, type ReadinessDto } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { presentHomeBand, type AttentionCard, type ConfirmCard, type HomeScreenProps, type ReturnCard, type RunningCard } from '../presenters/home.ts';
+import { presentReadiness } from '../presenters/readiness.ts';
 import { pagerOf } from '../presenters/pager.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
 import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/sessions.ts';
@@ -20,10 +21,16 @@ const running = (id: string): RunningCard => ({ id, name: `動く ${id}`, live: 
 const todo = (id: string): ConfirmCard => ({ kind: 'todo', id, text: `やる ${id}`, projectId: 'alpha', projectName: 'alpha', sessionName: 'one', ago: '1 時間前', note: '片付いた' });
 const busy = { attention: [waiting('a'), waiting('b')], returning: [reminder('r')], running: [running('x')], confirm: [todo('t1')] };
 const none = { attention: [], returning: [], running: [], confirm: [] };
+const READY: ReadinessDto = {
+  tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+  workspace: { path: '/Users/me/workspace', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: 'bash x', scriptPath: '/Users/me/.claude/statusline.sh', installed: false },
+  commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+  compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
+};
 
 const props = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy): HomeScreenProps => {
   const band = presentHomeBand(cards, ja);
-  return { band, idle: band.groups.every((g) => g.count === 0), searching: false, list: listProps(), allCount: 1241, loadMore: null, onboarding: null, ...over };
+  return { band, idle: band.groups.every((g) => g.count === 0), searching: false, list: listProps(), allCount: 1241, loadMore: null, note: null, ...over };
 };
 const mount = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy, onIntent = vi.fn<(i: Intent) => void>()) => ({ ...render(<LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><HomeScreen {...props(over, cards)} /></IntentRoot></LanguageRoot>), onIntent });
 const tabs = () => within(screen.getByRole('group', { name: '状態' }));
@@ -269,11 +276,37 @@ describe('HomeScreen の行（2 段）', () => {
   });
 });
 
-describe('HomeScreen の始める前の確認（PR 32 まで今のリストを残す）', () => {
-  it('セッションもプロジェクトも無いときは、区画の代わりに確認リストだけを出す', () => {
-    const { container } = mount({ onboarding: { checks: null } });
-    expect(container.querySelector('.onboarding')).not.toBeNull();
-    expect(container.querySelector('.home-band')).toBeNull();
-    expect(screen.queryByRole('group', { name: '状態' })).toBeNull();
+describe('HomeScreen の始める前の確認（帯の最後の群）', () => {
+  const ready = presentReadiness(READY, ja)!;
+  const withReady = (cards: typeof busy) => {
+    const base = presentHomeBand(cards, ja, [ready.group]);
+    return { band: base, idle: false, note: ready.note };
+  };
+  it('確認の群は帯の錠剤になり、帯の右端に 1 行の文を出す。ようこその札と確認リストの区画は無い', () => {
+    const { container } = mount(withReady(none), none);
+    expect(screen.getByRole('button', { name: /^セットアップの確認 6 つ中 3 つ$/ })).toBeInTheDocument();
+    expect(container.querySelector('.band-text')).toHaveTextContent('要修正 3。tmux と claude があるので始められます');
+    expect(container.querySelector('.onboarding')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'ようこそ' })).toBeNull();
+    // 一覧の空の札の「クイックセッションを開始」は、初めての人に残す。
+    expect(container.querySelector('.home')).not.toBeNull();
+  });
+  it('セッションがまだ 1 つも無い人には、一覧の空の札に「クイックセッションを開始」を残す。帯の 1 行は重ねない', () => {
+    const { onIntent } = mount({ ...withReady(none), allCount: 0, list: listProps({ rows: [], total: 0, allCount: 0 }) }, none);
+    expect(screen.getByRole('heading', { name: 'セッションはまだありません' })).toBeInTheDocument();
+    expect(screen.getByText('セットアップの確認が済んでいなくても、クイックセッションから始められます')).toBeInTheDocument();
+    expect(screen.queryByText('実行中のセッションはありません')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'クイックセッションを開始' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
+    fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
+  });
+  it('セッションがある人の一覧には、空の札を出さない', () => {
+    mount();
+    expect(screen.queryByRole('heading', { name: 'セッションはまだありません' })).toBeNull();
+  });
+  it('確認が無いときは、帯に文を出さない', () => {
+    const { container } = mount();
+    expect(container.querySelector('.band-text')).toBeNull();
   });
 });

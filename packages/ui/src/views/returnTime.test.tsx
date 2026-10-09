@@ -40,7 +40,7 @@ describe('ホームの帯の今日戻るの行の時刻', () => {
   const ret = (id: string, returnTime: string | null, due: boolean): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'agent-hangar', reason: `${id} を見る`, returnOn: '2026-10-05', returnTime, overdueDays: 0, due, pastMin: due && returnTime ? 30 : null });
   it('時刻を出し、時刻の前のものは塗らない', () => {
     const band = presentHomeBand({ attention: [], returning: [ret('timer', '11:30', true), ret('night', '21:50', false), ret('allday', null, true)], running: [], confirm: [] }, ja);
-    const props = { band, idle: false, searching: false, list: { text: '', filter: {}, projects: [], rows: [], total: 0, loading: false, mode: 'all' as const, conditions: [], tabs: [], tab: 'all' as const, pager: null, statusColumn: true, tokens: [], hints: [], allCount: 0 }, allCount: 0, loadMore: null, onboarding: null };
+    const props = { band, idle: false, searching: false, list: { text: '', filter: {}, projects: [], rows: [], total: 0, loading: false, mode: 'all' as const, conditions: [], tabs: [], tab: 'all' as const, pager: null, statusColumn: true, tokens: [], hints: [], allCount: 0 }, allCount: 0, loadMore: null, note: null };
     const { container } = render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...props} /></IntentRoot>);
     const when = [...container.querySelectorAll('.drawer .return-when')];
     expect(when.map((w) => [w.textContent, w.getAttribute('data-due')])).toEqual([['30 分過ぎ', 'true'], ['今日 21:50', null], ['今日', 'true']]);

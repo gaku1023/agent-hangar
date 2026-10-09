@@ -7,7 +7,7 @@ import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
-import { presentOnboarding, type OnboardingProps } from './onboarding.ts';
+import { presentReadiness } from './readiness.ts';
 import { candidateLabel, returnOnLabel, sortSessions } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
 import { dueOn, returnKey } from './sections.ts';
@@ -134,27 +134,35 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
 export type BandAction = { id: string; label: string; ariaLabel: string; primary: boolean; ghost: boolean; intent: Intent };
 /**
  * 行頭の印。dot は状態の点、tag は戻る日や提案の札（tone の due は戻る時点を過ぎて塗る、soon は時刻の前で文字だけ、cand は提案）、todo は TODO の完了の提案の印である。
+ * check は始める前の確認の印で、色だけでなく形（✓、ⓘ、!、✗）でも分ける。label は読み上げの名前に添える状態の語である。
  */
 export type BandLead =
   | { kind: 'dot'; live: LiveStatus | null; aside: boolean }
   | { kind: 'tag'; text: string; tone: 'due' | 'soon' | 'cand'; title?: string }
-  | { kind: 'todo' };
+  | { kind: 'todo' }
+  | { kind: 'check'; tone: 'ok' | 'info' | 'soft' | 'ng'; label: string };
 /** 行の右端に並べる文字。tone の wait は入力待ちの色、busy は作業中の色である。 */
 export type BandTrail = { text: string; tone?: 'wait' | 'busy' };
 /**
  * 帯の引き出しの 1 行（1 件 1 行）。
  * 名前（name）、薄い添え（context）、本文（text）、等幅の詳細（detail、いまの手など）、右端の文字（trail）、ボタン（actions）を並べる。
  * open があれば名前がボタンになり、押すとその Intent を発行する。tone の wait は行の地に入力待ちの色を薄く敷く。
+ * badge は名前の横に添える小さな札で、始める前の確認の「任意」に使う。
  * どの群の行もこの形にするので、群を足すときに View を触らずに済む。
  */
-export type BandRow = { key: string; lead: BandLead; name: string; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: Intent | null; actions: BandAction[] };
+export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: Intent | null; actions: BandAction[] };
 /**
  * 帯の群 1 つ。錠剤 1 つとその引き出しにあたる。
  * count は錠剤の数で、0 なら薄く出して押せない。summary は引き出しの見出しに添える内訳である。
- * tone は件数の色（wait は入力待ちの赤茶、cand は確認待ちの紫）、icon は錠剤の絵である。
+ * tone は件数の色（wait は入力待ちの赤茶、cand は確認待ちの紫、warn は直すものの黄）、icon は錠剤の絵である。
  * morning は、朝に最初に開く群の候補になること（既定の 3 つだけが真。足す群は真にしてよいかを足す側が決める）。
+ * 次の 3 つは、足す群だけが持てる。countText は錠剤の件数の代わりに出す文字（「6 つ中 3 つ」）、progress は錠剤の横に出す進みの棒（0 から 100）、
+ * fold は引き出しの末尾に畳む 1 行で、押すと rows を開く（済んだ確認の行）。
  */
-export type BandGroup = { id: string; label: string; icon: IconName; tone: 'default' | 'wait' | 'cand'; count: number; summary: string; morning: boolean; rows: BandRow[] };
+export type BandGroup = {
+  id: string; label: string; icon: IconName; tone: 'default' | 'wait' | 'cand' | 'warn'; count: number; summary: string; morning: boolean; rows: BandRow[];
+  countText?: string; progress?: number; fold?: { text: string; rows: BandRow[] };
+};
 /**
  * 帯が受け取るもの。groups は錠剤の並びで、morning は開いたときに最初から開いている群の id（無ければ null）。
  * 開閉は View の中の状態で、ここは朝に開く群だけを決める（設計書 4.4）。
@@ -259,22 +267,30 @@ export type LoadMoreProps = { remaining: number; step: number; loading: boolean 
  * band は上の帯と引き出し、idle は 3 つの群がどれも 0 件のこと（帯の代わりに「実行中のセッションはありません」の 1 行を出す）、
  * searching は語か触ったファイルで探している最中のこと（引き出しを閉じ、帯の件数だけを残す）である。
  * list はステータスのタブ、欄、絞り込み、行を持つ平らな一覧で、loadMore は検索の結果の末尾の「さらに読み込む」（検索でないときは null）。
- * onboarding は、セッションもプロジェクトも無いあいだの確認リストである。確認の要約と引き出しは PR 32 で作るので、それまで今のリストを残す。
+ * note は帯の右端に添える 1 行で、始める前の確認があるあいだだけ持つ（2.11.4）。
+ * 始める前の確認は、直すものがあるあいだ、帯の最後の群（錠剤と引き出し）になる。
+ * 要対応と実行中と確認待ちがどれも 0 件のときは、その 3 つの薄い錠剤を出さず、確認の群だけを帯に置き、「実行中のセッションはありません」の 1 行は出さない。
  * 4 つ目の錠剤（場所の不明なプロジェクト）は、presentHomeBand の extra に群を足して作る（PR 33）。
  */
-export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: boolean; list: SessionListProps; allCount: number; loadMore: LoadMoreProps | null; onboarding: OnboardingProps | null };
+export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: boolean; list: SessionListProps; allCount: number; loadMore: LoadMoreProps | null; note: string | null };
 
 export function presentHomeScreen(state: State, store: Store, now: number): HomeScreenProps {
-  const band = presentHomeBand(presentHome(state, store, now), translatorOf(store));
+  const t = translatorOf(store);
+  // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
+  const ready = store.readiness ? presentReadiness(store.readiness, t) : null;
+  const base = presentHomeBand(presentHome(state, store, now), t);
+  const quiet = base.groups.every((g) => g.count === 0);
+  const groups = ready ? (quiet ? [ready.group] : [...base.groups, ready.group]) : base.groups;
+  const band: HomeBandProps = { groups, morning: morningGroup(groups) };
   const list = presentSessionList(state, store, now);
   const remaining = list.total - list.rows.length;
   return {
     band,
-    idle: band.groups.every((g) => g.count === 0),
+    idle: quiet && !ready,
     searching: usesServerSearch(state.search),
     list,
     allCount: list.allCount,
     loadMore: list.mode === 'search' && remaining > 0 ? { remaining, step: SEARCH_STEP, loading: list.loading } : null,
-    onboarding: presentOnboarding(store),
+    note: ready?.note ?? null,
   };
 }

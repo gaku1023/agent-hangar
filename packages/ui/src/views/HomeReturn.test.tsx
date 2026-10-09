@@ -11,7 +11,7 @@ const ja = translator('ja');
 const list: SessionListProps = { text: '', filter: {}, projects: [], rows: [], total: 0, loading: false, mode: 'all', conditions: [], tabs: [], tab: 'all', pager: null, statusColumn: true, tokens: [], hints: [], allCount: 0 };
 const home = (over: Partial<HomeCards> = {}, props: Partial<HomeScreenProps> = {}) => {
   const band = presentHomeBand({ attention: [], returning: [], confirm: [], running: [], ...over }, ja);
-  const screenProps: HomeScreenProps = { band, idle: band.groups.every((g) => g.count === 0), searching: false, list, allCount: 0, loadMore: null, onboarding: null, ...props };
+  const screenProps: HomeScreenProps = { band, idle: band.groups.every((g) => g.count === 0), searching: false, list, allCount: 0, loadMore: null, note: null, ...props };
   return screenProps;
 };
 const mount = (cards: Partial<HomeCards>, onIntent = vi.fn()) => ({ ...render(<LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><HomeScreen {...home(cards)} /></IntentRoot></LanguageRoot>), onIntent });

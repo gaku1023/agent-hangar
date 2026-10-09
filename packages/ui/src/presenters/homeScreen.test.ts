@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProjectDto, SearchHitDto, SessionDto, SessionStateDto, SettingsDto } from '@agent-hangar/shared';
+import type { ProjectDto, ReadinessDto, SearchHitDto, SessionDto, SessionStateDto, SettingsDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
@@ -119,11 +119,52 @@ describe('presentHomeScreen の一覧', () => {
   });
 });
 
-describe('presentHomeScreen の始める前の確認', () => {
-  it('セッションもプロジェクトも無いあいだは、確認リストを出す（確認の要約と引き出しは PR 32 で作るので、それまで今のリストを残す）', () => {
-    const empty = initialStore();
-    empty.bootstrapped = true;
-    expect(presentHomeScreen(initialState(), empty, NOW).onboarding).toEqual({ checks: null });
-    expect(presentHomeScreen(initialState(), busyMorning(), NOW).onboarding).toBeNull();
+describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
+  const READY: ReadinessDto = {
+    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    workspace: { path: '/Users/me/workspace', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: 'bash x', scriptPath: '/Users/me/.claude/statusline.sh', installed: false },
+    commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+    compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
+  };
+  const OPTIONAL_ONLY: ReadinessDto = { ...READY, workspace: { ...READY.workspace, projectCount: 12 } };
+  const empty = (readiness: ReadinessDto | null) => ({ ...initialStore(), bootstrapped: true, readiness });
+  const busy = (readiness: ReadinessDto | null) => ({ ...busyMorning(), readiness });
+
+  it('確かめが届くまでは、確認の群も帯の文も出さない。セッションが無ければ空の日のまま', () => {
+    const p = presentHomeScreen(initialState(), empty(null), NOW);
+    expect(p.note).toBeNull();
+    expect(p.idle).toBe(true);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending']);
+  });
+  it('起動のたびの確かめで直すものがあれば、ふだんの 3 つの後ろ（最後）に確認の群を足す。誰にでも出す', () => {
+    const p = presentHomeScreen(initialState(), busy(READY), NOW);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending', 'readiness']);
+    expect(p.band.groups.at(-1)).toMatchObject({ countText: '6 つ中 3 つ', count: 3 });
+    expect(p.note).toBe('要修正 3。tmux と claude があるので始められます');
+    expect(p.idle).toBe(false);
+    // 朝は要対応が開いたまま。
+    expect(p.band.morning).toBe('attention');
+  });
+  it('3 つの群がどれも 0 件のときは、薄い 3 つの錠剤を出さず、確認の群だけを開いて置く。「実行中のセッションはありません」の 1 行は出さない', () => {
+    const p = presentHomeScreen(initialState(), empty(READY), NOW);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['readiness']);
+    expect(p.band.morning).toBe('readiness');
+    expect(p.idle).toBe(false);
+  });
+  it('必須が済んで任意の行だけが残ったら、帯ごと消す。空の日の 1 行が戻る', () => {
+    const p = presentHomeScreen(initialState(), empty(OPTIONAL_ONLY), NOW);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending']);
+    expect(p.note).toBeNull();
+    expect(p.idle).toBe(true);
+  });
+  it('全部そろったときも、確認の群は出ない', () => {
+    const all: ReadinessDto = { ...OPTIONAL_ONLY, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } };
+    expect(presentHomeScreen(initialState(), busy(all), NOW).band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending']);
+  });
+  it('言語の設定で文が替わる', () => {
+    const en = { ...empty(READY), settings: { language: 'en' } as SettingsDto };
+    const p = presentHomeScreen(initialState(), en, NOW);
+    expect(p.band.groups[0]).toMatchObject({ label: 'Setup check', countText: '3 of 6' });
+    expect(p.note).toBe('To fix 3. tmux and claude are ready, so you can start');
   });
 });

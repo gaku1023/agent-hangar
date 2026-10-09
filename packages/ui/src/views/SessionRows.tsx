@@ -112,7 +112,7 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * badgeIntent を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
  * statusColumn が偽なら、点の右の状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。
  */
-export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; moreIntent?: (target: SectionId) => Intent | null; badgeIntent?: (status: StatusFilter) => Intent }) {
+export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; moreIntent?: (target: SectionId) => Intent | null; badgeIntent?: (status: StatusFilter) => Intent }) {
   const emit = useEmit();
   const t = useT();
   const statusColumn = props.statusColumn ?? true;
@@ -249,7 +249,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     e.preventDefault();
   };
 
-  if (items.length === 0) return <div className="list"><div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div></div>;
+  if (items.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div>}</div>;
 
   const memoEditor = (r: SessionRowProps) => (
     <input className="input memo-input" autoFocus aria-label={`${r.name} のメモ`} value={draft} onChange={(e) => setDraft(e.target.value)} onClick={(e) => e.stopPropagation()}

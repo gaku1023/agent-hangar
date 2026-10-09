@@ -1,5 +1,6 @@
-import type { CompatDto, CompatState, ReadinessDto, ToolCheckDto } from '@agent-hangar/shared';
-import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
+import { compatState, type Intent, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
+import { readinessCompat } from './compat.ts';
+import type { BandAction, BandGroup, BandRow } from './home.ts';
 
 /**
  * 欄の下の 1 行の検証（設定の B1）。
@@ -56,49 +57,141 @@ export function workspaceLine(w: ReadinessDto['workspace']): VerifyLine {
   return { ok: true, soft: false, text: w.path, note: `プロジェクト ${w.projectCount} 件`, fix: null, fixCommand: null };
 }
 
-/** 確認の行の調子。info は止めていない知らせ（未確認の版）で、灰色の ⓘ にする。 */
-export type CheckTone = 'ok' | 'info' | 'soft' | 'ng';
+/** 始める前の確認の 6 行の名前。 */
+export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'mcp' | 'statusline' | 'compat';
+/** 任意の行。無くても始められるので、残りがこれだけになったら帯ごと消す（設計書 2.11.4）。 */
+const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['mcp', 'statusline']);
+/** 行の調子。info は止めていない知らせ（未確認のバージョン）で、済んだものに数える。 */
+type Tone = 'ok' | 'info' | 'soft' | 'ng';
+/** 確認の 1 行の事実。文は、帯の行にするときに辞書から引く。 */
+type Check = { key: ReadinessKey; ok: boolean; tone: Tone };
 
-/**
- * 始める前の確認の 1 行。
- * path は ✓ のときに添える見つかった場所（互換の行は「X（Y）」）、detail は何のためのものか、または ✗ の理由。
- * command はターミナルで打つ直し方、action は設定で直すための道。
- * tone は印と色、spoken は読み上げの名前に添える状態の語である。
- * compat は互換の行だけが持ち、ずれのときに止めた機能と細目を出す（A4）。
- */
-export type CheckItem = { key: 'tmux' | 'claude' | 'workspace' | 'mcp' | 'statusline' | 'compat'; label: string; ok: boolean; soft: boolean; tone: CheckTone; spoken: string; path: string | null; detail: string; command: string | null; action: 'settings' | null; compat?: CompatProps };
-export type ChecksProps = { items: CheckItem[]; progress: string };
-
-const withNote = (l: VerifyLine) => (l.note ? `${l.text}（${l.note}）` : l.text);
-/** 互換の行の調子。ずれは、MCP と statusline の ✗ と同じ注意の色にする。 */
-const COMPAT_TONE: Record<CompatState, CheckTone> = { ok: 'ok', unverified: 'info', drift: 'soft' };
-/** 互換の行の読み上げ。準備の語（準備できています、まだです）に寄せず、状態をそのまま言う。 */
-const COMPAT_SPOKEN: Record<CompatState, string> = { ok: 'ずれはありません', unverified: 'まだ確かめていない版です', drift: 'ずれがあります' };
-
-/**
- * 確認リストの 6 つ。設定画面の検証と同じ判定（toolLine、workspaceLine、presentCompat）を使う。
- * 「6 つ中 N つ」は ok の行を数える。互換の行は、未確認の版を済んだものとして数え、ずれは数えない。
- * compat はずれの中身（届いていなければ null）、hangarVersion は報告用の写しに書く hangar の版である。
- * compat の無い古いサーバの答えでは、互換の行を出さずに 5 つで数える。
- */
-export function presentChecks(r: ReadinessDto, compat: CompatDto | null = null, hangarVersion = ''): ChecksProps {
-  const tmux = toolLine('tmux', r.tools.tmux);
-  const claude = toolLine('claude', r.tools.claude);
-  const ws = workspaceLine(r.workspace);
-  const sl = r.statusline;
-  const rows: Omit<CheckItem, 'tone' | 'spoken'>[] = [
-    { key: 'tmux', label: 'tmux', ok: tmux.ok, soft: false, path: tmux.ok ? withNote(tmux) : null, detail: tmux.ok ? 'ターミナルを動かすのに使います' : `tmux が${tmux.text === '見つかりません' ? '見つかりません' : `使えません。${tmux.text}`}`, command: tmux.ok ? null : 'brew install tmux', action: tmux.ok ? null : 'settings' },
-    { key: 'claude', label: 'claude', ok: claude.ok, soft: false, path: claude.ok ? withNote(claude) : null, detail: claude.ok ? 'Claude Code' : `claude が${claude.text === '見つかりません' ? '見つかりません' : `使えません。${claude.text}`}`, command: null, action: claude.ok ? null : 'settings' },
-    { key: 'workspace', label: 'ワークスペース', ok: ws.ok, soft: false, path: ws.ok ? withNote(ws) : null, detail: ws.ok ? '直下のディレクトリをプロジェクトとして登録しています' : r.workspace.exists ? `${r.workspace.path} の${ws.text}` : ws.text, command: null, action: ws.ok ? null : 'settings' },
-    { key: 'mcp', label: 'MCP', ok: r.mcp.registered, soft: true, path: r.mcp.registered ? '登録済み' : null, detail: 'どのセッションからも hangar の検索と要約を使えるようにします', command: r.mcp.registered ? null : r.commands.mcp, action: null },
-    { key: 'statusline', label: 'statusline', ok: sl.installed, soft: true, path: sl.installed ? '追記済み' : null, detail: sl.installed || sl.scriptPath ? 'ヘッダーの使用率ゲージの供給源です' : 'Claude Code の /statusline でスクリプトを作ってから、次を実行してください', command: sl.installed ? null : r.commands.statusline, action: null },
+/** 確認の行を並べる。互換の行は、古いサーバの答え（compat が無い）では出さず、5 つで数える。 */
+function checksOf(r: ReadinessDto): Check[] {
+  const ws = r.workspace;
+  const rows: Check[] = [
+    { key: 'tmux', ok: r.tools.tmux.ok, tone: r.tools.tmux.ok ? 'ok' : 'ng' },
+    { key: 'claude', ok: r.tools.claude.ok, tone: r.tools.claude.ok ? 'ok' : 'ng' },
+    { key: 'workspace', ok: ws.exists && ws.projectCount > 0, tone: ws.exists && ws.projectCount > 0 ? 'ok' : 'ng' },
+    { key: 'mcp', ok: r.mcp.registered, tone: r.mcp.registered ? 'ok' : 'soft' },
+    { key: 'statusline', ok: r.statusline.installed, tone: r.statusline.installed ? 'ok' : 'soft' },
   ];
-  const items = rows.map((i): CheckItem => ({ ...i, tone: i.ok ? 'ok' : i.soft ? 'soft' : 'ng', spoken: i.ok ? '準備できています' : 'まだです' }));
-  // 古いサーバは compat を返さない。そのときは 6 行目を出さない。
   const summary = readinessCompat(r);
   if (summary) {
-    const c = presentCompat(summary, compat, hangarVersion);
-    items.push({ key: 'compat', label: 'Claude Code との互換', ok: c.state !== 'drift', soft: c.state === 'drift', tone: COMPAT_TONE[c.state], spoken: COMPAT_SPOKEN[c.state], path: c.note, detail: c.lead, command: null, action: null, compat: c });
+    const state = compatState(summary);
+    rows.push({ key: 'compat', ok: state !== 'drift', tone: state === 'drift' ? 'soft' : state === 'unverified' ? 'info' : 'ok' });
   }
-  return { items, progress: `${items.length} つ中 ${items.filter((i) => i.ok).length} つ` };
+  return rows;
+}
+
+/**
+ * 帯に始める前の確認を出す条件。任意の行（MCP、statusline）以外に済んでいないものがあるときだけ真である。
+ * 偽になると帯の群が消える。真から偽に変わったことが、トーストの合図になる（runtime.ts）。
+ */
+export function readinessPending(r: ReadinessDto): boolean {
+  return checksOf(r).some((c) => !c.ok && !OPTIONAL.has(c.key));
+}
+
+/** 済んでいない行が 1 つも無いこと（トーストの文を選ぶ）。 */
+export function readinessComplete(r: ReadinessDto): boolean {
+  return checksOf(r).every((c) => c.ok);
+}
+
+/** 帯の群 1 つと、帯の右端の注記。 */
+export type ReadinessBand = { group: BandGroup; note: string };
+
+/** 動かせないツールの理由の文。パスがあればパスを主語にする。 */
+function toolProblem(t: Translate, c: ToolCheckDto): string {
+  if (c.path === null || c.problem === 'unset') return t('home.ready.problem.unset');
+  if (c.problem === 'notFile') return t('home.ready.problem.notFile', { path: c.path });
+  if (c.problem === 'notExecutable') return t('home.ready.problem.notExecutable', { path: c.path });
+  return t('home.ready.problem.missing', { path: c.path });
+}
+
+const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.tool.ok', { path: c.path ?? '', version: c.version }) : c.path ?? '');
+
+/**
+ * 始める前の確認を、ホームの帯の群にする（設計書 2.11.4、試作の始める前の確認の B）。
+ * 引き出しには直すものだけを 1 行ずつ出し（必須を先、任意を後ろ）、済んだものは 1 行に畳む（fold）。
+ * 錠剤は「6 つ中 3 つ」（分母は任意の行も含めて数え、互換の未確認の版は済んだものに数える）で、件数は直すものの数である。
+ * 必須が済んで任意の行だけが残るか、全部そろったときは null で、帯の群を出さない。
+ * 互換のずれは、直すものとして残る（任意の札は付けない）。
+ * 右端のボタンは 1 つで、いまは「設定を開く」か「コマンドをコピー」である（段 5 で文が替わるだけにする）。
+ */
+export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform()): ReadinessBand | null {
+  if (!readinessPending(r)) return null;
+  const checks = checksOf(r);
+  const name = (k: ReadinessKey) => t(`home.ready.name.${k}`);
+  const settings: Intent = { type: 'nav.go', to: { name: 'settings' } };
+  const action = (label: string, who: string, intent: Intent, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, intent });
+  const toSettings = (k: ReadinessKey) => action(t('home.ready.openSettings'), name(k), settings, true);
+  const copy = (k: ReadinessKey, command: string) => action(t('home.ready.copyCommand'), name(k), { type: 'clipboard.copy', text: command }, false);
+  const sl = r.statusline;
+  const ws = r.workspace;
+  const summary = readinessCompat(r);
+
+  /** 直すものの行。 */
+  const fixRow = (c: Check): BandRow => {
+    let text = '';
+    let detail: string | null = null;
+    let act: BandAction;
+    switch (c.key) {
+      case 'tmux':
+      case 'claude': {
+        const tool = r.tools[c.key];
+        text = toolProblem(t, tool);
+        // 見つからないものだけ、入れる命令を添える（tmux）。claude と、パスはあるのに使えないものは設定で直す。
+        const missing = tool.path === null || tool.problem === 'unset';
+        const command = c.key === 'tmux' && missing ? muxInstallCommand(platform) : null;
+        detail = command;
+        act = command ? copy(c.key, command) : toSettings(c.key);
+        break;
+      }
+      case 'workspace':
+        text = ws.path === '' ? t('home.ready.workspace.unset') : !ws.exists ? t('home.ready.workspace.missing', { path: ws.path }) : t('home.ready.workspace.empty', { path: ws.path });
+        act = toSettings('workspace');
+        break;
+      case 'mcp':
+        text = t('home.ready.mcp.text');
+        detail = r.commands.mcp;
+        act = copy('mcp', r.commands.mcp);
+        break;
+      case 'statusline':
+        text = sl.scriptPath ? t('home.ready.statusline.text') : t('home.ready.statusline.noScript');
+        detail = r.commands.statusline;
+        act = copy('statusline', r.commands.statusline);
+        break;
+      case 'compat':
+        text = t('home.ready.compat.drift', { n: summary?.driftCount ?? 0 });
+        act = toSettings('compat');
+        break;
+    }
+    return { key: `ready:${c.key}`, lead: { kind: 'check', tone: c.tone === 'ng' ? 'ng' : 'soft', label: t(c.key === 'compat' ? 'home.ready.state.drift' : c.tone === 'ng' ? 'home.ready.state.ng' : 'home.ready.state.soft') }, name: name(c.key), badge: OPTIONAL.has(c.key) ? t('home.ready.optional') : null, context: null, text, detail, tone: null, trail: [], open: null, actions: [act] };
+  };
+
+  /** 済んだものの行。畳んだ行を開いたときに出す。 */
+  const doneRow = (c: Check): BandRow => {
+    let text = '';
+    switch (c.key) {
+      case 'tmux':
+      case 'claude': text = toolOk(t, r.tools[c.key]); break;
+      case 'workspace': text = t('home.ready.workspace.ok', { path: ws.path, n: ws.projectCount }); break;
+      case 'mcp': text = t('home.ready.mcp.ok'); break;
+      case 'statusline': text = t('home.ready.statusline.ok'); break;
+      case 'compat': text = c.tone === 'info' ? t('home.ready.compat.unverified', { local: summary?.localVersion ?? '', verified: summary?.verifiedVersion ?? '' }) : t('home.ready.compat.ok', { version: summary?.verifiedVersion ?? '' }); break;
+    }
+    const tone = c.tone === 'info' ? 'info' : 'ok';
+    return { key: `ready:${c.key}`, lead: { kind: 'check', tone, label: t(`home.ready.state.${tone}`) }, name: name(c.key), badge: null, context: null, text, detail: null, tone: null, trail: [], open: null, actions: [] };
+  };
+
+  const todo = checks.filter((c) => !c.ok).sort((a, b) => Number(OPTIONAL.has(a.key)) - Number(OPTIONAL.has(b.key)));
+  const done = checks.filter((c) => c.ok);
+  const total = checks.length;
+  const basics = checks.filter((c) => c.key === 'tmux' || c.key === 'claude').every((c) => c.ok);
+  const group: BandGroup = {
+    id: 'readiness', label: t('home.ready.label'), icon: 'check', tone: 'warn', count: todo.length, countText: t('home.ready.progress', { done: done.length, total }),
+    progress: Math.round((done.length / total) * 100), summary: t('home.ready.summary', { n: todo.length }), morning: true, rows: todo.map(fixRow),
+    fold: done.length > 0 ? { text: t('home.ready.fold', { names: done.map((c) => name(c.key)).join(t('home.ready.separator')) }), rows: done.map(doneRow) } : undefined,
+  };
+  return { group, note: t(basics ? 'home.ready.noteStart' : 'home.ready.noteNeed', { n: todo.length }) };
 }

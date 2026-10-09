@@ -1658,15 +1658,47 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     await flush();
     expect(readiness).toHaveBeenCalledTimes(2);
   });
-  it('セッションが 1 つも無い起動では、ホームの確認リストのために準備の確かめを取る', async () => {
-    const readiness = vi.fn(async () => READY);
-    const { rt, wsHandlers } = harness({ readiness });
-    rt.start();
-    wsHandlers[0]!.onOpen();
-    await flush();
-    await flush();
-    expect(readiness).toHaveBeenCalledTimes(1);
-    expect(rt.getStore().readiness).toEqual(READY);
+  it('起動のたびに、ホームの帯の確認のために準備の確かめを取る（セッションが 1 つも無いときに限らない）', async () => {
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
+    for (const sessions of [[], [s1]]) {
+      const readiness = vi.fn(async () => READY);
+      const { rt, wsHandlers } = harness({ readiness, bootstrap: vi.fn(async () => ({ ...boot, sessions })) });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      await flush();
+      expect([sessions.length, readiness.mock.calls.length]).toEqual([sessions.length, 1]);
+      expect(rt.getStore().readiness).toEqual(READY);
+    }
+  });
+  describe('そろったときのトースト（2.11.4）', () => {
+    const PENDING = { ...READY, workspace: { ...READY.workspace, projectCount: 0 } };
+    const OPTIONAL_LEFT = READY;
+    const COMPLETE = { ...READY, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } };
+    /** 答えを順に返す。呼ぶたびに 1 つ進む。 */
+    const run = async (answers: unknown[]) => {
+      const readiness = vi.fn(async () => answers.shift() as never);
+      const { rt } = harness({ readiness });
+      rt.start();
+      for (let i = 0; i < 3; i++) { rt.emit({ type: 'readiness.check' }); await flush(); }
+      return rt;
+    };
+    it('直すものがあった後で全部そろったら、トーストを 1 回だけ出す。取り直しを重ねても繰り返さない', async () => {
+      const rt = await run([PENDING, COMPLETE, COMPLETE]);
+      expect(rt.getState().toasts.map((t) => t.message)).toEqual(['セットアップは完了しています。設定の「情報」でいつでも確認できます']);
+    });
+    it('必須が済んで任意の行だけが残ったときは、帯が消えるので、任意が設定の「連携」に残ることをトーストで言う', async () => {
+      const rt = await run([PENDING, OPTIONAL_LEFT, OPTIONAL_LEFT]);
+      expect(rt.getState().toasts.map((t) => t.message)).toEqual(['必要な準備は完了しました。MCP とステータスラインは設定の「連携」で設定できます']);
+    });
+    it('最初の取得で、すでにそろっているときは出さない（そろったのではなく、はじめから問題が無い）', async () => {
+      const rt = await run([COMPLETE, COMPLETE, COMPLETE]);
+      expect(rt.getState().toasts).toEqual([]);
+    });
+    it('直すものが残っている間は出さない', async () => {
+      const rt = await run([PENDING, PENDING, PENDING]);
+      expect(rt.getState().toasts).toEqual([]);
+    });
   });
   it('互換にずれがあれば、準備の確かめに続けてずれの中身を取る。ずれが無くなれば中身を捨てる', async () => {
     const DETAIL = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry' as const, value: 'status=compacting', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };

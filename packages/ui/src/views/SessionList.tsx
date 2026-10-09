@@ -1,5 +1,5 @@
 import { type Intent, type SearchFilter, type StatusFilter } from '@agent-hangar/shared';
-import { useId, useState, type KeyboardEvent } from 'react';
+import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import { parseQuery } from '../lib/searchTokens.ts';
 import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/sessions.ts';
@@ -177,6 +177,8 @@ export type SessionListOptions = {
   projectFixed?: boolean;
   /** 検索の結果の末尾に「さらに読み込む」を出す。あれば、ページ送りの代わりに出る。 */
   loadMore?: { remaining: number; step: number; loading?: boolean; onLoad: () => void };
+  /** 行が 1 つも無いときに、既定の 1 行の代わりに出す札（ホームの初めての人の札）。 */
+  empty?: ReactNode;
   /** 行の一覧の id と、開いたときにフォーカスを取るか。 */
   id?: string;
   autoFocus?: boolean;
@@ -209,7 +211,7 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
       {filtersOpen && <Filters id={filtersId} filter={props.filter} projects={props.projects} projectFixed={props.projectFixed} />}
       <Hints hints={props.hints} />
       <ConditionRow conditions={props.conditions} tab={props.tab} filter={props.filter} loading={props.loading} total={props.total} />
-      <SessionRows id={id} rows={props.rows} variant="search" autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} badgeIntent={badgeIntent} />
+      <SessionRows id={id} rows={props.rows} variant="search" autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeIntent={badgeIntent} />
       {props.loadMore
         ? <LoadMore {...props.loadMore} />
         : props.pager && <Pager label={t('list.pager.label')} pager={props.pager} onPage={(page) => emit({ type: 'search.page', page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}
