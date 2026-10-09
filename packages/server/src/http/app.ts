@@ -10,6 +10,7 @@ import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { checkToolPath, expandHome, isCommandName } from '../config/readiness.ts';
 import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
 import { statuslineStatus } from '../config/statusline.ts';
+import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -325,7 +326,6 @@ export function createApp(deps: AppDeps): Hono {
    */
   const session = (id: string) => getSession(db, deps.live(), id, { deviceId });
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
-  const broadcastSession = (id: string) => { const s = session(id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
   const digester = new LiveDigester(db);
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
@@ -814,8 +814,9 @@ export function createApp(deps: AppDeps): Hono {
     // 使用率は、動かしたアカウントの値として accounts.update で配る。最初のアカウントも同じ道で届く。
     if (r.usageChanged) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
     if (r.providerSessionId) {
+      // 受けた値は手元だけの表（session_live_stats）に入る。セッションの行は変わらないが中身（モデル、文脈の量）が変わるので、名指しして配り直してもらう。
       const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
-      if (s) broadcastSession(s.id);
+      if (s) touchRow(db, 'sessions', s.id);
     }
     return c.body(null, 204);
   });
@@ -946,20 +947,17 @@ export function createApp(deps: AppDeps): Hono {
     const body = (b.value ?? {}) as { memo?: unknown };
     if (typeof body.memo !== 'string') return c.json({ error: 'memo は文字列です' }, 400);
     upsertShared(db, 'sessions', { ...row, memo: body.memo.trim() || null }, deviceId);
-    const s = session(id)!;
-    deps.hub.broadcast({ type: 'session.upsert', session: s });
-    return c.json(s);
+    return c.json(session(id)!);
   });
   // セッションの状態（Paused・Done・Archived）と Claude の提案の確定・却下。どれも利用者の操作で、MCP からは呼べない。
   // run に配る MCP の秘密は /api を開けない（authMiddleware は本体のトークンしか見ない）。
-  // 成功したら session.upsert を配る。画面の正はその配信である。
+  // 成功したら、書いた行（session_states）から配る層が session.upsert を配る。画面の正はその配信である。
   const NO_STATE_CANDIDATE = 'このセッションには確かめる提案がありません';
   const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
-  const stateResult = (c: Context, id: string, fn: () => { state: SessionStateDto; result?: string }) => {
+  const stateResult = (c: Context, fn: () => { state: SessionStateDto; result?: string }) => {
     try {
       const r = fn();
       if (r.result === 'not_candidate') return c.json({ error: NO_STATE_CANDIDATE }, 409);
-      broadcastSession(id);
       return c.json({ state: r.state });
     } catch (e) {
       if (e instanceof StateInputError) return c.json({ error: e.message }, 400);
@@ -976,7 +974,7 @@ export function createApp(deps: AppDeps): Hono {
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
     const status = body.status as SessionStatus | null;
-    return stateResult(c, id, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }));
+    return stateResult(c, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }));
   };
   api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
   api.post('/sessions/:id/state/confirm', async (c) => {
@@ -987,12 +985,12 @@ export function createApp(deps: AppDeps): Hono {
     const body = (b.value ?? {}) as { returnOn?: unknown; returnTime?: unknown };
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
-    return stateResult(c, id, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
+    return stateResult(c, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
   });
   api.post('/sessions/:id/state/reject', (c) => {
     const id = c.req.param('id');
     if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
-    return stateResult(c, id, () => rejectSessionState(db, deviceId, id));
+    return stateResult(c, () => rejectSessionState(db, deviceId, id));
   });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');
@@ -1006,10 +1004,9 @@ export function createApp(deps: AppDeps): Hono {
       const r = deps.promote({ sessionId: id, name: body.name, gitInit: body.gitInit === true, moveFiles: body.moveFiles === true });
       const project = getProject(db, deviceId, deps.live(), r.projectId)!;
       const updated = session(id)!;
-      deps.hub.broadcast({ type: 'project.upsert', project });
-      // 昇格元のスクラッチはセッションが 1 件減るので、そちらも配り直す。
-      if (before.projectId && before.projectId !== r.projectId) broadcastProject(before.projectId);
-      deps.hub.broadcast({ type: 'session.upsert', session: updated });
+      // 新しいプロジェクトとセッションは、書いた行から配る層が配る。
+      // 昇格元のスクラッチは、行は変わらないがセッションが 1 件減るので、名指しして配り直してもらう。
+      if (before.projectId && before.projectId !== r.projectId) touchRow(db, 'projects', before.projectId);
       const out: PromoteResultDto = { project, session: updated, moved: r.moved, reason: r.reason };
       return c.json(out, 201);
     } catch (e) {

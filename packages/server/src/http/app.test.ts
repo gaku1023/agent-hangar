@@ -1738,4 +1738,60 @@ describe('書いた行のイベントは配る層から届く', () => {
       expect(sent).toEqual([{ type: 'project.upsert', project: expect.objectContaining({ id: p.id, name: 'gamma' }) }]);
     });
   });
+
+  describe('セッション', () => {
+    const alpha = async () => (await sessionsOf()).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+
+    it('1 行メモを書くと、その session.upsert が 1 回だけ届く', async () => {
+      const { id } = await alpha();
+      await send(`/api/sessions/${id}`, { memo: '一行' }, 'PATCH');
+      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id, memo: '一行' }) }]);
+    });
+
+    it('状態を付ける、提案を確定する、却下する、のどれでも session.upsert が 1 回だけ届く', async () => {
+      const { id } = await alpha();
+      await send(`/api/sessions/${id}/state`, { status: 'done' }, 'PUT');
+      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id, state: expect.objectContaining({ status: 'done' }) }) }]);
+      await send(`/api/sessions/${id}/state`, { status: null }, 'PUT');
+      proposeSessionState(db, 'd', id, { status: 'done', note: '終わった', returnOn: null, source: 'in_session' });
+      await Promise.resolve();
+      sent.length = 0;
+      await send(`/api/sessions/${id}/state/confirm`, {});
+      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id, state: expect.objectContaining({ status: 'done', candidate: null }) }) }]);
+      // 確かめる提案が無ければ、書かないので何も届かない。
+      sent.length = 0;
+      expect((await send(`/api/sessions/${id}/state/reject`)).status).toBe(409);
+      expect(sent).toEqual([]);
+    });
+
+    it('昇格すると、新しいプロジェクト、移ったセッション、1 件減った元のプロジェクトが 1 回ずつ届く', async () => {
+      const s = await alpha();
+      const from = s.projectId!;
+      app = createApp({ ...deps, promote: (o) => {
+        // 本物の昇格（projects/promote.ts）と同じく、1 つのトランザクションでプロジェクトを作ってセッションを付け替える。
+        db.transaction(() => {
+          upsertShared(db, 'projects', { id: 'promoted', name: o.name, status: 'active', is_scratch: 0 }, 'd');
+          const row = db.prepare('select * from sessions where id = ?').get(o.sessionId) as Record<string, unknown>;
+          upsertShared(db, 'sessions', { ...row, project_id: 'promoted' }, 'd');
+        })();
+        return { projectId: 'promoted', moved: false, reason: null };
+      } });
+      const r = await send(`/api/sessions/${s.id}/promote`, { name: 'newp', gitInit: false, moveFiles: false });
+      expect(r.status).toBe(201);
+      expect(await r.json()).toMatchObject({ project: { id: 'promoted' }, session: { id: s.id, projectId: 'promoted' } });
+      expect(of('project.upsert').map((e) => e.project.id).sort()).toEqual([from, 'promoted'].sort());
+      // 元のプロジェクトは、セッションが抜けた後の中身で届く。
+      expect(of('project.upsert').find((e) => e.project.id === from)!.project.lastActivityAt).toBeNull();
+      expect(of('session.upsert')).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id: s.id, projectId: 'promoted' }) }]);
+    });
+
+    it('statusline を受けると、そのセッションの session.upsert が 1 回だけ届く。知らないセッションでは届かない', async () => {
+      const body = { session_id: SESSION_ALPHA, model: { id: 'claude-opus-4-1' }, effort: 'high', context_window: { context_window_size: 200000, current_usage: null } };
+      await send('/api/ingest/statusline', body);
+      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ providerSessionId: SESSION_ALPHA, stats: expect.objectContaining({ model: 'claude-opus-4-1' }) }) }]);
+      sent.length = 0;
+      await send('/api/ingest/statusline', { ...body, session_id: 'no-such-session' });
+      expect(sent).toEqual([]);
+    });
+  });
 });
