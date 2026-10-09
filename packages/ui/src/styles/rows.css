@@ -176,6 +176,7 @@
 .pager-gap { padding: 0 var(--u); color: var(--ink-3); }
 .pager-jump { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); margin-right: auto; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
 .pager-jump .input { width: 52px; height: 26px; padding: 0 6px; text-align: center; }
+.load-more { flex: none; display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 3); padding: calc(var(--u) * 3) calc(var(--u) * 1); font-size: var(--fs-xs); }
 
 /* Paused の入力（B1）。戻る日の札を 5 つ並べ、下に理由の 1 行を置く。選んだ札は黄土の地と縁で示す。 */
 /* 時刻の欄（任意）。時刻は 5 字なので、欄を幅いっぱいに広げない。 */

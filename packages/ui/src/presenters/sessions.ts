@@ -22,7 +22,12 @@ export type StatusTabProps = { tab: StatusTab; label: string; count: string; hot
  * statusColumn は行の状態の列を出すか。状態がどれも同じタブ（Done・Paused・Archived）では畳む（F1）。Active のタブは、並ぶ行に提案が無いときに畳む。
  * tabs は件数つきの状態のタブ、tab は選んでいるタブ、tokens は欄の中のチップ、hints は読めなかったトークンの知らせである。
  */
-export type SessionsProps = { text: string; filter: SearchFilter; projects: { id: string; name: string }[]; rows: SessionRowProps[]; total: number; loading: boolean; mode: 'all' | 'search'; allCount: number; conditions: string[]; tabs: StatusTabProps[]; tab: StatusTab; sections: ListItem[] | null; pager: PagerProps | null; statusColumn: boolean; tokens: QueryToken[]; hints: string[] };
+export type SessionListProps = { text: string; filter: SearchFilter; projects: { id: string; name: string }[]; rows: SessionRowProps[]; total: number; loading: boolean; mode: 'all' | 'search'; conditions: string[]; tabs: StatusTabProps[]; tab: StatusTab; sections: ListItem[] | null; pager: PagerProps | null; statusColumn: boolean; tokens: QueryToken[]; hints: string[] };
+/**
+ * セッションの一覧の画面の props。一覧の部品（views/SessionList.tsx）の props に、見出しの件数（allCount）を足したもの。
+ * allCount は手元の全件（Archived を除く）の数で、見出しの横に出す。
+ */
+export type SessionsProps = SessionListProps & { allCount: number };
 
 /** 状態がどれも同じになるタブ。行の状態の列を畳む。 */
 const UNIFORM_TABS: StatusTab[] = ['done', 'paused', 'archived'];
@@ -58,7 +63,7 @@ function conditionsOf(text: string, f: SearchFilter, store: Store): string[] {
  * 節とは数え方が違い、提案のある Active は確かめるにも Active にも入る。
  * 「すべて」は Archived を除いた数で、条件を入れたときに並ぶ行の数え方と同じにする。
  */
-function presentTabs(rows: SessionRowProps[]): StatusTabProps[] {
+export function presentTabs(rows: SessionRowProps[]): StatusTabProps[] {
   return TABS.map(([tab, label]) => {
     const n = tab === 'all' ? rows.filter((r) => r.state !== 'archived').length : rows.filter((r) => matchesStatus(r, tab)).length;
     return { tab, label, count: n.toLocaleString('en-US'), hot: tab === 'proposed' && n > 0 };
