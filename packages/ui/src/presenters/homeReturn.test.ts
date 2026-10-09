@@ -3,7 +3,7 @@ import type { ProjectDto, RunDto, SessionDto, SessionStateDto, TodoDto } from '@
 import { periodStart } from '../mediator/screen.ts';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
-import { presentHome } from './home.ts';
+import { presentHome, presentHomeScreen } from './home.ts';
 
 /** 2026-10-02（金）の朝 9 時。 */
 const NOW = new Date(2026, 9, 2, 9, 0).getTime();
@@ -33,12 +33,14 @@ describe('presentHome の今日戻る（C1）', () => {
       { id: 'sync', name: 'sync', projectName: 'alpha', reason: 'sync を確かめる', returnOn: '2026-10-02', returnTime: null, overdueDays: 0, due: true, pastMin: null },
     ]);
   });
-  it('札に出したものは最近から外す。今日戻るは生きたセッションではないので、idle は妨げない', () => {
+  it('今日戻るは要対応の群に数える。生きたセッションではないが、決めるまで毎朝そこに残る', () => {
     const h = presentHome(initialState(), storeOf([paused('sync', 24, '2026-10-02'), paused('later', 30, '2026-10-05'), dto('x', 2)]), NOW);
-    expect(h.recent.map((r) => r.id)).toEqual(['x', 'later']);
     expect(h.returning.map((r) => r.id)).toEqual(['sync']);
-    expect(h.idle).toBe(true);
-    expect(presentHome(initialState(), storeOf([paused('later', 30, '2026-10-05')]), NOW).idle).toBe(true);
+    const screen = presentHomeScreen(initialState(), storeOf([paused('sync', 24, '2026-10-02'), paused('later', 30, '2026-10-05'), dto('x', 2)]), NOW);
+    expect(screen.band.groups[0]).toMatchObject({ id: 'attention', count: 1 });
+    expect(screen.idle).toBe(false);
+    // 戻る日が先のものだけなら、帯は空で idle になる。
+    expect(presentHomeScreen(initialState(), storeOf([paused('later', 30, '2026-10-05')]), NOW).idle).toBe(true);
   });
   it('「今日」の境は手元の暦の 0 時で、期間の「今日」（periodStart(1, now)）と同じ', () => {
     const midnight = periodStart(1, NOW);
@@ -61,21 +63,22 @@ describe('presentHome の、区切りを付けて休みのまま残っている�
   const runOf = (sessionId: string): RunDto => ({ id: `r-${sessionId}`, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-r-${sessionId}`, pid: null, startedAt: NOW - 2 * H, endedAt: null, endReason: null, heartbeatAt: NOW });
   const withRuns = (store: Store, ids: string[]): Store => ({ ...store, runs: Object.fromEntries(ids.map((id) => [`r-${id}`, runOf(id)])) });
 
-  it('実行中の札には出さず、最近に印付きの行として出す。hangar の run が生きていても同じ', () => {
+  it('帯の実行中には出さず、一覧に印付きの行として出す。hangar の run が生きていても同じ', () => {
     const store = withRuns(storeOf([paused('later', 1, '2026-10-05', { live: 'idle', parked: true }), dto('d', 2, { live: 'idle', parked: true, state: st({ status: 'done', setBy: 'conversation', setAt: NOW - H }) }), dto('i', 3, { live: 'idle' })]), ['later']);
     const h = presentHome(initialState(), store, NOW);
     expect(h.running.map((r) => r.id)).toEqual(['i']);
-    expect(h.recent.map((r) => [r.id, r.state, r.live, r.runId])).toEqual([['later', 'paused', null, null], ['d', 'done', null, null]]);
+    const rows = presentHomeScreen(initialState(), store, NOW).list.rows;
+    expect(rows.filter((r) => r.id === 'later' || r.id === 'd').map((r) => [r.id, r.state, r.live, r.runId])).toEqual([['later', 'paused', null, null], ['d', 'done', null, null]]);
   });
   it('戻る日が来ている Paused は、プロセスが残っていても今日戻るの札に出す', () => {
     const h = presentHome(initialState(), storeOf([paused('sync', 24, '2026-10-02', { live: 'idle', parked: true })]), NOW);
     expect(h.returning.map((r) => r.id)).toEqual(['sync']);
     expect(h.running).toEqual([]);
   });
-  it('ほかに動いているものが無ければ idle にする。プロジェクトの「実行中 N」にも数えない', () => {
-    const h = presentHome(initialState(), withRuns(storeOf([paused('later', 1, '2026-10-05', { live: 'idle', parked: true })]), ['later']), NOW);
-    expect(h.idle).toBe(true);
-    expect(h.projects.find((p) => p.id === 'alpha')!.counts).not.toContain('実行中');
+  it('ほかに動いているものが無ければ idle にする', () => {
+    const screen = presentHomeScreen(initialState(), withRuns(storeOf([paused('later', 1, '2026-10-05', { live: 'idle', parked: true })]), ['later']), NOW);
+    expect(screen.idle).toBe(true);
+    expect(screen.band.groups[1]).toMatchObject({ id: 'running', count: 0 });
   });
   it('印が付いていても、作業中は実行中の札に、入力待ちは要対応の札に今までどおり出す', () => {
     const h = presentHome(initialState(), storeOf([paused('b', 1, '2026-10-05', { live: 'busy' }), paused('w', 1, '2026-10-05', { live: 'waiting' })]), NOW);
@@ -97,9 +100,9 @@ describe('presentHome の確かめる', () => {
     expect(label('2026-10-03')).toBe('Paused · 10/3（土）？');
     expect(label(null)).toBe('Paused · 日付なし？');
   });
-  it('プロジェクトの「確かめる N」は、セッションの提案も数える', () => {
+  it('帯の確認待ちは、TODO の候補もセッションの提案も数える', () => {
     const store = storeOf([proposed('nfd', 'done', NOW - 2 * H), proposed('orphan', 'done', NOW - H, null, { projectId: null })], [todo('a', NOW - 60_000)]);
-    expect(presentHome(initialState(), store, NOW).projects.find((p) => p.id === 'alpha')!.counts).toContain('確かめる 2');
+    expect(presentHomeScreen(initialState(), store, NOW).band.groups[2]).toMatchObject({ id: 'pending', count: 3 });
   });
 });
 

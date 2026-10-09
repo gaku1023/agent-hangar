@@ -66,6 +66,12 @@
 .row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 600; line-height: 1.4; }
 .row-state[data-tone='blocked'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); }
 .row-state[data-tone='abandoned'] { color: var(--st-paused); background: var(--st-paused-soft); }
+/* 2 段目の右端の印（設計書 2.2）。PR の番号とノートの印を、要約の右に寄せて小さく置く。 */
+.row-marks { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.row-pr { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.row-pr:hover { text-decoration: underline; }
+.row-note { display: inline-flex; }
+.row-note .icon { width: 13px; height: 13px; }
 .row-memo { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 /* project 変種の 2 段目は鉛筆（.btn、既定で --row-h = 28px）を持つ。1 行分の高さ（20px）に縮め、行の外にはみ出さないようにする。 */
 .row-sub .memo-pencil { height: calc(var(--u) * 5); padding: 0 var(--u); flex: none; }
@@ -121,9 +127,9 @@
 /* 状態の札を押してタブへ移る（★ の E）。札の見た目はそのままにし、押せることは指の形で示す。 */
 .badge-link { display: inline-flex; padding: 0; border: 0; border-radius: 5px; background: none; font: inherit; color: inherit; cursor: pointer; }
 
-/* セッション一覧の画面。見出し（.page-head）・検索欄・絞り込み・一覧の間を段ごとに広げる。
+/* ホームの一覧（タブ、欄、絞り込み、条件の行）。見出し（.page-head）・タブ・検索欄・絞り込み・一覧の間を段ごとに広げる。
    画面の縁は他の画面と同じく .main-inner の余白だけにし、見出しの位置を揃える。
-   一覧の高さ（SessionsScreen の LIST_H）は、見出しの高さとこの段の余白から出している。 */
+   一覧は残りの高さを受け取る（.screen-fill）ので、段の高さは一覧の高さに掛からない。 */
 .sessions-count { font-weight: 400; }
 /* 状態のタブ（★）。件数つきで、入り切らなければ次の行へ送る（900px の窓では 7 つが 1 行に並ばない）。 */
 .sessions-tabs { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 3); }
@@ -137,24 +143,30 @@
 .sessions-tab-n[data-hot='true'] { padding: 0 6px; border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
 /* 上の欄は全文検索の本体（D1）。本文を探す絵と「本文」の札を添え、打った語は × で消せる。
    欄の枠は箱の側に持たせ、中の入力欄は素の文字にする。 */
-.sessions-keyword { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); margin-bottom: calc(var(--u) * 3.5); border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
+.sessions-keyword { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); flex: 1; min-width: 0; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
 .sessions-keyword:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .sessions-keyword input { flex: 1; min-width: 60px; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--ink); }
 .sessions-keyword-tag { flex: none; height: 18px; padding: 0 calc(var(--u) * 1.5); border-radius: 5px; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; color: var(--ink-3); background: var(--surface-2); }
 .sessions-keyword-clear, .sessions-cond-clear { background: none; box-shadow: none; }
 .sessions-keyword-clear { color: var(--ink-3); }
+/* 欄と絞り込みのボタンを 1 行に並べる（試作 B）。欄が残りの幅を取り、ボタンは右に付く。 */
+.search-row { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-bottom: calc(var(--u) * 3.5); }
+/* 絞り込みのボタン。欄と同じ 34px。開いている間は枠をアクセントにし、効いている条件の数を小さい丸の印で出す。 */
+.filter-btn { flex: none; height: 34px; border-radius: 10px; }
+.filter-btn[aria-expanded='true'] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); }
+.filter-n { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill); background: var(--accent); color: var(--accent-ink); font-size: 10px; font-weight: 700; line-height: 1; }
 /* 欄の中のチップ。欄の高さ（34px）に収め、長い値は省略する。 */
 .sessions-token { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 2px; min-width: 0; max-width: 220px; height: 22px; padding: 0 2px 0 calc(var(--u) * 2); border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-mono); font-size: var(--fs-xs); }
 .sessions-token-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sessions-token-x { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; cursor: pointer; }
 .sessions-token-x .icon { width: 12px; height: 12px; }
 /* 読めなかったトークンの知らせ。欄のすぐ下に、本文の色で出す。 */
-.sessions-hint { margin: calc(var(--u) * -2) var(--u) calc(var(--u) * 3); font-size: var(--fs-xs); color: var(--ink-2); }
+.sessions-hint { margin: calc(var(--u) * -1.5) var(--u) calc(var(--u) * 3); font-size: var(--fs-xs); color: var(--ink-2); }
 /* 入り切らなければ次の行へ送る。1 行に詰めると、狭い窓で部品どうしが重なる。 */
-.sessions-filters { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 3); margin-bottom: calc(var(--u) * 5); }
+.sessions-filters { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 3); margin: calc(var(--u) * -1) 0 calc(var(--u) * 4); }
 /* 条件の行。条件が 1 つでも効いているときだけ、絞り込みの段の下に出す。
-   高さと余白の和は 28px で、一覧の高さ（SessionsScreen の LIST_H_COND）はこの分を引いている。 */
-.sessions-cond { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 20px; margin: calc(var(--u) * -2) var(--u) calc(var(--u) * 4); font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+   一覧は残りの高さを受け取るので、この行の高さは一覧の高さに掛からない。 */
+.sessions-cond { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 20px; margin: calc(var(--u) * -1) var(--u) calc(var(--u) * 3); font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
 .sessions-cond > .icon { flex: none; color: var(--accent); }
 .sessions-cond-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sessions-cond b { color: var(--ink); font-weight: 600; }
@@ -162,7 +174,7 @@
 .sessions-cond-count { margin-left: auto; flex: none; font-size: var(--fs-xs); }
 /* 検索の続きを読むボタン。最後の行の下に、行と一緒にスクロールして現れる。残りの件数を淡く添える。 */
 /* ページ送りの帯（A4）。一覧の下に貼り、一覧が残りの高さを受け取っても帯は縮まない。
-   左に範囲、中ほどに番号、右にページの番号の入力と件数。狭い欄（Home の最近）では折り返す。 */
+   左に範囲、中ほどに番号、右にページの番号の入力と件数。狭い欄では折り返す。 */
 .pager { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 4); padding: calc(var(--u) * 3) calc(var(--u) * 1); font-size: var(--fs-sm); color: var(--ink-2); }
 .pager-range { white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
 .pager-range b { color: var(--ink); font-weight: 600; }
@@ -176,6 +188,7 @@
 .pager-gap { padding: 0 var(--u); color: var(--ink-3); }
 .pager-jump { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); margin-right: auto; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
 .pager-jump .input { width: 52px; height: 26px; padding: 0 6px; text-align: center; }
+.load-more { flex: none; display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 3); padding: calc(var(--u) * 3) calc(var(--u) * 1); font-size: var(--fs-xs); }
 
 /* Paused の入力（B1）。戻る日の札を 5 つ並べ、下に理由の 1 行を置く。選んだ札は黄土の地と縁で示す。 */
 /* 時刻の欄（任意）。時刻は 5 字なので、欄を幅いっぱいに広げない。 */

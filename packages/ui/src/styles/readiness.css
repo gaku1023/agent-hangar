@@ -1,5 +1,5 @@
-/* 準備の確かめの見た目。設定画面の欄の下の検証と、空のホームの確認リストが使う。 */
-/* 値の正本は試作 docs/superpowers/specs/2026-10-01-ux-refresh/settings-layout.html と onboarding.html。 */
+/* 準備の確かめの見た目。設定画面の欄の下の検証が使う。ホームの帯の確認は home.css（.drawer[data-group='readiness']）。 */
+/* 値の正本は試作 docs/superpowers/specs/2026-10-01-ux-refresh/settings-layout.html。 */
 
 /* ターミナルで打つコマンドの行（設定の D1）。薄い地のコードと、右端のコピー。 */
 .cmd-line { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); padding: 0 var(--u) 0 calc(var(--u) * 2.5); height: 32px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line); font: var(--fs-sm) var(--font-mono); }
@@ -28,34 +28,8 @@
 .inrow { display: flex; align-items: center; gap: calc(var(--u) * 2); }
 .inrow > .input { flex: 1; min-width: 0; }
 
-/* 空のホームの真ん中の札（初回の A1）。 */
-.ob-body { max-width: 620px; margin: calc(var(--u) * 5) auto 0; }
-.ob-title { margin: 0 0 var(--u); text-align: center; font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.015em; }
-.ob-lead { margin: 0 0 calc(var(--u) * 4); text-align: center; color: var(--ink-2); }
-.ob-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); justify-content: center; margin-top: calc(var(--u) * 4); }
-.ck-card { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
-.ck-head { display: flex; align-items: center; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3.5) calc(var(--u) * 4) calc(var(--u) * 2.5); }
-.ck-head > .icon { color: var(--accent); }
-.ck-head h3 { margin: 0; font-size: var(--fs-md); font-weight: 700; }
-.ck-prog { margin-left: auto; font: 500 var(--fs-xs) var(--font-mono); color: var(--ink-3); }
-.ck-list { margin: 0; padding: 0; list-style: none; }
-.ck { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 2px calc(var(--u) * 2.5); align-items: start; padding: calc(var(--u) * 2.5) calc(var(--u) * 4); border-top: 1px solid var(--line); }
-.ck > .icon { margin-top: 1px; width: 18px; height: 18px; stroke-width: 1.8; }
-.ck[data-tone='ok'] > .icon { color: var(--st-done); }
-.ck[data-tone='ng'] > .icon { color: var(--error); }
-.ck[data-tone='soft'] > .icon { color: var(--st-paused); }
-/* 未確認の版（Claude Code との互換）。止めてはいないので、色を持たない灰色にする。 */
-.ck[data-tone='info'] > .icon { color: var(--ink-3); }
-.ck-t b { font-weight: 600; }
-.ck-p { font: var(--fs-xs) var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
-.ck-d { font-size: var(--fs-sm); color: var(--ink-2); }
-.ck-t .cmd-line { display: inline-flex; height: 26px; margin-top: 5px; font-size: var(--fs-xs); }
-.ck-act { align-self: center; display: flex; gap: calc(var(--u) * 1.5); }
-.ck-wait { padding: calc(var(--u) * 3) calc(var(--u) * 4); border-top: 1px solid var(--line); }
-.ck-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 3) calc(var(--u) * 4); border-top: 1px solid var(--line); background: #fbfbfd; font-size: var(--fs-xs); }
-
 /* Claude Code との互換のずれの中身（A4）。止めた機能は常に出し、細目だけ「ずれ N 件の中身」で畳む。 */
-/* 確認リストの 6 行目と、設定の互換の節が使う。値の正本は試作 docs/superpowers/specs/2026-10-07-stage0-claude-compat/checks.html。 */
+/* 設定の互換の節が使う。値の正本は試作 docs/superpowers/specs/2026-10-07-stage0-claude-compat/checks.html。 */
 .cp-stops { margin: calc(var(--u) * 1.5) 0 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: var(--fs-sm); color: var(--ink); }
 .cp-stops li { position: relative; padding-left: 14px; }
 .cp-stops li::before { content: ''; position: absolute; left: 3px; top: 0.62em; width: 5px; height: 5px; border-radius: 50%; background: var(--st-paused); }

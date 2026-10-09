@@ -54,8 +54,8 @@ export function stopOf(d: Pick<CompatDriftDto, 'contract' | 'value'>): CompatSto
 export type CompatRow = { key: string; contract: string; value: string; version: string; firstSeen: string; stop: string | null };
 
 /**
- * Claude Code との互換の見せ方（A4、B1、C2）。設定の節と、初回の確認リストの 6 行目が同じこれを読む。
- * note は確認リストの場所の欄に出す「X（Y）」、lead は説明の行、badge は設定の見出しの右端の札である。
+ * Claude Code との互換の見せ方（A4、B1、C2）。設定の節と、ホームの帯の始める前の確認の互換の行が同じこれを読む。
+ * note は始める前の確認の場所の欄に出す「X（Y）」、lead は説明の行、badge は設定の見出しの右端の札である。
  * stops と rows は、ずれがあって中身（GET /api/compat）が届いたときだけ配列になる。届く前は null である。
  * report は「報告用に写す」で写す文で、rows と同じく中身が届いたときだけある。
  */

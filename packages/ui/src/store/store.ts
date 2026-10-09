@@ -40,7 +40,7 @@ export type Store = {
   sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
   // Claude Code の会話の保持期間。下見は確認を開いたときだけ取りに行く値なので、未取得は null である。
   retention: RetentionDto | null; retentionPreview: RetentionPreviewDto | null;
-  // 準備の確かめ。設定画面と空のホームで取りに行く値なので、未取得は null である。
+  // 準備の確かめ。設定画面とホームの帯で取りに行く値なので、未取得は null である。
   readiness: ReadinessDto | null;
   // Claude Code との互換のずれの中身（GET /api/compat）。準備の確かめでずれが 1 件以上あるときだけ取りに行く。
   // 未取得と、ずれが無いときは null である。
@@ -198,6 +198,17 @@ export function applyEventsPage(store: Store, key: string, page: EventsPageDto, 
 
 export function applySearch(store: Store, params: SearchParamsDto, result: SearchResultDto | null, loading: boolean): Store {
   return { ...store, search: { params, result, loading } };
+}
+
+/**
+ * 検索の結果の続きを、持っている結果の後ろに足す（「さらに読み込む」）。
+ * 重なった行（読んでいる間に順が動いたもの）は先に持っている方だけ残す。件数は新しく届いた全件の数に更新する。
+ * 持っている結果が無ければ、届いたものがそのまま結果になる。
+ */
+export function appendSearchResult(prev: SearchResultDto | null, next: SearchResultDto): SearchResultDto {
+  if (!prev) return next;
+  const seen = new Set(prev.hits.map((h) => h.sessionId));
+  return { hits: [...prev.hits, ...next.hits.filter((h) => !seen.has(h.sessionId))], total: next.total };
 }
 
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {

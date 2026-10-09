@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { Shell } from './Shell.tsx';
 
-const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, account: null, newSession: {} };
+const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, account: null, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -32,6 +32,26 @@ describe('Shell のホームの入力待ちの数', () => {
   it('畳んだ帯でも同じ印を出す', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><Shell {...withCount(3)} sidebarCollapsed overlays={null}><div>body</div></Shell></IntentRoot>);
     expect(container.querySelector('.shell[data-sidebar="collapsed"] .nav-count')).toHaveTextContent('3');
+  });
+});
+
+describe('Shell のサイドバーの並び', () => {
+  const side = () => screen.getByRole('navigation', { name: '主ナビゲーション' });
+  const live = { count: 2, ids: ['a', 'b'], rows: [{ id: 'a', name: 'name-a', live: 'busy' as const, aside: false, waited: null, current: false, stop: null }, { id: 'b', name: 'name-b', live: 'idle' as const, aside: false, waited: null, current: false, stop: null }], more: 0 };
+  it('項目は「ホーム」「プロジェクト」の 2 つと「実行中」の節で、設定は下端に置く。「セッション」の項目は無い', () => {
+    render(<IntentRoot onIntent={vi.fn()}><Shell {...props} live={live} overlays={null}><div>body</div></Shell></IntentRoot>);
+    const order = [...side().querySelectorAll('.nav-item, .side-live')].map((e) => (e.classList.contains('side-live') ? '実行中の節' : e.textContent));
+    expect(order).toEqual(['ホーム', 'プロジェクト', '実行中の節', '設定']);
+    expect(within(side()).queryByRole('link', { name: 'セッション' })).toBeNull();
+    expect(side().querySelector('.side-foot')).toContainElement(within(side()).getByRole('link', { name: '設定' }));
+  });
+  it('設定の項目は押すと設定へ移り、設定の画面にいる間は印が付く', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} overlays={null}><div>body</div></Shell></IntentRoot>);
+    fireEvent.click(within(side()).getByRole('link', { name: '設定' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+    rerender(<IntentRoot onIntent={onIntent}><Shell {...props} foot={[{ ...props.foot[0]!, current: true }]} overlays={null}><div>body</div></Shell></IntentRoot>);
+    expect(within(side()).getByRole('link', { name: '設定' })).toHaveAttribute('aria-current', 'page');
   });
 });
 

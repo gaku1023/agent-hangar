@@ -67,7 +67,7 @@ export type LiveIntentDto = { text: string; at: number; stepsSince: number; inTh
 export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; intent: LiveIntentDto | null; agents: LiveAgentDto[] };
 /**
  * status はセッションの状態で絞る（session_states を見る）。hideArchived は「すべて」のタブで条件を入れたときに Archived を除く印である。
- * どちらも Sessions 画面だけが送り、MCP の search_sessions は送らない。
+ * どちらも Home の一覧だけが送り、MCP の search_sessions は送らない。
  */
 export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'active' | 'proposed'; hideArchived?: boolean };
 /**
@@ -135,12 +135,12 @@ export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable';
 export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null };
 /**
  * 準備の確かめ（GET /api/readiness）。
- * 設定画面の欄の下の検証と、空のホームの確認リストが、同じこの 1 つを読む。
+ * 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、同じこの 1 つを読む。
  * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
  * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
  * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。
- * compat は Claude Code との互換の要約で、設定の互換の節と確認リストの 6 行目が読む。ずれの中身は GET /api/compat で取る。
+ * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
   tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: ToolCheckDto & { auto: boolean } };

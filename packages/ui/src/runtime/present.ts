@@ -40,7 +40,7 @@ type Parts = { box: HTMLElement; dot: HTMLElement | null; name: HTMLElement | nu
 /** 行の種類。一覧の行と Home の実行中の札を分ける。 */
 type Kind = 'row' | 'card';
 
-// 画面の同一性は名前と id で見る。Sessions の検索語（q）はハッシュに載るが、画面は替わっていない。
+// 画面の同一性は名前と id で見る。Home の検索語（q）はハッシュに載るが、画面は替わっていない。
 const screenKey = (s: Screen) => ('id' in s ? `${s.name}:${s.id}` : s.name);
 /** 描かれている要素だけを返す。 */
 const drawn = (el: HTMLElement | null): HTMLElement | null => (el && getComputedStyle(el).display !== 'none' ? el : null);

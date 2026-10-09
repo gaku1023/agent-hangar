@@ -141,7 +141,7 @@ export function bootRuns(
     shellHook: () => measureShellHook({ db, deviceId: device.id, shellHook: shell.hook, touch }),
     // 設定は書き替わるので、外部連携は呼ばれた時点の settings を読む。
     external: createExternalApi({ home: home.home, settings: () => settings.current }),
-    // 準備の確かめ。設定画面と空のホームが読む。版を読む子プロセスは 3 秒で切る。
+    // 準備の確かめ。設定画面とホームの帯の始める前の確認が読む。版を読む子プロセスは 3 秒で切る。
     readiness: createReadiness({
       settings: () => settings.current, claudeDir, claudeJson: claudeJsonPath(), db, deviceId: device.id,
       shellCommand: shell.installCommand,

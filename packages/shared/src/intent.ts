@@ -30,11 +30,13 @@ export type Intent =
   | { type: 'nav.back' } | { type: 'nav.forward' }
   | { type: 'shortcuts.open' }
   | { type: 'palette.open' } | { type: 'palette.close' } | { type: 'palette.run'; command: PaletteCommand }
-  // filter は Sessions の欄で Enter したときに、欄を読んだ条件をまるごと渡す（欄が正）。無ければ今の絞り込みを保つ（パレットの全文検索）。
+  // filter は Home の欄で Enter したときに、欄を読んだ条件をまるごと渡す（欄が正）。無ければ今の絞り込みを保つ（パレットの全文検索）。
   | { type: 'search.query'; text: string; filter?: SearchFilter } | { type: 'search.filter'; patch: Partial<SearchFilter> }
-  // 平らな一覧（タブ・条件・検索の結果）のページを移る。page は 1 から数える。
+  // 手元で組む平らな一覧（タブ・条件。語も触ったファイルも無いとき）のページを移る。page は 1 から数える。検索の結果は search.more で読み足す。
   | { type: 'search.page'; page: number }
-  // Home の最近とプロジェクト画面の一覧のページを移る。key は 'home' か 'project:<id>'。
+  // 検索の結果の末尾の「さらに N 件を読み込む」。いま持っている行の続きを読み足す（置き換えない）。
+  | { type: 'search.more' }
+  // プロジェクト画面の一覧のページを移る。key は 'project:<id>'。
   | { type: 'list.page'; key: string; page: number }
   // 1 ページの件数を変える（25・50・100・200）。どの一覧も同じ件数を使う。セッション一覧は見ていた先頭の行を含むページに留まる。
   | { type: 'list.pageSize'; size: number }
@@ -120,7 +122,7 @@ export type Intent =
   | { type: 'retention.settings' }
   // field は欄ごとの保存で、結果（✓ 保存しました、または欄の下の理由）をその欄に返すための名前である。
   | { type: 'settings.update'; patch: Partial<Settings>; field?: string }
-  // 準備の確かめ（設定画面の検証と、空のホームの確認リスト）を取り直す。
+  // 準備の確かめ（設定画面の検証と、ホームの帯の始める前の確認）を取り直す。
   | { type: 'readiness.check' }
   // Claude Code のアカウント。load は一覧を取り直す。choose は新しいセッションの既定（いまのアカウント）を変える。
   // switchSession はそのセッションを別のアカウントで再開する。working は作業中かで、確認の文に使う。confirmed が無ければ先に確認を出す。

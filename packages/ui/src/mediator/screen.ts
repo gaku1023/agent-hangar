@@ -34,6 +34,9 @@ export function periodStart(days: number, now: number): number {
   return d.getTime();
 }
 
+/** 検索の結果を 1 回に読む件数。最初の 1 回も、「さらに読み込む」の 1 回も同じ数である（ページ送りの件数とは別）。 */
+export const SEARCH_STEP = 50;
+
 /** 日数で持った問い合わせを、送る時刻の since に直す。 */
 export function toSearchParams(query: SearchQuery, now: number): SearchParamsDto {
   const { days, ...rest } = query;
@@ -52,10 +55,8 @@ export function searchParams(state: State): SearchQuery {
   // サーバに問い合わせるのはキーワードか触ったファイルがあるとき（usesServerSearch）なので、ここに来るときはいつも条件がある。
   if (f.status) p.status = f.status;
   else p.hideArchived = true;
-  // いまのページの範囲だけを読む。
-  p.limit = state.pageSize;
-  const offset = (state.search.page - 1) * state.pageSize;
-  if (offset > 0) p.offset = offset;
+  // 先頭から 1 回分だけ読む。続きは「さらに読み込む」（search.more）が offset を付けて読み足す。
+  p.limit = SEARCH_STEP;
   return p;
 }
 
@@ -99,17 +100,17 @@ export function nextWaitingStep(state: State, store: Store): Step {
 
 /**
  * 全文検索を出す。
- * セッション一覧の画面の欄の Enter と、パレットの「全文検索」の行が同じこの経路を通る。
+ * ホームの欄の Enter と、パレットの「全文検索」の行が同じこの経路を通る。
  * 検索したらフォーカスを結果の一覧へ移す。
  * 新しい語なら一覧の画面が作り直され、一覧が自分でフォーカスを取りにくる（SessionRows の autoFocus）。
  * 同じ語で検索し直したときは作り直されず、autoFocus は 1 度きりなので、ここで毎回頼む。
- * filter があれば（Sessions の欄の Enter）、欄を読んだ条件で絞り込みをまるごと入れ替える。欄が正だからである。
+ * filter があれば（ホームの欄の Enter）、欄を読んだ条件で絞り込みをまるごと入れ替える。欄が正だからである。
  * 語が同じでトークンだけ変えたときも、Runtime の navigate がハッシュが同じなら自分で hash.changed を出すので、問い合わせ直しはそこで成り立つ。
  */
 export function searchQueryStep(state: State, text: string, filter?: SearchFilter): Step {
   if (!canMoveBehind(state)) return { state, effects: [] };
   const next = { ...state, overlay: closeTransient(state), search: { text, filter: filter ?? state.search.filter, page: 1 } };
-  return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'sessions', q: text } : { name: 'sessions' } }, { kind: 'focus', target: 'results' }] };
+  return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'home', q: text } : { name: 'home' } }, { kind: 'focus', target: 'results' }] };
 }
 
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、Intent は navigate 効果を出すだけ。 */
@@ -158,7 +159,7 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
       const kept = Object.fromEntries(Object.entries(next.settingsSave).filter(([, m]) => m.kind !== 'error'));
       if (Object.keys(kept).length !== Object.keys(next.settingsSave).length) next = { ...next, settingsSave: kept };
     }
-    if (route.name === 'sessions') {
+    if (route.name === 'home') {
       const text = route.q ?? '';
       // 画面に入り直したら 1 ページ目から読む。
       next = { ...next, search: { ...state.search, text, page: 1 } };
@@ -198,25 +199,24 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     case 'search.query': return searchQueryStep(state, i.text, i.filter);
     case 'search.filter': {
       const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch }, page: 1 } };
-      const effects: Effect[] = state.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];
+      const effects: Effect[] = state.screen.name === 'home' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];
       return { state: next, effects };
     }
     // 語と絞り込みをまとめて外す。語は URL にも乗っているので、語の無い一覧の URL へ移る。
     // 着いた先（hash.changed）では語も触ったファイルも無いので、問い合わせずに手元の全件を組む。
-    case 'search.clear': return !canMoveBehind(state) ? { state, effects: [] } : { state: { ...state, search: { text: '', filter: {}, page: 1 } }, effects: [{ kind: 'navigate', route: { name: 'sessions' } }] };
-    // ページと件数。手元で組む一覧は Presenter が切り出すので、検索の結果だけを問い合わせ直す。
-    case 'search.page': {
-      const next = pageStep(state, i.page);
-      return { state: next, effects: next.screen.name === 'sessions' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [] };
+    case 'search.clear': return !canMoveBehind(state) ? { state, effects: [] } : { state: { ...state, search: { text: '', filter: {}, page: 1 } }, effects: [{ kind: 'navigate', route: { name: 'home' } }] };
+    // ページと件数。ページ送りは手元で組む一覧（語も触ったファイルも無いとき）のもので、Presenter が切り出すから、問い合わせない。
+    // 検索の結果は「さらに読み込む」（search.more）で読み足し、ページを送らない。
+    case 'search.page': return { state: pageStep(state, i.page), effects: [] };
+    // 検索の結果の続き。いま持っている行の数を offset にして、同じ条件で読み足す。読み込み中と、読み終えたあとは何もしない。
+    case 'search.more': {
+      const result = store.search.result;
+      if (state.screen.name !== 'home' || !usesServerSearch(state.search) || !result || store.search.loading || result.hits.length >= result.total) return { state, effects: [] };
+      return { state, effects: [{ kind: 'api.search', params: { ...searchParams(state), offset: result.hits.length }, append: true }] };
     }
     // プロジェクト画面は手元の行を Presenter が切り出すので、ページを覚えるだけでよい。
     case 'list.page': return { state: listPageStep(state, i.key, i.page), effects: [] };
-    case 'list.pageSize': {
-      const step = pageSizeStep(state, i.size);
-      if (!step) return { state, effects: [] };
-      const s = step.state;
-      return { state: s, effects: s.screen.name === 'sessions' && usesServerSearch(s.search) ? [...step.effects, { kind: 'api.search', params: searchParams(s) }] : step.effects };
-    }
+    case 'list.pageSize': return pageSizeStep(state, i.size) ?? { state, effects: [] };
     default: return null;
   }
 }

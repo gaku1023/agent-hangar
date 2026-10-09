@@ -12,7 +12,7 @@ import { isCommandName, isExecutableFile, needsShell } from '../platform/exec.ts
 import { findOnPath } from './tools.ts';
 
 // 準備の確かめ。
-// 設定画面の欄の下の検証と、空のホームの確認リストが、同じこの読み取りを使う。
+// 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、同じこの読み取りを使う。
 // ここは読むだけで、~/.claude も ~/.claude.json も書き換えない。
 
 /** 先頭の ~ だけをホームに直す。途中の ~ は名前の一部として残す。 */

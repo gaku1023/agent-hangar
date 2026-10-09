@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { accountsFixture } from '../test/accounts.ts';
-import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
@@ -415,5 +415,18 @@ describe('アカウントの store', () => {
     expect(hasMultipleAccounts(withAccounts(null))).toBe(false);
     expect(hasMultipleAccounts(withAccounts(one))).toBe(false);
     expect(hasMultipleAccounts(withAccounts(accountsFixture))).toBe(true);
+  });
+});
+
+describe('appendSearchResult（検索の続き）', () => {
+  const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
+  it('持っている結果の後ろに足し、重なった行は先に持っている方だけ残す。件数は新しい全件の数になる', () => {
+    const r = appendSearchResult({ hits: [hit('a'), hit('b')], total: 5 }, { hits: [hit('b'), hit('c')], total: 6 });
+    expect(r.hits.map((h) => h.sessionId)).toEqual(['a', 'b', 'c']);
+    expect(r.total).toBe(6);
+  });
+  it('持っている結果が無ければ、届いたものがそのまま結果になる', () => {
+    const next = { hits: [hit('a')], total: 1 };
+    expect(appendSearchResult(null, next)).toBe(next);
   });
 });

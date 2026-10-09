@@ -9,6 +9,7 @@ import { externalKeys } from './keys/external.ts';
 import { homeKeys } from './keys/home.ts';
 import { httpKeys } from './keys/http.ts';
 import { launchKeys } from './keys/launch.ts';
+import { listKeys } from './keys/list.ts';
 import { mcpKeys } from './keys/mcp.ts';
 import { newProjectKeys } from './keys/newProject.ts';
 import { newSessionKeys } from './keys/newSession.ts';
@@ -20,11 +21,13 @@ import { promoteKeys } from './keys/promote.ts';
 import { promptKeys } from './keys/prompt.ts';
 import { retentionKeys } from './keys/retention.ts';
 import { retentionDialogKeys } from './keys/retentionDialog.ts';
+import { rowKeys } from './keys/row.ts';
 import { runKeys } from './keys/run.ts';
 import { sessionKeys } from './keys/session.ts';
 import { sessionsKeys } from './keys/sessions.ts';
 import { settingsKeys } from './keys/settings.ts';
 import { shortcutsKeys } from './keys/shortcuts.ts';
+import { sidebarKeys } from './keys/sidebar.ts';
 import { summaryKeys } from './keys/summary.ts';
 import { syncKeys } from './keys/sync.ts';
 import { systemKeys } from './keys/system.ts';
@@ -55,6 +58,7 @@ export const MESSAGES = {
   ...homeKeys,
   ...httpKeys,
   ...launchKeys,
+  ...listKeys,
   ...mcpKeys,
   ...newProjectKeys,
   ...newSessionKeys,
@@ -66,11 +70,13 @@ export const MESSAGES = {
   ...promptKeys,
   ...retentionKeys,
   ...retentionDialogKeys,
+  ...rowKeys,
   ...runKeys,
   ...sessionKeys,
   ...sessionsKeys,
   ...settingsKeys,
   ...shortcutsKeys,
+  ...sidebarKeys,
   ...summaryKeys,
   ...syncKeys,
   ...systemKeys,

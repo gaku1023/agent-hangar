@@ -71,8 +71,9 @@ describe('Root', () => {
     expect(screen.getByText('読み込んでいます')).toBeInTheDocument();
     act(() => handlers[0]!.onOpen());
     await flush();
-    // Home の区画の見出し。
-    expect(screen.getByRole('heading', { level: 2, name: '最近' })).toBeInTheDocument();
+    // Home は一覧が主役で、見出しは「セッション」。最近とプロジェクトの 1 行は無い。
+    expect(screen.getByRole('heading', { level: 2, name: /^セッション\d+ 件$/ })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: '最近' })).toBeNull();
     act(() => setHash('#/projects'));
     expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByText('alpha')).toBeInTheDocument();
@@ -1071,24 +1072,38 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     expect(document.activeElement).toBe(rows());
   });
 
-  it('セッションの一覧の画面に入っても一覧にフォーカスする', async () => {
+  it('別の画面から Home に戻っても一覧にフォーカスする', async () => {
     const { setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    await flush();
     act(() => (document.activeElement as HTMLElement).blur());
-    act(() => setHash('#/sessions'));
+    act(() => setHash('#/'));
     await flush();
     expect(document.activeElement).toBe(rows());
+  });
+
+  it('#/sessions?q= のリンクは、ホームの検索として開く（セッションの一覧の画面は無くなった）', async () => {
+    const search = vi.fn(async () => ({ hits: [], total: 0 }));
+    const { setHash } = await mounted({ api: { search } });
+    act(() => setHash('#/projects'));
+    await flush();
+    act(() => setHash('#/sessions?q=%E5%8B%95%E7%94%BB'));
+    await flush();
+    expect(screen.getByRole('heading', { level: 1, name: 'ホーム' })).toBeInTheDocument();
+    expect(screen.getByLabelText('キーワード')).toHaveValue('動画');
+    expect(search).toHaveBeenCalledWith(expect.objectContaining({ q: '動画' }));
   });
 
   it('入力欄で打っている最中は、画面が変わってもフォーカスを奪わない', async () => {
     const { setHash } = await mounted();
     const box = textField();
     act(() => box.focus());
-    act(() => setHash('#/sessions'));
+    act(() => setHash('#/projects'));
     await flush();
     expect(document.activeElement).toBe(box);
   });
 
-  it('パレットの全文検索の行を選ぶと、セッション一覧へ移って結果の一覧へフォーカスする', async () => {
+  it('パレットの全文検索の行を選ぶと、ホームの検索へ移って結果の一覧へフォーカスする', async () => {
     const hit = { sessionId: 's1', matchCount: 1, snippets: [{ seq: 1, role: 'user', text: 'せっしょん', agentId: null }] };
     const search = vi.fn(async () => ({ hits: [hit], total: 1 }));
     const { deps } = await mounted({ api: { search } });
@@ -1097,7 +1112,7 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     fireEvent.click(screen.getByRole('option', { name: /『せっ』を全文検索/ }));
     await flush();
     await flush();
-    expect(deps.location.getHash()).toBe(`#/sessions?q=${encodeURIComponent('せっ')}`);
+    expect(deps.location.getHash()).toBe(`#/?q=${encodeURIComponent('せっ')}`);
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ q: 'せっ' }));
     expect(document.activeElement).toBe(rows());
   });

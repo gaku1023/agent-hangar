@@ -9,6 +9,7 @@ import { externalJa } from './ja/external.ts';
 import { homeJa } from './ja/home.ts';
 import { httpJa } from './ja/http.ts';
 import { launchJa } from './ja/launch.ts';
+import { listJa } from './ja/list.ts';
 import { mcpJa } from './ja/mcp.ts';
 import { newProjectJa } from './ja/newProject.ts';
 import { newSessionJa } from './ja/newSession.ts';
@@ -20,11 +21,13 @@ import { promoteJa } from './ja/promote.ts';
 import { promptJa } from './ja/prompt.ts';
 import { retentionJa } from './ja/retention.ts';
 import { retentionDialogJa } from './ja/retentionDialog.ts';
+import { rowJa } from './ja/row.ts';
 import { runJa } from './ja/run.ts';
 import { sessionJa } from './ja/session.ts';
 import { sessionsJa } from './ja/sessions.ts';
 import { settingsJa } from './ja/settings.ts';
 import { shortcutsJa } from './ja/shortcuts.ts';
+import { sidebarJa } from './ja/sidebar.ts';
 import { summaryJa } from './ja/summary.ts';
 import { syncJa } from './ja/sync.ts';
 import { systemJa } from './ja/system.ts';
@@ -43,6 +46,7 @@ export const ja: Dictionary = {
   ...homeJa,
   ...httpJa,
   ...launchJa,
+  ...listJa,
   ...mcpJa,
   ...newProjectJa,
   ...newSessionJa,
@@ -54,11 +58,13 @@ export const ja: Dictionary = {
   ...promptJa,
   ...retentionJa,
   ...retentionDialogJa,
+  ...rowJa,
   ...runJa,
   ...sessionJa,
   ...sessionsJa,
   ...settingsJa,
   ...shortcutsJa,
+  ...sidebarJa,
   ...summaryJa,
   ...syncJa,
   ...systemJa,

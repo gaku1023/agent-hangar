@@ -27,7 +27,9 @@ function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
   if (kind === 'session') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'session', id: rest } }] };
   // 全文検索の行。残りが検索語そのもので、語の中のコロンもそのまま残る。
   if (kind === 'search') return searchQueryStep(closed, rest);
-  if (kind === 'go' && (rest === 'home' || rest === 'projects' || rest === 'sessions')) return { state: closed, effects: [{ kind: 'navigate', route: { name: rest } }] };
+  // セッションの一覧の画面は無くなったので、「セッション一覧へ」（go:sessions）はホームへ移る。
+  if (kind === 'go' && (rest === 'home' || rest === 'sessions')) return { state: closed, effects: [{ kind: 'navigate', route: { name: 'home' } }] };
+  if (kind === 'go' && rest === 'projects') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'projects' } }] };
   if (kind === 'cmd') {
     // ダイアログを開く行は、確認や入力のあるダイアログを差し替えない（overlay.ts の overlayReplaceable）。
     const opens = rest.startsWith('new-session') || rest === 'new-scratch' || rest === 'shortcuts' || rest === 'new-project';

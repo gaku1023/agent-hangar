@@ -9,6 +9,7 @@ import { externalEn } from './en/external.ts';
 import { homeEn } from './en/home.ts';
 import { httpEn } from './en/http.ts';
 import { launchEn } from './en/launch.ts';
+import { listEn } from './en/list.ts';
 import { mcpEn } from './en/mcp.ts';
 import { newProjectEn } from './en/newProject.ts';
 import { newSessionEn } from './en/newSession.ts';
@@ -20,11 +21,13 @@ import { promoteEn } from './en/promote.ts';
 import { promptEn } from './en/prompt.ts';
 import { retentionEn } from './en/retention.ts';
 import { retentionDialogEn } from './en/retentionDialog.ts';
+import { rowEn } from './en/row.ts';
 import { runEn } from './en/run.ts';
 import { sessionEn } from './en/session.ts';
 import { sessionsEn } from './en/sessions.ts';
 import { settingsEn } from './en/settings.ts';
 import { shortcutsEn } from './en/shortcuts.ts';
+import { sidebarEn } from './en/sidebar.ts';
 import { summaryEn } from './en/summary.ts';
 import { syncEn } from './en/sync.ts';
 import { systemEn } from './en/system.ts';
@@ -43,6 +46,7 @@ export const en: Dictionary = {
   ...homeEn,
   ...httpEn,
   ...launchEn,
+  ...listEn,
   ...mcpEn,
   ...newProjectEn,
   ...newSessionEn,
@@ -54,11 +58,13 @@ export const en: Dictionary = {
   ...promptEn,
   ...retentionEn,
   ...retentionDialogEn,
+  ...rowEn,
   ...runEn,
   ...sessionEn,
   ...sessionsEn,
   ...settingsEn,
   ...shortcutsEn,
+  ...sidebarEn,
   ...summaryEn,
   ...syncEn,
   ...systemEn,
