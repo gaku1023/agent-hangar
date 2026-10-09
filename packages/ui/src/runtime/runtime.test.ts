@@ -115,6 +115,30 @@ describe('createRuntime', () => {
     await flush();
     expect(api.live).toHaveBeenCalledTimes(2);
   });
+  it('セッションを開くとき、変更したファイルの一覧も取り、run が終わったら取り直す', async () => {
+    const files = [{ path: '/w/a.ts', edits: 2, agentId: null }];
+    const sessionFiles = vi.fn(async () => ({ files }));
+    const { rt, api, setHash } = harness({ sessionFiles });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.sessionFiles).toHaveBeenCalledTimes(1);
+    expect(api.sessionFiles).toHaveBeenCalledWith('s1');
+    expect(rt.getStore().sessionFiles.s1).toEqual(files);
+    // 実行中に増えた分は、終わったときに取り直す。
+    rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: { ...aliveRun, endedAt: 5, endReason: 'exited' } } });
+    await flush();
+    expect(api.sessionFiles).toHaveBeenCalledTimes(2);
+  });
+  it('変更したファイルの一覧を取れなくても、知らせは出さない（補助の表示）', async () => {
+    const sessionFiles = vi.fn(async () => { throw new Error('500'); });
+    const { rt, setHash } = harness({ sessionFiles });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(rt.getStore().sessionFiles.s1).toBeUndefined();
+    expect(rt.getState().toasts).toEqual([]);
+  });
   it('生きた run の無いセッションでは要約を取らない', async () => {
     const { rt, api, setHash } = harness();
     rt.start();

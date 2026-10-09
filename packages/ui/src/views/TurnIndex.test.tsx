@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
+import { LanguageRoot } from './primitives/language.tsx';
 import { TurnIndex, type TurnIndexProps } from './TurnIndex.tsx';
 
 afterEach(cleanup);
@@ -40,9 +41,22 @@ describe('TurnIndex', () => {
     }
   });
 
-  it('見出しのターンの数は、数の回転（.roll）で出す', () => {
+  it('見出しは「目次」と、ターンの数（数の回転 .roll）を出す', () => {
     renderIndex({ rows: [row(0), row(1)] });
-    expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2');
+    expect(document.querySelector('.turns-head')).toHaveTextContent('目次');
+    expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2 ターン');
+  });
+  it('古いターンが残っているときは、ターンの数に + を添える', () => {
+    renderIndex({ rows: [row(0), row(1)], hasMore: true, remaining: 3, complete: false });
+    expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2+ ターン');
+  });
+  it('英語では、見出しも単数形（1 turn）も英語の語で出る', () => {
+    const { rerender } = render(<LanguageRoot language="en">{indexUi({ rows: [row(0), row(1)] })}</LanguageRoot>);
+    expect(document.querySelector('.turns-head')).toHaveTextContent('Outline');
+    expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2 turns');
+    rerender(<LanguageRoot language="en">{indexUi({ rows: [row(0)] })}</LanguageRoot>);
+    expect(document.querySelector('.turns-head .roll')).toHaveTextContent('1 turn');
+    expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument();
   });
   it('動かない環境では、新しい行が来たら末尾へすぐ追従する', () => {
     const { rerender } = renderIndex({ rows: [row(0)] });
@@ -115,7 +129,7 @@ describe('TurnIndex', () => {
 
   it('最新へで transcript を抜けて末尾に戻る', () => {
     const { getByRole, onIntent } = setup();
-    fireEvent.click(getByRole('button', { name: /最新へ/ }));
+    fireEvent.click(getByRole('button', { name: '最新へ移動' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
   });
 
@@ -125,9 +139,9 @@ describe('TurnIndex', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.loadMore', sessionId: 's1' });
   });
 
-  it('サブエージェントを見ている間は、主線へ戻る道を出す', () => {
+  it('サブエージェントを見ている間は、メイン会話へ戻る道を出す', () => {
     const { getByRole, onIntent } = setup({ agentId: 'abc' });
-    fireEvent.click(getByRole('button', { name: '主線に戻る' }));
+    fireEvent.click(getByRole('button', { name: 'メイン会話に戻る' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: null });
   });
 });

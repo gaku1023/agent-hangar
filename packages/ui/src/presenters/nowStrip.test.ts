@@ -88,6 +88,10 @@ describe('現在の帯のいまの値（1 行目の右）', () => {
   it('ターンとトークンは英語では複数形の語になる', () => {
     expect(present({}, en).values).toMatchObject({ turns: '9 turns', tokens: '31k tokens' });
   });
+  it('1 ターンは英語でも単数形（1 turn）', () => {
+    expect(present({ turns: 1 }, en).values.turns).toBe('1 turn');
+    expect(present({ turns: 1 }).values.turns).toBe('1 ターン');
+  });
 });
 
 describe('現在の帯の意図（2 行目の左）', () => {

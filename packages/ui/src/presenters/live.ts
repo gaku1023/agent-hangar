@@ -2,6 +2,7 @@ import { ASIDE_FREE, asideHead } from '../lib/aside.ts';
 import { stepKind, stepLine, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type SessionActivityDto, type StepCell, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
 import { durationLabel } from './format.ts';
 import type { ArtifactCardProps } from './project.ts';
+import { turnsText } from './stats.ts';
 
 export type LampProps = { tone: 'busy' | 'aside' | 'wait' | 'idle'; head: string; sub: string };
 export type IntentProps = { kind: 'said'; text: string; meta: string; stale: boolean } | { kind: 'none'; text: string };
@@ -291,7 +292,7 @@ export function presentNowStrip(i: StripInput, t: Translate): NowStripProps {
       noUsage: noContext && noCost ? t('session.stats.noUsage') : null,
       context: { label: t('session.stats.context'), percent: i.contextPercent, missing: noContext ? t('session.stats.contextNotAvailable') : null },
       cost: { label: t('session.stats.cost'), value: noCost ? null : i.cost, missing: noCost ? t('session.stats.costNotAvailable') : null },
-      turns: t('session.stats.turns', { n: i.turns }),
+      turns: turnsText(i.turns, t),
       tokens: t('session.stats.tokens', { n: i.tokens }),
     },
     note: { text: i.note ?? '', filled: (i.note ?? '').trim() !== '' },

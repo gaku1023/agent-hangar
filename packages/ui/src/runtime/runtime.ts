@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applySessionFiles, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -204,6 +204,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     else { liveWaiting.add(sessionId); deps.setTimeout(go, wait); }
   }
 
+  /**
+   * 変更したファイルの一覧を取る。終わったセッションの冒頭の 1 枚が使う補助の表示なので、失敗は知らせない。
+   * 画面を開いたときに 1 回、見ているセッションの run が終わったときにもう 1 回取る（実行中に増えた分を拾う）。
+   */
+  function loadFiles(sessionId: string): void {
+    deps.api.sessionFiles(sessionId).then((d) => setStore(applySessionFiles(store, sessionId, d.files))).catch(() => {});
+  }
+
   /** 繋ぐタブを決める。
    * 指定が無ければ選択中のタブ、無ければ現在の run の Claude タブ。
    * 終了した run の Claude タブには繋がない。
@@ -261,6 +269,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (store.sessions[e.sessionId]?.hasTranscript === false) return;
         loadSubagents(e.sessionId);
         loadLive(e.sessionId);
+        if (e.fromSeq === 0) loadFiles(e.sessionId);
         const view = state.sessionView[e.sessionId] ?? defaultSessionView();
         const key = eventsKey(e.sessionId, view.agentId);
         const cur = store.events[key];
@@ -591,6 +600,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。
       if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
+      if (input.event.type === 'run.ended' && state.screen.name === 'session' && state.screen.id === input.event.run.sessionId) loadFiles(input.event.run.sessionId);
       // ホームの実行中の札は意図の 1 行を出す。見ている間に動いたセッションの分を取り直す（loadLive が 1 秒に 1 回までにまとめる）。
       if (state.screen.name === 'home') {
         if (input.event.type === 'transcript.appended') loadLive(input.event.sessionId);

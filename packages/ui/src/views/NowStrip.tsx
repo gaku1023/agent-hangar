@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { NowStripProps, StripLane, StripStep } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
@@ -5,7 +6,8 @@ import { NoteEditor } from './NoteEditor.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { Popover } from './primitives/Popover.tsx';
+import { Popover, type PopoverFaceProps } from './primitives/Popover.tsx';
+import { fitCountWithMore } from './nowFit.ts';
 
 /** 帯のツール呼び出しの印。色だけに頼らないよう、形も変える（完了は ✓、いまと入力待ちは ●、失敗は ✕）。読み上げには語で言う。 */
 const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const;
@@ -96,23 +98,59 @@ function StepItem(props: { step: StripStep }) {
   );
 }
 
-/** 直近のツール呼び出し。4 つより多いときは、数の札を押すと直近 30 回までの全部が開く。 */
+/**
+ * 直近のツール呼び出し。入り切らない札は途中で切らず、丸ごと落として「ほか N」を置く。
+ * 最後の呼び出しは「いま」や入力待ちの印を持つので、落とすのは古い側からにする。「ほか N」は、落とした分とそれより前の呼び出しの数で、左に置く。
+ * 押すと直近 30 回までの全部がポップオーバーで開く。
+ * 落とす数は描いた後の幅で決める。札と「ほか N」を見えない写し（.ns-steps-measure）に全部並べて幅を測り、列の幅と見比べる（fitCountWithMore）。
+ * 帯の幅が変わったとき（窓、サイドバーの開閉、container query で行が替わるとき）は ResizeObserver で測り直す。
+ */
 function Steps(props: { steps: StripStep[]; total: number; all: StripStep[] }) {
   const t = useT();
-  if (props.steps.length === 0) return <span className="ns-steps" />;
+  const host = useRef<HTMLSpanElement>(null);
+  const measure = useRef<HTMLSpanElement>(null);
+  const n = props.steps.length;
+  const [shown, setShown] = useState(n);
+  const sig = `${props.steps.map((s) => `${s.key}:${s.mark}:${s.arg}`).join('|')}#${props.total}`;
+  useLayoutEffect(() => {
+    const el = host.current;
+    const m = measure.current;
+    if (!el || !m) return;
+    const fit = () => {
+      const kids = [...m.children] as HTMLElement[];
+      const moreWidth = kids[0]?.offsetWidth ?? 0;
+      const gap = parseFloat(getComputedStyle(el).columnGap);
+      // 古い側から落とすので、新しい側から数える。
+      const widths = kids.slice(1).map((k) => k.offsetWidth).reverse();
+      setShown(fitCountWithMore(widths, Number.isFinite(gap) ? gap : 10, el.clientWidth, moreWidth));
+    };
+    fit();
+    if (typeof ResizeObserver === 'undefined') return;
+    let last = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth !== last) { last = el.clientWidth; fit(); } });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sig]);
+  if (n === 0) return <span className="ns-steps-wrap" />;
+  const k = Math.min(shown, n);
+  const hidden = props.total - k;
+  const more = (count: number, face?: (p: PopoverFaceProps) => ReactNode) => face
+    ? <Popover label={t('session.strip.steps.label')} width={420} align="start" face={face}>
+        <h4 className="pop-title">{t('session.strip.steps.label')}</h4>
+        <div className="ns-steps-all" role="list">{props.all.map((s) => <StepItem key={s.key} step={s} />)}</div>
+      </Popover>
+    : <CountChip size="sm" label={t('session.strip.stepsMore')} count={count} />;
   return (
-    <>
+    <span ref={host} className="ns-steps-wrap" title={hidden > 0 ? t('session.strip.steps.label') : undefined}>
+      {hidden > 0 && more(hidden, (p) => <CountChip size="sm" label={t('session.strip.stepsMore')} count={hidden} {...p} />)}
       <span className="ns-steps" role="list" aria-label={t('session.strip.steps.label')}>
-        {props.steps.map((s) => <StepItem key={s.key} step={s} />)}
+        {props.steps.slice(n - k).map((s) => <StepItem key={s.key} step={s} />)}
       </span>
-      {props.total > props.steps.length && (
-        <Popover label={t('session.strip.steps.label')} width={420} align="start"
-          face={(p) => <CountChip size="sm" label={t('session.strip.steps.label')} count={props.total} {...p} />}>
-          <h4 className="pop-title">{t('session.strip.steps.label')}</h4>
-          <div className="ns-steps-all" role="list">{props.all.map((s) => <StepItem key={s.key} step={s} />)}</div>
-        </Popover>
-      )}
-    </>
+      <span ref={measure} className="ns-steps-measure" aria-hidden="true">
+        {more(props.total)}
+        {props.steps.map((s) => <span key={s.key} className="ns-step" data-mark={s.mark}><span className="ns-step-mark">{STEP_MARK[s.mark]}</span> <i>{s.name}</i>{s.arg && <span className="ns-step-arg"> {s.arg}</span>}</span>)}
+      </span>
+    </span>
   );
 }
 

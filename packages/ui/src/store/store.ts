@@ -1,6 +1,6 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto } from '@agent-hangar/shared';
+import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -16,6 +16,8 @@ export type Store = {
   events: Record<string, EventsSlice>; subagents: Record<string, string[]>;
   /** 実行中のセッションの右ペインに出すライブの要約。実行中に開いたセッションの分が溜まる（今開いているものだけではない）。 */
   liveDigests: Record<string, LiveDigestDto>;
+  /** 終わったセッションの冒頭の 1 枚に出す、変更したファイルの一覧（`GET /api/sessions/:id/files`）。画面を開いたときと run が終わったときに取る。 */
+  sessionFiles: Record<string, SessionFilesDto['files']>;
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;
   todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
@@ -47,7 +49,7 @@ export const eventsKey = (sessionId: string, agentId: string | null): string => 
 
 export function initialStore(): Store {
   return {
-    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {},
+    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {}, sessionFiles: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, artifacts: {}, summaryPending: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
@@ -171,6 +173,10 @@ export function applySearch(store: Store, params: SearchParamsDto, result: Searc
 
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
+}
+
+export function applySessionFiles(store: Store, sessionId: string, files: SessionFilesDto['files']): Store {
+  return { ...store, sessionFiles: { ...store.sessionFiles, [sessionId]: files } };
 }
 
 export function applyLiveDigest(store: Store, d: LiveDigestDto): Store {

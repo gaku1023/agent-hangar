@@ -30,6 +30,9 @@ describe('冒頭の 1 枚の 1 行目', () => {
     expect(c.stopped).toBeNull();
     expect(c).toMatchObject({ turns: '11 ターン', tokens: '20k トークン', cost: '$0.42' });
   });
+  it('1 ターンは英語でも単数形（1 turn）', () => {
+    expect(present({ session: session({ stats: { ...session().stats, turns: 1 } }) }, en).turns).toBe('1 turn');
+  });
   it('印の無いセッションは Active。設定した日は出さない', () => {
     const c = present({ session: session({ state: null }) });
     expect(c.status).toEqual({ value: 'active', label: 'Active', since: null });

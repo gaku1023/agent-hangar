@@ -184,19 +184,36 @@ describe('NowStrip の 2 行目', () => {
     expect(items[1]).toHaveAttribute('data-mark', 'wait');
   });
 
-  it('呼び出しが 4 つを超えるときだけ、数の札を出し、押すと直近 30 回までが開く', () => {
+  it('呼び出しが 4 つを超えるときだけ「ほか N」の札を出し、押すと直近 30 回までが開く', () => {
     seq = 0;
     const events: TranscriptEvent[] = [];
     for (let n = 0; n < 6; n++) { const c = call('Read', { file_path: `/w/f${n}.ts` }); events.push(c, res(c)); }
     const m = mount({ events, live: 'idle', activity: null });
     expect(within(strip()).getAllByRole('listitem')).toHaveLength(4);
-    const chip = within(strip()).getByRole('button', { name: 'ツール呼び出し 6' });
+    const chip = within(strip()).getByRole('button', { name: 'ほか 2' });
     fireEvent.click(chip);
     const dialog = screen.getByRole('dialog', { name: 'ツール呼び出し' });
     expect(within(dialog).getAllByRole('listitem')).toHaveLength(6);
     fireEvent.keyDown(dialog, { key: 'Escape' });
     m.rerender({ events: events.slice(0, 6), live: 'idle', activity: null });
-    expect(within(strip()).queryByRole('button', { name: /^ツール呼び出し/ })).toBeNull();
+    expect(within(strip()).queryByRole('button', { name: /^ほか/ })).toBeNull();
+  });
+
+  it('帯の幅に入り切らない札は、途中で切らず、古い側から丸ごと落として「ほか N」を増やす', () => {
+    seq = 0;
+    const events: TranscriptEvent[] = [];
+    for (let n = 0; n < 4; n++) { const c = call('Read', { file_path: `/w/f${n}.ts` }); events.push(c, res(c)); }
+    // 札の幅は 100、「ほか N」も 100、隙間は 12。列が 250 なら、札 1 つと「ほか」が入る（100 + 12 + 100 = 212）。
+    const w = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100);
+    const c = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('ns-steps-wrap') ? 250 : 0; });
+    try {
+      mount({ events, live: 'idle', activity: null });
+      const items = within(strip()).getAllByRole('listitem');
+      expect(items).toHaveLength(1);
+      // 残るのは最後の呼び出し（いまや入力待ちの印を持つ側）。
+      expect(items[0]).toHaveTextContent('f3.ts');
+      expect(within(strip()).getByRole('button', { name: 'ほか 3' })).toBeInTheDocument();
+    } finally { w.mockRestore(); c.mockRestore(); }
   });
 
   it('サブエージェントの札は、1 本も無ければ出さない。あれば件数の名前で、押すと 1 本ずつの一覧が開く', () => {
