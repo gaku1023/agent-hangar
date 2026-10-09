@@ -535,7 +535,7 @@ Claude Code の保存先と、その読み方を定める。
 
 - 本文は `~/.claude/projects/<変換名>/<sessionId>.jsonl` にある。変換名は cwd の英数字以外を `-` に置き換えたもので、日本語を含むパスは不可逆になる。cwd は行内の `cwd` か `~/.claude/history.jsonl` の `project` から読む。
 - `~/.claude/history.jsonl` は利用者の発言だけの軽い索引で、初回列挙に使う。
-- ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
+- ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`isolation-latch`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
 - `user` 行の `message.content` は配列ではなく文字列のことがある。抽出は両方を受ける。
 - サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。件数はセッション本体の 3 倍以上あり、インデクサは両方を読む。
 - 実行中の状態は `~/.claude/sessions/<pid>.json` にあり、`sessionId`、`cwd`、`name`、`nameSource`、`status`（busy、idle、waiting、shell）を持つ。ファイルの出現と消失が起動と終了に対応する。
@@ -618,6 +618,41 @@ DB のマイグレーションを要らない形にするためにファイル�
 画面に出すのは、設定の「連携」の群の節と、初回の確認リストの 6 行目だけで、ヘッダー、知らせの札、設定の目次の点には出さない（「Settings」と「Home」の節）。
 ずれの中身（`GET /api/compat`）は、準備の確かめでずれが 1 件以上あるときに、画面が続けて取る。
 止めた機能の一覧を、開くのを待たずに出すためである。
+
+#### 確かめた版と見本
+
+確かめた版は、見本のうち最も新しい版である（`VERIFIED_CLAUDE_VERSION`、README にも書く）。
+手元の claude がそれより新しいときは「未確認の版」として知らせるが、止めはしない。
+
+見本は `packages/server/test/fixtures/claude/<版>/` にあり、`npm run capture-claude-fixtures` で採る（`packages/server/test/capture/`）。
+採る道具は、一時ディレクトリで本物の claude を haiku、effort low で動かし、決めた筋書き（タスクの道具を使う、ファイルを書く、Bash を動かす、作業中に次の指示を積む、サブエージェントを使う、終える）を流す。
+権限の確認で止まらないよう、`--permission-mode dontAsk` と `--allowedTools` で、筋書きで使う道具だけを許す。
+利用者の設定、MCP、スキルは読ませない（`--setting-sources project`、`--strict-mcp-config`、`--disable-slash-commands`）。
+フォルダの信頼の画面は、画面を読んで「Yes, I trust this folder」を選ぶ。
+終えるときは、休みの入力の欄へ Ctrl+C を間を置いて 2 回送る（`/exit` は指示として渡り、余計なターンになる）。
+statusline の JSON は、`--settings` で差し込んだスクリプトで写す。
+tmux は専用のソケットを `-S` で名指しし、止めるのはそのソケットのそのセッションだけで、`kill-server` は呼ばない。
+終えたら、一時ディレクトリとホームと設定の置き場のパス、Claude Code が uid ごとに使う一時の置き場（`/tmp/claude-<uid>`）、ホスト名、どのメールアドレスも、組織名、組織の識別子、使用率、戻る時刻、費用と時間の累計（statusline と `cost-state` の行）を決まった値に伏せる。
+system-reminder の塊と考えの塊は中身を伏せ、添付は積んだ指示のほかは種類だけにする。
+伏せ残し（手元の CLAUDE.md の行を含む）があれば、ファイルと行の場所だけを値を出さずに示し、書き出さない。
+伏せた後に筋書きの 2 つの指示が残っているかも確かめる。
+最後に `claude purge <作業ディレクトリ> -y` で、その会話の記録を設定の置き場から消す。
+Claude の使用量を使うので CI では動かさず、動かす前に利用者に聞く。
+採っているあいだ、動いている hangar はこの会話を一覧に出し、後始末の後は消えた会話として扱う。
+
+見本の試験（`packages/server/test/claudeFixtures.test.ts`）は、すべての版の見本について、ずれが 0 件であることと、主な読み取り（ターンの数、積んだ指示、道具、サブエージェント、題名、使用量、ターンの終わり）が筋書きどおりに取れることを確かめる。
+`--help` から作ったサブコマンドの一覧が組み込みの一覧と同じであることは、最も新しい見本でだけ確かめる。
+組み込みの一覧は最も新しい版に合わせるので、古い見本とは違ってよい。
+見本に手元のパスや一時の置き場やメールアドレスが残っていないことと、費用、累計の時間、使用率、アカウントの欄が決まった値に伏せてあることも、この試験が確かめる。
+手書きの見本（同じ置き場の直下）は、見本に現れない端のケースのために残す。
+
+#### 週に 1 度の照合
+
+GitHub Actions の `claude-compat`（`.github/workflows/claude-compat.yml`）が、週に 1 度と手動で、最新の claude を npm（`@anthropic-ai/claude-code`）から入れ、`claude --help` のサブコマンドと引数を最も新しい見本と突き合わせる（`packages/server/test/claudeLive.test.ts`）。
+違っていればジョブを落とし、見本を採り直す合図にする。
+版が新しいだけでは落とさない。
+見本がまだ無いときは、「見本がありません」と書いて落ちる。
+認証は要らない。
 
 ## セッションの起動と観察
 
@@ -2017,7 +2052,7 @@ hangar の tmux の中の claude は、上限を模した中継で、予約が�
   すでに tmux の中にいるときは、hangar の tmux サーバなら入れ子にせず `switch-client` で移り、ほかの tmux の中なら素の claude を起動する。
   サブコマンド、`-p`、`-c`、`--bg`、id の無い `-r` などは包まない。
   サブコマンドの一覧は、サーバが起動のたびと claude のパスを変えたときに `claude --help` の Commands の節から作り直し、本体に書き込む。
-  出力が無い（claude が無い、時間切れ、0 以外で終わった）ときは組み込みの一覧（2.1.292 の Commands）を使い、ずれは記録しない。
+  出力が無い（claude が無い、時間切れ、0 以外で終わった）ときは組み込みの一覧（2.1.295 の Commands）を使い、ずれは記録しない。
   出力に Commands の節が無いときは組み込みの一覧を使い、ずれを 1 件記録する。
   読めたときは読めた一覧を使い、組み込みとの差を 1 つずつ Claude Code との互換のずれとして記録する。
   `hangar shell install` は組み込みの一覧で書き、動いているサーバが次の起動で書き直す。

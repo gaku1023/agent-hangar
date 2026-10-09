@@ -18,6 +18,9 @@ describe('transcriptDrifts', () => {
     expect(transcriptDrifts('x')).toEqual([]);
     expect(transcriptDrifts(null)).toEqual([]);
   });
+  it('isolation-latch（2.1.295 で現れた、side と sessionId だけの行）は meta として知っている', () => {
+    expect(transcriptDrifts({ type: 'isolation-latch', side: 'connectors', sessionId: 's' })).toEqual([]);
+  });
   it('知らない行の種類と system の種類を返す。添付は、知らない種類が文字の prompt を持つときだけ返す。無いものは (missing) と書く', () => {
     expect(transcriptDrifts({ type: 'brand-new' })).toEqual([t('type=brand-new')]);
     expect(transcriptDrifts({ sessionId: 'x' })).toEqual([t('type=(missing)')]);

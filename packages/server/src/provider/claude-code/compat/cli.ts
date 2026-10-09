@@ -3,7 +3,7 @@ import { needsShell } from '../../../platform/exec.ts';
 import { isRec, type Drift } from './types.ts';
 
 /**
- * --help を読めないときに使う、シェルの包みがそのまま渡すサブコマンド。2.1.292 の `claude --help` の Commands である。
+ * --help を読めないときに使う、シェルの包みがそのまま渡すサブコマンド。2.1.295 の `claude --help` の Commands である。
  * 別名（plugin|plugins、stop|kill、update|upgrade）は両方を入れる。
  * 見本を足すときは、最も新しい見本の help.txt と揃える（見本の試験が突き合わせる）。
  */
