@@ -11,7 +11,7 @@ import { claudeVersionOf } from '../../src/provider/claude-code/compat/cli.ts';
 import { mangleCwd } from '../../src/provider/claude-code/discover.ts';
 import { Tmux, type TmuxExec } from '../../src/tmux/tmux.ts';
 import { buildFiles, findLeaks, formatLeaks, jsonl, scenarioKept } from './output.ts';
-import { redactAgents, redactText, replacements, type Pairs, type Secrets } from './redact.ts';
+import { claudeTmpDirs, redactAgents, redactText, replacements, type Pairs, type Secrets } from './redact.ts';
 import { PLACEHOLDER, SCENARIO } from './scenario.ts';
 import { createTrustAnswerer, screenClues } from './trust.ts';
 import { failureSummary, hasBashSleep } from './transcript.ts';
@@ -158,7 +158,7 @@ export async function main(argv: string[]): Promise<void> {
     const showScreenClues = (): void => {
       const mask: Pairs = [[real, PLACEHOLDER.tmp], [tmp ?? real, PLACEHOLDER.tmp], [os.homedir(), PLACEHOLDER.home]];
       mask.sort((x, y) => y[0].length - x[0].length);
-      const lines = screenClues(t.capturePane(TMUX_SESSION)).map((l) => redactText(l, mask));
+      const lines = screenClues(t.capturePane(TMUX_SESSION), (l) => redactText(l, mask));
       console.error(`最後の画面の手がかりの行:\n${lines.length === 0 ? '（なし）' : lines.map((l) => `  ${l}`).join('\n')}`);
     };
     /**
@@ -173,11 +173,11 @@ export async function main(argv: string[]): Promise<void> {
         if (cond()) return;
         if (!t.hasSession(TMUX_SESSION)) {
           if (o.goneOk) return;
-          throw new Error(`${what}の途中で claude の tmux セッションが消えました。claude が終わった（引数が通らなかった、落ちた）可能性があります`);
+          throw new Error(`${what} の途中で claude の tmux セッションが消えました。claude が終わった（引数が通らなかった、落ちた）可能性があります`);
         }
         if (Date.now() > limit) {
           if (o.trust) showScreenClues();
-          throw new Error(`${what}を待ちきれませんでした`);
+          throw new Error(`${what} を待ちきれませんでした`);
         }
         await sleep(250);
       }
@@ -249,6 +249,7 @@ export async function main(argv: string[]): Promise<void> {
     const secrets: Secrets = {
       tmp, tmpReal: real, tmpRoot: os.tmpdir(), tmpRootReal: fs.realpathSync(os.tmpdir()),
       home: os.homedir(), claudeDir, user: os.userInfo().username, host: os.hostname(),
+      claudeTmp: claudeTmpDirs(process.getuid?.()),
       email: str(auth.email), orgName: str(auth.orgName), orgId: str(auth.orgId),
       contextLines: contextLinesOf(claudeDir),
     };

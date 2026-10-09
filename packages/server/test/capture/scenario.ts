@@ -23,6 +23,8 @@ export const PLACEHOLDER = {
   /** 設定の置き場（CLAUDE_CONFIG_DIR か ~/.claude）。home と同じ /Users/me の下に置く。 */
   claudeDir: '/Users/me/.claude',
   host: 'fixture-host',
+  /** Claude Code が uid ごとに使う一時の置き場の、置き換えの値。 */
+  claudeTmp: '/tmp/claude-fixture',
   email: 'user@example.com',
   orgName: 'Example Org',
   orgId: '00000000-0000-4000-8000-000000000000',

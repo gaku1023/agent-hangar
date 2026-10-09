@@ -50,6 +50,16 @@ describe('screenClues', () => {
     expect(lines.some((l) => l.includes('unrelated'))).toBe(false);
     expect(lines.every((l) => l.length <= 200)).toBe(true);
   });
+  it('置き換えを渡すと、置き換えてから切る。切れ目にかかった値の半端な欠片を出さない', () => {
+    const line = `❯ ${'x'.repeat(187)} /home/someone/dir`;
+    const hide = (l: string): string => l.split('/home/someone').join('/Users/me');
+    const [out] = screenClues(line, hide);
+    expect(out).not.toContain('/home');
+    expect(out).toContain('/Users/me');
+    expect(out!.length).toBeLessThanOrEqual(200);
+    // 渡さなければ、そのまま切る。
+    expect(screenClues(line)[0]).toContain('/home/some');
+  });
 });
 
 describe('createTrustAnswerer', () => {

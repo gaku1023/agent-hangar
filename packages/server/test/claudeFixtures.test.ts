@@ -65,9 +65,35 @@ for (const f of fixtures) {
       const parsed = recs.map((r) => parseStatusline(r)!);
       expect(parsed.every((p) => p.providerSessionId === f.sessionId && p.model !== null)).toBe(true);
       expect(parsed.some((p) => p.contextSize !== null && p.contextSize > 0)).toBe(true);
+      // 戻る時刻が 1 つも読めないと、下のミリ秒の確かめが素通りする。
+      expect(parsed.some((p) => p.rateLimits?.fiveHour?.resetsAt != null)).toBe(true);
       for (const p of parsed) {
         for (const w of [p.rateLimits?.fiveHour, p.rateLimits?.sevenDay]) if (w && w.resetsAt !== null) expect(w.resetsAt).toBeGreaterThan(1e12);
       }
+    });
+    it('使用量の欄（費用、累計の時間、使用率）と、アカウントの欄は、決まった値に伏せてある', () => {
+      // 版によって無い欄は飛ばす。あるのに決まった値でなければ、伏せ残しである。
+      const num = (v: unknown): v is number => typeof v === 'number';
+      for (const r of readFixtureJsonl(f, 'statusline.jsonl') as { cost?: Record<string, unknown>; rate_limits?: Record<string, Record<string, unknown>> }[]) {
+        const cost = r.cost ?? {};
+        if (num(cost.total_cost_usd)) expect(cost.total_cost_usd, 'statusline の total_cost_usd').toBe(PLACEHOLDER.costUsd);
+        for (const k of ['total_duration_ms', 'total_api_duration_ms']) if (num(cost[k])) expect(cost[k], `statusline の ${k}`).toBe(PLACEHOLDER.durationMs);
+        for (const [window, w] of Object.entries(r.rate_limits ?? {})) {
+          if (num(w?.used_percentage)) expect(w.used_percentage, `statusline の ${window} の used_percentage`).toBe(PLACEHOLDER.usedPercent[window] ?? 1);
+        }
+      }
+      for (const name of ['transcript.jsonl', ...fixtureSubagents(f)]) {
+        for (const r of readFixtureJsonl(f, name) as { type?: string; totalCostUSD?: unknown; modelUsage?: Record<string, { costUSD?: unknown }> }[]) {
+          if (r.type !== 'cost-state') continue;
+          if (num(r.totalCostUSD)) expect(r.totalCostUSD, `${name} の totalCostUSD`).toBe(PLACEHOLDER.costUsd);
+          for (const [model, u] of Object.entries(r.modelUsage ?? {})) if (num(u?.costUSD)) expect(u.costUSD, `${name} の ${model} の costUSD`).toBe(PLACEHOLDER.costUsd);
+          const rec = r as Record<string, unknown>;
+          for (const k of ['totalAPIDuration', 'totalAPIDurationWithoutRetries', 'totalToolDuration', 'totalDuration']) if (num(rec[k])) expect(rec[k], `${name} の ${k}`).toBe(PLACEHOLDER.durationMs);
+        }
+      }
+      const auth = JSON.parse(readFixtureText(f, 'auth-status.json')) as Record<string, unknown>;
+      const expected: Record<string, string> = { email: PLACEHOLDER.email, orgName: PLACEHOLDER.orgName, orgId: PLACEHOLDER.orgId, subscriptionType: PLACEHOLDER.subscriptionType };
+      for (const [k, v] of Object.entries(expected)) if (typeof auth[k] === 'string') expect(auth[k], `auth-status.json の ${k}`).toBe(v);
     });
     it('auth status と agents の JSON にずれが無く、読める', () => {
       const auth = readFixtureText(f, 'auth-status.json');
@@ -103,7 +129,7 @@ for (const f of fixtures) {
         expect(stats.input_tokens).toBeGreaterThan(0);
         expect(stats.output_tokens).toBeGreaterThan(0);
         const events = readEvents(db, s.id, { limit: 2000 }).events;
-        expect(events.flatMap((e) => (e.kind === 'user' ? [e.text] : []))).toEqual(expect.arrayContaining([SCENARIO.first, SCENARIO.queued]));
+        expect(events.flatMap((e) => (e.kind === 'user' ? [e.text] : []))).toEqual([SCENARIO.first, SCENARIO.queued]);
         const tools = new Set(events.flatMap((e) => (e.kind === 'tool_call' ? [e.name] : [])));
         for (const t of ['Write', 'Bash', 'Agent']) expect(tools, t).toContain(t);
         expect(['TodoWrite', 'TaskCreate'].some((t) => tools.has(t))).toBe(true);
@@ -132,6 +158,7 @@ it('見本に、伏せたはずの値（手元のパス、一時ディレクト�
   const PRIVATE: [string, RegExp][] = [
     ['ホームのパス', /\/(?:Users|home)\/(?!me\b)[^/\s"\\]+/],
     ['一時ディレクトリのパス', /\/var\/folders\//],
+    ['Claude Code の一時の置き場', /\/(?:private\/)?tmp\/claude-\d+/],
     ['メールアドレス', /[A-Za-z0-9._%+-]+@(?!example\.com\b)[A-Za-z0-9.-]+\.[A-Za-z]{2,}/],
   ];
   for (const f of fixtures) {

@@ -18,6 +18,7 @@ const S: Secrets = {
   email: 'someone@corp.example',
   orgName: 'Corp Example',
   orgId: '11111111-2222-4333-8444-555555555555',
+  claudeTmp: ['/private/tmp/claude-4242', '/tmp/claude-4242'],
   contextLines: [CTX1, CTX2],
 };
 const WORK = `${S.tmpReal}/work`;

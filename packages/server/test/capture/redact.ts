@@ -10,21 +10,29 @@ const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !
  * 伏せる値。採る道具が、その場の環境と auth status から集める。
  * claudeDir は実際に使った設定の置き場（CLAUDE_CONFIG_DIR か ~/.claude）、tmpRoot はその機械の一時ディレクトリの置き場（os.tmpdir()）とその実体、
  * user は OS のユーザー名である。
+ * claudeTmp は Claude Code が uid ごとに使う一時の置き場（claudeTmpDirs）で、タスクの出力などがその下に出る。
  */
 export type Secrets = {
   tmp: string; tmpReal: string; tmpRoot: string; tmpRootReal: string;
   home: string; claudeDir: string; user: string; host: string;
+  claudeTmp: string[];
   email: string | null; orgName: string | null; orgId: string | null;
   /** 利用者の CLAUDE.md の行（前後の空白を除いて 20 文字以上のもの）。見本に残っていたら伏せ残しとする。値は出さない。 */
   contextLines: string[];
 };
 export type Pairs = [string, string][];
 
+/** Claude Code が uid ごとに使う一時の置き場。macOS では /private/tmp が /tmp の実体なので、両方の形で出る。uid が分からない機械（Windows）では空。 */
+export function claudeTmpDirs(uid: number | undefined): string[] {
+  return uid === undefined ? [] : [`/private/tmp/claude-${uid}`, `/tmp/claude-${uid}`];
+}
+
 /**
  * 置き換えの組。長いものから当てる（短いものが長いものの一部を先に崩さないように）。
  * 一時ディレクトリとホームは、そのままの形と、Claude Code がプロジェクトの置き場の名前にする形（英数字以外を - にしたもの）の両方を当てる。
  * 設定の置き場は、ホームの下にあることが多いので、ホームより長いものとして先に当たる。置き場の名前の形も当てる。
  * 一時ディレクトリの置き場（macOS なら /var/folders/…/T）は、一時ディレクトリそのものとは別に /tmp へ置き換える。
+ * Claude Code の uid ごとの一時の置き場は /tmp/claude-fixture にする。uid は利用者を特定しうるためである。
  * 3 文字より短い値は当てない。ありふれた文字列を崩さないためである。
  * ユーザー名は置き換えない。ありふれた語を崩すので、残っていないかを leaks で見るだけにする。
  */
@@ -37,6 +45,7 @@ export function replacements(s: Secrets): Pairs {
     [s.claudeDir, PLACEHOLDER.claudeDir], [mangleCwd(s.claudeDir), mangleCwd(PLACEHOLDER.claudeDir)],
     [s.home, PLACEHOLDER.home], [mangleCwd(s.home), mangleCwd(PLACEHOLDER.home)],
     [s.host, PLACEHOLDER.host],
+    ...s.claudeTmp.flatMap((d): Pairs => [[d, PLACEHOLDER.claudeTmp], [mangleCwd(d), mangleCwd(PLACEHOLDER.claudeTmp)]]),
   ];
   if (s.email) pairs.push([s.email, PLACEHOLDER.email]);
   if (s.orgName) pairs.push([s.orgName, PLACEHOLDER.orgName]);
@@ -244,14 +253,20 @@ function contextNeedles(s: Secrets): string[] {
 
 /** 伏せ残しの名前（値そのものは出さない）。空なら書き出してよい。 */
 export function leaks(text: string, s: Secrets): string[] {
-  const named: [string, string | null][] = [
-    ['一時ディレクトリ', s.tmp], ['一時ディレクトリの実体', s.tmpReal], ['一時ディレクトリの置き場の名前', mangleCwd(s.tmpReal)],
-    ['ホーム', s.home], ['ホームの置き場の名前', mangleCwd(s.home)], ['ホスト名', s.host],
-    ['メールアドレス', s.email], ['組織名', s.orgName], ['組織の識別子', s.orgId],
+  const named: [string, (string | null)[]][] = [
+    ['一時ディレクトリ', [s.tmp]], ['一時ディレクトリの実体', [s.tmpReal]], ['一時ディレクトリの置き場の名前', [mangleCwd(s.tmpReal)]],
+    ['ホーム', [s.home]], ['ホームの置き場の名前', [mangleCwd(s.home)]], ['ホスト名', [s.host]],
+    ['メールアドレス', [s.email]], ['組織名', [s.orgName]], ['組織の識別子', [s.orgId]],
     // 設定の置き場の名前（.claude でないときだけ。.claude は置き換えの値にも出る）。
-    ['設定の置き場の名前', basename(s.claudeDir) === '.claude' ? null : basename(s.claudeDir)],
+    ['設定の置き場の名前', [basename(s.claudeDir) === '.claude' ? null : basename(s.claudeDir)]],
+    ['Claude Code の一時の置き場', s.claudeTmp.flatMap((d) => [d, mangleCwd(d)])],
   ];
-  const out = named.filter(([, v]) => v !== null && v.length >= 3 && text.includes(v)).map(([label]) => label);
+  const out = named.filter(([label, vs]) => {
+    if (vs.some((v) => v !== null && v.length >= 3 && text.includes(v))) return true;
+    // ホスト名は、最初の . の前の短い形（someones-mac.local なら someones-mac）でも出る。ユーザー名と同じく、語として現れたときだけ数える。
+    const short = s.host.split('.')[0] ?? '';
+    return label === 'ホスト名' && short.length >= 3 && hasWord(text, short);
+  }).map(([label]) => label);
   // 利用者の CLAUDE.md の行（値は出さない）。伏せで形を変えた行も見る。
   if (contextNeedles(s).some((l) => text.includes(l))) out.push('利用者の CLAUDE.md の行');
   // ユーザー名は短くありふれた語になりうるので、語として現れたときだけ数える。

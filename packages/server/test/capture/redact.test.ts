@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emailSpans, leaks, redactAgents, redactAuth, redactDeep, redactRegistry, redactStatusline, redactText, redactTranscriptLine, replacements, type Secrets } from './redact.ts';
+import { claudeTmpDirs, emailSpans, leaks, redactAgents, redactAuth, redactDeep, redactRegistry, redactStatusline, redactText, redactTranscriptLine, replacements, type Secrets } from './redact.ts';
 
 const S: Secrets = {
   tmp: '/var/folders/zz/abc/T/hangar-fixture-Q1',
@@ -13,6 +13,7 @@ const S: Secrets = {
   email: 'someone@corp.example',
   orgName: 'Corp Example',
   orgId: '11111111-2222-4333-8444-555555555555',
+  claudeTmp: ['/private/tmp/claude-4242', '/tmp/claude-4242'],
   contextLines: ['Fixture rule: say fixture-forbidden-word never'],
 };
 const P = replacements(S);
@@ -43,6 +44,18 @@ describe('replacements と redactDeep', () => {
   });
   it('設定の置き場の、置き場の名前の形（英数字以外を - にしたもの）も -Users-me--claude にする', () => {
     expect(redactDeep({ m: '-Users-someone--claude-alt/projects/x' }, P)).toEqual({ m: '-Users-me--claude/projects/x' });
+  });
+});
+
+describe('Claude Code の一時の置き場', () => {
+  it('uid ごとの置き場（実体も、その名前の形も）を /tmp/claude-fixture にする', () => {
+    const v = { a: '/private/tmp/claude-4242/-tmp-x/tasks/1.output', b: '/tmp/claude-4242/y', m: '-private-tmp-claude-4242-x', n: '-tmp-claude-4242-x' };
+    expect(redactDeep(v, P)).toEqual({ a: '/tmp/claude-fixture/-tmp-x/tasks/1.output', b: '/tmp/claude-fixture/y', m: '-tmp-claude-fixture-x', n: '-tmp-claude-fixture-x' });
+  });
+  it('置き場が無いとき（uid が分からない機械）は何も当てない。claudeTmpDirs は uid から 2 つの置き場を作る', () => {
+    expect(redactDeep({ a: '/tmp/claude-4242/y' }, replacements({ ...S, claudeTmp: [] }))).toEqual({ a: '/tmp/claude-4242/y' });
+    expect(claudeTmpDirs(4242)).toEqual(['/private/tmp/claude-4242', '/tmp/claude-4242']);
+    expect(claudeTmpDirs(undefined)).toEqual([]);
   });
 });
 
@@ -154,6 +167,21 @@ describe('redactRegistry、redactAuth、redactAgents', () => {
 });
 
 describe('leaks', () => {
+  it('Claude Code の一時の置き場（実体も、名前の形も）が残っていれば見つける。置き換えの値は見ない', () => {
+    expect(leaks('x /private/tmp/claude-4242/y', S)).toEqual(['Claude Code の一時の置き場']);
+    expect(leaks('x /tmp/claude-4242/y', S)).toEqual(['Claude Code の一時の置き場']);
+    expect(leaks('-private-tmp-claude-4242-x', S)).toEqual(['Claude Code の一時の置き場']);
+    expect(leaks('/tmp/claude-fixture/y -tmp-claude-fixture-x', S)).toEqual([]);
+  });
+  it('ホスト名は、完全な形に加えて、最初の . の前の短い形も見つける。語の一部は数えない', () => {
+    expect(leaks('on someones-mac.local now', S)).toEqual(['ホスト名']);
+    expect(leaks('on someones-mac now', S)).toEqual(['ホスト名']);
+    expect(leaks('on (SomeOnes-Mac).', S)).toEqual(['ホスト名']);
+    expect(leaks('xsomeones-mac and someones-macx and 1someones-mac2', S)).toEqual([]);
+    // 短い形が 3 文字より短いときは見ない。
+    expect(leaks('ab', { ...S, host: 'ab.local' })).toEqual([]);
+    expect(leaks('fixture-host', S)).toEqual([]);
+  });
   it('伏せたはずの値と、置き換えの値でないメールアドレスを見つける', () => {
     expect(leaks('ok /tmp/hangar-fixture user@example.com', S)).toEqual([]);
     expect(leaks('at /Users/someone/x and someone@corp.example', S)).toEqual(['ホーム', 'メールアドレス', 'ユーザー名', 'メールアドレスらしい文字列']);

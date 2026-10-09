@@ -23,9 +23,12 @@ export function trustKey(screen: string): 'Enter' | 'Down' | null {
 const CLUE = /❯|trust|Enter to confirm/i;
 const CLUE_MAX = 200;
 
-/** 画面のうち、信頼の画面の手がかりになる行（❯、trust、Enter to confirm を含む行）。長い行は切る。 */
-export function screenClues(screen: string): string[] {
-  return screen.split('\n').filter((l) => CLUE.test(l)).map((l) => l.trim().slice(0, CLUE_MAX));
+/**
+ * 画面のうち、信頼の画面の手がかりになる行（❯、trust、Enter to confirm を含む行）。長い行は切る。
+ * mask は行に当てる伏せ（パスの置き換えなど）で、切る前に当てる。先に切ると、切れ目にかかった値が置き換わらず、半端な欠片が残る。
+ */
+export function screenClues(screen: string, mask: (line: string) => string = (l) => l): string[] {
+  return screen.split('\n').filter((l) => CLUE.test(l)).map((l) => mask(l.trim()).slice(0, CLUE_MAX));
 }
 
 /** 信頼の画面を初めて見てから、最初のキーを送るまで待つ時間。描画の直後は、送ったキーが取りこぼされる。 */
