@@ -1808,11 +1808,11 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('通知を出せるのに受け取っていないときだけ、「通知を受け取る」を添える', () => {
     const base = { ...initialState(), waitingToasts: ['w1'] };
     const store = waitingStore(['w1']);
-    expect(presentToasts({ ...base, notify: { available: true, on: false, blocked: false } }, store, NOW).offerNotify).toBe(true);
-    expect(presentToasts({ ...base, notify: { available: true, on: true, blocked: false } }, store, NOW).offerNotify).toBe(false);
-    expect(presentToasts({ ...base, notify: { available: false, on: false, blocked: false } }, store, NOW).offerNotify).toBe(false);
+    expect(presentToasts(base, { ...store, notify: { available: true, on: false, blocked: false } }, NOW).offerNotify).toBe(true);
+    expect(presentToasts(base, { ...store, notify: { available: true, on: true, blocked: false } }, NOW).offerNotify).toBe(false);
+    expect(presentToasts(base, { ...store, notify: { available: false, on: false, blocked: false } }, NOW).offerNotify).toBe(false);
     // OS で切られているときは、カードごとに勧めない。直し方は設定の通知の節に出す。
-    expect(presentToasts({ ...base, notify: { available: true, on: false, blocked: true } }, store, NOW).offerNotify).toBe(false);
+    expect(presentToasts(base, { ...store, notify: { available: true, on: false, blocked: true } }, NOW).offerNotify).toBe(false);
   });
   // 確認や入力のあるダイアログが開いている間は、カードを押しても画面を移さない（Mediator も止める）。押せないように見せる。
   it('確認や入力のあるダイアログが開いている間は、カードを押せないものとして渡す', () => {
@@ -1843,9 +1843,11 @@ describe('presentShell の入力待ちの数', () => {
 
 describe('presentSettings の通知', () => {
   it('通知を出せるかと、受け取るかをそのまま渡す', () => {
-    const state = { ...initialState(), notify: { available: true, on: true, blocked: false } };
-    expect(presentSettings(state, initialStore(), NOW).notify).toEqual({ available: true, on: true, blocked: false });
-    expect(presentSettings({ ...state, notify: { available: true, on: false, blocked: true } }, initialStore(), NOW).notify).toEqual({ available: true, on: false, blocked: true });
+    const store = { ...initialStore(), notify: { available: true, on: true, blocked: false } };
+    expect(presentSettings(initialState(), store, NOW).notify).toEqual({ available: true, on: true, blocked: false });
+    expect(presentSettings(initialState(), { ...store, notify: { available: true, on: false, blocked: true } }, NOW).notify).toEqual({ available: true, on: false, blocked: true });
+    // Runtime がまだ何も知らせていない間は、出せない環境と同じに出す。
+    expect(presentSettings(initialState(), initialStore(), NOW).notify).toEqual({ available: false, on: false, blocked: false });
   });
 });
 

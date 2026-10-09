@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyPickedFolder, applySearch, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -164,6 +164,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
+  /**
+   * 通知を出せるか、受け取るかを Store に入れる。Runtime しか知らない事実なので、Mediator を通さない。
+   * blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
+   */
+  const setNotify = (available: boolean, on: boolean, blocked = false) => setStore(applyNotify(store, { available, on, blocked }));
   /** アカウントの応答は、accounts.update の経路に載せる。 */
   const accountsUpdated = (accounts: AccountsDto) => dispatch({ kind: 'server', event: { type: 'accounts.update', accounts } });
 
@@ -411,7 +416,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'toast': dispatch({ kind: 'server', event: { type: 'toast', level: e.level, message: e.message } }); return;
       case 'notify.waiting': {
         // 窓が前にあるときは右下のカードで足りる。
-        if (!notifier || !state.notify.on || !notifier.background()) return;
+        if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
         notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: s.activity?.question ?? NO_QUESTION });
@@ -419,7 +424,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'notify.return': {
         // 窓が前にあるときは右下の札で足りる（入力待ちと同じ）。
-        if (!notifier || !state.notify.on || !notifier.background()) return;
+        if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
         const time = s.state?.returnTime;
@@ -431,14 +436,19 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         notifier.request().then(async (granted) => {
           if (granted) {
             deps.storage.set(NOTIFY_KEY, true);
-            dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on: true } });
+            setNotify(notifier.available(), true);
             return;
           }
           // 断られたら、OS で切られているのかを読む。切られていれば、許可の仕方を知らせる。
           const blocked = (await notifier.status()) === 'denied' && notifier.available();
-          dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on: false, blocked } });
+          setNotify(notifier.available(), false, blocked);
           toast(blocked ? NOTIFY_BLOCKED : '通知が許可されませんでした');
         }).catch(fail);
+        return;
+      case 'notify.off':
+        // その場で切り替えて覚える。許可は求めない。
+        deps.storage.set(NOTIFY_KEY, false);
+        setStore(applyNotify(store, { ...store.notify, on: false }));
         return;
       case 'badge': notifier?.badge(e.count); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
@@ -542,9 +552,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       const available = notifier.available();
       const blocked = s === 'denied' && available;
       const on = wanted && available && notifier.granted() && !blocked;
-      const was = state.notify;
-      if (was.available === available && was.on === on && was.blocked === blocked) return;
-      dispatch({ kind: 'runtime', event: { type: 'notify.changed', available, on, blocked } });
+      const was = store.notify;
+      setNotify(available, on, blocked);
       if (was.on && blocked) toast(NOTIFY_BLOCKED);
     }, () => {});
   }
@@ -632,13 +641,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       if (notifier) {
         const pref = deps.storage.get(NOTIFY_KEY);
         const on = (typeof pref === 'boolean' ? pref : notifier.defaultOn) && notifier.available() && notifier.granted();
-        dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on } });
+        setNotify(notifier.available(), on);
         // 受け取るなら、OS の許可をあらかじめ尋ねておき（決まっていれば OS が黙って答える）、尋ね終えたら許可の状態を読む。
         // デスクトップの許可は OS が持つので、システム設定で切られていれば受け取るのままにしない。
         // 利用者の選んだ値（NOTIFY_KEY）は書き換えない。OS で許可し直したら、スイッチを入れ直すだけで戻る。
         if (on) {
           notifier.prepare().then(() => notifier.status()).then((s) => {
-            if (s === 'denied' && notifier.available()) dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: true, on: false, blocked: true } });
+            if (s === 'denied' && notifier.available()) setNotify(true, false, true);
           }, () => {});
         }
         // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。

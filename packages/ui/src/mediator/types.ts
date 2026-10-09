@@ -18,10 +18,6 @@ export type RuntimeEvent =
   | { type: 'project.created'; projectId: string; params: LaunchParams }
   // プロジェクト画面の作成のダイアログの結果。
   | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
-  // 通知を出せるか、受け取るか。
-  // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
-  // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
-  | { type: 'notify.changed'; available: boolean; on: boolean; blocked?: boolean }
   // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
   | { type: 'return.due'; keys: string[] }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
@@ -84,6 +80,8 @@ export type Effect =
   // 通知の許可を求める。
   // 利用者の操作の中で出すので、ブラウザの許可ダイアログも出せる。
   | { kind: 'notify.request' }
+  // 通知を受け取らないにする。Runtime がその場で切り替えて覚える。
+  | { kind: 'notify.off' }
   // Dock（ブラウザならアプリ）のバッジに入力待ちの数を出す。
   // 0 で消す。
   | { kind: 'badge'; count: number }
@@ -167,12 +165,6 @@ export type SessionViewState = {
 };
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
 /**
- * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
- * blocked はデスクトップのシステム設定で切られていること。
- * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
- */
-export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
-/**
  * 欄ごとの保存の知らせ。
  * saved の n は同じ欄を保存するたびに進み、画面は変わるたびに「✓ 保存しました」を出し直す。
  * error は欄の下に出す理由で、同じ欄をもう一度保存し始めたら消える。
@@ -211,8 +203,6 @@ export type State = {
   returnSeen: string[];
   /** 右下に積む「戻る時刻を過ぎた」の札のセッション。古いものが先。閉じるか、そのセッションを開くか、状態が変わるまで残す。 */
   returnToasts: string[];
-  /** 通知の受け取り。 */
-  notify: NotifyState;
   /** focus: terminal で開いたセッション。その画面に着いたら端末にフォーカスし、着いたら忘れる。 */
   focusOnOpen: string | null;
   /**

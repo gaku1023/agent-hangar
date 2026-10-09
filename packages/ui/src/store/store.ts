@@ -9,6 +9,12 @@ import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto,
  * olderDone は、過去へ遡って空の頁が返った（もう古い行が無い）ことを表す。
  */
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean; olderDone?: boolean };
+/**
+ * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
+ * blocked はデスクトップのシステム設定で切られていること。
+ * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
+ */
+export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
 export type Store = {
   bootstrapped: boolean; version: string; device: { id: string; name: string } | null; settings: SettingsDto | null;
   projects: Record<string, ProjectDto>; sessions: Record<string, SessionDto>; live: LiveSessionDto[];
@@ -43,6 +49,8 @@ export type Store = {
   desktop: boolean;
   // Claude Code のアカウント（この PC の中だけにある）。未取得、またはサーバが知らせない間は null である。
   accounts: AccountsDto | null;
+  /** 通知の受け取り。Runtime だけが知っている事実（環境、OS の許可、利用者の選んだ値）を、Runtime が入れる。 */
+  notify: NotifyState;
   /** ワークスペース直下の未登録のフォルダ。新しいセッションか作成のダイアログを開くたびに取り直す。未取得は null。 */
   workspaceDirs: WorkspaceDirDto[] | null;
   /** Finder で選んだフォルダ。殻が返した値である。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
@@ -59,7 +67,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null,
     retention: null, retentionPreview: null,
-    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, workspaceDirs: null, pickedFolder: null,
+    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
   };
 }
 
@@ -415,6 +423,12 @@ export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?
 
 /** 参加トークンを入れる。押して見せたあとに null で伏せ直せる。 */
 export function applyJoinToken(store: Store, token: string | null, expiresAt: number | null = null): Store { return { ...store, joinToken: token, joinTokenExpiresAt: token === null ? null : expiresAt }; }
+
+/** 通知の受け取りを入れる。変わっていなければ同じ Store を返す。 */
+export function applyNotify(store: Store, next: NotifyState): Store {
+  const was = store.notify;
+  return was.available === next.available && was.on === next.on && was.blocked === next.blocked ? store : { ...store, notify: next };
+}
 
 /** 未登録のフォルダの一覧を入れる。 */
 export function applyWorkspaceDirs(store: Store, dirs: WorkspaceDirDto[]): Store { return { ...store, workspaceDirs: dirs }; }

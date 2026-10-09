@@ -698,21 +698,19 @@ describe('入力待ちの知らせ', () => {
 });
 
 describe('通知を受け取るか', () => {
-  it('受け取るにすると、許可を求める効果だけを出す。結果が届いてから切り替える', () => {
-    const a = run([intent({ type: 'notify.set', on: true })]);
+  // 通知を出せるか、受け取るかは Runtime しか知らない事実なので、Store が持つ。Mediator は切り替えを効果にするだけである。
+  it('受け取るにすると、許可を求める効果だけを出す', () => {
+    const start = initialState();
+    expect(start).not.toHaveProperty('notify');
+    const a = run([intent({ type: 'notify.set', on: true })], start);
     expect(a.effects).toEqual([{ kind: 'notify.request' }]);
-    expect(a.state.notify.on).toBe(false);
-    const b = run([runtime({ type: 'notify.changed', available: true, on: true })], a.state);
-    expect(b.state.notify).toEqual({ available: true, on: true, blocked: false });
-    // OS で切られていれば、その印を持つ。
-    const c = run([runtime({ type: 'notify.changed', available: true, on: false, blocked: true })], b.state);
-    expect(c.state.notify).toEqual({ available: true, on: false, blocked: true });
+    expect(a.state).toBe(start);
   });
-  it('受け取らないにすると、その場で切り替えて覚える', () => {
-    const on = run([runtime({ type: 'notify.changed', available: true, on: true })]).state;
-    const a = run([intent({ type: 'notify.set', on: false })], on);
-    expect(a.state.notify).toEqual({ available: true, on: false, blocked: false });
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'notify.waiting', value: false }]);
+  it('受け取らないにすると、切る効果だけを出す', () => {
+    const start = initialState();
+    const a = run([intent({ type: 'notify.set', on: false })], start);
+    expect(a.effects).toEqual([{ kind: 'notify.off' }]);
+    expect(a.state).toBe(start);
   });
 });
 
