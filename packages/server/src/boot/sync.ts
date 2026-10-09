@@ -137,7 +137,7 @@ export function bootSync(
       })
     : null;
   const feed = createSyncFeed({ hub, puller, uploader, oncePass: () => once.pass.active(), isPaused, cloudUsage, toast });
-  const once = createOncePass({ engine, puller, uploader, cloudUsage, isPaused, sweepPending: feed.sweep, broadcastSync: feed.broadcastSync, toast, language: home.language });
+  const once = createOncePass({ engine, puller, configBundle, uploader, cloudUsage, isPaused, sweepPending: feed.sweep, broadcastSync: feed.broadcastSync, toast, language: home.language });
   engine.on(feed.listener());
 
   // 設定の同期のスイッチが切から入に変わった瞬間に、次の周期を待たず 1 回回す。

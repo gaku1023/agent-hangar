@@ -3224,7 +3224,8 @@ Worker の側は PR 15 で入った（下の「互換の版」）。画面は PR
 実装は `sync/config/` にあり、既定は切である。
 
 **旧実装の削除（PR 18）。**
-消したもの：`sync/claudeConfig.ts`（と試験）、設定の取り込みの HTTP（`GET /api/sync/config/preview`、`POST /api/sync/config/pull`）、`sync/configSyncApi.ts`、画面の `ConfigPreviewDialog` と、その Intent（`sync.config.preview`、`sync.config.apply`）と効果と Store の値、`SettingsDto.syncClaudeConfig` と `SyncStatusDto.claudeConfig`、降ろし手 `RemotePuller` の `onConfigEntries`、一時停止の 1 巡の設定の押し出しの段、辞書の旧い行。
+消したもの：`sync/claudeConfig.ts`（と試験）、設定の取り込みの HTTP（`GET /api/sync/config/preview`、`POST /api/sync/config/pull`）、`sync/configSyncApi.ts`、画面の `ConfigPreviewDialog` と、その Intent（`sync.config.preview`、`sync.config.apply`）と効果と Store の値、`SettingsDto.syncClaudeConfig` と `SyncStatusDto.claudeConfig`、降ろし手 `RemotePuller` の `onConfigEntries`、一時停止の 1 巡の旧実装の設定の段（新しい束の段に置き換えた）、辞書の旧い行。
+一時停止のままの「今すぐ同期」の 1 巡は、本文の降ろしのあとに設定の同期の `tick`（受信、送信）を回す。スイッチが切のとき、Worker の版が足りないときは、`tick` が何もしない。
 `RemotePuller` は設定（kind が `config`）の索引を降ろさず、`filesSeq` だけ通り過ぎる。束の本体は設定の同期が、束の行を見て自分で取りに行く。
 `settings.json` に旧スイッチ（`syncClaudeConfig`）が残っていても、読み込みのときに未知の鍵として捨てる（`config/paths.ts` の `loadSettings`）。保存し直すと消える。
 旧スイッチを入れていた人の設定は、そのまま起動でき、旧い同期は動かない。新しい実装は、設定の画面で入れ直したときだけ動く。
