@@ -119,7 +119,7 @@ describe('起点のマイグレーション', () => {
 });
 
 describe('起点より古い版の DB', () => {
-  it('開かずに断り、DB にも控えの置き場にも何も書かない', () => {
+  it('書き込み用に開かずに断り、DB の中身を変えず、控えも取らない', () => {
     for (const from of [1, 9, BASELINE_VERSION - 1]) {
       const dir = fs.mkdtempSync(path.join(tmp, 'old-'));
       const file = path.join(dir, 'hangar.db');
@@ -141,6 +141,72 @@ describe('起点より古い版の DB', () => {
       expect(dbVersionOf(file)).toBe(from);
       expect(fs.existsSync(path.join(dir, 'backups'))).toBe(false);
     }
+  });
+
+  /** 本体、-wal、-shm の有無とバイト列。無いものは null。 */
+  const filesOf = (file: string): Record<string, string | null> =>
+    Object.fromEntries(['', '-wal', '-shm'].map((s) => [s || 'main', fs.existsSync(file + s) ? fs.readFileSync(file + s).toString('hex') : null]));
+  const refuse = (file: string): void => {
+    let err: unknown;
+    try { openDb(file).close(); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(DbTooOldError);
+    expect((err as DbTooOldError).found).toBe(BASELINE_VERSION - 1);
+  };
+
+  // WAL の DB は、読み取り専用の接続でも SQLite が -shm（-wal の索引。中身は DB の内容ではなく、読む側が作り直す）を書く。
+  // -wal が無ければ、空の -wal も作る。これは避けられなかった（排他のロックは I/O の失敗になり、この SQLite の組み方は immutable の URI を受けない）。
+  // なので見るのは、DB の中身を持つ本体と -wal の頁が 1 バイトも変わらないことである。
+  it('WAL の DB（きれいに閉じてあり、-wal も -shm も無い）を断っても、本体は変わらず、-wal に頁を書かない', () => {
+    const file = path.join(tmp, 'hangar.db');
+    seedDbAt(file, BASELINE_VERSION - 1, (db) => { db.pragma('journal_mode = WAL'); });
+    const before = filesOf(file);
+    expect(before).toMatchObject({ '-wal': null, '-shm': null });
+    refuse(file);
+    const after = filesOf(file);
+    expect(after.main).toBe(before.main);
+    // 空の -wal ができることはあるが、頁は 1 つも無い。
+    expect(after['-wal'] ?? '').toBe('');
+    expect(fs.readdirSync(tmp).filter((n) => !/^hangar\.db(-wal|-shm)?$/.test(n))).toEqual([]);
+  });
+
+  it('WAL の DB（-wal に本体へ書き戻していない頁が残っている）を断っても、本体と -wal は変わらず、書き戻しも起きない', () => {
+    // 開いたままの DB の 3 つのファイルを写す。落ちたプロセスが残した形と同じで、版の行は -wal の中にしか無い。
+    const src = path.join(tmp, 'src');
+    fs.mkdirSync(src);
+    const live = path.join(src, 'hangar.db');
+    seedDbAt(live, BASELINE_VERSION - 2, (db) => { db.pragma('journal_mode = WAL'); });
+    const writer = new Database(live);
+    writer.pragma('wal_autocheckpoint = 0');
+    const last = LEGACY_MIGRATIONS.find((m) => m.version === BASELINE_VERSION - 1)!;
+    writer.exec(last.sql);
+    writer.prepare('insert into schema_migrations (version, applied_at) values (?, 1)').run(last.version);
+    const dir = path.join(tmp, 'hot');
+    fs.mkdirSync(dir);
+    const file = path.join(dir, 'hangar.db');
+    for (const s of ['', '-wal', '-shm']) fs.copyFileSync(live + s, file + s);
+    writer.close();
+    const before = filesOf(file);
+    expect(before['-wal']!.length).toBeGreaterThan(0);
+    expect(before['-shm']).not.toBeNull();
+    // -wal の中の版（起点の 1 つ前）を読めている。本体だけを読むと 2 つ前に見える。
+    refuse(file);
+    const after = filesOf(file);
+    // 書き込み用の接続で読むと、閉じるときに -wal が本体へ書き戻され、-wal と -shm が消える。それが起きていないこと。
+    expect(after.main).toBe(before.main);
+    expect(after['-wal']).toBe(before['-wal']);
+    expect(after['-shm']).not.toBeNull();
+    expect(fs.readdirSync(dir).sort()).toEqual(['hangar.db', 'hangar.db-shm', 'hangar.db-wal']);
+  });
+
+  it('ファイルが無ければ新しい DB を作り、空のファイルも新しい DB として扱う', () => {
+    const file = path.join(tmp, 'new.db');
+    openDb(file).close();
+    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION);
+    const empty = path.join(tmp, 'empty.db');
+    fs.writeFileSync(empty, '');
+    openDb(empty).close();
+    expect(dbVersionOf(empty)).toBe(LATEST_DB_VERSION);
+    expect(fs.existsSync(path.join(tmp, 'backups'))).toBe(false);
   });
 });
 
