@@ -190,7 +190,7 @@ describe('Shell', () => {
     expect(container.querySelector('.sync')?.hasAttribute('data-reason')).toBe(false);
   });
   it('一時停止中に版で止まっている間は、一時停止の切り替えを出さず、今すぐ同期だけを出す', () => {
-    // 再開しても、この PC の hangar を更新するまで同期できない。切り替えを出すと、押しても直らないボタンになる。
+    // 再開しても、互換の版が合うまで同期できない（この PC が古くても Worker が古くても同じである）。切り替えを出すと、押しても直らないボタンになる。
     const stuck = { visible: true, state: 'error' as const, label: '一時停止中 · 同期エラー: x', pending: 0, sweepPending: 0, skipped: 0, paused: true, reason: null };
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} sync={stuck} overlays={null}><div /></Shell></IntentRoot>);

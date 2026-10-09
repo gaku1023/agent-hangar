@@ -1457,6 +1457,11 @@ describe('一時停止中に版で止まったとき', () => {
     // 設定の「状態」の語にも同じ頭を添える。
     expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync }).cloud).toMatchObject({ state: 'error', paused: true, limited: false, stateLabel: '一時停止中 · 同期エラー' });
   });
+  it('Worker が古くて止まったときも、向きを言う error の文をそのまま出す（案内は向きに依らず、文は presenter で作り直さない）', () => {
+    const WORKER_REASON = 'クラウドの Worker が古いので、同期を止めました（Worker の互換の版は 1、この PC が求めるのは 2 以上）。setup した PC で hangar setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください';
+    const sync = syncStatus({ state: 'error', error: WORKER_REASON, paused: true });
+    expect(shellSync(sync)).toMatchObject({ state: 'error', paused: true, reason: null, label: `一時停止中 · 同期エラー: ${WORKER_REASON}` });
+  });
   it('一時停止していない版のエラーは、今までどおり', () => {
     const sync = syncStatus({ state: 'error', error: REASON, paused: false });
     expect(shellSync(sync)).toMatchObject({ state: 'error', paused: false, label: `同期エラー: ${REASON}` });
