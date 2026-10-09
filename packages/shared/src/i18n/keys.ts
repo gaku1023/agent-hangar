@@ -182,6 +182,9 @@ export const MESSAGES = {
   'mcp.tool.setSessionMemo': [],
   'mcp.tool.getUsage': [],
   'mcp.tool.openInHangar': [],
+  // launch
+  'launch.injection.none': [],
+  'launch.injection.body': ['memo', 'projectName', 'projectPath', 'todos'],
 } as const satisfies Record<`${string}.${string}.${string}`, readonly string[]>;
 
 export type MessageKey = keyof typeof MESSAGES;

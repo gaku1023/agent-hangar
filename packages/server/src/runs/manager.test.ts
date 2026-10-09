@@ -445,11 +445,15 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
 });
 
 describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
-  it('英語では、シェルタブの名前が英語になる', async () => {
+  it('英語では、Claude に渡す指示とシェルタブの名前が英語になる', async () => {
     const rm = make({ language: () => 'en' });
     const r = rm.start({ projectId: 'p1' });
     // 偽の claude が起ききってから閉じる。起動の途中で片付けると、後始末がログの書き込みとぶつかる。
-    await launchedArgs(r.run.id);
+    const args = await launchedArgs(r.run.id);
+    const sys = args[args.indexOf('--append-system-prompt') + 1]!;
+    expect(sys).toContain('You are a session started from agent-hangar.');
+    expect(sys).toContain('Project: alpha (' + cwd + ')');
+    expect(sys).not.toMatch(/[\u3040-\u30ff\u4e00-\u9fff]/);
     expect(rm.openTab(r.run.id).title).toBe('Shell 1');
     rm.kill(r.run.id);
   });

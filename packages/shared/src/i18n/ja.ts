@@ -175,4 +175,7 @@ export const ja: Dictionary = {
   'mcp.tool.setSessionMemo': 'セッションの人間向け 1 行メモを書く。',
   'mcp.tool.getUsage': 'Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。statusline から届いた最新の値。上の 3 項目は最初のアカウントの値で、accounts にアカウントごとの値（名前、いま使っているか、同じ 3 項目）が並ぶ。',
   'mcp.tool.openInHangar': 'セッションかプロジェクトを hangar の UI で開く URL とディープリンクを返す。',
+  // launch
+  'launch.injection.none': '（なし）',
+  'launch.injection.body': "あなたは agent-hangar から起動されたセッションです。\nプロジェクト：{projectName}（{projectPath}）\nプロジェクトのメモの要約：{memo}\n未完の TODO：{todos}\n過去のセッションは MCP ツール search_sessions と get_transcript で参照できます。\n依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、\nset_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。\nTODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。\n完了にするのは利用者です。確かめられていないものは出さないでください。\n頼まれたことを終えたと判断したターンの終わりに、AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <戻る日。時刻に意味があれば時刻も>（何を確かめに戻るか）」「まだ続ける」です。\n利用者が Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。\nPaused の戻る日は return_on（YYYY-MM-DD）に、確かめる時刻が決まっているときは return_time（HH:MM、手元の時刻）にも渡してください。時刻を note の文だけに書かないでください。\n途中のターンでは聞かないでください。\nターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。\nBash と Agent の description は日本語で 20 字以内にしてください。\n",
 };
