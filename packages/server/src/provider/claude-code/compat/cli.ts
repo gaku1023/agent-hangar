@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { captureOutput } from '../../../platform/capture.ts';
 import { needsShell } from '../../../platform/exec.ts';
 import { isRec, type Drift } from './types.ts';
 
@@ -71,20 +71,19 @@ export function subcommandsFromHelp(text: string | null): { subcommands: readonl
   };
 }
 
-/** claude --help を時間を区切って読む。起動できない、時間切れ、0 以外で終わったときは null。 */
-export function readClaudeHelp(bin: string, timeoutMs = 5_000): Promise<string | null> {
+/**
+ * claude --help を時間を区切って読む。起動できない、時間切れ、0 以外で終わったときは null。
+ * 標準出力はファイルへ書かせて読む（platform/capture.ts）。2.1.293 の --help は 22KB あり、パイプで読むと Commands の節の手前で切れた。
+ */
+export async function readClaudeHelp(bin: string, timeoutMs = 5_000): Promise<string | null> {
   // .cmd と .bat は cmd.exe を通さないと起こせない。引数は固定の --help だけなので、引用の心配は無い。
-  const viaShell = needsShell(bin);
-  return new Promise((resolve) => {
-    // 空や NUL 入りのパス、ENOTDIR などは execFile がその場で投げる。投げずに「読めない」にする。
-    try {
-      execFile(viaShell ? `"${bin}"` : bin, ['--help'], { timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024, shell: viaShell, windowsHide: true, encoding: 'utf8' }, (err, stdout) => {
-        resolve(err ? null : String(stdout));
-      });
-    } catch {
-      resolve(null);
-    }
-  });
+  // 空や NUL 入りのパス、ENOTDIR などで投げても、「読めない」にする。
+  try {
+    const r = await captureOutput(bin, ['--help'], { timeoutMs, shell: needsShell(bin) });
+    return r.code === 0 ? r.stdout : null;
+  } catch {
+    return null;
+  }
 }
 
 /** JSON として読む。読めなければ undefined。 */

@@ -581,6 +581,10 @@ Claude Code はほぼ毎日新しい版が出るので、範囲はすぐ古く�
 利用者の発言でない行を見分ける目印（本文の頭のタグなど）は自由な文字列で、知っている集合で見張れない。
 これは見本の試験で確かめる。
 
+claude の長くなりうる出力（`--help`、`agents --json`、`-p --output-format json`）は、標準出力を一時ファイルへ書かせて読む（`packages/server/src/platform/capture.ts`）。
+claude は標準出力がパイプだと非同期に書き、書き切る前に終わることがあり、Node の子プロセスのパイプで読むと 2.1.293 の `--help`（22KB）が 8KB か 16KB で切れて、Commands の節が無いと読んでいたためである。
+短いと決まっている出力（`--version`、`auth status --json`）はパイプのまま読む。
+
 #### ずれの記録
 
 ずれは、契約、値（たとえば `system.subtype=foo`）、claude の版、回数、最初と最後に見た時刻を持つ。

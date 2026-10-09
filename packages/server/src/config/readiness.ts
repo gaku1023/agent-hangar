@@ -53,6 +53,7 @@ function versionOf(out: string): string | null {
  * ツールの版を読む。
  * 子プロセスを起こすので、必ず時間を区切る。
  * 版は同じファイルなら変わらないので、パスと更新時刻と大きさを鍵に覚えておき、起こし直さない。
+ * 出力はパイプで読む。claude はパイプへ書き切る前に終わることがあるが、版の出力（`2.1.293 (Claude Code)`）は 1 行で、パイプの容量（8KB〜16KB）に収まる。
  */
 export class ToolVersions {
   private readonly cache = new Map<string, string | null>();

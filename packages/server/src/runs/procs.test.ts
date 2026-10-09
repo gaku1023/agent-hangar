@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { writeFakeTool } from '../../test/fake-bin.ts';
+import { writeAndExitScript, writeFakeNodeTool, writeFakeTool } from '../../test/fake-bin.ts';
 import { posixIt } from '../../test/platform.ts';
 import { probeStartTime } from '../platform/proc.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
@@ -30,6 +30,22 @@ describe('realProcOpsWith', () => {
       const seen: Drift[] = [];
       expect(realProcOpsWith({ note: (d) => seen.push(d) }).listJobs(bin)).toBeNull();
       expect(seen).toEqual([{ contract: 'cli', value: 'agents-json=(not-array)', version: null }]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+  // バックグラウンドのセッションが多いと、agents --json はパイプの容量（8KB〜16KB）を越える。
+  // claude はパイプへ非同期に書いて書き切る前に終わるので、パイプで読むと JSON が途中で切れ、1 件も拾えなくなる。
+  posixIt('agents --json がパイプの容量を越えても、最後まで読んで全部拾う', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-procs-'));
+    try {
+      const rows = Array.from({ length: 500 }, (_, i) => ({ id: `job${i}`, cwd: `/work/project-${i}`, kind: 'background', sessionId: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`, state: 'done' }));
+      const text = JSON.stringify(rows, null, 2);
+      expect(text.length).toBeGreaterThan(64 * 1024);
+      const bin = writeFakeNodeTool(dir, 'claude', writeAndExitScript(text));
+      const seen: Drift[] = [];
+      const jobs = realProcOpsWith({ note: (d) => seen.push(d) }).listJobs(bin);
+      expect(jobs).toHaveLength(500);
+      expect(jobs?.at(-1)).toEqual({ id: 'job499', sessionId: '00000000-0000-0000-0000-000000000499' });
+      expect(seen).toEqual([]);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });

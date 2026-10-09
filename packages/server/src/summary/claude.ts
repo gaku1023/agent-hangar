@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
 import type { UsageDto } from '@agent-hangar/shared';
+import { captureOutput } from '../platform/capture.ts';
 import { printJsonDrifts } from '../provider/claude-code/compat/cli.ts';
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { parseSummaryOutput, SUMMARY_SCHEMA, SUMMARY_SYSTEM_PROMPT, SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from './types.ts';
@@ -9,18 +9,13 @@ export type SpawnText = (cmd: string, args: string[], stdin: string, timeoutMs: 
 /**
  * 標準入力に本文を流し、標準出力と標準エラーを集めて返す。
  * 時間切れは SIGKILL である。
+ * 標準出力はファイルへ書かせて読む（platform/capture.ts）。-p の JSON は要約の本文を含んでパイプの容量を越えうるうえ、
+ * claude はパイプへ書き切る前に終わることがあるためである。
  */
-export const spawnText: SpawnText = (cmd, args, stdin, timeoutMs) => new Promise((resolve, reject) => {
-  const p = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-  let stdout = '';
-  let stderr = '';
-  const timer = setTimeout(() => { p.kill('SIGKILL'); reject(new Error(`${timeoutMs} ミリ秒で応答がありませんでした`)); }, timeoutMs);
-  p.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-  p.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-  p.on('error', (e) => { clearTimeout(timer); reject(e); });
-  p.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? -1, stdout, stderr }); });
-  p.stdin.end(stdin);
-});
+export const spawnText: SpawnText = async (cmd, args, stdin, timeoutMs) => {
+  const r = await captureOutput(cmd, args, { timeoutMs, stdin, stderr: true });
+  return { code: r.code ?? -1, stdout: r.stdout, stderr: r.stderr };
+};
 
 const HOUR_MS = 3_600_000;
 const SEVEN_DAY_STOP = 80;

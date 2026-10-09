@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { writeFakeTool } from '../../../../test/fake-bin.ts';
+import { writeAndExitScript, writeFakeNodeTool, writeFakeTool } from '../../../../test/fake-bin.ts';
 import { posixIt } from '../../../../test/platform.ts';
 import { agentsJsonDrifts, authStatusDrifts, BUILTIN_SUBCOMMANDS, claudeVersionOf, parseHelp, printJsonDrifts, readClaudeHelp, subcommandsFromHelp } from './cli.ts';
 
@@ -107,6 +107,17 @@ describe('readClaudeHelp', () => {
   it('起動の前に投げる場所（空、NUL 入り）も、投げずに null を返す', async () => {
     await expect(readClaudeHelp('')).resolves.toBeNull();
     await expect(readClaudeHelp('claude\0x')).resolves.toBeNull();
+  });
+  // 2.1.293 の --help は 22KB で、Commands の節は 16KB より後ろにある。claude はパイプへ非同期に書いて書き切る前に終わるので、
+  // パイプで読むと macOS では 8KB か 16KB で切れ、Commands の節が無いと読んでずれを記録していた。
+  it('Options の節が長く、Commands の節がパイプの容量より後ろにあっても、最後まで読む', async () => {
+    const options = Array.from({ length: 600 }, (_, i) => `  --option-${i} <value>                 Description of option ${i}\n                                        that continues here`);
+    const text = ['Usage: claude [options] [command] [prompt]', '', 'Options:', ...options, '', 'Commands:', '  agents [options]   List agents', '  zz-last            The last one', ''].join('\n');
+    expect(text.length).toBeGreaterThan(64 * 1024);
+    const bin = writeFakeNodeTool(path.join(tmp, 'big'), 'claude', writeAndExitScript(text));
+    const out = await readClaudeHelp(bin, 10_000);
+    expect(out).toBe(text);
+    expect(parseHelp(out!)?.subcommands).toEqual(['agents', 'zz-last']);
   });
 });
 

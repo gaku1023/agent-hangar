@@ -17,3 +17,19 @@ export function writeFakeTool(dir: string, name: string, body: { sh: string; cmd
   fs.chmodSync(p, mode);
   return p;
 }
+
+/**
+ * Node の台本で動く偽のコマンドを置く。台本は `<name>.mjs` に書き、writeFakeTool の包みからいまの Node で起こす。
+ * 標準出力へ大きく書いてすぐ終わる claude のように、sh では真似にくい振る舞いに使う。
+ */
+export function writeFakeNodeTool(dir: string, name: string, script: string): string {
+  fs.mkdirSync(dir, { recursive: true });
+  const js = path.join(dir, `${name}.mjs`);
+  fs.writeFileSync(js, script);
+  return writeFakeTool(dir, name, { sh: `exec "${process.execPath}" "${js}" "$@"`, cmd: `"${process.execPath}" "${js}" %*` });
+}
+
+/** 標準出力へ text を書き、書き切るのを待たずに終わる台本。claude --help の終わり方を真似る。 */
+export function writeAndExitScript(text: string, code = 0): string {
+  return `process.stdout.write(${JSON.stringify(text)});\nprocess.exit(${code});\n`;
+}

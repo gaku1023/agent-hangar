@@ -12,6 +12,10 @@ const LOGIN_TIMEOUT_MS = 10 * 60_000;
 /** 置き場のログインより優先される認証の変数。渡すと、選んだアカウントではないもので動く。 */
 const AUTH_OVERRIDES = ['CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'];
 
+/**
+ * 標準出力はパイプで読む。claude はパイプへ書き切る前に終わることがあり、パイプの容量（8KB〜16KB）を越える出力は切れうるが、
+ * ここで読むのは `auth status --json`（1 つのログインを表す数項目の JSON、1KB に満たない）だけで、`auth login` の出力は読まない。
+ */
 const realRun: RunClaude = (bin, args, env, timeoutMs, signal) => new Promise((resolve, reject) => {
   execFile(bin, args, { env, timeout: timeoutMs, signal, killSignal: 'SIGKILL', encoding: 'utf8', maxBuffer: 1024 * 1024 }, (err, stdout) => {
     // 終了コードが 0 でないだけなら、標準出力を読む側に任せる。起動できない、時間切れは失敗にする。
