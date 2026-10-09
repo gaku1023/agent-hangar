@@ -1,7 +1,7 @@
 import type http from 'node:http';
 import os from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { originAllowed, tokenFromRequest } from '../http/auth.ts';
+import { originAllowed, tokenFromRequest } from '../auth/request.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 
 export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void; write(d: string): void; resize(cols: number, rows: number): void; kill(): void };

@@ -1,7 +1,7 @@
 import type http from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ServerEvent } from '@agent-hangar/shared';
-import { originAllowed, tokenFromRequest } from '../http/auth.ts';
+import { originAllowed, tokenFromRequest } from '../auth/request.ts';
 
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切る。 */
 const CLOSE_GRACE_MS = 500;
