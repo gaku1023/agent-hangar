@@ -13,12 +13,15 @@ export function TocPane(props: { children: ReactNode }) {
   return <aside className="toc-pane" aria-label={t('session.toc.label')}>{props.children}</aside>;
 }
 
-/** 右パネルの開閉のボタン（⌘J と同じ `transcript.toggle`）。目次の見出しの行の先頭に置く。 */
-export function TocToggle(props: { open: boolean }) {
+/**
+ * 右パネルの開閉のボタン（⌘J と同じ `transcript.toggle`）。目次の見出しの行の先頭に置く。
+ * onToggle を渡すと、その関数を呼ぶ（狭い窓で、目次を上乗せの形で開閉するとき）。
+ */
+export function TocToggle(props: { open: boolean; onToggle?: () => void }) {
   const t = useT();
   const emit = useEmit();
   return (
-    <button type="button" className="tr-toggle" aria-label={props.open ? t('session.toc.close') : t('session.toc.open')} title={t('session.toc.shortcut')} onClick={() => emit({ type: 'transcript.toggle' })}>
+    <button type="button" className="tr-toggle" aria-label={props.open ? t('session.toc.close') : t('session.toc.open')} title={t('session.toc.shortcut')} onClick={() => (props.onToggle ? props.onToggle() : emit({ type: 'transcript.toggle' }))}>
       <Icon name={props.open ? 'paneClose' : 'paneOpen'} />
     </button>
   );

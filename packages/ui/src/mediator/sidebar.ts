@@ -1,4 +1,3 @@
-import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { liveSessionIds, type Store } from '../store/store.ts';
 import type { Input, State, Step } from './types.ts';
 
@@ -65,38 +64,4 @@ export function sidebarLiveStep(state: State, store: Store): Step {
   if (fresh.length === 0) return { state, effects: [] };
   const order = trimSidebarOrder([...state.sidebarOrder, ...fresh], ids);
   return { state: { ...state, sidebarOrder: order }, effects: [{ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: order }] };
-}
-
-/**
- * 最後に動かした右ペインの上下の比率を残す localStorage の鍵。値は 0〜1 の数そのもの。
- * セッションごとの値は sv:<id> の livePaneSplit に残し、こちらはまだ境目を動かしていないセッションを開くときに使う。
- */
-export const LIVE_PANE_SPLIT_KEY = 'livePane.split';
-/** はじめは半分。「いま」は右ペインの高さの半分までにし、残りを目次に渡す。 */
-export const LIVE_PANE_SPLIT_DEFAULT = 0.5;
-
-/** 比率を 0〜1 に丸める。どちらの端でも見出しの 1 行は CSS の下限で残る（設計書 ④）。数でなければ既定に戻す。 */
-export function clampLivePaneSplit(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : LIVE_PANE_SPLIT_DEFAULT;
-}
-
-/** 保存から読んだセッションごとの比率を整える。数でなければ持たないもの（null）とし、数なら 0〜1 に丸める。 */
-export function readSessionLivePaneSplit(v: unknown): number | null {
-  return typeof v === 'number' && Number.isFinite(v) ? clampLivePaneSplit(v) : null;
-}
-
-/**
- * 右ペインの境目を離したとき。丸めて、そのセッションの値と最後に動かした値の両方に覚え、保存する。
- * ダブルクリックで半分に戻すのも、動かしたのと同じに扱う。
- * ドラッグの途中は部品の中だけで動かし、ここへは来ない。
- */
-export function livePaneSplitStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'intent' || input.intent.type !== 'livePane.split') return null;
-  const { sessionId: id } = input.intent;
-  const ratio = clampLivePaneSplit(input.intent.ratio);
-  const view = { ...(state.sessionView[id] ?? defaultSessionView()), livePaneSplit: ratio };
-  return {
-    state: { ...state, livePaneSplit: ratio, sessionView: { ...state.sessionView, [id]: view } },
-    effects: [{ kind: 'storage.save', key: LIVE_PANE_SPLIT_KEY, value: ratio }, { kind: 'storage.save', key: `sv:${id}`, value: persistedSessionView(view) }],
-  };
 }

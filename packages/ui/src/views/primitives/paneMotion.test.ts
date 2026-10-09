@@ -7,7 +7,7 @@ afterEach(() => { document.documentElement.removeAttribute('style'); delete (HTM
 describe('playPaneMotion', () => {
   it('動かない環境では null を返し、印を付けない', () => {
     const box = document.createElement('div');
-    expect(playPaneMotion(box, PANE_SHAPE.split.open, null, false)).toBeNull();
+    expect(playPaneMotion(box, PANE_SHAPE.toc.open, null, false)).toBeNull();
     expect(box).not.toHaveAttribute(LAYOUT_MOVING_ATTR);
   });
   it('前の形を一瞬当てて測り、インラインの値は元に戻す。動いている間は印を付け、終わったら外して知らせる', async () => {
@@ -19,7 +19,7 @@ describe('playPaneMotion', () => {
     document.body.appendChild(box);
     const settled = vi.fn();
     window.addEventListener(LAYOUT_SETTLED, settled);
-    const p = playPaneMotion(box, PANE_SHAPE.split.open, null, false);
+    const p = playPaneMotion(box, PANE_SHAPE.toc.open, null, false);
     expect(box).toHaveAttribute(LAYOUT_MOVING_ATTR);
     expect(box.style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
     await p;
@@ -39,7 +39,7 @@ describe('playPaneMotion', () => {
     inner.getBoundingClientRect = () => ({ width: 300 }) as DOMRect;
     box.appendChild(inner);
     document.body.appendChild(box);
-    const p = playPaneMotion(box, PANE_SHAPE.split.open, inner, false);
+    const p = playPaneMotion(box, PANE_SHAPE.toc.open, inner, false);
     expect(inner.style.width).toBe('300px');
     expect(inner.style.minWidth).toBe('300px');
     expect(inner.style.flex).toBe('');
@@ -57,8 +57,8 @@ describe('playPaneMotion', () => {
     const box = document.createElement('div');
     (box as unknown as { getAnimations: unknown }).getAnimations = () => made;
     document.body.appendChild(box);
-    void playPaneMotion(box, PANE_SHAPE.split.open, null, false);
-    void playPaneMotion(box, PANE_SHAPE.split.closed, null, true);
+    void playPaneMotion(box, PANE_SHAPE.toc.open, null, false);
+    void playPaneMotion(box, PANE_SHAPE.toc.closed, null, true);
     expect(made[0]!.cancel).toHaveBeenCalled();
     // 捨てられた動きの後始末で印が外れても、新しい動きの印は付いたまま。
     expect(box).toHaveAttribute('data-layout-moving');
@@ -79,8 +79,8 @@ describe('playPaneMotion', () => {
     document.body.appendChild(box);
     const settled = vi.fn();
     window.addEventListener(LAYOUT_SETTLED, settled);
-    const p1 = playPaneMotion(box, PANE_SHAPE.split.open, null, false)!;
-    const p2 = playPaneMotion(box, PANE_SHAPE.split.closed, null, true)!;
+    const p1 = playPaneMotion(box, PANE_SHAPE.toc.open, null, false)!;
+    const p2 = playPaneMotion(box, PANE_SHAPE.toc.closed, null, true)!;
     ctl[0]!.reject();
     await p1;
     expect(box).toHaveAttribute(LAYOUT_MOVING_ATTR);

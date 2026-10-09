@@ -1,26 +1,44 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { translator, type SessionDto } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
-import { sessionActions, type SessionProps } from '../presenters/session.ts';
+import { presentNowStrip } from '../presenters/live.ts';
+import { presentDetails, presentLeadCard, presentSessionBadges, sessionActions, type SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { toolItem } from '../test/items.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { pick } from '../test/pick.ts';
+import { LanguageRoot } from './primitives/language.tsx';
 import { SessionScreen } from './SessionScreen.tsx';
 import { TabStrip } from './TabStrip.tsx';
 import { TerminalHostContext } from './TerminalPane.tsx';
 
-const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', route: { name: 'project', id: 'p1' } }, live: 'busy', aside: false, cwd: '/w/alpha', projectName: 'alpha', projectId: 'p1', summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1, sourceLabel: '自動', stateLabel: '進行中', summarizerLabel: null, generatedAt: '1970-01-01 09:00' }, model: 'fable 5.1', effort: 'high', turns: 2, tokens: '1.2M', prUrl: null, memo: null, started: '2 時間前', lastActivity: '1 分前', hasTranscript: true,
+const ja = translator('ja');
+const NOW = Date.UTC(2026, 9, 9, 3, 0, 0);
+const dto = (over: Partial<SessionDto> = {}): SessionDto => ({
+  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null,
+  hasTranscript: true, live: null, stats: { turns: 2, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 1_000_000, outputTokens: 200_000, contextPercent: null, costUsd: null },
+  summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
+  fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over,
+});
+const leadOf = (over: Partial<SessionDto> = {}, extra: { summaryPending?: boolean; summaryError?: string | null; gone?: boolean } = {}) =>
+  presentLeadCard({ session: dto(over), now: NOW, gone: extra.gone ?? false, summaryPending: extra.summaryPending ?? false, summaryError: extra.summaryError ?? null, artifacts: [], files: null, windowFiles: [] }, ja);
+const stripOf = (over: Partial<Parameters<typeof presentNowStrip>[0]> = {}) => presentNowStrip({
+  digest: null, events: [], turnFrom: 0, turnNo: 2, live: 'busy', activity: null, now: NOW, viewingAgent: false, clock: () => '10:00', idleFor: '1 分', waited: '1 分',
+  contextPercent: 62, cost: '$1.20', turns: 2, tokens: '1.2M', artifacts: [], note: null, ...over,
+}, ja);
+
+const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', route: { name: 'project', id: 'p1' } }, live: null, aside: false, oneLiner: 'ONE', hasTranscript: true,
   items: [
     { kind: 'user', seq: 0, text: 'hi', when: '10:00' },
     toolItem(1, 'Agent', { description: 'x' }, { text: 'done', isError: false }, { when: '10:01', subagent: { agentId: 'abc', label: 'Agent x' } }),
     toolItem(2, 'Edit', { file_path: '/a', old_string: 'a', new_string: 'b' }, { text: 'File not found', isError: true }, { when: '10:02' }),
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
-  contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 3,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, livePaneSplit: 0.5, strip: null, lead: null, badges: [], details: [], stoppedNote: null, gone: null, jump: null, hasNewer: false,
-  actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, account: null };
+  summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null,
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, openTurnItems: [], turnJump: null, strip: null, lead: leadOf(), badges: [], details: [], gone: null, jump: null, hasNewer: false,
+  actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, transcriptBand: null, account: null };
 
 /**
  * 見出しの操作は presenter が事実から決める。
@@ -29,12 +47,12 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
 const SS = (props: SessionProps) => <SessionScreen {...props} actions={sessionActions(props)} />;
 /** 「…」のメニューを開いて、その中の項目を返す。 */
 const menu = () => { fireEvent.click(screen.getByRole('button', { name: 'ほかの操作' })); return within(screen.getByRole('menu', { name: 'ほかの操作' })); };
-const info = (c: HTMLElement) => c.querySelector('.session-info')!;
+const tocCols = (c: HTMLElement) => (c.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns;
 
 describe('SessionScreen（終わった画面）', () => {
   it('見出し、切替、続きの読み込み', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('name');
     expect(screen.getByText('ONE')).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('思考を表示'));
@@ -44,10 +62,25 @@ describe('SessionScreen（終わった画面）', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'abc' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
   });
-  it('思考と生の記録は、押した状態を aria-pressed で見せる', () => {
+  it('思考と詳細表示は、押した状態を aria-pressed で見せる', () => {
     render(<IntentRoot onIntent={() => {}}><SS {...base} showThinking showRaw={false} /></IntentRoot>);
     expect(screen.getByRole('button', { name: '思考を表示' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '生の記録を表示' })).toHaveAttribute('aria-pressed', 'false');
+    // 「生の記録」は用語集で使わない語になった。切り替えの語は「詳細表示」（利用者の決定）。
+    const raw = screen.getByRole('button', { name: '詳細を表示' });
+    expect(raw).toHaveAttribute('aria-pressed', 'false');
+    expect(raw).toHaveTextContent('詳細表示');
+    expect(screen.queryByText('生の記録')).toBeNull();
+  });
+  it('詳細表示を押すと、本文の記録の表示を切り替える', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '詳細を表示' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.showRaw', sessionId: 's1', show: true });
+  });
+  it('英語では、切り替えの語は Raw になる', () => {
+    render(<IntentRoot onIntent={() => {}}><LanguageRoot language="en"><SS {...base} /></LanguageRoot></IntentRoot>);
+    const raw = screen.getByRole('button', { name: 'Show raw entries' });
+    expect(raw).toHaveTextContent('Raw');
   });
   it('サブエージェントが 4 つ以上なら一覧にする', () => {
     const onIntent = vi.fn();
@@ -55,6 +88,11 @@ describe('SessionScreen（終わった画面）', () => {
     expect(screen.queryByRole('radiogroup', { name: 'サブエージェント' })).toBeNull();
     pick('サブエージェント', 'サブエージェント a3');
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'a3' });
+  });
+  it('サブエージェントの切り替えの先頭は「メイン会話」で、「主線」の語は出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
+    expect(screen.getByRole('radio', { name: 'メイン会話' })).toBeInTheDocument();
+    expect(screen.queryByText('主線')).toBeNull();
   });
   it('ツール呼び出しは畳まれ、エラーは印が付き、サブエージェントへ飛べる', () => {
     const onIntent = vi.fn();
@@ -77,8 +115,8 @@ describe('SessionScreen（終わった画面）', () => {
 });
 
 describe('見出しの段（A1、C1）', () => {
-  it('見出しの行に状態の点、名前、要約の 1 文、主の操作、「…」を置く', () => {
-    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} /></IntentRoot>);
+  it('見出しの行に状態の点、名前、要約の 1 文、主の操作、「…」、(i) を置く', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
     const hero = container.querySelector('.session-hero')!;
     expect(hero.getAttribute('data-morph-hero')).toBe('s1');
     expect(hero.querySelector('.dot')).not.toBeNull();
@@ -87,12 +125,16 @@ describe('見出しの段（A1、C1）', () => {
     // 1 文は省略記号で切れることがあるので、全文を title に持たせる。
     expect(hero.querySelector('.session-oneliner')).toHaveAttribute('title', 'ONE');
     const buttons = within(hero as HTMLElement).getAllByRole('button');
-    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['再開', 'ほかの操作']);
+    expect(buttons.map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['再開', 'ほかの操作', '詳細']);
     expect(buttons[0]).toHaveClass('btn-primary');
     expect(screen.getAllByText('ONE')).toHaveLength(1);
   });
+  it('見出しの下に、情報の行を置かない（属性は (i)、いまの値は帯、終わった後は冒頭の 1 枚へ移った）', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
+    expect(container.querySelector('.session-info')).toBeNull();
+  });
   it('名前は見出しにだけ出し、要約の題は出さない（C1）', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
     expect(screen.queryByText('T')).toBeNull();
     expect(screen.getAllByText('name')).toHaveLength(1);
   });
@@ -123,7 +165,7 @@ describe('見出しの段（A1、C1）', () => {
   });
   it('終わったセッションは再開を主にし、フォークと VS Code で開くは「…」から', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: '再開' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.resume', id: 's1' });
     fireEvent.click(menu().getByRole('menuitem', { name: /フォーク/ }));
@@ -135,7 +177,7 @@ describe('見出しの段（A1、C1）', () => {
   // aria-disabled にして、押しても何もしないようにする。
   it('主の操作が押せないときは、理由を title と読み上げに持たせ、押しても何もしない', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SS {...base} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} /></IntentRoot>);
     const resume = screen.getByRole('button', { name: '再開' });
     expect(resume).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(resume);
@@ -144,159 +186,132 @@ describe('見出しの段（A1、C1）', () => {
     expect(resume).toHaveAccessibleDescription('本文がありません');
   });
   it('主の操作の名前は .btn-label に入れ、狭い窓では見出しの行（PageHeading の fitRow）が印だけに縮められる', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
     expect(screen.getByRole('button', { name: '再開' }).querySelector(':scope > .btn-label')).toHaveTextContent('再開');
   });
-  it('スクラッチの注意書きは線の下に、昇格はメニューに置く', () => {
+  it('クイックセッションの昇格はメニューに置く', () => {
     const onIntent = vi.fn();
-    const { container } = render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} fromScratch canPromote /></IntentRoot>);
-    expect(within(info(container) as HTMLElement).getByText('スクラッチ')).toHaveAttribute('title', '再開しても作業ディレクトリはスクラッチのままです');
+    render(<IntentRoot onIntent={onIntent}><SS {...base} fromScratch canPromote /></IntentRoot>);
     fireEvent.click(menu().getByRole('menuitem', { name: /プロジェクトに昇格/ }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.promote.open', id: 's1' });
   });
 });
 
-describe('線の下の 1 行（B1）', () => {
-  it('状態と経過、モデル、コンテキスト、コスト、変更、ターン、開始、作業ディレクトリを 1 行に並べる', () => {
-    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} liveLabel="作業中 12 分" contextPercent={62} cost="$1.82" memo="スワイプは実機で" /></IntentRoot>);
-    const items = [...info(container).children].map((c) => c.textContent);
-    expect(items).toEqual(['作業中 12 分', 'fable 5.1 · high', 'コンテキスト 62%', '$1.82', '変更 3', '2 ターン · 1.2M トークン', '開始 2 時間前', 'メモ：スワイプは実機で', '/w/alpha']);
-    expect(screen.getByLabelText('コンテキストの使用率').getAttribute('aria-valuenow')).toBe('62');
-    expect(info(container).lastElementChild).toHaveAttribute('title', '/w/alpha');
-    // 今までのチップの列と細かな事実の注記は置かない。
-    expect(container.querySelector('.chips')).toBeNull();
-    expect(container.querySelector('.session-facts')).toBeNull();
+describe('見出しの名前の横の札と (i)（設計書 2.3）', () => {
+  const lock = { kind: 'lock' as const, label: 'mini で実行中', title: '最終確認 1 分前' };
+  it('他の PC で実行中の札を、名前の横（要約の 1 文の前）に出す。最終確認は読み上げにも入る', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} badges={[lock]} /></IntentRoot>);
+    const badge = screen.getByText('mini で実行中');
+    expect(badge.closest('.session-badge')).toHaveAttribute('data-kind', 'lock');
+    expect(badge.closest('.session-badge')).toHaveAttribute('title', '最終確認 1 分前');
+    const row = container.querySelector('.session-hero')!;
+    const order = [...row.children].map((c) => c.className.split(' ')[0]);
+    expect(order.indexOf('session-badges')).toBe(order.indexOf('page-title') + 1);
+    expect(order.indexOf('session-badges')).toBeLessThan(order.indexOf('session-oneliner'));
+    expect(screen.getByRole('button', { name: '詳細' })).toBeInTheDocument();
   });
-  it('アカウントが分かるときは、状態の次、モデルの前に、色の点と名前を出す。title は動かしているアカウントと言う', () => {
-    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} liveLabel="作業中 12 分" account={{ name: '大学', color: '#7a4a9e' }} /></IntentRoot>);
-    const items = [...info(container).children];
-    expect(items.map((c) => c.textContent).slice(0, 3)).toEqual(['作業中 12 分', '大学', 'fable 5.1 · high']);
-    const tag = items[1]!;
-    expect(tag).toHaveAttribute('title', 'このセッションを動かしているアカウント');
-    const dot = tag.querySelector('.st-dot') as HTMLElement;
+  it('札が無ければ何も出さない', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
+    expect(container.querySelector('.session-badges')).toBeNull();
+  });
+  it('トランスクリプトが他の PC にあることも、ロックと同じく見出しに出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...base} badges={[{ kind: 'remote', label: 'トランスクリプトは他の PC にあります', title: null }]} /></IntentRoot>);
+    expect(screen.getByText('トランスクリプトは他の PC にあります').closest('.session-hero')).not.toBeNull();
+  });
+  it('(i) を押すと詳細のポップオーバーが開き、行を名前と値で読ませる。Esc で閉じて焦点が戻る', () => {
+    const rows = presentDetails(dto(), null, { name: '大学', color: '#7a4a9e' }, ja);
+    render(<IntentRoot onIntent={() => {}}><SS {...base} details={rows} /></IntentRoot>);
+    const i = screen.getByRole('button', { name: '詳細' });
+    expect(i).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(i);
+    const dialog = screen.getByRole('dialog', { name: '詳細' });
+    expect(i).toHaveAttribute('aria-expanded', 'true');
+    for (const name of ['モデル', 'effort レベル', '開始', '作業ディレクトリ', 'アカウント', 'ターンとトークン', '変更したファイル', 'PR']) expect(within(dialog).getByText(name)).toBeInTheDocument();
+    expect(within(dialog).getByText('/w/alpha')).toBeInTheDocument();
+    // アカウントは色の点を添える。
+    const dot = within(dialog).getByText('大学').parentElement!.querySelector('.st-dot') as HTMLElement;
     expect(dot).toHaveStyle({ color: '#7a4a9e' });
-    expect(dot).toHaveAttribute('aria-hidden', 'true');
-    // 札は行の子として 1 つ足すだけで、ほかの子は変わらない。
-    const without = render(<IntentRoot onIntent={() => {}}><SS {...base} liveLabel="作業中 12 分" account={null} /></IntentRoot>);
-    expect(info(container).children).toHaveLength(info(without.container).children.length + 1);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
+    expect(document.activeElement).toBe(i);
   });
-  it('アカウントが null なら、情報の行に何も足さない', () => {
-    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} liveLabel="作業中 12 分" account={null} /></IntentRoot>);
-    expect(container.querySelector('.session-info [title="このセッションを動かしているアカウント"]')).toBeNull();
-    expect(container.querySelector('.session-info .st-dot')).toBeNull();
-    expect([...info(container).children].map((c) => c.textContent).slice(0, 2)).toEqual(['作業中 12 分', 'fable 5.1 · high']);
-  });
-  it('終わったセッションは状態を「終了」と最後の動きで言う。起こし方は title に持つ', () => {
-    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} run={{ id: 'r1', kind: 'start', alive: false, started: '1 分前' }} /></IntentRoot>);
-    expect(info(container).firstElementChild).toHaveTextContent('終了 · 1 分前');
-    expect(info(container).firstElementChild).toHaveAttribute('title', '起動 1 分前');
-  });
-  it('区切りを付けたので止めたセッションは、「終了」の代わりにその訳を言う', () => {
-    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} run={{ id: 'r1', kind: 'start', alive: false, started: '1 分前' }} stoppedNote="Paused にしたので止めました。再開で続けられます" /></IntentRoot>);
-    expect(info(container).firstElementChild).toHaveTextContent('Paused にしたので止めました。再開で続けられます');
-    expect(info(container).firstElementChild).not.toHaveTextContent('終了');
-    expect(info(container).firstElementChild).toHaveAttribute('title', '起動 1 分前');
-  });
-  it('コンテキストとコストが両方とも未取得なら、棒を描かず 1 つにまとめ、押すと設定へ行く', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
-    expect(screen.queryByLabelText('コンテキストの使用率')).toBeNull();
-    expect(screen.getAllByText(/未取得/)).toHaveLength(1);
-    const link = screen.getByRole('link', { name: 'コンテキスト・コスト 未取得' });
-    expect(link).toHaveAttribute('title', 'statusline を入れると出ます');
-    fireEvent.click(link);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
-  });
-  it('片方だけ未取得なら、その分だけを書く', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...base} cost="$1.20" /></IntentRoot>);
-    expect(screen.getByText('コンテキスト 未取得')).toBeInTheDocument();
-    expect(screen.queryByText(/コスト 未取得/)).toBeNull();
-  });
-  it('終わったセッションは、この先も値が届かないので未取得の断りを出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} /></IntentRoot>);
-    expect(screen.queryByText(/未取得/)).toBeNull();
-  });
-  it('値があるときは未取得の断りも案内も出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...p3} /></IntentRoot>);
-    expect(screen.queryByText(/未取得/)).toBeNull();
-    expect(screen.queryByText('statusline を入れると出ます')).toBeNull();
-  });
-  it('アーティファクトは数を出し、押すと一覧を開いて選んだものを開く', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...p3} /></IntentRoot>);
-    const face = screen.getByRole('button', { name: /アーティファクト 1/ });
-    fireEvent.click(face);
-    fireEvent.click(within(screen.getByRole('menu', { name: 'アーティファクト' })).getByRole('menuitem', { name: /題名/ }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'artifact.open', id: 'a1' });
-  });
-  it('本文が無いセッションは、そう添える', () => {
-    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} /></IntentRoot>);
-    expect(within(info(container) as HTMLElement).getByText('本文がありません')).toBeInTheDocument();
+  it('バッジの文は presenter が組む（ロックの札と見出しの札の種類）', () => {
+    const badges = presentSessionBadges(dto({ lock: { deviceId: 'd', deviceName: 'mini', runId: 'r', heartbeatAt: NOW - 60_000, stale: false } }), NOW, ja);
+    render(<IntentRoot onIntent={() => {}}><SS {...base} badges={badges} /></IntentRoot>);
+    expect(screen.getByText('mini で実行中')).toBeInTheDocument();
   });
 });
 
-describe('終わった画面の右欄（E1）', () => {
-  const files = [{ path: '/w/alpha/src/a.ts', dir: 'src/', base: 'a.ts', added: 18, removed: 3, created: false }, { path: '/w/alpha/src/new.ts', dir: 'src/', base: 'new.ts', added: 56, removed: 0, created: true }];
-  const todos = [{ id: 'd1', text: 'push する', done: false, candidate: null }];
-  it('本文の右に、要約、TODO、変更したファイルを上から積む', () => {
-    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} changedFiles={files} todos={todos} /></IntentRoot>);
-    const rail = container.querySelector('.session-rail')!;
-    expect([...rail.querySelectorAll('.rail-panel h2')].map((h) => h.firstChild?.textContent)).toEqual(['要約', 'TODO', '変更したファイル']);
-    expect(within(rail as HTMLElement).getByText('BODY')).toBeInTheDocument();
-    expect(within(rail as HTMLElement).getByText('next1')).toBeInTheDocument();
-    expect(within(rail as HTMLElement).getByText('push する')).toBeInTheDocument();
-    // 右欄は実行中の画面には出さない（右は live-explainer の欄）。
-    cleanup();
-    withHost(<SS {...running} changedFiles={files} todos={todos} />);
-    expect(document.querySelector('.session-rail')).toBeNull();
+describe('冒頭の 1 枚と目次（終わった画面）', () => {
+  it('冒頭の 1 枚は、トランスクリプトのスクロールの先頭（古い行を読み込むボタンの上）に置く', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
+    const tr = container.querySelector('.tr-sheet .tr')!;
+    expect(tr.firstElementChild).toHaveClass('lead-card');
+    expect(within(tr as HTMLElement).getByText('BODY')).toBeInTheDocument();
+    expect(within(tr as HTMLElement).getByText('next1')).toBeInTheDocument();
   });
-  it('要約の欄は見立てと何ターン時点か、出所、要約器、生成の時刻を出し、作り直せる', () => {
+  it('右には、実行中と同じ目次だけを置く（要約、TODO、変更したファイルの箱は無い）', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
+    const pane = container.querySelector('.toc-pane')!;
+    expect(pane).toHaveAccessibleName('目次');
+    expect(pane.querySelector('.turn-row')?.textContent).toContain('hi');
+    expect(container.querySelector('.session-rail')).toBeNull();
+    expect(container.querySelector('.rail-panel')).toBeNull();
+    expect(screen.queryByText('TODO')).toBeNull();
+  });
+  it('ノートは冒頭の 1 枚の中で書く', () => {
     const onIntent = vi.fn();
-    const summary = { ...base.summary!, source: 'post_hoc' as const, sourceLabel: '事後', sourceModel: 'gemma-4-26b-a4b-it-heretic', summarizerLabel: 'lmstudio / gemma-4-26b-a4b-it-heretic', generatedAt: '2026-09-19 02:36' };
-    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} summary={summary} /></IntentRoot>);
-    expect(screen.getByText('進行中 · 2 ターン時点')).toBeInTheDocument();
-    const line = screen.getByTestId('summary-source');
-    expect(line).toHaveTextContent('事後');
-    expect(line).toHaveTextContent('lmstudio / gemma-4-26b-a4b-it-heretic');
-    expect(line).toHaveTextContent('2026-09-19 02:36');
-    fireEvent.click(screen.getByRole('button', { name: '要約を作り直す' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: 's1' });
+    render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'ノートを書く' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: '明日 PR を出す' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '明日 PR を出す' });
   });
-  it('要約の作成中と失敗を出す', () => {
-    const { rerender } = render(<IntentRoot onIntent={() => {}}><SS {...p3} live={null} summaryPending /></IntentRoot>);
+  it('要約の再生成は冒頭の 1 枚にあり、作成中と失敗を言う', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '要約を再生成' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: 's1' });
+    rerender(<IntentRoot onIntent={onIntent}><SS {...base} lead={leadOf({}, { summaryPending: true })} /></IntentRoot>);
     expect(screen.getByText('要約を作成しています')).toBeInTheDocument();
-    rerender(<IntentRoot onIntent={() => {}}><SS {...p3} live={null} summaryError="LM Studio に繋がりません" /></IntentRoot>);
+    rerender(<IntentRoot onIntent={onIntent}><SS {...base} lead={leadOf({}, { summaryError: 'LM Studio に繋がりません' })} /></IntentRoot>);
     expect(screen.getByText('要約を作成できませんでした')).toBeInTheDocument();
   });
-  it('変更したファイルは押すと VS Code で開き、出ていない分の数と訳も言う', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} changedFiles={files} changedMore={2} changedNote="ほか 2 件はサブエージェントの変更です" /></IntentRoot>);
-    const row = screen.getByRole('button', { name: /new\.ts/ });
-    expect(row).toHaveTextContent('新規');
-    expect(row).toHaveTextContent('+56');
-    expect(screen.getByRole('button', { name: /a\.ts/ })).toHaveTextContent('−3');
-    fireEvent.click(row);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.openFile', sessionId: 's1', path: '/w/alpha/src/new.ts' });
-    expect(screen.getByText('ほか 2 件はサブエージェントの変更です')).toBeInTheDocument();
+  it('目次の見出しは「目次」と、ターンの数', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
+    expect(container.querySelector('.turns-head')).toHaveTextContent('目次');
+    expect(container.querySelector('.turns-head')).toHaveTextContent('1+ ターン');
   });
-  it('右の欄は本文の面の右上のボタンでも開閉でき、閉じると本文が全幅になる', () => {
+  it('目次は ⌘J と同じ開閉のボタンを持ち、閉じると列が 0px になって、切り替えの行に「目次 N」の札が出る', () => {
     const onIntent = vi.fn();
-    const { container, rerender } = render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} /></IntentRoot>);
-    fireEvent.click(screen.getByRole('button', { name: '右の欄を閉じる' }));
+    const { container, rerender } = render(<IntentRoot onIntent={onIntent}><SS {...base} /></IntentRoot>);
+    expect(tocCols(container)).toBe('minmax(0, 1fr) 240px');
+    fireEvent.click(screen.getByRole('button', { name: '右パネルを閉じる' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.toggle' });
-    rerender(<IntentRoot onIntent={onIntent}><SS {...base} live={null} transcriptOpen={false} /></IntentRoot>);
-    expect(container.querySelector('.session-rail')).toBeNull();
-    expect(screen.getByRole('button', { name: '右の欄を開く' })).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={onIntent}><SS {...base} transcriptOpen={false} /></IntentRoot>);
+    expect(tocCols(container)).toBe('minmax(0, 1fr) 0px');
+    expect(container.querySelector('.toc-pane')).toBeNull();
+    const opener = screen.getByRole('button', { name: /目次 1\+/ });
+    expect(opener.closest('.transcript-toggles')).not.toBeNull();
+    fireEvent.click(opener);
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'transcript.toggle' });
+  });
+  it('トランスクリプトの無いセッションは、目次を持たず、冒頭の 1 枚だけを出す', () => {
+    const lead = leadOf({ hasTranscript: false });
+    const { container } = render(<IntentRoot onIntent={() => {}}><SS {...base} hasTranscript={false} canResume={false} canFork={false} items={[]} total={0} loaded={0} hasMore={false} turnRows={[]} lead={lead} /></IntentRoot>);
+    expect(container.querySelector('.toc-pane')).toBeNull();
+    expect(screen.getByText('トランスクリプトがありません', { selector: '.lead-facts span' })).toBeInTheDocument();
+    expect(container.querySelector('.c-body')).toHaveAttribute('data-toc', 'none');
   });
 });
 
 const host: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => 'connected', fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
-const running: SessionProps = { ...base, live: 'busy', liveLabel: '作業中 12 分', run: { id: 'r1', kind: 'start', alive: true, started: '1 分前' }, selectedTab: 'r1', canResume: false, canFork: false,
+const running: SessionProps = { ...base, live: 'busy', run: { id: 'r1', kind: 'start', alive: true, started: '1 分前' }, selectedTab: 'r1', canResume: false, canFork: false, lead: null, strip: stripOf(),
   tabs: [{ id: 'r1', title: 'Claude', kind: 'agent', selected: true, closable: false }, { id: 't1', title: 'シェル 1', kind: 'shell', selected: false, closable: true }] };
 const withHost = (ui: ReactElement, onIntent = vi.fn(), h: TerminalHost = host) => { render(<IntentRoot onIntent={onIntent}><TerminalHostContext.Provider value={h}>{ui}</TerminalHostContext.Provider></IntentRoot>); return onIntent; };
 
 describe('SessionScreen（実行中）', () => {
-  it('タブ列、ターミナル、右の欄の開閉', () => {
+  it('タブ列、ターミナル、目次の開閉', () => {
     const onIntent = withHost(<SS {...running} />);
     expect(screen.getAllByRole('tab')).toHaveLength(2);
     expect(host.mount).toHaveBeenCalledWith('r1', expect.anything());
@@ -306,14 +321,38 @@ describe('SessionScreen（実行中）', () => {
     expect(onIntent).toHaveBeenCalledWith({ type: 'tab.close', tabId: 't1' });
     fireEvent.click(screen.getByLabelText('シェルタブを追加'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'tab.open', sessionId: 's1', kind: 'shell' });
-    fireEvent.click(screen.getByLabelText('右の欄を閉じる'));
+    fireEvent.click(screen.getByLabelText('右パネルを閉じる'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     expect(screen.getByText('hi')).toBeInTheDocument();
   });
-  it('実行中の右欄は会話の全文ではなくターンの目次にする', () => {
+  it('ターミナルの真上に現在の帯を置き、見出しの下には何も挟まない', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} /></TerminalHostContext.Provider></IntentRoot>);
+    const main = container.querySelector('.c-main')!;
+    expect([...main.children].map((c) => c.className.split(' ')[0])).toEqual(['now-strip', 'term-pane']);
+    expect(container.querySelector('.session-info')).toBeNull();
+    expect(within(main as HTMLElement).getByRole('region', { name: 'セッションの現在の状態' })).toBeInTheDocument();
+  });
+  it('帯は生きた run があるときだけで、終わった run のターミナルには出さない', () => {
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} strip={null} run={{ ...running.run!, alive: false }} /></TerminalHostContext.Provider></IntentRoot>);
+    expect(container.querySelector('.now-strip')).toBeNull();
+  });
+  it('帯のノートの札から、ポップオーバーでノートを書ける', () => {
+    const onIntent = withHost(<SS {...running} />);
+    fireEvent.click(screen.getByRole('button', { name: 'ノート' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: 'メモ' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: 'メモ' });
+  });
+  it('右は会話の全文ではなくターンの目次にする', () => {
     withHost(<SS {...running} />);
-    expect(document.querySelector('.tr-pane .turn-row')?.textContent).toContain('hi');
-    expect(document.querySelector('.tr-pane .tr')).toBeNull();
+    expect(document.querySelector('.toc-pane .turn-row')?.textContent).toContain('hi');
+    expect(document.querySelector('.toc-pane .tr')).toBeNull();
+  });
+  it('「いま」の段と境目は無い（右パネルは目次だけ）', () => {
+    withHost(<SS {...running} />);
+    expect(document.querySelector('.live')).toBeNull();
+    expect(document.querySelector('.live-divider')).toBeNull();
+    expect(screen.queryByRole('separator')).toBeNull();
   });
   it('実行中も終わった後も、画面は窓の残りの高さを受け取る縦の器（session-screen）になる', () => {
     withHost(<SessionScreen {...running} />);
@@ -322,52 +361,85 @@ describe('SessionScreen（実行中）', () => {
     withHost(<SessionScreen {...base} />);
     expect(document.querySelector('.screen')).toHaveClass('session-screen');
   });
-  it('実行中は成果物を右の欄の「いま」に並べ、情報の行には出さない。境目の比率も渡す', () => {
-    const artifacts = [{ id: 'a1', title: '速習資料', description: '説明', favicon: '📄', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }];
-    const livePane = { lamp: { tone: 'idle' as const, head: '休み', sub: '' }, intent: { kind: 'none' as const, text: '意図は書かれていない' }, steps: [], lanes: [], doneFolded: 0 };
-    withHost(<SessionScreen {...running} artifacts={artifacts} livePane={livePane} livePaneSplit={0.3} />);
-    expect(document.querySelector('.live-top')!.textContent).toContain('速習資料');
-    expect((document.querySelector('.live') as HTMLElement).style.getPropertyValue('--live-split')).toBe('0.3');
-    // 二重に出さない。情報の行のメニューは、右の欄を畳んでいる間だけ出す。
-    expect(screen.queryByRole('button', { name: /アーティファクト 1/ })).toBeNull();
+  it('実行中も終わった後も、目次は同じ器（toc-slot の toc-pane）にあり、同じ幅の列になる', () => {
+    const a = render(<IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} /></TerminalHostContext.Provider></IntentRoot>);
+    expect(a.container.querySelector('.c-body > .toc-slot .toc-pane')).not.toBeNull();
+    expect(tocCols(a.container)).toBe('minmax(0, 1fr) 240px');
     cleanup();
-    withHost(<SessionScreen {...running} artifacts={artifacts} livePane={livePane} transcriptOpen={false} />);
-    expect(screen.getByRole('button', { name: /アーティファクト 1/ })).toBeInTheDocument();
+    const b = render(<IntentRoot onIntent={vi.fn()}><SS {...base} /></IntentRoot>);
+    expect(b.container.querySelector('.c-body > .toc-slot .toc-pane')).not.toBeNull();
+    expect(tocCols(b.container)).toBe('minmax(0, 1fr) 240px');
   });
-  it('「いま」が消えても目次は作り直さない（スクロールの位置を保つ）', () => {
-    const livePane = { lamp: { tone: 'busy' as const, head: '作業中', sub: '' }, intent: { kind: 'none' as const, text: 'x' }, steps: [], lanes: [], doneFolded: 0 };
-    const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
-    const { rerender } = render(ui(livePane));
-    const before = document.querySelector('.turns');
-    rerender(ui(null));
-    expect(document.querySelector('.live-top')).toBeNull();
-    expect(document.querySelector('.turns')).toBe(before);
-    rerender(ui(livePane));
-    expect(document.querySelector('.live-top')).not.toBeNull();
-    expect(document.querySelector('.turns')).toBe(before);
+  it('目次を閉じたら、列ごと消し、「目次 N」の札をタブの帯の右端に出す', () => {
+    withHost(<SS {...running} transcriptOpen={false} />);
+    expect((document.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
+    const open = screen.getByRole('button', { name: /目次 1\+/ });
+    expect(open.closest('.tabs')).not.toBeNull();
+    expect(open).toHaveTextContent('⌘J');
+    expect(document.querySelector('.toc-pane')).toBeNull();
+  });
+  it('開いている間は、開閉のボタンを目次の見出しの行に置き、タブの帯には出さない', () => {
+    withHost(<SS {...running} />);
+    expect(screen.getByRole('button', { name: '右パネルを閉じる' }).closest('.toc-pane')).not.toBeNull();
+    expect(document.querySelector('.tabs .tab-pane-open')).toBeNull();
   });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SS {...running} transcriptOpen={false} />);
     expect(screen.queryByText('hi')).toBeNull();
-    expect(screen.getByLabelText('右の欄を開く')).toBeInTheDocument();
   });
-  it('右の欄を閉じたら、列ごと消し、開くボタンをタブの帯の右端に出す', () => {
-    withHost(<SS {...running} transcriptOpen={false} />);
-    const split = document.querySelector('.split') as HTMLElement;
-    expect(split.style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
-    const open = screen.getByRole('button', { name: '右の欄を開く' });
-    expect(open.closest('.tabs')).not.toBeNull();
-    expect(document.querySelector('.tr-pane .tr-toggle')).toBeNull();
-  });
-  it('開いている間は、開閉のボタンを欄の中に置き、タブの帯には出さない', () => {
-    withHost(<SS {...running} />);
-    expect(screen.getByRole('button', { name: '右の欄を閉じる' }).closest('.tr-pane')).not.toBeNull();
-    expect(document.querySelector('.tabs .tab-pane-open')).toBeNull();
+  describe('狭い窓（目次を札に畳む）', () => {
+    let restore: () => void = () => {};
+    beforeEach(() => {
+      const original = window.matchMedia;
+      window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, onchange: null, dispatchEvent: () => false })) as typeof window.matchMedia;
+      restore = () => { window.matchMedia = original; };
+    });
+    afterEach(() => restore());
+    it('はじめは列を持たず、札は「目次 N」。押すと目次が上に重なって開き、状態機械は動かさない', () => {
+      const onIntent = withHost(<SS {...running} />);
+      const c = document.querySelector('.c-body') as HTMLElement;
+      expect(c).toHaveAttribute('data-narrow', 'true');
+      expect(c.style.gridTemplateColumns).toBe('');
+      expect(document.querySelector('.toc-pane')).toBeNull();
+      const opener = screen.getByRole('button', { name: /目次 1\+/ });
+      expect(opener.closest('.tabs')).not.toBeNull();
+      expect(opener).not.toHaveTextContent('⌘J');
+      fireEvent.click(opener);
+      expect(document.querySelector('.toc-slot')).toHaveAttribute('data-drawer', 'true');
+      expect(document.querySelector('.toc-pane .turn-row')).not.toBeNull();
+      expect(onIntent).not.toHaveBeenCalled();
+      // 見出しの行のボタンで閉じる。
+      fireEvent.click(screen.getByRole('button', { name: '右パネルを閉じる' }));
+      expect(document.querySelector('.toc-pane')).toBeNull();
+      expect(onIntent).not.toHaveBeenCalled();
+    });
+    it('⌘J（transcript.toggle の状態の変化）でも、上に重なる目次を開閉する', () => {
+      const ui = (open: boolean) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={open} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui(true));
+      expect(document.querySelector('.toc-pane')).toBeNull();
+      rerender(ui(false));
+      expect(document.querySelector('.toc-pane')).not.toBeNull();
+      rerender(ui(true));
+      expect(document.querySelector('.toc-pane')).toBeNull();
+    });
+    it('別のセッションへ替えたときは、開閉の違いを開閉の操作とは見なさず、閉じる', () => {
+      const ui = (id: string, open: boolean) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} id={id} transcriptOpen={open} /></TerminalHostContext.Provider></IntentRoot>;
+      const { rerender } = render(ui('s1', true));
+      fireEvent.click(screen.getByRole('button', { name: /目次 1\+/ }));
+      expect(document.querySelector('.toc-pane')).not.toBeNull();
+      rerender(ui('s2', false));
+      expect(document.querySelector('.toc-pane')).toBeNull();
+    });
+    it('終わった画面でも、札は切り替えの行にある', () => {
+      render(<IntentRoot onIntent={vi.fn()}><SS {...base} /></IntentRoot>);
+      expect(screen.getByRole('button', { name: /目次 1\+/ }).closest('.transcript-toggles')).not.toBeNull();
+      expect(document.querySelector('.toc-pane')).toBeNull();
+    });
   });
   describe('動く環境', () => {
     let restore: () => void = () => {};
     afterEach(() => { restore(); delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate; });
-    it('閉じる動きが終わるまで欄の中身を残し、終わったら外す（列は先に 0px になる）', async () => {
+    it('閉じる動きが終わるまで目次の中身を残し、終わったら外す（列は先に 0px になる）', async () => {
       restore = fakeMotionTokens(undefined, { everywhere: true });
       let finish: () => void = () => {};
       const finished = new Promise<void>((r) => { finish = r; });
@@ -375,14 +447,13 @@ describe('SessionScreen（実行中）', () => {
       const ui = (open: boolean) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={open} /></TerminalHostContext.Provider></IntentRoot>;
       const { rerender } = render(ui(true));
       rerender(ui(false));
-      expect(document.querySelector('.tr-pane')).toHaveAttribute('data-leaving', 'true');
-      expect(document.querySelector('.tr-pane-inner')).not.toBeNull();
+      expect(document.querySelector('.toc-slot')).toHaveAttribute('data-leaving', 'true');
+      expect(document.querySelector('.toc-slot-inner')).not.toBeNull();
       await act(async () => { finish(); await finished; });
-      expect(document.querySelector('.tr-pane-inner')).toBeNull();
-      expect(document.querySelector('.tr-pane')).not.toHaveAttribute('data-leaving');
+      expect(document.querySelector('.toc-slot-inner')).toBeNull();
+      expect(document.querySelector('.toc-slot')).not.toHaveAttribute('data-leaving');
     });
-    const livePane = { lamp: { tone: 'busy' as const, head: '作業中', sub: '' }, intent: { kind: 'none' as const, text: '最後の意図' }, steps: [], lanes: [], doneFolded: 0 };
-    it('別のセッションへ替えて右の欄の開閉が替わっても、欄を滑らせずにすぐその形にする', () => {
+    it('別のセッションへ替えて目次の開閉が替わっても、列を滑らせずにすぐその形にする', () => {
       restore = fakeMotionTokens(undefined, { everywhere: true });
       const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
       (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
@@ -390,105 +461,41 @@ describe('SessionScreen（実行中）', () => {
       const { rerender } = render(ui('s1', true));
       animate.mockClear();
       rerender(ui('s2', false));
-      expect(document.querySelector('.tr-pane-inner')).toBeNull();
+      expect(document.querySelector('.toc-slot-inner')).toBeNull();
       expect(document.querySelector('[data-leaving]')).toBeNull();
       expect(animate.mock.calls.length).toBe(0);
       rerender(ui('s1', true));
-      expect(document.querySelector('.tr-pane-inner')).not.toBeNull();
+      expect(document.querySelector('.toc-slot-inner')).not.toBeNull();
       expect(animate.mock.calls.length).toBe(0);
       // 同じセッションの中での開閉は、これまでどおり動かす。
       rerender(ui('s1', false));
-      expect(document.querySelector('.tr-pane')).toHaveAttribute('data-leaving', 'true');
+      expect(document.querySelector('.toc-slot')).toHaveAttribute('data-leaving', 'true');
       expect(animate.mock.calls.length).toBeGreaterThan(0);
     });
-    it('会話が終わったら「いま」を薄れさせ、終わるまで最後の中身を残し、目次は作り直さない', async () => {
-      restore = fakeMotionTokens(undefined, { everywhere: true });
-      let finish: () => void = () => {};
-      const finished = new Promise<void>((r) => { finish = r; });
-      const faded: Element[] = [];
-      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
-        if (f.at(-1)?.opacity === 0) faded.push(this);
-        return { finished, cancel: vi.fn() };
-      };
-      const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
-      const { rerender } = render(ui(livePane));
-      const before = document.querySelector('.turns');
-      rerender(ui(null));
-      expect(document.querySelector('.live')).toHaveAttribute('data-leaving', 'true');
-      expect(document.querySelector('.live-top')).toHaveTextContent('最後の意図');
-      expect(faded.map((el) => el.className)).toEqual(expect.arrayContaining(['live-pane-head', 'live-top', 'live-divider']));
-      await act(async () => { finish(); await finished; });
-      expect(document.querySelector('.live-top')).toBeNull();
-      expect(document.querySelector('.live')).not.toHaveAttribute('data-leaving');
-      expect(document.querySelector('.turns')).toBe(before);
-    });
-    it('会話が終わったら、薄れる前にランプを終わりの形（休みの色、「終わりました」）へ替える', () => {
-      restore = fakeMotionTokens(undefined, { everywhere: true });
-      (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; };
-      const ui = (lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
-      const { rerender } = render(ui(livePane));
-      expect(document.querySelector('.live-lamp')).toHaveAttribute('data-tone', 'busy');
-      rerender(ui(null));
-      expect(document.querySelector('.live')).toHaveAttribute('data-leaving', 'true');
-      const lamp = document.querySelector('.live-lamp')!;
-      expect(lamp).toHaveAttribute('data-tone', 'idle');
-      expect(lamp.querySelector('.live-dot')).toHaveAttribute('data-tone', 'idle');
-      expect(lamp).toHaveTextContent('終わりました');
-      expect(lamp).not.toHaveTextContent('作業中');
-      // 意図などの中身は最後のまま残す。
-      expect(document.querySelector('.live-top')).toHaveTextContent('最後の意図');
-    });
-    it('別のセッションへ替えたときは、前のセッションの「いま」を薄れさせずにすぐ外す', () => {
-      restore = fakeMotionTokens(undefined, { everywhere: true });
-      const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
-      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
-      const ui = (id: string, lp: typeof livePane | null) => <IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} id={id} livePane={lp} /></TerminalHostContext.Provider></IntentRoot>;
-      const { rerender } = render(ui('s1', livePane));
-      animate.mockClear();
-      rerender(ui('s2', null));
-      expect(document.querySelector('.live-top')).toBeNull();
-      expect(document.querySelector('.live-pane-head')).toBeNull();
-      expect(document.querySelector('.live')).not.toHaveAttribute('data-leaving');
-      expect(screen.queryByText('最後の意図')).toBeNull();
-      // 目次も滑らせない（前のセッションの位置から動かさない）。
-      expect(animate.mock.calls.length).toBe(0);
-    });
-  });
-  it('情報の行の数（ターン、トークン、コスト）は数の回転で出す', () => {
-    withHost(<SS {...running} cost="$1.20" />);
-    const info = document.querySelector('.session-info')!;
-    expect(info.querySelectorAll('.roll').length).toBeGreaterThanOrEqual(3);
-  });
-  it('情報の行の数は、セッションが替わったら回さず作り直す', () => {
-    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} cost="$1.20" /></IntentRoot>);
-    const before = [...document.querySelectorAll('.session-info .roll')];
-    rerender(<IntentRoot onIntent={vi.fn()}><SS {...base} id="s2" live={null} cost="$9.90" /></IntentRoot>);
-    const after = [...document.querySelectorAll('.session-info .roll')];
-    expect(after.length).toBe(before.length);
-    after.forEach((el) => expect(before).not.toContain(el));
   });
   it('要約の一行は、文が替わると作り直す（入る動きをもう一度出す）', () => {
-    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} /></IntentRoot>);
+    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} /></IntentRoot>);
     const first = document.querySelector('.session-oneliner');
-    rerender(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} summary={{ ...base.summary!, oneLiner: 'TWO' }} /></IntentRoot>);
+    rerender(<IntentRoot onIntent={vi.fn()}><SS {...base} oneLiner="TWO" /></IntentRoot>);
     expect(document.querySelector('.session-oneliner')).not.toBe(first);
   });
   it('信頼ダイアログの案内と終了の表示', () => {
     withHost(<SS {...running} live={null} trustHint />);
-    expect(screen.getByRole('status')).toHaveTextContent('信頼確認');
+    expect(screen.getAllByRole('status').some((e) => e.textContent?.includes('信頼確認'))).toBe(true);
     cleanup();
-    withHost(<SS {...running} live={null} run={{ ...running.run!, alive: false }} canResume />);
+    withHost(<SS {...running} live={null} strip={null} run={{ ...running.run!, alive: false }} canResume />);
     expect(screen.getByRole('status')).toHaveTextContent('Claude は終了しました');
     // 終了した run では新しいシェルを開けないので、＋ を出さない。
     expect(screen.queryByLabelText('シェルタブを追加')).toBeNull();
     expect(screen.getByRole('button', { name: '再開' })).toBeEnabled();
     expect(menu().queryByRole('menuitem', { name: /停止/ })).toBeNull();
   });
-  it('分割の指定があれば 2 つのターミナルを並べる', () => {
+  it('分割の指定があれば 2 つのターミナルを並べ、帯は 1 つだけ置く', () => {
     withHost(<SS {...running} canSplit split={{ left: 'r1', right: 't1' }} />);
     expect(screen.getByTestId('split')).toBeInTheDocument();
     expect(screen.getAllByTestId(/^term-/)).toHaveLength(2);
     expect(host.mount).toHaveBeenCalledWith('t1', expect.anything());
+    expect(document.querySelectorAll('.now-strip')).toHaveLength(1);
   });
   it('分割していなければターミナルは 1 つ', () => {
     withHost(<SS {...running} canSplit />);
@@ -542,6 +549,7 @@ describe('SessionScreen のアイコン', () => {
     withHost(<SS {...running} />);
     expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
     expect(iconOf(screen.getByRole('button', { name: 'ほかの操作' }))).toBe('more');
+    expect(iconOf(screen.getByRole('button', { name: '詳細' }))).toBe('info');
     const m = menu();
     expect(iconOf(m.getByRole('menuitem', { name: /ターミナルで開く/ }))).toBe('openTerminal');
     expect(iconOf(m.getByRole('menuitem', { name: /停止/ }))).toBe('stop');
@@ -554,12 +562,12 @@ describe('SessionScreen のアイコン', () => {
     expect(iconOf(screen.getByRole('button', { name: 'シェル 1 を閉じる' }))).toBe('close');
     expect(iconOf(screen.getByRole('button', { name: 'シェルタブを追加' }))).toBe('add');
   });
-  it('右の欄の開閉は向きの違うアイコンになる', () => {
+  it('目次の開閉は向きの違うアイコンになる', () => {
     withHost(<SS {...running} />);
-    expect(iconOf(screen.getByRole('button', { name: '右の欄を閉じる' }))).toBe('paneClose');
+    expect(iconOf(screen.getByRole('button', { name: '右パネルを閉じる' }))).toBe('paneClose');
     cleanup();
     withHost(<SS {...running} transcriptOpen={false} />);
-    expect(iconOf(screen.getByRole('button', { name: '右の欄を開く' }))).toBe('paneOpen');
+    expect(iconOf(screen.getByRole('button', { name: /目次 1\+/ }))).toBe('paneOpen');
   });
   it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
     render(<IntentRoot onIntent={vi.fn()}><SS {...base} /></IntentRoot>);
@@ -570,28 +578,20 @@ describe('SessionScreen のアイコン', () => {
   });
 });
 
-const p3: SessionProps = { ...base, contextPercent: 62, cost: '$1.20', artifacts: [{ id: 'a1', title: '題名', description: null, favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }] };
-
 describe('フェーズ 4 のセッション画面', () => {
-  const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
-  const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini から応答がありません' };
   it('他の PC で実行中なら、この PC で再開を主にして理由を添えて止め、再開とフォークもメニューで止める', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} canResume={false} canFork={false} lock={lock} /></IntentRoot>);
+    const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
+    render(<IntentRoot onIntent={() => {}}><SS {...base} canResume={false} canFork={false} lock={lock} badges={[{ kind: 'lock', label: 'mini で実行中', title: '最終確認 1 分前' }]} /></IntentRoot>);
     expect(screen.getByText('mini で実行中')).toBeInTheDocument();
-    expect(screen.getByText('最終確認 1 分前')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByRole('button', { name: 'この PC で再開' })).toHaveAccessibleDescription('mini で実行中です。止まるか応答が無くなると選べます');
     const m = menu();
     expect(m.getByRole('menuitem', { name: /再開/ })).toHaveAttribute('aria-disabled', 'true');
     expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
   });
-  // 文言は presenter の lock.label をそのまま出す。View は色だけを変える。
-  it('応答が無いロックは警告の色で出す', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} canResume={false} canFork={false} lock={staleLock} /></IntentRoot>);
-    expect(screen.getByText('mini から応答がありません')).toHaveClass('warn');
-    expect(screen.getByText('最終確認 5 分前')).toBeInTheDocument();
-    expect(screen.queryByText('mini で実行中')).toBeNull();
-    expect(screen.getByText('mini から応答がありません')).not.toHaveClass('lock');
+  it('応答が無いロックの札は、別の種類（色）で出る', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...base} badges={[{ kind: 'stale', label: 'mini から応答がありません', title: '最終確認 5 分前' }]} /></IntentRoot>);
+    expect(screen.getByText('mini から応答がありません').closest('.session-badge')).toHaveAttribute('data-kind', 'stale');
   });
   it('外で動くセッションには、引き取りと attach を「…」に出す', () => {
     const onIntent = vi.fn();
@@ -608,27 +608,29 @@ describe('フェーズ 4 のセッション画面', () => {
   });
   it('写しだけのセッションはこの PC で再開を主にする', () => {
     const onIntent = vi.fn();
-    const { container } = render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} canResume={false} canFork={false} remoteOnly canResumeHere /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><SS {...base} canResume={false} canFork={false} remoteOnly canResumeHere badges={[{ kind: 'remote', label: 'トランスクリプトは他の PC にあります', title: null }]} /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
-    expect(within(info(container) as HTMLElement).getByText('本文は他の PC にあります')).toBeInTheDocument();
+    expect(screen.getByText('トランスクリプトは他の PC にあります')).toBeInTheDocument();
   });
   // Ruling 14。相手が落ちて heartbeat だけ残った状態を行き止まりにしない。
   it('応答の無いロックからもこの PC で再開に逃げられる', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SS {...base} live={null} canResume={false} canFork={false} lock={staleLock} canResumeHere /></IntentRoot>);
+    const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini から応答がありません' };
+    render(<IntentRoot onIntent={onIntent}><SS {...base} canResume={false} canFork={false} lock={staleLock} canResumeHere /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
   });
   it('ロックが無ければこの PC で再開は出ない', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} /></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><SS {...base} /></IntentRoot>);
     expect(screen.queryByRole('button', { name: 'この PC で再開' })).toBeNull();
-    expect(screen.queryByText('本文は他の PC にあります')).toBeNull();
+    expect(screen.queryByText('トランスクリプトは他の PC にあります')).toBeNull();
     expect(screen.getByRole('button', { name: '再開' })).not.toBeDisabled();
   });
   // 引き継ぎはこのフェーズでは作らない（利用者の決定 1）。
   it('引き継ぎの操作は出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...base} live={null} canResume={false} canFork={false} lock={lock} /></IntentRoot>);
+    const lock = { deviceName: 'mini', stale: false, heartbeat: '1 分前', label: 'mini で実行中' };
+    render(<IntentRoot onIntent={() => {}}><SS {...base} canResume={false} canFork={false} lock={lock} /></IntentRoot>);
     expect(screen.queryByRole('button', { name: /引き継/ })).toBeNull();
     expect(menu().queryByRole('menuitem', { name: /引き継/ })).toBeNull();
   });
@@ -773,36 +775,37 @@ describe('TabStrip のキー操作（C3）', () => {
   });
 });
 
-// 見た目の規則（base.css）が掴む印を、画面の側で固定する。印が消えると、規則は黙って効かなくなる。
+
+// 見た目の規則（base.css、session.css）が掴む印を、画面の側で固定する。印が消えると、規則は黙って効かなくなる。
 describe('SessionScreen の読む面の印', () => {
-  it('畳んだ会話の列だけが data-collapsed を持つ', () => {
+  it('畳んだ目次の列だけが data-collapsed を持つ', () => {
     const { container, rerender } = render(<IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={false} /></TerminalHostContext.Provider></IntentRoot>);
-    expect(container.querySelector('.tr-pane')).toHaveAttribute('data-collapsed', 'true');
+    expect(container.querySelector('.toc-slot')).toHaveAttribute('data-collapsed', 'true');
     rerender(<IntentRoot onIntent={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen /></TerminalHostContext.Provider></IntentRoot>);
-    expect(container.querySelector('.tr-pane')).not.toHaveAttribute('data-collapsed');
+    expect(container.querySelector('.toc-slot')).not.toHaveAttribute('data-collapsed');
   });
   it('実行していないセッションでは、切替と会話を 1 枚の白い面に載せる', () => {
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} /></IntentRoot>);
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} /></IntentRoot>);
     const sheet = container.querySelector('.tr-sheet');
     expect(sheet).not.toBeNull();
     expect(sheet!.querySelector('.tr')).not.toBeNull();
     expect(sheet).toContainElement(screen.getByLabelText('思考を表示'));
   });
   // 画面は縦の flex で窓の残りを取る。
-  // ターミナルの段と本文の段がその残りを受け取る印。
+  // 本体の段がその残りを受け取る印。
   it('画面の器と、残りの高さを受け取る段に印を付ける', () => {
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} live={null} /></IntentRoot>);
-    expect(container.querySelector('.screen.session-screen > .session-body')).not.toBeNull();
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><SS {...base} /></IntentRoot>);
+    expect(container.querySelector('.screen.session-screen > .c-body')).not.toBeNull();
     cleanup();
     withHost(<SS {...running} />);
-    expect(document.querySelector('.screen.session-screen > .split')).not.toBeNull();
+    expect(document.querySelector('.screen.session-screen > .c-body')).not.toBeNull();
   });
 });
 
 describe('SessionScreen（本文が消えた会話）', () => {
   const gone = { note: '本文は、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 };
-  const props = { ...base, live: null, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, canResume: false, canFork: false, gone };
-  it('注記と要約のみの印を出し、延ばす手を添え、作り直しと本文の欄は出さない', () => {
+  const props = { ...base, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, turnRows: [], canResume: false, canFork: false, gone, lead: leadOf({ hasTranscript: false }, { gone: true }) };
+  it('注記と要約のみの印を出し、延ばす手を添え、本文の欄と目次は出さない', () => {
     const onIntent = vi.fn();
     const { container } = render(<IntentRoot onIntent={onIntent}><SS {...props} /></IntentRoot>);
     expect(screen.getByText('要約のみ')).toBeInTheDocument();
@@ -810,13 +813,18 @@ describe('SessionScreen（本文が消えた会話）', () => {
     expect(screen.getByText('BODY')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '保持期間を延ばす…' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'session' });
-    expect(screen.queryByRole('button', { name: '要約を作り直す' })).toBeNull();
-    expect(menu().queryByRole('menuitem', { name: /要約を作り直す/ })).toBeNull();
     expect(container.querySelector('.tr-sheet')).toBeNull();
+    expect(container.querySelector('.toc-pane')).toBeNull();
+  });
+  it('本文が無いので、冒頭の 1 枚の要約の作り直しは出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SS {...props} /></IntentRoot>);
+    expect(screen.queryByRole('button', { name: '要約を再生成' })).toBeNull();
+    expect(menu().queryByRole('menuitem', { name: /要約を作り直す/ })).toBeNull();
   });
   it('延ばせないときは手を出さず、要約も無ければそう言う', () => {
-    render(<IntentRoot onIntent={() => {}}><SS {...props} summary={null} gone={{ ...gone, canExtend: false }} /></IntentRoot>);
+    const lead = leadOf({ summary: null, hasTranscript: false }, { gone: true });
+    render(<IntentRoot onIntent={() => {}}><SS {...props} lead={lead} oneLiner={null} gone={{ ...gone, canExtend: false }} /></IntentRoot>);
     expect(screen.queryByRole('button', { name: '保持期間を延ばす…' })).toBeNull();
-    expect(screen.getByText('要約もありません')).toBeInTheDocument();
+    expect(screen.getByText('要約はありません')).toBeInTheDocument();
   });
 });

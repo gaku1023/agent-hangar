@@ -5,7 +5,7 @@ import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } f
 import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
-import { clampLivePaneSplit, cleanSidebarOrder, LIVE_PANE_SPLIT_KEY, readSessionLivePaneSplit, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
+import { cleanSidebarOrder, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
 import { NO_QUESTION } from '../presenters/home.ts';
@@ -631,12 +631,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (!v || typeof v !== 'object') continue;
         // follow は残さない決まりだが、古い保存に残っていることがある。読み戻すときに落として既定（真）に戻す。
         // summaryOpen は使われていない欄として消した。古い保存に残っているので、読み戻すときに捨てる（捨てないと次の保存で書き戻る）。
-        const { follow: _ignore, summaryOpen: _gone, ...rest } = v as Partial<SessionViewState> & { summaryOpen?: unknown };
-        sv[k.slice(3)] = { ...defaultSessionView(), ...rest, livePaneSplit: readSessionLivePaneSplit(rest.livePaneSplit) };
+        // livePaneSplit（右パネルの境目の比率）も、境目を無くしたので同じく捨てる。
+        const { follow: _ignore, summaryOpen: _gone, livePaneSplit: _split, ...rest } = v as Partial<SessionViewState> & { summaryOpen?: unknown; livePaneSplit?: unknown };
+        sv[k.slice(3)] = { ...defaultSessionView(), ...rest };
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
-        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)), livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // 知らせ終えた戻る時点。開き直しても同じ時点を 2 度知らせない。
         returnSeen: readReturnSeen(deps.storage.get(RETURN_SEEN_KEY)),

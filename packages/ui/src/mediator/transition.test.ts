@@ -286,6 +286,34 @@ const runDto = (id: string, sessionId: string, endedAt: number | null = null) =>
 const tabDto = (id: string, runId: string, closedAt: number | null = null) => ({ id, runId, sessionId: 's1', kind: 'shell' as const, title: 'シェル 1', tmuxName: `hangar-${runId}-t1`, createdAt: 2, closedAt });
 const onSession = (id = 's1') => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })]).state;
 
+describe('終わったセッションの開き方（冒頭の 1 枚が見える先頭から）', () => {
+  const stored = (id: string, over: Partial<SessionDto> = {}): Store => ({ ...initialStore(), sessions: { [id]: { id, live: null, parked: false, ...over } as SessionDto } });
+  const open = (store: Store, id = 's1') => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })], initialState(), store).state;
+  it('動いていないセッションは、末尾を追わず先頭から開く（冒頭の 1 枚はトランスクリプトの先頭にある）', () => {
+    expect(open(stored('s1')).sessionView.s1?.follow).toBe(false);
+  });
+  it('動いているセッション（作業中、入力待ち、休み）は、これまでどおり末尾を追う', () => {
+    for (const live of ['busy', 'waiting', 'idle'] as const) expect(open(stored('s1', { live })).sessionView.s1?.follow ?? true).toBe(true);
+  });
+  it('生きた run があるセッションは、これまでどおり末尾を追う', () => {
+    const store = { ...stored('s1'), runs: { r1: runDto('r1', 's1') } };
+    expect(open(store).sessionView.s1?.follow ?? true).toBe(true);
+  });
+  it('まだストアに無いセッションは、決めつけず既定のままにする', () => {
+    expect(open(initialStore()).sessionView.s1?.follow ?? true).toBe(true);
+  });
+  it('「最新へ」で末尾を追う形に戻せる', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } }), intent({ type: 'turn.latest', sessionId: 's1', runId: null })], initialState(), stored('s1'));
+    expect(a.state.sessionView.s1?.follow).toBe(true);
+  });
+  it('検索の結果から開いたときの跳び先は、これまでどおり追わない', () => {
+    const s = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), jump: { seq: 5, query: 'a', n: 1 }, follow: false } } };
+    const r = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], s, stored('s1'));
+    expect(r.effects).toContainEqual({ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0, aroundSeq: 5 });
+    expect(r.state.sessionView.s1?.follow).toBe(false);
+  });
+});
+
 describe('起動', () => {
   it('ダイアログを開き、送信で submitting になり、done で画面へ移る', () => {
     const a = run([intent({ type: 'session.new.open', projectId: 'p1' })]);
@@ -482,30 +510,9 @@ describe('タブと接続', () => {
     expect(r.state.sessionView.s2?.selectedTab).toBeNull();
     expect(r.effects.filter((e) => String((e as { kind: string }).kind).startsWith('terminal.'))).toEqual([{ kind: 'terminal.disconnect', tabId: 't9' }]);
   });
-  it('右ペインの上下の比率は、離したときに丸めて、そのセッションの値と最後に動かした値の両方に保存する', () => {
-    expect(initialState().livePaneSplit).toBe(0.5);
-    const a = run([intent({ type: 'livePane.split', sessionId: 's1', ratio: 0.3 })]);
-    expect(a.state.livePaneSplit).toBe(0.3);
-    expect(a.state.sessionView.s1?.livePaneSplit).toBe(0.3);
-    expect(a.effects).toEqual([
-      { kind: 'storage.save', key: 'livePane.split', value: 0.3 },
-      { kind: 'storage.save', key: 'sv:s1', value: expect.objectContaining({ livePaneSplit: 0.3 }) },
-    ]);
-    // 端まで寄せられる。どちらの端でも、見出しの 1 行は CSS の下限で残る。
-    const at = (ratio: number) => run([intent({ type: 'livePane.split', sessionId: 's1', ratio })]).state.sessionView.s1?.livePaneSplit;
-    expect(at(0.99)).toBe(0.99);
-    expect(at(-1)).toBe(0);
-    expect(at(2)).toBe(1);
-    expect(at(Number.NaN)).toBe(0.5);
-  });
-  it('右ペインの比率はセッションごとに持ち、ほかのセッションの値は変えない', () => {
-    const a = run([intent({ type: 'livePane.split', sessionId: 's1', ratio: 0.3 })]);
-    const b = run([intent({ type: 'livePane.split', sessionId: 's2', ratio: 0.7 })], a.state);
-    expect(b.state.sessionView.s1?.livePaneSplit).toBe(0.3);
-    expect(b.state.sessionView.s2?.livePaneSplit).toBe(0.7);
-    expect(b.state.livePaneSplit).toBe(0.7);
-    // まだ動かしていないセッションは自分の値を持たない（画面は最後に動かした値で開く）。
-    expect(defaultSessionView().livePaneSplit).toBeNull();
+  it('右ペインの境目の比率は持たない（右パネルは目次だけで、分ける相手が無い）', () => {
+    expect(initialState()).not.toHaveProperty('livePaneSplit');
+    expect(defaultSessionView()).not.toHaveProperty('livePaneSplit');
   });
   it('サイドバーの折りたたみは開閉のたびに保存する', () => {
     expect(initialState().sidebarCollapsed).toBe(false);
