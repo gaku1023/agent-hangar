@@ -41,7 +41,7 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
   });
 
   const handler = () => createSessionChangeHandler({
-    db, deviceId: 'd', hub: publisher, language: () => 'ja',
+    db, deviceId: 'd', hub: publisher,
     started: () => started,
     workspaceRoot: () => ws,
     onLocalTranscript: (f) => { uploads.push(f.sessionId); },
@@ -68,20 +68,19 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
     expect(toasts()).toEqual([]);
   });
 
-  it('どのルートにも属さないセッションが現れたら、黙って未割り当てにせず知らせる', () => {
+  // 「どのプロジェクトにも属さないセッションが現れました」の toast は、操作の結果ではないので外した（PR 29、docs/design.md）。
+  // 未分類のセッションは一覧にそのまま出る（クイックセッションと同じ扱い）ので、黙って置いても見失わない。
+  it('どのルートにも属さないセッションが現れたら、未割り当てのまま置き、toast は流さない', () => {
     const s = ensureSession(db, '11111111-1111-4111-8111-111111111112', outside, 'd');
     const h = handler();
     h(changed(s));
     publisher.flush();
     // 勝手にプロジェクトを作らない。設計どおり「未分類」に残す。
     expect(projectOf(s)).toBeNull();
-    expect(toasts().length).toBe(1);
-    expect(toasts()[0]!.level).toBe('info');
-    expect(toasts()[0]!.message).toContain(outside);
-    // 同じセッションが伸びても、知らせるのは 1 度だけにする。
+    expect(toasts()).toEqual([]);
     h(changed(s, { appended: 1 }));
     publisher.flush();
-    expect(toasts().length).toBe(1);
+    expect(toasts()).toEqual([]);
     expect(sent.filter((e) => e.type === 'transcript.appended')).toEqual([{ type: 'transcript.appended', sessionId: s, count: 1 }]);
   });
 
@@ -96,11 +95,10 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
     expect(p).not.toBeNull();
     const up = projectUpserts().find((e) => e.project.id === p)!;
     expect(up.project).toMatchObject({ name: 'fresh', path: fresh });
-    // ワークスペースの中なので、未分類の知らせは出さない。
     expect(toasts()).toEqual([]);
   });
 
-  it('起動の途中は、その場の登録も未分類の知らせもしない。起動時の全走査の後始末が受け持つ', () => {
+  it('起動の途中は、その場の登録をしない。起動時の全走査の後始末が受け持つ', () => {
     started = false;
     const fresh = path.join(ws, 'fresh');
     fs.mkdirSync(fresh);
@@ -119,10 +117,10 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
     const later = path.join(ws, 'later');
     const s = ensureSession(db, '11111111-1111-4111-8111-111111111116', later, 'd');
     const h = handler();
-    // まだフォルダが無いので登録できず、未分類として知らせる。
+    // まだフォルダが無いので登録できず、未分類のまま置く。
     h(changed(s));
     publisher.flush();
-    expect(toasts().length).toBe(1);
+    expect(projectOf(s)).toBeNull();
     fs.mkdirSync(later);
     h(changed(s));
     publisher.flush();

@@ -197,10 +197,8 @@ export type State = {
    * 入力待ちが解けるか、そのセッションを開くまで残す。
    */
   waitingToasts: string[];
-  /** 戻る時刻を過ぎたと知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
+  /** 戻る時刻を過ぎたと OS の通知で知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
   returnSeen: string[];
-  /** 右下に積む「戻る時刻を過ぎた」の札のセッション。古いものが先。閉じるか、そのセッションを開くか、状態が変わるまで残す。 */
-  returnToasts: string[];
   /** focus: terminal で開いたセッション。その画面に着いたら端末にフォーカスし、着いたら忘れる。 */
   focusOnOpen: string | null;
   /**
@@ -229,8 +227,6 @@ export type State = {
    * 一覧の行は事実から Presenter が組み、ここは既読の鍵だけを持つ（mediator/notices.ts）。
    */
   noticesRead: string[];
-  /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
-  retentionBannerDismissed: boolean;
   /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */
   newSessionDraft: NewSessionDraft | null;
   /**

@@ -98,13 +98,15 @@ describe('今すぐ同期', () => {
     expect(t.toasts).toEqual([{ level: 'error', message: '1 回だけ同期しましたが、未送信 2 件、未送信の本文 3 件が残りました。同期は一時停止のままです' }]);
   });
 
-  it('版で断られた 1 巡は、本文の降ろしに行かず、成功の知らせの代わりに版の文で知らせる', async () => {
+  it('版で断られた 1 巡は、本文の降ろしに行かず、成功の知らせも toast も出さない（版の文は同期の状態が運ぶ）', async () => {
     const t = setup({ paused: true, compatBlocked: true, haltedDuringPass: true });
     stop = t.once.stopTicker;
     await t.once.syncNow();
     await t.once.pass.idle();
     expect(t.calls).not.toContain('files');
-    expect(t.toasts).toEqual([{ level: 'error', message: 'この PC の hangar を上げてください' }]);
+    expect(t.toasts).toEqual([]);
+    // 状態は配る。ヘッダーの同期の語とベルの行が、この状態（error と理由）から組まれる。
+    expect(t.sent.length).toBeGreaterThan(0);
   });
 
   it('上限で退いた 1 巡は、その終わりに成功や残りの件数の知らせを重ねない', async () => {

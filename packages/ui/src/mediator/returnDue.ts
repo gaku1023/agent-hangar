@@ -4,7 +4,8 @@ import type { Effect, Input, State, Step } from './types.ts';
 /**
  * returnDue 領域：時刻つきの Paused が、その時刻を過ぎたことの知らせ。
  * 過ぎたものの一覧は、ストアと時計を持つランタイムが届ける（return.due）。
- * 新しく過ぎたものを右下の札に積み、通知の効果を出す。知らせるのは戻る時点ごとに 1 回だけである。
+ * 新しく過ぎたものに通知の効果（OS の通知）を出す。知らせるのは戻る時点ごとに 1 回だけである。
+ * 右下の札は入力待ちだけなので、画面の知らせはここでは持たない。ベルの一覧の行は、事実から Presenter が組む（presenters/notices.ts）。
  * 日付だけの Paused は知らせない（Home の「今日戻る」に朝から出ている）。
  */
 
@@ -51,29 +52,13 @@ export function nextReturnAt(sessions: Record<string, SessionDto>, now: number):
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 export function returnStep(state: State, input: Input): Step | null {
-  if (input.kind === 'intent' && input.intent.type === 'return.toast.dismiss') {
-    const id = input.intent.id;
-    return { state: { ...state, returnToasts: state.returnToasts.filter((x) => x !== id) }, effects: [] };
-  }
   if (input.kind !== 'runtime' || input.event.type !== 'return.due') return null;
   const keys = input.event.keys;
   if (same(keys, state.returnSeen)) return { state, effects: [] };
   const seen = new Set(state.returnSeen);
   const added = keys.filter((k) => !seen.has(k)).map(sessionIdOfReturnKey);
-  const dueIds = new Set(keys.map(sessionIdOfReturnKey));
-  // いま開いているセッションは画面に見えているので、札にはしない。
-  const open = state.screen.name === 'session' ? state.screen.id : null;
-  const kept = state.returnToasts.filter((id) => dueIds.has(id) && !added.includes(id));
-  const returnToasts = [...kept, ...added.filter((id) => id !== open)];
   // 通知を出すかどうかは、ランタイムが窓の様子と設定を見て決める。
   const effects: Effect[] = added.map((sessionId) => ({ kind: 'notify.return', sessionId }));
   effects.push({ kind: 'storage.save', key: RETURN_SEEN_KEY, value: keys });
-  return { state: { ...state, returnSeen: keys, returnToasts }, effects };
-}
-
-/** 開いているセッションの札を下げる。開いて見たので、離れた後もまた積まない。 */
-export function settleReturn(state: State): State {
-  if (state.screen.name !== 'session' || !state.returnToasts.includes(state.screen.id)) return state;
-  const open = state.screen.id;
-  return { ...state, returnToasts: state.returnToasts.filter((id) => id !== open) };
+  return { state: { ...state, returnSeen: keys }, effects };
 }

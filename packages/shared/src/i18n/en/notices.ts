@@ -12,6 +12,7 @@ export const noticesEn: AreaDictionary<typeof noticesKeys> = {
   'notices.kind.sync': 'Sync',
   'notices.kind.compat': 'Compatibility',
   'notices.kind.retention': 'Retention',
+  'notices.kind.notify': 'Alerts',
   'notices.ago.now': 'now',
   'notices.ago.min': '{n} min ago',
   'notices.ago.hour': '{n} h ago',
@@ -27,6 +28,7 @@ export const noticesEn: AreaDictionary<typeof noticesKeys> = {
   'notices.reminder.open': 'Open session',
   'notices.sync.pausedToo': 'Sync is paused',
   'notices.sync.open': 'Open sync settings',
+  'notices.sync.skipped': '{n} transcripts could not be received',
   'notices.compat.title': 'Changes detected',
   'notices.compat.detailOne': 'Claude Code {version}: 1 change',
   'notices.compat.detailMany': 'Claude Code {version}: {n} changes',
@@ -37,4 +39,7 @@ export const noticesEn: AreaDictionary<typeof noticesKeys> = {
   'notices.retention.soonDetail': 'Claude Code deletes transcripts after {days} days',
   'notices.retention.ruleDetail': 'They also disappear from hangar',
   'notices.retention.open': 'Extend retention…',
+  'notices.notify.title': 'Know even when you are away',
+  'notices.notify.detail': 'When the window is in the background, Hangar sends an OS notification for sessions waiting for input and for reminder times',
+  'notices.notify.open': 'Turn on notifications',
 };

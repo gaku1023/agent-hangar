@@ -154,9 +154,9 @@ export function bootSync(
     ? new RemotePuller({
         db, deviceId, home: home.home, client, key: fileKey, state: syncState,
         onConfigEntries: async (entries: FileEntry[]) => { await configSync?.applyPull(entries); },
-        // 鳴るのは 1 回目と諦めたときだけなので、そのままトーストに出してよい。
-        // 見逃した利用者のために、諦めた項目は同期の状態（syncSkipped）にも残る。
-        onError: (k, m) => { console.error('[pull]', k, m); toast('error', t(home.language(), 'sync.pull.failed', { kind: k, reason: m })); },
+        // 画面へは toast を流さない（トーストは操作の結果だけにした）。
+        // 諦めた項目は同期の状態（skipped）に残り、画面のベルの一覧が事実からその行を組む。
+        onError: (k, m) => { console.error('[pull]', k, m); },
       })
     : null;
   const feed = createSyncFeed({ hub, puller, uploader, oncePass: () => once.pass.active(), isPaused, cloudUsage, toast });

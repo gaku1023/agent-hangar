@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionDto, SessionStateDto } from '@agent-hangar/shared';
-import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY, returnStep, sessionIdOfReturnKey, settleReturn } from './returnDue.ts';
-import { initialState, transition } from './transition.ts';
-import { initialStore } from '../store/store.ts';
+import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY, returnStep, sessionIdOfReturnKey } from './returnDue.ts';
+import { initialState } from './transition.ts';
 import type { State } from './types.ts';
 
 /** 2026-10-05（月）。時刻は手元の時刻で作る。 */
@@ -48,52 +47,36 @@ describe('nextReturnAt', () => {
 describe('returnStep', () => {
   const K1 = 'timer|2026-10-05 13:30';
   const K2 = 'night|2026-10-05 21:50';
-  it('新しく過ぎたものを札に積み、通知の効果を出し、知らせた鍵を覚える', () => {
+  // 右下の札は入力待ちだけになった（PR 29）。戻る時刻は OS の通知と、ベルの一覧の行（presenters/notices.ts）で知らせる。
+  it('新しく過ぎたものに通知の効果を出し、知らせた鍵を覚える。画面の状態は増やさない', () => {
     const r = returnStep(initialState(), due([K1]))!;
-    expect(r.state.returnToasts).toEqual(['timer']);
     expect(r.state.returnSeen).toEqual([K1]);
+    expect('returnToasts' in r.state).toBe(false);
     expect(r.effects).toEqual([{ kind: 'notify.return', sessionId: 'timer' }, { kind: 'storage.save', key: RETURN_SEEN_KEY, value: [K1] }]);
   });
-  it('すでに知らせた鍵では、札も通知も出さない（1 回だけ）', () => {
+  it('すでに知らせた鍵では、通知も出さない（1 回だけ）', () => {
     const seen: State = { ...initialState(), returnSeen: [K1] };
     const r = returnStep(seen, due([K1, K2]))!;
-    expect(r.state.returnToasts).toEqual(['night']);
     expect(r.effects).toEqual([{ kind: 'notify.return', sessionId: 'night' }, { kind: 'storage.save', key: RETURN_SEEN_KEY, value: [K1, K2] }]);
     // 同じ並びがもう一度届いても何もしない。
     expect(returnStep(r.state, due([K1, K2]))).toEqual({ state: r.state, effects: [] });
   });
-  it('過ぎたものから外れたら（resume や付け直し）、札を下げて鍵も忘れる。時刻を付け直せばまた知らせる', () => {
+  it('過ぎたものから外れたら（resume や付け直し）、鍵を忘れる。時刻を付け直せばまた知らせる', () => {
     const first = returnStep(initialState(), due([K1]))!.state;
     const gone = returnStep(first, due([]))!;
-    expect(gone.state.returnToasts).toEqual([]);
     expect(gone.state.returnSeen).toEqual([]);
     expect(gone.effects).toEqual([{ kind: 'storage.save', key: RETURN_SEEN_KEY, value: [] }]);
     const again = returnStep(gone.state, due(['timer|2026-10-05 15:00']))!;
-    expect(again.state.returnToasts).toEqual(['timer']);
     expect(again.effects[0]).toEqual({ kind: 'notify.return', sessionId: 'timer' });
   });
-  it('いま開いているセッションは見えているので札にしないが、通知の効果は出す（窓が背面かはランタイムが見る）', () => {
+  it('いま開いているセッションでも通知の効果は出す（窓が背面かはランタイムが見る）', () => {
     const open: State = { ...initialState(), screen: { name: 'session', id: 'timer' } };
     const r = returnStep(open, due([K1]))!;
-    expect(r.state.returnToasts).toEqual([]);
     expect(r.effects[0]).toEqual({ kind: 'notify.return', sessionId: 'timer' });
   });
-  it('札は閉じられる。閉じても鍵は覚えたままで、また出ない', () => {
-    const first = returnStep(initialState(), due([K1]))!.state;
-    const r = returnStep(first, { kind: 'intent', intent: { type: 'return.toast.dismiss', id: 'timer' } })!;
-    expect(r.state.returnToasts).toEqual([]);
-    expect(r.state.returnSeen).toEqual([K1]);
-    expect(returnStep(r.state, due([K1]))!.state.returnToasts).toEqual([]);
-  });
-  it('そのセッションを開いたら札を下げる', () => {
-    const first = returnStep(initialState(), due([K1, K2]))!.state;
-    expect(settleReturn({ ...first, screen: { name: 'session', id: 'timer' } }).returnToasts).toEqual(['night']);
-    // transition を通しても同じ。
-    const opened = transition(first, initialStore(), { kind: 'runtime', event: { type: 'hash.changed', route: { name: 'session', id: 'timer' } } });
-    expect(opened.state.returnToasts).toEqual(['night']);
-  });
-  it('ほかの入力は扱わない', () => {
+  it('ほかの入力は扱わない（札を下げる意図は無くなった）', () => {
     expect(returnStep(initialState(), { kind: 'runtime', event: { type: 'window.focus' } })).toBeNull();
+    expect(returnStep(initialState(), { kind: 'intent', intent: { type: 'nav.go', to: { name: 'home' } } })).toBeNull();
   });
 });
 

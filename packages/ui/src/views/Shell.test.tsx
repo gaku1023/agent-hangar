@@ -4,7 +4,7 @@ import { IntentRoot } from '../intent/chain.tsx';
 import { syncFixture } from '../test/syncProps.ts';
 import { Shell } from './Shell.tsx';
 
-const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), retention: { visible: false, title: '', detail: '', extendTo: 365 }, account: null, newSession: {} };
+const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -158,18 +158,25 @@ describe('Shell', () => {
     fireEvent.click(banner.getByRole('button', { name: 'ログの場所 をコピー' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' });
   });
-  it('保持期間の帯を出し、閉じると延ばすの Intent を出す。切断の帯と積める', () => {
+  it('ヘッダーにベルを置く。未読の数を札に出し、押すと知らせの一覧が開いて、行の操作を送れる', () => {
     const onIntent = vi.fn();
-    const retention = { visible: true, title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます ・ いま 1.5 GB', extendTo: 365 };
-    const conn = { visible: true, staleLabel: '画面の更新が止まっています', retryLabel: '再接続しています', hard: false, desktop: false };
-    render(<IntentRoot onIntent={onIntent}><Shell {...props} conn={conn} retention={retention} overlays={null}><div /></Shell></IntentRoot>);
-    expect(screen.getAllByRole('status')).toHaveLength(2);
-    const banner = within(screen.getByRole('status', { name: '会話の保持期間' }));
-    expect(banner.getByText('会話は 30 日で削除されます')).toBeInTheDocument();
-    fireEvent.click(banner.getByRole('button', { name: 'このままでよい' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'retention.dismiss' });
-    fireEvent.click(banner.getByRole('button', { name: '保持期間を延ばす…' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'banner' });
+    const row = { key: 'retention|30|rule', kind: 'retention' as const, tone: 'warn' as const, icon: 'retention' as const, kindLabel: '保持期間', title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます', when: null, unread: true, action: { label: '設定を開く', intent: { type: 'nav.go' as const, to: { name: 'settings' as const } } } };
+    const notices = { rows: [row], unread: 1, keys: [row.key], label: '通知（未読 1 件）' };
+    render(<IntentRoot onIntent={onIntent}><Shell {...props} notices={notices} overlays={null}><div /></Shell></IntentRoot>);
+    const bell = screen.getByRole('button', { name: '通知（未読 1 件）' });
+    expect(within(bell).getByText('1')).toBeInTheDocument();
+    // 保持期間の帯はヘッダーの下に出ない。
+    expect(screen.queryByRole('status', { name: '会話の保持期間' })).toBeNull();
+    fireEvent.click(bell);
+    const list = within(screen.getByRole('dialog', { name: '通知' }));
+    expect(list.getByText('会話は 30 日で削除されます')).toBeInTheDocument();
+    fireEvent.click(list.getByRole('button', { name: '設定を開く' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'notices.read', keys: [row.key] });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+  });
+  it('ベルは未読が無くても出す（数の札だけを隠す）', () => {
+    render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    expect(within(screen.getByRole('button', { name: '通知' })).queryByText('0')).toBeNull();
   });
   it('つながっている間は帯を出さない', () => {
     render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);

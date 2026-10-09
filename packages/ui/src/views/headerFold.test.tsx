@@ -56,7 +56,7 @@ describe('chooseFoldLevel（どこまで畳むか）', () => {
 
 const usage = { fiveHour: 48, sevenDay: 12, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' };
 const sync = syncFixture({ pending: '未送信の変更 6', sweepPending: '未送信のトランスクリプト 44', skipped: '送信に失敗したトランスクリプト 2' });
-const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [], foot: [], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: '索引 10 / 200 件', usage, sync, retention: { visible: false, title: '', detail: '', extendTo: 365 }, account: null, newSession: {} };
+const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [], foot: [], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: '索引 10 / 200 件', usage, sync, notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
 /** アカウントが 2 件あるときのヘッダ。計器は shown（会社）の値で作る。 */
 const accountList = presentAccounts({ ...initialStore(), accounts: accountsFixture }, 0);
 const withAccount = { ...props, account: { shown: accountList[0]!, list: accountList, sessionId: null, working: false } };

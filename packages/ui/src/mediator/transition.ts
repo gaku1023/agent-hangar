@@ -2,7 +2,7 @@ import { accountsStep } from './accounts.ts';
 import { connectionStep } from './connection.ts';
 import { launchStep } from './launch.ts';
 import { liveStep, settleWaiting } from './live.ts';
-import { returnStep, settleReturn } from './returnDue.ts';
+import { returnStep } from './returnDue.ts';
 import { noticesStep } from './notices.ts';
 import { notifyStep } from './notify.ts';
 import { overlayStep, settleQueue } from './overlay.ts';
@@ -24,7 +24,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], retentionBannerDismissed: false, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -82,10 +82,10 @@ function storeChanged(state: State, store: Store): Step {
 /**
  * 領域が応答した後の整え。
  * 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
- * 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
+ * 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。
  */
 function settled(prev: State, r: Step): Step {
-  const state = settleReturn(settleWaiting(settleQueue(r.state)));
+  const state = settleWaiting(settleQueue(r.state));
   return fetchDirsOnOpen(prev, state === r.state ? r : { ...r, state });
 }
 

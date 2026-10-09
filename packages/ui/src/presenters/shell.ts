@@ -6,7 +6,7 @@ import { presentAccounts, type AccountGauge, type AccountView } from './accounts
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
-import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
+import { presentNotices, type NoticesProps } from './notices.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 
 /**
@@ -43,8 +43,6 @@ export type ConnProps = { visible: boolean; staleLabel: string; retryLabel: stri
 export const DESKTOP_LOG_PATH = '~/.agent-hangar/desktop.log';
 /** 帯を強い形に切り替えるまでに許す、再接続の失敗の回数。 */
 export const HARD_AFTER_FAILURES = 3;
-/** 保持期間の帯。既定の 30 日のままで、書けて、まだ閉じていないときだけ出す。 */
-export type RetentionBannerProps = { visible: boolean; title: string; detail: string; extendTo: number };
 /**
  * newSession はヘッダーの新規ボタンで開くダイアログの、最初の選択である。
  * wide は本文の幅の上限（--main-w）を外す画面か。
@@ -67,7 +65,7 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; a
  * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
  */
 export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number };
-export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
+export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -141,21 +139,6 @@ function syncProps(store: Store, now: number, tz?: string): SyncProps {
   const skipped = count(store.sync?.skipped.length, 'header.sync.skipped');
   const text = [label, pending, sweepPending, skipped].filter((x): x is string => x !== null && x !== '').join(t('header.sync.separator'));
   return { visible: store.sync !== null, state: s.kind, label, title: store.sync === null ? '' : t('header.sync.title', { text }), pending, sweepPending, skipped, reason, once };
-}
-
-/**
- * 保持期間の帯。値を自分で入れた人（30 日を含む）と、組織の設定で決まっている人には出さない。
- * 消えかけの会話があればその件数を、無ければ「消える」という決まりそのものを言う。
- */
-function retentionBanner(state: State, store: Store, now: number): RetentionBannerProps {
-  const r = store.retention;
-  const hidden: RetentionBannerProps = { visible: false, title: '', detail: '', extendTo: EXTEND_TO };
-  if (!store.bootstrapped || !r || r.source !== 'default' || !r.writable || state.retentionBannerDismissed) return hidden;
-  const soon = countExpiring(Object.values(store.sessions), r.days, now);
-  const usage = r.usage ? ` ・ いま ${bytesLabel(r.usage.bytes)}` : '';
-  return soon > 0
-    ? { visible: true, title: `${soon} 件の会話が、まもなく削除されます`, detail: `Claude Code は ${daysLabel(r.days)}で本文を消します${usage}`, extendTo: EXTEND_TO }
-    : { visible: true, title: `会話は ${daysLabel(r.days)}で削除されます`, detail: `hangar の履歴からも消えます${usage}`, extendTo: EXTEND_TO };
 }
 
 type NavDef = { route: Route; label: string; matches: string[] };
@@ -232,5 +215,5 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
   const item = (n: NavDef): NavItem => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 });
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map(item), foot: FOOT.map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map(item), foot: FOOT.map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

@@ -86,14 +86,12 @@ a:hover { text-decoration: underline; }
 /* 中身はヘッダの下をくぐって流れる。上の余白は、ヘッダの高さと、その下の隙間の分である。
    scroll-padding-top を同じ値にしておくと、j と k の行送りや Shift+Tab で届いた先がヘッダの下に隠れない。 */
 .main { grid-column: 2; grid-row: 1 / -1; overflow: auto; padding-top: calc(var(--header-h) + var(--float-gap)); scroll-padding-top: calc(var(--header-h) + var(--float-gap)); }
-/* 帯（切断、保持期間）が出ている間は、帯の分も空ける。
+/* 帯（切断）が出ている間は、帯の分も空ける。
    帯の下端は、ヘッダ header-h、帯の上の隙間 float-gap * 0.75、帯の高さ row-h の和である（ヘッダは窓の上辺に付いているので、上の隙間は無い）。
    そこに float-gap を足して、ヘッダの下と同じ隙間で中身を始める。
    今の値では 44 + 6 + 28 + 8 = 86px になる。
    scroll-padding-top も同じ値にし、キーボードで届いた先が帯とヘッダの下に隠れないようにする。 */
 .shell:has(.banners > :nth-child(1)) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 1.75 + var(--row-h)); }
-/* 帯が 2 つのときは、帯の間の隙間 float-gap * 0.75 と 2 つめの帯の高さを足す。44 + 6 + 28 + 6 + 28 + 8 = 120px。 */
-.shell:has(.banners > :nth-child(2)) .main { padding-top: calc(var(--header-h) + var(--float-gap) * 2.5 + var(--row-h) * 2); scroll-padding-top: calc(var(--header-h) + var(--float-gap) * 2.5 + var(--row-h) * 2); }
 .main-inner { max-width: var(--main-w); margin: 0 auto; padding: calc(var(--u) * 2) calc(var(--u) * 4) calc(var(--u) * 4) var(--gutter-l); }
 /* 現れるものは、ぼかしが晴れながら --rise だけ上がって来る。
    ぼかしは 20% の時点で none にして晴らし切り、残りは薄れと移動だけで入る。
@@ -295,7 +293,7 @@ a:hover { text-decoration: underline; }
 
 /* 切断の帯。浮いたヘッダの下に降りてきて、押せる逃げ道をひとつ添える。通知と同じガラスに、赤を少し混ぜる。
    高さは row-h に決め打ちし、上下の余白は持たない。中身の上の余白（.shell:has(.banners > ...) .main）はこの高さから計算している。
-   置き場所と外側の余白は、保持期間の帯と縦に積む箱（.banners）が持つ。
+   置き場所と外側の余白は、帯を縦に積む箱（.banners）が持つ。
    中の小さいボタン（.btn-sm）は row-h より 6px 低いので、上下に 3px ずつ残って収まる。 */
 .banners { grid-column: 2; grid-row: 2; z-index: 2; display: flex; flex-direction: column; gap: calc(var(--float-gap) * 0.75); margin: calc(var(--float-gap) * 0.75) var(--float-gap) 0; }
 .banners:empty { display: none; }
@@ -314,13 +312,6 @@ a:hover { text-decoration: underline; }
 .conn-banner[data-hard] .btn { color: var(--error); }
 .conn-banner[data-hard] .copy-btn { margin-left: auto; color: #ffffff; }
 .conn-banner[data-hard] .copy-btn:hover { background: rgba(255, 255, 255, 0.16); color: #ffffff; }
-/* 保持期間の帯。形は切断の帯と同じで、色だけを警告の琥珀にする。 */
-.retention-banner { display: flex; align-items: center; gap: calc(var(--u) * 2); height: var(--row-h); padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--st-paused); background: color-mix(in srgb, var(--busy) 12%, var(--glass-bg-toast)); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: drop-in var(--dur) var(--ease-out); }
-.retention-banner > b, .retention-banner > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.retention-banner > b { flex: none; }
-.retention-banner > .retention-detail { flex-shrink: 4; color: color-mix(in srgb, var(--st-paused) 65%, var(--ink-3)); }
-.retention-banner .btn { flex: none; }
-.retention-banner .btn:first-of-type { margin-left: auto; }
 @keyframes drop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 /* 横から入る形（要約の一行）。左から --rise だけ寄りながら、ぼかしが晴れる。 */
 @keyframes enter-x { from { opacity: 0; transform: translateX(calc(var(--rise) * -1)); filter: blur(var(--blur-in)); } 20% { filter: none; } }
@@ -359,7 +350,7 @@ a:hover { text-decoration: underline; }
 .dialog-danger .dialog-body { padding-left: calc(var(--dialog-pad) + 36px + var(--u) * 3); }
 @keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 /* 右下に積む知らせ。
-   上から error と info のトースト、通知の誘い、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */
+   上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */
 .toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); z-index: 20; max-width: calc(100vw - var(--u) * 8); }
 .toast { max-width: 420px; background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; text-align: left; }
 /* 知らせの札。種類の色（--k）を薄く敷いた見出しと、その下の本文の 2 段でできている。
@@ -367,12 +358,6 @@ a:hover { text-decoration: underline; }
 .toast.notice { --k: var(--waiting); display: block; width: 360px; max-width: 100%; padding: 0; border: 0; overflow: hidden; font: inherit; box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--k) 24%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .notice[data-kind='error'] { --k: var(--error); cursor: default; }
 .notice[data-kind='info'] { --k: var(--accent); }
-/* 戻る時刻を過ぎた Paused の札。状態の色（黄土）を敷く。本文が開くボタンで、見出しの端に閉じるボタンを置く。 */
-.notice[data-kind='return'] { --k: var(--st-paused); cursor: default; }
-.notice[data-kind='return'] .notice-close { margin-left: 0; }
-.notice-open { width: 100%; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
-.notice-open:hover:not(:disabled) { background: rgba(255, 255, 255, 0.6); }
-.notice-open:disabled { opacity: 0.55; cursor: default; }
 .toast.notice[data-kind='waiting']:hover:not(:disabled), .toast.notice[data-kind='info']:hover { background: rgba(255, 255, 255, 0.95); transform: translateY(-1px); }
 /* 確認や入力のあるダイアログが開いている間は押せない。押してもダイアログの裏で画面は移らないので、薄くして押せるように見せない。 */
 .toast.notice:disabled { opacity: 0.55; cursor: default; }
@@ -401,10 +386,8 @@ a:hover { text-decoration: underline; }
 .btn-link.notice-more { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 600; color: var(--error); }
 .toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); }
 .toast-waiting-list:empty { display: none; }
-/* 小さな錠剤。通知の誘いと、4 件目からの数（ホームの要対応へ案内する）に使う。 */
+/* 小さな錠剤。4 件目からの数（ホームの要対応へ案内する）に使う。 */
 .toast.toast-pill { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 3px calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); color: var(--ink-2); }
-.toast.toast-offer { cursor: default; }
-.toast-offer > .btn-link { font-size: var(--fs-xs); }
 .toast.toast-more:hover:not(:disabled) { color: var(--ink); }
 @keyframes slide { from { opacity: 0; transform: translateX(16px); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 .progress { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
@@ -437,8 +420,9 @@ a:hover { text-decoration: underline; }
 .header .progress { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 主ボタン（新しいセッション）だけが面を持つ。
    同期と使用率の前には細い仕切りを置き、横にも塊ごとの間を見せる。 */
-.header .sync, .header .gauges { position: relative; padding-left: calc(var(--u) * 4.5); }
-.header .sync::before, .header .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: calc(var(--u) * 4); translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+.header .sync, .header .gauges, .header .header-bell { position: relative; padding-left: calc(var(--u) * 4.5); }
+.header .sync::before, .header .gauges::before, .header .header-bell::before { content: ''; position: absolute; left: 0; top: 50%; height: calc(var(--u) * 4); translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+.header .header-bell { flex: none; display: inline-flex; align-items: center; }
 /* ゲージの見出し（5 時間、週）。
    何の割合かが読めるよう、ゲージを出している間は隠さない。見出しの無い数字は読めないので、畳むときはゲージの組ごと畳む。 */
 .header .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
