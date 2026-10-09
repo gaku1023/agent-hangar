@@ -6,6 +6,7 @@ import { commonKeys } from './keys/common.ts';
 import { configKeys } from './keys/config.ts';
 import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
+import { headerKeys } from './keys/header.ts';
 import { homeKeys } from './keys/home.ts';
 import { httpKeys } from './keys/http.ts';
 import { launchKeys } from './keys/launch.ts';
@@ -55,6 +56,7 @@ export const MESSAGES = {
   ...configKeys,
   ...confirmKeys,
   ...externalKeys,
+  ...headerKeys,
   ...homeKeys,
   ...httpKeys,
   ...launchKeys,

@@ -6,6 +6,7 @@ import { commonEn } from './en/common.ts';
 import { configEn } from './en/config.ts';
 import { confirmEn } from './en/confirm.ts';
 import { externalEn } from './en/external.ts';
+import { headerEn } from './en/header.ts';
 import { homeEn } from './en/home.ts';
 import { httpEn } from './en/http.ts';
 import { launchEn } from './en/launch.ts';
@@ -43,6 +44,7 @@ export const en: Dictionary = {
   ...configEn,
   ...confirmEn,
   ...externalEn,
+  ...headerEn,
   ...homeEn,
   ...httpEn,
   ...launchEn,

@@ -6,6 +6,7 @@ import { commonJa } from './ja/common.ts';
 import { configJa } from './ja/config.ts';
 import { confirmJa } from './ja/confirm.ts';
 import { externalJa } from './ja/external.ts';
+import { headerJa } from './ja/header.ts';
 import { homeJa } from './ja/home.ts';
 import { httpJa } from './ja/http.ts';
 import { launchJa } from './ja/launch.ts';
@@ -43,6 +44,7 @@ export const ja: Dictionary = {
   ...configJa,
   ...confirmJa,
   ...externalJa,
+  ...headerJa,
   ...homeJa,
   ...httpJa,
   ...launchJa,

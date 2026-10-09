@@ -1103,7 +1103,7 @@ describe('同期とこの PC で再開', () => {
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
-    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ visible: true, state: 'idle', pending: 4 });
+    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ visible: true, state: 'idle', pending: '未送信の変更 4' });
     expect(rt.getStore().devices).toEqual([device]);
   });
   it('websocket の sync.status で、片付いた取り残しと回復した失敗が画面から消える', async () => {
