@@ -1,35 +1,35 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
-import { COMPAT_VERSION, isLanguage, languageOf, LANGUAGES, type BootstrapDto, type SettingsDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp } from '@agent-hangar/shared';
-import { listArtifacts } from '../artifacts/queries.ts';
-import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
-import { JsonTextEditError } from '../config/jsonTextEdit.ts';
-import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
-import { checkToolPath, expandHome, isCommandName } from '../config/readiness.ts';
-import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
-import { statuslineStatus } from '../config/statusline.ts';
-import { touchRow } from '../db/notify.ts';
-import { listProjects, listSessions } from '../db/queries.ts';
+import { COMPAT_VERSION, type SyncSkippedDto, type SyncStatusBody } from '@agent-hangar/shared';
 import { createMcpApp } from '../mcp/app.ts';
-import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
-import { listTodos } from '../projects/todos.ts';
-import { aggregateUsage } from '../usage/aggregate.ts';
-import { accountsRoutes, buildAccountsDto, type AccountsDeps } from './accounts.ts';
-import { listPromptCommands } from '../prompt/commands.ts';
-import { listProjectFiles } from '../prompt/files.ts';
-import { MAX_DROP_BYTES, pruneDrops, resolveDrop, saveDrop } from '../prompt/drops.ts';
+import { accountsRoutes, type AccountsDeps } from './accounts.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 import type { AppDeps } from './deps.ts';
-import { beforeLaunchOf, BODY_LIMITS, externalOf, projectOf, readBody, readJson, syncStatusOf, tooLargeResult } from './routes/common.ts';
 import { artifactRoutes } from './routes/artifacts.ts';
+import { bootstrapRoutes } from './routes/bootstrap.ts';
+import { beforeLaunchOf } from './routes/common.ts';
 import { memoRoutes } from './routes/memos.ts';
 import { projectRoutes } from './routes/projects.ts';
+import { promptRoutes } from './routes/prompt.ts';
+import { retentionRoutes } from './routes/retention.ts';
 import { runRoutes } from './routes/runs.ts';
 import { sessionRoutes } from './routes/sessions.ts';
+import { settingsRoutes } from './routes/settings.ts';
+import { syncRoutes } from './routes/sync.ts';
+import { systemRoutes } from './routes/system.ts';
 import { todoRoutes } from './routes/todos.ts';
+import { usageRoutes } from './routes/usage.ts';
 
+/**
+ * HTTP の層の組み立て。
+ * 経路の中身は資源ごとのファイル（routes/*.ts）にあり、ここは認証を当てて、それらを登録するだけである。
+ * 依存の一覧（AppDeps）は deps.ts にある。
+ * 下の再輸出は、これらを app.ts から引いている呼び手を切らないためである。
+ */
 export type { AppDeps, ConfigSyncApi, ExternalApi, RunsApi, SummaryApi, SummaryEnqueueOpts, SyncApi } from './deps.ts';
+export { safeExternalMessage } from './routes/common.ts';
+export { toSettingsDto } from './routes/settings.ts';
 /**
  * 型は shared に移した。
  * 画面も同じ形を読むので、正本は 1 つにしてある。
@@ -37,23 +37,6 @@ export type { AppDeps, ConfigSyncApi, ExternalApi, RunsApi, SummaryApi, SummaryE
  */
 export type { SyncSkippedDto, SyncStatusBody };
 
-/** 空にできない文字列の設定。 */
-const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
-/** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
-const PATH_SETTING_KEYS = ['tmuxPath', 'codePath', 'nodePath', 'claudePath'] as const;
-const TERMINAL_APPS = new Set<string>(['terminal', 'iterm']);
-/**
- * 「1 時間の上限」の上限。
- * 画面の入力（SettingsScreen の Stepper）と同じにする。
- */
-const SUMMARY_HOURLY_CAP_MAX = 200;
-/**
- * 設定の項目の、画面の欄の見出し。
- * エラー文は画面のトーストに出るので、内部のキー名ではなくこの見出しで言う。
- */
-const SETTING_LABEL: Record<(typeof TEXT_SETTING_KEYS)[number] | (typeof PATH_SETTING_KEYS)[number], string> = {
-  workspaceRoot: 'ワークスペースのルート', claudeDir: '読み取り元', tmuxPath: 'tmux のパス', codePath: 'code のパス', nodePath: 'Node のパス', claudePath: 'claude のパス',
-};
 /**
  * トークンのクッキーの寿命。
  * 期限を書かないとブラウザを閉じたときに消え、そのたびに鍵付きの URL が要る。
@@ -115,16 +98,6 @@ const CSP = [
 ].join('; ');
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, syncClaudeConfig: s.syncClaudeConfig, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
-
-/** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
-function parseHttpUrl(v: string): URL | null {
-  let u: URL;
-  try { u = new URL(v); } catch { return null; }
-  return (u.protocol === 'http:' || u.protocol === 'https:') && u.hostname !== '' ? u : null;
-}
-export { safeExternalMessage } from './routes/common.ts';
-
 /** HTTP API を組み立てる。/api 配下は認証必須で、/health と UI 配信だけが素通しになる。 */
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
@@ -137,294 +110,24 @@ export function createApp(deps: AppDeps): Hono {
   const api = new Hono();
   api.use('*', authMiddleware(deps.token, deps.port));
 
-  const requireProject = projectOf(deps);
-  const external = externalOf(deps);
-  const syncStatus = syncStatusOf(deps);
-  const beforeLaunch = beforeLaunchOf(deps);
-  const accountsDeps: AccountsDeps = { beforeLaunch, ...deps.accounts };
+  // 経路の登録。同じメソッドで同じパスに当たる経路の組は無いので、当たり方は登録の順に依らない。
+  // 経路を足すときも、そうなるようにパスを決める。
+  // アカウントの切り替えは、resume と同じく起動の前に同期の取り込みを待つ。
+  const accountsDeps: AccountsDeps = { beforeLaunch: beforeLaunchOf(deps), ...deps.accounts };
   accountsRoutes(api, accountsDeps);
-
-  api.get('/bootstrap', (c) => {
-    const live = deps.live();
-    const alive = deps.runs.listAlive();
-    const body: BootstrapDto = {
-      sync: syncStatus(),
-      devices: deps.devices(),
-      device: { id: deviceId, name: deps.deviceName },
-      settings: toSettingsDto(deps.settings()),
-      projects: listProjects(db, deviceId, live),
-      sessions: listSessions(db, live, { deviceId }),
-      live,
-      runs: alive.runs,
-      tabs: alive.tabs,
-      todos: listTodos(db),
-      artifacts: listArtifacts(db),
-      summaryPending: deps.summary.pending(),
-      index: deps.indexer.progress(),
-      version: deps.version,
-      retention: deps.retention.current(),
-      cloudUsage: deps.cloudUsage.current(),
-      accounts: buildAccountsDto(accountsDeps, { checkLinks: true }),
-    };
-    return c.json(body);
-  });
-
+  bootstrapRoutes(api, deps);
   projectRoutes(api, deps);
-  // 初期プロンプト欄の `/` の候補。projectId が無ければ（スクラッチなど）、プロジェクトのものは読まない。
-  api.get('/prompt/commands', (c) => {
-    const id = c.req.query('projectId');
-    const project = id ? requireProject(id) : null;
-    if (id && !project) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    return c.json({ commands: listPromptCommands({ claudeDir: deps.settings().claudeDir, projectPath: project?.path ?? null }) });
-  });
-  // 初期プロンプト欄の `@` の候補。パスの無いプロジェクト（まだ場所が決まっていないもの）では空を返す。
-  api.get('/prompt/files', async (c) => {
-    const id = c.req.query('projectId');
-    if (!id) return c.json({ error: 'projectId が要ります' }, 400);
-    const project = requireProject(id);
-    if (!project) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    return c.json({ files: project.path ? await listProjectFiles(project.path, c.req.query('q') ?? '') : [] });
-  });
-  // 初期プロンプト欄の添付。端末へのドロップ（殻の filedrop.rs）と同じ置き場に置く。
-  const dropsDir = path.join(deps.home, 'drops');
-  const DROP_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
-  api.post('/drops/existing', async (c) => {
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const paths = (b.value as { paths?: unknown } | null | undefined)?.paths;
-    if (!Array.isArray(paths)) return c.json({ error: 'paths が要ります' }, 400);
-    // フォルダを落としたときは元のパスがそのまま添付になるので、ファイルに限らず「ある」かだけを見る。
-    return c.json({ paths: paths.filter((p): p is string => typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p)) });
-  });
-  api.post('/drops', async (c) => {
-    // 先に長さの申告で断り、読んだ後にも実際の大きさで断る（申告は偽れる）。
-    if (Number(c.req.header('content-length') ?? 0) > MAX_DROP_BYTES) return tooLargeResult(c, MAX_DROP_BYTES);
-    const bytes = new Uint8Array(await c.req.arrayBuffer());
-    if (bytes.byteLength > MAX_DROP_BYTES) return tooLargeResult(c, MAX_DROP_BYTES);
-    if (bytes.byteLength === 0) return c.json({ error: '中身がありません' }, 400);
-    pruneDrops(dropsDir, Date.now());
-    return c.json(saveDrop(dropsDir, c.req.query('name') ?? '', bytes), 201);
-  });
-  api.get('/drops/:name', (c) => {
-    const file = resolveDrop(dropsDir, c.req.param('name'));
-    if (!file) return c.notFound();
-    // 画像だけを画像として返す。ほかは開かせない。置いたものを頁として解釈させないためである。
-    c.header('Content-Type', DROP_TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream');
-    c.header('X-Content-Type-Options', 'nosniff');
-    c.header('Cache-Control', 'private, max-age=3600');
-    return c.body(fs.readFileSync(file));
-  });
+  promptRoutes(api, deps);
   sessionRoutes(api, deps);
-  api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));
-  /** 保持期間として受け付ける値。Claude Code は 1 未満を弾く。上は 100 年で切り、打ち間違いの桁あふれを通さない。 */
-  const retentionDays = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 36500 ? v : null);
-  const BAD_DAYS = '保持期間は 1 以上 36500 以下の整数で指定してください';
-
-  api.get('/retention', (c) => c.json(deps.retention.current()));
-  api.post('/retention/preview', async (c) => {
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const days = retentionDays((b.value as { days?: unknown } | null)?.days);
-    if (days === null) return c.json({ error: BAD_DAYS }, 400);
-    try {
-      return c.json(deps.retention.preview(days));
-    } catch (e) {
-      if (e instanceof JsonTextEditError) return c.json({ error: e.message }, 400);
-      throw e;
-    }
-  });
-  api.put('/retention', async (c) => {
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const body = (b.value ?? {}) as { days?: unknown; baseSha256?: unknown };
-    const days = retentionDays(body.days);
-    if (days === null) return c.json({ error: BAD_DAYS }, 400);
-    if (typeof body.baseSha256 !== 'string') return c.json({ error: '下見の指紋がありません' }, 400);
-    try {
-      return c.json(deps.retention.write(days, body.baseSha256));
-    } catch (e) {
-      if (e instanceof RetentionConflictError) return c.json({ error: 'retention_conflict' }, 409);
-      if (e instanceof JsonTextEditError || e instanceof RetentionUnwritableError || (e instanceof Error && e.message === LOCK_BUSY_MESSAGE)) return c.json({ error: e.message }, 400);
-      throw e;
-    }
-  });
-
-  api.patch('/settings', async (c) => {
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const body = (b.value ?? {}) as Record<string, unknown>;
-    // 受け取るのは既知の項目だけにする。本文をそのまま設定に混ぜない。
-    const patch: Partial<SettingsDto> = {};
-    for (const key of TEXT_SETTING_KEYS) {
-      if (!(key in body)) continue;
-      const v = body[key];
-      if (typeof v !== 'string' || v.trim() === '') return c.json({ error: `「${SETTING_LABEL[key]}」は空にできません` }, 400);
-      patch[key] = v;
-    }
-    // ワークスペースは、保存する前にディレクトリがあることを確かめる。
-    // 無いところを保存すると、プロジェクトが 1 つも登録されないまま、何が悪いのかが画面から読めない。
-    if (patch.workspaceRoot !== undefined) {
-      const root = expandHome(patch.workspaceRoot.trim());
-      const st = fs.statSync(root, { throwIfNoEntry: false });
-      if (!st) return c.json({ error: `「${SETTING_LABEL.workspaceRoot}」に ${root} が見つかりません` }, 400);
-      if (!st.isDirectory()) return c.json({ error: `「${SETTING_LABEL.workspaceRoot}」の ${root} はディレクトリではありません` }, 400);
-      patch.workspaceRoot = root;
-    }
-    for (const key of PATH_SETTING_KEYS) {
-      if (!(key in body)) continue;
-      const v = body[key];
-      if (v !== null && typeof v !== 'string') return c.json({ error: `「${SETTING_LABEL[key]}」の値の形が違います` }, 400);
-      // 空文字は「未設定」と同じ意味なので null に寄せる。
-      // 前後の空白は落とす。空白付きのままでは、そのパスで起動できない。
-      if (typeof v !== 'string' || v.trim() === '') { patch[key] = null; continue; }
-      // 保存する前に、あることと実行できることを確かめる。
-      // 動かないパスを保存すると、起動や要約が後になって、別の場所で失敗する。
-      // 名前だけ（tmux など）は PATH から探して確かめ、打たれたまま保存する。起動のときも子プロセスが PATH から探すからである。
-      // ./x や bin/x のような相対パスは、サーバの作業ディレクトリで読むとどこを指すかが分からないので弾く。
-      const raw = v.trim();
-      const name = isCommandName(raw);
-      if (!name && !path.isAbsolute(expandHome(raw))) return c.json({ error: `「${SETTING_LABEL[key]}」は / か ~ で始まるパスか、tmux のようなコマンドの名前にしてください` }, 400);
-      const t = checkToolPath(raw);
-      if (t.problem === 'missing') return c.json({ error: name ? `「${SETTING_LABEL[key]}」の ${raw} が PATH に見つかりません` : `「${SETTING_LABEL[key]}」に ${t.path} が見つかりません` }, 400);
-      if (t.problem === 'notFile') return c.json({ error: `「${SETTING_LABEL[key]}」の ${t.path} はファイルではありません` }, 400);
-      if (t.problem === 'notExecutable') return c.json({ error: `「${SETTING_LABEL[key]}」の ${t.path} には実行権がありません` }, 400);
-      // パスは ~ を直した値で保存する（起動するときに ~ は直されない）。名前は打たれたまま残す。
-      patch[key] = name ? raw : t.path;
-    }
-    if ('terminalApp' in body) {
-      const v = body.terminalApp;
-      if (typeof v !== 'string' || !TERMINAL_APPS.has(v)) return c.json({ error: '「ターミナルアプリ」は Terminal.app か iTerm2 から選んでください' }, 400);
-      patch.terminalApp = v as TerminalApp;
-    }
-    if ('lmStudioUrl' in body) {
-      // URL の解析は前後の空白を黙って落とすので、保存する値も落としておく。
-      // 落とさないと、貼り付けで空白が混ざった値がそのまま設定に残る。
-      const v = typeof body.lmStudioUrl === 'string' ? body.lmStudioUrl.trim() : body.lmStudioUrl;
-      // host の無い http:// は繋ぎ先にならないので、形だけでなく URL として読めることを確かめる。
-      if (typeof v !== 'string' || !parseHttpUrl(v)) return c.json({ error: '「LM Studio の URL」は http か https で始まる URL にしてください' }, 400);
-      // 末尾の / は付けない。呼び出し側が /v1/... を足すので、二重の / を作らない。
-      patch.lmStudioUrl = v.replace(/\/+$/, '');
-    }
-    if ('lmStudioModel' in body) {
-      const v = body.lmStudioModel;
-      if (v !== null && typeof v !== 'string') return c.json({ error: '「モデル」の値の形が違います' }, 400);
-      // 空文字と空白だけの文字列は「未設定」と同じ意味なので null に寄せる。
-      // 前後の空白は落とす。パス系の設定と同じ扱いにそろえる。
-      patch.lmStudioModel = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
-    }
-    if ('summaryFallback' in body) {
-      const v = body.summaryFallback;
-      if (typeof v !== 'boolean') return c.json({ error: '「LM Studio が使えないとき Claude へ切り替える」の値の形が違います' }, 400);
-      patch.summaryFallback = v;
-    }
-    if ('summaryHourlyCap' in body) {
-      const v = body.summaryHourlyCap;
-      if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > SUMMARY_HOURLY_CAP_MAX) return c.json({ error: `「1 時間の上限」は 1 から ${SUMMARY_HOURLY_CAP_MAX} までの整数にしてください` }, 400);
-      patch.summaryHourlyCap = v;
-    }
-    if ('allowExternalSummarizer' in body) {
-      const v = body.allowExternalSummarizer;
-      if (typeof v !== 'boolean') return c.json({ error: '「外部の要約器を許す」の値の形が違います' }, 400);
-      patch.allowExternalSummarizer = v;
-    }
-    // Claude Code 設定の同期の入り切り。UI のチェックはこの項目だけを送る。
-    // ここが無いと patch が空になり、切り替えが「更新できる設定が含まれていません」で弾かれる。
-    if ('syncClaudeConfig' in body) {
-      const v = body.syncClaudeConfig;
-      if (typeof v !== 'boolean') return c.json({ error: '「Claude Code の設定を同期する」の値の形が違います' }, 400);
-      patch.syncClaudeConfig = v;
-    }
-    // 言語はこの PC の設定で、画面の文とサーバの文の両方が読む。辞書にある言語だけを受ける。
-    if ('language' in body) {
-      const v = body.language;
-      if (!isLanguage(v)) return c.json({ error: `「言語」は ${LANGUAGES.join(' か ')} から選んでください` }, 400);
-      patch.language = v;
-    }
-    if (Object.keys(patch).length === 0) return c.json({ error: '更新できる設定が含まれていません' }, 400);
-    // 要約器には会話の本文が送られる。宛先は既定でループバックだけにし、明示の許しがあるときだけ外へ出す。
-    // 許しと宛先は同じ要求で見る。片方ずつ変えて素通りする隙間を作らない。
-    const cur = deps.settings();
-    const allowExternal = patch.allowExternalSummarizer ?? cur.allowExternalSummarizer;
-    const nextLmUrl = patch.lmStudioUrl ?? cur.lmStudioUrl;
-    if (!allowExternal && !isLoopbackSummarizerUrl(nextLmUrl)) {
-      return c.json({ error: '要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、ほかの宛先は、設定の「外部の要約器を許す」を入れてから指定してください' }, 400);
-    }
-    const before = deps.settings();
-    const s = deps.updateSettings(patch);
-    // ワークスペースが変わったら、その場でプロジェクトを登録し直す。
-    // 登録したプロジェクトと、そこへ入ったセッションは、書いた行から配る層が配る。
-    // claudeDir の変更は索引の読み取り元なので、次の起動で反映する。
-    if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== before.workspaceRoot) {
-      syncProjectsFromWorkspace(db, deviceId, patch.workspaceRoot);
-      assignSessions(db, deviceId);
-    }
-    // 保存の知らせは画面が欄の横に出す（設定の C1）。サーバからはトーストを配らない。
-    return c.json(toSettingsDto(s));
-  });
-  api.post('/index/rebuild', (c) => {
-    void deps.indexer.rebuild().catch((e: unknown) => {
-      deps.hub.broadcast({ type: 'toast', level: 'error', message: `索引の作り直しに失敗しました: ${e instanceof Error ? e.message : String(e)}` });
-    });
-    return c.body(null, 202);
-  });
-
-  // 同期。どれも既存の authMiddleware の下にあり、鍵付きの入口と 3 つの検査を通る。
-  api.get('/sync/status', (c) => c.json(syncStatus()));
-  api.post('/sync/now', async (c) => { await deps.sync.syncNow(); return c.json(syncStatus()); });
-  api.post('/sync/pause', async (c) => {
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const body = (b.value ?? {}) as { paused?: unknown };
-    if (typeof body.paused !== 'boolean') return c.json({ error: 'paused は true か false です' }, 400);
-    deps.sync.setPaused(body.paused);
-    // 再開は pull を投げっぱなしにするので、直後のこの状態は pulling になりうる。
-    return c.json(syncStatus());
-  });
-  // 前面化は待たせない。間引き（前の pull から 5 秒）は SyncEngine.onFocus の中にある。
-  api.post('/sync/focus', (c) => { void deps.sync.onFocus().catch(() => {}); return c.body(null, 202); });
-  // 設定を開いたときは refresh=1 で取り直す。一時停止の間は取りに行かず、最後の値を返す（CloudUsagePoller が守る）。
-  api.get('/sync/usage', async (c) => c.json(c.req.query('refresh') === '1' ? await deps.cloudUsage.refresh() : deps.cloudUsage.current()));
-  api.get('/devices', (c) => c.json(deps.devices()));
-  // 参加トークンは全セッションの読み書き権を持つ。ログには出さず、UI が押したときだけ取りに来る。
-  api.get('/sync/joinToken', (c) => c.json({ token: deps.joinToken() }));
-  api.get('/sync/config/preview', (c) => (deps.configSync ? c.json(deps.configSync.preview()) : c.json({ error: 'クラウド同期が設定されていません' }, 404)));
-  api.post('/sync/config/pull', async (c) => (deps.configSync ? c.json(await deps.configSync.pull()) : c.json({ error: 'クラウド同期が設定されていません' }, 404)));
-
+  settingsRoutes(api, deps);
+  retentionRoutes(api, deps);
+  systemRoutes(api, deps);
+  syncRoutes(api, deps);
   runRoutes(api, deps);
-  // 使用量。statusline スクリプトが curl で送る。他の /api と同じ Bearer 認証を通す。
-  api.post('/ingest/statusline', async (c) => {
-    const text = await readBody(c, BODY_LIMITS.statusline);
-    if (text === null) return tooLargeResult(c, BODY_LIMITS.statusline);
-    let raw: unknown;
-    try { raw = JSON.parse(text); } catch { return c.json({ error: '本文が JSON ではありません' }, 400); }
-    const r = deps.usage.ingest(raw);
-    if (!r) return c.json({ error: 'statusline の payload の形が違います' }, 400);
-    // 使用率は、動かしたアカウントの値として accounts.update で配る。最初のアカウントも同じ道で届く。
-    if (r.usageChanged) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
-    if (r.providerSessionId) {
-      // 受けた値は手元だけの表（session_live_stats）に入る。セッションの行は変わらないが中身（モデル、文脈の量）が変わるので、名指しして配り直してもらう。
-      const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
-      if (s) touchRow(db, 'sessions', s.id);
-    }
-    return c.body(null, 204);
-  });
-  api.get('/usage', (c) => c.json(deps.usage.current()));
-  api.get('/usage/aggregate', (c) => {
-    const raw = c.req.query('days');
-    const days = raw === undefined ? 30 : Number(raw);
-    if (!Number.isInteger(days) || days < 1 || days > 365) return c.json({ error: 'days は 1 から 365 の整数です' }, 400);
-    return c.json(aggregateUsage(db, { days }));
-  });
-  api.get('/statusline', (c) => c.json(statuslineStatus(deps.settings().claudeDir)));
-  api.get('/shell-hook', (c) => c.json(deps.shellHook()));
-  api.get('/readiness', async (c) => c.json(await deps.readiness()));
-  api.get('/compat', async (c) => c.json(await deps.compat()));
-
+  usageRoutes(api, deps);
   todoRoutes(api, deps);
   memoRoutes(api, deps);
   artifactRoutes(api, deps);
-  api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));
-  api.post('/summarizer/test', async (c) => c.json(await deps.summary.test()));
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
