@@ -186,3 +186,54 @@
 .pause-chip kbd { font: inherit; font-size: var(--fs-xs); color: var(--ink-2); }
 .pause-chip[aria-checked='true'] kbd { color: var(--st-paused); }
 .pause-draft { font-size: var(--fs-xs); font-weight: 600; color: var(--cand); }
+
+/* プロジェクトの一覧（P1、行の表）。列の幅は --pcols に 1 つだけ持ち、列の見出し（.pcols）と行（.prow）が同じものを引く。
+   幅は表の幅で決める（コンテナクエリ）。狭いときは、まず「セッション」の列を落とし、「いま」の列を細くする。 */
+.ptable { --pcols: 62px minmax(0, 1.6fr) minmax(250px, 1fr) 82px 82px 28px; container-type: inline-size; }
+.pcols { display: grid; grid-template-columns: var(--pcols); gap: calc(var(--u) * 3.5); padding: 0 calc(var(--u) * 4) calc(var(--u) * 1.5) calc(var(--u) * 5); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.pcols .pn, .prow .pn { text-align: right; }
+.plist { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.plist section:last-child > [role='list'] > .prow:last-child { border-bottom: 0; }
+/* 節の見出し。地を敷いて行と分ける。Archived の 1 行だけは地も線も持たず、ほかの節より控えめにする。 */
+.prow-head { display: flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--section-head-h); padding: 0 calc(var(--u) * 5); border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.prow-head[data-section='archived'] { border-bottom: 0; background: none; font-weight: 500; color: var(--ink-3); }
+.prow-title { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.prow-head .row-head-more { display: inline-flex; align-items: center; gap: 2px; }
+.prow-head .row-head-more .icon { width: 12px; height: 12px; }
+.prow { display: grid; grid-template-columns: var(--pcols); align-items: center; gap: calc(var(--u) * 3.5); height: calc(var(--u) * 10); padding: 0 calc(var(--u) * 4) 0 calc(var(--u) * 5); border-bottom: 1px solid var(--line); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.prow:hover, .prow:focus-within { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.prow-status { display: flex; align-items: center; }
+.pname { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; }
+.pname-link { flex: 0 1 auto; min-width: 6em; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink); }
+.pname-link:hover { text-decoration: none; color: var(--accent); }
+.pname-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.prow[data-archived='true'] .pname-link { font-weight: 400; color: var(--ink-3); }
+/* パスは頭を省略して末尾を残す（direction: rtl）。 */
+.ppath { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; font-size: var(--fs-xs); color: var(--ink-3); }
+.pwarn { flex: 0 100 auto; min-width: 24px; overflow: hidden; display: inline-flex; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); cursor: pointer; }
+.pwarn:hover { background: color-mix(in srgb, var(--waiting) 16%, var(--surface)); }
+.pwarn .icon { width: 12px; height: 12px; }
+/* 「いま」。入力待ちと実行中は色、確認待ちは紫の札、リマインダーは Paused の色。入り切らなければ右を省略する。 */
+.pcounts { display: flex; align-items: center; gap: calc(var(--u) * 3); min-width: 0; overflow: hidden; font-size: var(--fs-xs); color: var(--ink-3); }
+.pcounts > span { flex: none; font-variant-numeric: tabular-nums; }
+.pcounts [data-kind='waiting'] { color: var(--waiting); font-weight: 600; }
+.pcounts [data-kind='running'] { color: var(--busy); font-weight: 600; }
+.pcounts [data-kind='pending'] { padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
+.pcounts [data-kind='reminder'] { color: var(--st-paused); font-weight: 600; }
+.prow .pn { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pmore { display: flex; justify-content: flex-end; }
+.pmore .pmore-btn { width: calc(var(--u) * 6); height: calc(var(--u) * 5); padding: 0; background: none; box-shadow: none; color: var(--ink-3); }
+.pmore .pmore-btn:hover, .pmore .pmore-btn[aria-expanded='true'] { background: var(--surface-2); color: var(--ink); }
+@container (max-width: 780px) {
+  .pcols, .plist { --pcols: 62px minmax(0, 1.6fr) minmax(190px, 1fr) 82px 28px; }
+  .pcols > :nth-child(4), .prow > :nth-child(4) { display: none; }
+  /* 赤い札は印だけにし、名前に幅を渡す。語は読み上げのために残す。 */
+  .pwarn { position: relative; width: 20px; padding: 0; justify-content: center; }
+  .pwarn-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+/* プロジェクトが 1 つも無い人の 1 枚。 */
+.empty-card { max-width: 520px; margin: calc(var(--u) * 8) auto 0; padding: calc(var(--u) * 7) calc(var(--u) * 6); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); text-align: center; }
+.empty-card h2 { margin: 0 0 calc(var(--u) * 1.5); font-size: var(--fs-md); }
+.empty-card p { margin: 0 0 calc(var(--u) * 1.5); line-height: 1.6; color: var(--ink-2); }
+.empty-card .empty-acts { margin-top: calc(var(--u) * 4); }
+.empty-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: calc(var(--u) * 2); }
