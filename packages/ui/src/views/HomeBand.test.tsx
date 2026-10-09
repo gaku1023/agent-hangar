@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { translator, type Intent, type ReadinessDto } from '@agent-hangar/shared';
+import { translator, type Intent, type ProjectDto, type ReadinessDto, type SessionDto } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { presentHomeBand, type AttentionCard, type BandGroup, type ConfirmCard, type ReturnCard, type RunningCard } from '../presenters/home.ts';
 import { presentReadiness } from '../presenters/readiness.ts';
+import { presentUnresolved } from '../presenters/unresolved.ts';
+import { initialStore } from '../store/store.ts';
 import { HomeBand } from './HomeBand.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
@@ -252,5 +254,52 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     render(<LanguageRoot language="en"><IntentRoot onIntent={() => {}}><HomeBand {...presentHomeBand(none, en, [b.group])} note={b.note} /></IntentRoot></LanguageRoot>);
     expect(screen.getByRole('button', { name: /^Setup check 3 of 6$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'tmux, claude, Claude Code compatibility: ready' })).toBeInTheDocument();
+  });
+});
+
+describe('HomeBand の場所の不明なプロジェクト（2.11.5）', () => {
+  const store = (list: ProjectDto[], sessions: SessionDto[] = []) => ({ ...initialStore(), projects: Object.fromEntries(list.map((p) => [p.id, p])), sessions: Object.fromEntries(sessions.map((s) => [s.id, s])) });
+  const lost = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: false, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: { kind: 'missing', previousPath: `/w/${id}`, deviceName: null } });
+  const group = (list: ProjectDto[]) => presentUnresolved(store(list, [{ id: 's1', projectId: 'alpha' } as SessionDto]), ja)!;
+
+  it('4 つ目の錠剤として並ぶ。群を足すだけで、View は変えない', () => {
+    mount(busy, { extra: [group([lost('alpha'), lost('beta')])] });
+    expect(pill('場所の不明なプロジェクト 2')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getAllByRole('button', { name: /^(要対応|実行中|確認待ち|場所の不明なプロジェクト) \d+$/ })).toHaveLength(4);
+  });
+
+  it('押すと引き出しが開き、1 件 1 行で、名前、セッションの数、前のパス、3 つのボタンを出す', () => {
+    mount(busy, { extra: [group([lost('alpha')])] });
+    fireEvent.click(pill('場所の不明なプロジェクト 1'));
+    const drawer = screen.getByRole('region', { name: '場所の不明なプロジェクト' });
+    expect(within(drawer).getByText('この PC にパスがありません')).toBeInTheDocument();
+    const row = within(drawer).getByText('alpha').closest('li')!;
+    expect(row).toHaveAttribute('data-k', 'place');
+    expect(within(row).getByText('セッション 1 件')).toBeInTheDocument();
+    expect(within(row).getByText('/w/alpha')).toBeInTheDocument();
+    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['alpha', '場所を再指定', 'Archived にする', '一覧から削除']);
+  });
+
+  it('「場所を再指定」は project.resolve.open を発行する。ダイアログを開くのは、この Intent だけである', () => {
+    const { onIntent } = mount(busy, { extra: [group([lost('alpha')])] });
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.click(pill('場所の不明なプロジェクト 1'));
+    fireEvent.click(screen.getByRole('button', { name: '場所を再指定、alpha' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
+  });
+
+  it('「Archived にする」と「一覧から削除」は、それぞれの解決の Intent を発行する', () => {
+    const { onIntent } = mount(busy, { extra: [group([lost('alpha')])] });
+    fireEvent.click(pill('場所の不明なプロジェクト 1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Archived にする、alpha' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'archive' } });
+    fireEvent.click(screen.getByRole('button', { name: '一覧から削除、alpha' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'unlink' } });
+  });
+
+  it('朝には開かない（要対応が開いている）', () => {
+    mount(busy, { extra: [group([lost('alpha')])] });
+    expect(screen.queryByRole('region', { name: '場所の不明なプロジェクト' })).toBeNull();
+    expect(screen.getByRole('region', { name: '要対応' })).toBeInTheDocument();
   });
 });

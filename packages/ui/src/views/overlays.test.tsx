@@ -275,21 +275,37 @@ describe('PromoteDialog', () => {
   });
 });
 
-// 未解決プロジェクトのダイアログだけは、決めるまで閉じない性質を保つ。
+// 未解決プロジェクトのダイアログは、押して開くので、閉じる手（Esc、背景、×、あとで）を持つ（設計書 2.11.5）。
 describe('ResolveProjectDialog', () => {
-  it('覆いの外側を押しても、Esc でも閉じない', () => {
+  it('覆いの外側を押す、Esc、× のどれでも閉じる', () => {
     const onIntent = vi.fn();
-    const { container } = render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    const { container } = render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
     fireEvent.click(container.querySelector('.overlay')!);
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'overlay.close' });
     fireEvent.keyDown(screen.getByLabelText('新しいパス'), { key: 'Escape' });
-    expect(onIntent).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: '閉じる' })).toBeNull();
+    expect(onIntent).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(onIntent).toHaveBeenCalledTimes(3);
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'overlay.close' });
   });
   it('あとでを押すと閉じる', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'あとで' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+  it('他の PC から届いただけのものは、見出しと前のパスの札でそれを言う。パスが分からなければ「（パスなし）」', () => {
+    const { unmount } = render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" elsewhere deviceName="Mac mini" previousPath="/o/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    expect(screen.getByRole('dialog', { name: 'alpha はこの PC にパスがありません' })).toBeInTheDocument();
+    expect(screen.getByText('Mac mini でのパス')).toBeInTheDocument();
+    expect(screen.getByText('/o/alpha')).toBeInTheDocument();
+    // 移動や改名の説明ではなく、他の PC のものだという説明を出す。
+    expect(screen.getByText(/他の PC のプロジェクトです/)).toBeInTheDocument();
+    unmount();
+    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" elsewhere deviceName={null} previousPath={null} candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    expect(screen.getByText('前のパス')).toBeInTheDocument();
+    expect(screen.getByText('（パスなし）')).toBeInTheDocument();
   });
 });
 

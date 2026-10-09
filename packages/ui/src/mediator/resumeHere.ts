@@ -14,13 +14,9 @@ import type { Input, State, Step } from './types.ts';
 export function resumeHereStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'api.conflict' && input.event.kind === 'resumeHere') {
     const e = input.event;
-    // 409 は非同期に降ってくるので、利用者が見ている未解決プロジェクトのダイアログを奪うことがある。
-    // 奪うぶんはキューの先頭に戻す。戻さないと、再接続するまで二度と聞かれない。
-    const open = state.overlay.kind === 'resolveProject' ? state.overlay.projectId : null;
-    const unresolvedQueue = open !== null && !state.unresolvedQueue.includes(open) ? [open, ...state.unresolvedQueue] : state.unresolvedQueue;
     // 409 はその要求が終わった合図でもある。ここで送信中を解かないと、確認に答えられなくなる。
     const overlay = { kind: 'confirm' as const, confirm: { kind: 'overwriteTranscript' as const, sessionId: e.sessionId, localSize: e.localSize, remoteSize: e.remoteSize } };
-    return { state: { ...state, overlay, unresolvedQueue, launch: { kind: 'idle' } }, effects: [] };
+    return { state: { ...state, overlay, launch: { kind: 'idle' } }, effects: [] };
   }
   if (input.kind !== 'intent' || input.intent.type !== 'session.resumeHere') return null;
   const i = input.intent;

@@ -1,5 +1,5 @@
 import { formatRoute, type SearchFilter, type SearchParamsDto } from '@agent-hangar/shared';
-import { overlayReplaceable, settleQueue } from './overlay.ts';
+import { overlayReplaceable } from './overlay.ts';
 import { listPageStep, pageSizeStep, pageStep } from './paging.ts';
 import { agentTabStep, jumpStep, leaveTranscriptStep, openAtLeadStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
@@ -90,8 +90,7 @@ export const NO_WAITING = '入力待ちのセッションはありません';
  * パレットから出したときも、パレットの上でキーを打ったときも、パレットは閉じる。
  */
 export function nextWaitingStep(state: State, store: Store): Step {
-  // パレットを閉じたら未解決のプロジェクトの問いが出ることがある（overlay.ts の settleQueue）。その裏では画面を移さないので、開く前に出しておく。
-  const closed: State = state.overlay.kind === 'palette' ? settleQueue({ ...state, overlay: { kind: 'none' } }) : state;
+  const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
   const from = state.screen.name === 'session' ? state.screen.id : null;
   const id = nextWaitingSession(store, from);
   if (!id) return { state: closed, effects: [{ kind: 'toast', level: 'info', message: NO_WAITING }] };

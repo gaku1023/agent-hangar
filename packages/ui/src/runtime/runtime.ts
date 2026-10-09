@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -16,6 +16,7 @@ import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
 import { readinessComplete, readinessPending } from '../presenters/readiness.ts';
+import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, appendSearchResult, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
@@ -82,6 +83,15 @@ const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C
 const AROUND_BEFORE = 100;
 
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
+/**
+ * 同期で他の PC から降りてきたプロジェクトか（設計書 2.11.5）。
+ * 起動の読み込みが済んでいて、この Store がまだ知らない id で、この PC に場所を持ったことが無いもの（elsewhere）である。
+ * 同じ id の更新（他の PC での改名など）は、届いたことにしない。
+ */
+function arrivedFromSync(store: Store, p: ProjectDto): boolean {
+  return store.bootstrapped && store.projects[p.id] === undefined && p.status !== 'archived' && unresolvedKind(p) === 'elsewhere';
+}
+
 /** 先の戻る時点を見直す間隔の上限。 */
 const RETURN_RECHECK_MAX_MS = 12 * 60 * 60_000;
 
@@ -261,8 +271,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           for (const run of gone.runs) dispatch({ kind: 'server', event: { type: 'run.ended', run } });
           for (const tab of gone.tabs) dispatch({ kind: 'server', event: { type: 'tab.upsert', tab } });
           // 同期の状態と端末の一覧は applyBootstrap が Store に入れてある。画面は Store から読むので、イベントにして流し直さない。
-          // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
-          for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
           // ホームの帯は、直すものがあれば始める前の確認を出す。誰にでも出すので、起動のたびにその中身を取りに行く（遅れは 1 回の which の数回分）。
           loadReadiness();
@@ -601,6 +609,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (input.kind === 'intent' && isTableIntent(input.intent)) { emit(input.intent); return; }
     // 索引の走査がこの知らせで終わるかは、当てる前の Store でしか分からない。
     const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
+    // 同期で降りた、この PC に場所を持ったことが無いプロジェクトか。これも、当てる前の Store でしか分からない（初めて見る id かどうか）。
+    // 起動の読み込み（bootstrap）で入るものは project.upsert では届かないので、ここには来ない。読み込みが済む前に届いたものも数えない。
+    const arrivedId = input.kind === 'server' && input.event.type === 'project.upsert' && arrivedFromSync(store, input.event.project) ? input.event.project.id : null;
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
@@ -623,6 +634,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (indexDone) runEffect({ kind: 'api.bootstrap' });
     // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
     if (!wasHome && state.screen.name === 'home') for (const run of Object.values(store.runs)) if (run.endedAt === null) loadLive(run.sessionId);
+    // 他の PC から降りたプロジェクトは、ダイアログではなく、右下の札 1 枚にまとめる（mediator/arrived.ts）。
+    if (arrivedId !== null) dispatch({ kind: 'runtime', event: { type: 'projects.arrived', ids: [arrivedId] } });
   }
 
   return {

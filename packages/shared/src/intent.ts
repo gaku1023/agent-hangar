@@ -114,6 +114,8 @@ export type Intent =
   | { type: 'notify.set'; on: boolean }
   // 戻る時刻を過ぎた知らせの札を閉じる。
   | { type: 'return.toast.dismiss'; id: SessionId }
+  // 他の PC から届いたプロジェクトの札。見るはプロジェクトの画面へ移り、あとで決めるは札だけを下げる。どちらも札を下げる。
+  | { type: 'projects.arrived.view' } | { type: 'projects.arrived.dismiss' }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
   // ベルの一覧の行を既読にする。keys は行の鍵（種類、対象、事実の版）で、「すべて既読にする」はいまある鍵を全部送る。

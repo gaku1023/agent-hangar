@@ -326,6 +326,21 @@ export function memoHead(markdown: string | null): string | null {
   return line ? [...line].slice(0, 80).join('') : null;
 }
 
+/**
+ * この PC で場所が無いものの内訳（ProjectUnresolvedDto）。場所があるものとスクラッチは null。
+ * この PC のルートの行があって未解決なら missing（前のパスはその行のパス）。
+ * この PC に行が無ければ elsewhere で、前のパスと PC の名前は、ほかの PC の行のうちいちばん新しく書かれたものから取る。
+ * 列は足さず、project_roots と devices の今の行から組む。
+ */
+function unresolvedOf(r: ProjectRow, db: Db): ProjectDto['unresolved'] {
+  if (r.is_scratch === 1) return null;
+  if (r.resolved === 1) return null;
+  if (r.resolved === 0) return { kind: 'missing', previousPath: r.path, deviceName: null };
+  const other = db.prepare(`select r.path, d.name from project_roots r left join devices d on d.id = r.device_id and d.deleted_at is null
+    where r.project_id = ? and r.deleted_at is null order by r.updated_at desc limit 1`).get(r.id) as { path: string; name: string | null } | undefined;
+  return { kind: 'elsewhere', previousPath: other?.path ?? null, deviceName: other?.name ?? null };
+}
+
 function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>): ProjectDto {
   const psids = (db.prepare('select provider_session_id p from sessions where project_id = ? and deleted_at is null').all(r.id) as { p: string }[]).map((x) => x.p);
   return {
@@ -340,6 +355,7 @@ function toProjectDto(r: ProjectRow, db: Db, liveIds: Set<string>): ProjectDto {
     openTodoCount: r.open_todos,
     memoHead: memoHead(r.memo_markdown),
     updatedAt: r.updated_at,
+    unresolved: unresolvedOf(r, db),
   };
 }
 

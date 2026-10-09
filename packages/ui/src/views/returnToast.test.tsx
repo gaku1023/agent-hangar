@@ -27,7 +27,7 @@ describe('presentToasts の戻る時刻の札', () => {
 });
 
 describe('ToastStack の戻る時刻の札', () => {
-  const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], returning: [], more: 0, offerNotify: false, blocked: false, ...over });
+  const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], returning: [], more: 0, offerNotify: false, blocked: false, arrived: null, ...over });
   const card = { sessionId: 'a', name: '会話 a', time: '13:30', reason: 'timer の初回を見る' };
   it('見出しに名前と時刻、本文に理由を出し、押すとそのセッションを開く', () => {
     const onIntent = vi.fn();

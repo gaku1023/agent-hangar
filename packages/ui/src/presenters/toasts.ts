@@ -3,6 +3,7 @@ import { overlayReplaceable } from '../mediator/overlay.ts';
 import type { State, Toast } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { durationLabel } from './format.ts';
+import { arrivedCount } from './unresolved.ts';
 
 /**
  * 入力待ちのカード 1 枚。
@@ -25,8 +26,9 @@ export type ReturnDueCardProps = { sessionId: string; name: string; time: string
  * offerNotify は、通知を出せるのに受け取っていないときにカードの積みの上へ添える「通知を受け取る」の有無である。
  * blocked は、確認や入力のあるダイアログが開いていてカードを押せないことを表す。
  * 押しても Mediator が画面を移さないので、押せないように見せる。
+ * arrived は、同期で他の PC から届いたプロジェクトの札（設計書 2.11.5）で、count は、いまも届いたままのものの数である。0 なら null で、札は出さない。
  */
-export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; returning: ReturnDueCardProps[]; more: number; offerNotify: boolean; blocked: boolean };
+export type ToastsProps = { toasts: Toast[]; waiting: WaitingCardProps[]; returning: ReturnDueCardProps[]; more: number; offerNotify: boolean; blocked: boolean; arrived: { count: number } | null };
 
 /**
  * 並べるカードの上限。
@@ -57,5 +59,6 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
     if (!s || typeof time !== 'string' || !isReturnTime(time)) return [];
     return [{ sessionId: s.id, name: s.name ?? '（名前なし）', time, reason: s.state?.note || null }];
   });
-  return { toasts: state.toasts, waiting, returning, more: cards.length - waiting.length, offerNotify: store.notify.available && !store.notify.on && !store.notify.blocked, blocked: !overlayReplaceable(state.overlay) };
+  const arrived = arrivedCount(store, state.arrivedProjects);
+  return { toasts: state.toasts, waiting, returning, more: cards.length - waiting.length, offerNotify: store.notify.available && !store.notify.on && !store.notify.blocked, blocked: !overlayReplaceable(state.overlay), arrived: arrived > 0 ? { count: arrived } : null };
 }

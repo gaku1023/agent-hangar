@@ -6,7 +6,7 @@ import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, ...over });
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], returning: [], more: 0, offerNotify: false, blocked: false, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], returning: [], more: 0, offerNotify: false, blocked: false, arrived: null, ...over });
 function mount(p: ToastsProps) {
   const onIntent = vi.fn();
   const r = render(<IntentRoot onIntent={onIntent}><ToastStack {...p} /></IntentRoot>);

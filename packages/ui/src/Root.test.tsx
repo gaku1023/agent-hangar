@@ -77,10 +77,74 @@ describe('Root', () => {
     act(() => setHash('#/projects'));
     expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByText('alpha')).toBeInTheDocument();
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    act(() => rt.emit({ type: 'project.resolve.open', id: 'p1' }));
     await flush();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('/w/alpha2')).toBeInTheDocument();
+  });
+  describe('未解決のプロジェクト（2.11.5）', () => {
+    const lost = { id: 'p9', name: 'old-shop', status: 'active' as const, isScratch: false, path: '/w/old-shop', resolved: false, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: { kind: 'missing' as const, previousPath: '/w/old-shop', deviceName: null } };
+    const arrived = (id: string) => ({ ...lost, id, name: id, path: null, unresolved: { kind: 'elsewhere' as const, previousPath: `/o/${id}`, deviceName: 'Mac mini' } });
+    const bootWith = (projects: BootstrapDto['projects']): BootstrapDto => ({ ...boot, projects: [...boot.projects, ...projects] });
+
+    it('起動時には、場所の消えたプロジェクトがあってもダイアログを出さない。帯の 4 つ目の錠剤に 1 件と出て、届いただけの 3 件は数えない', async () => {
+      await mounted({ boot: bootWith([lost, arrived('x1'), arrived('x2'), arrived('x3')]) });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' })).toBeInTheDocument();
+    });
+
+    it('錠剤から引き出しを開き、「場所を再指定」を押したときだけダイアログが開く。Esc で閉じ、錠剤は残る', async () => {
+      await mounted({ boot: bootWith([lost]) });
+      fireEvent.click(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '場所を再指定、old-shop' }));
+      await flush();
+      const dialog = screen.getByRole('dialog', { name: 'old-shop のディレクトリが見つかりません' });
+      expect(dialog).toHaveTextContent('/w/old-shop');
+      fireEvent.keyDown(screen.getByLabelText('新しいパス'), { key: 'Escape' });
+      await flush();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' })).toBeInTheDocument();
+    });
+
+    it('サーバが project.unresolved を流しても、ダイアログは出ない', async () => {
+      const { handlers } = await mounted({ boot: bootWith([lost]) });
+      act(() => handlers[0]!.onEvent({ type: 'project.unresolved', projectId: 'p9' }));
+      await flush();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('他の PC から届いただけのプロジェクトは、帯に数えず、プロジェクトの一覧に「この PC にパスがありません」の札で出る。札から「場所を再指定」が開く', async () => {
+      const { setHash } = await mounted({ boot: bootWith([arrived('x1'), arrived('x2')]) });
+      expect(screen.queryByRole('button', { name: /^場所の不明なプロジェクト/ })).toBeNull();
+      act(() => setHash('#/projects'));
+      await flush();
+      const flags = screen.getAllByRole('button', { name: 'この PC にパスがありません' });
+      expect(flags).toHaveLength(2);
+      fireEvent.click(flags[0]!);
+      await flush();
+      expect(screen.getByRole('dialog', { name: 'x1 はこの PC にパスがありません' })).toHaveTextContent('Mac mini でのパス');
+    });
+
+    it('同期で他の PC のプロジェクトが降りたら、札を 1 枚だけ出す。「あとで決める」で下がる', async () => {
+      const { handlers } = await mounted();
+      act(() => { for (const id of ['x1', 'x2', 'x3']) handlers[0]!.onEvent({ type: 'project.upsert', project: arrived(id) }); });
+      await flush();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getAllByText('他の PC のプロジェクト 3 件が届きました。この PC にはフォルダがありません')).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
+      expect(screen.queryByText(/件が届きました/)).toBeNull();
+    });
+
+    it('札の「プロジェクトで見る」で、プロジェクトの一覧へ移る', async () => {
+      const { handlers } = await mounted();
+      act(() => handlers[0]!.onEvent({ type: 'project.upsert', project: arrived('x1') }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'プロジェクトで見る' }));
+      await flush();
+      expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
+      expect(screen.queryByText(/件が届きました/)).toBeNull();
+    });
   });
   it('トーストは出て、5 秒で消える', async () => {
     vi.useFakeTimers();
@@ -133,11 +197,12 @@ describe('Root', () => {
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
-    // Esc は未解決ダイアログを閉じない。
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    // 未解決のダイアログは、押して開くので、Esc で閉じる。
+    act(() => rt.emit({ type: 'project.resolve.open', id: 'p1' }));
     await flush();
-    fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('⌘N と新規ボタンで起動ダイアログが開き、閉じられる', async () => {
     const { rt, deps, handlers } = make();
@@ -430,7 +495,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
   it('一覧から削除は確認を挟み、件数を出し、Esc で未解決のダイアログへ戻る', async () => {
     const resolveProject = vi.fn(async () => ({}));
     const { rt } = await mounted({ api: { resolveProject } });
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    act(() => rt.emit({ type: 'project.resolve.open', id: 'p1' }));
     await flush();
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
     await flush();
@@ -453,7 +518,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
   // Root の Esc も重ねて閉じると、戻ったはずの未解決のダイアログまで「あとで」で閉じてしまう。
   it('一覧から削除の確認の中の Esc は 1 度だけ閉じ、未解決のダイアログへ戻る', async () => {
     const { rt } = await mounted();
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    act(() => rt.emit({ type: 'project.resolve.open', id: 'p1' }));
     await flush();
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
     await flush();

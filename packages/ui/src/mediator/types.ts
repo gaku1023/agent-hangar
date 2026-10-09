@@ -20,6 +20,8 @@ export type RuntimeEvent =
   | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
   // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
   | { type: 'return.due'; keys: string[] }
+  // 同期で、この PC に場所を持ったことが無いプロジェクトが降りてきた（Runtime が project.upsert から見分ける）。ids は降りたプロジェクト。起動の読み込みで入るものは届けない。
+  | { type: 'projects.arrived'; ids: string[] }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
   // 目次から左のターミナルを跳ばした結果。
@@ -119,7 +121,8 @@ export type ConfirmRequest =
   | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
   | { kind: 'adoptSession'; sessionId: string }
   | { kind: 'killRun'; runId: string; working: boolean; aside?: boolean; shellTabs: number }
-  | { kind: 'unlinkProject'; projectId: string }
+  // fromDialog は、未解決のプロジェクトのダイアログから来たこと。やめるとそのダイアログへ戻る。
+  | { kind: 'unlinkProject'; projectId: string; fromDialog?: true }
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
   | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }
   | { kind: 'removeAccount'; accountId: string };
@@ -198,6 +201,12 @@ export type State = {
    * 入力待ちが解けるか、そのセッションを開くまで残す。
    */
   waitingToasts: string[];
+  /**
+   * 同期で他の PC から降りてきたプロジェクトで、まだ札を下げていないもの（降りた順）。
+   * 右下に「他の PC のプロジェクト N 件が届きました」の札を 1 枚だけ出す（設計書 2.11.5）。N は、いまも他の PC から届いたままのものを数える。
+   * 「プロジェクトで見る」か「あとで決める」で空にする。帯の件数には入らない。
+   */
+  arrivedProjects: string[];
   /** 戻る時刻を過ぎたと知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
   returnSeen: string[];
   /** 右下に積む「戻る時刻を過ぎた」の札のセッション。古いものが先。閉じるか、そのセッションを開くか、状態が変わるまで残す。 */
@@ -211,13 +220,7 @@ export type State = {
   promote: LaunchState;
   /** プロジェクト画面の作成のダイアログの送信。 */
   projectCreate: LaunchState;
-  toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
-  /**
-   * 未解決のまま「あとで」を選んだプロジェクト。
-   * bootstrap のたびに同じことを聞かれないように覚える。
-   * 永続させないので、サーバを立て直せばまた聞く。
-   */
-  resolveDeferred: string[];
+  toasts: Toast[]; nextToastId: number;
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
   /**

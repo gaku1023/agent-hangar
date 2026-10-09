@@ -1,11 +1,12 @@
 import { accountsStep } from './accounts.ts';
+import { arrivedStep } from './arrived.ts';
 import { connectionStep } from './connection.ts';
 import { launchStep } from './launch.ts';
 import { liveStep, settleWaiting } from './live.ts';
 import { returnStep, settleReturn } from './returnDue.ts';
 import { noticesStep } from './notices.ts';
 import { notifyStep } from './notify.ts';
-import { overlayStep, settleQueue } from './overlay.ts';
+import { overlayStep } from './overlay.ts';
 import { projectCreateStep } from './projectCreate.ts';
 import { PAGE_SIZE_DEFAULT } from './paging.ts';
 import { promoteStep } from './promote.ts';
@@ -25,7 +26,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], sectionsOpen: {}, retentionBannerDismissed: false, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], sectionsOpen: {}, retentionBannerDismissed: false, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -46,7 +47,8 @@ export function transition(state: State, store: Store, input: Input): Step {
   const screen = (s: State, i: Input) => screenStep(s, store, i);
   const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
-  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sectionsStep, returnStep, noticesStep, notifyStep, workbench]) {
+  const arrived = (s: State, i: Input) => arrivedStep(s, store, i);
+  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sectionsStep, returnStep, arrived, noticesStep, notifyStep, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }
@@ -75,18 +77,17 @@ function storeChanged(state: State, store: Store): Step {
   const waiting = liveStep(state, store);
   const live = sidebarLiveStep(waiting.state, store);
   // どちらも動かなかったら、整え（settled）を通さずそのまま返す。
-  // ストアは本文が伸びるたびに変わるので、そのたびに未解決のキューや札を触ると、無関係な更新で問いが開いてしまう。
+  // ストアは本文が伸びるたびに変わるので、そのたびに札を触ると、無関係な更新で札が動いてしまう。
   if (live.state === state && waiting.effects.length === 0 && live.effects.length === 0) return { state, effects: [] };
   return settled(state, { state: live.state, effects: [...waiting.effects, ...live.effects] });
 }
 
 /**
  * 領域が応答した後の整え。
- * 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
  * 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
  */
 function settled(prev: State, r: Step): Step {
-  const state = settleReturn(settleWaiting(settleQueue(r.state)));
+  const state = settleReturn(settleWaiting(r.state));
   return fetchDirsOnOpen(prev, state === r.state ? r : { ...r, state });
 }
 

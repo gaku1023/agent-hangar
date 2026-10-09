@@ -10,6 +10,7 @@ import { presentNewProject } from './presenters/newProject.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
 import { presentPause } from './presenters/pause.ts';
+import { presentResolveDialog } from './presenters/unresolved.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
@@ -221,12 +222,11 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;
         // Esc はオーバーレイを閉じる。
-        // 未解決のプロジェクトだけは決めてもらうまで閉じない。
         // ダイアログの中にフォーカスがあるときは、ダイアログの殻（views/primitives/Dialog.tsx）が Esc を受けて既定を止めるので、二重に出さない。
-        // 二重に閉じると、確認の後ろに控えた未解決のダイアログまで「あとで」で閉じてしまう。
+        // 二重に閉じると、確認から戻った先の未解決のダイアログまで閉じてしまう。
         // ここが受けるのは、フォーカスが器の外（body など）にあるときの Esc だけである。
         case 'overlay.close':
-          if (e.defaultPrevented || overlayKind === 'none' || overlayKind === 'resolveProject') return;
+          if (e.defaultPrevented || overlayKind === 'none') return;
           rt.emit(overlayKind === 'palette' ? { type: 'palette.close' } : { type: 'overlay.close' });
           return;
         default: return;
@@ -356,7 +356,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const pause = presentPause(state, store, now);
   const overlays = (
     <>
-      {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
+      {unresolvedId && <ResolveProjectDialog {...presentResolveDialog(store, unresolvedId)} candidates={candidates} onQueryCandidates={queryCandidates} />}
       {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
       {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'newProject' && <NewProjectDialog {...presentNewProject(state, store)!} />}
