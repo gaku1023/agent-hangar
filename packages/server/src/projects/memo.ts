@@ -16,6 +16,15 @@ function stamp(t: number): string {
 }
 
 /**
+ * DB の行だけからメモを読む。ファイルとは突き合わせない。
+ * 画面へ配る層（events/publisher.ts）が使う。配るたびにファイルを読み書きしないためである。
+ */
+export function memoFromDb(db: Db, projectId: string): MemoDto | null {
+  const r = db.prepare('select project_id, markdown, updated_at from project_memos where project_id = ? and deleted_at is null').get(projectId) as Row | undefined;
+  return r ? { projectId: r.project_id, markdown: r.markdown, updatedAt: r.updated_at } : null;
+}
+
+/**
  * プロジェクトのメモ。
  * SQLite の project_memos を同期の正とし、~/.agent-hangar/projects/<projectId>/memo.md にも同じ内容を置く。
  * ファイルは他のエディタや Claude 自身が直接書けるので、ファイルの方が新しければファイルを正として DB を直す。

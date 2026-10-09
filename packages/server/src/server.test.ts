@@ -14,6 +14,7 @@ import { SyncStateStore } from './sync/state.ts';
 import { DbBackupError } from './db/backup.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
+import { Publisher } from './events/publisher.ts';
 import { IndexerService } from './indexer/service.ts';
 import { checkProjectRoots } from './projects/registry.ts';
 import { mangleCwd } from './provider/claude-code/discover.ts';
@@ -804,6 +805,20 @@ describe('ルートの復帰', () => {
     return db;
   }
   const projectIdOf = (db: ReturnType<typeof openDb>) => (db.prepare('select project_id from sessions where id = ?').get('s1') as { project_id: string | null }).project_id;
+  /**
+   * checkRoots は行の変化を知らせるだけで、画面へ配るのは配る層（events/publisher.ts）である。
+   * 本番と同じ組で動かし、その 1 回で配られたイベントを sent に貯める。
+   */
+  function delivered<T>(db: ReturnType<typeof openDb>, sent: ServerEvent[], run: () => T): T {
+    const publisher = new Publisher({ db, deviceId: 'd', live: () => [], hub: { broadcast: (ev) => { sent.push(ev); } } });
+    try {
+      const r = run();
+      publisher.flush();
+      return r;
+    } finally {
+      publisher.stop();
+    }
+  }
 
   it('存在を確かめるだけでは、戻ったルートの配下のセッションは未分類のまま残る', () => {
     // 繰り越しの再現。checkProjectRoots は resolved を 1 に戻すが、配下のセッションには触れない。
@@ -820,7 +835,7 @@ describe('ルートの復帰', () => {
     const db = fixture(ws);
     const sent: ServerEvent[] = [];
     try {
-      const r = checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) });
+      const r = delivered(db, sent, () => checkRoots({ db, deviceId: 'd' }));
       expect(r.recovered).toEqual(['p1']);
       expect(projectIdOf(db)).toBe('p1');
       expect(sent.filter((e) => e.type === 'session.upsert').map((e) => (e as Extract<ServerEvent, { type: 'session.upsert' }>).session.id)).toEqual(['s1']);
@@ -837,7 +852,7 @@ describe('ルートの復帰', () => {
     try {
       upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
       upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: gone, resolved: 1 }, 'd');
-      const r = checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) });
+      const r = delivered(db, sent, () => checkRoots({ db, deviceId: 'd' }));
       expect(r.unresolved).toEqual(['p1']);
       expect(sent).toEqual([{ type: 'project.unresolved', projectId: 'p1' }]);
     } finally {
@@ -853,7 +868,7 @@ describe('ルートの復帰', () => {
       upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
       upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: ws, resolved: 1 }, 'd');
       upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: null, cwd: '/somewhere/else', home_device: 'd' }, 'd');
-      expect(checkRoots({ db, deviceId: 'd', live: () => [], broadcast: (ev) => sent.push(ev) })).toEqual({ unresolved: [], recovered: [] });
+      expect(delivered(db, sent, () => checkRoots({ db, deviceId: 'd' }))).toEqual({ unresolved: [], recovered: [] });
       expect(sent).toEqual([]);
       expect(projectIdOf(db)).toBeNull();
     } finally {
