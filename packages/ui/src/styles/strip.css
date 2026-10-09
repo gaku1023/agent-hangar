@@ -114,9 +114,9 @@
 .lead-file-del { flex: none; font-size: var(--fs-xs); color: var(--error); }
 .lead-panel-note { margin-top: var(--u); font-size: var(--fs-xs); }
 .lead-note { margin-top: calc(var(--u) * 2.5); padding-top: calc(var(--u) * 2); border-top: 1px solid var(--line); }
-.lead-note-h { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+.lead-note-h { display: flex; align-items: center; gap: calc(var(--u) * 2); min-height: calc(var(--row-h) - 6px); }
 .lead-note-h .lead-sub { margin: 0; }
-.lead-note-text { margin: var(--u) 0 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; }
+.note-text { margin: var(--u) 0 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; }
 
 /* ---- 見出しの名前の横の札（ロック、トランスクリプトの在りか）。操作できない理由なので、隠さずに見出しへ出す。 ---- */
 .session-badges { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
