@@ -1,6 +1,6 @@
 import type { LaunchResultDto, RunDto } from '@agent-hangar/shared';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
-import { ensureAccountLinks, linkProblem } from '../config/accountLinks.ts';
+import { ensureAccountLinks, linkProblemMessage } from '../config/accountLinks.ts';
 import type { Db } from '../db/open.ts';
 import { accountOfSession } from '../db/queries.ts';
 import { RunError } from './errors.ts';
@@ -49,7 +49,7 @@ export class RunAccounts {
    */
   envFor(a: Account | null): Record<string, string> {
     if (!a || a.id === PRIMARY_ACCOUNT_ID) return {};
-    const problem = linkProblem(ensureAccountLinks(this.deps.claudeDir, a.dir).conflicts);
+    const problem = linkProblemMessage(ensureAccountLinks(this.deps.claudeDir, a.dir).conflicts);
     if (problem) throw new RunError(400, problem);
     return { CLAUDE_CONFIG_DIR: a.dir };
   }

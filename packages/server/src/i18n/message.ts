@@ -53,6 +53,15 @@ export function errorText(language: Language, e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/**
+ * 別の文の引数に入れる、失敗の理由。
+ * 辞書の文を持つ失敗は、鍵と引数のまま渡す。外側の文と同じ言語で出すためである。ほかは `message` を渡す。
+ */
+export function causeOf(e: unknown): Message | string {
+  if (e instanceof MessageError && e.text) return e.text;
+  return e instanceof Error ? e.message : String(e);
+}
+
 /** 引くたびに、そのときの言語を読む `t()`。経路や道具は、受け取った言語の関数をこれに包んで使う。 */
 export function translatorOf(language: GetLanguage = defaultLanguage): Translate {
   return ((key, ...args) => t(language(), key, ...args)) as Translate;

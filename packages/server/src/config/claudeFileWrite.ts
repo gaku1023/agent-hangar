@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DEFAULT_LANGUAGE } from '@agent-hangar/shared';
+import { MessageError, msg, render } from '../i18n/message.ts';
 
 /**
  * Claude Code の設定ファイルを書き換えるときの共通の作法。
@@ -8,7 +10,9 @@ import path from 'node:path';
  */
 
 /** ロックが取れないときの文言。相手はたいてい Claude Code なので、次の一手を書く。 */
-export const LOCK_BUSY_MESSAGE = 'Claude Code が設定を書いている最中のようです。閉じてからもう一度試してください。';
+const LOCK_BUSY = msg('config.lock.busy');
+/** ロックを取れなかった失敗の `message`（日本語）。呼び手はこれと比べて、この失敗を見分ける。 */
+export const LOCK_BUSY_MESSAGE = render(DEFAULT_LANGUAGE, LOCK_BUSY);
 
 const LOCK_SUFFIX = '.hangar-lock';
 const TMP_SUFFIX = '.hangar-tmp';
@@ -36,7 +40,7 @@ export function resolveRealFile(file: string): string {
       return p;
     }
   }
-  throw new Error(`${file} のシンボリックリンクが深すぎます。`);
+  throw new MessageError(msg('config.file.symlinkTooDeep', { file }));
 }
 
 /** 同期で少し待つ。ロックが空くのを待つだけなので、数十ミリ秒で足りる。 */
@@ -79,7 +83,7 @@ export function acquireFileLock(realFile: string, waitMs: number, staleMs: numbe
       // 見に行った時点で消えていた、または消せなかった。どちらも取り直しで扱う。
     }
     if (removedStale) continue;
-    if (Date.now() >= deadline) throw new Error(LOCK_BUSY_MESSAGE);
+    if (Date.now() >= deadline) throw new MessageError(LOCK_BUSY);
     sleepSync(20);
   }
 }

@@ -3,20 +3,21 @@ import path from 'node:path';
 import type { PromptCommandDto, PromptCommandSource } from '@agent-hangar/shared';
 import { parseFrontmatter } from './frontmatter.ts';
 import { firstPromptUses } from './history.ts';
+import { DEFAULT_LANGUAGE, translator, type Language, type MessageKey } from '@agent-hangar/shared';
 
 /**
- * 組み込みのうち、最初の一言になるもの。ファイルから読めないので手で持つ。
+ * 組み込みのうち、最初の一言になるもの。ファイルから読めないので手で持つ。説明と引数の手がかりは辞書の鍵で持ち、返すときの言語で文にする。
  * 会話の途中でしか意味がないもの（compact、clear、copy など）、端末の設定のもの（login、mcp など）、
  * ダイアログの詳細に欄がある model と effort は入れない（docs/superpowers/specs/2026-10-06-prompt-composer-design.md）。
  */
-const BUILTIN: { name: string; description: string; argumentHint: string | null }[] = [
-  { name: 'init', description: 'CLAUDE.md を作ってコードベースを説明させる', argumentHint: null },
-  { name: 'review', description: 'プルリクエストを審査する', argumentHint: '[PR 番号]' },
-  { name: 'code-review', description: 'いまの差分の誤りを探す', argumentHint: '[low|medium|high]' },
-  { name: 'security-review', description: 'ブランチの変更の安全性を審査する', argumentHint: null },
-  { name: 'loop', description: '指示を一定の間隔で繰り返す', argumentHint: '[間隔] <指示>' },
-  { name: 'schedule', description: '決まった時刻に動くクラウドのエージェントを作る', argumentHint: null },
-];
+const BUILTIN = [
+  { name: 'init', description: 'prompt.builtin.init', argumentHint: null },
+  { name: 'review', description: 'prompt.builtin.review', argumentHint: 'prompt.builtin.reviewHint' },
+  { name: 'code-review', description: 'prompt.builtin.codeReview', argumentHint: '[low|medium|high]' },
+  { name: 'security-review', description: 'prompt.builtin.securityReview', argumentHint: null },
+  { name: 'loop', description: 'prompt.builtin.loop', argumentHint: 'prompt.builtin.loopHint' },
+  { name: 'schedule', description: 'prompt.builtin.schedule', argumentHint: null },
+] as const satisfies readonly { name: string; description: MessageKey; argumentHint: MessageKey | '[low|medium|high]' | null }[];
 
 type Found = Omit<PromptCommandDto, 'uses'>;
 
@@ -80,7 +81,9 @@ function pluginRoots(claudeDir: string): { plugin: string; root: string }[] {
  * 初期プロンプト欄の `/` の候補。読むだけで、何も書かない。
  * 同じ名前は、プロジェクト、自分の、プラグイン、組み込みの順で先のものを残す。
  */
-export function listPromptCommands(o: { claudeDir: string; projectPath: string | null }): PromptCommandDto[] {
+export function listPromptCommands(o: { claudeDir: string; projectPath: string | null; language?: Language }): PromptCommandDto[] {
+  const tr = translator(o.language ?? DEFAULT_LANGUAGE);
+  const hint = (h: (typeof BUILTIN)[number]['argumentHint']) => (h === null || h === '[low|medium|high]' ? h : tr(h));
   const found: Found[] = [];
   if (o.projectPath) {
     const root = path.join(o.projectPath, '.claude');
@@ -90,7 +93,7 @@ export function listPromptCommands(o: { claudeDir: string; projectPath: string |
   for (const { plugin, root } of pluginRoots(o.claudeDir)) {
     found.push(...skillsIn(path.join(root, 'skills'), 'plugin', `${plugin}:`), ...commandsIn(path.join(root, 'commands'), 'plugin', `${plugin}:`));
   }
-  found.push(...BUILTIN.map((b) => ({ ...b, source: 'builtin' as const })));
+  found.push(...BUILTIN.map((b) => ({ name: b.name, description: tr(b.description), argumentHint: hint(b.argumentHint), source: 'builtin' as const })));
   const uses = firstPromptUses(path.join(o.claudeDir, 'history.jsonl'));
   const seen = new Set<string>();
   const out: PromptCommandDto[] = [];

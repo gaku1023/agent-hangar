@@ -6,6 +6,8 @@ import { timestampLabel } from '../sync/copy.ts';
 import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
 import { backupsRoot } from './cloud.ts';
 import { diffLines, JsonTextEditError, setTopLevelNumber } from './jsonTextEdit.ts';
+import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
+import { MessageError, msg, render, type Message } from '../i18n/message.ts';
 
 /**
  * Claude Code の会話の保持期間（cleanupPeriodDays）。
@@ -16,9 +18,9 @@ export const DEFAULT_RETENTION_DAYS = 30;
 export const RETENTION_KEY = 'cleanupPeriodDays';
 export type RetentionState = Omit<RetentionDto, 'usage'>;
 
-const UNREADABLE = '設定ファイルを読み取れないので書き換えません';
-const MANAGED = '組織の設定で決まっています';
-const NO_DIR = '設定の置き場が見つからないので書き換えません';
+const UNREADABLE = msg('retention.unwritable.unreadable');
+const MANAGED = msg('retention.unwritable.managed');
+const NO_DIR = msg('retention.unwritable.noDir');
 const DAY = 86_400_000;
 /** 増え方を見積もる窓。既定の保持期間と同じ長さにする。 */
 const RATE_WINDOW_DAYS = 30;
@@ -64,22 +66,34 @@ function managedDays(dir: string | null): number | null {
   return days;
 }
 
-export function readRetention(o: { claudeDir: string; managedDir: string | null }): RetentionState {
+/** 今の値と、書けないときの理由。理由は、まだ言語を決めていない文で持つ。 */
+type RawRetention = Omit<RetentionState, 'unwritableReason'> & { reason: Message | null };
+
+/**
+ * 今の保持期間を読む。書けないときの理由（unwritableReason）は、渡された言語の文にする。
+ * 言語を渡さなければ日本語で出す。
+ */
+export function readRetention(o: { claudeDir: string; managedDir: string | null; language?: GetLanguage }): RetentionState {
+  const { reason, ...rest } = readRawRetention(o);
+  return { ...rest, unwritableReason: reason ? render((o.language ?? defaultLanguage)(), reason) : null };
+}
+
+function readRawRetention(o: { claudeDir: string; managedDir: string | null }): RawRetention {
   const user = readObject(path.join(o.claudeDir, 'settings.json'));
   const userValue = user && user !== 'broken' && validDays(user[RETENTION_KEY]) ? user[RETENTION_KEY] : null;
   const managed = managedDays(o.managedDir);
-  if (managed !== null) return { days: managed, source: 'managed', userValue, writable: false, unwritableReason: MANAGED };
-  if (user === 'broken') return { days: DEFAULT_RETENTION_DAYS, source: 'default', userValue: null, writable: false, unwritableReason: UNREADABLE };
+  if (managed !== null) return { days: managed, source: 'managed', userValue, writable: false, reason: MANAGED };
+  if (user === 'broken') return { days: DEFAULT_RETENTION_DAYS, source: 'default', userValue: null, writable: false, reason: UNREADABLE };
   // JSON として読めても、書き込みが断る形（同じキーが 2 つ、値がオブジェクト、UTF-8 でないバイト）がある。
   // 書けるかどうかは、書き込みと同じ手順を空回しして決める。帯を出してから下見で断ると、利用者は行き止まりに着く。
   const blocked = editBlocked(o.claudeDir);
-  if (blocked !== null) return { days: userValue ?? DEFAULT_RETENTION_DAYS, source: userValue !== null ? 'user' : 'default', userValue, writable: false, unwritableReason: blocked };
-  if (userValue !== null) return { days: userValue, source: 'user', userValue, writable: true, unwritableReason: null };
-  return { days: DEFAULT_RETENTION_DAYS, source: 'default', userValue: null, writable: true, unwritableReason: null };
+  if (blocked !== null) return { days: userValue ?? DEFAULT_RETENTION_DAYS, source: userValue !== null ? 'user' : 'default', userValue, writable: false, reason: blocked };
+  if (userValue !== null) return { days: userValue, source: 'user', userValue, writable: true, reason: null };
+  return { days: DEFAULT_RETENTION_DAYS, source: 'default', userValue: null, writable: true, reason: null };
 }
 
 /** 書き込みと同じ手順で文字列を作ってみて、断られるなら理由を返す。何も書かない。 */
-function editBlocked(claudeDir: string): string | null {
+function editBlocked(claudeDir: string): Message | null {
   if (!fs.existsSync(claudeDir)) return NO_DIR;
   try {
     let bytes: Buffer | null;
@@ -129,8 +143,8 @@ export async function measureUsage(o: { claudeDir: string; now: number }): Promi
 }
 
 /** 下見の後に、他の PC からの同期や手の編集でファイルが変わった。UI は下見を取り直す。 */
-export class RetentionConflictError extends Error {
-  constructor() { super('設定ファイルがほかで変わったので、読み直しました'); this.name = 'RetentionConflictError'; }
+export class RetentionConflictError extends MessageError {
+  constructor() { super(msg('retention.error.conflict')); this.name = 'RetentionConflictError'; }
 }
 
 export type WriteRetentionOptions = { claudeDir: string; home: string; days: number; baseSha256: string; now?: Date; lockWaitMs?: number; staleLockMs?: number; onBeforeWrite?: () => void };
@@ -155,8 +169,8 @@ function decodeStrict(bytes: Buffer | null): string {
 }
 
 /** 組織の設定で決まっているなど、書けない状態で書こうとした。 */
-export class RetentionUnwritableError extends Error {
-  constructor(reason: string) { super(reason); this.name = 'RetentionUnwritableError'; }
+export class RetentionUnwritableError extends MessageError {
+  constructor(reason: Message | string) { super(reason); this.name = 'RetentionUnwritableError'; }
 }
 
 export function previewRetention(o: { claudeDir: string; home: string; days: number; dailyBytes: number | null }): RetentionPreviewDto {
@@ -190,7 +204,7 @@ function backupSettings(file: string, home: string, now: Date): string {
     fs.chmodSync(dest, 0o600);
     return dest;
   }
-  throw new Error('控えを置く名前が空いていません');
+  throw new MessageError(msg('retention.backup.noFreeName'));
 }
 
 /**
@@ -218,7 +232,7 @@ export function writeRetention(o: WriteRetentionOptions): { file: string; backup
   }
 }
 
-export type RetentionServiceOptions = { claudeDir: string; home: string; managedDir: string | null; broadcast: (r: RetentionDto) => void; now?: () => number };
+export type RetentionServiceOptions = { claudeDir: string; home: string; managedDir: string | null; broadcast: (r: RetentionDto) => void; now?: () => number; /** 書けない理由の文の言語。渡さなければ日本語で出す。 */ language?: GetLanguage };
 
 /** 起動の後に 1 度だけ測るまでの待ち。起動の索引づけと重ねない。 */
 const FIRST_MEASURE_MS = 30_000;
@@ -262,8 +276,8 @@ export class RetentionService {
 
   write(days: number, baseSha256: string): RetentionDto {
     // 画面が書き込みの手を出さない状態でも、API を直に叩けば届く。サーバの側でも断る。
-    const now = readRetention(this.o);
-    if (!now.writable) throw new RetentionUnwritableError(now.unwritableReason ?? '保持期間を書き換えられません');
+    const now = readRawRetention(this.o);
+    if (!now.writable) throw new RetentionUnwritableError(now.reason ?? msg('retention.unwritable.generic'));
     writeRetention({ claudeDir: this.o.claudeDir, home: this.o.home, days, baseSha256 });
     this.refresh();
     return this.current();

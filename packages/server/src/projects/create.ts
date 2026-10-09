@@ -6,18 +6,19 @@ import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { isStrictlyUnder, samePath } from '../platform/paths.ts';
 import { insertProject, normalizeDir } from './registry.ts';
+import { causeOf, MessageError, msg, type Message } from '../i18n/message.ts';
 
 /** 作れなかった理由。status はそのまま HTTP の状態にする。 */
-export class ProjectCreateError extends Error {
-  constructor(readonly status: 400 | 404 | 409, message: string) {
-    super(message);
+export class ProjectCreateError extends MessageError {
+  constructor(readonly status: 400 | 404 | 409, text: Message | string) {
+    super(text);
     this.name = 'ProjectCreateError';
   }
 }
 
 export type CreateDeps = { db: Db; deviceId: string; workspaceRoot: string; gitInit?: (dir: string) => void };
 
-export const NAME_RULE = '名前はディレクトリ名として使える 1 字以上で、/ を含められません';
+const NAME_RULE = msg('project.create.nameRule');
 
 const defaultGitInit = (dir: string) => {
   execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
@@ -67,9 +68,9 @@ function removeFreshDir(dir: string): void {
 /** `<root>/<name>` を作り、選ばれていれば git init する。失敗したら作ったものを片付けて断る。 */
 export function makeProjectDir(workspaceRoot: string, name: string, gitInit: boolean, run: (dir: string) => void = defaultGitInit): string {
   const dir = normalizeDir(path.join(workspaceRoot, name));
-  if (exists(dir)) throw new ProjectCreateError(409, `${dir} は既にあります`);
+  if (exists(dir)) throw new ProjectCreateError(409, msg('project.create.dirExists', { dir }));
   // ルートがファイルを指すなどで作れないのは設定の問題なので、500 にせず理由を添えて断る。
-  const cannot = (e: unknown) => new ProjectCreateError(400, `${dir} を作れません: ${e instanceof Error ? e.message : String(e)}`);
+  const cannot = (e: unknown) => new ProjectCreateError(400, msg('project.create.cannotCreate', { dir, reason: causeOf(e) }));
   try {
     fs.mkdirSync(workspaceRoot, { recursive: true });
   } catch (e) {
@@ -79,14 +80,14 @@ export function makeProjectDir(workspaceRoot: string, name: string, gitInit: boo
     // recursive を付けないので、直前に誰かが作っていれば EEXIST で止まり、既にあるものを取り込まない。
     fs.mkdirSync(dir);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new ProjectCreateError(409, `${dir} は既にあります`);
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new ProjectCreateError(409, msg('project.create.dirExists', { dir }));
     throw cannot(e);
   }
   try {
     if (gitInit) run(dir);
   } catch (e) {
     removeFreshDir(dir);
-    throw new ProjectCreateError(400, `git init に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    throw new ProjectCreateError(400, msg('project.create.gitInitFailed', { reason: causeOf(e) }));
   }
   return dir;
 }
@@ -105,19 +106,19 @@ export function createProjectDir(deps: CreateDeps, o: { name: string; gitInit: b
  */
 export function registerProjectDir(deps: { db: Db; deviceId: string; workspaceRoot: string }, o: { path: string; name?: string }): { projectId: string; created: boolean } {
   const name = o.name === undefined ? undefined : o.name.trim();
-  if (name === '') throw new ProjectCreateError(400, 'name を空にはできません');
+  if (name === '') throw new ProjectCreateError(400, msg('project.create.nameEmpty'));
   const raw = expandHome(o.path.trim());
-  if (!raw) throw new ProjectCreateError(400, 'path が存在するディレクトリではありません');
+  if (!raw) throw new ProjectCreateError(400, msg('project.create.pathNotDir'));
   // 相対パスはサーバの作業ディレクトリから解決されてしまい、利用者の思う場所にならない。
-  if (!path.isAbsolute(raw)) throw new ProjectCreateError(400, 'path は / か ~ で始まる絶対パスにしてください');
+  if (!path.isAbsolute(raw)) throw new ProjectCreateError(400, msg('project.create.pathMustBeAbsolute'));
   // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
   // そのプロジェクトには永久にセッションが紐づかない。必ず正規化してから入れる。
   const dir = normalizeDir(raw);
   // ルートやその上を登録すると、最も長い一致でワークスペースの下のセッションをすべて取り込み、
   // 直下のフォルダの自動の登録も止まる。Finder で何も選ばずに開くを押すとルートが返るので、ここで断る。
   const root = normalizeDir(expandHome(deps.workspaceRoot));
-  if (dir === path.parse(dir).root || samePath(root, dir) || isStrictlyUnder(root, dir)) throw new ProjectCreateError(400, 'ワークスペースのルートやその上のフォルダはプロジェクトにできません');
-  if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new ProjectCreateError(400, 'path が存在するディレクトリではありません');
+  if (dir === path.parse(dir).root || samePath(root, dir) || isStrictlyUnder(root, dir)) throw new ProjectCreateError(400, msg('project.create.rootNotAllowed'));
+  if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new ProjectCreateError(400, msg('project.create.pathNotDir'));
   // SQL の文字列比較は大文字小文字と NFC・NFD を区別する。Windows では綴り違いも同じフォルダなので、JS で比べる。
   const known = (deps.db.prepare(`select r.project_id id, r.path from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.deleted_at is null and p.deleted_at is null`).all(deps.deviceId) as { id: string; path: string }[]).find((r) => samePath(r.path.normalize('NFC'), dir));

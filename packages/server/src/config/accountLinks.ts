@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DEFAULT_LANGUAGE } from '@agent-hangar/shared';
+import { msg, render, type Message } from '../i18n/message.ts';
 
 /**
  * 2 つ目以降の置き場で、最初の置き場へのリンクにする項目。
@@ -34,7 +36,14 @@ export function ensureAccountLinks(primaryDir: string, dir: string): { created: 
   return { created, conflicts };
 }
 
-export function linkProblem(conflicts: string[]): string | null {
+/** リンクの場所に別のものが置かれているときの文。言語は、出す側（経路、起動）が選ぶ。 */
+export function linkProblemMessage(conflicts: string[]): Message | null {
   if (conflicts.length === 0) return null;
-  return `置き場の ${conflicts.join('、')} が共有のリンクではありません。中身を確かめて、要らなければ消してください`;
+  return msg('account.links.conflict', { names: conflicts });
+}
+
+/** 同じ文を、既定の言語（日本語）で返す。 */
+export function linkProblem(conflicts: string[]): string | null {
+  const m = linkProblemMessage(conflicts);
+  return m ? render(DEFAULT_LANGUAGE, m) : null;
 }

@@ -12,7 +12,7 @@ import { searchSessions } from '../../search/search.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
-import { errorText, translatorOf } from '../../i18n/message.ts';
+import { errorText, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 
@@ -179,7 +179,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       // 新しいプロジェクトとセッションは、書いた行から配る層が配る。
       // 昇格元のスクラッチは、行は変わらないがセッションが 1 件減るので、名指しして配り直してもらう。
       if (before.projectId && before.projectId !== r.projectId) touchRow(db, 'projects', before.projectId);
-      const out: PromoteResultDto = { project, session: updated, moved: r.moved, reason: r.reason };
+      const out: PromoteResultDto = { project, session: updated, moved: r.moved, reason: r.reasonMessage ? render(language(), r.reasonMessage) : r.reason };
       return c.json(out, 201);
     } catch (e) {
       if (e instanceof PromoteError) return c.json({ error: errorText(language(), e) }, e.status);

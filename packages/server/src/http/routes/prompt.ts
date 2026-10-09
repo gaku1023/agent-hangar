@@ -21,7 +21,7 @@ export function promptRoutes(api: Hono, deps: PromptRouteDeps): void {
     const id = c.req.query('projectId');
     const project = id ? requireProject(id) : null;
     if (id && !project) return c.json({ error: tr('project.error.notFound') }, 404);
-    return c.json({ commands: listPromptCommands({ claudeDir: deps.settings().claudeDir, projectPath: project?.path ?? null }) });
+    return c.json({ commands: listPromptCommands({ claudeDir: deps.settings().claudeDir, projectPath: project?.path ?? null, language: deps.language() }) });
   });
   // 初期プロンプト欄の `@` の候補。パスの無いプロジェクト（まだ場所が決まっていないもの）では空を返す。
   api.get('/prompt/files', async (c) => {

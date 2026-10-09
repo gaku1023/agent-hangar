@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { newId, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
-import { MessageError, type Message } from '../i18n/message.ts';
+import { MessageError, msg, type Message } from '../i18n/message.ts';
 
 /** 最初のアカウント（既定の置き場）の id。消せない。定義は shared にある（画面も使う）。 */
 export { PRIMARY_ACCOUNT_ID };
@@ -66,7 +66,7 @@ export class AccountStore {
 
   private must(id: string): Account {
     const a = this.get(id);
-    if (!a) throw new AccountError(404, 'アカウントが見つかりません');
+    if (!a) throw new AccountError(404, msg('account.error.notFound'));
     return a;
   }
 
@@ -78,9 +78,9 @@ export class AccountStore {
 
   private cleanName(name: string, exceptId?: string): string {
     const n = name.trim();
-    if (!n) throw new AccountError(400, 'アカウントの名前を入れてください');
-    if ([...n].length > NAME_MAX) throw new AccountError(400, `アカウントの名前は ${NAME_MAX} 字までです`);
-    if (this.list().some((a) => a.id !== exceptId && a.name === n)) throw new AccountError(400, `同じ名前のアカウントがあります: ${n}`);
+    if (!n) throw new AccountError(400, msg('account.name.required'));
+    if ([...n].length > NAME_MAX) throw new AccountError(400, msg('account.name.tooLong', { max: NAME_MAX }));
+    if (this.list().some((a) => a.id !== exceptId && a.name === n)) throw new AccountError(400, msg('account.name.duplicate', { name: n }));
     return n;
   }
 
@@ -102,9 +102,9 @@ export class AccountStore {
     let dir: string;
     if (input.dir === undefined) dir = this.nextDir();
     else {
-      if (!path.isAbsolute(input.dir)) throw new AccountError(400, '置き場は絶対パスで指定してください');
+      if (!path.isAbsolute(input.dir)) throw new AccountError(400, msg('account.dir.mustBeAbsolute'));
       dir = path.resolve(input.dir);
-      if (this.byDir(dir)) throw new AccountError(400, `この置き場はもう登録されています: ${dir}`);
+      if (this.byDir(dir)) throw new AccountError(400, msg('account.dir.alreadyRegistered', { dir }));
     }
     const used = new Set(this.list().map((a) => a.color));
     const color = ACCOUNT_COLORS.find((c) => !used.has(c)) ?? ACCOUNT_COLORS[this.list().length % ACCOUNT_COLORS.length]!;
@@ -118,7 +118,7 @@ export class AccountStore {
     const cur = this.must(id);
     const name = patch.name === undefined ? cur.name : this.cleanName(patch.name, id);
     const color = patch.color === undefined ? cur.color : patch.color;
-    if (!COLOR.test(color)) throw new AccountError(400, '色は #rrggbb（小文字）で指定してください');
+    if (!COLOR.test(color)) throw new AccountError(400, msg('account.color.invalid'));
     if (id === PRIMARY_ACCOUNT_ID) this.state.primary = { name, color };
     else this.state.accounts = this.state.accounts.map((a) => (a.id === id ? { ...a, name, color } : a));
     this.save();
@@ -127,7 +127,7 @@ export class AccountStore {
 
   /** 登録だけを外す。置き場のディレクトリと、その中のログインは残す。 */
   remove(id: string): void {
-    if (id === PRIMARY_ACCOUNT_ID) throw new AccountError(400, '最初のアカウントは消せません');
+    if (id === PRIMARY_ACCOUNT_ID) throw new AccountError(400, msg('account.error.primaryNotRemovable'));
     this.must(id);
     this.state.accounts = this.state.accounts.filter((a) => a.id !== id);
     if (this.state.currentId === id) this.state.currentId = PRIMARY_ACCOUNT_ID;

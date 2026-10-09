@@ -3,9 +3,10 @@ import { newId, type ArtifactDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { ARTIFACT_URL_RE } from './extract.ts';
+import { MessageError, msg } from '../i18n/message.ts';
 
 /** 入力の誤り。呼び手はこれだけを 400 にし、ほかの失敗は 500 にする。 */
-export class ArtifactInputError extends Error {}
+export class ArtifactInputError extends MessageError {}
 
 type Row = { id: string; project_id: string | null; url: string; title: string | null; description: string | null; favicon: string | null; first_published_at: number; last_published_at: number };
 type VersionRow = { artifact_id: string; session_id: string; file_path: string | null; published_at: number };
@@ -78,9 +79,9 @@ export function addManualArtifact(db: Db, deviceId: string, projectId: string, u
   try {
     parsed = new URL(url);
   } catch {
-    throw new ArtifactInputError('URL の形式が正しくありません');
+    throw new ArtifactInputError(msg('artifact.url.invalid'));
   }
-  if (parsed.hostname !== 'claude.ai' || !ARTIFACT_URL_RE.test(url)) throw new ArtifactInputError('claude.ai のアーティファクトの URL を入れてください');
+  if (parsed.hostname !== 'claude.ai' || !ARTIFACT_URL_RE.test(url)) throw new ArtifactInputError(msg('artifact.url.notArtifact'));
   const clean = ARTIFACT_URL_RE.exec(url)![0];
   const cur = db.prepare('select * from artifacts where url = ?').get(clean) as StoredRow | undefined;
   if (cur && cur.deleted_at === null) return getArtifact(db, cur.id)!;

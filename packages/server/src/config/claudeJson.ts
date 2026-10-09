@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
 import { isLoose, modeOf } from '../platform/secure.ts';
+import { MessageError, msg } from '../i18n/message.ts';
 
 export { resolveRealFile } from './claudeFileWrite.ts';
 
@@ -60,9 +61,9 @@ function readJsonObject(file: string): JsonObject {
     parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
     // 中身は他人の秘密を含みうるので、message には出さない。
-    throw new Error(`${file} を読めませんでした。JSON として壊れています。`);
+    throw new MessageError(msg('config.file.brokenJson', { file }));
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${file} の中身がオブジェクトではありません。`);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new MessageError(msg('config.file.notObject', { file }));
   return parsed as JsonObject;
 }
 

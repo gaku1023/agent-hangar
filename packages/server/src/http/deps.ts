@@ -2,6 +2,7 @@ import type { CloudUsageDto, CompatDto, ConfigPreviewDto, DeviceDto, IndexProgre
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
+import type { Message } from '../i18n/message.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import type { RunManager } from '../runs/manager.ts';
@@ -67,7 +68,7 @@ export type AppDeps = {
   usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   memos: MemoStore;
   summary: SummaryApi;
-  promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
+  promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null; /** reason と同じ理由の、言語を決めていない文。あれば経路がこちらを応答の言語で出す。 */ reasonMessage?: Message | null };
   /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する（server.ts は渡さない）。 */
   gitInit?: (dir: string) => void;
   sync: SyncApi;

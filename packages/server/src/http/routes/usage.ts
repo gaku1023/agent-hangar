@@ -37,6 +37,6 @@ export function usageRoutes(api: Hono, deps: UsageRouteDeps): void {
     const raw = c.req.query('days');
     const days = raw === undefined ? 30 : Number(raw);
     if (!Number.isInteger(days) || days < 1 || days > 365) return c.json({ error: tr('usage.days.invalid') }, 400);
-    return c.json(aggregateUsage(db, { days }));
+    return c.json(aggregateUsage(db, { days, language: deps.language() }));
   });
 }
