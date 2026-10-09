@@ -37,6 +37,12 @@ describe('replacements と redactDeep', () => {
   it('一時ディレクトリの置き場そのもの（実体も、その名前の形も）を /tmp にする', () => {
     expect(redactDeep({ p: '/private/var/folders/zz/abc/T/other', q: '/var/folders/zz/abc/T/other', m: '-private-var-folders-zz-abc-T-other' }, P)).toEqual({ p: '/tmp/other', q: '/tmp/other', m: '-tmp-other' });
   });
+  it('一時ディレクトリの置き場の、実体でない側の名前の形（-var-folders-…）も -tmp にする', () => {
+    expect(redactDeep({ m: '-var-folders-zz-abc-T-other' }, P)).toEqual({ m: '-tmp-other' });
+  });
+  it('設定の置き場の、置き場の名前の形（英数字以外を - にしたもの）も -Users-me--claude にする', () => {
+    expect(redactDeep({ m: '-Users-someone--claude-alt/projects/x' }, P)).toEqual({ m: '-Users-me--claude/projects/x' });
+  });
 });
 
 describe('redactTranscriptLine', () => {
@@ -64,6 +70,9 @@ describe('redactRegistry、redactAuth、redactAgents', () => {
   it('auth status のメールアドレス、組織、プラン、置き場を伏せる', () => {
     expect(redactAuth({ loggedIn: true, email: S.email, orgName: S.orgName, orgId: S.orgId, subscriptionType: 'enterprise', configDirectory: '/Users/someone/.claude-alt' }, P)).toEqual({ loggedIn: true, email: 'user@example.com', orgName: 'Example Org', orgId: '00000000-0000-4000-8000-000000000000', subscriptionType: 'max', configDirectory: '/Users/me/.claude' });
   });
+  it('auth status の置き場は、チルダの形で出ても決まった値にする', () => {
+    expect(redactAuth({ loggedIn: true, configDirectory: '~/.claude-alt', projectsDirectory: '~/.claude-alt/projects' }, P)).toEqual({ loggedIn: true, configDirectory: '/Users/me/.claude', projectsDirectory: '/Users/me/.claude/projects' });
+  });
   it('agents はその会話の行だけを残す', () => {
     expect(redactAgents([{ sessionId: 'a', cwd: S.tmpReal }, { sessionId: 'b', cwd: '/Users/someone/x' }], 'a', P)).toEqual([{ sessionId: 'a', cwd: '/tmp/hangar-fixture' }]);
     expect(redactAgents('x', 'a', P)).toEqual([]);
@@ -75,6 +84,14 @@ describe('leaks', () => {
     expect(leaks('ok /tmp/hangar-fixture user@example.com', S)).toEqual([]);
     expect(leaks('at /Users/someone/x and someone@corp.example', S)).toEqual(['ホーム', 'メールアドレス', 'ユーザー名', 'メールアドレスらしい文字列']);
     expect(leaks('other@mail.example', S)).toEqual(['メールアドレスらしい文字列']);
+  });
+  it('設定の置き場の名前（.claude でないとき）が残っていれば見つける。.claude のときは見ない', () => {
+    expect(leaks('x/.claude-alt/y', S)).toEqual(['設定の置き場の名前']);
+    expect(leaks('x/.claude/y', { ...S, claudeDir: '/Users/someone/.claude' })).toEqual([]);
+  });
+  it('ユーザー名は大文字小文字を区別しない', () => {
+    expect(leaks('Owner: SomeOne', S)).toEqual(['ユーザー名']);
+    expect(leaks('NoSomeOne', S)).toEqual([]);
   });
   it('ユーザー名は、前後が英数字でない所に現れたときだけ数える。語の一部は数えない', () => {
     expect(leaks('someone', S)).toEqual(['ユーザー名']);

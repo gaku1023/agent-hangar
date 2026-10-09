@@ -12,6 +12,7 @@ import { mangleCwd } from '../../src/provider/claude-code/discover.ts';
 import { Tmux, type TmuxExec } from '../../src/tmux/tmux.ts';
 import { leaks, redactAgents, redactAuth, redactRegistry, redactStatusline, redactTranscriptLine, replacements, type Secrets } from './redact.ts';
 import { SCENARIO } from './scenario.ts';
+import { failureSummary, hasBashSleep } from './transcript.ts';
 
 // 見本を採る道具。本物の claude を一時ディレクトリで動かすので、Claude の使用量を少し使う。CI では動かさない。
 // 動かす前に利用者に聞く。入口は scripts/capture-claude-fixtures.ts（npm run capture-claude-fixtures）。
@@ -24,12 +25,18 @@ const TMUX_SESSION = 'hangar-fixture';
 const STEP_TIMEOUT_MS = 180_000;
 /** claude の読み取りコマンド（--version、agents、auth status、--help、purge）の時間の上限。 */
 const CLI_TIMEOUT_MS = 60_000;
+/** 後始末で、claude を止めたあとに登録が消えるのを待つ上限。 */
+const UNREGISTER_WAIT_MS = 10_000;
 
 const sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms); });
 const readText = (file: string): string => { try { return fs.readFileSync(file, 'utf8'); } catch { return ''; } };
 const jsonl = (text: string): unknown[] => text.split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as unknown);
 const toJsonl = (recs: unknown[]): string => recs.map((r) => JSON.stringify(r)).join('\n') + '\n';
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+const lineCount = (text: string): number => text.split('\n').filter((l) => l.trim() !== '').length;
+
+/** 受けたら中断する信号。中断の旗を立てるだけで、止めるのは待ちの側（後始末が走るように）。 */
+const ABORT_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 
 /**
  * 子の claude と tmux に渡す環境。
@@ -43,14 +50,6 @@ function childEnv(): NodeJS.ProcessEnv {
   for (const k of [...CLAUDE_CHILD_ENV, 'TMUX', 'TMUX_PANE', 'CLAUDE_CODE_SSE_PORT']) delete env[k];
   env.DISABLE_AUTOUPDATER = '1';
   return env;
-}
-
-async function until(what: string, cond: () => boolean, timeoutMs = STEP_TIMEOUT_MS): Promise<void> {
-  const limit = Date.now() + timeoutMs;
-  while (!cond()) {
-    if (Date.now() > limit) throw new Error(`${what}を待ちきれませんでした`);
-    await sleep(250);
-  }
 }
 
 export async function main(argv: string[]): Promise<void> {
@@ -67,26 +66,21 @@ export async function main(argv: string[]): Promise<void> {
   if (!version) throw new Error(`claude --version を読めませんでした: ${versionText.trim()}`);
   const outDir = path.join(FIXTURES, version);
   if (fs.existsSync(outDir) && !force) throw new Error(`${outDir} はもうあります。採り直すときは --force を付けてください`);
-  const claudeDir = process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude');
+  // 末尾の / などで置き換えが崩れないように、正規化する。
+  const claudeDir = path.resolve(process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude'));
+  // 会話を始める（使用量を使う）前に、読めるものを読む。ここで落ちれば、使用量は使わない。
+  const authText = claude(['auth', 'status', '--json']);
+  const auth = ((): Record<string, unknown> => {
+    try {
+      const v: unknown = JSON.parse(authText);
+      if (typeof v === 'object' && v !== null && !Array.isArray(v)) return v as Record<string, unknown>;
+    } catch { /* 下で投げる */ }
+    throw new Error('claude auth status --json の出力を JSON のオブジェクトとして読めませんでした');
+  })();
+  const helpText = claude(['--help']);
 
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-fixture-'));
-  const tmpReal = fs.realpathSync(tmp);
-  const work = path.join(tmpReal, 'work');
-  fs.mkdirSync(work);
-  // 専用のソケットを -S で名指しする。exec を自分で渡すのは、上の環境（変数を外したもの）で tmux サーバを起こすためである。
-  // -f /dev/null で、利用者の tmux.conf を読ませない。-f はサーバを起こすときだけ効く。
-  const exec: TmuxExec = (file, args) => {
-    const r = spawnSync(file, ['-f', '/dev/null', ...args], { encoding: 'utf8', env });
-    return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
-  };
-  const tmux = new Tmux({ tmuxPath, socketPath: path.join(tmpReal, 'tmux.sock'), exec });
   const sessionId = crypto.randomUUID();
-  const projectDir = path.join(claudeDir, 'projects', mangleCwd(work));
-  const transcriptFile = path.join(projectDir, `${sessionId}.jsonl`);
-  const subagentDir = path.join(projectDir, sessionId, 'subagents');
-  const statuslineFile = path.join(tmpReal, 'statusline.jsonl');
   const registryDir = path.join(claudeDir, 'sessions');
-
   // その会話の登録を、変わるたびに写す。
   const registry: unknown[] = [];
   let lastRegistry: string | null = null;
@@ -104,36 +98,89 @@ export async function main(argv: string[]): Promise<void> {
     if (lastRegistry === null) return null;
     try { return str((JSON.parse(lastRegistry) as { status?: unknown }).status); } catch { return null; }
   };
-  const poll = setInterval(() => {
-    const text = readRegistryText();
-    if (text !== null && text !== lastRegistry) registry.push(JSON.parse(text));
-    lastRegistry = text;
-  }, 200);
 
-  // 新しいディレクトリでは最初にフォルダを信頼するかを聞かれる。画面に trust が出たら、既定の答え（信頼する）で Enter を全体で 1 度だけ押す。
-  // 登録（レジストリ）は信頼の画面より先に現れることがあるので、トランスクリプトに中身が出るまでのどの待ちでも見る。
-  let trusted = false;
-  const answerTrust = (): void => {
-    if (trusted || readText(transcriptFile) !== '') return;
-    if (/trust/i.test(tmux.capturePane(TMUX_SESSION))) { tmux.sendKeys(TMUX_SESSION, 'Enter'); trusted = true; }
+  // 中断の信号を受けたら旗を立てる。待ちがそれを見て投げ、下の finally が走る（claude を止め、purge し、一時ディレクトリを消す）。
+  let aborted: NodeJS.Signals | null = null;
+  const onSignal = (sig: NodeJS.Signals): void => { aborted ??= sig; };
+  for (const sig of ABORT_SIGNALS) process.on(sig, onSignal);
+  const checkAborted = (what: string): void => {
+    if (aborted !== null) throw new Error(`${aborted} を受けたので中断しました（${what}の途中）`);
   };
-  /** トランスクリプトに中身が出るまでの待ち。待つあいだ、信頼の画面に答える。 */
-  const untilWithTrust = (what: string, cond: () => boolean, timeoutMs?: number): Promise<void> => until(what, () => { answerTrust(); return cond(); }, timeoutMs);
+
+  // 後始末が見る。try の中で作るので、作る前に投げたときは空のままである。
+  let tmp: string | null = null;
+  let tmpReal: string | null = null;
+  let work: string | null = null;
+  let tmux: Tmux | null = null;
+  let poll: NodeJS.Timeout | null = null;
 
   try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-fixture-'));
+    tmpReal = fs.realpathSync(tmp);
+    const real = tmpReal;
+    const workDir = path.join(real, 'work');
+    fs.mkdirSync(workDir);
+    work = workDir;
+    // 専用のソケットを -S で名指しする。exec を自分で渡すのは、上の環境（変数を外したもの）で tmux サーバを起こすためである。
+    // -f /dev/null で、利用者の tmux.conf を読ませない。-f はサーバを起こすときだけ効く。
+    const exec: TmuxExec = (file, args) => {
+      const r = spawnSync(file, ['-f', '/dev/null', ...args], { encoding: 'utf8', env });
+      return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
+    };
+    const t = new Tmux({ tmuxPath, socketPath: path.join(real, 'tmux.sock'), exec });
+    tmux = t;
+    const projectDir = path.join(claudeDir, 'projects', mangleCwd(workDir));
+    const transcriptFile = path.join(projectDir, `${sessionId}.jsonl`);
+    const subagentDir = path.join(projectDir, sessionId, 'subagents');
+    const statuslineFile = path.join(real, 'statusline.jsonl');
+
+    poll = setInterval(() => {
+      const text = readRegistryText();
+      if (text !== null && text !== lastRegistry) registry.push(JSON.parse(text));
+      lastRegistry = text;
+    }, 200);
+
+    // 新しいディレクトリでは最初にフォルダを信頼するかを聞かれる。画面に trust が出たら、既定の答え（信頼する）で Enter を全体で 1 度だけ押す。
+    // 登録（レジストリ）は信頼の画面より先に現れることがあるので、トランスクリプトに中身が出るまでのどの待ちでも見る。
+    let trusted = false;
+    const answerTrust = (): void => {
+      if (trusted || readText(transcriptFile) !== '') return;
+      if (/trust/i.test(t.capturePane(TMUX_SESSION))) { t.sendKeys(TMUX_SESSION, 'Enter'); trusted = true; }
+    };
+    /**
+     * 条件が満たされるまで待つ。待つたびに、中断の信号と、claude の tmux セッションが消えていないかを見る。
+     * セッションが消えたら、待ちきらずに投げる（goneOk のときは成功とする）。trust は、信頼の画面に答えるか。
+     */
+    const wait = async (what: string, cond: () => boolean, o: { timeoutMs?: number; trust?: boolean; goneOk?: boolean } = {}): Promise<void> => {
+      const limit = Date.now() + (o.timeoutMs ?? STEP_TIMEOUT_MS);
+      for (;;) {
+        checkAborted(what);
+        if (o.trust) answerTrust();
+        if (cond()) return;
+        if (!t.hasSession(TMUX_SESSION)) {
+          if (o.goneOk) return;
+          throw new Error(`${what}の途中で claude の tmux セッションが消えました。claude が終わった（引数が通らなかった、落ちた）可能性があります`);
+        }
+        if (Date.now() > limit) throw new Error(`${what}を待ちきれませんでした`);
+        await sleep(250);
+      }
+    };
+    /** 固定の待ち。待ったあとに中断の信号を見る。 */
+    const pause = async (what: string, ms: number): Promise<void> => { await sleep(ms); checkAborted(what); };
+
     // statusline に渡る JSON を 1 行ずつ写すスクリプト。利用者の settings.json には触れず、--settings で差し込む。
-    const writer = path.join(tmpReal, 'statusline.mjs');
+    const writer = path.join(real, 'statusline.mjs');
     fs.writeFileSync(writer, [
       "import fs from 'node:fs';",
       "let s = '';",
       "process.stdin.on('data', (d) => { s += d; }).on('end', () => { fs.appendFileSync(process.argv[2], JSON.stringify(JSON.parse(s)) + '\\n'); process.stdout.write('fixture'); });",
       '',
     ].join('\n'));
-    const settingsFile = path.join(tmpReal, 'settings.json');
+    const settingsFile = path.join(real, 'settings.json');
     fs.writeFileSync(settingsFile, JSON.stringify({ statusLine: { type: 'command', command: [process.execPath, writer, statuslineFile].map((p) => JSON.stringify(p)).join(' ') } }));
 
-    tmux.newSession({
-      name: TMUX_SESSION, cwd: work, width: 200, height: 50,
+    t.newSession({
+      name: TMUX_SESSION, cwd: workDir, width: 200, height: 50,
       // 可変長の引数（--allowedTools、--mcp-config）は次の引数で閉じるように並べ、指示は最後に置く（spike 02）。
       command: [
         bin, '--allowedTools', ...SCENARIO.tools, '--mcp-config', '{"mcpServers":{}}', '--strict-mcp-config',
@@ -142,69 +189,73 @@ export async function main(argv: string[]): Promise<void> {
         SCENARIO.first,
       ],
     });
-    await untilWithTrust('claude の起動', () => {
-      if (!tmux.hasSession(TMUX_SESSION)) throw new Error('claude が起動の途中で終わりました。引数が通らなかった可能性があります');
-      return lastRegistry !== null;
-    }, 60_000);
+    await wait('claude の起動', () => lastRegistry !== null, { timeoutMs: 60_000, trust: true });
     // 1 つ目の指示の Bash（sleep 20）が走っている間に、2 つ目の指示を打って積む。
-    await untilWithTrust('Bash の sleep', () => readText(transcriptFile).includes('sleep 20'));
-    await sleep(2000);
-    tmux.sendKeys(TMUX_SESSION, '-l', SCENARIO.queued);
-    await sleep(500);
-    tmux.sendKeys(TMUX_SESSION, 'Enter');
+    // 利用者の指示の文にも sleep 20 があるので、claude が実際に Bash を呼んだ行（assistant の tool_use）が出るのを待つ。
+    await wait('Bash の sleep', () => hasBashSleep(readText(transcriptFile)), { trust: true });
+    await pause('Bash の sleep の後', 2000);
+    t.sendKeys(TMUX_SESSION, '-l', SCENARIO.queued);
+    await pause('積む指示の入力の後', 500);
+    t.sendKeys(TMUX_SESSION, 'Enter');
     // サブエージェントが走り、休みが 5 秒続いたら筋書きは終わり。
     let idleSince: number | null = null;
-    await until('サブエージェントと休み', () => {
+    await wait('サブエージェントと休み', () => {
       const done = readText(transcriptFile).includes('"name":"Agent"') && fs.existsSync(subagentDir);
       idleSince = statusNow() === 'idle' ? (idleSince ?? Date.now()) : null;
       return done && idleSince !== null && Date.now() - idleSince >= 5000;
-    }, 300_000);
+    }, { timeoutMs: 300_000 });
     // 対話のセッションは動いているあいだだけ agents --json に並ぶので、終える前に読む。
     // 起こせない、時間切れのときは空として扱う。下の筋書きの確かめで、この会話の行が無いとして落ちる。
     const agentsText = (() => { try { return claude(['agents', '--json', '--all']); } catch { return ''; } })();
-    // 終える。/exit が効かなければ Ctrl+C を 2 回送る。
-    tmux.sendKeys(TMUX_SESSION, '-l', '/exit');
-    await sleep(300);
-    tmux.sendKeys(TMUX_SESSION, 'Enter');
+    // 終える。/exit が効かなければ Ctrl+C を 2 回送る。終わるとセッションも消えるので、消えたら成功とする。
+    t.sendKeys(TMUX_SESSION, '-l', '/exit');
+    await pause('/exit の入力の後', 300);
+    t.sendKeys(TMUX_SESSION, 'Enter');
+    const exited = (): boolean => readRegistryText() === null;
     try {
-      await until('終了', () => readRegistryText() === null, 20_000);
-    } catch {
-      tmux.sendKeys(TMUX_SESSION, 'C-c');
-      await sleep(500);
-      tmux.sendKeys(TMUX_SESSION, 'C-c');
-      await until('終了', () => readRegistryText() === null, 20_000);
+      await wait('終了', exited, { timeoutMs: 20_000, goneOk: true });
+    } catch (e) {
+      if (aborted !== null) throw e;
+      t.sendKeys(TMUX_SESSION, 'C-c');
+      await pause('Ctrl+C の後', 500);
+      t.sendKeys(TMUX_SESSION, 'C-c');
+      await wait('終了', exited, { timeoutMs: 20_000, goneOk: true });
     }
-    await sleep(2000);
+    await pause('終了の後', 2000);
 
     const transcriptText = readText(transcriptFile);
     const subagents = (fs.existsSync(subagentDir) ? fs.readdirSync(subagentDir) : []).filter((n) => /^agent-[0-9a-zA-Z]+\.jsonl$/.test(n)).sort();
     const statusline = jsonl(readText(statuslineFile));
     const agentsRows: unknown = (() => { try { return JSON.parse(agentsText); } catch { return []; } })();
-    const authText = claude(['auth', 'status', '--json']);
-    const auth = JSON.parse(authText) as Record<string, unknown>;
-    const helpText = claude(['--help']);
     const secrets: Secrets = {
-      tmp, tmpReal, tmpRoot: os.tmpdir(), tmpRootReal: fs.realpathSync(os.tmpdir()),
+      tmp, tmpReal: real, tmpRoot: os.tmpdir(), tmpRootReal: fs.realpathSync(os.tmpdir()),
       home: os.homedir(), claudeDir, user: os.userInfo().username, host: os.hostname(),
       email: str(auth.email), orgName: str(auth.orgName), orgId: str(auth.orgId),
     };
     const pairs = replacements(secrets);
 
-    // 筋書きが通ったかを確かめる。足りなければ書き出さない。
+    // 筋書きが通ったかを確かめる。足りなければ書き出さない。落ちたときは、値を含まない要約を標準エラーに出す。
+    const agentsKept = redactAgents(agentsRows, sessionId, pairs);
     const problems: string[] = [];
     if (transcriptText === '') problems.push('トランスクリプトがありません');
     if (subagents.length === 0) problems.push('サブエージェントのトランスクリプトがありません');
     if (!transcriptText.includes(SCENARIO.queued)) problems.push('積んだ指示がトランスクリプトにありません');
     if (registry.length < 2) problems.push('レジストリの写しが 2 つ未満です');
     if (statusline.length === 0) problems.push('statusline の JSON が届いていません（--settings の statusLine が効いていません）');
-    if (redactAgents(agentsRows, sessionId, pairs).length === 0) problems.push('agents --json にこの会話がありません');
-    if (problems.length > 0) throw new Error(`筋書きが通りませんでした:\n- ${problems.join('\n- ')}`);
+    if (agentsKept.length === 0) problems.push('agents --json にこの会話がありません');
+    if (problems.length > 0) {
+      console.error(failureSummary([
+        ['transcript.jsonl', lineCount(transcriptText)], ['registry.jsonl', registry.length], ['statusline.jsonl', statusline.length], ['agents.json', agentsKept.length],
+        ...subagents.map((n): [string, number] => [`subagents/${n}`, lineCount(readText(path.join(subagentDir, n)))]),
+      ], transcriptText));
+      throw new Error(`筋書きが通りませんでした:\n- ${problems.join('\n- ')}`);
+    }
 
     const files: Record<string, string> = {
       'transcript.jsonl': toJsonl(jsonl(transcriptText).map((r) => redactTranscriptLine(r, pairs))),
       'registry.jsonl': toJsonl(registry.map((r) => redactRegistry(r, pairs))),
       'statusline.jsonl': toJsonl(statusline.map((r) => redactStatusline(r, pairs))),
-      'agents.json': JSON.stringify(redactAgents(agentsRows, sessionId, pairs), null, 2) + '\n',
+      'agents.json': JSON.stringify(agentsKept, null, 2) + '\n',
       'auth-status.json': JSON.stringify(redactAuth(auth, pairs), null, 2) + '\n',
       'help.txt': helpText,
       'version.txt': versionText,
@@ -212,7 +263,10 @@ export async function main(argv: string[]): Promise<void> {
     };
     for (const n of subagents) files[`subagents/${n}`] = toJsonl(jsonl(readText(path.join(subagentDir, n))).map((r) => redactTranscriptLine(r, pairs)));
     const found = Object.entries(files).flatMap(([name, text]) => leaks(text, secrets).map((what) => `${name}: ${what}`));
-    if (found.length > 0) throw new Error(`伏せ残しがあるので書き出しません:\n- ${found.join('\n- ')}`);
+    if (found.length > 0) {
+      console.error(failureSummary(Object.entries(files).map(([name, text]): [string, number] => [name, lineCount(text)]), transcriptText));
+      throw new Error(`伏せ残しがあるので書き出しません:\n- ${found.join('\n- ')}`);
+    }
 
     fs.rmSync(outDir, { recursive: true, force: true });
     for (const [name, text] of Object.entries(files)) {
@@ -224,12 +278,15 @@ export async function main(argv: string[]): Promise<void> {
     for (const name of Object.keys(files).sort()) console.log(`  ${name}`);
     console.log('コミットする前に、伏せ残しが無いかを目で確かめてください。');
   } finally {
-    clearInterval(poll);
+    if (poll) clearInterval(poll);
     // 名指しのソケットの名指しのセッションだけを止める。kill-server は呼ばない。
-    if (tmux.hasSession(TMUX_SESSION)) tmux.killSession(TMUX_SESSION);
+    if (tmux?.hasSession(TMUX_SESSION)) tmux.killSession(TMUX_SESSION);
+    // claude が登録を消すのを待つ。残ったまま purge すると、動いている会話の記録を消すことになる。待ちきれなくても先へ進む。
+    const unregisterLimit = Date.now() + UNREGISTER_WAIT_MS;
+    while (readRegistryText() !== null && Date.now() < unregisterLimit) await sleep(250);
     // その会話の記録を設定の置き場から消す。--all は決して渡さない。名指しのパスが一時ディレクトリの下であることを確かめてから渡す。
     // purge が投げても（起こせない、時間切れ）、次の一時ディレクトリの削除まで必ず進む。
-    if (work.startsWith(tmpReal + path.sep)) {
+    if (work !== null && tmpReal !== null && work.startsWith(tmpReal + path.sep)) {
       try {
         const r = captureOutputSync(bin, ['purge', work, '-y'], { timeoutMs: CLI_TIMEOUT_MS, env, stderr: true });
         if (r.code !== 0) console.error(`claude purge が失敗しました。手で消してください: claude purge ${work} -y\n${r.stderr}`);
@@ -237,6 +294,7 @@ export async function main(argv: string[]): Promise<void> {
         console.error(`claude purge を動かせませんでした。手で消してください: claude purge ${work} -y\n${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp !== null) fs.rmSync(tmp, { recursive: true, force: true });
+    for (const sig of ABORT_SIGNALS) process.off(sig, onSignal);
   }
 }

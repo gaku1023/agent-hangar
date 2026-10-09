@@ -1,7 +1,9 @@
+import path from 'node:path';
 import { mangleCwd } from '../../src/provider/claude-code/discover.ts';
 import { PLACEHOLDER } from './scenario.ts';
 
 type Rec = Record<string, unknown>;
+const basename = (p: string): string => path.basename(p);
 const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
@@ -19,7 +21,7 @@ export type Pairs = [string, string][];
 /**
  * 置き換えの組。長いものから当てる（短いものが長いものの一部を先に崩さないように）。
  * 一時ディレクトリとホームは、そのままの形と、Claude Code がプロジェクトの置き場の名前にする形（英数字以外を - にしたもの）の両方を当てる。
- * 設定の置き場は、ホームの下にあることが多いので、ホームより長いものとして先に当たる。
+ * 設定の置き場は、ホームの下にあることが多いので、ホームより長いものとして先に当たる。置き場の名前の形も当てる。
  * 一時ディレクトリの置き場（macOS なら /var/folders/…/T）は、一時ディレクトリそのものとは別に /tmp へ置き換える。
  * 3 文字より短い値は当てない。ありふれた文字列を崩さないためである。
  * ユーザー名は置き換えない。ありふれた語を崩すので、残っていないかを leaks で見るだけにする。
@@ -30,7 +32,7 @@ export function replacements(s: Secrets): Pairs {
     [mangleCwd(s.tmpReal), mangleCwd(PLACEHOLDER.tmp)], [mangleCwd(s.tmp), mangleCwd(PLACEHOLDER.tmp)],
     [s.tmpRootReal, '/tmp'], [s.tmpRoot, '/tmp'],
     [mangleCwd(s.tmpRootReal), mangleCwd('/tmp')], [mangleCwd(s.tmpRoot), mangleCwd('/tmp')],
-    [s.claudeDir, PLACEHOLDER.claudeDir],
+    [s.claudeDir, PLACEHOLDER.claudeDir], [mangleCwd(s.claudeDir), mangleCwd(PLACEHOLDER.claudeDir)],
     [s.home, PLACEHOLDER.home], [mangleCwd(s.home), mangleCwd(PLACEHOLDER.home)],
     [s.host, PLACEHOLDER.host],
   ];
@@ -108,6 +110,9 @@ export function redactAuth(rec: unknown, pairs: Pairs): unknown {
   if (typeof out.orgName === 'string') out.orgName = PLACEHOLDER.orgName;
   if (typeof out.orgId === 'string') out.orgId = PLACEHOLDER.orgId;
   if (typeof out.subscriptionType === 'string') out.subscriptionType = PLACEHOLDER.subscriptionType;
+  // 置き場は、チルダの形（~/.claude-alt）で出る版でも置き場の名前が残らないように、直接決まった値にする。
+  if (typeof out.configDirectory === 'string') out.configDirectory = PLACEHOLDER.claudeDir;
+  if (typeof out.projectsDirectory === 'string') out.projectsDirectory = `${PLACEHOLDER.claudeDir}/projects`;
   return out;
 }
 
@@ -118,16 +123,11 @@ export function redactAgents(rows: unknown, sessionId: string, pairs: Pairs): un
 }
 
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-const ALNUM = /[A-Za-z0-9]/;
+const escapeRegExp = (v: string): string => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** text に word が、前後を英数字に挟まれない形で現れるか。語の一部（someone に対する someonelse や nosomeone）は数えない。 */
+/** text に word が、前後を英数字に挟まれない形で、大文字小文字を問わず現れるか。語の一部（someone に対する someonelse や nosomeone）は数えない。 */
 function hasWord(text: string, word: string): boolean {
-  for (let i = text.indexOf(word); i !== -1; i = text.indexOf(word, i + 1)) {
-    const before = text[i - 1];
-    const after = text[i + word.length];
-    if (!(before !== undefined && ALNUM.test(before)) && !(after !== undefined && ALNUM.test(after))) return true;
-  }
-  return false;
+  return new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(word)}(?![A-Za-z0-9])`, 'i').test(text);
 }
 
 /** 伏せ残しの名前（値そのものは出さない）。空なら書き出してよい。 */
@@ -136,6 +136,8 @@ export function leaks(text: string, s: Secrets): string[] {
     ['一時ディレクトリ', s.tmp], ['一時ディレクトリの実体', s.tmpReal], ['一時ディレクトリの置き場の名前', mangleCwd(s.tmpReal)],
     ['ホーム', s.home], ['ホームの置き場の名前', mangleCwd(s.home)], ['ホスト名', s.host],
     ['メールアドレス', s.email], ['組織名', s.orgName], ['組織の識別子', s.orgId],
+    // 設定の置き場の名前（.claude でないときだけ。.claude は置き換えの値にも出る）。
+    ['設定の置き場の名前', basename(s.claudeDir) === '.claude' ? null : basename(s.claudeDir)],
   ];
   const out = named.filter(([, v]) => v !== null && v.length >= 3 && text.includes(v)).map(([label]) => label);
   // ユーザー名は短くありふれた語になりうるので、語として現れたときだけ数える。
