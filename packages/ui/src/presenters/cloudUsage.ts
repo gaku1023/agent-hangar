@@ -29,7 +29,8 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
   if (!u) return null;
   const unknown = u.source === 'unknown';
   // 上限で退いているか。
-  const limited = sync?.state === 'paused' && sync.limitedUntil !== null;
+  const limitedUntil = sync?.state === 'paused' ? sync.limitedUntil : null;
+  const limited = limitedUntil !== null;
   const limit = u.limits.d1RowsPerDay;
   const d1 = unknown ? null : u.today.d1RowsWritten;
   const d1Pct = d1 === null ? null : pct(d1, limit);
@@ -69,8 +70,9 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
     : `Cloudflare の数 · ${relativeTime(u.fetchedAt, now)}`;
 
   let strip: CloudUsageProps['strip'] = null;
-  if (limited) {
-    strip = { tone: 'stop', text: `Cloudflare の無料枠の上限に達したので、同期を止めています。${reset} に枠が戻ると、自動で再開します。` };
+  if (limitedUntil !== null) {
+    // 戻る時刻は同期の戻る時刻から出す。UTC の 0 時の直後に断られたときは 0 時でないので、ヘッダーとそろえる。
+    strip = { tone: 'stop', text: `Cloudflare の無料枠の上限に達したので、同期を止めています。${hm(limitedUntil, tz)} に枠が戻ると、自動で再開します。` };
   } else if (pausedNoFetch) {
     strip = { tone: 'info', text: '同期を止めている間は Cloudflare に問い合わせません。再開すると Cloudflare の数と今月の費用が出ます。' };
   } else if (unknown) {

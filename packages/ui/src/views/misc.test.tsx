@@ -932,11 +932,11 @@ describe('SettingsScreen の会話の保持', () => {
 const USAGE: CloudUsageProps = {
   tiles: [
     { key: 'bill', label: '今月の請求', value: '$0.00', sub: '9/30 分まで', tone: 'ok' },
-    { key: 'd1', label: 'D1 の書き込み（今日）', value: '68%', sub: '68,120 行', tone: 'warn' },
+    { key: 'd1', label: 'D1 の書き込み（今日）', value: '86%', sub: '86,120 行', tone: 'warn' },
     { key: 'plan', label: 'プラン', value: 'Workers 無料', sub: 'R2 従量', tone: 'ok' },
   ],
   bars: [
-    { label: 'D1 の書き込み', when: '今日', pct: 68.12, value: '68,120 / 100,000 行', tone: 'warn' },
+    { label: 'D1 の書き込み', when: '今日', pct: 86.12, value: '86,120 / 100,000 行', tone: 'warn' },
     { label: 'R2 の保存', when: '今月', pct: 1.65, value: '0.17 / 10 GB-月', tone: 'ok' },
     { label: 'R2 Infrequent Access Data Retrieval', when: '今月', pct: null, value: '3 GB', tone: 'ok' },
   ],
@@ -948,10 +948,10 @@ describe('CloudUsage', () => {
     render(<CloudUsage {...USAGE} />);
     const sec = screen.getByRole('region', { name: '使用量と費用' });
     expect(within(sec).getByText('$0.00')).toBeTruthy();
-    expect(within(sec).getByText('68%').closest('[data-tone]')?.getAttribute('data-tone')).toBe('warn');
+    expect(within(sec).getByText('86%').closest('[data-tone]')?.getAttribute('data-tone')).toBe('warn');
     const meters = within(sec).getAllByRole('meter');
     expect(meters).toHaveLength(2);
-    expect(meters[0]!.getAttribute('aria-valuenow')).toBe('68.12');
+    expect(meters[0]!.getAttribute('aria-valuenow')).toBe('86.12');
     expect(within(sec).getByText('3 GB')).toBeTruthy();
     expect(within(sec).getByText('Cloudflare の数 · 2 分前')).toBeTruthy();
   });

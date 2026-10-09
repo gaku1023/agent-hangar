@@ -1441,7 +1441,7 @@ describe('ヘッダーの無料枠で停止', () => {
     const settings = presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({ limitedUntil: RESET }) }, at('2026-10-02T06:48:00Z')).cloud;
     expect(settings.paused).toBe(false);
     expect(settings.limited).toBe(true);
-    expect(settings.stateLabel).toMatch(/^無料枠で停止 · \d{1,2}:00 に戻る$/);
+    expect(settings.stateLabel).toMatch(/^無料枠で停止 · \d{1,2}:\d{2} に戻る$/);
     // 手で止めたときは limited ではない。
     expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({}) }).cloud).toMatchObject({ paused: true, limited: false });
   });

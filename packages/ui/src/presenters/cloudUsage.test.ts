@@ -18,7 +18,7 @@ const base: CloudUsageDto = {
 };
 const unknown: CloudUsageDto = { ...base, source: 'unknown', fetchedAt: null, plan: null, month: null, today: { d1RowsWritten: null, workersRequests: null, resetAt: RESET } };
 const sync = (o: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false, ...o });
-/** 上限で退いている同期の状態。Task 7 で limitedUntil に替える。 */
+/** 上限で退いている同期の状態。 */
 const limitedSync = (): SyncStatusBody => sync({ state: 'paused', limitedUntil: RESET });
 const TOKEN_COMMAND = 'npm run hangar -- setup cloud --usage-token';
 
@@ -60,6 +60,15 @@ describe('presentCloudUsage', () => {
     expect(p.legend).toEqual([]);
     expect(p.strip).toEqual({ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を止めています。9:00 に枠が戻ると、自動で再開します。' });
     expect(p.command).toBeNull();
+  });
+
+  it('上限で退いている間の帯の時刻は、同期の戻る時刻（limitedUntil）から出す', () => {
+    // UTC の 0 時の直後に断られると、戻る時刻は 0 時の 5 分後になる。帯をヘッダーとそろえる。
+    const p = presentCloudUsage(base, sync({ state: 'paused', limitedUntil: RESET + 5 * 60_000 }), NOW, TZ)!;
+    expect(p.strip).toEqual({ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を止めています。9:05 に枠が戻ると、自動で再開します。' });
+    // 退いていないときの凡例と出どころの時刻は、今までどおり今日の枠の戻る時刻である。
+    expect(presentCloudUsage(base, sync(), NOW, TZ)!.legend[0]).toBe('今日の枠は 9:00 に戻る');
+    expect(presentCloudUsage(unknown, sync(), NOW, TZ)!.source).toBe('数は不明（hangar は数えません） · 今日の枠は 9:00 に戻る');
   });
 
   it('手で止めたときは帯を出さない', () => {
