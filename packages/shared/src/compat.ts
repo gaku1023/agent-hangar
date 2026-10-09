@@ -7,6 +7,7 @@
  *
  * 上げるのは、同期の形、Worker の API、殻とサーバの合図を、古い相手と話せない形で変えるときだけである。
  * 項目を足すだけで古い相手も読める変更では上げない（docs/design.md「互換の版番号」）。
+ * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  */
 export const COMPAT_VERSION = 1;
 
