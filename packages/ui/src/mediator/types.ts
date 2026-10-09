@@ -1,4 +1,4 @@
-import type { IndexProgressDto, Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
 import type { TableIntent } from '../runtime/intentTable.ts';
 
 /**
@@ -18,14 +18,6 @@ export type RuntimeEvent =
   | { type: 'project.created'; projectId: string; params: LaunchParams }
   // プロジェクト画面の作成のダイアログの結果。
   | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
-  // ワークスペース直下の未登録のフォルダ。取れなければ空で届く。
-  | { type: 'workspaceDirs.loaded'; dirs: WorkspaceDirDto[] }
-  // Finder で選ばれたフォルダ。取り消したときは届かない。
-  | { type: 'folder.picked'; path: string }
-  // 通知を出せるか、受け取るか。
-  // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
-  // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
-  | { type: 'notify.changed'; available: boolean; on: boolean; blocked?: boolean }
   // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
   | { type: 'return.due'; keys: string[] }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
@@ -88,6 +80,8 @@ export type Effect =
   // 通知の許可を求める。
   // 利用者の操作の中で出すので、ブラウザの許可ダイアログも出せる。
   | { kind: 'notify.request' }
+  // 通知を受け取らないにする。Runtime がその場で切り替えて覚える。
+  | { kind: 'notify.off' }
   // Dock（ブラウザならアプリ）のバッジに入力待ちの数を出す。
   // 0 で消す。
   | { kind: 'badge'; count: number }
@@ -103,7 +97,7 @@ export type Effect =
   | { kind: 'api.workspaceDirs' }
   | { kind: 'desktop.pickFolder' }
   | { kind: 'api.loadSettingsExtras' }
-  | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
+  | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
@@ -115,8 +109,6 @@ export type Effect =
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
 export type FocusTarget = 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput' | 'results';
-/** 同期の見え方。サーバの SyncStatusDto を UI が描く形に写したもの。 */
-export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
 /**
  * 押し切る前に一言聞く必要があるもの。
  * 他端末の本文で手元を上書きする場面、外のターミナルの claude を引き取る場面、作業中かシェルタブのあるランを止める場面、
@@ -173,12 +165,6 @@ export type SessionViewState = {
 };
 export type Toast = { id: string; level: 'info' | 'error'; message: string };
 /**
- * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
- * blocked はデスクトップのシステム設定で切られていること。
- * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
- */
-export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
-/**
  * 欄ごとの保存の知らせ。
  * saved の n は同じ欄を保存するたびに進み、画面は変わるたびに「✓ 保存しました」を出し直す。
  * error は欄の下に出す理由で、同じ欄をもう一度保存し始めたら消える。
@@ -217,8 +203,6 @@ export type State = {
   returnSeen: string[];
   /** 右下に積む「戻る時刻を過ぎた」の札のセッション。古いものが先。閉じるか、そのセッションを開くか、状態が変わるまで残す。 */
   returnToasts: string[];
-  /** 通知の受け取り。 */
-  notify: NotifyState;
   /** focus: terminal で開いたセッション。その画面に着いたら端末にフォーカスし、着いたら忘れる。 */
   focusOnOpen: string | null;
   /**
@@ -228,15 +212,6 @@ export type State = {
   promote: LaunchState;
   /** プロジェクト画面の作成のダイアログの送信。 */
   projectCreate: LaunchState;
-  /** ワークスペース直下の未登録のフォルダ。ダイアログを開くたびに取り直す。未取得は null。 */
-  workspaceDirs: WorkspaceDirDto[] | null;
-  /** Finder で選んだフォルダ。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
-  pickedFolder: { path: string; n: number } | null;
-  /**
-   * 事後要約に失敗したセッション。
-   * ヘッダーの要約の横に出す。
-   */
-  summaryFailed: Record<string, string>;
   toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
   /**
    * 未解決のまま「あとで」を選んだプロジェクト。
@@ -272,12 +247,6 @@ export type State = {
    * 次にそのプロジェクトでダイアログを開いたときの初期値にする。端末ごとに localStorage に残す。
    */
   launchPrefs: Record<string, LaunchPrefs>;
-  /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
-  indexPhase: IndexProgressDto['phase'];
-  /** クラウド同期の見え方。同期を設定していなければ off のままである。 */
-  sync: SyncState;
-  /** まだ送れていない変更の件数。ヘッダーの同期表示に出す。 */
-  pending: number;
   /** 欄ごとの保存の知らせ。欄の名前（設定の項目名）で引く。 */
   settingsSave: Record<string, SaveMark>;
   /**
