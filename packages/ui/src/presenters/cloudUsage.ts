@@ -28,8 +28,8 @@ function amount(consumed: number, unit: string, included: number | null): string
 export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody | null, now: number, tz?: string): CloudUsageProps | null {
   if (!u) return null;
   const unknown = u.source === 'unknown';
-  // 上限で退いているか。Task 7 で sync.limitedUntil に替える。
-  const limited = sync?.state === 'paused' && sync.pausedReason === 'quota';
+  // 上限で退いているか。
+  const limited = sync?.state === 'paused' && sync.limitedUntil !== null;
   const limit = u.limits.d1RowsPerDay;
   const d1 = unknown ? null : u.today.d1RowsWritten;
   const d1Pct = d1 === null ? null : pct(d1, limit);

@@ -54,7 +54,7 @@ describe('chooseFoldLevel（どこまで畳むか）', () => {
 });
 
 const usage = { fiveHour: 48, sevenDay: 12, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' };
-const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 6, sweepPending: 44, skipped: 2, paused: false, reason: null, quotaBack: false };
+const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 6, sweepPending: 44, skipped: 2, paused: false, reason: null };
 const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: '索引 10 / 200 件', usage, sync, retention: { visible: false, title: '', detail: '', extendTo: 365 }, account: null, newSession: {} };
 /** アカウントが 2 件あるときのヘッダ。計器は shown（会社）の値で作る。 */
 const accountList = presentAccounts({ ...initialStore(), accounts: accountsFixture }, 0);

@@ -702,6 +702,14 @@ describe('cloudStatus', () => {
     expect(out).not.toContain('a'.repeat(32));
     expect(out).toContain('cloud.json');
 
+    // 上限で退いている間は、戻る時刻を添える。
+    const limited = (async (input: string | URL | Request) => {
+      const u = String(input);
+      if (u === 'https://h/health') return new Response(JSON.stringify({ ok: true, version: '0.4.0' }), { status: 200 });
+      return new Response(JSON.stringify({ state: 'paused', pending: 0, lastPullAt: 1000, lastPushAt: 1000, deviceCount: 2, url: 'https://h', error: null, limitedUntil: Date.UTC(2026, 9, 9) }), { status: 200 });
+    }) as typeof fetch;
+    expect(await cloudStatus({ home, fetch: limited, now: () => 61_000 })).toContain('無料枠の上限で 2026-10-09T00:00:00.000Z まで止めています');
+
     const down = await cloudStatus({
       home,
       fetch: (async (input: string | URL | Request) => {

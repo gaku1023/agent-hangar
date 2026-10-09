@@ -8,6 +8,7 @@ import { foldAt } from './headerFold.ts';
  * props だけで描き、状態を持たない。状態の文は presenter が組み立てている。
  * 同期を設定していない端末では presenter が visible を false にするので、丸ごと描かない。
  * 狭いヘッダでは、操作、件数、文の順に畳む（headerFold.ts）。
+ * Cloudflare の上限で退いている間（reason が quota）は、利用者は止めていないので、操作は「今すぐ同期」だけを出す。
  */
 const SETTINGS = { name: 'settings' } as const;
 
@@ -19,11 +20,11 @@ export function SyncStatus(props: SyncProps) {
   const skippedText = `送れなかった本文 ${props.skipped}`;
   const counts = [props.pending > 0 ? pendingText : null, props.sweepPending > 0 ? sweepText : null, props.skipped > 0 ? skippedText : null].filter((t) => t !== null);
   return (
-    <span className="sync" data-state={props.state} data-reason={props.reason ?? undefined} data-quota-back={props.quotaBack ? '' : undefined} data-once={props.once ? '' : undefined}>
+    <span className="sync" data-state={props.state} data-reason={props.reason ?? undefined} data-once={props.once ? '' : undefined}>
       {/* 状態の点はリンクの中に置く。狭いヘッダで文を畳んでも点は残り、押せば設定を開く。
-          設定には「今すぐ同期」と「同期を一時停止」もあるので、畳んだ操作への道にもなる。
+          設定にも「今すぐ同期」があるので、畳んだ操作への道にもなる。
           文は幅が足りないと省略記号に切り詰まり、件数は畳むので、全文と件数は title から読めるようにする。 */}
-      <a className={props.once ? 'mono sync-label faint' : props.state === 'error' || (props.reason === 'quota' && !props.quotaBack) ? 'mono sync-label sync-error' : props.quotaBack ? 'mono sync-label sync-warn' : 'mono sync-label faint'} href={formatRoute(SETTINGS)} title={`${[props.label, ...counts].join('、')}（押すと同期の設定を開く）`} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>
+      <a className={props.once ? 'mono sync-label faint' : props.state === 'error' || props.reason === 'quota' ? 'mono sync-label sync-error' : 'mono sync-label faint'} href={formatRoute(SETTINGS)} title={`${[props.label, ...counts].join('、')}（押すと同期の設定を開く）`} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>
         <span className="sync-dot" aria-hidden="true" />
         <span className="sync-label-text" data-fold-at={foldAt('sync-label')}>{props.label}</span>
       </a>
@@ -37,7 +38,8 @@ export function SyncStatus(props: SyncProps) {
       {/* 一時停止の間は、押した 1 回だけ同期して停止に戻る。名前は変えず、添え書きで伝える。
           その 1 回が進んでいるあいだは押せない姿にして、効いていることを見せる。 */}
       <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} disabled={props.once} title={props.paused && !props.once ? '一時停止のまま、1 回だけ同期する' : undefined} onClick={() => emit({ type: 'sync.now' })}>{props.once ? '同期中…' : '今すぐ同期'}</button>
-      <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} onClick={() => emit({ type: 'sync.pause', paused: !props.paused })}>{props.paused ? '同期を再開' : '同期を一時停止'}</button>
+      {/* 上限で退いている間は、利用者は止めていないので切り替えを出さず、今すぐ同期だけにする（試作の Q4 の案 B）。 */}
+      {props.reason !== 'quota' && <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} onClick={() => emit({ type: 'sync.pause', paused: !props.paused })}>{props.paused ? '同期を再開' : '同期を一時停止'}</button>}
     </span>
   );
 }

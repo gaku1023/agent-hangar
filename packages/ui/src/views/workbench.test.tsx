@@ -60,7 +60,7 @@ describe('RollingNumber', () => {
 });
 
 // 同期を設定していない端末のヘッダー。フェーズ 3 のゲージの検査はこの形のままである。
-const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false };
+const noSync = { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null };
 
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {
@@ -78,7 +78,7 @@ describe('Header', () => {
   // 幅が狭いと、同期のボタンと錠剤の文字と新規セッションの文字を畳む（headerFold.ts が測って畳む）。畳んでも同じ操作ができる。
   it('畳んだときの逃げ道。同期の文は設定へ、虫眼鏡はパレットへ、新規セッションは名前を残す', () => {
     const onIntent = vi.fn();
-    const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false };
+    const sync = { visible: true, state: 'idle' as const, label: '同期済み · 3 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null };
     render(<IntentRoot onIntent={onIntent}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
     fireEvent.click(screen.getByRole('link', { name: '同期済み · 3 分前' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });

@@ -1,7 +1,7 @@
 import type { IndexProgressDto, ShellHookStateDto, StatuslineStatusDto, SummarizerTestDto, SyncSkippedDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
-import { indexProgressLabel, relativeTime, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } from './format.ts';
+import { indexProgressLabel, limitedLabel, relativeTime, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } from './format.ts';
 import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
@@ -17,7 +17,7 @@ export type CloudDeviceProps = { id: string; name: string; platform: string; las
  * skipped は送れなかった本文で、件数だけでは直しようが無いので鍵と理由もそのまま渡す。
  * stateLabel はヘッダーと同じ表から引いた状態の語である。
  */
-export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; paused: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; joinTokenExpiresAt: number | null; syncClaudeConfig: boolean; configConfirmed: boolean; usage: CloudUsageProps | null };
+export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; paused: boolean; /** Cloudflare の上限で退いているか。そのあいだは一時停止の切り替えを出さない（試作の Q4 の案 B）。 */ limited: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; joinTokenExpiresAt: number | null; syncClaudeConfig: boolean; configConfirmed: boolean; usage: CloudUsageProps | null };
 
 /**
  * 外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする包み方。
@@ -107,8 +107,12 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     configured: sync !== null && sync.state !== 'off',
     url: sync?.url ?? null,
     state: sync?.state ?? 'off',
-    stateLabel: sync?.state === 'paused' && sync.oncePass ? SYNC_ONCE_LABEL : SYNC_STATE_LABEL[sync?.state ?? 'off'],
-    paused: sync?.state === 'paused',
+    stateLabel: sync?.state === 'paused' && sync.oncePass ? SYNC_ONCE_LABEL
+      : sync?.state === 'paused' && sync.limitedUntil !== null ? limitedLabel(sync.limitedUntil)
+      : SYNC_STATE_LABEL[sync?.state ?? 'off'],
+    // 上限で退いているのは利用者が止めたのではないので、一時停止とは言わない。そのあいだは切り替えを出さない（limited）。
+    paused: sync?.state === 'paused' && sync.limitedUntil === null,
+    limited: sync?.state === 'paused' && sync.limitedUntil !== null,
     once: sync?.state === 'paused' && sync.oncePass,
     lastPullAt: relativeTime(sync?.lastPullAt ?? null, now),
     pending: sync?.pending ?? 0,

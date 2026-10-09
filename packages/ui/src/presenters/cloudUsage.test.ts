@@ -19,7 +19,7 @@ const base: CloudUsageDto = {
 const unknown: CloudUsageDto = { ...base, source: 'unknown', fetchedAt: null, plan: null, month: null, today: { d1RowsWritten: null, workersRequests: null, resetAt: RESET } };
 const sync = (o: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false, ...o });
 /** 上限で退いている同期の状態。Task 7 で limitedUntil に替える。 */
-const limitedSync = (): SyncStatusBody => sync({ state: 'paused', pausedReason: 'quota' });
+const limitedSync = (): SyncStatusBody => sync({ state: 'paused', limitedUntil: RESET });
 const TOKEN_COMMAND = 'npm run hangar -- setup cloud --usage-token';
 
 describe('presentCloudUsage', () => {

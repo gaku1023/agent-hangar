@@ -238,9 +238,6 @@ export class SyncEngine {
       deviceCount: this.deviceCount(),
       claudeConfig: { ...this.claudeConfig },
       limitedUntil: shownLimit,
-      // 段 1 の PR 5 の Task 7 で消す。それまで今の画面が「無料枠で停止」を出せるよう、退いているときを quota として渡す。
-      pausedReason: state === 'paused' ? (shownLimit !== null ? 'quota' : 'user') : null,
-      quotaPausedDay: shownLimit !== null ? new Date(this.now()).toISOString().slice(0, 10) : null,
     };
   }
 

@@ -760,8 +760,9 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const s = (await r.json()) as SyncStatusDto;
     const t = now();
+    const limited = typeof s.limitedUntil === 'number' ? `、無料枠の上限で ${new Date(s.limitedUntil).toISOString()} まで止めています` : '';
     lines.push(
-      `同期: ${s.state}${s.error ? `（${s.error}）` : ''}、未送信 ${s.pending} 件、最終 pull ${relative(s.lastPullAt, t)}、最終 push ${relative(s.lastPushAt, t)}、端末 ${s.deviceCount} 台`,
+      `同期: ${s.state}${s.error ? `（${s.error}）` : ''}${limited}、未送信 ${s.pending} 件、最終 pull ${relative(s.lastPullAt, t)}、最終 push ${relative(s.lastPushAt, t)}、端末 ${s.deviceCount} 台`,
     );
   } catch {
     lines.push('同期: サーバは停止中（hangar start で起動すると同期が始まります）');

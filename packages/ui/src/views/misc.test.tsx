@@ -153,7 +153,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
-  cloud: { configured: false, url: null, state: 'off', stateLabel: '同期していません', paused: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, joinTokenExpiresAt: null, syncClaudeConfig: false, configConfirmed: false, usage: null },
+  cloud: { configured: false, url: null, state: 'off', stateLabel: '同期していません', paused: false, limited: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, joinTokenExpiresAt: null, syncClaudeConfig: false, configConfirmed: false, usage: null },
   shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', devices: [] },
   nodePath: '',
   claudePath: null,
@@ -170,7 +170,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
 });
 
 const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps => ({
-  configured: true, url: 'https://h.workers.dev', state: 'idle', stateLabel: '同期済み', paused: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
+  configured: true, url: 'https://h.workers.dev', state: 'idle', stateLabel: '同期済み', paused: false, limited: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
   devices: [{ id: 'dev-a', name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
   joinToken: null, joinTokenExpiresAt: null, syncClaudeConfig: false, configConfirmed: false, usage: null,
   ...over,
@@ -753,6 +753,15 @@ describe('SettingsScreen のクラウド同期', () => {
     fireEvent.click(screen.getByRole('button', { name: '同期を再開' }));
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'sync.pause', paused: false });
   });
+  it('上限で退いている間は、設定の節も今すぐ同期だけを出す', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'paused', paused: false, limited: true, stateLabel: '無料枠で停止 · 9:00 に戻る' }) })} /></IntentRoot>);
+    expect(screen.getByText('状態 無料枠で停止 · 9:00 に戻る')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
+    expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
+  });
   it('1 回だけ同期している最中は、今すぐ同期を押せない姿にする', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'paused', paused: true, once: true, stateLabel: '1 回だけ同期中…' }) })} /></IntentRoot>);
@@ -832,7 +841,7 @@ describe('Header', () => {
   it('探す・移動の錠剤を押すとパレットを開く', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは錠剤だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null, quotaBack: false }} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={{ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null }} /></IntentRoot>);
     fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
   });

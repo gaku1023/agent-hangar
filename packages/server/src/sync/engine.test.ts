@@ -757,7 +757,7 @@ describe('互換の版', () => {
     await e.syncNow({ evenIfPaused: true });
     expect(e.status().state).toBe('error');
     expect(e.status().error).toContain('この PC の hangar');
-    expect(e.status().pausedReason).toBeNull();
+    expect(e.status().limitedUntil).toBeNull();
     e.stop();
   });
 
@@ -886,17 +886,6 @@ describe('上限で退く', () => {
     await e.idle();
     expect(e.limitedUntil()).toBeNull();
     expect(e.status()).toMatchObject({ state: 'error', error: '{"error":"internal error"}', limitedUntil: null });
-    e.stop();
-  });
-
-  it('このタスクの間は、退いていることを今の画面の形（pausedReason が quota）でも渡す', async () => {
-    beforeMidnight();
-    const e = make();
-    await e.start();
-    await hitLimit(e);
-    expect(e.status()).toMatchObject({ state: 'paused', pausedReason: 'quota', quotaPausedDay: '2026-10-08' });
-    e.setPaused(true);
-    expect(e.status()).toMatchObject({ state: 'paused', pausedReason: 'user', quotaPausedDay: null });
     e.stop();
   });
 });

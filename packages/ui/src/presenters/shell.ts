@@ -2,7 +2,7 @@ import { asideOf, type IndexProgressDto, type LiveStatus, type Route, type SyncS
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
-import { durationLabel, indexProgressLabel, relativeTime, resetsLabel, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } from './format.ts';
+import { durationLabel, indexProgressLabel, limitedLabel, relativeTime, resetsLabel, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } from './format.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
 
@@ -26,7 +26,7 @@ export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sess
  * 後ろの 2 つは、数えられないときも 0 にする。
  * ヘッダーは 0 件を描かない約束なので、「分からない」と「無い」をここで同じ扱いにしてよい。
  */
-export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean; reason: 'quota' | 'user' | null; quotaBack: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean };
+export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean; /** quota は Cloudflare の上限で退いている、user は利用者が止めた。 */ reason: 'quota' | 'user' | null; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean };
 /** 切れているあいだだけ出す帯。つながっている間は visible が false で、文言も空である。 */
 /**
  * 切断の帯。
@@ -86,42 +86,30 @@ function connProps(state: State, store: Store, now: number): ConnProps {
   };
 }
 
-/** 次の UTC の 0 時を、端末の時差での時刻の文にする（例: 9:00）。 */
-function resetClockLabel(now: number, tz?: string): string {
-  const d = new Date(now);
-  const next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
-  return new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(next);
-}
-
 /**
  * ヘッダーに出す同期の一行。
  * 同期を設定していない端末（off）では出さないので、visible を false にする。
  * 一度も往復していない間は時刻が無いので、時刻の代わりに準備中と出す。
- * 無料枠の見張りが止めたとき（reason が quota）は、手で止めたのと分けて、いつ戻るかを言う。
- * 枠は UTC の日で区切るので、止めた日のうちは戻る時刻を端末の時刻で、日が変わったあとは戻ったことを言う。
+ * Cloudflare の上限で退いている間（state は paused で、戻る時刻 limitedUntil がある）は、手で止めたのと分けて、いつ戻るかを言う。
+ * 上限で退いているのは利用者が止めたのではないので paused は偽にし、一時停止の切り替えは描かない（試作の Q4 の案 B。view は reason を見る）。
  * tz は端末の時差で、試験でだけ決めて渡す。
  */
 function syncProps(state: State, store: Store, now: number, tz?: string): SyncProps {
   const s = state.sync;
-  // 止めた理由は止まっているときだけ見る。古いサーバは理由を送らないので、手で止めたものとして扱う。
-  // quotaPausedDay は止まっていなくても返るので、reason が quota のときにだけ使う。
-  const reason = s.kind === 'paused' ? (store.sync?.pausedReason ?? 'user') : null;
-  const quotaDay = store.sync?.quotaPausedDay ?? null;
-  const today = new Date(now).toISOString().slice(0, 10);
-  // 無料枠で止めた日が過ぎていれば、枠はもう戻っている。点を緑に、文を注意の色にする（試作 usage-merged.html の H3）。
-  const quotaBack = reason === 'quota' && quotaDay !== null && quotaDay < today;
+  const limitedUntil = s.kind === 'paused' ? (store.sync?.limitedUntil ?? null) : null;
+  const reason = s.kind === 'paused' ? (limitedUntil !== null ? 'quota' : 'user') : null;
   // 一時停止のまま押した 1 巡の最中。状態は paused のままなので、付録の印で見分ける。
   const once = s.kind === 'paused' && store.sync?.oncePass === true;
   // 語は設定の「状態」と同じ表から引く。
   const label =
     s.kind === 'off' ? ''
     : once ? SYNC_ONCE_LABEL
-    : reason === 'quota' ? (quotaBack ? '無料枠で停止 · 枠は戻りました' : `無料枠で停止 · ${resetClockLabel(now, tz)} に戻る`)
+    : limitedUntil !== null ? limitedLabel(limitedUntil, tz)
     : s.kind === 'error' ? `${SYNC_STATE_LABEL.error}: ${s.message}`
     : s.kind !== 'idle' ? SYNC_STATE_LABEL[s.kind]
     : s.lastAt === null ? '同期の準備中'
     : `同期 ${relativeTime(s.lastAt, now)}`;
-  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused: s.kind === 'paused', reason, quotaBack, once };
+  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused: s.kind === 'paused' && limitedUntil === null, reason, once };
 }
 
 /**
