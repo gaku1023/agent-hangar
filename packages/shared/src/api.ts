@@ -74,8 +74,11 @@ export type SearchParamsDto = { q: string; projectId?: string; since?: number; u
  * 検索の 1 件。
  * 抜粋の seq は主線とサブエージェントで別々に振るので、agentId でどの線の行かを表す（主線は null）。
  * 抜粋は主線を先に、seq の順に並ぶ。
+ * matched は、どこに当たったか（名前、要約、トランスクリプト）で、name、summary、transcript の順に並ぶ。
+ * 名前と要約だけで当たった行は matchCount 0、snippets 空である。
+ * 語の無いファイルだけの検索の行には付かない。古いサーバも送らないので、受け取る側は無いものとして読む。
  */
-export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[] };
+export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[]; matched?: ('name' | 'summary' | 'transcript')[] };
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';

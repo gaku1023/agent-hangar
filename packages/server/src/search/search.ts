@@ -85,14 +85,45 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
     rows = rows.filter(keep);
     return { hits: rows.slice(offset, offset + limit).map((r) => ({ sessionId: r.sid, matchCount: r.n, snippets: [] })), total: rows.length };
   }
+  // トランスクリプト（event_fts）の当たり。
   // MATCH があれば索引で候補が絞れるので event_fts を直接結合する。
   // like だけのときは全走査になるので、集計に回す行数を LIKE_ONLY_SCAN_CAP で打ち切ってから結合する。
+  // 名前と要約の照合は打ち切らない（下）。
   const source = match
     ? `event_fts f join sessions s on s.id = f.session_id where ${[...textWhere, ...where].join(' and ')}`
     : `(select session_id from event_fts f where ${textWhere.join(' and ')} limit ${LIKE_ONLY_SCAN_CAP}) f join sessions s on s.id = f.session_id where ${where.join(' and ')}`;
-  const sql = `select s.id sid, s.provider_session_id psid, count(*) n from ${source} group by s.id order by n desc, s.last_activity_at desc`;
-  let rows = db.prepare(sql).all(...textArgs, ...args) as { sid: string; psid: string; n: number }[];
-  rows = rows.filter(keep);
+  const sql = `select s.id sid, s.provider_session_id psid, s.last_activity_at la, count(*) n from ${source} group by s.id`;
+  const transcript = db.prepare(sql).all(...textArgs, ...args) as { sid: string; psid: string; la: number | null; n: number }[];
+
+  // 名前と要約の当たり。語は 3 文字以上も未満も like で引き、名前の組、要約の組のそれぞれの中で全部の語を満たす行を当たりとする。
+  // 名前の組をまたいで（名前に 1 語、要約に 1 語のように）満たす行は当たりにしない。
+  const tokens = [...long, ...short];
+  const hayOf = (cols: string[]) => '(' + cols.map((c) => `coalesce(${c}, '')`).join(" || char(10) || ") + ')';
+  const allLike = (hay: string) => tokens.map(() => `${hay} like ? escape '\\'`).join(' and ');
+  const nameHay = hayOf(['n.name', 's.custom_title', 's.ai_title', 's.first_prompt']);
+  const summaryHay = hayOf(['m.title', 'm.one_liner', 'm.body']);
+  const tokenArgs = tokens.map(likePattern);
+  const nameSql = `select * from (select s.id sid, s.provider_session_id psid, s.last_activity_at la, case when ${allLike(nameHay)} then 1 else 0 end nm, case when ${allLike(summaryHay)} then 1 else 0 end sm from sessions s left join session_notes n on n.session_id = s.id and n.deleted_at is null left join session_summaries m on m.session_id = s.id and m.deleted_at is null where ${where.join(' and ')}) where nm = 1 or sm = 1`;
+  const named = db.prepare(nameSql).all(...tokenArgs, ...tokenArgs, ...args) as { sid: string; psid: string; la: number | null; nm: number; sm: number }[];
+
+  // 2 つの当たりを 1 行にまとめる。重なった行は 1 件に数える。
+  type Row = { sid: string; psid: string; la: number; n: number; nm: boolean; sm: boolean };
+  const merged = new Map<string, Row>();
+  for (const r of transcript) merged.set(r.sid, { sid: r.sid, psid: r.psid, la: r.la ?? 0, n: r.n, nm: false, sm: false });
+  for (const r of named) {
+    const cur = merged.get(r.sid);
+    if (cur) { cur.nm = r.nm === 1; cur.sm = r.sm === 1; }
+    else merged.set(r.sid, { sid: r.sid, psid: r.psid, la: r.la ?? 0, n: 0, nm: r.nm === 1, sm: r.sm === 1 });
+  }
+  // 並び：名前か要約に当たった行（トランスクリプトにも当たった行を含む）を先に、トランスクリプトだけの行が続く。
+  // 先の組は名前に当たった行、要約だけの行の順で、組の中は新しい順。後の組は件数の多い順、同じなら新しい順。
+  // 最後は id で決める。時刻と件数が同じ行があっても offset をまたいで並びが揺れないようにするためである。
+  const head = (r: Row) => r.nm || r.sm;
+  const rows = [...merged.values()].filter(keep).sort((a, b) =>
+    Number(head(b)) - Number(head(a))
+    || (head(a) ? Number(b.nm) - Number(a.nm) : b.n - a.n)
+    || b.la - a.la
+    || (a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0));
   const total = rows.length;
 
   // snippet() は MATCH した問い合わせでしか使えないので、like だけの経路は本文を取って切り出す。
@@ -101,11 +132,17 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
   // 並びは主線を先に、seq の順にする。決めないと、跳び先（J1）に使う最初の抜粋が挿入の順で揺れる。
   const snip = db.prepare(`select seq, role, agent_id agentId, ${column} from event_fts f where f.session_id = ? and ${textWhere.join(' and ')} order by (agent_id is not null), cast(seq as integer) limit ${SNIPPETS_PER_HIT}`);
   const hits: SearchHitDto[] = rows.slice(offset, offset + limit).map((r) => {
+    const matched: NonNullable<SearchHitDto['matched']> = [];
+    if (r.nm) matched.push('name');
+    if (r.sm) matched.push('summary');
+    if (r.n > 0) matched.push('transcript');
+    if (r.n === 0) return { sessionId: r.sid, matchCount: 0, snippets: [], matched };
     const snippets = snip.all(r.sid, ...textArgs) as SearchHitDto['snippets'];
     return {
       sessionId: r.sid,
       matchCount: r.n,
       snippets: match ? snippets : snippets.map((s) => ({ ...s, text: likeSnippet(s.text, short[0]!) })),
+      matched,
     };
   });
   return { hits, total };
