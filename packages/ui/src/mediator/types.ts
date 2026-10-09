@@ -21,10 +21,6 @@ export type RuntimeEvent =
   | { type: 'workspaceDirs.loaded'; dirs: WorkspaceDirDto[] }
   // Finder で選ばれたフォルダ。取り消したときは届かない。
   | { type: 'folder.picked'; path: string }
-  // 入力待ちのセッションの一覧（hangar のセッションの id）。
-  // 変わったときだけランタイムが届ける。
-  // live.update はプロバイダの id で届き、hangar のセッションに引き当てるにはストアが要るからである。
-  | { type: 'waiting.changed'; ids: string[] }
   // サイドバーの「動いている」に載るセッションの一覧（hangar のセッションの id、始めた順）。
   // 顔ぶれが変わったときだけランタイムが届ける。
   | { type: 'live.changed'; ids: string[] }
@@ -51,7 +47,10 @@ export type RuntimeEvent =
 export type Input =
   | { kind: 'intent'; intent: Intent }
   | { kind: 'server'; event: ServerEvent }
-  | { kind: 'runtime'; event: RuntimeEvent };
+  | { kind: 'runtime'; event: RuntimeEvent }
+  // Store が変わった。中身は運ばない。Mediator は渡された Store を読み、そこから決まる状態（入力待ちの知らせなど）を合わせる。
+  // Store を変えるのは Runtime なので、変わったことだけは Runtime が知らせる。
+  | { kind: 'store' };
 
 export type Effect =
   | { kind: 'navigate'; route: Route }

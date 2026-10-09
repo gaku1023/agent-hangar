@@ -41,19 +41,15 @@ export function transition(state: State, store: Store, input: Input): Step {
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
+  // ストアが変わった。ストアから決まる状態を合わせる（入力待ちの知らせ）。
+  if (input.kind === 'store') return settled(state, liveStep(state, store));
   // ストアを読む領域には、ここでストアを添える。
   const screen = (s: State, i: Input) => screenStep(s, store, i);
   const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
-  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbench]) {
+  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, returnStep, notifyStep, workbench]) {
     const r = step(state, input);
-    // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
-    // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
-    if (r) {
-      const settled = settleReturn(settleWaiting(settleQueue(r.state)));
-      const next = settled === r.state ? r : { ...r, state: settled };
-      return fetchDirsOnOpen(state, next);
-    }
+    if (r) return settled(state, r);
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };
@@ -77,6 +73,16 @@ export function transition(state: State, store: Store, input: Input): Step {
     case 'toast.dismiss': return { state: { ...state, toasts: state.toasts.filter((t) => t.id !== i.id) }, effects: [] };
     default: return { state, effects: [] };
   }
+}
+
+/**
+ * 領域が応答した後の整え。
+ * 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
+ * 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
+ */
+function settled(prev: State, r: Step): Step {
+  const state = settleReturn(settleWaiting(settleQueue(r.state)));
+  return fetchDirsOnOpen(prev, state === r.state ? r : { ...r, state });
 }
 
 /**

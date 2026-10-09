@@ -9,12 +9,21 @@ import { periodStart, toSearchParams } from './screen.ts';
 import { liveStep } from './live.ts';
 import { readDraft } from './launch.ts';
 
-function run(inputs: Input[], start: State = initialState(), store: Store = initialStore()) {
+/** 入力の並びに挟むと、そこでストアを入れ替えて「ストアが変わった」を流す。Runtime が setStore のたびにすることと同じである。 */
+type Feed = Input | { store: Store };
+function run(inputs: Feed[], start: State = initialState(), initial: Store = initialStore()) {
   const effects: unknown[] = [];
   let state = start;
-  for (const i of inputs) { const r = transition(state, store, i); state = r.state; effects.push(...r.effects); }
+  let store = initial;
+  for (const f of inputs) {
+    if ('store' in f) store = f.store;
+    const r = transition(state, store, 'store' in f ? { kind: 'store' } : f);
+    state = r.state; effects.push(...r.effects);
+  }
   return { state, effects };
 }
+// 入力待ちのセッションを、待ち始めた順（渡した順）に持つストア。
+const waitingStore = (...ids: string[]): Store => ({ ...initialStore(), sessions: Object.fromEntries(ids.map((id, n) => [id, { id, live: 'waiting', lastActivityAt: n + 1, parked: false } as SessionDto])) });
 const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
 const server = (e: Extract<Input, { kind: 'server' }>['event']): Input => ({ kind: 'server', event: e });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
@@ -638,11 +647,12 @@ describe('タブと接続', () => {
 });
 
 describe('入力待ちの知らせ', () => {
-  const waiting = (...ids: string[]) => runtime({ type: 'waiting.changed', ids });
+  // ストアの入力待ちがこの顔ぶれに変わった。
+  const waiting = (...ids: string[]): Feed => ({ store: waitingStore(...ids) });
   // transition はどの領域の後にも settleWaiting で開いているセッションのカードを下げるので、領域そのものも見る。
   it('live 領域は、開いているセッションをカードにしない。通知の効果は出す', () => {
     const at = { ...initialState(), screen: { name: 'session' as const, id: 's1' } };
-    const r = liveStep(at, waiting('s1', 's2'))!;
+    const r = liveStep(at, waitingStore('s1', 's2'));
     expect(r.state.waitingToasts).toEqual(['s2']);
     expect(r.effects).toContainEqual({ kind: 'notify.waiting', sessionId: 's1' });
   });
@@ -688,7 +698,19 @@ describe('入力待ちの知らせ', () => {
     expect(a.state.toasts.map((t) => t.message)).toEqual(['x']);
     expect(a.state.waitingToasts).toEqual(['s1']);
   });
-  it('live.update そのものではカードを積まない（どのセッションかはランタイムが決めて返す）', () => {
+  it('並びの順だけが変わっても、何もしない', () => {
+    const a = run([waiting('s1', 's2')]);
+    const b = run([waiting('s2', 's1')], a.state);
+    expect(b.state).toBe(a.state);
+    expect(b.effects).toEqual([]);
+  });
+  it('入力待ちがストアに無いうちは、ストアが変わっても何もしない', () => {
+    const start = initialState();
+    const a = run([{ store: initialStore() }], start);
+    expect(a.state).toBe(start);
+    expect(a.effects).toEqual([]);
+  });
+  it('live.update そのものではカードを積まない（ストアに入り、ストアが変わったと届いてから積む）', () => {
     const live = { sessionId: 'u1', status: 'waiting' as const, name: 'alpha', nameSource: null, cwd: '/x', pid: 1 };
     const a = run([server({ type: 'live.update', live: [live] })]);
     expect(a.state.waitingToasts).toEqual([]);
@@ -1391,8 +1413,6 @@ describe('開いたら端末にフォーカス', () => {
 });
 
 describe('次の入力待ちへ（C5）', () => {
-  // 入力待ちのセッションを、待ち始めた順（渡した順）に持つストア。
-  const waitingStore = (...ids: string[]): Store => ({ ...initialStore(), sessions: Object.fromEntries(ids.map((id, n) => [id, { id, live: 'waiting', lastActivityAt: n + 1, parked: false } as SessionDto])) });
   const opened = (id: string, start?: State) => run([intent({ type: 'session.open', id, focus: 'terminal' })], start);
   it('どの入力待ちへ移るかはストアを見て決め、ターミナルで答える経路（session.open の focus: terminal）で開く', () => {
     expect(run([intent({ type: 'session.nextWaiting' })], undefined, waitingStore('s2', 's3'))).toEqual(opened('s2'));

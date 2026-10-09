@@ -1971,8 +1971,10 @@ MCP の登録の有無は `~/.claude.json` の `mcpServers.hangar` を読んで�
 
 試作は `docs/superpowers/specs/2026-10-01-ux-refresh/waiting-notify.html`、決めた案は A1、B1、C1、D1、N1 である（`2026-10-01-ux-refresh-2-design.md` の 3 節）。
 
-どのセッションが入力待ちかは、ランタイムがストアから決める。
-`live.update` は Claude のセッションの id で届くので、hangar のセッションに引き当ててから、入力待ちの一覧が変わったときだけ Mediator へ `waiting.changed` を届ける。
+どのセッションが入力待ちかは、Mediator がストアから読む（`waitingSessionIds`）。
+`live.update` は Claude のセッションの id で届くので、hangar のセッションへの引き当てはストアが済ませている。
+ランタイムは、ストアが変わるたびに、変わったことだけを Mediator へ知らせる（入力 `{ kind: 'store' }`、中身は運ばない）。
+Mediator は前に見た顔ぶれと比べ、入力待ちの顔ぶれが変わったときだけ動く。
 数え方は `liveFilterOf` である。
 
 新たに入力待ちになったセッションは、右下に 1 件 1 枚のカードとして積む。
