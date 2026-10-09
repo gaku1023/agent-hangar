@@ -357,6 +357,24 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     expect(key({ key: 'f', metaKey: true })).toBe(true);
   });
 
+  it('本文の中の検索の欄は Mediator の State に持たず、画面を離れて戻っても語ごと残る', async () => {
+    const { rt, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    key({ key: 'f', metaKey: true });
+    await flush();
+    fireEvent.change(screen.getByRole('searchbox', { name: '本文の中を探す' }), { target: { value: '語' } });
+    expect(rt.getState().sessionView.s1 ?? {}).not.toHaveProperty('find');
+    act(() => setHash('#/'));
+    await flush();
+    expect(screen.queryByRole('searchbox', { name: '本文の中を探す' })).toBeNull();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
+    expect(box).toHaveValue('語');
+    expect(box).toHaveFocus();
+  });
+
   it('パレットの入力は Root が持ち、閉じると空に戻る', async () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));

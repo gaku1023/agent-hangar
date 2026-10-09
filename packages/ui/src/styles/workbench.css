@@ -86,34 +86,3 @@
 /* 白い面の中のアーティファクトのカードは、淡い地に落として、面の上に面を重ねない。 */
 .rail-panel .artifact { background: var(--surface-2); box-shadow: none; }
 .rail-panel .artifact:hover { background: color-mix(in srgb, var(--accent) 5%, var(--surface-2)); box-shadow: none; }
-
-/* プロジェクトのカードは FLIP のために 1 枚ずつ器に入れる。器は格子の升目いっぱいに広がる。 */
-.card-slot { display: flex; min-width: 0; }
-.card-slot > .card { flex: 1; min-width: 0; }
-.card-memo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* カードの中身（試作 home-lists の C1）。抜粋は 2 行で切り、短くても 2 行分の高さを取ってカードの背を揃える。 */
-.card-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.45; min-height: 2.9em; color: var(--ink-2); }
-/* 名前の行。名前が行の幅を全部使い、状態の札は右に置く。高さは札の有無で変えない。 */
-.card-top { position: relative; display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; min-height: var(--row-h); }
-.card-top .card-title { flex: 1; min-width: 0; }
-.card-status { flex: none; display: inline-flex; }
-/* Active の札は、乗せたときとキーボードで届いたとき、開いている間だけ見せる。場所は取らず、名前の右端に重ねる。
-   節の見出しが Active と言っているので、全部のカードに同じ札を並べない。Paused、Done、Archived の札は常に出す。
-   visibility で隠すと Tab で届かなくなるので、透明にするだけにする。左の白い影は、下の名前を札の手前でぼかして切るためである。 */
-.card-status[data-quiet='true'] { position: absolute; top: 0; right: 0; opacity: 0; border-radius: var(--r-pill); background: var(--surface); box-shadow: -10px 0 8px 2px var(--surface); transition: opacity var(--dur-fast) var(--ease-out); }
-.card:hover .card-status[data-quiet='true'], .card:focus-within .card-status[data-quiet='true'], .card-status[data-quiet='true']:has([aria-expanded='true']) { opacity: 1; }
-/* パスの行。ワークスペースの外や、名前と違うフォルダのときだけ出す。
-   長いパスは頭を省略して末尾を残す。違いがあるのは末尾だからである。direction で省略記号を左に出し、中の並びは bdi で左から右に保つ。 */
-.card-where { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
-.card-where .btn { flex: none; }
-.card-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-/* 最終活動と数の行。カードの下端に寄せ、右端に「ここで始める」を重ねる。
-   項目は語の途中で折らない。収まらないときは項目ごと次の行へ送る。 */
-.card-meta { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0 calc(var(--u) * 2.5); margin-top: auto; min-height: var(--row-h); font-size: var(--fs-sm); color: var(--ink-3); }
-.card-meta > span { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.card-meta .btn { flex: none; }
-/* 12 枚すべてに同じボタンが並ぶとうるさいので、乗せたときとキーボードで届いたときだけ見せる。
-   visibility で隠すと Tab で届かなくなるので、透明にするだけにする。
-   隠している間に幅を取ると、狭いカードで最終活動と数の語が折れるので、行の右端に重ねる。 */
-.card-here { position: absolute; right: 0; top: 0; bottom: 0; margin: auto 0; opacity: 0; box-shadow: -10px 0 8px 2px var(--surface); transition: opacity var(--dur-fast) var(--ease-out); }
-.card:hover .card-here, .card:focus-within .card-here { opacity: 1; }

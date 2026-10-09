@@ -1,8 +1,9 @@
 import { formatRoute, type SearchFilter, type SearchParamsDto } from '@agent-hangar/shared';
-import { overlayReplaceable } from './overlay.ts';
+import { overlayReplaceable, settleQueue } from './overlay.ts';
 import { listPageStep, pageSizeStep, pageStep } from './paging.ts';
 import { agentTabStep, jumpStep, leaveTranscriptStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
+import { nextWaitingSession, type Store } from '../store/store.ts';
 
 /**
  * サーバに問い合わせるか。
@@ -83,13 +84,17 @@ export const NO_WAITING = '入力待ちのセッションはありません';
 
 /**
  * 「次の入力待ちへ」。
- * どのセッションが入力待ちかはストアにあるので、いまいるセッションを添えてランタイムに決めさせる（waiting.resolved で返る）。
+ * どのセッションが入力待ちかはストアにあるので、いまいるセッションの次をストアから決める（store.ts の nextWaitingSession）。
+ * 行き先は、ターミナルで答える経路（session.open の focus: terminal）で開く。入力待ちが無ければ短く知らせる。
  * パレットから出したときも、パレットの上でキーを打ったときも、パレットは閉じる。
  */
-export function nextWaitingStep(state: State): Step {
-  const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
+export function nextWaitingStep(state: State, store: Store): Step {
+  // パレットを閉じたら未解決のプロジェクトの問いが出ることがある（overlay.ts の settleQueue）。その裏では画面を移さないので、開く前に出しておく。
+  const closed: State = state.overlay.kind === 'palette' ? settleQueue({ ...state, overlay: { kind: 'none' } }) : state;
   const from = state.screen.name === 'session' ? state.screen.id : null;
-  return { state: closed, effects: [{ kind: 'waiting.next', from }] };
+  const id = nextWaitingSession(store, from);
+  if (!id) return { state: closed, effects: [{ kind: 'toast', level: 'info', message: NO_WAITING }] };
+  return screenStep(closed, store, { kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } }) ?? { state: closed, effects: [] };
 }
 
 /**
@@ -108,13 +113,7 @@ export function searchQueryStep(state: State, text: string, filter?: SearchFilte
 }
 
 /** screen 領域：どの画面にいるか。URL のハッシュが正で、Intent は navigate 効果を出すだけ。 */
-export function screenStep(state: State, input: Input): Step | null {
-  // 行き先が決まったら、ターミナルで答える経路（session.open の focus: terminal）で開く。
-  if (input.kind === 'runtime' && input.event.type === 'waiting.resolved') {
-    const id = input.event.sessionId;
-    if (!id) return { state, effects: [{ kind: 'toast', level: 'info', message: NO_WAITING }] };
-    return screenStep(state, { kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } });
-  }
+export function screenStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
     const route = input.event.route;
     // ブラウザの戻る・進む（マウスの戻るボタンなど）は Intent を通らず、ここへ直に届く。何段動いたかが moved に添えてある。
@@ -193,7 +192,7 @@ export function screenStep(state: State, input: Input): Step | null {
       const back = agentTabStep(state, i.id) ?? { state, effects: [] };
       return { state: { ...back.state, overlay, focusOnOpen: i.id }, effects: [...back.effects, { kind: 'navigate', route: { name: 'session', id: i.id } }] };
     }
-    case 'session.nextWaiting': return nextWaitingStep(state);
+    case 'session.nextWaiting': return nextWaitingStep(state, store);
     case 'search.query': return searchQueryStep(state, i.text, i.filter);
     case 'search.filter': {
       const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch }, page: 1 } };
