@@ -353,7 +353,7 @@ create index if not exists runs_session_started on runs (session_id, started_at)
     // 見張りはもう無く、上限に当たれば Cloudflare が断り、端末は次の UTC の 0 時まで退く（sync/engine.ts）。
     // 残すと入れ替えた後も止まったままになり、画面は利用者が止めたものとして見せる。
     // 利用者が止めた一時停止（user と、理由の無い古いもの）はそのまま残す。
-    // Worker の meta の d1_rows:* は、Worker の側（段 1 の PR 6）で消す。
+    // Worker の meta の d1_rows:* は、Worker の側で消す。配備の後の最初の cold start に、cleanupStage1（packages/cloud/src/cleanup.ts）が 1 回だけ消す。
     // Claude Code の設定の同期の記録（file_sync の config の行と、configPullConfirmed などの鍵）は、設定の同期を残すので触らない。
     version: 16,
     sql: `

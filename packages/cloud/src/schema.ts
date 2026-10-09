@@ -1,3 +1,4 @@
+import { cleanupStage1 } from './cleanup.ts';
 import type { Env } from './env.ts';
 
 /**
@@ -35,6 +36,8 @@ export function resetSchemaCache(): void {
 async function doEnsure(env: Env): Promise<void> {
   const now = Date.now();
   await env.DB.batch(SCHEMA_STATEMENTS.map((s) => env.DB.prepare(s)));
+  // 段 1 で消したものが残した行を 1 回だけ片付ける。落ちても例外を投げず、次の cold start でまた試す（cleanup.ts）。
+  await cleanupStage1(env, now);
   const hash = env.JOIN_SECRET_HASH?.trim();
   if (!hash) return;
   const known = await env.DB.prepare('select revoked_at from join_secrets where secret_hash = ?').bind(hash).first<{ revoked_at: number | null }>();
