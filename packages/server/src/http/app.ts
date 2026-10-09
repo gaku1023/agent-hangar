@@ -118,7 +118,7 @@ export type AppDeps = {
   retention: { current(): RetentionDto; preview(days: number): RetentionPreviewDto; write(days: number, baseSha256: string): RetentionDto };
   /**
    * 準備の確かめ（ツールのパスと版、ワークスペース、MCP の登録、statusline の追記）。
-   * 設定画面の検証と、空のホームの確認リストが同じものを読む。読むだけで、何も書き換えない。
+   * 設定画面の検証と、ホームの帯の始める前の確認が同じものを読む。読むだけで、何も書き換えない。
    */
   readiness: () => Promise<ReadinessDto>;
   /**

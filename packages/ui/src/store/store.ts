@@ -38,7 +38,7 @@ export type Store = {
   sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
   // Claude Code の会話の保持期間。下見は確認を開いたときだけ取りに行く値なので、未取得は null である。
   retention: RetentionDto | null; retentionPreview: RetentionPreviewDto | null;
-  // 準備の確かめ。設定画面と空のホームで取りに行く値なので、未取得は null である。
+  // 準備の確かめ。設定画面とホームの帯で取りに行く値なので、未取得は null である。
   readiness: ReadinessDto | null;
   // Claude Code との互換のずれの中身（GET /api/compat）。準備の確かめでずれが 1 件以上あるときだけ取りに行く。
   // 未取得と、ずれが無いときは null である。

@@ -975,7 +975,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       return h;
     },
     retention,
-    // 準備の確かめ。設定画面と空のホームが読む。版を読む子プロセスは 3 秒で切る。
+    // 準備の確かめ。設定画面とホームの帯の始める前の確認が読む。版を読む子プロセスは 3 秒で切る。
     readiness: createReadiness({
       settings: () => settings, claudeDir, claudeJson: claudeJsonPath(), db, deviceId: device.id,
       shellCommand: () => shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar }),

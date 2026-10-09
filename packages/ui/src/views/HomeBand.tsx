@@ -102,7 +102,10 @@ function BandRowView(props: { row: BandRow }) {
         ? <button type="button" className="c-name c-link" onClick={() => emit(open)}>{r.name}</button>
         : <span className="c-name">{r.name}{r.badge && <span className="c-badge">{r.badge}</span>}</span>}
       {r.context !== null && <span className="c-proj">{r.context}</span>}
-      <span className="c-text">{r.text}{r.text !== '' && r.detail !== null && '　'}{r.detail !== null && <i>{r.detail}</i>}</span>
+      {r.lead.kind === 'check'
+        // 確認の行は、説明を先に切り、命令（コピーする文）を残す。
+        ? <span className="c-text"><span className="c-desc">{r.text}</span>{r.detail !== null && <i>{r.detail}</i>}</span>
+        : <span className="c-text">{r.text}{r.text !== '' && r.detail !== null && '　'}{r.detail !== null && <i>{r.detail}</i>}</span>}
       <span className="c-end">
         {r.trail.map((x, i) => <span key={i} data-tone={x.tone}>{x.text}</span>)}
         {r.actions.map((a) => (

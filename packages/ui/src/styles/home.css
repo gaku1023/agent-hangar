@@ -64,7 +64,13 @@
 .ck-mark[data-tone='soft'] { color: var(--st-paused); }
 .ck-mark[data-tone='info'] { color: var(--ink-3); }
 .crow[data-k='check'] .c-name { flex: 0 0 auto; width: 200px; max-width: 40%; }
-.crow[data-k='check'] .c-text i { color: var(--ink); }
+.crow[data-k='check'] .c-text { display: flex; align-items: center; gap: calc(var(--u) * 2.5); }
+.crow[data-k='check'] .c-desc { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.crow[data-k='check'] .c-text i { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+/* 幅が足りないときは、説明を残して命令は隠す（命令は右端のボタンで写せる）。 */
+@media (max-width: 1100px) { .crow[data-k='check'] .c-text i { display: none; } }
+/* ホームの一覧の空の札は、一覧の白い面の中に置くので、札の面と影は持たない。 */
+.list .empty-card { margin-top: calc(var(--u) * 6); background: none; box-shadow: none; }
 .c-badge { margin-left: calc(var(--u) * 1.5); padding: 0 5px; border-radius: 4px; background: var(--surface-2); font-size: 10px; font-weight: 600; color: var(--ink-3); vertical-align: 1px; }
 .drawer-fold { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: 30px; padding: 0 calc(var(--u) * 2.5); border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--st-done); text-align: left; cursor: pointer; }
 .drawer-fold > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

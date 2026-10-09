@@ -12,9 +12,9 @@ export const COMPAT_CONTRACTS: readonly CompatContract[] = ['transcript', 'regis
 export type CompatDriftDto = { contract: CompatContract; value: string; version: string | null; count: number; firstSeenAt: number; lastSeenAt: number };
 /** GET /api/compat。verifiedVersion は見本のうち最も新しい版、localVersion は手元の claude --version（読めなければ null）。drifts は最後に見た時刻の新しい順。 */
 export type CompatDto = { verifiedVersion: string; localVersion: string | null; drifts: CompatDriftDto[] };
-/** GET /api/readiness の compat。設定の互換の節と、確認リストの 6 行目が読む。 */
+/** GET /api/readiness の compat。設定の互換の節と、始める前の確認の互換の行が読む。 */
 export type CompatSummaryDto = { verifiedVersion: string; localVersion: string | null; driftCount: number };
-/** 確認リストの 3 つの状態。drift はずれが 1 件以上、unverified は手元の版が確かめた版より新しい、ok はそれ以外。 */
+/** 互換の 3 つの状態。drift はずれが 1 件以上、unverified は手元の版が確かめた版より新しい、ok はそれ以外。 */
 export type CompatState = 'ok' | 'unverified' | 'drift';
 
 /**
@@ -32,7 +32,7 @@ export function compareClaudeVersions(a: string, b: string): number {
   return 0;
 }
 
-/** 確認リストの状態。止めてはいないので、未確認の版はずれより弱い。 */
+/** 互換の状態。止めてはいないので、未確認の版はずれより弱い。 */
 export function compatState(s: CompatSummaryDto): CompatState {
   if (s.driftCount > 0) return 'drift';
   if (s.localVersion !== null && compareClaudeVersions(s.localVersion, s.verifiedVersion) > 0) return 'unverified';

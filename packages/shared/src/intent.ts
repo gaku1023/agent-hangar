@@ -124,7 +124,7 @@ export type Intent =
   | { type: 'retention.settings' }
   // field は欄ごとの保存で、結果（✓ 保存しました、または欄の下の理由）をその欄に返すための名前である。
   | { type: 'settings.update'; patch: Partial<Settings>; field?: string }
-  // 準備の確かめ（設定画面の検証と、空のホームの確認リスト）を取り直す。
+  // 準備の確かめ（設定画面の検証と、ホームの帯の始める前の確認）を取り直す。
   | { type: 'readiness.check' }
   // Claude Code のアカウント。load は一覧を取り直す。choose は新しいセッションの既定（いまのアカウント）を変える。
   // switchSession はそのセッションを別のアカウントで再開する。working は作業中かで、確認の文に使う。confirmed が無ければ先に確認を出す。
