@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { SyncStateStore } from './state.ts';
-import { TRANSCRIPTS_FROM, backfillTranscripts, markTranscriptsFrom, readTranscriptsFrom, stampTranscriptsFrom, transcriptsFrom } from './transcriptsFrom.ts';
+import { TRANSCRIPTS_FROM, backfillTranscripts, markTranscriptsFrom, openTranscriptsFloor, readTranscriptsFrom, stampTranscriptsFrom, transcriptsFrom } from './transcriptsFrom.ts';
 
 const JOINED = 1_700_000_000_000;
 
@@ -140,5 +140,21 @@ describe('backfillTranscripts', () => {
 
     expect(backfillTranscripts(home)).toEqual({ from: JOINED });
     expect(readTranscriptsFrom(home)).toBe(0);
+  });
+});
+
+describe('openTranscriptsFloor', () => {
+  it('先に開いておき、後から刻める。既に床があれば動かさない', () => {
+    const home = tempHome();
+    const floor = openTranscriptsFloor(home);
+    try {
+      // 開いた時点で DB はできていて、マイグレーションも当たっている。
+      expect(fs.existsSync(path.join(home, 'hangar.db'))).toBe(true);
+      expect(floor.stamp(JOINED)).toBe(JOINED);
+      expect(floor.stamp(JOINED + 1)).toBe(JOINED);
+    } finally {
+      floor.close();
+    }
+    expect(readTranscriptsFrom(home)).toBe(JOINED);
   });
 });

@@ -12,6 +12,7 @@ import { cloudBackfill, cloudStatus, defaultCloudDir, installUsageToken, joinWor
 import { bindingNames, workerMetadata } from '../../cloud/scripts/build-worker.ts';
 import type { Exec, ExecResult, Interactive } from './wrangler.ts';
 import { WranglerRunner } from './wrangler.ts';
+import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../../server/test/oldDb.ts';
 import { expectMode } from '../../server/test/platform.ts';
 
 const ok = (stdout = ''): ExecResult => ({ code: 0, stdout, stderr: '' });
@@ -459,6 +460,61 @@ function fakeConfirm(answers: boolean[]) {
     },
   };
 }
+
+describe('DB の控えが取れないとき', () => {
+  /** 1 つ前の版の DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。 */
+  const blockBackup = (home: string): string => {
+    const file = path.join(home, 'hangar.db');
+    seedDbAt(file, LATEST_DB_VERSION - 1);
+    fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'backups', 'db'), 'x');
+    return file;
+  };
+
+  it('setup cloud は Cloudflare に何も作らず、cloud.json も書かずに止まる', async () => {
+    const { home, cloudDir } = dirs();
+    const file = blockBackup(home);
+    const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
+    const ff = fakeFetch(0);
+    await expect(
+      runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} }),
+    ).rejects.toThrow('マイグレーションを当てずに止めました');
+    expect(w.calls).toEqual([]);
+    expect(w.interactiveCalls).toEqual([]);
+    expect(ff.urls).toEqual([]);
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
+  });
+
+  it('join は参加の要求を出さず、cloud.json も書かずに止まる', async () => {
+    const { home } = dirs();
+    const file = blockBackup(home);
+    const urls: string[] = [];
+    const f = (async (input: string | URL | Request) => { urls.push(String(input)); return new Response('{}', { status: 500 }); }) as typeof fetch;
+    await expect(
+      runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, force: true, log: () => {} }),
+    ).rejects.toThrow('マイグレーションを当てずに止めました');
+    expect(urls).toEqual([]);
+    expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
+    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
+  });
+
+  it('控えが取れれば、setup cloud は先に DB を上げて控え、最後に床を刻む', async () => {
+    const { home, cloudDir } = dirs();
+    seedDbAt(path.join(home, 'hangar.db'), LATEST_DB_VERSION - 1);
+    const w = fakeWrangler({
+      whoami: () => ok(WHOAMI),
+      'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
+      'r2 bucket create hangar-files': () => ok('Created bucket'),
+      deploy: () => ok('Deployed hangar\n  https://hangar.example.workers.dev'),
+      'secret put JOIN_SECRET_HASH': () => ok('Success'),
+    });
+    await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch(0).fetch, sleep: async () => {}, cloudDir, log: () => {} });
+    expect(fs.readdirSync(path.join(home, 'backups', 'db'))).toHaveLength(1);
+    expect(dbVersionOf(path.join(home, 'hangar.db'))).toBe(LATEST_DB_VERSION);
+    expect(readTranscriptsFrom(home)).toBeGreaterThan(0);
+  });
+});
 
 describe('runJoin', () => {
   it('宛先を見せて確認してから参加し、cloud.json を書く', async () => {

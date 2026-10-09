@@ -51,14 +51,33 @@ export function markTranscriptsFrom(state: SyncStateStore, floor: number): void 
  * 戻り値は刻んだ後の床である。
  */
 export function stampTranscriptsFrom(home: string, now: number): number {
-  const db = openDb(dbPath(home));
+  const floor = openTranscriptsFloor(home);
   try {
-    const state = new SyncStateStore(db);
-    markTranscriptsFrom(state, now);
-    return transcriptsFrom(state);
+    return floor.stamp(now);
   } finally {
-    db.close();
+    floor.close();
   }
+}
+
+/**
+ * 床を刻むための DB を、先に開いておく。
+ *
+ * setup cloud と join は、Worker の配備や参加の要求の後で床を刻む。
+ * そこで初めて DB を開くと、マイグレーションの前の控え（db/backup.ts）が取れないときに、
+ * Cloudflare に資源を作り、参加し、cloud.json を書いた後で止まり、参加トークンも出ない。
+ * 処理の先頭でこれを呼べば、控えとマイグレーションは外に何も作らないうちに済む（取れなければここで投げる）。
+ * 刻むのは stamp、閉じるのは close で、呼び手は finally で閉じる。
+ */
+export function openTranscriptsFloor(home: string): { stamp(now: number): number; close(): void } {
+  const db = openDb(dbPath(home));
+  const state = new SyncStateStore(db);
+  return {
+    stamp: (now) => {
+      markTranscriptsFrom(state, now);
+      return transcriptsFrom(state);
+    },
+    close: () => db.close(),
+  };
 }
 
 /**

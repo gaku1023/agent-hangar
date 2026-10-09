@@ -13,8 +13,9 @@ export { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteR
 export { SyncStateStore, type SyncStateKey } from './sync/state.ts';
 // 本文をどこから上げるかの床。
 // 刻むのは CLI の hangar setup cloud と hangar join（cloud.json を書くのと同じ時点）である。
+// setup cloud と join は、外に何かを作る前に openTranscriptsFloor で DB を開いておく（控えが取れなければそこで止まる）。
 // 読むのは hangar cloud status、0 へ落とすのは hangar cloud backfill である。
-export { backfillTranscripts, readTranscriptsFrom, stampTranscriptsFrom } from './sync/transcriptsFrom.ts';
+export { backfillTranscripts, openTranscriptsFloor, readTranscriptsFrom, stampTranscriptsFrom } from './sync/transcriptsFrom.ts';
 export { onSharedWrite } from './db/shared.ts';
 // クラウドの入口。CLI の hangar cloud teardown が、R2 にしか無い本文を先に手元へ降ろすのに使う。
 // 鍵の導出とパスの組み立てを写して持つと、片方だけ直されて食い違うので、ここから正面で配る。

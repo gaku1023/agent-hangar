@@ -6,7 +6,7 @@ import readline from 'node:readline';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip } from 'node:zlib';
-import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream, stampTranscriptsFrom } from '@agent-hangar/server/src/cliEntry.ts';
+import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfig, decryptStream, deriveFileKey, HttpCloudClient, openTranscriptsFloor, readCloudConfig, readTranscriptsFrom, remoteRoot, remoteTranscriptPath, saveCloudConfig, sha256Stream } from '@agent-hangar/server/src/cliEntry.ts';
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import { COMPAT_VERSION, compatHeaders, configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, parseCompat, PULL_LIMIT, readCompatRefusal, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
@@ -407,69 +407,77 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   if (o.rotateSecret && !prev) log('まだ参加用の秘密がないので、作り直しではなく新しく作ります。');
   const secret = prev && !o.rotateSecret ? prev.joinSecret : randomBytes(32).toString('base64url');
 
-  // 1. アカウント
-  let who = await wr.run(['whoami']);
-  let accountId = who.code === 0 ? parseAccountId(who.stdout + who.stderr) : null;
-  if (!accountId) {
-    log('Cloudflare にログインします。ブラウザが開きます。');
-    const code = await wr.runInteractive(['login']);
-    if (code !== 0) throw new Error('wrangler login に失敗しました');
-    who = await wr.run(['whoami']);
-    accountId = who.code === 0 ? parseAccountId(who.stdout + who.stderr) : null;
-    if (!accountId) throw new Error('アカウント ID を読めませんでした。wrangler whoami の出力を確かめてください');
-  }
-  wr = wr.withAccount(accountId);
-
-  // 2. D1 と R2
-  const info = await wr.run(['d1', 'info', dbName, '--json']);
-  let dbId = info.code === 0 ? parseDatabaseId(info.stdout) : null;
-  if (!dbId) {
-    const created = await wr.run(['d1', 'create', dbName]);
-    dbId = parseDatabaseId(created.stdout + created.stderr);
-    if (created.code !== 0 || !dbId) throw new Error(`D1 の作成に失敗しました: ${created.stderr || created.stdout}`);
-    log(`D1 ${dbName} を作りました`);
-  } else {
-    log(`D1 ${dbName} は既にあります`);
-  }
-  const bucket = await wr.run(['r2', 'bucket', 'create', bucketName]);
-  if (bucket.code !== 0 && !/already exists/i.test(bucket.stderr + bucket.stdout)) throw new Error(`R2 の作成に失敗しました: ${bucket.stderr || bucket.stdout}`);
-  log(bucket.code === 0 ? `R2 ${bucketName} を作りました` : `R2 ${bucketName} は既にあります`);
-
-  // 3. 設定と 4. デプロイ
-  const cfg = writeWranglerConfig(o.home, { name, main: path.join(cloudDir, 'src', 'index.ts'), dbName, dbId, bucketName });
-  const dep = await wr.run(['deploy', '--config', cfg]);
-  const url = parseWorkerUrl(dep.stdout + dep.stderr);
-  if (dep.code !== 0 || !url) throw new Error(`デプロイに失敗しました: ${dep.stderr || dep.stdout}`);
-  log(`デプロイしました: ${url}`);
-
-  // 5. 参加用の秘密を Worker へ。平文は標準入力から渡し、argv には載せない。
-  const put = await wr.run(['secret', 'put', 'JOIN_SECRET_HASH', '--config', cfg], sha256Hex(secret) + '\n');
-  if (put.code !== 0) throw new Error(`secret の登録に失敗しました: ${put.stderr || put.stdout}`);
-
-  // 6. health と 7. 参加
-  log('Worker の反映を待っています（最大 2 分）');
-  if (!(await waitForHealth(url, { fetch: fetchFn, sleep }))) {
-    throw new Error(`${url}/health が 2 分以内に通りませんでした。しばらく待ってから hangar setup cloud をもう一度実行してください`);
-  }
-  const joined = await joinWorker(url, secret, o.device, { fetch: fetchFn, sleep, retryForbidden: true, log });
-
-  // 8. 保存と表示
-  const conf: CloudConfig = { url, joinSecret: secret, deviceToken: joined.deviceToken, workerName: name, accountId, dbName, bucketName, joinedAt: Date.now() };
-  saveCloudConfig(o.home, conf);
-  // 本文をどこから上げるかの床を、設定を書くのと同じ時点で刻む。
-  // サーバの起動を待つと、床を刻まない古いサーバが先に走ったときに床の無い隙が生まれる。
-  stampTranscriptsFrom(o.home, conf.joinedAt);
-  const joinToken = encodeJoinToken({ url, secret });
-  printJoinToken(log, joinToken);
-  // 使用量のトークンは任意。端末から打たれたときだけ尋ね、飛ばしても setup はここで終わる。
-  if (process.stdin.isTTY && !o.skipUsageToken) {
-    log('');
-    for (const l of USAGE_TOKEN_HELP) log(l);
-    if ((await askLine('使用量のトークンをいま入れますか（後からでも可） [y/N]: ')).trim().toLowerCase() === 'y') {
-      await offerUsageToken(async () => installUsageToken({ home: o.home, token: await readUsageToken(), fetch: fetchFn, wrangler: wr, log, cloudDir }), log);
+  // DB を先に開く。マイグレーションの前の控え（db/backup.ts）が取れなければ、ここで投げて止まる。
+  // Cloudflare にはまだ何も作っていないので、直してからもう一度実行すればよい。
+  // 後ろで開くと、Worker を配備して参加し cloud.json を書いた後で止まり、参加トークンも出ない。
+  const floor = openTranscriptsFloor(o.home);
+  try {
+    // 1. アカウント
+    let who = await wr.run(['whoami']);
+    let accountId = who.code === 0 ? parseAccountId(who.stdout + who.stderr) : null;
+    if (!accountId) {
+      log('Cloudflare にログインします。ブラウザが開きます。');
+      const code = await wr.runInteractive(['login']);
+      if (code !== 0) throw new Error('wrangler login に失敗しました');
+      who = await wr.run(['whoami']);
+      accountId = who.code === 0 ? parseAccountId(who.stdout + who.stderr) : null;
+      if (!accountId) throw new Error('アカウント ID を読めませんでした。wrangler whoami の出力を確かめてください');
     }
+    wr = wr.withAccount(accountId);
+
+    // 2. D1 と R2
+    const info = await wr.run(['d1', 'info', dbName, '--json']);
+    let dbId = info.code === 0 ? parseDatabaseId(info.stdout) : null;
+    if (!dbId) {
+      const created = await wr.run(['d1', 'create', dbName]);
+      dbId = parseDatabaseId(created.stdout + created.stderr);
+      if (created.code !== 0 || !dbId) throw new Error(`D1 の作成に失敗しました: ${created.stderr || created.stdout}`);
+      log(`D1 ${dbName} を作りました`);
+    } else {
+      log(`D1 ${dbName} は既にあります`);
+    }
+    const bucket = await wr.run(['r2', 'bucket', 'create', bucketName]);
+    if (bucket.code !== 0 && !/already exists/i.test(bucket.stderr + bucket.stdout)) throw new Error(`R2 の作成に失敗しました: ${bucket.stderr || bucket.stdout}`);
+    log(bucket.code === 0 ? `R2 ${bucketName} を作りました` : `R2 ${bucketName} は既にあります`);
+
+    // 3. 設定と 4. デプロイ
+    const cfg = writeWranglerConfig(o.home, { name, main: path.join(cloudDir, 'src', 'index.ts'), dbName, dbId, bucketName });
+    const dep = await wr.run(['deploy', '--config', cfg]);
+    const url = parseWorkerUrl(dep.stdout + dep.stderr);
+    if (dep.code !== 0 || !url) throw new Error(`デプロイに失敗しました: ${dep.stderr || dep.stdout}`);
+    log(`デプロイしました: ${url}`);
+
+    // 5. 参加用の秘密を Worker へ。平文は標準入力から渡し、argv には載せない。
+    const put = await wr.run(['secret', 'put', 'JOIN_SECRET_HASH', '--config', cfg], sha256Hex(secret) + '\n');
+    if (put.code !== 0) throw new Error(`secret の登録に失敗しました: ${put.stderr || put.stdout}`);
+
+    // 6. health と 7. 参加
+    log('Worker の反映を待っています（最大 2 分）');
+    if (!(await waitForHealth(url, { fetch: fetchFn, sleep }))) {
+      throw new Error(`${url}/health が 2 分以内に通りませんでした。しばらく待ってから hangar setup cloud をもう一度実行してください`);
+    }
+    const joined = await joinWorker(url, secret, o.device, { fetch: fetchFn, sleep, retryForbidden: true, log });
+
+    // 8. 保存と表示
+    const conf: CloudConfig = { url, joinSecret: secret, deviceToken: joined.deviceToken, workerName: name, accountId, dbName, bucketName, joinedAt: Date.now() };
+    saveCloudConfig(o.home, conf);
+    // 本文をどこから上げるかの床を、設定を書くのと同じ時点で刻む。
+    // サーバの起動を待つと、床を刻まない古いサーバが先に走ったときに床の無い隙が生まれる。
+    floor.stamp(conf.joinedAt);
+    const joinToken = encodeJoinToken({ url, secret });
+    printJoinToken(log, joinToken);
+    // 使用量のトークンは任意。端末から打たれたときだけ尋ね、飛ばしても setup はここで終わる。
+    if (process.stdin.isTTY && !o.skipUsageToken) {
+      log('');
+      for (const l of USAGE_TOKEN_HELP) log(l);
+      if ((await askLine('使用量のトークンをいま入れますか（後からでも可） [y/N]: ')).trim().toLowerCase() === 'y') {
+        await offerUsageToken(async () => installUsageToken({ home: o.home, token: await readUsageToken(), fetch: fetchFn, wrangler: wr, log, cloudDir }), log);
+      }
+    }
+    return { url, joinToken };
+  } finally {
+    floor.close();
   }
-  return { url, joinToken };
 }
 
 // ---- 使用量のトークン ----
@@ -643,26 +651,32 @@ export async function runJoin(o: JoinCliOptions): Promise<CloudConfig> {
     }
   }
 
-  // retryForbidden は渡さない。貼り間違えたトークンで 30 秒待たせない。
-  const joined = await joinWorker(url, t.secret, o.device, { fetch: o.fetch ?? realFetch, sleep: o.sleep ?? realSleep, log });
-  const conf: CloudConfig = {
-    url,
-    joinSecret: t.secret,
-    deviceToken: joined.deviceToken,
-    workerName: null,
-    accountId: null,
-    dbName: null,
-    bucketName: null,
-    joinedAt: Date.now(),
-  };
-  saveCloudConfig(o.home, conf);
-  // 本文をどこから上げるかの床を、設定を書くのと同じ時点で刻む（setup cloud と同じ理由である）。
-  // 既に床があれば動かさないので、参加し直しても最初の参加の時刻のままである。
-  stampTranscriptsFrom(o.home, conf.joinedAt);
-  log('');
-  log(`参加しました: ${url}`);
-  log('hangar を再起動すると同期が始まり、他の端末の本文が ~/.agent-hangar/remote に降りてきます。');
-  return conf;
+  // DB を先に開く（setup cloud と同じ理由である）。控えが取れなければ、参加の要求を出す前に止まる。
+  const floor = openTranscriptsFloor(o.home);
+  try {
+    // retryForbidden は渡さない。貼り間違えたトークンで 30 秒待たせない。
+    const joined = await joinWorker(url, t.secret, o.device, { fetch: o.fetch ?? realFetch, sleep: o.sleep ?? realSleep, log });
+    const conf: CloudConfig = {
+      url,
+      joinSecret: t.secret,
+      deviceToken: joined.deviceToken,
+      workerName: null,
+      accountId: null,
+      dbName: null,
+      bucketName: null,
+      joinedAt: Date.now(),
+    };
+    saveCloudConfig(o.home, conf);
+    // 本文をどこから上げるかの床を、設定を書くのと同じ時点で刻む（setup cloud と同じ理由である）。
+    // 既に床があれば動かさないので、参加し直しても最初の参加の時刻のままである。
+    floor.stamp(conf.joinedAt);
+    log('');
+    log(`参加しました: ${url}`);
+    log('hangar を再起動すると同期が始まり、他の端末の本文が ~/.agent-hangar/remote に降りてきます。');
+    return conf;
+  } finally {
+    floor.close();
+  }
 }
 
 // ---- hangar cloud status ----
