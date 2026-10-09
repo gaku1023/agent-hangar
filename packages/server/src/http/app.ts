@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
-import { COMPAT_VERSION, isLanguage, languageOf, LANGUAGES, type ArtifactDto, type BootstrapDto, type MemoDto, type ResolveAction, type SettingsDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp } from '@agent-hangar/shared';
-import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
+import { COMPAT_VERSION, isLanguage, languageOf, LANGUAGES, type BootstrapDto, type SettingsDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp } from '@agent-hangar/shared';
+import { listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
 import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
@@ -10,12 +10,10 @@ import { checkToolPath, expandHome, isCommandName } from '../config/readiness.ts
 import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
 import { statuslineStatus } from '../config/statusline.ts';
 import { touchRow } from '../db/notify.ts';
-import { getProject, listProjects, listSessions } from '../db/queries.ts';
-import { upsertShared } from '../db/shared.ts';
+import { listProjects, listSessions } from '../db/queries.ts';
 import { createMcpApp } from '../mcp/app.ts';
-import { createProjectDir, ProjectCreateError, registerProjectDir } from '../projects/create.ts';
-import { assignSessions, candidateDirs, listWorkspaceDirs, normalizeDir, resolveProject, syncProjectsFromWorkspace } from '../projects/registry.ts';
-import { addTodo, confirmTodo, listTodos, rejectTodo, removeTodo, setTodoDone } from '../projects/todos.ts';
+import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { listTodos } from '../projects/todos.ts';
 import { aggregateUsage } from '../usage/aggregate.ts';
 import { accountsRoutes, buildAccountsDto, type AccountsDeps } from './accounts.ts';
 import { listPromptCommands } from '../prompt/commands.ts';
@@ -24,8 +22,12 @@ import { MAX_DROP_BYTES, pruneDrops, resolveDrop, saveDrop } from '../prompt/dro
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 import type { AppDeps } from './deps.ts';
 import { beforeLaunchOf, BODY_LIMITS, externalOf, projectOf, readBody, readJson, syncStatusOf, tooLargeResult } from './routes/common.ts';
+import { artifactRoutes } from './routes/artifacts.ts';
+import { memoRoutes } from './routes/memos.ts';
+import { projectRoutes } from './routes/projects.ts';
 import { runRoutes } from './routes/runs.ts';
 import { sessionRoutes } from './routes/sessions.ts';
+import { todoRoutes } from './routes/todos.ts';
 
 export type { AppDeps, ConfigSyncApi, ExternalApi, RunsApi, SummaryApi, SummaryEnqueueOpts, SyncApi } from './deps.ts';
 /**
@@ -35,8 +37,6 @@ export type { AppDeps, ConfigSyncApi, ExternalApi, RunsApi, SummaryApi, SummaryE
  */
 export type { SyncSkippedDto, SyncStatusBody };
 
-const STATUSES = new Set(['active', 'paused', 'done', 'archived']);
-const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
 /** 空にできない文字列の設定。 */
 const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
@@ -169,23 +169,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.json(body);
   });
 
-  api.get('/projects', (c) => c.json(listProjects(db, deviceId, deps.live())));
-  api.get('/projects/:id', (c) => {
-    const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
-    return p ? c.json(p) : c.json({ error: 'プロジェクトが見つかりません' }, 404);
-  });
-  api.patch('/projects/:id', async (c) => {
-    const id = c.req.param('id');
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const body = (b.value ?? {}) as { status?: string };
-    if (!body.status || !STATUSES.has(body.status)) return c.json({ error: 'ステータスは active、paused、done、archived のいずれかです' }, 400);
-    const row = db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
-    if (!row) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    upsertShared(db, 'projects', { ...row, status: body.status }, deviceId);
-    return c.json(getProject(db, deviceId, deps.live(), id)!);
-  });
-  api.get('/projects/:id/candidates', (c) => c.json(candidateDirs(deps.settings().workspaceRoot, c.req.query('name') ?? '')));
+  projectRoutes(api, deps);
   // 初期プロンプト欄の `/` の候補。projectId が無ければ（スクラッチなど）、プロジェクトのものは読まない。
   api.get('/prompt/commands', (c) => {
     const id = c.req.query('projectId');
@@ -230,23 +214,6 @@ export function createApp(deps: AppDeps): Hono {
     c.header('Cache-Control', 'private, max-age=3600');
     return c.body(fs.readFileSync(file));
   });
-  api.post('/projects/:id/resolve', async (c) => {
-    const id = c.req.param('id');
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const action = (b.value ?? null) as ResolveAction | null;
-    if (!action || !RESOLVE_KINDS.has(action.kind)) return c.json({ error: '操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください' }, 400);
-    // repoint のパスは、存在を確かめる前に正規化する。検査する値と保存する値を 1 つにしておく。
-    // `..` や末尾の `/` が残ると project_roots の前方一致に cwd が当たらず、
-    // そのプロジェクトには永久にセッションが紐づかない（POST /api/projects と同じ理由である）。
-    const target: ResolveAction = action.kind === 'repoint' && typeof action.path === 'string' ? { kind: 'repoint', path: normalizeDir(action.path) } : action;
-    if (target.kind === 'repoint' && (typeof target.path !== 'string' || !fs.existsSync(target.path))) return c.json({ error: '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください' }, 400);
-    if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    // プロジェクトと、紐づけが変わったセッションは、書いた行から配る層が配る。
-    resolveProject(db, deviceId, id, target);
-    return c.json(getProject(db, deviceId, deps.live(), id) ?? { id, unlinked: true });
-  });
-
   sessionRoutes(api, deps);
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));
   /** 保持期間として受け付ける値。Claude Code は 1 未満を弾く。上は 100 年で切り、打ち間違いの桁あふれを通さない。 */
@@ -424,41 +391,6 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/sync/config/pull', async (c) => (deps.configSync ? c.json(await deps.configSync.pull()) : c.json({ error: 'クラウド同期が設定されていません' }, 404)));
 
   runRoutes(api, deps);
-  api.post('/projects', async (c) => {
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const body = (b.value ?? {}) as { kind?: unknown; name?: unknown; path?: unknown; gitInit?: unknown };
-    try {
-      let projectId: string;
-      let created = true;
-      if (body.kind === 'newDir') {
-        if (typeof body.name !== 'string') return c.json({ error: 'name は必須です' }, 400);
-        ({ projectId } = createProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot, gitInit: deps.gitInit }, { name: body.name, gitInit: body.gitInit === true }));
-      } else if (body.kind === 'dir') {
-        if (typeof body.path !== 'string') return c.json({ error: 'path が存在するディレクトリではありません' }, 400);
-        ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
-      } else {
-        return c.json({ error: 'kind は newDir か dir です' }, 400);
-      }
-      // 登録済みでも、アーカイブから戻したときは行が変わるので、配る層がほかの画面へ配る。
-      return c.json(getProject(db, deviceId, deps.live(), projectId)!, created ? 201 : 200);
-    } catch (e) {
-      if (e instanceof ProjectCreateError) return c.json({ error: e.message }, e.status);
-      throw e;
-    }
-  });
-  api.get('/workspace/dirs', (c) => c.json(listWorkspaceDirs(db, deviceId, deps.settings().workspaceRoot)));
-  api.post('/projects/:id/open-editor', (c) => {
-    const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
-    if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    return external(c, () => deps.external.openEditor({ target: p.path! }), true);
-  });
-  api.post('/projects/:id/open-terminal', (c) => {
-    const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
-    if (!p?.path) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    return external(c, () => deps.external.openDirTerminal({ dir: p.path! }));
-  });
-
   // 使用量。statusline スクリプトが curl で送る。他の /api と同じ Bearer 認証を通す。
   api.post('/ingest/statusline', async (c) => {
     const text = await readBody(c, BODY_LIMITS.statusline);
@@ -488,96 +420,9 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/readiness', async (c) => c.json(await deps.readiness()));
   api.get('/compat', async (c) => c.json(await deps.compat()));
 
-  // TODO。変更のたびに、一覧とプロジェクト（未完の数）を、書いた行から配る層が配る。
-  api.get('/projects/:id/todos', (c) => {
-    const id = c.req.param('id');
-    return requireProject(id) ? c.json(listTodos(db, id)) : c.json({ error: 'プロジェクトが見つかりません' }, 404);
-  });
-  api.post('/projects/:id/todos', async (c) => {
-    const id = c.req.param('id');
-    if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    const b = await readJson(c, BODY_LIMITS.todo);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
-    const body = (b.value ?? {}) as { text?: unknown };
-    if (typeof body.text !== 'string' || !body.text.trim()) return c.json({ error: 'text は必須です' }, 400);
-    return c.json(addTodo(db, deviceId, { projectId: id, text: body.text }), 201);
-  });
-  api.patch('/todos/:id', async (c) => {
-    const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
-    const body = (b.value ?? {}) as { done?: unknown };
-    if (typeof body.done !== 'boolean') return c.json({ error: 'done は true か false です' }, 400);
-    const t = setTodoDone(db, deviceId, c.req.param('id'), body.done);
-    if (!t) return c.json({ error: 'TODO が見つかりません' }, 404);
-    return c.json(t);
-  });
-  // 完了の候補の確定と却下。どちらも利用者の操作で、MCP からは呼べない。
-  const NOT_CANDIDATE = 'この TODO は完了の候補ではありません';
-  api.post('/todos/:id/confirm', (c) => {
-    const r = confirmTodo(db, deviceId, c.req.param('id'));
-    if (!r) return c.json({ error: 'TODO が見つかりません' }, 404);
-    if (r.result === 'not_candidate') return c.json({ error: NOT_CANDIDATE }, 409);
-    return c.json(r.todo);
-  });
-  api.post('/todos/:id/reject', (c) => {
-    const r = rejectTodo(db, deviceId, c.req.param('id'));
-    if (!r) return c.json({ error: 'TODO が見つかりません' }, 404);
-    if (r.result === 'not_candidate') return c.json({ error: NOT_CANDIDATE }, 409);
-    return c.json(r.todo);
-  });
-  api.delete('/todos/:id', (c) => {
-    const t = removeTodo(db, deviceId, c.req.param('id'));
-    if (!t) return c.json({ error: 'TODO が見つかりません' }, 404);
-    return c.json(t);
-  });
-
-  // メモ。DB とファイルの両方に書く。ここからの書き込みも、MemoStore の監視が取り込んだファイルの外部編集も、配る層（events/publisher.ts）が配る。
-  api.get('/projects/:id/memo', (c) => {
-    const id = c.req.param('id');
-    if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    const m: MemoDto = deps.memos.read(id) ?? { projectId: id, markdown: '', updatedAt: 0 };
-    return c.json(m);
-  });
-  api.put('/projects/:id/memo', async (c) => {
-    const id = c.req.param('id');
-    if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    const b = await readJson(c, BODY_LIMITS.memo);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.memo);
-    const body = (b.value ?? {}) as { markdown?: unknown };
-    if (typeof body.markdown !== 'string') return c.json({ error: 'markdown は文字列です' }, 400);
-    return c.json(deps.memos.write(id, body.markdown));
-  });
-
-  // アーティファクト。索引化が拾うほかに、手で URL を足せる。
-  api.get('/artifacts', (c) => c.json(listArtifacts(db, { projectId: c.req.query('projectId') || undefined, sessionId: c.req.query('sessionId') || undefined })));
-  api.post('/projects/:id/artifacts', async (c) => {
-    const id = c.req.param('id');
-    if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
-    const b = await readJson(c, BODY_LIMITS.url);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.url);
-    const body = (b.value ?? {}) as { url?: unknown };
-    if (typeof body.url !== 'string') return c.json({ error: 'url は必須です' }, 400);
-    let a: ArtifactDto;
-    // 入力の誤りだけを 400 にする。DB の失敗などは呼び手の直しようが無いので 500 で返す。
-    try {
-      a = addManualArtifact(db, deviceId, id, body.url);
-    } catch (e) {
-      if (e instanceof ArtifactInputError) return c.json({ error: e.message }, 400);
-      return c.json({ error: 'アーティファクトを追加できませんでした' }, 500);
-    }
-    return c.json(a, 201);
-  });
-  api.post('/artifacts/:id/open', (c) => {
-    const a = getArtifact(db, c.req.param('id'));
-    if (!a) return c.json({ error: 'アーティファクトが見つかりません' }, 404);
-    return external(c, () => deps.external.openUrl(a.url), true);
-  });
-  api.post('/artifacts/:id/open-editor', (c) => {
-    const a = getArtifact(db, c.req.param('id'));
-    if (!a) return c.json({ error: 'アーティファクトが見つかりません' }, 404);
-    if (!a.filePath || !a.fileExists) return c.json({ error: '元のファイルが見つかりません' }, 404);
-    return external(c, () => deps.external.openEditor({ target: a.filePath! }), true);
-  });
+  todoRoutes(api, deps);
+  memoRoutes(api, deps);
+  artifactRoutes(api, deps);
   api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));
   api.post('/summarizer/test', async (c) => c.json(await deps.summary.test()));
 
