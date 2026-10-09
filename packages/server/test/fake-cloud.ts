@@ -65,7 +65,7 @@ export const MAX_BODY_BYTES = 100 * 1024 * 1024;
  * 実物の Worker が端末に求める互換の版の下限（packages/cloud/src/compat.ts の写し）。
  * ずれていないことは fake-cloud.test.ts の「端末に求める下限は実物の Worker の写し」が原本を読んで縛る。
  */
-export const MIN_DEVICE_COMPAT = 0;
+export const MIN_DEVICE_COMPAT = 1;
 
 /** 断りの本文は Worker と同じ JSON にする。CloudError.message がそのまま実物と揃う。 */
 const errorBody = (error: string): string => JSON.stringify({ error });
