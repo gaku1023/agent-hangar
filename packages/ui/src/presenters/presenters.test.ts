@@ -1282,9 +1282,9 @@ describe('presentSession のフェーズ 3 の項目', () => {
       sessions: { s1: { ...base, projectId: 'sc', fromScratch: false, stats: { ...base.stats, contextPercent: 25, costUsd: 0.5 } } },
       artifacts: { a1: artDto('a1') },
       summaryPending: { s1: true as const },
+      summaryFailed: { s1: 'LM Studio に繋がりません' },
     };
-    const state = { ...initialState(), summaryFailed: { s1: 'LM Studio に繋がりません' } };
-    const p = presentSession(state, store, NOW, 's1');
+    const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.contextPercent).toBe(25);
     expect(p.cost).toBe('$0.50');
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);

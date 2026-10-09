@@ -20,6 +20,8 @@ export type Store = {
   index: IndexProgressDto;
   todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
   summaryPending: Record<string, true>;
+  /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
+  summaryFailed: Record<string, string>;
   // 設定画面に入ったときだけ読む値。
   // 未取得は null で、View は「読み込んでいます」を出す。
   usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; shellHook: ShellHookDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
@@ -49,7 +51,7 @@ export function initialStore(): Store {
   return {
     bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
-    todos: {}, memos: {}, artifacts: {}, summaryPending: {},
+    todos: {}, memos: {}, artifacts: {}, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null,
     retention: null, retentionPreview: null,
@@ -66,6 +68,13 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
   return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts };
+}
+
+/** 鍵を 1 つ外す。無ければ同じ物を返す。 */
+function without<T>(map: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in map)) return map;
+  const { [key]: _drop, ...rest } = map;
+  return rest;
 }
 
 const sameAside = (a: LiveAsideDto | null, b: LiveAsideDto | null): boolean => a === b || (a !== null && b !== null && a.shell === b.shell && a.agents === b.agents);
@@ -114,14 +123,13 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'retention.changed': return { ...store, retention: ev.retention };
-    case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true } };
-    case 'summary.updated': case 'summary.failed': {
-      // 本文の差し替えは session.upsert が行う。
-      // ここは待ちの印を消すだけである。
-      if (!store.summaryPending[ev.sessionId]) return store;
-      const { [ev.sessionId]: _drop, ...rest } = store.summaryPending;
-      return { ...store, summaryPending: rest };
+    case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
+    // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。
+    case 'summary.updated': {
+      if (!store.summaryPending[ev.sessionId] && store.summaryFailed[ev.sessionId] === undefined) return store;
+      return { ...store, summaryPending: without(store.summaryPending, ev.sessionId), summaryFailed: without(store.summaryFailed, ev.sessionId) };
     }
+    case 'summary.failed': return { ...store, summaryPending: without(store.summaryPending, ev.sessionId), summaryFailed: { ...store.summaryFailed, [ev.sessionId]: ev.message } };
     default: return store;
   }
 }

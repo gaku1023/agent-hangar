@@ -823,13 +823,12 @@ describe('作業台の操作', () => {
     expect(r.effects).toEqual([]);
     expect(r.state).toEqual(initialState());
   });
-  it('要約の失敗は画面に残し、次の pending で消える', () => {
-    const a = run([server({ type: 'summary.failed', sessionId: 's1', message: 'LM Studio に繋がりません' })]);
-    expect(a.state.summaryFailed).toEqual({ s1: 'LM Studio に繋がりません' });
-    const b = run([server({ type: 'summary.pending', sessionId: 's1' })], a.state);
-    expect(b.state.summaryFailed).toEqual({});
-    const c = run([server({ type: 'summary.failed', sessionId: 's1', message: 'x' }), server({ type: 'summary.updated', sessionId: 's1' })]);
-    expect(c.state.summaryFailed).toEqual({});
+  it('要約の知らせは State を変えない（要約の失敗は Store だけが持つ）', () => {
+    const start = initialState();
+    expect(start).not.toHaveProperty('summaryFailed');
+    const r = run([server({ type: 'summary.failed', sessionId: 's1', message: 'x' }), server({ type: 'summary.pending', sessionId: 's1' }), server({ type: 'summary.updated', sessionId: 's1' })], start);
+    expect(r.state).toBe(start);
+    expect(r.effects).toEqual([]);
   });
 });
 

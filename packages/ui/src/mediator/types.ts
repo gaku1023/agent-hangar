@@ -230,11 +230,6 @@ export type State = {
   workspaceDirs: WorkspaceDirDto[] | null;
   /** Finder で選んだフォルダ。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
   pickedFolder: { path: string; n: number } | null;
-  /**
-   * 事後要約に失敗したセッション。
-   * ヘッダーの要約の横に出す。
-   */
-  summaryFailed: Record<string, string>;
   toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
   /**
    * 未解決のまま「あとで」を選んだプロジェクト。

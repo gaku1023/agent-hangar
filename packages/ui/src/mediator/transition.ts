@@ -24,7 +24,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, workspaceDirs: null, pickedFolder: null, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], sectionsOpen: {}, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false, blocked: false }, nextToastId: 1, settingsSave: {}, copied: null };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, workspaceDirs: null, pickedFolder: null, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], sectionsOpen: {}, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false, blocked: false }, nextToastId: 1, settingsSave: {}, copied: null };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -40,7 +40,6 @@ export function transition(state: State, store: Store, input: Input): Step {
   // accountsStep は確認を出す領域なので、overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
-  // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
   if (input.kind === 'store') return storeChanged(state, store);
   // ストアを読む領域には、ここでストアを添える。
   const screen = (s: State, i: Input) => screenStep(s, store, i);

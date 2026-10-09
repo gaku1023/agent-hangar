@@ -213,6 +213,23 @@ describe('フェーズ 3 のストア', () => {
     s = applyServerEvent(s, { type: 'summary.failed', sessionId: 's1', message: 'x' });
     expect(s.summaryPending.s1).toBeUndefined();
   });
+  it('要約の失敗は理由を残し、次の pending か updated で消える', () => {
+    let s = applyServerEvent(initialStore(), { type: 'summary.failed', sessionId: 's1', message: 'LM Studio に繋がりません' });
+    expect(s.summaryFailed).toEqual({ s1: 'LM Studio に繋がりません' });
+    s = applyServerEvent(s, { type: 'summary.pending', sessionId: 's1' });
+    expect(s.summaryFailed).toEqual({});
+    expect(s.summaryPending.s1).toBe(true);
+    s = applyServerEvent(s, { type: 'summary.failed', sessionId: 's1', message: 'x' });
+    s = applyServerEvent(s, { type: 'summary.updated', sessionId: 's1' });
+    expect(s.summaryFailed).toEqual({});
+    // 待ちも失敗も無いセッションの updated は、Store を作り直さない。
+    expect(applyServerEvent(s, { type: 'summary.updated', sessionId: 's1' })).toBe(s);
+  });
+  it('要約の失敗は bootstrap を取り直しても残る', () => {
+    // bootstrap は失敗の理由を運ばない。取り直すたびに消すと、作り直しの注記が黙って消える。
+    const s = applyServerEvent(initialStore(), { type: 'summary.failed', sessionId: 's1', message: 'x' });
+    expect(applyBootstrap(s, boot).summaryFailed).toEqual({ s1: 'x' });
+  });
 });
 
 describe('フェーズ 3 の繰り越し', () => {
