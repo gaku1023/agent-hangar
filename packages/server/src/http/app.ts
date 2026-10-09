@@ -319,7 +319,6 @@ export function createApp(deps: AppDeps): Hono {
   const api = new Hono();
   api.use('*', authMiddleware(deps.token, deps.port));
 
-  const broadcastProject = (id: string) => { const p = getProject(db, deviceId, deps.live(), id); if (p) deps.hub.broadcast({ type: 'project.upsert', project: p }); };
   /**
    * セッションを引くときは必ず自端末の ID を渡す。
    * 渡さないと lockMap が空のまま返るので、他端末で走っている run が「ロック中」として出てこない。
@@ -832,11 +831,7 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/readiness', async (c) => c.json(await deps.readiness()));
   api.get('/compat', async (c) => c.json(deps.compat ? await deps.compat() : ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] } satisfies CompatDto)));
 
-  // TODO。変更のたびに一覧とプロジェクト（未完の数）を配る。
-  const todosChanged = (projectId: string) => {
-    deps.hub.broadcast({ type: 'todos.update', projectId, todos: listTodos(db, projectId) });
-    broadcastProject(projectId);
-  };
+  // TODO。変更のたびに、一覧とプロジェクト（未完の数）を、書いた行から配る層が配る。
   api.get('/projects/:id/todos', (c) => {
     const id = c.req.param('id');
     return requireProject(id) ? c.json(listTodos(db, id)) : c.json({ error: 'プロジェクトが見つかりません' }, 404);
@@ -848,9 +843,7 @@ export function createApp(deps: AppDeps): Hono {
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
     const body = (b.value ?? {}) as { text?: unknown };
     if (typeof body.text !== 'string' || !body.text.trim()) return c.json({ error: 'text は必須です' }, 400);
-    const t = addTodo(db, deviceId, { projectId: id, text: body.text });
-    todosChanged(id);
-    return c.json(t, 201);
+    return c.json(addTodo(db, deviceId, { projectId: id, text: body.text }), 201);
   });
   api.patch('/todos/:id', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
@@ -859,7 +852,6 @@ export function createApp(deps: AppDeps): Hono {
     if (typeof body.done !== 'boolean') return c.json({ error: 'done は true か false です' }, 400);
     const t = setTodoDone(db, deviceId, c.req.param('id'), body.done);
     if (!t) return c.json({ error: 'TODO が見つかりません' }, 404);
-    todosChanged(t.projectId);
     return c.json(t);
   });
   // 完了の候補の確定と却下。どちらも利用者の操作で、MCP からは呼べない。
@@ -868,24 +860,21 @@ export function createApp(deps: AppDeps): Hono {
     const r = confirmTodo(db, deviceId, c.req.param('id'));
     if (!r) return c.json({ error: 'TODO が見つかりません' }, 404);
     if (r.result === 'not_candidate') return c.json({ error: NOT_CANDIDATE }, 409);
-    if (r.result === 'confirmed') todosChanged(r.todo.projectId);
     return c.json(r.todo);
   });
   api.post('/todos/:id/reject', (c) => {
     const r = rejectTodo(db, deviceId, c.req.param('id'));
     if (!r) return c.json({ error: 'TODO が見つかりません' }, 404);
     if (r.result === 'not_candidate') return c.json({ error: NOT_CANDIDATE }, 409);
-    todosChanged(r.todo.projectId);
     return c.json(r.todo);
   });
   api.delete('/todos/:id', (c) => {
     const t = removeTodo(db, deviceId, c.req.param('id'));
     if (!t) return c.json({ error: 'TODO が見つかりません' }, 404);
-    todosChanged(t.projectId);
     return c.json(t);
   });
 
-  // メモ。DB とファイルの両方に書く。ファイルの外部編集は MemoStore の監視が取り込み、配る層（events/publisher.ts）が配る。
+  // メモ。DB とファイルの両方に書く。ここからの書き込みも、MemoStore の監視が取り込んだファイルの外部編集も、配る層（events/publisher.ts）が配る。
   api.get('/projects/:id/memo', (c) => {
     const id = c.req.param('id');
     if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
@@ -899,10 +888,7 @@ export function createApp(deps: AppDeps): Hono {
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.memo);
     const body = (b.value ?? {}) as { markdown?: unknown };
     if (typeof body.markdown !== 'string') return c.json({ error: 'markdown は文字列です' }, 400);
-    const m = deps.memos.write(id, body.markdown);
-    deps.hub.broadcast({ type: 'memo.update', memo: m });
-    broadcastProject(id);
-    return c.json(m);
+    return c.json(deps.memos.write(id, body.markdown));
   });
 
   // アーティファクト。索引化が拾うほかに、手で URL を足せる。
@@ -922,7 +908,6 @@ export function createApp(deps: AppDeps): Hono {
       if (e instanceof ArtifactInputError) return c.json({ error: e.message }, 400);
       return c.json({ error: 'アーティファクトを追加できませんでした' }, 500);
     }
-    deps.hub.broadcast({ type: 'artifact.upsert', artifact: a });
     return c.json(a, 201);
   });
   api.post('/artifacts/:id/open', (c) => {

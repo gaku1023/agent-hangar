@@ -1794,4 +1794,45 @@ describe('書いた行のイベントは配る層から届く', () => {
       expect(sent).toEqual([]);
     });
   });
+
+  describe('TODO、メモ、アーティファクト', () => {
+    it('TODO を足す、完了にする、消す、のどれでも一覧と未完の数が 1 回ずつ届く', async () => {
+      const pid = list0ProjectId();
+      const todo = await (await send(`/api/projects/${pid}/todos`, { text: 'やる' })).json();
+      expect(sent).toEqual([
+        { type: 'todos.update', projectId: pid, todos: [expect.objectContaining({ id: todo.id, done: false })] },
+        { type: 'project.upsert', project: expect.objectContaining({ id: pid, openTodoCount: 1 }) },
+      ]);
+      sent.length = 0;
+      await send(`/api/todos/${todo.id}`, { done: true }, 'PATCH');
+      expect(sent).toEqual([
+        { type: 'todos.update', projectId: pid, todos: [expect.objectContaining({ id: todo.id, done: true })] },
+        { type: 'project.upsert', project: expect.objectContaining({ id: pid, openTodoCount: 0 }) },
+      ]);
+      sent.length = 0;
+      await send(`/api/todos/${todo.id}`, undefined, 'DELETE');
+      expect(sent).toEqual([{ type: 'todos.update', projectId: pid, todos: [] }, { type: 'project.upsert', project: expect.objectContaining({ id: pid }) }]);
+    });
+
+    it('メモを書くと、memo.update と、メモの頭を載せた project.upsert が 1 回ずつ届く', async () => {
+      const pid = list0ProjectId();
+      await send(`/api/projects/${pid}/memo`, { markdown: '# 見出し\n本文' }, 'PUT');
+      expect(sent).toEqual([
+        { type: 'memo.update', memo: expect.objectContaining({ projectId: pid, markdown: '# 見出し\n本文' }) },
+        { type: 'project.upsert', project: expect.objectContaining({ id: pid, memoHead: '# 見出し' }) },
+      ]);
+    });
+
+    it('URL を足すと artifact.upsert が 1 回だけ届く。同じ URL をもう一度足しても、行が変わらないので届かない', async () => {
+      const pid = list0ProjectId();
+      const url = 'https://claude.ai/code/artifact/abc123';
+      const a = await (await send(`/api/projects/${pid}/artifacts`, { url })).json();
+      expect(sent).toEqual([{ type: 'artifact.upsert', artifact: a }]);
+      sent.length = 0;
+      const again = await send(`/api/projects/${pid}/artifacts`, { url });
+      expect(again.status).toBe(201);
+      expect((await again.json()).id).toBe(a.id);
+      expect(sent).toEqual([]);
+    });
+  });
 });
