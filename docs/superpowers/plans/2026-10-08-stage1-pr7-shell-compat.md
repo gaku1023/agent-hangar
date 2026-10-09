@@ -93,6 +93,16 @@ spec が決めていない所を、次のように決めた。
 画面の文が変わるので、実装（Task 4）の前に試作を作って利用者に選んでもらう。
 選ぶのを待つ間に Task 2 と Task 3 を進めてよい（画面の文に触らない）。
 
+**選ばれた案（2026-10-09）。**
+試作は docs の PR #35 で出した（`docs/superpowers/specs/2026-10-08-shell-compat-refusal/options.html`）。
+Gemini 3.6 Flash と見直したうえで、利用者は B と C を合わせた案を選んだ。
+文はどちらが古いかで言い分け（案 B の文）、その下に、そのポートで待ち受けているプロセスを調べる命令 `lsof -nP -iTCP:<ポート> -sTCP:LISTEN` を添える（案 C）。
+ポートは 4177 に決め打ちせず、殻が探った番号を使う。
+lsof の無い Windows では命令を添えない（Windows の .app はまだ作っておらず、そこで確かめられる命令が無い）。
+殻はそのサーバを止めない。
+文は Task 4 の `refusal_message` に置く。
+Task 4 と Task 6 の文と試験は、この案に合わせて書き直した。
+
 **Files:**
 - Create: `docs/superpowers/specs/2026-10-08-shell-compat-refusal/options.html`
 
@@ -502,7 +512,7 @@ Task 1 で利用者が選ぶまで、このタスクに入らない。
 
 **Interfaces:**
 - Consumes: Task 3 の `health::probe_existing`、`health::Existing`、Task 2 の `health::COMPAT_VERSION`、`server::PORT`、いまの `fail`（`boot` が `start_server` の `Err` を読み込み画面へ出す）。
-- Produces: `fn refusal_message(theirs: u64, ours: u64) -> String`（Task 1 で選んだ案の文）。`start_server` は、版の合わないサーバに対して子を起こさずに `Err(refusal_message(...))` を返す。
+- Produces: `fn refusal_message(port: u16, theirs: u64, ours: u64) -> String`（Task 1 で選んだ案の文）。`start_server` は、版の合わないサーバに対して子を起こさずに `Err(refusal_message(addr.port(), theirs, health::COMPAT_VERSION))` を返す。
 
 - [ ] **Step 1: 試験を書く**
 
@@ -514,35 +524,52 @@ Task 1 で利用者が選ぶまで、このタスクに入らない。
     #[test]
     fn the_refusal_names_both_versions_the_port_and_the_next_step() {
         for (theirs, ours) in [(0, 1), (2, 1)] {
-            let m = refusal_message(theirs, ours);
+            let m = refusal_message(server::PORT, theirs, ours);
             assert!(m.contains(&format!("版 {theirs}")), "{m}");
             assert!(m.contains(&format!("版 {ours}")), "{m}");
             assert!(m.contains(&server::PORT.to_string()), "{m}");
             assert!(m.contains("もう一度試す"), "{m}");
         }
     }
-```
 
-案 B を選んだときは、続けて足す。
-
-```rust
-    // 案 B は、どちらが古いかで言い分ける。アプリが古いときだけ、入れ替えを案内する。
+    // 利用者が選んだ文（2026-10-09、案 B と C を合わせたもの）をそのまま留める。
+    // どちらが古いかで言い分け、アプリが古いときだけ入れ替えを案内し、文の下に相手を調べる命令を添える。
     #[test]
-    fn the_refusal_says_which_side_is_older() {
-        assert!(refusal_message(0, 1).contains("この Hangar.app より古い版"));
-        assert!(!refusal_message(0, 1).contains("入れ替える"));
-        assert!(refusal_message(2, 1).contains("この Hangar.app が"));
-        assert!(refusal_message(2, 1).contains("入れ替える"));
+    #[cfg(not(windows))]
+    fn the_refusal_reads_as_chosen() {
+        assert_eq!(
+            refusal_message(4177, 0, 1),
+            "4177 で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 0、この Hangar.app は版 1）。\n\
+             そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。\n\
+             動いているサーバは次で調べられます。\n\
+             lsof -nP -iTCP:4177 -sTCP:LISTEN"
+        );
+        assert_eq!(
+            refusal_message(4177, 2, 1),
+            "この Hangar.app が、4177 で動いている hangar のサーバより古い版です（動いているサーバは版 2、この Hangar.app は版 1）。\n\
+             Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。\n\
+             動いているサーバは次で調べられます。\n\
+             lsof -nP -iTCP:4177 -sTCP:LISTEN"
+        );
     }
-```
 
-案 C を選んだときは、続けて足す。
-
-```rust
-    // 案 C は、4177 を持っているプロセスを調べる命令を添える。
+    // 相手を調べる命令は、渡されたポートで書く（4177 に決め打ちしない）。
+    // lsof の無い Windows では命令を添えない。
     #[test]
-    fn the_refusal_shows_how_to_find_the_server() {
-        assert!(refusal_message(0, 1).contains("lsof -nP -iTCP:4177 -sTCP:LISTEN"));
+    fn the_refusal_shows_how_to_find_the_server_on_the_given_port() {
+        for (theirs, ours) in [(0, 1), (2, 1)] {
+            let m = refusal_message(4390, theirs, ours);
+            assert!(m.contains("4390 で動いている hangar のサーバ"), "{m}");
+            assert!(!m.contains("4177"), "{m}");
+            if cfg!(windows) {
+                assert!(!m.contains("lsof"), "{m}");
+            } else {
+                assert!(
+                    m.ends_with("\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:4390 -sTCP:LISTEN"),
+                    "{m}"
+                );
+            }
+        }
     }
 ```
 
@@ -551,34 +578,17 @@ Task 1 で利用者が選ぶまで、このタスクに入らない。
 Run: `PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin" /opt/homebrew/bin/cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml the_refusal`
 Expected: FAIL（`refusal_message` が無いのでビルドが通らない）。
 
-- [ ] **Step 3: 文を書く（選んだ案ごと）**
+- [ ] **Step 3: 文を書く（選んだ案：B と C を合わせたもの）**
 
-`apps/desktop/src-tauri/src/lib.rs` の `start_server` の直前に、選んだ案の `refusal_message` を足す。
-
-案 A：
+`apps/desktop/src-tauri/src/lib.rs` の `start_server` の直前に足す。
 
 ```rust
-/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文。
+/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文（2026-10-09 に利用者が選んだ、案 B と C を合わせたもの）。
+/// どちらが古いかで言い分け、文の下に、そのポートで待ち受けているプロセスを調べる命令を添える。
 /// 殻はそのサーバを止めない。利用者が自分で起こしたもの（hangar start や npm run dev）かもしれないからである。
 /// 止めてから「もう一度試す」を押せば、起動をやり直して同梱のサーバを起こす（`retry_boot`）。
-fn refusal_message(theirs: u64, ours: u64) -> String {
-    let port = server::PORT;
-    format!(
-        "{port} で、この Hangar.app と互換の版が違う hangar のサーバが動いています（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
-         そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。"
-    )
-}
-```
-
-案 B：
-
-```rust
-/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文。どちらが古いかで言い分ける。
-/// 殻はそのサーバを止めない。利用者が自分で起こしたもの（hangar start や npm run dev）かもしれないからである。
-/// 止めてから「もう一度試す」を押せば、起動をやり直して同梱のサーバを起こす（`retry_boot`）。
-fn refusal_message(theirs: u64, ours: u64) -> String {
-    let port = server::PORT;
-    if theirs < ours {
+fn refusal_message(port: u16, theirs: u64, ours: u64) -> String {
+    let head = if theirs < ours {
         format!(
             "{port} で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
              そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。"
@@ -588,24 +598,13 @@ fn refusal_message(theirs: u64, ours: u64) -> String {
             "この Hangar.app が、{port} で動いている hangar のサーバより古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
              Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。"
         )
+    };
+    // lsof は macOS と Linux にしか無い。Windows の .app はまだ作っておらず確かめられる命令が無いので、そこでは添えない。
+    if cfg!(windows) {
+        head
+    } else {
+        format!("{head}\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:{port} -sTCP:LISTEN")
     }
-}
-```
-
-案 C：
-
-```rust
-/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文。相手を調べる命令を添える。
-/// 殻はそのサーバを止めない。利用者が自分で起こしたもの（hangar start や npm run dev）かもしれないからである。
-/// 止めてから「もう一度試す」を押せば、起動をやり直して同梱のサーバを起こす（`retry_boot`）。
-fn refusal_message(theirs: u64, ours: u64) -> String {
-    let port = server::PORT;
-    format!(
-        "{port} で、この Hangar.app と互換の版が違う hangar のサーバが動いています（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
-         そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。\n\
-         動いているサーバは次で調べられます。\n\
-         lsof -nP -iTCP:{port} -sTCP:LISTEN"
-    )
 }
 ```
 
@@ -633,7 +632,7 @@ fn start_server(
                 "refusing the server on 4177 (compat {theirs}, ours {})",
                 health::COMPAT_VERSION
             ));
-            return Err(refusal_message(theirs, health::COMPAT_VERSION));
+            return Err(refusal_message(addr.port(), theirs, health::COMPAT_VERSION));
         }
         health::Existing::Absent => {}
     }
@@ -819,7 +818,12 @@ git commit -m "refactor: stop treating ready-less servers as ready and drop the 
 殻は 4177 の既存のサーバを採る前に `/health` を 1 回読み、`compat`（無ければ版 0）が自分の版と等しいときだけ採る（`judge_existing`）。
 比べ方は下限ではなく一致である。
 版の違うサーバの UI を出すと、殻とサーバの合図（起動の進み具合、殻の命令）が食い違っても気付けない。
-版が違えば採らず、読み込み画面に、動いているサーバの版と殻の版と、そのサーバを止めてから「もう一度試す」を押すことを出す。
+版が違えば採らず、読み込み画面に、どちらが古いかと、動いているサーバの版と殻の版を出す。
+サーバが古いときは、そのサーバを止めてから「もう一度試す」を押すことを言う（止めれば、殻が同梱のサーバを起こす）。
+殻が古いときは、Hangar.app を入れ替えるか、そのサーバを止めてから「もう一度試す」を押すことを言う。
+文の下に、そのポートで待ち受けているプロセスを調べる命令（`lsof -nP -iTCP:4177 -sTCP:LISTEN`）を添える。
+lsof の無い Windows では添えない（Windows の .app はまだ無い）。
+文は殻の `refusal_message` が作る。
 殻はそのサーバを止めない。
 利用者が自分で起こしたもの（`hangar start` や `npm run dev`）かもしれず、ポートの番号だけを頼りに止めないためである。
 hangar でない相手（`ok` が真で `version` が文字列の応答でないもの）は、版を問わずに「居ない」とし、これまでどおり同梱のサーバを起こしにいく。
@@ -866,7 +870,7 @@ Expected: すべて PASS。
 
 Run（裏で動かす）: `python3 -m http.server 4391 --bind 127.0.0.1 --directory apps/desktop/loading`
 
-playwright の WebKit で `http://127.0.0.1:4391/index.html` を 1400×900 で開き、次を評価してから撮る（`<文>` は `refusal_message(0, 1)` の出力。案 B なら `refusal_message(2, 1)` も撮る）。
+playwright の WebKit で `http://127.0.0.1:4391/index.html` を 1400×900 で開き、次を評価してから撮る（`<文>` は `refusal_message(4177, 0, 1)` と `refusal_message(4177, 2, 1)` の出力で、両方を撮る。文字列は Task 4 の `the_refusal_reads_as_chosen` に書いたものそのままである）。
 
 ```js
 const s = document.getElementById('status');
