@@ -6,6 +6,7 @@ import type { ChangeIn } from '@agent-hangar/shared';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { seedDbAt } from '../../test/oldDb.ts';
+import { MIGRATED_NOTE_AT } from '../db/migrations.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
@@ -56,7 +57,7 @@ function upgrade(device: string, file: string): Db {
 
 /** その PC のアプリを新しい版で起こす。DB は版 17 に上がり、同期が動き出す（起動のときに 1 度 push と pull をする）。 */
 async function boot(device: string, file: string, db: Db = upgrade(device, file)): Promise<{ db: Db; engine: SyncEngine }> {
-  const engine = new SyncEngine({ db, deviceId: device, client: device === 'pc1' ? cloud : cloud.asDevice(device), now: () => timers.now, timers, url: 'https://h', home: homeOf(device) });
+  const engine = new SyncEngine({ db, deviceId: device, client: cloud.asDevice(device), now: () => timers.now, timers, url: 'https://h', home: homeOf(device) });
   engines.push(engine);
   await engine.start();
   return { db, engine };
@@ -96,7 +97,7 @@ describe('(a) 上げた直後の名前とメモが、クラウドへ上がる', 
     const pc1 = await boot('pc1', file1, db1);
     await pc1.engine.pushNow();
     expect(cloudNotes().map((c) => ({ rowId: c.rowId, updatedAt: c.updatedAt, payload: c.payload }))).toEqual([
-      { rowId: 's1', updatedAt: 1000, payload: { session_id: 's1', name: '名前', memo: 'メモ', updated_at: 1000, deleted_at: null, origin_device: 'pc1' } },
+      { rowId: 's1', updatedAt: MIGRATED_NOTE_AT, payload: { session_id: 's1', name: '名前', memo: 'メモ', updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'pc1' } },
     ]);
     expect((pc1.db.prepare("select count(*) c from changes where table_name = 'session_notes' and pushed_at is null").get() as { c: number }).c).toBe(0);
 
@@ -119,41 +120,88 @@ describe('(b) クラウドに残る古い形の sessions の行', () => {
     expect(noteOf(pc1.db)).toEqual({ name: '手元の名前', memo: '手元のメモ' });
   });
 
-  it('古い形の行しか無い PC には、名前とメモの行を作らない（空の行で他の PC に勝たないため）', async () => {
-    await cloud.asDevice('old-pc1').pushChanges([oldSessionChange({ name: '古い名前', memo: '古いメモ', updatedAt: 1000 })]);
+  it('古い形の行だけがクラウドにあるとき、その名前とメモが新しい PC に届く', async () => {
+    // 書いた PC はまだ上げていない。クラウドにあるのは、名前とメモを含む古い形の sessions の行だけである。
+    await cloud.asDevice('old-pc1').pushChanges([oldSessionChange({ name: '古い形の名前', memo: '古い形のメモ', updatedAt: 1000, origin: 'old-pc1' })]);
+    const pc3 = await joinFresh('pc3');
+    expect(noteOf(pc3)).toEqual({ name: '古い形の名前', memo: '古い形のメモ' });
+    expect(getSession(pc3, [], 's1', { deviceId: 'pc3' })).toMatchObject({ name: '古い形の名前', memo: '古い形のメモ' });
+    // 時刻は写しの定数、書き手は payload の書き手である。こちらからは上げ直さない。
+    expect(pc3.prepare('select updated_at, origin_device from session_notes where session_id = ?').get('s1')).toEqual({ updated_at: MIGRATED_NOTE_AT, origin_device: 'old-pc1' });
+    expect(pc3.prepare("select count(*) c from changes where table_name = 'session_notes'").get()).toEqual({ c: 0 });
+    expect(cloudNotes()).toHaveLength(0);
+  });
+
+  it('クラウドに本物の名前とメモがあれば、古い形の行の中身は拾わない。控えも作らない', async () => {
+    // 書いた PC は上がっていて、上げた後にメモを書き直した。クラウドの sessions の行は、古い形のまま古いメモを持っている。
+    await cloud.asDevice('old-pc1').pushChanges([oldSessionChange({ name: '名前', memo: '古い形のメモ', updatedAt: 1000 })]);
+    const pc1 = await boot('pc1', seedV16('pc1', { name: '名前', memo: '古い形のメモ', updatedAt: 1000 }));
+    setSessionMemo(pc1.db, 'pc1', 's1', '上げた後に書き直したメモ');
+    await sync(pc1.engine);
+    const pc3 = await joinFresh('pc3');
+    expect(noteOf(pc3)).toEqual({ name: '名前', memo: '上げた後に書き直したメモ' });
+    expect(backupsOf('pc3')).toEqual([]);
+  });
+
+  it('古い形の行に名前もメモも無ければ、行を作らない', async () => {
+    await cloud.asDevice('old-pc1').pushChanges([oldSessionChange({ name: null, memo: '  ', updatedAt: 1000 })]);
     const pc3 = await joinFresh('pc3');
     expect(pc3.prepare('select 1 from sessions where id = ?').get('s1')).toBeDefined();
     expect(pc3.prepare('select 1 from session_notes').get()).toBeUndefined();
   });
+
+  it('古い形の行から作った名前とメモは、書いた PC が上がって届いた本物に置き換わる', async () => {
+    await cloud.asDevice('old-pc1').pushChanges([oldSessionChange({ name: '名前', memo: '古い形のメモ', updatedAt: 1000 })]);
+    const pc3 = await joinFresh('pc3');
+    expect(noteOf(pc3)).toEqual({ name: '名前', memo: '古い形のメモ' });
+    // 書いた PC は、クラウドへ上げていなかった新しいメモを持ったまま上がる。
+    const pc1 = await boot('pc1', seedV16('pc1', { name: '名前', memo: '上げていなかった新しいメモ', updatedAt: 3000 }));
+    await sync(pc1.engine);
+    await engines[0]!.pullNow();
+    expect(noteOf(pc3)).toEqual({ name: '名前', memo: '上げていなかった新しいメモ' });
+    expect(noteOf(pc1.db)).toEqual({ name: '名前', memo: '上げていなかった新しいメモ' });
+  });
 });
 
 describe('(c) 2 台目が後から上がる', () => {
-  it('同じ行から写した 2 台の名前とメモは、同じ時刻なのでぶつからない', async () => {
+  it('同じ行から写した 2 台の名前とメモは、同じ中身なのでぶつからない', async () => {
     const same = { name: '名前', memo: 'メモ', updatedAt: 1000 };
-    const file2 = seedV16('pc2', same);
+    const file2 = seedV16('pc2', { ...same, updatedAt: 7000 });
     const pc1 = await boot('pc1', seedV16('pc1', same));
     await sync(pc1.engine);
     const pc2 = await boot('pc2', file2);
     await sync(pc2.engine, pc1.engine);
     expect(noteOf(pc1.db)).toEqual({ name: '名前', memo: 'メモ' });
     expect(noteOf(pc2.db)).toEqual({ name: '名前', memo: 'メモ' });
-    // 2 台目の写しは新しくないので、クラウドは採らない。
+    // 2 台目の写しは同じ時刻（写しの定数）なので、クラウドは採らない。
     expect(cloudNotes()).toHaveLength(1);
+    for (const d of ['pc1', 'pc2']) expect(backupsOf(d), d).toEqual([]);
   });
 
-  it('1 台目が上げた後に書いたメモは、後から上がった 2 台目の古い写しに負けない', async () => {
-    const same = { name: '名前', memo: '古いメモ', updatedAt: 1000 };
-    const file2 = seedV16('pc2', same);
-    const pc1 = await boot('pc1', seedV16('pc1', same));
-    setSessionMemo(pc1.db, 'pc1', 's1', '上げた後に書いたメモ');
+  it('写しの時刻は、元の行の時刻に依らず、どの PC でも同じ定数である', async () => {
+    const db1 = upgrade('pc1', seedV16('pc1', { name: '名前', memo: 'メモ', updatedAt: 1000 }));
+    const db2 = upgrade('pc2', seedV16('pc2', { name: '名前', memo: 'メモ', updatedAt: Date.now() + 600_000 }));
+    for (const d of [db1, db2]) expect(d.prepare('select updated_at u from session_notes').get()).toEqual({ u: MIGRATED_NOTE_AT });
+    // 本物の書き込みの時刻より必ず古い。
+    expect(MIGRATED_NOTE_AT).toBeGreaterThan(0);
+    expect(MIGRATED_NOTE_AT).toBeLessThan(Date.UTC(2000, 0, 1));
+  });
+
+  it('先に上げた PC で書き直したメモは、後から別の PC が古いメモを持って上がっても、両方の PC に残る', async () => {
+    // 2 台目はまだ上げておらず、索引が sessions の行の時刻を進め続けている。1 台目の書き直しより後の時刻になる。
+    const file2 = seedV16('pc2', { name: '名前', memo: '古いメモ', updatedAt: Date.now() + 600_000, origin: 'pc2' });
+    const pc1 = await boot('pc1', seedV16('pc1', { name: '名前', memo: '古いメモ', updatedAt: 1000 }));
+    setSessionMemo(pc1.db, 'pc1', 's1', '上げた後に書き直したメモ');
     await sync(pc1.engine);
-    // 2 台目は、1 台目の書き込みより後の時刻に上がる。写しの時刻は上げた時刻ではなく、元の行の時刻である。
     const db2 = upgrade('pc2', file2);
     expect(noteOf(db2)).toEqual({ name: '名前', memo: '古いメモ' });
     const pc2 = await boot('pc2', file2, db2);
-    await sync(pc2.engine, pc1.engine);
-    expect(noteOf(pc1.db)).toEqual({ name: '名前', memo: '上げた後に書いたメモ' });
-    expect(noteOf(pc2.db)).toEqual({ name: '名前', memo: '上げた後に書いたメモ' });
+    await sync(pc2.engine, pc1.engine, pc2.engine);
+    expect(noteOf(pc1.db)).toEqual({ name: '名前', memo: '上げた後に書き直したメモ' });
+    expect(noteOf(pc2.db)).toEqual({ name: '名前', memo: '上げた後に書き直したメモ' });
+    // 負けた 2 台目の古いメモは、2 台目の控えに残る。
+    expect(backupsOf('pc2')).toEqual(['古いメモ']);
+    expect(backupsOf('pc1')).toEqual([]);
   });
 
   it('2 台目に名前もメモも無ければ、空の行を作らないので、1 台目の名前とメモが残る', async () => {
@@ -169,27 +217,36 @@ describe('(c) 2 台目が後から上がる', () => {
     expect(noteOf(pc2.db)).toEqual({ name: '名前', memo: 'メモ' });
   });
 
-  it('2 台の写しの中身が違えば、元の sessions の行が新しかった側が勝つ（上げる前の同期が採ったはずの側）', async () => {
-    const file2 = seedV16('pc2', { name: '2 台目の名前', memo: '2 台目のメモ', updatedAt: 2000, origin: 'pc2' });
-    const pc1 = await boot('pc1', seedV16('pc1', { name: '1 台目の名前', memo: '1 台目のメモ', updatedAt: 1000 }));
-    await sync(pc1.engine);
-    const pc2 = await boot('pc2', file2);
-    await sync(pc2.engine, pc1.engine);
-    expect(noteOf(pc1.db)).toEqual({ name: '2 台目の名前', memo: '2 台目のメモ' });
-    expect(noteOf(pc2.db)).toEqual({ name: '2 台目の名前', memo: '2 台目のメモ' });
-    // 負けた 1 台目の中身は、1 台目の控えに残る。勝った 2 台目は控えを作らない。
-    expect(backupsOf('pc1')).toEqual(['名前：1 台目の名前\n\n1 台目のメモ']);
-    expect(backupsOf('pc2')).toEqual([]);
+  it.each([
+    { first: 'pc1', second: 'pc2' },
+    { first: 'pc2', second: 'pc1' },
+  ])('写し同士の中身が違えば、先にクラウドへ上がった側（$first）に 2 台とも収束し、負けた側は控えに残る', async ({ first, second }) => {
+    const rows = {
+      pc1: { name: '1 台目の名前', memo: '1 台目のメモ', updatedAt: 1000, origin: 'pc1' },
+      pc2: { name: '2 台目の名前', memo: '2 台目のメモ', updatedAt: 2000, origin: 'pc2' },
+    };
+    const files = { pc1: seedV16('pc1', rows.pc1), pc2: seedV16('pc2', rows.pc2) };
+    const a = await boot(first, files[first as 'pc1']);
+    await sync(a.engine);
+    const b = await boot(second, files[second as 'pc1']);
+    // 何巡しても、どちらの PC から先に同期しても、同じ結果である。
+    await sync(b.engine, a.engine, b.engine, a.engine);
+    const winner = rows[first as 'pc1'];
+    const loser = rows[second as 'pc1'];
+    expect(noteOf(a.db)).toEqual({ name: winner.name, memo: winner.memo });
+    expect(noteOf(b.db)).toEqual({ name: winner.name, memo: winner.memo });
+    expect(backupsOf(second)).toEqual([`名前：${loser.name}\n\n${loser.memo}`]);
+    expect(backupsOf(first)).toEqual([]);
+    expect(cloudNotes()).toHaveLength(1);
   });
 
   it('同期が収束する前に 2 台が上がり、片方だけにメモがあるとき、負けた側のメモは控えに残る', async () => {
-    // 1 台目でメモを書いた後、それが届く前に、2 台目の索引が sessions の行を書き直していた。
-    // 2 台目の行の方が新しいが、メモを持たない。上げる前の同期でも、勝つのは 2 台目の行である。
-    const file2 = seedV16('pc2', { name: '名前', memo: null, updatedAt: 2000, origin: 'pc2' });
-    const pc1 = await boot('pc1', seedV16('pc1', { name: '名前', memo: '1 台目だけにあるメモ', updatedAt: 1000 }));
-    await sync(pc1.engine);
-    const pc2 = await boot('pc2', file2);
-    await sync(pc2.engine, pc1.engine);
+    // メモの無い 2 台目が先に上がる。後から上がった 1 台目のメモは、先に上がった写しに負ける。
+    const file1 = seedV16('pc1', { name: '名前', memo: '1 台目だけにあるメモ', updatedAt: 1000 });
+    const pc2 = await boot('pc2', seedV16('pc2', { name: '名前', memo: null, updatedAt: 2000, origin: 'pc2' }));
+    await sync(pc2.engine);
+    const pc1 = await boot('pc1', file1);
+    await sync(pc1.engine, pc2.engine);
     expect(noteOf(pc1.db)).toEqual({ name: '名前', memo: null });
     expect(noteOf(pc2.db)).toEqual({ name: '名前', memo: null });
     // 消えたメモは、持っていた 1 台目の控えに残る。名前は同じなので、控えにはメモだけが入る。

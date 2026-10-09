@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dbVersionOf, seedDbAt } from '../../test/oldDb.ts';
+import { MIGRATED_NOTE_AT } from './migrations.ts';
 import { openDb, type Db } from './open.ts';
 
 /** 版 17 は、セッションの名前とメモを sessions から session_notes へ移す。 */
@@ -41,7 +42,7 @@ describe('版 17：名前とメモを session_notes へ移す', () => {
     db.close();
   });
 
-  it('いまの名前とメモを、sessions の行の時刻と書き手のまま写し、sessions の列を落とす', () => {
+  it('いまの名前とメモを、写しの定数の時刻と、sessions の行の書き手で写し、sessions の列を落とす', () => {
     const db = migrate([
       { id: 's1', name: '名前だけ', updatedAt: 100 },
       { id: 's2', memo: 'メモだけ', updatedAt: 200, origin: 'dev-b' },
@@ -49,9 +50,9 @@ describe('版 17：名前とメモを session_notes へ移す', () => {
     ]);
     expect(dbVersionOf(path.join(tmp, 'hangar.db'))).toBe(AFTER);
     expect(notes(db)).toEqual([
-      { session_id: 's1', name: '名前だけ', memo: null, updated_at: 100, deleted_at: null, origin_device: 'dev-a' },
-      { session_id: 's2', name: null, memo: 'メモだけ', updated_at: 200, deleted_at: null, origin_device: 'dev-b' },
-      { session_id: 's3', name: '両方', memo: '両方のメモ', updated_at: 300, deleted_at: null, origin_device: 'dev-a' },
+      { session_id: 's1', name: '名前だけ', memo: null, updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'dev-a' },
+      { session_id: 's2', name: null, memo: 'メモだけ', updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'dev-b' },
+      { session_id: 's3', name: '両方', memo: '両方のメモ', updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'dev-a' },
     ]);
     expect(columns(db, 'sessions')).not.toContain('name');
     expect(columns(db, 'sessions')).not.toContain('memo');
@@ -72,7 +73,7 @@ describe('版 17：名前とメモを session_notes へ移す', () => {
       { id: 's3', name: '  ', memo: ' \n ', updatedAt: 300 },
       { id: 's4', name: '', memo: '残す', updatedAt: 400 },
     ]);
-    expect(notes(db)).toEqual([{ session_id: 's4', name: null, memo: '残す', updated_at: 400, deleted_at: null, origin_device: 'dev-a' }]);
+    expect(notes(db)).toEqual([{ session_id: 's4', name: null, memo: '残す', updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'dev-a' }]);
     db.close();
   });
 
@@ -83,8 +84,8 @@ describe('版 17：名前とメモを session_notes へ移す', () => {
     ]);
     const rows = db.prepare("select table_name, row_id, op, payload, updated_at, device_id, pushed_at from changes where table_name = 'session_notes'").all() as { payload: string }[];
     expect(rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) as unknown }))).toEqual([{
-      table_name: 'session_notes', row_id: 's1', op: 'upsert', updated_at: 100, device_id: 'dev-b', pushed_at: null,
-      payload: { session_id: 's1', name: 'N', memo: 'M', updated_at: 100, deleted_at: null, origin_device: 'dev-b' },
+      table_name: 'session_notes', row_id: 's1', op: 'upsert', updated_at: MIGRATED_NOTE_AT, device_id: 'dev-b', pushed_at: null,
+      payload: { session_id: 's1', name: 'N', memo: 'M', updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'dev-b' },
     }]);
     db.close();
   });

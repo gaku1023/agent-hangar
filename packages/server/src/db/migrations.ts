@@ -248,6 +248,20 @@ create table turn_intents (
 `;
 
 /**
+ * 版 17 が sessions から写した名前とメモ（session_notes の行）に付ける updated_at。写しの印である。
+ *
+ * どの PC でも同じ、固定の小さな値にする。本物の書き込みの時刻（Date.now()）より必ず古い。
+ * - 上げた後の本物の書き込みは、どの PC がいつ上がっても、その PC の写しに必ず勝つ。
+ *   元の sessions の行の時刻を使うと、まだ上げていない PC では索引がその時刻を進め続けるので、
+ *   後から上がった PC の古い写しが、先に上がった PC で書き直した名前やメモに勝ちうる。
+ * - 2 台の写しは必ず同じ時刻になる。中身が違うときの決着は sync/apply.ts の applyRemoteChange にある
+ *   （先にクラウドへ上がった写しに、どの PC も揃える）。
+ * - クラウドに残る古い形の sessions の payload から名前とメモを拾って作る行も、この時刻にする（同じく写しである）。
+ * 0 は「時刻なし」と紛れるので使わない。
+ */
+export const MIGRATED_NOTE_AT = 1;
+
+/**
  * 版 17。セッションの名前とメモを、sessions から別の表 session_notes へ移す。
  *
  * sessions の行は索引が本文の伸びるたびに全列で書き直し、同期はその行ごとの後勝ちで運ぶ。
@@ -256,9 +270,9 @@ create table turn_intents (
  *
  * - 写すのは、名前かメモのどちらかに中身がある行だけである。空の行は作らない。
  *   空の行を作ると、後から上がった PC の空の行が、先に上がった PC の名前やメモに勝ちうる。
- * - 写した行の updated_at と origin_device は、元の sessions の行のものをそのまま使う。当てた時刻にはしない。
- *   当てた時刻にすると、後から上がった PC の写し（古い中身）が、先に上がった PC で上げた後に付けた名前やメモに勝ってしまう。
- *   元の行の時刻なら、2 台の写しは、上げる前の同期が採ったはずの側が勝ち、上げた後の書き込みは必ず写しに勝つ。
+ * - 写した行の updated_at は、どの PC でも同じ固定の定数（MIGRATED_NOTE_AT）にする。当てた時刻にも、元の sessions の行の時刻にもしない。
+ *   どちらも、後から上がった PC の写し（古い中身）が、先に上がった PC で上げた後に付けた名前やメモに勝ちうる。
+ *   origin_device は、元の sessions の行のものをそのまま使う。
  * - 写した行は、まだ送っていない差分として changes に積む。積まないと、クラウドには名前もメモも上がらない。
  *   端末の id はマイグレーションから読めないので、差分の device_id には元の行の origin_device を入れる（送るときには使わない）。
  * - sessions.custom_title は、索引が本文から拾う題名（Claude Code の側で付けた名前）である。
@@ -276,7 +290,7 @@ insert into session_notes (session_id, name, memo, updated_at, deleted_at, origi
   select id,
     case when trim(name, ' ' || char(9) || char(10) || char(13)) = '' then null else name end,
     case when trim(memo, ' ' || char(9) || char(10) || char(13)) = '' then null else memo end,
-    updated_at, null, origin_device
+    ${MIGRATED_NOTE_AT}, null, origin_device
   from sessions
   where ifnull(trim(name, ' ' || char(9) || char(10) || char(13)), '') <> ''
      or ifnull(trim(memo, ' ' || char(9) || char(10) || char(13)), '') <> '';

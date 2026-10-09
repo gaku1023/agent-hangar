@@ -1,7 +1,8 @@
 import { MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
-import { applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
+import { noteApplied } from '../db/notify.ts';
+import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, CompatError, goneFloor, LimitError, type CloudClient } from './client.ts';
 import { SyncStateStore } from './state.ts';
 
@@ -466,6 +467,11 @@ export class SyncEngine {
    * 区切り（lastSeq と snapshotDone）は止めない。止めると、孤児が 1 行あるだけで、毎回の pull が同じ頁か写しの全部を読み直す。
    */
   private carried = new Map<string, ChangeOut>();
+  /**
+   * この 1 巡で降りてきた、古い形の sessions の行（名前かメモを持つもの）。鍵はセッションの ID。
+   * 1 巡を読み切り、持ち越しも当て直した後で、まだ session_notes の行が無いものだけ、その中身で行を作る（apply.ts の adoptNoteFromOldSession）。
+   */
+  private oldNotes = new Map<string, ChangeOut>();
   private carriedLoaded = false;
 
   private carry(c: ChangeOut): void {
@@ -500,7 +506,7 @@ export class SyncEngine {
   }
 
   private applyPage(changes: ChangeOut[], skipOwn: boolean): number {
-    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, home: this.deps.home, onMemoConflict: this.deps.onMemoConflict, onSessionMemoBackup: this.deps.onSessionMemoBackup, onFailed: (c) => this.carry(c) });
+    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, home: this.deps.home, onMemoConflict: this.deps.onMemoConflict, onSessionMemoBackup: this.deps.onSessionMemoBackup, onFailed: (c) => this.carry(c), onOldSessionNote: (c) => { this.oldNotes.set(c.rowId, c); } });
     for (const c of applied) {
       // 持ち越していた行より新しい版が当たったら、古い持ち越しは要らない。
       const k = `${c.tableName}:${c.rowId}`;
@@ -511,16 +517,28 @@ export class SyncEngine {
     return applied.length;
   }
 
+  /** 古い形の sessions の行が持っていた名前とメモを、本物の行が届かなかったものだけ拾う。 */
+  private adoptOldNotes(): void {
+    if (this.oldNotes.size === 0) return;
+    const rows = [...this.oldNotes.values()];
+    this.oldNotes.clear();
+    const made: string[] = [];
+    this.deps.db.transaction(() => { for (const c of rows) if (adoptNoteFromOldSession(this.deps.db, c)) made.push(c.rowId); })();
+    // 作った行は SessionDto に載る。配る層へ、同期で降りた行として知らせる（changes には積まない）。
+    for (const id of made) noteApplied(this.deps.db, 'session_notes', id, 'upsert');
+  }
+
   /**
    * 持ち越した行を、まとめて当て直す。写しを読み切った後と、差分を読み切った後に呼ぶ。
    * まだ当てられない行は持ち越したまま残し、数と表を記録に出す。黙って捨てない。
    * 自端末の行かどうかは、最初に落ちる前に見てあるので、ここでは見ない。
    */
-  private settleCarried(): number {
-    if (this.carried.size === 0) return 0;
+  private settleCarried(endOfPass: boolean): number {
     const rows = [...this.carried.values()];
     this.carried.clear();
-    const n = this.applyPage(rows, false);
+    const n = rows.length === 0 ? 0 : this.applyPage(rows, false);
+    // 古い形の行の名前とメモは、写しの後の差分まで読み切ってから拾う。差分で本物の行が届くことがある。
+    if (endOfPass) this.adoptOldNotes();
     if (this.carried.size > 0) {
       const tables = [...new Set([...this.carried.values()].map((c) => c.tableName))].sort().join('、');
       console.error(`[sync] 親の行が無いので当てられなかった行が ${this.carried.size} 件あります（${tables}）。覚えておき、次の pull でもう一度試します`);
@@ -563,7 +581,7 @@ export class SyncEngine {
         if (seq === null) seq = page.seq;
       } while (after !== null);
       // 写しは鍵の辞書順なので、子の表が親の sessions より前の頁に来る。読み切ってから、落ちた行を当て直す。
-      count.applied += this.settleCarried();
+      count.applied += this.settleCarried(false);
       this.state.set('lastSeq', seq ?? 0);
       this.state.set('snapshotDone', true);
     }
@@ -576,7 +594,7 @@ export class SyncEngine {
       this.state.set('lastSeq', since);
       if (!page.more) break;
     }
-    count.applied += this.settleCarried();
+    count.applied += this.settleCarried(true);
   }
 
   /**
