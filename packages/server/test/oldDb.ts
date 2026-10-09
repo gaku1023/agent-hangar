@@ -6,7 +6,8 @@ import type { Db } from '../src/db/open.ts';
 export const LATEST_DB_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 
 /**
- * version 以下のマイグレーションだけを当てた実物のファイルの DB を作る。既存の DB からの移行を試すため。
+ * version 以下のマイグレーションだけを当てた実物のファイルの DB を作る。
+ * 既存の DB からの移行を試すためである。
  * openDb を通さないので、段 0 の控えも取らない。
  * seed を渡すと、閉じる前にその DB で中身を仕込む。
  */

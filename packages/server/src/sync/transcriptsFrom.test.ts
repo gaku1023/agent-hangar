@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
+import { dbVersionOf, LATEST_DB_VERSION } from '../../test/oldDb.ts';
 import { SyncStateStore } from './state.ts';
 import { TRANSCRIPTS_FROM, backfillTranscripts, markTranscriptsFrom, openTranscriptsFloor, readTranscriptsFrom, stampTranscriptsFrom, transcriptsFrom } from './transcriptsFrom.ts';
 
@@ -150,6 +151,7 @@ describe('openTranscriptsFloor', () => {
     try {
       // 開いた時点で DB はできていて、マイグレーションも当たっている。
       expect(fs.existsSync(path.join(home, 'hangar.db'))).toBe(true);
+      expect(dbVersionOf(path.join(home, 'hangar.db'))).toBe(LATEST_DB_VERSION);
       expect(floor.stamp(JOINED)).toBe(JOINED);
       expect(floor.stamp(JOINED + 1)).toBe(JOINED);
     } finally {

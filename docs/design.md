@@ -2468,7 +2468,8 @@ Worker の `changes` は、受信から 14 日を過ぎ、かつ接続した全�
 そちらは今までどおり全部同期するので、他端末からも一覧と検索の結果は揃う。
 
 区切りの時刻は `sync_state` の `transcriptsFrom` に置く。
-刻むのは `hangar setup cloud` と `hangar join` で、`cloud.json` を書くのと同じ時点である（`sync/transcriptsFrom.ts` の `stampTranscriptsFrom`）。
+刻むのは `hangar setup cloud` と `hangar join` で、`cloud.json` を書くのと同じ時点である。
+両者は処理の先頭で `sync/transcriptsFrom.ts` の `openTranscriptsFloor` を開いておき（DB の控えが取れなければ、外に何も作らずにそこで止まる）、`cloud.json` を書いた後にその `stamp` で刻む。
 「使い始めた時刻」の出どころは、クラウドの設定を作った時点そのものだからである。
 サーバの起動まで待つと、区切りを刻まない古いサーバが先に走る隙ができる。
 実物でそれが起きた。

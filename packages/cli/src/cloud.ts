@@ -382,6 +382,21 @@ function printJoinToken(log: (l: string) => void, joinToken: string): void {
 }
 
 /**
+ * 床を刻むための DB を先に開く。
+ * 開けなかった（控えが取れずに止まった）ときは、元の文の後ろに、外に何も作っていないことと次にすることを足して投げ直す。
+ * 文は 1 行で出る（oneLineError）ので、改行は入れない。
+ */
+function openFloorFirst(home: string, nothingMade: string, retry: string): ReturnType<typeof openTranscriptsFloor> {
+  try {
+    return openTranscriptsFloor(home);
+  } catch (e) {
+    const base = (e instanceof Error ? e.message : String(e)).trimEnd();
+    const head = /[。.]$/.test(base) ? base : `${base}。`;
+    throw new Error(`${head}${nothingMade}。直してから ${retry} をもう一度実行してください。`, { cause: e });
+  }
+}
+
+/**
  * 利用者の Cloudflare アカウントに Worker と D1 と R2 を作ってデプロイし、自端末を参加させ、参加トークンを返す。
  * 二度目以降は既存の資源と秘密を再利用する。
  */
@@ -407,10 +422,11 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   if (o.rotateSecret && !prev) log('まだ参加用の秘密がないので、作り直しではなく新しく作ります。');
   const secret = prev && !o.rotateSecret ? prev.joinSecret : randomBytes(32).toString('base64url');
 
-  // DB を先に開く。マイグレーションの前の控え（db/backup.ts）が取れなければ、ここで投げて止まる。
+  // DB を先に開く。
+  // マイグレーションの前の控え（db/backup.ts）が取れなければ、ここで投げて止まる。
   // Cloudflare にはまだ何も作っていないので、直してからもう一度実行すればよい。
   // 後ろで開くと、Worker を配備して参加し cloud.json を書いた後で止まり、参加トークンも出ない。
-  const floor = openTranscriptsFloor(o.home);
+  const floor = openFloorFirst(o.home, 'Cloudflare にはまだ何も作っていません', 'hangar setup cloud');
   try {
     // 1. アカウント
     let who = await wr.run(['whoami']);
@@ -651,8 +667,9 @@ export async function runJoin(o: JoinCliOptions): Promise<CloudConfig> {
     }
   }
 
-  // DB を先に開く（setup cloud と同じ理由である）。控えが取れなければ、参加の要求を出す前に止まる。
-  const floor = openTranscriptsFloor(o.home);
+  // DB を先に開く（setup cloud と同じ理由である）。
+  // 控えが取れなければ、参加の要求を出す前に止まる。
+  const floor = openFloorFirst(o.home, '参加の要求はまだ出していません', 'hangar join');
   try {
     // retryForbidden は渡さない。貼り間違えたトークンで 30 秒待たせない。
     const joined = await joinWorker(url, t.secret, o.device, { fetch: o.fetch ?? realFetch, sleep: o.sleep ?? realSleep, log });

@@ -476,9 +476,12 @@ describe('DB の控えが取れないとき', () => {
     const file = blockBackup(home);
     const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
     const ff = fakeFetch(0);
-    await expect(
-      runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} }),
-    ).rejects.toThrow('マイグレーションを当てずに止めました');
+    const err = await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} }).then(() => null, (e: unknown) => e);
+    // 元の文に、次にすることの 1 文が続く。
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('マイグレーションを当てずに止めました');
+    expect((err as Error).message).toContain('Cloudflare にはまだ何も作っていません。直してから hangar setup cloud をもう一度実行してください。');
+    expect((err as Error).message).not.toContain('\n');
     expect(w.calls).toEqual([]);
     expect(w.interactiveCalls).toEqual([]);
     expect(ff.urls).toEqual([]);
@@ -491,9 +494,11 @@ describe('DB の控えが取れないとき', () => {
     const file = blockBackup(home);
     const urls: string[] = [];
     const f = (async (input: string | URL | Request) => { urls.push(String(input)); return new Response('{}', { status: 500 }); }) as typeof fetch;
-    await expect(
-      runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, force: true, log: () => {} }),
-    ).rejects.toThrow('マイグレーションを当てずに止めました');
+    const err = await runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, force: true, log: () => {} }).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('マイグレーションを当てずに止めました');
+    expect((err as Error).message).toContain('参加の要求はまだ出していません。直してから hangar join をもう一度実行してください。');
+    expect((err as Error).message).not.toContain('\n');
     expect(urls).toEqual([]);
     expect(fs.existsSync(path.join(home, 'cloud.json'))).toBe(false);
     expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
@@ -501,18 +506,29 @@ describe('DB の控えが取れないとき', () => {
 
   it('控えが取れれば、setup cloud は先に DB を上げて控え、最後に床を刻む', async () => {
     const { home, cloudDir } = dirs();
-    seedDbAt(path.join(home, 'hangar.db'), LATEST_DB_VERSION - 1);
+    const file = path.join(home, 'hangar.db');
+    seedDbAt(file, LATEST_DB_VERSION - 1);
+    // 最初の wrangler 呼び（whoami）の時点の DB の版と控えの数。Cloudflare に触る前に済んでいるかを見る。
+    let versionAtWhoami = -1;
+    let backupsAtWhoami = -1;
     const w = fakeWrangler({
-      whoami: () => ok(WHOAMI),
+      whoami: () => {
+        versionAtWhoami = dbVersionOf(file);
+        const dir = path.join(home, 'backups', 'db');
+        backupsAtWhoami = fs.existsSync(dir) ? fs.readdirSync(dir).length : 0;
+        return ok(WHOAMI);
+      },
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
       deploy: () => ok('Deployed hangar\n  https://hangar.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': () => ok('Success'),
     });
     await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch(0).fetch, sleep: async () => {}, cloudDir, log: () => {} });
+    expect(versionAtWhoami).toBe(LATEST_DB_VERSION);
+    expect(backupsAtWhoami).toBe(1);
     expect(fs.readdirSync(path.join(home, 'backups', 'db'))).toHaveLength(1);
-    expect(dbVersionOf(path.join(home, 'hangar.db'))).toBe(LATEST_DB_VERSION);
-    expect(readTranscriptsFrom(home)).toBeGreaterThan(0);
+    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION);
+    expect(readTranscriptsFrom(home)).toBe(loadCloudConfig(home)!.joinedAt);
   });
 });
 
