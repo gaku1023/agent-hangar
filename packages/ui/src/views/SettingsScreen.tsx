@@ -249,6 +249,13 @@ export function SettingsScreen(props: SettingsProps) {
     // slideTo と setGroup は毎回作り直されるので、依存には入れない。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.focus, showAccounts]);
+  // ヘッダーの同期の語から来たときは、同期の群が見える位置へ移る。群は最初から描くので、一覧を待たない。
+  useEffect(() => {
+    if (props.focus !== 'sync') return;
+    go('settings-sync');
+    // go は毎回作り直されるので、依存には入れない。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.focus]);
   const todoOf = (id: string) => (id === 'settings-must' ? props.todo.must : id === 'settings-link' ? props.todo.link : 0);
   return (
     <div className="screen settings-screen">

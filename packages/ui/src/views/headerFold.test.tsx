@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
 import { presentAccounts } from '../presenters/accounts.ts';
 import { initialStore } from '../store/store.ts';
+import { syncFixture } from '../test/syncProps.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { applyFold, chooseFoldLevel, FOLD_LEVELS } from './headerFold.ts';
 import { Shell } from './Shell.tsx';
@@ -54,7 +55,7 @@ describe('chooseFoldLevel（どこまで畳むか）', () => {
 });
 
 const usage = { fiveHour: 48, sevenDay: 12, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' };
-const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 6, sweepPending: 44, skipped: 2, paused: false, reason: null };
+const sync = syncFixture({ pending: '未送信の変更 6', sweepPending: '未送信のトランスクリプト 44', skipped: '送信に失敗したトランスクリプト 2' });
 const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: '索引 10 / 200 件', usage, sync, retention: { visible: false, title: '', detail: '', extendTo: 365 }, account: null, newSession: {} };
 /** アカウントが 2 件あるときのヘッダ。計器は shown（会社）の値で作る。 */
 const accountList = presentAccounts({ ...initialStore(), accounts: accountsFixture }, 0);
@@ -68,14 +69,13 @@ const renderShell = (account = false) => render(<IntentRoot onIntent={() => {}}>
 const ORDER: [string, number][] = [
   ['.gauge-updated', 1],
   ['.progress', 3],
-  ['.sync-action', 4],
-  ['.sync-count', 5],
-  ['.gauge-bar', 6],
-  ['.search-pill-label', 7],
-  ['.search-kbd', 7],
-  ['.sync-label-text', 8],
-  ['.new-session .btn-label', 9],
-  ['.gauges', 10],
+  ['.sync-count', 4],
+  ['.gauge-bar', 5],
+  ['.search-pill-label', 6],
+  ['.search-kbd', 6],
+  ['.sync-label-text', 7],
+  ['.new-session .btn-label', 8],
+  ['.gauges', 9],
 ];
 /** アカウントがあるときだけ現れる部品。最終更新の次、計器の棒より前に畳む。 */
 const ACCOUNT_ORDER: [string, number][] = [['.account-name', 2]];
@@ -86,13 +86,13 @@ const ACCOUNT_KEPT = ['.account-switch', '.account-dot', '.account-caret'];
 
 describe('applyFold（段ごとに付く畳んだ印）', () => {
   it('段の数は、畳む部品の組の数である', () => {
-    expect(FOLD_LEVELS).toBe(10);
+    expect(FOLD_LEVELS).toBe(9);
   });
   // アカウントが 1 件以下のときは、ヘッダに account の部品が無く、段は何も畳まない。ほかの部品の順は変わらない。
   for (const account of [false, true]) {
     const order = account ? [...ORDER, ...ACCOUNT_ORDER] : ORDER;
     const kept = account ? [...KEPT, ...ACCOUNT_KEPT] : KEPT;
-    for (let level = 0; level <= 10; level++) {
+    for (let level = 0; level <= 9; level++) {
       it(`${account ? 'アカウントあり' : 'アカウントなし'}・段 ${level} では、その段までの部品にだけ印が付く`, () => {
         const { container } = renderShell(account);
         const row = container.querySelector<HTMLElement>('.header-row')!;
@@ -110,7 +110,7 @@ describe('applyFold（段ごとに付く畳んだ印）', () => {
   it('段を戻すと印を外す', () => {
     const { container } = renderShell(true);
     const row = container.querySelector<HTMLElement>('.header-row')!;
-    applyFold(row, 10);
+    applyFold(row, 9);
     applyFold(row, 0);
     expect(row.querySelectorAll('[data-folded]')).toHaveLength(0);
   });
@@ -121,11 +121,11 @@ describe('畳んでも読める', () => {
   it('同期のリンクは点を含み、title に状態と件数を持つ', () => {
     renderShell();
     const link = screen.getByRole('link', { name: '同期 1 分前' });
-    expect(link).toHaveAttribute('title', '同期 1 分前、未送信 6、未送信の本文 44、送れなかった本文 2（押すと同期の設定を開く）');
+    expect(link).toHaveAttribute('title', '同期 1 分前、未送信の変更 6、未送信のトランスクリプト 44、送信に失敗したトランスクリプト 2（押すと同期の設定を開く）');
     expect(link.querySelector('.sync-dot')).not.toBeNull();
   });
   it('件数が無いときは title に足さない', () => {
-    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...sync, pending: 0, sweepPending: 0, skipped: 0 }} overlays={null}><div /></Shell></IntentRoot>);
+    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture()} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByRole('link', { name: '同期 1 分前' })).toHaveAttribute('title', '同期 1 分前（押すと同期の設定を開く）');
   });
   it('最終更新を畳んでも、ゲージの title から読める', () => {
@@ -190,10 +190,9 @@ describe('useHeaderFold（測って畳む）', () => {
     fakeLayout(row, () => width);
     width = 800;
     act(() => { for (const cb of roCallbacks) cb(); });
-    // 畳んだ段の数だけ、行が 60px ずつ縮む。1000 − 60 × 段 ≤ 800 になる最初の段は 4 である（段 4 では最終更新、名前、索引、同期の操作を畳む）。
+    // 畳んだ段の数だけ、行が 60px ずつ縮む。1000 − 60 × 段 ≤ 800 になる最初の段は 4 である（段 4 では最終更新、名前、索引、同期の件数を畳む）。
     expect(row).toHaveAttribute('data-fold-level', '4');
-    expect(row.querySelector('.sync-action')).toHaveAttribute('data-folded');
-    expect(row.querySelector('.sync-count')).not.toHaveAttribute('data-folded');
+    expect(row.querySelector('.sync-count')).toHaveAttribute('data-folded');
     expect(row.querySelector('.gauge-bar')).not.toHaveAttribute('data-folded');
     expect(row).not.toHaveAttribute('data-fold-measuring');
     width = 1100;

@@ -1,5 +1,5 @@
 /** 設定の画面で、開いたときに見える位置へ移る先。 */
-export type SettingsAt = 'accounts';
+export type SettingsAt = 'accounts' | 'sync';
 
 export type Route =
   | { name: 'home' } | { name: 'projects' } | { name: 'project'; id: string }
@@ -16,7 +16,7 @@ export function parseRoute(hash: string): Route {
     case 'project': return parts[1] ? { name: 'project', id: parts[1] } : { name: 'projects' };
     case 'session': return parts[1] ? { name: 'session', id: parts[1] } : { name: 'home' };
     case 'sessions': { const q = params.get('q'); return q ? { name: 'sessions', q } : { name: 'sessions' }; }
-    case 'settings': return params.get('at') === 'accounts' ? { name: 'settings', at: 'accounts' } : { name: 'settings' };
+    case 'settings': { const at = params.get('at'); return at === 'accounts' || at === 'sync' ? { name: 'settings', at } : { name: 'settings' }; }
     default: return { name: 'home' };
   }
 }

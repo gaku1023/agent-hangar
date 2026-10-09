@@ -1,7 +1,9 @@
 import type { IndexProgressDto, ShellHookStateDto, StatuslineStatusDto, SummarizerTestDto, SyncSkippedDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
-import { indexProgressLabel, limitedLabel, relativeTime, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } from './format.ts';
+import { indexProgressLabel, relativeTime } from './format.ts';
+import { storeLanguage, translatorOf } from './i18n.ts';
+import { limitedWord, syncStateWord } from './syncLabel.ts';
 import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
@@ -77,8 +79,8 @@ export type SettingsProps = {
   /** Claude Code との互換の節（C2）。準備の確かめが届く前と、compat の無い古いサーバの答えでは null。 */
   compat: CompatProps | null;
   accounts: AccountSettingsProps;
-  /** 開いたときに見える位置へ移る節。ヘッダの「アカウントの設定」から来たときだけ入る。 */
-  focus: 'accounts' | null;
+  /** 開いたときに見える位置へ移る節。ヘッダのアカウントの設定と、ヘッダーの同期の語から来たときだけ入る。 */
+  focus: 'accounts' | 'sync' | null;
 };
 
 /** 選択肢は決まった 4 つに、今の値がそこに無ければそれを足して、短い順に並べる。 */
@@ -102,16 +104,18 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
 export function presentSettings(state: State, store: Store, now: number = Date.now()): SettingsProps {
   const s = store.settings;
   const sync = store.sync;
+  const t = translatorOf(store);
   // 同期の状態が届いていない端末と、off が届いている端末は同じ「設定していない」扱いにする。
   const cloud: CloudSettingsProps = {
     configured: sync !== null && sync.state !== 'off',
     url: sync?.url ?? null,
     state: sync?.state ?? 'off',
-    stateLabel: sync?.state === 'paused' && sync.oncePass ? SYNC_ONCE_LABEL
-      : sync?.state === 'paused' && sync.limitedUntil !== null ? limitedLabel(sync.limitedUntil)
+    // 語はヘッダーの同期の一行と同じ表（syncLabel.ts）から引く。
+    stateLabel: sync?.state === 'paused' && sync.oncePass ? t('header.sync.once')
+      : sync?.state === 'paused' && sync.limitedUntil !== null ? limitedWord(t, storeLanguage(store), sync.limitedUntil)
       // 一時停止中に版で止まったときは、状態は error でも一時停止していることを頭に添える。
-      : sync?.state === 'error' && sync.paused ? `${SYNC_STATE_LABEL.paused} · ${SYNC_STATE_LABEL.error}`
-      : SYNC_STATE_LABEL[sync?.state ?? 'off'],
+      : sync?.state === 'error' && sync.paused ? t('header.sync.pausedErrorShort')
+      : syncStateWord(t, sync?.state ?? 'off'),
     // 上限で退いているのは利用者が止めたのではないので、一時停止とは言わない。そのあいだは切り替えを出さない（limited）。
     // 版で止まると state は error になるので、一時停止しているかは印でも見る。
     paused: (sync?.state === 'paused' && sync.limitedUntil === null) || sync?.paused === true,
@@ -171,7 +175,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     claudePath: s?.claudePath ?? null,
     retention: retentionSettings(store),
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
-    focus: state.screen.name === 'settings' && state.screen.at === 'accounts' ? 'accounts' : null,
+    focus: state.screen.name === 'settings' ? (state.screen.at ?? null) : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },
   };
 }

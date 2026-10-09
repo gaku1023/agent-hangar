@@ -1046,6 +1046,8 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     it('行き先の印は、設定の画面が at=accounts で開かれたときだけ accounts になる', () => {
       const at = (screen: State['screen']) => presentSettings({ ...initialState(), screen }, initialStore(), NOW).focus;
       expect(at({ name: 'settings', at: 'accounts' })).toBe('accounts');
+      // ヘッダーの同期の語から来たときは、同期の群へ移る。
+      expect(at({ name: 'settings', at: 'sync' })).toBe('sync');
       expect(at({ name: 'settings' })).toBeNull();
       expect(at({ name: 'home' })).toBeNull();
     });
@@ -1383,22 +1385,22 @@ describe('ヘッダーの無料枠で停止', () => {
 
   it('上限で退いている間は、戻る時刻を端末の時刻で言い、利用者が止めたことにはしない', () => {
     const p = shellSync(paused({ limitedUntil: RESET }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo');
-    expect(p).toMatchObject({ label: '無料枠で停止 · 9:00 に戻る', reason: 'quota', paused: false, state: 'paused' });
+    expect(p).toMatchObject({ label: '無料枠で停止 · 9:00 にリセット', reason: 'quota', state: 'paused' });
     expect(p).not.toHaveProperty('quotaBack');
   });
   it('時差に依らない（ニューヨークでも同じ境目）', () => {
-    expect(shellSync(paused({ limitedUntil: RESET }), at('2026-10-02T23:59:00Z'), 'America/New_York').label).toBe('無料枠で停止 · 20:00 に戻る');
+    expect(shellSync(paused({ limitedUntil: RESET }), at('2026-10-02T23:59:00Z'), 'America/New_York').label).toBe('無料枠で停止 · 20:00 にリセット');
   });
   it('一時停止のまま 1 回だけ同期している最中は、そのことを言う', () => {
-    expect(shellSync(paused({ oncePass: true }), at('2026-10-02T06:48:00Z'))).toMatchObject({ label: '1 回だけ同期中…', once: true, paused: true });
+    expect(shellSync(paused({ oncePass: true }), at('2026-10-02T06:48:00Z'))).toMatchObject({ label: '1 回だけ同期中…', once: true });
     // 終われば元の文に戻る。
-    expect(shellSync(paused({ oncePass: false }), at('2026-10-02T06:48:00Z'))).toMatchObject({ label: '一時停止中', once: false });
+    expect(shellSync(paused({ oncePass: false }), at('2026-10-02T06:48:00Z'))).toMatchObject({ label: '同期を一時停止中', once: false });
     // 設定の「状態」も同じ語で言う。
     const settings = presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({ oncePass: true }) }).cloud;
     expect(settings).toMatchObject({ stateLabel: '1 回だけ同期中…', once: true, paused: true });
   });
   it('手で止めたときは今までどおり', () => {
-    expect(shellSync(paused({}), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo')).toMatchObject({ label: '一時停止中', reason: 'user', paused: true });
+    expect(shellSync(paused({}), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo')).toMatchObject({ label: '同期を一時停止中', reason: 'user' });
   });
   it('止まっていなければ理由は null で、文も変わらない', () => {
     expect(shellSync(syncStatus({}), NOW, 'Asia/Tokyo')).toMatchObject({ reason: null, label: '同期 1 分前' });
@@ -1410,7 +1412,7 @@ describe('ヘッダーの無料枠で停止', () => {
     const settings = presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({ limitedUntil: RESET }) }, at('2026-10-02T06:48:00Z')).cloud;
     expect(settings.paused).toBe(false);
     expect(settings.limited).toBe(true);
-    expect(settings.stateLabel).toMatch(/^無料枠で停止 · \d{1,2}:\d{2} に戻る$/);
+    expect(settings.stateLabel).toMatch(/^無料枠で停止 · \d{1,2}:\d{2} にリセット$/);
     // 手で止めたときは limited ではない。
     expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({}) }).cloud).toMatchObject({ paused: true, limited: false });
   });
@@ -1421,23 +1423,23 @@ describe('一時停止中に版で止まったとき', () => {
   const shellSync = (sync: SyncStatusBody) => presentShell(initialState(), { ...initialStore(), sync }, NOW).sync;
   it('状態は error のまま、文の頭に「一時停止中 · 」を添え、一時停止の印を渡す', () => {
     const sync = syncStatus({ state: 'error', error: REASON, paused: true });
-    expect(shellSync(sync)).toMatchObject({ state: 'error', paused: true, reason: null, label: `一時停止中 · 同期エラー: ${REASON}` });
+    expect(shellSync(sync)).toMatchObject({ state: 'error', reason: null, label: `同期を一時停止中 · 同期エラー: ${REASON}` });
     // 設定の「状態」の語にも同じ頭を添える。
-    expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync }).cloud).toMatchObject({ state: 'error', paused: true, limited: false, stateLabel: '一時停止中 · 同期エラー' });
+    expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync }).cloud).toMatchObject({ state: 'error', paused: true, limited: false, stateLabel: '同期を一時停止中 · 同期エラー' });
   });
   it('Worker が古くて止まったときも、向きを言う error の文をそのまま出す（案内は向きに依らず、文は presenter で作り直さない）', () => {
     const WORKER_REASON = 'クラウドの Worker が古いので、同期を止めました（Worker の互換の版は 1、この PC が求めるのは 2 以上）。setup した PC で hangar setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください';
     const sync = syncStatus({ state: 'error', error: WORKER_REASON, paused: true });
-    expect(shellSync(sync)).toMatchObject({ state: 'error', paused: true, reason: null, label: `一時停止中 · 同期エラー: ${WORKER_REASON}` });
+    expect(shellSync(sync)).toMatchObject({ state: 'error', reason: null, label: `同期を一時停止中 · 同期エラー: ${WORKER_REASON}` });
   });
   it('一時停止していない版のエラーは、今までどおり', () => {
     const sync = syncStatus({ state: 'error', error: REASON, paused: false });
-    expect(shellSync(sync)).toMatchObject({ state: 'error', paused: false, label: `同期エラー: ${REASON}` });
+    expect(shellSync(sync)).toMatchObject({ state: 'error', label: `同期エラー: ${REASON}` });
     expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync }).cloud).toMatchObject({ paused: false, stateLabel: '同期エラー' });
   });
   it('上限で退いている間の振る舞いは変えない（一時停止の印があっても、退いていれば利用者が止めたことにしない）', () => {
     const sync = syncStatus({ state: 'paused', paused: false, limitedUntil: Date.parse('2026-10-03T00:00:00Z') });
-    expect(shellSync(sync)).toMatchObject({ reason: 'quota', paused: false });
+    expect(shellSync(sync)).toMatchObject({ reason: 'quota' });
     expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync }).cloud).toMatchObject({ paused: false, limited: true });
   });
 });
@@ -1446,17 +1448,18 @@ describe('同期の Presenter（フェーズ 4）', () => {
   // ヘッダーの同期の一行は、Store の sync だけから決まる。State は同期の状態を持たない。
   const shellSync = (sync: SyncStatusBody | null) => presentShell(initialState(), { ...initialStore(), sync }, NOW).sync;
   it('ヘッダーの同期状態は種別ごとに文言が変わる', () => {
-    expect(shellSync(syncStatus({ pending: 2 }))).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null, once: false });
-    expect(shellSync(syncStatus({ state: 'off', url: null }))).toMatchObject({ visible: false, state: 'off', label: '' });
+    expect(shellSync(syncStatus({ pending: 2 }))).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: '未送信の変更 2', sweepPending: null, skipped: null, reason: null, once: false, title: '同期 1 分前、未送信の変更 2（押すと同期の設定を開く）' });
+    // 同期を使っていないと届いたときは、同期オフと言う。
+    expect(shellSync(syncStatus({ state: 'off', url: null }))).toMatchObject({ visible: true, state: 'off', label: '同期オフ' });
     expect(shellSync(syncStatus({ state: 'pushing' }))).toMatchObject({ visible: true, state: 'pushing', label: '送信中' });
     expect(shellSync(syncStatus({ state: 'pulling' }))).toMatchObject({ state: 'pulling', label: '受信中' });
-    expect(shellSync(syncStatus({ state: 'paused', paused: true }))).toMatchObject({ state: 'paused', label: '一時停止中', paused: true });
-    expect(shellSync(syncStatus({ state: 'error', error: '切れました', pending: 3 }))).toMatchObject({ state: 'error', label: '同期エラー: 切れました', pending: 3 });
+    expect(shellSync(syncStatus({ state: 'paused', paused: true }))).toMatchObject({ state: 'paused', label: '同期を一時停止中' });
+    expect(shellSync(syncStatus({ state: 'error', error: '切れました', pending: 3 }))).toMatchObject({ state: 'error', label: '同期エラー: 切れました', pending: '未送信の変更 3' });
     // まだ一度も往復していない間は、時刻の代わりに準備中と出す。
     expect(shellSync(syncStatus({ lastPullAt: null, lastPushAt: null }))).toMatchObject({ state: 'idle', label: '同期の準備中' });
   });
-  it('同期の状態がまだ届いていない間（Store の sync が null）は、同期を設定していないのと同じに出す', () => {
-    expect(shellSync(null)).toEqual({ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null, once: false });
+  it('同期の状態がまだ届いていない間（Store の sync が null）は、「同期オフ」と言い間違えないよう何も出さない', () => {
+    expect(shellSync(null)).toEqual({ visible: false, state: 'off', label: '', pending: null, sweepPending: null, skipped: null, reason: null, once: false, title: '' });
   });
   it('idle の最終時刻は pull を優先し、pull が無ければ push を採る', () => {
     expect(shellSync(syncStatus({ lastPullAt: NOW - 3 * 60_000, lastPushAt: NOW - 60_000 })).label).toBe('同期 3 分前');
@@ -1467,10 +1470,23 @@ describe('同期の Presenter（フェーズ 4）', () => {
   });
   it('ヘッダーに取り残しの件数と送れなかった本文の件数が出る', () => {
     // 本文は 60 秒に 20 件ずつしか流れないので、残りが見えないと進んでいるか分からない。
-    expect(shellSync(syncStatus({ pending: 2, sweepPending: 1500, skipped: [{ key: 'k1', attempts: 3, message: 'x' }, { key: 'k2', attempts: 1, message: 'y' }] }))).toMatchObject({ pending: 2, sweepPending: 1500, skipped: 2 });
-    // 数えられない端末は 0 として渡す。ヘッダーは 0 件を描かないので、「分からない」と「無い」を分けなくてよい。
-    expect(shellSync(syncStatus())).toMatchObject({ sweepPending: 0, skipped: 0 });
-    expect(shellSync(null)).toMatchObject({ sweepPending: 0, skipped: 0 });
+    expect(shellSync(syncStatus({ pending: 2, sweepPending: 1500, skipped: [{ key: 'k1', attempts: 3, message: 'x' }, { key: 'k2', attempts: 1, message: 'y' }] }))).toMatchObject({ pending: '未送信の変更 2', sweepPending: '未送信のトランスクリプト 1500', skipped: '送信に失敗したトランスクリプト 2' });
+    // 0 件は文を作らない（null）。ヘッダーは 0 件を描かないので、数えられない端末と無い端末を分けなくてよい。
+    expect(shellSync(syncStatus())).toMatchObject({ pending: null, sweepPending: null, skipped: null });
+    expect(shellSync(null)).toMatchObject({ sweepPending: null, skipped: null });
+  });
+  it('件数は title にも並べる。畳んでも読めるようにするため', () => {
+    expect(shellSync(syncStatus({ pending: 2, sweepPending: 1500, skipped: [{ key: 'k1', attempts: 3, message: 'x' }] })).title).toBe('同期 1 分前、未送信の変更 2、未送信のトランスクリプト 1500、送信に失敗したトランスクリプト 1（押すと同期の設定を開く）');
+  });
+  it('語は設定の言語で言う（English）', () => {
+    const en = (sync: SyncStatusBody | null) => presentShell(initialState(), { ...initialStore(), settings: fullSettings({ language: 'en' }), sync }, NOW, 'UTC').sync;
+    expect(en(syncStatus({ state: 'off', url: null }))).toMatchObject({ visible: true, label: 'Sync off' });
+    expect(en(syncStatus({ state: 'paused', paused: true }))).toMatchObject({ label: 'Sync paused' });
+    expect(en(syncStatus({ state: 'error', error: 'x', pending: 1 }))).toMatchObject({ label: 'Sync error: x', pending: 'Unsent changes 1', title: 'Sync error: x, Unsent changes 1 (opens sync settings)' });
+    expect(en(syncStatus({ state: 'paused', paused: false, limitedUntil: Date.parse('2026-10-03T00:00:00Z') }))).toMatchObject({ label: expect.stringMatching(/^Paused at free tier limit · resets at \d{2}:\d{2}$/) });
+  });
+  it('操作は持たない。今すぐ同期と一時停止は設定の同期の群にある', () => {
+    expect(Object.keys(shellSync(syncStatus({ state: 'paused', paused: true })))).not.toContain('paused');
   });
   it('設定のクラウドの節に取り残しと送れなかった本文が出る', () => {
     // ヘッダーと違って、ここは 0 件も描く。0 と書いてあれば「追いついた」と読める。
@@ -1494,7 +1510,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok', syncClaudeConfig: true, configConfirmed: false });
     expect(p.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
     const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused', claudeConfig: { enabled: true, confirmed: true } }) }, NOW).cloud;
-    expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '一時停止中', paused: true, configConfirmed: true });
+    expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '同期を一時停止中', paused: true, configConfirmed: true });
     // ヘッダーと同じ語を使う。
     // エラーの理由はヘッダーにだけ出す。
     expect(presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'pushing' }) }, NOW).cloud.stateLabel).toBe('送信中');

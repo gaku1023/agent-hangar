@@ -434,10 +434,8 @@ a:hover { text-decoration: underline; }
 .header .btn.new-session { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .header .new-session .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .header .progress { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 同期の操作は地を持たない文字のボタンにし、主ボタン（新しいセッション）だけが面を持つ。
+/* 主ボタン（新しいセッション）だけが面を持つ。
    同期と使用率の前には細い仕切りを置き、横にも塊ごとの間を見せる。 */
-.header .sync-action { color: var(--ink-2); background: none; box-shadow: none; }
-.header .sync-action:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); box-shadow: none; }
 .header .sync, .header .gauges { position: relative; padding-left: calc(var(--u) * 4.5); }
 .header .sync::before, .header .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: calc(var(--u) * 4); translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
 /* ゲージの見出し（5 時間、週）。
@@ -462,9 +460,6 @@ a:hover { text-decoration: underline; }
 /* 畳んだ部品。見えなくするが、読み上げには残す（.sr-only と同じ形）。
    行の流れからも外れるので、幅も間も取らない。 */
 .header-row [data-folded] { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-/* 同期の操作は、見えないボタンにフォーカスが止まらないよう、まるごと外す。
-   同期の文のリンクから設定へ行けば押せる。 */
-.header-row .sync-action[data-folded] { display: none; }
 /* 錠剤と新しいセッションは、文字を畳むと図だけの丸いボタンになる。 */
 .header .search-pill:has(> [data-folded]), .header .btn.new-session:has(> [data-folded]) { justify-content: center; width: var(--row-h); padding: 0; }
 /* 数字の幅の下限は、棒と並べたときに桁の増減で棒が揺れないためのもので、棒を畳んだら要らない。 */
