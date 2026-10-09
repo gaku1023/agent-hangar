@@ -7,6 +7,7 @@ import type { TerminalHost } from './terminals.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
+import { presentNewProject } from '../presenters/newProject.ts';
 import { presentShell } from '../presenters/shell.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
@@ -508,8 +509,18 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'project.new.open' });
     rt.emit({ type: 'folder.pick' });
     await flush();
-    expect(rt.getState().workspaceDirs).toEqual([{ name: 'a', path: '/w/a' }]);
-    expect(rt.getState().pickedFolder).toEqual({ path: '/Users/me/thesis', n: 1 });
+    expect(rt.getStore().workspaceDirs).toEqual([{ name: 'a', path: '/w/a' }]);
+    expect(rt.getStore().pickedFolder).toEqual({ path: '/Users/me/thesis', n: 1 });
+    // 画面は Store から読む。
+    expect(presentNewProject(rt.getState(), rt.getStore())).toMatchObject({ dirs: [{ name: 'a', path: '/w/a' }], picked: { path: '/Users/me/thesis', n: 1 } });
+  });
+  it('未登録の一覧が取れなければ、空の一覧にする', async () => {
+    const { rt } = harness({ workspaceDirs: vi.fn(async () => { throw new Error('500'); }) });
+    rt.start();
+    rt.emit({ type: 'project.new.open' });
+    await flush();
+    expect(rt.getStore().workspaceDirs).toEqual([]);
+    expect(rt.getState().toasts).toEqual([]);
   });
   it('作成のダイアログの送信は、作ってから done を返す', async () => {
     const { rt } = harness({ createProject: vi.fn(async () => created) });

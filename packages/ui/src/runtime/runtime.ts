@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyPickedFolder, applySearch, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -357,12 +357,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           .catch((err) => dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }));
         return;
       // 取れなければ空にする。一覧が出ないだけで、作ることもパスで選ぶこともできる。
-      case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => dispatch({ kind: 'runtime', event: { type: 'workspaceDirs.loaded', dirs } })).catch(() => dispatch({ kind: 'runtime', event: { type: 'workspaceDirs.loaded', dirs: [] } })); return;
+      case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => setStore(applyWorkspaceDirs(store, dirs))).catch(() => setStore(applyWorkspaceDirs(store, []))); return;
       case 'desktop.pickFolder':
         if (!deps.desktop) return;
         // 取り消したら何もしない。開く場所はワークスペースのルートにする。
         deps.desktop.pickFolder(store.settings?.workspaceRoot ?? null)
-          .then((path) => { if (path) dispatch({ kind: 'runtime', event: { type: 'folder.picked', path } }); })
+          .then((path) => { if (path) setStore(applyPickedFolder(store, path)); })
           .catch((err: unknown) => failWith('フォルダを選べませんでした', err));
         return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;

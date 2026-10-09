@@ -967,9 +967,13 @@ describe('presentNewSession', () => {
     expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
   });
   it('未登録のフォルダから、store にあるプロジェクトのパスを除く', () => {
-    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, workspaceDirs: [{ name: 'alpha', path: '/w/alpha' }, { name: 'fresh', path: '/w/fresh' }] };
-    const props = presentNewSession(state, storeWithProjectAt('/w/alpha'), NOW)!;
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    const store = { ...storeWithProjectAt('/w/alpha'), workspaceDirs: [{ name: 'alpha', path: '/w/alpha' }, { name: 'fresh', path: '/w/fresh' }], pickedFolder: { path: '/w/fresh', n: 2 } };
+    const props = presentNewSession(state, store, NOW)!;
     expect(props.dirs).toEqual([{ name: 'fresh', path: '/w/fresh' }]);
+    expect(props.picked).toEqual({ path: '/w/fresh', n: 2 });
+    // 一覧をまだ取っていない間は空で、選んだフォルダも無い。
+    expect(presentNewSession(state, storeWithProjectAt('/w/alpha'), NOW)).toMatchObject({ dirs: [], picked: null });
   });
   it('作れない名前として、アーカイブも含む store のプロジェクトのフォルダ名を小文字で渡す', () => {
     const store = storeWithProjectAt('/w/Old-Kadai');

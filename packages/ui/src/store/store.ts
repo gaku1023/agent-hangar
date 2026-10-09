@@ -1,6 +1,6 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto } from '@agent-hangar/shared';
+import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -43,6 +43,10 @@ export type Store = {
   desktop: boolean;
   // Claude Code のアカウント（この PC の中だけにある）。未取得、またはサーバが知らせない間は null である。
   accounts: AccountsDto | null;
+  /** ワークスペース直下の未登録のフォルダ。新しいセッションか作成のダイアログを開くたびに取り直す。未取得は null。 */
+  workspaceDirs: WorkspaceDirDto[] | null;
+  /** Finder で選んだフォルダ。殻が返した値である。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
+  pickedFolder: { path: string; n: number } | null;
 };
 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
@@ -55,7 +59,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null,
     retention: null, retentionPreview: null,
-    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null,
+    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, workspaceDirs: null, pickedFolder: null,
   };
 }
 
@@ -411,6 +415,17 @@ export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?
 
 /** 参加トークンを入れる。押して見せたあとに null で伏せ直せる。 */
 export function applyJoinToken(store: Store, token: string | null, expiresAt: number | null = null): Store { return { ...store, joinToken: token, joinTokenExpiresAt: token === null ? null : expiresAt }; }
+
+/** 未登録のフォルダの一覧を入れる。 */
+export function applyWorkspaceDirs(store: Store, dirs: WorkspaceDirDto[]): Store { return { ...store, workspaceDirs: dirs }; }
+
+/**
+ * Finder で選ばれたフォルダを入れる。
+ * Finder は NFD のパスを返すことがあり、サーバのパスは NFC である。比べる前にここで一度だけそろえ、末尾の / も落とす（根の / は残す）。
+ */
+export function applyPickedFolder(store: Store, path: string): Store {
+  return { ...store, pickedFolder: { path: path.normalize('NFC').replace(/(.)\/+$/, '$1'), n: (store.pickedFolder?.n ?? 0) + 1 } };
+}
 
 /** Claude Code の設定の下見を入れる。閉じるときに null で捨てる。 */
 export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | null): Store { return { ...store, configPreview: preview }; }

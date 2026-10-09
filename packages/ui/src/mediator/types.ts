@@ -1,4 +1,4 @@
-import type { Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
 import type { TableIntent } from '../runtime/intentTable.ts';
 
 /**
@@ -18,10 +18,6 @@ export type RuntimeEvent =
   | { type: 'project.created'; projectId: string; params: LaunchParams }
   // プロジェクト画面の作成のダイアログの結果。
   | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
-  // ワークスペース直下の未登録のフォルダ。取れなければ空で届く。
-  | { type: 'workspaceDirs.loaded'; dirs: WorkspaceDirDto[] }
-  // Finder で選ばれたフォルダ。取り消したときは届かない。
-  | { type: 'folder.picked'; path: string }
   // 通知を出せるか、受け取るか。
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
   // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
@@ -226,10 +222,6 @@ export type State = {
   promote: LaunchState;
   /** プロジェクト画面の作成のダイアログの送信。 */
   projectCreate: LaunchState;
-  /** ワークスペース直下の未登録のフォルダ。ダイアログを開くたびに取り直す。未取得は null。 */
-  workspaceDirs: WorkspaceDirDto[] | null;
-  /** Finder で選んだフォルダ。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
-  pickedFolder: { path: string; n: number } | null;
   toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
   /**
    * 未解決のまま「あとで」を選んだプロジェクト。

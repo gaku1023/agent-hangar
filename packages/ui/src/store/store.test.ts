@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { accountsFixture } from '../test/accounts.ts';
-import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
@@ -21,6 +21,27 @@ describe('索引の段階', () => {
     // 走査中に開いた UI は、bootstrap で段階を受け取る。その後の最初の知らせが idle でも取りこぼさない。
     const s = applyBootstrap(initialStore(), { ...boot, index: { phase: 'scanning', done: 0, total: 0 } });
     expect(indexFinishedBy(s, progress('idle'))).toBe(true);
+  });
+});
+
+describe('作業フォルダ', () => {
+  it('未登録の一覧は、取るまで null で、届いたら持つ', () => {
+    expect(initialStore().workspaceDirs).toBeNull();
+    const dirs = [{ name: 'a', path: '/w/a' }];
+    expect(applyWorkspaceDirs(initialStore(), dirs).workspaceDirs).toEqual(dirs);
+  });
+  it('Finder で選ばれたパスは回数を添えて持つ', () => {
+    expect(initialStore().pickedFolder).toBeNull();
+    const once = applyPickedFolder(initialStore(), '/x');
+    expect(once.pickedFolder).toEqual({ path: '/x', n: 1 });
+    // 同じパスをもう一度選んでも、回数が進むので気付ける。
+    expect(applyPickedFolder(once, '/x').pickedFolder).toEqual({ path: '/x', n: 2 });
+  });
+  it('Finder のパスは NFC にそろえ、末尾の / を落とす（根の / はそのまま）', () => {
+    const nfd = '/w/が'.normalize('NFD');
+    expect(nfd).not.toBe('/w/が');
+    expect(applyPickedFolder(initialStore(), `${nfd}/`).pickedFolder).toEqual({ path: '/w/が', n: 1 });
+    expect(applyPickedFolder(initialStore(), '/').pickedFolder).toEqual({ path: '/', n: 1 });
   });
 });
 

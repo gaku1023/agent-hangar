@@ -1495,20 +1495,13 @@ describe('プロジェクトを作る', () => {
     expect(state.overlay).toMatchObject({ kind: 'newSession', projectId: null });
     expect(state.launchPrefs.p9).toEqual({ model: 'opus' });
   });
-  it('Finder を頼むと殻に頼み、選ばれたパスは回数を添えて持つ', () => {
-    const { state, effects } = run([intent({ type: 'folder.pick' }), runtime({ type: 'folder.picked', path: '/x' }), runtime({ type: 'folder.picked', path: '/x' })]);
+  it('Finder を頼むと殻に頼む。選ばれたパスと未登録の一覧は State に持たない（Store が持つ）', () => {
+    const start = initialState();
+    expect(start).not.toHaveProperty('pickedFolder');
+    expect(start).not.toHaveProperty('workspaceDirs');
+    const { state, effects } = run([intent({ type: 'folder.pick' })], start);
     expect(effects).toEqual([{ kind: 'desktop.pickFolder' }]);
-    expect(state.pickedFolder).toEqual({ path: '/x', n: 2 });
-  });
-  it('Finder のパスは NFC にそろえ、末尾の / を落とす（根の / はそのまま）', () => {
-    const nfd = '/w/が'.normalize('NFD');
-    expect(nfd).not.toBe('/w/が');
-    expect(run([runtime({ type: 'folder.picked', path: `${nfd}/` })]).state.pickedFolder).toEqual({ path: '/w/が', n: 1 });
-    expect(run([runtime({ type: 'folder.picked', path: '/' })]).state.pickedFolder).toEqual({ path: '/', n: 1 });
-  });
-  it('未登録の一覧が届いたら持つ', () => {
-    const dirs = [{ name: 'a', path: '/w/a' }];
-    expect(run([runtime({ type: 'workspaceDirs.loaded', dirs })]).state.workspaceDirs).toEqual(dirs);
+    expect(state).toBe(start);
   });
   it('作成のダイアログは Esc（overlay.close）で閉じ、状態を idle に戻す', () => {
     const { state } = run([intent({ type: 'project.new.open' }), intent({ type: 'project.new.submit', place, startSession: false }), intent({ type: 'overlay.close' })]);
