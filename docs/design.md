@@ -2334,6 +2334,10 @@ Worker の D1 は、端末側の共有テーブルの形をそのまま写さな
 スキーマは Worker が起動後の最初の要求で整える（`ensureSchema`）。
 マイグレーションの手順を別に持たず、cold start のたびに `create table if not exists` を通す形である。
 
+D1 の 1 日の上限（読んだ行、書いた行）に当たった失敗は、500 ではなく 429 で返す（`packages/cloud/src/limits.ts`）。
+見分けるのは D1 の文で、`free tier daily row read limit` か `free tier daily row write limit` を含むものである（大文字と小文字は問わず、原因の文も見る）。
+本文は共有の `CloudLimitBody`（`{ error: 'limit', limit, resetAt }`）で、`resetAt` は上限が戻る次の UTC の 0 時（epoch のミリ秒）である。
+
 手元のサーバ側の入口は、フェーズ 3 で入れた鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）をそのまま通る。
 同期のために足した `/api/sync/*` と `/api/devices` と `/api/sessions/:id/resume-here` も同じ関門の後ろにある。
 Worker の側はブラウザから触らないので、端末トークンの照合だけを行う。
@@ -2461,7 +2465,7 @@ Cloudflare の巻き戻しの遅れ、端末の時計のずれ、0 時の直前�
 同期の状態には `limitedUntil` を載せ、退いている間の `state` は `paused` である。
 利用者が一時停止しているときは、一時停止を先に見せる。
 本文の上げ下ろしは、上限の失敗を諦めに数えない。
-いまの Worker は D1 の失敗を 500 で返すので、D1 の上限が 429 で届くのは段 1 の PR 6 からである。
+Worker は D1 の上限の失敗を 429 で返す（「構成と setup」）。
 
 **トークンを入れる。**
 `npm run hangar -- setup cloud --usage-token` が `installUsageToken`（`packages/cli/src/cloud.ts`）を走らせる。
