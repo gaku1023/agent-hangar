@@ -51,7 +51,7 @@ function workerScript(minDeviceCompat?: number): Promise<string> {
       : build({
           ...workerBuildOptions(CLOUD_DIR),
           stdin: {
-            contents: `import { createApp } from './index.ts';\nexport default createApp({ minDeviceCompat: ${minDeviceCompat} });\n`,
+            contents: `import { createApp } from './app.ts';\nexport default createApp({ minDeviceCompat: ${minDeviceCompat} });\n`,
             resolveDir: SRC_DIR,
             sourcefile: 'floor-entry.ts',
             loader: 'ts',
