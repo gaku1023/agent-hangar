@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { translator } from '@agent-hangar/shared';
 import { KEYMAP, matchKey } from './keys.ts';
+
+const ja = translator('ja');
+const en = translator('en');
+/** 行の説明を日本語で引く。 */
+const labelOf = (id: string) => {
+  const b = KEYMAP.find((k) => k.id === id);
+  return b ? ja(b.labelKey) : undefined;
+};
 
 describe('キーマップ', () => {
   it('⌘ でも Ctrl でも同じ操作に当たる', () => {
@@ -11,11 +20,12 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'j', ctrlKey: true })).toBe('transcript.toggle');
   });
 
-  it('⌘F は本文の中を探す。一覧に「本文の中を探す」として出る', () => {
+  it('⌘F はトランスクリプト内を検索する。一覧に「トランスクリプト内を検索」として出る', () => {
     expect(matchKey({ key: 'f', metaKey: true })).toBe('transcript.find');
     expect(matchKey({ key: 'f', ctrlKey: true })).toBe('transcript.find');
     expect(matchKey({ key: 'f' })).toBeNull();
-    expect(KEYMAP.find((b) => b.id === 'transcript.find')).toMatchObject({ group: 'session', keys: '⌘F', label: '本文の中を探す' });
+    expect(KEYMAP.find((b) => b.id === 'transcript.find')).toMatchObject({ group: 'session', keys: '⌘F' });
+    expect(labelOf('transcript.find')).toBe('トランスクリプト内を検索');
   });
 
   it('⇧ の有無で新規とスクラッチを分ける', () => {
@@ -24,7 +34,7 @@ describe('キーマップ', () => {
   });
 
   it('⌘W の説明は、閉じるのがフォーカスのある枠のシェルタブだけだと書く', () => {
-    expect(KEYMAP.find((b) => b.id === 'tab.close')?.label).toBe('フォーカスのある枠のシェルタブを閉じる');
+    expect(labelOf('tab.close')).toBe('フォーカスのある枠のシェルタブを閉じる');
   });
 
   it('文字キーは大小を問わない', () => {
@@ -100,13 +110,16 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'i', ctrlKey: true })).toBe('session.nextWaiting');
     expect(matchKey({ key: 'I', metaKey: true, shiftKey: true })).toBeNull();
     expect(matchKey({ key: 'i' })).toBeNull();
-    expect(KEYMAP.find((b) => b.id === 'session.nextWaiting')).toMatchObject({ group: 'global', keys: '⌘I', label: '次の入力待ちへ' });
+    expect(KEYMAP.find((b) => b.id === 'session.nextWaiting')).toMatchObject({ group: 'global', keys: '⌘I' });
+    expect(labelOf('session.nextWaiting')).toBe('次の入力待ちへ');
   });
 
   it('どの行にも表示するキーと説明がある', () => {
     for (const b of KEYMAP) {
       expect(b.keys, b.id).not.toBe('');
-      expect(b.label, b.id).not.toBe('');
+      // 日本語と英語の両方に説明があり、鍵のまま返ってはいない。
+      expect(ja(b.labelKey), b.id).not.toBe(b.labelKey);
+      expect(en(b.labelKey), b.id).not.toBe(b.labelKey);
     }
   });
 });

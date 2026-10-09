@@ -1,20 +1,27 @@
 import type { MessageSpec } from './messageSpec.ts';
 import { accountKeys } from './keys/account.ts';
+import { accountSwitcherKeys } from './keys/accountSwitcher.ts';
 import { artifactKeys } from './keys/artifact.ts';
 import { commonKeys } from './keys/common.ts';
 import { configKeys } from './keys/config.ts';
+import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
 import { httpKeys } from './keys/http.ts';
 import { launchKeys } from './keys/launch.ts';
 import { mcpKeys } from './keys/mcp.ts';
+import { newProjectKeys } from './keys/newProject.ts';
+import { pauseKeys } from './keys/pause.ts';
 import { platformKeys } from './keys/platform.ts';
 import { projectKeys } from './keys/project.ts';
+import { promoteKeys } from './keys/promote.ts';
 import { promptKeys } from './keys/prompt.ts';
 import { retentionKeys } from './keys/retention.ts';
+import { retentionDialogKeys } from './keys/retentionDialog.ts';
 import { runKeys } from './keys/run.ts';
 import { sessionKeys } from './keys/session.ts';
 import { sessionsKeys } from './keys/sessions.ts';
 import { settingsKeys } from './keys/settings.ts';
+import { shortcutsKeys } from './keys/shortcuts.ts';
 import { summaryKeys } from './keys/summary.ts';
 import { syncKeys } from './keys/sync.ts';
 import { systemKeys } from './keys/system.ts';
@@ -36,21 +43,28 @@ import { usageKeys } from './keys/usage.ts';
  */
 export const MESSAGES = {
   ...accountKeys,
+  ...accountSwitcherKeys,
   ...artifactKeys,
   ...commonKeys,
   ...configKeys,
+  ...confirmKeys,
   ...externalKeys,
   ...httpKeys,
   ...launchKeys,
   ...mcpKeys,
+  ...newProjectKeys,
+  ...pauseKeys,
   ...platformKeys,
   ...projectKeys,
+  ...promoteKeys,
   ...promptKeys,
   ...retentionKeys,
+  ...retentionDialogKeys,
   ...runKeys,
   ...sessionKeys,
   ...sessionsKeys,
   ...settingsKeys,
+  ...shortcutsKeys,
   ...summaryKeys,
   ...syncKeys,
   ...systemKeys,

@@ -140,20 +140,20 @@ describe('アカウントの名前を畳んでも読める', () => {
     const { container } = renderShell(true);
     const row = container.querySelector<HTMLElement>('.header-row')!;
     applyFold(row, 2);
-    const face = screen.getByRole('button', { name: /^アカウントを切り替える（いまは 会社/ });
+    const face = screen.getByRole('button', { name: /^アカウントを切り替え（現在は 会社/ });
     expect(face.querySelector('.account-name')).toHaveAttribute('data-folded');
     expect(face.querySelector('.account-dot')).toHaveStyle({ color: '#2a57b8' });
   });
   it('アカウントがあるとき、計器は全体が 1 つのボタンの中にある', () => {
     renderShell(true);
-    const face = screen.getByRole('button', { name: /^アカウントを切り替える（いまは 会社/ });
+    const face = screen.getByRole('button', { name: /^アカウントを切り替え（現在は 会社/ });
     expect(face.querySelectorAll('.gauge')).toHaveLength(2);
     expect(face.querySelector('.gauge-updated')).not.toBeNull();
   });
   it('アカウントがあって値が無いときも、切り替えのボタンを出し、値が無いと言う', () => {
     const noValue = { ...withAccount, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null } };
     render(<IntentRoot onIntent={() => {}}><Shell {...noValue} overlays={null}><div /></Shell></IntentRoot>);
-    const face = screen.getByRole('button', { name: /^アカウントを切り替える（いまは 会社/ });
+    const face = screen.getByRole('button', { name: /^アカウントを切り替え（現在は 会社/ });
     expect(face).toHaveTextContent('まだ値がありません');
     expect(screen.queryByRole('link', { name: /使用率/ })).toBeNull();
   });
@@ -161,7 +161,7 @@ describe('アカウントの名前を畳んでも読める', () => {
     const noValue = { ...props, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null } };
     render(<IntentRoot onIntent={() => {}}><Shell {...noValue} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByRole('link', { name: '使用率 未取得' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /アカウントを切り替える/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /アカウントを切り替え/ })).toBeNull();
   });
 });
 

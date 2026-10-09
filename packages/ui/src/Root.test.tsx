@@ -380,7 +380,7 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     act(() => rt.emit({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: false }));
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'promote.done', projectId: 'p1', moved: true, reason: null } }));
     await flush();
-    expect(screen.getByText('ここで新しいセッションを始める')).toBeTruthy();
+    expect(screen.getByText('ここで新しいセッションを開始')).toBeTruthy();
   });
 
   it('Esc は未解決のダイアログだけは閉じず、ほかのオーバーレイは閉じる', async () => {
@@ -400,12 +400,12 @@ describe('フェーズ 4 のオーバーレイ', () => {
     const { rt } = await mounted();
     act(() => rt.dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1024, remoteSize: 4096 } }));
     await flush();
-    expect(screen.getByRole('dialog', { name: '本文を置き換えますか' })).toBeInTheDocument();
-    expect(screen.getByText('他の PC の本文 4.0 KB')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'トランスクリプトを置き換えますか' })).toBeInTheDocument();
+    expect(screen.getByText('他の PC のトランスクリプト 4.0 KB')).toBeInTheDocument();
     // Esc の扱いはフェーズ 3 のままで、新しいオーバーレイも overlayKind !== 'none' の枝で閉じる。
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: '本文を置き換えますか' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'トランスクリプトを置き換えますか' })).toBeNull();
   });
 
   it('一覧から削除は確認を挟み、件数を出し、Esc で未解決のダイアログへ戻る', async () => {
@@ -438,7 +438,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
     await flush();
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
     await flush();
-    const cancel = within(screen.getByRole('dialog', { name: '一覧から削除しますか' })).getByRole('button', { name: 'やめる' });
+    const cancel = within(screen.getByRole('dialog', { name: '一覧から削除しますか' })).getByRole('button', { name: 'キャンセル' });
     expect(cancel).toHaveFocus();
     fireEvent.keyDown(cancel, { key: 'Escape' });
     await flush();
@@ -602,19 +602,19 @@ describe('キーの見直し', () => {
     await mounted();
     key({ key: '?', shiftKey: true });
     await flush();
-    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
-    expect(screen.getByText('パレット（探す・移動）')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'キーボードショートカット' })).toBeInTheDocument();
+    expect(screen.getByText('コマンドパレット（検索と移動）')).toBeInTheDocument();
     expect(screen.getByText('⌘K / /')).toBeInTheDocument();
     key({ key: 'Escape' });
     await flush();
-    expect(screen.queryByRole('dialog', { name: 'キーの一覧' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'キーボードショートカット' })).toBeNull();
   });
 
   it('入力中の ? は文字なので、一覧を開かない', async () => {
     await mounted();
     fireEvent.keyDown(textField(), { key: '?', shiftKey: true });
     await flush();
-    expect(screen.queryByRole('dialog', { name: 'キーの一覧' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'キーボードショートカット' })).toBeNull();
   });
 
   it('⌘[ と ⌘] で履歴が動く', async () => {
@@ -877,7 +877,7 @@ describe('キーの見直し', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.run', command: { id: 'cmd:shortcuts', label: 'キーの一覧' } }));
     await flush();
-    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'キーボードショートカット' })).toBeInTheDocument();
   });
 });
 
@@ -940,7 +940,7 @@ describe('次の入力待ちへ（C5）', () => {
     expect(key({ key: 'i', metaKey: true }).defaultPrevented).toBe(false);
     await flush();
     expect(m.deps.location.getHash()).toBe(before);
-    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'キーボードショートカット' })).toBeInTheDocument();
   });
 
   it('パレットを開いているときの ⌘I は、パレットを閉じて移る', async () => {
@@ -968,7 +968,7 @@ describe('次の入力待ちへ（C5）', () => {
     await mounted();
     key({ key: '?', shiftKey: true });
     await flush();
-    const dialog = screen.getByRole('dialog', { name: 'キーの一覧' });
+    const dialog = screen.getByRole('dialog', { name: 'キーボードショートカット' });
     expect(within(dialog).getByText('次の入力待ちへ')).toBeInTheDocument();
     expect(within(dialog).getByText('⌘I')).toBeInTheDocument();
   });
@@ -1133,7 +1133,7 @@ describe('アカウントの切り替え（セッション画面）', () => {
   };
   /** ヘッダから大学を選ぶ。 */
   const chooseUniv = async () => {
-    fireEvent.click(screen.getByRole('button', { name: /^アカウントを切り替える（いまは 会社/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^アカウントを切り替え（現在は 会社/ }));
     await flush();
     fireEvent.click(screen.getByRole('menuitemradio', { name: /大学/ }));
     await flush();
@@ -1153,11 +1153,11 @@ describe('アカウントの切り替え（セッション画面）', () => {
     expect(screen.queryByRole('dialog', { name: '大学 に切り替えますか？' })).toBeNull();
   });
 
-  it('確認でやめると何も呼ばず、確認が閉じる', async () => {
+  it('確認でキャンセルすると何も呼ばず、確認が閉じる', async () => {
     const switchAccount = vi.fn(fakeApiExtras().switchAccount);
     await open({ switchAccount });
     await chooseUniv();
-    fireEvent.click(within(screen.getByRole('dialog', { name: '大学 に切り替えますか？' })).getByRole('button', { name: 'やめる' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '大学 に切り替えますか？' })).getByRole('button', { name: 'キャンセル' }));
     await flush();
     expect(switchAccount).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog', { name: '大学 に切り替えますか？' })).toBeNull();

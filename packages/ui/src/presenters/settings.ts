@@ -6,6 +6,7 @@ import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
+import { translatorOf } from './i18n.ts';
 import { toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 
@@ -93,7 +94,7 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
     writable: r.writable,
     reason: r.unwritableReason,
     valueLabel: daysLabel(r.days),
-    bar: usageBar(r.usage, projected, r.days),
+    bar: usageBar(r.usage, projected, r.days, translatorOf(store)),
     syncNote: store.settings?.syncClaudeConfig ?? false,
   };
 }

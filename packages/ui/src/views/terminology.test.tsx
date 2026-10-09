@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { translator } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
 import { KEYMAP } from '../keys.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
@@ -14,19 +15,24 @@ describe('用語表', () => {
     render(<StatusDot status="idle" />);
     expect(screen.getByLabelText('休み')).toHaveAttribute('title', '休み');
   });
-  it('引き取りの確認は「外のターミナル」と書く', () => {
+  it('hangar への移動の確認は「外部ターミナル」と書く', () => {
     render(<IntentRoot onIntent={() => {}}><ConfirmDialog confirm={{ kind: 'adoptSession', sessionId: 's1' }} /></IntentRoot>);
-    expect(screen.getByText(/^外のターミナル（VS Code など）で動いている claude を終わらせ/)).toBeInTheDocument();
+    expect(screen.getByText(/^外部ターミナル（VS Code など）で動いている claude を終了し/)).toBeInTheDocument();
   });
-  it('キーの一覧のダイアログは、開く操作と同じ名前を題にする', () => {
+  it('キーボードショートカットのダイアログは、開く操作と同じ名前を題にする', () => {
     render(<IntentRoot onIntent={() => {}}><ShortcutsDialog /></IntentRoot>);
-    expect(screen.getByRole('dialog', { name: 'キーの一覧' })).toHaveTextContent(/^キーの一覧/);
+    expect(screen.getByRole('dialog', { name: 'キーボードショートカット' })).toHaveTextContent(/^キーボードショートカット/);
+    const open = KEYMAP.find((k) => k.id === 'shortcuts.open')!;
+    expect(translator('ja')(open.labelKey)).toBe('キーボードショートカット');
   });
-  it('キーの一覧の語は、ボタンや画面の語と同じにする', () => {
-    const label = (id: string) => KEYMAP.find((k) => k.id === id)?.label;
+  it('キーボードショートカットの語は、ボタンや画面の語と同じにする', () => {
+    const ja = translator('ja');
+    const label = (id: string) => { const k = KEYMAP.find((b) => b.id === id); return k ? ja(k.labelKey) : undefined; };
     expect(label('session.new')).toBe('新しいセッション');
-    expect(label('transcript.toggle')).toBe('右の欄の開閉');
+    expect(label('transcript.toggle')).toBe('右パネルの開閉');
     expect(label('split.toggle')).toBe('タブを横に並べる');
+    expect(label('session.newScratch')).toBe('クイックセッションを開始');
+    expect(label('list.memo')).toBe('ノートを編集');
   });
   it('横に並べた 2 つの間の仕切りは「左右の幅」と読み上げる', () => {
     render(<IntentRoot onIntent={() => {}}><SplitPane left={<div />} right={<div />} /></IntentRoot>);

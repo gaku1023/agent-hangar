@@ -50,7 +50,7 @@ describe('PauseDialog の時刻', () => {
     choices: [
       { key: 'today', label: '今日の夕方', returnOn: '2026-10-01' }, { key: 'tomorrow', label: '明日', returnOn: '2026-10-02' },
       { key: 'monday', label: '月曜', returnOn: '2026-10-05' }, { key: 'nextWeek', label: '来週', returnOn: '2026-10-08' },
-      { key: 'pick', label: '日付を選ぶ…', returnOn: null },
+      { key: 'pick', label: '日付を選択…', returnOn: null },
     ],
     ...over,
   });
@@ -60,7 +60,7 @@ describe('PauseDialog の時刻', () => {
     return { onIntent, unmount: r.unmount };
   };
   const submit = () => screen.getByRole('button', { name: 'Paused にする' });
-  const time = () => screen.getByLabelText('時刻（任意）');
+  const time = () => screen.getByLabelText('リマインダーの時刻（任意）');
 
   it('時刻の欄は空で始まり、入れると戻る時刻として送る。空のままなら送らない', () => {
     const { onIntent } = mount(props());

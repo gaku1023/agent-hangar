@@ -1664,7 +1664,7 @@ describe('presentRetentionDialog', () => {
   const st = (over: Partial<Store> = {}): Store => ({ ...initialStore(), retention: R, retentionPreview: P, ...over });
   it('延ばすときの題、説明、見込み、控えを出す', () => {
     const p = presentRetentionDialog(open(), st(), NOW)!;
-    expect(p).toMatchObject({ title: '会話の保持期間を 1 年にします', lead: 'Claude Code の設定ファイルに、次の 1 行を足します。', path: P.path, backupDir: P.backupDir + '/', otherPcs: false, shrinkNote: null, showOther: true });
+    expect(p).toMatchObject({ title: 'トランスクリプトの保持期間を 1 年にします', lead: 'Claude Code の設定ファイルに、次の 1 行を追加します。', path: P.path, backupDir: P.backupDir + '/', otherPcs: false, shrinkNote: null, showOther: true });
     expect(p.bar).toMatchObject({ nowLabel: 'いま 1.5 GB', projLabel: '1 年たつと約 18 GB', freeLabel: '空き 400 GB', warn: false });
   });
   it('値を替えるときは「書き換えます」、同期が有効なら他の PC の行を出す', () => {
@@ -1677,8 +1677,14 @@ describe('presentRetentionDialog', () => {
   it('縮めるときは題を変え、消える件数を言う', () => {
     const s = { a: session('a', { transcriptMtime: NOW - 40 * DAY }), b: session('b', { transcriptMtime: NOW - 5 * DAY }) };
     const p = presentRetentionDialog(open(30, 'settings'), st({ retention: { ...R, days: 365, source: 'user', userValue: 365 }, retentionPreview: { ...P, days: 30 }, sessions: s }), NOW)!;
-    expect(p.title).toBe('会話の保持期間を 30 日に縮めます');
-    expect(p.shrinkNote).toBe('次に Claude Code を使い始めたとき、1 件の会話の本文が削除されます。');
+    expect(p.title).toBe('トランスクリプトの保持期間を 30 日に縮めます');
+    expect(p.shrinkNote).toBe('次に Claude Code を使い始めたとき、セッションのトランスクリプト 1 件が削除されます。');
+  });
+  it('言語が英語なら、題と使用量の文も英語で作る', () => {
+    const p = presentRetentionDialog(open(), st({ settings: { ...fullSettings(), language: 'en' } }), NOW)!;
+    expect(p.title).toBe('Set the transcript retention period to 1 year');
+    expect(p.lead).toBe('The following line will be added to the Claude Code settings file.');
+    expect(p.bar).toMatchObject({ nowLabel: 'Now 1.5 GB', projLabel: 'About 18 GB after 1 year', freeLabel: '400 GB free' });
   });
   it('下見の失敗をそのまま渡す', () => {
     const s = { ...initialState(), overlay: { kind: 'retention' as const, days: 365, from: 'banner' as const, reloaded: false, writing: false, previewError: 'x' } };

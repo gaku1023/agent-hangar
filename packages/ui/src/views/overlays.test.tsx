@@ -210,14 +210,14 @@ describe('PromoteDialog', () => {
     const name = screen.getByLabelText('プロジェクト名');
     expect(name.getAttribute('id')).toBe('promote-name');
     fireEvent.change(name, { target: { value: 'newp' } });
-    fireEvent.click(screen.getByLabelText('git init する'));
+    fireEvent.click(screen.getByLabelText('git init を実行'));
     fireEvent.click(screen.getByText('昇格'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: true });
   });
 
   it('run が生きているとファイルを移動できない', () => {
     render(<IntentRoot onIntent={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive submitting={false} error={null} /></IntentRoot>);
-    expect(screen.getByLabelText('ファイルを移動する')).toBeDisabled();
+    expect(screen.getByLabelText('ファイルを移動')).toBeDisabled();
     expect(screen.getByText('実行中のセッションがあるので、ファイルは移動しません')).toBeTruthy();
   });
 
@@ -246,13 +246,13 @@ describe('PromoteDialog', () => {
 
   it('2 つの選択は、何が起きるかを添えたカードで並ぶ', () => {
     render(<IntentRoot onIntent={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></IntentRoot>);
-    expect(screen.getByRole('checkbox', { name: 'git init する' })).toHaveAccessibleDescription('空のリポジトリを作ってから移します');
-    expect(screen.getByRole('checkbox', { name: 'ファイルを移動する' })).toHaveAccessibleDescription('スクラッチのファイルをワークスペースへ移します');
+    expect(screen.getByRole('checkbox', { name: 'git init を実行' })).toHaveAccessibleDescription('空のリポジトリを作成してから移します');
+    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).toHaveAccessibleDescription('クイックセッションのファイルをプロジェクトの親フォルダへ移します');
     expect(screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true']);
   });
   it('run が生きているとき、ファイルを移動するのカードは印を外して押せない', () => {
     render(<IntentRoot onIntent={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive submitting={false} error={null} /></IntentRoot>);
-    expect(screen.getByRole('checkbox', { name: 'ファイルを移動する' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).toHaveAttribute('aria-checked', 'false');
   });
 
   // 名前を打ちかけたまま背景を押し違えても、書きかけを失わない。
@@ -264,10 +264,10 @@ describe('PromoteDialog', () => {
     expect(onIntent).not.toHaveBeenCalled();
   });
 
-  it('やめると Esc で閉じる', () => {
+  it('キャンセルすると Esc で閉じる', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></IntentRoot>);
-    fireEvent.click(screen.getByText('やめる'));
+    fireEvent.click(screen.getByText('キャンセル'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
     onIntent.mockClear();
     fireEvent.keyDown(screen.getByLabelText('プロジェクト名'), { key: 'Escape' });
@@ -298,7 +298,7 @@ describe('PromotedDialog', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><PromotedDialog projectId="p9" projectName="newp" moved reason={null} /></IntentRoot>);
     expect(screen.getByText('ファイルを移しました')).toBeTruthy();
-    fireEvent.click(screen.getByText('ここで新しいセッションを始める'));
+    fireEvent.click(screen.getByText('ここで新しいセッションを開始'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p9' });
     fireEvent.click(screen.getByText('プロジェクトを開く'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.open', id: 'p9' });
