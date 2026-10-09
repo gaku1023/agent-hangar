@@ -228,31 +228,143 @@ describe('起動画面の動き', () => {
   });
 });
 
-// 起動に失敗したら、文の下に「もう一度試す」と「ログを開く」を出す（初回と障害の C1）。
-// どちらも殻の命令で、押すと殻が起動をやり直すか、ログのファイルを開く。
-describe('起動画面の失敗の操作', () => {
+// 起動に失敗したら、殻は種類と数を渡し（__hangarBootFail）、頁が 1 枚の札で出す。
+// 札には、何が起きたか、番号つきの次にすること、命令、詳細、版と OS、「ログを開く」「もう一度試す」を並べる。
+// 文は頁の表（boot-fail.js）が持ち、ここでは並べ方と操作だけを確かめる。
+describe('起動の失敗の札', () => {
+  type Fail = (info: Record<string, unknown>) => void;
+  const failWith = win as unknown as { __hangarBootFail?: Fail };
   const tauri = window as unknown as { __TAURI_INTERNALS__?: { invoke: (cmd: string) => Promise<unknown> } };
-  afterEach(() => { delete tauri.__TAURI_INTERNALS__; });
-  const fail = async () => {
-    $('status').textContent = 'サーバが 20 秒以内に応答しませんでした。';
-    $('status').dataset.level = 'error';
-    await flush();
-  };
-  it('待っている間は出さず、失敗の文が出たら出す', async () => {
+  const info = (extra: Record<string, unknown> = {}) => ({ kind: 'port-in-use', params: { port: 4177 }, detail: 'listen EADDRINUSE: address already in use 127.0.0.1:4177', lang: 'ja', version: '0.1.0', os: 'macOS 15.1', home: '~/.agent-hangar', ...extra });
+  const fail = async (extra: Record<string, unknown> = {}) => { failWith.__hangarBootFail!(info(extra)); await flush(); };
+  const click = (id: string) => ($(id) as HTMLButtonElement).click();
+  afterEach(() => { delete tauri.__TAURI_INTERNALS__; delete failWith.__hangarBootFail; document.documentElement.lang = ''; });
+
+  it('殻が呼ぶ失敗の口（__hangarBootFail）を持つ。待っている間は札を出さない', async () => {
     await boot();
-    expect($('boot-actions').hidden).toBe(true);
+    expect(typeof failWith.__hangarBootFail).toBe('function');
+    expect($('fail').hidden).toBe(true);
+    expect(document.querySelector('main')!.hidden).toBe(false);
+  });
+  it('失敗が届いたら、読み込みの絵を退けて札を出し、流れを止める', async () => {
+    await boot();
+    step(500);
     await fail();
-    expect($('boot-actions').hidden).toBe(false);
+    expect($('fail').hidden).toBe(false);
+    expect(document.querySelector('main')!.hidden).toBe(true);
+    expect($('status').dataset.level).toBe('error');
+    expect(document.body.dataset.fail).toBe('port-in-use');
+    expect($('fail-brand').hidden).toBe(false);
+    step(3 * m.CYCLE_MS + 40);
+    expect(frames.size).toBe(0);
+  });
+  it('札は、見出し、何が起きたか、番号つきの次にすること、命令、詳細、版と OS を並べる', async () => {
+    await boot();
+    await fail();
+    expect($('fail-title').textContent).toBe('ポート 4177 を別のアプリが使っています');
+    expect($('fail-what').textContent).toContain('hangar のサーバではありません');
+    const steps = [...$('fail-steps').querySelectorAll('li')].map((li) => li.textContent);
+    expect($('fail-steps').tagName).toBe('OL');
+    expect(steps).toHaveLength(3);
+    expect(steps[1]).toContain('もう一度試す');
+    expect($('fail-command').textContent).toBe('lsof -nP -iTCP:4177 -sTCP:LISTEN');
+    expect($('fail-detail').textContent).toBe('listen EADDRINUSE: address already in use 127.0.0.1:4177');
+    expect($('fail-env').textContent).toBe('Hangar 0.1.0 · macOS 15.1');
+    expect($('fail-next').textContent).toBe('次にすること');
+    expect($('fail-log-at').textContent).toContain('~/.agent-hangar/desktop.log');
+  });
+  it('詳細は文字のまま入れ、タグとして読まない', async () => {
+    await boot();
+    await fail({ detail: '<img src=x onerror="alert(1)">\nline2' });
+    expect($('fail-detail').textContent).toBe('<img src=x onerror="alert(1)">\nline2');
+    expect($('fail-detail').querySelector('img')).toBeNull();
+  });
+  it('命令の無い種類では、命令の枠を出さない', async () => {
+    await boot();
+    await fail();
+    expect($('fail-command-box').hidden).toBe(false);
+    await fail({ kind: 'other', params: {} });
+    expect($('fail-command-box').hidden).toBe(true);
+  });
+  it('言語が en なら、頁の言語と札の文を英語にする', async () => {
+    await boot();
+    await fail({ lang: 'en' });
+    expect(document.documentElement.lang).toBe('en');
+    expect($('fail-title').textContent).toBe('Port 4177 is in use by another app');
+    expect($('fail-next').textContent).toBe('What to do next');
+    expect($('boot-retry').textContent).toBe('Try again');
+    expect($('boot-log').textContent).toBe('Open log');
+    expect($('fail-copy-all').textContent).toBe('Copy all');
+  });
+  it('二度届いたら、札を作り直す（前の種類の文を残さない）', async () => {
+    await boot();
+    await fail();
+    await fail({ kind: 'db-backup-failed', params: { dir: '~/.agent-hangar/backups/db' }, detail: 'ENOSPC' });
+    expect($('fail-title').textContent).toContain('バックアップ');
+    expect($('fail-steps').querySelectorAll('li')).toHaveLength(3);
+    expect($('fail-command').textContent).toBe('ls -la ~/.agent-hangar/backups/db');
+    expect($('fail-detail').textContent).toBe('ENOSPC');
   });
   it('もう一度試すは起動のやり直しを、ログを開くはログを殻に頼む。やり直しは二度押せない', async () => {
     const invoke = vi.fn(async () => null);
     tauri.__TAURI_INTERNALS__ = { invoke };
     await boot();
     await fail();
-    ($('boot-retry') as HTMLButtonElement).click();
-    ($('boot-retry') as HTMLButtonElement).click();
-    ($('boot-log') as HTMLButtonElement).click();
+    click('boot-retry');
+    click('boot-retry');
+    click('boot-log');
     expect(invoke.mock.calls).toEqual([['retry_boot'], ['open_log']]);
     expect(($('boot-retry') as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('やり直しを殻が断ったら、もう一度押せるように戻す', async () => {
+    tauri.__TAURI_INTERNALS__ = { invoke: vi.fn(async () => { throw new Error('もう起動しています'); }) };
+    await boot();
+    await fail();
+    click('boot-retry');
+    await flush();
+    expect(($('boot-retry') as HTMLButtonElement).disabled).toBe(false);
+  });
+  it('札が出たら、「もう一度試す」に焦点を置く（Enter で押せる）', async () => {
+    await boot();
+    await fail();
+    expect(document.activeElement).toBe($('boot-retry'));
+  });
+  it('操作は Tab の順に、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す', async () => {
+    await boot();
+    await fail();
+    const order = [...$('fail').querySelectorAll<HTMLElement>('button, [tabindex="0"]')].map((el) => el.id);
+    expect(order).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry']);
+  });
+  it('命令のコピーと全文のコピーは、それぞれの文をクリップボードへ書き、押した印を出して戻す', async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    // 「押した印」を戻す待ちだけを捕まえて、試験が好きな時に進める。
+    const later: Array<() => void> = [];
+    const realSetTimeout = globalThis.setTimeout;
+    vi.stubGlobal('setTimeout', ((fn: () => void, ms?: number) => (ms !== undefined && ms >= 1000 ? later.push(fn) : realSetTimeout(fn, ms))) as unknown as typeof setTimeout);
+    await boot();
+    await fail();
+    click('fail-command-copy');
+    click('fail-copy-all');
+    expect(writeText.mock.calls).toEqual([
+      ['lsof -nP -iTCP:4177 -sTCP:LISTEN'],
+      ['Hangar 0.1.0 · macOS 15.1\nport-in-use\n\nlisten EADDRINUSE: address already in use 127.0.0.1:4177'],
+    ]);
+    await flush();
+    expect($('fail-copy-all').textContent).toBe('コピーしました');
+    expect(later).toHaveLength(2);
+    later.forEach((fn) => fn());
+    expect($('fail-copy-all').textContent).toBe('全文をコピー');
+  });
+  it('クリップボードの口が無い頁でも、選択と copy の命令で写す', async () => {
+    vi.stubGlobal('navigator', {});
+    const exec = vi.fn(() => true);
+    (document as unknown as { execCommand: unknown }).execCommand = exec;
+    await boot();
+    await fail();
+    click('fail-copy-all');
+    await flush();
+    expect(exec).toHaveBeenCalledWith('copy');
+    delete (document as unknown as { execCommand?: unknown }).execCommand;
   });
 });
