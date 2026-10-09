@@ -66,7 +66,7 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
       let projectId: string;
       let created = true;
       if (body.kind === 'newDir') {
-        if (typeof body.name !== 'string') return c.json({ error: tr('http.request.required', { field: 'name' }) }, 400);
+        if (typeof body.name !== 'string') return c.json({ error: tr('common.field.required', { field: 'name' }) }, 400);
         ({ projectId } = createProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot, gitInit: deps.gitInit }, { name: body.name, gitInit: body.gitInit === true }));
       } else if (body.kind === 'dir') {
         if (typeof body.path !== 'string') return c.json({ error: tr('project.create.pathNotDir') }, 400);

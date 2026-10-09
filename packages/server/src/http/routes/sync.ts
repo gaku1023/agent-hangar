@@ -18,7 +18,7 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const body = (b.value ?? {}) as { paused?: unknown };
-    if (typeof body.paused !== 'boolean') return c.json({ error: tr('http.request.mustBeBoolean', { field: 'paused' }) }, 400);
+    if (typeof body.paused !== 'boolean') return c.json({ error: tr('common.field.mustBeBoolean', { field: 'paused' }) }, 400);
     deps.sync.setPaused(body.paused);
     // 再開は pull を投げっぱなしにするので、直後のこの状態は pulling になりうる。
     return c.json(syncStatus());

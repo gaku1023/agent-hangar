@@ -26,7 +26,7 @@ export function promptRoutes(api: Hono, deps: PromptRouteDeps): void {
   // 初期プロンプト欄の `@` の候補。パスの無いプロジェクト（まだ場所が決まっていないもの）では空を返す。
   api.get('/prompt/files', async (c) => {
     const id = c.req.query('projectId');
-    if (!id) return c.json({ error: tr('http.request.needed', { field: 'projectId' }) }, 400);
+    if (!id) return c.json({ error: tr('common.field.needed', { field: 'projectId' }) }, 400);
     const project = requireProject(id);
     if (!project) return c.json({ error: tr('project.error.notFound') }, 404);
     return c.json({ files: project.path ? await listProjectFiles(project.path, c.req.query('q') ?? '') : [] });
@@ -38,7 +38,7 @@ export function promptRoutes(api: Hono, deps: PromptRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const paths = (b.value as { paths?: unknown } | null | undefined)?.paths;
-    if (!Array.isArray(paths)) return c.json({ error: tr('http.request.needed', { field: 'paths' }) }, 400);
+    if (!Array.isArray(paths)) return c.json({ error: tr('common.field.needed', { field: 'paths' }) }, 400);
     // フォルダを落としたときは元のパスがそのまま添付になるので、ファイルに限らず「ある」かだけを見る。
     return c.json({ paths: paths.filter((p): p is string => typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p)) });
   });

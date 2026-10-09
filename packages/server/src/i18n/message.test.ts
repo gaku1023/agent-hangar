@@ -27,6 +27,12 @@ describe('msg と render', () => {
     expect(render('en', m)).toBe('Stop "Cancel"?');
   });
 
+  it('引数に入れた並びは、その言語の区切りでつなぐ', () => {
+    const m = msg('mcp.args.oneOf', { field: 'state', values: ['a', 'b', 'c'] });
+    expect(render('ja', m)).toBe('state は a、b、c のいずれかです');
+    expect(render('en', m)).toBe('state must be one of a, b, c');
+  });
+
   it('引数の数と名前は型で止まる', () => {
     // @ts-expect-error 引数の要る鍵に、引数を渡していない
     msg('sessions.list.count');

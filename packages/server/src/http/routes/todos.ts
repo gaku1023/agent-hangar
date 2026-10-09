@@ -24,14 +24,14 @@ export function todoRoutes(api: Hono, deps: TodoRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.todo);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo, tr);
     const body = (b.value ?? {}) as { text?: unknown };
-    if (typeof body.text !== 'string' || !body.text.trim()) return c.json({ error: tr('http.request.required', { field: 'text' }) }, 400);
+    if (typeof body.text !== 'string' || !body.text.trim()) return c.json({ error: tr('common.field.required', { field: 'text' }) }, 400);
     return c.json(addTodo(db, deviceId, { projectId: id, text: body.text }), 201);
   });
   api.patch('/todos/:id', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const body = (b.value ?? {}) as { done?: unknown };
-    if (typeof body.done !== 'boolean') return c.json({ error: tr('http.request.mustBeBoolean', { field: 'done' }) }, 400);
+    if (typeof body.done !== 'boolean') return c.json({ error: tr('common.field.mustBeBoolean', { field: 'done' }) }, 400);
     const t = setTodoDone(db, deviceId, c.req.param('id'), body.done);
     if (!t) return c.json({ error: tr('todo.error.notFound') }, 404);
     return c.json(t);

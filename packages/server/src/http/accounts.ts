@@ -100,7 +100,7 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
 
   api.put('/accounts/current', (c) => guard(c, async () => {
     const b = await bodyOf(c);
-    if (typeof b.id !== 'string') throw new AccountError(400, msg('http.request.send', { field: 'id' }));
+    if (typeof b.id !== 'string') throw new AccountError(400, msg('common.field.send', { field: 'id' }));
     deps.store.setCurrent(b.id);
     return c.json(changed());
   }));
@@ -108,8 +108,8 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
   api.patch('/accounts/:id', (c) => guard(c, async () => {
     const b = await bodyOf(c);
     const patch: { name?: string; color?: string } = {};
-    if (b.name !== undefined) { if (typeof b.name !== 'string') throw new AccountError(400, msg('http.request.sendString', { field: 'name' })); patch.name = b.name; }
-    if (b.color !== undefined) { if (typeof b.color !== 'string') throw new AccountError(400, msg('http.request.sendString', { field: 'color' })); patch.color = b.color; }
+    if (b.name !== undefined) { if (typeof b.name !== 'string') throw new AccountError(400, msg('common.field.sendString', { field: 'name' })); patch.name = b.name; }
+    if (b.color !== undefined) { if (typeof b.color !== 'string') throw new AccountError(400, msg('common.field.sendString', { field: 'color' })); patch.color = b.color; }
     deps.store.update(c.req.param('id'), patch);
     return c.json(changed());
   }));
@@ -144,7 +144,7 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
 
   api.post('/sessions/:id/switch-account', (c) => guard(c, async () => {
     const b = await bodyOf(c);
-    if (typeof b.account !== 'string') throw new AccountError(400, msg('http.request.send', { field: 'account' }));
+    if (typeof b.account !== 'string') throw new AccountError(400, msg('common.field.send', { field: 'account' }));
     await deps.beforeLaunch?.();
     const result = await deps.runs.switchAccount(c.req.param('id'), b.account);
     // セッション画面で選んだら、新しいセッションの既定もそのアカウントにする（設計書の決定）。

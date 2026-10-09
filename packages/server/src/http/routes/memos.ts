@@ -25,7 +25,7 @@ export function memoRoutes(api: Hono, deps: MemoRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.memo);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.memo, tr);
     const body = (b.value ?? {}) as { markdown?: unknown };
-    if (typeof body.markdown !== 'string') return c.json({ error: tr('http.request.mustBeString', { field: 'markdown' }) }, 400);
+    if (typeof body.markdown !== 'string') return c.json({ error: tr('common.field.mustBeString', { field: 'markdown' }) }, 400);
     return c.json(deps.memos.write(id, body.markdown));
   });
 }

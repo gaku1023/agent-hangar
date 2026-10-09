@@ -6,9 +6,10 @@ import { defaultLanguage, type GetLanguage } from './language.ts';
  * 深い層（保存、検査、起動）は言語を知らないので、鍵と引数のまま投げるか返し、
  * 利用者や Claude へ出す境目（HTTP の経路、MCP の道具）が、そのときの言語で文にする。
  * 引数には、別の文を入れられる。入れた文も、同じ言語で文になる。
+ * 並びを入れると、その言語の区切り（common.list.separator）でつないで出す。
  */
 export type Message = { readonly key: MessageKey; readonly params?: Readonly<Record<string, MessageParam>> };
-export type MessageParam = string | number | Message;
+export type MessageParam = string | number | Message | readonly (string | number)[];
 type MsgArgs<K extends MessageKey> = [MessageParamName<K>] extends [never] ? [] : [params: { [P in MessageParamName<K>]: MessageParam }];
 
 /** 鍵と引数から文を作る。引数の数と名前は、`t()` と同じく型で決まる。 */
@@ -16,14 +17,14 @@ export function msg<K extends MessageKey>(key: K, ...args: MsgArgs<K>): Message 
   return args[0] ? { key, params: args[0] as Record<string, MessageParam> } : { key };
 }
 
-const isMessage = (v: MessageParam): v is Message => typeof v === 'object';
+const isList = (v: MessageParam): v is readonly (string | number)[] => Array.isArray(v);
 const loose = t as (language: Language, key: string, params?: Record<string, string | number>) => string;
 
 /** 文を、その言語で出す。 */
 export function render(language: Language, m: Message): string {
   if (!m.params) return loose(language, m.key);
   const params: Record<string, string | number> = {};
-  for (const [name, v] of Object.entries(m.params)) params[name] = isMessage(v) ? render(language, v) : v;
+  for (const [name, v] of Object.entries(m.params)) params[name] = isList(v) ? v.join(loose(language, 'common.list.separator')) : typeof v === 'object' ? render(language, v) : v;
   return loose(language, m.key, params);
 }
 
@@ -34,10 +35,15 @@ export function render(language: Language, m: Message): string {
  * 文字列で作ったものは、言語を選べないので、その文字列をそのまま出す。
  */
 export class MessageError extends Error {
-  readonly text: Message | null;
+  // 持ち主の見える項目にしない。失敗どうしを項目ごとに比べる呼び手（試験の toThrow など）に、文字列で作ったものと同じに見せる。
+  readonly #text: Message | null;
   constructor(text: Message | string) {
     super(typeof text === 'string' ? text : render(DEFAULT_LANGUAGE, text));
-    this.text = typeof text === 'string' ? null : text;
+    this.#text = typeof text === 'string' ? null : text;
+  }
+  /** 鍵と引数。文字列で作ったものは null である。 */
+  get text(): Message | null {
+    return this.#text;
   }
 }
 

@@ -3,6 +3,8 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { tokenEquals, tokenFromRequest } from '../auth/request.ts';
+import { defaultLanguage } from '../i18n/language.ts';
+import { errorText, translatorOf } from '../i18n/message.ts';
 import { mcpSecretMatches } from '../runs/secrets.ts';
 import { callTool, type ToolContext, type ToolDeps } from './tools.ts';
 
@@ -24,28 +26,31 @@ const STATE = z.enum(['in_progress', 'done', 'blocked', 'abandoned']);
 
 export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   const server = new McpServer({ name: 'agent-hangar', version: MCP_VERSION });
+  // 道具の説明と、失敗の文は、いまの言語で出す。サーバは要求ごとに作るので、設定を変えれば次の要求から変わる。
+  const language = deps.language ?? defaultLanguage;
+  const tr = translatorOf(language);
   const reg = (name: string, description: string, inputSchema: Record<string, z.ZodTypeAny>) => {
     server.registerTool(name, { description, inputSchema }, async (args: Record<string, unknown>) => {
       try {
         return { content: [{ type: 'text' as const, text: JSON.stringify(callTool(deps, ctx, name, args), null, 2) }] };
       } catch (e) {
-        return { content: [{ type: 'text' as const, text: e instanceof Error ? e.message : String(e) }], isError: true };
+        return { content: [{ type: 'text' as const, text: errorText(language(), e) }], isError: true };
       }
     });
   };
-  reg('list_projects', D('プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終活動を返す。'), {});
-  reg('get_project', D('プロジェクトの詳細。TODO、メモ、直近のセッション、アーティファクト。'), { project_id: z.string() });
-  reg('update_project', D('プロジェクトのステータスを変え、TODO を足し、片付いた TODO を完了の候補として出し、メモに追記する。完了にするのは利用者である。propose_done には TODO の ID と根拠の一文（200 字まで）を渡す。toggle_todos は完了を開き直すか、未完を根拠なしの候補にする。'), { project_id: z.string(), status: STATUS.optional(), add_todos: z.array(z.string()).optional(), toggle_todos: z.array(z.string()).optional(), propose_done: z.array(z.object({ todo_id: z.string(), note: z.string() })).optional(), append_memo: z.string().optional() });
-  reg('list_sessions', D('セッションの一覧。project_id、running、limit で絞る。'), { project_id: z.string().optional(), running: z.boolean().optional(), limit: z.number().int().positive().optional() });
-  reg('search_sessions', D('過去のセッションを全文検索する。題名、要約の 1 文、一致箇所の抜粋、再開コマンドを返す。'), { query: z.string(), project_id: z.string().optional(), since: z.number().optional(), until: z.number().optional(), file: z.string().optional(), limit: z.number().int().positive().optional() });
-  reg('get_transcript', D('セッションの本文を正規化イベントで返す。セッション別 URL では session_id を省ける。'), { session_id: z.string().optional(), from_seq: z.number().int().optional(), limit: z.number().int().positive().optional(), include_tools: z.boolean().optional() });
-  reg('create_session', D('プロジェクトで新しい Claude Code セッションを tmux 上に起動する。'), { project_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), model: z.string().optional(), effort: z.string().optional(), permission_mode: z.string().optional(), scratch: z.boolean().optional() });
-  reg('set_session_summary', D('このセッションの要約を更新する。依頼の完了、方針の変更、中断のときに呼ぶ。'), { session_id: z.string().optional(), title: z.string(), one_liner: z.string(), body: z.string(), state: STATE, next_steps: z.array(z.string()) });
-  reg('set_turn_intent', D('このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。ターンを始めたときと方針を変えたときに呼ぶ。hangar の右ペインに出る。'), { session_id: z.string().optional(), text: z.string() });
-  reg('propose_session_status', D('このセッションの状態（Done か Paused）を提案する。利用者が会話の中で選んだときだけ confirmed を true にする。利用者に聞かずに true にしてはいけない。'), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe('根拠の一文。必須（1〜200 字）'), return_on: z.string().optional().describe('戻る日。YYYY-MM-DD（手元の暦。過去の日は不可）。paused では必須'), return_time: z.string().optional().describe('戻る時刻。HH:MM（24 時間、00:00〜23:59、手元の時刻）。確かめる時刻に意味があるときだけ渡す。省くと「その日のうち」になる。return_on と合わせて過去になる時点は不可'), confirmed: z.boolean().optional().describe('利用者が会話の中で選んだときだけ true') });
-  reg('set_session_memo', D('セッションの人間向け 1 行メモを書く。'), { session_id: z.string().optional(), text: z.string() });
-  reg('get_usage', D('Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。statusline から届いた最新の値。上の 3 項目は最初のアカウントの値で、accounts にアカウントごとの値（名前、いま使っているか、同じ 3 項目）が並ぶ。'), {});
-  reg('open_in_hangar', D('セッションかプロジェクトを hangar の UI で開く URL とディープリンクを返す。'), { session_id: z.string().optional(), project_id: z.string().optional() });
+  reg('list_projects', D(tr('mcp.tool.listProjects')), {});
+  reg('get_project', D(tr('mcp.tool.getProject')), { project_id: z.string() });
+  reg('update_project', D(tr('mcp.tool.updateProject')), { project_id: z.string(), status: STATUS.optional(), add_todos: z.array(z.string()).optional(), toggle_todos: z.array(z.string()).optional(), propose_done: z.array(z.object({ todo_id: z.string(), note: z.string() })).optional(), append_memo: z.string().optional() });
+  reg('list_sessions', D(tr('mcp.tool.listSessions')), { project_id: z.string().optional(), running: z.boolean().optional(), limit: z.number().int().positive().optional() });
+  reg('search_sessions', D(tr('mcp.tool.searchSessions')), { query: z.string(), project_id: z.string().optional(), since: z.number().optional(), until: z.number().optional(), file: z.string().optional(), limit: z.number().int().positive().optional() });
+  reg('get_transcript', D(tr('mcp.tool.getTranscript')), { session_id: z.string().optional(), from_seq: z.number().int().optional(), limit: z.number().int().positive().optional(), include_tools: z.boolean().optional() });
+  reg('create_session', D(tr('mcp.tool.createSession')), { project_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), model: z.string().optional(), effort: z.string().optional(), permission_mode: z.string().optional(), scratch: z.boolean().optional() });
+  reg('set_session_summary', D(tr('mcp.tool.setSessionSummary')), { session_id: z.string().optional(), title: z.string(), one_liner: z.string(), body: z.string(), state: STATE, next_steps: z.array(z.string()) });
+  reg('set_turn_intent', D(tr('mcp.tool.setTurnIntent')), { session_id: z.string().optional(), text: z.string() });
+  reg('propose_session_status', D(tr('mcp.tool.proposeSessionStatus')), { session_id: z.string().optional(), status: z.enum(['done', 'paused']), note: z.string().describe(tr('mcp.sessionStatus.noteParam')), return_on: z.string().optional().describe(tr('mcp.sessionStatus.returnOnParam')), return_time: z.string().optional().describe(tr('mcp.sessionStatus.returnTimeParam')), confirmed: z.boolean().optional().describe(tr('mcp.sessionStatus.confirmedParam')) });
+  reg('set_session_memo', D(tr('mcp.tool.setSessionMemo')), { session_id: z.string().optional(), text: z.string() });
+  reg('get_usage', D(tr('mcp.tool.getUsage')), {});
+  reg('open_in_hangar', D(tr('mcp.tool.openInHangar')), { session_id: z.string().optional(), project_id: z.string().optional() });
   return server;
 }
 

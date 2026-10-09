@@ -24,7 +24,7 @@ export function artifactRoutes(api: Hono, deps: ArtifactRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.url);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.url, tr);
     const body = (b.value ?? {}) as { url?: unknown };
-    if (typeof body.url !== 'string') return c.json({ error: tr('http.request.required', { field: 'url' }) }, 400);
+    if (typeof body.url !== 'string') return c.json({ error: tr('common.field.required', { field: 'url' }) }, 400);
     let a: ArtifactDto;
     // 入力の誤りだけを 400 にする。DB の失敗などは呼び手の直しようが無いので 500 で返す。
     try {

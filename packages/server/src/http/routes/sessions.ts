@@ -117,7 +117,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.todo);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo, tr);
     const body = (b.value ?? {}) as { memo?: unknown };
-    if (typeof body.memo !== 'string') return c.json({ error: tr('http.request.mustBeString', { field: 'memo' }) }, 400);
+    if (typeof body.memo !== 'string') return c.json({ error: tr('common.field.mustBeString', { field: 'memo' }) }, 400);
     upsertShared(db, 'sessions', { ...row, memo: body.memo.trim() || null }, deviceId);
     return c.json(session(id)!);
   });
@@ -169,7 +169,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const body = (b.value ?? {}) as { name?: unknown; gitInit?: unknown; moveFiles?: unknown };
-    if (typeof body.name !== 'string') return c.json({ error: tr('http.request.required', { field: 'name' }) }, 400);
+    if (typeof body.name !== 'string') return c.json({ error: tr('common.field.required', { field: 'name' }) }, 400);
     const before = session(id);
     if (!before) return c.json({ error: tr('session.error.notFound') }, 404);
     try {
