@@ -44,9 +44,9 @@ describe('デスクトップの通知', () => {
       const n = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => answer) }, document: doc(true, true) });
       await expect(n.status()).resolves.toBe(answer);
     }
-    // 古い殻（命令が無い）や、知らない答えのときは、これまでどおり出せるとみなす。
-    const old = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => { throw new Error('unknown command'); }) }, document: doc(true, true) });
-    await expect(old.status()).resolves.toBe('undetermined');
+    // 殻の命令が失敗したとき（権限で断られた、殻が答えない）や、知らない答えのときは、これまでどおり出せるとみなす。
+    const failing = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => { throw new Error('not allowed'); }) }, document: doc(true, true) });
+    await expect(failing.status()).resolves.toBe('undetermined');
     const odd = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => 42) }, document: doc(true, true) });
     await expect(odd.status()).resolves.toBe('undetermined');
   });

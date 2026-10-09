@@ -312,7 +312,7 @@ export function createApp(deps: AppDeps): Hono {
   const { db, deviceId } = deps;
 
   // 鍵の要らない経路なので、起動の進み具合は段階と件数だけを載せる。
-  // compat は互換の版番号で、殻が 4177 の既存のサーバを採る前に照合する（照合は段 1 の PR 7 で入れる）。
+  // compat は互換の版番号で、殻は 4177 の既存のサーバを、自分と同じ版のときだけ採る（apps/desktop/src-tauri/src/health.rs の judge_existing）。
   app.get('/health', (c) => c.json({ ok: true, version: deps.version, compat: COMPAT_VERSION, ready: deps.ready?.() ?? true, index: deps.indexer.progress() }));
 
   const api = new Hono();
