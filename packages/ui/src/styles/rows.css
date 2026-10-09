@@ -214,12 +214,16 @@
 .pwarn:hover { background: color-mix(in srgb, var(--waiting) 16%, var(--surface)); }
 .pwarn .icon { width: 12px; height: 12px; }
 /* 「いま」。入力待ちと実行中は色、確認待ちは紫の札、リマインダーは Paused の色。入り切らなければ右を省略する。 */
+.pnow { position: relative; min-width: 0; }
 .pcounts { display: flex; align-items: center; gap: calc(var(--u) * 3); min-width: 0; overflow: hidden; font-size: var(--fs-xs); color: var(--ink-3); }
-.pcounts > span { flex: none; font-variant-numeric: tabular-nums; }
-.pcounts [data-kind='waiting'] { color: var(--waiting); font-weight: 600; }
-.pcounts [data-kind='running'] { color: var(--busy); font-weight: 600; }
-.pcounts [data-kind='pending'] { padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
-.pcounts [data-kind='reminder'] { color: var(--st-paused); font-weight: 600; }
+.pcounts > span, .pcounts-measure > span { flex: none; font-variant-numeric: tabular-nums; }
+.pcounts-more { color: var(--ink-3); }
+/* 幅を測るための見えない写し。見えず、場所も取らず、押せない。 */
+.pcounts-measure { position: absolute; top: 0; left: 0; display: flex; gap: calc(var(--u) * 3); font-size: var(--fs-xs); visibility: hidden; pointer-events: none; white-space: nowrap; }
+:is(.pcounts, .pcounts-measure) [data-kind='waiting'] { color: var(--waiting); font-weight: 600; }
+:is(.pcounts, .pcounts-measure) [data-kind='running'] { color: var(--busy); font-weight: 600; }
+:is(.pcounts, .pcounts-measure) [data-kind='pending'] { padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
+:is(.pcounts, .pcounts-measure) [data-kind='reminder'] { color: var(--st-paused); font-weight: 600; }
 .prow .pn { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .pmore { display: flex; justify-content: flex-end; }
 .pmore .pmore-btn { width: calc(var(--u) * 6); height: calc(var(--u) * 5); padding: 0; background: none; box-shadow: none; color: var(--ink-3); }

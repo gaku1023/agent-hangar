@@ -23,6 +23,7 @@ export const en: Dictionary = {
   'projects.menu.relocate': 'Relocate',
   'projects.new.button': 'New project',
   'projects.list.noMatch': 'No matching projects',
+  'projects.now.more': '{n} more',
   'projects.now.pending': 'Pending review {n}',
   'projects.now.reminder': 'Reminder {date}',
   'projects.now.running': 'Running {n}',

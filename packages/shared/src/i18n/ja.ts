@@ -23,6 +23,7 @@ export const ja: Dictionary = {
   'projects.menu.relocate': '場所を再指定',
   'projects.new.button': '新しいプロジェクト',
   'projects.list.noMatch': 'あてはまるプロジェクトはありません',
+  'projects.now.more': 'ほか {n}',
   'projects.now.pending': '確認待ち {n}',
   'projects.now.reminder': 'リマインダー {date}',
   'projects.now.running': '実行中 {n}',

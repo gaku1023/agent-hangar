@@ -58,8 +58,8 @@ describe('ProjectsScreen の表', () => {
     expect(container.querySelector('.card')).toBeNull();
   });
   it('「いま」は種類ごとに色の印を持ち、語に数を付ける', () => {
-    mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [{ kind: 'waiting', text: '入力待ち 1' }, { kind: 'running', text: '実行中 2' }, { kind: 'pending', text: '確認待ち 1' }, { kind: 'todo', text: 'TODO 3' }, { kind: 'reminder', text: 'リマインダー 9/4（金）' }] })] }] }));
-    for (const [text, kind] of [['入力待ち 1', 'waiting'], ['実行中 2', 'running'], ['確認待ち 1', 'pending'], ['TODO 3', 'todo'], ['リマインダー 9/4（金）', 'reminder']]) expect(screen.getByText(text!)).toHaveAttribute('data-kind', kind);
+    const { container } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [{ kind: 'waiting', text: '入力待ち 1' }, { kind: 'running', text: '実行中 2' }, { kind: 'pending', text: '確認待ち 1' }, { kind: 'todo', text: 'TODO 3' }, { kind: 'reminder', text: 'リマインダー 9/4（金）' }] })] }] }));
+    for (const [text, kind] of [['入力待ち 1', 'waiting'], ['実行中 2', 'running'], ['確認待ち 1', 'pending'], ['TODO 3', 'todo'], ['リマインダー 9/4（金）', 'reminder']]) expect(within(container.querySelector<HTMLElement>('.pcounts')!).getByText(text!)).toHaveAttribute('data-kind', kind);
   });
 });
 
@@ -205,6 +205,45 @@ describe('ProjectsScreen の空の状態', () => {
     mount(props({ sections: [], total: 5, empty: 'noMatch' }), { filter: 'zzz' });
     expect(screen.getByText('あてはまるプロジェクトはありません')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '名前で絞る' })).toHaveValue('zzz');
+  });
+});
+
+describe('ProjectsScreen の「いま」が入り切らないとき', () => {
+  const four = [{ kind: 'waiting', text: '入力待ち 1' }, { kind: 'running', text: '実行中 2' }, { kind: 'pending', text: '確認待ち 1' }, { kind: 'todo', text: 'TODO 4' }] as const;
+  const withLayout = (columnWidth: number, run: () => void) => {
+    // jsdom は配置を持たないので、項目の幅（80）、「ほか N」の幅（40）、列の幅を差し込む。隙間は読めないので既定の 12 になる。
+    const offset = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.hasAttribute('data-now-more') ? 40 : 80; });
+    const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('pcounts') ? columnWidth : 0; });
+    try { run(); } finally { offset.mockRestore(); client.mockRestore(); }
+  };
+  const shown = (container: HTMLElement) => [...container.querySelectorAll('.pcounts > [data-kind]')].map((n) => n.textContent);
+  it('入り切らない項目は丸ごと落とし、最後に「ほか N」を置く', () => {
+    withLayout(200, () => {
+      const { container } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [...four] })] }] }));
+      expect(shown(container)).toEqual(['入力待ち 1']);
+      expect(container.querySelector('.pcounts > [data-now-more]')).toHaveTextContent('ほか 3');
+    });
+  });
+  it('全文は title に持ち、読み上げの名前は全部の数を含む', () => {
+    withLayout(200, () => {
+      const { container } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [...four], label: 'alpha、Active、入力待ち 1、実行中 2、確認待ち 1、TODO 4' })] }] }));
+      expect(container.querySelector('.pnow')).toHaveAttribute('title', '入力待ち 1、実行中 2、確認待ち 1、TODO 4');
+      expect(screen.getByRole('link', { name: /TODO 4/ })).toBeInTheDocument();
+    });
+  });
+  it('全部入るなら、「ほか N」を置かない', () => {
+    withLayout(1000, () => {
+      const { container } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [...four] })] }] }));
+      expect(shown(container)).toHaveLength(4);
+      expect(container.querySelector('.pcounts > [data-now-more]')).toBeNull();
+    });
+  });
+  it('English では「N more」と言う', () => {
+    withLayout(200, () => {
+      const p = props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [...four] })] }] });
+      const { container } = render(<LanguageRoot language="en"><IntentRoot onIntent={vi.fn()}><ProjectsScreen {...p} filter="" onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot></LanguageRoot>);
+      expect(container.querySelector('.pcounts > [data-now-more]')).toHaveTextContent('3 more');
+    });
   });
 });
 

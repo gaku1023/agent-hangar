@@ -1,13 +1,14 @@
 import { formatRoute, type ProjectStatus } from '@agent-hangar/shared';
-import type { KeyboardEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useEmit, type Emit } from '../intent/chain.tsx';
 import { STATUS_LABEL } from '../presenters/format.ts';
-import type { ProjectRowProps, ProjectsProps } from '../presenters/projects.ts';
+import type { ProjectNowItem, ProjectRowProps, ProjectsProps } from '../presenters/projects.ts';
 import { PageHeading } from './PageHeading.tsx';
 import { useFlip } from './primitives/flip.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
+import { fitCount } from './nowFit.ts';
 
 const STATUSES: ProjectStatus[] = ['active', 'paused', 'done', 'archived'];
 
@@ -108,7 +109,7 @@ function ProjectRow(props: { row: ProjectRowProps; flipRef: (el: HTMLElement | n
           <button type="button" className="pwarn" title={t('projects.place.missing')} onClick={() => emit({ type: 'project.resolve.open', id: r.id })}><Icon name="warning" /><span className="pwarn-text">{t('projects.place.missing')}</span></button>
         )}
       </span>
-      <span className="pcounts" title={r.now.length > 0 ? r.now.map((n) => n.text).join(t('projects.now.separator')) : undefined}>{r.now.map((n) => <span key={n.kind} data-kind={n.kind}>{n.text}</span>)}</span>
+      <NowCell items={r.now} />
       <span className="pn">{r.sessionsText}</span>
       <span className="pn">{r.lastActivity}</span>
       <span className="pmore"><MenuButton label={t('projects.row.menu', { name: r.name })} items={menuItems(r, emit, t)} faceClassName="btn btn-icon pmore-btn" minWidth={200} /></span>
@@ -130,5 +131,50 @@ function EmptyCard(props: { promoteSessionId: string | null }) {
         {props.promoteSessionId !== null && <button className="btn" onClick={() => emit({ type: 'session.promote.open', id: props.promoteSessionId! })}><Icon name="promote" />{t('projects.empty.promote')}</button>}
       </div>
     </div>
+  );
+}
+
+/**
+ * 「いま」の列。入り切らない項目は途中で切らず、丸ごと落として最後に「ほか N」を置く。
+ * 落とす数は描いた後の幅で決める。項目と「ほか N」を見えない写し（.pcounts-measure）に全部並べて幅を測り、列の幅と見比べる（fitCount）。
+ * 列の幅が変わったとき（窓、サイドバーの開閉）は ResizeObserver で測り直す。
+ * 全文は title に持つ。読み上げの名前は行の側が全部の数を言っているので、ここは見た目だけを決める。
+ */
+function NowCell(props: { items: ProjectNowItem[] }) {
+  const t = useT();
+  const host = useRef<HTMLSpanElement>(null);
+  const measure = useRef<HTMLSpanElement>(null);
+  const [shown, setShown] = useState(props.items.length);
+  const sig = props.items.map((i) => i.text).join('|');
+  useLayoutEffect(() => {
+    const el = host.current;
+    const m = measure.current;
+    if (!el || !m) return;
+    const fit = () => {
+      const kids = [...m.children] as HTMLElement[];
+      const moreWidth = kids[kids.length - 1]?.offsetWidth ?? 0;
+      const gap = parseFloat(getComputedStyle(el).columnGap);
+      setShown(fitCount(kids.slice(0, -1).map((k) => k.offsetWidth), Number.isFinite(gap) ? gap : 12, el.clientWidth, moreWidth));
+    };
+    fit();
+    if (typeof ResizeObserver === 'undefined') return;
+    let last = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth !== last) { last = el.clientWidth; fit(); } });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sig]);
+  const hidden = props.items.length - Math.min(shown, props.items.length);
+  const more = (n: number, measuring = false) => <span data-now-more="true" className="pcounts-more" key={measuring ? 'm' : undefined}>{t('projects.now.more', { n })}</span>;
+  return (
+    <span className="pnow" title={props.items.length > 0 ? props.items.map((i) => i.text).join(t('projects.now.separator')) : undefined}>
+      <span ref={host} className="pcounts">
+        {props.items.slice(0, props.items.length - hidden).map((n) => <span key={n.kind} data-kind={n.kind}>{n.text}</span>)}
+        {hidden > 0 && more(hidden)}
+      </span>
+      <span ref={measure} className="pcounts-measure" aria-hidden="true">
+        {props.items.map((n) => <span key={n.kind} data-kind={n.kind}>{n.text}</span>)}
+        {more(props.items.length, true)}
+      </span>
+    </span>
   );
 }

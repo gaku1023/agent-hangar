@@ -29,6 +29,7 @@ export const MESSAGES = {
   'projects.menu.relocate': [],
   'projects.new.button': [],
   'projects.list.noMatch': [],
+  'projects.now.more': ['n'],
   'projects.now.pending': ['n'],
   'projects.now.reminder': ['date'],
   'projects.now.running': ['n'],
