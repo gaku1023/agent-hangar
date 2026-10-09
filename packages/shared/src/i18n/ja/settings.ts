@@ -1,0 +1,33 @@
+import type { settingsKeys } from '../keys/settings.ts';
+import type { AreaDictionary } from '../messageSpec.ts';
+
+export const settingsJa: AreaDictionary<typeof settingsKeys> = {
+  'settings.error.empty': '「{label}」は空にできません',
+  'settings.error.badValue': '「{label}」の値の形が違います',
+  'settings.error.nothingToUpdate': '更新できる設定が含まれていません',
+  'settings.path.missing': '「{label}」に {path} が見つかりません',
+  'settings.path.notDirectory': '「{label}」の {path} はディレクトリではありません',
+  'settings.path.badForm': '「{label}」は / か ~ で始まるパスか、tmux のようなコマンドの名前にしてください',
+  'settings.path.notOnPath': '「{label}」の {name} が PATH に見つかりません',
+  'settings.path.notFile': '「{label}」の {path} はファイルではありません',
+  'settings.path.notExecutable': '「{label}」の {path} には実行権がありません',
+  'settings.terminalApp.invalid': '「{label}」は Terminal.app か iTerm2 から選んでください',
+  'settings.lmStudioUrl.invalid': '「{label}」は http か https で始まる URL にしてください',
+  'settings.hourlyCap.invalid': '「{label}」は 1 から {max} までの整数にしてください',
+  'settings.language.invalid': '「{label}」は {languages} から選んでください',
+  'settings.summarizer.loopbackOnly': '要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、ほかの宛先は、設定の「{label}」を入れてから指定してください',
+  'settings.label.workspaceRoot': 'ワークスペースのルート',
+  'settings.label.claudeDir': '読み取り元',
+  'settings.label.tmuxPath': 'tmux のパス',
+  'settings.label.codePath': 'code のパス',
+  'settings.label.nodePath': 'Node のパス',
+  'settings.label.claudePath': 'claude のパス',
+  'settings.label.terminalApp': 'ターミナルアプリ',
+  'settings.label.lmStudioUrl': 'LM Studio の URL',
+  'settings.label.lmStudioModel': 'モデル',
+  'settings.label.summaryFallback': 'LM Studio が使えないとき Claude へ切り替える',
+  'settings.label.summaryHourlyCap': '1 時間の上限',
+  'settings.label.allowExternalSummarizer': '外部の要約器を許す',
+  'settings.label.syncClaudeConfig': 'Claude Code の設定を同期する',
+  'settings.label.language': '言語',
+};

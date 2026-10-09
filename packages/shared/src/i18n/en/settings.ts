@@ -1,0 +1,33 @@
+import type { settingsKeys } from '../keys/settings.ts';
+import type { AreaDictionary } from '../messageSpec.ts';
+
+export const settingsEn: AreaDictionary<typeof settingsKeys> = {
+  'settings.error.empty': '"{label}" cannot be empty',
+  'settings.error.badValue': 'The value of "{label}" has the wrong type',
+  'settings.error.nothingToUpdate': 'The request contains no settings that can be updated',
+  'settings.path.missing': '"{label}": {path} was not found',
+  'settings.path.notDirectory': '"{label}": {path} is not a directory',
+  'settings.path.badForm': '"{label}" must be a path starting with / or ~, or a command name such as tmux',
+  'settings.path.notOnPath': '"{label}": {name} was not found on PATH',
+  'settings.path.notFile': '"{label}": {path} is not a file',
+  'settings.path.notExecutable': '"{label}": {path} is not executable',
+  'settings.terminalApp.invalid': '"{label}" must be Terminal.app or iTerm2',
+  'settings.lmStudioUrl.invalid': '"{label}" must be a URL starting with http or https',
+  'settings.hourlyCap.invalid': '"{label}" must be an integer from 1 to {max}',
+  'settings.language.invalid': '"{label}" must be {languages}',
+  'settings.summarizer.loopbackOnly': 'The summary engine address must be 127.0.0.1 or localhost. Conversation transcripts are sent to it, so turn on "{label}" in Settings before you enter another address',
+  'settings.label.workspaceRoot': 'Projects folder',
+  'settings.label.claudeDir': 'Source directory',
+  'settings.label.tmuxPath': 'tmux path',
+  'settings.label.codePath': 'code path',
+  'settings.label.nodePath': 'Node path',
+  'settings.label.claudePath': 'claude path',
+  'settings.label.terminalApp': 'Terminal app',
+  'settings.label.lmStudioUrl': 'LM Studio URL',
+  'settings.label.lmStudioModel': 'Model',
+  'settings.label.summaryFallback': 'Fall back to Claude when LM Studio is unavailable',
+  'settings.label.summaryHourlyCap': 'Hourly limit',
+  'settings.label.allowExternalSummarizer': 'Allow external summary engines',
+  'settings.label.syncClaudeConfig': 'Sync Claude Code settings',
+  'settings.label.language': 'Language',
+};
