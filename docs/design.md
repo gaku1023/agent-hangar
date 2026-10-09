@@ -1457,7 +1457,7 @@ aria-label は見えている文字をそのまま含め、見える文と読み
 ### 文言の辞書
 
 画面とサーバの文は、shared の辞書から鍵で引く。
-今は仕組みだけがあり、辞書には見本の鍵が 3 つ入っている。
+サーバが出す文（HTTP のエラー、起動の失敗、MCP の道具の説明と結果、Claude に渡す指示、要約器への指示）は辞書に入っている。
 既存の画面の文は、まだ直に書いたままで、後の変更で順に辞書へ移す。
 
 置き場は `packages/shared/src/i18n/` である。
@@ -1467,8 +1467,10 @@ aria-label は見えている文字をそのまま含め、見える文と読み
 - `language.ts`：言語の型（`'ja' | 'en'`）と、知らない値を既定へ寄せる `languageOf`。
 - `t.ts`：辞書を引く `t(language, key, params)` と、言語を束ねた `translator(language)`。
 
-鍵は `画面.部品.意味` の形にする（例：`session.kill.confirm`）。
-画面をまたぐものは、画面のところを `common` にする。
+鍵は `領域.部品.意味` の形にする。
+画面の文は、領域を画面の名前にする（例：`session.kill.confirm`）。
+サーバの文は、領域を資源か層の名前にする（下の「サーバでの引き方」）。
+領域をまたぐものは、領域のところを `common` にする。
 鍵を足すときは `keys.ts` と 2 つの辞書に同時に足す。
 辞書に鍵が足りないときも余っているときも、型検査で止まる。
 
@@ -1485,7 +1487,6 @@ PC ごとの設定なので、クラウドへは同期しない。
 手で書き換えた `settings.json` の知らない値は、読み込みのときに落とす。
 画面に切り替えの部品はまだ無い。
 
-サーバは `translator(languageOf(settings.language))` で引く。
 UI は、いまの言語を store の設定の 1 か所から受け取る。
 
 - Presenter は `translatorOf(store)`（`presenters/i18n.ts`）で引く。
@@ -1493,6 +1494,71 @@ UI は、いまの言語を store の設定の 1 か所から受け取る。
 - View が自分で持つ決まった文は `useT()`（`views/primitives/language.tsx`）で引く。
   Root が `LanguageRoot` で言語を流し、頂点の無いところでは日本語になる。
   だから、View だけを描く試験は日本語の文のまま走る。
+
+#### サーバでの引き方
+
+サーバが言語の設定を読むのは、`languageReader(settings)`（`packages/server/src/i18n/language.ts`）の 1 か所である。
+これは「いまの言語を返す関数」を作る。
+`createApp` がこの関数を 1 つ作り、どの経路にも、MCP の道具にも、同じものを依存として渡す（`AppDeps.language` を渡せば、そちらを使う）。
+関数は文を出すたびに呼ぶので、設定を変えれば、次の応答から言語が変わる。
+言語を渡されなかった呼び手は、日本語で出す。
+
+文を出す場所は 2 通りある。
+
+- 境目（HTTP の経路、MCP の道具）は、`translatorOf(language)`（`i18n/message.ts`）で作った `tr()` で、その場で文にする。
+  例：`c.json({ error: tr('project.error.notFound') }, 404)`。
+- 境目より下の層（保存、検査、起動）は言語を知らない。
+  失敗は、鍵と引数のまま投げる。
+  例：`throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }))`。
+  `RunError`、`AccountError`、`ProjectCreateError`、`StateInputError`、`ToolError`、`SummarizerError` などは `MessageError` を継ぐ。
+  境目は `errorText(language(), e)` で、そのときの言語の文にして応答に載せる。
+  `message` は日本語の文のままなので、ログと、日本語の文を直に見ている試験は変わらない。
+
+引数には、文字列と数のほかに、別の文と並びを入れられる。
+
+- 別の文：`msg('run.launch.tmuxMissing', { label: msg('settings.label.tmuxPath') })`。
+  設定の欄の名前も、外側の文と同じ言語で出る。
+  別の失敗を理由として入れるときは `causeOf(e)` を渡す。
+- 並び：`msg('mcp.args.oneOf', { field: 'status', values: STATUSES })`。
+  その言語の区切り（`common.list.separator`）でつなぐ。
+
+文をつなげて作らない。
+前半と後半を別々に引いてつなぐと、言語で語順を変えられない。
+場合が分かれるときは、場合ごとに 1 つの鍵にする（例：`project.promote.failedNothingMoved`、`project.promote.failedRolledBack`、`project.promote.failedLeftBoth`）。
+何行かにわたる指示も 1 つの鍵にする。
+Claude に渡す指示（`launch.injection.body`）と、要約器への指示（`summary.prompt.system`）がそうである。
+英語の指示は、日本語の指示の意味（何をいつ呼ぶか、条件、してはいけないこと）を落とさずに訳し、行の数をそろえる。
+行の数は試験（`t.test.ts`）で見る。
+
+鍵の付け方の例は次のとおりである。
+
+| 鍵 | 引数 | 使う場所 |
+| --- | --- | --- |
+| `project.error.notFound` | なし | プロジェクトを引く経路と、起動 |
+| `run.launch.tmuxMissing` | `label` | 起動の前の検査 |
+| `run.adopt.busy` | なし | 外部ターミナルの Claude を移すとき |
+| `settings.path.notOnPath` | `label`、`name` | 設定の保存の検査 |
+| `common.field.required` | `field` | 本文の項目の検査（経路をまたぐ） |
+| `mcp.sessionStatus.pastReturnAt` | `returnOn`、`returnTime`、`now` | MCP の `propose_session_status` |
+| `mcp.tool.setTurnIntent` | なし | MCP の道具の説明 |
+| `launch.injection.body` | `projectName`、`projectPath`、`memo`、`todos` | `--append-system-prompt` |
+
+英語の文は、用語集の英語の語と、Claude Code の公式の語（transcript、session、resume、permission mode、usage limit など）を使う。
+日本語の文は、移す前の文のままである。
+日本語の語の見直しは、画面の文を移すときに、用語集に合わせて行う。
+
+言語の関数を、まだ受け取っていない組み立てがある。
+`RunManager`（Claude に渡す指示、シェルタブの名前）、`SummaryJob`（要約器への指示、要約の失敗の文）、`RetentionService`（保持期間を書けない理由）は、`language` を任意で受け取り、渡されなければ日本語で出す。
+組み立てる側が `languageReader` の関数を渡せば、設定の言語になる。
+`RunManager` と `RetentionService` が投げる失敗の文は、鍵のまま経路と MCP の道具へ届くので、渡していなくても応答の言語で出る。
+
+辞書に入れていない文もある。
+
+- ログにだけ出る文（`console.error` など）。
+- 生成して置くスクリプトの中の文（シェル連携、起動の包み、ステータスライン）。
+- 保存して同期する名前と要約（最初のアカウントの名前、スクラッチのプロジェクトの名前、機械的に作る要約）。
+  言語は PC ごとの設定なので、書くときの言語で作ると、言語の違う PC が同じ行を互いに書き直し続ける。
+  読むときに文にする作りへ変えるまで、日本語のままにする。
 
 ### 骨格
 
