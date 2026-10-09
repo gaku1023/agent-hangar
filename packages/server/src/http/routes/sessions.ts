@@ -9,6 +9,7 @@ import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
+import { changedFilesOf } from '../../sessions/files.ts';
 import { setSessionMemo } from '../../sessions/notes.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
@@ -24,7 +25,7 @@ const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
 
 /**
  * セッションの経路。
- * 一覧と 1 件、本文、サブエージェント、実行中の要約、検索、エディタで開く、1 行メモ、状態、昇格、事後要約を持つ。
+ * 一覧と 1 件、本文、サブエージェント、変更したファイル、実行中の要約、検索、エディタで開く、1 行メモ、状態、昇格、事後要約を持つ。
  * 起動（resume、fork など）は run を作るので runs.ts にある。
  */
 export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
@@ -60,6 +61,12 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     }
   });
   api.get('/sessions/:id/subagents', (c) => c.json(subagentIds(db, c.req.param('id'))));
+  // そのセッションが編集系のツールで変えたファイル。索引だけから引くので、読み込んだ本文の窓には依らず、本文のファイルが無くても返せる。
+  api.get('/sessions/:id/files', (c) => {
+    const id = c.req.param('id');
+    if (!session(id)) return c.json({ error: tr('session.error.notFound') }, 404);
+    return c.json(changedFilesOf(db, id));
+  });
   // 実行中のセッションの右ペイン。UI は追記のたびに取り直すが、索引が変わっていなければ覚えた要約を返す。
   api.get('/sessions/:id/live', (c) => {
     const id = c.req.param('id');

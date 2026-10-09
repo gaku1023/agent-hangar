@@ -226,6 +226,16 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(rm.getTab(r.run.id)?.kind).toBe('agent');
   });
 
+  it('選んだ権限モードは run の DTO に載り、選ばなかった起動には載らない（列は足さず、launch_params から読む）', () => {
+    const rm = make();
+    const chosen = rm.start({ projectId: 'p1', permissionMode: 'acceptEdits' });
+    const plain = rm.start({ projectId: 'p1' });
+    expect(chosen.run.permissionMode).toBe('acceptEdits');
+    expect(rm.getRun(chosen.run.id)?.permissionMode).toBe('acceptEdits');
+    expect(rm.listAlive().runs.find((x) => x.id === chosen.run.id)?.permissionMode).toBe('acceptEdits');
+    expect(plain.run).not.toHaveProperty('permissionMode');
+  });
+
   it('run を起こすと、外の端末からつなぐための設定を tmux サーバに入れる', () => {
     const r = make().start({ projectId: 'p1' });
     expect(tmux!.hasSession(r.run.tmuxName)).toBe(true);
