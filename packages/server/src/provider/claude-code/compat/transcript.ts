@@ -1,8 +1,9 @@
 import { compareClaudeVersions } from '@agent-hangar/shared';
 import { isRec, versionOfRecord, type CompatSink, type Drift } from './types.ts';
 
-// 知っている値の集合。正規化（normalize.ts）が名前で読む値と、2.1.284 から 2.1.292 の実物の記録で見た値である。
+// 知っている値の集合。正規化（normalize.ts）が名前で読む値と、2.1.284 から 2.1.295 の実物の記録で見た値である。
 // 集合に足すのは、その値を正規化でどう扱うか（読むか、meta として残すか、捨てるか）を決めたときだけにする。
+// isolation-latch は 2.1.295 で現れた。atis-latch と同じ仲間で、side と sessionId だけを持つ行なので、meta として残す。
 
 /** 正規化が中身を読む行の種類。 */
 export const KNOWN_LINE_TYPES: ReadonlySet<string> = new Set(['user', 'assistant', 'system', 'attachment']);
@@ -11,7 +12,7 @@ export const KNOWN_META_TYPES: ReadonlySet<string> = new Set([
   'last-prompt', 'atis-latch', 'mode', 'permission-mode', 'ai-title', 'custom-title', 'agent-name', 'pr-link',
   'queue-operation', 'file-history-snapshot', 'file-history-delta', 'relocated', 'worktree-state', 'bridge-session',
   'cost-state', 'frame-link', 'started', 'history-suppression', 'failed', 'result', 'artifact-autoreact-ledger',
-  'artifact-comment-monitor', 'fork-context-ref', 'continued-in', 'summary',
+  'artifact-comment-monitor', 'fork-context-ref', 'continued-in', 'summary', 'isolation-latch',
 ]);
 /** system の行の種類。turn_duration はターンの終わりの印として読む（live/aside.ts）。 */
 export const KNOWN_SYSTEM_SUBTYPES: ReadonlySet<string> = new Set([
