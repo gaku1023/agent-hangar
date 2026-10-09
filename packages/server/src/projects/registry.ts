@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { newId, type ResolveAction } from '@agent-hangar/shared';
+import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { isStrictlyUnder, isUnder, pathKey, samePath } from '../platform/paths.ts';
@@ -118,6 +119,8 @@ export function assignSessions(db: Db, deviceId: string): number {
     const match = longestMatch(roots, s.cwd as string);
     if (!match) continue;
     upsertShared(db, 'sessions', { ...s, project_id: match.project_id }, deviceId);
+    // 入った先のプロジェクトは、行は変わらないが中身（最終の活動、実行中の数）が変わる。
+    touchRow(db, 'projects', match.project_id);
     n++;
   }
   return n;

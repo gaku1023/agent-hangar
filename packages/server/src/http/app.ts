@@ -379,9 +379,7 @@ export function createApp(deps: AppDeps): Hono {
     const row = db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
     if (!row) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
     upsertShared(db, 'projects', { ...row, status: body.status }, deviceId);
-    const p = getProject(db, deviceId, deps.live(), id)!;
-    deps.hub.broadcast({ type: 'project.upsert', project: p });
-    return c.json(p);
+    return c.json(getProject(db, deviceId, deps.live(), id)!);
   });
   api.get('/projects/:id/candidates', (c) => c.json(candidateDirs(deps.settings().workspaceRoot, c.req.query('name') ?? '')));
   // 初期プロンプト欄の `/` の候補。projectId が無ければ（スクラッチなど）、プロジェクトのものは読まない。
@@ -440,12 +438,9 @@ export function createApp(deps: AppDeps): Hono {
     const target: ResolveAction = action.kind === 'repoint' && typeof action.path === 'string' ? { kind: 'repoint', path: normalizeDir(action.path) } : action;
     if (target.kind === 'repoint' && (typeof target.path !== 'string' || !fs.existsSync(target.path))) return c.json({ error: '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください' }, 400);
     if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
+    // プロジェクトと、紐づけが変わったセッションは、書いた行から配る層が配る。
     resolveProject(db, deviceId, id, target);
-    const p = getProject(db, deviceId, deps.live(), id);
-    if (p) deps.hub.broadcast({ type: 'project.upsert', project: p });
-    // 紐づけが変わったセッションを絞り込めないので、全件を流して UI 側で置き換えてもらう。
-    for (const s of sessions()) deps.hub.broadcast({ type: 'session.upsert', session: s });
-    return c.json(p ?? { id, unlinked: true });
+    return c.json(getProject(db, deviceId, deps.live(), id) ?? { id, unlinked: true });
   });
 
   api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId') })));
@@ -637,20 +632,12 @@ export function createApp(deps: AppDeps): Hono {
     }
     const before = deps.settings();
     const s = deps.updateSettings(patch);
-    // ワークスペースが変わったら、その場でプロジェクトを登録し直して結果を配る。
+    // ワークスペースが変わったら、その場でプロジェクトを登録し直す。
+    // 登録したプロジェクトと、そこへ入ったセッションは、書いた行から配る層が配る。
     // claudeDir の変更は索引の読み取り元なので、次の起動で反映する。
     if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== before.workspaceRoot) {
-      const unassigned = new Set((db.prepare('select id from sessions where project_id is null and deleted_at is null').all() as { id: string }[]).map((r) => r.id));
       syncProjectsFromWorkspace(db, deviceId, patch.workspaceRoot);
       assignSessions(db, deviceId);
-      const live = deps.live();
-      for (const p of listProjects(db, deviceId, live)) deps.hub.broadcast({ type: 'project.upsert', project: p });
-      for (const id of unassigned) {
-        // 配信にも自端末の ID を渡す。ここだけ抜けると、サーバはロックを持っているのに
-        // ロック無しの SessionDto が配られ、UI の store がそれで置き換えて画面から消える。
-        const sess = getSession(db, live, id, { deviceId });
-        if (sess?.projectId) deps.hub.broadcast({ type: 'session.upsert', session: sess });
-      }
     }
     // 保存の知らせは画面が欄の横に出す（設定の C1）。サーバからはトーストを配らない。
     return c.json(toSettingsDto(s));
@@ -797,10 +784,8 @@ export function createApp(deps: AppDeps): Hono {
       } else {
         return c.json({ error: 'kind は newDir か dir です' }, 400);
       }
-      const p = getProject(db, deviceId, deps.live(), projectId)!;
-      // 登録済みでも配る。アーカイブから戻したときに、ほかの画面の状態も変わるためである。
-      deps.hub.broadcast({ type: 'project.upsert', project: p });
-      return c.json(p, created ? 201 : 200);
+      // 登録済みでも、アーカイブから戻したときは行が変わるので、配る層がほかの画面へ配る。
+      return c.json(getProject(db, deviceId, deps.live(), projectId)!, created ? 201 : 200);
     } catch (e) {
       if (e instanceof ProjectCreateError) return c.json({ error: e.message }, e.status);
       throw e;
