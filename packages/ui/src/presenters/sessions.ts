@@ -132,7 +132,7 @@ export function presentSessionList(state: State, store: Store, now: number): Ses
     // 主線の抜粋が無ければ跳ばずに開く。
     const main = h.snippets.find((x) => x.agentId === null);
     if (text && main) row.jump = { seq: main.seq, q: text };
-    // 名前に当たった行は、名前の中の一致箇所に印を付ける。名前の列は名前のほかにも AI の題や最初の指示を引くので、名前の中に語が無いこともある。
+    // 名前に当たった行は、名前の中の一致箇所に印を付ける。名前の照合は表示名の 1 つを引くので、ふつうは名前の中に語がある（実行中の Claude Code が持つ利用者の名前が表示名のときだけ、DB の名前で当たって語が見えないことがある）。
     const matched = h.matched ?? [];
     if (text && matched.includes('name')) {
       const marks = markTerms(row.name, text);
