@@ -39,7 +39,7 @@ beforeEach(async () => {
   upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: '/Users/me/workspace/alpha', resolved: 1 }, 'd');
   assignSessions(db, 'd');
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
-  app = createMcpApp({ db, deviceId: 'd', port: PORT, token: TOKEN, live: () => [], hub: { broadcast: () => {} }, runs: { start: () => { throw new Error('not in this test'); } },
+  app = createMcpApp({ db, deviceId: 'd', port: PORT, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
     usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }) });
   // /api は本体のトークンだけを見る。MCP と同じ入口の検査を通す。
   api = new Hono();
