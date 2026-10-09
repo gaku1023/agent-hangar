@@ -358,6 +358,9 @@ a:hover { text-decoration: underline; }
 .toast.notice { --k: var(--waiting); display: block; width: 360px; max-width: 100%; padding: 0; border: 0; overflow: hidden; font: inherit; box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--k) 24%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .notice[data-kind='error'] { --k: var(--error); cursor: default; }
 .notice[data-kind='info'] { --k: var(--accent); }
+/* 他の PC から届いたプロジェクトの札（2.11.5）。info と同じ青で、本文の下にボタンを 2 つ並べる。 */
+.notice[data-kind='arrived'] { --k: var(--accent); cursor: default; }
+.notice-acts { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2.5); }
 .toast.notice[data-kind='waiting']:hover:not(:disabled), .toast.notice[data-kind='info']:hover { background: rgba(255, 255, 255, 0.95); transform: translateY(-1px); }
 /* 確認や入力のあるダイアログが開いている間は押せない。押してもダイアログの裏で画面は移らないので、薄くして押せるように見せない。 */
 .toast.notice:disabled { opacity: 0.55; cursor: default; }

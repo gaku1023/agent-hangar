@@ -3,6 +3,7 @@ import { useEmit } from '../intent/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
 import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 
 /** info のトーストが出ている時間。 */
 export const INFO_TOAST_MS = 4000;
@@ -20,6 +21,7 @@ export function ToastStack(props: ToastsProps) {
   return (
     <div className="toasts">
       {props.toasts.map((t) => (t.level === 'error' ? <ErrorToast key={t.id} toast={t} /> : <InfoToast key={t.id} toast={t} />))}
+      {props.arrived && <ArrivedCard count={props.arrived.count} blocked={props.blocked} />}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
       <div className="toast-waiting-list" aria-live="polite">
         {props.more > 0 && <button type="button" className="toast toast-pill toast-more" disabled={props.blocked} onClick={() => emit({ type: 'nav.go', to: { name: 'home' } })}>ほか {props.more} 件をホームで見る</button>}
@@ -51,6 +53,30 @@ function WaitingCard(props: { card: WaitingCardProps; blocked: boolean }) {
       </span>
       <span className="notice-body"><span className="notice-title">{c.question ?? c.name}</span></span>
     </button>
+  );
+}
+
+/**
+/**
+ * 他の PC から届いたプロジェクトの札（設計書 2.11.5）。
+ * 同期で降りた分を 1 枚にまとめ、件数を出す。時間では消えず、「あとで決める」で下げる。ダイアログは開かない。
+ * 「プロジェクトで見る」はプロジェクトの一覧へ移る。そこで、各行の「この PC にパスがありません」の札から場所を再指定できる。
+ * 確認や入力のあるダイアログが開いている間（blocked）は、画面を移せないので「プロジェクトで見る」を押せない。
+ */
+function ArrivedCard(props: { count: number; blocked: boolean }) {
+  const emit = useEmit();
+  const t = useT();
+  return (
+    <div className="toast notice" data-kind="arrived" role="status">
+      <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('projects.arrived.label')}</span></div>
+      <div className="notice-body">
+        <div className="notice-message">{t('projects.arrived.message', { n: props.count })}</div>
+        <div className="notice-acts">
+          <button type="button" className="btn btn-sm btn-primary" disabled={props.blocked} title={props.blocked ? 'ダイアログを閉じると開けます' : undefined} onClick={() => emit({ type: 'projects.arrived.view' })}>{t('projects.arrived.view')}</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'projects.arrived.dismiss' })}>{t('projects.arrived.later')}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

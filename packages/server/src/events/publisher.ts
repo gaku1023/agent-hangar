@@ -88,17 +88,13 @@ const TABLES: Record<string, TableRule> = {
     },
   },
   projects: { to: self('project') },
-  // ルートの行は、そのプロジェクトの DTO（この端末のパスと、解決しているか）に載る。
-  // この端末のルートが未解決になった書き込みだけは、ここでは配らない。
-  // それを書くのはルートの確かめ（checkProjectRoots）で、解決済みから未解決へ移ったときである。
-  // そのときは呼び手（projects/rootCheck.ts の checkRoots）が project.unresolved を手で渡す。画面はそれで置き場の選び直しを開くので、遷移を知っている側だけが出す。
-  // 同期で降りた行と名指しは遷移ではないので、未解決のままでも project.upsert にする。
+  // ルートの行は、そのプロジェクトの DTO（この端末のパスと、解決しているか、場所が無いものの内訳）に載る。
+  // この端末のルートが未解決になった書き込みも、project.upsert で配る。ホームの帯の件数と、プロジェクトの一覧の札は、それで変わる。
+  // 遷移の知らせ project.unresolved は、ルートの確かめ（projects/rootCheck.ts の checkRoots）が別に出す。画面はそれでダイアログを開かない（設計書 2.11.5）。
   project_roots: {
     to: (c, ctx) => {
-      const r = ctx.db.prepare('select project_id, device_id, resolved, deleted_at from project_roots where id = ?').get(c.rowId) as { project_id: string; device_id: string; resolved: number; deleted_at: number | null } | undefined;
-      if (!r) return [];
-      if (c.origin === 'write' && r.device_id === ctx.deviceId && r.resolved === 0 && r.deleted_at === null) return [];
-      return [['project', r.project_id]];
+      const r = ctx.db.prepare('select project_id from project_roots where id = ?').get(c.rowId) as { project_id: string } | undefined;
+      return r ? [['project', r.project_id]] : [];
     },
   },
   devices: { to: () => [['devices', '']] },

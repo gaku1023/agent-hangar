@@ -63,7 +63,7 @@ describe('ルートの復帰', () => {
     }
   });
 
-  it('消えたルートの検出と project.unresolved の配信は前のまま', () => {
+  it('消えたルートの検出は前のまま。project.unresolved に加えて、帯の件数のために project.upsert（missing）も配る', () => {
     const gone = path.join(ws, 'no-such-dir');
     const db = openDb(':memory:');
     const sent: ServerEvent[] = [];
@@ -72,7 +72,9 @@ describe('ルートの復帰', () => {
       upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: gone, resolved: 1 }, 'd');
       const r = delivered(db, sent, (publisher) => checkRoots({ db, deviceId: 'd', broadcast: (ev) => publisher.broadcast(ev) }));
       expect(r.unresolved).toEqual(['p1']);
-      expect(sent).toEqual([{ type: 'project.unresolved', projectId: 'p1' }]);
+      expect(sent.filter((e) => e.type === 'project.unresolved')).toEqual([{ type: 'project.unresolved', projectId: 'p1' }]);
+      const upserts = sent.filter((e): e is Extract<ServerEvent, { type: 'project.upsert' }> => e.type === 'project.upsert');
+      expect(upserts.map((e) => [e.project.id, e.project.resolved, e.project.unresolved?.kind])).toEqual([['p1', false, 'missing']]);
     } finally {
       db.close();
     }

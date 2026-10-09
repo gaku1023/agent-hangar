@@ -138,68 +138,48 @@ describe('ナビゲーション', () => {
 });
 
 describe('オーバーレイ', () => {
-  it('未解決プロジェクトはダイアログになり、複数はキューに積む', () => {
+  // 設計書 2.11.5。未解決のプロジェクトは、起動時にも同期の直後にもダイアログを出さない。押したときだけ開く。
+  it('project.unresolved の知らせでは、ダイアログを開かない（起動時にも、同期の直後にも、作業中にも）', () => {
     const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' })]);
-    expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(a.state.unresolvedQueue).toEqual(['p2']);
-    const b = run([intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })], a.state);
-    expect(b.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
-    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
-    const c = run([intent({ type: 'overlay.close' })], b.state);
-    expect(c.state.overlay).toEqual({ kind: 'none' });
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.effects).toEqual([]);
+    // 新しいセッションのダイアログを書いている最中にも、割り込まない。
+    const writing = run([intent({ type: 'session.new.open', projectId: 'p1' })]).state;
+    const b = run([server({ type: 'project.unresolved', projectId: 'p1' })], writing);
+    expect(b.state).toEqual(writing);
   });
-  it('カードからの project.resolve.open でもダイアログを開き、開いていればキューに積む', () => {
+  it('project.resolve.open を受けたときだけダイアログを開く', () => {
     const a = run([intent({ type: 'project.resolve.open', id: 'p1' })]);
     expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
     expect(a.effects).toEqual([]);
-    const b = run([intent({ type: 'project.resolve.open', id: 'p2' })], a.state);
-    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(b.state.unresolvedQueue).toEqual(['p2']);
-    const c = run([intent({ type: 'project.resolve.open', id: 'p1' })], b.state);
-    expect(c.state.unresolvedQueue).toEqual(['p2']);
-  });
-  it('同じプロジェクトの重複通知は積まない', () => {
-    const { state } = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p1' })]);
-    expect(state.unresolvedQueue).toEqual([]);
-  });
-  // 「あとで」を選んだプロジェクトは、同じ起動の間は聞き直さない。
-  // 覚えるのは Mediator の状態だけなので、サーバを立て直せばまた聞く。
-  it('あとでを選んだプロジェクトは、次の bootstrap でも聞き直さない', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' })]);
-    const b = run([intent({ type: 'overlay.close' })], a.state);
-    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
-    const c = run([intent({ type: 'overlay.close' })], b.state);
-    expect(c.state.overlay).toEqual({ kind: 'none' });
-    const again = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' })], c.state);
-    expect(again.state.overlay).toEqual({ kind: 'none' });
-    expect(again.state.unresolvedQueue).toEqual([]);
-  });
-  // 利用者が自分で解決しにいったときは、あとでを選んだ後でも開き、そこで覚えを忘れる。
-  // 開き直したうえでまたあとでを選んだら、覚え直して次の通知では出さない。
-  it('project.resolve.open は覚えを忘れ、あとでで閉じれば覚え直す', () => {
-    const later = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'overlay.close' })]).state;
-    expect(later.resolveDeferred).toEqual(['p1']);
-    const a = run([intent({ type: 'project.resolve.open', id: 'p1' })], later);
-    expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(a.state.resolveDeferred).toEqual([]);
-    const b = run([intent({ type: 'overlay.close' })], a.state);
+    const b = run([intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })], a.state);
+    expect(b.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
     expect(b.state.overlay).toEqual({ kind: 'none' });
-    expect(b.state.resolveDeferred).toEqual(['p1']);
-    expect(run([server({ type: 'project.unresolved', projectId: 'p1' })], b.state).state.overlay).toEqual({ kind: 'none' });
   });
-  // 解決してしまえば覚えは要らない。次に同じ id が未解決になったら、また聞く。
-  it('project.resolve で決めたら覚えを持ち越さない', () => {
-    const later = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'overlay.close' })]).state;
-    const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })], later);
-    expect(a.state.resolveDeferred).toEqual([]);
-    expect(run([server({ type: 'project.unresolved', projectId: 'p1' })], a.state).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+  it('ダイアログが開いている間は、別のプロジェクトの project.resolve.open で差し替えない', () => {
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' })]);
+    const b = run([intent({ type: 'project.resolve.open', id: 'p2' })], a.state);
+    expect(b.state).toEqual(a.state);
+    // 開いている別のダイアログ（確認）も差し替えない。
+    const confirm = run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]).state;
+    expect(run([intent({ type: 'project.resolve.open', id: 'p1' })], confirm).state).toEqual(confirm);
+  });
+  it('閉じる手（overlay.close）で閉じる。あとでを選んだ覚えは持たず、押せばまた開く', () => {
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'overlay.close' })]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
+    expect(a.effects).toEqual([]);
+    expect(run([intent({ type: 'project.resolve.open', id: 'p1' })], a.state).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+  });
+  it('パレットの上では差し替えて開く', () => {
+    const palette = run([intent({ type: 'palette.open' })]).state;
+    expect(run([intent({ type: 'project.resolve.open', id: 'p1' })], palette).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
   });
 });
 
 describe('ダイアログを開いている間の開く操作', () => {
   const opens = [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' }), intent({ type: 'session.new.open', scratch: true })];
   const holding: [string, State][] = [
-    ['未解決のプロジェクト', run([server({ type: 'project.unresolved', projectId: 'p1' })]).state],
+    ['未解決のプロジェクト', run([intent({ type: 'project.resolve.open', id: 'p1' })]).state],
     ['停止の確認', run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]).state],
     ['書き込み中の保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' }), intent({ type: 'retention.write' })]).state],
     ['送信中の新しいセッション', run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.submit', params: { projectId: 'p1' } })]).state],
@@ -761,13 +741,13 @@ describe('昇格', () => {
     const b = run([runtime({ type: 'hash.changed', route: { name: 'settings' } })], done);
     expect(b.state.overlay).toEqual({ kind: 'none' });
     // 未解決プロジェクトのダイアログは決めるまで残す。
-    const un = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
+    const un = run([intent({ type: 'project.resolve.open', id: 'p1' })]).state;
     expect(run([intent({ type: 'nav.go', to: { name: 'home' } })], un).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
   });
   // 送信していないのに届いた完了や失敗で、開いているものを書き換えない。
   // ただし黙って捨てると、送信の直後に閉じた利用者が結果を知れないので、トーストでは知らせる。
   it('昇格の最中でなければ状態は変えず、結果をトーストで知らせる', () => {
-    const base = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
+    const base = run([intent({ type: 'project.resolve.open', id: 'p1' })]).state;
     const a = run([runtime({ type: 'promote.done', projectId: 'p9', moved: true, reason: null })], base);
     expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
     expect(a.state.promote).toEqual({ kind: 'idle' });
@@ -893,7 +873,7 @@ describe('パレット', () => {
   });
   // パレットが開いていないのにコマンドが届いても、開いている別のダイアログを消さない。
   it('パレットが開いていなければオーバーレイを閉じない', () => {
-    const un = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
+    const un = run([intent({ type: 'project.resolve.open', id: 'p1' })]).state;
     const a = run([intent({ type: 'palette.run', command: { id: 'settings:cloud', label: 'クラウド同期' } })], un);
     expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
     // 裏の画面も移さない（ダイアログを開いている間の画面の移動を参照）。
@@ -1059,31 +1039,40 @@ describe('外で動くセッションを hangar で開く', () => {
 
 describe('プロジェクトを一覧から削除する確認', () => {
   it('未解決のダイアログで一覧から削除を選ぶと、送らずに確認を出す', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
     expect(a.effects).toEqual([]);
-    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: 'p1' } });
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: 'p1', fromDialog: true } });
   });
-  it('やめると未解決のダイアログに戻り、あとでの扱いにはしない', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+  it('やめると未解決のダイアログに戻る', () => {
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
     const b = run([intent({ type: 'overlay.close' })], a.state);
     expect(b.effects).toEqual([]);
     expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(b.state.unresolvedQueue).toEqual(['p2']);
-    expect(b.state.resolveDeferred).toEqual([]);
+    // 戻ったダイアログを閉じれば、何も出ない。
+    expect(run([intent({ type: 'overlay.close' })], b.state).state.overlay).toEqual({ kind: 'none' });
   });
-  it('承諾で送り、同じプロジェクトを聞き直さずに次の未解決へ進む', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), server({ type: 'project.unresolved', projectId: 'p2' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+  it('承諾で送り、ダイアログも確認も閉じる', () => {
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
     const b = run([intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' }, confirmed: true })], a.state);
     expect(b.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'unlink' } }]);
-    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
-    expect(b.state.unresolvedQueue).toEqual([]);
-    const c = run([intent({ type: 'project.resolve', id: 'p2', action: { kind: 'unlink' }, confirmed: true })], b.state);
-    expect(c.state.overlay).toEqual({ kind: 'none' });
+    expect(b.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('帯の行から直に「一覧から削除」を押しても、確認を出す。やめれば何も出ない', () => {
+    const a = run([intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    expect(a.effects).toEqual([]);
+    expect(a.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: 'p1' } });
+    // ダイアログから来たのではないので、やめてもダイアログには戻らない。
+    expect(run([intent({ type: 'overlay.close' })], a.state).state.overlay).toEqual({ kind: 'none' });
+  });
+  it('帯の行から直に「Archived にする」を押すと、確認を挟まず送る', () => {
+    const a = run([intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
+    expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
+    expect(a.state.overlay).toEqual({ kind: 'none' });
   });
   // 確認の最初のフォーカスは「やめる」なので、修飾の無い / や ? も Root に届く。
-  // パレットやキーの一覧、新しいセッションで確認を差し替えると、未解決のダイアログもキューに戻らず消える。
+  // パレットやキーの一覧、新しいセッションで確認を差し替えると、やめたときに戻る先の未解決のダイアログが消える。
   it('確認の上でパレットや新規セッションを開こうとしても、確認を差し替えない', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } })]);
     for (const i of [intent({ type: 'palette.open' }), intent({ type: 'shortcuts.open' }), intent({ type: 'session.new.open', scratch: false })]) {
       const b = run([i], a.state);
       expect(b.state).toEqual(a.state);
@@ -1093,7 +1082,7 @@ describe('プロジェクトを一覧から削除する確認', () => {
     expect(c.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
   });
   it('アーカイブと再指定は確認を挟まない', () => {
-    const a = run([server({ type: 'project.unresolved', projectId: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
+    const a = run([intent({ type: 'project.resolve.open', id: 'p1' }), intent({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } })]);
     expect(a.effects).toEqual([{ kind: 'api.resolveProject', projectId: 'p1', action: { kind: 'archive' } }]);
     expect(a.state.overlay).toEqual({ kind: 'none' });
   });
@@ -1150,34 +1139,10 @@ describe('この PC で再開', () => {
     expect(closed.state.overlay).toEqual({ kind: 'none' });
     expect(closed.effects).toEqual([]);
   });
-  it('確認ダイアログを閉じても、待っている未解決プロジェクトは順番に出る', () => {
-    // p1 が出ていて p2 が待っているところへ 409 が割り込む。
-    const queued = run([
-      server({ type: 'project.unresolved', projectId: 'p1' }),
-      server({ type: 'project.unresolved', projectId: 'p2' }),
-      runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 }),
-    ]);
-    expect(queued.state.overlay.kind).toBe('confirm');
-    // 追い出された p1 はキューの先頭に戻る。並びは p1、p2 のままである。
-    expect(queued.state.unresolvedQueue).toEqual(['p1', 'p2']);
-    const a = run([intent({ type: 'overlay.close' })], queued.state);
-    expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    const b = run([intent({ type: 'overlay.close' })], a.state);
-    expect(b.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p2' });
-    const c = run([intent({ type: 'overlay.close' })], b.state);
-    expect(c.state.overlay).toEqual({ kind: 'none' });
-  });
-  it('409 の割り込みは、出ていた未解決プロジェクトを落とさない', () => {
-    const r = run([server({ type: 'project.unresolved', projectId: 'p1' }), runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
+  it('409 の割り込みは、出ていた未解決プロジェクトのダイアログを確認に替える。確認を閉じれば何も出ない', () => {
+    const r = run([intent({ type: 'project.resolve.open', id: 'p1' }), runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
     expect(r.state.overlay.kind).toBe('confirm');
-    expect(r.state.unresolvedQueue).toEqual(['p1']);
-    // 確認を閉じれば、割り込まれた p1 がそのまま出直す。
-    expect(run([intent({ type: 'overlay.close' })], r.state).state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-  });
-  it('409 が二度届いても、同じ未解決プロジェクトを二重に積まない', () => {
-    const conflict = runtime({ type: 'api.conflict' as const, kind: 'resumeHere' as const, sessionId: 's1', localSize: 1, remoteSize: 2 });
-    const r = run([server({ type: 'project.unresolved', projectId: 'p1' }), conflict, conflict]);
-    expect(r.state.unresolvedQueue).toEqual(['p1']);
+    expect(run([intent({ type: 'overlay.close' })], r.state).state.overlay).toEqual({ kind: 'none' });
   });
   it('この PC で再開は二重送信を捨てる', () => {
     // 起動と昇格と同じ歯止めで、run が 2 つ立つのを防ぐ。
@@ -1228,7 +1193,7 @@ describe('ダイアログを開いている間の入力待ちのカードと通�
     const at = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]).state;
     for (const before of [
       run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })], at).state,
-      run([server({ type: 'project.unresolved', projectId: 'p1' })], at).state,
+      run([intent({ type: 'project.resolve.open', id: 'p1' })], at).state,
       run([intent({ type: 'session.new.open', scratch: true })], at).state,
     ]) {
       const r = run([intent({ type: 'session.open', id: 's1', focus: 'terminal' })], before);
@@ -1250,7 +1215,7 @@ describe('ダイアログを開いている間の画面の移動', () => {
   const at = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]).state;
   const holding: [string, State][] = [
     ['停止の確認', run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })], at).state],
-    ['未解決のプロジェクト', run([server({ type: 'project.unresolved', projectId: 'p1' })], at).state],
+    ['未解決のプロジェクト', run([intent({ type: 'project.resolve.open', id: 'p1' })], at).state],
     ['新しいセッション', run([intent({ type: 'session.new.open', scratch: true })], at).state],
     ['昇格', run([intent({ type: 'session.promote.open', id: 's1' })], at).state],
     ['保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' })], at).state],
@@ -1400,12 +1365,6 @@ describe('次の入力待ちへ（C5）', () => {
     // パレットの上でキーを打ったときも、パレットは閉じる。
     const b = run([intent({ type: 'session.nextWaiting' })], palette, waitingStore('s2'));
     expect(b.state.overlay).toEqual({ kind: 'none' });
-  });
-  it('パレットを閉じて未解決のプロジェクトの問いが出るなら、その裏では画面を移さない', () => {
-    const palette: State = { ...run([intent({ type: 'palette.open' })]).state, unresolvedQueue: ['p1'] };
-    const r = run([intent({ type: 'session.nextWaiting' })], palette, waitingStore('s2'));
-    expect(r.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(r.effects).toEqual([]);
   });
 });
 
@@ -1620,19 +1579,51 @@ describe('使われていない口を消した後', () => {
   });
 });
 
+describe('他の PC から届いたプロジェクトの知らせ（2.11.5）', () => {
+  it('Runtime が届けた id を覚える。同じ id は 1 度だけ、順は届いた順', () => {
+    const a = run([runtime({ type: 'projects.arrived', ids: ['p1'] })]);
+    expect(a.state.arrivedProjects).toEqual(['p1']);
+    expect(a.effects).toEqual([]);
+    const b = run([runtime({ type: 'projects.arrived', ids: ['p2', 'p1', 'p3'] })], a.state);
+    expect(b.state.arrivedProjects).toEqual(['p1', 'p2', 'p3']);
+  });
+  it('はじめは何も覚えていない。project.upsert や project.unresolved だけでは増えない（起動の読み込みで入るものは知らせない）', () => {
+    expect(initialState().arrivedProjects).toEqual([]);
+    const r = run([server({ type: 'project.unresolved', projectId: 'p1' })]);
+    expect(r.state.arrivedProjects).toEqual([]);
+  });
+  it('「あとで決める」で札だけを下げる。画面は移さない', () => {
+    const a = run([runtime({ type: 'projects.arrived', ids: ['p1', 'p2'] }), intent({ type: 'projects.arrived.dismiss' })]);
+    expect(a.state.arrivedProjects).toEqual([]);
+    expect(a.effects).toEqual([]);
+  });
+  it('「プロジェクトで見る」で札を下げ、プロジェクトの画面へ移る', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), runtime({ type: 'projects.arrived', ids: ['p1'] })]);
+    const b = run([intent({ type: 'projects.arrived.view' })], a.state);
+    expect(b.state.arrivedProjects).toEqual([]);
+    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'projects' } }]);
+  });
+  it('すでにプロジェクトの画面にいれば、札を下げるだけ', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'projects' } }), runtime({ type: 'projects.arrived', ids: ['p1'] })]);
+    const b = run([intent({ type: 'projects.arrived.view' })], a.state);
+    expect(b.state.arrivedProjects).toEqual([]);
+    expect(b.effects).toEqual([]);
+  });
+  it('入力のあるダイアログが開いている間は、画面を移さず、札も残す', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), runtime({ type: 'projects.arrived', ids: ['p1'] }), intent({ type: 'session.new.open', scratch: true })]);
+    const b = run([intent({ type: 'projects.arrived.view' })], a.state);
+    expect(b.state).toEqual(a.state);
+    expect(b.effects).toEqual([]);
+  });
+});
+
 describe('ストアが変わっただけのとき', () => {
   // 入力待ちの顔ぶれも動いているセッションの顔ぶれも変わらない更新（本文が伸びるなど）。
-  it('overlay が none のまま未解決のキューが残っていても、無関係な更新では問いを開かない', () => {
+  it('開いたセッションの入力待ちの顔ぶれが同じなら、無関係な更新では触らない', () => {
     const store = waitingStore('s1');
-    const start: State = { ...initialState(), sidebarOrder: ['s1'], waitingSeen: ['s1'], unresolvedQueue: ['p1'] };
+    const start: State = { ...initialState(), screen: { name: 'session', id: 's1' }, sidebarOrder: ['s1'], waitingSeen: ['s1'] };
     const r = transition(start, store, { kind: 'store' });
     expect(r.state).toBe(start);
     expect(r.effects).toEqual([]);
-  });
-  it('顔ぶれが変わったときは、未解決のキューの次を出す（前の版と同じ）', () => {
-    const start: State = { ...initialState(), unresolvedQueue: ['p1'] };
-    const r = transition(start, waitingStore('s1'), { kind: 'store' });
-    expect(r.state.unresolvedQueue).toEqual([]);
-    expect(r.state.overlay.kind).not.toBe('none');
   });
 });

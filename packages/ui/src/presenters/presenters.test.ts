@@ -1724,11 +1724,11 @@ describe('presentToasts（入力待ちのカード）', () => {
     const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
   });
-  // 右下に積むのは入力待ちだけで、戻る時刻の札と通知の誘いはベルの一覧へ移った（PR 29）。
-  it('入力待ちとトースト以外は渡さない（戻る時刻の札、通知の誘い）', () => {
+  // 右下に積むのは入力待ちと、他の PC から届いたプロジェクトの札（PR 33）だけで、戻る時刻の札と通知の誘いはベルの一覧へ移った（PR 29）。
+  it('入力待ちとトーストと届いたプロジェクトの札以外は渡さない（戻る時刻の札、通知の誘い）', () => {
     const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
     const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
-    expect(Object.keys(p).sort()).toEqual(['blocked', 'more', 'toasts', 'waiting']);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'more', 'toasts', 'waiting']);
   });
 });
 

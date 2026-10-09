@@ -86,6 +86,7 @@ function Lead(props: { lead: BandLead }) {
       ? <span className="home-cand">{l.text}</span>
       : <span className="return-when" data-due={l.tone === 'due' ? 'true' : undefined} title={l.title}>{l.text}</span>;
     case 'todo': return <span className="cand-mark" aria-hidden="true" />;
+    case 'place': return <span className="place-mark" aria-hidden="true"><Icon name="folder" /></span>;
     case 'check': return <span className="ck-mark" data-tone={l.tone} role="img" aria-label={l.label}><Icon name={CHECK_ICON[l.tone]} /></span>;
   }
 }
@@ -96,7 +97,7 @@ function BandRowView(props: { row: BandRow }) {
   const r = props.row;
   const open = r.open;
   return (
-    <li className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : undefined)}>
+    <li className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : r.lead.kind === 'place' ? 'place' : undefined)}>
       <Lead lead={r.lead} />
       {open
         ? <button type="button" className="c-name c-link" onClick={() => emit(open)}>{r.name}</button>

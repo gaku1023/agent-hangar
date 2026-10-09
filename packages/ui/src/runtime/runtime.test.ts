@@ -342,15 +342,69 @@ describe('createRuntime', () => {
     await flush();
     expect(api.subagents).toHaveBeenCalledTimes(2);
   });
-  it('bootstrap に未解決のプロジェクトがあればダイアログを開く', async () => {
-    const project = { id: 'p1', name: 'alpha', status: 'active' as const, isScratch: false, path: '/w/alpha', resolved: false, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0 };
-    const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [project, { ...project, id: 'p2', path: null, resolved: false }, { ...project, id: 'p3', resolved: true }] })) });
-    rt.start();
-    wsHandlers[0]!.onOpen();
-    await flush();
-    // パスを持たないプロジェクトは指し直しようがないので出さない。
-    expect(rt.getState().overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
-    expect(rt.getState().unresolvedQueue).toEqual([]);
+  describe('未解決のプロジェクト（2.11.5）', () => {
+    const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null, ...over });
+    const lost = (id: string) => project(id, { resolved: false, unresolved: { kind: 'missing', previousPath: `/w/${id}`, deviceName: null } });
+    const arrived = (id: string) => project(id, { path: null, resolved: false, unresolved: { kind: 'elsewhere', previousPath: `/o/${id}`, deviceName: 'Mac mini' } });
+    const upsert = (p: ProjectDto): ServerEvent => ({ type: 'project.upsert', project: p });
+
+    it('起動の読み込みに未解決のプロジェクトがあっても、ダイアログは開かない（帯の件数になるだけ）', async () => {
+      const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [lost('p1'), arrived('p2'), project('p3')] })) });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      expect(rt.getState().overlay).toEqual({ kind: 'none' });
+      expect(Object.keys(rt.getStore().projects).sort()).toEqual(['p1', 'p2', 'p3']);
+      // 起動の読み込みで入ったものは、届いた知らせにしない。
+      expect(rt.getState().arrivedProjects).toEqual([]);
+    });
+
+    it('サーバが project.unresolved を流しても、ダイアログは開かない', async () => {
+      const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [lost('p1')] })) });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      wsHandlers[0]!.onEvent({ type: 'project.unresolved', projectId: 'p1' });
+      expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    });
+
+    it('「場所を再指定」を押したときだけ、ダイアログが開く', async () => {
+      const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [lost('p1')] })) });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      rt.emit({ type: 'project.resolve.open', id: 'p1' });
+      expect(rt.getState().overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    });
+
+    it('同期で他の PC のプロジェクトが降りたら、降りた分を覚える。3 件が別々の知らせで届いても、1 つの札にまとまる', async () => {
+      const { rt, wsHandlers } = harness();
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      for (const id of ['a', 'b', 'c']) wsHandlers[0]!.onEvent(upsert(arrived(id)));
+      expect(rt.getState().arrivedProjects).toEqual(['a', 'b', 'c']);
+      expect(rt.getState().toasts).toEqual([]);
+    });
+
+    it('すでに知っているプロジェクトの更新、この PC に場所のあるもの、この PC で消えたものは、届いた知らせにしない', async () => {
+      const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, projects: [arrived('known')] })) });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      wsHandlers[0]!.onEvent(upsert({ ...arrived('known'), name: 'renamed' }));
+      wsHandlers[0]!.onEvent(upsert(project('mine')));
+      wsHandlers[0]!.onEvent(upsert(lost('lost')));
+      wsHandlers[0]!.onEvent(upsert(arrived('scratch-like')));
+      expect(rt.getState().arrivedProjects).toEqual(['scratch-like']);
+    });
+
+    it('起動の読み込みが済む前に届いたものは、知らせにしない', () => {
+      const { rt, wsHandlers } = harness();
+      rt.start();
+      wsHandlers[0]!.onEvent(upsert(arrived('early')));
+      expect(rt.getState().arrivedProjects).toEqual([]);
+    });
   });
   it('API の失敗はトーストになる', async () => {
     const { rt } = harness();

@@ -157,11 +157,11 @@ describe('Header', () => {
 describe('ResolveProjectDialog', () => {
   it('三つの解決と閉じる', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={['/w/alpha-moved']} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={['/w/alpha-moved']} onQueryCandidates={() => {}} /></IntentRoot>);
     fireEvent.click(screen.getByText('/w/alpha-moved'));
     fireEvent.click(screen.getByText('この場所にする'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/alpha-moved' } });
-    fireEvent.click(screen.getByText('アーカイブにする'));
+    fireEvent.click(screen.getByText('Archived にする'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } });
     // 一覧から削除は取り消せないので危険色にし、押しても Mediator が先に確認を出す。
     const remove = screen.getByRole('button', { name: '一覧から削除' });
@@ -175,7 +175,7 @@ describe('ResolveProjectDialog', () => {
 
 describe('ResolveProjectDialog のフォーカス', () => {
   it('開いたら中の最初の操作にフォーカスを入れる', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
     const dialog = screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' });
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).toBe(screen.getByLabelText('新しいパス'));
@@ -195,10 +195,10 @@ describe('SessionRows（空のとき）', () => {
 
 describe('ResolveProjectDialog のアイコン', () => {
   it('三つの解決はそれぞれのアイコンを持つ', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
     const iconOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon') ?? null;
     expect(iconOf('この場所にする')).toBe('repoint');
-    expect(iconOf('アーカイブにする')).toBe('archive');
+    expect(iconOf('Archived にする')).toBe('archive');
     expect(iconOf('一覧から削除')).toBe('unlink');
   });
 });
