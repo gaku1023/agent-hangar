@@ -1,6 +1,6 @@
 import { MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { onSharedWrite } from '../db/shared.ts';
+import { onRowChange } from '../db/notify.ts';
 import { applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, CompatError, goneFloor, LimitError, type CloudClient } from './client.ts';
 import { SyncStateStore } from './state.ts';
@@ -307,7 +307,9 @@ export class SyncEngine {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
-    this.offWrite = onSharedWrite((_t, _id, db) => { if (db === this.deps.db) this.noteLocalChange(); });
+    // 行の変化の口の購読者の 1 つである。この端末の書き込み（write）だけを push の契機にする。
+    // 同期で降りた行（apply）は changes に積まれないので、拾っても送るものが無い。拾えば、降りるたびに空の push を予約してしまう。
+    this.offWrite = onRowChange((c) => { if (c.db === this.deps.db && c.origin === 'write') this.noteLocalChange(); });
     if (!this.deps.client) { this.emitStatus(); return; }
     this.pullTimer = this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
     unref(this.pullTimer);
