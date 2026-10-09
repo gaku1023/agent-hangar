@@ -4,7 +4,7 @@ import type { TranscriptEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { buildSummaryInput, CANNED_INPUT, compressEvents } from './input.ts';
+import { buildSummaryInput, CANNED_INPUT, cannedInput, compressEvents } from './input.ts';
 import { parseSummaryOutput, SUMMARY_SCHEMA, SUMMARY_SYSTEM_PROMPT } from './types.ts';
 
 const ev = (kind: TranscriptEvent['kind'], text: string, seq: number): TranscriptEvent => {
@@ -52,6 +52,18 @@ describe('buildSummaryInput', () => {
     expect(input.text).toContain('[tool] Bash ls channels/');
     expect(input.text).not.toContain('a.md\nb.md');
     expect(buildSummaryInput(db, 'nope', false)).toBeNull();
+  });
+});
+
+describe('cannedInput', () => {
+  it('日本語は既定の決め打ちの入力と同じで、英語は英語の文だけである', () => {
+    expect(cannedInput('ja')).toEqual({ ...CANNED_INPUT, language: 'ja' });
+    const en = cannedInput('en');
+    expect(en.language).toBe('en');
+    expect(/[\u3040-\u30ff\u4e00-\u9fff]/.test(en.text)).toBe(false);
+    // 発言の種類と順は、言語によらず同じである。
+    const kinds = (text: string) => text.split('\n').map((l) => l.split(' ')[0]);
+    expect(kinds(en.text)).toEqual(kinds(CANNED_INPUT.text));
   });
 });
 
