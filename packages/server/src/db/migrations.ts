@@ -248,9 +248,54 @@ create table turn_intents (
 `;
 
 /**
+ * 版 17。セッションの名前とメモを、sessions から別の表 session_notes へ移す。
+ *
+ * sessions の行は索引が本文の伸びるたびに全列で書き直し、同期はその行ごとの後勝ちで運ぶ。
+ * 名前とメモが sessions の列にあると、別の PC で付けた名前やメモを、本文を持つ PC の索引が古い値で上書きする。
+ * 状態（session_states）を分けたのと同じ理由である。
+ *
+ * - 写すのは、名前かメモのどちらかに中身がある行だけである。空の行は作らない。
+ *   空の行を作ると、後から上がった PC の空の行が、先に上がった PC の名前やメモに勝ちうる。
+ * - 写した行の updated_at と origin_device は、元の sessions の行のものをそのまま使う。当てた時刻にはしない。
+ *   当てた時刻にすると、後から上がった PC の写し（古い中身）が、先に上がった PC で上げた後に付けた名前やメモに勝ってしまう。
+ *   元の行の時刻なら、2 台の写しは、上げる前の同期が採ったはずの側が勝ち、上げた後の書き込みは必ず写しに勝つ。
+ * - 写した行は、まだ送っていない差分として changes に積む。積まないと、クラウドには名前もメモも上がらない。
+ *   端末の id はマイグレーションから読めないので、差分の device_id には元の行の origin_device を入れる（送るときには使わない）。
+ * - sessions.custom_title は、索引が本文から拾う題名（Claude Code の側で付けた名前）である。
+ *   これまでは同じ name の列に索引も書いていた。索引が書く事実として sessions の側に分ける。
+ *   過去の name がどちらの由来かは見分けられないので、全部を session_notes へ写し、custom_title は空から始める。
+ */
+const V17_SESSION_NOTES_SQL = `
+create table session_notes (
+  session_id text primary key references sessions(id),
+  name text,
+  memo text,
+  updated_at integer not null, deleted_at integer, origin_device text not null
+);
+insert into session_notes (session_id, name, memo, updated_at, deleted_at, origin_device)
+  select id,
+    case when trim(name, ' ' || char(9) || char(10) || char(13)) = '' then null else name end,
+    case when trim(memo, ' ' || char(9) || char(10) || char(13)) = '' then null else memo end,
+    updated_at, null, origin_device
+  from sessions
+  where ifnull(trim(name, ' ' || char(9) || char(10) || char(13)), '') <> ''
+     or ifnull(trim(memo, ' ' || char(9) || char(10) || char(13)), '') <> '';
+insert into changes (table_name, row_id, op, payload, updated_at, device_id)
+  select 'session_notes', session_id, 'upsert',
+    json_object('session_id', session_id, 'name', name, 'memo', memo, 'updated_at', updated_at, 'deleted_at', deleted_at, 'origin_device', origin_device),
+    updated_at, origin_device
+  from session_notes order by session_id;
+alter table sessions add column custom_title text;
+alter table sessions drop column name;
+alter table sessions drop column memo;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
+ * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
  */
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
+  { version: 17, sql: V17_SESSION_NOTES_SQL },
 ];

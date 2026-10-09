@@ -8,6 +8,7 @@ import { softDeleteShared, upsertShared } from './shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
+import { setSessionMemo, setSessionName } from '../sessions/notes.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions } from './queries.ts';
 
@@ -73,6 +74,39 @@ describe('getSession', () => {
     expect(getSession(db, live, alpha.id)).toEqual(alpha);
   });
 
+  it('名前とメモは session_notes から載せ、DTO の鍵は増やさない', () => {
+    const id = listSessions(db, []).find((s) => s.providerSessionId === SESSION_BETA)!.id;
+    const before = getSession(db, [], id)!;
+    expect(before.memo).toBeNull();
+    setSessionName(db, 'd', id, 'hangar で付けた名前');
+    setSessionMemo(db, 'd', id, '一行メモ');
+    const after = getSession(db, [], id)!;
+    expect(after).toEqual({ ...before, name: 'hangar で付けた名前', memo: '一行メモ' });
+    expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
+    for (const k of ['custom_title', 'customTitle', 'sn_name', 'sn_memo']) expect(Object.keys(after)).not.toContain(k);
+    expect(listSessions(db, []).find((s) => s.id === id)).toEqual(after);
+  });
+
+  it('本文から拾った題名があれば、hangar で付けた名前より先に出す。無ければ hangar の名前、ai-title の順', () => {
+    // alpha の本文には Claude Code の側で付けた名前（custom-title）がある。
+    const alpha = listSessions(db, []).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+    expect(alpha.name).toBe('channels-cleanup');
+    setSessionName(db, 'd', alpha.id, 'hangar で付けた名前');
+    expect(getSession(db, [], alpha.id)!.name).toBe('channels-cleanup');
+    db.prepare('update sessions set custom_title = null where id = ?').run(alpha.id);
+    expect(getSession(db, [], alpha.id)!.name).toBe('hangar で付けた名前');
+    setSessionName(db, 'd', alpha.id, null);
+    expect(getSession(db, [], alpha.id)!.name).toBe(alpha.aiTitle);
+  });
+
+  it('論理削除された名前とメモは載せない', () => {
+    const id = listSessions(db, []).find((s) => s.providerSessionId === SESSION_BETA)!.id;
+    const before = getSession(db, [], id)!;
+    setSessionName(db, 'd', id, '名前');
+    softDeleteShared(db, 'session_notes', id, 'd', 'session_id');
+    expect(getSession(db, [], id)).toEqual(before);
+  });
+
   it('transcriptMtime は、この PC の主線の本文の更新時刻だけを見る', () => {
     const alpha = listSessions(db, live).find((s) => s.providerSessionId === SESSION_ALPHA)!;
     db.prepare('update transcript_files set mtime = 1234 where session_id = ? and agent_id is null').run(alpha.id);
@@ -85,13 +119,15 @@ describe('getSession', () => {
 });
 
 describe('displayName', () => {
-  it('利用者が付けた名前、hangar の名前、ai-title、最初の発言の順', () => {
+  it('利用者が付けた名前、本文の題名、hangar の名前、ai-title、最初の発言の順', () => {
     const l = (nameSource: string): LiveSessionDto => ({ sessionId: 'x', status: 'idle', name: 'L', nameSource, cwd: '', pid: 1 });
-    expect(displayName({ name: 'N', ai_title: 'T', first_prompt: 'P' }, l('user'))).toBe('L');
-    expect(displayName({ name: 'N', ai_title: 'T', first_prompt: 'P' }, l('derived'))).toBe('N');
-    expect(displayName({ name: null, ai_title: 'T', first_prompt: 'P' }, undefined)).toBe('T');
-    expect(displayName({ name: null, ai_title: null, first_prompt: 'あ'.repeat(50) }, undefined)).toBe('あ'.repeat(40));
-    expect(displayName({ name: null, ai_title: null, first_prompt: null }, undefined)).toBeNull();
+    expect(displayName({ custom_title: 'C', name: 'N', ai_title: 'T', first_prompt: 'P' }, l('user'))).toBe('L');
+    // 本文の題名は hangar の名前に勝つ。2 つが同じ列にあった頃、後から書く索引の側が残ったのと同じである。
+    expect(displayName({ custom_title: 'C', name: 'N', ai_title: 'T', first_prompt: 'P' }, l('derived'))).toBe('C');
+    expect(displayName({ custom_title: null, name: 'N', ai_title: 'T', first_prompt: 'P' }, l('derived'))).toBe('N');
+    expect(displayName({ custom_title: null, name: null, ai_title: 'T', first_prompt: 'P' }, undefined)).toBe('T');
+    expect(displayName({ custom_title: null, name: null, ai_title: null, first_prompt: 'あ'.repeat(50) }, undefined)).toBe('あ'.repeat(40));
+    expect(displayName({ custom_title: null, name: null, ai_title: null, first_prompt: null }, undefined)).toBeNull();
   });
 });
 

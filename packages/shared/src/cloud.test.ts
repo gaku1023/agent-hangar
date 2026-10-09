@@ -28,17 +28,20 @@ describe('鍵と表', () => {
     expect(splitFileKey(configKey('dev1', 'skills/x/SKILL.md'))).toEqual({ prefix: 'config', rel: 'dev1/skills/x/SKILL.md' });
   });
   it('共有テーブルは 12 で、主キーは session_summaries と session_states と project_memos だけが違う', () => {
-    expect(SHARED_TABLES).toHaveLength(12);
+    expect(SHARED_TABLES).toHaveLength(13);
     expect(SHARED_TABLES).not.toContain('takeover_requests');
     expect(Object.keys(TABLE_PK).sort()).toEqual([...SHARED_TABLES].sort());
     expect(TABLE_PK.session_summaries).toBe('session_id');
     expect(TABLE_PK.session_states).toBe('session_id');
+    expect(TABLE_PK.session_notes).toBe('session_id');
     expect(TABLE_PK.project_memos).toBe('project_id');
     expect(TABLE_PK.runs).toBe('id');
   });
   it('session_states は session_summaries の直後に適用する（親の sessions より後）', () => {
     expect(SHARED_TABLES.indexOf('session_states')).toBe(SHARED_TABLES.indexOf('session_summaries') + 1);
     expect(SHARED_TABLES.indexOf('session_states')).toBeGreaterThan(SHARED_TABLES.indexOf('sessions'));
+    // session_notes も sessions の子である。親より後に当てる。
+    expect(SHARED_TABLES.indexOf('session_notes')).toBeGreaterThan(SHARED_TABLES.indexOf('sessions'));
   });
 });
 

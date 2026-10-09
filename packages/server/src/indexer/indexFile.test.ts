@@ -9,6 +9,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import { localDay } from '../usage/aggregate.ts';
+import { setSessionMemo, setSessionName } from '../sessions/notes.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 
 let dir: string;
@@ -42,7 +43,7 @@ describe('indexFile', () => {
     // Bash の要約と command、Edit のファイルパス、Agent の description の 3 行に channels が現れる。
     expect(count('select count(*) c from event_fts where session_id = ? and text match ?', r.sessionId, '"channels"')).toBe(3);
     const s = db.prepare('select * from sessions where id = ?').get(r.sessionId) as Record<string, unknown>;
-    expect(s).toMatchObject({ provider: 'claude-code', provider_session_id: SESSION_ALPHA, cwd: '/Users/me/workspace/alpha', first_prompt: '動画チャンネルの整理をしたい。まず現状を見て', ai_title: '動画チャンネルの整理', name: 'channels-cleanup', home_device: DEV, started_at: Date.parse('2026-09-01T10:00:00.000Z'), last_activity_at: Date.parse('2026-09-01T10:04:00.000Z') });
+    expect(s).toMatchObject({ provider: 'claude-code', provider_session_id: SESSION_ALPHA, cwd: '/Users/me/workspace/alpha', first_prompt: '動画チャンネルの整理をしたい。まず現状を見て', ai_title: '動画チャンネルの整理', custom_title: 'channels-cleanup', home_device: DEV, started_at: Date.parse('2026-09-01T10:00:00.000Z'), last_activity_at: Date.parse('2026-09-01T10:04:00.000Z') });
     const st = db.prepare('select * from session_stats where session_id = ?').get(r.sessionId) as Record<string, unknown>;
     expect(st).toMatchObject({ turns: 2, model: 'claude-fable-5-1', effort: 'high', files_changed: 1, pr_url: 'https://github.com/me/alpha/pull/12', input_tokens: 1110, output_tokens: 140, last_prompt: 'b.md も同じように直して' });
     const tf = db.prepare('select * from transcript_files where path = ?').get(alphaMain().path) as Record<string, unknown>;
@@ -111,6 +112,34 @@ describe('indexFile', () => {
     expect(count('select count(*) c from event_index where session_id = ? and parent_agent is null', r.sessionId)).toBe(3);
     expect(count('select count(*) c from event_fts where session_id = ? and agent_id is null', r.sessionId)).toBe(2);
     expect((db.prepare('select turns from session_stats where session_id = ?').get(r.sessionId) as { turns: number }).turns).toBe(1);
+  });
+
+  it('索引は名前とメモ（session_notes）に触らない。何度走らせても、作り直しても変わらない', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    setSessionName(db, 'other-pc', r.sessionId, 'hangar で付けた名前');
+    setSessionMemo(db, 'other-pc', r.sessionId, '一行メモ');
+    const note = () => db.prepare('select * from session_notes where session_id = ?').get(r.sessionId);
+    const noteSeq = () => (db.prepare("select max(seq) s from changes where table_name = 'session_notes'").get() as { s: number }).s;
+    const before = note();
+    const seq = noteSeq();
+    // 追記、変化なしの走り直し、作り直し（版の上がり）、ファイルの作り直し。
+    appendJson(alphaMain().path, { type: 'custom-title', customTitle: '本文で付け直した名前', sessionId: SESSION_ALPHA }, { type: 'user', message: { role: 'user', content: '続き' }, uuid: 'u-more', timestamp: '2026-09-01T13:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: INDEXER_VERSION + 1 });
+    const lines = fs.readFileSync(alphaMain().path, 'utf8').split('\n').filter(Boolean);
+    fs.writeFileSync(alphaMain().path, lines.slice(0, 3).join('\n') + '\n');
+    indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: INDEXER_VERSION + 1 });
+    expect(note()).toEqual(before);
+    expect(noteSeq()).toBe(seq);
+    // 本文の題名は sessions の側に入る。索引が同期へ送る sessions の行は、名前とメモを運ばない。
+    expect((db.prepare('select custom_title t from sessions where id = ?').get(r.sessionId) as { t: string }).t).toBe('本文で付け直した名前');
+    const payloads = (db.prepare("select payload from changes where table_name = 'sessions' and row_id = ?").all(r.sessionId) as { payload: string }[]).map((c) => JSON.parse(c.payload) as Record<string, unknown>);
+    expect(payloads.length).toBeGreaterThan(0);
+    for (const p of payloads) {
+      expect(Object.keys(p)).not.toContain('name');
+      expect(Object.keys(p)).not.toContain('memo');
+    }
   });
 
   it('版が上がったら作り直す', () => {

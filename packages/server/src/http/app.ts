@@ -28,6 +28,7 @@ import { decodeTerminalRequest } from '../runs/terminal.ts';
 import type { JumpFrom } from '../runs/promptJump.ts';
 import { searchSessions } from '../search/search.ts';
 import { parkedSessionIds } from '../sessions/park.ts';
+import { setSessionMemo } from '../sessions/notes.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../sessions/states.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import { readEvents, subagentIds } from '../transcript/read.ts';
@@ -927,13 +928,12 @@ export function createApp(deps: AppDeps): Hono {
   // セッションの 1 行メモ、昇格、事後要約。
   api.patch('/sessions/:id', async (c) => {
     const id = c.req.param('id');
-    const row = db.prepare('select * from sessions where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
-    if (!row) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
     const b = await readJson(c, BODY_LIMITS.todo);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
     const body = (b.value ?? {}) as { memo?: unknown };
     if (typeof body.memo !== 'string') return c.json({ error: 'memo は文字列です' }, 400);
-    upsertShared(db, 'sessions', { ...row, memo: body.memo.trim() || null }, deviceId);
+    setSessionMemo(db, deviceId, id, body.memo.trim() || null);
     return c.json(session(id)!);
   });
   // セッションの状態（Paused・Done・Archived）と Claude の提案の確定・却下。どれも利用者の操作で、MCP からは呼べない。

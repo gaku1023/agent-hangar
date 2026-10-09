@@ -74,6 +74,8 @@ const TABLES: Record<string, TableRule> = {
   sessions: { to: self('session') },
   session_summaries: { to: self('session') },
   session_states: { to: self('session') },
+  // 名前とメモは SessionDto に載る。この端末の書き込みも、同期で降りた行も配る。
+  session_notes: { to: self('session') },
   // SessionDto が runs から読むのは、他端末の生きた run（ロック）である。それが動くのは同期で降りたときだけなので、そのときだけ配る。
   // この端末の run の変化は、run.started、run.upsert、run.ended の明示のイベントが運ぶ。
   runs: {

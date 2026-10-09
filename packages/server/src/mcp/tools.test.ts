@@ -249,7 +249,7 @@ describe('MCP tools', () => {
   });
   it('set_session_memo、get_usage、open_in_hangar', () => {
     expect(call('set_session_memo', { session_id: alphaId, text: 'メモ' })).toEqual({ ok: true, session_id: alphaId });
-    expect((db.prepare('select memo from sessions where id = ?').get(alphaId) as { memo: string }).memo).toBe('メモ');
+    expect((db.prepare('select memo from session_notes where session_id = ?').get(alphaId) as { memo: string }).memo).toBe('メモ');
     expect(call('get_usage')).toEqual({ five_hour: { used_percentage: 47, resets_at: 1_760_000_000_000 }, seven_day: null, updated_at: 5 });
     expect(call('open_in_hangar', { session_id: alphaId })).toEqual({ url: `http://127.0.0.1:4177/#/session/${alphaId}`, deep_link: `hangar://session/${alphaId}` });
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
@@ -320,7 +320,7 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
       expect(() => call(name, { ...args, session_id: otherId }, scoped())).toThrow(ToolError);
     }
     // 別のセッションのメモも要約も書かれていない。
-    expect((db.prepare('select memo from sessions where id = ?').get(otherId) as { memo: string | null }).memo).toBeNull();
+    expect(db.prepare('select memo from session_notes where session_id = ?').get(otherId)).toBeUndefined();
     expect((db.prepare('select title from session_summaries where session_id = ?').get(otherId) as { title: string } | undefined)?.title).not.toBe('T');
   });
 

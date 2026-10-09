@@ -253,15 +253,18 @@ function refreshFilesChanged(db: Db, sessionId: string): void {
   db.prepare('insert into session_stats (session_id, files_changed) values (?, ?) on conflict(session_id) do update set files_changed = excluded.files_changed').run(sessionId, n);
 }
 
-/** 主線から得た事実を sessions と session_stats に重ねる。sessions は全列を読んでから差分を乗せて upsertShared に渡す。他端末の写しではこの関数を呼ばない。 */
+/**
+ * 主線から得た事実を sessions と session_stats に重ねる。sessions は全列を読んでから差分を乗せて upsertShared に渡す。他端末の写しではこの関数を呼ばない。
+ * 本文の題名（Claude Code の側で付けた名前）は sessions.custom_title に書く。hangar で付けた名前とメモ（session_notes）には触らない。
+ */
 function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, deviceId: string): void {
   const cur = db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
   const next: Record<string, unknown> = { ...cur };
   if (acc.cwd && !cur.cwd) next.cwd = acc.cwd;
   if (acc.firstPrompt !== undefined && (reset || cur.first_prompt == null)) next.first_prompt = acc.firstPrompt;
   if (acc.aiTitle) next.ai_title = acc.aiTitle;
-  const name = acc.customTitle ?? acc.agentName;
-  if (name) next.name = name;
+  const title = acc.customTitle ?? acc.agentName;
+  if (title) next.custom_title = title;
   if (acc.firstTs !== undefined) next.started_at = reset || cur.started_at == null ? acc.firstTs : Math.min(cur.started_at as number, acc.firstTs);
   if (acc.lastTs !== undefined) next.last_activity_at = reset || cur.last_activity_at == null ? acc.lastTs : Math.max(cur.last_activity_at as number, acc.lastTs);
   delete next.updated_at; delete next.origin_device;

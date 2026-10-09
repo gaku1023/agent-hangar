@@ -1,3 +1,4 @@
+import { sessionTitleOf } from '../sessions/notes.ts';
 import type { TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { readEvents } from '../transcript/read.ts';
@@ -38,7 +39,7 @@ export function compressEvents(events: TranscriptEvent[], opts: CompressOptions 
 
 /** 主線の全イベントを読み、圧縮した本文と付帯情報にする。本文が無ければ null。 */
 export function buildSummaryInput(db: Db, sessionId: string, running: boolean): SummaryInput | null {
-  const s = db.prepare('select ai_title, name from sessions where id = ? and deleted_at is null').get(sessionId) as { ai_title: string | null; name: string | null } | undefined;
+  const s = db.prepare('select ai_title from sessions where id = ? and deleted_at is null').get(sessionId) as { ai_title: string | null } | undefined;
   if (!s) return null;
   const total = (db.prepare('select count(*) c from event_index where session_id = ? and parent_agent is null').get(sessionId) as { c: number }).c;
   if (total === 0) return null;
@@ -52,7 +53,7 @@ export function buildSummaryInput(db: Db, sessionId: string, running: boolean): 
   const turns = (db.prepare('select turns from session_stats where session_id = ?').get(sessionId) as { turns: number } | undefined)?.turns ?? 0;
   const body = compressEvents(events);
   const text = running ? `このセッションは現在も実行中です。\n${body}` : body;
-  return { sessionId, text, turns, running, titleHint: s.ai_title ?? s.name };
+  return { sessionId, text, turns, running, titleHint: s.ai_title ?? sessionTitleOf(db, sessionId) };
 }
 
 /** 「要約器を試す」に使う決め打ちの入力。DB には書かない。 */

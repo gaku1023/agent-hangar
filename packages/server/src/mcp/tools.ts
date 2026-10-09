@@ -9,6 +9,7 @@ import type { MemoStore } from '../projects/memo.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
+import { setSessionMemo } from '../sessions/notes.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 
@@ -381,8 +382,7 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
 export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = sessionIdOf(ctx, args);
   requireSession(deps, id);
-  const row = deps.db.prepare('select * from sessions where id = ?').get(id) as Record<string, unknown>;
-  upsertShared(deps.db, 'sessions', { ...row, memo: typeof args.text === 'string' ? args.text : '' }, deps.deviceId);
+  setSessionMemo(deps.db, deps.deviceId, id, typeof args.text === 'string' ? args.text : '');
   return { ok: true, session_id: id };
 }
 
