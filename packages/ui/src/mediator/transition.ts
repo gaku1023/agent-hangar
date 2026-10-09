@@ -80,9 +80,12 @@ export function transition(state: State, store: Store, input: Input): Step {
  * どちらも、ストアの顔ぶれが前に見たものと同じなら何もしない。
  */
 function storeChanged(state: State, store: Store): Step {
-  const waiting = settled(state, liveStep(state, store));
-  const live = settled(waiting.state, sidebarLiveStep(waiting.state, store));
-  return live.effects.length === 0 ? { ...waiting, state: live.state } : { state: live.state, effects: [...waiting.effects, ...live.effects] };
+  const waiting = liveStep(state, store);
+  const live = sidebarLiveStep(waiting.state, store);
+  // どちらも動かなかったら、整え（settled）を通さずそのまま返す。
+  // ストアは本文が伸びるたびに変わるので、そのたびに未解決のキューや札を触ると、無関係な更新で問いが開いてしまう。
+  if (live.state === state && waiting.effects.length === 0 && live.effects.length === 0) return { state, effects: [] };
+  return settled(state, { state: live.state, effects: [...waiting.effects, ...live.effects] });
 }
 
 /**
