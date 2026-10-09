@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { SyncStatusBody } from '@agent-hangar/shared';
 import type { Input, Overlay, SessionViewState } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
+import { initialStore } from '../store/store.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
 import { liveStep } from './live.ts';
@@ -10,7 +11,7 @@ import { readDraft } from './launch.ts';
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
   let state = start;
-  for (const i of inputs) { const r = transition(state, i); state = r.state; effects.push(...r.effects); }
+  for (const i of inputs) { const r = transition(state, initialStore(), i); state = r.state; effects.push(...r.effects); }
   return { state, effects };
 }
 const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
@@ -37,8 +38,8 @@ describe('起動と接続', () => {
   });
   it('バックオフは 15 秒で頭打ち', () => {
     let s = initialState();
-    for (let i = 0; i < 8; i++) s = transition(s, runtime({ type: 'ws.close', at: T0 })).state;
-    expect(transition(s, runtime({ type: 'ws.close', at: T0 })).effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 15000 }]);
+    for (let i = 0; i < 8; i++) s = transition(s, initialStore(), runtime({ type: 'ws.close', at: T0 })).state;
+    expect(transition(s, initialStore(), runtime({ type: 'ws.close', at: T0 })).effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 15000 }]);
   });
   it('切れている間は、画面が古くなった時刻と次に試す時刻を持つ', () => {
     const a = run([runtime({ type: 'ws.open' }), runtime({ type: 'ws.close', at: T0 })]);

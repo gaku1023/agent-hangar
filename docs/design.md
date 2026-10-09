@@ -220,7 +220,8 @@ type Intent =
 ### Mediator の状態機械
 
 `Root` が保持する **Mediator** は、自作の型付き状態機械である。
-`transition(state, input) => { state, effects }` の純関数と、効果を実行する小さなランナーから成る。
+`transition(state, store, input) => { state, effects }` の純関数と、効果を実行する小さなランナーから成る。
+`store` は Store で、Mediator は読むだけで変えない。
 入力は Intent と、サーバから届くイベント（`ServerEvent`）の二種類である。
 効果は API 呼び出し、ナビゲーション、ターミナル接続の開閉、フォーカス移動、トースト表示に限る。
 

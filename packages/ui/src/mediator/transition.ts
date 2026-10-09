@@ -18,6 +18,7 @@ import { LIVE_PANE_SPLIT_DEFAULT, livePaneSplitStep, sidebarLiveStep, sidebarOrd
 import { syncStep } from './sync.ts';
 import { workbenchStep } from './workbench.ts';
 import type { Input, State, Step } from './types.ts';
+import type { Store } from '../store/store.ts';
 
 export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
@@ -30,8 +31,11 @@ function pushToast(state: State, level: 'info' | 'error', message: string): Stat
   return { ...state, toasts: [...state.toasts, { id: String(state.nextToastId), level, message }], nextToastId: state.nextToastId + 1 };
 }
 
-/** 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。 */
-export function transition(state: State, input: Input): Step {
+/**
+ * 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。
+ * Store は読むだけで、変えない。Store を変えるのは Runtime である。
+ */
+export function transition(state: State, _store: Store, input: Input): Step {
   // promoteStep、projectCreateStep、retentionStep は overlay.close を横取りするので overlayStep より前に置く。
   // accountsStep は確認を出す領域なので、overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。

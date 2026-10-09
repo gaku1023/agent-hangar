@@ -645,7 +645,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
     }
     const wasHome = state.screen.name === 'home';
-    const r = transition(state, input);
+    const r = transition(state, store, input);
     if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
     // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
