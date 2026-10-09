@@ -781,12 +781,12 @@ function cloudFetch(files: { entry: FileEntry; body: Buffer }[], o: { token: str
     paths.push(u.pathname);
     if (u.pathname === '/files') {
       const last = files.length ? files[files.length - 1]!.entry.seq : 0;
-      return new Response(JSON.stringify({ files: files.map((x) => x.entry), nextSeq: last, more: false }), { status: 200 });
+      return new Response(JSON.stringify({ files: files.map((x) => x.entry), nextSeq: last, more: false }), { status: 200, headers: { [COMPAT_HEADER]: String(COMPAT_VERSION) } });
     }
     const key = u.pathname.replace(/^\/files\//, '');
     const hit = files.find((x) => x.entry.key === key);
     if (!hit || o.missing?.includes(key)) return new Response('not found', { status: 404 });
-    return new Response(new Uint8Array(hit.body), { status: 200 });
+    return new Response(new Uint8Array(hit.body), { status: 200, headers: { [COMPAT_HEADER]: String(COMPAT_VERSION) } });
   }) as typeof fetch;
   return { fetch: f, paths };
 }

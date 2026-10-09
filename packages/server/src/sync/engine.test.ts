@@ -698,17 +698,18 @@ describe('互換の版', () => {
     e.stop();
   });
 
-  it('版の見出しを返さない古い Worker（版 0）でも、この PC の下限が 0 なら同期は動く', async () => {
-    expect(MIN_WORKER_COMPAT).toBe(0);
+  it('版の見出しを返さない古い Worker（版 0）は、この PC の下限 1 で断り、Worker を上げるよう error に出す', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(1);
     cloud.workerCompat = 0;
     const e = make();
     await e.start();
     project('p1');
     await timers.advance(1_000);
     await e.idle();
-    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
-    expect(e.compatBlocked()).toBe(false);
-    expect(e.status()).toMatchObject({ state: 'idle', error: null, pending: 0 });
+    expect(cloud.changes).toEqual([]);
+    expect(e.compatBlocked()).toBe(true);
+    expect(e.status().state).toBe('error');
+    expect(e.status().error).toContain('Worker');
     e.stop();
   });
 

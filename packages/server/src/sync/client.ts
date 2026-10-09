@@ -41,10 +41,11 @@ const toCloudError = (e: unknown): CloudError => (e instanceof CloudError ? e : 
 
 /**
  * この PC が Worker に求める互換の版の下限。
- * 0 の間は、版の見出しを返さない古い Worker（版 0 として読む）とも話す。
- * Worker の API を古い Worker と話せない形で変えたら、その版に上げる。
+ * 段 1 の PR 6 で 1 に上げた。版の見出しを返さない古い Worker（版 0 として読む）は、最初の 2xx で断る。
+ * そのため、古い Worker のための分岐（/usage の 404 を「トークンなし」に読み替える）は持たない。
+ * Worker の API を古い Worker と話せない形で変えたら、その版に上げる。上げる前に Worker を配備し直す。
  */
-export const MIN_WORKER_COMPAT = 0;
+export const MIN_WORKER_COMPAT = 1;
 
 /** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
 export type CompatUpgrade = 'device' | 'worker';
@@ -186,7 +187,7 @@ export interface CloudClient {
   putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
   getFile(key: string): Promise<Readable>;
   listFiles(since: number, limit: number): Promise<ListFilesResponse>;
-  /** 使用量と費用。古い Worker（404）は configured: false として返す。 */
+  /** 使用量と費用。 */
   usage(): Promise<CloudUsageBody>;
 }
 
@@ -314,14 +315,7 @@ export class HttpCloudClient implements CloudClient {
   snapshot(after: string | null, limit: number) { return this.json<SnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
   listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
 
-  async usage(): Promise<CloudUsageBody> {
-    try {
-      return await this.json<CloudUsageBody>('/usage');
-    } catch (e) {
-      if (e instanceof CloudError && e.status === 404) return { configured: false };
-      throw e;
-    }
-  }
+  usage() { return this.json<CloudUsageBody>('/usage'); }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
     this.requireValidKey(meta.key);

@@ -9,7 +9,12 @@ import { CloudError, CompatError, goneFloor, HttpCloudClient, isValidFileKey, Li
 
 type Call = { url: string; init: RequestInit };
 
-function fakeFetch(handler: (c: Call) => Response | Promise<Response>): { fetch: typeof fetch; calls: Call[] } {
+/**
+ * Worker の立て替え。
+ * いまの Worker の真似として、版の見出しの無い応答にはこの PC と同じ版を足す（この PC が Worker に求める下限は 1 である）。
+ * 版を試す試験は stamp: false を渡し、見出しを足さない（版 0 の古い Worker や、Cloudflare の端の真似）。
+ */
+function fakeFetch(handler: (c: Call) => Response | Promise<Response>, o: { stamp?: boolean } = {}): { fetch: typeof fetch; calls: Call[] } {
   const calls: Call[] = [];
   const f = (async (input: string | URL | Request, init?: RequestInit) => {
     const c = { url: String(input), init: init ?? {} };
@@ -19,7 +24,9 @@ function fakeFetch(handler: (c: Call) => Response | Promise<Response>): { fetch:
     new Headers(c.init.headers as Record<string, string> | undefined);
     new URL(c.url);
     calls.push(c);
-    return handler(c);
+    const res = await handler(c);
+    if (o.stamp !== false && !res.headers.has(COMPAT_HEADER)) res.headers.set(COMPAT_HEADER, String(COMPAT_VERSION));
+    return res;
   }) as typeof fetch;
   return { fetch: f, calls };
 }
@@ -414,10 +421,10 @@ describe('usage', () => {
     expect(calls[0]!.url).toBe('https://w.example/usage');
     expect(bearerIs(calls[0]!, 'dev-token')).toBe(true);
   });
-  it('古い Worker の 404 は configured: false として扱う', async () => {
+  it('404 は読み替えずに CloudError のまま投げる（/usage の無い古い Worker は、版の下限で先に断る）', async () => {
     const { fetch } = fakeFetch(() => json({ error: 'not found' }, 404));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch });
-    expect(await c.usage()).toEqual({ configured: false });
+    await expect(c.usage()).rejects.toMatchObject({ name: 'CloudError', status: 404 });
   });
   it('それ以外の失敗は CloudError のまま投げる', async () => {
     const { fetch } = fakeFetch(() => json({ error: 'internal error' }, 500));
@@ -472,7 +479,7 @@ describe('互換の版', () => {
   });
 
   it('Worker の版がこの PC の下限より古ければ、通った応答でも CompatError にして Worker を上げるよう伝える', async () => {
-    const { fetch } = fakeFetch(() => new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '1' } }));
+    const { fetch } = fakeFetch(() => new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '1' } }), { stamp: false });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 2 });
     const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
     expect(e).toMatchObject({ name: 'CompatError', status: 426, upgrade: 'worker', have: 1, need: 2 });
@@ -481,19 +488,18 @@ describe('互換の版', () => {
     expect((e as Error).message).toContain('今すぐ同期');
   });
 
-  it('版の見出しを返さない Worker は版 0 として読み、下限が 0 なら今までどおり話す', async () => {
-    expect(MIN_WORKER_COMPAT).toBe(0);
-    const { fetch } = fakeFetch(() => json({ changes: [], nextSeq: 4, more: false }));
-    expect(await new HttpCloudClient({ url: 'https://h', token: 't', fetch }).pullChanges(0, 10)).toEqual({ changes: [], nextSeq: 4, more: false });
-    // 下限を 1 にすると、同じ Worker を古いと読む。
-    const strict = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
-    await expect(strict.pullChanges(0, 10)).rejects.toMatchObject({ upgrade: 'worker', have: 0, need: 1 });
+  it('この PC が Worker に求める下限は 1 で、版の見出しを返さない Worker（版 0）の 2xx は Worker を上げるよう断る', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(1);
+    const { fetch } = fakeFetch(() => json({ changes: [], nextSeq: 4, more: false }), { stamp: false });
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 1 });
+    await expect(c.usage()).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker' });
   });
 
   // Cloudflare の端は、Worker を通さずに 4xx と 5xx を返すことがある（WAF の 403、本文が大きすぎるときの 413、CPU の超過、日の上限など）。
   // どれも版の見出しを持たないが、Worker の版を語らないので、下限を上げていても版の不一致にはしない。
   it.each([503, 429, 408, 403, 404, 400, 413])('Worker を通らずに端が返した %i（版の見出しなし）は、版の不一致にせず、その status の CloudError にする', async (status) => {
-    const { fetch } = fakeFetch(() => new Response('<html>edge</html>', { status, headers: { 'content-type': 'text/html' } }));
+    const { fetch } = fakeFetch(() => new Response('<html>edge</html>', { status, headers: { 'content-type': 'text/html' } }), { stamp: false });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
     const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(CloudError);

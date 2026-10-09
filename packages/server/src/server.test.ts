@@ -1232,7 +1232,7 @@ describe('本文は使い始めた後に動いたものだけを上げる', () =
     let seq = 0;
     const srv = http.createServer((req, res) => {
       const url = (req.url ?? '').split('?')[0] ?? '';
-      const send = (body: unknown) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+      const send = (body: unknown) => { res.writeHead(200, { 'content-type': 'application/json', [COMPAT_HEADER]: String(COMPAT_VERSION) }); res.end(JSON.stringify(body)); };
       if (req.method === 'PUT' && url.startsWith('/files/')) {
         req.resume();
         req.on('end', () => { puts.push(decodeURIComponent(url.slice('/files/'.length))); send({ seq: ++seq }); });
@@ -1561,16 +1561,20 @@ describe('互換の版', () => {
     }
   });
 
-  it('Worker が版の見出しを返さない間（版 0）も同期は動き、要求にはこの PC の版を載せる', async () => {
-    const w = await fakeWorker((method, p) => {
-      if (p === '/rows') return { status: 200, body: { changes: [], nextAfter: null, seq: 0 } };
-      if (p === '/changes' && method === 'GET') return { status: 200, body: { changes: [], nextSeq: 0, more: false } };
-      if (p === '/changes') return { status: 200, body: { seq: 0, accepted: 0, skipped: 0 } };
-      if (p === '/files') return { status: 200, body: { files: [], nextSeq: 0, more: false } };
-      if (p.startsWith('/files/') && method === 'PUT') return { status: 201, body: { seq: 1 } };
-      if (p === '/usage') return { status: 200, body: { configured: false } };
-      return { status: 404, body: { error: 'not found' } };
-    });
+  /** いまの Worker の真似。どの経路にも、形の合う応答を返す。 */
+  const answerAll = (compat: string | undefined) => (method: string, p: string): Answer => {
+    const ok = (status: number, body: unknown): Answer => ({ status, body, compat });
+    if (p === '/rows') return ok(200, { changes: [], nextAfter: null, seq: 0 });
+    if (p === '/changes' && method === 'GET') return ok(200, { changes: [], nextSeq: 0, more: false });
+    if (p === '/changes') return ok(200, { seq: 0, accepted: 0, skipped: 0 });
+    if (p === '/files') return ok(200, { files: [], nextSeq: 0, more: false });
+    if (p.startsWith('/files/') && method === 'PUT') return ok(201, { seq: 1 });
+    if (p === '/usage') return ok(200, { configured: false });
+    return ok(404, { error: 'not found' });
+  };
+
+  it('Worker が版を名乗れば同期は動き、要求にはこの PC の版を載せる', async () => {
+    const w = await fakeWorker(answerAll(String(COMPAT_VERSION)));
     joinTo(w.url);
     const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
@@ -1579,6 +1583,20 @@ describe('互換の版', () => {
       expect(st.state).not.toBe('error');
       expect(w.seen.length).toBeGreaterThan(0);
       for (const r of w.seen) expect(r.compat, `${r.method} ${r.path}`).toBe(String(COMPAT_VERSION));
+    } finally {
+      await s.close();
+      await w.close();
+    }
+  });
+
+  it('Worker が版の見出しを返さなければ（版 0）、同期を止めて Worker を上げるよう出す', async () => {
+    const w = await fakeWorker(answerAll(undefined));
+    joinTo(w.url);
+    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+    try {
+      const st = await until(async () => { const v = await syncStatus(s.port); return v.state === 'error' ? v : null; });
+      expect(st.error).toContain('Worker');
+      expect(st.error).toContain('今すぐ同期');
     } finally {
       await s.close();
       await w.close();
