@@ -67,7 +67,7 @@ export type LiveIntentDto = { text: string; at: number; stepsSince: number; inTh
 export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; intent: LiveIntentDto | null; agents: LiveAgentDto[] };
 /**
  * status はセッションの状態で絞る（session_states を見る）。hideArchived は「すべて」のタブで条件を入れたときに Archived を除く印である。
- * どちらも Sessions 画面だけが送り、MCP の search_sessions は送らない。
+ * どちらも Home の一覧だけが送り、MCP の search_sessions は送らない。
  */
 export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'active' | 'proposed'; hideArchived?: boolean };
 /**

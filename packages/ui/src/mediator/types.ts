@@ -56,7 +56,8 @@ export type Effect =
   // fromSeq の 0 は「開いた（最新側）」、-1 は「過去へ遡る」、-2 は「追記の取り込み（後ろを読み足す）」。
   // aroundSeq は検索の結果から開いたときの跳び先で、開いたときに最新の側ではなくその周りを読む。
   | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number; aroundSeq?: number }
-  | { kind: 'api.search'; params: SearchQuery }
+  // append が真なら、届いた行を持っている結果の後ろに足す（「さらに読み込む」）。偽か無ければ置き換える。
+  | { kind: 'api.search'; params: SearchQuery; append?: boolean }
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }
   | { kind: 'api.updateSettings'; patch: Partial<SettingsDto>; field?: string }
   | { kind: 'api.readiness' }

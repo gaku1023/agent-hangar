@@ -42,7 +42,10 @@ a:hover { text-decoration: underline; }
 .shell::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(60% 70% at 18% 8%, var(--aura-1), transparent 72%); }
 /* 浮くガラス。ぼかしはこの節と、切断の帯、ダイアログ、パレット、通知の規則にだけ書く（glass.test.ts が見張る）。 */
 /* 行が増えても全部を覆うように、端から端まで跨がせる。上はヘッダ（窓の上辺に付いた帯）の下に隙間を 1 つ空けて始める。 */
-.sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); overflow: hidden auto; }
+.sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; margin: calc(var(--header-h) + var(--float-gap)) 0 var(--float-gap) var(--float-gap); padding: calc(var(--u) * 2.5) calc(var(--u) * 2); border-radius: var(--r-xl); overflow: hidden auto; display: flex; flex-direction: column; }
+.sidebar > * { flex: none; }
+/* 下端の組（設定）。項目の列の底に寄せ、「実行中」の節が伸びても押し下げられる（設計書 2.1）。線で節と分ける。 */
+.side-foot { margin-top: auto; padding-top: calc(var(--u) * 2); border-top: 1px solid rgba(30, 40, 90, 0.1); }
 /* 頁を開いたときの入場。デスクトップの起動画面は、読み込みが終わった合図の後、この光の背景だけを描いて終わる。
    頁が替わった後は、その光の上にサイドバーが左から、ヘッダが上から浮かんで来る。殻は作り直されないので、動くのは最初の 1 回だけである。
    reduced motion では --dur が 0 になり、動かない。 */

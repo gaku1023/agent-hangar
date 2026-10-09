@@ -192,32 +192,46 @@ describe('createRuntime', () => {
     expect(api.events).toHaveBeenLastCalledWith('s1', { fromSeq: 3, agentId: null });
     expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([2, 3]);
   });
-  it('検索の別のページは、そのページの行に入れ替える', async () => {
+  it('検索の「さらに読み込む」は、届いた行を持っている行の後ろに足す', async () => {
     const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
-    const search = vi.fn(async (p: { offset?: number }) => (p.offset ? { hits: [hit('s3')], total: 3 } : { hits: [hit('s1'), hit('s2')], total: 3 }));
-    const { rt, setHash, store } = harness({ search });
-    // 1 ページの件数は、起動時に保存から読み戻す。
-    store.set('sessions.pageSize', 25);
+    const search = vi.fn(async (p: { offset?: number }) => (p.offset ? { hits: [hit('s2'), hit('s3')], total: 3 } : { hits: [hit('s1'), hit('s2')], total: 3 }));
+    const { rt, setHash } = harness({ search });
     rt.start();
-    setHash('#/sessions?q=x');
+    setHash('#/?q=x');
     await flush();
-    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, limit: 25 });
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, limit: 50 });
     expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2']);
-    rt.emit({ type: 'search.page', page: 2 });
+    rt.emit({ type: 'search.more' });
     // 読んでいる間も、持っている行は消さない。
     expect(rt.getStore().search).toMatchObject({ loading: true, result: { total: 3 } });
     expect(rt.getStore().search.result?.hits).toHaveLength(2);
     await flush();
-    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, limit: 25, offset: 25 });
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, limit: 50, offset: 2 });
     expect(rt.getStore().search).toMatchObject({ loading: false, result: { total: 3 } });
-    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s3']);
+    // 重なった行（s2）は 1 度だけ。
+    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2', 's3']);
+  });
+  it('「さらに読み込む」の最中に条件を変えたら、古い続きは捨てる', async () => {
+    const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
+    let release: (r: { hits: ReturnType<typeof hit>[]; total: number }) => void = () => {};
+    const search = vi.fn((p: { offset?: number; status?: string }) => (p.offset ? new Promise<{ hits: ReturnType<typeof hit>[]; total: number }>((res) => { release = res; }) : Promise.resolve(p.status ? { hits: [hit('d1')], total: 1 } : { hits: [hit('s1'), hit('s2')], total: 5 })));
+    const { rt, setHash } = harness({ search });
+    rt.start();
+    setHash('#/?q=x');
+    await flush();
+    rt.emit({ type: 'search.more' });
+    rt.emit({ type: 'search.filter', patch: { status: 'done' } });
+    await flush();
+    release({ hits: [hit('s3'), hit('s4')], total: 5 });
+    await flush();
+    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['d1']);
   });
   it('期間の日数は、問い合わせる時刻で since に直してから送る', async () => {
     const search = vi.fn(async () => ({ hits: [], total: 0 }));
     const now = new Date(2026, 9, 1, 15, 30).getTime();
     const { rt, setHash } = harness({ search }, { now: () => now });
     rt.start();
-    setHash('#/sessions?q=x');
+    setHash('#/?q=x');
     await flush();
     rt.emit({ type: 'search.filter', patch: { days: 1 } });
     await flush();
@@ -227,7 +241,7 @@ describe('createRuntime', () => {
     const search = vi.fn(async () => ({ hits: [], total: 0 }));
     const { rt, setHash } = harness({ search });
     rt.start();
-    setHash('#/sessions?q=x');
+    setHash('#/?q=x');
     await flush();
     expect(search).toHaveBeenCalledTimes(1);
     rt.emit({ type: 'search.query', text: 'x', filter: { status: 'done' } });
@@ -239,7 +253,7 @@ describe('createRuntime', () => {
     const search = vi.fn(async () => ({ hits: [], total: 0 }));
     const { rt, setHash } = harness({ search });
     rt.start();
-    setHash('#/sessions');
+    setHash('#/');
     await flush();
     expect(search).not.toHaveBeenCalled();
     rt.emit({ type: 'search.query', text: '', filter: { file: 'a.md' } });
@@ -247,14 +261,14 @@ describe('createRuntime', () => {
     expect(search).toHaveBeenCalledTimes(1);
     expect(search).toHaveBeenLastCalledWith({ q: '', file: 'a.md', hideArchived: true, limit: 50 });
   });
-  it('検索の別のページに失敗しても、読み込み中のまま残さず、持っている結果も消さない', async () => {
+  it('「さらに読み込む」に失敗しても、読み込み中のまま残さず、持っている結果も消さない', async () => {
     const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
     const search = vi.fn(async (p: { offset?: number }) => { if (p.offset) throw new Error('500 /api/search'); return { hits: [hit('s1')], total: 3 }; });
     const { rt, setHash } = harness({ search });
     rt.start();
-    setHash('#/sessions?q=x');
+    setHash('#/?q=x');
     await flush();
-    rt.emit({ type: 'search.page', page: 2 });
+    rt.emit({ type: 'search.more' });
     await flush();
     expect(rt.getStore().search).toMatchObject({ loading: false, result: { total: 3 } });
     expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1']);

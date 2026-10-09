@@ -8,12 +8,12 @@ import type { State } from '../mediator/types.ts';
 import { applyEventsPage, applySubagents, eventsKey, initialStore, setEventsLoading, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, percentLabel, relativeTime, resetsLabel, shortModel, tokensLabel } from './format.ts';
 import { presentConfirm } from './confirm.ts';
-import { HOME_RECENT_MAX, presentHome } from './home.ts';
+import { presentHome, presentHomeScreen } from './home.ts';
 import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
 import { buildItems, presentSession, sessionActions, type SessionProps } from './session.ts';
-import { presentSessions } from './sessions.ts';
+import { presentSessionList } from './sessions.ts';
 import { homePath } from './accounts.ts';
 import { presentSettings } from './settings.ts';
 import { bytesLabel, daysLabel, transcriptMark } from './retention.ts';
@@ -221,12 +221,10 @@ describe('presentHome', () => {
       { kind: 'todo', id: 'b', text: 'やる b', projectId: 'beta', projectName: 'beta', sessionName: '不明なセッション', ago: '30 分前', note: '根拠は書かれていません' },
       { kind: 'todo', id: 'a', text: 'やる a', projectId: 'alpha', projectName: 'alpha', sessionName: 'name-s1', ago: '1 分前', note: '新しい' },
     ]);
-    expect(h.projects.find((p) => p.id === 'alpha')!.counts).toContain('確かめる 1');
   });
   it('候補が無ければ確かめるは空で、件数にも出さない', () => {
     const h = presentHome(initialState(), homeStore(), NOW);
     expect(h.confirm).toEqual([]);
-    expect(h.projects.every((p) => !p.counts.includes('確かめる'))).toBe(true);
   });
   it('要対応は入力待ちを長く待っている順に拾い、問いが無ければ決まりの文を出す', () => {
     // w1 は hangar の run で動いている。w2 は別のターミナル（iTerm など）で動いていて、hangar の run が無い。
@@ -295,50 +293,24 @@ describe('presentHome', () => {
     expect(p.running[0]).toMatchObject({ activity: null, note: '作業中', contextLabel: '未取得' });
     expect(p.running[1]).toMatchObject({ live: null, activity: null, note: '起動しています' });
   });
-  it('何も動いていないこと（idle）は、実行中も入力待ちも無いときだけ真にする', () => {
-    expect(presentHome(initialState(), homeStore(), NOW).idle).toBe(false);
+  it('何も動いていないこと（idle）は、要対応も実行中も確認待ちも無いときだけ真にする', () => {
+    expect(presentHomeScreen(initialState(), homeStore(), NOW).idle).toBe(false);
     const store = homeStore();
     store.sessions = { s2: store.sessions.s2!, w1: store.sessions.w1! };
-    // 入力待ちも生きているので、「動いているセッションはありません」とは言わない。
-    expect(presentHome(initialState(), store, NOW).idle).toBe(false);
+    // 入力待ちも生きているので、「実行中のセッションはありません」とは言わない。
+    expect(presentHomeScreen(initialState(), store, NOW).idle).toBe(false);
     store.sessions = { s2: store.sessions.s2! };
-    expect(presentHome(initialState(), store, NOW).idle).toBe(true);
+    expect(presentHomeScreen(initialState(), store, NOW).idle).toBe(true);
     // Claude の一覧に載る前の run も動いているものに数える。
     store.runs = { r2: runDto('r2', 's2') };
-    expect(presentHome(initialState(), store, NOW).idle).toBe(false);
+    expect(presentHomeScreen(initialState(), store, NOW).idle).toBe(false);
   });
-  it('最近は要対応と実行中に出したものを除き、新しい順に並べる', () => {
-    expect(presentHome(initialState(), homeStore(), NOW).recent.map((r) => r.id)).toEqual(['s3', 's2']);
-  });
-  // ホームではページを送らない。何行見せるかは画面が窓の高さで決めるので、背の高い窓でも足りる数だけ渡す。
-  it('最近は新しい順の先頭 HOME_RECENT_MAX 件だけを渡す', () => {
-    const store = initialStore();
-    store.bootstrapped = true;
-    store.projects = { alpha: project('alpha') };
-    store.sessions = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`e${i}`, session(`e${i}`, { lastActivityAt: NOW - 60_000 * (i + 1) })]));
-    const recent = presentHome({ ...initialState(), pageSize: 25, listPages: { home: 3 } }, store, NOW).recent.map((r) => r.id);
-    expect(recent).toEqual(Array.from({ length: HOME_RECENT_MAX }, (_, i) => `e${i}`));
-  });
-  it('終わったセッションは札から消えて、最近に入る', () => {
+  it('終わったセッションは帯の実行中から消える（一覧には残る）', () => {
     const store = homeStore();
     store.sessions.s1 = { ...store.sessions.s1!, live: null, lastActivityAt: NOW - 30_000 };
     const p = presentHome(initialState(), store, NOW);
     expect(p.running.map((r) => r.id)).toEqual(['i1']);
-    expect(p.recent[0]!.id).toBe('s1');
-  });
-  it('プロジェクトは active だけを並べ、札で見えている実行中と要対応は数えず、0 の数は出さない', () => {
-    const store = homeStore();
-    // 数は手元のセッションから数え、サーバの runningCount は見ない。
-    // 実行中は作業中、休み、起動中（hangar の run はあるが Claude の一覧にまだ無い）で、入力待ちは要対応に別に数える。
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 99, openTodoCount: 3 };
-    store.runs = { r2: runDto('r2', 's2') };
-    expect(presentHome(initialState(), store, NOW).projects).toEqual([{ id: 'alpha', name: 'alpha', status: 'active', counts: 'TODO 3' }]);
-    store.runs = {};
-    store.sessions = { w1: store.sessions.w1!, s2: store.sessions.s2! };
-    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('TODO 3');
-    store.projects.alpha = { ...store.projects.alpha!, openTodoCount: 0 };
-    store.sessions = { s2: store.sessions.s2! };
-    expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('');
+    expect(presentHomeScreen(initialState(), store, NOW).list.rows.map((r) => r.id)).toContain('s1');
   });
 });
 
@@ -508,16 +480,16 @@ describe('presentSession', () => {
   });
 });
 
-describe('presentSessions', () => {
+describe('presentSessionList', () => {
   it('検索語が無ければ全件、あれば結果だけを抜粋付きで', () => {
     let store = storeWith();
-    const all = presentSessions(initialState(), store, NOW);
+    const all = presentSessionList(initialState(), store, NOW);
     expect(all.mode).toBe('all');
     expect(all.rows).toHaveLength(3);
     expect(all.projects.map((p) => p.name)).toEqual(['alpha', 'beta', 'old']);
     store = { ...store, search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: 2, snippets: [{ seq: 1, role: 'user', text: '…hi…', agentId: null }] }], total: 1 }, loading: false } };
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} , page: 1 } };
-    const r = presentSessions(state, store, NOW);
+    const state = { ...initialState(), screen: { name: 'home' as const, q: 'hi' }, search: { text: 'hi', filter: {} , page: 1 } };
+    const r = presentSessionList(state, store, NOW);
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
@@ -527,8 +499,8 @@ describe('presentSessions', () => {
   });
   // seq は主線とサブエージェントで別々に振る。サブエージェントの seq で主線の本文へ跳ぶと、違う行に着く。
   it('跳び先は主線の抜粋だけから取り、主線の抜粋が無ければ跳ばない', () => {
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {} , page: 1 } };
-    const withSnippets = (snippets: { seq: number; role: string; text: string; agentId: string | null }[]) => presentSessions(state, { ...storeWith(), search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: snippets.length, snippets }], total: 1 }, loading: false } }, NOW).rows[0]!;
+    const state = { ...initialState(), screen: { name: 'home' as const, q: 'hi' }, search: { text: 'hi', filter: {} , page: 1 } };
+    const withSnippets = (snippets: { seq: number; role: string; text: string; agentId: string | null }[]) => presentSessionList(state, { ...storeWith(), search: { params: { q: 'hi' }, result: { hits: [{ sessionId: 's2', matchCount: snippets.length, snippets }], total: 1 }, loading: false } }, NOW).rows[0]!;
     const sub = { seq: 2, role: 'assistant', text: '…hi…', agentId: 'ag1' };
     const main = { seq: 9, role: 'user', text: '…hi…', agentId: null };
     expect(withSnippets([sub, main]).jump).toEqual({ seq: 9, q: 'hi' });
@@ -537,27 +509,26 @@ describe('presentSessions', () => {
     // 抜粋そのものは出す。一致がどこにあるかは読める。
     expect(onlySub.excerpt).toEqual([{ text: '…', hit: false }, { text: 'hi', hit: true }, { text: '…', hit: false }]);
   });
-  it('検索の結果は、届いたページの行と全件の数でページ送りを組む', () => {
+  it('検索の結果は、届いた行と全件の数を持ち、ページ送りは組まない（続きは「さらに読み込む」）', () => {
     const base = storeWith();
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: 'hi' }, search: { text: 'hi', filter: {}, page: 3 }, pageSize: 25 };
+    const state = { ...initialState(), screen: { name: 'home' as const, q: 'hi' }, search: { text: 'hi', filter: {}, page: 3 }, pageSize: 25 };
     const hits = [{ sessionId: 's1', matchCount: 1, snippets: [] }, { sessionId: 's2', matchCount: 1, snippets: [] }];
-    const done = presentSessions(state, { ...base, search: { params: { q: 'hi', limit: 25, offset: 50 }, result: { hits, total: 132 }, loading: false } }, NOW);
-    // 範囲はサーバの並びでの位置で言う（手元に無いセッションの行は描けないが、ページの位置は変わらない）。
-    expect(done).toMatchObject({ total: 132, loading: false, pager: { page: 3, pageCount: 6, size: 25, from: 51, to: 75 } });
+    const done = presentSessionList(state, { ...base, search: { params: { q: 'hi', limit: 50 }, result: { hits, total: 132 }, loading: false } }, NOW);
+    expect(done).toMatchObject({ total: 132, loading: false, mode: 'search', pager: null });
     expect(done.rows.map((r) => r.id)).toEqual(['s1', 's2']);
-    const loading = presentSessions(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
+    const loading = presentSessionList(state, { ...base, search: { params: { q: 'hi' }, result: { hits, total: 132 }, loading: true } }, NOW);
     expect(loading).toMatchObject({ loading: true });
   });
-  // 条件もタブも無いときは節で読み、ページ送りは出さない（S1）。
-  it('節で読むときはページ送りを出さない', () => {
-    expect(presentSessions(initialState(), storeWith(), NOW)).toMatchObject({ total: 3, pager: null });
+  // 件数が 1 ページに収まるときは、ページ送りを出さない。
+  it('1 ページに収まるときはページ送りを出さない', () => {
+    expect(presentSessionList(initialState(), storeWith(), NOW)).toMatchObject({ total: 3, pager: null });
   });
   it('手元で組む平らな一覧は、いまのページの行だけを切り出す', () => {
     const store = initialStore();
     store.bootstrapped = true;
     store.projects = { alpha: project('alpha') };
     store.sessions = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`s${i}`, session(`s${i}`, { lastActivityAt: 1_000_000 - i })]));
-    const at = (page: number) => presentSessions({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page }, pageSize: 25 }, store, NOW);
+    const at = (page: number) => presentSessionList({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page }, pageSize: 25 }, store, NOW);
     expect(at(1)).toMatchObject({ total: 60, pager: { page: 1, pageCount: 3, size: 25, from: 1, to: 25 } });
     expect(at(1).rows.map((r) => r.id).slice(0, 2)).toEqual(['s0', 's1']);
     expect(at(3).rows.map((r) => r.id)).toEqual(Array.from({ length: 10 }, (_, i) => `s${50 + i}`));
@@ -566,12 +537,12 @@ describe('presentSessions', () => {
     expect(at(9).pager).toMatchObject({ page: 3, from: 51, to: 60 });
   });
   it('いちばん小さい件数（25）以下しか無ければ、ページ送りを出さない', () => {
-    const r = presentSessions({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page: 1 } }, storeWith(), NOW);
+    const r = presentSessionList({ ...initialState(), search: { text: '', filter: { projectId: 'alpha' }, page: 1 } }, storeWith(), NOW);
     expect(r.pager).toBeNull();
   });
   // 状態がどれも同じタブ（Done・Paused・Archived）は、行の状態の列を畳む。見出し（タブ）が言っているから。Active のタブは sessionsTabs.test.ts で見る。
   it('状態がどれも同じタブでは、状態の列を畳む', () => {
-    const tab = (status: 'done' | 'paused' | 'archived' | 'proposed' | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { status }, page: 1 } }, storeWith(), NOW).statusColumn;
+    const tab = (status: 'done' | 'paused' | 'archived' | 'proposed' | undefined) => presentSessionList({ ...initialState(), search: { text: '', filter: { status }, page: 1 } }, storeWith(), NOW).statusColumn;
     expect([tab('done'), tab('paused'), tab('archived')]).toEqual([false, false, false]);
     expect([tab('proposed'), tab(undefined)]).toEqual([true, true]);
   });
@@ -585,7 +556,7 @@ describe('presentSessions', () => {
       yesterday: session('yesterday', { lastActivityAt: new Date(2026, 8, 30, 23, 55).getTime() }),
       week: session('week', { lastActivityAt: new Date(2026, 8, 25, 1).getTime() }),
     };
-    const ids = (days: number | undefined) => presentSessions({ ...initialState(), search: { text: '', filter: { days } , page: 1 } }, store, now).rows.map((r) => r.id);
+    const ids = (days: number | undefined) => presentSessionList({ ...initialState(), search: { text: '', filter: { days } , page: 1 } }, store, now).rows.map((r) => r.id);
     expect(ids(1)).toEqual(['today']);
     expect(ids(7)).toEqual(['today', 'yesterday', 'week']);
     expect(ids(undefined)).toHaveLength(3);
@@ -594,7 +565,7 @@ describe('presentSessions', () => {
     const store = storeWith();
     store.sessions.w1 = session('w1', { live: 'waiting' });
     store.runs = { r2: runDto('r2', 's2') };
-    const ids = (live: SearchFilter['live']) => presentSessions({ ...initialState(), search: { text: '', filter: { live } , page: 1 } }, store, NOW).rows.map((r) => r.id).sort();
+    const ids = (live: SearchFilter['live']) => presentSessionList({ ...initialState(), search: { text: '', filter: { live } , page: 1 } }, store, NOW).rows.map((r) => r.id).sort();
     expect(ids('running')).toEqual(['s1', 's2']);
     expect(ids('waiting')).toEqual(['w1']);
     expect(ids('ended')).toEqual(['s3']);
@@ -603,25 +574,25 @@ describe('presentSessions', () => {
   // 見出しの件数は条件に関わらずセッションの全件で、条件の行が絞った結果の件数を言う（D1）。
   it('見出しには全件の数、条件の行にはいま効いている条件を並べる', () => {
     const store = storeWith();
-    const none = presentSessions(initialState(), store, NOW);
+    const none = presentSessionList(initialState(), store, NOW);
     expect(none).toMatchObject({ allCount: 3, conditions: [] });
-    const state = { ...initialState(), screen: { name: 'sessions' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } , page: 1 } };
-    const r = presentSessions(state, { ...store, search: { params: { q: '索引' }, result: { hits: [], total: 0 }, loading: false } }, NOW);
+    const state = { ...initialState(), screen: { name: 'home' as const, q: '索引' }, search: { text: '索引', filter: { projectId: 'alpha', days: 7, live: 'waiting' as const, file: 'src/a.ts' } , page: 1 } };
+    const r = presentSessionList(state, { ...store, search: { params: { q: '索引' }, result: { hits: [], total: 0 }, loading: false } }, NOW);
     expect(r.allCount).toBe(3);
     expect(r.conditions).toEqual(['『索引』', '入力待ち', '7 日', 'alpha', 'src/a.ts']);
     // 見出しの件数は「すべて」のタブと同じ値で、Archived を除く。
     const archived = session('s9', { state: { status: 'archived', note: null, returnOn: null, returnTime: null, setBy: 'import', setAt: 1, candidate: null } });
-    const withArchived = presentSessions(initialState(), { ...store, sessions: { ...store.sessions, s9: archived } }, NOW);
+    const withArchived = presentSessionList(initialState(), { ...store, sessions: { ...store.sessions, s9: archived } }, NOW);
     expect(withArchived.allCount).toBe(3);
     expect(withArchived.tabs.find((t) => t.tab === 'all')!.count).toBe('3');
-    const today = presentSessions({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } , page: 1 } }, store, NOW);
+    const today = presentSessionList({ ...initialState(), search: { text: '', filter: { days: 1, live: 'running' } , page: 1 } }, store, NOW);
     expect(today.conditions).toEqual(['実行中', '今日']);
   });
   it('キーワードが無くても、触ったファイルで絞るときはサーバの結果を並べる', () => {
     let store = storeWith();
     store = { ...store, search: { params: { q: '', file: 'a.md' }, result: { hits: [{ sessionId: 's2', matchCount: 3, snippets: [] }], total: 1 }, loading: false } };
-    const state = { ...initialState(), screen: { name: 'sessions' as const }, search: { text: '', filter: { file: 'a.md' } , page: 1 } };
-    const r = presentSessions(state, store, NOW);
+    const state = { ...initialState(), screen: { name: 'home' as const }, search: { text: '', filter: { file: 'a.md' } , page: 1 } };
+    const r = presentSessionList(state, store, NOW);
     expect(r.mode).toBe('search');
     expect(r.rows.map((x) => x.id)).toEqual(['s2']);
     expect(r.rows[0]!.excerpt).toBeUndefined();
@@ -643,7 +614,7 @@ describe('セッションの並び順', () => {
       endedNew: session('endedNew', { lastActivityAt: NOW }),
       endedOld: session('endedOld', { lastActivityAt: NOW - 100_000 }),
     };
-    expect(presentSessions(initialState(), store, NOW).rows.map((r) => r.id)).toEqual(['waitNew', 'waitOld', 'busyNew', 'busyOld', 'idleNew', 'endedNew', 'endedOld']);
+    expect(presentSessionList(initialState(), store, NOW).rows.map((r) => r.id)).toEqual(['waitNew', 'waitOld', 'busyNew', 'busyOld', 'idleNew', 'endedNew', 'endedOld']);
   });
 });
 
@@ -842,7 +813,7 @@ describe('newSessionTarget', () => {
   it('ほかの画面と、プロジェクトの無いセッションでは何も選ばない', () => {
     const store = storeWith();
     expect(newSessionTarget(at({ name: 'home' }), store)).toEqual({});
-    expect(newSessionTarget(at({ name: 'sessions' }), store)).toEqual({});
+    expect(newSessionTarget(at({ name: 'home' }), store)).toEqual({});
     expect(newSessionTarget(at({ name: 'session', id: 's3' }), store)).toEqual({});
     expect(newSessionTarget(at({ name: 'session', id: 'zz' }), store)).toEqual({});
   });
@@ -1228,10 +1199,6 @@ describe('presentProject の右レール', () => {
 });
 
 describe('presentHome（スクラッチ）', () => {
-  it('スクラッチのプロジェクトはホームのプロジェクトに出さない', () => {
-    const store: Store = { ...initialStore(), projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW }, sc: scratchProject() } };
-    expect(presentHome(initialState(), store, NOW).projects.map((c) => c.id)).toEqual(['p1']);
-  });
   it('起動ダイアログの選択肢からも外す。並びは名前順のまま', () => {
     const store: Store = { ...storeWith(), projects: { ...storeWith().projects, sc: scratchProject() } };
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
@@ -1317,7 +1284,7 @@ describe('presentSessionRow のコストと run', () => {
     const store = storeWith();
     store.runs = { r1: runDto('r1', 's1') };
     store.sessions.s1 = { ...store.sessions.s1!, stats: { ...store.sessions.s1!.stats, costUsd: 3 } };
-    expect(presentSessions(initialState(), store, NOW).rows[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
+    expect(presentSessionList(initialState(), store, NOW).rows[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
     expect(presentProject(initialState(), store, NOW, 'alpha').items.find((i) => i.kind === 'row')).toMatchObject({ row: { id: 's1', cost: '$3.00', runId: 'r1' } });
   });
 });
@@ -1791,6 +1758,23 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('info と error のトーストはそのまま渡す', () => {
     const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
+  });
+});
+
+describe('presentShell のサイドバーの項目', () => {
+  const labels = (n: { label: string }[]) => n.map((x) => x.label);
+  it('項目は「ホーム」「プロジェクト」の 2 つで、設定は下端の別の組に置く。セッションの一覧の項目は無い', () => {
+    const p = presentShell(initialState(), storeWith(), NOW);
+    expect(labels(p.nav)).toEqual(['ホーム', 'プロジェクト']);
+    expect(labels(p.foot)).toEqual(['設定']);
+    expect(p.nav.some((n) => (n.route.name as string) === 'sessions')).toBe(false);
+  });
+  it('いまの画面の項目に印を付ける。設定は下端の組で付き、セッションの画面ではどの項目にも付かない', () => {
+    const current = (screen: State['screen']) => { const p = presentShell({ ...initialState(), screen }, storeWith(), NOW); return [...p.nav, ...p.foot].filter((n) => n.current).map((n) => n.label); };
+    expect(current({ name: 'home' })).toEqual(['ホーム']);
+    expect(current({ name: 'project', id: 'alpha' })).toEqual(['プロジェクト']);
+    expect(current({ name: 'settings' })).toEqual(['設定']);
+    expect(current({ name: 'session', id: 's1' })).toEqual([]);
   });
 });
 

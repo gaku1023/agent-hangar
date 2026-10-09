@@ -53,17 +53,17 @@ export type RetentionBannerProps = { visible: boolean; title: string; detail: st
  */
 export type SideLiveStop = { runId: string; working: boolean; aside: boolean; shellTabs: number };
 /**
- * サイドバーの「動いている」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
+ * サイドバーの「実行中」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
  * aside は裏だけ動いていること。丸を薄いオレンジにするだけで、名前の横に語は添えない（利用者の決定）。
  * stop は hangar の run が生きているときだけ持つ。hangar の外で動いているもの（VS Code の中の claude など）は hangar から止められないので null にする。
  */
 export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; waited: string | null; current: boolean; stop: SideLiveStop | null };
 /**
- * サイドバーの「動いている」。
+ * サイドバーの「実行中」。
  * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
  */
 export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number };
-export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
+export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -148,18 +148,22 @@ function retentionBanner(state: State, store: Store, now: number): RetentionBann
     : { visible: true, title: `会話は ${daysLabel(r.days)}で削除されます`, detail: `hangar の履歴からも消えます${usage}`, extendTo: EXTEND_TO };
 }
 
-const NAV: { route: Route; label: string; matches: string[] }[] = [
+type NavDef = { route: Route; label: string; matches: string[] };
+/** サイドバーの上の組。セッションの一覧の画面は無くなったので、項目はこの 2 つと、その下の「実行中」の節である（設計書 2.1）。 */
+const NAV: NavDef[] = [
   { route: { name: 'home' }, label: 'ホーム', matches: ['home', 'booting'] },
   { route: { name: 'projects' }, label: 'プロジェクト', matches: ['projects', 'project'] },
-  { route: { name: 'sessions' }, label: 'セッション', matches: ['sessions', 'session'] },
+];
+/** 下端の組。設定だけを置く。 */
+const FOOT: NavDef[] = [
   { route: { name: 'settings' }, label: '設定', matches: ['settings'] },
 ];
 
-/** サイドバーの「動いている」に並べる行の上限。超えた分は数だけにして、ホームへ案内する。 */
+/** サイドバーの「実行中」に並べる行の上限。超えた分は数だけにして、ホームへ案内する。 */
 export const SIDE_LIVE_MAX = 8;
 
 /**
- * サイドバーの「動いている」。
+ * サイドバーの「実行中」。
  * セッション画面にいる間、ほかのセッションのどれが待っているかを横目で見て、1 押しで移るための場所である。
  * 並びは覚えた順（state.sidebarOrder）だけで決め、状態や最後の活動では並べ直さない。動かすのは利用者の手だけである。
  * 覚えた並びにまだ無いもの（いま動き始めたもの）は、始めた順で末尾に置く。Mediator が同じ順で並びに書き足すので（sidebar.ts の sidebarLiveStep）、書き足す前と後で行は動かない。
@@ -217,5 +221,6 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  const item = (n: NavDef): NavItem => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 });
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map(item), foot: FOOT.map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

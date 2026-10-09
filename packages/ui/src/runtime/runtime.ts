@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearchResult, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -297,11 +297,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const seq = ++searchSeq;
         // 期間の日数は、送るこの瞬間の時刻で since に直す。
         const params = toSearchParams(e.params, (deps.now ?? Date.now)());
-        // 読んでいる間も持っている行は消さない。届いたら、そのページの行に入れ替える。
+        // 読んでいる間も持っている行は消さない。届いたら、置き換える（append なら後ろに足す）。
         setStore(applySearch(store, params, store.search.result, true));
-        // 失敗したら読み込み中を解く。解かないとページ送りが「検索しています」のまま残る。
+        // 失敗したら読み込み中を解く。解かないと「さらに読み込む」が「読み込んでいます」のまま残る。
         deps.api.search(params)
-          .then((r) => { if (seq === searchSeq) setStore(applySearch(store, params, r, false)); })
+          .then((r) => { if (seq === searchSeq) setStore(applySearch(store, params, e.append ? appendSearchResult(store.search.result, r) : r, false)); })
           .catch((err) => { if (seq === searchSeq) setStore(applySearch(store, store.search.params ?? params, store.search.result, false)); fail(err); });
         return;
       }

@@ -198,6 +198,17 @@ export function applySearch(store: Store, params: SearchParamsDto, result: Searc
   return { ...store, search: { params, result, loading } };
 }
 
+/**
+ * 検索の結果の続きを、持っている結果の後ろに足す（「さらに読み込む」）。
+ * 重なった行（読んでいる間に順が動いたもの）は先に持っている方だけ残す。件数は新しく届いた全件の数に更新する。
+ * 持っている結果が無ければ、届いたものがそのまま結果になる。
+ */
+export function appendSearchResult(prev: SearchResultDto | null, next: SearchResultDto): SearchResultDto {
+  if (!prev) return next;
+  const seen = new Set(prev.hits.map((h) => h.sessionId));
+  return { hits: [...prev.hits, ...next.hits.filter((h) => !seen.has(h.sessionId))], total: next.total };
+}
+
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
 }

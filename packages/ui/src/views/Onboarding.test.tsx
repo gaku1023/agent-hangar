@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompatDto, ReadinessDto } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
+import type { HomeScreenProps } from '../presenters/home.ts';
 import { presentOnboarding } from '../presenters/onboarding.ts';
 import { initialStore } from '../store/store.ts';
 import { HomeScreen } from './HomeScreen.tsx';
@@ -12,7 +13,8 @@ const READY: ReadinessDto = {
   commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
   compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
 };
-const emptyHome = { attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: true };
+/** 空のホームに渡す props。確認リストを出すときは、帯も一覧も描かない。 */
+const home = (onboarding: HomeScreenProps['onboarding']): HomeScreenProps => ({ band: { groups: [], morning: null }, idle: true, searching: false, list: { text: '', filter: {}, projects: [], rows: [], total: 0, loading: false, mode: 'all', conditions: [], tabs: [], tab: 'all', pager: null, statusColumn: true, tokens: [], hints: [], allCount: 0 }, allCount: 0, loadMore: null, onboarding });
 
 describe('presentOnboarding', () => {
   it('セッションもプロジェクトも無いときだけ出す。スクラッチのプロジェクトは数えない', () => {
@@ -32,7 +34,7 @@ describe('presentOnboarding', () => {
 
 describe('空のホームの確認リスト（初回の A1）', () => {
   const renderHome = (onIntent = vi.fn()) => {
-    render(<IntentRoot onIntent={onIntent}><HomeScreen {...emptyHome} onboarding={presentOnboarding({ ...initialStore(), bootstrapped: true, readiness: READY })} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home(presentOnboarding({ ...initialStore(), bootstrapped: true, readiness: READY }))} /></IntentRoot>);
     return onIntent;
   };
   it('真ん中に 1 枚の札を置き、6 つの ✓ と ✗、揃った数を出す。ふだんのホームの区画は出さない', () => {
@@ -70,7 +72,7 @@ describe('空のホームの確認リスト（初回の A1）', () => {
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'nav.go', to: { name: 'settings' } });
   });
   it('確かめる前は札の中に確かめている最中と出す', () => {
-    render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...emptyHome} onboarding={{ checks: null }} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ checks: null })} /></IntentRoot>);
     expect(screen.getByText('確かめています')).toBeInTheDocument();
   });
 });
@@ -87,7 +89,7 @@ describe('確認リストの 6 行目（Claude Code との互換）', () => {
   const DRIFT = { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 3 };
   const storeWith = (compat: ReadinessDto['compat'], full: CompatDto | null) => ({ ...initialStore(), bootstrapped: true, version: '0.3.0', readiness: { ...READY, compat }, compat: full });
   const renderWith = (compat: ReadinessDto['compat'], full: CompatDto | null = null, onIntent = vi.fn()) => {
-    render(<IntentRoot onIntent={onIntent}><HomeScreen {...emptyHome} onboarding={presentOnboarding(storeWith(compat, full))} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><HomeScreen {...home(presentOnboarding(storeWith(compat, full)))} /></IntentRoot>);
     return onIntent;
   };
   it('問題なしは緑の ✓ で、確かめた版を添え、済んだものに数える', () => {

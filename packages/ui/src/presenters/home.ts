@@ -1,11 +1,15 @@
 import { ASIDE_FREE, asideHead, asideOf } from '../lib/aside.ts';
 import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type Intent, type LiveStatus, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
-import { candidateLabel, presentSessionRow, returnOnLabel, sortSessions, type SessionRowProps } from './row.ts';
+import { translatorOf } from './i18n.ts';
+import { presentOnboarding, type OnboardingProps } from './onboarding.ts';
+import { candidateLabel, returnOnLabel, sortSessions } from './row.ts';
+import { presentSessionList, type SessionListProps } from './sessions.ts';
 import { dueOn, returnKey } from './sections.ts';
 
 /**
@@ -26,11 +30,6 @@ export type AttentionCard = { id: string; name: string; projectName: string | nu
  */
 export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
 /**
- * Home のプロジェクトの 1 行に並べる 1 件。counts は 0 でない数だけを並べた文。
- * 数えるのは TODO と確かめるだけにする。実行中と要対応は、すぐ上の札で見えているからである。
- */
-export type ProjectMini = { id: string; name: string; status: ProjectStatus; counts: string };
-/**
  * 今日戻るの札（C1）。要対応の札の並びに、入力待ちの札の後ろで置く。
  * 戻る日が今日か過ぎた Paused 1 件につき 1 枚。戻る日が欠けたり壊れたりしたものも、利用者が決めるまで出す（returnOn と overdueDays は null）。
  * 動いているセッションは入力待ちか実行中の札に出るので、ここには重ねない。
@@ -47,18 +46,13 @@ export type SessionConfirmCard = { kind: 'session'; id: string; name: string; pr
 /** 確かめるの行。TODO の候補とセッションの提案を、候補になった時刻の古い順に混ぜる。 */
 export type ConfirmCard = TodoConfirmCard | SessionConfirmCard;
 /**
- * idle は何も動いていないこと（実行中の札も要対応の札も無い）で、真なら実行中の札の場所に 1 行の文を出す（試作 home-lists の F1）。
- * 入力待ちも生きたセッションなので、入力待ちがあるときは偽にする。今日戻るの札も要対応に並ぶので、あれば偽にする。
+ * 帯の引き出しの行になる 4 つの群の中身。要対応（入力待ちと今日戻る）、確認待ち、実行中である。
+ * 引き出しの行は presentHomeBand が作る。
  */
-export type HomeProps = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[]; recent: SessionRowProps[]; projects: ProjectMini[]; idle: boolean };
+export type HomeCards = { attention: AttentionCard[]; returning: ReturnCard[]; confirm: ConfirmCard[]; running: RunningCard[] };
 
 /** 問いの文が取れなかった入力待ち（権限の確認など）に出す文。 */
 export const NO_QUESTION = '入力を待っています';
-/**
- * 最近に渡す行の上限。何行見せるかは窓の残りの高さで画面が決める（HomeScreen の useFitRows）ので、背の高い窓でも足りる数を渡す。
- * 続きは「すべて見る」からセッション一覧で見る。
- */
-export const HOME_RECENT_MAX = 40;
 /** 今日戻るの理由が無いときに出す文。 */
 const NO_REASON = '理由は書かれていません';
 /** 提案の根拠が無いときに出す文。TODO の候補（presenters/project.ts）と同じ言い方にする。 */
@@ -71,7 +65,7 @@ function stripLeadingTool(tool: string, summary: string): string {
   return summary.startsWith(prefix) ? summary.slice(prefix.length) : summary;
 }
 
-export function presentHome(_state: State, store: Store, now: number): HomeProps {
+export function presentHome(_state: State, store: Store, now: number): HomeCards {
   const sessions = Object.values(store.sessions);
   const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
   const name = (s: SessionDto) => s.name ?? '（名前なし）';
@@ -129,20 +123,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
     return { id: s.id, name: name(s), live: s.live, aside: aside !== null, elapsed: durationLabel(now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(s.stats.contextPercent) };
   });
 
-  // 札に出したものは最近に重ねない。
-  const shown = new Set([...attention.map((c) => c.id), ...returning.map((c) => c.id), ...running.map((c) => c.id)]);
-  // 行を組むのは渡す分だけにする。ホームではページを送らない。
-  const ended = sessions.filter((s) => !shown.has(s.id)).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
-  const recent = ended.slice(0, HOME_RECENT_MAX).map((s) => presentSessionRow(s, store, now));
-
-  const projects = Object.values(store.projects).filter((p) => p.status === 'active' && !p.isScratch).sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0)).map((p): ProjectMini => {
-    // 確かめるは TODO の候補とセッションの提案を合わせて数える。
-    const confirmHere = candidates.filter(({ t }) => t.projectId === p.id).length + proposed.filter((s) => s.projectId === p.id).length;
-    const counts: [string, number][] = [['TODO', p.openTodoCount], ['確かめる', confirmHere]];
-    return { id: p.id, name: p.name, status: p.status, counts: counts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n}`).join(' · ') };
-  });
-
-  return { attention, returning, confirm, running, recent, projects, idle: attention.length === 0 && running.length === 0 };
+  return { attention, returning, confirm, running };
 }
 
 /**
@@ -185,7 +166,7 @@ export function morningGroup(groups: BandGroup[]): string | null {
   return groups.find((g) => g.morning && g.count > 0)?.id ?? null;
 }
 
-type BandInput = Pick<HomeProps, 'attention' | 'returning' | 'running' | 'confirm'>;
+type BandInput = HomeCards;
 
 /** 行の末尾に付ける「相手の名前」入りの読み上げの名前を持つボタン。 */
 function action(t: Translate, id: string, label: string, name: string, intent: Intent, kind: 'primary' | 'ghost' | 'plain' = 'plain'): BandAction {
@@ -232,11 +213,13 @@ function runningRow(t: Translate, r: RunningCard): BandRow {
 
 function confirmRow(t: Translate, c: ConfirmCard): BandRow {
   if (c.kind === 'todo') {
+    // 別のプロジェクトに同じ本文の候補があっても、ボタンの名前が 1 つに決まるよう、読み上げの名前にプロジェクトを添える。
+    const who = `${c.text}（${c.projectName}）`;
     return {
       key: `todo:${c.id}`, lead: { kind: 'todo' }, name: c.text, context: `${c.projectName} · ${c.ago}`, text: c.note, detail: null, tone: null, trail: [], open: { type: 'project.open', id: c.projectId },
       actions: [
-        action(t, 'confirm', t('home.band.confirm'), c.text, { type: 'todo.confirm', id: c.id }, 'primary'),
-        action(t, 'dismiss', t('home.band.dismiss'), c.text, { type: 'todo.reject', id: c.id }),
+        action(t, 'confirm', t('home.band.confirm'), who, { type: 'todo.confirm', id: c.id }, 'primary'),
+        action(t, 'dismiss', t('home.band.dismiss'), who, { type: 'todo.reject', id: c.id }),
       ],
     };
   }
@@ -266,4 +249,32 @@ export function presentHomeBand(home: BandInput, t: Translate, extra: BandGroup[
     ...extra,
   ];
   return { groups, morning: morningGroup(groups) };
+}
+
+/** 「さらに読み込む」の表示。remaining は全件から持っている行を引いた数、step は 1 回に読む件数、loading は読んでいる最中。 */
+export type LoadMoreProps = { remaining: number; step: number; loading: boolean };
+
+/**
+ * ホームの画面に渡すもの（設計書 2.2、試作 B）。
+ * band は上の帯と引き出し、idle は 3 つの群がどれも 0 件のこと（帯の代わりに「実行中のセッションはありません」の 1 行を出す）、
+ * searching は語か触ったファイルで探している最中のこと（引き出しを閉じ、帯の件数だけを残す）である。
+ * list はステータスのタブ、欄、絞り込み、行を持つ平らな一覧で、loadMore は検索の結果の末尾の「さらに読み込む」（検索でないときは null）。
+ * onboarding は、セッションもプロジェクトも無いあいだの確認リストである。確認の要約と引き出しは PR 32 で作るので、それまで今のリストを残す。
+ * 4 つ目の錠剤（場所の不明なプロジェクト）は、presentHomeBand の extra に群を足して作る（PR 33）。
+ */
+export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: boolean; list: SessionListProps; allCount: number; loadMore: LoadMoreProps | null; onboarding: OnboardingProps | null };
+
+export function presentHomeScreen(state: State, store: Store, now: number): HomeScreenProps {
+  const band = presentHomeBand(presentHome(state, store, now), translatorOf(store));
+  const list = presentSessionList(state, store, now);
+  const remaining = list.total - list.rows.length;
+  return {
+    band,
+    idle: band.groups.every((g) => g.count === 0),
+    searching: usesServerSearch(state.search),
+    list,
+    allCount: list.allCount,
+    loadMore: list.mode === 'search' && remaining > 0 ? { remaining, step: SEARCH_STEP, loading: list.loading } : null,
+    onboarding: presentOnboarding(store),
+  };
 }

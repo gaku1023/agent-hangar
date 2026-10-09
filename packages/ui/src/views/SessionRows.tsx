@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { Intent, SessionStatus, StatusFilter } from '@agent-hangar/shared';
 import { useEmit, type Emit } from '../intent/chain.tsx';
-import { ACTIVE_LABEL, CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
+import { ACTIVE_LABEL, CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem, SectionId } from '../presenters/sections.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { RelativeTime } from './primitives/RelativeTime.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
@@ -66,14 +67,14 @@ export const SECTION_HEAD_H = 32;
 /** 見出しの件数の書き方。「1,221」のように桁を区切る。 */
 const countLabel = (n: number) => n.toLocaleString('en-US');
 
-/** 行だけを並べる（Home の最近、検索の結果）か、節の見出しを挟んで並べる（プロジェクト画面と Sessions の節）か。 */
+/** 行だけを並べる（Home の一覧、検索の結果）か、節の見出しを挟んで並べる（プロジェクト画面。段 4 の PR 10 で平らにする）か。 */
 type RowsSource = { rows: SessionRowProps[]; items?: never } | { items: ListItem[]; rows?: never };
 
 /**
  * 一覧の役目。右端と 2 段目に何を出すかがこれで決まる。
- * recent は Home の最近（1 段目の名前の右にプロジェクト名。右は時刻だけ）。
+ * recent は 1 段目の名前の右にプロジェクト名、右は時刻だけの形（以前は Home の最近が使っていた）。
  * project はプロジェクト詳細（右にモデル、変更、PR、コストと時刻。2 段目にメモ。プロジェクト名は見出しにあるので出さない）。
- * search は Sessions（1 段目にプロジェクト名、2 段目に一致箇所の抜粋）。
+ * search は Home の一覧（1 段目にプロジェクト名、2 段目に一致箇所の抜粋か要約、2 段目の右端に PR の番号とノートの印）。
  */
 export type RowVariant = 'recent' | 'project' | 'search';
 
@@ -108,11 +109,12 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
  * items を渡すと、行のあいだに節の見出しを挟む（P3 と ★）。見出しは行ではないので、カーソルとフォーカスは見出しを飛ばす。
  * moreIntent は見出しの右端のボタン（「ほか N 件 ▸」「この節だけ見る ▸」）の Intent で、null ならボタンを出さない。
- * badgeIntent を渡すと、行の状態の札がそのタブへ移るボタンになる（Sessions の ★）。
+ * badgeIntent を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
  * statusColumn が偽なら、点の右の状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。
  */
 export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; moreIntent?: (target: SectionId) => Intent | null; badgeIntent?: (status: StatusFilter) => Intent }) {
   const emit = useEmit();
+  const t = useT();
   const statusColumn = props.statusColumn ?? true;
   const items: ListItem[] = props.items ?? (props.rows ?? []).map((row) => ({ kind: 'row' as const, row }));
   // カーソルと打鍵は行だけを渡り歩き、見出しは飛ばす。
@@ -269,6 +271,13 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         {/* 頭は要約の見立て。Paused の戻る日は右端の時刻の列へ移した（F1）。 */}
         {r.summaryState && <span className="row-state" data-tone={r.summaryState.tone ?? undefined}>{r.summaryState.label}</span>}
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
+        {props.variant === 'search' && (r.prUrl || r.memo) && (
+          // 2 段目の右端。PR の番号とノートの印（設計書 2.2）。PR は外のブラウザで開くリンクで、行は開かない。
+          <span className="row-marks">
+            {r.prUrl && <a className="row-pr" href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{prNumberOf(r.prUrl) ? t('row.mark.pr', { n: prNumberOf(r.prUrl)! }) : t('row.mark.prPlain')}</a>}
+            {r.memo && <span className="row-note"><Icon name="note" label={t('row.mark.note')} /></span>}
+          </span>
+        )}
         {props.variant === 'project' && r.memo && <span className="row-memo">✎ {r.memo}</span>}
         {props.variant === 'project' && <button type="button" className="btn memo-pencil" aria-label={`${r.name} のメモを編集`} onClick={(e) => { e.stopPropagation(); startEdit(r); }}><Icon name="edit" /></button>}
       </span>
