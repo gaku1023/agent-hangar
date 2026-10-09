@@ -23,7 +23,7 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { expectMode, posixIt } from '../test/platform.ts';
@@ -1197,209 +1197,9 @@ describe('一時停止は外と話さない', () => {
   });
 });
 
-describe('セッションのメモの控えの知らせ', () => {
-  it('どの端末に負けて、どこに残したかを言う', () => {
-    // 控えはもうファイルになっている。知らせが無いと、利用者は消えたようにしか見えない。
-    const m = sessionMemoBackupMessage({ sessionId: 's1', markdown: '手元のメモ', deviceName: 'mini', backupFile: '/tmp/backups/memos/session-s1-20260919-101112.md' });
-    expect(m).toContain('mini');
-    expect(m).toContain('/tmp/backups/memos/session-s1-20260919-101112.md');
-    // 本文そのものはトーストに出さない（メモは長い文章になりうる）。
-    expect(m).not.toContain('手元のメモ');
-  });
-});
-
-describe('要約の契機', () => {
-  it('run の終了はレジストリが生きていると言っても要約を受け付ける', async () => {
-    // tmux を落とした直後でも、~/.claude/sessions を 500 ミリ秒周期で読むキャッシュは
-    // 必ず「生きている」と出る。run の終了を知っている側は、その判定を当てにしない。
-    const db = openDb(':memory:');
-    try {
-      await new IndexerService({ db, deviceId: 'd', claudeDir, isRunning: () => false }).fullScan();
-      const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
-      const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: ws, pid: 1 }];
-      const summarizer: Summarizer = { id: 'lmstudio', available: async () => true, summarize: async () => ({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] }) };
-      const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [summarizer], live: () => live, hub: { broadcast: () => {} } });
-      // セッションを開いたときの契機は、レジストリが生きていると言う間は受け付けない。
-      expect(job.enqueue(id)).toBe(false);
-      // run の終了の契機は受け付ける。こちらは run が終わったことを知っている。
-      expect(job.enqueue(id, RUN_ENDED_SUMMARY_OPTS)).toBe(true);
-      await job.idle();
-      expect((db.prepare('select source from session_summaries where session_id = ?').get(id) as { source: string }).source).toBe('post_hoc');
-      // 飛ばすのはレジストリの判定だけである。土台でなくなった後は、もう受け付けない。
-      expect(job.enqueue(id, RUN_ENDED_SUMMARY_OPTS)).toBe(false);
-    } finally {
-      db.close();
-    }
-  });
-});
-
-/**
- * 本文は「クラウドを使い始めた後に動いたもの」だけを上げる。
- *
- * 利用者は先に hangar を使い、後からクラウドを足すので、参加の時点で何百件もの本文が手元にある。
- * それを全部上げても意味が薄いので、走査は使い始めた時刻で区切る。
- * 参加より前の本文を上げたくなったら、そのセッションを再開するか hangar cloud backfill を使う。
- * メタデータ（セッションの一覧、要約、プロジェクト、TODO、メモ）はこの区切りを見ない。
- */
-describe('本文は使い始めた後に動いたものだけを上げる', () => {
-  /** PUT された鍵を覚えるだけの立て替えの Worker。実物のクラウドには触らない。 */
-  async function fileSink(): Promise<{ url: string; puts: string[]; close: () => Promise<void> }> {
-    const puts: string[] = [];
-    let seq = 0;
-    const srv = http.createServer((req, res) => {
-      const url = (req.url ?? '').split('?')[0] ?? '';
-      const send = (body: unknown) => { res.writeHead(200, { 'content-type': 'application/json', [COMPAT_HEADER]: String(COMPAT_VERSION) }); res.end(JSON.stringify(body)); };
-      if (req.method === 'PUT' && url.startsWith('/files/')) {
-        req.resume();
-        req.on('end', () => { puts.push(decodeURIComponent(url.slice('/files/'.length))); send({ seq: ++seq }); });
-        return;
-      }
-      req.resume();
-      if (url === '/changes' && req.method === 'POST') return send({ seq: 0, accepted: 0, skipped: 0 });
-      if (url === '/changes') return send({ changes: [], nextSeq: 0, more: false });
-      if (url === '/rows') return send({ changes: [], nextAfter: null, seq: 0 });
-      if (url === '/files') return send({ files: [], nextSeq: 0, more: false });
-      return send({ ok: true, version: 'fake' });
-    });
-    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
-    const port = (srv.address() as net.AddressInfo).port;
-    return {
-      url: `http://127.0.0.1:${port}`,
-      puts,
-      close: async () => { srv.closeAllConnections?.(); await new Promise<void>((r) => srv.close(() => r())); },
-    };
-  }
-
-  /** 3 件の本文が索引された状態を作る。クラウドはまだ無い。 */
-  async function indexWithoutCloud(): Promise<void> {
-    const first = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
-    try {
-      await until(async () => {
-        const db = openDb(dbPath(home));
-        try { return (db.prepare('select count(*) c from transcript_files').get() as { c: number }).c === 3 ? true : null; } finally { db.close(); }
-      });
-    } finally {
-      await first.close();
-    }
-  }
-
-  /**
-   * 本文が最後に動いた時刻を決める。索引する前に置くので、台帳にはこの値がそのまま入る。
-   * only を渡すと、パスにその文字列を含む本文だけを動かす。
-   *
-   * 索引した後で動かすと、次の起動の全走査が変化を見て索引を作り直し、
-   * その場で noteChanged が鳴って 30 秒の窓に載る。
-   * すると走査が拾ったのか窓が開いたのかを見分けられず、試験が時々転ぶ。
-   */
-  function setTranscriptMtime(mtime: number, only?: string): void {
-    const at = new Date(mtime);
-    const walk = (dir: string): void => {
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        const f = path.join(dir, e.name);
-        if (e.isDirectory()) { walk(f); continue; }
-        if (!e.name.endsWith('.jsonl')) continue;
-        if (only !== undefined && !f.includes(only)) continue;
-        fs.utimesSync(f, at, at);
-      }
-    };
-    walk(path.join(claudeDir, 'projects'));
-  }
-
-  const suffixes = (keys: string[]): string[] => keys.map((k) => k.replace(/^transcripts\/[^/]+\//, '')).sort();
-
-  it('参加より前に止まっていた本文は上げず、その後に動いた本文だけを上げる', async () => {
-    // 参加の前後を、本文が最後に動いた時刻で作り分ける。
-    // alpha の 2 件は参加より前で止まっていて、other の 1 件は参加より後に動いている。
-    const base = Date.now();
-    setTranscriptMtime(base - 120_000);
-    setTranscriptMtime(base - 60_000, SESSION_OTHER);
-    await indexWithoutCloud();
-    // 後からクラウドに参加する。刻むのはサーバだが、時刻を決めたいのでここで置いておく。
-    seedTranscriptFloor(base - 90_000);
-
-    const sink = await fileSink();
-    saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
-    try {
-      await until(async () => (sink.puts.length >= 1 ? sink.puts : null));
-      // 参加より前で止まっている 2 件（alpha の本文と subagent）は上がらない。
-      await new Promise((r) => setTimeout(r, 300));
-      expect(suffixes(sink.puts)).toEqual([`${SESSION_OTHER}.jsonl.gz`]);
-      // 画面に出す「未送信の本文」も、上がる予定の無い 2 件を数えない。
-      const token = tokenOf();
-      const status = await (await fetch(`http://127.0.0.1:${s.port}/api/sync/status`, { headers: { authorization: `Bearer ${token}` } })).json() as SyncStatusBody;
-      expect(status.sweepPending).toBe(0);
-    } finally {
-      await s.close();
-      await sink.close();
-    }
-  }, 20000);
-
-  it('床を落とせば、参加より前の本文も上がる', async () => {
-    // hangar cloud backfill が書くのがこの 0 である。
-    setTranscriptMtime(Date.now() - 60_000);
-    await indexWithoutCloud();
-    seedTranscriptFloor(0);
-
-    const sink = await fileSink();
-    saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
-    try {
-      const keys = await until(async () => (sink.puts.length >= 3 ? sink.puts : null));
-      expect(suffixes(keys)).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
-      // 上げ終わったものを上げ直さない。
-      await new Promise((r) => setTimeout(r, 300));
-      expect(sink.puts.length).toBe(3);
-    } finally {
-      await s.close();
-      await sink.close();
-    }
-  }, 20000);
-
-  it('一時停止のあいだは上げず、今すぐ同期を押した 1 回で取り残しを上げきる', async () => {
-    setTranscriptMtime(Date.now() - 60_000);
-    await indexWithoutCloud();
-    seedTranscriptFloor(0);
-    {
-      const db = openDb(dbPath(home));
-      try { db.prepare("insert into sync_state (key, value) values ('paused', '1') on conflict(key) do update set value = '1'").run(); } finally { db.close(); }
-    }
-
-    const sink = await fileSink();
-    saveCloudConfig(home, { url: sink.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
-    const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
-    const call = (p: string, method = 'GET') => fetch(`http://127.0.0.1:${s.port}${p}`, { method, headers: { authorization: `Bearer ${tokenOf()}`, origin: `http://127.0.0.1:${s.port}` } });
-    try {
-      // 止まっているあいだは、起動の走査も上げない。
-      await new Promise((r) => setTimeout(r, 300));
-      expect(sink.puts).toEqual([]);
-      const now = await call('/api/sync/now', 'POST');
-      expect(now.status).toBe(200);
-      // 応答が返る時点では本文がまだ残っている。状態は paused のままなので、進んでいることは oncePass で伝える。
-      expect(await now.json()).toMatchObject({ state: 'paused', oncePass: true });
-      const keys = await until(async () => (sink.puts.length >= 3 ? sink.puts : null));
-      expect(suffixes(keys)).toEqual([`${SESSION_ALPHA}.jsonl.gz`, `${SESSION_ALPHA}/subagents/agent-abc123.jsonl.gz`, `${SESSION_OTHER}.jsonl.gz`].sort());
-      // 上げきっても、同期は止めたままである。
-      const status = await until(async () => {
-        const st = await (await call('/api/sync/status')).json() as SyncStatusBody;
-        return st.sweepPending === 0 && st.oncePass === false ? st : null;
-      });
-      expect(status.state).toBe('paused');
-    } finally {
-      await s.close();
-      await sink.close();
-    }
-  }, 20000);
-
-  it('走査の間隔は設定の同期と揃えてある', () => {
-    // 片方だけ直すと、また兄弟の経路が食い違う。
-    expect(UPLOAD_SWEEP_MS).toBe(60_000);
-  });
-});
-
 /**
  * 控えの世代。
- * 刈っていたのは設定の取り込みの分だけで、本文（transcripts）とメモ（memos）は溜まり続けていた。
+ * 刈っていたのは設定の取り込みの分だけで、本文（transcripts）は溜まり続けていた。
  * 設定の控えと同じ作法で、新しい方から数えて上限までを残す。
  */
 describe('控えの世代を刈る', () => {
@@ -1462,15 +1262,16 @@ describe('控えの世代を刈る', () => {
     expect(() => pruneBackupFiles(path.join(home, 'backups'), 'a/b', 1)).toThrow(/形が不正/);
   });
 
-  it('起動のときに、本文とメモの控えを上限まで刈る', async () => {
+  it('起動のときに、本文の控えを上限まで刈る。前に作ったセッションのメモの控えには触らない', async () => {
     const tr = path.join(home, 'backups', 'transcripts');
     const memos = path.join(home, 'backups', 'memos');
     const trNames = seed(tr, BACKUP_GENERATIONS + 7, '.jsonl');
+    // メモの控えは、名前とメモを session_notes へ移したときに作るのをやめた。残っているものは利用者の文章なので消さない。
     const memoNames = seed(memos, BACKUP_GENERATIONS + 4, '.md');
     const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       expect(fs.readdirSync(tr).sort()).toEqual(trNames.slice(7).sort());
-      expect(fs.readdirSync(memos).sort()).toEqual(memoNames.slice(4).sort());
+      expect(fs.readdirSync(memos).sort()).toEqual(memoNames.sort());
     } finally {
       await s.close();
     }

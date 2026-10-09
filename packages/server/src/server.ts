@@ -50,7 +50,7 @@ import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
 import type { Summarizer } from './summary/types.ts';
-import { writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
+import { writeMemoConflictCopy } from './sync/apply.ts';
 import { BACKUP_GENERATIONS, ClaudeConfigSync } from './sync/claudeConfig.ts';
 import { HttpCloudClient } from './sync/client.ts';
 import { copyTranscriptForResume } from './sync/copy.ts';
@@ -92,14 +92,6 @@ const PASS_TICK_MS = 1_000;
  * ファイルが動くまで永久に上がらない。設定の定期 push と同じ役目なので、間隔も揃えてある。
  */
 export const UPLOAD_SWEEP_MS = 60_000;
-
-/**
- * セッションのメモを他端末の新しい版で置き換えたときの知らせ。
- * 控えはもうファイルになっているので、利用者に伝えるのは「どこに残したか」である。
- */
-export function sessionMemoBackupMessage(o: SessionMemoBackup): string {
-  return `セッションのメモを ${o.deviceName} の新しい内容で置き換えました。手元の内容は ${o.backupFile} に残してあります`;
-}
 
 /**
  * Claude Code 設定の同期が外と話してよいか。
@@ -242,8 +234,7 @@ export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void }
  * 控えを新しい方から数えて `keep` 件だけ残し、古いものを消す。消した数を返す。
  *
  * 設定の控え（`claudeConfig.ts` の `pruneBackups`）は名前が `yyyyMMdd-HHmmss` のディレクトリなので
- * 辞書順がそのまま時刻順になるが、本文の控え（`<uuid>-<時刻>.jsonl`）とメモの控え
- * （`session-<ID>-<時刻>.md`）は名前が ID で始まるので、辞書順では時刻の順に並ばない。
+ * 辞書順がそのまま時刻順になるが、本文の控え（`<uuid>-<時刻>.jsonl`）は名前が ID で始まるので、辞書順では時刻の順に並ばない。
  * そこで更新時刻で並べ、同じ秒に並んだものは名前で決める（控えは作った時刻がそのまま更新時刻になる）。
  *
  * 入れ物の中のディレクトリは触らない。`backups/` の下には `claude-config/` のような入れ物も並ぶ。
@@ -426,31 +417,30 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
    */
   const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: pausedPass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null });
   /**
-   * 本文とメモの控えの世代を刈る。
+   * 本文の控えの世代を刈る。
    *
    * 残す数は設定の控えと同じ `BACKUP_GENERATIONS`（20）にする。
-   * 覚える数が 1 つで済み、「控えは直近 20 回ぶん」という説明が 3 種類すべてで同じになる。
+   * 覚える数が 1 つで済み、「控えは直近 20 回ぶん」という説明がどの種類でも同じになる。
+   * セッションのメモの控え（backups/memos）は、名前とメモを session_notes へ移したときに作るのをやめた。前に作ったものは消さずに残す。
    * 本文の控えはセッション 1 本ぶんの大きさがあるので、これ以上は溜めない。
    *
    * 刈るのは控えを取った後だけなので、「控えを取れなかったときは書き戻さない」という決まりには触らない。
    * いま取った控えは最も新しいので、この刈り込みで消えることはない。
    */
-  const pruneBackups = (kind: 'transcripts' | 'memos'): void => {
+  const pruneBackups = (kind: 'transcripts'): void => {
     try { pruneBackupFiles(backupsRoot(home), kind, BACKUP_GENERATIONS); }
     catch (e) { console.error('[backups]', e instanceof Error ? e.message : e); }
   };
   const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
   const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
   const engine = new SyncEngine({
-    db, deviceId: device.id, client, url: cloud?.url ?? null, home,
+    db, deviceId: device.id, client, url: cloud?.url ?? null,
     // 負けた手元のメモは隣に残す。名前の組み立ても既存の写しの守りも writeMemoConflictCopy が持っている。
     // ここで投げれば、その行は適用されない（控えの無いまま利用者の文章を消さない）。
     onMemoConflict: (o) => {
       const file = writeMemoConflictCopy(memos.memoPath(o.projectId), o);
       toast('info', `メモが競合しました。手元の内容を ${path.basename(file)} に残しました`);
     },
-    // 控えはもうファイルになっている。ここでやるのは置き場を知らせることだけである。
-    onSessionMemoBackup: (o) => { toast('info', sessionMemoBackupMessage(o)); pruneBackups('memos'); },
   });
   // 設定の「使用量と費用」。
   const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
@@ -1068,7 +1058,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 起動のときにも 1 度刈る。
   // 控えを作る経路を通らないまま動かし続けた端末や、この刈り込みが入る前から溜めていた端末も、ここで揃う。
   pruneBackups('transcripts');
-  pruneBackups('memos');
   const uploadTimer = uploader ? setInterval(sweepUploads, UPLOAD_SWEEP_MS) : null;
   uploadTimer?.unref();
 
