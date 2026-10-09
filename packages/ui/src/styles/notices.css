@@ -19,17 +19,17 @@
 .notices-empty { margin: 0; padding: calc(var(--u) * 4) calc(var(--u) * 2); font-size: var(--fs-sm); }
 
 /* 行。左に種類、真ん中に題と説明と操作、右に時。未読は左端の点で見せる。 */
-.prow { position: relative; display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 3.5); border-top: 1px solid var(--line); }
-.prow[data-unread]::before { content: ''; position: absolute; left: 4px; top: 15px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.prow .n-kind { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.25); width: 92px; padding-top: 1px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); }
-.prow .n-kind .icon { flex: none; width: 13px; height: 13px; }
-.prow .n-kind[data-tone='err'] { color: var(--error); }
-.prow .n-kind[data-tone='warn'] { color: var(--st-paused); }
-.prow .n-kind[data-tone='info'] { color: var(--accent); }
-.prow .p-body { flex: 1; min-width: 0; }
+.nrow { position: relative; display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 3.5); border-top: 1px solid var(--line); }
+.nrow[data-unread]::before { content: ''; position: absolute; left: 4px; top: 15px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.nrow .n-kind { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.25); width: 92px; padding-top: 1px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); }
+.nrow .n-kind .icon { flex: none; width: 13px; height: 13px; }
+.nrow .n-kind[data-tone='err'] { color: var(--error); }
+.nrow .n-kind[data-tone='warn'] { color: var(--st-paused); }
+.nrow .n-kind[data-tone='info'] { color: var(--accent); }
+.nrow .p-body { flex: 1; min-width: 0; }
 /* 題と説明は 1 行に切り詰めず、2 行まで読ませる（同期の理由や互換の文は長い）。 */
-.prow .p-t { font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.prow .p-d { font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.prow .p-acts { display: flex; gap: calc(var(--u) * 1); margin-top: calc(var(--u) * 1.25); }
-.prow .p-acts .btn-sm { height: 20px; padding: 0 7px; font-size: var(--fs-xs); }
-.prow .p-when { flex: none; padding-top: 2px; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.nrow .p-t { font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.nrow .p-d { font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.nrow .p-acts { display: flex; gap: calc(var(--u) * 1); margin-top: calc(var(--u) * 1.25); }
+.nrow .p-acts .btn-sm { height: 20px; padding: 0 7px; font-size: var(--fs-xs); }
+.nrow .p-when { flex: none; padding-top: 2px; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
