@@ -3,6 +3,7 @@
 // ?open=info|perm で、その部品のポップオーバーを開いた形で出す。例の値は作り物である。
 // 札の列（LaunchChips）は ?state=first|regular|bypass|extras と ?w=（列の幅 px。起動ダイアログの本文は 520）で出す。
 // ?only=band で、ホームの帯と引き出しの 4 つの形だけを出す（撮るとき用）。
+// ?only=bell で、ヘッダーのベルと知らせの一覧を出す（撮るとき用）。?case=open（既定）|closed|read|empty|en|narrow。例の値は作り物である。
 import { useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
@@ -11,10 +12,18 @@ import '../src/styles/tokens.css';
 import '../src/styles/base.css';
 import '../src/styles/controls.css';
 import '../src/styles/home.css';
+import '../src/styles/notices.css';
 import { presentHomeBand, type BandGroup, type HomeBandProps } from '../src/presenters/home.ts';
 import { translator } from '@agent-hangar/shared';
 import { HomeBand } from '../src/views/HomeBand.tsx';
 import { LanguageRoot } from '../src/views/primitives/language.tsx';
+import { IntentRoot } from '../src/intent/chain.tsx';
+import { initialState } from '../src/mediator/transition.ts';
+import { presentNotices } from '../src/presenters/notices.ts';
+import { initialStore, type Store } from '../src/store/store.ts';
+import { Bell } from '../src/views/Bell.tsx';
+import { Icon } from '../src/views/primitives/Icon.tsx';
+import type { CompatDto, ReadinessDto, SessionDto, SettingsDto } from '@agent-hangar/shared';
 import { CountChip, SettingChip } from '../src/views/primitives/Chip.tsx';
 import { InfoPopover, Popover } from '../src/views/primitives/Popover.tsx';
 import { LaunchChips, type LaunchChipValues } from '../src/views/LaunchChips.tsx';
@@ -163,7 +172,60 @@ function BandCases() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(only === 'band' ? (
+/* ---- ベルと知らせの一覧（試作 small-screens の知らせ B）。事実は作り物で、Presenter が行を組む。 ---- */
+const NOTICE_NOW = new Date(2026, 9, 9, 13, 25).getTime();
+const noticeSession = (): SessionDto => ({
+  id: 's-bench', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '検索の速度の計測', cwd: '/work/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOTICE_NOW - 6 * 3_600_000, lastActivityAt: NOTICE_NOW - 3_600_000, memo: null, hasTranscript: true, live: null, summary: null,
+  stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: NOTICE_NOW - 27 * 86_400_000, activity: null,
+  state: { status: 'paused', note: '夜間の再計測の結果を確かめる', returnOn: '2026-10-09', returnTime: '13:00', setBy: 'user', setAt: 1, candidate: null }, parked: false, stoppedByStatus: false, liveAside: null,
+});
+function noticeStore(lang: 'ja' | 'en', empty: boolean): Store {
+  const base = { ...initialStore(), bootstrapped: true, settings: { language: lang } as unknown as SettingsDto };
+  if (empty) return base;
+  const drifts: CompatDto = { verifiedVersion: '2.4.0', localVersion: '2.4.2', drifts: [{ contract: 'registry', value: 'status=v2', version: '2.4.2', count: 3, firstSeenAt: NOTICE_NOW - 3_600_000, lastSeenAt: NOTICE_NOW - 12 * 60_000 }] };
+  return {
+    ...base,
+    sessions: { 's-bench': noticeSession() },
+    sync: { state: 'error', paused: false, url: 'https://sync.example', lastPushAt: null, lastPullAt: null, pending: 14, error: lang === 'ja' ? 'サーバが 503 を返しました' : 'The server returned 503', deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false },
+    readiness: { compat: { verifiedVersion: '2.4.0', localVersion: '2.4.2', driftCount: 1 } } as unknown as ReadinessDto,
+    compat: drifts,
+    retention: { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: null },
+  };
+}
+/** ヘッダーの右の塊に見立てた帯の中にベルを置く。既読は頁の中だけで動き、開く、既読にする、Esc を手で確かめられる。 */
+function BellCase(props: { lang: 'ja' | 'en'; empty?: boolean; allRead?: boolean; open?: boolean; width?: number }) {
+  const store = noticeStore(props.lang, props.empty ?? false);
+  const [read, setRead] = useState<string[]>(() => (props.allRead ? presentNotices(initialState(), store, NOTICE_NOW).keys : []));
+  const p = presentNotices({ ...initialState(), noticesRead: read }, store, NOTICE_NOW, 'Asia/Tokyo');
+  return (
+    <LanguageRoot language={props.lang}>
+      <IntentRoot onIntent={(i) => { if (i.type === 'notices.read') setRead((r) => [...new Set([...r, ...i.keys])]); }}>
+        <div id="bell-strip" style={{ width: props.width, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 18, height: 44, padding: '0 12px', borderRadius: 14, background: 'rgba(255, 255, 255, 0.55)', boxShadow: 'var(--glass-edge)', fontSize: 'var(--fs-sm)' }}>
+          <span className="faint">{props.lang === 'ja' ? '同期エラー' : 'Sync error'}</span>
+          <Bell {...p} defaultOpen={props.open} />
+          <button type="button" className="btn btn-primary"><Icon name="add" />{props.lang === 'ja' ? '新しいセッション' : 'New session'}</button>
+        </div>
+      </IntentRoot>
+    </LanguageRoot>
+  );
+}
+const bellCase = params.get('case') ?? 'open';
+function BellPage() {
+  switch (bellCase) {
+    case 'closed': return <BellCase lang="ja" />;
+    case 'read': return <BellCase lang="ja" allRead open />;
+    case 'empty': return <BellCase lang="ja" empty open />;
+    case 'en': return <BellCase lang="en" open />;
+    case 'narrow': return <BellCase lang="ja" open width={420} />;
+    default: return <BellCase lang="ja" open />;
+  }
+}
+
+createRoot(document.getElementById('root')!).render(only === 'bell' ? (
+  <div style={{ maxWidth: 960, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <BellPage />
+  </div>
+) : only === 'band' ? (
   <div style={{ maxWidth: 960, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
     <h1 style={{ margin: 0, fontSize: 'var(--fs-lg)' }}>ホームの帯と引き出し</h1>
     <BandCases />

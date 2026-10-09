@@ -71,6 +71,30 @@ function stripLeadingTool(tool: string, summary: string): string {
   return summary.startsWith(prefix) ? summary.slice(prefix.length) : summary;
 }
 
+/**
+ * 今日戻るの札の並び。ホームの帯とベルの一覧（presenters/notices.ts）が、同じこの並びを読む。
+ * alive は hangar の run が生きているセッションで、生きているものは出さない。
+ */
+export function returningCards(store: Store, now: number, alive: Set<string> = runningSessionIds(store)): ReturnCard[] {
+  const name = (s: SessionDto) => s.name ?? '（名前なし）';
+  const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
+  // 今日戻る（C1）。戻る日の古い順で、欠けた日と壊れた日を先頭に、同じ日の中は新しい順にする。
+  // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
+  const today = localDate(now);
+  // 並びの鍵は節の並び（presenters/sections.ts）と同じ式を使う。
+  const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
+  return Object.values(store.sessions)
+    .filter((s) => s.state?.status === 'paused' && dueOn(s.state.returnOn, today) && liveFilterOfSession(store, s, alive) === 'ended')
+    .sort((a, b) => keyOf(a).localeCompare(keyOf(b)) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
+    .map((s): ReturnCard => {
+      const on = s.state?.returnOn ?? null;
+      const r = on !== null && isReturnOn(on) ? on : null;
+      const t = r !== null && typeof s.state?.returnTime === 'string' && isReturnTime(s.state.returnTime) ? s.state.returnTime : null;
+      // 当日の時刻つきは、時刻の前から札に出す（朝のうちに今日の予定として見える）。塗るのは時刻を過ぎてからにする。
+      return { id: s.id, name: name(s), projectName: projectName(s), reason: s.state?.note || NO_REASON, returnOn: r, returnTime: t, overdueDays: r ? overdueDays(r, now) : null, due: r === null || returnDue(r, t, now), pastMin: r ? returnPastMinutes(r, t, now) : null };
+    });
+}
+
 export function presentHome(_state: State, store: Store, now: number): HomeProps {
   const sessions = Object.values(store.sessions);
   const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
@@ -83,21 +107,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   const waiting = sessions.filter((s) => s.live === 'waiting').sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
   const attention = waiting.map((s) => ({ id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? NO_QUESTION, answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s) }));
 
-  // 今日戻る（C1）。戻る日の古い順で、欠けた日と壊れた日を先頭に、同じ日の中は新しい順にする。
-  // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
-  const today = localDate(now);
-  // 並びの鍵は節の並び（presenters/sections.ts）と同じ式を使う。
-  const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
-  const returning = sessions
-    .filter((s) => s.state?.status === 'paused' && dueOn(s.state.returnOn, today) && liveFilterOfSession(store, s, alive) === 'ended')
-    .sort((a, b) => keyOf(a).localeCompare(keyOf(b)) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
-    .map((s): ReturnCard => {
-      const on = s.state?.returnOn ?? null;
-      const r = on !== null && isReturnOn(on) ? on : null;
-      const t = r !== null && typeof s.state?.returnTime === 'string' && isReturnTime(s.state.returnTime) ? s.state.returnTime : null;
-      // 当日の時刻つきは、時刻の前から札に出す（朝のうちに今日の予定として見える）。塗るのは時刻を過ぎてからにする。
-      return { id: s.id, name: name(s), projectName: projectName(s), reason: s.state?.note || NO_REASON, returnOn: r, returnTime: t, overdueDays: r ? overdueDays(r, now) : null, due: r === null || returnDue(r, t, now), pastMin: r ? returnPastMinutes(r, t, now) : null };
-    });
+  const returning = returningCards(store, now, alive);
 
   // 確かめる。TODO の完了の候補とセッションの状態の提案を、候補になった時刻の古い順に混ぜる。
   // 放っておくと溜まるので、長く待っているものほど先に出す。
