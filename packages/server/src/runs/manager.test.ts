@@ -14,6 +14,7 @@ import { mangleCwd } from '../provider/claude-code/discover.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { Tmux } from '../tmux/tmux.ts';
+import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
 import { createMcpApp } from '../mcp/app.ts';
 import { MemoStore } from '../projects/memo.ts';
@@ -820,17 +821,22 @@ describe('アカウントの置き場と tmux サーバの環境（tmux 不要�
   const capture = () => {
     const calls: string[][] = [];
     const t = new Tmux({ tmuxPath: 'tmux', exec: (_file, args) => { calls.push(args); return { status: 0, stdout: '', stderr: '' }; } });
-    return { t, launched: () => calls.find((a) => a[0] === 'new-session')! };
+    return { t, calls, launched: () => calls.find((a) => a[0] === 'new-session')! };
+  };
+  /**
+   * new-session の引数から、claude やシェルに渡さない名前を読む。
+   * 起動のコマンドは動いている OS で組む（launch/command.ts）。macOS と Linux は env -u、Windows は包みへ HANGAR_UNSET_ENV で渡す。
+   */
+  const unsetOf = (args: string[]): string[] => {
+    if (process.platform === 'win32') return (args.find((x) => x.startsWith('HANGAR_UNSET_ENV='))?.slice('HANGAR_UNSET_ENV='.length) ?? '').split(';').filter(Boolean);
+    return args.flatMap((x, i) => (x === '-u' ? [args[i + 1]!] : []));
   };
 
   it('最初のアカウントで起こすときは、CLAUDE_CONFIG_DIR を env -u で外す', () => {
     const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
     const c = capture();
     make({ accounts, tmux: c.t }).start({ projectId: 'p1' });
-    const args = c.launched();
-    // 起動のコマンドは動いている OS で組む（launch/command.ts）。Windows は包みに名前を渡す。
-    if (process.platform === 'win32') expect(args).toContain('HANGAR_UNSET_ENV=CLAUDE_CONFIG_DIR');
-    else { const i = args.indexOf('env'); expect(args.slice(i, i + 3)).toEqual(['env', '-u', 'CLAUDE_CONFIG_DIR']); }
+    expect(unsetOf(c.launched())).toContain('CLAUDE_CONFIG_DIR');
   });
   it('別のアカウントで起こすときは外さず、その置き場を渡す', () => {
     const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
@@ -838,9 +844,73 @@ describe('アカウントの置き場と tmux サーバの環境（tmux 不要�
     const c = capture();
     make({ accounts, tmux: c.t }).start({ projectId: 'p1', account: a.id });
     const args = c.launched();
-    expect(args).not.toContain('-u');
-    expect(args.some((x) => x.startsWith('HANGAR_UNSET_ENV='))).toBe(false);
+    expect(unsetOf(args)).not.toContain('CLAUDE_CONFIG_DIR');
     expect(args).toContain(`CLAUDE_CONFIG_DIR=${a.dir}`);
+  });
+  // tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境にそのセッションの印が残る。
+  // 印を持った claude は子のセッションと見なされ、再開の一覧から外れ、別のセッションのソケットへ話しかける。
+  it('Claude Code の印と、サーバが読み終えた hangar の変数を、どのアカウントでも外す', () => {
+    const accounts = new AccountStore({ home, primaryDir: claudeDir, homeDir: userHome });
+    const a = accounts.add({ name: '大学' });
+    for (const account of [undefined, a.id]) {
+      const c = capture();
+      make({ accounts, tmux: c.t }).start({ projectId: 'p1', account });
+      const unset = unsetOf(c.launched());
+      for (const n of RUN_DROPPED_ENV) expect(unset, n).toContain(n);
+      // statusline の台本と hangar の CLI が読む置き場、run の印、包みへの合図は外さない。
+      for (const n of ['HANGAR_HOME', 'HANGAR_RUN_ID', 'HANGAR_UNSET_ENV']) expect(unset, n).not.toContain(n);
+    }
+  });
+  it('シェルのタブも、同じ名前を外してからシェルを起こす', () => {
+    const c = capture();
+    const rm = make({ tmux: c.t });
+    const r = rm.start({ projectId: 'p1' });
+    rm.openTab(r.run.id);
+    const tab = c.calls.filter((x) => x[0] === 'new-session').at(-1)!;
+    const command = tab.slice(tab.indexOf('--') + 1);
+    // Windows の PowerShell の前には env コマンドを置けない（launch/command.ts）。
+    if (process.platform === 'win32') expect(command).toEqual(['sh', '-NoLogo']);
+    else {
+      expect(command[0]).toBe('env');
+      expect(command.slice(-2)).toEqual(['sh', '-l']);
+      for (const n of RUN_DROPPED_ENV) expect(unsetOf(tab), n).toContain(n);
+    }
+  });
+});
+
+describe.skipIf(!TMUX)('tmux サーバの全体の環境が汚れているとき（tmux 上）', () => {
+  // 専用のソケットの tmux サーバを、Claude Code のセッションの印を持った環境から起こす。
+  // 2026-10-08 に、利用者の既定の tmux サーバがこの状態になっていた。値は形だけである。
+  const dirty = { ...Object.fromEntries(RUN_DROPPED_ENV.map((n) => [n, 'leak'])), CLAUDE_CODE_USE_BEDROCK: '1', HANGAR_HOME: '/leak/home' };
+  beforeEach(() => {
+    new Tmux({ tmuxPath: TMUX!, socketPath, env: dirty }).newSession({ name: 'hangar-test-dirty', cwd, command: ['sh', '-c', 'sleep 30'] });
+  });
+  const lines = (file: string): Map<string, string> =>
+    new Map(fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+
+  it('claude には印を渡さず、利用者の設定と hangar の置き場は渡す', async () => {
+    fake = writeFakeClaude(home, { recordEnv: [...RUN_DROPPED_ENV, 'CLAUDE_CODE_USE_BEDROCK', 'HANGAR_HOME'] });
+    const r = make().start({ projectId: 'p1' });
+    expect(await launchedArgs(r.run.id)).toContain(r.run.id);
+    await waitFor(() => fs.existsSync(fake.envFile) && lines(fake.envFile).has('HANGAR_HOME'));
+    const env = lines(fake.envFile);
+    for (const n of RUN_DROPPED_ENV) expect(env.get(n), n).toBe('');
+    expect(env.get('CLAUDE_CODE_USE_BEDROCK')).toBe('1');
+    // statusline の台本と hangar の CLI が、claude の中でこの値から置き場を知る。
+    expect(env.get('HANGAR_HOME')).toBe('/leak/home');
+  });
+
+  it('シェルのタブにも印を渡さない', async () => {
+    const out = path.join(home, 'tab-env.txt');
+    const shell = path.join(home, 'fake-shell');
+    fs.writeFileSync(shell, `#!/bin/sh\nenv > "${out}.tmp" && mv "${out}.tmp" "${out}"\nsleep 30\n`, { mode: 0o755 });
+    const rm = make({ shell });
+    const r = rm.start({ projectId: 'p1' });
+    rm.openTab(r.run.id);
+    await waitFor(() => fs.existsSync(out));
+    const env = lines(out);
+    for (const n of RUN_DROPPED_ENV) expect(env.has(n), n).toBe(false);
+    expect(env.get('CLAUDE_CODE_USE_BEDROCK')).toBe('1');
   });
 });
 

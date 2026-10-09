@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { SERVER_DROPPED_ENV } from '../../../packages/server/src/launch/env.ts';
 
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => fs.readFileSync(path.join(app, p), 'utf8');
@@ -189,6 +190,18 @@ describe('capabilities', () => {
   // invoke_handler を 2 度呼ぶと、後のものだけが残り、先に並べた命令が黙って呼べなくなる。
   it('殻の命令は invoke_handler の 1 か所でまとめて登録する', () => {
     expect(read('src-tauri/src/lib.rs').match(/\.invoke_handler\(/g)).toHaveLength(1);
+  });
+});
+
+describe('殻がサーバへ渡す環境', () => {
+  // サーバへ渡さない変数の正本はサーバの側（launch/env.ts）にあり、殻はその写しを持つ。
+  // 片方だけ足すと、殻とサーバで外す名前が食い違い、殻の側では新しい印が素通りする。
+  it('殻がサーバへ渡さない変数（server.rs の INHERITED_ENV_DROPPED）は、サーバの正本（SERVER_DROPPED_ENV）と同じ', () => {
+    const block = read('src-tauri/src/server.rs').match(/pub const INHERITED_ENV_DROPPED: &\[&str\] = &\[([^\]]*)\];/)?.[1];
+    expect(block, 'INHERITED_ENV_DROPPED が見つかりません').toBeDefined();
+    const names = [...block!.matchAll(/"([A-Za-z_][A-Za-z0-9_]*)"/g)].map((m) => m[1]!);
+    expect(new Set(names).size).toBe(names.length);
+    expect([...names].sort()).toEqual([...SERVER_DROPPED_ENV].sort());
   });
 });
 

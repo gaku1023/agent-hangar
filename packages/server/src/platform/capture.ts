@@ -10,6 +10,7 @@ import path from 'node:path';
 export type CaptureOptions = {
   /** 時間の上限。過ぎたら SIGKILL で止めて投げる。 */
   timeoutMs: number;
+  /** 渡さなければサーバの環境を継ぐ。受け継いだ Claude Code の印は、入口（main.ts）が起動の最初に消してある（launch/env.ts）。 */
   env?: NodeJS.ProcessEnv;
   cwd?: string;
   /** 標準入力に流す文字列。渡さなければ標準入力は開かない。 */

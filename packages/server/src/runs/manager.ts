@@ -11,6 +11,7 @@ import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
 import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
+import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { needsShell } from '../platform/exec.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { promptMentionsDrops } from '../prompt/drops.ts';
@@ -248,9 +249,11 @@ export class RunManager {
     const tmuxName = `hangar-${runTmuxId(runId)}`;
     const wrapper = ensureWrapperScript(this.deps.home);
     const log = runLogPath(this.deps.home, runId);
+    // tmux サーバの全体の環境に残った Claude Code の印と hangar の受け渡しの変数は、どの起動でも外す（launch/env.ts）。
     // 置き場を足さない起動（最初のアカウント）は、tmux サーバが持っている CLAUDE_CONFIG_DIR も外す。
     // tmux サーバを別のアカウントのシェルから起こしていると、足さないだけではその置き場で動いてしまう。
-    const wrapped = runCommand({ runId, wrapper, log, command: o.command, unset: env.CLAUDE_CONFIG_DIR ? [] : ['CLAUDE_CONFIG_DIR'] });
+    const unset = env.CLAUDE_CONFIG_DIR ? RUN_DROPPED_ENV : [...RUN_DROPPED_ENV, 'CLAUDE_CONFIG_DIR'];
+    const wrapped = runCommand({ runId, wrapper, log, command: o.command, unset });
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
@@ -741,7 +744,8 @@ export class RunManager {
     // 番号は閉じた行も数えて振る。閉じたタブの番号は再利用しない。
     const n = (this.db.prepare('select count(*) c from run_tabs where run_id = ?').get(runId) as { c: number }).c + 1;
     const tmuxName = `${run.tmuxName}-t${n}`;
-    const command = shellTabCommand({ shell: this.deps.shell });
+    // タブも tmux サーバの全体の環境を継ぐ。別のセッションの印を持ったシェルで claude を打たせない。
+    const command = shellTabCommand({ shell: this.deps.shell, unset: RUN_DROPPED_ENV });
     try {
       tmux.newSession({ name: tmuxName, cwd: s.cwd, command, env: withUtf8Locale() });
       tmux.setOption(tmuxName, 'status', 'off');

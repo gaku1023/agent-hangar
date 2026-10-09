@@ -74,6 +74,9 @@ Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`�
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
 配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
+サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`）を自分の環境から消す（`launch/env.ts`）。
+殻も、サーバを起こすときに同じ名前を外してから自分の値を入れる（`server.rs` の `INHERITED_ENV_DROPPED`。サーバの正本との一致は試験で縛る）。
+アプリを Claude Code のセッションの Bash から `open` で起こすと、呼び手の環境がそのまま殻とサーバに入り、サーバが起こす tmux サーバの全体の環境と、サーバが直に起こす claude（`--help`、`agents --json`、要約の `-p`、`auth status`）にまで届くためである。
 `/health` の `ready` が真になってから、鍵付きの URL を印字する。
 `hangar://` のディープリンクは deep-link プラグインで受ける。
 ブラウザからも同じ UI が動くが、入口は鍵付きの URL に限る。
@@ -581,6 +584,10 @@ Claude Code はほぼ毎日新しい版が出るので、範囲はすぐ古く�
 利用者の発言でない行を見分ける目印（本文の頭のタグなど）は自由な文字列で、知っている集合で見張れない。
 これは見本の試験で確かめる。
 
+Claude Code が子（Bash、hook、裏のセッション）に立てる印の名前も、公開を約束していない形なので、ここに一覧で置く（`compat/childEnv.ts`）。
+hangar が起こすものへ持ち込まないために使う（「tmux による起動」）。見張りはせず、2.1.295 で確かめた名前を持つ。
+利用者が立てる設定として公開の文書に載っている名前と、ほかの道具と共有する名前（`GIT_EDITOR`、`TRACEPARENT` など）は入れない。
+
 claude の長くなりうる出力（`--help`、`agents --json`、`-p --output-format json`）は、標準出力を一時ファイルへ書かせて読む（`packages/server/src/platform/capture.ts`）。
 claude は標準出力がパイプだと非同期に書き、書き切る前に終わることがあり、Node の子プロセスのパイプで読むと 2.1.293 の `--help`（22KB）が 8KB か 16KB で切れて、Commands の節が無いと読んでいたためである。
 短いと決まっている出力（`--version`、`auth status --json`）はパイプのまま読む。
@@ -622,7 +629,7 @@ iTerm2 のネイティブペインに変わるのを避けるためである。
 
 ```sh
 tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
-  env HANGAR_RUN_ID=<runId> \
+  env [-u <外す名前>]... HANGAR_RUN_ID=<runId> \
   bash ~/.agent-hangar/bin/hangar-run.sh ~/.agent-hangar/logs/run-<runId>.log \
   <claude の絶対パス> \
     --mcp-config ~/.agent-hangar/mcp/<sessionId>.json \
@@ -645,6 +652,15 @@ tmux で `claude` を直接起動すると異常終了時の出力が失われ�
 込んだ機械で `tee` が後回しになると、書きかけのまま落ちて終わり際の標準エラーが消えていたので、`tee` は SIGHUP を無視する形で起こし、bash は `tee` が書き終えるのを 2 秒まで待ってから `exit=` を書く。
 2 秒で見切るのは、claude の残した子が標準エラーを握り続けても、ペインを閉じるためである。
 包みの中身が変わったときはサーバの起動時に書き直すが、走っている run の bash は台本を読みながら進むので、その場で書き換えずに別のファイルから rename で入れ替える。
+起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`）と `HANGAR_CLOUD_DIR` を `-u` で外す。
+Windows は名前を包みへ `HANGAR_UNSET_ENV` で渡し、包みが消してから claude を起こす。
+tmux の新しいセッションは、`PATH` のほかは tmux サーバの全体の環境を継ぐ（`PATH` は下に書くとおり起こした側の値になる）。tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境に別のセッションの印が残る。
+印を持って始まった claude は、そのセッションの子として振る舞う（再開の一覧と履歴から外れる、裏のセッションと見なす、別のセッションの名前やソケットを使う）。
+2026-10-08 に、利用者の既定の tmux サーバでこの状態を見つけた。
+`HANGAR_HOME` は外さない。statusline の台本と `hangar` の CLI が、claude の中で置き場を知るのに読む。
+`HANGAR_PORT` は外す。statusline の台本はポートを書き込み時に埋め、MCP の設定はファイルに URL を持ち、CLI は `--port` で決めるので、claude の中で読むものは無く、残すと claude の中で起こした試しのサーバがアプリのポートを使おうとする。
+利用者が立てる設定（`CLAUDE_CONFIG_DIR`、`CLAUDE_CODE_USE_BEDROCK`、`CLAUDE_CODE_EFFORT_LEVEL`、`ANTHROPIC_*` など）は外さない。
+シェルタブも、同じ名前を `env -u` で外してからログインシェルを起こす。Windows の PowerShell の前には `env` を置けないので、Windows のシェルタブは外さない。
 hangar のセッションでは `tmux set-option -t <name> status off` でステータス行を隠す。
 新しいディレクトリで Claude を起動すると最初に信頼確認ダイアログが出るので、起動直後はターミナルを前面に出し、ダイアログが出ている旨を表示する。
 node-pty の prebuild は補助バイナリ `spawn-helper` に実行権限が無い状態で展開されることがあるため、サーバの起動時に権限を確認して直し、spawn の失敗は捕まえて接続だけを閉じる。
@@ -1973,6 +1989,7 @@ hangar の tmux の中の claude は、上限を模した中継で、予約が�
 - **包み方（`hangar shell install`）**：`~/.zshrc` から `~/.agent-hangar/shell/claude.zsh` を読む。
   対話で起動した `claude` は、hangar に起動を頼み（`POST /api/runs/terminal`）、返ってきた tmux のセッションにこのターミナルからつなぐ（`tmux attach`）。
   頼むときに、作業ディレクトリ、引数、環境変数を渡す。tmux の新しいセッションはシェルの環境変数を継がないので、hangar が `tmux new-session -e` で渡す。
+  渡す前に、端末に固有の変数、`HANGAR_` で始まる変数、Claude Code が子に立てる印（run の起こし方と同じ一覧）を落とす。端末が Claude Code のセッションの中から起きていると、そのセッションの印を持っているためである。
   プロジェクトは、作業ディレクトリを含むルートのうち最も深いものにする。無ければ未分類にする。
   `-r <id>` は、その会話の run がもう動いていれば、その tmux につなぐだけにする。動いていなければ hangar に再開を頼む。
   hangar が応答しない、または断ったとき（tmux が無い、hangar が組み立てる引数と重なる引数を付けた、同じ会話が hangar の外で動いている）は、素の claude を起動する。

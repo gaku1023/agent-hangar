@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
 import { RunError } from './errors.ts';
 import { decodeTerminalRequest, splitTerminalArgs, terminalEnv } from './terminal.ts';
 
@@ -55,6 +56,13 @@ describe('terminalEnv', () => {
       HANGAR_NO_WRAP: '', HANGAR_RUN_ID: 'r', CLAUDECODE: '1', CLAUDE_CODE_SESSION_KIND: 'bg', CLAUDE_CODE_ENTRYPOINT: 'cli',
     };
     expect(terminalEnv(env)).toEqual({ PATH: '/usr/bin', HOME: '/Users/x', VIRTUAL_ENV: '/w/.venv', AWS_PROFILE: 'dev', LANG: 'ja_JP.UTF-8', COLORTERM: 'truecolor' });
+  });
+  // 外の端末が Claude Code のセッションの中から起きていると、そのセッションの印を持っている。
+  // 印を持ったまま hangar の tmux で claude を起こすと、子のセッションとして再開の一覧から外れる。
+  it('Claude Code が子に立てる印は落とし、利用者の設定は残す', () => {
+    const user = { CLAUDE_CONFIG_DIR: '/u/.claude-work', CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CODE_EFFORT_LEVEL: 'high', ANTHROPIC_BASE_URL: 'https://gw.example', ANTHROPIC_MODEL: 'opus' };
+    const env = { ...Object.fromEntries(CLAUDE_CHILD_ENV.map((n) => [n, 'x'])), ...user };
+    expect(terminalEnv(env)).toEqual(user);
   });
   it('名前として読めない変数は落とす', () => {
     expect(terminalEnv({ 'BASH_FUNC_x%%': '() { :; }', '1A': 'x', 'A B': 'x', OK_1: 'y' })).toEqual({ OK_1: 'y' });
