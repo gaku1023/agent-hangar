@@ -5,9 +5,8 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MIGRATIONS } from '../../server/src/db/migrations.ts';
+import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../../server/test/oldDb.ts';
 import { posixIt } from '../../server/test/platform.ts';
 import { probeHealth } from './probe.ts';
 
@@ -233,15 +232,8 @@ describe('hangar start', () => {
     fs.mkdirSync(path.join(claudeDir, 'sessions'), { recursive: true });
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
     // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
-    const latest = MIGRATIONS[MIGRATIONS.length - 1]!.version;
     const file = path.join(home, 'hangar.db');
-    const seed = new Database(file);
-    seed.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
-    for (const m of MIGRATIONS.filter((m) => m.version < latest)) {
-      seed.exec(m.sql);
-      seed.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
-    }
-    seed.close();
+    seedDbAt(file, LATEST_DB_VERSION - 1);
     fs.mkdirSync(path.join(home, 'backups'));
     fs.writeFileSync(path.join(home, 'backups', 'db'), 'x');
     // hangar の中から試験を走らせたときに、外のサーバ向けの値を子へ持ち込まない。
@@ -276,10 +268,7 @@ describe('hangar start', () => {
     expect(r.out).toContain('マイグレーションを当てずに止めました');
     expect(r.out).toContain('起動の途中で終わりました');
     expect(r.out).not.toContain('?t=');
-    const check = new Database(file, { readonly: true });
-    try {
-      expect((check.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(latest - 1);
-    } finally { check.close(); }
+    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
     expect(await probeHealth(port, 500)).toBe(false);
   }, 90_000);
 });

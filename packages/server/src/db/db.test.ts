@@ -3,29 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it, vi } from 'vitest';
-import { MIGRATIONS } from './migrations.ts';
 import { openDb, type Db } from './open.ts';
 import { applyRemoteChange } from '../sync/apply.ts';
 import { onSharedWrite, softDeleteShared, upsertShared } from './shared.ts';
-
-/** version 以下のマイグレーションだけを当てた実物のファイルを作る。既存の DB からの移行を試すため。 */
-function openDbAt(file: string, version: number): void {
-  const db = new Database(file);
-  db.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
-  for (const m of MIGRATIONS.filter((m) => m.version <= version)) {
-    db.exec(m.sql);
-    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
-  }
-  db.close();
-}
-
-const LATEST = MIGRATIONS[MIGRATIONS.length - 1]!.version;
+import { LATEST_DB_VERSION as LATEST, seedDbAt } from '../../test/oldDb.ts';
 
 describe('openDb', () => {
   it('version 10 で todos に候補の列が足され、既存の行の rejected_sessions は [] になる', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
     const file = path.join(tmp, 'hangar.db');
-    openDbAt(file, 9);
+    seedDbAt(file, 9);
     const old = new Database(file);
     old.prepare("insert into projects (id, name, status, is_scratch, updated_at, origin_device) values ('p1', 'a', 'active', 0, 1, 'd')").run();
     old.prepare("insert into todos (id, project_id, text, done, position, updated_at, origin_device) values ('t1', 'p1', 'x', 0, 1, 1, 'd')").run();
@@ -76,7 +63,7 @@ describe('openDb', () => {
     for (const from of [3, 4, 5]) {
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
       const file = path.join(tmp, 'hangar.db');
-      openDbAt(file, from);
+      seedDbAt(file, from);
       const old = new Database(file);
       if (from >= 4) old.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?)').run('s1', '2026-09-01', '/p/s1.jsonl', 10, 2);
       else old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s1', '2026-09-01', 10, 2);
@@ -166,7 +153,7 @@ describe('マイグレーション 8 と書き込みの通知', () => {
   it('古い DB からでも上げられ、既存の transcript_files の device_id は null になる', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig8-'));
     const file = path.join(tmp, 'hangar.db');
-    openDbAt(file, 7);
+    seedDbAt(file, 7);
     const old = new Database(file);
     old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1.jsonl', 's1', null, 1, 1, 1, 1);
     old.close();
@@ -386,7 +373,7 @@ describe('version 13 のセッションの状態', () => {
   it('表を作り、生きているセッションだけを Done にし、changes には積まない', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig13-'));
     const file = path.join(tmp, 'hangar.db');
-    openDbAt(file, 12);
+    seedDbAt(file, 12);
     const old = new Database(file);
     const ins = old.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, deleted_at, origin_device) values (?, 'claude-code', ?, '/w', 'd', 1, ?, 'd')");
     ins.run('s1', 'u1', null);
@@ -425,7 +412,7 @@ describe('version 14 の戻る時刻', () => {
   it('列を 2 本足し、既存の行の日付は変えず、時刻は null のままにする', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig14-'));
     const file = path.join(tmp, 'hangar.db');
-    openDbAt(file, 13);
+    seedDbAt(file, 13);
     const old = new Database(file);
     old.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd')").run();
     old.prepare("insert into session_states (session_id, status, note, return_on, set_by, set_at, updated_at, origin_device) values ('s1', 'paused', '明日見る', '2026-10-05', 'user', 5, 5, 'd')").run();
@@ -439,7 +426,7 @@ describe('version 14 の戻る時刻', () => {
   it('version 13 のままの PC は、時刻つきの行を受け取っても日付をそのまま読める（知らない列は捨てる）', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig14-'));
     const file = path.join(tmp, 'hangar.db');
-    openDbAt(file, 13);
+    seedDbAt(file, 13);
     const old = new Database(file);
     old.pragma('foreign_keys = ON');
     old.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd')").run();

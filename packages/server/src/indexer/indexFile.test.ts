@@ -1,12 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MIGRATIONS } from '../db/migrations.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
+import { seedDbAt as seedOldDb } from '../../test/oldDb.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
@@ -31,18 +30,6 @@ const artifactCall = (toolId: string, input: Record<string, unknown>, ts = '2026
 const artifactResult = (toolId: string, text: string, ts = '2026-09-01T12:00:03.000Z') =>
   ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: text }] }, uuid: `u-${toolId}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
 const appendJson = (p: string, ...recs: unknown[]) => { for (const r of recs) fs.appendFileSync(p, JSON.stringify(r) + '\n'); };
-
-/** version 以下のマイグレーションだけを当てた実物のファイルの DB を作り、中身を仕込む。 */
-function seedOldDb(file: string, version: number, seed: (db: Db) => void): void {
-  const raw = new Database(file) as unknown as Db;
-  raw.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
-  for (const m of MIGRATIONS.filter((m) => m.version <= version)) {
-    raw.exec(m.sql);
-    raw.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
-  }
-  seed(raw);
-  raw.close();
-}
 
 const insSession = 'insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?,?,?,?,?,?,?)';
 const insFile = 'insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)';
