@@ -8,9 +8,8 @@ import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } f
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
 import { presentReadiness } from './readiness.ts';
-import { candidateLabel, returnOnLabel, sortSessions } from './row.ts';
+import { candidateLabel, dueOn, returnKey, returnOnLabel, sortSessions } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
-import { dueOn, returnKey } from './sections.ts';
 
 /**
  * 要対応の札。入力待ちのセッション 1 件につき 1 枚。
@@ -75,8 +74,7 @@ export function returningCards(store: Store, now: number, alive: Set<string> = r
   // 今日戻る（C1）。戻る日の古い順で、欠けた日と壊れた日を先頭に、同じ日の中は新しい順にする。
   // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
   const today = localDate(now);
-  // 並びの鍵は節の並び（presenters/sections.ts）と同じ式を使う。
-  const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
+    const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
   return Object.values(store.sessions)
     .filter((s) => s.state?.status === 'paused' && dueOn(s.state.returnOn, today) && liveFilterOfSession(store, s, alive) === 'ended')
     .sort((a, b) => keyOf(a).localeCompare(keyOf(b)) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))

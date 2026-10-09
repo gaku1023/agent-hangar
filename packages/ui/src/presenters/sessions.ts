@@ -7,8 +7,7 @@ import { absoluteTime } from './format.ts';
 import { markTerms } from './highlight.ts';
 import { translatorOf } from './i18n.ts';
 import { pageSlice, pagerOf, type PagerProps } from './pager.ts';
-import { presentSessionRow, sortForSections, type SessionRowProps } from './row.ts';
-import { matchesStatus } from './sections.ts';
+import { matchesStatus, presentSessionRow, sortForList, type SessionRowProps } from './row.ts';
 
 /** 状態のタブ。all は「すべて」。 */
 export type StatusTab = 'all' | StatusFilter;
@@ -61,7 +60,7 @@ export function periodWord(t: Translate, days: number): string {
 const liveWord = (t: Translate, live: LiveFilter): string => (live === 'waiting' ? t('list.live.waiting') : live === 'running' ? t('list.live.running') : t('list.live.ended'));
 
 /**
- * 状態のタブ。件数は条件に関わらず手元の全件で、行の持ち物で数える（presenters/sections.ts の matchesStatus）。
+ * 状態のタブ。件数は条件に関わらず手元の全件で、行の持ち物で数える（presenters/row.ts の matchesStatus）。
  * 提案のある Active は確認待ちにも Active にも入る。
  * 「すべて」は Archived を除いた数で、条件を入れたときに並ぶ行の数え方と同じにする。
  */
@@ -80,16 +79,20 @@ function hintOf(t: Translate, token: string): string {
 }
 
 /**
- * ホームの一覧（タブ、欄、絞り込み、条件の行、行、ページ送り）に渡すものを組む。
+ * 一覧（タブ、欄、絞り込み、条件の行、行、ページ送り）に渡すものを組む。ホームと、1 つのプロジェクトの画面が使う。
  * 語か触ったファイルがあるときはサーバの結果を、そうでなければ手元の全件を、同じ平らな並びにする。
+ * inProject を渡すと、そのプロジェクトのセッションだけを手元の全件とする（タブの件数も、見出しの件数もその分だけになる）。
+ * サーバの結果は、問い合わせのときにプロジェクトで絞ってある（mediator/screen.ts の searchParams）。
+ * プロジェクトは画面が決めているので、絞り込み（State.search.filter）には入れず、条件の行と欄の札にも出さない。
  */
-export function presentSessionList(state: State, store: Store, now: number): SessionListProps {
+export function presentSessionList(state: State, store: Store, now: number, inProject?: string): SessionListProps {
   const t = translatorOf(store);
   const projects = Object.values(store.projects).map((p) => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name));
   const f = state.search.filter;
   const conditions = conditionsOf(t, state.search.text, f, store);
-  // 並びの元は row.ts の sortForSections（生きているものを先に、残りは新しい順）。タブの件数もこの全件から数える。
-  const all = sortForSections(Object.values(store.sessions)).map((s) => ({ s, row: presentSessionRow(s, store, now) }));
+  // 並びの元は row.ts の sortForList（生きているものを先に、残りは新しい順）。タブの件数もこの全件から数える。
+  const mine = inProject === undefined ? Object.values(store.sessions) : Object.values(store.sessions).filter((s) => s.projectId === inProject);
+  const all = sortForList(mine).map((s) => ({ s, row: presentSessionRow(s, store, now) }));
   // 見出しの件数は条件に関わらず手元の全件で、「すべて」のタブと同じく Archived を除く。絞った結果の件数は条件の行が言う。
   const allCount = all.filter((x) => x.row.state !== 'archived').length;
   const tab = f.status ?? 'all';
@@ -119,7 +122,8 @@ export function presentSessionList(state: State, store: Store, now: number): Ses
   // キーワードが無い（触ったファイルだけで絞った）ときは抜粋が無いので、2 段目は要約の 1 文になる。
   for (const h of result?.hits ?? []) {
     const s = store.sessions[h.sessionId];
-    if (!s) continue;
+    // 結果が届く前の、ほかの画面の検索の名残が混ざらないように、プロジェクトの画面ではそのプロジェクトの行だけを出す。
+    if (!s || (inProject !== undefined && s.projectId !== inProject)) continue;
     const first = h.snippets[0];
     const row = presentSessionRow(s, store, now, state.search.text ? (first ? markTerms(first.text, state.search.text) : []) : undefined);
     // 開いたら、抜粋の一致へ跳ぶ（J1）。

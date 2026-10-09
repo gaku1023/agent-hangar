@@ -17,7 +17,7 @@ const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
 
 /**
  * プロジェクトの経路。
- * 一覧と 1 件、状態の変更、置き場の候補と選び直し、作成と登録、未登録のフォルダの一覧、エディタとターミナルで開く、を持つ。
+ * 一覧と 1 件、状態と名前の変更、置き場の候補と選び直し、作成と登録、未登録のフォルダの一覧、エディタとターミナルで開く、を持つ。
  */
 export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
   const language = deps.language;
@@ -34,11 +34,17 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
     const id = c.req.param('id');
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
-    const body = (b.value ?? {}) as { status?: string };
-    if (!body.status || !STATUSES.has(body.status)) return c.json({ error: tr('project.status.invalid') }, 400);
+    // 変えられるのは状態と名前で、どちらか一方だけでも、両方でもよい。何も変えない本文は断る。
+    const body = (b.value ?? {}) as { status?: unknown; name?: unknown };
+    const changesName = body.name !== undefined;
+    const changesStatus = body.status !== undefined;
+    if (!changesName && !changesStatus) return c.json({ error: tr('project.status.invalid') }, 400);
+    if (changesStatus && (typeof body.status !== 'string' || !STATUSES.has(body.status))) return c.json({ error: tr('project.status.invalid') }, 400);
+    const name = changesName && typeof body.name === 'string' ? body.name.trim() : '';
+    if (changesName && name === '') return c.json({ error: tr('project.create.nameEmpty') }, 400);
     const row = db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
     if (!row) return c.json({ error: tr('project.error.notFound') }, 404);
-    upsertShared(db, 'projects', { ...row, status: body.status }, deviceId);
+    upsertShared(db, 'projects', { ...row, ...(changesStatus ? { status: body.status } : {}), ...(changesName ? { name } : {}) }, deviceId);
     return c.json(getProject(db, deviceId, deps.live(), id)!);
   });
   api.get('/projects/:id/candidates', (c) => c.json(candidateDirs(deps.settings().workspaceRoot, c.req.query('name') ?? '')));

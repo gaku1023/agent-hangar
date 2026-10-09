@@ -123,7 +123,7 @@ describe('一覧の絞り込みと欄', () => {
     expect(box.querySelector('svg')).toHaveAttribute('data-icon', 'fullText');
     expect(box).toHaveTextContent('トランスクリプト');
     fireEvent.click(within(box as HTMLElement).getByRole('button', { name: 'キーワードを消す' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '', filter: {} });
   });
   it('検索中は条件の行の件数の代わりにそう言う', () => {
     render(<IntentRoot onIntent={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" conditions={['『q』']} /></IntentRoot>);

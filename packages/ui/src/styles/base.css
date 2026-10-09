@@ -228,8 +228,6 @@ a:hover { text-decoration: underline; }
 .row { display: grid; align-items: center; height: var(--row-h); padding: 0 calc(var(--u) * 3); border-bottom: 1px solid var(--line); gap: calc(var(--u) * 3); cursor: pointer; transition: background var(--dur-fast) var(--ease-out); white-space: nowrap; }
 .row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
 .row[aria-selected='true'] { background: var(--accent-soft); }
-.row-head { font-size: var(--fs-xs); color: var(--ink-3); cursor: default; }
-.row-head:hover { background: transparent; }
 .cell { overflow: hidden; text-overflow: ellipsis; }
 .cell-right { text-align: right; }
 

@@ -20,6 +20,7 @@ import { pauseEn } from './en/pause.ts';
 import { platformEn } from './en/platform.ts';
 import { projectEn } from './en/project.ts';
 import { projectsEn } from './en/projects.ts';
+import { projectScreenEn } from './en/projectScreen.ts';
 import { promoteEn } from './en/promote.ts';
 import { promptEn } from './en/prompt.ts';
 import { retentionEn } from './en/retention.ts';
@@ -60,6 +61,7 @@ export const en: Dictionary = {
   ...platformEn,
   ...projectEn,
   ...projectsEn,
+  ...projectScreenEn,
   ...promoteEn,
   ...promptEn,
   ...retentionEn,

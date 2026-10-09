@@ -176,15 +176,14 @@ export type State = {
   /** 次に自動で試す時刻。待っているのか固まっているのかを見せるために持つ。 */
   nextRetryAt: number | null;
   sessionView: Record<string, SessionViewState>;
-  /** 一覧の語と絞り込み、平らな一覧のいまのページ（1 から）。ページは条件を変えるか画面に入り直すと 1 に戻る。 */
+  /**
+   * 一覧の語と絞り込み、平らな一覧のいまのページ（1 から）。ページは条件を変えるか画面に入り直すと 1 に戻る。
+   * ホームと 1 つのプロジェクトの画面が同じものを使う。プロジェクトの画面では、そのプロジェクトに絞る（絞り込みには projectId を入れない。mediator/screen.ts の listProjectId）。
+   * 別の画面から入ると、持ち込まずに空から始める。
+   */
   search: { text: string; filter: SearchFilter; page: number };
   /** 一覧の 1 ページの件数（PAGE_SIZES のどれか）。どの一覧も同じ件数を使う。端末ごとに localStorage に残し、起動時に読み戻す。 */
   pageSize: number;
-  /**
-   * プロジェクト画面の一覧のいまのページ（1 から）。鍵は 'project:<id>'。無ければ 1 ページ目。
-   * プロジェクトの節を広げる・畳むと、そのプロジェクトは 1 ページ目に戻る。保存はしない。
-   */
-  listPages: Record<string, number>;
   /** 起動の進み。ダイアログからの起動も、再開もフォークも同じ状態を共有する。 */
   launch: LaunchState;
   /**
@@ -225,11 +224,6 @@ export type State = {
    * ここに無いセッション（新しく動き始めたもの）は、並べた行の上に入る（presenters/shell.ts）。
    */
   sidebarOrder: string[];
-  /**
-   * プロジェクト画面で広げた節（末尾の Archived）。鍵はプロジェクトの id。
-   * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。
-   */
-  sectionsOpen: Record<string, 'archived'[]>;
   /**
    * ベルの一覧で既読にした行の鍵（種類、対象、事実の版）。新しいものが後ろ。端末ごとに localStorage に残し、起動時に読み戻す。
    * 一覧の行は事実から Presenter が組み、ここは既読の鍵だけを持つ（mediator/notices.ts）。

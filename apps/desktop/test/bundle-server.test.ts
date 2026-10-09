@@ -203,7 +203,7 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     expect(await waitHealth(`http://127.0.0.1:${port}/health`, 500)).toBe(false);
   });
 
-  it('cli.mjs はサーバ本体を抱えない。外に残す import は better-sqlite3 だけで、大きさは 512KB に満たない', async () => {
+  it('cli.mjs はサーバ本体を抱えない。外に残す import は better-sqlite3 だけで、大きさは 768KB に満たない', async () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');
     dirs.push(out, ui);
@@ -216,8 +216,9 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     // サーバにしか無い関数。CLI がサーバの入口から import すると、esbuild がこれらを束ねてしまう。
     expect(cli).not.toContain('function startServer(');
     expect(cli).not.toContain('function createApp(');
-    // 2026-10-07 の試しでは約 240KB だった。サーバを抱えると 2MB を超える。
-    expect(fs.statSync(path.join(out, 'cli.mjs')).size).toBeLessThan(512 * 1024);
+    // 2026-10-07 の試しでは約 240KB だった。その後は、日英の辞書（shared/src/i18n）が画面ごとに育ち、2026-10-10 に 512KB を超えた。
+    // サーバを抱えると 2MB を超えるので、ここは辞書の伸びを見込んだ上限にする。
+    expect(fs.statSync(path.join(out, 'cli.mjs')).size).toBeLessThan(768 * 1024);
   });
 
   it('cloud/ には Worker を 1 本に束ねた worker.mjs と束縛の定義 metadata.json だけを置き、源の写しを置かない', async () => {

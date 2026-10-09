@@ -1,4 +1,4 @@
-import { isReturnOn, isReturnTime, overdueDays, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, overdueDays, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter } from '@agent-hangar/shared';
 import { aliveRunOf, shownAside, shownLive, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, STATE_LABEL } from './format.ts';
 import type { Segment } from './highlight.ts';
@@ -85,13 +85,13 @@ export function sortSessions(list: SessionDto[]): SessionDto[] {
 }
 
 /**
- * 節に分ける前の並び（P3 と ★）。
+ * 一覧の並び。
  * 生きているものを先に置くのは sortSessions と同じで、残りは新しい順にする。
  * 止まっている Done の行だけは、Done にした時刻（setAt）の新しい順にする。
- * 提案を確定した行や手で Done にした行が、最後に動いた時刻が古くても Done の節の先頭に来て、畳んだ中に消えないようにするためである。
+ * 提案を確定した行や手で Done にした行が、最後に動いた時刻が古くても Done の先頭に来て、ページ送りの奥に消えないようにするためである。
  * 導入時の一括 Done は同じ時刻を持つので、その中は最後に動いた時刻の新しい順になる。
  */
-export function sortForSections(list: SessionDto[]): SessionDto[] {
+export function sortForList(list: SessionDto[]): SessionDto[] {
   const key = (s: SessionDto) => (shownLive(s) === null && s.state?.status === 'done' ? s.state.setAt ?? 0 : s.lastActivityAt ?? 0);
   return [...list].sort((a, b) => {
     const la = liveRank(a);
@@ -100,6 +100,31 @@ export function sortForSections(list: SessionDto[]): SessionDto[] {
     return key(b) - key(a) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0);
   });
 }
+
+/**
+ * 戻る日が来ているか。today は手元の暦の今日（localDate）。
+ * 戻る日が欠けたり、暦に無い日だったりする Paused（同期や古い端末から届いた行）も、来ているとみなす。
+ * 黙って埋もれると、しおりとして挟んだものを見失うからである。
+ */
+export function dueOn(returnOn: string | null, today: string): boolean {
+  return returnOn === null || !isReturnOn(returnOn) || returnOn <= today;
+}
+
+/** タブの絞り込み。行の持ち物だけで決める。Active は状態が無いもので、動いているかも提案の有無も問わない（確認待ちと重なる）。 */
+export function matchesStatus(r: SessionRowProps, f: StatusFilter): boolean {
+  switch (f) {
+    case 'active': return r.state === null;
+    case 'proposed': return r.candidate !== null;
+    default: return r.state === f;
+  }
+}
+
+/**
+ * 今日戻るの並びの鍵。欠けた日と壊れた日は空にして先頭へ置く（ホームの帯と知らせの一覧が同じ並びに使う）。
+ * 同じ日の中は時刻の早い順にし、時刻なし（その日のうち）はその日の最後に置く（24:00 は時刻として通らない値なので、どの時刻よりも後ろに並ぶ）。
+ */
+export const returnKey = (r: { returnOn: string | null; returnTime?: string | null }) =>
+  (r.returnOn !== null && isReturnOn(r.returnOn) ? `${r.returnOn} ${r.returnTime && isReturnTime(r.returnTime) ? r.returnTime : '24:00'}` : '');
 
 /**
  * PR の URL の末尾の番号（`/pull/88` の 88）。URL がこの形でなければ null。

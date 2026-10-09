@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactF
 import type { Intent, SessionStatus, StatusFilter } from '@agent-hangar/shared';
 import { useEmit, type Emit } from '../intent/chain.tsx';
 import { ACTIVE_LABEL, CANDIDATE_SOURCE_LABEL, candidateLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
-import type { ListItem, SectionId } from '../presenters/sections.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
@@ -61,20 +60,12 @@ function candidatePop(r: SessionRowProps, emit: Emit, onClose: (how: MenuCloseHo
 
 /** 2 段の行の高さ。tokens.css の --session-row-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
 export const SESSION_ROW_H = 56;
-/** 節の見出しの高さ。tokens.css の --section-head-h と同じ値にする（styles/rows.test.ts が突き合わせる）。 */
-export const SECTION_HEAD_H = 32;
-
-/** 見出しの件数の書き方。「1,221」のように桁を区切る。 */
-const countLabel = (n: number) => n.toLocaleString('en-US');
-
-/** 行だけを並べる（Home の一覧、検索の結果）か、節の見出しを挟んで並べる（プロジェクト画面。段 4 の PR 10 で平らにする）か。 */
-type RowsSource = { rows: SessionRowProps[]; items?: never } | { items: ListItem[]; rows?: never };
 
 /**
  * 一覧の役目。右端と 2 段目に何を出すかがこれで決まる。
  * recent は 1 段目の名前の右にプロジェクト名、右は時刻だけの形（以前は Home の最近が使っていた）。
- * project はプロジェクト詳細（右にモデル、変更、PR、コストと時刻。2 段目にメモ。プロジェクト名は見出しにあるので出さない）。
  * search は Home の一覧（1 段目にプロジェクト名、2 段目に一致箇所の抜粋か要約、2 段目の右端に PR の番号とノートの印）。
+ * project は 1 つのプロジェクトの画面の一覧で、search と同じ行から、プロジェクト名（見出しにある）だけを除いたもの。
  */
 export type RowVariant = 'recent' | 'project' | 'search';
 
@@ -107,18 +98,14 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * autoFocus を渡すと、行が初めて並んだときに一度だけ一覧そのものにフォーカスする（画面に入ってすぐ j や ↓ が効くように）。
  * page はいま見せているページの番号（ページ送りのある一覧）。変わったら一覧を先頭までスクロールし直す。
  * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
- * items を渡すと、行のあいだに節の見出しを挟む（P3 と ★）。見出しは行ではないので、カーソルとフォーカスは見出しを飛ばす。
- * moreIntent は見出しの右端のボタン（「ほか N 件 ▸」「この節だけ見る ▸」）の Intent で、null ならボタンを出さない。
  * badgeIntent を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
  * statusColumn が偽なら、点の右の状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。
  */
-export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; moreIntent?: (target: SectionId) => Intent | null; badgeIntent?: (status: StatusFilter) => Intent }) {
+export function SessionRows(props: { rows: SessionRowProps[]; /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeIntent?: (status: StatusFilter) => Intent }) {
   const emit = useEmit();
   const t = useT();
   const statusColumn = props.statusColumn ?? true;
-  const items: ListItem[] = props.items ?? (props.rows ?? []).map((row) => ({ kind: 'row' as const, row }));
-  // カーソルと打鍵は行だけを渡り歩き、見出しは飛ばす。
-  const rows = items.flatMap((it) => (it.kind === 'row' ? [it.row] : []));
+  const rows = props.rows;
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
   // 行の番号ではなくセッションの id で持つ。
   // 行の DOM は id で付いて動くので、番号で持つと並びが変わったときにフォーカスの行とカーソルの行が食い違い、Enter で別の行が開く。
@@ -249,7 +236,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     e.preventDefault();
   };
 
-  if (items.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div>}</div>;
+  if (rows.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? DEFAULT_EMPTY_TEXT}</div>}</div>;
 
   const memoEditor = (r: SessionRowProps) => (
     <input className="input memo-input" autoFocus aria-label={`${r.name} のメモ`} value={draft} onChange={(e) => setDraft(e.target.value)} onClick={(e) => e.stopPropagation()}
@@ -262,39 +249,30 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       onBlur={() => setEditing(null)} />
   );
 
-  // 2 段目。頭に要約の見立ての札を置き（B1）、検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。プロジェクト詳細はその後ろにメモと鉛筆を置く。
+  // 2 段目。頭に要約の見立ての札を置き（B1）、検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。右端に PR の番号とノートの印を置く。
+  const flat = props.variant !== 'recent';
   const sub = (r: SessionRowProps) => {
     if (editing === r.id) return <span className="row-sub">{memoEditor(r)}</span>;
-    const excerpt = props.variant === 'search' && r.excerpt && r.excerpt.length > 0 ? r.excerpt : null;
+    const excerpt = flat && r.excerpt && r.excerpt.length > 0 ? r.excerpt : null;
     return (
       <span className="row-sub">
         {/* 頭は要約の見立て。Paused の戻る日は右端の時刻の列へ移した（F1）。 */}
         {r.summaryState && <span className="row-state" data-tone={r.summaryState.tone ?? undefined}>{r.summaryState.label}</span>}
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
-        {props.variant === 'search' && (r.prUrl || r.memo) && (
+        {flat && (r.prUrl || r.memo) && (
           // 2 段目の右端。PR の番号とノートの印（設計書 2.2）。PR は外のブラウザで開くリンクで、行は開かない。
           <span className="row-marks">
             {r.prUrl && <a className="row-pr" href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{prNumberOf(r.prUrl) ? t('row.mark.pr', { n: prNumberOf(r.prUrl)! }) : t('row.mark.prPlain')}</a>}
             {r.memo && <span className="row-note"><Icon name="note" label={t('row.mark.note')} /></span>}
           </span>
         )}
-        {props.variant === 'project' && r.memo && <span className="row-memo">✎ {r.memo}</span>}
-        {props.variant === 'project' && <button type="button" className="btn memo-pencil" aria-label={`${r.name} のメモを編集`} onClick={(e) => { e.stopPropagation(); startEdit(r); }}><Icon name="edit" /></button>}
       </span>
     );
   };
 
-  // 右端。プロジェクト詳細はモデル、変更、PR、コストの小さな 1 行を時刻の上に置く。ほかは時刻だけ。
+  // 右端。時刻と、動きの語と「⋯」。
   const side = (r: SessionRowProps) => (
     <span className="row-side">
-      {props.variant === 'project' && (
-        <span className="row-meta">
-          {r.model && <span className="mono">{r.model}{r.effort ? ` · ${r.effort}` : ''}</span>}
-          {r.filesChanged > 0 && <span className="num">変更 {r.filesChanged}</span>}
-          {r.prUrl && <a href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>PR</a>}
-          {r.cost && <span className="mono">{r.cost}</span>}
-        </span>
-      )}
       {/* 本文の期限の印、動きの語、「⋯」を時刻の左に並べる。状態と提案の札は左の状態の列にある（F1）。
           消えかけは琥珀のチップで先に知らせ、消えた会話は文字の無い印だけにする。消えた会話は数百件に上るので、文字を並べると一覧が騒がしくなる。 */}
       <span className="row-when">
@@ -340,18 +318,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     <button type="button" className="badge-link" aria-label={`${label} のセッションだけを見る`} onClick={(e) => { e.stopPropagation(); emit(props.badgeIntent!(status)); }}>{node}</button>
   ) : node);
 
-  // 節の見出し。行ではないので、カーソルもフォーカスも止まらない。
-  const head = (h: Extract<ListItem, { kind: 'head' }>) => {
-    const intent = h.more && props.moreIntent ? props.moreIntent(h.more.target) : null;
-    return (
-      <div className="row-head" role="heading" aria-level={2} data-section={h.id}>
-        <span>{h.label}</span><span className="row-head-count">{countLabel(h.count)}</span>
-        {intent && <button type="button" className="row-head-more" onClick={() => emit(intent)}>{h.more!.label}</button>}
-      </div>
-    );
-  };
-
-  // Tab で止まる行。まだ選んでいなければ先頭の行にする。見出しには止まらない。
+  // Tab で止まる行。まだ選んでいなければ先頭の行にする。
   const tabStopId = (cursor >= 0 ? rows[cursor] : rows[0])?.id ?? null;
   const cursorRowId = cursor >= 0 ? rows[cursor]!.id : null;
   const rowEl = (r: SessionRowProps) => (
@@ -370,8 +337,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   // 行の打鍵はここへ上がってきて、カーソルの行について 1 度だけ処理する。
   return (
     <div className="rows-host" id={props.id} data-testid="session-rows" data-status-col={String(statusColumn)} ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown} onFocus={onHostFocus} onBlur={onHostBlur}>
-      <VirtualList items={items} rowHeight={(it) => (it.kind === 'head' ? SECTION_HEAD_H : SESSION_ROW_H)} height={props.height} keyOf={(it) => (it.kind === 'head' ? `head:${it.id}` : it.row.id)}
-        render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
+      <VirtualList items={rows} rowHeight={() => SESSION_ROW_H} height={props.height} keyOf={(r) => r.id} render={rowEl} />
     </div>
   );
 }

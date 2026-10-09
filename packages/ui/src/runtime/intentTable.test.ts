@@ -38,7 +38,7 @@ describe('表の鍵', () => {
     expect(Object.keys(intentTable).sort()).toEqual([
       'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'memo.save',
-      'project.openEditor', 'project.openTerminalApp', 'project.setStatus',
+      'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
       'todo.confirm', 'todo.reject', 'todo.remove', 'todo.toggle',
@@ -55,6 +55,12 @@ describe('プロジェクト', () => {
     expect(r.called).toBe(true);
     expect(r.store).toBe(r.during);
     expect(r.toast).toBeNull();
+  });
+  it('名前の変更は renameProject を呼び、応答は Store に入れない（画面の正は後から届く project.upsert）', async () => {
+    const renameProject = vi.fn(async () => ({}) as never);
+    const r = await runRow({ type: 'project.rename', id: 'p1', name: '新しい名前' }, fakeApi({ renameProject }));
+    expect(renameProject.mock.calls).toEqual([['p1', '新しい名前']]);
+    expect(r.store).toBe(r.during);
   });
   it('エディタで開く', async () => {
     const api = fakeApi();

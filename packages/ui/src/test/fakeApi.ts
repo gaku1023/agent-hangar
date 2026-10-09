@@ -9,7 +9,7 @@ type Extras = Pick<
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull'
   | 'retention' | 'retentionPreview' | 'writeRetention'
-  | 'live' | 'sessionFiles' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
+  | 'renameProject' | 'live' | 'sessionFiles' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
 >;
 
@@ -20,6 +20,7 @@ type Extras = Pick<
 export function fakeApiExtras(): Extras {
   const unused = (): never => { throw new Error('not used in this test'); };
   return {
+    renameProject: vi.fn(async () => unused()),
     launch: vi.fn(async () => unused()),
     resume: vi.fn(async () => unused()),
     fork: vi.fn(async () => unused()),

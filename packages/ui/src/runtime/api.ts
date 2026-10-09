@@ -27,6 +27,7 @@ export type ApiClient = {
   sessionFiles(sessionId: string): Promise<SessionFilesDto>;
   search(params: SearchParamsDto): Promise<SearchResultDto>;
   setProjectStatus(id: string, status: ProjectStatus): Promise<ProjectDto>;
+  renameProject(id: string, name: string): Promise<ProjectDto>;
   resolveProject(id: string, action: ResolveAction): Promise<unknown>;
   candidates(id: string, name: string): Promise<string[]>;
   // 初期プロンプト欄の候補と添付。
@@ -144,6 +145,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     sessionFiles: (sessionId) => call(`/api/sessions/${sessionId}/files`),
     search: (params) => call(`/api/search${qs(params)}`),
     setProjectStatus: (id, status) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    renameProject: (id, name) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
     resolveProject: (id, action) => call(`/api/projects/${id}/resolve`, { method: 'POST', body: JSON.stringify(action) }),
     candidates: (id, name) => call(`/api/projects/${id}/candidates${qs({ name })}`),
     promptCommands: (projectId) => call<{ commands: PromptCommandDto[] }>(`/api/prompt/commands${qs({ projectId })}`).then((r) => r.commands),

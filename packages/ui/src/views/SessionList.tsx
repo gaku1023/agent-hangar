@@ -69,7 +69,8 @@ export function KeywordField(props: Pick<SessionListProps, 'text' | 'filter' | '
       <input aria-label={t('list.search.label')} placeholder={props.tokens.length > 0 ? '' : t('list.search.placeholder')} defaultValue={props.text} onKeyDown={onKeyDown} />
       {/* 探すのは会話のトランスクリプトである（server/src/search/search.ts は event_fts の本文だけを引く）。名前と要約も引く形は PR 27 で足す。 */}
       <span className="sessions-keyword-tag">{t('list.search.tag')}</span>
-      {props.text && <button type="button" className="btn btn-sm sessions-keyword-clear" aria-label={t('list.search.clear')} onClick={() => emit({ type: 'search.query', text: '' })}><Icon name="close" /></button>}
+      {/* 絞り込みを添えるのは、プロジェクトの画面で、画面を移さずに語だけを外すため（mediator/screen.ts の searchQueryStep）。ホームでは今の絞り込みのままで同じである。 */}
+      {props.text && <button type="button" className="btn btn-sm sessions-keyword-clear" aria-label={t('list.search.clear')} onClick={() => emit({ type: 'search.query', text: '', filter: props.filter })}><Icon name="close" /></button>}
     </div>
   );
 }
@@ -173,7 +174,7 @@ export function LoadMore(props: { remaining: number; step: number; loading?: boo
 
 /** 一覧の組み。ホームとプロジェクトの画面が、同じ部品を props の違いだけで使う。 */
 export type SessionListOptions = {
-  /** プロジェクトが決まっている画面（プロジェクトの画面）で、絞り込みにプロジェクトの選択を出さない。 */
+  /** プロジェクトが決まっている画面（プロジェクトの画面）で、絞り込みにプロジェクトの選択を出さず、行にプロジェクト名を出さない。 */
   projectFixed?: boolean;
   /** 検索の結果の末尾に「さらに読み込む」を出す。あれば、ページ送りの代わりに出る。 */
   loadMore?: { remaining: number; step: number; loading?: boolean; onLoad: () => void };
@@ -211,7 +212,7 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
       {filtersOpen && <Filters id={filtersId} filter={props.filter} projects={props.projects} projectFixed={props.projectFixed} />}
       <Hints hints={props.hints} />
       <ConditionRow conditions={props.conditions} tab={props.tab} filter={props.filter} loading={props.loading} total={props.total} />
-      <SessionRows id={id} rows={props.rows} variant="search" autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeIntent={badgeIntent} />
+      <SessionRows id={id} rows={props.rows} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeIntent={badgeIntent} />
       {props.loadMore
         ? <LoadMore {...props.loadMore} />
         : props.pager && <Pager label={t('list.pager.label')} pager={props.pager} onPage={(page) => emit({ type: 'search.page', page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}
