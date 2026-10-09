@@ -18,6 +18,7 @@ import { LIVE_PANE_SPLIT_DEFAULT, livePaneSplitStep, sidebarLiveStep, sidebarOrd
 import { syncStep } from './sync.ts';
 import { workbenchStep } from './workbench.ts';
 import type { Input, State, Step } from './types.ts';
+import type { Store } from '../store/store.ts';
 
 export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
@@ -30,22 +31,24 @@ function pushToast(state: State, level: 'info' | 'error', message: string): Stat
   return { ...state, toasts: [...state.toasts, { id: String(state.nextToastId), level, message }], nextToastId: state.nextToastId + 1 };
 }
 
-/** 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。 */
-export function transition(state: State, input: Input): Step {
+/**
+ * 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。
+ * Store は読むだけで、変えない。Store を変えるのは Runtime である。
+ */
+export function transition(state: State, store: Store, input: Input): Step {
   // promoteStep、projectCreateStep、retentionStep は overlay.close を横取りするので overlayStep より前に置く。
   // accountsStep は確認を出す領域なので、overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbenchStep]) {
+  if (input.kind === 'store') return storeChanged(state, store);
+  // ストアを読む領域には、ここでストアを添える。
+  const screen = (s: State, i: Input) => screenStep(s, store, i);
+  const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
+  const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
+  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sectionsStep, livePaneSplitStep, returnStep, notifyStep, workbench]) {
     const r = step(state, input);
-    // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
-    // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
-    if (r) {
-      const settled = settleReturn(settleWaiting(settleQueue(r.state)));
-      const next = settled === r.state ? r : { ...r, state: settled };
-      return fetchDirsOnOpen(state, next);
-    }
+    if (r) return settled(state, r);
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };
@@ -69,6 +72,30 @@ export function transition(state: State, input: Input): Step {
     case 'toast.dismiss': return { state: { ...state, toasts: state.toasts.filter((t) => t.id !== i.id) }, effects: [] };
     default: return { state, effects: [] };
   }
+}
+
+/**
+ * ストアが変わった。ストアから決まる状態を、順に合わせる。
+ * 入力待ちの知らせ（live.ts の liveStep）、サイドバーの「動いている」の並び（sidebar.ts の sidebarLiveStep）の順である。
+ * どちらも、ストアの顔ぶれが前に見たものと同じなら何もしない。
+ */
+function storeChanged(state: State, store: Store): Step {
+  const waiting = liveStep(state, store);
+  const live = sidebarLiveStep(waiting.state, store);
+  // どちらも動かなかったら、整え（settled）を通さずそのまま返す。
+  // ストアは本文が伸びるたびに変わるので、そのたびに未解決のキューや札を触ると、無関係な更新で問いが開いてしまう。
+  if (live.state === state && waiting.effects.length === 0 && live.effects.length === 0) return { state, effects: [] };
+  return settled(state, { state: live.state, effects: [...waiting.effects, ...live.effects] });
+}
+
+/**
+ * 領域が応答した後の整え。
+ * 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
+ * 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
+ */
+function settled(prev: State, r: Step): Step {
+  const state = settleReturn(settleWaiting(settleQueue(r.state)));
+  return fetchDirsOnOpen(prev, state === r.state ? r : { ...r, state });
 }
 
 /**

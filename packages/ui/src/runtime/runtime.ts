@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, liveSessionIds, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import type { Notifier } from './notifier.ts';
@@ -93,32 +93,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const notify = () => { for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
   const present = deps.present ?? ((c: () => void) => c());
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); syncLive(); syncReturns(); } };
-  /**
-   * 入力待ちのセッションが変わったら Mediator へ届ける。
-   * live.update はプロバイダの id で届くので、hangar のセッションへの引き当てはストアを持つここで行う。
-   * 起動時の bootstrap も、あとから届く session.upsert も、同じ口を通る。
-   */
-  let waitingKey = '';
-  function syncWaiting(): void {
-    const ids = waitingSessionIds(store);
-    const key = [...ids].sort().join('\n');
-    if (key === waitingKey) return;
-    waitingKey = key;
-    dispatch({ kind: 'runtime', event: { type: 'waiting.changed', ids } });
-  }
-  /**
-   * 動いているセッションの顔ぶれが変わったら Mediator へ届ける。サイドバーの「動いている」の並びに、初めて現れたものを書き足すためである（mediator/sidebar.ts の sidebarLiveStep）。
-   * 並びの順ではなく顔ぶれで比べる。ストアは本文が伸びるたびに変わるので、そのたびには送らない。
-   */
-  let liveKey = '';
-  function syncLive(): void {
-    const ids = liveSessionIds(store);
-    const key = [...ids].sort().join('\n');
-    if (key === liveKey) return;
-    liveKey = key;
-    dispatch({ kind: 'runtime', event: { type: 'live.changed', ids } });
-  }
+  // ストアが変わったら、そのことだけを Mediator へ知らせる。
+  // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
+  // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); } };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
@@ -528,17 +506,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         setStore({ ...store, summarizerTest: null });
         deps.api.testSummarizer().then((r) => setStore({ ...store, summarizerTest: r })).catch(fail);
         return;
-      case 'split.resolve': {
-        // 左は選択中のタブ、無ければ先頭。右はそれと違う最初のタブ。2 つ無ければ null を返す。
-        const view = state.sessionView[e.sessionId] ?? defaultSessionView();
-        const run = currentRunOf(store, e.sessionId);
-        const tabs = run ? tabsOf(store, run.id) : [];
-        const left = view.selectedTab ?? tabs[0]?.id ?? null;
-        const right = tabs.find((t) => t.id !== left) ?? null;
-        dispatch({ kind: 'runtime', event: { type: 'split.resolved', sessionId: e.sessionId, tabId: right ? right.id : null } });
-        return;
-      }
-      case 'waiting.next': dispatch({ kind: 'runtime', event: { type: 'waiting.resolved', sessionId: nextWaitingSession(store, e.from) } }); return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
       // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。
       case 'api.syncNow': deps.api.syncNow().then(syncStatus).catch(fail); return;
@@ -645,7 +612,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
     }
     const wasHome = state.screen.name === 'home';
-    const r = transition(state, input);
+    const r = transition(state, store, input);
     if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
     // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。

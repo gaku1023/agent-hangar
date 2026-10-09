@@ -21,17 +21,6 @@ export type RuntimeEvent =
   | { type: 'workspaceDirs.loaded'; dirs: WorkspaceDirDto[] }
   // Finder で選ばれたフォルダ。取り消したときは届かない。
   | { type: 'folder.picked'; path: string }
-  // 分割の右に置くタブはストアを見ないと決まらないので、ランタイムが決めて返す。
-  | { type: 'split.resolved'; sessionId: string; tabId: string | null }
-  // 「次の入力待ちへ」の行き先。入力待ちが無ければ null。これもストアを見ないと決まらないので、ランタイムが決めて返す。
-  | { type: 'waiting.resolved'; sessionId: string | null }
-  // 入力待ちのセッションの一覧（hangar のセッションの id）。
-  // 変わったときだけランタイムが届ける。
-  // live.update はプロバイダの id で届き、hangar のセッションに引き当てるにはストアが要るからである。
-  | { type: 'waiting.changed'; ids: string[] }
-  // サイドバーの「動いている」に載るセッションの一覧（hangar のセッションの id、始めた順）。
-  // 顔ぶれが変わったときだけランタイムが届ける。
-  | { type: 'live.changed'; ids: string[] }
   // 通知を出せるか、受け取るか。
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
   // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
@@ -55,7 +44,10 @@ export type RuntimeEvent =
 export type Input =
   | { kind: 'intent'; intent: Intent }
   | { kind: 'server'; event: ServerEvent }
-  | { kind: 'runtime'; event: RuntimeEvent };
+  | { kind: 'runtime'; event: RuntimeEvent }
+  // Store が変わった。中身は運ばない。Mediator は渡された Store を読み、そこから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）を合わせる。
+  // Store を変えるのは Runtime なので、変わったことだけは Runtime が知らせる。
+  | { kind: 'store' };
 
 export type Effect =
   | { kind: 'navigate'; route: Route }
@@ -118,8 +110,6 @@ export type Effect =
   | { kind: 'api.regenerateSummary'; sessionId: string }
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.testSummarizer' }
-  | { kind: 'split.resolve'; sessionId: string }
-  | { kind: 'waiting.next'; from: string | null }
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }

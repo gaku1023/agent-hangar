@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Input } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
+import { initialStore } from '../store/store.ts';
 import { PAGE_SIZE_KEY, PAGE_SIZES, readPageSize } from './paging.ts';
 
 function run(inputs: Input[], start: State = initialState()) {
   const effects: unknown[] = [];
   let state = start;
-  for (const i of inputs) { const r = transition(state, i); state = r.state; effects.push(...r.effects); }
+  for (const i of inputs) { const r = transition(state, initialStore(), i); state = r.state; effects.push(...r.effects); }
   return { state, effects };
 }
 const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
