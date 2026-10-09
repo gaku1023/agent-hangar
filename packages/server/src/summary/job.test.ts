@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
+import { Publisher } from '../events/publisher.ts';
 import { upsertShared } from '../db/shared.ts';
 import { getSessionState, proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { IndexerService } from '../indexer/service.ts';
@@ -25,8 +26,18 @@ beforeEach(async () => {
   await new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false }).fullScan();
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
 });
-afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
-const make = (summarizers: Summarizer[], live: LiveSessionDto[] = []) => new SummaryJob({ db, deviceId: 'd', summarizers: () => summarizers, live: () => live, hub: { broadcast: (e) => sent.push(e) } });
+const publishers: Publisher[] = [];
+afterEach(() => { for (const p of publishers.splice(0)) p.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
+/**
+ * 本物と同じく、ジョブの hub は配る層である。
+ * ジョブは要約の進み（summary.*）だけを渡し、書いた行の session.upsert は配る層が組む。どちらも tick の終わりに sent へ届く。
+ */
+const hubFor = (live: LiveSessionDto[]): Publisher => {
+  const p = new Publisher({ db, deviceId: 'd', live: () => live, hub: { broadcast: (e) => { sent.push(e); } } });
+  publishers.push(p);
+  return p;
+};
+const make = (summarizers: Summarizer[], live: LiveSessionDto[] = []) => new SummaryJob({ db, deviceId: 'd', summarizers: () => summarizers, live: () => live, hub: hubFor(live) });
 
 describe('isSummaryStale', () => {
   it('土台のままか 5 ターン以上進んでいれば真', () => {
@@ -48,8 +59,8 @@ describe('SummaryJob', () => {
     expect(job.enqueue(alphaId)).toBe(true);
     expect(job.enqueue(alphaId)).toBe(false);
     expect(job.pending()).toEqual([alphaId]);
-    expect(sent[0]).toEqual({ type: 'summary.pending', sessionId: alphaId });
     await job.idle();
+    expect(sent[0]).toEqual({ type: 'summary.pending', sessionId: alphaId });
     expect(job.pending()).toEqual([]);
     expect(seen[0]).toMatchObject({ sessionId: alphaId, turns: 2, running: false });
     const row = db.prepare('select * from session_summaries where session_id = ?').get(alphaId) as Record<string, unknown>;
@@ -58,6 +69,18 @@ describe('SummaryJob', () => {
     const upsert = sent.find((e) => e.type === 'session.upsert');
     expect(upsert?.type === 'session.upsert' && upsert.session.summary).toMatchObject({ sourceId: 'lmstudio', sourceModel: 'qwen3-27b' });
     expect(sent.map((e) => e.type)).toEqual(['summary.pending', 'session.upsert', 'summary.updated']);
+  });
+  it('他端末のロックは、要約を書いた後の配信から消えない', async () => {
+    // 他端末で生きている run。以前はここだけ端末の ID を渡さずに組んでいて、ロックの無い行が配られ、画面からロックの表示が消えた。
+    db.prepare("insert into devices (id, name, platform, last_seen_at, updated_at, origin_device) values ('other', 'mini', 'darwin', ?, 1, 'other')").run(Date.now());
+    db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, launch_params, pid, started_at, ended_at, end_reason, heartbeat_at, updated_at, origin_device) values ('rX', ?, 'other', 'start', 'hangar-rX', '{}', null, 1, null, null, ?, 1, 'other')").run(alphaId, Date.now());
+    const job = make([fake('lmstudio')]);
+    job.enqueue(alphaId, { force: true });
+    await job.idle();
+    const upserts = sent.filter((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert');
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0]!.session.summary).toMatchObject({ title: 'T', source: 'post_hoc' });
+    expect(upserts[0]!.session.lock).toMatchObject({ deviceId: 'other', deviceName: 'mini', runId: 'rX' });
     expect(job.enqueue(alphaId)).toBe(false);     // もう stale ではない
     expect(job.enqueue(alphaId, { force: true })).toBe(true);
     await job.idle();
@@ -141,7 +164,7 @@ describe('事後の要約からの状態の提案', () => {
   const NOW = new Date(2026, 9, 1, 23, 30).getTime();
   const proposing = (proposal?: SummaryProposal): Summarizer => ({ id: 'lmstudio', available: async () => true, summarize: async () => (proposal ? { ...out, proposal } : out) });
   const runWith = async (s: Summarizer, live: LiveSessionDto[] = []) => {
-    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [s], live: () => live, hub: { broadcast: (e) => sent.push(e) }, now: () => NOW });
+    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [s], live: () => live, hub: hubFor(live), now: () => NOW });
     expect(job.enqueue(alphaId, { force: true })).toBe(true);
     await job.idle();
   };

@@ -1,6 +1,5 @@
 import { addDays, localDate, type LiveSessionDto, type ServerEvent, type SummarizerTestDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { getSession } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { getSessionState, proposeSessionState, StateInputError } from '../sessions/states.ts';
 import { buildSummaryInput, CANNED_INPUT } from './input.ts';
@@ -23,6 +22,7 @@ export type SummaryJobDeps = {
   deviceId: string;
   summarizers: () => Summarizer[];
   live: () => LiveSessionDto[];
+  /** 要約の進み（summary.pending、summary.updated、summary.failed）を渡す先。行のイベントは渡さない。 */
   hub: { broadcast(ev: ServerEvent): void };
   now?: () => number;
 };
@@ -175,8 +175,8 @@ export class SummaryJob {
       based_on_turns: input.turns,
     }, this.deps.deviceId, 'session_id');
     this.proposeFrom(sessionId, r.out.proposal);
-    const s = getSession(this.deps.db, this.deps.live(), sessionId);
-    if (s) this.emit({ type: 'session.upsert', session: s });
+    // 書いた行（要約と、状態の提案）の session.upsert は、配る層（events/publisher.ts）が配る。
+    // ここでは組まない。以前はここで端末の ID を渡さずに組んでいて、他端末のロックの無い行が配られていた。
     this.emit({ type: 'summary.updated', sessionId });
   }
 
