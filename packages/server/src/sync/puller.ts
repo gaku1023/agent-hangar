@@ -5,7 +5,7 @@ import { createGunzip } from 'node:zlib';
 import { PULL_LIMIT, type FileEntry } from '@agent-hangar/shared';
 import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
-import { CompatError, type CloudClient } from './client.ts';
+import { CompatError, LimitError, type CloudClient } from './client.ts';
 import { decryptStream, sha256Stream } from './crypto.ts';
 import type { SyncStateStore } from './state.ts';
 
@@ -272,8 +272,8 @@ export class RemotePuller {
         try {
           if (await this.download(e)) { downloaded++; this.clearSkip(e.key); }
         } catch (err) {
-          // 版が合わずに断られたのは、この項目のせいではない。諦めに数えずに回ごと止め、filesSeq も進めない。
-          if (err instanceof CompatError) throw err;
+          // 版が合わずに断られたのと、上限で断られたのは、この項目のせいではない。諦めに数えずに回ごと止め、filesSeq も進めない。
+          if (err instanceof CompatError || err instanceof LimitError) throw err;
           if (this.noteFailure(e.key, [e], e.sha256, errorMessage(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
         }
       }

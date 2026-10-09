@@ -8,7 +8,7 @@ import { createGunzip, createGzip } from 'node:zlib';
 import { configKey, isSafeRelPath, type ConfigPreviewAction, type ConfigPreviewDto, type FileEntry, type FileMetaIn } from '@agent-hangar/shared';
 import { backupsRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
-import type { CloudClient } from './client.ts';
+import { LimitError, type CloudClient } from './client.ts';
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
 import { decryptStream, encryptStream, sha256Hex } from './crypto.ts';
 import type { Timers } from './engine.ts';
@@ -628,6 +628,9 @@ export class ClaudeConfigSync {
         this.clearReported(`push:${f.rel}`);
         n++;
       } catch (e) {
+        // 上限で断られたのは、このファイルのせいではない。残りのファイルも同じ答えなので、その回を打ち切り、ファイルごとには鳴らさない。
+        // 退いたことは、同じ上限に当たる SyncEngine が 1 度だけ知らせる。その後は状態が paused になり、ここへは来ない（server.ts の configSyncActive）。
+        if (e instanceof LimitError) break;
         // 上げられない理由が直るまで中身は変わらないので、中身の印が同じうちは 1 度しか鳴らさない。
         this.reportOnce(`push:${f.rel}`, `${f.size}:${f.mtime}`, `${f.rel} の同期に失敗しました: ${errorMessage(e)}`);
       }
@@ -830,6 +833,9 @@ export class ClaudeConfigSync {
         this.clearReported(`pull:${e.key}`);
         applied++;
       } catch (err) {
+        // 上限で断られた回は、残りも同じ答えなので打ち切り、ファイルごとには鳴らさない。
+        // 片付いていない分は一覧（configPending）に残るので、上限が戻った後の取り込みでやり直す。
+        if (err instanceof LimitError) break;
         // 控えに失敗した分もここに落ちる。そのファイルは書き戻していないので、次の pull でやり直す。
         // 一覧に残る分は毎回ここへ来るので、相手の中身が変わるまでは 1 度しか鳴らさない。
         this.reportOnce(`pull:${e.key}`, e.sha256, `${e.path} の取り込みに失敗しました: ${errorMessage(err)}`);
