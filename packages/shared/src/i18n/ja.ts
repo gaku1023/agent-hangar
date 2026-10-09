@@ -168,6 +168,7 @@ export const ja: Dictionary = {
   'settings.label.summaryHourlyCap': '1 時間の上限',
   'settings.label.allowExternalSummarizer': '外部の要約器を許す',
   'settings.label.syncClaudeConfig': 'Claude Code の設定を同期する',
+  'settings.label.configApproval': '届いた設定の承諾の仕方',
   'settings.label.language': '言語',
   // sync
   'sync.error.notConfigured': 'クラウド同期が設定されていません',

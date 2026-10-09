@@ -176,6 +176,7 @@ export const MESSAGES = {
   'settings.label.summaryHourlyCap': [],
   'settings.label.allowExternalSummarizer': [],
   'settings.label.syncClaudeConfig': [],
+  'settings.label.configApproval': [],
   'settings.label.language': [],
   // sync
   'sync.error.notConfigured': [],

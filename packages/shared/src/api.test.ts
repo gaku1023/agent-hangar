@@ -94,7 +94,8 @@ describe('使われていない ServerEvent を消した後', () => {
 
 describe('古いサーバのための任意をやめた後', () => {
   it('bootstrap と同期の付録は、どの項目も必ず届く', () => {
-    expectTypeOf<BootstrapDto>().toEqualTypeOf<Required<BootstrapDto>>();
+    // configSync は、設定の同期の作り直し（段 4 の PR 14）で足した任意の項目である。クラウドに参加していない端末は送らない。画面が受け取る PR 17 までは、既存の画面の組み立てが持たなくてよい。
+    expectTypeOf<Omit<BootstrapDto, 'configSync'>>().toEqualTypeOf<Required<Omit<BootstrapDto, 'configSync'>>>();
     expectTypeOf<SyncDetailDto>().toEqualTypeOf<Required<SyncDetailDto>>();
   });
 });

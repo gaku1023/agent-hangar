@@ -305,6 +305,42 @@ alter table sessions drop column memo;
 `;
 
 /**
+ * 版 18。Claude Code の設定の同期の作り直し（docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md）の 3 表。
+ * 旧実装（sync/claudeConfig.ts）は file_sync の行と R2 の config/<端末>/<相対パス>で動いており、この 3 表には触らない。
+ *
+ * - config_snapshots は共有テーブルで、PC ごとに 1 行（主キーは端末の ID）。その PC がいま送っている束の指紋と、目録（manifest）を持つ。
+ *   目録の JSON が大きすぎる（クラウドの 1 行の上限 128 KiB に近い）ときは null にする。束の中にも同じ目録があり、受け手はそちらを読む。
+ * - config_base は端末ローカルで、項目ごとに「最後に両方の PC で同じだった中身の指紋」を持つ。3 方向の判定の共通の祖先である。
+ * - config_unsent は端末ローカルで、送らなかった項目（落とした絶対パスの権限の規則、秘密らしい文字列のあった項目）。
+ *   allowed は「それでも送る」を押した印で、content_sha256 が変わったら無効になる（呼び手が見る）。
+ */
+const V18_CONFIG_SYNC_SQL = `
+create table config_snapshots (
+  device_id text primary key,
+  bundle_sha256 text not null,
+  bundle_size integer not null,
+  item_count integer not null,
+  manifest text,
+  updated_at integer not null, deleted_at integer, origin_device text not null
+);
+create table config_base (
+  item_id text primary key,
+  sha256 text not null,
+  synced_at integer not null
+);
+create table config_unsent (
+  id text primary key,
+  kind text not null check (kind in ('permission-rule','secret')),
+  item_id text not null,
+  label text not null,
+  reason text not null,
+  content_sha256 text not null,
+  allowed integer not null default 0,
+  found_at integer not null
+);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -312,4 +348,5 @@ alter table sessions drop column memo;
 export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
+  { version: 18, sql: V18_CONFIG_SYNC_SQL },
 ];

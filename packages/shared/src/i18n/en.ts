@@ -168,6 +168,7 @@ export const en: Dictionary = {
   'settings.label.summaryHourlyCap': 'Hourly limit',
   'settings.label.allowExternalSummarizer': 'Allow external summary engines',
   'settings.label.syncClaudeConfig': 'Sync Claude Code settings',
+  'settings.label.configApproval': 'How to approve incoming settings',
   'settings.label.language': 'Language',
   // sync
   'sync.error.notConfigured': 'Cloud sync is not set up',
