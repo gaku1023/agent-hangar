@@ -108,7 +108,7 @@ export type SettingsProps = {
   /** 一般の先頭の言語の行。visible が false の間は描かない。 */
   language: { visible: boolean; value: Language };
   /** 連携の節を開いたとき、アカウントの位置へ移る印。ヘッダーのアカウントの設定から来たときだけ入る。 */
-  focus: 'accounts' | null;
+  focus: 'accounts' | 'unsent' | null;
 };
 
 /** 選択肢は決まった 4 つに、今の値がそこに無ければそれを足して、短い順に並べる。 */
@@ -220,7 +220,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   };
   return {
     cloud,
-    configSync: presentConfigSection(store, now),
+    configSync: presentConfigSection(store, now, at === 'unsent'),
     shell,
     verify, todo,
     compat: compatSummary ? presentCompat(compatSummary, store.compat, store.version) : null,
@@ -243,7 +243,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     section: settingsSectionOf(at),
     toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now }),
     language: { visible: LANGUAGE_ROW_VISIBLE, value: storeLanguage(store) },
-    focus: at === 'accounts' ? 'accounts' : null,
+    focus: at === 'accounts' || at === 'unsent' ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },
   };
 }
