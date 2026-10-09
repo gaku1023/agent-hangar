@@ -41,6 +41,16 @@ export const intentTable = {
   'project.setStatus': (i) => call((api) => api.setProjectStatus(i.id, i.status)),
   'project.openEditor': (i) => call((api) => api.projectOpenEditor(i.id)),
   'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: (r) => (r.fellBack ? FELL_BACK : null) }),
+
+  'session.openTerminalApp': (i) => call((api) => api.openTerminalApp(i.runId, i.tabId ?? null), { toast: (r) => (r.fellBack ? FELL_BACK : null) }),
+  'session.openEditor': (i) => call((api) => api.openEditor(i.sessionId)),
+  // 変更したファイルを押したとき。path は本文に出てきた綴りのまま渡す。
+  'session.openFile': (i) => call((api) => api.openEditor(i.sessionId, i.path)),
+  // 画面の正は後から届く session.upsert なので、返り値は Store に入れない。
+  'session.state.reject': (i) => call((api) => api.rejectSessionState(i.id)),
+  'session.setMemo': (i) => call((api) => api.setSessionMemo(i.id, i.text), { apply: (store, s) => ({ ...store, sessions: { ...store.sessions, [s.id]: s } }) }),
+  // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
+  'summary.regenerate': (i) => call((api) => api.regenerateSummary(i.sessionId)),
 } satisfies Rows;
 
 /** 表にある Intent。Mediator の入力の型からは、これを外す（mediator/types.ts の MediatedIntent）。 */

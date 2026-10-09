@@ -75,13 +75,10 @@ export function workbenchStep(state: State, store: Store, input: Input): Step | 
     case 'todo.reject': return { state, effects: [{ kind: 'api.rejectTodo', id: i.id }] };
     case 'session.state.set': return { state: closePause(state, i.id), effects: [{ kind: 'api.setSessionState', id: i.id, body: stateBody(i) }] };
     case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {} }] };
-    case 'session.state.reject': return { state, effects: [{ kind: 'api.rejectSessionState', id: i.id }] };
     case 'memo.save': return { state, effects: [{ kind: 'api.saveMemo', projectId: i.projectId, markdown: i.markdown }] };
-    case 'session.setMemo': return { state, effects: [{ kind: 'api.setSessionMemo', sessionId: i.id, text: i.text }] };
     case 'artifact.open': return { state, effects: [{ kind: 'api.openArtifact', id: i.id }] };
     case 'artifact.openEditor': return { state, effects: [{ kind: 'api.openArtifactEditor', id: i.id }] };
     case 'artifact.add': return i.url.trim() ? { state, effects: [{ kind: 'api.addArtifact', projectId: i.projectId, url: i.url.trim() }] } : { state, effects: [] };
-    case 'summary.regenerate': return { state, effects: [{ kind: 'api.regenerateSummary', sessionId: i.sessionId }] };
     case 'summarizer.test': return { state, effects: [{ kind: 'api.testSummarizer' }] };
     // 幅の変更は SplitPane の IntentBoundary が処理する。ここへ来るのは境界の外で発行されたときだけで、無視してよい。
     case 'split.resize': return { state, effects: [] };

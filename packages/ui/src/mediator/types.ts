@@ -73,7 +73,6 @@ export type Effect =
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
-  | { kind: 'api.openTerminalApp'; runId: string; tabId: string | null } | { kind: 'api.openEditor'; sessionId: string; file?: string }
   | { kind: 'api.jumpToPrompt'; sessionId: string; runId: string; seq: number; heads: string[]; index: number; from: 'top' | 'bottom' }
   | { kind: 'api.leaveTranscript'; runId: string }
   | { kind: 'terminal.connect'; sessionId: string; tabId: string | null } | { kind: 'terminal.disconnect'; tabId: string }
@@ -101,10 +100,8 @@ export type Effect =
   // セッションの状態。本文には渡されたものだけを載せる。
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
-  | { kind: 'api.rejectSessionState'; id: string }
   | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.saveMemo'; projectId: string; markdown: string }
-  | { kind: 'api.setSessionMemo'; sessionId: string; text: string }
   | { kind: 'api.openArtifact'; id: string }
   | { kind: 'api.openArtifactEditor'; id: string }
   | { kind: 'api.addArtifact'; projectId: string; url: string }
@@ -113,7 +110,6 @@ export type Effect =
   | { kind: 'api.createProjectThenLaunch'; place: ProjectPlace; params: LaunchParams }
   | { kind: 'api.workspaceDirs' }
   | { kind: 'desktop.pickFolder' }
-  | { kind: 'api.regenerateSummary'; sessionId: string }
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.testSummarizer' }
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }

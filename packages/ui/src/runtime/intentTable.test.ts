@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-import type { Intent } from '@agent-hangar/shared';
+import type { Intent, SessionDto } from '@agent-hangar/shared';
 import type { MediatedIntent } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
@@ -36,6 +36,7 @@ describe('表の鍵', () => {
   it('表に載っているのは、API を 1 回呼ぶだけの Intent である', () => {
     expect(Object.keys(intentTable).sort()).toEqual([
       'project.openEditor', 'project.openTerminalApp', 'project.setStatus',
+      'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summary.regenerate',
     ]);
   });
 });
@@ -62,5 +63,46 @@ describe('プロジェクト', () => {
     expect(a.toast).toBeNull();
     const b = await runRow({ type: 'project.openTerminalApp', id: 'p1' }, fakeApi({ projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) }));
     expect(b.toast).toBe(FELL_BACK);
+  });
+});
+
+describe('セッション', () => {
+  it('外のターミナルで開く。タブの指定が無ければ null で呼び、落ちたときだけ知らせる', async () => {
+    const api = fakeApi();
+    const a = await runRow({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }, api);
+    const b = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, api);
+    expect(vi.mocked(api.openTerminalApp).mock.calls).toEqual([['r1', 't1'], ['r1', null]]);
+    expect([a.toast, b.toast]).toEqual([null, null]);
+    const c = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) }));
+    expect(c.toast).toBe(FELL_BACK);
+  });
+  it('エディタで開く。変更したファイルを押したときだけ、そのファイルを添える', async () => {
+    const openEditor = vi.fn(async (_sessionId: string, _file?: string) => {});
+    const api = fakeApi({ openEditor });
+    await runRow({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts' }, api);
+    await runRow({ type: 'session.openEditor', sessionId: 's1' }, api);
+    // ファイルの無いほうは、引数を 1 つだけで呼ぶ。
+    expect(openEditor.mock.calls).toEqual([['s1', '/w/a.ts'], ['s1']]);
+  });
+  it('提案の却下は rejectSessionState を呼び、応答は Store に入れない', async () => {
+    const api = fakeApi();
+    const r = await runRow({ type: 'session.state.reject', id: 's1' }, api);
+    expect(vi.mocked(api.rejectSessionState).mock.calls).toEqual([['s1']]);
+    // 画面の正は後から届く session.upsert である。
+    expect(r.store).toBe(r.during);
+  });
+  it('メモの保存は、応答のセッションを Store に入れる', async () => {
+    const saved = { id: 's1', memo: '一行' } as SessionDto;
+    const setSessionMemo = vi.fn(async () => saved);
+    const other = { id: 's2' } as SessionDto;
+    const r = await runRow({ type: 'session.setMemo', id: 's1', text: '一行' }, fakeApi({ setSessionMemo }), { ...initialStore(), sessions: { s2: other } });
+    expect(setSessionMemo.mock.calls).toEqual([['s1', '一行']]);
+    expect(r.store.sessions).toEqual({ s1: saved, s2: other });
+  });
+  it('要約の作り直しは regenerateSummary を呼ぶだけで、結果は待たない', async () => {
+    const api = fakeApi();
+    const r = await runRow({ type: 'summary.regenerate', sessionId: 's1' }, api);
+    expect(vi.mocked(api.regenerateSummary).mock.calls).toEqual([['s1']]);
+    expect(r.store).toBe(r.during);
   });
 });

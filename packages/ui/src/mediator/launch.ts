@@ -154,9 +154,6 @@ export function launchStep(state: State, input: Input): Step | null {
       const overlay = i.confirmed && state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
       return { state: { ...state, overlay }, effects: [{ kind: 'api.killRun', runId: i.runId }] };
     }
-    case 'session.openTerminalApp': return { state, effects: [{ kind: 'api.openTerminalApp', runId: i.runId, tabId: i.tabId ?? null }] };
-    case 'session.openEditor': return { state, effects: [{ kind: 'api.openEditor', sessionId: i.sessionId }] };
-    case 'session.openFile': return { state, effects: [{ kind: 'api.openEditor', sessionId: i.sessionId, file: i.path }] };
     default: return null;
   }
 }

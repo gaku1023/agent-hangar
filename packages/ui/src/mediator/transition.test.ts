@@ -321,17 +321,13 @@ describe('起動', () => {
     // スクラッチはプロジェクトが無くても送信できる。
     expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
-  it('再開、フォーク、停止、外部で開くは API 効果', () => {
-    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' })]);
+  // 外部で開く操作は Mediator を通らない（runtime/intentTable.test.ts）。
+  it('再開、フォーク、停止は API 効果', () => {
+    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
     expect(effects).toEqual([
       { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
-      { kind: 'api.openTerminalApp', runId: 'r1', tabId: 't1' }, { kind: 'api.openTerminalApp', runId: 'r1', tabId: null },
-      { kind: 'api.openEditor', sessionId: 's1' },
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
-  });
-  it('変更したファイルを押すと、そのファイルを VS Code で開く', () => {
-    expect(run([intent({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts' })]).effects).toEqual([{ kind: 'api.openEditor', sessionId: 's1', file: '/w/a.ts' }]);
   });
 });
 
@@ -818,11 +814,9 @@ describe('作業台の操作', () => {
       intent({ type: 'todo.confirm', id: 't1' }),
       intent({ type: 'todo.reject', id: 't1' }),
       intent({ type: 'memo.save', projectId: 'p1', markdown: '# m' }),
-      intent({ type: 'session.setMemo', id: 's1', text: '一行' }),
       intent({ type: 'artifact.open', id: 'a1' }),
       intent({ type: 'artifact.openEditor', id: 'a1' }),
       intent({ type: 'artifact.add', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' }),
-      intent({ type: 'summary.regenerate', sessionId: 's1' }),
       intent({ type: 'summarizer.test' }),
     ]);
     expect(r.effects).toEqual([
@@ -830,11 +824,9 @@ describe('作業台の操作', () => {
       { kind: 'api.toggleTodo', id: 't1' }, { kind: 'api.removeTodo', id: 't1' },
       { kind: 'api.confirmTodo', id: 't1' }, { kind: 'api.rejectTodo', id: 't1' },
       { kind: 'api.saveMemo', projectId: 'p1', markdown: '# m' },
-      { kind: 'api.setSessionMemo', sessionId: 's1', text: '一行' },
       { kind: 'api.openArtifact', id: 'a1' },
       { kind: 'api.openArtifactEditor', id: 'a1' },
       { kind: 'api.addArtifact', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' },
-      { kind: 'api.regenerateSummary', sessionId: 's1' },
       { kind: 'api.testSummarizer' },
     ]);
     expect(r.state).toEqual(initialState());
@@ -1569,7 +1561,6 @@ describe('セッションの状態', () => {
       intent({ type: 'session.state.set', id: 's1', status: null }),
       intent({ type: 'session.state.confirm', id: 's1' }),
       intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' }),
-      intent({ type: 'session.state.reject', id: 's1' }),
       intent({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' }),
       intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05', returnTime: '21:50' }),
     ]);
@@ -1579,7 +1570,6 @@ describe('セッションの状態', () => {
       { kind: 'api.setSessionState', id: 's1', body: { status: null } },
       { kind: 'api.confirmSessionState', id: 's1', body: {} },
       { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05' } },
-      { kind: 'api.rejectSessionState', id: 's1' },
       { kind: 'api.setSessionState', id: 's1', body: { status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' } },
       { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05', returnTime: '21:50' } },
     ]);

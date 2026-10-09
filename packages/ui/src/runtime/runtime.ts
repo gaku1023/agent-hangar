@@ -17,7 +17,7 @@ import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/
 import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
-import { FELL_BACK, intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
+import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
 import type { Notifier } from './notifier.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -390,8 +390,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.closeTab(tab.runId, tab.id).then((t) => setStore(applyServerEvent(store, { type: 'tab.upsert', tab: t }))).catch(fail);
         return;
       }
-      case 'api.openTerminalApp': deps.api.openTerminalApp(e.runId, e.tabId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
-      case 'api.openEditor': (e.file === undefined ? deps.api.openEditor(e.sessionId) : deps.api.openEditor(e.sessionId, e.file)).catch(fail); return;
       case 'api.jumpToPrompt': {
         const done = (status: TurnJumpStatus) => dispatch({ kind: 'runtime', event: { type: 'turnJump.done', sessionId: e.sessionId, seq: e.seq, status } });
         deps.api.jumpToPrompt(e.runId, { heads: e.heads, index: e.index, from: e.from }).then((r) => done(r.found ? 'found' : r.reason)).catch((err) => { done('failed'); fail(err); });
@@ -466,12 +464,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
-      case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;
       case 'api.removeTodo': deps.api.removeTodo(e.id).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
       // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
       case 'api.saveMemo': deps.api.saveMemo(e.projectId, e.markdown).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
-      case 'api.setSessionMemo': deps.api.setSessionMemo(e.sessionId, e.text).then((s) => setStore({ ...store, sessions: { ...store.sessions, [s.id]: s } })).catch(fail); return;
       case 'api.openArtifact': deps.api.openArtifact(e.id).catch(fail); return;
       case 'api.openArtifactEditor': deps.api.openArtifactEditor(e.id).catch(fail); return;
       case 'api.addArtifact': deps.api.addArtifact(e.projectId, e.url).then((a) => setStore({ ...store, artifacts: { ...store.artifacts, [a.id]: a } })).catch(fail); return;
@@ -483,8 +479,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           })
           .catch((err) => dispatch({ kind: 'runtime', event: { type: 'promote.failed', message: errMsg(err) } }));
         return;
-      // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
-      case 'api.regenerateSummary': deps.api.regenerateSummary(e.sessionId).catch(fail); return;
       case 'api.loadSettingsExtras':
         deps.api.statusline().then((s) => setStore({ ...store, statusline: s })).catch(fail);
         deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
