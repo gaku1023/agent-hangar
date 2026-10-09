@@ -218,6 +218,7 @@ export class RemotePuller {
    * 諦めた項目をもう一度試す。
    * filesSeq は先へ進んでいて一覧には載らないので、控えた項目そのものから降ろし直す。
    * 失敗しても鳴らさない（諦めたときに 1 度鳴らしてある）。数だけ足して控えに残し続ける。
+   * 版や上限で断られたら投げる。呼び手（server.ts の pullFiles と 1 巡の files の段）は受け止めてログに残す。
    */
   private async retrySkipped(): Promise<{ downloaded: number; configEntries: number }> {
     let downloaded = 0;
@@ -235,6 +236,9 @@ export class RemotePuller {
         }
         this.clearSkip(key);
       } catch (err) {
+        // 版が合わずに断られたのと、上限で断られたのは、この項目のせいではない。
+        // 諦めた回数と理由を書き換えずに、その回の残りの取り直しも打ち切る（呼び手の pullNow ごと投げる）。
+        if (err instanceof CompatError || err instanceof LimitError) throw err;
         this.writeSkip(key, { ...rec, count: rec.count + 1, message: errorMessage(err), at: this.now() });
       }
     }

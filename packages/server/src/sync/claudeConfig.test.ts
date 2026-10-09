@@ -796,8 +796,11 @@ describe('上限で断られたとき', () => {
     write('memory/x.md', 'memo\n');
     const c = make();
     cloud.limited = 'd1-write';
+    const before = cloud.calls.length;
     expect(await c.pushChanged()).toBe(0);
     expect(toasts).toEqual([]);
+    // 1 件目で断られたら、残りのファイルは上げに行かない。
+    expect(cloud.calls.slice(before).filter((x) => x.method === 'putFile')).toHaveLength(1);
     cloud.limited = null;
     expect(await c.pushChanged()).toBe(2);
     expect(toasts).toEqual([]);
@@ -810,8 +813,11 @@ describe('上限で断られたとき', () => {
     const c = make();
     c.confirm();
     cloud.limited = 'd1-read';
+    const before = cloud.calls.length;
     expect(await c.applyPull([e1, e2])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
     expect(toasts).toEqual([]);
+    // 1 件目で断られたら、残りのファイルは降ろしに行かない。
+    expect(cloud.calls.slice(before).filter((x) => x.method === 'getFile')).toHaveLength(1);
     expect(c.pendingRemote().map((x) => x.key).sort()).toEqual(['config/dev-b/CLAUDE.md', 'config/dev-b/memory/x.md']);
     cloud.limited = null;
     expect(await c.applyPull([])).toEqual({ applied: 2, conflicts: 0, backedUp: 0 });

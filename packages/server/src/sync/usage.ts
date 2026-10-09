@@ -71,7 +71,7 @@ export class CloudUsagePoller {
   private lastGood: CloudUsageDto | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private inflight: Promise<CloudUsageDto | null> | null = null;
-  /** stop の後に届いた結果は捨てる。閉じた DB を読まず、閉じたハブへも配らない。 */
+  /** stop の後に届いた結果は捨てる。閉じたハブへ配らない。 */
   private stopped = false;
   private readonly now: () => number;
   private readonly timers: Pick<Timers, 'setInterval' | 'clearInterval'>;

@@ -233,6 +233,27 @@ describe('RemotePuller', () => {
     expect(await p.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
   });
 
+  it('諦めた項目の取り直しが上限で断られたら、回数と理由を書き換えず、残りの取り直しも打ち切る', async () => {
+    const other = '33333333-3333-4333-8333-333333333333';
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, 'body\n');
+    await putRemote('dev-b', `projects/-w-alpha/${other}.jsonl`, 'body2\n', `transcripts/dev-b/${other}.jsonl.gz`);
+    fs.writeFileSync(path.join(home, 'remote'), 'ふさぐ');
+    const p = make();
+    for (let i = 0; i < 3; i++) await p.pullNow();
+    const gaveUp = p.skippedEntries();
+    expect(gaveUp).toHaveLength(2);
+    fs.rmSync(path.join(home, 'remote'));
+    // 起こし直した直後は諦めた項目を取り直す。その取り直しが上限で断られる。
+    let gets = 0;
+    cloud.getFile = async () => { gets++; throw new LimitError('d1-read', 429); };
+    const p2 = make();
+    await expect(p2.pullNow()).rejects.toBeInstanceOf(LimitError);
+    // 上限はその項目のせいではないので、諦めの回数も理由も変えない。
+    expect(p2.skippedEntries()).toEqual(gaveUp);
+    // 1 件目で断られたら、その回の残りの取り直しには行かない。
+    expect(gets).toBe(1);
+  });
+
   it('設定の取り込みも 3 回で諦めて先に進む', async () => {
     await putRemote('dev-b', 'CLAUDE.md', '# hi\n', 'config/dev-b/CLAUDE.md', 'config');
     const p = make({ onConfigEntries: async () => { throw new Error('書けません'); } });

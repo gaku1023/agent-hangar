@@ -115,6 +115,14 @@ describe('CloudUsagePoller', () => {
     const p = new CloudUsagePoller({ client: new FakeCloudClient(), isPaused: () => { throw new Error('closed'); }, broadcast: () => {}, now: () => NOW });
     await expect(p.refresh()).resolves.toBeNull();
   });
+  it('broadcast が投げても refresh は落ちない（取れたときも、取れなかったときも）', async () => {
+    const client = new FakeCloudClient();
+    client.usageBody = BODY;
+    const p = new CloudUsagePoller({ client, isPaused: () => false, broadcast: () => { throw new Error('hub closed'); }, now: () => NOW });
+    await expect(p.refresh()).resolves.toMatchObject({ source: 'cloudflare' });
+    client.offline = true;
+    await expect(p.refresh()).resolves.toMatchObject({ source: 'cloudflare', stale: true });
+  });
   it('start は 5 分ごとに取りに行き、stop で止まる', async () => {
     vi.useFakeTimers();
     try {
