@@ -30,7 +30,7 @@ export class PtyRelay {
   /**
    * upgrade 要求のうち path が一致するものだけを受ける。
    * 一致しないものは黙って返し、別の WebSocket サーバに譲る。
-   * どこも引き取らなかった要求を切るのは server.ts の役目である。
+   * どこも引き取らなかった要求を切るのは番人（ws/guard.ts）の役目である。
    */
   attach(server: http.Server, path: string): void {
     server.on('upgrade', (req, socket, head) => {

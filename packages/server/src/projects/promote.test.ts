@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
+import { render } from '../i18n/message.ts';
 import { upsertShared } from '../db/shared.ts';
 import { promoteSession, PromoteError, type PromoteDeps } from './promote.ts';
 import { ensureScratchProject, newScratchDir } from './scratch.ts';
@@ -48,6 +49,13 @@ describe('promoteSession', () => {
     expect(db.prepare('select path from project_roots where project_id = ? and device_id = ?').get(r.projectId, 'd')).toEqual({ path: path.join(ws, 'newproj') });
     // cwd は変えない。昇格後に再開するとスクラッチのままである。
     expect(db.prepare('select project_id, cwd from sessions where id = ?').get('s1')).toEqual({ project_id: r.projectId, cwd: dir });
+  });
+
+  it('理由は、言語を決めていない文でも返すので、経路は英語でも出せる', () => {
+    const r = promoteSession(deps({ runAlive: () => true }), { sessionId: 's1', name: 'p-en', gitInit: false, moveFiles: true });
+    expect(r.reason).toBe('Claude が動いているのでファイルは移しませんでした。終了してから手で移してください');
+    expect(render('en', r.reasonMessage!)).toBe('Claude is running, so the files were not moved. End it, then move them by hand');
+    expect(promoteSession(deps(), { sessionId: 's1', name: 'p-none', gitInit: false, moveFiles: false })).toMatchObject({ reason: null, reasonMessage: null });
   });
 
   it('run が生きていれば移動せず、理由を返す。gitInit が偽なら呼ばない', () => {

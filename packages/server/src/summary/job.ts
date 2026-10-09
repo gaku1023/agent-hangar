@@ -1,10 +1,12 @@
-import { addDays, localDate, type LiveSessionDto, type SummarizerTestDto } from '@agent-hangar/shared';
+import { addDays, localDate, type Language, type LiveSessionDto, type SummarizerTestDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { getSessionState, proposeSessionState, StateInputError } from '../sessions/states.ts';
 import { buildSummaryInput, CANNED_INPUT } from './input.ts';
 import type { Summarizer, SummaryInput, SummaryOutput, SummaryProposal } from './types.ts';
+import type { GetLanguage } from '../i18n/language.ts';
+import { errorText, MessageError, msg, render } from '../i18n/message.ts';
 
 const STALE_TURNS = 5;
 
@@ -26,9 +28,11 @@ export type SummaryJobDeps = {
   /** 要約の進み（summary.pending、summary.updated、summary.failed）を渡す先。行のイベントは渡さない。 */
   hub: { broadcast(ev: NoticeEvent): void };
   now?: () => number;
+  /** 要約を書かせる言語と、失敗の文の言語。組み立てる側が、設定を読む関数を渡す。 */
+  language: GetLanguage;
 };
 
-const UNAVAILABLE = '使えません（接続できないか、上限に達しています）';
+const UNAVAILABLE = msg('summary.engine.unavailable');
 
 type Attempt = { id: Summarizer['id']; message: string };
 type Picked = { id: Summarizer['id']; ms: number; out: SummaryOutput };
@@ -46,6 +50,7 @@ export class SummaryJob {
   constructor(private readonly deps: SummaryJobDeps) {}
 
   private now(): number { return this.deps.now?.() ?? Date.now(); }
+  private language(): Language { return this.deps.language(); }
 
   /**
    * 配信の失敗でジョブを止めない。
@@ -107,7 +112,7 @@ export class SummaryJob {
       try {
         await this.summarizeOne(id);
       } catch (e) {
-        this.emit({ type: 'summary.failed', sessionId: id, message: e instanceof Error ? e.message : String(e) });
+        this.emit({ type: 'summary.failed', sessionId: id, message: errorText(this.language(), e) });
       } finally {
         this.running = null;
       }
@@ -119,13 +124,13 @@ export class SummaryJob {
   private async trySummarizers(input: SummaryInput): Promise<Picked | { tried: Attempt[] }> {
     const tried: Attempt[] = [];
     for (const s of this.deps.summarizers()) {
-      if (!(await s.available())) { tried.push({ id: s.id, message: UNAVAILABLE }); continue; }
+      if (!(await s.available())) { tried.push({ id: s.id, message: render(this.language(), UNAVAILABLE) }); continue; }
       const t = this.now();
       try {
         const out = await s.summarize(input);
         return { id: s.id, ms: this.now() - t, out };
       } catch (e) {
-        tried.push({ id: s.id, message: e instanceof Error ? e.message : String(e) });
+        tried.push({ id: s.id, message: errorText(this.language(), e) });
       }
     }
     return { tried };
@@ -159,10 +164,10 @@ export class SummaryJob {
   }
 
   private async summarizeOne(sessionId: string): Promise<void> {
-    const input = buildSummaryInput(this.deps.db, sessionId, this.isLive(sessionId));
-    if (!input) throw new Error('本文がありません');
+    const input = buildSummaryInput(this.deps.db, sessionId, this.isLive(sessionId), this.language());
+    if (!input) throw new MessageError(msg('summary.error.noTranscript'));
     const r = await this.trySummarizers(input);
-    if ('tried' in r) throw new Error(r.tried.at(-1)?.message ?? '要約器がありません');
+    if ('tried' in r) throw new MessageError(r.tried.at(-1)?.message ?? msg('summary.error.noEngine'));
     upsertShared(this.deps.db, 'session_summaries', {
       session_id: sessionId,
       title: r.out.title,
@@ -183,7 +188,7 @@ export class SummaryJob {
 
   /** Settings の「要約器を試す」。決め打ちの入力を投げ、DB には書かない。 */
   async test(input: SummaryInput = CANNED_INPUT): Promise<SummarizerTestDto> {
-    const r = await this.trySummarizers(input);
+    const r = await this.trySummarizers({ ...input, language: input.language ?? this.language() });
     if ('tried' in r) return { ok: false, tried: r.tried };
     return {
       ok: true,

@@ -88,6 +88,59 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 起動時に 4177 で既にサーバが応答していれば、互換の版が殻と同じときだけ、そのサーバを採用して子プロセスを起こさない。
 版が違えば採らず、そのサーバも止めずに、読み込み画面に理由を出す（「互換の版番号」）。
 
+### 起動の組み立て
+
+サーバの起動（`packages/server/src/server.ts` の `startServer`）は、`boot/` の組み立て関数を順に呼ぶだけである。
+各関数は、前の関数が作った部品を引数で受け取り、自分が作った部品と、動かし始める口と、止める口を返す。
+業務の処理は `boot/` に置かない。
+それぞれの持ち場（`projects/`、`sessions/`、`runs/`、`sync/`、`config/` など）に、依存を引数で受ける関数として置き、`boot/` はそれを部品に結ぶだけにする。
+
+| 関数（ファイル） | 作る部品 |
+| --- | --- |
+| `bootHome`（`boot/home.ts`） | 置き場、トークン、statusline のヘッダ、端末の ID、設定、起動の包み、DB。DB を開く前に、マイグレーションの前の控えを取る |
+| `bootDelivery`（`boot/delivery.ts`） | WebSocket の束、配る層（`events/publisher.ts`）、Claude Code との互換のずれの記録、実行中の一覧 |
+| `bootSync`（`boot/sync.ts`） | 同期のエンジン、使用量、本文の上げ手、設定の同期、保持期間、本文の降ろし手、頼まれた 1 巡、同期の状態の配り |
+| `bootIndexing`（`boot/indexing.ts`） | 索引、プロジェクトのメモ。現れたセッションのプロジェクトへの紐づけを結ぶ |
+| `bootListen`（`boot/http.ts`） | 待ち受け。アプリを差し込むまでは 503 を返す |
+| `bootRuns`（`boot/runs.ts`） | tmux の口、手元の claude の読み取り、包みの本体、アカウント、RunManager、休みの見張り、使用量、外のターミナルとエディタ |
+| `bootSummary`（`boot/summary.ts`） | 要約器の列、要約の job。run の出来事の受け手を結ぶ |
+| `bootHttp`（`boot/http.ts`） | 端末の中継、HTTP と MCP のアプリ。WebSocket の経路を結び、未知の経路を切る番人を置く |
+
+呼ぶ順は、上の表の順である。
+順には理由がある。
+
+- 配る層は、索引、同期、run より先に組む。これらは行を書くだけで、配るのは配る層だからである。
+- 待ち受けは、run と包みと MCP より先に始める。ポートに 0 を渡したとき、実際の番号は listen するまで決まらず、これらがその番号を使うからである。待ち受けの後に組むのは `bootRuns` から先である。
+- `/health` は待ち受けた時点から返るが、`ready` は起動の手続きが済むまで偽である。
+
+組み立てが済んだら、起動の手続きを次の順で動かす。
+
+1. 実行中の一覧を読み始める。最初の読み取りは変化として届かないので、受け手（`sessions/liveChange.ts`）に覚えさせる。
+2. 索引とプロジェクト。全走査、ワークスペースからのプロジェクトの登録、紐づけ、スクラッチの用意、メモの突き合わせと監視、ルートの確かめ。
+3. run。前回の終了時に生きていた run の回復、run の終了の見張り、休みの見張り。
+4. ここで準備完了の印（`ready`）を立てる。以後に現れた未分類のセッションだけを知らせる。
+5. 自端末の生存を `devices` に刻む。
+6. 同期。最初の同期は待たない。使用量、ファイルの取り込み、設定の監視、保持期間、定期の押し出しと走査、控えの刈り込み。
+
+止める順は、起動の逆をなぞるだけではない。
+外と話している仕事を待ち、書き手を止めてから、配る層と DB を畳む。
+
+1. 周期の仕事を止める（ルートの確かめ、休みの見張り、生存の刻み、同期の定期の仕事）。
+2. 走っている通信を待ってから止める。頼まれた 1 巡、設定の押し出し、本文の上げ、メタデータの同期、本文の降ろしの順である。待ちの上限は 1 本の締め切り（`boot/budget.ts` の `CLOSE_DEADLINE_MS`）で持つ。
+3. 見張りと書き手を止める（メモの監視、RunManager、索引、実行中の一覧、端末の中継）。
+4. 配る層は、溜まっている知らせを出し切ってから止める。続けて WebSocket を畳み、残った keep-alive の接続を切ってから listen を閉じる。
+5. 走っている要約を待つ。要約は DB に書くので、DB を閉じる前に待つ。
+6. 互換のずれの記録を書き出し、最後に DB を閉じる。
+
+信号の受け口（`installShutdown`）は `server.ts` に残してある。
+`startServer` の解決を待たずに立てる必要があり、入口（`main.ts`）が直に呼ぶからである。
+
+試験は 3 層に分ける。
+
+- 業務の関数は、持ち場ごとの単体の試験で押さえる。偽の依存を渡し、サーバは起こさない。
+- 組み立て関数は、`boot/*.test.ts` が 1 つずつ起こして押さえる。同期の組み立ては、待ち受けも索引の見張りも起こさずに、手元の立て替えの Worker に向けて動かす。
+- 全体を起動する端到端の試験（`server.test.ts`）は、全体を起動しないと確かめられない振る舞いに絞る。起動して止まる、認証と WebSocket の経路、同期が 1 巡する、実行中の登録の出入り、起こし直しで続きから動く、の 5 つである。全体の起動は重いので、同じ起動で確かめられるものは 1 度の起動を分け合う。
+
 ## UI アーキテクチャ
 
 ### コンポーネント階層
@@ -466,7 +519,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 - 行のイベント（`session.upsert`、`project.upsert`、`devices.update`、`memo.update`、`artifact.upsert`、`todos.update`）は、この層だけが組む。`broadcast` は型（`NoticeEvent`）でこれらを受けない。呼び手が手で組んで渡す道は無いので、同じ行が二重に届くことも、端末の ID を渡し忘れた行が届くことも無い。
 - 行は書いていないが中身が変わったときは、呼び手は `touchRow` でその行を名指しする。同じ tick の書き込みと重なっても、配るのは 1 回である。
 
-サーバの組み立て（`server.ts`）も、HTTP の経路（`http/app.ts`）も、MCP の道具（`mcp/tools.ts`）も、事後要約のジョブ（`summary/job.ts`）も、行を書く（か名指しする）だけで、配るのはこの層である。
+サーバの業務の関数（`projects/`、`sessions/`、`runs/`、`sync/` にある受け手）も、HTTP の経路（`http/routes/*.ts`）も、MCP の道具（`mcp/tools.ts`）も、事後要約のジョブ（`summary/job.ts`）も、行を書く（か名指しする）だけで、配るのはこの層である。
 MCP の道具は hub を持たない。
 事後要約のジョブは、以前は端末の ID を渡さずにセッションを組んで配っていて、他端末のロックの無い行が届いていた。いまは要約の進みだけを渡す。
 
@@ -474,11 +527,11 @@ MCP の道具は hub を持たない。
 
 | 名指しする所 | 行 | 中身が変わる理由 |
 | --- | --- | --- |
-| 索引（`indexer/service.ts`、`server.ts`） | セッション、プロジェクト、アーティファクト | 手元だけの表（本文の索引、集計）を書き直した。セッションが紐づいた |
+| 索引（`indexer/service.ts`、`projects/onSessionChanged.ts`） | セッション、プロジェクト、アーティファクト | 手元だけの表（本文の索引、集計）を書き直した。セッションが紐づいた |
 | 未分類のセッションの紐づけ（`assignSessions`） | 入った先のプロジェクト | 最終の活動と実行中の数が変わる |
 | クイックセッション用のプロジェクトの置き場の選び直し（`resolveProject`） | この端末のセッションのうち、作業の場所が前の置き場か新しい置き場の下にあるもの | `fromScratch` は、その置き場（`project_roots`）から決まる |
-| 実行中の一覧が動いたとき（`server.ts`） | 出入りしたセッション、動きが変わった印付きのセッション、すべてのプロジェクト | 実行中かどうかと実行中の数は、行に無い |
-| run の起動（`server.ts`） | そのセッション | run が付いた。`run.started` の後に届く |
+| 実行中の一覧が動いたとき（`sessions/liveChange.ts`） | 出入りしたセッション、動きが変わった印付きのセッション、すべてのプロジェクト | 実行中かどうかと実行中の数は、行に無い |
+| run の起動（`runs/announce.ts`） | そのセッション | run が付いた。`run.started` の後に届く |
 | statusline の受け口（`POST /api/ingest/statusline`） | そのセッション | モデルと文脈の量は手元だけの表（`session_live_stats`）にある |
 | 昇格（`POST /api/sessions/:id/promote`） | 昇格元のプロジェクト | セッションが 1 件減る |
 
@@ -486,15 +539,15 @@ MCP の道具は hub を持たない。
 
 | 知らせ | 渡す所 |
 | --- | --- |
-| `toast` | `server.ts`、`POST /api/index/rebuild` の失敗 |
-| `run.started`、`run.upsert`、`run.ended`、`tab.upsert` | `server.ts`（RunManager の通知） |
-| `index.progress`、`transcript.appended` | `server.ts`（索引） |
-| `live.update` | `server.ts`（実行中の一覧） |
-| `sync.status`、`sync.usage` | `server.ts`（同期、使用量の見張り） |
+| `toast` | 同期の知らせ（`sync/notices.ts`、`sync/oncePass.ts`）、未分類のセッションの知らせ（`projects/onSessionChanged.ts`）、`POST /api/index/rebuild` の失敗 |
+| `run.started`、`run.upsert`、`run.ended`、`tab.upsert` | `runs/announce.ts`（RunManager の通知） |
+| `index.progress`、`transcript.appended` | `boot/indexing.ts`（索引の進み）、`projects/onSessionChanged.ts`（本文の伸び） |
+| `live.update` | `sessions/liveChange.ts`（実行中の一覧） |
+| `sync.status`、`sync.usage` | `sync/statusFeed.ts`（同期の状態）、`boot/sync.ts`（使用量の見張りの結び） |
 | `accounts.update` | `http/accounts.ts`、statusline の受け口 |
 | `retention.changed` | `config/retention.ts` |
 | `summary.pending`、`summary.updated`、`summary.failed` | `summary/job.ts` |
-| `project.unresolved` | `server.ts` のルートの確かめ。解決済みから未解決への遷移の知らせである |
+| `project.unresolved` | ルートの確かめ（`projects/rootCheck.ts`）。解決済みから未解決への遷移の知らせである |
 
 経路が手で配っていた頃と比べて、届くイベントの数が変わった所がある。中身は変わらない。
 
@@ -1131,6 +1184,49 @@ Haiku でも思考が走り 20〜40 秒かかるため、事後生成は背景�
 
 ## MCP とローカル API
 
+### HTTP の経路の置き方
+
+HTTP の層は `packages/server/src/http/` にある。
+
+- `app.ts`：組み立て。`createApp` は `/health` を置き、`/api` の下に認証（`auth.ts`）を当て、経路のファイルを登録し、`/mcp` と UI の配りを載せる。経路の中身は持たない。
+- `deps.ts`：HTTP の層が外から受け取る依存の一覧（`AppDeps`）と、その口の型（`RunsApi`、`SyncApi` など）。
+- `routes/*.ts`：経路。1 ファイルに 1 つの資源を置く。
+- `routes/common.ts`：経路が共通で使う補助。本文の読み方と大きさの上限、失敗の包み方（`runResult`、`externalResult`）、依存から組む小さな読み手である。
+- `accounts.ts`：アカウントの経路。サーバの起動後の読み直しも同じ依存を使うので、`routes/` の外に置いてある。
+- `testing.ts`：試験の組み立て。`testDeps()` が `AppDeps` を試験用の既定で全部組む。
+
+経路のファイルと、持っている資源は次のとおりである。
+
+| ファイル | 資源 |
+| --- | --- |
+| `bootstrap.ts` | 起動時の取得（`/bootstrap`） |
+| `sessions.ts` | セッションの一覧と 1 件、本文、検索、1 行メモ、状態、昇格、事後要約 |
+| `runs.ts` | run の起動と停止、タブ、指示へ跳ぶ、セッションから run を起こす口（resume、fork、attach、adopt、resume-here） |
+| `projects.ts` | プロジェクトの一覧と 1 件、状態、置き場の選び直し、作成と登録 |
+| `todos.ts` | TODO |
+| `memos.ts` | プロジェクトのメモ |
+| `artifacts.ts` | アーティファクト |
+| `prompt.ts` | 初期プロンプト欄の候補と添付（`/prompt`、`/drops`） |
+| `settings.ts` | 設定 |
+| `retention.ts` | Claude Code の保持期間 |
+| `sync.ts` | 同期の状態と操作、端末の一覧、クラウドの使用量 |
+| `usage.ts` | statusline の受け口と使用量 |
+| `system.ts` | 索引の作り直し、準備の確かめ、互換、要約器 |
+
+依存の渡し方は次のとおりである。
+
+- 各ファイルは `xxxRoutes(api, deps)` の形の関数を 1 つ出し、渡された `/api` の Hono に経路を足す。
+- `deps` の型は、`AppDeps` から自分が使う項目だけを `Pick` した狭い型である（例：`RetentionRouteDeps` は `retention` の 1 項目）。そのファイルが何に触れるかが、型で読める。
+- `createApp` は `AppDeps` をそのまま各関数へ渡す。狭い型への絞り込みは型の上だけで、束を組み替えない。
+- 依存を足すときは、`deps.ts` の `AppDeps` に 1 項目を足し、使うファイルの `Pick` に名前を足す。
+
+同じメソッドで同じパスに当たる経路の組は作らない。
+そのため、経路の当たり方は登録の順に依らない。
+順が効くのは、`/api` の先頭に置く認証と、`/api` と `/mcp` の後に置く UI の配り（`/` と `/assets/*`）だけである。
+
+試験は経路のファイルの隣（`routes/*.test.ts`）に置き、`testDeps()` で依存を組んで `createApp` を通して叩く。
+`app.test.ts` には、組み立て全体を見る試験（認証、本文の検査、MCP と UI の配り、アカウントの取り付け）だけを残す。
+
 ### 認証
 
 サーバは 127.0.0.1 にだけバインドする。
@@ -1472,7 +1568,7 @@ aria-label は見えている文字をそのまま含め、見える文と読み
 ### 文言の辞書
 
 画面とサーバの文は、shared の辞書から鍵で引く。
-今は仕組みだけがあり、辞書には見本の鍵が 3 つ入っている。
+サーバが出す文（HTTP のエラー、起動の失敗、MCP の道具の説明と結果、Claude に渡す指示、要約器への指示）は辞書に入っている。
 既存の画面の文は、まだ直に書いたままで、後の変更で順に辞書へ移す。
 
 置き場は `packages/shared/src/i18n/` である。
@@ -1482,8 +1578,10 @@ aria-label は見えている文字をそのまま含め、見える文と読み
 - `language.ts`：言語の型（`'ja' | 'en'`）と、知らない値を既定へ寄せる `languageOf`。
 - `t.ts`：辞書を引く `t(language, key, params)` と、言語を束ねた `translator(language)`。
 
-鍵は `画面.部品.意味` の形にする（例：`session.kill.confirm`）。
-画面をまたぐものは、画面のところを `common` にする。
+鍵は `領域.部品.意味` の形にする。
+画面の文は、領域を画面の名前にする（例：`session.kill.confirm`）。
+サーバの文は、領域を資源か層の名前にする（下の「サーバでの引き方」）。
+領域をまたぐものは、領域のところを `common` にする。
 鍵を足すときは `keys.ts` と 2 つの辞書に同時に足す。
 辞書に鍵が足りないときも余っているときも、型検査で止まる。
 
@@ -1500,7 +1598,6 @@ PC ごとの設定なので、クラウドへは同期しない。
 手で書き換えた `settings.json` の知らない値は、読み込みのときに落とす。
 画面に切り替えの部品はまだ無い。
 
-サーバは `translator(languageOf(settings.language))` で引く。
 UI は、いまの言語を store の設定の 1 か所から受け取る。
 
 - Presenter は `translatorOf(store)`（`presenters/i18n.ts`）で引く。
@@ -1508,6 +1605,71 @@ UI は、いまの言語を store の設定の 1 か所から受け取る。
 - View が自分で持つ決まった文は `useT()`（`views/primitives/language.tsx`）で引く。
   Root が `LanguageRoot` で言語を流し、頂点の無いところでは日本語になる。
   だから、View だけを描く試験は日本語の文のまま走る。
+
+#### サーバでの引き方
+
+サーバが言語の設定を読むのは、`languageReader(settings)`（`packages/server/src/i18n/language.ts`）の 1 か所である。
+これは「いまの言語を返す関数」を作る。
+起動の組み立て（`boot/home.ts`）がこの関数を 1 つだけ作り、`HomeParts.language` として持つ。
+`boot/` の各関数が、同じものを依存として配る。
+受け取るのは、HTTP の経路と MCP の道具（`AppDeps.language`）、`RunManager`（Claude に渡す指示、シェルタブの名前）、`SummaryJob`（要約器への指示、要約の失敗の文）、`RetentionService`（保持期間を書けない理由）、画面の隅の知らせを作る所（メモの競合、1 回だけの同期、未分類のセッション）である。
+どれも必須の依存で、渡し忘れは型検査で止まる。
+関数は文を出すたびに呼ぶので、設定を変えれば、次の文から言語が変わる。
+要約は、設定の言語で書かせる。
+
+文を出す場所は 2 通りある。
+
+- 境目（HTTP の経路、MCP の道具）は、`translatorOf(language)`（`i18n/message.ts`）で作った `tr()` で、その場で文にする。
+  例：`c.json({ error: tr('project.error.notFound') }, 404)`。
+- 境目より下の層（保存、検査、起動）は言語を知らない。
+  失敗は、鍵と引数のまま投げる。
+  例：`throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }))`。
+  `RunError`、`AccountError`、`ProjectCreateError`、`StateInputError`、`ToolError`、`SummarizerError` などは `MessageError` を継ぐ。
+  境目は `errorText(language(), e)` で、そのときの言語の文にして応答に載せる。
+  `message` は日本語の文のままなので、ログと、日本語の文を直に見ている試験は変わらない。
+
+引数には、文字列と数のほかに、別の文と並びを入れられる。
+
+- 別の文：`msg('run.launch.tmuxMissing', { label: msg('settings.label.tmuxPath') })`。
+  設定の欄の名前も、外側の文と同じ言語で出る。
+  別の失敗を理由として入れるときは `causeOf(e)` を渡す。
+- 並び：`msg('mcp.args.oneOf', { field: 'status', values: STATUSES })`。
+  その言語の区切り（`common.list.separator`）でつなぐ。
+
+文をつなげて作らない。
+前半と後半を別々に引いてつなぐと、言語で語順を変えられない。
+場合が分かれるときは、場合ごとに 1 つの鍵にする（例：`project.promote.failedNothingMoved`、`project.promote.failedRolledBack`、`project.promote.failedLeftBoth`）。
+何行かにわたる指示も 1 つの鍵にする。
+Claude に渡す指示（`launch.injection.body`）と、要約器への指示（`summary.prompt.system`）がそうである。
+英語の指示は、日本語の指示の意味（何をいつ呼ぶか、条件、してはいけないこと）を落とさずに訳し、行の数をそろえる。
+行の数は試験（`t.test.ts`）で見る。
+
+鍵の付け方の例は次のとおりである。
+
+| 鍵 | 引数 | 使う場所 |
+| --- | --- | --- |
+| `project.error.notFound` | なし | プロジェクトを引く経路と、起動 |
+| `run.launch.tmuxMissing` | `label` | 起動の前の検査 |
+| `run.adopt.busy` | なし | 外部ターミナルの Claude を移すとき |
+| `settings.path.notOnPath` | `label`、`name` | 設定の保存の検査 |
+| `common.field.required` | `field` | 本文の項目の検査（経路をまたぐ） |
+| `mcp.sessionStatus.pastReturnAt` | `returnOn`、`returnTime`、`now` | MCP の `propose_session_status` |
+| `mcp.tool.setTurnIntent` | なし | MCP の道具の説明 |
+| `launch.injection.body` | `projectName`、`projectPath`、`memo`、`todos` | `--append-system-prompt` |
+
+英語の文は、用語集の英語の語と、Claude Code の公式の語（transcript、session、resume、permission mode、usage limit など）を使う。
+日本語の文は、移す前の文のままである。
+日本語の語の見直しは、画面の文を移すときに、用語集に合わせて行う。
+
+辞書に入れていない文もある。
+
+- ログにだけ出る文（`console.error` など）。
+- 同期の層（`sync/` の状態とエラーの文）と、DB の控えの文。
+  同期の直しが落ち着いてから移す。
+- 生成して置くスクリプトの中の文（シェル連携、起動の包み、ステータスライン）。
+- 保存して同期する名前と要約（最初のアカウントの名前、スクラッチのプロジェクトの名前、機械的に作る要約）。
+  言語は PC ごとの設定なので、書くときの言語で作ると、言語の違う PC が同じ行を互いに書き直し続ける。
+  読むときに文にする作りへ変えるまで、日本語のままにする。
 
 ### 骨格
 
@@ -2827,7 +2989,7 @@ Cloudflare の端は、Worker を通さずに 4xx と 5xx を返すことがあ�
 2xx は Worker を通らないと返らないので、古い Worker はどの経路でも最初の 2xx で見分けられる。
 `SyncEngine` は `CompatError` を受けたら同期を止め、状態を `error` にして、どちらを上げればよいかを `error` の文に書く。
 426 なら「この PC の hangar を更新する」、Worker が古ければ「setup した PC で `hangar setup cloud` をもう一度実行して Worker を入れ替え、今すぐ同期を押す」である。
-止めている間は、メタデータの送受信も、本文と設定の出し入れも、使用量の取りに行きも外へ出ない（`server.ts` の `syncHalted`）。
+止めている間は、メタデータの送受信も、本文と設定の出し入れも、使用量の取りに行きも外へ出ない（`sync/halt.ts` の `syncHalted`）。
 一時停止していても、版で止まったことを先に見せる。
 そのとき状態は `error` になるので、一時停止していることは `SyncStatusDto` の `paused` の印で画面へ伝える。
 画面は文と「状態」の語の頭に「一時停止中 · 」を添え、一時停止の切り替えを隠す。

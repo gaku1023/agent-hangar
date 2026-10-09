@@ -6,6 +6,8 @@ import { checkDirName, exists, makeProjectDir, ProjectCreateError } from './crea
 import { insertProject } from './registry.ts';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { isUnderScratch, scratchRoot } from './scratch.ts';
+import { DEFAULT_LANGUAGE } from '@agent-hangar/shared';
+import { msg, render, type Message } from '../i18n/message.ts';
 
 /** 昇格の失敗。作る処理と同じ型にして、HTTP の側の扱いをそろえる。 */
 export const PromoteError = ProjectCreateError;
@@ -20,9 +22,13 @@ export type PromoteDeps = {
   gitInit?: (dir: string) => void;
 };
 
-export type PromoteResult = { projectId: string; moved: boolean; reason: string | null };
+/**
+ * reason は、ファイルを移さなかったか、移しきれなかったときの理由（日本語）である。
+ * reasonMessage は同じ理由の、まだ言語を決めていない文で、経路が応答の言語で出すのに使う。
+ */
+export type PromoteResult = { projectId: string; moved: boolean; reason: string | null; reasonMessage: Message | null };
 
-type Move = { moved: boolean; reason: string | null };
+type Move = { moved: boolean; reason: Message | null };
 
 /** 移した 1 件。copied は rename が使えずコピーで移したもので、巻き戻しても移動先に残る。 */
 type Done = { name: string; copied: boolean };
@@ -34,21 +40,21 @@ const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * cwd がスクラッチの下にあっても、シンボリックリンクなら指す先は外かもしれない。
  * 実体がスクラッチの下に無ければ、外のファイルを動かさないために断る。
  */
-function resolveScratchDir(home: string, from: string): { real: string } | { reason: string } {
+function resolveScratchDir(home: string, from: string): { real: string } | { reason: Message } {
   let realRoot: string;
   let real: string;
   try {
     realRoot = fs.realpathSync(scratchRoot(home));
   } catch (e) {
-    return { reason: `スクラッチの置き場を確かめられなかったため、ファイルは移動しませんでした（${why(e)}）` };
+    return { reason: msg('project.promote.scratchUnverified', { reason: why(e) }) };
   }
   try {
     real = fs.realpathSync(from);
   } catch {
-    return { reason: `${from} が見つかりませんでした` };
+    return { reason: msg('project.promote.sourceMissing', { from }) };
   }
   if (!isStrictlyUnder(real, realRoot)) {
-    return { reason: `${from} はスクラッチの外（${real}）を指しているため、ファイルは移動しませんでした` };
+    return { reason: msg('project.promote.outsideScratch', { from, real }) };
   }
   return { real };
 }
@@ -94,10 +100,10 @@ function moveContents(from: string, to: string): Move {
     // 名前順に移す。失敗したときにどこまで進んだかを追えるようにするためである。
     names = fs.readdirSync(from).sort();
   } catch (e) {
-    return { moved: false, reason: `${from} の中身を読めませんでした（${why(e)}）` };
+    return { moved: false, reason: msg('project.promote.unreadable', { from, reason: why(e) }) };
   }
   const clash = names.find((name) => exists(path.join(to, name)));
-  if (clash) return { moved: false, reason: `移動先に ${clash} が既にあるため、ファイルは移動しませんでした。手で移してください` };
+  if (clash) return { moved: false, reason: msg('project.promote.clash', { name: clash }) };
 
   const done: Done[] = [];
   for (const name of names) {
@@ -125,18 +131,18 @@ function moveContents(from: string, to: string): Move {
     // 空になったときだけ消える。何か残っていれば ENOTEMPTY で落ちるので、取りこぼしに気付ける。
     fs.rmdirSync(from);
   } catch (e) {
-    return { moved: true, reason: `ファイルは ${to} へ移しましたが、${from} を消せませんでした（${why(e)}）` };
+    return { moved: true, reason: msg('project.promote.sourceNotRemoved', { to, from, reason: why(e) }) };
   }
   return { moved: true, reason: null };
 }
 
 /** 移動の途中で止まったときの理由の文。巻き戻しを試みてから、何がどこにあるかを述べる。 */
-function undoneReason(from: string, to: string, done: Done[], name: string, cause: string): string {
+function undoneReason(from: string, to: string, done: Done[], name: string, cause: string): Message {
   const left = rollback(from, to, done);
-  const head = `${name} を移せませんでした（${cause}）`;
-  if (done.length === 0) return `${head}。ファイルは ${from} にそのまま残っています`;
-  if (left.length === 0) return `${head}。先に移したものは ${from} に戻しました。ファイルは移動していません`;
-  return `${head}。${left.join('、')} は ${to} にも残っています。${from} と ${to} の両方を確かめてください`;
+  // 場合ごとに 1 つの文にする。前半と後半をつなぐ作りは、言語で語順を変えられない。
+  if (done.length === 0) return msg('project.promote.failedNothingMoved', { name, cause, from });
+  if (left.length === 0) return msg('project.promote.failedRolledBack', { name, cause, from });
+  return msg('project.promote.failedLeftBoth', { name, cause, left, to, from });
 }
 
 /**
@@ -148,9 +154,9 @@ export function promoteSession(
   o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean },
 ): PromoteResult {
   const s = deps.db.prepare('select id, cwd from sessions where id = ? and deleted_at is null').get(o.sessionId) as { id: string; cwd: string } | undefined;
-  if (!s) throw new PromoteError(404, 'セッションが見つかりません');
+  if (!s) throw new PromoteError(404, msg('session.error.notFound'));
   const name = checkDirName(o.name);
-  if (!isUnderScratch(deps.home, s.cwd)) throw new PromoteError(400, 'このセッションはスクラッチではありません');
+  if (!isUnderScratch(deps.home, s.cwd)) throw new PromoteError(400, msg('project.promote.notScratch'));
 
   // 1. ディレクトリを作り、必要なら git init。失敗したら作ったものを片付けて終える（create.ts）。
   const dir = makeProjectDir(deps.workspaceRoot, name, o.gitInit, deps.gitInit);
@@ -165,9 +171,11 @@ export function promoteSession(
   write();
 
   // 4. run がすべて終わっていればファイルを移す。生きていれば移さず、その旨を返す。
-  if (!o.moveFiles) return { projectId, moved: false, reason: null };
-  if (deps.runAlive(s.id)) return { projectId, moved: false, reason: 'Claude が動いているのでファイルは移しませんでした。終了してから手で移してください' };
+  const result = (moved: boolean, reason: Message | null): PromoteResult => ({ projectId, moved, reason: reason ? render(DEFAULT_LANGUAGE, reason) : null, reasonMessage: reason });
+  if (!o.moveFiles) return result(false, null);
+  if (deps.runAlive(s.id)) return result(false, msg('project.promote.claudeRunning'));
   const src = resolveScratchDir(deps.home, s.cwd);
-  if ('reason' in src) return { projectId, moved: false, reason: src.reason };
-  return { projectId, ...moveContents(src.real, dir) };
+  if ('reason' in src) return result(false, src.reason);
+  const move = moveContents(src.real, dir);
+  return result(move.moved, move.reason);
 }

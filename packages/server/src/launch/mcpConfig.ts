@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { MessageError, msg } from '../i18n/message.ts';
 
 /**
  * claude に渡す MCP の設定。
@@ -19,7 +20,7 @@ export function mcpConfigJson(url: string, token: string): string {
 
 /** ファイル名に使える形だけを通す。id は UUID のはずだが、外から来た値を素通しにしない。 */
 function safeName(sessionId: string): string {
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(sessionId)) throw new Error('この id は設定ファイルの名前に使えません');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(sessionId)) throw new MessageError(msg('launch.mcpConfig.badId'));
   return sessionId;
 }
 

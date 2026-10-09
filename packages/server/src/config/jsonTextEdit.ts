@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { RetentionPreviewLine } from '@agent-hangar/shared';
+import { MessageError, msg } from '../i18n/message.ts';
 
 /**
  * JSON の文字列を、最上位の 1 つのキーの値だけ書き換える。
@@ -9,8 +10,8 @@ import type { RetentionPreviewLine } from '@agent-hangar/shared';
  * そこで文字列の上で値の範囲だけを差し替え、ほかの空白、改行、キーの順には触れない。
  * 書き換えた後に JSON として読み直し、狙ったキー以外が変わっていないことを確かめる。
  */
-export class JsonTextEditError extends Error {
-  constructor() { super('設定ファイルの書式を読み取れなかったので書き換えませんでした'); this.name = 'JsonTextEditError'; }
+export class JsonTextEditError extends MessageError {
+  constructor() { super(msg('config.file.unreadableFormat')); this.name = 'JsonTextEditError'; }
 }
 
 type Member = { keyStart: number; key: string; valueStart: number; valueEnd: number; scalar: boolean; sep: string };

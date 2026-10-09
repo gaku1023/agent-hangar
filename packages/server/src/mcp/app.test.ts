@@ -102,3 +102,43 @@ describe('createMcpApp', () => {
     expect(JSON.parse(content[0]!.text).hits.length).toBeGreaterThan(0);
   });
 });
+
+describe('言語', () => {
+  let language: 'ja' | 'en';
+  const JAPANESE = /[\u3040-\u30ff\u4e00-\u9fff]/;
+  const textOf = (r: Awaited<ReturnType<typeof rpc>>) => (r.body.result!.content as { text: string }[])[0]!.text;
+  beforeEach(() => {
+    language = 'en';
+    app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
+      usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }), language: () => language });
+  });
+
+  it('英語では、道具の説明と引数の説明がすべて英語になる', async () => {
+    const list = await rpc('/', 'tools/list', {}, 2);
+    const tools = list.body.result!.tools as { name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> } }[];
+    expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
+    for (const t of tools) {
+      expect(t.description, t.name).toMatch(/^agent-hangar: [A-Z]/);
+      expect(JAPANESE.test(JSON.stringify(t)), t.name).toBe(false);
+    }
+    const propose = tools.find((t) => t.name === 'propose_session_status')!;
+    expect(propose.description).toBe('agent-hangar: Suggests a status for this session (Done or Paused). Set confirmed to true only when the user chose it in the conversation. Never set it to true without asking the user.');
+    expect(propose.inputSchema.properties.return_on!.description).toBe('Reminder date. YYYY-MM-DD (local calendar; past dates are not allowed). Required for paused');
+  });
+
+  it('英語では、道具の失敗が英語で返り、下の層の検査の文も同じ言語で出る', async () => {
+    const missing = await rpc('/', 'tools/call', { name: 'get_project', arguments: { project_id: 'nope' } }, 3);
+    expect(missing.body.result!.isError).toBe(true);
+    expect(textOf(missing)).toBe('Project not found: nope');
+    expect(textOf(await rpc('/', 'tools/call', { name: 'update_project', arguments: { project_id: 'p1', propose_done: [{ todo_id: 'x', note: ' ' }] } }, 4))).toBe('The note (one-sentence reason) in propose_done is empty');
+    expect(textOf(await rpc(`/s/${alphaId}`, 'tools/call', { name: 'propose_session_status', arguments: { status: 'paused', note: 'x' } }, 5))).toBe('Paused needs a reminder date');
+    expect(textOf(await rpc(`/s/${alphaId}`, 'tools/call', { name: 'get_transcript', arguments: { session_id: 'other' } }, 6))).toBe(`This MCP URL is for session ${alphaId} only. You cannot specify another session_id`);
+  });
+
+  it('言語は要求のたびに読む', async () => {
+    const call = () => rpc('/', 'tools/call', { name: 'get_project', arguments: { project_id: 'nope' } }, 7);
+    expect(textOf(await call())).toBe('Project not found: nope');
+    language = 'ja';
+    expect(textOf(await call())).toBe('プロジェクトが見つかりません: nope');
+  });
+});

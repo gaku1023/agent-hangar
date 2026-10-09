@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { TerminalApp } from '@agent-hangar/shared';
 import { needsShell } from '../platform/exec.ts';
+import { MessageError, msg } from '../i18n/message.ts';
 
 export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number; shell?: boolean }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
@@ -67,7 +68,7 @@ export function writeCdCommand(home: string, dir: string): string {
 /** -g はウィンドウを前面に出さない指定で、利用者の作業を奪わないために要る。 */
 async function openWithTerminalApp(file: string, exec: Exec): Promise<void> {
   const r = await exec('open', ['-g', '-a', 'Terminal', file]);
-  if (r.code !== 0) throw new Error(`Terminal.app で開けませんでした: ${r.stderr.trim() || `exit ${r.code}`}`);
+  if (r.code !== 0) throw new MessageError(msg('external.terminal.openFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
 }
 
 /** iTerm2 は AppleScript でしか新規ウィンドウを開けない。初回は macOS の自動化の許可ダイアログが出る。 */
@@ -109,16 +110,16 @@ export function openDirInTerminalApp(o: { home: string; dir: string; app: Termin
 }
 
 export async function openInEditor(o: { codePath: string | null; target: string; exec?: Exec; platform?: NodeJS.Platform }): Promise<void> {
-  if (!o.codePath) throw new Error('VS Code の code コマンドが見つかりません。設定の「code のパス」を入れてください');
+  if (!o.codePath) throw new MessageError(msg('external.editor.codeMissing', { label: msg('settings.label.codePath') }));
   const exec = o.exec ?? execFile;
   let r: { code: number; stdout: string; stderr: string };
   if (needsShell(o.codePath, o.platform)) {
     // Windows の VS Code の code は code.cmd で、Node は .cmd をシェル無しでは起こせない。cmd.exe 越しに、パスを引用符で包んで渡す。
     // " は Windows のファイル名に使えない文字で、引用を破る。含むものは開かずに断る。
-    if (o.codePath.includes('"') || o.target.includes('"')) throw new Error(`このパスは VS Code で開けません: ${o.target}`);
+    if (o.codePath.includes('"') || o.target.includes('"')) throw new MessageError(msg('external.editor.badPath', { target: o.target }));
     r = await exec(`"${o.codePath}"`, [`"${o.target}"`], { shell: true });
   } else {
     r = await exec(o.codePath, [o.target]);
   }
-  if (r.code !== 0) throw new Error(`VS Code を起動できませんでした: ${r.stderr.trim() || `exit ${r.code}`}`);
+  if (r.code !== 0) throw new MessageError(msg('external.editor.launchFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
 }

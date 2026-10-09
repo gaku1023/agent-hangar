@@ -183,7 +183,7 @@ export class SyncEngine {
   /** push と pull の入口を閉じているか。版で止まっているとき、上限で退いているとき、一時停止していて頼まれた 1 巡の最中でもないとき。 */
   private get halted(): boolean { return this.compatBlock !== null || this.limitedUntil() !== null || (this.paused && !this.onePass); }
 
-  /** 互換の版が合わずに止まっているか。本文と設定の出し入れと使用量も、これを見て止まる（server.ts の syncHalted）。 */
+  /** 互換の版が合わずに止まっているか。本文と設定の出し入れと使用量も、これを見て止まる（sync/halt.ts の syncHalted）。 */
   compatBlocked(): boolean { return this.compatBlock !== null; }
 
   /**

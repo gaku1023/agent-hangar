@@ -1,6 +1,8 @@
-import { STATE_NOTE_MAX, type SummarizerId, type SummaryState } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, STATE_NOTE_MAX, t, type Language, type SummarizerId, type SummaryState } from '@agent-hangar/shared';
+import { MessageError, type Message } from '../i18n/message.ts';
 
-export type SummaryInput = { sessionId: string; text: string; turns: number; running: boolean; titleHint: string | null };
+/** language は要約を書かせる言語。要約器への指示と、要約そのものの言語になる。無ければ日本語である。 */
+export type SummaryInput = { sessionId: string; text: string; turns: number; running: boolean; titleHint: string | null; language?: Language };
 /**
  * 要約が添えるセッションの状態の提案。proposed_status が none か、項目が無いときは付けない。
  * returnInDays は paused のときだけ持ち、1〜14 に収めてある。
@@ -16,8 +18,8 @@ export interface Summarizer {
   summarize(input: SummaryInput): Promise<SummaryOutput>;
 }
 
-export class SummarizerError extends Error {
-  constructor(readonly id: SummarizerId, message: string) { super(message); this.name = 'SummarizerError'; }
+export class SummarizerError extends MessageError {
+  constructor(readonly id: SummarizerId, text: Message | string) { super(text); this.name = 'SummarizerError'; }
 }
 
 /**
@@ -40,17 +42,13 @@ export const SUMMARY_SCHEMA: Record<string, unknown> = {
   required: ['title', 'one_liner', 'body', 'state', 'next_steps', 'proposed_status', 'proposed_note', 'proposed_return_in_days'],
 };
 
-export const SUMMARY_SYSTEM_PROMPT = [
-  '以下はコーディングエージェントのセッションログの抜粋です。日本語で、指定の JSON だけを返してください。',
-  'title は名詞句（40 字まで）、one_liner は 1 文（80 字まで）、body は 2〜3 文、next_steps は具体的な行動（5 件まで）。',
-  'state の判定：最後の発言がアシスタントの問いかけや確認で終わっていれば in_progress。依頼が果たされていれば done。',
-  'エラーや権限や情報の不足で進めなくなっていれば blocked。途中で打ち切られていれば abandoned。',
-  '先頭に「このセッションは現在も実行中」とあれば、完了と断定せず in_progress を選ぶ。',
-  'proposed_status の判定：頼まれたことが終わり、確かめることも残っていなければ done。終わったが確かめることが残っていれば paused。まだ途中なら none。',
-  'proposed_note は判定の根拠を 1 文で（200 字まで）。paused なら何を確かめに戻るかを書く。none なら空文字にする。',
-  'proposed_return_in_days は paused のとき戻るまでの日数（1〜14）。paused でなければ 0。',
-  '先頭に「このセッションは現在も実行中」とあれば、proposed_status は none を選ぶ。',
-].join('\n');
+/**
+ * 要約器に渡す指示。文は辞書の 1 つの鍵（summary.prompt.system）にある。
+ * 指示の中の「このセッションは現在も実行中」は、入力の先頭に足す文（summary.input.running）と同じ言い方にそろえる。
+ */
+export const summarySystemPrompt = (language: Language = DEFAULT_LANGUAGE): string => t(language, 'summary.prompt.system');
+/** 日本語の指示。 */
+export const SUMMARY_SYSTEM_PROMPT = summarySystemPrompt();
 
 const STATES: SummaryState[] = ['in_progress', 'done', 'blocked', 'abandoned'];
 

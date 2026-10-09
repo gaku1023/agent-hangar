@@ -1,4 +1,5 @@
-import { parseSummaryOutput, SUMMARY_SCHEMA, SUMMARY_SYSTEM_PROMPT, SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from './types.ts';
+import { parseSummaryOutput, SUMMARY_SCHEMA, summarySystemPrompt, SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from './types.ts';
+import { causeOf, msg } from '../i18n/message.ts';
 
 /**
  * リダイレクトの応答かどうか。
@@ -45,7 +46,7 @@ export class LmStudioSummarizer implements Summarizer {
 
   async summarize(input: SummaryInput): Promise<SummaryOutput> {
     const model = this.model ?? (await this.listModels())[0];
-    if (!model) throw new SummarizerError(this.id, 'LM Studio にモデルがありません');
+    if (!model) throw new SummarizerError(this.id, msg('summary.lmstudio.noModel'));
     let r: Response;
     try {
       r = await this.fetchFn(`${this.baseUrl}/v1/chat/completions`, {
@@ -57,26 +58,26 @@ export class LmStudioSummarizer implements Summarizer {
         body: JSON.stringify({
           model,
           temperature: 0.2,
-          messages: [{ role: 'system', content: SUMMARY_SYSTEM_PROMPT }, { role: 'user', content: input.text }],
+          messages: [{ role: 'system', content: summarySystemPrompt(input.language) }, { role: 'user', content: input.text }],
           response_format: { type: 'json_schema', json_schema: { name: 'session_summary', strict: true, schema: SUMMARY_SCHEMA } },
         }),
       });
     } catch (e) {
-      throw new SummarizerError(this.id, `LM Studio に接続できません: ${e instanceof Error ? e.message : String(e)}`);
+      throw new SummarizerError(this.id, msg('summary.lmstudio.unreachable', { reason: causeOf(e) }));
     }
-    if (isRedirect(r)) throw new SummarizerError(this.id, '要約器の宛先がリダイレクトを返しました。飛ばし先へは送りません。設定の「LM Studio の URL」を確かめてください');
-    if (!r.ok) throw new SummarizerError(this.id, `LM Studio が ${r.status} を返しました`);
+    if (isRedirect(r)) throw new SummarizerError(this.id, msg('summary.lmstudio.redirected', { label: msg('settings.label.lmStudioUrl') }));
+    if (!r.ok) throw new SummarizerError(this.id, msg('summary.lmstudio.badStatus', { status: r.status }));
     const j = (await r.json()) as { model?: unknown; choices?: { message?: { content?: unknown } }[] };
     const content = j.choices?.[0]?.message?.content;
-    if (typeof content !== 'string' || !content.trim()) throw new SummarizerError(this.id, '本文が空でした（思考モデルの可能性があります）');
+    if (typeof content !== 'string' || !content.trim()) throw new SummarizerError(this.id, msg('summary.lmstudio.emptyContent'));
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch {
-      throw new SummarizerError(this.id, '本文が JSON ではありません');
+      throw new SummarizerError(this.id, msg('summary.lmstudio.notJson'));
     }
     const out = parseSummaryOutput(parsed);
-    if (!out) throw new SummarizerError(this.id, '本文がスキーマの形ではありません');
+    if (!out) throw new SummarizerError(this.id, msg('summary.lmstudio.badShape'));
     // 応答が名乗ったモデル名を優先し、無ければ投げたモデル名を使う。
     const used = typeof j.model === 'string' && j.model.trim() ? j.model : model;
     return { ...out, model: used || 'lmstudio:auto' };

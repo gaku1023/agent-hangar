@@ -1,6 +1,7 @@
 import { newId, type TodoDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
+import { MessageError, msg } from '../i18n/message.ts';
 
 type Row = {
   id: string; project_id: string; text: string; done: number; position: number; session_id: string | null; updated_at: number;
@@ -42,7 +43,7 @@ export function listTodos(db: Db, projectId?: string): TodoDto[] {
 /** 末尾に足す。position は削除した行も含めた最大値の次で、番号を再利用しない。 */
 export function addTodo(db: Db, deviceId: string, o: { projectId: string; text: string; sessionId?: string | null }): TodoDto {
   const text = o.text.trim();
-  if (!text) throw new Error('TODO の本文が空です');
+  if (!text) throw new MessageError(msg('todo.error.emptyText'));
   const max = (db.prepare('select max(position) m from todos where project_id = ?').get(o.projectId) as { m: number | null }).m ?? 0;
   const id = newId();
   upsertShared(db, 'todos', { id, project_id: o.projectId, text, done: 0, position: max + 1, session_id: o.sessionId ?? null }, deviceId);

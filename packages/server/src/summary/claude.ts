@@ -2,7 +2,8 @@ import type { UsageDto } from '@agent-hangar/shared';
 import { captureOutput } from '../platform/capture.ts';
 import { printJsonDrifts } from '../provider/claude-code/compat/cli.ts';
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
-import { parseSummaryOutput, SUMMARY_SCHEMA, SUMMARY_SYSTEM_PROMPT, SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from './types.ts';
+import { parseSummaryOutput, SUMMARY_SCHEMA, summarySystemPrompt, SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from './types.ts';
+import { msg } from '../i18n/message.ts';
 
 export type SpawnText = (cmd: string, args: string[], stdin: string, timeoutMs: number) => Promise<{ code: number; stdout: string; stderr: string }>;
 
@@ -50,28 +51,28 @@ export class ClaudeHeadlessSummarizer implements Summarizer {
   }
 
   async summarize(input: SummaryInput): Promise<SummaryOutput> {
-    if (!this.o.claudeBin) throw new SummarizerError(this.id, 'claude が見つかりません');
+    if (!this.o.claudeBin) throw new SummarizerError(this.id, msg('summary.claude.missing'));
     this.calls.push(this.now());
-    const args = ['-p', '--model', 'haiku', '--output-format', 'json', '--json-schema', JSON.stringify(SUMMARY_SCHEMA), '--append-system-prompt', SUMMARY_SYSTEM_PROMPT, '--no-session-persistence', '--tools', ''];
+    const args = ['-p', '--model', 'haiku', '--output-format', 'json', '--json-schema', JSON.stringify(SUMMARY_SCHEMA), '--append-system-prompt', summarySystemPrompt(input.language), '--no-session-persistence', '--tools', ''];
     let r: { code: number; stdout: string; stderr: string };
     try {
       r = await this.spawnFn(this.o.claudeBin, args, input.text, 120_000);
     } catch (e) {
       throw new SummarizerError(this.id, e instanceof Error ? e.message : String(e));
     }
-    if (r.code !== 0) throw new SummarizerError(this.id, `claude が ${r.code} で終了しました: ${r.stderr.trim().split('\n').at(-1) ?? ''}`);
+    if (r.code !== 0) throw new SummarizerError(this.id, msg('summary.claude.exited', { code: r.code, detail: r.stderr.trim().split('\n').at(-1) ?? '' }));
     // 形が違えば、Claude Code との互換のずれとして記録する。失敗の扱いはいまのまま。
     for (const d of printJsonDrifts(r.stdout)) (this.o.compat ?? NO_COMPAT).note(d);
     let j: unknown;
     try {
       j = JSON.parse(r.stdout);
     } catch {
-      throw new SummarizerError(this.id, '出力が JSON ではありません');
+      throw new SummarizerError(this.id, msg('summary.claude.notJson'));
     }
     const so = typeof j === 'object' && j !== null ? (j as Record<string, unknown>).structured_output : undefined;
-    if (so === undefined) throw new SummarizerError(this.id, '出力に structured_output がありません');
+    if (so === undefined) throw new SummarizerError(this.id, msg('summary.claude.noStructuredOutput'));
     const out = parseSummaryOutput(so);
-    if (!out) throw new SummarizerError(this.id, 'structured_output がスキーマの形ではありません');
+    if (!out) throw new SummarizerError(this.id, msg('summary.claude.badStructuredOutput'));
     return { ...out, model: 'haiku' };
   }
 }
