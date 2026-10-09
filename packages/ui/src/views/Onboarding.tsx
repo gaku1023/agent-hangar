@@ -1,22 +1,26 @@
 import { useEmit } from '../intent/chain.tsx';
 import type { OnboardingProps } from '../presenters/onboarding.ts';
-import type { CheckItem } from '../presenters/readiness.ts';
+import type { CheckItem, CheckTone } from '../presenters/readiness.ts';
+import { CompatDrifts } from './CompatSection.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { CommandLine } from './primitives/CommandLine.tsx';
-import { Icon } from './primitives/Icon.tsx';
+import { Icon, type IconName } from './primitives/Icon.tsx';
 
-/** 確認の 1 行。印は色だけでなく形（✓、✗、!）でも分け、読み上げの名前にも状態を入れる。 */
+/** 調子ごとの印。色だけでなく形（✓、ⓘ、!、✗）でも分ける。 */
+const CHECK_ICON: Record<CheckTone, IconName> = { ok: 'ok', info: 'info', soft: 'alert', ng: 'ng' };
+
+/** 確認の 1 行。印は色だけでなく形でも分け、読み上げの名前にも状態を入れる。互換の行はずれの中身を持つ。 */
 function CheckRow(props: { item: CheckItem }) {
   const emit = useEmit();
   const c = props.item;
-  const tone = c.ok ? 'ok' : c.soft ? 'soft' : 'ng';
   return (
-    <li className="ck" data-tone={tone} aria-label={`${c.label} ${c.ok ? '準備できています' : 'まだです'}`}>
-      <Icon name={c.ok ? 'ok' : c.soft ? 'alert' : 'ng'} />
+    <li className="ck" data-tone={c.tone} aria-label={`${c.label} ${c.spoken}`}>
+      <Icon name={CHECK_ICON[c.tone]} />
       <div className="ck-t">
         <b>{c.label}</b>{c.path && <> <span className="ck-p">{c.path}</span></>}
         <div className="ck-d">{c.detail}</div>
         {c.command && <CommandLine command={c.command} />}
+        {c.compat && <CompatDrifts c={c.compat} />}
       </div>
       <div className="ck-act">
         {c.action === 'settings' && <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'nav.go', to: { name: 'settings' } })}>設定で変える</button>}
