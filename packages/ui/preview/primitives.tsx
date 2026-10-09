@@ -1,7 +1,8 @@
 // 部品を試作と並べて撮るための頁。`npm run dev -w @agent-hangar/ui` のあと /preview/primitives.html を開く。
 // 本番の bundle には入らない（vite の入口は index.html だけ）。
 // ?open=info|perm で、その部品のポップオーバーを開いた形で出す。例の値は作り物である。
-import type { CSSProperties } from 'react';
+// 札の列（LaunchChips）は ?state=first|regular|bypass|extras と ?w=（列の幅 px。起動ダイアログの本文は 520）で出す。
+import { useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -10,6 +11,7 @@ import '../src/styles/base.css';
 import '../src/styles/controls.css';
 import { CountChip, SettingChip } from '../src/views/primitives/Chip.tsx';
 import { InfoPopover, Popover } from '../src/views/primitives/Popover.tsx';
+import { LaunchChips, type LaunchChipValues } from '../src/views/LaunchChips.tsx';
 
 const open = new URLSearchParams(location.search).get('open');
 const noop = () => {};
@@ -81,12 +83,40 @@ function InfoHeader() {
   );
 }
 
+const LAUNCH_STATES: Record<string, Partial<LaunchChipValues>> = {
+  first: {},
+  regular: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits' },
+  bypass: { model: 'opus', effort: 'high', permissionMode: 'bypassPermissions' },
+  extras: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits', name: '決済の検証', addDirs: '/work/shared\n/work/docs' },
+};
+const BASE_VALUES: LaunchChipValues = { model: '', effort: '', permissionMode: '', worktree: '', name: '', addDirs: '' };
+
+/** 新しいセッションの札の列（試作 N2 の .set-row）。値は部品の中で変わる。例のアカウントとプロジェクトは作り物である。 */
+function Launch() {
+  const params = new URLSearchParams(location.search);
+  const [values, setValues] = useState<LaunchChipValues>({ ...BASE_VALUES, ...LAUNCH_STATES[params.get('state') ?? 'regular'] });
+  const [account, setAccount] = useState('work');
+  const width = Number(params.get('w')) || 520;
+  return (
+    <div id="launch" style={{ width }}>
+      <LaunchChips
+        lead={<SettingChip name="プロジェクト" value="web-shop" icon="folder" aria-haspopup="dialog" aria-expanded={false} />}
+        account={{ value: account, options: [{ value: 'work', label: '仕事用' }, { value: 'home', label: '個人用' }], onChange: setAccount }}
+        values={values}
+        previousPermission="acceptEdits"
+        onChange={(patch) => setValues((v) => ({ ...v, ...patch }))}
+      />
+    </div>
+  );
+}
+
 createRoot(document.getElementById('root')!).render(
   <div style={{ maxWidth: 960, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
     <h1 style={{ margin: 0, fontSize: 'var(--fs-lg)' }}>部品の試験用の頁</h1>
     <section style={card}><h2 style={h2}>数の札（ホームの帯）</h2><Band /></section>
     <section style={card}><h2 style={h2}>数の札（小さい）</h2><Small /></section>
     <section style={card}><h2 style={h2}>設定の札（新しいセッション）</h2><Settings /></section>
+    <section style={card}><h2 style={h2}>新しいセッションの札の列（LaunchChips）</h2><Launch /></section>
     <section style={card}><h2 style={h2}>見出しの (i)</h2><InfoHeader /></section>
   </div>,
 );
