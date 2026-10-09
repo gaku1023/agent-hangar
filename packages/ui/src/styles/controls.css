@@ -233,6 +233,41 @@ button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .set-chip[data-tone='muted'] { color: var(--ink-3); font-weight: 500; }
 .set-chip[data-tone='danger'] { color: var(--error); box-shadow: inset 0 0 0 1.5px var(--error); }
 .set-chip[data-tone='danger'] > .icon { color: var(--error); }
+.set-chip-value { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; }
+
+/* 新しいセッションの札の列（views/LaunchChips.tsx）。幅が足りなければ折り返す。
+   「＋」は、足せる札が残っている間だけ末尾に出る小さい丸い札である。 */
+.launch-chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 1.5); }
+.set-add { display: inline-flex; align-items: center; justify-content: center; width: var(--row-h); height: var(--row-h); padding: 0; border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-3); cursor: pointer; box-shadow: inset 0 0 0 1px var(--line); transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.set-add:hover { color: var(--accent); background: var(--surface); }
+.set-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.set-add[aria-expanded='true'] { color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* 札から開く小さい面。余白は一覧が持つので、面の余白は詰める。 */
+.launch-pop { padding: calc(var(--u) * 1.5); gap: 0; }
+.pick-head { padding: calc(var(--u) * 1) calc(var(--u) * 2.5) calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.launch-input { width: 100%; margin-top: calc(var(--u) * 1.5); font-size: var(--fs-sm); }
+textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); resize: vertical; }
+.launch-hint { padding: calc(var(--u) * 1) calc(var(--u) * 1) 0; font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* 択一の縦の一覧（views/primitives/PickList.tsx、PermissionList.tsx）。
+   焦点は一覧が受け、行の印（data-active）が動く。選んでいる行は青く、check が出る。
+   Bypass permissions は線の下に赤い字で置き、選んでも赤いままにする。 */
+.pick-list { display: flex; flex-direction: column; gap: 1px; outline: none; }
+.pick-li { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: calc(var(--u) * 2.5); height: 30px; padding: 0 calc(var(--u) * 2.5); border-radius: 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink); white-space: nowrap; cursor: pointer; }
+.pick-li > .icon, .pick-li > .effort-bars { width: 14px; height: 14px; color: var(--ink-3); }
+.pick-li > .effort-bars { height: 10px; }
+.pick-list[data-plain='true'] .pick-li { grid-template-columns: minmax(0, 1fr) auto; }
+.pick-li:hover { background: rgba(255, 255, 255, 0.92); }
+.pick-list:focus .pick-li[data-active='true'] { box-shadow: inset 0 0 0 1px var(--accent); }
+.pick-end { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.pick-end > .icon { width: 14px; height: 14px; color: var(--accent); visibility: hidden; }
+.pick-tag { font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
+.pick-li[aria-selected='true'] { background: var(--accent-soft); color: var(--accent); }
+.pick-li[aria-selected='true'] > .icon, .pick-li[aria-selected='true'] > .effort-bars { color: var(--accent); }
+.pick-li[aria-selected='true'] .pick-end > .icon { visibility: visible; }
+.pick-li[data-danger='true'], .pick-li[data-danger='true'] > .icon, .pick-li[data-danger='true'] .pick-end > .icon { color: var(--error); }
+.pick-li[data-danger='true'][aria-selected='true'] { background: color-mix(in srgb, var(--error) 8%, var(--surface)); }
+.pick-sep { height: 1px; margin: 5px calc(var(--u) * 1.5); background: var(--line-strong); }
 
 /* 作成のダイアログの、未登録のフォルダの一覧。開いたままの Listbox の面と同じ見た目にする。 */
 .new-project-dirs { display: flex; flex-direction: column; max-height: 232px; padding: calc(var(--u) * 1.5); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.6); box-shadow: inset 0 0 0 1px var(--line); }
