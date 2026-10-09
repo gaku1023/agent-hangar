@@ -1,8 +1,14 @@
-import type { FindState } from '../mediator/types.ts';
 import { countHits } from './highlight.ts';
 import { mdLeaves, parseMarkdown } from './markdown.ts';
 import type { TranscriptItem } from './session.ts';
 import { toolLeaves } from './tools.ts';
+
+/**
+ * 本文の中の検索（⌘F）の欄の状態。その場の操作なので保存せず、View の側に持つ（views/findStore.tsx）。
+ * from は語を打ったときに見ていた行の seq で、そこから後ろの最初の一致から数える。step はそこから進めた数。
+ * n は ⌘F を押した回数で、押すたびに欄へフォーカスを戻す合図にする。
+ */
+export type FindState = { query: string; caseSensitive: boolean; from: number | null; step: number; n: number };
 
 /**
  * 本文の中の検索（⌘F）。

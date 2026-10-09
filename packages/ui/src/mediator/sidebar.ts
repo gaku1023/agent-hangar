@@ -1,4 +1,5 @@
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
+import { liveSessionIds, type Store } from '../store/store.ts';
 import type { Input, State, Step } from './types.ts';
 
 /** サイドバーの折りたたみを残す localStorage の鍵。値は真偽値そのもの。 */
@@ -52,16 +53,17 @@ export function sidebarOrderStep(state: State, input: Input): Step | null {
 }
 
 /**
- * 動いているセッションの顔ぶれが変わったとき。
- * 初めて現れたものを、届いた順（始めた順）で並びの末尾に書き足す。場所はここで決まり、以後は利用者が動かすまで変わらない。
+ * 動いているセッションの顔ぶれを、ストアから読んで並びに合わせる（store.ts の liveSessionIds）。ストアが変わるたびに呼ばれる。
+ * 初めて現れたものを、始めた順で並びの末尾に書き足す。場所はここで決まり、以後は利用者が動かすまで変わらない。
  * 減ったときは何もしない。抜けたセッションの席を残しておき、戻ってきたら同じ場所に出す。
+ * 書き足したものは並びに残るので、顔ぶれが同じ間は何度呼ばれても何もしない。
  */
-export function sidebarLiveStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'runtime' || input.event.type !== 'live.changed') return null;
+export function sidebarLiveStep(state: State, store: Store): Step {
+  const ids = liveSessionIds(store);
   const known = new Set(state.sidebarOrder);
-  const fresh = input.event.ids.filter((id) => !known.has(id));
+  const fresh = ids.filter((id) => !known.has(id));
   if (fresh.length === 0) return { state, effects: [] };
-  const order = trimSidebarOrder([...state.sidebarOrder, ...fresh], input.event.ids);
+  const order = trimSidebarOrder([...state.sidebarOrder, ...fresh], ids);
   return { state: { ...state, sidebarOrder: order }, effects: [{ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: order }] };
 }
 
