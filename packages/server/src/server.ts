@@ -12,12 +12,12 @@ import { createReadiness, ToolVersions } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto, type SyncStatusDto } from '@agent-hangar/shared';
+import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ShellHookDto, type SyncSkippedDto, type SyncStatusDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
 import { touchRow } from './db/notify.ts';
-import { accountOfSession, getSession, listDevices, listProjects } from './db/queries.ts';
+import { accountOfSession, listDevices } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
-import { Publisher } from './events/publisher.ts';
+import { Publisher, type NoticeEvent } from './events/publisher.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
 import { announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from './http/accounts.ts';
 import { createApp, type ExternalApi } from './http/app.ts';
@@ -45,6 +45,7 @@ import { RunError, RunManager } from './runs/manager.ts';
 import { aliveRunForSession } from './runs/queries.ts';
 import { ParkWatch, parkedSessionIds, statusChanged } from './sessions/park.ts';
 import { processStartOfPrompt } from './sessions/promptProcess.ts';
+import { getSessionState } from './sessions/states.ts';
 import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
@@ -182,7 +183,7 @@ export const STOP_WATCHDOG_MS = 8_000;
  * 戻ったルートは project.upsert、紐づけ直したセッションは session.upsert になる。
  * 紐づけ直しで中身が変わったプロジェクトだけは、行を書いていないので、ここで名指しする。
  */
-export function checkRoots(o: { db: Db; deviceId: string; broadcast: (ev: ServerEvent) => void }): { unresolved: string[]; recovered: string[] } {
+export function checkRoots(o: { db: Db; deviceId: string; broadcast: (ev: NoticeEvent) => void }): { unresolved: string[]; recovered: string[] } {
   const r = checkProjectRoots(o.db, o.deviceId);
   for (const id of r.unresolved) o.broadcast({ type: 'project.unresolved', projectId: id });
   if (r.recovered.length === 0) return r;
@@ -384,7 +385,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 以下の hub はこの層である。WebSocket の束（sockets）へ直に配る箇所は無い。
   // 受け手がいないあいだは行を読み直さない。起動時の全走査で、誰も受けない DTO を組まないためである。
   const publisher = new Publisher({ db, deviceId: device.id, live: () => registry.current(), hub: sockets, active: () => sockets.clientCount() > 0 });
-  const hub: { broadcast(ev: ServerEvent): void } = publisher;
+  // 行のイベント（session.upsert など）は、ここからは渡せない（NoticeEvent）。行を書くか、touchRow で名指しする。
+  const hub: { broadcast(ev: NoticeEvent): void } = publisher;
   // 閉じたかどうか。閉じた後に届いた裏の読み取り（claude --help と --version）が、消えた置き場に書かないようにする。
   let closed = false;
   // Claude Code の形式のずれの記録（provider/claude-code/compat/）。端末ごとのファイルで、同期しない。
@@ -617,8 +619,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       // 行を残すと、再開した直後の要対応の札に前の run の問いが出てしまうので、問いだけを消す。
       if (!now.has(providerSessionId)) db.prepare('update session_activity set question = null where session_id = ?').run(sessionId);
       writeBaselineIfNeeded(db, sessionId, device.id, now.has(providerSessionId));
-      const s = getSession(db, live, sessionId, { deviceId: device.id });
-      if (s) hub.broadcast({ type: 'session.upsert', session: s });
+      // 実行中かどうかは行に無い。行は変わらなくても中身が変わるので、名指しして配り直してもらう。
+      touchRow(db, 'sessions', sessionId);
     }
     // 区切りを付けたセッションは、動きが変わると実行中に数えるか（parked）も変わる。
     // UI は live.update から動きしか直せないので、印の付いたものだけ行ごと配り直す。
@@ -627,11 +629,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (!sessionId) continue;
       // 動きが変わったら、休みの数え直しにする。
       parkWatch.reset(sessionId);
-      const s = getSession(db, live, sessionId, { deviceId: device.id });
-      if (s?.state?.status) hub.broadcast({ type: 'session.upsert', session: s });
+      if (getSessionState(db, sessionId)?.status) touchRow(db, 'sessions', sessionId);
     }
     liveStatus = new Map(live.map((l) => [l.sessionId, l.status]));
-    for (const p of listProjects(db, device.id, live)) hub.broadcast({ type: 'project.upsert', project: p });
+    // 実行中の数はどのプロジェクトでも変わりうるので、全部を名指しする。組むのは配る層で、受け手がいなければ組まない。
+    for (const p of db.prepare('select id from projects where deleted_at is null').all() as { id: string }[]) touchRow(db, 'projects', p.id);
     // hangar が起こした run に Claude の pid を書き込むのはここだけである。
     runs.linkRegistry(live);
   });
@@ -802,8 +804,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   runs.on({
     runStarted: (r) => {
       hub.broadcast({ type: 'run.started', run: r.run, tabs: r.tabs });
-      const s = getSession(db, registry.current(), r.sessionId, { deviceId: device.id });
-      if (s) hub.broadcast({ type: 'session.upsert', session: s });
+      // run が付いたセッションは、行は変わらなくても中身が変わる。run.started の後に届くよう、ここで名指しする。
+      touchRow(db, 'sessions', r.sessionId);
     },
     runUpdated: (run) => hub.broadcast({ type: 'run.upsert', run }),
     // run が終わったときは事後要約の契機になる。受け付けの可否は SummaryJob が決める。

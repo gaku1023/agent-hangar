@@ -1,6 +1,7 @@
-import { addDays, localDate, type LiveSessionDto, type ServerEvent, type SummarizerTestDto } from '@agent-hangar/shared';
+import { addDays, localDate, type LiveSessionDto, type SummarizerTestDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import type { NoticeEvent } from '../events/publisher.ts';
 import { getSessionState, proposeSessionState, StateInputError } from '../sessions/states.ts';
 import { buildSummaryInput, CANNED_INPUT } from './input.ts';
 import type { Summarizer, SummaryInput, SummaryOutput, SummaryProposal } from './types.ts';
@@ -23,7 +24,7 @@ export type SummaryJobDeps = {
   summarizers: () => Summarizer[];
   live: () => LiveSessionDto[];
   /** 要約の進み（summary.pending、summary.updated、summary.failed）を渡す先。行のイベントは渡さない。 */
-  hub: { broadcast(ev: ServerEvent): void };
+  hub: { broadcast(ev: NoticeEvent): void };
   now?: () => number;
 };
 
@@ -51,7 +52,7 @@ export class SummaryJob {
    * 購読者が切れているだけで待ち行列が取り残されると、そのセッションの要約が二度と進まなくなる。
    * 握りつぶしたことが分かるように、種別と理由だけを 1 行に残す（本文と秘密は出さない）。
    */
-  private emit(ev: ServerEvent): void {
+  private emit(ev: NoticeEvent): void {
     try {
       this.deps.hub.broadcast(ev);
     } catch (e) {

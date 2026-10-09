@@ -1,6 +1,6 @@
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { getArtifact } from '../artifacts/queries.ts';
-import { onRowChange, rowChangeClock, settleRowChanges, type RowChange, type RowOrigin } from '../db/notify.ts';
+import { onRowChange, settleRowChanges, type RowChange, type RowOrigin } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listDevices } from '../db/queries.ts';
 import { memoFromDb } from '../projects/memo.ts';
@@ -19,49 +19,34 @@ import { listTodos } from '../projects/todos.ts';
  *
  * 表の変化に対応しない知らせ（トースト、run の起動と終了、索引の進み、同期の状態など）は、呼び手が `broadcast` で渡す。
  * それらも同じ列に並べて tick の終わりに渡すので、行のイベントとの前後は呼んだ順のまま保たれる。
+ * 行のイベント（下の `RowEvent`）は `broadcast` では受けない。組むのはこの層だけである。
+ * 行は書いていないが中身が変わった（実行中の一覧が動いた、手元だけの表を書いた）ときは、呼び手は `touchRow` でその行を名指しする。
  */
+
+/** この層だけが組む、行のイベント。 */
+export type RowEvent = Extract<ServerEvent, { type: 'session.upsert' | 'project.upsert' | 'devices.update' | 'memo.update' | 'artifact.upsert' | 'todos.update' }>;
+/** 呼び手が `broadcast` で渡せる知らせ。表の変化に対応しないものだけである。 */
+export type NoticeEvent = Exclude<ServerEvent, RowEvent>;
 
 /** DTO を組むのに要るもの。 */
 type Ctx = { db: Db; deviceId: string; live: () => LiveSessionDto[] };
 
 /**
  * 配るイベントの種類。行のイベントは、種類と ID の組（鍵）で 1 つに畳む。
- * `build` は行を読み直してイベントを組む。行が無い（消えた）ときは null を返し、何も配らない。
- * `idOf` は、呼び手が手で配ったイベントがこの種類なら、その ID を返す。同じ行の二重の配りを見分けるのに使う。
+ * 行を読み直してイベントを組む。行が無い（消えた）ときは null を返し、何も配らない。
  */
-type Kind = {
-  build: (ctx: Ctx, id: string) => ServerEvent | null;
-  idOf: (ev: ServerEvent) => string | null;
-};
+type Kind = (ctx: Ctx, id: string) => RowEvent | null;
 
 const KINDS = {
-  session: {
-    // ロックを出すために自端末の ID を渡す。渡さないと他端末の run が一切見えない。
-    build: (ctx, id) => { const s = getSession(ctx.db, ctx.live(), id, { deviceId: ctx.deviceId }); return s ? { type: 'session.upsert', session: s } : null; },
-    idOf: (ev) => (ev.type === 'session.upsert' ? ev.session.id : null),
-  },
-  project: {
-    build: (ctx, id) => { const p = getProject(ctx.db, ctx.deviceId, ctx.live(), id); return p ? { type: 'project.upsert', project: p } : null; },
-    idOf: (ev) => (ev.type === 'project.upsert' ? ev.project.id : null),
-  },
+  // ロックを出すために自端末の ID を渡す。渡さないと他端末の run が一切見えない。
+  session: (ctx, id) => { const s = getSession(ctx.db, ctx.live(), id, { deviceId: ctx.deviceId }); return s ? { type: 'session.upsert', session: s } : null; },
+  project: (ctx, id) => { const p = getProject(ctx.db, ctx.deviceId, ctx.live(), id); return p ? { type: 'project.upsert', project: p } : null; },
   // 端末は一覧ごと配るので、ID は持たない。
-  devices: {
-    build: (ctx) => ({ type: 'devices.update', devices: listDevices(ctx.db, ctx.deviceId) }),
-    idOf: (ev) => (ev.type === 'devices.update' ? '' : null),
-  },
-  memo: {
-    build: (ctx, id) => { const m = memoFromDb(ctx.db, id); return m ? { type: 'memo.update', memo: m } : null; },
-    idOf: (ev) => (ev.type === 'memo.update' ? ev.memo.projectId : null),
-  },
-  artifact: {
-    build: (ctx, id) => { const a = getArtifact(ctx.db, id); return a ? { type: 'artifact.upsert', artifact: a } : null; },
-    idOf: (ev) => (ev.type === 'artifact.upsert' ? ev.artifact.id : null),
-  },
+  devices: (ctx) => ({ type: 'devices.update', devices: listDevices(ctx.db, ctx.deviceId) }),
+  memo: (ctx, id) => { const m = memoFromDb(ctx.db, id); return m ? { type: 'memo.update', memo: m } : null; },
+  artifact: (ctx, id) => { const a = getArtifact(ctx.db, id); return a ? { type: 'artifact.upsert', artifact: a } : null; },
   // TODO はプロジェクトの一覧ごと配るので、ID はプロジェクトのものである。
-  todos: {
-    build: (ctx, id) => ({ type: 'todos.update', projectId: id, todos: listTodos(ctx.db, id) }),
-    idOf: (ev) => (ev.type === 'todos.update' ? ev.projectId : null),
-  },
+  todos: (ctx, id) => ({ type: 'todos.update', projectId: id, todos: listTodos(ctx.db, id) }),
 } satisfies Record<string, Kind>;
 
 type KindName = keyof typeof KINDS;
@@ -130,19 +115,10 @@ const TABLES: Record<string, TableRule> = {
 
 const keyOf = (kind: KindName, id: string): string => `${kind}\u0000${id}`;
 
-/** 手で配られたイベントが行のイベントなら、その鍵を返す。 */
-function explicitKey(ev: ServerEvent): string | null {
-  for (const name of Object.keys(KINDS) as KindName[]) {
-    const id = KINDS[name].idOf(ev);
-    if (id !== null) return keyOf(name, id);
-  }
-  return null;
-}
-
-/** 列に並ぶもの。呼び手が渡したイベントか、tick の終わりに組む行。dead は、後から同じ行が知らされて並び直したもの。 */
+/** 列に並ぶもの。呼び手が渡した知らせか、tick の終わりに組む行。dead は、後から同じ行が知らされて並び直したもの。 */
 type Item =
-  | { ev: ServerEvent; /** 渡された時点までに起きていた行の変化の通し番号。 */ at: number }
-  | { kind: KindName; id: string; key: string; /** この行の最後の変化の通し番号。 */ at: number; dead: boolean };
+  | { ev: NoticeEvent }
+  | { kind: KindName; id: string; key: string; dead: boolean };
 
 export type PublisherDeps = {
   db: Db;
@@ -172,10 +148,9 @@ export class Publisher {
     for (const [kind, id] of rule.to(c, this.deps)) {
       const key = keyOf(kind, id);
       // 同じ行がもう並んでいれば、最後に知らされた位置へ並び直す。配るのは 1 回のままである。
-      // 変化の順番は、起きたのが最も後のものを持つ（知らせは起きた順に届くとは限らない）。
       const cur = this.rows.get(key);
       if (cur) cur.dead = true;
-      const item = { kind, id, key, at: Math.max(c.at, cur?.at ?? 0), dead: false };
+      const item = { kind, id, key, dead: false };
       this.rows.set(key, item);
       this.queue.push(item);
     }
@@ -184,11 +159,11 @@ export class Publisher {
 
   /**
    * 表の変化に対応しない知らせを渡す。EventHub と同じ形なので、hub を受け取る部品へそのまま渡せる。
-   * 行のイベント（session.upsert など）を手で渡してもよい。その行の最後の書き込みより後に渡されたものなら、同じ tick にこの層が同じ行を重ねて配ることはしない。
+   * 行のイベント（session.upsert など）は受けない（型で断る）。この層が組む分と二重になるからである。
    */
-  broadcast(ev: ServerEvent): void {
+  broadcast(ev: NoticeEvent): void {
     if (!this.off) return;
-    this.queue.push({ ev, at: rowChangeClock() });
+    this.queue.push({ ev });
     this.schedule();
   }
 
@@ -199,37 +174,24 @@ export class Publisher {
   }
 
   /**
-   * 溜めた分を配る。ふだんは tick の終わりに自分で呼ぶ。閉じる前と試験からは、直に呼べる。
-   *
-   * 呼び手が同じ行のイベントを、その行の最後の変化より後に手で配っていた tick では、この層の分は出さない。
-   * HTTP と MCP の経路がまだ手で配っているあいだ、同じ行が二重に届かないようにするためである。
-   * 手で配られた方は、数も中身もそのまま渡す。
-   * 手で配られた後に同じ行がまた変わっていたら、手の分は古いので、この層も最新の中身を配る（2 つ届くが、最後に届くのは最新である）。
-   * 前後は並びではなく、変化の通し番号で比べる。トランザクションの中の変化は知らせが遅れて届くので、並びでは前後が分からない。
+   * 溜めた分を、並んだ順に配る。ふだんは tick の終わりに自分で呼ぶ。閉じる前と試験からは、直に呼べる。
    */
   flush(): void {
     this.scheduled = false;
     if (!this.off) return;
     // トランザクションの中の書き込みは、確定の後のマイクロタスクまで知らせが遅れる。
-    // 先にそれを受け取っておかないと、手の配りだけが先に出て、遅れて来た知らせでもう 1 回配ってしまう。
+    // 先にそれを受け取っておき、同じ tick の変化をこの 1 回にまとめる。
     settleRowChanges(this.deps.db);
     const queue = this.queue;
     this.queue = [];
     this.rows = new Map();
     this.scheduled = false;
-    // 鍵ごとに、最後に手で配られた時点。
-    const explicit = new Map<string, number>();
-    for (const it of queue) {
-      if (!('ev' in it)) continue;
-      const key = explicitKey(it.ev);
-      if (key !== null) explicit.set(key, Math.max(it.at, explicit.get(key) ?? 0));
-    }
     const active = this.deps.active ? this.deps.active() : true;
     for (const it of queue) {
       try {
         if ('ev' in it) { this.deps.hub.broadcast(it.ev); continue; }
-        if (it.dead || (explicit.get(it.key) ?? -1) >= it.at || !active) continue;
-        const ev = KINDS[it.kind].build(this.deps, it.id);
+        if (it.dead || !active) continue;
+        const ev = KINDS[it.kind](this.deps, it.id);
         if (ev) this.deps.hub.broadcast(ev);
       } catch (e) {
         // 1 つの行が読めなくても、残りは配る。
