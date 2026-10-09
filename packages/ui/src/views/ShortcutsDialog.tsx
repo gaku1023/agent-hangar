@@ -1,30 +1,32 @@
 import { useEmit } from '../intent/chain.tsx';
-import { GROUP_LABEL, KEYMAP, type KeyGroup } from '../keys.ts';
+import { GROUP_KEY, KEYMAP, type KeyGroup } from '../keys.ts';
 import { Dialog } from './primitives/Dialog.tsx';
+import { useT } from './primitives/language.tsx';
 
 const GROUPS: KeyGroup[] = ['global', 'session', 'list'];
 
 /**
- * キーの一覧。
+ * キーボードショートカットの一覧。
  * 並ぶ中身は照合に使うのと同じ `KEYMAP` なので、実装と覚え書きがずれない。
  */
 export function ShortcutsDialog() {
   const emit = useEmit();
+  const t = useT();
   return (
-    <Dialog title="キーの一覧" className="dialog-wide" onClose={() => emit({ type: 'overlay.close' })}>
+    <Dialog title={t('shortcuts.dialog.title')} className="dialog-wide" onClose={() => emit({ type: 'overlay.close' })}>
       {GROUPS.map((g) => (
         <div key={g} className="keys-group">
-          <div className="faint">{GROUP_LABEL[g]}</div>
+          <div className="faint">{t(GROUP_KEY[g])}</div>
           {KEYMAP.filter((b) => b.group === g).map((b) => (
             <div key={b.id} className="keys-row">
               <span className="mono">{b.keys}</span>
-              <span>{b.label}</span>
+              <span>{t(b.labelKey)}</span>
             </div>
           ))}
         </div>
       ))}
       {/* ターミナルは打鍵の持ち主が違うので、一覧の下に一言添える。 */}
-      <div className="faint">ターミナルに文字を打っている間は、⌘ の付いた打鍵だけをこの画面が受け取ります。</div>
+      <div className="faint">{t('shortcuts.dialog.terminalNote')}</div>
     </Dialog>
   );
 }
