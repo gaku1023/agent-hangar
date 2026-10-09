@@ -994,28 +994,18 @@ describe('画面に入るときの読み込み', () => {
 const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
 
 describe('同期', () => {
-  it('sync.status が領域の状態と未送信件数になる', () => {
-    const a = run([server({ type: 'sync.status', status: status() })]);
-    expect(a.state.sync).toEqual({ kind: 'idle', lastAt: 200 });
-    expect(a.state.pending).toBe(0);
-    const b = run([server({ type: 'sync.status', status: status({ state: 'error', error: '切れました', pending: 3 }) })]);
-    expect(b.state.sync).toEqual({ kind: 'error', message: '切れました' });
-    expect(b.state.pending).toBe(3);
-    expect(run([server({ type: 'sync.status', status: status({ state: 'paused' }) })]).state.sync).toEqual({ kind: 'paused' });
-    expect(run([server({ type: 'sync.status', status: status({ state: 'off', url: null }) })]).state.sync).toEqual({ kind: 'off' });
-    expect(run([server({ type: 'sync.status', status: status({ state: 'pushing' }) })]).state.sync).toEqual({ kind: 'pushing' });
-    expect(run([server({ type: 'sync.status', status: status({ state: 'pulling' }) })]).state.sync).toEqual({ kind: 'pulling' });
+  it('sync.status は State を変えない（同期の状態は Store だけが持つ）', () => {
+    const start = initialState();
+    const a = run([server({ type: 'sync.status', status: status({ state: 'error', error: '切れました', pending: 3 }) })], start);
+    expect(a.state).toBe(start);
+    expect(a.effects).toEqual([]);
+    expect(start).not.toHaveProperty('sync');
+    expect(start).not.toHaveProperty('pending');
   });
-  it('idle の最終時刻は pull を優先し、pull が無ければ push を採る', () => {
-    expect(run([server({ type: 'sync.status', status: status({ lastPullAt: null }) })]).state.sync).toEqual({ kind: 'idle', lastAt: 100 });
-    expect(run([server({ type: 'sync.status', status: status({ lastPullAt: null, lastPushAt: null }) })]).state.sync).toEqual({ kind: 'idle', lastAt: null });
-  });
-  it('error の本文が無いときは既定の文言にする', () => {
-    expect(run([server({ type: 'sync.status', status: status({ state: 'error', error: null }) })]).state.sync).toEqual({ kind: 'error', message: '同期に失敗しました' });
-  });
-  it('今すぐ同期、一時停止、前面化が効果になる', () => {
-    const { effects } = run([intent({ type: 'sync.now' }), intent({ type: 'sync.pause', paused: true }), runtime({ type: 'window.focus' })]);
-    expect(effects).toEqual([{ kind: 'api.syncNow' }, { kind: 'api.syncPause', paused: true }, { kind: 'api.syncFocus' }]);
+  it('前面化が効果になる', () => {
+    // 今すぐ同期と一時停止は、Mediator を通らず表で引く（runtime/intentTable.ts）。
+    const { effects } = run([runtime({ type: 'window.focus' })]);
+    expect(effects).toEqual([{ kind: 'api.syncFocus' }]);
   });
   it('参加トークンの再表示と設定の下見と取り込み', () => {
     const a = run([intent({ type: 'sync.joinToken.show' })]);
@@ -1214,10 +1204,6 @@ describe('この PC で再開', () => {
     const a = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
     const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's2', localSize: 3, remoteSize: 4 })], a.state);
     expect(b.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's2', localSize: 3, remoteSize: 4 } });
-  });
-  it('同期の操作は未実装の案内を出さない', () => {
-    expect(run([intent({ type: 'sync.now' })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
-    expect(run([intent({ type: 'sync.pause', paused: false })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
   });
 });
 

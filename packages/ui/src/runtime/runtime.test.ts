@@ -7,6 +7,7 @@ import type { TerminalHost } from './terminals.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
+import { presentShell } from '../presenters/shell.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
 const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false };
@@ -1024,23 +1025,22 @@ describe('同期とこの PC で再開', () => {
     await flush();
     expect(api.syncNow).toHaveBeenCalled();
     expect(rt.getStore().sync?.state).toBe('idle');
-    // Mediator も同じ応答で揃う。ヘッダは state.sync を読む。
-    expect(rt.getState().sync).toEqual({ kind: 'idle', lastAt: 2 });
+    // 応答は Store に直に当たる。ヘッダは Store の sync を読む。
+    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ visible: true, state: 'idle' });
     rt.emit({ type: 'sync.pause', paused: true });
     await flush();
     expect(api.syncPause).toHaveBeenCalledWith(true);
     expect(rt.getStore().sync?.state).toBe('paused');
-    expect(rt.getState().sync).toEqual({ kind: 'paused' });
+    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ state: 'paused' });
   });
-  it('bootstrap の sync と devices は Mediator にも入る', async () => {
+  it('bootstrap の sync と devices は Store に入り、ヘッダに出る', async () => {
     // 読み込み直した直後にヘッダの同期表示が空にならないことを固定する。
     const device = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null };
     const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sync: { ...syncStatus, pending: 4 }, devices: [device] })) });
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
-    expect(rt.getState().sync).toEqual({ kind: 'idle', lastAt: 2 });
-    expect(rt.getState().pending).toBe(4);
+    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ visible: true, state: 'idle', pending: 4 });
     expect(rt.getStore().devices).toEqual([device]);
   });
   it('websocket の sync.status で、片付いた取り残しと回復した失敗が画面から消える', async () => {

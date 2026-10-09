@@ -40,6 +40,7 @@ describe('表の鍵', () => {
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'memo.save',
       'project.openEditor', 'project.openTerminalApp', 'project.setStatus',
       'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
+      'sync.now', 'sync.pause',
       'todo.confirm', 'todo.reject', 'todo.remove', 'todo.toggle',
     ]);
   });
@@ -185,6 +186,24 @@ describe('設定', () => {
     // 試している最中だと分かるように、呼ぶ前に消す。
     expect(r.during.summarizerTest).toBeNull();
     expect(r.store.summarizerTest).toBe(result);
+  });
+});
+
+describe('同期', () => {
+  const status = { state: 'paused', pending: 4 } as unknown as NonNullable<Store['sync']>;
+  it('今すぐ同期は syncNow を呼び、応答の状態を Store に入れる', async () => {
+    const syncNow = vi.fn(async () => status);
+    const r = await runRow({ type: 'sync.now' }, fakeApi({ syncNow }));
+    expect(syncNow).toHaveBeenCalledTimes(1);
+    expect(r.store.sync).toBe(status);
+  });
+  it('一時停止と再開は syncPause を呼び、応答の状態を Store に入れる', async () => {
+    const syncPause = vi.fn(async () => status);
+    const r = await runRow({ type: 'sync.pause', paused: true }, fakeApi({ syncPause }));
+    expect(syncPause).toHaveBeenCalledWith(true);
+    expect(r.store.sync).toBe(status);
+    await runRow({ type: 'sync.pause', paused: false }, fakeApi({ syncPause }));
+    expect(syncPause).toHaveBeenLastCalledWith(false);
   });
 });
 

@@ -103,7 +103,7 @@ export type Effect =
   | { kind: 'api.workspaceDirs' }
   | { kind: 'desktop.pickFolder' }
   | { kind: 'api.loadSettingsExtras' }
-  | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
+  | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
@@ -115,8 +115,6 @@ export type Effect =
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
 export type FocusTarget = 'newSessionName' | 'terminal' | 'palette' | 'promoteName' | 'todoInput' | 'results';
-/** 同期の見え方。サーバの SyncStatusDto を UI が描く形に写したもの。 */
-export type SyncState = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
 /**
  * 押し切る前に一言聞く必要があるもの。
  * 他端末の本文で手元を上書きする場面、外のターミナルの claude を引き取る場面、作業中かシェルタブのあるランを止める場面、
@@ -274,10 +272,6 @@ export type State = {
   launchPrefs: Record<string, LaunchPrefs>;
   /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
   indexPhase: IndexProgressDto['phase'];
-  /** クラウド同期の見え方。同期を設定していなければ off のままである。 */
-  sync: SyncState;
-  /** まだ送れていない変更の件数。ヘッダーの同期表示に出す。 */
-  pending: number;
   /** 欄ごとの保存の知らせ。欄の名前（設定の項目名）で引く。 */
   settingsSave: Record<string, SaveMark>;
   /**

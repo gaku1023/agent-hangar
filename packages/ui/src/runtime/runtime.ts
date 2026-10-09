@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -164,12 +164,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
-  /**
-   * HTTP の応答をそのまま sync.status の経路に載せる。
-   * 付録（送れなかった本文と取り残しの件数）は HTTP も websocket も運ぶので、型は両方とも SyncStatusBody である。
-   */
-  const syncStatus = (status: SyncStatusBody) => dispatch({ kind: 'server', event: { type: 'sync.status', status } });
-  /** アカウントの応答も同じく、accounts.update の経路に載せる。 */
+  /** アカウントの応答は、accounts.update の経路に載せる。 */
   const accountsUpdated = (accounts: AccountsDto) => dispatch({ kind: 'server', event: { type: 'accounts.update', accounts } });
 
   /** サブエージェントの一覧を 1 回だけ取る。
@@ -245,10 +240,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // run.ended と tab.upsert を通すのは、届いていれば起きたこと（接続を切る、跳び先を忘れる）を同じ道で起こすためである。
           for (const run of gone.runs) dispatch({ kind: 'server', event: { type: 'run.ended', run } });
           for (const tab of gone.tabs) dispatch({ kind: 'server', event: { type: 'tab.upsert', tab } });
-          // 同期の状態と端末の一覧は Mediator が持つので、読み込み直すたびに入れ直す。
-          // ここで流さないと、次の sync.status が届くまでヘッダの同期表示が空になる。
-          dispatch({ kind: 'server', event: { type: 'sync.status', status: b.sync } });
-          dispatch({ kind: 'server', event: { type: 'devices.update', devices: b.devices } });
+          // 同期の状態と端末の一覧は applyBootstrap が Store に入れてある。画面は Store から読むので、イベントにして流し直さない。
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
@@ -476,9 +468,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
         return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
-      // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。
-      case 'api.syncNow': deps.api.syncNow().then(syncStatus).catch(fail); return;
-      case 'api.syncPause': deps.api.syncPause(e.paused).then(syncStatus).catch(fail); return;
       // 前面化は静かに失敗させる。窓を触るたびに赤い通知が出ると邪魔になる。
       case 'api.syncFocus': deps.api.syncFocus().catch(() => {}); return;
       case 'api.resumeHere':
