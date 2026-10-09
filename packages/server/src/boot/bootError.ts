@@ -50,7 +50,8 @@ function isAddrInUse(e: unknown): e is { code: 'EADDRINUSE'; port?: unknown; add
  */
 export function writeBootError(home: string, e: unknown): boolean {
   const file = bootErrorPath(home);
-  const tmp = `${file}.tmp`;
+  // 同じ置き場で同時に起きた 2 つのサーバが、互いの一時ファイルを壊さないよう PID を添える
+  const tmp = `${file}.${process.pid}.tmp`;
   try {
     fs.mkdirSync(home, { recursive: true, mode: 0o700 });
     fs.writeFileSync(tmp, `${JSON.stringify(classifyBootError(e), null, 2)}\n`, { mode: 0o600 });
