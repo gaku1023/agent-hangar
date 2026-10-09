@@ -1,5 +1,7 @@
 import type { MiddlewareHandler } from 'hono';
 import { devMode, originAllowed, tokenEquals, tokenFromRequest } from '../auth/request.ts';
+import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
+import { translatorOf } from '../i18n/message.ts';
 
 /** 入口に依らない検査は auth/request.ts に置く。HTTP の入口を読む側が 1 か所から取れるよう、ここからも出す。 */
 export { allowedOrigins, devMode, originAllowed, tokenEquals, tokenFromRequest } from '../auth/request.ts';
@@ -61,7 +63,8 @@ export function hasRequestBody(contentLength: string | undefined, transferEncodi
 }
 
 /** ブラウザの他サイトからの要求を Origin で拒み、ローカルトークンで認証する。 */
-export function authMiddleware(token: string, port: number): MiddlewareHandler {
+export function authMiddleware(token: string, port: number, language: GetLanguage = defaultLanguage): MiddlewareHandler {
+  const tr = translatorOf(language);
   return async (c, next) => {
     // 入口の検査は、どれで断ったかを区別できないようそろえる。攻撃者に手掛かりを与えない。
     if (!originAllowed(c.req.header('origin'), port)) return c.json({ error: 'origin not allowed' }, 403);
@@ -69,10 +72,10 @@ export function authMiddleware(token: string, port: number): MiddlewareHandler {
     const got = tokenFromRequest(c.req.raw.headers, c.req.header('cookie'));
     // クッキーは UI の HTML を配るときに発行するので、トークンが変わった後の
     // 開きっぱなしのタブはここに落ちる。UI はこの文をそのままトーストに出す。
-    if (!tokenEquals(got, token)) return c.json({ error: '認証が切れました。ページを再読み込みしてください' }, 401);
+    if (!tokenEquals(got, token)) return c.json({ error: tr('http.auth.expired') }, 401);
     // 本文を持つ要求だけ型を見る。本文の無い POST は今までどおり通す。
     if (hasRequestBody(c.req.header('content-length'), c.req.header('transfer-encoding')) && !bodyContentTypeAllowed(c.req.method, c.req.path, c.req.header('content-type'))) {
-      return c.json({ error: '要求の形式が正しくありません' }, 415);
+      return c.json({ error: tr('http.request.badContentType') }, 415);
     }
     await next();
   };

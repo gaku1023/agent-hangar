@@ -307,9 +307,25 @@ describe('設定の往復', () => {
     for (const v of ['fr', 'EN', '', null, 1, ['en']]) {
       const r = await patch({ language: v });
       expect([v, r.status]).toEqual([v, 400]);
-      expect((await r.json()).error).toBe('「言語」は ja か en から選んでください');
+      // 言語を英語にしたあとなので、断る文も英語で返る。
+      expect((await r.json()).error).toBe('"Language" must be ja or en');
     }
     expect((await json(await get('/api/settings'))).body.language).toBe('en');
+  });
+  it('日本語のままなら、知らない言語を日本語で断る', async () => {
+    const r = await patch({ language: 'fr' });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe('「言語」は ja か en から選んでください');
+  });
+  it('言語を英語にすると、経路のエラーが英語になり、日本語に戻すと日本語になる', async () => {
+    const missing = async () => ((await (await get('/api/projects/no-such-project')).json()) as { error: string }).error;
+    expect(await missing()).toBe('プロジェクトが見つかりません');
+    await patch({ language: 'en' });
+    expect(await missing()).toBe('Project not found');
+    expect((await (await patch({ tmuxPath: 'relative/tmux' })).json()).error).toBe('"tmux path" must be a path starting with / or ~, or a command name such as tmux');
+    expect((await (await patch({})).json()).error).toBe('The request contains no settings that can be updated');
+    await patch({ language: 'ja' });
+    expect(await missing()).toBe('プロジェクトが見つかりません');
   });
 
   // 前後の空白に意味は無い。パス系の設定と同じ扱いにそろえる。

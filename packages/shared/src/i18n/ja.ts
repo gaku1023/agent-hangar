@@ -1,7 +1,102 @@
 import type { Dictionary } from './keys.ts';
 
 export const ja: Dictionary = {
+  // common
   'common.button.cancel': 'キャンセル',
+  'common.file.sourceMissing': '元のファイルが見つかりません',
+  'common.list.or': ' か ',
+  'common.list.separator': '、',
+  // session
   'session.kill.confirm': '「{name}」を停止しますか',
+  'session.error.notFound': 'セッションが見つかりません',
+  'session.transcript.notOnThisComputer': 'このセッションの本文はこの PC にありません',
+  'session.file.mustBeAbsolute': 'file は絶対パスの文字列で送ってください',
+  'session.file.notChanged': 'このセッションが変更したファイルではありません',
+  'session.status.noSuggestion': 'このセッションには確かめる提案がありません',
+  'session.status.invalid': '状態は paused、done、archived か、Active に戻す null です',
+  'session.status.reasonMustBeString': '理由は文字列です',
+  'session.status.returnOnMustBeString': '戻る日は YYYY-MM-DD の形の文字列です',
+  'session.status.returnTimeMustBeString': '戻る時刻は HH:MM の形の文字列です',
+  // sessions
   'sessions.list.count': '{n} 件のセッション',
+  // account
+  'account.error.notFound': 'アカウントが見つかりません',
+  'account.request.nameAndDir': 'name（文字列）と、任意で dir（絶対パス）を送ってください',
+  'account.login.claudeMissing': 'claude が見つかりません。設定の「{label}」を入れてください',
+  'account.login.alreadyRunning': 'このアカウントのログインは、もう始まっています。ブラウザで承認してください',
+  // http
+  'http.request.send': '{field} を送ってください',
+  'http.request.sendString': '{field} は文字列で送ってください',
+  'http.auth.expired': '認証が切れました。ページを再読み込みしてください',
+  'http.request.badContentType': '要求の形式が正しくありません',
+  'http.request.required': '{field} は必須です',
+  'http.request.tooLarge': '本文が大きすぎます（上限は {limit} です）',
+  'http.request.mustBeString': '{field} は文字列です',
+  'http.request.needed': '{field} が要ります',
+  'http.request.notJson': '本文が JSON ではありません',
+  'http.request.badShape': '本文の形が違います',
+  'http.request.mustBeBoolean': '{field} は true か false です',
+  'http.entry.title': '認証できていません',
+  'http.entry.openFromUrl': '{command} が印字した鍵付きの URL から開いてください。',
+  'http.entry.printUrl': 'その URL は、ターミナルで {command} を実行すれば何度でも出せます。',
+  'http.entry.cookieStays': '一度そこから開けば、このブラウザには鍵が残ります。次からはブックマークでそのまま開けます。',
+  // project
+  'project.error.notFound': 'プロジェクトが見つかりません',
+  'project.status.invalid': 'ステータスは active、paused、done、archived のいずれかです',
+  'project.resolve.badKind': '操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください',
+  'project.resolve.dirMissing': '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください',
+  'project.create.pathNotDir': 'path が存在するディレクトリではありません',
+  'project.create.badKind': 'kind は newDir か dir です',
+  // artifact
+  'artifact.error.addFailed': 'アーティファクトを追加できませんでした',
+  'artifact.error.notFound': 'アーティファクトが見つかりません',
+  // prompt
+  'prompt.attachment.empty': '中身がありません',
+  // retention
+  'retention.days.invalid': '保持期間は 1 以上 36500 以下の整数で指定してください',
+  'retention.preview.fingerprintMissing': '下見の指紋がありません',
+  // run
+  'run.tab.notFound': 'タブが見つかりません',
+  'run.error.notFound': '起動した Claude が見つかりません',
+  'run.error.alreadyEnded': 'この Claude はもう終了しています',
+  'run.jump.badRequest': 'heads（{headLen} 字までの文字列を {maxHeads} 個まで）、その中の index、from（top か bottom）を送ってください',
+  // settings
+  'settings.error.empty': '「{label}」は空にできません',
+  'settings.path.missing': '「{label}」に {path} が見つかりません',
+  'settings.path.notDirectory': '「{label}」の {path} はディレクトリではありません',
+  'settings.error.badValue': '「{label}」の値の形が違います',
+  'settings.path.badForm': '「{label}」は / か ~ で始まるパスか、tmux のようなコマンドの名前にしてください',
+  'settings.path.notOnPath': '「{label}」の {name} が PATH に見つかりません',
+  'settings.path.notFile': '「{label}」の {path} はファイルではありません',
+  'settings.path.notExecutable': '「{label}」の {path} には実行権がありません',
+  'settings.terminalApp.invalid': '「{label}」は Terminal.app か iTerm2 から選んでください',
+  'settings.lmStudioUrl.invalid': '「{label}」は http か https で始まる URL にしてください',
+  'settings.hourlyCap.invalid': '「{label}」は 1 から {max} までの整数にしてください',
+  'settings.language.invalid': '「{label}」は {languages} から選んでください',
+  'settings.error.nothingToUpdate': '更新できる設定が含まれていません',
+  'settings.summarizer.loopbackOnly': '要約器の宛先は 127.0.0.1 か localhost だけです。会話の本文が送られるため、ほかの宛先は、設定の「{label}」を入れてから指定してください',
+  'settings.label.workspaceRoot': 'ワークスペースのルート',
+  'settings.label.claudeDir': '読み取り元',
+  'settings.label.tmuxPath': 'tmux のパス',
+  'settings.label.codePath': 'code のパス',
+  'settings.label.nodePath': 'Node のパス',
+  'settings.label.claudePath': 'claude のパス',
+  'settings.label.terminalApp': 'ターミナルアプリ',
+  'settings.label.lmStudioUrl': 'LM Studio の URL',
+  'settings.label.lmStudioModel': 'モデル',
+  'settings.label.summaryFallback': 'LM Studio が使えないとき Claude へ切り替える',
+  'settings.label.summaryHourlyCap': '1 時間の上限',
+  'settings.label.allowExternalSummarizer': '外部の要約器を許す',
+  'settings.label.syncClaudeConfig': 'Claude Code の設定を同期する',
+  'settings.label.language': '言語',
+  // sync
+  'sync.error.notConfigured': 'クラウド同期が設定されていません',
+  // system
+  'system.index.rebuildFailed': '索引の作り直しに失敗しました: {reason}',
+  // todo
+  'todo.error.notFound': 'TODO が見つかりません',
+  'todo.error.notCandidate': 'この TODO は完了の候補ではありません',
+  // usage
+  'usage.statusline.badPayload': 'statusline の payload の形が違います',
+  'usage.days.invalid': 'days は 1 から 365 の整数です',
 };

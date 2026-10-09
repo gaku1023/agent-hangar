@@ -1,7 +1,102 @@
 import type { Dictionary } from './keys.ts';
 
 export const en: Dictionary = {
+  // common
   'common.button.cancel': 'Cancel',
+  'common.file.sourceMissing': 'The original file was not found',
+  'common.list.or': ' or ',
+  'common.list.separator': ', ',
+  // session
   'session.kill.confirm': 'Stop "{name}"?',
+  'session.error.notFound': 'Session not found',
+  'session.transcript.notOnThisComputer': "This session's transcript is not on this computer",
+  'session.file.mustBeAbsolute': 'Send file as an absolute path string',
+  'session.file.notChanged': 'This session did not change that file',
+  'session.status.noSuggestion': 'This session has no suggestion to review',
+  'session.status.invalid': 'Status must be paused, done, archived, or null to mark as Active',
+  'session.status.reasonMustBeString': 'Reason must be a string',
+  'session.status.returnOnMustBeString': 'Reminder date must be a string in YYYY-MM-DD format',
+  'session.status.returnTimeMustBeString': 'Reminder time must be a string in HH:MM format',
+  // sessions
   'sessions.list.count': '{n} sessions',
+  // account
+  'account.error.notFound': 'Account not found',
+  'account.request.nameAndDir': 'Send name (a string) and, optionally, dir (an absolute path)',
+  'account.login.claudeMissing': 'claude was not found. Enter the "{label}" in Settings',
+  'account.login.alreadyRunning': 'Login for this account has already started. Approve it in your browser',
+  // http
+  'http.request.send': 'Send {field}',
+  'http.request.sendString': 'Send {field} as a string',
+  'http.auth.expired': 'Authentication has expired. Reload the page',
+  'http.request.badContentType': 'The request format is not valid',
+  'http.request.required': '{field} is required',
+  'http.request.tooLarge': 'The request body is too large (the limit is {limit})',
+  'http.request.mustBeString': '{field} must be a string',
+  'http.request.needed': '{field} is needed',
+  'http.request.notJson': 'The request body is not JSON',
+  'http.request.badShape': 'The request body has the wrong shape',
+  'http.request.mustBeBoolean': '{field} must be true or false',
+  'http.entry.title': 'Not authenticated',
+  'http.entry.openFromUrl': 'Open the URL with the key that {command} printed.',
+  'http.entry.printUrl': 'Run {command} in a terminal to print that URL again at any time.',
+  'http.entry.cookieStays': 'Once you open it from there, this browser keeps the key. After that, a bookmark opens it directly.',
+  // project
+  'project.error.notFound': 'Project not found',
+  'project.status.invalid': 'Status must be one of active, paused, done, archived',
+  'project.resolve.badKind': 'The action is not valid. Use repoint, archive, or unlink',
+  'project.resolve.dirMissing': 'The directory was not found. Select an existing directory',
+  'project.create.pathNotDir': 'path is not an existing directory',
+  'project.create.badKind': 'kind must be newDir or dir',
+  // artifact
+  'artifact.error.addFailed': 'Could not add the artifact',
+  'artifact.error.notFound': 'Artifact not found',
+  // prompt
+  'prompt.attachment.empty': 'The file is empty',
+  // retention
+  'retention.days.invalid': 'Retention period must be an integer from 1 to 36500',
+  'retention.preview.fingerprintMissing': 'The preview fingerprint is missing',
+  // run
+  'run.tab.notFound': 'Tab not found',
+  'run.error.notFound': 'The Claude that was started was not found',
+  'run.error.alreadyEnded': 'This Claude has already ended',
+  'run.jump.badRequest': 'Send heads (up to {maxHeads} strings of up to {headLen} characters each), an index into heads, and from (top or bottom)',
+  // settings
+  'settings.error.empty': '"{label}" cannot be empty',
+  'settings.path.missing': '"{label}": {path} was not found',
+  'settings.path.notDirectory': '"{label}": {path} is not a directory',
+  'settings.error.badValue': 'The value of "{label}" has the wrong type',
+  'settings.path.badForm': '"{label}" must be a path starting with / or ~, or a command name such as tmux',
+  'settings.path.notOnPath': '"{label}": {name} was not found on PATH',
+  'settings.path.notFile': '"{label}": {path} is not a file',
+  'settings.path.notExecutable': '"{label}": {path} is not executable',
+  'settings.terminalApp.invalid': '"{label}" must be Terminal.app or iTerm2',
+  'settings.lmStudioUrl.invalid': '"{label}" must be a URL starting with http or https',
+  'settings.hourlyCap.invalid': '"{label}" must be an integer from 1 to {max}',
+  'settings.language.invalid': '"{label}" must be {languages}',
+  'settings.error.nothingToUpdate': 'The request contains no settings that can be updated',
+  'settings.summarizer.loopbackOnly': 'The summary engine address must be 127.0.0.1 or localhost. Conversation transcripts are sent to it, so turn on "{label}" in Settings before you enter another address',
+  'settings.label.workspaceRoot': 'Projects folder',
+  'settings.label.claudeDir': 'Source directory',
+  'settings.label.tmuxPath': 'tmux path',
+  'settings.label.codePath': 'code path',
+  'settings.label.nodePath': 'Node path',
+  'settings.label.claudePath': 'claude path',
+  'settings.label.terminalApp': 'Terminal app',
+  'settings.label.lmStudioUrl': 'LM Studio URL',
+  'settings.label.lmStudioModel': 'Model',
+  'settings.label.summaryFallback': 'Fall back to Claude when LM Studio is unavailable',
+  'settings.label.summaryHourlyCap': 'Hourly limit',
+  'settings.label.allowExternalSummarizer': 'Allow external summary engines',
+  'settings.label.syncClaudeConfig': 'Sync Claude Code settings',
+  'settings.label.language': 'Language',
+  // sync
+  'sync.error.notConfigured': 'Cloud sync is not set up',
+  // system
+  'system.index.rebuildFailed': 'Failed to rebuild the index: {reason}',
+  // todo
+  'todo.error.notFound': 'To-do not found',
+  'todo.error.notCandidate': 'This to-do is not a completion suggestion',
+  // usage
+  'usage.statusline.badPayload': 'The status line payload has the wrong shape',
+  'usage.days.invalid': 'days must be an integer from 1 to 365',
 };

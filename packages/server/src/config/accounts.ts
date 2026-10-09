@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { newId, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
+import { MessageError, type Message } from '../i18n/message.ts';
 
 /** 最初のアカウント（既定の置き場）の id。消せない。定義は shared にある（画面も使う）。 */
 export { PRIMARY_ACCOUNT_ID };
@@ -13,8 +14,8 @@ const COLOR = /^#[0-9a-f]{6}$/;
 export type Account = { id: string; name: string; dir: string; color: string };
 type FileShape = { currentId: string; primary: { name: string; color: string }; accounts: Account[] };
 
-export class AccountError extends Error {
-  constructor(readonly status: 400 | 404, message: string) { super(message); }
+export class AccountError extends MessageError {
+  constructor(readonly status: 400 | 404, text: Message | string) { super(text); }
 }
 
 const isAccount = (v: unknown): v is Account => {

@@ -348,3 +348,40 @@ describe('組み立ての必須の口', () => {
     expectTypeOf<undefined>().not.toExtend<AppDeps['uiDist']>();
   });
 });
+
+describe('言語', () => {
+  const body = (o: unknown, method = 'POST') => ({ method, headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(o) });
+  const errorOf = async (r: Response | Promise<Response>) => ((await (await r).json()) as { error: string }).error;
+
+  it('language を渡さなければ、設定の言語で文を出す', async () => {
+    expect(await errorOf(get('/api/sessions/no-such'))).toBe('セッションが見つかりません');
+    deps.updateSettings({ language: 'en' });
+    expect(await errorOf(get('/api/sessions/no-such'))).toBe('Session not found');
+  });
+
+  it('英語では、入口の検査、本文の上限、本文の形の誤りが英語で返る', async () => {
+    const en = createApp({ ...deps, language: () => 'en' });
+    expect(await errorOf(en.request('/api/bootstrap'))).toBe('Authentication has expired. Reload the page');
+    expect(await errorOf(en.request(`/api/projects/${list0ProjectId()}/todos`, body({ text: 'あ'.repeat(2000) })))).toBe('The request body is too large (the limit is 4KB)');
+    expect(await errorOf(en.request('/api/runs', body('x')))).toBe('The request body is not JSON');
+    // 文字列で作った失敗は訳せないので、そのまま返る。
+    expect(await errorOf(en.request('/api/runs', body({})))).toBe('プロジェクトを選んでください');
+  });
+
+  it('英語では、鍵の無い / の案内が英語になり、コマンドの名前はそのまま残る', async () => {
+    const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dist-'));
+    try {
+      fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
+      const html = await (await createApp({ ...deps, uiDist: dist, language: () => 'en' }).request('/')).text();
+      expect(html).toContain('<html lang="en">');
+      expect(html).toContain('<h1>Not authenticated</h1>');
+      expect(html).toContain('<p>Open the URL with the key that <code>hangar start</code> printed.</p>');
+      expect(html).toContain('<code>hangar url</code>');
+      const ja = await (await createApp({ ...deps, uiDist: dist }).request('/')).text();
+      expect(ja).toContain('<html lang="ja">');
+      expect(ja).toContain('<p><code>hangar start</code> が印字した鍵付きの URL から開いてください。</p>');
+    } finally {
+      fs.rmSync(dist, { recursive: true, force: true });
+    }
+  });
+});

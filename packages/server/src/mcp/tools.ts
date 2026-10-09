@@ -7,6 +7,7 @@ import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX } from '../live/intents.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
+import type { GetLanguage } from '../i18n/language.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
@@ -22,6 +23,8 @@ export type ToolDeps = {
   /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
   accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
   memos: MemoStore;
+  /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
+  language?: GetLanguage;
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
 export type ToolContext = { sessionId: string | null };

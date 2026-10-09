@@ -1,6 +1,7 @@
 import type { CloudUsageDto, CompatDto, ConfigPreviewDto, DeviceDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
+import type { GetLanguage } from '../i18n/language.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import type { RunManager } from '../runs/manager.ts';
@@ -38,7 +39,17 @@ export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onF
  * ClaudeConfigSync に pull() は無いので、呼び手が applyPull(pendingRemote()) の形に包んで渡す。
  */
 export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
+/**
+ * いまの言語を返す関数。経路のファイルは、これを受け取って文を引く。
+ * createApp が AppDeps の language（無ければ設定から作ったもの）を、どの経路にも渡す。
+ */
+export type LanguageDeps = { language: GetLanguage };
 export type AppDeps = {
+  /**
+   * 応答の文の言語。省くと、createApp が設定（settings）の language から作る。
+   * 試験が言語を決め打ちにするときだけ渡す。
+   */
+  language?: GetLanguage;
   db: Db; deviceId: string; deviceName: string; token: string; home: string; port: number; version: string;
   settings: () => Settings; updateSettings: (patch: Partial<SettingsDto>) => Settings;
   live: () => LiveSessionDto[];
