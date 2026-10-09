@@ -273,6 +273,7 @@ export const MESSAGES = {
   'summary.input.omitted': ['n'],
   'summary.input.running': [],
   'summary.prompt.system': [],
+  'summary.canned.text': [],
 } as const satisfies Record<`${string}.${string}.${string}`, readonly string[]>;
 
 export type MessageKey = keyof typeof MESSAGES;
