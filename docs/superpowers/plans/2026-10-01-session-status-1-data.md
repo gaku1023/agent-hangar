@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-01-session-status-design.md`（3 段で共有する名前と型は `docs/superpowers/plans/2026-10-01-session-status-contract.md`。名前と型はここから変えない）。見た目の試作は `docs/superpowers/specs/2026-10-01-session-status/model-v3.html` と `rest.html`。
 
-コマンドはすべて worktree の根 `/Users/satog/workspace/agent-hangar/.claude/worktrees/session-status` で打つ。
+コマンドはすべて worktree の根 `/Users/me/workspace/agent-hangar/.claude/worktrees/session-status` で打つ。
 
 ## Global Constraints
 
@@ -3021,11 +3021,11 @@ Expected: ログイン済みのアカウントが出る。
 
 - [ ] **Step 4: 配備する**
 
-本番の設定 `~/.agent-hangar/cloud/wrangler.jsonc` の `main` はメインの checkout（`/Users/satog/workspace/agent-hangar/packages/cloud/src/index.ts`）を指している。この段を main へ入れる前に配備するときは、`main` だけを worktree のソースに差し替えた写しを一時ディレクトリに作って配備する（2026-10-01 の Worker の配備と同じやり方）。
+本番の設定 `~/.agent-hangar/cloud/wrangler.jsonc` の `main` はメインの checkout（`/Users/me/workspace/agent-hangar/packages/cloud/src/index.ts`）を指している。この段を main へ入れる前に配備するときは、`main` だけを worktree のソースに差し替えた写しを一時ディレクトリに作って配備する（2026-10-01 の Worker の配備と同じやり方）。
 アカウント ID は `~/.agent-hangar/cloud.json` の `accountId` を環境変数で渡す。`cloud.json` は参加の秘密も持つので、`accountId` 以外を出力しない。
 
 ```bash
-cd /Users/satog/workspace/agent-hangar/.claude/worktrees/session-status/packages/cloud
+cd /Users/me/workspace/agent-hangar/.claude/worktrees/session-status/packages/cloud
 CFG="<一時ディレクトリ>/wrangler.session-status.jsonc"
 sed "s#\"main\": \".*\"#\"main\": \"$PWD/src/index.ts\"#" ~/.agent-hangar/cloud/wrangler.jsonc > "$CFG"
 grep '"main"' "$CFG"

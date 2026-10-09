@@ -34,7 +34,7 @@ describe('meaningfulUtterance（抜粋から除く雑音の規則）', () => {
   it('意味のある発言は前後の空白を落としてそのまま返す', () => {
     expect(meaningfulUtterance('  画像の圧縮率を 3 形式で比べたい \n')).toBe('画像の圧縮率を 3 形式で比べたい');
     expect(meaningfulUtterance('fix the flaky test')).toBe('fix the flaky test');
-    expect(meaningfulUtterance('/Users/satog/foo.ts を読んで')).toBe('/Users/satog/foo.ts を読んで');
+    expect(meaningfulUtterance('/Users/me/foo.ts を読んで')).toBe('/Users/me/foo.ts を読んで');
     expect(meaningfulUtterance('https://example.com を見て直して')).toBe('https://example.com を見て直して');
     expect(meaningfulUtterance('a < b のときに落ちる')).toBe('a < b のときに落ちる');
   });

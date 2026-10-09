@@ -99,7 +99,7 @@ describe('runSetupCloud', () => {
       'd1 info hangar --json': () => ({ code: 1, stdout: '', stderr: 'not found' }),
       'd1 create hangar': () => ok(`database_id = "${DB_ID}"`),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
-      deploy: () => ok('Deployed hangar\n  https://hangar.gaku.workers.dev'),
+      deploy: () => ok('Deployed hangar\n  https://hangar.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': (_a, input) => {
         expect(input).toMatch(/^[0-9a-f]{64}\n$/);
         return ok('Success');
@@ -118,7 +118,7 @@ describe('runSetupCloud', () => {
       log: (l) => lines.push(l),
     });
 
-    expect(r.url).toBe('https://hangar.gaku.workers.dev');
+    expect(r.url).toBe('https://hangar.example.workers.dev');
     const tok = decodeJoinToken(r.joinToken);
     expect(tok.url).toBe(r.url);
     expect(tok.secret).toMatch(/^[A-Za-z0-9_-]{40,}$/);
@@ -174,14 +174,14 @@ describe('runSetupCloud', () => {
       whoami: () => ok(WHOAMI),
       'd1 info hangar-dev --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-dev-files': () => ({ code: 1, stdout: '', stderr: 'A bucket with this name already exists' }),
-      deploy: () => ok('https://hangar-dev.gaku.workers.dev'),
+      deploy: () => ok('https://hangar-dev.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': () => ok(),
     });
     const ff = fakeFetch();
     const r = await runSetupCloud({ home, name: 'hangar-dev', device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} });
     expect(decodeJoinToken(r.joinToken).secret).toBe(keep);
     expect(w.calls.map((c) => c.args[0])).toEqual(['whoami', 'd1', 'r2', 'deploy', 'secret']);
-    expect(loadCloudConfig(home)).toMatchObject({ workerName: 'hangar-dev', dbName: 'hangar-dev', bucketName: 'hangar-dev-files', url: 'https://hangar-dev.gaku.workers.dev' });
+    expect(loadCloudConfig(home)).toMatchObject({ workerName: 'hangar-dev', dbName: 'hangar-dev', bucketName: 'hangar-dev-files', url: 'https://hangar-dev.example.workers.dev' });
   });
 
   it('ログインしていなければ login を対話で実行してからもう一度読む', async () => {
@@ -191,7 +191,7 @@ describe('runSetupCloud', () => {
       whoami: () => (asked++ === 0 ? { code: 1, stdout: '', stderr: 'You are not authenticated' } : ok(WHOAMI)),
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
-      deploy: () => ok('https://hangar.gaku.workers.dev'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': () => ok(),
     });
     const ff = fakeFetch(0);
@@ -220,7 +220,7 @@ describe('runSetupCloud', () => {
       whoami: () => ok(WHOAMI),
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
-      deploy: () => ok('Deployed hangar\n  https://hangar.gaku.workers.dev'),
+      deploy: () => ok('Deployed hangar\n  https://hangar.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': () => ok('Success'),
     });
     await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch().fetch, sleep: async () => {}, cloudDir, log: () => {} });
@@ -234,7 +234,7 @@ describe('runSetupCloud', () => {
   it('別の名前で作り直すときは、前の資源が置き去りになることを見せて確認する', async () => {
     const { home, cloudDir } = dirs();
     const before = JSON.stringify({
-      url: 'https://hangar-dev.gaku.workers.dev',
+      url: 'https://hangar-dev.example.workers.dev',
       joinSecret: 'keep-this-secret-value-000000000000000000',
       deviceToken: 'old',
       workerName: 'hangar-dev',
@@ -276,14 +276,14 @@ describe('runSetupCloud', () => {
     const { home, cloudDir } = dirs();
     fs.writeFileSync(
       path.join(home, 'cloud.json'),
-      JSON.stringify({ url: 'https://other.gaku.workers.dev', joinSecret: 'k', deviceToken: 'old', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 }),
+      JSON.stringify({ url: 'https://other.example.workers.dev', joinSecret: 'k', deviceToken: 'old', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 }),
     );
     const w = fakeWrangler({ whoami: () => ok(WHOAMI) });
     const lines: string[] = [];
     await expect(
       runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: fakeFetch().fetch, sleep: async () => {}, cloudDir, log: (l) => lines.push(l), confirm: async () => false }),
     ).rejects.toThrow(/取りやめ/);
-    expect(lines.join('\n')).toContain('https://other.gaku.workers.dev');
+    expect(lines.join('\n')).toContain('https://other.example.workers.dev');
     expect(w.calls).toHaveLength(0);
   });
 
@@ -329,7 +329,7 @@ describe('runSetupCloud', () => {
       whoami: () => ok(WHOAMI),
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
-      deploy: () => ok('https://hangar.gaku.workers.dev'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': () => ok(),
     });
     const r = await runSetupCloud({
@@ -1240,7 +1240,7 @@ describe('runSetupCloud の使用量のトークンの問い', () => {
       whoami: () => ok(WHOAMI),
       'd1 info hangar --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
-      deploy: () => ok('https://hangar.gaku.workers.dev'),
+      deploy: () => ok('https://hangar.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': () => ok(),
     });
     const lines: string[] = [];

@@ -6,8 +6,12 @@ import pty from 'node-pty';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import os from 'node:os';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// リポジトリの根と、手元の claude の置き場。
+const ROOT = path.resolve(here, '../..');
+const CLAUDE = path.join(os.homedir(), '.local/bin/claude');
 const TMUX = '/opt/homebrew/bin/tmux';
 const PORT = Number(process.env.PORT ?? 4191);
 const app = express();
@@ -20,9 +24,9 @@ let seq = 0;
 const wss = new WebSocketServer({ server, path: '/pty' });
 wss.on('connection', (ws, req) => {
   const u = new URL(req.url, 'http://x');
-  const cmd = u.searchParams.get('cmd') === 'zsh' ? ['/bin/zsh', '-l'] : ['env', 'HANGAR_NO_WRAP=1', '/Users/satog/.local/bin/claude'];
+  const cmd = u.searchParams.get('cmd') === 'zsh' ? ['/bin/zsh', '-l'] : ['env', 'HANGAR_NO_WRAP=1', CLAUDE];
   const name = `spike14-live-${process.pid}-${++seq}`;
-  execFileSync(TMUX, ['new-session', '-d', '-s', name, '-x', '120', '-y', '40', '-c', '/Users/satog/workspace/agent-hangar', ...cmd]);
+  execFileSync(TMUX, ['new-session', '-d', '-s', name, '-x', '120', '-y', '40', '-c', ROOT, ...cmd]);
   execFileSync(TMUX, ['set-option', '-t', name, 'status', 'off']);
   const p = pty.spawn(TMUX, ['attach', '-t', name], { name: 'xterm-256color', cols: 120, rows: 40, cwd: process.env.HOME, env: { ...process.env, TERM: 'xterm-256color', LANG: 'ja_JP.UTF-8' } });
   console.log('open', name);

@@ -43,10 +43,10 @@
 利用者が npm run dev で使っているメインの checkout は動かさない。superpowers:using-git-worktrees に従い、`main` から `cloud-usage` ブランチの worktree を作る。メインの checkout にある未追跡の仕様・試作・計画を worktree へ写す。
 
 ```bash
-git -C /Users/satog/workspace/agent-hangar worktree add /Users/satog/workspace/agent-hangar-cloud-usage -b cloud-usage main
-cp -R /Users/satog/workspace/agent-hangar/docs/superpowers/specs/2026-10-02-cloud-usage* /Users/satog/workspace/agent-hangar-cloud-usage/docs/superpowers/specs/
-cp /Users/satog/workspace/agent-hangar/docs/superpowers/plans/2026-10-02-cloud-usage.md /Users/satog/workspace/agent-hangar-cloud-usage/docs/superpowers/plans/
-cd /Users/satog/workspace/agent-hangar-cloud-usage && npm ci
+git -C /Users/me/workspace/agent-hangar worktree add /Users/me/workspace/agent-hangar-cloud-usage -b cloud-usage main
+cp -R /Users/me/workspace/agent-hangar/docs/superpowers/specs/2026-10-02-cloud-usage* /Users/me/workspace/agent-hangar-cloud-usage/docs/superpowers/specs/
+cp /Users/me/workspace/agent-hangar/docs/superpowers/plans/2026-10-02-cloud-usage.md /Users/me/workspace/agent-hangar-cloud-usage/docs/superpowers/plans/
+cd /Users/me/workspace/agent-hangar-cloud-usage && npm ci
 ```
 
 - [ ] **Step 2: 土台の試験が緑であることを確かめる**

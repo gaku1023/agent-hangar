@@ -297,7 +297,7 @@ describe('rowWindow', () => {
 });
 
 describe('Transcript のツールの行', () => {
-  const long = 'cd /Users/satog/.claude/projects/-Users-satog-workspace-agent-hangar/memory && grep -n "Dock" feedback-always-build-before-returning.md';
+  const long = 'cd /Users/me/.claude/projects/-Users-me-workspace-agent-hangar/memory && grep -n "Dock" notes-on-building-before-returning.md';
   const tool = toolItem(0, 'Bash', { command: long }, null);
   it('要約は 1 行に収める器に入れ、全文は title で読めるようにする', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={[tool]} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);

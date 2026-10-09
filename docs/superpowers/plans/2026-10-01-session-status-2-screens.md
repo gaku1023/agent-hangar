@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- 作業はすべて worktree `/Users/satog/workspace/agent-hangar/.claude/worktrees/session-status`（ブランチ `worktree-session-status`）で行う。元の checkout には触らない。
+- 作業はすべて worktree `/Users/me/workspace/agent-hangar/.claude/worktrees/session-status`（ブランチ `worktree-session-status`）で行う。元の checkout には触らない。
 - 第 1 段の計画（`2026-10-01-session-status-1-data.md`）のタスクがすべて済んだ同じブランチで始める。`SessionStateDto`、`SessionDto.state`、`SessionRowProps` の `state`・`returnOn`・`overdueDays`・`candidate`・`setBy`、Intent の `session.state.*`・`session.pause.open`、行の札と「⋯」、Paused の入力（B1）、提案のポップ、`isReturnOn`・`localDate`・`addDays`・`overdueDays`、サーバの `setSessionState`・`proposeSessionState` は、契約の名前のまま既にある前提で使う。
 - 契約の名前と型は変えない。この段で契約に足すものは次のとおりで、どれも足すだけ（既存の名前の意味は変えない）。
   - `parseQuery` と `formatQuery` に、省ける第 3 引数 `projects: readonly QueryProject[] = []`（`project:` を名前で引くため）。あわせて `queryTokens`・`badTokens`・`QueryToken`・`QueryKey`・`QueryProject` を `searchTokens.ts` から出す。

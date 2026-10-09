@@ -36,7 +36,7 @@
 
 - [ ] **Step 1: 依存を入れる**
 
-Run: `cd /Users/satog/workspace/agent-hangar/.claude/worktrees/new-project-ui && npm ci`
+Run: `cd /Users/me/workspace/agent-hangar/.claude/worktrees/new-project-ui && npm ci`
 Expected: 終わりに `added N packages`。エラーなし。
 
 - [ ] **Step 2: 現状が緑であることを確かめる**

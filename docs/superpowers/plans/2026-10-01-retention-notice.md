@@ -14,7 +14,7 @@ UI は、帯（Shell）、確認のダイアログ、一覧の印、セッショ
 
 ## Global Constraints
 
-- 作業はすべて worktree `/Users/satog/workspace/agent-hangar/.claude/worktrees/retention-notice`（ブランチ `worktree-retention-notice`）で行う。元の checkout には触らない。
+- 作業はすべて worktree `/Users/me/workspace/agent-hangar/.claude/worktrees/retention-notice`（ブランチ `worktree-retention-notice`）で行う。元の checkout には触らない。
 - 依存を足さない。
 - `~/.claude` への書き込みは `cleanupPeriodDays` の 1 か所だけとする。ほかのキーと書式（空白、改行、キーの順）には 1 バイトも触れない。
 - 書く前に `~/.agent-hangar/backups/claude-config/<yyyyMMdd-HHmmss>/settings.json` へ控えを取る。控えが取れなければ書かない。

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 作業はすべて worktree `/Users/satog/workspace/agent-hangar/.claude/worktrees/session-status`（ブランチ `worktree-session-status`）で行う。元の checkout には触らない。
+- 作業はすべて worktree `/Users/me/workspace/agent-hangar/.claude/worktrees/session-status`（ブランチ `worktree-session-status`）で行う。元の checkout には触らない。
 - worktree の根に `node_modules` が無ければ、最初に worktree の根で `npm ci` を行う（`npm install` は package-lock.json を書き換えるので使わない）。
 - 第 1 段（データと入口）が入っている前提で書く。始める前に次の 3 つがあることを確かめる。無ければ第 1 段を先に入れる。
   - `packages/server/src/sessions/states.ts` の `getSessionState`・`setSessionState`・`proposeSessionState`・`rejectSessionState`・`StateInputError`
@@ -1264,7 +1264,7 @@ Expected: 3 つとも成功する（`npm run build` は `packages/ui` の `vite 
 ここから Step 6 までは、worktree の根の同じシェルで続けて打つ（`VH` と `states` を使い回す）。
 
 ```bash
-VH=/private/tmp/claude-501/-Users-satog-workspace-agent-hangar/972fecb8-9250-4213-9848-91c1df85b843/scratchpad/verify-home
+VH=/private/tmp/claude-501/-Users-me-workspace-agent-hangar/972fecb8-9250-4213-9848-91c1df85b843/scratchpad/verify-home
 mkdir -p "$VH"
 HANGAR_HOME="$VH" HANGAR_PORT=4199 nohup node --import tsx packages/server/src/main.ts > "$VH/server.log" 2>&1 &
 echo $! > "$VH/server.pid"
@@ -1290,7 +1290,7 @@ states() { curl -s -H @"$VH/statusline-header" http://127.0.0.1:4199/api/session
 tmux の上の zsh に、一時の置き場の claude.zsh を読ませて確かめる。利用者のターミナルと `~/.zshrc` には触らない。tmux のセッション名は hangar の `hangar-*` と重ならない名前にする。
 
 ```bash
-tmux new-session -d -s verify-zsh-status -x 200 -y 50 -c /Users/satog/workspace/agent-hangar/.claude/worktrees/session-status 'zsh -f'
+tmux new-session -d -s verify-zsh-status -x 200 -y 50 -c /Users/me/workspace/agent-hangar/.claude/worktrees/session-status 'zsh -f'
 tmux send-keys -t verify-zsh-status "source '$VH/shell/claude.zsh'; claude" Enter
 ```
 
