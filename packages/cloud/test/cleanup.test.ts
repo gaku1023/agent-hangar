@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanupStage1, META_STAGE1_CLEANUP } from '../src/cleanup.ts';
+import { cleanupLegacyConfig, cleanupStage1, LEGACY_CONFIG_BATCH, LEGACY_CONFIG_CLEANUP_ENABLED, META_LEGACY_CONFIG_CLEANUP, META_STAGE1_CLEANUP } from '../src/cleanup.ts';
 import type { Env } from '../src/env.ts';
 import { ensureSchema, resetSchemaCache, SCHEMA_STATEMENTS } from '../src/schema.ts';
 import { resetSweepThrottle, sweepIfDue } from '../src/sweep.ts';
@@ -104,5 +104,78 @@ describe('段 1 の後始末', () => {
     const r = await sweepIfDue(cloud.env, Date.now() + 2 * HOUR);
     expect(r?.bodies).toEqual([]);
     expect((await cloud.env.BUCKET.list()).objects.map((o) => o.key)).toEqual(['config/dev-a/skills/x/SKILL.md', 'transcripts/dev-a/u1.jsonl.gz']);
+  });
+});
+
+describe('旧実装の設定（config/ の項目ごとの本体と索引）の後始末', () => {
+  const BUNDLE = 'config/dev-a/.hangar/config-bundle.hgr';
+  const LEGACY = ['config/dev-a/CLAUDE.md', 'config/dev-a/skills/x/SKILL.md', 'config/dev-b/settings.json'];
+  const TRANSCRIPT = 'transcripts/dev-a/u1.jsonl.gz';
+
+  const fileRow = (key: string, path: string, kind: string, dev: string): D1PreparedStatement =>
+    cloud.env.DB.prepare('insert into files (key, path, kind, device_id, sha256, size, stored_size, mtime, encrypted, uploaded_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(key, path, kind, dev, 'a'.repeat(64), 1, 1, 1, 1, 1);
+
+  /** 旧実装の項目ごとの索引と本体に、新実装の束と本文を足す。 */
+  const seedConfig = async (): Promise<void> => {
+    await cloud.env.DB.batch([
+      fileRow(LEGACY[0]!, 'CLAUDE.md', 'config', 'dev-a'),
+      fileRow(LEGACY[1]!, 'skills/x/SKILL.md', 'config', 'dev-a'),
+      fileRow(LEGACY[2]!, 'settings.json', 'config', 'dev-b'),
+      fileRow(BUNDLE, '.hangar/config-bundle.hgr', 'config', 'dev-a'),
+      fileRow(TRANSCRIPT, 'u1.jsonl.gz', 'transcript', 'dev-a'),
+    ]);
+    for (const k of [...LEGACY, BUNDLE, TRANSCRIPT]) await cloud.env.BUCKET.put(k, 'x');
+  };
+  const r2Keys = async (): Promise<string[]> => (await cloud.env.BUCKET.list()).objects.map((o) => o.key).sort();
+
+  it('旧実装が読むうちは（既定では）何も消さず、印も置かない', async () => {
+    await makeTables();
+    await seedConfig();
+    expect(LEGACY_CONFIG_CLEANUP_ENABLED).toBe(false);
+    expect(await cleanupLegacyConfig(cloud.env, Date.now())).toBe(false);
+    await ensureSchema(cloud.env);
+    expect(await fileKeys()).toEqual([...LEGACY, BUNDLE, TRANSCRIPT].sort());
+    expect(await r2Keys()).toHaveLength(5);
+    expect(await metaKeys()).not.toContain(META_LEGACY_CONFIG_CLEANUP);
+  });
+
+  it('関門を開けると、項目ごとの本体と索引を消し、束と本文は残して、済んだ印を置く', async () => {
+    await makeTables();
+    await seedConfig();
+    expect(await cleanupLegacyConfig(cloud.env, Date.now(), true)).toBe(true);
+    expect(await fileKeys()).toEqual([BUNDLE, TRANSCRIPT]);
+    expect(await r2Keys()).toEqual([BUNDLE, TRANSCRIPT]);
+    expect(await metaKeys()).toContain(META_LEGACY_CONFIG_CLEANUP);
+    // 印のあとは何もしない。
+    await cloud.env.DB.batch([fileRow(LEGACY[0]!, 'CLAUDE.md', 'config', 'dev-a')]);
+    expect(await cleanupLegacyConfig(cloud.env, Date.now(), true)).toBe(false);
+    expect(await fileKeys()).toContain(LEGACY[0]);
+  });
+
+  it('1 回に消すのは上限までで、残りは次の回に続け、全部消えたときだけ印を置く', async () => {
+    await makeTables();
+    const n = LEGACY_CONFIG_BATCH * 2 + 5;
+    await cloud.env.DB.batch(Array.from({ length: n }, (_, i) => fileRow(`config/dev-a/f${i}`, `f${i}`, 'config', 'dev-a')));
+    expect(await cleanupLegacyConfig(cloud.env, Date.now(), true, 1)).toBe(false);
+    expect(await fileKeys()).toHaveLength(n - LEGACY_CONFIG_BATCH);
+    expect(await metaKeys()).not.toContain(META_LEGACY_CONFIG_CLEANUP);
+    expect(await cleanupLegacyConfig(cloud.env, Date.now(), true, 10)).toBe(true);
+    expect(await fileKeys()).toEqual([]);
+    expect(await metaKeys()).toContain(META_LEGACY_CONFIG_CLEANUP);
+  });
+
+  it('落ちても例外を投げず、印も置かない（次の cold start でまた試す）', async () => {
+    await makeTables();
+    await seedConfig();
+    const failing: Env = {
+      ...cloud.env,
+      DB: {
+        prepare: (q: string) => cloud.env.DB.prepare(q),
+        batch: async () => { throw new Error('D1_ERROR: boom'); },
+      } as unknown as D1Database,
+    };
+    expect(await cleanupLegacyConfig(failing, Date.now(), true)).toBe(false);
+    expect(await metaKeys()).not.toContain(META_LEGACY_CONFIG_CLEANUP);
   });
 });
