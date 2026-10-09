@@ -44,8 +44,44 @@ export function replacements(s: Secrets): Pairs {
   return pairs.filter(([from]) => from.length >= 3).sort((a, b) => b[0].length - a[0].length);
 }
 
-/** メールアドレスらしい文字列。置き換えと、伏せ残しの見つけ方（leaks）が同じものを使う。 */
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+/** 名前の部分（@ の前）に使える字。 */
+const EMAIL_LOCAL = /[A-Za-z0-9._%+-]/;
+/** @ の後ろ。@ の直後の位置に固定して当てる。 */
+const EMAIL_DOMAIN = /[A-Za-z0-9.-]+\.[A-Za-z]{2,}/y;
+
+/**
+ * メールアドレスらしい文字列の位置（start から end の手前まで）。置き換え（redactText）と伏せ残しの見つけ方（leaks）が同じものを使う。
+ * 拾う範囲は、正規表現 /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g で左から順に重ならずに拾うのと同じにする。
+ * その正規表現をそのまま使うと、@ の無い長い連なりで、連なりのどの位置からも試し直して時間が長さの 2 乗に増える（10 万文字で数秒）。
+ * そこで @ を 1 つずつ探し、名前の部分は @ から前へ（前に拾った所の終わりまで）、後ろは @ の直後に固定した正規表現で読む。
+ * 名前の部分は @ で切れるので、どの字も前へ読むのは 1 度だけで、時間は長さに比例する。
+ */
+export function emailSpans(text: string): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  let from = 0;
+  for (let at = text.indexOf('@'); at !== -1; at = text.indexOf('@', at + 1)) {
+    let start = at;
+    while (start > from && EMAIL_LOCAL.test(text.charAt(start - 1))) start--;
+    if (start === at) continue;
+    EMAIL_DOMAIN.lastIndex = at + 1;
+    const m = EMAIL_DOMAIN.exec(text);
+    if (m === null) continue;
+    const end = at + 1 + m[0].length;
+    out.push({ start, end });
+    from = end;
+  }
+  return out;
+}
+
+/** メールアドレスらしい文字列をどれも to にする。 */
+function replaceEmails(text: string, to: string): string {
+  const spans = emailSpans(text);
+  if (spans.length === 0) return text;
+  let out = '';
+  let last = 0;
+  for (const { start, end } of spans) { out += text.slice(last, start) + to; last = end; }
+  return out + text.slice(last);
+}
 
 /**
  * 置き換えの組を当て、そのあとメールアドレスらしい文字列をどれも PLACEHOLDER.email にする。
@@ -54,7 +90,7 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 export function redactText(text: string, pairs: Pairs): string {
   let out = text;
   for (const [from, to] of pairs) out = out.split(from).join(to);
-  return out.replace(EMAIL, PLACEHOLDER.email);
+  return replaceEmails(out, PLACEHOLDER.email);
 }
 
 /** 値を深く辿り、文字列と鍵に置き換えを当てる。鍵にパスを持つ記録（file-history-snapshot など）があるためである。 */
@@ -165,6 +201,18 @@ function hasWord(text: string, word: string): boolean {
   return new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(word)}(?![A-Za-z0-9])`, 'i').test(text);
 }
 
+/** 利用者の CLAUDE.md の行を探す形。行そのものと、伏せた形（ホームのパスやアドレスが置き換わった形）。Secrets ごとに 1 度だけ作る。 */
+const contextNeedleCache = new WeakMap<Secrets, string[]>();
+function contextNeedles(s: Secrets): string[] {
+  const cached = contextNeedleCache.get(s);
+  if (cached) return cached;
+  const pairs = replacements(s);
+  // 伏せた形も、行と同じく 20 文字以上のものだけにする。短い形は見本のふつうの文字列にも当たるためである。
+  const needles = [...new Set(s.contextLines.flatMap((l) => [l, redactText(l, pairs)]).filter((l) => l.length >= 20))];
+  contextNeedleCache.set(s, needles);
+  return needles;
+}
+
 /** 伏せ残しの名前（値そのものは出さない）。空なら書き出してよい。 */
 export function leaks(text: string, s: Secrets): string[] {
   const named: [string, string | null][] = [
@@ -175,10 +223,10 @@ export function leaks(text: string, s: Secrets): string[] {
     ['設定の置き場の名前', basename(s.claudeDir) === '.claude' ? null : basename(s.claudeDir)],
   ];
   const out = named.filter(([, v]) => v !== null && v.length >= 3 && text.includes(v)).map(([label]) => label);
-  // 利用者の CLAUDE.md の行（値は出さない）。
-  if (s.contextLines.some((l) => text.includes(l))) out.push('利用者の CLAUDE.md の行');
+  // 利用者の CLAUDE.md の行（値は出さない）。伏せで形を変えた行も見る。
+  if (contextNeedles(s).some((l) => text.includes(l))) out.push('利用者の CLAUDE.md の行');
   // ユーザー名は短くありふれた語になりうるので、語として現れたときだけ数える。
   if (s.user.length >= 3 && hasWord(text, s.user)) out.push('ユーザー名');
-  if ([...text.matchAll(EMAIL)].some((m) => m[0] !== PLACEHOLDER.email)) out.push('メールアドレスらしい文字列');
+  if (emailSpans(text).some(({ start, end }) => text.slice(start, end) !== PLACEHOLDER.email)) out.push('メールアドレスらしい文字列');
   return out;
 }

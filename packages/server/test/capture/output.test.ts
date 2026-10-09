@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFiles, findLeaks, formatLeaks, type Leak, type Raw } from './output.ts';
+import { buildFiles, findLeaks, formatLeaks, jsonl, scenarioKept, type Leak, type Raw } from './output.ts';
 import type { Secrets } from './redact.ts';
 import { SCENARIO } from './scenario.ts';
 
@@ -101,6 +101,46 @@ describe('buildFiles', () => {
     expect(found).toEqual([{ file: 'transcript.jsonl', line: 6, path: '$.message.content[0].text', kind: '利用者の CLAUDE.md の行' }]);
     expect(formatLeaks(found)).toBe('- transcript.jsonl:6 $.message.content[0].text 利用者の CLAUDE.md の行');
     expect(JSON.stringify(found)).not.toContain('fixture-forbidden-word');
+  });
+  it('塊の外の、行頭、タブの直後、制御文字の直後のアドレスも伏せ、伏せた値を伏せ残しと数え直さない', () => {
+    const outside = transcript
+      + L({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: `Author:\n${OTHER_MAIL}` }] } }) + '\n'
+      + L({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `email:\t${S.email ?? ''} and \u0001${VENDOR_MAIL}` }] } }) + '\n';
+    const files = buildFiles(raw({ transcript: outside }), S);
+    expect(findLeaks(files, S)).toEqual([]);
+    const t = get(files, 'transcript.jsonl');
+    for (const v of [OTHER_MAIL, VENDOR_MAIL, 'someone']) expect(t).not.toContain(v);
+    expect(t).toContain('Author:\\nuser@example.com');
+    expect(t).toContain('email:\\tuser@example.com');
+  });
+  it('CLAUDE.md の行が、伏せで形を変えて（ホームのパスを含む行）塊の外に残っても見つける', () => {
+    const line = 'Keep drafts in /Users/someone/notes for later';
+    const bad = transcript + L({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `Noted: ${line}` }] } }) + '\n';
+    const s2: Secrets = { ...S, contextLines: [...S.contextLines, line] };
+    expect(findLeaks(buildFiles(raw({ transcript: bad }), s2), s2)).toEqual([{ file: 'transcript.jsonl', line: 6, path: '$.message.content[0].text', kind: '利用者の CLAUDE.md の行' }]);
+  });
+  it('壊れた行は、ファイル名と行番号だけを言って投げる（行の中身を出さない）', () => {
+    const broken = `${transcript}\n{"secret-ish fixture-broken-value\n`;
+    expect(() => buildFiles(raw({ transcript: broken }), S)).toThrow(/^transcript\.jsonl の 7 行目を JSON として読めませんでした$/);
+    expect(() => buildFiles(raw({ subagents: { 'agent-abc123.jsonl': '{"x": fixture-broken-value' } }), S)).toThrow(/^subagents\/agent-abc123\.jsonl の 1 行目を JSON として読めませんでした$/);
+    expect(() => jsonl('{"a":1}\n\nnot json fixture-broken-value\n', 'statusline.jsonl')).toThrow(/^statusline\.jsonl の 3 行目を JSON として読めませんでした$/);
+  });
+});
+
+describe('scenarioKept', () => {
+  it('伏せた後の transcript に 1 つ目の指示と積んだ指示が残っていれば空', () => {
+    expect(scenarioKept(buildFiles(raw(), S))).toEqual([]);
+  });
+  it('伏せで指示が崩れたら、値を出さずにどちらが無いかを言う', () => {
+    // ホスト名がたまたま指示の文の一部と同じだと、置き換えで指示が崩れる。
+    expect(scenarioKept(buildFiles(raw(), { ...S, host: 'notes.txt' }))).toEqual(['伏せた後の transcript に 1 つ目の指示がありません']);
+    expect(scenarioKept(buildFiles(raw(), { ...S, host: 'general-purpose' }))).toEqual(['伏せた後の transcript に積んだ指示がありません']);
+    expect(scenarioKept({})).toEqual(['伏せた後の transcript に 1 つ目の指示がありません', '伏せた後の transcript に積んだ指示がありません']);
+  });
+  it('JSON の中の文字列として探す（エスケープした形でも見つける）', () => {
+    const first = `${SCENARIO.first} "quoted"`;
+    const files = { 'transcript.jsonl': `${L({ message: { content: `x\n${first}` } })}\n${L({ prompt: SCENARIO.queued })}\n` };
+    expect(scenarioKept(files, { first, queued: SCENARIO.queued })).toEqual([]);
   });
 });
 

@@ -10,7 +10,7 @@ import { CLAUDE_CHILD_ENV } from '../../src/provider/claude-code/compat/childEnv
 import { claudeVersionOf } from '../../src/provider/claude-code/compat/cli.ts';
 import { mangleCwd } from '../../src/provider/claude-code/discover.ts';
 import { Tmux, type TmuxExec } from '../../src/tmux/tmux.ts';
-import { buildFiles, findLeaks, formatLeaks, jsonl } from './output.ts';
+import { buildFiles, findLeaks, formatLeaks, jsonl, scenarioKept } from './output.ts';
 import { redactAgents, redactText, replacements, type Pairs, type Secrets } from './redact.ts';
 import { PLACEHOLDER, SCENARIO } from './scenario.ts';
 import { createTrustAnswerer, screenClues } from './trust.ts';
@@ -244,7 +244,7 @@ export async function main(argv: string[]): Promise<void> {
 
     const transcriptText = readText(transcriptFile);
     const subagents = (fs.existsSync(subagentDir) ? fs.readdirSync(subagentDir) : []).filter((n) => /^agent-[0-9a-zA-Z]+\.jsonl$/.test(n)).sort();
-    const statusline = jsonl(readText(statuslineFile));
+    const statusline = jsonl(readText(statuslineFile), 'statusline.jsonl');
     const agentsRows: unknown = (() => { try { return JSON.parse(agentsText); } catch { return []; } })();
     const secrets: Secrets = {
       tmp, tmpReal: real, tmpRoot: os.tmpdir(), tmpRootReal: fs.realpathSync(os.tmpdir()),
@@ -277,11 +277,16 @@ export async function main(argv: string[]): Promise<void> {
       registry, statusline, agents: agentsRows, auth, help: helpText, versionText, version, sessionId,
       capturedAt: new Date().toISOString().slice(0, 10),
     }, secrets);
-    // 伏せ残しがあれば書き出さない。値は出さず、ファイル、行、JSON のパス、種類だけを出す。
+    // 伏せで筋書きの指示が崩れたとき、または伏せ残しがあるときは書き出さない。両方を一度に言う（採り直しを 1 回で済ませるため）。
+    // 値は出さず、指示はどちらが無いか、伏せ残しはファイル、行、JSON のパス、種類だけを出す。
+    const lost = scenarioKept(files);
     const found = findLeaks(files, secrets);
-    if (found.length > 0) {
+    if (lost.length > 0 || found.length > 0) {
       console.error(failureSummary(Object.entries(files).map(([name, text]): [string, number] => [name, lineCount(text)]), transcriptText));
-      throw new Error(`伏せ残しがあるので書き出しません:\n${formatLeaks(found)}`);
+      const parts: string[] = [];
+      if (lost.length > 0) parts.push(`伏せた後に筋書きの指示が残っていないので書き出しません:\n- ${lost.join('\n- ')}`);
+      if (found.length > 0) parts.push(`伏せ残しがあるので書き出しません:\n${formatLeaks(found)}`);
+      throw new Error(parts.join('\n'));
     }
 
     fs.rmSync(outDir, { recursive: true, force: true });

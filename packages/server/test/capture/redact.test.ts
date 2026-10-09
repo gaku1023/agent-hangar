@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { leaks, redactAgents, redactAuth, redactDeep, redactRegistry, redactStatusline, redactTranscriptLine, replacements, type Secrets } from './redact.ts';
+import { emailSpans, leaks, redactAgents, redactAuth, redactDeep, redactRegistry, redactStatusline, redactText, redactTranscriptLine, replacements, type Secrets } from './redact.ts';
 
 const S: Secrets = {
   tmp: '/var/folders/zz/abc/T/hangar-fixture-Q1',
@@ -49,6 +49,34 @@ describe('replacements と redactDeep', () => {
 describe('メールアドレスらしい文字列', () => {
   it('置き換えの組のほかのアドレスも、値も鍵も user@example.com にする。user@example.com はそのまま', () => {
     expect(redactDeep({ a: 'x other@corp.example y noreply@vendor.example', 'k@mail.example': 'user@example.com' }, P)).toEqual({ a: 'x user@example.com y user@example.com', 'user@example.com': 'user@example.com' });
+  });
+  it('ふつうのアドレスと <noreply@vendor.example> の形はいまどおり拾う', () => {
+    expect(redactText('mail other@corp.example now', [])).toBe('mail user@example.com now');
+    expect(redactText('Co-Authored-By: X <noreply@vendor.example>', [])).toBe('Co-Authored-By: X <user@example.com>');
+    expect(leaks('Co-Authored-By: X <noreply@vendor.example>', S)).toEqual(['メールアドレスらしい文字列']);
+  });
+  it('@ の無い長い連なりでも、どの長さでも速く終わる（2 乗に増えない）', () => {
+    const shapes = ['a'.repeat(100_000), 'a.'.repeat(50_000), 'a@'.repeat(50_000), `a@${'b'.repeat(100_000)}`, `${'a'.repeat(100_000)}@b`];
+    for (const text of shapes) {
+      const t0 = performance.now();
+      redactText(text, []);
+      leaks(text, S);
+      expect(performance.now() - t0).toBeLessThan(200);
+    }
+  });
+  it('拾う範囲は、もとの正規表現（左から順に、重ならずに拾う）と同じ', () => {
+    const OLD = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+    const old = (t: string): [number, string][] => [...t.matchAll(OLD)].map((m) => [m.index, m[0]]);
+    const now = (t: string): [number, string][] => emailSpans(t).map(({ start, end }) => [start, t.slice(start, end)]);
+    for (const t of ['a@b.com_x@c.com', 'someone@corp.example.x@y.com', 'x<noreply@vendor.example>y', 'Author:\nother@corp.example', 'a@b@c.de', '@x.com a@.com b@c.d e@f.gh.i']) expect(now(t)).toEqual(old(t));
+    // 小さな字の集まりからの作り物の文字列で、どれも同じになることを確かめる（種を決めた疑似乱数）。
+    const chars = 'ab1.-_%+@ \n';
+    let seed = 12345;
+    const rand = (n: number): number => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return (seed >>> 16) % n; };
+    for (let i = 0; i < 3000; i++) {
+      const t = Array.from({ length: rand(24) }, () => chars[rand(chars.length)]).join('').replace(/b/g, () => (rand(2) === 0 ? 'b' : 'com'));
+      expect(now(t)).toEqual(old(t));
+    }
   });
 });
 
