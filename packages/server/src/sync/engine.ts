@@ -65,6 +65,13 @@ export function limitedMessage(until: number, tz?: string): string {
   const at = new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(until);
   return `Cloudflare の無料枠の上限に達したので、${at} まで同期を止めます。枠が戻ると自動で再開します`;
 }
+/**
+ * 利用者が自分で一時停止している間に頼んだ 1 巡が、上限で断られたときの知らせ。
+ * 止めたのは利用者なので、戻る時刻も自動で再開するとも言わない。
+ */
+export function limitedWhilePausedMessage(): string {
+  return 'Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです';
+}
 const RESYNC_MESSAGE = 'クラウドの変更ログが古くなっていたので、同期を作り直しました';
 
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
@@ -179,7 +186,9 @@ export class SyncEngine {
    * 上限の失敗（LimitError）を受けたら、次の UTC の 0 時まで退く。上限の失敗なら真を返す。
    * ただし UTC の 0 時から猶予（LIMIT_GRACE_MS）の間に断られたら、LIMIT_RETRY_MS だけ黙って退く。
    * 失敗の理由（error）には残さない。戻る時刻の決まった待ちであって、利用者が直す誤りではないからである。
-   * 次の 0 時まで新しく退いたときだけ 1 度知らせる。
+   * 次の 0 時まで退くときは、新しく退いたときと、違う戻る時刻へ移るときに知らせる（同じ戻る時刻へ退き直すときは重ねない）。
+   * 短い印がまだ生きている間に猶予の外で断られたときも、1 日の退きへ移るので知らせる。
+   * 利用者が一時停止している間に頼んだ 1 巡で断られたときは、時刻を入れない文で知らせる。
    */
   private noteLimit(e: unknown): boolean {
     if (!(e instanceof LimitError)) return false;
@@ -193,9 +202,9 @@ export class SyncEngine {
     }
     const until = midnight;
     this.state.set('limitedUntil', until);
-    if (was === null) {
+    if (was === null || was !== until) {
       console.warn(`[sync] ${e.message}`);
-      this.emit('toast', 'info', limitedMessage(until));
+      this.emit('toast', 'info', this.paused && this.onePass ? limitedWhilePausedMessage() : limitedMessage(until));
     }
     return true;
   }

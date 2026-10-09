@@ -1661,6 +1661,8 @@ describe('互換の版', () => {
         expect(st.state).toBe('paused');
         expect(st.pending).toBeGreaterThan(0);
         expect(onceToasts(c)).toEqual([]);
+        // 知らせは、止めたのは利用者だと分かる文の 1 件だけである。
+        expect(c.all().filter(isToast).map((e) => e.message).filter((m) => m.includes('Cloudflare'))).toEqual(['Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです']);
       } finally {
         c.close();
         await s.close();

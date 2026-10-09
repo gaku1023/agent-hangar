@@ -8,7 +8,7 @@ import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
 import { CloudError, LimitError, MIN_WORKER_COMPAT } from './client.ts';
-import { limitedMessage, SyncEngine } from './engine.ts';
+import { limitedMessage, limitedWhilePausedMessage, SyncEngine } from './engine.ts';
 
 let db: Db;
 let cloud: FakeCloudClient;
@@ -885,6 +885,53 @@ describe('上限で退く', () => {
     e.stop();
   });
 
+  describe('利用者が一時停止している間に頼んだ 1 巡', () => {
+    it('上限で断られたら、時刻を入れない文を 1 件だけ知らせる', async () => {
+      beforeMidnight();
+      const toasts: string[] = [];
+      const e = make();
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      await e.start();
+      e.setPaused(true);
+      project('p1');
+      cloud.limited = 'd1-write';
+      await e.syncNow({ evenIfPaused: true });
+      expect(toasts).toEqual(['Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです']);
+      expect(toasts[0]).toBe(limitedWhilePausedMessage());
+      expect(toasts.join('')).not.toContain('自動で再開します');
+      expect(toasts.join('')).not.toMatch(/\d:\d\d/);
+      e.stop();
+    });
+
+    it('止めていないときの今すぐ同期は、ふだんの文のままである', async () => {
+      const midnight = beforeMidnight();
+      const toasts: string[] = [];
+      const e = make();
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      await e.start();
+      project('p1');
+      cloud.limited = 'd1-write';
+      await e.syncNow();
+      expect(toasts).toEqual([limitedMessage(midnight)]);
+      e.stop();
+    });
+
+    it('0 時の直後の猶予の間に断られたら、一時停止中でも黙って退く', async () => {
+      const midnight = Date.UTC(2026, 9, 9);
+      timers.now = midnight + 4_000;
+      const toasts: string[] = [];
+      const e = make();
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      await e.start();
+      e.setPaused(true);
+      project('p1');
+      cloud.limited = 'd1-write';
+      await e.syncNow({ evenIfPaused: true });
+      expect(toasts).toEqual([]);
+      e.stop();
+    });
+  });
+
   describe('日付の境目の猶予', () => {
     const MIN = 60_000;
     let warn: ReturnType<typeof vi.spyOn>;
@@ -957,6 +1004,33 @@ describe('上限で退く', () => {
       expect(toasts).toEqual([limitedMessage(next)]);
       expect(warn).toHaveBeenCalledTimes(1);
       e.stop();
+    });
+
+    it('短い退きの印が生きているうちに猶予の外で断られたら、1 日の退きへ移って 1 度だけ知らせる', async () => {
+      class Probe extends SyncEngine {
+        refusePush(): void { this.failPush(new LimitError('d1-write', 429)); }
+        refusePull(): void { this.failPull(new LimitError('requests', 429)); }
+      }
+      const midnight = Date.UTC(2026, 9, 9);
+      timers.now = midnight + 9 * MIN;
+      const toasts: string[] = [];
+      const e = new Probe({ db, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h' });
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      // 0:09 の断りは猶予の中なので、0:14 までの短い印が黙って立つ。
+      e.refusePush();
+      expect(e.limitedUntil()).toBe(midnight + 14 * MIN);
+      expect(toasts).toEqual([]);
+      // 印が生きているまま 0:11 になり、別の要求（飛んでいた pull）が断られる。
+      timers.now = midnight + 11 * MIN;
+      expect(e.limitedUntil()).toBe(midnight + 14 * MIN);
+      e.refusePull();
+      expect(e.limitedUntil()).toBe(midnight + 86_400_000);
+      expect(toasts).toEqual([limitedMessage(midnight + 86_400_000)]);
+      // 同じ 1 日の退きの間にもう 1 度断られても、知らせは増えない。
+      timers.now = midnight + 12 * MIN;
+      e.refusePush();
+      expect(e.limitedUntil()).toBe(midnight + 86_400_000);
+      expect(toasts).toHaveLength(1);
     });
 
     it('0 時の直前に送った要求が 0 時をまたいで断られても、短く黙って退く', async () => {
