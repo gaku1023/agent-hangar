@@ -264,14 +264,21 @@ create table sessions (
   provider text not null,                         -- いまは 'claude-code' だけ。列と一意の制約は残す（D8）
   provider_session_id text not null,              -- Claude Code では UUID
   project_id text references projects(id),        -- null は未分類
-  name text,                                      -- hangar が保持する表示名
   cwd text not null,
   first_prompt text, ai_title text,
   started_at integer, last_activity_at integer,
   home_device text not null,                      -- 本文を最初に持った端末
-  memo text,                                      -- 人間が書く 1 行メモ
   updated_at integer not null, deleted_at integer, origin_device text not null,
+  custom_title text,                              -- 索引が本文から拾った題名（custom-title、agent-name）
   unique (provider, provider_session_id)
+);
+
+-- セッションの名前とメモ。利用者と Claude が付けるもので、索引は書かない（下の「セッションの名前とメモ」）。
+create table session_notes (
+  session_id text primary key references sessions(id),
+  name text,                                      -- hangar で付けた名前（起動のときの名前）
+  memo text,                                      -- 人間が書く 1 行メモ
+  updated_at integer not null, deleted_at integer, origin_device text not null
 );
 
 -- 1 回の起動または再開。tmux 上の寿命と一致する。
@@ -360,6 +367,35 @@ create table changes (
 );
 ```
 
+#### セッションの名前とメモ
+
+セッションの名前とメモは `sessions` の列に置かず、別の表 `session_notes`（主キーはセッションの id）に置く（マイグレーション version 17）。
+`sessions` の行は索引だけが書く。
+
+`sessions` の行は、索引が本文の伸びるたびに全列で書き直し、同期はその行ごとの後勝ちで運ぶ。
+名前とメモが同じ行にあると、別の PC で付けた名前やメモを、本文を持つ PC の索引が手元の古い値で上書きする。
+セッションの状態（`session_states`）を別の表に分けたのと同じ理由である。
+分ける前は、同期の適用（`sync/apply.ts`）が上書きの前にメモを `backups/memos/` へ逃がしていた。
+その回避策は消した。前に作られた控えのファイルは、消さずに残してある。
+
+- **書き手。** `session_notes` に書くのは、起動のときの名前（`runs/manager.ts`）、画面のメモ（`PATCH /api/sessions/:id`）、MCP の `set_session_memo` で、どれも `sessions/notes.ts` を通る。
+  書いた結果が今と同じなら書かず、行の無いところへ空を書いて空の行を作ることもしない。
+  空の行は新しい時刻を持つので、同期で他の PC の名前やメモに勝ってしまうからである。
+- **本文の題名は別の事実。** Claude Code の側で付けた名前（`-n`、`/rename`）は本文に `custom-title`、`agent-name` として残り、索引がそれを `sessions.custom_title` に拾う。
+  分ける前は、索引も hangar も同じ `sessions.name` に書き、後から書いた方が残った。
+  hangar が名前を書くのは起動のときだけなので、本文に題名が現れれば必ずそれが残った。
+  この見え方を変えないよう、表示名は、本文の題名を hangar の名前より先に採る（`db/queries.ts` の `displayName`）。
+- **DTO は変えない。** `SessionDto` の `name` と `memo` は、サーバが `sessions`、`session_notes`、`session_states` を合わせて今までと同じ形に組む（D8）。UI は表が分かれたことを知らない。
+- **移すとき。** 版 17 は、名前かメモに中身のある行だけを `session_notes` へ写し、`sessions.name` と `sessions.memo` を落とす。
+  過去の名前がどちらの由来かは見分けられないので、全部を `session_notes` へ写し、`custom_title` は空から始める。
+  写した行の `updated_at` と `origin_device` は、当てた時刻ではなく、元の `sessions` の行のものにする。
+  当てた時刻にすると、後から上がった PC の写し（古い中身）が、先に上がった PC で上げた後に付けた名前やメモに勝ってしまう。
+  元の行の時刻なら、2 台が同じ行から写した名前とメモは同じ時刻になってぶつからず、中身が違えば上げる前の同期が採ったはずの側が勝ち、上げた後の書き込みは必ず写しに勝つ。
+  写した行は、まだ送っていない差分として `changes` にも積む。積まないと、クラウドには名前もメモも上がらない。
+- **クラウドに残る古い形の行。** 版 16 までの端末が上げた `sessions` の payload は `name` と `memo` を含む。
+  適用の側は payload を手元の列だけに絞るので、降りてきても知らない列として捨て、`session_notes` には触らない。
+- **混ぜない。** 運ぶ形が変わるので、互換の版を 2 に上げた（「互換の版番号」）。
+
 ### 行の変化の知らせと配る層
 
 DB に書いた後で画面へ配るのは、書いた側ではなく、配る層（`packages/server/src/events/publisher.ts`）の役目である。
@@ -386,7 +422,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 
 | 表 | 配るイベント |
 | --- | --- |
-| `sessions`、`session_summaries`、`session_states` | そのセッションの `session.upsert` |
+| `sessions`、`session_summaries`、`session_states`、`session_notes` | そのセッションの `session.upsert` |
 | `runs` | 持ち主のセッションの `session.upsert`。同期で降りたときだけ配る（他端末のロックが変わるため）。この端末の run は `run.started`、`run.upsert`、`run.ended` が運ぶ |
 | `projects` | そのプロジェクトの `project.upsert` |
 | `project_roots` | そのプロジェクトの `project.upsert`。この端末のルートが未解決になった書き込みだけは配らない（解決済みから未解決への遷移で、ルートの確かめが `project.unresolved` を手で渡す。同期で降りた行では出さない） |
@@ -890,7 +926,7 @@ busy のままにするのは、Claude 自身も裏でサブエージェント�
 数えられないとき（workflow など）は 0 で、灯は「バックグラウンドで作業中」と言う。
 プロンプト送信から busy まで約 0.5 秒、終了からファイルの消失まで約 0.4 秒で、500 ミリ秒間隔の監視で足りる。
 `-n` や `/rename` で付けた名前は本文にも記録として残り（`agent-name`、`custom-title`）、再開やフォークの先にも引き継がれる。
-hangar は名前を本文の記録から読み、レジストリの値で上書きする。
+hangar は名前を本文の記録から読み（索引が `sessions.custom_title` に拾う）、レジストリの値で上書きする。
 tmux セッションが消えたら run を終了とみなし、`end_reason` を記録する。
 
 UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux attach -t <tmux_name>` を実行して入出力を中継する。
@@ -2682,11 +2718,15 @@ Claude Code の設定は、変化を検知して 5 秒のデバウンスで push
 両端末で同じファイルを変えていたら新しい方を採用し、古い方を `<name>.conflict-<端末名>-<時刻>` として隣に残して通知する。
 実物では、片方の書き換えが相手に降りるまで 10 秒から 30 秒だった。
 
-プロジェクトのメモ（`project_memos`）とセッションのメモ（`sessions.memo`）は、行の競合では新しい方を採る規則をそのまま使う。
+プロジェクトのメモ（`project_memos`）は、行の競合では新しい方を採る規則をそのまま使う。
 ただし負けた方の本文を捨てない。
-プロジェクトのメモは `memo.conflict-<端末名>-<時刻>.md` として隣に残し、セッションのメモは `~/.agent-hangar/backups/memos/session-<セッション ID>-<時刻>.md` に残す。
-どちらも、控えが書けなかったらその行を適用しない。
+`memo.conflict-<端末名>-<時刻>.md` として隣に残し、控えが書けなかったらその行を適用しない。
 上書きを進めると、利用者が手で書いた文章が黙って消えるからである。
+
+セッションの名前とメモ（`session_notes`）も、新しい方を採る規則をそのまま使う。同じ時刻なら手元を残す。
+こちらは控えを取らない。
+控えが要ったのは、名前とメモが `sessions` の行にあり、索引の書き直しが、誰も書き換えていないメモを巻き込んで上書きしたからである。
+別の表に分けた今は、`session_notes` の行が負けるのは、別の PC で名前かメモを実際に書き換えたときだけである（「セッションの名前とメモ」）。
 
 オフラインのときは `changes` に積んだままにし、復帰時に順に送る。
 ヘッダーの同期状態には最終同期時刻、未送信件数、エラーを出し、「今すぐ同期」と「一時停止」を置く。
@@ -2705,7 +2745,7 @@ D1 の Time Travel（無料枠で 7 日）で巻き戻せる。
 
 hangar の部品のうち、別々に上がりうるのは、端末どうし（同期で Worker を挟む）、端末と Worker、殻と 4177 で動いている既存のサーバである。
 UI とサーバと CLI は同じ束で配るので、版番号を持たない。
-別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
+別々に上がる部品は、1 つの整数 `COMPAT_VERSION`（`packages/shared/src/compat.ts`、はじめは 1、いまは 2）を名乗り、相手に下限を持つ（殻と既存のサーバだけは、下限ではなく一致で比べる）。
 古い版のための分岐を部品ごとに抱える代わりに、下限より古い相手とは話さずに、理由を出して止まる。
 
 **見出し。**
@@ -2764,6 +2804,20 @@ Cloudflare の端は、Worker を通さずに 4xx と 5xx を返すことがあ�
 Worker の `MIN_DEVICE_COMPAT` は、同期に参加しているすべての端末が上がってから上げ、Worker を配備し直す。
 端末の `MIN_WORKER_COMPAT` を上げる版は、Worker を先に配備してから端末へ入れる。
 逆の順にすると、入れ替えた端末は古い Worker を断って、配備するまで同期が止まる。
+
+**版の経緯。**
+
+| 版 | 変えたもの | 下限 |
+| --- | --- | --- |
+| 1 | 版番号そのもの。見出しを持たない相手を版 0 として断る | `MIN_DEVICE_COMPAT` と `MIN_WORKER_COMPAT` を 1 に |
+| 2 | セッションの名前とメモを、`sessions` の payload ではなく `session_notes` の行で運ぶ | どちらも 2 に |
+
+版 2 で下限を両方とも上げたのは、版 1 と版 2 が混ざると名前とメモが消えるからである。
+版 1 の端末は `session_notes` を知らない表として捨て、名前とメモを `sessions` の payload に載せる。版 2 の端末はその 2 つの列を知らない列として捨てる。
+版 1 の Worker は、共有テーブルの一覧に `session_notes` を持たず、その行を含む push を丸ごと断る。
+Worker の D1 のスキーマは変わらない（表名と行 ID と payload を文字列で預かるだけである）。変わるのは、受け付ける表名の一覧（shared の `SHARED_TABLES` を束ねたもの）と下限の定数だけである。
+入れる順は、上の決まりのとおり、Worker を先に配備し、それから端末を入れ替える。
+Worker を配備した時点で、まだ上げていない端末（版 1）は 426 で断られ、上げるよう理由が出て同期が止まる。上げれば、止まっていた間の差分から続く。
 
 **殻と既存のサーバ。**
 殻は、同梱するサーバと同じ版を `apps/desktop/src-tauri/src/health.rs` の `COMPAT_VERSION` で名乗る。
@@ -2876,6 +2930,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   文は、DB の版、起点の版、畳む前の版の Hangar で一度起動して上げてから起動し直すことを言い、サーバも CLI もそれを出して起動を止める。
   使っているのは利用者 1 人で、その DB はすでに版 16 にあるので、古い版から上げる道は要らないと決めた。
   スキーマを変えるときは、起点を書き換えずに、次の版（17 から）を一覧の末尾に足す。
+  版 17 は、セッションの名前とメモを `session_notes` へ移した（「セッションの名前とメモ」）。
   足した版は今までと同じに扱う。既存の DB には控えを取ってからその版だけを当て、新しい DB には起点から順に当てる。
   畳む前のマイグレーションは、試験の側（`packages/server/test/legacyMigrations.ts`）に残してある。
   `db/baseline.test.ts` が、起点だけを当てた DB と版 1 から順に当てた DB で、`sqlite_master` の全行（表、索引、FTS の仮想表とその影の表）、表ごとの列（順、型、not null、既定値、主キー）、外部キー、索引の列、表の中身が一致することを突き合わせる。
@@ -2893,7 +2948,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 端末ローカルのテーブル `session_stats` を持つ。ターン数、モデル、effort、変更ファイル数、PR の URL、トークン数、最後の発言を索引から導出して置き、共有しない。
 - 土台の要約の `state` は、レジストリに生きた項目があれば `in_progress`、無ければ `done`。UI は `source = 'baseline'` の状態を控えめに描く。
 - サブエージェントは、そのファイルの先頭の記録から `subagent` イベントを作り、親の時系列でその直前にある `Agent` か `Task` のツール呼び出しの下にネストする。該当が無ければ独立した項目として出す。
-- セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`、`ai-title`、最初の発言の先頭 40 字の順で決める。
+- セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`（索引が `sessions.custom_title` に拾う）、hangar で付けた名前（`session_notes.name`）、`ai-title`、最初の発言の先頭 40 字の順で決める。
 - 開発時は Vite（ポート 5173）が `/api` と `/ws` をサーバへプロキシし、プロキシがトークンを `Authorization` ヘッダに付ける。この経路は `HANGAR_DEV=1` のときだけ通る。本番はサーバが `packages/ui/dist` を配信し、鍵付きの入口で開かれたときだけ `index.html` の応答で `hangar_token` クッキー（HttpOnly、SameSite=Strict）を渡す。
 - 一覧の初期データは `GET /api/bootstrap` で全セッションの軽い行をまとめて返す。手元の規模（数百セッション）では 1MB 未満で、ページングは持たない。
 - UI のテストのうち `src/views/**`、`src/intent/**`、`src/Root.test.tsx` は jsdom で走らせる。Vitest の入れ子プロジェクトで環境ごとに分ける。
