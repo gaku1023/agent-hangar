@@ -15,6 +15,15 @@
  */
 export const COMPAT_VERSION = 2;
 
+/**
+ * 設定の同期の束の行（共有テーブル config_snapshots）を受け取れる Worker の版（段 4 の PR 14 で決めた定数）。
+ * 配備済みの Worker は、この表の行を含む push を 400 で丸ごと断るので、他の表の同期まで止まる。
+ * 端末は、Worker が名乗る版がこの値に届くまで、スイッチが入っていても束の行を書かず、状態に「Worker の更新待ち」を出す。
+ * PR 15 が、この表を知る Worker を配備するときに、Worker の COMPAT_VERSION をこの値に上げる。
+ * 端末に求める下限（MIN_DEVICE_COMPAT）と MIN_WORKER_COMPAT は、これでは上げない。上げると配備前の Worker を使う端末が全部止まる。
+ */
+export const CONFIG_BUNDLE_MIN_WORKER_COMPAT = 3;
+
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';
 

@@ -51,7 +51,15 @@ export type UnsentCandidate = {
   allowed: boolean;
 };
 
-export type Collected = { items: LocalItem[]; dropped: DroppedKey[]; unsent: UnsentCandidate[] };
+/**
+ * 手元にあるが運べないものの id。リンク、大きすぎるファイル、読めないファイル、件数の上限を超えたもの、リンクのディレクトリの下、読めない settings.json。
+ * これらは項目として集められないので、相手から同名の項目が届いても「手元に無い」と見て create と判定してはいけない（適用すると手元を上書きする）。
+ * ids は個別の id、prefixes は、その下の id を全部塞ぐ前置（`file:commands/`、`settings:`、`memory:<プロジェクトの id>/`）。
+ */
+export type Blocked = { ids: Set<string>; prefixes: string[] };
+export const isBlocked = (b: Blocked, id: string): boolean => b.ids.has(id) || b.prefixes.some((p) => id.startsWith(p));
+
+export type Collected = { items: LocalItem[]; dropped: DroppedKey[]; unsent: UnsentCandidate[]; blocked: Blocked };
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 const EXCLUDE_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv']);
@@ -78,35 +86,46 @@ export function execMarksOf(rel: string, content: Buffer): ConfigExecMark[] {
 
 const isBinary = (b: Buffer): boolean => b.includes(0);
 
-function readRegular(abs: string): { content: Buffer; mtime: number } | null {
+/** 読めたら中身。無い（ENOENT）は 'absent'、あるのに運べない（リンク、普通のファイルでない、大きすぎる、読めない）は 'blocked'。 */
+function readRegular(abs: string): { content: Buffer; mtime: number } | 'absent' | 'blocked' {
   let st: fs.Stats;
-  try { st = fs.lstatSync(abs); } catch { return null; }
-  if (st.isSymbolicLink() || !st.isFile() || st.size > MAX_ITEM_BYTES) return null;
-  try { return { content: fs.readFileSync(abs), mtime: Math.floor(st.mtimeMs) }; } catch { return null; }
+  try { st = fs.lstatSync(abs); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'blocked'; }
+  if (st.isSymbolicLink() || !st.isFile() || st.size > MAX_ITEM_BYTES) return 'blocked';
+  try { return { content: fs.readFileSync(abs), mtime: Math.floor(st.mtimeMs) }; } catch { return 'blocked'; }
 }
 
-/** dir の下のファイルの絶対パスを、リンクを辿らず、除外の名前を降りずに集める。 */
-function walk(dir: string, out: string[] = []): string[] {
+/**
+ * dir の下のファイルの絶対パスを、リンクを辿らず、除外の名前を降りずに集める。
+ * リンクは辿らずに onLink へ渡す（ファイルかディレクトリかは辿らないと分からないので、どちらの id も塞げるように呼び手へ任せる）。
+ * 読めないディレクトリも onLink へ渡す（中に何があるか分からない）。
+ */
+function walk(dir: string, onLink: (abs: string) => void, out: string[] = []): string[] {
   let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') onLink(dir); return out; }
   for (const e of entries) {
-    if (e.isSymbolicLink()) continue;
     const abs = path.join(dir, e.name);
-    if (e.isDirectory()) { if (!EXCLUDE_DIRS.has(e.name)) walk(abs, out); } else out.push(abs);
+    if (e.isSymbolicLink()) { onLink(abs); continue; }
+    if (e.isDirectory()) { if (!EXCLUDE_DIRS.has(e.name)) walk(abs, onLink, out); } else out.push(abs);
   }
   return out;
 }
 
 const toPosix = (p: string): string => p.split(path.sep).join('/');
 
-export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; allowedUnsent: ReadonlyMap<string, string> }): Collected {
+export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; allowedUnsent: ReadonlyMap<string, string>; /** 項目の数の上限。試験が小さくするために使う。 */ maxItems?: number }): Collected {
   const { claudeDir } = o;
+  const maxItems = o.maxItems ?? MAX_ITEMS;
+  const blocked: Blocked = { ids: new Set(), prefixes: [] };
+  /** 設定の入れ物の中のパス（ファイルかディレクトリか分からない）を塞ぐ。 */
+  const blockRel = (rel: string): void => { blocked.ids.add(fileId(rel)); blocked.prefixes.push(`${fileId(rel)}/`); };
   const items = new Map<string, LocalItem>();
   const unsent: UnsentCandidate[] = [];
   const dropped: DroppedKey[] = [];
 
   const add = (id: string, kind: ConfigItemKind, label: string, target: string, content: Buffer, marks: ConfigExecMark[], mtime: number | null): void => {
-    if (items.size >= MAX_ITEMS || items.has(id)) return;
+    if (items.has(id)) return;
+    // 上限を超えたものは運ばないが、手元にあることは覚える。
+    if (items.size >= maxItems) { blocked.ids.add(id); return; }
     const hash = sha256(content);
     let withheld: 'secret' | null = null;
     if (!isBinary(content)) {
@@ -125,17 +144,19 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
     const kind = kindOfRel(rel);
     if (!kind) return;
     const f = readRegular(abs);
-    if (!f) return;
+    if (f === 'absent') return;
+    if (f === 'blocked') { blocked.ids.add(fileId(rel)); return; }
     add(fileId(rel), kind, rel, rel, f.content, execMarksOf(rel, f.content), f.mtime);
   };
 
+  const relOf = (abs: string): string => toPosix(path.relative(claudeDir, abs));
   for (const rel of ['CLAUDE.md', 'keybindings.json']) addFile(rel, path.join(claudeDir, rel));
   for (const top of ['skills', 'commands', 'agents', 'memory']) {
-    // 入れ物の途中がリンクなら、その先は読まない。
+    // 入れ物の途中がリンクなら、その先は読まない。ただし、そこに同名の項目が届いて上書きされないよう、塞ぎに入れる。
     let st: fs.Stats;
-    try { st = fs.lstatSync(path.join(claudeDir, top)); } catch { continue; }
-    if (st.isSymbolicLink() || !st.isDirectory()) continue;
-    for (const abs of walk(path.join(claudeDir, top)).sort()) addFile(toPosix(path.relative(claudeDir, abs)), abs);
+    try { st = fs.lstatSync(path.join(claudeDir, top)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') blockRel(top); continue; }
+    if (st.isSymbolicLink() || !st.isDirectory()) { blockRel(top); continue; }
+    for (const abs of walk(path.join(claudeDir, top), (link) => blockRel(relOf(link))).sort()) addFile(relOf(abs), abs);
   }
 
   // プロジェクトのメモリ。この PC のルートのパスから slug を作り、projects/<slug>/memory/ に当てる。
@@ -145,23 +166,33 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
   for (const r of roots) { const s = slugOfPath(r.path); if (!slugs.has(s)) slugs.set(s, r.id); }
   for (const [slug, projectId] of slugs) {
     const memDir = path.join(claudeDir, 'projects', slug, 'memory');
+    const blockProject = (): void => { blocked.prefixes.push(memoryId(projectId, '')); };
     let st: fs.Stats;
-    try { st = fs.lstatSync(path.join(claudeDir, 'projects', slug)); } catch { continue; }
-    if (st.isSymbolicLink() || !st.isDirectory()) continue;
-    try { if (fs.lstatSync(memDir).isSymbolicLink()) continue; } catch { continue; }
-    for (const abs of walk(memDir).sort()) {
+    try { st = fs.lstatSync(path.join(claudeDir, 'projects', slug)); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') blockProject(); continue; }
+    if (st.isSymbolicLink() || !st.isDirectory()) { blockProject(); continue; }
+    try { if (fs.lstatSync(memDir).isSymbolicLink()) { blockProject(); continue; } } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') blockProject(); continue; }
+    // メモリの下のリンクは、そのプロジェクトのメモリ全部を塞ぐ（相対パスの対応が取れない）。
+    const memLink = (link: string): void => { const id = memoryId(projectId, toPosix(path.relative(memDir, link))); blocked.ids.add(id); blocked.prefixes.push(`${id}/`); };
+    for (const abs of walk(memDir, memLink).sort()) {
       const rel = toPosix(path.relative(memDir, abs));
       // 名前の検査は、ids.ts の物差し（memory:<id>/<rel>）に通す。通らない名前は運ばない。
       if (kindOfRel(`memory/${rel}`) !== 'memory') continue;
       const f = readRegular(abs);
-      if (f) add(memoryId(projectId, rel), 'memory', rel, `projects/${slug}/memory/${rel}`, f.content, [], f.mtime);
+      if (f === 'blocked') blocked.ids.add(memoryId(projectId, rel));
+      else if (f !== 'absent') add(memoryId(projectId, rel), 'memory', rel, `projects/${slug}/memory/${rel}`, f.content, [], f.mtime);
     }
   }
 
   // settings.json。鍵ごとの項目に分け、運ばない鍵と落とした規則を記録する。
   let json: unknown = null;
-  const rawSettings = readRegular(path.join(claudeDir, 'settings.json'));
-  if (rawSettings) { try { json = JSON.parse(rawSettings.content.toString('utf8')); } catch { json = null; } }
+  const settingsRead = readRegular(path.join(claudeDir, 'settings.json'));
+  const rawSettings = typeof settingsRead === 'object' ? settingsRead : null;
+  // リンク、大きすぎる、読めない、JSON でない、オブジェクトでない settings.json には、相手の鍵を書き込めない。
+  if (settingsRead === 'blocked') blocked.prefixes.push('settings:');
+  if (rawSettings) {
+    try { json = JSON.parse(rawSettings.content.toString('utf8')); } catch { json = null; }
+    if (json === null || typeof json !== 'object' || Array.isArray(json)) { json = null; blocked.prefixes.push('settings:'); }
+  }
   const allowedRules = new Set<string>();
   const allowedRuleIds = new Map<string, string>();
   const ruleId = (list: string, rule: string): string => `rule:${list}:${sha256(rule).slice(0, 16)}`;
@@ -178,5 +209,5 @@ export function collectLocal(o: { db: Db; deviceId: string; claudeDir: string; a
   }
 
   unsent.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { items: [...items.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)), dropped, unsent };
+  return { items: [...items.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)), dropped, unsent, blocked };
 }

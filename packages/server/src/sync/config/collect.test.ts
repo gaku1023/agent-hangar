@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../../db/open.ts';
 import { upsertShared } from '../../db/shared.ts';
-import { collectLocal, execMarksOf } from './collect.ts';
+import { collectLocal, execMarksOf, isBlocked } from './collect.ts';
 import { slugOfPath } from './ids.ts';
 
 const sha = (s: string | Buffer): string => createHash('sha256').update(s).digest('hex');
@@ -17,7 +17,7 @@ const write = (rel: string, text: string | Buffer): void => {
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, text);
 };
-const collect = (allowed: Map<string, string> = new Map()) => collectLocal({ db, deviceId: 'dev-a', claudeDir, allowedUnsent: allowed });
+const collect = (allowed: Map<string, string> = new Map(), maxItems?: number) => collectLocal({ db, deviceId: 'dev-a', claudeDir, allowedUnsent: allowed, maxItems });
 const ids = (c: ReturnType<typeof collect>) => c.items.map((i) => i.id);
 
 beforeEach(() => {
@@ -175,5 +175,81 @@ describe('手元の項目を集める', () => {
       expect(JSON.parse(c.items[0]!.content.toString())).toEqual([rule]);
       expect(c.unsent).toMatchObject([{ id, allowed: true }]);
     });
+  });
+});
+
+describe('手元にあるが運ばないもの（相手の同名の項目に上書きさせない）', () => {
+  const outside = (): string => { const f = path.join(tmp, 'outside.md'); fs.writeFileSync(f, 'outside'); return f; };
+
+  it('何も塞がっていなければ、塞がりは無い', () => {
+    write('CLAUDE.md', 'x');
+    const c = collect();
+    expect(isBlocked(c.blocked, 'file:CLAUDE.md')).toBe(false);
+    expect(isBlocked(c.blocked, 'file:commands/none.md')).toBe(false);
+    expect(isBlocked(c.blocked, 'settings:model')).toBe(false);
+  });
+
+  it('リンクのファイルと、リンクのディレクトリの下は、運ばず「手元にある」と記録する', () => {
+    write('skills/real/SKILL.md', 'x');
+    fs.symlinkSync(outside(), path.join(claudeDir, 'skills', 'real', 'link.md'));
+    fs.mkdirSync(path.join(tmp, 'elsewhere'));
+    fs.symlinkSync(path.join(tmp, 'elsewhere'), path.join(claudeDir, 'commands'));
+    fs.symlinkSync(outside(), path.join(claudeDir, 'CLAUDE.md'));
+    const c = collect();
+    expect(ids(c)).toEqual(['file:skills/real/SKILL.md']);
+    for (const id of ['file:skills/real/link.md', 'file:commands/anything.md', 'file:commands/deep/x.md', 'file:CLAUDE.md']) expect([id, isBlocked(c.blocked, id)]).toEqual([id, true]);
+    expect(isBlocked(c.blocked, 'file:skills/real/SKILL.md')).toBe(false);
+    expect(isBlocked(c.blocked, 'file:skills/real/other.md')).toBe(false);
+    // 名前の前方一致で巻き込まない。
+    expect(isBlocked(c.blocked, 'file:commands-extra/x.md')).toBe(false);
+  });
+
+  it('大きすぎるファイルと、読めないファイルも塞がりに入れる', () => {
+    write('skills/a/big.md', Buffer.alloc((1 << 20) + 1, 97));
+    write('skills/a/locked.md', 'x');
+    fs.chmodSync(path.join(claudeDir, 'skills', 'a', 'locked.md'), 0o000);
+    try {
+      const c = collect();
+      expect(isBlocked(c.blocked, 'file:skills/a/big.md')).toBe(true);
+      // root では読めてしまうので、読めなかったときだけ塞がりを見る。
+      if (!ids(c).includes('file:skills/a/locked.md')) expect(isBlocked(c.blocked, 'file:skills/a/locked.md')).toBe(true);
+    } finally { fs.chmodSync(path.join(claudeDir, 'skills', 'a', 'locked.md'), 0o600); }
+  });
+
+  it('件数の上限を超えたファイルも塞がりに入れる', () => {
+    for (const n of ['a', 'b', 'c', 'd']) write(`commands/${n}.md`, n);
+    const c = collect(new Map(), 2);
+    expect(ids(c)).toEqual(['file:commands/a.md', 'file:commands/b.md']);
+    expect(isBlocked(c.blocked, 'file:commands/c.md')).toBe(true);
+    expect(isBlocked(c.blocked, 'file:commands/d.md')).toBe(true);
+    expect(isBlocked(c.blocked, 'file:commands/a.md')).toBe(false);
+  });
+
+  it('settings.json が読めない（リンク、大きすぎる、壊れている）ときは、settings の項目を全部塞ぐ。無いだけなら塞がない', () => {
+    expect(isBlocked(collect().blocked, 'settings:model')).toBe(false);
+    write('settings.json', '{ broken');
+    expect(isBlocked(collect().blocked, 'settings:model')).toBe(true);
+    expect(isBlocked(collect().blocked, 'settings:permissions.allow')).toBe(true);
+    fs.rmSync(path.join(claudeDir, 'settings.json'));
+    fs.symlinkSync(outside(), path.join(claudeDir, 'settings.json'));
+    expect(isBlocked(collect().blocked, 'settings:model')).toBe(true);
+    fs.rmSync(path.join(claudeDir, 'settings.json'));
+    write('settings.json', '[1]');
+    expect(isBlocked(collect().blocked, 'settings:model')).toBe(true);
+    fs.rmSync(path.join(claudeDir, 'settings.json'));
+    write('settings.json', '{"model":"x"}');
+    expect(isBlocked(collect().blocked, 'settings:model')).toBe(false);
+  });
+
+  it('プロジェクトのメモリの置き場がリンクなら、そのプロジェクトのメモリを全部塞ぐ', () => {
+    upsertShared(db, 'projects', { id: 'proj1', name: 'app', status: 'active', is_scratch: 0 }, 'dev-a');
+    upsertShared(db, 'project_roots', { id: 'r1', project_id: 'proj1', device_id: 'dev-a', path: '/Users/me/app', resolved: 1 }, 'dev-a');
+    const dir = path.join(claudeDir, 'projects', slugOfPath('/Users/me/app'));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'mem'));
+    fs.symlinkSync(path.join(tmp, 'mem'), path.join(dir, 'memory'));
+    const c = collect();
+    expect(isBlocked(c.blocked, 'memory:proj1/MEMORY.md')).toBe(true);
+    expect(isBlocked(c.blocked, 'memory:proj2/MEMORY.md')).toBe(false);
   });
 });

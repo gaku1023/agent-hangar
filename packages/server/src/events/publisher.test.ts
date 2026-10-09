@@ -418,7 +418,7 @@ describe('同期で降りた行', () => {
 });
 
 describe('設定の同期（作り直した実装）', () => {
-  const dto = { enabled: true, approval: 'each' as const, incoming: 1, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null };
+  const dto = { enabled: true, approval: 'each' as const, workerPending: false, incoming: 1, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null };
 
   it('束の行が変わると config.update を配る。同期で降りた行も、この端末の書き込みも配る', () => {
     const t = setup();

@@ -3,9 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { gunzipSync } from 'node:zlib';
-import type { ChangeOut } from '@agent-hangar/shared';
+import { CONFIG_BUNDLE_MIN_WORKER_COMPAT, type ChangeOut } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeCloudClient } from '../../../test/fake-cloud.ts';
+import { onRowChange } from '../../db/notify.ts';
 import { openDb, type Db } from '../../db/open.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { applyRemoteChange } from '../apply.ts';
@@ -36,6 +37,9 @@ function pc(id: string, name: string): Pc {
   fs.mkdirSync(home, { recursive: true });
   const db = openDb(':memory:');
   const cloud = shared.asDevice(id);
+  // 本物の同期は、起動のときに Worker と話して版を知る。偽のクラウドにも 1 度話しかけたことにする（呼び出しの記録は空に戻す）。
+  void cloud.health();
+  cloud.calls.length = 0;
   const on = { enabled: true, approval: 'each' as 'each' | 'auto' };
   const service = new ConfigSyncService({
     db, deviceId: id, deviceName: name, claudeDir, home, cloud, key,
@@ -71,6 +75,8 @@ beforeEach(() => {
   vi.setSystemTime(clock);
   pcs = [];
   shared = new FakeCloudClient({ deviceId: 'shared', now: () => clock });
+  // 束の行を知る Worker。古い Worker の試験だけが、これを下げる。
+  shared.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT;
 });
 afterEach(() => { vi.useRealTimers(); for (const p of pcs) p.db.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
@@ -562,7 +568,7 @@ describe('控えの世代と状態', () => {
 
   it('状態は、切入り、承諾の仕方、届いた数、競合、保留、送らなかった数、最後に送った時刻を持つ', async () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
-    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null });
+    expect(a.service.dto()).toEqual({ enabled: true, approval: 'each', workerPending: false, incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null });
     a.write('CLAUDE.md', 'a'); a.write('commands/x.md', 'a');
     b.write('commands/x.md', 'b');
     await sync(a, b);
@@ -649,5 +655,127 @@ describe('定期の呼び出しと止め方', () => {
     a.write('CLAUDE.md', 'x');
     await Promise.all([a.service.send(), a.service.send(), a.service.send()]);
     expect(a.cloud.calls.filter((c) => c.method === 'putFile')).toHaveLength(1);
+  });
+});
+
+describe('古い Worker のあいだは束の行を書かない', () => {
+  it('Worker の版が、束の行を知る版に届くまでは、スイッチが入っていても送らず、行も作らず、状態に更新待ちを出す', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'x');
+    shared.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT - 1;
+    // Worker の版は、同期の最初の応答で分かる。ここでは偽のクラウドに 1 度話しかけたことにする。
+    await a.cloud.health();
+    a.cloud.calls.length = 0;
+    expect(a.service.dto()).toMatchObject({ enabled: true, workerPending: true });
+    expect(await a.service.send()).toEqual({ sent: false, items: 0 });
+    await a.service.tick();
+    expect(a.cloud.calls).toEqual([]);
+    expect(a.db.prepare('select count(*) n from config_snapshots').get()).toEqual({ n: 0 });
+    expect(a.db.prepare("select count(*) n from changes where table_name = 'config_snapshots'").get()).toEqual({ n: 0 });
+    // 一覧は読める。
+    expect(a.service.outgoing().items).toHaveLength(1);
+    // Worker が上がれば、次の送信から行を書く。
+    shared.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT;
+    await a.cloud.health();
+    expect(a.service.dto().workerPending).toBe(false);
+    expect(await a.service.send()).toEqual({ sent: true, items: 1 });
+  });
+
+  it('スイッチが切のときは、更新待ちと言わない', async () => {
+    const a = pc('dev-a', 'mac');
+    a.on.enabled = false;
+    shared.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT - 1;
+    await a.cloud.health();
+    expect(a.service.dto().workerPending).toBe(false);
+  });
+
+  it('Worker の版がまだ分からないあいだは、送らないが、更新待ちとも言わない', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'x');
+    const blind = new ConfigSyncService({
+      db: a.db, deviceId: 'dev-a', deviceName: 'mac', claudeDir: a.claudeDir, home: a.home, key, now: () => clock,
+      cloud: { putFile: (...args) => a.cloud.putFile(...args), getFile: (k) => a.cloud.getFile(k), lastWorkerCompat: () => null },
+      enabled: () => true, switchedOn: () => true, approval: () => 'each',
+    });
+    expect(await blind.send()).toEqual({ sent: false, items: 0 });
+    expect(blind.dto().workerPending).toBe(false);
+    expect(a.cloud.calls.filter((c) => c.method === 'putFile')).toEqual([]);
+  });
+
+  it('更新待ちが変わったら、画面へ配り直す（config_state の名指し）', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'x');
+    const touched: string[] = [];
+    const off = onRowChange((c) => { if (c.db === a.db && c.table === 'config_state') touched.push('t'); });
+    try {
+      shared.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT - 1;
+      await a.cloud.health();
+      await a.service.tick();
+      const afterOld = touched.length;
+      expect(afterOld).toBeGreaterThan(0);
+      await a.service.tick();
+      expect(touched.length).toBe(afterOld);
+      shared.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT;
+      await a.cloud.health();
+      await a.service.tick();
+      expect(touched.length).toBeGreaterThan(afterOld);
+    } finally { off(); }
+  });
+});
+
+describe('手元にあるが運ばない同名の項目を、相手の項目で上書きさせない', () => {
+  const outsideFile = (name: string, text: string): string => { const f = path.join(tmp, name); fs.writeFileSync(f, text); return f; };
+
+  it('手元がリンクのファイル：相手から同名が届いても create にせず、保留にして、指示書に入れられない', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    a.write('commands/x.md', 'from a');
+    a.write('commands/ok.md', 'ok');
+    fs.mkdirSync(path.join(b.claudeDir, 'commands'), { recursive: true });
+    const target = outsideFile('b-secret.md', 'b private');
+    fs.symlinkSync(target, path.join(b.claudeDir, 'commands', 'x.md'));
+    await sync(a, b);
+    const by = Object.fromEntries(b.service.inbox().items.map((i) => [i.id, i]));
+    expect(by['file:commands/x.md']).toMatchObject({ op: 'create', held: 'local-blocked' });
+    expect(by['file:commands/ok.md']).toMatchObject({ op: 'create', held: null });
+    expect(b.service.dto()).toMatchObject({ incoming: 1, held: 1, conflicts: 0 });
+    expect(() => b.service.putApplyOrder([{ id: 'file:commands/x.md' }])).toThrow(ConfigSyncError);
+    expect(() => b.service.putApplyOrder([{ id: 'file:commands/ok.md' }])).not.toThrow();
+    expect(fs.readFileSync(target, 'utf8')).toBe('b private');
+  });
+
+  it('手元が大きすぎるファイル：保留にする', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    a.write('skills/s/SKILL.md', 'small');
+    b.write('skills/s/SKILL.md', Buffer.alloc((1 << 20) + 1, 97));
+    await sync(a, b);
+    expect(b.service.inbox().items).toMatchObject([{ id: 'file:skills/s/SKILL.md', held: 'local-blocked' }]);
+  });
+
+  it('手元のディレクトリ全体がリンク：その下の相手の項目は全部保留', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    a.write('agents/one.md', '1'); a.write('agents/sub/two.md', '2');
+    fs.mkdirSync(path.join(tmp, 'agents-elsewhere'));
+    fs.symlinkSync(path.join(tmp, 'agents-elsewhere'), path.join(b.claudeDir, 'agents'));
+    await sync(a, b);
+    expect(b.service.inbox().items.map((i) => [i.id, i.held])).toEqual([['file:agents/one.md', 'local-blocked'], ['file:agents/sub/two.md', 'local-blocked']]);
+  });
+
+  it('手元の settings.json が壊れている：相手の settings の項目は保留', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    a.write('settings.json', JSON.stringify({ model: 'opus' }));
+    b.write('settings.json', '{ broken');
+    await sync(a, b);
+    expect(b.service.inbox().items).toMatchObject([{ id: 'settings:model', held: 'local-blocked' }]);
+  });
+
+  it('保留は競合の数にも届いた数にも入らず、塞ぎが解ければ通常の判定に戻る', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    a.write('commands/x.md', 'from a');
+    fs.mkdirSync(path.join(b.claudeDir, 'commands'), { recursive: true });
+    fs.symlinkSync(outsideFile('o.md', 'o'), path.join(b.claudeDir, 'commands', 'x.md'));
+    await sync(a, b);
+    expect(b.service.dto()).toMatchObject({ incoming: 0, conflicts: 0, held: 1 });
+    fs.rmSync(path.join(b.claudeDir, 'commands', 'x.md'));
+    expect(b.service.dto()).toMatchObject({ incoming: 1, conflicts: 0, held: 0 });
   });
 });

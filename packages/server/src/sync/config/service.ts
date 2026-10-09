@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import {
-  configKey, isSafeKeyId,
-  type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigConflictDto,
+  CONFIG_BUNDLE_MIN_WORKER_COMPAT, configKey, isSafeKeyId,
+  type ConfigApplyOrderDto, type ConfigApplyOrderEntryIn, type ConfigApplyOrderItemDto, type ConfigApproval, type ConfigBackupsDto, type ConfigHeldReason, type ConfigConflictDto,
   type ConfigInboxDto, type ConfigInboxItemDto, type ConfigItemKind, type ConfigOutgoingDto, type ConfigSyncDto, type ConfigUnsentDto, type ConfigUnsentItemDto, type FileMetaIn,
 } from '@agent-hangar/shared';
 import { diffLines } from '../../config/jsonTextEdit.ts';
@@ -16,7 +16,7 @@ import { decryptBuffer, encryptBuffer } from '../crypto.ts';
 import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.ts';
 import { listBackups } from './backups.ts';
 import { packBundle, unpackBundle, type BundleManifest, type ManifestItem } from './bundle.ts';
-import { collectLocal, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
+import { collectLocal, isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
 import { parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
 import { BUNDLE_PATH } from './paths.ts';
@@ -39,7 +39,7 @@ import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
  */
 
 /** クラウドとの出し入れ。いまの同期のクライアントのうち、本文を運ぶ 2 つだけを使う。 */
-export type ConfigCloud = Pick<CloudClient, 'putFile' | 'getFile'>;
+export type ConfigCloud = Pick<CloudClient, 'putFile' | 'getFile' | 'lastWorkerCompat'>;
 
 export type ConfigSyncDeps = {
   db: Db; deviceId: string; deviceName: string; claudeDir: string; home: string;
@@ -91,7 +91,7 @@ type Resolved = {
   size: number;
   marks: ManifestItem['marks'];
   head: string;
-  held: 'no-project' | null;
+  held: ConfigHeldReason | null;
   target: string | null;
   fromDevice: string;
   local: LocalItem | null;
@@ -104,6 +104,8 @@ export class ConfigSyncService {
   private readonly base: ConfigBase;
   private chain: Promise<unknown> = Promise.resolve();
   private stopped = false;
+  /** 前に見たときの「Worker の更新待ち」。変わったら画面へ配り直す。 */
+  private lastWorkerPending: boolean | null = null;
   /** 開けなかった束の、端末ごとの行の指紋と時刻。起こし直すと忘れる。 */
   private readonly failed = new Map<string, { sha: string; at: number }>();
 
@@ -128,6 +130,19 @@ export class ConfigSyncService {
   /** 以後の送受信を断る。走っているものは待たない。 */
   stop(): void { this.stopped = true; }
   private touch(): void { touchRow(this.deps.db, 'config_state', 'self'); }
+
+  /**
+   * Worker が束の行を知る版に届いているか。
+   * 配備済みの Worker は、config_snapshots の行を含む push を 400 で丸ごと断り、他の表の同期まで止める。
+   * だから、Worker が名乗る版が CONFIG_BUNDLE_MIN_WORKER_COMPAT に届くまでは、束も行も送らない。
+   * 版は同期の応答で分かる。まだ話していないあいだ（unknown）も送らないが、更新待ちとは言わない。
+   */
+  private workerState(): 'ready' | 'pending' | 'unknown' {
+    const v = this.deps.cloud.lastWorkerCompat?.() ?? null;
+    if (v === null) return 'unknown';
+    return v >= CONFIG_BUNDLE_MIN_WORKER_COMPAT ? 'ready' : 'pending';
+  }
+  private workerPending(): boolean { return this.deps.switchedOn() && this.workerState() === 'pending'; }
 
   // ---- 手元 ----
 
@@ -201,6 +216,7 @@ export class ConfigSyncService {
 
   private async sendNow(): Promise<{ sent: boolean; items: number }> {
     if (!this.deps.enabled()) return { sent: false, items: 0 };
+    if (this.workerState() !== 'ready') return { sent: false, items: 0 };
     const { db, deviceId } = this.deps;
     const items = this.collect().items.filter((i) => !i.withheld);
     const own = this.ownRow();
@@ -287,6 +303,8 @@ export class ConfigSyncService {
     try {
       await this.receive();
       await this.send();
+      const pending = this.workerPending();
+      if (pending !== this.lastWorkerPending) { this.lastWorkerPending = pending; this.touch(); }
     } catch (e) {
       this.deps.onError?.(`設定の同期に失敗しました: ${e instanceof Error ? e.name : 'Error'}`);
     }
@@ -299,19 +317,20 @@ export class ConfigSyncService {
   }
 
   /** 3 方向の判定を回し、手元と相手が同じだった項目を基準に書き、どこにも無くなった項目の基準を消す。 */
-  private reconcile(local?: Map<string, LocalItem>): { actions: Action[]; local: Map<string, LocalItem> } {
-    const items = local ?? new Map(this.collect().items.map((i) => [i.id, i]));
+  private reconcile(): { actions: Action[]; local: Map<string, LocalItem>; blocked: Blocked } {
+    const collected = this.collect();
+    const items = new Map(collected.items.map((i) => [i.id, i]));
     const base = this.base.all();
     const j = judge({ local: new Map([...items].map(([id, i]) => [id, i.sha256])), base, remotes: this.snapshots() });
     const now = this.now();
     for (const [id, sha] of j.agreed) if (base.get(id) !== sha) this.base.set(id, sha, now);
     for (const id of j.forget) this.base.remove(id);
-    return { actions: j.actions, local: items };
+    return { actions: j.actions, local: items, blocked: collected.blocked };
   }
 
   private resolved(): Resolved[] {
     const { home } = this.deps;
-    const { actions, local } = this.reconcile();
+    const { actions, local, blocked } = this.reconcile();
     const inbox = new Map(readInbox(home).map((e) => [e.deviceId, e]));
     const projects = this.projectsHere();
     const out: Resolved[] = [];
@@ -324,7 +343,7 @@ export class ConfigSyncService {
       const ref = parsed.ref;
       let label: string;
       let target: string | null;
-      let held: 'no-project' | null = null;
+      let held: ConfigHeldReason | null = null;
       if (ref.type === 'file') { label = ref.rel; target = ref.rel; }
       else if (ref.type === 'settings') { label = ref.key; target = `settings.json#${ref.key}`; }
       else {
@@ -333,6 +352,8 @@ export class ConfigSyncService {
         target = p ? `projects/${p.slug}/memory/${ref.rel}` : null;
         if (!p) held = 'no-project';
       }
+      // 手元に同名のものがあるが運べない（リンク、大きすぎる、読めない、件数の上限）。「手元に無い」と見て create にすると、適用で手元を上書きする。
+      if (held === null && isBlocked(blocked, action.id)) held = 'local-blocked';
       let head = '';
       if (remoteItem) {
         const blob = readInboxBlob(home, action.fromDeviceId, remoteItem.sha256);
@@ -441,6 +462,7 @@ export class ConfigSyncService {
     return {
       enabled: this.deps.switchedOn(),
       approval: this.deps.approval(),
+      workerPending: this.workerPending(),
       incoming: r.filter((x) => x.action.op !== 'conflict' && !x.held).length,
       conflicts: r.filter((x) => x.action.op === 'conflict').length,
       held: r.filter((x) => x.held).length,

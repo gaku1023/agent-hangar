@@ -211,13 +211,14 @@ export type ConfigOutgoingDto = {
 };
 /** 届いた変更の操作。conflict は手元と相手の両方が変えた（または片方が消した）もの。 */
 export type ConfigInboxOp = 'create' | 'overwrite' | 'delete' | 'conflict';
+/** 適用できない理由。no-project は、そのプロジェクトがこの PC に無いメモリ。local-blocked は、手元に同名のものがあるが運べない（リンク、大きすぎる、読めない、件数の上限）ので、黙って上書きしない。 */
+export type ConfigHeldReason = 'no-project' | 'local-blocked';
 export type ConfigInboxItemDto = {
   id: string; kind: ConfigItemKind; label: string; op: ConfigInboxOp;
   fromDeviceId: string; fromDevice: string; size: number; marks: ConfigExecMark[];
   /** 中身の先頭（本文でないものは空）。 */
   head: string;
-  /** 適用できない理由。no-project は、そのプロジェクトがこの PC に無いメモリ。 */
-  held: 'no-project' | null;
+  held: ConfigHeldReason | null;
   /** 項目ごとの承諾が要るか（skills、commands、agents で、承諾の仕方が each のとき）。 */
   needsApproval: boolean;
 };
@@ -236,6 +237,8 @@ export type ConfigApplyOrderItemDto = { id: string; kind: ConfigItemKind; op: Co
 export type ConfigApplyOrderDto = { createdAt: number; items: ConfigApplyOrderItemDto[] };
 export type ConfigSyncDto = {
   enabled: boolean;
+  /** スイッチは入っているが、Worker がまだ束の行を知る版に届いていないので、送っていない（Worker の更新待ち）。Worker の版がまだ分からないあいだは偽。 */
+  workerPending: boolean;
   approval: ConfigApproval;
   /** 適用できる変更の数（競合と保留を除く）。 */
   incoming: number;

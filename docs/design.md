@@ -2888,9 +2888,21 @@ skills、commands、agents は実行される指示なので、他の PC から�
 | `GET`、`PUT`、`DELETE /api/config-sync/apply-order` | 適用の指示書 |
 
 **互換の版。**
-`config_snapshots` は共有テーブルの一覧に足したので、Worker はこの表の行を含む push を、配備し直すまで断る（一覧に無い表の変更は断る決まりである）。
-スイッチが切のあいだは行を書かないので影響しない。
-この表を使う Worker の版は、PR 15 で `MIN_WORKER_COMPAT` を上げて求める（PR 14 では上げていない。上げると、配備前の Worker を使う端末が全部止まる）。
+`config_snapshots` は共有テーブルの一覧に足したので、配備済みの Worker は、この表の行を含む push を 400 で丸ごと断る。
+そのまま行を書くと、他の表の同期まで止まる。
+そこで端末は、Worker が名乗る互換の版が `CONFIG_BUNDLE_MIN_WORKER_COMPAT`（`packages/shared/src/compat.ts`。いまは 3）に届くまで、スイッチが入っていても束も行も送らない。
+Worker の版は、同期の 2xx の応答の見出しから `CloudClient.lastWorkerCompat()` が返す。まだ Worker と話していないあいだは null で、送らないが、更新待ちとは言わない。
+版が届いていないとき、`ConfigSyncDto.workerPending` が真になる（スイッチが入っているときだけ）。画面は「Worker の更新待ち」を出す。この状態が変わったときは `config.update` を配り直す。
+受け取る側は止めない。行が無ければ取りに行くものも無いからである。
+PR 15 が、この表を知る Worker を配備するときに、Worker の `COMPAT_VERSION` をこの値に上げる。
+`MIN_WORKER_COMPAT` と `MIN_DEVICE_COMPAT` は上げない。上げると、配備前の Worker を使う端末が全部止まる。
+
+**手元にあるが運ばないもの。**
+リンク、1 MiB を超えるファイル、読めないファイル、件数の上限（5000）を超えたファイル、リンクのディレクトリの下、読めない `settings.json`（リンク、大きすぎる、JSON でない、オブジェクトでない）、リンクのメモリの置き場は、項目として集めない。
+ただし「手元にある」ことは記録する（`collect.ts` の `Blocked`）。
+記録が無いと、相手から同名の項目が届いたときに「手元に無い」と見て `create` と判定し、適用で手元を上書きしてしまう。
+記録に当たる項目は、届いた変更の一覧に `held: 'local-blocked'` で出し、届いた数にも競合にも数えず、適用の指示書にも入れられない。
+塞ぎが解ければ、次の判定から通常に戻る。
 
 ### 使用量と費用
 

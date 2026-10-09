@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ChangeOut } from '@agent-hangar/shared';
+import { CONFIG_BUNDLE_MIN_WORKER_COMPAT, type ChangeOut } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeCloudClient } from '../../../test/fake-cloud.ts';
 import { openDb, type Db } from '../../db/open.ts';
@@ -38,14 +38,17 @@ beforeEach(async () => {
   myHome = path.join(tmp, 'my-home');
   fs.mkdirSync(myClaude); fs.mkdirSync(myHome);
   cloud = new FakeCloudClient({ deviceId: 'shared' });
-  service = new ConfigSyncService({ db: t.db, deviceId: 'd', deviceName: 'mac', claudeDir: myClaude, home: myHome, cloud: cloud.asDevice('d'), key, enabled: () => true, switchedOn: () => true, approval: () => state.approval });
+  // 束の行を知る Worker で、同期はもう Worker と話して版を知っている。
+  cloud.workerCompat = CONFIG_BUNDLE_MIN_WORKER_COMPAT;
+  const talk = (c: FakeCloudClient): FakeCloudClient => { void c.health(); c.calls.length = 0; return c; };
+  service = new ConfigSyncService({ db: t.db, deviceId: 'd', deviceName: 'mac', claudeDir: myClaude, home: myHome, cloud: talk(cloud.asDevice('d')), key, enabled: () => true, switchedOn: () => true, approval: () => state.approval });
   state.approval = 'each';
   const peerDb = openDb(':memory:');
   const peerClaude = path.join(tmp, 'peer-claude');
   fs.mkdirSync(peerClaude);
   peer = {
     db: peerDb, claudeDir: peerClaude,
-    service: new ConfigSyncService({ db: peerDb, deviceId: 'peer', deviceName: 'mini', claudeDir: peerClaude, home: path.join(tmp, 'peer-home'), cloud: cloud.asDevice('peer'), key, enabled: () => true, switchedOn: () => true, approval: () => 'each' }),
+    service: new ConfigSyncService({ db: peerDb, deviceId: 'peer', deviceName: 'mini', claudeDir: peerClaude, home: path.join(tmp, 'peer-home'), cloud: talk(cloud.asDevice('peer')), key, enabled: () => true, switchedOn: () => true, approval: () => 'each' }),
   };
   app = createApp({ ...t.deps, configBundle: service });
 });

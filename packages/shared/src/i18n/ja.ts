@@ -183,7 +183,7 @@ export const ja: Dictionary = {
   'sync.resume.noTranscript': 'このセッションの本文がありません',
   // configSync
   'configSync.error.unknownItem': '「{id}」は、届いている変更にありません',
-  'configSync.error.held': '「{id}」は、この PC に対応するプロジェクトが無いので適用できません',
+  'configSync.error.held': '「{id}」は、この PC では適用できません（対応するプロジェクトが無いか、手元に運べない同名のファイルがあります）',
   'configSync.error.badTake': '「{id}」は競合ではないので、手元を採る選び方はできません',
   'configSync.error.duplicate': '「{id}」が重なっています',
   'configSync.error.emptyOrder': '適用する項目が選ばれていません',

@@ -366,6 +366,10 @@ describe('互換の版', () => {
     expect(MIN_DEVICE_COMPAT).toBe(workerConstant('compat.ts', 'MIN_DEVICE_COMPAT'));
     const a = new FakeCloudClient({ deviceId: 'a' });
     expect(a.workerCompat).toBe(COMPAT_VERSION);
+    // 話すまでは Worker の版を知らない。話したら、そのときの Worker の版を覚える。
+    expect(a.lastWorkerCompat()).toBeNull();
+    await a.health();
+    expect(a.lastWorkerCompat()).toBe(COMPAT_VERSION);
     expect(a.minDeviceCompat).toBe(MIN_DEVICE_COMPAT);
     expect(await a.pushChanges([ch('p1', 1)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
   });

@@ -108,6 +108,7 @@ export class FakeCloudClient implements CloudClient {
   readonly deviceId: string;
   /** この端末が Worker に求める互換の版の下限。HttpCloudClient の minWorkerCompat に当たる。 */
   readonly minWorkerCompat: number;
+  private seenWorkerCompat: number | null = null;
 
   constructor(o: { deviceId?: string; store?: FakeCloudStore; now?: () => number; minWorkerCompat?: number } = {}) {
     this.deviceId = o.deviceId ?? 'self';
@@ -162,10 +163,14 @@ export class FakeCloudClient implements CloudClient {
     this.store.changes = this.store.changes.filter((c) => c.seq > this.store.changesFloor);
   }
 
+  /** Worker が最後に名乗った版。話すまでは null（HttpCloudClient と同じ）。 */
+  lastWorkerCompat(): number | null { return this.seenWorkerCompat; }
+
   private guard(method: string, ...args: unknown[]): void {
     this.calls.push({ method, args });
     // 繋がらなければ認証にも辿り着かないので、offline を先に見る。
     if (this.store.offline) throw new CloudError(0, 'offline');
+    this.seenWorkerCompat = this.store.workerCompat;
     // 上限は Cloudflare の側で断る。Workers の要求の上限は Worker の手前なので、版の関所より先に当たる。
     if (this.store.limited !== null && (method !== 'health' || this.store.limited === 'requests')) throw new LimitError(this.store.limited, 429);
     // 版の関所は Worker のどの経路よりも先にある（認証より先）。/health だけは版を問わずに通る。
