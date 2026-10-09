@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import type { ArtifactDto, Intent, SessionDto, TodoDto } from '@agent-hangar/shared';
 import type { MediatedIntent } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
+import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { ApiClient } from './api.ts';
 import { FELL_BACK, intentCall, intentTable, isTableIntent, type TableIntent } from './intentTable.ts';
@@ -35,9 +36,10 @@ describe('表の鍵', () => {
   });
   it('表に載っているのは、API を 1 回呼ぶだけの Intent である', () => {
     expect(Object.keys(intentTable).sort()).toEqual([
+      'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'memo.save',
       'project.openEditor', 'project.openTerminalApp', 'project.setStatus',
-      'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summary.regenerate',
+      'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
       'todo.confirm', 'todo.reject', 'todo.remove', 'todo.toggle',
     ]);
   });
@@ -170,5 +172,61 @@ describe('作業台', () => {
     const r = await runRow({ type: 'artifact.add', projectId: 'p1', url: ' ' }, fakeApi({ addArtifact }));
     expect(r.called).toBe(false);
     expect(addArtifact).not.toHaveBeenCalled();
+  });
+});
+
+describe('設定', () => {
+  it('要約の試しは、前の結果を先に消してから呼び、応答を Store に入れる', async () => {
+    const result = { ok: true, id: 'lmstudio', ms: 12 } as unknown as NonNullable<Store['summarizerTest']>;
+    const testSummarizer = vi.fn(async () => result);
+    const old = { ok: false } as unknown as NonNullable<Store['summarizerTest']>;
+    const r = await runRow({ type: 'summarizer.test' }, fakeApi({ testSummarizer }), { ...initialStore(), summarizerTest: old });
+    expect(testSummarizer).toHaveBeenCalledTimes(1);
+    // 試している最中だと分かるように、呼ぶ前に消す。
+    expect(r.during.summarizerTest).toBeNull();
+    expect(r.store.summarizerTest).toBe(result);
+  });
+});
+
+describe('アカウント', () => {
+  const next = { ...accountsFixture, accounts: [accountsFixture.accounts[0]!] };
+  it('読み込み、選択、ログインの取り消し、取り直しは、それぞれの API を呼び、応答の一覧を Store に入れる', async () => {
+    const api = fakeApi({ accounts: vi.fn(async () => next), setCurrentAccount: vi.fn(async () => next), cancelAccountLogin: vi.fn(async () => next), refreshAccount: vi.fn(async () => next) });
+    const stores = [
+      await runRow({ type: 'accounts.load' }, api),
+      await runRow({ type: 'account.choose', accountId: 'a1' }, api),
+      await runRow({ type: 'account.login.cancel', accountId: 'a2' }, api),
+      await runRow({ type: 'account.refresh', accountId: 'a3' }, api),
+    ].map((r) => r.store.accounts);
+    expect(vi.mocked(api.accounts).mock.calls).toEqual([[]]);
+    expect(vi.mocked(api.setCurrentAccount).mock.calls).toEqual([['a1']]);
+    expect(vi.mocked(api.cancelAccountLogin).mock.calls).toEqual([['a2']]);
+    expect(vi.mocked(api.refreshAccount).mock.calls).toEqual([['a3']]);
+    expect(stores).toEqual([next, next, next, next]);
+  });
+  it('ログインは loginAccount を呼ぶだけで、進みは後から届く', async () => {
+    const loginAccount = vi.fn(async () => {});
+    const r = await runRow({ type: 'account.login', accountId: 'a1' }, fakeApi({ loginAccount }));
+    expect(loginAccount.mock.calls).toEqual([['a1']]);
+    expect(r.store).toBe(r.during);
+  });
+  it('更新は、渡された項目だけを送り、応答の一覧を Store に入れる', async () => {
+    const updateAccount = vi.fn(async () => next);
+    const api = fakeApi({ updateAccount });
+    const r = await runRow({ type: 'account.update', accountId: 'a1', name: '研究室', color: '#7a4a9e' }, api);
+    await runRow({ type: 'account.update', accountId: 'a1', color: '#7a4a9e' }, api);
+    expect(updateAccount.mock.calls).toEqual([['a1', { name: '研究室', color: '#7a4a9e' }], ['a1', { color: '#7a4a9e' }]]);
+    expect(r.store.accounts).toEqual(next);
+  });
+  it('更新の名前は前後の空白を落とし、空になれば送らず、送るものが無ければ何も呼ばない', async () => {
+    const updateAccount = vi.fn(async () => next);
+    const api = fakeApi({ updateAccount });
+    await runRow({ type: 'account.update', accountId: 'a1', name: '  研究室 ' }, api);
+    await runRow({ type: 'account.update', accountId: 'a1', name: '   ', color: '#7a4a9e' }, api);
+    expect(updateAccount.mock.calls).toEqual([['a1', { name: '研究室' }], ['a1', { color: '#7a4a9e' }]]);
+    const a = await runRow({ type: 'account.update', accountId: 'a1', name: '   ' }, api);
+    const b = await runRow({ type: 'account.update', accountId: 'a1' }, api);
+    expect([a.called, b.called]).toEqual([false, false]);
+    expect(updateAccount).toHaveBeenCalledTimes(2);
   });
 });

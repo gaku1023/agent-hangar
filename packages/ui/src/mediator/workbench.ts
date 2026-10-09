@@ -71,7 +71,6 @@ export function workbenchStep(state: State, store: Store, input: Input): Step | 
     case 'todo.add': return i.text.trim() ? { state, effects: [{ kind: 'api.addTodo', projectId: i.projectId, text: i.text.trim() }, { kind: 'focus', target: 'todoInput' }] } : { state, effects: [] };
     case 'session.state.set': return { state: closePause(state, i.id), effects: [{ kind: 'api.setSessionState', id: i.id, body: stateBody(i) }] };
     case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {} }] };
-    case 'summarizer.test': return { state, effects: [{ kind: 'api.testSummarizer' }] };
     // 幅の変更は SplitPane の IntentBoundary が処理する。ここへ来るのは境界の外で発行されたときだけで、無視してよい。
     case 'split.resize': return { state, effects: [] };
     case 'palette.run': return paletteRun(state, store, i.command);

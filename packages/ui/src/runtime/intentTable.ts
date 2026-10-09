@@ -1,4 +1,4 @@
-import type { Intent } from '@agent-hangar/shared';
+import type { AccountsDto, Intent } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 
@@ -27,6 +27,8 @@ function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): Api
     }),
   };
 }
+
+const withAccounts = (store: Store, accounts: AccountsDto): Store => ({ ...store, accounts });
 
 type Rows = { [K in Intent['type']]?: (intent: Extract<Intent, { type: K }>, store: Store) => ApiCall | null };
 
@@ -70,6 +72,23 @@ export const intentTable = {
     const url = i.url.trim();
     return url ? call((api) => api.addArtifact(i.projectId, url), { apply: (store, a) => ({ ...store, artifacts: { ...store.artifacts, [a.id]: a } }) }) : null;
   },
+
+  // 前回の結果を先に消して、試している最中だと分かるようにする。
+  'summarizer.test': () => call((api) => api.testSummarizer(), { before: (store) => ({ ...store, summarizerTest: null }), apply: (store, r) => ({ ...store, summarizerTest: r }) }),
+
+  // Claude Code のアカウント。一覧を返すものは、応答をそのまま Store に入れる（サーバの accounts.update と同じ形）。
+  'accounts.load': () => call((api) => api.accounts(), { apply: withAccounts }),
+  'account.choose': (i) => call((api) => api.setCurrentAccount(i.accountId), { apply: withAccounts }),
+  'account.update': (i) => {
+    // 名前は前後の空白を落とす。空になった名前は送らず、送るものが無ければ何も呼ばない。
+    const name = i.name?.trim();
+    const patch = { ...(name ? { name } : {}), ...(i.color !== undefined ? { color: i.color } : {}) };
+    return Object.keys(patch).length === 0 ? null : call((api) => api.updateAccount(i.accountId, patch), { apply: withAccounts });
+  },
+  // ログインの進みは accounts.update で届くので、応答は使わない。
+  'account.login': (i) => call((api) => api.loginAccount(i.accountId)),
+  'account.login.cancel': (i) => call((api) => api.cancelAccountLogin(i.accountId), { apply: withAccounts }),
+  'account.refresh': (i) => call((api) => api.refreshAccount(i.accountId), { apply: withAccounts }),
 } satisfies Rows;
 
 /** 表にある Intent。Mediator の入力の型からは、これを外す（mediator/types.ts の MediatedIntent）。 */

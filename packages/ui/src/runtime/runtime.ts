@@ -475,11 +475,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // LM Studio が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
         return;
-      case 'api.testSummarizer':
-        // 前回の結果を先に消して、試している最中だと分かるようにする。
-        setStore({ ...store, summarizerTest: null });
-        deps.api.testSummarizer().then((r) => setStore({ ...store, summarizerTest: r })).catch(fail);
-        return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
       // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。
       case 'api.syncNow': deps.api.syncNow().then(syncStatus).catch(fail); return;
@@ -520,8 +515,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           if (r.token !== null) deps.setTimeout(() => { if (store.joinToken === r.token) setStore(applyJoinToken(store, null)); }, JOIN_TOKEN_TTL_MS);
         }).catch(fail);
         return;
-      case 'api.accounts.load': deps.api.accounts().then(accountsUpdated).catch(fail); return;
-      case 'api.accounts.setCurrent': deps.api.setCurrentAccount(e.accountId).then(accountsUpdated).catch(fail); return;
       case 'api.accounts.switchSession': deps.api.switchAccount(e.sessionId, e.accountId).then(launched).catch(launchFailed); return;
       case 'api.accounts.add':
         // 追加の直後にログインを始める。新しいアカウントは応答の末尾の 1 件である。
@@ -531,11 +524,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           if (added) deps.api.loginAccount(added.id).catch(fail);
         }).catch(fail);
         return;
-      case 'api.accounts.update': deps.api.updateAccount(e.accountId, e.patch).then(accountsUpdated).catch(fail); return;
       case 'api.accounts.remove': deps.api.removeAccount(e.accountId).then(accountsUpdated).catch(fail); return;
-      case 'api.accounts.login': deps.api.loginAccount(e.accountId).catch(fail); return;
-      case 'api.accounts.cancelLogin': deps.api.cancelAccountLogin(e.accountId).then(accountsUpdated).catch(fail); return;
-      case 'api.accounts.refresh': deps.api.refreshAccount(e.accountId).then(accountsUpdated).catch(fail); return;
       default: {
         // 効果を足したときに処理を忘れると、ここで型が合わなくなる。
         const _exhaustive: never = e;

@@ -806,15 +806,13 @@ describe('昇格', () => {
 });
 
 describe('作業台の操作', () => {
-  // TODO の切り替えと削除、メモ、アーティファクト、要約の作り直しは Mediator を通らない（runtime/intentTable.test.ts）。
-  it('TODO の追加と要約の試しは api 効果になる', () => {
+  // TODO の切り替えと削除、メモ、アーティファクト、要約の作り直しと試しは Mediator を通らない（runtime/intentTable.test.ts）。
+  it('TODO の追加は api 効果になる', () => {
     const r = run([
       intent({ type: 'todo.add', projectId: 'p1', text: '買う' }),
-      intent({ type: 'summarizer.test' }),
     ]);
     expect(r.effects).toEqual([
       { kind: 'api.addTodo', projectId: 'p1', text: '買う' }, { kind: 'focus', target: 'todoInput' },
-      { kind: 'api.testSummarizer' },
     ]);
     expect(r.state).toEqual(initialState());
   });
@@ -1580,21 +1578,7 @@ describe('セッションの状態', () => {
 
 describe('アカウント', () => {
   const effectsOf = (i: Extract<Input, { kind: 'intent' }>['intent'], start: State = initialState()) => run([intent(i)], start).effects;
-  it('読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは、それぞれの Effect を 1 つ出す', () => {
-    expect(effectsOf({ type: 'accounts.load' })).toEqual([{ kind: 'api.accounts.load' }]);
-    expect(effectsOf({ type: 'account.choose', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.setCurrent', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '研究室', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室', color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.login', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.login', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.login.cancel', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.cancelLogin', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.refresh', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.refresh', accountId: 'a1' }]);
-  });
-  it('更新の名前は前後の空白を落とし、空になれば patch に入れず、patch が空なら Effect を出さない', () => {
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '  研究室 ' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ' })).toEqual([]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1' })).toEqual([]);
-  });
+  // 読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは Mediator を通らない（runtime/intentTable.test.ts）。
   it('追加は名前の前後の空白を落とし、空白だけなら何も出さない', () => {
     expect(effectsOf({ type: 'account.add', name: '  大学 ' })).toEqual([{ kind: 'api.accounts.add', name: '大学' }]);
     const blank = run([intent({ type: 'account.add', name: '   ' })]);

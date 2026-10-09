@@ -103,21 +103,14 @@ export type Effect =
   | { kind: 'api.workspaceDirs' }
   | { kind: 'desktop.pickFolder' }
   | { kind: 'api.loadSettingsExtras' }
-  | { kind: 'api.testSummarizer' }
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
   // Claude Code のアカウント。
-  | { kind: 'api.accounts.load' }
-  | { kind: 'api.accounts.setCurrent'; accountId: string }
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
   | { kind: 'api.accounts.add'; name: string }
-  | { kind: 'api.accounts.update'; accountId: string; patch: { name?: string; color?: string } }
-  | { kind: 'api.accounts.remove'; accountId: string }
-  | { kind: 'api.accounts.login'; accountId: string }
-  | { kind: 'api.accounts.cancelLogin'; accountId: string }
-  | { kind: 'api.accounts.refresh'; accountId: string };
+  | { kind: 'api.accounts.remove'; accountId: string };
 
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
