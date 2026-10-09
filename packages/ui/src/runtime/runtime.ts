@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, liveSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import type { Notifier } from './notifier.ts';
@@ -93,20 +93,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const notify = () => { for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
   const present = deps.present ?? ((c: () => void) => c());
-  // ストアが変わったら、そのことだけを Mediator へ知らせる。ストアから決まる状態（入力待ちの知らせ）は Mediator がストアを読んで合わせる。
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncLive(); syncReturns(); } };
-  /**
-   * 動いているセッションの顔ぶれが変わったら Mediator へ届ける。サイドバーの「動いている」の並びに、初めて現れたものを書き足すためである（mediator/sidebar.ts の sidebarLiveStep）。
-   * 並びの順ではなく顔ぶれで比べる。ストアは本文が伸びるたびに変わるので、そのたびには送らない。
-   */
-  let liveKey = '';
-  function syncLive(): void {
-    const ids = liveSessionIds(store);
-    const key = [...ids].sort().join('\n');
-    if (key === liveKey) return;
-    liveKey = key;
-    dispatch({ kind: 'runtime', event: { type: 'live.changed', ids } });
-  }
+  // ストアが変わったら、そのことだけを Mediator へ知らせる。
+  // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
+  // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); } };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。

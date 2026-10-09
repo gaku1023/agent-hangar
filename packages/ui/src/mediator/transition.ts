@@ -41,13 +41,12 @@ export function transition(state: State, store: Store, input: Input): Step {
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  // ストアが変わった。ストアから決まる状態を合わせる（入力待ちの知らせ）。
-  if (input.kind === 'store') return settled(state, liveStep(state, store));
+  if (input.kind === 'store') return storeChanged(state, store);
   // ストアを読む領域には、ここでストアを添える。
   const screen = (s: State, i: Input) => screenStep(s, store, i);
   const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
-  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, returnStep, notifyStep, workbench]) {
+  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sectionsStep, livePaneSplitStep, returnStep, notifyStep, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }
@@ -73,6 +72,17 @@ export function transition(state: State, store: Store, input: Input): Step {
     case 'toast.dismiss': return { state: { ...state, toasts: state.toasts.filter((t) => t.id !== i.id) }, effects: [] };
     default: return { state, effects: [] };
   }
+}
+
+/**
+ * ストアが変わった。ストアから決まる状態を、順に合わせる。
+ * 入力待ちの知らせ（live.ts の liveStep）、サイドバーの「動いている」の並び（sidebar.ts の sidebarLiveStep）の順である。
+ * どちらも、ストアの顔ぶれが前に見たものと同じなら何もしない。
+ */
+function storeChanged(state: State, store: Store): Step {
+  const waiting = settled(state, liveStep(state, store));
+  const live = settled(waiting.state, sidebarLiveStep(waiting.state, store));
+  return live.effects.length === 0 ? { ...waiting, state: live.state } : { state: live.state, effects: [...waiting.effects, ...live.effects] };
 }
 
 /**

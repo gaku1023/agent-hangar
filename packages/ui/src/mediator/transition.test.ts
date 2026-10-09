@@ -649,6 +649,8 @@ describe('タブと接続', () => {
 describe('入力待ちの知らせ', () => {
   // ストアの入力待ちがこの顔ぶれに変わった。
   const waiting = (...ids: string[]): Feed => ({ store: waitingStore(...ids) });
+  // 入力待ちのセッションは動いているセッションでもあるので、初めて現れたときはサイドバーの並びにも書き足される（sidebar.ts の sidebarLiveStep）。
+  const seated = (...ids: string[]) => ({ kind: 'storage.save', key: 'sidebar.order', value: ids });
   // transition はどの領域の後にも settleWaiting で開いているセッションのカードを下げるので、領域そのものも見る。
   it('live 領域は、開いているセッションをカードにしない。通知の効果は出す', () => {
     const at = { ...initialState(), screen: { name: 'session' as const, id: 's1' } };
@@ -660,16 +662,16 @@ describe('入力待ちの知らせ', () => {
     const a = run([waiting('s1')]);
     expect(a.state.waitingToasts).toEqual(['s1']);
     expect(a.state.waitingSeen).toEqual(['s1']);
-    expect(a.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }, { kind: 'badge', count: 1 }]);
+    expect(a.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }, { kind: 'badge', count: 1 }, seated('s1')]);
     const b = run([waiting('s1', 's2')], a.state);
     expect(b.state.waitingToasts).toEqual(['s1', 's2']);
-    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }, { kind: 'badge', count: 2 }]);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }, { kind: 'badge', count: 2 }, seated('s1', 's2')]);
   });
   it('入力待ちが解けたらカードを消し、同じ数なら数え直さない', () => {
     const a = run([waiting('s1', 's2')]);
     const b = run([waiting('s2', 's3')], a.state);
     expect(b.state.waitingToasts).toEqual(['s2', 's3']);
-    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }]);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }, seated('s1', 's2', 's3')]);
     const c = run([waiting()], b.state);
     expect(c.state.waitingToasts).toEqual([]);
     expect(c.state.waitingSeen).toEqual([]);

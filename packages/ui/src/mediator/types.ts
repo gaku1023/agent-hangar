@@ -21,9 +21,6 @@ export type RuntimeEvent =
   | { type: 'workspaceDirs.loaded'; dirs: WorkspaceDirDto[] }
   // Finder で選ばれたフォルダ。取り消したときは届かない。
   | { type: 'folder.picked'; path: string }
-  // サイドバーの「動いている」に載るセッションの一覧（hangar のセッションの id、始めた順）。
-  // 顔ぶれが変わったときだけランタイムが届ける。
-  | { type: 'live.changed'; ids: string[] }
   // 通知を出せるか、受け取るか。
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
   // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
@@ -48,7 +45,7 @@ export type Input =
   | { kind: 'intent'; intent: Intent }
   | { kind: 'server'; event: ServerEvent }
   | { kind: 'runtime'; event: RuntimeEvent }
-  // Store が変わった。中身は運ばない。Mediator は渡された Store を読み、そこから決まる状態（入力待ちの知らせなど）を合わせる。
+  // Store が変わった。中身は運ばない。Mediator は渡された Store を読み、そこから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）を合わせる。
   // Store を変えるのは Runtime なので、変わったことだけは Runtime が知らせる。
   | { kind: 'store' };
 
