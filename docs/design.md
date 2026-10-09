@@ -1382,6 +1382,46 @@ aria-label は見えている文字をそのまま含め、見える文と読み
   「端末」は画面では使わない。
 - サーバのエラー文が設定の項目を指すときは、画面名を「設定」とし、項目は画面の欄の見出しをかぎ括弧で書く（例：設定の「tmux のパス」）。
 
+### 文言の辞書
+
+画面とサーバの文は、shared の辞書から鍵で引く。
+今は仕組みだけがあり、辞書には見本の鍵が 3 つ入っている。
+既存の画面の文は、まだ直に書いたままで、後の変更で順に辞書へ移す。
+
+置き場は `packages/shared/src/i18n/` である。
+
+- `keys.ts`：鍵の一覧（`MESSAGES`）。鍵ごとに、その文が受け取る引数の名前を並べる。
+- `ja.ts` と `en.ts`：日本語と英語の辞書。どちらも `Record<MessageKey, string>` である。
+- `language.ts`：言語の型（`'ja' | 'en'`）と、知らない値を既定へ寄せる `languageOf`。
+- `t.ts`：辞書を引く `t(language, key, params)` と、言語を束ねた `translator(language)`。
+
+鍵は `画面.部品.意味` の形にする（例：`session.kill.confirm`）。
+画面をまたぐものは、画面のところを `common` にする。
+鍵を足すときは `keys.ts` と 2 つの辞書に同時に足す。
+辞書に鍵が足りないときも余っているときも、型検査で止まる。
+
+文の中の `{名前}` は、`t()` に渡した値で置き換わる（`t('en', 'sessions.list.count', { n: 3 })`）。
+引数の要る鍵に渡し忘れたとき、名前が違うとき、引数の無い鍵に渡したときは、型検査で止まる。
+辞書の文の `{名前}` が `keys.ts` の名前とそろっていることは、試験（`t.test.ts`）で見る。
+型をすり抜けて届いたものは落とさない。
+辞書に無い鍵は鍵のまま返し、渡されなかった引数は `{名前}` のまま残す。
+
+言語の設定は、この PC の設定（`~/.agent-hangar/settings.json` の `language`、API では `SettingsDto.language`）に置く。
+既定は日本語（`ja`）で、項目が無いうちは日本語として読む。
+PC ごとの設定なので、クラウドへは同期しない。
+読み書きはほかの設定と同じ `GET /api/settings` と `PATCH /api/settings` で行い、辞書に無い言語は 400 で断る。
+手で書き換えた `settings.json` の知らない値は、読み込みのときに落とす。
+画面に切り替えの部品はまだ無い。
+
+サーバは `translator(languageOf(settings.language))` で引く。
+UI は、いまの言語を store の設定の 1 か所から受け取る。
+
+- Presenter は `translatorOf(store)`（`presenters/i18n.ts`）で引く。
+  Presenter は `(state, store, now)` の純関数のままで、言語を引数に足さない。
+- View が自分で持つ決まった文は `useT()`（`views/primitives/language.tsx`）で引く。
+  Root が `LanguageRoot` で言語を流し、頂点の無いところでは日本語になる。
+  だから、View だけを描く試験は日本語の文のまま走る。
+
 ### 骨格
 
 左にナビだけのサイドバー、上にヘッダー、残りがメインである。

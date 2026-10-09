@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { newId, type TerminalApp } from '@agent-hangar/shared';
+import { isLanguage, newId, type Language, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
@@ -47,6 +47,11 @@ export type Settings = {
    * `claude` という名前では引けない。だから絶対パスを持っておく。
    */
   claudePath?: string | null;
+  /**
+   * 画面とサーバの文の言語。この PC だけの設定で、端末の間では同期しない。
+   * 項目が無いうちは既定の日本語として読む（`languageOf`）。
+   */
+  language?: Language;
 };
 
 /** 要約器の宛先に既定で許すホスト。 */
@@ -105,6 +110,8 @@ export function loadSettings(home: string): Settings {
   // 許しの無い外部の宛先は、読み込みのときに既定へ戻す。
   // 手で書き換えた settings.json や、この制限より前に保存された設定から、会話の本文が外へ出ていかないようにする。
   if (!s.allowExternalSummarizer && !isLoopbackSummarizerUrl(s.lmStudioUrl)) s.lmStudioUrl = defaultSettings().lmStudioUrl;
+  // 知らない言語は持ち続けない。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
+  if (s.language !== undefined && !isLanguage(s.language)) delete s.language;
   return s;
 }
 
