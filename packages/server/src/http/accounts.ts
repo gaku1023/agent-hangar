@@ -127,7 +127,7 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
     const a = must(c.req.param('id'));
     try { ensureAccountLinks(deps.primaryDir, a.dir); } catch (e) { throw new AccountError(400, e instanceof Error ? e.message : String(e)); }
     const started = deps.auth.login(a);
-    if (started === 'no-claude') throw new AccountError(400, msg('account.login.claudeMissing', { label: msg('settings.label.claudePath') }));
+    if (started === 'no-claude') throw new AccountError(400, msg('run.launch.claudeMissing', { label: msg('settings.label.claudePath') }));
     if (started === 'running') return c.json({ error: tr('account.login.alreadyRunning') }, 409);
     return c.json(changed(true), 202);
   }));

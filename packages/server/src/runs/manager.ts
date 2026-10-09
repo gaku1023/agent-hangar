@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { newId, runTmuxId, type EndReason, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
+import { newId, runTmuxId, type EndReason, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
+import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
+import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
 import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../launch/mcpConfig.ts';
@@ -59,8 +61,10 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * procs は外のプロセスに触る口で、テストでは差し替える。
  * panes は run とシェルタブの画面に触る口（tmux/pane.ts）。無ければ起動を断り、見張りは何も閉じない。
  * accounts はアカウントの解決（runs/accounts.ts）。渡さなければ、アカウントを使わない構成として動く。
+ * language は、Claude に渡す指示とシェルタブの名前の言語。渡さなければ日本語で出す。
+ * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language?: GetLanguage };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -87,8 +91,11 @@ export class RunManager {
   private readonly screenMisses = new ScreenMissGate();
 
   private readonly accounts: RunAccounts;
+  /** いまの言語で引く。指示とタブの名前にだけ使う。 */
+  private readonly tr: Translate;
 
   constructor(private readonly deps: RunManagerDeps) {
+    this.tr = translatorOf(deps.language);
     this.accounts = deps.accounts ?? new RunAccounts({ db: deps.db, claudeDir: deps.claudeDir });
   }
 
@@ -119,10 +126,14 @@ export class RunManager {
    * 併せて 1 行に切り詰める。UI はこれをそのままトーストに出す。
    */
   private safeError(e: unknown): string {
-    const line = (e instanceof Error ? e.message : String(e)).split('\n')[0]!.trim();
+    const line = errorText(this.language(), e).split('\n')[0]!.trim();
     const named = this.deps.token ? line.replaceAll(this.deps.token, '***') : line;
     const masked = named.replace(/\b[0-9a-f]{64}\b/g, '***');
     return masked.length > MAX_ERROR_LEN ? `${masked.slice(0, MAX_ERROR_LEN)}…` : masked;
+  }
+
+  private language(): Language {
+    return (this.deps.language ?? defaultLanguage)();
   }
 
   private now(): number {
@@ -134,7 +145,7 @@ export class RunManager {
   }
 
   private panes(): PaneOps {
-    if (!this.deps.panes) throw new RunError(400, 'tmux が見つかりません。設定の「tmux のパス」を入れてください');
+    if (!this.deps.panes) throw new RunError(400, msg('run.launch.tmuxMissing', { label: msg('settings.label.tmuxPath') }));
     return this.deps.panes;
   }
 
@@ -145,10 +156,10 @@ export class RunManager {
    * 利用者はターミナルを開くまで理由が分からない。だから渡す前にここで止める。
    */
   private claudeBin(): string {
-    if (!this.deps.claudeBin) throw new RunError(400, 'claude が見つかりません。設定の「claude のパス」を入れてください');
+    if (!this.deps.claudeBin) throw new RunError(400, msg('run.launch.claudeMissing', { label: msg('settings.label.claudePath') }));
     // npm で入れた古い Claude Code は Windows で claude.cmd になる。.cmd は cmd.exe 越しにしか起こせず、
     // 注入するシステムプロンプトのような改行や引用符を含む引数を安全に渡せない。
-    if (needsShell(this.deps.claudeBin, this.deps.platform)) throw new RunError(400, 'この claude は .cmd なので起動できません。ネイティブ版の Claude Code を入れて、設定の「claude のパス」に claude.exe を入れてください');
+    if (needsShell(this.deps.claudeBin, this.deps.platform)) throw new RunError(400, msg('run.launch.claudeIsCmd', { label: msg('settings.label.claudePath') }));
     return this.deps.claudeBin;
   }
 
@@ -156,7 +167,7 @@ export class RunManager {
     const r = this.db
       .prepare('select p.id, p.name, r.path, r.resolved from projects p left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null where p.id = ? and p.deleted_at is null')
       .get(this.deps.deviceId, projectId) as { id: string; name: string; path: string | null; resolved: number | null } | undefined;
-    if (!r) throw new RunError(404, 'プロジェクトが見つかりません');
+    if (!r) throw new RunError(404, msg('project.error.notFound'));
     return { id: r.id, name: r.name, path: r.path, resolved: r.resolved === 1 };
   }
 
@@ -166,7 +177,7 @@ export class RunManager {
 
   /** 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。 */
   private precheck(cwd: string): PaneOps {
-    if (!isDirectory(cwd)) throw new RunError(400, `ディレクトリが見つかりません: ${cwd}`);
+    if (!isDirectory(cwd)) throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }));
     this.claudeBin();
     return this.panes();
   }
@@ -176,7 +187,7 @@ export class RunManager {
     const p = projectId ? this.project(projectId) : null;
     const memo = projectId ? (this.db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null').get(projectId) as { markdown: string } | undefined)?.markdown ?? null : null;
     const todos = projectId ? (this.db.prepare('select id, text from todos where project_id = ? and done = 0 and deleted_at is null order by position limit 10').all(projectId) as { id: string; text: string }[]) : [];
-    return renderInjection({ projectName: p?.name ?? '未分類', projectPath: cwd, memo, todos });
+    return renderInjection({ projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, memo, todos });
   }
 
   /**
@@ -186,7 +197,7 @@ export class RunManager {
    */
   private addDirs(params: LaunchParams): string[] {
     const dirs = (params.addDirs ?? []).map((d) => d.trim()).filter(Boolean);
-    for (const d of dirs) if (d.startsWith('-')) throw new RunError(400, `追加ディレクトリに - で始まる値は使えません: ${d}`);
+    for (const d of dirs) if (d.startsWith('-')) throw new RunError(400, msg('run.launch.addDirDash', { dir: d }));
     return dirs;
   }
 
@@ -237,7 +248,7 @@ export class RunManager {
       panes.prepareForOutsideTerminals();
     } catch (e) {
       this.end(runId, 'exited');
-      throw new RunError(400, `tmux の起動に失敗しました: ${this.safeError(e)}`);
+      throw new RunError(400, msg('run.launch.tmuxFailed', { reason: this.safeError(e) }));
     }
     // ログは run ごとに増えるので、起動のついでに古いものを落とす。
     // 動いている run のログは残す。書いている途中のログを消すと、その run の記録が切れる。
@@ -306,7 +317,7 @@ export class RunManager {
     // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
-    if (!p.path || !p.resolved) throw new RunError(400, 'プロジェクトのディレクトリがこの PC で見つかりません');
+    if (!p.path || !p.resolved) throw new RunError(400, msg('run.launch.projectDirMissing'));
     // スクラッチのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
     const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : p.path;
     this.precheck(cwd);
@@ -328,7 +339,7 @@ export class RunManager {
 
   /** scratch ではないときの起動先。projectId は必須である。 */
   private namedProject(projectId: string | undefined): ProjectInfo {
-    if (!projectId) throw new RunError(400, 'プロジェクトを選んでください');
+    if (!projectId) throw new RunError(400, msg('run.launch.projectRequired'));
     return this.project(projectId);
   }
 
@@ -339,7 +350,7 @@ export class RunManager {
 
   private session(sessionId: string): SessionRow {
     const s = this.db.prepare('select * from sessions where id = ? and deleted_at is null').get(sessionId) as SessionRow | undefined;
-    if (!s) throw new RunError(404, 'セッションが見つかりません');
+    if (!s) throw new RunError(404, msg('session.error.notFound'));
     return s;
   }
 
@@ -349,9 +360,9 @@ export class RunManager {
 
   /** 再開できる状態かを確かめる。本文の有無、hangar の run、hangar の外で動いている Claude は、どれも別の原因である。 */
   private assertResumable(s: SessionRow): void {
-    if (!this.hasBody(s.id)) throw new RunError(400, 'このセッションには本文がありません');
-    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, 'このセッションは実行中です');
-    if (this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
+    if (!this.hasBody(s.id)) throw new RunError(400, msg('run.resume.noTranscript'));
+    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, msg('run.error.sessionRunning'));
+    if (this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, msg('run.error.runningOutside'));
   }
 
   /**
@@ -387,7 +398,7 @@ export class RunManager {
     const account = env.CLAUDE_CONFIG_DIR ? this.accounts.byDir(env.CLAUDE_CONFIG_DIR) : this.accounts.resolve(undefined);
     if (resume) {
       const id = findSession(this.db, resume);
-      if (!id) throw new RunError(404, 'この会話は hangar に載っていません');
+      if (!id) throw new RunError(404, msg('run.terminal.notInHangar'));
       const alive = aliveRunForSession(this.db, id);
       if (alive) return { run: alive, sessionId: id, tabs: listTabs(this.db, alive.id), attached: true };
       // 以前の包み方や `claude --bg` で起こしたものはバックグラウンドで動いている。素の claude -r は写しを作るので、attach でつなぐ。
@@ -460,9 +471,9 @@ export class RunManager {
    */
   attach(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
-    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, 'このセッションは実行中です');
+    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, msg('run.error.sessionRunning'));
     const l = this.liveOf(s.provider_session_id);
-    if (!l?.background) throw new RunError(409, 'このセッションはバックグラウンドで動いていません');
+    if (!l?.background) throw new RunError(409, msg('run.attach.notBackground'));
     const command = [this.claudeBin(), 'attach', l.background.jobId];
     return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined }, account: this.accounts.lastUsed(s.id) });
   }
@@ -480,29 +491,28 @@ export class RunManager {
    */
   async adopt(sessionId: string): Promise<LaunchResult> {
     const s = this.session(sessionId);
-    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, 'このセッションは実行中です');
+    if (aliveRunForSession(this.db, s.id)) throw new RunError(409, msg('run.error.sessionRunning'));
     const l = this.liveOf(s.provider_session_id);
-    if (!l) throw new RunError(409, 'このセッションは動いていません');
+    if (!l) throw new RunError(409, msg('run.adopt.notRunning'));
     if (l.background) return this.attach(s.id);
-    if (l.status === 'busy') throw new RunError(409, '作業中のセッションは引き取れません。入力待ちか休みになってから引き取ってください');
-    if (l.entrypoint !== 'cli') throw new RunError(409, 'このセッションはターミナルではなく、VS Code の拡張やアプリの中で動いているので引き取れません');
-    if (this.adopting.has(s.id)) throw new RunError(409, 'このセッションは引き取りの途中です');
+    if (l.status === 'busy') throw new RunError(409, msg('run.adopt.busy'));
+    if (l.entrypoint !== 'cli') throw new RunError(409, msg('run.adopt.notCli'));
+    if (this.adopting.has(s.id)) throw new RunError(409, msg('run.adopt.inProgress'));
     this.precheck(s.cwd);
     // 止めた後で再開できないと、会話はあるのに claude が居ない状態で終わる。本文の有無は止める前に確かめる。
-    if (!this.db.prepare('select 1 from transcript_files where session_id = ? and agent_id is null limit 1').get(s.id)) throw new RunError(400, 'このセッションには本文がまだ無いので引き取れません');
+    if (!this.db.prepare('select 1 from transcript_files where session_id = ? and agent_id is null limit 1').get(s.id)) throw new RunError(400, msg('run.adopt.noTranscript'));
     const started = this.procs().startTimeOf(l.pid);
-    if (!l.procStart || !started || !sameStartTime(started, l.procStart)) throw new RunError(409, 'このセッションのプロセスを確かめられませんでした');
+    if (!l.procStart || !started || !sameStartTime(started, l.procStart)) throw new RunError(409, msg('run.adopt.processUnverified'));
     this.adopting.add(s.id);
     try {
-      if (!(await this.procs().terminate(l.pid, TERMINATE_MS))) throw new RunError(409, '元の claude が終わりませんでした。元のターミナルで終わらせてから、もう一度引き取ってください');
-      // ここから先で失敗しても、元の claude はもう居ない。会話は残っているので、開き直す手を添える。
-      const reopen = `claude --resume ${s.provider_session_id} で開き直せます`;
+      if (!(await this.procs().terminate(l.pid, TERMINATE_MS))) throw new RunError(409, msg('run.adopt.notTerminated'));
+      // ここから先で失敗しても、元の claude はもう居ない。会話は残っているので、開き直す手（claude --resume）を文に添える。
       // レジストリから消える前に再開すると、hangar の外で動いていると見て断ってしまう。
-      if (!(await this.waitForGone(s.provider_session_id))) throw new RunError(409, `元の claude の記録が消えませんでした。${reopen}`);
+      if (!(await this.waitForGone(s.provider_session_id))) throw new RunError(409, msg('run.adopt.recordRemained', { id: s.provider_session_id }));
       try {
         return this.resume(s.id);
       } catch (e) {
-        if (e instanceof RunError) throw new RunError(e.status, `${e.message}。${reopen}`);
+        if (e instanceof RunError) throw new RunError(e.status, msg('run.adopt.resumeFailed', { reason: e.text ?? e.message, id: s.provider_session_id }));
         throw e;
       }
     } finally {
@@ -615,8 +625,8 @@ export class RunManager {
   /** run を止める。タブも閉じ、killed で終わらせる。 */
   kill(runId: string): RunDto {
     const run = getRun(this.db, runId);
-    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
-    if (run.endedAt !== null) throw new RunError(409, 'この Claude はもう終了しています');
+    if (!run) throw new RunError(404, msg('run.error.notFound'));
+    if (run.endedAt !== null) throw new RunError(409, msg('run.error.alreadyEnded'));
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
     this.stopBackground(run.sessionId);
     this.deps.panes?.close(run.tmuxName);
@@ -690,7 +700,7 @@ export class RunManager {
     const now = this.now();
     upsertShared(this.db, 'run_tabs', { ...row, closed_at: now }, this.deviceId);
     const run = this.db.prepare('select session_id from runs where id = ?').get(row.run_id) as { session_id: string };
-    const tab: TabDto = { id: row.id as string, runId: row.run_id as string, sessionId: run.session_id, kind: 'shell', title: (row.title as string | null) ?? 'シェル', tmuxName: row.tmux_name as string, createdAt: row.created_at as number, closedAt: now };
+    const tab: TabDto = { id: row.id as string, runId: row.run_id as string, sessionId: run.session_id, kind: 'shell', title: (row.title as string | null) ?? this.tr('run.tab.shell'), tmuxName: row.tmux_name as string, createdAt: row.created_at as number, closedAt: now };
     this.emit('tabChanged', tab);
     return tab;
   }
@@ -698,7 +708,7 @@ export class RunManager {
   /** 同じ cwd で利用者のログインシェルを起こした独立の tmux セッションをタブとして足す。 */
   openTab(runId: string): TabDto {
     const run = getRun(this.db, runId);
-    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
+    if (!run) throw new RunError(404, msg('run.error.notFound'));
     const s = this.session(run.sessionId);
     const panes = this.precheck(s.cwd);
     // 番号は閉じた行も数えて振る。閉じたタブの番号は再利用しない。
@@ -709,10 +719,10 @@ export class RunManager {
     try {
       panes.open({ name: tmuxName, cwd: s.cwd, command, env: withUtf8Locale() });
     } catch (e) {
-      throw new RunError(400, `シェルの起動に失敗しました: ${this.safeError(e)}`);
+      throw new RunError(400, msg('run.tab.shellFailed', { reason: this.safeError(e) }));
     }
     const id = newId();
-    upsertShared(this.db, 'run_tabs', { id, run_id: runId, tmux_name: tmuxName, title: `シェル ${n}`, created_at: this.now(), closed_at: null }, this.deviceId);
+    upsertShared(this.db, 'run_tabs', { id, run_id: runId, tmux_name: tmuxName, title: this.tr('run.tab.shellTitle', { n }), created_at: this.now(), closed_at: null }, this.deviceId);
     const tab = getTab(this.db, id)!;
     this.emit('tabChanged', tab);
     return tab;
@@ -721,8 +731,8 @@ export class RunManager {
   /** シェルタブを閉じる。Claude のタブは run の停止でしか閉じられない。 */
   closeTab(tabId: string): TabDto {
     const t = getTab(this.db, tabId);
-    if (!t) throw new RunError(404, 'タブが見つかりません');
-    if (t.kind === 'agent') throw new RunError(400, 'Claude のタブは閉じられません。停止を使ってください');
+    if (!t) throw new RunError(404, msg('run.tab.notFound'));
+    if (t.kind === 'agent') throw new RunError(400, msg('run.tab.agentNotClosable'));
     this.deps.panes?.close(t.tmuxName);
     return this.closeTabRow(tabId) ?? t;
   }
@@ -760,8 +770,8 @@ export class RunManager {
 
   private agentPane(runId: string): PaneIo {
     const run = this.getRun(runId);
-    if (!run) throw new RunError(404, '起動した Claude が見つかりません');
-    if (run.endedAt !== null) throw new RunError(409, 'この Claude はもう終了しています');
+    if (!run) throw new RunError(404, msg('run.error.notFound'));
+    if (run.endedAt !== null) throw new RunError(409, msg('run.error.alreadyEnded'));
     const panes = this.panes();
     return {
       capture: () => panes.capture(run.tmuxName),

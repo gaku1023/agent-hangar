@@ -9,6 +9,7 @@ import { authMiddleware } from '../http/auth.ts';
 import { runTmuxId, type RunDto, type TabDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { errorText } from '../i18n/message.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { mangleCwd } from '../provider/claude-code/discover.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
@@ -90,6 +91,16 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(() => rm.start({ projectId: 'p1' })).toThrow('tmux が見つかりません。設定の「tmux のパス」を入れてください');
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+  });
+  it('失敗は鍵と引数で投げるので、境目は英語でも出せる', () => {
+    const rm = make({ tmux: null });
+    const caught = (fn: () => unknown): unknown => { try { fn(); } catch (e) { return e; } throw new Error('投げなかった'); };
+    expect(errorText('en', caught(() => rm.start({})))).toBe('Select a project');
+    expect(errorText('en', caught(() => rm.start({ projectId: 'p2' })))).toBe('The project directory was not found on this computer');
+    // 文の中の設定の欄の名前も、同じ言語になる。
+    expect(errorText('en', caught(() => rm.start({ projectId: 'p1' })))).toBe('tmux was not found. Enter the "tmux path" in Settings');
+    expect(errorText('ja', caught(() => rm.start({ projectId: 'p1' })))).toBe('tmux が見つかりません。設定の「tmux のパス」を入れてください');
+    expect(errorText('en', caught(() => rm.kill('nope')))).toBe('The Claude that was started was not found');
   });
   it('claude の場所が分からなければ、tmux を起こす前に断る', () => {
     // .app を Finder から起こすと PATH は /usr/bin:/bin:/usr/sbin:/sbin だけになり、
@@ -434,6 +445,14 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
 });
 
 describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
+  it('英語では、シェルタブの名前が英語になる', async () => {
+    const rm = make({ language: () => 'en' });
+    const r = rm.start({ projectId: 'p1' });
+    // 偽の claude が起ききってから閉じる。起動の途中で片付けると、後始末がログの書き込みとぶつかる。
+    await launchedArgs(r.run.id);
+    expect(rm.openTab(r.run.id).title).toBe('Shell 1');
+    rm.kill(r.run.id);
+  });
   it('openTab は連番の tmux セッションを作り、closeTab は閉じ、番号は再利用しない', async () => {
     const rm = make();
     const tabs: TabDto[] = [];

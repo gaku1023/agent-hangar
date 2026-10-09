@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
+import { errorText } from '../i18n/message.ts';
 import { RunError } from './errors.ts';
 import { decodeTerminalRequest, splitTerminalArgs, terminalEnv } from './terminal.ts';
 
@@ -66,5 +67,17 @@ describe('terminalEnv', () => {
   });
   it('名前として読めない変数は落とす', () => {
     expect(terminalEnv({ 'BASH_FUNC_x%%': '() { :; }', '1A': 'x', 'A B': 'x', OK_1: 'y' })).toEqual({ OK_1: 'y' });
+  });
+});
+
+describe('断る文の言語', () => {
+  const caught = (fn: () => unknown): unknown => { try { fn(); } catch (e) { return e; } throw new Error('投げなかった'); };
+  it('日本語と英語のどちらでも出せる', () => {
+    const noId = caught(() => splitTerminalArgs(['-r']));
+    expect(errorText('ja', noId)).toBe('会話の id を付けない再開は hangar では開けません');
+    expect(errorText('en', noId)).toBe('A resume without a conversation ID cannot be opened in Hangar');
+    const flag = caught(() => splitTerminalArgs(['--session-id=abc']));
+    expect(errorText('ja', flag)).toBe('--session-id を付けた起動は hangar では開けません');
+    expect(errorText('en', flag)).toBe('A launch with --session-id cannot be opened in Hangar');
   });
 });

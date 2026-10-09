@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
 import { RunError } from './errors.ts';
+import { msg } from '../i18n/message.ts';
 
 /** ターミナルの包み方から届く起動の頼み。 */
 export type TerminalRequest = { cwd: string; args: string[]; env: Record<string, string> };
@@ -51,10 +52,10 @@ export function splitTerminalArgs(args: string[]): { resume: string | null; rest
       break;
     }
     const flag = a.startsWith('--') ? a.split('=')[0]! : a;
-    if (REFUSED.has(flag)) throw new RunError(400, `${flag} を付けた起動は hangar では開けません`);
+    if (REFUSED.has(flag)) throw new RunError(400, msg('run.terminal.flagRefused', { flag }));
     if (a === '-r' || a === '--resume' || a.startsWith('--resume=')) {
       const v = a.startsWith('--resume=') ? a.slice('--resume='.length) : args[++i];
-      if (!v || !UUID.test(v)) throw new RunError(400, '会話の id を付けない再開は hangar では開けません');
+      if (!v || !UUID.test(v)) throw new RunError(400, msg('run.terminal.resumeNeedsId'));
       resume = v;
       continue;
     }
