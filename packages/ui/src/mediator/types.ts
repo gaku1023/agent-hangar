@@ -167,12 +167,6 @@ export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMod
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjectId?: string } | { kind: 'failed'; message: string; createdProjectId?: string };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
-/**
- * 本文の中の検索（⌘F）の状態。その場の操作なので保存しない。
- * from は語を打ったときに見ていた行の seq で、そこから後ろの最初の一致から数える。step はそこから進めた数。
- * n は ⌘F を押した回数で、押すたびに欄へフォーカスを戻す合図にする。
- */
-export type FindState = { query: string; caseSensitive: boolean; from: number | null; step: number; n: number };
 /** 検索の結果から開いたときの跳び先（J1）。n は開いた回数で、同じ所をもう一度開いても跳び直す合図にする。 */
 export type JumpState = { seq: number; query: string; n: number };
 export type SessionViewState = {
@@ -187,8 +181,6 @@ export type SessionViewState = {
    * runId は跳ばした Claude の run で、ターンを閉じたときと画面を離れたときに transcript から抜けさせる先である。
    */
   turnJump: { seq: number; status: TurnJumpStatus; runId: string } | null;
-  /** 本文の中の検索。閉じていれば null。 */
-  find: FindState | null;
   /** 検索の結果から開いたときの跳び先。無ければ null。 */
   jump: JumpState | null;
 };

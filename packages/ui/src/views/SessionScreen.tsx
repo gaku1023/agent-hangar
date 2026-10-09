@@ -202,7 +202,7 @@ export function SessionScreen(props: SessionProps) {
       {paneToggle}
     </div>
   );
-  const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} find={props.find} jump={props.jump} hasNewer={props.hasNewer} />;
+  const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} jump={props.jump} hasNewer={props.hasNewer} />;
 
   // 終わった画面（E1）。
   // 本文の右に、要約、TODO、変更したファイルを上から積む。
