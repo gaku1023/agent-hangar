@@ -189,6 +189,14 @@ export const MESSAGES = {
   'sync.once.leftTranscripts': ['transcripts'],
   'sync.pull.failed': ['kind', 'reason'],
   'sync.resume.noTranscript': [],
+  // configSync
+  'configSync.error.unknownItem': ['id'],
+  'configSync.error.held': ['id'],
+  'configSync.error.badTake': ['id'],
+  'configSync.error.duplicate': ['id'],
+  'configSync.error.emptyOrder': [],
+  'configSync.error.unsentNotFound': ['id'],
+  'configSync.error.badBody': [],
   // system
   'system.index.rebuildFailed': ['reason'],
   // todo

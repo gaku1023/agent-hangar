@@ -181,6 +181,14 @@ export const en: Dictionary = {
   'sync.once.leftTranscripts': 'Synced once, but {transcripts} unsent transcripts remain. Sync is still paused',
   'sync.pull.failed': 'Could not receive the transcript ({kind}): {reason}',
   'sync.resume.noTranscript': "This session's transcript was not found",
+  // configSync
+  'configSync.error.unknownItem': '"{id}" is not among the incoming changes',
+  'configSync.error.held': '"{id}" cannot be applied because this PC has no matching project',
+  'configSync.error.badTake': '"{id}" is not a conflict, so keeping your own side is not an option',
+  'configSync.error.duplicate': '"{id}" appears more than once',
+  'configSync.error.emptyOrder': 'No items were selected to apply',
+  'configSync.error.unsentNotFound': 'The unsent item "{id}" was not found',
+  'configSync.error.badBody': 'The request body is malformed',
   // system
   'system.index.rebuildFailed': 'Failed to rebuild the index: {reason}',
   // todo

@@ -181,6 +181,14 @@ export const ja: Dictionary = {
   'sync.once.leftTranscripts': '1 回だけ同期しましたが、未送信の本文 {transcripts} 件が残りました。同期は一時停止のままです',
   'sync.pull.failed': '本文を降ろせませんでした（{kind}）: {reason}',
   'sync.resume.noTranscript': 'このセッションの本文がありません',
+  // configSync
+  'configSync.error.unknownItem': '「{id}」は、届いている変更にありません',
+  'configSync.error.held': '「{id}」は、この PC に対応するプロジェクトが無いので適用できません',
+  'configSync.error.badTake': '「{id}」は競合ではないので、手元を採る選び方はできません',
+  'configSync.error.duplicate': '「{id}」が重なっています',
+  'configSync.error.emptyOrder': '適用する項目が選ばれていません',
+  'configSync.error.unsentNotFound': '送らなかった項目「{id}」が見つかりません',
+  'configSync.error.badBody': '要求の形が違います',
   // system
   'system.index.rebuildFailed': '索引の作り直しに失敗しました: {reason}',
   // todo
