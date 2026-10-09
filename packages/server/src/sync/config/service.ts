@@ -66,6 +66,8 @@ const MAX_DIFF_LINES = 200;
 const MAX_ROW_MANIFEST_BYTES = 96 * 1024;
 const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
 const SENT_KEY = 'configBundleKey';
+/** 取りに行って開けなかった束を、同じ指紋のまま取り直すまでの間。壊れた束を毎分取りに行って、クラウドの枠を使わないため。 */
+const RETRY_AFTER_FAILURE_MS = 10 * 60 * 1000;
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 
@@ -102,6 +104,8 @@ export class ConfigSyncService {
   private readonly base: ConfigBase;
   private chain: Promise<unknown> = Promise.resolve();
   private stopped = false;
+  /** 開けなかった束の、端末ごとの行の指紋と時刻。起こし直すと忘れる。 */
+  private readonly failed = new Map<string, { sha: string; at: number }>();
 
   constructor(private readonly deps: ConfigSyncDeps) {
     this.base = new ConfigBase(deps.db);
@@ -239,13 +243,17 @@ export class ConfigSyncService {
     let failed = 0;
     for (const row of rows) {
       if (readInboxMeta(home, row.device_id)?.forRowSha256 === row.bundle_sha256) continue;
+      const before = this.failed.get(row.device_id);
+      if (before && before.sha === row.bundle_sha256 && this.now() - before.at < RETRY_AFTER_FAILURE_MS) continue;
       try {
         const bundle = await this.fetchBundle(row.device_id);
         if (bundle.manifest.deviceId !== row.device_id) throw new Error('束の中の端末 ID が行の端末と違います');
         writeInbox(home, row.device_id, bundle.opened, { bundleSha256: bundle.sha, forRowSha256: row.bundle_sha256, at: row.updated_at, itemCount: bundle.manifest.items.length, skipped: bundle.opened.skipped });
+        this.failed.delete(row.device_id);
         fetched++;
       } catch (e) {
         failed++;
+        this.failed.set(row.device_id, { sha: row.bundle_sha256, at: this.now() });
         // 本文の断片が載りうる例外の中身は出さない。どの PC の束で、どの段で落ちたかだけを残す。
         this.deps.onError?.(`設定の束を開けませんでした（端末 ${row.device_id.slice(0, 8)}）: ${e instanceof Error ? e.name : 'Error'}`);
       }

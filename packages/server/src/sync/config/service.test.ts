@@ -222,6 +222,25 @@ describe('束を受け取る', () => {
     expect(ids(b)).toEqual(before);
   });
 
+  it('開けなかった束は、同じ指紋のまま毎回は取りに行かず、しばらくたつか行が新しくなれば取り直す', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    a.write('CLAUDE.md', 'x');
+    await a.service.send();
+    deliver(a, b);
+    const k = `config/dev-a/${BUNDLE_PATH}`;
+    const good = shared.files.get(k)!.body;
+    shared.files.get(k)!.body = await encryptBuffer(key, Buffer.from('not a gzip'));
+    const gets = (): number => b.cloud.calls.filter((c) => c.method === 'getFile').length;
+    expect(await b.service.receive()).toEqual({ fetched: 0, failed: 1 });
+    expect(await b.service.receive()).toEqual({ fetched: 0, failed: 0 });
+    expect(gets()).toBe(1);
+    // 直した束は、待ち時間のあとに取り直す。
+    shared.files.get(k)!.body = good;
+    advance(11 * 60 * 1000);
+    expect(await b.service.receive()).toEqual({ fetched: 1, failed: 0 });
+    expect(gets()).toBe(2);
+  });
+
   it('束の中の端末 ID が行の端末と違えば受け取らない', async () => {
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
     a.write('CLAUDE.md', 'x');
