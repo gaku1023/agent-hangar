@@ -490,14 +490,10 @@ describe('互換の版', () => {
     await expect(strict.pullChanges(0, 10)).rejects.toMatchObject({ upgrade: 'worker', have: 0, need: 1 });
   });
 
-  it('古い Worker の 404 は、使用量の「トークンなし」に読み替える前に版の不一致として伝える', async () => {
-    const { fetch } = fakeFetch(() => json({ error: 'not found' }, 404));
-    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
-    await expect(c.usage()).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker' });
-  });
-
-  it.each([503, 429, 408])('Worker を通らずに端が返した %i（版の見出しなし）は、版の不一致にせず、その status の CloudError にする', async (status) => {
-    const { fetch } = fakeFetch(() => new Response('edge', { status }));
+  // Cloudflare の端は、Worker を通さずに 4xx と 5xx を返すことがある（WAF の 403、本文が大きすぎるときの 413、CPU の超過、日の上限など）。
+  // どれも版の見出しを持たないが、Worker の版を語らないので、下限を上げていても版の不一致にはしない。
+  it.each([503, 429, 408, 403, 404, 400, 413])('Worker を通らずに端が返した %i（版の見出しなし）は、版の不一致にせず、その status の CloudError にする', async (status) => {
+    const { fetch } = fakeFetch(() => new Response('<html>edge</html>', { status, headers: { 'content-type': 'text/html' } }));
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
     const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(CloudError);
