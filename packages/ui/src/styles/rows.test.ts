@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { SESSION_ROW_H } from '../views/SessionRows.tsx';
+import { SECTION_HEAD_H, SESSION_ROW_H } from '../views/SessionRows.tsx';
 
 const read = (f: string) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
 
@@ -10,5 +10,10 @@ describe('2 段の行', () => {
     expect(SESSION_ROW_H).toBe(56);
     expect(read('./tokens.css')).toContain(`--session-row-h: ${SESSION_ROW_H}px;`);
     expect(read('./rows.css')).toMatch(/\.row-2 \{[^}]*height: var\(--session-row-h\);/);
+  });
+  it('検索の結果の見出しの高さは 32px で、tokens.css と SessionRows の見積もりが揃う', () => {
+    expect(SECTION_HEAD_H).toBe(32);
+    expect(read('./tokens.css')).toContain(`--section-head-h: ${SECTION_HEAD_H}px;`);
+    expect(read('./rows.css')).toMatch(/\.row-head \{[^}]*height: var\(--section-head-h\);/);
   });
 });

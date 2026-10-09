@@ -94,13 +94,18 @@
 .row-more { visibility: hidden; }
 .row:hover .row-more, .row:focus-within .row-more, .row[data-cursor='true'] .row-more, .row-more:has([aria-expanded='true']) { visibility: visible; }
 .row-more .row-more-btn { width: calc(var(--u) * 6); height: calc(var(--u) * 5); padding: 0; }
+/* 要約に当たった行の札（検索の結果）。2 段目の本文の後ろに付く。 */
+.row-tag { flex: none; height: 16px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; line-height: 16px; color: var(--accent); background: var(--accent-soft); }
 /* 一致した語の印。淡い黄の地だけを敷き、文字の色は周りのまま（読みやすさを落とさない）。 */
 .hit { background: var(--hit); color: inherit; border-radius: 3px; padding: 0 2px; }
 
-/* プロジェクトの表の節の見出し（ProjectsScreen の .prow-head）が使う、件数と右端のボタン。 */
+/* 件数と右端のボタン。プロジェクトの表の節の見出し（.prow-head）と、検索の結果の見出し（.row-head）が使う。 */
 .row-head-count { font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .row-head-more { margin-left: auto; padding: 0 var(--u); border: 0; border-radius: 5px; background: none; font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); cursor: pointer; }
 .row-head-more:hover { text-decoration: underline; }
+/* 検索の結果の組の見出し（名前に一致、トランスクリプトに一致）。仮想スクロールの項目として行のあいだに挟み、淡い地の帯にして行と見分ける。
+   高さは --section-head-h で持ち、SessionRows の SECTION_HEAD_H と揃える（rows.test.ts）。 */
+.row-head { display: flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--section-head-h); padding: 0 calc(var(--u) * 5); background: var(--surface-2); border-bottom: 1px solid var(--line); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
 /* Archived の行は名前を淡くする。注記の色（--ink-3）も白地で 4.5 : 1 を超える。 */
 .row[data-archived='true'] .row-name { color: var(--ink-3); font-weight: 400; }
 /* 状態の札を押してタブへ移る（★ の E）。札の見た目はそのままにし、押せることは指の形で示す。 */
@@ -120,12 +125,13 @@
 .sessions-tab-n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 /* 確かめるが 1 件以上なら、数字を候補の色で灯す。淡い地の上の --cand は 4.5 : 1 を超える（tokens.test.ts）。 */
 .sessions-tab-n[data-hot='true'] { padding: 0 6px; border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
-/* 上の欄は全文検索の本体（D1）。本文を探す絵と「本文」の札を添え、打った語は × で消せる。
+/* 上の欄は検索の本体（D1）。探す絵と、探す先の札（名前、要約、トランスクリプト）を添え、打った語は × で消せる。
    欄の枠は箱の側に持たせ、中の入力欄は素の文字にする。 */
 .sessions-keyword { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); flex: 1; min-width: 0; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
 .sessions-keyword:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .sessions-keyword input { flex: 1; min-width: 60px; height: 100%; padding: 0; border: 0; outline: 0; background: none; color: var(--ink); }
 .sessions-keyword-tag { flex: none; height: 18px; padding: 0 calc(var(--u) * 1.5); border-radius: 5px; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; color: var(--ink-3); background: var(--surface-2); }
+.sessions-keyword-tag[data-on] { color: var(--accent); background: var(--accent-soft); }
 .sessions-keyword-clear, .sessions-cond-clear { background: none; box-shadow: none; }
 .sessions-keyword-clear { color: var(--ink-3); }
 /* 欄と絞り込みのボタンを 1 行に並べる（試作 B）。欄が残りの幅を取り、ボタンは右に付く。 */

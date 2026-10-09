@@ -1,4 +1,4 @@
-import type { PaletteCommand, SessionStatus } from '@agent-hangar/shared';
+import { SETTINGS_SECTIONS, type PaletteCommand, type SessionStatus, type SettingsSection } from '@agent-hangar/shared';
 import { overlayReplaceable } from './overlay.ts';
 import { canMoveBehind, nextWaitingStep, searchQueryStep } from './screen.ts';
 import { sidebarStep } from './sidebar.ts';
@@ -21,15 +21,18 @@ function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
   const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
   const [kind, rest] = splitId(command.id);
   // 画面を移す行は、確認や入力のあるダイアログの裏では移さない（screen.ts の canMoveBehind）。
-  const moves = kind === 'project' || kind === 'session' || kind === 'search' || kind === 'go' || (kind === 'cmd' && rest === 'settings');
+  const moves = kind === 'session' || kind === 'search' || kind === 'go' || kind === 'settings';
   if (moves && !canMoveBehind(closed)) return { state: closed, effects: [] };
-  if (kind === 'project') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'project', id: rest } }] };
   if (kind === 'session') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'session', id: rest } }] };
   // 全文検索の行。残りが検索語そのもので、語の中のコロンもそのまま残る。
   if (kind === 'search') return searchQueryStep(closed, rest);
-  // セッションの一覧の画面は無くなったので、「セッション一覧へ」（go:sessions）はホームへ移る。
-  if (kind === 'go' && (rest === 'home' || rest === 'sessions')) return { state: closed, effects: [{ kind: 'navigate', route: { name: 'home' } }] };
+  if (kind === 'go' && rest === 'home') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'home' } }] };
   if (kind === 'go' && rest === 'projects') return { state: closed, effects: [{ kind: 'navigate', route: { name: 'projects' } }] };
+  // 設定の節の行。保持の設定は一般の節の中にあるので、一般の節へ移る。知らない節の名前は何もしない。
+  if (kind === 'settings') {
+    const at = rest === 'retention' ? 'general' : SETTINGS_SECTIONS.find((x): x is SettingsSection => x === rest);
+    return { state: closed, effects: at ? [{ kind: 'navigate', route: { name: 'settings', at } }] : [] };
+  }
   if (kind === 'cmd') {
     // ダイアログを開く行は、確認や入力のあるダイアログを差し替えない（overlay.ts の overlayReplaceable）。
     const opens = rest.startsWith('new-session') || rest === 'new-scratch' || rest === 'shortcuts' || rest === 'new-project';
@@ -45,7 +48,6 @@ function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
       case 'sidebar': return sidebarStep(closed, { kind: 'intent', intent: { type: 'sidebar.toggle' } })!;
       case 'new-scratch': return { state: { ...closed, overlay: { kind: 'newSession', projectId: null, scratch: true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
       case 'new-project': return { state: { ...closed, overlay: { kind: 'newProject' }, projectCreate: { kind: 'idle' } }, effects: [] };
-      case 'settings': return { state: closed, effects: [{ kind: 'navigate', route: { name: 'settings' } }] };
       case 'rebuild-index': return { state: closed, effects: [{ kind: 'api.rebuildIndex' }] };
       case 'shortcuts': return { state: { ...closed, overlay: { kind: 'shortcuts' } }, effects: [] };
       case 'next-waiting': return nextWaitingStep(state, store);

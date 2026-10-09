@@ -99,7 +99,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.cloud.config.title': 'Sync Claude Code settings',
   'settings.cloud.config.enable': 'Enable on this computer',
   'settings.cloud.config.needsCloud': 'Available once cloud sync is on',
-  'settings.cloud.config.desc': 'Keeps CLAUDE.md, settings.json, the statusline script, skills, memory and project memory the same across computers.',
+  'settings.cloud.config.desc': 'Keeps CLAUDE.md, settings.json, the status line script, skills, memory and project memory the same across computers.',
   'settings.cloud.config.write': 'This writes to ~/.claude, so the contents are reviewed before importing. A copy from before overwriting is kept in ~/.agent-hangar/backups/claude-config/<time>/.',
   'settings.cloud.config.confirmed': 'The import has been reviewed.',
   'settings.cloud.config.unconfirmed': 'The import has not been reviewed yet. Nothing is written to ~/.claude until it is.',

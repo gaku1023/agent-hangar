@@ -114,7 +114,7 @@ describe('Root', () => {
     fireEvent.keyDown(window, { key: '/' });
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     // パレットの入力欄での / は文字なので、横取りしない。
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: '/' });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: '/' });
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
@@ -125,7 +125,7 @@ describe('Root', () => {
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
     field.blur();
     // ヘッダーの錠剤を押しても開く。
-    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    fireEvent.click(screen.getByRole('button', { name: '移動・操作' }));
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
@@ -380,14 +380,14 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    const input = screen.getByLabelText('探す・移動') as HTMLInputElement;
+    const input = screen.getByLabelText('移動・操作') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'alp' } });
-    expect((screen.getByLabelText('探す・移動') as HTMLInputElement).value).toBe('alp');
+    expect((screen.getByLabelText('移動・操作') as HTMLInputElement).value).toBe('alp');
     act(() => rt.emit({ type: 'palette.close' }));
     await flush();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    expect((screen.getByLabelText('探す・移動') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('移動・操作') as HTMLInputElement).value).toBe('');
   });
 
   it('昇格のダイアログと完了のダイアログが出る', async () => {
@@ -1023,7 +1023,7 @@ describe('入力欄の Esc（C4）', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: 'Escape' });
     await flush();
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
   });
@@ -1108,13 +1108,49 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     const search = vi.fn(async () => ({ hits: [hit], total: 1 }));
     const { deps } = await mounted({ api: { search } });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    fireEvent.change(screen.getByLabelText('探す・移動'), { target: { value: 'せっ' } });
-    fireEvent.click(screen.getByRole('option', { name: /『せっ』を全文検索/ }));
+    fireEvent.change(screen.getByLabelText('移動・操作'), { target: { value: 'せっ' } });
+    fireEvent.click(screen.getByRole('option', { name: /ホームで『せっ』をトランスクリプトから検索/ }));
     await flush();
     await flush();
     expect(deps.location.getHash()).toBe(`#/?q=${encodeURIComponent('せっ')}`);
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ q: 'せっ' }));
     expect(document.activeElement).toBe(rows());
+  });
+
+  // 最後の行の件数は、ホームの欄に同じ語を打ったときの件数である。打つたびには引かず、少し待ってから 1 回だけ引く。
+  it('パレットに語を打つと、少し待ってから、ホームの欄に出る件数を最後の行に添える', async () => {
+    const search = vi.fn(async (p: { q: string }) => ({ hits: [], total: p.q === 'せっ' ? 12 : 3 }));
+    await mounted({ api: { search } });
+    const countCalls = () => search.mock.calls.filter(([p]) => (p as { limit?: number }).limit === 1);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    const input = screen.getByLabelText('移動・操作');
+    const settle = () => act(() => new Promise((r) => setTimeout(r, 400)));
+    // 何も打っていないあいだは引かない。
+    await settle();
+    expect(countCalls()).toHaveLength(0);
+    fireEvent.change(input, { target: { value: 'せ' } });
+    fireEvent.change(input, { target: { value: 'せっ' } });
+    const last = () => screen.getByRole('option', { name: /トランスクリプトから検索/ });
+    expect(last()).not.toHaveTextContent('件');
+    await settle();
+    // 続けて打った分は 1 回にまとめ、その語で、名前と要約とトランスクリプトを数える（欄の検索と同じ条件）。
+    expect(countCalls()).toEqual([[{ q: 'せっ', limit: 1, hideArchived: true }]]);
+    expect(last()).toHaveTextContent('12 件');
+    // 語が変われば、古い件数は出さない。
+    fireEvent.change(input, { target: { value: 'せっし' } });
+    expect(last()).not.toHaveTextContent('12 件');
+    await settle();
+    expect(last()).toHaveTextContent('3 件');
+  });
+
+  it('件数を引けなくても、パレットはそのまま使える', async () => {
+    const search = vi.fn(async () => { throw new Error('down'); });
+    await mounted({ api: { search } });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.change(screen.getByLabelText('移動・操作'), { target: { value: 'せっ' } });
+    await act(() => new Promise((r) => setTimeout(r, 400)));
+    expect(screen.getByRole('option', { name: /トランスクリプトから検索/ })).not.toHaveTextContent('件');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('パレットから同じ語で検索し直しても、結果の一覧へ移る（⌘↵）', async () => {
@@ -1123,7 +1159,7 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     const settle = () => act(() => new Promise((r) => setTimeout(r, 100)));
     for (let n = 0; n < 2; n++) {
       fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      const input = screen.getByLabelText('探す・移動');
+      const input = screen.getByLabelText('移動・操作');
       fireEvent.change(input, { target: { value: 'せっ' } });
       fireEvent.keyDown(input, { key: 'Enter', metaKey: true });
       await settle();

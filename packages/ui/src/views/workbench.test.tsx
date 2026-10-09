@@ -79,7 +79,7 @@ describe('Header', () => {
     render(<IntentRoot onIntent={onIntent}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: 42, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} sync={sync} /></IntentRoot>);
     fireEvent.click(screen.getByRole('link', { name: '同期済み · 3 分前' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
-    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    fireEvent.click(screen.getByRole('button', { name: '移動・操作' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
     fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });

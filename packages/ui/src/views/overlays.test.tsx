@@ -15,28 +15,28 @@ const paletteCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '.
 
 const items: PaletteItem[] = [
   { id: 'cmd:new-session', label: '新しいセッション', kind: 'command', lead: { kind: 'icon', icon: 'add' }, sub: '', meta: '', keys: '⌘N' },
-  { id: 'project:p1', label: 'alpha', kind: 'project', lead: { kind: 'status', status: 'active' }, sub: '', meta: '/w/alpha', keys: '' },
+  { id: 'settings:cloud', label: 'クラウド同期', kind: 'command', lead: { kind: 'icon', icon: 'cloud' }, sub: '設定', meta: '', keys: '' },
   { id: 'session:s1', label: '動画の変換', kind: 'session', lead: { kind: 'dot', live: 'waiting', aside: false }, sub: 'alpha', meta: '4 分待っている', keys: '' },
 ];
 const sections: PaletteSection[] = [
   { title: 'コマンド', count: 1, limit: null, items: [items[0]!] },
-  { title: 'プロジェクト', count: 7, limit: '上位 4', items: [items[1]!] },
+  { title: '設定', count: 4, limit: '上位 4', items: [items[1]!] },
   { title: '入力待ち', count: 1, limit: null, items: [items[2]!] },
 ];
-const searchRow: PaletteItem = { id: 'search:動画', label: '『動画』を全文検索', kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: 'セッション一覧で開く', keys: '⌘↵' };
+const searchRow: PaletteItem = { id: 'search:動画', label: 'ホームで『動画』をトランスクリプトから検索', kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: '12 件', keys: '⌘↵' };
 
 describe('CommandPalette', () => {
   it('入力を親へ返し、矢印と Enter で実行する', () => {
     const onIntent = vi.fn();
     const onQuery = vi.fn();
     render(<IntentRoot onIntent={onIntent}><CommandPalette query="" sections={sections} noMatch={false} onQuery={onQuery} /></IntentRoot>);
-    const input = screen.getByLabelText('探す・移動');
+    const input = screen.getByLabelText('移動・操作');
     expect(input.getAttribute('id')).toBe('palette-input');
     fireEvent.change(input, { target: { value: 'al' } });
     expect(onQuery).toHaveBeenCalledWith('al');
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'project:p1', label: 'alpha' } });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'settings:cloud', label: 'クラウド同期' } });
   });
 
   it('クリックでも実行し、Esc で閉じる', () => {
@@ -44,20 +44,20 @@ describe('CommandPalette', () => {
     render(<IntentRoot onIntent={onIntent}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
     fireEvent.click(screen.getByText('動画の変換'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'session:s1', label: '動画の変換' } });
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: 'Escape' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.close' });
   });
 
   it('端で止まり、項目が無ければ何も起きない', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    const input = screen.getByLabelText('探す・移動');
+    const input = screen.getByLabelText('移動・操作');
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新しいセッション' } });
     onIntent.mockClear();
     rerender(<IntentRoot onIntent={onIntent}><CommandPalette query="zzz" sections={[]} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: 'Enter' });
     expect(onIntent).not.toHaveBeenCalled();
     expect(screen.getByText('一致する項目がありません')).toBeTruthy();
   });
@@ -65,15 +65,15 @@ describe('CommandPalette', () => {
   // palette.open は focus の効果を出さないので、入力欄へのフォーカスはパレット自身が当てる。
   it('開いた時点で入力欄にフォーカスが当たる', () => {
     render(<IntentRoot onIntent={() => {}}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    expect(document.activeElement).toBe(screen.getByLabelText('探す・移動'));
+    expect(document.activeElement).toBe(screen.getByLabelText('移動・操作'));
   });
 
   it('入力が変わると選択は先頭に戻る', () => {
     const onIntent = vi.fn();
     const { rerender } = render(<IntentRoot onIntent={onIntent}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: 'ArrowDown' });
     rerender(<IntentRoot onIntent={onIntent}><CommandPalette query="a" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新しいセッション' } });
   });
 
@@ -81,7 +81,7 @@ describe('CommandPalette', () => {
   it('変換中の Enter では実行しない', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: 'Enter', isComposing: true });
     expect(onIntent).not.toHaveBeenCalled();
   });
 
@@ -92,7 +92,7 @@ describe('CommandPalette', () => {
     const dialog = screen.getByRole('dialog', { name: 'コマンドパレット' });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(dialog.classList.contains('palette')).toBe(true);
-    expect(dialog.contains(screen.getByLabelText('探す・移動'))).toBe(true);
+    expect(dialog.contains(screen.getByLabelText('移動・操作'))).toBe(true);
   });
 
   it('外側を押すと閉じ、中身を押しても閉じない', () => {
@@ -106,13 +106,15 @@ describe('CommandPalette', () => {
 
   it('群の見出しに件数と上限を添え、行には状態の点とプロジェクト名と右端の語を出す', () => {
     render(<IntentRoot onIntent={() => {}}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    const group = screen.getByRole('group', { name: 'プロジェクト' });
-    expect(group).toHaveTextContent('プロジェクト7上位 4');
+    const group = screen.getByRole('group', { name: '設定' });
+    expect(group).toHaveTextContent('設定4上位 4');
     const waiting = screen.getByRole('option', { name: /動画の変換/ });
     expect(waiting.querySelector('.dot')).toHaveAttribute('data-status', 'waiting');
     expect(waiting).toHaveTextContent('alpha');
     expect(waiting).toHaveTextContent('4 分待っている');
-    expect(screen.getByRole('option', { name: /^alpha/ }).querySelector('.st-dot')).toHaveAttribute('data-status', 'active');
+    // 設定の節の行は、絵と「設定」の添え書きを持つ。
+    expect(screen.getByRole('option', { name: /クラウド同期/ }).querySelector('svg')).toHaveAttribute('data-icon', 'cloud');
+    expect(screen.getByRole('option', { name: /クラウド同期/ })).toHaveTextContent('設定');
     expect(screen.getByRole('option', { name: /新しいセッション/ }).querySelector('svg')).toHaveAttribute('data-icon', 'add');
     expect(screen.getByRole('option', { name: /新しいセッション/ })).toHaveTextContent('⌘N');
   });
@@ -122,24 +124,25 @@ describe('CommandPalette', () => {
     expect(screen.getByRole('option', { name: /動画の変換/ }).querySelector('mark')).toHaveTextContent('変換');
   });
 
-  it('⌘↵ はどの行を選んでいても全文検索の行を実行する', () => {
+  it('⌘↵ はどの行を選んでいても、ホームへ渡す行を実行する', () => {
     const onIntent = vi.fn();
-    const withSearch = [...sections, { title: '本文', count: null, limit: null, items: [searchRow] }];
+    const withSearch = [...sections, { title: 'ホーム', count: null, limit: null, items: [searchRow] }];
     render(<IntentRoot onIntent={onIntent}><CommandPalette query="動画" sections={withSearch} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Enter', metaKey: true });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'search:動画', label: '『動画』を全文検索' } });
-    expect(screen.getByRole('option', { name: /全文検索/ })).toHaveTextContent('セッション一覧で開く');
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: 'Enter', metaKey: true });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.run', command: { id: 'search:動画', label: 'ホームで『動画』をトランスクリプトから検索' } });
+    expect(screen.getByRole('option', { name: /トランスクリプトから検索/ })).toHaveTextContent('12 件');
   });
 
-  it('名前に一致しないときはそう知らせ、全文検索の行だけを出す', () => {
-    render(<IntentRoot onIntent={() => {}}><CommandPalette query="zzz" sections={[{ title: '本文', count: null, limit: null, items: [searchRow] }]} noMatch onQuery={() => {}} /></IntentRoot>);
-    expect(screen.getByText('名前には一致しません。')).toBeInTheDocument();
+  it('名前に一致しないときはそう知らせ、ホームへ渡す行だけを出す', () => {
+    render(<IntentRoot onIntent={() => {}}><CommandPalette query="zzz" sections={[{ title: 'ホーム', count: null, limit: null, items: [searchRow] }]} noMatch onQuery={() => {}} /></IntentRoot>);
+    expect(screen.getByText('名前にも操作にも一致しません。')).toBeInTheDocument();
     expect(screen.getAllByRole('option')).toHaveLength(1);
   });
 
-  it('下に打鍵の案内を出す', () => {
+  it('下に打鍵の案内を出し、トランスクリプトはホームの欄で探すと添える', () => {
     const { container } = render(<IntentRoot onIntent={() => {}}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    expect(container.querySelector('.palette-foot')).toHaveTextContent('↑↓ 選ぶ↵ 開く⌘↵ 全文検索esc 閉じる');
+    expect(container.querySelector('.palette-foot')).toHaveTextContent('↑↓ 選ぶ↵ 開くesc 閉じるトランスクリプトはホームの欄で');
+    expect(screen.getByPlaceholderText('セッションへ移動、または操作を実行')).toBeInTheDocument();
   });
 
   describe('開く動き', () => {
@@ -167,7 +170,7 @@ describe('CommandPalette', () => {
       const [frames, opts] = animate.mock.calls[0]!;
       expect(frames).toEqual([{ transform: 'translate(-100px, -50px) scale(0.5, 0.25)', opacity: 0.4 }, { transform: 'none', opacity: 1 }]);
       expect(opts).toEqual({ duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
-      expect(document.activeElement).toBe(screen.getByLabelText('探す・移動'));
+      expect(document.activeElement).toBe(screen.getByLabelText('移動・操作'));
     });
     it('検索欄が無ければ、その場でふわりと現れる', () => {
       render(<IntentRoot onIntent={() => {}}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
@@ -187,13 +190,13 @@ describe('CommandPalette の選択を見える位置に保つ（C2）', () => {
 
   it('矢印で動かした選択の行を、一覧の見える位置へ寄せる', () => {
     render(<IntentRoot onIntent={() => {}}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></IntentRoot>);
-    const input = screen.getByLabelText('探す・移動');
+    const input = screen.getByLabelText('移動・操作');
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     expect(calls.at(-1)?.el.textContent).toContain('動画の変換');
     expect(calls.at(-1)?.arg).toEqual({ block: 'nearest' });
     fireEvent.keyDown(input, { key: 'ArrowUp' });
-    expect(calls.at(-1)?.el.textContent).toContain('alpha');
+    expect(calls.at(-1)?.el.textContent).toContain('クラウド同期');
   });
 
   it('マウスで乗せただけでは一覧を動かさない', () => {

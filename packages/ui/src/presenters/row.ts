@@ -14,6 +14,10 @@ export type SummaryStateTag = { label: string; tone: 'blocked' | 'abandoned' | n
 export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; aside: boolean; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
   /** 検索の結果の行を開いたときの跳び先（抜粋の seq と検索語）。 */
   jump?: { seq: number; q: string };
+  /** 検索で名前に当たった行の、名前の中の一致箇所（印を付ける塊）。名前に当たった行だけが持ち、名前の中に語が見つからないときも持たない。 */
+  nameMarks?: Segment[];
+  /** 検索で要約に当たった行。2 段目の札「要約に一致」を出す。 */
+  summaryMatch?: boolean;
   /** セッションの状態。Active は null。 */
   state: SessionStatus | null;
   /** Paused の戻る日（YYYY-MM-DD）。Paused 以外は null。 */

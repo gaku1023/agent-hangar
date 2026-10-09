@@ -25,6 +25,7 @@ import { matchKey } from './keys.ts';
 import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
+import { usePaletteFound } from './views/usePaletteFound.ts';
 import { createFindStore, FindRoot } from './views/findStore.tsx';
 import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
 import { RetentionDialog } from './views/RetentionDialog.tsx';
@@ -115,6 +116,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   // 本文の部品は画面を離れると外れるので、ここに置いて、戻ってきたときに同じ欄と語を出す。
   const [finds] = useState(createFindStore);
   useEffect(() => { if (!paletteOpen) setPaletteQuery(''); }, [paletteOpen]);
+  // 最後の行に添える件数。ホームの欄と同じ検索を、少し待ってから 1 件だけ引いて数える。
+  const paletteFound = usePaletteFound((params) => (props.api ?? apiFromRuntime(rt)).search(params), paletteQuery, paletteOpen);
 
   // ショートカットの対象になる、いま見ているセッションのタブ。
   const sessionId = state.screen.name === 'session' ? state.screen.id : null;
@@ -358,7 +361,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     <>
       {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
       {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
-      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now)!} onQuery={setPaletteQuery} />}
+      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now, paletteFound)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'newProject' && <NewProjectDialog {...presentNewProject(state, store)!} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
