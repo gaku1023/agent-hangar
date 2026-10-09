@@ -12,7 +12,7 @@ import { registryDrifts } from '../src/provider/claude-code/compat/registry.ts';
 import { statuslineDrifts } from '../src/provider/claude-code/compat/statusline.ts';
 import { transcriptDrifts } from '../src/provider/claude-code/compat/transcript.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../src/provider/claude-code/compat/version.ts';
-import { mangleCwd } from '../src/provider/claude-code/discover.ts';
+import { mangleCwd } from '../src/provider/claude-code/transcript/discover.ts';
 import { readRegistry } from '../src/provider/claude-code/registry.ts';
 import { parseJobs } from '../src/runs/procs.ts';
 import { readEvents, subagentIds } from '../src/transcript/read.ts';

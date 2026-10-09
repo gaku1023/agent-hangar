@@ -18,9 +18,9 @@ import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper
 import { promptMentionsDrops } from '../prompt/drops.ts';
 import { assignSession } from '../projects/registry.ts';
 import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
-import { hasTranscriptFile } from '../provider/claude-code/discover.ts';
+import { hasTranscriptFile } from '../provider/claude-code/transcript/discover.ts';
 import { claudeCodeProvider } from '../provider/claude-code/index.ts';
-import type { LaunchInput, LiveSession } from '../provider/types.ts';
+import type { LaunchInput, LiveSession } from '../provider/claude-code/types.ts';
 import type { PaneOps } from '../tmux/pane.ts';
 import { RunAccounts, switchAccount } from './accounts.ts';
 import { RunError } from './errors.ts';

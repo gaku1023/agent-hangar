@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { EventsPageDto, TranscriptEvent } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { normalizeRecord } from '../provider/claude-code/normalize.ts';
+import { normalizeRecord } from '../provider/claude-code/transcript/normalize.ts';
 
 type Row = { seq: number; byte_offset: number; byte_length: number; file_path_ref: string };
 

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mangleCwd } from '../../src/provider/claude-code/discover.ts';
+import { mangleCwd } from '../../src/provider/claude-code/transcript/discover.ts';
 import { PLACEHOLDER } from './scenario.ts';
 
 type Rec = Record<string, unknown>;

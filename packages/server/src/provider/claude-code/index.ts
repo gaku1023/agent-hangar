@@ -1,5 +1,5 @@
 import { buildClaudeArgs } from '../../launch/args.ts';
-import type { LaunchInput } from '../types.ts';
+import type { LaunchInput } from './types.ts';
 
 /**
  * claude の起動コマンドを組み立てる。

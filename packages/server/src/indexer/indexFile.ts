@@ -2,14 +2,14 @@ import fs from 'node:fs';
 import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { readNewLines } from '../provider/claude-code/lines.ts';
+import { readNewLines } from '../provider/claude-code/transcript/lines.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
-import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts } from '../provider/claude-code/normalize.ts';
+import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts } from '../provider/claude-code/transcript/normalize.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
-import { foldActivity, type Activity } from '../provider/claude-code/activity.ts';
+import { foldActivity, type Activity } from '../provider/claude-code/transcript/activity.ts';
 import { transcriptWatcher, type TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
 import { localDay } from '../usage/aggregate.ts';
-import type { DiscoveredFile } from '../provider/types.ts';
+import type { DiscoveredFile } from '../provider/claude-code/types.ts';
 
 export const INDEXER_VERSION = 1;
 export const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];

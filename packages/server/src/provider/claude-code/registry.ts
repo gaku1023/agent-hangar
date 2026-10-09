@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { LiveStatus } from '@agent-hangar/shared';
 import { isAlive } from '../../platform/proc.ts';
-import type { LiveSession } from '../types.ts';
+import type { LiveSession } from './types.ts';
 import { RegistryMissGate, registryDrifts, registryKey } from './compat/registry.ts';
 import { isRec, NO_COMPAT, type CompatSink, type Drift } from './compat/types.ts';
 

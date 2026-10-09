@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { ProjectDto, ServerEvent, SessionDto } from '@agent-hangar/shared';
-import { mangleCwd } from '../provider/claude-code/discover.ts';
+import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { startServer } from '../server.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 

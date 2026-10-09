@@ -4,9 +4,9 @@ import type { IndexProgressDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
-import { listRemoteTranscriptFiles, listTranscriptFiles, readHistoryIndex, selectFilesToIndex, type HistoryEntry } from '../provider/claude-code/discover.ts';
+import { listRemoteTranscriptFiles, listTranscriptFiles, readHistoryIndex, selectFilesToIndex, type HistoryEntry } from '../provider/claude-code/transcript/discover.ts';
 import type { TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
-import type { DiscoveredFile } from '../provider/types.ts';
+import type { DiscoveredFile } from '../provider/claude-code/types.ts';
 import { writeBaselineIfNeeded } from './baseline.ts';
 import { ensureSession, forgetTranscriptFile, indexFile, type ProcessStartOf } from './indexFile.ts';
 

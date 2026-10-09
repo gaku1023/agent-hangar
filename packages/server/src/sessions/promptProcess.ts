@@ -1,5 +1,5 @@
 import type { Db } from '../db/open.ts';
-import type { LiveSession } from '../provider/types.ts';
+import type { LiveSession } from '../provider/claude-code/types.ts';
 import { parseProcStart } from '../runs/procs.ts';
 
 /**
