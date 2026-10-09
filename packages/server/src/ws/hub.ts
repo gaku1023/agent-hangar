@@ -18,7 +18,7 @@ export class EventHub {
     server.on('upgrade', (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://x');
       // 一致しない経路は黙って返し、同じ server に載る別の WebSocket サーバに譲る。
-      // どこも引き取らなかった要求を切るのは server.ts の役目である。
+      // どこも引き取らなかった要求を切るのは番人（ws/guard.ts）の役目である。
       if (url.pathname !== opts.path) return;
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
