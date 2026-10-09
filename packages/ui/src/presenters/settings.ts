@@ -6,6 +6,7 @@ import { storeLanguage, translatorOf } from './i18n.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
+import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
 import { toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
@@ -19,7 +20,7 @@ export type CloudDeviceProps = { id: string; name: string; platform: string; las
  * skipped は送れなかった本文で、件数だけでは直しようが無いので鍵と理由もそのまま渡す。
  * stateLabel はヘッダーと同じ表から引いた状態の語である。
  */
-export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; /** 節の見出しの右の札。目次の状態の語と同じもの。 */ badge: { text: string; tone: 'ok' | 'off' | 'warn' | 'stop' }; paused: boolean; /** Cloudflare の上限で退いているか。そのあいだは一時停止の切り替えを出さない（試作の Q4 の案 B）。 */ limited: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; joinTokenExpiresAt: number | null; syncClaudeConfig: boolean; configConfirmed: boolean; usage: CloudUsageProps | null };
+export type CloudSettingsProps = { configured: boolean; url: string | null; state: SyncStateKind; stateLabel: string; /** 節の見出しの右の札。目次の状態の語と同じもの。 */ badge: { text: string; tone: 'ok' | 'off' | 'warn' | 'stop' }; paused: boolean; /** Cloudflare の上限で退いているか。そのあいだは一時停止の切り替えを出さない（試作の Q4 の案 B）。 */ limited: boolean; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean; lastPullAt: string; pending: number; sweepPending: number | null; skipped: SyncSkippedDto[]; devices: CloudDeviceProps[]; joinToken: string | null; joinTokenExpiresAt: number | null; usage: CloudUsageProps | null };
 
 /**
  * 外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする包み方。
@@ -72,6 +73,8 @@ export type SettingsProps = {
   summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   statusline: StatuslineStatusDto | null; usageAggregate: UsageAggregateDto | null;
   cloud: CloudSettingsProps;
+  /** クラウド同期の節の中の、Claude Code の設定の同期（作り直した実装）。 */
+  configSync: ConfigSyncSectionProps;
   shell: ShellSettingsProps;
   /** 同梱サーバを起こす Node の場所。未指定は空文字で表す。 */
   nodePath: string;
@@ -121,7 +124,8 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
     reason: r.unwritableReason,
     valueLabel: daysLabel(r.days),
     bar: usageBar(r.usage, projected, r.days, translatorOf(store)),
-    syncNote: store.settings?.syncClaudeConfig ?? false,
+    // 設定の同期が入っていれば、cleanupPeriodDays も他の PC へ運ぶ。旧実装が残るあいだは、旧実装のスイッチも見る（段 4 の PR 18 で消す）。
+    syncNote: store.configSync?.enabled === true || (store.settings?.syncClaudeConfig ?? false),
   };
 }
 
@@ -189,8 +193,6 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     devices: store.devices.map((d) => ({ id: d.id, name: d.name, platform: d.platform, lastSeen: relativeTime(d.lastSeenAt, now), self: d.self })),
     joinToken: store.joinToken,
     joinTokenExpiresAt: store.joinTokenExpiresAt,
-    syncClaudeConfig: s?.syncClaudeConfig ?? false,
-    configConfirmed: sync?.claudeConfig.confirmed ?? false,
     usage: presentCloudUsage(store.cloudUsage, sync, now),
   };
   const at = state.screen.name === 'settings' ? state.screen.at : undefined;
@@ -218,6 +220,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   };
   return {
     cloud,
+    configSync: presentConfigSection(store, now),
     shell,
     verify, todo,
     compat: compatSummary ? presentCompat(compatSummary, store.compat, store.version) : null,

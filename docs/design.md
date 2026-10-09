@@ -3105,12 +3105,12 @@ D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、�
 
 段 4 の PR 14 で、サーバの側を作り直した（設計は `docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md`）。
 `~/.claude` へ書く殻の命令と CLI は PR 16 で入れた（「適用と世代へ戻す」）。
-Worker の側は PR 15 で入った（下の「互換の版」）。画面（PR 17）はこの後に入る。
+Worker の側は PR 15 で入った（下の「互換の版」）。画面は PR 17 で入った（下の「画面（PR 17）」）。
 旧実装（`sync/claudeConfig.ts`、`file_sync` の設定の行、`/sync/config/*`、`SettingsDto.syncClaudeConfig`）は、PR 18 で消すまで残る。
 新しい実装は `sync/config/` にあり、既定は切である。
 
 **旧実装との住み分け。**
-スイッチは別である（旧は `syncClaudeConfig`、新は settings.json の `configBundleSync`。画面が新しい実装に替わる PR 17 までは手で書き換えたときだけ入る）。
+スイッチは別である（旧は `syncClaudeConfig`、新は settings.json の `configBundleSync`。設定の画面は PR 17 から新しい方だけを動かし、入れるときに旧実装を切る）。
 表も別である（新は `config_snapshots`、`config_base`、`config_unsent`。旧は `file_sync`）。
 クラウドの鍵も別である（新は `config/<端末 ID>/.hangar/config-bundle.hgr` の 1 オブジェクト。旧は `config/<端末 ID>/<相対パス>`）。
 旧実装は、先頭が `.hangar/` の相対パスを設定ファイルとして数えないので、新しい束を受け取らない（試験で見ている）。
@@ -3184,7 +3184,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
   結果は `{ status, message, generation }`（`status` は `applied`、`restored`、`cancelled`、`none`、`failed`、`busy`）で頁へ返す。
   失敗は確認と同じネイティブの窓でも知らせる。
   頁から渡せるのは世代の名前だけで、`yyyyMMdd-HHmmss` の形を殻が確かめる。
-  権限は `capabilities/remote-config-apply.json` の 2 つだけで、頁の側の呼び出し（設定の画面）は PR 17 で足す。
+  権限は `capabilities/remote-config-apply.json` の 2 つだけである。頁の側の呼び出しは PR 17 で足した（`runtime/desktop.ts` の `applyConfigSync()`、`restoreConfigSync(name)`。結果は上の `{ status, message, generation }` で、形の違う返事は失敗として扱う）。
 - 適用の順序は、(1) 指示書を読み、inbox と突き合わせて全項目が書けるかを先に確かめる、(2) 書く先の元の中身を世代に控える、(3) 一時ファイルに書いて rename する、(4) `config_base` を 1 つの transaction で更新する、(5) 指示書を消して、世代を新しい 20 個に保つ、である。
   (1) で 1 つでも合わなければ何も書かずに断る。
   束が更新されて指紋が合わない（`stale`）、書き込み先が id から決まる場所と違う、途中がシンボリックリンクか通常でない（`unsafe`）、届いた値が鍵の型に合わない、`settings.json` が JSON のオブジェクトでない、のどれかである。
@@ -3207,6 +3207,38 @@ skills、commands、agents は実行される指示なので、他の PC から�
   権限の `allow`、`ask`、`deny` は、届いた規則を入れ、手元の絶対パスの規則は残す（相手が鍵を消したときも、絶対パスの規則だけ残る）。
 - サーバの側の追加：適用と戻しはサーバの外で起きるので、60 秒ごとの送受信の回で指示書の有無と世代の数を見て、変わっていたら `config.update` を配り直す。
   `ConfigBase` は `sync/config/base.ts` に分けた（適用する側がサーバ全体を引かないため）。
+
+**画面（PR 17）。**
+設計は段 4 の設計書の 2.5（a1、b1、c2、d1、e2）である。
+設定の「クラウド同期」の節の「Claude Code の設定を同期」に常設の行を並べ、中身はダイアログで見せる。
+スイッチは `SettingsDto.configBundleSync`（`PATCH /api/settings`）で動かす。
+入れるときは送る一覧（a1）を見せて承諾を取り、承諾すると `{ configBundleSync: true, syncClaudeConfig: false }` を送る（旧実装を同時に切る）。
+切るのは確認なしにその場で保存する。
+入れた直後は、サーバが次の周期を待たずに送受信を 1 回回す（`boot/sync.ts` の `publishConfigSync`）。
+`ConfigSyncDto.workerPending` が真のあいだは、行の下に「Worker の更新待ち」の帯を出し、`hangar setup cloud` をもう一度実行して Worker を入れ替えるよう案内する。
+行は、適用の待ち（指示書があるとき）、届いている変更、承諾待ち（承諾の仕方が毎回で、承諾の要る項目があるとき）、承諾の仕方、競合、送らなかった項目（0 件でも残す）、バックアップの順である。
+承諾の仕方を自動に切り替えるときは、その場に注意の文と、キャンセル、自動にする、を出し、押すまで保存しない。
+
+ダイアログは 1 つの overlay（`configSync`）で、`part` が 4 つの顔を決める。
+
+- `send`（a1）：種類ごとの折りたたみ。見出しに件数。`settings.json` は鍵と値。項目が 12 を超えるとき、スキル、コマンド、エージェント、メモリは最初から畳み、見出しに先頭 3 つの名前を添える。送らないもの（落とす鍵と理由）を最後の群に置く。
+- `review`（b1）：操作ごとの折りたたみで、競合、削除、上書き、新規、保留の順。群ごとに何が起きるかの 1 文。「適用…」は、競合でも保留でも承諾の要るものでもない項目だけを指示書にする。承諾の要るものと競合は、このダイアログから開く入口を出す。
+- `approve`（c2）：承諾の要る項目の表にチェック。印（フック、コマンド実行、スクリプト）の無い行だけを「印の無いものを選択」でまとめて選べ、「すべて選択」は置かない。印のある行は、「内容」で中身の先頭（サーバが 400 文字まで返す）を開くまでチェックできず、印の付く行を強調する。競合は含めない。
+- `conflicts`（d1）：1 件を 1 枚の札にし、差分（手元から相手へ。赤は手元、緑は相手）を最初から出す。「相手を採用」「自分を採用」を押して選び（もう一度押すと外れる）、選んだ分を `take: 'remote' | 'mine'` つきで適用する。
+
+選んだ項目（チェック、採る側）は View だけが持ち、`configSync.apply { entries }` で 1 度に渡す。
+適用は、サーバに指示書を書かせ（`PUT /api/config-sync/apply-order`）、殻があれば `apply_config_sync` でネイティブの確認へ進む（runtime）。
+確認の返事が来るまで、ダイアログは閉じられず、押せない。
+`applied` と `restored` のときは状態を取り直してダイアログを閉じ、`cancelled`、`none`、`busy`、`failed` のときは書いていないので開いたままにして文を知らせる（`failed` は赤）。
+ブラウザでは殻が無いので、指示書を書いたところで閉じ、設定の「適用の待ち」の行が `hangar config apply` を案内する。
+指示書は、殻の確認で取り消されたときも残るので、同じ行から「適用…」で確認をやり直すか、「取り消す」（`DELETE`）で消せる。
+バックアップの世代は、行を開くと一覧が出て、殻があれば「この世代に戻す…」（`restore_config_sync`）、無ければ `hangar config restore <世代>` を出す。
+
+件数と状態は `ConfigSyncDto`（bootstrap と `config.update`）が正で、項目の一覧は Store の `configDetail`（送る一覧、届いた変更、競合、送らなかった項目、世代）に、設定の画面に入ったときとダイアログを開いたときに取る。
+件数が 0 のものは取りに行かない（サーバは項目の走査をするため）。
+設定の画面かダイアログを見ているあいだに状態が動いたら、取り直す。
+送らなかった項目の通知カードは作らない（ベルの一覧の行は PR 19）。
+送る一覧（a1）は、スイッチが切のあいだに読むので、秘密らしい文字列で止まる項目と、落とした絶対パスの規則（`config_unsent`）は、入れたあとに「送らなかった項目」の行へ出る。
 
 **経路（`http/routes/sync.ts`）。**
 すべて `/api` の認証の下にあり、同期を設定していない端末では 404 を返す。

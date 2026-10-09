@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigPreviewDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -98,6 +98,18 @@ export type ApiClient = {
   joinToken(): Promise<{ token: string | null }>;
   configPreview(): Promise<ConfigPreviewDto>;
   configPull(): Promise<{ applied: number; conflicts: number }>;
+  // 設定の同期（作り直した実装）。同期を組んでいない端末のサーバは 404 を返す。読む経路はどれも ~/.claude に触れず、書くのは hangar の置き場の指示書だけである。
+  configSyncState(): Promise<ConfigSyncDto>;
+  configOutgoing(): Promise<ConfigOutgoingDto>;
+  configInbox(): Promise<ConfigInboxDto>;
+  configConflicts(): Promise<ConfigConflictDto[]>;
+  configUnsent(): Promise<ConfigUnsentDto>;
+  configBackups(): Promise<ConfigBackupsDto>;
+  /** 送らなかった項目を、それでも送る。更新後の一覧を返す。 */
+  configSendUnsent(id: string): Promise<ConfigUnsentDto>;
+  /** 承諾した項目を適用の指示書にする。前の指示書は置き換わる。 */
+  configPutOrder(entries: ConfigApplyOrderEntryIn[]): Promise<ConfigApplyOrderDto>;
+  configDeleteOrder(): Promise<void>;
   // 会話の保持期間。書き込みは下見の指紋を添え、ほかで変わっていたら 409 で断られる。
   retention(): Promise<RetentionDto>;
   retentionPreview(days: number): Promise<RetentionPreviewDto>;
@@ -201,6 +213,15 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     joinToken: () => call('/api/sync/joinToken'),
     configPreview: () => call('/api/sync/config/preview'),
     configPull: () => post('/api/sync/config/pull'),
+    configSyncState: () => call('/api/config-sync'),
+    configOutgoing: () => call('/api/config-sync/outgoing'),
+    configInbox: () => call('/api/config-sync/inbox'),
+    configConflicts: () => call('/api/config-sync/conflicts'),
+    configUnsent: () => call('/api/config-sync/unsent'),
+    configBackups: () => call('/api/config-sync/backups'),
+    configSendUnsent: (id) => post(`/api/config-sync/unsent/${encodeURIComponent(id)}/send`),
+    configPutOrder: (items) => call('/api/config-sync/apply-order', { method: 'PUT', body: JSON.stringify({ items }) }),
+    configDeleteOrder: () => call('/api/config-sync/apply-order', { method: 'DELETE' }),
     retention: () => call('/api/retention'),
     retentionPreview: (days) => post('/api/retention/preview', { days }),
     writeRetention: (days, baseSha256) => call('/api/retention', { method: 'PUT', body: JSON.stringify({ days, baseSha256 }) }),

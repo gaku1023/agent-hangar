@@ -204,6 +204,7 @@ describe('ダイアログを開いている間の開く操作', () => {
     ['書き込み中の保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' }), intent({ type: 'retention.write' })]).state],
     ['送信中の新しいセッション', run([intent({ type: 'session.new.open', projectId: 'p1' }), intent({ type: 'session.new.submit', params: { projectId: 'p1' } })]).state],
     ['昇格', run([intent({ type: 'session.promote.open', id: 's1' })]).state],
+    ['設定の同期の適用の最中', run([intent({ type: 'configSync.open', part: 'review' }), intent({ type: 'configSync.apply', entries: [{ id: 'x' }] })]).state],
   ];
   // どの経路から来ても（キーでもボタンでも）、決めるまで閉じないダイアログや入力のあるダイアログを黙って差し替えない。
   it.each(holding)('%s の上では、パレットもキーの一覧も新しいセッションも開かない', (_name, before) => {
@@ -1249,6 +1250,7 @@ describe('ダイアログを開いている間の画面の移動', () => {
     ['昇格', run([intent({ type: 'session.promote.open', id: 's1' })], at).state],
     ['保持期間', run([intent({ type: 'retention.edit', days: 365, from: 'banner' })], at).state],
     ['設定の取り込み', run([intent({ type: 'sync.config.preview' })], at).state],
+    ['設定の同期のダイアログ', run([intent({ type: 'configSync.open', part: 'send' })], at).state],
   ];
   const moves: Input[] = [
     intent({ type: 'nav.go', to: { name: 'settings' } }),

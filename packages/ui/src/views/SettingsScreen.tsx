@@ -15,7 +15,9 @@ import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
+import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
+import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
 
@@ -123,23 +125,6 @@ function JoinToken(props: { token: string; expiresAt: number | null }) {
         <i style={{ width: `${(leftMs / JOIN_TOKEN_TTL_MS) * 100}%` }} />
       </div>
       <small>{t('settings.cloud.token.note', { n: left })}</small>
-    </div>
-  );
-}
-
-/**
- * 設定の 1 行。名前と説明を左、操作を右端に置く（試作の set-row）。
- * below は行の下いっぱいに広がる中身（使用量の棒、断りの文）である。
- */
-function SetRow(props: { title: string; desc?: ReactNode; control: ReactNode; below?: ReactNode }) {
-  return (
-    <div className="set-row">
-      <div className="set-row-l">
-        <div className="set-row-t">{props.title}</div>
-        {props.desc && <div className="set-row-d">{props.desc}</div>}
-      </div>
-      <div className="set-row-r">{props.control}</div>
-      {props.below && <div className="set-row-below">{props.below}</div>}
     </div>
   );
 }
@@ -331,20 +316,8 @@ export function SettingsScreen(props: SettingsProps) {
           </>
         )}
       </section>
-      {/* Claude Code の設定の同期。今の実装（スイッチと取り込みの確認）のまま置く。作り替えは設定の同期の PR で行う。 */}
-      <section aria-labelledby="settings-config-h">
-        <h3 className="h2" id="settings-config-h">{t('settings.cloud.config.title')}</h3>
-        <SetRow title={t('settings.cloud.config.enable')} desc={cloudOff ? t('settings.cloud.config.needsCloud') : t('settings.cloud.config.desc')}
-          control={<Switch label={t('settings.cloud.config.enable')} checked={props.cloud.syncClaudeConfig && !cloudOff} disabled={cloudOff} onChange={(next) => emit({ type: 'settings.update', patch: { syncClaudeConfig: next } })} />} />
-        {!cloudOff && (
-          <>
-            {/* 利用者の決定 2。~/.claude を書き換える前に必ず控えを取り、何を書き換えたかを後から読めるようにする。 */}
-            <div className="faint">{t('settings.cloud.config.write')}</div>
-            {props.cloud.syncClaudeConfig && <div className="faint">{props.cloud.configConfirmed ? t('settings.cloud.config.confirmed') : t('settings.cloud.config.unconfirmed')}</div>}
-            <button className="btn" style={{ marginTop: 8 }} disabled={!props.cloud.syncClaudeConfig} onClick={() => emit({ type: 'sync.config.preview' })}>{t('settings.cloud.config.preview')}</button>
-          </>
-        )}
-      </section>
+      {/* Claude Code の設定の同期（作り直した実装）。送る一覧と適用のダイアログは Root が開く。 */}
+      <ConfigSyncSection cfg={props.configSync} cloudOff={cloudOff} />
       {/* 使用量と費用。同期している人にだけ出す（試作 usage-merged.html の「置き場所」）。 */}
       {!cloudOff && props.cloud.usage && <CloudUsage {...props.cloud.usage} />}
     </>

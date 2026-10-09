@@ -183,4 +183,5 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.info.index.note': '読み取り元を変えたときは、再起動後に反映されます。',
   'settings.info.thisPc.title': 'この PC',
   'settings.label.configApproval': '届いた設定の承諾の仕方',
+  'settings.label.configBundleSync': 'Claude Code の設定の同期',
 };

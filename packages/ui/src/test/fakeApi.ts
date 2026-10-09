@@ -8,6 +8,7 @@ type Extras = Pick<
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull'
+  | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'live' | 'sessionFiles' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
@@ -81,6 +82,16 @@ export function fakeApiExtras(): Extras {
     joinToken: vi.fn(async () => ({ token: null })),
     configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
     configPull: vi.fn(async () => ({ applied: 0, conflicts: 0 })),
+    // 設定の同期（作り直した実装）。既定は何も無い状態で、使うテストが自分で上書きする。
+    configSyncState: vi.fn(async () => ({ enabled: false, workerPending: false, approval: 'each' as const, incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null })),
+    configOutgoing: vi.fn(async () => ({ enabled: false, items: [], droppedKeys: [], unsentCount: 0, lastSentAt: null })),
+    configInbox: vi.fn(async () => ({ items: [], approval: 'each' as const })),
+    configConflicts: vi.fn(async () => []),
+    configUnsent: vi.fn(async () => ({ items: [] })),
+    configBackups: vi.fn(async () => ({ generations: [] })),
+    configSendUnsent: vi.fn(async () => ({ items: [] })),
+    configPutOrder: vi.fn(async () => ({ createdAt: 1, items: [] })),
+    configDeleteOrder: vi.fn(async () => {}),
     retention: vi.fn(async () => ({ days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null })),
     retentionPreview: vi.fn(async () => unused()),
     writeRetention: vi.fn(async () => unused()),

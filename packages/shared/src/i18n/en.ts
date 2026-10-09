@@ -5,6 +5,7 @@ import { artifactEn } from './en/artifact.ts';
 import { commonEn } from './en/common.ts';
 import { configEn } from './en/config.ts';
 import { configSyncEn } from './en/configSync.ts';
+import { configSyncUiEn } from './en/configSyncUi.ts';
 import { confirmEn } from './en/confirm.ts';
 import { externalEn } from './en/external.ts';
 import { headerEn } from './en/header.ts';
@@ -45,6 +46,7 @@ export const en: Dictionary = {
   ...commonEn,
   ...configEn,
   ...configSyncEn,
+  ...configSyncUiEn,
   ...confirmEn,
   ...externalEn,
   ...headerEn,

@@ -1,4 +1,4 @@
-import type { ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
+import type { ConfigApplyOrderEntryIn, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -21,6 +21,8 @@ export type SearchFilter = { projectId?: string; days?: number; until?: number; 
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string };
+/** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承諾、conflicts は競合。 */
+export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };
 export type Settings = SettingsDto;
 
@@ -87,6 +89,16 @@ export type Intent =
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
+  // 設定の同期（作り直した実装）。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
+  | { type: 'configSync.open'; part: ConfigSyncPart }
+  | { type: 'configSync.send.confirm' }
+  | { type: 'configSync.apply'; entries: ConfigApplyOrderEntryIn[] }
+  // すでにある指示書で、もう一度適用の確認へ進む。指示書の取り消し。
+  | { type: 'configSync.order.apply' } | { type: 'configSync.order.cancel' }
+  // 送らなかった項目を、それでも送る。
+  | { type: 'configSync.unsent.send'; id: string }
+  // 控えの世代へ戻す。name は yyyyMMdd-HHmmss。
+  | { type: 'configSync.restore'; name: string }
   | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }

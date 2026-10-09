@@ -1,0 +1,88 @@
+/* 設定の同期（作り直した実装）の画面。値の正本は試作 docs/superpowers/specs/2026-10-09-settings-screen/options.html の設定の同期の流れ（a1、b1、c2、d1、e2）。 */
+
+/* 設定の節の中の補助の 1 行と、注意の帯（Worker の更新待ち、自動にするときの注意）。 */
+.cfg-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--u) calc(var(--u) * 2); margin-top: calc(var(--u) * 1); }
+.cfg-strip { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 1); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r); font-size: var(--fs-sm); line-height: 1.45; }
+.cfg-strip .icon { flex: none; width: 16px; height: 16px; }
+.cfg-strip[data-tone='warn'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.cfg-strip[data-tone='danger'] { color: var(--ink); background: color-mix(in srgb, var(--error) 6%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 30%, transparent); }
+.cfg-strip[data-tone='danger'] .icon { color: var(--error); }
+.cfg-strip .spacer { flex: 1; }
+@media (max-width: 700px) { .cfg-strip { flex-wrap: wrap; } .cfg-strip .spacer { display: none; } }
+
+/* 行の中の一覧（送らなかった項目、バックアップの世代）。 */
+.cfg-list { margin-top: calc(var(--u) * 1); border-radius: var(--r); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+
+/* ダイアログは試作に合わせて 800px にする。窓が狭いときは .dialog の max-width が縮める。 */
+.dialog-config { width: 800px; }
+.dialog-config .dialog-body { gap: calc(var(--u) * 2); }
+
+/* 群（種類ごと、操作ごとの折りたたみ）。見出しに件数、畳んだときは先頭の名前を添える。 */
+.cfg-grp { border-radius: var(--r); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.cfg-grp-h { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 32px; padding: 0 calc(var(--u) * 2.5); background: var(--surface-2); font-weight: 600; white-space: nowrap; cursor: pointer; list-style: none; }
+.cfg-grp-h::-webkit-details-marker { display: none; }
+.cfg-chev { display: inline-flex; align-items: center; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+.cfg-chev .icon { width: 14px; height: 14px; }
+.cfg-grp[open] .cfg-chev { transform: rotate(90deg); }
+.cfg-n { font-weight: 500; color: var(--ink-3); }
+.cfg-peek { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
+.cfg-note { padding: calc(var(--u) * 1.5) calc(var(--u) * 2.5); font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.45; border-top: 1px solid var(--line); }
+@media (prefers-reduced-motion: reduce) { .cfg-chev { transition: none; } }
+
+/* 群の中の 1 行（名前、値、右端に札と小さな字）。 */
+.cfg-it { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: calc(var(--u) * 3); min-height: 28px; padding: 0 calc(var(--u) * 2.5); border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+.cfg-it[data-dim] { color: var(--ink-3); }
+.cfg-k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.cfg-v { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--ink-2); }
+.cfg-r { display: inline-flex; align-items: center; justify-content: flex-end; gap: calc(var(--u) * 2); min-width: 0; }
+.cfg-side { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.cfg-gen .cfg-k { font-family: var(--font-mono); }
+.cfg-it .btn-sm { margin: calc(var(--u) * 0.5) 0; }
+
+/* 操作、種類、実行の印の小さな札。色だけに頼らず、語でも言う。 */
+.cfg-act { display: inline-flex; align-items: center; height: 18px; padding: 0 calc(var(--u) * 1.75); border-radius: 4px; font-family: var(--font-sans); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+.cfg-act[data-a='create'] { color: var(--st-done); background: var(--st-done-soft); }
+.cfg-act[data-a='overwrite'] { color: var(--st-active); background: var(--st-active-soft); }
+.cfg-act[data-a='delete'] { color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--surface)); }
+.cfg-act[data-a='conflict'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.cfg-act[data-a='drop'] { color: var(--ink-3); background: var(--surface-2); }
+.cfg-act[data-a='hook'] { color: var(--st-paused); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 45%, transparent); }
+.cfg-act[data-a='kind'] { color: var(--ink-2); background: var(--surface-2); font-weight: 500; }
+
+/* ダイアログの上の、ほかのダイアログへ移る入口。 */
+.cfg-jumps { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); }
+
+/* 承諾の表（c2）。チェック、名前、種類、印、届いた、内容。 */
+.cfg-chips { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); }
+.cfg-chip { display: inline-flex; align-items: center; height: 24px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: 600 var(--fs-xs) var(--font-sans); color: var(--ink-2); background: var(--surface-2); cursor: pointer; white-space: nowrap; }
+.cfg-chip:hover:not(:disabled) { color: var(--ink); background: var(--line-strong); }
+.cfg-chip[data-on='true'] { color: var(--accent-ink); background: var(--ink); }
+.cfg-chip:disabled { opacity: 0.5; cursor: default; }
+.cfg-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.cfg-table th { padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-bottom: 1px solid var(--line-strong); font-size: var(--fs-xs); font-weight: 600; text-align: left; color: var(--ink-3); white-space: nowrap; }
+.cfg-table td { height: 30px; padding: 0 calc(var(--u) * 2); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.cfg-table tr[data-open='true'] td { background: var(--accent-soft); border-bottom-color: transparent; }
+.cfg-cell-cb { width: 28px; }
+.cfg-cell-name { max-width: 0; width: 38%; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.cfg-cell-r { text-align: right; }
+.cfg-table td.cfg-cell-r { width: 1%; }
+.cfg-detail-row td { height: auto; padding: calc(var(--u) * 1.5) calc(var(--u) * 2) calc(var(--u) * 2.5) calc(var(--u) * 9); white-space: normal; }
+.cfg-pre { margin: 0; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: 6px; background: var(--surface); font: 11px/1.5 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow: auto; }
+.cfg-pre mark { background: var(--st-paused-soft); color: var(--st-paused); border-radius: 2px; }
+/* チェック。押せないあいだは薄くする（印のある行は、内容を開くまで選べない）。 */
+.cfg-cb { display: inline-block; position: relative; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 4px; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--line-strong); vertical-align: middle; cursor: pointer; }
+.cfg-cb[aria-checked='true'] { background: var(--accent); box-shadow: none; }
+.cfg-cb[aria-checked='true']::after { content: ''; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px; border: solid var(--accent-ink); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.cfg-cb:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 競合の札（d1）。差分を最初から出し、採る側を押して選ぶ。 */
+.cfg-card { padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); box-shadow: inset 0 0 0 1px var(--line); }
+.cfg-card-t { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); font-size: 12px; font-weight: 600; }
+.cfg-card-d { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.cfg-diff { margin: calc(var(--u) * 1.5) 0 calc(var(--u) * 2); max-height: 220px; overflow: auto; }
+.cfg-card .btns { margin-top: 0; }
+.cfg-card .btn[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+.cfg-card .btn .icon { width: 12px; height: 12px; }
+
+/* 下端の左の注記（件数、バックアップの置き場）は 1 行に収め、入らなければ省く。ボタンを押し出さない。 */
+.dialog-config .dialog-foot > .faint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

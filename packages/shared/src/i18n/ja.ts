@@ -5,6 +5,7 @@ import { artifactJa } from './ja/artifact.ts';
 import { commonJa } from './ja/common.ts';
 import { configJa } from './ja/config.ts';
 import { configSyncJa } from './ja/configSync.ts';
+import { configSyncUiJa } from './ja/configSyncUi.ts';
 import { confirmJa } from './ja/confirm.ts';
 import { externalJa } from './ja/external.ts';
 import { headerJa } from './ja/header.ts';
@@ -45,6 +46,7 @@ export const ja: Dictionary = {
   ...commonJa,
   ...configJa,
   ...configSyncJa,
+  ...configSyncUiJa,
   ...confirmJa,
   ...externalJa,
   ...headerJa,

@@ -653,6 +653,26 @@ describe('作り直した設定の同期の組み立て', () => {
     expect(bundle.dto()).toMatchObject({ enabled: true, approval: 'auto' });
   });
 
+  it('スイッチを入れた直後に 1 回だけ送受信を回し、次の周期を待たせない', () => {
+    joinTo(NOWHERE);
+    const b = boot();
+    const bundle = b.sync.configBundle!;
+    const tick = vi.spyOn(bundle, 'tick').mockResolvedValue();
+    b.sync.publishConfigSync();
+    expect(tick).not.toHaveBeenCalled();
+    b.h.settings.current = { ...b.h.settings.current, configBundleSync: true };
+    b.sync.publishConfigSync();
+    expect(tick).toHaveBeenCalledTimes(1);
+    // 入ったままの再配りでは回さない。切ってから入れ直せば、また回す。
+    b.sync.publishConfigSync();
+    expect(tick).toHaveBeenCalledTimes(1);
+    b.h.settings.current = { ...b.h.settings.current, configBundleSync: false };
+    b.sync.publishConfigSync();
+    b.h.settings.current = { ...b.h.settings.current, configBundleSync: true };
+    b.sync.publishConfigSync();
+    expect(tick).toHaveBeenCalledTimes(2);
+  });
+
   it('配る層へ、状態の組み方を渡す', () => {
     joinTo(NOWHERE);
     const h = bootHome({ home, claudeDir });

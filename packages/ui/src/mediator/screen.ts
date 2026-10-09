@@ -3,7 +3,7 @@ import { overlayReplaceable, settleQueue } from './overlay.ts';
 import { listPageStep, pageSizeStep, pageStep } from './paging.ts';
 import { agentTabStep, jumpStep, leaveTranscriptStep, openAtLeadStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
-import { nextWaitingSession, type Store } from '../store/store.ts';
+import { configPartsToLoad, nextWaitingSession, type Store } from '../store/store.ts';
 
 /**
  * サーバに問い合わせるか。
@@ -152,7 +152,12 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     if (route.name === 'session' && state.focusOnOpen === route.id) effects.push({ kind: 'focus', target: 'terminal' });
     if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id });
     // 設定の中で節を切り替えるだけ（左の目次）のときは、付属の値を取り直さない。
-    if (route.name === 'settings' && state.screen.name !== 'settings') effects.push({ kind: 'api.loadSettingsExtras' });
+    if (route.name === 'settings' && state.screen.name !== 'settings') {
+      effects.push({ kind: 'api.loadSettingsExtras' });
+      // 設定の同期の中身は、件数のあるものだけを取る。同期を組んでいない端末は configSync が無い。
+      const parts = configPartsToLoad(store.configSync);
+      if (parts.length > 0) effects.push({ kind: 'api.configSyncLoad', parts });
+    }
     // 設定の画面を離れたら、欄の下の理由（保存の失敗）を消す。
     // 欄の値は戻ってくると保存済みの値に戻るので、理由だけが残ると、いまの値が断られたように読める。
     // 保存済みの印は番号を続けたいので残す。
