@@ -31,7 +31,7 @@ export function claudeDirDrifts(dir: string): Drift[] {
 }
 
 /**
- * 置き場の見張り。起動のときと、確認リストを開いたときに check() を呼ぶ。
+ * 置き場の見張り。起動のときと、準備の確かめ（GET /api/readiness）か GET /api/compat を読むたびに check() を呼ぶ。
  * 同じ名前はサーバの寿命で 1 度だけ数える。画面を開くたびに読み直すので、回数は意味を持たない。
  */
 export class ClaudeDirWatch {

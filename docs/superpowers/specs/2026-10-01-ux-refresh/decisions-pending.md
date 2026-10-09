@@ -50,7 +50,7 @@
 入れ替えは次の 1 行（`!` を付けて打つ）。
 
 ```sh
-osascript -e 'tell application "Hangar" to quit'; sleep 2; rm -rf /Applications/Hangar.app && ditto /Users/satog/workspace/agent-hangar/.claude/worktrees/ux-fixes-1/apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app /Applications/Hangar.app && open /Applications/Hangar.app
+osascript -e 'tell application "Hangar" to quit'; sleep 2; rm -rf /Applications/Hangar.app && ditto /Users/me/workspace/agent-hangar/.claude/worktrees/ux-fixes-1/apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app /Applications/Hangar.app && open /Applications/Hangar.app
 ```
 
 ### ①
@@ -82,7 +82,7 @@ osascript -e 'tell application "Hangar" to quit'; sleep 2; rm -rf /Applications/
 よければ main へ入れる（`!` を付けて打つ）。
 
 ```sh
-git -C /Users/satog/workspace/agent-hangar merge --no-ff ux-refresh-2 && git -C /Users/satog/workspace/agent-hangar push origin main
+git -C /Users/me/workspace/agent-hangar merge --no-ff ux-refresh-2 && git -C /Users/me/workspace/agent-hangar push origin main
 ```
 
 ## ②の実装で仮に決めたもの

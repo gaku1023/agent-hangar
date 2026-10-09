@@ -122,7 +122,7 @@ export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProb
  * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
  * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。
- * compat は Claude Code との互換の要約で、確認リストの 6 行目が読む。ずれの中身は GET /api/compat で取る。
+ * compat は Claude Code との互換の要約で、設定の互換の節と確認リストの 6 行目が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
   tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: ToolCheckDto & { auto: boolean } };

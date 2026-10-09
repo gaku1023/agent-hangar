@@ -12,7 +12,7 @@ export const COMPAT_CONTRACTS: readonly CompatContract[] = ['transcript', 'regis
 export type CompatDriftDto = { contract: CompatContract; value: string; version: string | null; count: number; firstSeenAt: number; lastSeenAt: number };
 /** GET /api/compat。verifiedVersion は見本のうち最も新しい版、localVersion は手元の claude --version（読めなければ null）。drifts は最後に見た時刻の新しい順。 */
 export type CompatDto = { verifiedVersion: string; localVersion: string | null; drifts: CompatDriftDto[] };
-/** GET /api/readiness の compat。確認リストの 6 行目が読む。 */
+/** GET /api/readiness の compat。設定の互換の節と、確認リストの 6 行目が読む。 */
 export type CompatSummaryDto = { verifiedVersion: string; localVersion: string | null; driftCount: number };
 /** 確認リストの 3 つの状態。drift はずれが 1 件以上、unverified は手元の版が確かめた版より新しい、ok はそれ以外。 */
 export type CompatState = 'ok' | 'unverified' | 'drift';

@@ -2039,7 +2039,7 @@ Expected: 3 つとも成功する。
 - [ ] **Step 3: 古い .app と利用者の dev サーバを止める**
 
 `pgrep -fl "target/release/bundle/macos/Hangar.app"` で、ビルドした `.app` から起きたプロセスを探す。
-あれば、`ps -o command= -p <PID>` でパスが `/Users/satog/workspace/agent-hangar/apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app` の下だと確かめてから、その PID だけを止める。
+あれば、`ps -o command= -p <PID>` でパスが `/Users/me/workspace/agent-hangar/apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app` の下だと確かめてから、その PID だけを止める。
 次に `lsof -nP -iTCP:4177 -sTCP:LISTEN -t` で PID を採り、`ps -o command= -p <PID>` で `packages/server` の tsx のサーバだと確かめたときだけ止める。
 ほかのもの（`/Applications/Hangar.app` のサーバなど）が 4177 にいれば、止めずに報告する。
 止めたものと、利用者が `npm run dev` を立て直す必要があるかを、報告に 1 行で書く。

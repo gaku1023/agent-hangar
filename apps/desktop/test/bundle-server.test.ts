@@ -211,7 +211,7 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     await bundleServer({ repoRoot, outDir: out, uiDist: ui });
     const cli = fs.readFileSync(path.join(out, 'cli.mjs'), 'utf8');
     const bare = [...new Set([...cli.matchAll(/^import[^\n]* from "([^"]+)";$/gm)].map((m) => m[1]!))].filter((sp) => !sp.startsWith('node:'));
-    // CLI が DB を開くのは本文の床（stampTranscriptsFrom、readTranscriptsFrom）のためで、端末（node-pty）は使わない。
+    // CLI が DB を開くのは本文の床（openTranscriptsFloor、readTranscriptsFrom）のためで、端末（node-pty）は使わない。
     expect(bare).toEqual(['better-sqlite3']);
     // サーバにしか無い関数。CLI がサーバの入口から import すると、esbuild がこれらを束ねてしまう。
     expect(cli).not.toContain('function startServer(');

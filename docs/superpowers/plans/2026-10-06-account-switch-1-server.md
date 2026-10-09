@@ -40,7 +40,7 @@
 
 **Files:** なし
 
-worktree は `/Users/satog/workspace/agent-hangar/.claude/worktrees/account-switch`（ブランチ `worktree-account-switch`）にもうある。以降のコマンドはすべてここで走らせる。
+worktree は `/Users/me/workspace/agent-hangar/.claude/worktrees/account-switch`（ブランチ `worktree-account-switch`）にもうある。以降のコマンドはすべてここで走らせる。
 
 - [ ] **Step 1: 依存を入れる**
 

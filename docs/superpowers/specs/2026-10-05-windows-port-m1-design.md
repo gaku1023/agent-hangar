@@ -15,7 +15,7 @@
 ### Claude Code
 
 - `claude.exe` 2.1.288 が `%USERPROFILE%\.local\bin` にある。Git for Windows も入っている。
-- `~/.claude/projects` のフォルダ名は、`D:\workspace\uma-uma-py` が `D--workspace-uma-uma-py` になる。
+- `~/.claude/projects` のフォルダ名は、`D:\workspace\sample-app` が `D--workspace-sample-app` になる。
   `provider/claude-code/discover.ts` の `mangleCwd`（英数字以外を `-` にする）と一致する。
 - `~/.claude/sessions/<pid>.json` の `procStart` は、1601 年からの 100 ナノ秒単位の整数（例 `134354040350009738`）である。
   プロセスの生成時刻と下の桁まで一致した。macOS の `ps` の lstart の書式ではない。

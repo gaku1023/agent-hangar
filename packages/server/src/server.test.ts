@@ -13,9 +13,7 @@ import { saveCloudConfig } from './config/cloud.ts';
 import { dbPath } from './config/paths.ts';
 import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
-import Database from 'better-sqlite3';
 import { DbBackupError } from './db/backup.ts';
-import { MIGRATIONS } from './db/migrations.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
 import { IndexerService } from './indexer/service.ts';
@@ -24,6 +22,7 @@ import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
+import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../test/oldDb.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
 import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
@@ -141,22 +140,12 @@ describe('startServer', () => {
 
   it('DB の控えが取れなければ、マイグレーションを当てずに起動を止める', async () => {
     // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
-    const latest = MIGRATIONS[MIGRATIONS.length - 1]!.version;
     const file = path.join(home, 'hangar.db');
-    const seed = new Database(file);
-    seed.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
-    for (const m of MIGRATIONS.filter((m) => m.version < latest)) {
-      seed.exec(m.sql);
-      seed.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
-    }
-    seed.close();
+    seedDbAt(file, LATEST_DB_VERSION - 1);
     fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
     fs.writeFileSync(path.join(home, 'backups', 'db'), 'x');
     await expect(startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') })).rejects.toBeInstanceOf(DbBackupError);
-    const check = new Database(file, { readonly: true });
-    try {
-      expect((check.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(latest - 1);
-    } finally { check.close(); }
+    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
   });
 
   it('WebSocket と keep-alive の接続が残っていても close は 2 秒以内に終わる', async () => {

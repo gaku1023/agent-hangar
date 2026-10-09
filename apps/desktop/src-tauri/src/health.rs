@@ -21,6 +21,12 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 /// 進まない時計を渡されても必ず終わるための歯止めである。
 const MAX_TRIES: u32 = 10_000;
 
+/// 殻が名乗る互換の版。同梱するサーバと同じ版である。
+/// 正本は `packages/shared/src/compat.ts` の `COMPAT_VERSION` で、ここはその写しである。
+/// 片方だけ変えると `apps/desktop/test/config.test.ts` の「殻が名乗る互換の版」が落ちる。
+/// 殻は 4177 で動いている既存のサーバを、この版と同じ版を名乗るときだけ採る（`judge_existing`）。
+pub const COMPAT_VERSION: u64 = 1;
+
 /// chunked 転送のボディを連結する。
 /// 境界はバイト単位で扱う。
 /// 終端の `0` の塊まで正しく読めたときだけ `Some` を返す。
@@ -164,6 +170,44 @@ pub fn probe_health(addr: SocketAddr) -> bool {
     probe_health_with_timeout(addr, PROBE_TIMEOUT)
 }
 
+/// 4177 で応えた相手をどう扱うか。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Existing {
+    /// hangar のサーバは居ない。誰も応えないか、hangar の応答ではない。
+    Absent,
+    /// 互換の版の合う hangar のサーバが居る。子を起こさずに採る。
+    Adopt,
+    /// 互換の版の合わない hangar のサーバが居る。採らない。
+    /// `theirs` はその版で、`compat` を載せない古いサーバは 0 である。
+    Mismatch { theirs: u64 },
+}
+
+/// `/health` の応答から、既存のサーバを採るかを決める。
+/// hangar の応答（`is_healthy`）でなければ、版を問わずに「居ない」とする。
+/// `compat` が無いか、0 以上の整数として読めない応答は、版 0 として読む（`packages/shared/src/compat.ts` の `parseCompat` と同じ）。
+/// 比べ方は一致である。版の違うサーバの UI を出すと、殻とサーバの合図（起動の進み具合、殻の命令）が食い違っても気付けない。
+pub fn judge_existing(status: u16, body: &str, ours: u64) -> Existing {
+    if !is_healthy(status, body) {
+        return Existing::Absent;
+    }
+    let theirs = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("compat").and_then(|x| x.as_u64()))
+        .unwrap_or(0);
+    if theirs == ours {
+        Existing::Adopt
+    } else {
+        Existing::Mismatch { theirs }
+    }
+}
+
+/// 宛先を 1 回だけ叩いて、既存のサーバを採るかを決める。応えなければ「居ない」。
+pub fn probe_existing(addr: SocketAddr, ours: u64) -> Existing {
+    http_get(addr, "/health", PROBE_TIMEOUT)
+        .map(|(s, b)| judge_existing(s, &b, ours))
+        .unwrap_or(Existing::Absent)
+}
+
 /// 索引づけの段階。サーバの `index.phase` を写す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -196,14 +240,14 @@ pub struct Boot {
 }
 
 /// `/health` の応答から起動の進み具合を読む。hangar の応答でなければ None。
-/// `ready` を持たない（進み具合を載せる前の）サーバは、済んだものとして扱う。
+/// `ready` を真偽値で持たない応答も None にする。殻が採るのは互換の版の合うサーバだけで、それは必ず `ready` を持つ。
 /// 数は信用せず、整数でなければ 0、済んだ数が全体を超えれば全体に丸める。知らない段階は Idle にする。
 pub fn boot_state(status: u16, body: &str) -> Option<Boot> {
     if !is_healthy(status, body) {
         return None;
     }
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
-    let ready = v.get("ready").and_then(|x| x.as_bool()).unwrap_or(true);
+    let ready = v.get("ready").and_then(|x| x.as_bool())?;
     let index = v.get("index");
     let num = |k: &str| {
         index
@@ -297,6 +341,18 @@ mod tests {
             }
         });
         addr
+    }
+
+    /// 1 接続だけ受けて、渡した JSON を 200 で返す。長さは本文から数える。
+    fn serve_json(body: &str) -> SocketAddr {
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        serve_with(move |mut s| {
+            read_request(&mut s);
+            let _ = s.write_all(response.as_bytes());
+        })
     }
 
     /// 要求を `\r\n\r\n` まで読む。
@@ -405,17 +461,18 @@ mod tests {
         }
     }
 
-    /// 進み具合を載せる前のサーバ（hangar start で動いている古い版など）では待たない。
+    /// `ready` を真偽値で持たない応答（進み具合を載せる前の古いサーバなど）は読まない。
+    /// 殻は互換の版の合うサーバだけを採り、それは必ず `ready` を持つ。
     #[test]
-    fn boot_state_treats_an_older_server_as_ready() {
+    fn boot_state_does_not_read_a_response_without_ready() {
+        assert_eq!(boot_state(200, r#"{"ok":true,"version":"0.2.0"}"#), None);
         assert_eq!(
-            boot_state(200, r#"{"ok":true,"version":"0.2.0"}"#),
-            Some(Boot {
-                ready: true,
-                phase: Phase::Idle,
-                done: 0,
-                total: 0
-            })
+            boot_state(200, r#"{"ok":true,"version":"0.2.0","ready":"no"}"#),
+            None
+        );
+        assert_eq!(
+            boot_state(200, r#"{"ok":true,"version":"0.2.0","ready":null}"#),
+            None
         );
     }
 
@@ -427,11 +484,11 @@ mod tests {
             boot_state(500, r#"{"ok":true,"version":"v","ready":false}"#),
             None
         );
-        let odd = r#"{"ok":true,"version":"v","ready":"no","index":{"phase":"<script>","done":-3,"total":2.5}}"#;
+        let odd = r#"{"ok":true,"version":"v","ready":false,"index":{"phase":"<script>","done":-3,"total":2.5}}"#;
         assert_eq!(
             boot_state(200, odd),
             Some(Boot {
-                ready: true,
+                ready: false,
                 phase: Phase::Idle,
                 done: 0,
                 total: 0
@@ -701,5 +758,70 @@ mod tests {
             let n = rx.recv_timeout(Duration::from_secs(2)).unwrap_or(0);
             assert!(n > 4, "最初の read が要求の一部しか読めていない: {n}");
         }
+    }
+
+    /// 版の合うサーバだけを採る。合わなければ、相手の版を添えて採らない。
+    #[test]
+    fn judge_existing_adopts_only_a_server_of_the_same_compat() {
+        let body =
+            |c: &str| format!(r#"{{"ok":true,"version":"0.4.0","compat":{c},"ready":true}}"#);
+        assert_eq!(judge_existing(200, &body("1"), 1), Existing::Adopt);
+        assert_eq!(
+            judge_existing(200, &body("2"), 1),
+            Existing::Mismatch { theirs: 2 }
+        );
+        assert_eq!(
+            judge_existing(200, &body("1"), 2),
+            Existing::Mismatch { theirs: 1 }
+        );
+    }
+
+    /// `compat` を載せない古いサーバと、0 以上の整数として読めない値は、版 0 として読む。
+    /// 端末の `parseCompat`（packages/shared/src/compat.ts）と同じ読み方である。
+    #[test]
+    fn judge_existing_reads_a_missing_or_broken_compat_as_zero() {
+        assert_eq!(
+            judge_existing(200, r#"{"ok":true,"version":"0.3.0","ready":true}"#, 1),
+            Existing::Mismatch { theirs: 0 }
+        );
+        for c in ["-1", "1.5", "\"1\"", "null", "1e3", "{}"] {
+            let b = format!(r#"{{"ok":true,"version":"v","compat":{c}}}"#);
+            assert_eq!(
+                judge_existing(200, &b, 1),
+                Existing::Mismatch { theirs: 0 },
+                "{c}"
+            );
+        }
+    }
+
+    /// hangar でない相手は、版を問う前に「居ない」とする。殻は採らずに、同梱のサーバを起こしにいく。
+    #[test]
+    fn judge_existing_treats_another_program_as_absent() {
+        assert_eq!(
+            judge_existing(200, r#"{"status":"ok"}"#, 1),
+            Existing::Absent
+        );
+        assert_eq!(
+            judge_existing(200, r#"{"ok":true,"compat":1}"#, 1),
+            Existing::Absent
+        );
+        assert_eq!(
+            judge_existing(500, r#"{"ok":true,"version":"v","compat":1}"#, 1),
+            Existing::Absent
+        );
+        assert_eq!(judge_existing(200, "<html>", 1), Existing::Absent);
+    }
+
+    /// ソケット越しにも同じに決める。誰も待ち受けていなければ「居ない」。
+    #[test]
+    fn probe_existing_decides_over_a_socket() {
+        let same = serve_json(r#"{"ok":true,"version":"0.4.0","compat":1,"ready":true}"#);
+        assert_eq!(probe_existing(same, 1), Existing::Adopt);
+        let older = serve_json(r#"{"ok":true,"version":"0.3.0"}"#);
+        assert_eq!(probe_existing(older, 1), Existing::Mismatch { theirs: 0 });
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let nobody = l.local_addr().unwrap();
+        drop(l);
+        assert_eq!(probe_existing(nobody, 1), Existing::Absent);
     }
 }

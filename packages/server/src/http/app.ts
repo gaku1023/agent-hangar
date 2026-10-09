@@ -122,7 +122,7 @@ export type AppDeps = {
    */
   readiness: () => Promise<ReadinessDto>;
   /**
-   * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。確認リストの 6 行目を開いたときに読む。
+   * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。準備の確かめでずれがあるとき、画面が続けて読む。
    * 渡さなければ、確かめた版だけを持つ空の一覧を返す。
    */
   compat?: () => Promise<CompatDto>;
@@ -312,7 +312,7 @@ export function createApp(deps: AppDeps): Hono {
   const { db, deviceId } = deps;
 
   // 鍵の要らない経路なので、起動の進み具合は段階と件数だけを載せる。
-  // compat は互換の版番号で、殻が 4177 の既存のサーバを採る前に照合する（照合は段 1 の PR 7 で入れる）。
+  // compat は互換の版番号で、殻は 4177 の既存のサーバを、自分と同じ版のときだけ採る（apps/desktop/src-tauri/src/health.rs の judge_existing）。
   app.get('/health', (c) => c.json({ ok: true, version: deps.version, compat: COMPAT_VERSION, ready: deps.ready?.() ?? true, index: deps.indexer.progress() }));
 
   const api = new Hono();

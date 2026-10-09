@@ -41,10 +41,10 @@ describe('syncProjectsFromWorkspace', () => {
   it('ルートが無ければ何もしない', () => {
     expect(syncProjectsFromWorkspace(db, DEV, path.join(ws, 'nope')).created).toEqual([]);
   });
-  // macOS は Finder などで作った名前を NFD（デ＝テ＋濁点）で持つことがあり、readdir もその形で返す。
+  // macOS は Finder などで作った名前を NFD（ご＝こ＋濁点）で持つことがあり、readdir もその形で返す。
   // 一方 transcript の cwd は NFC で来るので、文字列のまま比べると一致せず、プロジェクトにならない。
   it('ディスク上の名前が NFD でも、NFC の cwd のセッションがあれば NFC のパスで登録する', () => {
-    const name = '無検閲モデル';
+    const name = 'ご注文ガイド';
     fs.mkdirSync(path.join(ws, name.normalize('NFD')));
     addSession('s-nfc', path.join(ws, name.normalize('NFC'), 'runs'));
     const r = syncProjectsFromWorkspace(db, DEV, ws);

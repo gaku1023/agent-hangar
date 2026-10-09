@@ -1,37 +1,18 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { dbVersionOf as versionOf, LATEST_DB_VERSION as LATEST, seedDbAt as seedAt } from '../../test/oldDb.ts';
 import { expectMode, posixIt } from '../../test/platform.ts';
 import { backupStamp, DbBackupError, pruneDbBackups } from './backup.ts';
-import { MIGRATIONS } from './migrations.ts';
 import { openDb } from './open.ts';
 
-const LATEST = MIGRATIONS[MIGRATIONS.length - 1]!.version;
 const AT = new Date(Date.UTC(2026, 9, 7, 6, 30, 0, 123));
 const STAMP = '20261007T063000123Z';
 
 let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dbbak-')); });
 afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
-
-/** version 以下のマイグレーションだけを当てた実物のファイルを作る。既存の DB からの移行を試すため。 */
-function seedAt(file: string, version: number): void {
-  const db = new Database(file);
-  db.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
-  for (const m of MIGRATIONS.filter((m) => m.version <= version)) {
-    db.exec(m.sql);
-    db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
-  }
-  db.close();
-}
-
-/** そのファイルが当てた最後の版。 */
-function versionOf(file: string): number {
-  const db = new Database(file, { readonly: true });
-  try { return (db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v; } finally { db.close(); }
-}
 
 describe('openDb の控え', () => {
   it('当てていないマイグレーションがあれば、当てる前の DB を backups/db に控える', () => {

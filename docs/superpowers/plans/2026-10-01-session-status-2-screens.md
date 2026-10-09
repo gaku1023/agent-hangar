@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- 作業はすべて worktree `/Users/satog/workspace/agent-hangar/.claude/worktrees/session-status`（ブランチ `worktree-session-status`）で行う。元の checkout には触らない。
+- 作業はすべて worktree `/Users/me/workspace/agent-hangar/.claude/worktrees/session-status`（ブランチ `worktree-session-status`）で行う。元の checkout には触らない。
 - 第 1 段の計画（`2026-10-01-session-status-1-data.md`）のタスクがすべて済んだ同じブランチで始める。`SessionStateDto`、`SessionDto.state`、`SessionRowProps` の `state`・`returnOn`・`overdueDays`・`candidate`・`setBy`、Intent の `session.state.*`・`session.pause.open`、行の札と「⋯」、Paused の入力（B1）、提案のポップ、`isReturnOn`・`localDate`・`addDays`・`overdueDays`、サーバの `setSessionState`・`proposeSessionState` は、契約の名前のまま既にある前提で使う。
 - 契約の名前と型は変えない。この段で契約に足すものは次のとおりで、どれも足すだけ（既存の名前の意味は変えない）。
   - `parseQuery` と `formatQuery` に、省ける第 3 引数 `projects: readonly QueryProject[] = []`（`project:` を名前で引くため）。あわせて `queryTokens`・`badTokens`・`QueryToken`・`QueryKey`・`QueryProject` を `searchTokens.ts` から出す。
@@ -39,7 +39,7 @@
 - **プロジェクトの無いセッション（`projectId` が null、または消えたプロジェクトを指す）**：Sessions の節、Home の今日戻ると確かめるに落ちずに並び、プロジェクト名は「未分類」と出る。`project:` の絞り込みでは当たらない。Task 6 と Task 8 に試験を足す。
 - **Paused なのに戻る日が欠けた行、暦に無い日の行（同期や古い端末から届く）**：落ちずに「今日戻る」の先頭に出し、Home の札は「日付なし」と言う。黙って「続き」に紛れると、しおりを見失う。Task 3 と Task 8 に試験を足す。
 - **トークンの打ち間違いと当たらない値（`is:pasued`、`since:7`、`since:0d`、`project:存在しない`、`file:`）**：黙って捨てず、語として本文を探し、欄の下に読めなかったことを知らせる。Task 1、Task 6、Task 7 に試験を足す。
-- **空白・引用符・濁点（NFD）を含むプロジェクト名やパス（`my app`、`docs/a b.md`、`無検閲モデル`）**：タブや絞り込みで出したトークンを欄で Enter し直しても同じ条件に戻り、NFD の名前も前方一致で当たる。Task 1 に試験を足す。
+- **空白・引用符・濁点（NFD）を含むプロジェクト名やパス（`my app`、`docs/a b.md`、`ご注文ガイド`）**：タブや絞り込みで出したトークンを欄で Enter し直しても同じ条件に戻り、NFD の名前も前方一致で当たる。Task 1 に試験を足す。
 - **狭い窓（900×600）でのタブの溢れと大きな件数（「Done 1,221」）**：タブは次の行へ折り返し、件数は桁を区切る。`since:14d` のように帯に無い期間では、期間の帯のどれにも印を付けない。Task 6、Task 7 に試験を足し、Task 9 の実物で確かめる。
 
 ---
@@ -75,7 +75,7 @@ import type { SearchFilter } from './intent.ts';
 import { badTokens, formatQuery, parseQuery, queryTokens } from './searchTokens.ts';
 
 const projects = [
-  { id: 'p1', name: 'agent-hangar' }, { id: 'p2', name: 'agent' }, { id: 'p3', name: '金剛山プロジェクト' },
+  { id: 'p1', name: 'agent-hangar' }, { id: 'p2', name: 'agent' }, { id: 'p3', name: 'みかん畑プロジェクト' },
   { id: 'p4', name: 'my app' }, { id: 'p5', name: 'hangar-ui' }, { id: 'p6', name: 'hangar' },
 ];
 
@@ -99,8 +99,8 @@ describe('parseQuery', () => {
     expect(parseQuery('project:han', projects).filter).toEqual({ projectId: 'p6' });
   });
   it('project: は NFD と NFC の違いを問わずに当たる', () => {
-    expect(parseQuery(`project:${'金剛山プロ'.normalize('NFD')}`, projects).filter).toEqual({ projectId: 'p3' });
-    expect(parseQuery('project:無検閲', [{ id: 'q1', name: '無検閲モデル'.normalize('NFD') }]).filter).toEqual({ projectId: 'q1' });
+    expect(parseQuery(`project:${'みかん畑プロ'.normalize('NFD')}`, projects).filter).toEqual({ projectId: 'p3' });
+    expect(parseQuery('project:ご注文', [{ id: 'q1', name: 'ご注文ガイド'.normalize('NFD') }]).filter).toEqual({ projectId: 'q1' });
   });
   it('空白を含む値は二重引用符で包んで書ける', () => {
     expect(parseQuery('project:"my app" file:"docs/a b.md" x', projects)).toEqual({ text: 'x', filter: { projectId: 'p4', file: 'docs/a b.md' } });
@@ -2536,7 +2536,7 @@ echo $! > "$TMP/server.pid"
 ```
 
 - 写した DB はマイグレーション v13 で全件が Done になる（導入の翌日の場面）。
-- `~/workspace/hangar-explainers/audit-responsive.mjs` の `token` の読み先を `"$TMP/home/token"` に、`PORT` を 4277 にして、`node ~/workspace/hangar-explainers/audit-responsive.mjs 900x600,1440x900 home,project,sessions` を走らせ、折り返し・はみ出し・切れた文字・窓の外が出ないことを確かめる（`audit-summary.py` で一覧にする）。
+- `~/workspace/design-notes/audit-responsive.mjs` の `token` の読み先を `"$TMP/home/token"` に、`PORT` を 4277 にして、`node ~/workspace/design-notes/audit-responsive.mjs 900x600,1440x900 home,project,sessions` を走らせ、折り返し・はみ出し・切れた文字・窓の外が出ないことを確かめる（`audit-summary.py` で一覧にする）。
 - 同じ 2 つの大きさで、WebKit の画面を目で見て次を確かめる。
   - プロジェクト画面：Done の節が直近 3 件と「ほか N 件 ▸」で出る。押すと全件に広がり、「畳む ▴」で戻る。j と k が見出しを飛ばす。
   - 行の「⋯」で 1 件を Paused（明日）にし、日付を翌日に進めた `now` は作れないので、代わりに Paused（今日の夕方）にして「今日戻る」の節と Home の黄土の札に出ることを見る。

@@ -12,6 +12,7 @@ import { NO_QUESTION } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
+import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, liveSessionIds, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
@@ -150,6 +151,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   let unsubNotify: (() => void) | null = null;
   let ws: WsClient | null = null;
   let searchSeq = 0;
+  let readinessSeq = 0;
   let unsubHash: (() => void) | null = null;
   // ハッシュの変化が、アプリが自分で書いたもの（navigate）か、ブラウザの戻る・進むかを見分けるための控え。
   // 自分で書いた先は wrote に控え、届いたら消す。それ以外の変化には、履歴の段がいくつ動いたか（moved）を添える。
@@ -163,8 +165,24 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
   const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
   const failWith = (what: string, e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: `${what}: ${errMsg(e)}` } });
-  /** 準備の確かめを取りに行く。設定画面の検証と、空のホームの確認リストが同じ値を読む。 */
-  const loadReadiness = () => { deps.api.readiness().then((r) => setStore({ ...store, readiness: r })).catch(fail); };
+  /**
+   * 準備の確かめを取りに行く。設定画面の検証と、空のホームの確認リストが同じ値を読む。
+   * Claude Code との互換にずれがあれば、続けてずれの中身（GET /api/compat）も取る。止めた機能の一覧は常に出すので（A4）、開くのを待たない。
+   * ずれが無ければ、前に取った中身を捨てる。compat の無い古いサーバの答えでは取りに行かない。
+   * 要求には番号を振り、最新の要求の答えだけを取る（検索の searchSeq と同じ作り）。
+   * 答えが順番を違えて着いても、古い答えが新しい答えを上書きせず、古い答えに続けて取ったずれの中身も入れない。
+   */
+  const loadReadiness = () => {
+    const seq = ++readinessSeq;
+    deps.api.readiness().then((r) => {
+      if (seq !== readinessSeq) return;
+      const drifts = readinessCompat(r)?.driftCount ?? 0;
+      if (drifts > 0) {
+        setStore({ ...store, readiness: r });
+        deps.api.compat().then((c) => { if (seq === readinessSeq) setStore({ ...store, compat: c }); }).catch(fail);
+      } else setStore({ ...store, readiness: r, compat: null });
+    }).catch(fail);
+  };
   const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });

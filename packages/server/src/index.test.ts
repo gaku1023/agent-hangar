@@ -9,7 +9,7 @@ import * as api from './index.ts';
  */
 describe('パッケージの入口', () => {
   it('CLI の入口が、CLI の使う名前を出している', () => {
-    for (const name of ['HttpCloudClient', 'deriveFileKey', 'decryptStream', 'sha256Stream', 'remoteTranscriptPath', 'stampTranscriptsFrom', 'readTranscriptsFrom', 'upsertUserMcpServer', 'statuslineStatus', 'installShellHook'] as const) {
+    for (const name of ['HttpCloudClient', 'deriveFileKey', 'decryptStream', 'sha256Stream', 'remoteTranscriptPath', 'openTranscriptsFloor', 'readTranscriptsFrom', 'upsertUserMcpServer', 'statuslineStatus', 'installShellHook'] as const) {
       expect(cli[name], name).toBeTypeOf('function');
     }
   });

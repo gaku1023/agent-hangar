@@ -33,10 +33,10 @@ describe('欄の下の検証（設定の B1）', () => {
 });
 
 describe('始める前の確認（初回の A1）', () => {
-  it('5 つを並べ、揃った数を数える', () => {
+  it('6 つを並べ、揃った数を数える', () => {
     const c = presentChecks(READY);
-    expect(c.items.map((i) => [i.key, i.ok])).toEqual([['tmux', true], ['claude', true], ['workspace', false], ['mcp', false], ['statusline', false]]);
-    expect(c.progress).toBe('5 つ中 2 つ');
+    expect(c.items.map((i) => [i.key, i.ok])).toEqual([['tmux', true], ['claude', true], ['workspace', false], ['mcp', false], ['statusline', false], ['compat', true]]);
+    expect(c.progress).toBe('6 つ中 3 つ');
     expect(c.items[0]).toMatchObject({ label: 'tmux', detail: 'ターミナルを動かすのに使います', path: '/opt/homebrew/bin/tmux（3.4）' });
   });
   it('✗ の行は直し方を持つ。ワークスペースは設定へ、MCP と statusline はコマンドを出す', () => {
@@ -53,7 +53,7 @@ describe('始める前の確認（初回の A1）', () => {
   it('tmux が無ければ、入れるコマンドと設定への道を出す', () => {
     const c = presentChecks({ ...READY, tools: { ...READY.tools, tmux: { path: null, ok: false, problem: 'unset', version: null } } });
     expect(c.items[0]).toMatchObject({ ok: false, soft: false, command: 'brew install tmux', action: 'settings' });
-    expect(c.progress).toBe('5 つ中 1 つ');
+    expect(c.progress).toBe('6 つ中 2 つ');
   });
 });
 
@@ -73,5 +73,41 @@ describe('tmux の役を担う道具の入れ方', () => {
     const missing = { path: null, ok: false, problem: 'unset' as const, version: null };
     expect(toolLine('tmux', missing, 'win32').fixCommand).toBe('winget install marlocarlo.psmux');
     expect(toolLine('tmux', missing, 'darwin').fixCommand).toBe('brew install tmux');
+  });
+});
+
+describe('始める前の確認の 6 行目（Claude Code との互換）', () => {
+  const withCompat = (over: Partial<ReadinessDto['compat']>): ReadinessDto => ({ ...READY, compat: { ...READY.compat, ...over } });
+  it('問題なしは ok の調子で、確かめた版を添えて済んだものに数える', () => {
+    const c = presentChecks(READY);
+    expect(c.items.at(-1)).toMatchObject({
+      key: 'compat', label: 'Claude Code との互換', ok: true, tone: 'ok', spoken: 'ずれはありません',
+      path: 'ずれなし（2.1.292 で確かめた版）', detail: 'hangar が読む Claude Code の形を見張っています', command: null, action: null,
+    });
+  });
+  it('未確認の版は info の調子で、止めていないので済んだものに数える', () => {
+    const c = presentChecks(withCompat({ localVersion: '2.1.300' }));
+    expect(c.items.at(-1)).toMatchObject({ ok: true, tone: 'info', spoken: 'まだ確かめていない版です', path: '2.1.300（確かめた版は 2.1.292）', detail: 'まだ確かめていない版です。動きは止めていません' });
+    expect(c.progress).toBe('6 つ中 3 つ');
+  });
+  it('ずれは soft の調子で、6 つ中には数えない。中身を渡すと止めた機能を持つ', () => {
+    const drifting = withCompat({ localVersion: '2.1.300', driftCount: 1 });
+    const c = presentChecks(drifting);
+    expect(c.items.at(-1)).toMatchObject({ ok: false, tone: 'soft', spoken: 'ずれがあります', path: 'ずれ 1 件（2.1.300）', detail: 'ずれの中身を読み込んでいます' });
+    expect(c.progress).toBe('6 つ中 2 つ');
+    const full = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'screen' as const, value: 'prompt-marker=(missing)', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };
+    expect(presentChecks(drifting, full, '0.3.0').items.at(-1)!.compat).toMatchObject({ stops: ['ターンの目次から端末の指示へ跳ぶのを止めています'] });
+  });
+  it('compat の無い古いサーバの答えでは、6 行目を出さずに 5 つで数える', () => {
+    const { compat: _drop, ...older } = READY;
+    const c = presentChecks(older as ReadinessDto);
+    expect(c.items.map((i) => i.key)).not.toContain('compat');
+    expect(c.progress).toBe('5 つ中 2 つ');
+  });
+  it('ほかの 5 行の調子と読み上げは、✓ と ✗ と弱い印から決める', () => {
+    const by = Object.fromEntries(presentChecks(READY).items.map((i) => [i.key, i]));
+    expect(by.tmux).toMatchObject({ tone: 'ok', spoken: '準備できています' });
+    expect(by.workspace).toMatchObject({ tone: 'ng', spoken: 'まだです' });
+    expect(by.mcp).toMatchObject({ tone: 'soft', spoken: 'まだです' });
   });
 });
