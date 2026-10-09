@@ -252,12 +252,52 @@ export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void }
 export function pruneBackupFiles(root: string, kind: string, keep: number): number {
   // 控えを全部消す刈り込みは作らない。
   const limit = Math.max(1, keep);
+  const listed = listBackupFiles(root, kind);
+  if (!listed || listed.files.length <= limit) return 0;
+  const dated = listed.files;
+  dated.sort((a, b) => b.mtime - a.mtime || (a.n < b.n ? 1 : a.n > b.n ? -1 : 0));
+  let removed = 0;
+  for (const { n } of dated.slice(limit)) {
+    try { fs.rmSync(path.join(listed.dir, n), { force: true }); removed++; } catch { /* 消せなくても控えは残る。 */ }
+  }
+  return removed;
+}
+
+/**
+ * セッションの名前とメモの控え（backups/memos）を保つ日数。これより古い控えを刈る。
+ * 件数では刈らない。1 回の pull で何件ぶつかっても、いま取った控えがその場で消えないようにするためである。
+ */
+export const MEMO_BACKUP_KEEP_DAYS = 30;
+
+/**
+ * 更新時刻が `maxAgeMs` より古い控えを消す。消した数を返す。件数は見ない。
+ * 入れ物の扱い（リンクは断る、中のディレクトリとリンクには触らない）は `pruneBackupFiles` と同じである。
+ * 更新時刻が読めないものは消さない。いつの控えか分からないものを、古いと決めつけない。
+ */
+export function pruneBackupFilesByAge(root: string, kind: string, maxAgeMs: number, now: number = Date.now()): number {
+  const listed = listBackupFiles(root, kind);
+  if (!listed) return 0;
+  let removed = 0;
+  for (const { n, mtime } of listed.files) {
+    if (mtime === 0 || now - mtime <= maxAgeMs) continue;
+    try { fs.rmSync(path.join(listed.dir, n), { force: true }); removed++; } catch { /* 消せなくても控えは残る。 */ }
+  }
+  return removed;
+}
+
+/** セッションの名前とメモの控えを、保つ日数で刈る。`home` は hangar の home である。 */
+export function pruneMemoBackups(home: string, now: number = Date.now()): number {
+  return pruneBackupFilesByAge(backupsRoot(home), 'memos', MEMO_BACKUP_KEEP_DAYS * 86_400_000, now);
+}
+
+/** 控えの入れ物の中のファイルと、その更新時刻。入れ物が無ければ null。 */
+function listBackupFiles(root: string, kind: string): { dir: string; files: { n: string; mtime: number }[] } | null {
   // 入れ物そのものがリンクだと、readdir がリンクの先を開き、rm がその先のファイルを消す。
   // 控えを書く側（copy.ts の resolveUnder）はリンクを 1 区切りも辿らない決まりなので、消す側も揃える。
   if (kind === '' || kind === '.' || kind === '..' || kind.includes('/')) throw new Error('控えの種類の形が不正です');
   const dir = path.join(root, kind);
   const st = fs.lstatSync(dir, { throwIfNoEntry: false });
-  if (!st) return 0;
+  if (!st) return null;
   if (st.isSymbolicLink()) throw new Error(`backups/${kind} がシンボリックリンクなので刈りません`);
   if (!st.isDirectory()) throw new Error(`backups/${kind} がディレクトリではありません`);
   let names: string[];
@@ -267,22 +307,16 @@ export function pruneBackupFiles(root: string, kind: string, keep: number): numb
   } catch (e) {
     // 入れ物がまだ無いのはふつうのことである（その種類の控えを 1 度も取っていない端末）。
     // それ以外は握り潰さない。握り潰すと、刈れていないことが誰にも見えないまま溜まり続ける。
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw e;
   }
-  if (names.length <= limit) return 0;
-  const dated = names.map((n) => {
-    // 読めないものは最も古いものとして扱う。次の機会に消える。
+  const files = names.map((n) => {
+    // 読めないものは時刻 0 にする。件数で刈るときは最も古いものとして扱い、次の機会に消える。
     let mtime = 0;
     try { mtime = fs.statSync(path.join(dir, n)).mtimeMs; } catch { /* 上のとおり */ }
     return { n, mtime };
   });
-  dated.sort((a, b) => b.mtime - a.mtime || (a.n < b.n ? 1 : a.n > b.n ? -1 : 0));
-  let removed = 0;
-  for (const { n } of dated.slice(limit)) {
-    try { fs.rmSync(path.join(dir, n), { force: true }); removed++; } catch { /* 消せなくても控えは残る。 */ }
-  }
-  return removed;
+  return { dir, files };
 }
 
 /** 要約のジョブが空になるまで待つ。上限までに空になれば真、諦めたら偽を返す。 */
@@ -426,17 +460,22 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
    */
   const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: pausedPass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null });
   /**
-   * 本文とメモの控えの世代を刈る。
+   * 本文の控えの世代を刈る。
    *
    * 残す数は設定の控えと同じ `BACKUP_GENERATIONS`（20）にする。
-   * 覚える数が 1 つで済み、「控えは直近 20 回ぶん」という説明が 3 種類すべてで同じになる。
+   * 覚える数が 1 つで済み、「控えは直近 20 回ぶん」という説明が同じになる。
+   * セッションの名前とメモの控えだけは、件数ではなく日数で刈る（`pruneMemos`、`MEMO_BACKUP_KEEP_DAYS`）。
    * 本文の控えはセッション 1 本ぶんの大きさがあるので、これ以上は溜めない。
    *
    * 刈るのは控えを取った後だけなので、「控えを取れなかったときは書き戻さない」という決まりには触らない。
    * いま取った控えは最も新しいので、この刈り込みで消えることはない。
    */
-  const pruneBackups = (kind: 'transcripts' | 'memos'): void => {
+  const pruneBackups = (kind: 'transcripts'): void => {
     try { pruneBackupFiles(backupsRoot(home), kind, BACKUP_GENERATIONS); }
+    catch (e) { console.error('[backups]', e instanceof Error ? e.message : e); }
+  };
+  const pruneMemos = (): void => {
+    try { pruneMemoBackups(home); }
     catch (e) { console.error('[backups]', e instanceof Error ? e.message : e); }
   };
   const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
@@ -450,7 +489,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       toast('info', `メモが競合しました。手元の内容を ${path.basename(file)} に残しました`);
     },
     // 控えはもうファイルになっている。ここでやるのは置き場を知らせることだけである。
-    onSessionMemoBackup: (o) => { toast('info', sessionMemoBackupMessage(o)); pruneBackups('memos'); },
+    onSessionMemoBackup: (o) => { toast('info', sessionMemoBackupMessage(o)); pruneMemos(); },
   });
   // 設定の「使用量と費用」。
   const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
@@ -1068,7 +1107,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // 起動のときにも 1 度刈る。
   // 控えを作る経路を通らないまま動かし続けた端末や、この刈り込みが入る前から溜めていた端末も、ここで揃う。
   pruneBackups('transcripts');
-  pruneBackups('memos');
+  pruneMemos();
   const uploadTimer = uploader ? setInterval(sweepUploads, UPLOAD_SWEEP_MS) : null;
   uploadTimer?.unref();
 

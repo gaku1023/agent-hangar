@@ -23,8 +23,12 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, MEMO_BACKUP_KEEP_DAYS, pruneBackupFiles, pruneBackupFilesByAge, pruneMemoBackups, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
+import { FakeCloudClient } from '../test/fake-cloud.ts';
+import { FakeTimers } from '../test/fake-timers.ts';
+import { setSessionMemo } from './sessions/notes.ts';
+import { SyncEngine } from './sync/engine.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { expectMode, posixIt } from '../test/platform.ts';
 
@@ -1230,10 +1234,10 @@ describe('控えの世代を刈る', () => {
 
   it('入れ物が無くても、上限が 0 以下でも壊れない', () => {
     expect(pruneBackupFiles(path.join(home, 'backups'), 'nope', BACKUP_GENERATIONS)).toBe(0);
-    const dir = path.join(home, 'backups', 'memos');
-    seed(dir, 3, '.md');
+    const dir = path.join(home, 'backups', 'transcripts');
+    seed(dir, 3, '.jsonl');
     // 上限は 1 未満にしない。控えを全部消す刈り込みは作らない。
-    expect(pruneBackupFiles(path.join(home, 'backups'), 'memos', 0)).toBe(2);
+    expect(pruneBackupFiles(path.join(home, 'backups'), 'transcripts', 0)).toBe(2);
     expect(fs.readdirSync(dir).length).toBe(1);
   });
 
@@ -1262,17 +1266,99 @@ describe('控えの世代を刈る', () => {
     expect(() => pruneBackupFiles(path.join(home, 'backups'), 'a/b', 1)).toThrow(/形が不正/);
   });
 
-  it('起動のときに、本文とメモの控えを上限まで刈る', async () => {
+  it('起動のときに、本文の控えを上限まで刈り、メモの控えは日数で刈る', async () => {
     const tr = path.join(home, 'backups', 'transcripts');
     const memos = path.join(home, 'backups', 'memos');
     const trNames = seed(tr, BACKUP_GENERATIONS + 7, '.jsonl');
-    const memoNames = seed(memos, BACKUP_GENERATIONS + 4, '.md');
+    // 新しい控えは、世代の上限より多くても残る。保つ日数より古い控えだけが消える。
+    const fresh = seedAged(memos, BACKUP_GENERATIONS + 4, 'new', Date.now() - 86_400_000);
+    seedAged(memos, 3, 'old', Date.now() - (MEMO_BACKUP_KEEP_DAYS + 1) * 86_400_000);
     const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       expect(fs.readdirSync(tr).sort()).toEqual(trNames.slice(7).sort());
-      expect(fs.readdirSync(memos).sort()).toEqual(memoNames.slice(4).sort());
+      expect(fs.readdirSync(memos).sort()).toEqual(fresh.sort());
     } finally {
       await s.close();
+    }
+  });
+});
+
+/** 更新時刻が at の控えを n 件置く。 */
+function seedAged(dir: string, n: number, prefix: string, at: number): string[] {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const names: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const name = `session-${prefix}${i}-20260101-000000.md`;
+    fs.writeFileSync(path.join(dir, name), `${i}\n`, { mode: 0o600 });
+    fs.utimesSync(path.join(dir, name), new Date(at), new Date(at));
+    names.push(name);
+  }
+  return names;
+}
+
+/**
+ * セッションの名前とメモの控えは、件数ではなく日数で刈る。
+ * 件数で刈ると、1 回の pull で上限より多くぶつかったときに、いま取った控えがその場で消える。
+ */
+describe('メモの控えを日数で刈る', () => {
+  const NOW = 1_800_000_000_000;
+  const DAY = 86_400_000;
+
+  it('保つ日数は 30 日である', () => {
+    expect(MEMO_BACKUP_KEEP_DAYS).toBe(30);
+  });
+
+  it('保つ日数より古い控えだけを消す。件数は見ない', () => {
+    const dir = path.join(home, 'backups', 'memos');
+    const fresh = seedAged(dir, 50, 'new', NOW - 29 * DAY);
+    const edge = seedAged(dir, 1, 'edge', NOW - 30 * DAY);
+    seedAged(dir, 4, 'old', NOW - 30 * DAY - 1);
+    expect(pruneBackupFilesByAge(path.join(home, 'backups'), 'memos', 30 * DAY, NOW)).toBe(4);
+    expect(fs.readdirSync(dir).sort()).toEqual([...fresh, ...edge].sort());
+    expect(pruneBackupFilesByAge(path.join(home, 'backups'), 'memos', 30 * DAY, NOW)).toBe(0);
+  });
+
+  it('入れ物が無くても壊れず、中のディレクトリは消さず、リンクの入れ物と不正な種類は断る', () => {
+    expect(pruneBackupFilesByAge(path.join(home, 'backups'), 'memos', DAY, NOW)).toBe(0);
+    const dir = path.join(home, 'backups', 'memos');
+    seedAged(dir, 2, 'old', NOW - 5 * DAY);
+    fs.mkdirSync(path.join(dir, 'keep-me'));
+    fs.utimesSync(path.join(dir, 'keep-me'), new Date(NOW - 5 * DAY), new Date(NOW - 5 * DAY));
+    expect(pruneBackupFilesByAge(path.join(home, 'backups'), 'memos', DAY, NOW)).toBe(2);
+    expect(fs.readdirSync(dir)).toEqual(['keep-me']);
+    expect(() => pruneBackupFilesByAge(path.join(home, 'backups'), '../..', DAY, NOW)).toThrow(/形が不正/);
+    const outside = path.join(home, 'outside');
+    const victims = seedAged(outside, 2, 'old', NOW - 5 * DAY);
+    fs.symlinkSync(outside, path.join(home, 'backups', 'linked'));
+    expect(() => pruneBackupFilesByAge(path.join(home, 'backups'), 'linked', DAY, NOW)).toThrow(/シンボリックリンク/);
+    expect(fs.readdirSync(outside).sort()).toEqual(victims.sort());
+  });
+
+  it('1 回の pull で 30 件ぶつかっても、取った控えは 30 件とも残る', async () => {
+    const dbA = openDb(':memory:');
+    const dbB = openDb(':memory:');
+    const cloud = new FakeCloudClient({ deviceId: 'a' });
+    const timers = new FakeTimers();
+    const a = new SyncEngine({ db: dbA, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h', home: path.join(home, 'a') });
+    // 2 台目は、サーバの結線と同じく、控えを取るたびに刈る。
+    const b = new SyncEngine({ db: dbB, deviceId: 'b', client: cloud.asDevice('b'), now: () => timers.now, timers, url: 'https://h', home, onSessionMemoBackup: () => { pruneMemoBackups(home); } });
+    try {
+      await a.start();
+      await b.start();
+      const ids = Array.from({ length: 30 }, (_, i) => `s${i}`);
+      for (const id of ids) upsertShared(dbA, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, cwd: '/w', home_device: 'a' }, 'a');
+      await a.pushNow();
+      await b.pullNow();
+      for (const id of ids) setSessionMemo(dbB, 'b', id, `2 台目のメモ ${id}`);
+      await new Promise<void>((r) => { setTimeout(r, 5); });
+      for (const id of ids) setSessionMemo(dbA, 'a', id, `1 台目のメモ ${id}`);
+      await a.pushNow();
+      await b.pullNow();
+      const dir = path.join(home, 'backups', 'memos');
+      const bodies = fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).sort();
+      expect(bodies).toEqual(ids.map((id) => `2 台目のメモ ${id}`).sort());
+    } finally {
+      a.stop(); b.stop(); dbA.close(); dbB.close();
     }
   });
 });
