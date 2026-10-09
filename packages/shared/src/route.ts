@@ -1,5 +1,19 @@
-/** 設定の画面で、開いたときに見える位置へ移る先。 */
-export type SettingsAt = 'accounts' | 'sync';
+/**
+ * 設定の画面で開く先。
+ * 節の名前（general、cloud、integrations、summary、tools、info）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
+ * `sync` は、ヘッダーの同期の語が使うクラウド同期の節の別名、`accounts` は連携の節のアカウントの位置である。
+ */
+export const SETTINGS_SECTIONS = ['general', 'cloud', 'integrations', 'summary', 'tools', 'info'] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+export type SettingsAt = SettingsSection | 'accounts' | 'sync';
+const SETTINGS_AT: readonly string[] = [...SETTINGS_SECTIONS, 'accounts', 'sync'];
+
+/** 開く先から、右に出す節を決める。無ければ「一般」。 */
+export function settingsSectionOf(at: SettingsAt | undefined): SettingsSection {
+  if (at === 'sync') return 'cloud';
+  if (at === 'accounts') return 'integrations';
+  return at ?? 'general';
+}
 
 export type Route =
   | { name: 'home' } | { name: 'projects' } | { name: 'project'; id: string }
@@ -16,7 +30,7 @@ export function parseRoute(hash: string): Route {
     case 'project': return parts[1] ? { name: 'project', id: parts[1] } : { name: 'projects' };
     case 'session': return parts[1] ? { name: 'session', id: parts[1] } : { name: 'home' };
     case 'sessions': { const q = params.get('q'); return q ? { name: 'sessions', q } : { name: 'sessions' }; }
-    case 'settings': { const at = params.get('at'); return at === 'accounts' || at === 'sync' ? { name: 'settings', at } : { name: 'settings' }; }
+    case 'settings': { const at = params.get('at'); return at !== null && SETTINGS_AT.includes(at) ? { name: 'settings', at: at as SettingsAt } : { name: 'settings' }; }
     default: return { name: 'home' };
   }
 }

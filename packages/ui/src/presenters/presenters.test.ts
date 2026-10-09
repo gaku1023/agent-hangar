@@ -1043,11 +1043,11 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     it('まだ届いていなければ一覧は空', () => {
       expect(presentSettings(initialState(), initialStore(), NOW).accounts.list).toEqual([]);
     });
-    it('行き先の印は、設定の画面が at=accounts で開かれたときだけ accounts になる', () => {
+    it('アカウントの位置へ移る印は、設定の画面が at=accounts で開かれたときだけ accounts になる', () => {
       const at = (screen: State['screen']) => presentSettings({ ...initialState(), screen }, initialStore(), NOW).focus;
       expect(at({ name: 'settings', at: 'accounts' })).toBe('accounts');
-      // ヘッダーの同期の語から来たときは、同期の群へ移る。
-      expect(at({ name: 'settings', at: 'sync' })).toBe('sync');
+      // ヘッダーの同期の語から来たときは、クラウド同期の節が開く（位置の印は立たない）。
+      expect(at({ name: 'settings', at: 'sync' })).toBeNull();
       expect(at({ name: 'settings' })).toBeNull();
       expect(at({ name: 'home' })).toBeNull();
     });
@@ -1517,7 +1517,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'pulling' }) }, NOW).cloud.stateLabel).toBe('受信中');
     expect(presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'error' }) }, NOW).cloud.stateLabel).toBe('同期エラー');
   });
-  it('Settings の外のターミナルの節。自端末は測り直した値を使い、古い版の端末は分からないと書く', () => {
+  it('Settings のシェル連携の節。自端末は測り直した値を使い、古い版の端末は分からないと書く', () => {
     const devices = [
       { id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW, self: true, shell: 'off' as const },
       { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: NOW, self: false, shell: 'unsupported' as const },
@@ -1526,7 +1526,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
     const store: Store = { ...initialStore(), devices, shellHook: { state: 'on', zshrc: '/Users/me/.zshrc', line: 'x', command: '/A/bin/hangar shell install' } };
     expect(presentSettings(initialState(), store, NOW).shell).toEqual({
       state: 'on', zshrc: '/Users/me/.zshrc', line: 'x', command: '/A/bin/hangar shell install', uninstallCommand: '/A/bin/hangar shell uninstall',
-      devices: [{ id: 'd', name: 'mac', self: true, label: '入っています' }, { id: 'd2', name: 'mini', self: false, label: 'tmux が無いので使えません' }, { id: 'd3', name: 'old', self: false, label: '分かりません（hangar が古い版です）' }],
+      devices: [{ id: 'd', name: 'mac', self: true, state: 'on', label: 'インストール済み' }, { id: 'd2', name: 'mini', self: false, state: 'unsupported', label: 'tmux が無いので使えません' }, { id: 'd3', name: 'old', self: false, state: null, label: '分かりません（hangar が古い版です）' }],
     });
     expect(presentSettings(initialState(), { ...store, shellHook: null }, NOW).shell.state).toBeNull();
   });

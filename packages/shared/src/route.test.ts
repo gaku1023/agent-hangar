@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatRoute, parseRoute } from './route.ts';
+import { formatRoute, parseRoute, settingsSectionOf } from './route.ts';
 
 describe('parseRoute', () => {
   it('空と #/ は home', () => {
@@ -15,6 +15,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/settings')).toEqual({ name: 'settings' });
     expect(parseRoute('#/settings?at=accounts')).toEqual({ name: 'settings', at: 'accounts' });
     expect(parseRoute('#/settings?at=sync')).toEqual({ name: 'settings', at: 'sync' });
+    for (const at of ['general', 'cloud', 'integrations', 'summary', 'tools', 'info'] as const) expect(parseRoute(`#/settings?at=${at}`)).toEqual({ name: 'settings', at });
     // 知らない行き先は印なしの設定として読む。
     expect(parseRoute('#/settings?at=nope')).toEqual({ name: 'settings' });
   });
@@ -28,7 +29,19 @@ describe('formatRoute', () => {
     const routes = [
       { name: 'home' }, { name: 'projects' }, { name: 'project', id: 'p1' },
       { name: 'session', id: 's1' }, { name: 'sessions', q: '動画 x' }, { name: 'sessions' }, { name: 'settings' }, { name: 'settings', at: 'accounts' }, { name: 'settings', at: 'sync' },
+      { name: 'settings', at: 'general' }, { name: 'settings', at: 'cloud' }, { name: 'settings', at: 'integrations' }, { name: 'settings', at: 'summary' }, { name: 'settings', at: 'tools' }, { name: 'settings', at: 'info' },
     ] as const;
     for (const r of routes) expect(parseRoute(formatRoute(r))).toEqual(r);
+  });
+});
+
+describe('settingsSectionOf', () => {
+  it('無ければ「一般」、節の名前ならその節', () => {
+    expect(settingsSectionOf(undefined)).toBe('general');
+    for (const at of ['general', 'cloud', 'integrations', 'summary', 'tools', 'info'] as const) expect(settingsSectionOf(at)).toBe(at);
+  });
+  it('sync はクラウド同期、accounts は連携の別名', () => {
+    expect(settingsSectionOf('sync')).toBe('cloud');
+    expect(settingsSectionOf('accounts')).toBe('integrations');
   });
 });

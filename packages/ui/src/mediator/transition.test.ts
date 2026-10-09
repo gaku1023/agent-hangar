@@ -984,6 +984,12 @@ describe('画面に入るときの読み込み', () => {
     const s = run([runtime({ type: 'hash.changed', route: { name: 'settings' } })]);
     expect(s.effects).toEqual([{ kind: 'api.loadSettingsExtras' }]);
   });
+  it('設定の中で節を切り替えても、付属の値は取り直さない。入り直したときは取る', () => {
+    const inCloud = run([runtime({ type: 'hash.changed', route: { name: 'settings', at: 'cloud' } })]).state;
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'settings', at: 'tools' } })], inCloud).effects).toEqual([]);
+    const away = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], inCloud).state;
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'settings', at: 'cloud' } })], away).effects).toEqual([{ kind: 'api.loadSettingsExtras' }]);
+  });
 });
 
 const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
