@@ -9,7 +9,8 @@
     "test": "vitest run",
     "build": "npm run build --workspaces --if-present",
     "dev": "node scripts/dev.mjs",
-    "hangar": "hangar"
+    "hangar": "hangar",
+    "capture-claude-fixtures": "tsx scripts/capture-claude-fixtures.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
