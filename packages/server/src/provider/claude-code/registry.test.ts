@@ -159,6 +159,86 @@ describe('RegistryWatcher', () => {
     w.stop();
   });
 
+  // Claude Code は、登録を status の無い形で書き始め、すぐ後に status を足す（2.1.295 で確かめた）。
+  // その間に読んだ 1 回の欠けは形のずれではないので、同じ登録で続けて欠けていたときだけ数える。
+  it('status の欠けは、同じ登録で続けて 2 回読んだときに 1 件だけ数える', () => {
+    const file = path.join(dir, 'sessions/12345.json');
+    const { status: _s, ...rec } = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify(rec));
+    const seen: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });
+    w.start();
+    expect(seen).toEqual([]);
+    vi.advanceTimersByTime(500);
+    expect(seen.map((d) => d.value)).toEqual(['status=(missing)']);
+    // 欠けたままの読み直しでは数えない。
+    vi.advanceTimersByTime(2000);
+    expect(seen).toHaveLength(1);
+    w.stop();
+  });
+
+  it('1 回だけの status の欠けは数えない', () => {
+    const file = path.join(dir, 'sessions/12345.json');
+    const full = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    const { status: _s, ...rec } = full;
+    fs.writeFileSync(file, JSON.stringify(rec));
+    const seen: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });
+    w.start();
+    fs.writeFileSync(file, JSON.stringify(full));
+    vi.advanceTimersByTime(2000);
+    // 間に 1 回見えたら数え直す。欠けがまた 1 回だけなら、やはり数えない。
+    fs.writeFileSync(file, JSON.stringify(rec));
+    vi.advanceTimersByTime(500);
+    fs.writeFileSync(file, JSON.stringify(full));
+    vi.advanceTimersByTime(2000);
+    expect(seen).toEqual([]);
+    w.stop();
+  });
+
+  it('status の欠けは登録（sessionId と pid）ごとに数え、会話が変われば数え直す', () => {
+    const file = path.join(dir, 'sessions/12345.json');
+    const { status: _s, ...rec } = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify({ ...rec, sessionId: 'u-a' }));
+    const seen: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });
+    w.start();
+    // 同じ pid のファイルで、別の会話の登録が 1 回欠けた。続けての欠けではない。
+    fs.writeFileSync(file, JSON.stringify({ ...rec, sessionId: 'u-b' }));
+    vi.advanceTimersByTime(500);
+    expect(seen).toEqual([]);
+    vi.advanceTimersByTime(500);
+    expect(seen.map((d) => d.value)).toEqual(['status=(missing)']);
+    w.stop();
+  });
+
+  it('status の欠けが続いている登録は、renoteDrifts() の後に 1 回だけ数え直す', () => {
+    const file = path.join(dir, 'sessions/12345.json');
+    const { status: _s, ...rec } = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify(rec));
+    const seen: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });
+    w.start();
+    vi.advanceTimersByTime(1000);
+    expect(seen).toHaveLength(1);
+    w.renoteDrifts();
+    vi.advanceTimersByTime(1500);
+    expect(seen.map((d) => d.value)).toEqual(['status=(missing)', 'status=(missing)']);
+    w.stop();
+  });
+
+  it('ほかのずれは、1 回の読み取りでも数える', () => {
+    // 一瞬だけ欠けうるのは status だけで、知らない status、無い sessionId と pid は待たない。
+    const file = path.join(dir, 'sessions/12345.json');
+    const { pid: _p, ...rec } = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify({ ...rec, status: 'thinking' }));
+    const seen: Drift[] = [];
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, { note: (d) => seen.push(d) });
+    w.start();
+    expect(seen.map((d) => d.value)).toEqual(['pid=(missing)', 'status=thinking']);
+    w.stop();
+  });
+
   it('renoteDrifts() の後は、登録が同じでも次の読み直しで 1 回だけ数え直す', () => {
     // ずれの記録が手元の版の変化で空になったとき、残っている登録のずれを数え直すために使う。
     const file = path.join(dir, 'sessions/12345.json');

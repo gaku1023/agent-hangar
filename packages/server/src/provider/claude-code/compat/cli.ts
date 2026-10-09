@@ -1,6 +1,6 @@
 import { captureOutput } from '../../../platform/capture.ts';
 import { needsShell } from '../../../platform/exec.ts';
-import { isRec, type Drift } from './types.ts';
+import { isRec, splitDriftValue, type Drift } from './types.ts';
 
 /**
  * --help を読めないときに使う、シェルの包みがそのまま渡すサブコマンド。2.1.295 の `claude --help` の Commands である。
@@ -127,6 +127,24 @@ export function agentsJsonDrifts(stdout: string): Drift[] {
     }
   }
   return [...out.values()];
+}
+
+/**
+ * 記録に残った CLI の値が、今の一覧でもずれかを返す。
+ * サブコマンドの増は組み込みの一覧に入っていれば、減は組み込みの一覧から外れていればずれでない。
+ * agents --json の行の種類は、今の集合に入っていればずれでない。
+ * 欠け、JSON でない出力、知らない形の値はずれのままにする。
+ */
+export function isCliDrift(value: string): boolean {
+  const kv = splitDriftValue(value);
+  if (kv === null) return true;
+  const [key, got] = kv;
+  switch (key) {
+    case 'subcommand.added': return !BUILTIN_SUBCOMMANDS.includes(got);
+    case 'subcommand.removed': return BUILTIN_SUBCOMMANDS.includes(got);
+    case 'agents-json.kind': return !KNOWN_AGENT_KINDS.has(got);
+    default: return true;
+  }
 }
 
 /** `claude -p --output-format json` の形。要約が読む structured_output があるか（summary/claude.ts）。 */
