@@ -4,45 +4,36 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
-import type { CompatDto, LaunchParams, ReadinessDto, LaunchResultDto, LiveSessionDto, ResumeHereConflictDto, RetentionDto, RunDto, ServerEvent, SettingsDto, SummarizerTestDto, SyncStatusDto, TabDto } from '@agent-hangar/shared';
+import type { CompatDto, LiveSessionDto, ServerEvent, SettingsDto } from '@agent-hangar/shared';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { AccountAuth } from '../config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
-import { RetentionConflictError } from '../config/retention.ts';
-import { openDb, type Db } from '../db/open.ts';
+import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { IndexerService } from '../indexer/service.ts';
-import { MemoStore } from '../projects/memo.ts';
-import { PromoteError } from '../projects/promote.ts';
+import type { MemoStore } from '../projects/memo.ts';
 import { proposeTodoDone } from '../projects/todos.ts';
-import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { TOOL_NAMES } from '../mcp/tools.ts';
 import { RunError } from '../runs/manager.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
 import { proposeSessionState, setSessionState } from '../sessions/states.ts';
 import { UsageTracker } from '../usage/statusline.ts';
-import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
+import { SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
 import type { AccountsDeps } from './accounts.ts';
-import { createApp, type AppDeps, type ConfigSyncApi, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts, type SyncApi } from './app.ts';
+import { createApp, type AppDeps, type ExternalApi, type RunsApi, type SummaryApi, type SummaryEnqueueOpts } from './app.ts';
+import { agentTab, deadAgentTab, deadShellTab, endedRun, H, launched, READY, RET, run, shellTab, testDeps, testResult, TOKEN, type TestWorld } from './testing.ts';
 
+let t: TestWorld;
 let dir: string;
 let db: Db;
 let ws: string;
 let app: ReturnType<typeof createApp>;
 let deps: AppDeps;
-const sent: ServerEvent[] = [];
-const TOKEN = 'test-token';
-const H = { authorization: `Bearer ${TOKEN}` };
+let sent: ServerEvent[];
+/** 偽物の口が呼ばれた順。testDeps の calls と同じ配列である。 */
+let calls: string[];
 const get = (p: string, headers: Record<string, string> = H) => app.request(p, { headers });
 const json = async (r: Response) => ({ status: r.status, body: await r.json() });
 
-const run: RunDto = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 };
-const agentTab: TabDto = { id: 'r1', runId: 'r1', sessionId: 's1', kind: 'agent', title: 'Claude', tmuxName: 'hangar-r1', createdAt: 1, closedAt: null };
-const shellTab: TabDto = { id: 't1', runId: 'r1', sessionId: 's1', kind: 'shell', title: 'シェル 1', tmuxName: 'hangar-r1-t1', createdAt: 2, closedAt: null };
-const launched: LaunchResultDto = { run, sessionId: 's1', tabs: [agentTab] };
-const endedRun: RunDto = { ...run, id: 'dead', tmuxName: 'hangar-dead', endedAt: 9, endReason: 'exited' };
-const deadAgentTab: TabDto = { ...agentTab, id: 'dead', runId: 'dead', tmuxName: 'hangar-dead' };
-const deadShellTab: TabDto = { ...shellTab, id: 'dead-t1', runId: 'dead', tmuxName: 'hangar-dead-t1' };
 let runs: RunsApi;
 let external: ExternalApi;
 let usage: UsageTracker;
@@ -50,138 +41,17 @@ let memos: MemoStore;
 let summary: SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] };
 /** ワークスペースから登録される唯一のプロジェクト alpha の id。 */
 let list0ProjectId: () => string;
-const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: null, basedOnTurns: 3 } };
 
-/** 経路の検査だけをしたいので、RunManager は呼び出しを記録する偽物に差し替える。 */
-function fakeRuns(): RunsApi {
-  return {
-    start: vi.fn((p: LaunchParams): LaunchResultDto => { if (!p.projectId) throw new RunError(400, 'プロジェクトを選んでください'); return launched; }),
-    resume: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
-    fork: vi.fn((): LaunchResultDto => ({ ...launched, sessionId: 's2', run: { ...run, kind: 'fork', sessionId: 's2' } })),
-    attach: vi.fn((id: string): LaunchResultDto => { if (id === 'busy') throw new RunError(409, '実行中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
-    adopt: vi.fn(async (id: string): Promise<LaunchResultDto> => { if (id === 'busy') throw new RunError(409, '作業中です'); return { ...launched, run: { ...run, kind: 'resume' } }; }),
-    kill: vi.fn((id: string): RunDto => { if (id !== 'r1') throw new RunError(404, '起動した Claude が見つかりません'); return { ...run, endedAt: 2, endReason: 'killed' }; }),
-    openTab: vi.fn((): TabDto => shellTab),
-    closeTab: vi.fn((): TabDto => ({ ...shellTab, closedAt: 3 })),
-    listAlive: vi.fn((): { runs: RunDto[]; tabs: TabDto[] } => ({ runs: [run], tabs: [agentTab, shellTab] })),
-    getRun: vi.fn((id: string): RunDto | null => (id === 'r1' ? run : id === 'dead' ? endedRun : null)),
-    getTab: vi.fn((id: string): TabDto | null => (id === 't1' ? shellTab : id === 'r1' ? agentTab : id === 'dead' ? deadAgentTab : id === 'dead-t1' ? deadShellTab : null)),
-    // 終了した run の Claude のタブだけは繋がせない。繋ぎ先の tmux セッションがもう無い。
-    attachTarget: vi.fn((id: string): TabDto | null => {
-      const t = id === 't1' ? shellTab : id === 'r1' ? agentTab : id === 'dead' ? deadAgentTab : id === 'dead-t1' ? deadShellTab : null;
-      return t && t.kind === 'agent' && t.runId === 'dead' ? null : t;
-    }),
-    jumpToPrompt: vi.fn(async (id: string) => { if (id === 'dead') throw new RunError(409, 'この Claude はもう終了しています'); return { found: true as const }; }),
-    leaveTranscript: vi.fn(async () => ({ left: true })),
-    startFromTerminal: vi.fn((req: { cwd: string; args: string[] }) => { if (req.args.includes('--session-id')) throw new RunError(400, '--session-id を付けた起動は hangar では開けません'); return { ...launched, attached: false }; }),
-  };
-}
-
-function fakeExternal(): ExternalApi {
-  return {
-    openTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
-    openDirTerminal: vi.fn(async () => ({ app: 'iterm' as const, fellBack: true })),
-    openEditor: vi.fn(async () => {}),
-    openUrl: vi.fn(async () => {}),
-  };
-}
-
-function fakeSummary(): SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] } {
-  const s: SummaryApi & { enqueued: [string, SummaryEnqueueOpts | undefined][] } = {
-    enqueued: [],
-    enqueue: (id, opts) => { s.enqueued.push([id, opts]); return true; },
-    pending: () => ['pending-1'],
-    test: async () => testResult,
-    listModels: async () => ['gemma'],
-  };
-  return s;
-}
-
-/** 同期の偽物。呼ばれた順を calls に残すので、経路が本当に部品を呼んだかを見られる。 */
-const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false };
-const calls: string[] = [];
-let skipped: { key: string; attempts: number; message: string }[] = [];
-let sweepPending: number | null = null;
-let resumeHereResult: LaunchResultDto | ResumeHereConflictDto = launched;
-const fakeSync = (): SyncApi => ({
-  status: () => syncStatus,
-  syncNow: async () => { calls.push('syncNow'); },
-  setPaused: (p: boolean) => { calls.push(`pause:${p}`); },
-  onFocus: async () => { calls.push('focus'); },
-  pullBeforeLaunch: async () => { calls.push('beforeLaunch'); return true; },
-});
-const fakeConfigSync = (): ConfigSyncApi => ({
-  preview: () => ({ entries: [{ path: 'CLAUDE.md', action: 'create' as const, localMtime: null, remoteMtime: 5, remoteDevice: 'mini', size: 3 }], confirmed: false }),
-  pull: async () => { calls.push('configPull'); return { applied: 1, conflicts: 0 }; },
-});
-const READY: ReadinessDto = {
-  tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
-  workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
-  commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
-  compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
-};
-const RET: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: null };
-function fakeRetention() {
-  return {
-    current: vi.fn(() => RET),
-    preview: vi.fn((days: number) => ({ days, path: '/c/settings.json', lines: [], baseSha256: 'abc', backupDir: '/h/backups/claude-config', projectedBytes: null })),
-    write: vi.fn((days: number, sha: string): RetentionDto => { if (sha === 'stale') throw new RetentionConflictError(); return { ...RET, days, source: 'user', userValue: days }; }),
-  };
-}
 /** 実行できる空のファイルを ws/bin に置く。パスの欄は保存の前に存在と実行権を確かめるので、実物が要る。 */
 const exe = (name: string): string => writeFakeTool(path.join(ws, 'bin'), name, { sh: '', cmd: '' });
-const syncDeps = () => ({
-  sync: fakeSync(),
-  syncSkipped: () => skipped,
-  syncSweep: () => sweepPending,
-  configSync: fakeConfigSync(),
-  resumeHere: (id: string, overwrite: boolean) => { calls.push(`resumeHere:${id}:${overwrite}`); return resumeHereResult; },
-  joinToken: () => 'tok-abc' as string | null,
-  devices: () => [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: 1, self: true, shell: null }],
-  shellHook: () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' }),
-  retention: fakeRetention(),
-  readiness: async () => READY,
-});
-/** 使用量の口。値がまだ無い状態（同期を設定していない端末と同じ）を返す。 */
-const noCloudUsage = (): AppDeps['cloudUsage'] => ({ current: () => null, refresh: async () => null });
-/** 最初のアカウントだけを持つアカウントの口。サーバはいつもアカウントの口を持つので、どの組み立ても渡す。 */
-const primaryOnlyAccounts = (tracker: UsageTracker): AccountsDeps => ({
-  db, store: new AccountStore({ home: ws, primaryDir: dir, homeDir: ws }), primaryDir: dir, usage: tracker,
-  auth: new AccountAuth({ claudeBin: () => null }),
-  runs: { switchAccount: vi.fn() } as unknown as AccountsDeps['runs'],
-  broadcast: (a) => sent.push({ type: 'accounts.update', accounts: a }),
-});
 
 beforeEach(async () => {
-  calls.length = 0;
-  skipped = [];
-  sweepPending = null;
-  resumeHereResult = launched;
-  dir = copyFixtureClaudeDir(); db = openDb(':memory:'); sent.length = 0;
-  ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app-'));
-  fs.mkdirSync(path.join(ws, 'alpha'));
-  const indexer = new IndexerService({ db, deviceId: 'd', claudeDir: dir, isRunning: () => false });
-  await indexer.fullScan();
-  db.prepare('update sessions set cwd = ? where provider_session_id = ?').run(path.join(ws, 'alpha'), SESSION_ALPHA);
-  syncProjectsFromWorkspace(db, 'd', ws); assignSessions(db, 'd');
-  let settings: SettingsDto = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-  runs = fakeRuns();
-  external = fakeExternal();
-  usage = new UsageTracker(db);
-  memos = new MemoStore({ db, deviceId: 'd', home: ws });
-  summary = fakeSummary();
-  list0ProjectId = () => (db.prepare("select id from projects where name = 'alpha'").get() as { id: string }).id;
-  deps = {
-    db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: '0.0.0-test',
-    settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer,
-    hub: { broadcast: (e) => sent.push(e) }, runs, external, usage, memos, summary,
-    promote: (o) => { if (o.name === 'taken') throw new PromoteError(409, 'あります'); return { projectId: list0ProjectId(), moved: o.moveFiles, reason: null }; },
-    accounts: primaryOnlyAccounts(usage), cloudUsage: noCloudUsage(),
-    ...syncDeps(),
-  };
+  t = await testDeps();
+  ({ db, ws, runs, external, usage, memos, summary, deps, calls } = t);
+  dir = t.claudeDir; sent = t.events; list0ProjectId = t.alphaProjectId;
   app = createApp(deps);
 });
-afterEach(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); });
+afterEach(() => { t.dispose(); });
 
 describe('auth', () => {
   it('トークンが無ければ 401、Origin が違えば 403、/health は素通し', async () => {
@@ -995,8 +865,7 @@ describe('routes', () => {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
       fs.mkdirSync(path.join(dist, 'assets'));
       fs.writeFileSync(path.join(dist, 'assets', 'a.js'), 'console.log(1)');
-      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), accounts: primaryOnlyAccounts(usage), cloudUsage: noCloudUsage(), ...syncDeps(), uiDist: dist });
+      const ui = createApp({ ...deps, uiDist: dist });
       // 鍵を持たない GET / にはクッキーを配らない。curl 1 本でトークンが取れてはいけない。
       const bare = await ui.request('/');
       expect(bare.status).toBe(401);
@@ -1039,8 +908,7 @@ describe('routes', () => {
     const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-dist-'));
     try {
       fs.writeFileSync(path.join(dist, 'index.html'), '<html>hi</html>');
-      const uiSettings = { workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-      const ui = createApp({ db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: 'v', settings: () => uiSettings, updateSettings: () => uiSettings, live: () => [], indexer: { progress: () => ({ phase: 'idle', done: 0, total: 0 }), rebuild: async () => {} }, hub: { broadcast: () => {} }, runs: fakeRuns(), external: fakeExternal(), usage: new UsageTracker(db), memos, summary: fakeSummary(), promote: () => ({ projectId: list0ProjectId(), moved: false, reason: null }), accounts: primaryOnlyAccounts(usage), cloudUsage: noCloudUsage(), ...syncDeps(), uiDist: dist });
+      const ui = createApp({ ...deps, uiDist: dist });
       // SameSite=Strict はポートを数えない。手元の別のポートに置かれたページが、認証済みの UI を枠に入れられてしまう。
       for (const r of [await ui.request(`/?t=${TOKEN}`), await ui.request('/', { headers: { cookie: `hangar_token=${TOKEN}` } }), await ui.request('/')]) {
         expect(r.headers.get('x-frame-options')).toBe('DENY');
@@ -1120,27 +988,26 @@ describe('同期の経路', () => {
 
   it('降ろすのを諦めた項目が同期の状態に乗る', async () => {
     // onError は 1 度しか鳴らないので、鳴った後に画面を開いた利用者はここでしか気付けない。
-    skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
-    expect((await json(await get('/api/sync/status'))).body.skipped).toEqual(skipped);
-    expect((await json(await get('/api/bootstrap'))).body.sync.skipped).toEqual(skipped);
+    t.sync.skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
+    expect((await json(await get('/api/sync/status'))).body.skipped).toEqual(t.sync.skipped);
+    expect((await json(await get('/api/bootstrap'))).body.sync.skipped).toEqual(t.sync.skipped);
   });
 
   it('取り残しの残り件数が同期の状態に乗る', async () => {
     // 数えられないときは null で、0 件（追いついた）と区別できる。
     expect((await json(await get('/api/sync/status'))).body.sweepPending).toBeNull();
-    sweepPending = 1500;
+    t.sync.sweepPending = 1500;
     expect((await json(await get('/api/sync/status'))).body.sweepPending).toBe(1500);
     expect((await json(await get('/api/bootstrap'))).body.sync.sweepPending).toBe(1500);
     // 今すぐ同期と一時停止の応答も同じ形で返す。画面はこの 3 つから付録を受け取る。
     expect((await json(await post('/api/sync/now'))).body.sweepPending).toBe(1500);
     expect((await json(await post('/api/sync/pause', { paused: true }))).body.sweepPending).toBe(1500);
-    sweepPending = 0;
+    t.sync.sweepPending = 0;
     expect((await json(await get('/api/sync/status'))).body.sweepPending).toBe(0);
   });
 
   it('掃除の口を渡さない端末では取り残しは null のまま', async () => {
-    const { syncSweep: _drop, ...rest } = syncDeps();
-    app = createApp({ ...deps, ...rest });
+    app = createApp({ ...deps, syncSweep: () => null });
     expect((await json(await get('/api/sync/status'))).body.sweepPending).toBeNull();
   });
 
@@ -1177,7 +1044,7 @@ describe('同期の経路', () => {
   it('この PC で再開は 409 で写しとの大きさを返す', async () => {
     const id = (await json(await get('/api/sessions'))).body[0].id;
     expect((await json(await post(`/api/sessions/${id}/resume-here`))).body.sessionId).toBe('s1');
-    resumeHereResult = { error: 'local_smaller', localSize: 10, remoteSize: 99 };
+    t.sync.resumeHereResult = { error: 'local_smaller', localSize: 10, remoteSize: 99 };
     const r = await json(await post(`/api/sessions/${id}/resume-here`, { overwrite: false }));
     expect(r.status).toBe(409);
     expect(r.body).toEqual({ error: 'local_smaller', localSize: 10, remoteSize: 99 });
