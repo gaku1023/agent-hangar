@@ -186,7 +186,6 @@ export interface CloudClient {
   putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
   getFile(key: string): Promise<Readable>;
   listFiles(since: number, limit: number): Promise<ListFilesResponse>;
-  deleteFile(key: string): Promise<void>;
   /** 使用量と費用。古い Worker（404）は configured: false として返す。 */
   usage(): Promise<CloudUsageBody>;
 }
@@ -398,12 +397,5 @@ export class HttpCloudClient implements CloudClient {
         }
       })(),
     );
-  }
-
-  async deleteFile(key: string): Promise<void> {
-    this.requireValidKey(key);
-    const { res, d } = await this.send(`/files/${encodeFileKeyPath(key)}`, { method: 'DELETE' }, this.timeoutMs);
-    d.clear();
-    void res.body?.cancel().catch(() => {});
   }
 }

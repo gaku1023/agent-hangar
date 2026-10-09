@@ -25,6 +25,7 @@ const put = (key: string, body: string, over: Record<string, string> = {}): Prom
     method: 'PUT',
     headers: {
       authorization: `Bearer ${tok}`,
+      'content-length': String(new TextEncoder().encode(body).length),
       [CLOUD_HEADERS.path]: 'projects/-x/u1.jsonl',
       [CLOUD_HEADERS.kind]: 'transcript',
       [CLOUD_HEADERS.sha256]: 'a'.repeat(64),

@@ -36,12 +36,14 @@ const configMeta = (rel: string, o: Record<string, string> = {}): Record<string,
   meta({ [CLOUD_HEADERS.path]: rel, [CLOUD_HEADERS.kind]: 'config', [CLOUD_HEADERS.size]: '1', ...o });
 
 const put = (tok: string, key: string, body: string, headers: Record<string, string> = meta()): Promise<Response> =>
-  cloud.SELF.fetch(`https://x/files/${key}`, { method: 'PUT', headers: { authorization: `Bearer ${tok}`, ...headers }, body });
+  cloud.SELF.fetch(`https://x/files/${key}`, {
+    method: 'PUT',
+    // miniflare の dispatchFetch は本文の長さを付けずに流すので、端末と同じく明示する。
+    headers: { authorization: `Bearer ${tok}`, 'content-length': String(new TextEncoder().encode(body).length), ...headers },
+    body,
+  });
 
 const get = (tok: string, key: string): Promise<Response> => cloud.SELF.fetch(`https://x/files/${key}`, { headers: { authorization: `Bearer ${tok}` } });
-
-const del = (tok: string, key: string): Promise<Response> =>
-  cloud.SELF.fetch(`https://x/files/${key}`, { method: 'DELETE', headers: { authorization: `Bearer ${tok}` } });
 
 type Listing = { files: FileEntry[]; nextSeq: number; more: boolean };
 
@@ -152,7 +154,7 @@ describe('PUT と GET /files/<key>', () => {
   });
 
   it('長さの分かっている本文は、1 つの部分を超えてもそのまま預け、そのまま取り出せる', async () => {
-    const n = 9 * 1024 * 1024 + 7; // PART_BYTES（8 MiB）を超え、端数も出る大きさ
+    const n = 9 * 1024 * 1024 + 7; // かつて multipart に切り替えていた 8 MiB を超え、端数も出る大きさ
     const buf = patterned(n);
     const key = 'transcripts/dev-a/big.jsonl.gz';
     const r = await cloud.SELF.fetch(`https://x/files/${key}`, {
@@ -169,19 +171,18 @@ describe('PUT と GET /files/<key>', () => {
     expect((await cloud.env.BUCKET.head(key))!.etag).not.toContain('-');
   });
 
-  it('長さの無い本文（古い端末の chunked）も multipart で預け、そのまま取り出せる', async () => {
-    const n = 9 * 1024 * 1024 + 7;
-    const buf = patterned(n);
-    const key = 'transcripts/dev-a/big.jsonl.gz';
-    const r = await cloud.SELF.fetch(`https://x/files/${key}`, {
+  it('長さを名乗らない本文は、411 で断り、R2 にも索引にも残さない', async () => {
+    const buf = patterned(256 * 1024);
+    const r = await cloud.SELF.fetch('https://x/files/transcripts/dev-a/u1.jsonl.gz', {
       method: 'PUT',
-      headers: { authorization: `Bearer ${tokA}`, ...meta({ [CLOUD_HEADERS.size]: String(n) }) },
+      headers: { authorization: `Bearer ${tokA}`, ...meta({ [CLOUD_HEADERS.size]: String(buf.length) }) },
       body: chunked(buf),
       duplex: 'half',
     } as RequestInit);
-    expect(r.status).toBe(201);
-    expect((await list(tokA)).files.map((f) => f.storedSize)).toEqual([n]);
-    await expectPatterned(key, n);    expect((await cloud.env.BUCKET.head(key))!.etag).toMatch(/-2$/);
+    expect(r.status).toBe(411);
+    expect(await r.json()).toEqual({ error: 'length required' });
+    expect(await keysInR2()).toEqual([]);
+    expect((await list(tokA)).files).toEqual([]);
   });
 
   it('上限を超える長さを名乗った本文は、読む前に 413 で断り、R2 にも索引にも残さない', async () => {
@@ -214,12 +215,13 @@ describe('PUT と GET /files/<key>', () => {
     expect((await list(tokA)).files).toEqual([]);
   });
 
-  it('無い鍵は 404、DELETE は本体と索引を消す', async () => {
+  it('無い鍵は 404。本文を消す経路は無い', async () => {
     expect((await get(tokA, 'transcripts/dev-a/nope.gz')).status).toBe(404);
     await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
-    expect((await del(tokA, 'transcripts/dev-a/u1.jsonl.gz')).status).toBe(204);
-    expect(await cloud.env.BUCKET.head('transcripts/dev-a/u1.jsonl.gz')).toBeNull();
-    expect((await list(tokA)).files).toEqual([]);
+    const d = await cloud.SELF.fetch('https://x/files/transcripts/dev-a/u1.jsonl.gz', { method: 'DELETE', headers: { authorization: `Bearer ${tokA}` } });
+    expect(d.status).toBe(404);
+    expect(await keysInR2()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
+    expect((await list(tokA)).files.map((f) => f.key)).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
   });
 });
 
@@ -247,21 +249,19 @@ describe('validKey', () => {
       expect([k, validKey(k, 'dev-a', 'GET')]).toEqual([k, false]);
   });
 
-  it('transcripts は自端末の分だけ書けて消せる。読むのは誰でもよい', () => {
+  it('transcripts も config も自端末の分だけ書ける。読むのは誰でもよい', () => {
     expect(validKey('transcripts/dev-b/u1.gz', 'dev-a', 'GET')).toBe(true);
-    for (const m of ['PUT', 'DELETE'] as const) {
-      expect(validKey('transcripts/dev-a/u1.gz', 'dev-a', m)).toBe(true);
-      expect(validKey('transcripts/dev-b/u1.gz', 'dev-a', m)).toBe(false);
-      expect(validKey('transcripts/dev-ax/u1.gz', 'dev-a', m)).toBe(false); // 接頭辞の一致だけでは通さない
-      // config も transcripts と同じ守りにする。分けないと 2 台目が 1 台目の設定を潰す。
-      expect(validKey('config/dev-a/a.md', 'dev-a', m)).toBe(true);
-      expect(validKey('config/dev-b/a.md', 'dev-a', m)).toBe(false);
-      expect(validKey('config/a.md', 'dev-a', m)).toBe(false);
-      expect(validKey('config/dev-b/a.md', 'dev-a', 'GET')).toBe(true);
-      // 端末 ID の形も見る。スラッシュが混ざると他端末の接頭辞の下に潜り込める。
-      expect(validKey('transcripts/dev-a/evil/u1.gz', 'dev-a/evil', m)).toBe(false);
-      expect(validKey('transcripts/../dev-a/u1.gz', '..', m)).toBe(false);
-    }
+    expect(validKey('transcripts/dev-a/u1.gz', 'dev-a', 'PUT')).toBe(true);
+    expect(validKey('transcripts/dev-b/u1.gz', 'dev-a', 'PUT')).toBe(false);
+    expect(validKey('transcripts/dev-ax/u1.gz', 'dev-a', 'PUT')).toBe(false); // 接頭辞の一致だけでは通さない
+    // config も transcripts と同じ守りにする。分けないと 2 台目が 1 台目の設定を潰す。
+    expect(validKey('config/dev-a/a.md', 'dev-a', 'PUT')).toBe(true);
+    expect(validKey('config/dev-b/a.md', 'dev-a', 'PUT')).toBe(false);
+    expect(validKey('config/a.md', 'dev-a', 'PUT')).toBe(false);
+    expect(validKey('config/dev-b/a.md', 'dev-a', 'GET')).toBe(true);
+    // 端末 ID の形も見る。スラッシュが混ざると他端末の接頭辞の下に潜り込める。
+    expect(validKey('transcripts/dev-a/evil/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
+    expect(validKey('transcripts/../dev-a/u1.gz', '..', 'PUT')).toBe(false);
   });
 });
 
@@ -381,8 +381,6 @@ describe('鍵の検査', () => {
     expect(await keysInR2()).toEqual([`config/dev-b/${rel}`]);
     expect((await list(tokA)).files.map((f) => f.key)).toEqual([`config/dev-b/${rel}`]);
     expect(await (await get(tokA, `config/dev-b/${rel}`)).text()).toBe('x');
-    expect((await del(tokB, `config/dev-b/${rel}`)).status).toBe(204);
-    expect(await keysInR2()).toEqual([]);
   });
 
   it('見出しは非 ASCII を運べない。端末側が符号化してから送る必要がある', async () => {
@@ -405,7 +403,6 @@ describe('鍵の検査', () => {
     expect(await (await get(tokA, key)).text()).toBe('x');
     // R2 の customMetadata は見出しのままの形で持つ（値も ByteString しか運べない）。
     expect((await cloud.env.BUCKET.head(key))?.customMetadata?.path).toBe(wire);
-    expect((await del(tokB, key)).status).toBe(204);
   });
 
   it('符号化すると R2 の覚え書きの上限を超える path でも上げられる。500 にして永久に再送させない', async () => {
@@ -454,11 +451,10 @@ describe('鍵の検査', () => {
 });
 
 describe('端末の境目', () => {
-  it('他端末の transcripts には書けず消せず、しかし読める', async () => {
+  it('他端末の transcripts には書けず、しかし読める', async () => {
     await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
     expect((await put(tokB, 'transcripts/dev-a/u1.jsonl.gz', 'evil')).status).toBe(403);
     expect((await put(tokB, 'transcripts/dev-a/new.jsonl.gz', 'evil')).status).toBe(403);
-    expect((await del(tokB, 'transcripts/dev-a/u1.jsonl.gz')).status).toBe(403);
     // 断られた書き込みは R2 にも索引にも入っていない。
     expect(await keysInR2()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
     expect(await (await cloud.env.BUCKET.get('transcripts/dev-a/u1.jsonl.gz'))!.text()).toBe('abc');
@@ -484,11 +480,9 @@ describe('端末の境目', () => {
     expect(await keysInR2()).toEqual([`config/dev-a/${rel}`, `config/dev-b/${rel}`]);
     expect(await (await cloud.env.BUCKET.get(`config/dev-b/${rel}`))!.text()).toBe('x');
     expect((await list(tokB)).files.map((f) => [f.seq, f.deviceId])).toEqual([[1, 'dev-b'], [2, 'dev-a']]);
-    // 他端末の場所には書けないし消せない。読むのは誰でもよい。
+    // 他端末の場所には書けない。読むのは誰でもよい。
     expect((await put(tokA, `config/dev-b/${rel}`, 'evil', configMeta(rel))).status).toBe(403);
-    expect((await del(tokA, `config/dev-b/${rel}`)).status).toBe(403);
     expect(await (await get(tokA, `config/dev-b/${rel}`)).text()).toBe('x');
-    expect((await del(tokB, `config/dev-b/${rel}`)).status).toBe(204);
   });
 
   it('端末 ID にスラッシュを混ぜた形は、参加の入口でも鍵の検査でも通らない', async () => {

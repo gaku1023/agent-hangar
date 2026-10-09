@@ -38,14 +38,15 @@ export { MAX_KEY_BYTES };
 
 /**
  * 鍵の形と権限である。
- * `transcripts/<端末 ID>/...` も `config/<端末 ID>/...` も、自端末の分だけ書けて消せる。
+ * `transcripts/<端末 ID>/...` も `config/<端末 ID>/...` も、自端末の分だけ書ける。
  * `GET` は形さえ合っていれば誰でもよい。他端末の本文と設定を降ろすのが同期の目的だからである。
  *
  * 設定を端末で分けないと、2 台が同じ相対パスを上げたときに同じオブジェクトを奪い合い、
  * 負けた端末の取り込みが「SHA-256 が一致しません」で永久に止まる。
  * 守りの形は `transcripts/` と揃える。他人の設定を上書きできる穴を残さない。
+ * 本文と設定を消す経路（DELETE）は持たない。使われていなかったので段 1 で消した。
  */
-export function validKey(key: string, deviceId: string, method: 'PUT' | 'GET' | 'DELETE'): boolean {
+export function validKey(key: string, deviceId: string, method: 'PUT' | 'GET'): boolean {
   const s = splitFileKey(key);
   if (!s) return false;
   if (method === 'GET') return true;
@@ -114,85 +115,8 @@ export function buildMetadata(wirePath: string, sha256: string, device: string):
   return metaBytes(lean) <= MAX_R2_META_BYTES ? lean : null;
 }
 
-/**
- * R2 に預ける 1 つの部分の大きさである。
- * R2 は最後以外の部分に 5 MiB の下限を課すので、それより大きく取る。
- */
-const PART_BYTES = 8 * 1024 * 1024;
-
 /** 1 本の本文の上限である。Workers 自体の上限より手前で断ち、記憶を食い潰されないようにする。 */
 export const MAX_BODY_BYTES = 100 * 1024 * 1024;
-
-const concat = (chunks: Uint8Array[], n: number): Uint8Array => {
-  if (chunks.length === 1) return chunks[0]!;
-  const out = new Uint8Array(n);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.byteLength;
-  }
-  return out;
-};
-
-/**
- * 本文を R2 へ預け、預けた大きさを返す。上限を超えたら何も残さずに null を返す。
- *
- * `content-length` の無い要求（古い端末の chunked）だけがここに来る。
- * 古い端末は本文を gzip して暗号化しながら流すので、送る前に大きさが分からない。
- * いまの端末は手元で書き出して長さを決めてから送るので、ここを通らない（`PUT /files/<key>` を見る）。
- * ここは本文を JS で読むので、CPU の時間が本文の大きさに比例する。
- * R2 は長さの分からない読み取りの流れを受け取らないので、次の形にした。
- *
- * - 8 MiB に満たない本文は、そのまま 1 回の `put` で置く。
- * - それを超えたら multipart に切り替え、8 MiB ごとに部分を上げる。
- *
- * どちらでも記憶に載るのは高々 1 つの部分ぶんで、本文の全体を抱え込まない。
- * 途中で倒れたら multipart を畳むので、半端な本体が R2 に残らない。
- */
-async function storeBody(
-  bucket: R2Bucket,
-  key: string,
-  body: ReadableStream<Uint8Array>,
-  customMetadata: Record<string, string>,
-): Promise<number | null> {
-  const reader = body.getReader();
-  let mp: R2MultipartUpload | null = null;
-  const parts: R2UploadedPart[] = [];
-  let held: Uint8Array[] = [];
-  let heldBytes = 0;
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (value && value.byteLength > 0) {
-        total += value.byteLength;
-        if (total > MAX_BODY_BYTES) {
-          await reader.cancel().catch(() => {});
-          if (mp) await mp.abort().catch(() => {});
-          return null;
-        }
-        held.push(value);
-        heldBytes += value.byteLength;
-      }
-      if (done) break;
-      if (heldBytes >= PART_BYTES) {
-        mp ??= await bucket.createMultipartUpload(key, { customMetadata });
-        parts.push(await mp.uploadPart(parts.length + 1, concat(held, heldBytes)));
-        held = [];
-        heldBytes = 0;
-      }
-    }
-    if (!mp) {
-      const obj = await bucket.put(key, concat(held, heldBytes), { customMetadata });
-      return obj?.size ?? heldBytes;
-    }
-    if (heldBytes > 0) parts.push(await mp.uploadPart(parts.length + 1, concat(held, heldBytes)));
-    return (await mp.complete(parts)).size;
-  } catch (e) {
-    if (mp) await mp.abort().catch(() => {});
-    throw e;
-  }
-}
 
 export const filesApp = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -275,21 +199,14 @@ filesApp.put('/:key{.+}', async (c) => {
   // 500 は「あとで直るかもしれない失敗」なので上げる側が永久に送り直す。
   const customMetadata = buildMetadata(wirePath!, sha, device.id);
   if (!customMetadata) return c.json({ error: 'metadata too large' }, 413);
+  // 長さを名乗らない本文は受けない。
+  // 長さの分かっている本文は、読まずにそのまま R2 へ渡せるので、workerd が JS を通さずに流し、CPU の時間が本文の大きさに比例しない。
+  // 長さを名乗らずに本文を流していたのは互換の版 1 より前の端末で、それは版の関所（compat.ts）で断られている。
   const declared = toInt(h('content-length'));
-  let storedSize: number | null;
-  if (declared !== null) {
-    if (declared > MAX_BODY_BYTES) return c.json({ error: 'too large' }, 413);
-    // 長さの分かっている本文は、読まずにそのまま R2 へ渡す。
-    // workerd が JS を通さずに流すので、CPU の時間が本文の大きさに比例しない。
-    // storeBody のように JS で読んで切り分けると、数十 MB の本文で無料プランの 10 ms を何十倍も超え、
-    // 途中で止められていた（2026-09-30 に 52 件。止められた multipart が R2 に 20 本残った）。
-    const obj = await c.env.BUCKET.put(key, body, { customMetadata });
-    storedSize = obj?.size ?? declared;
-  } else {
-    // 長さを名乗らない古い端末の要求である。食い違いを避けるため、今までどおり受ける。
-    storedSize = await storeBody(c.env.BUCKET, key, body, customMetadata);
-  }
-  if (storedSize === null) return c.json({ error: 'too large' }, 413);
+  if (declared === null) return c.json({ error: 'length required' }, 411);
+  if (declared > MAX_BODY_BYTES) return c.json({ error: 'too large' }, 413);
+  const obj = await c.env.BUCKET.put(key, body, { customMetadata });
+  const storedSize = obj?.size ?? declared;
   const now = Date.now();
   const r = await c.env.DB.batch([
     c.env.DB.prepare('delete from files where key = ?').bind(key),
@@ -312,18 +229,4 @@ filesApp.get('/:key{.+}', async (c) => {
     status: 200,
     headers: { 'content-type': 'application/octet-stream', 'content-length': String(obj.size), etag: obj.httpEtag },
   });
-});
-
-/** 本体と索引を消す。書ける端末だけが消せる。 */
-filesApp.delete('/:key{.+}', async (c) => {
-  const key = c.req.param('key');
-  const device = c.get('device');
-  if (!keyShapeOk(key)) return c.json({ error: 'invalid key' }, 400);
-  if (!validKey(key, device.id, 'DELETE')) return c.json({ error: 'forbidden' }, 403);
-  // 索引を先に消す。
-  // 逆にすると、途中で倒れたときに「索引にあるのに本体が無い」が残り、降ろす側が永久に 404 を踏む。
-  // この順なら残るのは索引に無い本体だけで、それは `sweep.ts` が後から拾って消せる。
-  await c.env.DB.prepare('delete from files where key = ?').bind(key).run();
-  await c.env.BUCKET.delete(key);
-  return c.body(null, 204);
 });

@@ -95,15 +95,16 @@ describe('HttpCloudClient', () => {
     expect(calls[3]!.url).toBe('https://h/rows?after=&limit=50');
   });
 
-  it('listFiles と deleteFile', async () => {
-    const { fetch, calls } = fakeFetch((c) => (c.init.method === 'DELETE' ? new Response(null, { status: 204 }) : json({ files: [], nextSeq: 4, more: false })));
+  it('listFiles', async () => {
+    const { fetch, calls } = fakeFetch(() => json({ files: [], nextSeq: 4, more: false }));
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     expect(await c.listFiles(4, 500)).toEqual({ files: [], nextSeq: 4, more: false });
     expect(calls[0]!.url).toBe('https://h/files?since=4&limit=500');
-    await c.deleteFile('transcripts/d/u.jsonl.gz');
-    expect(calls[1]!.url).toBe('https://h/files/transcripts/d/u.jsonl.gz');
-    expect(calls[1]!.init.method).toBe('DELETE');
-    expect(bearerIs(calls[1]!, 't')).toBe(true);
+    expect(bearerIs(calls[0]!, 't')).toBe(true);
+  });
+
+  it('本文と設定を消す口は無い（Worker に DELETE の経路が無い）', () => {
+    expect('deleteFile' in HttpCloudClient.prototype).toBe(false);
   });
 
   it('putFile はヘッダとストリーム本文を送り、getFile は Readable を返す', async () => {
@@ -184,11 +185,11 @@ describe('HttpCloudClient', () => {
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     await expect(c.getFile('other/u1')).rejects.toMatchObject({ status: 400 });
     await expect(c.getFile('transcripts/d/../e/u1')).rejects.toMatchObject({ status: 400 });
-    await expect(c.deleteFile('transcripts/d/u\u0000.gz')).rejects.toMatchObject({ status: 400 });
+    await expect(c.getFile('transcripts/d/u\u0000.gz')).rejects.toMatchObject({ status: 400 });
     await expect(c.putFile({ key: 'config/../x', path: 'x', kind: 'config', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: false }, Readable.from([Buffer.from('x')]))).rejects.toMatchObject({ status: 400 });
     expect(calls).toHaveLength(0);
     // 空白と `?` は Worker が通すので、端末も通して URL の側で符号化する。
-    await c.deleteFile('transcripts/d/u 1?x.gz');
+    await c.getFile('transcripts/d/u 1?x.gz');
     expect(calls[0]!.url).toBe('https://h/files/transcripts/d/u%201%3Fx.gz');
     expect(new URL(calls[0]!.url).search).toBe('');
   });
@@ -284,7 +285,7 @@ describe('HttpCloudClient', () => {
 
   it('日本語と空白を含む鍵を通し、URL では断片ごとに符号化する', async () => {
     const key = 'config/skills/日本語 メモ/SKILL.md';
-    const { fetch, calls } = fakeFetch((c) => (c.init.method === 'PUT' ? json({ seq: 2 }, 201) : c.init.method === 'DELETE' ? new Response(null, { status: 204 }) : new Response('body', { status: 200 })));
+    const { fetch, calls } = fakeFetch((c) => (c.init.method === 'PUT' ? json({ seq: 2 }, 201) : new Response('body', { status: 200 })));
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     await c.putFile({ key, path: 'skills/日本語 メモ/SKILL.md', kind: 'config', sha256: 'b'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')]));
     const expected = 'https://h/files/config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md';
@@ -293,8 +294,6 @@ describe('HttpCloudClient', () => {
     for await (const ch of await c.getFile(key)) text += ch;
     expect(text).toBe('body');
     expect(calls[1]!.url).toBe(expected);
-    await c.deleteFile(key);
-    expect(calls[2]!.url).toBe(expected);
     // 断片ごとの復号で元の鍵に戻る（Worker の受け取りと同じ）。
     expect(new URL(calls[0]!.url).pathname.slice('/files/'.length).split('/').map(decodeURIComponent).join('/')).toBe(key);
   });
@@ -431,9 +430,8 @@ describe('互換の版', () => {
   /** どの経路にも、形の合う応答を返す。 */
   const anyRoute = (c: Call): Response =>
     c.init.method === 'PUT' ? json({ seq: 1 }, 201)
-      : c.init.method === 'DELETE' ? new Response(null, { status: 204 })
-        : /\/files\/./.test(new URL(c.url).pathname) ? new Response('payload')
-          : json({ ok: true, version: '1', changes: [], nextAfter: null, seq: 0, nextSeq: 0, more: false, files: [], configured: false });
+      : /\/files\/./.test(new URL(c.url).pathname) ? new Response('payload')
+        : json({ ok: true, version: '1', changes: [], nextAfter: null, seq: 0, nextSeq: 0, more: false, files: [], configured: false });
 
   it('Worker へのすべての要求に、この PC の版を見出しで載せる', async () => {
     const { fetch, calls } = fakeFetch(anyRoute);
@@ -447,9 +445,8 @@ describe('互換の版', () => {
     let got = 0;
     for await (const chunk of await c.getFile('transcripts/d/u.jsonl.gz')) got += (chunk as Buffer).length;
     expect(got).toBe('payload'.length);
-    await c.deleteFile('transcripts/d/u.jsonl.gz');
     await c.usage();
-    expect(calls).toHaveLength(9);
+    expect(calls).toHaveLength(8);
     for (const call of calls) expect(headersOf(call)[COMPAT_HEADER], call.url).toBe(String(COMPAT_VERSION));
     // 端末トークンは変わらず最後に載る。
     expect(bearerIs(calls[0]!, 't')).toBe(true);

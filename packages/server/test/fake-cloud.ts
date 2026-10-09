@@ -41,7 +41,7 @@ export type FakeCloudStore = {
   /**
    * 当たっている Cloudflare の上限。null なら当たっていない。
    * Workers の要求の上限（requests）は全部の口を、D1 の上限は D1 に触らない /health を除く口を断る。
-   * 実物の D1 の上限は段 1 の PR 6 から 429 で返る。偽物は先にその形で断る。
+   * 実物の D1 の上限は 429 で返る。偽物も同じ形で断る。
    */
   limited: CloudLimitKind | null;
   now: () => number;
@@ -251,7 +251,7 @@ export class FakeCloudClient implements CloudClient {
     };
   }
 
-  /** 鍵の形と権限。transcripts は自端末の分にだけ書ける。config は誰でも書ける。GET は誰でも。 */
+  /** 鍵の形と権限。transcripts も config も、書けるのは自端末の分だけ。GET は誰でも。 */
   private checkKey(key: string, write: boolean): void {
     if (!isValidFileKey(key)) throw new CloudError(400, errorBody('invalid key'));
     // 書けるのは自分の接頭辞の下だけ。config も transcripts と同じ守りである（実物の validKey と揃える）。
@@ -349,12 +349,6 @@ export class FakeCloudClient implements CloudClient {
     // 返すと、一度でも壊れた since を控えた端末の一覧が、その値のまま固まって永久に空になる。
     const nextSeq = more ? page[page.length - 1]!.seq : entries.reduce((m, e) => Math.max(m, e.seq), 0);
     return { files: page.map((e) => ({ ...e })), nextSeq, more };
-  }
-
-  async deleteFile(key: string): Promise<void> {
-    this.guard('deleteFile', key);
-    this.checkKey(key, true);
-    this.store.files.delete(key);
   }
 
   /** GET /usage の応答。試験が差し替える。既定はトークンの無い Worker と同じ。 */
