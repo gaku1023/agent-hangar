@@ -1515,6 +1515,13 @@ describe('組み立ての必須の口', () => {
   it('アカウントと使用量の口は、どの組み立ても必ず渡す', () => {
     expectTypeOf<undefined>().not.toExtend<AppDeps['accounts']>();
     expectTypeOf<undefined>().not.toExtend<AppDeps['cloudUsage']>();
+    // 起動の済み具合、同期の付録、互換、UI の置き場も、どの組み立ても必ず渡す。
+    expectTypeOf<undefined>().not.toExtend<AppDeps['ready']>();
+    expectTypeOf<undefined>().not.toExtend<AppDeps['syncSkipped']>();
+    expectTypeOf<undefined>().not.toExtend<AppDeps['syncSweep']>();
+    expectTypeOf<undefined>().not.toExtend<AppDeps['syncOncePass']>();
+    expectTypeOf<undefined>().not.toExtend<AppDeps['compat']>();
+    expectTypeOf<undefined>().not.toExtend<AppDeps['uiDist']>();
   });
 });
 

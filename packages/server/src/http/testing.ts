@@ -204,6 +204,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     retention: fakeRetention(),
     readiness: async () => READY,
     compat: async () => ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] }),
+    uiDist: null,
     ...overrides,
   };
 

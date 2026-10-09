@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { COMPAT_VERSION, isLanguage, languageOf, LANGUAGES, liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type CompatDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
-import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../config/jsonTextEdit.ts';
@@ -75,9 +74,9 @@ export type AppDeps = {
   /**
    * 起動の手続き（最初の索引づけと、セッションの紐づけ）が済んだか。
    * 待ち受けは先に始まるので、/health が返っても済んでいるとは限らない。
-   * .app はこれが真になるまで起動画面に残る。渡さなければ済んだものとして扱う。
+   * .app はこれが真になるまで起動画面に残る。
    */
-  ready?: () => boolean;
+  ready: () => boolean;
   hub: { broadcast(ev: ServerEvent): void };
   runs: RunsApi;
   external: ExternalApi;
@@ -85,23 +84,23 @@ export type AppDeps = {
   memos: MemoStore;
   summary: SummaryApi;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
-  /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する。 */
+  /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する（server.ts は渡さない）。 */
   gitInit?: (dir: string) => void;
   sync: SyncApi;
   /** 設定の「使用量と費用」。同期を設定していない端末では current() が null を返す。 */
   cloudUsage: { current(): CloudUsageDto | null; refresh(): Promise<CloudUsageDto | null> };
   /** アカウントの一覧と切り替え。組み立てる側（server.ts）が 1 か所で作り、起動後の認証の読み直しにも同じものを使う。 */
   accounts: AccountsDeps;
-  /** 降ろすのを諦めた項目。RemotePuller.skippedEntries() をそのまま載せる。渡さなければ空として扱う。 */
-  syncSkipped?: () => SyncSkippedDto[];
+  /** 降ろすのを諦めた項目。RemotePuller.skippedEntries() をそのまま載せる。 */
+  syncSkipped: () => SyncSkippedDto[];
   /**
    * 取り残しの掃除（sweep）が、あと何件残しているか。
-   * 数えられるのは TranscriptUploader だけなので、同期を設定していない端末では渡らない。
-   * 渡さなければ null、つまり「数えられない」として扱う。0 件（追いついた）と区別する。
+   * 数えられるのは TranscriptUploader だけなので、同期を設定していない端末では null を返す。
+   * null は「数えられない」で、0 件（追いついた）と区別する。
    */
-  syncSweep?: () => number | null;
-  /** 一時停止のまま頼まれた 1 巡の最中か。渡さなければ false として扱う。 */
-  syncOncePass?: () => boolean;
+  syncSweep: () => number | null;
+  /** 一時停止のまま頼まれた 1 巡の最中か。 */
+  syncOncePass: () => boolean;
   /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */
   resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
   /** 同期を設定していない端末では null。そのとき設定の経路は 404 を返す。 */
@@ -123,10 +122,10 @@ export type AppDeps = {
   readiness: () => Promise<ReadinessDto>;
   /**
    * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。準備の確かめでずれがあるとき、画面が続けて読む。
-   * 渡さなければ、確かめた版だけを持つ空の一覧を返す。
    */
-  compat?: () => Promise<CompatDto>;
-  uiDist?: string;
+  compat: () => Promise<CompatDto>;
+  /** UI の dist。null なら UI を配らない（試験と、dist を持たない組み立て）。 */
+  uiDist: string | null;
 };
 
 const STATUSES = new Set(['active', 'paused', 'done', 'archived']);
@@ -313,7 +312,7 @@ export function createApp(deps: AppDeps): Hono {
 
   // 鍵の要らない経路なので、起動の進み具合は段階と件数だけを載せる。
   // compat は互換の版番号で、殻は 4177 の既存のサーバを、自分と同じ版のときだけ採る（apps/desktop/src-tauri/src/health.rs の judge_existing）。
-  app.get('/health', (c) => c.json({ ok: true, version: deps.version, compat: COMPAT_VERSION, ready: deps.ready?.() ?? true, index: deps.indexer.progress() }));
+  app.get('/health', (c) => c.json({ ok: true, version: deps.version, compat: COMPAT_VERSION, ready: deps.ready(), index: deps.indexer.progress() }));
 
   const api = new Hono();
   api.use('*', authMiddleware(deps.token, deps.port));
@@ -331,7 +330,7 @@ export function createApp(deps: AppDeps): Hono {
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
   /** 同期の状態。諦めた項目と、取り残しの残り件数を添えて返す。 */
-  const syncStatus = (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped?.() ?? [], sweepPending: deps.syncSweep?.() ?? null, oncePass: deps.syncOncePass?.() ?? false });
+  const syncStatus = (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped(), sweepPending: deps.syncSweep(), oncePass: deps.syncOncePass() });
   /**
    * セッションを起こす前に、他端末の変更を 2 秒だけ待って取り込む。
    * 間に合わなくても起動は続ける。同期の失敗で起動を止めない。
@@ -844,7 +843,7 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/statusline', (c) => c.json(statuslineStatus(deps.settings().claudeDir)));
   api.get('/shell-hook', (c) => c.json(deps.shellHook()));
   api.get('/readiness', async (c) => c.json(await deps.readiness()));
-  api.get('/compat', async (c) => c.json(deps.compat ? await deps.compat() : ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] } satisfies CompatDto)));
+  api.get('/compat', async (c) => c.json(await deps.compat()));
 
   // TODO。変更のたびに一覧とプロジェクト（未完の数）を配る。
   const todosChanged = (projectId: string) => {
