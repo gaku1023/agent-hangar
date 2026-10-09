@@ -616,6 +616,14 @@ DB のマイグレーションを要らない形にするためにファイル�
 確認リストの claude の行は Settings の `claudePath` だけを見るので、そこが空でも互換の要約には版が載る。
 画面に出すのは設定の確認リストの 1 行だけで、ヘッダーと知らせの札には出さない。
 
+#### 週に 1 度の照合
+
+GitHub Actions の `claude-compat`（`.github/workflows/claude-compat.yml`）が、週に 1 度と手動で、最新の claude を npm（`@anthropic-ai/claude-code`）から入れ、`claude --help` のサブコマンドと引数を最も新しい見本と突き合わせる（`packages/server/test/claudeLive.test.ts`）。
+違っていればジョブを落とし、見本を採り直す合図にする。
+版が新しいだけでは落とさない。
+見本がまだ無いときは、「見本がありません」と書いて落ちる。
+認証は要らない。
+
 ## セッションの起動と観察
 
 ### tmux による起動
