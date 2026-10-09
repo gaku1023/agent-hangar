@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SERVER_DROPPED_ENV } from '../../../packages/server/src/launch/env.ts';
+import { COMPAT_VERSION } from '../../../packages/shared/src/compat.ts';
 
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => fs.readFileSync(path.join(app, p), 'utf8');
@@ -212,5 +213,16 @@ describe('殻の印', () => {
     expect(read('src-tauri/src/lib.rs')).toContain("document.documentElement.dataset.shell = 'desktop'");
     const base = fs.readFileSync(path.resolve(app, '../../packages/ui/src/styles/base.css'), 'utf8');
     expect(base).toContain("[data-shell='desktop'] .shell { --head-lead: var(--lights-end); }");
+  });
+});
+
+describe('互換の版', () => {
+  // 殻は 4177 の既存のサーバを、自分が名乗る版と同じ版のときだけ採る（health.rs の judge_existing）。
+  // 殻の版は同梱するサーバの版と同じでなければならないので、shared の正本と突き合わせる。
+  // 片方だけ変えると、殻は自分と同じ束のサーバまで採らなくなるか、版の違うサーバを採る。
+  it('殻が名乗る互換の版（health.rs の COMPAT_VERSION）は shared の正本と同じ', () => {
+    const rust = read('src-tauri/src/health.rs').match(/pub const COMPAT_VERSION: u64 = (\d+);/)?.[1];
+    expect(rust, 'health.rs の COMPAT_VERSION が見つかりません').toBeDefined();
+    expect(Number(rust)).toBe(COMPAT_VERSION);
   });
 });

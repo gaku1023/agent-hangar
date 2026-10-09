@@ -21,6 +21,12 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 /// 進まない時計を渡されても必ず終わるための歯止めである。
 const MAX_TRIES: u32 = 10_000;
 
+/// 殻が名乗る互換の版。同梱するサーバと同じ版である。
+/// 正本は `packages/shared/src/compat.ts` の `COMPAT_VERSION` で、ここはその写しである。
+/// 片方だけ変えると `apps/desktop/test/config.test.ts` の「殻が名乗る互換の版は shared の正本と同じ」が落ちる。
+/// 殻は 4177 で動いている既存のサーバを、この版と同じ版を名乗るときだけ採る（`judge_existing`）。
+pub const COMPAT_VERSION: u64 = 1;
+
 /// chunked 転送のボディを連結する。
 /// 境界はバイト単位で扱う。
 /// 終端の `0` の塊まで正しく読めたときだけ `Some` を返す。
