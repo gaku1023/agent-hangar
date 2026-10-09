@@ -215,6 +215,13 @@ describe('セッションの名前とメモの同期', () => {
     seq: 7, tableName: 'sessions', rowId: 's1', op: 'upsert', deviceId: 'b', updatedAt,
     payload: { id: 's1', provider: 'claude-code', provider_session_id: 'u-s1', project_id: null, name, cwd: '/x', first_prompt: '向こうの最初の発言', ai_title: null, started_at: null, last_activity_at: null, home_device: 'a', memo, updated_at: updatedAt, deleted_at: null, origin_device: 'b' },
   });
+  /** 控えの置き場を明に渡す。実物の home には絶対に書かない。 */
+  let home: string;
+  beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-')); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); });
+  const so = () => ({ ...o, home });
+  const memosDir = () => path.join(home, 'backups', 'memos');
+  const backups = (): string[] => (fs.existsSync(memosDir()) ? fs.readdirSync(memosDir()).sort() : []);
   const noteRow = (db: TestDb) => db.prepare('select name, memo, updated_at, origin_device, deleted_at from session_notes where session_id = ?').get('s1');
   const future = () => Date.now() + 60_000;
 
@@ -232,7 +239,7 @@ describe('セッションの名前とメモの同期', () => {
     expect(applyRemoteChange(db, note(local - 1, { memo: '古い' }), o)).toBe('skipped');
     expect(applyRemoteChange(db, note(local, { memo: '同じ時刻' }), o)).toBe('skipped');
     expect(getSessionNote(db, 's1')).toEqual({ name: null, memo: '手元のメモ' });
-    expect(applyRemoteChange(db, note(local + 1, { memo: '新しい' }), o)).toBe('applied');
+    expect(applyRemoteChange(db, note(local + 1, { memo: '新しい' }), so())).toBe('applied');
     expect(getSessionNote(db, 's1')).toEqual({ name: null, memo: '新しい' });
   });
 
@@ -273,11 +280,93 @@ describe('セッションの名前とメモの同期', () => {
     expect(getSessionNote(db, 's1')).toEqual({ name: null, memo: 'メモ' });
   });
 
-  it('相手が消した名前とメモは、新しければ消える（空にするのも後勝ちの 1 つである）', () => {
+  it('相手が消した名前とメモは、新しければ消える（空にするのも後勝ちの 1 つである）。負けたメモは控えに残る', () => {
     const db = seed();
     setSessionMemo(db, 'a', 's1', '手元のメモ');
-    expect(applyRemoteChange(db, note(future(), { name: null, memo: null }), o)).toBe('applied');
+    expect(applyRemoteChange(db, note(future(), { name: null, memo: null }), so())).toBe('applied');
     expect(getSessionNote(db, 's1')).toEqual({ name: null, memo: null });
+    expect(backups().map((f) => fs.readFileSync(path.join(memosDir(), f), 'utf8'))).toEqual(['手元のメモ']);
+  });
+
+  describe('負けた名前とメモの控え', () => {
+    it('メモが別の中身で上書きされるとき、手元のメモを控えに残してから上書きし、呼び手へ知らせる', () => {
+      const db = seed();
+      upsertShared(db, 'devices', { id: 'a', name: 'MacBook', platform: 'darwin' }, 'a');
+      setSessionMemo(db, 'a', 's1', '手元のメモ');
+      const told: unknown[] = [];
+      expect(applyRemoteChange(db, note(future(), { memo: '向こうのメモ' }), { ...so(), onSessionMemoBackup: (x: unknown) => told.push(x) })).toBe('applied');
+      expect(backups()).toHaveLength(1);
+      expect(backups()[0]).toMatch(/^session-s1-\d{8}-\d{6}\.md$/);
+      const file = path.join(memosDir(), backups()[0]!);
+      expect(fs.readFileSync(file, 'utf8')).toBe('手元のメモ');
+      expect(told).toEqual([{ sessionId: 's1', markdown: '手元のメモ', deviceName: 'MacBook', backupFile: file }]);
+      expect(getSessionNote(db, 's1')).toEqual({ name: null, memo: '向こうのメモ' });
+      expectMode(memosDir(), 0o700);
+      expectMode(file, 0o600);
+    });
+
+    it('名前だけが負けたときは名前の 1 行を、名前もメモも負けたときは名前の 1 行とメモを残す', () => {
+      const db = seed();
+      setSessionName(db, 'a', 's1', '手元の名前');
+      setSessionMemo(db, 'a', 's1', '手元のメモ');
+      applyRemoteChange(db, note(future(), { name: '向こうの名前', memo: '手元のメモ' }), so());
+      expect(fs.readFileSync(path.join(memosDir(), backups()[0]!), 'utf8')).toBe('名前：手元の名前\n');
+      const db2 = seed();
+      setSessionName(db2, 'a', 's1', '手元の名前');
+      setSessionMemo(db2, 'a', 's1', '手元のメモ');
+      fs.rmSync(memosDir(), { recursive: true, force: true });
+      applyRemoteChange(db2, note(future(), { name: null, memo: '向こうのメモ' }), so());
+      expect(fs.readFileSync(path.join(memosDir(), backups()[0]!), 'utf8')).toBe('名前：手元の名前\n\n手元のメモ');
+    });
+
+    it('中身が同じ、手元が空、手元の行が無い、採らない（古い）ときは控えを作らない', () => {
+      const same = seed();
+      setSessionName(same, 'a', 's1', '名前');
+      setSessionMemo(same, 'a', 's1', 'メモ');
+      expect(applyRemoteChange(same, note(future(), { name: '名前', memo: 'メモ' }), so())).toBe('applied');
+      const empty = seed();
+      upsertShared(empty, 'session_notes', { session_id: 's1', name: null, memo: '  ', deleted_at: null }, 'a', 'session_id');
+      expect(applyRemoteChange(empty, note(future(), { name: '向こうの名前', memo: '向こうのメモ' }), so())).toBe('applied');
+      expect(applyRemoteChange(seed(), note(100, { memo: '向こうのメモ' }), so())).toBe('applied');
+      const older = seed();
+      setSessionMemo(older, 'a', 's1', '手元のメモ');
+      expect(applyRemoteChange(older, note(1, { memo: '古い' }), so())).toBe('skipped');
+      expect(backups()).toEqual([]);
+    });
+
+    it('sessions の行が降りても控えは作らない（索引の書き直しは名前とメモに触らない）', () => {
+      const db = seed();
+      setSessionMemo(db, 'a', 's1', '手元のメモ');
+      expect(applyRemoteChange(db, oldSession(future(), null, null), so())).toBe('applied');
+      expect(backups()).toEqual([]);
+    });
+
+    it('控えが書けなければ適用しない', () => {
+      const db = seed();
+      setSessionMemo(db, 'a', 's1', '手元のメモ');
+      // 入れ物の場所にファイルを置いて、作れなくする。
+      fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
+      fs.writeFileSync(memosDir(), 'x');
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        expect(applyRemoteChange(db, note(future(), { memo: '向こうのメモ' }), so())).toBe('skipped');
+      } finally { err.mockRestore(); }
+      expect(getSessionNote(db, 's1')).toEqual({ name: null, memo: '手元のメモ' });
+    });
+
+    it('同じ秒に 2 度来ても既存の控えを潰さず、他端末が寄こした ID をそのままパスに混ぜない', () => {
+      const db = seed();
+      setSessionMemo(db, 'a', 's1', '1 つ目');
+      applyRemoteChange(db, note(future(), { memo: '2 つ目' }), so());
+      applyRemoteChange(db, note(future() + 1, { memo: '3 つ目' }), so());
+      expect(backups().map((f) => fs.readFileSync(path.join(memosDir(), f), 'utf8')).sort()).toEqual(['1 つ目', '2 つ目']);
+      const evil = '../../evil';
+      db.pragma('foreign_keys = OFF');
+      db.prepare('insert into session_notes (session_id, name, memo, updated_at, deleted_at, origin_device) values (?,?,?,?,?,?)').run(evil, null, '手元', 1, null, 'a');
+      applyRemoteChange(db, note(future(), { session_id: evil, memo: '向こう' }, { rowId: evil }), so());
+      expect(backups().some((f) => /^session-id-[0-9a-f]{16}-/.test(f))).toBe(true);
+      expect(fs.existsSync(path.join(home, 'evil'))).toBe(false);
+    });
   });
 });
 

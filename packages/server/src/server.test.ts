@@ -23,7 +23,7 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { expectMode, posixIt } from '../test/platform.ts';
@@ -1262,19 +1262,28 @@ describe('控えの世代を刈る', () => {
     expect(() => pruneBackupFiles(path.join(home, 'backups'), 'a/b', 1)).toThrow(/形が不正/);
   });
 
-  it('起動のときに、本文の控えを上限まで刈る。前に作ったセッションのメモの控えには触らない', async () => {
+  it('起動のときに、本文とメモの控えを上限まで刈る', async () => {
     const tr = path.join(home, 'backups', 'transcripts');
     const memos = path.join(home, 'backups', 'memos');
     const trNames = seed(tr, BACKUP_GENERATIONS + 7, '.jsonl');
-    // メモの控えは、名前とメモを session_notes へ移したときに作るのをやめた。残っているものは利用者の文章なので消さない。
     const memoNames = seed(memos, BACKUP_GENERATIONS + 4, '.md');
     const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
       expect(fs.readdirSync(tr).sort()).toEqual(trNames.slice(7).sort());
-      expect(fs.readdirSync(memos).sort()).toEqual(memoNames.sort());
+      expect(fs.readdirSync(memos).sort()).toEqual(memoNames.slice(4).sort());
     } finally {
       await s.close();
     }
+  });
+});
+
+describe('セッションのメモの控えの知らせ', () => {
+  it('どの端末に負けて、どこに残したかを言う', () => {
+    const m = sessionMemoBackupMessage({ sessionId: 's1', markdown: '手元のメモ', deviceName: 'mini', backupFile: '/tmp/backups/memos/session-s1-20260919-101112.md' });
+    expect(m).toContain('mini');
+    expect(m).toContain('/tmp/backups/memos/session-s1-20260919-101112.md');
+    // 本文そのものはトーストに出さない（メモは長い文章になりうる）。
+    expect(m).not.toContain('手元のメモ');
   });
 });
 
