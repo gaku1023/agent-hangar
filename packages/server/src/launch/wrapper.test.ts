@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
+import { which } from '../config/tools.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { ensureWrapperScript, MAX_RUN_LOGS, pruneRunLogs, runLogPath, wrapperScript, wrapperScriptWin } from './wrapper.ts';
 import { expectMode, posixDescribe, posixIt } from '../../test/platform.ts';
@@ -29,6 +30,20 @@ describe('ensureWrapperScript', () => {
     ensureWrapperScript(home);
     expect(fs.statSync(p).mtimeMs).toBe(before);
     expect(runLogPath(home, 'r1')).toBe(path.join(home, 'logs', 'run-r1.log'));
+  });
+
+  posixIt('中身が変わったときは、別のファイルに書いてから rename で入れ替える', () => {
+    // bash は台本を読みながら走る。走っている run の包みをその場で書き換えると、claude が終わったあと
+    // 残りを新しい中身の途中から読み、構文の誤りで落ちる（exit= も残らない）。rename なら古い中身を最後まで読める。
+    const p = ensureWrapperScript(home);
+    fs.writeFileSync(p, '#!/usr/bin/env bash\n# 古い版\n');
+    const before = fs.statSync(p).ino;
+    ensureWrapperScript(home);
+    expect(fs.statSync(p).ino).not.toBe(before);
+    expect(fs.readFileSync(p, 'utf8')).toBe(wrapperScript());
+    expectMode(p, 0o755);
+    // 書きかけの一時ファイルを残さない。
+    expect(fs.readdirSync(path.dirname(p))).toEqual(['hangar-run.sh']);
   });
 });
 
@@ -100,7 +115,7 @@ posixDescribe('ラッパーの引用（bash を直接呼ぶ）', () => {
     const log = path.join(home, 'ログ dir', 'run 1.log');
     const r = spawnSync('bash', [wrapper, log, 'sh', '-c', 'echo "駄目でした" >&2; exit 0'], { encoding: 'utf8' });
     expect(r.status).toBe(0);
-    // tee はプロセス置換の中で動くので、bash が終わった時点ではまだ書き終えていないことがある。
+    // bash は tee が書き終えるのを待つが、待つのは 2 秒までなので、ここでも待つ。
     await waitFor(() => fs.readFileSync(log, 'utf8').includes('駄目でした'));
   });
 });
@@ -150,6 +165,40 @@ describe.skipIf(!TMUX)('ラッパー（tmux 上）', () => {
     await waitFor(() => !tmux.hasSession('hangar-wrap-err'));
     await waitFor(() => /oops/.test(fs.readFileSync(log, 'utf8')));
   });
+
+  it('tee が遅れても、標準エラーを書き終えてからセッションを閉じる', async () => {
+    // 込んだ機械では tee が後回しになり、正常終了した bash が先に抜けると、
+    // ペインのプロセス群へ届く SIGHUP で書きかけの tee が落ちて、終わり際の標準エラーが消えていた。
+    // 眠ってから本物の tee になる tee を PATH の先頭に置き、その遅れを毎回起こす。
+    const realTee = which('tee');
+    expect(realTee).not.toBeNull();
+    const bin = path.join(home, 'slow-bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'tee'), `#!/bin/sh\nsleep 0.3\nexec "${realTee}" "$@"\n`, { mode: 0o755 });
+    const wrapper = ensureWrapperScript(home);
+    const log = runLogPath(home, 'slow-tee');
+    tmux.newSession({
+      name: 'hangar-wrap-slow-tee',
+      cwd: home,
+      command: ['env', `PATH=${bin}:${process.env.PATH}`, 'bash', wrapper, log, 'sh', '-c', 'echo oops >&2; exit 0'],
+    });
+    await waitFor(() => !tmux.hasSession('hangar-wrap-slow-tee'));
+    // 閉じた時点で書き終えていて、exit= の行は標準エラーの後に来る。
+    expect(fs.readFileSync(log, 'utf8')).toMatch(/oops\n[^\n]* exit=0\n$/);
+  });
+
+  it('標準エラーを握ったまま残る子がいても、待ちすぎずに閉じる', async () => {
+    // tee は書き手が全部閉じるまで終わらない。claude の残した子が握り続けても、ペインは見切って閉じる。
+    const wrapper = ensureWrapperScript(home);
+    const log = runLogPath(home, 'linger');
+    tmux.newSession({
+      name: 'hangar-wrap-linger',
+      cwd: home,
+      command: ['bash', wrapper, log, 'sh', '-c', 'sleep 30 & echo oops >&2; exit 0'],
+    });
+    await waitFor(() => !tmux.hasSession('hangar-wrap-linger'), 15_000);
+    expect(fs.readFileSync(log, 'utf8')).toMatch(/oops\n[^\n]* exit=0\n$/);
+  }, 20_000);
 });
 
 /** その試験の home の下に、新しい置き場を作る。home は afterEach が消す。 */
