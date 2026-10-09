@@ -15,8 +15,10 @@ import { decryptBuffer, deriveFileKey, encryptBuffer, sha256Hex } from '../crypt
 import { SyncStateStore } from '../state.ts';
 import { unpackBundle } from './bundle.ts';
 import { slugOfPath } from './ids.ts';
-import { BUNDLE_PATH } from './paths.ts';
-import { ConfigBase, ConfigSyncError, ConfigSyncService } from './service.ts';
+import { writeApplyOrder } from './applyOrder.ts';
+import { applyOrderPath, BUNDLE_PATH, configBackupsDir } from './paths.ts';
+import { ConfigBase } from './base.ts';
+import { ConfigSyncError, ConfigSyncService } from './service.ts';
 
 const key = deriveFileKey('join-secret');
 const NOW = 1_700_000_000_000;
@@ -719,6 +721,25 @@ describe('古い Worker のあいだは束の行を書かない', () => {
       await a.cloud.health();
       await a.service.tick();
       expect(touched.length).toBeGreaterThan(afterOld);
+    } finally { off(); }
+  });
+
+  it('殻の命令や hangar config apply が指示書を消し、世代を足したら、画面へ配り直す（サーバの外で起きる変化）', async () => {
+    const a = pc('dev-a', 'mac');
+    const touched: string[] = [];
+    const off = onRowChange((c) => { if (c.db === a.db && c.table === 'config_state') touched.push('t'); });
+    try {
+      writeApplyOrder(a.home, 'dev-a', [], clock);
+      await a.service.tick();
+      const first = touched.length;
+      await a.service.tick();
+      expect(touched.length).toBe(first);
+      // 外の処理が、指示書を消して世代を足す。
+      fs.rmSync(applyOrderPath(a.home));
+      fs.mkdirSync(path.join(configBackupsDir(a.home), '20261010-120000'), { recursive: true });
+      await a.service.tick();
+      expect(touched.length).toBeGreaterThan(first);
+      expect(a.service.dto()).toMatchObject({ applyOrder: null, backups: 1 });
     } finally { off(); }
   });
 });

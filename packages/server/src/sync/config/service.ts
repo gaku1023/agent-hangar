@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import {
@@ -15,11 +16,12 @@ import type { CloudClient } from '../client.ts';
 import { decryptBuffer, encryptBuffer } from '../crypto.ts';
 import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.ts';
 import { listBackups } from './backups.ts';
+import { ConfigBase } from './base.ts';
 import { packBundle, unpackBundle, type BundleManifest, type ManifestItem } from './bundle.ts';
 import { collectLocal, isBlocked, type Blocked, type Collected, type LocalItem, type UnsentCandidate } from './collect.ts';
 import { parseItemId } from './ids.ts';
 import { pruneInbox, readInbox, readInboxBlob, readInboxMeta, writeInbox, type InboxEntry } from './inbox.ts';
-import { BUNDLE_PATH } from './paths.ts';
+import { applyOrderPath, BUNDLE_PATH } from './paths.ts';
 import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
 
 /**
@@ -71,18 +73,6 @@ const RETRY_AFTER_FAILURE_MS = 10 * 60 * 1000;
 
 const sha256 = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
 
-/** 基準の表 config_base。項目ごとに、最後に両方で同じだった中身の指紋を持つ。 */
-export class ConfigBase {
-  constructor(private readonly db: Db) {}
-  all(): Map<string, string> {
-    return new Map((this.db.prepare('select item_id, sha256 from config_base').all() as { item_id: string; sha256: string }[]).map((r) => [r.item_id, r.sha256]));
-  }
-  set(itemId: string, sha: string, now: number): void {
-    this.db.prepare('insert into config_base (item_id, sha256, synced_at) values (?,?,?) on conflict(item_id) do update set sha256 = excluded.sha256, synced_at = excluded.synced_at').run(itemId, sha, now);
-  }
-  remove(itemId: string): void { this.db.prepare('delete from config_base where item_id = ?').run(itemId); }
-}
-
 /** 判定に、見せる情報を足したもの。 */
 type Resolved = {
   action: Action;
@@ -106,6 +96,8 @@ export class ConfigSyncService {
   private stopped = false;
   /** 前に見たときの「Worker の更新待ち」。変わったら画面へ配り直す。 */
   private lastWorkerPending: boolean | null = null;
+  /** 前に見たときの「指示書の有無と世代の数」。適用と戻しはサーバの外（殻の命令、hangar config）で行われるので、変わったら画面へ配り直す。 */
+  private lastApplyState: string | null = null;
   /** 開けなかった束の、端末ごとの行の指紋と時刻。起こし直すと忘れる。 */
   private readonly failed = new Map<string, { sha: string; at: number }>();
 
@@ -305,6 +297,9 @@ export class ConfigSyncService {
       await this.send();
       const pending = this.workerPending();
       if (pending !== this.lastWorkerPending) { this.lastWorkerPending = pending; this.touch(); }
+      const applyState = `${fs.existsSync(applyOrderPath(this.deps.home))}:${listBackups(this.deps.home).length}`;
+      if (this.lastApplyState !== null && applyState !== this.lastApplyState) this.touch();
+      this.lastApplyState = applyState;
     } catch (e) {
       this.deps.onError?.(`設定の同期に失敗しました: ${e instanceof Error ? e.name : 'Error'}`);
     }

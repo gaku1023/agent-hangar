@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-config-apply",
+  "description": "サーバの UI（127.0.0.1:4177）から、他の PC から届いた設定の適用と、控えの世代へ戻す操作を殻に頼むためだけの権限。どちらも殻がネイティブの確認を出し、承諾されたときだけ書く。ほかの殻の機能は与えない。",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:4177/*"] },
+  "permissions": ["allow-apply-config-sync", "allow-restore-config-sync"]
+}

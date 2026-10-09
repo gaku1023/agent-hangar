@@ -63,7 +63,7 @@ export type SettingsSort = { items: SortedSetting[]; dropped: DroppedKey[]; drop
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** 値の型が、その鍵で想定しているものか。想定外は運ばない（相手の設定を壊さない）。 */
-function valueFits(key: string, v: unknown): boolean {
+export function valueFits(key: string, v: unknown): boolean {
   if (key === 'attribution') return isObject(v);
   if (key === 'cleanupPeriodDays') return typeof v === 'number' && Number.isFinite(v);
   if (key === 'autoMemoryEnabled' || key.startsWith(CARRIED_PREFIX)) return typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string';

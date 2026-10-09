@@ -33,7 +33,7 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
 - **読み取り専用**：Claude Code の設定とデータを、hangar は原則として読むだけで書き換えない。`~/.claude` の中へ書く例外は次の 4 つだけである。
   - statusline スクリプトへの追記。承諾を求め、追記の前に同じディレクトリへバックアップを取る。
   - 利用者が明示的に押した「この PC で再開」で、他端末のセッション本文を `~/.claude/projects/` に写すこと。手元の本文を上書きするときは `~/.agent-hangar/backups/transcripts/` へ控えを取り、控えが取れなければ写さない。
-  - クラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。Settings で明示的に有効にし、取り込む内容を確認したときだけ書く。上書きの前に `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。
+  - クラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。Settings で明示的に有効にし、取り込む内容を確認したときだけ書く。上書きの前に `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。作り直した実装では、書くのは殻のネイティブの確認を経た殻の命令と CLI の `hangar config apply` だけで、サーバは書かない（「設定の同期の作り直し」の節の「適用と世代へ戻す」）。
   - 利用者が確認のダイアログで押した「書き込む」で、`~/.claude/settings.json` の `cleanupPeriodDays` の 1 か所だけを書き換えること。書く前に差分を見せ、`~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ書かない。ほかのキーと書式には触れない（「会話の保持期間」の節）。
 - 初期プロンプトの欄の候補のために、`~/.claude` から次を読む。どれも読むだけで、書かない（「初期プロンプトの欄」の節）。
   - `skills/*/SKILL.md` と `commands/**/*.md`。選んだプロジェクトの `.claude/skills` と `.claude/commands` も同じに読む。
@@ -1752,7 +1752,7 @@ Home でも同じ行を同じ並びで出す。本文の「要対応」「実行
 入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動をやり直す `retry_boot` と `open_log` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動をやり直す `retry_boot` と `open_log` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open` に渡すだけで、呼び手からパスは受け取らない。
 UI は殻が差し込む `__TAURI_INTERNALS__` の有無で殻の中かを決め（`runtime/desktop.ts`）、殻の外（ブラウザ）ではこれらのボタンを出さない。
 接続が切れると、ヘッダーの下に切断の帯を出し、止まった時刻と次に再接続する秒数を言う。
@@ -2810,7 +2810,8 @@ D1 のメタデータ（題名、要約、TODO、メモ）は平文で持ち、�
 ### 設定の同期の作り直し
 
 段 4 の PR 14 で、サーバの側を作り直した（設計は `docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md`）。
-画面（PR 17）と、`~/.claude` へ書く殻の命令と CLI（PR 16）と、Worker の側（PR 15）はこの後に入る。
+`~/.claude` へ書く殻の命令と CLI は PR 16 で入れた（「適用と世代へ戻す」）。
+画面（PR 17）と、Worker の側（PR 15）はこの後に入る。
 旧実装（`sync/claudeConfig.ts`、`file_sync` の設定の行、`/sync/config/*`、`SettingsDto.syncClaudeConfig`）は、PR 18 で消すまで残る。
 新しい実装は `sync/config/` にあり、既定は切である。
 
@@ -2832,7 +2833,7 @@ slug は PC ごとに違うので、hangar のプロジェクトの id で運び
 知らない鍵も運ばない。
 権限（`permissions.allow`、`ask`、`deny`、`defaultMode`）は運ぶが、括弧の中が `//` かドライブ文字か UNC で始まる絶対パスの規則だけ落とす。
 全部が絶対パスの鍵は、空の配列で相手の規則を消さないよう運ばない。
-受け手が権限の鍵を適用するときは、手元の絶対パスの規則を残すこと（適用する側の約束で、PR 16 で守る）。
+受け手が権限の鍵を適用するときは、手元の絶対パスの規則を残す（`hangar config apply` が守る。「適用と世代へ戻す」）。
 シンボリックリンクは辿らず、1 MiB を超えるファイルと、`node_modules`、`.git`、`__pycache__`、`.venv`、`.DS_Store`、同期自身の写し（`*.conflict-*`、`*.hangar-tmp-*`、`*.part`）は拾わない。
 ホームのパスの置き換え（`__HANGAR_HOME__`）は、新しい実装では行わない。
 
@@ -2874,6 +2875,45 @@ skills、commands、agents は実行される指示なので、他の PC から�
 前の指示書は置き換える。`DELETE` で取り消せる。
 サーバは `~/.claude` に書かない（全体計画の D9）。指示書を読んでネイティブの確認を出し、控えを取って書き、基準を更新し、指示書を消すのは、殻の命令と `hangar config apply` の役目である。
 
+**適用と世代へ戻す（PR 16）。**
+書く処理の本体は `sync/config/apply.ts` にあり、CLI（`packages/cli/src/config.ts`）と殻の命令（`apps/desktop/src-tauri/src/configapply.rs` と `lib.rs`）が同じものを走らせる。
+サーバ本体は引かず（`cliEntry.ts` から出す）、読むのは指示書と inbox、書くのは設定の入れ物と `config_base` だけである。
+
+- `hangar config apply`：指示書を読み、件数と種類と実行される内容を見せて承諾を取り、控えを取って書く。
+  `--plan` は見立てだけ、`--yes` は聞かずに書く、`--json` は機械向けに 1 行の JSON を返す（`{ ok, plan }`、`{ ok, result }`、失敗は `{ ok: false, code, message }`）。
+  `--order <createdAt>` は、確認した指示書にだけ適用する（確認のあとに選び直されていたら `stale` で断る。殻が使う）。
+  対話でない端末で `--yes` が無ければ書かない。
+- `hangar config restore [世代]`：世代を省くと一覧を出す。
+  世代を指すと戻す先と消す先を見せて承諾を取る（`--plan`、`--yes`、`--json` は同じ）。
+- 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name)`：CLI に `--plan --json` を走らせ、返った件数と種類をネイティブの確認（`tauri-plugin-dialog` のメッセージ）に出し、承諾されたときだけ `--yes --json`（適用は `--order` 付き）を走らせる。
+  実行される内容（skills、commands、agents、フックとコマンド実行とスクリプトの印）を含むときは警告の見た目で出し、その件数と項目の名前（5 件まで）を書く。
+  結果は `{ status, message, generation }`（`status` は `applied`、`restored`、`cancelled`、`none`、`failed`、`busy`）で頁へ返す。
+  失敗は確認と同じネイティブの窓でも知らせる。
+  頁から渡せるのは世代の名前だけで、`yyyyMMdd-HHmmss` の形を殻が確かめる。
+  権限は `capabilities/remote-config-apply.json` の 2 つだけで、頁の側の呼び出し（設定の画面）は PR 17 で足す。
+- 適用の順序は、(1) 指示書を読み、inbox と突き合わせて全項目が書けるかを先に確かめる、(2) 書く先の元の中身を世代に控える、(3) 一時ファイルに書いて rename する、(4) `config_base` を 1 つの transaction で更新する、(5) 指示書を消して、世代を新しい 20 個に保つ、である。
+  (1) で 1 つでも合わなければ何も書かずに断る。
+  束が更新されて指紋が合わない（`stale`）、書き込み先が id から決まる場所と違う、途中がシンボリックリンクか通常でない（`unsafe`）、届いた値が鍵の型に合わない、`settings.json` が JSON のオブジェクトでない、のどれかである。
+  指示書は残す。
+  (3)、(4) の途中で失敗したら、世代から元へ戻し（作ったファイルとディレクトリも消す）、世代を消し、指示書は残す。
+  戻す途中でも失敗したときは世代を残し、`hangar config restore <世代>` で戻す手順を文に入れる。
+- 控えの世代 `backups/claude-config/<yyyyMMdd-HHmmss>/` には、書く先の元のファイルを設定の入れ物からの相対パスで置き、直下の `.hangar-apply.json`（世代の数には入れない）に、その時点で無かった先と無かったディレクトリ、`config_base` の前の値を残す。
+  旧実装の世代（記録なし）も、ファイルを書き戻すだけで戻せる。
+  同じ秒にもう一度取るときは、前の世代を潰さずに次の秒の名前にする。
+- 世代へ戻すときは、戻す前の状態を新しい世代として控える（戻しを取り消せる）。
+  無かった先は消し、`config_base` も適用の前の値へ戻す（DB が開けないときはファイルだけ戻す）。
+  そのため、戻したあとは、その項目がもう一度届いた変更として一覧に出る。
+- 項目ごとの書き方：ファイルとメモリは中身をそのまま書く（権限は手元のものを保ち、新しいファイルは 0644。skills のスクリプトにも実行の許可は付けない。他の PC からの実行経路にしないため）。
+  競合で手元を採る項目は書かず、基準を相手の指紋に合わせる（次の同期で手元が送られる）。
+  相手が消した項目の競合で手元を採るときは、基準の行を消す。
+  消す項目は、元の中身が世代に残る。
+  `settings.json` は、鍵ごとの項目を 1 回の読み書きでまとめて当てる。
+  ほかの鍵、並び、字下げ、末尾の改行は保つ。
+  無ければ作る（0600）。
+  権限の `allow`、`ask`、`deny` は、届いた規則を入れ、手元の絶対パスの規則は残す（相手が鍵を消したときも、絶対パスの規則だけ残る）。
+- サーバの側の追加：適用と戻しはサーバの外で起きるので、60 秒ごとの送受信の回で指示書の有無と世代の数を見て、変わっていたら `config.update` を配り直す。
+  `ConfigBase` は `sync/config/base.ts` に分けた（適用する側がサーバ全体を引かないため）。
+
 **経路（`http/routes/sync.ts`）。**
 すべて `/api` の認証の下にあり、同期を設定していない端末では 404 を返す。
 
@@ -2884,7 +2924,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
 | `GET /api/config-sync/inbox` | 届いた変更。項目ごとに種類、操作（`create`、`overwrite`、`delete`、`conflict`）、送り主、大きさ、実行の印、中身の先頭、保留、承諾が要るか |
 | `GET /api/config-sync/conflicts` | 競合。両側の PC と時刻と大きさ、差分の行（`RetentionPreviewLine` と同じ形） |
 | `GET /api/config-sync/unsent`、`POST /api/config-sync/unsent/:id/send` | 送らなかった項目と、「それでも送る」 |
-| `GET /api/config-sync/backups` | 控えの世代（`backups/claude-config/` の `yyyyMMdd-HHmmss`）。戻す操作は殻の命令 |
+| `GET /api/config-sync/backups` | 控えの世代（`backups/claude-config/` の `yyyyMMdd-HHmmss`）。戻す操作は殻の命令 `restore_config_sync` と `hangar config restore` |
 | `GET`、`PUT`、`DELETE /api/config-sync/apply-order` | 適用の指示書 |
 
 **互換の版。**
@@ -3424,7 +3464,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 既知の限界：使わなくなった端末の `transcripts/<端末 ID>/` と `config/<端末 ID>/` を畳む口が無い。
   掃除が拾うのは索引に無い本体と、本体の無い索引の行だけで、索引に載っている他端末のファイルは消さない。
 - `~/.agent-hangar/backups/` のうち 20 世代で刈るのは 3 種類（`claude-config/`、`transcripts/`、`memos/`）で、どれも新しい方から 20 世代を残す。
-  `claude-config/` は取り込みのたびに、`transcripts/` と `memos/` は控えを取った後とサーバを起こしたときに刈る。
+  `claude-config/` は取り込みのたび（作り直した実装では、`hangar config apply` と `hangar config restore` が世代を足したとき）に、`transcripts/` と `memos/` は控えを取った後とサーバを起こしたときに刈る。
   いま取った控えが最も新しいので、「控えを取れなければ書かない」という決まりには触らない。
   この置き場の外に残る控え（プロジェクトのメモの隣の `memo.md.bak-<日時>` と、設定の同期の `*.conflict-*`）は消さない。
 - `~/.agent-hangar/backups/db/` は DB の控えで、新しい方から 5 世代を残す。
