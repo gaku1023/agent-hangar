@@ -1,4 +1,4 @@
-import type { IndexProgressDto, Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
 import type { TableIntent } from '../runtime/intentTable.ts';
 
 /**
@@ -270,8 +270,6 @@ export type State = {
    * 次にそのプロジェクトでダイアログを開いたときの初期値にする。端末ごとに localStorage に残す。
    */
   launchPrefs: Record<string, LaunchPrefs>;
-  /** 直前に受け取った索引の段階。走査が終わった瞬間を見つけるために持つ。 */
-  indexPhase: IndexProgressDto['phase'];
   /** 欄ごとの保存の知らせ。欄の名前（設定の項目名）で引く。 */
   settingsSave: Record<string, SaveMark>;
   /**

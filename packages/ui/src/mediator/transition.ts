@@ -24,7 +24,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, workspaceDirs: null, pickedFolder: null, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], sectionsOpen: {}, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false, blocked: false }, nextToastId: 1, indexPhase: 'idle', settingsSave: {}, copied: null };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, workspaceDirs: null, pickedFolder: null, summaryFailed: {}, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], sectionsOpen: {}, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], notify: { available: false, on: false, blocked: false }, nextToastId: 1, settingsSave: {}, copied: null };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -52,13 +52,6 @@ export function transition(state: State, store: Store, input: Input): Step {
   }
   if (input.kind === 'server') {
     if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };
-    if (input.event.type === 'index.progress') {
-      // 走査中に開いた UI は、そのときの bootstrap にプロジェクトも紐づけも載っていない。
-      // 走査が終わった瞬間に取り直す。
-      const phase = input.event.progress.phase;
-      const done = phase === 'idle' && state.indexPhase !== 'idle';
-      return { state: { ...state, indexPhase: phase }, effects: done ? [{ kind: 'api.bootstrap' }] : [] };
-    }
     return { state, effects: [] };
   }
   if (input.kind === 'runtime') {

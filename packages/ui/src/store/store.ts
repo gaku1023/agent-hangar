@@ -126,6 +126,15 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
   }
 }
 
+/**
+ * この知らせで索引の走査が終わるか（動いていた索引が idle に戻る）。知らせを当てる前の Store で見る。
+ * 索引の段階は Store の index だけが持つので、前の段階を知っているのは当てる側（Runtime）である。
+ * 走査中に開いた UI は、そのときの bootstrap にプロジェクトも紐づけも載っていないので、Runtime は終わった瞬間に取り直す。
+ */
+export function indexFinishedBy(store: Store, ev: ServerEvent): boolean {
+  return ev.type === 'index.progress' && ev.progress.phase === 'idle' && store.index.phase !== 'idle';
+}
+
 export const accountList = (store: Store): AccountDto[] => store.accounts?.accounts ?? [];
 
 const primaryAccount = (list: AccountDto[]): AccountDto | null => list.find((a) => a.primary) ?? null;

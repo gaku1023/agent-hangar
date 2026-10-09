@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -574,6 +574,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   function dispatch(input: Input): void {
     // 型では表の Intent を渡せないが、型を外して渡されても Mediator へは入れない。
     if (input.kind === 'intent' && isTableIntent(input.intent)) { emit(input.intent); return; }
+    // 索引の走査がこの知らせで終わるかは、当てる前の Store でしか分からない。
+    const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
@@ -591,6 +593,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const r = transition(state, store, input);
     if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
+    // 走査中に開いた UI の bootstrap には、プロジェクトも紐づけも載っていない。走査が終わった瞬間に取り直す。
+    if (indexDone) runEffect({ kind: 'api.bootstrap' });
     // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
     if (!wasHome && state.screen.name === 'home') for (const run of Object.values(store.runs)) if (run.endedAt === null) loadLive(run.sessionId);
   }

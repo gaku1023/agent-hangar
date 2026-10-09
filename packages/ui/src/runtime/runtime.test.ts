@@ -1017,6 +1017,36 @@ describe('繰り越しの掃除', () => {
   });
 });
 
+describe('索引の進み（ランタイム）', () => {
+  const progress = (phase: 'idle' | 'scanning' | 'indexing') => ({ type: 'index.progress' as const, progress: { phase, done: 0, total: 0 } });
+  it('走査が終わった瞬間に bootstrap を取り直す', async () => {
+    const { rt, api, wsHandlers } = harness();
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(api.bootstrap).toHaveBeenCalledTimes(1);
+    wsHandlers[0]!.onEvent(progress('scanning'));
+    wsHandlers[0]!.onEvent(progress('indexing'));
+    expect(api.bootstrap).toHaveBeenCalledTimes(1);
+    wsHandlers[0]!.onEvent(progress('idle'));
+    expect(api.bootstrap).toHaveBeenCalledTimes(2);
+    await flush();
+    // 同じ idle が続いても取り直さない。
+    wsHandlers[0]!.onEvent(progress('idle'));
+    expect(api.bootstrap).toHaveBeenCalledTimes(2);
+  });
+  it('走査中に開いて、最初の知らせが idle でも取り直す', async () => {
+    // 走査中の bootstrap にはプロジェクトも紐づけも載っていない。段階は Store の 1 か所だけにあるので、bootstrap が運んだ段階からも終わりが分かる。
+    const bootstrap = vi.fn(async () => ({ ...boot, index: { phase: 'scanning' as const, done: 0, total: 0 } }));
+    const { rt, api, wsHandlers } = harness({ bootstrap });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    wsHandlers[0]!.onEvent(progress('idle'));
+    expect(api.bootstrap).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('同期とこの PC で再開', () => {
   it('今すぐ同期と一時停止はストアの sync を差し替える', async () => {
     const { rt, api } = harness();

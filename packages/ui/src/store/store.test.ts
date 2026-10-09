@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { accountsFixture } from '../test/accounts.ts';
-import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+
+describe('索引の段階', () => {
+  const progress = (phase: 'idle' | 'scanning' | 'indexing') => ({ type: 'index.progress' as const, progress: { phase, done: 0, total: 0 } });
+  it('動いていた索引が idle に戻る index.progress だけを、走査の終わりと見る', () => {
+    const scanning = applyServerEvent(initialStore(), progress('scanning'));
+    expect(indexFinishedBy(scanning, progress('indexing'))).toBe(false);
+    expect(indexFinishedBy(scanning, progress('idle'))).toBe(true);
+    expect(indexFinishedBy(applyServerEvent(scanning, progress('indexing')), progress('idle'))).toBe(true);
+    // 同じ idle が続いても終わりではない。
+    expect(indexFinishedBy(initialStore(), progress('idle'))).toBe(false);
+    expect(indexFinishedBy(scanning, { type: 'ready', version: '1' })).toBe(false);
+  });
+  it('bootstrap が運んだ段階からも終わりを見つける', () => {
+    // 走査中に開いた UI は、bootstrap で段階を受け取る。その後の最初の知らせが idle でも取りこぼさない。
+    const s = applyBootstrap(initialStore(), { ...boot, index: { phase: 'scanning', done: 0, total: 0 } });
+    expect(indexFinishedBy(s, progress('idle'))).toBe(true);
+  });
+});
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {

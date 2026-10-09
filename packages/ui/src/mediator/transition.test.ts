@@ -232,16 +232,14 @@ describe('ダイアログを開いている間の開く操作', () => {
 });
 
 describe('索引の進み', () => {
-  it('走査が終わった瞬間に bootstrap を取り直す', () => {
-    const a = run([server({ type: 'index.progress', progress: { phase: 'scanning', done: 0, total: 0 } })]);
-    expect(a.effects).toEqual([]);
-    const b = run([server({ type: 'index.progress', progress: { phase: 'indexing', done: 1, total: 3 } })], a.state);
-    expect(b.effects).toEqual([]);
-    const c = run([server({ type: 'index.progress', progress: { phase: 'idle', done: 3, total: 3 } })], b.state);
-    expect(c.effects).toEqual([{ kind: 'api.bootstrap' }]);
-    // 同じ idle が続いても取り直さない。
-    const d = run([server({ type: 'index.progress', progress: { phase: 'idle', done: 3, total: 3 } })], c.state);
-    expect(d.effects).toEqual([]);
+  it('index.progress は State を変えない（索引の段階は Store だけが持つ）', () => {
+    // 走査が終わった瞬間の取り直しは、前の段階を知っている Runtime が、Store に当てるときに見る（store.ts の indexFinishedBy）。
+    const start = initialState();
+    expect(start).not.toHaveProperty('indexPhase');
+    for (const phase of ['scanning', 'indexing', 'idle'] as const) {
+      const r = run([server({ type: 'index.progress', progress: { phase, done: 1, total: 3 } })], start);
+      expect([phase, r.state === start, r.effects]).toEqual([phase, true, []]);
+    }
   });
 });
 
