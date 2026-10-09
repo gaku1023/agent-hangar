@@ -3,7 +3,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { CompatDto, ReadinessDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
@@ -1594,6 +1594,7 @@ describe('互換の版', () => {
     const onceToasts = (c: ReturnType<typeof collector>): string[] => c.all().filter(isToast).map((e) => e.message).filter((m) => m.includes('1 回だけ同期しました'));
     /** 1 巡の終わり（done）が配る知らせが届くだけの間を置く。 */
     const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 300));
+    afterEach(() => { vi.useRealTimers(); });
 
     it('退いていて利用者は止めていないときの今すぐ同期は、1 巡の道に回らず、1 回だけの知らせも出さない', async () => {
       const w = await fakeWorker(() => limitAnswer());
@@ -1644,6 +1645,10 @@ describe('互換の版', () => {
     });
 
     it('一時停止中に頼んだ 1 巡が上限で断られたら、その終わりに成功や残りの件数の知らせを重ねない', async () => {
+      // サーバの時計は実時間なので、UTC の 0 時から 10 分の猶予（黙って退く）に当たらないよう、昼の 12 時に合わせる。
+      // 偽にするのは Date だけで、時計は実時間と同じ速さで進める（待ちの timeout や until の期限を壊さない）。
+      vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
+      vi.setSystemTime(Date.UTC(2026, 9, 9, 12, 0, 0));
       const w = await fakeWorker(() => limitAnswer());
       joinTo(w.url);
       presetPaused();

@@ -14,8 +14,13 @@ let db: Db;
 let cloud: FakeCloudClient;
 let timers: FakeTimers;
 
-const make = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) =>
-  new SyncEngine({ db, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h', ...over });
+const make = <E extends SyncEngine = SyncEngine>(over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}, Engine: new (deps: ConstructorParameters<typeof SyncEngine>[0]) => E = SyncEngine as never): E =>
+  new Engine({ db, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h', ...over });
+/** protected な failPush と failPull を、並行する push と pull の断りに見立てて直接呼ぶ試験用の派生。 */
+class Probe extends SyncEngine {
+  refusePush(): void { this.failPush(new LimitError('d1-write', 429)); }
+  refusePull(): void { this.failPull(new LimitError('requests', 429)); }
+}
 const unpushed = () => (db.prepare('select count(*) c from changes where pushed_at is null').get() as { c: number }).c;
 const project = (id: string, name = id) => upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0 }, 'a');
 const pushBatches = () => cloud.calls.filter((c) => c.method === 'pushChanges').map((c) => (c.args[0] as unknown[]).length);
@@ -870,6 +875,19 @@ describe('上限で退く', () => {
     e.stop();
   });
 
+  it('止めていないときの今すぐ同期は、ふだんの文のままである', async () => {
+    const midnight = beforeMidnight();
+    const toasts: string[] = [];
+    const e = make();
+    e.on({ toast: (_l, m) => toasts.push(m) });
+    await e.start();
+    project('p1');
+    cloud.limited = 'd1-write';
+    await e.syncNow();
+    expect(toasts).toEqual([limitedMessage(midnight)]);
+    e.stop();
+  });
+
   it('利用者が一時停止している間は一時停止として見せ、再開すると戻る時刻まで退いたことを見せる', async () => {
     const midnight = beforeMidnight();
     const e = make();
@@ -900,19 +918,6 @@ describe('上限で退く', () => {
       expect(toasts[0]).toBe(limitedWhilePausedMessage());
       expect(toasts.join('')).not.toContain('自動で再開します');
       expect(toasts.join('')).not.toMatch(/\d:\d\d/);
-      e.stop();
-    });
-
-    it('止めていないときの今すぐ同期は、ふだんの文のままである', async () => {
-      const midnight = beforeMidnight();
-      const toasts: string[] = [];
-      const e = make();
-      e.on({ toast: (_l, m) => toasts.push(m) });
-      await e.start();
-      project('p1');
-      cloud.limited = 'd1-write';
-      await e.syncNow();
-      expect(toasts).toEqual([limitedMessage(midnight)]);
       e.stop();
     });
 
@@ -1007,14 +1012,10 @@ describe('上限で退く', () => {
     });
 
     it('短い退きの印が生きているうちに猶予の外で断られたら、1 日の退きへ移って 1 度だけ知らせる', async () => {
-      class Probe extends SyncEngine {
-        refusePush(): void { this.failPush(new LimitError('d1-write', 429)); }
-        refusePull(): void { this.failPull(new LimitError('requests', 429)); }
-      }
       const midnight = Date.UTC(2026, 9, 9);
       timers.now = midnight + 9 * MIN;
       const toasts: string[] = [];
-      const e = new Probe({ db, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h' });
+      const e = make({}, Probe);
       e.on({ toast: (_l, m) => toasts.push(m) });
       // 0:09 の断りは猶予の中なので、0:14 までの短い印が黙って立つ。
       e.refusePush();
