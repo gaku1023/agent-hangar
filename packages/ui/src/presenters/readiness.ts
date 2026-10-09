@@ -189,7 +189,7 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
   const total = checks.length;
   const basics = checks.filter((c) => c.key === 'tmux' || c.key === 'claude').every((c) => c.ok);
   const group: BandGroup = {
-    id: 'readiness', label: t('home.ready.label'), icon: 'check', tone: 'warn', count: todo.length, countText: t('home.ready.progress', { done: done.length, total }),
+    id: 'readiness', label: t('home.ready.label'), icon: 'alert', tone: 'warn', count: todo.length, countText: t('home.ready.progress', { done: done.length, total }),
     progress: Math.round((done.length / total) * 100), summary: t('home.ready.summary', { n: todo.length }), morning: true, rows: todo.map(fixRow),
     fold: done.length > 0 ? { text: t('home.ready.fold', { names: done.map((c) => name(c.key)).join(t('home.ready.separator')) }), rows: done.map(doneRow) } : undefined,
   };

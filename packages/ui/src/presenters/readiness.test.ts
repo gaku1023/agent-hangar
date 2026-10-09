@@ -62,6 +62,8 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   it('6 つ中の済んだ数を錠剤に、直すものの数を件数に、済んだ割合を進みに持つ', () => {
     const b = presentReadiness(READY, ja)!;
     expect(b.group).toMatchObject({ id: 'readiness', label: 'セットアップの確認', countText: '6 つ中 3 つ', count: 3, progress: 50, tone: 'warn', morning: true, summary: '要修正 3' });
+    // 直すものが残っているので、済んだように読める ✓ ではなく、注意の印にする。
+    expect(b.group.icon).toBe('alert');
   });
   it('直すものだけを 1 行ずつ。必須を先に、任意は「任意」の札を付けて後ろに置く', () => {
     const b = presentReadiness(READY, ja)!;
