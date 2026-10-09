@@ -1435,10 +1435,10 @@ describe('同期の Presenter（フェーズ 4）', () => {
   it('Settings のクラウドの節', () => {
     const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true, shell: null }], joinToken: 'tok', settings: fullSettings({ syncClaudeConfig: true }) };
     const p = presentSettings(initialState(), store, NOW).cloud;
-    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok', syncClaudeConfig: true, configConfirmed: false });
+    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok' });
     expect(p.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
     const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused', claudeConfig: { enabled: true, confirmed: true } }) }, NOW).cloud;
-    expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '同期を一時停止中', paused: true, configConfirmed: true });
+    expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '同期を一時停止中', paused: true });
     // ヘッダーと同じ語を使う。
     // エラーの理由はヘッダーにだけ出す。
     expect(presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'pushing' }) }, NOW).cloud.stateLabel).toBe('送信中');
@@ -1460,7 +1460,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
   });
   it('同期を設定していない端末のクラウドの節', () => {
     const p = presentSettings(initialState(), initialStore(), NOW).cloud;
-    expect(p).toMatchObject({ configured: false, url: null, state: 'off', paused: false, pending: 0, lastPullAt: '不明', joinToken: null, syncClaudeConfig: false, configConfirmed: false });
+    expect(p).toMatchObject({ configured: false, url: null, state: 'off', paused: false, pending: 0, lastPullAt: '不明', joinToken: null });
     expect(p.devices).toEqual([]);
     // off が届いているだけの端末も「設定していない」と同じ扱いにする。
     expect(presentSettings(initialState(), { ...initialStore(), sync: syncStatus({ state: 'off', url: null }) }, NOW).cloud.configured).toBe(false);
@@ -1585,6 +1585,9 @@ describe('presentRetentionDialog', () => {
     expect(p.lead).toBe('Claude Code の設定ファイルの、次の 1 行を書き換えます。');
     expect(p.otherPcs).toBe(true);
     expect(p.showOther).toBe(false);
+    // 作り直した設定の同期が入っているときも、他の PC の行を出す。
+    const bundle = presentRetentionDialog(open(365, 'settings'), st({ retention: { ...R, days: 3650, source: 'user', userValue: 3650 }, retentionPreview: { ...P, lines }, settings: fullSettings(), configSync: { enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null } }), NOW)!;
+    expect(bundle.otherPcs).toBe(true);
   });
   it('縮めるときは題を変え、消える件数を言う', () => {
     const s = { a: session('a', { transcriptMtime: NOW - 40 * DAY }), b: session('b', { transcriptMtime: NOW - 5 * DAY }) };

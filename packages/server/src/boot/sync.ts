@@ -163,7 +163,13 @@ export function bootSync(
   const once = createOncePass({ engine, puller, configSync, uploader, cloudUsage, isPaused, sweepPending: feed.sweep, broadcastSync: feed.broadcastSync, toast, language: home.language });
   engine.on(feed.listener());
 
+  // 設定の同期（作り直した実装）のスイッチが切から入に変わった瞬間に、次の周期を待たず 1 回回す。
+  // 送る一覧を承諾した人が、承諾したあとの 1 分近くを黙って待たないようにする。
+  let bundleWasOn = settings.current.configBundleSync === true;
   const publishConfigSync = (): void => {
+    const bundleOn = settings.current.configBundleSync === true;
+    if (bundleOn && !bundleWasOn) void configBundle?.tick();
+    bundleWasOn = bundleOn;
     engine.setClaudeConfigStatus({ enabled: settings.current.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
     // 承諾の仕方とスイッチは新しい実装の状態にも載るので、配り直す。
     touchRow(db, 'config_state', 'self');

@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type ConfigApplyOrderEntryIn, type Intent, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -17,7 +17,7 @@ import { translatorOf } from '../presenters/i18n.ts';
 import { readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearchResult, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -240,6 +240,59 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const tab = open.find((t) => t.id === pick) ?? open[0];
     if (!tab || (tab.kind === 'agent' && run.endedAt !== null)) return null;
     return tab.id;
+  }
+
+  /**
+   * 設定の同期の中身を取る。件数と状態は config.update と bootstrap で届く値が正なので、ここは項目の一覧だけを入れる。
+   * 同期を組んでいない端末では 404 になるので、取りに来る前に configSync があることを見る（呼ぶ側の Mediator が見る）。
+   * 失敗は 1 つの部分ごとに知らせる。
+   */
+  function loadConfigDetail(parts: ConfigDetailPart[]): void {
+    for (const part of parts) {
+      switch (part) {
+        case 'outgoing': deps.api.configOutgoing().then((v) => setStore(applyConfigDetail(store, 'outgoing', v))).catch(fail); break;
+        case 'inbox': deps.api.configInbox().then((v) => setStore(applyConfigDetail(store, 'inbox', v))).catch(fail); break;
+        case 'conflicts': deps.api.configConflicts().then((v) => setStore(applyConfigDetail(store, 'conflicts', v))).catch(fail); break;
+        case 'unsent': deps.api.configUnsent().then((v) => setStore(applyConfigDetail(store, 'unsent', v))).catch(fail); break;
+        case 'backups': deps.api.configBackups().then((v) => setStore(applyConfigDetail(store, 'backups', v))).catch(fail); break;
+      }
+    }
+  }
+  /** 状態を取り直し、そこから決まる件数のある中身を取り直す。適用と戻しは殻が行い、サーバは次の周期まで知らないので、済んだらすぐ呼ぶ。 */
+  function refreshConfigSync(): void {
+    deps.api.configSyncState().then((c) => { setStore({ ...store, configSync: c }); loadConfigDetail(configPartsToLoad(c)); }).catch(fail);
+  }
+  /**
+   * 殻の結果（適用または戻し）を知らせにする。
+   * applied と restored は済んだので状態を取り直す。cancelled、none、busy、failed は書いていないので、そのまま文を知らせる（失敗だけ赤）。
+   */
+  function shellOutcome(r: { status: string; message: string }, fromDialog: boolean): void {
+    dispatch({ kind: 'server', event: { type: 'toast', level: r.status === 'failed' ? 'error' : 'info', message: r.message } });
+    const wrote = r.status === 'applied' || r.status === 'restored';
+    if (wrote) refreshConfigSync();
+    if (fromDialog) dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: wrote } });
+  }
+  /**
+   * 選んだ項目を指示書にして、殻のネイティブの確認へ進む。entries が null なら、いまある指示書をそのまま使う。
+   * ブラウザには殻が無いので、指示書を書いたところで止め、画面の「適用の待ち」の行が hangar config apply を案内する。
+   */
+  function applyConfigSync(entries: ConfigApplyOrderEntryIn[] | null): void {
+    const t = translatorOf(store);
+    void (async () => {
+      try {
+        if (entries) await deps.api.configPutOrder(entries);
+        const shell = deps.desktop;
+        if (!shell) {
+          toast(t('configSyncUi.toast.orderWritten'));
+          dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: true } });
+          return;
+        }
+        shellOutcome(await shell.applyConfigSync(), true);
+      } catch (err) {
+        fail(err);
+        dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: false } });
+      }
+    })();
   }
 
   function runEffect(e: Effect): void {
@@ -513,6 +566,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'api.configPreview': deps.api.configPreview().then((p) => setStore(applyConfigPreview(store, p))).catch(fail); return;
       case 'api.configPull': deps.api.configPull().then((r) => toast(`${r.applied} 件を取り込みました（競合 ${r.conflicts} 件）`)).catch(fail); return;
+      case 'api.configSyncLoad': loadConfigDetail(e.parts); return;
+      case 'api.configSyncApply': applyConfigSync(e.entries); return;
+      case 'api.configSyncRestore': {
+        // ブラウザでは殻が無い。画面は、その場合は戻すボタンの代わりにコマンドを出すので、ここへは来ない。
+        const shell = deps.desktop;
+        if (!shell) return;
+        shell.restoreConfigSync(e.name).then((r) => shellOutcome(r, false)).catch((err: unknown) => failWith('設定を戻せませんでした', err));
+        return;
+      }
       case 'api.retentionPreview':
         // 前の下見を先に消し、取り直している最中に古い差分で書かないようにする。
         setStore({ ...store, retentionPreview: null });

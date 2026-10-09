@@ -580,7 +580,7 @@ describe('起動とターミナル', () => {
   });
   it('ダイアログを開くと未登録の一覧を取り、Finder の結果を持つ', async () => {
     const pickFolder = vi.fn(async () => '/Users/me/thesis');
-    const { rt } = harness({ workspaceDirs: vi.fn(async () => [{ name: 'a', path: '/w/a' }]) }, { desktop: { openLog: vi.fn(), restart: vi.fn(), pickFolder } });
+    const { rt } = harness({ workspaceDirs: vi.fn(async () => [{ name: 'a', path: '/w/a' }]) }, { desktop: { openLog: vi.fn(), restart: vi.fn(), pickFolder, applyConfigSync: vi.fn(), restoreConfigSync: vi.fn() } });
     rt.start();
     rt.emit({ type: 'project.new.open' });
     rt.emit({ type: 'folder.pick' });
@@ -1842,7 +1842,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
 
 describe('殻の操作（ランタイム）', () => {
   it('殻があれば、ログを開くと再起動を殻に頼む', async () => {
-    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null) };
+    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn() };
     const { rt } = harness({}, { desktop });
     rt.start();
     expect(rt.getStore().desktop).toBe(true);
@@ -1853,7 +1853,7 @@ describe('殻の操作（ランタイム）', () => {
     expect(desktop.restart).toHaveBeenCalled();
   });
   it('殻が断ったらトーストで知らせる', async () => {
-    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null) };
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn() };
     const { rt } = harness({}, { desktop });
     rt.start();
     rt.emit({ type: 'shell.openLog' });
@@ -2036,5 +2036,143 @@ describe('アカウント', () => {
     const next = { ...accountsFixture, currentId: 'a1', accounts: accountsFixture.accounts.map((a) => (a.id === 'a1' ? { ...a, loginRunning: true } : a)) };
     h.wsHandlers[0]!.onEvent({ type: 'accounts.update', accounts: next });
     expect(h.rt.getStore().accounts).toEqual(next);
+  });
+});
+
+describe('設定の同期（作り直した実装）', () => {
+  const cfg = (over: Partial<NonNullable<BootstrapDto['configSync']>> = {}): NonNullable<BootstrapDto['configSync']> => ({ enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null, ...over });
+  const shellOutcome = (status: 'applied' | 'restored' | 'cancelled' | 'none' | 'failed' | 'busy', message = 'm') => ({ status, message, generation: null });
+  const desktopOf = (apply: () => Promise<ReturnType<typeof shellOutcome>>, restore: () => Promise<ReturnType<typeof shellOutcome>> = async () => shellOutcome('restored')) => ({ openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(apply), restoreConfigSync: vi.fn(restore) });
+  const withConfig = (c: NonNullable<BootstrapDto['configSync']>, over: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}) =>
+    harness({ bootstrap: vi.fn(async () => ({ ...boot, configSync: c })), ...over }, extra);
+  const toasts = (rt: ReturnType<typeof harness>['rt']) => rt.getState().toasts.map((t) => [t.level, t.message]);
+
+  it('bootstrap と config.update が状態を入れ、設定の画面に入ると件数のある中身だけを取る', async () => {
+    const { rt, api, wsHandlers, setHash } = withConfig(cfg({ incoming: 2, unsent: 1 }));
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(rt.getStore().configSync).toMatchObject({ incoming: 2, unsent: 1 });
+    setHash('#/settings?at=cloud');
+    await flush();
+    expect(api.configInbox).toHaveBeenCalledTimes(1);
+    expect(api.configUnsent).toHaveBeenCalledTimes(1);
+    expect(api.configConflicts).not.toHaveBeenCalled();
+    expect(api.configBackups).not.toHaveBeenCalled();
+    expect(rt.getStore().configDetail.inbox).toEqual({ items: [], approval: 'each' });
+    // 状態が動いたら、設定の画面にいるので中身を取り直す。
+    wsHandlers[0]!.onEvent({ type: 'config.update', configSync: cfg({ incoming: 3, unsent: 1 }) });
+    await flush();
+    expect(rt.getStore().configSync?.incoming).toBe(3);
+    expect(api.configInbox).toHaveBeenCalledTimes(2);
+  });
+
+  it('殻があれば、承諾した項目を指示書にしてから殻の確認へ進み、書けたら状態を取り直してダイアログを閉じる', async () => {
+    const desktop = desktopOf(async () => shellOutcome('applied', '適用しました。'));
+    const { rt, api } = withConfig(cfg(), { configSyncState: vi.fn(async () => cfg({ backups: 1 })) }, { desktop });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.open', part: 'review' });
+    rt.emit({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md' }] });
+    expect(rt.getState().overlay).toEqual({ kind: 'configSync', part: 'review', working: true });
+    await flush();
+    expect(api.configPutOrder).toHaveBeenCalledWith([{ id: 'file:CLAUDE.md' }]);
+    expect(desktop.applyConfigSync).toHaveBeenCalledTimes(1);
+    expect(toasts(rt)).toEqual([['info', '適用しました。']]);
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(rt.getStore().configSync?.backups).toBe(1);
+  });
+
+  it('殻の確認で取り消されたら、書いていないので閉じず、押せる状態に戻す。失敗は赤で知らせる', async () => {
+    let next = shellOutcome('cancelled', '適用しませんでした。');
+    const desktop = desktopOf(async () => next);
+    const { rt, api } = withConfig(cfg(), {}, { desktop });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.open', part: 'approve' });
+    rt.emit({ type: 'configSync.apply', entries: [{ id: 'a' }] });
+    await flush();
+    expect(rt.getState().overlay).toEqual({ kind: 'configSync', part: 'approve', working: false });
+    expect(toasts(rt)).toEqual([['info', '適用しませんでした。']]);
+    expect(api.configSyncState).not.toHaveBeenCalled();
+    next = shellOutcome('failed', '書けませんでした。');
+    rt.emit({ type: 'configSync.apply', entries: [{ id: 'a' }] });
+    await flush();
+    expect(toasts(rt).at(-1)).toEqual(['error', '書けませんでした。']);
+    expect(rt.getState().overlay).toEqual({ kind: 'configSync', part: 'approve', working: false });
+  });
+
+  it('殻が無いブラウザでは、指示書を書いたところで止め、ターミナルで実行するよう知らせて閉じる', async () => {
+    const { rt, api } = withConfig(cfg());
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.open', part: 'conflicts' });
+    rt.emit({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md', take: 'mine' }] });
+    await flush();
+    expect(api.configPutOrder).toHaveBeenCalledWith([{ id: 'file:CLAUDE.md', take: 'mine' }]);
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(toasts(rt)[0]![1]).toContain('適用の指示書を書きました');
+  });
+
+  it('指示書を書けなかったら、殻の確認へ進まず、理由を赤で知らせて押せる状態に戻す', async () => {
+    const desktop = desktopOf(async () => shellOutcome('applied'));
+    const { rt } = withConfig(cfg(), { configPutOrder: vi.fn(async () => { throw new Error('適用する項目が選ばれていません'); }) }, { desktop });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.open', part: 'review' });
+    rt.emit({ type: 'configSync.apply', entries: [{ id: 'x' }] });
+    await flush();
+    expect(desktop.applyConfigSync).not.toHaveBeenCalled();
+    expect(toasts(rt)).toEqual([['error', '適用する項目が選ばれていません']]);
+    expect(rt.getState().overlay).toEqual({ kind: 'configSync', part: 'review', working: false });
+  });
+
+  it('すでにある指示書のやり直しは指示書を書き直さず、殻の確認だけへ進む。取り消しは指示書を消す', async () => {
+    const desktop = desktopOf(async () => shellOutcome('applied'));
+    const { rt, api } = withConfig(cfg({ applyOrder: { count: 2, createdAt: 1 } }), {}, { desktop });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.order.apply' });
+    await flush();
+    expect(api.configPutOrder).not.toHaveBeenCalled();
+    expect(desktop.applyConfigSync).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'configSync.order.cancel' });
+    await flush();
+    expect(api.configDeleteOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('世代へ戻すのは殻の命令へ名前だけを渡し、戻せたら状態を取り直す', async () => {
+    const desktop = desktopOf(async () => shellOutcome('applied'), async () => shellOutcome('restored', '戻しました。'));
+    const { rt, api } = withConfig(cfg({ backups: 2 }), {}, { desktop });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.restore', name: '20261010-120000' });
+    await flush();
+    expect(desktop.restoreConfigSync).toHaveBeenCalledWith('20261010-120000');
+    expect(toasts(rt)).toEqual([['info', '戻しました。']]);
+    expect(api.configSyncState).toHaveBeenCalledTimes(1);
+  });
+
+  it('送る一覧の承諾は、新しい実装のスイッチを入れ、旧実装のスイッチを切る', async () => {
+    const { rt, api } = withConfig(cfg({ enabled: false }));
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.open', part: 'send' });
+    await flush();
+    expect(api.configOutgoing).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'configSync.send.confirm' });
+    await flush();
+    expect(api.updateSettings).toHaveBeenCalledWith({ configBundleSync: true, syncClaudeConfig: false });
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+  });
+
+  it('それでも送るは、応答の一覧を Store に入れる', async () => {
+    const { rt, api } = withConfig(cfg({ unsent: 1 }), { configSendUnsent: vi.fn(async () => ({ items: [{ id: 'u', kind: 'secret' as const, itemId: 'i', label: 'x', reason: 'secret:ghp_', allowed: true }] })) });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'configSync.unsent.send', id: 'u' });
+    await flush();
+    expect(api.configSendUnsent).toHaveBeenCalledWith('u');
+    expect(rt.getStore().configDetail.unsent?.items[0]?.allowed).toBe(true);
   });
 });

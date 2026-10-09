@@ -58,8 +58,8 @@ describe('辞書', () => {
       [/\bquota\b/i, 'limit'],
     ];
     for (const key of keys) {
-      // Claude Code のスラッシュコマンドの名前（/statusline）と、置き場のパス（~/.agent-hangar/scratch/）は、そのまま書く語なので除く。
-      const sentence = en[key].replace(/\{[A-Za-z0-9]+\}/g, '').replace(/\/statusline\b/g, '').replace(/~\/\.agent-hangar\/scratch\//g, '');
+      // Claude Code のスラッシュコマンドの名前（/statusline）、settings.json の鍵（statusLine）、置き場のパス（~/.agent-hangar/scratch/）は、そのまま書く語なので除く。
+      const sentence = en[key].replace(/\{[A-Za-z0-9]+\}/g, '').replace(/\/statusline\b/g, '').replace(/\bstatusLine\b/g, '').replace(/~\/\.agent-hangar\/scratch\//g, '');
       for (const [bad, use] of retired) expect([key, bad.test(sentence), use]).toEqual([key, false, use]);
     }
     // 設定の項目名は、用語集の英語の列と同じ。サーバの文が項目を指すときに、画面と同じ名前になる。

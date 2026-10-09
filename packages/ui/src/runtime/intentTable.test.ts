@@ -37,7 +37,7 @@ describe('表の鍵', () => {
   it('表に載っているのは、API を 1 回呼ぶだけの Intent である', () => {
     expect(Object.keys(intentTable).sort()).toEqual([
       'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
-      'artifact.add', 'artifact.open', 'artifact.openEditor', 'memo.save',
+      'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'memo.save',
       'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
@@ -253,5 +253,21 @@ describe('アカウント', () => {
     const b = await runRow({ type: 'account.update', accountId: 'a1' }, api);
     expect([a.called, b.called]).toEqual([false, false]);
     expect(updateAccount).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('設定の同期（作り直した実装）', () => {
+  it('指示書の取り消しは DELETE を呼ぶだけで、応答は Store に入れない', async () => {
+    const configDeleteOrder = vi.fn(async () => {});
+    const r = await runRow({ type: 'configSync.order.cancel' }, fakeApi({ configDeleteOrder }));
+    expect(configDeleteOrder).toHaveBeenCalledTimes(1);
+    expect(r.store).toBe(r.during);
+  });
+  it('それでも送るは、更新後の送らなかった項目の一覧を Store に入れる', async () => {
+    const list = { items: [{ id: 'u', kind: 'secret' as const, itemId: 'i', label: 'x', reason: 'secret:ghp_', allowed: true }] };
+    const configSendUnsent = vi.fn(async () => list);
+    const r = await runRow({ type: 'configSync.unsent.send', id: 'u' }, fakeApi({ configSendUnsent }));
+    expect(configSendUnsent.mock.calls).toEqual([['u']]);
+    expect(r.store.configDetail.unsent).toEqual(list);
   });
 });

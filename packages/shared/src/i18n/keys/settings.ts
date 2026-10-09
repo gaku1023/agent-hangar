@@ -182,4 +182,5 @@ export const settingsKeys = {
   'settings.info.index.note': [],
   'settings.info.thisPc.title': [],
   'settings.label.configApproval': [],
+  'settings.label.configBundleSync': [],
 } as const satisfies MessageSpec;

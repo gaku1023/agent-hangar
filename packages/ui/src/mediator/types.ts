@@ -1,5 +1,6 @@
-import type { Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
 import type { TableIntent } from '../runtime/intentTable.ts';
+import type { ConfigDetailPart } from '../store/store.ts';
 
 /**
  * 検索の問い合わせ。期間を日数のまま持つ。
@@ -34,7 +35,9 @@ export type RuntimeEvent =
   // 欄ごとの保存の結果。失敗はトーストにせず、その欄の下に理由を出す。
   | { type: 'settings.saved'; field: string } | { type: 'settings.failed'; field: string; message: string }
   // クリップボードに写せた。写せなかったときはランタイムがトーストで知らせ、これは届かない。
-  | { type: 'clipboard.copied'; text: string };
+  | { type: 'clipboard.copied'; text: string }
+  // 設定の同期の適用（指示書を書き、殻のネイティブの確認を待った）の結果。close が真ならダイアログを閉じる。
+  | { type: 'configSync.done'; close: boolean };
 
 /**
  * Mediator が裁定する Intent。
@@ -103,6 +106,10 @@ export type Effect =
   | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
+  // 設定の同期（作り直した実装）。Load は中身を取る。Apply は指示書を書き（entries が null なら、いまある指示書を使い）、殻のネイティブの確認へ進む。Restore は控えの世代へ戻す。
+  | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
+  | { kind: 'api.configSyncApply'; entries: ConfigApplyOrderEntryIn[] | null }
+  | { kind: 'api.configSyncRestore'; name: string }
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
   // Claude Code のアカウント。
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
@@ -135,6 +142,8 @@ export type Overlay =
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
   | { kind: 'configPreview' }
+  // 設定の同期（作り直した実装）。part が顔を決める。working は、適用の返事（指示書を書き、ネイティブの確認を経る）を待っているあいだ。
+  | { kind: 'configSync'; part: ConfigSyncPart; working: boolean }
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
   // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
   | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' };

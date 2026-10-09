@@ -5,6 +5,7 @@ import { artifactKeys } from './keys/artifact.ts';
 import { commonKeys } from './keys/common.ts';
 import { configKeys } from './keys/config.ts';
 import { configSyncKeys } from './keys/configSync.ts';
+import { configSyncUiKeys } from './keys/configSyncUi.ts';
 import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
 import { headerKeys } from './keys/header.ts';
@@ -58,6 +59,7 @@ export const MESSAGES = {
   ...commonKeys,
   ...configKeys,
   ...configSyncKeys,
+  ...configSyncUiKeys,
   ...confirmKeys,
   ...externalKeys,
   ...headerKeys,

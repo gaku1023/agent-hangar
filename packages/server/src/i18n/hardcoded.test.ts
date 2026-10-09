@@ -20,12 +20,14 @@ const SYNC = '同期の文。段 4 の PR 14 と 18 で作り直すときに鍵�
 const DB = 'DB の起動の失敗の文と、DB の中の注釈。標準エラーかファイルへ出る。鍵へ移すのは別の PR';
 const BASELINE = 'DB に保存する自動の要約の本文。書いた文は言語を変えても残るので、言語の扱いを決めてから鍵へ移す';
 const FIRST_NAME = '最初に保存するときの名前。書いたあとは利用者が変えられるデータで、言語を変えても書き直さない';
-const INTERNAL = '呼び手の誤りを弾く内部の検査の文。利用者には届かない';
+const INTERNAL = '呼び手の誤りを弾く内部の検査の文。利用者には届かない（受け取った側は例外の名前だけを記録し、文は捨てる）';
 const TEST_SUPPORT = '試験用の偽物の中身。製品では使わない';
+const CLI = 'hangar config apply と restore の CLI が端末に出す文。packages/cli は日本語だけで、鍵へ移すのは CLI の多言語化と一緒にする';
 const LEFT = '利用者に見える文で、まだ鍵へ移していない。次に画面の文を鍵へ移すときに一緒に移す';
 
 /** ファイル（server/src からの相対）ごとの、直書きの日本語の行の数と、残す理由。 */
 const ALLOWED: Record<string, { lines: number; why: string }> = {
+  'boot/bootError.ts': { lines: 1, why: LOG },
   'boot/home.ts': { lines: 1, why: LOG },
   'boot/http.ts': { lines: 1, why: LOG },
   'boot/runs.ts': { lines: 2, why: LOG },
@@ -57,6 +59,10 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/apply.ts': { lines: 4, why: SYNC },
   'sync/claudeConfig.ts': { lines: 23, why: SYNC },
   'sync/client.ts': { lines: 6, why: SYNC },
+  'sync/config/apply.ts': { lines: 26, why: CLI },
+  'sync/config/bundle.ts': { lines: 17, why: INTERNAL },
+  'sync/config/inbox.ts': { lines: 1, why: INTERNAL },
+  'sync/config/service.ts': { lines: 4, why: LOG },
   'sync/copy.ts': { lines: 8, why: SYNC },
   'sync/crypto.ts': { lines: 6, why: SYNC },
   'sync/engine.ts': { lines: 9, why: SYNC },
@@ -105,6 +111,6 @@ describe('サーバに残る日本語の直書き', () => {
 
   it('理由の定数は、一覧のどこかで使っている', () => {
     const used = new Set(Object.values(ALLOWED).map((a) => a.why));
-    for (const why of [LOG, FILE_BODY, SYNC, DB, BASELINE, FIRST_NAME, INTERNAL, TEST_SUPPORT, LEFT]) expect([why, used.has(why)]).toEqual([why, true]);
+    for (const why of [LOG, FILE_BODY, SYNC, DB, BASELINE, FIRST_NAME, INTERNAL, TEST_SUPPORT, CLI, LEFT]) expect([why, used.has(why)]).toEqual([why, true]);
   });
 });

@@ -1,5 +1,6 @@
 import { accountsStep } from './accounts.ts';
 import { arrivedStep } from './arrived.ts';
+import { configSyncStep } from './configSync.ts';
 import { connectionStep } from './connection.ts';
 import { launchStep } from './launch.ts';
 import { liveStep, settleWaiting } from './live.ts';
@@ -39,6 +40,7 @@ function pushToast(state: State, level: 'info' | 'error', message: string): Stat
 export function transition(state: State, store: Store, input: Input): Step {
   // promoteStep、projectCreateStep、retentionStep は overlay.close を横取りするので overlayStep より前に置く。
   // accountsStep は確認を出す領域なので、overlayStep より前に置く。
+  // configSync は適用の最中の overlay.close を握りつぶすので、overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   if (input.kind === 'store') return storeChanged(state, store);
@@ -47,7 +49,8 @@ export function transition(state: State, store: Store, input: Input): Step {
   const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
   const arrived = (s: State, i: Input) => arrivedStep(s, store, i);
-  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, returnStep, arrived, noticesStep, notifyStep, workbench]) {
+  const configSync = (s: State, i: Input) => configSyncStep(s, store, i);
+  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, returnStep, arrived, noticesStep, notifyStep, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }

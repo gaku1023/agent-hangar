@@ -216,8 +216,8 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     // サーバにしか無い関数。CLI がサーバの入口から import すると、esbuild がこれらを束ねてしまう。
     expect(cli).not.toContain('function startServer(');
     expect(cli).not.toContain('function createApp(');
-    // 2026-10-07 の試しでは約 240KB だった。その後は、日英の辞書（shared/src/i18n）が画面ごとに育ち、2026-10-10 に 512KB を超えた。
-    // サーバを抱えると 2MB を超えるので、ここは辞書の伸びを見込んだ上限にする。
+    // 2026-10-07 の試しでは約 240KB だった。サーバを抱えると 2MB を超える。
+    // 辞書（shared の i18n）を丸ごと束ねるので、段 4 で画面の文が増えるにつれて太る（2026-10-10 に約 550KB）。サーバを抱えたかを見分けるには 768KB で足りる。
     expect(fs.statSync(path.join(out, 'cli.mjs')).size).toBeLessThan(768 * 1024);
   });
 

@@ -21,6 +21,7 @@ import '../src/styles/strip.css';
 import '../src/styles/transcript.css';
 import '../src/styles/palette.css';
 import '../src/styles/settings.css';
+import '../src/styles/configSync.css';
 import '../src/styles/readiness.css';
 import '../src/styles/sync.css';
 import '../src/styles/controls.css';
