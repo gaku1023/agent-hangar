@@ -545,7 +545,7 @@ MCP の道具は hub を持たない。
 | `live.update` | `sessions/liveChange.ts`（実行中の一覧） |
 | `sync.status`、`sync.usage` | `sync/statusFeed.ts`（同期の状態）、`boot/sync.ts`（使用量の見張りの結び） |
 | `accounts.update` | `http/accounts.ts`、statusline の受け口 |
-| `retention.changed` | `config/retention.ts` |
+| `retention.changed` | `provider/claude-code/config/retention.ts` |
 | `summary.pending`、`summary.updated`、`summary.failed` | `summary/job.ts` |
 | `project.unresolved` | ルートの確かめ（`projects/rootCheck.ts`）。解決済みから未解決への遷移の知らせである |
 
@@ -664,10 +664,32 @@ type TranscriptEvent =
 ## Claude Code に固有の部分
 
 hangar が対応するのは Claude Code だけである（2026-10-07 の決定 D7）。
-Claude Code の保存形式と起動方法を hangar に翻訳する部分は、`packages/server/src/provider/claude-code/` と `packages/server/src/launch/args.ts` にある。
+Claude Code の形式や振る舞いを直接知っている部分は、`packages/server/src/provider/claude-code/` に集めてある（段 2 の PR 12）。
 以前は Provider のインターフェースを置いていたが、実装していたのは起動の 2 項目だけで、索引はインターフェースを通らずに jsonl を読んでいたので、段 1 で消した。
-jsonl の読み、登録、起動の引数を 1 つの塊に集めるのは、後の段で行う。
 `sessions.provider` の列と `(provider, provider_session_id)` の一意の制約は、永続する識別子なので残す（D8）。
+
+`provider/claude-code/` の中は、役目ごとに分けてある。
+
+| 置き場 | 中身 |
+| --- | --- |
+| `transcript/` | jsonl の走査（`discover.ts`）、追記分の読み（`lines.ts`）、正規化（`normalize.ts`）、最後の動きの畳み込み（`activity.ts`） |
+| `registry.ts` | 実行中のセッションの登録（`~/.claude/sessions/<pid>.json`）の読み |
+| `launch/` | 起動の引数（`args.ts`）、`--mcp-config` に渡すファイル（`mcpConfig.ts`） |
+| `config/` | `~/.claude.json`（`claudeJson.ts`）、設定ファイルの書き方（`claudeFileWrite.ts`）、保持期間（`retention.ts`）、statusline の台本（`statusline.ts`）、アカウントの認証（`accountAuth.ts`）と共有のリンク（`accountLinks.ts`） |
+| `prompt/` | `/` の候補（`commands.ts`、`frontmatter.ts`）、入力の履歴（`history.ts`） |
+| `process/` | `claude agents --json` と `claude stop`、プロセスの起動時刻（`procs.ts`） |
+| `screen/` | fullscreen の画面を操作して指示へ跳ぶ（`promptJump.ts`） |
+| `summary/` | `claude -p` での要約（`claude.ts`） |
+| `compat/` | 互換の見張り（次の節） |
+| `types.ts`、`index.ts` | 起動の入力と走査の型、起動コマンドの組み立て |
+
+この置き場の中から読んでよいのは、下の層（`platform/`、`i18n/`、`config/`、`sync/` や `summary/` の型と小さな関数）だけで、HTTP、`boot/`、`events/` は読まない。
+外からは、入口のファイルを通さずに、使うモジュールを直に import する。
+入口 1 つにまとめると、CLI の束（`cliEntry.ts`）がサーバの大半を抱えることになるためである。
+
+Claude Code の事情と hangar 自身の物（DB、tmux、同期）が 1 つのファイルに混ざっているものは、まだ外に残してある。
+索引（`indexer/`）、本文の読み出し（`transcript/read.ts`）、statusline の payload の読みと使用率の保存（`usage/statusline.ts`）、設定の同期（`sync/claudeConfig.ts`）、包みと環境変数（`launch/wrapper.ts`、`launch/command.ts`、`launch/env.ts`）、シェルの包み（`config/shellHook.ts`）、run の寿命（`runs/manager.ts`）などである。
+これらを割るのは振る舞いに触るので、別の変更で行う。
 
 ### 保存先と読み方
 

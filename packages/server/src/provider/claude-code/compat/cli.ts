@@ -107,7 +107,7 @@ export function authStatusDrifts(stdout: string): Drift[] {
 export const KNOWN_AGENT_KINDS: ReadonlySet<string> = new Set(['interactive', 'background']);
 
 /**
- * `claude agents --json --all` の形。hangar が読むのはバックグラウンドの行の id と sessionId だけなので、そこだけを見る（runs/procs.ts の parseJobs）。
+ * `claude agents --json --all` の形。hangar が読むのはバックグラウンドの行の id と sessionId だけなので、そこだけを見る（provider/claude-code/process/procs.ts の parseJobs）。
  * 同じ形の違いは 1 つにまとめる。出力が空なら見ない。
  */
 export function agentsJsonDrifts(stdout: string): Drift[] {
@@ -147,7 +147,7 @@ export function isCliDrift(value: string): boolean {
   }
 }
 
-/** `claude -p --output-format json` の形。要約が読む structured_output があるか（summary/claude.ts）。 */
+/** `claude -p --output-format json` の形。要約が読む structured_output があるか（provider/claude-code/summary/claude.ts）。 */
 export function printJsonDrifts(stdout: string): Drift[] {
   const raw = parseJson(stdout);
   if (raw === undefined) return [cliDrift('print-json=(not-json)')];

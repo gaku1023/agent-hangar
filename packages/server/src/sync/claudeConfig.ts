@@ -235,7 +235,7 @@ function fenceOf(root: string): string {
  * **リンクを 1 度も辿らせない**方が意図に近いからである（決定 12 の言葉どおりである）。
  * 足りない段は recursive を使わず 1 段ずつ自分で作るので、作る途中でリンクを踏むこともない。
  * 最後に親の realpath が枠の中にあることも見て、競合状態の取りこぼしに備える
- * （`config/claudeJson.ts` と `projects/promote.ts` が同じ作法である）。
+ * （`provider/claude-code/config/claudeJson.ts` と `projects/promote.ts` が同じ作法である）。
  */
 function resolveUnder(root: string, rel: string, o: { create?: boolean } = {}): string {
   const segs = rel.split('/');
