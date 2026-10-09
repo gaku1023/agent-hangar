@@ -1,5 +1,5 @@
 import { compareClaudeVersions } from '@agent-hangar/shared';
-import { isRec, versionOfRecord, type CompatSink, type Drift } from './types.ts';
+import { isRec, splitDriftValue, versionOfRecord, type CompatSink, type Drift } from './types.ts';
 
 // 知っている値の集合。正規化（normalize.ts）が名前で読む値と、2.1.284 から 2.1.295 の実物の記録で見た値である。
 // 集合に足すのは、その値を正規化でどう扱うか（読むか、meta として残すか、捨てるか）を決めたときだけにする。
@@ -65,6 +65,25 @@ export function transcriptDrifts(raw: unknown): Drift[] {
     out.push(d(`${type}.content=${bt}`));
   }
   return out;
+}
+
+/**
+ * 記録に残ったトランスクリプトの値が、今の集合でもずれかを返す。
+ * 行、system、本文の塊の種類は、今の集合に入っていればずれでない。添付は、読む種類（queued_command）ならずれでない。
+ * 欠け（(missing)）と、知らない形の値はずれのままにする。
+ */
+export function isTranscriptDrift(value: string): boolean {
+  const kv = splitDriftValue(value);
+  if (kv === null) return true;
+  const [key, got] = kv;
+  switch (key) {
+    case 'type': return !KNOWN_LINE_TYPES.has(got) && !KNOWN_META_TYPES.has(got);
+    case 'system.subtype': return !KNOWN_SYSTEM_SUBTYPES.has(got);
+    case 'attachment.type': return got !== READ_ATTACHMENT_TYPE;
+    case 'user.content': return !KNOWN_USER_BLOCKS.has(got);
+    case 'assistant.content': return !KNOWN_ASSISTANT_BLOCKS.has(got);
+    default: return true;
+  }
 }
 
 /** 索引に渡す見張りの口。since() より古い版の行は昔の形として見ない。 */
