@@ -10,10 +10,15 @@ import type { SessionRowProps } from './row.ts';
 export type SectionId = 'returning' | 'proposed' | 'live' | 'continue' | 'active' | 'paused' | 'done' | 'archived';
 /**
  * 一覧の項目。行と、節の見出しの和にする。
- * 見出しの count はその節の全件の数で、畳んで見せていない行も数える。
+ * 見出しの count はその節の全件の数で、畳んで見せていない行も数える（検索の結果の見出しは、数えられないとき null）。
  * more は見出しの右端のボタンで、押すと target の節を広げるか（プロジェクト画面の Archived）、そのタブへ移る（Sessions）。
  */
-export type ListItem = { kind: 'row'; row: SessionRowProps } | { kind: 'head'; id: SectionId; label: string; count: number; more?: { label: string; target: SectionId } };
+export type ListItem = { kind: 'row'; row: SessionRowProps } | { kind: 'head'; id: SectionId | SearchHeadId; label: string; count: number | null; more?: { label: string; target: SectionId } };
+/**
+ * ホームの検索の結果の見出し（設計書 2.11.1）。名前か要約に当たった行の組と、トランスクリプトだけに当たった行の組である。
+ * 件数は、読んだ行だけでは決まらないとき null になり、見出しは件数を出さない。
+ */
+export type SearchHeadId = 'nameMatch' | 'transcriptMatch';
 
 /**
  * Sessions の Done の節で見せる件数。残りは「ほか N 件」でタブへ移る。

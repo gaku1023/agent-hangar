@@ -16,7 +16,7 @@ const HOME = { name: 'home' } as const;
 const SETTINGS = { name: 'settings' } as const;
 
 /**
- * ヘッダ。左の列（サイドバーの列）にロゴ、右の列（本文の列）に「探す・移動」の錠剤と右の塊を置く（base.css の .header）。
+ * ヘッダ。左の列（サイドバーの列）にロゴ、右の列（本文の列）に「移動・操作」の錠剤と右の塊を置く（base.css の .header）。
  * 今いる場所はヘッダではなく、各頁の見出し（PageHeading）で示す。頁ごとに幅の変わる文字をここに置くと、錠剤が頁ごとに横へずれるからである。
  */
 export function Header(props: { indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; newSession: ShellProps['newSession'] }) {
@@ -39,11 +39,11 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; ac
         <a className="brand" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}><img className="brand-mark" src={markUrl} width={26} height={26} alt="" /><span className="brand-word">Hangar</span></a>
       </div>
       <div ref={row} className="header-row" data-tauri-drag-region="">
-        {/* 探す入口は打つ欄ではなく、押す錠剤である（A1）。押すか / か ⌘K でパレットを開き、全文検索はパレットの最後の行から行く。
+        {/* 探す入口は打つ欄ではなく、押す錠剤である（A1）。押すか / か ⌘K でパレットを開く。パレットは移動と操作の入口で、探すのはホームの欄である（パレットの最後の行から、語を持ってホームへ渡せる）。
             パレットはこの錠剤から広がって開き、閉じると錠剤へ戻る（CommandPalette.tsx と runtime/present.ts が id で探す）。
             狭いときは文字とキー帽を畳み、虫眼鏡だけを残す。文字は読み上げに残る。 */}
-        <button id="global-search" type="button" className="search-pill" title="探す・移動（⌘K または /）" onClick={() => emit({ type: 'palette.open' })}>
-          <Icon name="search" /><span className="search-pill-label" data-fold-at={foldAt('search-label')}>探す・移動</span><kbd className="search-kbd" aria-hidden="true" data-fold-at={foldAt('search-label')}>⌘K</kbd>
+        <button id="global-search" type="button" className="search-pill" title="移動・操作（⌘K または /）" onClick={() => emit({ type: 'palette.open' })}>
+          <Icon name="search" /><span className="search-pill-label" data-fold-at={foldAt('search-label')}>移動・操作</span><kbd className="search-kbd" aria-hidden="true" data-fold-at={foldAt('search-label')}>⌘K</kbd>
         </button>
         <span className="spacer" data-tauri-drag-region="" />
         <div className="header-end" data-tauri-drag-region="">

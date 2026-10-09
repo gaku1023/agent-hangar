@@ -67,8 +67,10 @@ export function KeywordField(props: Pick<SessionListProps, 'text' | 'filter' | '
         </span>
       ))}
       <input aria-label={t('list.search.label')} placeholder={props.tokens.length > 0 ? '' : t('list.search.placeholder')} defaultValue={props.text} onKeyDown={onKeyDown} />
-      {/* 探すのは会話のトランスクリプトである（server/src/search/search.ts は event_fts の本文だけを引く）。名前と要約も引く形は PR 27 で足す。 */}
-      <span className="sessions-keyword-tag">{t('list.search.tag')}</span>
+      {/* 探す先は名前、要約、トランスクリプトの 3 つ（server/src/search/search.ts）。語を打っているあいだは 3 つとも青にして、どこまで引くかを見せる。 */}
+      {(['list.search.tagName', 'list.search.tagSummary', 'list.search.tagTranscript'] as const).map((key) => (
+        <span key={key} className="sessions-keyword-tag" data-on={props.text ? 'true' : undefined}>{t(key)}</span>
+      ))}
       {props.text && <button type="button" className="btn btn-sm sessions-keyword-clear" aria-label={t('list.search.clear')} onClick={() => emit({ type: 'search.query', text: '' })}><Icon name="close" /></button>}
     </div>
   );
@@ -211,7 +213,7 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
       {filtersOpen && <Filters id={filtersId} filter={props.filter} projects={props.projects} projectFixed={props.projectFixed} />}
       <Hints hints={props.hints} />
       <ConditionRow conditions={props.conditions} tab={props.tab} filter={props.filter} loading={props.loading} total={props.total} />
-      <SessionRows id={id} rows={props.rows} variant="search" autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeIntent={badgeIntent} />
+      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant="search" autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeIntent={badgeIntent} />
       {props.loadMore
         ? <LoadMore {...props.loadMore} />
         : props.pager && <Pager label={t('list.pager.label')} pager={props.pager} onPage={(page) => emit({ type: 'search.page', page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}

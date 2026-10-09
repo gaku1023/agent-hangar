@@ -843,13 +843,11 @@ describe('パレット', () => {
     const a = run([intent({ type: 'palette.run', command: { id: 'cmd:new-scratch', label: 'スクラッチで始める' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
     expect(a.effects).toEqual([{ kind: 'focus', target: 'newSessionName' }, { kind: 'api.workspaceDirs' }]);
-    const b = run([intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } })], opened());
+    const b = run([intent({ type: 'palette.run', command: { id: 'settings:cloud', label: 'クラウド同期' } })], opened());
     expect(b.state.overlay).toEqual({ kind: 'none' });
-    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'settings' } }]);
+    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at: 'cloud' } }]);
     const c = run([intent({ type: 'palette.run', command: { id: 'cmd:rebuild-index', label: '索引を作り直す' } })], opened());
     expect(c.effects).toEqual([{ kind: 'api.rebuildIndex' }]);
-    const d = run([intent({ type: 'palette.run', command: { id: 'project:p1', label: 'alpha' } })], opened());
-    expect(d.effects).toEqual([{ kind: 'navigate', route: { name: 'project', id: 'p1' } }]);
     const e = run([intent({ type: 'palette.run', command: { id: 'session:s1', label: 'x' } })], opened());
     expect(e.effects).toEqual([{ kind: 'navigate', route: { name: 'session', id: 's1' } }]);
     const g = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session', label: '新しいセッション' } })], opened());
@@ -867,19 +865,27 @@ describe('パレット', () => {
     const b = run([intent({ type: 'palette.run', command: { id: 'cmd:new-session:scratch', label: '新しいセッション' } })], opened());
     expect(b.state.overlay).toEqual({ kind: 'newSession', projectId: null, scratch: true });
   });
+  // 設定の節の行は、その節へ移る。保持は一般の節の中にあるので、一般の節へ移る。
+  it('設定の節の行は、その節の画面へ移る', () => {
+    for (const at of ['general', 'cloud', 'integrations', 'summary', 'tools', 'info'] as const) {
+      const r = run([intent({ type: 'palette.run', command: { id: `settings:${at}`, label: at } })], opened());
+      expect(r.state.overlay).toEqual({ kind: 'none' });
+      expect(r.effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at } }]);
+    }
+    expect(run([intent({ type: 'palette.run', command: { id: 'settings:retention', label: 'トランスクリプトの保持' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'settings', at: 'general' } }]);
+    // 知らない節の名前は、何もせずに閉じる。
+    expect(run([intent({ type: 'palette.run', command: { id: 'settings:nope', label: '' } })], opened()).effects).toEqual([]);
+  });
   it('移動の行は、画面を移るかサイドバーを開閉する', () => {
     expect(run([intent({ type: 'palette.run', command: { id: 'go:home', label: 'ホームへ' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }]);
     expect(run([intent({ type: 'palette.run', command: { id: 'go:projects', label: 'プロジェクトへ' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'projects' } }]);
-    const s = run([intent({ type: 'palette.run', command: { id: 'go:sessions', label: 'セッション一覧へ' } })], opened());
-    expect(s.state.overlay).toEqual({ kind: 'none' });
-    expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }]);
     const bar = run([intent({ type: 'palette.run', command: { id: 'cmd:sidebar', label: 'サイドバーの開閉' } })], opened());
     expect(bar.state.overlay).toEqual({ kind: 'none' });
     expect(bar.state.sidebarCollapsed).toBe(true);
     expect(bar.effects).toEqual([{ kind: 'storage.save', key: 'sidebar.collapsed', value: true }]);
   });
-  // 全文検索の行は、ヘッダーの検索欄が担っていた search.query と同じ経路でセッション一覧へ移る。
-  it('全文検索の行は、語を持ってセッション一覧へ移り、結果の一覧へフォーカスする', () => {
+  // ホームへ渡す行は、ヘッダーの検索欄が担っていた search.query と同じ経路でホームへ移る。
+  it('ホームへ渡す行は、語を持ってホームへ移り、結果の一覧へフォーカスする', () => {
     const a = run([intent({ type: 'palette.run', command: { id: 'search:索引 再構築', label: '『索引 再構築』を全文検索' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'none' });
     expect(a.state.search.text).toBe('索引 再構築');
@@ -888,7 +894,7 @@ describe('パレット', () => {
   // パレットが開いていないのにコマンドが届いても、開いている別のダイアログを消さない。
   it('パレットが開いていなければオーバーレイを閉じない', () => {
     const un = run([server({ type: 'project.unresolved', projectId: 'p1' })]).state;
-    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } })], un);
+    const a = run([intent({ type: 'palette.run', command: { id: 'settings:cloud', label: 'クラウド同期' } })], un);
     expect(a.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
     // 裏の画面も移さない（ダイアログを開いている間の画面の移動を参照）。
     expect(a.effects).toEqual([]);
@@ -1257,9 +1263,8 @@ describe('ダイアログを開いている間の画面の移動', () => {
     intent({ type: 'project.open', id: 'p1' }),
     intent({ type: 'search.query', text: 'x' }),
     intent({ type: 'search.clear' }),
-    intent({ type: 'palette.run', command: { id: 'cmd:settings', label: '設定' } }),
-    intent({ type: 'palette.run', command: { id: 'go:sessions', label: 'セッション' } }),
-    intent({ type: 'palette.run', command: { id: 'project:p1', label: 'p1' } }),
+    intent({ type: 'palette.run', command: { id: 'settings:cloud', label: 'クラウド同期' } }),
+    intent({ type: 'palette.run', command: { id: 'go:home', label: 'ホームへ' } }),
     intent({ type: 'palette.run', command: { id: 'session:s1', label: 's1' } }),
     intent({ type: 'palette.run', command: { id: 'search:x', label: 'x' } }),
   ];

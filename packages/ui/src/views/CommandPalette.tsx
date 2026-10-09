@@ -7,7 +7,11 @@ import { motionEase, motionMs } from './primitives/motion.ts';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
 /** presenter の絵の名前から Icon の名前へ。 */
-const ICON: Record<PaletteIcon, IconName> = { home: 'home', projects: 'projects', sessions: 'sessions', settings: 'settings', next: 'nextWaiting', sidebar: 'sidebar', keys: 'command', add: 'add', scratch: 'scratch', rebuild: 'rebuild', fulltext: 'fullText' };
+const ICON: Record<PaletteIcon, IconName> = {
+  home: 'home', projects: 'projects', settings: 'settings', next: 'nextWaiting', sidebar: 'sidebar', keys: 'command', add: 'add', scratch: 'scratch', rebuild: 'rebuild', fulltext: 'fullText',
+  // 設定の節。設定の画面の目次と同じ絵にする（views/SettingsScreen.tsx の SECTION_ICON）。
+  general: 'general', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', tools: 'tool', info: 'info', retention: 'retention',
+};
 
 /** 名前の中の、打った語にそのまま一致する部分を印で囲む。部分列でしか当たらないときは囲まない。 */
 function highlight(label: string, query: string): ReactNode {
@@ -20,7 +24,6 @@ function highlight(label: string, query: string): ReactNode {
 function Lead(props: { item: PaletteItem }) {
   const l = props.item.lead;
   if (l.kind === 'dot') return <StatusDot status={l.live} aside={l.aside} />;
-  if (l.kind === 'status') return <span className="st-dot" data-status={l.status} aria-hidden="true" />;
   return <Icon name={ICON[l.icon]} />;
 }
 
@@ -39,7 +42,7 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
   const items = props.sections.flatMap((s) => s.items);
 
   useEffect(() => { input.current?.focus(); }, []);
-  // 開くときは、ヘッダーの「探す・移動」の錠剤からガラスが広がる。
+  // 開くときは、ヘッダーの「移動・操作」の錠剤からガラスが広がる。
   // 閉じて錠剤へ戻る動きは、器が消えた後なので runtime/present.ts が View Transitions で受け持つ。
   // 描画を遅らせない Web Animations で開くので、入力欄はこの描画でフォーカスを持ち、打った文字を落とさない。
   useLayoutEffect(() => {
@@ -75,7 +78,7 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
     // 変換中の Enter は確定のための打鍵なので、実行に使わない。
     if (e.key !== 'Enter' || isComposing(e)) return;
     e.preventDefault();
-    // ⌘↵ は、どの行を選んでいても全文検索の行を実行する。
+    // ⌘↵ は、どの行を選んでいても、ホームの欄へ渡す行を実行する。
     if (e.metaKey || e.ctrlKey) { runItem(items.find((x) => x.kind === 'search')); return; }
     runItem(items[index]);
   };
@@ -92,19 +95,19 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
           ref={input}
           id="palette-input"
           className="input palette-input"
-          aria-label="探す・移動"
+          aria-label="移動・操作"
           role="combobox"
           aria-expanded
           aria-controls="palette-list"
           aria-activedescendant={items[index] ? `palette-opt-${index}` : undefined}
-          placeholder="セッション、プロジェクト、コマンド"
+          placeholder="セッションへ移動、または操作を実行"
           value={props.query}
           onChange={(e) => props.onQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        {props.noMatch && <div className="palette-empty">名前には一致しません。</div>}
+        {props.noMatch && <div className="palette-empty">名前にも操作にも一致しません。</div>}
         {items.length === 0 && <div className="empty">一致する項目がありません</div>}
-        <div id="palette-list" className="palette-list" role="listbox" aria-label="探す・移動の候補">
+        <div id="palette-list" className="palette-list" role="listbox" aria-label="移動・操作の候補">
           {props.sections.map((s) => (
             <div key={s.title} className="palette-section" role="group" aria-label={s.title}>
               {/* 群の名前は器の aria-label が読み上げるので、見出しは目で見る分だけにする。 */}
@@ -131,7 +134,7 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
                     <span className="palette-label">{highlight(item.label, props.query)}</span>
                     {item.sub && <span className="palette-sub">{item.sub}</span>}
                     <span className="palette-meta">
-                      {item.meta && <span className={item.kind === 'project' ? 'palette-when mono' : 'palette-when'}>{item.meta}</span>}
+                      {item.meta && <span className="palette-when">{item.meta}</span>}
                       {item.keys && <kbd className="palette-keys">{item.keys}</kbd>}
                       {item.kind !== 'search' && <span className="palette-ret"><kbd>↵</kbd>{item.kind === 'command' ? '' : ' 開く'}</span>}
                     </span>
@@ -144,8 +147,8 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
         <div className="palette-foot" aria-hidden="true">
           <span><kbd>↑</kbd><kbd>↓</kbd> 選ぶ</span>
           <span><kbd>↵</kbd> 開く</span>
-          <span><kbd>⌘↵</kbd> 全文検索</span>
           <span><kbd>esc</kbd> 閉じる</span>
+          <span className="palette-foot-end">トランスクリプトはホームの欄で</span>
         </div>
       </div>
     </div>

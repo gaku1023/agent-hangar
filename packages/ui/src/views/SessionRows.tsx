@@ -271,6 +271,8 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         {/* 頭は要約の見立て。Paused の戻る日は右端の時刻の列へ移した（F1）。 */}
         {r.summaryState && <span className="row-state" data-tone={r.summaryState.tone ?? undefined}>{r.summaryState.label}</span>}
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
+        {/* 要約に当たった行の札（検索の結果）。一致した語そのものは要約の本文にあるので、ここは札だけにする。 */}
+        {r.summaryMatch && <span className="row-tag">{t('list.match.summary')}</span>}
         {props.variant === 'search' && (r.prUrl || r.memo) && (
           // 2 段目の右端。PR の番号とノートの印（設計書 2.2）。PR は外のブラウザで開くリンクで、行は開かない。
           <span className="row-marks">
@@ -345,7 +347,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     const intent = h.more && props.moreIntent ? props.moreIntent(h.more.target) : null;
     return (
       <div className="row-head" role="heading" aria-level={2} data-section={h.id}>
-        <span>{h.label}</span><span className="row-head-count">{countLabel(h.count)}</span>
+        <span>{h.label}</span>{h.count !== null && <span className="row-head-count">{countLabel(h.count)}</span>}
         {intent && <button type="button" className="row-head-more" onClick={() => emit(intent)}>{h.more!.label}</button>}
       </div>
     );
@@ -360,7 +362,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       <StatusDot status={r.live} aside={r.aside} />
       {statusColumn && status(r)}
       <span className="row-main">
-        <span className="row-name">{r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
+        <span className="row-name">{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? '未分類'}</span>}</span>
         {sub(r)}
       </span>
       {side(r)}

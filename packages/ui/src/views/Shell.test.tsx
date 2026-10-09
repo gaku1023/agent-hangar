@@ -63,7 +63,7 @@ describe('Shell', () => {
     const nav = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
     fireEvent.click(nav.getByRole('link', { name: 'プロジェクト', current: false }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'projects' } });
-    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    fireEvent.click(screen.getByRole('button', { name: '移動・操作' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
     expect(screen.getByText('body')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'ホーム' })).toHaveAttribute('aria-current', 'page');
@@ -254,10 +254,10 @@ describe('Shell', () => {
     for (const el of controls) expect(el).not.toHaveAttribute('data-tauri-drag-region');
   });
   // ヘッダーの入口は打つ欄ではなく、押す錠剤である（A1）。押すとパレットが開き、全文検索はパレットの最後の行から行く。
-  it('入口は虫眼鏡と「探す・移動」と ⌘K のキー帽の錠剤で、キー帽は読み上げから外す', () => {
+  it('入口は虫眼鏡と「移動・操作」と ⌘K のキー帽の錠剤で、キー帽は読み上げから外す', () => {
     const { container } = render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.queryByRole('searchbox')).toBeNull();
-    const pill = screen.getByRole('button', { name: '探す・移動' });
+    const pill = screen.getByRole('button', { name: '移動・操作' });
     expect(pill).toHaveAttribute('id', 'global-search');
     expect(pill.classList.contains('search-pill')).toBe(true);
     expect(pill.querySelector('svg')).toHaveAttribute('data-icon', 'search');
