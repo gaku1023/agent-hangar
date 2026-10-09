@@ -10,8 +10,9 @@ import { CLAUDE_CHILD_ENV } from '../../src/provider/claude-code/compat/childEnv
 import { claudeVersionOf } from '../../src/provider/claude-code/compat/cli.ts';
 import { mangleCwd } from '../../src/provider/claude-code/discover.ts';
 import { Tmux, type TmuxExec } from '../../src/tmux/tmux.ts';
-import { leaks, redactAgents, redactAuth, redactRegistry, redactStatusline, redactTranscriptLine, replacements, type Secrets } from './redact.ts';
-import { SCENARIO } from './scenario.ts';
+import { leaks, redactAgents, redactAuth, redactRegistry, redactStatusline, redactText, redactTranscriptLine, replacements, type Pairs, type Secrets } from './redact.ts';
+import { PLACEHOLDER, SCENARIO } from './scenario.ts';
+import { createTrustAnswerer, screenClues } from './trust.ts';
 import { failureSummary, hasBashSleep } from './transcript.ts';
 
 // 見本を採る道具。本物の claude を一時ディレクトリで動かすので、Claude の使用量を少し使う。CI では動かさない。
@@ -104,7 +105,7 @@ export async function main(argv: string[]): Promise<void> {
   const onSignal = (sig: NodeJS.Signals): void => { aborted ??= sig; };
   for (const sig of ABORT_SIGNALS) process.on(sig, onSignal);
   const checkAborted = (what: string): void => {
-    if (aborted !== null) throw new Error(`${aborted} を受けたので中断しました（${what}の途中）`);
+    if (aborted !== null) throw new Error(`${aborted} を受けたので中断しました（${what} の途中）`);
   };
 
   // 後始末が見る。try の中で作るので、作る前に投げたときは空のままである。
@@ -140,12 +141,21 @@ export async function main(argv: string[]): Promise<void> {
       lastRegistry = text;
     }, 200);
 
-    // 新しいディレクトリでは最初にフォルダを信頼するかを聞かれる。画面に trust が出たら、既定の答え（信頼する）で Enter を全体で 1 度だけ押す。
+    // 新しいディレクトリでは最初にフォルダを信頼するかを聞かれる。2.1.295 ではカーソルが「No, exit」にあるので、
+    // 画面を見て、Yes にカーソルがあるときだけ Enter、No にあるときは Down を送る（trust.ts）。
     // 登録（レジストリ）は信頼の画面より先に現れることがあるので、トランスクリプトに中身が出るまでのどの待ちでも見る。
-    let trusted = false;
+    const trustAnswer = createTrustAnswerer();
     const answerTrust = (): void => {
-      if (trusted || readText(transcriptFile) !== '') return;
-      if (/trust/i.test(t.capturePane(TMUX_SESSION))) { t.sendKeys(TMUX_SESSION, 'Enter'); trusted = true; }
+      if (readText(transcriptFile) !== '') return;
+      const key = trustAnswer(t.capturePane(TMUX_SESSION), Date.now());
+      if (key !== null) t.sendKeys(TMUX_SESSION, key);
+    };
+    /** 時間切れのとき、次の失敗の原因が分かるように、画面の手がかりの行を出す。パスは置き換えの値に直す。 */
+    const showScreenClues = (): void => {
+      const mask: Pairs = [[real, PLACEHOLDER.tmp], [tmp ?? real, PLACEHOLDER.tmp], [os.homedir(), PLACEHOLDER.home]];
+      mask.sort((x, y) => y[0].length - x[0].length);
+      const lines = screenClues(t.capturePane(TMUX_SESSION)).map((l) => redactText(l, mask));
+      console.error(`最後の画面の手がかりの行:\n${lines.length === 0 ? '（なし）' : lines.map((l) => `  ${l}`).join('\n')}`);
     };
     /**
      * 条件が満たされるまで待つ。待つたびに、中断の信号と、claude の tmux セッションが消えていないかを見る。
@@ -161,7 +171,10 @@ export async function main(argv: string[]): Promise<void> {
           if (o.goneOk) return;
           throw new Error(`${what}の途中で claude の tmux セッションが消えました。claude が終わった（引数が通らなかった、落ちた）可能性があります`);
         }
-        if (Date.now() > limit) throw new Error(`${what}を待ちきれませんでした`);
+        if (Date.now() > limit) {
+          if (o.trust) showScreenClues();
+          throw new Error(`${what}を待ちきれませんでした`);
+        }
         await sleep(250);
       }
     };
@@ -207,18 +220,20 @@ export async function main(argv: string[]): Promise<void> {
     // 対話のセッションは動いているあいだだけ agents --json に並ぶので、終える前に読む。
     // 起こせない、時間切れのときは空として扱う。下の筋書きの確かめで、この会話の行が無いとして落ちる。
     const agentsText = (() => { try { return claude(['agents', '--json', '--all']); } catch { return ''; } })();
-    // 終える。/exit が効かなければ Ctrl+C を 2 回送る。終わるとセッションも消えるので、消えたら成功とする。
-    t.sendKeys(TMUX_SESSION, '-l', '/exit');
-    await pause('/exit の入力の後', 300);
-    t.sendKeys(TMUX_SESSION, 'Enter');
+    // 終える。休みの入力の欄で Ctrl+C を、間を置いて 2 回送ると終わる（/exit は --disable-slash-commands の下では指示として渡り、余計なターンと使用量になる）。
+    // 終わるとセッションも消えるので、消えたら成功とする。待ちきれなければ、もう一度 2 回送ってから待つ。
+    const interrupt = async (): Promise<void> => {
+      t.sendKeys(TMUX_SESSION, 'C-c');
+      await pause('Ctrl+C の間', 600);
+      t.sendKeys(TMUX_SESSION, 'C-c');
+    };
     const exited = (): boolean => readRegistryText() === null;
+    await interrupt();
     try {
       await wait('終了', exited, { timeoutMs: 20_000, goneOk: true });
     } catch (e) {
       if (aborted !== null) throw e;
-      t.sendKeys(TMUX_SESSION, 'C-c');
-      await pause('Ctrl+C の後', 500);
-      t.sendKeys(TMUX_SESSION, 'C-c');
+      await interrupt();
       await wait('終了', exited, { timeoutMs: 20_000, goneOk: true });
     }
     await pause('終了の後', 2000);
