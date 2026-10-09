@@ -1,4 +1,4 @@
-import type { LaunchInput } from '../provider/claude-code/types.ts';
+import type { LaunchInput } from '../types.ts';
 
 /**
  * claude の引数列を組み立てる。

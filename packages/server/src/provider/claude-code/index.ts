@@ -1,4 +1,4 @@
-import { buildClaudeArgs } from '../../launch/args.ts';
+import { buildClaudeArgs } from './launch/args.ts';
 import type { LaunchInput } from './types.ts';
 
 /**

@@ -25,7 +25,7 @@ import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { RunAccounts } from './accounts.ts';
 import { RunManager } from './manager.ts';
-import { realProcOps, type ProcOps } from './procs.ts';
+import { realProcOps, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 import { expectMode } from '../../test/platform.ts';
 

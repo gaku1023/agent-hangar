@@ -1,7 +1,7 @@
 import type { UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { CompatSink } from '../provider/claude-code/compat/types.ts';
-import { ClaudeHeadlessSummarizer } from './claude.ts';
+import { ClaudeHeadlessSummarizer } from '../provider/claude-code/summary/claude.ts';
 import { LmStudioSummarizer } from './lmstudio.ts';
 import type { Summarizer } from './types.ts';
 

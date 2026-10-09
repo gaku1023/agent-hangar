@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { MessageError, msg } from '../i18n/message.ts';
+import { MessageError, msg } from '../../../i18n/message.ts';
 
 /**
  * claude に渡す MCP の設定。

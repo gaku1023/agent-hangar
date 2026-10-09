@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
-import { captureOutputSync } from '../platform/capture.ts';
-import { parseStartTime, sameStartTime, startTimeOf, terminate } from '../platform/proc.ts';
-import { agentsJsonDrifts } from '../provider/claude-code/compat/cli.ts';
-import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
+import { captureOutputSync } from '../../../platform/capture.ts';
+import { parseStartTime, sameStartTime, startTimeOf, terminate } from '../../../platform/proc.ts';
+import { agentsJsonDrifts } from '../compat/cli.ts';
+import { NO_COMPAT, type CompatSink } from '../compat/types.ts';
 
 /** hangar の外で動く claude のプロセスに触る口。テストでは差し替える。 */
 export type ProcOps = {

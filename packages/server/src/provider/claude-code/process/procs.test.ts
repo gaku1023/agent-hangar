@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { writeAndExitScript, writeFakeNodeTool, writeFakeTool } from '../../test/fake-bin.ts';
-import { posixIt } from '../../test/platform.ts';
-import { probeStartTime } from '../platform/proc.ts';
-import type { Drift } from '../provider/claude-code/compat/types.ts';
+import { writeAndExitScript, writeFakeNodeTool, writeFakeTool } from '../../../../test/fake-bin.ts';
+import { posixIt } from '../../../../test/platform.ts';
+import { probeStartTime } from '../../../platform/proc.ts';
+import type { Drift } from '../compat/types.ts';
 import { parseJobs, parseProcStart, realProcOps, realProcOpsWith, sameStartTime } from './procs.ts';
 
 describe('parseJobs', () => {

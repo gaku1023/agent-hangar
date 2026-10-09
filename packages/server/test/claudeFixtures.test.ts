@@ -14,7 +14,7 @@ import { transcriptDrifts } from '../src/provider/claude-code/compat/transcript.
 import { VERIFIED_CLAUDE_VERSION } from '../src/provider/claude-code/compat/version.ts';
 import { mangleCwd } from '../src/provider/claude-code/transcript/discover.ts';
 import { readRegistry } from '../src/provider/claude-code/registry.ts';
-import { parseJobs } from '../src/runs/procs.ts';
+import { parseJobs } from '../src/provider/claude-code/process/procs.ts';
 import { readEvents, subagentIds } from '../src/transcript/read.ts';
 import { parseStatusline } from '../src/usage/statusline.ts';
 import { PLACEHOLDER, SCENARIO } from './capture/scenario.ts';
