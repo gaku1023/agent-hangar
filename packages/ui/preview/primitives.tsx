@@ -1,17 +1,27 @@
 // 部品を試作と並べて撮るための頁。`npm run dev -w @agent-hangar/ui` のあと /preview/primitives.html を開く。
 // 本番の bundle には入らない（vite の入口は index.html だけ）。
 // ?open=info|perm で、その部品のポップオーバーを開いた形で出す。例の値は作り物である。
-import type { CSSProperties } from 'react';
+// 札の列（LaunchChips）は ?state=first|regular|bypass|extras と ?w=（列の幅 px。起動ダイアログの本文は 520）で出す。
+// ?only=band で、ホームの帯と引き出しの 4 つの形だけを出す（撮るとき用）。
+import { useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../src/styles/tokens.css';
 import '../src/styles/base.css';
 import '../src/styles/controls.css';
+import '../src/styles/home.css';
+import { presentHomeBand, type BandGroup, type HomeBandProps } from '../src/presenters/home.ts';
+import { translator } from '@agent-hangar/shared';
+import { HomeBand } from '../src/views/HomeBand.tsx';
+import { LanguageRoot } from '../src/views/primitives/language.tsx';
 import { CountChip, SettingChip } from '../src/views/primitives/Chip.tsx';
 import { InfoPopover, Popover } from '../src/views/primitives/Popover.tsx';
+import { LaunchChips, type LaunchChipValues } from '../src/views/LaunchChips.tsx';
 
-const open = new URLSearchParams(location.search).get('open');
+const params = new URLSearchParams(location.search);
+const open = params.get('open');
+const only = params.get('only');
 const noop = () => {};
 
 const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 };
@@ -81,12 +91,91 @@ function InfoHeader() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(
+const LAUNCH_STATES: Record<string, Partial<LaunchChipValues>> = {
+  first: {},
+  regular: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits' },
+  bypass: { model: 'opus', effort: 'high', permissionMode: 'bypassPermissions' },
+  extras: { model: 'opus', effort: 'high', permissionMode: 'acceptEdits', name: '決済の検証', addDirs: '/work/shared\n/work/docs' },
+};
+const BASE_VALUES: LaunchChipValues = { model: '', effort: '', permissionMode: '', worktree: '', name: '', addDirs: '' };
+
+/** 新しいセッションの札の列（試作 N2 の .set-row）。値は部品の中で変わる。例のアカウントとプロジェクトは作り物である。 */
+function Launch() {
+  const params = new URLSearchParams(location.search);
+  const [values, setValues] = useState<LaunchChipValues>({ ...BASE_VALUES, ...LAUNCH_STATES[params.get('state') ?? 'regular'] });
+  const [account, setAccount] = useState('work');
+  const width = Number(params.get('w')) || 520;
+  return (
+    <div id="launch" style={{ width }}>
+      <LaunchChips
+        lead={<SettingChip name="プロジェクト" value="web-shop" icon="folder" aria-haspopup="dialog" aria-expanded={false} />}
+        account={{ value: account, options: [{ value: 'work', label: '仕事用' }, { value: 'home', label: '個人用' }], onChange: setAccount }}
+        values={values}
+        previousPermission="acceptEdits"
+        onChange={(patch) => setValues((v) => ({ ...v, ...patch }))}
+      />
+    </div>
+  );
+}
+
+/* ---- ホームの帯と引き出し（試作 B）。例の値は作り物である。 ---- */
+const T = translator('ja');
+const busyMorning = presentHomeBand({
+  attention: [
+    { id: 'a1', name: '支払い画面の結合試験', projectName: 'web-shop', waited: '18分', question: 'テストの DB を作り直してよいですか', answer: 'terminal' },
+    { id: 'a2', name: '在庫の同期バッチ', projectName: 'web-shop', waited: '6分', question: 'package.json に依存を 1 つ足します。許可しますか', answer: 'terminal' },
+    { id: 'a3', name: 'ログ基盤の移行', projectName: 'infra', waited: '3分', question: '古い設定ファイルを削除します', answer: 'adopt' },
+    { id: 'a4', name: '通知の文言の見直し', projectName: null, waited: '1分', question: '入力を待っています', answer: 'terminal' },
+  ],
+  returning: [{ id: 'r1', name: '検索の速度の計測', projectName: 'web-shop', reason: '夜間の再計測の結果を確かめる', returnOn: '2026-10-09', returnTime: '15:00', overdueDays: 0, due: false, pastMin: null }],
+  running: [
+    { id: 'x1', name: '金額の上限のテストを足す', live: 'busy', aside: false, elapsed: '4分', meta: 'web-shop · opus · high', intent: '上限を超えた注文を断るテストを足す', activity: { tool: 'Edit', summary: 'src/order/limit.test.ts' }, note: null, contextPercent: 42, contextLabel: '42%' },
+    { id: 'x2', name: '請求書の PDF 化', live: 'idle', aside: false, elapsed: '31分', meta: 'web-shop · sonnet', intent: null, activity: null, note: '休み。最後の返答から 6分', contextPercent: 71, contextLabel: '71%' },
+  ],
+  confirm: [
+    { kind: 'todo', id: 't1', text: 'メール送信の再試行を足す', projectId: 'p1', projectName: 'web-shop', sessionName: '通知の見直し', ago: '2 時間前', note: '再試行の実装と試験が入った' },
+    { kind: 'session', id: 's1', name: '古い管理画面の調査', projectName: 'legacy-admin', status: 'done', label: 'Done にする？', note: '移行の計画が取り下げられた', ago: '5 時間前' },
+    { kind: 'session', id: 's2', name: 'CI の高速化', projectName: 'infra', status: 'paused', label: 'Paused · 10/12（月）？', note: '結果は週明けに確かめる', ago: '1 日前' },
+  ],
+}, T);
+const quiet = presentHomeBand({
+  attention: [],
+  returning: [],
+  running: [{ id: 'x1', name: '金額の上限のテストを足す', live: 'busy', aside: false, elapsed: '4分', meta: 'web-shop · opus · high', intent: '上限を超えた注文を断るテストを足す', activity: { tool: 'Edit', summary: 'src/order/limit.test.ts' }, note: null, contextPercent: 42, contextLabel: '42%' }],
+  confirm: [],
+}, T);
+/** 4 つ目の錠剤（PR 33 が足す形）。作り物の群を extra に渡すだけで増える。 */
+const unresolved: BandGroup = {
+  id: 'unresolved', label: '場所の不明なプロジェクト', icon: 'repoint', tone: 'default', count: 1, summary: '1 件', morning: false,
+  rows: [{ key: 'pj:p1', lead: { kind: 'todo' }, name: 'old-shop', context: 'セッション 3', text: '前のパス /work/old-shop', detail: null, tone: null, trail: [], open: null, actions: [{ id: 'relocate', label: '場所を再指定', ariaLabel: '場所を再指定、old-shop', primary: false, ghost: false, intent: { type: 'nav.go', to: { name: 'projects' } } }] }],
+};
+const withFourth: HomeBandProps = { ...busyMorning, groups: [...busyMorning.groups, unresolved] };
+
+function BandCases() {
+  return (
+    <LanguageRoot language="ja">
+      <section style={card}><h2 style={h2}>朝（要対応が開いている。4 つ目の錠剤つき）</h2><div id="band-morning"><HomeBand {...withFourth} /></div></section>
+      <section style={card}><h2 style={h2}>要対応が無い日（実行中が開く）</h2><div id="band-quiet"><HomeBand {...quiet} /></div></section>
+      <section style={card}><h2 style={h2}>実行中の引き出し</h2><div id="band-running"><HomeBand {...busyMorning} morning="running" /></div></section>
+      <section style={card}><h2 style={h2}>確認待ちの引き出し</h2><div id="band-pending"><HomeBand {...busyMorning} morning="pending" /></div></section>
+      <section style={card}><h2 style={h2}>検索の最中</h2><div id="band-search"><HomeBand {...busyMorning} searching /></div></section>
+    </LanguageRoot>
+  );
+}
+
+createRoot(document.getElementById('root')!).render(only === 'band' ? (
+  <div style={{ maxWidth: 960, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <h1 style={{ margin: 0, fontSize: 'var(--fs-lg)' }}>ホームの帯と引き出し</h1>
+    <BandCases />
+  </div>
+) : (
   <div style={{ maxWidth: 960, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
     <h1 style={{ margin: 0, fontSize: 'var(--fs-lg)' }}>部品の試験用の頁</h1>
     <section style={card}><h2 style={h2}>数の札（ホームの帯）</h2><Band /></section>
     <section style={card}><h2 style={h2}>数の札（小さい）</h2><Small /></section>
     <section style={card}><h2 style={h2}>設定の札（新しいセッション）</h2><Settings /></section>
+    <section style={card}><h2 style={h2}>新しいセッションの札の列（LaunchChips）</h2><Launch /></section>
     <section style={card}><h2 style={h2}>見出しの (i)</h2><InfoHeader /></section>
-  </div>,
-);
+    <BandCases />
+  </div>
+));
