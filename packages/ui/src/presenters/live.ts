@@ -1,4 +1,5 @@
-import { ASIDE_FREE, asideHead, stepKind, stepLine, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type SessionActivityDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
+import { ASIDE_FREE, asideHead } from '../lib/aside.ts';
+import { stepKind, stepLine, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type SessionActivityDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
 import { durationLabel } from './format.ts';
 
 export type LampProps = { tone: 'busy' | 'aside' | 'wait' | 'idle'; head: string; sub: string };

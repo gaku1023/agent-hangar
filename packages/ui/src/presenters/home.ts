@@ -1,4 +1,5 @@
-import { ASIDE_FREE, asideHead, asideOf, isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
+import { ASIDE_FREE, asideHead, asideOf } from '../lib/aside.ts';
+import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';

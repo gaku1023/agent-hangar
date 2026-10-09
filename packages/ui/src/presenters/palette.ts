@@ -1,4 +1,5 @@
-import { ASIDE_WORD, type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
+import { type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
+import { ASIDE_WORD } from '../lib/aside.ts';
 import { KEYMAP, type KeyId } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownAside, shownLive, type Store } from '../store/store.ts';

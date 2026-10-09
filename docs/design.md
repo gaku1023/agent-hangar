@@ -160,50 +160,9 @@ export function IntentBoundary(props: { handle: IntentHandler; children: ReactNo
 たとえば `SplitPane` はペーンの幅変更を処理し、`TabStrip` はタブのドラッグ並び替えを処理する。
 それ以外はすべて `Root` に届き、Mediator が裁定する。
 
-Intent の一覧は次のとおりである。
+Intent の一覧は型が正である。
+`packages/shared/src/intent.ts` の `Intent` を見る。
 名前は `対象.動詞` で揃える。
-
-```ts
-type Intent =
-  | { type: 'nav.go'; to: Route }
-  | { type: 'palette.open' } | { type: 'palette.close' } | { type: 'palette.run'; command: PaletteCommand }
-  | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
-  | { type: 'search.more'; offset: number } | { type: 'search.clear' }
-  | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
-  | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
-  | { type: 'folder.pick' }
-  | { type: 'project.resolve.open'; id: ProjectId }
-  | { type: 'project.resolve'; id: ProjectId; action: { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' }; confirmed?: boolean }
-  | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
-  | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
-  | { type: 'memo.save'; projectId: ProjectId; markdown: string }
-  | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.openEditor'; id: ArtifactId }
-  | { type: 'artifact.add'; projectId: ProjectId; url: string }
-  | { type: 'session.open'; id: SessionId } | { type: 'session.setMemo'; id: SessionId; text: string }
-  | { type: 'session.nextWaiting' }
-  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams; place?: ProjectPlace }
-  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
-  | { type: 'session.kill'; runId: RunId; working: boolean; shellTabs: number; confirmed?: boolean }
-  | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
-  | { type: 'session.promote.open'; id: SessionId }
-  | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
-  | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
-  | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
-  | { type: 'sync.joinToken.show' }
-  | { type: 'summary.regenerate'; sessionId: SessionId }
-  | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
-  | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
-  | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
-  | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }
-  | { type: 'transcript.follow'; sessionId: SessionId; follow: boolean }
-  | { type: 'transcript.loadMore'; sessionId: SessionId }
-  | { type: 'transcript.selectAgent'; sessionId: SessionId; agentId: string | null }
-  | { type: 'index.rebuild' }
-  | { type: 'overlay.close' }
-  | { type: 'toast.dismiss'; id: string }
-  | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
-  | { type: 'settings.update'; patch: Partial<Settings> } | { type: 'summarizer.test' };
-```
 
 他端末で動いているセッションに対して View が出すのは `session.resumeHere` だけで、引き継ぎの握手の Intent は持たない（後述）。
 
@@ -228,40 +187,24 @@ type Intent =
 状態は直交する領域に分けて持つ。
 領域ごとに小さな状態機械を書き、`transition` はそれらを合成する。
 
-- `screen`：`booting | home | projects | project(id) | session(id) | sessions(query) | settings`。
-- `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
-外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')`、見つからないプロジェクトを一覧から削除する確認は `confirm('unlinkProject')` である。
-- `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉。
-- `launch`：`idle | submitting | failed(message)`。場所の指定つきで起動するときは、送信中と失敗の状態が、途中で作れたプロジェクトの id を `createdProjectId` に持つ。
-- `projectCreate`：`idle | submitting | failed(message)`。作成のダイアログの送信の状態である。
-- `workspaceDirs`：ワークスペース直下の未登録のフォルダ（`{ name, path }[]`）。2 つのダイアログを開いたときに読み、まだ読んでいなければ null である。
-- `pickedFolder`：Finder で選んだパス `{ path, n }`。`n` は同じパスをもう一度選んでも気付くための回数で、開いているダイアログが「マウントしたときより新しい選択か」を調べるのに使う。
-- `newSessionDraft`：新しいセッションのダイアログの書きかけ（名前、初期プロンプト、添付）。1 つだけ持ち、ダイアログから起動し終えたら消す。
-- `launchPrefs`：新しいセッションの詳細の、プロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは `:scratch` の 1 枠である。
-  どちらも端末ごとに localStorage（`newSession.draft`、`newSession.prefs`）に残し、起動時に読み戻す。形の違う値は捨てる。
-- `connection`：`connecting | connected | disconnected`。
-- `sync`：`off | idle(lastAt) | pushing | pulling | paused | error(message)`。
+各領域の取りうる値は型が正である。
+`packages/ui/src/mediator/types.ts` の `State` と、領域ごとのファイルを見る。
+遷移の表は持たない。
+`packages/ui/src/mediator/transition.ts` とその試験が正である。
+型から読み取れない決まりだけを、次に書く。
 
-主要な遷移を表にする。
-
-| 現在 | 入力 | 次 | 効果 |
-| --- | --- | --- | --- |
-| `booting` | `ServerEvent.ready` | `home` | 初期データ購読 |
-| 任意 | `nav.go(to)` | `to` | URL 更新 |
-| `overlay: none` | `session.new.open` | `overlay: newSession` | フォーカスを名前欄へ |
-| `launch: idle` | `session.new.submit` | `launch: submitting`、送った詳細をそのプロジェクトの前回値に | `POST /api/runs`、前回値が変われば保存 |
-| 任意 | `session.new.draft` | 書きかけを下書きに（名前も初期プロンプトも空白だけで、添付も無ければ消す） | 変われば保存 |
-| 任意 | `session.new.draft.attach` | ダイアログを閉じた後に送り終えた添付を、いまの下書きへ足す。名前と本文は残し、同じパスは足さない。下書きが無ければ、名前と本文が空のものを作る | 変われば保存 |
-| `launch: submitting` | `POST /api/runs` の応答 | `launch: idle`, `screen: session(id)` | ターミナル接続 |
-| `launch: submitting` | `POST /api/runs` の失敗 | `launch: failed` | ダイアログ内に理由 |
-| `session(id)` | `tab.open(shell)` | タブ追加 | `POST /api/runs/:id/tabs` |
-| `launch: idle` | `session.resumeHere` | `launch: submitting` | `POST /api/sessions/:id/resume-here` |
-| `launch: submitting` | 409（手元の本文の方が小さい） | `overlay: confirm('overwriteTranscript')`, `launch: idle` | なし |
-| 任意 | `ServerEvent.projectUnresolved(id)` | `overlay: resolveProject(id)` | なし |
-| `connection: connected` | WebSocket 切断 | `disconnected` | 再接続タイマー |
-| 任意 | `settings.update`（欄の名前つき） | `settingsSave[欄]` を空に | `PATCH /api/settings`、済めば `settings.saved` か `settings.failed`、続けて `GET /api/readiness` |
-| 任意 | `readiness.check` | なし | `GET /api/readiness` |
-| 任意 | `shell.openLog`、`shell.restart` | なし | 殻の命令 `open_log`、`restart_app`（殻の中でだけ） |
+- 新しいセッションのダイアログの書きかけ（`newSessionDraft`）は 1 つだけ持ち、ダイアログから起動し終えたら消す。
+  名前も初期プロンプトも空白だけで、添付も無ければ、書きかけは消す。
+  ダイアログを閉じた後に送り終えた添付は、いまの書きかけへ足す。
+  名前と本文は残し、同じパスは足さない。
+  書きかけが無ければ、名前と本文が空のものを作る。
+- 起動の詳細の前回値（`launchPrefs`）の鍵はプロジェクトの id で、スクラッチは `:scratch` の 1 枠である。
+  送った詳細をそのプロジェクトの前回値にする。
+  書きかけも前回値も、端末ごとに localStorage（`newSession.draft`、`newSession.prefs`）に残し、起動時に読み戻す。形の違う値は捨てる。
+- `pickedFolder` の `n` は、同じパスをもう一度選んでも気付くための回数である。
+  開いているダイアログは、マウントしたときより新しい選択かを調べるのに使う。
+- `workspaceDirs` は、2 つのダイアログを開いたときに読む。まだ読んでいなければ null である。
+- 他端末の本文で手元を上書きしてよいかは、確認（`confirm`）を挟んで聞く。
 
 状態機械の実装は `packages/ui/src/mediator/` に置き、領域ごとにファイルを分ける。
 テストは「入力の列を与えて最終状態と効果の列を検証する」形で書く。
@@ -1383,6 +1326,46 @@ aria-label は見えている文字をそのまま含め、見える文と読み
   「端末」は画面では使わない。
 - サーバのエラー文が設定の項目を指すときは、画面名を「設定」とし、項目は画面の欄の見出しをかぎ括弧で書く（例：設定の「tmux のパス」）。
 
+### 文言の辞書
+
+画面とサーバの文は、shared の辞書から鍵で引く。
+今は仕組みだけがあり、辞書には見本の鍵が 3 つ入っている。
+既存の画面の文は、まだ直に書いたままで、後の変更で順に辞書へ移す。
+
+置き場は `packages/shared/src/i18n/` である。
+
+- `keys.ts`：鍵の一覧（`MESSAGES`）。鍵ごとに、その文が受け取る引数の名前を並べる。
+- `ja.ts` と `en.ts`：日本語と英語の辞書。どちらも `Record<MessageKey, string>` である。
+- `language.ts`：言語の型（`'ja' | 'en'`）と、知らない値を既定へ寄せる `languageOf`。
+- `t.ts`：辞書を引く `t(language, key, params)` と、言語を束ねた `translator(language)`。
+
+鍵は `画面.部品.意味` の形にする（例：`session.kill.confirm`）。
+画面をまたぐものは、画面のところを `common` にする。
+鍵を足すときは `keys.ts` と 2 つの辞書に同時に足す。
+辞書に鍵が足りないときも余っているときも、型検査で止まる。
+
+文の中の `{名前}` は、`t()` に渡した値で置き換わる（`t('en', 'sessions.list.count', { n: 3 })`）。
+引数の要る鍵に渡し忘れたとき、名前が違うとき、引数の無い鍵に渡したときは、型検査で止まる。
+辞書の文の `{名前}` が `keys.ts` の名前とそろっていることは、試験（`t.test.ts`）で見る。
+型をすり抜けて届いたものは落とさない。
+辞書に無い鍵は鍵のまま返し、渡されなかった引数は `{名前}` のまま残す。
+
+言語の設定は、この PC の設定（`~/.agent-hangar/settings.json` の `language`、API では `SettingsDto.language`）に置く。
+既定は日本語（`ja`）で、項目が無いうちは日本語として読む。
+PC ごとの設定なので、クラウドへは同期しない。
+読み書きはほかの設定と同じ `GET /api/settings` と `PATCH /api/settings` で行い、辞書に無い言語は 400 で断る。
+手で書き換えた `settings.json` の知らない値は、読み込みのときに落とす。
+画面に切り替えの部品はまだ無い。
+
+サーバは `translator(languageOf(settings.language))` で引く。
+UI は、いまの言語を store の設定の 1 か所から受け取る。
+
+- Presenter は `translatorOf(store)`（`presenters/i18n.ts`）で引く。
+  Presenter は `(state, store, now)` の純関数のままで、言語を引数に足さない。
+- View が自分で持つ決まった文は `useT()`（`views/primitives/language.tsx`）で引く。
+  Root が `LanguageRoot` で言語を流し、頂点の無いところでは日本語になる。
+  だから、View だけを描く試験は日本語の文のまま走る。
+
 ### 骨格
 
 左にナビだけのサイドバー、上にヘッダー、残りがメインである。
@@ -2315,7 +2298,7 @@ View は `lucide-react` を直接 import せず、hangar の言葉（`fork`、`r
 一覧の行は 2 段で 44px（`--session-row-h`）、ボタンや入力欄のような 1 段の部品は 28px（`--row-h`）、カードは 4 列、メインの最大幅は 1200px 前後で中央に寄せる。
 
 動きの性格は「なめらか」で、すっと出て長く静かに止まる。
-長さと曲線は `styles/tokens.css` のトークン（`--dur-fast` 200ms、`--dur` 420ms、`--dur-exit` 250ms、`--ease-out`、`--ease-in`、`--rise` 6px、`--blur-in` 6px、`--breathe-period` 3.2 秒）だけを通して書き、CSS にも JS にも数値を直書きしない（`styles/motion.test.ts` が見張る）。
+長さと曲線は `styles/tokens.css` のトークン（`--dur-fast` 200ms、`--dur` 420ms、`--dur-exit` 250ms、`--ease-out`、`--ease-in`、`--rise` 6px、`--blur-in` 6px、`--breathe-period` 3.2 秒）だけを通して書き、CSS にも JS にも数値を直書きしない（`styles/tokens.test.ts` が見張る）。
 JS からは `views/primitives/motion.ts` で読む。
 reduced motion では長さと移動とぼかしのトークンが 0 になり、端末の縁の往復が止まり、View Transitions も使わない。
 使う動きは次のとおりである。

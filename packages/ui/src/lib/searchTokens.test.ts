@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SearchFilter } from './intent.ts';
+import type { SearchFilter } from '@agent-hangar/shared';
 import { badTokens, formatQuery, parseQuery, queryTokens } from './searchTokens.ts';
 
 const projects = [

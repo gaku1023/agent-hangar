@@ -5,6 +5,7 @@ import { canMoveBehind } from './mediator/screen.ts';
 import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfirm } from './presenters/confirm.ts';
 import { presentHome } from './presenters/home.ts';
+import { storeLanguage } from './presenters/i18n.ts';
 import { presentOnboarding } from './presenters/onboarding.ts';
 import { presentNewProject } from './presenters/newProject.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
@@ -47,6 +48,7 @@ import { blocksSwipe } from './views/swipeTarget.ts';
 import { motionMs } from './views/primitives/motion.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
 import { CopiedContext } from './views/primitives/CommandLine.tsx';
+import { LanguageRoot } from './views/primitives/language.tsx';
 import { PromptAssistContext, type PromptAssist } from './views/primitives/promptAssist.ts';
 import { ToastStack } from './views/ToastStack.tsx';
 
@@ -378,7 +380,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       <TerminalHostContext.Provider value={props.terminals}>
         <CopiedContext.Provider value={state.copied}>
           <PromptAssistContext.Provider value={promptAssist}>
-            <Shell {...shell} overlays={overlays}>{body}</Shell>
+            <LanguageRoot language={storeLanguage(store)}>
+              <Shell {...shell} overlays={overlays}>{body}</Shell>
+            </LanguageRoot>
           </PromptAssistContext.Provider>
         </CopiedContext.Provider>
       </TerminalHostContext.Provider>
