@@ -8,6 +8,7 @@
 **Architecture:** 共有に上限の失敗を読む約束（`cloudLimit.ts`）を置き、サーバの同期の client がそれを `LimitError` にする。
 `SyncEngine` は `LimitError` を受けたら戻る時刻を `sync_state` に置いて push と pull の入口を閉じ、時刻を過ぎた最初の定期実行で自分で戻る。
 本文の上げ下ろしは `LimitError` を諦めに数えない。
+残っている Claude Code の設定の同期（全体計画の D6）は、`LimitError` を受けたらその回を打ち切り、ファイルごとには知らせない。
 同期の状態には `limitedUntil` を載せ、画面は今の「無料枠で停止 · X に戻る」をそのまま出す。
 見張り（`QuotaCounter`、`countingClient`、`D1_WRITES_*`、台数割り、`pausedReason`、`quotaPausedDay`）は消し、端末の名残はマイグレーションで 1 回だけ消す。
 
@@ -18,11 +19,14 @@
 
 ## 着手の条件
 
-- 段 1 の PR 4（`docs/superpowers/plans/2026-10-08-stage1-pr4-config-sync-device.md`）が main に入っている。
-  この計画のコードと試験の固定値は、PR 4 の後の形（`SyncStatusDto` に `claudeConfig` が無い、`RemotePuller.pullNow()` が `{ downloaded }` を返す、`packages/server/test/oldDb.ts` がある）で書いてある。
+- 段 1 の PR 4（`docs/superpowers/plans/2026-10-08-stage1-pr4-db-first.md`）が main に入っている。
+  この計画の試験は、PR 4 が足す古い版の DB を作る補助（`packages/server/test/oldDb.ts` の `seedDbAt`）を使う。
+- Claude Code の設定の同期は残っている（全体計画の D6 を 2026-10-09 に取り消し、PR 4 は設定の同期を消さない形に書き直した）。
+  この計画のコードと試験の固定値は、その形（`SyncStatusDto` に `claudeConfig` がある、`RemotePuller.pullNow()` が `{ downloaded, configEntries }` を返す、`ClaudeConfigSync` と `configSyncActive` がある）で書いてある。
+  着手のときに `git grep -n "class ClaudeConfigSync" -- packages/server/src/sync/claudeConfig.ts` が 1 行を返すことを確かめ、返さなければ手を止めて親に知らせる。
 - 段 0 の DB の自動控え（`packages/server/src/db/backup.ts`）は main `33ca14e` に入っている。
-- マイグレーションの版は、PR 4 が 16 を使うので、この PR は 17 を使う。
-  着手のときに `git grep -n "version: " -- packages/server/src/db/migrations.ts` の最後の行で数え直し、16 でなければ、この計画の 17 をすべて「最後の版 + 1」に読み替える。
+- マイグレーションの版は、この計画を書き直した時点の main で 15 が最後で、PR 4 はマイグレーションを足さないので、この PR は 16 を使う。
+  着手のときに `git grep -n "version: " -- packages/server/src/db/migrations.ts` の最後の行で数え直し、15 でなければ、この計画の 16 をすべて「最後の版 + 1」に、15 を「最後の版」に読み替える。
 
 ## Global Constraints
 
@@ -36,7 +40,10 @@
 - Worker が上限の失敗を 429 で返すのは PR 6 からである。
   いまの Worker は D1 の失敗をすべて `{"error":"internal error"}` の 500 に包むので、この PR が入ってから PR 6 が配備されるまでのあいだ、D1 の上限は端末に「上限」として届かない（`1027` は Worker を通らないので、この PR から届く）。
   そのあいだの D1 の上限の日は、端末は退かずに `error` を出し、30 秒ごとに試し直す（Free は課金されない）。
-- 残す境界：`PausedPass`、`deviceCount`（CLI の `hangar cloud status` が出す）、`CloudUsagePoller` と使用量の表示、Worker の `/usage`、`CLOUD_FREE_LIMITS`、`BACKUP_GENERATIONS` と `backups/claude-config/`、パスの検査、`sessions.provider` と `files.kind`、`tableColumns`、`cloud.json` の床の保険。
+- 残す境界：`PausedPass`、`deviceCount`（CLI の `hangar cloud status` が出す）、`CloudUsagePoller` と使用量の表示、Worker の `/usage`、`CLOUD_FREE_LIMITS`、パスの検査、`sessions.provider` と `files.kind`、`tableColumns`、`cloud.json` の床の保険。
+- Claude Code の設定の同期は残す（全体計画の D6）。
+  `sync/claudeConfig.ts`、`configSyncActive`、puller の config の経路、`SyncStatusDto.claudeConfig` と `SyncEngine.setClaudeConfigStatus`、1 巡（`PausedPass`）の `config` の段を、見張りを消すときに一緒に消さない。
+  設定の同期は `isPaused`（`engine.status().state === 'paused'`）を見て止まるので、上限で退いている間（状態は `paused`）も押し出さない。
 - 上限は Free のときだけ当たるので、ヘッダーの文は今の「無料枠で停止 · X に戻る」をそのまま使う（spec）。
   X は戻る時刻（次の UTC の 0 時）を端末の時刻で書いたものである。
 - 画面の見た目が変わる所（Task 5 と Task 7）は、Task 1 の試作で利用者が選ぶまで実装しない。
@@ -65,6 +72,7 @@
 - **利用者が一時停止しているあいだに上限に当たり、その後に再開する**：一時停止中は「一時停止中」と見せ、再開した後は戻る時刻まで「無料枠で停止」と見せ、ボタンは一時停止のまま押せる（Task 6 と Task 7 の試験で留める）。
 - **上限で退いた後に「今すぐ同期」を押す**：1 回だけ試し直し、まだ断られればまた次の 0 時まで退いて知らせ、通れば戻る（Task 6 の試験で留める）。
 - **見張りが止めていた端末（`pausedReason` が `quota`）を入れ替える**：マイグレーションで一時停止を解き、利用者が止めていた端末（`user`）は止めたままにする（Task 8 の試験で留める）。
+- **設定の同期を入れている端末が、エンジンより先に上限に当たる**：設定の押し出しと取り込みはその回を打ち切り、ファイルの数だけトーストを出さない。取り込めなかった設定は一覧に残り、上限が戻れば次の取り込みで書く（Task 4 の試験で留める）。
 
 ---
 
@@ -494,17 +502,26 @@ git commit -m "feat(server): turn Cloudflare limit failures into LimitError befo
 
 ---
 
-### Task 4: 本文の上げ下ろしは、上限の失敗を諦めに数えない
+### Task 4: 本文と設定の上げ下ろしは、上限の失敗を諦めにもファイルごとの知らせにもしない
 
 **Files:**
 - Modify: `packages/server/src/sync/uploader.ts:59-66`（`isPermanentStatus` の説明）、`:480-486`（諦める分岐）
 - Modify: `packages/server/src/sync/puller.ts`（`pullNowInner` の `if (err instanceof CompatError) throw err;`）
-- Test: `packages/server/src/sync/uploader.test.ts`、`packages/server/src/sync/puller.test.ts`
+- Modify: `packages/server/src/sync/claudeConfig.ts`（import、`pushChangedNow` の 1 件ごとの `catch`、`applyPull` の 1 件ごとの `catch`）
+- Test: `packages/server/src/sync/uploader.test.ts`、`packages/server/src/sync/puller.test.ts`、`packages/server/src/sync/claudeConfig.test.ts`
 
 **Interfaces:**
-- Consumes: Task 3 の `LimitError`。
+- Consumes: Task 3 の `LimitError` と、偽のクラウドの `limited`。
 - Produces: uploader は `LimitError` を一時の失敗として待ち行列に残す（状態番号が 4xx でも諦めない）。
   puller は `LimitError` を受けたら、項目を諦めに数えず、`filesSeq` も進めずに、その回を投げて終える（`CompatError` と同じ扱い）。
+  `ClaudeConfigSync` は、押し出しでも取り込みでも `LimitError` を受けたらその回の残りを打ち切り、ファイルごとの知らせ（`reportOnce`）を出さない。
+  取り込めなかった設定は一覧（`configPending`）に残り、上限が戻った後の取り込みで書く。
+
+設定の同期（全体計画の D6 で残すことにした）は、1 件ごとの失敗をファイルの名前つきで 1 度ずつ知らせる。
+上限の失敗は、どのファイルも同じ答えになるので、そのまま通すとファイルの数だけトーストが並ぶ。
+上限で退いたことは、30 秒ごとの定期実行で同じ上限に当たる `SyncEngine` が 1 度だけ知らせ（Task 6）、その後は状態が `paused` になるので設定の同期は外へ出ない（`configSyncActive` と `isPaused`）。
+Worker の pull も端末の行（`devices`）を書くので、D1 の書き込みの上限でもエンジンは同じ上限に当たる。
+設定の同期の側は、上限に当たったらその回を黙って打ち切ればよい。
 
 - [ ] **Step 1: 試験を書く**
 
@@ -546,15 +563,53 @@ git commit -m "feat(server): turn Cloudflare limit failures into LimitError befo
     expect(state.getNumber('filesSeq', 0)).toBe(0);
     // 上限が戻れば、同じ項目が降りてくる。
     cloud.getFile = realGet;
-    expect(await p.pullNow()).toEqual({ downloaded: 1 });
+    expect(await p.pullNow()).toEqual({ downloaded: 1, configEntries: 0 });
   });
+```
+
+`packages/server/src/sync/claudeConfig.test.ts` の末尾に足す。
+偽のクラウドの `limited`（Task 3）を立てると、`putFile` と `getFile` は `LimitError` で断られる。
+相手の設定は、`limited` を立てる前に `remotePut` で置いておく（立てた後は置く側も断られる）。
+
+```ts
+describe('上限で断られたとき', () => {
+  it('押し出しはその回を打ち切り、ファイルごとに知らせない。上限が戻れば上げる', async () => {
+    write('CLAUDE.md', '# hi\n');
+    write('memory/x.md', 'memo\n');
+    const c = make();
+    cloud.limited = 'd1-write';
+    expect(await c.pushChanged()).toBe(0);
+    expect(toasts).toEqual([]);
+    cloud.limited = null;
+    expect(await c.pushChanged()).toBe(2);
+    expect(toasts).toEqual([]);
+    c.stop();
+  });
+
+  it('取り込みはその回を打ち切り、ファイルごとに知らせず、一覧に残して上限が戻ればやり直す', async () => {
+    const e1 = await remotePut('CLAUDE.md', '# from mini\n');
+    const e2 = await remotePut('memory/x.md', 'memo\n');
+    const c = make();
+    c.confirm();
+    cloud.limited = 'd1-read';
+    expect(await c.applyPull([e1, e2])).toEqual({ applied: 0, conflicts: 0, backedUp: 0 });
+    expect(toasts).toEqual([]);
+    expect(c.pendingRemote().map((x) => x.key).sort()).toEqual(['config/dev-b/CLAUDE.md', 'config/dev-b/memory/x.md']);
+    cloud.limited = null;
+    expect(await c.applyPull([])).toEqual({ applied: 2, conflicts: 0, backedUp: 0 });
+    expect(fs.readFileSync(path.join(claudeDir, 'CLAUDE.md'), 'utf8')).toBe('# from mini\n');
+    expect(c.pendingRemote()).toEqual([]);
+    c.stop();
+  });
+});
 ```
 
 - [ ] **Step 2: 落ちるのを見る**
 
-Run: `npx vitest run packages/server/src/sync/uploader.test.ts packages/server/src/sync/puller.test.ts -t "上限で断られた"`
+Run: `npx vitest run packages/server/src/sync/uploader.test.ts packages/server/src/sync/puller.test.ts packages/server/src/sync/claudeConfig.test.ts -t "上限で断られた"`
 Expected: FAIL。
 uploader は 403 を直りようのない 4xx として控えに残し、puller は 3 回で項目を諦める。
+設定の同期は、ファイルごとに「同期に失敗しました」と「取り込みに失敗しました」を 2 件ずつ知らせる。
 
 - [ ] **Step 3: 実装する**
 
@@ -581,19 +636,42 @@ uploader は 403 を直りようのない 4xx として控えに残し、puller 
           if (err instanceof CompatError || err instanceof LimitError) throw err;
 ```
 
+設定の束（`onConfigEntries`）の `catch` には足さない。
+取り込み（`ClaudeConfigSync.applyPull`）は 1 件ごとの失敗を中で受け止めて投げないので、上限の失敗はそこまで届かない。
+
+`packages/server/src/sync/claudeConfig.ts` の `import type { CloudClient } from './client.ts';` を `import { LimitError, type CloudClient } from './client.ts';` にする。
+
+`pushChangedNow` の 1 件ごとの `catch (e) {` の、`reportOnce` の上のコメントの前に足す。
+
+```ts
+        // 上限で断られたのは、このファイルのせいではない。残りのファイルも同じ答えなので、その回を打ち切り、ファイルごとには鳴らさない。
+        // 退いたことは、同じ上限に当たる SyncEngine が 1 度だけ知らせる。その後は状態が paused になり、ここへは来ない（server.ts の configSyncActive）。
+        if (e instanceof LimitError) break;
+```
+
+`applyPull` の 1 件ごとの `catch (err) {` の、`// 控えに失敗した分もここに落ちる。` の前に足す。
+
+```ts
+        // 上限で断られた回は、残りも同じ答えなので打ち切り、ファイルごとには鳴らさない。
+        // 片付いていない分は一覧（configPending）に残るので、上限が戻った後の取り込みでやり直す。
+        if (err instanceof LimitError) break;
+```
+
+`break` の後も、控えの知らせ、`statusLine` の実行の許し、一覧の書き戻しは今までどおり走る（打ち切る前に書けた分だけが片付き、残りは一覧に残る）。
+
 - [ ] **Step 4: 通るのを見る**
 
-Run: `npx vitest run packages/server/src/sync/uploader.test.ts packages/server/src/sync/puller.test.ts`
+Run: `npx vitest run packages/server/src/sync/uploader.test.ts packages/server/src/sync/puller.test.ts packages/server/src/sync/claudeConfig.test.ts`
 Expected: PASS。
 
 - [ ] **Step 5: コミットする**
 
 ```bash
-git add packages/server/src/sync/uploader.ts packages/server/src/sync/uploader.test.ts packages/server/src/sync/puller.ts packages/server/src/sync/puller.test.ts
+git add packages/server/src/sync/uploader.ts packages/server/src/sync/uploader.test.ts packages/server/src/sync/puller.ts packages/server/src/sync/puller.test.ts packages/server/src/sync/claudeConfig.ts packages/server/src/sync/claudeConfig.test.ts
 ```
 
 ```bash
-git commit -m "feat(server): do not give up on transcripts refused by a Cloudflare limit" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(server): do not give up on transcripts or flood config toasts when refused by a Cloudflare limit" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1229,7 +1307,7 @@ export function limitedMessage(until: number): string {
   /** push と pull の入口を閉じているか。版で止まっているとき、上限で退いているとき、一時停止していて頼まれた 1 巡の最中でもないとき。 */
   private get halted(): boolean { return this.compatBlock !== null || this.limitedUntil() !== null || (this.paused && !this.onePass); }
 
-  /** 互換の版が合わずに止まっているか。本文の出し入れと使用量も、これを見て止まる（server.ts の syncHalted）。 */
+  /** 互換の版が合わずに止まっているか。本文と設定の出し入れと使用量も、これを見て止まる（server.ts の syncHalted）。 */
   compatBlocked(): boolean { return this.compatBlock !== null; }
 
   /**
@@ -1302,6 +1380,7 @@ export function limitedMessage(until: number): string {
       pending: this.pending(),
       error: state === 'error' ? (this.compatBlock ?? this.lastError) : null,
       deviceCount: this.deviceCount(),
+      claudeConfig: { ...this.claudeConfig },
       limitedUntil: shownLimit,
       // 段 1 の PR 5 の Task 7 で消す。それまで今の画面が「無料枠で停止」を出せるよう、退いているときを quota として渡す。
       pausedReason: state === 'paused' ? (shownLimit !== null ? 'quota' : 'user') : null,
@@ -1397,8 +1476,11 @@ export function limitedMessage(until: number): string {
 - 53 行の `import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, type QuotaCounter } from './sync/quota.ts';` を消す。
 - 88 行から 150 行（`FILES_INDEXES`、`D1_WRITES_PER_AUTOINCREMENT`、`D1_WRITES_PER_FILE_PUT`、`D1_WRITES_PER_FILE_DELETE`、`countingClient` とそれぞれの説明）を消す。
 - `isPaused` の説明の 1 行目「同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。」を「同期が止まっているか。利用者が押した一時停止も、Cloudflare の上限で退いている間もここに出る。」にする。
+- `configSyncActive` の説明の「「一時停止」は外と話すのをやめることで、無料枠の 80% で自分から止まったときも同じである（決定 4）。」を「「一時停止」は外と話すのをやめることで、Cloudflare の上限で退いている間も同じである（そのあいだの状態は paused で、isPaused に出る）。」にする。
+  関数そのものは残す（Claude Code の設定の同期は残すため。全体計画の D6）。
 - `const rawClient = cloud ? new HttpCloudClient(…) : null;` を `const client = cloud ? new HttpCloudClient(…) : null;` にし、`new SyncEngine({ … client: rawClient, … })` を `client` にする。
-- `// 本文の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。` と `const client = rawClient ? countingClient(rawClient, engine.quota) : null;` の 2 行を消す。
+- `// 本文と設定の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。` と `const client = rawClient ? countingClient(rawClient, engine.quota) : null;` の 2 行を消す。
+  設定の同期（`new ClaudeConfigSync({ … client, … })`）と puller と uploader は、名前を変えた `client` をそのまま受け取る。
 - `pausedPass` の説明の「終わりに使用量を取り直す。止まっている間は取りに行かないので、押した分の枠がここでしか見えない。」は残す。
 - `pausedPass` の `done` の `if (engine.compatBlocked()) { … }` の次に足す。
 
@@ -1691,7 +1773,7 @@ git commit -m "feat(ui): show the limit back-off from limitedUntil and drop paus
 
 ---
 
-### Task 8: 端末の後始末のマイグレーション（版 17）
+### Task 8: 端末の後始末のマイグレーション（版 16）
 
 **Files:**
 - Modify: `packages/server/src/db/migrations.ts`（末尾に 1 つ足す）
@@ -1699,7 +1781,7 @@ git commit -m "feat(ui): show the limit back-off from limitedUntil and drop paus
 
 **Interfaces:**
 - Consumes: PR 4 の `seedDbAt`（`packages/server/test/oldDb.ts`）。段 0 の控え。
-- Produces: 版 17。
+- Produces: 版 16。
   `sync_state` の `quota:` で始まる鍵（日ごとの数えと `quota:pausedDay`）と `pausedReason` を消す。
   見張りが止めていた端末（`pausedReason` が `quota`）は、`paused` も消して一時停止を解く。
 
@@ -1708,22 +1790,23 @@ spec の「後始末」のうち、端末の分である。
 見張りはもう無く、上限に当たれば Cloudflare が断り、端末は次の 0 時まで退くので、見張りの一時停止は解く。
 利用者が自分で止めた一時停止（`pausedReason` が `user`、または理由の無いもの）は、そのまま残す。
 `meta` の `d1_rows:*` は Worker の側（PR 6）で消す。
+Claude Code の設定の同期の記録（`file_sync` の `kind='config'` の行、`configPullConfirmed`、`configPending`、`skipped:(config)`）は、設定の同期を残すので消さない。
 
 - [ ] **Step 1: 版を数え直す**
 
 Run: `git grep -n "version: " -- packages/server/src/db/migrations.ts`
-Expected: 最後が `version: 16,`（PR 4）。
-違えば、このタスクの 17 を「最後の版 + 1」に読み替える。
+Expected: 最後が `version: 15,`（PR 4 はマイグレーションを足さない）。
+違えば、このタスクの 16 を「最後の版 + 1」に、試験で `seedDbAt` に渡す 15 を「最後の版」に読み替える。
 
 - [ ] **Step 2: 試験を書く**
 
 `packages/server/src/db/db.test.ts` の `describe('openDb', …)` の最後に足す。
 
 ```ts
-  it('version 17 で見張りの名残を消し、見張りが止めた一時停止だけを解く', () => {
+  it('version 16 で見張りの名残を消し、見張りが止めた一時停止だけを解く', () => {
     const seedState = (rows: [string, string][]): string => {
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
-      seedDbAt(path.join(tmp, 'hangar.db'), 16, (db) => {
+      seedDbAt(path.join(tmp, 'hangar.db'), 15, (db) => {
         const st = db.prepare('insert into sync_state (key, value) values (?, ?)');
         for (const [k, v] of rows) st.run(k, v);
       });
@@ -1750,12 +1833,12 @@ Expected: 最後が `version: 16,`（PR 4）。
 
 - [ ] **Step 3: 落ちるのを見る**
 
-Run: `npx vitest run packages/server/src/db/db.test.ts -t "version 17"`
+Run: `npx vitest run packages/server/src/db/db.test.ts -t "version 16"`
 Expected: FAIL（`quota:` の鍵と `pausedReason` が残り、見張りの一時停止も残る）。
 
 - [ ] **Step 4: マイグレーションを足す**
 
-`packages/server/src/db/migrations.ts` の `MIGRATIONS` の最後（版 16 の後）に足す。
+`packages/server/src/db/migrations.ts` の `MIGRATIONS` の最後（版 15 の後）に足す。
 
 ```ts
   {
@@ -1766,7 +1849,8 @@ Expected: FAIL（`quota:` の鍵と `pausedReason` が残り、見張りの一�
     // 残すと入れ替えた後も止まったままになり、画面は利用者が止めたものとして見せる。
     // 利用者が止めた一時停止（user と、理由の無い古いもの）はそのまま残す。
     // Worker の meta の d1_rows:* は、Worker の側（段 1 の PR 6）で消す。
-    version: 17,
+    // Claude Code の設定の同期の記録（file_sync の config の行と、configPullConfirmed などの鍵）は、設定の同期を残すので触らない。
+    version: 16,
     sql: `
 delete from sync_state where key = 'paused' and exists (select 1 from sync_state where key = 'pausedReason' and value = 'quota');
 delete from sync_state where key = 'pausedReason';
@@ -1787,7 +1871,7 @@ git add packages/server/src/db/migrations.ts packages/server/src/db/db.test.ts
 ```
 
 ```bash
-git commit -m "feat(server): clean up the quota watch leftovers in migration 17" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(server): clean up the quota watch leftovers in migration 16" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1802,7 +1886,8 @@ git commit -m "feat(server): clean up the quota watch leftovers in migration 17"
 - Consumes: Task 2 から Task 8 のすべて。
 - Produces: なし。
 
-行番号は main `33ca14e` のもので、PR 4 が design.md と README を直しているので、引用した文で探す。
+行番号は main `33ca14e` のもので、その後の PR と PR 4（design.md の `backups/db/` の箇条に 2 行足す）でずれているので、引用した文で探す。
+Claude Code の設定の同期の記述（「同期対象と暗号化」の設定の段、設定の押し出しの段など）は、設定の同期を残すので触らない。
 
 - [ ] **Step 1: design.md の Settings の節を直す**
 
@@ -1868,7 +1953,7 @@ Worker の台帳（`meta` の `d1_rows:<yyyy-MM-dd>` と、push と pull の応�
 
 2552 行付近のフェーズ 4 の並びの「無料枠の見張り」の後ろに「（段 1 で消し、上限で退く形に替えた）」を足す。
 
-2572 行付近の版の数を「版は 17 まで」にし、括弧の並びの末尾に「、17 で無料枠の見張りの名残（`sync_state` の `quota:*` と `pausedReason`）を消し、見張りが止めた一時停止を解いた」を足す。
+2572 行付近の版の数「版は 15 まで」を「版は 16 まで」にし、括弧の並びの末尾に「、16 で無料枠の見張りの名残（`sync_state` の `quota:*` と `pausedReason`）を消し、見張りが止めた一時停止を解いた」を足す。
 
 2659 行付近「無料枠の 80% で同期を自動で一時停止し、トーストで知らせる。課金される形にはしない。止めるのは 1 日に 1 度だけにする。」を、次にする。
 
@@ -1995,7 +2080,7 @@ spec の入れる条件「写しの DB で 1 日使ってから入れる」の�
 | 置き場のもの | 写すか | 理由 |
 | --- | --- | --- |
 | `hangar.db` | 写す（SQLite の `.backup` で） | 試す相手である。実物は動いているので、ファイルの複写ではなく SQLite の写しの口で取る |
-| `settings.json` | 写す | ワークスペース、`claudeDir`、tmux を同じにする |
+| `settings.json` | 写して、`syncClaudeConfig` を切る | ワークスペース、`claudeDir`、tmux を同じにする。Claude Code の設定の同期は残っている（全体計画の D6）ので、入れたままだと試しのサーバが本物の `~/.claude` を見張って上げ、相手の設定を本物の `~/.claude` へ書きうる |
 | `device.json` | 写さない | 写すと同じ端末が 2 台になる。試しのサーバは新しい ID を作る |
 | `token` | 写さない | 試しのサーバは自分の token を作る。本物の画面と statusline が試しのサーバに届かない |
 | `cloud.json`、`cloud/` | 写さない | 実物の Worker の端末トークンと参加用の秘密と wrangler の設定を持つ |
@@ -2005,7 +2090,8 @@ spec の入れる条件「写しの DB で 1 日使ってから入れる」の�
 試しのサーバは、`HANGAR_CLAUDE_BIN` を `/usr/bin/false` にして起こす。
 写しの DB の状態の印は実物の画面で変えても追いつかないので、試しのサーバの「区切りで止める」（ParkWatch）が、実物では印を外したバックグラウンドのセッションに `claude stop` を打ちうるからである。
 そのため試しの画面では、要約と、会話を起こす操作は動かない。
-試しの画面からは、会話を起こさない、「この PC で再開」を押さない、会話の保持期間を書き込まない。
+試しの画面からは、会話を起こさない、「この PC で再開」を押さない、会話の保持期間を書き込まない、設定の同期を入れない（どれも `~/.claude` に書くか、本物のアプリが知らない run を作る）。
+設定の同期と上限の関わり（その回を打ち切り、ファイルごとに知らせない）は Task 4 の試験で押さえ、この試しでは見ない。
 
 - [ ] **Step 1: 試しの置き場を作る**
 
@@ -2029,6 +2115,18 @@ sqlite3 "$HOME/.agent-hangar/hangar.db" ".backup '$TRIAL/hangar.db'"
 cp "$HOME/.agent-hangar/settings.json" "$TRIAL/settings.json"
 ```
 
+写した設定の、Claude Code の設定の同期を切る（上の表の理由）。
+
+```bash
+node -e "const fs = require('node:fs'); const f = process.argv[1]; const s = JSON.parse(fs.readFileSync(f, 'utf8')); s.syncClaudeConfig = false; fs.writeFileSync(f, JSON.stringify(s, null, 2) + '\n');" "$TRIAL/settings.json"
+```
+
+```bash
+grep -n syncClaudeConfig "$TRIAL/settings.json"
+```
+
+Expected: `"syncClaudeConfig": false` の 1 行。
+
 - [ ] **Step 3: 移行の前の数を控える**
 
 ```bash
@@ -2047,14 +2145,14 @@ F="$TRIAL/hangar.db" npx tsx -e "import('./packages/server/src/db/open.ts').then
 sqlite3 "$TRIAL/hangar.db" "select max(version) from schema_migrations; select count(*) from sync_state where key like 'quota:%' or key = 'pausedReason'; select key, value from sync_state where key = 'paused';"
 ```
 
-Expected: 版は 17、`quota:` と `pausedReason` は 0。
+Expected: 版は 16、`quota:` と `pausedReason` は 0。
 `paused` は、移行の前の `pausedReason` が `user` なら残り、`quota` なら消えている。
 
 ```bash
 ls "$TRIAL/backups/db"
 ```
 
-Expected: `hangar-v16-<時刻>.db` が 1 つ。
+Expected: `hangar-v15-<時刻>.db` が 1 つ。
 
 - [ ] **Step 5: 写しの同期の進み具合を消す**
 
@@ -2322,8 +2420,11 @@ sqlite3 "$HOME/.agent-hangar/hangar.db" "select count(*) from changes where push
   Worker が 429 を返すこと（1 つめの箇条）は PR 6 である。
   画面の文は spec のとおり「無料枠で停止 · X に戻る」を使う（Task 7）。
 - 「残す境界」の `deviceCount` は Task 6 で説明を直して残し、使用量の表示は Task 5 で「数は不明」に替えて残した。
-- 「後始末」の端末の分は Task 8（版 17）で尽くした。
-  spec に無い足し算は、見張りが止めた一時停止を解くこと（Task 8）と、CLI の `hangar cloud status` に戻る時刻を添えること（Task 7）である。
+  設定の同期は、`configSyncActive`、`SyncStatusDto.claudeConfig`、puller の config の経路を残し、コメントだけを上限で退く形に合わせた（Task 6）。
+- 「後始末」の端末の分は Task 8（版 16）で尽くした。
+  spec に無い足し算は、見張りが止めた一時停止を解くこと（Task 8）、CLI の `hangar cloud status` に戻る時刻を添えること（Task 7）、設定の同期が上限の失敗でその回を打ち切り、ファイルごとに知らせないこと（Task 4）である。
+- 2026-10-09 に、全体計画の D6 の取り消しに合わせて書き直した。
+  PR 4 が設定の同期を消さず、マイグレーションも足さなくなったので、この PR の版を 17 から 16 に下げ、コードと固定値を設定の同期が残る形（`claudeConfig` と `configEntries` がある）に直し、1 日の試しでは写した設定の `syncClaudeConfig` を切るようにした。
 - 「終わりの条件」の「上限の失敗（D1 のメッセージ、429、`1027` を含む JSON でない応答）を受けたサーバが、次の UTC の 0 時まで退き、日が変わると戻ることを試験で確かめている」は、Task 2（判定）、Task 3（client）、Task 6（エンジンと立て直し）の試験で留めた。
 - `git grep -n "古いサーバは送らない"` の 2 件のうち、`packages/shared/src/api.ts` の 1 件は Task 7 で消える。
   `docs/superpowers/plans/2026-10-02-cloud-usage.md` の 1 件は過去の計画なので書き換えない。

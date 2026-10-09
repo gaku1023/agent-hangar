@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Worker を「量を数えない、古い端末に合わせない」形にする。端末に求める互換の版の下限を 1 に上げ、D1 の書き込みの台帳を外し、設定の同期と古い端末のための経路と DELETE を消し、D1 の上限の失敗を 429 で返し、消したものが D1 に残した行を 1 回だけ片付ける。端末の側も、古い Worker のための分岐を消し、Worker に求める下限を 1 に上げる。
+**Goal:** Worker を「量を数えない、古い端末に合わせない」形にする。端末に求める互換の版の下限を 1 に上げ、D1 の書き込みの台帳を外し、古い端末のための経路と DELETE を消し、D1 の上限の失敗を 429 で返し、台帳が D1 に残した行を 1 回だけ片付ける。端末の側も、古い Worker のための分岐を消し、Worker に求める下限を 1 に上げる。Claude Code の設定の同期が使う経路（`kind=config` と `config/` の鍵の受け入れ）は残す。
 
 **Architecture:** Worker の入口（`packages/cloud/src/index.ts`）は既定の輸出だけにし、組み立ては新しい `app.ts` に移す。
 書き込みはすべて素の `db.batch` と `stmt.run()` に戻して `meter.ts` を消す。
@@ -13,14 +13,18 @@
 
 **Tech Stack:** TypeScript、Hono、miniflare と esbuild（Worker の試験）、vitest、React（UI の presenter と view）、wrangler（配備だけ。利用者に聞いてから）。
 
-**Spec:** `docs/superpowers/specs/2026-10-07-stage1-subtraction-design.md`（「消すもの」の D4、D6、使われていない口、古い版のための分岐、「残す境界」、「互換の版番号（D10）」、「上限による失敗で退く（D4）」、「後始末」、「PR の割り方」の PR 6 の行）。
-段をまたぐ決定は `docs/superpowers/specs/2026-10-07-refactor-roadmap-design.md` の D4、D6、D8、D9、D10。
+**Spec:** `docs/superpowers/specs/2026-10-07-stage1-subtraction-design.md`（「消すもの」の D4、使われていない口、古い版のための分岐、「残す境界」、「互換の版番号（D10）」、「上限による失敗で退く（D4）」、「後始末」、「PR の割り方」の PR 6 の行）。
+段をまたぐ決定は `docs/superpowers/specs/2026-10-07-refactor-roadmap-design.md` の D4、D6（設定の同期は残し、段 4 で作り直す）、D8、D9、D10。
+
+2026-10-09 に、全体計画の D6 の取り消しに合わせて書き直した。
+はじめの計画は、Worker の `kind=config` と `config/` の鍵の受け入れ、設定の同期の索引の後始末（`files` の `kind='config'` の行）まで消していた。
+いまは設定の同期を残すので、それらは消さない（「決めたこと」の 8 と 10）。
 いまの作りは `docs/design.md` の「クラウド同期」の節（構成と setup、同期対象と暗号化、使用量と費用、タイミングと競合、互換の版番号）。
 書き方の手本は `docs/superpowers/plans/2026-10-07-stage1-pr3-compat-version.md`。
 
 ## 着手の前に確かめること
 
-PR 6 は、段 1 の PR 4（設定の同期を端末から消す）と PR 5（端末の見張りを消し、上限の失敗で退く）の後に入る。
+PR 6 は、段 1 の PR 4（試験の補助と、`setup cloud` と `join` が DB を先に開くこと）と PR 5（端末の見張りを消し、上限の失敗で退く）の後に入る。
 この計画は、PR 4 と 5 が spec の「PR の割り方」の行どおりに入った main から切る前提で書いた。
 worktree を切って `npm ci` を打ったら、次の 4 つを確かめる。
 1 つでも外れたら手を止め、外れた内容を添えて親に知らせる。
@@ -30,10 +34,11 @@ worktree を切って `npm ci` を打ったら、次の 4 つを確かめる。
    Run: `git grep -n "QuotaCounter\|countingClient\|D1_WRITES_" -- packages`
    Expected: 何も出ない。
 
-2. PR 4 で設定の同期が端末から消えている。
+2. Claude Code の設定の同期が端末に残っている（全体計画の D6 を 2026-10-09 に取り消した）。
+   この PR は、設定の同期が使う Worker の経路を消さない。
 
-   Run: `git grep -n "sync/claudeConfig" -- packages`
-   Expected: 何も出ない。
+   Run: `git grep -n "class ClaudeConfigSync" -- packages/server/src/sync/claudeConfig.ts`
+   Expected: 1 行出る。
 
 3. `deleteFile` を使っているのが、この PR で消す所だけである。
 
@@ -60,7 +65,7 @@ spec と親の申し送りが決めていない所を、次のように決めた
    印を読む 1 文は、cold start のたびに払う（1 行の読み取り）。
    後始末が落ちても要求は落とさず、次の cold start でまた試す。
    cron の `scheduled` を足す案は、配備の設定（`triggers`）と同梱の束縛の定義が増えるので採らなかった。
-   R2 の `config/` の本体は spec どおり孤児の掃除に任せる（索引の行が消えれば、掃除が「索引に無い本体」として 1 時間の猶予の後に消す）。
+   消すのは台帳の行だけで、設定の同期の索引（`files` の `kind='config'` の行）と R2 の `config/` の本体には触らない（8）。
 2. **この PC が Worker に求める下限（`MIN_WORKER_COMPAT`）も 1 に上げる。**
    spec の PR 6 の行は「端末の側の古い Worker のための分岐（`/usage` の 404）も消す」とだけ書き、下限を上げるとは書いていない。
    ただし全体計画の D10 は「古い版のための分岐は、この 1 規則に置き換える」である。
@@ -87,11 +92,21 @@ spec と親の申し送りが決めていない所を、次のように決めた
    PR 5 が shared に同じ役の型を置いていれば、その名前と形に合わせる（Task 6 の Step 1 で確かめる）。
 7. **長さを名乗らない `PUT` は 411 で断る。**
    長さの無い本文を受ける道（`storeBody` と multipart）は、PR 3 より前の端末のためのもので、下限 1 で要らなくなる。
-8. **`config/` の鍵は、Worker が書くのも読むのも 400 で断る。**
-   後始末の後は索引に `config` の行が無く、読みに来る端末も無い。
+8. **設定の同期が使う経路は残す。**
+   全体計画の D6 を取り消したので、端末の設定の同期は段 1 の後も今の形で動く。
+   Worker は、`kind` が `config` の `PUT` と `config/<自端末>/` の鍵の書き込み、`config/` の鍵の `GET`、一覧に載る設定の行を、今までどおり受ける。
+   後始末も、設定の同期の索引（`files` の `kind='config'` の行）と R2 の `config/` の本体には触らない。
+   段 4 で設定の同期を作り直すときは、今の形式との互換を持たないので、そこで置き方ごと替える。
 9. **台帳の行は、後始末で全部消す。**
    いまは孤児の掃除が 7 日より古い台帳の行を刈っている。
    台帳を書かなくなるので、その刈り込みは掃除から外す。
+10. **DELETE の経路は消す。**
+    設定の同期を残しても、`deleteFile` を呼ぶ所は無い（設定の同期は消したファイルを相手に伝えていない）。
+    段 4 の作り直しでは「消したものは相手では消さずに控えへ移す」ので、消したことを相手へ伝える印が要る。
+    ただし今の DELETE は、索引の行と本体を消すだけで、新しい `seq` を持つ行を残さない。
+    一覧は `seq` で差分を読むので、行が消えても相手の端末は消えたことに気付けず、削除の印には使えない。
+    作り直しは今の形式との互換を持たないので、`seq` を進める削除の印の形は、そこで新しく決める。
+    使われていない経路を残すと、端末のトークン 1 つで自端末の本体を消せる口が開いたままになる。
 
 ## Global Constraints
 
@@ -100,8 +115,9 @@ spec と親の申し送りが決めていない所を、次のように決めた
 - 429 の本文は `{ error: 'limit', limit: 'd1-read' | 'd1-write', resetAt: <次の UTC の 0 時の epoch ミリ秒> }`。
 - 長さの無い `PUT /files/<key>` は 411 と `{ error: 'length required' }`。
 - 後始末の印は `meta` の鍵 `stage1_cleanup`（値は済ませた時刻の文字列）。
-- 後始末で消すのは、`files` の `kind = 'config'` の行と、`meta` の鍵が `d1_rows:` で始まる行だけ。R2 には触らない。
-- spec の「残す境界」を守る。`files.kind` の列、`sessions.provider`、使用量の表示（`/usage`、`CloudUsagePoller`、`CLOUD_FREE_LIMITS`）、端末の puller と teardown の「kind が transcript でない行を読み飛ばす」分岐、`isSafeRelPath` と `MAX_REL_PATH_CHARS` と `encodeHeaderText` は残す。
+- 後始末で消すのは、`meta` の鍵が `d1_rows:` で始まる行だけ。`files` の `kind = 'config'` の行と R2 には触らない。
+- spec の「残す境界」を守る。`files.kind` の列、`sessions.provider`、使用量の表示（`/usage`、`CloudUsagePoller`、`CLOUD_FREE_LIMITS`）、`isSafeRelPath` と `MAX_REL_PATH_CHARS` と `encodeHeaderText` は残す。
+- Claude Code の設定の同期が使う経路は残す（「決めたこと」の 8）。Worker の `validKey` の `config/` の分岐、`PUT` の `kind: 'config'` の受け入れと「種別と接頭辞が食い違えば 400」の検査、共有の `FileKind` と `KeyPrefix` の `config` と `splitFileKey`、偽のクラウドの `config` の受け入れ、端末の `sync/claudeConfig.ts` とその試験には触らない。
 - 実物のクラウドに触る手順（`wrangler deploy`、`wrangler d1 execute --remote`、Worker の URL への要求）は、Task 12 で利用者に聞いてから行う。聞かずに打たない。やらなかったときは報告に「実物では未確認」と書く。
 - 公開リポジトリである。実在の人名、メール、手元のパス、Worker の URL、アカウントの識別子、使用量や費用の実数を、コード、試験、コメント、コミット、文書に書かない。
 - 作業の前に、worktree の根で `npm ci` を打つ。
@@ -117,7 +133,8 @@ spec と親の申し送りが決めていない所を、次のように決めた
 ## Review Focus
 
 - **配備した直後の最初の要求（cold start）で後始末が走る**：その要求は普段どおり答え、後始末が落ちても 500 にせず、次の cold start でまた試す（Task 5 の試験で留める）。
-- **設定の同期を一度も使っていない箱（`config` の行が 0 件）**：印を残し、2 度目の cold start で消しにいかない（Task 5 の試験で留める）。
+- **台帳の行が 1 行も無い箱**：印を残し、2 度目の cold start で消しにいかない（Task 5 の試験で留める）。
+- **設定の同期の行と本体**：後始末でも孤児の掃除でも消えず、Worker は今までどおり `config/<自端末>/` に書けて、誰でも読める（Task 4 と Task 5 の試験で留める）。
 - **D1 の上限の文が `cause` の側にだけ載る、または大文字と小文字が違う**：500 にせず 429 にする（Task 6 の試験で留める）。
 - **Cloudflare の端が Worker を通さずに返す 403（WAF）や 413**：Worker が古いとは読まず、その状態の `CloudError` にする（Task 8 の試験で留める）。
 - **長さを名乗らない `PUT`**：411 で断り、R2 にも索引にも何も残さない（Task 4 の試験で留める）。
@@ -671,25 +688,28 @@ git commit -m "refactor(cloud): drop the D1 write ledger and write through plain
 
 ---
 
-### Task 4: 設定の同期、長さを名乗らない本文、DELETE の経路を消す
+### Task 4: 長さを名乗らない本文と DELETE の経路を消す
 
 **Files:**
-- Modify: `packages/cloud/src/files.ts`（`validKey`、`storeBody` とその道具、`PUT`、`DELETE`）
+- Modify: `packages/cloud/src/files.ts`（`validKey` の説明と型、`storeBody` とその道具、`PUT` の長さの扱い、`DELETE`）
 - Modify: `packages/cloud/src/sweep.ts`（頭の説明の DELETE の 1 文）
 - Modify: `packages/cloud/test/files.test.ts`
 - Modify: `packages/cloud/test/sweep.test.ts`（`put` の道具に長さを足す）
 - Modify: `packages/server/src/sync/client.ts`（`CloudClient` と `HttpCloudClient` の `deleteFile`）
 - Modify: `packages/server/src/sync/client.test.ts`
-- Modify: `packages/server/test/fake-cloud.ts`（`checkKey`、`checkMeta`、`deleteFile`）
+- Modify: `packages/server/test/fake-cloud.ts`（`checkKey` の説明、`deleteFile`）
 - Modify: `packages/server/test/fake-cloud.test.ts`
 
 **Interfaces:**
 - Consumes: Task 3 の素の書き込み。
 - Produces:
-  - `validKey(key: string, deviceId: string, method: 'PUT' | 'GET'): boolean`（`transcripts/` の鍵だけを通す）。
-  - `PUT /files/<key>` は `kind` が `transcript` のものだけを受け、`content-length` が無ければ 411 と `{ error: 'length required' }`。
+  - `validKey(key: string, deviceId: string, method: 'PUT' | 'GET'): boolean`。判定の中身は今までと同じで（`transcripts/` と `config/` の鍵を通し、書けるのは自端末の分だけ）、型から `DELETE` が消える。
+  - `PUT /files/<key>` は、`content-length` が無ければ 411 と `{ error: 'length required' }`。`kind` の受け入れ（`transcript` と `config`）と、種別と接頭辞の食い違いを 400 で断る検査は今までどおり。
   - `DELETE /files/<key>` の経路は無い（認証の後は 404）。
   - `CloudClient` から `deleteFile` が消える。
+
+Claude Code の設定の同期が使う経路は残す（「決めたこと」の 8）。
+DELETE を消す理由は「決めたこと」の 10 に書いた。
 
 - [ ] **Step 1: Worker の試験を書き直す**
 
@@ -707,8 +727,8 @@ const put = (tok: string, key: string, body: string, headers: Record<string, str
   });
 ```
 
-`configMeta` と `del` の道具を消す。
-`chunked` の道具を残す（長さの無い本文を断る試験で使う）。
+`del` の道具を消す。
+`configMeta` と `chunked` の道具は残す（`configMeta` は設定の同期の試験で、`chunked` は長さの無い本文を断る試験で使う）。
 
 「長さの無い本文（古い端末の chunked）も multipart で預け…」の試験を、次に置き換える。
 
@@ -741,129 +761,40 @@ const put = (tok: string, key: string, body: string, headers: Record<string, str
   });
 ```
 
-`describe('validKey', …)` を次に置き換える。
+`describe('validKey', …)` の「transcripts は自端末の分だけ書けて消せる。読むのは誰でもよい」を、次に置き換える。
+`DELETE` の輪を外して `PUT` だけにし、config の断言は残す。
+「接頭辞と相対パスの形を見る」はそのまま残す。
 
 ```ts
-describe('validKey', () => {
-  // 「.」「..」は URL の側で畳まれるので HTTP 越しには届かない。判定そのものはここで見る。
-  it('transcripts の接頭辞と相対パスの形を見る', () => {
-    expect(validKey('transcripts/dev-a/u1.gz', 'dev-a', 'PUT')).toBe(true);
-    for (const k of [
-      '',
-      'u1.gz',
-      'other/u1.gz',
-      'transcripts',
-      'transcripts/',
-      '/transcripts/dev-a/u1.gz',
-      'transcripts/dev-a/../dev-b/u1.gz',
-      'transcripts/dev-a/./u1.gz',
-      'transcripts/dev-a//u1.gz',
-      'transcripts/a\u0000b',
-      'transcripts/a\u001fb',
-      'transcripts/a\u007fb',
-      `transcripts/${'a'.repeat(513)}`, // 相対パスの文字数の上限
-      `transcripts/${'あ'.repeat(400)}`, // R2 の鍵のバイト数の上限
-    ])
-      expect([k, validKey(k, 'dev-a', 'GET')]).toEqual([k, false]);
-  });
-
-  it('transcripts は自端末の分だけ書ける。読むのは誰でもよい', () => {
+  it('transcripts も config も自端末の分だけ書ける。読むのは誰でもよい', () => {
     expect(validKey('transcripts/dev-b/u1.gz', 'dev-a', 'GET')).toBe(true);
     expect(validKey('transcripts/dev-a/u1.gz', 'dev-a', 'PUT')).toBe(true);
     expect(validKey('transcripts/dev-b/u1.gz', 'dev-a', 'PUT')).toBe(false);
     expect(validKey('transcripts/dev-ax/u1.gz', 'dev-a', 'PUT')).toBe(false); // 接頭辞の一致だけでは通さない
+    // config も transcripts と同じ守りにする。分けないと 2 台目が 1 台目の設定を潰す。
+    expect(validKey('config/dev-a/a.md', 'dev-a', 'PUT')).toBe(true);
+    expect(validKey('config/dev-b/a.md', 'dev-a', 'PUT')).toBe(false);
+    expect(validKey('config/a.md', 'dev-a', 'PUT')).toBe(false);
+    expect(validKey('config/dev-b/a.md', 'dev-a', 'GET')).toBe(true);
     // 端末 ID の形も見る。スラッシュが混ざると他端末の接頭辞の下に潜り込める。
     expect(validKey('transcripts/dev-a/evil/u1.gz', 'dev-a/evil', 'PUT')).toBe(false);
     expect(validKey('transcripts/../dev-a/u1.gz', '..', 'PUT')).toBe(false);
   });
-
-  it('config の鍵は、自端末の場所でも書くのも読むのも断る（設定の同期は段 1 で消した）', () => {
-    for (const m of ['PUT', 'GET'] as const) {
-      expect(validKey('config/dev-a/a.md', 'dev-a', m)).toBe(false);
-      expect(validKey('config/dev-b/a.md', 'dev-a', m)).toBe(false);
-    }
-  });
-});
 ```
 
-`describe('鍵の検査', …)` の中を次のとおり直す。
+`describe('鍵の検査', …)` の中は、`del` を呼ぶ行だけを消す。
 
-- 「見出しが欠けていたり形が違えば 400」の `meta({ [CLOUD_HEADERS.kind]: 'config' }), // 接頭辞と種別が食い違う` を、`meta({ [CLOUD_HEADERS.kind]: 'config' }), // 設定の同期は段 1 で消した` にする。
-- 「日本語と空白を含む config の鍵を通し、そのまま取り出せる」を次に置き換える。
+- 「日本語と空白を含む config の鍵を通し、そのまま取り出せる」の末尾の `expect((await del(tokB, `config/dev-b/${rel}`)).status).toBe(204);` と `expect(await keysInR2()).toEqual([]);` の 2 行を消す。
+- 「符号化した見出しを復号して索引に載せ、端から端まで通す」の末尾の `expect((await del(tokB, key)).status).toBe(204);` の 1 行を消す。
 
-```ts
-  it('日本語と空白を含む鍵を通し、そのまま取り出せる', async () => {
-    // 鍵の形の物差しは端末と共有しているので、ASCII に限った検査にすると端末で作れる鍵が黙って 400 になる。
-    const key = 'transcripts/dev-b/日本語 メモ/u1.jsonl.gz';
-    const r = await put(tokB, key, 'x', meta({ [CLOUD_HEADERS.size]: '1' }));
-    expect(r.status).toBe(201);
-    expect(await keysInR2()).toEqual([key]);
-    expect((await list(tokA)).files.map((f) => f.key)).toEqual([key]);
-    expect(await (await get(tokA, key)).text()).toBe('x');
-  });
-```
-
-- 「見出しは非 ASCII を運べない…」の試験の `put(tokB, 'config/dev-b/a.md', 'x', configMeta('skills/日本語/SKILL.md'))` を、`put(tokB, 'transcripts/dev-b/u1.jsonl.gz', 'x', meta({ [CLOUD_HEADERS.path]: 'projects/-日本語/u1.jsonl' }))` にする。
-- 「符号化した見出しを復号して索引に載せ、端から端まで通す」を次に置き換える。
-
-```ts
-  it('符号化した見出しを復号して索引に載せ、端から端まで通す', async () => {
-    // 非 ASCII は見出しに直接載せられないので、端末が `encodeHeaderText` で符号化して送る。
-    // Worker は同じ共有の関数で復号する。片方だけ変えると、索引に百分率のままの文字列が残る。
-    const path = 'projects/-Users-x-日本語 メモ/u1.jsonl';
-    const key = 'transcripts/dev-b/u1.jsonl.gz';
-    const wire = encodeHeaderText(path)!;
-    expect(isHeaderSafe(wire)).toBe(true);
-    const r = await put(tokB, key, 'x', meta({ [CLOUD_HEADERS.path]: wire, [CLOUD_HEADERS.size]: '1' }));
-    expect(r.status).toBe(201);
-    const e = (await list(tokA)).files[0]!;
-    expect([e.key, e.path]).toEqual([key, path]);
-    expect(await (await get(tokA, key)).text()).toBe('x');
-    // R2 の customMetadata は見出しのままの形で持つ（値も ByteString しか運べない）。
-    expect((await cloud.env.BUCKET.head(key))?.customMetadata?.path).toBe(wire);
-  });
-```
-
-- 「符号化すると R2 の覚え書きの上限を超える path でも上げられる…」の試験は、`path` を `` `projects/-${'あ'.repeat(300)}/u1.jsonl` `` に、`key` を `'transcripts/dev-b/u1.jsonl.gz'` に、`configMeta(wire)` を `meta({ [CLOUD_HEADERS.path]: wire, [CLOUD_HEADERS.size]: '1' })` にする。
-- 「百分率の形が壊れた path の見出しは 400」の試験は、`put(tokB, 'config/dev-b/a.md', 'x', configMeta(wire))` を `put(tokB, 'transcripts/dev-b/u1.jsonl.gz', 'x', meta({ [CLOUD_HEADERS.path]: wire }))` にする。
-- 「鍵の形の物差しは端末と 1 つを共有する」を次に置き換える。
-
-```ts
-  it('鍵の形の物差しは端末と 1 つを共有する（Worker はその上で transcripts だけを預かる）', () => {
-    // `isValidFileKey` は端末側（`packages/server/src/sync/client.ts`）も通る共有の判定である。
-    // transcripts の鍵でずれると、端末で作れる鍵が Worker で 400 になる（またはその逆になる）。
-    for (const key of ['transcripts/dev-a/u1.jsonl.gz', 'transcripts/dev-a/日本語 メモ/u1.jsonl.gz', 'transcripts/dev-a/a%b.gz']) {
-      expect([key, isValidFileKey(key), validKey(key, 'dev-a', 'GET')]).toEqual([key, true, true]);
-    }
-    for (const key of ['other/u1', 'transcripts', 'transcripts/', 'transcripts/../x', 'transcripts/./x', 'transcripts//x', '/transcripts/x', `transcripts/${'あ'.repeat(400)}`]) {
-      expect([key, isValidFileKey(key), validKey(key, 'dev-a', 'GET')]).toEqual([key, false, false]);
-    }
-    // config の鍵は、端末の物差しが形として通しても、Worker は預からない。
-    expect(validKey('config/dev-a/a.md', 'dev-a', 'GET')).toBe(false);
-  });
-```
-
-- 「長すぎる鍵は 400」の試験は、`put(tokB, `config/dev-b/${rel}`, 'x', configMeta('a.md'))` を `put(tokB, `transcripts/dev-b/${rel}`, 'x')` に、`put(tokB, `config/dev-b/${'a'.repeat(513)}`, 'x', configMeta('a.md'))` を `put(tokB, `transcripts/dev-b/${'a'.repeat(513)}`, 'x')` にする。
+ほかの config の試験（「見出しが欠けていたり形が違えば 400」の種別と接頭辞の食い違い、非 ASCII の見出し、R2 の覚え書きの上限、壊れた百分率、鍵の形の物差し、長すぎる鍵）は、そのまま残す。
 
 `describe('端末の境目', …)` の中を次のとおり直す。
 
 - 「他端末の transcripts には書けず消せず、しかし読める」の `expect((await del(tokB, 'transcripts/dev-a/u1.jsonl.gz')).status).toBe(403);` の行を消し、試験の名前を「他端末の transcripts には書けず、しかし読める」にする。
-- 「config も自端末の場所にだけ書ける。2 台が同じ相対パスを上げても潰し合わない」を次に置き換える。
-
-```ts
-  it('config の鍵と種別は、自端末の場所でも断る（設定の同期は段 1 で消した）', async () => {
-    const rel = 'skills/a/SKILL.md';
-    const cfg = meta({ [CLOUD_HEADERS.path]: rel, [CLOUD_HEADERS.kind]: 'config', [CLOUD_HEADERS.size]: '1' });
-    expect((await put(tokB, `config/dev-b/${rel}`, 'x', cfg)).status).toBe(400);
-    expect((await put(tokB, 'transcripts/dev-b/u1.jsonl.gz', 'x', cfg)).status).toBe(400);
-    await cloud.env.BUCKET.put(`config/dev-b/${rel}`, 'x');
-    expect((await get(tokA, `config/dev-b/${rel}`)).status).toBe(400);
-    expect((await list(tokA)).files).toEqual([]);
-  });
-```
-
-- 「端末 ID にスラッシュを混ぜた形は…」の試験の、config の 2 行（`validKey('config/dev-a/evil/a.md', …)` と `validKey('config/dev-a/a.md', …)`）とその上のコメントを消す。
-- 「認証が無ければ files のどの経路も 401」の試験はそのまま残す（`DELETE` の経路が無くても、認証の関所は `/files/*` のすべての方式の前にある）。
+- 「config も自端末の場所にだけ書ける。2 台が同じ相対パスを上げても潰し合わない」の、`del` を呼ぶ 2 行（`del(tokA, …)` の 403 と `del(tokB, …)` の 204）を消し、コメント「他端末の場所には書けないし消せない。読むのは誰でもよい。」を「他端末の場所には書けない。読むのは誰でもよい。」にする。
+- 「端末 ID にスラッシュを混ぜた形は…」は、config の 2 行も含めてそのまま残す。
+- 「認証が無ければ files のどの経路も 401」の試験もそのまま残す（`DELETE` の経路が無くても、認証の関所は `/files/*` のすべての方式の前にある）。
 
 `packages/cloud/test/sweep.test.ts` の `put` の道具の `headers` の先頭に、長さを足す。
 
@@ -871,48 +802,37 @@ describe('validKey', () => {
       'content-length': String(new TextEncoder().encode(body).length),
 ```
 
+Run: `git grep -n "await del(" -- packages/cloud/test/files.test.ts`
+Expected: 何も出ない。
+
 - [ ] **Step 2: Worker の試験が落ちるのを見る**
 
 Run: `npx vitest run packages/cloud/test/files.test.ts`
-Expected: FAIL（長さの無い本文が 201 で預けられ、`DELETE` が 204 を返し、config の鍵と種別が 201 で通る）。
+Expected: FAIL（長さの無い本文が 201 で預けられ、`DELETE` が 204 を返す）。
 
 - [ ] **Step 3: Worker を直す**
 
 `packages/cloud/src/files.ts`：
 
-`validKey` とその説明を次に置き換える。
+`validKey` の説明と型を次にする（判定の中身は変えない）。
 
 ```ts
 /**
  * 鍵の形と権限である。
- * 預かるのは `transcripts/<端末 ID>/...` だけで、自端末の分だけ書ける。
- * `GET` は形さえ合っていれば誰でもよい。他端末の本文を降ろすのが同期の目的だからである。
- * `config/` の鍵（Claude Code の設定の同期）は、段 1 で同期ごと消したので、書くのも読むのも断る。
+ * `transcripts/<端末 ID>/...` も `config/<端末 ID>/...` も、自端末の分だけ書ける。
+ * `GET` は形さえ合っていれば誰でもよい。他端末の本文と設定を降ろすのが同期の目的だからである。
+ *
+ * 設定を端末で分けないと、2 台が同じ相対パスを上げたときに同じオブジェクトを奪い合い、
+ * 負けた端末の取り込みが「SHA-256 が一致しません」で永久に止まる。
+ * 守りの形は `transcripts/` と揃える。他人の設定を上書きできる穴を残さない。
+ * 本文と設定を消す経路（DELETE）は持たない。使われていなかったので段 1 で消した。
  */
 export function validKey(key: string, deviceId: string, method: 'PUT' | 'GET'): boolean {
-  const s = splitFileKey(key);
-  if (!s || s.prefix !== 'transcripts') return false;
-  if (method === 'GET') return true;
-  // 端末 ID にスラッシュが混ざっていると、他端末の接頭辞の下に潜り込める。
-  // 参加のときの検査に頼らず、ここでも形を見る。
-  if (!isSafeKeyId(deviceId)) return false;
-  return s.rel.startsWith(`${deviceId}/`);
-}
 ```
 
 `PART_BYTES`、`concat`、`storeBody` とその説明を消す。
 
-`PUT` の中を次のとおり直す。
-
-- `if (kind !== 'transcript' && kind !== 'config') return c.json({ error: 'invalid headers' }, 400);` と、その次の「種別と接頭辞が食い違うと…」のコメントと `if ((kind === 'config') !== key.startsWith('config/')) …` の行を、次に置き換える。
-
-```ts
-  // 預かるのは本文（transcript）だけである。設定の同期（kind が config）は段 1 で消した。
-  if (kind !== 'transcript') return c.json({ error: 'invalid headers' }, 400);
-```
-
-- `if (kind === 'transcript' && enc !== '1') return c.json({ error: 'unencrypted transcript' }, 400);` を `if (enc !== '1') return c.json({ error: 'unencrypted transcript' }, 400);` にする（上の行で種別は transcript に決まっている）。
-- `const declared = toInt(h('content-length'));` から `if (storedSize === null) return c.json({ error: 'too large' }, 413);` までを次に置き換える。
+`PUT` の中の `const declared = toInt(h('content-length'));` から `if (storedSize === null) return c.json({ error: 'too large' }, 413);` までを、次に置き換える。
 
 ```ts
   // 長さを名乗らない本文は受けない。
@@ -925,14 +845,11 @@ export function validKey(key: string, deviceId: string, method: 'PUT' | 'GET'): 
   const storedSize = obj?.size ?? declared;
 ```
 
+`PUT` の `kind` の検査（`transcript` と `config` を受けること、種別と接頭辞が食い違えば 400、暗号化していない `transcript` は 400）は、そのまま残す。
+
 `DELETE` の経路（`filesApp.delete('/:key{.+}', …)` とその説明）を消す。
 
-`packages/cloud/src/sweep.ts` の頭の説明の「`DELETE` は逆に索引から消す。」を消し、「どちらも途中で倒れると、索引に無い本体が R2 に残る。」を次に置き換える。
-
-```ts
- * 途中で倒れると、索引に無い本体が R2 に残る。
- * 段 1 で消した設定の同期の本体（R2 の `config/`）も、後始末（cleanup.ts）が索引の行を消すので、ここで拾って消す。
-```
+`packages/cloud/src/sweep.ts` の頭の説明の「`DELETE` は逆に索引から消す。」を消し、「どちらも途中で倒れると、索引に無い本体が R2 に残る。」を「途中で倒れると、索引に無い本体が R2 に残る。」にする。
 
 - [ ] **Step 4: Worker の試験が通るのを見る**
 
@@ -953,6 +870,10 @@ Expected: PASS。
     expect(calls[0]!.url).toBe('https://h/files?since=4&limit=500');
     expect(bearerIs(calls[0]!, 't')).toBe(true);
   });
+
+  it('本文と設定を消す口は無い（Worker に DELETE の経路が無い）', () => {
+    expect('deleteFile' in HttpCloudClient.prototype).toBe(false);
+  });
 ```
 
 - 「鍵の形が違えば fetch に出る前に 400 で断る」の `await expect(c.deleteFile('transcripts/d/u\u0000.gz'))…` の行を `await expect(c.getFile('transcripts/d/u\u0000.gz')).rejects.toMatchObject({ status: 400 });` にし、その後ろの「空白と `?` は…」の 3 行を次に置き換える。
@@ -969,46 +890,35 @@ Expected: PASS。
 
 `packages/server/test/fake-cloud.test.ts`：
 
-- 「config も自分の接頭辞の下だけに書け、置き直すと新しい seq になる」を次に置き換える。
+- 「DELETE は自端末の分だけ消せる」を、次に置き換える。
 
 ```ts
-  it('config の鍵と種別は断る（実物の Worker と同じく、設定の同期は段 1 で消した）', async () => {
-    const a = new FakeCloudClient({ deviceId: 'a' });
-    const body = () => Readable.from([Buffer.from('1')]);
-    await expect(a.putFile(meta('config/a/skills/x/SKILL.md', { kind: 'config', path: 'skills/x/SKILL.md', size: 1 }), body())).rejects.toMatchObject({ status: 400 });
-    await expect(a.putFile(meta('transcripts/a/u.gz', { kind: 'config' }), body())).rejects.toMatchObject({ status: 400 });
-    await expect(a.getFile('config/a/skills/x/SKILL.md')).rejects.toMatchObject({ status: 400 });
-    expect(a.files.size).toBe(0);
+  it('本文と設定を消す口は無い（実物の Worker に DELETE の経路が無い）', () => {
+    expect('deleteFile' in FakeCloudClient.prototype).toBe(false);
   });
 ```
 
-- 「DELETE は自端末の分だけ消せる」を丸ごと消す。
-- 「offline は status 0 の CloudError」と、401 の試験（`a.unauthorized = true;` を含む試験）の、`deleteFile` の行をそれぞれ消す。
+- 「offline は status 0 の CloudError」と「unauthorized は 401 を全メソッドで返す」の、`deleteFile` の行をそれぞれ消す。
 - 「断りの本文は Worker と同じ JSON の形にする」の `expect(await msg(a.asDevice('b').deleteFile('transcripts/a/u1.gz'))).toBe(JSON.stringify({ error: 'forbidden' }));` を、次に置き換える。
 
 ```ts
     expect(await msg(a.asDevice('b').putFile(meta('transcripts/a/u1.gz'), body()))).toBe(JSON.stringify({ error: 'forbidden' }));
 ```
 
-- 「日本語と空白を含む鍵と path が端から端まで通る」の `key` を `'transcripts/a/日本語 メモ/u1.jsonl.gz'` に、`path` を `'projects/-日本語 メモ/u1.jsonl'` に、`kind: 'config' as const` を `kind: 'transcript' as const` にし、末尾の `await a.deleteFile(key);` と `expect((await a.listFiles(0, 500)).files).toEqual([]);` の 2 行を消す。
-- 「暗号化していない transcript は実物と同じ 400 で断る」の、末尾のコメント「config は今までどおり通る…」と次の `expect(await a.putFile({ ...meta('config/a/x.md', …` の行を消す。
-- 「その検査は実物の Worker にもある」の `expect(src).toMatch(/kind === 'transcript' && enc !== '1'/);` を、次に置き換える。
-
-```ts
-    expect(src).toMatch(/if \(enc !== '1'\) return c\.json\(\{ error: 'unencrypted transcript' \}, 400\)/);
-```
-
-- 「でたらめに大きい since を nextSeq にそのまま返さない」の後半（「索引が空なら 0 である。」から最後の `expect` まで）を次に置き換える。
+- 「日本語と空白を含む鍵と path が端から端まで通る」は config の鍵のまま残し、末尾の `await a.deleteFile(key);` と `expect((await a.listFiles(0, 500)).files).toEqual([]);` の 2 行だけを消す。
+- 「でたらめに大きい since を nextSeq にそのまま返さない」の後半（「索引が空なら 0 である。」から最後の `expect` まで）を、次に置き換える。
 
 ```ts
     // 索引が空なら 0 である。
     expect(await new FakeCloudClient({ deviceId: 'b' }).listFiles(999_999, 500)).toMatchObject({ files: [], nextSeq: 0, more: false });
 ```
 
+「config も自分の接頭辞の下だけに書け、置き直すと新しい seq になる」と、「暗号化していない transcript は実物と同じ 400 で断る」の config の行と、「その検査は実物の Worker にもある」は、設定の同期の写しなのでそのまま残す。
+
 - [ ] **Step 6: 端末の試験が落ちるのを見る**
 
 Run: `npx vitest run packages/server/src/sync/client.test.ts packages/server/test/fake-cloud.test.ts`
-Expected: FAIL（偽物が config を預かり、Worker の原本の検査の形が変わっている）。
+Expected: FAIL（`HttpCloudClient` と `FakeCloudClient` に `deleteFile` がまだある）。
 
 - [ ] **Step 7: 端末を直す**
 
@@ -1019,34 +929,26 @@ Expected: FAIL（偽物が config を預かり、Worker の原本の検査の形
 
 `packages/server/test/fake-cloud.ts`：
 
-`checkKey` とその説明を次に置き換える。
-
-```ts
-  /** 鍵の形と権限。実物の validKey と同じく transcripts/ だけを預かり、書けるのは自端末の分だけ。GET は誰でも。 */
-  private checkKey(key: string, write: boolean): void {
-    if (!isValidFileKey(key) || !key.startsWith('transcripts/')) throw new CloudError(400, errorBody('invalid key'));
-    if (write && !key.startsWith(`transcripts/${this.deviceId}/`)) throw new CloudError(403, errorBody('forbidden'));
-  }
-```
-
-`checkMeta` の `if (meta.kind !== 'transcript' && meta.kind !== 'config') bad();` を `if (meta.kind !== 'transcript') bad();` に、`if (meta.kind === 'transcript' && meta.encrypted !== true) …` を `if (meta.encrypted !== true) throw new CloudError(400, errorBody('unencrypted transcript'));` にする。
-
-`deleteFile` のメソッドを消す。
+- `checkKey` の説明「鍵の形と権限。transcripts は自端末の分にだけ書ける。config は誰でも書ける。GET は誰でも。」を「鍵の形と権限。transcripts も config も、書けるのは自端末の分だけ。GET は誰でも。」にする（中身はすでにそうなっていて、説明だけが古い）。
+- `deleteFile` のメソッドを消す。
 
 - [ ] **Step 8: 通るのを見る**
 
 Run: `npx vitest run packages/cloud packages/server`
-Expected: PASS。
+Expected: PASS（設定の同期の試験 `packages/server/src/sync/claudeConfig.test.ts` も通る）。
 
 - [ ] **Step 9: 型を見る**
 
 Run: `npm run typecheck`
 Expected: エラーなし。
 
-- [ ] **Step 10: 消した口の名残が無いことを見る**
+- [ ] **Step 10: 消した口の名残が無く、設定の同期の経路が残っていることを見る**
 
 Run: `git grep -n "deleteFile\|storeBody\|filesApp.delete" -- packages`
 Expected: 何も出ない。
+
+Run: `git grep -n "kind !== 'transcript' && kind !== 'config'" -- packages/cloud/src/files.ts`
+Expected: 1 行出る（設定の同期の `PUT` を受ける検査が残っている）。
 
 - [ ] **Step 11: コミットする**
 
@@ -1055,7 +957,7 @@ git add packages/cloud/src/files.ts packages/cloud/src/sweep.ts packages/cloud/t
 ```
 
 ```bash
-git commit -m "refactor(cloud): drop config files, length-less uploads and DELETE from the Worker" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "refactor(cloud): drop length-less uploads and DELETE from the Worker" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1073,6 +975,9 @@ git commit -m "refactor(cloud): drop config files, length-less uploads and DELET
   - `META_STAGE1_CLEANUP = 'stage1_cleanup'`
   - `cleanupStage1(env: Env, now: number): Promise<boolean>`（消したら true、印があって何もしなければ false、落ちたら記録だけ残して false）。例外を投げない。
   - `ensureSchema` は、表を整えた直後に `cleanupStage1` を呼ぶ。
+
+消すのは台帳の行（`meta` の鍵が `d1_rows:` で始まる行）だけである。
+設定の同期の索引（`files` の `kind='config'` の行）と R2 の `config/` の本体は、設定の同期を残すので消さない（「決めたこと」の 8）。
 
 - [ ] **Step 1: 試験を書く**
 
@@ -1110,6 +1015,7 @@ const seedLeftovers = async (): Promise<void> => {
   ]);
 };
 
+const ALL_FILES = ['config/dev-a/CLAUDE.md', 'config/dev-a/skills/x/SKILL.md', 'transcripts/dev-a/u1.jsonl.gz'];
 const fileKeys = async (): Promise<string[]> => (await cloud.env.DB.prepare('select key from files order by key').all<{ key: string }>()).results.map((r) => r.key);
 const metaKeys = async (): Promise<string[]> => (await cloud.env.DB.prepare('select key from meta order by key').all<{ key: string }>()).results.map((r) => r.key);
 
@@ -1125,11 +1031,11 @@ afterEach(async () => {
 });
 
 describe('段 1 の後始末', () => {
-  it('設定の同期の索引と台帳の行を消し、ほかは残して、済んだ印を置く', async () => {
+  it('台帳の行を消し、設定の同期の索引とほかの行は残して、済んだ印を置く', async () => {
     await makeTables();
     await seedLeftovers();
     await ensureSchema(cloud.env);
-    expect(await fileKeys()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
+    expect(await fileKeys()).toEqual(ALL_FILES);
     expect(await metaKeys()).toEqual(['changes_floor', META_STAGE1_CLEANUP]);
   });
 
@@ -1143,7 +1049,7 @@ describe('段 1 の後始末', () => {
     expect(await metaKeys()).toContain('d1_rows:2026-10-03');
   });
 
-  it('消すものが 1 行も無い箱でも印を置く', async () => {
+  it('台帳の行が 1 行も無い箱でも印を置く', async () => {
     await ensureSchema(cloud.env);
     expect(await metaKeys()).toEqual([META_STAGE1_CLEANUP]);
     expect(await cleanupStage1(cloud.env, Date.now())).toBe(false);
@@ -1154,8 +1060,9 @@ describe('段 1 の後始末', () => {
     await seedLeftovers();
     const r = await cloud.SELF.fetch('https://x/health');
     expect(r.status).toBe(200);
-    expect(await fileKeys()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
     expect(await metaKeys()).toContain(META_STAGE1_CLEANUP);
+    expect((await metaKeys()).filter((k) => k.startsWith('d1_rows:'))).toEqual([]);
+    expect(await fileKeys()).toEqual(ALL_FILES);
   });
 
   it('落ちても例外を投げず、何も消さずに印も置かない。次の回でまた試す', async () => {
@@ -1169,21 +1076,20 @@ describe('段 1 の後始末', () => {
       } as unknown as D1Database,
     };
     expect(await cleanupStage1(failing, Date.now())).toBe(false);
-    expect(await fileKeys()).toHaveLength(3);
-    expect(await metaKeys()).not.toContain(META_STAGE1_CLEANUP);
+    expect(await metaKeys()).toEqual(['changes_floor', 'd1_rows:2026-10-01', 'd1_rows:2026-10-02']);
     expect(await cleanupStage1(cloud.env, Date.now())).toBe(true);
-    expect(await fileKeys()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
+    expect(await metaKeys()).toEqual(['changes_floor', META_STAGE1_CLEANUP]);
   });
 
-  it('索引から外れた R2 の config/ の本体は、孤児の掃除が拾って消す', async () => {
+  it('設定の同期の R2 の本体は、後始末の後も孤児の掃除に拾われない', async () => {
     await makeTables();
     await seedLeftovers();
     await cloud.env.BUCKET.put('config/dev-a/skills/x/SKILL.md', 'x');
     await cloud.env.BUCKET.put('transcripts/dev-a/u1.jsonl.gz', 'y');
     await ensureSchema(cloud.env);
     const r = await sweepIfDue(cloud.env, Date.now() + 2 * HOUR);
-    expect(r?.bodies).toEqual(['config/dev-a/skills/x/SKILL.md']);
-    expect((await cloud.env.BUCKET.list()).objects.map((o) => o.key)).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
+    expect(r?.bodies).toEqual([]);
+    expect((await cloud.env.BUCKET.list()).objects.map((o) => o.key)).toEqual(['config/dev-a/skills/x/SKILL.md', 'transcripts/dev-a/u1.jsonl.gz']);
   });
 });
 ```
@@ -1203,15 +1109,14 @@ import type { Env } from './env.ts';
 /**
  * 段 1 で消したものが D1 に残した行を、1 回だけ消す。
  *
- * 消すのは 2 つである。
- * files の kind が config の行は、Claude Code の設定の同期の索引である。
- * R2 の config/ の本体には触らない。索引から外れた本体は、孤児の掃除（sweep.ts）が 1 時間の猶予の後に拾って消す。
- * meta の鍵が d1_rows: で始まる行は、Worker が D1 への書き込みを数えていた日ごとの台帳である。
+ * 消すのは、meta の鍵が d1_rows: で始まる行である。Worker が D1 への書き込みを数えていた日ごとの台帳で、段 1 で数えるのをやめた。
+ * files の kind が config の行（Claude Code の設定の同期の索引）と R2 の config/ の本体には触らない。
+ * 設定の同期は段 1 では残し、段 4 で作り直すからである（全体計画の D6）。
  *
  * Workers には配備の後に 1 度だけ走る処理が無い。
  * そこで、isolate ごとに 1 度走るスキーマの用意（schema.ts の ensureSchema）から呼び、
  * 済んだ印を meta に置いて、2 度目からは印を読むだけで帰る。
- * 消す 2 文と印を置く 1 文は 1 つの batch に入れる。D1 の batch は 1 つの取引なので、途中で倒れても半端に残らない。
+ * 消す文と印を置く文は 1 つの batch に入れる。D1 の batch は 1 つの取引なので、途中で倒れても半端に残らない。
  * 2 つの isolate が同時に走っても、どの文も何度流しても同じ結果になる。
  *
  * 落ちても要求は落とさない。
@@ -1226,7 +1131,6 @@ export async function cleanupStage1(env: Env, now: number): Promise<boolean> {
     const done = await db.prepare('select 1 as x from meta where key = ?').bind(META_STAGE1_CLEANUP).first<{ x: number }>();
     if (done) return false;
     await db.batch([
-      db.prepare("delete from files where kind = 'config'"),
       db.prepare("delete from meta where substr(key, 1, 8) = 'd1_rows:'"),
       db.prepare('insert into meta (key, value) values (?, ?) on conflict(key) do nothing').bind(META_STAGE1_CLEANUP, String(now)),
     ]);
@@ -1268,7 +1172,7 @@ git add packages/cloud/src/cleanup.ts packages/cloud/src/schema.ts packages/clou
 ```
 
 ```bash
-git commit -m "feat(cloud): clean up config index rows and the write ledger once after deploy" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -m "feat(cloud): clean up the write ledger once after deploy" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2127,6 +2031,7 @@ git commit -m "fix(sync): carry the pause flag so a paused sync stopped on a com
 
 `docs/design.md` の「## クラウド同期」の節を、次のとおり直す。
 PR 4 と 5 で文が変わっている所は、意味が同じ所を探して直す。
+Claude Code の設定の同期の記述（`config/<端末 ID>/` の置き方、設定の押し出しと取り込み、既知の限界と未決事項の `config/<端末 ID>/`）は、設定の同期を残すので触らない。
 
 「## クラウド同期」の頭の段落の、「ただし、無料枠の数え直し（Worker が数えて push の応答で返す形）と孤児の掃除はその後に入れたもので、」が残っていれば、「ただし、孤児の掃除はその後に入れたもので、」にする。
 
@@ -2134,11 +2039,11 @@ PR 4 と 5 で文が変わっている所は、意味が同じ所を探して直
 
 ```markdown
 Workers には配備の後に 1 度だけ走る処理が無いので、作り替えで消したものが D1 に残した行も、この最初の要求で片付ける（`packages/cloud/src/cleanup.ts`）。
-段 1 では、設定の同期の索引（`files` の `kind` が `config` の行）と、Worker が D1 への書き込みを数えていた台帳（`meta` の鍵が `d1_rows:` で始まる行）を消した。
+段 1 では、Worker が D1 への書き込みを数えていた台帳（`meta` の鍵が `d1_rows:` で始まる行）を消した。
+Claude Code の設定の同期の索引（`files` の `kind` が `config` の行）と R2 の `config/` の本体は、設定の同期を残すので消さない。
 済んだら `meta` に `stage1_cleanup` の印を置き、2 度目からは印を読むだけで帰る。
 消す文と印は 1 つの batch に入れるので、途中で倒れても半端に残らない。
 後始末が落ちても要求は落とさず、次の cold start でまた試す。
-索引から外れた R2 の `config/` の本体は、孤児の掃除が拾って消す。
 
 D1 の 1 日の上限（読んだ行、書いた行）に当たった失敗は、500 ではなく 429 で返す（`packages/cloud/src/limits.ts`）。
 見分けるのは D1 の文で、`free tier daily row read limit` か `free tier daily row write limit` を含むものである（大文字と小文字は問わず、原因の文も見る）。
@@ -2148,12 +2053,7 @@ Worker も端末も量を数えないので、上限に当たったことはこ�
 
 「### 同期対象と暗号化」：
 
-「Worker も、`kind` が `transcript` で暗号化の申告が `1` でない `PUT` を、R2 に触る前に 400 で断る。」を、次に置き換える。
-
-```markdown
-Worker は、`kind` が `transcript` でない `PUT` と、暗号化の申告が `1` でない `PUT` を、R2 に触る前に 400 で断る。
-鍵も `transcripts/` の下だけを預かり、`config/` の鍵は書くのも読むのも 400 で断る。
-```
+「Worker も、`kind` が `transcript` で暗号化の申告が `1` でない `PUT` を、R2 に触る前に 400 で断る。」は、そのまま残す（`config` の `PUT` は今までどおり受ける）。
 
 「`PUT` は R2 を先に書き、`DELETE` は索引を先に消す。」から「逆の向きで残る「索引にあるのに本体が無い」は、降ろす側が永久に 404 を踏む。」までの 3 行を、次に置き換える。
 
@@ -2161,18 +2061,13 @@ Worker は、`kind` が `transcript` でない `PUT` と、暗号化の申告が
 `PUT` は R2 を先に書き、索引を後に書く。
 途中で倒れれば、残るのは索引に無い R2 の本体だけである。
 逆の向きで残る「索引にあるのに本体が無い」は、降ろす側が永久に 404 を踏む。
-本文を消す経路（`DELETE`）は持たない。
+本文と設定を消す経路（`DELETE`）は持たない。
 使われていなかったので段 1 で消した。
+索引の行を消すだけの経路では、一覧を `seq` で差分に読む相手の端末が、消えたことに気付けない。
+設定の同期を作り直すとき（全体計画の段 4）に、消したことを相手へ伝える印が要れば、`seq` を進める形でそこで決める。
 `PUT` は `content-length` のある本文だけを受け、無ければ 411 で断る。
 長さが分かれば、Worker は本文を JS で読まずにそのまま R2 へ渡せるので、CPU の時間が本文の大きさに比例しない。
 長さを名乗らずに本文を流していたのは互換の版 1 より前の端末で、それは版の下限で断られる。
-```
-
-同じ節の、孤児の掃除の段落の最後（「消す索引の行が増えれば、その分だけ増える。」の次）に足す。
-
-```markdown
-段 1 で後始末が索引から外した設定の同期の本体（R2 の `config/`）も、この掃除が拾って消す。
-1 回に見るのは R2 の 50 件までなので、本体の数によっては消し終えるまで数日かかる。
 ```
 
 「### 使用量と費用」：
@@ -2235,19 +2130,13 @@ PR 5 で消えた項目は飛ばす。
   台帳の行は、配備の後の最初の要求で後始末が消した。
 ```
 
-- 「既知の限界：使わなくなった端末の `transcripts/<端末 ID>/` と `config/<端末 ID>/` を畳む口が無い。」の「と `config/<端末 ID>/`」を消す。
 - 「既知の限界：無料枠の数え直しと孤児の掃除は、偽のクラウドとローカルの workerd（miniflare）の試験だけで確かめた（2026-09-20）。」の「無料枠の数え直しと」を消す。
-- 未決事項の「使わなくなった端末の始末。`transcripts/<端末 ID>/` と `config/<端末 ID>/` と `devices` の行を畳む操作が無い。」の「と `config/<端末 ID>/`」を消す。
+- 「既知の限界：使わなくなった端末の `transcripts/<端末 ID>/` と `config/<端末 ID>/` を畳む口が無い。」と、未決事項の「使わなくなった端末の始末。」の項目は、設定の同期を残すのでそのまま残す。
 
 - [ ] **Step 2: README を直す**
 
 `README.md` の「割り切りと限界」の 5 の「本文の PUT は R2、D1 の順、DELETE は索引を先に消す順なので、途中で倒れて残るのは索引に無い R2 の本体だけです。」を、「本文の PUT は R2、D1 の順なので、途中で倒れて残るのは索引に無い R2 の本体だけです。」にする。
-同じ項目の「使わなくなった端末の `transcripts/<端末 ID>/` と `config/<端末 ID>/` を明示的に畳む操作は、まだありません。」を、次に置き換える。
-
-```markdown
-   使わなくなった端末の `transcripts/<端末 ID>/` を明示的に畳む操作は、まだありません。
-   設定の同期が残した `config/<端末 ID>/` は、段 1 の後始末で索引から外したので、この掃除が少しずつ消します。
-```
+同じ項目の「使わなくなった端末の `transcripts/<端末 ID>/` と `config/<端末 ID>/` を明示的に畳む操作は、まだありません。」は、設定の同期を残すのでそのまま残す。
 
 「割り切りと限界」の 2 に、PR 5 の後も「D1 の書き込みは Worker が数えます。」から「報告を返さない古い Worker が相手のときと、要求の回数の側は、今までどおり端末の数で割った水準で見ます。」までの文が残っていれば、それを消し、項目の見出しと残りの文が PR 5 の後の振る舞い（上限の失敗を受けたら次の UTC の 0 時まで止まる）と合っているかを読む。
 合っていなければ、手を止めて親に知らせる（PR 5 の残りである）。
@@ -2332,15 +2221,15 @@ Step 1 で利用者に聞き、許されたものだけを行う。
 AskUserQuestion で 1 問だけ聞く。
 推す案を先頭に置く。
 
-- 問い：「PR 6 の Worker を実物へ配備してよいですか。配備の後、最初の要求で後始末（設定の同期の索引と台帳の行を消す）が 1 回走ります」
+- 問い：「PR 6 の Worker を実物へ配備してよいですか。配備の後、最初の要求で後始末（台帳の行を消す）が 1 回走ります。設定の同期の行と本体は消しません」
 - 選択肢：「配備する（推す）」「いまは見送る（アプリの入れ替えも見送る）」
 
 問いの説明に、使う無料枠の見積もりを添える。
 
 - Workers の要求：確かめの往復で数十回（1 日 10 万回の 0.1% に届かない）。配備と戻しそのものは要求の枠を使わない。
-- D1 の書き込み：後始末で「設定の同期の索引の行の数 × 3 ＋ 約 20 行」（`files` の行は本体と 2 つの索引で 3 行）。索引の行が 1,000 行でも約 3,000 行で、1 日 10 万行の 3%。
-- D1 の読み取り：設定の同期の索引の行の数と数百行（1 日 500 万行の 0.1% に届かない）。
-- R2：後始末は R2 に触らない。その後の掃除が `config/` の本体を消すのは無料の操作で、一覧は今までの 6 時間に 1 回のまま。
+- D1 の書き込み：後始末で「台帳の行の数（日ごとに 1 行）＋ 約 20 行」。台帳は日ごとに 1 行で、掃除が 7 日より古い行を刈っているので、多くても数十行（1 日 10 万行の 0.1% に届かない）。
+- D1 の読み取り：数百行（1 日 500 万行の 0.1% に届かない）。
+- R2：後始末は R2 に触らない。設定の同期の本体（`config/`）も索引に残るので、掃除は拾わない。一覧は今までの 6 時間に 1 回のまま。
 
 - [ ] **Step 2: 手元の束と設定を確かめる（許されたら）**
 
@@ -2390,8 +2279,9 @@ Expected: 同期の行が `idle` で、エラーが無く、最終 pull が 1 �
 
 D1 の名前は `~/.agent-hangar/cloud.json` の `dbName` を読んで使う。
 
-Run: `CLOUDFLARE_ACCOUNT_ID=<アカウント ID> WRANGLER_SEND_METRICS=false npx wrangler d1 execute <D1 の名前> --remote --config ~/.agent-hangar/cloud/wrangler.jsonc --command "select (select count(*) from files where kind = 'config') as config_rows, (select count(*) from meta where substr(key, 1, 8) = 'd1_rows:') as ledger_rows, (select count(*) from meta where key = 'stage1_cleanup') as cleaned"`
-Expected: `config_rows` が 0、`ledger_rows` が 0、`cleaned` が 1。
+Run: `CLOUDFLARE_ACCOUNT_ID=<アカウント ID> WRANGLER_SEND_METRICS=false npx wrangler d1 execute <D1 の名前> --remote --config ~/.agent-hangar/cloud/wrangler.jsonc --command "select (select count(*) from meta where substr(key, 1, 8) = 'd1_rows:') as ledger_rows, (select count(*) from meta where key = 'stage1_cleanup') as cleaned"`
+Expected: `ledger_rows` が 0、`cleaned` が 1。
+設定の同期の索引（`files` の `kind = 'config'` の行）は数えない（後始末の相手ではなく、設定の同期を残すので減らない）。
 
 - [ ] **Step 7: アプリを入れ替える**
 
@@ -2411,7 +2301,7 @@ Expected: `config_rows` が 0、`ledger_rows` が 0、`cleaned` が 1。
    前の Worker は版の見出しを返さない（版 0）ので、PR 6 のアプリは同期を止める。
    `~/.agent-hangar/backups/` に退避した前の .app を、開発の流れの 6 と同じ手順で `/Applications` へ戻す。
 
-後始末で消した行（設定の同期の索引と台帳）は、PR 4 と 5 の後の端末も前の Worker も読まないので、戻さなくても動く。
+後始末で消した行（台帳）は、PR 5 の後の端末は読まず、前の Worker はその日の数を 0 から数え直すだけなので、戻さなくても動く。
 どうしても戻すときだけ、D1 の Time Travel（無料枠で 7 日）で配備の前の時刻へ戻す。
 これは DB 全体を戻し、その後の同期の変更も消すので、最後の手段にする。
 
