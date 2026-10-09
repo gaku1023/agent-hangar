@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
 import type { ServerEvent } from '@agent-hangar/shared';
-import { AccountAuth } from '../config/accountAuth.ts';
+import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import type { MemoStore } from '../projects/memo.ts';

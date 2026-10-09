@@ -1,5 +1,5 @@
 import type { Hono } from 'hono';
-import { statuslineStatus } from '../../config/statusline.ts';
+import { statuslineStatus } from '../../provider/claude-code/config/statusline.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 

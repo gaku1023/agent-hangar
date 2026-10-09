@@ -1,5 +1,5 @@
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type DeviceInfo, type Settings } from '../config/paths.ts';
-import { ensureStatuslineHeaderFile } from '../config/statusline.ts';
+import { ensureStatuslineHeaderFile } from '../provider/claude-code/config/statusline.ts';
 import { resolveToolPaths } from '../config/tools.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureWrapperScript } from '../launch/wrapper.ts';

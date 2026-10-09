@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { parseAuthStatus } from '../src/config/accountAuth.ts';
+import { parseAuthStatus } from '../src/provider/claude-code/config/accountAuth.ts';
 import { ensureShellScript, shellScriptPath } from '../src/config/shellHook.ts';
 import { openDb } from '../src/db/open.ts';
 import { IndexerService } from '../src/indexer/service.ts';

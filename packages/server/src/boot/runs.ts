@@ -1,7 +1,7 @@
 import { PRIMARY_ACCOUNT_ID, type CompatDto, type ReadinessDto, type ShellHookDto } from '@agent-hangar/shared';
-import { AccountAuth } from '../config/accountAuth.ts';
+import { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
-import { claudeJsonPath } from '../config/claudeJson.ts';
+import { claudeJsonPath } from '../provider/claude-code/config/claudeJson.ts';
 import { DEVICE_TOUCH_MS, measureShellHook, touchDevice } from '../config/devicePresence.ts';
 import type { Settings } from '../config/paths.ts';
 import { createReadiness } from '../config/readiness.ts';

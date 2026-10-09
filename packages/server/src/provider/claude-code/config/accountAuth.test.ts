@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountAuth, accountEnv, parseAuthStatus, type RunClaude } from './accountAuth.ts';
-import type { Drift } from '../provider/claude-code/compat/types.ts';
-import type { Account } from './accounts.ts';
+import type { Drift } from '../compat/types.ts';
+import type { Account } from '../../../config/accounts.ts';
 
 const primary: Account = { id: 'primary', name: '会社', dir: '/h/.claude', color: '#2a57b8' };
 const univ: Account = { id: 'a1', name: '大学', dir: '/h/.claude-2', color: '#7a4a9e' };

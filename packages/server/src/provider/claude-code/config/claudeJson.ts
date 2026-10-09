@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
-import { isLoose, modeOf } from '../platform/secure.ts';
-import { MessageError, msg } from '../i18n/message.ts';
+import { isLoose, modeOf } from '../../../platform/secure.ts';
+import { MessageError, msg } from '../../../i18n/message.ts';
 
 export { resolveRealFile } from './claudeFileWrite.ts';
 

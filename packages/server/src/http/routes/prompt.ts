@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { listPromptCommands } from '../../prompt/commands.ts';
+import { listPromptCommands } from '../../provider/claude-code/prompt/commands.ts';
 import { MAX_DROP_BYTES, pruneDrops, resolveDrop, saveDrop } from '../../prompt/drops.ts';
 import { listProjectFiles } from '../../prompt/files.ts';
 import { translatorOf } from '../../i18n/message.ts';

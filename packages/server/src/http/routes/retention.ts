@@ -1,7 +1,7 @@
 import type { Hono } from 'hono';
-import { LOCK_BUSY_MESSAGE } from '../../config/claudeFileWrite.ts';
+import { LOCK_BUSY_MESSAGE } from '../../provider/claude-code/config/claudeFileWrite.ts';
 import { JsonTextEditError } from '../../config/jsonTextEdit.ts';
-import { RetentionConflictError, RetentionUnwritableError } from '../../config/retention.ts';
+import { RetentionConflictError, RetentionUnwritableError } from '../../provider/claude-code/config/retention.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
