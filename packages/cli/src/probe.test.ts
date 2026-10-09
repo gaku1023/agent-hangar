@@ -42,11 +42,12 @@ describe('probeHealth', () => {
 });
 
 describe('probeReady', () => {
-  it('ok が真で ready が偽でなければ真。ready が偽、ok が無い、200 でない、JSON でない、誰も居ないときは偽', async () => {
+  it('ok と ready がともに真のときだけ真。ready が無い、偽、ok が無い、200 でない、JSON でない、誰も居ないときは偽', async () => {
     const cases: [body: string, status: number, want: boolean][] = [
       ['{"ok":true,"ready":true}', 200, true],
-      // ready を持たない古いサーバは待たない。.app の boot_state と同じ扱いである。
-      ['{"ok":true}', 200, true],
+      // ready を持たない応答は、済んだものとみなさない。hangar start が待つのは自分で起こした同じ束のサーバで、ready は必ずある。
+      ['{"ok":true}', 200, false],
+      ['{"ok":true,"ready":"yes"}', 200, false],
       ['{"ok":true,"ready":false}', 200, false],
       ['{"ready":true}', 200, false],
       ['{"ok":true,"ready":true}', 500, false],
