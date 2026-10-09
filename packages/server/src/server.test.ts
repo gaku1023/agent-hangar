@@ -1463,7 +1463,8 @@ describe('控えの世代を刈る', () => {
 
 describe('互換の版', () => {
   type Seen = { method: string; path: string; compat: string | undefined };
-  type Answer = { status: number; body: unknown; compat?: string };
+  /** raw があれば JSON にせずそのまま返す（Cloudflare が Worker の手前で返す error 1027 のような本文）。 */
+  type Answer = { status: number; body: unknown; compat?: string; raw?: string };
 
   /** 決まった応答を返す立て替えの Worker。受けた要求と、載っていた版の見出しを記録する。実物のクラウドには触らない。 */
   async function fakeWorker(answer: (method: string, path: string) => Answer): Promise<{ url: string; seen: Seen[]; close: () => Promise<void> }> {
@@ -1474,8 +1475,8 @@ describe('互換の版', () => {
       seen.push({ method: req.method ?? '', path: p, compat: Array.isArray(h) ? h[0] : h });
       req.resume();
       const a = answer(req.method ?? '', p);
-      res.writeHead(a.status, { 'content-type': 'application/json', ...(a.compat === undefined ? {} : { [COMPAT_HEADER]: a.compat }) });
-      res.end(JSON.stringify(a.body));
+      res.writeHead(a.status, { 'content-type': a.raw === undefined ? 'application/json' : 'text/plain', ...(a.compat === undefined ? {} : { [COMPAT_HEADER]: a.compat }) });
+      res.end(a.raw ?? JSON.stringify(a.body));
     });
     await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
     const port = (srv.address() as net.AddressInfo).port;
@@ -1582,5 +1583,89 @@ describe('互換の版', () => {
       await s.close();
       await w.close();
     }
+  });
+
+  describe('上限で退く', () => {
+    /** Worker が D1 の上限を 429 と決まった本文で返す（段 1 の PR 6 の Worker の形）。 */
+    const limitAnswer = (): Answer => ({ status: 429, body: { error: 'limit', limit: 'd1-write', resetAt: Date.now() + 86_400_000 } });
+    /** Workers の 1 日の要求の上限。Cloudflare が Worker の手前で、JSON でない本文で返す。 */
+    const requestsAnswer = (): Answer => ({ status: 429, body: null, raw: 'error code: 1027' });
+    const isToast = (e: ServerEvent): e is Extract<ServerEvent, { type: 'toast' }> => e.type === 'toast';
+    const onceToasts = (c: ReturnType<typeof collector>): string[] => c.all().filter(isToast).map((e) => e.message).filter((m) => m.includes('1 回だけ同期しました'));
+    /** 1 巡の終わり（done）が配る知らせが届くだけの間を置く。 */
+    const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 300));
+
+    it('退いていて利用者は止めていないときの今すぐ同期は、1 巡の道に回らず、1 回だけの知らせも出さない', async () => {
+      const w = await fakeWorker(() => limitAnswer());
+      joinTo(w.url);
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      const c = collector(s.port, tokenOf());
+      try {
+        await c.opened;
+        await until(async () => { const v = await syncStatus(s.port); return v.state === 'paused' && v.limitedUntil !== null ? v : null; });
+        const before = w.seen.length;
+        const after = await pressSyncNow(s.port);
+        expect(after.state).toBe('paused');
+        expect(after.limitedUntil).not.toBeNull();
+        // 試し直したのはメタデータの送受信である。
+        // 印を外して試す間は止まっていないので、使用量も 1 度取り直す（本文と設定の道へは出ない）。
+        expect(metaCalls(w.seen.slice(before))).toBeGreaterThan(0);
+        await settle();
+        expect(w.seen.slice(before).filter((r) => r.path !== '/changes' && r.path !== '/rows' && r.path !== '/usage')).toEqual([]);
+        // 利用者は止めていないので、一時停止のまま頼まれた 1 巡（PausedPass）には回らない。
+        expect(c.all().some((e) => e.type === 'sync.status' && e.status.oncePass)).toBe(false);
+        expect(onceToasts(c)).toEqual([]);
+      } finally {
+        c.close();
+        await s.close();
+        await w.close();
+      }
+    });
+
+    it('一時停止中に頼んだ 1 巡のメタデータが上限で断られたら、本文、設定、使用量の道へ出ない', async () => {
+      const w = await fakeWorker(() => requestsAnswer());
+      joinTo(w.url);
+      presetPaused();
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        expect(w.seen).toEqual([]);
+        const first = await pressSyncNow(s.port);
+        expect(first.state).toBe('paused');
+        expect(metaCalls(w.seen)).toBeGreaterThan(0);
+        // 1 巡の残り（本文と設定の出し入れ、使用量）が終わるまで待つ。
+        await until(async () => { const v = await syncStatus(s.port); return v.oncePass ? null : v; });
+        await settle();
+        // 上限で退いた後は、1 巡の最中でもメタデータ以外の道（本文の降ろし、設定の押し出し、本文の上げ、使用量）へ出ない。
+        expect(w.seen.filter((r) => r.path !== '/changes' && r.path !== '/rows')).toEqual([]);
+      } finally {
+        await s.close();
+        await w.close();
+      }
+    });
+
+    it('一時停止中に頼んだ 1 巡が上限で断られたら、その終わりに成功や残りの件数の知らせを重ねない', async () => {
+      const w = await fakeWorker(() => limitAnswer());
+      joinTo(w.url);
+      presetPaused();
+      // 送れずに残る行を 1 つ作る。上限で早く抜けなければ「残りました」の知らせが出る形にする。
+      const db = openDb(dbPath(home));
+      try { upsertShared(db, 'projects', { id: 'p-limit', name: 'p-limit', status: 'active', is_scratch: 0 }, 'test'); } finally { db.close(); }
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      const c = collector(s.port, tokenOf());
+      try {
+        await c.opened;
+        await pressSyncNow(s.port);
+        await until(async () => { const v = await syncStatus(s.port); return v.oncePass ? null : v; });
+        await settle();
+        const st = await syncStatus(s.port);
+        expect(st.state).toBe('paused');
+        expect(st.pending).toBeGreaterThan(0);
+        expect(onceToasts(c)).toEqual([]);
+      } finally {
+        c.close();
+        await s.close();
+        await w.close();
+      }
+    });
   });
 });
