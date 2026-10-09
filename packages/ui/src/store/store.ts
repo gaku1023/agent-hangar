@@ -1,4 +1,5 @@
-import { asideOf, liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
+import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
+import { asideOf } from '../lib/aside.ts';
 import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto } from '@agent-hangar/shared';
 
 /**
@@ -215,7 +216,7 @@ export function shownLive(session: SessionDto): LiveStatus | null {
   return session.parked ? null : session.live;
 }
 
-/** 本体は入力を受け付けていて、裏の作業だけが動いているか（shared の asideOf）。一覧の見せ方は shownLive にそろえる。 */
+/** 本体は入力を受け付けていて、裏の作業だけが動いているか（lib/aside.ts の asideOf）。一覧の見せ方は shownLive にそろえる。 */
 export function shownAside(session: SessionDto): LiveAsideDto | null {
   return asideOf(shownLive(session), session.liveAside);
 }

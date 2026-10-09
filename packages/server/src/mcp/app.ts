@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { tokenEquals, tokenFromRequest } from '../http/auth.ts';
+import { tokenEquals, tokenFromRequest } from '../auth/request.ts';
 import { mcpSecretMatches } from '../runs/secrets.ts';
 import { callTool, type ToolContext, type ToolDeps } from './tools.ts';
 
@@ -10,7 +10,7 @@ export const MCP_VERSION = '0.2.0';
 
 /**
  * MCP の入口が受け付ける Origin。
- * http/auth.ts の一覧とは別にする。開発用の 5173 は MCP に要らないためである。
+ * auth/request.ts の一覧とは別にする。開発用の 5173 は MCP に要らないためである。
  * ポートは決め打ちにせず、実際に待ち受けているものから組み立てる。
  */
 export function mcpAllowedOrigins(port: number): string[] {

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { LINKED_ENTRIES } from '../../../config/accountLinks.ts';
-import type { CompatSink, Drift } from './types.ts';
+import { splitDriftValue, type CompatSink, type Drift } from './types.ts';
 
 /**
  * アカウントごとに持つと決めた直下の項目。
@@ -14,6 +14,19 @@ export const KNOWN_PER_ACCOUNT_ENTRIES: ReadonlySet<string> = new Set([
 /** Claude Code が作るものではないので見ない名前。 */
 const IGNORED: ReadonlySet<string> = new Set(['.DS_Store']);
 
+/** 共有のリンクでも、アカウントごとに持つと知っている項目でも、見ない名前でもない名前か。 */
+const isUnknownEntry = (name: string): boolean => !LINKED_ENTRIES.includes(name) && !KNOWN_PER_ACCOUNT_ENTRIES.has(name) && !IGNORED.has(name);
+
+/**
+ * 記録に残った置き場の項目の値が、今の一覧でもずれかを返す。
+ * 共有のリンクの一覧か、アカウントごとに持つ項目の一覧に入った名前はずれでない。知らない形の値はずれのままにする。
+ * 項目がまだ置き場にあるかは、値だけでは分からないので見ない（記録は手元の claude の版が変わるまで残る）。
+ */
+export function isClaudeDirDrift(value: string): boolean {
+  const kv = splitDriftValue(value);
+  return kv === null || kv[0] !== 'entry' || isUnknownEntry(kv[1]);
+}
+
 /**
  * 2 つ目以降のアカウントの置き場の直下に、共有のリンクでも、アカウントごとに持つと知っている項目でもないものがあれば、ずれとして返す。
  * Claude Code が新しい項目を足すと、リンクの一覧（LINKED_ENTRIES）に無いので、アカウントごとの実体になる。これがアカウントを切り替えると共有されない項目である。
@@ -24,7 +37,7 @@ export function claudeDirDrifts(dir: string): Drift[] {
   let entries: fs.Dirent[];
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
   return entries
-    .filter((e) => !e.isSymbolicLink() && !LINKED_ENTRIES.includes(e.name) && !KNOWN_PER_ACCOUNT_ENTRIES.has(e.name) && !IGNORED.has(e.name))
+    .filter((e) => !e.isSymbolicLink() && isUnknownEntry(e.name))
     .map((e) => e.name)
     .sort()
     .map((name) => ({ contract: 'claude-dir' as const, value: `entry=${name}`, version: null }));

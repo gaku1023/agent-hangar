@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { ASIDE_WORD, type LiveStatus } from '@agent-hangar/shared';
+import { type LiveStatus } from '@agent-hangar/shared';
+import { ASIDE_WORD } from '../../lib/aside.ts';
 import { motionEase, motionMs } from './motion.ts';
 
 const LABEL: Record<LiveStatus, string> = { busy: '作業中', idle: '休み', waiting: '入力待ち' };

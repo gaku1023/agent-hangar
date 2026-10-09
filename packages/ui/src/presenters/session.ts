@@ -1,4 +1,5 @@
-import { ASIDE_WORD, asideOf, type LiveStatus, type RunKind, type SessionDto, type SessionSummaryDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
+import { ASIDE_WORD, asideOf } from '../lib/aside.ts';
+import { type LiveStatus, type RunKind, type SessionDto, type SessionSummaryDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';

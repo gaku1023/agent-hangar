@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { COMPAT_CONTRACTS, type CompatContract, type CompatDriftDto } from '@agent-hangar/shared';
+import { isCurrentDrift } from './current.ts';
 import { isRec, type CompatSink, type Drift } from './types.ts';
 
 /** 残す件数の上限。超えたら、最後に見た時刻の古いものから落とす。 */
@@ -27,6 +28,8 @@ function isEntry(v: unknown): v is CompatDriftDto {
  * DB のマイグレーションを要らない形にするためにファイルにした。
  * 同じ契約と値の組は 1 件にまとめて回数を数え、版は最後に見たときのものを持つ。
  * 書き出しは start() の周期と stop() で行う。読めないファイルは空として始め、次の書き出しで置き換える。
+ * 読み込むときと、一覧と件数を返すときに、今の hangar の契約ではずれでない値（isDrift、既定は current.ts）を落とす。
+ * 落としたときは、周期を待たずに書き戻す。
  */
 export class CompatLog implements CompatSink {
   private readonly entries = new Map<string, CompatDriftDto>();
@@ -36,10 +39,16 @@ export class CompatLog implements CompatSink {
   private timer: NodeJS.Timeout | null = null;
   private readonly now: () => number;
   private readonly max: number;
+  private readonly isDrift: (contract: CompatContract, value: string) => boolean;
 
-  constructor(private readonly o: { file: string | null; localVersion: () => string | null; now?: () => number; max?: number }) {
+  constructor(private readonly o: {
+    file: string | null; localVersion: () => string | null; now?: () => number; max?: number;
+    /** 記録の契約と値が、今の hangar でもずれか。試験が差し替える。 */
+    isDrift?: (contract: CompatContract, value: string) => boolean;
+  }) {
     this.now = o.now ?? (() => Date.now());
     this.max = o.max ?? COMPAT_MAX_ENTRIES;
+    this.isDrift = o.isDrift ?? isCurrentDrift;
     this.load();
   }
 
@@ -55,6 +64,23 @@ export class CompatLog implements CompatSink {
     for (const e of list) this.entries.set(this.key(e.contract, e.value), { ...e });
     if (isRec(raw) && typeof raw.localVersion === 'string') this.seenVersion = raw.localVersion;
     this.trim();
+    this.prune();
+  }
+
+  /**
+   * 今の hangar の契約ではずれでない値を落とし、落としたら書き戻す（書けなくても投げない）。
+   * 記録は手元の claude の版が変わるまで残るので、前の hangar が記録した値が、知っている集合を広げた後も残りうる。
+   */
+  private prune(): void {
+    let dropped = false;
+    for (const [k, e] of this.entries) {
+      if (this.isDrift(e.contract, e.value)) continue;
+      this.entries.delete(k);
+      dropped = true;
+    }
+    if (!dropped) return;
+    this.dirty = true;
+    this.flush();
   }
 
   /**
@@ -99,13 +125,20 @@ export class CompatLog implements CompatSink {
     }
   }
 
-  /** 最後に見た時刻の新しい順。同じ時刻は契約と値の順にする。 */
+  /** 最後に見た時刻の新しい順。同じ時刻は契約と値の順にする。GET /api/compat が読む。 */
   list(): CompatDriftDto[] {
+    this.prune();
+    return this.sorted();
+  }
+
+  private sorted(): CompatDriftDto[] {
     return [...this.entries.values()].map((e) => ({ ...e })).sort((a, b) =>
       b.lastSeenAt - a.lastSeenAt || (a.contract < b.contract ? -1 : a.contract > b.contract ? 1 : a.value < b.value ? -1 : a.value > b.value ? 1 : 0));
   }
 
+  /** 件数。GET /api/readiness が読む。一覧と同じく、今の契約ではずれでない値を落としてから数える。 */
   count(): number {
+    this.prune();
     return this.entries.size;
   }
 
@@ -115,7 +148,7 @@ export class CompatLog implements CompatSink {
     const tmp = `${this.o.file}.tmp`;
     try {
       fs.mkdirSync(path.dirname(this.o.file), { recursive: true });
-      fs.writeFileSync(tmp, JSON.stringify({ version: FILE_VERSION, localVersion: this.seenVersion, entries: this.list() }, null, 2) + '\n', { mode: 0o600 });
+      fs.writeFileSync(tmp, JSON.stringify({ version: FILE_VERSION, localVersion: this.seenVersion, entries: this.sorted() }, null, 2) + '\n', { mode: 0o600 });
       fs.renameSync(tmp, this.o.file);
       this.dirty = false;
     } catch (e) {

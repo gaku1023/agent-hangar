@@ -1,0 +1,40 @@
+name: claude-compat
+on:
+  # 週に 1 度（月曜 0:00 UTC）と、手動で走らせる。
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+# 既定の権限に頼らず、読み取りだけを渡す。
+permissions:
+  contents: read
+# 手動と定期が重なっても、どちらも最後まで走らせる。照合は外の版を見るだけで、押し合うものが無い。
+concurrency:
+  group: claude-compat
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    # npm の取得が固まったときの上限。ふつうは数分で終わる。
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # 最新の Claude Code を npm から入れる。postinstall が Linux の本体を置く。
+      # --version と --help に認証は要らない。自動更新は止める。
+      - name: 最新の Claude Code を入れる
+        run: |
+          npm install -g @anthropic-ai/claude-code@latest
+          claude --version
+        env:
+          DISABLE_AUTOUPDATER: '1'
+      # 照合の試験は better-sqlite3 も node-pty も読まないので、ネイティブのビルドを飛ばして入れる。
+      - run: npm ci --ignore-scripts
+      # サブコマンドか引数が最も新しい見本と違えば落ちる。見本を採り直す合図である（npm run capture-claude-fixtures）。
+      - name: 最も新しい見本と突き合わせる
+        run: npx vitest run --project server packages/server/test/claudeLive.test.ts
+        env:
+          HANGAR_LIVE_CLAUDE: '1'
+          DISABLE_AUTOUPDATER: '1'

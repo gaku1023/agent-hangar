@@ -160,50 +160,9 @@ export function IntentBoundary(props: { handle: IntentHandler; children: ReactNo
 たとえば `SplitPane` はペーンの幅変更を処理し、`TabStrip` はタブのドラッグ並び替えを処理する。
 それ以外はすべて `Root` に届き、Mediator が裁定する。
 
-Intent の一覧は次のとおりである。
+Intent の一覧は型が正である。
+`packages/shared/src/intent.ts` の `Intent` を見る。
 名前は `対象.動詞` で揃える。
-
-```ts
-type Intent =
-  | { type: 'nav.go'; to: Route }
-  | { type: 'palette.open' } | { type: 'palette.close' } | { type: 'palette.run'; command: PaletteCommand }
-  | { type: 'search.query'; text: string } | { type: 'search.filter'; patch: Partial<SearchFilter> }
-  | { type: 'search.more'; offset: number } | { type: 'search.clear' }
-  | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
-  | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
-  | { type: 'folder.pick' }
-  | { type: 'project.resolve.open'; id: ProjectId }
-  | { type: 'project.resolve'; id: ProjectId; action: { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' }; confirmed?: boolean }
-  | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
-  | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
-  | { type: 'memo.save'; projectId: ProjectId; markdown: string }
-  | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.openEditor'; id: ArtifactId }
-  | { type: 'artifact.add'; projectId: ProjectId; url: string }
-  | { type: 'session.open'; id: SessionId } | { type: 'session.setMemo'; id: SessionId; text: string }
-  | { type: 'session.nextWaiting' }
-  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams; place?: ProjectPlace }
-  | { type: 'session.resume'; id: SessionId } | { type: 'session.fork'; id: SessionId }
-  | { type: 'session.kill'; runId: RunId; working: boolean; shellTabs: number; confirmed?: boolean }
-  | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
-  | { type: 'session.promote.open'; id: SessionId }
-  | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
-  | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
-  | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
-  | { type: 'sync.joinToken.show' }
-  | { type: 'summary.regenerate'; sessionId: SessionId }
-  | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
-  | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
-  | { type: 'transcript.showThinking'; sessionId: SessionId; show: boolean }
-  | { type: 'transcript.showRaw'; sessionId: SessionId; show: boolean }
-  | { type: 'transcript.follow'; sessionId: SessionId; follow: boolean }
-  | { type: 'transcript.loadMore'; sessionId: SessionId }
-  | { type: 'transcript.selectAgent'; sessionId: SessionId; agentId: string | null }
-  | { type: 'index.rebuild' }
-  | { type: 'overlay.close' }
-  | { type: 'toast.dismiss'; id: string }
-  | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
-  | { type: 'settings.update'; patch: Partial<Settings> } | { type: 'summarizer.test' };
-```
 
 他端末で動いているセッションに対して View が出すのは `session.resumeHere` だけで、引き継ぎの握手の Intent は持たない（後述）。
 
@@ -227,40 +186,24 @@ type Intent =
 状態は直交する領域に分けて持つ。
 領域ごとに小さな状態機械を書き、`transition` はそれらを合成する。
 
-- `screen`：`booting | home | projects | project(id) | session(id) | sessions(query) | settings`。
-- `overlay`：`none | palette | newSession | newProject | promote(sessionId) | resolveProject(projectId) | confirm(kind)`。他端末の本文で手元を上書きしてよいかを聞く確認は `confirm('overwriteTranscript')` である。
-外のターミナルの claude を引き取る確認は `confirm('adoptSession')`、ランを止める確認は `confirm('killRun')`、見つからないプロジェクトを一覧から削除する確認は `confirm('unlinkProject')` である。
-- `sessionView(id)`：開いているタブの列、選択タブ、分割の有無、トランスクリプトペーンの開閉。
-- `launch`：`idle | submitting | failed(message)`。場所の指定つきで起動するときは、送信中と失敗の状態が、途中で作れたプロジェクトの id を `createdProjectId` に持つ。
-- `projectCreate`：`idle | submitting | failed(message)`。作成のダイアログの送信の状態である。
-- `workspaceDirs`：ワークスペース直下の未登録のフォルダ（`{ name, path }[]`）。2 つのダイアログを開いたときに読み、まだ読んでいなければ null である。
-- `pickedFolder`：Finder で選んだパス `{ path, n }`。`n` は同じパスをもう一度選んでも気付くための回数で、開いているダイアログが「マウントしたときより新しい選択か」を調べるのに使う。
-- `newSessionDraft`：新しいセッションのダイアログの書きかけ（名前、初期プロンプト、添付）。1 つだけ持ち、ダイアログから起動し終えたら消す。
-- `launchPrefs`：新しいセッションの詳細の、プロジェクトごとの前回値。鍵はプロジェクトの id で、スクラッチは `:scratch` の 1 枠である。
-  どちらも端末ごとに localStorage（`newSession.draft`、`newSession.prefs`）に残し、起動時に読み戻す。形の違う値は捨てる。
-- `connection`：`connecting | connected | disconnected`。
-- `sync`：`off | idle(lastAt) | pushing | pulling | paused | error(message)`。
+各領域の取りうる値は型が正である。
+`packages/ui/src/mediator/types.ts` の `State` と、領域ごとのファイルを見る。
+遷移の表は持たない。
+`packages/ui/src/mediator/transition.ts` とその試験が正である。
+型から読み取れない決まりだけを、次に書く。
 
-主要な遷移を表にする。
-
-| 現在 | 入力 | 次 | 効果 |
-| --- | --- | --- | --- |
-| `booting` | `ServerEvent.ready` | `home` | 初期データ購読 |
-| 任意 | `nav.go(to)` | `to` | URL 更新 |
-| `overlay: none` | `session.new.open` | `overlay: newSession` | フォーカスを名前欄へ |
-| `launch: idle` | `session.new.submit` | `launch: submitting`、送った詳細をそのプロジェクトの前回値に | `POST /api/runs`、前回値が変われば保存 |
-| 任意 | `session.new.draft` | 書きかけを下書きに（名前も初期プロンプトも空白だけで、添付も無ければ消す） | 変われば保存 |
-| 任意 | `session.new.draft.attach` | ダイアログを閉じた後に送り終えた添付を、いまの下書きへ足す。名前と本文は残し、同じパスは足さない。下書きが無ければ、名前と本文が空のものを作る | 変われば保存 |
-| `launch: submitting` | `POST /api/runs` の応答 | `launch: idle`, `screen: session(id)` | ターミナル接続 |
-| `launch: submitting` | `POST /api/runs` の失敗 | `launch: failed` | ダイアログ内に理由 |
-| `session(id)` | `tab.open(shell)` | タブ追加 | `POST /api/runs/:id/tabs` |
-| `launch: idle` | `session.resumeHere` | `launch: submitting` | `POST /api/sessions/:id/resume-here` |
-| `launch: submitting` | 409（手元の本文の方が小さい） | `overlay: confirm('overwriteTranscript')`, `launch: idle` | なし |
-| 任意 | `ServerEvent.projectUnresolved(id)` | `overlay: resolveProject(id)` | なし |
-| `connection: connected` | WebSocket 切断 | `disconnected` | 再接続タイマー |
-| 任意 | `settings.update`（欄の名前つき） | `settingsSave[欄]` を空に | `PATCH /api/settings`、済めば `settings.saved` か `settings.failed`、続けて `GET /api/readiness` |
-| 任意 | `readiness.check` | なし | `GET /api/readiness` |
-| 任意 | `shell.openLog`、`shell.restart` | なし | 殻の命令 `open_log`、`restart_app`（殻の中でだけ） |
+- 新しいセッションのダイアログの書きかけ（`newSessionDraft`）は 1 つだけ持ち、ダイアログから起動し終えたら消す。
+  名前も初期プロンプトも空白だけで、添付も無ければ、書きかけは消す。
+  ダイアログを閉じた後に送り終えた添付は、いまの書きかけへ足す。
+  名前と本文は残し、同じパスは足さない。
+  書きかけが無ければ、名前と本文が空のものを作る。
+- 起動の詳細の前回値（`launchPrefs`）の鍵はプロジェクトの id で、スクラッチは `:scratch` の 1 枠である。
+  送った詳細をそのプロジェクトの前回値にする。
+  書きかけも前回値も、端末ごとに localStorage（`newSession.draft`、`newSession.prefs`）に残し、起動時に読み戻す。形の違う値は捨てる。
+- `pickedFolder` の `n` は、同じパスをもう一度選んでも気付くための回数である。
+  開いているダイアログは、マウントしたときより新しい選択かを調べるのに使う。
+- `workspaceDirs` は、2 つのダイアログを開いたときに読む。まだ読んでいなければ null である。
+- 他端末の本文で手元を上書きしてよいかは、確認（`confirm`）を挟んで聞く。
 
 状態機械の実装は `packages/ui/src/mediator/` に置き、領域ごとにファイルを分ける。
 テストは「入力の列を与えて最終状態と効果の列を検証する」形で書く。
@@ -535,7 +478,7 @@ Claude Code の保存先と、その読み方を定める。
 
 - 本文は `~/.claude/projects/<変換名>/<sessionId>.jsonl` にある。変換名は cwd の英数字以外を `-` に置き換えたもので、日本語を含むパスは不可逆になる。cwd は行内の `cwd` か `~/.claude/history.jsonl` の `project` から読む。
 - `~/.claude/history.jsonl` は利用者の発言だけの軽い索引で、初回列挙に使う。
-- ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
+- ファイルの末尾には `last-prompt`、`mode`、`permission-mode`、`ai-title`、`pr-link` などのメタ行が混ざる。ほかにも `bridge-session`、`isolation-latch`、`agent-name`、`custom-title`、`file-history-snapshot`、`file-history-delta`、`frame-link`、`cost-state`、`relocated`、`worktree-state`、`queue-operation`、`attachment` などがある。行の `type` で振り分け、知らない種別は `meta` として保持する。
 - `user` 行の `message.content` は配列ではなく文字列のことがある。抽出は両方を受ける。
 - サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。件数はセッション本体の 3 倍以上あり、インデクサは両方を読む。
 - 実行中の状態は `~/.claude/sessions/<pid>.json` にあり、`sessionId`、`cwd`、`name`、`nameSource`、`status`（busy、idle、waiting、shell）を持つ。ファイルの出現と消失が起動と終了に対応する。
@@ -581,6 +524,8 @@ Claude Code はほぼ毎日新しい版が出るので、範囲はすぐ古く�
 
 画面の文字は、ターンへ跳ぶ操作で続けて 3 回見つからなかったときに初めて記録し、間に 1 回でも見えたら数え直す。
 描き直しの遅れ、ダイアログ、狭いペインといった一時の事情でも 1 回は見つからないことがあり、形式が変わったときは毎回見つからないためである。
+レジストリの `status` の欠けも、同じ登録（ファイル、`sessionId`、`pid` の組）で続けて 2 回の読み取りで欠けていたときだけ記録する。
+Claude Code は登録を `status` の無い形で書き始め、すぐ後に足すので、その間に 1 度読んだだけの欠けは形のずれではないためである。
 
 利用者の発言でない行を見分ける目印（本文の頭のタグなど）は自由な文字列で、知っている集合で見張れない。
 これは見本の試験で確かめる。
@@ -610,6 +555,8 @@ DB のマイグレーションを要らない形にするためにファイル�
 版が読めないときと、前の版が分からないとき（版を持たない古い記録）は消さない。
 空にしたときは、上の 1 度しか数えない元（`~/.claude` の項目、最後に読んだ `claude --help` のサブコマンド、いまの登録）を、その場か次の読み直しで数え直す。
 ほかの元（トランスクリプトの行、statusline、画面の文字、CLI の残り）は数えるたびに記録するので、次にその形を読んだときに数え直される。
+記録を読み込むときと、一覧と件数を返すときには、今の hangar が知っている集合ではずれでない値（前の hangar が記録した後に集合へ足した値）を落とし、落としたら書き戻す（`compat/current.ts`）。
+契約と値だけで決められる、トランスクリプトの種類、レジストリの `status`、`~/.claude` の項目、CLI のサブコマンドの増減と `agents --json` の行の種類に当て、欠けの記録と statusline と画面の文字は残す。
 
 読む口は `GET /api/compat` で、確かめた版、手元の版、ずれの一覧を返す。
 `GET /api/readiness` の応答の `compat` にも、確かめた版、手元の版、ずれの件数を載せる。
@@ -618,6 +565,41 @@ DB のマイグレーションを要らない形にするためにファイル�
 画面に出すのは、設定の「連携」の群の節と、初回の確認リストの 6 行目だけで、ヘッダー、知らせの札、設定の目次の点には出さない（「Settings」と「Home」の節）。
 ずれの中身（`GET /api/compat`）は、準備の確かめでずれが 1 件以上あるときに、画面が続けて取る。
 止めた機能の一覧を、開くのを待たずに出すためである。
+
+#### 確かめた版と見本
+
+確かめた版は、見本のうち最も新しい版である（`VERIFIED_CLAUDE_VERSION`、README にも書く）。
+手元の claude がそれより新しいときは「未確認の版」として知らせるが、止めはしない。
+
+見本は `packages/server/test/fixtures/claude/<版>/` にあり、`npm run capture-claude-fixtures` で採る（`packages/server/test/capture/`）。
+採る道具は、一時ディレクトリで本物の claude を haiku、effort low で動かし、決めた筋書き（タスクの道具を使う、ファイルを書く、Bash を動かす、作業中に次の指示を積む、サブエージェントを使う、終える）を流す。
+権限の確認で止まらないよう、`--permission-mode dontAsk` と `--allowedTools` で、筋書きで使う道具だけを許す。
+利用者の設定、MCP、スキルは読ませない（`--setting-sources project`、`--strict-mcp-config`、`--disable-slash-commands`）。
+フォルダの信頼の画面は、画面を読んで「Yes, I trust this folder」を選ぶ。
+終えるときは、休みの入力の欄へ Ctrl+C を間を置いて 2 回送る（`/exit` は指示として渡り、余計なターンになる）。
+statusline の JSON は、`--settings` で差し込んだスクリプトで写す。
+tmux は専用のソケットを `-S` で名指しし、止めるのはそのソケットのそのセッションだけで、`kill-server` は呼ばない。
+終えたら、一時ディレクトリとホームと設定の置き場のパス、Claude Code が uid ごとに使う一時の置き場（`/tmp/claude-<uid>`）、ホスト名、どのメールアドレスも、組織名、組織の識別子、使用率、戻る時刻、費用と時間の累計（statusline と `cost-state` の行）を決まった値に伏せる。
+system-reminder の塊と考えの塊は中身を伏せ、添付は積んだ指示のほかは種類だけにする。
+伏せ残し（手元の CLAUDE.md の行を含む）があれば、ファイルと行の場所だけを値を出さずに示し、書き出さない。
+伏せた後に筋書きの 2 つの指示が残っているかも確かめる。
+最後に `claude purge <作業ディレクトリ> -y` で、その会話の記録を設定の置き場から消す。
+Claude の使用量を使うので CI では動かさず、動かす前に利用者に聞く。
+採っているあいだ、動いている hangar はこの会話を一覧に出し、後始末の後は消えた会話として扱う。
+
+見本の試験（`packages/server/test/claudeFixtures.test.ts`）は、すべての版の見本について、ずれが 0 件であることと、主な読み取り（ターンの数、積んだ指示、道具、サブエージェント、題名、使用量、ターンの終わり）が筋書きどおりに取れることを確かめる。
+`--help` から作ったサブコマンドの一覧が組み込みの一覧と同じであることは、最も新しい見本でだけ確かめる。
+組み込みの一覧は最も新しい版に合わせるので、古い見本とは違ってよい。
+見本に手元のパスや一時の置き場やメールアドレスが残っていないことと、費用、累計の時間、使用率、アカウントの欄が決まった値に伏せてあることも、この試験が確かめる。
+手書きの見本（同じ置き場の直下）は、見本に現れない端のケースのために残す。
+
+#### 週に 1 度の照合
+
+GitHub Actions の `claude-compat`（`.github/workflows/claude-compat.yml`）が、週に 1 度と手動で、最新の claude を npm（`@anthropic-ai/claude-code`）から入れ、`claude --help` のサブコマンドと引数を最も新しい見本と突き合わせる（`packages/server/test/claudeLive.test.ts`）。
+違っていればジョブを落とし、見本を採り直す合図にする。
+版が新しいだけでは落とさない。
+見本がまだ無いときは、「見本がありません」と書いて落ちる。
+認証は要らない。
 
 ## セッションの起動と観察
 
@@ -1343,6 +1325,46 @@ aria-label は見えている文字をそのまま含め、見える文と読み
   「端末」は画面では使わない。
 - サーバのエラー文が設定の項目を指すときは、画面名を「設定」とし、項目は画面の欄の見出しをかぎ括弧で書く（例：設定の「tmux のパス」）。
 
+### 文言の辞書
+
+画面とサーバの文は、shared の辞書から鍵で引く。
+今は仕組みだけがあり、辞書には見本の鍵が 3 つ入っている。
+既存の画面の文は、まだ直に書いたままで、後の変更で順に辞書へ移す。
+
+置き場は `packages/shared/src/i18n/` である。
+
+- `keys.ts`：鍵の一覧（`MESSAGES`）。鍵ごとに、その文が受け取る引数の名前を並べる。
+- `ja.ts` と `en.ts`：日本語と英語の辞書。どちらも `Record<MessageKey, string>` である。
+- `language.ts`：言語の型（`'ja' | 'en'`）と、知らない値を既定へ寄せる `languageOf`。
+- `t.ts`：辞書を引く `t(language, key, params)` と、言語を束ねた `translator(language)`。
+
+鍵は `画面.部品.意味` の形にする（例：`session.kill.confirm`）。
+画面をまたぐものは、画面のところを `common` にする。
+鍵を足すときは `keys.ts` と 2 つの辞書に同時に足す。
+辞書に鍵が足りないときも余っているときも、型検査で止まる。
+
+文の中の `{名前}` は、`t()` に渡した値で置き換わる（`t('en', 'sessions.list.count', { n: 3 })`）。
+引数の要る鍵に渡し忘れたとき、名前が違うとき、引数の無い鍵に渡したときは、型検査で止まる。
+辞書の文の `{名前}` が `keys.ts` の名前とそろっていることは、試験（`t.test.ts`）で見る。
+型をすり抜けて届いたものは落とさない。
+辞書に無い鍵は鍵のまま返し、渡されなかった引数は `{名前}` のまま残す。
+
+言語の設定は、この PC の設定（`~/.agent-hangar/settings.json` の `language`、API では `SettingsDto.language`）に置く。
+既定は日本語（`ja`）で、項目が無いうちは日本語として読む。
+PC ごとの設定なので、クラウドへは同期しない。
+読み書きはほかの設定と同じ `GET /api/settings` と `PATCH /api/settings` で行い、辞書に無い言語は 400 で断る。
+手で書き換えた `settings.json` の知らない値は、読み込みのときに落とす。
+画面に切り替えの部品はまだ無い。
+
+サーバは `translator(languageOf(settings.language))` で引く。
+UI は、いまの言語を store の設定の 1 か所から受け取る。
+
+- Presenter は `translatorOf(store)`（`presenters/i18n.ts`）で引く。
+  Presenter は `(state, store, now)` の純関数のままで、言語を引数に足さない。
+- View が自分で持つ決まった文は `useT()`（`views/primitives/language.tsx`）で引く。
+  Root が `LanguageRoot` で言語を流し、頂点の無いところでは日本語になる。
+  だから、View だけを描く試験は日本語の文のまま走る。
+
 ### 骨格
 
 左にナビだけのサイドバー、上にヘッダー、残りがメインである。
@@ -2020,7 +2042,7 @@ hangar の tmux の中の claude は、上限を模した中継で、予約が�
   すでに tmux の中にいるときは、hangar の tmux サーバなら入れ子にせず `switch-client` で移り、ほかの tmux の中なら素の claude を起動する。
   サブコマンド、`-p`、`-c`、`--bg`、id の無い `-r` などは包まない。
   サブコマンドの一覧は、サーバが起動のたびと claude のパスを変えたときに `claude --help` の Commands の節から作り直し、本体に書き込む。
-  出力が無い（claude が無い、時間切れ、0 以外で終わった）ときは組み込みの一覧（2.1.292 の Commands）を使い、ずれは記録しない。
+  出力が無い（claude が無い、時間切れ、0 以外で終わった）ときは組み込みの一覧（2.1.295 の Commands）を使い、ずれは記録しない。
   出力に Commands の節が無いときは組み込みの一覧を使い、ずれを 1 件記録する。
   読めたときは読めた一覧を使い、組み込みとの差を 1 つずつ Claude Code との互換のずれとして記録する。
   `hangar shell install` は組み込みの一覧で書き、動いているサーバが次の起動で書き直す。
@@ -2276,7 +2298,7 @@ View は `lucide-react` を直接 import せず、hangar の言葉（`fork`、`r
 一覧の行は 2 段で 44px（`--session-row-h`）、ボタンや入力欄のような 1 段の部品は 28px（`--row-h`）、カードは 4 列、メインの最大幅は 1200px 前後で中央に寄せる。
 
 動きの性格は「なめらか」で、すっと出て長く静かに止まる。
-長さと曲線は `styles/tokens.css` のトークン（`--dur-fast` 200ms、`--dur` 420ms、`--dur-exit` 250ms、`--ease-out`、`--ease-in`、`--rise` 6px、`--blur-in` 6px、`--breathe-period` 3.2 秒）だけを通して書き、CSS にも JS にも数値を直書きしない（`styles/motion.test.ts` が見張る）。
+長さと曲線は `styles/tokens.css` のトークン（`--dur-fast` 200ms、`--dur` 420ms、`--dur-exit` 250ms、`--ease-out`、`--ease-in`、`--rise` 6px、`--blur-in` 6px、`--breathe-period` 3.2 秒）だけを通して書き、CSS にも JS にも数値を直書きしない（`styles/tokens.test.ts` が見張る）。
 JS からは `views/primitives/motion.ts` で読む。
 reduced motion では長さと移動とぼかしのトークンが 0 になり、端末の縁の往復が止まり、View Transitions も使わない。
 使う動きは次のとおりである。
