@@ -584,3 +584,51 @@ describe('旧実装と並んで動く', () => {
     expect(a.db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 1 });
   });
 });
+
+describe('定期の呼び出しと止め方', () => {
+  it('tick は受けてから送り、失敗は握って onError に渡す', async () => {
+    const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
+    const errors: string[] = [];
+    const flaky = new ConfigSyncService({
+      db: b.db, deviceId: 'dev-b', deviceName: 'mini', claudeDir: b.claudeDir, home: b.home, cloud: b.cloud, key,
+      enabled: () => true, switchedOn: () => true, approval: () => 'each', now: () => clock, onError: (m) => errors.push(m),
+    });
+    a.write('CLAUDE.md', 'x'); b.write('commands/c.md', 'y');
+    await a.service.send();
+    deliver(a, b);
+    await flaky.tick();
+    expect(flaky.inbox().items.map((i) => i.id)).toEqual(['file:CLAUDE.md']);
+    expect(shared.files.has('config/dev-b/.hangar/config-bundle.hgr')).toBe(true);
+    // 繋がらなければ握る。
+    b.cloud.offline = true;
+    advance(1000);
+    b.write('commands/d.md', 'z');
+    await expect(flaky.tick()).resolves.toBeUndefined();
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.join('\n')).not.toContain('commands');
+  });
+
+  it('切のときの tick は何もしない', async () => {
+    const a = pc('dev-a', 'mac');
+    a.on.enabled = false;
+    a.write('CLAUDE.md', 'x');
+    await a.service.tick();
+    expect(a.cloud.calls).toEqual([]);
+  });
+
+  it('止めた後は送受信しない', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'x');
+    a.service.stop();
+    expect(await a.service.send()).toEqual({ sent: false, items: 0 });
+    expect(await a.service.receive()).toEqual({ fetched: 0, failed: 0 });
+    expect(a.cloud.calls).toEqual([]);
+  });
+
+  it('送受信は 1 本に並ぶ。同時に send を呼んでも、同じ束は 1 回しか上げない', async () => {
+    const a = pc('dev-a', 'mac');
+    a.write('CLAUDE.md', 'x');
+    await Promise.all([a.service.send(), a.service.send(), a.service.send()]);
+    expect(a.cloud.calls.filter((c) => c.method === 'putFile')).toHaveLength(1);
+  });
+});

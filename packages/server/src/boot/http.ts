@@ -124,6 +124,7 @@ export function bootHttp(p: {
     syncOncePass: sync.feed.oncePass,
     resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
     configSync: sync.configSync,
+    configBundle: sync.configBundle,
     joinToken: sync.joinToken,
     devices: () => listDevices(db, device.id),
     shellHook: runs.shellHook,

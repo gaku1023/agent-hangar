@@ -416,3 +416,56 @@ describe('同期で降りた行', () => {
     expect(t.sent).toEqual([]);
   });
 });
+
+describe('設定の同期（作り直した実装）', () => {
+  const dto = { enabled: true, approval: 'each' as const, incoming: 1, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null };
+
+  it('束の行が変わると config.update を配る。同期で降りた行も、この端末の書き込みも配る', () => {
+    const t = setup();
+    t.publisher.setConfigSync(() => dto);
+    upsertShared(t.db, 'config_snapshots', { device_id: ME, bundle_sha256: 'a', bundle_size: 1, item_count: 1, manifest: null }, ME, 'device_id');
+    t.publisher.flush();
+    expect(t.sent).toEqual([{ type: 'config.update', configSync: dto }]);
+    t.reset();
+    noteApplied(t.db, 'config_snapshots', OTHER, 'upsert');
+    t.publisher.flush();
+    expect(t.sent).toEqual([{ type: 'config.update', configSync: dto }]);
+  });
+
+  it('状態を動かした名指し（config_state）も配り、同じ tick の中では 1 回にまとめる', () => {
+    const t = setup();
+    t.publisher.setConfigSync(() => dto);
+    touchRow(t.db, 'config_state', 'self');
+    touchRow(t.db, 'config_state', 'self');
+    t.publisher.flush();
+    expect(t.types()).toEqual(['config.update']);
+  });
+
+  it('同期を組んでいない端末（組み方が無い、または null）では何も配らない', () => {
+    const t = setup();
+    touchRow(t.db, 'config_state', 'self');
+    t.publisher.flush();
+    expect(t.sent).toEqual([]);
+    t.publisher.setConfigSync(() => null);
+    touchRow(t.db, 'config_state', 'self');
+    t.publisher.flush();
+    expect(t.sent).toEqual([]);
+  });
+
+  it('受け手がいないあいだは組まない', () => {
+    let built = 0;
+    const t = setup({ active: () => false });
+    t.publisher.setConfigSync(() => { built++; return dto; });
+    touchRow(t.db, 'config_state', 'self');
+    t.publisher.flush();
+    expect(built).toBe(0);
+  });
+
+  it('手元だけの表（config_base、config_unsent）の書き込みだけでは配らない。配るのは名指しだけ', () => {
+    const t = setup();
+    t.publisher.setConfigSync(() => dto);
+    t.db.prepare('insert into config_base (item_id, sha256, synced_at) values (?,?,?)').run('x', 'y', 1);
+    t.publisher.flush();
+    expect(t.sent).toEqual([]);
+  });
+});

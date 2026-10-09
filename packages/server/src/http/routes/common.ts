@@ -23,6 +23,8 @@ export const BODY_LIMITS = {
   terminal: 512 * 1024,
   memo: 1024 * 1024,
   todo: 4 * 1024,
+  /** 設定の同期の適用の指示書の選択。1 項目 100 バイトほどで、数千件まで受ける。 */
+  configOrder: 512 * 1024,
   url: 2 * 1024,
 } as const;
 

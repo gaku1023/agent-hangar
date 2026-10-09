@@ -6,6 +6,7 @@ import type { Message } from '../i18n/message.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import type { RunManager } from '../runs/manager.ts';
+import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import type { AccountsDeps } from './accounts.ts';
 
@@ -40,6 +41,12 @@ export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onF
  * ClaudeConfigSync に pull() は無いので、呼び手が applyPull(pendingRemote()) の形に包んで渡す。
  */
 export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
+/**
+ * 作り直した設定の同期（sync/config/）のうち HTTP から触る部分だけ。
+ * 読む操作と、hangar の置き場の適用の指示書を書く操作だけで、~/.claude に書く操作（適用、競合の採り直し、世代へ戻す）は持たない。
+ * それは指示書を読む殻の命令と hangar config apply の役目である（D9）。
+ */
+export type ConfigBundleApi = Pick<ConfigSyncService, 'dto' | 'outgoing' | 'inbox' | 'conflicts' | 'unsent' | 'sendUnsent' | 'backups' | 'putApplyOrder' | 'applyOrder' | 'deleteApplyOrder'>;
 /**
  * いまの言語を返す関数。経路のファイルは、これを受け取って文を引く。
  * createApp が AppDeps の language を、どの経路にも渡す。
@@ -87,6 +94,8 @@ export type AppDeps = {
   resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
   /** 同期を設定していない端末では null。そのとき設定の経路は 404 を返す。 */
   configSync: ConfigSyncApi | null;
+  /** 作り直した設定の同期。同期を設定していない端末では null で、/config-sync/* は 404 を返す。旧実装の configSync とは別で、既定は切。 */
+  configBundle: ConfigBundleApi | null;
   /** 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。 */
   joinToken: () => string | null;
   devices: () => DeviceDto[];
