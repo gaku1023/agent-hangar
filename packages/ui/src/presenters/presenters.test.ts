@@ -1036,6 +1036,22 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     // 直すものの数は、無くても動くもの（code）を数えない。連携は MCP と statusline を数える。
     expect(p.todo).toEqual({ must: 1, link: 1 });
   });
+  it('Claude Code との互換は、準備の確かめの要約とずれの中身から作り、ずれは直すものに数えない', () => {
+    const r: ReadinessDto = { ...READY, compat: { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 1 } };
+    const full = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry' as const, value: 'status=compacting', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };
+    const p = presentSettings(initialState(), { ...initialStore(), version: '0.3.0', readiness: r, compat: full });
+    expect(p.compat).toMatchObject({ state: 'drift', badge: 'ずれ 1 件', localVersion: '2.1.300', verifiedVersion: '2.1.292', stops: ['休んでいるセッションを自動で止めるのを控えています'] });
+    expect(p.compat!.report!.split('\n')[0]).toBe('Claude Code との互換のずれ（hangar 0.3.0）');
+    // 直すもの（目次の点と群の見出しの札）は、ずれの無いときと同じ数のまま。
+    expect(p.todo).toEqual(presentSettings(initialState(), { ...initialStore(), readiness: READY }).todo);
+    expect(p.todo).toEqual({ must: 1, link: 1 });
+  });
+  it('準備の確かめが届く前と、compat の無い古いサーバの答えでは、互換の節を null にする', () => {
+    expect(presentSettings(initialState(), initialStore()).compat).toBeNull();
+    const { compat: _drop, ...older } = READY;
+    expect(presentSettings(initialState(), { ...initialStore(), readiness: older as ReadinessDto }).compat).toBeNull();
+    expect(presentSettings(initialState(), { ...initialStore(), readiness: READY }).compat).toMatchObject({ state: 'ok', badge: '問題なし' });
+  });
   it('欄ごとの保存の知らせをそのまま渡す', () => {
     const p = presentSettings({ ...initialState(), settingsSave: { tmuxPath: { kind: 'saved', n: 2 } } }, initialStore());
     expect(p.save).toEqual({ tmuxPath: { kind: 'saved', n: 2 } });

@@ -18,8 +18,9 @@ export const COPIED_MS = 1600;
  * 「コピーしました」は、押した後にランタイムが写せたと返してから（CopiedContext が進んでから）出す。
  * 写せなかったときはランタイムがトーストで知らせ、ここは何も変えない。
  * label が無ければアイコンだけにし、読み上げの名前は「〜をコピー」にする。
+ * ariaLabel は読み上げの名前をそのまま決める。見えている文がコピーの語でないとき（報告用に写す）に使う。
  */
-export function CopyButton(props: { text: string; name?: string; label?: string }) {
+export function CopyButton(props: { text: string; name?: string; label?: string; ariaLabel?: string }) {
   const emit = useEmit();
   const done = useContext(CopiedContext);
   // 押したときの知らせの番号。これより後に、この文を写せた知らせが来たら「コピーしました」にする。
@@ -36,7 +37,7 @@ export function CopyButton(props: { text: string; name?: string; label?: string 
     return () => clearTimeout(t);
   }, [copied]);
   return (
-    <button type="button" className="copy-btn" data-copied={copied ? 'true' : undefined} aria-label={`${props.name ?? props.text} をコピー`} onClick={() => { pressedAt.current = done?.n ?? 0; emit({ type: 'clipboard.copy', text: props.text }); }}>
+    <button type="button" className="copy-btn" data-copied={copied ? 'true' : undefined} aria-label={props.ariaLabel ?? `${props.name ?? props.text} をコピー`} onClick={() => { pressedAt.current = done?.n ?? 0; emit({ type: 'clipboard.copy', text: props.text }); }}>
       <Icon name={copied ? 'check' : 'copy'} />
       {props.label !== undefined && <span>{copied ? 'コピーしました' : props.label}</span>}
     </button>

@@ -44,6 +44,8 @@
 .ck[data-tone='ok'] > .icon { color: var(--st-done); }
 .ck[data-tone='ng'] > .icon { color: var(--error); }
 .ck[data-tone='soft'] > .icon { color: var(--st-paused); }
+/* 未確認の版（Claude Code との互換）。止めてはいないので、色を持たない灰色にする。 */
+.ck[data-tone='info'] > .icon { color: var(--ink-3); }
 .ck-t b { font-weight: 600; }
 .ck-p { font: var(--fs-xs) var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
 .ck-d { font-size: var(--fs-sm); color: var(--ink-2); }
@@ -51,3 +53,28 @@
 .ck-act { align-self: center; display: flex; gap: calc(var(--u) * 1.5); }
 .ck-wait { padding: calc(var(--u) * 3) calc(var(--u) * 4); border-top: 1px solid var(--line); }
 .ck-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 3) calc(var(--u) * 4); border-top: 1px solid var(--line); background: #fbfbfd; font-size: var(--fs-xs); }
+
+/* Claude Code との互換のずれの中身（A4）。止めた機能は常に出し、細目だけ「ずれ N 件の中身」で畳む。 */
+/* 確認リストの 6 行目と、設定の互換の節が使う。値の正本は試作 docs/superpowers/specs/2026-10-07-stage0-claude-compat/checks.html。 */
+.cp-stops { margin: calc(var(--u) * 1.5) 0 0; padding: 0; list-style: none; display: grid; gap: 2px; font-size: var(--fs-sm); color: var(--ink); }
+.cp-stops li { position: relative; padding-left: 14px; }
+.cp-stops li::before { content: ''; position: absolute; left: 3px; top: 0.62em; width: 5px; height: 5px; border-radius: 50%; background: var(--st-paused); }
+.cp-more { margin-top: calc(var(--u) * 1.5); }
+.cp-more > summary { display: inline-flex; align-items: center; gap: 3px; list-style: none; cursor: pointer; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); }
+.cp-more > summary::-webkit-details-marker { display: none; }
+.cp-more > summary .icon { width: 12px; height: 12px; transition: transform var(--dur-fast) var(--ease-out); }
+.cp-more[open] > summary .icon { transform: rotate(90deg); }
+.cp-more-body { margin-top: calc(var(--u) * 1.5); }
+.cp-tab { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--fs-xs); }
+.cp-tab col.c-k { width: 96px; }
+.cp-tab col.c-v { width: 52px; }
+.cp-tab col.c-t { width: 80px; }
+.cp-tab col.c-f { width: 92px; }
+.cp-tab th { text-align: left; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); padding: 0 4px 2px; }
+.cp-tab td { padding: 3px 4px; vertical-align: top; border-bottom: 1px solid var(--line); color: var(--ink-2); overflow-wrap: anywhere; }
+.cp-tab td:first-child { color: var(--ink); }
+.cp-tab td.cp-n { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cp-tab td code { font: 500 11px var(--font-mono); color: var(--ink); background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+.cp-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: var(--u); font-size: var(--fs-xs); }
+.cp-foot > .faint { flex: 1; min-width: 0; }
+.cp-foot code { font: 500 11px var(--font-mono); }

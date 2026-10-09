@@ -122,7 +122,7 @@ export type AppDeps = {
    */
   readiness: () => Promise<ReadinessDto>;
   /**
-   * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。確認リストの 6 行目を開いたときに読む。
+   * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。準備の確かめでずれがあるとき、画面が続けて読む。
    * 渡さなければ、確かめた版だけを持つ空の一覧を返す。
    */
   compat?: () => Promise<CompatDto>;

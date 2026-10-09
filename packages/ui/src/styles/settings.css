@@ -16,7 +16,7 @@
 /* 群。見出しの右に中の節の名前を淡く並べる。スクロールで跳んだとき、浮いているヘッダの下に見出しが来るようにする。 */
 .settings-group { scroll-margin-top: calc(var(--u) * 2); }
 .settings-group + .settings-group { margin-top: calc(var(--u) * 7); }
-.settings-group-h { display: flex; align-items: baseline; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2.5) var(--u); font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; }
+.settings-group-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2.5) var(--u); font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; }
 .settings-group-h > span:not(.badge) { font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
 .settings-group-h > .badge { margin-left: auto; align-self: center; }
 
@@ -30,6 +30,8 @@
 .badge { display: inline-flex; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
 .badge[data-tone='ok'] { color: var(--st-done); background: var(--st-done-soft); }
 .badge[data-tone='warn'] { color: var(--st-paused); background: var(--st-paused-soft); }
+/* 未確認の版（Claude Code との互換）。止めてはいないので、印の無い灰色の地と縁にする。 */
+.badge[data-tone='info'] { color: var(--ink-2); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .badge .icon { width: 12px; height: 12px; stroke-width: 2; }
 
 /* パスの欄。欄の横に保存の知らせ、欄の下に検証の 1 行を置く。 */
@@ -137,3 +139,9 @@
   .account-set-acts { grid-column: 3; grid-row: 1; }
   .account-set-dir, .account-set-state { grid-column: 2 / 4; }
 }
+
+/* Claude Code との互換の節（C2）。値の正本は試作 docs/superpowers/specs/2026-10-07-stage0-claude-compat/checks.html。 */
+.cp-sec code { font: 500 11px var(--font-mono); }
+.cp-vers { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px calc(var(--u) * 4); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
+.cp-vers code { font-size: var(--fs-sm); color: var(--ink); }
+.cp-lead { margin-top: calc(var(--u) * 2.5); padding-top: calc(var(--u) * 2.5); border-top: 1px solid var(--line); font-size: var(--fs-sm); color: var(--ink-2); }

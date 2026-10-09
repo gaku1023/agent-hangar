@@ -5,6 +5,7 @@ import { indexProgressLabel, relativeTime, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } f
 import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
+import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
 import { toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 
@@ -68,8 +69,13 @@ export type SettingsProps = {
   mcpRegistered: boolean | null;
   /** 欄ごとの保存の知らせ（C1）。欄の名前で引く。 */
   save: Record<string, SaveMark>;
-  /** 群ごとの直すものの数。目次に印を付ける。無くても動くものは数えない。 */
+  /**
+   * 群ごとの直すものの数。目次に印を付ける。無くても動くものは数えない。
+   * Claude Code との互換のずれは、利用者が直せるものではないので数えない（目次の点も灯さない）。
+   */
   todo: { must: number; link: number };
+  /** Claude Code との互換の節（C2）。準備の確かめが届く前と、compat の無い古いサーバの答えでは null。 */
+  compat: CompatProps | null;
   accounts: AccountSettingsProps;
   /** 開いたときに見える位置へ移る節。ヘッダの「アカウントの設定」から来たときだけ入る。 */
   focus: 'accounts' | null;
@@ -130,6 +136,8 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     code: r ? toolLine('code', r.tools.code) : null,
     node: r ? toolLine('node', r.tools.node) : null,
   };
+  // compat の無い古いサーバの答えでは、互換の節を「確かめています」のままにする。
+  const compatSummary = r ? readinessCompat(r) : undefined;
   const hard = (l: VerifyLine | null) => (l && !l.ok && !l.soft ? 1 : 0);
   const todo = {
     must: hard(verify.workspace) + hard(verify.tmux) + hard(verify.claude) + hard(verify.node),
@@ -139,6 +147,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     cloud,
     shell,
     verify, todo,
+    compat: compatSummary ? presentCompat(compatSummary, store.compat, store.version) : null,
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。
