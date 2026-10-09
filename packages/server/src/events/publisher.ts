@@ -4,6 +4,7 @@ import { onRowChange, rowChangeClock, settleRowChanges, type RowChange, type Row
 import type { Db } from '../db/open.ts';
 import { getProject, getSession, listDevices } from '../db/queries.ts';
 import { memoFromDb } from '../projects/memo.ts';
+import { listTodos } from '../projects/todos.ts';
 
 /**
  * DB の行の変化を、画面へのイベントにして配る 1 層。
@@ -56,6 +57,11 @@ const KINDS = {
     build: (ctx, id) => { const a = getArtifact(ctx.db, id); return a ? { type: 'artifact.upsert', artifact: a } : null; },
     idOf: (ev) => (ev.type === 'artifact.upsert' ? ev.artifact.id : null),
   },
+  // TODO はプロジェクトの一覧ごと配るので、ID はプロジェクトのものである。
+  todos: {
+    build: (ctx, id) => ({ type: 'todos.update', projectId: id, todos: listTodos(ctx.db, id) }),
+    idOf: (ev) => (ev.type === 'todos.update' ? ev.projectId : null),
+  },
 } satisfies Record<string, Kind>;
 
 type KindName = keyof typeof KINDS;
@@ -77,8 +83,7 @@ const LOCAL: readonly RowOrigin[] = ['write', 'touch'];
 
 /**
  * 表からイベントへの対応。画面へ配る表を足すときは、ここへ 1 行を足す。
- * ここに無い表（run_tabs、todos、artifact_versions、手元だけの表）の知らせは、何も配らない。
- * todos は、HTTP と MCP の経路がまだ手で配っている。その手書きを外すときに、ここへ足す。
+ * ここに無い表（run_tabs、artifact_versions、手元だけの表）の知らせは、何も配らない。
  */
 const TABLES: Record<string, TableRule> = {
   sessions: { to: self('session') },
@@ -112,6 +117,15 @@ const TABLES: Record<string, TableRule> = {
   // 同期で降りたメモとアーティファクトは、今の画面では配っていない。その振る舞いを変えないよう、この端末の変化だけにしてある。
   project_memos: { from: LOCAL, to: (c) => [['memo', c.rowId], ['project', c.rowId]] },
   artifacts: { from: LOCAL, to: self('artifact') },
+  // 未完の数は ProjectDto にも載る（openTodoCount）ので、プロジェクトも配り直す。消した行も残っているので、プロジェクトは引ける。
+  // 同期で降りた TODO は、メモと同じく、今の画面では配っていない。
+  todos: {
+    from: LOCAL,
+    to: (c, ctx) => {
+      const r = ctx.db.prepare('select project_id p from todos where id = ?').get(c.rowId) as { p: string } | undefined;
+      return r ? [['todos', r.p], ['project', r.p]] : [];
+    },
+  },
 };
 
 const keyOf = (kind: KindName, id: string): string => `${kind}\u0000${id}`;

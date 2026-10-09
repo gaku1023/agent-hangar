@@ -205,11 +205,43 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([]);
   });
 
-  it('対応の無い表と、知らない表は無視する', () => {
+  it('todos の行は、そのプロジェクトの一覧ごとの todos.update と、未完の数を載せる project.upsert になる', () => {
     const t = setup();
     seedProject(t.db);
     t.reset();
     upsertShared(t.db, 'todos', { id: 't1', project_id: 'p1', text: 'やる', done: 0, position: 1, session_id: null }, ME);
+    upsertShared(t.db, 'todos', { id: 't2', project_id: 'p1', text: 'もう 1 つ', done: 0, position: 2, session_id: null }, ME);
+    t.publisher.flush();
+    expect(t.types()).toEqual(['todos.update', 'project.upsert']);
+    expect(t.sent[0]).toMatchObject({ type: 'todos.update', projectId: 'p1', todos: [{ id: 't1' }, { id: 't2' }] });
+    expect(t.sent[1]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', openTodoCount: 2 } });
+  });
+
+  it('消した TODO も、残りの一覧を配る', () => {
+    const t = setup();
+    seedProject(t.db);
+    upsertShared(t.db, 'todos', { id: 't1', project_id: 'p1', text: 'やる', done: 0, position: 1, session_id: null }, ME);
+    t.reset();
+    softDeleteShared(t.db, 'todos', 't1', ME);
+    t.publisher.flush();
+    expect(t.sent[0]).toEqual({ type: 'todos.update', projectId: 'p1', todos: [] });
+    expect(t.sent[1]).toMatchObject({ type: 'project.upsert', project: { openTodoCount: 0 } });
+  });
+
+  it('TODO は、同期で降りた行では配らない（今の画面と同じ）', () => {
+    const t = setup();
+    seedProject(t.db);
+    upsertShared(t.db, 'todos', { id: 't1', project_id: 'p1', text: 'やる', done: 0, position: 1, session_id: null }, ME);
+    t.reset();
+    noteApplied(t.db, 'todos', 't1', 'upsert');
+    t.publisher.flush();
+    expect(t.sent).toEqual([]);
+  });
+
+  it('対応の無い表と、知らない表は無視する', () => {
+    const t = setup();
+    seedProject(t.db);
+    t.reset();
     touchRow(t.db, 'no_such_table', 'x');
     noteApplied(t.db, 'run_tabs', 'tab1', 'upsert');
     t.publisher.flush();
