@@ -2,16 +2,17 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { SyncStatusBody } from '@agent-hangar/shared';
 import type { Input, Overlay, SessionViewState } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
-import { initialStore } from '../store/store.ts';
+import type { RunDto, TabDto } from '@agent-hangar/shared';
+import { initialStore, type Store } from '../store/store.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
 import { liveStep } from './live.ts';
 import { readDraft } from './launch.ts';
 
-function run(inputs: Input[], start: State = initialState()) {
+function run(inputs: Input[], start: State = initialState(), store: Store = initialStore()) {
   const effects: unknown[] = [];
   let state = start;
-  for (const i of inputs) { const r = transition(state, initialStore(), i); state = r.state; effects.push(...r.effects); }
+  for (const i of inputs) { const r = transition(state, store, i); state = r.state; effects.push(...r.effects); }
   return { state, effects };
 }
 const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
@@ -931,27 +932,39 @@ describe('キーの一覧と履歴', () => {
 });
 
 describe('分割', () => {
+  // s1 の run r1 に、渡した id のタブが開いているストア。r1 は Claude のタブで、ほかはシェルタブである。
+  const aRun: RunDto = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 };
+  const aTab = (id: string, kind: 'agent' | 'shell', createdAt: number): TabDto => ({ id, runId: 'r1', sessionId: 's1', kind, title: id, tmuxName: `hangar-${id}`, createdAt, closedAt: null });
+  const withTabs = (...ids: string[]): Store => ({ ...initialStore(), runs: { r1: aRun }, tabs: Object.fromEntries(ids.map((id, n) => [id, aTab(id, id === 'r1' ? 'agent' : 'shell', n + 1)])) });
   // 左に left、右に right を置いた分割中のセッション画面を作る。
   const split = (left: string, right: string) => {
-    let s = run([intent({ type: 'tab.select', tabId: left })], onSession('s1')).state;
-    s = run([intent({ type: 'split.toggle' })], s).state;
-    return run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: right })], s).state;
+    const s = run([intent({ type: 'tab.select', tabId: left })], onSession('s1')).state;
+    const r = run([intent({ type: 'split.toggle' })], s, withTabs(left, right)).state;
+    expect(r.sessionView.s1).toMatchObject({ split: true, selectedTab: left, splitTab: right });
+    return r;
   };
-  it('開くときはランタイムに右のタブを決めさせ、閉じるときはその場で消す', () => {
+  it('開くときはストアを見て右のタブを決め、閉じるときはその場で消す', () => {
     const on = onSession('s1');
-    const a = run([intent({ type: 'split.toggle' })], on);
-    expect(a.effects).toEqual([{ kind: 'split.resolve', sessionId: 's1' }]);
-    expect(a.state.sessionView.s1?.split).toBeFalsy();
-    const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: 't2' })], a.state);
+    // 左は選択中のタブ（無ければ先頭）、右はそれと違う最初のタブである。
+    const b = run([intent({ type: 'split.toggle' })], on, withTabs('r1', 't2', 't3'));
     expect(b.state.sessionView.s1).toMatchObject({ split: true, splitTab: 't2' });
     expect(b.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(b.state.sessionView.s1!) }]);
-    const c = run([intent({ type: 'split.toggle' })], b.state);
+    const c = run([intent({ type: 'split.toggle' })], b.state, withTabs('r1', 't2', 't3'));
     expect(c.state.sessionView.s1).toMatchObject({ split: false, splitTab: null });
     expect(c.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(c.state.sessionView.s1!) }]);
   });
+  it('選択中のタブが先頭でなければ、先頭のタブを右に置く', () => {
+    const picked = run([intent({ type: 'tab.select', tabId: 't2' })], onSession('s1')).state;
+    const r = run([intent({ type: 'split.toggle' })], picked, withTabs('r1', 't2', 't3'));
+    expect(r.state.sessionView.s1).toMatchObject({ split: true, selectedTab: 't2', splitTab: 'r1' });
+  });
   it('タブが 1 つしか無ければトーストを出す', () => {
-    const a = run([intent({ type: 'split.toggle' })], onSession('s1'));
-    const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: null })], a.state);
+    const b = run([intent({ type: 'split.toggle' })], onSession('s1'), withTabs('r1'));
+    expect(b.state.sessionView.s1?.split).toBeFalsy();
+    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }]);
+  });
+  it('run が無ければトーストを出す', () => {
+    const b = run([intent({ type: 'split.toggle' })], onSession('s1'));
     expect(b.state.sessionView.s1?.split).toBeFalsy();
     expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }]);
   });

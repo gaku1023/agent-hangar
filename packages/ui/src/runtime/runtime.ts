@@ -528,16 +528,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         setStore({ ...store, summarizerTest: null });
         deps.api.testSummarizer().then((r) => setStore({ ...store, summarizerTest: r })).catch(fail);
         return;
-      case 'split.resolve': {
-        // 左は選択中のタブ、無ければ先頭。右はそれと違う最初のタブ。2 つ無ければ null を返す。
-        const view = state.sessionView[e.sessionId] ?? defaultSessionView();
-        const run = currentRunOf(store, e.sessionId);
-        const tabs = run ? tabsOf(store, run.id) : [];
-        const left = view.selectedTab ?? tabs[0]?.id ?? null;
-        const right = tabs.find((t) => t.id !== left) ?? null;
-        dispatch({ kind: 'runtime', event: { type: 'split.resolved', sessionId: e.sessionId, tabId: right ? right.id : null } });
-        return;
-      }
       case 'waiting.next': dispatch({ kind: 'runtime', event: { type: 'waiting.resolved', sessionId: nextWaitingSession(store, e.from) } }); return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
       // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。

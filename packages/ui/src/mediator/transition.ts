@@ -35,13 +35,15 @@ function pushToast(state: State, level: 'info' | 'error', message: string): Stat
  * 直交する領域の状態機械を順に試し、最初に応答した領域の結果を採る。残りは横断的な入力。
  * Store は読むだけで、変えない。Store を変えるのは Runtime である。
  */
-export function transition(state: State, _store: Store, input: Input): Step {
+export function transition(state: State, store: Store, input: Input): Step {
   // promoteStep、projectCreateStep、retentionStep は overlay.close を横取りするので overlayStep より前に置く。
   // accountsStep は確認を出す領域なので、overlayStep より前に置く。
   // syncStep と resumeHereStep は overlayStep の後ろに置く。
   // 確認ダイアログと下見のダイアログは overlay.close で閉じたいので、横取りする領域の後ろでなければならない。
   // workbenchStep は summary.* の server イベントを見るので最後に置き、他の領域が先に応答した入力には触れない。
-  for (const step of [connectionStep, screenStep, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionViewStep, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbenchStep]) {
+  // ストアを読む領域には、ここでストアを添える。
+  const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
+  for (const step of [connectionStep, screenStep, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sidebarLiveStep, sectionsStep, livePaneSplitStep, liveStep, returnStep, notifyStep, workbenchStep]) {
     const r = step(state, input);
     // 閉じた後に未解決のキューが残っていれば、次を出す（overlay.ts の settleQueue）。
     // 開いたセッションの入力待ちのカードは、見えているので下げる（live.ts の settleWaiting）。戻る時刻の札も同じ（returnDue.ts の settleReturn）。
