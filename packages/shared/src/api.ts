@@ -153,8 +153,10 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
 /**
  * pausedReason は止めた理由。quota は無料枠の見張りが止めた、user は利用者が止めた。古いサーバは送らない（undefined）。
  * quotaPausedDay は見張りが止めた UTC の日（yyyy-MM-dd）。
+ * limitedUntil は、Cloudflare の無料枠の上限に当たって退いている間の戻る時刻（次の UTC の 0 時）である。
+ * 退いている間の state は paused で、利用者が一時停止しているときと、退いていないときは null である。
  */
-export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; pausedReason?: 'quota' | 'user' | null; quotaPausedDay?: string | null };
+export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; pausedReason?: 'quota' | 'user' | null; quotaPausedDay?: string | null; limitedUntil: number | null };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。

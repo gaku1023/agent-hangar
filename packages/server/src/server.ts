@@ -13,7 +13,7 @@ import { createReadiness, ToolVersions } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type FileMetaIn, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto, type SyncStatusDto } from '@agent-hangar/shared';
+import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto, type SyncStatusDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
 import { accountOfSession, getProject, getSession, listDevices, listProjects } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
@@ -49,13 +49,12 @@ import { LmStudioSummarizer } from './summary/lmstudio.ts';
 import type { Summarizer } from './summary/types.ts';
 import { sessionIdOfChange, writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
 import { BACKUP_GENERATIONS, ClaudeConfigSync } from './sync/claudeConfig.ts';
-import { HttpCloudClient, type CloudClient } from './sync/client.ts';
+import { HttpCloudClient } from './sync/client.ts';
 import { copyTranscriptForResume } from './sync/copy.ts';
 import { deriveFileKey } from './sync/crypto.ts';
 import { SyncEngine } from './sync/engine.ts';
 import { PausedPass } from './sync/pausedPass.ts';
 import { RemotePuller } from './sync/puller.ts';
-import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, type QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { markTranscriptsFrom } from './sync/transcriptsFrom.ts';
 import { TranscriptUploader } from './sync/uploader.ts';
@@ -91,70 +90,6 @@ const PASS_TICK_MS = 1_000;
 export const UPLOAD_SWEEP_MS = 60_000;
 
 /**
- * `files` の 1 行を書くときに動く索引の数。
- * `key text not null unique` に SQLite が自分で張る索引と、`files_kind` の 2 つである
- * （`packages/cloud/src/schema.ts`）。
- * `seq integer primary key` は rowid そのものなので索引を増やさない。
- */
-const FILES_INDEXES = 2;
-/**
- * `files` への insert が余分に動かす `sqlite_sequence` の 1 行。
- *
- * `seq` は `autoincrement` なので、insert のたびに `sqlite_sequence` の行が進む（delete では動かない）。
- * better-sqlite3 で実際に確かめた（insert 2 回で seq が 1 から 2 に進み、delete では変わらない）。
- * D1 の `rows_written` がこの内部の表を数えるかどうかは、公開の定義からは決められない。
- * 実測の 369 行は「数える」「数えない」のどちらの分け方でも同じ合計になるので、実物でも決着しない。
- * **決められないときは多い方で数える。** 少なく数えると枠を越えてから止まり、課金されない約束が崩れる。
- */
-const D1_WRITES_PER_AUTOINCREMENT = 1;
-
-/**
- * `PUT /files/<鍵>` が D1 に書く行数。
- *
- * Worker は R2 に置いた後、`files` の delete と insert、`devices` の last_seen_at を 1 つの batch で書く
- * （`packages/cloud/src/files.ts` の 242 行から 248 行）。
- * 無料枠が見ているのは文の数ではなく `rows_written` で、索引への書き込みも 1 行ずつ数える。
- * 内訳は delete が 1 + 索引 2、insert が 1 + 索引 2 + `sqlite_sequence` 1、`devices` の更新が 1 である。
- * 同じ鍵へ上げ直すたびに delete が当たるので、当たる方（多い方）で数える。
- * これに Worker の台帳の 1 文（`D1_WRITES_PER_METER_NOTE`）が乗る。
- */
-export const D1_WRITES_PER_FILE_PUT =
-  (1 + FILES_INDEXES) + (1 + FILES_INDEXES + D1_WRITES_PER_AUTOINCREMENT) + D1_WRITES_PER_DEVICE_TOUCH + D1_WRITES_PER_METER_NOTE;
-/**
- * `DELETE /files/<鍵>` が D1 に書く行数。
- * `files` から 1 行消すだけである（同 272 行）。本体 1 行と索引 2 行で 3 行になる。
- * `devices` は触らず、`sqlite_sequence` は delete では動かない。
- * R2 の削除は D1 に書かないが、Worker の台帳の 1 文は乗る。
- */
-export const D1_WRITES_PER_FILE_DELETE = 1 + FILES_INDEXES + D1_WRITES_PER_METER_NOTE;
-
-/**
- * R2 への出し入れを無料枠の勘定に入れるための包み。
- *
- * 数えるのは **SyncEngine が自分で数えない経路だけ**である。
- * `pushChanges`、`pullChanges`、`snapshot` は engine が `request()` と `doPush` の中で数えるので、
- * ここで掛けると同じ要求を 2 回数えて、枠の見張りが実際の半分の位置で止める。
- * 止めるのは engine の `guardQuota` に任せる（止めた日を覚えていて、再開の直後に押し返さない）。
- */
-export function countingClient(inner: CloudClient, quota: QuotaCounter): CloudClient {
-  const note = <T>(rows: number, p: Promise<T>): Promise<T> => { quota.note({ requests: 1, rows }); return p; };
-  return {
-    health: () => note(0, inner.health()),
-    // engine が数える 3 つは素通しにする。
-    pushChanges: (c) => inner.pushChanges(c),
-    pullChanges: (s, l) => inner.pullChanges(s, l),
-    snapshot: (a, l) => inner.snapshot(a, l),
-    putFile: (m: FileMetaIn, b) => note(D1_WRITES_PER_FILE_PUT, inner.putFile(m, b)),
-    // 降ろすのと一覧は読むだけで、D1 には 1 行も書かない。
-    getFile: (k) => note(0, inner.getFile(k)),
-    listFiles: (s, l) => note(0, inner.listFiles(s, l)),
-    deleteFile: (k) => note(D1_WRITES_PER_FILE_DELETE, inner.deleteFile(k)),
-    // 使用量は読むだけで、D1 には 1 行も書かない（Worker の /usage は認証の検査で読むだけ）。
-    usage: () => note(0, inner.usage()),
-  };
-}
-
-/**
  * セッションのメモを他端末の新しい版で置き換えたときの知らせ。
  * 控えはもうファイルになっているので、利用者に伝えるのは「どこに残したか」である。
  */
@@ -165,7 +100,7 @@ export function sessionMemoBackupMessage(o: SessionMemoBackup): string {
 /**
  * Claude Code 設定の同期が外と話してよいか。
  * 切っているときはもちろん、一時停止のあいだも押し出さない。
- * 「一時停止」は外と話すのをやめることで、無料枠の 80% で自分から止まったときも同じである（決定 4）。
+ * 「一時停止」は外と話すのをやめることで、Cloudflare の上限で退いている間も同じである（そのあいだの状態は paused で、isPaused に出る）。
  * 利用者が「今すぐ同期」で頼んだ 1 巡の最中は、呼び手が paused を false にして渡す（startServer の isPaused）。
  * `ClaudeConfigSync` は `enabled()` しか見ないので、判定はこちらで組み立てて渡す。
  */
@@ -176,10 +111,11 @@ export function configSyncActive(o: { syncClaudeConfig: boolean; paused: boolean
 /**
  * 本文と設定の出し入れ、他端末の本文の取り込み、使用量の取りに行きを止めるか。
  * 互換の版で止まっているときは、利用者が頼んだ 1 巡の最中でも止める（その 1 巡のメタデータの送受信が先に試し直し、まだ合わなければまた止まっている）。
+ * 上限で退いている間も、利用者が頼んだ 1 巡の最中でも止める（その 1 巡のメタデータの送受信が先に試し直し、まだ上限ならまた退いている）。
  * 一時停止のあいだは止めるが、利用者が「今すぐ同期」で頼んだ 1 巡の最中だけは通す（PausedPass）。
  */
-export function syncHalted(o: { paused: boolean; oncePass: boolean; compatBlocked: boolean }): boolean {
-  return o.compatBlocked || (o.paused && !o.oncePass);
+export function syncHalted(o: { paused: boolean; oncePass: boolean; compatBlocked: boolean; limited: boolean }): boolean {
+  return o.compatBlocked || o.limited || (o.paused && !o.oncePass);
 }
 
 /**
@@ -472,12 +408,12 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // メタデータの同期はこの刻みを見ないので、今までどおり全部が揃う。
   if (cloud) markTranscriptsFrom(syncState, cloud.joinedAt > 0 ? cloud.joinedAt : Date.now());
   /**
-   * 同期が止まっているか。利用者が押した一時停止も、枠の 80% で自分から止まった分もここに出る。
+   * 同期が止まっているか。利用者が押した一時停止も、Cloudflare の上限で退いている間もここに出る。
    * 止まっていても、利用者が「今すぐ同期」で頼んだ 1 巡の最中だけは止まっていないと答える（pausedPass）。
    * 互換の版が合わずに止まっているときも止まっていると答える（1 巡の最中でも）。
    * 本文と設定の出し入れはどれもここを見るので、その 1 巡だけ通る。
    */
-  const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: pausedPass.active(), compatBlocked: engine.compatBlocked() });
+  const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: pausedPass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null });
   /**
    * 本文とメモの控えの世代を刈る。
    *
@@ -492,10 +428,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     try { pruneBackupFiles(backupsRoot(home), kind, BACKUP_GENERATIONS); }
     catch (e) { console.error('[backups]', e instanceof Error ? e.message : e); }
   };
-  const rawClient = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
+  const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
   const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
   const engine = new SyncEngine({
-    db, deviceId: device.id, client: rawClient, url: cloud?.url ?? null, home,
+    db, deviceId: device.id, client, url: cloud?.url ?? null, home,
     // 負けた手元のメモは隣に残す。名前の組み立ても既存の写しの守りも writeMemoConflictCopy が持っている。
     // ここで投げれば、その行は適用されない（控えの無いまま利用者の文章を消さない）。
     onMemoConflict: (o) => {
@@ -505,8 +441,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     // 控えはもうファイルになっている。ここでやるのは置き場を知らせることだけである。
     onSessionMemoBackup: (o) => { toast('info', sessionMemoBackupMessage(o)); pruneBackups('memos'); },
   });
-  // 本文と設定の出し入れは engine を通らないので、無料枠の勘定に入るように包んでから渡す。
-  const client = rawClient ? countingClient(rawClient, engine.quota) : null;
   // 設定の「使用量と費用」。
   const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
   const uploader = client
@@ -567,6 +501,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
         toast('error', status.error ?? 'クラウドと互換の版が合わないので、同期できませんでした');
         return;
       }
+      // 上限で退いた 1 巡は、エンジンが戻る時刻を知らせてある。成功や残りの件数の知らせを重ねない。
+      if (engine.limitedUntil() !== null) return;
       // 一時停止の間は状態が paused に隠れて失敗が画面に出ないので、残りの件数で伝える。
       const left = [status.pending > 0 ? `未送信 ${status.pending} 件` : null, (sweepPending ?? 0) > 0 ? `未送信の本文 ${sweepPending} 件` : null].filter((t) => t !== null);
       if (left.length > 0) toast('error', `1 回だけ同期しましたが、${left.join('、')}が残りました。同期は一時停止のままです`);
@@ -581,9 +517,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   let passTicker: ReturnType<typeof setInterval> | null = null;
   /** 利用者が押した「今すぐ同期」。止まっていれば 1 巡だけ通し、止まっていなければ今までどおり。 */
   const syncNow = (): Promise<void> => {
-    // 一時停止しているかは、止めた印でも見る。版で止まっている間は、一時停止していても状態が error になるからである。
-    // 印で見ないと、一時停止のまま版で止まった後の押下が 1 巡の道に回らず、何も送らない。
-    const paused = engine.status().state === 'paused' || (engine.compatBlocked() && engine.state.get('paused') === '1');
+    // 利用者が一時停止しているかは、止めた印で見る。
+    // 状態の paused は上限で退いている間にも出るので、状態では見ない。版で止まっている間は状態が error になるので、なおさら印で見る。
+    const paused = engine.state.get('paused') === '1';
     if (!paused) return engine.syncNow();
     const done = pausedPass.run();
     if (pausedPass.active() && !passTicker) {

@@ -4,13 +4,11 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { D1_ROWS, FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
+import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
 import { CloudError, MIN_WORKER_COMPAT } from './client.ts';
-import { SyncEngine } from './engine.ts';
-import { QUOTA_STOP_RATIO, QuotaCounter } from './quota.ts';
-import { SyncStateStore } from './state.ts';
+import { limitedMessage, SyncEngine } from './engine.ts';
 
 let db: Db;
 let cloud: FakeCloudClient;
@@ -21,30 +19,6 @@ const make = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) =
 const unpushed = () => (db.prepare('select count(*) c from changes where pushed_at is null').get() as { c: number }).c;
 const project = (id: string, name = id) => upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0 }, 'a');
 const pushBatches = () => cloud.calls.filter((c) => c.method === 'pushChanges').map((c) => (c.args[0] as unknown[]).length);
-
-/**
- * Worker が実際に D1 へ書く行数を、要求の外側から数える覆い。
- *
- * 行数の表は偽のクラウドから借りる（`packages/server/test/fake-cloud.ts` の `D1_ROWS`）。
- * ここに数を写し直すと 3 つ目の写しになり、「見積もりどうしを比べているだけ」の試験になる。
- * 表そのものは実物のスキーマと実測に縛られている（`fake-cloud-usage.test.ts`）。
- *
- * - POST /changes … 採った 1 行につき changes の insert と鏡の upsert、要求ごとに devices の 1 行と台帳の 1 文。
- * - GET /changes … devices の 1 行と台帳の 1 文。
- * - GET /rows … 読むだけで 0 行。
- */
-function countingD1(c: FakeCloudClient): { readonly rows: number } {
-  let rows = 0;
-  const push = c.pushChanges.bind(c);
-  const pull = c.pullChanges.bind(c);
-  c.pushChanges = async (changes) => {
-    const r = await push(changes);
-    rows += r.accepted * (D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert) + D1_ROWS.deviceTouch + D1_ROWS.note;
-    return r;
-  };
-  c.pullChanges = async (since, limit) => { const r = await pull(since, limit); rows += D1_ROWS.deviceTouch + D1_ROWS.note; return r; };
-  return { get rows() { return rows; } };
-}
 
 /** Worker が 413 で断る相手を作る。名指しは先頭の 1 件だけで、本文は 200 字に収まる。 */
 const rejectOversize = (c: FakeCloudClient, tooBig: (rowId: string) => boolean, bytes = 200_000): void => {
@@ -114,14 +88,14 @@ describe('SyncEngine の push', () => {
   it('一時停止中でも、利用者の syncNow は 1 回だけ送受信して、停止に戻る', async () => {
     const e = make();
     await e.start();
-    e.setPaused(true, 'quota');
+    e.setPaused(true);
     project('p1');
     const pullsBefore = cloud.calls.filter((c) => c.method === 'pullChanges').length;
     await e.syncNow({ evenIfPaused: true });
     expect(unpushed()).toBe(0);
     expect(cloud.calls.filter((c) => c.method === 'pullChanges').length).toBeGreaterThan(pullsBefore);
-    // 止めた状態も、止めた理由もそのまま残る。
-    expect(e.status()).toMatchObject({ state: 'paused', pausedReason: 'quota' });
+    // 止めた状態はそのまま残る。
+    expect(e.status()).toMatchObject({ state: 'paused', limitedUntil: null });
     // 1 回きりである。その後の書き込みと定期実行は、今までどおり外へ出ない。
     project('p2');
     await timers.advance(120_000);
@@ -261,57 +235,6 @@ describe('SyncEngine の push', () => {
     await e.syncNow();
     expect(unpushed()).toBe(0);
     expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
-    e.stop();
-  });
-
-  it('無料枠の 80% に達したら自分で一時停止してトーストを出す', async () => {
-    const quota = new QuotaCounter({ state: new SyncStateStore(db), now: () => timers.now, limits: { d1Writes: 10, requests: 1_000 } });
-    const e = make({ quota });
-    await e.start();
-    const toasts: { level: string; message: string }[] = [];
-    e.on({ toast: (level, message) => toasts.push({ level, message }) });
-
-    for (let i = 0; i < 8; i++) project(`p${i}`);
-    await e.pushNow();
-    // 8 行の push で 8*5 + devices 1 + 台帳 2、start() の初回 pull で 3。上限 10 の 80% は 8 なので超えている。
-    expect(quota.today().rows).toBe(8 * 5 + 1 + 2 + 3);
-    expect(e.status().state).toBe('paused');
-    expect(toasts).toHaveLength(1);
-    expect(toasts[0]?.level).toBe('info');
-    expect(toasts[0]?.message).toBe('無料枠の 80% に達したので同期を止めました。設定の「同期を再開」で再開できます');
-
-    // 止まっている間は送らず、トーストも増えない。
-    project('p9');
-    await e.pushNow();
-    await timers.advance(2000);
-    expect(unpushed()).toBe(1);
-    expect(toasts).toHaveLength(1);
-
-    // 日付をまたぐと数えは 0 に戻るが、一時停止は自動では解けない。
-    timers.now += 86_400_000;
-    expect(quota.today()).toEqual({ rows: 0, requests: 0 });
-    expect(e.status().state).toBe('paused');
-    expect(unpushed()).toBe(1);
-    e.stop();
-  });
-
-  it('枠で止まった後に利用者が再開したら、その日はもう止めない', async () => {
-    const quota = new QuotaCounter({ state: new SyncStateStore(db), now: () => timers.now, limits: { d1Writes: 10, requests: 1_000 } });
-    const e = make({ quota });
-    await e.start();
-    const toasts: string[] = [];
-    e.on({ toast: (_l, m) => toasts.push(m) });
-
-    for (let i = 0; i < 8; i++) project(`p${i}`);
-    await e.pushNow();
-    expect(e.status().state).toBe('paused');
-
-    e.setPaused(false);
-    project('p9');
-    await e.pushNow();
-    expect(unpushed()).toBe(0);
-    expect(e.status().state).toBe('idle');
-    expect(toasts).toHaveLength(1);
     e.stop();
   });
 
@@ -506,39 +429,6 @@ describe('SyncEngine の pull', () => {
     a.stop(); b.stop();
   });
 
-  it('2 台で使っても、アカウント全体で 80% を超える前に両方が止まる', async () => {
-    // 無料枠はアカウントごとなので、端末ごとに 80% で止めると 2 台では 160% まで走ってしまう。
-    const limits = { d1Writes: 1_000, requests: 1_000_000 };
-    const dA = countingD1(cloud);
-    const dB = countingD1(cloudB);
-    const a = make({ quotaLimits: limits });
-    const b = makeB({ quotaLimits: limits });
-    await a.start();
-    await b.start();
-
-    // 互いの端末を知る（devices の行が両方の DB に入る）。
-    upsertShared(db, 'devices', { id: 'a', name: 'A', platform: 'darwin' }, 'a');
-    upsertShared(dbB, 'devices', { id: 'b', name: 'B', platform: 'darwin' }, 'b');
-    await a.pushNow(); await b.pushNow();
-    await a.pullNow(); await b.pullNow();
-    expect(a.status().deviceCount).toBe(2);
-    expect(b.status().deviceCount).toBe(2);
-
-    let n = 0;
-    while ((a.status().state !== 'paused' || b.status().state !== 'paused') && n < 2_000) {
-      if (a.status().state !== 'paused') project(`a${n}`);
-      if (b.status().state !== 'paused') upsertShared(dbB, 'projects', { id: `b${n}`, name: `b${n}`, status: 'active', is_scratch: 0 }, 'b');
-      n++;
-      await timers.advance(2_000);
-    }
-    expect(a.status().state).toBe('paused');
-    expect(b.status().state).toBe('paused');
-    // 2 台ぶんを足しても、アカウントの枠そのものは超えない。
-    expect(dA.rows + dB.rows).toBeLessThan(limits.d1Writes);
-    expect(dA.rows + dB.rows).toBeGreaterThanOrEqual(limits.d1Writes * QUOTA_STOP_RATIO);
-    a.stop(); b.stop();
-  });
-
   it('セッションのメモが他端末の新しい版で消えるとき、控えの知らせを呼び手へ渡す', async () => {
     const saved = process.env.HANGAR_HOME;
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-engine-'));
@@ -573,16 +463,6 @@ describe('SyncEngine の pull', () => {
       if (saved === undefined) delete process.env.HANGAR_HOME; else process.env.HANGAR_HOME = saved;
       fs.rmSync(home, { recursive: true, force: true });
     }
-  });
-
-  it('pull の要求も無料枠に数える', async () => {
-    const b = makeB();
-    await b.start();
-    // 初回は snapshot 1 回と changes 1 回である。
-    expect(b.quota.today().requests).toBe(2);
-    await b.pullNow();
-    expect(b.quota.today().requests).toBe(3);
-    b.stop();
   });
 
   it('pullBeforeLaunch は 2 秒で諦め、pull 自体は続く', async () => {
@@ -630,102 +510,6 @@ describe('SyncEngine の pull', () => {
     await b.pullNow();
     expect(b.status()).toMatchObject({ state: 'idle', error: null });
     b.stop();
-  });
-});
-
-/** 状態の鍵を直に触れる engine。枠の上限や now を差し替えられる。 */
-const makeEngine = (over: Partial<ConstructorParameters<typeof SyncEngine>[0]> = {}) => {
-  const state = new SyncStateStore(db);
-  return { engine: make(over), client: cloud, state };
-};
-/** 上限 10 の枠を 80% 超えさせる。8 行の push で足りる（「80% に達したら」の試験と同じ量）。 */
-const pushEnoughToExceed = async (engine: SyncEngine, _client: FakeCloudClient) => {
-  await engine.start();
-  for (let i = 0; i < 8; i++) project(`p${i}`);
-  await engine.pushNow();
-};
-
-describe('止めた理由', () => {
-  it('利用者が止めたら user、再開で消える', () => {
-    const { engine } = makeEngine();
-    engine.setPaused(true);
-    expect(engine.status()).toMatchObject({ state: 'paused', pausedReason: 'user' });
-    engine.setPaused(false);
-    expect(engine.status().pausedReason).toBeNull();
-  });
-  it('無料枠の見張りが止めたら quota と、止めた UTC の日', async () => {
-    const { engine, client } = makeEngine({ quotaLimits: { d1Writes: 10, requests: 1_000 }, now: () => Date.parse('2026-10-02T03:00:00Z') });
-    await pushEnoughToExceed(engine, client);
-    expect(engine.status()).toMatchObject({ state: 'paused', pausedReason: 'quota', quotaPausedDay: '2026-10-02' });
-    engine.stop();
-  });
-  it('古い状態（paused だけ）は user として読む', () => {
-    const { engine, state } = makeEngine();
-    state.set('paused', true);
-    expect(engine.status().pausedReason).toBe('user');
-  });
-});
-
-describe('SyncEngine の無料枠の見張り', () => {
-  it('数えが Worker の実際の D1 書き込みと一致する', async () => {
-    const d1 = countingD1(cloud);
-    const e = make();
-    await e.start();
-    for (let i = 0; i < 50; i++) project(`p${i}`);
-    await e.pushNow();
-    await e.pullNow();
-    // 50 行は 40 と 10 の 2 バッチに割れる。pull は start() の初回と明示の pullNow の 2 回である。
-    const perRow = D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert;
-    expect(d1.rows).toBe(40 * perRow + 1 + D1_ROWS.note + (10 * perRow + 1 + D1_ROWS.note) + 2 * (1 + D1_ROWS.note));
-    // 見張りが見る数は、Worker が実際に書いた行数そのものである（Worker の報告をそのまま採る）。
-    expect(e.quota.d1().rows).toBe(d1.rows);
-    expect(e.quota.d1().authoritative).toBe(true);
-    // 手元の見積もりも、この端末が起こした書き込みは 1 行残らず数えている。
-    // 圧縮も参加も他端末も無いこの筋では、報告と一致する（2026-09-20 に定数を直すまでは 2 割少なかった）。
-    expect(e.quota.today().rows).toBe(d1.rows);
-    e.stop();
-  });
-
-  it('Worker が同着で弾いた行は、書き込みとして数えない', async () => {
-    const d1 = countingD1(cloud);
-    const e = make();
-    await e.start();
-    project('p1');
-    await e.pushNow();
-    const after = e.quota.today().rows;
-    // 同じ行を同じ updated_at のまま送り直すと、Worker は skipped にして 1 行も書かない。
-    db.prepare('update changes set pushed_at = null').run();
-    await e.pushNow();
-    expect(e.quota.today().rows).toBe(after + 3);   // devices の 1 行と台帳の 2 行だけ
-    expect(e.quota.d1().rows).toBe(d1.rows);
-    e.stop();
-  });
-
-  it('実際の D1 書き込みが無料枠の 80% を超える前に止まる', async () => {
-    const limits = { d1Writes: 1_000, requests: 1_000_000 };
-    const d1 = countingD1(cloud);
-    const quota = new QuotaCounter({ state: new SyncStateStore(db), now: () => timers.now, limits });
-    const e = make({ quota });
-    await e.start();
-    let n = 0;
-    // 索引器と同じ刻みで共有テーブルを書き続ける。
-    while (e.status().state !== 'paused' && n < 3_000) { project(`p${n++}`); await timers.advance(2_000); }
-    expect(e.status().state).toBe('paused');
-    // 止まった時点で、実際の書き込みは 80%（800 行）の前後に収まっていなければならない。
-    // 1 バッチ（40 行 = 81 行の書き込み）の行き過ぎまでは避けられないが、枠の 1000 は超えない。
-    expect(d1.rows).toBeGreaterThanOrEqual(limits.d1Writes * 0.8);
-    expect(d1.rows).toBeLessThan(limits.d1Writes);
-    expect(quota.d1().rows).toBe(d1.rows);
-    e.stop();
-  });
-
-  it('pull の 1 要求も devices の 1 行と台帳の 2 行として数える', async () => {
-    const e = make();
-    await e.start();
-    const before = e.quota.today().rows;
-    await e.pullNow();
-    expect(e.quota.today().rows).toBe(before + 3);
-    e.stop();
   });
 });
 
@@ -989,6 +773,130 @@ describe('互換の版', () => {
     await e.syncNow();
     expect(e.compatBlocked()).toBe(true);
     expect(e.status().state).toBe('error');
+    e.stop();
+  });
+});
+
+describe('上限で退く', () => {
+  /** UTC の 0 時の 1 分前に時計を合わせる。日をまたぐのを 2 分で試せる。戻る時刻を返す。 */
+  const beforeMidnight = (): number => {
+    timers.now = Date.UTC(2026, 9, 8, 23, 59, 0);
+    return Date.UTC(2026, 9, 9);
+  };
+  /** 上限に当てたまま書き込みを 1 つ送らせ、退いた状態を作る。 */
+  const hitLimit = async (e: SyncEngine, kind: 'd1-write' | 'requests' = 'd1-write'): Promise<void> => {
+    cloud.limited = kind;
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+  };
+
+  it('上限の失敗を受けたら、次の UTC の 0 時まで外へ出ず、戻る時刻を見せ、1 度だけ知らせる', async () => {
+    const midnight = beforeMidnight();
+    const toasts: string[] = [];
+    const e = make();
+    e.on({ toast: (_l, m) => toasts.push(m) });
+    await e.start();
+    await hitLimit(e);
+    expect(e.limitedUntil()).toBe(midnight);
+    expect(e.status()).toMatchObject({ state: 'paused', limitedUntil: midnight, error: null, pending: 1 });
+    expect(toasts).toEqual([limitedMessage(midnight)]);
+    // 退いている間は、書き込みも定期実行も起動前の pull も外へ出ない。
+    const calls = cloud.calls.length;
+    project('p2');
+    await timers.advance(30_000);
+    await e.idle();
+    expect(cloud.calls.length).toBe(calls);
+    expect(await e.pullBeforeLaunch()).toBe(false);
+    expect(cloud.calls.length).toBe(calls);
+    e.stop();
+  });
+
+  it('日が変われば次の定期実行で自分で戻り、溜まった変更を送る', async () => {
+    const midnight = beforeMidnight();
+    const e = make();
+    await e.start();
+    await hitLimit(e, 'requests');
+    expect(e.limitedUntil()).toBe(midnight);
+    cloud.limited = null;
+    await timers.advance(120_000);
+    await e.idle();
+    expect(e.limitedUntil()).toBeNull();
+    expect(e.status()).toMatchObject({ state: 'idle', limitedUntil: null, error: null, pending: 0 });
+    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
+    e.stop();
+  });
+
+  it('日が変わってもまだ断られたら、また次の 0 時まで退き、もう 1 度知らせる', async () => {
+    const midnight = beforeMidnight();
+    const toasts: string[] = [];
+    const e = make();
+    e.on({ toast: (_l, m) => toasts.push(m) });
+    await e.start();
+    await hitLimit(e);
+    await timers.advance(120_000);
+    await e.idle();
+    expect(e.limitedUntil()).toBe(midnight + 86_400_000);
+    expect(toasts).toHaveLength(2);
+    e.stop();
+  });
+
+  it('利用者の今すぐ同期は 1 度だけ試し直し、まだ断られれば退いたまま知らせ直し、通れば戻る', async () => {
+    beforeMidnight();
+    const toasts: string[] = [];
+    const e = make();
+    e.on({ toast: (_l, m) => toasts.push(m) });
+    await e.start();
+    await hitLimit(e);
+    expect(toasts).toHaveLength(1);
+    const before = cloud.calls.length;
+    await e.syncNow();
+    expect(cloud.calls.length).toBeGreaterThan(before);
+    expect(e.limitedUntil()).not.toBeNull();
+    // まだ断られたので、また戻る時刻まで退いたことを知らせる（Task 1 の Q4）。
+    expect(toasts).toHaveLength(2);
+    cloud.limited = null;
+    await e.syncNow();
+    expect(e.limitedUntil()).toBeNull();
+    expect(e.status()).toMatchObject({ state: 'idle', pending: 0 });
+    e.stop();
+  });
+
+  it('利用者が一時停止している間は一時停止として見せ、再開すると戻る時刻まで退いたことを見せる', async () => {
+    const midnight = beforeMidnight();
+    const e = make();
+    await e.start();
+    await hitLimit(e);
+    e.setPaused(true);
+    expect(e.status()).toMatchObject({ state: 'paused', limitedUntil: null });
+    const calls = cloud.calls.length;
+    e.setPaused(false);
+    await e.idle();
+    expect(cloud.calls.length).toBe(calls);
+    expect(e.status()).toMatchObject({ state: 'paused', limitedUntil: midnight });
+    e.stop();
+  });
+
+  it('上限でない失敗（500）では退かず、error を出す', async () => {
+    const e = make();
+    await e.start();
+    cloud.pushChanges = async () => { throw new CloudError(500, '{"error":"internal error"}'); };
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+    expect(e.limitedUntil()).toBeNull();
+    expect(e.status()).toMatchObject({ state: 'error', error: '{"error":"internal error"}', limitedUntil: null });
+    e.stop();
+  });
+
+  it('このタスクの間は、退いていることを今の画面の形（pausedReason が quota）でも渡す', async () => {
+    beforeMidnight();
+    const e = make();
+    await e.start();
+    await hitLimit(e);
+    expect(e.status()).toMatchObject({ state: 'paused', pausedReason: 'quota', quotaPausedDay: '2026-10-08' });
+    e.setPaused(true);
+    expect(e.status()).toMatchObject({ state: 'paused', pausedReason: 'user', quotaPausedDay: null });
     e.stop();
   });
 });

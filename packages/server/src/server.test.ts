@@ -8,10 +8,8 @@ import WebSocket from 'ws';
 import type { CompatDto, ReadinessDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { COMPAT_HEADER, COMPAT_VERSION } from '@agent-hangar/shared';
-import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
 import { dbPath } from './config/paths.ts';
-import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { DbBackupError } from './db/backup.ts';
 import { openDb } from './db/open.ts';
@@ -24,7 +22,7 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../test/oldDb.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { expectMode, posixIt } from '../test/platform.ts';
@@ -1183,50 +1181,6 @@ describe('一時停止は外と話さない', () => {
   });
 });
 
-/**
- * ファイルの出し入れの行数を Worker のスキーマから出し直す。
- * 無料枠が数えているのは文の数ではなく rows_written で、索引への書き込みも 1 行ずつ数える。
- * schema.ts は読むだけで、書き換えない。
- */
-describe('ファイルの出し入れの勘定は Worker のスキーマから出す', () => {
-  const schema = fs.readFileSync(new URL('../../cloud/src/schema.ts', import.meta.url), 'utf8');
-  const filesBody = (): string => {
-    const m = schema.match(/create table if not exists files \(([\s\S]*?)\)'/);
-    if (!m?.[1]) throw new Error('files の create table が見つからない');
-    return m[1];
-  };
-  /** files に張られた索引の数。明示の create index と、unique や text の主キーに SQLite が自分で張るもの。 */
-  const filesIndexes = (): number => {
-    const body = filesBody();
-    const explicit = [...schema.matchAll(/create index if not exists (\w+) on (\w+)\(([^)]*)\)/g)].filter((m) => m[2] === 'files').length;
-    // seq integer primary key は rowid そのものなので索引を増やさない。
-    const pk = /integer primary key/.test(body) ? 0 : /primary key/.test(body) ? 1 : 0;
-    return explicit + pk + (body.match(/ unique/g) ?? []).length;
-  };
-  /** autoincrement の表は insert のたびに sqlite_sequence の 1 行も動かす（delete では動かない）。 */
-  const sequenceRow = (): number => (/autoincrement/.test(filesBody()) ? 1 : 0);
-
-  it('files には索引が 2 つある（key の unique と files_kind）', () => {
-    expect(filesIndexes()).toBe(2);
-    expect(sequenceRow()).toBe(1);
-  });
-
-  it('PUT は delete と insert と devices の更新と台帳で 10 行である', () => {
-    // packages/cloud/src/files.ts の batch は delete と insert と devices の更新の 3 文で、
-    // そこに Worker の台帳（meter.ts）の 1 文が乗る。
-    const del = 1 + filesIndexes();
-    const ins = 1 + filesIndexes() + sequenceRow();
-    expect(D1_WRITES_PER_FILE_PUT).toBe(del + ins + D1_WRITES_PER_DEVICE_TOUCH + D1_WRITES_PER_METER_NOTE);
-    expect(D1_WRITES_PER_FILE_PUT).toBe(10);
-  });
-
-  it('DELETE は本体と索引と台帳で 5 行である', () => {
-    // devices は触らず、sqlite_sequence は delete では動かない。台帳の 1 文だけが乗る。
-    expect(D1_WRITES_PER_FILE_DELETE).toBe(1 + filesIndexes() + D1_WRITES_PER_METER_NOTE);
-    expect(D1_WRITES_PER_FILE_DELETE).toBe(5);
-  });
-});
-
 describe('セッションのメモの控えの知らせ', () => {
   it('どの端末に負けて、どこに残したかを言う', () => {
     // 控えはもうファイルになっている。知らせが無いと、利用者は消えたようにしか見えない。
@@ -1235,82 +1189,6 @@ describe('セッションのメモの控えの知らせ', () => {
     expect(m).toContain('/tmp/backups/memos/session-s1-20260919-101112.md');
     // 本文そのものはトーストに出さない（メモは長い文章になりうる）。
     expect(m).not.toContain('手元のメモ');
-  });
-});
-
-describe('無料枠の勘定', () => {
-  /** 呼ばれた名前を記録するだけの立て替え。中身は使わない。 */
-  const stubClient = (calls: string[]) => ({
-    health: async () => { calls.push('health'); return { ok: true, version: 'v' }; },
-    pushChanges: async () => { calls.push('pushChanges'); return { seq: 1, accepted: 1, skipped: 0 }; },
-    pullChanges: async () => { calls.push('pullChanges'); return { changes: [], nextSeq: 0, more: false }; },
-    snapshot: async () => { calls.push('snapshot'); return { changes: [], nextAfter: null, seq: 0 }; },
-    putFile: async () => { calls.push('putFile'); return { seq: 1 }; },
-    getFile: async () => { calls.push('getFile'); return Readable.from([]); },
-    listFiles: async () => { calls.push('listFiles'); return { files: [], nextSeq: 0, more: false }; },
-    deleteFile: async () => { calls.push('deleteFile'); },
-    usage: async () => { calls.push('usage'); return { configured: false as const }; },
-  });
-
-  const counter = () => {
-    const db = openDb(':memory:');
-    return { db, quota: new QuotaCounter({ state: new SyncStateStore(db) }) };
-  };
-
-  it('エンジンが自分で数える経路には二重に掛けない', async () => {
-    // push と pull と写しは SyncEngine が自分で数える。包みでも数えると 2 倍になる。
-    const { db, quota } = counter();
-    try {
-      const calls: string[] = [];
-      const c = countingClient(stubClient(calls), quota);
-      await c.pushChanges([]);
-      await c.pullChanges(0, 1);
-      await c.snapshot(null, 1);
-      expect(calls).toEqual(['pushChanges', 'pullChanges', 'snapshot']);
-      expect(quota.today()).toEqual({ rows: 0, requests: 0 });
-    } finally {
-      db.close();
-    }
-  });
-
-  it('ファイルの出し入れは要求と D1 の書き込みの両方を数える', async () => {
-    // PUT /files/<鍵> は R2 に置くだけでなく D1 の files にも書く。
-    // 要求の側しか数えないと、D1 の 80% の見張りが実際より遅れて効く。
-    const { db, quota } = counter();
-    try {
-      const calls: string[] = [];
-      const c = countingClient(stubClient(calls), quota);
-      await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'projects/p/u.jsonl', kind: 'transcript', sha256: 'x', size: 1, mtime: 1, encrypted: true }, Readable.from([]));
-      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 1 });
-      await c.getFile('transcripts/d/u.jsonl.gz');
-      await c.listFiles(0, 1);
-      await c.health();
-      // 読むだけの経路は D1 に 1 行も書かない。
-      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 4 });
-      await c.deleteFile('transcripts/d/u.jsonl.gz');
-      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT + D1_WRITES_PER_FILE_DELETE, requests: 5 });
-    } finally {
-      db.close();
-    }
-  });
-
-  it('usage は要求 1 回、行 0 として数える', async () => {
-    const { db, quota } = counter();
-    try {
-      const calls: string[] = [];
-      await countingClient(stubClient(calls), quota).usage();
-      expect(calls).toEqual(['usage']);
-      expect(quota.today()).toEqual({ rows: 0, requests: 1 });
-    } finally {
-      db.close();
-    }
-  });
-
-  it('数えるのは文の数ではなく行数である', () => {
-    // 文の数（PUT が 3 文、DELETE が 1 文）で数えると、索引への書き込みが丸ごと抜ける。
-    // 行数の出どころは下の「ファイルの出し入れの勘定は Worker のスキーマから出す」にある。
-    expect(D1_WRITES_PER_FILE_PUT).toBeGreaterThan(3);
-    expect(D1_WRITES_PER_FILE_DELETE).toBeGreaterThan(1);
   });
 });
 
@@ -1620,11 +1498,13 @@ describe('互換の版', () => {
   const metaCalls = (seen: Seen[]): number => seen.filter((r) => r.path === '/changes' || r.path === '/rows').length;
 
   it('版で止まっている間は、本文と設定の出し入れも止める。頼まれた 1 巡の最中でも止める', () => {
-    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false })).toBe(false);
-    expect(syncHalted({ paused: true, oncePass: false, compatBlocked: false })).toBe(true);
-    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false })).toBe(false);
-    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: true })).toBe(true);
-    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: true })).toBe(true);
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false, limited: false })).toBe(false);
+    expect(syncHalted({ paused: true, oncePass: false, compatBlocked: false, limited: false })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false, limited: false })).toBe(false);
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: true, limited: false })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: true, limited: false })).toBe(true);
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false, limited: true })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false, limited: true })).toBe(true);
   });
 
   it('Worker に版が古いと断られたら、同期を止めて、この PC の hangar を上げるよう出す', async () => {

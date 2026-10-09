@@ -98,7 +98,7 @@ function fakeSummary(): SummaryApi & { enqueued: [string, SummaryEnqueueOpts | u
 }
 
 /** 同期の偽物。呼ばれた順を calls に残すので、経路が本当に部品を呼んだかを見られる。 */
-const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false } };
+const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null };
 const calls: string[] = [];
 let skipped: { key: string; attempts: number; message: string }[] = [];
 let sweepPending: number | null = null;

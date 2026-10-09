@@ -19,7 +19,7 @@ describe('フェーズ 2 の DTO', () => {
   });
   it('SettingsDto と BootstrapDto に新しい項目がある', () => {
     const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-    const b: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: s, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+    const b: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: s, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
     expect(b.runs).toEqual([]);
     expect(b.settings.terminalApp).toBe('terminal');
   });
@@ -38,7 +38,7 @@ describe('フェーズ 3 の DTO', () => {
   it('SettingsDto、SessionDto、BootstrapDto に新しい項目がある', () => {
     const s: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
     const ses: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
-    const b: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: s, projects: [], sessions: [ses], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+    const b: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: s, projects: [], sessions: [ses], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
     expect(b.summaryPending).toEqual([]);
     const r: PromoteResultDto = { project: { id: 'p', name: 'n', status: 'active', isScratch: false, path: '/w/n', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }, session: ses, moved: true, reason: null };
     expect(r.moved).toBe(true);
@@ -54,7 +54,7 @@ describe('フェーズ 3 の DTO', () => {
 describe('フェーズ 4 の DTO', () => {
   it('ロック、同期の状態、端末、設定の下見が組み立てられる', () => {
     const lock: SessionLockDto = { deviceId: 'd2', deviceName: 'mini', runId: 'r1', heartbeatAt: 1, stale: false };
-    const status: SyncStatusDto = { state: 'idle', url: 'https://x.workers.dev', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: false } };
+    const status: SyncStatusDto = { state: 'idle', url: 'https://x.workers.dev', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: true, confirmed: false }, limitedUntil: null };
     const device: DeviceDto = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null };
     const preview: ConfigPreviewDto = { entries: [{ path: 'skills/x/SKILL.md', action: 'create', localMtime: null, remoteMtime: 4, remoteDevice: 'mini', size: 10 }], confirmed: false };
     expect(lock.stale).toBe(false);
@@ -63,7 +63,7 @@ describe('フェーズ 4 の DTO', () => {
     expect(preview.entries[0]!.action).toBe('create');
   });
   it('同期と端末の ServerEvent がある', () => {
-    const status: SyncStatusBody = { state: 'pushing', url: null, lastPushAt: null, lastPullAt: null, pending: 3, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 12, oncePass: false };
+    const status: SyncStatusBody = { state: 'pushing', url: null, lastPushAt: null, lastPullAt: null, pending: 3, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }], sweepPending: 12, oncePass: false };
     const evs: ServerEvent[] = [{ type: 'sync.status', status }, { type: 'devices.update', devices: [] }];
     expect(evs.map((e) => e.type)).toEqual(['sync.status', 'devices.update']);
   });

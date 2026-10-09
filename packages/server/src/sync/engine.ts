@@ -1,9 +1,8 @@
-import { MAX_PUSH_BATCH, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type PushChangesResponse, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onSharedWrite } from '../db/shared.ts';
 import { applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
-import { CloudError, CompatError, goneFloor, type CloudClient } from './client.ts';
-import { D1_WRITES_PER_PULL, QuotaCounter, pushD1Writes, quotaDayKey, type QuotaLimits } from './quota.ts';
+import { CloudError, CompatError, goneFloor, LimitError, type CloudClient } from './client.ts';
 import { SyncStateStore } from './state.ts';
 
 /** 時計は必ず注入する。テストは FakeTimers（packages/server/test/fake-timers.ts）を渡す。 */
@@ -13,9 +12,6 @@ export type SyncEngineDeps = {
   db: Db; deviceId: string; client: CloudClient | null; url?: string | null;
   now?: () => number; timers?: Timers;
   pushDebounceMs?: number; pushMinGapMs?: number; pullIntervalMs?: number; focusMinGapMs?: number;
-  quota?: QuotaCounter;
-  /** 既定の QuotaCounter に渡す上限。テストが枠を縮めるために使う。quota を直に渡したときは見ない。 */
-  quotaLimits?: QuotaLimits;
   /**
    * 他端末の新しいメモで手元のメモを上書きする直前に呼ばれる。
    * 呼び手は負けた本文を memo.conflict-<端末名>-<時刻>.md として隣に残す。
@@ -53,7 +49,14 @@ const PUSH_DEBOUNCE_MS = 1_000;
  */
 const PUSH_MIN_GAP_MS = 10_000;
 const PULL_INTERVAL_MS = 30_000;
-const QUOTA_PAUSED_MESSAGE = '無料枠の 80% に達したので同期を止めました。設定の「同期を再開」で再開できます';
+/**
+ * 上限で退いたときの知らせ。戻る時刻はこの PC の時刻で書く。
+ * 文は試作（docs/superpowers/specs/2026-10-08-stage1-quota-backoff/usage.html）の Q2 で決めた。
+ */
+export function limitedMessage(until: number): string {
+  const at = new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit' }).format(until);
+  return `Cloudflare の無料枠の上限に達したので、${at} まで同期を止めます。枠が戻ると自動で再開します`;
+}
 const RESYNC_MESSAGE = 'クラウドの変更ログが古くなっていたので、同期を作り直しました';
 
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
@@ -90,7 +93,6 @@ function oversizeRow(e: unknown): OversizeRow | null {
  */
 export class SyncEngine {
   readonly state: SyncStateStore;
-  readonly quota: QuotaCounter;
   private readonly listeners = new Set<SyncListener>();
   private readonly timers: Timers;
   private pushTimer: NodeJS.Timeout | null = null;
@@ -130,8 +132,6 @@ export class SyncEngine {
   constructor(protected readonly deps: SyncEngineDeps) {
     this.state = new SyncStateStore(deps.db);
     this.timers = deps.timers ?? REAL_TIMERS;
-    // 枠はアカウントごとなので、端末の数で割った割り当てで見張る（quota.ts の stopAt）。
-    this.quota = deps.quota ?? new QuotaCounter({ state: this.state, now: () => this.now(), limits: deps.quotaLimits, deviceCount: () => this.deviceCount() });
     /*
      * 立て直しても、直前まで出ていた失敗の理由を消さない。
      * 送れていない行は `changes` に残っているのに、起こし直した直後だけ idle に見えるのがいちばんの嘘である。
@@ -149,11 +149,40 @@ export class SyncEngine {
    * 立っている間だけ push と pull の入口が開く。定期実行と起動前の pull は `paused` を見るので、開かない。
    */
   private onePass = false;
-  /** push と pull の入口を閉じているか。版で止まっているとき、または一時停止していて頼まれた 1 巡の最中でもないとき。 */
-  private get halted(): boolean { return this.compatBlock !== null || (this.paused && !this.onePass); }
+  /** push と pull の入口を閉じているか。版で止まっているとき、上限で退いているとき、一時停止していて頼まれた 1 巡の最中でもないとき。 */
+  private get halted(): boolean { return this.compatBlock !== null || this.limitedUntil() !== null || (this.paused && !this.onePass); }
 
   /** 互換の版が合わずに止まっているか。本文と設定の出し入れと使用量も、これを見て止まる（server.ts の syncHalted）。 */
   compatBlocked(): boolean { return this.compatBlock !== null; }
+
+  /**
+   * Cloudflare の上限で退いている間の、戻る時刻。退いていなければ null。
+   * 時刻を過ぎていれば印を消して null を返す。日が変われば、次の定期実行（30 秒ごと）から自分で戻る。
+   * 印は sync_state に置く。立て直すたびに上限に当たり直して、断られる要求を重ねないためである。
+   */
+  limitedUntil(): number | null {
+    const until = this.state.getNumber('limitedUntil', 0);
+    if (until <= 0) return null;
+    if (this.now() >= until) { this.state.set('limitedUntil', null); return null; }
+    return until;
+  }
+
+  /**
+   * 上限の失敗（LimitError）を受けたら、次の UTC の 0 時まで退く。上限の失敗なら真を返す。
+   * 失敗の理由（error）には残さない。戻る時刻の決まった待ちであって、利用者が直す誤りではないからである。
+   * 新しく退いたときだけ 1 度知らせる。
+   */
+  private noteLimit(e: unknown): boolean {
+    if (!(e instanceof LimitError)) return false;
+    const was = this.limitedUntil();
+    const until = nextUtcMidnight(this.now());
+    this.state.set('limitedUntil', until);
+    if (was === null) {
+      console.warn(`[sync] ${e.message}`);
+      this.emit('toast', 'info', limitedMessage(until));
+    }
+    return true;
+  }
 
   on(l: SyncListener): () => void { this.listeners.add(l); return () => { this.listeners.delete(l); }; }
 
@@ -170,8 +199,8 @@ export class SyncEngine {
   protected get lastError(): string | null { return this.pushError ?? this.pullError; }
 
   /** 失敗の理由を残す。CloudError の message は応答本文の先頭 200 字なので、Worker は本文に秘密を入れない。 */
-  protected failPush(e: unknown): void { this.pushError = errorMessage(e); this.noteCompat(e); this.persistError(); }
-  protected failPull(e: unknown): void { this.pullError = errorMessage(e); this.noteCompat(e); this.persistError(); }
+  protected failPush(e: unknown): void { if (this.noteLimit(e)) return; this.pushError = errorMessage(e); this.noteCompat(e); this.persistError(); }
+  protected failPull(e: unknown): void { if (this.noteLimit(e)) return; this.pullError = errorMessage(e); this.noteCompat(e); this.persistError(); }
   /** 版が合わないと分かったら止める。理由の文は CompatError が持っている（どちらを上げればよいか）。 */
   private noteCompat(e: unknown): void { if (e instanceof CompatError) this.compatBlock = e.message; }
   protected clearPushError(): void { if (this.pushError === null) return; this.pushError = null; this.persistError(); }
@@ -181,22 +210,24 @@ export class SyncEngine {
   pending(): number { return (this.deps.db.prepare('select count(*) c from changes where pushed_at is null').get() as { c: number }).c; }
 
   /**
-   * この箱を分け合っている端末の数。
-   * 他端末の行は初回の pull（写し）で必ず入るので、まとまった量を書く頃には出揃っている。
+   * この箱を分け合っている端末の数。CLI の hangar cloud status が出す。
+   * 他端末の行は初回の pull（写し）で必ず入る。
    */
   deviceCount(): number { return (this.deps.db.prepare('select count(*) c from devices where deleted_at is null').get() as { c: number }).c; }
 
   status(): SyncStatusDto {
+    // 上限で退いていることは、利用者が一時停止していないときだけ見せる。一時停止は利用者が選んだ状態なので先に見せる。
+    const limitedUntil = this.deps.client && !this.paused ? this.limitedUntil() : null;
     const state: SyncStateKind = !this.deps.client ? 'off'
       // 版で止まっているときは、一時停止より先に見せる。直す道（どちらを上げるか）が error の文にしか無いからである。
       : this.compatBlock !== null ? 'error'
-      : this.paused ? 'paused'
+      : this.paused || limitedUntil !== null ? 'paused'
       : this.pushing ? 'pushing'
       : this.pulling ? 'pulling'
       : this.lastError ? 'error'
       : 'idle';
     const num = (k: 'lastPushAt' | 'lastPullAt') => { const v = this.state.get(k); return v === null ? null : Number(v); };
-    const deviceCount = this.deviceCount();
+    const shownLimit = state === 'paused' ? limitedUntil : null;
     return {
       state,
       url: this.deps.url ?? null,
@@ -204,11 +235,12 @@ export class SyncEngine {
       lastPullAt: num('lastPullAt'),
       pending: this.pending(),
       error: state === 'error' ? (this.compatBlock ?? this.lastError) : null,
-      deviceCount,
+      deviceCount: this.deviceCount(),
       claudeConfig: { ...this.claudeConfig },
-      // 古いサーバが止めた状態は理由を持たない。利用者が止めたのと同じに読む。
-      pausedReason: state === 'paused' ? ((this.state.get('pausedReason') as 'quota' | 'user' | null) ?? 'user') : null,
-      quotaPausedDay: this.quota.pausedDay()?.replace(/^quota:/, '') ?? null,
+      limitedUntil: shownLimit,
+      // 段 1 の PR 5 の Task 7 で消す。それまで今の画面が「無料枠で停止」を出せるよう、退いているときを quota として渡す。
+      pausedReason: state === 'paused' ? (shownLimit !== null ? 'quota' : 'user') : null,
+      quotaPausedDay: shownLimit !== null ? new Date(this.now()).toISOString().slice(0, 10) : null,
     };
   }
 
@@ -255,7 +287,9 @@ export class SyncEngine {
     if (!this.deps.client) { this.emitStatus(); return; }
     this.pullTimer = this.timers.setInterval(() => { this.enqueueWhileStarted(() => this.tick()); }, this.deps.pullIntervalMs ?? PULL_INTERVAL_MS);
     unref(this.pullTimer);
-    await this.syncNow();
+    // 起動は利用者の押下ではないので、上限で退いた印を外さない（syncNow は外す）。
+    await this.pushNow();
+    await this.pullNow();
   }
 
   /**
@@ -327,33 +361,22 @@ export class SyncEngine {
         tableName: r.table_name, rowId: r.row_id, op: r.op,
         payload: JSON.parse(r.payload) as Record<string, unknown>, updatedAt: r.updated_at,
       }));
-      let res: PushChangesResponse;
       try {
-        res = await client.pushChanges(batch);
+        await client.pushChanges(batch);
       } catch (e) {
-        // 断られた要求は D1 に 1 行も書かせていないが、Worker の要求としては 1 回ぶん使っている。
-        // status 0 はそもそも届いていないので数えない。
-        if (e instanceof CloudError && e.status !== 0) this.quota.note({ requests: 1 });
         // 大きすぎる行は何度送っても同じ答えが返る。諦めて先へ進まないと、この塊で push が永久に止まる。
         if (this.dropOversize(e, rows)) continue;
         this.failPush(e);
-        this.guardQuota();
         return { pushed };
       }
       const now = this.now();
       db.prepare(`update changes set pushed_at = ? where seq in (${rows.map(() => '?').join(',')})`).run(now, ...rows.map((r) => r.seq));
       this.state.set('lastPushAt', now);
       this.clearPushError();
-      // Worker が「その日に D1 へ書いた行数」を返したら、それを正として使う。
-      // 端末からは見えない書き込み（圧縮、参加、スキーマの用意、他端末の分）がすべて入っている。
-      // 返さない古い Worker のときは、今までどおり自分の push から見積もる。
-      this.quota.note({ rows: pushD1Writes(res?.accepted, rows.length), requests: 1, account: res?.d1RowsToday });
       pushed += rows.length;
-      // 止めたら残りは送らない。送れていない行は pushed_at が null のまま残るので、再開で続きから出る。
-      if (this.guardQuota()) return { pushed };
     }
     // 未送信が 1 行も残っていないのだから、push は通っている。
-    // ここまで来ずに戻った回（失敗と枠での停止）では理由が残るので、状態が嘘にならない。
+    // ここまで来ずに戻った回（失敗と上限）では理由が残るので、状態が嘘にならない。
     this.clearPushError();
     db.prepare('delete from changes where pushed_at is not null and pushed_at < ?').run(this.now() - LOCAL_CHANGES_KEEP_MS);
     return { pushed };
@@ -383,26 +406,9 @@ export class SyncEngine {
     return true;
   }
 
-  /**
-   * 無料枠の 80% に達していたら自分で一時停止し、トーストで知らせる。
-   * 止めるのは 1 日に 1 度だけで、利用者が再開を押した後はその日は押し返さない。
-   * 一時停止そのものは日付が変わっても自動では解けない。
-   */
-  protected guardQuota(): boolean {
-    const day = quotaDayKey(this.now());
-    // 止めた日は sync_state に置く。メモリに置くと、立て直した直後にもう一度同じ日の判定を通って止め直せる。
-    if (this.quota.pausedDay() === day || this.paused) return false;
-    if (!this.quota.exceeded()) return false;
-    this.quota.setPausedDay(day);
-    this.setPaused(true, 'quota');
-    this.emit('toast', 'info', QUOTA_PAUSED_MESSAGE);
-    return true;
-  }
-
-  /** reason は止めた理由。UI と CLI からは user、無料枠の見張りからは quota。再開すると消す。 */
-  setPaused(paused: boolean, reason: 'quota' | 'user' = 'user'): void {
+  /** 利用者が止める、再開する（UI と CLI から）。上限で退いた印には触らない。上限は日が変われば自分で戻る。 */
+  setPaused(paused: boolean): void {
     this.state.set('paused', paused);
-    this.state.set('pausedReason', paused ? reason : null);
     if (!paused && this.started && this.deps.client) { this.noteLocalChange(); this.enqueueWhileStarted(() => this.pullNow()); }
     this.emitStatus();
   }
@@ -414,21 +420,6 @@ export class SyncEngine {
     this.pulling = this.doPull(this.deps.client).finally(() => { this.pulling = null; this.emitStatus(); });
     this.emitStatus();
     return this.pulling;
-  }
-
-  /**
-   * クラウドへの 1 要求。無料枠は「届いた要求」だけを数える。
-   * そもそも繋がらなかったとき（CloudError の status 0）は Worker を呼んでいないので数えない。
-   */
-  private async request<T>(call: () => Promise<T>, d1Rows = 0): Promise<T> {
-    try {
-      const v = await call();
-      this.quota.note({ rows: d1Rows, requests: 1 });
-      return v;
-    } catch (e) {
-      if (e instanceof CloudError && e.status !== 0) this.quota.note({ requests: 1 });
-      throw e;
-    }
   }
 
   private applyPage(changes: ChangeOut[], skipOwn: boolean): number {
@@ -456,8 +447,7 @@ export class SyncEngine {
       let seq: number | null = null;
       do {
         const cursor: string | null = after;
-        // GET /rows は読むだけで D1 に 1 行も書かない。
-        const page: SnapshotResponse = await this.request(() => client.snapshot(cursor, PULL_LIMIT));
+        const page: SnapshotResponse = await client.snapshot(cursor, PULL_LIMIT);
         count.applied += this.applyPage(page.changes, false);
         after = page.nextAfter;
         if (seq === null) seq = page.seq;
@@ -468,11 +458,7 @@ export class SyncEngine {
     let since = this.state.getNumber('lastSeq', 0);
     for (;;) {
       const at = since;
-      // GET /changes は devices の last_seen_at と last_pulled_seq を 1 行書き、Worker の台帳が 1 文を足す。
-      const page = await this.request(() => client.pullChanges(at, PULL_LIMIT), D1_WRITES_PER_PULL);
-      // pull にも「その日に D1 へ書いた行数」が載る。
-      // push の応答だけに頼ると、押すものが 1 行も無い日は報告が届かない。
-      if (typeof page.d1RowsToday === 'number') this.quota.note({ account: page.d1RowsToday });
+      const page = await client.pullChanges(at, PULL_LIMIT);
       count.applied += this.applyPage(page.changes, true);
       since = page.nextSeq;
       this.state.set('lastSeq', since);
@@ -505,8 +491,6 @@ export class SyncEngine {
     } catch (e) {
       this.failPull(e);
     }
-    // 途中で止めると写しが半端なまま snapshotDone が立ちうるので、枠の見張りは 1 巡終えてから当てる。
-    this.guardQuota();
     return { applied: count.applied };
   }
 
@@ -514,14 +498,17 @@ export class SyncEngine {
    * 利用者が押した「今すぐ同期」。push してから pull する。最小間隔は見ない。
    *
    * evenIfPaused を渡すと、一時停止していてもこの 1 巡だけは通す。
-   * 止めた状態と止めた理由には触らないので、終われば元の一時停止に戻っている。
-   * 無料枠の見張りも止め直さない（もう止まっている）。枠を使うことを承知で押した 1 回として通す。
+   * 止めた状態には触らないので、終われば元の一時停止に戻っている。
+   * 版で止まっていても、上限で退いていても、利用者が押した 1 回は試し直す。
+   * Worker を入れ替えた後と、上限が戻ったかを確かめたいときに、戻る道はここだけである。
+   * まだ合わなければ、またはまだ上限なら、その 1 回の失敗でまた止まる（上限なら次の 0 時まで退いて知らせる）。
    */
   async syncNow(o: { evenIfPaused?: boolean } = {}): Promise<void> {
-    // 版で止まっていても、利用者が押した 1 回は試し直す。Worker を入れ替えた後に戻る道はここだけである。
-    // まだ合わなければ、その 1 回の失敗でまた止まる。
-    // 一時停止のまま何も送らない回では外さない。外すと、試してもいないのに表示だけが一時停止に戻る。
-    if (!this.paused || o.evenIfPaused || this.onePass) this.compatBlock = null;
+    // 一時停止のまま何も送らない回では外さない。外すと、試してもいないのに表示だけが変わる。
+    if (!this.paused || o.evenIfPaused || this.onePass) {
+      this.compatBlock = null;
+      this.state.set('limitedUntil', null);
+    }
     if (!o.evenIfPaused || !this.paused || this.onePass) {
       await this.pushNow();
       await this.pullNow();
@@ -538,7 +525,7 @@ export class SyncEngine {
 
   /** セッション起動の直前に呼ぶ。2 秒で諦めるが pull 自体は続く。 */
   async pullBeforeLaunch(timeoutMs = 2000): Promise<boolean> {
-    if (!this.deps.client || this.paused || this.compatBlock !== null) return false;
+    if (!this.deps.client || this.paused || this.compatBlock !== null || this.limitedUntil() !== null) return false;
     let timer: NodeJS.Timeout | null = null;
     const gaveUp = new Promise<boolean>((r) => { timer = this.timers.setTimeout(() => r(false), timeoutMs); });
     const done = this.pulling ?? this.pullNow();

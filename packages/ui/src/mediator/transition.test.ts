@@ -993,7 +993,7 @@ describe('画面に入るときの読み込み', () => {
   });
 });
 
-const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, skipped: [], sweepPending: null, oncePass: false, ...over });
+const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false, ...over });
 
 describe('同期', () => {
   it('sync.status が領域の状態と未送信件数になる', () => {

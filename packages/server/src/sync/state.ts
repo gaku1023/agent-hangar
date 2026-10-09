@@ -2,7 +2,7 @@ import type { Db } from '../db/open.ts';
 
 /**
  * sync_state に置く鍵。端末ごとの同期の進み具合と、止まっている理由を持つ。
- * quota:<yyyy-MM-dd> は QuotaCounter が日ごとの呼び出し回数を数えるのに使う。
+ * limitedUntil は、Cloudflare の上限で退いている間の戻る時刻である（sync/engine.ts）。
  * skipped:<R2 の鍵> は RemotePuller が降ろすのを諦めた項目の控えである。
  * transcriptsFrom は本文をどこから上げるかの床である（sync/transcriptsFrom.ts）。
  */
@@ -12,12 +12,11 @@ export type SyncStateKey =
   | 'lastPushAt'
   | 'lastPullAt'
   | 'paused'
-  | 'pausedReason'
   | 'lastError'
   | 'configPullConfirmed'
   | 'snapshotDone'
   | 'transcriptsFrom'
-  | `quota:${string}`
+  | 'limitedUntil'
   | `skipped:${string}`;
 
 /**
