@@ -6,12 +6,8 @@ import { CloudError, CompatError, goneFloor } from '../src/sync/client.ts';
 import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS, MIN_DEVICE_COMPAT } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
-/**
- * push の応答の形。
- * `d1RowsToday`（その日に D1 へ書いた行数）は書いた量で変わるので、ここでは数であることだけを見る。
- * 中身は `fake-cloud-usage.test.ts` が実物のスキーマから出した表と突き合わせる。
- */
-const pushResult = (o: { seq: number; accepted: number; skipped: number }) => ({ ...o, d1RowsToday: expect.any(Number) });
+/** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
+const pushResult = (o: { seq: number; accepted: number; skipped: number }) => o;
 
 const meta = (key: string, over: Record<string, unknown> = {}) => ({ key, path: 'projects/-x/u.jsonl', kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 3, mtime: 1, encrypted: true, ...over });
 

@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { CLOUD_HEADERS, MAX_KEY_BYTES, PULL_LIMIT, decodeHeaderText, isSafeKeyId, isSafeRelPath, splitFileKey, type FileEntry, type FileKind, type ListFilesResponse } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
-import { meteredBatch } from './meter.ts';
 import { sweepIfDue } from './sweep.ts';
 
 type FileRow = {
@@ -292,13 +291,13 @@ filesApp.put('/:key{.+}', async (c) => {
   }
   if (storedSize === null) return c.json({ error: 'too large' }, 413);
   const now = Date.now();
-  const r = await meteredBatch(c.env.DB, [
+  const r = await c.env.DB.batch([
     c.env.DB.prepare('delete from files where key = ?').bind(key),
     c.env.DB
       .prepare('insert into files (key, path, kind, device_id, sha256, size, stored_size, mtime, encrypted, uploaded_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(key, path, kind, device.id, sha, size, storedSize, mtime, enc === '1' ? 1 : 0, now),
     c.env.DB.prepare('update devices set last_seen_at = ? where id = ?').bind(now, device.id),
-  ], now);
+  ]);
   const seq = Number(r[1]!.meta.last_row_id);
   return c.json({ seq }, 201);
 });
@@ -324,8 +323,7 @@ filesApp.delete('/:key{.+}', async (c) => {
   // 索引を先に消す。
   // 逆にすると、途中で倒れたときに「索引にあるのに本体が無い」が残り、降ろす側が永久に 404 を踏む。
   // この順なら残るのは索引に無い本体だけで、それは `sweep.ts` が後から拾って消せる。
-  const now = Date.now();
-  await meteredBatch(c.env.DB, [c.env.DB.prepare('delete from files where key = ?').bind(key)], now);
+  await c.env.DB.prepare('delete from files where key = ?').bind(key).run();
   await c.env.BUCKET.delete(key);
   return c.body(null, 204);
 });
