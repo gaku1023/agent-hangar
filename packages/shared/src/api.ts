@@ -151,7 +151,8 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 /**
- * limitedUntil は、Cloudflare の無料枠の上限に当たって退いている間の戻る時刻（次の UTC の 0 時）である。
+ * limitedUntil は、Cloudflare の無料枠の上限に当たって退いている間の戻る時刻である。
+ * ふつうは次の UTC の 0 時で、UTC の 0 時から 10 分の間に断られたときは断られた 5 分後である。
  * 退いている間の state は paused で、利用者が一時停止しているときと、退いていないときは null である。
  */
 export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; limitedUntil: number | null };

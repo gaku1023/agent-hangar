@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
-import { CloudError, MIN_WORKER_COMPAT } from './client.ts';
+import { CloudError, LimitError, MIN_WORKER_COMPAT } from './client.ts';
 import { limitedMessage, SyncEngine } from './engine.ts';
 
 let db: Db;
@@ -714,7 +714,8 @@ describe('互換の版', () => {
     // まだ合わなければ、試し直しても止まったまま。
     const before = cloud.calls.length;
     await e.syncNow();
-    expect(cloud.calls.length).toBeGreaterThan(before);
+    // 試すのは push の 1 回だけで、断られた後の pull は外へ出ない。
+    expect(cloud.calls.slice(before).map((c) => c.method)).toEqual(['pushChanges']);
     expect(e.compatBlocked()).toBe(true);
     // Worker の側が合えば、次の今すぐ同期で戻る。
     cloud.minDeviceCompat = 0;
@@ -791,6 +792,11 @@ describe('上限で退く', () => {
     await e.idle();
   };
 
+  it('知らせの文は、戻る時刻を渡した時間帯の時刻で書く', () => {
+    expect(limitedMessage(Date.UTC(2026, 9, 9), 'Asia/Tokyo')).toBe('Cloudflare の無料枠の上限に達したので、9:00 まで同期を止めます。枠が戻ると自動で再開します');
+    expect(limitedMessage(Date.UTC(2026, 9, 9), 'UTC')).toBe('Cloudflare の無料枠の上限に達したので、0:00 まで同期を止めます。枠が戻ると自動で再開します');
+  });
+
   it('上限の失敗を受けたら、次の UTC の 0 時まで外へ出ず、戻る時刻を見せ、1 度だけ知らせる', async () => {
     const midnight = beforeMidnight();
     const toasts: string[] = [];
@@ -827,14 +833,15 @@ describe('上限で退く', () => {
     e.stop();
   });
 
-  it('日が変わってもまだ断られたら、また次の 0 時まで退き、もう 1 度知らせる', async () => {
+  it('日が変わって猶予を過ぎてもまだ断られたら、また次の 0 時まで退き、もう 1 度知らせる', async () => {
     const midnight = beforeMidnight();
     const toasts: string[] = [];
     const e = make();
     e.on({ toast: (_l, m) => toasts.push(m) });
     await e.start();
     await hitLimit(e);
-    await timers.advance(120_000);
+    // 0 時から 10 分の間は短く黙って退くので、その外まで進める。
+    await timers.advance(12 * 60_000);
     await e.idle();
     expect(e.limitedUntil()).toBe(midnight + 86_400_000);
     expect(toasts).toHaveLength(2);
@@ -851,7 +858,8 @@ describe('上限で退く', () => {
     expect(toasts).toHaveLength(1);
     const before = cloud.calls.length;
     await e.syncNow();
-    expect(cloud.calls.length).toBeGreaterThan(before);
+    // 試すのは push の 1 回だけで、断られた後の pull は外へ出ない。
+    expect(cloud.calls.slice(before).map((c) => c.method)).toEqual(['pushChanges']);
     expect(e.limitedUntil()).not.toBeNull();
     // まだ断られたので、また戻る時刻まで退いたことを知らせる（Task 1 の Q4）。
     expect(toasts).toHaveLength(2);
@@ -875,6 +883,119 @@ describe('上限で退く', () => {
     expect(cloud.calls.length).toBe(calls);
     expect(e.status()).toMatchObject({ state: 'paused', limitedUntil: midnight });
     e.stop();
+  });
+
+  describe('日付の境目の猶予', () => {
+    const MIN = 60_000;
+    let warn: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}); });
+    afterEach(() => { warn.mockRestore(); });
+
+    it('UTC の 0 時の 5 秒後に断られたら 5 分だけ黙って退き、5 分後に通れば戻る', async () => {
+      const midnight = Date.UTC(2026, 9, 9);
+      timers.now = midnight + 4_000;
+      const toasts: string[] = [];
+      const e = make();
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      await e.start();
+      await hitLimit(e);
+      expect(e.limitedUntil()).toBe(midnight + 5_000 + 5 * MIN);
+      expect(e.status()).toMatchObject({ state: 'paused', limitedUntil: midnight + 5_000 + 5 * MIN, error: null, pending: 1 });
+      expect(toasts).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+      // 退いている間は外へ出ない。
+      const calls = cloud.calls.length;
+      await timers.advance(4 * MIN);
+      await e.idle();
+      expect(cloud.calls.length).toBe(calls);
+      // 5 分を過ぎた後の定期実行で通れば戻り、溜まった変更を送る。
+      cloud.limited = null;
+      await timers.advance(2 * MIN);
+      await e.idle();
+      expect(e.limitedUntil()).toBeNull();
+      expect(e.status()).toMatchObject({ state: 'idle', limitedUntil: null, error: null, pending: 0 });
+      expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1']);
+      expect(toasts).toEqual([]);
+      e.stop();
+    });
+
+    it('猶予の間は断られるたびに 5 分ずつ黙って退き、猶予の外で断られたら次の 0 時まで退いて 1 度だけ知らせる', async () => {
+      const midnight = Date.UTC(2026, 9, 9);
+      timers.now = midnight + 4_000;
+      const toasts: string[] = [];
+      const e = make();
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      await e.start();
+      await hitLimit(e);
+      expect(e.limitedUntil()).toBe(midnight + 5_000 + 5 * MIN);
+      // 0:05:05 の後の定期実行でまた断られても、まだ猶予の間なので黙って 5 分退く。
+      await timers.advance(6 * MIN);
+      await e.idle();
+      const second = e.limitedUntil();
+      expect(second).not.toBeNull();
+      expect(second! - midnight).toBeGreaterThan(5 * MIN);
+      expect(second! - midnight).toBeLessThanOrEqual(15 * MIN);
+      expect(toasts).toEqual([]);
+      // 猶予の外で断られたら、次の 0 時まで退いて知らせる。
+      await timers.advance(10 * MIN);
+      await e.idle();
+      expect(e.limitedUntil()).toBe(midnight + 86_400_000);
+      expect(toasts).toEqual([limitedMessage(midnight + 86_400_000)]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      e.stop();
+    });
+
+    it('猶予の外（0 時 20 分）に断られたら、次の 0 時まで退いて 1 度だけ知らせる', async () => {
+      const next = Date.UTC(2026, 9, 10);
+      timers.now = Date.UTC(2026, 9, 9, 0, 19, 59);
+      const toasts: string[] = [];
+      const e = make();
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      await e.start();
+      await hitLimit(e);
+      expect(e.limitedUntil()).toBe(next);
+      expect(toasts).toEqual([limitedMessage(next)]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      e.stop();
+    });
+
+    it('0 時の直前に送った要求が 0 時をまたいで断られても、短く黙って退く', async () => {
+      const midnight = Date.UTC(2026, 9, 9);
+      timers.now = midnight - 2_000;
+      const toasts: string[] = [];
+      const e = make();
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      await e.start();
+      // 23:59:59 に出した push の答えが、0:00:01 に上限の失敗として返る。
+      let refuse: (err: unknown) => void = () => {};
+      cloud.pushChanges = () => new Promise((_res, rej) => { refuse = rej; });
+      project('p1');
+      await timers.advance(1_000);
+      expect(timers.now).toBe(midnight - 1_000);
+      timers.now = midnight + 1_000;
+      refuse(new LimitError('d1-write', 429));
+      await e.idle();
+      expect(e.limitedUntil()).toBe(midnight + 1_000 + 5 * MIN);
+      expect(toasts).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+      e.stop();
+    });
+
+    it('利用者の今すぐ同期が猶予の間に断られても、短く黙って退く', async () => {
+      const midnight = beforeMidnight();
+      const toasts: string[] = [];
+      const e = make();
+      e.on({ toast: (_l, m) => toasts.push(m) });
+      await e.start();
+      await hitLimit(e);
+      expect(toasts).toHaveLength(1);
+      // 次の 0 時まで退いている間に 0 時を過ぎ、0:00:30 より前に利用者が押す。
+      timers.now = midnight + 20_000;
+      await e.syncNow();
+      expect(e.limitedUntil()).toBe(midnight + 20_000 + 5 * MIN);
+      expect(toasts).toHaveLength(1);
+      e.stop();
+    });
   });
 
   it('上限でない失敗（500）では退かず、error を出す', async () => {

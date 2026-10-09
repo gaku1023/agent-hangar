@@ -50,11 +50,19 @@ const PUSH_DEBOUNCE_MS = 1_000;
 const PUSH_MIN_GAP_MS = 10_000;
 const PULL_INTERVAL_MS = 30_000;
 /**
- * 上限で退いたときの知らせ。戻る時刻はこの PC の時刻で書く。
+ * UTC の 0 時からこの間に上限で断られたら、その日の枠はもう戻っているとみなして短く退く。
+ * Cloudflare の巻き戻しの遅れ、端末の時計のずれ、0 時の直前に出した要求が 0 時をまたいで断られた場合に、24 時間退かないためである。
+ */
+const LIMIT_GRACE_MS = 10 * 60_000;
+/** 猶予の間に断られたときに退く長さ。この短い退きでは知らせない。 */
+const LIMIT_RETRY_MS = 5 * 60_000;
+/**
+ * 上限で退いたときの知らせ。戻る時刻は、tz を省けばこの PC の時刻で書く。
+ * tz は試験が時間帯を決めて文そのものを確かめるためにある。
  * 文は試作（docs/superpowers/specs/2026-10-08-stage1-quota-backoff/usage.html）の Q2 で決めた。
  */
-export function limitedMessage(until: number): string {
-  const at = new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit' }).format(until);
+export function limitedMessage(until: number, tz?: string): string {
+  const at = new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(until);
   return `Cloudflare の無料枠の上限に達したので、${at} まで同期を止めます。枠が戻ると自動で再開します`;
 }
 const RESYNC_MESSAGE = 'クラウドの変更ログが古くなっていたので、同期を作り直しました';
@@ -169,13 +177,21 @@ export class SyncEngine {
 
   /**
    * 上限の失敗（LimitError）を受けたら、次の UTC の 0 時まで退く。上限の失敗なら真を返す。
+   * ただし UTC の 0 時から猶予（LIMIT_GRACE_MS）の間に断られたら、LIMIT_RETRY_MS だけ黙って退く。
    * 失敗の理由（error）には残さない。戻る時刻の決まった待ちであって、利用者が直す誤りではないからである。
-   * 新しく退いたときだけ 1 度知らせる。
+   * 次の 0 時まで新しく退いたときだけ 1 度知らせる。
    */
   private noteLimit(e: unknown): boolean {
     if (!(e instanceof LimitError)) return false;
     const was = this.limitedUntil();
-    const until = nextUtcMidnight(this.now());
+    const now = this.now();
+    const midnight = nextUtcMidnight(now);
+    const sinceMidnight = now - (midnight - 86_400_000);
+    if (sinceMidnight < LIMIT_GRACE_MS) {
+      this.state.set('limitedUntil', now + LIMIT_RETRY_MS);
+      return true;
+    }
+    const until = midnight;
     this.state.set('limitedUntil', until);
     if (was === null) {
       console.warn(`[sync] ${e.message}`);
@@ -499,6 +515,7 @@ export class SyncEngine {
    * 版で止まっていても、上限で退いていても、利用者が押した 1 回は試し直す。
    * Worker を入れ替えた後と、上限が戻ったかを確かめたいときに、戻る道はここだけである。
    * まだ合わなければ、またはまだ上限なら、その 1 回の失敗でまた止まる（上限なら次の 0 時まで退いて知らせる）。
+   * 上限の失敗が UTC の 0 時からの猶予の間なら、定期実行と同じく短く黙って退く。
    */
   async syncNow(o: { evenIfPaused?: boolean } = {}): Promise<void> {
     // 一時停止のまま何も送らない回では外さない。外すと、試してもいないのに表示だけが変わる。
