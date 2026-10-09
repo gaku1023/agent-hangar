@@ -494,7 +494,7 @@ fn refusal_message(port: u16, theirs: u64, ours: u64) -> String {
              Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。"
         )
     };
-    // lsof は macOS と Linux にしか無い。Windows の .app はまだ作っておらず確かめられる命令が無いので、そこでは添えない。
+    // lsof は macOS と Linux にしか無い。Windows のデスクトップのアプリはまだ作っておらず（殻のクレートは `std::os::unix` を条件なしに使うので、いまは Windows で組み上がらない）、確かめられる命令が無いので、そこでは添えない。
     if cfg!(windows) {
         head
     } else {

@@ -759,6 +759,7 @@ mod tests {
             assert!(n > 4, "最初の read が要求の一部しか読めていない: {n}");
         }
     }
+
     /// 版の合うサーバだけを採る。合わなければ、相手の版を添えて採らない。
     #[test]
     fn judge_existing_adopts_only_a_server_of_the_same_compat() {
