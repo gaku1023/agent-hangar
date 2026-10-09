@@ -5,6 +5,8 @@ import { pick } from '../test/pick.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { presentAccounts } from '../presenters/accounts.ts';
 import { ACCOUNT_COLORS, type CloudSettingsProps, type SettingsProps } from '../presenters/settings.ts';
+import type { CompatDto } from '@agent-hangar/shared';
+import { presentCompat } from '../presenters/compat.ts';
 import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
@@ -163,6 +165,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   todo: { must: 0, link: 0 },
   accounts: { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, Date.parse('2026-10-06T12:00:00+09:00')), colors: ACCOUNT_COLORS },
   focus: null,
+  compat: null,
   ...over,
 });
 
@@ -456,6 +459,73 @@ describe('SettingsScreen の目次（設定の A1）', () => {
     const toc = within(screen.getByRole('navigation', { name: '設定の目次' }));
     expect(toc.getByRole('img', { name: '直すもの 2 件' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /^連携/ })).toHaveTextContent('直すもの 2 件');
+  });
+});
+
+describe('SettingsScreen の Claude Code との互換（C2）', () => {
+  const at = (d: number, h: number, m: number) => new Date(2026, 9, d, h, m).getTime();
+  const DETAIL: CompatDto = {
+    verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [
+      { contract: 'screen', value: 'prompt-marker=(missing)', version: '2.1.300', count: 2, firstSeenAt: at(7, 14, 2), lastSeenAt: at(7, 14, 9) },
+      { contract: 'registry', value: 'status=compacting', version: '2.1.300', count: 5, firstSeenAt: at(7, 13, 40), lastSeenAt: at(7, 14, 5) },
+      { contract: 'transcript', value: 'system.subtype=turn_summary', version: '2.1.298', count: 9, firstSeenAt: at(6, 22, 15), lastSeenAt: at(7, 14, 1) },
+    ],
+  };
+  const DRIFT = { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 3 };
+  /** 互換の節。見出しの名前には右端の札の文も入る。 */
+  const section = () => screen.getByRole('heading', { level: 3, name: /^Claude Code との互換/ }).closest('section')!;
+  it('連携の群の先頭に節を置き、群の見出しと目次の小見出しにも添える', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps()} /></IntentRoot>);
+    const link = screen.getByRole('group', { name: /^連携/ });
+    expect(within(link).getAllByRole('heading', { level: 3 })[0]).toHaveTextContent(/^Claude Code との互換/);
+    expect(screen.getByRole('heading', { level: 2, name: /^連携/ })).toHaveTextContent('連携Claude Code との互換、MCP、statusline、外のターミナル、通知、アカウント');
+    expect(within(screen.getByRole('navigation', { name: '設定の目次' })).getByText('Claude Code との互換')).toBeInTheDocument();
+  });
+  it('準備の確かめが届く前は、本文の下に「確かめています」と出し、札は出さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ compat: null })} /></IntentRoot>);
+    expect(within(section()).getByText('確かめています')).toBeInTheDocument();
+    expect(section()).toHaveTextContent('hangar は Claude Code の会話の記録、状態のファイル、statusline、~/.claude の項目、CLI の出力、画面の文字を読んでいます。知らない形に出会ったら、ここに出します。');
+  });
+  it('問題なしは緑の札で、手元の版と確かめた版を出す', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ compat: presentCompat({ verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })} /></IntentRoot>);
+    expect(within(section()).getByText('問題なし')).toHaveAttribute('data-tone', 'ok');
+    expect(section()).toHaveTextContent('手元の版 2.1.292');
+    expect(section()).toHaveTextContent('確かめた版 2.1.292');
+    expect(within(section()).queryByRole('list', { name: '止めた機能' })).toBeNull();
+  });
+  it('未確認の版は灰色の札で、版の並びに止めていないことを添える', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ compat: presentCompat({ verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 0 }, null, '') })} /></IntentRoot>);
+    expect(within(section()).getByText('未確認の版')).toHaveAttribute('data-tone', 'info');
+    expect(section()).toHaveTextContent('手元の版 2.1.300');
+    expect(within(section()).getByText('まだ確かめていない版です。動きは止めていません')).toBeInTheDocument();
+  });
+  it('ずれは注意の札で、止めた機能の一覧を常に出し、細目は畳む。表の下に置き場と報告用に写す', () => {
+    const onIntent = vi.fn();
+    const c = presentCompat(DRIFT, DETAIL, '0.3.0');
+    render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ compat: c })} /></IntentRoot>);
+    const sec = within(section());
+    expect(sec.getByText('ずれ 3 件')).toHaveAttribute('data-tone', 'warn');
+    expect(sec.getByText('知らない形に頼る機能だけを止め、ほかは動かしています。')).toBeInTheDocument();
+    expect(within(sec.getByRole('list', { name: '止めた機能' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['ターンの目次から端末の指示へ跳ぶのを止めています', '休んでいるセッションを自動で止めるのを控えています']);
+    const more = sec.getByText('ずれ 3 件の中身').closest('details')!;
+    expect(more).not.toHaveAttribute('open');
+    expect(within(more).getAllByRole('row')).toHaveLength(4);
+    expect(within(more).getByText('~/.agent-hangar/compat.json')).toBeInTheDocument();
+    fireEvent.click(within(more).getByRole('button', { name: '報告用に写す' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: c.report });
+  });
+  it('ずれはあっても止めた機能が無ければ、一覧を出さず、記録だけだと言う', () => {
+    const only: CompatDto = { ...DETAIL, drifts: [{ contract: 'cli', value: 'subcommand.added=newcmd', version: null, count: 1, firstSeenAt: at(7, 9, 0), lastSeenAt: at(7, 9, 0) }] };
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ compat: presentCompat({ ...DRIFT, driftCount: 1 }, only, '') })} /></IntentRoot>);
+    expect(within(section()).getByText('ずれ 1 件')).toHaveAttribute('data-tone', 'warn');
+    expect(within(section()).getByText('知らない形を記録しましたが、止めた機能はありません。')).toBeInTheDocument();
+    expect(within(section()).queryByRole('list', { name: '止めた機能' })).toBeNull();
+    expect(within(section()).getByText('ずれ 1 件の中身')).toBeInTheDocument();
+  });
+  it('ずれがあっても、目次の点と群の見出しの「直すもの」は灯さない', () => {
+    render(<IntentRoot onIntent={() => {}}><SettingsScreen {...settingsProps({ compat: presentCompat(DRIFT, DETAIL, ''), todo: { must: 0, link: 0 } })} /></IntentRoot>);
+    expect(within(screen.getByRole('navigation', { name: '設定の目次' })).queryByRole('img')).toBeNull();
+    expect(screen.getByRole('heading', { level: 2, name: /^連携/ })).not.toHaveTextContent('直すもの');
   });
 });
 
