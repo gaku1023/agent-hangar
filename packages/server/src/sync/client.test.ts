@@ -491,6 +491,18 @@ describe('互換の版', () => {
     expect((e as Error).message).toContain('今すぐ同期');
   });
 
+  it('Worker が最後に名乗った版を覚える。まだ話していなければ null で、Cloudflare の端の応答（版の見出し無し）では上書きしない', async () => {
+    let status = 200;
+    const { fetch } = fakeFetch(() => (status === 200 ? new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '5' } }) : new Response('edge', { status })), { stamp: false });
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    expect(c.lastWorkerCompat()).toBeNull();
+    await c.pullChanges(0, 10);
+    expect(c.lastWorkerCompat()).toBe(5);
+    status = 403;
+    await c.pullChanges(0, 10).catch(() => {});
+    expect(c.lastWorkerCompat()).toBe(5);
+  });
+
   it('この PC が Worker に求める下限は 2 で、版の見出しを返さない Worker（版 0）の 2xx は Worker を上げるよう断る', async () => {
     expect(MIN_WORKER_COMPAT).toBe(2);
     const { fetch } = fakeFetch(() => json({ changes: [], nextSeq: 4, more: false }), { stamp: false });

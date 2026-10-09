@@ -4,6 +4,7 @@ import { accountSwitcherEn } from './en/accountSwitcher.ts';
 import { artifactEn } from './en/artifact.ts';
 import { commonEn } from './en/common.ts';
 import { configEn } from './en/config.ts';
+import { configSyncEn } from './en/configSync.ts';
 import { confirmEn } from './en/confirm.ts';
 import { externalEn } from './en/external.ts';
 import { headerEn } from './en/header.ts';
@@ -43,6 +44,7 @@ export const en: Dictionary = {
   ...artifactEn,
   ...commonEn,
   ...configEn,
+  ...configSyncEn,
   ...confirmEn,
   ...externalEn,
   ...headerEn,

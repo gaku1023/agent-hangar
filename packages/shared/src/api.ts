@@ -39,7 +39,7 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * activity は実行中のときだけ値を持ち、実行中でなければ null である。
  */
 export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; memo: string | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null };
-export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
+export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; syncClaudeConfig: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
 /**
  * Claude Code の会話の保持期間。
  * source は値がどこで決まったかで、default はユーザー設定にキーが無い（既定の 30 日）ことを表す。
@@ -54,7 +54,7 @@ export type RetentionPreviewDto = { days: number; path: string; lines: Retention
 /** 確認をどこから開いたか。帯から開いたときだけ「ほかの期間…」を出す。 */
 export type RetentionFrom = 'banner' | 'session' | 'settings';
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。
@@ -205,6 +205,68 @@ export type ShellHookDto = { state: ShellHookStateDto; zshrc: string; line: stri
 export type ConfigPreviewAction = 'create' | 'overwrite' | 'conflict' | 'skip';
 export type ConfigPreviewEntryDto = { path: string; action: ConfigPreviewAction; localMtime: number | null; remoteMtime: number; remoteDevice: string; size: number };
 export type ConfigPreviewDto = { entries: ConfigPreviewEntryDto[]; confirmed: boolean };
+/**
+ * Claude Code の設定の同期（作り直した実装。docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md）の形。
+ * 旧実装の ConfigPreviewDto とは別で、旧実装が残るあいだは両方がある。
+ */
+/** 運ぶ項目の種類。settings は settings.json の鍵 1 つが 1 項目で、memory はプロジェクトのメモリと ~/.claude/memory の下のファイル。 */
+export type ConfigItemKind = 'claude-md' | 'settings' | 'keybindings' | 'skills' | 'commands' | 'agents' | 'memory';
+/** 実行の印。hooks はフロントマターの hooks、shell は本文のコマンド実行（`!`）、script は skills の下の本文でないファイル。 */
+export type ConfigExecMark = 'hooks' | 'shell' | 'script';
+/** 他の PC から届いた skills、commands、agents の承諾の仕方。each は項目ごとに毎回、auto は自動。 */
+export type ConfigApproval = 'each' | 'auto';
+/** settings.json の鍵を運ばない理由。 */
+export type ConfigDropReason = 'execution' | 'path' | 'auth' | 'machine' | 'unknown';
+export type ConfigOutgoingItemDto = { id: string; kind: ConfigItemKind; label: string; size: number; marks: ConfigExecMark[]; /** settings の鍵の値（JSON、長いときは切る）。ほかの種類は null。 */ value: string | null };
+export type ConfigOutgoingDto = {
+  /** 新しい実装を入れているか。切のままでも一覧は読める（入れる前に何が出るかを見せるため）。 */
+  enabled: boolean;
+  items: ConfigOutgoingItemDto[];
+  droppedKeys: { key: string; reason: ConfigDropReason }[];
+  /** 送らなかった項目の数（GET /api/config-sync/unsent の長さ）。 */
+  unsentCount: number;
+  lastSentAt: number | null;
+};
+/** 届いた変更の操作。conflict は手元と相手の両方が変えた（または片方が消した）もの。 */
+export type ConfigInboxOp = 'create' | 'overwrite' | 'delete' | 'conflict';
+/** 適用できない理由。no-project は、そのプロジェクトがこの PC に無いメモリ。local-blocked は、手元に同名のものがあるが運べない（リンク、大きすぎる、読めない、件数の上限）ので、黙って上書きしない。 */
+export type ConfigHeldReason = 'no-project' | 'local-blocked';
+export type ConfigInboxItemDto = {
+  id: string; kind: ConfigItemKind; label: string; op: ConfigInboxOp;
+  fromDeviceId: string; fromDevice: string; size: number; marks: ConfigExecMark[];
+  /** 中身の先頭（本文でないものは空）。 */
+  head: string;
+  held: ConfigHeldReason | null;
+  /** 項目ごとの承諾が要るか（skills、commands、agents で、承諾の仕方が each のとき）。 */
+  needsApproval: boolean;
+};
+export type ConfigInboxDto = { items: ConfigInboxItemDto[]; approval: ConfigApproval };
+export type ConfigConflictSideDto = { deviceName: string; at: number | null; size: number };
+export type ConfigConflictDto = { id: string; kind: ConfigItemKind; label: string; marks: ConfigExecMark[]; local: ConfigConflictSideDto | null; remote: ConfigConflictSideDto | null; /** 手元から相手への差分。 */ diff: RetentionPreviewLine[] };
+export type ConfigUnsentKind = 'permission-rule' | 'secret';
+export type ConfigUnsentItemDto = { id: string; kind: ConfigUnsentKind; itemId: string; label: string; reason: string; allowed: boolean };
+export type ConfigUnsentDto = { items: ConfigUnsentItemDto[] };
+export type ConfigBackupGenerationDto = { name: string; at: number | null; files: number };
+export type ConfigBackupsDto = { generations: ConfigBackupGenerationDto[] };
+/** 承諾の選択 1 件。take が remote なら相手の中身を採り、mine なら手元を採る（手元は書き換えず、基準だけを進める）。 */
+export type ConfigApplyOrderEntryIn = { id: string; take?: 'remote' | 'mine' };
+export type ConfigApplyOrderItemDto = { id: string; kind: ConfigItemKind; op: ConfigInboxOp; take: 'remote' | 'mine'; fromDeviceId: string; sha256: string; /** 書き込み先。ファイルは設定の入れ物からの相対パス、settings は `settings.json#<鍵>`。 */ target: string };
+/** 適用の指示書。サーバは ~/.claude に書かず、殻の命令と hangar config apply が読む。 */
+export type ConfigApplyOrderDto = { createdAt: number; items: ConfigApplyOrderItemDto[] };
+export type ConfigSyncDto = {
+  enabled: boolean;
+  /** スイッチは入っているが、Worker がまだ束の行を知る版に届いていないので、送っていない（Worker の更新待ち）。Worker の版がまだ分からないあいだは偽。 */
+  workerPending: boolean;
+  approval: ConfigApproval;
+  /** 適用できる変更の数（競合と保留を除く）。 */
+  incoming: number;
+  conflicts: number;
+  held: number;
+  unsent: number;
+  backups: number;
+  applyOrder: { count: number; createdAt: number } | null;
+  lastSentAt: number | null;
+};
 export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number; remoteSize: number };
 
 /**

@@ -182,4 +182,5 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.info.index.source': 'Source directory {dir}',
   'settings.info.index.note': 'A changed source directory takes effect after a restart.',
   'settings.info.thisPc.title': 'This computer',
+  'settings.label.configApproval': 'How to approve incoming settings',
 };

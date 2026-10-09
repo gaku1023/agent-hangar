@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isLanguage, newId, type Language, type TerminalApp } from '@agent-hangar/shared';
+import { isLanguage, newId, type ConfigApproval, type Language, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
@@ -35,6 +35,17 @@ export type Settings = {
    * 既定は false である。他端末の設定が手元の ~/.claude を書き換えるので、利用者が明示的に入れたときだけ動かす。
    */
   syncClaudeConfig: boolean;
+  /**
+   * 他の PC から届いた skills、commands、agents の承諾の仕方（作り直した設定の同期。sync/config/）。
+   * each は項目ごとに毎回承諾し、auto は自動で適用する。項目が無いうちは each として読む。
+   * 実行される指示なので、既定では自動にしない。
+   */
+  configApproval?: ConfigApproval;
+  /**
+   * 作り直した設定の同期（sync/config/）を動かすか。旧実装の syncClaudeConfig とは別のスイッチで、既定は切。
+   * 設定の画面が新しい実装を使うようになる段 4 の PR 17 までは、settings.json を手で書き換えたときだけ入る。
+   */
+  configBundleSync?: boolean;
   /**
    * 同梱サーバを起こすときに使う Node の場所。
    * null と空文字は「指定なし」で、起動側が既定の探索に戻る。

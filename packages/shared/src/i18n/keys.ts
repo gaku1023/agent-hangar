@@ -4,6 +4,7 @@ import { accountSwitcherKeys } from './keys/accountSwitcher.ts';
 import { artifactKeys } from './keys/artifact.ts';
 import { commonKeys } from './keys/common.ts';
 import { configKeys } from './keys/config.ts';
+import { configSyncKeys } from './keys/configSync.ts';
 import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
 import { headerKeys } from './keys/header.ts';
@@ -55,6 +56,7 @@ export const MESSAGES = {
   ...artifactKeys,
   ...commonKeys,
   ...configKeys,
+  ...configSyncKeys,
   ...confirmKeys,
   ...externalKeys,
   ...headerKeys,
