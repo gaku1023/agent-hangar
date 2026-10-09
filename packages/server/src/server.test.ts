@@ -20,7 +20,7 @@ import { mangleCwd } from './provider/claude-code/discover.ts';
 import { SummaryJob } from './summary/job.ts';
 import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
-import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../test/oldDb.ts';
+import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
 import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
@@ -137,13 +137,14 @@ describe('startServer', () => {
   });
 
   it('DB の控えが取れなければ、マイグレーションを当てずに起動を止める', async () => {
-    // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
+    // いまの版の DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
+    // 当てるものがあるように、仮の次の版を足して起こす。
     const file = path.join(home, 'hangar.db');
-    seedDbAt(file, LATEST_DB_VERSION - 1);
+    seedDbAt(file, LATEST_DB_VERSION);
     fs.mkdirSync(path.join(home, 'backups'), { recursive: true });
     fs.writeFileSync(path.join(home, 'backups', 'db'), 'x');
-    await expect(startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') })).rejects.toBeInstanceOf(DbBackupError);
-    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
+    await withPendingMigration(() => expect(startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') })).rejects.toBeInstanceOf(DbBackupError));
+    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION);
   });
 
   it('WebSocket と keep-alive の接続が残っていても close は 2 秒以内に終わる', async () => {

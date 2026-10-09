@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../../server/test/oldDb.ts';
+import { BASELINE_DB_VERSION, dbVersionOf, seedDbAt } from '../../server/test/oldDb.ts';
 import { posixIt } from '../../server/test/platform.ts';
 import { probeHealth } from './probe.ts';
 
@@ -222,7 +222,9 @@ describe('hangar start', () => {
     expect(await probeHealth(port, 500)).toBe(false);
   }, 90_000);
 
-  it('DB の控えが取れないときは、子のサーバの理由を出して止まり、マイグレーションを当てない', async () => {
+  // 子プロセスには仮の次の版を渡せないので、ここでは「DB を開けずに起動を止める」流れを、起点より古い版の DB で確かめる。
+  // 控えが取れないときに止まることは、同じプロセスで走る試験（server.test.ts と cloud.test.ts）が見ている。
+  it('起点より古い版の DB のときは、子のサーバの理由を出して止まり、DB に触らない', async () => {
     const port = await deadPort();
     const root = path.dirname(home);
     const ws = path.join(root, 'ws');
@@ -231,11 +233,10 @@ describe('hangar start', () => {
     fs.mkdirSync(tmuxDir);
     fs.mkdirSync(path.join(claudeDir, 'sessions'), { recursive: true });
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir }));
-    // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
+    // 起点の 1 つ前の版までの DB を置く。
     const file = path.join(home, 'hangar.db');
-    seedDbAt(file, LATEST_DB_VERSION - 1);
-    fs.mkdirSync(path.join(home, 'backups'));
-    fs.writeFileSync(path.join(home, 'backups', 'db'), 'x');
+    seedDbAt(file, BASELINE_DB_VERSION - 1);
+    const before = fs.readFileSync(file);
     // hangar の中から試験を走らせたときに、外のサーバ向けの値を子へ持ち込まない。
     const { HANGAR_PARENT_PID: _pid, HANGAR_UI_DIST: _ui, HANGAR_PORT: _port, ...base } = process.env;
     const r = await new Promise<{ code: number; out: string }>((resolve, reject) => {
@@ -265,10 +266,13 @@ describe('hangar start', () => {
       child.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, out }); });
     });
     expect(r.code).toBe(1);
-    expect(r.out).toContain('マイグレーションを当てずに止めました');
+    expect(r.out).toContain(`版 ${BASELINE_DB_VERSION - 1} で、このアプリが開けるのは版 ${BASELINE_DB_VERSION} 以降です`);
+    expect(r.out).toContain('マイグレーションも当てずに止めました');
     expect(r.out).toContain('起動の途中で終わりました');
     expect(r.out).not.toContain('?t=');
-    expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
+    expect(dbVersionOf(file)).toBe(BASELINE_DB_VERSION - 1);
+    expect(fs.readFileSync(file).equals(before)).toBe(true);
+    expect(fs.existsSync(path.join(home, 'backups'))).toBe(false);
     expect(await probeHealth(port, 500)).toBe(false);
   }, 90_000);
 });

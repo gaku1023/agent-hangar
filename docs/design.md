@@ -2774,7 +2774,23 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 異論があれば、この文書を直してから実装を変える。
 
 - ポートは 4177 固定。データディレクトリは `~/.agent-hangar/`。
-- ID は UUID v7。マイグレーションは番号付き SQL をアプリ起動時に適用する。版は 16 まで進んでいる（4 で `usage_daily` の鍵に `file_path` を足して `artifact_versions(artifact_id)` の索引を置き、5 で `session_summaries` に `source_id` を足し、6 で `usage_daily` を空にして `transcript_files.indexer_version` を 0 に戻し、7 で `mcp_secrets` を作り、8 で `transcript_files` に `device_id` と索引を足して `file_sync` を作り、9 で `session_activity` を作り、10 で `todos` に完了の候補の 4 列を足し、11 で `devices.shell_hook` を足し、12 で `turn_intents` を作り、13 で `session_states` を作って生きているセッションをまとめて Done にし、14 で `session_states` に戻る時刻の 2 列を足し、15 で `usage_snapshots.account` と 2 つの索引を足し、16 で無料枠の見張りの名残（`sync_state` の `quota:*` と `pausedReason`）を消し、見張りが止めた一時停止を解いた）。版 6 は、`file_path` を持たない古い行をどちらに寄せても作り直しの消し方が正しくならないための積み直しである。全ファイルが索引の作り直しに回るので、実物の DB では約 35 秒かかり、その間だけ日別の使用量が欠ける。版 8 の `device_id` は既存の行では null のままにする。端末の ID は DB ではなく `device.json` にあり、マイグレーションからは読めないためである。
+- ID は UUID v7。マイグレーションは番号付き SQL をアプリ起動時に適用する。
+  一覧（`packages/server/src/db/migrations.ts` の `MIGRATIONS`）の先頭は起点で、版は 16 である（`BASELINE_VERSION`）。
+  起点は、版 1 から版 16 までを順に当てた DB と同じスキーマを作る 1 本の SQL で、行は入れない（2026-10-09 に畳んだ）。
+  新しい DB は、起点を当てると版 16 になる。
+  版 1 から上がってきた版 16 の DB は、起点を当て直さずにそのまま開く（`schema_migrations` に版 16 の行があるため）。
+  起点より古い版の DB は、上げる道を持たないので、開かずに断る（`db/open.ts` の `DbTooOldError`）。
+  版は WAL への切り替えや表の作成より先に読むだけで確かめ、断る DB には何も書かず、控えも取らない。
+  文は、DB の版、起点の版、畳む前の版の Hangar で一度起動して上げてから起動し直すことを言い、サーバも CLI もそれを出して起動を止める。
+  使っているのは利用者 1 人で、その DB はすでに版 16 にあるので、古い版から上げる道は要らないと決めた。
+  スキーマを変えるときは、起点を書き換えずに、次の版（17 から）を一覧の末尾に足す。
+  足した版は今までと同じに扱う。既存の DB には控えを取ってからその版だけを当て、新しい DB には起点から順に当てる。
+  畳む前のマイグレーションは、試験の側（`packages/server/test/legacyMigrations.ts`）に残してある。
+  `db/baseline.test.ts` が、起点だけを当てた DB と版 1 から順に当てた DB で、`sqlite_master` の全行（表、索引、FTS の仮想表とその影の表）、表ごとの列（順、型、not null、既定値、主キー）、外部キー、索引の列、表の中身が一致することを突き合わせる。
+  空白と引用符の違いだけを均して比べる。
+  起点の注記を create 文の外に書くのは、文の中に書くと `sqlite_master` が持つ SQL に注記まで残り、この突き合わせで落ちるためである。
+  古い版の DB を作る試験の補助（`packages/server/test/oldDb.ts` の `seedDbAt`）は、起点までは畳む前のマイグレーションを、その先は一覧の続きを当てる。
+  以下は、畳む前の版の経緯である（4 で `usage_daily` の鍵に `file_path` を足して `artifact_versions(artifact_id)` の索引を置き、5 で `session_summaries` に `source_id` を足し、6 で `usage_daily` を空にして `transcript_files.indexer_version` を 0 に戻し、7 で `mcp_secrets` を作り、8 で `transcript_files` に `device_id` と索引を足して `file_sync` を作り、9 で `session_activity` を作り、10 で `todos` に完了の候補の 4 列を足し、11 で `devices.shell_hook` を足し、12 で `turn_intents` を作り、13 で `session_states` を作って生きているセッションをまとめて Done にし、14 で `session_states` に戻る時刻の 2 列を足し、15 で `usage_snapshots.account` と 2 つの索引を足し、16 で無料枠の見張りの名残（`sync_state` の `quota:*` と `pausedReason`）を消し、見張りが止めた一時停止を解いた）。版 6 は、`file_path` を持たない古い行をどちらに寄せても作り直しの消し方が正しくならないための積み直しである。全ファイルが索引の作り直しに回るので、実物の DB では約 35 秒かかり、その間だけ日別の使用量が欠ける。版 8 の `device_id` は既存の行では null のままにする。端末の ID は DB ではなく `device.json` にあり、マイグレーションからは読めないためである。
 - FTS5 のトークナイザは trigram。
 - R2 の鍵は端末 ID を含み、同じセッション ID の本文が端末ごとに分岐しても上書きしない。
 - Claude 側で利用者が付けた名前（`nameSource` が `user`）は、hangar が保持する名前より優先する。
@@ -2895,6 +2911,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - `~/.agent-hangar/backups/db/` は DB の控えで、新しい方から 5 世代を残す。
   DB を開く側（サーバと、DB を開く CLI）は、すでに 1 本以上のマイグレーションを当てた DB に当てていないものがあるとき、当てる前に `VACUUM INTO` で `hangar-v<当てた最後の版>-<UTC の時刻>.db` を作る（`packages/server/src/db/backup.ts`）。
   新しい DB と `:memory:` では作らない。
+  起点より古い版の DB は、当てるものが無く断るだけなので、控えも作らない。
   写しは控えの形でない一時の名前に書き、`fsync` してから改名する。
   失敗や中断で、控えに見える壊れたファイルが残らない。
   `backups/db` がシンボリックリンクなら、ほかの控えの置き場と同じく取らずに止める。
