@@ -160,8 +160,8 @@ Claude Code の設定の同期は、この段では消さずに今の形のま�
 
 ### 段 5 配布
 
-- Node を同梱し、探索、`manifest.json` の照合、設定の `nodePath` を無くす。.app は約 8MB から約 100MB に増える。同梱する Node に hardened runtime の権限を付け、`.node` と `spawn-helper` も署名する。
-- 配布する .app に署名して公証を通し、dmg（または Homebrew cask）で配る。署名が無いと、他の人の Mac では開くときに止められる。
+- Node を同梱し、探索、`manifest.json` の照合、設定の `nodePath` を無くす。.app は約 8MB から約 100MB に増える。
+- 配布する .app は、Apple の開発者の証明書で署名せず、公証も通さない（2026-10-09 の利用者の決定。Apple Developer Program に登録しない）。dmg（または Homebrew cask）で配る。他の人の Mac では開くときに警告で止められるので、README に開き方を書く。Apple Silicon で動かすのに要るその場の署名（ad-hoc）だけは、同梱する Node、`.node`、`spawn-helper` を含めて付ける。自動更新（次の項目）が開発者の署名なしでどこまで動くかは、段 5 の spec で確かめる。
 - 自動更新を入れる（Tauri の updater、更新の署名鍵、更新の目録の置き場）。
 - セットアップ（参加、MCP、statusline、シェルの包み）をアプリから行う（D9）。初回の体験の受け入れ基準を決める（`hangar setup` を打たずに .app だけで始められるか）。
 - claude、tmux、エディタの実行パスを API から変えられる件を見直す。Node を同梱して `nodePath` を消しても、これらは任意の実行ファイルを指せる。
