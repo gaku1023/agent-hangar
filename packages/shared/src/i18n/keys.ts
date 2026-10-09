@@ -8,6 +8,8 @@
  */
 export const MESSAGES = {
   'common.button.cancel': [],
+  'common.chip.nameValue': ['name', 'value'],
+  'common.popover.details': [],
   'session.kill.confirm': ['name'],
   'sessions.list.count': ['n'],
 } as const satisfies Record<`${string}.${string}.${string}`, readonly string[]>;

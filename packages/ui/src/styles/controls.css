@@ -193,6 +193,47 @@
 .menu-item[data-danger='true'], .menu-item[data-danger='true'] > .icon { color: var(--error); }
 .menu-sep { height: 0; margin: var(--u) calc(var(--u) * 1.5); border-top: 1px solid rgba(30, 40, 90, 0.08); }
 
+/* 読むための面（views/primitives/Popover.tsx）。(i) の詳細、ノートの札、数の札から開く一覧が使う。
+   面は .menu-pop をそのまま使い（ガラスはそこにだけ書く）、ここでは余白と中身の並べ方だけを決める。 */
+.popover { gap: 0; padding: calc(var(--u) * 3) calc(var(--u) * 3.5); outline: none; font-size: var(--fs-sm); color: var(--ink-2); }
+.pop-title { margin: 0 0 calc(var(--u) * 1.5); font-size: var(--fs); font-weight: 600; color: var(--ink); }
+.pop-rows { margin: 0; }
+.pop-row { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 24px; overflow: hidden; white-space: nowrap; }
+.pop-row dt { flex: none; min-width: 104px; font-weight: 600; color: var(--ink); }
+.pop-row dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.pop-row dd[data-mono='true'] { font-family: var(--font-mono); font-size: var(--fs-sm); }
+
+/* 数の札（views/primitives/Chip.tsx の CountChip）。名前と件数を小さな札に畳む。
+   読むだけの札は span、押せる札は button で、開いている間（aria-expanded）は白い地に細い輪を付ける。 */
+.count-chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.75); height: var(--row-h); padding: 0 calc(var(--u) * 3) 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.count-chip > .icon { width: 14px; height: 14px; }
+.count-chip b { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+button.count-chip { cursor: pointer; }
+button.count-chip:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); }
+button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.count-chip[aria-expanded='true'] { color: var(--ink); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 3px rgba(30, 40, 90, 0.1); }
+.count-chip[data-tone='wait'], .count-chip[data-tone='wait'] b { color: var(--waiting); }
+.count-chip[data-tone='cand'] b { color: var(--cand); }
+.count-chip[data-zero='true'], .count-chip[data-zero='true'] b { color: var(--ink-3); font-weight: 500; }
+/* 小さい札。帯の数の札と、終わったセッションの冒頭の 1 枚の札で使う。 */
+.count-chip[data-size='sm'] { gap: var(--u); height: 22px; padding: 0 calc(var(--u) * 2); background: var(--surface); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.08); }
+.count-chip[data-size='sm'] > .icon { width: 13px; height: 13px; }
+.count-chip[data-size='sm'][aria-expanded='true'] { box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 3px rgba(30, 40, 90, 0.1); }
+
+/* 設定の札（views/primitives/Chip.tsx の SettingChip）。値を札に見せ、押すと小さい一覧が開く。
+   開いている間は青い縁、既定のままの札は薄く、危険な値（Bypass permissions）は赤い縁にする。 */
+.set-chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 0 0 1px var(--line-strong); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.set-chip:hover:not(:disabled) { background: var(--surface); }
+.set-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.set-chip:disabled { opacity: 0.5; cursor: default; }
+.set-chip > .icon { width: 13px; height: 13px; color: var(--ink-3); }
+.set-chip > .icon:last-child { width: 12px; height: 12px; }
+.set-chip-name { font-weight: 400; font-size: var(--fs-sm); color: var(--ink-3); }
+.set-chip[aria-expanded='true'] { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.set-chip[data-tone='muted'] { color: var(--ink-3); font-weight: 500; }
+.set-chip[data-tone='danger'] { color: var(--error); box-shadow: inset 0 0 0 1.5px var(--error); }
+.set-chip[data-tone='danger'] > .icon { color: var(--error); }
+
 /* 作成のダイアログの、未登録のフォルダの一覧。開いたままの Listbox の面と同じ見た目にする。 */
 .new-project-dirs { display: flex; flex-direction: column; max-height: 232px; padding: calc(var(--u) * 1.5); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.6); box-shadow: inset 0 0 0 1px var(--line); }
 
