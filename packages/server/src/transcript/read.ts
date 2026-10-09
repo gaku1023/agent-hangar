@@ -46,7 +46,18 @@ export function readEvents(db: Db, sessionId: string, opts: { fromSeq?: number; 
     .all(sessionId, agentKey, fromSeq, take + 1) as Row[];
   const hasMore = rows.length > take;
   const wanted = rows.slice(0, take);
-  const firstSeqOf = db.prepare("select min(seq) s from event_index where session_id = ? and ifnull(parent_agent, '') = ? and byte_offset = ? and file_path_ref = ?");
+  // 記録の先頭の seq。1 つの記録から出た行は seq が続いているので、ページの中の 2 つ目からの記録は、ページに入った最初の行が先頭である。
+  // ページの最初の記録だけは途中から始まることがあるので、索引を 1 行ずつ遡って確かめる。
+  // 記録ごとに byte_offset で min(seq) を引くと、byte_offset は索引に無いので、1 回ごとにそのセッションの全行を見に行く。
+  const prevOf = db.prepare("select seq, byte_offset, file_path_ref from event_index where session_id = ? and ifnull(parent_agent, '') = ? and seq < ? order by seq desc limit 1");
+  const headOf = (r: Row): number => {
+    let head = r.seq;
+    for (;;) {
+      const p = prevOf.get(sessionId, agentKey, head) as Row | undefined;
+      if (!p || p.byte_offset !== r.byte_offset || p.file_path_ref !== r.file_path_ref) return head;
+      head = p.seq;
+    }
+  };
   const events: TranscriptEvent[] = [];
   let fd: number | null = null;
   let fdPath = '';
@@ -66,8 +77,7 @@ export function readEvents(db: Db, sessionId: string, opts: { fromSeq?: number; 
       try { rec = JSON.parse(buf.toString('utf8')); } catch { rec = null; }
       let j = i;
       while (j < wanted.length && wanted[j]!.byte_offset === r.byte_offset && wanted[j]!.file_path_ref === r.file_path_ref) j++;
-      // ページの先頭が記録の途中から始まることがあるので、記録の先頭 seq は索引から引く。
-      const firstSeq = (firstSeqOf.get(sessionId, agentKey, r.byte_offset, r.file_path_ref) as { s: number }).s;
+      const firstSeq = i === 0 ? headOf(r) : r.seq;
       const all = rec === null ? [] : normalizeRecord(rec, firstSeq, agent);
       const lastSeq = wanted[j - 1]!.seq;
       for (const ev of all) if (ev.seq >= r.seq && ev.seq <= lastSeq) events.push(ev);

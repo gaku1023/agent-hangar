@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
+import { logQueries, unnarrowedScans } from '../../test/queryLog.ts';
 import { ASIDE_SETTLE_MS, AsideReader } from './aside.ts';
 
 // 本体は入力を受け付けていて、裏でサブエージェントだけが動いている。Claude の登録はこのとき busy としか書かない。
@@ -74,6 +75,17 @@ describe('裏だけ動いている（サブエージェント）', () => {
   it('裏の担当が数えられなくても（workflow など）、作業中のままなら 0 本として付ける', async () => {
     await index([user(0, '流して'), say(3, '流しました'), system(10, 'turn_duration')]);
     expect(read([busy()], END + 10_000)[0]!.aside).toEqual({ shell: false, agents: 0 });
+  });
+  it('登録の読み直し（500 ミリ秒ごと）では、セッションの全行を見る問い合わせを出さない', async () => {
+    // 長いセッションでは、主線を parent_agent is null で絞ったり、要約の鍵を全行の数え上げで作ったりすると、1 周期で数万行を表まで見に行く。
+    await index(launchAndEnd());
+    const log = logQueries(db);
+    const reader = new AsideReader(log.db);
+    reader.apply([busy()], END + ASIDE_SETTLE_MS);
+    log.ran.length = 0;
+    expect(reader.apply([busy()], END + ASIDE_SETTLE_MS + 500)[0]!.aside).toEqual({ shell: false, agents: 1 });
+    expect(log.ran.length).toBeGreaterThan(0);
+    expect(unnarrowedScans(db, log.ran)).toEqual([]);
   });
   it('作業中でないもの、シェルの印が付いたもの、hangar が知らない会話はそのまま', async () => {
     await index(launchAndEnd());

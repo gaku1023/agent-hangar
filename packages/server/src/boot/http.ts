@@ -105,7 +105,7 @@ export function bootHttp(p: {
       onSummaryCap: summary.rebuildClaude,
       publishConfigSync: sync.publishConfigSync,
     }, patch),
-    live: () => delivery.registry.current(), indexer: indexing.indexer, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos,
+    live: () => delivery.registry.current(), indexer: indexing.indexer, hub: delivery.hub, runs: runs.runs, external: runs.external, usage: runs.usage, memos: indexing.memos, digester: delivery.digester,
     summary: summary.api,
     promote: (o) => promoteSession({
       db, deviceId: device.id, home: home.home, workspaceRoot: settings.current.workspaceRoot,

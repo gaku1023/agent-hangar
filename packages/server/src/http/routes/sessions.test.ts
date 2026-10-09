@@ -79,6 +79,13 @@ describe('routes', () => {
     expect(Array.isArray(r.body.agents)).toBe(true);
     expect((await get('/api/sessions/ghost/live')).status).toBe(404);
   });
+  it('GET /api/sessions/:id/live は、渡された要約器を使う（裏の印と覚えを共有し、同じ要約を二度作らない）', async () => {
+    const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    const asked: string[] = [];
+    app = createApp({ ...deps, digester: { digest: (sid) => { asked.push(sid); return { sessionId: sid, turnStartSeq: 42, intent: null, agents: [] }; } } });
+    expect((await json(await get(`/api/sessions/${id}/live`))).body).toEqual({ sessionId: id, turnStartSeq: 42, intent: null, agents: [] });
+    expect(asked).toEqual([id]);
+  });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
     expect(body.total).toBe(1);
