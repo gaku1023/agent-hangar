@@ -1,5 +1,5 @@
 import { ASIDE_WORD, asideOf } from '../lib/aside.ts';
-import { type LiveStatus, type RunKind, type SessionDto, type SessionSummaryDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
+import { type LiveStatus, type RunKind, type SessionDto, type SessionFilesDto, type SessionSummaryDto, type StepCell, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';
@@ -287,6 +287,127 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
     if (view.body.kind === 'code') { f.added += view.body.text === '' ? 0 : view.body.text.split('\n').length; if (view.head.dim === '新しいファイル') f.created = true; }
   }
   return [...files.values()];
+}
+
+/* ---- 冒頭の 1 枚と見出しの札（セッション画面 C。画面を切り替えるまでは、今の画面は使わない） ---- */
+
+/** 冒頭の 1 枚の「変更したファイル」の 1 行。added と removed は、読み込んだ本文の窓にある分だけ持つ（無ければ null）。 */
+export type LeadFileRow = { path: string; dir: string; base: string; created: boolean; added: number | null; removed: number | null; edits: string; byAgent: string | null; openLabel: string };
+export type LeadCardProps = {
+  label: string;
+  status: { value: 'active' | 'paused' | 'done' | 'archived'; label: string; since: string | null };
+  /** 終了の文。区切りを付けたので止めたときは stopped を出すので null。 */
+  ended: string | null;
+  stopped: string | null;
+  turns: string; tokens: string; cost: string | null;
+  /** 「要約のみ」「トランスクリプトがありません」。 */
+  flags: string[];
+  summary: { body: string; nextSteps: string[]; nextStepsLabel: string; progress: string; sourceLine: string } | null;
+  /** 要約が無いときの文。 */
+  empty: string | null;
+  /** 要約の上の注記（作成中、作成できなかった）。失敗の理由は title で読める。 */
+  notice: { kind: 'pending' | 'failed'; text: string; title: string | null } | null;
+  canRegenerate: boolean; regenerate: string;
+  files: { label: string; count: number; rows: LeadFileRow[]; note: string | null };
+  artifacts: { label: string; count: number; items: ArtifactCardProps[] };
+  pr: { label: string; url: string } | null;
+  note: { text: string; filled: boolean };
+};
+export type LeadInput = {
+  session: SessionDto;
+  now: number;
+  /** 保持期間で本文が消えたとみられる会話。 */
+  gone: boolean;
+  summaryPending: boolean;
+  summaryError: string | null;
+  artifacts: ArtifactCardProps[];
+  /** サーバの変更したファイルの一覧（`GET /api/sessions/:id/files`）。届く前は null。 */
+  files: SessionFilesDto['files'] | null;
+  /** 読み込んだ本文の窓から数えた分（足した行と消した行を持つ）。 */
+  windowFiles: ChangedFileProps[];
+};
+
+const SUMMARY_STATE_KEY = { in_progress: 'session.lead.state.inProgress', done: 'session.lead.state.done', blocked: 'session.lead.state.blocked', abandoned: 'session.lead.state.abandoned' } as const;
+const SUMMARY_SOURCE_KEY = { baseline: 'session.lead.source.baseline', in_session: 'session.lead.source.inSession', post_hoc: 'session.lead.source.postHoc' } as const;
+
+/** 月と日（端末の時刻）。 */
+const monthDay = (ts: number): string => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; };
+
+/** PR の URL の末尾の `/pull/<番号>` から番号を取る。取れなければ「PR」だけ。 */
+function prLabel(url: string, t: Translate): string {
+  const n = /\/pull\/(\d+)/.exec(url)?.[1];
+  return n ? t('session.lead.prNumber', { n }) : t('session.lead.pr');
+}
+
+/**
+ * 変更したファイルの行。
+ * サーバの一覧（索引から。窓には依らない）を並びと件数の正とし、読み込んだ窓にあるファイルにだけ足した行と消した行を付ける。
+ * サーバの一覧が届く前は、窓から数えた分だけを出す。
+ */
+function leadFiles(i: LeadInput, t: Translate): LeadCardProps['files'] {
+  const cwd = i.session.cwd;
+  const byPath = new Map(i.windowFiles.map((f) => [f.path, f]));
+  const split = (path: string) => { const rel = relPath(path, cwd); const cut = rel.lastIndexOf('/') + 1; return { dir: rel.slice(0, cut), base: rel.slice(cut) }; };
+  const row = (path: string, edits: number | null, agentId: string | null): LeadFileRow => {
+    const w = byPath.get(path);
+    return { path, ...split(path), created: w?.created ?? false, added: w ? w.added : null, removed: w ? w.removed : null, edits: edits === null ? '' : t('session.files.edits', { n: edits }), byAgent: agentId === null ? null : t('session.files.byAgent', { id: agentId }), openLabel: t('session.files.open', { path }) };
+  };
+  const rows = i.files ? i.files.map((f) => row(f.path, f.edits, f.agentId)) : i.windowFiles.map((f) => row(f.path, null, null));
+  const count = i.files ? i.files.length : Math.max(i.session.stats.filesChanged, rows.length);
+  return { label: t('session.lead.files'), count, rows, note: rows.some((r) => r.added === null) ? t('session.files.diffPartial') : null };
+}
+
+/**
+ * 終わったセッションの、トランスクリプトの冒頭の 1 枚（設計書 2.3 の C）。
+ * 1 行目にステータスの札と設定した日、終了、ターンとトークンとコスト。続けて要約、次のステップ、変更したファイルとアーティファクトと PR の札、ノート。
+ * 右パネルの要約と変更したファイルの箱が、ここへ移る。
+ */
+export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
+  const s = i.session;
+  const status = s.state?.status ?? 'active';
+  const stats = s.stats;
+  const sum = s.summary;
+  const stopped = s.stoppedByStatus && s.state?.status && s.live === null ? t('session.lead.stopped', { status: STATUS_LABEL[s.state.status] }) : null;
+  const flags = [...(i.gone ? [t('session.lead.summaryOnly')] : []), ...(!s.hasTranscript && !i.gone ? [t('session.lead.noTranscript')] : [])];
+  const sourceParts = sum ? [t(SUMMARY_SOURCE_KEY[sum.source]), summarizerLabel(sum.sourceId, sum.sourceModel)].filter((x): x is string => !!x) : [];
+  return {
+    label: t('session.lead.label'),
+    status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null },
+    ended: stopped ? null : t('session.lead.ended', { when: relativeTime(s.lastActivityAt, i.now) }),
+    stopped,
+    turns: t('session.stats.turns', { n: stats.turns }), tokens: t('session.stats.tokens', { n: tokensLabel(stats.inputTokens + stats.outputTokens) }), cost: stats.costUsd === null ? null : costLabel(stats.costUsd),
+    flags,
+    summary: sum ? {
+      body: sum.body, nextSteps: sum.nextSteps, nextStepsLabel: t('session.lead.nextSteps'),
+      progress: t('session.lead.progress', { state: t(SUMMARY_STATE_KEY[sum.state]), turns: sum.basedOnTurns }),
+      sourceLine: t('session.lead.sourceLine', { parts: sourceParts.join(t('common.list.separator')), when: absoluteTime(sum.updatedAt) }),
+    } : null,
+    empty: sum ? null : t('session.lead.noSummary'),
+    notice: i.summaryPending ? { kind: 'pending', text: t('session.lead.pending'), title: null } : i.summaryError !== null ? { kind: 'failed', text: t('session.lead.failed'), title: i.summaryError } : null,
+    // 本文が無いと作り直しは必ず失敗するので、消えた会話では出さない。
+    canRegenerate: !i.gone, regenerate: t('session.lead.regenerate'),
+    files: leadFiles(i, t),
+    artifacts: { label: t('session.lead.artifacts'), count: i.artifacts.length, items: i.artifacts },
+    pr: stats.prUrl ? { label: prLabel(stats.prUrl, t), url: stats.prUrl } : null,
+    note: { text: s.memo ?? '', filled: (s.memo ?? '').trim() !== '' },
+  };
+}
+
+/** 見出しの名前の横に出す札。ロックと、トランスクリプトが他の PC にあること。どちらも操作できない理由なので、ポップオーバーには隠さない。 */
+export type BadgeProps = { kind: 'lock' | 'stale' | 'remote'; label: string; title: string | null };
+
+/**
+ * 見出しの名前の横の札。
+ * ロックは、他の PC が握っている間の「<PC 名> で実行中」と、応答が途絶えた「<PC 名> から応答がありません」（kind を stale にして色を替える）。
+ * 「トランスクリプトは他の PC にあります」は再開とフォークを押せない理由なので、ロックと同じ扱いにする。
+ */
+export function presentSessionBadges(s: SessionDto, now: number, t: Translate): BadgeProps[] {
+  const badges: BadgeProps[] = [];
+  if (s.lock) {
+    badges.push({ kind: s.lock.stale ? 'stale' : 'lock', label: t(s.lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: s.lock.deviceName }), title: t('session.lock.lastSeen', { when: relativeTime(s.lock.heartbeatAt, now) }) });
+  }
+  if (s.remoteOnly) badges.push({ kind: 'remote', label: t('session.lock.remoteTranscript'), title: null });
+  return badges;
 }
 
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {

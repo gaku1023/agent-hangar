@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentPropsWithRef } from 'react';
+import { useEffect, useRef, useState, type ComponentPropsWithRef, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon.tsx';
 import { useT } from './language.tsx';
 
@@ -49,14 +49,15 @@ type ButtonProps = ComponentPropsWithRef<'button'>;
  * onClick があればボタン、無ければ読むだけの札で、ボタンにしない。
  * expanded を渡すと開閉の札になり、aria-expanded を出して矢印を向ける（閉じていれば右、開いていれば下）。
  * 読み上げの名前は見える文字（名前と件数）のままにし、開閉は aria-expanded に言わせる。
+ * lead を渡すと、アイコンの代わりに名前の前へ置く（サブエージェントの札の、状態の灯）。
  * 数が 0 なら薄く（data-zero）、tone は件数の色（wait は入力待ちの赤茶、cand は確認待ちの紫）、size の sm は小さい札である。
  * Popover の開く元にもなるので、ボタンの属性と ref をそのまま受ける。
  */
-export function CountChip(props: { label: string; count: number; icon?: IconName; tone?: 'default' | 'wait' | 'cand'; size?: 'md' | 'sm'; expanded?: boolean } & Omit<ButtonProps, 'children' | 'className'>) {
-  const { label, count, icon, tone = 'default', size = 'md', expanded, onClick, ...rest } = props;
+export function CountChip(props: { label: string; count: number; icon?: IconName; lead?: ReactNode; tone?: 'default' | 'wait' | 'cand'; size?: 'md' | 'sm'; expanded?: boolean } & Omit<ButtonProps, 'children' | 'className'>) {
+  const { label, count, icon, lead, tone = 'default', size = 'md', expanded, onClick, ...rest } = props;
   const body = (
     <>
-      {icon && <Icon name={icon} />}
+      {lead ?? (icon && <Icon name={icon} />)}
       <span>{label}</span>{' '}
       <b data-count="true">{count}</b>
       {expanded !== undefined && <Icon name={expanded ? 'chevronDown' : 'chevron'} />}

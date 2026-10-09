@@ -111,6 +111,12 @@ describe('CountChip（数の札）', () => {
     expect(chip).toHaveAttribute('data-size', 'sm');
     expect(chip.querySelector('[data-icon="check"]')).not.toBeNull();
   });
+  it('lead を渡すと、アイコンの代わりに名前の前へ置く（状態の灯など）。読み上げの名前は変わらない', () => {
+    render(<CountChip label="サブエージェント" count={2} icon="agent" lead={<span data-testid="lamp" />} onClick={() => {}} />);
+    const chip = screen.getByRole('button', { name: 'サブエージェント 2' });
+    expect(within(chip).getByTestId('lamp')).toBeInTheDocument();
+    expect(chip.querySelector('[data-icon="agent"]')).toBeNull();
+  });
   it('開く元として使える：Popover の渡す属性と ref を受ける', () => {
     const ref = createRef<HTMLButtonElement>();
     render(<CountChip ref={ref} label="サブエージェント" count={2} aria-haspopup="dialog" aria-expanded={false} onClick={() => {}} />);
