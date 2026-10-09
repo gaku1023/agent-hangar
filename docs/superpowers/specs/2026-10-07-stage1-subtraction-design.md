@@ -1,9 +1,12 @@
 # 段 1 引き算
 
 作り替えの全体計画（`2026-10-07-refactor-roadmap-design.md`）の段 1 である。
-全体計画の D4、D6、D7、D10 で消すと決めたものと、使われていない口と、古い版のための分岐を消す。
+全体計画の D4、D7、D10 で消すと決めたものと、使われていない口と、古い版のための分岐を消す。
 後の段で動かすものを先に減らすのが目的で、機能は足さない。
 足すのは、消したものの代わりに要る 2 つ（互換の版番号と、上限による失敗で退く処理）だけである。
+
+Claude Code の設定の同期は、この段では消さない。
+はじめは D6 で消すと決めていたが、2026-10-09 に利用者がその決定を取り消し、段 1 では今の形のまま残して、段 4 で狭く作り直すことにした（理由は全体計画の D6）。
 
 ## 消すもの
 
@@ -11,7 +14,6 @@
 行は各 PR の計画で数え直す。
 
 - **引き継ぎ（takeover）一式**：表を共有テーブルの一覧（`SHARED_TABLES`、`TABLE_PK`）から外し、DTO、ServerEvent、Intent、UI の `NOT_YET_INTENTS` を消す。表そのものは v1 のマイグレーションにあるので、マイグレーションからは消さない。
-- **Claude Code の設定の同期（D6）**：`sync/claudeConfig.ts`、puller の config の経路、Worker の `kind: 'config'` の受け入れ、UI の下見のダイアログと Intent、設定の `syncClaudeConfig`、CLI の teardown の `_config` の退避。
 - **端末側の無料枠の見張りと Worker の台帳（D4）**：`sync/quota.ts`、`server.ts` の `D1_WRITES_*` と `countingClient`、`d1RowsToday`、台数割り、`pausedReason` と `quotaPausedDay`、Worker の `meter.ts` と `meteredBatch`、`meteredRun`。
 - **Provider のインターフェース（D7）**：`provider/types.ts` の `interface Provider` だけを消す。
 - **使われていない口**：Intent `summary.toggle`、`Overlay.notYet`、ServerEvent `sync.applied`、UI の `ApiClient.devices` と `syncStatus`、`deleteFile` と Worker の DELETE、MCP `search_sessions` の `provider` 引数、`parseBackgroundedId`、未参照の CSS クラス。どれも、各 PR で `git grep` をもう一度回して未使用を確かめてから消す。
@@ -26,9 +28,8 @@
 - **「1 回だけ同期」（`PausedPass`）は残す。** 利用者が自分で一時停止したときの「今すぐ同期」でも使っている。
 - **端末の台数（`deviceCount`）は残す。** CLI の `hangar cloud status` が出している。消すのは、台数で割って見積もる所だけである。
 - **使用量の表示（`CloudUsagePoller`、`sync/usage.ts`、Worker の `/usage`、`CLOUD_FREE_LIMITS`）は残す。** 見積もり（`estimate`）が見張りに頼っているので、トークンが無いときの形を「数は不明」に替える。
-- **puller と teardown は、`kind` が transcript でない行を読み飛ばす。** 古い端末が上げた設定の行が R2 と同期の記録に残っているので、分岐ごと消すと、本文の取り込みと teardown がその行で止まる。
-- **控えの世代数（`BACKUP_GENERATIONS`）と `backups/claude-config/` の置き場は残す。** 本文とメモの控え、保持期間の書き込みも使っている。定数は設定の同期のファイルから移す。
-- **パスの検査（`isSafeRelPath`、`MAX_REL_PATH_CHARS`、`encodeHeaderText`）は残す。** 本文の上げ下ろしも使っている。
+- **Claude Code の設定の同期は残す（D6）。** 端末の `sync/claudeConfig.ts` と、それが通る道（puller の config の経路、一時停止のあいだ押し出さない判定の `configSyncActive`、1 巡の `config` の段、画面の下見のダイアログ）、Worker の `kind: 'config'` と `config/` の鍵の受け入れを、見張りや DELETE を消すときに一緒に壊さない。
+- **パスの検査（`isSafeRelPath`、`MAX_REL_PATH_CHARS`、`encodeHeaderText`）は残す。** 本文の上げ下ろしと設定の同期が使っている。
 - **`sessions.provider` の列と一意の制約、`files.kind` の列は残す（D8）。**
 - **知らない列を捨てる仕組み（`sync/apply.ts` の `tableColumns`）は残す（D8 の前提）。**
 - **同梱の CLI は、better-sqlite3 とネイティブモジュールを持ったままにする。** CLI の一部が DB を開くためである。
@@ -59,8 +60,10 @@ UI とサーバと CLI は同じ束で配るので、版番号は要らない。
 
 消したものが残したデータを、マイグレーションと Worker の起動時の処理で 1 回だけ消す。
 
-- 端末：`file_sync` の `kind='config'` の行、`sync_state` の `configPullConfirmed`、`configPending`、`quota:*`、`pausedReason`、設定の同期の読み飛ばしの記録。設定ファイルの `syncClaudeConfig` の鍵は、読むときに落とす。
-- Worker：`files` の `kind='config'` の行（R2 の `config/` は、掃除の処理が拾って消す）、`meta` の `d1_rows:*`。
+- 端末：`sync_state` の `quota:*` と `pausedReason`。
+- Worker：`meta` の `d1_rows:*`。
+
+設定の同期の記録（端末の `file_sync` の `kind='config'` の行と `sync_state` の鍵、Worker の `files` の `kind='config'` の行、R2 の `config/`）は、設定の同期を残すので消さない。
 
 端末のマイグレーションは、段 0 で入れる DB の自動控えの後に入れる。
 
@@ -73,17 +76,19 @@ UI とサーバと CLI は同じ束で配るので、版番号は要らない。
 | 1 | 手元だけの引き算：使われていない口、Provider のインターフェース、引き継ぎ一式、手元だけで閉じる古い版の分岐 | なし |
 | 2 | 同梱：CLI の import を分けてサーバを抱えないようにし、`cloud/` を Worker 1 本のビルドに替え、殻の `HANGAR_CLOUD_DIR` と `_up_/server-dist` を消す | なし |
 | 3 | 互換の版番号：shared の版、要求と応答の見出し、`/health` の版、Worker の下限（はじめは 0）、サーバの Worker への下限 | なし |
-| 4 | 設定の同期を端末の側から消す。読み飛ばしの分岐と、端末の後始末を入れる | 段 0 の DB の自動控えが入っている。写しの DB で 1 日使ってから入れる |
-| 5 | 端末の見張りを消し、上限による失敗で退く処理を入れる。使用量の見積もりを「数は不明」に替える | 段 0 の DB の自動控えが入っている。写しの DB で 1 日使ってから入れる |
-| 6 | Worker の側：端末の下限を 1 に上げ、台帳と `meteredBatch` を素の書き込みに戻し、`kind=config` と旧端末のための経路と DELETE を消し、上限の失敗を 429 で返し、Worker の後始末を入れる。端末の側の古い Worker のための分岐（`/usage` の 404）も消す | 同期に参加しているすべての端末が PR 3 以降の版になっている。Worker の配備は、利用者に聞いてから行う |
+| 4 | 申し送りの 2 つ：古い版の DB を作る試験の補助を 1 つに寄せ、`hangar setup cloud` と `hangar join` が DB を処理の先頭で開くようにする（控えが取れなければ、外に何も作らずに止まる） | 段 0 の DB の自動控えが入っている |
+| 5 | 端末の見張りを消し、上限による失敗で退く処理を入れる。使用量の見積もりを「数は不明」に替える | 段 0 の DB の自動控えと PR 4（試験の補助）が入っている。写しの DB で 1 日使ってから入れる |
+| 6 | Worker の側：端末の下限を 1 に上げ、台帳と `meteredBatch` を素の書き込みに戻し、旧端末のための経路と DELETE を消し、上限の失敗を 429 で返し、Worker の後始末（台帳）を入れる。端末の側の古い Worker のための分岐（`/usage` の 404）も消す。設定の同期が使う `kind=config` と `config/` の鍵の受け入れは残す | 同期に参加しているすべての端末が PR 3 以降の版になっている。Worker の配備は、利用者に聞いてから行う |
 | 7 | 殻とサーバ：殻が既存のサーバを採る前に版を比べ、古いサーバのための分岐（`ready` の無いサーバ）と、古い殻のための分岐を消す | PR 3 |
 
 PR 1、2、3 は互いに独立しているので、並行して進めてよい。
-PR 4 と 5 は同期に触るので、別の `HANGAR_HOME` に DB の写しを置いて 1 日使ってから入れる。
+PR 5 は同期に触るので、別の `HANGAR_HOME` に DB の写しを置いて 1 日使ってから入れる。
+PR 4 は同期の振る舞いもスキーマも変えない（`setup cloud` と `join` が DB を開く時機を前へ動かすだけである）ので、1 日の試しは要らない。
 
 ## 範囲外
 
 - Paid の月の予算で止める仕組み（段 5）。
+- Claude Code の設定の同期を狭く作り直すこと（全体計画の段 4、D6）。
 - error 1027 を実際に起こして形を確かめること。
 - 永続する識別子の改名（D8）。
 
