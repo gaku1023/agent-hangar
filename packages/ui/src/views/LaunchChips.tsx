@@ -12,6 +12,9 @@ import { Popover } from './primitives/Popover.tsx';
 /** 札の列が持つ値。空は「既定」で、起動の params に含めない。addDirs は 1 行に 1 つの文字で持つ（起動ダイアログと同じ）。 */
 export type LaunchChipValues = { model: string; effort: string; permissionMode: string; worktree: string; name: string; addDirs: string };
 
+/** アカウントの札の選択肢。color は色の点、disabled は選べないもので、理由は tag に書く（未ログインなど）。 */
+export type LaunchAccountOption = { value: string; label: string; color?: string; disabled?: boolean; tag?: string };
+
 const MODELS = ['', 'fable', 'opus', 'sonnet', 'haiku'];
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 /** 「＋」から足せる札。並びはここの順で、足した順ではない。 */
@@ -21,10 +24,10 @@ type Extra = (typeof EXTRAS)[number];
 const dirCount = (text: string) => text.split('\n').filter((d) => d.trim()).length;
 
 /** 札と、押すと開く小さい面。面の見出しは札の名前で、開く元は SettingChip である。 */
-function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; showName?: boolean; width?: number; defaultOpen?: boolean; children: (close: () => void) => ReactNode }) {
+function ChipPopover(props: { name: string; value: string; tone?: 'default' | 'muted' | 'danger'; icon?: IconName; dot?: string; showName?: boolean; width?: number; defaultOpen?: boolean; children: (close: () => void) => ReactNode }) {
   return (
     <Popover label={props.name} width={props.width ?? 240} align="start" className="launch-pop" defaultOpen={props.defaultOpen}
-      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} {...p} />}>
+      face={(p) => <SettingChip name={props.name} value={props.value} showName={props.showName ?? true} tone={props.tone} icon={props.icon} dot={props.dot} {...p} />}>
       {({ close }) => (
         <>
           <div className="pick-head">{props.name}</div>
@@ -46,7 +49,10 @@ function TextEditor(props: { name: string; placeholder: string; value: string; o
   return <input className={`input launch-input${props.mono ? ' mono' : ''}`} data-autofocus="true" aria-label={props.name} placeholder={props.placeholder} value={props.value} onChange={(e) => props.onChange(e.target.value)} onKeyDown={onKeyDown} />;
 }
 
-/** モデルの一覧と、一覧に無い名前の入力欄。一覧にある値のときは欄を空にしておく。 */
+/**
+ * モデルの一覧と、一覧に無い名前の入力欄。一覧にある値のときは欄を空にしておく。
+ * 欄は打つたびに値を渡す（Enter を押さずに外を押して閉じても残る）。Enter は閉じるだけである。
+ */
 function ModelEditor(props: { value: string; onChange: (v: string) => void; close: () => void }) {
   const t = useT();
   const listed = MODELS.includes(props.value);
@@ -56,13 +62,12 @@ function ModelEditor(props: { value: string; onChange: (v: string) => void; clos
     if (e.key !== 'Enter' || isComposing(e)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (other.trim()) props.onChange(other.trim());
     props.close();
   };
   return (
     <>
       <PickList label={t('launch.chip.model')} value={listed ? props.value : ''} items={items} onPick={(v) => { props.onChange(v); props.close(); }} />
-      <input className="input launch-input mono" aria-label={t('launch.edit.modelOther')} placeholder={t('launch.edit.modelOther')} value={other} onChange={(e) => setOther(e.target.value)} onKeyDown={onKeyDown} />
+      <input className="input launch-input mono" aria-label={t('launch.edit.modelOther')} placeholder={t('launch.edit.modelOther')} value={other} onChange={(e) => { setOther(e.target.value); props.onChange(e.target.value); }} onKeyDown={onKeyDown} />
     </>
   );
 }
@@ -80,7 +85,7 @@ export function LaunchChips(props: {
   values: LaunchChipValues;
   onChange: (patch: Partial<LaunchChipValues>) => void;
   lead?: ReactNode;
-  account?: { value: string; options: { value: string; label: string }[]; onChange: (value: string) => void };
+  account?: { value: string; options: LaunchAccountOption[]; onChange: (value: string) => void };
   /** 前回の権限モード。一覧のその行に「前回」を添える。 */
   previousPermission?: string;
 }) {
@@ -98,7 +103,8 @@ export function LaunchChips(props: {
   const def = t('launch.value.default');
   const bypass = values.permissionMode === PERMISSION_BYPASS;
   const account = props.account;
-  const accountLabel = account ? account.options.find((o) => o.value === account.value)?.label ?? account.value : '';
+  const accountNow = account?.options.find((o) => o.value === account.value);
+  const accountLabel = account ? accountNow?.label ?? account.value : '';
   const names: Record<Extra, string> = { name: t('launch.chip.name'), addDirs: t('launch.chip.addDirs') };
   const extraItems = EXTRAS.filter((k) => !added.has(k)).map((k) => ({ key: k, label: names[k], onSelect: () => add(k) }));
 
@@ -106,8 +112,12 @@ export function LaunchChips(props: {
     <div className="launch-chips" role="group" aria-label={t('launch.chips.label')}>
       {props.lead}
       {account && (
-        <ChipPopover name={t('launch.chip.account')} value={accountLabel} showName={false}>
-          {(close) => <PickList label={t('launch.chip.account')} value={account.value} items={account.options.map((o) => ({ value: o.value, label: o.label }))} onPick={(v) => { account.onChange(v); close(); }} />}
+        <ChipPopover name={t('launch.chip.account')} value={accountLabel} dot={accountNow?.color} showName={false} width={260}>
+          {(close) => (
+            <PickList label={t('launch.chip.account')} value={account.value}
+              items={account.options.map((o) => ({ value: o.value, label: o.label, disabled: o.disabled, tag: o.tag, lead: o.color ? <span className="st-dot" style={{ color: o.color }} aria-hidden="true" /> : undefined }))}
+              onPick={(v) => { account.onChange(v); close(); }} />
+          )}
         </ChipPopover>
       )}
       <ChipPopover name={t('launch.chip.model')} value={values.model || def} tone={values.model ? 'default' : 'muted'}>

@@ -72,14 +72,16 @@ export function CountChip(props: { label: string; count: number; icon?: IconName
  * 設定の札。値を札に見せ、押すと小さい一覧が開く（新しいセッションの札の列）。
  * 開く先は呼んだ側が決める（Popover、Listbox の面）。ここはボタンの属性と ref を受けるだけの顔である。
  * name は項目の名前で、読み上げの名前は「名前、値」にする。showName なら名前も札に見せる（「モデル opus」）。
+ * dot は色の点（アカウントの色）で、値の前に置く。
  * tone の muted は既定のまま（値が薄い）、danger は赤い縁（Bypass permissions）。開いている間（aria-expanded）は青い縁である。
  */
-export function SettingChip(props: { name: string; value: string; icon?: IconName; showName?: boolean; tone?: 'default' | 'muted' | 'danger' } & Omit<ButtonProps, 'children' | 'className' | 'aria-label'>) {
-  const { name, value, icon, showName, tone = 'default', ...rest } = props;
+export function SettingChip(props: { name: string; value: string; icon?: IconName; dot?: string; showName?: boolean; tone?: 'default' | 'muted' | 'danger' } & Omit<ButtonProps, 'children' | 'className' | 'aria-label'>) {
+  const { name, value, icon, dot, showName, tone = 'default', ...rest } = props;
   const t = useT();
   return (
     <button type="button" {...rest} className="set-chip" data-tone={tone} aria-label={t('common.chip.nameValue', { name, value })}>
       {icon && <Icon name={icon} />}
+      {dot && <span className="st-dot" style={{ color: dot }} aria-hidden="true" />}
       {showName && <span className="set-chip-name">{name}</span>}
       <span className="set-chip-value">{value}</span>
       <Icon name="chevronDown" />

@@ -46,9 +46,10 @@ function Marked(props: { text: string; query: string }) {
  * 候補が開いている間だけ、↑↓・Enter・Tab・Esc をここで受けて外へ伝えない。
  * 閉じている間の打鍵は外（起動ダイアログ）へそのまま流す。Enter の改行と ⌘Enter の起動を変えないためである。
  * 貼り付け、ドロップ、添付ボタンで受けたファイルは置き場へ送り、欄の下に札で並べる（パスを文に足すのは起動のとき）。
+ * hero は新しいセッションのダイアログの主役の欄で、高さを 150px から始め、ダイアログを開いたときの焦点を受ける（data-autofocus）。placeholder は空のときの案内である。
  * 候補はダイアログの外（body）に描く。ダイアログは backdrop-filter を持ち、中の fixed はダイアログ基準になるからである（Listbox と同じ）。
  */
-export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void }) {
+export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void; hero?: boolean; placeholder?: string }) {
   const assist = useContext(PromptAssistContext);
   const box = useRef<HTMLDivElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -368,14 +369,14 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
   const listId = `${props.id}-suggest`;
   let index = 0;
   return (
-    <div className="pc">
+    <div className="pc" data-hero={props.hero ? 'true' : undefined}>
       <div ref={box} className="pc-box" data-drop={dropping ? 'true' : undefined}
         onDragOver={(e) => { if (!e.dataTransfer?.types?.includes?.('Files')) return; e.preventDefault(); setDropping(true); }}
         // 欄の中の子（textarea とボタン）の間を渡るときも dragleave は来る。行き先が欄の中なら、色は消さない。
         onDragLeave={(e) => { if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return; setDropping(false); }}
         onDrop={(e) => { setDropping(false); const files = [...(e.dataTransfer?.files ?? [])]; if (!files.length) return; e.preventDefault(); send(files); }}>
         <textarea
-          ref={ta} id={props.id} className="pc-input" rows={4} value={props.value}
+          ref={ta} id={props.id} className="pc-input" rows={4} value={props.value} placeholder={props.placeholder} data-autofocus={props.hero ? 'true' : undefined}
           // role は textbox のままにする。combobox にすると、複数行の入力として読まれなくなり、既存の画面の探し方（textbox）も変わる。
           // 候補が開いていることは aria-controls と aria-activedescendant で伝える。
           aria-autocomplete="list" aria-controls={open ? listId : undefined}
