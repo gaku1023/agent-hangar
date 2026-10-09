@@ -2299,6 +2299,17 @@ WKWebView の `allowsBackForwardNavigationGestures` も、ブラウザの手勢�
 開いて出るもの（パレット、ダイアログ、通知、メニュー）は、白 88% 以上の濃さにする（`--glass-bg-palette`、`--glass-bg-dialog`、`--glass-bg-toast`、`--glass-bg-menu`）。薄いと、裏の一覧の文字や墨の端末が透けて中身が濁る。
 角は部品が 8px（`--r`）、面が 14px（`--r-lg`）、浮くガラスが 16px（`--r-xl`、ダイアログは 18px）、ボタンと「探す・移動」の入口とヘッダーは錠剤（`--r-pill`）にする。
 
+読むための小さな面（ポップオーバー）は `views/primitives/Popover.tsx` の `Popover` を通す。
+(i) の詳細、ノートの札、数の札から開く一覧が使う（段 4 の部品で、画面へ付けるのは各画面の PR）。
+面は `.menu-pop` をそのまま使い（ガラスはそこにだけ書く）、非モーダルの dialog として開く。
+開くと面（中に `data-autofocus` があればそこ）へ焦点が入り、Esc は閉じて焦点を開いた元へ戻して外へは伝えない。
+外側を押すと閉じ、焦点が行き場を失ったときだけ開いた元へ戻す。Tab で中の端を越えたら閉じ、開いた元から次へ進ませる。
+`InfoPopover` は見出しの右端の (i) と、名前と値の行の面で、名前は辞書の「詳細」である。
+数の札（`CountChip`、`views/primitives/Chip.tsx`）は、名前と件数を 1 枚に畳む。押せない札は読むだけの `span`、押せる札はボタンで、`expanded` を渡すと `aria-expanded` と矢印を出す。
+設定の札（`SettingChip`）は、値を見せ、押すと小さい一覧が開く顔で、読み上げの名前は「名前、値」である。開いた先は呼んだ側が決める（`Popover` か `Listbox`）。
+どちらの札も、ボタンの属性と ref をそのまま受けるので、`Popover` の開く元になれる。
+部品だけを撮る頁は `packages/ui/preview/primitives.html` で、vite の dev サーバから開く。本番の bundle には入らない。
+
 ダイアログはどれも共通の殻（`views/primitives/Dialog.tsx`）に載せる。
 殻は見出し、中身、下端のボタンの 3 段で、器の高さは窓から上下 32px ずつを引いた分までにする。
 溢れた中身だけがスクロールし、見出しと下端のボタンはいつも見える。
