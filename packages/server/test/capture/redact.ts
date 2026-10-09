@@ -129,11 +129,36 @@ function redactThinking(r: Rec): Rec {
   return { ...r, message: { ...r.message, content } };
 }
 
+/** 数の値のときだけ to にする。数でない値や無い鍵は触らない。 */
+function setIfNumber(r: Rec, keys: readonly string[], to: number): Rec {
+  const out: Rec = { ...r };
+  for (const k of keys) if (typeof out[k] === 'number') out[k] = to;
+  return out;
+}
+
+/** cost-state の行の、累計の時間の鍵。 */
+const COST_STATE_DURATIONS = ['totalAPIDuration', 'totalAPIDurationWithoutRetries', 'totalToolDuration', 'totalDuration'] as const;
+
+/**
+ * cost-state の行の費用（全体とモデルごと）と累計の時間を決まった値にする。実際の使用量だからである。
+ * トークンの数、行の数、始めた時刻は残す。形の照合に使い、使用量の額を表さないためである。
+ */
+function redactCostState(r: Rec): Rec {
+  if (r.type !== 'cost-state') return r;
+  let out = setIfNumber(r, ['totalCostUSD'], PLACEHOLDER.costUsd);
+  out = setIfNumber(out, COST_STATE_DURATIONS, PLACEHOLDER.durationMs);
+  if (isRec(out.modelUsage)) {
+    out.modelUsage = Object.fromEntries(Object.entries(out.modelUsage).map(([m, u]) => [m, isRec(u) ? setIfNumber(u, ['costUSD'], PLACEHOLDER.costUsd) : u]));
+  }
+  return out;
+}
+
 /**
  * トランスクリプトの 1 行を伏せる。
  * 添付は、積んだ指示のほかは種類だけを残す。添付には利用者の CLAUDE.md、スキルの一覧、MCP の道具、環境が入るためである。
  * 利用者の発言でない user の行（isMeta）も、本文を伏せる。
  * どの欄の文字列でも、system-reminder の塊は中身を伏せる（isMeta でない所にも文脈が差し込まれる）。考えの塊も中身を伏せる。
+ * cost-state の行は、費用と累計の時間を決まった値にする。
  */
 export function redactTranscriptLine(rec: unknown, pairs: Pairs): unknown {
   if (!isRec(rec)) return rec;
@@ -141,15 +166,19 @@ export function redactTranscriptLine(rec: unknown, pairs: Pairs): unknown {
   if (r.type === 'attachment' && isRec(r.attachment) && !KEEP_ATTACHMENTS.has(String(r.attachment.type))) r = { ...r, attachment: { type: r.attachment.type } };
   if (r.type === 'user' && r.isMeta === true && isRec(r.message)) r = { ...r, message: { ...r.message, content: '(redacted)' } };
   r = redactThinking(r);
+  r = redactCostState(r);
   return redactDeep(mapStrings(r, (t) => t.replace(REMINDER, REMINDER_REDACTED)), pairs);
 }
 
-/** statusline の JSON を伏せる。使用率、戻る時刻、費用は実際の使用量なので、決まった値にする。戻る時刻の単位は保つ。 */
+/**
+ * statusline の JSON を伏せる。使用率、戻る時刻、費用、累計の時間は実際の使用量なので、決まった値にする。戻る時刻の単位は保つ。
+ * 累計の時間は cost-state の行と同じ値なので、片方だけ伏せても意味が無い。両方を伏せる。
+ */
 export function redactStatusline(rec: unknown, pairs: Pairs): unknown {
   const r = redactDeep(rec, pairs);
   if (!isRec(r)) return r;
   const out: Rec = { ...r };
-  if (isRec(out.cost) && typeof out.cost.total_cost_usd === 'number') out.cost = { ...out.cost, total_cost_usd: PLACEHOLDER.costUsd };
+  if (isRec(out.cost)) out.cost = setIfNumber(setIfNumber(out.cost, ['total_cost_usd'], PLACEHOLDER.costUsd), ['total_duration_ms', 'total_api_duration_ms'], PLACEHOLDER.durationMs);
   if (isRec(out.rate_limits)) {
     const rl: Rec = { ...out.rate_limits };
     for (const [k, w] of Object.entries(rl)) {

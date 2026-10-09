@@ -29,6 +29,8 @@ export const PLACEHOLDER = {
   pidDomain: 'fixture',
   subscriptionType: 'max',
   costUsd: 0.01,
+  /** 累計の時間（ミリ秒）。statusline の cost と、トランスクリプトの cost-state の行の時間を、これにする。 */
+  durationMs: 1000,
   /** 窓ごとの使用率と戻る時刻（秒）。知らない窓は 1% と 1,800,000,000 秒にする。 */
   usedPercent: { five_hour: 12, seven_day: 3 } as Record<string, number>,
   resetsAtSec: { five_hour: 1_800_000_000, seven_day: 1_800_500_000 } as Record<string, number>,

@@ -103,10 +103,37 @@ describe('redactTranscriptLine', () => {
   });
 });
 
+describe('redactTranscriptLine の cost-state', () => {
+  it('費用（全体とモデルごと）と累計の時間を決まった値にする。トークンの数、行の数、始めた時刻は残す', () => {
+    const rec = {
+      type: 'cost-state', sessionId: 's', totalCostUSD: 0.42, totalAPIDuration: 30123, totalAPIDurationWithoutRetries: 29876, totalToolDuration: 20456,
+      totalLinesAdded: 3, totalLinesRemoved: 1, totalDuration: 61234, startTime: 1_760_000_000_000,
+      modelUsage: { 'model-a': { inputTokens: 10, outputTokens: 20, cacheReadInputTokens: 30, costUSD: 0.4 }, 'model-b': { inputTokens: 1, costUSD: 0.02 } },
+      hasUnknownModelCost: false,
+    };
+    expect(redactTranscriptLine(rec, P)).toEqual({
+      type: 'cost-state', sessionId: 's', totalCostUSD: 0.01, totalAPIDuration: 1000, totalAPIDurationWithoutRetries: 1000, totalToolDuration: 1000,
+      totalLinesAdded: 3, totalLinesRemoved: 1, totalDuration: 1000, startTime: 1_760_000_000_000,
+      modelUsage: { 'model-a': { inputTokens: 10, outputTokens: 20, cacheReadInputTokens: 30, costUSD: 0.01 }, 'model-b': { inputTokens: 1, costUSD: 0.01 } },
+      hasUnknownModelCost: false,
+    });
+  });
+  it('数でない値や無い鍵は触らない。cost-state でない行の同じ名前の鍵も触らない', () => {
+    expect(redactTranscriptLine({ type: 'cost-state', totalCostUSD: null, modelUsage: { m: { costUSD: 'x' } }, totalDuration: '5' }, P)).toEqual({ type: 'cost-state', totalCostUSD: null, modelUsage: { m: { costUSD: 'x' } }, totalDuration: '5' });
+    expect(redactTranscriptLine({ type: 'cost-state', sessionId: 's' }, P)).toEqual({ type: 'cost-state', sessionId: 's' });
+    expect(redactTranscriptLine({ type: 'system', totalCostUSD: 0.42, totalDuration: 5 }, P)).toEqual({ type: 'system', totalCostUSD: 0.42, totalDuration: 5 });
+  });
+});
+
 describe('redactStatusline', () => {
   it('使用率、戻る時刻、費用を決まった値にする。ミリ秒の戻る時刻はミリ秒のまま', () => {
-    const raw = { session_id: 's', cost: { total_cost_usd: 0.37, total_duration_ms: 5 }, rate_limits: { five_hour: { used_percentage: 47, resets_at: 1_760_000_000 }, seven_day: { used_percentage: 7, resets_at: 1_760_500_000_000 } }, cwd: S.tmpReal };
-    expect(redactStatusline(raw, P)).toEqual({ session_id: 's', cost: { total_cost_usd: 0.01, total_duration_ms: 5 }, rate_limits: { five_hour: { used_percentage: 12, resets_at: 1_800_000_000 }, seven_day: { used_percentage: 3, resets_at: 1_800_500_000_000 } }, cwd: '/tmp/hangar-fixture' });
+    const raw = { session_id: 's', cost: { total_cost_usd: 0.37, total_lines_added: 4 }, rate_limits: { five_hour: { used_percentage: 47, resets_at: 1_760_000_000 }, seven_day: { used_percentage: 7, resets_at: 1_760_500_000_000 } }, cwd: S.tmpReal };
+    expect(redactStatusline(raw, P)).toEqual({ session_id: 's', cost: { total_cost_usd: 0.01, total_lines_added: 4 }, rate_limits: { five_hour: { used_percentage: 12, resets_at: 1_800_000_000 }, seven_day: { used_percentage: 3, resets_at: 1_800_500_000_000 } }, cwd: '/tmp/hangar-fixture' });
+  });
+  it('費用の累計の時間（total_duration_ms、total_api_duration_ms）を決まった時間にする。行の数は残す。数でない値は触らない', () => {
+    const raw = { cost: { total_cost_usd: 0.37, total_duration_ms: 81234, total_api_duration_ms: 40321, total_lines_added: 2, total_lines_removed: 1 } };
+    expect(redactStatusline(raw, P)).toEqual({ cost: { total_cost_usd: 0.01, total_duration_ms: 1000, total_api_duration_ms: 1000, total_lines_added: 2, total_lines_removed: 1 } });
+    expect(redactStatusline({ cost: { total_duration_ms: 'x' } }, P)).toEqual({ cost: { total_duration_ms: 'x' } });
   });
 });
 
