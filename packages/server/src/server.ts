@@ -264,30 +264,38 @@ export function pruneBackupFiles(root: string, kind: string, keep: number): numb
 }
 
 /**
- * セッションの名前とメモの控え（backups/memos）を保つ日数。これより古い控えを刈る。
- * 件数では刈らない。1 回の pull で何件ぶつかっても、いま取った控えがその場で消えないようにするためである。
+ * セッションの名前とメモの控え（backups/memos）のうち、日数に依らず残す件数。新しい方から数える。
+ * 控えは、負けた名前とメモの唯一の置き場である。日数だけで刈ると、しばらく使わなかった PC を起こした時点で消える。
  */
-export const MEMO_BACKUP_KEEP_DAYS = 30;
+export const MEMO_BACKUP_KEEP_COUNT = 200;
 
 /**
- * 更新時刻が `maxAgeMs` より古い控えを消す。消した数を返す。件数は見ない。
+ * 件数（MEMO_BACKUP_KEEP_COUNT）を超えた控えを保つ日数。超えた分のうち、これより古いものだけを刈る。
+ * 1 回の pull で何件ぶつかっても、いま取った控えがその場で消えることはない。
+ */
+export const MEMO_BACKUP_KEEP_DAYS = 180;
+
+/**
+ * 更新時刻が `maxAgeMs` より古い控えを消す。消した数を返す。
+ * `keepNewest` を渡すと、新しい方からその件数は、どれだけ古くても消さない。
  * 入れ物の扱い（リンクは断る、中のディレクトリとリンクには触らない）は `pruneBackupFiles` と同じである。
  * 更新時刻が読めないものは消さない。いつの控えか分からないものを、古いと決めつけない。
  */
-export function pruneBackupFilesByAge(root: string, kind: string, maxAgeMs: number, now: number = Date.now()): number {
+export function pruneBackupFilesByAge(root: string, kind: string, maxAgeMs: number, now: number = Date.now(), keepNewest = 0): number {
   const listed = listBackupFiles(root, kind);
   if (!listed) return 0;
+  const files = listed.files.sort((a, b) => b.mtime - a.mtime || (a.n < b.n ? 1 : a.n > b.n ? -1 : 0)).slice(Math.max(0, keepNewest));
   let removed = 0;
-  for (const { n, mtime } of listed.files) {
+  for (const { n, mtime } of files) {
     if (mtime === 0 || now - mtime <= maxAgeMs) continue;
     try { fs.rmSync(path.join(listed.dir, n), { force: true }); removed++; } catch { /* 消せなくても控えは残る。 */ }
   }
   return removed;
 }
 
-/** セッションの名前とメモの控えを、保つ日数で刈る。`home` は hangar の home である。 */
+/** セッションの名前とメモの控えを刈る。新しい方から 200 件は残し、超えた分のうち 180 日より古いものだけを消す。`home` は hangar の home である。 */
 export function pruneMemoBackups(home: string, now: number = Date.now()): number {
-  return pruneBackupFilesByAge(backupsRoot(home), 'memos', MEMO_BACKUP_KEEP_DAYS * 86_400_000, now);
+  return pruneBackupFilesByAge(backupsRoot(home), 'memos', MEMO_BACKUP_KEEP_DAYS * 86_400_000, now, MEMO_BACKUP_KEEP_COUNT);
 }
 
 /** 控えの入れ物の中のファイルと、その更新時刻。入れ物が無ければ null。 */
@@ -464,7 +472,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
    *
    * 残す数は設定の控えと同じ `BACKUP_GENERATIONS`（20）にする。
    * 覚える数が 1 つで済み、「控えは直近 20 回ぶん」という説明が同じになる。
-   * セッションの名前とメモの控えだけは、件数ではなく日数で刈る（`pruneMemos`、`MEMO_BACKUP_KEEP_DAYS`）。
+   * セッションの名前とメモの控えだけは、件数と日数の両方で刈る（`pruneMemos`。新しい方から `MEMO_BACKUP_KEEP_COUNT` 件は残し、超えた分のうち `MEMO_BACKUP_KEEP_DAYS` 日より古いものだけを消す）。
    * 本文の控えはセッション 1 本ぶんの大きさがあるので、これ以上は溜めない。
    *
    * 刈るのは控えを取った後だけなので、「控えを取れなかったときは書き戻さない」という決まりには触らない。

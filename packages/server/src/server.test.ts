@@ -23,7 +23,7 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, MEMO_BACKUP_KEEP_DAYS, pruneBackupFiles, pruneBackupFilesByAge, pruneMemoBackups, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS, pruneBackupFiles, pruneBackupFilesByAge, pruneMemoBackups, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { FakeCloudClient } from '../test/fake-cloud.ts';
 import { FakeTimers } from '../test/fake-timers.ts';
@@ -1266,12 +1266,12 @@ describe('控えの世代を刈る', () => {
     expect(() => pruneBackupFiles(path.join(home, 'backups'), 'a/b', 1)).toThrow(/形が不正/);
   });
 
-  it('起動のときに、本文の控えを上限まで刈り、メモの控えは日数で刈る', async () => {
+  it('起動のときに、本文の控えを上限まで刈り、メモの控えは件数を超えた古いものだけ刈る', async () => {
     const tr = path.join(home, 'backups', 'transcripts');
     const memos = path.join(home, 'backups', 'memos');
     const trNames = seed(tr, BACKUP_GENERATIONS + 7, '.jsonl');
-    // 新しい控えは、世代の上限より多くても残る。保つ日数より古い控えだけが消える。
-    const fresh = seedAged(memos, BACKUP_GENERATIONS + 4, 'new', Date.now() - 86_400_000);
+    // 件数の内なら、どれだけ古くても残る。件数を超えた分のうち、保つ日数より古い控えだけが消える。
+    const fresh = seedAged(memos, MEMO_BACKUP_KEEP_COUNT, 'new', Date.now() - 86_400_000);
     seedAged(memos, 3, 'old', Date.now() - (MEMO_BACKUP_KEEP_DAYS + 1) * 86_400_000);
     const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
     try {
@@ -1304,11 +1304,30 @@ describe('メモの控えを日数で刈る', () => {
   const NOW = 1_800_000_000_000;
   const DAY = 86_400_000;
 
-  it('保つ日数は 30 日である', () => {
-    expect(MEMO_BACKUP_KEEP_DAYS).toBe(30);
+  it('新しい方から 200 件は日数に依らず残し、それを超えた分は 180 日より古いものだけ刈る', () => {
+    expect(MEMO_BACKUP_KEEP_COUNT).toBe(200);
+    expect(MEMO_BACKUP_KEEP_DAYS).toBe(180);
   });
 
-  it('保つ日数より古い控えだけを消す。件数は見ない', () => {
+  it('しばらく使わなかった PC でも、件数の内なら古い控えを消さない', () => {
+    const dir = path.join(home, 'backups', 'memos');
+    const old = seedAged(dir, MEMO_BACKUP_KEEP_COUNT, 'old', NOW - 400 * DAY);
+    expect(pruneMemoBackups(home, NOW)).toBe(0);
+    expect(fs.readdirSync(dir).sort()).toEqual(old.sort());
+  });
+
+  it('件数を超えた分のうち、日数より古いものだけを消す', () => {
+    const dir = path.join(home, 'backups', 'memos');
+    // 新しい 150 件、少し古い 100 件（日数の内）、とても古い 20 件。
+    const fresh = seedAged(dir, 150, 'new', NOW - DAY);
+    const mid = seedAged(dir, 100, 'mid', NOW - 100 * DAY);
+    seedAged(dir, 20, 'old', NOW - 181 * DAY);
+    expect(pruneMemoBackups(home, NOW)).toBe(20);
+    expect(fs.readdirSync(dir).sort()).toEqual([...fresh, ...mid].sort());
+    expect(pruneMemoBackups(home, NOW)).toBe(0);
+  });
+
+  it('件数は見ない刈り方（keepNewest なし）では、日数より古い控えだけを消す', () => {
     const dir = path.join(home, 'backups', 'memos');
     const fresh = seedAged(dir, 50, 'new', NOW - 29 * DAY);
     const edge = seedAged(dir, 1, 'edge', NOW - 30 * DAY);
