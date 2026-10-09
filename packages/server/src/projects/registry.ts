@@ -165,6 +165,17 @@ export function resolveProject(db: Db, deviceId: string, projectId: string, acti
       if (root) upsertShared(db, 'project_roots', { ...root, path: dir, resolved: 1 }, deviceId);
       else upsertShared(db, 'project_roots', { id: newId(), project_id: projectId, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
       assignSessions(db, deviceId);
+      // クイックセッション用のプロジェクトの置き場は、SessionDto の fromScratch（作業の場所がその下にあるか）を決める。
+      // 置き場が動くと、行は変わらないのに fromScratch が変わるセッションが出るので、名指しして配り直してもらう。
+      // 当たるのは、この端末のセッションのうち、作業の場所が前の置き場か新しい置き場の下にあるものだけである。
+      if (project.is_scratch === 1) {
+        const roots = [root?.path, dir].filter((p): p is string => typeof p === 'string').map((p) => p.normalize('NFC'));
+        const mine = db.prepare('select id, cwd from sessions where home_device = ? and deleted_at is null').all(deviceId) as { id: string; cwd: string }[];
+        for (const s of mine) {
+          const cwd = s.cwd.normalize('NFC');
+          if (roots.some((r) => isStrictlyUnder(cwd, r))) touchRow(db, 'sessions', s.id);
+        }
+      }
       return;
     }
     case 'archive':
