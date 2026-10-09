@@ -1,4 +1,5 @@
-import { asideOf, type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type UsageDto, usageAt } from '@agent-hangar/shared';
+import { asideOf } from '../lib/aside.ts';
+import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type UsageDto, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';

@@ -1,7 +1,7 @@
 import { isParked, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { CandidateSource, DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
-import { parseProcStart } from '../runs/procs.ts';
+import { parseStartTime as parseProcStart } from '../platform/proc.ts';
 import { toStateDto } from '../sessions/states.ts';
 import type { Db } from './open.ts';
 

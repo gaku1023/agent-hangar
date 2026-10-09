@@ -1,4 +1,4 @@
-import type { SearchFilter, StatusFilter } from './intent.ts';
+import type { SearchFilter, StatusFilter } from '@agent-hangar/shared';
 
 /**
  * Sessions 画面の検索欄のトークン（★）。
