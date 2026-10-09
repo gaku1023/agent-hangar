@@ -1,4 +1,4 @@
-import { compatState, type CompatContract, type CompatDriftDto, type CompatDto, type CompatState, type CompatSummaryDto } from '@agent-hangar/shared';
+import { compatState, type CompatContract, type CompatDriftDto, type CompatDto, type CompatState, type CompatSummaryDto, type ReadinessDto } from '@agent-hangar/shared';
 import { absoluteTime } from './format.ts';
 
 /**
@@ -124,4 +124,12 @@ export function presentCompat(summary: CompatSummaryDto, full: CompatDto | null,
     rows: full.drifts.map((d) => ({ key: `${d.contract}:${d.value}`, contract: CONTRACT_LABEL[d.contract], value: d.value, version: d.version ?? UNKNOWN, firstSeen: seenLabel(d.firstSeenAt), stop: stopOf(d)?.short ?? null })),
     report: compatReport(summary, full.drifts, hangarVersion),
   };
+}
+
+/**
+ * 準備の確かめの答えから compat を取り出す。
+ * 古いサーバの上に新しい UI を重ねたとき、答えには compat が無い。型は必ずあると言うので、無いことを読むのはここだけにする。
+ */
+export function readinessCompat(r: ReadinessDto): CompatSummaryDto | undefined {
+  return (r as Partial<ReadinessDto>).compat;
 }

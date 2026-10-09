@@ -1,11 +1,11 @@
-import type { IndexProgressDto, ReadinessDto, ShellHookStateDto, StatuslineStatusDto, SummarizerTestDto, SyncSkippedDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, ShellHookStateDto, StatuslineStatusDto, SummarizerTestDto, SyncSkippedDto, SyncStateKind, TerminalApp, UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } from './format.ts';
 import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
-import { presentCompat, type CompatProps } from './compat.ts';
+import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
 import { toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 
@@ -137,7 +137,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     node: r ? toolLine('node', r.tools.node) : null,
   };
   // compat の無い古いサーバの答えでは、互換の節を「確かめています」のままにする。
-  const compatSummary = r ? (r as Partial<ReadinessDto>).compat : undefined;
+  const compatSummary = r ? readinessCompat(r) : undefined;
   const hard = (l: VerifyLine | null) => (l && !l.ok && !l.soft ? 1 : 0);
   const todo = {
     must: hard(verify.workspace) + hard(verify.tmux) + hard(verify.claude) + hard(verify.node),

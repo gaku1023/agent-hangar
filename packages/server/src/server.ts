@@ -804,7 +804,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   // Claude Code のアカウント。置き場ごとのログインを切り替えるだけで、認証の中身は持たない。
   const accountStore = new AccountStore({ home, primaryDir: claudeDir });
   const accountAuth = new AccountAuth({ claudeBin: () => claudeBinOf(settings), compat: compatLog });
-  // 2 つ目以降のアカウントの置き場に、Claude Code が新しい項目を足していないかを見る。起動のときと、確認リストを開いたときに見る。
+  // 2 つ目以降のアカウントの置き場に、Claude Code が新しい項目を足していないかを見る。起動のときと、準備の確かめ（GET /api/readiness）か GET /api/compat を読むたびに見る。
   const claudeDirWatch = new ClaudeDirWatch({ dirs: () => accountStore.list().filter((a) => a.id !== PRIMARY_ACCOUNT_ID).map((a) => a.dir), sink: compatLog });
   claudeDirWatch.check();
   const runs = new RunManager({

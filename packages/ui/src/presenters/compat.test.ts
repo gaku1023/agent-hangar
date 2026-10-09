@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CompatDriftDto, CompatDto, CompatSummaryDto } from '@agent-hangar/shared';
-import { compatReport, CONTRACT_LABEL, presentCompat, seenLabel, stopOf } from './compat.ts';
+import type { CompatDriftDto, CompatDto, CompatSummaryDto, ReadinessDto } from '@agent-hangar/shared';
+import { compatReport, CONTRACT_LABEL, presentCompat, readinessCompat, seenLabel, stopOf } from './compat.ts';
 
 // 時刻は端末の時刻帯で組む。表は端末の時刻で書くので、どの時刻帯でも同じ文字になる。
 const at = (d: number, h: number, m: number) => new Date(2026, 9, d, h, m).getTime();
@@ -130,5 +130,14 @@ describe('compatReport', () => {
     expect(lines.slice(0, 2)).toEqual(['Claude Code との互換のずれ', '手元の版 不明、確かめた版 2.1.292']);
     expect(lines[5]).toBe('| トランスクリプト | `type=a\\|b c` | 2.1.300 | 1 | 2026-10-07 14:02 | 2026-10-07 14:09 | なし |');
     expect(lines[6]).toBe('| CLI | `` subcommand.added=x`y `` | 不明 | 1 | 2026-10-07 14:02 | 2026-10-07 14:09 | なし |');
+  });
+});
+
+describe('準備の確かめの compat（readinessCompat）', () => {
+  it('compat があればそれを返し、compat の無い古いサーバの答えでは undefined を返す', () => {
+    const r = { compat: SUM } as ReadinessDto;
+    expect(readinessCompat(r)).toBe(SUM);
+    const { compat: _drop, ...older } = r;
+    expect(readinessCompat(older as ReadinessDto)).toBeUndefined();
   });
 });

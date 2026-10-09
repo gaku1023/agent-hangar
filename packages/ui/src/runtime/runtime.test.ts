@@ -1640,6 +1640,49 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(rt.getStore().readiness).toEqual(older);
     expect(rt.getStore().compat).toBeNull();
   });
+  it('ずれ有りの答えのずれの中身が遅れて着いても、その後に届いた「ずれ無し」の答えの後では store に入れない', async () => {
+    const DETAIL = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry' as const, value: 'status=compacting', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };
+    const withDrifts = { ...READY, compat: { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 1 } };
+    let resolveCompat: (v: typeof DETAIL) => void = () => {};
+    const compat = vi.fn(() => new Promise<typeof DETAIL>((r) => { resolveCompat = r; }));
+    const answers = [withDrifts, READY];
+    const { rt } = harness({ readiness: vi.fn(async () => answers.shift()!), compat });
+    rt.start();
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    expect(compat).toHaveBeenCalledTimes(1);
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    expect(rt.getStore().readiness).toEqual(READY);
+    resolveCompat(DETAIL);
+    await flush();
+    expect(rt.getStore().readiness).toEqual(READY);
+    expect(rt.getStore().compat).toBeNull();
+  });
+  it('準備の確かめの答えが順番を違えて着いたら、新しい要求の答えだけを取る', async () => {
+    const DETAIL = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry' as const, value: 'status=compacting', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };
+    const withDrifts = { ...READY, compat: { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 1 } };
+    const resolvers: ((v: typeof READY) => void)[] = [];
+    const readiness = vi.fn(() => new Promise<typeof READY>((r) => { resolvers.push(r); }));
+    const compat = vi.fn(async () => DETAIL);
+    const { rt } = harness({ readiness, compat });
+    rt.start();
+    // 古い要求（ずれ無し）と、新しい要求（ずれ有り）。新しい方が先に着く。
+    rt.emit({ type: 'readiness.check' });
+    rt.emit({ type: 'readiness.check' });
+    expect(readiness).toHaveBeenCalledTimes(2);
+    resolvers[1]!(withDrifts);
+    await flush();
+    await flush();
+    expect(rt.getStore().readiness).toEqual(withDrifts);
+    expect(rt.getStore().compat).toEqual(DETAIL);
+    resolvers[0]!(READY);
+    await flush();
+    await flush();
+    expect(rt.getStore().readiness).toEqual(withDrifts);
+    expect(rt.getStore().compat).toEqual(DETAIL);
+    expect(compat).toHaveBeenCalledTimes(1);
+  });
   it('参加トークンは消える時刻と一緒に置く', async () => {
     const { rt } = harness({}, { now: () => 1_000 });
     rt.start();

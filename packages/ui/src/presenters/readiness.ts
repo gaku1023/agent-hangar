@@ -1,5 +1,5 @@
 import type { CompatDto, CompatState, ReadinessDto, ToolCheckDto } from '@agent-hangar/shared';
-import { presentCompat, type CompatProps } from './compat.ts';
+import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
 
 /**
  * 欄の下の 1 行の検証（設定の B1）。
@@ -95,7 +95,7 @@ export function presentChecks(r: ReadinessDto, compat: CompatDto | null = null, 
   ];
   const items = rows.map((i): CheckItem => ({ ...i, tone: i.ok ? 'ok' : i.soft ? 'soft' : 'ng', spoken: i.ok ? '準備できています' : 'まだです' }));
   // 古いサーバは compat を返さない。そのときは 6 行目を出さない。
-  const summary = (r as Partial<ReadinessDto>).compat;
+  const summary = readinessCompat(r);
   if (summary) {
     const c = presentCompat(summary, compat, hangarVersion);
     items.push({ key: 'compat', label: 'Claude Code との互換', ok: c.state !== 'drift', soft: c.state === 'drift', tone: COMPAT_TONE[c.state], spoken: COMPAT_SPOKEN[c.state], path: c.note, detail: c.lead, command: null, action: null, compat: c });
