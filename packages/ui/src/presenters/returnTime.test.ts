@@ -6,7 +6,7 @@ import { initialStore, type Store } from '../store/store.ts';
 import { presentHome } from './home.ts';
 import { presentPause } from './pause.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel, returnOnRowLabel } from './row.ts';
-import { returnKey } from './sections.ts';
+import { returnKey } from './row.ts';
 
 /** 戻る時刻（HH:MM）つきの Paused。2026-10-05（月）の 12:00 を今にする。 */
 const at = (h: number, min = 0, d = 5) => new Date(2026, 9, d, h, min).getTime();

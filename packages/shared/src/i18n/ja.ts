@@ -20,6 +20,7 @@ import { pauseJa } from './ja/pause.ts';
 import { platformJa } from './ja/platform.ts';
 import { projectJa } from './ja/project.ts';
 import { projectsJa } from './ja/projects.ts';
+import { projectScreenJa } from './ja/projectScreen.ts';
 import { promoteJa } from './ja/promote.ts';
 import { promptJa } from './ja/prompt.ts';
 import { retentionJa } from './ja/retention.ts';
@@ -60,6 +61,7 @@ export const ja: Dictionary = {
   ...platformJa,
   ...projectJa,
   ...projectsJa,
+  ...projectScreenJa,
   ...promoteJa,
   ...promptJa,
   ...retentionJa,

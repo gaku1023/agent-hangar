@@ -42,6 +42,7 @@ type Rows = { [K in Intent['type']]?: (intent: Extract<Intent, { type: K }>, sto
 export const intentTable = {
   // 画面の正は後から届く project.upsert なので、返り値は Store に入れない。
   'project.setStatus': (i) => call((api) => api.setProjectStatus(i.id, i.status)),
+  'project.rename': (i) => call((api) => api.renameProject(i.id, i.name)),
   'project.openEditor': (i) => call((api) => api.projectOpenEditor(i.id)),
   'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: (r) => (r.fellBack ? FELL_BACK : null) }),
 

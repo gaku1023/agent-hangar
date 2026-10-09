@@ -6,7 +6,6 @@ import type { ArtifactCardProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { Header } from './Header.tsx';
 import { MemoEditor } from './MemoEditor.tsx';
-import { ProjectScreen } from './ProjectScreen.tsx';
 import { TodoList } from './TodoList.tsx';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { syncFixture } from '../test/syncProps.ts';
@@ -168,51 +167,51 @@ describe('TodoList', () => {
 });
 
 describe('MemoEditor の空の状態', () => {
-  it('空のメモは 1 行に畳み、押すと欄が開く', () => {
+  it('空のノートは 1 行に畳み、押すと欄が開く', () => {
     wrap(<MemoEditor projectId="p1" markdown="" updatedAt={0} />);
-    expect(screen.queryByLabelText('メモ')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'メモを書く' }));
-    expect(screen.getByLabelText('メモ')).toBeInTheDocument();
+    expect(screen.queryByLabelText('ノート')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
+    expect(screen.getByLabelText('ノート')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
   });
   it('書き始めたあと空に戻しても、欄は開いたままにする', () => {
     wrap(<MemoEditor projectId="p1" markdown="" updatedAt={0} />);
-    fireEvent.click(screen.getByRole('button', { name: 'メモを書く' }));
-    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: 'a' } });
-    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: '' } });
-    expect(screen.getByLabelText('メモ')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
+    fireEvent.change(screen.getByLabelText('ノート'), { target: { value: 'a' } });
+    fireEvent.change(screen.getByLabelText('ノート'), { target: { value: '' } });
+    expect(screen.getByLabelText('ノート')).toBeInTheDocument();
   });
-  it('中身のあるメモは最初から開いている', () => {
+  it('中身のあるノートは最初から開いている', () => {
     wrap(<MemoEditor projectId="p1" markdown="# a" updatedAt={1} />);
-    expect(screen.getByLabelText('メモ')).toHaveValue('# a');
+    expect(screen.getByLabelText('ノート')).toHaveValue('# a');
   });
 });
 
 describe('MemoEditor', () => {
   it('保存すると memo.save を出す', () => {
     const onIntent = wrap(<MemoEditor projectId="p1" markdown="# a" updatedAt={1} />);
-    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: '# b' } });
+    fireEvent.change(screen.getByLabelText('ノート'), { target: { value: '# b' } });
     fireEvent.click(screen.getByText('保存'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'memo.save', projectId: 'p1', markdown: '# b' });
   });
   it('下書きが無ければ外部の更新をそのまま取り込む', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# a" updatedAt={1} /></IntentRoot>);
     rerender(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# 外" updatedAt={2} /></IntentRoot>);
-    expect((screen.getByLabelText('メモ') as HTMLTextAreaElement).value).toBe('# 外');
+    expect((screen.getByLabelText('ノート') as HTMLTextAreaElement).value).toBe('# 外');
     expect(screen.queryByText('外部で更新されました')).toBeNull();
   });
   it('下書きがあれば捨てずに知らせ、読み込むで差し替える', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# a" updatedAt={1} /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('メモ'), { target: { value: '# 書きかけ' } });
+    fireEvent.change(screen.getByLabelText('ノート'), { target: { value: '# 書きかけ' } });
     rerender(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# 外" updatedAt={2} /></IntentRoot>);
-    expect((screen.getByLabelText('メモ') as HTMLTextAreaElement).value).toBe('# 書きかけ');
+    expect((screen.getByLabelText('ノート') as HTMLTextAreaElement).value).toBe('# 書きかけ');
     expect(screen.getByText('外部で更新されました')).toBeTruthy();
-    fireEvent.click(screen.getByText('読み込む'));
-    expect((screen.getByLabelText('メモ') as HTMLTextAreaElement).value).toBe('# 外');
+    fireEvent.click(screen.getByText('再読み込みする'));
+    expect((screen.getByLabelText('ノート') as HTMLTextAreaElement).value).toBe('# 外');
   });
   it('自分の保存が戻ってきただけなら外部の更新と言わない', () => {
     const { rerender } = render(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# a" updatedAt={1} /></IntentRoot>);
-    const area = screen.getByLabelText('メモ') as HTMLTextAreaElement;
+    const area = screen.getByLabelText('ノート') as HTMLTextAreaElement;
     fireEvent.change(area, { target: { value: '# b' } });
     fireEvent.click(screen.getByText('保存'));
     // 保存の直後に書き足す。ここで自分の保存がサーバから戻ってくる。
@@ -247,22 +246,5 @@ describe('ArtifactCards', () => {
     wrap(<ArtifactCards projectId={null} artifacts={[]} canAdd={false} />);
     expect(screen.queryByLabelText('アーティファクトの URL')).toBeNull();
     expect(screen.getByText('アーティファクトはまだありません')).toBeTruthy();
-  });
-});
-
-describe('ProjectScreen の右レール', () => {
-  const props = { id: 'p1', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' as const } }, path: '/w/alpha', resolved: true, status: 'active' as const, items: [], pager: null, notFound: false, isScratch: false, todos: [{ id: 't1', text: '買う', done: false, candidate: null }], memo: { markdown: '# a', updatedAt: 1 }, artifacts: [art('a1')] };
-  it('TODO とメモとアーティファクトを並べ、折りたためる', () => {
-    wrap(<ProjectScreen {...props} />);
-    expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
-    expect(screen.getByLabelText('メモ')).toBeTruthy();
-    expect(screen.getByText('題名 a1')).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('右の欄を閉じる'));
-    expect(screen.queryByLabelText('TODO を追加')).toBeNull();
-  });
-  it('スクラッチのプロジェクトは操作を絞る', () => {
-    wrap(<ProjectScreen {...props} isScratch />);
-    expect(screen.getByText('スクラッチで始める')).toBeTruthy();
-    expect(screen.queryByText('新しいセッション')).toBeNull();
   });
 });

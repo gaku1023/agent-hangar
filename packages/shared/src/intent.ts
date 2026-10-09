@@ -36,15 +36,13 @@ export type Intent =
   | { type: 'search.page'; page: number }
   // 検索の結果の末尾の「さらに N 件を読み込む」。いま持っている行の続きを読み足す（置き換えない）。
   | { type: 'search.more' }
-  // プロジェクト画面の一覧のページを移る。key は 'project:<id>'。
-  | { type: 'list.page'; key: string; page: number }
   // 1 ページの件数を変える（25・50・100・200）。どの一覧も同じ件数を使う。セッション一覧は見ていた先頭の行を含むページに留まる。
   | { type: 'list.pageSize'; size: number }
   // 「条件をクリア」。語と絞り込みをまとめて外す。
   | { type: 'search.clear' }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
-  // プロジェクト画面の節を広げる・畳む（P3）。末尾の Archived の行だけで、Done は畳まない。
-  | { type: 'project.section.toggle'; projectId: ProjectId; section: 'archived' }
+  // プロジェクトの名前を変える。見出しの (i) のポップオーバーから出す。
+  | { type: 'project.rename'; id: ProjectId; name: string }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
   // 起動と作成のダイアログの「ほかの場所を選ぶ…」。殻の中だけで出す。
   | { type: 'folder.pick' }
