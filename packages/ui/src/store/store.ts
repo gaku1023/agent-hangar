@@ -1,5 +1,5 @@
 import { asideOf, liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
-import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto } from '@agent-hangar/shared';
+import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -31,6 +31,9 @@ export type Store = {
   retention: RetentionDto | null; retentionPreview: RetentionPreviewDto | null;
   // 準備の確かめ。設定画面と空のホームで取りに行く値なので、未取得は null である。
   readiness: ReadinessDto | null;
+  // Claude Code との互換のずれの中身（GET /api/compat）。準備の確かめでずれが 1 件以上あるときだけ取りに行く。
+  // 未取得と、ずれが無いときは null である。
+  compat: CompatDto | null;
   // 参加トークンが消える時刻。画面が残りの秒数を数える。
   joinTokenExpiresAt: number | null;
   // デスクトップの殻の中で動いているか。殻があれば、ログを開くと再起動を殻に頼める。
@@ -49,7 +52,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null,
     retention: null, retentionPreview: null,
-    readiness: null, joinTokenExpiresAt: null, desktop: false, accounts: null,
+    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null,
   };
 }
 

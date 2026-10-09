@@ -1044,7 +1044,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       // 道具の claude の行は準備の確かめが自分の覚えで読むので、同じ claude でもそれぞれ 1 度は起こす。
       compatLocalVersion: refreshClaudeVersion,
     }),
-    // Claude Code との互換の一覧。確認リストの 6 行目を開いたときに読む。
+    // Claude Code との互換の一覧。準備の確かめでずれがあるとき、画面が続けて読む。
     compat: async () => {
       claudeDirWatch.check();
       return { verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: await refreshClaudeVersion(), drifts: compatLog.list() };

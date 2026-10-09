@@ -1605,6 +1605,41 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(readiness).toHaveBeenCalledTimes(1);
     expect(rt.getStore().readiness).toEqual(READY);
   });
+  it('互換にずれがあれば、準備の確かめに続けてずれの中身を取る。ずれが無くなれば中身を捨てる', async () => {
+    const DETAIL = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry' as const, value: 'status=compacting', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };
+    let driftCount = 1;
+    const readiness = vi.fn(async () => ({ ...READY, compat: { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount } }));
+    const compat = vi.fn(async () => DETAIL);
+    const { rt } = harness({ readiness, compat });
+    rt.start();
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    await flush();
+    expect(compat).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().compat).toEqual(DETAIL);
+    driftCount = 0;
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    await flush();
+    expect(compat).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().compat).toBeNull();
+  });
+  it('ずれが無い答えと、compat の無い古いサーバの答えでは、ずれの中身を取りに行かない', async () => {
+    const compat = vi.fn(async () => ({ verifiedVersion: '2.1.292', localVersion: null, drifts: [] }));
+    const { compat: _drop, ...older } = READY;
+    let answer: unknown = READY;
+    const { rt } = harness({ readiness: vi.fn(async () => answer as never), compat });
+    rt.start();
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    answer = older;
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    await flush();
+    expect(compat).not.toHaveBeenCalled();
+    expect(rt.getStore().readiness).toEqual(older);
+    expect(rt.getStore().compat).toBeNull();
+  });
   it('参加トークンは消える時刻と一緒に置く', async () => {
     const { rt } = harness({}, { now: () => 1_000 });
     rt.start();
