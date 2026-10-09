@@ -37,7 +37,7 @@ export function d1LimitOf(message: string): 'd1-read' | 'd1-write' | null {
 }
 
 /**
- * 2xx でない応答が、上限による失敗かを読む。上限でなければ null を返す（例外を投げない）。
+ * 状態番号が 400 以上の応答が、上限による失敗かを読む。上限でなければ null を返す（例外を投げない）。
  *
  * 見分けるのは 3 つである。
  * 1. Worker の 429 と CloudLimitBody（段 1 の PR 6 から）。

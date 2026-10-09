@@ -207,7 +207,7 @@ export class FakeCloudClient implements CloudClient {
     this.noteD1((this.store.files.has(key) ? D1_ROWS.fileDelete : 0) + D1_ROWS.fileInsert + D1_ROWS.deviceTouch + D1_ROWS.note);
   }
 
-  /** 書いた行数を台帳へ積む。書き込みのある経路は必ずここを通す（通さないと見張りが甘くなる）。 */
+  /** 書いた行数を台帳へ積む。書き込みのある経路は必ずここを通す（Worker の台帳の写しなので、通さないと実物と数がずれる）。 */
   private noteD1(rows: number): void {
     const day = this.day();
     this.store.d1Rows.set(day, (this.store.d1Rows.get(day) ?? 0) + rows);

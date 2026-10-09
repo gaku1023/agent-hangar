@@ -1127,7 +1127,7 @@ describe('一時停止は外と話さない', () => {
   });
 
   it('一時停止のあいだは、起動のファイルの取り込みも含めて 1 度も叩かない', async () => {
-    // 「一時停止」は外と話すのをやめることである。無料枠 80% で自分から止まったときも同じである。
+    // 「一時停止」は外と話すのをやめることである。Cloudflare の上限で退いている間も同じである。
     // 止まっているあいだに R2 へ出入りする経路が残っていると、課金されない約束が崩れる。
     const rec = await recorder();
     saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
