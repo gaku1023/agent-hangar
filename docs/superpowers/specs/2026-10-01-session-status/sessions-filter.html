@@ -114,12 +114,12 @@ const ROWS = [
   { n: 'セッションの状態の協議', pj: 'agent-hangar', sub: '絞り込みの案を試作している', t: 'いま', live: 'busy', st: 'active' },
   { n: 'Worker の同期の再開', pj: 'agent-hangar', sub: 'CPU の数字を見て同期を戻す', t: '1 日前', st: 'paused', when: '今日', due: 1 },
   { n: 'NFD のフォルダ名', pj: 'agent-hangar', sub: 'normalizeDir で直して push', t: '2 時間前', cand: 'Done にする？' },
-  { n: '動画の書き出しを速くする', pj: 'my-voice-box', sub: 'ffmpeg の並列を 4 に', t: '5 時間前', cand: 'Paused · 明日？', hitw: '動画' },
-  { n: 'E2E の待ち時間', pj: 'seller-data-hub', sub: '待ちを 30 秒から 10 秒へ', t: '6 時間前', cand: 'Done にする？' },
+  { n: '動画の書き出しを速くする', pj: 'video-captions', sub: 'ffmpeg の並列を 4 に', t: '5 時間前', cand: 'Paused · 明日？', hitw: '動画' },
+  { n: 'E2E の待ち時間', pj: 'sales-dashboard', sub: '待ちを 30 秒から 10 秒へ', t: '6 時間前', cand: 'Done にする？' },
   { n: 'Backspace で戻る動きを止める', pj: 'agent-hangar', sub: '直したが手で確かめていない', t: '8 時間前' },
-  { n: 'パルクールの動画チャンネル研究', pj: '金剛山プロジェクト', sub: 'Windows で続きをやる', t: '2 日前', st: 'paused', when: '金曜', hitw: '動画' },
+  { n: '料理の動画チャンネルの下調べ', pj: 'みかん畑プロジェクト', sub: 'Windows で続きをやる', t: '2 日前', st: 'paused', when: '金曜', hitw: '動画' },
   { n: 'レスポンシブの監査', pj: 'agent-hangar', sub: '崩れを拾い直した', t: '12 時間前', st: 'done' },
-  { n: '動画の字幕を自動で付ける', pj: 'my-voice-box', sub: 'whisper の large で試した', t: '9 日前', st: 'done', hitw: '動画' },
+  { n: '動画の字幕を自動で付ける', pj: 'video-captions', sub: 'whisper の large で試した', t: '9 日前', st: 'done', hitw: '動画' },
 ];
 const hl = (s, w) => w && s.includes(w) ? s.replace(w, `<span class="hit">${w}</span>`) : s;
 function row(r, o = {}) {

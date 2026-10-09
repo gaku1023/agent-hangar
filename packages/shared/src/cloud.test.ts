@@ -146,7 +146,7 @@ describe('見出しに載せる文字列の符号化', () => {
   // 非 ASCII を渡すと Node の fetch は送る前に TypeError を投げるので、Worker 側では直せない。
   const cases = [
     'projects/-x/u1.jsonl',
-    'projects/-Users-satog-作業/メモ 1.jsonl',
+    'projects/-Users-me-作業/メモ 1.jsonl',
     'skills/日本語 メモ/SKILL.md',
     'a%2Fb',
     'a%',

@@ -271,13 +271,13 @@ describe('HttpCloudClient', () => {
 
   it('日本語と空白を含む path を見出しに載せられる形で送る', async () => {
     // 符号化しないと undici が送る前に TypeError を投げる。Worker では直せない。
-    const path = 'projects/-Users-satog-作業/メモ 1.jsonl';
+    const path = 'projects/-Users-me-作業/メモ 1.jsonl';
     const { fetch, calls } = fakeFetch(() => json({ seq: 1 }, 201));
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     expect(await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path, kind: 'transcript', sha256: 'a'.repeat(64), size: 3, mtime: 5, encrypted: true }, Readable.from([Buffer.from('abc')]))).toEqual({ seq: 1 });
     const wire = headersOf(calls[0]!)['x-hangar-path']!;
     expect(isHeaderSafe(wire)).toBe(true);
-    expect(wire).toBe('projects/-Users-satog-%E4%BD%9C%E6%A5%AD/%E3%83%A1%E3%83%A2%201.jsonl');
+    expect(wire).toBe('projects/-Users-me-%E4%BD%9C%E6%A5%AD/%E3%83%A1%E3%83%A2%201.jsonl');
     // Worker は同じ物差しで復号する。
     expect(decodeHeaderText(wire)).toBe(path);
   });

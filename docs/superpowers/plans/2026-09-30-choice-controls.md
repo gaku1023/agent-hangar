@@ -14,7 +14,7 @@ Listbox の並べ方、一致の塗り、置き場所の計算は、DOM を持�
 
 ## Global Constraints
 
-- 作業はすべて worktree `/Users/satog/workspace/agent-hangar-choice-controls`（ブランチ `choice-controls`）で行う。元の `/Users/satog/workspace/agent-hangar` には触らない。
+- 作業はすべて worktree `/Users/me/workspace/agent-hangar-choice-controls`（ブランチ `choice-controls`）で行う。元の `/Users/me/workspace/agent-hangar` には触らない。
 - 依存を足さない。見た目のない部品集（React Aria、Radix）は入れない。
 - UI は常にライト。ダークモードの指定を書かない。
 - `backdrop-filter` は `glass.test.ts` の `GLASS` にある選択子の規則にだけ書き、必ず `-webkit-backdrop-filter` を併記する。
@@ -22,7 +22,7 @@ Listbox の並べ方、一致の塗り、置き場所の計算は、DOM を持�
 - View は `lucide-react` を直接 import せず、`views/primitives/Icon.tsx` の名前だけを使う。
 - コードのコメントは日本語で、周りのコードと同じ密度と口調（「〜する」「〜ため」）にする。
 - 日本語の変換を確定する Enter は `views/ime.ts` の `isComposing` で見分け、決定や送信に使わない。
-- テストの実行は `/Users/satog/workspace/agent-hangar-choice-controls` で `npx vitest run <path>`。型は `npm run typecheck -w packages/ui`。
+- テストの実行は `/Users/me/workspace/agent-hangar-choice-controls` で `npx vitest run <path>`。型は `npm run typecheck -w packages/ui`。
 - コミットの末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` を付ける。
 
 ## Review Focus

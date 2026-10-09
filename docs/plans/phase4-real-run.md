@@ -50,9 +50,9 @@ $ wrangler d1 create hangar-dev
 D1 hangar-dev を作りました
 $ wrangler r2 bucket create hangar-dev-files
 R2 hangar-dev-files を作りました
-$ wrangler deploy --config /Users/satog/.hangar-dev-a/cloud/wrangler.jsonc
+$ wrangler deploy --config /Users/me/.hangar-dev-a/cloud/wrangler.jsonc
 デプロイしました: https://hangar-dev.<アカウント>.workers.dev
-$ wrangler secret put JOIN_SECRET_HASH --config /Users/satog/.hangar-dev-a/cloud/wrangler.jsonc
+$ wrangler secret put JOIN_SECRET_HASH --config /Users/me/.hangar-dev-a/cloud/wrangler.jsonc
 Worker の反映を待っています（最大 2 分）
 Worker への反映を待っています
 ```
@@ -262,9 +262,9 @@ $ ps -axo pid=,ppid=,command= | grep index.ts
 数えは包みのスクリプトで取った。
 
 ```
-2026-09-19T07:41:25Z  CLAUDE_CONFIG_DIR=/Users/satog/.hangar-dev-claude-a  ... -r <uuid> ...
-2026-09-19T07:42:50Z  CLAUDE_CONFIG_DIR=/Users/satog/.hangar-dev-claude-b  ... -r <uuid> ...
-2026-09-19T07:43:44Z  CLAUDE_CONFIG_DIR=/Users/satog/.hangar-dev-claude-b  ... -r <uuid> ...
+2026-09-19T07:41:25Z  CLAUDE_CONFIG_DIR=/Users/me/.hangar-dev-claude-a  ... -r <uuid> ...
+2026-09-19T07:42:50Z  CLAUDE_CONFIG_DIR=/Users/me/.hangar-dev-claude-b  ... -r <uuid> ...
+2026-09-19T07:43:44Z  CLAUDE_CONFIG_DIR=/Users/me/.hangar-dev-claude-b  ... -r <uuid> ...
 ```
 
 3 回とも `Not logged in` のまま立ち上がった。
@@ -428,23 +428,23 @@ $ kill 42646 42647
 ```
 --- ~/.claude ---
 2,3c2,3
-< drwxr-xr-x   40 satog  staff     1280 Sep 19 19:10 .
-< drwxr-xr-x+ 163 satog  staff     5216 Sep 19 18:52 ..
+< drwxr-xr-x   40 me     staff     1280 Sep 19 19:10 .
+< drwxr-xr-x+ 163 me     staff     5216 Sep 19 18:52 ..
 ---
-> drwxr-xr-x   40 satog  staff     1280 Sep 19 19:52 .
-> drwxr-xr-x+ 163 satog  staff     5216 Sep 19 19:55 ..
+> drwxr-xr-x   40 me     staff     1280 Sep 19 19:52 .
+> drwxr-xr-x+ 163 me     staff     5216 Sep 19 19:55 ..
 30,31c30,31
-< -rw-------    1 satog  staff      275 Sep 19 19:10 policy-limits.json
-< -rw-------    1 satog  staff      223 Sep 19 19:10 policy-limits.json.stamp.json
+< -rw-------    1 me     staff      275 Sep 19 19:10 policy-limits.json
+< -rw-------    1 me     staff      223 Sep 19 19:10 policy-limits.json.stamp.json
 ---
-> -rw-------    1 satog  staff      275 Sep 19 19:52 policy-limits.json
-> -rw-------    1 satog  staff      223 Sep 19 19:52 policy-limits.json.stamp.json
+> -rw-------    1 me     staff      275 Sep 19 19:52 policy-limits.json
+> -rw-------    1 me     staff      223 Sep 19 19:52 policy-limits.json.stamp.json
 
 --- ~/.agent-hangar ---
 3c3
-< drwxr-xr-x+ 163 satog  staff       5216 Sep 19 18:52 ..
+< drwxr-xr-x+ 163 me     staff       5216 Sep 19 18:52 ..
 ---
-> drwxr-xr-x+ 163 satog  staff       5216 Sep 19 19:55 ..
+> drwxr-xr-x+ 163 me     staff       5216 Sep 19 19:55 ..
 ```
 
 `policy-limits.json` と その `.stamp.json` が動いたのは 19:52:50 である。
@@ -494,8 +494,8 @@ R2 には本文 2 件と設定 10 件の計 12 件があった。
 動かしたままにしてあった 2 本を、包みの PID にだけ `kill` を送って止めた。
 
 ```
-$ ps -p 79660 -Eww -o command=   （HANGAR_HOME=/Users/satog/.hangar-dev-a を確かめた）
-$ ps -p 85222 -Eww -o command=   （HANGAR_HOME=/Users/satog/.hangar-dev-b を確かめた）
+$ ps -p 79660 -Eww -o command=   （HANGAR_HOME=/Users/me/.hangar-dev-a を確かめた）
+$ ps -p 85222 -Eww -o command=   （HANGAR_HOME=/Users/me/.hangar-dev-b を確かめた）
 $ kill 79660 85222
 （79660、79667、85222、85230 の 4 つとも消えた）
 ```
@@ -531,14 +531,14 @@ Upload complete.
 最後の 1 回の末尾はこうである。
 
 ```
-$ wrangler r2 bucket delete hangar-dev-files --config /Users/satog/.hangar-dev-a/cloud/wrangler.jsonc
+$ wrangler r2 bucket delete hangar-dev-files --config /Users/me/.hangar-dev-a/cloud/wrangler.jsonc
 完了: R2 bucket hangar-dev-files
-$ wrangler delete --name hangar-dev --config /Users/satog/.hangar-dev-a/cloud/wrangler.jsonc
+$ wrangler delete --name hangar-dev --config /Users/me/.hangar-dev-a/cloud/wrangler.jsonc
 完了: Worker hangar-dev
-$ wrangler d1 delete hangar-dev -y --config /Users/satog/.hangar-dev-a/cloud/wrangler.jsonc
+$ wrangler d1 delete hangar-dev -y --config /Users/me/.hangar-dev-a/cloud/wrangler.jsonc
 完了: D1 hangar-dev
 cloud.json を消しました。他の端末の cloud.json は手で消してください。
-手元へ降ろした本文は /Users/satog/.hangar-dev-a/remote に残っています。
+手元へ降ろした本文は /Users/me/.hangar-dev-a/remote に残っています。
 ```
 
 ### 保留にしていた 4 つの答え
@@ -622,10 +622,10 @@ $ curl -s -o /dev/null -w '%{http_code}' https://hangar-dev.<アカウント>.wo
 手元の試し用の入れ物 5 つも消した。
 
 ```
-$ rm -rf /Users/satog/.hangar-dev-a /Users/satog/.hangar-dev-b \
-         /Users/satog/.hangar-dev-claude-a /Users/satog/.hangar-dev-claude-b /Users/satog/.hangar-dev-ws
+$ rm -rf /Users/me/.hangar-dev-a /Users/me/.hangar-dev-b \
+         /Users/me/.hangar-dev-claude-a /Users/me/.hangar-dev-claude-b /Users/me/.hangar-dev-ws
 $ ls -la ~ | grep hangar
-drwx------   14 satog  staff  448 Sep 19 04:44 .agent-hangar
+drwx------   14 me     staff  448 Sep 19 04:44 .agent-hangar
 ```
 
 ### 実物の `~/.claude` と `~/.agent-hangar`
@@ -635,23 +635,23 @@ drwx------   14 satog  staff  448 Sep 19 04:44 .agent-hangar
 ```
 --- ~/.claude ---
 2,3c2,3
-< drwxr-xr-x   40 satog  staff     1280 Sep 19 20:52 .
-< drwxr-xr-x+ 163 satog  staff     5216 Sep 19 20:54 ..
+< drwxr-xr-x   40 me     staff     1280 Sep 19 20:52 .
+< drwxr-xr-x+ 163 me     staff     5216 Sep 19 20:54 ..
 ---
-> drwxr-xr-x   40 satog  staff     1280 Sep 19 21:10 .
-> drwxr-xr-x+ 158 satog  staff     5056 Sep 19 21:21 ..
+> drwxr-xr-x   40 me     staff     1280 Sep 19 21:10 .
+> drwxr-xr-x+ 158 me     staff     5056 Sep 19 21:21 ..
 30,31c30,31
-< -rw-------    1 satog  staff      275 Sep 19 20:52 policy-limits.json
-< -rw-------    1 satog  staff      223 Sep 19 20:52 policy-limits.json.stamp.json
+< -rw-------    1 me     staff      275 Sep 19 20:52 policy-limits.json
+< -rw-------    1 me     staff      223 Sep 19 20:52 policy-limits.json.stamp.json
 ---
-> -rw-------    1 satog  staff      275 Sep 19 21:10 policy-limits.json
-> -rw-------    1 satog  staff      223 Sep 19 21:10 policy-limits.json.stamp.json
+> -rw-------    1 me     staff      275 Sep 19 21:10 policy-limits.json
+> -rw-------    1 me     staff      223 Sep 19 21:10 policy-limits.json.stamp.json
 
 --- ~/.agent-hangar ---
 3c3
-< drwxr-xr-x+ 163 satog  staff       5216 Sep 19 20:54 ..
+< drwxr-xr-x+ 163 me     staff       5216 Sep 19 20:54 ..
 ---
-> drwxr-xr-x+ 158 satog  staff       5056 Sep 19 21:21 ..
+> drwxr-xr-x+ 158 me     staff       5056 Sep 19 21:21 ..
 ```
 
 `..` の項目の数が 163 から 158 に減ったのは、`$HOME` から `.hangar-dev-*` を 5 つ消したぶんである。

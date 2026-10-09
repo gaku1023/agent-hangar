@@ -500,7 +500,7 @@ export function ConfigPreviewDialog(props: { preview: ConfigPreviewDto | null })
 - [ ] **Step 1: フェーズ 2 の名前を grep で確かめる**
 
 ```bash
-cd /Users/satog/workspace/agent-hangar
+cd /Users/me/workspace/agent-hangar
 grep -n "export type EndReason\|export type RunDto\|export type LaunchResultDto\|export type SettingsDto\|export type BootstrapDto" packages/shared/src/api.ts
 grep -n "'run.started'\|'run.upsert'\|'run.ended'\|'tab.upsert'" packages/shared/src/events.ts
 grep -n "export function aliveRunForSession\|export function listAliveRuns\|export function getRun" packages/server/src/runs/queries.ts
@@ -3185,7 +3185,7 @@ describe('wrangler の出力の解釈', () => {
     expect(parseDatabaseId('nothing')).toBeNull();
   });
   it('deploy のログから URL', () => {
-    expect(parseWorkerUrl('Uploaded hangar (2.1 sec)\nDeployed hangar triggers (1.0 sec)\n  https://hangar.gaku.workers.dev\nCurrent Version ID: x')).toBe('https://hangar.gaku.workers.dev');
+    expect(parseWorkerUrl('Uploaded hangar (2.1 sec)\nDeployed hangar triggers (1.0 sec)\n  https://hangar.example.workers.dev\nCurrent Version ID: x')).toBe('https://hangar.example.workers.dev');
     expect(parseWorkerUrl('no url')).toBeNull();
   });
 });
@@ -3248,13 +3248,13 @@ describe('runSetupCloud', () => {
       'd1 info hangar --json': () => ({ code: 1, stdout: '', stderr: 'not found' }),
       'd1 create hangar': () => ok(`database_id = "${DB_ID}"`),
       'r2 bucket create hangar-files': () => ok('Created bucket'),
-      'deploy': () => ok('Deployed hangar\n  https://hangar.gaku.workers.dev'),
+      'deploy': () => ok('Deployed hangar\n  https://hangar.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': (_a, input) => { expect(input).toMatch(/^[0-9a-f]{64}\n$/); return ok('Success'); },
     });
     const ff = fakeFetch();
     const slept: number[] = [];
     const r = await runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async (ms) => { slept.push(ms); }, cloudDir, log: () => {} });
-    expect(r.url).toBe('https://hangar.gaku.workers.dev');
+    expect(r.url).toBe('https://hangar.example.workers.dev');
     const tok = decodeJoinToken(r.joinToken);
     expect(tok.url).toBe(r.url);
     expect(tok.secret).toMatch(/^[A-Za-z0-9_-]{40,}$/);
@@ -3283,14 +3283,14 @@ describe('runSetupCloud', () => {
       'whoami': () => ok('│ Acc │ 0123456789abcdef0123456789abcdef │'),
       'd1 info hangar-dev --json': () => ok(JSON.stringify({ uuid: DB_ID })),
       'r2 bucket create hangar-dev-files': () => ({ code: 1, stdout: '', stderr: 'A bucket with this name already exists' }),
-      'deploy': () => ok('https://hangar-dev.gaku.workers.dev'),
+      'deploy': () => ok('https://hangar-dev.example.workers.dev'),
       'secret put JOIN_SECRET_HASH': () => ok(),
     });
     const ff = fakeFetch();
     const r = await runSetupCloud({ home, name: 'hangar-dev', device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} });
     expect(decodeJoinToken(r.joinToken).secret).toBe('keep-this-secret-value-000000000000000000');
     expect(w.calls.map((c) => c.args[0])).toEqual(['whoami', 'd1', 'r2', 'deploy', 'secret']);
-    expect(loadCloudConfig(home)).toMatchObject({ workerName: 'hangar-dev', dbName: 'hangar-dev', bucketName: 'hangar-dev-files', url: 'https://hangar-dev.gaku.workers.dev' });
+    expect(loadCloudConfig(home)).toMatchObject({ workerName: 'hangar-dev', dbName: 'hangar-dev', bucketName: 'hangar-dev-files', url: 'https://hangar-dev.example.workers.dev' });
   });
   it('health が 2 分通らなければ失敗する', async () => {
     let t = 0;

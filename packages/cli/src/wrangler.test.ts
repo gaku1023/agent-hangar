@@ -22,7 +22,7 @@ describe('wrangler の出力の解釈', () => {
   });
 
   it('deploy のログから URL', () => {
-    expect(parseWorkerUrl('Uploaded hangar (2.1 sec)\nDeployed hangar triggers (1.0 sec)\n  https://hangar.gaku.workers.dev\nCurrent Version ID: x')).toBe('https://hangar.gaku.workers.dev');
+    expect(parseWorkerUrl('Uploaded hangar (2.1 sec)\nDeployed hangar triggers (1.0 sec)\n  https://hangar.example.workers.dev\nCurrent Version ID: x')).toBe('https://hangar.example.workers.dev');
     expect(parseWorkerUrl('no url')).toBeNull();
   });
 });

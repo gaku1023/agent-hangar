@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 作業はすべて worktree `/Users/satog/workspace/agent-hangar-todo-candidates`（ブランチ `todo-candidates`）で行う。元の作業ツリー `/Users/satog/workspace/agent-hangar` には別のセッションの未コミットの変更があるので、読むことも含めて触らない。
+- 作業はすべて worktree `/Users/me/workspace/agent-hangar-todo-candidates`（ブランチ `todo-candidates`）で行う。元の作業ツリー `/Users/me/workspace/agent-hangar` には別のセッションの未コミットの変更があるので、読むことも含めて触らない。
 - 共有テーブル `todos` に足す列は `candidate_at integer`、`candidate_session_id text`、`candidate_note text`、`rejected_sessions text not null default '[]'` の 4 つで、マイグレーションは version 10 の 1 つだけにする。D1（`packages/cloud`）は変えない。
 - 根拠の一文は空白を除いて 1 字以上 200 字以下（`CANDIDATE_NOTE_MAX = 200`）。
 - MCP の `outcome` の綴りは `proposed`、`already_candidate`、`already_done`、`rejected_before`、`reopened` の 5 つだけ。
@@ -78,7 +78,7 @@
 
 - [ ] **Step 0: worktree に依存を入れる**
 
-Run: `cd /Users/satog/workspace/agent-hangar-todo-candidates && npm ci`
+Run: `cd /Users/me/workspace/agent-hangar-todo-candidates && npm ci`
 Expected: 終了コード 0。
 
 - [ ] **Step 1: 失敗する試験を書く**

@@ -3,7 +3,7 @@ import type { SearchFilter } from './intent.ts';
 import { badTokens, formatQuery, parseQuery, queryTokens } from './searchTokens.ts';
 
 const projects = [
-  { id: 'p1', name: 'agent-hangar' }, { id: 'p2', name: 'agent' }, { id: 'p3', name: '金剛山プロジェクト' },
+  { id: 'p1', name: 'agent-hangar' }, { id: 'p2', name: 'agent' }, { id: 'p3', name: 'みかん畑プロジェクト' },
   { id: 'p4', name: 'my app' }, { id: 'p5', name: 'hangar-ui' }, { id: 'p6', name: 'hangar' },
 ];
 
@@ -32,8 +32,8 @@ describe('parseQuery', () => {
     expect(parseQuery('project:han', projects).filter).toEqual({ projectId: 'p6' });
   });
   it('project: は NFD と NFC の違いを問わずに当たる', () => {
-    expect(parseQuery(`project:${'金剛山プロ'.normalize('NFD')}`, projects).filter).toEqual({ projectId: 'p3' });
-    expect(parseQuery('project:無検閲', [{ id: 'q1', name: '無検閲モデル'.normalize('NFD') }]).filter).toEqual({ projectId: 'q1' });
+    expect(parseQuery(`project:${'みかん畑プロ'.normalize('NFD')}`, projects).filter).toEqual({ projectId: 'p3' });
+    expect(parseQuery('project:ご注文', [{ id: 'q1', name: 'ご注文ガイド'.normalize('NFD') }]).filter).toEqual({ projectId: 'q1' });
   });
   it('空白を含む値は二重引用符で包んで書ける', () => {
     expect(parseQuery('project:"my app" file:"docs/a b.md" x', projects)).toEqual({ text: 'x', filter: { projectId: 'p4', file: 'docs/a b.md' } });
@@ -82,7 +82,7 @@ describe('formatQuery と queryTokens', () => {
   // フォルダ名は NFD で来ることがある。名前の綴りをそのまま欄に書いても、読み直すと同じプロジェクトに戻る。
   it('空白・引用符・NFD を含む名前やパスでも、書いて読み直すと同じ条件に戻る', () => {
     const nfd = [
-      { id: 'n1', name: 'ぷろじぇくと 無検閲'.normalize('NFD') },
+      { id: 'n1', name: 'ぷろじぇくと ご注文'.normalize('NFD') },
       { id: 'n2', name: 'ぷろじぇくと' .normalize('NFD') },
     ];
     const filter: Partial<SearchFilter> = { projectId: 'n1', file: 'docs/ばぐ 修正.md'.normalize('NFD') };
@@ -91,7 +91,7 @@ describe('formatQuery と queryTokens', () => {
     expect(parseQuery(s, nfd)).toEqual({ text: '動画', filter });
     // NFC で打った前方一致も NFD の名前に当たる。
     expect(parseQuery('project:ぷろじぇくと', nfd).filter).toEqual({ projectId: 'n2' });
-    expect(parseQuery('project:"ぷろじぇくと 無"', nfd).filter).toEqual({ projectId: 'n1' });
+    expect(parseQuery('project:"ぷろじぇくと ご"', nfd).filter).toEqual({ projectId: 'n1' });
   });
   it('引用符を含む値は引用符を落として書く（読み直しても壊れない）', () => {
     const s = formatQuery('', { file: 'a "b" c.md' });
