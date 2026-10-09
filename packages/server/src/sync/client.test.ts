@@ -468,6 +468,9 @@ describe('互換の版', () => {
     expect(e).toMatchObject({ name: 'CompatError', status: 426, upgrade: 'device', have: COMPAT_VERSION, need: 2 });
     expect((e as Error).message).toContain('この PC の hangar');
     expect((e as Error).message).toContain('2 以上');
+    // 利用者が選んだ言い回し：クラウドが拒否したことと、更新してほしいことを言う。
+    expect((e as Error).message).toContain('クラウドが同期を拒否しました');
+    expect((e as Error).message).toContain('この PC の hangar を更新してください');
   });
 
   it('426 の本文が読めなくても、この PC の hangar を上げるよう伝える', async () => {

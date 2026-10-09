@@ -154,8 +154,10 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
  * limitedUntil は、Cloudflare の無料枠の上限に当たって退いている間の戻る時刻である。
  * ふつうは次の UTC の 0 時で、UTC の 0 時から 10 分の間に断られたときは断られた 5 分後である。
  * 退いている間の state は paused で、利用者が一時停止しているときと、退いていないときは null である。
+ * paused は利用者が同期を一時停止しているか（sync_state の paused の印）である。
+ * 版で止まって state が error のときも、一時停止していれば true になる。
  */
-export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; limitedUntil: number | null };
+export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; limitedUntil: number | null };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。

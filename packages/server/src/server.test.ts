@@ -1542,6 +1542,7 @@ describe('互換の版', () => {
       const first = await pressSyncNow(s.port);
       expect(first.state).toBe('error');
       expect(first.error).toContain('この PC の hangar');
+      expect(first.paused).toBe(true);
       // 1 巡の残り（本文と設定の出し入れ）が終わるまで待つ。
       await until(async () => { const v = await syncStatus(s.port); return v.oncePass ? null : v; });
       // 断られた後は、メタデータ以外の道（本文、設定、使用量）へ出ない。

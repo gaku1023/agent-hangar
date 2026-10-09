@@ -189,6 +189,20 @@ describe('Shell', () => {
     rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...base, state: 'idle', paused: false, label: '同期 1 分前', reason: null }} overlays={null}><div /></Shell></IntentRoot>);
     expect(container.querySelector('.sync')?.hasAttribute('data-reason')).toBe(false);
   });
+  it('一時停止中に版で止まっている間は、一時停止の切り替えを出さず、今すぐ同期だけを出す', () => {
+    // 再開しても、この PC の hangar を更新するまで同期できない。切り替えを出すと、押しても直らないボタンになる。
+    const stuck = { visible: true, state: 'error' as const, label: '一時停止中 · 同期エラー: x', pending: 0, sweepPending: 0, skipped: 0, paused: true, reason: null };
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} sync={stuck} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
+    expect(screen.getByRole('button', { name: '今すぐ同期' })).toHaveAttribute('title', '一時停止のまま、1 回だけ同期する');
+    // 一時停止していない版のエラーは、今までどおり一時停止の切り替えを出す。
+    rerender(<IntentRoot onIntent={onIntent}><Shell {...props} sync={{ ...stuck, paused: false, label: '同期エラー: x' }} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.getByRole('button', { name: '同期を一時停止' })).toBeInTheDocument();
+  });
   it('取り残しと送れなかった本文は、溜まっているときだけ出す', () => {
     const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 0, sweepPending: 1500, skipped: 2, paused: false, reason: null };
     const { rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={sync} overlays={null}><div /></Shell></IntentRoot>);

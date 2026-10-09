@@ -100,16 +100,19 @@ function syncProps(state: State, store: Store, now: number, tz?: string): SyncPr
   const reason = s.kind === 'paused' ? (limitedUntil !== null ? 'quota' : 'user') : null;
   // 一時停止のまま押した 1 巡の最中。状態は paused のままなので、付録の印で見分ける。
   const once = s.kind === 'paused' && store.sync?.oncePass === true;
+  // 版で止まると state は error になり、一時停止していることが state だけでは読めない。印でも見る。
+  // 上限で退いている間は利用者が止めたのではないので、今までどおり偽にする。
+  const paused = (s.kind === 'paused' && limitedUntil === null) || store.sync?.paused === true;
   // 語は設定の「状態」と同じ表から引く。
   const label =
     s.kind === 'off' ? ''
     : once ? SYNC_ONCE_LABEL
     : limitedUntil !== null ? limitedLabel(limitedUntil, tz)
-    : s.kind === 'error' ? `${SYNC_STATE_LABEL.error}: ${s.message}`
+    : s.kind === 'error' ? `${paused ? `${SYNC_STATE_LABEL.paused} · ` : ''}${SYNC_STATE_LABEL.error}: ${s.message}`
     : s.kind !== 'idle' ? SYNC_STATE_LABEL[s.kind]
     : s.lastAt === null ? '同期の準備中'
     : `同期 ${relativeTime(s.lastAt, now)}`;
-  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused: s.kind === 'paused' && limitedUntil === null, reason, once };
+  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused, reason, once };
 }
 
 /**

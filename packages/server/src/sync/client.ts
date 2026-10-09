@@ -53,7 +53,7 @@ export type CompatUpgrade = 'device' | 'worker';
 function compatMessage(upgrade: CompatUpgrade, have: number, need: number | null): string {
   if (upgrade === 'device') {
     const want = need === null ? 'それより新しい版' : `${need} 以上`;
-    return `この PC の hangar が古いので、クラウドが同期を断りました（この PC の互換の版は ${have}、クラウドが求めるのは ${want}）。この PC の hangar を新しい版に入れ替えてください`;
+    return `この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換の版は ${have}、クラウドが求めるのは ${want}）。この PC の hangar を更新してください`;
   }
   return `クラウドの Worker が古いので、同期を止めました（Worker の互換の版は ${have}、この PC が求めるのは ${need ?? '?'} 以上）。setup した PC で hangar setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください`;
 }

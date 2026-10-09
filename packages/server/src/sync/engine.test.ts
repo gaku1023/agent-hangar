@@ -676,6 +676,7 @@ describe('互換の版', () => {
     expect(e.compatBlocked()).toBe(true);
     expect(e.status()).toMatchObject({ state: 'error', pending: 1 });
     expect(e.status().error).toContain('この PC の hangar');
+    expect(e.status().paused).toBe(false);
     // 止めた後は、書き込みも定期実行も外へ出ない。
     const calls = cloud.calls.length;
     project('p2');
@@ -765,6 +766,8 @@ describe('互換の版', () => {
     expect(e.status().state).toBe('error');
     expect(e.status().error).toContain('この PC の hangar');
     expect(e.status().limitedUntil).toBeNull();
+    // 状態は error でも、一時停止していることは印で伝える。画面はこれで一時停止中と添え、切り替えを隠す。
+    expect(e.status().paused).toBe(true);
     e.stop();
   });
 

@@ -1402,13 +1402,14 @@ describe('presentSettings の既定値', () => {
 });
 
 const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null, ...over });
-const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false, ...over });
+const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
 describe('ヘッダーの無料枠で停止', () => {
   const at = (iso: string) => Date.parse(iso);
   const RESET = at('2026-10-03T00:00:00Z');
-  const paused = (o: Partial<SyncStatusBody>): SyncStatusBody => syncStatus({ state: 'paused', ...o });
+  // 実際のエンジンは、上限で退いている間は一時停止の印を立てない（limitedUntil は一時停止していないときだけ出る）。
+  const paused = (o: Partial<SyncStatusBody>): SyncStatusBody => syncStatus({ state: 'paused', paused: o.limitedUntil == null, ...o });
   // store.sync と state.sync（toSyncState(sync)）をそろえて、ヘッダーの同期の一行を返す。
   const shellSync = (sync: SyncStatusBody, now: number, tz?: string) => presentShell({ ...initialState(), sync: toSyncState(sync), pending: sync.pending }, { ...initialStore(), sync }, now, tz).sync;
 
@@ -1444,6 +1445,27 @@ describe('ヘッダーの無料枠で停止', () => {
     expect(settings.stateLabel).toMatch(/^無料枠で停止 · \d{1,2}:\d{2} に戻る$/);
     // 手で止めたときは limited ではない。
     expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({}) }).cloud).toMatchObject({ paused: true, limited: false });
+  });
+});
+
+describe('一時停止中に版で止まったとき', () => {
+  const REASON = 'この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換の版は 1、クラウドが求めるのは 2 以上）。この PC の hangar を更新してください';
+  const shellSync = (sync: SyncStatusBody) => presentShell({ ...initialState(), sync: toSyncState(sync), pending: sync.pending }, { ...initialStore(), sync }, NOW).sync;
+  it('状態は error のまま、文の頭に「一時停止中 · 」を添え、一時停止の印を渡す', () => {
+    const sync = syncStatus({ state: 'error', error: REASON, paused: true });
+    expect(shellSync(sync)).toMatchObject({ state: 'error', paused: true, reason: null, label: `一時停止中 · 同期エラー: ${REASON}` });
+    // 設定の「状態」の語にも同じ頭を添える。
+    expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync }).cloud).toMatchObject({ state: 'error', paused: true, limited: false, stateLabel: '一時停止中 · 同期エラー' });
+  });
+  it('一時停止していない版のエラーは、今までどおり', () => {
+    const sync = syncStatus({ state: 'error', error: REASON, paused: false });
+    expect(shellSync(sync)).toMatchObject({ state: 'error', paused: false, label: `同期エラー: ${REASON}` });
+    expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync }).cloud).toMatchObject({ paused: false, stateLabel: '同期エラー' });
+  });
+  it('上限で退いている間の振る舞いは変えない（一時停止の印があっても、退いていれば利用者が止めたことにしない）', () => {
+    const sync = syncStatus({ state: 'paused', paused: false, limitedUntil: Date.parse('2026-10-03T00:00:00Z') });
+    expect(shellSync(sync)).toMatchObject({ reason: 'quota', paused: false });
+    expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync }).cloud).toMatchObject({ paused: false, limited: true });
   });
 });
 
