@@ -160,6 +160,12 @@ describe('(b) クラウドに残る古い形の sessions の行', () => {
     await engines[0]!.pullNow();
     expect(noteOf(pc3)).toEqual({ name: '名前', memo: '上げていなかった新しいメモ' });
     expect(noteOf(pc1.db)).toEqual({ name: '名前', memo: '上げていなかった新しいメモ' });
+    // 書いた PC の中身は、新しい PC が古い形の行から作った中身に負けない。書いた PC に控えは出ない。
+    await sync(pc1.engine, engines[0]!, pc1.engine);
+    expect(noteOf(pc1.db)).toEqual({ name: '名前', memo: '上げていなかった新しいメモ' });
+    expect(noteOf(pc3)).toEqual({ name: '名前', memo: '上げていなかった新しいメモ' });
+    expect(backupsOf('pc1')).toEqual([]);
+    expect(cloudNotes().map((c) => c.payload.memo)).toEqual(['上げていなかった新しいメモ']);
   });
 });
 
@@ -237,6 +243,32 @@ describe('(c) 2 台目が後から上がる', () => {
     expect(noteOf(b.db)).toEqual({ name: winner.name, memo: winner.memo });
     expect(backupsOf(second)).toEqual([`名前：${loser.name}\n\n${loser.memo}`]);
     expect(backupsOf(first)).toEqual([]);
+    expect(cloudNotes()).toHaveLength(1);
+  });
+
+  it.each([
+    { order: ['pc1', 'pc2', 'pc3'] },
+    { order: ['pc3', 'pc1', 'pc2'] },
+  ])('3 台が $order の順に上がっても、全部の PC が同じ中身になり、負けた中身は控えに残る', async ({ order }) => {
+    const rows: Record<string, Old> = {
+      pc1: { name: '1 台目の名前', memo: '1 台目のメモ', updatedAt: 1000, origin: 'pc1' },
+      pc2: { name: '2 台目の名前', memo: '2 台目のメモ', updatedAt: 3000, origin: 'pc2' },
+      pc3: { name: '3 台目の名前', memo: '3 台目のメモ', updatedAt: 2000, origin: 'pc3' },
+    };
+    const files: Record<string, string> = {};
+    for (const d of order) files[d] = seedV16(d, rows[d]!);
+    const booted: { db: Db; engine: SyncEngine }[] = [];
+    for (const d of order) {
+      const pc = await boot(d, files[d]!);
+      booted.push(pc);
+      await sync(pc.engine);
+    }
+    // 何巡しても、どの順に同期しても変わらない。
+    await sync(...booted.map((x) => x.engine), ...[...booted].reverse().map((x) => x.engine));
+    const winner = rows[order[0]!]!;
+    for (const pc of booted) expect(noteOf(pc.db)).toEqual({ name: winner.name, memo: winner.memo });
+    expect(backupsOf(order[0]!)).toEqual([]);
+    for (const d of order.slice(1)) expect(backupsOf(d), d).toEqual([`名前：${rows[d]!.name}\n\n${rows[d]!.memo}`]);
     expect(cloudNotes()).toHaveLength(1);
   });
 
