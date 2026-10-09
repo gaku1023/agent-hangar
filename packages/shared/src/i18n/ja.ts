@@ -115,6 +115,7 @@ export const ja: Dictionary = {
   'project.promote.failedNothingMoved': '{name} を移せませんでした（{cause}）。ファイルは {from} にそのまま残っています',
   'project.promote.failedRolledBack': '{name} を移せませんでした（{cause}）。先に移したものは {from} に戻しました。ファイルは移動していません',
   'project.promote.failedLeftBoth': '{name} を移せませんでした（{cause}）。{left} は {to} にも残っています。{from} と {to} の両方を確かめてください',
+  'project.unassigned.appeared': 'どのプロジェクトにも属さないセッションが現れました（{cwd}）。未分類のまま置いてあります',
   // artifact
   'artifact.error.addFailed': 'アーティファクトを追加できませんでした',
   'artifact.error.notFound': 'アーティファクトが見つかりません',
@@ -170,6 +171,15 @@ export const ja: Dictionary = {
   'settings.label.language': '言語',
   // sync
   'sync.error.notConfigured': 'クラウド同期が設定されていません',
+  'sync.note.sessionReplaced': 'セッションのメモを {deviceName} の新しい内容で置き換えました。手元の内容は {backupFile} に残してあります',
+  'sync.note.conflict': 'メモが競合しました。手元の内容を {file} に残しました',
+  'sync.once.compatBlocked': 'クラウドと互換の版が合わないので、同期できませんでした',
+  'sync.once.done': '1 回だけ同期しました。同期は一時停止のままです',
+  'sync.once.leftBoth': '1 回だけ同期しましたが、未送信 {pending} 件、未送信の本文 {transcripts} 件が残りました。同期は一時停止のままです',
+  'sync.once.leftChanges': '1 回だけ同期しましたが、未送信 {pending} 件が残りました。同期は一時停止のままです',
+  'sync.once.leftTranscripts': '1 回だけ同期しましたが、未送信の本文 {transcripts} 件が残りました。同期は一時停止のままです',
+  'sync.pull.failed': '本文を降ろせませんでした（{kind}）: {reason}',
+  'sync.resume.noTranscript': 'このセッションの本文がありません',
   // system
   'system.index.rebuildFailed': '索引の作り直しに失敗しました: {reason}',
   // todo

@@ -2,6 +2,9 @@ import path from 'node:path';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { writeMemoConflictCopy, type SessionMemoBackup } from './apply.ts';
 import type { SyncEngineDeps } from './engine.ts';
+import type { GetLanguage } from '../i18n/language.ts';
+import { DEFAULT_LANGUAGE } from '@agent-hangar/shared';
+import { msg, render, type Message } from '../i18n/message.ts';
 
 /** 画面の隅に出す知らせ。 */
 export type Toast = (level: 'info' | 'error', message: string) => void;
@@ -15,8 +18,13 @@ export function toastVia(hub: { broadcast(ev: NoticeEvent): void }): Toast {
  * セッションのメモを他端末の新しい版で置き換えたときの知らせ。
  * 控えはもうファイルになっているので、利用者に伝えるのは「どこに残したか」である。
  */
+export function sessionMemoBackupNotice(o: SessionMemoBackup): Message {
+  return msg('sync.note.sessionReplaced', { deviceName: o.deviceName, backupFile: o.backupFile });
+}
+
+/** 同じ知らせを、既定の言語（日本語）の文で返す。 */
 export function sessionMemoBackupMessage(o: SessionMemoBackup): string {
-  return `セッションのメモを ${o.deviceName} の新しい内容で置き換えました。手元の内容は ${o.backupFile} に残してあります`;
+  return render(DEFAULT_LANGUAGE, sessionMemoBackupNotice(o));
 }
 
 /**
@@ -25,13 +33,14 @@ export function sessionMemoBackupMessage(o: SessionMemoBackup): string {
  * 名前の組み立ても既存の写しの守りも writeMemoConflictCopy が持っている。
  * ここで投げれば、その行は適用されない（控えの無いまま利用者の文章を消さない）。
  * セッションのメモは、控えがもうファイルになっているので、置き場を知らせて世代を刈るだけである。
+ * 知らせの文は、language が返す言語で出す。
  */
-export function memoLossHandlers(o: { memoPath: (projectId: string) => string; toast: Toast; pruneMemos: () => void }): Required<Pick<SyncEngineDeps, 'onMemoConflict' | 'onSessionMemoBackup'>> {
+export function memoLossHandlers(o: { memoPath: (projectId: string) => string; toast: Toast; pruneMemos: () => void; language: GetLanguage }): Required<Pick<SyncEngineDeps, 'onMemoConflict' | 'onSessionMemoBackup'>> {
   return {
     onMemoConflict: (c) => {
       const file = writeMemoConflictCopy(o.memoPath(c.projectId), c);
-      o.toast('info', `メモが競合しました。手元の内容を ${path.basename(file)} に残しました`);
+      o.toast('info', render(o.language(), msg('sync.note.conflict', { file: path.basename(file) })));
     },
-    onSessionMemoBackup: (b) => { o.toast('info', sessionMemoBackupMessage(b)); o.pruneMemos(); },
+    onSessionMemoBackup: (b) => { o.toast('info', render(o.language(), sessionMemoBackupNotice(b))); o.pruneMemos(); },
   };
 }

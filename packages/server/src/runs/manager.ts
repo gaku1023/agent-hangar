@@ -5,7 +5,7 @@ import { newId, runTmuxId, type EndReason, type Language, type LaunchParams, typ
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
+import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
@@ -61,10 +61,10 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * procs は外のプロセスに触る口で、テストでは差し替える。
  * panes は run とシェルタブの画面に触る口（tmux/pane.ts）。無ければ起動を断り、見張りは何も閉じない。
  * accounts はアカウントの解決（runs/accounts.ts）。渡さなければ、アカウントを使わない構成として動く。
- * language は、Claude に渡す指示とシェルタブの名前の言語。渡さなければ日本語で出す。
+ * language は、Claude に渡す指示とシェルタブの名前の言語。組み立てる側が、設定を読む関数を渡す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language?: GetLanguage };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -133,7 +133,7 @@ export class RunManager {
   }
 
   private language(): Language {
-    return (this.deps.language ?? defaultLanguage)();
+    return this.deps.language();
   }
 
   private now(): number {

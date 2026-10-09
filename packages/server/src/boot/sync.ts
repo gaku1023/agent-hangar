@@ -20,6 +20,7 @@ import { CloudUsagePoller } from '../sync/usage.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import { stopAfterIdle, stopUploader } from './stopping.ts';
+import { t } from '@agent-hangar/shared';
 
 /**
  * Claude Code 設定の定期 push の間隔。
@@ -71,7 +72,7 @@ export type SyncParts = {
  * memoPath は、プロジェクトのメモのファイルの場所である。競合で負けた手元の内容を、その隣に残す。
  */
 export function bootSync(
-  home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings'>,
+  home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language'>,
   delivery: Pick<DeliveryParts, 'hub'> & { toast: Toast },
   o: { memoPath: (projectId: string) => string },
 ): SyncParts {
@@ -108,7 +109,7 @@ export function bootSync(
   const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
   const engine = new SyncEngine({
     db, deviceId, client, url: cloud?.url ?? null, home: home.home,
-    ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos') }),
+    ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
   });
   // 設定の「使用量と費用」。
   const cloudUsage = new CloudUsagePoller({ client, isPaused, broadcast: (usage) => hub.broadcast({ type: 'sync.usage', usage }) });
@@ -126,18 +127,18 @@ export function bootSync(
         enabled: () => configSyncActive({ syncClaudeConfig: settings.current.syncClaudeConfig, paused: isPaused() }), onToast: toast,
       })
     : null;
-  const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }) });
+  const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }), language: home.language });
   const puller = client
     ? new RemotePuller({
         db, deviceId, home: home.home, client, key: fileKey, state: syncState,
         onConfigEntries: async (entries: FileEntry[]) => { await configSync?.applyPull(entries); },
         // 鳴るのは 1 回目と諦めたときだけなので、そのままトーストに出してよい。
         // 見逃した利用者のために、諦めた項目は同期の状態（syncSkipped）にも残る。
-        onError: (k, m) => { console.error('[pull]', k, m); toast('error', `本文を降ろせませんでした（${k}）: ${m}`); },
+        onError: (k, m) => { console.error('[pull]', k, m); toast('error', t(home.language(), 'sync.pull.failed', { kind: k, reason: m })); },
       })
     : null;
   const feed = createSyncFeed({ hub, puller, uploader, oncePass: () => once.pass.active(), isPaused, cloudUsage, toast });
-  const once = createOncePass({ engine, puller, configSync, uploader, cloudUsage, isPaused, sweepPending: feed.sweep, broadcastSync: feed.broadcastSync, toast });
+  const once = createOncePass({ engine, puller, configSync, uploader, cloudUsage, isPaused, sweepPending: feed.sweep, broadcastSync: feed.broadcastSync, toast, language: home.language });
   engine.on(feed.listener());
 
   const publishConfigSync = (): void => engine.setClaudeConfigStatus({ enabled: settings.current.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });

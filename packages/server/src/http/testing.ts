@@ -15,6 +15,7 @@ import { AccountAuth } from '../config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { RetentionConflictError } from '../config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
+import { languageReader } from '../i18n/language.ts';
 import { Publisher } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { MemoStore } from '../projects/memo.ts';
@@ -186,7 +187,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
 
   const deps: AppDeps = {
     db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: '0.0.0-test',
-    settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }),
+    settings: () => settings, language: languageReader(() => settings), updateSettings: (p) => (settings = { ...settings, ...p }),
     live: () => [], indexer, ready: () => true,
     hub: publisher,
     runs, external, usage, memos, summary,

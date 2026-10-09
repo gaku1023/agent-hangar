@@ -161,7 +161,7 @@ describe('事後要約のジョブ', () => {
       available: async () => true,
       summarize: async () => ({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], proposal: { status: 'done', note: '片付いた', returnInDays: null } }),
     };
-    const job = new SummaryJob({ db, deviceId: ME, summarizers: () => [summarizer], live: () => [], hub: publisher });
+    const job = new SummaryJob({ db, deviceId: ME, summarizers: () => [summarizer], live: () => [], hub: publisher, language: () => 'ja' });
     reset();
     expect(job.enqueue(id, { force: true })).toBe(true);
     await job.idle();

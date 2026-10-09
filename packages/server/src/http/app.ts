@@ -2,11 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { COMPAT_VERSION, t, type Language, type SyncSkippedDto, type SyncStatusBody } from '@agent-hangar/shared';
-import { languageReader } from '../i18n/language.ts';
 import { createMcpApp } from '../mcp/app.ts';
 import { accountsRoutes, type AccountsDeps } from './accounts.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
-import type { AppDeps, LanguageDeps } from './deps.ts';
+import type { AppDeps } from './deps.ts';
 import { artifactRoutes } from './routes/artifacts.ts';
 import { bootstrapRoutes } from './routes/bootstrap.ts';
 import { beforeLaunchOf } from './routes/common.ts';
@@ -101,11 +100,10 @@ const CSP = [
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
 /** HTTP API を組み立てる。/api 配下は認証必須で、/health と UI 配信だけが素通しになる。 */
-export function createApp(given: AppDeps): Hono {
+export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
-  // 言語の読み手は、ここで 1 つに決めて、経路と MCP の道具へ同じものを渡す。
-  const language = given.language ?? languageReader(given.settings);
-  const deps: AppDeps & LanguageDeps = { ...given, language };
+  // 言語の読み手は、組み立てる側が 1 つ作って渡す。経路と MCP の道具へ同じものを配る。
+  const { language } = deps;
   const { db, deviceId } = deps;
 
   // 鍵の要らない経路なので、起動の進み具合は段階と件数だけを載せる。

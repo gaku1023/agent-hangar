@@ -89,6 +89,8 @@ export function bootHttp(p: {
     // 最初の索引づけと紐づけが済むまで偽。.app はこれを見て起動画面に残る。
     ready: () => home.life.started,
     settings: () => settings.current,
+    // 経路と MCP の道具も、起動の管理や要約と同じ言語の関数で文を出す。
+    language: home.language,
     updateSettings: (patch) => applySettingsPatch({
       home: home.home, box: settings,
       unconfirmConfigPull: sync.unconfirmConfigPull,

@@ -157,6 +157,23 @@ describe('要約と、run の出来事の受け手の組み立て', () => {
     expect(() => summary.rebuildClaude()).not.toThrow();
   });
 
+  it('言語を en にすると、要約の失敗の文が英語になる', async () => {
+    const h = homeParts();
+    // 手元の LM Studio を呼ばないよう、閉じたポートへ向ける。claude も無いので、どの要約エンジンも使えない。
+    h.settings.current = { ...h.settings.current, language: 'en', lmStudioUrl: 'http://127.0.0.1:9' };
+    const d = bootDelivery(h);
+    cleanups.push(async () => { await d.stopPublishing(); d.compatLog.stop(); });
+    const runs = { runs: { on: () => () => {} }, usage: { current: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) }, claudeBin: () => null } as unknown as Pick<RunsParts, 'runs' | 'usage' | 'claudeBin'>;
+    const summary = bootSummary(h, d, runs, { uploader: null });
+    const r = await summary.api.test();
+    expect(r.ok).toBe(false);
+    const tried = (r as { tried: { message: string }[] }).tried;
+    expect(tried.length).toBeGreaterThan(0);
+    for (const t of tried) expect(t.message).toBe('Not available (cannot connect, or the limit has been reached)');
+    h.settings.current = { ...h.settings.current, language: 'ja' };
+    for (const t of ((await summary.api.test()) as { tried: { message: string }[] }).tried) expect(t.message).toBe('使えません（接続できないか、上限に達しています）');
+  });
+
   it('止めるときは、走っている要約を待つ。待ち行列が空ならすぐ返る', async () => {
     const h = homeParts();
     const d = bootDelivery(h);

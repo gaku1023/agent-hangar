@@ -6,6 +6,7 @@ import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { posixIt } from '../../test/platform.ts';
+import { errorText } from '../i18n/message.ts';
 import { bootDelivery, type DeliveryParts } from './delivery.ts';
 import { bootHome, type HomeParts } from './home.ts';
 import { bootRuns, panesOf, tmuxOf, type RunsParts } from './runs.ts';
@@ -77,6 +78,27 @@ async function until<T>(fn: () => T | null | Promise<T | null>, ms = 8000): Prom
 
 const script = () => fs.readFileSync(path.join(home, 'shell', 'claude.zsh'), 'utf8');
 const savedCompat = () => JSON.parse(fs.readFileSync(path.join(home, 'compat.json'), 'utf8')) as { localVersion: unknown; entries: { value: string }[] };
+
+describe('言語', () => {
+  it('起動の管理は、置き場が作った言語の関数を受け取る', () => {
+    // tmux に触らずに見るため、渡した依存をのぞく。
+    // 言語が en のとき Claude に渡す指示とシェルタブの名前が英語になることは、tmux の上の試験（runs/manager.test.ts）が見ている。
+    const b = boot();
+    const given = (b.r.runs as unknown as { deps: { language: unknown } }).deps.language;
+    expect(given).toBe(b.h.language);
+    b.h.settings.current = { ...b.h.settings.current, language: 'en' };
+    expect((given as () => string)()).toBe('en');
+  });
+
+  it('言語を en にすると、起動の失敗の中の理由も英語になる', () => {
+    const b = boot();
+    b.h.settings.current = { ...b.h.settings.current, language: 'en', tmuxPath: null };
+    // ターミナルで開く口は、tmux の場所が無ければ断る。文は鍵のまま投げるので、境目が英語で出せる。
+    let thrown: unknown = null;
+    try { void b.r.external.openTerminal({ tmuxName: 'x' }); } catch (e) { thrown = e; }
+    expect(errorText(b.h.language(), thrown)).toBe('tmux was not found. Enter the "tmux path" in Settings');
+  });
+});
 
 describe('手元の claude と包み', () => {
   it('組んだ時点で、待ち受けているポートを埋めた包みの本体を書く', () => {

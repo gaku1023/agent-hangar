@@ -123,6 +123,7 @@ export const MESSAGES = {
   'project.promote.failedNothingMoved': ['cause', 'from', 'name'],
   'project.promote.failedRolledBack': ['cause', 'from', 'name'],
   'project.promote.failedLeftBoth': ['cause', 'from', 'left', 'name', 'to'],
+  'project.unassigned.appeared': ['cwd'],
   // artifact
   'artifact.error.addFailed': [],
   'artifact.error.notFound': [],
@@ -178,6 +179,15 @@ export const MESSAGES = {
   'settings.label.language': [],
   // sync
   'sync.error.notConfigured': [],
+  'sync.note.sessionReplaced': ['backupFile', 'deviceName'],
+  'sync.note.conflict': ['file'],
+  'sync.once.compatBlocked': [],
+  'sync.once.done': [],
+  'sync.once.leftBoth': ['pending', 'transcripts'],
+  'sync.once.leftChanges': ['pending'],
+  'sync.once.leftTranscripts': ['transcripts'],
+  'sync.pull.failed': ['kind', 'reason'],
+  'sync.resume.noTranscript': [],
   // system
   'system.index.rebuildFailed': ['reason'],
   // todo

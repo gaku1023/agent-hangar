@@ -195,7 +195,7 @@ describe('previewRetention と writeRetention', () => {
 describe('RetentionService', () => {
   it('変わったときだけ配り、書いた後は新しい値を返す', async () => {
     const sent: RetentionDto[] = [];
-    const svc = new RetentionService({ claudeDir, home: path.join(root, 'hangar'), managedDir, broadcast: (r) => sent.push(r), now: () => NOW });
+    const svc = new RetentionService({ claudeDir, home: path.join(root, 'hangar'), managedDir, broadcast: (r) => sent.push(r), now: () => NOW, language: () => 'ja' });
     svc.refresh();
     expect(sent).toHaveLength(0);
     expect(svc.current()).toMatchObject({ days: 30, source: 'default', usage: null });
@@ -210,7 +210,7 @@ describe('RetentionService', () => {
   it('書けない状態（組織の設定）なら、書き込みを断る', () => {
     fs.mkdirSync(managedDir, { recursive: true });
     fs.writeFileSync(path.join(managedDir, 'managed-settings.json'), '{ "cleanupPeriodDays": 14 }');
-    const svc = new RetentionService({ claudeDir, home: path.join(root, 'hangar'), managedDir, broadcast: () => {}, now: () => NOW });
+    const svc = new RetentionService({ claudeDir, home: path.join(root, 'hangar'), managedDir, broadcast: () => {}, now: () => NOW, language: () => 'ja' });
     expect(() => svc.write(365, '')).toThrow(RetentionUnwritableError);
     expect(fs.existsSync(path.join(claudeDir, 'settings.json'))).toBe(false);
   });

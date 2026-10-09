@@ -232,7 +232,7 @@ export function writeRetention(o: WriteRetentionOptions): { file: string; backup
   }
 }
 
-export type RetentionServiceOptions = { claudeDir: string; home: string; managedDir: string | null; broadcast: (r: RetentionDto) => void; now?: () => number; /** 書けない理由の文の言語。渡さなければ日本語で出す。 */ language?: GetLanguage };
+export type RetentionServiceOptions = { claudeDir: string; home: string; managedDir: string | null; broadcast: (r: RetentionDto) => void; now?: () => number; /** 書けない理由の文の言語。組み立てる側が、設定を読む関数を渡す。 */ language: GetLanguage };
 
 /** 起動の後に 1 度だけ測るまでの待ち。起動の索引づけと重ねない。 */
 const FIRST_MEASURE_MS = 30_000;

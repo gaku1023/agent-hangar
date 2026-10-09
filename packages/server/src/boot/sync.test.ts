@@ -10,7 +10,7 @@ import { upsertShared } from '../db/shared.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { BACKUP_GENERATIONS } from '../sync/claudeConfig.ts';
-import { toastVia } from '../sync/notices.ts';
+import { memoLossHandlers, toastVia } from '../sync/notices.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { answerAll, fakeWorker, fileSink, recorder, refuse, type Answer, type Seen } from '../../test/fake-worker.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../../test/fixtures.ts';
@@ -108,6 +108,19 @@ async function indexFixture(): Promise<void> {
 }
 
 describe('同期の組み立て', () => {
+  it('言語を en にすると、保持期間を書けない理由と、メモの競合の知らせが英語になる', () => {
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), '{ broken');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ language: 'en' }));
+    const b = boot();
+    const reason = b.sync.retention.current().unwritableReason;
+    expect(reason).not.toBeNull();
+    expect(reason).not.toMatch(/[\u3040-\u30ff\u4e00-\u9fff]/);
+    // 置き場の言語の関数が、知らせにも渡っている。
+    memoLossHandlers({ memoPath: () => path.join(home, 'projects', 'p1', 'memo.md'), toast: toastVia({ broadcast: (ev) => { b.sent.push(ev); } }), pruneMemos: () => {}, language: b.h.language })
+      .onMemoConflict({ projectId: 'p1', markdown: 'x', deviceName: 'mini' });
+    expect(b.toasts().at(-1)!.message).toMatch(/^The note had a conflict\. Your local content is kept in memo\.conflict-mini-/);
+  });
+
   it('cloud.json が無ければ同期は off で、部品は動く', async () => {
     // 参加していない端末でも、同期の口は落ちずに「off」を返す。
     // 実物のクラウドには一切触らない（cloud.json が無いので client は作られない）。

@@ -67,7 +67,7 @@ type Deps = ConstructorParameters<typeof RunManager>[0];
 const make = (over: Partial<Omit<Deps, 'accounts'>> & { tmux?: Tmux | null; accounts?: AccountStore } = {}) => {
   const { tmux: t = tmux, accounts, ...rest } = over;
   return new RunManager({
-    db, deviceId: 'd', home, panes: t ? tmuxPaneOps(t) : null, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs,
+    db, deviceId: 'd', home, panes: t ? tmuxPaneOps(t) : null, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs, language: () => 'ja',
     accounts: accounts ? new RunAccounts({ db, claudeDir, store: accounts }) : undefined,
     ...rest,
   });

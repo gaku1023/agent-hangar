@@ -27,6 +27,7 @@ describe('メモで負けたときの後始末', () => {
       memoPath: (projectId) => path.join(dir, 'projects', projectId, 'memo.md'),
       toast: (level, message) => { toasts.push({ level, message }); },
       pruneMemos: () => { pruned++; },
+      language: () => 'ja',
     });
     return { h, toasts, pruned: () => pruned };
   };

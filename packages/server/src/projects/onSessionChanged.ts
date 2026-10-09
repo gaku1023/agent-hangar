@@ -3,12 +3,16 @@ import { touchRow } from '../db/notify.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { IndexerListener } from '../indexer/service.ts';
 import { assignSession, registerWorkspaceChildOf } from './registry.ts';
+import type { GetLanguage } from '../i18n/language.ts';
+import { translatorOf } from '../i18n/message.ts';
 
 type SessionChanged = Parameters<NonNullable<IndexerListener['sessionChanged']>>[0];
 
 export type SessionChangeDeps = {
   db: Db; deviceId: string;
   hub: { broadcast(ev: NoticeEvent): void };
+  /** 知らせの文の言語。 */
+  language: GetLanguage;
   /**
    * 起動の手続きが済んだか。
    * 最初の全走査では未分類のセッションを数えきれないほど流すので、知らせるのもその場の登録も起動後だけにする。
@@ -33,6 +37,7 @@ export type SessionChangeDeps = {
  */
 export function createSessionChangeHandler(deps: SessionChangeDeps): (e: SessionChanged) => void {
   const { db, deviceId, hub } = deps;
+  const tr = translatorOf(deps.language);
   // 未分類だと知らせたセッション。本文が伸びるたびに同じ知らせを出さないために持つ。
   const toldUnassigned = new Set<string>();
   // その場の自動登録を試したセッション。本文が伸びるたびにディスクを見に行かないために持つ。
@@ -40,7 +45,7 @@ export function createSessionChangeHandler(deps: SessionChangeDeps): (e: Session
   const tellUnassigned = (sessionId: string, cwd: string): void => {
     if (!deps.started() || toldUnassigned.has(sessionId)) return;
     toldUnassigned.add(sessionId);
-    hub.broadcast({ type: 'toast', level: 'info', message: `どのプロジェクトにも属さないセッションが現れました（${cwd}）。未分類のまま置いてあります` });
+    hub.broadcast({ type: 'toast', level: 'info', message: tr('project.unassigned.appeared', { cwd }) });
   };
   return (e) => {
     // 手元のファイルだけを上げる。他端末の写し（deviceId が入っているもの）は持ち主が上げる。

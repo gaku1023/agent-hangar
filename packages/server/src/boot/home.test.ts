@@ -70,6 +70,23 @@ describe('置き場の用意', () => {
     expect(fromSettings.claudeDir).toBe('/from/settings');
   });
 
+  it('言語の関数は 1 つで、いまの設定の language を読む', () => {
+    const h = bootHome({ home, claudeDir });
+    try {
+      // 項目の無い設定は日本語として読む。
+      expect(h.language()).toBe('ja');
+      // 設定は書き替わるので、呼ばれた時点の値を読む。
+      h.settings.current = { ...h.settings.current, language: 'en' };
+      expect(h.language()).toBe('en');
+    } finally {
+      h.stop();
+    }
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ language: 'en' }));
+    const saved = bootHome({ home, claudeDir });
+    saved.stop();
+    expect(saved.language()).toBe('en');
+  });
+
   it('起こし直しても、同じ端末として立ち上がる', () => {
     const first = bootHome({ home, claudeDir });
     first.stop();

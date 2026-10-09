@@ -5,7 +5,7 @@ import type { NoticeEvent } from '../events/publisher.ts';
 import { getSessionState, proposeSessionState, StateInputError } from '../sessions/states.ts';
 import { buildSummaryInput, CANNED_INPUT } from './input.ts';
 import type { Summarizer, SummaryInput, SummaryOutput, SummaryProposal } from './types.ts';
-import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
+import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, MessageError, msg, render } from '../i18n/message.ts';
 
 const STALE_TURNS = 5;
@@ -28,8 +28,8 @@ export type SummaryJobDeps = {
   /** 要約の進み（summary.pending、summary.updated、summary.failed）を渡す先。行のイベントは渡さない。 */
   hub: { broadcast(ev: NoticeEvent): void };
   now?: () => number;
-  /** 要約を書かせる言語と、失敗の文の言語。渡さなければ日本語で出す。 */
-  language?: GetLanguage;
+  /** 要約を書かせる言語と、失敗の文の言語。組み立てる側が、設定を読む関数を渡す。 */
+  language: GetLanguage;
 };
 
 const UNAVAILABLE = msg('summary.engine.unavailable');
@@ -50,7 +50,7 @@ export class SummaryJob {
   constructor(private readonly deps: SummaryJobDeps) {}
 
   private now(): number { return this.deps.now?.() ?? Date.now(); }
-  private language(): Language { return (this.deps.language ?? defaultLanguage)(); }
+  private language(): Language { return this.deps.language(); }
 
   /**
    * 配信の失敗でジョブを止めない。

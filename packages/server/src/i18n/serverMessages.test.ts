@@ -120,7 +120,7 @@ describe('要約', () => {
   it('使えない要約器と失敗した要約器の文', async () => {
     const off: Summarizer = { id: 'lmstudio', available: async () => false, summarize: async () => { throw new Error('unused'); } };
     const broken: Summarizer = { id: 'claude-headless', available: async () => true, summarize: async () => { throw new SummarizerError('claude-headless', msg('summary.claude.exited', { code: 2, detail: 'boom' })); } };
-    const job = (language?: () => 'ja' | 'en') => new SummaryJob({ db: null as never, deviceId: 'd', summarizers: () => [off, broken], live: () => [], hub: { broadcast: () => {} }, language });
+    const job = (language: () => 'ja' | 'en' = () => 'ja') => new SummaryJob({ db: null as never, deviceId: 'd', summarizers: () => [off, broken], live: () => [], hub: { broadcast: () => {} }, language });
     expect(await job().test()).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: '使えません（接続できないか、上限に達しています）' }, { id: 'claude-headless', message: 'claude が 2 で終了しました: boom' }] });
     expect(await job(() => 'en').test()).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'Not available (cannot connect, or the limit has been reached)' }, { id: 'claude-headless', message: 'claude exited with 2: boom' }] });
   });

@@ -41,7 +41,7 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
   });
 
   const handler = () => createSessionChangeHandler({
-    db, deviceId: 'd', hub: publisher,
+    db, deviceId: 'd', hub: publisher, language: () => 'ja',
     started: () => started,
     workspaceRoot: () => ws,
     onLocalTranscript: (f) => { uploads.push(f.sessionId); },

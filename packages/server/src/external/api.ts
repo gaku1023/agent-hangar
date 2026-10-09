@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import type { Settings } from '../config/paths.ts';
 import type { ExternalApi } from '../http/deps.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './open.ts';
+import { MessageError, msg } from '../i18n/message.ts';
 
 /**
  * ターミナルとエディタとブラウザへの受け渡しを、HTTP が触る形に組む。
@@ -11,7 +12,7 @@ export function createExternalApi(o: { home: string; settings: () => Pick<Settin
   return {
     openTerminal: ({ tmuxName }) => {
       const s = o.settings();
-      if (!s.tmuxPath) throw new Error('tmux が見つかりません。設定の「tmux のパス」を入れてください');
+      if (!s.tmuxPath) throw new MessageError(msg('run.launch.tmuxMissing', { label: msg('settings.label.tmuxPath') }));
       return openInTerminalApp({ home: o.home, tmuxPath: s.tmuxPath, tmuxName, app: s.terminalApp });
     },
     openDirTerminal: ({ dir }) => openDirInTerminalApp({ home: o.home, dir, app: o.settings().terminalApp }),
