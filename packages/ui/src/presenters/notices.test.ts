@@ -162,11 +162,16 @@ describe('presentNotices：事実から行を組む', () => {
     }
   });
 
-  it('送らなかった項目の件数が増えると鍵が変わり、既読にしていても未読に戻る。事実が無くなれば行も消える', () => {
+  it('送らなかった項目の件数が、既読にした時点より増えたときだけ未読に戻る。減ったときは既読のまま、0 になれば行も消える', () => {
     const state = read(['config|unsent|2']);
     expect(presentNotices(state, storeOf({ configSync: cfgSync({ unsent: 2 }) }), NOW).unread).toBe(0);
     expect(presentNotices(state, storeOf({ configSync: cfgSync({ unsent: 3 }) }), NOW).unread).toBe(1);
+    const fewer = presentNotices(state, storeOf({ configSync: cfgSync({ unsent: 1 }) }), NOW);
+    expect(fewer.rows).toHaveLength(1);
+    expect(fewer.unread).toBe(0);
     expect(presentNotices(state, storeOf({ configSync: cfgSync({ unsent: 0 }) }), NOW).rows).toEqual([]);
+    // 1 件の時点で既読にして、2 件に増えたときは未読に戻る。
+    expect(presentNotices(read(['config|unsent|1']), storeOf({ configSync: cfgSync({ unsent: 2 }) }), NOW).unread).toBe(1);
   });
 
   it('種類の並びは、リマインダー、同期、互換、保持期間、設定の同期、通知', () => {

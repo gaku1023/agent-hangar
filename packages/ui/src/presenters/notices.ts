@@ -36,7 +36,8 @@ export type NoticeRow = {
 export type NoticesProps = { rows: NoticeRow[]; unread: number; keys: string[]; label: string };
 
 /** 組む前の行。既読かどうかは、全部の行がそろってから 1 か所で決める。 */
-type Draft = Omit<NoticeRow, 'unread'>;
+/** covers は、既読の鍵 1 つが、この行を既読にしているかを決める関数。無ければ、鍵が同じときだけ既読である（件数のように、減っても既読のままにしたい行が足す）。 */
+type Draft = Omit<NoticeRow, 'unread'> & { covers?: (readKey: string) => boolean };
 type Ctx = { state: State; store: Store; now: number; tz: string | undefined; t: Translate; language: Language };
 
 const MIN = 60_000;
@@ -150,13 +151,15 @@ function retention({ store, now, t }: Ctx): Draft[] {
 /**
  * 設定の同期で送らなかった項目（落とした権限の規則、秘密らしい文字列のあった項目）。
  * 事実は ConfigSyncDto の unsent（件数）で、件数が 0 に戻れば行も消える。同期を切っているとき、サーバがまだ知らない（古い）ときも作らない。
- * 鍵に件数を入れるので、件数が変わればまた未読になる。行からは、設定の同期の節の送らなかった項目の行（at=unsent）が開く。
+ * 鍵に件数を入れ、既読にした時点の件数以上のあいだは既読のままにする。増えたときだけ未読に戻り、減ったときは既読のままである。行からは、設定の同期の節の送らなかった項目の行（at=unsent）が開く。
  */
 function configUnsent({ store, t }: Ctx): Draft[] {
   const c = store.configSync;
   if (!c || !c.enabled || c.unsent <= 0) return [];
+  const prefix = 'config|unsent|';
   return [{
-    key: `config|unsent|${c.unsent}`, kind: 'config', tone: 'warn', icon: 'settings', kindLabel: t('notices.kind.config'),
+    covers: (k) => k.startsWith(prefix) && Number(k.slice(prefix.length)) >= c.unsent,
+    key: `${prefix}${c.unsent}`, kind: 'config', tone: 'warn', icon: 'settings', kindLabel: t('notices.kind.config'),
     title: t('notices.config.unsent', { n: c.unsent }), detail: t('notices.config.unsentDetail'), when: null,
     action: { label: t('notices.config.open'), intent: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } },
   }];
@@ -189,7 +192,7 @@ export function presentNotices(state: State, store: Store, now: number, tz?: str
   const t = translatorOf(store);
   const ctx: Ctx = { state, store, now, tz, t, language: storeLanguage(store) };
   const read = new Set(Array.isArray(state.noticesRead) ? state.noticesRead : []);
-  const rows = BUILDERS.flatMap((build) => build(ctx)).map((d): NoticeRow => ({ ...d, unread: !read.has(d.key) }));
+  const rows = BUILDERS.flatMap((build) => build(ctx)).map(({ covers, ...d }): NoticeRow => ({ ...d, unread: !(read.has(d.key) || (covers !== undefined && [...read].some(covers))) }));
   const unread = rows.filter((r) => r.unread).length;
   return { rows, unread, keys: rows.map((r) => r.key), label: unread > 0 ? t('notices.bell.labelUnread', { n: unread }) : t('notices.bell.label') };
 }
