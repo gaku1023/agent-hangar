@@ -15,6 +15,8 @@ export type Secrets = {
   tmp: string; tmpReal: string; tmpRoot: string; tmpRootReal: string;
   home: string; claudeDir: string; user: string; host: string;
   email: string | null; orgName: string | null; orgId: string | null;
+  /** 利用者の CLAUDE.md の行（前後の空白を除いて 20 文字以上のもの）。見本に残っていたら伏せ残しとする。値は出さない。 */
+  contextLines: string[];
 };
 export type Pairs = [string, string][];
 
@@ -42,10 +44,17 @@ export function replacements(s: Secrets): Pairs {
   return pairs.filter(([from]) => from.length >= 3).sort((a, b) => b[0].length - a[0].length);
 }
 
+/** メールアドレスらしい文字列。置き換えと、伏せ残しの見つけ方（leaks）が同じものを使う。 */
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+/**
+ * 置き換えの組を当て、そのあとメールアドレスらしい文字列をどれも PLACEHOLDER.email にする。
+ * 会話の文脈（利用者の CLAUDE.md、コミットの署名の指示など）には、組にない別のアドレスが入りうるためである。
+ */
 export function redactText(text: string, pairs: Pairs): string {
   let out = text;
   for (const [from, to] of pairs) out = out.split(from).join(to);
-  return out;
+  return out.replace(EMAIL, PLACEHOLDER.email);
 }
 
 /** 値を深く辿り、文字列と鍵に置き換えを当てる。鍵にパスを持つ記録（file-history-snapshot など）があるためである。 */
@@ -59,17 +68,44 @@ export function redactDeep(v: unknown, pairs: Pairs): unknown {
 /** 中身を残す添付の種類。筋書きが作る、積んだ指示だけである。 */
 const KEEP_ATTACHMENTS: ReadonlySet<string> = new Set(['queued_command']);
 
+/** system-reminder の塊（閉じが無ければ文字列の末尾まで）。会話の文脈（利用者の CLAUDE.md など）が入る。 */
+const REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>|<system-reminder>[\s\S]*$/g;
+/** 塊の中身を伏せた形。hangar が本文の頭のタグで利用者の発言でないものを見分けるので、タグは残す。 */
+const REMINDER_REDACTED = '<system-reminder>(redacted)</system-reminder>';
+
+/** 値の文字列すべてに f を当てる（鍵には当てない）。 */
+function mapStrings(v: unknown, f: (s: string) => string): unknown {
+  if (typeof v === 'string') return f(v);
+  if (Array.isArray(v)) return v.map((x) => mapStrings(x, f));
+  if (isRec(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mapStrings(x, f)]));
+  return v;
+}
+
+/** assistant の本文の、考えの塊の中身を伏せる。考えは文脈を引用しうる。 */
+function redactThinking(r: Rec): Rec {
+  if (!isRec(r.message) || !Array.isArray(r.message.content)) return r;
+  const content = r.message.content.map((b: unknown) => {
+    if (!isRec(b)) return b;
+    if (b.type === 'thinking') return { ...b, thinking: '(redacted)', ...('signature' in b ? { signature: '(redacted)' } : {}) };
+    if (b.type === 'redacted_thinking') return { ...b, ...('data' in b ? { data: '(redacted)' } : {}) };
+    return b;
+  });
+  return { ...r, message: { ...r.message, content } };
+}
+
 /**
  * トランスクリプトの 1 行を伏せる。
  * 添付は、積んだ指示のほかは種類だけを残す。添付には利用者の CLAUDE.md、スキルの一覧、MCP の道具、環境が入るためである。
  * 利用者の発言でない user の行（isMeta）も、本文を伏せる。
+ * どの欄の文字列でも、system-reminder の塊は中身を伏せる（isMeta でない所にも文脈が差し込まれる）。考えの塊も中身を伏せる。
  */
 export function redactTranscriptLine(rec: unknown, pairs: Pairs): unknown {
   if (!isRec(rec)) return rec;
   let r: Rec = rec;
   if (r.type === 'attachment' && isRec(r.attachment) && !KEEP_ATTACHMENTS.has(String(r.attachment.type))) r = { ...r, attachment: { type: r.attachment.type } };
   if (r.type === 'user' && r.isMeta === true && isRec(r.message)) r = { ...r, message: { ...r.message, content: '(redacted)' } };
-  return redactDeep(r, pairs);
+  r = redactThinking(r);
+  return redactDeep(mapStrings(r, (t) => t.replace(REMINDER, REMINDER_REDACTED)), pairs);
 }
 
 /** statusline の JSON を伏せる。使用率、戻る時刻、費用は実際の使用量なので、決まった値にする。戻る時刻の単位は保つ。 */
@@ -122,7 +158,6 @@ export function redactAgents(rows: unknown, sessionId: string, pairs: Pairs): un
   return rows.filter((r) => isRec(r) && r.sessionId === sessionId).map((r) => redactDeep(r, pairs));
 }
 
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const escapeRegExp = (v: string): string => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** text に word が、前後を英数字に挟まれない形で、大文字小文字を問わず現れるか。語の一部（someone に対する someonelse や nosomeone）は数えない。 */
@@ -140,6 +175,8 @@ export function leaks(text: string, s: Secrets): string[] {
     ['設定の置き場の名前', basename(s.claudeDir) === '.claude' ? null : basename(s.claudeDir)],
   ];
   const out = named.filter(([, v]) => v !== null && v.length >= 3 && text.includes(v)).map(([label]) => label);
+  // 利用者の CLAUDE.md の行（値は出さない）。
+  if (s.contextLines.some((l) => text.includes(l))) out.push('利用者の CLAUDE.md の行');
   // ユーザー名は短くありふれた語になりうるので、語として現れたときだけ数える。
   if (s.user.length >= 3 && hasWord(text, s.user)) out.push('ユーザー名');
   if ([...text.matchAll(EMAIL)].some((m) => m[0] !== PLACEHOLDER.email)) out.push('メールアドレスらしい文字列');

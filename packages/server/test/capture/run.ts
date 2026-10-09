@@ -10,7 +10,8 @@ import { CLAUDE_CHILD_ENV } from '../../src/provider/claude-code/compat/childEnv
 import { claudeVersionOf } from '../../src/provider/claude-code/compat/cli.ts';
 import { mangleCwd } from '../../src/provider/claude-code/discover.ts';
 import { Tmux, type TmuxExec } from '../../src/tmux/tmux.ts';
-import { leaks, redactAgents, redactAuth, redactRegistry, redactStatusline, redactText, redactTranscriptLine, replacements, type Pairs, type Secrets } from './redact.ts';
+import { buildFiles, findLeaks, formatLeaks, jsonl } from './output.ts';
+import { redactAgents, redactText, replacements, type Pairs, type Secrets } from './redact.ts';
 import { PLACEHOLDER, SCENARIO } from './scenario.ts';
 import { createTrustAnswerer, screenClues } from './trust.ts';
 import { failureSummary, hasBashSleep } from './transcript.ts';
@@ -31,9 +32,12 @@ const UNREGISTER_WAIT_MS = 10_000;
 
 const sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms); });
 const readText = (file: string): string => { try { return fs.readFileSync(file, 'utf8'); } catch { return ''; } };
-const jsonl = (text: string): unknown[] => text.split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as unknown);
-const toJsonl = (recs: unknown[]): string => recs.map((r) => JSON.stringify(r)).join('\n') + '\n';
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+/** 利用者の CLAUDE.md の行（前後の空白を除いて 20 文字以上、重複なし）。見本に残っていないかを見る網に使う。値はどこにも書かない。 */
+function contextLinesOf(claudeDir: string): string[] {
+  const lines = readText(path.join(claudeDir, 'CLAUDE.md')).split('\n').map((l) => l.trim()).filter((l) => l.length >= 20);
+  return [...new Set(lines)];
+}
 const lineCount = (text: string): number => text.split('\n').filter((l) => l.trim() !== '').length;
 
 /** 受けたら中断する信号。中断の旗を立てるだけで、止めるのは待ちの側（後始末が走るように）。 */
@@ -246,6 +250,7 @@ export async function main(argv: string[]): Promise<void> {
       tmp, tmpReal: real, tmpRoot: os.tmpdir(), tmpRootReal: fs.realpathSync(os.tmpdir()),
       home: os.homedir(), claudeDir, user: os.userInfo().username, host: os.hostname(),
       email: str(auth.email), orgName: str(auth.orgName), orgId: str(auth.orgId),
+      contextLines: contextLinesOf(claudeDir),
     };
     const pairs = replacements(secrets);
 
@@ -266,21 +271,17 @@ export async function main(argv: string[]): Promise<void> {
       throw new Error(`筋書きが通りませんでした:\n- ${problems.join('\n- ')}`);
     }
 
-    const files: Record<string, string> = {
-      'transcript.jsonl': toJsonl(jsonl(transcriptText).map((r) => redactTranscriptLine(r, pairs))),
-      'registry.jsonl': toJsonl(registry.map((r) => redactRegistry(r, pairs))),
-      'statusline.jsonl': toJsonl(statusline.map((r) => redactStatusline(r, pairs))),
-      'agents.json': JSON.stringify(agentsKept, null, 2) + '\n',
-      'auth-status.json': JSON.stringify(redactAuth(auth, pairs), null, 2) + '\n',
-      'help.txt': helpText,
-      'version.txt': versionText,
-      'meta.json': JSON.stringify({ version, sessionId, capturedAt: new Date().toISOString().slice(0, 10) }, null, 2) + '\n',
-    };
-    for (const n of subagents) files[`subagents/${n}`] = toJsonl(jsonl(readText(path.join(subagentDir, n))).map((r) => redactTranscriptLine(r, pairs)));
-    const found = Object.entries(files).flatMap(([name, text]) => leaks(text, secrets).map((what) => `${name}: ${what}`));
+    const files = buildFiles({
+      transcript: transcriptText,
+      subagents: Object.fromEntries(subagents.map((n) => [n, readText(path.join(subagentDir, n))])),
+      registry, statusline, agents: agentsRows, auth, help: helpText, versionText, version, sessionId,
+      capturedAt: new Date().toISOString().slice(0, 10),
+    }, secrets);
+    // 伏せ残しがあれば書き出さない。値は出さず、ファイル、行、JSON のパス、種類だけを出す。
+    const found = findLeaks(files, secrets);
     if (found.length > 0) {
       console.error(failureSummary(Object.entries(files).map(([name, text]): [string, number] => [name, lineCount(text)]), transcriptText));
-      throw new Error(`伏せ残しがあるので書き出しません:\n- ${found.join('\n- ')}`);
+      throw new Error(`伏せ残しがあるので書き出しません:\n${formatLeaks(found)}`);
     }
 
     fs.rmSync(outDir, { recursive: true, force: true });

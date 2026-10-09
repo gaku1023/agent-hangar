@@ -13,6 +13,7 @@ const S: Secrets = {
   email: 'someone@corp.example',
   orgName: 'Corp Example',
   orgId: '11111111-2222-4333-8444-555555555555',
+  contextLines: ['Fixture rule: say fixture-forbidden-word never'],
 };
 const P = replacements(S);
 
@@ -42,6 +43,24 @@ describe('replacements と redactDeep', () => {
   });
   it('設定の置き場の、置き場の名前の形（英数字以外を - にしたもの）も -Users-me--claude にする', () => {
     expect(redactDeep({ m: '-Users-someone--claude-alt/projects/x' }, P)).toEqual({ m: '-Users-me--claude/projects/x' });
+  });
+});
+
+describe('メールアドレスらしい文字列', () => {
+  it('置き換えの組のほかのアドレスも、値も鍵も user@example.com にする。user@example.com はそのまま', () => {
+    expect(redactDeep({ a: 'x other@corp.example y noreply@vendor.example', 'k@mail.example': 'user@example.com' }, P)).toEqual({ a: 'x user@example.com y user@example.com', 'user@example.com': 'user@example.com' });
+  });
+});
+
+describe('redactTranscriptLine の system-reminder、考え', () => {
+  const R = '<system-reminder>(redacted)</system-reminder>';
+  it('どの欄の文字列でも、system-reminder の塊を中身だけ (redacted) にする。複数でも、閉じが無くても', () => {
+    const rec = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'a <system-reminder>\nsecret</system-reminder> b <system-reminder>x</system-reminder> c' }, { type: 'text', text: 'head <system-reminder>never closed' }] } };
+    expect(redactTranscriptLine(rec, P)).toEqual({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: `a ${R} b ${R} c` }, { type: 'text', text: `head ${R}` }] } });
+  });
+  it('thinking の thinking と signature、redacted_thinking の data を (redacted) にする', () => {
+    const rec = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'secret', signature: 'sig' }, { type: 'redacted_thinking', data: 'opaque' }, { type: 'text', text: 'kept' }] } };
+    expect(redactTranscriptLine(rec, P)).toEqual({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking: '(redacted)', signature: '(redacted)' }, { type: 'redacted_thinking', data: '(redacted)' }, { type: 'text', text: 'kept' }] } });
   });
 });
 
@@ -88,6 +107,11 @@ describe('leaks', () => {
   it('設定の置き場の名前（.claude でないとき）が残っていれば見つける。.claude のときは見ない', () => {
     expect(leaks('x/.claude-alt/y', S)).toEqual(['設定の置き場の名前']);
     expect(leaks('x/.claude/y', { ...S, claudeDir: '/Users/someone/.claude' })).toEqual([]);
+  });
+  it('利用者の CLAUDE.md の行が含まれていれば、値を出さずに種類だけ返す', () => {
+    expect(leaks(`before ${(S.contextLines[0] ?? '')} after`, S)).toEqual(['利用者の CLAUDE.md の行']);
+    expect(leaks('nothing here', S)).toEqual([]);
+    expect(leaks((S.contextLines[0] ?? ''), { ...S, contextLines: [] })).toEqual([]);
   });
   it('ユーザー名は大文字小文字を区別しない', () => {
     expect(leaks('Owner: SomeOne', S)).toEqual(['ユーザー名']);
