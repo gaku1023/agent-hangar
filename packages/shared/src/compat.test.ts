@@ -3,11 +3,11 @@ import { COMPAT_HEADER, COMPAT_VERSION, compatHeaders, compatRefusalBody, parseC
 import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
-  it('版は 1 から始まる整数で、見出しは小文字の x-hangar-compat で運ぶ', () => {
-    expect(COMPAT_VERSION).toBe(1);
+  it('版は整数で（いまは 2。名前とメモを session_notes で運ぶ版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
+    expect(COMPAT_VERSION).toBe(2);
     expect(Number.isSafeInteger(COMPAT_VERSION)).toBe(true);
     expect(COMPAT_HEADER).toBe('x-hangar-compat');
-    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '1' });
+    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '2' });
   });
 
   it('パッケージの入口から取れる', () => {

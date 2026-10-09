@@ -5,10 +5,12 @@ import type { Env, Vars } from './env.ts';
 /**
  * 端末に求める互換の版の下限。
  * 段 1 の PR 6 で 1 に上げた。版の見出しを持たない古い端末（版 0 として読む）は 426 で断る。
+ * 段 2 の PR 11 で 2 に上げた。版 1 の端末は、セッションの名前とメモを sessions の payload に載せ、session_notes の行を知らずに捨てる。
+ * 版 2 の端末と混ざると名前とメモが消えるので、版 1 の端末は 426 で断る。
  * 上げるのは、同期に参加しているすべての端末が、その版を名乗る版に上がってからである（docs/design.md「互換の版番号」）。
  * packages/server/test/fake-cloud.test.ts がこの行を文字列で読んで、偽物の写しと突き合わせる。
  */
-export const MIN_DEVICE_COMPAT = 1;
+export const MIN_DEVICE_COMPAT = 2;
 
 /**
  * 互換の版の関所。どの経路よりも先に通す。

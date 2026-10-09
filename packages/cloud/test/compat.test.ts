@@ -31,8 +31,35 @@ afterEach(async () => {
 });
 
 describe('互換の版（本番の下限）', () => {
-  it('本番の下限は 1 である（段 1 の PR 6 で上げた）', () => {
-    expect(MIN_DEVICE_COMPAT).toBe(1);
+  it('本番の下限は 2 である（段 2 の PR 11 で上げた。名前とメモを session_notes で運ぶ版）', () => {
+    expect(MIN_DEVICE_COMPAT).toBe(2);
+    // この版の端末は通す。下限を、束ねて配る端末の版より先へ上げない。
+    expect(MIN_DEVICE_COMPAT).toBeLessThanOrEqual(COMPAT_VERSION);
+  });
+
+  it('版 1 を名乗る端末（名前とメモを sessions の行で運ぶ版）は、参加も含めて 426 と下限 2 で断る', async () => {
+    const c = await boot();
+    const v1 = { [COMPAT_HEADER]: '1' };
+    const j = await c.RAW.fetch('https://x/join', joinInit(v1));
+    expect(j.status).toBe(426);
+    expect(await j.json()).toEqual({ error: 'upgrade required', minCompat: 2, compat: COMPAT_VERSION });
+    for (const [method, url] of [['GET', 'https://x/changes?since=0'], ['POST', 'https://x/changes'], ['GET', 'https://x/rows?after=&limit=10']] as const) {
+      const r = await c.RAW.fetch(url, { method, headers: v1 });
+      expect(r.status, `${method} ${url}`).toBe(426);
+      expect(await r.json(), `${method} ${url}`).toEqual({ error: 'upgrade required', minCompat: 2, compat: COMPAT_VERSION });
+    }
+  });
+
+  it('版 2 を名乗る端末は通し、session_notes の行を受け取って返す', async () => {
+    const c = await boot();
+    const { deviceToken } = (await (await c.SELF.fetch('https://x/join', joinInit())).json()) as { deviceToken: string };
+    const auth = { authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' };
+    const change = { tableName: 'session_notes', rowId: 's1', op: 'upsert', updatedAt: 100, payload: { session_id: 's1', name: '名前', memo: 'メモ', updated_at: 100, deleted_at: null, origin_device: 'dev-a' } };
+    const push = await c.SELF.fetch('https://x/changes', { method: 'POST', headers: auth, body: JSON.stringify({ changes: [change] }) });
+    expect(push.status).toBe(200);
+    expect(await push.json()).toMatchObject({ accepted: 1, skipped: 0 });
+    const rows = (await (await c.SELF.fetch('https://x/rows?after=&limit=10', { headers: auth })).json()) as { changes: { tableName: string; rowId: string; payload: unknown }[] };
+    expect(rows.changes.map((r) => ({ tableName: r.tableName, rowId: r.rowId, payload: r.payload }))).toEqual([{ tableName: 'session_notes', rowId: 's1', payload: change.payload }]);
   });
 
   it('/health は Worker の版を返し、版を名乗らない相手にも答える', async () => {
@@ -70,7 +97,7 @@ describe('互換の版（本番の下限）', () => {
     const c = await boot();
     const j = await c.RAW.fetch('https://x/join', joinInit());
     expect(j.status).toBe(426);
-    expect(await j.json()).toEqual({ error: 'upgrade required', minCompat: 1, compat: COMPAT_VERSION });
+    expect(await j.json()).toEqual({ error: 'upgrade required', minCompat: 2, compat: COMPAT_VERSION });
     expect((await c.RAW.fetch('https://x/changes?since=0')).status).toBe(426);
   });
 });

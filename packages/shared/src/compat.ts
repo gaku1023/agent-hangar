@@ -7,10 +7,13 @@
  *
  * 上げるのは、同期の形、Worker の API、殻とサーバの合図を、古い相手と話せない形で変えるときだけである。
  * 項目を足すだけで古い相手も読める変更では上げない（docs/design.md「互換の版番号」）。
+ * 版 2（段 2 の PR 11）：セッションの名前とメモを、sessions の payload ではなく session_notes の行で運ぶ。
+ * 版 1 の端末は session_notes を知らずに捨て、名前とメモを sessions の payload に載せるので、混ざると名前とメモが消える。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 1;
+export const COMPAT_VERSION = 2;
 
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';
