@@ -447,7 +447,7 @@ export class ClaudeConfigSync {
    * 上げる仕事を並べる 1 本の鎖。
    *
    * 押し出しは 2 か所から始まる。
-   * 1 つは監視のデバウンス（noteChanged のタイマー）で、もう 1 つは server.ts の定期の呼び出しである。
+   * 1 つは監視のデバウンス（noteChanged のタイマー）で、もう 1 つは boot/sync.ts の定期の呼び出しである。
    * 並べずに走らせると、両方が同じ file_sync を読んでから書くので、同じファイルを二重に上げる。
    * uploader と同じ作法で 1 本に並べ、putFile が重ならないようにする。
    */
@@ -629,7 +629,7 @@ export class ClaudeConfigSync {
         n++;
       } catch (e) {
         // 上限で断られたのは、このファイルのせいではない。残りのファイルも同じ答えなので、その回を打ち切り、ファイルごとには鳴らさない。
-        // 退いたことは、同じ上限に当たる SyncEngine が 1 度だけ知らせる。その後は状態が paused になり、ここへは来ない（server.ts の configSyncActive）。
+        // 退いたことは、同じ上限に当たる SyncEngine が 1 度だけ知らせる。その後は状態が paused になり、ここへは来ない（sync/halt.ts の configSyncActive）。
         if (e instanceof LimitError) break;
         // 上げられない理由が直るまで中身は変わらないので、中身の印が同じうちは 1 度しか鳴らさない。
         this.reportOnce(`push:${f.rel}`, `${f.size}:${f.mtime}`, `${f.rel} の同期に失敗しました: ${errorMessage(e)}`);
