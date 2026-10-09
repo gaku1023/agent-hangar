@@ -1,0 +1,31 @@
+import type { projectKeys } from '../keys/project.ts';
+import type { AreaDictionary } from '../messageSpec.ts';
+
+export const projectJa: AreaDictionary<typeof projectKeys> = {
+  'project.error.notFound': 'プロジェクトが見つかりません',
+  'project.status.invalid': 'ステータスは active、paused、done、archived のいずれかです',
+  'project.resolve.badKind': '操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください',
+  'project.resolve.dirMissing': '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください',
+  'project.create.pathNotDir': 'path が存在するディレクトリではありません',
+  'project.create.badKind': 'kind は newDir か dir です',
+  'project.create.nameRule': '名前はディレクトリ名として使える 1 字以上で、/ を含められません',
+  'project.create.dirExists': '{dir} は既にあります',
+  'project.create.cannotCreate': '{dir} を作れません: {reason}',
+  'project.create.gitInitFailed': 'git init に失敗しました: {reason}',
+  'project.create.nameEmpty': 'name を空にはできません',
+  'project.create.pathMustBeAbsolute': 'path は / か ~ で始まる絶対パスにしてください',
+  'project.create.rootNotAllowed': 'ワークスペースのルートやその上のフォルダはプロジェクトにできません',
+  'project.name.uncategorized': '未分類',
+  'project.promote.scratchUnverified': 'スクラッチの置き場を確かめられなかったため、ファイルは移動しませんでした（{reason}）',
+  'project.promote.sourceMissing': '{from} が見つかりませんでした',
+  'project.promote.outsideScratch': '{from} はスクラッチの外（{real}）を指しているため、ファイルは移動しませんでした',
+  'project.promote.unreadable': '{from} の中身を読めませんでした（{reason}）',
+  'project.promote.clash': '移動先に {name} が既にあるため、ファイルは移動しませんでした。手で移してください',
+  'project.promote.sourceNotRemoved': 'ファイルは {to} へ移しましたが、{from} を消せませんでした（{reason}）',
+  'project.promote.notScratch': 'このセッションはスクラッチではありません',
+  'project.promote.claudeRunning': 'Claude が動いているのでファイルは移しませんでした。終了してから手で移してください',
+  'project.promote.failedNothingMoved': '{name} を移せませんでした（{cause}）。ファイルは {from} にそのまま残っています',
+  'project.promote.failedRolledBack': '{name} を移せませんでした（{cause}）。先に移したものは {from} に戻しました。ファイルは移動していません',
+  'project.promote.failedLeftBoth': '{name} を移せませんでした（{cause}）。{left} は {to} にも残っています。{from} と {to} の両方を確かめてください',
+  'project.unassigned.appeared': 'どのプロジェクトにも属さないセッションが現れました（{cwd}）。未分類のまま置いてあります',
+};

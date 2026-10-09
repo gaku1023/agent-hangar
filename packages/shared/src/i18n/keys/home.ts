@@ -1,0 +1,25 @@
+import type { MessageSpec } from '../messageSpec.ts';
+
+export const homeKeys = {
+  'home.band.label': [],
+  'home.band.attention': [],
+  'home.band.running': [],
+  'home.band.pending': [],
+  'home.band.attentionSummary': ['waiting', 'reminders'],
+  'home.band.runningSummary': ['busy', 'idle'],
+  'home.band.pendingSummary': ['n'],
+  'home.band.collapse': [],
+  'home.band.searchNote': [],
+  'home.band.waited': ['time'],
+  'home.band.working': ['time'],
+  'home.band.external': [],
+  'home.band.noDate': [],
+  'home.band.reminderTime': ['time'],
+  'home.band.answer': [],
+  'home.band.move': [],
+  'home.band.open': [],
+  'home.band.changeDate': [],
+  'home.band.confirm': [],
+  'home.band.dismiss': [],
+  'home.band.actionFor': ['action', 'name'],
+} as const satisfies MessageSpec;

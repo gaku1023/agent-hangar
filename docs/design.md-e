@@ -1708,6 +1708,7 @@ Claude が動く場所は、公式に合わせて「ディレクトリ」（作�
 直す語と PR の一覧は、段 4 の設計書（`docs/superpowers/specs/2026-10-09-stage4-screens-design.md`）の 2.10 にある。
 画面の文の語は、これから順に辞書へ移る（次の「文言の辞書」）。
 このため、いまの画面には、用語集より前の語が残っているものがある。
+>>>>>>> worktree-stage4-pr1-glossary-dictionary
 
 ### 文言の辞書
 
