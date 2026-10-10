@@ -313,9 +313,10 @@ mod win {
     static ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
 
     fn exe_path() -> Option<String> {
+        // トーストの登録（LocalServer32）に書く。verbatim の形で起こされたときも、普通の形で書く。
         std::env::current_exe()
             .ok()
-            .map(|p| p.to_string_lossy().into_owned())
+            .map(|p| crate::paths::plain(&p).to_string_lossy().into_owned())
     }
 
     fn installed() -> bool {

@@ -84,7 +84,7 @@ jobs:
         working-directory: apps/desktop/src-tauri
       - run: cargo test
         working-directory: apps/desktop/src-tauri
-      # 配布物（NSIS のインストーラ）を作り、入れて、同梱の hangar.cmd が動くところまで見る（段 6 の 6-8）。
+      # 配布物（NSIS のインストーラ）を作り、入れて、同梱の hangar.cmd が動くところと、殻を起こすとサーバが応えるところまで見る（段 6 の 6-8）。
       # 手順は release の windows ジョブと同じものを、composite action の 1 か所で持つ。
       # 署名はしない（利用者の決定）。Release には上げず、この実行の artifact に 7 日だけ残す。
       - id: installer

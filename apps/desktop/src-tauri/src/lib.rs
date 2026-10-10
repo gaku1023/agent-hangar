@@ -530,9 +530,12 @@ fn bundled_node_and_dir(
     app: &AppHandle,
     hangar_home: &std::path::Path,
 ) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    // Windows の resource_dir は `\\?\C:\…`（verbatim）の形で来る。子へ渡す前に普通の形へ直す。
+    // Node 22.20 以降はその形の主スクリプトを読めず、起動の直後に落ちる。
     let resource_dir = app
         .path()
         .resource_dir()
+        .map(|d| paths::plain(&d))
         .map_err(|e| format!("リソースの場所が分かりません: {e}"))?;
     let dir = server::server_dir(&resource_dir)
         .ok_or_else(|| format!("同梱のサーバが見つかりません: {}", resource_dir.display()))?;

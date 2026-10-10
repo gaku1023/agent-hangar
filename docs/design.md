@@ -81,6 +81,10 @@ Windows のサーバはジョブオブジェクトに入れる（`src-tauri/src/
 psmux はサーバを `CREATE_BREAKAWAY_FROM_JOB` で起こしてジョブの外へ出るので、psmux のサーバとその中の claude は Hangar を閉じても残る（macOS の tmux と同じ）。
 黙って抜けるのを許す `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` は付けない。付けると孫がみなジョブの外に出て、ジョブで止められるのがサーバ 1 つだけになる。
 殻が Windows で起こす子（サーバ、Node の候補、設定の同期の CLI）には `CREATE_NO_WINDOW` を付け、黒いコンソールの窓を開かない。
+殻が子へ渡すパス（Node の主スクリプトの `server.mjs` と `cli.mjs`、`HANGAR_UI_DIST`、`HANGAR_HOME`、`HANGAR_LAUNCHER`）と、トーストの登録に書く殻の場所は、Windows の verbatim の接頭辞（`\\?\`）を外してから渡す（`src-tauri/src/paths.rs` の `plain`）。
+Tauri の `resource_dir()` は Windows で `\\?\C:\…` の形を返し、Node 22.20 以降はその形の主スクリプトを読めずに `lstat 'C:'` の EISDIR で落ちるためである（0.2.0-rc.1 はこれで起動しなかった）。
+`\\?\C:\…` は `C:\…` に、`\\?\UNC\server\share\…` は `\\server\share\…` に直す。
+外すと別のものを指すもの（全体が 260 字を超える、予約名、末尾の点や空白、`.` や `..` の段）は外さない（規則は dunce の `simplified` と同じで、UNC の形を足してある）。
 Node の候補もジョブに入れ、打ち切ったときに孫ごと止める（unix の `setsid` と `killpg` に当たる）。
 サーバが起こす外のアプリ（Windows Terminal、既定のターミナル、VS Code、ブラウザ）は、そのまま起こすとジョブに入り、Hangar を閉じると窓ごと止まる。
 Node は子に `CREATE_BREAKAWAY_FROM_JOB` を付けられないので、殻の実行ファイルを起こし役にする（`src-tauri/src/breakaway.rs`、`packages/server/src/external/breakaway.ts`）。
@@ -4151,7 +4155,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   win32-x64 の束は、`bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
   cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直し（HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows の順）は `launch-cli.mjs` が行う。
   殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、PATH の順に探す。Node 本体は Windows でも同梱しない。
-- Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる（重ねるのは配布物と窓の装飾だけ）。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消すところまでを行う。
+- Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる（重ねるのは配布物と窓の装飾だけ）。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、入れた殻を起こして同梱のサーバが `127.0.0.1:4177` の `/health` に応えるまで待ってから止め、静かに消すところまでを行う。殻が resource_dir から作ったパスで Node を起こす経路は、`hangar.cmd` では通らないので、殻そのものを起こして確かめる。
   CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。
   タグの `release.yml` では、windows ジョブが同じ手順で作って `Hangar-<タグ>-windows-x64-setup.exe` と `.sha256` を artifact に置き、`windows-upload` ジョブが macos ジョブの後でそれを macos ジョブの作った Release に `gh release upload` で添える。Release を作るのは macos ジョブだけで、書き込みの権限もこの 2 つのジョブだけが持つ。
   署名鍵があれば、インストーラの署名（`.sig`）も作り、`updater-manifest` ジョブが更新の目録に載せる（次の「アプリの自動更新」）。

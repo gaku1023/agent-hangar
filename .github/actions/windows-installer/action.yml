@@ -1,6 +1,6 @@
 name: Windows のインストーラを作る
 description: >-
-  NSIS のインストーラ（署名なし）を作り、静かに入れて同梱の hangar.cmd が動くことを見てから、静かに消す。
+  NSIS のインストーラ（署名なし）を作り、静かに入れて同梱の hangar.cmd が動くことと、殻を起こすとサーバが応えることを見てから、静かに消す。
   ci と release の windows ジョブが同じ手順を使うためにここへまとめてある。
   呼ぶ前に checkout、Node 22、npm ci --ignore-scripts、Rust（target 入り）をそろえておく。
 inputs:
@@ -69,7 +69,7 @@ runs:
         if (Test-Path "$($f.FullName).sig") { Add-Content -Path $env:GITHUB_OUTPUT -Value "sig=$dir/$($f.Name).sig" }
     # 管理者権限なし（ユーザー単位）で静かに入る。入った先の同梱の hangar.cmd が、Node を見つけて cli.mjs を動かす。
     # 入れた先は %LOCALAPPDATA%\Hangar（NSIS のユーザー単位の既定）。レイアウトを決め打ちしすぎないよう、hangar.cmd は探して使う。
-    # アプリ本体は起動しない（窓を持つので CI では動かさない）。
+    # アプリ本体（殻）も一度起こし、同梱のサーバが /health に応えるところまで見てから止める。
     - name: 静かに入れ、同梱の hangar.cmd を動かし、静かに消す
       shell: pwsh
       env:
@@ -82,7 +82,7 @@ runs:
         Get-ChildItem $dir | Format-Table Name, Length
         $cmd = Get-ChildItem $dir -Recurse -Filter hangar.cmd | Select-Object -First 1
         if (-not $cmd) { throw '同梱の hangar.cmd が入っていない' }
-        # 殻が起動のたびに書くトーストの登録と絵を、ここで代わりに置く（アプリ本体は CI では動かさない）。
+        # 殻が起動のたびに書くトーストの登録と絵を、殻を起こす前にここでも置く（殻が起きなくても消す側を確かめられるように）。
         # 消したあとに残っていないことと、利用者のデータには触れないことを、消したあとで見る。
         $appKey = 'HKCU:\Software\Classes\AppUserModelId\dev.agent-hangar.hangar'
         $clsidKey = 'HKCU:\Software\Classes\CLSID\{1CE6AB2A-D79D-49F4-88B0-5A9E624A75E4}'
@@ -95,6 +95,34 @@ runs:
         $out = & $cmd.FullName --help 2>&1 | Out-String
         $out
         if ($LASTEXITCODE -ne 0 -or $out -notmatch 'setup') { throw "hangar.cmd --help が動かない（終了コード ${LASTEXITCODE}）" }
+        # 入れた殻を起こし、殻が同梱のサーバを Node で起こして 127.0.0.1:4177 の /health が応えるまで待つ。
+        # 殻は resource_dir（Windows では \\?\ 付きの verbatim の形）から server.mjs のパスを作って Node に渡す。
+        # この経路は hangar.cmd では通らず、rc.1 は Node 22.20 以降でここが落ちて起動しなかった。
+        # 既に誰かが 4177 で応えていると、殻はそれを採って自分のサーバを起こさないので、先に空いていることを見る。
+        $health = 'http://127.0.0.1:4177/health'
+        $busy = $false
+        try { Invoke-RestMethod -Uri $health -TimeoutSec 2 | Out-Null; $busy = $true } catch { }
+        if ($busy) { throw '殻を起こす前から 4177 が応えている' }
+        $exe = Get-ChildItem $dir -Filter *.exe | Where-Object { $_.Name -ne 'uninstall.exe' } | Select-Object -First 1
+        if (-not $exe) { throw '殻の exe が入っていない' }
+        $app = Start-Process -FilePath $exe.FullName -PassThru
+        $ok = $false
+        try {
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Get-Date) -lt $deadline -and -not $app.HasExited) {
+            try { if ((Invoke-RestMethod -Uri $health -TimeoutSec 2).ok) { $ok = $true; break } } catch { }
+            Start-Sleep -Seconds 1
+          }
+        } finally {
+          # 殻を止める。サーバと孫は殻のジョブに入っていて、殻が消えるとジョブごと止まる（winjob.rs）。
+          if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          $app.WaitForExit(15000) | Out-Null
+          $gone = (Get-Date).AddSeconds(20)
+          while ((Get-Date) -lt $gone -and (Get-Process | Where-Object { $_.Path -like "$dir\*" })) { Start-Sleep -Milliseconds 500 }
+          $log = Join-Path $home1 'desktop.log'
+          if (Test-Path $log) { Get-Content $log -Tail 40 }
+        }
+        if (-not $ok) { throw "殻を起こしても $health が応えなかった（殻の終了: $($app.HasExited)）" }
         # _?= を付けると、消す側が自分を写さずその場で動き、終わるまで待てる。
         $u = Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList "/S _?=$dir" -Wait -PassThru
         if ($u.ExitCode -ne 0) { throw "アンインストーラが終了コード $($u.ExitCode) で終わった" }

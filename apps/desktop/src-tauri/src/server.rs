@@ -116,12 +116,18 @@ pub const INHERITED_ENV_DROPPED: &[&str] = &[
 
 /// `node server.mjs` のコマンド。受け継いだ印を外してから、殻が渡す値を入れる。
 /// 外すのを先にする。逆の順だと、入れた `HANGAR_PORT` などまで消える。
+///
+/// 子へ渡すパスは、どれも `paths::plain` で Windows の verbatim の接頭辞（`\\?\`）を外してから渡す。
+/// 置き場は Tauri の resource_dir から来るので、Windows ではその形をしている。
+/// Node 22.20 以降はその形の主スクリプトを読めない。
 fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
+    use crate::paths::plain;
     let path = augmented_path(
         std::env::var("PATH").ok().as_deref(),
         &crate::paths::user_home(),
     );
-    let mut cmd = Command::new(node);
+    let dir = plain(dir);
+    let mut cmd = Command::new(plain(node));
     for name in INHERITED_ENV_DROPPED {
         cmd.env_remove(name);
     }
@@ -130,7 +136,7 @@ fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
         .env("HANGAR_PARENT_PID", std::process::id().to_string())
         .env("HANGAR_PORT", PORT.to_string())
         .env("HANGAR_UI_DIST", dir.join("ui"))
-        .env("HANGAR_HOME", hangar_home);
+        .env("HANGAR_HOME", plain(hangar_home));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -138,7 +144,7 @@ fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
         cmd.env("HANGAR_STOP_ON_STDIN_END", "1");
         // 外のアプリを Hangar のジョブの外で起こす起こし役として、殻自身の場所を渡す（breakaway.rs）。
         if let Ok(exe) = std::env::current_exe() {
-            cmd.env("HANGAR_LAUNCHER", exe);
+            cmd.env("HANGAR_LAUNCHER", plain(&exe));
         }
         // 窓を持たない殻から Node を起こすと、黒いコンソールの窓が開いたままになる。
         // 窓の無いコンソールを持たせておけば、サーバが起こす孫（psmux の CLI、PowerShell）もそれを継ぎ、窓を開かない。
@@ -519,6 +525,69 @@ mod tests {
             crate::winjob::tests::kill_pid(grandchild);
         }
         assert!(gone, "孫が残った");
+    }
+
+    // Tauri の resource_dir は Windows で `\\?\C:\…` を返し、置き場はそれに server を足したものになる。
+    // Node 22.20 以降はその形の主スクリプトを読めない（lstat 'C:' の EISDIR）。
+    // 子へ渡すパス（主スクリプト、UI の置き場、hangar の置き場、起こし役）は、どれも普通の形にして渡す。
+    #[cfg(windows)]
+    #[test]
+    fn server_command_passes_plain_paths_to_node() {
+        let cmd = server_command(
+            Path::new("node"),
+            Path::new(r"\\?\C:\Users\me\AppData\Local\Hangar\server"),
+            Path::new(r"\\?\C:\Users\me\.agent-hangar"),
+        );
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(
+            args,
+            [std::ffi::OsStr::new(
+                r"C:\Users\me\AppData\Local\Hangar\server\server.mjs"
+            )]
+        );
+        let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("HANGAR_UI_DIST")),
+            Some(&Some(std::ffi::OsStr::new(
+                r"C:\Users\me\AppData\Local\Hangar\server\ui"
+            )))
+        );
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("HANGAR_HOME")),
+            Some(&Some(std::ffi::OsStr::new(r"C:\Users\me\.agent-hangar")))
+        );
+        let verbatim = |v: &std::ffi::OsStr| v.to_string_lossy().starts_with(r"\\?\");
+        assert!(!verbatim(cmd.get_program()));
+        for (k, v) in envs {
+            assert!(!v.is_some_and(verbatim), "{k:?}={v:?}");
+        }
+    }
+
+    // 実物の Node（CI の windows ジョブでは 22 の最新）に、verbatim の置き場から server.mjs を走らせる。
+    // 置き場は実物の canonicalize で作る。Tauri の resource_dir と同じ作り方である。
+    // 外さずに渡すと、Node 22.20 以降は主スクリプトを読む前に落ち、何も書かない。
+    #[cfg(windows)]
+    #[test]
+    fn node_runs_the_server_from_a_verbatim_resource_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let verbatim = tmp.path().canonicalize().unwrap();
+        assert!(
+            verbatim.to_string_lossy().starts_with(r"\\?\"),
+            "{verbatim:?}"
+        );
+        std::fs::write(
+            verbatim.join("server.mjs"),
+            "console.log(`main=${process.argv[1]} ui=${process.env.HANGAR_UI_DIST} ran;`);\n\
+             process.stdin.on('end', () => process.exit(0));\n\
+             process.stdin.resume();\n",
+        )
+        .unwrap();
+        let log = tmp.path().join("desktop.log");
+        let mut p = spawn_server(Path::new("node"), &verbatim, tmp.path(), &log).unwrap();
+        let text = wait_for_log(&log, "ran;");
+        p.stop();
+        assert!(!text.contains(r"\\?\"), "{text}");
+        assert!(!text.contains("EISDIR"), "{text}");
     }
 
     #[test]
