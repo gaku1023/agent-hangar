@@ -3,7 +3,9 @@ on:
   push:
     tags: ['v*']
 # 既定の権限に頼らず、何も渡さない。
-# 書き込みが要るのは Release を作る macos ジョブだけなので、権限はそのジョブに置く。
+# 書き込みが要るのは、Release を作る macos ジョブと、そこへ Windows のインストーラを添える windows-upload ジョブだけなので、権限はその 2 つに置く。
+# Release を作るのは macos ジョブだけにする。
+# windows ジョブは書き込みなしでインストーラを作って artifact に置き、windows-upload が macos の後でそれを同じ Release に添える。
 permissions: {}
 # 同じタグを二重に走らせない。
 # 走っている途中で止めると資産が半端なまま Release に載りかねないので、先に走っているほうを優先する。
@@ -74,3 +76,86 @@ jobs:
           # 資産が 1 つも付かない Release が黙って公開されるのを防ぐ。
           fail_on_unmatched_files: true
           generate_release_notes: true
+  # Windows 11 の x64 だけ。署名はしない（利用者の決定）。
+  # 作る手順は ci の windows ジョブと同じ composite action（.github/actions/windows-installer）で、静かに入れて同梱の hangar.cmd が動くところまで見る。
+  # npm test は回さない。psmux を相手にする試験は ci の windows ジョブが main の同じコミットで回している。
+  # タグと tauri.conf.json の版の照合は macos ジョブが行い、合わなければ windows-upload まで進まない。
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    # ci の windows ジョブから npm test と cargo の検査を除いた分。Rust の release ビルドがキャッシュ外れで長引いたときの上限。
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # ネイティブモジュールは Windows 向けの prebuild を同梱しているので、スクリプト無しで入れる（ci の windows ジョブと同じ）。
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - id: installer
+        uses: ./.github/actions/windows-installer
+        with:
+          target: ${{ matrix.target }}
+      # .sha256 は macOS の zip と同じ「ハッシュ、空白 2 つ、名前」の形にして、shasum -a 256 -c でも確かめられるようにする。
+      - name: 名前を付けて checksum を作る
+        shell: pwsh
+        env:
+          SETUP: ${{ steps.installer.outputs.setup }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'release-assets'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $name = "Hangar-$env:GITHUB_REF_NAME-windows-$env:ARCH-setup.exe"
+          Copy-Item -Path $env:SETUP -Destination (Join-Path $out $name)
+          $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $out $name)).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $out "$name.sha256"), "$hash  $name`n")
+          Get-Content (Join-Path $out "$name.sha256")
+          Add-Content -Path $env:GITHUB_ENV -Value "ASSET_DIR=$out"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-${{ matrix.arch }}
+          path: ${{ env.ASSET_DIR }}
+          if-no-files-found: error
+          retention-days: 1
+  # macos ジョブが作った Release に、windows ジョブのインストーラを添える。
+  # needs で macos の後に回すので、Release を作る側は macos ジョブ 1 つに決まり、二重に作ることも競うこともない。
+  # gh release upload は Release が無ければ失敗するので、ここで新しく作ることもない。
+  # --clobber は、このジョブだけを再実行したときに同じ名前の資産を上書きするためである。
+  windows-upload:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: windows-*
+          path: assets
+          merge-multiple: true
+      - name: Release に添える
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(assets/*-setup.exe assets/*-setup.exe.sha256)
+          if [ "${#files[@]}" -lt 2 ]; then
+            echo "Windows のインストーラか checksum が無い" >&2
+            ls -la assets >&2
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
