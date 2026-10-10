@@ -10,10 +10,23 @@
  * 版 2（段 2 の PR 11）：セッションの名前とメモを、sessions の payload ではなく session_notes の行で運ぶ。
  * 版 1 の端末は session_notes を知らずに捨て、名前とメモを sessions の payload に載せるので、混ざると名前とメモが消える。
  *
+ * 版 3（段 4 の PR 15）：Worker が、設定の同期の束の行（共有テーブル config_snapshots）を受け取れる。
+ * 版 2 までの Worker は、この表の行を含む push を 400 で丸ごと断る。端末は、Worker が名乗る版が CONFIG_BUNDLE_MIN_WORKER_COMPAT に届くまで束の行を送らない。
+ * 版 2 の端末は束の行を送らず、ほかの表は今までどおり運ぶので、混ざっても困らない（Worker の下限 MIN_DEVICE_COMPAT は 2 のまま）。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 2;
+export const COMPAT_VERSION = 3;
+
+/**
+ * 設定の同期の束の行（共有テーブル config_snapshots）を受け取れる Worker の版（段 4 の PR 14 で決めた定数）。
+ * 配備済みの Worker は、この表の行を含む push を 400 で丸ごと断るので、他の表の同期まで止まる。
+ * 端末は、Worker が名乗る版がこの値に届くまで、スイッチが入っていても束の行を書かず、状態に「Worker の更新待ち」を出す。
+ * PR 15 が、この表を知る Worker の COMPAT_VERSION をこの値に上げた（Worker を配備すると、端末にこの版が見える）。
+ * 端末に求める下限（MIN_DEVICE_COMPAT）と MIN_WORKER_COMPAT は、これでは上げない。上げると配備前の Worker を使う端末が全部止まる。
+ */
+export const CONFIG_BUNDLE_MIN_WORKER_COMPAT = 3;
 
 /** 版を運ぶ見出し（X-Hangar-Compat）。端末は要求に、Worker は応答に、自分の版を載せる。 */
 export const COMPAT_HEADER = 'x-hangar-compat';

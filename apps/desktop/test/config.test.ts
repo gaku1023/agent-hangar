@@ -151,8 +151,8 @@ describe('読み込み画面', () => {
 describe('capabilities', () => {
   const dir = path.join(app, 'src-tauri', 'capabilities');
   const cap = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択の 6 つだけ', () => {
-    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-drag.json', 'remote-notify.json', 'remote-pick-folder.json', 'remote-shell.json']);
+  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択と、設定の同期の適用の 7 つだけ', () => {
+    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-config-apply.json', 'remote-drag.json', 'remote-notify.json', 'remote-pick-folder.json', 'remote-shell.json']);
   });
   it('既定の権限は core:default のまま変えない', () => {
     expect(cap('default.json').permissions).toEqual(['core:default']);
@@ -180,6 +180,7 @@ describe('capabilities', () => {
     expect(cap('remote-notify.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-shell.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-pick-folder.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
+    expect(cap('remote-config-apply.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
   });
   // 殻のコマンドの名前は、殻（build.rs と lib.rs）と画面（notifier.ts）に分かれている。
   // 片方だけ変えると、通知が黙って出なくなる。
@@ -214,11 +215,31 @@ describe('capabilities', () => {
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
     expect(c.permissions).toEqual(['allow-pick-folder']);
   });
+  // 設定の同期の適用と世代へ戻す操作は、どちらも殻がネイティブの確認を出し、承諾されたときだけ CLI（hangar config）を走らせる。
+  // 頁から渡せるのは、戻す世代の名前だけで、殻が形を確かめる。サーバは `~/.claude` に書かない（D9）。
+  it('UI の出どころには、設定の同期の適用と世代へ戻す 2 つだけを別に与える', () => {
+    const c = cap('remote-config-apply.json');
+    expect(c.windows).toEqual(['main']);
+    expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
+    expect(c.permissions).toEqual(['allow-apply-config-sync', 'allow-restore-config-sync']);
+  });
+  it('設定の同期の命令は、確認を出してから CLI を走らせ、書く操作を殻の中で完結させない', () => {
+    const lib = read('src-tauri/src/lib.rs');
+    // 確認を出す前に --plan で見立てだけを取り、承諾のあとにだけ --yes を渡す。
+    const apply = lib.slice(lib.indexOf('fn apply_config_flow'), lib.indexOf('fn restore_config_flow'));
+    expect(apply.indexOf('"--plan"')).toBeGreaterThan(-1);
+    expect(apply.indexOf('"--plan"')).toBeLessThan(apply.indexOf('confirm_natively'));
+    expect(apply.indexOf('confirm_natively')).toBeLessThan(apply.indexOf('"--yes"'));
+    expect(apply).toContain('"--order"');
+    const restore = lib.slice(lib.indexOf('fn restore_config_flow'), lib.indexOf('async fn apply_config_sync'));
+    expect(restore.indexOf('valid_generation_name')).toBeLessThan(restore.indexOf('"--yes"'));
+    expect(restore.indexOf('confirm_natively')).toBeLessThan(restore.indexOf('"--yes"'));
+  });
   // 命令の名前は、build.rs の一覧、lib.rs の #[tauri::command]、UI と起動画面の呼び出しの 4 か所にある。
   // 入力待ちの知らせの 3 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'retry_boot']);
+    expect(listed).toEqual(['apply_config_sync', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');

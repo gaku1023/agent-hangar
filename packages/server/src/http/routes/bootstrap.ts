@@ -9,7 +9,7 @@ import { syncStatusOf } from './common.ts';
 import { toSettingsDto } from './settings.ts';
 
 /** 起動時の取得が使う依存。画面の最初の状態を 1 回で返すので、ほかの経路より広い。 */
-export type BootstrapRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'deviceName' | 'version' | 'live' | 'settings' | 'runs' | 'summary' | 'indexer' | 'retention' | 'cloudUsage' | 'accounts' | 'devices' | 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass'>;
+export type BootstrapRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'deviceName' | 'version' | 'live' | 'settings' | 'runs' | 'summary' | 'indexer' | 'retention' | 'cloudUsage' | 'accounts' | 'devices' | 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'configBundle'>;
 
 /** 起動時の取得。画面が最初に読む状態を、1 回の応答にまとめて返す。 */
 export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
@@ -38,6 +38,8 @@ export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
       retention: deps.retention.current(),
       cloudUsage: deps.cloudUsage.current(),
       accounts: buildAccountsDto(accountsDeps, { checkLinks: true }),
+      // 作り直した設定の同期は、クラウドに参加している端末だけが持つ。持たない端末には項目ごと送らない。
+      ...(deps.configBundle ? { configSync: deps.configBundle.dto() } : {}),
     };
     return c.json(body);
   });

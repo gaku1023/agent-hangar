@@ -1,4 +1,4 @@
-import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
+import type { ConfigSyncDto, LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { getArtifact } from '../artifacts/queries.ts';
 import { onRowChange, settleRowChanges, type RowChange, type RowOrigin } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
@@ -24,12 +24,12 @@ import { listTodos } from '../projects/todos.ts';
  */
 
 /** この層だけが組む、行のイベント。 */
-export type RowEvent = Extract<ServerEvent, { type: 'session.upsert' | 'project.upsert' | 'devices.update' | 'memo.update' | 'artifact.upsert' | 'todos.update' }>;
+export type RowEvent = Extract<ServerEvent, { type: 'session.upsert' | 'project.upsert' | 'devices.update' | 'memo.update' | 'artifact.upsert' | 'todos.update' | 'config.update' }>;
 /** 呼び手が `broadcast` で渡せる知らせ。表の変化に対応しないものだけである。 */
 export type NoticeEvent = Exclude<ServerEvent, RowEvent>;
 
 /** DTO を組むのに要るもの。 */
-type Ctx = { db: Db; deviceId: string; live: () => LiveSessionDto[] };
+type Ctx = { db: Db; deviceId: string; live: () => LiveSessionDto[]; configSync: () => ConfigSyncDto | null };
 
 /**
  * 配るイベントの種類。行のイベントは、種類と ID の組（鍵）で 1 つに畳む。
@@ -47,6 +47,8 @@ const KINDS = {
   artifact: (ctx, id) => { const a = getArtifact(ctx.db, id); return a ? { type: 'artifact.upsert', artifact: a } : null; },
   // TODO はプロジェクトの一覧ごと配るので、ID はプロジェクトのものである。
   todos: (ctx, id) => ({ type: 'todos.update', projectId: id, todos: listTodos(ctx.db, id) }),
+  // 設定の同期（作り直した実装）の状態は 1 つなので、ID は持たない。同期を設定していない端末では組めないので、何も配らない。
+  configSync: (ctx) => { const d = ctx.configSync(); return d ? { type: 'config.update', configSync: d } : null; },
 } satisfies Record<string, Kind>;
 
 type KindName = keyof typeof KINDS;
@@ -100,6 +102,9 @@ const TABLES: Record<string, TableRule> = {
     },
   },
   devices: { to: () => [['devices', '']] },
+  // 設定の同期。束の行（他の PC から降りたもの、この PC が書いたもの）と、状態を動かした名指し（config_state。基準、送らなかった項目、適用の指示書、スイッチ）。
+  config_snapshots: { to: () => [['configSync', '']] },
+  config_state: { to: () => [['configSync', '']] },
   // メモの頭は ProjectDto にも載る（memoHead）ので、プロジェクトも配り直す。
   // 同期で降りたメモとアーティファクトは、今の画面では配っていない。その振る舞いを変えないよう、この端末の変化だけにしてある。
   project_memos: { from: LOCAL, to: (c) => [['memo', c.rowId], ['project', c.rowId]] },
@@ -133,6 +138,8 @@ export type PublisherDeps = {
 };
 
 export class Publisher {
+  /** 設定の同期の状態の組み方。同期を組んだ後（boot/sync.ts）に渡される。それまでは何も配らない。 */
+  private configSync: () => ConfigSyncDto | null = () => null;
   private queue: Item[] = [];
   /** いまの列に並んでいる行。鍵から、その並びを引く。 */
   private rows = new Map<string, Extract<Item, { key: string }>>();
@@ -143,11 +150,14 @@ export class Publisher {
     this.off = onRowChange((c) => { if (c.db === deps.db) this.onRow(c); });
   }
 
+  /** 設定の同期の状態の組み方を渡す。組み立ての順で、配る層のほうが先にできるので、後から渡す。 */
+  setConfigSync(read: () => ConfigSyncDto | null): void { this.configSync = read; }
+
   /** 行の変化を受ける。配る先を決めて列に並べる。DTO はここでは組まない。 */
   private onRow(c: RowChange): void {
     const rule = TABLES[c.table];
     if (!rule || (rule.from && !rule.from.includes(c.origin))) return;
-    for (const [kind, id] of rule.to(c, this.deps)) {
+    for (const [kind, id] of rule.to(c, { ...this.deps, configSync: this.configSync })) {
       const key = keyOf(kind, id);
       // 同じ行がもう並んでいれば、最後に知らされた位置へ並び直す。配るのは 1 回のままである。
       const cur = this.rows.get(key);
@@ -193,7 +203,7 @@ export class Publisher {
       try {
         if ('ev' in it) { this.deps.hub.broadcast(it.ev); continue; }
         if (it.dead || !active) continue;
-        const ev = KINDS[it.kind](this.deps, it.id);
+        const ev = KINDS[it.kind]({ ...this.deps, configSync: this.configSync }, it.id);
         if (ev) this.deps.hub.broadcast(ev);
       } catch (e) {
         // 1 つの行が読めなくても、残りは配る。

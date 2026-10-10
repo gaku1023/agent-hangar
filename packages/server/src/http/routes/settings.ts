@@ -32,7 +32,7 @@ const SETTING_LABEL = {
   workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', codePath: 'settings.label.codePath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
 } as const satisfies Record<LabeledSetting, MessageKey>;
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, syncClaudeConfig: s.syncClaudeConfig, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, syncClaudeConfig: s.syncClaudeConfig, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -132,6 +132,12 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       const v = body.syncClaudeConfig;
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.syncClaudeConfig') }) }, 400);
       patch.syncClaudeConfig = v;
+    }
+    // 届いた skills、commands、agents の承諾の仕方。実行される指示なので、既定は毎回で、auto は明示で選ぶ。
+    if ('configApproval' in body) {
+      const v = body.configApproval;
+      if (v !== 'each' && v !== 'auto') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configApproval') }) }, 400);
+      patch.configApproval = v;
     }
     // 言語はこの PC の設定で、画面の文とサーバの文の両方が読む。辞書にある言語だけを受ける。
     if ('language' in body) {

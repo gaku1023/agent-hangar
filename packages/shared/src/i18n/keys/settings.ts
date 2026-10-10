@@ -181,4 +181,5 @@ export const settingsKeys = {
   'settings.info.index.source': ['dir'],
   'settings.info.index.note': [],
   'settings.info.thisPc.title': [],
+  'settings.label.configApproval': [],
 } as const satisfies MessageSpec;

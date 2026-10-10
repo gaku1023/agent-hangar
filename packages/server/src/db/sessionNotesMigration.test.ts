@@ -48,7 +48,8 @@ describe('版 17：名前とメモを session_notes へ移す', () => {
       { id: 's2', memo: 'メモだけ', updatedAt: 200, origin: 'dev-b' },
       { id: 's3', name: '両方', memo: '両方のメモ', updatedAt: 300 },
     ]);
-    expect(dbVersionOf(path.join(tmp, 'hangar.db'))).toBe(AFTER);
+    // 版 17 の後ろに版が足されても、この試験は版 17 が当たったことを見る。
+    expect(dbVersionOf(path.join(tmp, 'hangar.db'))).toBeGreaterThanOrEqual(AFTER);
     expect(notes(db)).toEqual([
       { session_id: 's1', name: '名前だけ', memo: null, updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'dev-a' },
       { session_id: 's2', name: null, memo: 'メモだけ', updated_at: MIGRATED_NOTE_AT, deleted_at: null, origin_device: 'dev-b' },

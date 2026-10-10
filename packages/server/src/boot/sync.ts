@@ -3,6 +3,7 @@ import { readCloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import type { ConfigSyncApi } from '../http/deps.ts';
 import { ClaudeConfigSync } from '../sync/claudeConfig.ts';
+import { ConfigSyncService } from '../sync/config/service.ts';
 import { HttpCloudClient } from '../sync/client.ts';
 import { configSyncApi } from '../sync/configSyncApi.ts';
 import { deriveFileKey } from '../sync/crypto.ts';
@@ -21,6 +22,7 @@ import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import { stopAfterIdle, stopUploader } from './stopping.ts';
 import { t } from '@agent-hangar/shared';
+import { touchRow } from '../db/notify.ts';
 
 /**
  * Claude Code 設定の定期 push の間隔。
@@ -35,6 +37,8 @@ const CONFIG_PUSH_MS = 60_000;
  * ファイルが動くまで永久に上がらない。設定の定期 push と同じ役目なので、間隔も揃えてある。
  */
 export const UPLOAD_SWEEP_MS = 60_000;
+/** 作り直した設定の同期の、送受信の間隔。スイッチが切のあいだは何もしない。 */
+export const CONFIG_BUNDLE_TICK_MS = 60_000;
 
 export type SyncParts = {
   engine: SyncEngine;
@@ -51,6 +55,11 @@ export type SyncParts = {
   pruneBackups(kind: 'transcripts' | 'memos'): void;
   /** Claude Code 設定の同期のうち HTTP が触る部分。同期を設定していない端末では null。 */
   configSync: ConfigSyncApi | null;
+  /**
+   * 作り直した設定の同期（sync/config/）。旧実装の configSync とは別で、既定は切（settings.json の configBundleSync）。
+   * 同期を設定していない端末では null。
+   */
+  configBundle: ConfigSyncService | null;
   /** 設定の同期を切ったときに、取り込みの確認を降ろす。 */
   unconfirmConfigPull(): void;
   /** Claude Code 設定の同期の入り切りを、ヘッダと Settings の表示に載せ直す。 */
@@ -73,7 +82,7 @@ export type SyncParts = {
  */
 export function bootSync(
   home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language'>,
-  delivery: Pick<DeliveryParts, 'hub'> & { toast: Toast },
+  delivery: Pick<DeliveryParts, 'hub'> & Partial<Pick<DeliveryParts, 'publisher'>> & { toast: Toast },
   o: { memoPath: (projectId: string) => string },
 ): SyncParts {
   const { db, claudeDir, settings } = home;
@@ -127,6 +136,19 @@ export function bootSync(
         enabled: () => configSyncActive({ syncClaudeConfig: settings.current.syncClaudeConfig, paused: isPaused() }), onToast: toast,
       })
     : null;
+  // 作り直した設定の同期。旧実装（configSync）の設定のスイッチ（syncClaudeConfig）とは別のスイッチで、既定は切。
+  // 新旧が同じ表やクラウドの鍵を取り合わない（表は config_*、鍵は config/<端末>/.hangar/）。
+  const configBundle = client
+    ? new ConfigSyncService({
+        db, deviceId, deviceName: home.device.name, claudeDir, home: home.home, cloud: client, key: fileKey,
+        enabled: () => settings.current.configBundleSync === true && !isPaused(),
+        switchedOn: () => settings.current.configBundleSync === true,
+        approval: () => (settings.current.configApproval === 'auto' ? 'auto' : 'each'),
+        onError: (m) => console.error('[config-sync]', m),
+      })
+    : null;
+  // 画面へ配る層に、状態の組み方を教える。表の変化（束の行が降りた、基準を書いた）のたびに config.update が出る。
+  delivery.publisher?.setConfigSync(() => configBundle?.dto() ?? null);
   const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }), language: home.language });
   const puller = client
     ? new RemotePuller({
@@ -141,7 +163,11 @@ export function bootSync(
   const once = createOncePass({ engine, puller, configSync, uploader, cloudUsage, isPaused, sweepPending: feed.sweep, broadcastSync: feed.broadcastSync, toast, language: home.language });
   engine.on(feed.listener());
 
-  const publishConfigSync = (): void => engine.setClaudeConfigStatus({ enabled: settings.current.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
+  const publishConfigSync = (): void => {
+    engine.setClaudeConfigStatus({ enabled: settings.current.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
+    // 承諾の仕方とスイッチは新しい実装の状態にも載るので、配り直す。
+    touchRow(db, 'config_state', 'self');
+  };
   /**
    * 索引が済んでいるのにまだ上がっていない本文を拾い直す。
    * 起動で 1 度と、そのあとは一定間隔で回す。
@@ -152,10 +178,11 @@ export function bootSync(
     try { uploader.sweep(); } catch (e) { console.error('[upload]', e instanceof Error ? e.message : e); }
   };
   let configTimer: ReturnType<typeof setInterval> | null = null;
+  let bundleTimer: ReturnType<typeof setInterval> | null = null;
   let uploadTimer: ReturnType<typeof setInterval> | null = null;
 
   return {
-    engine, syncState, uploader, cloudUsage, retention, feed, pruneBackups,
+    engine, syncState, uploader, cloudUsage, retention, feed, pruneBackups, configBundle,
     syncNow: once.syncNow,
     configSync: configSyncApi(configSync),
     unconfirmConfigPull: () => configSync?.unconfirm(),
@@ -184,6 +211,9 @@ export function bootSync(
           }, CONFIG_PUSH_MS)
         : null;
       configTimer?.unref();
+      // 作り直した設定の同期。切のあいだは tick が何もしない。
+      bundleTimer = configBundle ? setInterval(() => { void configBundle.tick(); }, CONFIG_BUNDLE_TICK_MS) : null;
+      bundleTimer?.unref();
       sweepUploads();
       // 起動のときにも 1 度刈る。
       // 控えを作る経路を通らないまま動かし続けた端末や、この刈り込みが入る前から溜めていた端末も、ここで揃う。
@@ -194,6 +224,7 @@ export function bootSync(
     },
     stopTimers() {
       if (configTimer) clearInterval(configTimer);
+      if (bundleTimer) clearInterval(bundleTimer);
       retention.stop();
       cloudUsage.stop();
       if (uploadTimer) clearInterval(uploadTimer);
@@ -204,6 +235,7 @@ export function bootSync(
       await Promise.race([once.pass.idle(), new Promise<void>((r) => { setTimeout(r, left()).unref(); })]);
       // 走っている押し出しを待ってから止める。待たずに止めると putFile と pushChanges が途中で切れる。
       await stopAfterIdle(configSync, 'config', left());
+      await stopAfterIdle(configBundle, 'config-bundle', left());
       await stopUploader(uploader, left());
       await stopAfterIdle(engine, 'sync', left());
       // 降ろしも同じ作法で、走っているものを待ってから止める。
