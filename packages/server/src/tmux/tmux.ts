@@ -11,6 +11,22 @@ const realExec = (env: NodeJS.ProcessEnv | undefined): TmuxExec => (file, args) 
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
 };
 
+/**
+ * Windows（psmux）で、hangar が起こす psmux に足す環境変数。
+ * psmux はセッションのサーバを起こすと、次の new-session を速めるための控えのサーバ（`__warm__`）と予備のシェルを、
+ * そのセッションの cwd のまま起こす。控えは最後のセッションを止めた後も残り、そのフォルダを掴み続ける（消せなくなる）。
+ * hangar の new-session は -c、-x、-y、-e とコマンドを渡すので、psmux が控えを引き取る条件に当たらず、控えは一度も使われない。
+ * 予備のシェルも、コマンドを渡す窓には使われない。
+ * PSMUX_NO_WARM=1 は、控えのサーバと予備のシェルの両方を止める（psmux の help には出ないが、原典の types.rs と main.rs が読む）。
+ * サーバは起こした psmux の環境を継ぐので、new-session を起こすときに渡せば、そのサーバが控えを起こさなくなる。
+ */
+const PSMUX_ENV: Readonly<Record<string, string>> = { PSMUX_NO_WARM: '1' };
+
+/** tmux を起こすときに足す環境。Windows は psmux なので PSMUX_ENV を足し、macOS と Linux の tmux には何も足さない。 */
+function muxEnv(platform: NodeJS.Platform, env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv | undefined {
+  return platform === 'win32' ? { ...PSMUX_ENV, ...env } : env;
+}
+
 /** 外の端末が拡張キーを送れることを tmux に知らせる terminal-features の項目。 */
 const EXTKEYS_FEATURE = 'xterm*:extkeys';
 
@@ -38,13 +54,14 @@ export class Tmux {
   /**
    * env は tmux を起こすときの環境に足す変数である。
    * psmux は PSMUX_DATA_DIR で置き場ごと分けられるので、試験が利用者のセッションに触れないために使う。
+   * Windows では、これに PSMUX_NO_WARM=1 を足す（PSMUX_ENV）。
    */
   constructor(opts: { tmuxPath: string; socketName?: string; socketPath?: string; platform?: NodeJS.Platform; exec?: TmuxExec; env?: NodeJS.ProcessEnv }) {
     this.tmuxPath = opts.tmuxPath;
     this.socketName = opts.socketName;
     this.socketPath = opts.socketPath;
     this.platform = opts.platform ?? process.platform;
-    this.exec = opts.exec ?? realExec(opts.env);
+    this.exec = opts.exec ?? realExec(muxEnv(this.platform, opts.env));
   }
 
   args(...a: string[]): string[] {

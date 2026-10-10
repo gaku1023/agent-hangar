@@ -1,5 +1,12 @@
-/** サーバの版。WebSocket の ready と GET /health が名乗る。 */
-export const VERSION = '0.3.0';
+import desktop from '../../../../apps/desktop/package.json' with { type: 'json' };
+
+/**
+ * サーバの版。WebSocket の ready と GET /health と MCP が名乗る。
+ * アプリの版（apps/desktop の package.json）をそのまま使い、決め打ちしない。
+ * 配布物では bundle-server の esbuild が束ねるときに中身を取り込むので、build のときの版が入る。
+ * 版を上げるのは release-plan.ts の set-version で、release の plan もこのファイルの版をタグと照らす。
+ */
+export const VERSION: string = desktop.version;
 
 export type StartOptions = {
   /** 0 を渡すと空いているポートを使い、実際の番号を返り値の port に入れる。 */

@@ -79,6 +79,13 @@ Windows のサーバはジョブオブジェクトに入れる（`src-tauri/src/
 その代わり、殻が落ちたときのサーバは後始末をせずに止まる（macOS は親の見張りで 5 秒後に自分で降りる）。
 ジョブは自分から抜けることを許す（`JOB_OBJECT_LIMIT_BREAKAWAY_OK`）。
 psmux はサーバを `CREATE_BREAKAWAY_FROM_JOB` で起こしてジョブの外へ出るので、psmux のサーバとその中の claude は Hangar を閉じても残る（macOS の tmux と同じ）。
+hangar が起こす psmux には `PSMUX_NO_WARM=1` を渡す（`packages/server/src/tmux/tmux.ts` の `PSMUX_ENV`、Windows だけ）。
+psmux は既定で、セッションのサーバを起こすと次の new-session のための控えのサーバ（`__warm__`）と予備の PowerShell を、そのセッションの cwd のまま起こす。
+控えは最後のセッションを止めた後も残ってそのフォルダを掴み、フォルダを消せなくする（2026-10-11、Windows の実機の確かめで見つけた）。
+hangar の new-session は `-c`、`-x`、`-y`、`-e` とコマンドを渡すので、psmux が控えを引き取る条件（どれも渡さないこと）に当たらず、控えは一度も使われない。予備のシェルも、コマンドを渡す窓には使われない。
+だから止めても hangar のセッションの起動は遅くならない。遅くなるのは、利用者が hangar のセッションの中で新しい窓や分割を自分で作るときに PowerShell を一から起こす分だけである。
+控えの cwd だけをホームにする道は採らない。psmux はセッションのサーバの cwd を `-c` の場所に替えてから控えを起こすので、hangar からは控えの cwd を選べないからである。
+macOS と Linux の tmux には何も足さない。
 黙って抜けるのを許す `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` は付けない。付けると孫がみなジョブの外に出て、ジョブで止められるのがサーバ 1 つだけになる。
 殻が Windows で起こす子（サーバ、Node の候補、設定の同期の CLI）には `CREATE_NO_WINDOW` を付け、黒いコンソールの窓を開かない。
 殻が子へ渡すパス（Node の主スクリプトの `server.mjs` と `cli.mjs`、`HANGAR_UI_DIST`、`HANGAR_HOME`、`HANGAR_LAUNCHER`）と、トーストの登録に書く殻の場所は、Windows の verbatim の接頭辞（`\\?\`）を外してから渡す（`src-tauri/src/paths.rs` の `plain`）。
@@ -121,7 +128,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 
 | 関数（ファイル） | 作る部品 |
 | --- | --- |
-| `bootHome`（`boot/home.ts`） | 置き場、トークン、statusline のヘッダ、端末の ID、設定、起動の包み、DB。DB を開く前に、マイグレーションの前の控えを取る |
+| `bootHome`（`boot/home.ts`） | 置き場、DB、トークン、statusline のヘッダ、端末の ID、設定、起動の包み。DB を開くときに、マイグレーションの前の控えを取る。設定はメモリの上で読み替えるだけで、書き戻さない |
 | `bootDelivery`（`boot/delivery.ts`） | WebSocket の束、配る層（`events/publisher.ts`）、Claude Code との互換のずれの記録、実行中の一覧 |
 | `bootSync`（`boot/sync.ts`） | 同期のエンジン、使用量、本文の上げ手、設定の同期、保持期間、本文の降ろし手、頼まれた 1 巡、同期の状態の配り |
 | `bootIndexing`（`boot/indexing.ts`） | 索引、プロジェクトのメモ。現れたセッションのプロジェクトへの紐づけを結ぶ |
@@ -136,6 +143,11 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 - 配る層は、索引、同期、run より先に組む。これらは行を書くだけで、配るのは配る層だからである。
 - 待ち受けは、run と包みと MCP より先に始める。ポートに 0 を渡したとき、実際の番号は listen するまで決まらず、これらがその番号を使うからである。待ち受けの後に組むのは `bootRuns` から先である。
 - `/health` は待ち受けた時点から返るが、`ready` は起動の手続きが済むまで偽である。
+- 起動を断る確かめは、利用者のファイルを書き換えるより先に済ませる。
+  DB を置き場の物より先に開くので、起点より古い DB（`DbTooOldError`）と控えの取れない DB（`DbBackupError`）は、トークン、statusline のヘッダ、端末の ID、起動の包みを 1 つも書かずに断る（置き場を作ることと、緩い権限を締めることだけは先に行う）。
+  設定（`settings.json`）の読み替え（探した道具のパス、別の OS の外部ターミナル、古い鍵の削除、知らない言語の削除）はメモリの上で済ませ、待ち受けが通ってから `persistSettings` で書き戻す。
+  前の版のアプリへ戻す利用者が、読み替え済みの設定を掴まされないためである（2026-10-11、Windows の実機の確かめで見つけた）。
+  ただし、未適用のマイグレーションは待ち受けより前に当てる。ポートが塞がっていて断る回でも DB は上がる（控えは取ってある）。
 
 組み立てが済んだら、起動の手続きを次の順で動かす。
 
@@ -4175,6 +4187,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   `release.yml` は、macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`updater-manifest` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を Release に添える。目録は最後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。secret が無ければ、更新物と目録だけを飛ばし、失敗にしない。
 - 版と試しの版（2026-10-10）：版はリポジトリのファイルで上げてからタグを打ち、タグから版を決めて build に渡すことはしない。手順は `docs/release.md` にある。
   版の在りかは 5 つ（`tauri.conf.json`、`apps/desktop/package.json`、`Cargo.toml`、`Cargo.lock`、`package-lock.json`）で、`apps/desktop/scripts/release-plan.ts` の `VERSION_FILES` が正である。`npm run set-version -w apps/desktop -- <版>` がまとめて書き換え、試験が 5 つのそろいを見る。
+  サーバ（`/health`、WebSocket の `ready`、MCP）が名乗る版は、6 つ目の在りかを作らず、`apps/desktop/package.json` の版を読む（`packages/server/src/boot/options.ts`）。配布物では esbuild が束ねるときに取り込むので、build のときの版が入る。set-version で上げればサーバの版も上がり、`plan` の照合もサーバの版を見たことになる。以前はサーバが `0.3.0` を決め打ちしていて、アプリの `0.2.0-rc.1` と食い違っていた（2026-10-11）。
   `release.yml` の最初の `plan` ジョブがタグと 5 つを照らし、1 つでも違えば何も作らずに止まる。食い違ったまま配ると、目録の版とアプリの名乗る版と更新物の署名に入る版がずれるからである。タグにビルドメタデータ（`+`）は付けない（semver の比べ方が `+` を見ず、更新として見つからない）。
   タグに `-` が入っていれば試しの版で、Release を prerelease にして Release の最新にしない。安定版の利用者が引く Release の最新の `latest.json` に、試しの版を入れないためである。
   試しの版の目録の取り先は、固定のタグ `updater-prerelease` の Release（prerelease）に 1 つだけ置く `latest.json` にした。`updater-manifest` ジョブが、試しの版でも正式な版でも、その版が今の目録より新しいか同じときだけ置き換える。試しの版の利用者は次の rc も正式な版も受け取り、古い版の再実行で巻き戻らない。

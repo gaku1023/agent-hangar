@@ -108,6 +108,16 @@ describe('リポジトリの版', () => {
     expect(values.size, JSON.stringify(v)).toBe(1);
     expect([...values][0]).toMatch(/^\d+\.\d+\.\d+/);
   });
+  // サーバ（/health、WebSocket の ready、MCP）が名乗る版は、決め打ちせず apps/desktop の package.json から読む。
+  // だから set-version で上げればサーバの版も上がり、plan の照合もサーバの版を見たことになる。
+  it('サーバの名乗る版は、版の在りかの 1 つから読み、決め打ちしない', () => {
+    const src = fs.readFileSync(path.join(root, 'packages/server/src/boot/options.ts'), 'utf8');
+    const from = /from '((?:\.\.\/)+apps\/desktop\/package\.json)'/.exec(src);
+    expect(from, 'options.ts must import apps/desktop/package.json').not.toBeNull();
+    expect(path.relative(root, path.resolve(root, 'packages/server/src/boot', from![1]!)).split(path.sep).join('/')).toBe('apps/desktop/package.json');
+    expect(VERSION_FILES).toContain('apps/desktop/package.json');
+    expect(src).not.toMatch(/['"]\d+\.\d+\.\d+[^'"]*['"]/);
+  });
   it('版を書き換えると、それぞれのファイルのその 1 か所だけが変わる', () => {
     for (const f of VERSION_FILES) {
       const before = fs.readFileSync(path.join(root, f), 'utf8');

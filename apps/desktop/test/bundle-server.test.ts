@@ -138,6 +138,8 @@ describe.skipIf(!host)('bundleServer', () => {
     });
     try {
       expect(await waitHealth('http://127.0.0.1:4199/health', 30_000)).toBe(true);
+      // サーバの名乗る版は、束ねたときのアプリの版である（packages/server/src/boot/options.ts）。
+      expect(((await (await fetch('http://127.0.0.1:4199/health')).json()) as { version: string }).version).toBe(desktopVersion);
       // 素の GET / は 401 の案内を返す。UI は鍵付きの URL でだけ配られる。
       const token = fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
       const html = await (await fetch(`http://127.0.0.1:4199/?t=${token}`)).text();

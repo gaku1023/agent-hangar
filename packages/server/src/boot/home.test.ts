@@ -3,8 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DbBackupError } from '../db/backup.ts';
+import { DbTooOldError } from '../db/open.ts';
 import { copyFixtureClaudeDir } from '../../test/fixtures.ts';
-import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../../test/oldDb.ts';
+import { BASELINE_DB_VERSION, dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../../test/oldDb.ts';
 import { expectMode } from '../../test/platform.ts';
 import { bootHome } from './home.ts';
 
@@ -20,6 +21,14 @@ describe('置き場の用意', () => {
     fs.rmSync(claudeDir, { recursive: true, force: true });
   });
   const tokenOf = () => fs.readFileSync(path.join(home, 'token'), 'utf8').trim();
+
+  it('起点より古い DB は、置き場の物を書く前に断る（トークンも設定も包みも作らない）', () => {
+    seedDbAt(path.join(home, 'hangar.db'), BASELINE_DB_VERSION - 1);
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ syncClaudeConfig: true }));
+    expect(() => bootHome({ home, claudeDir })).toThrow(DbTooOldError);
+    expect(fs.readdirSync(home).sort()).toEqual(['hangar.db', 'settings.json']);
+    expect(fs.readFileSync(path.join(home, 'settings.json'), 'utf8')).toBe(JSON.stringify({ syncClaudeConfig: true }));
+  });
 
   it('DB の控えが取れなければ、マイグレーションを当てずに起動を止める', () => {
     // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
@@ -96,10 +105,13 @@ describe('置き場の用意', () => {
     expect(second.token).toBe(first.token);
   });
 
-  it('設定は探した道具のパスを書き戻し、寿命の印は倒したまま返す', () => {
+  it('設定は探した道具のパスを、起動が通ってから（persistSettings）書き戻し、寿命の印は倒したまま返す', () => {
     const h = bootHome({ home, claudeDir });
     try {
       expect(h.life).toEqual({ started: false, closed: false });
+      // bootHome は設定を書かない。起動を断るときに利用者のファイルを書き換えないためである。
+      expect(fs.existsSync(path.join(home, 'settings.json'))).toBe(false);
+      h.persistSettings();
       const saved = JSON.parse(fs.readFileSync(path.join(home, 'settings.json'), 'utf8')) as Record<string, unknown>;
       expect(saved.tmuxPath).toBe(h.settings.current.tmuxPath);
       // 起動の包みも、ここで置く。

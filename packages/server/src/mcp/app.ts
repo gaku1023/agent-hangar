@@ -3,12 +3,11 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { tokenEquals, tokenFromRequest } from '../auth/request.ts';
+import { VERSION } from '../boot/options.ts';
 import { defaultLanguage } from '../i18n/language.ts';
 import { errorText, translatorOf } from '../i18n/message.ts';
 import { mcpSecretMatches } from '../runs/secrets.ts';
 import { callTool, type ToolContext, type ToolDeps } from './tools.ts';
-
-export const MCP_VERSION = '0.2.0';
 
 /**
  * MCP の入口が受け付ける Origin。
@@ -25,7 +24,7 @@ const STATUS = z.enum(['active', 'paused', 'done', 'archived']);
 const STATE = z.enum(['in_progress', 'done', 'blocked', 'abandoned']);
 
 export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
-  const server = new McpServer({ name: 'agent-hangar', version: MCP_VERSION });
+  const server = new McpServer({ name: 'agent-hangar', version: VERSION });
   // 道具の説明と、失敗の文は、いまの言語で出す。サーバは要求ごとに作るので、設定を変えれば次の要求から変わる。
   const language = deps.language ?? defaultLanguage;
   const tr = translatorOf(language);
