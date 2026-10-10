@@ -18,7 +18,7 @@ describe('tar の書き読み', () => {
   it('標準の tar コマンドで読める形である', async () => {
     const { execFileSync } = await import('node:child_process');
     const tar = writeTar([{ name: 'manifest.json', data: Buffer.from('{}') }, { name: `blobs/${'a'.repeat(64)}`, data: Buffer.from('x') }]);
-    const out = execFileSync('tar', ['-tf', '-'], { input: tar }).toString().trim().split('\n');
+    const out = execFileSync('tar', ['-tf', '-'], { input: tar }).toString().trim().split(/\r?\n/);
     expect(out).toEqual(['manifest.json', `blobs/${'a'.repeat(64)}`]);
   });
 
