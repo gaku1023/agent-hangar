@@ -682,10 +682,8 @@ fn boot(app: AppHandle) {
 
     // ウィンドウが取れなければ行き先を変えられない。黙って止まらず、理由を残す。
     let Some(w) = app.get_webview_window("main") else {
-        return fail(
-            &app,
-            bootfail::BootFailure::other("ウィンドウが見つからないので、サーバの画面へ移れません。"),
-        );
+        let msg = "ウィンドウが見つからないので、サーバの画面へ移れません。";
+        return fail(&app, bootfail::BootFailure::other(msg));
     };
 
     // 読み込みが終わった合図を打たせ、光が満ち切るまで待ってから移る。起動画面は周のどこからでも合図に入れる。
