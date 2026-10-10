@@ -4,9 +4,9 @@
 # 使い方:
 #   bash apps/desktop/scripts/ci-sign-macos.sh <Hangar.app>
 #
-# 環境変数（GitHub の secret から渡す）:
-#   HANGAR_SIGN_P12_BASE64     p12（秘密鍵と証明書）の base64。secret の MACOS_SIGN_P12_BASE64。
-#   HANGAR_SIGN_P12_PASSWORD   p12 のパスワード。secret の MACOS_SIGN_P12_PASSWORD。
+# 環境変数（GitHub の同じ名前の secret から渡す）:
+#   HANGAR_SIGN_P12_BASE64     p12（秘密鍵と証明書）の base64。
+#   HANGAR_SIGN_P12_PASSWORD   p12 のパスワード。
 #   HANGAR_SIGN_FINGERPRINT_FILE  期待する指紋の置き場。既定は apps/desktop/signing/certificate-sha1.txt。
 #                                 ci.yml の試しの署名だけが、その場で作った証明書の指紋を指すのに使う。
 #
@@ -33,12 +33,12 @@ P12_PW="${HANGAR_SIGN_P12_PASSWORD:-}"
 on_actions() { [ "${GITHUB_ACTIONS:-}" = "true" ]; }
 
 if [ -z "$P12_B64" ] && [ -z "$P12_PW" ]; then
-  msg="署名の secret（MACOS_SIGN_P12_BASE64 と MACOS_SIGN_P12_PASSWORD）が無いので、未署名のまま続ける。手順は docs/signing.md"
+  msg="署名の secret（HANGAR_SIGN_P12_BASE64 と HANGAR_SIGN_P12_PASSWORD）が無いので、未署名のまま続ける。手順は docs/signing.md"
   if on_actions; then echo "::warning title=未署名::$msg"; else echo "::warning:: $msg"; fi
   exit 0
 fi
 if [ -z "$P12_B64" ] || [ -z "$P12_PW" ]; then
-  echo "署名の secret が片方しか無い。MACOS_SIGN_P12_BASE64 と MACOS_SIGN_P12_PASSWORD を 2 つとも入れる" >&2
+  echo "署名の secret が片方しか無い。HANGAR_SIGN_P12_BASE64 と HANGAR_SIGN_P12_PASSWORD を 2 つとも入れる" >&2
   exit 1
 fi
 
@@ -83,7 +83,7 @@ umask 077
 printf '%s' "$P12_B64" | base64 -D -o "$TMP/sign.p12" 2>/dev/null || printf '%s' "$P12_B64" | base64 --decode > "$TMP/sign.p12"
 export HANGAR_SIGN_P12_PASSWORD="$P12_PW"
 if ! "$OSSL" pkcs12 -in "$TMP/sign.p12" -nokeys -clcerts -passin env:HANGAR_SIGN_P12_PASSWORD -out "$TMP/cert.pem" 2>/dev/null; then
-  echo "p12 を開けない。MACOS_SIGN_P12_BASE64 が p12 の base64 か、MACOS_SIGN_P12_PASSWORD が合っているかを確かめる" >&2
+  echo "p12 を開けない。HANGAR_SIGN_P12_BASE64 が p12 の base64 か、HANGAR_SIGN_P12_PASSWORD が合っているかを確かめる" >&2
   exit 1
 fi
 GOT="$(sha1_of -in "$TMP/cert.pem")"

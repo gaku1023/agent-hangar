@@ -112,7 +112,7 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 1. 上の台本で証明書を作る。
 2. 指紋を `apps/desktop/signing/certificate-sha1.txt` に 1 行で書き、公開の証明書（`hangar-signing.cer`）と一緒に PR に入れる。
 3. p12 とそのパスワードを、1Password に保管する（p12 は添付、パスワードは別の項目）。
-4. 同じ p12 の base64 とパスワードを、GitHub のリポジトリの secret（`MACOS_SIGN_P12_BASE64` と `MACOS_SIGN_P12_PASSWORD`）に置く。入れ方は下の「CI の secret を入れる」にある。
+4. 同じ p12 の base64 とパスワードを、GitHub のリポジトリの secret（`HANGAR_SIGN_P12_BASE64` と `HANGAR_SIGN_P12_PASSWORD`）に置く。入れ方は下の「CI の secret を入れる」にある。
 5. 作業用のディレクトリから p12 を消す。鍵は 1Password と CI の 2 か所だけが持つ。
 6. 手元で署名する開発者は、1Password から p12 を取り出して専用のキーチェーンへ入れる。
 
@@ -126,8 +126,8 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 
 | secret の名前 | 中身 |
 |---|---|
-| `MACOS_SIGN_P12_BASE64` | p12（秘密鍵と証明書）を base64 にしたもの |
-| `MACOS_SIGN_P12_PASSWORD` | p12 のパスワード |
+| `HANGAR_SIGN_P12_BASE64` | p12（秘密鍵と証明書）を base64 にしたもの |
+| `HANGAR_SIGN_P12_PASSWORD` | p12 のパスワード |
 
 台本は次を行う。
 
@@ -143,6 +143,20 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 試験は `make-signing-cert.sh` で試しの証明書をその場で作り、`HANGAR_SIGN_FINGERPRINT_FILE` でその指紋を期待の値として渡して、同じ台本で署名する。
 本物の secret は使わない。
 
+## 自動更新の更新物を作り直す
+
+署名鍵（`TAURI_SIGNING_PRIVATE_KEY`）があると、tauri build は更新物（`Hangar.app.tar.gz` と `.sig`）も作る。
+ただし、これは build の中で、署名の前の .app から詰められる。
+そのまま配ると、更新で入る .app は自作の証明書の署名を持たず、更新のたびに許可が外れる。
+
+そこで release の macOS のジョブは、「署名する」の段の後で `apps/desktop/scripts/repack-updater-macos.sh` を 2 回呼ぶ。
+
+1. `pack`：署名済みの .app を、tauri と同じ形（.app をそのまま 1 つ入れた gzip の tar、拡張属性の `._` は入れない）で、同じ名前と場所に詰め直し、`tauri signer sign` で `.sig` も付け直す。
+2. `verify`：詰め直した tar.gz を展開し、識別子と DR が署名済みの .app と同じで、`codesign --verify --deep --strict` が通ることを確かめる。証明書の secret があれば `--expect-signed` を付け、識別子が `dev.agent-hangar.hangar` で DR が `certificate-sha1.txt` の指紋で縛られていることも確かめる。
+
+dmg と zip も、署名済みの .app から作る。
+試験は `apps/desktop/test/repack-updater-macos.test.ts` で、試しの更新の署名鍵と試しの証明書をその場で作る。
+
 ## CI の secret を入れる（利用者が、1Password から）
 
 秘密を画面、ファイル、シェルの履歴に残さないように、1Password から直接 `gh` へ流す。
@@ -151,15 +165,15 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 
 ```bash
 # p12 の添付を base64 にして、そのまま secret へ（ファイルにも画面にも出さない）
-op read "op://<保管庫>/<項目>/hangar-signing.p12" | base64 | gh secret set MACOS_SIGN_P12_BASE64
+op read "op://<保管庫>/<項目>/hangar-signing.p12" | base64 | gh secret set HANGAR_SIGN_P12_BASE64
 
 # パスワードの欄を、そのまま secret へ
-op read -n "op://<保管庫>/<項目>/password" | gh secret set MACOS_SIGN_P12_PASSWORD
+op read -n "op://<保管庫>/<項目>/password" | gh secret set HANGAR_SIGN_P12_PASSWORD
 ```
 
 `gh secret set` は標準入力から値を読むので、値が引数やシェルの履歴に載らない。
-`op` を使わないときは、1Password の画面から p12 を一時の場所へ保存し、`base64 -i <p12> | gh secret set MACOS_SIGN_P12_BASE64` で入れてから、その p12 を消す。
-パスワードは `gh secret set MACOS_SIGN_P12_PASSWORD` を打ち、尋ねられたところへ貼る。
+`op` を使わないときは、1Password の画面から p12 を一時の場所へ保存し、`base64 -i <p12> | gh secret set HANGAR_SIGN_P12_BASE64` で入れてから、その p12 を消す。
+パスワードは `gh secret set HANGAR_SIGN_P12_PASSWORD` を打ち、尋ねられたところへ貼る。
 GitHub の画面（Settings の Secrets and variables の Actions）から入れてもよい。
 
 入れたら、`gh secret list` で 2 つの名前があることを確かめる（値は表示されない）。
@@ -168,9 +182,9 @@ GitHub の画面（Settings の Secrets and variables の Actions）から入れ
 
 ## 状態
 
-本番の証明書はまだ無い。
-`apps/desktop/signing/certificate-sha1.txt` は値が空で、置き場だけを用意してある。
-secret もまだ入れていないので、release は警告を出して未署名のまま作られる。
+本番の証明書は作ってあり、secret（`HANGAR_SIGN_P12_BASE64` と `HANGAR_SIGN_P12_PASSWORD`）も入れてある。
+指紋と公開の証明書は、`apps/desktop/signing/` へ別の PR で入れる。
+それが入るまで `certificate-sha1.txt` は空なので、タグの release は「署名する」の段で止まる（確かめられないまま配らない）。
 
 ## 鍵を失ったとき
 
