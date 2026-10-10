@@ -53,6 +53,7 @@ import { cloudUsageJa } from './ja/cloudUsage.ts';
 import { readinessJa } from './ja/readiness.ts';
 import { compatJa } from './ja/compat.ts';
 import { dbJa } from './ja/db.ts';
+import { updateJa } from './ja/update.ts';
 
 /** 日本語の辞書。文は領域ごとのファイル（`ja/<領域>.ts`）にあり、ここは束ねるだけである。 */
 export const ja: Dictionary = {
@@ -110,4 +111,5 @@ export const ja: Dictionary = {
   ...readinessJa,
   ...compatJa,
   ...dbJa,
+  ...updateJa,
 };

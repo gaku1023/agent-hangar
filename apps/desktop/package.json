@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "bundle-server": "node --import tsx scripts/bundle-server.ts",
+    "sign-macos": "node --import tsx scripts/sign-macos.ts",
     "tauri": "tauri"
   },
   "devDependencies": {

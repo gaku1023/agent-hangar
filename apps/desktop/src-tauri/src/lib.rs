@@ -12,6 +12,7 @@ pub mod node;
 pub mod notify;
 pub mod paths;
 pub mod server;
+pub mod updater;
 #[cfg(windows)]
 pub mod winjob;
 
@@ -24,6 +25,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_updater::UpdaterExt;
 
 /// アプリ全体で共有する状態。
 struct AppState {
@@ -996,6 +998,114 @@ fn restart_app(app: AppHandle) {
     app.request_restart();
 }
 
+/// 子のサーバを止める。終了の手続き（`RunEvent::Exit`）と、Windows で更新のインストーラへ渡す直前に呼ぶ。
+/// 止めても、tmux（Windows は psmux）の中のセッションは動き続ける。
+/// 止め方は `ServerProcess::stop` にある。Windows は標準入力の管を閉じて待ち、残ればジョブごと止める（server.rs、winjob.rs）。
+fn stop_server(app: &AppHandle) {
+    if let Some(mut p) = app.state::<AppState>().server.lock().unwrap().take() {
+        p.stop();
+        log("server stopped");
+    }
+}
+
+/// 動いている版と、取得の進みを返す。頁は起動したときに版を読み、取得の最中は繰り返し呼ぶ。
+#[tauri::command]
+fn update_status(app: AppHandle) -> updater::Status {
+    let (done, total) = app.state::<updater::UpdateSlot>().progress.snapshot();
+    updater::Status {
+        current: app.package_info().version.to_string(),
+        done,
+        total,
+    }
+}
+
+/// GitHub の Release の目録を引き、新しい版があればその版を返す。見つけた版は取得のために持っておく。
+/// 取得からインストールまでの途中は、見つけた版を差し替えない（頁もその間は呼ばない）。
+#[tauri::command]
+async fn update_check(app: AppHandle) -> Result<updater::Found, updater::Failure> {
+    let slot = app.state::<updater::UpdateSlot>();
+    if slot.bytes.lock().unwrap().is_some() {
+        return Err(updater::Failure::other("an update is already downloaded"));
+    }
+    let handle = app.clone();
+    // Windows ではインストーラへ渡すとき、updater が std::process::exit で抜ける。終了の手続きを通らないので、ここで子のサーバを止める。
+    let found = app
+        .updater_builder()
+        .on_before_exit(move || {
+            log("update: handing over to the installer");
+            stop_server(&handle);
+            handle.cleanup_before_exit();
+        })
+        .build()
+        .map_err(|e| update_failed("check", &e))?
+        .check()
+        .await
+        .map_err(|e| update_failed("check", &e))?;
+    let version = found.as_ref().map(|u| u.version.clone());
+    log(&format!(
+        "update: checked, found {}",
+        version.as_deref().unwrap_or("none")
+    ));
+    *slot.pending.lock().unwrap() = found;
+    Ok(updater::Found { version })
+}
+
+/// 見つけた版を取得し、公開鍵で署名を確かめて持っておく。進みは update_status で読める。
+#[tauri::command]
+async fn update_download(app: AppHandle) -> Result<(), updater::Failure> {
+    let slot = app.state::<updater::UpdateSlot>();
+    let update = slot
+        .pending
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| updater::Failure::other("no update to download"))?;
+    slot.progress.reset();
+    let bytes = update
+        .download(|chunk, total| slot.progress.record(chunk, total), || {})
+        .await
+        .map_err(|e| update_failed("download", &e))?;
+    log(&format!("update: downloaded {}", update.version));
+    *slot.bytes.lock().unwrap() = Some(bytes);
+    Ok(())
+}
+
+/// 取得した更新物を入れ、アプリを再起動する。
+/// macOS は .app を入れ替えてから終了の手続きを通って起き直す（子のサーバも止まる）。
+/// Windows はインストーラを起こして updater がそのまま抜け、インストーラが入れ終えてから起こし直す。
+/// どちらでも tmux（psmux）の中のセッションは止まらない。
+#[tauri::command]
+async fn update_install(app: AppHandle) -> Result<(), updater::Failure> {
+    let slot = app.state::<updater::UpdateSlot>();
+    let update = slot
+        .pending
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| updater::Failure::other("no update to install"))?;
+    let bytes = slot
+        .bytes
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| updater::Failure::other("the update is not downloaded"))?;
+    // 入れ替えは管理者の許可を尋ねることがあり、答えを待つので、窓の描画を止めないよう別のスレッドで行う。
+    tauri::async_runtime::spawn_blocking(move || update.install(bytes))
+        .await
+        .map_err(|e| updater::Failure::other(e.to_string()))?
+        .map_err(|e| update_failed("install", &e))?;
+    log("update: installed, restarting");
+    app.request_restart();
+    Ok(())
+}
+
+/// 更新の失敗をログに 1 行残し、頁へ返す形にする。
+fn update_failed(step: &str, e: &tauri_plugin_updater::Error) -> updater::Failure {
+    let f = updater::Failure::from(e);
+    log(&format!("update: {step} failed ({}): {}", f.kind, f.detail));
+    f
+}
+
 /// 起動をやり直す。起動画面の「もう一度試す」が呼ぶ。
 /// 残っている子のサーバを止めてから、読み込み画面を読み込み直し、起動の本体をもう一度走らせる。
 /// 応答しないまま生きている子がポートを握っていると、やり直しても同じところで止まるからである。
@@ -1200,6 +1310,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        // 自動更新。目録の URL と公開鍵は tauri.conf.json の plugins.updater にあり、頁からは変えられない。
+        // プラグインの JS の命令は capabilities で与えず、頁は上の update_* の 4 つだけを呼ぶ。
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updater::UpdateSlot::default())
         .manage(AppState {
             server: Mutex::new(None),
             ui: Mutex::new(Ui::default()),
@@ -1209,7 +1323,7 @@ pub fn run() {
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
-        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、boot-screen.json で絞る。
+        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、boot-screen.json で絞る。
         .invoke_handler(tauri::generate_handler![
             open_log,
             pick_folder,
@@ -1219,7 +1333,11 @@ pub fn run() {
             notify_request,
             notify_status,
             apply_config_sync,
-            restore_config_sync
+            restore_config_sync,
+            update_status,
+            update_check,
+            update_download,
+            update_install
         ])
         // 頁の読み込みが終わる前の評価は捨てられることがある。
         // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。
@@ -1280,12 +1398,7 @@ pub fn run() {
                 None => "exit requested by the user".to_string(),
                 Some(c) => format!("exit requested with code {c}"),
             }),
-            RunEvent::Exit => {
-                if let Some(mut p) = app.state::<AppState>().server.lock().unwrap().take() {
-                    p.stop();
-                    log("server stopped");
-                }
-            }
+            RunEvent::Exit => stop_server(app),
             _ => {}
         });
 }

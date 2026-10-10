@@ -2,6 +2,7 @@ import type { runtimeKeys } from '../keys/runtime.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const runtimeJa: AreaDictionary<typeof runtimeKeys> = {
+  'runtime.notify.blockedWindows': '通知が切られています。Windows の設定の「通知」で Hangar を許可してください',
   'runtime.notify.blocked': '通知が切られています。システム設定の「通知」で Hangar を許可してください',
   'runtime.notify.denied': '通知が許可されませんでした',
   'runtime.notify.returnBody': 'リマインダーの時刻 {time} を過ぎました',
