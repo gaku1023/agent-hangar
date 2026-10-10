@@ -14,7 +14,7 @@ import { errorText } from '../i18n/message.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
-import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
+import { TMUX, removeDirsWhenIdle, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { tmuxPaneOps, type PaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
@@ -51,11 +51,10 @@ beforeEach(() => {
   tmux = TMUX ? new Tmux({ tmuxPath: TMUX, socketPath }) : null;
 });
 afterAll(() => removeTestSocket(socketPath));
-afterEach(() => {
+afterEach(async () => {
   tmux?.killServer();
-  fs.rmSync(home, { recursive: true, force: true });
-  fs.rmSync(cwd, { recursive: true, force: true });
-  fs.rmSync(claudeDir, { recursive: true, force: true });
+  // kill-server はペインのプロセスの終わりを待たない。起動の途中の包みがログを作るのと、消すのがぶつからないよう、書き手が居なくなってから消す。
+  await removeDirsWhenIdle([home, cwd, claudeDir]);
 });
 
 /** バックグラウンドのサービスの一覧は既定で空にする。実物の口のままだと、偽の claude を一覧のために起こしてしまう。 */
