@@ -1,6 +1,6 @@
 import { type LiveStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { asideWord } from '../lib/aside.ts';
-import { KEYMAP, type KeyId } from '../keys.ts';
+import { keyLabel, KEYMAP, type KeyId } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownAside, shownLive, type Store } from '../store/store.ts';
 import { durationLabel, relativeTime } from './format.ts';
@@ -14,7 +14,7 @@ const byRecency = <T extends { id: string; lastActivityAt: number | null }>(item
 
 /** ヒントに出す打鍵。キーの表を正にして、割り当てを変えたときにここがずれないようにする。 */
 function keysOf(id: KeyId): string {
-  return KEYMAP.find((b) => b.id === id)?.keys ?? '';
+  return keyLabel(KEYMAP.find((b) => b.id === id)?.keys ?? '');
 }
 
 /** 行頭の印に使う絵の名前。View が Icon の名前へ写す。 */
@@ -176,6 +176,6 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   ].map((g, order) => (g ? { ...g, order } : null)).filter((g) => g !== null).sort((a, b) => b.best - a.best || a.order - b.order);
   // 最後の行は、ホームの欄へ渡す。名前と要約とトランスクリプトを引く欄で、件数はそこに並ぶ行の数である。
   const total = found !== null && found.q === q ? found.total : null;
-  const handoff: PaletteSection = { title: t('palette.section.home'), count: null, limit: null, items: [{ id: `search:${q}`, label: t('palette.search.label', { q }), kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: total === null ? '' : t('palette.meta.count', { n: total.toLocaleString('en-US') }), keys: '⌘↵' }] };
+  const handoff: PaletteSection = { title: t('palette.section.home'), count: null, limit: null, items: [{ id: `search:${q}`, label: t('palette.search.label', { q }), kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: total === null ? '' : t('palette.meta.count', { n: total.toLocaleString('en-US') }), keys: keyLabel('⌘↵') }] };
   return { query, sections: [...groups.map((g) => g.section), handoff], noMatch: groups.length === 0 };
 }

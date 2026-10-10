@@ -1,7 +1,9 @@
-import type { MessageKey, MessageParamName } from '@agent-hangar/shared';
+import type { MessageKey, MessageParamName, Translate } from '@agent-hangar/shared';
 
 /** 引数を取らない文の鍵。行の説明と群の名前は、引数なしで引くのでこの形にする。 */
 type PlainKey = { [K in MessageKey]: [MessageParamName<K>] extends [never] ? K : never }[MessageKey];
+/** 打鍵（keys）だけを引数に取る文の鍵。説明の中に別の打鍵を添える行が使う。 */
+type KeysKey = { [K in MessageKey]: [MessageParamName<K>] extends ['keys'] ? K : never }[MessageKey];
 
 /**
  * アプリのキーの表。
@@ -21,12 +23,16 @@ export type KeyGroup = 'global' | 'session' | 'list';
 
 /**
  * 1 つの打鍵。
- * `mod` は ⌘ と Ctrl のどちらでもよいことを表す。対象は macOS だが、素のブラウザでは ⌘ を渡さない場面があるためである。
+ * `mod` は ⌘ と Ctrl のどちらでもよいことを表す。macOS では素のブラウザが ⌘ を渡さない場面があり、Windows と Linux では Ctrl が ⌘ の役をするためである。
  * `shift` を書かない行は ⇧ の有無を問わない。`?` のように ⇧ でしか打てない文字があるからである。
  */
 export type KeyChord = { key: string; mod?: boolean; ctrlAlt?: boolean; shift?: boolean };
 
-export type KeyBinding = { id: KeyId; group: KeyGroup; keys: string; labelKey: PlainKey; chords: KeyChord[] };
+/**
+ * 表の 1 行。also は説明に添える別の打鍵（⌃⌥1–⌃⌥9）で、あれば labelKey は打鍵を引数に取る文になる。
+ * 打鍵の表示は keys も also も macOS の記号で書き、見せるときに keyLabel で OS の書き方にする。
+ */
+export type KeyBinding = { id: KeyId; group: KeyGroup; keys: string; chords: KeyChord[] } & ({ labelKey: PlainKey; also?: undefined } | { labelKey: KeysKey; also: string });
 
 /** 照合に使う打鍵の形。KeyboardEvent をそのまま渡せる。 */
 export type KeyEventLike = { key: string; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean };
@@ -47,7 +53,7 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'sidebar.toggle', group: 'global', keys: '⌘B', labelKey: 'shortcuts.key.sidebarToggle', chords: [{ key: 'b', mod: true, shift: false }] },
   { id: 'shortcuts.open', group: 'global', keys: '? / ⌘/', labelKey: 'shortcuts.key.shortcutsOpen', chords: [{ key: '?' }, { key: '/', mod: true }] },
   { id: 'overlay.close', group: 'global', keys: 'Esc', labelKey: 'shortcuts.key.overlayClose', chords: [{ key: 'Escape' }] },
-  { id: 'tab.select', group: 'session', keys: '⌘1–⌘9', labelKey: 'shortcuts.key.tabSelect', chords: [...digits.map((d) => ({ key: d, mod: true, shift: false })), ...digits.map((d) => ({ key: d, ctrlAlt: true }))] },
+  { id: 'tab.select', group: 'session', keys: '⌘1–⌘9', labelKey: 'shortcuts.key.tabSelect', also: '⌃⌥1–⌃⌥9', chords: [...digits.map((d) => ({ key: d, mod: true, shift: false })), ...digits.map((d) => ({ key: d, ctrlAlt: true }))] },
   { id: 'tab.close', group: 'session', keys: '⌘W', labelKey: 'shortcuts.key.tabClose', chords: [{ key: 'w', mod: true, shift: false }] },
   { id: 'split.toggle', group: 'session', keys: '⌘\\', labelKey: 'shortcuts.key.splitToggle', chords: [{ key: '\\', mod: true, shift: false }] },
   { id: 'transcript.toggle', group: 'session', keys: '⌘J', labelKey: 'shortcuts.key.transcriptToggle', chords: [{ key: 'j', mod: true, shift: false }] },
@@ -76,6 +82,28 @@ function hits(c: KeyChord, e: KeyEventLike): boolean {
   if (c.ctrlAlt) return !!e.ctrlKey && !!e.altKey && !e.metaKey;
   if (c.mod) return (!!e.metaKey || !!e.ctrlKey) && !e.altKey;
   return !e.metaKey && !e.ctrlKey && !e.altKey;
+}
+
+/** 画面を開いている PC が macOS か。ブラウザの名乗りから読む。名乗りが無ければ macOS とみなす。 */
+export function isMacClient(userAgent: string | undefined = globalThis.navigator?.userAgent): boolean {
+  return userAgent === undefined || /Macintosh|Mac OS X/.test(userAgent);
+}
+
+/** macOS の外での、記号の読み替え。修飾は「名前+」にして、次のキーへつなぐ。 */
+const NAMED: Record<string, string> = { '⌘': 'Ctrl+', '⌃': 'Ctrl+', '⌥': 'Alt+', '⇧': 'Shift+', '↵': 'Enter', '⏎': 'Enter' };
+
+/**
+ * 表と画面に書くキーを、画面を開いている OS の書き方にする。
+ * 表と辞書は macOS の記号で書き（⌘K、⌘⇧N、⌃⌥1）、Windows と Linux ではここで Ctrl+K、Ctrl+Shift+N、Ctrl+Alt+1 にする。
+ * 照合は `mod` が ⌘ と Ctrl の両方で受けるので、見せ方だけを変える。
+ */
+export function keyLabel(text: string, mac: boolean = isMacClient()): string {
+  return mac ? text : text.replace(/[⌘⌃⌥⇧↵⏎]/g, (c) => NAMED[c]!);
+}
+
+/** 行の説明。添える打鍵も OS の書き方にする。 */
+export function bindingLabel(t: Translate, b: KeyBinding, mac: boolean = isMacClient()): string {
+  return b.also === undefined ? t(b.labelKey) : t(b.labelKey, { keys: keyLabel(b.also, mac) });
 }
 
 /** 打鍵に当たる操作を返す。当たらなければ null。 */

@@ -9,6 +9,7 @@ import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
 import { presentNewProject } from '../presenters/newProject.ts';
 import { presentShell } from '../presenters/shell.ts';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
 const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false };
@@ -1872,6 +1873,15 @@ describe('殻の操作（ランタイム）', () => {
     expect(messages).toEqual(['コピーできませんでした。文字を選択して ⌘C でコピーしてください']);
     expect(messages.join('')).not.toContain('secret-token-123');
     expect(rt.getState().copied).toBeNull();
+  });
+  it('Windows では、コピーの打鍵を Ctrl+C と案内する', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const clipboard = vi.fn(async () => { throw new Error('denied'); });
+    const { rt } = harness({}, { clipboard });
+    rt.start();
+    rt.emit({ type: 'clipboard.copy', text: 'x' });
+    await flush();
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['コピーできませんでした。文字を選択して Ctrl+C でコピーしてください']);
   });
 });
 

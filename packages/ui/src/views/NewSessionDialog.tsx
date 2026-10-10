@@ -8,6 +8,7 @@ import { LaunchChips, type LaunchChipValues } from './LaunchChips.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { isMacClient, keyLabel } from '../keys.ts';
 import { Listbox } from './primitives/Listbox.tsx';
 import type { ListboxAction, ListboxOption } from './primitives/listboxModel.ts';
 import { CheckCard } from './primitives/OptionCard.tsx';
@@ -208,7 +209,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     const first: ListboxAction = word && !taken(word)
       ? { value: 'new', label: t('newSession.project.newFolderNamed', { name: word }), sub: `${root}/${word}`, icon: 'folderPlus' }
       : { value: 'new', label: t('newSession.project.newFolder'), icon: 'folderPlus' };
-    return props.desktop ? [first, { value: 'finder', label: t('newSession.project.other'), sub: 'Finder', icon: 'folderOpen' }] : [first];
+    return props.desktop ? [first, { value: 'finder', label: t('newSession.project.other'), sub: t(isMacClient() ? 'newSession.project.otherPickerMac' : 'newSession.project.otherPickerWindows'), icon: 'folderOpen' }] : [first];
   };
   const onAction = (value: string, q: string) => {
     if (value === 'finder') { emit({ type: 'folder.pick' }); return; }
@@ -253,9 +254,9 @@ export function NewSessionDialog(props: NewSessionProps) {
       footer={<>
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <span className="spacer" />
-        {scratch && <span className="dialog-hint">{t('newSession.hint.quick')}</span>}
-        <button type="button" className={`btn ${bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || uploading > 0} aria-keyshortcuts="Meta+Enter" onClick={submit}>
-          {props.submitting ? t('newSession.button.starting') : uploading > 0 ? t('newSession.button.uploading') : <>{bypass ? t('newSession.button.startBypass') : t('newSession.button.start')}<span className="kc" aria-hidden="true">⌘↵</span></>}
+        {scratch && <span className="dialog-hint">{t('newSession.hint.quick', { keys: keyLabel('⌘↵') })}</span>}
+        <button type="button" className={`btn ${bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || uploading > 0} aria-keyshortcuts={isMacClient() ? 'Meta+Enter' : 'Control+Enter'} onClick={submit}>
+          {props.submitting ? t('newSession.button.starting') : uploading > 0 ? t('newSession.button.uploading') : <>{bypass ? t('newSession.button.startBypass') : t('newSession.button.start')}<span className="kc" aria-hidden="true">{keyLabel('⌘↵')}</span></>}
         </button>
       </>}
     >

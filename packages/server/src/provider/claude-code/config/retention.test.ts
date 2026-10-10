@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RetentionDto } from '@agent-hangar/shared';
 import { JsonTextEditError } from '../../../config/jsonTextEdit.ts';
-import { measureUsage, previewRetention, readRetention, RetentionConflictError, RetentionService, RetentionUnwritableError, writeRetention } from './retention.ts';
+import { defaultManagedDir, measureUsage, previewRetention, readRetention, RetentionConflictError, RetentionService, RetentionUnwritableError, writeRetention } from './retention.ts';
 import { expectMode, posixIt } from '../../../../test/platform.ts';
 
 const NOW = Date.parse('2026-10-01T00:00:00Z');
@@ -23,6 +23,16 @@ afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 const settings = (s: string) => fs.writeFileSync(path.join(claudeDir, 'settings.json'), s);
+
+describe('defaultManagedDir', () => {
+  it('組織の設定の置き場は OS ごとに決まっている', () => {
+    expect(defaultManagedDir('darwin')).toBe('/Library/Application Support/ClaudeCode');
+    expect(defaultManagedDir('linux')).toBe('/etc/claude-code');
+    // Claude Code 2.1.296 の本体が持つ Windows の置き場である。
+    expect(defaultManagedDir('win32')).toBe('C:\\Program Files\\ClaudeCode');
+    expect(defaultManagedDir('freebsd')).toBeNull();
+  });
+});
 
 describe('readRetention', () => {
   it('ファイルもキーも無ければ既定の 30 日で、書ける', () => {

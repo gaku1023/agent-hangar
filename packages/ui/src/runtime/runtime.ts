@@ -24,6 +24,7 @@ import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import type { Notifier } from './notifier.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
+import { keyLabel } from '../keys.ts';
 
 export type RuntimeDeps = {
   api: ApiClient;
@@ -410,7 +411,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 参加トークンのような秘密も写すからである。中身はボタンの横の欄に出ているので、そこから手で写せる。
         Promise.resolve().then(() => write(e.text)).then(
           () => dispatch({ kind: 'runtime', event: { type: 'clipboard.copied', text: e.text } }),
-          () => toast(tr()('runtime.copy.failed')),
+          () => toast(tr()('runtime.copy.failed', { keys: keyLabel('⌘C') })),
         );
         return;
       }

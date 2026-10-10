@@ -20,7 +20,7 @@ export const composerEn: AreaDictionary<typeof composerKeys> = {
   'composer.tool.file': 'Files',
   'composer.tool.fileNeedsProject': 'Select a project to use this',
   'composer.tool.attach': 'Attach',
-  'composer.tool.pasteHint': 'You can also paste images with ⌘V',
+  'composer.tool.pasteHint': 'You can also paste images with {keys}',
   'composer.list.fileLabel': 'Files',
   'composer.list.commandLabel': 'Skills and commands',
   'composer.list.failed': 'Could not load',

@@ -7,6 +7,7 @@ import {
   shellHookInstalled,
   shellHookLine,
   shellHookUpToDate,
+  shellWrapOsSupported,
   shellWrapSupported,
   uninstallShellHook,
   zshrcPath,
@@ -24,10 +25,15 @@ type ShellOpts = {
   port?: number;
   /** 利用者のログインシェル。zsh でなければ入れない。 */
   loginShell?: string;
+  /** 動いている OS。試験が差し替える。Windows では入れない。 */
+  platform?: NodeJS.Platform;
   yes?: boolean;
   ask?: Ask;
   log?: (s: string) => void;
 };
+
+/** Windows で install を頼まれたときの案内。包みは zsh のもので、Windows では作らない（2026-10-10 の決定）。 */
+const WINDOWS_NOTE = 'Windows ではシェル連携を使えません。claude は Hangar から起動してください。外のターミナルで動いている claude は、Hangar の「hangar に移動」で開けます。';
 
 /**
  * 外のターミナルで起動した claude を hangar で開けるようにする。
@@ -40,12 +46,17 @@ export async function runShellInstall(o: ShellOpts): Promise<{ installed: boolea
   const ask = o.ask ?? promptYesNo;
   const home = o.home ?? hangarHome();
   const zshrc = o.zshrc ?? zshrcPath();
+  const platform = o.platform ?? process.platform;
+  if (!shellWrapOsSupported(platform)) {
+    log(WINDOWS_NOTE);
+    return { installed: false };
+  }
   const loginShell = o.loginShell ?? process.env.SHELL ?? '';
   if (!/(^|\/)zsh$/.test(loginShell)) {
     log(`ログインシェルが zsh ではありません（${loginShell || '不明'}）。いまは zsh だけに対応しています。`);
     return { installed: false };
   }
-  if (!shellWrapSupported(o.tmuxPath)) {
+  if (!shellWrapSupported(o.tmuxPath, platform)) {
     log('この PC では tmux が見つかりません。包み方は hangar の tmux の中で claude を起こすので、tmux が要ります。');
     log('brew install tmux で入れるか、hangar の設定の「tmux のパス」を入れてください。');
     return { installed: false };
@@ -89,7 +100,9 @@ export function runShellUninstall(o: { zshrc?: string; log?: (s: string) => void
 }
 
 /** この PC の状態を 1 行で。 */
-export function shellStatusLine(o: { zshrc?: string; tmuxPath: string | null }): string {
-  if (!shellWrapSupported(o.tmuxPath)) return '外のターミナル: この PC では tmux が見つからないので使えません';
+export function shellStatusLine(o: { zshrc?: string; tmuxPath: string | null; platform?: NodeJS.Platform }): string {
+  const platform = o.platform ?? process.platform;
+  if (!shellWrapOsSupported(platform)) return '外のターミナル: Windows では使えません。claude は Hangar から起動してください';
+  if (!shellWrapSupported(o.tmuxPath, platform)) return '外のターミナル: この PC では tmux が見つからないので使えません';
   return shellHookInstalled(o.zshrc ?? zshrcPath()) ? '外のターミナル: 入っています' : '外のターミナル: まだです（hangar shell install で入れられます）';
 }

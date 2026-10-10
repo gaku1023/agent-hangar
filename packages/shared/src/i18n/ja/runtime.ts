@@ -6,7 +6,7 @@ export const runtimeJa: AreaDictionary<typeof runtimeKeys> = {
   'runtime.notify.denied': '通知が許可されませんでした',
   'runtime.notify.returnBody': 'リマインダーの時刻 {time} を過ぎました',
   'runtime.notify.returnBodyNote': 'リマインダーの時刻 {time} を過ぎました · {note}',
-  'runtime.copy.failed': 'コピーできませんでした。文字を選択して ⌘C でコピーしてください',
+  'runtime.copy.failed': 'コピーできませんでした。文字を選択して {keys} でコピーしてください',
   'runtime.shell.openLogFailed': 'ログを開けませんでした',
   'runtime.shell.restartFailed': '再起動できませんでした',
   'runtime.shell.pickFolderFailed': 'フォルダを選べませんでした',

@@ -208,7 +208,11 @@ export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
 export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean; shell: ShellHookStateDto | null };
 export type ShellHookStateDto = 'on' | 'off' | 'unsupported';
 /** Settings の「外のターミナル」。state はこの PC の状態、command は入れるために貼るコマンド。 */
-export type ShellHookDto = { state: ShellHookStateDto; zshrc: string; line: string; command: string };
+export type ShellHookDto = {
+  state: ShellHookStateDto; zshrc: string; line: string; command: string;
+  /** この OS で包みを作るか。Windows では偽で、画面はシェル連携の節ごと出さない。送らない古いサーバは真とみなす。 */
+  osSupported?: boolean;
+};
 /**
  * Claude Code の設定の同期（docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md）の形。
  */

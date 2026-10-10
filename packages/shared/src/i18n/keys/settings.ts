@@ -117,6 +117,7 @@ export const settingsKeys = {
   'settings.integrations.shell.on': [],
   'settings.integrations.shell.off': [],
   'settings.integrations.shell.unsupported': [],
+  'settings.integrations.shell.unsupportedOs': [],
   'settings.integrations.shell.unknown': [],
   'settings.integrations.shell.installHint': ['zshrc'],
   'settings.integrations.shell.installedHint': ['uninstall'],

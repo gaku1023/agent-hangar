@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { translator } from '@agent-hangar/shared';
-import { KEYMAP, matchKey } from './keys.ts';
+import { bindingLabel, isMacClient, keyLabel, KEYMAP, matchKey } from './keys.ts';
+import { LINUX_UA, MAC_UA, setClientUserAgent, WINDOWS_UA } from './test/client.ts';
 
 const ja = translator('ja');
 const en = translator('en');
 /** 行の説明を日本語で引く。 */
 const labelOf = (id: string) => {
   const b = KEYMAP.find((k) => k.id === id);
-  return b ? ja(b.labelKey) : undefined;
+  return b ? bindingLabel(ja, b) : undefined;
 };
 
 describe('キーマップ', () => {
@@ -118,8 +119,65 @@ describe('キーマップ', () => {
     for (const b of KEYMAP) {
       expect(b.keys, b.id).not.toBe('');
       // 日本語と英語の両方に説明があり、鍵のまま返ってはいない。
-      expect(ja(b.labelKey), b.id).not.toBe(b.labelKey);
-      expect(en(b.labelKey), b.id).not.toBe(b.labelKey);
+      expect(bindingLabel(ja, b), b.id).not.toBe(b.labelKey);
+      expect(bindingLabel(en, b), b.id).not.toBe(b.labelKey);
+      // 引数の置き場が残っていない。
+      expect(bindingLabel(ja, b), b.id).not.toContain('{');
     }
+  });
+});
+
+describe('画面を開いている OS', () => {
+  it('ブラウザの名乗りから macOS かを読む。名乗りが無ければ macOS とみなす', () => {
+    expect(isMacClient(MAC_UA)).toBe(true);
+    expect(isMacClient(WINDOWS_UA)).toBe(false);
+    expect(isMacClient(LINUX_UA)).toBe(false);
+    expect(isMacClient(undefined)).toBe(true);
+  });
+
+  it('引数を省くと、いまの名乗りを読む', () => {
+    expect(isMacClient()).toBe(true);
+    setClientUserAgent(WINDOWS_UA);
+    expect(isMacClient()).toBe(false);
+  });
+});
+
+describe('キーの表示', () => {
+  it('macOS では記号のまま見せる', () => {
+    for (const b of KEYMAP) expect(keyLabel(b.keys, true)).toBe(b.keys);
+    expect(keyLabel('⌘↵', true)).toBe('⌘↵');
+  });
+
+  it('Windows と Linux では、⌘ を Ctrl に、記号を名前に読み替える', () => {
+    expect(keyLabel('⌘K / /', false)).toBe('Ctrl+K / /');
+    expect(keyLabel('⌘⇧N', false)).toBe('Ctrl+Shift+N');
+    expect(keyLabel('⌘1–⌘9', false)).toBe('Ctrl+1–Ctrl+9');
+    expect(keyLabel('⌘[ / ⌘←', false)).toBe('Ctrl+[ / Ctrl+←');
+    expect(keyLabel('? / ⌘/', false)).toBe('? / Ctrl+/');
+    expect(keyLabel('⌃⌥1–⌃⌥9', false)).toBe('Ctrl+Alt+1–Ctrl+Alt+9');
+    expect(keyLabel('⌘↵', false)).toBe('Ctrl+Enter');
+    expect(keyLabel('⇧⏎', false)).toBe('Shift+Enter');
+    expect(keyLabel('⌥↑', false)).toBe('Alt+↑');
+    expect(keyLabel('Esc', false)).toBe('Esc');
+    // 修飾を持たない一覧のキーは変わらない。
+    expect(keyLabel('j / k / ↑ / ↓', false)).toBe('j / k / ↑ / ↓');
+  });
+
+  it('OS を省くと、いまの名乗りで決める', () => {
+    expect(keyLabel('⌘B')).toBe('⌘B');
+    setClientUserAgent(WINDOWS_UA);
+    expect(keyLabel('⌘B')).toBe('Ctrl+B');
+  });
+
+  it('表のどの行も、Windows では ⌘ と記号を残さない', () => {
+    for (const b of KEYMAP) expect(keyLabel(b.keys, false), b.id).not.toMatch(/[⌘⌃⌥⇧↵⏎]/);
+    for (const b of KEYMAP) expect(bindingLabel(ja, b, false), b.id).not.toMatch(/[⌘⌃⌥⇧↵⏎]/);
+  });
+
+  it('タブの選択の説明に添える打鍵も、OS の書き方にする', () => {
+    const b = KEYMAP.find((k) => k.id === 'tab.select')!;
+    expect(bindingLabel(ja, b, true)).toBe('タブを選択（⌃⌥1–⌃⌥9 でも）');
+    expect(bindingLabel(ja, b, false)).toBe('タブを選択（Ctrl+Alt+1–Ctrl+Alt+9 でも）');
+    expect(bindingLabel(en, b, false)).toBe('Select tab (also Ctrl+Alt+1–Ctrl+Alt+9)');
   });
 });

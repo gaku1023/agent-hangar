@@ -10,7 +10,7 @@ describe('包みの本体と、この PC の状態', () => {
   beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-')); });
   afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); });
 
-  const wrap = (o: { host?: string; tmuxPath?: string | null; subcommands?: readonly string[]; zshrc?: string } = {}) => {
+  const wrap = (o: { host?: string; tmuxPath?: string | null; subcommands?: readonly string[]; zshrc?: string; platform?: NodeJS.Platform } = {}) => {
     let tmuxPath = o.tmuxPath === undefined ? '/opt/tmux' : o.tmuxPath;
     let subcommands = o.subcommands ?? ['agents'];
     const w = createShellWrap({
@@ -18,6 +18,8 @@ describe('包みの本体と、この PC の状態', () => {
       tmuxPath: () => tmuxPath, subcommands: () => subcommands,
       bundledHangar: null, zshrc: () => o.zshrc ?? path.join(home, '.zshrc'),
       errorLog: () => {},
+      // 包みは macOS の zsh のものなので、試験は動いている OS によらず macOS として走らせる。
+      platform: o.platform ?? 'darwin',
     });
     return { w, setTmux: (p: string | null) => { tmuxPath = p; }, setSubcommands: (l: readonly string[]) => { subcommands = l; } };
   };
@@ -68,6 +70,20 @@ describe('包みの本体と、この PC の状態', () => {
     // tmux が無ければ、1 行があっても包めない。
     t.setTmux(null);
     expect(t.w.hook().state).toBe('unsupported');
+  });
+
+  it('Windows では本体を置かず、この OS では使えないと返す', () => {
+    const zshrc = path.join(home, '.zshrc');
+    const exe = path.join(home, 'psmux.exe');
+    fs.writeFileSync(exe, '', { mode: 0o755 });
+    const t = wrap({ tmuxPath: exe, zshrc, platform: 'win32' });
+    t.w.write();
+    expect(fs.existsSync(shellScriptPath(home))).toBe(false);
+    expect(t.w.hook()).toMatchObject({ state: 'unsupported', osSupported: false });
+  });
+
+  it('macOS では、この OS で使えると返す', () => {
+    expect(wrap().w.hook().osSupported).toBe(true);
   });
 
   it('同梱の hangar は、サーバの入口の隣の bin/hangar にあるときだけ見つかる', () => {

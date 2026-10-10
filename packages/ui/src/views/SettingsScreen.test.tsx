@@ -33,7 +33,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
   cloud: { configured: false, url: null, state: 'off', stateLabel: '同期オフ', badge: { text: '同期オフ', tone: 'off' }, paused: false, limited: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, joinTokenExpiresAt: null, usage: null },
   configSync: configSyncProps(),
-  shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', devices: [] },
+  shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', available: true, devices: [] },
   nodePath: '',
   claudePath: null,
   retention: null,
@@ -484,6 +484,12 @@ describe('設定の連携', () => {
       expect(screen.queryByText(/shell install$/)).toBeNull();
       rerender(ui(at('integrations', { shell: shell({ state: 'unsupported' }) })));
       expect(screen.getByText(/brew install tmux/)).toBeInTheDocument();
+    });
+    it('この OS で包みを使えないとき（Windows）は、節ごと出さない', () => {
+      render(ui(at('integrations', { shell: shell({ state: 'unsupported', available: false }) })));
+      expect(screen.queryByRole('heading', { name: /^シェル連携/ })).toBeNull();
+      expect(screen.queryByText(/shell install/)).toBeNull();
+      expect(screen.getByRole('heading', { name: /^ステータスライン/ })).toBeInTheDocument();
     });
   });
   describe('Claude Code との互換（C2）', () => {

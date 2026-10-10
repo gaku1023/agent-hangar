@@ -74,7 +74,7 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.toc.label': '目次',
   'session.toc.close': '右パネルを閉じる',
   'session.toc.open': '右パネルを開く',
-  'session.toc.shortcut': '右パネルの開閉（⌘J）',
+  'session.toc.shortcut': '右パネルの開閉（{keys}）',
   'session.lead.label': 'このセッションのまとめ',
   'session.lead.statusSince': '{date} に設定',
   'session.lead.ended': '終了 {when}',

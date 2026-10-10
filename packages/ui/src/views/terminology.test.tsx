@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { translator } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
-import { KEYMAP } from '../keys.ts';
+import { bindingLabel, KEYMAP } from '../keys.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { ShortcutsDialog } from './ShortcutsDialog.tsx';
 import { SplitPane } from './SplitPane.tsx';
@@ -23,11 +23,11 @@ describe('用語表', () => {
     render(<ActionRoot onAction={() => {}}><ShortcutsDialog /></ActionRoot>);
     expect(screen.getByRole('dialog', { name: 'キーボードショートカット' })).toHaveTextContent(/^キーボードショートカット/);
     const open = KEYMAP.find((k) => k.id === 'shortcuts.open')!;
-    expect(translator('ja')(open.labelKey)).toBe('キーボードショートカット');
+    expect(bindingLabel(translator('ja'), open)).toBe('キーボードショートカット');
   });
   it('キーボードショートカットの語は、ボタンや画面の語と同じにする', () => {
     const ja = translator('ja');
-    const label = (id: string) => { const k = KEYMAP.find((b) => b.id === id); return k ? ja(k.labelKey) : undefined; };
+    const label = (id: string) => { const k = KEYMAP.find((b) => b.id === id); return k ? bindingLabel(ja, k) : undefined; };
     expect(label('session.new')).toBe('新しいセッション');
     expect(label('transcript.toggle')).toBe('右パネルの開閉');
     expect(label('split.toggle')).toBe('タブを横に並べる');

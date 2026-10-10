@@ -74,7 +74,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.toc.label': 'Outline',
   'session.toc.close': 'Close right panel',
   'session.toc.open': 'Open right panel',
-  'session.toc.shortcut': 'Toggle right panel (⌘J)',
+  'session.toc.shortcut': 'Toggle right panel ({keys})',
   'session.lead.label': 'Summary of this session',
   'session.lead.statusSince': 'Set {date}',
   'session.lead.ended': 'Ended {when}',
