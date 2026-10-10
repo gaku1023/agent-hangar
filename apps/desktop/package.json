@@ -7,7 +7,8 @@
     "typecheck": "tsc -p .",
     "bundle-server": "node --import tsx scripts/bundle-server.ts",
     "sign-macos": "node --import tsx scripts/sign-macos.ts",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "set-version": "node --experimental-strip-types --no-warnings scripts/release-plan.ts set-version"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

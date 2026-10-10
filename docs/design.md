@@ -4150,7 +4150,8 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   タグの `release.yml` では、windows ジョブが同じ手順で作って `Hangar-<タグ>-windows-x64-setup.exe` と `.sha256` を artifact に置き、`windows-upload` ジョブが macos ジョブの後でそれを macos ジョブの作った Release に `gh release upload` で添える。Release を作るのは macos ジョブだけで、書き込みの権限もこの 2 つのジョブだけが持つ。
   署名鍵があれば、インストーラの署名（`.sig`）も作り、`updater-manifest` ジョブが更新の目録に載せる（次の「アプリの自動更新」）。
 - アプリの自動更新（段 5-4、2026-10-10 の決定）：更新は「知らせて、押して入れる」で、勝手には入れない。Tauri 2 の updater（`tauri-plugin-updater`）を macOS と Windows（NSIS）の両方で使う。
-  目録は GitHub の Release の最新の `latest.json`（`tauri.conf.json` の `plugins.updater.endpoints`）で、更新物は同じ所の minisign の公開鍵（`plugins.updater.pubkey`）で確かめる。macOS の更新物は `Hangar-<タグ>-macos-arm64.app.tar.gz`、Windows の更新物はインストーラそのもの（`Hangar-<タグ>-windows-x64-setup.exe`、`installMode` は passive）である。
+  目録は GitHub の Release の最新の `latest.json`（`tauri.conf.json` の `plugins.updater.endpoints`）で、更新物は同じ所の minisign の公開鍵（`plugins.updater.pubkey`）で確かめる。
+  試しの版（rc）の build だけは、`tauri.prerelease.conf.json` を重ねて、目録を固定のタグ `updater-prerelease` の Release（prerelease）の `latest.json` から引く（次の「版と試しの版」）。macOS の更新物は `Hangar-<タグ>-macos-arm64.app.tar.gz`、Windows の更新物はインストーラそのもの（`Hangar-<タグ>-windows-x64-setup.exe`、`installMode` は passive）である。
   頁は殻の 4 つの命令だけを呼ぶ（`capabilities/remote-update.json`）。`update_status` は動いている版と取得の進み、`update_check` は目録を引いて新しい版を返し、見つけた版を殻に持つ。`update_download` はそれを取得して署名を確かめて殻に持ち、`update_install` は入れて再起動する。プラグインの JS の権限は与えないので、頁から目録の URL や公開鍵は変えられない。
   失敗は殻が network、signature、permission、other の 4 つに分けて返し（`src/updater.rs` の `failure_kind`）、英語の 1 行は `desktop.log` に残す。
   再起動しても、tmux（Windows は psmux）の中のセッションは止まらない。macOS は `.app` を入れ替えてから終了の手続きを通って起き直し（子のサーバも止まる）、Windows は updater がインストーラを起こしてそのまま抜けるので、その直前（`on_before_exit`）に子のサーバを止める。
@@ -4162,6 +4163,13 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   署名鍵（minisign）の秘密鍵は GitHub の secret の `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Tauri が読む環境変数と同じ名前）にだけ置き、1Password の「Hangar updater signing key (minisign)」に控えてある。リポジトリには公開鍵だけを置く。
   更新物づくり（`createUpdaterArtifacts`）は `tauri.conf.json` に書かず、`release.yml` が鍵のあるときだけ `--config src-tauri/tauri.updater.conf.json` を重ねて入れる。手元と ci の build は鍵を持たないので、更新物を作らずに通る。
   `release.yml` は、macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`updater-manifest` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を Release に添える。目録は最後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。secret が無ければ、更新物と目録だけを飛ばし、失敗にしない。
+- 版と試しの版（2026-10-10）：版はリポジトリのファイルで上げてからタグを打ち、タグから版を決めて build に渡すことはしない。手順は `docs/release.md` にある。
+  版の在りかは 5 つ（`tauri.conf.json`、`apps/desktop/package.json`、`Cargo.toml`、`Cargo.lock`、`package-lock.json`）で、`apps/desktop/scripts/release-plan.ts` の `VERSION_FILES` が正である。`npm run set-version -w apps/desktop -- <版>` がまとめて書き換え、試験が 5 つのそろいを見る。
+  `release.yml` の最初の `plan` ジョブがタグと 5 つを照らし、1 つでも違えば何も作らずに止まる。食い違ったまま配ると、目録の版とアプリの名乗る版と更新物の署名に入る版がずれるからである。タグにビルドメタデータ（`+`）は付けない（semver の比べ方が `+` を見ず、更新として見つからない）。
+  タグに `-` が入っていれば試しの版で、Release を prerelease にして Release の最新にしない。安定版の利用者が引く Release の最新の `latest.json` に、試しの版を入れないためである。
+  試しの版の目録の取り先は、固定のタグ `updater-prerelease` の Release（prerelease）に 1 つだけ置く `latest.json` にした。`updater-manifest` ジョブが、試しの版でも正式な版でも、その版が今の目録より新しいか同じときだけ置き換える。試しの版の利用者は次の rc も正式な版も受け取り、古い版の再実行で巻き戻らない。
+  取り先を版ごとの Release にせず固定のタグに置くのは、rc.1 に焼き込んだ取り先から rc.2 を見つけるためである。安定版の道（Release の最新）を固定のタグに移さないのは、すでに配った版の取り先を変えないためである。
+  プレリリースの付いた版は Tauri と NSIS がそのまま受ける。NSIS の `VIProductVersion` は数字の 4 つ組なのでプレリリースの部分が落ちて `0.2.0.0` になるが、入れ替えの比べ方（`nsis_tauri_utils::SemverCompare`）と updater の比べ方は semver のままである。macOS の `Info.plist` の版は `0.2.0-rc.1` のまま入る（2026-10-10 に手元の build で確かめた）。
 - Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知はまだ無い。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
 - macOS にしか無いコマンドは、OS で分けて呼ぶ。URL とファイルを既定のアプリで開くのは `platform/browser.ts`（macOS は `open`、Windows はシェルを通さない `rundll32.exe url.dll,FileProtocolHandler`、Linux は `xdg-open`）。
   CLI の `hangar open` は、macOS の外では鍵付きの URL へ移るページ（`<HANGAR_HOME>/open.html`、0600）を書き、そのファイルを開かせる。既定のブラウザは開く対象を自分の argv で受け取るので、URL を直に渡すと鍵が argv に載るからである。

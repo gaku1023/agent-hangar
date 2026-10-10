@@ -7,6 +7,12 @@ inputs:
   target:
     description: Rust の target（x86_64-pc-windows-msvc）。tauri build の --target に渡す。
     required: true
+  extra-config:
+    description: >-
+      重ねる Tauri の設定（apps/desktop からの相対）。release の試しの版が、updater の endpoint を試しの道に替えるために渡す。
+      空なら何も重ねない。ci からは渡さない。
+    required: false
+    default: ''
   signing-key:
     description: >-
       自動更新の署名鍵（minisign の秘密鍵、Tauri の TAURI_SIGNING_PRIVATE_KEY）。
@@ -37,12 +43,14 @@ runs:
       shell: pwsh
       env:
         TARGET: ${{ inputs.target }}
+        EXTRA_CONFIG: ${{ inputs.extra-config }}
         TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.signing-key }}
         TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.signing-key-password }}
       run: |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "apps/desktop/src-tauri/target/$env:TARGET/release/bundle/nsis"
         $extra = @()
-        if ($env:TAURI_SIGNING_PRIVATE_KEY) { $extra = @('--config', 'src-tauri/tauri.updater.conf.json') }
+        if ($env:EXTRA_CONFIG) { $extra += @('--config', $env:EXTRA_CONFIG) }
+        if ($env:TAURI_SIGNING_PRIVATE_KEY) { $extra += @('--config', 'src-tauri/tauri.updater.conf.json') }
         else { Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY, Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue }
         npm run tauri -w apps/desktop -- build --bundles nsis --target $env:TARGET @extra
     - name: インストーラの名前、大きさ、SHA-256
