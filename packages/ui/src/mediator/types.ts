@@ -1,5 +1,6 @@
 import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
+import type { UpdateCommand } from '../runtime/updater.ts';
 import type { ConfigDetailPart } from '../store/store.ts';
 
 /**
@@ -92,6 +93,8 @@ export type Effect =
   | { kind: 'notify.request' }
   // 通知を受け取らないにする。Runtime がその場で切り替えて覚える。
   | { kind: 'notify.off' }
+  // アプリの自動更新の操作。Runtime が殻の updater に頼み、結果を Store の update に置く（runtime/updater.ts）。
+  | { kind: 'update'; command: UpdateCommand }
   // Dock（ブラウザならアプリ）のバッジに入力待ちの数を出す。
   // 0 で消す。
   | { kind: 'badge'; count: number }

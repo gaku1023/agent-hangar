@@ -2,6 +2,7 @@ import type { runtimeKeys } from '../keys/runtime.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const runtimeEn: AreaDictionary<typeof runtimeKeys> = {
+  'runtime.notify.blockedWindows': 'Notifications are turned off. Allow Hangar under Notifications in Windows Settings',
   'runtime.notify.blocked': 'Notifications are turned off. Allow Hangar under Notifications in System Settings',
   'runtime.notify.denied': 'Notifications were not allowed',
   'runtime.notify.returnBody': 'Return time {time} has passed',
@@ -16,4 +17,5 @@ export const runtimeEn: AreaDictionary<typeof runtimeKeys> = {
   'runtime.retention.previewLoading': 'Loading the diff. Wait a moment, then try again',
   'runtime.retention.set': 'Retention period set to {days}',
   'runtime.openTerminal.fellBack': 'Could not open in iTerm2, so opened in Terminal.app instead',
+  'runtime.openTerminal.fellBackWindows': 'Windows Terminal was not found, so opened in the default terminal instead',
 };

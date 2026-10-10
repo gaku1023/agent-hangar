@@ -702,6 +702,25 @@ describe('通知を受け取るか', () => {
   });
 });
 
+describe('アプリの更新', () => {
+  // 更新の段階は Runtime だけが知る事実なので、Store が持つ（store/update.ts）。Mediator は操作を効果にするだけである。
+  it('確認、取得、インストール、閉じる、知らせの切り替えは、それぞれ update の効果だけを出す', () => {
+    const start = initialState();
+    const cases: Array<[Extract<Input, { kind: 'action' }>['action'], unknown]> = [
+      [{ type: 'update.check' }, { op: 'check' }],
+      [{ type: 'update.download' }, { op: 'download' }],
+      [{ type: 'update.install' }, { op: 'install' }],
+      [{ type: 'update.dismiss' }, { op: 'dismiss' }],
+      [{ type: 'update.notify', on: false }, { op: 'notify', on: false }],
+    ];
+    for (const [a, command] of cases) {
+      const r = run([action(a)], start);
+      expect(r.effects, a.type).toEqual([{ kind: 'update', command }]);
+      expect(r.state).toBe(start);
+    }
+  });
+});
+
 describe('設定', () => {
   it('iTerm2 を選ぶと許可ダイアログの案内を出す', () => {
     const { effects } = run([action({ type: 'settings.update', patch: { terminalApp: 'iterm' } })]);

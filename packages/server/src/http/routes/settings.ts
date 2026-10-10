@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { isLanguage, languageOf, LANGUAGES, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
+import { isLanguage, languageOf, LANGUAGES, terminalAppsFor, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { checkToolPath, expandHome, isCommandName } from '../../config/readiness.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../../projects/registry.ts';
@@ -16,7 +16,9 @@ export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | '
 const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
 const PATH_SETTING_KEYS = ['tmuxPath', 'codePath', 'nodePath', 'claudePath'] as const;
-const TERMINAL_APPS = new Set<string>(['terminal', 'iterm']);
+/** 外部ターミナルは、動いている OS で開けるものだけを受ける。別の OS の値を保存させない。 */
+const TERMINAL_APPS = new Set<string>(terminalAppsFor(process.platform));
+const TERMINAL_APP_INVALID = process.platform === 'win32' ? ('settings.terminalApp.invalidWindows' as const) : ('settings.terminalApp.invalid' as const);
 /**
  * 「1 時間の上限」の上限。
  * 画面の入力（SettingsScreen の Stepper）と同じにする。
@@ -92,7 +94,7 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
     }
     if ('terminalApp' in body) {
       const v = body.terminalApp;
-      if (typeof v !== 'string' || !TERMINAL_APPS.has(v)) return c.json({ error: tr('settings.terminalApp.invalid', { label: tr('settings.label.terminalApp') }) }, 400);
+      if (typeof v !== 'string' || !TERMINAL_APPS.has(v)) return c.json({ error: tr(TERMINAL_APP_INVALID, { label: tr('settings.label.terminalApp') }) }, 400);
       patch.terminalApp = v as TerminalApp;
     }
     if ('lmStudioUrl' in body) {

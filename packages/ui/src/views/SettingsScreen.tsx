@@ -3,7 +3,7 @@ import type { Language, SettingsDto, SettingsSection, TerminalApp } from '@agent
 import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
-import { clientPlatform, muxInstallCommand, type VerifyLine } from '../presenters/readiness.ts';
+import { clientPlatform, muxInstallCommand, notifyBlockedKey, type VerifyLine } from '../presenters/readiness.ts';
 import { JOIN_TOKEN_TTL_MS, type SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { MuxSection } from './MuxSection.tsx';
@@ -18,6 +18,7 @@ import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
+import { UpdateSection } from './UpdateSection.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
@@ -26,9 +27,12 @@ import { Switch } from './primitives/Switch.tsx';
 export const SAVED_TICK_MS = 2000;
 
 /** 目次の各行のアイコン。 */
-const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', tools: 'tool', info: 'info' };
+const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', tools: 'tool', update: 'download', info: 'info' };
 
 /** 欄の横に「✓ 保存しました」を 2 秒出す。n が進むたびに出し直す（設定の C1）。 */
+/** 外部ターミナルの選択肢の印。製品のアプリは窓の印、OS の素のターミナルはターミナルの印にする。 */
+const TERMINAL_ICON: Record<TerminalApp, IconName> = { terminal: 'openTerminal', iterm: 'appWindow', windowsTerminal: 'appWindow', windowsDefault: 'openTerminal' };
+
 function SavedTick(props: { mark: SaveMark | undefined }) {
   const t = useT();
   const n = props.mark?.kind === 'saved' ? props.mark.n : 0;
@@ -132,7 +136,7 @@ function JoinToken(props: { token: string; expiresAt: number | null }) {
 
 /**
  * 設定画面（S1）。
- * 左の目次で 6 つの節（一般、クラウド同期、連携、要約エンジン、ツール、情報）を切り替え、右は選んだ節だけを出す。
+ * 左の目次で 7 つの節（一般、クラウド同期、連携、要約エンジン、ツール、更新、情報）を切り替え、右は選んだ節だけを出す。
  * 目次の各行は、節の名前と今の状態の 1 行を持つ。
  * 開いている節は URL の `at` が決める（props.section）ので、戻ると進むで節も戻り、目次の灯りは URL に従う。
  * パスの欄は欄を出たら保存し、欄の横に「✓ 保存しました」、欄の下に検証の 1 行を出す（C1 と B1）。
@@ -238,12 +242,12 @@ export function SettingsScreen(props: SettingsProps) {
         desc={<>
           {t('settings.general.notify.desc')}
           {!props.notify.available && <div style={{ marginTop: 4 }}>{t('settings.general.notify.unavailable')}</div>}
-          {props.notify.available && props.notify.blocked && <div style={{ marginTop: 4 }}>{t('settings.general.notify.blocked')}</div>}
+          {props.notify.available && props.notify.blocked && <div style={{ marginTop: 4 }}>{t(notifyBlockedKey(clientPlatform(), 'settings'))}</div>}
         </>}
         control={<Switch label={t('settings.general.notify.title')} checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />} />
-      {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。 */}
-      <SetRow title={t('settings.general.terminal.title')} desc={t('settings.general.terminal.desc')}
-        control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={[{ value: 'terminal', label: 'Terminal.app', lead: <Icon name="openTerminal" /> }, { value: 'iterm', label: 'iTerm2', lead: <Icon name="appWindow" /> }]} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />
+      {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。選択肢は画面を開いている OS のものだけ。 */}
+      <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDesc}
+        control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />
       {/* Claude Code の保持期間。押しても保存せず、差分を見せる確認を開く。hangar が Claude Code の設定を書くのはここだけである。 */}
       {props.retention && (
         <SetRow title={t('settings.general.retention.title')}
@@ -492,7 +496,7 @@ export function SettingsScreen(props: SettingsProps) {
     </>
   );
 
-  const body: Record<SettingsSection, ReactNode> = { general, cloud, integrations, summary, tools, info };
+  const body: Record<SettingsSection, ReactNode> = { general, cloud, integrations, summary, tools, update: <UpdateSection update={props.update} />, info };
 
   return (
     <div ref={root} className="screen settings-screen">
@@ -514,6 +518,7 @@ export function SettingsScreen(props: SettingsProps) {
             <h2 className="settings-group-h" id={`settings-${props.section}-h`}>
               {cur.title}
               {props.section === 'cloud' && <span className="badge" data-tone={props.cloud.badge.tone}>{props.cloud.badge.text}</span>}
+              {props.section === 'update' && props.update.supported && props.update.badge && <span className="badge" data-tone={props.update.badge.tone}>{props.update.badge.text}</span>}
               {todo > 0 && <span className="badge" data-tone="warn"><Icon name="alert" />{t('settings.fix.count', { n: todo })}</span>}
             </h2>
             {body[props.section]}

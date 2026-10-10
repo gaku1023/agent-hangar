@@ -1,4 +1,4 @@
-import { SETTINGS_SECTIONS, settingsSectionOf, type IndexProgressDto, type Language, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
+import { SETTINGS_SECTIONS, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -10,8 +10,9 @@ import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
-import { presentMux, toolLine, workspaceLine, type MuxStatus, type VerifyLine } from './readiness.ts';
+import { clientPlatform, presentMux, toolLine, workspaceLine, type MuxStatus, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
+import { presentUpdateSection, type UpdateSectionProps } from './update.ts';
 
 // id は一覧の React の key に使う。1 台の Mac で 2 端末を模すと名前も最終確認も揃うので、一意なのは id だけである。
 export type CloudDeviceProps = { id: string; name: string; platform: string; lastSeen: string; self: boolean };
@@ -62,6 +63,8 @@ export type AccountSettingsProps = { list: AccountView[]; colors: string[] };
 export type SettingsProps = {
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
   tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null;
+  /** 外部ターミナルの選択肢と説明。画面を開いている OS のものだけを出す（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）。 */
+  terminalOptions: { value: TerminalApp; label: string }[]; terminalDesc: string;
   /** ターミナルで打つコマンド。どれも同じ hangar の呼び方にそろえる。 */
   commands: { mcp: string; statusline: string };
   lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean;
@@ -106,6 +109,8 @@ export type SettingsProps = {
   language: { value: Language };
   /** 連携の節を開いたとき、アカウントの位置へ移る印。ヘッダーのアカウントの設定から来たときだけ入る。 */
   focus: 'accounts' | 'unsent' | null;
+  /** アプリの更新の節（presenters/update.ts）。 */
+  update: UpdateSectionProps;
 };
 
 /** 選択肢は決まった 4 つに、今の値がそこに無ければそれを足して、短い順に並べる。 */
@@ -131,6 +136,7 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
 function presentToc(a: {
   t: Translate; language: Language; todo: { must: number; link: number }; cloud: CloudSettingsProps; cloudWord: string; cloudTone: string;
   sync: Store['sync']; notify: Store['notify']; readiness: boolean; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; now: number;
+  update: UpdateSectionProps; desktop: boolean;
 }): SettingsTocRow[] {
   const { t } = a;
   type St = { state: string; tone: 'default' | 'warn' };
@@ -148,16 +154,30 @@ function presentToc(a: {
         : a.summarizerModels.length === 0 ? { state: t('settings.toc.summaryOffline'), tone: 'warn' }
           : { state: t('settings.toc.summaryConnected'), tone: 'default' },
     tools: a.readiness ? fix(a.todo.must, t('settings.toc.allFound')) : checking,
+    // 失敗と再起動待ちは注意の色にする（見出しの札の stop と warn）。
+    update: { state: a.update.tocState, tone: a.update.badge?.tone === 'stop' || a.update.badge?.tone === 'warn' ? 'warn' : 'default' },
     info: { state: t('settings.toc.sessions', { n: a.sessionCount.toLocaleString('en-US') }), tone: 'default' },
   };
-  return SETTINGS_SECTIONS.map((id) => {
+  // 更新は殻の中でだけ意味があるので、ブラウザの目次には出さない（URL で開けば、節は 1 文だけを出す）。
+  return SETTINGS_SECTIONS.filter((id) => id !== 'update' || a.desktop).map((id) => {
     const title = t(`settings.section.${id}`);
     return { id, title, ...state[id], label: t('settings.toc.row', { name: title, state: state[id].state }) };
   });
 }
 
+/** 外部ターミナルの選択肢の名前。製品の名前はそのまま出し、Windows の既定のターミナルだけ辞書で引く。 */
+function terminalLabel(t: Translate, app: TerminalApp): string {
+  switch (app) {
+    case 'terminal': return 'Terminal.app';
+    case 'iterm': return 'iTerm2';
+    case 'windowsTerminal': return 'Windows Terminal';
+    case 'windowsDefault': return t('settings.general.terminal.windowsDefault');
+  }
+}
+
 // now は相対時刻のためだけに使う。フェーズ 3 までの呼び出しは 2 引数なので既定値を置く。
-export function presentSettings(state: State, store: Store, now: number = Date.now()): SettingsProps {
+// platform は画面を開いている OS で、外部ターミナルの選択肢を決める。試験では差し込む。
+export function presentSettings(state: State, store: Store, now: number = Date.now(), platform: string = clientPlatform()): SettingsProps {
   const s = store.settings;
   const sync = store.sync;
   const t = translatorOf(store);
@@ -211,6 +231,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   // compat の無い古いサーバの答えでは、互換の節を「確かめています」のままにする。
   const compatSummary = r ? readinessCompat(r) : undefined;
   const hard = (l: VerifyLine | null) => (l && !l.ok && !l.soft ? 1 : 0);
+  const update = presentUpdateSection(store, now);
   const todo = {
     must: hard(verify.workspace) + hard(verify.tmux) + hard(verify.claude) + hard(verify.node),
     link: r ? (r.mcp.registered ? 0 : 1) + (r.statusline.installed ? 0 : 1) : 0,
@@ -230,7 +251,10 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     // 進んでいる間はヘッダーと同じ文にし、終わっていれば数を出す。
     indexLabel: indexProgressLabel(t, store.index) ?? t('settings.info.index.counts', { sessions: Object.keys(store.sessions).length, projects: Object.keys(store.projects).length }),
     sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length,
-    tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null,
+    // 別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定として見せる。
+    tmuxPath: s?.tmuxPath ?? null, terminalApp: terminalAppFor(s?.terminalApp, platform), codePath: s?.codePath ?? null,
+    terminalOptions: terminalAppsFor(platform).map((value) => ({ value, label: terminalLabel(t, value) })),
+    terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'),
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
     statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },
@@ -239,7 +263,8 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     retention: retentionSettings(store),
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
-    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now }),
+    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now, update, desktop: store.desktop }),
+    update,
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },

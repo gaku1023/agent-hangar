@@ -4,7 +4,7 @@ import { translator } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore } from '../store/store.ts';
 import { presentSettings } from './settings.ts';
-import { clientPlatform, muxInstallCommand, muxName, presentMux, presentMuxGuide, presentReadiness, readinessPending, toolLine, workspaceLine } from './readiness.ts';
+import { clientPlatform, muxInstallCommand, muxName, notifyBlockedKey, presentMux, presentMuxGuide, presentReadiness, readinessPending, toolLine, workspaceLine } from './readiness.ts';
 
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -47,6 +47,13 @@ describe('tmux の役を担う道具の入れ方', () => {
     expect(clientPlatform('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')).toBe('win32');
     expect(clientPlatform('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15')).toBe('darwin');
     expect(clientPlatform(undefined)).toBe('darwin');
+  });
+  // 通知の許可は OS ごとに別の場所にある。案内の文は、画面を開いている OS の設定の名前で言う。
+  it('通知が切られているときの案内の文は、Windows だけ Windows の設定を指す', () => {
+    expect(notifyBlockedKey('win32', 'settings')).toBe('settings.general.notify.blockedWindows');
+    expect(notifyBlockedKey('win32', 'toast')).toBe('runtime.notify.blockedWindows');
+    expect(notifyBlockedKey('darwin', 'settings')).toBe('settings.general.notify.blocked');
+    expect(notifyBlockedKey('darwin', 'toast')).toBe('runtime.notify.blocked');
   });
   it('Windows では、tmux が無いときに psmux の入れ方を出す', () => {
     const missing = { path: null, ok: false, problem: 'unset' as const, version: null };

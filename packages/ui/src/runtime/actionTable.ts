@@ -1,11 +1,16 @@
-import type { AccountsDto, UiAction, SyncStatusBody } from '@agent-hangar/shared';
+import type { AccountsDto, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
 import { applyConfigDetail, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 
 /** iTerm2 で開けず、Terminal.app に落ちたときの知らせ。文そのものではなく辞書の鍵で、Runtime が現在の言語で引いて出す。 */
 export const FELL_BACK = 'runtime.openTerminal.fellBack' as const;
+/** Windows Terminal が無く、既定のターミナルに落ちたときの知らせ。 */
+export const FELL_BACK_WINDOWS = 'runtime.openTerminal.fellBackWindows' as const;
 /** 応答のあとに知らせられる文の鍵（引数の無いもの）。 */
-export type CallToast = typeof FELL_BACK;
+export type CallToast = typeof FELL_BACK | typeof FELL_BACK_WINDOWS;
+
+/** 外部ターミナルで開いた応答の知らせ。落ちたときだけ、落ちた先で文を選ぶ。 */
+const fellBackToast = (r: { app: TerminalApp; fellBack: boolean }): CallToast | null => (r.fellBack ? (r.app === 'windowsDefault' ? FELL_BACK_WINDOWS : FELL_BACK) : null);
 
 /** 応答を受けた後にすること。apply は応答が着いた時点の Store に当てる。toast は情報の知らせである。 */
 export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast };
@@ -46,9 +51,9 @@ export const actionTable = {
   'project.setStatus': (i) => call((api) => api.setProjectStatus(i.id, i.status)),
   'project.rename': (i) => call((api) => api.renameProject(i.id, i.name)),
   'project.openEditor': (i) => call((api) => api.projectOpenEditor(i.id)),
-  'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: (r) => (r.fellBack ? FELL_BACK : null) }),
+  'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: fellBackToast }),
 
-  'session.openTerminalApp': (i) => call((api) => api.openTerminalApp(i.runId, i.tabId ?? null), { toast: (r) => (r.fellBack ? FELL_BACK : null) }),
+  'session.openTerminalApp': (i) => call((api) => api.openTerminalApp(i.runId, i.tabId ?? null), { toast: fellBackToast }),
   'session.openEditor': (i) => call((api) => api.openEditor(i.sessionId)),
   // 変更したファイルを押したとき。path は本文に出てきた綴りのまま渡す。
   'session.openFile': (i) => call((api) => api.openEditor(i.sessionId, i.path)),

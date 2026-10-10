@@ -91,7 +91,8 @@ export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive
 export type RunKind = 'start' | 'resume' | 'fork';
 /** parked は、区切り（Paused・Done・Archived）を付けたセッションが休みになったので hangar が止めたもの。 */
 export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
-export type TerminalApp = 'terminal' | 'iterm';
+/** 「ターミナルで開く」で使う外部ターミナル。macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル（terminal.ts）。 */
+export type TerminalApp = 'terminal' | 'iterm' | 'windowsTerminal' | 'windowsDefault';
 /** 1 回の起動または再開。tmux 上の寿命と一致する。 */
 export type RunDto = {
   id: string; sessionId: string; deviceId: string; kind: RunKind; tmuxName: string; pid: number | null; startedAt: number; endedAt: number | null; endReason: EndReason | null; heartbeatAt: number;

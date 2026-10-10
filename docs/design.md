@@ -186,7 +186,7 @@ Root
 │     ├─ ProjectsScreen     節 × n → ProjectRow（行の表）
 │     ├─ ProjectScreen      見出し / SessionList / 右パネル（TodoList、EditableNote、ArtifactCards）
 │     ├─ SessionScreen      見出しの段（SessionBadges、(i) の詳細） / TabStrip / NowStrip（現在の帯）または LeadCard（冒頭の 1 枚） / TerminalPane または Transcript / TocPane（TurnIndex）
-│     └─ SettingsScreen     目次 / 選んだ節（一般、クラウド同期、連携、要約エンジン、ツール、情報）
+│     └─ SettingsScreen     目次 / 選んだ節（一般、クラウド同期、連携、要約エンジン、ツール、更新、情報）
 └─ Overlays
    ├─ CommandPalette
    ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog / ConfigSyncDialog
@@ -1189,6 +1189,17 @@ tmux の window ではなく別セッションにするのは、同じ tmux セ�
 既定は `tmux attach` を書いた `.command` ファイルを `open -a Terminal` で開く経路で、AppleEvent を使わないため macOS の自動化許可が要らない。
 ディレクトリを開くときの既定の shell の決め方（`${SHELL:-/bin/zsh}` を `-l` で起こす）は、`.command` の経路と iTerm2 の経路で同じにする。
 iTerm2 を使う設定にしたときは AppleScript で新規ウィンドウを開く。初回に macOS の自動化許可ダイアログが出るので、Settings で有効化したときに一度だけ案内し、Tauri の Info.plist に `NSAppleEventsUsageDescription` を入れる。AppleScript には 10 秒のタイムアウトを付け、失敗したら Terminal.app の経路に落とす。
+Windows では、選べるターミナルが「Windows Terminal」と「既定のターミナル」の 2 つになる（`TerminalApp` の `windowsTerminal` と `windowsDefault`）。
+設定画面は、画面を開いている OS の選択肢だけを同じ切り替えの部品に並べ、サーバも動いている OS の値だけを保存する。
+別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、読み込むときにその OS の既定（macOS は Terminal.app、Windows は Windows Terminal）に読み替える。
+Windows Terminal は `wt.exe -w 0 new-tab -- <psmux> attach -t =<名前>` で、直近の窓の新しいタブ（窓が無ければ新しい窓）に開く。
+wt は `;` を次のコマンドの区切りに読むので、引数の `;` は `\;` にして渡す。
+`wt.exe` を起こせなければ、既定のターミナルに落とし、落ちたことを知らせる。
+既定のターミナルは `cmd.exe /d /v:off /s /c "start "" "<psmux>" attach -t "=<名前>""` で、Windows の設定の「既定のターミナル アプリ」の新しい窓に開く。
+この 1 行は Node に引用させずにそのまま渡す（Node の `\"` は cmd.exe に通じない）。
+cmd.exe は引用符の中でも `%name%` を置き換えるので、`%` だけは引用の外へ出して `^%` にする。
+`"` と改行を含む名前とパスは、どちらの経路でも引用を破るので、開かずに断る。
+ディレクトリを開くときは、Windows Terminal は `new-tab -d <dir>` で既定のプロファイルを、既定のターミナルは `start "" /D "<dir>" powershell.exe -NoLogo` で PowerShell を開く。
 
 ### 指示の注入
 
@@ -1765,7 +1776,7 @@ N は UI の store に届いているセッションで数える。
 | プロジェクト | 1 行 1 プロジェクトの表 | 「Projects」 |
 | 1 つのプロジェクト | 左にホームと同じ部品のセッションの一覧、右に TODO、ノート、アーティファクト | 「プロジェクト詳細」 |
 | セッション画面 | 実行中は現在の帯とターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト。右は目次だけ | 「セッション詳細」 |
-| 設定 | 左の目次で 6 つの節を切り替える | 「Settings」 |
+| 設定 | 左の目次で 6 つ（殻の中は更新を加えた 7 つ）の節を切り替える | 「Settings」 |
 | 知らせ（画面の外） | 右下の札は入力待ちだけ。ほかはヘッダーのベルの一覧に入り、トーストは操作の結果だけを言う | 「入力待ちの知らせ」「ベルと知らせの出し分け」 |
 | 起動の失敗（画面の外） | サーバが起きないときは、殻の読み込みの頁が 1 枚の札で理由と次の手を言う | 「起動の失敗の札」 |
 | 始める前の確認（画面の外） | tmux、claude などがそろっていなければ、ホームの帯の最後の群として出る。そろえば消える | 「Home」 |
@@ -2643,11 +2654,13 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 
 ### Settings
 
-左の目次で 6 つの節を切り替え、右は選んだ節だけを出す（S1。試作は `docs/superpowers/specs/2026-10-09-settings-screen/options.html`、決めた構成は `docs/superpowers/specs/2026-10-09-stage4-screens-design.md` の 2.4）。
+左の目次で 6 つの節（殻の中は更新を加えた 7 つ）を切り替え、右は選んだ節だけを出す（S1。試作は `docs/superpowers/specs/2026-10-09-settings-screen/options.html`、決めた構成は `docs/superpowers/specs/2026-10-09-stage4-screens-design.md` の 2.4）。
 節は、一般（言語、通知、ターミナルアプリ、トランスクリプトの保持）、クラウド同期、連携（Claude Code との互換、MCP サーバー、ステータスライン、シェル連携、アカウント）、要約エンジン、ツール（プロジェクトの親フォルダと、tmux、claude、code、Node のパス）、情報（使用量、索引、この PC）である。
+殻の中では、ツールと情報のあいだに更新（版と最終確認、「更新を確認」、見つけた版の取得と再起動、知らせのスイッチ）が入る（「アプリの自動更新」の節）。
+ブラウザの目次には更新を出さない。
 一般の節の最初の行は言語（日本語、English）で、押した瞬間に保存する（保存のボタンは無い）。
 言語はこの PC の設定で、クラウドへは同期しない。
-開いている節は URL の `at` が持つ（`#/settings?at=cloud`。値は `general`、`cloud`、`integrations`、`summary`、`tools`、`info`）ので、戻ると進むで節も戻る。
+開いている節は URL の `at` が持つ（`#/settings?at=cloud`。値は `general`、`cloud`、`integrations`、`summary`、`tools`、`update`、`info`）ので、戻ると進むで節も戻る。
 `at` が無ければ一般を出す。`sync`（ヘッダーの同期の語）はクラウド同期、`accounts`（ヘッダーのアカウントの設定）は連携の別名で、`accounts` は節を開いたあとアカウントの位置まで滑る。
 目次の灯りは URL に従うので、節を移った直後に前の節が灯ったまま残ることは無い。
 節を切り替えたら、頁をスクロールする枠の先頭へ戻す。
@@ -2657,7 +2670,7 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 連携とツールは、準備の確かめが届くまで「確認中」と言う。
 読み上げの名前は「クラウド同期、同期オフ」の形で、節の名前と状態を含む。
 目次は上下の矢印、Home、End で行を移り、選ぶのは Enter と Space である。開いている行だけが Tab の道に入る。
-幅が 1000px 以下の窓では、目次は頁の上に 3 列 2 段で並べる（節を切り替える道は目次だけなので、消さない）。
+幅が 1000px 以下の窓では、目次は頁の上に 3 列 2 段（殻の中の 7 つは 4 列 2 段）で並べる（節を切り替える道は目次だけなので、消さない）。
 直すもの（無くても動くものを除く ✗）がある節（連携とツール）には、目次の状態と、右の節の見出しに「要修正 N」を出す。
 Claude Code との互換のずれは、利用者が直せるものではないので直すものに数えず、目次の状態も見出しの札も要修正にしない。
 「要修正」は、利用者が手を打てるものだけを指す言葉にしておく。
@@ -2768,19 +2781,33 @@ error は赤みのガラスに警告のアイコンを添え、幅は 420px ま�
 確認や入力のあるダイアログが開いていれば、窓が前に出るだけで、画面は移さない（カードと同じ扱い）。
 Dock（ブラウザならインストールしたアプリ）のバッジには入力待ちの数を出し、0 で消す。
 
-デスクトップの殻では、通知を UNUserNotificationCenter で出す（`src-tauri/src/notify.rs`）。
+デスクトップの殻では、通知を macOS は UNUserNotificationCenter で、Windows は WinRT のトースト（`Windows.UI.Notifications`）で出す（`src-tauri/src/notify.rs`）。
 頁は `notify_waiting` を呼び、殻は id と文を確かめてから OS に渡す。
 押された通知は識別子からセッションを読み戻し、頁の `__hangarOpenWaiting` で開く。
 頁が出来上がる前なら、ディープリンクと同じくハッシュとして貯める。
-`tauri-plugin-notification` は、デスクトップでは押された通知を知らせないので使わない。
-`.app` の外（`tauri dev`）では通知を出さない。
+`tauri-plugin-notification` は、デスクトップでは押された通知を知らせないので使わない（Windows でも、出した後の受け口を捨てる）。
+`.app` の外（`tauri dev`）と、Windows で組み上げたままの実行ファイル（`target` の下の `debug` や `release`）では通知を出さない。
+
+Windows のトーストは、題と本文を XML の文字として入れ、launch に macOS の識別子と同じ値（`hangar-waiting:<id>`）を入れる。
+タグはセッションの id で、同じセッションのトーストは新しい方に置き換わる。
+アプリの名前（AppUserModelID）は `tauri.conf.json` の identifier で、NSIS のインストーラがスタートメニューの近道に付けるものと同じである。
+押されたトーストは 2 つの道で届き、どちらも launch の値からセッションを読み戻して、macOS と同じ受け口へ渡す。
+アプリが動いている間は、出したトーストの Activated で届く。
+アプリが閉じた後に通知センターで押されたときは、Windows が COM の口でアプリを起こし、`INotificationActivationCallback::Activate` で届く。
+そのために殻は起動のたびに、利用者の登録（HKEY_CURRENT_USER）の `Software\Classes\AppUserModelId\<identifier>` へ名前、絵、COM の口の CLSID を書き、`Software\Classes\CLSID\<CLSID>\LocalServer32` へ自分の実行ファイルを書き、COM の口を開く。
+1 回の押下が両方の道で届いても、2 秒の間に同じセッションは 1 回だけ開く。
+アンインストールでは、NSIS のフック（`src-tauri/windows/hooks.nsh` の `NSIS_HOOK_POSTUNINSTALL`、`tauri.windows.conf.json` の `installerHooks`）が、この 2 つの登録と `~/.agent-hangar/notify-icon.png` だけを消す。
+`.agent-hangar` の中のほかのもの（DB など）は消さない。
+フックの値は notify.rs の定数と同じで、`apps/desktop/test/config.test.ts` が食い違いを見る。
+Windows には通知の許可を尋ねるダイアログが無いので、`notify_request` と `notify_status` は通知の設定（`NotificationSetting`）を読むだけで、切られていれば denied になる。
 バッジは Tauri の `set_badge_count` で出す。
 ブラウザでは Web Notification と `navigator.setAppBadge` を使い、どちらも無ければ何もしない。
 
 通知を受け取るかは PC ごとに localStorage（`notify.waiting`）に残す。
+OS で切られているときの案内は、許可する場所の名前を OS で変える（macOS は「システム設定」、Windows は「Windows の設定」）。鍵は `…notify.blocked` と `…notify.blockedWindows` に分け、選ぶのは `notifyBlockedKey(clientPlatform(), …)` である。
 選んでいなければ、デスクトップでは受け取り、ブラウザでは受け取らない。
 デスクトップで受け取るときは、起動したときに OS の許可を一度だけ尋ねておく（決まった後は OS が黙って答える）。
-尋ね終えたら、殻の `notify_status` で UNUserNotificationCenter の許可の状態を読む（尋ねはしないのでダイアログは出ない）。
+尋ね終えたら、殻の `notify_status` で OS の許可の状態を読む（macOS は UNUserNotificationCenter、Windows は通知の設定。尋ねはしないのでダイアログは出ない）。
 システム設定で切られていれば（denied）、受け取らないにし、設定の通知の節に「システム設定の「通知」で Hangar を許可してください」と出す。
 このときベルの一覧の「通知を受け取る」の行は出さない。
 利用者の選んだ値（`notify.waiting`）は書き換えない。
@@ -2825,9 +2852,10 @@ Dock（ブラウザならインストールしたアプリ）のバッジには�
 | 保持期間 | | | | | 入る（設定へ） |
 | 通知の誘い | | | | | 入る（「通知を受け取る」で受け取りを入れる） |
 | 他の PC から届いたプロジェクト | | 1 枚にまとめる（「プロジェクトで見る」「あとで決める」。「プロジェクトの同定」の節） | | | |
+| アプリの更新 | | 1 枚（新しい版、取得の進み、再起動の確認、失敗を同じ札の中で移す。「アプリの自動更新」の節） | | | |
 | 操作の結果 | | | 出す | | |
 
-- 右下に積むのは入力待ちと、他の PC から届いたプロジェクトの札 1 枚だけである。
+- 右下に積むのは入力待ちと、他の PC から届いたプロジェクトの札 1 枚と、アプリの更新の札 1 枚だけである。
   戻る時刻を過ぎた札、通知の誘い、ヘッダーの下の保持期間の帯は無くした。
   `shownOnScreen`（ホームと、そのセッション自身の画面では、その件を出さない）は右下の札とホームの帯だけに残す。
   ベルの一覧は画面に依らず同じ中身である。
@@ -2846,7 +2874,8 @@ Dock（ブラウザならインストールしたアプリ）のバッジには�
   行にすると「未分類のセッションがある」という消えない事実になり、プロジェクトに属さないクイックセッションを使う人のベルが、常に未読になる。
   2 つめは、未分類のセッションが一覧にそのまま出ていて、見失わないからである。
   ワークスペースの外で claude を使うのは普通の使い方で、毎回知らせる価値が薄い。
-- 設定の同期で送らなかった項目と更新の案内は、事実の出どころが無いので、まだ行を作らない。
+- 設定の同期で送らなかった項目は、ベルの行にした（`configUnsent`）。
+  アプリの更新は、ベルの行にせず、右下の札と設定の更新の節で知らせる（2026-10-10 の決定、試作の A2）。
 
 ### 外のターミナルのセッション
 
@@ -3831,10 +3860,17 @@ heartbeat は 30 秒ごとの push で更新する。
 ## 配布と運用
 
 リポジトリは public で、MIT ライセンスで公開している（`LICENSE`、著作権者は `gaku1023`）。
-GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` をビルドして Releases に置く。
-`.app` は署名せず、zip と SHA-256 の checksum を添える。
+GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` と Windows 用の NSIS のインストーラをビルドして Releases に置く。
+`.app` は Developer ID では署名せず、自作の証明書で署名する方針である（署名の台本と手順は `docs/signing.md`。CI の署名はまだ入れていない）。dmg（主）と zip（予備）に SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
+配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
+Release の資産は `Hangar-<タグ>-macos-<arch>.dmg` と `.zip`、それぞれの `.sha256` である。
+dmg の中身は `.app` と `/Applications` へのリンクの 2 つだけで、`apps/desktop/scripts/make-dmg.sh` が hdiutil で作る。
+tauri の dmg ターゲットは使わない。
+tauri の dmg は build の途中の `.app` を詰め、`tauri bundle --bundles dmg` も `.app` を作り直してから詰めるので、build の後で署名した `.app` が入らないからである（2026-10-10 に手元で確かめた）。
+Finder を AppleScript で動かさないので、窓の並びは決めず、窓の無い CI でも同じに作れる。
+利用者の手順（dmg から `/Applications` へドラッグし、初回の警告を右クリックの「開く」かシステム設定の「このまま開く」で越える）は README の「インストール（配布版）」にある。
 クラウド同期の設定は `.app` の同梱 CLI からは行えない。
 wrangler を同梱していないので、リポジトリを clone した場所から `setup cloud` を走らせる。
 
@@ -4044,9 +4080,33 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   win32-x64 の束は、`bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
   cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直し（HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows の順）は `launch-cli.mjs` が行う。
   殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、PATH の順に探す。Node 本体は Windows でも同梱しない。
-- Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる。署名はしない（2026-10-10 の決定）。CI の windows ジョブが `tauri build --bundles nsis` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消してから、インストーラを実行の artifact に 7 日だけ残す。Release へ上げる手順（`release.yml`）と、updater の署名鍵と目録は、まだ入れていない。
-- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知とターミナルで打った `claude` の包みはまだ無い。
-- Gatekeeper：Developer ID での署名も公証もせず、zip と SHA-256 の checksum を添えて配る（2026-09-20 の決定）。
+- Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消すところまでを行う。
+  CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。
+  タグの `release.yml` では、windows ジョブが同じ手順で作って `Hangar-<タグ>-windows-x64-setup.exe` と `.sha256` を artifact に置き、`windows-upload` ジョブが macos ジョブの後でそれを macos ジョブの作った Release に `gh release upload` で添える。Release を作るのは macos ジョブだけで、書き込みの権限もこの 2 つのジョブだけが持つ。
+  署名鍵があれば、インストーラの署名（`.sig`）も作り、`updater-manifest` ジョブが更新の目録に載せる（次の「アプリの自動更新」）。
+- アプリの自動更新（段 5-4、2026-10-10 の決定）：更新は「知らせて、押して入れる」で、勝手には入れない。Tauri 2 の updater（`tauri-plugin-updater`）を macOS と Windows（NSIS）の両方で使う。
+  目録は GitHub の Release の最新の `latest.json`（`tauri.conf.json` の `plugins.updater.endpoints`）で、更新物は同じ所の minisign の公開鍵（`plugins.updater.pubkey`）で確かめる。macOS の更新物は `Hangar-<タグ>-macos-arm64.app.tar.gz`、Windows の更新物はインストーラそのもの（`Hangar-<タグ>-windows-x64-setup.exe`、`installMode` は passive）である。
+  頁は殻の 4 つの命令だけを呼ぶ（`capabilities/remote-update.json`）。`update_status` は動いている版と取得の進み、`update_check` は目録を引いて新しい版を返し、見つけた版を殻に持つ。`update_download` はそれを取得して署名を確かめて殻に持ち、`update_install` は入れて再起動する。プラグインの JS の権限は与えないので、頁から目録の URL や公開鍵は変えられない。
+  失敗は殻が network、signature、permission、other の 4 つに分けて返し（`src/updater.rs` の `failure_kind`）、英語の 1 行は `desktop.log` に残す。
+  再起動しても、tmux（Windows は psmux）の中のセッションは止まらない。macOS は `.app` を入れ替えてから終了の手続きを通って起き直し（子のサーバも止まる）、Windows は updater がインストーラを起こしてそのまま抜けるので、その直前（`on_before_exit`）に子のサーバを止める。
+  頁の側は、状態の移り方が `store/update.ts` の `reduceUpdate`（まだ確認していない、確認中、最新、新しい版あり、取得中、準備完了、インストール中、失敗）で、Runtime が `runtime/updater.ts` で殻を呼んで Store の `update` に置く。
+  確かめるのは起動したときに 1 度と、その後 6 時間おき（`UPDATE_CHECK_INTERVAL_MS`）である。取得からインストールまでの途中は確かめない。
+  右下の札（`presenters/update.ts` の `presentUpdateCard`、試作は案 A2）は、新しい版あり（「ダウンロードしてインストール」「あとで」）、取得中（進みの棒）、準備完了（「実行中のセッション N 件は止まりません。再起動のあと、続きから表示します。」に「再起動して更新」「あとで」）、失敗（いまの版は変わらないことと理由に「もう一度試す」「閉じる」）を同じ 1 枚の中で移す。
+  札を閉じた版は `localStorage` の `update.dismissed` に覚え、同じ版の札は 2 度出さない。次の版が出たら出す。閉じた版を設定から取得し直したら、その版の札をまた出す。確認の失敗は札にせず、設定の節にだけ出す。
+  設定の更新の節（試作の「共通」）は、版と最終確認の時刻と「更新を確認」、見つけた版の行（閉じた版も出す）、「更新を通知する」のスイッチ（`localStorage` の `update.notify`、既定は入）を置き、見出しに最新、確認中、通知オフ、新しいバージョンあり、ダウンロード中、再起動待ち、失敗の札を出す。スイッチを切ると自動の確認も止まり、新しい版の札は手動で確認したときだけ出す。
+  署名鍵（minisign）の秘密鍵は GitHub の secret の `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Tauri が読む環境変数と同じ名前）にだけ置き、1Password の「Hangar updater signing key (minisign)」に控えてある。リポジトリには公開鍵だけを置く。
+  更新物づくり（`createUpdaterArtifacts`）は `tauri.conf.json` に書かず、`release.yml` が鍵のあるときだけ `--config src-tauri/tauri.updater.conf.json` を重ねて入れる。手元と ci の build は鍵を持たないので、更新物を作らずに通る。
+  `release.yml` は、macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`updater-manifest` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を Release に添える。目録は最後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。secret が無ければ、更新物と目録だけを飛ばし、失敗にしない。
+- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知はまだ無い。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
+- 署名の身元（段 5 の 5-1、2026-10-10 の実測と決定）：macOS のローカルネットワークの許可は署名の識別子で引かれる（DR は空でよい）。
+  署名しない Tauri の build は識別子が `hangar_desktop-<ハッシュ>` で build ごとに変わり、入れ替えるたびに許可が外れていた。
+  署名で識別子を `tauri.conf.json` の identifier（`dev.agent-hangar.hangar`）に固定すると保たれる。
+  ファイルなどほかの許可は DR で引かれるので、DR は葉の証明書の指紋（`certificate leaf = H"<SHA-1>"`）で固定する。
+  `apps/desktop/scripts/sign-macos.ts` が、内側の Mach-O から外側へ署名し（ハードンドランタイムなし、`--deep` に頼らない）、識別子、DR、`codesign --verify --deep --strict` を確かめて、違えば落とす。
+  証明書が無い開発者の手元では `--adhoc` で識別子だけ固定できる（DR は build ごとに変わるので、ローカルネットワーク以外の許可は保たれない見込み）。
+  証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は 1Password と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
+  本番の証明書はまだ無く、指紋の置き場は空である。CI の署名は PR 5-2 で入れる。
+- Gatekeeper：公証はせず、dmg（主）と zip（予備）に SHA-256 の checksum を添えて配る（2026-09-20 の決定、dmg は段 5 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る見込みである。以下は署名しない build の記述で、署名した build でも警告の出方は変わらない前提で読む。
   Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
   署名しないという決めのもとでは、これが既定の姿である。
   利用者の手順は、`.app` を `/Applications` へ移してから検疫属性を外すことである。

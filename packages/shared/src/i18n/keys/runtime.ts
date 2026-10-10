@@ -2,6 +2,7 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 export const runtimeKeys = {
   'runtime.notify.blocked': [],
+  'runtime.notify.blockedWindows': [],
   'runtime.notify.denied': [],
   'runtime.notify.returnBody': ['time'],
   'runtime.notify.returnBodyNote': ['time', 'note'],
@@ -15,4 +16,5 @@ export const runtimeKeys = {
   'runtime.retention.previewLoading': [],
   'runtime.retention.set': ['days'],
   'runtime.openTerminal.fellBack': [],
+  'runtime.openTerminal.fellBackWindows': [],
 } as const satisfies MessageSpec;

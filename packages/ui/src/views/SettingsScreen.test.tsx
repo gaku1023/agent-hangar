@@ -11,10 +11,10 @@ import { accountsFixture } from '../test/accounts.ts';
 import { pick } from '../test/pick.ts';
 import { SettingsScreen } from './SettingsScreen.tsx';
 
-const TITLES: Record<SettingsSection, string> = { general: '一般', cloud: 'クラウド同期', integrations: '連携', summary: '要約エンジン', tools: 'ツール', info: '情報' };
+const TITLES: Record<SettingsSection, string> = { general: '一般', cloud: 'クラウド同期', integrations: '連携', summary: '要約エンジン', tools: 'ツール', update: '更新', info: '情報' };
 const IDS = Object.keys(TITLES) as SettingsSection[];
 
-/** 目次の 6 行。状態の文は presenter の試験（settingsToc.test.ts）が見るので、ここでは決まった文を置く。 */
+/** 目次の 7 行（殻の中の形）。状態の文は presenter の試験（settingsToc.test.ts）が見るので、ここでは決まった文を置く。 */
 const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[id], state: id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中', tone: id === 'integrations' ? 'warn' : 'default', label: `${TITLES[id]}、${id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中'}` }));
 
 /** 設定の同期（作り直した実装）の節の既定。クラウドに参加していない形で、使う試験が必要な分だけ上書きする。節の中身の試験は ConfigSyncSection.test.tsx が見る。 */
@@ -24,9 +24,17 @@ const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): Setti
   ...over,
 });
 
+/** 更新の節の既定。最新の形で、使う試験が必要な分だけ上書きする。 */
+const updateProps = (over: Partial<SettingsProps['update']> = {}): SettingsProps['update'] => ({
+  supported: true, unsupported: '更新はデスクトップのアプリで確認します。', badge: { text: '最新', tone: 'ok' },
+  version: { title: 'バージョン 1.4.2', sub: '最終確認：5 分前', checkLabel: '更新を確認', checkDisabled: false },
+  pending: null, notify: { on: true, desc: '新しいバージョンが出たら知らせます。インストールは押したときだけ行います。' }, tocState: '最新',
+  ...over,
+});
+
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
-  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' },
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' },
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
@@ -48,6 +56,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   language: { value: 'ja' },
   focus: null,
   compat: null,
+  update: updateProps(),
   ...over,
 });
 
@@ -72,10 +81,10 @@ const typeAndLeave = (label: string, value: string) => {
 };
 
 describe('設定の目次（S1）', () => {
-  it('左の目次に 6 つの節を並べ、各行に今の状態を 1 行添える', () => {
+  it('左の目次に節を並べ（殻の中は更新を含む 7 つ）、各行に今の状態を 1 行添える', () => {
     render(ui(settingsProps()));
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-t')!.textContent)).toEqual(['一般', 'クラウド同期', '連携', '要約エンジン', 'ツール', '情報']);
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-s')!.textContent)).toEqual(['確認中', '同期オフ', '要修正 2', '確認中', '確認中', '確認中']);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-t')!.textContent)).toEqual(['一般', 'クラウド同期', '連携', '要約エンジン', 'ツール', '更新', '情報']);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-s')!.textContent)).toEqual(['確認中', '同期オフ', '要修正 2', '確認中', '確認中', '確認中', '確認中']);
     // 要修正は注意の色で言う。
     expect(toc().getByRole('button', { name: '連携、要修正 2' }).querySelector('.settings-toc-s')).toHaveAttribute('data-tone', 'warn');
   });
@@ -125,7 +134,7 @@ describe('設定の目次（S1）', () => {
   it('目次は上下の矢印で行を移り、開いている行だけが Tab の道に入る', () => {
     render(ui(at('cloud')));
     const rows = toc().getAllByRole('button');
-    expect(rows.map((b) => b.getAttribute('tabindex'))).toEqual(['-1', '0', '-1', '-1', '-1', '-1']);
+    expect(rows.map((b) => b.getAttribute('tabindex'))).toEqual(['-1', '0', '-1', '-1', '-1', '-1', '-1']);
     rows[1]!.focus();
     fireEvent.keyDown(rows[1]!, { key: 'ArrowDown' });
     expect(rows[2]).toHaveFocus();
@@ -136,7 +145,7 @@ describe('設定の目次（S1）', () => {
     fireEvent.keyDown(rows[0]!, { key: 'ArrowUp' });
     expect(rows[0]).toHaveFocus();
     fireEvent.keyDown(rows[0]!, { key: 'End' });
-    expect(rows[5]).toHaveFocus();
+    expect(rows[6]).toHaveFocus();
   });
   it('節を切り替えたら、頁をスクロールする枠の先頭へ戻す', () => {
     const scrollTo = vi.fn();
@@ -193,6 +202,16 @@ describe('設定の一般', () => {
     expect(screen.getByText(/システム設定の「通知」で Hangar を許可してください/)).toBeInTheDocument();
     expect(screen.getByText(/通知がオフになっています/)).toBeInTheDocument();
   });
+  it('Windows では、Windows の設定の「通知」で許可するよう添える', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
+    try {
+      render(ui(at('general', { notify: { available: true, on: false, blocked: true } })));
+      expect(screen.getByText(/Windows の設定の「通知」で Hangar を許可してください/)).toBeInTheDocument();
+      expect(screen.queryByText(/システム設定/)).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('通知を出せない環境では、スイッチを押せなくして理由を添える', () => {
     render(ui(at('general', { notify: { available: false, on: false, blocked: false } })));
     expect(screen.getByRole('switch', { name: '通知を有効にする' })).toBeDisabled();
@@ -203,6 +222,16 @@ describe('設定の一般', () => {
     render(ui(at('general'), onAction));
     fireEvent.click(screen.getByRole('radio', { name: 'iTerm2' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm' } });
+  });
+  it('ターミナルアプリの選択肢は presenter が渡したものだけを、同じ部品で出す', () => {
+    const onAction = vi.fn();
+    render(ui(at('general', { terminalApp: 'windowsTerminal', terminalOptions: [{ value: 'windowsTerminal', label: 'Windows Terminal' }, { value: 'windowsDefault', label: '既定のターミナル' }], terminalDesc: 'Windows Terminal が無いときは既定のターミナルで開きます。' }), onAction));
+    const group = screen.getByRole('radiogroup', { name: 'ターミナルアプリ' });
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Windows Terminal', '既定のターミナル']);
+    expect(within(group).getByRole('radio', { name: 'Windows Terminal' })).toBeChecked();
+    expect(screen.getByText('Windows Terminal が無いときは既定のターミナルで開きます。')).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole('radio', { name: '既定のターミナル' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { terminalApp: 'windowsDefault' } });
   });
   describe('トランスクリプトの保持', () => {
     const bar = { nowLabel: 'いま 1.5 GB', projLabel: '10 年たつと約 178 GB', freeLabel: '空き 400 GB', nowPct: 0.4, projPct: 44, warn: false };
@@ -888,5 +917,42 @@ describe('設定のツールの psmux と tmux の行', () => {
   it('準備の確かめが届く前は行を出さない', () => {
     render(ui(at('tools', { mux: null })));
     expect(screen.queryByRole('region', { name: 'psmux' })).toBeNull();
+  });
+});
+
+describe('更新の節', () => {
+  function mountAt(p: SettingsProps) {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><SettingsScreen {...p} /></ActionRoot>);
+    return onAction;
+  }
+  it('版と最終確認、見出しの札、更新を確認、知らせのスイッチを出す', () => {
+    const onAction = mountAt(at('update'));
+    const group = screen.getByRole('group', { name: /更新/ });
+    expect(within(group).getByText('最新')).toBeInTheDocument();
+    expect(within(group).getByText('バージョン 1.4.2')).toBeInTheDocument();
+    expect(within(group).getByText('最終確認：5 分前')).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole('button', { name: '更新を確認' }));
+    fireEvent.click(within(group).getByRole('switch', { name: '更新を通知する' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'update.check' }], [{ type: 'update.notify', on: false }]]);
+  });
+  it('確認中はボタンを押せない', () => {
+    mountAt(at('update', { update: updateProps({ version: { title: 'バージョン 1.4.2', sub: '確認中…', checkLabel: '確認中…', checkDisabled: true } }) }));
+    expect(screen.getByRole('button', { name: '確認中…' })).toBeDisabled();
+  });
+  it('見つけた版の行に、題と説明と進みと操作を出す', () => {
+    const onAction = mountAt(at('update', { update: updateProps({ pending: { title: 'Hangar 1.5.0 を利用できます', detail: '現在は 1.4.2 です。', progress: null, actions: [{ label: 'ダウンロードしてインストール', action: { type: 'update.download' }, primary: true }] } }) }));
+    expect(screen.getByText('Hangar 1.5.0 を利用できます')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'ダウンロードしてインストール' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'update.download' });
+  });
+  it('取得中は進みの棒を出す', () => {
+    mountAt(at('update', { update: updateProps({ pending: { title: 'Hangar 1.5.0', detail: null, progress: { percent: 40, label: '40%' }, actions: [] } }) }));
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40');
+  });
+  it('殻が updater を持たないときは、1 文だけを出す', () => {
+    mountAt(at('update', { update: updateProps({ supported: false }) }));
+    expect(screen.getByText('更新はデスクトップのアプリで確認します。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '更新を確認' })).toBeNull();
   });
 });

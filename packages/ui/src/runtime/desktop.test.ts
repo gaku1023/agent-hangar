@@ -36,4 +36,32 @@ describe('createDesktopBridge', () => {
     invoke.mockResolvedValueOnce(null);
     expect((await b.restoreConfigSync('20261010-120000')).status).toBe('failed');
   });
+  it('更新は決まった 4 つの命令だけを呼び、答えを決まった形に直す', async () => {
+    const invoke = vi.fn(async (cmd: string): Promise<unknown> => {
+      if (cmd === 'update_status') return { current: '1.4.2', done: 10, total: 40 };
+      if (cmd === 'update_check') return { version: '1.5.0' };
+      return null;
+    });
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    expect(await b.update.status()).toEqual({ current: '1.4.2', done: 10, total: 40 });
+    expect(await b.update.check()).toEqual({ version: '1.5.0' });
+    await b.update.download();
+    await b.update.install();
+    expect(invoke.mock.calls).toEqual([['update_status'], ['update_check'], ['update_download'], ['update_install']]);
+  });
+  it('更新の答えの形が違えば、版は無い、大きさは分からないとして扱う', async () => {
+    const invoke = vi.fn(async (cmd: string): Promise<unknown> => (cmd === 'update_status' ? { current: 5, done: 'x', total: -1 } : { version: 7 }));
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    await expect(b.update.status()).rejects.toThrow();
+    expect(await b.update.check()).toEqual({ version: null });
+    invoke.mockResolvedValueOnce({ current: '1.4.2', done: 'x', total: null });
+    expect(await b.update.status()).toEqual({ current: '1.4.2', done: 0, total: null });
+  });
+  it('更新の失敗は、殻の分けた理由に直して投げる。知らない形は other にする', async () => {
+    const invoke = vi.fn(async (): Promise<unknown> => { throw { kind: 'signature', detail: 'bad sig' }; });
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    await expect(b.update.download()).rejects.toMatchObject({ reason: 'signature' });
+    invoke.mockRejectedValueOnce('command update_check not allowed');
+    await expect(b.update.check()).rejects.toMatchObject({ reason: 'other' });
+  });
 });
