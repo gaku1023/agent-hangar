@@ -6,6 +6,7 @@ import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.t
 import { clientPlatform, muxInstallCommand, notifyBlockedKey, type VerifyLine } from '../presenters/readiness.ts';
 import { JOIN_TOKEN_TTL_MS, type SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
+import { MuxSection } from './MuxSection.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -437,6 +438,7 @@ export function SettingsScreen(props: SettingsProps) {
 
   const tools = (
     <>
+      {props.mux && <MuxSection mux={props.mux} />}
       <section>
         <h3 className="h2">{t('settings.tools.parent.title')}</h3>
         <PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} line={props.verify.workspace} mark={props.save.workspaceRoot} />

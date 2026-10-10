@@ -326,12 +326,12 @@ describe('台本の入口（CLI）', () => {
     expect(r.status).not.toBe(0);
     expect(r.out).toMatch(/\.app/);
   });
-  it('証明書の指紋が無く --adhoc も無ければ、ad-hoc に落とさず止まる', () => {
+  it('指紋の置き場が # の行だけで値が空なら、ad-hoc に落とさず止まる', () => {
     const d = tmp('hangar-sign-cli-');
     dirs.push(d);
-    const r = cli([makeApp(d)]);
-    expect(r.status).not.toBe(0);
-    expect(r.out).toMatch(/--adhoc/);
+    const empty = path.join(d, 'certificate-sha1.txt');
+    fs.writeFileSync(empty, '# 値は空\n');
+    expect(() => parseArgs(['/x/Hangar.app'], {}, { identifier: ID, fingerprintFile: empty })).toThrow(/--adhoc/);
   });
   it.skipIf(!onMac)('--adhoc で署名し、識別子が tauri.conf.json のものに固定される', () => {
     const d = tmp('hangar-sign-cli-adhoc-');

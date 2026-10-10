@@ -287,7 +287,7 @@ export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: b
 export function presentHomeScreen(state: State, store: Store, now: number): HomeScreenProps {
   const t = translatorOf(store);
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
-  const ready = store.readiness ? presentReadiness(store.readiness, t) : null;
+  const ready = store.readiness ? presentReadiness(store.readiness, t, undefined, state.muxCheck) : null;
   const base = presentHomeBand(presentHome(state, store, now), t);
   // 3 つの群の後ろに足す群は、場所の不明なプロジェクト、始める前の確認の順に並べる。0 件の群は足さない。
   const extra = [presentUnresolved(store, t), ready?.group ?? null].filter((g): g is BandGroup => g !== null);

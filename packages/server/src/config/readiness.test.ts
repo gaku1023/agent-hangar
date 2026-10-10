@@ -9,7 +9,7 @@ import { isWindows } from '../../test/platform.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { STATUSLINE_MARKER } from '../provider/claude-code/config/statusline.ts';
 import type { Settings } from './paths.ts';
-import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, ToolVersions } from './readiness.ts';
+import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, recheckMuxPath, ToolVersions } from './readiness.ts';
 
 // 実物の ~/.claude と ~/.claude.json には触らない。どれも一時ディレクトリに作る。
 let tmp: string;
@@ -83,6 +83,29 @@ describe('checkToolPath', () => {
     const ok = fakeTool('claude', '2.3.1 (Claude Code)');
     // Windows の偽の道具は claude.cmd になる。拡張子まで書いたパスで指す。
     expect(checkToolPath(`~/bin/${path.basename(ok)}`, tmp)).toEqual({ path: ok, ok: true, problem: null });
+  });
+});
+
+// 「再確認」の探し直し。psmux（tmux）を入れたあとに押すと、設定の空の tmuxPath を埋める。
+describe('recheckMuxPath', () => {
+  const found = () => '/found/psmux';
+  it('設定が空なら探し、見つかったパスを返す。見つからなければ null', () => {
+    expect(recheckMuxPath(null, found, tmp, '')).toBe('/found/psmux');
+    expect(recheckMuxPath('', found, tmp, '')).toBe('/found/psmux');
+    expect(recheckMuxPath(null, () => null, tmp, '')).toBeNull();
+  });
+  it('設定したファイルが無くなっていれば、見つかったものに差し替える', () => {
+    expect(recheckMuxPath(path.join(tmp, 'gone', 'tmux'), found, tmp, '')).toBe('/found/psmux');
+  });
+  it('動いている設定は変えない。探しもしない', () => {
+    const ok = fakeTool('tmux', 'tmux 3.4');
+    let asked = 0;
+    expect(recheckMuxPath(ok, () => { asked++; return '/found/psmux'; }, tmp, '')).toBeNull();
+    expect(asked).toBe(0);
+  });
+  it('利用者が指したが実行できないファイルとディレクトリは変えない（設定の欄で直す）', () => {
+    expect(recheckMuxPath(tmp, found, tmp, '')).toBeNull();
+    if (!isWindows) expect(recheckMuxPath(fakeTool('plain', 'x', 0o644), found, tmp, '')).toBeNull();
   });
 });
 

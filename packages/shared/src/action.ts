@@ -138,6 +138,9 @@ export type UiAction =
   | { type: 'settings.update'; patch: Partial<Settings>; field?: string }
   // 準備の確かめ（設定画面の検証と、ホームの帯の始める前の確認）を取り直す。
   | { type: 'readiness.check' }
+  // psmux（Windows）と tmux の再確認。サーバが探し直し、見つかれば設定の tmuxPath を埋める。
+  // proceed は、始める前の案内で止めていた操作（新しいセッション、再開）を、見つかったあとに進める。
+  | { type: 'mux.recheck' } | { type: 'mux.guide.proceed' }
   // Claude Code のアカウント。load は一覧を取り直す。choose は新しいセッションの既定（いまのアカウント）を変える。
   // switchSession はそのセッションを別のアカウントで再開する。working は作業中かで、確認の文に使う。confirmed が無ければ先に確認を出す。
   // add は名前だけで置き場を作り、続けてログインを始める。remove は一覧から外すだけで、置き場の中身は消さない。confirmed が無ければ先に確認を出す。

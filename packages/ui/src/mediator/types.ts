@@ -38,7 +38,9 @@ export type RuntimeEvent =
   // クリップボードに写せた。写せなかったときはランタイムがトーストで知らせ、これは届かない。
   | { type: 'clipboard.copied'; text: string }
   // 設定の同期の適用（指示書を書き、殻のネイティブの確認を待った）の結果。close が真ならダイアログを閉じる。
-  | { type: 'configSync.done'; close: boolean };
+  | { type: 'configSync.done'; close: boolean }
+  // psmux（tmux）の再確認の答え。found は、答えの準備の確かめで tmux の行が動かせるか。答えは Runtime が先に Store へ入れてある。
+  | { type: 'mux.checked'; found: boolean };
 
 /**
  * Mediator が裁定する UiAction。
@@ -67,6 +69,8 @@ export type Effect =
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }
   | { kind: 'api.updateSettings'; patch: Partial<SettingsDto>; field?: string }
   | { kind: 'api.readiness' }
+  // psmux（tmux）を探し直させる（POST /api/readiness/mux）。答えは準備の確かめとして Store に入り、mux.checked で知らせる。
+  | { kind: 'api.recheckMux' }
   | { kind: 'shell.openLog' } | { kind: 'shell.restart' } | { kind: 'clipboard.copy'; text: string }
   | { kind: 'api.rebuildIndex' }
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
@@ -148,7 +152,14 @@ export type Overlay =
   | { kind: 'configSync'; part: ConfigSyncPart; working: boolean }
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
   // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
-  | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' };
+  | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' }
+  // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
+  // pending は止めた操作で、見つかったあとの「開始」でそのまま進める。back は止めたときに開いていた新しいセッションのダイアログで、閉じたらそこへ戻る。
+  | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | null };
+/** psmux（tmux）が無いときに止める、セッションを始める操作。 */
+export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' }>;
+/** psmux（tmux）の再確認の進み。missing は、再確認しても見つからなかったこと。 */
+export type MuxCheck = 'idle' | 'checking' | 'missing';
 /**
  * 新しいセッションのダイアログの書きかけ。プロジェクトごとではなく 1 つだけ持つ。
  * 添付は、置き場（~/.agent-hangar/drops/）のパスで覚える。
@@ -261,5 +272,7 @@ export type State = {
    * 写せなかったときは進まない。
    */
   copied: { text: string; n: number } | null;
+  /** psmux（tmux）の再確認の進み。帯、案内のダイアログ、設定のツールの行が同じものを読む。 */
+  muxCheck: MuxCheck;
 };
 export type Step = { state: State; effects: Effect[] };

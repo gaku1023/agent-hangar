@@ -34,3 +34,27 @@ describe('Claude Code との互換', () => {
     expect((await json(await get('/api/compat'))).body).toEqual({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] });
   });
 });
+
+describe('POST /api/readiness/mux（psmux と tmux の再確認）', () => {
+  const post = (a: ReturnType<typeof createApp>) => a.request('/api/readiness/mux', { method: 'POST', headers: H });
+  it('設定が空で見つかれば tmuxPath を埋め、取り直した準備の確かめを返す', async () => {
+    let asked = 0;
+    const a = createApp({ ...deps, findMux: () => { asked++; return '/found/psmux'; } });
+    const r = await json(await post(a));
+    expect(r.status).toBe(200);
+    expect(asked).toBe(1);
+    expect(deps.settings().tmuxPath).toBe('/found/psmux');
+    expect(r.body.readiness.tools.tmux).toBeDefined();
+    expect(r.body.settings.tmuxPath).toBe('/found/psmux');
+  });
+  it('見つからなければ設定を変えずに、準備の確かめを返す', async () => {
+    const a = createApp({ ...deps, findMux: () => null });
+    const r = await json(await post(a));
+    expect(r.status).toBe(200);
+    expect(deps.settings().tmuxPath).toBeNull();
+    expect(r.body.settings.tmuxPath).toBeNull();
+  });
+  it('認証が無ければ断る', async () => {
+    expect((await app.request('/api/readiness/mux', { method: 'POST' })).status).toBe(401);
+  });
+});
