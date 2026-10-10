@@ -35,7 +35,7 @@ const updateProps = (over: Partial<SettingsProps['update']> = {}): SettingsProps
 
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
-  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' },
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' },
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
@@ -278,12 +278,16 @@ describe('設定のクラウド同期', () => {
   });
   it('2 つのボタンは、押すとターミナルで打つコマンドを出す（クラウドの用意はアプリからはまだ行わない）', () => {
     render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [] }) })));
-    expect(screen.queryByText('hangar setup cloud')).toBeNull();
+    expect(screen.queryByText('npm run hangar -- setup cloud')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'クラウドを用意して始める' }));
-    expect(screen.getByText('hangar setup cloud')).toBeInTheDocument();
+    // クラウドの用意は wrangler が要るので、clone した場所で打つと添える。
+    expect(screen.getByText('npm run hangar -- setup cloud')).toBeInTheDocument();
+    expect(screen.getByText(/リポジトリを clone して npm install した場所で/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '参加トークンで参加' }));
-    expect(screen.getByText('hangar join <token>')).toBeInTheDocument();
-    expect(screen.queryByText('hangar setup cloud')).toBeNull();
+    // 参加は入れた版の CLI でできる。
+    expect(screen.getByText('/A/hangar join <token>')).toBeInTheDocument();
+    expect(screen.queryByText('npm run hangar -- setup cloud')).toBeNull();
+    expect(screen.queryByText(/clone/)).toBeNull();
   });
   it('クラウドの節: 参加トークンと、設定の同期のスイッチ（入れるときは送るものの一覧を開く）', () => {
     const onAction = vi.fn();

@@ -6,7 +6,7 @@ import { storeLanguage, translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 import { presentAccounts, type AccountView } from './accounts.ts';
-import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
+import { presentCloudUsage, SETUP_CLOUD_COMMAND, type CloudUsageProps } from './cloudUsage.ts';
 import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
@@ -67,7 +67,8 @@ export type SettingsProps = {
   /** 外部ターミナルの選択肢と説明。画面を開いている OS のものだけを出す（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）。 */
   terminalOptions: { value: TerminalApp; label: string }[]; terminalDesc: string;
   /** ターミナルで打つコマンド。どれも同じ hangar の呼び方にそろえる。 */
-  commands: { mcp: string; statusline: string };
+  /** join は入れた版の CLI でも打てる。setupCloud は wrangler が要るので、リポジトリを clone した場所での呼び方である。 */
+  commands: { mcp: string; statusline: string; join: string; setupCloud: string };
   lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean;
   summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   statusline: StatuslineStatusDto | null; usageAggregate: UsageAggregateDto | null;
@@ -250,7 +251,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。
-    commands: { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install' },
+    commands: { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', join: r?.commands.join ?? 'hangar join <token>', setupCloud: SETUP_CLOUD_COMMAND },
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
     // 進んでいる間はヘッダーと同じ文にし、終わっていれば数を出す。
     indexLabel: indexProgressLabel(t, store.index) ?? t('settings.info.index.counts', { sessions: Object.keys(store.sessions).length, projects: Object.keys(store.projects).length }),

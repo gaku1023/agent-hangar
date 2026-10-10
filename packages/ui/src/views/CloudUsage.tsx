@@ -40,6 +40,7 @@ export function CloudUsage(props: CloudUsageProps) {
         {props.legend.map((l) => <span key={l}>{l}</span>)}
         <span className="faint">{props.source}</span>
       </div>
+      {props.command && props.commandWhere && <div className="faint cu-cmd-where">{props.commandWhere}</div>}
       {props.command && <div className="mono faint cu-cmd">{props.command}</div>}
     </section>
   );

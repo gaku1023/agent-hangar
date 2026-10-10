@@ -29,7 +29,9 @@ describe('クラウドの失敗の文', () => {
     const worker = new CompatError('worker', 1, 2);
     expect(errorText('ja', worker)).toContain('「今すぐ同期」');
     expect(errorText('en', worker)).toContain('"Sync now"');
-    expect(errorText('en', worker)).toContain('hangar setup cloud');
+    // Worker の入れ替えは wrangler が要るので、clone した場所での呼び方と、どこで打つかを言う。
+    expect(errorText('en', worker)).toContain('npm run hangar -- setup cloud again in the folder where you cloned the repository');
+    expect(errorText('ja', worker)).toContain('リポジトリを clone して npm install した場所で npm run hangar -- setup cloud');
   });
 
   it('message は日本語のままで、言語を知らない呼び手とログは今までどおり読める', () => {

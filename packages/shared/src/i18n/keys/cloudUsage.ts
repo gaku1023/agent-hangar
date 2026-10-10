@@ -25,6 +25,7 @@ export const cloudUsageKeys = {
   'cloudUsage.strip.limited': ['time'],
   'cloudUsage.strip.pausedNoFetch': [],
   'cloudUsage.strip.needToken': [],
+  'cloudUsage.command.where': [],
   'cloudUsage.unit.gbMonths': [],
   'cloudUsage.row.r2Storage': [],
   'cloudUsage.row.r2WriteOps': [],

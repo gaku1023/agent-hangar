@@ -931,7 +931,7 @@ describe('presentSettings（フェーズ 2）', () => {
     const store = storeWith();
     store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
     // コマンドは hangar の呼び方にそろえる。準備の確かめが届く前は hangar と書く。
-    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' } });
+    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: 'hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' } });
     store.settings = null;
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
   });
@@ -941,7 +941,7 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
   const READY: ReadinessDto = {
     tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
     workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: true, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
-    commands: { mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', shell: '/A/hangar shell install' },
+    commands: { mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', shell: '/A/hangar shell install', join: '/A/hangar join <token>' },
     compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
   };
   it('準備の確かめが届く前は、欄の下を空にしておく', () => {
@@ -956,7 +956,8 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     expect(p.verify.workspace).toMatchObject({ ok: true, note: 'プロジェクト 12 件' });
     expect(p.verify.claude).toMatchObject({ ok: false });
     expect(p.mcpRegistered).toBe(true);
-    expect(p.commands).toEqual({ mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install' });
+    // 参加は同梱の CLI でできるので同じ呼び方にする。クラウドの用意は wrangler が要るので、clone した場所での呼び方にする。
+    expect(p.commands).toEqual({ mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' });
     // 直すものの数は、無くても動くもの（code）を数えない。連携は MCP と statusline を数える。
     expect(p.todo).toEqual({ must: 1, link: 1 });
   });

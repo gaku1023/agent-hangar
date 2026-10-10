@@ -13,7 +13,7 @@ const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.exa
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/opt/homebrew/bin/claude', ok: true, problem: null, version: '2.1.0' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
   workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: true, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: '/h/s.sh', installed: true },
-  commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+  commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
   compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
 };
 const store = (over: Partial<Store> = {}): Store => ({ ...initialStore(), settings: SETTINGS, ...over });

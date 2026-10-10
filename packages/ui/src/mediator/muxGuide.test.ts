@@ -10,7 +10,7 @@ import type { Input } from './types.ts';
 const READY: ReadinessDto = {
   tools: { tmux: { path: 'C:\\x\\psmux.exe', ok: true, problem: null, version: '3.3.1' }, claude: { path: '/c', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/n', ok: true, problem: null, version: 'v22.9.0', auto: true } },
   workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: true, file: '/c.json' }, statusline: { command: null, scriptPath: null, installed: true },
-  commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+  commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
   compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
 };
 const MISSING: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: null, ok: false, problem: 'unset', version: null } } };

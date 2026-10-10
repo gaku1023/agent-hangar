@@ -25,6 +25,7 @@ export const cloudUsageEn: AreaDictionary<typeof cloudUsageKeys> = {
   'cloudUsage.source.fresh': 'Cloudflare figures · {when}',
   'cloudUsage.strip.limited': 'Sync is paused because the Cloudflare free tier limit was reached. It resumes automatically when the allowance resets at {time}.',
   'cloudUsage.strip.pausedNoFetch': "hangar does not query Cloudflare while sync is paused. Cloudflare figures and this month's bill appear after you resume.",
+  'cloudUsage.command.where': 'Run this in the folder where you cloned the repository and ran npm install.',
   'cloudUsage.strip.needToken': "Cloudflare figures, R2, and this month's bill appear once you enter a read-only API token.",
   'cloudUsage.unit.gbMonths': 'GB-months',
   'cloudUsage.row.r2Storage': 'R2 storage',

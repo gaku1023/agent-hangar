@@ -42,7 +42,7 @@ export const configSyncUiJa: AreaDictionary<typeof configSyncUiKeys> = {
   'configSyncUi.section.notSentYet': 'まだ送っていません',
   'configSyncUi.section.showOutgoing': '送るものを見る',
   'configSyncUi.worker.title': 'Worker の更新待ち',
-  'configSyncUi.worker.body': 'スイッチは入っていますが、クラウドの Worker がまだこの機能の版に届いていないので、何も送っていません。setup した PC で hangar setup cloud をもう一度実行して Worker を入れ替え、今すぐ同期を押してください。',
+  'configSyncUi.worker.body': 'スイッチは入っていますが、クラウドの Worker がまだこの機能の版に届いていないので、何も送っていません。setup した PC の、リポジトリを clone して npm install した場所で npm run hangar -- setup cloud をもう一度実行して Worker を入れ替え、今すぐ同期を押してください。',
   'configSyncUi.order.title': '適用の待ち',
   'configSyncUi.order.desc': '承諾した {n} 項目を ~/.claude に書く指示が、{when}に作られています。まだ書いていません。',
   'configSyncUi.order.cancel': '取り消す',

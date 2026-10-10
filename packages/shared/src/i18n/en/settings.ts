@@ -78,7 +78,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.cloud.off.start': 'Set up a cloud and start',
   'settings.cloud.off.join': 'Join with a join token',
   'settings.cloud.off.note': 'Pressing a button shows the command to run in a terminal.',
-  'settings.cloud.off.runStart': 'Run this in a terminal.',
+  'settings.cloud.off.runStart': 'In a terminal, run this in the folder where you cloned the repository and ran npm install.',
   'settings.cloud.off.runJoin': 'Run this in a terminal. Replace <token> with the string from Show join token on a computer that already syncs.',
   'settings.cloud.state': 'State',
   'settings.cloud.lastReceived': 'Last received',

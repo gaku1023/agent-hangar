@@ -78,7 +78,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.cloud.off.start': 'クラウドを用意して始める',
   'settings.cloud.off.join': '参加トークンで参加',
   'settings.cloud.off.note': '押すと、ターミナルで打つコマンドを出します。',
-  'settings.cloud.off.runStart': 'ターミナルで次を実行してください。',
+  'settings.cloud.off.runStart': 'リポジトリを clone して npm install した場所で、ターミナルから次を実行してください。',
   'settings.cloud.off.runJoin': 'ターミナルで次を実行してください。<token> は、すでに同期している PC の「参加トークンを表示」で出した文字列です。',
   'settings.cloud.state': '状態',
   'settings.cloud.lastReceived': '最終受信',

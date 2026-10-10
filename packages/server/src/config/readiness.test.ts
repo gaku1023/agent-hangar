@@ -231,9 +231,9 @@ describe('createReadiness', () => {
     expect(r.workspace).toEqual({ path: ws, exists: true, projectCount: 1 });
     expect(r.mcp).toEqual({ registered: true, file: claudeJson });
     expect(r.statusline).toEqual({ command: script, scriptPath: script, installed: true });
-    expect(r.commands).toEqual({ mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' });
+    expect(r.commands).toEqual({ mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' });
   });
-  it('MCP とステータスラインのコマンドは、外のターミナルのコマンドと同じ呼び方（入れた版の CLI）にそろえる', async () => {
+  it('MCP、ステータスライン、参加のコマンドは、外のターミナルのコマンドと同じ呼び方（入れた版の CLI）にそろえる', async () => {
     const shell = "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' shell install";
     const read = createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => shell });
     const r = await read();
@@ -241,6 +241,7 @@ describe('createReadiness', () => {
       mcp: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' mcp install",
       statusline: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' statusline install",
       shell,
+      join: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' join <token>",
     });
   });
   it('Node の設定が空なら、サーバを動かしている Node を見せる', async () => {

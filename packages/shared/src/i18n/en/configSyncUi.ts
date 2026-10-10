@@ -42,7 +42,7 @@ export const configSyncUiEn: AreaDictionary<typeof configSyncUiKeys> = {
   'configSyncUi.section.notSentYet': 'Nothing sent yet',
   'configSyncUi.section.showOutgoing': 'See what is sent',
   'configSyncUi.worker.title': 'Waiting for the Worker update',
-  'configSyncUi.worker.body': 'The switch is on, but the cloud Worker has not reached the version this feature needs, so nothing is sent yet. On the computer where you ran setup, run hangar setup cloud again to replace the Worker, then press Sync now.',
+  'configSyncUi.worker.body': 'The switch is on, but the cloud Worker has not reached the version this feature needs, so nothing is sent yet. On the computer where you ran setup, run npm run hangar -- setup cloud again in the folder where you cloned the repository and ran npm install, to replace the Worker, then press Sync now.',
   'configSyncUi.order.title': 'Waiting to apply',
   'configSyncUi.order.desc': 'An order to write {n} approved {n|item|items} to ~/.claude was created {when}. Nothing has been written yet.',
   'configSyncUi.order.cancel': 'Cancel',
