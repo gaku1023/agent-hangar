@@ -163,7 +163,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.tools.node': 'Node のパス',
   'settings.tools.nodePlaceholder': '/opt/homebrew/bin/node',
   'settings.tools.nodePlaceholderWindows': 'C:\\Program Files\\nodejs\\node.exe',
-  'settings.tools.nodeNote': 'デスクトップアプリが同梱のサーバを動かす Node です。空なら /opt/homebrew/bin/node、/usr/local/bin/node、nvm の順に探します。同梱サーバと同じメジャー版の Node が必要です。',
+  'settings.tools.nodeNote': 'デスクトップアプリが同梱のサーバを動かす Node です。空なら /opt/homebrew/bin/node、/usr/local/bin/node、Homebrew の node@ の入れ先、nvm、fnm、Volta、mise、asdf、nodenv の順に探します。同梱サーバと同じメジャー版の Node が必要です。',
   'settings.tools.nodeNoteWindows': 'デスクトップアプリが同梱のサーバを動かす Node です。空なら C:\\Program Files\\nodejs\\node.exe、%LOCALAPPDATA%\\Programs\\nodejs\\node.exe、nvm-windows、PATH の順に探します。同梱サーバと同じメジャー版の Node が必要です。',
   'settings.info.usage.title': '使用量',
   'settings.info.usage.loading': '使用量を読み込んでいます',

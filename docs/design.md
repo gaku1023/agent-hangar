@@ -100,7 +100,18 @@ Node は子に `CREATE_BREAKAWAY_FROM_JOB` を付けられないので、殻の�
 引数の 1 行はサーバが Windows の規則で引用し終えたもので、殻はそのまま子のコマンド行の後ろに付ける（cmd.exe へ組んだ 1 行を崩さないため）。
 外側のジョブが抜けるのを許していなければ、印を付けずに起こし直す（psmux と同じ）。
 端末から起こしたサーバ（`npm run dev` など）はジョブに入っていないので、`HANGAR_LAUNCHER` は無く、直に起こす。
-Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
+Node は PATH に頼らず、Settings の `nodePath` のあと、`node.rs` の `UNIX_NODE_PLACES` の順で探す（macOS）。
+並びは `/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の keg（`/opt/homebrew/opt/node@N/bin/node`、`/usr/local/opt/node@N/bin/node`）、nvm（`~/.nvm/versions/node/*/bin/node`）、fnm（`~/Library/Application Support/fnm`、`~/.local/share/fnm`、`~/.fnm` の `node-versions/*/installation/bin/node`）、Volta（`~/.volta/tools/image/node/*/bin/node`）、mise（`~/.local/share/mise/installs/node/*/bin/node`）、asdf（`~/.asdf/installs/nodejs/*/bin/node`）、nodenv（`~/.nodenv/versions/*/bin/node`）である。
+版ごとに並ぶ場所は、実在する `node` だけを新しい版から並べ、manifest と同じメジャー版とアーキテクチャの最初の 1 つを採る。
+版と読む名前は `node@<数>` と `v<数>.<数>.<数>`、`<数>.<数>.<数>` だけで、mise の別名（`22`、`lts`）は実体と重なるので見ない。
+Homebrew の `node@22` は keg-only で `/opt/homebrew/bin` にリンクされないので、keg の場所を見ないと `brew install node@22` だけでは見つからなかった。
+版の管理ツールは、PATH を切り替える仕掛け（fnm の `fnm_multishells`、nvm の `current` など）ではなく、版ごとの実体の場所を見る。
+GUI のアプリの PATH は launchd の最小のものなので、PATH は見ない。
+利用者のログインシェルに訊く案（`$SHELL -lic 'command -v node'`）は採らない。
+対話のシェルとして起こすと rc の全部が走り、tmux を自動で起こす設定や、端末を前提にした出力や問い合わせを踏みうるうえ、遅い rc では読み込み画面を秒単位で止めるためである。
+上の場所に無い入れ方は、`nodePath` で指す。
+同梱の CLI（`hangar.sh`）も同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
+見つからないときの文は、macOS では `brew install node@<版>` で足りることと、調べた場所とそれぞれが合わなかった理由を出す（Windows と Linux は `nvm install <版>` を案内する）。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
@@ -199,7 +210,30 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   渡す前に、`detail` と文字の `params` の中で利用者のホームから始まるパスを、すべて `~` に縮める（`bootfail.rs` の `shorten_home`、呼ぶのは `lib.rs` の `for_page`）。
   サーバが書く `params` の `file` と `dir`、Node の「調べた場所」と設定ファイルの場所、例外の文に、ユーザー名を出さないためである。
   サーバはホームを縮めずに書くので、縮めるのは殻の 1 か所に寄せ、macOS と Windows で同じにする。
-  ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。読み込みが終わる前に出た失敗は殻が貯め、読み込みの合図で渡す（以前の文言と同じ扱い）。
+  ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。
+- 失敗は、殻が状態として持ち、頁が引き取る。
+  殻は失敗の材料を `Ui.failure` に置いてから、その場でも評価で渡す。
+  起動画面（`loading/boot.js`）は口（`__hangarBootFail` など）を作り終えた時点で、殻の命令 `boot_state` を一度だけ呼び、`{ failure, progress, finishing }` を引き取る。
+  失敗があれば札を出し、無くて読み込みが終わった合図（`finishing`）が打たれていれば合図を描き、索引の進み具合（`progress`）は待っている間の文に使う。
+  口が出来た後に起きたことは、その場の評価で届く。殻は状態に置くのを先にするので、どちらかで必ず届く。
+  状態は「もう一度試す」（`retry_boot`）で空にし、サーバの頁へ移った後は何も返さない。
+  以前は、読み込みが終わる前の失敗を殻が貯め、読み込みの合図（`PageLoadEvent::Finished`）で渡し直していた。
+  macOS では合図の時点でまだ `boot.js` が走っておらず（`document.readyState` は `interactive`、口は未定義）、渡し直しも落ちた。
+  Node の無い Mac で、起動から 40ms で出た失敗が届かず、読み込み中のまま止まった（2026-10-11）。
+  Windows も同じ作りで引き取るので、合図と頁の走る順に頼らない。
+- 札に切り替わることは、CI が build した殻で確かめる。
+  試験のための書き出しの口があり、殻が `HANGAR_BOOT_PROBE`（書き出す先のファイル）を持って起きたときだけ働く（`src-tauri/src/bootprobe.rs`）。
+  そのとき殻は `boot_state` に `probe: true` を添え、起動画面は描いた様子（`data-level`、札が見えているか、種類、言語、見出し、詳細）を DOM から読んで、命令 `boot_probe` で殻に渡す（`loading/boot.js` の `report`）。
+  殻はそれを JSON にして、そのファイルへ書く（16 KiB まで、一時のファイルから名前を替える）。
+  変数が無いときは、`probe` は偽で、頁は `boot_probe` を呼ばず、呼ばれても殻は何も書かない。
+  CI の desktop ジョブ（macOS）は `.app` を build し、`apps/desktop/scripts/ci-boot-probe-macos.sh` で一時の場所へ写して、一時のホーム、無いパスを指す `nodePath`、最小の `PATH` だけを渡して起こす（`env -i`）。
+  殻が探す場所のうちホームの外のもの（Homebrew の `bin/node` と keg-only の `node@N`、`node.rs` の `UNIX_NODE_PLACES` の `/` で始まるもの）は一時のホームでは外れないので、その段の間だけ脇へ退ける（ランナーには Homebrew の Node がある）。
+  windows ジョブは、作ったインストーラで入れ直し、`apps/desktop/scripts/ci-boot-probe-windows.ps1` で殻に渡す環境だけを差し替えて Node を見えなくする（`ProgramFiles` と `LOCALAPPDATA` を空の場所へ、`NVM_*` を外し、`PATH` から `node.exe` のある項目を外す）。
+  Windows は 64 ビットの子を起こすとき `ProgramFiles` を `ProgramW6432` の値で書き直すので、`ProgramW6432` も同じ空の場所へ向ける（向けないと、殻は `C:\Program Files\nodejs` の Node を見つけた）。
+  どちらも `apps/desktop/scripts/boot-probe-check.ts` が書き出しを読み、札が見えて種類が `other`、詳細に「Node <版>」が入るまで待つ（上限 60 秒）。
+  殻が Node を見つけてサーバを起こしたら（desktop.log の `node … server` の行）、探す場所が増えたとみて落とす。
+  撮れた画面と殻の記録は、実行の artifact に 7 日だけ残す。
+  殻（Tauri）は実行ファイルのパスにシンボリックリンクが混じるとリソースの場所を決められないので、写す先は実の名前に直してから使う（macOS の `/var` はリンクである）。
 - 札の中は、見出し、何が起きたか、番号つきの次にすること（順序つきの一覧）、コピーできる命令、詳細（最初から開いた記録。「全文をコピー」つき）、下端のアプリの版と OS、「ログを開く」「もう一度試す」の順に並べる。ロゴは左上に小さく退ける（信号の 3 点の右、UI の `--lights-end` と同じ幅から）。命令と詳細だけを等幅にする。
   起動画面は UI の書体（JetBrains Mono）を読み込まないので、等幅は `ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace` の順に OS の書体を使う。日本語の Windows の既定の等幅（MS ゴシックなど）は `\` を `¥` の字形で描くので、パスやコマンドが `¥` に見えないよう、`\` を正しく描く書体を総称の `monospace` より先に置く。
   詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す。
@@ -2105,7 +2139,7 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動をやり直す `retry_boot` と `open_log` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 UI は殻が差し込む `__TAURI_INTERNALS__` の有無で殻の中かを決め（`runtime/desktop.ts`）、殻の外（ブラウザ）ではこれらのボタンを出さない。
 接続が切れると、ヘッダーの下に切断の帯を出し、止まった時刻と次に再接続する秒数を言う。
@@ -3993,7 +4027,9 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 `.app` は Developer ID では署名せず、自作の証明書で署名する（署名の台本と手順は `docs/signing.md`）。dmg（主）と zip（予備）に SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、初めて開いて出る警告の後で、システム設定の「プライバシーとセキュリティ」の「このまま開く」で許可してから（管理者のパスワードを求められる）、`hangar setup` を走らせる。
 検疫属性を `xattr -rd com.apple.quarantine` で外す道は、最後の手段として残す。
-前提として Node 22 と tmux と `claude` が要り、Homebrew なら `brew install node@22 tmux` で入る。`node@22` は keg-only なので、アプリに見つけさせるには `brew link --overwrite --force node@22` か `nodePath` の指定が要る（アプリも同梱の CLI も PATH を見ずに探すため、PATH を通すだけでは効かない）。
+前提として Node 22 と tmux と `claude` が要り、Homebrew なら `brew install node@22 tmux` で足りる。
+`node@22` は keg-only だが、アプリも同梱の CLI も keg の場所（`/opt/homebrew/opt/node@22`）を探すので、`brew link` は要らない。
+探す場所に無い入れ方をした人には、README で `nodePath` の指定か `brew link --overwrite --force node@22` を補足として案内する。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
 Release の資産は `Hangar-<タグ>-macos-<arch>.dmg` と `.zip`、それぞれの `.sha256` である。

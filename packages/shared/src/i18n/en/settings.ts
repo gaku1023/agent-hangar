@@ -163,7 +163,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.tools.node': 'Node path',
   'settings.tools.nodePlaceholder': '/opt/homebrew/bin/node',
   'settings.tools.nodePlaceholderWindows': 'C:\\Program Files\\nodejs\\node.exe',
-  'settings.tools.nodeNote': 'The Node that the desktop app uses to run its bundled server. If empty, it looks in /opt/homebrew/bin/node, /usr/local/bin/node, then nvm. It must be the same major version as the bundled server.',
+  'settings.tools.nodeNote': 'The Node that the desktop app uses to run its bundled server. If empty, it looks in /opt/homebrew/bin/node, /usr/local/bin/node, the Homebrew node@ kegs, then nvm, fnm, Volta, mise, asdf, and nodenv. It must be the same major version as the bundled server.',
   'settings.tools.nodeNoteWindows': 'The Node that the desktop app uses to run its bundled server. If empty, it looks in C:\\Program Files\\nodejs\\node.exe, %LOCALAPPDATA%\\Programs\\nodejs\\node.exe, nvm-windows, then PATH. It must be the same major version as the bundled server.',
   'settings.info.usage.title': 'Usage',
   'settings.info.usage.loading': 'Loading usage',

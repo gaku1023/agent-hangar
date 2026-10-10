@@ -255,6 +255,11 @@ pub struct Env {
 
 /// 頁に渡す JSON。種類、数、詳細、言語、版、OS、置き場の名前、パスの区切り。
 pub fn payload(f: &BootFailure, env: &Env) -> String {
+    payload_value(f, env).to_string()
+}
+
+/// 同上。起動画面が問い合わせたとき（lib.rs の `boot_state`）に、そのまま返せる形。
+pub fn payload_value(f: &BootFailure, env: &Env) -> Value {
     serde_json::json!({
         "kind": f.kind,
         "params": f.params,
@@ -265,7 +270,6 @@ pub fn payload(f: &BootFailure, env: &Env) -> String {
         "home": env.home,
         "sep": env.sep,
     })
-    .to_string()
 }
 
 /// 頁の失敗の口（__hangarBootFail）を呼ぶ式。決まった式に JSON だけを埋める。
