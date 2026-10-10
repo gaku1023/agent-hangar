@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import type http from 'node:http';
 import path from 'node:path';
 import { applySettingsPatch } from '../config/settingsUpdate.ts';
+import { whichMux } from '../config/tools.ts';
 import { listDevices } from '../db/queries.ts';
 import { createApp } from '../http/app.ts';
 import { promoteSession } from '../projects/promote.ts';
@@ -128,6 +129,7 @@ export function bootHttp(p: {
     shellHook: runs.shellHook,
     retention: sync.retention,
     readiness: runs.readiness,
+    findMux: () => whichMux(),
     compat: runs.compat,
     uiDist,
   });

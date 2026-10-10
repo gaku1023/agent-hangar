@@ -178,13 +178,24 @@ GitHub の画面（Settings の Secrets and variables の Actions）から入れ
 
 入れたら、`gh secret list` で 2 つの名前があることを確かめる（値は表示されない）。
 次のタグの release の macOS のジョブで、「署名する」の段が「指紋はリポジトリの値と一致した」を 2 回出せば、署名が効いている。
-指紋の置き場（`certificate-sha1.txt`）が空のまま secret だけを入れると、release は止まる。指紋の PR を先に入れる。
+指紋の置き場（`certificate-sha1.txt`）が空のまま secret だけを入れると、release は「署名する」の段で止まる（確かめられないまま配らない）。
 
 ## 状態
 
-本番の証明書は作ってあり、secret（`HANGAR_SIGN_P12_BASE64` と `HANGAR_SIGN_P12_PASSWORD`）も入れてある。
-指紋と公開の証明書は、`apps/desktop/signing/` へ別の PR で入れる。
-それが入るまで `certificate-sha1.txt` は空なので、タグの release は「署名する」の段で止まる（確かめられないまま配らない）。
+本番の証明書は作ってある（自己署名、有効期間 20 年）。
+公開の 2 つのファイルをリポジトリに置いている。
+
+- `apps/desktop/signing/certificate-sha1.txt`：葉の証明書の指紋。
+- `apps/desktop/signing/hangar-signing.cer`：公開の証明書（DER）。
+
+2 つが食い違わないことは、`apps/desktop/test/signing-cert.test.ts` が確かめる。
+
+秘密鍵（p12）は 2 か所だけにある。
+
+- 1Password の項目「Hangar macOS signing certificate」（p12 は添付、パスワードは別の欄）。
+- GitHub のリポジトリの secret `HANGAR_SIGN_P12_BASE64`（p12 の base64）と `HANGAR_SIGN_P12_PASSWORD`（そのパスワード）。
+
+タグの release は、上の「CI で署名する」のとおり、この証明書で .app と更新物の .app に署名する。
 
 ## 鍵を失ったとき
 

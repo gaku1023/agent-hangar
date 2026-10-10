@@ -111,6 +111,11 @@ export type AppDeps = {
    */
   readiness: () => Promise<ReadinessDto>;
   /**
+   * tmux の役の道具（Windows は psmux）を PATH と既知の置き場から探す。「再確認」（POST /api/readiness/mux）が使う。
+   * 試験は子プロセスもファイルも見ない偽物を渡す。
+   */
+  findMux: () => string | null;
+  /**
    * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。準備の確かめでずれがあるとき、画面が続けて読む。
    */
   compat: () => Promise<CompatDto>;

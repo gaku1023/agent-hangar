@@ -41,7 +41,7 @@ export const homeKeys = {
   'home.ready.progress': ['done', 'total'],
   'home.ready.summary': ['n'],
   'home.ready.noteStart': ['n'],
-  'home.ready.noteNeed': ['n'],
+  'home.ready.noteNeed': ['mux', 'n'],
   'home.ready.optional': [],
   'home.ready.fold': ['names'],
   'home.ready.separator': [],

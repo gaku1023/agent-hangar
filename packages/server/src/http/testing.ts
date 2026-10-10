@@ -202,6 +202,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     shellHook: () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' }),
     retention: fakeRetention(),
     readiness: async () => READY,
+    findMux: () => null,
     compat: async () => ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] }),
     uiDist: null,
     ...overrides,

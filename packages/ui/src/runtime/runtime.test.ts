@@ -2248,3 +2248,43 @@ describe('ランタイムの文（英語）', () => {
     expect(JSON.stringify(shown)).not.toMatch(JAPANESE);
   });
 });
+
+// 段 6 の psmux（tmux）の再確認。答えの準備の確かめと設定を Store に入れ、見つかったかを mediator に知らせる。
+describe('psmux と tmux の再確認（ランタイム）', () => {
+  const tools = { claude: { path: '/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset' as const, version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } };
+  const base = {
+    workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: true, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: true },
+    commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
+    compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
+  };
+  const MISSING = { ...base, tools: { ...tools, tmux: { path: null, ok: false, problem: 'unset' as const, version: null } } };
+  const FOUND = { ...base, tools: { ...tools, tmux: { path: 'C:\\x\\psmux.exe', ok: true, problem: null, version: '3.3.1' } } };
+  const settings = (tmuxPath: string | null) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null });
+  it('見つかれば、準備の確かめと埋めた設定を Store に入れ、印を外す', async () => {
+    const recheckMux = vi.fn(async () => ({ readiness: FOUND, settings: settings('C:\\x\\psmux.exe') }));
+    const { rt } = harness({ readiness: vi.fn(async () => MISSING), recheckMux });
+    rt.start();
+    rt.emit({ type: 'readiness.check' });
+    await flush();
+    rt.emit({ type: 'mux.recheck' });
+    expect(rt.getState().muxCheck).toBe('checking');
+    await flush();
+    expect(recheckMux).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().readiness?.tools.tmux.ok).toBe(true);
+    expect(rt.getStore().settings?.tmuxPath).toBe('C:\\x\\psmux.exe');
+    expect(rt.getState().muxCheck).toBe('idle');
+  });
+  it('見つからなければ「まだ見つかりません」の印を持つ。要求が失敗しても同じにして、トーストで知らせる', async () => {
+    const recheckMux = vi.fn(async () => ({ readiness: MISSING, settings: settings(null) }));
+    const { rt } = harness({ readiness: vi.fn(async () => MISSING), recheckMux });
+    rt.start();
+    rt.emit({ type: 'mux.recheck' });
+    await flush();
+    expect(rt.getState().muxCheck).toBe('missing');
+    recheckMux.mockRejectedValueOnce(new Error('接続できません'));
+    rt.emit({ type: 'mux.recheck' });
+    await flush();
+    expect(rt.getState().muxCheck).toBe('missing');
+    expect(rt.getState().toasts.map((t) => t.message)).toContain('接続できません');
+  });
+});
