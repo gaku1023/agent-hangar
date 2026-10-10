@@ -372,6 +372,7 @@ create table takeover_requests (
 共有テーブルへの書き込みは、すべて `changes` に 1 行を追記する。
 同期エンジンはこの表の未送信分を送る。
 受け取った変更はこの表に積まず、行へ直接適用する。
+適用した行は、行の変化の口へ `apply` として知らせる（「行の変化の知らせと配る層」）。
 この表に載るのは自分の端末が起こした変更だけなので、未送信の行は同じ `(table_name, row_id)` ごとに 1 行へまとめてよい。
 この表はフェーズ 1 から作ってあり、フェーズ 4 の同期エンジンが初めて読み手になった。
 
@@ -385,6 +386,58 @@ create table changes (
   pushed_at integer                               -- null は未送信
 );
 ```
+
+### 行の変化の知らせと配る層
+
+DB に書いた後で画面へ配るのは、書いた側ではなく、配る層（`packages/server/src/events/publisher.ts`）の役目である。
+書いた側は、行の変化の口（`db/notify.ts`）へ「どの表のどの行（主キー）が変わったか、消えたか」を知らせるだけで、DTO を組まず、hub にも触れない。
+以前は、書いた後に読み直して `hub.broadcast` を呼ぶ処理を呼び手ごとに手で書いていて、ロックの判定に要る端末の ID を渡し忘れると、ロックの無い行が画面に配られた。
+
+知らせの出どころは 3 つある。
+
+| 出どころ | 誰が知らせるか | 同期の push |
+| --- | --- | --- |
+| `write` | `upsertShared` と `softDeleteShared`（この端末が共有テーブルに書いた） | 契機にする |
+| `apply` | `sync/apply.ts` の `applyRemoteBatch`（同期で降りた行を当てた） | 契機にしない |
+| `touch` | `touchRow`（行は書いていないが、その行の DTO の中身が変わった） | 契機にしない |
+
+`touch` は、索引が手元だけの表（本文の索引と集計）を書き直したときと、セッションの紐づけでプロジェクトの中身が変わったときに使う。
+外側のトランザクションの中の知らせは、最外が確定するまで遅れる。
+巻き戻った `write` は知らせない（`changes` の行が残っているかで見分ける）。
+購読が投げても、他の購読にも書いた側にも波及しない。
+
+購読者は 2 つである。
+同期エンジンは `write` だけを拾い、push のデバウンスに使う。
+降りた行（`apply`）は `changes` に積まれないので、拾わない。
+配る層は、表名から配る先を決め、行を読み直して DTO を組み、hub へ渡す。
+
+| 表 | 配るイベント |
+| --- | --- |
+| `sessions`、`session_summaries`、`session_states` | そのセッションの `session.upsert` |
+| `runs` | 持ち主のセッションの `session.upsert`。同期で降りたときだけ配る（他端末のロックが変わるため）。この端末の run は `run.started`、`run.upsert`、`run.ended` が運ぶ |
+| `projects` | そのプロジェクトの `project.upsert` |
+| `project_roots` | そのプロジェクトの `project.upsert`。この端末のルートが未解決になった書き込みだけは配らない（解決済みから未解決への遷移で、ルートの確かめが `project.unresolved` を手で渡す。同期で降りた行では出さない） |
+| `devices` | 一覧ごとの `devices.update` |
+| `project_memos` | `memo.update` と、メモの頭を載せるプロジェクトの `project.upsert`。この端末の変化だけを配る |
+| `artifacts` | `artifact.upsert`。この端末の変化だけを配る |
+
+対応は `publisher.ts` の 1 つの表（`TABLES`）にあり、画面へ配る表を足すときは、そこへ 1 行を足す。
+表に無いもの（`run_tabs`、`todos`、`artifact_versions`、手元だけの表）の知らせは、何も配らない。
+同期で降りたメモとアーティファクトを配らないのは、この層を入れる前の振る舞いを変えないためである。
+
+配る層の決まりは次のとおりである。
+
+- 同じ tick の中で同じ行が何度変わっても、配るのは 1 回である。組むのは tick の終わり（マイクロタスク）なので、中身はその時点の最後の状態になる。並びは、最後に知らされた位置である。
+- ロックの判定に要る端末の ID は、この層が 1 回だけ渡す。
+- 読み直して行が無い（消えた）ときは、何も配らない。
+- WebSocket の受け手がいないあいだは、行を読み直さない。起動時の全走査で、誰も受けない DTO を組まないためである。
+- 表の変化に対応しない知らせ（トースト、run の起動と終了、索引の進み、実行中の一覧、同期の状態など）は、呼び手が `broadcast` で渡す。それらも同じ列に並べて tick の終わりに渡すので、行のイベントとの前後は呼んだ順のまま保たれる。
+- 呼び手が行のイベント（`session.upsert` など）を、その行の最後の変化より後に手で渡した tick では、この層は同じ行を重ねて配らない。手で渡された方は、数も中身もそのまま届く。手で渡された後に同じ行がまた変わったときは、この層も最新の中身を配る（2 つ届くが、最後に届くのは最新である）。前後は変化の通し番号（`RowChange.at`）で比べる。`http/app.ts` と `mcp/tools.ts` にはまだ手書きの配りが残っていて、この決まりで二重にならない。
+
+サーバの組み立て（`server.ts`）は、WebSocket の束（`EventHub`）へ直には配らず、すべてこの層を通す。
+索引が行を書いた後、同期の適用の後、メモの突き合わせ、ルートの確かめ、端末の生存の刻みは、どれも行を書く（か名指しする）だけで、配るのはこの層である。
+ルートの確かめが出す `project.unresolved` だけは、遷移の知らせなので手で渡す。
+実行中の一覧が動いたときのセッションとプロジェクトの配り直しと、run の起動のときのセッションの配り直しは、表の変化ではないので、呼び手が手で渡す。
 
 ### 端末ローカルのテーブル
 
@@ -2896,7 +2949,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - アーティファクトの題名：表示のたびに計算せず、公開を記録するときに決めて `artifacts.title` に書く。元ファイルがあれば先頭 64KB の `<title>`、無ければ説明文の先頭 60 字を使う。手で足した URL は題名 null で、UI は URL の末尾を出す。
 - TODO の並び：`position` は追加のたびにそのプロジェクトの最大値に 1 を足す。並び替えの操作は持たず、完了した項目も同じ並びに打消し線を引いて残す。削除は論理削除。`todos.session_id` はセッション別 MCP URL の `update_project` から足したときだけ入る。
 - TODO の完了の候補：`todos` に `candidate_at`、`candidate_session_id`、`candidate_note`、`rejected_sessions`（却下したセッション ID の JSON 配列、既定は `'[]'`）の 4 列を足した（マイグレーション version 10）。`candidate_at` が null でなければ候補で、候補は必ず未完である。MCP からは完了にできず、完了にするのは `POST /api/todos/:id/confirm` と、利用者のチェック操作である `PATCH /api/todos/:id` の `done` だけである。却下したセッションの ID は `rejected_sessions` に積み、そのセッションからは同じ TODO の候補を出し直せない（別のセッションなら出せる）。セッション別でない URL から出した候補は、却下してもセッション ID が無いので積まれず、出し直せる。`setTodoDone` は完了にも未完にも戻すときにも候補の列を消し、`rejected_sessions` は完了を開き直しても消さない。同期は行を JSON の payload のまま運ぶので D1 にマイグレーションは要らず、列を持たない古い端末は適用のときに自分の表に無い列を捨てる。`done = 1` かつ `candidate_at` 非 null の行が届いたときは、読むときに完了として扱い、候補は無いものとする。
-- メモの正：`project_memos.markdown` とファイル `~/.agent-hangar/projects/<projectId>/memo.md` の両方に書く。読むときはファイルの mtime が DB の `updated_at` より新しく中身が違えばファイルを正として DB を直す。`~/.agent-hangar/projects/` を `fs.watch`（再帰）で見て、300 ミリ秒のデバウンスで取り込んで `memo.update` を配る。`memoHead` は空行でない最初の行の先頭 80 字で、全文は `GET /api/projects/:id/memo` で読む。DB を正として書き戻すときは、ファイルの中身が DB と違うときだけ、消える本文を `memo.md.bak-<yyyymmddHHMMSS>` として同じディレクトリに残してから書き戻す。同じ秒に 2 度来たら連番を足し、既にある控えは上書きしない。控えは古くなっても消さない。控えを残せなかったときは書き戻さず、ファイルの方を残す。
+- メモの正：`project_memos.markdown` とファイル `~/.agent-hangar/projects/<projectId>/memo.md` の両方に書く。読むときはファイルの mtime が DB の `updated_at` より新しく中身が違えばファイルを正として DB を直す。`~/.agent-hangar/projects/` を `fs.watch`（再帰）で見て、300 ミリ秒のデバウンスで取り込む。取り込みは `project_memos` の行を書くので、`memo.update` と `project.upsert` は配る層が配る（「行の変化の知らせと配る層」）。`memoHead` は空行でない最初の行の先頭 80 字で、全文は `GET /api/projects/:id/memo` で読む。DB を正として書き戻すときは、ファイルの中身が DB と違うときだけ、消える本文を `memo.md.bak-<yyyymmddHHMMSS>` として同じディレクトリに残してから書き戻す。同じ秒に 2 度来たら連番を足し、既にある控えは上書きしない。控えは古くなっても消さない。控えを残せなかったときは書き戻さず、ファイルの方を残す。
 - スクラッチの擬似プロジェクト：端末ごとに 1 つで、名前は「スクラッチ」、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面と Home のカードにはこの行を出さず、Sessions 画面の絞り込みには出す。
 - スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。
 - 昇格：`POST /api/sessions/:id/promote { name, gitInit, moveFiles }`。`name` は `/` を含まない 1 字以上で、`<workspaceRoot>/<name>` が既にあれば 409。移動は先に全件の衝突を調べてから `fs.renameSync` で行い、途中で失敗したら逆順に戻す。`moveFiles` が真でも run が生きていれば移動せず、`moved: false` と理由を返す。
