@@ -1,3 +1,4 @@
+import { setSessionMemo } from '../sessions/notes.ts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
@@ -27,8 +28,8 @@ beforeEach(() => {
   dbB = openDb(':memory:');
   cloud = new FakeCloudClient({ deviceId: 'a' });
   timers = new FakeTimers();
-  a = new SyncEngine({ db: dbA, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h', home: '/nonexistent-home' });
-  b = new SyncEngine({ db: dbB, deviceId: 'b', client: cloud.asDevice('b'), now: () => timers.now, timers, url: 'https://h', home: '/nonexistent-home' });
+  a = new SyncEngine({ db: dbA, deviceId: 'a', client: cloud, now: () => timers.now, timers, url: 'https://h' });
+  b = new SyncEngine({ db: dbB, deviceId: 'b', client: cloud.asDevice('b'), now: () => timers.now, timers, url: 'https://h' });
   sent = [];
   publisher = new Publisher({ db: dbB, deviceId: 'b', live: () => [], hub: { broadcast: (ev) => { sent.push(ev); } } });
 });
@@ -43,7 +44,8 @@ describe('同期で降りた行の配り', () => {
     upsertShared(dbA, 'devices', { id: 'a', name: '端末 A', platform: 'darwin', last_seen_at: 1 }, 'a');
     upsertShared(dbA, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'a');
     upsertShared(dbA, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'a', path: '/a/alpha', resolved: 1 }, 'a');
-    upsertShared(dbA, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: 'p1', cwd: '/a/alpha', home_device: 'a', memo: '向こうのメモ' }, 'a');
+    upsertShared(dbA, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: 'p1', cwd: '/a/alpha', home_device: 'a' }, 'a');
+    setSessionMemo(dbA, 'a', 's1', '向こうのメモ');
     upsertShared(dbA, 'runs', { id: 'run1', session_id: 's1', device_id: 'a', kind: 'start', tmux_name: 'hangar-run1', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: Date.now() }, 'a');
     setSessionState(dbA, 'a', 's1', { status: 'paused', note: '明日', returnOn: '2099-01-01', setBy: 'user' });
     await a.pushNow();
@@ -51,7 +53,7 @@ describe('同期で降りた行の配り', () => {
     await b.pullNow();
     publisher.flush();
 
-    // sessions、runs、session_states の 3 行が降りても、セッションは 1 つ。projects と project_roots の 2 行でも、プロジェクトは 1 つ。
+    // sessions、runs、session_states、session_notes の 4 行が降りても、セッションは 1 つ。projects と project_roots の 2 行でも、プロジェクトは 1 つ。
     expect(types()).toEqual(['devices.update', 'project.upsert', 'session.upsert']);
     const s = sent.find((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert')!.session;
     expect(s).toEqual(getSession(dbB, [], 's1', { deviceId: 'b' }));
@@ -72,11 +74,12 @@ describe('同期で降りた行の配り', () => {
     publisher.flush();
     sent.length = 0;
     await new Promise<void>((r) => { setTimeout(r, 5); });
-    const row = dbA.prepare('select * from sessions where id = ?').get('s2') as Record<string, unknown>;
-    upsertShared(dbA, 'sessions', { ...row, memo: '後から' }, 'a');
+    // メモは session_notes の行だけで降りる。sessions の行は動かないが、当のセッションが届く。
+    setSessionMemo(dbA, 'a', 's2', '後から');
     await a.pushNow();
     await b.pullNow();
     publisher.flush();
     expect(sent).toEqual([{ type: 'session.upsert', session: getSession(dbB, [], 's2', { deviceId: 'b' }) }]);
+    expect(getSession(dbB, [], 's2', { deviceId: 'b' })!.memo).toBe('後から');
   });
 });

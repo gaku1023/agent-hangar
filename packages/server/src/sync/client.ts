@@ -44,8 +44,9 @@ const toCloudError = (e: unknown): CloudError => (e instanceof CloudError ? e : 
  * 段 1 の PR 6 で 1 に上げた。版の見出しを返さない古い Worker（版 0 として読む）は、最初の 2xx で断る。
  * そのため、古い Worker のための分岐（/usage の 404 を「トークンなし」に読み替える）は持たない。
  * Worker の API を古い Worker と話せない形で変えたら、その版に上げる。上げる前に Worker を配備し直す。
+ * 段 2 の PR 11 で 2 に上げた。版 1 の Worker は共有の表の一覧に session_notes を持たず、その行を含む push を丸ごと断る。
  */
-export const MIN_WORKER_COMPAT = 1;
+export const MIN_WORKER_COMPAT = 2;
 
 /** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
 export type CompatUpgrade = 'device' | 'worker';

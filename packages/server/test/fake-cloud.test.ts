@@ -400,11 +400,13 @@ describe('互換の版', () => {
     expect(a.changes).toHaveLength(0);
   });
 
-  it('既定の下限は 1 で、版の見出しを返さない古い Worker（版 0）は Worker を上げるよう断る', async () => {
+  it('既定の下限は 2 で、版の見出しを返さない古い Worker（版 0）と版 1 の Worker は Worker を上げるよう断る', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
-    expect(a.minWorkerCompat).toBe(1);
-    a.workerCompat = 0;
-    await expect(a.pushChanges([ch('p1', 1)])).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 1 });
+    expect(a.minWorkerCompat).toBe(2);
+    for (const old of [0, 1]) {
+      a.workerCompat = old;
+      await expect(a.pushChanges([ch('p1', 1)])).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: old, need: 2 });
+    }
     expect(a.changes).toHaveLength(0);
   });
 

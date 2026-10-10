@@ -5,6 +5,7 @@ import { newId, runTmuxId, type EndReason, type Language, type LaunchParams, typ
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
+import { setSessionName } from '../sessions/notes.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
@@ -67,7 +68,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
 export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
-type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
+type SessionRow = { id: string; provider_session_id: string; project_id: string | null; cwd: string };
 
 function isDirectory(p: string): boolean {
   try {
@@ -325,7 +326,9 @@ export class RunManager {
     const sessionId = ensureSession(this.db, sessionUuid, cwd, this.deps.deviceId);
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
-    upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, name: params.name?.trim() || null, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    upsertShared(this.db, 'sessions', { ...cur, project_id: p.id, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    // 起動のときに付けた名前は session_notes に書く。付けなければ行を作らない。
+    setSessionName(this.db, this.deps.deviceId, sessionId, params.name?.trim() || null);
     const base = this.baseInput(sessionId, p.id, cwd, params);
     // 添付つきの初期プロンプトは、置き場（hangar の home の drops）の中のファイルを指す。
     // 置き場は作業ディレクトリの外なので、足さないと claude が読む前に許可を尋ねて止まる。
@@ -420,7 +423,7 @@ export class RunManager {
     return { ...this.launch({ sessionId, cwd: req.cwd, kind: 'start', command, params: { projectId: projectId ?? undefined }, env, account }), attached: false };
   }
 
-  /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐので null にする。 */
+  /** 新しい sessions 行を作り、claude -r <uuid> --fork-session --session-id <new> で起動する。名前は Claude が本文から引き継ぐ（索引が sessions.custom_title に拾う）ので、hangar の名前は付けない。 */
   fork(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
@@ -433,7 +436,7 @@ export class RunManager {
     const newSessionId = ensureSession(this.db, newUuid, s.cwd, this.deps.deviceId);
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
-    upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, name: null, started_at: now, last_activity_at: now }, this.deps.deviceId);
+    upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, started_at: now, last_activity_at: now }, this.deps.deviceId);
     const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(newSessionId, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, true, newUuid);
     return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined }, account });
   }

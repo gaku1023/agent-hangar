@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { getSessionNote, setSessionMemo, setSessionName } from '../sessions/notes.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
@@ -434,40 +435,38 @@ describe('SyncEngine の pull', () => {
     a.stop(); b.stop();
   });
 
-  it('セッションのメモが他端末の新しい版で消えるとき、控えの知らせを呼び手へ渡す', async () => {
-    const saved = process.env.HANGAR_HOME;
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-engine-'));
-    process.env.HANGAR_HOME = home;
-    try {
-      const backups: { sessionId: string; markdown: string; deviceName: string; backupFile: string }[] = [];
-      const a = make();
-      await a.start();
-      upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'a' }, 'a');
-      await a.pushNow();
+  it('別の PC で付けた名前とメモは、本文を持つ PC が sessions の行を書き直しても消えない', async () => {
+    // a は本文を持つ PC で、索引が sessions の行を書き直す。b は名前とメモを付ける PC である。
+    const a = make();
+    await a.start();
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'a' }, 'a');
+    await a.pushNow();
+    const b = makeB();
+    await b.start();
+    await b.pullNow();
+    setSessionName(dbB, 'b', 's1', 'b で付けた名前');
+    setSessionMemo(dbB, 'b', 's1', 'b で書いたメモ');
+    await b.pushNow();
 
-      const b = makeB({ onSessionMemoBackup: (o) => backups.push(o) });
-      await b.start();
-      upsertShared(dbB, 'devices', { id: 'b', name: 'MacBook', platform: 'darwin' }, 'b');
-      const localRow = dbB.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
-      upsertShared(dbB, 'sessions', { ...localRow, memo: '手元のメモ' }, 'b');
+    // a は b の行を受ける前に、手元の古い行に本文の伸びを重ねて書く（索引がしていること）。
+    await realDelay(2);
+    const row = db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
+    upsertShared(db, 'sessions', { ...row, last_activity_at: 999 }, 'a');
+    await a.pushNow();
+    await a.pullNow();
+    await b.pullNow();
 
-      // 相手がメモを消しにくる。消える側なので、控えを残してから上書きする。
-      await realDelay(2);
-      const remoteRow = db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
-      upsertShared(db, 'sessions', { ...remoteRow, memo: null }, 'a');
-      await a.pushNow();
-      await b.pullNow();
-
-      expect(backups).toHaveLength(1);
-      expect(backups[0]).toMatchObject({ sessionId: 's1', markdown: '手元のメモ', deviceName: 'MacBook' });
-      expect(path.basename(backups[0]!.backupFile)).toMatch(/^session-s1-\d{8}-\d{6}\.md$/);
-      expect(fs.readFileSync(backups[0]!.backupFile, 'utf8')).toBe('手元のメモ');
-      expect((dbB.prepare('select memo from sessions where id = ?').get('s1') as { memo: string | null }).memo).toBeNull();
-      a.stop(); b.stop();
-    } finally {
-      if (saved === undefined) delete process.env.HANGAR_HOME; else process.env.HANGAR_HOME = saved;
-      fs.rmSync(home, { recursive: true, force: true });
+    // どちらの PC でも、名前とメモは残り、本文の伸びも届いている。
+    for (const d of [db, dbB]) {
+      expect(getSessionNote(d, 's1')).toEqual({ name: 'b で付けた名前', memo: 'b で書いたメモ' });
+      expect((d.prepare('select last_activity_at l from sessions where id = ?').get('s1') as { l: number }).l).toBe(999);
     }
+    // sessions の payload は、名前とメモを運ばない。
+    for (const c of cloud.changes.filter((x) => x.tableName === 'sessions')) {
+      expect(Object.keys(c.payload)).not.toContain('name');
+      expect(Object.keys(c.payload)).not.toContain('memo');
+    }
+    a.stop(); b.stop();
   });
 
   it('pullBeforeLaunch は 2 秒で諦め、pull 自体は続く', async () => {
@@ -699,8 +698,8 @@ describe('互換の版', () => {
     e.stop();
   });
 
-  it('版の見出しを返さない古い Worker（版 0）は、この PC の下限 1 で断り、Worker を上げるよう error に出す', async () => {
-    expect(MIN_WORKER_COMPAT).toBe(1);
+  it('版の見出しを返さない古い Worker（版 0）は、この PC の下限 2 で断り、Worker を上げるよう error に出す', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(2);
     cloud.workerCompat = 0;
     const e = make();
     await e.start();

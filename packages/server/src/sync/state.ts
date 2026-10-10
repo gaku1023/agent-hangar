@@ -5,6 +5,7 @@ import type { Db } from '../db/open.ts';
  * limitedUntil は、Cloudflare の上限で退いている間の戻る時刻である（sync/engine.ts）。
  * skipped:<R2 の鍵> は RemotePuller が降ろすのを諦めた項目の控えである。
  * transcriptsFrom は本文をどこから上げるかの床である（sync/transcriptsFrom.ts）。
+ * orphans は、親の行がまだ届かず当てられなかった行の持ち越しである（JSON の配列。sync/engine.ts）。
  */
 export type SyncStateKey =
   | 'lastSeq'
@@ -17,6 +18,7 @@ export type SyncStateKey =
   | 'snapshotDone'
   | 'transcriptsFrom'
   | 'limitedUntil'
+  | 'orphans'
   | `skipped:${string}`;
 
 /**

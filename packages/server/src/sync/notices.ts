@@ -15,7 +15,7 @@ export function toastVia(hub: { broadcast(ev: NoticeEvent): void }): Toast {
 }
 
 /**
- * セッションのメモを他端末の新しい版で置き換えたときの知らせ。
+ * セッションの名前かメモを他端末の新しい版で置き換えたときの知らせ。
  * 控えはもうファイルになっているので、利用者に伝えるのは「どこに残したか」である。
  */
 export function sessionMemoBackupNotice(o: SessionMemoBackup): Message {

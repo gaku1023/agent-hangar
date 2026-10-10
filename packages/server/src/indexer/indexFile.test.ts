@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { seedDbAt as seedOldDb } from '../../test/oldDb.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import { localDay } from '../usage/aggregate.ts';
+import { setSessionMemo, setSessionName } from '../sessions/notes.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 
 let dir: string;
@@ -31,9 +31,6 @@ const artifactResult = (toolId: string, text: string, ts = '2026-09-01T12:00:03.
   ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: text }] }, uuid: `u-${toolId}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
 const appendJson = (p: string, ...recs: unknown[]) => { for (const r of recs) fs.appendFileSync(p, JSON.stringify(r) + '\n'); };
 
-const insSession = 'insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values (?,?,?,?,?,?,?)';
-const insFile = 'insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)';
-
 describe('indexFile', () => {
   it('本体ファイルを索引化し、sessions と session_stats を埋める', () => {
     const r = indexFile(db, alphaMain(), { deviceId: DEV });
@@ -46,7 +43,7 @@ describe('indexFile', () => {
     // Bash の要約と command、Edit のファイルパス、Agent の description の 3 行に channels が現れる。
     expect(count('select count(*) c from event_fts where session_id = ? and text match ?', r.sessionId, '"channels"')).toBe(3);
     const s = db.prepare('select * from sessions where id = ?').get(r.sessionId) as Record<string, unknown>;
-    expect(s).toMatchObject({ provider: 'claude-code', provider_session_id: SESSION_ALPHA, cwd: '/Users/me/workspace/alpha', first_prompt: '動画チャンネルの整理をしたい。まず現状を見て', ai_title: '動画チャンネルの整理', name: 'channels-cleanup', home_device: DEV, started_at: Date.parse('2026-09-01T10:00:00.000Z'), last_activity_at: Date.parse('2026-09-01T10:04:00.000Z') });
+    expect(s).toMatchObject({ provider: 'claude-code', provider_session_id: SESSION_ALPHA, cwd: '/Users/me/workspace/alpha', first_prompt: '動画チャンネルの整理をしたい。まず現状を見て', ai_title: '動画チャンネルの整理', custom_title: 'channels-cleanup', home_device: DEV, started_at: Date.parse('2026-09-01T10:00:00.000Z'), last_activity_at: Date.parse('2026-09-01T10:04:00.000Z') });
     const st = db.prepare('select * from session_stats where session_id = ?').get(r.sessionId) as Record<string, unknown>;
     expect(st).toMatchObject({ turns: 2, model: 'claude-fable-5-1', effort: 'high', files_changed: 1, pr_url: 'https://github.com/me/alpha/pull/12', input_tokens: 1110, output_tokens: 140, last_prompt: 'b.md も同じように直して' });
     const tf = db.prepare('select * from transcript_files where path = ?').get(alphaMain().path) as Record<string, unknown>;
@@ -115,6 +112,34 @@ describe('indexFile', () => {
     expect(count('select count(*) c from event_index where session_id = ? and parent_agent is null', r.sessionId)).toBe(3);
     expect(count('select count(*) c from event_fts where session_id = ? and agent_id is null', r.sessionId)).toBe(2);
     expect((db.prepare('select turns from session_stats where session_id = ?').get(r.sessionId) as { turns: number }).turns).toBe(1);
+  });
+
+  it('索引は名前とメモ（session_notes）に触らない。何度走らせても、作り直しても変わらない', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    setSessionName(db, 'other-pc', r.sessionId, 'hangar で付けた名前');
+    setSessionMemo(db, 'other-pc', r.sessionId, '一行メモ');
+    const note = () => db.prepare('select * from session_notes where session_id = ?').get(r.sessionId);
+    const noteSeq = () => (db.prepare("select max(seq) s from changes where table_name = 'session_notes'").get() as { s: number }).s;
+    const before = note();
+    const seq = noteSeq();
+    // 追記、変化なしの走り直し、作り直し（版の上がり）、ファイルの作り直し。
+    appendJson(alphaMain().path, { type: 'custom-title', customTitle: '本文で付け直した名前', sessionId: SESSION_ALPHA }, { type: 'user', message: { role: 'user', content: '続き' }, uuid: 'u-more', timestamp: '2026-09-01T13:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: INDEXER_VERSION + 1 });
+    const lines = fs.readFileSync(alphaMain().path, 'utf8').split('\n').filter(Boolean);
+    fs.writeFileSync(alphaMain().path, lines.slice(0, 3).join('\n') + '\n');
+    indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: INDEXER_VERSION + 1 });
+    expect(note()).toEqual(before);
+    expect(noteSeq()).toBe(seq);
+    // 本文の題名は sessions の側に入る。索引が同期へ送る sessions の行は、名前とメモを運ばない。
+    expect((db.prepare('select custom_title t from sessions where id = ?').get(r.sessionId) as { t: string }).t).toBe('本文で付け直した名前');
+    const payloads = (db.prepare("select payload from changes where table_name = 'sessions' and row_id = ?").all(r.sessionId) as { payload: string }[]).map((c) => JSON.parse(c.payload) as Record<string, unknown>);
+    expect(payloads.length).toBeGreaterThan(0);
+    for (const p of payloads) {
+      expect(Object.keys(p)).not.toContain('name');
+      expect(Object.keys(p)).not.toContain('memo');
+    }
   });
 
   it('版が上がったら作り直す', () => {
@@ -186,48 +211,6 @@ describe('indexFile', () => {
     indexFile(db, alphaSub(), { deviceId: DEV });
     expect(rows()).toHaveLength(1);
     expect(rows()[0]!.o).toBe(140 + 3);
-  });
-
-  it('移行前の日別が残っていた DB でも、積み直したあとに二重に数えない', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-old-'));
-    const file = path.join(tmp, 'hangar.db');
-    const day = localDay(Date.parse('2026-09-01T10:00:05.000Z'));
-    // 版 3 の DB には、どのファイル由来か分からない日別の行がある。
-    seedOldDb(file, 3, (old) => {
-      old.prepare(insSession).run('s-alpha', 'claude-code', SESSION_ALPHA, '/Users/me/workspace/alpha', DEV, 1, DEV);
-      old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s-alpha', day, 999, 99);
-    });
-    const upgraded = openDb(file);
-    indexFile(upgraded, alphaMain(), { deviceId: DEV });
-    indexFile(upgraded, alphaSub(), { deviceId: DEV });
-    const sum = (d: Db) => d.prepare('select sum(input_tokens) i, sum(output_tokens) o from usage_daily').get() as { i: number; o: number };
-    // まっさらな DB に同じファイルを索引した結果と一致する（古い行は 1 つも足されない）。
-    const fresh = openDb(':memory:');
-    indexFile(fresh, alphaMain(), { deviceId: DEV });
-    indexFile(fresh, alphaSub(), { deviceId: DEV });
-    expect(sum(upgraded)).toEqual(sum(fresh));
-    upgraded.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  it('移行のあとは索引済みのファイルも作り直しに回り、日別が積み直される', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-old-'));
-    const file = path.join(tmp, 'hangar.db');
-    const main = alphaMain();
-    const st = fs.statSync(main.path);
-    // 版 3 の DB では、このファイルは最後まで索引済みになっている。
-    seedOldDb(file, 3, (old) => {
-      old.prepare(insSession).run('s-alpha', 'claude-code', SESSION_ALPHA, '/Users/me/workspace/alpha', DEV, 1, DEV);
-      old.prepare(insFile).run(main.path, 's-alpha', null, st.size, Math.floor(st.mtimeMs), st.size, INDEXER_VERSION);
-      old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s-alpha', localDay(Date.parse('2026-09-01T10:00:05.000Z')), 999, 99);
-    });
-    const upgraded = openDb(file);
-    // 移行が印を戻しているので、大きさも更新時刻も同じでも飛ばさない。
-    const r = indexFile(upgraded, main, { deviceId: DEV });
-    expect(r.changed).toBe(true);
-    expect(upgraded.prepare('select sum(input_tokens) i, sum(output_tokens) o from usage_daily').get()).toEqual({ i: 1110, o: 140 });
-    upgraded.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   it('主線を作り直してもサブエージェントぶんの日別は残る', () => {

@@ -1,3 +1,4 @@
+import { getSessionNote, setSessionName } from '../sessions/notes.ts';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -213,7 +214,9 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(uuid).toMatch(/^[0-9a-f-]{36}$/);
 
     const s = db.prepare('select * from sessions where id = ?').get(r.sessionId) as Record<string, unknown>;
-    expect(s).toMatchObject({ provider_session_id: uuid, project_id: 'p1', name: 'first', cwd });
+    expect(s).toMatchObject({ provider_session_id: uuid, project_id: 'p1', cwd });
+    // 起動のときの名前は session_notes に入る。sessions の行には載らない。
+    expect(getSessionNote(db, r.sessionId)).toEqual({ name: 'first', memo: null });
     expect(typeof s.started_at).toBe('number');
     const sys = args[args.indexOf('--append-system-prompt') + 1]!;
     expect(sys).toContain('プロジェクト：alpha（' + cwd + '）');
@@ -256,7 +259,7 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     const rm = make();
     // projectId が一緒に来ても scratch を優先する。
     const r = rm.start({ scratch: true, projectId: 'p1', name: 'scratchy' });
-    const s = db.prepare('select cwd, project_id, name from sessions where id = ?').get(r.sessionId) as { cwd: string; project_id: string; name: string };
+    const s = { ...(db.prepare('select cwd, project_id from sessions where id = ?').get(r.sessionId) as { cwd: string; project_id: string }), name: getSessionNote(db, r.sessionId)?.name };
     expect(s.cwd.startsWith(path.join(home, 'scratch') + path.sep)).toBe(true);
     expect(fs.statSync(s.cwd).isDirectory()).toBe(true);
     expect(s.name).toBe('scratchy');
@@ -517,7 +520,8 @@ describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
 function seedOldSession(withTranscript = true): string {
   const id = ensureSession(db, 'u-old', cwd, 'd');
   const cur = db.prepare('select * from sessions where id = ?').get(id) as Record<string, unknown>;
-  upsertShared(db, 'sessions', { ...cur, project_id: 'p1', name: 'old' }, 'd');
+  upsertShared(db, 'sessions', { ...cur, project_id: 'p1' }, 'd');
+  setSessionName(db, 'd', id, 'old');
   if (withTranscript) addTranscript(id);
   return id;
 }
@@ -652,7 +656,9 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(args.slice(i - 2, i + 3)).toEqual(['-r', 'u-old', '--fork-session', '--session-id', args[i + 2]]);
     expect(args).not.toContain('--add-dir');
     const s = db.prepare('select * from sessions where id = ?').get(f.sessionId) as Record<string, unknown>;
-    expect(s).toMatchObject({ provider_session_id: args[i + 2], project_id: 'p1', cwd, name: null });
+    expect(s).toMatchObject({ provider_session_id: args[i + 2], project_id: 'p1', cwd });
+    // 元のセッションの名前は引き継がない。名前は Claude が本文から引き継ぎ、索引が sessions.custom_title に拾う。
+    expect(getSessionNote(db, f.sessionId)).toBeNull();
     expect(args[1]).toBe(path.join(home, 'mcp', `${f.sessionId}.json`));
     expect(JSON.parse(fs.readFileSync(args[1]!, 'utf8')).mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${f.sessionId}`);
   });

@@ -2,10 +2,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { dbVersionOf as versionOf, LATEST_DB_VERSION as LATEST, seedDbAt as seedAt } from '../../test/oldDb.ts';
+import { dbVersionOf as versionOf, nextMigration, seedDbAt as seedAt } from '../../test/oldDb.ts';
 import { expectMode, posixIt } from '../../test/platform.ts';
 import { backupStamp, DbBackupError, pruneDbBackups } from './backup.ts';
+import { MIGRATIONS } from './migrations.ts';
 import { openDb } from './open.ts';
+
+// 製品の一覧が起点だけのあいだは、既存の DB に当てるものが無い。
+// 控えは「当てていないものがある既存の DB」で取るので、試験用の仮の次の版を足した一覧で開く。
+// LATEST はその仮の版で、LATEST - 1 が製品のいちばん新しい版である。
+const NEXT = nextMigration();
+const LATEST = NEXT.version;
+const WITH_NEXT = [...MIGRATIONS, NEXT];
 
 const AT = new Date(Date.UTC(2026, 9, 7, 6, 30, 0, 123));
 const STAMP = '20261007T063000123Z';
@@ -18,7 +26,7 @@ describe('openDb の控え', () => {
   it('当てていないマイグレーションがあれば、当てる前の DB を backups/db に控える', () => {
     const file = path.join(tmp, 'hangar.db');
     seedAt(file, LATEST - 1);
-    openDb(file, { now: () => AT }).close();
+    openDb(file, { now: () => AT, migrations: WITH_NEXT }).close();
     const dir = path.join(tmp, 'backups', 'db');
     const name = `hangar-v${LATEST - 1}-${STAMP}.db`;
     expect(fs.readdirSync(dir)).toEqual([name]);
@@ -37,7 +45,7 @@ describe('openDb の控え', () => {
     const file = path.join(tmp, 'hangar.db');
     seedAt(file, LATEST - 1);
     fs.writeFileSync(path.join(tmp, 'blocker'), 'x');
-    expect(() => openDb(file, { backupDir: path.join(tmp, 'blocker', 'db') })).toThrow(DbBackupError);
+    expect(() => openDb(file, { backupDir: path.join(tmp, 'blocker', 'db'), migrations: WITH_NEXT })).toThrow(DbBackupError);
     expect(versionOf(file)).toBe(LATEST - 1);
   });
   it('控えは新しいものから 5 つ残し、控えの形でないファイルには触れない', () => {
@@ -47,7 +55,7 @@ describe('openDb の控え', () => {
     fs.writeFileSync(path.join(dir, 'mine.db'), 'keep');
     const file = path.join(tmp, 'hangar.db');
     seedAt(file, LATEST - 1);
-    openDb(file, { now: () => AT }).close();
+    openDb(file, { now: () => AT, migrations: WITH_NEXT }).close();
     expect(fs.readdirSync(dir).sort()).toEqual([
       `hangar-v${LATEST - 1}-${STAMP}.db`,
       'hangar-v3-20260103T000000000Z.db', 'hangar-v3-20260104T000000000Z.db', 'hangar-v3-20260105T000000000Z.db', 'hangar-v3-20260106T000000000Z.db',
@@ -61,7 +69,7 @@ describe('openDb の控え', () => {
     const name = `hangar-v${LATEST - 1}-${STAMP}.db`;
     // 控えの名前の場所にディレクトリがあると、一時ファイルからの改名が失敗する。
     fs.mkdirSync(path.join(dir, name), { recursive: true });
-    expect(() => openDb(file, { now: () => AT })).toThrow(DbBackupError);
+    expect(() => openDb(file, { now: () => AT, migrations: WITH_NEXT })).toThrow(DbBackupError);
     expect(versionOf(file)).toBe(LATEST - 1);
     expect(fs.readdirSync(dir)).toEqual([name]);
     expect(fs.statSync(path.join(dir, name)).isDirectory()).toBe(true);
@@ -72,7 +80,7 @@ describe('openDb の控え', () => {
     for (let i = 1; i <= 5; i++) fs.writeFileSync(path.join(dir, `hangar-v3-209901${String(i).padStart(2, '0')}T000000000Z.db`), '');
     const file = path.join(tmp, 'hangar.db');
     seedAt(file, LATEST - 1);
-    openDb(file, { now: () => AT }).close();
+    openDb(file, { now: () => AT, migrations: WITH_NEXT }).close();
     expect(fs.readdirSync(dir).sort()).toEqual([
       `hangar-v${LATEST - 1}-${STAMP}.db`,
       'hangar-v3-20990102T000000000Z.db', 'hangar-v3-20990103T000000000Z.db', 'hangar-v3-20990104T000000000Z.db', 'hangar-v3-20990105T000000000Z.db',
@@ -86,7 +94,7 @@ describe('openDb の控え', () => {
     fs.mkdirSync(target);
     fs.mkdirSync(path.join(tmp, 'backups'));
     fs.symlinkSync(target, path.join(tmp, 'backups', 'db'));
-    expect(() => openDb(file, { now: () => AT })).toThrow(DbBackupError);
+    expect(() => openDb(file, { now: () => AT, migrations: WITH_NEXT })).toThrow(DbBackupError);
     expect(fs.readdirSync(target)).toEqual([]);
     expect(versionOf(file)).toBe(LATEST - 1);
   });

@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SHARED_TABLES, TABLE_PK, type ChangeOut, type SharedTable } from '@agent-hangar/shared';
 import { backupsRoot } from '../config/cloud.ts';
+import { hangarHome } from '../config/paths.ts';
+import { MIGRATED_NOTE_AT } from '../db/migrations.ts';
 import { noteApplied } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
-import { hangarHome } from '../config/paths.ts';
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
 
 /** 親から子の順。pull の適用はこの順に並べ替える。 */
@@ -69,7 +70,10 @@ const SAFE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
  */
 const safeId = (id: string): string => (SAFE_ID_RE.test(id) ? id : `id-${crypto.createHash('sha256').update(id, 'utf8').digest('hex').slice(0, 16)}`);
 
-/** セッションのメモの控えを残したあとの知らせ。ファイルはもう書けているので、トーストに使うだけである。 */
+/**
+ * セッションの名前とメモの控えを残したあとの知らせ。ファイルはもう書けているので、トーストに使うだけである。
+ * markdown は控えに書いた本文である（負けたメモ。名前も負けたときは、先頭に「名前：」の 1 行が付く）。
+ */
 export type SessionMemoBackup = { sessionId: string; markdown: string; deviceName: string; backupFile: string };
 
 export type ApplyOptions = {
@@ -78,14 +82,28 @@ export type ApplyOptions = {
   /** project_memos を上書きする前に呼ばれる。投げたらその行は適用しない（手元の本文を消さない）。 */
   onMemoConflict?: (o: MemoConflict) => void;
   /**
-   * sessions.memo の控えを残した後に呼ばれる。
+   * session_notes の控えを残した後に呼ばれる。
    * 控えはもうファイルになっているので、ここで投げても適用は止めない（トーストのための口である）。
    */
   onSessionMemoBackup?: (o: SessionMemoBackup) => void;
   /**
-   * 控えの置き場の親（`~/.agent-hangar` に当たるもの）。
+   * 束の中でやり直しても当てられなかった行（親の行がまだ無く、外部キーで落ちた行など）を受け取る。
+   * 渡すと、その行は記録に出さずに呼び手へ任せる。同期エンジンはこれで行を持ち越し、後で当て直す。
+   * 省くと、今までどおり記録に出して捨てる。
+   */
+  onFailed?: (c: ChangeOut, e: unknown) => void;
+  /**
+   * 古い形の sessions の payload が名前かメモを持っていたときに呼ばれる。
+   * 渡すと、その場では session_notes の行を作らず、呼び手へ任せる。
+   * 同期エンジンは、1 巡を読み切ってから `adoptNoteFromOldSession` を呼ぶ。
+   * 写しでは session_notes の行が sessions より後に当たるので、その場で作ると、すぐ後に届く本物の行がそれを上書きして、要らない控えが残る。
+   * 省くと、その場で作る。
+   */
+  onOldSessionNote?: (c: ChangeOut) => void;
+  /**
+   * 控えの置き場の親（hangar の home に当たるもの）。
    * 省くと `hangarHome()` に落ちるが、**呼び手は必ず明に渡すこと。**
-   * 環境変数に頼ると、一時置き場で起こしたサーバやテストが実物の `~/.agent-hangar` に書いてしまう。
+   * 環境変数に頼ると、一時置き場で起こしたサーバやテストが実物の home に書いてしまう。
    */
   home?: string;
 };
@@ -131,46 +149,110 @@ function noteMemoConflict(db: Db, c: ChangeOut, row: Record<string, unknown>, o:
   }
 }
 
+const filled = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+
 /**
- * セッションのメモが他端末の新しい版で消えるとき、負けた本文を控えの入れ物に残す。
+ * セッションの名前とメモ（session_notes）が他端末の新しい版に負けるとき、負けた中身を控えの入れ物に残す。
  * 残せたら true、残せなかったら false（呼び手は上書きを見送る）。
  *
- * project_memos と違って `sessions.memo` は DB の列なので、隣に置くファイルが無い。
- * 置き場が無いからといって黙って消してよい文章ではない（UI からも MCP の set_session_memo からも書ける）。
- * そこで `~/.agent-hangar/backups/memos/session-<セッション ID>-<時刻>.md` に残す。
- * 他端末の会話の断片が入るので、入れ物は 0700、控えは 0600 にする。
+ * 控えを取るのは、手元の名前かメモに中身があり、降りてきた行でそれが別の中身になる（または消える）ときだけである。
+ * 中身が同じ、手元が空、手元の行が無い（または消してある）ときは取らない。
+ * 名前とメモを sessions から分けたので、索引の書き直しが原因の上書きはもう無い。
+ * ここへ来るのは、2 台が本当に別々に書いたときである（2 台が同期の収束する前に版 17 へ上がり、写しの中身が違ったときを含む）。
+ *
+ * 置き場と形は、名前とメモが sessions の列だった頃と同じである。
+ * `<home>/backups/memos/session-<セッション ID>-<時刻>.md` に残し、他端末の会話の断片が入るので、入れ物は 0700、控えは 0600 にする。
+ * 本文は負けたメモである。名前も負けたときは、先頭に「名前：<名前>」の 1 行を足す。
  */
-function backupSessionMemo(db: Db, c: ChangeOut, row: Record<string, unknown>, o: ApplyOptions): boolean {
-  if (c.tableName !== 'sessions') return true;
-  // payload に memo が無ければ、その列は上書きされない（do update set に載らない）。
-  if (!Object.prototype.hasOwnProperty.call(row, 'memo')) return true;
-  const local = db.prepare('select memo, origin_device from sessions where id = ?').get(c.rowId) as { memo?: unknown; origin_device?: unknown } | undefined;
-  if (!local || typeof local.memo !== 'string' || local.memo.trim() === '') return true;
-  // 意味の無い控えを増やさない。相手と同じ本文なら残すものが無い。
-  if (row.memo === local.memo) return true;
+function backupSessionNote(db: Db, c: ChangeOut, row: Record<string, unknown>, o: ApplyOptions): boolean {
+  if (c.tableName !== 'session_notes') return true;
+  const local = db.prepare('select name, memo, origin_device, deleted_at from session_notes where session_id = ?').get(c.rowId) as { name?: unknown; memo?: unknown; origin_device?: unknown; deleted_at?: unknown } | undefined;
+  if (!local || local.deleted_at != null) return true;
+  // payload に列が無ければ、その列は上書きされない（do update set に載らない）。消す変更は、行ごと見えなくなる。
+  const loses = (k: 'name' | 'memo'): boolean => filled(local[k]) && (c.op === 'delete' || (Object.prototype.hasOwnProperty.call(row, k) && row[k] !== local[k]));
+  const name = loses('name') ? (local.name as string) : null;
+  const memo = loses('memo') ? (local.memo as string) : null;
+  if (name === null && memo === null) return true;
+  const body = name === null ? memo! : memo === null ? `名前：${name}\n` : `名前：${name}\n\n${memo}`;
   const author = typeof local.origin_device === 'string' && local.origin_device.length > 0 ? local.origin_device : o.ownDeviceId;
   let file: string;
   try {
     const dir = path.join(backupsRoot(o.home ?? hangarHome()), 'memos');
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.chmodSync(dir, 0o700);
-    file = writeWithoutClobbering(dir, `session-${safeId(c.rowId)}-${timestampLabel(Date.now())}`, local.memo, 0o600);
+    file = writeWithoutClobbering(dir, `session-${safeId(c.rowId)}-${timestampLabel(Date.now())}`, body, 0o600);
   } catch (e) {
-    console.error('[sync] セッションのメモの控えを残せなかったので上書きを見送りました', safeId(c.rowId), e instanceof Error ? e.message : e);
+    console.error('[sync] セッションの名前とメモの控えを残せなかったので上書きを見送りました', safeId(c.rowId), e instanceof Error ? e.message : e);
     return false;
   }
   // 控えはもうファイルになっている。知らせが失敗しても上書きは止めない。
   try {
-    o.onSessionMemoBackup?.({ sessionId: c.rowId, markdown: local.memo, deviceName: deviceName(db, author), backupFile: file });
+    o.onSessionMemoBackup?.({ sessionId: c.rowId, markdown: body, deviceName: deviceName(db, author), backupFile: file });
   } catch (e) {
-    console.error('[sync] セッションのメモの控えを知らせられませんでした', safeId(c.rowId), e instanceof Error ? e.message : e);
+    console.error('[sync] セッションの名前とメモの控えを知らせられませんでした', safeId(c.rowId), e instanceof Error ? e.message : e);
   }
   return true;
 }
 
 /**
- * pull で受けた 1 行を適用する。updated_at の新しい方を採り、changes には追記しない。
+ * 写し同士がぶつかったか。手元の行も降りてきた行も、版 17 が sessions から写した名前とメモ（時刻が MIGRATED_NOTE_AT）で、中身が違うとき。
+ *
+ * このときだけは、同じ時刻でも降りてきた側を採る。「同じ時刻なら手元を残す」だと、2 台が別々の中身を持ったまま食い違う。
+ * 降りてきた側を採れば、どの PC も同じ結果に収束する。
+ * クラウド（Worker）は同じ時刻の行を先に着いた方で残すので、クラウドにあるのは、先に上がった PC の写し 1 つである。
+ * 後から上がったどの PC も、それを受けて自分の写しを置き換える。先に上がった PC には、ほかの PC の写しは降りてこない。
+ * `origin_device` の辞書順のように手元で比べる決め方にしないのは、手元が勝った PC の写しをクラウドが採らず、相手に届かないからである。
+ * 負けた手元の中身は、控えに残る（backupSessionNote）。
+ */
+function copiesCollide(db: Db, c: ChangeOut, localUpdatedAt: number): boolean {
+  if (c.tableName !== 'session_notes' || c.updatedAt !== MIGRATED_NOTE_AT || localUpdatedAt !== MIGRATED_NOTE_AT) return false;
+  const local = db.prepare('select name, memo, deleted_at from session_notes where session_id = ?').get(c.rowId) as { name: unknown; memo: unknown; deleted_at: unknown };
+  if ((c.op === 'delete') !== (local.deleted_at != null)) return true;
+  const differs = (k: 'name' | 'memo'): boolean => Object.prototype.hasOwnProperty.call(c.payload, k) && (c.payload[k] ?? null) !== (local[k] ?? null);
+  return differs('name') || differs('memo');
+}
+
+/**
+ * クラウドに残る古い形の sessions の payload（版 16 までの端末が上げたもの）から、名前とメモを拾う。
+ *
+ * 古い形の payload は `name` と `memo` を列として持つ。手元の sessions にその列はもう無いので、行としては捨てる。
+ * ただ、書いた PC がまだ上がっていなければ、その名前とメモはクラウドのどこにも session_notes の行として無い。
+ * 捨てるだけだと、新しく参加した PC には、書いた PC が上がるまで名前もメモも見えない。
+ * そこで、手元にそのセッションの session_notes の行が無いときに限り、その中身で行を作る。
+ *
+ * - 時刻は写しの定数（MIGRATED_NOTE_AT）、書き手は payload の書き手にする。本物の書き込みが届けば、必ずそちらが勝つ。
+ * - 手元に行があれば（消した行も含めて）何もしない。手元の方が、古い形の payload より確かである。
+ *   同じ 1 巡で本物の session_notes の行が届くこともあるので、同期エンジンは 1 巡を読み切ってからここを呼ぶ（ApplyOptions.onOldSessionNote）。
+ * 作ったら true を返す。
+ * - changes には積まない（こちらからは上げ直さない）。
+ *   上げると、書いた PC より先にクラウドへ着き、写し同士の決着（先に上がった側が勝つ）で、書いた PC の写しに勝ってしまう。
+ *   書いた PC は、クラウドへまだ上げていなかった新しい名前やメモを持っていることがある。それを、クラウドに残っていた古い中身で負かさない。
+ *   書いた PC が上がれば、その写しが届いて、ここで作った行を置き換える。
+ */
+export function adoptNoteFromOldSession(db: Db, c: ChangeOut): boolean {
+  if (!carriesOldNote(c)) return false;
+  const name = filled(c.payload.name) ? c.payload.name : null;
+  const memo = filled(c.payload.memo) ? c.payload.memo : null;
+  if (db.prepare('select 1 from session_notes where session_id = ?').get(c.rowId)) return false;
+  // セッションの行が、その後に消えていることがある（持ち越している間に）。親が無ければ作らない。
+  if (!db.prepare('select 1 from sessions where id = ?').get(c.rowId)) return false;
+  const origin = typeof c.payload.origin_device === 'string' && c.payload.origin_device.length > 0 ? c.payload.origin_device : c.deviceId;
+  db.prepare('insert into session_notes (session_id, name, memo, updated_at, deleted_at, origin_device) values (?,?,?,?,?,?)').run(c.rowId, name, memo, MIGRATED_NOTE_AT, null, origin);
+  return true;
+}
+
+/** 古い形の sessions の payload で、名前かメモに中身があるか。 */
+function carriesOldNote(c: ChangeOut): boolean {
+  return c.tableName === 'sessions' && c.op === 'upsert' && (filled(c.payload.name) || filled(c.payload.memo));
+}
+
+/**
+ * pull で受けた 1 行を適用する。updated_at の新しい方を採り、changes には追記しない。同じ時刻なら手元を残す。
+ * ただし session_notes の写し同士（copiesCollide）だけは、同じ時刻でも降りてきた側を採る。
  * payload はローカルの列だけに絞るので、相手の版が新しくて列が多くても壊れない。
+ * クラウドに残る古い形の sessions の payload（name と memo を含む）も、列としてはここで捨てる。
+ * 名前とメモは session_notes の行として別に運ばれるので、sessions の行が降りても上書きされない。
+ * 古い形の payload の名前とメモは、手元に session_notes の行が無いときだけ拾う（adoptNoteFromOldSession）。
  */
 export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' {
   if (!ORDER.has(c.tableName)) return 'skipped';
@@ -178,7 +260,7 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
   const pk = TABLE_PK[c.tableName];
   const cols = tableColumns(db, c.tableName);
   const cur = db.prepare(`select updated_at from ${c.tableName} where ${pk} = ?`).get(c.rowId) as { updated_at: number } | undefined;
-  if (cur && cur.updated_at >= c.updatedAt) return 'skipped';
+  if (cur && cur.updated_at >= c.updatedAt && !copiesCollide(db, c, cur.updated_at)) return 'skipped';
   const row: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(c.payload)) if (cols.has(k)) row[k] = v;
   row[pk] = c.rowId;
@@ -197,10 +279,14 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
     }
   }
   if (!noteMemoConflict(db, c, row, o)) return 'skipped';
-  if (!backupSessionMemo(db, c, row, o)) return 'skipped';
+  if (!backupSessionNote(db, c, row, o)) return 'skipped';
   const keys = Object.keys(row);
   const sets = keys.filter((k) => k !== pk).map((k) => `${k} = excluded.${k}`).join(', ');
   db.prepare(`insert into ${c.tableName} (${keys.join(', ')}) values (${keys.map(() => '?').join(', ')}) on conflict(${pk}) do update set ${sets}`).run(...keys.map((k) => bindable(row[k])));
+  if (carriesOldNote(c)) {
+    if (o.onOldSessionNote) o.onOldSessionNote(c);
+    else adoptNoteFromOldSession(db, c);
+  }
   return 'applied';
 }
 
@@ -212,20 +298,27 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
  * 遅延させると違反が commit のときに出るので、1 行の親不明でそのページ全体が巻き戻ってしまう。
  * 即時に検査すれば、親がどこにも無い行だけを飛ばして残りは残せる。
  * SHARED_APPLY_ORDER は親を先に並べてあるので、同じバッチの中の親子は順番で解ける。
+ * 親が別の束（写しの後の頁、差分の後の頁）にある行は、ここでは当てられない。`onFailed` で呼び手へ渡す。
  */
 export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions): ChangeOut[] {
   const sorted = [...changes].sort((a, b) => (ORDER.get(a.tableName) ?? 99) - (ORDER.get(b.tableName) ?? 99) || a.seq - b.seq);
   const applied: ChangeOut[] = [];
+  const stillFailed: [ChangeOut, unknown][] = [];
   const run = db.transaction(() => {
     const failed: ChangeOut[] = [];
     for (const c of sorted) {
       try { if (applyRemoteChange(db, c, o) === 'applied') applied.push(c); } catch { failed.push(c); }
     }
     for (const c of failed) {
-      try { if (applyRemoteChange(db, c, o) === 'applied') applied.push(c); } catch (e) { console.error('[sync] apply failed', c.tableName, c.rowId, e instanceof Error ? e.message : e); }
+      try { if (applyRemoteChange(db, c, o) === 'applied') applied.push(c); } catch (e) { stillFailed.push([c, e]); }
     }
   });
   run();
+  // 当てられなかった行は、確定の後に渡す。巻き戻ったときに、持ち越しだけが残らないようにする。
+  for (const [c, e] of stillFailed) {
+    if (o.onFailed) o.onFailed(c, e);
+    else console.error('[sync] apply failed', c.tableName, c.rowId, e instanceof Error ? e.message : e);
+  }
   // 当てた行を、行の変化の口（db/notify.ts）へ知らせる。画面へ配るのは events/publisher.ts である。
   // 出どころは apply なので、同期の push のデバウンスはこれを拾わない（降りた行を push し返さない）。
   // 確定の後に知らせる。確定に失敗すれば run() が投げるので、ここには来ない。

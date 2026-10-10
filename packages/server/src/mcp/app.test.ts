@@ -75,7 +75,7 @@ describe('createMcpApp', () => {
   it('セッション別 URL では session_id を省ける。無いセッションは 404', async () => {
     const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_session_memo', arguments: { text: 'from mcp' } }, 5);
     expect(JSON.parse((r.body.result!.content as { text: string }[])[0]!.text)).toEqual({ ok: true, session_id: alphaId });
-    expect((db.prepare('select memo from sessions where id = ?').get(alphaId) as { memo: string }).memo).toBe('from mcp');
+    expect((db.prepare('select memo from session_notes where session_id = ?').get(alphaId) as { memo: string }).memo).toBe('from mcp');
     expect((await app.request('/s/nope', { method: 'POST', headers: H, body: '{}' })).status).toBe(404);
   });
   it('propose_session_status の説明文は、聞かずに confirmed を立てないよう求める', async () => {

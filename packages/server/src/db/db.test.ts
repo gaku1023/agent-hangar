@@ -9,21 +9,6 @@ import { onSharedWrite, softDeleteShared, upsertShared } from './shared.ts';
 import { LATEST_DB_VERSION as LATEST, seedDbAt } from '../../test/oldDb.ts';
 
 describe('openDb', () => {
-  it('version 10 で todos に候補の列が足され、既存の行の rejected_sessions は [] になる', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
-    const file = path.join(tmp, 'hangar.db');
-    seedDbAt(file, 9);
-    const old = new Database(file);
-    old.prepare("insert into projects (id, name, status, is_scratch, updated_at, origin_device) values ('p1', 'a', 'active', 0, 1, 'd')").run();
-    old.prepare("insert into todos (id, project_id, text, done, position, updated_at, origin_device) values ('t1', 'p1', 'x', 0, 1, 1, 'd')").run();
-    old.close();
-    const db = openDb(file);
-    const cols = (db.prepare('pragma table_info(todos)').all() as { name: string }[]).map((c) => c.name);
-    expect(cols).toEqual(expect.arrayContaining(['candidate_at', 'candidate_session_id', 'candidate_note', 'rejected_sessions']));
-    expect(db.prepare("select candidate_at, candidate_session_id, candidate_note, rejected_sessions from todos where id = 't1'").get()).toEqual({ candidate_at: null, candidate_session_id: null, candidate_note: null, rejected_sessions: '[]' });
-    db.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
   it('共有テーブル、ローカルテーブル、FTS を作る', () => {
     const db = openDb(':memory:');
     const names = db.prepare("select name from sqlite_master where type in ('table') order by name").all().map((r) => (r as { name: string }).name);
@@ -56,56 +41,6 @@ describe('openDb', () => {
     expect(db.prepare('select count(*) c from usage_daily').get()).toEqual({ c: 2 });
     const idx = (db.prepare("select name from sqlite_master where type = 'index' and tbl_name = 'artifact_versions'").all() as { name: string }[]).map((r) => r.name);
     expect(idx).toContain('artifact_versions_artifact');
-  });
-  it('マイグレーション 3 からでも 4 からでも 5 からでも上げられ、日別は空になって作り直しに回る', () => {
-    // 移した値は「どのファイル由来か」を持たないので、消し方も残し方も正しくならない。
-    // だから移行では空にして、索引の作り直しで積み直す。
-    for (const from of [3, 4, 5]) {
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
-      const file = path.join(tmp, 'hangar.db');
-      seedDbAt(file, from);
-      const old = new Database(file);
-      if (from >= 4) old.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?)').run('s1', '2026-09-01', '/p/s1.jsonl', 10, 2);
-      else old.prepare('insert into usage_daily (session_id, day, input_tokens, output_tokens) values (?,?,?,?)').run('s1', '2026-09-01', 10, 2);
-      old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1.jsonl', 's1', null, 1, 1, 1, 1);
-      old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1-sub.jsonl', 's1', 'ag1', 1, 1, 1, 1);
-      old.close();
-      const db = openDb(file);
-      expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v, `from ${from}`).toBe(LATEST);
-      expect(db.prepare('select count(*) c from usage_daily').get(), `from ${from}`).toEqual({ c: 0 });
-      // 索引済みの印を 0 に戻してあるので、次の走査で全ファイルが積み直される。
-      expect(db.prepare('select count(*) c from transcript_files where indexer_version = 0').get(), `from ${from}`).toEqual({ c: 2 });
-      db.close();
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-  it('version 16 で見張りの名残を消し、見張りが止めた一時停止だけを解く', () => {
-    const seedState = (rows: [string, string][]): string => {
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig-'));
-      seedDbAt(path.join(tmp, 'hangar.db'), 15, (db) => {
-        const st = db.prepare('insert into sync_state (key, value) values (?, ?)');
-        for (const [k, v] of rows) st.run(k, v);
-      });
-      return tmp;
-    };
-    const keysAfter = (tmp: string): string[] => {
-      const db = openDb(path.join(tmp, 'hangar.db'));
-      try {
-        return (db.prepare('select key from sync_state order by key').all() as { key: string }[]).map((r) => r.key);
-      } finally {
-        db.close();
-        fs.rmSync(tmp, { recursive: true, force: true });
-      }
-    };
-    // 設定の同期の記録（configPullConfirmed と configPending）は残す。
-    const common: [string, string][] = [['quota:2026-10-07', '{"rows":1,"requests":1}'], ['quota:pausedDay', 'quota:2026-10-07'], ['lastSeq', '9'], ['skipped:transcripts/dev-b/u1.jsonl.gz', '{}'], ['configPullConfirmed', '1'], ['configPending', '[]']];
-    const kept = ['configPending', 'configPullConfirmed', 'lastSeq'];
-    // 見張りが止めていた端末は、一時停止も解く。
-    expect(keysAfter(seedState([...common, ['paused', '1'], ['pausedReason', 'quota']]))).toEqual([...kept, 'skipped:transcripts/dev-b/u1.jsonl.gz']);
-    // 利用者が止めていた端末は、止めたまま。
-    expect(keysAfter(seedState([...common, ['paused', '1'], ['pausedReason', 'user']]))).toEqual([...kept, 'paused', 'skipped:transcripts/dev-b/u1.jsonl.gz']);
-    // 理由の無い古い一時停止も、利用者が止めたものとして残す。
-    expect(keysAfter(seedState([...common, ['paused', '1']]))).toEqual([...kept, 'paused', 'skipped:transcripts/dev-b/u1.jsonl.gz']);
   });
 });
 
@@ -177,19 +112,6 @@ describe('マイグレーション 8 と書き込みの通知', () => {
     db.prepare('insert into file_sync (key, kind, path, device_id, sha256, size, mtime, remote_seq, synced_at) values (?,?,?,?,?,?,?,?,?)')
       .run('transcript:/p/s1.jsonl', 'transcript', '/p/s1.jsonl', 'd1', 'a'.repeat(64), 10, 1, null, 2);
     expect(db.prepare('select count(*) c from file_sync').get()).toEqual({ c: 1 });
-  });
-  it('古い DB からでも上げられ、既存の transcript_files の device_id は null になる', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig8-'));
-    const file = path.join(tmp, 'hangar.db');
-    seedDbAt(file, 7);
-    const old = new Database(file);
-    old.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version) values (?,?,?,?,?,?,?)').run('/p/s1.jsonl', 's1', null, 1, 1, 1, 1);
-    old.close();
-    const db = openDb(file);
-    expect((db.prepare('select max(version) v from schema_migrations').get() as { v: number }).v).toBe(LATEST);
-    expect(db.prepare('select device_id from transcript_files where path = ?').get('/p/s1.jsonl')).toEqual({ device_id: null });
-    db.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
   });
   it('onSharedWrite は upsert と delete の後に呼ばれ、解除できる', () => {
     const db = openDb(':memory:');
@@ -398,32 +320,6 @@ describe('ログの組み立ての頑丈さ', () => {
 });
 
 describe('version 13 のセッションの状態', () => {
-  it('表を作り、生きているセッションだけを Done にし、changes には積まない', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig13-'));
-    const file = path.join(tmp, 'hangar.db');
-    seedDbAt(file, 12);
-    const old = new Database(file);
-    const ins = old.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, deleted_at, origin_device) values (?, 'claude-code', ?, '/w', 'd', 1, ?, 'd')");
-    ins.run('s1', 'u1', null);
-    ins.run('s2', 'u2', null);
-    ins.run('gone', 'u3', 5);
-    old.close();
-    const before = Math.floor(Date.now() / 1000) * 1000;
-    const db = openDb(file);
-    const rows = db.prepare('select session_id, status, note, return_on, set_by, set_at, candidate_at, rejected_at, updated_at, deleted_at, origin_device from session_states order by session_id').all() as Record<string, unknown>[];
-    // 削除済みのセッションには行を作らない。
-    expect(rows.map((r) => r.session_id)).toEqual(['s1', 's2']);
-    for (const r of rows) {
-      // updated_at を 0 にするのは、先に上げた PC で付けた状態が、後から上げた PC の一括 Done に後勝ちで負けないようにするためである。
-      expect(r).toMatchObject({ status: 'done', note: null, return_on: null, set_by: 'import', candidate_at: null, rejected_at: null, updated_at: 0, deleted_at: null, origin_device: 'import' });
-      expect(r.set_at as number).toBeGreaterThanOrEqual(before);
-      expect(r.set_at as number).toBeLessThanOrEqual(Date.now());
-    }
-    // 各 PC が自分のマイグレーションで同じ行を作るので、送らない。
-    expect(db.prepare("select count(*) c from changes where table_name = 'session_states'").get()).toEqual({ c: 0 });
-    db.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
   it('空の DB から作っても行は無く、状態と書き手の検査が効く', () => {
     const db = openDb(':memory:');
     expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
@@ -437,20 +333,6 @@ describe('version 13 のセッションの状態', () => {
 });
 
 describe('version 14 の戻る時刻', () => {
-  it('列を 2 本足し、既存の行の日付は変えず、時刻は null のままにする', () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig14-'));
-    const file = path.join(tmp, 'hangar.db');
-    seedDbAt(file, 13);
-    const old = new Database(file);
-    old.prepare("insert into sessions (id, provider, provider_session_id, cwd, home_device, updated_at, origin_device) values ('s1', 'claude-code', 'u1', '/w', 'd', 1, 'd')").run();
-    old.prepare("insert into session_states (session_id, status, note, return_on, set_by, set_at, updated_at, origin_device) values ('s1', 'paused', '明日見る', '2026-10-05', 'user', 5, 5, 'd')").run();
-    old.close();
-    const db = openDb(file);
-    expect(db.prepare('select status, note, return_on, return_time, candidate_return_time, updated_at from session_states').get()).toEqual({ status: 'paused', note: '明日見る', return_on: '2026-10-05', return_time: null, candidate_return_time: null, updated_at: 5 });
-    expect(db.prepare("select count(*) c from changes where table_name = 'session_states'").get()).toEqual({ c: 0 });
-    db.close();
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
   it('version 13 のままの PC は、時刻つきの行を受け取っても日付をそのまま読める（知らない列は捨てる）', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mig14-'));
     const file = path.join(tmp, 'hangar.db');

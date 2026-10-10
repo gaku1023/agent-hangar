@@ -4,12 +4,12 @@ import type { Context, Hono } from 'hono';
 import { liveFilterOf, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
 import { getProject, listSessions } from '../../db/queries.ts';
-import { upsertShared } from '../../db/shared.ts';
 import { EDIT_TOOLS } from '../../indexer/indexFile.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
+import { setSessionMemo } from '../../sessions/notes.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
@@ -112,13 +112,12 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   // セッションの 1 行メモ、昇格、事後要約。
   api.patch('/sessions/:id', async (c) => {
     const id = c.req.param('id');
-    const row = db.prepare('select * from sessions where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
-    if (!row) return c.json({ error: tr('session.error.notFound') }, 404);
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     const b = await readJson(c, BODY_LIMITS.todo);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo, tr);
     const body = (b.value ?? {}) as { memo?: unknown };
     if (typeof body.memo !== 'string') return c.json({ error: tr('common.field.mustBeString', { field: 'memo' }) }, 400);
-    upsertShared(db, 'sessions', { ...row, memo: body.memo.trim() || null }, deviceId);
+    setSessionMemo(db, deviceId, id, body.memo.trim() || null);
     return c.json(session(id)!);
   });
   // セッションの状態（Paused・Done・Archived）と Claude の提案の確定・却下。どれも利用者の操作で、MCP からは呼べない。

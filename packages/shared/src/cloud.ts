@@ -1,16 +1,17 @@
 /** 端末とクラウド Worker の間の契約。サーバ、CLI、Worker が共有する。 */
-export type SharedTable = 'devices' | 'projects' | 'project_roots' | 'sessions' | 'runs' | 'run_tabs' | 'session_summaries' | 'session_states' | 'todos' | 'project_memos' | 'artifacts' | 'artifact_versions';
+export type SharedTable = 'devices' | 'projects' | 'project_roots' | 'sessions' | 'runs' | 'run_tabs' | 'session_summaries' | 'session_states' | 'session_notes' | 'todos' | 'project_memos' | 'artifacts' | 'artifact_versions';
 
 /**
  * 親から子の順。pull の適用はこの順に並べ替えて外部キーの順序違反を避ける。
  * Worker（packages/cloud/src/changes.ts）はこの一覧に無い表の変更を含む push を断るので、表を足したら Worker も配備し直す。
+ * session_notes（セッションの名前とメモ）は互換の版 2 で足した。版 1 の Worker はこの表の行を断るので、端末は Worker に版 2 を求める。
  * takeover_requests は v1 のマイグレーションに表が残るが、誰も書かないので一覧に入れない。
  */
-export const SHARED_TABLES: readonly SharedTable[] = ['devices', 'projects', 'project_roots', 'sessions', 'runs', 'run_tabs', 'session_summaries', 'session_states', 'todos', 'project_memos', 'artifacts', 'artifact_versions'];
+export const SHARED_TABLES: readonly SharedTable[] = ['devices', 'projects', 'project_roots', 'sessions', 'runs', 'run_tabs', 'session_summaries', 'session_states', 'session_notes', 'todos', 'project_memos', 'artifacts', 'artifact_versions'];
 
 export const TABLE_PK: Record<SharedTable, string> = {
   devices: 'id', projects: 'id', project_roots: 'id', sessions: 'id', runs: 'id', run_tabs: 'id',
-  session_summaries: 'session_id', session_states: 'session_id', todos: 'id', project_memos: 'project_id', artifacts: 'id', artifact_versions: 'id',
+  session_summaries: 'session_id', session_states: 'session_id', session_notes: 'session_id', todos: 'id', project_memos: 'project_id', artifacts: 'id', artifact_versions: 'id',
 };
 
 export type ChangeOp = 'upsert' | 'delete';

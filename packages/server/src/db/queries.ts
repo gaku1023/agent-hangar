@@ -11,13 +11,16 @@ type SessionRow = {
   provider: 'claude-code';
   provider_session_id: string;
   project_id: string | null;
-  name: string | null;
   cwd: string;
   first_prompt: string | null;
   ai_title: string | null;
+  // 索引が本文から拾った題名（Claude Code の側で付けた名前）。
+  custom_title: string | null;
   started_at: number | null;
   last_activity_at: number | null;
-  memo: string | null;
+  // session_notes の左結合。hangar で付けた名前と、メモ。行が無ければどちらも null。
+  sn_name: string | null;
+  sn_memo: string | null;
   has_transcript: number;
   has_local: number;
   project_is_scratch: number | null;
@@ -76,6 +79,7 @@ select s.*, exists(select 1 from transcript_files t where t.session_id = s.id an
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
   st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
   ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question,
+  sn.name sn_name, sn.memo sn_memo,
   ss.session_id ss_id, ss.status ss_status, ss.note ss_note, ss.return_on ss_return_on, ss.return_time ss_return_time, ss.set_by ss_set_by, ss.set_at ss_set_at,
   ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at,
   (select r.end_reason from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_end_reason,
@@ -87,17 +91,22 @@ left join session_stats st on st.session_id = s.id
 left join session_live_stats ls on ls.provider_session_id = s.provider_session_id
 left join session_activity a on a.session_id = s.id
 left join session_states ss on ss.session_id = s.id and ss.deleted_at is null
+left join session_notes sn on sn.session_id = s.id and sn.deleted_at is null
 where s.deleted_at is null`;
 
 /**
  * 表示名を決める。
- * 利用者が Claude Code 側で付けた名前、hangar で付けた名前、ai_title、最初の発言の先頭 40 字の順に採る。
+ * 実行中の Claude Code が持つ利用者の名前、本文から拾った題名（custom_title）、hangar で付けた名前（name）、ai_title、最初の発言の先頭 40 字の順に採る。
+ *
+ * 本文の題名を hangar の名前より先に採るのは、2 つが同じ列（sessions.name）にあった頃と同じ見え方にするためである。
+ * その頃は後から書いた方が残り、hangar が名前を書くのは起動のときだけだったので、本文に題名が現れれば必ずそれが残った。
  */
 export function displayName(
-  s: { name: string | null; ai_title: string | null; first_prompt: string | null },
+  s: { custom_title: string | null; name: string | null; ai_title: string | null; first_prompt: string | null },
   live: LiveSessionDto | undefined,
 ): string | null {
   if (live?.nameSource === 'user' && live.name) return live.name;
+  if (s.custom_title) return s.custom_title;
   if (s.name) return s.name;
   if (s.ai_title) return s.ai_title;
   if (s.first_prompt) return [...s.first_prompt].slice(0, 40).join('');
@@ -215,14 +224,14 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     provider: r.provider,
     providerSessionId: r.provider_session_id,
     projectId: r.project_id,
-    name: displayName(r, live),
+    name: displayName({ custom_title: r.custom_title, name: r.sn_name, ai_title: r.ai_title, first_prompt: r.first_prompt }, live),
     cwd: r.cwd,
     fromScratch: underScratch && r.project_is_scratch !== 1,
     firstPrompt: r.first_prompt,
     aiTitle: r.ai_title,
     startedAt: r.started_at,
     lastActivityAt: r.last_activity_at,
-    memo: r.memo,
+    memo: r.sn_memo,
     hasTranscript: r.has_transcript === 1,
     live: live?.status ?? null,
     liveAside: live?.aside ?? null,

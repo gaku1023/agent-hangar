@@ -1,7 +1,8 @@
 import { MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
-import { applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
+import { noteApplied } from '../db/notify.ts';
+import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, CompatError, goneFloor, LimitError, type CloudClient } from './client.ts';
 import { SyncStateStore } from './state.ts';
 
@@ -11,6 +12,8 @@ export type Timers = { setTimeout: typeof setTimeout; clearTimeout: typeof clear
 export type SyncEngineDeps = {
   db: Db; deviceId: string; client: CloudClient | null; url?: string | null;
   now?: () => number; timers?: Timers;
+  /** 持ち越して覚えておく行の上限。既定は MAX_CARRIED_ROWS。試験が下げるために使う。 */
+  maxCarriedRows?: number;
   pushDebounceMs?: number; pushMinGapMs?: number; pullIntervalMs?: number; focusMinGapMs?: number;
   /**
    * 他端末の新しいメモで手元のメモを上書きする直前に呼ばれる。
@@ -19,13 +22,13 @@ export type SyncEngineDeps = {
    */
   onMemoConflict?: (o: MemoConflict) => void;
   /**
-   * セッションのメモを他端末の新しい版で上書きしたときに呼ばれる。
-   * 控えのファイルはもう書かれている（apply.ts が ~/.agent-hangar/backups/memos/ に残す）ので、
+   * セッションの名前かメモ（session_notes）を他端末の新しい版で上書きしたときに呼ばれる。
+   * 控えのファイルはもう書かれている（apply.ts が backups/memos に残す）ので、
    * ここでやることは利用者に置き場を知らせることだけである。投げても適用は止まらない。
    */
   onSessionMemoBackup?: (o: SessionMemoBackup) => void;
   /**
-   * 控えの置き場の親（~/.agent-hangar）。省くと環境変数から引くので、
+   * 控えの置き場の親（hangar の home）。省くと環境変数から引くので、
    * 一時ディレクトリで起こしたつもりが実物へ書く事故になる。結線側から必ず渡す。
    */
   home?: string;
@@ -72,6 +75,19 @@ export function limitedMessage(until: number, tz?: string): string {
 export function limitedWhilePausedMessage(): string {
   return 'Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです';
 }
+/**
+ * 持ち越して覚えておく行の上限。
+ * 親が永久に現れない行（クラウドに残った孤児）が溜まり続けないための歯止めである。超えた分は古い方から捨てて記録に出す。
+ * 写しの途中で止まったときに 1 頁ぶんより多く持ち越せるよう、頁（500 行）の何倍かにしてある。
+ */
+export const MAX_CARRIED_ROWS = 5_000;
+
+/**
+ * 親が現れない行を覚えておく日数。過ぎたら捨てて記録に出す。
+ * 親が消えた行は、いつまで待っても当てられない。寿命が無いと、毎回の pull がその全件を当て直し続ける。
+ */
+export const ORPHAN_KEEP_DAYS = 30;
+
 const RESYNC_MESSAGE = 'クラウドの変更ログが古くなっていたので、同期を作り直しました';
 
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
@@ -448,10 +464,167 @@ export class SyncEngine {
     return this.pulling;
   }
 
+  /**
+   * 親の行がまだ無くて当てられなかった行の持ち越し。鍵は「表:行 ID」で、同じ行は新しい方だけを持つ。
+   *
+   * 最初の写しは鍵の辞書順で頁ごとに降り、`runs:`、`session_notes:`、`session_states:`、`session_summaries:` は親の `sessions:` より前に並ぶ。
+   * 差分でも、親を書き直すと親の連番の方が後ろになり、子が前の頁、親が後の頁に分かれることがある。
+   * 束の中のやり直し（applyRemoteBatch）は同じ頁の親しか待てないので、落ちた行をここに持ち、1 巡の終わりに当て直す。
+   * 表には依らない。外部キーを持つどの表の行も、同じ道を通る。
+   * 最後まで当てられなかった行は sync_state の orphans に覚え、次の pull の終わりにもう一度試す。
+   * 区切り（lastSeq と snapshotDone）は止めない。止めると、孤児が 1 行あるだけで、毎回の pull が同じ頁か写しの全部を読み直す。
+   */
+  private carried = new Map<string, ChangeOut>();
+  /** 持ち越した行を、最初に持ち越した時刻。寿命（ORPHAN_KEEP_DAYS）を数える。鍵は carried と同じ。 */
+  private carriedAt = new Map<string, number>();
+  /**
+   * この 1 巡で降りてきた、古い形の sessions の行（名前かメモを持つもの）。鍵はセッションの ID。
+   * 1 巡を読み切り、持ち越しも当て直した後で、まだ session_notes の行が無いものだけ、その中身で行を作る（apply.ts の adoptNoteFromOldSession）。
+   */
+  private oldNotes = new Map<string, ChangeOut>();
+  private carriedLoaded = false;
+  /** 当て直しの最中に、また当てられなかった行の鍵。当て直していないときは null。 */
+  private settling: Set<string> | null = null;
+  /**
+   * 持ち越しが上限を超えたときの、写しのやり直しの段。1 回の起動につき 1 度だけやり直す。
+   * none はまだ、pending はやり直しを頼んだ（写しの印を外した）、done はやり直しを読み切った。
+   * done の後も超えていたら、写しを読み直してもそろわない行なので、捨てる。やり直しを繰り返す輪にしない。
+   */
+  private overflowRedo: 'none' | 'pending' | 'done' = 'none';
+
+  private carry(c: ChangeOut): void {
+    const key = `${c.tableName}:${c.rowId}`;
+    const cur = this.carried.get(key);
+    if (!cur || cur.updatedAt <= c.updatedAt) this.carried.set(key, c);
+    if (!this.carriedAt.has(key)) this.carriedAt.set(key, this.now());
+  }
+
+  private uncarry(key: string): void {
+    this.carried.delete(key);
+    this.carriedAt.delete(key);
+  }
+
+  /** 前の pull と前の起動が覚えた持ち越しを読む。壊れていれば捨てる。 */
+  private loadCarried(): void {
+    if (this.carriedLoaded) return;
+    this.carriedLoaded = true;
+    const raw = this.state.get('orphans');
+    if (!raw) return;
+    try {
+      const v: unknown = JSON.parse(raw);
+      if (!Array.isArray(v)) return;
+      for (const x of v as { c?: ChangeOut; at?: unknown }[]) {
+        const c = x?.c;
+        if (!c || typeof c.tableName !== 'string' || typeof c.rowId !== 'string' || typeof c.updatedAt !== 'number' || !c.payload || typeof c.payload !== 'object') continue;
+        const key = `${c.tableName}:${c.rowId}`;
+        this.carried.set(key, c);
+        this.carriedAt.set(key, typeof x.at === 'number' && Number.isFinite(x.at) ? x.at : this.now());
+      }
+    } catch {
+      console.error('[sync] 持ち越した行の覚えが読めなかったので捨てました');
+    }
+  }
+
+  /**
+   * 持ち越しを sync_state に覚える。空なら行を消す。
+   * 差分では、頁を当てるたびに、区切り（lastSeq）を進める前に呼ぶ。
+   * 区切りだけが先に進むと、その間にプロセスが落ちたとき、持ち越していた行は二度と降りてこない。
+   *
+   * 上限を超えたら、行は捨てずに、最初の写しをやり直す（写しの印を外す）。
+   * 写しを読み直せば、親と子が同じ 1 巡にそろう。古い順に捨てると、版 17 の写し（時刻が 1 の名前とメモ）が真っ先に消える。
+   * やり直しは 1 回の起動につき 1 度までである。やり直した後も超えていたら、覚えた時刻の古い順に捨てて記録に出す。
+   * そのときも session_notes は最後に捨てる。利用者が書いた文章だからである。
+   */
+  /** 頁ごとの覚え。上限は見ない（見るのは 1 巡の終わりだけ。頁の途中では、親が後の頁に来るだけのことが多い）。 */
+  private saveCarriedQuietly(): void {
+    const next = this.carried.size === 0 ? null : JSON.stringify([...this.carried.entries()].map(([k, c]) => ({ c, at: this.carriedAt.get(k) ?? this.now() })));
+    if (next !== this.state.get('orphans')) this.state.set('orphans', next);
+  }
+
+  private saveCarried(): void {
+    const max = this.deps.maxCarriedRows ?? MAX_CARRIED_ROWS;
+    if (this.carried.size > max) {
+      if (this.overflowRedo === 'none') {
+        this.overflowRedo = 'pending';
+        this.state.set('snapshotDone', null);
+        console.error(`[sync] 親の行が無いまま持ち越した行が上限（${max} 件）を超えたので、次の pull で最初の写しを読み直します`);
+      } else if (this.overflowRedo === 'done') {
+        const order = [...this.carried.keys()].sort((a, b) => {
+          const notes = Number(this.carried.get(a)!.tableName === 'session_notes') - Number(this.carried.get(b)!.tableName === 'session_notes');
+          return notes || (this.carriedAt.get(a) ?? 0) - (this.carriedAt.get(b) ?? 0) || (a < b ? -1 : 1);
+        });
+        const drop = order.slice(0, this.carried.size - max);
+        for (const k of drop) this.uncarry(k);
+        console.error(`[sync] 写しを読み直しても、親の行が無いまま持ち越した行が上限（${max} 件）を超えているので、古い ${drop.length} 件を捨てました`);
+      }
+    }
+    this.saveCarriedQuietly();
+  }
+
+  /** 寿命を過ぎた持ち越しを捨てる。捨てたら記録に 1 行出す。 */
+  private expireCarried(): void {
+    const limit = this.now() - ORPHAN_KEEP_DAYS * 86_400_000;
+    const old = [...this.carried.keys()].filter((k) => (this.carriedAt.get(k) ?? 0) < limit);
+    if (old.length === 0) return;
+    const tables = [...new Set(old.map((k) => this.carried.get(k)!.tableName))].sort().join('、');
+    for (const k of old) this.uncarry(k);
+    console.error(`[sync] 親の行が ${ORPHAN_KEEP_DAYS} 日たっても現れなかった行を ${old.length} 件捨てました（${tables}）`);
+  }
+
   private applyPage(changes: ChangeOut[], skipOwn: boolean): number {
-    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, home: this.deps.home, onMemoConflict: this.deps.onMemoConflict, onSessionMemoBackup: this.deps.onSessionMemoBackup });
-    for (const c of applied) this.emit('applied', c);
+    const applied = applyRemoteBatch(this.deps.db, changes, { ownDeviceId: this.deps.deviceId, skipOwn, home: this.deps.home, onMemoConflict: this.deps.onMemoConflict, onSessionMemoBackup: this.deps.onSessionMemoBackup, onFailed: (c) => { this.carry(c); this.settling?.add(`${c.tableName}:${c.rowId}`); }, onOldSessionNote: (c) => { this.oldNotes.set(c.rowId, c); } });
+    for (const c of applied) {
+      // 持ち越していた行より新しい版が当たったら、古い持ち越しは要らない。
+      const k = `${c.tableName}:${c.rowId}`;
+      const old = this.carried.get(k);
+      if (old && old.updatedAt <= c.updatedAt) this.uncarry(k);
+      this.emit('applied', c);
+    }
     return applied.length;
+  }
+
+  /** 古い形の sessions の行が持っていた名前とメモを、本物の行が届かなかったものだけ拾う。 */
+  private adoptOldNotes(): void {
+    if (this.oldNotes.size === 0) return;
+    const rows = [...this.oldNotes.values()];
+    this.oldNotes.clear();
+    const made: string[] = [];
+    this.deps.db.transaction(() => { for (const c of rows) if (adoptNoteFromOldSession(this.deps.db, c)) made.push(c.rowId); })();
+    // 作った行は SessionDto に載る。配る層へ、同期で降りた行として知らせる（changes には積まない）。
+    for (const id of made) noteApplied(this.deps.db, 'session_notes', id, 'upsert');
+  }
+
+  /**
+   * 持ち越した行を、まとめて当て直す。写しを読み切った後と、差分を読み切った後に呼ぶ。
+   * まだ当てられない行は持ち越したまま残し、数と表を記録に出す。黙って捨てない。
+   * 自端末の行かどうかは、最初に落ちる前に見てあるので、ここでは見ない。
+   */
+  private settleCarried(endOfPass: boolean): number {
+    let n = 0;
+    if (this.carried.size > 0) {
+      // 当て直す間も、持ち越しは消さない。当て直しが投げたら、そのまま残る。
+      // 当たった行は applyPage が外す。まだ当てられない行は onFailed でもう一度ここへ来る。
+      // どちらでもない行（手元の方が新しくて採らなかった行）は、もう要らないので外す。
+      const before = new Map(this.carried);
+      const failed = new Set<string>();
+      this.settling = failed;
+      try {
+        n = this.applyPage([...before.values()], false);
+      } finally {
+        this.settling = null;
+      }
+      for (const [k, c] of before) if (!failed.has(k) && this.carried.get(k) === c) this.uncarry(k);
+    }
+    if (endOfPass) {
+      // 古い形の行の名前とメモは、写しの後の差分まで読み切ってから拾う。差分で本物の行が届くことがある。
+      this.adoptOldNotes();
+      this.expireCarried();
+    }
+    if (this.carried.size > 0) {
+      const tables = [...new Set([...this.carried.values()].map((c) => c.tableName))].sort().join('、');
+      console.error(`[sync] 親の行が無いので当てられなかった行が ${this.carried.size} 件あります（${tables}）。覚えておき、次の pull でもう一度試します`);
+    }
+    return n;
   }
 
   /**
@@ -462,6 +635,16 @@ export class SyncEngine {
    * Worker は端末がどこまで読んだかを覚えていないので、やり直せるのはこちら側だけである。
    */
   private async pullPass(client: CloudClient, count: { applied: number }): Promise<void> {
+    this.loadCarried();
+    try {
+      await this.readPass(client, count);
+    } finally {
+      // 1 巡の終わり（途中で失敗したときも）に、上限を見てから覚える。頁ごとの覚えは readPass の中にある。
+      this.saveCarried();
+    }
+  }
+
+  private async readPass(client: CloudClient, count: { applied: number }): Promise<void> {
     if (this.state.get('snapshotDone') !== '1') {
       let after: string | null = null;
       /**
@@ -478,6 +661,12 @@ export class SyncEngine {
         after = page.nextAfter;
         if (seq === null) seq = page.seq;
       } while (after !== null);
+      // 写しは鍵の辞書順なので、子の表が親の sessions より前の頁に来る。読み切ってから、落ちた行を当て直す。
+      count.applied += this.settleCarried(false);
+      // 上限を超えてやり直した写しを、読み切った。これでもそろわない行は、次に超えたときに捨てる。
+      if (this.overflowRedo === 'pending') this.overflowRedo = 'done';
+      // 持ち越しを先に覚えてから、区切りを進める。
+      this.saveCarriedQuietly();
       this.state.set('lastSeq', seq ?? 0);
       this.state.set('snapshotDone', true);
     }
@@ -487,9 +676,12 @@ export class SyncEngine {
       const page = await client.pullChanges(at, PULL_LIMIT);
       count.applied += this.applyPage(page.changes, true);
       since = page.nextSeq;
+      // 持ち越しを先に覚えてから、区切りを進める。逆だと、その間に落ちたときに持ち越した行を失う。
+      this.saveCarriedQuietly();
       this.state.set('lastSeq', since);
       if (!page.more) break;
     }
+    count.applied += this.settleCarried(true);
   }
 
   /**

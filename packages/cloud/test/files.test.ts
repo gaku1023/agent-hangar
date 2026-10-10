@@ -106,6 +106,20 @@ afterEach(async () => {
   await cloud.dispose();
 });
 
+/**
+ * 本文を読まずに断る応答で、送る側の接続が途中で切れたか。
+ * miniflare の undici が投げる TypeError は別の領域のものなので、instanceof ではなく文言で見分ける。
+ * 応答の前に切れると "fetch failed"（原因は EPIPE か ECONNRESET）、応答の本文の途中で切れると "terminated" になる。
+ * Windows では、包まれずに ECONNRESET の系の誤りそのものが届くこともある。
+ */
+function cutOff(e: unknown): boolean {
+  const CODES = ['EPIPE', 'ECONNRESET', 'UND_ERR_SOCKET'];
+  const err = e as { message?: unknown; code?: unknown; cause?: { code?: unknown } } | null;
+  if (err?.message === 'terminated') return true;
+  if (err?.message === 'fetch failed' && CODES.includes(String(err.cause?.code))) return true;
+  return CODES.includes(String(err?.code));
+}
+
 describe('PUT と GET /files/<key>', () => {
   it('R2 に置き、索引に載せ、本体を取り出せる', async () => {
     const r = await put(tokA, 'transcripts/dev-a/u1.jsonl.gz', 'abc');
@@ -173,14 +187,23 @@ describe('PUT と GET /files/<key>', () => {
 
   it('長さを名乗らない本文は、411 で断り、R2 にも索引にも残さない', async () => {
     const buf = patterned(256 * 1024);
-    const r = await cloud.SELF.fetch('https://x/files/transcripts/dev-a/u1.jsonl.gz', {
-      method: 'PUT',
-      headers: { authorization: `Bearer ${tokA}`, ...meta({ [CLOUD_HEADERS.size]: String(buf.length) }) },
-      body: chunked(buf),
-      duplex: 'half',
-    } as RequestInit);
-    expect(r.status).toBe(411);
-    expect(await r.json()).toEqual({ error: 'length required' });
+    // 413 と同じく、Worker は本文を読まずに断る。Windows では送る側がまだ書いている途中に接続が切れ、ECONNRESET で投げることがある。
+    let status: number | null = null;
+    let body: unknown = null;
+    try {
+      const r = await cloud.SELF.fetch('https://x/files/transcripts/dev-a/u1.jsonl.gz', {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${tokA}`, ...meta({ [CLOUD_HEADERS.size]: String(buf.length) }) },
+        body: chunked(buf),
+        duplex: 'half',
+      } as RequestInit);
+      status = r.status;
+      body = await r.json();
+    } catch (e) {
+      if (!cutOff(e)) throw e;
+    }
+    if (status !== null) expect(status).toBe(411);
+    if (body !== null) expect(body).toEqual({ error: 'length required' });
     expect(await keysInR2()).toEqual([]);
     expect((await list(tokA)).files).toEqual([]);
   });
@@ -203,11 +226,7 @@ describe('PUT と GET /files/<key>', () => {
       status = r.status;
       body = await r.json();
     } catch (e) {
-      // miniflare の undici が投げる TypeError は別の領域のものなので、instanceof ではなく文言で見分ける。
-      // 応答の前に切れると "fetch failed"（原因は EPIPE か ECONNRESET）、応答の本文の途中で切れると "terminated" になる。
-      const err = e as { message?: unknown; cause?: { code?: unknown } } | null;
-      const cutOff = err?.message === 'terminated' || (err?.message === 'fetch failed' && ['EPIPE', 'ECONNRESET', 'UND_ERR_SOCKET'].includes(String(err.cause?.code)));
-      if (!cutOff) throw e;
+      if (!cutOff(e)) throw e;
     }
     if (status !== null) expect(status).toBe(413);
     if (body !== null) expect(body).toEqual({ error: 'too large' });

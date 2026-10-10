@@ -122,8 +122,8 @@ for (const f of fixtures) {
       const db = openDb(':memory:');
       try {
         await new IndexerService({ db, deviceId: 'd', claudeDir, isRunning: () => false }).fullScan();
-        const s = db.prepare('select id, name from sessions where provider_session_id = ?').get(f.sessionId) as { id: string; name: string | null };
-        expect(s.name).toBe(SCENARIO.name);
+        const s = db.prepare('select id, custom_title from sessions where provider_session_id = ?').get(f.sessionId) as { id: string; custom_title: string | null };
+        expect(s.custom_title).toBe(SCENARIO.name);
         const stats = db.prepare('select turns, input_tokens, output_tokens from session_stats where session_id = ?').get(s.id) as { turns: number; input_tokens: number; output_tokens: number };
         expect(stats.turns).toBe(2);
         expect(stats.input_tokens).toBeGreaterThan(0);

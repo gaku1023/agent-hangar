@@ -16,7 +16,7 @@ import { ensureSession } from './indexer/indexFile.ts';
 import { mangleCwd } from './provider/claude-code/discover.ts';
 import { answerAll, fakeWorker, fileSink } from '../test/fake-worker.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
-import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../test/oldDb.ts';
+import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { CLOSE_DEADLINE_MS, installShutdown, startServer, STOP_WATCHDOG_MS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { expectMode, posixDescribe, posixIt } from '../test/platform.ts';
@@ -307,13 +307,14 @@ describe('startServer', () => {
     afterEach(() => { d.cleanup(); });
 
     it('DB の控えが取れなければ、マイグレーションを当てずに起動を止める', async () => {
-      // 1 つ前の版までの DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
+      // いまの版の DB を置き、控えの置き場（backups/db）を通常のファイルにして作れなくする。
+      // 当てるものがあるように、仮の次の版を足して起こす。
       const file = path.join(d.home, 'hangar.db');
-      seedDbAt(file, LATEST_DB_VERSION - 1);
+      seedDbAt(file, LATEST_DB_VERSION);
       fs.mkdirSync(path.join(d.home, 'backups'), { recursive: true });
       fs.writeFileSync(path.join(d.home, 'backups', 'db'), 'x');
-      await expect(start(d)).rejects.toBeInstanceOf(DbBackupError);
-      expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION - 1);
+      await withPendingMigration(() => expect(start(d)).rejects.toBeInstanceOf(DbBackupError));
+      expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION);
     });
 
     it('起動後に現れたセッションにもプロジェクトを紐づけて配信する', async () => {

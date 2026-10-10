@@ -491,12 +491,18 @@ describe('互換の版', () => {
     expect((e as Error).message).toContain('今すぐ同期');
   });
 
-  it('この PC が Worker に求める下限は 1 で、版の見出しを返さない Worker（版 0）の 2xx は Worker を上げるよう断る', async () => {
-    expect(MIN_WORKER_COMPAT).toBe(1);
+  it('この PC が Worker に求める下限は 2 で、版の見出しを返さない Worker（版 0）の 2xx は Worker を上げるよう断る', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(2);
     const { fetch } = fakeFetch(() => json({ changes: [], nextSeq: 4, more: false }), { stamp: false });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
-    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 1 });
+    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 2 });
     await expect(c.usage()).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker' });
+  });
+
+  it('版 1 の Worker（session_notes を知らず、その行の push を断る版）も、Worker を上げるよう断る', async () => {
+    const { fetch } = fakeFetch(() => new Response(JSON.stringify({ changes: [], nextSeq: 4, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '1' } }), { stamp: false });
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 1, need: 2 });
   });
 
   // Cloudflare の端は、Worker を通さずに 4xx と 5xx を返すことがある（WAF の 403、本文が大きすぎるときの 413、CPU の超過、日の上限など）。

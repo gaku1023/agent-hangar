@@ -10,6 +10,7 @@ import { upsertShared } from '../db/shared.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { BACKUP_GENERATIONS } from '../sync/claudeConfig.ts';
+import { MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS } from '../sync/pruneBackups.ts';
 import { memoLossHandlers, toastVia } from '../sync/notices.ts';
 import { SyncStateStore } from '../sync/state.ts';
 import { answerAll, fakeWorker, fileSink, recorder, refuse, type Answer, type Seen } from '../../test/fake-worker.ts';
@@ -268,7 +269,7 @@ describe('同期の組み立て', () => {
     expect(UPLOAD_SWEEP_MS).toBe(60_000);
   });
 
-  it('起動のときに、本文とメモの控えを上限まで刈る', () => {
+  it('起動のときに、本文の控えを上限まで刈り、メモの控えは件数を超えた古いものだけ刈る', () => {
     const seed = (dir: string, n: number, ext: string): string[] => {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       const names: string[] = [];
@@ -285,10 +286,24 @@ describe('同期の組み立て', () => {
     const tr = path.join(home, 'backups', 'transcripts');
     const memos = path.join(home, 'backups', 'memos');
     const trNames = seed(tr, BACKUP_GENERATIONS + 7, '.jsonl');
-    const memoNames = seed(memos, BACKUP_GENERATIONS + 4, '.md');
+    /** 更新時刻が at の控えを n 件置く。 */
+    const seedAged = (n: number, prefix: string, at: number): string[] => {
+      fs.mkdirSync(memos, { recursive: true, mode: 0o700 });
+      const names: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const name = `session-${prefix}${i}-20260101-000000.md`;
+        fs.writeFileSync(path.join(memos, name), `${i}\n`, { mode: 0o600 });
+        fs.utimesSync(path.join(memos, name), new Date(at), new Date(at));
+        names.push(name);
+      }
+      return names;
+    };
+    // 件数の内なら、どれだけ古くても残る。件数を超えた分のうち、保つ日数より古い控えだけが消える。
+    const fresh = seedAged(MEMO_BACKUP_KEEP_COUNT, 'new', Date.now() - 86_400_000);
+    seedAged(3, 'old', Date.now() - (MEMO_BACKUP_KEEP_DAYS + 1) * 86_400_000);
     boot({ start: true });
     expect(fs.readdirSync(tr).sort()).toEqual(trNames.slice(7).sort());
-    expect(fs.readdirSync(memos).sort()).toEqual(memoNames.slice(4).sort());
+    expect(fs.readdirSync(memos).sort()).toEqual(fresh.sort());
   });
 
   it('止めた後は、定期の仕事も通信も残さない', async () => {
