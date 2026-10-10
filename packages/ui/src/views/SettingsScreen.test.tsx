@@ -20,7 +20,7 @@ const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[i
 /** 設定の同期（作り直した実装）の節の既定。クラウドに参加していない形で、使う試験が必要な分だけ上書きする。節の中身の試験は ConfigSyncSection.test.tsx が見る。 */
 const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): SettingsProps['configSync'] => ({
   needsCloud: true, enabled: false, workerPending: false, lastSent: null, approval: 'each', native: true, order: null,
-  incoming: { count: 0, held: 0, from: null }, awaiting: 0, conflicts: 0, unsent: { count: 0, rows: [] }, backups: { count: 0, rows: [] },
+  incoming: { count: 0, held: 0, from: null }, awaiting: 0, conflicts: 0, unsent: { count: 0, rows: [] }, backups: { count: 0, rows: [] }, focusUnsent: false,
   ...over,
 });
 
@@ -275,7 +275,7 @@ describe('設定のクラウド同期', () => {
     expect(screen.getByText(/持つ人は全セッションを読み書きできます/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '参加トークン をコピー' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
-    // 入っているスイッチを切るのは、その場で保存する。旧実装のスイッチには触らない。
+    // 入っているスイッチを切るのは、その場で保存する。
     fireEvent.click(screen.getByRole('switch', { name: 'この PC で有効にする' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { configBundleSync: false } });
   });

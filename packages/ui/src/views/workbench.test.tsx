@@ -5,7 +5,6 @@ import { IntentRoot } from '../intent/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { Header } from './Header.tsx';
-import { MemoEditor } from './MemoEditor.tsx';
 import { TodoList } from './TodoList.tsx';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { syncFixture } from '../test/syncProps.ts';
@@ -163,69 +162,6 @@ describe('TodoList', () => {
     fireEvent.change(input, { target: { value: 'かう' } });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
     expect(onIntent).not.toHaveBeenCalled();
-  });
-});
-
-describe('MemoEditor の空の状態', () => {
-  it('空のノートは 1 行に畳み、押すと欄が開く', () => {
-    wrap(<MemoEditor projectId="p1" markdown="" updatedAt={0} />);
-    expect(screen.queryByLabelText('ノート')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
-    expect(screen.getByLabelText('ノート')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled();
-  });
-  it('書き始めたあと空に戻しても、欄は開いたままにする', () => {
-    wrap(<MemoEditor projectId="p1" markdown="" updatedAt={0} />);
-    fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
-    fireEvent.change(screen.getByLabelText('ノート'), { target: { value: 'a' } });
-    fireEvent.change(screen.getByLabelText('ノート'), { target: { value: '' } });
-    expect(screen.getByLabelText('ノート')).toBeInTheDocument();
-  });
-  it('中身のあるノートは最初から開いている', () => {
-    wrap(<MemoEditor projectId="p1" markdown="# a" updatedAt={1} />);
-    expect(screen.getByLabelText('ノート')).toHaveValue('# a');
-  });
-});
-
-describe('MemoEditor', () => {
-  it('保存すると memo.save を出す', () => {
-    const onIntent = wrap(<MemoEditor projectId="p1" markdown="# a" updatedAt={1} />);
-    fireEvent.change(screen.getByLabelText('ノート'), { target: { value: '# b' } });
-    fireEvent.click(screen.getByText('保存'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'memo.save', projectId: 'p1', markdown: '# b' });
-  });
-  it('下書きが無ければ外部の更新をそのまま取り込む', () => {
-    const { rerender } = render(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# a" updatedAt={1} /></IntentRoot>);
-    rerender(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# 外" updatedAt={2} /></IntentRoot>);
-    expect((screen.getByLabelText('ノート') as HTMLTextAreaElement).value).toBe('# 外');
-    expect(screen.queryByText('外部で更新されました')).toBeNull();
-  });
-  it('下書きがあれば捨てずに知らせ、読み込むで差し替える', () => {
-    const { rerender } = render(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# a" updatedAt={1} /></IntentRoot>);
-    fireEvent.change(screen.getByLabelText('ノート'), { target: { value: '# 書きかけ' } });
-    rerender(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# 外" updatedAt={2} /></IntentRoot>);
-    expect((screen.getByLabelText('ノート') as HTMLTextAreaElement).value).toBe('# 書きかけ');
-    expect(screen.getByText('外部で更新されました')).toBeTruthy();
-    fireEvent.click(screen.getByText('再読み込みする'));
-    expect((screen.getByLabelText('ノート') as HTMLTextAreaElement).value).toBe('# 外');
-  });
-  it('自分の保存が戻ってきただけなら外部の更新と言わない', () => {
-    const { rerender } = render(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# a" updatedAt={1} /></IntentRoot>);
-    const area = screen.getByLabelText('ノート') as HTMLTextAreaElement;
-    fireEvent.change(area, { target: { value: '# b' } });
-    fireEvent.click(screen.getByText('保存'));
-    // 保存の直後に書き足す。ここで自分の保存がサーバから戻ってくる。
-    fireEvent.change(area, { target: { value: '# b の続き' } });
-    rerender(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# b" updatedAt={2} /></IntentRoot>);
-    expect(screen.queryByText('外部で更新されました')).toBeNull();
-    expect(area.value).toBe('# b の続き');
-    // 本当に外から書き換わったときだけ知らせる。
-    rerender(<IntentRoot onIntent={() => {}}><MemoEditor projectId="p1" markdown="# 外" updatedAt={3} /></IntentRoot>);
-    expect(screen.getByText('外部で更新されました')).toBeTruthy();
-  });
-  it('書き換えていなければ保存できない', () => {
-    wrap(<MemoEditor projectId="p1" markdown="# a" updatedAt={1} />);
-    expect((screen.getByText('保存') as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

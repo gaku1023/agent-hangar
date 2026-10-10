@@ -17,7 +17,7 @@ import { translatorOf } from '../presenters/i18n.ts';
 import { readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -564,8 +564,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           else launchFailed(err);
         });
         return;
-      case 'api.configPreview': deps.api.configPreview().then((p) => setStore(applyConfigPreview(store, p))).catch(fail); return;
-      case 'api.configPull': deps.api.configPull().then((r) => toast(`${r.applied} 件を取り込みました（競合 ${r.conflicts} 件）`)).catch(fail); return;
       case 'api.configSyncLoad': loadConfigDetail(e.parts); return;
       case 'api.configSyncApply': applyConfigSync(e.entries); return;
       case 'api.configSyncRestore': {

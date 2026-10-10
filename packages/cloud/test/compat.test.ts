@@ -31,26 +31,34 @@ afterEach(async () => {
 });
 
 describe('互換の版（本番の下限）', () => {
-  it('本番の下限は 2 である（段 2 の PR 11 で上げた。名前とメモを session_notes で運ぶ版）', () => {
-    expect(MIN_DEVICE_COMPAT).toBe(2);
+  it('本番の下限は 4 である（段 4 の PR 18 で上げた。設定の同期の旧実装を持たない最初の版）', () => {
+    expect(MIN_DEVICE_COMPAT).toBe(4);
     // この版の端末は通す。下限を、束ねて配る端末の版より先へ上げない。
     expect(MIN_DEVICE_COMPAT).toBeLessThanOrEqual(COMPAT_VERSION);
   });
 
-  it('版 1 を名乗る端末（名前とメモを sessions の行で運ぶ版）は、参加も含めて 426 と下限 2 で断る', async () => {
+  it('版 1 を名乗る端末（名前とメモを sessions の行で運ぶ版）は、参加も含めて 426 と下限で断る', async () => {
     const c = await boot();
     const v1 = { [COMPAT_HEADER]: '1' };
     const j = await c.RAW.fetch('https://x/join', joinInit(v1));
     expect(j.status).toBe(426);
-    expect(await j.json()).toEqual({ error: 'upgrade required', minCompat: 2, compat: COMPAT_VERSION });
+    expect(await j.json()).toEqual({ error: 'upgrade required', minCompat: MIN_DEVICE_COMPAT, compat: COMPAT_VERSION });
     for (const [method, url] of [['GET', 'https://x/changes?since=0'], ['POST', 'https://x/changes'], ['GET', 'https://x/rows?after=&limit=10']] as const) {
       const r = await c.RAW.fetch(url, { method, headers: v1 });
       expect(r.status, `${method} ${url}`).toBe(426);
-      expect(await r.json(), `${method} ${url}`).toEqual({ error: 'upgrade required', minCompat: 2, compat: COMPAT_VERSION });
+      expect(await r.json(), `${method} ${url}`).toEqual({ error: 'upgrade required', minCompat: MIN_DEVICE_COMPAT, compat: COMPAT_VERSION });
     }
   });
 
-  it('版 2 を名乗る端末は通し、session_notes の行を受け取って返す', async () => {
+  it('版 3（設定の同期の旧実装をまだ持つ端末）は、参加も含めて 426 で断る', async () => {
+    // 版 3 の端末は旧実装の設定の同期を積んでいる。旧実装が R2 に置いた項目ごとの設定は、この版の Worker が消すので、混ざると旧い端末が置き直し続ける。
+    const c = await boot();
+    const v3 = { [COMPAT_HEADER]: '3' };
+    expect((await c.RAW.fetch('https://x/join', joinInit(v3))).status).toBe(426);
+    expect((await c.RAW.fetch('https://x/changes?since=0', { headers: v3 })).status).toBe(426);
+  });
+
+  it('版 4 を名乗る端末は通し、session_notes の行を受け取って返す', async () => {
     const c = await boot();
     const { deviceToken } = (await (await c.SELF.fetch('https://x/join', joinInit())).json()) as { deviceToken: string };
     const auth = { authorization: `Bearer ${deviceToken}`, 'content-type': 'application/json' };
@@ -97,7 +105,7 @@ describe('互換の版（本番の下限）', () => {
     const c = await boot();
     const j = await c.RAW.fetch('https://x/join', joinInit());
     expect(j.status).toBe(426);
-    expect(await j.json()).toEqual({ error: 'upgrade required', minCompat: 2, compat: COMPAT_VERSION });
+    expect(await j.json()).toEqual({ error: 'upgrade required', minCompat: MIN_DEVICE_COMPAT, compat: COMPAT_VERSION });
     expect((await c.RAW.fetch('https://x/changes?since=0')).status).toBe(426);
   });
 });

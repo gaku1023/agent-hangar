@@ -146,7 +146,6 @@ export class SyncEngine {
    * 残すと、直した後も止まり続ける。
    */
   private compatBlock: string | null = null;
-  private claudeConfig = { enabled: false, confirmed: false };
   private started = false;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
   private readonly oversizeTold = new Set<string>();
@@ -156,7 +155,7 @@ export class SyncEngine {
    * `pushNow` と `pullNow` は約束を返すが、タイマーの中から投げっぱなしで始めた回は誰も持たない。
    * 持たないと、終了処理は走っている送信を待てず、テストは「マイクロタスクを何回流したか」でしか待てない。
    * 回数で待つ書き方は、非同期の終わる回が端末ごとに変わるぶん、macOS では通って Linux では落ちる
-   * （sync/claudeConfig.ts の押し出しが実際にそうなった）。鎖に並べて `idle()` で待ち合わせる。
+   * （設定の押し出しが実際にそうなった）。鎖に並べて `idle()` で待ち合わせる。
    */
   private chain: Promise<unknown> = Promise.resolve();
 
@@ -279,12 +278,10 @@ export class SyncEngine {
       pending: this.pending(),
       error: state === 'error' ? (this.compatBlock ?? this.lastError) : null,
       deviceCount: this.deviceCount(),
-      claudeConfig: { ...this.claudeConfig },
       limitedUntil: shownLimit,
     };
   }
 
-  setClaudeConfigStatus(s: { enabled: boolean; confirmed: boolean }): void { this.claudeConfig = { ...s }; this.emitStatus(); }
 
   /** 仕事を鎖の末尾につなぐ。前の仕事が転んでも次は走る。 */
   private enqueue<T>(work: () => Promise<T>): Promise<T> {

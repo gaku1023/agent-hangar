@@ -29,7 +29,6 @@ import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
 import { usePaletteFound } from './views/usePaletteFound.ts';
 import { createFindStore, FindRoot } from './views/findStore.tsx';
-import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
 import { ConfigSyncDialog } from './views/ConfigSyncDialog.tsx';
 import { RetentionDialog } from './views/RetentionDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
@@ -371,9 +370,6 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
       {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}
       {pause && <PauseDialog key={`${pause.sessionId}:${pause.from}`} {...pause} />}
-      {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
-      {/* 未解決ダイアログの候補と同じ扱いである。 */}
-      {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
       {configDialog && <ConfigSyncDialog {...configDialog} />}
       {overlay.kind === 'retention' && <RetentionDialog {...presentRetentionDialog(state, store, now)!} />}
       {overlay.kind === 'shortcuts' && <ShortcutsDialog />}

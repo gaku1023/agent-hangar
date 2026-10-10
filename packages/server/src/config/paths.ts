@@ -31,19 +31,14 @@ export type Settings = {
    */
   allowExternalSummarizer: boolean;
   /**
-   * ~/.claude の設定（CLAUDE.md、settings.json、commands、agents、skills）を端末の間で同期するかどうか。
-   * 既定は false である。他端末の設定が手元の ~/.claude を書き換えるので、利用者が明示的に入れたときだけ動かす。
-   */
-  syncClaudeConfig: boolean;
-  /**
    * 他の PC から届いた skills、commands、agents の承諾の仕方（作り直した設定の同期。sync/config/）。
    * each は項目ごとに毎回承諾し、auto は自動で適用する。項目が無いうちは each として読む。
    * 実行される指示なので、既定では自動にしない。
    */
   configApproval?: ConfigApproval;
   /**
-   * 作り直した設定の同期（sync/config/）を動かすか。旧実装の syncClaudeConfig とは別のスイッチで、既定は切。
-   * 設定の画面の「この PC で有効にする」がこのスイッチを入れる（PATCH /api/settings）。画面は入れるとき旧実装の syncClaudeConfig を切る。
+   * 設定の同期（sync/config/）を動かすか。既定は切。
+   * 設定の画面の「この PC で有効にする」がこのスイッチを入れる（PATCH /api/settings）。
    */
   configBundleSync?: boolean;
   /**
@@ -111,13 +106,16 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null };
 }
 
 export function loadSettings(home: string): Settings {
   const file = path.join(home, 'settings.json');
   if (!fs.existsSync(file)) return defaultSettings();
   const s = { ...defaultSettings(), ...(JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Settings>) };
+  // 旧実装の設定の同期のスイッチ（syncClaudeConfig）は、設定の同期を作り直したときに消した。
+  // 入れていた人の settings.json にはまだ残っているので、未知の鍵として読み捨てる（保存し直すと消える）。
+  delete (s as Record<string, unknown>).syncClaudeConfig;
   // 許しの無い外部の宛先は、読み込みのときに既定へ戻す。
   // 手で書き換えた settings.json や、この制限より前に保存された設定から、会話の本文が外へ出ていかないようにする。
   if (!s.allowExternalSummarizer && !isLoopbackSummarizerUrl(s.lmStudioUrl)) s.lmStudioUrl = defaultSettings().lmStudioUrl;

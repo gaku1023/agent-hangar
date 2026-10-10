@@ -73,6 +73,7 @@ export function NowStrip(props: NowStripProps & { sessionId: string }) {
 /** 「ノート」の札。中身があれば印を付け、押すとポップオーバーでノートを読み書きする。 */
 function NoteChip(props: { sessionId: string; text: string; filled: boolean }) {
   const t = useT();
+  const emit = useEmit();
   return (
     <Popover label={t('session.note.label')} width={340} align="end"
       face={(p) => (
@@ -81,7 +82,7 @@ function NoteChip(props: { sessionId: string; text: string; filled: boolean }) {
         </button>
       )}>
       <h4 className="pop-title">{t('session.note.label')}</h4>
-      <NoteEditor sessionId={props.sessionId} text={props.text} />
+      <NoteEditor text={props.text} onSave={(text) => emit({ type: 'session.setMemo', id: props.sessionId, text })} />
     </Popover>
   );
 }

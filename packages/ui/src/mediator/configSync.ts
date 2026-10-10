@@ -37,10 +37,10 @@ export function configSyncStep(state: State, store: Store, input: Input): Step |
       if (!movable) return { state, effects: [] };
       return { state: { ...state, overlay: { kind: 'configSync', part: i.part, working: false } }, effects: load(PARTS_OF[i.part]) };
     }
-    // 送る一覧を承諾した。新しい実装を入れるので、旧実装は切る（両方が ~/.claude と同じクラウドの置き場を動かさない）。
+    // 送る一覧を承諾した。スイッチを入れる。
     case 'configSync.send.confirm':
       if (o.kind !== 'configSync' || o.part !== 'send') return { state, effects: [] };
-      return { state: { ...state, overlay: { kind: 'none' } }, effects: [{ kind: 'api.updateSettings', patch: { configBundleSync: true, syncClaudeConfig: false } }] };
+      return { state: { ...state, overlay: { kind: 'none' } }, effects: [{ kind: 'api.updateSettings', patch: { configBundleSync: true } }] };
     case 'configSync.apply':
       if (o.kind !== 'configSync' || o.working || i.entries.length === 0) return { state, effects: [] };
       return { state: { ...state, overlay: { ...o, working: true } }, effects: [{ kind: 'api.configSyncApply', entries: i.entries }] };

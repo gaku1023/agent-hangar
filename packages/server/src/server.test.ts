@@ -459,28 +459,6 @@ describe('startServer', () => {
       }
     });
 
-    it('設定の同期を切って入れ直すと、取り込みの確認をもう一度求める', async () => {
-      // ~/.claude を書き換える同期なので、入れるときには必ず確認を取る（決定 2）。
-      // configPullConfirmed は sync_state に残り続けるので、切った時点で降ろさないと、
-      // 気に入らなくて切った利用者が入れ直したときに無確認で ~/.claude が書き換わる。
-      const confirmed = async (): Promise<boolean> => ((await (await api('/api/sync/config/preview')).json()) as { confirmed: boolean }).confirmed;
-      const setSync = async (on: boolean): Promise<void> => {
-        const r = await api('/api/settings', { method: 'PATCH', body: JSON.stringify({ syncClaudeConfig: on }) });
-        expect(r.status).toBe(200);
-        expect(((await r.json()) as { syncClaudeConfig: boolean }).syncClaudeConfig).toBe(on);
-      };
-      await setSync(true);
-      expect(await confirmed()).toBe(false);
-      // 一度だけ確認して取り込む。相手の設定は 1 件も無い。
-      const pulled = await api('/api/sync/config/pull', { method: 'POST' });
-      expect(pulled.status).toBe(200);
-      expect(await confirmed()).toBe(true);
-      // 切って入れ直す。
-      await setSync(false);
-      await setSync(true);
-      expect(await confirmed()).toBe(false);
-    });
-
     it('参加トークンを作れる', async () => {
       // 参加トークンは中身を見ない。秘密が差分やログに出ないようにする。
       const jt = await (await api('/api/sync/joinToken')).json() as { token: string | null };

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { ConfigSyncSectionProps } from '../presenters/configSync.ts';
 import { ConfigRow } from './ConfigSyncParts.tsx';
@@ -7,6 +7,7 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
+import { revealWithin } from './primitives/revealWithin.ts';
 import { Switch } from './primitives/Switch.tsx';
 
 /**
@@ -25,7 +26,17 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
   const c = props.cfg;
   // 自動に切り替える前の注意の帯。承諾の仕方は、利用者が「自動にする」を押すまで変えない。
   const [askAuto, setAskAuto] = useState(false);
-  const [unsentOpen, setUnsentOpen] = useState(false);
+  const [unsentOpen, setUnsentOpen] = useState(c.focusUnsent);
+  // ベルの一覧の行から来たときは、送らなかった項目の行を開いて、見える所へ移る。行は節が揃ってから出るので、出たときにも見直す。
+  const showUnsent = c.enabled && !props.cloudOff && !c.needsCloud && c.unsent.count > 0;
+  useEffect(() => {
+    if (!c.focusUnsent || !showUnsent) return;
+    setUnsentOpen(true);
+    // scrollIntoView は WebKit で外箱まで動かすので、頁をスクロールする枠の中だけを動かす。
+    const row = document.getElementById('settings-config-unsent');
+    const box = row?.closest<HTMLElement>('.main');
+    if (row && box) revealWithin(box, row);
+  }, [c.focusUnsent, showUnsent]);
   const [backupsOpen, setBackupsOpen] = useState(false);
   const off = props.cloudOff || c.needsCloud;
   const on = c.enabled && !off;
@@ -107,7 +118,7 @@ export function ConfigSyncSection(props: { cfg: ConfigSyncSectionProps; cloudOff
           <SetRow title={t('configSyncUi.conflicts.title', { n: c.conflicts })} desc={c.conflicts === 0 ? t('configSyncUi.conflicts.none') : t('configSyncUi.conflicts.desc')}
             control={<button type="button" className="btn btn-sm" disabled={c.conflicts === 0} onClick={() => emit({ type: 'configSync.open', part: 'conflicts' })}>{t('configSyncUi.conflicts.open')}</button>} />
           {/* 送らなかった項目は、0 件でも行を残す（e2）。送った直後の知らせはベルの一覧に入る（段 4 の PR 19）。 */}
-          <SetRow title={t('configSyncUi.unsent.title', { n: c.unsent.count })} desc={t('configSyncUi.unsent.desc')}
+          <SetRow id="settings-config-unsent" title={t('configSyncUi.unsent.title', { n: c.unsent.count })} desc={t('configSyncUi.unsent.desc')}
             control={<button type="button" className="btn btn-sm" aria-expanded={unsentOpen && c.unsent.count > 0} disabled={c.unsent.count === 0} onClick={() => setUnsentOpen(!unsentOpen)}>{unsentOpen && c.unsent.count > 0 ? t('configSyncUi.word.fold') : t('configSyncUi.word.show')}</button>}
             below={unsentOpen && c.unsent.count > 0 ? (
               <div className="cfg-list">

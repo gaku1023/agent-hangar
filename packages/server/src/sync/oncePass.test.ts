@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createOncePass, type OncePassDeps } from './oncePass.ts';
 
 /** 利用者が止めた印と、版と上限の止まりを持つだけの立て替えのエンジン。 */
-function setup(o: { paused: boolean; compatBlocked?: boolean; limited?: boolean; pending?: number; sweepPending?: number | null; metadata?: () => Promise<void>; haltedDuringPass?: boolean; failing?: string[] } = { paused: true }) {
+function setup(o: { paused: boolean; compatBlocked?: boolean; limited?: boolean; pending?: number; sweepPending?: number | null; metadata?: () => Promise<void>; haltedDuringPass?: boolean; failing?: string[]; noBundle?: boolean } = { paused: true }) {
   const calls: string[] = [];
   const toasts: { level: string; message: string }[] = [];
   const sent: SyncStatusDto[] = [];
@@ -21,7 +21,7 @@ function setup(o: { paused: boolean; compatBlocked?: boolean; limited?: boolean;
       state: { get: () => (o.paused ? '1' : null) },
     },
     puller: { pullNow: step('files') },
-    configSync: { pushChanged: step('config') },
+    configBundle: o.noBundle ? null : { tick: step('config') },
     uploader: { sweep: (limit) => { calls.push(`sweep(${limit})`); }, idle: step('upload.idle') },
     cloudUsage: { refresh: step('usage') },
     isPaused: () => o.haltedDuringPass ?? false,
@@ -120,10 +120,18 @@ describe('今すぐ同期', () => {
   });
 
   it('繋がらない段があっても、残りの段は試す', async () => {
-    const t = setup({ paused: true, failing: ['files', 'config'] });
+    const t = setup({ paused: true, failing: ['files', 'config', 'usage'] });
     stop = t.once.stopTicker;
     await t.once.syncNow();
     await t.once.pass.idle();
     expect(t.calls).toEqual(['metadata(evenIfPaused)', 'files', 'config', 'sweep(Infinity)', 'upload.idle', 'usage']);
+  });
+
+  it('設定の同期を組んでいない端末では、設定の段を飛ばす', async () => {
+    const t = setup({ paused: true, noBundle: true });
+    stop = t.once.stopTicker;
+    await t.once.syncNow();
+    await t.once.pass.idle();
+    expect(t.calls).toEqual(['metadata(evenIfPaused)', 'files', 'sweep(Infinity)', 'upload.idle', 'usage']);
   });
 });

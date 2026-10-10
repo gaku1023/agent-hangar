@@ -26,7 +26,7 @@ export async function stopUploader(up: { idle(): Promise<void>; stop(): void } |
  * 走っている仕事が終わるのを待ってから止める。上限までに終われば真を返す。
  *
  * タイマーから始まった push は誰も約束を持たないので、待たずに stop すると途中で切れる。
- * 設定の同期（ClaudeConfigSync）とメタデータの同期（SyncEngine）が、どちらもこの形である。
+ * 設定の同期（ConfigSyncService）とメタデータの同期（SyncEngine）が、どちらもこの形である。
  * 上限を超えたときも必ず止める。終了が通信に引きずられる方が困る。
  */
 export async function stopAfterIdle(job: { idle(): Promise<void>; stop(): void } | null, label: string, ms: number = CLOSE_DEADLINE_MS): Promise<boolean> {

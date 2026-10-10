@@ -908,7 +908,7 @@ describe('presentNewSession', () => {
 describe('presentSettings（フェーズ 2）', () => {
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
     // コマンドは hangar の呼び方にそろえる。準備の確かめが届く前は hangar と書く。
     expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' } });
     store.settings = null;
@@ -1134,7 +1134,7 @@ describe('presentProject の右レール', () => {
     };
     const p = presentProject(initialState(), store, NOW, 'p1');
     expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false, candidate: null }, { id: 't2', text: 'やる t2', done: true, candidate: null }]);
-    expect(p.memo).toEqual({ markdown: '# alpha\n本文', updatedAt: 5 });
+    expect(p.note).toEqual({ text: '# alpha\n本文', filled: true });
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
     expect(p.isScratch).toBe(false);
   });
@@ -1215,7 +1215,7 @@ describe('presentSettings のフェーズ 3 の項目', () => {
   it('要約器と statusline と使用量の集計を渡す', () => {
     const store: Store = {
       ...initialStore(),
-      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null },
+      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, nodePath: null, claudePath: null },
       statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true },
       summarizerModels: ['gemma', 'qwen'],
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
@@ -1277,7 +1277,7 @@ describe('presentProject の右レール（端）', () => {
   it('スクラッチには印が付く。無いプロジェクトの右レールは空', () => {
     const store: Store = { ...initialStore(), projects: { sc: scratchProject() } };
     expect(presentProject(initialState(), store, NOW, 'sc').isScratch).toBe(true);
-    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], memo: null, artifacts: [] });
+    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], note: { text: '', filled: false }, artifacts: [] });
   });
 });
 
@@ -1299,8 +1299,8 @@ describe('presentSettings の既定値', () => {
   });
 });
 
-const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null, ...over });
-const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
+const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null, ...over });
+const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
 describe('ヘッダーの無料枠で停止', () => {
@@ -1433,11 +1433,11 @@ describe('同期の Presenter（フェーズ 4）', () => {
     expect(p.sync.visible).toBe(true);
   });
   it('Settings のクラウドの節', () => {
-    const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true, shell: null }], joinToken: 'tok', settings: fullSettings({ syncClaudeConfig: true }) };
+    const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true, shell: null }], joinToken: 'tok', settings: fullSettings({ }) };
     const p = presentSettings(initialState(), store, NOW).cloud;
     expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok' });
     expect(p.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
-    const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused', claudeConfig: { enabled: true, confirmed: true } }) }, NOW).cloud;
+    const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused' }) }, NOW).cloud;
     expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '同期を一時停止中', paused: true });
     // ヘッダーと同じ語を使う。
     // エラーの理由はヘッダーにだけ出す。
@@ -1562,7 +1562,7 @@ describe('presentShell のベル', () => {
     expect('retention' in p).toBe(false);
   });
   it('既読の鍵は State から読み、未読の数をベルの名前に添える', () => {
-    const store: Store = { ...initialStore(), bootstrapped: true, sync: { state: 'paused', paused: true, url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false } };
+    const store: Store = { ...initialStore(), bootstrapped: true, sync: { state: 'paused', paused: true, url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false } };
     expect(presentShell(initialState(), store, NOW).notices.unread).toBe(1);
     expect(presentShell({ ...initialState(), noticesRead: ['sync|paused|user'] }, store, NOW).notices.unread).toBe(0);
   });
@@ -1581,11 +1581,12 @@ describe('presentRetentionDialog', () => {
   });
   it('値を替えるときは「書き換えます」、同期が有効なら他の PC の行を出す', () => {
     const lines = [{ kind: 'del' as const, text: '  "cleanupPeriodDays" : 3650' }, { kind: 'add' as const, text: '  "cleanupPeriodDays" : 365' }];
-    const p = presentRetentionDialog(open(365, 'settings'), st({ retention: { ...R, days: 3650, source: 'user', userValue: 3650 }, retentionPreview: { ...P, lines }, settings: { ...fullSettings(), syncClaudeConfig: true } }), NOW)!;
+    const p = presentRetentionDialog(open(365, 'settings'), st({ retention: { ...R, days: 3650, source: 'user', userValue: 3650 }, retentionPreview: { ...P, lines }, settings: { ...fullSettings() } }), NOW)!;
     expect(p.lead).toBe('Claude Code の設定ファイルの、次の 1 行を書き換えます。');
-    expect(p.otherPcs).toBe(true);
+    // 同期が入っていなければ、他の PC の行は出さない。
+    expect(p.otherPcs).toBe(false);
     expect(p.showOther).toBe(false);
-    // 作り直した設定の同期が入っているときも、他の PC の行を出す。
+    // 設定の同期が入っているときは、他の PC の行を出す。
     const bundle = presentRetentionDialog(open(365, 'settings'), st({ retention: { ...R, days: 3650, source: 'user', userValue: 3650 }, retentionPreview: { ...P, lines }, settings: fullSettings(), configSync: { enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null } }), NOW)!;
     expect(bundle.otherPcs).toBe(true);
   });

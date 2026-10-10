@@ -16,7 +16,6 @@ export type PullerDeps = {
   client: CloudClient;
   key: Buffer;
   state: SyncStateStore;
-  onConfigEntries?: (entries: FileEntry[]) => Promise<void>;
   onError?: (key: string, message: string) => void;
   now?: () => number;
 };
@@ -34,9 +33,6 @@ const MAX_ATTEMPTS = 3;
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 
-/** 設定の取り込みの失敗を数えるときの鍵。本文の鍵（transcripts/... か config/...）と衝突しない名前にする。 */
-const CONFIG_BATCH = '(config)';
-
 /**
  * 諦めた項目をもう一度試す間隔。
  * 起こし直したときと指紋が変わったときに加えて、動かしたままでも取り戻せるようにする。
@@ -51,7 +47,7 @@ const SKIP_PREFIX = 'skipped:';
  * filesSeq は先へ進んでしまうので、一覧には二度と載らない。控えた項目そのものから降ろし直す。
  */
 type SkipRecord = {
-  /** 降ろし直すのに要る項目そのもの。設定は同じ回に届いた並びを全部持つ。 */
+  /** 降ろし直すのに要る項目そのもの。 */
   entries: FileEntry[];
   /** 中身が変わったかを見る印。変われば数え直して取り直す。 */
   fingerprint: string;
@@ -105,7 +101,7 @@ function checkKeyMatchesPath(e: FileEntry): void {
 
 /**
  * 他端末が上げた本文を降ろして手元に展開する。
- * 設定ファイル（kind が config）は自分では書かず、呼び出し側（ClaudeConfigSync）に渡す。
+ * 設定ファイル（kind が config）は降ろさない。設定の同期（sync/config/）が、束の行から自分で取りに行く。
  * 書き込む先は ~/.agent-hangar/remote の下だけで、~/.claude には一切触らない。
  */
 export class RemotePuller {
@@ -118,7 +114,7 @@ export class RemotePuller {
    * 降ろしは 2 か所から始まる。
    * 1 つは起動のときの 1 回で、もう 1 つはメタデータの pull が終わったときの合図である。
    * 並べずに走らせると、同じ鍵を 2 本の流れが同じ一時ファイルへ書き、filesSeq も互いに上書きし合う。
-   * uploader と claudeConfig と同じ作法で 1 本に並べる。
+   * uploader と同じ作法で 1 本に並べる。
    */
   private chain: Promise<unknown> = Promise.resolve();
   /**
@@ -220,20 +216,13 @@ export class RemotePuller {
    * 失敗しても鳴らさない（諦めたときに 1 度鳴らしてある）。数だけ足して控えに残し続ける。
    * 版や上限で断られたら投げる。呼び手（sync/statusFeed.ts の pullFiles と、sync/oncePass.ts の 1 巡の files の段）は受け止めてログに残す。
    */
-  private async retrySkipped(): Promise<{ downloaded: number; configEntries: number }> {
+  private async retrySkipped(): Promise<number> {
     let downloaded = 0;
-    let configEntries = 0;
     for (const { key, rec } of this.allSkips()) {
       // まだ諦めていないものは filesSeq が手前で止まっているので、通常の経路で取り直される。
       if (rec.count < MAX_ATTEMPTS) continue;
       try {
-        if (key === CONFIG_BATCH) {
-          if (!this.deps.onConfigEntries) continue;
-          await this.deps.onConfigEntries(rec.entries);
-          configEntries += rec.entries.length;
-        } else if (await this.download(rec.entries[0]!)) {
-          downloaded++;
-        }
+        if (await this.download(rec.entries[0]!)) downloaded++;
         this.clearSkip(key);
       } catch (err) {
         // 版が合わずに断られたのと、上限で断られたのは、この項目のせいではない。
@@ -242,37 +231,34 @@ export class RemotePuller {
         this.writeSkip(key, { ...rec, count: rec.count + 1, message: errorMessage(err), at: this.now() });
       }
     }
-    return { downloaded, configEntries };
+    return downloaded;
   }
 
   /**
    * 新着を降ろす。
    * 呼び手が誰であっても鎖に並ぶので、起動の 1 回と pulled の合図が重なっても重ならない。
    */
-  async pullNow(): Promise<{ downloaded: number; configEntries: number }> {
-    return this.enqueue(() => (this.stopped ? Promise.resolve({ downloaded: 0, configEntries: 0 }) : this.pullNowInner()));
+  async pullNow(): Promise<{ downloaded: number }> {
+    return this.enqueue(() => (this.stopped ? Promise.resolve({ downloaded: 0 }) : this.pullNowInner()));
   }
 
-  private async pullNowInner(): Promise<{ downloaded: number; configEntries: number }> {
+  private async pullNowInner(): Promise<{ downloaded: number }> {
     let downloaded = 0;
-    let retriedConfigs = 0;
     const startedAt = this.now();
     // 諦めた項目を取り戻す機会。起こし直した直後（lastRetryAt が無い）と、間隔が空いたときに試す。
     if (this.lastRetryAt === null || startedAt - this.lastRetryAt >= RETRY_SKIPPED_AFTER_MS) {
       this.lastRetryAt = startedAt;
-      const again = await this.retrySkipped();
-      downloaded += again.downloaded;
-      retriedConfigs += again.configEntries;
+      downloaded += await this.retrySkipped();
     }
     let since = this.deps.state.getNumber('filesSeq', 0);
     let advanceTo = since;
     let minFailed: number | null = null;
-    const configs: FileEntry[] = [];
     for (;;) {
       const page = await this.deps.client.listFiles(since, PULL_LIMIT);
       for (const e of page.files) {
         if (e.deviceId === this.deps.deviceId) continue;
-        if (e.kind === 'config') { configs.push(e); continue; }
+        // 設定（kind が config）は降ろさない。束の本体は設定の同期が、束の行を見て自分で取りに行く。
+        if (e.kind === 'config') continue;
         try {
           if (await this.download(e)) { downloaded++; this.clearSkip(e.key); }
         } catch (err) {
@@ -289,23 +275,9 @@ export class RemotePuller {
       if (!page.more || page.nextSeq <= since) break;
       since = page.nextSeq;
     }
-    if (configs.length > 0 && this.deps.onConfigEntries) {
-      try {
-        await this.deps.onConfigEntries(configs);
-        this.clearSkip(CONFIG_BATCH);
-      } catch (err) {
-        // 設定の取り込みが落ちた回も、その項目より手前で止めて次の pull で渡し直す。
-        // ここも諦める道が要る。取り込めない設定 1 件で本文まで止まる方が困る。
-        const seqs = configs.map((c) => c.seq);
-        if (this.noteFailure(CONFIG_BATCH, configs, seqs.join(','), errorMessage(err))) {
-          const first = Math.min(...seqs);
-          minFailed = minFailed === null ? first : Math.min(minFailed, first);
-        }
-      }
-    }
     // 失敗した項目より手前で止めて、次の pull で取り直す。
     this.deps.state.set('filesSeq', minFailed !== null ? minFailed - 1 : advanceTo);
-    return { downloaded, configEntries: configs.length + retriedConfigs };
+    return { downloaded };
   }
 
   /** 1 件を降ろす。既に同じ指紋の実体があれば false を返して何もしない。 */

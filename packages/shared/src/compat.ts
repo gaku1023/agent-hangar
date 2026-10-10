@@ -14,10 +14,13 @@
  * 版 2 までの Worker は、この表の行を含む push を 400 で丸ごと断る。端末は、Worker が名乗る版が CONFIG_BUNDLE_MIN_WORKER_COMPAT に届くまで束の行を送らない。
  * 版 2 の端末は束の行を送らず、ほかの表は今までどおり運ぶので、混ざっても困らない（Worker の下限 MIN_DEVICE_COMPAT は 2 のまま）。
  *
+ * 版 4（段 4 の PR 18）：旧実装の設定の同期（項目ごとに R2 の config/<端末>/<相対パス> へ置く方式）を消した。
+ * 版 3 までの端末は旧実装を積んでいて、同じ Worker の旧い置き場を使い続ける。版 4 の Worker は、旧い置き場を掃除し、版 4 未満の端末を 426 で断る（MIN_DEVICE_COMPAT を 4 に上げた）。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 3;
+export const COMPAT_VERSION = 4;
 
 /**
  * 設定の同期の束の行（共有テーブル config_snapshots）を受け取れる Worker の版（段 4 の PR 14 で決めた定数）。
