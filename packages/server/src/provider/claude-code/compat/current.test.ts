@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LINKED_ENTRIES } from '../../../config/accountLinks.ts';
+import { LINKED_ENTRIES } from '../config/accountLinks.ts';
 import { KNOWN_PER_ACCOUNT_ENTRIES } from './claudeDir.ts';
 import { agentsJsonDrifts, authStatusDrifts, BUILTIN_SUBCOMMANDS, KNOWN_AGENT_KINDS, printJsonDrifts, subcommandsFromHelp } from './cli.ts';
 import { isCurrentDrift } from './current.ts';

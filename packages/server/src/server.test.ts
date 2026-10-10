@@ -13,7 +13,7 @@ import { DbBackupError } from './db/backup.ts';
 import { openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
 import { ensureSession } from './indexer/indexFile.ts';
-import { mangleCwd } from './provider/claude-code/discover.ts';
+import { mangleCwd } from './provider/claude-code/transcript/discover.ts';
 import { answerAll, fakeWorker, fileSink } from '../test/fake-worker.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';

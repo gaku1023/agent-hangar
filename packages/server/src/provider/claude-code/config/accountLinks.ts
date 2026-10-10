@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_LANGUAGE } from '@agent-hangar/shared';
-import { msg, render, type Message } from '../i18n/message.ts';
+import { msg, render, type Message } from '../../../i18n/message.ts';
 
 /**
  * 2 つ目以降の置き場で、最初の置き場へのリンクにする項目。

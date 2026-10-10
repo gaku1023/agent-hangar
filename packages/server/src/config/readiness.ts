@@ -7,7 +7,7 @@ import type { Db } from '../db/open.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { workspaceProjectCount } from '../projects/registry.ts';
 import type { Settings } from './paths.ts';
-import { statuslineStatus } from './statusline.ts';
+import { statuslineStatus } from '../provider/claude-code/config/statusline.ts';
 import { isCommandName, isExecutableFile, needsShell } from '../platform/exec.ts';
 import { findOnPath } from './tools.ts';
 

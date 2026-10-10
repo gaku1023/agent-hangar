@@ -7,7 +7,7 @@ import { upsertShared } from '../db/shared.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { isWindows } from '../../test/platform.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
-import { STATUSLINE_MARKER } from './statusline.ts';
+import { STATUSLINE_MARKER } from '../provider/claude-code/config/statusline.ts';
 import type { Settings } from './paths.ts';
 import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, ToolVersions } from './readiness.ts';
 

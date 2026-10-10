@@ -1,9 +1,9 @@
 import type { UsageDto } from '@agent-hangar/shared';
-import { captureOutput } from '../platform/capture.ts';
-import { printJsonDrifts } from '../provider/claude-code/compat/cli.ts';
-import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
-import { parseSummaryOutput, SUMMARY_SCHEMA, summarySystemPrompt, SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from './types.ts';
-import { msg } from '../i18n/message.ts';
+import { captureOutput } from '../../../platform/capture.ts';
+import { printJsonDrifts } from '../compat/cli.ts';
+import { NO_COMPAT, type CompatSink } from '../compat/types.ts';
+import { parseSummaryOutput, SUMMARY_SCHEMA, summarySystemPrompt, SummarizerError, type Summarizer, type SummaryInput, type SummaryOutput } from '../../../summary/types.ts';
+import { msg } from '../../../i18n/message.ts';
 
 export type SpawnText = (cmd: string, args: string[], stdin: string, timeoutMs: number) => Promise<{ code: number; stdout: string; stderr: string }>;
 

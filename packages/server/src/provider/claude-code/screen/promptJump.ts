@@ -14,7 +14,7 @@
  * ctrl+o 以外は、送る直前に画面の最下行で transcript にいることを確かめる。
  */
 import { promptHead } from '@agent-hangar/shared';
-import type { ScreenMark } from '../provider/claude-code/compat/screen.ts';
+import type { ScreenMark } from '../compat/screen.ts';
 
 /** tmux のペインとのやりとり。テストは偽物を渡す。 */
 export type PaneIo = { capture(): string; send(key: string): void; sleep(ms: number): Promise<void> };

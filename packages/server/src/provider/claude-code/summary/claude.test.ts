@@ -4,9 +4,9 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UsageDto } from '@agent-hangar/shared';
 import { ClaudeHeadlessSummarizer, spawnText, type SpawnText } from './claude.ts';
-import type { Drift } from '../provider/claude-code/compat/types.ts';
-import { CANNED_INPUT } from './input.ts';
-import { SummarizerError } from './types.ts';
+import type { Drift } from '../compat/types.ts';
+import { CANNED_INPUT } from '../../../summary/input.ts';
+import { SummarizerError } from '../../../summary/types.ts';
 
 const usage = (sevenDay: number | null): UsageDto => ({ fiveHour: null, sevenDay: sevenDay === null ? null : { usedPercent: sevenDay, resetsAt: null }, updatedAt: 1 });
 const good = { type: 'result', structured_output: { title: 'T', one_liner: 'O', body: 'B', state: 'in_progress', next_steps: ['n'] }, result: '{}', total_cost_usd: 0.02 };

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backupsRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
-import { mangleCwd } from '../provider/claude-code/discover.ts';
+import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { remoteTranscriptPath } from './puller.ts';
 
 export type CopyResult =

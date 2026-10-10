@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
 import type { AccountAuthDto } from '@agent-hangar/shared';
-import { authStatusDrifts } from '../provider/claude-code/compat/cli.ts';
-import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
-import { PRIMARY_ACCOUNT_ID, type Account } from './accounts.ts';
+import { authStatusDrifts } from '../compat/cli.ts';
+import { NO_COMPAT, type CompatSink } from '../compat/types.ts';
+import { PRIMARY_ACCOUNT_ID, type Account } from '../../../config/accounts.ts';
 
 export type RunClaude = (bin: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, signal?: AbortSignal) => Promise<{ code: number | null; stdout: string }>;
 

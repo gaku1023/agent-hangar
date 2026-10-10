@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_LANGUAGE } from '@agent-hangar/shared';
-import { MessageError, msg, render } from '../i18n/message.ts';
+import { MessageError, msg, render } from '../../../i18n/message.ts';
 
 /**
  * Claude Code の設定ファイルを書き換えるときの共通の作法。

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
+import { listTranscriptFiles } from '../provider/claude-code/transcript/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { buildBaselineSummary, formatDuration, writeBaselineIfNeeded } from './baseline.ts';
 import { indexFile } from './indexFile.ts';

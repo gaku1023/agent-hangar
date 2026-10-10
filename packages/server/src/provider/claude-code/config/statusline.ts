@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { StatuslineStatusDto } from '@agent-hangar/shared';
-import { hasMode } from '../platform/secure.ts';
+import { hasMode } from '../../../platform/secure.ts';
 
 // statusline スクリプトへの追記は、hangar が ~/.claude 配下に書く唯一の操作である。
 // ここでは読み取りと、承諾を得た後に呼ばれる追記だけを提供し、問いかけは CLI が担う。

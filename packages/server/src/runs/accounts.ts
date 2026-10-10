@@ -1,6 +1,6 @@
 import type { LaunchResultDto, RunDto } from '@agent-hangar/shared';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
-import { ensureAccountLinks, linkProblemMessage } from '../config/accountLinks.ts';
+import { ensureAccountLinks, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
 import type { Db } from '../db/open.ts';
 import { accountOfSession } from '../db/queries.ts';
 import { RunError } from './errors.ts';

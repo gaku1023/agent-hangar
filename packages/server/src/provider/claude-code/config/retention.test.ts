@@ -4,9 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { RetentionDto } from '@agent-hangar/shared';
-import { JsonTextEditError } from './jsonTextEdit.ts';
+import { JsonTextEditError } from '../../../config/jsonTextEdit.ts';
 import { measureUsage, previewRetention, readRetention, RetentionConflictError, RetentionService, RetentionUnwritableError, writeRetention } from './retention.ts';
-import { expectMode, posixIt } from '../../test/platform.ts';
+import { expectMode, posixIt } from '../../../../test/platform.ts';
 
 const NOW = Date.parse('2026-10-01T00:00:00Z');
 let root: string;

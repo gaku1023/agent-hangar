@@ -2,12 +2,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { RetentionDto, RetentionPreviewDto, RetentionUsageDto } from '@agent-hangar/shared';
-import { timestampLabel } from '../sync/copy.ts';
+import { timestampLabel } from '../../../sync/copy.ts';
 import { acquireFileLock, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
-import { backupsRoot } from './cloud.ts';
-import { diffLines, JsonTextEditError, setTopLevelNumber } from './jsonTextEdit.ts';
-import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
-import { MessageError, msg, render, type Message } from '../i18n/message.ts';
+import { backupsRoot } from '../../../config/cloud.ts';
+import { diffLines, JsonTextEditError, setTopLevelNumber } from '../../../config/jsonTextEdit.ts';
+import { defaultLanguage, type GetLanguage } from '../../../i18n/language.ts';
+import { MessageError, msg, render, type Message } from '../../../i18n/message.ts';
 
 /**
  * Claude Code の会話の保持期間（cleanupPeriodDays）。

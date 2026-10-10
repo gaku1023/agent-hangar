@@ -1,7 +1,7 @@
 import type { LiveStatus } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
-import type { LiveSession } from '../provider/types.ts';
+import type { LiveSession } from '../provider/claude-code/types.ts';
 
 /**
  * 区切り（Paused・Done・Archived）を付けたのに、休みのまま残っているセッションの id。

@@ -1,6 +1,6 @@
 import { encodeJoinToken, type FileEntry } from '@agent-hangar/shared';
 import { readCloudConfig } from '../config/cloud.ts';
-import { defaultManagedDir, RetentionService } from '../config/retention.ts';
+import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import type { ConfigSyncApi } from '../http/deps.ts';
 import { ClaudeConfigSync } from '../sync/claudeConfig.ts';
 import { HttpCloudClient } from '../sync/client.ts';

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { acquireFileLock, LOCK_BUSY_MESSAGE, resolveRealFile, writeFileAtomically } from './claudeFileWrite.ts';
-import { expectMode } from '../../test/platform.ts';
+import { expectMode } from '../../../../test/platform.ts';
 
 let root: string;
 beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cfw-')); });

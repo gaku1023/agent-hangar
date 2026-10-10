@@ -8,7 +8,7 @@ import { which } from '../../src/config/tools.ts';
 import { captureOutputSync } from '../../src/platform/capture.ts';
 import { CLAUDE_CHILD_ENV } from '../../src/provider/claude-code/compat/childEnv.ts';
 import { claudeVersionOf } from '../../src/provider/claude-code/compat/cli.ts';
-import { mangleCwd } from '../../src/provider/claude-code/discover.ts';
+import { mangleCwd } from '../../src/provider/claude-code/transcript/discover.ts';
 import { Tmux, type TmuxExec } from '../../src/tmux/tmux.ts';
 import { buildFiles, findLeaks, formatLeaks, jsonl, scenarioKept } from './output.ts';
 import { claudeTmpDirs, redactAgents, redactText, replacements, type Pairs, type Secrets } from './redact.ts';

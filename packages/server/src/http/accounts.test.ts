@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccountsDto } from '@agent-hangar/shared';
-import { AccountAuth, type RunClaude } from '../config/accountAuth.ts';
+import { AccountAuth, type RunClaude } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';

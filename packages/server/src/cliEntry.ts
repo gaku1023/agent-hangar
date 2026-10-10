@@ -6,8 +6,8 @@
  * cli.mjs がサーバを抱えていないことは apps/desktop/test/bundle-server.test.ts が確かめる。
  */
 export { hangarHome, defaultClaudeDir, ensureHome, readOrCreateToken, readOrCreateDevice, loadSettings, saveSettings } from './config/paths.ts';
-export { STATUSLINE_MARKER, appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, statuslineHeaderPath, statuslineSnippet, statuslineSnippetUpToDate, statuslineStatus, writeStatuslineHeaderFile } from './config/statusline.ts';
-export { claudeJsonPath, upsertUserMcpServer } from './config/claudeJson.ts';
+export { STATUSLINE_MARKER, appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, statuslineHeaderPath, statuslineSnippet, statuslineSnippetUpToDate, statuslineStatus, writeStatuslineHeaderFile } from './provider/claude-code/config/statusline.ts';
+export { claudeJsonPath, upsertUserMcpServer } from './provider/claude-code/config/claudeJson.ts';
 export { SHELL_MARKER, ensureShellScript, installShellHook, shellHookInstalled, shellHookLine, shellHookState, shellHookUpToDate, shellScriptPath, shellWrapSupported, uninstallShellHook, zshrcPath, type ShellHookState, type ShellScriptOptions } from './config/shellHook.ts';
 export { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig, type CloudConfig, type CloudConfigRead } from './config/cloud.ts';
 export { SyncStateStore, type SyncStateKey } from './sync/state.ts';

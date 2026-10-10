@@ -1,7 +1,7 @@
 import type { Hono } from 'hono';
 import { MAX_JUMP_HEADS, PROMPT_HEAD_LEN as HEAD_LEN, type LaunchParams } from '@agent-hangar/shared';
 import { RunError } from '../../runs/manager.ts';
-import type { JumpFrom } from '../../runs/promptJump.ts';
+import type { JumpFrom } from '../../provider/claude-code/screen/promptJump.ts';
 import { decodeTerminalRequest } from '../../runs/terminal.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';

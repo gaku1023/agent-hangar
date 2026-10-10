@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
-import { expectMode, posixDescribe } from '../../test/platform.ts';
+import { expectMode, posixDescribe } from '../../../../test/platform.ts';
 
 let dir: string;
 let home: string;

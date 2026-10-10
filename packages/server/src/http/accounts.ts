@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
 import type { AccountsDto } from '@agent-hangar/shared';
-import type { AccountAuth } from '../config/accountAuth.ts';
-import { ensureAccountLinks, linkProblemMessage } from '../config/accountLinks.ts';
+import type { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
+import { ensureAccountLinks, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
 import { AccountError, PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';

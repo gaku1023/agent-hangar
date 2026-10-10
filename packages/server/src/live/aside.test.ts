@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { IndexerService } from '../indexer/service.ts';
-import type { LiveSession } from '../provider/types.ts';
+import type { LiveSession } from '../provider/claude-code/types.ts';
 import { logQueries, unnarrowedScans } from '../../test/queryLog.ts';
 import { ASIDE_SETTLE_MS, AsideReader } from './aside.ts';
 

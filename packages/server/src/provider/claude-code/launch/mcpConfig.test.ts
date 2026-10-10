@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mcpConfigJson, mcpConfigPath, pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from './mcpConfig.ts';
-import { expectMode, isWindows } from '../../test/platform.ts';
+import { expectMode, isWindows } from '../../../../test/platform.ts';
 
 let home: string;
 beforeEach(() => {

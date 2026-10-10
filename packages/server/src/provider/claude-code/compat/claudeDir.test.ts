@@ -24,7 +24,7 @@ describe('claudeDirDrifts', () => {
     fs.writeFileSync(path.join(dir, '.claude.json'), '{}');
     fs.mkdirSync(path.join(dir, 'cache'));
     fs.writeFileSync(path.join(dir, '.DS_Store'), '');
-    // 共有のはずの名前が実体なのは、リンクの問題として別に出す（config/accountLinks.ts の linkProblem）。ここでは数えない。
+    // 共有のはずの名前が実体なのは、リンクの問題として別に出す（provider/claude-code/config/accountLinks.ts の linkProblem）。ここでは数えない。
     fs.mkdirSync(path.join(dir, 'skills'));
     fs.mkdirSync(path.join(dir, 'zeta-new'));
     fs.writeFileSync(path.join(dir, 'alpha-new.json'), '{}');

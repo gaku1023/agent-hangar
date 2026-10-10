@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import type { LiveSession } from '../provider/types.ts';
+import type { LiveSession } from '../provider/claude-code/types.ts';
 import { processStartOfPrompt } from './promptProcess.ts';
 
 const T = (iso: string) => Date.parse(iso);

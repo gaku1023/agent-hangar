@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
-import { listTranscriptFiles } from '../provider/claude-code/discover.ts';
+import { listTranscriptFiles } from '../provider/claude-code/transcript/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';

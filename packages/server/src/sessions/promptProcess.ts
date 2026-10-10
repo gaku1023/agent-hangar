@@ -1,6 +1,6 @@
 import type { Db } from '../db/open.ts';
-import type { LiveSession } from '../provider/types.ts';
-import { parseProcStart } from '../runs/procs.ts';
+import type { LiveSession } from '../provider/claude-code/types.ts';
+import { parseProcStart } from '../provider/claude-code/process/procs.ts';
 
 /**
  * 利用者が打った発言を出した claude のプロセスが、いつ起動したか（epoch のミリ秒）。

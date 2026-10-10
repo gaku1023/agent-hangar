@@ -1,7 +1,7 @@
 import type { Drift } from './types.ts';
 
 /**
- * ターンへ跳ぶときに読む画面の目印（runs/promptJump.ts）。
+ * ターンへ跳ぶときに読む画面の目印（provider/claude-code/screen/promptJump.ts）。
  * footer は transcript 表示の最下行の文言、prompt-marker は指示の行の頭の記号である。
  */
 export type ScreenMark = 'footer' | 'prompt-marker';
@@ -13,7 +13,7 @@ export function screenDrift(mark: ScreenMark): Drift {
 /** 目印を記録するまでに、続けて見つからなかった跳び方の数。 */
 export const SCREEN_MISS_THRESHOLD = 3;
 
-/** 跳び方の結果（runs/promptJump.ts の JumpResult と同じ形）。provider から runs を引かないように、ここで形だけ書く。 */
+/** 跳び方の結果（provider/claude-code/screen/promptJump.ts の JumpResult と同じ形）。provider から runs を引かないように、ここで形だけ書く。 */
 type JumpOutcome = { found: true } | { found: false; reason: 'mode' | 'notFound' };
 
 /**

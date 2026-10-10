@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { LINKED_ENTRIES } from '../../../config/accountLinks.ts';
+import { LINKED_ENTRIES } from '../config/accountLinks.ts';
 import { splitDriftValue, type CompatSink, type Drift } from './types.ts';
 
 /**
