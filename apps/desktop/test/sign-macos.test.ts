@@ -391,15 +391,12 @@ describe.skipIf(!posix)('証明書を作る台本', () => {
         const app = makeApp(d);
         const opts = { app, mode: 'cert' as const, identifier: ID, fingerprint: fp!, keychain: kc, keychainPassword: PW.HANGAR_SIGN_P12_PASSWORD };
         unlockKeychain(opts);
-        const sh = (cmd: string, args: string[]): string => { const x = spawnSync(cmd, args, { encoding: 'utf8' }); return `$ ${cmd} ${args.join(' ')} -> ${x.status}\n${x.stdout}${x.stderr}`; };
+        const sh = (cmd: string, args: string[]): string => { const x = spawnSync(cmd, args, { encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] }); return `$ ${cmd} ${args.join(' ')} -> ${x.status}\n${x.stdout}${x.stderr}`; };
         if (process.env.CI) {
           const cer = path.join(d, 'out/hangar-signing.cer');
-          const logA = sh('security', ['add-trusted-cert', '-r', 'trustRoot', '-p', 'codeSign', '-k', kc, cer]);
+          const logA = sh('sudo', ['-n', 'security', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'codeSign', '-k', '/Library/Keychains/System.keychain', cer]);
           const validA = sh('security', ['find-identity', '-v', '-p', 'codesigning', kc]);
-          let logB = '';
-          if (!/ 1 valid identities/.test(validA)) {
-            logB = sh('sudo', ['-n', 'security', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'codeSign', '-k', kc, cer]) + sh('security', ['find-identity', '-v', '-p', 'codesigning', kc]);
-          }
+          const logB = '';
           console.log(`TRUSTEXP\n${logA}\n${validA}\n${logB}`);
         }
         const diag = (): string => ['find-identity -p codesigning', 'find-identity', 'list-keychains -d user', 'show-keychain-info'].map((a) => { const x = spawnSync('security', [...a.split(' '), ...(a.startsWith('find') || a.startsWith('show') ? [kc] : [])], { encoding: 'utf8' }); return `$ security ${a}\n${x.stdout}${x.stderr}`; }).join('\n');
