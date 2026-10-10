@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { TabItemProps } from '../presenters/session.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';

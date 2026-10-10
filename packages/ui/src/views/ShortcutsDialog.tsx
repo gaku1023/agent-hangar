@@ -1,4 +1,4 @@
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import { GROUP_KEY, KEYMAP, type KeyGroup } from '../keys.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { useT } from './primitives/language.tsx';

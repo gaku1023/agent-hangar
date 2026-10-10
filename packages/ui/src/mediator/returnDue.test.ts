@@ -76,7 +76,7 @@ describe('returnStep', () => {
   });
   it('ほかの入力は扱わない（札を下げる意図は無くなった）', () => {
     expect(returnStep(initialState(), { kind: 'runtime', event: { type: 'window.focus' } })).toBeNull();
-    expect(returnStep(initialState(), { kind: 'intent', intent: { type: 'nav.go', to: { name: 'home' } } })).toBeNull();
+    expect(returnStep(initialState(), { kind: 'action', action: { type: 'nav.go', to: { name: 'home' } } })).toBeNull();
   });
 });
 

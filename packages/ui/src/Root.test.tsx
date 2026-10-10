@@ -263,7 +263,7 @@ describe('Root', () => {
 describe('フェーズ 3 のショートカットとオーバーレイ', () => {
   const key = (init: KeyboardEventInit) => fireEvent.keyDown(window, init);
 
-  it('グローバルのキーが Intent になる', async () => {
+  it('グローバルのキーが UiAction になる', async () => {
     const { rt } = await mounted();
     const emit = vi.spyOn(rt, 'emit');
     key({ key: 'k', metaKey: true });

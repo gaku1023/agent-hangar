@@ -67,7 +67,7 @@ export function transition(state: State, store: Store, input: Input): Step {
     if (input.event.type === 'api.failed') return { state: pushToast(state, 'error', input.event.message), effects: [] };
     return { state, effects: [] };
   }
-  const i = input.intent;
+  const i = input.action;
   switch (i.type) {
     case 'index.rebuild': return { state, effects: [{ kind: 'api.rebuildIndex' }] };
     case 'toast.dismiss': return { state: { ...state, toasts: state.toasts.filter((t) => t.id !== i.id) }, effects: [] };

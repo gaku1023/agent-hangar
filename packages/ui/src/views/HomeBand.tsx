@@ -1,5 +1,5 @@
 import { Fragment, useId, useRef, useState } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { BandGroup, BandLead, BandRow, HomeBandProps } from '../presenters/home.ts';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -110,7 +110,7 @@ function BandRowView(props: { row: BandRow }) {
       <span className="c-end">
         {r.trail.map((x, i) => <span key={i} data-tone={x.tone}>{x.text}</span>)}
         {r.actions.map((a) => (
-          <button key={a.id} type="button" className={`btn btn-sm${a.primary ? ' btn-primary' : ''}${a.ghost ? ' btn-ghost' : ''}`} aria-label={a.ariaLabel} onClick={() => emit(a.intent)}>{a.label}</button>
+          <button key={a.id} type="button" className={`btn btn-sm${a.primary ? ' btn-primary' : ''}${a.ghost ? ' btn-ghost' : ''}`} aria-label={a.ariaLabel} onClick={() => emit(a.send)}>{a.label}</button>
         ))}
       </span>
     </li>

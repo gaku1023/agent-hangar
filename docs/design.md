@@ -55,9 +55,9 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
 TypeScript で統一し、Node 22 と npm workspaces のモノレポにする。
 pnpm は手元で壊れているため使わない。
 
-- `packages/shared`：正規化トランスクリプトの型、API と MCP の契約、Intent の型、要約の型。サーバ、UI、Worker のすべてが依存する。
+- `packages/shared`：正規化トランスクリプトの型、API と MCP の契約、UiAction の型、要約の型。サーバ、UI、Worker のすべてが依存する。
 - `packages/server`：ローカルサーバ。Hono による HTTP と WebSocket、MCP サーバ、SQLite（better-sqlite3）、インデクサ、tmux 制御、node-pty、要約器、同期エンジン。
-- `packages/ui`：React と Vite による UI。Root から始まる階層、Passive View、Intent チェーン、Mediator。
+- `packages/ui`：React と Vite による UI。Root から始まる階層、Passive View、UiAction チェーン、Mediator。
 - `packages/cloud`：Cloudflare Worker。Hono でサーバとコードを共有し、D1 と R2 を扱う。フェーズ 4 で実装した。
 - `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装した。
 - `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install`、`statusline install`、`shell install`、`shell uninstall`、`shell status`、`cloud status`、`cloud teardown` を提供する。
@@ -174,7 +174,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 ### コンポーネント階層
 
 すべてのコンポーネントは `Root` を頂点とする一つの木に属する。
-木の形は画面構成と一致させ、親子関係がそのまま Intent の伝播経路になる。
+木の形は画面構成と一致させ、親子関係がそのまま UiAction の伝播経路になる。
 
 ```
 Root
@@ -197,7 +197,7 @@ Root
 
 各コンポーネントは **Passive View** であり、描画に関わる値だけを props で受け取る。
 View は状態を持たず、API を呼ばず、他の View を知らない。
-利用者の操作は、View が **Intent** を発行することでのみ外に伝わる。
+利用者の操作は、View が **UiAction** を発行することでのみ外に伝わる。
 
 View に値を渡すのは **Presenter** である。
 Presenter はコンポーネントごとの純関数（または薄いフック）で、Mediator の状態とデータキャッシュから、その View の props を計算する。
@@ -206,46 +206,47 @@ Presenter は DOM に依存しないので、Mediator と合わせて単体テ�
 データキャッシュは、サーバから WebSocket で届くイベントで更新される正規化ストアである。
 Presenter はストアを読むだけで、書き込みはすべて Mediator の効果として行う。
 
-### Intent とチェーン
+### UiAction とチェーン
 
-Intent は `{ type, payload }` の判別可能な共用体で、`packages/shared` に定義する。
-View は近い祖先から受け取った `emit` で Intent を発行する。
-Intent は木を上へ伝播し、各層は「処理して止める」か「上へ渡す」かを選ぶ。
+UiAction は `{ type, payload }` の判別可能な共用体で、`packages/shared` に定義する。
+以前は Intent と呼んでいたが、ターンの「意図」（`set_turn_intent`）と紛れるので UiAction に改めた。ターンの意図の名前（`set_turn_intent`、`turn_intents`、`TurnIntent`）は変えていない。
+View は近い祖先から受け取った `emit` で UiAction を発行する。
+UiAction は木を上へ伝播し、各層は「処理して止める」か「上へ渡す」かを選ぶ。
 これが **Chain of Responsibility** であり、DOM のイベントではなく明示的な関数の合成で実装する。
 
 React では次の形にする。
 
 ```ts
-// packages/ui/src/intent/chain.ts
+// packages/ui/src/action/chain.ts
 type Handled = { handled: true } | { handled: false };
-type IntentHandler = (intent: Intent) => Handled;
+type ActionHandler = (action: UiAction) => Handled;
 
-const IntentContext = createContext<(intent: Intent) => void>(() => {});
+const ActionContext = createContext<(action: UiAction) => void>(() => {});
 
 export function useEmit() {
-  return useContext(IntentContext);
+  return useContext(ActionContext);
 }
 
-// 中間層が一部の Intent を横取りしたいときに使う。処理しなければ親へ渡す。
-export function IntentBoundary(props: { handle: IntentHandler; children: ReactNode }) {
-  const parent = useContext(IntentContext);
-  const dispatch = useCallback((intent: Intent) => {
-    if (!props.handle(intent).handled) parent(intent);
+// 中間層が一部の UiAction を横取りしたいときに使う。処理しなければ親へ渡す。
+export function ActionBoundary(props: { handle: ActionHandler; children: ReactNode }) {
+  const parent = useContext(ActionContext);
+  const dispatch = useCallback((action: UiAction) => {
+    if (!props.handle(action).handled) parent(action);
   }, [parent, props.handle]);
-  return <IntentContext.Provider value={dispatch}>{props.children}</IntentContext.Provider>;
+  return <ActionContext.Provider value={dispatch}>{props.children}</ActionContext.Provider>;
 }
 ```
 
-中間層で処理する Intent は、その層だけで完結する見た目の操作に限る。
+中間層で処理する UiAction は、その層だけで完結する見た目の操作に限る。
 たとえば `SplitPane` はペーンの幅変更を処理し、`TabStrip` はタブのドラッグ並び替えを処理する。
 それ以外はすべて `Root` に届く。
 API を 1 回呼ぶだけのものは Runtime が表で引いて実行し（後述）、残りは Mediator が裁定する。
 
-Intent の一覧は型が正である。
-`packages/shared/src/intent.ts` の `Intent` を見る。
+UiAction の一覧は型が正である。
+`packages/shared/src/action.ts` の `UiAction` を見る。
 名前は `対象.動詞` で揃える。
 
-他端末で動いているセッションに対して View が出すのは `session.resumeHere` だけで、引き継ぎの握手の Intent は持たない（後述）。
+他端末で動いているセッションに対して View が出すのは `session.resumeHere` だけで、引き継ぎの握手の UiAction は持たない（後述）。
 
 `transcript.follow` の `follow: false` は、利用者が自分でスクロールを上げたときだけ発行する。
 末尾へ送るスムーズスクロールの途中では発行しない。
@@ -255,14 +256,14 @@ Intent の一覧は型が正である。
 遡るために一度上へスクロールすると `follow: false` が焼き付き、次からそのセッションが最古の側で開いてしまうためである。
 古い保存に残っている `follow` も、読み戻しのときに捨てる。
 
-`split.resize` は `SplitPane` の `IntentBoundary` が処理して止めるので、Root にも Mediator にも届かない。
+`split.resize` は `SplitPane` の `ActionBoundary` が処理して止めるので、Root にも Mediator にも届かない。
 
 ### Mediator の状態機械
 
 `Root` が保持する **Mediator** は、自作の型付き状態機械である。
 `transition(state, store, input) => { state, effects }` の純関数と、効果を実行する小さなランナーから成る。
 `store` は Store で、Mediator は読むだけで変えない。
-入力は Intent と、サーバから届くイベント（`ServerEvent`）の二種類である。
+入力は UiAction と、サーバから届くイベント（`ServerEvent`）の二種類である。
 効果は API 呼び出し、ナビゲーション、ターミナル接続の開閉、フォーカス移動、トースト表示に限る。
 
 状態は直交する領域に分けて持つ。
@@ -309,16 +310,16 @@ Store に置いた事実のうち、型から読み取れない決まりを次�
 状態機械の実装は `packages/ui/src/mediator/` に置き、領域ごとにファイルを分ける。
 テストは「入力の列を与えて最終状態と効果の列を検証する」形で書く。
 
-### API を 1 回呼ぶだけの Intent の表
+### API を 1 回呼ぶだけの UiAction の表
 
-状態を変えず、API を 1 回呼ぶだけの Intent は、Mediator も Effect も通さない。
-Runtime が Intent を受けたとき、`packages/ui/src/runtime/intentTable.ts` の表（Intent の kind から API の呼び出しへ）を引き、あればそれを実行する。
+状態を変えず、API を 1 回呼ぶだけの UiAction は、Mediator も Effect も通さない。
+Runtime が UiAction を受けたとき、`packages/ui/src/runtime/actionTable.ts` の表（UiAction の kind から API の呼び出しへ）を引き、あればそれを実行する。
 無ければ、今までどおり `transition` へ渡す。
-Intent と Effect の 2 つの定義を持つと、画面を作り替えるたびに 2 か所を触ることになるからである。
+UiAction と Effect の 2 つの定義を持つと、画面を作り替えるたびに 2 か所を触ることになるからである。
 
 今すぐ同期と一時停止もここにある。応答の状態は Store に当てるだけで、Mediator へは戻さない。
 
-表の 1 行は、Intent の中身と Store（読むだけ）から呼び出しを組む小さな関数である。
+表の 1 行は、UiAction の中身と Store（読むだけ）から呼び出しを組む小さな関数である。
 応答の扱いは共通の形にまとめてある。
 呼ぶ前に Store に当てるもの、応答を Store に当てるもの、応答から出す知らせの 3 つで、行は要るものだけを書く。
 失敗は、どの行もトーストにする。
@@ -332,9 +333,9 @@ API を呼ぶのが 1 回である。
 1 つでも外れるものは Mediator に残す。
 同じ Effect をほかの遷移も出すもの（索引の作り直しはパレットからも出る）も、Effect が残るので移さない。
 
-表の鍵は Intent の kind の部分集合で、型が止める。
-Mediator の入力の型（`MediatedIntent`）は表の kind を除いてあるので、表にある kind を領域の `switch` に書くと型が合わなくなる。
-どの Intent が表にあるかは、表が正である。
+表の鍵は UiAction の kind の部分集合で、型が止める。
+Mediator の入力の型（`MediatedAction`）は表の kind を除いてあるので、表にある kind を領域の `switch` に書くと型が合わなくなる。
+どの UiAction が表にあるかは、表が正である。
 
 ### 画面ごとの構成
 
@@ -1125,7 +1126,7 @@ Mediator の `focus` の対象 `newSessionName` は、いまは初期プロン�
 
 欄の部品は View なので API を呼ばない。
 候補と添付の読み書きは、`ResolveProjectDialog` の候補と同じく、Root が api を呼び、`PromptAssistContext` で配る。
-Intent で運ぶのは下書き（`session.new.draft` と、遅れて着いた添付を足す `session.new.draft.attach`）だけである。
+UiAction で運ぶのは下書き（`session.new.draft` と、遅れて着いた添付を足す `session.new.draft.attach`）だけである。
 サーバの口は「初期プロンプトの欄の口」の節に置く。
 
 ### 実行中の状態
@@ -2565,7 +2566,7 @@ Grep、Glob、Task（Agent）、TodoWrite とその他のツールは、引数�
 数え始めは、語を打ったときに見ていた行より後ろの最初の一致である。
 ⌘F を受けるのは、本文が画面に出ているとき（ターミナルが出ていないとき）だけで、ターミナルが出ているときはターミナルとブラウザに渡す。
 欄の状態は Mediator の State に持たず、View の側の置き場（`views/findStore.tsx`、Root が 1 つ作る）にセッションごとに持つ。
-Mediator のほかの領域が使わないその場の操作なので、Intent も Effect も通さず、一致は本文の部品が描く行から数える。
+Mediator のほかの領域が使わないその場の操作なので、UiAction も Effect も通さず、一致は本文の部品が描く行から数える。
 本文の部品は画面を離れると外れるので部品の中には置かず、戻ってきたときに同じ欄と語を出す。
 保存はしない。
 
@@ -2934,10 +2935,10 @@ Home に入ったら、行が初めて並んだときに一度だけ一覧にフ
 画面を移す操作も、同じ規則で確認や入力のあるダイアログの裏では何もしない（`mediator/screen.ts` の `canMoveBehind`）。
 対象は、⌘, の設定（`nav.go`）、⌘[ ⌘] とスワイプの戻る進む（`nav.back` と `nav.forward`）、`project.open`、`session.open`、全文検索（`search.query` と `search.clear`）、パレットの画面を移す行である。
 ダイアログを開いたまま裏の画面だけが移ると、何に答えているのかが分からなくなるからである。
-ブラウザの戻る・進む（マウスの戻るボタンなど）は Intent を通らず URL の変化として届くので、ランタイムが履歴の段の印から何段動いたかを添え（アプリが自分で書いた URL には添えない）、ダイアログが開いていれば画面を移さずに同じ段だけ履歴を戻して URL を合わせる。戻し終えて今の画面と同じ URL に着いた変化は読み込み直さない。
+ブラウザの戻る・進む（マウスの戻るボタンなど）は UiAction を通らず URL の変化として届くので、ランタイムが履歴の段の印から何段動いたかを添え（アプリが自分で書いた URL には添えない）、ダイアログが開いていれば画面を移さずに同じ段だけ履歴を戻して URL を合わせる。戻し終えて今の画面と同じ URL に着いた変化は読み込み直さない。
 パレットと読むだけのダイアログなら、閉じてから移る。
 ダイアログの中から意図して移るもの（保持期間の「ほかの期間…」の `retention.settings`、昇格の完了の「プロジェクトを開く」、起動や引き取りの完了の `launch.done`）は止めない。
-前の 2 つは差し替えてよいダイアログか別の Intent から来て、起動や引き取りの完了は runtime の入力なので、この規則を通らない。
+前の 2 つは差し替えてよいダイアログか別の UiAction から来て、起動や引き取りの完了は runtime の入力なので、この規則を通らない。
 ブラウザの戻るボタンと URL の書き換えは `hashchange` で後から届くので止められない。
 そのときはダイアログを残したまま画面が移る。
 
@@ -3270,7 +3271,7 @@ Worker の側は PR 15 で入った（下の「互換の版」）。画面は PR
 実装は `sync/config/` にあり、既定は切である。
 
 **旧実装の削除（PR 18）。**
-消したもの：`sync/claudeConfig.ts`（と試験）、設定の取り込みの HTTP（`GET /api/sync/config/preview`、`POST /api/sync/config/pull`）、`sync/configSyncApi.ts`、画面の `ConfigPreviewDialog` と、その Intent（`sync.config.preview`、`sync.config.apply`）と効果と Store の値、`SettingsDto.syncClaudeConfig` と `SyncStatusDto.claudeConfig`、降ろし手 `RemotePuller` の `onConfigEntries`、一時停止の 1 巡の旧実装の設定の段（新しい束の段に置き換えた）、辞書の旧い行。
+消したもの：`sync/claudeConfig.ts`（と試験）、設定の取り込みの HTTP（`GET /api/sync/config/preview`、`POST /api/sync/config/pull`）、`sync/configSyncApi.ts`、画面の `ConfigPreviewDialog` と、その UiAction（`sync.config.preview`、`sync.config.apply`）と効果と Store の値、`SettingsDto.syncClaudeConfig` と `SyncStatusDto.claudeConfig`、降ろし手 `RemotePuller` の `onConfigEntries`、一時停止の 1 巡の旧実装の設定の段（新しい束の段に置き換えた）、辞書の旧い行。
 一時停止のままの「今すぐ同期」の 1 巡は、本文の降ろしのあとに設定の同期の `tick`（受信、送信）を回す。スイッチが切のとき、Worker の版が足りないときは、`tick` が何もしない。
 `RemotePuller` は設定（kind が `config`）の索引を降ろさず、`filesSeq` だけ通り過ぎる。束の本体は設定の同期が、束の行を見て自分で取りに行く。
 `settings.json` に旧スイッチ（`syncClaudeConfig`）が残っていても、読み込みのときに未知の鍵として捨てる（`config/paths.ts` の `loadSettings`）。保存し直すと消える。
@@ -3796,7 +3797,7 @@ heartbeat は 30 秒ごとの push で更新する。
 
 **引き継ぎは作らない。**
 2026-09-19 の判断で、ロックの表示と「この PC で再開」までに絞った。
-段 1（2026-10-07）で、型、Intent、ServerEvent を消し、`takeover_requests` を共有テーブルの一覧からも外した。
+段 1（2026-10-07）で、型、UiAction、ServerEvent を消し、`takeover_requests` を共有テーブルの一覧からも外した。
 表は v1 のマイグレーションに残るが、誰も書かず、同期でも運ばない。
 `EndReason` に `taken_over` は足していない。
 引き継ぎが無いので、他端末の run はこちらの操作では止まらない。
@@ -3889,7 +3890,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - セッションの表示名は、レジストリの `name`（`nameSource` が `user`）、本文の `custom-title`、`agent-name`（索引が `sessions.custom_title` に拾う）、hangar で付けた名前（`session_notes.name`）、`ai-title`、最初の発言の先頭 40 字の順で決める。
 - 開発時は Vite（ポート 5173）が `/api` と `/ws` をサーバへプロキシし、プロキシがトークンを `Authorization` ヘッダに付ける。この経路は `HANGAR_DEV=1` のときだけ通る。本番はサーバが `packages/ui/dist` を配信し、鍵付きの入口で開かれたときだけ `index.html` の応答で `hangar_token` クッキー（HttpOnly、SameSite=Strict）を渡す。
 - 一覧の初期データは `GET /api/bootstrap` で全セッションの軽い行をまとめて返す。手元の規模（数百セッション）では 1MB 未満で、ページングは持たない。
-- UI のテストのうち `src/views/**`、`src/intent/**`、`src/Root.test.tsx` は jsdom で走らせる。Vitest の入れ子プロジェクトで環境ごとに分ける。
+- UI のテストのうち `src/views/**`、`src/action/**`、`src/Root.test.tsx` は jsdom で走らせる。Vitest の入れ子プロジェクトで環境ごとに分ける。
 - ダークモードは持たない（2026-09-17 の決定）。OS のダーク設定にも従わない。ターミナルの面だけが例外である。
 - タブ 0（Claude）の ID は run の ID そのもので、`run_tabs` に行は作らない。シェルタブの ID は `run_tabs.id` である。
 - tmux のセッション名は run が `hangar-<shortId(runId)>`、シェルタブが `hangar-<runShort>-t<n>` で、`<n>` は閉じたものを含むタブ数に 1 を足す。閉じた番号は再利用しない。
@@ -3984,7 +3985,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 設定の同期の対象は削除を運ばない。片方で消したファイルは、もう片方からは消えない。
 - 設定の取り込みは、途中のディレクトリがシンボリックリンクでも辿らない。段ごとに `lstat` して、リンクに当たったらその項目を諦める。realpath で後から判定する形にすると、`~/.claude` の外の既存ファイルを上書きする筋が残る。
 - 取り込んだ設定ファイルの更新時刻は、相手の端末で編集した時刻に合わせる。`utimes` がナノ秒の端を落とすので往復のたびに 1 ミリ秒未満のずれが出るが、判定はミリ秒で行うので影響しない。
-- Intent に `session.resumeHere`、`sync.config.preview`、`sync.config.apply`、`sync.joinToken.show` を、`ServerEvent` に `sync.status`、`sync.applied`、`devices.update` を足した。
+- UiAction に `session.resumeHere`、`sync.config.preview`、`sync.config.apply`、`sync.joinToken.show` を、`ServerEvent` に `sync.status`、`sync.applied`、`devices.update` を足した。
 - 孤児の掃除は `GET /files` を契機にして、cron を持たない。
   端末が pull のたびに叩く経路なので、6 時間の間隔を当てにできる相手がここしかない。
   当番を取りにいくのも 6 時間に 1 回でよいので、isolate は自分が最後に取りにいった時刻を覚え、その間は D1 に触らずに帰る。

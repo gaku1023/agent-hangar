@@ -2,13 +2,13 @@ import type { Input, State, Step } from './types.ts';
 
 /**
  * accounts 領域：Claude Code のアカウントの操作。
- * Mediator は Store を見ないので、判断に要る値（作業中か）は Intent が運ぶ。
+ * Mediator は Store を見ないので、判断に要る値（作業中か）は UiAction が運ぶ。
  * 別のアカウントでの再開は起動の一種なので、送信中の状態（launch）は起動と共有する。
  * 結果（launch.done、launch.failed）は launchStep が受ける。
  */
 export function accountsStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     case 'account.switchSession': {
       // 動いている claude を止めて別の置き場で再開するので、押しただけでは動かさず、先に確認を出す。

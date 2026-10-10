@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SessionDto } from '@agent-hangar/shared';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { cleanSidebarOrder, mergeSidebarOrder, SIDEBAR_ORDER_KEY, SIDEBAR_ORDER_MAX, trimSidebarOrder } from '../mediator/sidebar.ts';
 import { initialState, transition } from '../mediator/transition.ts';
 import { presentShell, SIDE_LIVE_MAX, type SideLiveProps, type SideLiveRow } from '../presenters/shell.ts';
@@ -64,7 +64,7 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
   it('ホームでも、ほかの画面と同じ行を同じ並びで出す', () => {
     const st = { sidebarOrder: ['c', 'a', 'b'] };
     expect(liveOf(store, { ...at('home'), ...st })).toEqual(liveOf(store, { ...at('projects'), ...st }));
-    render(<IntentRoot onIntent={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveOf(store, { ...at('home'), ...st })} /></IntentRoot>);
+    render(<ActionRoot onAction={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveOf(store, { ...at('home'), ...st })} /></ActionRoot>);
     expect(screen.getAllByRole('link').map((a) => a.textContent)).toEqual([expect.stringContaining('name-c'), expect.stringContaining('name-a'), expect.stringContaining('name-b')]);
   });
   it('並べるのは上限までで、超えた分は数だけ返す。並べ替えの計算には全部の並びを渡す', () => {
@@ -78,7 +78,7 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
 
 describe('並びを覚える（sidebar.order）', () => {
   it('並びを状態に入れ、localStorage に残す', () => {
-    const r = transition(initialState(), initialStore(), { kind: 'intent', intent: { type: 'sidebar.order', ids: ['b', 'a', 'b'] } });
+    const r = transition(initialState(), initialStore(), { kind: 'action', action: { type: 'sidebar.order', ids: ['b', 'a', 'b'] } });
     expect(r.state.sidebarOrder).toEqual(['b', 'a']);
     expect(r.effects).toContainEqual({ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: ['b', 'a'] });
   });
@@ -123,7 +123,7 @@ describe('並びを覚える（sidebar.order）', () => {
   });
   it('並べ替えは動いている行の席だけを入れ替え、抜けているセッションの席を残す', () => {
     expect(mergeSidebarOrder(['a', 'x', 'b', 'c'], ['c', 'a', 'b'])).toEqual(['c', 'x', 'a', 'b']);
-    const r = transition({ ...initialState(), sidebarOrder: ['a', 'x', 'b', 'c'] }, initialStore(), { kind: 'intent', intent: { type: 'sidebar.order', ids: ['a', 'c', 'b'] } });
+    const r = transition({ ...initialState(), sidebarOrder: ['a', 'x', 'b', 'c'] }, initialStore(), { kind: 'action', action: { type: 'sidebar.order', ids: ['a', 'c', 'b'] } });
     expect(r.state.sidebarOrder).toEqual(['a', 'x', 'c', 'b']);
     expect(r.effects).toContainEqual({ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: ['a', 'x', 'c', 'b'] });
   });
@@ -167,7 +167,7 @@ describe('行の移し方', () => {
 
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
-const mount = (live: SideLiveProps, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></IntentRoot>), onIntent });
+const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 
 // jsdom はドラッグのイベントにポインタの位置を載せないので、作ったイベントに clientY を足してから送る。
 const dragAt = (kind: 'dragOver' | 'drop', el: HTMLElement, clientY: number) => {
@@ -184,10 +184,10 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     expect(container.querySelector('.dot')).toHaveAttribute('data-aside', 'true');
   });
   it('見出しに件数を出し、行を押すとそのセッションを開く', () => {
-    const { onIntent } = mount(liveProps());
+    const { onAction } = mount(liveProps());
     expect(screen.getByRole('heading', { name: /実行中/ })).toHaveTextContent('3');
     fireEvent.click(screen.getByRole('link', { name: /name-a/ }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
   });
   it('入力待ちの行には待った時間を添え、いま見ている行には印を付ける', () => {
     mount(liveProps());
@@ -205,12 +205,12 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     expect(screen.queryByRole('heading', { name: /実行中/ })).toBeNull();
   });
   it('並べきれない分は「ほか N 件」にして、押すとホームへ行く', () => {
-    const { onIntent } = mount(liveProps({ count: 11, more: 8 }));
+    const { onAction } = mount(liveProps({ count: 11, more: 8 }));
     fireEvent.click(screen.getByText('ほか 8 件'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
   });
   it('行を掴んで別の行の上半分に落とすと、その前へ入る並びを出す', () => {
-    const { onIntent } = mount(liveProps());
+    const { onAction } = mount(liveProps());
     const c = screen.getByRole('link', { name: /name-c/ });
     const a = screen.getByRole('link', { name: /name-a/ });
     a.getBoundingClientRect = () => ({ top: 100, height: 30, bottom: 130, left: 0, right: 200, width: 200, x: 0, y: 100, toJSON: () => ({}) });
@@ -219,10 +219,10 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     dragAt('dragOver', a, 104);
     expect(a).toHaveAttribute('data-over', 'before');
     dragAt('drop', a, 104);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
   });
   it('下半分に落とすと、その後ろへ入る', () => {
-    const { onIntent } = mount(liveProps());
+    const { onAction } = mount(liveProps());
     const a = screen.getByRole('link', { name: /name-a/ });
     const b = screen.getByRole('link', { name: /name-b/ });
     b.getBoundingClientRect = () => ({ top: 130, height: 30, bottom: 160, left: 0, right: 200, width: 200, x: 0, y: 130, toJSON: () => ({}) });
@@ -231,18 +231,18 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     dragAt('dragOver', b, 155);
     expect(b).toHaveAttribute('data-over', 'after');
     dragAt('drop', b, 155);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'a', 'c'] });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'a', 'c'] });
   });
   it('キーボードでは ⌥↑ と ⌥↓ で 1 つずつ動かす。⌥ が無ければ動かさない', () => {
-    const { onIntent } = mount(liveProps());
+    const { onAction } = mount(liveProps());
     const b = screen.getByRole('link', { name: /name-b/ });
     fireEvent.keyDown(b, { key: 'ArrowUp', altKey: true });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'a', 'c'] });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'a', 'c'] });
     fireEvent.keyDown(b, { key: 'ArrowDown', altKey: true });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['a', 'c', 'b'] });
-    onIntent.mockClear();
+    expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['a', 'c', 'b'] });
+    onAction.mockClear();
     fireEvent.keyDown(b, { key: 'ArrowUp' });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
 });
 
@@ -284,26 +284,26 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(screen.getByRole('menu')).toHaveAccessibleName('name-a の操作');
   });
   it('「停止」を押すと、その行の run を止める手を出し、メニューを閉じる。行は開かない', () => {
-    const { onIntent } = mount(liveProps({ rows: [row('a', { stop: { runId: 'r9', working: false, aside: false, shellTabs: 2 } }), row('b')] }));
+    const { onAction } = mount(liveProps({ rows: [row('a', { stop: { runId: 'r9', working: false, aside: false, shellTabs: 2 } }), row('b')] }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: /停止/ }));
-    expect(onIntent).toHaveBeenCalledTimes(1);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r9', working: false, aside: false, shellTabs: 2 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r9', working: false, aside: false, shellTabs: 2 });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('data-menu');
   });
   it('hangar の外で動いている行では、「停止」を押せない形で出し、理由を添える', () => {
-    const { onIntent } = mount(liveProps({ rows: [row('a', { stop: null })] }));
+    const { onAction } = mount(liveProps({ rows: [row('a', { stop: null })] }));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
     const item = screen.getByRole('menuitem', { name: /停止/ });
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).toHaveTextContent('hangar の外で動いています');
     expect(item).not.toHaveTextContent(NOTE);
     fireEvent.click(item);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('行に焦点があるときの . でも開き、Esc で閉じて焦点を行へ戻す', () => {
-    const { onIntent } = mount(liveProps());
+    const { onAction } = mount(liveProps());
     const b = screen.getByRole('link', { name: /name-b/ });
     b.focus();
     fireEvent.keyDown(b, { key: '.' });
@@ -313,7 +313,7 @@ describe('行のメニュー（右クリックと .）', () => {
     fireEvent.keyDown(item, { key: 'Escape' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(b).toHaveFocus();
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('修飾キーの付いた . では開かない', () => {
     mount(liveProps());
@@ -336,7 +336,7 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
   it('メニューを開いている間に行が消えたら閉じ、その行がまた現れても開き直さない', () => {
-    const ui = (live: SideLiveProps) => <IntentRoot onIntent={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></IntentRoot>;
+    const ui = (live: SideLiveProps) => <ActionRoot onAction={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>;
     const { rerender } = render(ui(liveProps()));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
     rerender(ui(liveProps({ count: 2, ids: ['b', 'c'], rows: [row('b'), row('c')] })));

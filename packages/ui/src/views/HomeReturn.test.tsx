@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { translator } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentHomeBand, type ConfirmCard, type HomeCards, type HomeScreenProps, type ReturnCard } from '../presenters/home.ts';
 import type { SessionListProps } from '../presenters/sessions.ts';
 import { HomeScreen } from './HomeScreen.tsx';
@@ -14,7 +14,7 @@ const home = (over: Partial<HomeCards> = {}, props: Partial<HomeScreenProps> = {
   const screenProps: HomeScreenProps = { band, idle: band.groups.every((g) => g.count === 0), searching: false, list, allCount: 0, loadMore: null, note: null, ...props };
   return screenProps;
 };
-const mount = (cards: Partial<HomeCards>, onIntent = vi.fn()) => ({ ...render(<LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><HomeScreen {...home(cards)} /></IntentRoot></LanguageRoot>), onIntent });
+const mount = (cards: Partial<HomeCards>, onAction = vi.fn()) => ({ ...render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeScreen {...home(cards)} /></ActionRoot></LanguageRoot>), onAction });
 const ret = (id: string, overdueDays: number | null, projectName: string | null = 'agent-hangar'): ReturnCard => ({ id, name: `戻る ${id}`, projectName, reason: `${id} の数字を見る`, returnOn: overdueDays === null ? null : '2026-10-02', returnTime: null, overdueDays, due: true, pastMin: null });
 
 describe('HomeScreen の今日戻る（C1）', () => {
@@ -29,13 +29,13 @@ describe('HomeScreen の今日戻る（C1）', () => {
     expect(rows[3]).toHaveTextContent('未分類');
   });
   it('今日戻るの行から開く、戻る日を変える、Done にする', () => {
-    const { onIntent } = mount({ returning: [ret('r1', 0)] });
+    const { onAction } = mount({ returning: [ret('r1', 0)] });
     fireEvent.click(screen.getByRole('button', { name: '開く、戻る r1' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.open', id: 'r1' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.open', id: 'r1' });
     fireEvent.click(screen.getByRole('button', { name: '日付を変更、戻る r1' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.pause.open', id: 'r1', from: 'menu' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.pause.open', id: 'r1', from: 'menu' });
     fireEvent.click(screen.getByRole('button', { name: 'Done、戻る r1' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 'r1', status: 'done' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 'r1', status: 'done' });
   });
   it('今日戻るも入力待ちも無ければ、要対応の錠剤は押せない薄い札になる', () => {
     mount({ running: [{ id: 'x', name: '動く', live: 'busy', aside: false, elapsed: '5分', meta: 'alpha', intent: null, activity: null, note: '作業中', contextPercent: null, contextLabel: '' }] });
@@ -48,19 +48,19 @@ describe('HomeScreen の確認待ち（セッションの提案）', () => {
   const session = (id: string, status: 'paused' | 'done'): ConfirmCard => ({ kind: 'session', id, name: `会話 ${id}`, projectName: null, status, label: status === 'done' ? 'Done にする？' : 'Paused · 10/3（土）？', note: '直して push した', ago: '2 時間前' });
   const todo: ConfirmCard = { kind: 'todo', id: 't1', text: '窓を掴める', projectId: 'p1', projectName: 'agent-hangar', sessionName: 's', ago: '1 分前', note: 'n' };
   it('提案の札を行の頭に出し、確定・日付を変更（Paused のみ）・却下を押せる', () => {
-    const { onIntent } = mount({ confirm: [session('s1', 'paused'), session('s2', 'done')] });
+    const { onAction } = mount({ confirm: [session('s1', 'paused'), session('s2', 'done')] });
     const drawer = screen.getByRole('region', { name: '確認待ち' });
     expect([...drawer.querySelectorAll('.home-cand')].map((x) => x.textContent)).toEqual(['Paused · 10/3（土）？', 'Done にする？']);
     expect(drawer).toHaveTextContent('未分類');
     fireEvent.click(within(drawer).getByRole('button', { name: '確定、会話 s1' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1' });
     fireEvent.click(within(drawer).getByRole('button', { name: '日付を変更、会話 s1' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.pause.open', id: 's1', from: 'candidate' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.pause.open', id: 's1', from: 'candidate' });
     fireEvent.click(within(drawer).getByRole('button', { name: '却下、会話 s2' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.state.reject', id: 's2' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.reject', id: 's2' });
     expect(within(drawer).queryByRole('button', { name: '日付を変更、会話 s2' })).toBeNull();
     fireEvent.click(within(drawer).getByRole('button', { name: '会話 s2' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.open', id: 's2' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.open', id: 's2' });
   });
   it('TODO の候補と混ざった並びをそのまま描く', () => {
     mount({ confirm: [todo, session('s1', 'done')] });
@@ -71,14 +71,14 @@ describe('HomeScreen の確認待ち（セッションの提案）', () => {
   });
   it('別のプロジェクトに同じ本文の候補があっても、確定と却下の名前は 1 つに決まる', () => {
     const mk = (id: string, projectId: string, projectName: string): ConfirmCard => ({ kind: 'todo', id, text: '窓を掴める', projectId, projectName, sessionName: 's', ago: '1 分前', note: 'n' });
-    const { onIntent } = mount({ confirm: [mk('t1', 'p1', 'alpha'), mk('t2', 'p2', 'beta')] });
+    const { onAction } = mount({ confirm: [mk('t1', 'p1', 'alpha'), mk('t2', 'p2', 'beta')] });
     fireEvent.click(screen.getByRole('button', { name: '確定、窓を掴める（alpha）' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.confirm', id: 't1' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.confirm', id: 't1' });
     fireEvent.click(screen.getByRole('button', { name: '確定、窓を掴める（beta）' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.confirm', id: 't2' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.confirm', id: 't2' });
     fireEvent.click(screen.getByRole('button', { name: '却下、窓を掴める（alpha）' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.reject', id: 't1' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.reject', id: 't1' });
     fireEvent.click(screen.getByRole('button', { name: '却下、窓を掴める（beta）' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'todo.reject', id: 't2' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'todo.reject', id: 't2' });
   });
 });

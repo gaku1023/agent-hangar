@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import type { SessionListProps } from '../presenters/sessions.ts';
 import { SessionList } from './SessionList.tsx';
 
@@ -39,7 +39,7 @@ const TABS: SessionListProps['tabs'] = [
   { tab: 'done', label: 'Done', count: '1,222', hot: false },
 ];
 const sessions = (over: Partial<SessionListProps> = {}): SessionListProps => ({ text: '', filter: {}, projects: [], rows: [], total: 0, loading: false, mode: 'all', allCount: 1249, conditions: [], tabs: TABS, tab: 'all', pager: null, statusColumn: true, tokens: [], hints: [], ...over });
-const mountSessions = (over: Partial<SessionListProps>) => render(<IntentRoot onIntent={vi.fn()}><div className="host"><SessionList {...sessions(over)} /></div></IntentRoot>);
+const mountSessions = (over: Partial<SessionListProps>) => render(<ActionRoot onAction={vi.fn()}><div className="host"><SessionList {...sessions(over)} /></div></ActionRoot>);
 
 describe('一覧の絞り込みの反復', () => {
   it('状態のタブだけで絞っているときは、条件の行を出さない', () => {

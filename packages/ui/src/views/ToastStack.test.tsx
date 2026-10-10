@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
 import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
@@ -8,14 +8,14 @@ import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, ...over });
 const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, ...over });
 function mount(p: ToastsProps) {
-  const onIntent = vi.fn();
-  const r = render(<IntentRoot onIntent={onIntent}><ToastStack {...p} /></IntentRoot>);
-  return { onIntent, rerender: (q: ToastsProps) => r.rerender(<IntentRoot onIntent={onIntent}><ToastStack {...q} /></IntentRoot>) };
+  const onAction = vi.fn();
+  const r = render(<ActionRoot onAction={onAction}><ToastStack {...p} /></ActionRoot>);
+  return { onAction, rerender: (q: ToastsProps) => r.rerender(<ActionRoot onAction={onAction}><ToastStack {...q} /></ActionRoot>) };
 }
 
 describe('入力待ちのカード', () => {
   it('見出しにラベル、名前、待っている時間を、その下に問いを出し、押すとそのセッションを開く', () => {
-    const { onIntent } = mount(props({ waiting: [card('s1')] }));
+    const { onAction } = mount(props({ waiting: [card('s1')] }));
     const c = screen.getByRole('button', { name: '名前 s1 が入力を待っています：問い s1' });
     const head = within(c.querySelector<HTMLElement>('.notice-head')!);
     expect(head.getByText('入力待ち')).toBeInTheDocument();
@@ -23,12 +23,12 @@ describe('入力待ちのカード', () => {
     expect(head.getByText('2 分')).toBeInTheDocument();
     expect(c.querySelector('.notice-title')).toHaveTextContent('問い s1');
     fireEvent.click(c);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 's1', focus: 'terminal' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 's1', focus: 'terminal' });
   });
   it('カードのどこを押しても開く', () => {
-    const { onIntent } = mount(props({ waiting: [card('s1')] }));
+    const { onAction } = mount(props({ waiting: [card('s1')] }));
     fireEvent.click(screen.getByText('問い s1'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 's1', focus: 'terminal' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 's1', focus: 'terminal' });
   });
   // 問いが取れない入力待ち（許可待ちなど）は、決まり文句で段を埋めず、名前を主役の段へ上げる。
   it('問いがなければ、見出しはラベルと時間だけにして、名前を問いの段に出す', () => {
@@ -46,15 +46,15 @@ describe('入力待ちのカード', () => {
   it('時間では消えない', () => {
     vi.useFakeTimers();
     try {
-      const { onIntent } = mount(props({ waiting: [card('s1')] }));
+      const { onAction } = mount(props({ waiting: [card('s1')] }));
       act(() => { vi.advanceTimersByTime(60_000); });
-      expect(onIntent).not.toHaveBeenCalled();
+      expect(onAction).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
   });
   it('並べきれない分は「ほか N 件をホームで見る」にまとめ、押すとホームへ移る', () => {
-    const { onIntent } = mount(props({ waiting: [card('s3'), card('s4'), card('s5')], more: 2 }));
+    const { onAction } = mount(props({ waiting: [card('s3'), card('s4'), card('s5')], more: 2 }));
     fireEvent.click(screen.getByRole('button', { name: 'ほか 2 件をホームで見る' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
   });
   // 通知の誘いはベルの一覧の行になった（PR 29）。右下には積まない。
   it('通知の誘いも戻る時刻の札も積まない', () => {
@@ -63,14 +63,14 @@ describe('入力待ちのカード', () => {
     expect(document.querySelector('.notice[data-kind="return"]')).toBeNull();
   });
   it('ダイアログが開いている間は、カードも「ほか N 件」も押せず、理由は乗せたときの説明に出す', () => {
-    const { onIntent } = mount(props({ waiting: [card('s1')], more: 2, blocked: true }));
+    const { onAction } = mount(props({ waiting: [card('s1')], more: 2, blocked: true }));
     const c = screen.getByRole('button', { name: '名前 s1 が入力を待っています：問い s1' });
     expect(c).toBeDisabled();
     expect(c).toHaveAttribute('title', 'ダイアログを閉じると開けます');
     expect(screen.queryByText('ダイアログを閉じると開けます')).toBeNull();
     expect(screen.getByRole('button', { name: 'ほか 2 件をホームで見る' })).toBeDisabled();
     fireEvent.click(screen.getByText('問い s1'));
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('押せる間は、乗せたときの説明を付けない', () => {
     mount(props({ waiting: [card('s1')] }));
@@ -90,48 +90,48 @@ describe('info と error のトースト', () => {
     expect(within(screen.getByRole('alert').querySelector<HTMLElement>('.notice-head')!).getByText('エラー')).toBeInTheDocument();
   });
   it('info は role="status" で、時間が来たら消す', () => {
-    const { onIntent } = mount(props({ toasts: [info('1')] }));
+    const { onAction } = mount(props({ toasts: [info('1')] }));
     expect(screen.getByRole('status')).toHaveTextContent('知らせ 1');
     act(() => { vi.advanceTimersByTime(INFO_TOAST_MS - 1); });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1); });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
   });
   it('時間切れはトーストごとに数える', () => {
-    const { onIntent, rerender } = mount(props({ toasts: [info('1')] }));
+    const { onAction, rerender } = mount(props({ toasts: [info('1')] }));
     act(() => { vi.advanceTimersByTime(INFO_TOAST_MS / 2); });
     rerender(props({ toasts: [info('1'), info('2')] }));
     act(() => { vi.advanceTimersByTime(INFO_TOAST_MS / 2); });
-    expect(onIntent.mock.calls).toEqual([[{ type: 'toast.dismiss', id: '1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'toast.dismiss', id: '1' }]]);
     rerender(props({ toasts: [info('2')] }));
     act(() => { vi.advanceTimersByTime(INFO_TOAST_MS / 2); });
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'toast.dismiss', id: '2' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'toast.dismiss', id: '2' });
   });
   it('マウスを乗せている間は止め、離したら残りの時間で消す', () => {
-    const { onIntent } = mount(props({ toasts: [info('1')] }));
+    const { onAction } = mount(props({ toasts: [info('1')] }));
     act(() => { vi.advanceTimersByTime(INFO_TOAST_MS - 1000); });
     fireEvent.mouseEnter(screen.getByRole('status'));
     act(() => { vi.advanceTimersByTime(INFO_TOAST_MS * 3); });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.mouseLeave(screen.getByRole('status'));
     act(() => { vi.advanceTimersByTime(999); });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1); });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
   });
   it('info は押しても消せる', () => {
-    const { onIntent } = mount(props({ toasts: [info('1')] }));
+    const { onAction } = mount(props({ toasts: [info('1')] }));
     fireEvent.click(screen.getByText('知らせ 1'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
   });
   it('error は role="alert" で、時間では消えず、閉じるで消す', () => {
-    const { onIntent } = mount(props({ toasts: [error('1')] }));
+    const { onAction } = mount(props({ toasts: [error('1')] }));
     const alert = screen.getByRole('alert');
     act(() => { vi.advanceTimersByTime(60_000); });
     fireEvent.click(within(alert).getByText('失敗 1'));
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.click(within(alert).getByRole('button', { name: '閉じる' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
   });
   it('error の本文が 2 行に収まらないときは「詳しく」で開く', () => {
     const tall = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(80);

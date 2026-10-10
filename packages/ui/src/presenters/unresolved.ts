@@ -1,4 +1,4 @@
-import type { Intent, ProjectDto, Translate } from '@agent-hangar/shared';
+import type { UiAction, ProjectDto, Translate } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import type { BandAction, BandGroup, BandRow } from './home.ts';
 
@@ -20,8 +20,8 @@ export function unresolvedKind(p: ProjectDto): UnresolvedKind | null {
 /** 帯や札に数えるプロジェクトか。Archived にしたものは、利用者が脇へ置いたので数えない。 */
 const counted = (p: ProjectDto, kind: UnresolvedKind): boolean => p.status !== 'archived' && unresolvedKind(p) === kind;
 
-function action(t: Translate, id: string, label: string, name: string, intent: Intent, kind: 'primary' | 'ghost' | 'plain' = 'plain'): BandAction {
-  return { id, label, ariaLabel: t('home.band.actionFor', { action: label, name }), primary: kind === 'primary', ghost: kind === 'ghost', intent };
+function action(t: Translate, id: string, label: string, name: string, send: UiAction, kind: 'primary' | 'ghost' | 'plain' = 'plain'): BandAction {
+  return { id, label, ariaLabel: t('home.band.actionFor', { action: label, name }), primary: kind === 'primary', ghost: kind === 'ghost', send };
 }
 
 /**

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentAccounts } from '../presenters/accounts.ts';
 import type { HeaderAccountProps } from '../presenters/shell.ts';
 import { initialStore } from '../store/store.ts';
@@ -16,10 +16,10 @@ const home = (over: Partial<Account> = {}): Account => ({ shown: list[0]!, list,
 const inSession = (over: Partial<Account> = {}): Account => ({ shown: list[1]!, list, sessionId: 's9', working: true, ...over });
 
 const mount = (account: Account) => {
-  const onIntent = vi.fn();
-  render(<IntentRoot onIntent={onIntent}><AccountSwitcher account={account}><span data-testid="gauges">計器</span></AccountSwitcher></IntentRoot>);
+  const onAction = vi.fn();
+  render(<ActionRoot onAction={onAction}><AccountSwitcher account={account}><span data-testid="gauges">計器</span></AccountSwitcher></ActionRoot>);
   const face = screen.getByRole('button', { name: new RegExp(`^アカウントを切り替え（現在は ${account.shown.name}[、）]`) });
-  return { onIntent, face };
+  return { onAction, face };
 };
 const card = (name: RegExp | string) => screen.getByRole('menuitemradio', { name });
 
@@ -65,20 +65,20 @@ describe('AccountSwitcher のボタン', () => {
 
 describe('AccountSwitcher の開いた先', () => {
   it('押すと開き、accounts.load を 1 回だけ出す', () => {
-    const { face, onIntent } = mount(home());
+    const { face, onAction } = mount(home());
     fireEvent.click(face);
     expect(face).toHaveAttribute('aria-expanded', 'true');
     const dialog = screen.getByRole('dialog', { name: 'アカウントを切り替え' });
     expect(dialog).toHaveClass('menu-pop', 'account-pop');
     expect(dialog.parentElement).toBe(document.body);
-    expect(onIntent.mock.calls).toEqual([[{ type: 'accounts.load' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'accounts.load' }]]);
   });
   it('開いている間に押し直すと閉じ、accounts.load は増やさない', () => {
-    const { face, onIntent } = mount(home());
+    const { face, onAction } = mount(home());
     fireEvent.click(face);
     fireEvent.click(face);
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
   it('アカウントごとに 1 枚の札を並べ、shown の札に aria-checked を付ける', () => {
     const { face } = mount(home());
@@ -125,91 +125,91 @@ describe('AccountSwitcher の開いた先', () => {
 
 describe('AccountSwitcher で札を押す', () => {
   it('ホームで「大学」を押すと account.choose を出して閉じる', () => {
-    const { face, onIntent } = mount(home());
+    const { face, onAction } = mount(home());
     fireEvent.click(face);
-    onIntent.mockClear();
+    onAction.mockClear();
     fireEvent.click(card(/大学/));
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('セッション画面で「会社」を押すと account.switchSession を working つきで出して閉じる', () => {
-    const { face, onIntent } = mount(inSession());
+    const { face, onAction } = mount(inSession());
     fireEvent.click(face);
-    onIntent.mockClear();
+    onAction.mockClear();
     fireEvent.click(card(/会社/));
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.switchSession', sessionId: 's9', accountId: 'primary', working: true }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.switchSession', sessionId: 's9', accountId: 'primary', working: true }]]);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('working が偽なら、偽のまま添える', () => {
-    const { face, onIntent } = mount(inSession({ working: false }));
+    const { face, onAction } = mount(inSession({ working: false }));
     fireEvent.click(face);
-    onIntent.mockClear();
+    onAction.mockClear();
     fireEvent.click(card(/会社/));
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.switchSession', sessionId: 's9', accountId: 'primary', working: false }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.switchSession', sessionId: 's9', accountId: 'primary', working: false }]]);
   });
-  it('いまの札を押しても Intent は出さず、閉じるだけ', () => {
+  it('いまの札を押しても UiAction は出さず、閉じるだけ', () => {
     for (const account of [home(), inSession()]) {
-      const { face, onIntent } = mount(account);
+      const { face, onAction } = mount(account);
       fireEvent.click(face);
-      onIntent.mockClear();
+      onAction.mockClear();
       fireEvent.click(card(new RegExp(account.shown.name)));
-      expect(onIntent).not.toHaveBeenCalled();
+      expect(onAction).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).toBeNull();
       document.body.innerHTML = '';
     }
   });
   it('未ログインの札は aria-disabled で、右上は空にし、メールの行だけが「未ログイン」と言う。押しても何も出ず、開いたまま', () => {
     const out = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'out' as const } : a));
-    const { face, onIntent } = mount(home({ list: out }));
+    const { face, onAction } = mount(home({ list: out }));
     fireEvent.click(face);
-    onIntent.mockClear();
+    onAction.mockClear();
     const univ = card(/大学/);
     expect(univ).toHaveAttribute('aria-disabled', 'true');
     expect(within(univ).getAllByText('未ログイン')).toHaveLength(1);
     expect(univ.querySelector('.account-card-tag')).toBeNull();
     expect(univ.querySelector('.account-mail')).toHaveTextContent('未ログイン');
     fireEvent.click(univ);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     // ログイン済みの札は押せる印を持たない。
     expect(card(/会社/)).not.toHaveAttribute('aria-disabled');
   });
   it('初めてのログインの途中の札も押せず、右上は空で、メールの行が承認を促す', () => {
     const running = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'running' as const, loggedIn: false, email: null } : a));
-    const { face, onIntent } = mount(home({ list: running }));
+    const { face, onAction } = mount(home({ list: running }));
     fireEvent.click(face);
-    onIntent.mockClear();
+    onAction.mockClear();
     const univ = card(/大学/);
     expect(univ).toHaveAttribute('aria-disabled', 'true');
     expect(univ.querySelector('.account-card-tag')).toBeNull();
     expect(within(univ).getByText('ブラウザで承認してください…')).toBeInTheDocument();
     fireEvent.click(univ);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
   it('ログインし直しの途中の札は押せて、メールも承認の添え書きも見える', () => {
     const again = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'running' as const, loggedIn: true } : a));
-    const { face, onIntent } = mount(home({ list: again }));
+    const { face, onAction } = mount(home({ list: again }));
     fireEvent.click(face);
-    onIntent.mockClear();
+    onAction.mockClear();
     const univ = card(/大学/);
     expect(univ).not.toHaveAttribute('aria-disabled');
     expect(within(univ).getByText('切り替える')).toBeInTheDocument();
     expect(within(univ).getByText('taro@example.ac.jp')).toBeInTheDocument();
     expect(within(univ).getByText('ブラウザで承認してください…')).toBeInTheDocument();
     fireEvent.click(univ);
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
   });
   it('認証がまだ読めていない（unknown）札は、今までどおり押せる', () => {
     const unknown = list.map((a) => (a.id === 'a1' ? { ...a, auth: 'unknown' as const } : a));
-    const { face, onIntent } = mount(home({ list: unknown }));
+    const { face, onAction } = mount(home({ list: unknown }));
     fireEvent.click(face);
-    onIntent.mockClear();
+    onAction.mockClear();
     const univ = card(/大学/);
     expect(univ).not.toHaveAttribute('aria-disabled');
     expect(within(univ).getByText('切り替える')).toBeInTheDocument();
     fireEvent.click(univ);
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.choose', accountId: 'a1' }]]);
   });
 });
 
@@ -230,20 +230,20 @@ describe('AccountSwitcher の閉じ方と設定への道', () => {
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
-  it('「アカウントの設定」で設定へ移る Intent を出して閉じる', () => {
-    const { face, onIntent } = mount(home());
+  it('「アカウントの設定」で設定へ移る UiAction を出して閉じる', () => {
+    const { face, onAction } = mount(home());
     fireEvent.click(face);
-    onIntent.mockClear();
+    onAction.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'アカウントの設定' }));
     // アカウントの節が見える位置へ着く。
-    expect(onIntent.mock.calls).toEqual([[{ type: 'nav.go', to: { name: 'settings', at: 'accounts' } }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'nav.go', to: { name: 'settings', at: 'accounts' } }]]);
     expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('閉じてもう一度開くたびに accounts.load を出す', () => {
-    const { face, onIntent } = mount(home());
+    const { face, onAction } = mount(home());
     fireEvent.click(face);
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     fireEvent.click(face);
-    expect(onIntent.mock.calls.filter(([i]) => i.type === 'accounts.load')).toHaveLength(2);
+    expect(onAction.mock.calls.filter(([i]) => i.type === 'accounts.load')).toHaveLength(2);
   });
 });

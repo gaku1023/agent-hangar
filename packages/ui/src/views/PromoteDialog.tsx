@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { PromoteProps, PromotedProps } from '../presenters/promote.ts';
 import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';

@@ -1,6 +1,6 @@
-import { type Intent, type SearchFilter, type StatusFilter } from '@agent-hangar/shared';
+import { type UiAction, type SearchFilter, type StatusFilter } from '@agent-hangar/shared';
 import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import { parseQuery } from '../lib/searchTokens.ts';
 import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/sessions.ts';
 import { isComposing } from './ime.ts';
@@ -200,7 +200,7 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersId = `${uid}-filters`;
   // 行の状態の札を押すと、そのタブへ移る（★ の E）。
-  const badgeIntent = (status: StatusFilter): Intent => ({ type: 'search.filter', patch: { status } });
+  const badgeAction = (status: StatusFilter): UiAction => ({ type: 'search.filter', patch: { status } });
   const id = props.id ?? 'session-results';
   const autoFocus = props.autoFocus ?? true;
   return (
@@ -214,7 +214,7 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
       {filtersOpen && <Filters id={filtersId} filter={props.filter} projects={props.projects} projectFixed={props.projectFixed} />}
       <Hints hints={props.hints} />
       <ConditionRow conditions={props.conditions} tab={props.tab} filter={props.filter} loading={props.loading} total={props.total} />
-      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeIntent={badgeIntent} />
+      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeAction={badgeAction} />
       {props.loadMore
         ? <LoadMore {...props.loadMore} />
         : props.pager && <Pager label={t('list.pager.label')} pager={props.pager} onPage={(page) => emit({ type: 'search.page', page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}

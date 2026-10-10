@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { translator, type Intent, type SessionDto } from '@agent-hangar/shared';
+import { translator, type UiAction, type SessionDto } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { presentLeadCard, type LeadInput } from '../presenters/session.ts';
 import { LeadCard } from './LeadCard.tsx';
@@ -29,12 +29,12 @@ const input = (p: Partial<LeadInput> = {}): LeadInput => ({
 });
 
 function mount(p: Partial<LeadInput> = {}, language: 'ja' | 'en' = 'ja') {
-  const onIntent = vi.fn<(i: Intent) => void>();
+  const onAction = vi.fn<(i: UiAction) => void>();
   const ui = (q: Partial<LeadInput> = {}) => (
-    <LanguageRoot language={language}><IntentRoot onIntent={onIntent}><LeadCard sessionId="s1" {...presentLeadCard(input({ ...p, ...q }), language === 'ja' ? ja : en)} /></IntentRoot></LanguageRoot>
+    <LanguageRoot language={language}><ActionRoot onAction={onAction}><LeadCard sessionId="s1" {...presentLeadCard(input({ ...p, ...q }), language === 'ja' ? ja : en)} /></ActionRoot></LanguageRoot>
   );
   const view = render(ui());
-  return { onIntent, rerender: (q: Partial<LeadInput>) => view.rerender(ui(q)) };
+  return { onAction, rerender: (q: Partial<LeadInput>) => view.rerender(ui(q)) };
 }
 const card = () => screen.getByRole('region', { name: 'このセッションのまとめ' });
 
@@ -60,7 +60,7 @@ describe('LeadCard の 1 行目', () => {
   it('「要約を再生成」で summary.regenerate を出す。本文が消えた会話では出さず、「要約のみ」と言う', () => {
     const m = mount();
     fireEvent.click(within(card()).getByRole('button', { name: '要約を再生成' }));
-    expect(m.onIntent).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: 's1' });
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: 's1' });
     m.rerender({ gone: true });
     expect(within(card()).queryByRole('button', { name: '要約を再生成' })).toBeNull();
     expect(within(card()).getByText('要約のみ')).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe('LeadCard の札', () => {
     expect(within(panel).getByRole('button', { name: '/w/web-shop/NOTES.md を VS Code で開く' })).toHaveTextContent('新規');
     expect(within(panel).getByText('足した行と消した行は、読み込んだ分だけ出ています')).toBeInTheDocument();
     fireEvent.click(first);
-    expect(m.onIntent).toHaveBeenCalledWith({ type: 'session.openFile', sessionId: 's1', path: '/w/web-shop/src/ProductImage.tsx' });
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'session.openFile', sessionId: 's1', path: '/w/web-shop/src/ProductImage.tsx' });
   });
 
   it('アーティファクトの札を押すと一覧が開き、同時に開くのは 1 つだけ。題名で開き、鉛筆で VS Code', () => {
@@ -126,9 +126,9 @@ describe('LeadCard の札', () => {
     expect(within(card()).queryByRole('region', { name: '変更したファイル' })).toBeNull();
     const panel = within(card()).getByRole('region', { name: 'アーティファクト' });
     fireEvent.click(within(panel).getByRole('button', { name: /成果 a1/ }));
-    expect(m.onIntent).toHaveBeenLastCalledWith({ type: 'artifact.open', id: 'a1' });
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'artifact.open', id: 'a1' });
     fireEvent.click(within(panel).getByRole('button', { name: '成果 a2 を VS Code で開く' }));
-    expect(m.onIntent).toHaveBeenLastCalledWith({ type: 'artifact.openEditor', id: 'a2' });
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'artifact.openEditor', id: 'a2' });
   });
 
   it('変更もアーティファクトも無ければ、その札を出さない', () => {
@@ -155,7 +155,7 @@ describe('LeadCard のノート', () => {
     expect(area).toHaveFocus();
     fireEvent.change(area, { target: { value: '詳細の頁は別のセッションで' } });
     fireEvent.click(within(card()).getByRole('button', { name: '保存' }));
-    expect(m.onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '詳細の頁は別のセッションで' });
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '詳細の頁は別のセッションで' });
   });
 
   it('ノートに中身があれば本文を出し、「ノートを編集」で編集欄を開く（今の本文が入っている）', () => {
@@ -166,16 +166,16 @@ describe('LeadCard のノート', () => {
     expect(within(card()).queryByRole('button', { name: 'ノートを編集' })).toBeNull();
   });
   it('⌘Enter で保存すると session.setMemo を出して読む表示に戻り、Esc では保存せずに戻る', () => {
-    const { onIntent } = mount({ session: session({ memo: '元' }) });
+    const { onAction } = mount({ session: session({ memo: '元' }) });
     fireEvent.click(within(card()).getByRole('button', { name: 'ノートを編集' }));
     fireEvent.change(within(card()).getByRole('textbox', { name: 'ノート' }), { target: { value: '新' } });
     fireEvent.keyDown(within(card()).getByRole('textbox', { name: 'ノート' }), { key: 'Enter', metaKey: true });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '新' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '新' });
     expect(within(card()).queryByRole('textbox')).toBeNull();
-    onIntent.mockClear();
+    onAction.mockClear();
     fireEvent.click(within(card()).getByRole('button', { name: 'ノートを編集' }));
     fireEvent.keyDown(within(card()).getByRole('textbox', { name: 'ノート' }), { key: 'Escape' });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(within(card()).queryByRole('textbox')).toBeNull();
   });
 });

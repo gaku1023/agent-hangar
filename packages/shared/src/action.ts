@@ -26,7 +26,7 @@ export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };
 export type Settings = SettingsDto;
 
-export type Intent =
+export type UiAction =
   | { type: 'nav.go'; to: Route }
   // 履歴を 1 つ戻る / 進む。ブラウザの戻ると同じもので、2 本指のスワイプもここへ来る。
   | { type: 'nav.back' } | { type: 'nav.forward' }

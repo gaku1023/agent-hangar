@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { LeadCardProps } from '../presenters/session.ts';
 import { EditableNote } from './EditableNote.tsx';
 import { sessionNoteTexts } from './NoteEditor.tsx';

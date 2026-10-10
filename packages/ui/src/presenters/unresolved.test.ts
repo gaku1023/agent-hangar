@@ -64,7 +64,7 @@ describe('presentUnresolved（帯の 4 つ目の錠剤）', () => {
     const store = storeOf([missing('alpha')], [session('s1', 'alpha'), session('s2', 'alpha'), session('s3', 'other')]);
     const row = presentUnresolved(store, ja)!.rows[0]!;
     expect(row).toMatchObject({ key: 'unresolved:alpha', lead: { kind: 'place' }, name: 'alpha', context: 'セッション 2 件', text: '', detail: '/w/alpha', open: { type: 'project.open', id: 'alpha' } });
-    expect(row.actions.map((a) => [a.id, a.label, a.primary, a.ghost, a.intent])).toEqual([
+    expect(row.actions.map((a) => [a.id, a.label, a.primary, a.ghost, a.send])).toEqual([
       ['relocate', '場所を再指定', true, false, { type: 'project.resolve.open', id: 'alpha' }],
       ['archive', 'Archived にする', false, false, { type: 'project.resolve', id: 'alpha', action: { kind: 'archive' } }],
       ['unlink', '一覧から削除', false, true, { type: 'project.resolve', id: 'alpha', action: { kind: 'unlink' } }],

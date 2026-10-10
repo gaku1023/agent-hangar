@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { translator, type Intent, type LiveAgentDto, type TranscriptEvent } from '@agent-hangar/shared';
+import { translator, type UiAction, type LiveAgentDto, type TranscriptEvent } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentNowStrip, type StripInput } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { NowStrip } from './NowStrip.tsx';
@@ -22,13 +22,13 @@ const input = (p: Partial<StripInput> = {}): StripInput => ({
 });
 
 function mount(p: Partial<StripInput> = {}, language: 'ja' | 'en' = 'ja') {
-  const onIntent = vi.fn<(i: Intent) => void>();
+  const onAction = vi.fn<(i: UiAction) => void>();
   const strip = (q: Partial<StripInput>) => presentNowStrip(input({ ...p, ...q }), language === 'ja' ? ja : en);
   const ui = (q: Partial<StripInput> = {}) => (
-    <LanguageRoot language={language}><IntentRoot onIntent={onIntent}><NowStrip sessionId="s1" {...strip(q)} /></IntentRoot></LanguageRoot>
+    <LanguageRoot language={language}><ActionRoot onAction={onAction}><NowStrip sessionId="s1" {...strip(q)} /></ActionRoot></LanguageRoot>
   );
   const view = render(ui());
-  return { onIntent, rerender: (q: Partial<StripInput>) => view.rerender(ui(q)), container: view.container };
+  return { onAction, rerender: (q: Partial<StripInput>) => view.rerender(ui(q)), container: view.container };
 }
 const strip = () => screen.getByRole('region', { name: 'セッションの現在の状態' });
 
@@ -119,7 +119,7 @@ describe('NowStrip の「ノート」の札', () => {
     fireEvent.change(area, { target: { value: '決済は v3。テストは checkout/ 以下' } });
     expect(save).toBeEnabled();
     fireEvent.click(save);
-    expect(m.onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '決済は v3。テストは checkout/ 以下' });
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '決済は v3。テストは checkout/ 以下' });
     // 保存が通って本文が戻ってきたら、書き換えのない状態に戻る（通らなかったときは、書いたものが残って押せるまま）。
     m.rerender({ note: '決済は v3。テストは checkout/ 以下' });
     expect(save).toBeDisabled();
@@ -131,9 +131,9 @@ describe('NowStrip の「ノート」の札', () => {
     const area = screen.getByRole('textbox', { name: 'ノート' });
     fireEvent.change(area, { target: { value: '書いた' } });
     fireEvent.keyDown(area, { key: 'Enter', metaKey: true, isComposing: true, keyCode: 229 });
-    expect(m.onIntent).not.toHaveBeenCalled();
+    expect(m.onAction).not.toHaveBeenCalled();
     fireEvent.keyDown(area, { key: 'Enter', metaKey: true });
-    expect(m.onIntent).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '書いた' });
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '書いた' });
   });
 
   it('外で書き換えられたとき、書きかけが無ければ追い、あれば黙って捨てずに知らせる', () => {
@@ -234,11 +234,11 @@ describe('NowStrip の 2 行目', () => {
     expect(rows[1]).toHaveTextContent('「checkout/ の 12 件を列挙した」');
   });
 
-  it('サブエージェントの行を押すと、その transcript へ切り替える Intent を出して閉じる', () => {
+  it('サブエージェントの行を押すと、その transcript へ切り替える UiAction を出して閉じる', () => {
     const m = mount({ digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'abc123', title: 'テストの一覧を集める' })] } });
     fireEvent.click(within(strip()).getByRole('button', { name: 'サブエージェント 1' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /テストの一覧を集める/ }));
-    expect(m.onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc123' });
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc123' });
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -249,10 +249,10 @@ describe('NowStrip の 2 行目', () => {
     expect(within(dialog).getAllByText(/最終公開 12 分前/)).toHaveLength(2);
     expect(within(dialog).getAllByRole('button', { name: /VS Code で開く/ })).toHaveLength(1);
     fireEvent.click(within(dialog).getByRole('button', { name: /成果 a1/ }));
-    expect(m.onIntent).toHaveBeenLastCalledWith({ type: 'artifact.open', id: 'a1' });
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'artifact.open', id: 'a1' });
     fireEvent.click(screen.getByRole('button', { name: 'アーティファクト 2' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '成果 a2 を VS Code で開く' }));
-    expect(m.onIntent).toHaveBeenLastCalledWith({ type: 'artifact.openEditor', id: 'a2' });
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'artifact.openEditor', id: 'a2' });
   });
 
   it('アーティファクトが無ければ札を出さない', () => {

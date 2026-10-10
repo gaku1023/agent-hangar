@@ -9,15 +9,15 @@ function run(inputs: Input[], start: State = initialState()) {
   for (const i of inputs) { const r = transition(state, initialStore(), i); state = r.state; effects.push(...r.effects); }
   return { state, effects };
 }
-const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
+const action = (i: Extract<Input, { kind: 'action' }>['action']): Input => ({ kind: 'action', action: i });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
 
 describe('欄ごとの保存（設定の C1 と B1）', () => {
   it('欄の名前を添えた保存は、その名前を効果に載せ、欄の前の知らせを消す', () => {
-    const a = run([intent({ type: 'settings.update', patch: { tmuxPath: '/x' }, field: 'tmuxPath' }), runtime({ type: 'settings.failed', field: 'tmuxPath', message: '見つかりません' })]);
+    const a = run([action({ type: 'settings.update', patch: { tmuxPath: '/x' }, field: 'tmuxPath' }), runtime({ type: 'settings.failed', field: 'tmuxPath', message: '見つかりません' })]);
     expect(a.effects).toEqual([{ kind: 'api.updateSettings', patch: { tmuxPath: '/x' }, field: 'tmuxPath' }]);
     expect(a.state.settingsSave.tmuxPath).toEqual({ kind: 'error', message: '見つかりません' });
-    const b = run([intent({ type: 'settings.update', patch: { tmuxPath: '/y' }, field: 'tmuxPath' })], a.state);
+    const b = run([action({ type: 'settings.update', patch: { tmuxPath: '/y' }, field: 'tmuxPath' })], a.state);
     expect(b.state.settingsSave.tmuxPath).toBeUndefined();
   });
   it('保存できたら欄に印を付け、同じ欄の保存のたびに印の番号を進める', () => {
@@ -42,7 +42,7 @@ describe('欄ごとの保存（設定の C1 と B1）', () => {
 
 describe('準備の確かめ', () => {
   it('もう一度確かめると取り直す', () => {
-    expect(run([intent({ type: 'readiness.check' })]).effects).toEqual([{ kind: 'api.readiness' }]);
+    expect(run([action({ type: 'readiness.check' })]).effects).toEqual([{ kind: 'api.readiness' }]);
   });
   it('設定の画面に入ると、ほかの値と一緒に準備の確かめも取る', () => {
     const { effects } = run([runtime({ type: 'ws.open' }), runtime({ type: 'hash.changed', route: { name: 'settings' } })]);
@@ -52,7 +52,7 @@ describe('準備の確かめ', () => {
 
 describe('殻の操作', () => {
   it('ログを開く、再起動、コピーは効果にする', () => {
-    const { effects } = run([intent({ type: 'shell.openLog' }), intent({ type: 'shell.restart' }), intent({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' })]);
+    const { effects } = run([action({ type: 'shell.openLog' }), action({ type: 'shell.restart' }), action({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' })]);
     expect(effects).toEqual([{ kind: 'shell.openLog' }, { kind: 'shell.restart' }, { kind: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' }]);
   });
 });

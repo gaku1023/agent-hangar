@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';

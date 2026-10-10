@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import type { FindState } from '../presenters/find.ts';
 import type { TranscriptItem } from '../presenters/session.ts';
 import { toolItem } from '../test/items.ts';
@@ -25,7 +25,7 @@ type TranscriptProps = Parameters<typeof Transcript>[0];
  * 試験では置き場を作って渡し、find を変えるときは置き場を書き換える。
  */
 function draw(items: TranscriptItem[], find: FindState | null, follow = false) {
-  const onIntent = vi.fn();
+  const onAction = vi.fn();
   const finds = createFindStore();
   const put = (f: FindState | null) => {
     if (!f) { finds.close('s1'); return; }
@@ -35,7 +35,7 @@ function draw(items: TranscriptItem[], find: FindState | null, follow = false) {
   };
   put(find);
   const props: TranscriptProps = { sessionId: 's1', items, hasMore: false, loading: false, follow, live: false, remaining: 0 };
-  const ui = (p: TranscriptProps) => <IntentRoot onIntent={onIntent}><FindRoot store={finds}><Transcript {...p} /></FindRoot></IntentRoot>;
+  const ui = (p: TranscriptProps) => <ActionRoot onAction={onAction}><FindRoot store={finds}><Transcript {...p} /></FindRoot></ActionRoot>;
   const r = render(ui(props));
   const el = r.container.querySelector('.tr') as HTMLDivElement;
   Object.defineProperty(el, 'clientHeight', { value: 600, configurable: true });
@@ -47,7 +47,7 @@ function draw(items: TranscriptItem[], find: FindState | null, follow = false) {
     r.rerender(ui({ ...props, ...rest }));
   };
   const seqs = () => [...r.container.querySelectorAll('.tr-row')].map((x) => Number(x.getAttribute('data-seq')));
-  return { ...r, el, onIntent, redraw, seqs, finds };
+  return { ...r, el, onAction, redraw, seqs, finds };
 }
 
 const items: TranscriptItem[] = [
@@ -85,12 +85,12 @@ describe('本文の中の検索の欄（S1）', () => {
     fireEvent.keyDown(box, { key: 'Escape' });
     expect(t.finds.get('s1')).toBeNull();
     expect(screen.queryByRole('searchbox')).toBeNull();
-    expect(t.onIntent.mock.calls.filter(([i]) => String(i.type).startsWith('transcript.find'))).toEqual([]);
+    expect(t.onAction.mock.calls.filter(([i]) => String(i.type).startsWith('transcript.find'))).toEqual([]);
   });
   it('画面を離れて戻っても、欄と語と今の一致が残り、欄へフォーカスする', () => {
     const t = draw(items, findOf(items, 'バリデーション', 1));
     t.unmount();
-    render(<IntentRoot onIntent={vi.fn()}><FindRoot store={t.finds}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={false} live={false} remaining={0} /></FindRoot></IntentRoot>);
+    render(<ActionRoot onAction={vi.fn()}><FindRoot store={t.finds}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={false} live={false} remaining={0} /></FindRoot></ActionRoot>);
     const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
     expect(box).toHaveValue('バリデーション');
     expect(box).toHaveFocus();
@@ -153,7 +153,7 @@ describe('一致へ跳ぶ', () => {
     const t = draw(list, null, true);
     expect(t.seqs()).not.toContain(0);
     act(() => t.redraw({ find: findOf(list, '目印') }));
-    expect(t.onIntent).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
+    expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
     // 親が追うのをやめた状態を返したら、送った位置の行が出る。
     act(() => t.redraw({ find: findOf(list, '目印'), follow: false }));
     expect(t.seqs()).toContain(0);
@@ -185,7 +185,7 @@ describe('検索の結果から開いたとき（J1）', () => {
     const t = draw(many(3), null);
     act(() => t.redraw({ hasNewer: true }));
     fireEvent.click(screen.getByRole('button', { name: '新しい行を読み込む' }));
-    expect(t.onIntent).toHaveBeenCalledWith({ type: 'transcript.loadNewer', sessionId: 's1' });
+    expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.loadNewer', sessionId: 's1' });
   });
 });
 
@@ -194,7 +194,7 @@ describe('本文の中の検索の欄（英語）', () => {
     const finds = createFindStore();
     finds.open('s1');
     finds.query('s1', 'nothing', false, null);
-    render(<IntentRoot onIntent={vi.fn()}><LanguageRoot language="en"><FindRoot store={finds}><Transcript sessionId="s1" items={many(2)} hasMore hasNewer loading={false} follow={false} live remaining={3} /></FindRoot></LanguageRoot></IntentRoot>);
+    render(<ActionRoot onAction={vi.fn()}><LanguageRoot language="en"><FindRoot store={finds}><Transcript sessionId="s1" items={many(2)} hasMore hasNewer loading={false} follow={false} live remaining={3} /></FindRoot></LanguageRoot></ActionRoot>);
     expect(screen.getByRole('searchbox', { name: 'Find in transcript' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Match case' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Previous match (⇧⏎)' })).toBeInTheDocument();

@@ -45,7 +45,7 @@ function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
       return { state: { ...closed, overlay: { kind: 'newSession', projectId, scratch: target === ':scratch' }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     }
     switch (rest) {
-      case 'sidebar': return sidebarStep(closed, { kind: 'intent', intent: { type: 'sidebar.toggle' } })!;
+      case 'sidebar': return sidebarStep(closed, { kind: 'action', action: { type: 'sidebar.toggle' } })!;
       case 'new-scratch': return { state: { ...closed, overlay: { kind: 'newSession', projectId: null, scratch: true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
       case 'new-project': return { state: { ...closed, overlay: { kind: 'newProject' }, projectCreate: { kind: 'idle' } }, effects: [] };
       case 'rebuild-index': return { state: closed, effects: [{ kind: 'api.rebuildIndex' }] };
@@ -58,14 +58,14 @@ function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
 
 /** workbench 領域：TODO、メモ、アーティファクト、パレットの実行。状態はほとんど持たない。事後要約の待ちと失敗は Store が持つ。 */
 export function workbenchStep(state: State, store: Store, input: Input): Step | null {
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     // 追加した後も入力欄に居座らせて、続けて書けるようにする。
     case 'todo.add': return i.text.trim() ? { state, effects: [{ kind: 'api.addTodo', projectId: i.projectId, text: i.text.trim() }, { kind: 'focus', target: 'todoInput' }] } : { state, effects: [] };
     case 'session.state.set': return { state: closePause(state, i.id), effects: [{ kind: 'api.setSessionState', id: i.id, body: stateBody(i) }] };
     case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {} }] };
-    // 幅の変更は SplitPane の IntentBoundary が処理する。ここへ来るのは境界の外で発行されたときだけで、無視してよい。
+    // 幅の変更は SplitPane の ActionBoundary が処理する。ここへ来るのは境界の外で発行されたときだけで、無視してよい。
     case 'split.resize': return { state, effects: [] };
     case 'palette.run': return paletteRun(state, store, i.command);
     default: return null;

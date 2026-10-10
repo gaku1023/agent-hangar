@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { JumpState } from '../mediator/types.ts';
 import { findIn, type TranscriptFind } from '../presenters/find.ts';
 import type { TranscriptItem } from '../presenters/session.ts';

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { TurnJumpStatus } from '../mediator/types.ts';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
 import { jumpWindow } from '../presenters/turns.ts';

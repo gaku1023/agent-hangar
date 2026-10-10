@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot, useEmit } from '../intent/chain.tsx';
+import { ActionRoot, useEmit } from '../action/chain.tsx';
 import { SplitPane } from './SplitPane.tsx';
 
 function Emitter() {
@@ -12,8 +12,8 @@ const rect = (width: number) => () => ({ left: 0, top: 0, width, height: 500, ri
 
 describe('SplitPane', () => {
   it('幅の変更は中で処理し、Root には届かない', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SplitPane left={<div>左</div>} right={<div>右</div>} /></IntentRoot>);
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><SplitPane left={<div>左</div>} right={<div>右</div>} /></ActionRoot>);
     const host = screen.getByTestId('split');
     host.getBoundingClientRect = rect(1000);
     const sep = screen.getByRole('separator');
@@ -21,10 +21,10 @@ describe('SplitPane', () => {
     fireEvent.pointerMove(window, { clientX: 300 });
     fireEvent.pointerUp(window);
     expect(host.style.gridTemplateColumns.startsWith('0.3fr')).toBe(true);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('離したあとは動かない', () => {
-    render(<IntentRoot onIntent={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></ActionRoot>);
     const host = screen.getByTestId('split');
     host.getBoundingClientRect = rect(1000);
     fireEvent.pointerDown(screen.getByRole('separator'), { clientX: 500 });
@@ -34,23 +34,23 @@ describe('SplitPane', () => {
     expect(host.style.gridTemplateColumns.startsWith('0.3fr')).toBe(true);
   });
   it('矢印キーでも動き、0.2 から 0.8 に丸める', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SplitPane left={<div>左</div>} right={<div>右</div>} /></IntentRoot>);
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><SplitPane left={<div>左</div>} right={<div>右</div>} /></ActionRoot>);
     const host = screen.getByTestId('split');
     const sep = screen.getByRole('separator');
     for (let i = 0; i < 20; i++) fireEvent.keyDown(sep, { key: 'ArrowLeft' });
     expect(host.style.gridTemplateColumns.startsWith('0.2fr')).toBe(true);
     for (let i = 0; i < 40; i++) fireEvent.keyDown(sep, { key: 'ArrowRight' });
     expect(host.style.gridTemplateColumns.startsWith('0.8fr')).toBe(true);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('左右の中身をそのまま描く', () => {
-    render(<IntentRoot onIntent={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></ActionRoot>);
     expect(screen.getByText('左')).toBeInTheDocument();
     expect(screen.getByText('右')).toBeInTheDocument();
   });
   it('仕切りは今の割合を読み上げに出す', () => {
-    render(<IntentRoot onIntent={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></ActionRoot>);
     const sep = screen.getByRole('separator');
     expect(sep).toHaveAttribute('aria-orientation', 'vertical');
     expect(sep).toHaveAttribute('aria-valuemin', '20');
@@ -61,7 +61,7 @@ describe('SplitPane', () => {
     expect(sep).toHaveAttribute('aria-valuetext', '左 60%');
   });
   it('ドラッグの間だけ transition を切る', () => {
-    render(<IntentRoot onIntent={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><SplitPane left={<div>左</div>} right={<div>右</div>} /></ActionRoot>);
     const host = screen.getByTestId('split');
     host.getBoundingClientRect = rect(1000);
     expect(host).not.toHaveAttribute('data-dragging');
@@ -72,12 +72,12 @@ describe('SplitPane', () => {
     fireEvent.pointerUp(window);
     expect(host).not.toHaveAttribute('data-dragging');
   });
-  it('境界を通らない Intent はそのまま上へ渡す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SplitPane left={<Emitter />} right={<div>右</div>} /></IntentRoot>);
+  it('境界を通らない UiAction はそのまま上へ渡す', () => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><SplitPane left={<Emitter />} right={<div>右</div>} /></ActionRoot>);
     fireEvent.keyDown(screen.getByRole('separator'), { key: 'Escape' });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('閉じる'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'overlay.close' });
   });
 });

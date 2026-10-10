@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { translator } from '@agent-hangar/shared';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { KEYMAP } from '../keys.ts';
 import { presentAccounts, switchLabel } from '../presenters/accounts.ts';
 import { pauseChoices } from '../presenters/pause.ts';
@@ -24,7 +24,7 @@ const JAPANESE = /[぀-ヿ㐀-鿿]/;
 const en = translator('en');
 const NOW = new Date(2026, 9, 6, 12, 0).getTime();
 
-const inEnglish = (ui: React.ReactNode) => render(<LanguageRoot language="en"><IntentRoot onIntent={vi.fn()}>{ui}</IntentRoot></LanguageRoot>);
+const inEnglish = (ui: React.ReactNode) => render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}>{ui}</ActionRoot></LanguageRoot>);
 const noJapanese = (node: HTMLElement = document.body) => expect(node.textContent ?? '').not.toMatch(JAPANESE);
 
 describe('ダイアログ類（英語）', () => {

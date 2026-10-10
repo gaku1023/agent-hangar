@@ -1,5 +1,5 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
-import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type Intent, type LiveStatus, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type UiAction, type LiveStatus, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
@@ -135,11 +135,11 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
 }
 
 /**
- * 帯の引き出しの 1 行が持つ押せるもの。intent は押したときに View が発行する Intent である。
+ * 帯の引き出しの 1 行が持つ押せるもの。send は押したときに View が発行する UiAction である。
  * ariaLabel は読み上げの名前で、見える語（label）と相手の名前を含める。
  * primary は青いボタン、ghost は地の無いボタンで、どちらでもなければ枠のボタンである。
  */
-export type BandAction = { id: string; label: string; ariaLabel: string; primary: boolean; ghost: boolean; intent: Intent };
+export type BandAction = { id: string; label: string; ariaLabel: string; primary: boolean; ghost: boolean; send: UiAction };
 /**
  * 行頭の印。dot は状態の点、tag は戻る日や提案の札（tone の due は戻る時点を過ぎて塗る、soon は時刻の前で文字だけ、cand は提案）、todo は TODO の完了の提案の印である。
  * check は始める前の確認の印で、色だけでなく形（✓、ⓘ、!、✗）でも分ける。label は読み上げの名前に添える状態の語である。
@@ -156,11 +156,11 @@ export type BandTrail = { text: string; tone?: 'wait' | 'busy' };
 /**
  * 帯の引き出しの 1 行（1 件 1 行）。
  * 名前（name）、薄い添え（context）、本文（text）、等幅の詳細（detail、いまの手など）、右端の文字（trail）、ボタン（actions）を並べる。
- * open があれば名前がボタンになり、押すとその Intent を発行する。tone の wait は行の地に入力待ちの色を薄く敷く。
+ * open があれば名前がボタンになり、押すとその UiAction を発行する。tone の wait は行の地に入力待ちの色を薄く敷く。
  * badge は名前の横に添える小さな札で、始める前の確認の「任意」に使う。
  * どの群の行もこの形にするので、群を足すときに View を触らずに済む。
  */
-export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: Intent | null; actions: BandAction[] };
+export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[] };
 /**
  * 帯の群 1 つ。錠剤 1 つとその引き出しにあたる。
  * count は錠剤の数で、0 なら薄く出して押せない。summary は引き出しの見出しに添える内訳である。
@@ -187,12 +187,12 @@ export function morningGroup(groups: BandGroup[]): string | null {
 type BandInput = HomeCards;
 
 /** 行の末尾に付ける「相手の名前」入りの読み上げの名前を持つボタン。 */
-function action(t: Translate, id: string, label: string, name: string, intent: Intent, kind: 'primary' | 'ghost' | 'plain' = 'plain'): BandAction {
-  return { id, label, ariaLabel: t('home.band.actionFor', { action: label, name }), primary: kind === 'primary', ghost: kind === 'ghost', intent };
+function action(t: Translate, id: string, label: string, name: string, send: UiAction, kind: 'primary' | 'ghost' | 'plain' = 'plain'): BandAction {
+  return { id, label, ariaLabel: t('home.band.actionFor', { action: label, name }), primary: kind === 'primary', ghost: kind === 'ghost', send };
 }
 
 function attentionRow(t: Translate, a: AttentionCard): BandRow {
-  const open: Intent = { type: 'session.open', id: a.id };
+  const open: UiAction = { type: 'session.open', id: a.id };
   const answer = a.answer === 'terminal' ? action(t, 'answer', t('home.band.answer'), a.name, { type: 'session.open', id: a.id, focus: 'terminal' }, 'primary')
     : a.answer === 'attach' ? action(t, 'answer', t('home.band.answer'), a.name, { type: 'session.attach', id: a.id }, 'primary')
       : a.answer === 'adopt' ? action(t, 'answer', t('home.band.move'), a.name, { type: 'session.adopt', id: a.id }, 'primary')
@@ -204,7 +204,7 @@ function attentionRow(t: Translate, a: AttentionCard): BandRow {
 }
 
 function returnRow(t: Translate, r: ReturnCard): BandRow {
-  const open: Intent = { type: 'session.open', id: r.id };
+  const open: UiAction = { type: 'session.open', id: r.id };
   const text = r.returnOn === null ? t('home.band.noDate') : returnOnLabel(t, r.returnOn, r.overdueDays, r.returnTime, r.pastMin);
   const lead: BandLead = { kind: 'tag', text, tone: r.due ? 'due' : 'soon', ...(r.returnTime ? { title: t('home.band.reminderTime', { time: r.returnTime }) } : {}) };
   return {

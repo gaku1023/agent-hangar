@@ -100,14 +100,14 @@ describe('行（要対応）', () => {
     expect(row).toMatchObject({ key: 'wait:a', lead: { kind: 'dot', live: 'waiting', aside: false }, name: '待ち a', context: 'alpha', text: '削除してよいですか', detail: null, tone: 'wait' });
     expect(row.trail).toEqual([{ text: '12分待機', tone: 'wait' }]);
     expect(row.open).toEqual({ type: 'session.open', id: 'a' });
-    expect(row.actions).toEqual([{ id: 'answer', label: 'ターミナルで回答', ariaLabel: 'ターミナルで回答、待ち a', primary: true, ghost: false, intent: { type: 'session.open', id: 'a', focus: 'terminal' } }]);
+    expect(row.actions).toEqual([{ id: 'answer', label: 'ターミナルで回答', ariaLabel: 'ターミナルで回答、待ち a', primary: true, ghost: false, send: { type: 'session.open', id: 'a', focus: 'terminal' } }]);
   });
 
-  it('答え方で、ボタンの語と Intent が変わる', () => {
+  it('答え方で、ボタンの語と UiAction が変わる', () => {
     const act = (answer: AttentionCard['answer']) => presentHomeBand({ ...none, attention: [waiting('a', { answer })] }, ja).groups[0]!.rows[0]!.actions[0]!;
-    expect(act('attach')).toMatchObject({ label: 'ターミナルで回答', intent: { type: 'session.attach', id: 'a' } });
-    expect(act('adopt')).toMatchObject({ label: 'hangar に移動', intent: { type: 'session.adopt', id: 'a' } });
-    expect(act(null)).toMatchObject({ label: '開く', primary: false, intent: { type: 'session.open', id: 'a' } });
+    expect(act('attach')).toMatchObject({ label: 'ターミナルで回答', send: { type: 'session.attach', id: 'a' } });
+    expect(act('adopt')).toMatchObject({ label: 'hangar に移動', send: { type: 'session.adopt', id: 'a' } });
+    expect(act(null)).toMatchObject({ label: '開く', primary: false, send: { type: 'session.open', id: 'a' } });
   });
 
   it('外部ターミナルで動くものは、行に注記を添える。プロジェクトが無ければ未分類', () => {
@@ -123,7 +123,7 @@ describe('行（要対応）', () => {
       ['changeDate', '日付を変更', '日付を変更、戻る r', false, true],
       ['done', 'Done', 'Done、戻る r', false, true],
     ]);
-    expect(row.actions.map((a) => a.intent)).toEqual([
+    expect(row.actions.map((a) => a.send)).toEqual([
       { type: 'session.open', id: 'r' },
       { type: 'session.pause.open', id: 'r', from: 'menu' },
       { type: 'session.state.set', id: 'r', status: 'done' },
@@ -169,7 +169,7 @@ describe('行（確認待ち）', () => {
     const row = presentHomeBand({ ...none, confirm: [todoCard('t1')] }, ja).groups[2]!.rows[0]!;
     expect(row).toMatchObject({ key: 'todo:t1', lead: { kind: 'todo' }, name: 'やる t1', context: 'alpha · 1 時間前', text: '片付いた', open: { type: 'project.open', id: 'alpha' } });
     expect(row.actions.map((a) => [a.id, a.label, a.ariaLabel, a.primary])).toEqual([['confirm', '確定', '確定、やる t1（alpha）', true], ['dismiss', '却下', '却下、やる t1（alpha）', false]]);
-    expect(row.actions.map((a) => a.intent)).toEqual([{ type: 'todo.confirm', id: 't1' }, { type: 'todo.reject', id: 't1' }]);
+    expect(row.actions.map((a) => a.send)).toEqual([{ type: 'todo.confirm', id: 't1' }, { type: 'todo.reject', id: 't1' }]);
   });
 
   it('セッションの提案：札に提案の文言。Paused のときだけ日付を変更が入る', () => {
@@ -177,7 +177,7 @@ describe('行（確認待ち）', () => {
     expect(rows[0]!.lead).toEqual({ kind: 'tag', text: 'Paused · 10/3（土）？', tone: 'cand' });
     expect(rows[0]!.context).toBe('未分類 · 2 時間前');
     expect(rows[0]!.actions.map((a) => a.id)).toEqual(['confirm', 'changeDate', 'dismiss']);
-    expect(rows[0]!.actions.map((a) => a.intent)).toEqual([
+    expect(rows[0]!.actions.map((a) => a.send)).toEqual([
       { type: 'session.state.confirm', id: 's1' },
       { type: 'session.pause.open', id: 's1', from: 'candidate' },
       { type: 'session.state.reject', id: 's1' },

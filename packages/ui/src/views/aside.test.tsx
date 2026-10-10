@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 import type { TerminalHost } from '../runtime/terminals.ts';
@@ -29,7 +29,7 @@ describe('裏だけ動いている', () => {
     expect(container.querySelector('.term-pane')).toHaveAttribute('data-live', 'aside');
   });
   it('停止の確認は、裏の作業も消えることを言う', () => {
-    render(<IntentRoot onIntent={() => {}}><ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: true, aside: true, shellTabs: 0 }} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: true, aside: true, shellTabs: 0 }} /></ActionRoot>);
     expect(screen.getByText('バックグラウンドで作業中です。停止すると、その作業も終了します。')).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { formatRoute, type Translate } from '@agent-hangar/shared';
 import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';

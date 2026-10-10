@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { LaunchParams, ProjectPlace } from '@agent-hangar/shared';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { LaunchPrefs } from '../mediator/types.ts';
 import { accountChoice, accountOptions, SCRATCH_CHOICE, type NewSessionProps } from '../presenters/newSession.ts';
 import { isComposing } from './ime.ts';

@@ -21,8 +21,8 @@ export function projectCreateStep(state: State, store: Store, input: Input): Ste
     if (e.startSession) return { state: { ...done, overlay: { kind: 'newSession', projectId: e.projectId, scratch: false }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     return { state: { ...done, overlay: { kind: 'none' } }, effects: [{ kind: 'navigate', route: { name: 'project', id: e.projectId } }] };
   }
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     case 'project.new.open':
       // 確認や入力のあるダイアログが出ていれば、差し替えない（overlay.ts の overlayReplaceable）。

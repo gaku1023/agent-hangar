@@ -20,8 +20,8 @@ export function retentionStep(state: State, input: Input): Step | null {
     if (e.type === 'retention.failed') return { state: { ...state, overlay: { ...o, writing: false } }, effects: [{ kind: 'toast', level: 'error', message: e.message }] };
     return null;
   }
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     case 'retention.edit': return { state: { ...state, overlay: { kind: 'retention', days: i.days, from: i.from, reloaded: false, writing: false, previewError: null } }, effects: [{ kind: 'api.retentionPreview', days: i.days }] };
     // 書き込んでいる間は閉じさせない。閉じても書き込みは止まらず、結果だけが見えなくなる。

@@ -1,4 +1,4 @@
-import type { AccountsDto, Intent, SyncStatusBody } from '@agent-hangar/shared';
+import type { AccountsDto, UiAction, SyncStatusBody } from '@agent-hangar/shared';
 import { applyConfigDetail, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 
@@ -33,15 +33,15 @@ function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): Api
 const withSync = (store: Store, sync: SyncStatusBody): Store => ({ ...store, sync });
 const withAccounts = (store: Store, accounts: AccountsDto): Store => ({ ...store, accounts });
 
-type Rows = { [K in Intent['type']]?: (intent: Extract<Intent, { type: K }>, store: Store) => ApiCall | null };
+type Rows = { [K in UiAction['type']]?: (action: Extract<UiAction, { type: K }>, store: Store) => ApiCall | null };
 
 /**
- * API を 1 回呼ぶだけの Intent の表。
- * ここにある Intent は、Mediator も Effect も通らない。Runtime が受けて、この表で引いた呼び出しをそのまま実行する。
- * 行は、Intent の中身と Store（読むだけ）から呼び出しを組む。null を返せば何も呼ばない。
+ * API を 1 回呼ぶだけの UiAction の表。
+ * ここにある UiAction は、Mediator も Effect も通らない。Runtime が受けて、この表で引いた呼び出しをそのまま実行する。
+ * 行は、UiAction の中身と Store（読むだけ）から呼び出しを組む。null を返せば何も呼ばない。
  * State を読むもの、State を変えるもの、応答を Mediator へ戻すもの、API を 2 回以上呼ぶものは、ここへ置かず Mediator に残す。
  */
-export const intentTable = {
+export const actionTable = {
   // 画面の正は後から届く project.upsert なので、返り値は Store に入れない。
   'project.setStatus': (i) => call((api) => api.setProjectStatus(i.id, i.status)),
   'project.rename': (i) => call((api) => api.renameProject(i.id, i.name)),
@@ -103,15 +103,15 @@ export const intentTable = {
   'account.refresh': (i) => call((api) => api.refreshAccount(i.accountId), { apply: withAccounts }),
 } satisfies Rows;
 
-/** 表にある Intent。Mediator の入力の型からは、これを外す（mediator/types.ts の MediatedIntent）。 */
-export type TableIntent = Extract<Intent, { type: keyof typeof intentTable }>;
+/** 表にある UiAction。Mediator の入力の型からは、これを外す（mediator/types.ts の MediatedAction）。 */
+export type TableAction = Extract<UiAction, { type: keyof typeof actionTable }>;
 
-export function isTableIntent(intent: Intent): intent is TableIntent {
-  return Object.hasOwn(intentTable, intent.type);
+export function isTableAction(action: UiAction): action is TableAction {
+  return Object.hasOwn(actionTable, action.type);
 }
 
-/** 表を引く。行と Intent の型は鍵で対になっているので、ここで 1 度だけ型を合わせる。 */
-export function intentCall(intent: TableIntent, store: Store): ApiCall | null {
-  const row = intentTable[intent.type] as (intent: TableIntent, store: Store) => ApiCall | null;
-  return row(intent, store);
+/** 表を引く。行と UiAction の型は鍵で対になっているので、ここで 1 度だけ型を合わせる。 */
+export function actionCall(action: TableAction, store: Store): ApiCall | null {
+  const row = actionTable[action.type] as (action: TableAction, store: Store) => ApiCall | null;
+  return row(action, store);
 }

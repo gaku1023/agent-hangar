@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { PaletteIcon, PaletteItem, PaletteProps } from '../presenters/palette.ts';
 import { isComposing } from './ime.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';

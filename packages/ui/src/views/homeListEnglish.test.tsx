@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { translator, type SessionDto, type SettingsDto } from '@agent-hangar/shared';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { initialState } from '../mediator/transition.ts';
 import type { PagerProps } from '../presenters/pager.ts';
 import { presentHome } from '../presenters/home.ts';
@@ -25,7 +25,7 @@ const en = translator('en');
 const NOW = new Date(2026, 9, 6, 12, 0).getTime();
 const MIN = 60_000;
 
-const inEnglish = (ui: React.ReactNode) => render(<LanguageRoot language="en"><IntentRoot onIntent={vi.fn()}>{ui}</IntentRoot></LanguageRoot>);
+const inEnglish = (ui: React.ReactNode) => render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}>{ui}</ActionRoot></LanguageRoot>);
 const noJapanese = (value: string = document.body.textContent ?? '') => expect(value).not.toMatch(JAPANESE);
 const jsonOf = (value: unknown) => JSON.stringify(value);
 

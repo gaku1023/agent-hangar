@@ -1,4 +1,4 @@
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import { DESKTOP_LOG_PATH, type ConnProps } from '../presenters/shell.ts';
 import { CopyButton } from './primitives/CommandLine.tsx';
 import { Icon } from './primitives/Icon.tsx';

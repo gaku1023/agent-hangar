@@ -1,6 +1,6 @@
 import { formatRoute, type ProjectStatus } from '@agent-hangar/shared';
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { useEmit, type Emit } from '../intent/chain.tsx';
+import { useEmit, type Emit } from '../action/chain.tsx';
 import { STATUS_LABEL } from '../presenters/format.ts';
 import type { ProjectNowItem, ProjectRowProps, ProjectsProps } from '../presenters/projects.ts';
 import { PageHeading } from './PageHeading.tsx';

@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { ProjectPlace } from '@agent-hangar/shared';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { NewProjectProps } from '../presenters/newProject.ts';
 import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';

@@ -39,7 +39,7 @@ describe('presentNotices：事実から行を組む', () => {
   it('同期のエラーは赤の行にして、理由を添え、同期の設定へ移る', () => {
     const [row] = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'サーバが 503 を返しました' }) }), NOW).rows;
     expect(row).toMatchObject({ key: 'sync|error|サーバが 503 を返しました', kind: 'sync', tone: 'err', kindLabel: '同期', title: '同期エラー', detail: 'サーバが 503 を返しました', when: null, unread: true });
-    expect(row!.action).toEqual({ label: '同期の設定を開く', intent: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } });
+    expect(row!.action).toEqual({ label: '同期の設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } });
   });
 
   it('理由が無いエラーは「同期に失敗しました」と言い、止めているときはその旨を足す', () => {
@@ -62,7 +62,7 @@ describe('presentNotices：事実から行を組む', () => {
     const rows = presentNotices(initialState(), store, NOW).rows;
     const by = Object.fromEntries(rows.map((r) => [r.key.split('|')[1]!, r]));
     expect(by.pay).toMatchObject({ key: 'reminder|pay|2026-10-02 13:30', kind: 'reminder', tone: 'warn', kindLabel: 'リマインダー', title: 'pay', detail: '夜間の再計測を見る', when: '今日 13:30', unread: true });
-    expect(by.pay!.action).toEqual({ label: 'セッションを開く', intent: { type: 'session.open', id: 'pay' } });
+    expect(by.pay!.action).toEqual({ label: 'セッションを開く', send: { type: 'session.open', id: 'pay' } });
     expect(by.slow!.when).toBe('25 分過ぎ');
     expect(by.stale).toMatchObject({ key: 'reminder|stale|2026-09-29', when: '3 日過ぎ' });
     expect(by.plain!.when).toBe('今日');
@@ -87,7 +87,7 @@ describe('presentNotices：事実から行を組む', () => {
     const [row] = presentNotices(initialState(), storeOf({ readiness: compatSummary(1) }), NOW).rows;
     expect(row).toMatchObject({ key: 'compat|2.4.2|1 change', kind: 'compat', tone: 'warn', kindLabel: '互換性', title: '変更点あり', detail: 'Claude Code 2.4.2：変更点 1 件', when: null, unread: true });
     // 設定の互換の節は、足す切り替え先がまだ無いので、設定の頭へ移る（at は設定の目次の作り直しで足す）。
-    expect(row!.action).toEqual({ label: '詳細を開く', intent: { type: 'nav.go', to: { name: 'settings' } } });
+    expect(row!.action).toEqual({ label: '詳細を開く', send: { type: 'nav.go', to: { name: 'settings' } } });
   });
 
   it('互換の中身（GET /api/compat）が届いたら、件数は中身にそろえ、最後に見た時刻を添える', () => {
@@ -110,7 +110,7 @@ describe('presentNotices：事実から行を組む', () => {
     }
     const [row] = presentNotices(initialState(), storeOf({ retention: retention() }), NOW).rows;
     expect(row).toMatchObject({ key: 'retention|30|rule', kind: 'retention', tone: 'warn', kindLabel: '保持期間', title: 'トランスクリプトは 30 日で削除されます', detail: 'hangar の履歴からも消えます', when: null });
-    expect(row!.action).toEqual({ label: '保持期間を延長…', intent: { type: 'nav.go', to: { name: 'settings' } } });
+    expect(row!.action).toEqual({ label: '保持期間を延長…', send: { type: 'nav.go', to: { name: 'settings' } } });
   });
 
   it('消えかけのトランスクリプトがあれば、その件数を言う', () => {
@@ -126,7 +126,7 @@ describe('presentNotices：事実から行を組む', () => {
     const rows = presentNotices(initialState(), storeOf({ sync: sync({ skipped }) }), NOW).rows;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ key: 'sync|skipped|2', kind: 'sync', tone: 'err', kindLabel: '同期', title: '降ろせなかったトランスクリプト 2 件', detail: '復号できません', unread: true });
-    expect(rows[0]!.action.intent).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
+    expect(rows[0]!.action.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
     // 状態の行（エラー）と並べても、別の行になる。状態の行が先。
     const both = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'x', skipped }) }), NOW).rows;
     expect(both.map((r) => r.key)).toEqual(['sync|error|x', 'sync|skipped|2']);
@@ -141,7 +141,7 @@ describe('presentNotices：事実から行を組む', () => {
     const rows = (notify: { available: boolean; on: boolean; blocked: boolean }) => presentNotices(initialState(), storeOf({ notify }), NOW).rows;
     const [row] = rows({ available: true, on: false, blocked: false });
     expect(row).toMatchObject({ key: 'notify|offer', kind: 'notify', tone: 'info', kindLabel: '通知', title: '離れていても気づけます', unread: true });
-    expect(row!.action).toEqual({ label: '通知を受け取る', intent: { type: 'notify.set', on: true } });
+    expect(row!.action).toEqual({ label: '通知を受け取る', send: { type: 'notify.set', on: true } });
     expect(rows({ available: true, on: true, blocked: false })).toEqual([]);
     expect(rows({ available: false, on: false, blocked: false })).toEqual([]);
     // OS で切られているときは勧めない。直し方は設定の通知の節に出す。
@@ -153,7 +153,7 @@ describe('presentNotices：事実から行を組む', () => {
     const [row] = presentNotices(initialState(), storeOf({ configSync: cfgSync({ unsent: 3 }) }), NOW).rows;
     expect(row).toMatchObject({ key: 'config|unsent|3', kind: 'config', tone: 'warn', icon: 'settings', kindLabel: '設定の同期', title: '送らなかった項目 3 件', when: null, unread: true });
     expect(row!.detail).toContain('それでも送る');
-    expect(row!.action).toEqual({ label: '送らなかった項目を開く', intent: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } });
+    expect(row!.action).toEqual({ label: '送らなかった項目を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } });
   });
 
   it('送らなかった項目が 0 件、設定の同期が切、まだ届いていない（古いサーバ）なら行にしない', () => {

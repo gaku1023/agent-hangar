@@ -27,8 +27,8 @@ export function promoteStep(state: State, store: Store, input: Input): Step | nu
     if (e.type === 'promote.failed') return { state: { ...state, promote: { kind: 'failed', message: e.message } }, effects: [{ kind: 'toast', level: 'error', message: e.message }] };
     return null;
   }
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   if (i.type === 'session.promote.open') return { state: { ...state, overlay: { kind: 'promote', sessionId: i.id }, promote: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'promoteName' }] };
   if (i.type === 'session.promote.submit') {
     // 送信中の二重送信は捨てる。

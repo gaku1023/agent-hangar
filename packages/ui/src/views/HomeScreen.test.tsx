@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { translator, type Intent, type ReadinessDto } from '@agent-hangar/shared';
+import { translator, type UiAction, type ReadinessDto } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentHomeBand, type AttentionCard, type ConfirmCard, type HomeScreenProps, type ReturnCard, type RunningCard } from '../presenters/home.ts';
 import { presentReadiness } from '../presenters/readiness.ts';
 import { pagerOf } from '../presenters/pager.ts';
@@ -33,7 +33,7 @@ const props = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy): 
   const band = presentHomeBand(cards, ja);
   return { band, idle: band.groups.every((g) => g.count === 0), searching: false, list: listProps(), allCount: 1241, loadMore: null, note: null, ...over };
 };
-const mount = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy, onIntent = vi.fn<(i: Intent) => void>()) => ({ ...render(<LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><HomeScreen {...props(over, cards)} /></IntentRoot></LanguageRoot>), onIntent });
+const mount = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy, onAction = vi.fn<(i: UiAction) => void>()) => ({ ...render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeScreen {...props(over, cards)} /></ActionRoot></LanguageRoot>), onAction });
 const tabs = () => within(screen.getByRole('group', { name: '状態' }));
 
 describe('HomeScreen の並び（試作 B）', () => {
@@ -78,29 +78,29 @@ describe('HomeScreen の帯と引き出し', () => {
     expect(screen.getByText('要対応').closest('.count-chip')).toHaveTextContent('3');
   });
   it('検索が終われば、元の開き方へ戻る', () => {
-    const onIntent = vi.fn();
-    const { rerender } = render(<LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><HomeScreen {...props({ searching: true })} /></IntentRoot></LanguageRoot>);
+    const onAction = vi.fn();
+    const { rerender } = render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeScreen {...props({ searching: true })} /></ActionRoot></LanguageRoot>);
     expect(screen.queryByRole('region', { name: '要対応' })).toBeNull();
-    rerender(<LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><HomeScreen {...props({ searching: false })} /></IntentRoot></LanguageRoot>);
+    rerender(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeScreen {...props({ searching: false })} /></ActionRoot></LanguageRoot>);
     expect(screen.getByRole('region', { name: '要対応' })).toBeInTheDocument();
   });
-  it('引き出しのボタンは Intent を出す（ターミナルで回答）', () => {
-    const { onIntent } = mount();
+  it('引き出しのボタンは UiAction を出す（ターミナルで回答）', () => {
+    const { onAction } = mount();
     fireEvent.click(screen.getByRole('button', { name: 'ターミナルで回答、待ち a' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'a', focus: 'terminal' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a', focus: 'terminal' });
   });
 });
 
 describe('HomeScreen の空の日（idle）', () => {
   it('3 つの群がどれも 0 件なら、帯の代わりに「実行中のセッションはありません」の 1 行と 2 つのボタンを出す', () => {
-    const { onIntent, container } = mount({}, none);
+    const { onAction, container } = mount({}, none);
     expect(container.querySelector('.home-band')).toBeNull();
     const line = container.querySelector('.idle-line') as HTMLElement;
     expect(line).toHaveTextContent('実行中のセッションはありません');
     fireEvent.click(within(line).getByRole('button', { name: '新しいセッション' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.new.open' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.new.open' });
     fireEvent.click(within(line).getByRole('button', { name: 'クイックセッションを開始' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.new.open', scratch: true });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.new.open', scratch: true });
   });
   it('件数のある群があるときは出さない', () => {
     const { container } = mount();
@@ -137,12 +137,12 @@ describe('HomeScreen の絞り込みのボタン', () => {
     expect(screen.getByRole('button', { name: '絞り込み' })).toBeInTheDocument();
   });
   it('開いた絞り込みの操作は search.filter になる', () => {
-    const { onIntent } = mount();
+    const { onAction } = mount();
     fireEvent.click(screen.getByRole('button', { name: '絞り込み' }));
     fireEvent.click(within(screen.getByRole('radiogroup', { name: '期間' })).getByRole('radio', { name: '7 日' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { days: 7 } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { days: 7 } });
     fireEvent.keyDown(screen.getByLabelText('操作したファイル'), { key: 'Enter' });
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { file: undefined } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { file: undefined } });
   });
 });
 
@@ -160,20 +160,20 @@ describe('HomeScreen の状態のタブ（★）', () => {
     expect(screen.getByLabelText('キーワード')).toHaveValue('動画');
   });
   it('タブを押すと状態で絞り、「すべて」は外し、いまのタブは何も出さない', () => {
-    const { onIntent } = mount({ list: listProps({ tab: 'paused' }) });
+    const { onAction } = mount({ list: listProps({ tab: 'paused' }) });
     fireEvent.click(tabs().getByRole('button', { name: /^Done/ }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'done' } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'done' } });
     fireEvent.click(tabs().getByRole('button', { name: /^すべて/ }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: undefined } });
-    onIntent.mockClear();
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: undefined } });
+    onAction.mockClear();
     fireEvent.click(tabs().getByRole('button', { name: /^Paused/ }));
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('行の状態の札を押すと、そのタブへ移る', () => {
-    const { onIntent } = mount({ list: listProps({ rows: [row('a', { state: 'archived' }), row('b')], total: 2, conditions: ['7 日'] }) });
+    const { onAction } = mount({ list: listProps({ rows: [row('a', { state: 'archived' }), row('b')], total: 2, conditions: ['7 日'] }) });
     fireEvent.click(screen.getByRole('button', { name: 'Archived のセッションだけを見る' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'archived' } });
-    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'archived' } });
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
 });
 
@@ -195,26 +195,26 @@ describe('HomeScreen の欄（欄が正）', () => {
     expect(tags().every((x) => x.hasAttribute('data-on'))).toBe(true);
   });
   it('Enter で欄のトークンを読み、今の条件に重ねて search.query を出し、読めた分は欄から消す', () => {
-    const { onIntent } = mount({ list: listProps({ filter: { projectId: 'p1' } }) });
+    const { onAction } = mount({ list: listProps({ filter: { projectId: 'p1' } }) });
     const kw = screen.getByLabelText('キーワード') as HTMLInputElement;
     fireEvent.change(kw, { target: { value: 'is:paused 動画 project:"my app"' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.query', text: '動画', filter: { projectId: 'p4', status: 'paused' } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.query', text: '動画', filter: { projectId: 'p4', status: 'paused' } });
     expect(kw.value).toBe('動画');
   });
   it('効いている条件を欄の中のチップにし、× と、空の欄の Backspace で外す', () => {
-    const { onIntent } = mount({ list: listProps({ tokens: [{ key: 'status', token: 'is:paused' }, { key: 'days', token: 'since:7d' }] }) });
+    const { onAction } = mount({ list: listProps({ tokens: [{ key: 'status', token: 'is:paused' }, { key: 'days', token: 'since:7d' }] }) });
     const box = document.querySelector('.sessions-keyword') as HTMLElement;
     expect(within(box).getByText('is:paused')).toBeInTheDocument();
     fireEvent.click(within(box).getByRole('button', { name: 'is:paused を外す' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: undefined } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: undefined } });
     const kw = screen.getByLabelText('キーワード');
     fireEvent.keyDown(kw, { key: 'Backspace' });
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { days: undefined } });
-    onIntent.mockClear();
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { days: undefined } });
+    onAction.mockClear();
     fireEvent.change(kw, { target: { value: 'x' } });
     fireEvent.keyDown(kw, { key: 'Backspace' });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('読めなかったトークンは、欄の下で語として探していることを知らせる', () => {
     mount({ list: listProps({ text: 'is:pasued', hints: ['「is:pasued」は条件として読めないので、語として本文を探しています。'] }) });
@@ -226,8 +226,8 @@ describe('HomeScreen の欄（欄が正）', () => {
     expect(within(screen.getByRole('radiogroup', { name: '期間' })).queryAllByRole('radio', { checked: true })).toHaveLength(0);
   });
   it('語が変わったら欄を作り直す（外からの文言のリセットが欄に届く）', () => {
-    const onIntent = vi.fn();
-    const ui = (text: string) => <LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><HomeScreen {...props({ list: listProps({ text }) })} /></IntentRoot></LanguageRoot>;
+    const onAction = vi.fn();
+    const ui = (text: string) => <LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeScreen {...props({ list: listProps({ text }) })} /></ActionRoot></LanguageRoot>;
     const { rerender } = render(ui('動画'));
     expect(screen.getByLabelText('キーワード')).toHaveValue('動画');
     rerender(ui(''));
@@ -261,12 +261,12 @@ describe('HomeScreen の検索の結果（見出しと札）', () => {
     expect(els[2]!.querySelector('.row-name mark')).toBeNull();
   });
   it('見出しは行ではないので、行の数にも矢印の送りにも入らない', () => {
-    const { onIntent } = found();
+    const { onAction } = found();
     expect(screen.getAllByRole('row')).toHaveLength(3);
     const host = screen.getByTestId('session-rows');
     fireEvent.keyDown(host, { key: 'j' });
     fireEvent.keyDown(host, { key: 'Enter' });
-    expect(onIntent).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'session.open', id: 'a' }));
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'session.open', id: 'a' }));
   });
   it('items が無ければ、行だけを平らに並べる', () => {
     mount({ searching: true, list: listProps({ text: 'CSV', mode: 'search', rows, total: 3 }) });
@@ -277,20 +277,20 @@ describe('HomeScreen の検索の結果（見出しと札）', () => {
 
 describe('HomeScreen の続きの読み方', () => {
   it('検索の結果の末尾に「さらに 50 件を読み込む」と残りの件数を出し、押すと search.more を出す。ページ送りは出さない', () => {
-    const { onIntent } = mount({ searching: true, list: listProps({ text: '動画', mode: 'search', conditions: ['『動画』'], total: 132 }), loadMore: { remaining: 82, step: 50, loading: false } });
+    const { onAction } = mount({ searching: true, list: listProps({ text: '動画', mode: 'search', conditions: ['『動画』'], total: 132 }), loadMore: { remaining: 82, step: 50, loading: false } });
     expect(screen.getByText('残り 82 件')).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'セッションのページ' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'さらに 50 件を読み込む' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.more' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.more' });
   });
   it('読み込んでいる間は押せない', () => {
     mount({ searching: true, list: listProps({ text: '動画', mode: 'search', total: 132 }), loadMore: { remaining: 82, step: 50, loading: true } });
     expect(screen.getByRole('button', { name: '読み込んでいます' })).toBeDisabled();
   });
   it('条件の無い一覧はページ送りで、25、50、100、200 の件数を選べる', () => {
-    const { onIntent } = mount({ list: listProps({ total: 60, pager: pagerOf(1, 25, 60) }) });
+    const { onAction } = mount({ list: listProps({ total: 60, pager: pagerOf(1, 25, 60) }) });
     fireEvent.click(screen.getByRole('button', { name: '2 ページ目' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.page', page: 2 });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.page', page: 2 });
     expect(screen.queryByRole('button', { name: /さらに/ })).toBeNull();
   });
   it('一致が無い検索は、空の文を出す', () => {
@@ -319,9 +319,9 @@ describe('HomeScreen の行（2 段）', () => {
     expect(rows[2]!.querySelector('.row-marks')).toBeNull();
   });
   it('PR の番号を押しても、行は開かない', () => {
-    const { onIntent } = mount({ list: listProps({ rows: [row('a', { prUrl: 'https://github.com/o/r/pull/88' })], total: 1 }) });
+    const { onAction } = mount({ list: listProps({ rows: [row('a', { prUrl: 'https://github.com/o/r/pull/88' })], total: 1 }) });
     fireEvent.click(screen.getByRole('link', { name: 'PR #88' }));
-    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
 });
 
@@ -341,14 +341,14 @@ describe('HomeScreen の始める前の確認（帯の最後の群）', () => {
     expect(container.querySelector('.home')).not.toBeNull();
   });
   it('セッションがまだ 1 つも無い人には、一覧の空の札に「クイックセッションを開始」を残す。帯の 1 行は重ねない', () => {
-    const { onIntent } = mount({ ...withReady(none), allCount: 0, list: listProps({ rows: [], total: 0, allCount: 0 }) }, none);
+    const { onAction } = mount({ ...withReady(none), allCount: 0, list: listProps({ rows: [], total: 0, allCount: 0 }) }, none);
     expect(screen.getByRole('heading', { name: 'セッションはまだありません' })).toBeInTheDocument();
     expect(screen.getByText('セットアップの確認が済んでいなくても、クイックセッションから始められます')).toBeInTheDocument();
     expect(screen.queryByText('実行中のセッションはありません')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'クイックセッションを開始' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
     fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
   it('セッションがある人の一覧には、空の札を出さない', () => {
     mount();

@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import type { ArtifactDto, BootstrapDto, DeviceDto, Intent, LaunchResultDto, MemoDto, PromoteResultDto, RunDto, ServerEvent, SessionDto, SessionLockDto, SettingsDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, SyncStatusDto, TabDto, TodoDto, UsageDto } from './index.ts';
+import type { ArtifactDto, BootstrapDto, DeviceDto, UiAction, LaunchResultDto, MemoDto, PromoteResultDto, RunDto, ServerEvent, SessionDto, SessionLockDto, SettingsDto, SummarizerTestDto, SyncDetailDto, SyncStatusBody, SyncStatusDto, TabDto, TodoDto, UsageDto } from './index.ts';
 
 describe('フェーズ 2 の DTO', () => {
   it('RunDto と TabDto と LaunchResultDto が組み立てられる', () => {
@@ -45,8 +45,8 @@ describe('フェーズ 3 の DTO', () => {
     const t: SummarizerTestDto = { ok: false, tried: [{ id: 'lmstudio', message: 'x' }] };
     expect(t.ok).toBe(false);
   });
-  it('Intent に gitInit、split.resize、summarizer.test、artifact.openEditor がある', () => {
-    const is: Intent[] = [{ type: 'session.promote.submit', id: 's1', name: 'n', gitInit: true, moveFiles: false }, { type: 'split.resize', ratio: 0.4 }, { type: 'summarizer.test' }, { type: 'artifact.openEditor', id: 'a1' }];
+  it('UiAction に gitInit、split.resize、summarizer.test、artifact.openEditor がある', () => {
+    const is: UiAction[] = [{ type: 'session.promote.submit', id: 's1', name: 'n', gitInit: true, moveFiles: false }, { type: 'split.resize', ratio: 0.4 }, { type: 'summarizer.test' }, { type: 'artifact.openEditor', id: 'a1' }];
     expect(is).toHaveLength(4);
   });
 });
@@ -66,22 +66,22 @@ describe('フェーズ 4 の DTO', () => {
     const evs: ServerEvent[] = [{ type: 'sync.status', status }, { type: 'devices.update', devices: [] }];
     expect(evs.map((e) => e.type)).toEqual(['sync.status', 'devices.update']);
   });
-  it('この PC で再開と参加トークンの Intent がある', () => {
-    const is: Intent[] = [{ type: 'session.resumeHere', id: 's1' }, { type: 'session.resumeHere', id: 's1', overwrite: true }, { type: 'sync.joinToken.show' }];
+  it('この PC で再開と参加トークンの UiAction がある', () => {
+    const is: UiAction[] = [{ type: 'session.resumeHere', id: 's1' }, { type: 'session.resumeHere', id: 's1', overwrite: true }, { type: 'sync.joinToken.show' }];
     expect(is).toHaveLength(3);
   });
 });
 
 describe('引き継ぎを消した後', () => {
-  it('引き継ぎの Intent と ServerEvent は無い', () => {
-    expectTypeOf<Extract<Intent, { type: 'session.takeover' | 'session.takeover.cancel' }>>().toBeNever();
+  it('引き継ぎの UiAction と ServerEvent は無い', () => {
+    expectTypeOf<Extract<UiAction, { type: 'session.takeover' | 'session.takeover.cancel' }>>().toBeNever();
     expectTypeOf<Extract<ServerEvent, { type: 'takeover.update' }>>().toBeNever();
   });
 });
 
-describe('使われていない Intent を消した後', () => {
-  it('要約の開閉の Intent は無い', () => {
-    expectTypeOf<Extract<Intent, { type: 'summary.toggle' }>>().toBeNever();
+describe('使われていない UiAction を消した後', () => {
+  it('要約の開閉の UiAction は無い', () => {
+    expectTypeOf<Extract<UiAction, { type: 'summary.toggle' }>>().toBeNever();
   });
 });
 

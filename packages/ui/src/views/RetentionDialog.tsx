@@ -1,4 +1,4 @@
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { RetentionDialogProps } from '../presenters/retentionDialog.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { useT } from './primitives/language.tsx';

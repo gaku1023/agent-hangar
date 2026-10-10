@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { translator, type CompatDto, type Intent, type SettingsSection } from '@agent-hangar/shared';
-import { IntentRoot } from '../intent/chain.tsx';
+import { translator, type CompatDto, type UiAction, type SettingsSection } from '@agent-hangar/shared';
+import { ActionRoot } from '../action/chain.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentAccounts } from '../presenters/accounts.ts';
 import { presentCompat } from '../presenters/compat.ts';
@@ -61,7 +61,7 @@ const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps 
   ...over,
 });
 
-const ui = (props: SettingsProps, onIntent: (i: Intent) => void = () => {}) => <IntentRoot onIntent={onIntent}><SettingsScreen {...props} /></IntentRoot>;
+const ui = (props: SettingsProps, onAction: (i: UiAction) => void = () => {}) => <ActionRoot onAction={onAction}><SettingsScreen {...props} /></ActionRoot>;
 const toc = () => within(screen.getByRole('navigation', { name: '設定のナビゲーション' }));
 
 /** 欄に書いて、欄を出る。パスの欄は欄を出たときに保存する。 */
@@ -95,13 +95,13 @@ describe('設定の目次（S1）', () => {
     expect(screen.queryByLabelText('LM Studio の URL')).toBeNull();
   });
   it('別の節の行を押すと、その節の URL（at）へ移る。いま開いている節の行は押しても動かない', () => {
-    const onIntent = vi.fn();
-    render(ui(at('general'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('general'), onAction));
     fireEvent.click(toc().getByRole('button', { name: /^クラウド同期/ }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } });
-    onIntent.mockClear();
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'cloud' } });
+    onAction.mockClear();
     fireEvent.click(toc().getByRole('button', { name: /^一般/ }));
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('URL が変わった直後も、目次の灯りと右の節は同じに移る（前の節のまま残らない）', () => {
     const { rerender } = render(ui(at('general')));
@@ -165,27 +165,27 @@ describe('設定の目次（S1）', () => {
 
 describe('設定の一般', () => {
   it('言語の行は先頭に置き、押した瞬間に保存する（保存のボタンは無い）', () => {
-    const onIntent = vi.fn();
-    render(ui(at('general'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('general'), onAction));
     const rows = [...document.querySelectorAll('.set-row-t')].map((e) => e.textContent);
     expect(rows[0]).toBe('言語');
     expect(screen.getByRole('radio', { name: '日本語' })).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByRole('radio', { name: 'English' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { language: 'en' } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { language: 'en' } });
   });
   it('一般には、通知、ターミナルアプリ、トランスクリプトの保持を置く', () => {
     render(ui(at('general', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
     expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'トランスクリプトの保持']);
   });
   it('「通知を有効にする」のスイッチで切り替える', () => {
-    const onIntent = vi.fn();
-    const { unmount } = render(ui(at('general'), onIntent));
+    const onAction = vi.fn();
+    const { unmount } = render(ui(at('general'), onAction));
     fireEvent.click(screen.getByRole('switch', { name: '通知を有効にする' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'notify.set', on: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'notify.set', on: true });
     unmount();
-    render(ui(at('general', { notify: { available: true, on: true, blocked: false } }), onIntent));
+    render(ui(at('general', { notify: { available: true, on: true, blocked: false } }), onAction));
     fireEvent.click(screen.getByRole('switch', { name: '通知を有効にする' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'notify.set', on: false });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'notify.set', on: false });
   });
   it('OS で通知が切られていれば、システム設定で許可するよう添える。スイッチは入れ直せる', () => {
     render(ui(at('general', { notify: { available: true, on: false, blocked: true } })));
@@ -199,25 +199,25 @@ describe('設定の一般', () => {
     expect(screen.getByText(/通知を出せません/)).toBeInTheDocument();
   });
   it('ターミナルアプリは切り替えた時点で保存する', () => {
-    const onIntent = vi.fn();
-    render(ui(at('general'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('general'), onAction));
     fireEvent.click(screen.getByRole('radio', { name: 'iTerm2' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm' } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm' } });
   });
   describe('トランスクリプトの保持', () => {
     const bar = { nowLabel: 'いま 1.5 GB', projLabel: '10 年たつと約 178 GB', freeLabel: '空き 400 GB', nowPct: 0.4, projPct: 44, warn: false };
     const retention = { days: 3650, options: [{ value: '30', label: '30 日' }, { value: '90', label: '90 日' }, { value: '365', label: '1 年' }, { value: '3650', label: '10 年' }], writable: true, reason: null, valueLabel: '10 年', bar, syncNote: true };
     it('切り替えの帯で選ぶと確認を開き、今の値を押しても何も出さない', () => {
-      const onIntent = vi.fn();
-      render(ui(at('general', { retention }), onIntent));
+      const onAction = vi.fn();
+      render(ui(at('general', { retention }), onAction));
       expect(screen.getByText('トランスクリプトの保持')).toBeInTheDocument();
       expect(screen.getByText('10 年たつと約 178 GB')).toBeInTheDocument();
       expect(screen.getByText(/値は設定の同期で他の PC にも届きます/)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('radio', { name: '1 年' }));
-      expect(onIntent).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
-      onIntent.mockClear();
+      expect(onAction).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
+      onAction.mockClear();
       fireEvent.click(screen.getByRole('radio', { name: '10 年' }));
-      expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'retention.edit' }));
+      expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'retention.edit' }));
     });
     it('書けないときは帯を出さず、値と理由を出す', () => {
       render(ui(at('general', { retention: { ...retention, days: 14, writable: false, reason: '組織の設定で決まっています', valueLabel: '14 日' } })));
@@ -256,23 +256,23 @@ describe('設定のクラウド同期', () => {
     expect(screen.queryByText('hangar setup cloud')).toBeNull();
   });
   it('クラウドの節: 参加トークンと、設定の同期のスイッチ（入れるときは送るものの一覧を開く）', () => {
-    const onIntent = vi.fn();
-    const { rerender } = render(ui(at('cloud', { cloud: cloudProps(), configSync: configSyncProps({ needsCloud: false }) }), onIntent));
+    const onAction = vi.fn();
+    const { rerender } = render(ui(at('cloud', { cloud: cloudProps(), configSync: configSyncProps({ needsCloud: false }) }), onAction));
     expect(screen.getByText('https://h.workers.dev')).toBeInTheDocument();
     expect(screen.getByText('未送信の変更 2 件')).toBeInTheDocument();
     expect(screen.getByText('mini')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '参加トークンを表示' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.joinToken.show' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sync.joinToken.show' });
     fireEvent.click(screen.getByRole('switch', { name: 'この PC で有効にする' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'configSync.open', part: 'send' });
-    rerender(ui(at('cloud', { cloud: cloudProps({ joinToken: 'tok-abc' }), configSync: configSyncProps({ needsCloud: false, enabled: true }) }), onIntent));
+    expect(onAction).toHaveBeenCalledWith({ type: 'configSync.open', part: 'send' });
+    rerender(ui(at('cloud', { cloud: cloudProps({ joinToken: 'tok-abc' }), configSync: configSyncProps({ needsCloud: false, enabled: true }) }), onAction));
     expect(screen.getByText('tok-abc')).toBeInTheDocument();
     expect(screen.getByText(/持つ人は全セッションを読み書きできます/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '参加トークン をコピー' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
     // 入っているスイッチを切るのは、その場で保存する。
     fireEvent.click(screen.getByRole('switch', { name: 'この PC で有効にする' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { configBundleSync: false } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { configBundleSync: false } });
   });
   it('状態の行は用語集の語で言い、未送信のトランスクリプトと、送信に失敗したトランスクリプトの一覧を出す', () => {
     const skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
@@ -290,38 +290,38 @@ describe('設定のクラウド同期', () => {
     rerender(ui(at('cloud', { cloud: cloudProps() })));
     expect(screen.queryByText(/未送信のトランスクリプト/)).toBeNull();
   });
-  it('今すぐ同期と一時停止の Intent', () => {
-    const onIntent = vi.fn();
-    const { rerender } = render(ui(at('cloud', { cloud: cloudProps() }), onIntent));
+  it('今すぐ同期と一時停止の UiAction', () => {
+    const onAction = vi.fn();
+    const { rerender } = render(ui(at('cloud', { cloud: cloudProps() }), onAction));
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sync.now' });
     fireEvent.click(screen.getByRole('button', { name: '同期を一時停止' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.pause', paused: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sync.pause', paused: true });
     // 一時停止中は、同じボタンが再開になる。
-    rerender(ui(at('cloud', { cloud: cloudProps({ state: 'paused', paused: true }) }), onIntent));
+    rerender(ui(at('cloud', { cloud: cloudProps({ state: 'paused', paused: true }) }), onAction));
     fireEvent.click(screen.getByRole('button', { name: '同期を再開' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'sync.pause', paused: false });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'sync.pause', paused: false });
   });
   it('上限で退いている間は、状態の札を止まった色で言い、今すぐ同期だけを出す', () => {
-    const onIntent = vi.fn();
-    render(ui(at('cloud', { cloud: cloudProps({ state: 'paused', paused: false, limited: true, stateLabel: '無料枠で停止 · 9:00 に戻る', badge: { text: '無料枠で停止', tone: 'stop' } }) }), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('cloud', { cloud: cloudProps({ state: 'paused', paused: false, limited: true, stateLabel: '無料枠で停止 · 9:00 に戻る', badge: { text: '無料枠で停止', tone: 'stop' } }) }), onAction));
     expect(screen.getByText('状態 無料枠で停止 · 9:00 に戻る')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ }).querySelector('.badge')).toHaveAttribute('data-tone', 'stop');
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sync.now' });
     expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
     expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
   });
   it('一時停止中に版で止まっている間は、切り替えを出さず、今すぐ同期だけを出す', () => {
-    const onIntent = vi.fn();
-    const { rerender } = render(ui(at('cloud', { cloud: cloudProps({ state: 'error', paused: true, stateLabel: '一時停止中 · 同期エラー' }) }), onIntent));
+    const onAction = vi.fn();
+    const { rerender } = render(ui(at('cloud', { cloud: cloudProps({ state: 'error', paused: true, stateLabel: '一時停止中 · 同期エラー' }) }), onAction));
     expect(screen.getByText('状態 一時停止中 · 同期エラー')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'sync.now' });
     expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
     expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
     // 一時停止していない版のエラーは、今までどおり切り替えを出す。
-    rerender(ui(at('cloud', { cloud: cloudProps({ state: 'error', paused: false, stateLabel: '同期エラー' }) }), onIntent));
+    rerender(ui(at('cloud', { cloud: cloudProps({ state: 'error', paused: false, stateLabel: '同期エラー' }) }), onAction));
     expect(screen.getByRole('button', { name: '同期を一時停止' })).toBeInTheDocument();
   });
   it('1 回だけ同期している最中は、今すぐ同期を押せない姿にする', () => {
@@ -430,12 +430,12 @@ describe('設定の連携', () => {
     expect(mcp().getByText('未登録')).toBeInTheDocument();
   });
   it('MCP の登録のコマンドは hangar の呼び方でそろえ、押せばコピーする', () => {
-    const onIntent = vi.fn();
-    render(ui(at('integrations'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('integrations'), onAction));
     expect(screen.getByText('hangar mcp install')).toBeInTheDocument();
     expect(screen.getByText('hangar statusline install')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'hangar mcp install をコピー' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
   });
   describe('ステータスライン', () => {
     it('状態と設定のコマンドを出す', () => {
@@ -522,9 +522,9 @@ describe('設定の連携', () => {
       expect(within(section()).getByText('まだ確かめていない版です。動きは止めていません')).toBeInTheDocument();
     });
     it('ずれは注意の札で、止めた機能の一覧を常に出し、細目は畳む。表の下に置き場と報告用に写す', () => {
-      const onIntent = vi.fn();
+      const onAction = vi.fn();
       const c = presentCompat(translator('ja'), DRIFT, DETAIL, '0.3.0');
-      render(ui(at('integrations', { compat: c }), onIntent));
+      render(ui(at('integrations', { compat: c }), onAction));
       const sec = within(section());
       expect(sec.getByText('ずれ 3 件')).toHaveAttribute('data-tone', 'warn');
       expect(sec.getByText('知らない形に頼る機能だけを止め、ほかは動かしています。')).toBeInTheDocument();
@@ -534,7 +534,7 @@ describe('設定の連携', () => {
       expect(within(more).getAllByRole('row')).toHaveLength(4);
       expect(within(more).getByText('~/.agent-hangar/compat.json')).toBeInTheDocument();
       fireEvent.click(within(more).getByRole('button', { name: '報告用に写す' }));
-      expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: c.report });
+      expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: c.report });
     });
     it('ずれはあっても止めた機能が無ければ、一覧を出さず、記録だけだと言う', () => {
       const only: CompatDto = { ...DETAIL, drifts: [{ contract: 'cli', value: 'subcommand.added=newcmd', version: null, count: 1, firstSeenAt: when(7, 9, 0), lastSeenAt: when(7, 9, 0) }] };
@@ -553,22 +553,22 @@ describe('設定の連携', () => {
 
 describe('設定の要約エンジン', () => {
   it('要約エンジンの URL とモデルと上限を保存する', () => {
-    const onIntent = vi.fn();
-    render(ui(at('summary', { summarizerModels: ['qwen', 'gemma'] }), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('summary', { summarizerModels: ['qwen', 'gemma'] }), onAction));
     fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'http://127.0.0.1:2345' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
     pick('モデル', 'qwen');
     fireEvent.change(screen.getByLabelText('Claude での要約の 1 時間あたりの上限'), { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryHourlyCap: 5 }, field: 'summarizer' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: 'qwen', summaryHourlyCap: 5 }, field: 'summarizer' });
   });
   it('2 欄も、サーバが整えた後の値で見比べる', () => {
     // サーバは URL の前後の空白と末尾の / を落とし、モデル名も trim する。
     // 整える前の値で見比べると、落とされた結果が元と同じでも props が動かず、
     // 欄には整える前の文字列が残り、ボタンは押せたままになる（実測で何度でも押せた）。
-    const onIntent = vi.fn();
-    render(ui(at('summary'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('summary'), onAction));
     const url = screen.getByLabelText('LM Studio の URL');
     const save = screen.getByRole('button', { name: '保存' });
     for (const same of ['http://127.0.0.1:1234/', 'http://127.0.0.1:1234///', '  http://127.0.0.1:1234  ']) {
@@ -579,7 +579,7 @@ describe('設定の要約エンジン', () => {
     fireEvent.change(url, { target: { value: '  http://127.0.0.1:2345/  ' } });
     expect(save).toBeEnabled();
     fireEvent.click(save);
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
     // 欄も整えた形に直しておく。整える前の文字列が残ると、押せない理由が読めない。
     expect(url).toHaveValue('http://127.0.0.1:2345');
   });
@@ -594,10 +594,10 @@ describe('設定の要約エンジン', () => {
     expect(save).toBeEnabled();
   });
   it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
-    const onIntent = vi.fn();
-    render(ui(at('summary'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('summary'), onAction));
     fireEvent.click(screen.getByRole('switch', { name: 'LM Studio が使えないときは Claude を使う' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryFallback: false } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryFallback: false } });
   });
   it('1 時間あたりの上限は − と ＋ でも変えられる', () => {
     render(ui(at('summary')));
@@ -605,23 +605,23 @@ describe('設定の要約エンジン', () => {
     expect(screen.getByLabelText('Claude での要約の 1 時間あたりの上限')).toHaveValue(21);
   });
   it('外部の要約エンジンを許可するときは、保存済みの宛先を示して確かめる', () => {
-    const onIntent = vi.fn();
-    render(ui(at('summary', { lmStudioUrl: 'https://summarizer.example.com' }), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('summary', { lmStudioUrl: 'https://summarizer.example.com' }), onAction));
     const sw = screen.getByRole('switch', { name: '外部の要約エンジンを許可' });
     // 見える文も読み上げと同じにし、何が起きるかを淡い 1 行で添える。
     expect(sw.closest('.set-row')).toHaveTextContent(/^外部の要約エンジンを許可/);
     expect(screen.getByText('127.0.0.1 と localhost 以外の宛先へトランスクリプトを送れるようにします。')).toBeInTheDocument();
     fireEvent.click(sw);
     // まだ保存しない。スイッチもオフのまま。
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(sw).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByText(/https:\/\/summarizer\.example\.com へ送られます/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
     expect(screen.queryByText(/へ送られます/)).toBeNull();
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.click(sw);
     fireEvent.click(screen.getByRole('button', { name: '許可' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: true } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: true } });
   });
   it('確かめの帯が開くと、キャンセルへフォーカスが移り、閉じるとスイッチへ戻る', () => {
     render(ui(at('summary')));
@@ -648,12 +648,12 @@ describe('設定の要約エンジン', () => {
     expect(screen.getByText(/http:\/\/127\.0\.0\.1:1234 へ送られます/)).toBeInTheDocument();
   });
   it('外部の要約エンジンを不許可にするときは確かめずに保存し、許可の間は警告を出す', () => {
-    const onIntent = vi.fn();
-    render(ui(at('summary', { allowExternalSummarizer: true, lmStudioUrl: 'https://summarizer.example.com' }), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('summary', { allowExternalSummarizer: true, lmStudioUrl: 'https://summarizer.example.com' }), onAction));
     expect(screen.getByRole('switch', { name: '外部の要約エンジンを許可' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('alert')).toHaveTextContent('トランスクリプト');
     fireEvent.click(screen.getByRole('switch', { name: '外部の要約エンジンを許可' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: false } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { allowExternalSummarizer: false } });
   });
   it('1 時間あたりの上限は 1 以上 200 以下の整数の入力欄である', () => {
     render(ui(at('summary')));
@@ -664,8 +664,8 @@ describe('設定の要約エンジン', () => {
     expect(cap.step).toBe('1');
   });
   it('上限が整数でなければ保存せず案内を出す', () => {
-    const onIntent = vi.fn();
-    render(ui(at('summary'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('summary'), onAction));
     const cap = screen.getByLabelText('Claude での要約の 1 時間あたりの上限');
     // 上限の案内は、ヘッダーのゲージの見出しと同じ「週」で言う。
     expect(screen.getByText('1 から 200 まで。週の使用率が 80% を超えたら切り替えません。')).toBeTruthy();
@@ -673,13 +673,13 @@ describe('設定の要約エンジン', () => {
     for (const bad of ['', '0', '-3', '1.5', '201']) {
       fireEvent.change(cap, { target: { value: bad } });
       fireEvent.click(screen.getByRole('button', { name: '保存' }));
-      expect(onIntent).not.toHaveBeenCalled();
+      expect(onAction).not.toHaveBeenCalled();
       expect(screen.getByText('1 から 200 までの整数を入れてください')).toBeTruthy();
     }
     fireEvent.change(cap, { target: { value: '12' } });
     expect(screen.queryByText('1 から 200 までの整数を入れてください')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 12 }, field: 'summarizer' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 12 }, field: 'summarizer' });
   });
   it('モデルの一覧の状態を出し分ける', () => {
     const { rerender } = render(ui(at('summary', { summarizerModels: null })));
@@ -691,14 +691,14 @@ describe('設定の要約エンジン', () => {
     expect(screen.getByText('（モデル 2 個）')).toBeTruthy();
   });
   it('接続テストをすると summarizer.test を出し、結果を出す', () => {
-    const onIntent = vi.fn();
-    const { rerender } = render(ui(at('summary'), onIntent));
+    const onAction = vi.fn();
+    const { rerender } = render(ui(at('summary'), onAction));
     fireEvent.click(screen.getByRole('button', { name: '接続テスト' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'summarizer.test' });
-    rerender(ui(at('summary', { summarizerTest: { ok: true, id: 'lmstudio', ms: 820, summary: { title: '題', oneLiner: '1 文', body: '本文', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } } }), onIntent));
+    expect(onAction).toHaveBeenCalledWith({ type: 'summarizer.test' });
+    rerender(ui(at('summary', { summarizerTest: { ok: true, id: 'lmstudio', ms: 820, summary: { title: '題', oneLiner: '1 文', body: '本文', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } } }), onAction));
     expect(screen.getByText('LM Studio で成功しました（820 ミリ秒）')).toBeTruthy();
     expect(screen.getByText('1 文')).toBeTruthy();
-    rerender(ui(at('summary', { summarizerTest: { ok: false, tried: [{ id: 'lmstudio', message: 'ECONNREFUSED' }, { id: 'claude-headless', message: '上限に達しています' }] } }), onIntent));
+    rerender(ui(at('summary', { summarizerTest: { ok: false, tried: [{ id: 'lmstudio', message: 'ECONNREFUSED' }, { id: 'claude-headless', message: '上限に達しています' }] } }), onAction));
     expect(screen.getByText('LM Studio: ECONNREFUSED')).toBeTruthy();
     expect(screen.getByText('claude: 上限に達しています')).toBeTruthy();
   });
@@ -706,11 +706,11 @@ describe('設定の要約エンジン', () => {
 
 describe('設定のツール', () => {
   it('プロジェクトの親フォルダは欄を出たら保存し、欄の名前を添える', () => {
-    const onIntent = vi.fn();
-    render(ui(at('tools'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('tools'), onAction));
     expect(screen.getByRole('heading', { level: 3, name: 'プロジェクトの親フォルダ' })).toBeInTheDocument();
     typeAndLeave('プロジェクトの親フォルダ', '/w2');
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/w2' }, field: 'workspaceRoot' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/w2' }, field: 'workspaceRoot' });
   });
   it('パスの欄には保存のボタンが無い', () => {
     render(ui(at('tools')));
@@ -722,36 +722,36 @@ describe('設定のツール', () => {
     expect(screen.queryByRole('radio', { name: 'iTerm2' })).toBeNull();
   });
   it('Node のパスを保存でき、空なら null を送る', () => {
-    const onIntent = vi.fn();
-    render(ui(at('tools', { nodePath: '/opt/homebrew/bin/node' }), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('tools', { nodePath: '/opt/homebrew/bin/node' }), onAction));
     typeAndLeave('Node のパス', '/opt/node22/bin/node');
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { nodePath: '/opt/node22/bin/node' }, field: 'nodePath' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { nodePath: '/opt/node22/bin/node' }, field: 'nodePath' });
     // 空白だけにするのは「指定を消す」なので、指定が入っていた PC では変更である。
     typeAndLeave('Node のパス', '  ');
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { nodePath: null }, field: 'nodePath' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { nodePath: null }, field: 'nodePath' });
   });
   it('変えずに欄を出ても送らない。前後の空白だけの違いも変更にしない', () => {
     // 同じ値でも送ると、workspaceRoot ではプロジェクトの登録し直しが走る。
-    const onIntent = vi.fn();
-    render(ui(at('tools', { nodePath: '/opt/homebrew/bin/node', codePath: '/usr/local/bin/code' }), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('tools', { nodePath: '/opt/homebrew/bin/node', codePath: '/usr/local/bin/code' }), onAction));
     for (const label of ['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'code のパス', 'Node のパス']) {
       const field = screen.getByLabelText(label) as HTMLInputElement;
       fireEvent.blur(field);
       typeAndLeave(label, ` ${field.value} `);
     }
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     // 空白を足しただけの欄は、保存済みの値に戻す。
     expect(screen.getByLabelText('code のパス')).toHaveValue('/usr/local/bin/code');
   });
   it('Enter でも保存し、日本語入力の確定の Enter では保存しない', () => {
-    const onIntent = vi.fn();
-    render(ui(at('tools'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('tools'), onAction));
     const field = screen.getByLabelText('code のパス');
     fireEvent.change(field, { target: { value: '/usr/local/bin/code' } });
     fireEvent.keyDown(field, { key: 'Enter', keyCode: 229 });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.keyDown(field, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' }, field: 'codePath' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' }, field: 'codePath' });
   });
   it('保存できたら欄の横に「✓ 保存しました」を 2 秒出し、保存し直すたびに出し直す', () => {
     vi.useFakeTimers();
@@ -770,10 +770,10 @@ describe('設定のツール', () => {
     }
   });
   it('保存を断られたら、欄の下に理由を出し、書いた値は欄に残す', () => {
-    const onIntent = vi.fn();
-    const { rerender } = render(ui(at('tools'), onIntent));
+    const onAction = vi.fn();
+    const { rerender } = render(ui(at('tools'), onAction));
     typeAndLeave('tmux のパス', '/nope/tmux');
-    rerender(ui(at('tools', { save: { tmuxPath: { kind: 'error', message: '「tmux のパス」に /nope/tmux が見つかりません' } } }), onIntent));
+    rerender(ui(at('tools', { save: { tmuxPath: { kind: 'error', message: '「tmux のパス」に /nope/tmux が見つかりません' } } }), onAction));
     expect(screen.getByRole('alert')).toHaveTextContent('「tmux のパス」に /nope/tmux が見つかりません');
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('/nope/tmux');
   });
@@ -785,8 +785,8 @@ describe('設定のツール', () => {
       code: { ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドを入れてください', fixCommand: null },
       node: null,
     };
-    const onIntent = vi.fn();
-    render(ui(at('tools', { verify }), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('tools', { verify }), onAction));
     const under = (label: string) => screen.getByLabelText(label).closest('.path-field')!.querySelector('.verify')!;
     expect(under('プロジェクトの親フォルダ')).toHaveTextContent('/w（プロジェクト 12 件）');
     expect(under('claude のパス')).toHaveTextContent('/Users/me/.local/bin/claude（2.3.1）');
@@ -796,7 +796,7 @@ describe('設定のツール', () => {
     expect(under('code のパス')).toHaveTextContent('無くても動きます');
     expect(under('Node のパス')).toHaveTextContent('確かめています');
     fireEvent.click(screen.getByRole('button', { name: 'brew install tmux をコピー' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'brew install tmux' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'brew install tmux' });
   });
   it('サーバが正規化した値に入力欄が追従する', () => {
     const { rerender } = render(ui(at('tools', { tmuxPath: 'tmux', claudePath: null, nodePath: '' })));
@@ -810,10 +810,10 @@ describe('設定のツール', () => {
   });
   it('claude のパスを保存する', () => {
     // .app から起こすと PATH で claude を引けない。欄が無いと、起動が 400 で断られたまま直せない。
-    const onIntent = vi.fn();
-    render(ui(at('tools'), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('tools'), onAction));
     typeAndLeave('claude のパス', ' /Users/x/.local/bin/claude ');
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { claudePath: '/Users/x/.local/bin/claude' }, field: 'claudePath' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { claudePath: '/Users/x/.local/bin/claude' }, field: 'claudePath' });
   });
 });
 
@@ -833,10 +833,10 @@ describe('設定の情報', () => {
     expect(screen.getByText('使用量を読み込んでいます')).toBeTruthy();
   });
   it('索引の再構築と、この PC', () => {
-    const onIntent = vi.fn();
-    render(ui(at('info', { version: '0.1.0' }), onIntent));
+    const onAction = vi.fn();
+    render(ui(at('info', { version: '0.1.0' }), onAction));
     fireEvent.click(screen.getByRole('button', { name: '索引を再構築' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'index.rebuild' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'index.rebuild' });
     expect(screen.getByText('mac')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'この PC' })).toBeInTheDocument();
     expect(screen.getByText(/再起動後に反映されます/)).toBeInTheDocument();

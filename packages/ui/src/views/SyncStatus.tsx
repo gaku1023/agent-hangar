@@ -1,5 +1,5 @@
 import { formatRoute } from '@agent-hangar/shared';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { SyncProps } from '../presenters/shell.ts';
 import { foldAt } from './headerFold.ts';
 

@@ -11,7 +11,7 @@ const load = (parts: ConfigDetailPart[]): Effect[] => (parts.length > 0 ? [{ kin
 /**
  * configSync 領域：設定の同期（作り直した実装）のダイアログ。
  * ダイアログは 1 つの overlay（configSync）で、part が 4 つの顔（送る一覧、適用内容の確認、承諾、競合）を決める。
- * 選んだ項目（チェック、採る側）は View が持ち、適用の Intent で 1 度に渡す。Mediator は、開く、適用の最中に閉じさせない、結果で閉じる、だけを持つ。
+ * 選んだ項目（チェック、採る側）は View が持ち、適用の UiAction で 1 度に渡す。Mediator は、開く、適用の最中に閉じさせない、結果で閉じる、だけを持つ。
  * 適用は、サーバに指示書を書かせてから、殻のネイティブの確認へ進む（runtime）。この領域は ~/.claude に何も書かない。
  * 画面の中身（件数でなく項目）は、設定の画面を見ているあいだと、ダイアログを開いているあいだだけ、状態が動くたびに取り直す。
  */
@@ -28,8 +28,8 @@ export function configSyncStep(state: State, store: Store, input: Input): Step |
     if (o.kind !== 'configSync') return { state, effects: [] };
     return { state: { ...state, overlay: input.event.close ? { kind: 'none' } : { ...o, working: false } }, effects: [] };
   }
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     case 'configSync.open': {
       // 適用の返事を待つあいだは別の部分へ移さない。ほかのダイアログは黙って差し替えない。

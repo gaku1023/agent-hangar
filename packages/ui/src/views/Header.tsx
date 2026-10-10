@@ -1,7 +1,7 @@
 import { formatRoute } from '@agent-hangar/shared';
 import { useRef } from 'react';
 import markUrl from '../brand/logo-mark.svg';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { HeaderAccountProps, ShellProps, SyncProps, UsageProps } from '../presenters/shell.ts';
 import { AccountSwitcher } from './AccountSwitcher.tsx';
 import { Bell } from './Bell.tsx';
