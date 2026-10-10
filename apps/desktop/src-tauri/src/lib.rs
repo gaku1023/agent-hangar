@@ -9,10 +9,12 @@ pub mod configapply;
 pub mod deeplink;
 pub mod filedrop;
 pub mod health;
+pub mod instance;
 pub mod logfile;
 pub mod node;
 pub mod notify;
 pub mod paths;
+pub mod placement;
 pub mod server;
 pub mod updater;
 #[cfg(windows)]
@@ -1311,8 +1313,75 @@ fn file_dropped(
     });
 }
 
+/// 二つ目の起動が降りる前に、最初の側で呼ばれる。
+/// 渡された hangar:// は、deep-link のプラグインが先に `on_open_url` へ回している。
+/// トーストの印（`-ToastActivated`）は中身を持たない。押されたセッションは COM の口が最初の側へ直に届ける（notify.rs）。
+/// ここでは、最初の窓を前に出し、何が渡されたかをログに残す。
+#[cfg(not(target_os = "macos"))]
+fn second_launch(app: &AppHandle, args: &[String]) {
+    log(&instance::describe(args));
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// 最初の窓を、いるモニタの作業域（タスクバーを除いた範囲）に収める。
+/// 収まっていれば動かさない。
+/// macOS では呼ばない（窓の位置は OS に任せたままにする）。
+#[cfg(not(target_os = "macos"))]
+fn fit_main_window(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else {
+        return;
+    };
+    let monitor = match w.current_monitor() {
+        Ok(Some(m)) => Some(m),
+        _ => w.primary_monitor().ok().flatten(),
+    };
+    let (Some(m), Ok(pos), Ok(outer), Ok(inner)) =
+        (monitor, w.outer_position(), w.outer_size(), w.inner_size())
+    else {
+        return;
+    };
+    let work = m.work_area();
+    let window = placement::Rect {
+        x: pos.x,
+        y: pos.y,
+        w: outer.width,
+        h: outer.height,
+    };
+    let area = placement::Rect {
+        x: work.position.x,
+        y: work.position.y,
+        w: work.size.width,
+        h: work.size.height,
+    };
+    let Some(fitted) = placement::fit(window, area) else {
+        return;
+    };
+    let (iw, ih) = placement::inner_size(
+        fitted,
+        (outer.width, outer.height),
+        (inner.width, inner.height),
+    );
+    let _ = w.set_size(tauri::PhysicalSize::new(iw, ih));
+    let _ = w.set_position(tauri::PhysicalPosition::new(fitted.x, fitted.y));
+    log(&format!(
+        "window fitted to the work area: {}x{} at {},{} (was {}x{} at {},{})",
+        fitted.w, fitted.h, fitted.x, fitted.y, window.w, window.h, window.x, window.y
+    ));
+}
+
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // 二つ目の起動を最初の殻へまとめる。プラグインの決まりで、ほかのプラグインより先に付ける。
+    // 二つ目の殻は、窓を作る前にここで降りる。
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        second_launch(app, &args)
+    }));
+    builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         // 自動更新。目録の URL と公開鍵は tauri.conf.json の plugins.updater にあり、頁からは変えられない。
@@ -1353,6 +1422,8 @@ pub fn run() {
         })
         .setup(|app| {
             log("setup");
+            #[cfg(not(target_os = "macos"))]
+            fit_main_window(app.handle());
             watch_swipe_phase(app.handle());
             // 押された通知でアプリが起きたときも受け取れるよう、窓を動かす前に付ける。
             let handle = app.handle().clone();
