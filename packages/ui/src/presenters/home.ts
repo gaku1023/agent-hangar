@@ -1,9 +1,11 @@
-import { ASIDE_FREE, asideHead, asideOf, isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type LiveStatus, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
+import { ASIDE_FREE, asideHead, asideOf } from '../lib/aside.ts';
+import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type Intent, type LiveStatus, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
+import type { IconName } from '../views/primitives/Icon.tsx';
 import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
-import { candidateLabel, presentSessionRow, sortSessions, type SessionRowProps } from './row.ts';
+import { candidateLabel, presentSessionRow, returnOnLabel, sortSessions, type SessionRowProps } from './row.ts';
 import { dueOn, returnKey } from './sections.ts';
 
 /**
@@ -141,4 +143,127 @@ export function presentHome(_state: State, store: Store, now: number): HomeProps
   });
 
   return { attention, returning, confirm, running, recent, projects, idle: attention.length === 0 && running.length === 0 };
+}
+
+/**
+ * 帯の引き出しの 1 行が持つ押せるもの。intent は押したときに View が発行する Intent である。
+ * ariaLabel は読み上げの名前で、見える語（label）と相手の名前を含める。
+ * primary は青いボタン、ghost は地の無いボタンで、どちらでもなければ枠のボタンである。
+ */
+export type BandAction = { id: string; label: string; ariaLabel: string; primary: boolean; ghost: boolean; intent: Intent };
+/**
+ * 行頭の印。dot は状態の点、tag は戻る日や提案の札（tone の due は戻る時点を過ぎて塗る、soon は時刻の前で文字だけ、cand は提案）、todo は TODO の完了の提案の印である。
+ */
+export type BandLead =
+  | { kind: 'dot'; live: LiveStatus | null; aside: boolean }
+  | { kind: 'tag'; text: string; tone: 'due' | 'soon' | 'cand'; title?: string }
+  | { kind: 'todo' };
+/** 行の右端に並べる文字。tone の wait は入力待ちの色、busy は作業中の色である。 */
+export type BandTrail = { text: string; tone?: 'wait' | 'busy' };
+/**
+ * 帯の引き出しの 1 行（1 件 1 行）。
+ * 名前（name）、薄い添え（context）、本文（text）、等幅の詳細（detail、いまの手など）、右端の文字（trail）、ボタン（actions）を並べる。
+ * open があれば名前がボタンになり、押すとその Intent を発行する。tone の wait は行の地に入力待ちの色を薄く敷く。
+ * どの群の行もこの形にするので、群を足すときに View を触らずに済む。
+ */
+export type BandRow = { key: string; lead: BandLead; name: string; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: Intent | null; actions: BandAction[] };
+/**
+ * 帯の群 1 つ。錠剤 1 つとその引き出しにあたる。
+ * count は錠剤の数で、0 なら薄く出して押せない。summary は引き出しの見出しに添える内訳である。
+ * tone は件数の色（wait は入力待ちの赤茶、cand は確認待ちの紫）、icon は錠剤の絵である。
+ * morning は、朝に最初に開く群の候補になること（既定の 3 つだけが真。足す群は真にしてよいかを足す側が決める）。
+ */
+export type BandGroup = { id: string; label: string; icon: IconName; tone: 'default' | 'wait' | 'cand'; count: number; summary: string; morning: boolean; rows: BandRow[] };
+/**
+ * 帯が受け取るもの。groups は錠剤の並びで、morning は開いたときに最初から開いている群の id（無ければ null）。
+ * 開閉は View の中の状態で、ここは朝に開く群だけを決める（設計書 4.4）。
+ */
+export type HomeBandProps = { groups: BandGroup[]; morning: string | null };
+
+/** 朝に開く群。件数があって morning の立っている群のうち、並びの先頭のもの。 */
+export function morningGroup(groups: BandGroup[]): string | null {
+  return groups.find((g) => g.morning && g.count > 0)?.id ?? null;
+}
+
+type BandInput = Pick<HomeProps, 'attention' | 'returning' | 'running' | 'confirm'>;
+
+/** 行の末尾に付ける「相手の名前」入りの読み上げの名前を持つボタン。 */
+function action(t: Translate, id: string, label: string, name: string, intent: Intent, kind: 'primary' | 'ghost' | 'plain' = 'plain'): BandAction {
+  return { id, label, ariaLabel: t('home.band.actionFor', { action: label, name }), primary: kind === 'primary', ghost: kind === 'ghost', intent };
+}
+
+function attentionRow(t: Translate, a: AttentionCard): BandRow {
+  const open: Intent = { type: 'session.open', id: a.id };
+  const answer = a.answer === 'terminal' ? action(t, 'answer', t('home.band.answer'), a.name, { type: 'session.open', id: a.id, focus: 'terminal' }, 'primary')
+    : a.answer === 'attach' ? action(t, 'answer', t('home.band.answer'), a.name, { type: 'session.attach', id: a.id }, 'primary')
+      : a.answer === 'adopt' ? action(t, 'answer', t('home.band.move'), a.name, { type: 'session.adopt', id: a.id }, 'primary')
+        : action(t, 'open', t('home.band.open'), a.name, open);
+  const project = a.projectName ?? t('common.label.uncategorized');
+  // 端末の無い入力待ち（外部ターミナルで動くもの）は、答えが hangar の外にあることを添える。
+  const outside = a.answer === 'adopt' || a.answer === null;
+  return { key: `wait:${a.id}`, lead: { kind: 'dot', live: 'waiting', aside: false }, name: a.name, context: outside ? `${project} · ${t('home.band.external')}` : project, text: a.question, detail: null, tone: 'wait', trail: [{ text: t('home.band.waited', { time: a.waited }), tone: 'wait' }], open, actions: [answer] };
+}
+
+function returnRow(t: Translate, r: ReturnCard): BandRow {
+  const open: Intent = { type: 'session.open', id: r.id };
+  const text = r.returnOn === null ? t('home.band.noDate') : returnOnLabel(r.returnOn, r.overdueDays, r.returnTime, r.pastMin);
+  const lead: BandLead = { kind: 'tag', text, tone: r.due ? 'due' : 'soon', ...(r.returnTime ? { title: t('home.band.reminderTime', { time: r.returnTime }) } : {}) };
+  return {
+    key: `return:${r.id}`, lead, name: r.name, context: r.projectName ?? t('common.label.uncategorized'), text: r.reason, detail: null, tone: null, trail: [], open,
+    actions: [
+      action(t, 'open', t('home.band.open'), r.name, open),
+      action(t, 'changeDate', t('home.band.changeDate'), r.name, { type: 'session.pause.open', id: r.id, from: 'menu' }, 'ghost'),
+      action(t, 'done', 'Done', r.name, { type: 'session.state.set', id: r.id, status: 'done' }, 'ghost'),
+    ],
+  };
+}
+
+function runningRow(t: Translate, r: RunningCard): BandRow {
+  const working = r.live === 'busy' && !r.aside;
+  // 作業中は意図が本文で、いまの手は等幅の詳細にする。手が取れない間は note を本文にする。
+  // 作業中でないもの（アイドル、起動中、裏だけ動くもの）は note の一言が本文である。
+  const detail = working && r.activity ? (r.activity.summary === '' ? r.activity.tool : `${r.activity.tool} ${r.activity.summary}`) : null;
+  const text = r.intent ?? (detail !== null ? '' : r.note ?? '');
+  const trail: BandTrail[] = [];
+  if (working) trail.push({ text: t('home.band.working', { time: r.elapsed }), tone: 'busy' });
+  if (r.contextPercent !== null) trail.push({ text: r.contextLabel });
+  return { key: `run:${r.id}`, lead: { kind: 'dot', live: r.live, aside: r.aside }, name: r.name, context: r.meta, text, detail, tone: null, trail, open: { type: 'session.open', id: r.id }, actions: [] };
+}
+
+function confirmRow(t: Translate, c: ConfirmCard): BandRow {
+  if (c.kind === 'todo') {
+    return {
+      key: `todo:${c.id}`, lead: { kind: 'todo' }, name: c.text, context: `${c.projectName} · ${c.ago}`, text: c.note, detail: null, tone: null, trail: [], open: { type: 'project.open', id: c.projectId },
+      actions: [
+        action(t, 'confirm', t('home.band.confirm'), c.text, { type: 'todo.confirm', id: c.id }, 'primary'),
+        action(t, 'dismiss', t('home.band.dismiss'), c.text, { type: 'todo.reject', id: c.id }),
+      ],
+    };
+  }
+  return {
+    key: `session:${c.id}`, lead: { kind: 'tag', text: c.label, tone: 'cand' }, name: c.name, context: `${c.projectName ?? t('common.label.uncategorized')} · ${c.ago}`, text: c.note, detail: null, tone: null, trail: [], open: { type: 'session.open', id: c.id },
+    actions: [
+      action(t, 'confirm', t('home.band.confirm'), c.name, { type: 'session.state.confirm', id: c.id }, 'primary'),
+      ...(c.status === 'paused' ? [action(t, 'changeDate', t('home.band.changeDate'), c.name, { type: 'session.pause.open', id: c.id, from: 'candidate' })] : []),
+      action(t, 'dismiss', t('home.band.dismiss'), c.name, { type: 'session.state.reject', id: c.id }),
+    ],
+  };
+}
+
+/**
+ * ホームの帯（上の件数の細い帯と、押した群の引き出し）に渡すものを組む。
+ * 3 つの群は要対応、実行中、確認待ちの順で、0 件でも群は残す（薄い錠剤として出す）。
+ * extra は後ろに足す群で、足したものがそのまま 4 つ目以降の錠剤になる（未解決のプロジェクトなど）。
+ * 要対応は入力待ちの札に、今日戻るの札を続ける。実行中の内訳は、作業中（裏だけ動くものも含む）とアイドルを数える。起動中は内訳に入れない。
+ */
+export function presentHomeBand(home: BandInput, t: Translate, extra: BandGroup[] = []): HomeBandProps {
+  const busy = home.running.filter((r) => r.live === 'busy').length;
+  const idle = home.running.filter((r) => r.live === 'idle').length;
+  const groups: BandGroup[] = [
+    { id: 'attention', label: t('home.band.attention'), icon: 'alert', tone: 'wait', count: home.attention.length + home.returning.length, summary: t('home.band.attentionSummary', { waiting: home.attention.length, reminders: home.returning.length }), morning: true, rows: [...home.attention.map((a) => attentionRow(t, a)), ...home.returning.map((r) => returnRow(t, r))] },
+    { id: 'running', label: t('home.band.running'), icon: 'tool', tone: 'default', count: home.running.length, summary: t('home.band.runningSummary', { busy, idle }), morning: true, rows: home.running.map((r) => runningRow(t, r)) },
+    { id: 'pending', label: t('home.band.pending'), icon: 'check', tone: 'cand', count: home.confirm.length, summary: t('home.band.pendingSummary', { n: home.confirm.length }), morning: true, rows: home.confirm.map((c) => confirmRow(t, c)) },
+    ...extra,
+  ];
+  return { groups, morning: morningGroup(groups) };
 }

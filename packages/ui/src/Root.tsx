@@ -5,6 +5,7 @@ import { canMoveBehind } from './mediator/screen.ts';
 import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfirm } from './presenters/confirm.ts';
 import { presentHome } from './presenters/home.ts';
+import { storeLanguage } from './presenters/i18n.ts';
 import { presentOnboarding } from './presenters/onboarding.ts';
 import { presentNewProject } from './presenters/newProject.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
@@ -26,6 +27,7 @@ import { matchKey } from './keys.ts';
 import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
+import { createFindStore, FindRoot } from './views/findStore.tsx';
 import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
 import { RetentionDialog } from './views/RetentionDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
@@ -47,6 +49,7 @@ import { blocksSwipe } from './views/swipeTarget.ts';
 import { motionMs } from './views/primitives/motion.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
 import { CopiedContext } from './views/primitives/CommandLine.tsx';
+import { LanguageRoot } from './views/primitives/language.tsx';
 import { PromptAssistContext, type PromptAssist } from './views/primitives/promptAssist.ts';
 import { ToastStack } from './views/ToastStack.tsx';
 
@@ -111,6 +114,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const overlayKind = overlay.kind;
   const paletteOpen = overlayKind === 'palette';
   const [paletteQuery, setPaletteQuery] = useState('');
+  // 本文の中の検索（⌘F）の状態も Root が置き場を持つ。Mediator のほかの領域も Presenter も使わない、その場の操作である。
+  // 本文の部品は画面を離れると外れるので、ここに置いて、戻ってきたときに同じ欄と語を出す。
+  const [finds] = useState(createFindStore);
   useEffect(() => { if (!paletteOpen) setPaletteQuery(''); }, [paletteOpen]);
 
   // ショートカットの対象になる、いま見ているセッションのタブ。
@@ -199,7 +205,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'split.toggle': if (canSplit) { take(); rt.emit({ type: 'split.toggle' }); } return;
         case 'transcript.toggle': take(); rt.emit({ type: 'transcript.toggle' }); return;
         // 本文の中の検索。本文が出ているときだけ受け、ターミナルが出ているときはターミナルとブラウザに渡す。
-        case 'transcript.find': if (transcriptShown && sessionId && overlayKind === 'none') { take(); rt.emit({ type: 'transcript.find', sessionId, open: true }); } return;
+        case 'transcript.find': if (transcriptShown && sessionId && overlayKind === 'none') { take(); finds.open(sessionId); } return;
         // 端末が画面にあるときだけ受ける。セッション画面でも、終わったセッションの本文だけなら端末は無い。
         // 端末の無いときはブラウザの拡大に渡す。
         // 端末が出るかどうかは presentSession と同じく currentRunOf で決まる。
@@ -231,7 +237,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals, transcriptShown]);
+  }, [rt, overlayKind, sessionId, shortcutRun, shortcutTabs, selectedTabId, canSplit, newProjectId, newScratch, props.terminals, transcriptShown, finds]);
 
   // 確認や入力のあるダイアログの裏では、スワイプで画面を移さない（Mediator の canMoveBehind と同じ規則）。
   // Mediator も nav.back を捨てるが、それだけだと矢印が出て「動いた」と見えてしまうので、手勢そのものを受けない。
@@ -336,7 +342,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty boot-wait">読み込んでいます</div>;
   else switch (state.screen.name) {
     case 'home': body = <HomeScreen {...presentHome(state, store, now)} onboarding={presentOnboarding(store)} />; break;
-    case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} showArchived={showArchived} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;
+    case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
     case 'session': {
       const p = presentSession(state, store, now, state.screen.id);
@@ -378,7 +384,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       <TerminalHostContext.Provider value={props.terminals}>
         <CopiedContext.Provider value={state.copied}>
           <PromptAssistContext.Provider value={promptAssist}>
-            <Shell {...shell} overlays={overlays}>{body}</Shell>
+            <LanguageRoot language={storeLanguage(store)}>
+              <FindRoot store={finds}><Shell {...shell} overlays={overlays}>{body}</Shell></FindRoot>
+            </LanguageRoot>
           </PromptAssistContext.Provider>
         </CopiedContext.Provider>
       </TerminalHostContext.Provider>

@@ -34,11 +34,13 @@ import { CompatLog, compatPath } from './provider/claude-code/compat/log.ts';
 import type { Drift } from './provider/claude-code/compat/types.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { AsideReader } from './live/aside.ts';
+import { LiveDigester } from './live/digest.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
 import { AccountAuth } from './config/accountAuth.ts';
 import { AccountStore } from './config/accounts.ts';
+import { RunAccounts } from './runs/accounts.ts';
 import { RunError, RunManager } from './runs/manager.ts';
 import { aliveRunForSession } from './runs/queries.ts';
 import { ParkWatch, parkedSessionIds, statusChanged } from './sessions/park.ts';
@@ -59,6 +61,7 @@ import { SyncStateStore } from './sync/state.ts';
 import { markTranscriptsFrom } from './sync/transcriptsFrom.ts';
 import { TranscriptUploader } from './sync/uploader.ts';
 import { CloudUsagePoller } from './sync/usage.ts';
+import { tmuxPaneOps, type PaneOps } from './tmux/pane.ts';
 import { Tmux } from './tmux/tmux.ts';
 import { UsageTracker } from './usage/statusline.ts';
 import { EventHub } from './ws/hub.ts';
@@ -384,7 +387,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const compatLog = new CompatLog({ file: compatPath(home), localVersion: () => claudeVersion });
   compatLog.start();
   // 裏でサブエージェントだけが動いているものに、読み直しのたびに印を足す（live/aside.ts）。
-  const aside = new AsideReader(db);
+  // 右ペインの要約は、裏の印と HTTP（UI の取り直し）で 1 つの覚えを共有する。別々に持つと、長いセッションの同じ要約を二度作る。
+  const digester = new LiveDigester(db);
+  const aside = new AsideReader(db, digester);
   const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone, (live) => aside.apply(live, Date.now()), compatLog);
 
   // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
@@ -651,6 +656,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   console.log(`agent-hangar listening on http://${host}:${port}${settings.tmuxPath ? '' : '（tmux が見つからないため起動は使えません）'}`);
 
   const tmuxOf = (s: Settings): Tmux | null => (s.tmuxPath ? new Tmux({ tmuxPath: s.tmuxPath }) : null);
+  /** RunManager が画面に触る口。いまの裏は tmux である。 */
+  const panesOf = (t: Tmux | null): PaneOps | null => (t ? tmuxPaneOps(t) : null);
   /**
    * claude の場所。run を起こす tmux のペインは hangar の PATH を継ぐので、
    * 裸の `claude` では .app から起こしたときに引けない（PATH は /usr/bin:/bin:/usr/sbin:/sbin だけになる）。
@@ -744,7 +751,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const claudeDirWatch = new ClaudeDirWatch({ dirs: () => accountStore.list().filter((a) => a.id !== PRIMARY_ACCOUNT_ID).map((a) => a.dir), sink: compatLog });
   claudeDirWatch.check();
   const runs = new RunManager({
-    db, deviceId: device.id, home, tmux: tmuxOf(settings), port, token,
+    db, deviceId: device.id, home, panes: panesOf(tmuxOf(settings)), port, token,
     claudeBin: claudeBinOf(settings),
     // 起動に失敗した run の後始末で、本文の jsonl があるかを実体で確かめるために要る。
     claudeDir,
@@ -752,7 +759,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
     // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
     live: () => registry.current(),
-    accounts: accountStore,
+    accounts: new RunAccounts({ db, claudeDir, store: accountStore }),
     compat: compatLog,
   });
   // 区切り（Paused・Done・Archived）を付けたセッションが休みになったら、Claude を止める。
@@ -913,7 +920,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (wasSyncingConfig && !settings.syncClaudeConfig) configSync?.unconfirm();
       // tmuxPath が変われば、これから起こす run も新しい attach も新しいパスを使う。
       const t = tmuxOf(settings);
-      runs.setTmux(t);
+      runs.setPanes(panesOf(t));
       relay.setTmux(t);
       if (patch.tmuxPath !== undefined) writeShellScript();
       // claudePath が変われば、これから起こす run と要約が新しい場所を使う。包みのサブコマンドと手元の版も読み直す。
@@ -929,7 +936,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       engine.setClaudeConfigStatus({ enabled: settings.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
       return settings;
     },
-    live: () => registry.current(), indexer, hub, runs, external, usage, memos,
+    live: () => registry.current(), indexer, hub, runs, external, usage, memos, digester,
     summary: {
       enqueue: (id, opts) => summary.enqueue(id, opts),
       pending: () => summary.pending(),

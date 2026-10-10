@@ -917,7 +917,7 @@ describe('フェーズ 3 の効果', () => {
     await flush();
     expect(regenerateSummary).toHaveBeenCalledWith('s1');
   });
-  it('分割は選択中でない最初のタブを右にし、タブが 1 つなら null を返す', async () => {
+  it('分割は選択中でない最初のタブを右にし、タブが 1 つなら知らせる', async () => {
     const { rt, wsHandlers, setHash } = harness();
     rt.start();
     wsHandlers[0]!.onOpen();

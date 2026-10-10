@@ -64,6 +64,16 @@ describe('paths', () => {
     const s = loadSettings(tmp);
     expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null });
   });
+  it('言語は保存して読め、知らない値は読み込みで落とす', () => {
+    ensureHome(tmp);
+    // 項目が無いうちは持たない。読む側（languageOf）が既定の日本語として読む。
+    expect(loadSettings(tmp).language).toBeUndefined();
+    saveSettings(tmp, { ...loadSettings(tmp), language: 'en' });
+    expect(loadSettings(tmp).language).toBe('en');
+    // 手で書き換えた settings.json の値を、そのまま画面とサーバへ流さない。
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', language: 'fr' }));
+    expect(loadSettings(tmp).language).toBeUndefined();
+  });
   it('要約器の設定は既定値で埋まる', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));

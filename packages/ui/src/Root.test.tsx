@@ -148,7 +148,7 @@ describe('Root', () => {
     expect(screen.getByRole('dialog', { name: '新しいセッション' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
     expect(screen.getByRole('option', { name: /alpha/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByText('やめる'));
+    fireEvent.click(screen.getByText('キャンセル'));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('書きかけのまま閉じた新しいセッションは、次に開くと下書きとして戻る', async () => {
@@ -158,14 +158,14 @@ describe('Root', () => {
     act(() => handlers[0]!.onOpen());
     await flush();
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
-    fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'API の節' } });
-    fireEvent.keyDown(screen.getByLabelText('名前（任意）'), { key: 'Escape' });
+    fireEvent.change(screen.getByLabelText('初期プロンプト（任意）'), { target: { value: 'API の節を書く' } });
+    fireEvent.keyDown(screen.getByLabelText('初期プロンプト（任意）'), { key: 'Escape' });
     await flush();
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(rt.getState().newSessionDraft).toEqual({ name: 'API の節', prompt: '', attachments: [] });
+    expect(rt.getState().newSessionDraft).toEqual({ name: '', prompt: 'API の節を書く', attachments: [] });
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
     await flush();
-    expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');
+    expect(screen.getByLabelText('初期プロンプト（任意）')).toHaveValue('API の節を書く');
     expect(within(screen.getByRole('dialog')).getByText('下書き')).toBeInTheDocument();
   });
   it('セッションを開くとサブエージェントの一覧が届き、選択欄が出る', async () => {
@@ -355,6 +355,24 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     act(() => wsHandlers[0]!.onEvent({ type: 'run.started', run: rootRun('r1', 's1'), tabs: [rootTab('t1', 'r1', 'agent')] }));
     await flush();
     expect(key({ key: 'f', metaKey: true })).toBe(true);
+  });
+
+  it('本文の中の検索の欄は Mediator の State に持たず、画面を離れて戻っても語ごと残る', async () => {
+    const { rt, setHash } = await mounted();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    key({ key: 'f', metaKey: true });
+    await flush();
+    fireEvent.change(screen.getByRole('searchbox', { name: '本文の中を探す' }), { target: { value: '語' } });
+    expect(rt.getState().sessionView.s1 ?? {}).not.toHaveProperty('find');
+    act(() => setHash('#/'));
+    await flush();
+    expect(screen.queryByRole('searchbox', { name: '本文の中を探す' })).toBeNull();
+    act(() => setHash('#/session/s1'));
+    await flush();
+    const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
+    expect(box).toHaveValue('語');
+    expect(box).toHaveFocus();
   });
 
   it('パレットの入力は Root が持ち、閉じると空に戻る', async () => {

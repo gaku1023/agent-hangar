@@ -143,6 +143,26 @@ describe('LiveDigester', () => {
     addIntent(db, sid, '新しい意図', at(2));
     expect(g.digest(sid)).not.toBe(a);
   });
+  it('主線かサブエージェントの本文が伸びて索引が進んだら、作り直す', async () => {
+    write(path.join(proj(), `${SID}.jsonl`), [
+      user(1, '担当を起こして'),
+      toolUse(2, 'toolu_k1', 'Agent', { description: '裏の担当', prompt: 'p', run_in_background: true }),
+      result(3, 'toolu_k1', 'Async agent launched', launched('kkk1')),
+    ]);
+    write(sub('kkk1'), [user(4, '見て')]);
+    await index();
+    const g = new LiveDigester(db);
+    const a = g.digest(sid);
+    expect(a.agents[0]!.last).toBeNull();
+    fs.appendFileSync(sub('kkk1'), JSON.stringify(toolUse(5, 'toolu_k2', 'Read', { file_path: '/w/live/a.ts' })) + '\n');
+    await index();
+    const b = g.digest(sid);
+    expect(b).not.toBe(a);
+    expect(b.agents[0]!.last).toMatchObject({ kind: expect.any(String) });
+    fs.appendFileSync(path.join(proj(), `${SID}.jsonl`), JSON.stringify(user(6, '次はこれ')) + '\n');
+    await index();
+    expect(g.digest(sid).turnStartSeq).not.toBe(b.turnStartSeq);
+  });
 });
 
 const attach = (s: number, agentId: string, status: string, prompt?: unknown) => ({

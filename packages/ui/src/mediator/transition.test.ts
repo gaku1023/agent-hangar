@@ -2,17 +2,28 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { SyncStatusBody } from '@agent-hangar/shared';
 import type { Input, Overlay, SessionViewState } from './types.ts';
 import { initialState, transition, type State } from './transition.ts';
+import type { RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
+import { initialStore, type Store } from '../store/store.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
 import { liveStep } from './live.ts';
 import { readDraft } from './launch.ts';
 
-function run(inputs: Input[], start: State = initialState()) {
+/** 入力の並びに挟むと、そこでストアを入れ替えて「ストアが変わった」を流す。Runtime が setStore のたびにすることと同じである。 */
+type Feed = Input | { store: Store };
+function run(inputs: Feed[], start: State = initialState(), initial: Store = initialStore()) {
   const effects: unknown[] = [];
   let state = start;
-  for (const i of inputs) { const r = transition(state, i); state = r.state; effects.push(...r.effects); }
+  let store = initial;
+  for (const f of inputs) {
+    if ('store' in f) store = f.store;
+    const r = transition(state, store, 'store' in f ? { kind: 'store' } : f);
+    state = r.state; effects.push(...r.effects);
+  }
   return { state, effects };
 }
+// 入力待ちのセッションを、待ち始めた順（渡した順）に持つストア。
+const waitingStore = (...ids: string[]): Store => ({ ...initialStore(), sessions: Object.fromEntries(ids.map((id, n) => [id, { id, live: 'waiting', lastActivityAt: n + 1, parked: false } as SessionDto])) });
 const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
 const server = (e: Extract<Input, { kind: 'server' }>['event']): Input => ({ kind: 'server', event: e });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
@@ -37,8 +48,8 @@ describe('起動と接続', () => {
   });
   it('バックオフは 15 秒で頭打ち', () => {
     let s = initialState();
-    for (let i = 0; i < 8; i++) s = transition(s, runtime({ type: 'ws.close', at: T0 })).state;
-    expect(transition(s, runtime({ type: 'ws.close', at: T0 })).effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 15000 }]);
+    for (let i = 0; i < 8; i++) s = transition(s, initialStore(), runtime({ type: 'ws.close', at: T0 })).state;
+    expect(transition(s, initialStore(), runtime({ type: 'ws.close', at: T0 })).effects).toEqual([{ kind: 'ws.reconnectAfter', ms: 15000 }]);
   });
   it('切れている間は、画面が古くなった時刻と次に試す時刻を持つ', () => {
     const a = run([runtime({ type: 'ws.open' }), runtime({ type: 'ws.close', at: T0 })]);
@@ -263,11 +274,11 @@ describe('その他', () => {
     const b = run([intent({ type: 'toast.dismiss', id: a.state.toasts[0]!.id })], a.state);
     expect(b.state.toasts).toHaveLength(1);
   });
-  it('設定と状態変更と索引の作り直しは API 効果', () => {
-    const { effects } = run([intent({ type: 'project.setStatus', id: 'p1', status: 'paused' }), intent({ type: 'settings.update', patch: { workspaceRoot: '/w' } }), intent({ type: 'index.rebuild' })]);
-    expect(effects[0]).toEqual({ kind: 'api.setProjectStatus', projectId: 'p1', status: 'paused' });
-    expect(effects[1]).toEqual({ kind: 'api.updateSettings', patch: { workspaceRoot: '/w' } });
-    expect(effects[2]).toEqual({ kind: 'api.rebuildIndex' });
+  // プロジェクトの状態の変更は Mediator を通らない（runtime/intentTable.test.ts）。
+  it('設定と索引の作り直しは API 効果', () => {
+    const { effects } = run([intent({ type: 'settings.update', patch: { workspaceRoot: '/w' } }), intent({ type: 'index.rebuild' })]);
+    expect(effects[0]).toEqual({ kind: 'api.updateSettings', patch: { workspaceRoot: '/w' } });
+    expect(effects[1]).toEqual({ kind: 'api.rebuildIndex' });
   });
 });
 
@@ -310,17 +321,13 @@ describe('起動', () => {
     // スクラッチはプロジェクトが無くても送信できる。
     expect(run([intent({ type: 'session.new.submit', params: { scratch: true } })]).effects).toEqual([{ kind: 'api.launch', params: { scratch: true } }]);
   });
-  it('再開、フォーク、停止、外部で開くは API 効果', () => {
-    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 }), intent({ type: 'session.openTerminalApp', runId: 'r1', tabId: 't1' }), intent({ type: 'session.openTerminalApp', runId: 'r1' }), intent({ type: 'session.openEditor', sessionId: 's1' }), intent({ type: 'project.openEditor', id: 'p1' }), intent({ type: 'project.openTerminalApp', id: 'p1' })]);
+  // 外部で開く操作は Mediator を通らない（runtime/intentTable.test.ts）。
+  it('再開、フォーク、停止は API 効果', () => {
+    const { state, effects } = run([intent({ type: 'session.resume', id: 's1' }), intent({ type: 'session.fork', id: 's1' }), intent({ type: 'session.kill', runId: 'r1', working: false, shellTabs: 0 })]);
     expect(effects).toEqual([
       { kind: 'api.resume', sessionId: 's1' }, { kind: 'api.fork', sessionId: 's1' }, { kind: 'api.killRun', runId: 'r1' },
-      { kind: 'api.openTerminalApp', runId: 'r1', tabId: 't1' }, { kind: 'api.openTerminalApp', runId: 'r1', tabId: null },
-      { kind: 'api.openEditor', sessionId: 's1' }, { kind: 'api.projectOpenEditor', projectId: 'p1' }, { kind: 'api.projectOpenTerminal', projectId: 'p1' },
     ]);
     expect(state.launch).toEqual({ kind: 'submitting' });
-  });
-  it('変更したファイルを押すと、そのファイルを VS Code で開く', () => {
-    expect(run([intent({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts' })]).effects).toEqual([{ kind: 'api.openEditor', sessionId: 's1', file: '/w/a.ts' }]);
   });
 });
 
@@ -583,23 +590,6 @@ describe('タブと接続', () => {
     expect(b.state.sessionView.s1).toMatchObject({ openTurn: null, turnJump: null, follow: true });
     expect(b.effects).toContainEqual({ kind: 'api.leaveTranscript', runId: 'r1' });
   });
-  it('本文の中の検索は、開くたびに欄へ戻る合図を進め、語を変えると数え直し、前へ次へで進め、閉じると消える', () => {
-    const a = run([intent({ type: 'transcript.find', sessionId: 's1', open: true })], onSession());
-    expect(a.state.sessionView.s1?.find).toEqual({ query: '', caseSensitive: false, from: null, step: 0, n: 1 });
-    // その場の操作なので保存しない。
-    expect(a.effects).toEqual([]);
-    const b = run([intent({ type: 'transcript.findQuery', sessionId: 's1', query: 'バリデーション', caseSensitive: true, from: 12 }), intent({ type: 'transcript.findStep', sessionId: 's1', delta: 1 }), intent({ type: 'transcript.findStep', sessionId: 's1', delta: 1 })], a.state);
-    expect(b.state.sessionView.s1?.find).toEqual({ query: 'バリデーション', caseSensitive: true, from: 12, step: 2, n: 1 });
-    const c = run([intent({ type: 'transcript.findQuery', sessionId: 's1', query: 'バリ', caseSensitive: true, from: 12 })], b.state);
-    expect(c.state.sessionView.s1?.find?.step).toBe(0);
-    // 開いたままもう一度 ⌘F を押すと、語は残したまま欄へ戻る。
-    const d = run([intent({ type: 'transcript.find', sessionId: 's1', open: true })], c.state);
-    expect(d.state.sessionView.s1?.find).toMatchObject({ query: 'バリ', n: 2 });
-    const e = run([intent({ type: 'transcript.find', sessionId: 's1', open: false })], d.state);
-    expect(e.state.sessionView.s1?.find).toBeNull();
-    // 閉じているときの前へ次へは何もしない。
-    expect(run([intent({ type: 'transcript.findStep', sessionId: 's1', delta: 1 })], e.state).state.sessionView.s1?.find).toBeNull();
-  });
   it('検索の結果から開くと、跳び先を覚えて追うのをやめ、画面に着いたら跳び先の周りを読む', () => {
     const a = run([intent({ type: 'session.open', id: 's1', seq: 42, q: 'パスワード' })]);
     expect(a.state.sessionView.s1).toMatchObject({ jump: { seq: 42, query: 'パスワード', n: 1 }, follow: false });
@@ -618,9 +608,9 @@ describe('タブと接続', () => {
   it('新しい行を読み足すのは、持っている中でいちばん新しい行の後ろから', () => {
     expect(run([intent({ type: 'transcript.loadNewer', sessionId: 's1' })]).effects).toEqual([{ kind: 'api.loadEvents', sessionId: 's1', fromSeq: -2 }]);
   });
-  it('検索と検索の結果からの跳び先は保存しない', () => {
-    const v = { ...defaultSessionView(), find: { query: 'x', caseSensitive: false, from: null, step: 0, n: 1 }, jump: { seq: 3, query: 'x', n: 1 } };
-    expect(persistedSessionView(v)).not.toHaveProperty('find');
+  it('検索の結果からの跳び先は保存しない。本文の中の検索は State に持たない', () => {
+    const v = { ...defaultSessionView(), jump: { seq: 3, query: 'x', n: 1 } };
+    expect(defaultSessionView()).not.toHaveProperty('find');
     expect(persistedSessionView(v)).not.toHaveProperty('jump');
   });
   it('開いたターンと跳んだ結果は保存しない', () => {
@@ -636,11 +626,14 @@ describe('タブと接続', () => {
 });
 
 describe('入力待ちの知らせ', () => {
-  const waiting = (...ids: string[]) => runtime({ type: 'waiting.changed', ids });
+  // ストアの入力待ちがこの顔ぶれに変わった。
+  const waiting = (...ids: string[]): Feed => ({ store: waitingStore(...ids) });
+  // 入力待ちのセッションは動いているセッションでもあるので、初めて現れたときはサイドバーの並びにも書き足される（sidebar.ts の sidebarLiveStep）。
+  const seated = (...ids: string[]) => ({ kind: 'storage.save', key: 'sidebar.order', value: ids });
   // transition はどの領域の後にも settleWaiting で開いているセッションのカードを下げるので、領域そのものも見る。
   it('live 領域は、開いているセッションをカードにしない。通知の効果は出す', () => {
     const at = { ...initialState(), screen: { name: 'session' as const, id: 's1' } };
-    const r = liveStep(at, waiting('s1', 's2'))!;
+    const r = liveStep(at, waitingStore('s1', 's2'));
     expect(r.state.waitingToasts).toEqual(['s2']);
     expect(r.effects).toContainEqual({ kind: 'notify.waiting', sessionId: 's1' });
   });
@@ -648,16 +641,16 @@ describe('入力待ちの知らせ', () => {
     const a = run([waiting('s1')]);
     expect(a.state.waitingToasts).toEqual(['s1']);
     expect(a.state.waitingSeen).toEqual(['s1']);
-    expect(a.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }, { kind: 'badge', count: 1 }]);
+    expect(a.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }, { kind: 'badge', count: 1 }, seated('s1')]);
     const b = run([waiting('s1', 's2')], a.state);
     expect(b.state.waitingToasts).toEqual(['s1', 's2']);
-    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }, { kind: 'badge', count: 2 }]);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }, { kind: 'badge', count: 2 }, seated('s1', 's2')]);
   });
   it('入力待ちが解けたらカードを消し、同じ数なら数え直さない', () => {
     const a = run([waiting('s1', 's2')]);
     const b = run([waiting('s2', 's3')], a.state);
     expect(b.state.waitingToasts).toEqual(['s2', 's3']);
-    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }]);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }, seated('s1', 's2', 's3')]);
     const c = run([waiting()], b.state);
     expect(c.state.waitingToasts).toEqual([]);
     expect(c.state.waitingSeen).toEqual([]);
@@ -686,7 +679,19 @@ describe('入力待ちの知らせ', () => {
     expect(a.state.toasts.map((t) => t.message)).toEqual(['x']);
     expect(a.state.waitingToasts).toEqual(['s1']);
   });
-  it('live.update そのものではカードを積まない（どのセッションかはランタイムが決めて返す）', () => {
+  it('並びの順だけが変わっても、何もしない', () => {
+    const a = run([waiting('s1', 's2')]);
+    const b = run([waiting('s2', 's1')], a.state);
+    expect(b.state).toBe(a.state);
+    expect(b.effects).toEqual([]);
+  });
+  it('入力待ちがストアに無いうちは、ストアが変わっても何もしない', () => {
+    const start = initialState();
+    const a = run([{ store: initialStore() }], start);
+    expect(a.state).toBe(start);
+    expect(a.effects).toEqual([]);
+  });
+  it('live.update そのものではカードを積まない（ストアに入り、ストアが変わったと届いてから積む）', () => {
     const live = { sessionId: 'u1', status: 'waiting' as const, name: 'alpha', nameSource: null, cwd: '/x', pid: 1 };
     const a = run([server({ type: 'live.update', live: [live] })]);
     expect(a.state.waitingToasts).toEqual([]);
@@ -801,37 +806,18 @@ describe('昇格', () => {
 });
 
 describe('作業台の操作', () => {
-  it('TODO とメモとアーティファクトと要約は api 効果になる', () => {
+  // TODO の切り替えと削除、メモ、アーティファクト、要約の作り直しと試しは Mediator を通らない（runtime/intentTable.test.ts）。
+  it('TODO の追加は api 効果になる', () => {
     const r = run([
       intent({ type: 'todo.add', projectId: 'p1', text: '買う' }),
-      intent({ type: 'todo.toggle', id: 't1' }),
-      intent({ type: 'todo.remove', id: 't1' }),
-      intent({ type: 'todo.confirm', id: 't1' }),
-      intent({ type: 'todo.reject', id: 't1' }),
-      intent({ type: 'memo.save', projectId: 'p1', markdown: '# m' }),
-      intent({ type: 'session.setMemo', id: 's1', text: '一行' }),
-      intent({ type: 'artifact.open', id: 'a1' }),
-      intent({ type: 'artifact.openEditor', id: 'a1' }),
-      intent({ type: 'artifact.add', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' }),
-      intent({ type: 'summary.regenerate', sessionId: 's1' }),
-      intent({ type: 'summarizer.test' }),
     ]);
     expect(r.effects).toEqual([
       { kind: 'api.addTodo', projectId: 'p1', text: '買う' }, { kind: 'focus', target: 'todoInput' },
-      { kind: 'api.toggleTodo', id: 't1' }, { kind: 'api.removeTodo', id: 't1' },
-      { kind: 'api.confirmTodo', id: 't1' }, { kind: 'api.rejectTodo', id: 't1' },
-      { kind: 'api.saveMemo', projectId: 'p1', markdown: '# m' },
-      { kind: 'api.setSessionMemo', sessionId: 's1', text: '一行' },
-      { kind: 'api.openArtifact', id: 'a1' },
-      { kind: 'api.openArtifactEditor', id: 'a1' },
-      { kind: 'api.addArtifact', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' },
-      { kind: 'api.regenerateSummary', sessionId: 's1' },
-      { kind: 'api.testSummarizer' },
     ]);
     expect(r.state).toEqual(initialState());
   });
-  it('空の TODO と空の URL は何もしない', () => {
-    const r = run([intent({ type: 'todo.add', projectId: 'p1', text: '   ' }), intent({ type: 'artifact.add', projectId: 'p1', url: ' ' })]);
+  it('空の TODO は何もしない', () => {
+    const r = run([intent({ type: 'todo.add', projectId: 'p1', text: '   ' })]);
     expect(r.effects).toEqual([]);
   });
   it('split.resize は中間層で処理済みなので無視する', () => {
@@ -930,27 +916,39 @@ describe('キーの一覧と履歴', () => {
 });
 
 describe('分割', () => {
+  // s1 の run r1 に、渡した id のタブが開いているストア。r1 は Claude のタブで、ほかはシェルタブである。
+  const aRun: RunDto = { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 };
+  const aTab = (id: string, kind: 'agent' | 'shell', createdAt: number): TabDto => ({ id, runId: 'r1', sessionId: 's1', kind, title: id, tmuxName: `hangar-${id}`, createdAt, closedAt: null });
+  const withTabs = (...ids: string[]): Store => ({ ...initialStore(), runs: { r1: aRun }, tabs: Object.fromEntries(ids.map((id, n) => [id, aTab(id, id === 'r1' ? 'agent' : 'shell', n + 1)])) });
   // 左に left、右に right を置いた分割中のセッション画面を作る。
   const split = (left: string, right: string) => {
-    let s = run([intent({ type: 'tab.select', tabId: left })], onSession('s1')).state;
-    s = run([intent({ type: 'split.toggle' })], s).state;
-    return run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: right })], s).state;
+    const s = run([intent({ type: 'tab.select', tabId: left })], onSession('s1')).state;
+    const r = run([intent({ type: 'split.toggle' })], s, withTabs(left, right)).state;
+    expect(r.sessionView.s1).toMatchObject({ split: true, selectedTab: left, splitTab: right });
+    return r;
   };
-  it('開くときはランタイムに右のタブを決めさせ、閉じるときはその場で消す', () => {
+  it('開くときはストアを見て右のタブを決め、閉じるときはその場で消す', () => {
     const on = onSession('s1');
-    const a = run([intent({ type: 'split.toggle' })], on);
-    expect(a.effects).toEqual([{ kind: 'split.resolve', sessionId: 's1' }]);
-    expect(a.state.sessionView.s1?.split).toBeFalsy();
-    const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: 't2' })], a.state);
+    // 左は選択中のタブ（無ければ先頭）、右はそれと違う最初のタブである。
+    const b = run([intent({ type: 'split.toggle' })], on, withTabs('r1', 't2', 't3'));
     expect(b.state.sessionView.s1).toMatchObject({ split: true, splitTab: 't2' });
     expect(b.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(b.state.sessionView.s1!) }]);
-    const c = run([intent({ type: 'split.toggle' })], b.state);
+    const c = run([intent({ type: 'split.toggle' })], b.state, withTabs('r1', 't2', 't3'));
     expect(c.state.sessionView.s1).toMatchObject({ split: false, splitTab: null });
     expect(c.effects).toEqual([{ kind: 'storage.save', key: 'sv:s1', value: persistedSessionView(c.state.sessionView.s1!) }]);
   });
+  it('選択中のタブが先頭でなければ、先頭のタブを右に置く', () => {
+    const picked = run([intent({ type: 'tab.select', tabId: 't2' })], onSession('s1')).state;
+    const r = run([intent({ type: 'split.toggle' })], picked, withTabs('r1', 't2', 't3'));
+    expect(r.state.sessionView.s1).toMatchObject({ split: true, selectedTab: 't2', splitTab: 'r1' });
+  });
   it('タブが 1 つしか無ければトーストを出す', () => {
-    const a = run([intent({ type: 'split.toggle' })], onSession('s1'));
-    const b = run([runtime({ type: 'split.resolved', sessionId: 's1', tabId: null })], a.state);
+    const b = run([intent({ type: 'split.toggle' })], onSession('s1'), withTabs('r1'));
+    expect(b.state.sessionView.s1?.split).toBeFalsy();
+    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }]);
+  });
+  it('run が無ければトーストを出す', () => {
+    const b = run([intent({ type: 'split.toggle' })], onSession('s1'));
     expect(b.state.sessionView.s1?.split).toBeFalsy();
     expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }]);
   });
@@ -1377,27 +1375,38 @@ describe('開いたら端末にフォーカス', () => {
 });
 
 describe('次の入力待ちへ（C5）', () => {
-  it('どの入力待ちへ移るかはストアを見て決めるので、ランタイムに問う', () => {
-    expect(run([intent({ type: 'session.nextWaiting' })]).effects).toEqual([{ kind: 'waiting.next', from: null }]);
-    const onS1 = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })]).state;
-    expect(run([intent({ type: 'session.nextWaiting' })], onS1).effects).toEqual([{ kind: 'waiting.next', from: 's1' }]);
+  const opened = (id: string, start?: State) => run([intent({ type: 'session.open', id, focus: 'terminal' })], start);
+  it('どの入力待ちへ移るかはストアを見て決め、ターミナルで答える経路（session.open の focus: terminal）で開く', () => {
+    expect(run([intent({ type: 'session.nextWaiting' })], undefined, waitingStore('s2', 's3'))).toEqual(opened('s2'));
   });
-  it('決まったセッションは、ターミナルで答える経路（session.open の focus: terminal）で開く', () => {
-    const via = run([runtime({ type: 'waiting.resolved', sessionId: 's2' })]);
-    const direct = run([intent({ type: 'session.open', id: 's2', focus: 'terminal' })]);
-    expect(via).toEqual(direct);
+  it('いまいるセッションの次へ移り、末尾の次は先頭へ戻る', () => {
+    const on = (id: string) => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })]).state;
+    expect(run([intent({ type: 'session.nextWaiting' })], on('s2'), waitingStore('s2', 's3'))).toEqual(opened('s3', on('s2')));
+    expect(run([intent({ type: 'session.nextWaiting' })], on('s3'), waitingStore('s2', 's3'))).toEqual(opened('s2', on('s3')));
+    // 入力待ちでないセッションにいれば、先頭へ移る。
+    expect(run([intent({ type: 'session.nextWaiting' })], on('s9'), waitingStore('s2', 's3'))).toEqual(opened('s2', on('s9')));
   });
   it('入力待ちが無ければ短く知らせる', () => {
-    expect(run([runtime({ type: 'waiting.resolved', sessionId: null })]).effects).toEqual([{ kind: 'toast', level: 'info', message: '入力待ちのセッションはありません' }]);
+    expect(run([intent({ type: 'session.nextWaiting' })]).effects).toEqual([{ kind: 'toast', level: 'info', message: '入力待ちのセッションはありません' }]);
   });
   it('パレットからも出せて、パレットは閉じる', () => {
-    const opened = run([intent({ type: 'palette.open' })]).state;
-    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:next-waiting', label: '次の入力待ちへ' } })], opened);
+    const palette = run([intent({ type: 'palette.open' })]).state;
+    const a = run([intent({ type: 'palette.run', command: { id: 'cmd:next-waiting', label: '次の入力待ちへ' } })], palette, waitingStore('s2'));
     expect(a.state.overlay).toEqual({ kind: 'none' });
-    expect(a.effects).toEqual([{ kind: 'waiting.next', from: null }]);
+    expect(a.effects).toEqual(opened('s2').effects);
+    // 入力待ちが無くても、パレットは閉じる。
+    const none = run([intent({ type: 'palette.run', command: { id: 'cmd:next-waiting', label: '次の入力待ちへ' } })], palette);
+    expect(none.state.overlay).toEqual({ kind: 'none' });
+    expect(none.effects).toEqual([{ kind: 'toast', level: 'info', message: '入力待ちのセッションはありません' }]);
     // パレットの上でキーを打ったときも、パレットは閉じる。
-    const b = run([intent({ type: 'session.nextWaiting' })], opened);
+    const b = run([intent({ type: 'session.nextWaiting' })], palette, waitingStore('s2'));
     expect(b.state.overlay).toEqual({ kind: 'none' });
+  });
+  it('パレットを閉じて未解決のプロジェクトの問いが出るなら、その裏では画面を移さない', () => {
+    const palette: State = { ...run([intent({ type: 'palette.open' })]).state, unresolvedQueue: ['p1'] };
+    const r = run([intent({ type: 'session.nextWaiting' })], palette, waitingStore('s2'));
+    expect(r.state.overlay).toEqual({ kind: 'resolveProject', projectId: 'p1' });
+    expect(r.effects).toEqual([]);
   });
 });
 
@@ -1537,7 +1546,6 @@ describe('セッションの状態', () => {
       intent({ type: 'session.state.set', id: 's1', status: null }),
       intent({ type: 'session.state.confirm', id: 's1' }),
       intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' }),
-      intent({ type: 'session.state.reject', id: 's1' }),
       intent({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' }),
       intent({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05', returnTime: '21:50' }),
     ]);
@@ -1547,7 +1555,6 @@ describe('セッションの状態', () => {
       { kind: 'api.setSessionState', id: 's1', body: { status: null } },
       { kind: 'api.confirmSessionState', id: 's1', body: {} },
       { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05' } },
-      { kind: 'api.rejectSessionState', id: 's1' },
       { kind: 'api.setSessionState', id: 's1', body: { status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' } },
       { kind: 'api.confirmSessionState', id: 's1', body: { returnOn: '2026-10-05', returnTime: '21:50' } },
     ]);
@@ -1571,21 +1578,7 @@ describe('セッションの状態', () => {
 
 describe('アカウント', () => {
   const effectsOf = (i: Extract<Input, { kind: 'intent' }>['intent'], start: State = initialState()) => run([intent(i)], start).effects;
-  it('読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは、それぞれの Effect を 1 つ出す', () => {
-    expect(effectsOf({ type: 'accounts.load' })).toEqual([{ kind: 'api.accounts.load' }]);
-    expect(effectsOf({ type: 'account.choose', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.setCurrent', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '研究室', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室', color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.login', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.login', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.login.cancel', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.cancelLogin', accountId: 'a1' }]);
-    expect(effectsOf({ type: 'account.refresh', accountId: 'a1' })).toEqual([{ kind: 'api.accounts.refresh', accountId: 'a1' }]);
-  });
-  it('更新の名前は前後の空白を落とし、空になれば patch に入れず、patch が空なら Effect を出さない', () => {
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '  研究室 ' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { name: '研究室' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ', color: '#7a4a9e' })).toEqual([{ kind: 'api.accounts.update', accountId: 'a1', patch: { color: '#7a4a9e' } }]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1', name: '   ' })).toEqual([]);
-    expect(effectsOf({ type: 'account.update', accountId: 'a1' })).toEqual([]);
-  });
+  // 読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは Mediator を通らない（runtime/intentTable.test.ts）。
   it('追加は名前の前後の空白を落とし、空白だけなら何も出さない', () => {
     expect(effectsOf({ type: 'account.add', name: '  大学 ' })).toEqual([{ kind: 'api.accounts.add', name: '大学' }]);
     const blank = run([intent({ type: 'account.add', name: '   ' })]);
@@ -1637,5 +1630,29 @@ describe('使われていない口を消した後', () => {
   it('未実装の知らせのオーバーレイと、要約の開閉は持たない', () => {
     expectTypeOf<Extract<Overlay, { kind: 'notYet' }>>().toBeNever();
     expectTypeOf<SessionViewState>().not.toHaveProperty('summaryOpen');
+  });
+});
+
+describe('ストアが変わっただけのとき', () => {
+  // 入力待ちの顔ぶれも動いているセッションの顔ぶれも変わらない更新（本文が伸びるなど）。
+  it('overlay が none のまま未解決のキューが残っていても、無関係な更新では問いを開かない', () => {
+    const store = waitingStore('s1');
+    const start: State = { ...initialState(), sidebarOrder: ['s1'], waitingSeen: ['s1'], unresolvedQueue: ['p1'] };
+    const r = transition(start, store, { kind: 'store' });
+    expect(r.state).toBe(start);
+    expect(r.effects).toEqual([]);
+  });
+  it('開いたセッションの戻る時刻の札が残っていても、無関係な更新では触らない', () => {
+    const store = waitingStore('s1');
+    const start: State = { ...initialState(), screen: { name: 'session', id: 's1' }, sidebarOrder: ['s1'], waitingSeen: ['s1'], returnToasts: ['s1'] };
+    const r = transition(start, store, { kind: 'store' });
+    expect(r.state).toBe(start);
+    expect(r.effects).toEqual([]);
+  });
+  it('顔ぶれが変わったときは、未解決のキューの次を出す（前の版と同じ）', () => {
+    const start: State = { ...initialState(), unresolvedQueue: ['p1'] };
+    const r = transition(start, waitingStore('s1'), { kind: 'store' });
+    expect(r.state.unresolvedQueue).toEqual([]);
+    expect(r.state.overlay.kind).not.toBe('none');
   });
 });

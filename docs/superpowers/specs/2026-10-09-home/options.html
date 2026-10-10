@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>ホームの細部 試作</title>
+<style>
+:root {
+  /* packages/ui/src/styles/tokens.css から写した値（1 つ目の試作と同じ）。 */
+  --bg: #eef1f7; --aura-1: #cfe0ff;
+  --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+  --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --aside: color-mix(in srgb, #c77a1a 42%, #ffffff); --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+  --row-h: 28px; --session-row-h: 56px; --compact-row-h: 40px; --section-head-h: 32px;
+  --hit: #fff3c4; --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px;
+  --sidebar-w: 208px; --header-h: 44px; --lights-end: 81px; --brand-mark: 26px; --brand-w: 104px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: radial-gradient(900px 640px at 0 0, var(--aura-1), transparent 70%), var(--bg); background-attachment: fixed; color: var(--ink); font-family: var(--font-sans); font-size: var(--fs); line-height: 1.45; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.num { font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.icon { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ===== 試作の頁そのもの（1 つ目の試作から写した） ===== */
+.pg { max-width: 1320px; margin: 0 auto; padding: 28px 20px 120px; }
+.pg h1 { margin: 0 0 6px; font-size: var(--fs-lg); letter-spacing: -0.015em; }
+.lead { margin: 0; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.lead code, .box code, .note code, .ans code, .tbl code, .v-grid code { font: 500 11px var(--font-mono); background: var(--surface-2); padding: 0 4px; border-radius: 4px; color: var(--ink); }
+.top { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
+.box { padding: 16px 20px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.box h2 { margin: 0 0 8px; font-size: var(--fs); }
+.box ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+.box li + li { margin-top: 4px; }
+.box li b { color: var(--ink); }
+.box.rec-box { box-shadow: var(--surface-shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--st-done) 45%, transparent); }
+.sum { width: 100%; border-collapse: collapse; }
+.sum td { padding: 5px 8px 5px 0; border-top: 1px solid var(--line); vertical-align: baseline; color: var(--ink-2); }
+.sum tr:first-child td { border-top: 0; }
+.sum td:first-child { width: 48px; }
+.sum td:last-child { width: 48px; text-align: right; }
+.sum td b { display: block; color: var(--ink); }
+.opt-id { display: inline-block; font: 700 12px var(--font-mono); color: #fff; background: var(--ink); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+.rec { font-size: var(--fs-xs); font-weight: 700; color: var(--st-done); background: var(--st-done-soft); border-radius: var(--r-pill); padding: 1px 8px; white-space: nowrap; }
+.rec.second { color: var(--st-active); background: var(--st-active-soft); }
+
+.switch { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 24px -20px 0; padding: 10px 20px; background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-strong); }
+.sw { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); font-weight: 600; cursor: pointer; }
+.sw[aria-pressed='true'] { background: var(--ink); color: #fff; box-shadow: none; }
+.sw[aria-pressed='true'] .opt-id { background: #fff; color: var(--ink); }
+.sw-sep { width: 1px; height: 20px; margin: 0 6px; background: var(--line-strong); }
+.sw-label { font-size: var(--fs-xs); color: var(--ink-3); margin-right: 2px; }
+.sw.small { height: 26px; padding: 0 10px; font-size: var(--fs-sm); }
+
+.opt { display: none; margin-top: 28px; scroll-margin-top: 70px; }
+.opt[data-on='true'] { display: block; }
+.opt-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin: 0 0 6px; }
+.opt-h h2 { margin: 0; font-size: 17px; }
+.opt-d { margin: 0 0 14px; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.opt-d b { color: var(--ink); }
+.tabs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.stab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: none; font-weight: 600; font-size: var(--fs-sm); color: var(--ink-2); cursor: pointer; }
+.stab:hover { background: rgba(255, 255, 255, 0.6); }
+.stab[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.stab i { font-style: normal; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--surface-2); font-size: 10.5px; color: var(--ink-2); }
+.stab[aria-pressed='true'] i { background: var(--ink); color: #fff; }
+.screen-note { margin: 0 2px 10px; font-size: var(--fs-sm); color: var(--ink-2); max-width: 1000px; line-height: 1.6; }
+.screen-note b { color: var(--ink); }
+.frame-wrap { position: relative; width: 100%; max-width: 1280px; overflow: hidden; border-radius: 12px; }
+.frame-wrap[hidden] { display: none; }
+
+.below { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; margin-top: 18px; align-items: start; }
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.tbl th, .tbl td { padding: 7px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.tbl th { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; border-top: 0; }
+.tbl td:first-child { white-space: nowrap; font-weight: 600; color: var(--ink); width: 150px; }
+.tbl td .n { display: inline-block; min-width: 42px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tbl td .path { color: var(--ink-3); }
+.gl { display: grid; gap: 10px; }
+.gl > div { padding: 10px 14px; border-radius: var(--r); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.gl b { display: block; margin-bottom: 2px; color: var(--ink); font-size: var(--fs-xs); letter-spacing: 0.02em; }
+.ans { margin-top: 14px; padding: 12px 16px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); font-size: var(--fs-sm); color: var(--ink-2); }
+.ans h3 { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--ink); }
+.ans ol { margin: 0; padding-left: 0; list-style: none; }
+.ans li + li { margin-top: 6px; }
+.ans li b { color: var(--ink); }
+.all-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; margin-top: 10px; }
+.all-cell .col-h { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 6px; font-weight: 700; }
+.all-cell .col-h small { font-weight: 500; color: var(--ink-3); font-size: var(--fs-xs); }
+.verdict { margin-top: 36px; }
+.verdict > h2 { margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line-strong); font-size: var(--fs-md); }
+.v-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; max-width: 1100px; }
+.v-grid p { margin: 0 0 8px; color: var(--ink-2); line-height: 1.65; }
+.v-grid p b { color: var(--ink); }
+.v-grid h3 { margin: 14px 0 6px; font-size: var(--fs); }
+.cmp { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.cmp th, .cmp td { padding: 7px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.cmp th { font-size: var(--fs-xs); color: var(--ink-3); border-top: 0; }
+.cmp td:first-child { white-space: nowrap; font-weight: 600; width: 260px; }
+.cmp td .n { font-weight: 700; color: var(--ink); }
+.cmp td[data-best] { background: var(--st-done-soft); }
+@media (max-width: 1000px) { .top, .below, .v-grid, .all-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ===== 画面の試作（.frame の中だけ。1 つ目の試作から写し、ホームの分を足した） ===== */
+.frame { position: relative; width: 1280px; height: 800px; overflow: hidden; border-radius: 12px; background: var(--bg); color: var(--ink); font-size: var(--fs); line-height: 1.45; transform-origin: 0 0; box-shadow: 0 0 0 1px rgba(30, 40, 90, 0.14), 0 24px 50px -22px rgba(30, 40, 90, 0.4); }
+.frame[data-w='900'] { width: 900px; height: 640px; }
+.frame .shell { --col1: 216px; position: relative; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; overflow: hidden; background: radial-gradient(60% 70% at 18% 8%, var(--aura-1), transparent 72%), var(--bg); }
+.frame .shell[data-side='closed'] { --col1: 0px; }
+.frame .shell[data-side='closed'] .header { grid-template-columns: 196px minmax(0, 1fr); }
+.frame .shell[data-side='closed'] .sidebar { display: none; }
+.frame .header { grid-column: 1 / -1; grid-row: 1; z-index: 3; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); align-items: center; height: var(--header-h); background: rgba(255, 255, 255, 0.4); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); }
+.frame .header-brand { grid-column: 1 / -1; grid-row: 1; justify-self: start; position: relative; display: flex; align-items: center; height: 100%; padding-left: var(--lights-end); }
+.frame .lights { position: absolute; left: 11px; top: 50%; translate: 0 -50%; display: flex; gap: 8px; }
+.frame .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.frame .lights i:nth-child(2) { background: #febc2e; } .frame .lights i:nth-child(3) { background: #28c840; }
+.frame .brand { display: flex; align-items: center; gap: 6px; width: var(--brand-w); color: var(--ink); }
+.frame .brand-mark { flex: none; width: 26px; height: 26px; }
+.frame .brand-word { font-size: 16px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+.frame .brand-word::after { content: ''; display: inline-block; width: 8px; height: 2.5px; margin-left: 2px; border-radius: 1.25px; background: #ffb86b; }
+.frame .header-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 18px; min-width: 0; height: 100%; }
+.frame .side-open { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; margin-left: 4px; color: var(--ink-2); }
+.frame .side-open .icon { width: 18px; height: 18px; }
+.frame .search-pill { display: inline-flex; flex: none; align-items: center; gap: 8px; height: var(--row-h); margin-left: 16px; padding: 0 5px 0 11px; border: 0; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 600; white-space: nowrap; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); }
+.frame .side-open + .search-pill { margin-left: 4px; }
+.frame .kbd { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: 5px; font: 600 10.5px/18px var(--font-mono); color: var(--ink-2); background: rgba(30, 40, 90, 0.07); box-shadow: inset 0 -1px 0 rgba(30, 40, 90, 0.08); }
+.frame .spacer { flex: 1; }
+.frame .header-end { display: flex; align-items: center; gap: 18px; margin-right: 12px; }
+.frame .sync { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ink-2); padding-left: 18px; white-space: nowrap; }
+.frame .sync::before, .frame .gauges::before, .frame .acct::before { content: ''; position: absolute; left: 0; top: 50%; height: 16px; translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+.frame .sync-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.frame .gauges { position: relative; display: flex; align-items: center; gap: 10px; padding-left: 18px; }
+.frame .gauge { display: inline-flex; align-items: center; gap: 4px; }
+.frame .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
+.frame .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+.frame .gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 32px; }
+.frame .acct { position: relative; display: inline-flex; align-items: center; gap: 6px; padding-left: 18px; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.frame .acct-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.frame .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: default; }
+.frame .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+.frame .btn-sm { height: 22px; padding: 0 8px; font-size: var(--fs-sm); }
+.frame .btn-icon { justify-content: center; width: var(--row-h); padding: 0; }
+.frame .btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+.frame .input { display: flex; align-items: center; height: var(--row-h); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); color: var(--ink-3); white-space: nowrap; overflow: hidden; }
+.frame .listbox { display: inline-flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 8px 0 12px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .seg { display: inline-flex; height: var(--row-h); padding: 2px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); }
+.frame .seg span { display: inline-flex; align-items: center; padding: 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .seg span[data-on] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(30, 40, 90, 0.12); }
+/* サイドバー */
+.frame .sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; display: flex; flex-direction: column; margin: 52px 0 8px 8px; padding: 10px 8px; overflow: hidden; min-height: 0; }
+.frame .nav-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; }
+.frame .nav-row > .nav-item { flex: 1; margin-bottom: 0; }
+.frame .sidebar-toggle { flex: none; display: grid; place-items: center; width: 32px; height: 32px; color: var(--ink-2); }
+.frame .sidebar-toggle .icon { width: 18px; height: 18px; }
+.frame .nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: var(--r-pill); }
+.frame .nav-item .icon { width: 18px; height: 18px; }
+.frame .nav-item[aria-current] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.frame .nav-count { margin-left: auto; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--waiting); color: #fff; font-size: 11px; font-weight: 700; line-height: 1; }
+.frame .side-live { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .side-live-h { display: flex; align-items: center; gap: 6px; height: 24px; margin: 0; padding: 0 12px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; color: var(--ink-3); white-space: nowrap; }
+.frame .side-live-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 12px; border-radius: var(--r); color: var(--ink); min-width: 0; }
+.frame .side-live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
+.frame .side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
+.frame .side-live-n { flex: none; font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.frame .side-live-more { display: flex; align-items: center; height: 26px; padding: 0 12px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .side-empty { padding: 4px 12px; font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.5; }
+/* 点 */
+.frame .dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); vertical-align: middle; }
+.frame .dot[data-status='busy'] { background: var(--busy); }
+.frame .dot[data-status='idle'] { background: var(--ink-3); }
+.frame .dot[data-status='waiting'] { background: var(--waiting); }
+.frame .dot[data-status='aside'] { background: var(--aside); }
+.frame .row > .dot[data-status='ended'], .frame .crow > .dot[data-status='ended'] { background: transparent; }
+/* 本文 */
+.frame .main { grid-column: 2; grid-row: 1 / -1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding-top: 52px; }
+.frame .main-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: 1200px; margin: 0 auto; padding: 8px 16px 16px 16px; }
+.frame .screen { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.frame .page-head { flex: none; margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
+.frame .page-parent { display: flex; align-items: center; gap: 3px; height: 18px; margin-bottom: 2px; font-size: var(--fs-sm); color: var(--ink-3); white-space: nowrap; }
+.frame .page-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: var(--row-h); }
+.frame .page-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+.frame .page-sub { font-size: var(--fs-sm); font-weight: 400; color: var(--ink-3); }
+/* ホームの札（いまの home.css） */
+.frame .home-label { display: flex; align-items: baseline; gap: 6px; margin: 16px 0 8px 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame section:first-of-type > .home-label, .frame .page-head + section > .home-label { margin-top: 0; }
+.frame .home-count { font-weight: 500; color: var(--ink-3); }
+.frame .home-label .home-more-inline { margin-left: auto; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); }
+.frame .idle-line { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px 0 14px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); box-shadow: var(--glass-edge); color: var(--ink-2); }
+.frame .idle-text { flex: 1; }
+.frame .ask-card { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 8px; border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 0 0 1px color-mix(in srgb, var(--waiting) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--waiting) 40%, transparent); }
+.frame .ask-body { flex: 1; min-width: 0; }
+.frame .ask-title, .frame .ask-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .ask-title b { font-weight: 600; }
+.frame .ask-q { margin-top: 2px; color: var(--ink-2); }
+.frame .confirm-card { box-shadow: 0 0 0 1px color-mix(in srgb, var(--cand) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--cand) 40%, transparent); }
+.frame .cand-mark { flex: none; width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
+.frame .return-card { height: 40px; padding-top: 0; padding-bottom: 0; box-shadow: 0 0 0 1px color-mix(in srgb, var(--st-paused) 22%, transparent), 0 6px 16px -10px color-mix(in srgb, var(--st-paused) 40%, transparent); }
+.frame .return-card .ask-body { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.frame .return-card .ask-title { flex: none; max-width: 40%; }
+.frame .return-card .ask-q { flex: 1; min-width: 0; margin: 0; }
+.frame .return-when { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--surface); background: var(--st-paused); }
+.frame .return-when[data-soft] { color: var(--st-paused); background: var(--st-paused-soft); }
+.frame .live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+.frame .live-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.frame .live-card[data-live='busy'] { box-shadow: 0 0 0 1px color-mix(in srgb, var(--busy) 60%, transparent), var(--surface-shadow); }
+.frame .live-head { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 600; }
+.frame .live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .live-elapsed { flex: none; font-weight: 500; color: var(--ink-2); }
+.frame .live-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .live-intent-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink); }
+.frame .live-act { padding: 6px 8px; border-radius: var(--r); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--font-mono); background: var(--term-bg); color: var(--term-fg); }
+.frame .live-act i { font-style: normal; color: var(--term-tool); }
+.frame .live-rest { font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .live-ctx { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.frame .live-ctx .gauge-bar { flex: 1; width: auto; }
+.frame .more-line { display: flex; align-items: center; gap: 6px; height: 26px; margin-top: 6px; padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); }
+/* 帯（B と C の 900px）。件数の錠剤を並べ、押すとその群の引き出しが下に開く。 */
+.frame .band { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 6px 0 12px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); box-shadow: var(--glass-edge); }
+.frame .band-pill { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .band-pill b { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.frame .band-pill[data-open] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 3px rgba(30, 40, 90, 0.1); }
+.frame .band-pill[data-tone='wait'] { color: var(--waiting); }
+.frame .band-pill[data-tone='wait'] b { color: var(--waiting); }
+.frame .band-pill[data-tone='cand'] b { color: var(--cand); }
+.frame .band-pill[data-zero] { color: var(--ink-3); font-weight: 500; }
+.frame .band-pill[data-zero] b { color: var(--ink-3); font-weight: 500; }
+.frame .band-pill .icon { width: 14px; height: 14px; }
+.frame .band-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: var(--fs-sm); }
+.frame .band .btn { margin-left: auto; }
+.frame .drawer { margin: 6px 0 0; padding: 6px 6px 8px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.frame .drawer-h { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.frame .drawer-h .faint { font-weight: 500; }
+.frame .drawer-h .drawer-close { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-weight: 500; }
+/* 1 行の圧縮した行（引き出しと右の列）。 */
+.frame .crow { display: flex; align-items: center; gap: 10px; height: var(--compact-row-h); padding: 0 8px 0 10px; border-radius: var(--r); white-space: nowrap; min-width: 0; }
+.frame .crow + .crow { border-top: 1px solid var(--line); border-radius: 0; }
+.frame .crow .c-name { flex: none; max-width: 36%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.frame .crow .c-proj { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .crow .c-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.frame .crow .c-text i { font-style: normal; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--busy); }
+.frame .crow .c-end { flex: none; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .crow .c-wait { font-weight: 600; color: var(--waiting); }
+.frame .crow .c-busy { font-weight: 600; color: var(--busy); }
+.frame .crow .btn-sm { height: 24px; }
+.frame .crow[data-k='wait'] { background: color-mix(in srgb, var(--waiting) 5%, var(--surface)); }
+.frame .crow .cand-mark { width: 12px; height: 12px; }
+/* 右の列（C）。 */
+.frame .home-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 392px; gap: 16px; }
+.frame .home-list-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.frame .rail { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow: hidden; position: relative; }
+.frame .rail::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 28px; background: linear-gradient(180deg, transparent, var(--bg)); pointer-events: none; }
+.frame .rail-sec { flex: none; padding: 8px 8px 6px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.frame .rail-h { display: flex; align-items: center; gap: 6px; height: 24px; margin: 0 0 2px; padding: 0 4px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .rail-h .faint { font-weight: 500; }
+.frame .rail-h .rail-more { margin-left: auto; font-size: var(--fs-xs); font-weight: 600; color: var(--accent); }
+.frame .rail .ask-card { margin: 0 0 6px; padding: 8px 10px; gap: 10px; }
+.frame .rail .ask-card .btn { height: 24px; padding: 0 10px; font-size: var(--fs-sm); }
+.frame .rcard { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; border-radius: var(--r); min-width: 0; }
+.frame .rcard + .rcard { border-top: 1px solid var(--line); border-radius: 0; }
+.frame .rcard .r1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.frame .rcard .r1 .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.frame .rcard .r1 .tm { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .rcard .r2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .rcard .r2 i { font-style: normal; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--busy); }
+.frame .rcard[data-k='wait'] { background: color-mix(in srgb, var(--waiting) 6%, var(--surface)); }
+.frame .rcard[data-k='wait'] .r2 { color: var(--ink); }
+.frame .rcard .r2 .btn-sm { margin-left: 6px; }
+.frame .rcard-acts { display: flex; gap: 4px; margin-top: 2px; }
+.frame .rcard-acts .btn-sm { height: 20px; padding: 0 7px; font-size: var(--fs-xs); }
+.frame .empty-rail { padding: 14px 10px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+/* 一覧 */
+.frame .home-fit { display: flex; flex-direction: column; flex: 1; min-height: 160px; }
+.frame .list { flex: 1; min-height: 120px; display: flex; flex-direction: column; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.frame .list-scroll { flex: 1; min-height: 0; overflow: hidden; }
+.frame .row { display: grid; align-items: center; height: var(--session-row-h); padding: 0 20px; border-bottom: 1px solid var(--line); gap: 16px; white-space: nowrap; grid-template-columns: 16px 62px minmax(0, 1fr) auto; }
+.frame .row[data-cursor] { background: var(--accent-soft); }
+.frame .row[data-h='one'] { height: 44px; grid-template-columns: 16px 62px minmax(0, 1fr) auto; }
+.frame .row-status { display: flex; align-items: center; }
+.frame .row-sq { display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
+.frame .row-sq[data-s='active'] { color: var(--st-active); background: var(--st-active-soft); }
+.frame .row-sq[data-s='done'] { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.frame .row-sq[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.frame .row-sq[data-s='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
+.frame .row-cand { display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: var(--r-pill); box-shadow: inset 0 0 0 1px var(--cand); color: var(--cand); font-size: var(--fs-xs); font-weight: 600; }
+.frame .row-main { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-width: 0; }
+.frame .row[data-h='one'] .row-main { flex-direction: row; align-items: center; gap: 8px; }
+.frame .row-name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.frame .row[data-h='one'] .row-name { flex: none; max-width: 38%; }
+.frame .row-proj { margin-left: 6px; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
+.frame .row-sub { display: flex; align-items: center; gap: 8px; min-width: 0; height: 20px; font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .row[data-h='one'] .row-sub { flex: 1; }
+.frame .row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.frame .row-state { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 600; line-height: 1.4; }
+.frame .row-state[data-tone='blocked'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); }
+.frame .row-state[data-tone='abandoned'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.frame .row-marks { flex: none; display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .row-marks .pr { color: var(--accent); font-weight: 600; }
+.frame .row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 4px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .row-meta { display: flex; align-items: center; gap: 10px; }
+.frame .row-when { display: inline-flex; align-items: center; gap: 6px; }
+.frame .row-live { font-size: var(--fs-xs); font-weight: 600; }
+.frame .row-live[data-live='waiting'] { color: var(--waiting); }
+.frame .row-live[data-live='busy'] { color: var(--busy); }
+.frame .row-more { display: inline-grid; place-items: center; width: 24px; height: 20px; color: var(--ink-3); visibility: hidden; }
+.frame .row[data-cursor] .row-more { visibility: visible; }
+.frame .row-time { display: inline-flex; justify-content: flex-end; width: 72px; }
+.frame .row-return { font-size: var(--fs-xs); font-weight: 600; color: var(--st-paused); }
+.frame .row-return[data-due] { color: #fff; background: var(--st-paused); padding: 1px 7px; border-radius: var(--r-pill); }
+.frame .hit { background: var(--hit); border-radius: 3px; padding: 0 2px; }
+.frame .row[data-archived] .row-name { color: var(--ink-3); font-weight: 400; }
+.frame .list-foot { flex: none; display: flex; align-items: center; gap: 16px; padding: 10px 4px 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .list-foot .pager-nums { margin-left: auto; display: flex; gap: 2px; }
+.frame .pager-btn { min-width: 26px; height: 24px; padding: 0 6px; border-radius: 6px; display: inline-grid; place-items: center; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.frame .pager-btn[aria-current] { background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+.frame .load-more { flex: none; display: flex; align-items: center; justify-content: center; gap: 8px; height: 36px; border-top: 1px solid var(--line); font-size: var(--fs-sm); font-weight: 600; color: var(--accent); }
+.frame .load-more .faint { font-weight: 500; }
+.frame .empty { padding: 28px 24px; text-align: center; color: var(--ink-2); line-height: 1.6; }
+.frame .empty b { display: block; color: var(--ink); margin-bottom: 2px; }
+.frame .empty .acts { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+/* 一覧の上の帯（タブ、欄、絞り込み） */
+.frame .list-head { display: flex; align-items: center; gap: 10px; margin: 14px 0 8px 4px; }
+.frame .list-head .home-label { margin: 0; }
+.frame .list-head .spacer { flex: 1; }
+.frame .sessions-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.frame .sessions-tab { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 11px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .sessions-tab[aria-pressed] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.frame .sessions-tab[data-empty] { font-weight: 500; color: var(--ink-3); }
+.frame .sessions-tab-n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.frame .sessions-tab-n[data-hot] { padding: 0 6px; border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
+.frame .search-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.frame .sessions-keyword { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); }
+.frame .sessions-keyword[data-focus] { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.frame .sessions-keyword .kw { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .sessions-keyword .kw[data-typed] { color: var(--ink); }
+.frame .sessions-keyword-tag { flex: none; height: 18px; padding: 0 6px; border-radius: 5px; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; color: var(--ink-3); background: var(--surface-2); }
+.frame .sessions-token { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 6px 0 8px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: 11px var(--font-mono); }
+.frame .sessions-token .icon { width: 12px; height: 12px; }
+.frame .filter-btn { flex: none; height: 34px; border-radius: 10px; }
+.frame .filter-btn[data-on] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); }
+.frame .filter-btn .fn { display: inline-grid; place-items: center; min-width: 16px; height: 16px; border-radius: var(--r-pill); background: var(--accent); color: #fff; font-size: 10px; }
+.frame .sessions-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.frame .sessions-cond { display: flex; align-items: center; gap: 8px; height: 20px; margin: 0 4px 10px; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.frame .sessions-cond .icon { color: var(--accent); }
+.frame .sessions-cond b { color: var(--ink); }
+.frame .sessions-cond .clear { color: var(--accent); font-weight: 600; display: inline-flex; align-items: center; gap: 3px; }
+.frame .sessions-cond .count { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+/* 初回の確認リスト（Onboarding.tsx） */
+.frame .ob-body { display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 26px; }
+.frame .ob-title { margin: 0; font-size: var(--fs-lg); }
+.frame .ob-lead { margin: -8px 0 0; color: var(--ink-2); }
+.frame .ck-card { width: 100%; max-width: 640px; padding: 12px 16px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.frame .ck-card[data-tight] { max-width: none; }
+.frame .ck-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 700; }
+.frame .ck-head .ck-prog { margin-left: auto; font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
+.frame .ck-list { margin: 0; padding: 0; list-style: none; }
+.frame .ck { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.frame .ck:first-child { border-top: 0; }
+.frame .ck .ck-i { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; margin-top: 1px; font-size: 11px; font-weight: 700; color: #fff; background: var(--st-done); }
+.frame .ck[data-tone='ng'] .ck-i { background: var(--error); }
+.frame .ck[data-tone='soft'] .ck-i { background: var(--busy); }
+.frame .ck[data-tone='info'] .ck-i { background: var(--ink-3); }
+.frame .ck-t { flex: 1; min-width: 0; }
+.frame .ck-t b { font-weight: 600; }
+.frame .ck-p { font-size: var(--fs-xs); color: var(--ink-3); font-family: var(--font-mono); margin-left: 6px; }
+.frame .ck-d { font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .ck-cmd { display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); font: 11px var(--font-mono); color: var(--ink); }
+.frame .ck-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .ck-foot .spacer { flex: 1; }
+.frame .ck-foot > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .ob-acts { display: flex; gap: 8px; }
+.frame .ck-compact { display: flex; flex-direction: column; gap: 4px; }
+.frame .ck-compact .ck { padding: 5px 0; }
+.frame .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs><linearGradient id="hangar-rail" gradientUnits="userSpaceOnUse" x1="-13.362" y1="0" x2="34.096" y2="0"><stop offset="0" stop-color="#1c1b2e"/><stop offset="0.25" stop-color="#1c1b2e"/><stop offset="1" stop-color="#e2e7ff"/></linearGradient></defs>
+<!-- apps/desktop/loading/logo.svg の写し -->
+<symbol id="logo" viewBox="0 0 100 100"><g transform="translate(46.256 25.106) scale(0.854)"><path d="M-13.362 3.178L34.096 -11.66" stroke="url(#hangar-rail)" stroke-width="2.6" stroke-linecap="round"/><g transform="translate(20.734 -6.483) scale(0.614)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#c6cae2" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#c6cae2"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#cdd5fc" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#e6d6e7"/><circle cx="-16.5" cy="37" r="2" fill="#e6e2e6"/><circle cx="-10" cy="37" r="2" fill="#cbe0ef"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e5e7f0" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#f4caa4"/></g><g transform="translate(14.911 -4.662) scale(0.722)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#8e90a6" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#8e90a6"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#a1aff5" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#eeb2b6"/><circle cx="-16.5" cy="37" r="2" fill="#eed8b3"/><circle cx="-10" cy="37" r="2" fill="#9cd2cd"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e6e6eb" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#c1c0d3"/></g><g transform="translate(8.06 -2.52) scale(0.85)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#55556a" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#55556a"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#7689ef" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#f78e86"/><circle cx="-16.5" cy="37" r="2" fill="#f7cd80"/><circle cx="-10" cy="37" r="2" fill="#6ec3ac"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e7e6e6" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#e56656"/></g><g><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#1c1b2e" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#1c1b2e"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#4a63e8" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#ff6a55"/><circle cx="-16.5" cy="37" r="2" fill="#ffc34d"/><circle cx="-10" cy="37" r="2" fill="#3fb58a"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e8e6e1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#ffb86b"/></g></g></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="i-add" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10"/></symbol>
+<symbol id="i-projects" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+<symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></symbol>
+<symbol id="i-text" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h14"/></symbol>
+<symbol id="i-nothing" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></symbol>
+<symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 4 14h7l-1 7 9-11h-7z"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+<symbol id="i-note" viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="m12 8 4 4"/></symbol>
+</svg>
+
+<main class="pg">
+<h1>ホームの細部 試作</h1>
+<p class="lead">段 4「画面と言葉」の 3 つ目の試作です。<br>1 つ目の試作で A 案（セッションの一覧をホームへ吸収する）が決まりました。<br>この試作は、その A 案のホームの中身を決めます。<br>上の札の並びと畳み方、一覧の行に出すもの、タブと検索の欄と絞り込みの置き方、サイドバーの「実行中」との役割の分け方、初めて開いたときの見せ方、ページ送りの 6 点です。<br>文言は用語集（<code>2026-10-09-glossary.md</code>）の語で書き、色と書体と余白は <code>packages/ui/src/styles</code> のトークンのままです。<br>中の名前、パス、金額、使用率はすべて作り物です。<br>判断の目線は、公開した hangar を初めて入れた開発者です。</p>
+
+<div class="top">
+<div class="box rec-box">
+<h2>推す案：B　一覧が主役、札は帯に畳む。次点：C　左右に割る</h2>
+<table class="sum"><tbody>
+<tr><td><span class="opt-id">A</span></td><td><b>札が主役</b>いまの札をそのまま上に置き、一覧は下で読む。実行中は 1 段、確認待ちは 3 件に畳む</td><td></td></tr>
+<tr><td><span class="opt-id">B</span></td><td><b>一覧が主役、札は帯</b>上は 40px の帯に件数の錠剤を並べ、押した群だけが引き出しで開く。朝は要対応の引き出しが開いている</td><td><span class="rec">推す</span></td></tr>
+<tr><td><span class="opt-id">C</span></td><td><b>左右に割る</b>左に一覧、右の列に要対応と実行中と確認待ちを積む。右の列だけがスクロールする。900px では帯に畳む</td><td><span class="rec second">次点</span></td></tr>
+</tbody></table>
+</div>
+<div class="box">
+<h2>読み方</h2>
+<ul>
+<li>上の切り替えで案と例の人を選びます。各案は、開いた直後、検索して絞り込んだところ、900px の窓の 3 枚です。「全案を並べる」で 3 案の開いた直後を縮めて並べます。</li>
+<li>例の人は 4 通りです。<b>初めての人</b>はセッションもプロジェクトも 0。<b>3 本の人</b>はプロジェクト 2、セッション 3。<b>200 本の人（ふつうの朝）</b>はプロジェクト 14、セッション 1,218 本で、入力待ち 1、実行中 2、確認待ち 1、今日のリマインダー 1。<b>200 本の人（忙しい朝）</b>は同じ人で、入力待ち 4、実行中 6、確認待ち 9、今日のリマインダー 2。</li>
+<li>検索の画面は、欄に「CSV」と打ち、絞り込みで期間を 30 日にしたところです。初めての人には検索する相手が無いので、同じ画面で結果 0 件を描きます。</li>
+<li>各案の下に、利用者の動き (a)〜(e) の目の動きと操作の回数の表、6 つの論点への答え、得るもの、失うもの、作り替えの重さを置きました。最後に推す案と、案に依らず決められる論点 2、3、6 の答えを別に書きました。</li>
+<li>操作の回数は「開くまで」または「片付くまで」を数えています。打鍵は 1 回、ボタンも 1 回です。</li>
+</ul>
+</div>
+</div>
+
+<nav class="switch" aria-label="案の切り替え">
+<span class="sw-label">案</span>
+<button class="sw" data-opt="a" aria-pressed="false"><span class="opt-id">A</span>札が主役</button>
+<button class="sw" data-opt="b" aria-pressed="true"><span class="opt-id">B</span>一覧が主役、札は帯</button>
+<button class="sw" data-opt="c" aria-pressed="false"><span class="opt-id">C</span>左右に割る</button>
+<button class="sw" data-opt="all" aria-pressed="false">全案を並べる</button>
+<span class="sw-sep"></span>
+<span class="sw-label">例の人</span>
+<button class="sw small" data-size="first" aria-pressed="false">初めての人</button>
+<button class="sw small" data-size="small" aria-pressed="false">3 本の人</button>
+<button class="sw small" data-size="normal" aria-pressed="false">200 本（ふつうの朝）</button>
+<button class="sw small" data-size="busy" aria-pressed="true">200 本（忙しい朝）</button>
+<span class="sw-sep"></span>
+<span class="sw-label">画面</span>
+<button class="sw small" data-screen="home" aria-pressed="true">開いた直後</button>
+<button class="sw small" data-screen="search" aria-pressed="false">検索して絞り込み</button>
+<button class="sw small" data-screen="narrow" aria-pressed="false">900px の窓</button>
+</nav>
+
+<div id="opts"></div>
+
+<section class="opt verdict" id="verdict" data-on="true">
+<h2>推す案と理由</h2>
+<div class="v-grid" id="verdict-text"></div>
+<div class="box" style="margin-top:14px">
+<table class="cmp" id="cmp"></table>
+<p class="screen-note" style="margin-top:8px">緑の升はその動きでいちばん少ない案です。回数は「開くまで」または「片付くまで」で、(b) と (e) は 1 件あたりです。</p>
+</div>
+</section>
+</main>
+
+<script>
+/* ===== 例のデータ（すべて作り物。1 つ目と 2 つ目の試作と同じ架空のプロジェクトとセッション） ===== */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const ic = (n, cls) => `<svg class="icon${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const PROJECTS = [
+  { id: 'web-shop', name: 'web-shop', status: 'active' },
+  { id: 'billing-api', name: 'billing-api', status: 'active' },
+  { id: 'docs-site', name: 'docs-site', status: 'active' },
+  { id: 'data-pipeline', name: 'data-pipeline', status: 'active' },
+  { id: 'infra-tools', name: 'infra-tools', status: 'active' },
+  { id: 'mobile-app', name: 'mobile-app', status: 'active' },
+  { id: 'design-tokens', name: 'design-tokens', status: 'paused' },
+  { id: 'legacy-admin', name: 'legacy-admin', status: 'done' },
+];
+const PJ = Object.fromEntries(PROJECTS.map((p) => [p.id, p]));
+
+/* セッション。live は動きの状態（waiting、busy、idle、null）。status はステータス（null は Active）。prog は要約の進捗。 */
+const SESSIONS = [
+  { id: 's1', name: '決済フォームの検証を直す', p: 'web-shop', live: 'waiting', waited: '4 分', q: '既存のテストを書き換えてよいですか？', prog: ['進行中'], one: '入力の検証をサーバ側へ寄せ、フォームのテストを更新中', when: 'いま', model: 'opus', ctx: 41, files: 2 },
+  { id: 's2', name: 'OpenAPI から型を生成', p: 'billing-api', live: 'busy', elapsed: '12 分', intent: '生成スクリプトを tsconfig の paths に合わせる', tool: ['Edit', 'scripts/gen-types.ts'], prog: ['進行中'], one: '生成スクリプトを書き直し、型の差分を確認中', when: 'いま', model: 'opus', ctx: 34, files: 3 },
+  { id: 's3', name: 'リリースノートの下書き', p: 'docs-site', live: 'idle', idle: '8 分', prog: ['進行中'], one: 'v2.3 の変更点を 12 件拾い、下書きを docs/releases に置いた', when: '8 分前', model: 'sonnet', ctx: 12, files: 1 },
+  { id: 's4', name: '価格表の CSV 取り込み', p: 'data-pipeline', live: null, prog: ['進行中'], one: '列の対応表を作った。重複行の扱いが未決', when: '3 日前', model: 'opus', files: 4, note: true, excerpt: ['列の対応表を ', 'CSV', ' の 1 行目から作り、重複行は後で決める'] },
+  { id: 's5', name: 'ログインの不具合 #214', p: 'mobile-app', live: null, prog: ['ブロック中', 'blocked'], one: '再現の手順が足りず、ログの提供待ち', when: '2 日前', model: 'sonnet', files: 0 },
+  { id: 's6', name: '依存の更新と CI の直し', p: 'infra-tools', live: null, status: 'paused', returnOn: '今日', reason: 'CI の cache の鍵を直してから再開', prog: ['進行中'], one: 'Node 22 へ上げたが、CI の cache の鍵を直す前に止めた', when: '5 日前', model: 'opus', files: 6 },
+  { id: 's7', name: '画像の遅延読み込み', p: 'web-shop', live: null, status: 'done', prog: ['完了'], one: 'IntersectionObserver で置き換え、PR #88 をマージ', when: '3 日前', model: 'sonnet', files: 5, pr: '#88', excerpt: ['一覧の ', '画像', ' を IntersectionObserver で遅延読み込みにした'] },
+  { id: 's8', name: 'Dockerfile を multi-stage に', p: 'infra-tools', live: null, status: 'done', prog: ['完了'], one: 'ビルドの段を分け、イメージを 410MB から 96MB に', when: '6 日前', model: 'opus', files: 2, pr: '#91' },
+  { id: 's9', name: '検索の索引を再構築', p: 'docs-site', live: null, status: 'done', prog: ['完了'], one: 'Pagefind の設定を直し、索引の生成を CI に入れた', when: '8 日前', model: 'sonnet', files: 3 },
+  { id: 's10', name: '古い管理画面の調査', p: 'legacy-admin', live: null, status: 'archived', prog: ['中止', 'abandoned'], one: '画面の数を数えたところで、移行の計画そのものが取り下げられた', when: '3 週間前', model: 'sonnet', files: 0 },
+  { id: 's11', name: 'CSV の文字コードの自動判定', p: 'data-pipeline', live: null, status: 'done', prog: ['完了'], one: 'Shift_JIS と UTF-8 を先頭の 4KB で判定', when: '9 日前', model: 'sonnet', files: 1, pr: '#73', excerpt: ['Shift_JIS の ', 'CSV', ' を読むと先頭が化けるので、判定を足した'] },
+  { id: 's12', name: '注文の CSV 書き出し', p: 'web-shop', live: null, status: 'done', prog: ['完了'], one: '管理画面に書き出しのボタンを足した', when: '12 日前', model: 'sonnet', files: 3, excerpt: ['書き出す ', 'CSV', ' の列の順を、取り込みの対応表と同じにした'] },
+  { id: 's13', name: 'Paused の提案の試し', p: 'billing-api', live: null, cand: 'Done？', prog: ['完了'], one: '請求の丸めを直し、テストを足した', when: '昨日', model: 'sonnet', files: 2 },
+];
+const FILLER_NAMES = ['カートの合計の丸め誤差', 'メールの文面を i18n に', 'README の手順を更新', 'テストの並列化', 'ESLint の設定を flat config に', 'ログの出力を JSON に', '画像のアップロードの上限', '通知の重複を直す', '型のエラーを 0 に', 'キャッシュの鍵の設計', 'ページ送りの不具合', 'Sentry の導入', 'リトライの間隔を見直す', 'フッターのリンク切れ', 'DB のマイグレーションの整理'];
+const FILLER_PROJ = ['web-shop', 'billing-api', 'docs-site', 'mobile-app', 'infra-tools', 'data-pipeline'];
+const FILLER_WHEN = ['13 日前', '2 週間前', '2 週間前', '3 週間前', '3 週間前', '3 週間前', '4 週間前', '1 か月前', '1 か月前', '1 か月前', '2 か月前', '2 か月前', '2 か月前', '2 か月前', '3 か月前'];
+const FILLERS = FILLER_NAMES.map((name, i) => ({ id: 'f' + i, name, p: FILLER_PROJ[i % FILLER_PROJ.length], live: null, status: 'done', prog: ['完了'], one: '作業を終え、PR をマージした', when: FILLER_WHEN[i], model: 'sonnet', files: 2, pr: i % 3 === 0 ? '#' + (60 - i) : null, note: i % 4 === 1 }));
+
+/* 忙しい朝の分。入力待ち 3 本、実行中 4 本、確認待ち 8 件、今日のリマインダー 1 本を足す。 */
+const BUSY_WAIT = [
+  { id: 'w2', name: 'i18n の鍵を整理', p: 'web-shop', live: 'waiting', waited: '11 分', q: 'src/locales の未使用の鍵 42 件を削除してよいですか？', prog: ['進行中'], one: '未使用の鍵を数え、削除の候補を一覧にした', when: 'いま', model: 'sonnet', ctx: 22, files: 1 },
+  { id: 'w3', name: 'Stripe の webhook の再送', p: 'billing-api', live: 'waiting', waited: '27 分', q: 'npm install stripe@16 を実行してよいですか？', prog: ['進行中'], one: '再送の冪等キーを設計し、依存の更新を待っている', when: 'いま', model: 'opus', ctx: 48, files: 2 },
+  { id: 'w4', name: 'E2E の flaky を直す', p: 'mobile-app', live: 'waiting', waited: '1 時間', q: 'テストを 3 回まで再試行する設定にしますか？', prog: ['進行中'], one: '落ちる 4 本のうち 3 本は待ち時間が原因', when: 'いま', model: 'sonnet', ctx: 31, files: 3 },
+];
+const BUSY_RUN = [
+  { id: 'r3', name: '監査ログの保存先を S3 に', p: 'infra-tools', live: 'busy', elapsed: '31 分', intent: 'ライフサイクルの規則を Terraform に書く', tool: ['Bash', 'terraform plan'], prog: ['進行中'], one: 'バケットと規則を作り、plan の差分を確認中', when: 'いま', model: 'opus', ctx: 57, files: 4 },
+  { id: 'r4', name: '商品検索の同義語辞書', p: 'web-shop', live: 'busy', elapsed: '6 分', intent: '辞書の読み込みをビルド時に寄せる', tool: ['Read', 'src/search/synonyms.ts'], prog: ['進行中'], one: '同義語の表を JSON に移した', when: 'いま', model: 'sonnet', ctx: 19, files: 2 },
+  { id: 'r5', name: '請求書 PDF の書体', p: 'billing-api', live: 'idle', idle: '22 分', prog: ['進行中'], one: '日本語の書体を埋め込み、PDF の大きさを比べた', when: '22 分前', model: 'sonnet', ctx: 15, files: 1 },
+  { id: 'r6', name: 'onboarding の文言', p: 'docs-site', live: 'busy', elapsed: '48 分', intent: '手順の章を 3 つに分ける', tool: ['Edit', 'docs/getting-started.md'], prog: ['進行中'], one: '章立てを直し、図を 2 枚足した', when: 'いま', model: 'opus', ctx: 63, files: 5 },
+];
+const BUSY_RETURN = { id: 'p2', name: 'Playwright のアップグレード', p: 'mobile-app', live: null, status: 'paused', returnOn: '今日 13:00', reason: 'v1.5 の変更点を読んでから再開', prog: ['進行中'], one: '1.4 で止めた。1.5 の変更点が未読', when: '4 日前', model: 'sonnet', files: 2 };
+const CONFIRM_ONE = { id: 'c1', kind: 'todo', text: 'CI の Node を 22 に上げる', p: 'infra-tools', session: '依存の更新と CI の直し', ago: '2 時間前', note: 'package.json の engines と .nvmrc を 22 に更新した' };
+const CONFIRM_MORE = [
+  { id: 'c2', kind: 'session', text: '請求の丸めを直す', label: 'Done？', p: 'billing-api', session: 'Paused の提案の試し', ago: '昨日', note: 'テストが通り、PR をマージした' },
+  { id: 'c3', kind: 'todo', text: '取り込みの失敗を Slack に通知', p: 'data-pipeline', session: '価格表の CSV 取り込み', ago: '昨日', note: 'notify.ts に Slack の webhook を足した' },
+  { id: 'c4', kind: 'todo', text: '詳細の頁の画像にも遅延読み込み', p: 'web-shop', session: '画像の遅延読み込み', ago: '2 日前', note: 'ProductImage を詳細の頁でも使った' },
+  { id: 'c5', kind: 'session', text: 'ログの出力を JSON に', label: 'Paused · 10/14？', p: 'infra-tools', session: 'ログの出力を JSON に', ago: '2 日前', note: '本番の出力を見てから決めたい' },
+  { id: 'c6', kind: 'todo', text: 'README に Node の版を書く', p: 'docs-site', session: 'README の手順を更新', ago: '3 日前', note: '前提の節に Node 22 を書いた' },
+  { id: 'c7', kind: 'todo', text: 'Sentry の DSN を環境変数に', p: 'mobile-app', session: 'Sentry の導入', ago: '3 日前', note: '.env.example に SENTRY_DSN を足した' },
+  { id: 'c8', kind: 'session', text: 'テストの並列化', label: 'Done？', p: 'billing-api', session: 'テストの並列化', ago: '4 日前', note: 'CI の時間が 9 分から 4 分になった' },
+  { id: 'c9', kind: 'todo', text: 'フッターのリンクを直す', p: 'web-shop', session: 'フッターのリンク切れ', ago: '5 日前', note: '3 本のリンクを新しい URL に替えた' },
+];
+/* 初めての人の確認リスト。tmux と claude は ✓、プロジェクトの親フォルダは ✗、MCP と statusline は未、互換は未確認の版。 */
+const CHECKS = [
+  { key: 'tmux', label: 'tmux', tone: 'ok', path: '/opt/homebrew/bin/tmux（3.5a）', detail: 'ターミナルを動かすのに使います' },
+  { key: 'claude', label: 'claude', tone: 'ok', path: '~/.local/bin/claude（2.4.1）', detail: 'Claude Code' },
+  { key: 'workspace', label: 'プロジェクトの親フォルダ', tone: 'ng', path: null, detail: 'まだ指定していません。セッションのあるフォルダをまとめた場所を入力してください', action: '設定で変更' },
+  { key: 'mcp', label: 'MCP', tone: 'soft', path: null, detail: 'どのセッションからも hangar の検索と要約を使えるようにします', command: 'hangar setup mcp' },
+  { key: 'statusline', label: 'statusline', tone: 'soft', path: null, detail: 'ヘッダーの使用率ゲージの供給源です', command: 'hangar setup statusline' },
+  { key: 'compat', label: 'Claude Code との互換', tone: 'info', path: '2.4.1（確認済みの版は 2.4.0）', detail: 'まだ確認していない版です。止めている機能はありません' },
+];
+
+const by = (list) => Object.fromEntries(list.map((s) => [s.id, s]));
+/* 4 人の利用者。 */
+function dataset(size) {
+  const base = { size, query: 'CSV', period: '30 日', fmt: (n) => n.toLocaleString('en-US') };
+  if (size === 'first') {
+    return { ...base, sessions: [], projects: [], S: {}, waiting: [], running: [], returning: [], confirm: [], counts: { all: 0, pending: 0, active: 0, paused: 0, done: 0, archived: 0 }, pjCount: 0, total: '0', pages: null, hits: [] };
+  }
+  if (size === 'small') {
+    const sessions = [SESSIONS[0], SESSIONS[1], SESSIONS[6]];
+    const S = by(sessions);
+    return { ...base, sessions, projects: [PJ['web-shop'], PJ['billing-api']], S, waiting: [S.s1], running: [S.s2], returning: [], confirm: [], counts: { all: 3, pending: 0, active: 2, paused: 0, done: 1, archived: 0 }, pjCount: 2, total: '3', pages: null, hits: [S.s7].map((s) => ({ ...s, excerpt: ['一覧の ', 'CSV', ' の書き出しも遅延読み込みと同じ部品にできる'] })) };
+  }
+  const busy = size === 'busy';
+  const sessions = busy ? [SESSIONS[0], ...BUSY_WAIT, SESSIONS[1], ...BUSY_RUN, SESSIONS[2], BUSY_RETURN, ...SESSIONS.slice(3), ...FILLERS] : [...SESSIONS, ...FILLERS];
+  const S = by(sessions);
+  const waiting = sessions.filter((s) => s.live === 'waiting');
+  const running = sessions.filter((s) => s.live && s.live !== 'waiting');
+  const returning = busy ? [S.s6, BUSY_RETURN] : [S.s6];
+  const confirm = busy ? [CONFIRM_ONE, ...CONFIRM_MORE] : [CONFIRM_ONE];
+  const hits = sessions.filter((s) => s.excerpt && s.excerpt[1] === 'CSV');
+  return { ...base, sessions, projects: PROJECTS, S, waiting, running, returning, confirm, counts: { all: 1218, pending: confirm.length, active: busy ? 48 : 41, paused: busy ? 8 : 6, done: 1160, archived: 11 }, pjCount: 14, total: '1,218', pages: 25, hits };
+}
+/* 一覧に並べる行（札に出したものを除かない。A 案が決めた「平らな一覧」は全件を新しい順に並べる）。 */
+const listRows = (d) => d.sessions.filter((s) => s.status !== 'archived');
+/* ===== 画面の部品（1 つ目と 2 つ目の試作から写した） ===== */
+const dot = (live) => `<span class="dot" data-status="${live || 'ended'}"></span>`;
+const sq = (s) => s === 'cand' ? `<span class="row-cand">Done？</span>` : `<span class="row-sq" data-s="${s || 'active'}">${s ? { paused: 'Paused', done: 'Done', archived: 'Archived' }[s] : 'Active'}</span>`;
+const liveWord = (s) => s.live === 'waiting' ? `<span class="row-live" data-live="waiting">入力待ち</span>` : s.live ? `<span class="row-live" data-live="busy">実行中</span>` : '';
+const kbd = (k) => `<span class="kbd">${esc(k)}</span>`;
+const pname = (s) => PJ[s.p] ? PJ[s.p].name : '未分類';
+
+function logoHtml() {
+  return `<div class="header-brand"><span class="lights"><i></i><i></i><i></i></span><span class="brand"><svg class="brand-mark" aria-hidden="true"><use href="#logo"/></svg><span class="brand-word">Hangar</span></span></div>`;
+}
+/* ヘッダー。決まりどおり、同期は語だけ。アカウントは「仕事用」。 */
+function headerHtml(o = {}) {
+  const gauge = (k, n) => `<span class="gauge"><span class="gauge-key">${k}</span><span class="gauge-bar"><span class="gauge-fill" style="width:${n}%"></span></span><span class="gauge-num">${n}%</span></span>`;
+  const open = o.narrow ? `<span class="side-open">${ic('sidebar')}</span>` : '';
+  const btn = o.narrow ? `<button class="btn btn-primary btn-icon">${ic('add')}</button>` : `<button class="btn btn-primary">${ic('add')}新しいセッション</button>`;
+  const gauges = o.first ? '' : `<span class="gauges">${gauge('5 時間', 28)}${gauge('週', 41)}</span>`;
+  return `<header class="header">${logoHtml()}<div class="header-row">${open}<button class="search-pill">${ic('search')}<span>検索・移動</span>${kbd('⌘K')}</button><span class="spacer"></span><div class="header-end"><span class="sync"><span class="sync-dot"></span><span>${o.first ? '同期は未設定' : '同期 3 分前'}</span></span>${gauges}${o.narrow ? '' : `<span class="acct"><span class="acct-dot"></span>仕事用</span>`}${btn}</div></div></header>`;
+}
+/* サイドバー。決まりどおり「ホーム」「プロジェクト」と「実行中」の節、下に「設定」。liveRows は節に出す行（null なら節を出さない）。 */
+function sidebarHtml(d, o = {}) {
+  const label = { home: 'ホーム', projects: 'プロジェクト', settings: '設定' };
+  const waiting = d.waiting.length;
+  const item = (k) => `<a class="nav-item"${o.current === k ? ' aria-current="page"' : ''}>${ic(k)}<span>${label[k]}</span>${k === 'home' && waiting > 0 && o.count !== false ? `<span class="nav-count">${waiting}</span>` : ''}</a>`;
+  let html = `<nav class="sidebar"><div class="nav-row">${item('home')}<span class="sidebar-toggle">${ic('sidebar')}</span></div>${item('projects')}`;
+  const live = [...d.waiting, ...d.running];
+  if (o.live !== false) {
+    if (live.length) {
+      const shown = live.slice(0, 8);
+      html += `<section class="side-live"><h2 class="side-live-h">実行中<span class="side-live-n">${live.length}</span></h2>${shown.map((s) => `<a class="side-live-row" data-live="${s.live}">${dot(s.live)}<span class="side-live-name">${esc(s.name)}</span>${s.live === 'waiting' ? `<span class="side-live-wait">${s.waited}</span>` : ''}</a>`).join('')}${live.length > 8 ? `<a class="side-live-more">ほか ${live.length - 8} 件</a>` : ''}</section>`;
+    } else if (o.liveEmpty) {
+      html += `<section class="side-live"><h2 class="side-live-h">実行中<span class="side-live-n">0</span></h2><div class="side-empty">${o.liveEmpty}</div></section>`;
+    }
+  }
+  return html + `<div class="side-foot">${item('settings')}</div></nav>`;
+}
+const pageHead = (title, after = '') => `<div class="page-head"><div class="page-parent"></div><div class="page-title-row"><h1 class="page-title">${esc(title)}</h1>${after}</div></div>`;
+
+/* 2 段の行（SessionRows.tsx の row-2）。o.marks を立てると 2 段目の右端に PR とノートの印を添える（論点 2 の案）。o.one で 1 行に畳む（B 案）。 */
+function rowHtml(s, o = {}) {
+  const text = o.hit && s.excerpt ? `<span class="row-text mono">${s.excerpt.map((t, i) => i === 1 ? `<mark class="hit">${esc(t)}</mark>` : esc(t)).join('')}</span>` : `<span class="row-text">${esc(s.one)}</span>`;
+  const marks = o.marks && (s.pr || s.note) ? `<span class="row-marks">${s.pr ? `<span class="pr">PR ${esc(s.pr)}</span>` : ''}${s.note ? `<span title="ノートあり">${ic('note')}</span>` : ''}</span>` : '';
+  const time = s.status === 'paused' ? `<span class="row-return"${(s.returnOn || '').startsWith('今日') ? ' data-due' : ''}>${esc(s.returnOn || '10/12')}</span>` : esc(s.when);
+  const meta = o.meta ? `<span class="row-meta">${s.files ? `<span>変更 ${s.files}</span>` : ''}${s.pr ? `<a>PR</a>` : ''}<span class="mono">${esc(s.model)}</span></span>` : '';
+  return `<div class="row"${o.one ? ' data-h="one"' : ''}${s.status === 'archived' ? ' data-archived' : ''}${o.cursor ? ' data-cursor' : ''}>${dot(s.live)}<span class="row-status">${sq(s.cand ? 'cand' : s.status)}</span><span class="row-main"><span class="row-name">${esc(s.name)}<span class="row-proj">${esc(pname(s))}</span></span><span class="row-sub"><span class="row-state"${s.prog[1] ? ` data-tone="${s.prog[1]}"` : ''}>${s.prog[0]}</span>${text}${marks}</span></span><span class="row-side">${meta}<span class="row-when">${liveWord(s)}<span class="row-more">${ic('more')}</span><span class="row-time">${time}</span></span></span></div>`;
+}
+const listHtml = (inner, foot) => `<div class="list"><div class="list-scroll">${inner}</div>${foot || ''}</div>`;
+const emptyList = (d, o = {}) => `<div class="list"><div class="empty"><b>${o.title || 'セッションはまだありません'}</b>${o.text || ''}${o.acts ? `<div class="acts">${o.acts}</div>` : ''}</div></div>`;
+const pagerHtml = (d) => d.pages ? `<div class="list-foot"><span>1〜50 件 / ${d.total} 件</span><span class="pager-nums"><span class="pager-btn">‹</span><span class="pager-btn" aria-current="page">1</span><span class="pager-btn">2</span><span class="pager-btn">3</span><span class="pager-btn">…</span><span class="pager-btn">${d.pages}</span><span class="pager-btn">›</span></span><span>1 ページ 50 件</span></div>` : '';
+const loadMore = (d) => d.pages ? `<div class="load-more">さらに 50 件を読み込む<span class="faint">残り ${d.fmt(1168)} 件</span></div>` : '';
+
+/* 一覧の上の帯。タブ、欄、絞り込み。o.filters は 'always'（常に出す）か 'toggle'（欄の横のボタンで出す。open で開いた状態）。 */
+function tabsHtml(d, tab) {
+  const c = d.counts;
+  const t = (k, label, n, hot) => `<span class="sessions-tab"${tab === k ? ' aria-pressed' : ''}${n === 0 && tab !== k ? ' data-empty' : ''}>${label}<span class="sessions-tab-n"${hot && n > 0 ? ' data-hot' : ''}>${d.fmt(n)}</span></span>`;
+  return `<div class="sessions-tabs">${t('all', 'すべて', c.all)}${t('pending', '確認待ち', c.pending, true)}${t('active', 'Active', c.active)}${t('paused', 'Paused', c.paused)}${t('done', 'Done', c.done)}${t('archived', 'Archived', c.archived)}</div>`;
+}
+function keywordHtml(o = {}) {
+  const typed = o.query ? `<span class="kw" data-typed>${esc(o.query)}</span>` : `<span class="kw">${esc(o.placeholder || 'トランスクリプトを検索。is:paused · since:7d · project: · file: も使えます')}</span>`;
+  const tokens = (o.tokens || []).map((t) => `<span class="sessions-token">${esc(t)}${ic('x')}</span>`).join('');
+  const field = `<div class="sessions-keyword"${o.query ? ' data-focus' : ''}>${ic('text')}${tokens}${typed}<span class="sessions-keyword-tag">トランスクリプト</span></div>`;
+  if (o.filters === 'toggle') {
+    const n = (o.tokens || []).length;
+    return `<div class="search-row">${field}<span class="btn filter-btn"${o.open ? ' data-on' : ''}>${ic('filter')}絞り込み${n ? `<span class="fn">${n}</span>` : ''}</span></div>`;
+  }
+  return `<div class="search-row">${field}</div>`;
+}
+function filtersHtml(o = {}) {
+  const per = (v) => ['全期間', '今日', '7 日', '30 日'].map((l) => `<span${l === (v || '全期間') ? ' data-on' : ''}>${l}</span>`).join('');
+  return `<div class="sessions-filters"><span class="listbox">${esc(o.project || 'すべてのプロジェクト')}${ic('chev')}</span><span class="seg">${per(o.period)}</span><span class="input" style="width:170px">操作したファイル</span></div>`;
+}
+const condHtml = (conds, n) => `<div class="sessions-cond">${ic('filter')}<span>${conds.map((c) => `<b>${esc(c)}</b>`).join(' · ')} で絞り込み中</span><span class="clear">${ic('x')}条件をクリア</span><span class="count">${n} 件</span></div>`;
+/* 一覧の塊。見出し、タブ、欄、絞り込み、条件の行、行。q が真なら検索中。 */
+function listBlock(d, o = {}) {
+  const q = !!o.query;
+  const tokens = q ? ['since:30d'] : [];
+  let head = `<div class="list-head"><h2 class="home-label">セッション<span class="home-count">${d.total} 件</span></h2></div>` + tabsHtml(d, 'all') + keywordHtml({ query: o.query, tokens, filters: o.filters, open: q });
+  if (o.filters === 'always' || q) head += filtersHtml({ period: q ? d.period : null });
+  if (q) head += condHtml([`「${d.query}」`, '30 日'], d.hits.length);
+  let body;
+  if (d.size === 'first') body = q ? emptyList(d, { title: '一致するセッションはありません', text: 'まだセッションが無いので、検索する相手がありません' }) : emptyList(d, { text: o.firstText || 'セッションを始めると、ここに新しい順で並びます', acts: `<span class="btn btn-primary">${ic('bolt')}クイックセッションを開始</span><span class="btn">${ic('add')}新しいセッション</span>` });
+  // 検索の結果は 3 件なので、続きの帯もページ送りも出ない（50 件を超えたときだけ出る）。
+  else if (q) body = listHtml(d.hits.map((s, i) => rowHtml(s, { ...o.row, cursor: i === 0, hit: true })).join(''));
+  else body = listHtml(listRows(d).map((s) => rowHtml(s, o.row)).join(''), o.more === 'load' ? loadMore(d) : '') + (o.more === 'load' ? '' : pagerHtml(d));
+  return `<section class="home-fit">${head}${body}</section>`;
+}
+
+/* 札（いまの home.css の ask-card、live-card、confirm-card）。 */
+const askCard = (s) => `<div class="ask-card">${dot('waiting')}<div class="ask-body"><div class="ask-title"><b>${esc(s.name)}</b> <span class="faint">· ${esc(pname(s))} · ${s.waited}待機</span></div><div class="ask-q">${esc(s.q)}</div></div><button class="btn btn-primary">ターミナルで回答</button></div>`;
+const returnCard = (s) => `<div class="ask-card return-card"><span class="return-when"${s.returnOn.includes(':') ? ' data-soft' : ''}>${esc(s.returnOn)}</span><div class="ask-body"><div class="ask-title"><b>${esc(s.name)}</b></div><span class="faint">· ${esc(pname(s))}</span><div class="ask-q">${esc(s.reason)}</div></div><button class="btn btn-primary">開く</button><button class="btn btn-ghost">日付を変更</button><button class="btn btn-ghost">Done</button></div>`;
+const liveCard = (s) => `<div class="live-card" data-live="${s.live}"><div class="live-head">${dot(s.live)}<span class="live-name">${esc(s.name)}</span><span class="live-elapsed num">${s.live === 'busy' ? s.elapsed : ''}</span></div><div class="live-meta">${esc(pname(s))} · ${esc(s.model)}</div>${s.intent ? `<div class="live-intent-line">${esc(s.intent)}</div>` : ''}${s.live === 'busy' ? `<div class="live-act"><i>${s.tool[0]}</i> ${esc(s.tool[1])}</div>` : `<div class="live-rest">アイドル ${s.idle}</div>`}<div class="live-ctx">コンテキスト使用量<span class="gauge-bar"><span class="gauge-fill" style="width:${s.ctx}%"></span></span>${s.ctx}%</div></div>`;
+const confirmCard = (c) => `<div class="ask-card confirm-card">${c.kind === 'todo' ? '<span class="cand-mark"></span>' : `<span class="row-cand" style="width:auto;padding:0 8px">${esc(c.label)}</span>`}<div class="ask-body"><div class="ask-title"><b>${esc(c.text)}</b> <span class="faint">· ${esc(c.p)} · ${esc(c.session)} · ${c.ago}</span></div><div class="ask-q">${esc(c.note)}</div></div><button class="btn btn-primary">確定</button><button class="btn">却下</button></div>`;
+const idleLine = (o = {}) => `<div class="idle-line">${ic('nothing')}<span class="idle-text">実行中のセッションはありません</span><button class="btn btn-primary">${ic('add')}新しいセッション</button><button class="btn">${ic('bolt')}クイックセッションを開始</button></div>`;
+
+/* 圧縮した 1 行（B の引き出し、C の右の列）。 */
+const waitRow = (s) => `<div class="crow" data-k="wait">${dot('waiting')}<span class="c-name">${esc(s.name)}</span><span class="c-proj">${esc(pname(s))}</span><span class="c-text">${esc(s.q)}</span><span class="c-end"><span class="c-wait">${s.waited}待機</span><span class="btn btn-sm btn-primary">ターミナルで回答</span></span></div>`;
+const returnRow = (s) => `<div class="crow">${`<span class="return-when"${s.returnOn.includes(':') ? ' data-soft' : ''}>${esc(s.returnOn)}</span>`}<span class="c-name">${esc(s.name)}</span><span class="c-proj">${esc(pname(s))}</span><span class="c-text">${esc(s.reason)}</span><span class="c-end"><span class="btn btn-sm">開く</span><span class="btn btn-sm btn-ghost">日付を変更</span><span class="btn btn-sm btn-ghost">Done</span></span></div>`;
+const runRow = (s) => `<div class="crow">${dot(s.live)}<span class="c-name">${esc(s.name)}</span><span class="c-proj">${esc(pname(s))}</span><span class="c-text">${s.live === 'busy' ? `${esc(s.intent)}　<i>${s.tool[0]}</i> ${esc(s.tool[1])}` : `アイドル ${s.idle}`}</span><span class="c-end">${s.live === 'busy' ? `<span class="c-busy">作業中 ${s.elapsed}</span>` : ''}<span>${s.ctx}%</span></span></div>`;
+const confirmRow = (c) => `<div class="crow">${c.kind === 'todo' ? '<span class="cand-mark"></span>' : `<span class="row-cand" style="width:auto;padding:0 8px;height:16px;font-size:10px">${esc(c.label)}</span>`}<span class="c-name">${esc(c.text)}</span><span class="c-proj">${esc(c.p)} · ${c.ago}</span><span class="c-text">${esc(c.note)}</span><span class="c-end"><span class="btn btn-sm btn-primary">確定</span><span class="btn btn-sm">却下</span></span></div>`;
+
+/* 初回の確認リスト（Onboarding.tsx）。tight で横幅いっぱい、compact で行を詰める。 */
+function checksHtml(o = {}) {
+  const mark = { ok: '✓', ng: '✗', soft: '!', info: 'i' };
+  const rows = CHECKS.map((c) => `<li class="ck" data-tone="${c.tone}"><span class="ck-i">${mark[c.tone]}</span><div class="ck-t"><b>${esc(c.label)}</b>${c.path ? `<span class="ck-p">${esc(c.path)}</span>` : ''}<div class="ck-d">${esc(c.detail)}</div>${c.command ? `<div class="ck-cmd">${esc(c.command)}<span class="faint">コピー</span></div>` : ''}</div>${c.action ? `<span class="btn btn-sm">${esc(c.action)}</span>` : ''}</li>`).join('');
+  return `<section class="ck-card"${o.tight ? ' data-tight' : ''}><div class="ck-head">${ic('check')}<span>始める前の確認</span><span class="ck-prog">6 つ中 3 つ</span></div><ul class="ck-list${o.compact ? ' ck-compact' : ''}">${rows}</ul><div class="ck-foot"><span>tmux と claude があれば、残りが ✗ でも始められます</span><span class="spacer"></span><span class="btn btn-sm btn-ghost">もう一度確認</span></div></section>`;
+}
+/* ===== 案ごとの画面 ===== */
+const frame = (inner, o = {}) => `<div class="frame"${o.narrow ? ' data-w="900"' : ''}><div class="shell"${o.narrow ? ' data-side="closed"' : ''}>${inner}</div></div>`;
+const main = (inner) => `<div class="main"><div class="main-inner">${inner}</div></div>`;
+
+/* 初めての人の、A と B の共通の見せ方（真ん中の 1 枚の札）。 */
+function onboardingCenter(d) {
+  return `<div class="screen">${pageHead('ホーム')}<div class="ob-body"><h2 class="ob-title">ようこそ</h2><p class="ob-lead">Claude Code のセッションを、ここから始めて見渡せます。</p>${checksHtml()}<div class="ob-acts"><span class="btn btn-primary">${ic('bolt')}クイックセッションを開始</span><span class="btn">${ic('add')}新しいセッション</span><span class="btn">${ic('settings')}設定を開く</span></div></div></div>`;
+}
+
+/* A：札が主役。上はいまの札で、実行中は 1 段（3 枚、900px では 2 枚）、確認待ちは 3 件に畳む。検索中は札を 1 行に畳む。 */
+function homeA(d, o = {}) {
+  if (d.size === 'first') return o.query ? `<div class="screen">${pageHead('ホーム')}${idleLine()}${listBlock(d, { query: d.query, filters: 'always' })}</div>` : onboardingCenter(d);
+  let top = '';
+  if (o.query) {
+    top = `<div class="band"><span class="band-pill" data-tone="wait">${ic('bell')}要対応 <b>${d.waiting.length + d.returning.length}</b></span><span class="band-pill">${ic('bolt')}実行中 <b>${d.running.length}</b></span>${d.confirm.length ? `<span class="band-pill" data-tone="cand">${ic('check')}確認待ち <b>${d.confirm.length}</b></span>` : ''}<span class="band-text">検索中は札を畳んでいます</span><span class="btn btn-sm btn-ghost">札を表示${ic('chev')}</span></div>`;
+  } else {
+    if (d.waiting.length || d.returning.length) top += `<section><h2 class="home-label">要対応<span class="home-count">${d.waiting.length + d.returning.length}</span></h2>${d.waiting.map(askCard).join('')}${d.returning.map(returnCard).join('')}</section>`;
+    const perRow = o.narrow ? 2 : 3;
+    if (d.running.length) top += `<section><h2 class="home-label">実行中<span class="home-count">${d.running.length}</span></h2><div class="live-grid">${d.running.slice(0, perRow).map(liveCard).join('')}</div>${d.running.length > perRow ? `<div class="more-line">${ic('chev')}ほか ${d.running.length - perRow} 件を表示</div>` : ''}</section>`;
+    else top += `<section>${idleLine()}</section>`;
+    if (d.confirm.length) top += `<section><h2 class="home-label">確認待ち<span class="home-count">${d.confirm.length}</span></h2>${d.confirm.slice(0, 3).map(confirmCard).join('')}${d.confirm.length > 3 ? `<div class="more-line">${ic('chev')}ほか ${d.confirm.length - 3} 件を表示</div>` : ''}</section>`;
+  }
+  return `<div class="screen">${pageHead('ホーム')}${top}${listBlock(d, { query: o.query, filters: 'always', row: { marks: false } })}</div>`;
+}
+
+/* B：一覧が主役、札は帯。帯は件数の錠剤で、押した群が引き出しで開く。朝は要対応の引き出しが開いている。絞り込みは欄の横のボタンで出す。行は 1 行。 */
+function homeB(d, o = {}) {
+  const att = d.waiting.length + d.returning.length;
+  const allZero = att === 0 && d.running.length === 0 && d.confirm.length === 0;
+  let top;
+  if (d.size === 'first') {
+    top = `<div class="band"><span class="band-text">始める前の確認：6 つ中 3 つ。tmux と claude があるので始められます</span><span class="btn btn-sm">折りたたむ${ic('chev')}</span></div><div class="drawer">${checksHtml({ tight: true, compact: true })}</div>`;
+  } else if (allZero) {
+    top = idleLine();
+  } else {
+    const open = o.query ? null : o.open || (att ? 'att' : d.running.length ? 'run' : 'cand');
+    const pill = (k, label, n, tone, icon) => `<span class="band-pill"${open === k ? ' data-open' : ''}${tone ? ` data-tone="${tone}"` : ''}${n === 0 ? ' data-zero' : ''}>${ic(icon)}${label} <b>${n}</b>${ic(open === k ? 'chev' : 'chev-r')}</span>`;
+    top = `<div class="band">${pill('att', '要対応', att, 'wait', 'bell')}${pill('run', '実行中', d.running.length, null, 'bolt')}${pill('cand', '確認待ち', d.confirm.length, 'cand', 'check')}<span class="band-text">${o.query ? '検索中は引き出しを閉じています' : ''}</span></div>`;
+    if (open === 'att') top += `<div class="drawer"><div class="drawer-h">要対応<span class="faint">入力待ち ${d.waiting.length}、今日のリマインダー ${d.returning.length}</span><span class="drawer-close">折りたたむ${ic('chev')}</span></div>${d.waiting.map(waitRow).join('')}${d.returning.map(returnRow).join('')}</div>`;
+    if (open === 'run') top += `<div class="drawer"><div class="drawer-h">実行中<span class="faint">作業中 ${d.running.filter((s) => s.live === 'busy').length}、アイドル ${d.running.filter((s) => s.live === 'idle').length}</span><span class="drawer-close">折りたたむ${ic('chev')}</span></div>${d.running.map(runRow).join('')}</div>`;
+    if (open === 'cand') top += `<div class="drawer"><div class="drawer-h">確認待ち<span class="faint">提案 ${d.confirm.length}</span><span class="drawer-close">折りたたむ${ic('chev')}</span></div>${d.confirm.map(confirmRow).join('')}</div>`;
+  }
+  return `<div class="screen">${pageHead('ホーム')}${top}${listBlock(d, { query: o.query, filters: 'toggle', more: 'load', row: { one: true, marks: true }, firstText: '上の確認が済んでいなくても、クイックセッションから始められます' })}</div>`;
+}
+
+/* C：左右に割る。左は一覧、右の列に要対応、実行中、確認待ちを積む。右の列だけがスクロールする。900px では B の帯に畳む。 */
+function homeC(d, o = {}) {
+  if (o.narrow) return homeB(d, { ...o, open: 'att' }).replace('data-h="one"', 'data-h="one"');
+  let rail;
+  if (d.size === 'first') {
+    rail = `<aside class="rail"><section class="rail-sec"><div class="rail-h">始める前の確認<span class="faint">6 つ中 3 つ</span></div>${checksHtml({ tight: true, compact: true }).replace('<section class="ck-card" data-tight>', '<div>').replace('</section>', '</div>').replace(/<div class="ck-head">.*?<\/div>/, '')}</section></aside>`;
+  } else {
+    const att = d.waiting.length + d.returning.length;
+    const sec = (label, n, inner, more) => `<section class="rail-sec"><div class="rail-h">${label}<span class="faint">${n}</span>${more || ''}</div>${inner}</section>`;
+    const waitC = (s) => `<div class="rcard" data-k="wait"><div class="r1">${dot('waiting')}<span class="nm">${esc(s.name)}</span><span class="tm c-wait" style="color:var(--waiting);font-weight:600">${s.waited}待機</span></div><div class="r2">${esc(s.q)}</div><div class="rcard-acts"><span class="btn btn-sm btn-primary">ターミナルで回答</span><span class="faint" style="font-size:11px;align-self:center">${esc(pname(s))}</span></div></div>`;
+    const retC = (s) => `<div class="rcard"><div class="r1"><span class="return-when"${s.returnOn.includes(':') ? ' data-soft' : ''}>${esc(s.returnOn)}</span><span class="nm">${esc(s.name)}</span></div><div class="r2">${esc(s.reason)}</div><div class="rcard-acts"><span class="btn btn-sm">開く</span><span class="btn btn-sm btn-ghost">日付を変更</span><span class="btn btn-sm btn-ghost">Done</span></div></div>`;
+    const runC = (s) => `<div class="rcard"><div class="r1">${dot(s.live)}<span class="nm">${esc(s.name)}</span><span class="tm">${s.live === 'busy' ? `<span style="color:var(--busy);font-weight:600">作業中 ${s.elapsed}</span>` : `アイドル ${s.idle}`}</span></div><div class="r2">${s.live === 'busy' ? `${esc(s.intent)}　<i>${s.tool[0]}</i> ${esc(s.tool[1])}` : esc(s.one)}</div></div>`;
+    const candC = (c) => `<div class="rcard"><div class="r1">${c.kind === 'todo' ? '<span class="cand-mark"></span>' : `<span class="row-cand" style="width:auto;padding:0 8px;height:16px;font-size:10px">${esc(c.label)}</span>`}<span class="nm">${esc(c.text)}</span><span class="tm">${c.ago}</span></div><div class="r2">${esc(c.note)}</div><div class="rcard-acts"><span class="btn btn-sm btn-primary">確定</span><span class="btn btn-sm">却下</span><span class="faint" style="font-size:11px;align-self:center">${esc(c.p)}</span></div></div>`;
+    rail = `<aside class="rail">`;
+    if (att) rail += sec('要対応', att, d.waiting.map(waitC).join('') + d.returning.map(retC).join(''));
+    if (d.running.length) rail += sec('実行中', d.running.length, d.running.map(runC).join(''));
+    else if (!att) rail += `<section class="rail-sec"><div class="empty-rail">実行中のセッションはありません<div class="rcard-acts" style="margin-top:8px"><span class="btn btn-sm btn-primary">${ic('add')}新しいセッション</span><span class="btn btn-sm">${ic('bolt')}クイックセッションを開始</span></div></div></section>`;
+    if (d.confirm.length) rail += sec('確認待ち', d.confirm.length, d.confirm.map(candC).join(''));
+    rail += `</aside>`;
+  }
+  return `<div class="screen">${pageHead('ホーム')}<div class="home-split"><div class="home-list-col">${listBlock(d, { query: o.query, filters: 'toggle', row: { marks: true } })}</div>${rail}</div></div>`;
+}
+
+const RENDER = { a: homeA, b: homeB, c: homeC };
+const SIDE = {
+  a: (d) => sidebarHtml(d, { current: 'home', liveEmpty: 'いまは何も実行していません' }),
+  b: (d) => sidebarHtml(d, { current: 'home', count: false }),
+  c: (d) => sidebarHtml(d, { current: 'home', count: false }),
+};
+function screenHtml(opt, d, key) {
+  const narrow = key === 'narrow';
+  const o = { query: key === 'search' ? d.query : null, narrow };
+  return frame(SIDE[opt](d) + headerHtml({ narrow, first: d.size === 'first' }) + main(RENDER[opt](d, o)), { narrow });
+}
+/* ===== 案の説明 ===== */
+const SCREEN_LABELS = { home: '開いた直後', search: '検索して絞り込み', narrow: '900px の窓' };
+const OPTS = [
+  { id: 'a', name: '札が主役', tag: 'A',
+    blurb: 'いまの札をそのまま上に置き、一覧は下で読みます。<b>畳み方の上限</b>だけを足します。要対応は全件を 2 段の札で出し、実行中は 1 段（3 枚）に、確認待ちは 3 件に畳んで「ほか N 件を表示」で開きます。検索の最中は札を件数だけの 1 行に畳みます。タブ、欄、絞り込みは常に全部出します。行は 2 段で、いまの行のままです。ページ送りはいまのままです。',
+    notes: {
+      home: '忙しい朝は、要対応 6 枚（入力待ち 4 と今日のリマインダー 2）で 390px、実行中 1 段で 180px、確認待ち 3 件で 230px を使い、<b>一覧は窓の外に出る</b>（頁がスクロールする）。ふつうの朝なら一覧の 4 行が見える。3 本の人は札 2 枚と一覧 3 行で、絞り込みの段が空のまま目に入る。',
+      search: '欄に打つと札が 1 行に畳まれ、一覧が結果になる。2 段目は一致した箇所の抜粋。絞り込みの段は常に出ているので、期間を 30 日にするのは 1 回。',
+      narrow: 'サイドバーを閉じ、実行中の札は 2 枚に減る。忙しい朝は要対応だけで窓の半分を超える。',
+    },
+    moves: [['目 1 回、操作 0 回', '上から順に読む', '要対応の札が最初にある。忙しい朝は 6 枚を読んでから下へ'], ['1 回', '札 → セッション', '要対応の札の「ターミナルで回答」。問いの文が札で読める'], ['2 回', '欄 → 行', '一覧まで頁を送って欄に打ち、Enter。結果の行を押す。忙しい朝は一覧が窓の外なので、まずスクロール'], ['3 回', 'タブ → 絞り込み → 行', '「Done」のタブ → プロジェクトの選択 → 行。またはプロジェクト画面の Done の節で 2 回'], ['1 回 / 件', '確認待ちの札', '札の「確定」。4 件目からは「ほか N 件を表示」で 1 回足す']],
+    answers: ['横に並べる（実行中）と縦に積む（要対応、確認待ち）の混在。上限を足しても、入力待ちを畳まない限り忙しい朝は一覧が外へ出る。全部 0 の日は「実行中のセッションはありません」の 1 行と一覧。', 'いまの 2 段の行のまま。PR やノートの印は足さない（プロジェクト画面の行にある）。', '常に全部出す。3 本の人には絞り込みの段が空のまま見え、札と一覧の間で場所を取る。', '両方に全部出す。サイドバーは行き先、札は中身。同じ名前が 2 か所に並ぶ。', 'いまの真ん中の 1 枚の札（確認リストと 3 つのボタン）。一覧は出さない。最初に押すのは「クイックセッションを開始」。', 'ページ送り（25、50、100、200）。検索の結果も同じ。'],
+    gain: 'いまの画面と設計書と試験がほぼそのまま使える。朝の管制盤（問いの文、意図とツール呼び出し）が札で全部読める。', lose: '忙しい朝に一覧が窓の外へ出て、「あの作業を探す」が毎回スクロールから始まる。3 本の人には空の絞り込みの段が目に入る。', weight: 'PR 1 本。ホームに一覧の塊を足し、実行中と確認待ちに上限を付け、検索中の 1 行を足す。' },
+  { id: 'b', name: '一覧が主役、札は帯に畳む', tag: 'B', rec: '推す',
+    blurb: '上を <b>40px の帯</b>にし、要対応、実行中、確認待ちの件数を錠剤で並べます。押した群だけが帯の下に引き出しで開き、1 件 1 行（40px）で読みます。朝に開いたときは<b>要対応の引き出しが開いている</b>（無ければ実行中、それも無ければ確認待ち）ので、まず答えるものが見えます。一覧は 1 行の行（44px）で、2 段目の要約を名前の右に続け、PR とノートの印を添えます。絞り込みは欄の横の「絞り込み」ボタンで出し、効いている数を印にします。続きは「さらに 50 件を読み込む」です。',
+    notes: {
+      home: '忙しい朝でも、帯 40px と要対応の引き出し 6 行（270px）で止まり、<b>一覧の 5 行が同じ窓に見える</b>。実行中の 6 本は錠剤の数字で知り、押すと引き出しに意図とツール呼び出しが 1 行で出る。3 本の人は帯に「要対応 1、実行中 1、確認待ち 0」と引き出し 1 行、下に一覧 3 行。初めての人は帯が確認リストの要約になり、引き出しに確認リスト、一覧の空の札にボタンが 2 つ。',
+      search: '欄に打つと引き出しが閉じ、帯の件数だけが残る。「絞り込み」ボタンを押して期間を 30 日にする（打つなら since:30d）。結果は 1 行で、抜粋が名前の右に続く。',
+      narrow: '帯の錠剤は 3 つとも入る。引き出しの行は問いの文が短く切れる。一覧は 1 行なので 900px でも 5 行見える。',
+    },
+    moves: [['目 1 回、操作 0 回', '帯 → 引き出し', '帯の赤い数字と、開いている要対応の引き出しが最初にある。忙しい朝も 6 行で読み切れる'], ['1 回', '引き出し → セッション', '引き出しの行の「ターミナルで回答」。問いの文は 1 行に切れるので、長い問いは行を押して読む'], ['2 回', '欄 → 行', '一覧は同じ窓にあるので、欄に打って Enter、行を押す。忙しい朝でもスクロールしない'], ['3 回', 'タブ → 絞り込み → 行', '「Done」のタブ → 「絞り込み」→ プロジェクト。欄に project:web-shop is:done と打てば 2 回'], ['2 回 / 件', '帯 → 引き出し', '帯の「確認待ち」を押して開き、行の「確定」。9 件でも同じ引き出しで続けて押せる']],
+    answers: ['件数だけに畳んで、押した群だけ開く。要対応は朝に開いている。忙しい朝でも上は 310px で止まる。全部 0 の日は帯の代わりに「実行中のセッションはありません」の 1 行（帯の 0 が 3 つ並ぶより静か）。', '1 行の行。ステータスの札、名前、プロジェクト、進捗と要約、PR とノートの印、動きの状態、時刻。200 本を目で探すときは行の数が多いほどよい。', 'タブと欄は常に。絞り込みは欄の横のボタンで出し、効いている数を印にする。3 本の人には絞り込みの段が見えない。', '帯は数、引き出しは中身、サイドバーは行き先。開いた直後に名前が並ぶのはサイドバーと要対応の引き出しだけで、実行中の名前は押すまで 1 か所。', '帯が「6 つ中 3 つ」の要約になり、引き出しに確認リスト、一覧の空の札に「クイックセッションを開始」。確認が済んでいなくても始められることを一覧の札の文で言う。', '「さらに 50 件を読み込む」。ページの番号は要らず、残りの件数だけ言う。'],
+    gain: '忙しい朝でも一覧が同じ窓にあり、「探す」と「答える」が同じ画面で済む。初めての人と 3 本の人には静かな帯と短い一覧だけが見える。', lose: '実行中の意図とツール呼び出しが、押すまで見えない。1 行の行は長い名前と要約が切れやすい。引き出しの開閉という状態が 1 つ増える。', weight: 'PR 2 本。帯と引き出しを作る（札の部品は引き出しの中で使い回す）。1 行の行と「絞り込み」ボタンと「さらに読み込む」を一覧に足す。' },
+  { id: 'c', name: '左右に割る', tag: 'C', rec: '次点',
+    blurb: '本文を左右に割り、<b>左に一覧、右の 392px の列</b>に要対応、実行中、確認待ちを積みます。右の列だけがスクロールするので、忙しい朝でも左の一覧は動きません。右の列の札は 2 行の小さな札で、問いの文、意図とツール呼び出し、提案の理由が読めます。一覧は 2 段の行で、PR とノートの印を添えます。絞り込みは B と同じくボタンで出します。900px では右の列を B の帯と引き出しに畳みます。',
+    notes: {
+      home: '忙しい朝は右の列に 17 枚（要対応 6、実行中 6、確認待ち 9）が積まれ、下が切れてスクロールする。左の一覧は 2 段で 8 行。ふつうの朝は右の列が 4 枚で下が空く。3 本の人は右に 2 枚、左に 3 行。初めての人は右に確認リスト、左に空の一覧とボタン。',
+      search: '左の欄に打つと左だけが結果になり、右の列は残る。答えるものを見ながら探せる。一覧の幅が 760px に縮むので、抜粋は短く切れる。',
+      narrow: '900px では右の列が無くなり、B と同じ帯と引き出しになる。つまり小さい窓では B。',
+    },
+    moves: [['目 1 回、操作 0 回', '右の列', '右上の要対応から読む。忙しい朝は右の列を 1 回スクロール'], ['1 回', '右の列 → セッション', '札の「ターミナルで回答」。問いの文は 1 行で読める'], ['2 回', '左の欄 → 行', '左は常に見えているので、打って Enter、行を押す'], ['3 回', 'タブ → 絞り込み → 行', 'B と同じ'], ['1 回 / 件', '右の列', '札の「確定」。9 件は右の列をスクロールして順に押す']],
+    answers: ['縦に積むが、積むのは右の列で、一覧とは別にスクロールする。全部 0 の日は右の列に「実行中のセッションはありません」の札と 2 つのボタン。', '2 段の行。PR とノートの印を足す。左の幅が 760px なので 1 行にはしない。', 'タブと欄は常に。絞り込みはボタン。B と同じ。', 'サイドバーは行き先、右の列は中身。実行中の名前は開いた直後から 2 か所に並ぶ（サイドバーと右の列）。右の列は並びを変えられないので、サイドバーの手の並びは残す理由がある。', '右の列に確認リスト、左に空の一覧と「クイックセッションを開始」。確認と始める入口が同時に見える。', 'ページ送り（いまのまま）。検索の結果だけ「さらに読み込む」。'],
+    gain: '答えるものと探すものが同時に見え、忙しい朝でも一覧が動かない。実行中の意図とツール呼び出しが開いた直後から読める。', lose: '一覧の幅が 760px に縮み、2 段目が切れやすい。実行中の名前がサイドバーと右の列の 2 か所に並ぶ。900px では別の形（B）になるので、作る形が 2 つ。', weight: 'PR 3 本。右の列と小さな札を作り、900px の切り替えで B の帯と引き出しも作る。一覧の印と絞り込みのボタンは B と同じ。' },
+];
+const MOVE_LABELS = ['(a) 朝に開いて、まず何に答えるべきかを知る', '(b) 入力待ちに答える', '(c) 先週の「あの作業」を名前の一部で探す', '(d) あるプロジェクトの Done を見返す', '(e) 確認待ちの提案を片付ける'];
+const Q_LABELS = ['1 上の札の並びと畳み方', '2 一覧の行に出すもの', '3 タブと検索と絞り込みの置き方', '4 サイドバーの「実行中」との分け方', '5 初めて開いたときと確認リスト', '6 ページ送りか、続きを読み込むか'];
+
+const VERDICT = `
+<div>
+<p><b>推す案は B（一覧が主役、札は帯に畳む）です。</b>
+初めて入れた開発者の最初の 1 週間は、セッションが 3 本で、札も 1 枚か 2 枚です。
+その人のホームは、帯 1 行と一覧 3 行で足ります。
+同じ人が 200 本になった朝も、帯と要対応の引き出しは 310px で止まり、一覧が同じ窓にあります。
+A は忙しい朝に一覧が窓の外へ出て、「あの作業を探す」がスクロールから始まります。
+C は答えるものと探すものを同時に見せますが、一覧の幅を 760px に縮め、実行中の名前をサイドバーと右の列の 2 か所に並べ、900px で別の形になります。
+B が失うのは、実行中の意図とツール呼び出しが押すまで見えないことです。
+そこは、サイドバーの「実行中」の節が名前と待ち時間を常に見せていることと、セッション画面の 2 行の帯（2 つ目の試作で決めた形）で補えます。</p>
+<p><b>次点は C（左右に割る）です。</b>
+1280px 以上の窓で使う人には、C がいちばん多くの情報を一度に見せます。
+B を入れたあとで、右の列を「引き出しを横に置いた形」として足せます。
+B の引き出しの行と C の右の列の札は同じ部品で作れるので、B から C へは一方通行ではありません。</p>
+<p><b>A は推しません。</b>
+いまの札をそのまま残す安心はありますが、上限を足しても要対応の 2 段の札を畳めず、一覧をホームへ吸収した意味（探すのもホーム）が忙しい朝に消えます。</p>
+<h3>案に依らず決められる論点</h3>
+<p><b>論点 2（一覧の行に出すもの）：</b>2 段の行を推します。
+残すのは、動きの点、ステータスの札、名前、プロジェクト、進捗の札と要約の 1 文、動きの状態の語、時刻（Paused はリマインダーの日付）です。
+足すのは、2 段目の右端の PR の番号とノートの印の 2 つだけです。
+コストと変更したファイルの数は足しません。
+200 本から目で探すときの手がかりは、名前、プロジェクト、ステータスの色、時刻の順で、コストは手がかりになりません。
+B で 1 行にしたのは一覧の行数を稼ぐためですが、B 以外では 2 段のままでよく、B を選ぶときだけ 1 行にするか決めます。</p>
+<p><b>論点 3（タブと検索と絞り込み）：</b>タブと欄は常に出し、絞り込み（プロジェクト、期間、操作したファイル）は欄の横の「絞り込み」ボタンで出します。
+効いている条件は欄の中のチップ（<code>since:30d</code> など）が正で、ボタンには効いている数を印にします。
+3 本の人には空の絞り込みの段が見えません。
+検索の欄が引くのはトランスクリプト（利用者の発言、Claude の本文、ツール呼び出しのパスとコマンド）で、名前と要約は引きません（<code>server/src/search/search.ts</code>）。
+名前で探すのはコマンドパレット（⌘K）の役目なので、欄の案内に「名前はコマンドパレットで」と添えます。
+将来、欄が名前と要約も引くようにするかは、索引の段で決めます。</p>
+<p><b>論点 6（ページ送りか、続きを読み込むか）：</b>条件の無い一覧はページ送り（25、50、100、200）、検索の結果は「さらに 50 件を読み込む」にします。
+条件の無い一覧は手元の全件から切り出すので、ページの番号で場所を言え、1,000 本を超えても 200 件ずつ 6 ページで済みます。
+検索の結果はサーバが 50 件ずつ返すので、番号より残りの件数のほうが正直です。
+どちらも <code>docs/design.md</code> の「検索」の節に既にある形で、新しい仕組みは要りません。</p>
+</div>`;
+
+/* ===== 頁の組み立て ===== */
+let size = 'busy';
+let shown = 'b';
+let screen = 'home';
+const host = document.getElementById('opts');
+
+function renderAll() {
+  const d = dataset(size);
+  host.innerHTML = OPTS.map((o) => `<section class="opt" id="opt-${o.id}" data-opt="${o.id}">
+<div class="opt-h"><span class="opt-id">${o.tag}</span><h2>${esc(o.name)}</h2>${o.rec ? `<span class="rec${o.rec === '次点' ? ' second' : ''}">${o.rec}</span>` : ''}</div>
+<p class="opt-d">${o.blurb}</p>
+${['home', 'search', 'narrow'].map((k) => `<div class="screen-note" data-note="${k}"${k !== screen ? ' hidden' : ''}><b>${SCREEN_LABELS[k]}</b>　${o.notes[k]}</div><div class="frame-wrap" data-screen="${k}"${k !== screen ? ' hidden' : ''}>${screenHtml(o.id, d, k)}</div>`).join('')}
+<div class="below">
+<div><table class="tbl"><thead><tr><th>利用者の動き</th><th>目と操作</th><th>通る場所と手順</th></tr></thead><tbody>${o.moves.map((m, i) => `<tr><td>${MOVE_LABELS[i]}</td><td><span class="n">${esc(m[0])}</span></td><td><span class="path">${esc(m[1])}</span><br>${esc(m[2])}</td></tr>`).join('')}</tbody></table>
+<div class="ans"><h3>論点への答え</h3><ol>${o.answers.map((a, i) => `<li><b>${Q_LABELS[i]}</b>　${esc(a)}</li>`).join('')}</ol></div></div>
+<div class="gl"><div><b>得るもの</b>${esc(o.gain)}</div><div><b>失うもの</b>${esc(o.lose)}</div><div><b>作り替えの重さ</b>${esc(o.weight)}</div></div>
+</div>
+</section>`).join('') + `<section class="opt" id="opt-all" data-opt="all"><div class="opt-h"><h2>3 案の${SCREEN_LABELS[screen]}の画面</h2><span class="faint">縮めて並べた</span></div><div class="all-grid">${OPTS.map((o) => `<div class="all-cell"><div class="col-h"><span class="opt-id">${o.tag}</span>${esc(o.name)}<small>${SCREEN_LABELS[screen]}</small></div><div class="frame-wrap">${screenHtml(o.id, d, screen)}</div></div>`).join('')}</div></section>`;
+  document.getElementById('verdict-text').innerHTML = VERDICT;
+  const num = (s) => parseFloat(s.replace(/^目.*操作 /, '').replace(/[^0-9.]/g, '')) || 0;
+  const best = (i) => Math.min(...OPTS.map((o) => num(o.moves[i][0])));
+  document.getElementById('cmp').innerHTML = `<thead><tr><th>利用者の動き</th>${OPTS.map((o) => `<th><span class="opt-id">${o.tag}</span></th>`).join('')}</tr></thead><tbody>${MOVE_LABELS.map((l, i) => `<tr><td>${l}</td>${OPTS.map((o) => `<td${num(o.moves[i][0]) === best(i) ? ' data-best' : ''}><span class="n">${esc(o.moves[i][0])}</span><br><span class="faint">${esc(o.moves[i][1])}</span></td>`).join('')}</tr>`).join('')}<tr><td>忙しい朝の、上の区画の高さ（1280×800）</td><td><span class="n">約 800px</span><br><span class="faint">一覧は窓の外</span></td><td data-best><span class="n">約 310px</span><br><span class="faint">一覧 5 行が見える</span></td><td data-best><span class="n">0px</span><br><span class="faint">右の列に積む。一覧 8 行</span></td></tr><tr><td>作り替えの PR の数</td><td data-best><span class="n">1</span></td><td><span class="n">2</span></td><td><span class="n">3</span></td></tr></tbody>`;
+  applyShown();
+  fitFrames();
+}
+function applyShown() {
+  for (const el of host.querySelectorAll('.opt')) el.dataset.on = String(el.dataset.opt === shown);
+  for (const b of document.querySelectorAll('.sw[data-opt]')) b.setAttribute('aria-pressed', String(b.dataset.opt === shown));
+}
+/* 窓を器の幅に合わせて縮める。 */
+function fitFrames() {
+  for (const wrap of document.querySelectorAll('.frame-wrap')) {
+    if (wrap.hidden || wrap.closest('.opt')?.dataset.on !== 'true') continue;
+    const f = wrap.querySelector('.frame');
+    const w = f.dataset.w === '900' ? 900 : 1280;
+    const h = f.dataset.w === '900' ? 640 : 800;
+    const scale = Math.min(1, wrap.clientWidth / w);
+    f.style.transform = `scale(${scale})`;
+    wrap.style.height = `${Math.round(h * scale)}px`;
+  }
+}
+document.querySelector('.switch').addEventListener('click', (e) => {
+  const b = e.target.closest('.sw');
+  if (!b) return;
+  if (b.dataset.opt) { shown = b.dataset.opt; applyShown(); fitFrames(); document.getElementById('opt-' + shown).scrollIntoView({ block: 'start' }); }
+  if (b.dataset.size) { size = b.dataset.size; for (const x of document.querySelectorAll('.sw[data-size]')) x.setAttribute('aria-pressed', String(x.dataset.size === size)); renderAll(); }
+  if (b.dataset.screen) { screen = b.dataset.screen; for (const x of document.querySelectorAll('.sw[data-screen]')) x.setAttribute('aria-pressed', String(x.dataset.screen === screen)); renderAll(); }
+});
+window.addEventListener('resize', fitFrames);
+renderAll();
+</script>
+</body>
+</html>

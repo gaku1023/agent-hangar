@@ -1,4 +1,5 @@
-import { badTokens, queryTokens, type LiveFilter, type QueryToken, type SearchFilter, type StatusFilter } from '@agent-hangar/shared';
+import { type LiveFilter, type SearchFilter, type StatusFilter } from '@agent-hangar/shared';
+import { badTokens, queryTokens, type QueryToken } from '../lib/searchTokens.ts';
 import { hasConditions, periodStart, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, runningSessionIds, type Store } from '../store/store.ts';
