@@ -2775,11 +2775,15 @@ Windows のトーストは、題と本文を XML の文字として入れ、laun
 アプリが閉じた後に通知センターで押されたときは、Windows が COM の口でアプリを起こし、`INotificationActivationCallback::Activate` で届く。
 そのために殻は起動のたびに、利用者の登録（HKEY_CURRENT_USER）の `Software\Classes\AppUserModelId\<identifier>` へ名前、絵、COM の口の CLSID を書き、`Software\Classes\CLSID\<CLSID>\LocalServer32` へ自分の実行ファイルを書き、COM の口を開く。
 1 回の押下が両方の道で届いても、2 秒の間に同じセッションは 1 回だけ開く。
+アンインストールでは、NSIS のフック（`src-tauri/windows/hooks.nsh` の `NSIS_HOOK_POSTUNINSTALL`、`tauri.windows.conf.json` の `installerHooks`）が、この 2 つの登録と `~/.agent-hangar/notify-icon.png` だけを消す。
+`.agent-hangar` の中のほかのもの（DB など）は消さない。
+フックの値は notify.rs の定数と同じで、`apps/desktop/test/config.test.ts` が食い違いを見る。
 Windows には通知の許可を尋ねるダイアログが無いので、`notify_request` と `notify_status` は通知の設定（`NotificationSetting`）を読むだけで、切られていれば denied になる。
 バッジは Tauri の `set_badge_count` で出す。
 ブラウザでは Web Notification と `navigator.setAppBadge` を使い、どちらも無ければ何もしない。
 
 通知を受け取るかは PC ごとに localStorage（`notify.waiting`）に残す。
+OS で切られているときの案内は、許可する場所の名前を OS で変える（macOS は「システム設定」、Windows は「Windows の設定」）。鍵は `…notify.blocked` と `…notify.blockedWindows` に分け、選ぶのは `notifyBlockedKey(clientPlatform(), …)` である。
 選んでいなければ、デスクトップでは受け取り、ブラウザでは受け取らない。
 デスクトップで受け取るときは、起動したときに OS の許可を一度だけ尋ねておく（決まった後は OS が黙って答える）。
 尋ね終えたら、殻の `notify_status` で OS の許可の状態を読む（macOS は UNUserNotificationCenter、Windows は通知の設定。尋ねはしないのでダイアログは出ない）。

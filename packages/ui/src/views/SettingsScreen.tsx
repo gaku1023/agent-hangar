@@ -3,7 +3,7 @@ import type { Language, SettingsDto, SettingsSection, TerminalApp } from '@agent
 import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
-import { clientPlatform, muxInstallCommand, type VerifyLine } from '../presenters/readiness.ts';
+import { clientPlatform, muxInstallCommand, notifyBlockedKey, type VerifyLine } from '../presenters/readiness.ts';
 import { JOIN_TOKEN_TTL_MS, type SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { PageHeading } from './PageHeading.tsx';
@@ -240,7 +240,7 @@ export function SettingsScreen(props: SettingsProps) {
         desc={<>
           {t('settings.general.notify.desc')}
           {!props.notify.available && <div style={{ marginTop: 4 }}>{t('settings.general.notify.unavailable')}</div>}
-          {props.notify.available && props.notify.blocked && <div style={{ marginTop: 4 }}>{t('settings.general.notify.blocked')}</div>}
+          {props.notify.available && props.notify.blocked && <div style={{ marginTop: 4 }}>{t(notifyBlockedKey(clientPlatform(), 'settings'))}</div>}
         </>}
         control={<Switch label={t('settings.general.notify.title')} checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />} />
       {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。選択肢は画面を開いている OS のものだけ。 */}

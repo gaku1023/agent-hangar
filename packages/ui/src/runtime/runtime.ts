@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
-import { readinessComplete, readinessPending } from '../presenters/readiness.ts';
+import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
@@ -516,7 +516,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 断られたら、OS で切られているのかを読む。切られていれば、許可の仕方を知らせる。
           const blocked = (await notifier.status()) === 'denied' && notifier.available();
           setNotify(notifier.available(), false, blocked);
-          toast(tr()(blocked ? 'runtime.notify.blocked' : 'runtime.notify.denied'));
+          toast(tr()(blocked ? notifyBlockedKey(clientPlatform(), 'toast') : 'runtime.notify.denied'));
         }).catch(fail);
         return;
       case 'notify.off':
@@ -635,7 +635,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       const on = wanted && available && notifier.granted() && !blocked;
       const was = store.notify;
       setNotify(available, on, blocked);
-      if (was.on && blocked) toast(tr()('runtime.notify.blocked'));
+      if (was.on && blocked) toast(tr()(notifyBlockedKey(clientPlatform(), 'toast')));
     }, () => {});
   }
 
