@@ -456,7 +456,7 @@ DB に書いた後で画面へ配るのは、書いた側ではなく、配る�
 - 行のイベント（`session.upsert`、`project.upsert`、`devices.update`、`memo.update`、`artifact.upsert`、`todos.update`）は、この層だけが組む。`broadcast` は型（`NoticeEvent`）でこれらを受けない。呼び手が手で組んで渡す道は無いので、同じ行が二重に届くことも、端末の ID を渡し忘れた行が届くことも無い。
 - 行は書いていないが中身が変わったときは、呼び手は `touchRow` でその行を名指しする。同じ tick の書き込みと重なっても、配るのは 1 回である。
 
-サーバの組み立て（`server.ts`）も、HTTP の経路（`http/app.ts`）も、MCP の道具（`mcp/tools.ts`）も、事後要約のジョブ（`summary/job.ts`）も、行を書く（か名指しする）だけで、配るのはこの層である。
+サーバの組み立て（`server.ts`）も、HTTP の経路（`http/routes/*.ts`）も、MCP の道具（`mcp/tools.ts`）も、事後要約のジョブ（`summary/job.ts`）も、行を書く（か名指しする）だけで、配るのはこの層である。
 MCP の道具は hub を持たない。
 事後要約のジョブは、以前は端末の ID を渡さずにセッションを組んで配っていて、他端末のロックの無い行が届いていた。いまは要約の進みだけを渡す。
 
@@ -1137,6 +1137,49 @@ Haiku でも思考が走り 20〜40 秒かかるため、事後生成は背景�
 超えるときは中盤を間引き、最初と最後を残す。
 
 ## MCP とローカル API
+
+### HTTP の経路の置き方
+
+HTTP の層は `packages/server/src/http/` にある。
+
+- `app.ts`：組み立て。`createApp` は `/health` を置き、`/api` の下に認証（`auth.ts`）を当て、経路のファイルを登録し、`/mcp` と UI の配りを載せる。経路の中身は持たない。
+- `deps.ts`：HTTP の層が外から受け取る依存の一覧（`AppDeps`）と、その口の型（`RunsApi`、`SyncApi` など）。
+- `routes/*.ts`：経路。1 ファイルに 1 つの資源を置く。
+- `routes/common.ts`：経路が共通で使う補助。本文の読み方と大きさの上限、失敗の包み方（`runResult`、`externalResult`）、依存から組む小さな読み手である。
+- `accounts.ts`：アカウントの経路。サーバの起動後の読み直しも同じ依存を使うので、`routes/` の外に置いてある。
+- `testing.ts`：試験の組み立て。`testDeps()` が `AppDeps` を試験用の既定で全部組む。
+
+経路のファイルと、持っている資源は次のとおりである。
+
+| ファイル | 資源 |
+| --- | --- |
+| `bootstrap.ts` | 起動時の取得（`/bootstrap`） |
+| `sessions.ts` | セッションの一覧と 1 件、本文、検索、1 行メモ、状態、昇格、事後要約 |
+| `runs.ts` | run の起動と停止、タブ、指示へ跳ぶ、セッションから run を起こす口（resume、fork、attach、adopt、resume-here） |
+| `projects.ts` | プロジェクトの一覧と 1 件、状態、置き場の選び直し、作成と登録 |
+| `todos.ts` | TODO |
+| `memos.ts` | プロジェクトのメモ |
+| `artifacts.ts` | アーティファクト |
+| `prompt.ts` | 初期プロンプト欄の候補と添付（`/prompt`、`/drops`） |
+| `settings.ts` | 設定 |
+| `retention.ts` | Claude Code の保持期間 |
+| `sync.ts` | 同期の状態と操作、端末の一覧、クラウドの使用量 |
+| `usage.ts` | statusline の受け口と使用量 |
+| `system.ts` | 索引の作り直し、準備の確かめ、互換、要約器 |
+
+依存の渡し方は次のとおりである。
+
+- 各ファイルは `xxxRoutes(api, deps)` の形の関数を 1 つ出し、渡された `/api` の Hono に経路を足す。
+- `deps` の型は、`AppDeps` から自分が使う項目だけを `Pick` した狭い型である（例：`RetentionRouteDeps` は `retention` の 1 項目）。そのファイルが何に触れるかが、型で読める。
+- `createApp` は `AppDeps` をそのまま各関数へ渡す。狭い型への絞り込みは型の上だけで、束を組み替えない。
+- 依存を足すときは、`deps.ts` の `AppDeps` に 1 項目を足し、使うファイルの `Pick` に名前を足す。
+
+同じメソッドで同じパスに当たる経路の組は作らない。
+そのため、経路の当たり方は登録の順に依らない。
+順が効くのは、`/api` の先頭に置く認証と、`/api` と `/mcp` の後に置く UI の配り（`/` と `/assets/*`）だけである。
+
+試験は経路のファイルの隣（`routes/*.test.ts`）に置き、`testDeps()` で依存を組んで `createApp` を通して叩く。
+`app.test.ts` には、組み立て全体を見る試験（認証、本文の検査、MCP と UI の配り、アカウントの取り付け）だけを残す。
 
 ### 認証
 
