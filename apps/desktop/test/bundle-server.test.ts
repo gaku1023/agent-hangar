@@ -123,7 +123,9 @@ describe.skipIf(!host)('bundleServer', () => {
     if (!onWindows) expect(fs.statSync(path.join(out, 'bin/hangar')).mode & 0o111).not.toBe(0);
     expect(fs.existsSync(path.join(out, 'ui/assets/index.js'))).toBe(true);
     const m = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
-    expect(m).toMatchObject({ version: '0.1.0', nodeMajor: Number(process.versions.node.split('.')[0]), arch: process.arch });
+    // 版は apps/desktop/package.json のもの。版を上げるたびにここを直さなくて済むよう、決め打ちしない。
+    const desktopVersion = JSON.parse(fs.readFileSync(path.join(repoRoot, 'apps/desktop/package.json'), 'utf8')).version;
+    expect(m).toMatchObject({ version: desktopVersion, nodeMajor: Number(process.versions.node.split('.')[0]), arch: process.arch });
     expect(host).toBe(`${process.platform}-${process.arch}`);
     expect(typeof m.builtAt).toBe('string');
     const js = fs.readFileSync(path.join(out, 'server.mjs'), 'utf8');
