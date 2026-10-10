@@ -35,7 +35,7 @@ export const listJa: AreaDictionary<typeof listKeys> = {
   'list.live.waiting': '入力待ち',
   'list.live.running': '実行中',
   'list.live.ended': '終了',
-  'list.hint.unread': '「{token}」は条件として読めないので、語として本文を探しています。{how}。',
+  'list.hint.unread': '「{token}」は条件として読めないので、語としてトランスクリプトを検索しています。{how}。',
   'list.hint.is': 'is: の後は paused・done・archived・active・proposed・running・waiting のどれかです',
   'list.hint.since': 'since: の後は 7d のように日数と d を書きます',
   'list.hint.project': 'その名前で始まるプロジェクトがありません',

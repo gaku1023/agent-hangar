@@ -15,7 +15,7 @@ export const summaryJa: AreaDictionary<typeof summaryKeys> = {
   'summary.lmstudio.notJson': '本文が JSON ではありません',
   'summary.lmstudio.badShape': '本文がスキーマの形ではありません',
   'summary.engine.unavailable': '使えません（接続できないか、上限に達しています）',
-  'summary.error.noTranscript': '本文がありません',
+  'summary.error.noTranscript': 'トランスクリプトがありません',
   'summary.error.noEngine': '要約器がありません',
   'summary.input.omitted': '[... {n} 件を省略 ...]',
   'summary.input.running': 'このセッションは現在も実行中です。',

@@ -29,7 +29,7 @@ describe('この PC で再開', () => {
     try { t.run(); } catch (e) { thrown = e; }
     expect(thrown).toBeInstanceOf(RunError);
     expect((thrown as RunError).status).toBe(400);
-    expect((thrown as RunError).message).toBe('このセッションの本文がありません');
+    expect((thrown as RunError).message).toBe('このセッションのトランスクリプトがありません');
     expect(t.calls).toEqual([]);
   });
 

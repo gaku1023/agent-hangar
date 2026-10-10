@@ -45,7 +45,7 @@ export const rowJa: AreaDictionary<typeof rowKeys> = {
   'row.menu.changeDate': '日を変える',
   'row.menu.dismiss': '却下',
   'row.menu.stateLabel': '{name} の状態',
-  'row.gone.label': '要約のみ。本文は Claude Code の保持期間で削除されたとみられます',
+  'row.gone.label': '要約のみ。トランスクリプトは Claude Code の保持期間で削除されたとみられます',
   'row.conversation.note': '会話で承認',
   'row.soon.delete': 'まもなく削除',
   'row.empty.default': 'セッションはまだありません',

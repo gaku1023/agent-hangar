@@ -60,7 +60,7 @@ const items: TranscriptItem[] = [
 describe('本文の中の検索の欄（S1）', () => {
   it('右上に浮く欄に、件数と前へ次へと大文字小文字と閉じるを並べる', () => {
     draw(items, findOf(items, 'バリデーション', 1));
-    const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
+    const box = screen.getByRole('searchbox', { name: 'トランスクリプト内を検索' });
     expect(box).toHaveValue('バリデーション');
     expect(box.closest('.tr-find')).not.toBeNull();
     expect(screen.getByText('2 / 5')).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe('本文の中の検索の欄（S1）', () => {
   });
   it('打つと語と見ていた行を覚え、⏎ で次、⇧⏎ で前、esc で閉じる。Mediator には検索のことを送らない', () => {
     const t = draw(items, findOf(items, ''));
-    const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
+    const box = screen.getByRole('searchbox', { name: 'トランスクリプト内を検索' });
     fireEvent.change(box, { target: { value: 'バリ' } });
     expect(t.finds.get('s1')).toEqual({ query: 'バリ', caseSensitive: false, from: 0, step: 0, n: 1 });
     expect(screen.getByText('1 / 5')).toBeInTheDocument();
@@ -91,7 +91,7 @@ describe('本文の中の検索の欄（S1）', () => {
     const t = draw(items, findOf(items, 'バリデーション', 1));
     t.unmount();
     render(<ActionRoot onAction={vi.fn()}><FindRoot store={t.finds}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={false} live={false} remaining={0} /></FindRoot></ActionRoot>);
-    const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
+    const box = screen.getByRole('searchbox', { name: 'トランスクリプト内を検索' });
     expect(box).toHaveValue('バリデーション');
     expect(box).toHaveFocus();
     expect(screen.getByText('2 / 5')).toBeInTheDocument();
@@ -105,7 +105,7 @@ describe('本文の中の検索の欄（S1）', () => {
   });
   it('開くたびに欄へフォーカスする', () => {
     const t = draw(items, findOf(items, 'x', 0, 1));
-    const box = screen.getByRole('searchbox', { name: '本文の中を探す' });
+    const box = screen.getByRole('searchbox', { name: 'トランスクリプト内を検索' });
     expect(box).toHaveFocus();
     box.blur();
     t.redraw({ find: findOf(items, 'x', 0, 2) });

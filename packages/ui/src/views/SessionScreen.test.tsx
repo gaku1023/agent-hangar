@@ -184,8 +184,8 @@ describe('見出しの段（A1、C1）', () => {
     expect(resume).toHaveAttribute('aria-disabled', 'true');
     fireEvent.click(resume);
     expect(onAction).not.toHaveBeenCalled();
-    expect(resume).toHaveAttribute('title', '本文がありません');
-    expect(resume).toHaveAccessibleDescription('本文がありません');
+    expect(resume).toHaveAttribute('title', 'トランスクリプトがありません');
+    expect(resume).toHaveAccessibleDescription('トランスクリプトがありません');
   });
   it('主の操作の名前は .btn-label に入れ、狭い窓では見出しの行（PageHeading の fitRow）が印だけに縮められる', () => {
     render(<ActionRoot onAction={() => {}}><SS {...base} /></ActionRoot>);
@@ -805,7 +805,7 @@ describe('SessionScreen の読む面の印', () => {
 });
 
 describe('SessionScreen（本文が消えた会話）', () => {
-  const gone = { note: '本文は、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 };
+  const gone = { note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 };
   const props = { ...base, hasTranscript: false, items: [], total: 0, loaded: 0, hasMore: false, turnRows: [], canResume: false, canFork: false, gone, lead: leadOf({ hasTranscript: false }, { gone: true }) };
   it('注記と要約のみの印を出し、延ばす手を添え、本文の欄と目次は出さない', () => {
     const onAction = vi.fn();

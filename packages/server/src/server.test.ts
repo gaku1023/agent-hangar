@@ -151,7 +151,7 @@ describe('startServer', () => {
       // 経路が copyTranscriptForResume まで繋がっていることを、~/.claude を書き換えない側から確かめる。
       const r = await api('/api/sessions/nope/resume-here', { method: 'POST', body: JSON.stringify({ overwrite: false }) });
       expect(r.status).toBe(400);
-      expect(await r.json()).toEqual({ error: 'このセッションの本文がありません' });
+      expect(await r.json()).toEqual({ error: 'このセッションのトランスクリプトがありません' });
     });
 
     it('起動でヘッダのファイルを用意する。~/.agent-hangar を消しても使用量が静かに止まらない', () => {

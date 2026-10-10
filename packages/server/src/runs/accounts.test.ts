@@ -132,7 +132,7 @@ describe('switchAccount（run の寿命は偽物）', () => {
     const cases: [Parameters<typeof host>[0], string, number, string][] = [
       [{ alive: true }, 'nope', 400, 'アカウントが見つかりません'],
       [{ alive: true }, 'primary', 409, 'このセッションはもうそのアカウントで動いています'],
-      [{ alive: true, body: false }, a.id, 400, 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください'],
+      [{ alive: true, body: false }, a.id, 400, 'このセッションにはまだトランスクリプトがありません。そのアカウントで新しいセッションを始めてください'],
       [{ alive: true, cwdOk: false }, a.id, 400, 'ディレクトリが見つかりません: x'],
       [{ alive: true, background: true }, a.id, 409, 'バックグラウンドのセッションは、アカウントを切り替えられません。止めてから、そのアカウントで再開してください'],
       [{ alive: false, liveFor: 99 }, a.id, 409, 'このセッションは hangar の外で実行中です'],

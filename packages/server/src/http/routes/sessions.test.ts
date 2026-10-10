@@ -69,7 +69,7 @@ describe('routes', () => {
     }
     const r = await get(`/api/sessions/${alpha.id}/events`);
     expect(r.status).toBe(404);
-    expect(await r.json()).toEqual({ error: 'このセッションの本文はこの PC にありません' });
+    expect(await r.json()).toEqual({ error: 'このセッションのトランスクリプトはこの PC にありません' });
   });
   it('GET /api/sessions/:id/live はライブの要約を返し、無いセッションは 404', async () => {
     const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;

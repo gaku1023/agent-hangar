@@ -414,7 +414,7 @@ describe('SessionRows の本文の期限', () => {
   it('消えかけにはチップ、消えた会話には文字の無い印を出す', () => {
     render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[{ ...row('a'), transcript: 'expiring' }, { ...row('b'), transcript: 'gone' }, { ...row('c'), transcript: 'none' }]} height={400} variant="recent" /></ActionRoot>);
     expect(screen.getByText('まもなく削除')).toBeInTheDocument();
-    expect(screen.getAllByRole('img', { name: '要約のみ。本文は Claude Code の保持期間で削除されたとみられます' })).toHaveLength(1);
+    expect(screen.getAllByRole('img', { name: '要約のみ。トランスクリプトは Claude Code の保持期間で削除されたとみられます' })).toHaveLength(1);
   });
   it('印は行の高さを持たない', () => {
     for (const sel of ['.row-soon', '.row-gone']) {

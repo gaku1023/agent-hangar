@@ -506,7 +506,7 @@ describe('設定の連携', () => {
     it('準備の確かめが届く前は、本文の下に「確かめています」と出し、札は出さない', () => {
       render(ui(at('integrations', { compat: null })));
       expect(within(section()).getByText('確かめています')).toBeInTheDocument();
-      expect(section()).toHaveTextContent('hangar は Claude Code の会話の記録、状態のファイル、statusline、~/.claude の項目、CLI の出力、画面の文字を読んでいます。知らない形に出会ったら、ここに出します。');
+      expect(section()).toHaveTextContent('hangar は Claude Code のトランスクリプト、状態のファイル、statusline、~/.claude の項目、CLI の出力、画面の文字を読んでいます。知らない形に出会ったら、ここに出します。');
     });
     it('問題なしは緑の札で、手元の版と確かめた版を出す', () => {
       render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })));
@@ -528,7 +528,7 @@ describe('設定の連携', () => {
       const sec = within(section());
       expect(sec.getByText('ずれ 3 件')).toHaveAttribute('data-tone', 'warn');
       expect(sec.getByText('知らない形に頼る機能だけを止め、ほかは動かしています。')).toBeInTheDocument();
-      expect(within(sec.getByRole('list', { name: '止めた機能' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['ターンの目次から端末の指示へ跳ぶのを止めています', '休んでいるセッションを自動で止めるのを控えています']);
+      expect(within(sec.getByRole('list', { name: '止めた機能' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['ターンの目次から端末の指示へ跳ぶのを止めています', '休んでいるセッションを自動で止めるのを無効にしています']);
       const more = sec.getByText('ずれ 3 件の中身').closest('details')!;
       expect(more).not.toHaveAttribute('open');
       expect(within(more).getAllByRole('row')).toHaveLength(4);
