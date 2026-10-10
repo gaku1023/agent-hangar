@@ -104,28 +104,28 @@ describe('openInTerminalApp（Windows）', () => {
     const r = await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-ab12cd34', app: 'windowsTerminal', exec: winExec() });
     expect(r).toEqual({ app: 'windowsTerminal', fellBack: false });
     // 引数は配列のまま渡す。空白や日本語の引用は Node が Windows の規則で付ける。
-    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '--', PSMUX, 'attach', '-t', '=hangar-ab12cd34'], verbatim: undefined }]);
+    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '--title', 'hangar-ab12cd34', '--suppressApplicationTitle', '--', PSMUX, 'attach', '-t', '=hangar-ab12cd34'], verbatim: undefined }]);
     // 何もファイルを書かない。
     expect(fs.existsSync(path.join(home, 'cmd'))).toBe(false);
   });
   it('Windows Terminal に渡す空白と日本語の名前は 1 つの引数のまま、; は wt の区切りにならないよう \\; にする', async () => {
     await openInTerminalApp({ home, tmuxPath: 'C:\\Program Files\\psmux\\psmux.exe', tmuxName: '作業 1;2', app: 'windowsTerminal', exec: winExec() });
-    expect(seen[0]!.args).toEqual(['-w', '0', 'new-tab', '--', 'C:\\Program Files\\psmux\\psmux.exe', 'attach', '-t', '=作業 1\\;2']);
+    expect(seen[0]!.args).toEqual(['-w', '0', 'new-tab', '--title', '作業 1\\;2', '--suppressApplicationTitle', '--', 'C:\\Program Files\\psmux\\psmux.exe', 'attach', '-t', '=作業 1\\;2']);
   });
   it('既定のターミナルは cmd /c start で新しい窓を開き、パスと名前を二重引用符で包む', async () => {
     const r = await openInTerminalApp({ home, tmuxPath: 'C:\\Program Files\\psmux\\psmux.exe', tmuxName: '日本語 の セッション', app: 'windowsDefault', exec: winExec() });
     expect(r).toEqual({ app: 'windowsDefault', fellBack: false });
-    // start の最初の引用は窓の題名と読まれるので、空の "" を先に置く。
+    // start の最初の引用は窓の題名と読まれる。題名を渡さないときは tmux の名前を置く（空にすると窓の題名が実行ファイルのパスになる）。
     // 引数は Node に引用させず、そのまま cmd.exe に渡す（Node の \" は cmd.exe に通じない）。
     expect(seen).toEqual([{
       cmd: 'cmd.exe',
-      args: ['/d', '/v:off', '/s', '/c', '"start "" "C:\\Program Files\\psmux\\psmux.exe" attach -t "=日本語 の セッション""'],
+      args: ['/d', '/v:off', '/s', '/c', '"start "日本語 の セッション" "C:\\Program Files\\psmux\\psmux.exe" attach -t "=日本語 の セッション""'],
       verbatim: true,
     }]);
   });
   it('既定のターミナルでは、cmd.exe が引用符の中でも読む % を引用の外へ出して ^ で消す', async () => {
     await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'a%PATH%b & c', app: 'windowsDefault', exec: winExec() });
-    expect(seen[0]!.args[4]).toBe(`"start "" "${PSMUX}" attach -t "=a"^%"PATH"^%"b & c""`);
+    expect(seen[0]!.args[4]).toBe(`"start "a"^%"PATH"^%"b & c" "${PSMUX}" attach -t "=a"^%"PATH"^%"b & c""`);
   });
   it('Windows Terminal が無ければ既定のターミナルに落とし、落ちたことを返す', async () => {
     const r = await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', app: 'windowsTerminal', exec: winExec({ 'wt.exe': 1 }) });
@@ -141,19 +141,46 @@ describe('openInTerminalApp（Windows）', () => {
     await expect(openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'a\nb', app: 'windowsTerminal', exec: winExec() })).rejects.toThrow(/開けません/);
     expect(seen).toEqual([]);
   });
+  // 題名を付けないと、Windows Terminal のタブも既定のターミナルの窓も、起こした実行ファイルのフルパスが題名になる。
+  it('題名を渡すと、Windows Terminal は --title と --suppressApplicationTitle で、既定のターミナルは start の最初の引用で付ける', async () => {
+    const tmuxPath = 'C:\\Program Files\\psmux\\psmux.exe';
+    await openInTerminalApp({ home, tmuxPath, tmuxName: 'hangar-x', title: '日本語 の 作業 1;2', app: 'windowsTerminal', exec: winExec() });
+    expect(seen[0]!.args).toEqual(['-w', '0', 'new-tab', '--title', '日本語 の 作業 1\\;2', '--suppressApplicationTitle', '--', tmuxPath, 'attach', '-t', '=hangar-x']);
+    seen = [];
+    await openInTerminalApp({ home, tmuxPath, tmuxName: 'hangar-x', title: '日本語 の 作業 1;2', app: 'windowsDefault', exec: winExec() });
+    expect(seen[0]!.args[4]).toBe(`"start "日本語 の 作業 1;2" "${tmuxPath}" attach -t "=hangar-x""`);
+  });
+  it('題名の " と改行と制御文字は断らずに潰し、% は引用の外へ出し、- で始まる題名はオプションと読まれないようにする', async () => {
+    await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', title: 'say "hi"\r\n 50%\tdone', app: 'windowsDefault', exec: winExec() });
+    expect(seen[0]!.args[4]).toBe(`"start "say 'hi' 50"^%" done" "${PSMUX}" attach -t "=hangar-x""`);
+    seen = [];
+    await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', title: '--help', app: 'windowsTerminal', exec: winExec() });
+    expect(seen[0]!.args.slice(3, 5)).toEqual(['--title', ' --help']);
+  });
+  it('長すぎる題名は切り、空の題名は tmux の名前に落とす', async () => {
+    await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', title: '長'.repeat(200), app: 'windowsTerminal', exec: winExec() });
+    expect(seen[0]!.args[4]).toBe('長'.repeat(80));
+    seen = [];
+    await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', title: '  \n ', app: 'windowsTerminal', exec: winExec() });
+    expect(seen[0]!.args[4]).toBe('hangar-x');
+  });
+  it('フォルダを開く題名は、末尾の \\ を除いたフォルダ名にする（日本語と空白もそのまま）', async () => {
+    await openDirInTerminalApp({ home, dir: 'D:\\work space\\日本語 の 作業\\', app: 'windowsDefault', exec: winExec() });
+    expect(seen[0]!.args[4]).toBe('"start "日本語 の 作業" /D "D:\\work space\\日本語 の 作業" powershell.exe -NoLogo"');
+  });
   it('フォルダを開くとき、Windows Terminal は -d でそのフォルダの新しいタブを開く', async () => {
     const r = await openDirInTerminalApp({ home, dir: 'D:\\work space\\日本語', app: 'windowsTerminal', exec: winExec() });
     expect(r).toEqual({ app: 'windowsTerminal', fellBack: false });
-    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '-d', 'D:\\work space\\日本語'], verbatim: undefined }]);
+    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '--title', '日本語', '--suppressApplicationTitle', '-d', 'D:\\work space\\日本語'], verbatim: undefined }]);
   });
   it('フォルダを開くとき、既定のターミナルは start /D でそのフォルダの PowerShell を開く', async () => {
     await openDirInTerminalApp({ home, dir: 'D:\\work space\\日本語\\', app: 'windowsDefault', exec: winExec() });
     // 末尾の \ は取る。"…\" の \" を引用の終わりと読み違える道具がある。
-    expect(seen).toEqual([{ cmd: 'cmd.exe', args: ['/d', '/v:off', '/s', '/c', '"start "" /D "D:\\work space\\日本語" powershell.exe -NoLogo"'], verbatim: true }]);
+    expect(seen).toEqual([{ cmd: 'cmd.exe', args: ['/d', '/v:off', '/s', '/c', '"start "日本語" /D "D:\\work space\\日本語" powershell.exe -NoLogo"'], verbatim: true }]);
   });
   it('ドライブの直下は末尾の \\ を残す', async () => {
     await openDirInTerminalApp({ home, dir: 'C:\\', app: 'windowsDefault', exec: winExec() });
-    expect(seen[0]!.args[4]).toBe('"start "" /D "C:\\" powershell.exe -NoLogo"');
+    expect(seen[0]!.args[4]).toBe('"start "C:\\" /D "C:\\" powershell.exe -NoLogo"');
   });
 });
 

@@ -90,6 +90,17 @@ describe('routes', () => {
     expect((await post('/api/runs/dead/jump', { heads: ['a'], index: 0, from: 'top' })).status).toBe(409);
     expect(await (await post('/api/runs/r1/leave-transcript')).json()).toEqual({ left: true });
   });
+  // Windows のタブや窓の題名に、セッション名を渡す。渡さないと題名が psmux.exe のフルパスになる。
+  it('ターミナルで開くとき、セッション名を題名として渡し、シェルタブには名前の後ろにタブの題名を添える', async () => {
+    const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+    const alpha = db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string };
+    db.prepare('update sessions set custom_title = ? where id = ?').run('日本語の 作業', alpha.id);
+    vi.mocked(runs.getRun).mockImplementation((id: string) => (id === 'r1' ? { ...run, sessionId: alpha.id } : null));
+    await post('/api/runs/r1/open-terminal', {});
+    expect(external.openTerminal).toHaveBeenLastCalledWith({ tmuxName: 'hangar-r1', title: '日本語の 作業' });
+    await post('/api/runs/r1/open-terminal', { tabId: 't1' });
+    expect(external.openTerminal).toHaveBeenLastCalledWith({ tmuxName: 'hangar-r1-t1', title: '日本語の 作業 (シェル 1)' });
+  });
   it('ターミナルで開く、VS Code で開く', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     expect(await (await post('/api/runs/r1/open-terminal', { tabId: 't1' })).json()).toEqual({ app: 'terminal', fellBack: false });

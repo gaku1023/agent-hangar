@@ -1,4 +1,5 @@
 import * as pty from 'node-pty';
+import { createPtyCloser } from './close.ts';
 import { ensureSpawnHelper } from './helper.ts';
 import type { PtySpawn } from './relay.ts';
 
@@ -8,12 +9,15 @@ ensureSpawnHelper();
 /** 本物の node-pty。テストでは偽の spawn を渡すので、このファイルはサーバ起動時にだけ読まれる。 */
 export const nodePtySpawn: PtySpawn = (file, args, opts) => {
   const p = pty.spawn(file, args, { name: opts.name, cols: opts.cols, rows: opts.rows, cwd: opts.cwd, env: opts.env as Record<string, string> });
+  // Windows の kill は node-pty の補助のプロセスが "AttachConsole failed" を出す競合を持つので、閉じ方を close.ts に任せる。
+  const closer = createPtyCloser({ pid: p.pid, hardKill: () => p.kill(), killPid: (pid) => process.kill(pid) });
+  p.onExit(() => closer.markExited());
   return {
     pid: p.pid,
     onData: (cb) => { p.onData(cb); },
     onExit: (cb) => { p.onExit((e) => cb({ exitCode: e.exitCode })); },
     write: (d) => p.write(d),
     resize: (c, r) => p.resize(c, r),
-    kill: () => p.kill(),
+    kill: () => closer.close(),
   };
 };
