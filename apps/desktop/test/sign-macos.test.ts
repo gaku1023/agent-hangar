@@ -397,6 +397,9 @@ describe.skipIf(!posix)('証明書を作る台本', () => {
           const logA = sh('sudo', ['-n', 'security', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'codeSign', '-k', '/Library/Keychains/System.keychain', cer]);
           const validA = sh('security', ['find-identity', '-v', '-p', 'codesigning', kc]);
           const logB = '';
+          const prev = spawnSync('security', ['list-keychains', '-d', 'user'], { encoding: 'utf8' }).stdout.split('\n').map((l) => l.trim().replace(/^"|"$/g, '')).filter(Boolean);
+          const logL = sh('security', ['list-keychains', '-d', 'user', '-s', kc, ...prev]);
+          console.log(`LISTEXP\n${logL}\n${sh('security', ['list-keychains', '-d', 'user'])}`);
           console.log(`TRUSTEXP\n${logA}\n${validA}\n${logB}`);
         }
         const diag = (): string => ['find-identity -p codesigning', 'find-identity', 'list-keychains -d user', 'show-keychain-info'].map((a) => { const x = spawnSync('security', [...a.split(' '), ...(a.startsWith('find') || a.startsWith('show') ? [kc] : [])], { encoding: 'utf8' }); return `$ security ${a}\n${x.stdout}${x.stderr}`; }).join('\n');
