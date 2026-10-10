@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "hangar-desktop"
-version = "0.2.0-rc.3"
+version = "0.2.0-rc.4"
 dependencies = [
  "block2",
  "libc",
