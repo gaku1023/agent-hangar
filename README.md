@@ -42,25 +42,23 @@ Homebrew なら、Node 22 と tmux はまとめて入ります。
 brew install node@22 tmux
 ```
 
-`node@22` は keg-only（Homebrew が既定の場所へリンクしない入れ方）なので、入れただけでは `node` コマンドが PATH に出ません。
-アプリは PATH を見ずに、Settings で指定したパス、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、nvm の入れた Node（新しい版から）の順に探し、同梱サーバと同じメジャー版で同じアーキテクチャのものだけを使います。
-そのため、アプリに見つけさせるには、`/opt/homebrew/bin` へリンクします。
+これだけで足ります。
+アプリと `hangar` コマンドは PATH を見ずに、決まった場所から Node を探し、同梱サーバと同じメジャー版で同じアーキテクチャのものだけを使います。
+探す場所には Homebrew の `node@22` の入れ先（`/opt/homebrew/opt/node@22`）が入っているので、`brew link` は要りません。
 
-```sh
-brew link --overwrite --force node@22
-```
+nvm、fnm、Volta、mise、asdf、nodenv で入れた Node 22 も、そのまま見つけます。
+探す順は、Settings で指定したパス、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の `node@` の入れ先、nvm、fnm、Volta、mise、asdf、nodenv（それぞれ新しい版から）です。
 
-別の `node` を既に入れているなら、リンクで置き換わります。
-置き換えたくないときは、Settings 画面の「Node のパス」か `~/.agent-hangar/settings.json` の `nodePath` に `/opt/homebrew/opt/node@22/bin/node` を指定します。
+これら以外の場所に入れたときは、Settings 画面の「Node のパス」か `~/.agent-hangar/settings.json` の `nodePath` にその `node` のパスを指定します。
+`/opt/homebrew/bin/node` へリンクして見つけさせる手もあります（`brew link --overwrite --force node@22`。別の `node` を入れていれば置き換わります）。
 
-端末で `node` を使うときのために、PATH にも通しておくと便利です（zsh の例です）。
-アプリの探索には効きません。
+`node@22` は keg-only（Homebrew が既定の場所へリンクしない入れ方）なので、端末で `node` を使うには PATH に通します（zsh の例です）。
+アプリの探索には関わりません。
 
 ```sh
 echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zshrc
 ```
 
-nvm を使っているなら、`nvm install 22` でもかまいません。
 `claude` の入れ方は Claude Code の案内に従ってください。
 どれが入っているかは、4 段目の `hangar setup` が報告します。
 
