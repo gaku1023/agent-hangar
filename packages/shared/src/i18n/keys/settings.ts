@@ -49,6 +49,7 @@ export const settingsKeys = {
   'settings.section.integrations': [],
   'settings.section.summary': [],
   'settings.section.tools': [],
+  'settings.section.update': [],
   'settings.section.info': [],
   'settings.common.saved': [],
   'settings.common.checking': [],

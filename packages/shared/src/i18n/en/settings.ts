@@ -50,6 +50,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.section.integrations': 'Integrations',
   'settings.section.summary': 'Summary engine',
   'settings.section.tools': 'Tools',
+  'settings.section.update': 'Updates',
   'settings.section.info': 'Info',
   'settings.common.saved': 'Saved',
   'settings.common.checking': 'Checking',

@@ -67,6 +67,33 @@ describe('tauri.conf.json', () => {
     expect(section, '[package] が見つかりません').toBeDefined();
     expect(/^version = "(.+)"$/m.exec(section!)?.[1]).toBe(pkg.version);
   });
+  // 自動更新（段 5-4）。目録は GitHub の Release の最新から引き、更新物は minisign の公開鍵で確かめる。
+  // 公開鍵は本物の鍵のもので、秘密鍵は CI の secret だけにある。
+  it('updater は Release の最新の目録を https で引き、公開鍵で更新物を確かめる', () => {
+    const u = conf.plugins.updater;
+    expect(u.endpoints).toEqual(['https://github.com/gaku1023/agent-hangar/releases/latest/download/latest.json']);
+    expect(typeof u.pubkey).toBe('string');
+    // tauri signer generate の公開鍵は、minisign の公開鍵のファイルを base64 にしたものである。
+    expect(Buffer.from(u.pubkey, 'base64').toString('utf8')).toMatch(/^untrusted comment: minisign public key: [0-9A-F]{16}\nRW[A-Za-z0-9+/=]+\n$/);
+    expect(u.windows).toEqual({ installMode: 'passive' });
+    // 危ない緩めは入れない。
+    expect(u.dangerousInsecureTransportProtocol).toBeUndefined();
+    expect(u.dangerousAcceptInvalidCerts).toBeUndefined();
+    expect(u.allowDowngrades).toBeUndefined();
+  });
+  // 更新物の署名には秘密鍵が要る。手元と ci の build は鍵を持たないので、更新物づくりは release.yml が --config で入れる。
+  it('更新物づくり（createUpdaterArtifacts）は設定に書かず、release.yml だけが入れる', () => {
+    expect(conf.bundle.createUpdaterArtifacts).toBeUndefined();
+    // 重ねる側は更新物づくりだけを入れる。
+    expect(JSON.parse(read('src-tauri/tauri.updater.conf.json'))).toEqual({ $schema: 'https://schema.tauri.app/config/2', bundle: { createUpdaterArtifacts: true } });
+    const release = fs.readFileSync(path.resolve(app, '../../.github/workflows/release.yml'), 'utf8');
+    const action = fs.readFileSync(path.resolve(app, '../../.github/actions/windows-installer/action.yml'), 'utf8');
+    expect(release).toContain('--config src-tauri/tauri.updater.conf.json');
+    expect(action).toContain("'--config', 'src-tauri/tauri.updater.conf.json'");
+    expect(release).toContain('secrets.TAURI_SIGNING_PRIVATE_KEY');
+    expect(release).toContain('secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD');
+    expect(release).toContain('latest.json');
+  });
 });
 
 describe('Info.plist', () => {
@@ -173,8 +200,8 @@ describe('読み込み画面', () => {
 describe('capabilities', () => {
   const dir = path.join(app, 'src-tauri', 'capabilities');
   const cap = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択と、設定の同期の適用の 7 つだけ', () => {
-    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-config-apply.json', 'remote-drag.json', 'remote-notify.json', 'remote-pick-folder.json', 'remote-shell.json']);
+  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択と、設定の同期の適用と、更新の 8 つだけ', () => {
+    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-config-apply.json', 'remote-drag.json', 'remote-notify.json', 'remote-pick-folder.json', 'remote-shell.json', 'remote-update.json']);
   });
   it('既定の権限は core:default のまま変えない', () => {
     expect(cap('default.json').permissions).toEqual(['core:default']);
@@ -203,6 +230,7 @@ describe('capabilities', () => {
     expect(cap('remote-shell.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-pick-folder.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-config-apply.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
+    expect(cap('remote-update.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
   });
   // 殻のコマンドの名前は、殻（build.rs と lib.rs）と画面（notifier.ts）に分かれている。
   // 片方だけ変えると、通知が黙って出なくなる。
@@ -245,6 +273,14 @@ describe('capabilities', () => {
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
     expect(c.permissions).toEqual(['allow-apply-config-sync', 'allow-restore-config-sync']);
   });
+  // 更新は殻の 4 つの命令だけで行う。プラグインの JS の権限（updater:default）は与えず、目録の URL も頁からは変えられない。
+  it('UI の出どころには、更新の確認、進み、取得、インストールの 4 つだけを別に与える', () => {
+    const c = cap('remote-update.json');
+    expect(c.windows).toEqual(['main']);
+    expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
+    expect(c.permissions).toEqual(['allow-update-status', 'allow-update-check', 'allow-update-download', 'allow-update-install']);
+    for (const f of fs.readdirSync(dir)) expect(JSON.stringify(cap(f))).not.toContain('updater:');
+  });
   it('設定の同期の命令は、確認を出してから CLI を走らせ、書く操作を殻の中で完結させない', () => {
     const lib = read('src-tauri/src/lib.rs');
     // 確認を出す前に --plan で見立てだけを取り、承諾のあとにだけ --yes を渡す。
@@ -261,13 +297,14 @@ describe('capabilities', () => {
   // 入力待ちの知らせの 3 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['apply_config_sync', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot']);
+    expect(listed).toEqual(['apply_config_sync', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
     expect(ui).toContain("openLog: 'open_log'");
     expect(ui).toContain("restart: 'restart_app'");
     expect(ui).toContain("pickFolder: 'pick_folder'");
+    for (const [k, cmd] of [['status', 'update_status'], ['check', 'update_check'], ['download', 'update_download'], ['install', 'update_install']]) expect(ui).toContain(`${k}: '${cmd}'`);
     const boot = read('loading/boot.js');
     expect(boot).toContain("'retry_boot'");
     expect(boot).toContain("'open_log'");

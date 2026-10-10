@@ -96,6 +96,8 @@ const ICONS = {
   bell: Bell,
   sync: RefreshCw,
   reminder: Clock,
+  // アプリの更新（右下の札と、設定の「更新」の目次）。
+  download: Download,
 } as const satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;
