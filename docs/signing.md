@@ -112,7 +112,7 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 1. 上の台本で証明書を作る。
 2. 指紋を `apps/desktop/signing/certificate-sha1.txt` に 1 行で書き、公開の証明書（`hangar-signing.cer`）と一緒に PR に入れる。
 3. p12 とそのパスワードを、1Password に保管する（p12 は添付、パスワードは別の項目）。
-4. 同じ p12 の base64 とパスワードを、GitHub のリポジトリの secret に置く（名前は PR 5-2 で決める）。`base64 -i hangar-signing.p12 | pbcopy` のように、ファイルを画面に出さずに渡す。
+4. 同じ p12 の base64 とパスワードを、GitHub のリポジトリの secret に置く（名前は `HANGAR_SIGN_P12_BASE64` と `HANGAR_SIGN_P12_PASSWORD`）。`base64 -i hangar-signing.p12 | pbcopy` のように、ファイルを画面に出さずに渡す。
 5. 作業用のディレクトリから p12 を消す。鍵は 1Password と CI の 2 か所だけが持つ。
 6. 手元で署名する開発者は、1Password から p12 を取り出して専用のキーチェーンへ入れる。
 
@@ -121,8 +121,19 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 
 ## 状態
 
-本番の証明書はまだ無い。
-`apps/desktop/signing/certificate-sha1.txt` は値が空で、置き場だけを用意してある。
+本番の証明書は作ってある（自己署名、有効期間 20 年）。
+公開の 2 つのファイルをリポジトリに置いている。
+
+- `apps/desktop/signing/certificate-sha1.txt`：葉の証明書の指紋。
+- `apps/desktop/signing/hangar-signing.cer`：公開の証明書（DER）。
+
+2 つが食い違わないことは、`apps/desktop/test/signing-cert.test.ts` が確かめる。
+
+秘密鍵（p12）は 2 か所だけにある。
+
+- 1Password の項目「Hangar macOS signing certificate」（p12 は添付、パスワードは別の欄）。
+- GitHub のリポジトリの secret `HANGAR_SIGN_P12_BASE64`（p12 の base64）と `HANGAR_SIGN_P12_PASSWORD`（そのパスワード）。
+
 CI の署名（`release.yml`）は PR 5-2 で入れる。そこで上の `prepare-signing-keychain.sh` を呼ぶ。
 
 ## 鍵を失ったとき
