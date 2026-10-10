@@ -8,10 +8,10 @@ export function presentNewProject(state: State, store: Store): NewProjectProps |
   if (state.overlay.kind !== 'newProject') return null;
   const taken = new Set(Object.values(store.projects).map((p) => p.path).filter((p): p is string => !!p));
   return {
-    dirs: (state.workspaceDirs ?? []).filter((d) => !taken.has(d.path)),
+    dirs: (store.workspaceDirs ?? []).filter((d) => !taken.has(d.path)),
     workspaceRoot: store.settings?.workspaceRoot ?? null,
     desktop: store.desktop,
-    picked: state.pickedFolder,
+    picked: store.pickedFolder,
     submitting: state.projectCreate.kind === 'submitting',
     error: state.projectCreate.kind === 'failed' ? state.projectCreate.message : null,
   };

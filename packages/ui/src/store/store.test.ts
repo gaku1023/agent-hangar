@@ -1,10 +1,49 @@
 import { describe, expect, it } from 'vitest';
 import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { accountsFixture } from '../test/accounts.ts';
-import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applySearch, applyServerEvent, artifactsOf, currentAccount, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
+import { accountList, accountOfSession, aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+
+describe('索引の段階', () => {
+  const progress = (phase: 'idle' | 'scanning' | 'indexing') => ({ type: 'index.progress' as const, progress: { phase, done: 0, total: 0 } });
+  it('動いていた索引が idle に戻る index.progress だけを、走査の終わりと見る', () => {
+    const scanning = applyServerEvent(initialStore(), progress('scanning'));
+    expect(indexFinishedBy(scanning, progress('indexing'))).toBe(false);
+    expect(indexFinishedBy(scanning, progress('idle'))).toBe(true);
+    expect(indexFinishedBy(applyServerEvent(scanning, progress('indexing')), progress('idle'))).toBe(true);
+    // 同じ idle が続いても終わりではない。
+    expect(indexFinishedBy(initialStore(), progress('idle'))).toBe(false);
+    expect(indexFinishedBy(scanning, { type: 'ready', version: '1' })).toBe(false);
+  });
+  it('bootstrap が運んだ段階からも終わりを見つける', () => {
+    // 走査中に開いた UI は、bootstrap で段階を受け取る。その後の最初の知らせが idle でも取りこぼさない。
+    const s = applyBootstrap(initialStore(), { ...boot, index: { phase: 'scanning', done: 0, total: 0 } });
+    expect(indexFinishedBy(s, progress('idle'))).toBe(true);
+  });
+});
+
+describe('作業フォルダ', () => {
+  it('未登録の一覧は、取るまで null で、届いたら持つ', () => {
+    expect(initialStore().workspaceDirs).toBeNull();
+    const dirs = [{ name: 'a', path: '/w/a' }];
+    expect(applyWorkspaceDirs(initialStore(), dirs).workspaceDirs).toEqual(dirs);
+  });
+  it('Finder で選ばれたパスは回数を添えて持つ', () => {
+    expect(initialStore().pickedFolder).toBeNull();
+    const once = applyPickedFolder(initialStore(), '/x');
+    expect(once.pickedFolder).toEqual({ path: '/x', n: 1 });
+    // 同じパスをもう一度選んでも、回数が進むので気付ける。
+    expect(applyPickedFolder(once, '/x').pickedFolder).toEqual({ path: '/x', n: 2 });
+  });
+  it('Finder のパスは NFC にそろえ、末尾の / を落とす（根の / はそのまま）', () => {
+    const nfd = '/w/が'.normalize('NFD');
+    expect(nfd).not.toBe('/w/が');
+    expect(applyPickedFolder(initialStore(), `${nfd}/`).pickedFolder).toEqual({ path: '/w/が', n: 1 });
+    expect(applyPickedFolder(initialStore(), '/').pickedFolder).toEqual({ path: '/', n: 1 });
+  });
+});
 
 describe('store', () => {
   it('bootstrap を正規化して入れる', () => {
@@ -194,6 +233,23 @@ describe('フェーズ 3 のストア', () => {
     s = applyServerEvent(s, { type: 'summary.pending', sessionId: 's1' });
     s = applyServerEvent(s, { type: 'summary.failed', sessionId: 's1', message: 'x' });
     expect(s.summaryPending.s1).toBeUndefined();
+  });
+  it('要約の失敗は理由を残し、次の pending か updated で消える', () => {
+    let s = applyServerEvent(initialStore(), { type: 'summary.failed', sessionId: 's1', message: 'LM Studio に繋がりません' });
+    expect(s.summaryFailed).toEqual({ s1: 'LM Studio に繋がりません' });
+    s = applyServerEvent(s, { type: 'summary.pending', sessionId: 's1' });
+    expect(s.summaryFailed).toEqual({});
+    expect(s.summaryPending.s1).toBe(true);
+    s = applyServerEvent(s, { type: 'summary.failed', sessionId: 's1', message: 'x' });
+    s = applyServerEvent(s, { type: 'summary.updated', sessionId: 's1' });
+    expect(s.summaryFailed).toEqual({});
+    // 待ちも失敗も無いセッションの updated は、Store を作り直さない。
+    expect(applyServerEvent(s, { type: 'summary.updated', sessionId: 's1' })).toBe(s);
+  });
+  it('要約の失敗は bootstrap を取り直しても残る', () => {
+    // bootstrap は失敗の理由を運ばない。取り直すたびに消すと、作り直しの注記が黙って消える。
+    const s = applyServerEvent(initialStore(), { type: 'summary.failed', sessionId: 's1', message: 'x' });
+    expect(applyBootstrap(s, boot).summaryFailed).toEqual({ s1: 'x' });
   });
 });
 
