@@ -41,6 +41,16 @@ describe('hangar.cmd の作り', () => {
     // node の行は 1 つだけ。
     expect(lines.filter((l) => l.includes('launch-cli.mjs'))).toHaveLength(1);
   });
+
+  // cmd がどこにも Node を見つけられないときの文も、殻の札と launch-cli.ts と同じく winget を先に、nvm-windows を添えて案内する。
+  it('Node がどこにも無いときは、winget の命令を先に、nvm-windows を添えて案内する', () => {
+    const line = commandLines(text).find((l) => /^echo .*not found/i.test(l));
+    expect(line).toBeDefined();
+    expect(line).toContain('winget install -e --id OpenJS.NodeJS.22');
+    expect(line).toContain('nvm-windows');
+    expect(line).toContain('HANGAR_NODE');
+    expect(line!.indexOf('winget')).toBeLessThan(line!.indexOf('nvm-windows'));
+  });
 });
 
 /** 一時の束の形（bin\hangar.cmd と、束の根の launch-cli.mjs）を作る。launch-cli.mjs は試験ごとの中身に替える。 */

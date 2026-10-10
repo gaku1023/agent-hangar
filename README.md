@@ -458,7 +458,9 @@ Windows では、ターミナルで打った `claude` を hangar に載せる包
    署名していないので、SmartScreen が「Windows によって PC が保護されました」と出します。
    そのときは「詳細情報」を押して「実行」を選びます。
    管理者権限は要らず、`%LOCALAPPDATA%\Hangar` に入ります。
-4. Node 22 を入れます（公式のインストーラか nvm-windows）。
+4. Node 22 を入れます。
+   PowerShell で `winget install -e --id OpenJS.NodeJS.22` を打つのがいちばん手早い入れ方です（公式のインストーラが入ります）。
+   nvm-windows を使うなら、`nvm install 22` で入れた版も見つけます。
    Node は同梱していません。
 
 ### psmux を入れる

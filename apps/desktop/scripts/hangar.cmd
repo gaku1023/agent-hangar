@@ -18,7 +18,7 @@ where node >nul 2>nul
 if not errorlevel 1 set "HANGAR_NODE=node" & goto run
 if exist "%ProgramFiles%\nodejs\node.exe" set "HANGAR_NODE=%ProgramFiles%\nodejs\node.exe" & goto run
 if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "HANGAR_NODE=%LOCALAPPDATA%\Programs\nodejs\node.exe" & goto run
-echo Node.js was not found. Install Node 22, or set HANGAR_NODE to the full path of node.exe. 1>&2
+echo Node.js was not found. Install Node 22 with "winget install -e --id OpenJS.NodeJS.22" in PowerShell, or with nvm-windows ("nvm install 22"). If it is somewhere else, set HANGAR_NODE to the full path of node.exe. 1>&2
 exit /b 1
 :run
 rem The batch must be over before node starts. Otherwise, after Ctrl+C stops node, cmd asks

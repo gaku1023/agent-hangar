@@ -134,5 +134,7 @@ describe('CI の段', () => {
     expect(ps).toContain('$env:ProgramFiles = ');
     expect(ps).toContain('$env:ProgramW6432 = ');
     expect(ps).toContain('boot-probe-check.ts');
+    // Windows の札は、winget の命令（node.rs の winget_command）を案内していることまで見る。
+    expect(ps).toMatch(/--detail '[^']*winget install -e --id OpenJS\\\.NodeJS\\\.\[0-9\]\+'/);
   });
 });

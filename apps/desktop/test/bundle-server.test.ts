@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BUNDLE_TARGETS, buildLauncher, bundleServer, hostBundleTarget, NATIVE_MODULES, type BundleTarget } from '../scripts/bundle-server.ts';
-import { chooseNode, describeNotFound, type ProbeResult, windowsNodeCandidates } from '../scripts/launch-cli.ts';
+import { chooseNode, cliLanguage, describeNotFound, type ProbeResult, WINGET_NODE, windowsNodeCandidates } from '../scripts/launch-cli.ts';
 import { bundleWorker, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -684,11 +684,26 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
   it('どの候補も合わなければ、探した Node と次の一手を述べて exit 1 になる', async () => {
     const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
     const home = emptyDirFor('hangar home-');
+    // 文の言語は設定か OS の言語で決まる。この機械の言語に左右されないよう、設定で日本語に決める。
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ language: 'ja' }));
     const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain(`Node 99（${process.arch}）が見つかりません`);
+    expect(r.stderr).toContain('winget install -e --id OpenJS.NodeJS.99');
     expect(r.stderr).toContain('HANGAR_NODE');
     expect(r.stderr).toContain(path.join(home, 'settings.json'));
+  });
+
+  it('設定の言語が英語なら、見つからないときの文も英語で述べる', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const home = emptyDirFor('hangar home-');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ language: 'en' }));
+    const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(`Node 99 (${process.arch}) was not found.`);
+    expect(r.stderr).toContain('winget install -e --id OpenJS.NodeJS.99');
+    expect(r.stderr).toContain('nvm install 99');
+    expect(r.stderr).not.toContain('見つかりません');
   });
 
   it('manifest.json が無ければ、何が起きたかを述べて止まる', async () => {
@@ -729,7 +744,7 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
     const home = emptyDirFor('hangar home-');
     const missing = path.join(emptyDirFor('hangar nodes-'), 'none', 'node.exe');
-    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: missing }));
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: missing, language: 'ja' }));
     const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain(`いま動いている Node：${major}（${process.arch}）`);
@@ -805,6 +820,63 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     it('候補が 1 つも無ければ、そう述べる', () => {
       const text = describeNotFound({ nodeMajor: 22, arch: 'x64' }, { path: 'node', result: { major: 24, arch: 'x64' } }, [], 'settings.json');
       expect(text).toContain('調べた場所はありません');
+    });
+    // 次の一手は、winget の 1 行を先に案内し、nvm-windows はほかの入れ方として添える。殻の札（node.rs の not_found_winget_*）と同じ命令である。
+    it('入れ方は winget を先に、nvm-windows を添えて案内し、ほかの場所なら HANGAR_NODE か nodePath を指す', () => {
+      const text = describeNotFound({ nodeMajor: 22, arch: 'x64' }, { path: 'node', result: { major: 24, arch: 'x64' } }, [], 'C:\\s\\settings.json');
+      const lines = text.trimEnd().split('\n');
+      const winget = lines.findIndex((l) => l.includes('winget install -e --id OpenJS.NodeJS.22'));
+      const nvm = lines.findIndex((l) => l.includes('nvm-windows') && l.includes('nvm install 22'));
+      const elsewhere = lines.findIndex((l) => l.includes('HANGAR_NODE') && l.includes('C:\\s\\settings.json'));
+      expect(winget).toBeGreaterThan(-1);
+      expect(nvm).toBeGreaterThan(winget);
+      expect(elsewhere).toBeGreaterThan(nvm);
+      expect(WINGET_NODE(22)).toBe('winget install -e --id OpenJS.NodeJS.22');
+    });
+    it('英語でも、同じ並びで、日本語を混ぜずに書く', () => {
+      const text = describeNotFound(
+        { nodeMajor: 22, arch: 'x64' },
+        { path: 'C:\\fnm\\node.exe', result: { major: 24, arch: 'x64' } },
+        [
+          { node: 'C:\\Program Files\\nodejs\\node.exe', result: 'missing' },
+          { node: 'C:\\fnm\\node.exe', result: { major: 24, arch: 'x64' } },
+          { node: 'C:\\x\\node.exe', result: 'failed' },
+          { node: 'C:\\y\\node.exe', result: 'timeout' },
+          { node: 'C:\\z\\node.exe', result: { major: 22, arch: 'arm64' } },
+        ],
+        'C:\\Users\\me\\.agent-hangar\\settings.json',
+        'en',
+      );
+      expect(text.startsWith('Node 22 (x64) was not found.\n')).toBe(true);
+      expect(text).toContain('Node running now: 24 (x64), C:\\fnm\\node.exe');
+      const lines = text.split('\n');
+      expect(lines).toContain('  1. C:\\Program Files\\nodejs\\node.exe: no such file');
+      expect(lines).toContain('  2. C:\\fnm\\node.exe: Node 24 (x64), wrong version');
+      expect(lines).toContain('  3. C:\\x\\node.exe: cannot start it, or it does not answer as Node');
+      expect(lines).toContain('  4. C:\\y\\node.exe: no answer in time');
+      expect(lines).toContain('  5. C:\\z\\node.exe: Node 22 (arm64), wrong architecture');
+      expect(text).toContain('winget install -e --id OpenJS.NodeJS.22');
+      expect(text).toContain('nvm install 22');
+      expect(text).toContain('HANGAR_NODE');
+      expect(text).not.toMatch(/[\u3040-\u30ff\u3400-\u9fff\uff08\uff09\uff1a\u3001\u3002]/);
+      const none = describeNotFound({ nodeMajor: 22, arch: 'x64' }, { path: 'node', result: 'failed' }, [], 'settings.json', 'en');
+      expect(none).toContain('No places to check.');
+      expect(none).toContain('Node running now: unknown version, node');
+    });
+  });
+
+  // 見つからないときの文の言語は、殻の札と同じ決め方にする（bootfail.rs の choose_language）。
+  // 設定の language が ja か en ならそれ、無ければ OS の言語（日本語なら ja、ほかは en）、それも分からなければ日本語。
+  describe('cliLanguage', () => {
+    it('設定の language を先に見て、無ければ OS の言語、それも無ければ日本語', () => {
+      expect(cliLanguage('{"language":"en"}', 'ja-JP')).toBe('en');
+      expect(cliLanguage('{"language":"ja"}', 'en-US')).toBe('ja');
+      expect(cliLanguage('{"nodePath":"x"}', 'en-US')).toBe('en');
+      expect(cliLanguage('{"language":"fr"}', 'ja-JP')).toBe('ja');
+      expect(cliLanguage(undefined, 'de-DE')).toBe('en');
+      expect(cliLanguage('not json', 'ja')).toBe('ja');
+      expect(cliLanguage(undefined, undefined)).toBe('ja');
+      expect(cliLanguage(undefined, '')).toBe('ja');
     });
   });
 
