@@ -506,30 +506,6 @@ fn accept_server_dir(
     inside.then_some(dir)
 }
 
-/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文（2026-10-09 に利用者が選んだ、案 B と C を合わせたもの）。
-/// どちらが古いかで言い分け、文の下に、そのポートで待ち受けているプロセスを調べる命令を添える。
-/// 殻はそのサーバを止めない。利用者が自分で起こしたもの（hangar start や npm run dev）かもしれないからである。
-/// 止めてから「もう一度試す」を押せば、起動をやり直して同梱のサーバを起こす（`retry_boot`）。
-fn refusal_message(port: u16, theirs: u64, ours: u64) -> String {
-    let head = if theirs < ours {
-        format!(
-            "{port} で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
-             そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。"
-        )
-    } else {
-        format!(
-            "この Hangar.app が、{port} で動いている hangar のサーバより古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
-             Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。"
-        )
-    };
-    // lsof は macOS と Linux にしか無い。Windows のデスクトップのアプリはまだ作っておらず（殻のクレートは `std::os::unix` を条件なしに使うので、いまは Windows で組み上がらない）、確かめられる命令が無いので、そこでは添えない。
-    if cfg!(windows) {
-        head
-    } else {
-        format!("{head}\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:{port} -sTCP:LISTEN")
-    }
-}
-
 /// 同梱のサーバの置き場と、それを走らせる Node を決める。
 /// サーバを起こすときと、設定の同期の命令（CLI の cli.mjs は同じ置き場にある）が使う。
 fn bundled_node_and_dir(
@@ -719,10 +695,8 @@ fn boot(app: AppHandle) {
 
     // ウィンドウが取れなければ行き先を変えられない。黙って止まらず、理由を残す。
     let Some(w) = app.get_webview_window("main") else {
-        return fail(
-            &app,
-            bootfail::BootFailure::other("ウィンドウが見つからないので、サーバの画面へ移れません。"),
-        );
+        let msg = "ウィンドウが見つからないので、サーバの画面へ移れません。";
+        return fail(&app, bootfail::BootFailure::other(msg));
     };
 
     // 読み込みが終わった合図を打たせ、光が満ち切るまで待ってから移る。起動画面は周のどこからでも合図に入れる。
@@ -975,9 +949,11 @@ fn restore_config_flow(app: &AppHandle, name: &str) -> configapply::Outcome {
 /// 件数と種類をネイティブの確認に見せ、承諾されたときだけ、控えを取って書く。サーバは `~/.claude` に書かない。
 #[tauri::command]
 async fn apply_config_sync(app: AppHandle) -> configapply::Outcome {
-    tauri::async_runtime::spawn_blocking(move || with_config_guard(&app, || apply_config_flow(&app)))
-        .await
-        .unwrap_or_else(|_| configapply::Outcome::simple("failed", "設定の適用の処理が止まりました。"))
+    tauri::async_runtime::spawn_blocking(move || {
+        with_config_guard(&app, || apply_config_flow(&app))
+    })
+    .await
+    .unwrap_or_else(|_| configapply::Outcome::simple("failed", "設定の適用の処理が止まりました。"))
 }
 
 /// 控えの世代へ戻す。UI の設定の「この世代に戻す」が呼ぶ。受け取るのは世代の名前（yyyyMMdd-HHmmss）だけで、形を確かめる。
