@@ -18,7 +18,12 @@ pub const KINDS: &[&str] = &[
 ];
 
 /// サーバが `boot-error.json` に書いてよい種類。互換の別のサーバと殻のそれ以外は、サーバが起きる前に殻が決めるので入れない。
-const SERVER_KINDS: &[&str] = &["server-exited", "port-in-use", "db-too-old", "db-backup-failed"];
+const SERVER_KINDS: &[&str] = &[
+    "server-exited",
+    "port-in-use",
+    "db-too-old",
+    "db-backup-failed",
+];
 
 /// サーバが起動の失敗を書くファイルの名前（`<HANGAR_HOME>/` の直下）。
 pub const BOOT_ERROR_FILE: &str = "boot-error.json";
@@ -119,7 +124,10 @@ pub fn parse_boot_error(text: &str) -> Option<BootFailure> {
         for (k, v) in p.iter().take(PARAMS_MAX) {
             match v {
                 Value::String(s) => {
-                    params.insert(k.clone(), Value::String(s.chars().take(PARAM_MAX).collect()));
+                    params.insert(
+                        k.clone(),
+                        Value::String(s.chars().take(PARAM_MAX).collect()),
+                    );
                 }
                 Value::Number(_) => {
                     params.insert(k.clone(), v.clone());
@@ -379,14 +387,18 @@ mod tests {
     fn a_server_written_failure_is_read_with_its_kind_params_and_detail() {
         let f = parse_boot_error(GOOD).unwrap();
         assert_eq!(f.kind, "port-in-use");
-        assert_eq!(f.params, obj(serde_json::json!({"port": 4177, "host": "127.0.0.1"})));
+        assert_eq!(
+            f.params,
+            obj(serde_json::json!({"port": 4177, "host": "127.0.0.1"}))
+        );
         assert_eq!(f.detail, "listen EADDRINUSE");
     }
 
     #[test]
     fn each_kind_the_server_writes_is_taken_as_it_is() {
         for k in SERVER_KINDS {
-            let f = parse_boot_error(&format!(r#"{{"kind":"{k}","params":{{}},"detail":"d"}}"#)).unwrap();
+            let f = parse_boot_error(&format!(r#"{{"kind":"{k}","params":{{}},"detail":"d"}}"#))
+                .unwrap();
             assert_eq!(f.kind, *k);
         }
     }
@@ -395,7 +407,10 @@ mod tests {
     #[test]
     fn a_kind_only_the_shell_may_decide_or_an_unknown_kind_falls_to_server_exited() {
         for k in ["compat-mismatch", "other", "weird", ""] {
-            let f = parse_boot_error(&format!(r#"{{"kind":"{k}","params":{{"port":1}},"detail":"d"}}"#)).unwrap();
+            let f = parse_boot_error(&format!(
+                r#"{{"kind":"{k}","params":{{"port":1}},"detail":"d"}}"#
+            ))
+            .unwrap();
             assert_eq!(f.kind, "server-exited", "{k}");
             assert_eq!(f.detail, "d");
             assert!(f.params.is_empty());
@@ -404,7 +419,14 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_a_failure_is_not_read() {
-        for text in ["", "not json", "[]", "null", r#"{"params":{},"detail":"d"}"#, r#"{"kind":7}"#] {
+        for text in [
+            "",
+            "not json",
+            "[]",
+            "null",
+            r#"{"params":{},"detail":"d"}"#,
+            r#"{"kind":7}"#,
+        ] {
             assert_eq!(parse_boot_error(text), None, "{text:?}");
         }
     }
@@ -412,23 +434,34 @@ mod tests {
     #[test]
     fn a_missing_detail_or_params_is_empty() {
         let f = parse_boot_error(r#"{"kind":"db-too-old"}"#).unwrap();
-        assert_eq!((f.kind, f.detail.as_str(), f.params.is_empty()), ("db-too-old", "", true));
+        assert_eq!(
+            (f.kind, f.detail.as_str(), f.params.is_empty()),
+            ("db-too-old", "", true)
+        );
     }
 
     // 頁へは文字と数だけを渡す。入れ子や真偽値は捨て、長い文字は切る。
     #[test]
     fn params_keep_only_strings_and_numbers_and_long_ones_are_cut() {
         let long = "x".repeat(2000);
-        let text = format!(r#"{{"kind":"db-too-old","params":{{"a":"s","b":3,"c":true,"d":null,"e":{{"x":1}},"f":[1],"g":"{long}"}},"detail":"d"}}"#);
+        let text = format!(
+            r#"{{"kind":"db-too-old","params":{{"a":"s","b":3,"c":true,"d":null,"e":{{"x":1}},"f":[1],"g":"{long}"}},"detail":"d"}}"#
+        );
         let f = parse_boot_error(&text).unwrap();
-        assert_eq!(f.params.keys().cloned().collect::<Vec<_>>(), ["a", "b", "g"]);
+        assert_eq!(
+            f.params.keys().cloned().collect::<Vec<_>>(),
+            ["a", "b", "g"]
+        );
         assert_eq!(f.params["g"].as_str().unwrap().chars().count(), 512);
     }
 
     #[test]
     fn a_long_detail_is_cut_on_a_character_boundary() {
         let detail = "あ".repeat(5000);
-        let f = parse_boot_error(&format!(r#"{{"kind":"server-exited","params":{{}},"detail":"{detail}"}}"#)).unwrap();
+        let f = parse_boot_error(&format!(
+            r#"{{"kind":"server-exited","params":{{}},"detail":"{detail}"}}"#
+        ))
+        .unwrap();
         assert!(f.detail.len() <= 8 * 1024);
         assert!(f.detail.chars().all(|c| c == 'あ' || c == '…'));
         assert!(f.detail.ends_with('…'));
@@ -451,7 +484,10 @@ mod tests {
         assert_eq!(read_boot_error(dir.path(), started), None, "no file");
         let p = write(dir.path(), GOOD);
         set_mtime(&p, started + Duration::from_secs(2));
-        assert_eq!(read_boot_error(dir.path(), started).unwrap().kind, "port-in-use");
+        assert_eq!(
+            read_boot_error(dir.path(), started).unwrap().kind,
+            "port-in-use"
+        );
         set_mtime(&p, started - Duration::from_secs(2));
         assert_eq!(read_boot_error(dir.path(), started), None, "stale");
         write(dir.path(), "garbage");
@@ -464,15 +500,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let started = SystemTime::now() - Duration::from_secs(5);
         write(dir.path(), GOOD);
-        let f = for_dead_server(dir.path(), Some(started), || unreachable!("the file has a detail"));
-        assert_eq!((f.kind, f.detail.as_str()), ("port-in-use", "listen EADDRINUSE"));
+        let f = for_dead_server(dir.path(), Some(started), || {
+            unreachable!("the file has a detail")
+        });
+        assert_eq!(
+            (f.kind, f.detail.as_str()),
+            ("port-in-use", "listen EADDRINUSE")
+        );
     }
 
     #[test]
     fn a_file_without_a_detail_borrows_the_end_of_the_log() {
         let dir = tempfile::tempdir().unwrap();
         let started = SystemTime::now() - Duration::from_secs(5);
-        write(dir.path(), r#"{"kind":"db-too-old","params":{"found":3},"detail":""}"#);
+        write(
+            dir.path(),
+            r#"{"kind":"db-too-old","params":{"found":3},"detail":""}"#,
+        );
         let f = for_dead_server(dir.path(), Some(started), || "log line".to_string());
         assert_eq!((f.kind, f.detail.as_str()), ("db-too-old", "log line"));
         assert_eq!(f.params["found"], 3);
@@ -487,10 +531,16 @@ mod tests {
         set_mtime(&p, started - Duration::from_secs(60));
         for s in [Some(started), None] {
             let f = for_dead_server(dir.path(), s, || "tail".to_string());
-            assert_eq!((f.kind, f.detail.as_str(), f.params.is_empty()), ("server-exited", "tail", true));
+            assert_eq!(
+                (f.kind, f.detail.as_str(), f.params.is_empty()),
+                ("server-exited", "tail", true)
+            );
         }
         let none = tempfile::tempdir().unwrap();
-        assert_eq!(for_dead_server(none.path(), Some(started), || "t".into()).kind, "server-exited");
+        assert_eq!(
+            for_dead_server(none.path(), Some(started), || "t".into()).kind,
+            "server-exited"
+        );
     }
 
     #[test]
@@ -513,7 +563,9 @@ mod tests {
         let body: String = (0..20000).map(|i| format!("line {i}\n")).collect();
         std::fs::write(&p, &body).unwrap();
         assert_eq!(log_tail(&p, 2), "line 19998\nline 19999");
-        let wide = (0..9000).map(|_| "あ".repeat(10) + "\n").collect::<String>();
+        let wide = (0..9000)
+            .map(|_| "あ".repeat(10) + "\n")
+            .collect::<String>();
         std::fs::write(&p, &wide).unwrap();
         assert!(log_tail(&p, 5000).lines().all(|l| l == "あ".repeat(10)));
     }
@@ -533,14 +585,20 @@ mod tests {
     fn the_compat_mismatch_names_both_versions_and_the_port_and_writes_the_log_line() {
         let f = BootFailure::compat_mismatch(4177, 14, 16);
         assert_eq!(f.kind, "compat-mismatch");
-        assert_eq!(f.params, obj(serde_json::json!({"port": 4177, "theirs": 14, "ours": 16})));
+        assert_eq!(
+            f.params,
+            obj(serde_json::json!({"port": 4177, "theirs": 14, "ours": 16}))
+        );
         assert_eq!(f.detail, "refusing the server on 4177 (compat 14, ours 16)");
     }
 
     #[test]
     fn the_shells_own_failures_are_other_and_a_string_converts_to_one() {
         let f: BootFailure = "細かい理由".to_string().into();
-        assert_eq!((f.kind, f.detail.as_str(), f.params.is_empty()), ("other", "細かい理由", true));
+        assert_eq!(
+            (f.kind, f.detail.as_str(), f.params.is_empty()),
+            ("other", "細かい理由", true)
+        );
         assert_eq!(BootFailure::server_exited("x").kind, "server-exited");
     }
 
@@ -554,7 +612,12 @@ mod tests {
     }
 
     fn env() -> Env {
-        Env { lang: "ja", version: "0.1.0".into(), os: "macOS 15.1".into(), home: "~/.agent-hangar".into() }
+        Env {
+            lang: "ja",
+            version: "0.1.0".into(),
+            os: "macOS 15.1".into(),
+            home: "~/.agent-hangar".into(),
+        }
     }
 
     #[test]
@@ -587,19 +650,41 @@ mod tests {
 
     #[test]
     fn the_language_comes_from_the_settings_file_only_when_it_is_ja_or_en() {
-        assert_eq!(language_from_settings(r#"{"language":"en","x":1}"#), Some("en"));
+        assert_eq!(
+            language_from_settings(r#"{"language":"en","x":1}"#),
+            Some("en")
+        );
         assert_eq!(language_from_settings(r#"{"language":"ja"}"#), Some("ja"));
-        for t in [r#"{"language":"fr"}"#, r#"{"language":3}"#, r#"{}"#, "not json", "", "[]"] {
+        for t in [
+            r#"{"language":"fr"}"#,
+            r#"{"language":3}"#,
+            r#"{}"#,
+            "not json",
+            "",
+            "[]",
+        ] {
             assert_eq!(language_from_settings(t), None, "{t:?}");
         }
     }
 
     #[test]
     fn the_os_language_is_the_first_apple_language() {
-        assert_eq!(language_from_apple_languages("(\n    \"ja-JP\",\n    \"en-US\"\n)\n"), Some("ja"));
-        assert_eq!(language_from_apple_languages("(\n    \"en-JP\",\n    \"ja-JP\"\n)\n"), Some("en"));
-        assert_eq!(language_from_apple_languages("(\n    \"fr-FR\"\n)\n"), Some("en"));
-        assert_eq!(language_from_apple_languages("(\n    ja,\n    en\n)\n"), Some("ja"));
+        assert_eq!(
+            language_from_apple_languages("(\n    \"ja-JP\",\n    \"en-US\"\n)\n"),
+            Some("ja")
+        );
+        assert_eq!(
+            language_from_apple_languages("(\n    \"en-JP\",\n    \"ja-JP\"\n)\n"),
+            Some("en")
+        );
+        assert_eq!(
+            language_from_apple_languages("(\n    \"fr-FR\"\n)\n"),
+            Some("en")
+        );
+        assert_eq!(
+            language_from_apple_languages("(\n    ja,\n    en\n)\n"),
+            Some("ja")
+        );
         assert_eq!(language_from_apple_languages("()\n"), None);
         assert_eq!(language_from_apple_languages(""), None);
     }
@@ -616,8 +701,14 @@ mod tests {
 
     #[test]
     fn the_settings_language_beats_the_os_and_the_os_beats_the_default() {
-        assert_eq!(choose_language(Some(r#"{"language":"en"}"#), Some("ja")), "en");
-        assert_eq!(choose_language(Some(r#"{"language":"ja"}"#), Some("en")), "ja");
+        assert_eq!(
+            choose_language(Some(r#"{"language":"en"}"#), Some("ja")),
+            "en"
+        );
+        assert_eq!(
+            choose_language(Some(r#"{"language":"ja"}"#), Some("en")),
+            "ja"
+        );
         assert_eq!(choose_language(None, Some("en")), "en");
         assert_eq!(choose_language(Some("not json"), Some("en")), "en");
         assert_eq!(choose_language(Some("{}"), Some("en")), "en");
@@ -638,7 +729,10 @@ mod tests {
         assert_eq!(os_label_from("macOS", Some("15.1\n")), "macOS 15.1");
         assert_eq!(os_label_from("macOS", Some("")), "macOS");
         assert_eq!(os_label_from("macOS", None), "macOS");
-        assert_eq!(pretty_name("NAME=\"Ubuntu\"\nPRETTY_NAME=\"Ubuntu 24.04 LTS\"\n").as_deref(), Some("Ubuntu 24.04 LTS"));
+        assert_eq!(
+            pretty_name("NAME=\"Ubuntu\"\nPRETTY_NAME=\"Ubuntu 24.04 LTS\"\n").as_deref(),
+            Some("Ubuntu 24.04 LTS")
+        );
         assert_eq!(pretty_name("NAME=x\n"), None);
         assert!(!os_label().is_empty());
     }
