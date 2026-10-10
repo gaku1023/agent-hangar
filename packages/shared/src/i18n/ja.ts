@@ -17,6 +17,7 @@ import { mcpJa } from './ja/mcp.ts';
 import { newProjectJa } from './ja/newProject.ts';
 import { newSessionJa } from './ja/newSession.ts';
 import { noticesJa } from './ja/notices.ts';
+import { muxJa } from './ja/mux.ts';
 import { pauseJa } from './ja/pause.ts';
 import { platformJa } from './ja/platform.ts';
 import { projectJa } from './ja/project.ts';
@@ -75,6 +76,7 @@ export const ja: Dictionary = {
   ...newProjectJa,
   ...newSessionJa,
   ...noticesJa,
+  ...muxJa,
   ...pauseJa,
   ...platformJa,
   ...projectJa,

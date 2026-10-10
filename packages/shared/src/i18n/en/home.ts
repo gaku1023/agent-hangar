@@ -42,7 +42,7 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.ready.progress': '{done} of {total}',
   'home.ready.summary': '{n} {n|item|items} left to set up',
   'home.ready.noteStart': 'You can start now. {n} {n|item|items} left to set up',
-  'home.ready.noteNeed': 'You need tmux and claude to start. {n} {n|item|items} left to set up',
+  'home.ready.noteNeed': 'You need {mux} and claude to start. {n} {n|item|items} left to set up',
   'home.ready.optional': 'Optional',
   'home.ready.fold': '{names}: ready',
   'home.ready.separator': ', ',

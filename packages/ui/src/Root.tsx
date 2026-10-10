@@ -12,6 +12,7 @@ import { newSessionTarget, presentNewSession } from './presenters/newSession.ts'
 import { presentPalette } from './presenters/palette.ts';
 import { presentPause } from './presenters/pause.ts';
 import { presentResolveDialog } from './presenters/unresolved.ts';
+import { presentMuxGuide } from './presenters/readiness.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
@@ -36,6 +37,7 @@ import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewProjectDialog } from './views/NewProjectDialog.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
 import { PauseDialog } from './views/PauseDialog.tsx';
+import { MuxGuideDialog } from './views/MuxGuideDialog.tsx';
 import { ProjectScreen } from './views/ProjectScreen.tsx';
 import { ProjectsScreen } from './views/ProjectsScreen.tsx';
 import { PromoteDialog, PromotedDialog } from './views/PromoteDialog.tsx';
@@ -360,6 +362,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const pause = presentPause(state, store, now);
   // 設定の同期のダイアログ（作り直した実装）。開いたときに取った中身（Store の configDetail）から組む。
   const configDialog = presentConfigDialog(state, store);
+  // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
+  const muxGuide = presentMuxGuide(state, store);
   const overlays = (
     <>
       {unresolvedId && <ResolveProjectDialog {...presentResolveDialog(store, unresolvedId)} candidates={candidates} onQueryCandidates={queryCandidates} />}
@@ -373,6 +377,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {configDialog && <ConfigSyncDialog {...configDialog} />}
       {overlay.kind === 'retention' && <RetentionDialog {...presentRetentionDialog(state, store, now)!} />}
       {overlay.kind === 'shortcuts' && <ShortcutsDialog />}
+      {muxGuide && <MuxGuideDialog {...muxGuide} />}
       <ToastStack {...presentToasts(state, store, now)} />
       <SwipeHint ref={swipeHintRef} />
     </>
