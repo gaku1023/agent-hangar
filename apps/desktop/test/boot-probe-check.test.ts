@@ -112,6 +112,18 @@ describe('CI の段', () => {
     expect(sh).toContain('nodePath');
     expect(sh).toContain('boot-probe-check.ts');
   });
+  // 殻が探す場所のうちホームの外にあるもの（node.rs の UNIX_NODE_PLACES の / で始まるもの）は、一時のホームでは外れない。
+  // ランナーの Homebrew の Node がそこにあると殻が見つけてしまうので、台本はその全部を脇へ退ける。
+  it('macOS の台本は、殻が探す場所のうちホームの外のものを、すべて脇へ退ける候補に入れる', () => {
+    const sh = fs.readFileSync(path.join(app, 'scripts/ci-boot-probe-macos.sh'), 'utf8');
+    const places = fs.readFileSync(path.join(app, 'src-tauri/src/node.rs'), 'utf8').match(/pub const UNIX_NODE_PLACES: &\[Place\] = &\[([\s\S]*?)\n\];/)?.[1];
+    expect(places, 'UNIX_NODE_PLACES が見つかりません').toBeDefined();
+    const fixed = [...places!.matchAll(/Place::Fixed\("(\/[^"]+)"\)/g)].map((m) => m[1]!);
+    const versions = [...places!.matchAll(/parent: "(\/[^"]+)",\s*leaf: "([^"]+)"/g)].map((m) => `${m[1]}/*/${m[2]}`);
+    expect(fixed.length).toBeGreaterThan(0);
+    expect(versions.length).toBeGreaterThan(0);
+    for (const p of [...fixed, ...versions]) expect(sh, p).toContain(` ${p}`);
+  });
   it('Windows の台本も、一時のホームと書き出しの先を渡し、PATH から node を外して起こす', () => {
     const ps = fs.readFileSync(path.join(app, 'scripts/ci-boot-probe-windows.ps1'), 'utf8');
     expect(ps).toContain('HANGAR_HOME');

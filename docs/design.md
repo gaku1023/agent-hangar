@@ -227,7 +227,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   殻はそれを JSON にして、そのファイルへ書く（16 KiB まで、一時のファイルから名前を替える）。
   変数が無いときは、`probe` は偽で、頁は `boot_probe` を呼ばず、呼ばれても殻は何も書かない。
   CI の desktop ジョブ（macOS）は `.app` を build し、`apps/desktop/scripts/ci-boot-probe-macos.sh` で一時の場所へ写して、一時のホーム、無いパスを指す `nodePath`、最小の `PATH` だけを渡して起こす（`env -i`）。
-  ランナーの Homebrew の Node は殻が固定で探す場所にあるので、その段の間だけ脇へ退ける。
+  殻が探す場所のうちホームの外のもの（Homebrew の `bin/node` と keg-only の `node@N`、`node.rs` の `UNIX_NODE_PLACES` の `/` で始まるもの）は一時のホームでは外れないので、その段の間だけ脇へ退ける（ランナーには Homebrew の Node がある）。
   windows ジョブは、作ったインストーラで入れ直し、`apps/desktop/scripts/ci-boot-probe-windows.ps1` で殻に渡す環境だけを差し替えて Node を見えなくする（`ProgramFiles` と `LOCALAPPDATA` を空の場所へ、`NVM_*` を外し、`PATH` から `node.exe` のある項目を外す）。
   どちらも `apps/desktop/scripts/boot-probe-check.ts` が書き出しを読み、札が見えて種類が `other`、詳細に「Node <版>」が入るまで待つ（上限 60 秒）。
   殻が Node を見つけてサーバを起こしたら（desktop.log の `node … server` の行）、探す場所が増えたとみて落とす。

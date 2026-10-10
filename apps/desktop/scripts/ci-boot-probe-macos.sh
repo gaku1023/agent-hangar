@@ -4,7 +4,7 @@
 #
 # build した .app を一時の場所へ写し、Node が見つからない状態で起こす。
 #   一時のホーム（HOME と HANGAR_HOME）、settings.json の nodePath は無いパス、PATH は最小にし、ほかの環境は渡さない（env -i）。
-#   --hide-system-node を付けると、殻が固定で探す場所（node.rs の platform_node_paths）にある node を、終わるまで脇へ退ける（sudo）。
+#   --hide-system-node を付けると、殻が探す場所のうちホームの外のもの（node.rs の UNIX_NODE_PLACES）にある node を、終わるまで脇へ退ける（sudo）。
 #   ランナーには Homebrew の Node が入っていて、そのままでは殻が見つけてしまう。手元の Mac では付けない。
 # 殻には HANGAR_BOOT_PROBE で書き出しの先を渡す。起動画面が描いた様子を殻がそこへ書き（bootprobe.rs）、
 # boot-probe-check.ts が、札が出て種類が other、詳細が「Node <版>」を含む文になるまで待つ（上限 60 秒）。
@@ -33,8 +33,9 @@ out="$(cd "$out" && pwd)"
 # mktemp の置き場（/var/folders/...）の /var はリンクなので、実の名前に直してから使う。
 work="$(cd "$(mktemp -d)" && pwd -P)"
 
-# 殻が固定で探す場所。node.rs の platform_node_paths と同じ並び。
-fixed=(/opt/homebrew/bin/node /usr/local/bin/node)
+# 殻が探す場所のうち、ホームの外にあるもの（node.rs の UNIX_NODE_PLACES の / で始まるもの）。ホームの中のものは一時のホームで外れる。
+# 版ごとの置き場（Homebrew の keg-only の node@N）は glob で広げる。当たらない glob はそのまま残り、下の -e で落ちる。
+places=( /opt/homebrew/bin/node /usr/local/bin/node /opt/homebrew/opt/*/bin/node /usr/local/opt/*/bin/node )
 hidden=()
 pid=""
 cleanup() {
@@ -43,7 +44,11 @@ cleanup() {
     for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
     kill -9 "$pid" 2>/dev/null
   fi
-  for p in "${hidden[@]+"${hidden[@]}"}"; do sudo mv "$p.hidden-by-ci" "$p" && echo "戻した: $p"; done
+  # 退けた逆の順に戻す。
+  for ((i = ${#hidden[@]} - 1; i >= 0; i--)); do
+    p="${hidden[$i]}"
+    sudo mv "$p.hidden-by-ci" "$p" && echo "戻した: $p"
+  done
   # 写した .app と一時のホームを消す。成果物の置き場（out）には触らない。
   [ -n "$work" ] && [ -d "$work" ] && rm -rf "$work"
 }
@@ -56,7 +61,7 @@ if curl -s -m 2 "http://127.0.0.1:$port/health" >/dev/null; then
 fi
 
 if [ "$hide" = 1 ]; then
-  for p in "${fixed[@]}"; do
+  for p in "${places[@]}"; do
     if [ -e "$p" ] || [ -L "$p" ]; then
       sudo mv "$p" "$p.hidden-by-ci" || exit 1
       hidden+=("$p")
@@ -96,7 +101,7 @@ if [ -f "$log" ]; then
   # 殻が Node を見つけてサーバを起こしたなら、探す場所が増えたか、ランナーの Node を退けきれていない。
   if grep -q '\[desktop\] node ' "$log"; then
     echo "殻が Node を見つけた: $(grep '\[desktop\] node ' "$log" | head -1)" >&2
-    echo "node.rs の探す場所が増えたなら、この台本の fixed も合わせる" >&2
+    echo "node.rs の探す場所が増えたなら、この台本の places も合わせる" >&2
     rc=1
   fi
 fi

@@ -144,7 +144,7 @@ jobs:
       # まっさらな Mac（Node も tmux も無い）で、入れた殻が読み込み画面を失敗の札に切り替えることを確かめる。
       # rc.4 では、殻が 40ms で Node が無いと判断したのに、頁の口が出来る前に知らせが落ち、読み込み中のまま止まった（#123）。
       # .app を build し、一時の場所へ写して、Node が見つからない状態で起こす（apps/desktop/scripts/ci-boot-probe-macos.sh）。
-      # ランナーの Homebrew の Node は、殻が固定で探す場所にあるので、この段の間だけ脇へ退ける（--hide-system-node）。
+      # ランナーの Homebrew の Node は、殻が探す場所のうちホームの外（bin/node と keg-only の node@N）にあるので、この段の間だけ脇へ退ける（--hide-system-node）。
       # 頁が描いた様子は、殻が HANGAR_BOOT_PROBE のファイルへ書き（bootprobe.rs）、それを読んで判定する。待ちの上限は 60 秒。
       # 撮れた画面（boot-screen.png）と殻の記録は、実行の artifact に 7 日だけ残す。
       - name: UI とサーバをビルドする
