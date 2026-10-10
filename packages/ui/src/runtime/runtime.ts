@@ -14,9 +14,10 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, liveSessionIds, nextWaitingSession, waitingSessionIds, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
+import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
 import type { Notifier } from './notifier.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -68,7 +69,6 @@ export type Runtime = {
   start(): void; stop(): void;
 };
 
-const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
 /** OS（システム設定）で通知が切られているときの知らせ。 */
 const NOTIFY_BLOCKED = '通知が切られています。システム設定の「通知」で Hangar を許可してください';
 /** 通知の許可を読み直す間隔の下限。窓に戻ると focus と visibilitychange が続けて来るので、まとめて 1 度にする。 */
@@ -93,32 +93,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const notify = () => { for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
   const present = deps.present ?? ((c: () => void) => c());
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); syncWaiting(); syncLive(); syncReturns(); } };
-  /**
-   * 入力待ちのセッションが変わったら Mediator へ届ける。
-   * live.update はプロバイダの id で届くので、hangar のセッションへの引き当てはストアを持つここで行う。
-   * 起動時の bootstrap も、あとから届く session.upsert も、同じ口を通る。
-   */
-  let waitingKey = '';
-  function syncWaiting(): void {
-    const ids = waitingSessionIds(store);
-    const key = [...ids].sort().join('\n');
-    if (key === waitingKey) return;
-    waitingKey = key;
-    dispatch({ kind: 'runtime', event: { type: 'waiting.changed', ids } });
-  }
-  /**
-   * 動いているセッションの顔ぶれが変わったら Mediator へ届ける。サイドバーの「動いている」の並びに、初めて現れたものを書き足すためである（mediator/sidebar.ts の sidebarLiveStep）。
-   * 並びの順ではなく顔ぶれで比べる。ストアは本文が伸びるたびに変わるので、そのたびには送らない。
-   */
-  let liveKey = '';
-  function syncLive(): void {
-    const ids = liveSessionIds(store);
-    const key = [...ids].sort().join('\n');
-    if (key === liveKey) return;
-    liveKey = key;
-    dispatch({ kind: 'runtime', event: { type: 'live.changed', ids } });
-  }
+  // ストアが変わったら、そのことだけを Mediator へ知らせる。
+  // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
+  // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); } };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
@@ -330,7 +308,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           .catch((err) => { if (seq === searchSeq) setStore(applySearch(store, store.search.params ?? params, store.search.result, false)); fail(err); });
         return;
       }
-      case 'api.setProjectStatus': deps.api.setProjectStatus(e.projectId, e.status).catch(fail); return;
       case 'api.resolveProject': deps.api.resolveProject(e.projectId, e.action).catch(fail); return;
       case 'api.updateSettings': {
         const field = e.field;
@@ -413,8 +390,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.closeTab(tab.runId, tab.id).then((t) => setStore(applyServerEvent(store, { type: 'tab.upsert', tab: t }))).catch(fail);
         return;
       }
-      case 'api.openTerminalApp': deps.api.openTerminalApp(e.runId, e.tabId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
-      case 'api.openEditor': (e.file === undefined ? deps.api.openEditor(e.sessionId) : deps.api.openEditor(e.sessionId, e.file)).catch(fail); return;
       case 'api.jumpToPrompt': {
         const done = (status: TurnJumpStatus) => dispatch({ kind: 'runtime', event: { type: 'turnJump.done', sessionId: e.sessionId, seq: e.seq, status } });
         deps.api.jumpToPrompt(e.runId, { heads: e.heads, index: e.index, from: e.from }).then((r) => done(r.found ? 'found' : r.reason)).catch((err) => { done('failed'); fail(err); });
@@ -430,8 +405,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.leaveTranscript(e.runId).catch(() => {});
         return;
       }
-      case 'api.projectOpenEditor': deps.api.projectOpenEditor(e.projectId).catch(fail); return;
-      case 'api.projectOpenTerminal': deps.api.projectOpenTerminal(e.projectId).then((r) => { if (r.fellBack) toast(FELL_BACK); }).catch(fail); return;
       case 'terminal.connect': { const id = resolveTab(e.sessionId, e.tabId); if (id) deps.terminals.connect(id); return; }
       case 'terminal.disconnect': deps.terminals.disconnect(e.tabId); return;
       case 'terminal.disconnectSession':
@@ -477,29 +450,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'badge': notifier?.badge(e.count); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
-      case 'api.toggleTodo': {
-        // 反転の基準はストアの現在値にする。View は done の値を持たない。
-        const t = store.todos[e.id];
-        if (!t) return;
-        // 候補の欄を押したときは確定と同じに扱う。候補は未完なので、素直に反転すると done: false を送って何も起きない。
-        if (t.candidate && !t.done) deps.api.confirmTodo(e.id).catch(fail);
-        else deps.api.setTodoDone(e.id, !t.done).catch(fail);
-        return;
-      }
-      case 'api.confirmTodo': deps.api.confirmTodo(e.id).catch(fail); return;
-      case 'api.rejectTodo': deps.api.rejectTodo(e.id).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
-      case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;
-      case 'api.removeTodo': deps.api.removeTodo(e.id).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
-      // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
-      case 'api.saveMemo': deps.api.saveMemo(e.projectId, e.markdown).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
-      case 'api.setSessionMemo': deps.api.setSessionMemo(e.sessionId, e.text).then((s) => setStore({ ...store, sessions: { ...store.sessions, [s.id]: s } })).catch(fail); return;
-      case 'api.openArtifact': deps.api.openArtifact(e.id).catch(fail); return;
-      case 'api.openArtifactEditor': deps.api.openArtifactEditor(e.id).catch(fail); return;
-      case 'api.addArtifact': deps.api.addArtifact(e.projectId, e.url).then((a) => setStore({ ...store, artifacts: { ...store.artifacts, [a.id]: a } })).catch(fail); return;
       case 'api.promote':
         deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles })
           .then((r) => {
@@ -508,8 +462,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           })
           .catch((err) => dispatch({ kind: 'runtime', event: { type: 'promote.failed', message: errMsg(err) } }));
         return;
-      // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
-      case 'api.regenerateSummary': deps.api.regenerateSummary(e.sessionId).catch(fail); return;
       case 'api.loadSettingsExtras':
         deps.api.statusline().then((s) => setStore({ ...store, statusline: s })).catch(fail);
         deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
@@ -523,22 +475,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // LM Studio が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
         return;
-      case 'api.testSummarizer':
-        // 前回の結果を先に消して、試している最中だと分かるようにする。
-        setStore({ ...store, summarizerTest: null });
-        deps.api.testSummarizer().then((r) => setStore({ ...store, summarizerTest: r })).catch(fail);
-        return;
-      case 'split.resolve': {
-        // 左は選択中のタブ、無ければ先頭。右はそれと違う最初のタブ。2 つ無ければ null を返す。
-        const view = state.sessionView[e.sessionId] ?? defaultSessionView();
-        const run = currentRunOf(store, e.sessionId);
-        const tabs = run ? tabsOf(store, run.id) : [];
-        const left = view.selectedTab ?? tabs[0]?.id ?? null;
-        const right = tabs.find((t) => t.id !== left) ?? null;
-        dispatch({ kind: 'runtime', event: { type: 'split.resolved', sessionId: e.sessionId, tabId: right ? right.id : null } });
-        return;
-      }
-      case 'waiting.next': dispatch({ kind: 'runtime', event: { type: 'waiting.resolved', sessionId: nextWaitingSession(store, e.from) } }); return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
       // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。
       case 'api.syncNow': deps.api.syncNow().then(syncStatus).catch(fail); return;
@@ -579,8 +515,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           if (r.token !== null) deps.setTimeout(() => { if (store.joinToken === r.token) setStore(applyJoinToken(store, null)); }, JOIN_TOKEN_TTL_MS);
         }).catch(fail);
         return;
-      case 'api.accounts.load': deps.api.accounts().then(accountsUpdated).catch(fail); return;
-      case 'api.accounts.setCurrent': deps.api.setCurrentAccount(e.accountId).then(accountsUpdated).catch(fail); return;
       case 'api.accounts.switchSession': deps.api.switchAccount(e.sessionId, e.accountId).then(launched).catch(launchFailed); return;
       case 'api.accounts.add':
         // 追加の直後にログインを始める。新しいアカウントは応答の末尾の 1 件である。
@@ -590,11 +524,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           if (added) deps.api.loginAccount(added.id).catch(fail);
         }).catch(fail);
         return;
-      case 'api.accounts.update': deps.api.updateAccount(e.accountId, e.patch).then(accountsUpdated).catch(fail); return;
       case 'api.accounts.remove': deps.api.removeAccount(e.accountId).then(accountsUpdated).catch(fail); return;
-      case 'api.accounts.login': deps.api.loginAccount(e.accountId).catch(fail); return;
-      case 'api.accounts.cancelLogin': deps.api.cancelAccountLogin(e.accountId).then(accountsUpdated).catch(fail); return;
-      case 'api.accounts.refresh': deps.api.refreshAccount(e.accountId).then(accountsUpdated).catch(fail); return;
       default: {
         // 効果を足したときに処理を忘れると、ここで型が合わなくなる。
         const _exhaustive: never = e;
@@ -630,7 +560,31 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     }, () => {});
   }
 
+  /**
+   * 表で引いた呼び出しを実行する（runtime/intentTable.ts）。
+   * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、どの行もトーストにする。
+   */
+  function runCall(c: ApiCall): void {
+    if (c.before) setStore(c.before(store));
+    c.run(deps.api).then((done) => {
+      if (done.apply) setStore(done.apply(store));
+      if (done.toast !== undefined) toast(done.toast);
+    }).catch(fail);
+  }
+
+  /**
+   * View の Intent を受ける。
+   * 表にあれば、Mediator を通さずに API を呼ぶ。無ければ、今までどおり Mediator へ渡す。
+   */
+  function emit(intent: Intent): void {
+    if (!isTableIntent(intent)) { dispatch({ kind: 'intent', intent }); return; }
+    const c = intentCall(intent, store);
+    if (c) runCall(c);
+  }
+
   function dispatch(input: Input): void {
+    // 型では表の Intent を渡せないが、型を外して渡されても Mediator へは入れない。
+    if (input.kind === 'intent' && isTableIntent(input.intent)) { emit(input.intent); return; }
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
@@ -645,7 +599,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
     }
     const wasHome = state.screen.name === 'home';
-    const r = transition(state, input);
+    const r = transition(state, store, input);
     if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
     // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
@@ -654,7 +608,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   return {
     dispatch,
-    emit: (intent) => dispatch({ kind: 'intent', intent }),
+    emit,
     getState: () => shown,
     getStore: () => store,
     subscribe: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },

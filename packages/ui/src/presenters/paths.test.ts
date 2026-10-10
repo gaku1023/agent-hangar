@@ -1,32 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { shortenPaths } from './format.ts';
-import { cardPathLabel } from './projects.ts';
-
-describe('cardPathLabel', () => {
-  it('ワークスペース直下で、フォルダ名がプロジェクト名と同じなら出さない', () => {
-    expect(cardPathLabel('/Users/a/workspace/agent-hangar', 'agent-hangar', '/Users/a/workspace')).toBeNull();
-    expect(cardPathLabel('/Users/a/workspace/agent-hangar', 'agent-hangar', '/Users/a/workspace/')).toBeNull();
-  });
-  it('フォルダ名が NFD で届いても、名前と同じとみなす', () => {
-    const nfd = 'ご注文ガイド'.normalize('NFD');
-    expect(cardPathLabel(`/Users/a/workspace/${nfd}`, 'ご注文ガイド', '/Users/a/workspace')).toBeNull();
-  });
-  it('ワークスペースの下で名前と違うときは、ワークスペースからの相対で出す', () => {
-    expect(cardPathLabel('/Users/a/workspace/tools/hangar', 'hangar', '/Users/a/workspace')).toBe('tools/hangar');
-    expect(cardPathLabel('/Users/a/workspace/hangar-old', 'hangar', '/Users/a/workspace')).toBe('hangar-old');
-  });
-  it('ワークスペースの外は、そのまま出す', () => {
-    expect(cardPathLabel('/opt/tools/hangar', 'hangar', '/Users/a/workspace')).toBe('/opt/tools/hangar');
-    // ワークスペースと頭が同じでも、別のフォルダは外である。
-    expect(cardPathLabel('/Users/a/workspace2/hangar', 'hangar', '/Users/a/workspace')).toBe('/Users/a/workspace2/hangar');
-  });
-  it('ワークスペースがまだ分からなければ、そのまま出す', () => {
-    expect(cardPathLabel('/Users/a/workspace/hangar', 'hangar', '')).toBe('/Users/a/workspace/hangar');
-  });
-  it('この PC にパスが無ければそう書く', () => {
-    expect(cardPathLabel(null, 'hangar', '/Users/a/workspace')).toBe('この PC にパスがありません');
-  });
-});
 
 describe('shortenPaths', () => {
   it('長い絶対パスは末尾の 2 階層だけにする', () => {

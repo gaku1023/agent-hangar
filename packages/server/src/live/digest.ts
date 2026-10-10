@@ -30,7 +30,7 @@ function firstLine(text: string, max = 120): string | null {
 
 /** 今のターンの頭。中断の知らせを除いた、主線の最後の利用者の指示。 */
 export function turnStart(db: Db, sessionId: string): { seq: number; ts: number | null } | null {
-  const rows = db.prepare("select seq, ts from event_index where session_id = ? and parent_agent is null and kind = 'user' order by seq desc limit 20").all(sessionId) as { seq: number; ts: number | null }[];
+  const rows = db.prepare("select seq, ts from event_index where session_id = ? and ifnull(parent_agent, '') = '' and kind = 'user' order by seq desc limit 20").all(sessionId) as { seq: number; ts: number | null }[];
   for (const r of rows) {
     const ev = readEvents(db, sessionId, { fromSeq: r.seq, limit: 1 }).events.find((e) => e.seq === r.seq);
     if (ev && ev.kind === 'user' && isTurnPrompt(ev.text)) return r;
@@ -43,9 +43,9 @@ export function turnStart(db: Db, sessionId: string): { seq: number; ts: number 
  * 起こした本と終わりの知らせは新しい側にあるので、古い側を捨てる。
  */
 function mainSince(db: Db, sessionId: string, fromSeq: number, cap: number): TranscriptEvent[] {
-  const count = (db.prepare('select count(*) c from event_index where session_id = ? and parent_agent is null and seq >= ?').get(sessionId, fromSeq) as { c: number }).c;
+  const count = (db.prepare("select count(*) c from event_index where session_id = ? and ifnull(parent_agent, '') = '' and seq >= ?").get(sessionId, fromSeq) as { c: number }).c;
   if (count > cap) {
-    const r = db.prepare('select seq from event_index where session_id = ? and parent_agent is null and seq >= ? order by seq limit 1 offset ?').get(sessionId, fromSeq, count - cap) as { seq: number } | undefined;
+    const r = db.prepare("select seq from event_index where session_id = ? and ifnull(parent_agent, '') = '' and seq >= ? order by seq limit 1 offset ?").get(sessionId, fromSeq, count - cap) as { seq: number } | undefined;
     if (r) fromSeq = r.seq;
   }
   const out: TranscriptEvent[] = [];
@@ -209,6 +209,8 @@ export function buildLiveDigest(db: Db, sessionId: string, opts: { mainCap?: num
 /**
  * 要約を覚えておく。UI は追記のたびに取り直すので、索引と意図が変わっていなければ読み直さない。
  * 経過時間は UI が今の時刻で数えるので、覚えた要約が古くなることは無い。
+ * 索引が変わったかは、本文のファイルごとの行（transcript_files）で見る。索引化は event_index と同じ取引でこの行を書き換える。
+ * event_index を数えて決めると、裏の印が 500 ミリ秒ごとに呼ぶたびに、長いセッションの全行を表まで見に行く。
  */
 export class LiveDigester {
   private readonly cache = new Map<string, { key: string; digest: LiveDigestDto }>();
@@ -222,7 +224,7 @@ export class LiveDigester {
     return digest;
   }
   private keyOf(sessionId: string): string {
-    const r = this.db.prepare('select max(seq) m, count(*) c, max(ts) t from event_index where session_id = ?').get(sessionId) as { m: number | null; c: number; t: number | null };
-    return `${r.m}:${r.c}:${r.t}:${latestIntent(this.db, sessionId)?.at ?? ''}`;
+    const r = this.db.prepare('select count(*) c, sum(indexed_bytes) b, max(mtime) m from transcript_files where session_id = ?').get(sessionId) as { c: number; b: number | null; m: number | null };
+    return `${r.c}:${r.b}:${r.m}:${latestIntent(this.db, sessionId)?.at ?? ''}`;
   }
 }

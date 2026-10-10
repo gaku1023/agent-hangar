@@ -1,0 +1,1158 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>設定の画面 試作</title>
+<style>
+:root {
+  /* packages/ui/src/styles/tokens.css から写した値（1 つ目の試作と同じ）。 */
+  --bg: #eef1f7; --aura-1: #cfe0ff;
+  --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+  --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --aside: color-mix(in srgb, #c77a1a 42%, #ffffff); --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+  --row-h: 28px; --session-row-h: 56px; --section-head-h: 32px;
+  --hit: #fff3c4; --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px;
+  --sidebar-w: 208px; --header-h: 44px; --lights-end: 81px; --brand-mark: 26px; --brand-w: 104px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: radial-gradient(900px 640px at 0 0, var(--aura-1), transparent 70%), var(--bg); background-attachment: fixed; color: var(--ink); font-family: var(--font-sans); font-size: var(--fs); line-height: 1.45; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.num { font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.icon { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ===== 試作の頁そのもの（1 つ目の試作から写した） ===== */
+.pg { max-width: 1320px; margin: 0 auto; padding: 28px 20px 120px; }
+.pg h1 { margin: 0 0 6px; font-size: var(--fs-lg); letter-spacing: -0.015em; }
+.lead { margin: 0; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.lead code, .box code, .note code, .ans code, .tbl code, .opt-d code, .v-grid code, .gl code { font: 500 11px var(--font-mono); background: var(--surface-2); padding: 0 4px; border-radius: 4px; color: var(--ink); }
+.top { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
+.box { padding: 16px 20px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.box h2 { margin: 0 0 8px; font-size: var(--fs); }
+.box ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+.box li + li { margin-top: 4px; }
+.box li b { color: var(--ink); }
+.box.rec-box { box-shadow: var(--surface-shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--st-done) 45%, transparent); }
+.sum { width: 100%; border-collapse: collapse; }
+.sum td { padding: 5px 8px 5px 0; border-top: 1px solid var(--line); vertical-align: baseline; color: var(--ink-2); }
+.sum tr:first-child td { border-top: 0; }
+.sum td:first-child { width: 48px; }
+.sum td:last-child { width: 48px; text-align: right; }
+.sum td b { display: block; color: var(--ink); }
+.opt-id { display: inline-block; font: 700 12px var(--font-mono); color: #fff; background: var(--ink); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+.opt-id.flow { background: var(--cand); }
+.rec { font-size: var(--fs-xs); font-weight: 700; color: var(--st-done); background: var(--st-done-soft); border-radius: var(--r-pill); padding: 1px 8px; white-space: nowrap; }
+.rec.second { color: var(--st-active); background: var(--st-active-soft); }
+
+/* 上の切り替え */
+.switch { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 24px -20px 0; padding: 10px 20px; background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-strong); }
+.sw { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); font-weight: 600; cursor: pointer; }
+.sw[aria-pressed='true'] { background: var(--ink); color: #fff; box-shadow: none; }
+.sw[aria-pressed='true'] .opt-id { background: #fff; color: var(--ink); }
+.sw-sep { width: 1px; height: 20px; margin: 0 6px; background: var(--line-strong); }
+.sw-label { font-size: var(--fs-xs); color: var(--ink-3); margin-right: 2px; }
+.sw.small { height: 26px; padding: 0 10px; font-size: var(--fs-sm); }
+
+/* 案の節 */
+.opt { display: none; margin-top: 28px; scroll-margin-top: 110px; }
+.opt[data-on='true'] { display: block; }
+.opt-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin: 0 0 6px; }
+.opt-h h2 { margin: 0; font-size: 17px; }
+.opt-d { margin: 0 0 14px; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.opt-d b { color: var(--ink); }
+.tabs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.stab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: none; font-weight: 600; font-size: var(--fs-sm); color: var(--ink-2); cursor: pointer; }
+.stab:hover { background: rgba(255, 255, 255, 0.6); }
+.stab[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.stab i { font-style: normal; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--surface-2); font-size: 10.5px; color: var(--ink-2); }
+.stab[aria-pressed='true'] i { background: var(--ink); color: #fff; }
+.screen-note { margin: 0 2px 10px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.screen-note b { color: var(--ink); }
+.frame-wrap { position: relative; width: 100%; max-width: 1280px; overflow: hidden; border-radius: 12px; }
+.frame-wrap[hidden] { display: none; }
+.cap { margin: 6px 2px 0; font-size: var(--fs-xs); color: var(--ink-3); }
+
+.below { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; margin-top: 18px; align-items: start; }
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.tbl th, .tbl td { padding: 7px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.tbl th { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; border-top: 0; }
+.tbl td:first-child { white-space: nowrap; font-weight: 600; color: var(--ink); width: 200px; }
+.tbl td .n { display: inline-block; min-width: 42px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tbl td .path { color: var(--ink-3); }
+.gl { display: grid; gap: 10px; }
+.gl > div { padding: 10px 14px; border-radius: var(--r); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.gl b { display: block; margin-bottom: 2px; color: var(--ink); font-size: var(--fs-xs); letter-spacing: 0.02em; }
+.ans { margin-top: 14px; padding: 12px 16px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.ans h3 { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--ink); }
+.ans ol { margin: 0; padding-left: 0; list-style: none; }
+.ans li + li { margin-top: 4px; }
+.ans li b { color: var(--ink); }
+
+/* 流れの 2 案を横に並べる */
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; margin-top: 6px; }
+.pair .col-h { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 6px; font-weight: 700; }
+.pair .col-h small { font-weight: 500; color: var(--ink-3); font-size: var(--fs-xs); }
+.pair .gl { margin-top: 10px; }
+.pair .frame-wrap { max-width: 640px; }
+.pair-note { margin: 0 2px 8px; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+
+.all-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; margin-top: 10px; }
+.all-cell .col-h { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 6px; font-weight: 700; }
+.all-cell .col-h small { font-weight: 500; color: var(--ink-3); font-size: var(--fs-xs); }
+
+.verdict { margin-top: 36px; }
+.verdict > h2 { margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line-strong); font-size: var(--fs-md); }
+.v-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; max-width: 1100px; }
+.v-grid p { margin: 0 0 8px; color: var(--ink-2); line-height: 1.65; }
+.v-grid p b { color: var(--ink); }
+.cmp { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.cmp th, .cmp td { padding: 7px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.cmp th { font-size: var(--fs-xs); color: var(--ink-3); border-top: 0; }
+.cmp td:first-child { white-space: nowrap; font-weight: 600; width: 300px; }
+.cmp td { width: 190px; }
+.cmp td .n { font-weight: 700; color: var(--ink); }
+.cmp td[data-best] { background: var(--st-done-soft); }
+.flow-sum { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin-top: 10px; }
+.flow-sum th, .flow-sum td { padding: 7px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.55; }
+.flow-sum th { font-size: var(--fs-xs); color: var(--ink-3); border-top: 0; }
+.flow-sum td:first-child { white-space: nowrap; font-weight: 600; width: 220px; }
+.flow-sum td b { color: var(--ink); }
+@media (max-width: 1000px) { .top, .below, .v-grid, .all-grid, .pair { grid-template-columns: minmax(0, 1fr); } }
+
+/* ===== 画面の試作（.frame の中だけ、1 つ目の試作から写した部分） ===== */
+.frame { position: relative; width: 1280px; height: 800px; overflow: hidden; border-radius: 12px; background: var(--bg); color: var(--ink); font-size: var(--fs); line-height: 1.45; transform-origin: 0 0; box-shadow: 0 0 0 1px rgba(30, 40, 90, 0.14), 0 24px 50px -22px rgba(30, 40, 90, 0.4); }
+.frame .shell { --col1: 216px; position: relative; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; overflow: hidden; background: radial-gradient(60% 70% at 18% 8%, var(--aura-1), transparent 72%), var(--bg); }
+.frame .header { grid-column: 1 / -1; grid-row: 1; z-index: 3; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); align-items: center; height: var(--header-h); background: rgba(255, 255, 255, 0.4); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); }
+.frame .header-brand { grid-column: 1 / -1; grid-row: 1; justify-self: start; position: relative; display: flex; align-items: center; height: 100%; padding-left: var(--lights-end); }
+.frame .lights { position: absolute; left: 11px; top: 50%; translate: 0 -50%; display: flex; gap: 8px; }
+.frame .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.frame .lights i:nth-child(2) { background: #febc2e; } .frame .lights i:nth-child(3) { background: #28c840; }
+.frame .brand { display: flex; align-items: center; gap: 6px; width: var(--brand-w); color: var(--ink); }
+.frame .brand-mark { flex: none; width: 26px; height: 26px; }
+.frame .brand-word { font-size: 16px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+.frame .brand-word::after { content: ''; display: inline-block; width: 8px; height: 2.5px; margin-left: 2px; border-radius: 1.25px; background: #ffb86b; }
+.frame .header-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 18px; min-width: 0; height: 100%; }
+.frame .search-pill { display: inline-flex; flex: none; align-items: center; gap: 8px; height: var(--row-h); margin-left: 16px; padding: 0 5px 0 11px; border: 0; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 600; white-space: nowrap; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); }
+.frame .kbd { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: 5px; font: 600 10.5px/18px var(--font-mono); color: var(--ink-2); background: rgba(30, 40, 90, 0.07); box-shadow: inset 0 -1px 0 rgba(30, 40, 90, 0.08); }
+.frame .spacer { flex: 1; }
+.frame .header-end { display: flex; align-items: center; gap: 18px; margin-right: 12px; }
+.frame .sync { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ink-2); padding-left: 18px; white-space: nowrap; }
+.frame .sync::before, .frame .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: 16px; translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+.frame .sync-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.frame .sync-dot[data-s='paused'] { background: var(--st-paused); }
+.frame .gauges { position: relative; display: flex; align-items: center; gap: 10px; padding-left: 18px; }
+.frame .gauge { display: inline-flex; align-items: center; gap: 4px; }
+.frame .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
+.frame .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+.frame .gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 32px; }
+.frame .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: default; }
+.frame .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+.frame .btn-sm { height: 22px; padding: 0 8px; font-size: var(--fs-sm); }
+.frame .btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+.frame .btn[aria-disabled] { opacity: 0.5; }
+.frame .input { display: flex; align-items: center; height: var(--row-h); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); color: var(--ink); white-space: nowrap; overflow: hidden; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.frame .input[data-empty] { color: var(--ink-3); }
+.frame .listbox { display: inline-flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 8px 0 12px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .seg { display: inline-flex; height: var(--row-h); padding: 2px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); }
+.frame .seg span { display: inline-flex; align-items: center; padding: 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .seg span[data-on] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(30, 40, 90, 0.12); }
+.frame .seg.sm { height: 24px; } .frame .seg.sm span { padding: 0 8px; font-size: var(--fs-xs); }
+.frame .sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; display: flex; flex-direction: column; margin: 52px 0 8px 8px; padding: 10px 8px; overflow: hidden; min-height: 0; }
+.frame .nav-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; }
+.frame .nav-row > .nav-item { flex: 1; margin-bottom: 0; }
+.frame .sidebar-toggle { flex: none; display: grid; place-items: center; width: 32px; height: 32px; color: var(--ink-2); }
+.frame .sidebar-toggle .icon { width: 18px; height: 18px; }
+.frame .nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: var(--r-pill); }
+.frame .nav-item .icon { width: 18px; height: 18px; }
+.frame .nav-item[aria-current] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.frame .nav-count { margin-left: auto; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--waiting); color: #fff; font-size: 11px; font-weight: 700; line-height: 1; }
+.frame .side-live { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .side-live-h { display: flex; align-items: center; gap: 6px; height: 24px; margin: 0; padding: 0 12px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; color: var(--ink-3); white-space: nowrap; }
+.frame .side-live-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 12px; border-radius: var(--r); color: var(--ink); min-width: 0; }
+.frame .side-live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
+.frame .side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
+.frame .side-live-n { flex: none; font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.frame .side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); vertical-align: middle; }
+.frame .dot[data-status='busy'] { background: var(--busy); }
+.frame .dot[data-status='idle'] { background: var(--ink-3); }
+.frame .dot[data-status='waiting'] { background: var(--waiting); }
+.frame .main { grid-column: 2; grid-row: 1 / -1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding-top: 52px; }
+.frame .main-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: 1200px; margin: 0 auto; padding: 8px 16px 16px 16px; }
+.frame .screen { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.frame .page-head { flex: none; margin: 0 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
+.frame .page-parent { display: flex; align-items: center; gap: 3px; height: 18px; margin-bottom: 2px; font-size: var(--fs-sm); color: var(--ink-3); white-space: nowrap; }
+.frame .page-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: var(--row-h); }
+.frame .page-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+.frame .page-after { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.frame .list { display: flex; flex-direction: column; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.frame .list.flat { border-radius: var(--r); box-shadow: inset 0 0 0 1px var(--line); }
+.frame .row { display: grid; align-items: center; height: 36px; padding: 0 12px; border-bottom: 1px solid var(--line); gap: 16px; white-space: nowrap; grid-template-columns: minmax(0, 1fr) auto auto; }
+.frame .row:last-child { border-bottom: 0; }
+.frame .toasts { position: absolute; right: 16px; bottom: 16px; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.frame .notice { width: 340px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.95); box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--cand) 24%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); overflow: hidden; }
+.frame .notice-head { display: flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--cand); background: color-mix(in srgb, var(--cand) 10%, transparent); }
+.frame .notice-head .nd { width: 8px; height: 8px; border-radius: 50%; background: var(--cand); }
+.frame .notice-head .who { font-weight: 500; color: var(--ink-2); letter-spacing: 0; }
+.frame .notice-head .end { margin-left: auto; font-weight: 500; }
+.frame .notice-body { padding: 9px 14px 11px; font-weight: 600; }
+.frame .notice-body small { display: block; margin-top: 2px; font-weight: 400; color: var(--ink-2); }
+.frame .notice-acts { display: flex; gap: 6px; padding: 0 14px 10px; }
+.frame .notice[data-tone='warn'] { box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--st-paused) 30%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); }
+.frame .notice[data-tone='warn'] .notice-head { color: var(--st-paused); background: var(--st-paused-soft); }
+.frame .notice[data-tone='warn'] .nd { background: var(--st-paused); }
+
+/* ===== 設定の画面（この試作で足した部分） ===== */
+.frame .set-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; flex: 1; min-height: 0; }
+.frame .set-toc { display: flex; flex-direction: column; gap: 2px; }
+.frame .set-toc-item { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 10px; border-radius: var(--r); color: var(--ink-2); }
+.frame .set-toc-item[aria-current] { background: rgba(255, 255, 255, 0.78); color: var(--ink); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.frame .set-toc-item .icon { width: 18px; height: 18px; }
+.frame .set-toc-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.frame .set-toc-t { font-weight: 600; font-size: var(--fs); white-space: nowrap; }
+.frame .set-toc-s { font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .set-toc-s[data-tone='warn'] { color: var(--st-paused); font-weight: 600; }
+.frame .set-page { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+.frame .card { flex: none; padding: 14px 18px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.frame .card-h { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; }
+.frame .card-h .end { margin-left: auto; display: inline-flex; gap: 6px; }
+.frame .sub-h { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .sub-h .n { font-weight: 500; color: var(--ink-3); }
+.frame .badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+.frame .badge[data-tone='ok'] { color: var(--st-done); background: var(--st-done-soft); }
+.frame .badge[data-tone='warn'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.frame .badge[data-tone='off'] { color: var(--ink-3); background: var(--surface-2); }
+.frame .badge[data-tone='info'] { color: var(--st-active); background: var(--st-active-soft); }
+.frame .badge[data-tone='stop'] { color: var(--error); background: color-mix(in srgb, var(--error) 10%, #fff); }
+.frame .badge .icon { width: 12px; height: 12px; }
+.frame .set-row { display: flex; align-items: center; gap: 14px; min-height: 40px; padding: 5px 0; border-top: 1px solid var(--line); }
+.frame .set-row:first-child, .frame .card-h + .set-row, .frame .muted-p + .set-row { border-top: 0; }
+.frame .set-row-l { flex: 1; min-width: 0; }
+.frame .set-row-t { font-weight: 600; }
+.frame .set-row-d { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.45; }
+.frame .set-row-r { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.frame .switch { position: relative; flex: none; width: 34px; height: 20px; border-radius: 10px; background: #c9ccd9; }
+.frame .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
+.frame .switch[data-on] { background: var(--accent); }
+.frame .switch[data-on]::after { left: 16px; }
+.frame .switch[data-disabled] { opacity: 0.45; }
+.frame .verify { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: var(--fs-xs); color: var(--st-done); }
+.frame .verify[data-tone='ng'] { color: var(--waiting); }
+.frame .verify .icon { width: 12px; height: 12px; }
+.frame .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.frame .field > .lbl { font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+.frame .cmd { display: flex; align-items: center; gap: 8px; height: 30px; margin-top: 6px; padding: 0 6px 0 10px; border-radius: var(--r); background: var(--term-bg); color: var(--term-fg); font: 12px var(--font-mono); white-space: nowrap; }
+.frame .cmd .btn-sm { margin-left: auto; height: 20px; font-size: var(--fs-xs); }
+.frame .faint-p { margin: 4px 0 0; font-size: var(--fs-sm); color: var(--ink-3); line-height: 1.5; }
+.frame .muted-p { margin: 0 0 8px; color: var(--ink-2); line-height: 1.55; }
+.frame .stat { display: flex; gap: 18px; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .stat b { color: var(--ink); font-weight: 600; }
+.frame .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.frame .pcs .row { grid-template-columns: minmax(0, 1fr) 90px 70px; height: 32px; }
+.frame .pcs .row .faint { font-size: var(--fs-xs); }
+.frame .cu-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.frame .cu-tile { padding: 8px 10px; border-radius: var(--r); background: var(--surface-2); }
+.frame .cu-k { font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .cu-v { font-size: var(--fs-md); font-weight: 700; white-space: nowrap; }
+.frame .cu-v small { margin-left: 6px; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
+.frame .cu-row { display: grid; grid-template-columns: 190px minmax(0, 1fr) 150px; align-items: center; gap: 12px; height: 26px; font-size: var(--fs-sm); }
+.frame .cu-row .cu-when { margin-left: 6px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .cu-meter { position: relative; height: 8px; border-radius: 4px; background: rgba(30, 40, 90, 0.1); }
+.frame .cu-meter i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.frame .cu-meter[data-tone='warn'] i { background: var(--busy); }
+.frame .cu-tick { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--ink-3); }
+.frame .cu-n { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-family: var(--font-mono); font-size: var(--fs-xs); }
+.frame .cu-strip { margin: 0 0 10px; padding: 6px 10px; border-radius: var(--r); font-size: var(--fs-sm); font-weight: 600; color: var(--error); background: color-mix(in srgb, var(--error) 8%, #fff); }
+.frame .confirm-strip { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 12px; border-radius: var(--r); background: var(--st-paused-soft); color: var(--st-paused); font-size: var(--fs-sm); line-height: 1.45; }
+.frame .confirm-strip .spacer { flex: 1; }
+.frame .set-empty { padding: 12px 0 4px; }
+.frame table.mini { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.frame .mini caption { text-align: left; font-size: var(--fs-xs); color: var(--ink-3); padding-bottom: 4px; }
+.frame .mini th { text-align: left; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); padding: 3px 6px; border-bottom: 1px solid var(--line-strong); }
+.frame .mini td { padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.frame .mini .r { text-align: right; font-family: var(--font-mono); font-size: var(--fs-xs); }
+.frame .mini .mono { font-size: var(--fs-xs); }
+/* S2 の一覧 */
+.frame .set-list { display: flex; flex-direction: column; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.frame .set-item-h { display: flex; align-items: center; gap: 6px; height: 30px; padding: 6px 16px 0; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; color: var(--ink-3); }
+.frame .set-item { flex: none; display: grid; grid-template-columns: 20px 190px minmax(0, 1fr) auto 16px; align-items: center; gap: 12px; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.frame .set-item-body { flex: none; }
+.frame .set-item-h { flex: none; }
+.frame .set-item .icon { color: var(--ink-2); }
+.frame .set-item-t { font-weight: 600; white-space: nowrap; }
+.frame .set-item-v { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); display: flex; align-items: center; gap: 8px; }
+.frame .set-item-r { display: inline-flex; align-items: center; gap: 8px; }
+.frame .set-item .chev { color: var(--ink-3); width: 14px; height: 14px; }
+.frame .set-item[data-open] { background: var(--accent-soft); border-bottom-color: transparent; }
+.frame .set-item[data-open] .chev { rotate: 180deg; }
+.frame .set-item-body { padding: 4px 16px 14px 48px; border-bottom: 1px solid var(--line); background: #fff; }
+/* S3 の札の格子 */
+.frame .set-tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
+.frame .set-tab { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .set-tab[aria-pressed] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.frame .set-tab .n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
+.frame .set-tab .n[data-hot] { padding: 0 6px; border-radius: var(--r-pill); color: var(--st-paused); background: var(--st-paused-soft); font-weight: 600; }
+.frame .set-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-content: start; }
+.frame .set-grid .card[data-span] { grid-column: 1 / -1; }
+.frame .set-grid .card { padding: 12px 16px; }
+.frame .set-grid .set-row { min-height: 36px; padding: 3px 0; }
+/* ダイアログ */
+.frame .scrim { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; background: rgba(28, 27, 46, 0.3); }
+.frame .dlg { display: flex; flex-direction: column; width: 800px; max-height: 700px; border-radius: 16px; background: var(--surface); box-shadow: 0 30px 70px -20px rgba(20, 20, 60, 0.55), 0 0 0 1px rgba(30, 40, 90, 0.08); overflow: hidden; }
+.frame .dlg-h { display: flex; align-items: center; gap: 10px; padding: 16px 20px 6px; font-size: var(--fs-md); font-weight: 700; }
+.frame .dlg-h .end { margin-left: auto; display: inline-flex; gap: 6px; }
+.frame .dlg-sub { padding: 0 20px 10px; color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.55; }
+.frame .dlg-sub b { color: var(--ink); }
+.frame .dlg-b { position: relative; flex: 1; min-height: 0; overflow: hidden; padding: 0 20px 6px; }
+.frame .dlg-b[data-scroll] { padding-bottom: 0; }
+.frame .dlg-f { display: flex; align-items: center; gap: 8px; padding: 12px 20px 14px; border-top: 1px solid var(--line); font-size: var(--fs-sm); color: var(--ink-3); }
+.frame .dlg-f .spacer { flex: 1; }
+.frame .scroll-hint { position: absolute; left: 20px; right: 20px; bottom: 0; height: 36px; background: linear-gradient(transparent, #fff); pointer-events: none; }
+.frame .scrollbar { position: absolute; right: 8px; top: 4px; bottom: 8px; width: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.06); }
+.frame .scrollbar i { position: absolute; top: 0; left: 0; right: 0; height: 30%; border-radius: 3px; background: rgba(30, 40, 90, 0.26); }
+.frame .grp { margin-bottom: 8px; border-radius: var(--r); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.frame .grp-h { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+.frame .grp-h .chev { width: 14px; height: 14px; color: var(--ink-3); }
+.frame .grp[data-closed] .grp-h .chev { rotate: -90deg; }
+.frame .grp-h .n { font-weight: 500; color: var(--ink-3); }
+.frame .grp-h .end { margin-left: auto; font-weight: 500; font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; }
+.frame .it { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; height: 28px; padding: 0 10px; border-top: 1px solid var(--line); font: 12px var(--font-mono); white-space: nowrap; }
+.frame .it .k { overflow: hidden; text-overflow: ellipsis; }
+.frame .it .v { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.frame .it .sz { font-size: var(--fs-xs); color: var(--ink-3); font-family: var(--font-sans); min-width: 56px; text-align: right; }
+.frame .it .why { font-size: var(--fs-xs); color: var(--ink-3); font-family: var(--font-sans); }
+.frame .it[data-dim] { color: var(--ink-3); }
+.frame table.ft { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.frame .ft th { text-align: left; font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+.frame .ft td { padding: 0 8px; height: 28px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+.frame .ft td.mono { font-size: 12px; }
+.frame .ft td.r { text-align: right; }
+.frame .ft tr[data-dim] td { color: var(--ink-3); }
+.frame .ft tr[data-open] td { background: var(--accent-soft); border-bottom-color: transparent; }
+.frame .ft td.detail { height: auto; padding: 6px 8px 10px 36px; white-space: normal; max-width: none; }
+.frame .act { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+.frame .act[data-a='create'] { color: var(--st-done); background: var(--st-done-soft); }
+.frame .act[data-a='overwrite'] { color: var(--st-active); background: var(--st-active-soft); }
+.frame .act[data-a='delete'] { color: var(--error); background: color-mix(in srgb, var(--error) 10%, #fff); }
+.frame .act[data-a='conflict'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.frame .act[data-a='drop'] { color: var(--ink-3); background: var(--surface-2); }
+.frame .act[data-a='secret'] { color: var(--error); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 45%, transparent); }
+.frame .act[data-a='hook'] { color: var(--st-paused); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 45%, transparent); }
+.frame .act[data-a='kind'] { color: var(--ink-2); background: var(--surface-2); font-weight: 500; }
+.frame .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 0 0 10px; }
+.frame .chip-f { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); background: var(--surface-2); white-space: nowrap; }
+.frame .chip-f[data-on] { background: var(--ink); color: #fff; }
+.frame .chip-f .n { font-weight: 500; opacity: 0.75; }
+.frame .chips .input { margin-left: auto; width: 200px; height: 26px; }
+.frame .diff { margin: 6px 0 8px; border-radius: var(--r); background: var(--surface-2); font: 11.5px/1.6 var(--font-mono); overflow: hidden; }
+.frame .diff .dl { display: block; padding: 0 10px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.frame .diff .dl[data-k='+'] { background: var(--st-done-soft); color: var(--st-done); }
+.frame .diff .dl[data-k='-'] { background: color-mix(in srgb, var(--error) 10%, #fff); color: var(--error); }
+.frame .diff .dl[data-k='@'] { color: var(--ink-3); background: #fff; }
+.frame .diff-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 6px 0 8px; background: var(--line); border-radius: var(--r); overflow: hidden; }
+.frame .diff-cols > div { background: var(--surface-2); font: 11.5px/1.6 var(--font-mono); min-width: 0; }
+.frame .diff-cols .dh { padding: 3px 10px; background: #fff; font: 600 11px var(--font-sans); color: var(--ink-2); }
+.frame .diff-cols .dl { display: block; padding: 0 10px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.frame .diff-cols .dl[data-k='+'] { background: var(--st-done-soft); color: var(--st-done); }
+.frame .diff-cols .dl[data-k='-'] { background: color-mix(in srgb, var(--error) 10%, #fff); color: var(--error); }
+.frame .ft td.acts { max-width: none; width: 1%; }
+.frame .it .it-r { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.frame .set-scrolled { translate: 0 -430px; }
+.frame .cf-card { padding: 10px 12px; margin-bottom: 8px; border-radius: var(--r); box-shadow: inset 0 0 0 1px var(--line); }
+.frame .cf-card .cf-t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-family: var(--font-mono); font-size: 12px; }
+.frame .cf-card .cf-d { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .cf-card .btns { margin-top: 6px; }
+.frame .ap-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 10px 12px; margin-bottom: 8px; border-radius: var(--r); background: var(--surface-2); }
+.frame .ap-t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-family: var(--font-mono); font-size: 12px; }
+.frame .ap-src { font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .ap-pre { grid-column: 1 / -1; padding: 6px 8px; border-radius: 6px; background: #fff; font: 11px/1.5 var(--font-mono); color: var(--ink-2); white-space: pre; overflow: hidden; }
+.frame .ap-pre mark { background: var(--st-paused-soft); color: var(--st-paused); border-radius: 2px; }
+.frame .ap-btns { display: flex; gap: 6px; align-items: flex-start; }
+.frame .cb { display: inline-block; position: relative; flex: none; width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1.5px #c3c5d6; vertical-align: middle; background: #fff; }
+.frame .cb[data-on] { background: var(--accent); box-shadow: none; }
+.frame .cb[data-on]::after { content: ''; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; rotate: 45deg; }
+.frame .mac { position: absolute; z-index: 9; left: 50%; top: 50%; translate: -50% -50%; width: 262px; padding: 18px 16px 14px; border-radius: 12px; background: rgba(238, 238, 242, 0.97); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18), 0 22px 60px rgba(0, 0, 0, 0.38); text-align: center; font-family: -apple-system, 'Hiragino Sans', sans-serif; color: #1d1d1f; }
+.frame .mac .mac-icon { width: 60px; height: 60px; margin: 0 auto 10px; }
+.frame .mac b { display: block; font-size: 13px; margin-bottom: 4px; line-height: 1.35; }
+.frame .mac p { margin: 0 0 12px; font-size: 11px; color: #3c3c43; line-height: 1.45; }
+.frame .mac .mac-btn { display: block; height: 24px; margin-top: 6px; border-radius: 6px; line-height: 24px; font-size: 12px; background: #fff; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.08); }
+.frame .mac .mac-btn[data-primary] { background: #0a60ff; color: #fff; font-weight: 600; }
+.frame .scrim[data-deep] { background: rgba(28, 27, 46, 0.42); }
+.frame .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs><linearGradient id="hangar-rail" gradientUnits="userSpaceOnUse" x1="-13.362" y1="0" x2="34.096" y2="0"><stop offset="0" stop-color="#1c1b2e"/><stop offset="0.25" stop-color="#1c1b2e"/><stop offset="1" stop-color="#e2e7ff"/></linearGradient></defs>
+<!-- apps/desktop/loading/logo.svg の写し -->
+<symbol id="logo" viewBox="0 0 100 100"><g transform="translate(46.256 25.106) scale(0.854)"><path d="M-13.362 3.178L34.096 -11.66" stroke="url(#hangar-rail)" stroke-width="2.6" stroke-linecap="round"/><g transform="translate(20.734 -6.483) scale(0.614)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#c6cae2" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#c6cae2"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#cdd5fc" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#e6d6e7"/><circle cx="-16.5" cy="37" r="2" fill="#e6e2e6"/><circle cx="-10" cy="37" r="2" fill="#cbe0ef"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e5e7f0" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#f4caa4"/></g><g transform="translate(14.911 -4.662) scale(0.722)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#8e90a6" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#8e90a6"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#a1aff5" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#eeb2b6"/><circle cx="-16.5" cy="37" r="2" fill="#eed8b3"/><circle cx="-10" cy="37" r="2" fill="#9cd2cd"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e6e6eb" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#c1c0d3"/></g><g transform="translate(8.06 -2.52) scale(0.85)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#55556a" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#55556a"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#7689ef" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#f78e86"/><circle cx="-16.5" cy="37" r="2" fill="#f7cd80"/><circle cx="-10" cy="37" r="2" fill="#6ec3ac"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e7e6e6" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#e56656"/></g><g><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#1c1b2e" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#1c1b2e"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#4a63e8" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#ff6a55"/><circle cx="-16.5" cy="37" r="2" fill="#ffc34d"/><circle cx="-10" cy="37" r="2" fill="#3fb58a"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e8e6e1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#ffb86b"/></g></g></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="i-add" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10"/></symbol>
+<symbol id="i-projects" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-sessions" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M12 15h5"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+<symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></symbol>
+<symbol id="i-pane" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/><path d="m14 5-4 14"/></symbol>
+<symbol id="i-text" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h14"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
+<symbol id="i-nothing" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></symbol>
+</svg>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.6-7.95A6 6 0 0 1 18 8.5a4.5 4.5 0 0 1-.5 9.5z"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></symbol>
+<symbol id="i-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3l9.4-9.4z"/><path d="m3 21 2-2"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="i-general" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></symbol>
+<symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><circle cx="12" cy="12" r="3.5"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></symbol>
+<symbol id="i-pc" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 20h8"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+</svg>
+
+<main class="pg">
+<h1>設定の画面 試作</h1>
+<p class="lead">段 4「画面と言葉」の 2 つ目の試作で、対象は<b>設定の画面</b>です。<br>画面の分け方は 1 つ目の試作の A 案に決まっています（サイドバーはホーム、プロジェクト、実行中の節、下に設定。ヘッダーの同期は状態だけで、操作は設定に置く。使用量などの読み物は設定のまま）。<br>ここで決めるのは、設定の画面の構成（3 案）、同期の節の見せ方、言語の切り替えの置き場、Claude Code の設定の同期の 5 つの一覧の形（それぞれ 2 案）です。<br>文言は用語集（<code>2026-10-09-glossary.md</code>）の語で書き、色と書体と余白はトークンのまま、ダークモードは作りません。<br>設定の同期の決まり（既定は切、1 台目は送るものの一覧、2 台目は書き換えるものの一覧、バックアップを取ってから書く、<code>~/.claude</code> への書き込みはネイティブの確認、届いた skills と commands と agents は項目ごとに承諾、絶対パスの規則は落として知らせる、ぶつかりは新しい方を採って古い方を写しに残す）は <code>2026-10-09-config-sync-rebuild-design.md</code> の 4 章、5 章、7 章のとおりです。<br>中の名前、パス、金額、使用量、PC の名前、スキルの名前はすべて作り物です。<br>判断の目線は、公開した hangar を初めて入れた開発者（<code>~/.claude</code> を git で管理していない人が大半で、同期を使わない人も多い）です。</p>
+
+<div class="top">
+<div class="box rec-box">
+<h2>推す案：S1　節を左の目次で切り替える。次点：S2　1 枚の一覧に畳む</h2>
+<table class="sum"><tbody>
+<tr><td><span class="opt-id">S1</span></td><td><b>節を左の目次で切り替える</b>macOS のシステム設定の形。左の目次の 1 行に今の状態を添え、右は選んだ節だけ。クラウド同期は 1 頁に状態、操作、PC、Claude Code の設定、使用量がそろう</td><td><span class="rec">推す</span></td></tr>
+<tr><td><span class="opt-id">S2</span></td><td><b>1 枚の一覧に畳む</b>設定の全部を 1 行ずつの要約（名前と今の値）にし、押した行だけがその場で開く。言語や通知のような小さい設定は行の中で切り替える</td><td><span class="rec second">次点</span></td></tr>
+<tr><td><span class="opt-id">S3</span></td><td><b>操作と状況に分ける</b>上のタブで「設定」（変えるもの）と「状況」（読むもの）を分け、設定は札の格子で 1 画面に収める。同期の使用量は状況の側へ</td><td></td></tr>
+</tbody></table>
+<p class="cap" style="margin-top:10px">設定の同期の 5 つの一覧は、下の「設定の同期の流れ」で (a)〜(e) ごとに 2 案ずつ並べました。推すのは a1、b1、c2、d1、e2 です。</p>
+</div>
+<div class="box">
+<h2>読み方</h2>
+<ul>
+<li>上の切り替えで案を選ぶと、その案の画面を 1280×800 の窓で描きます。構成の案は「開いた直後」と「同期の節」の 2 枚で、<b>同期している人</b>と<b>同期していない人</b>を例のデータの切り替えで替えられます。</li>
+<li>言語の切り替え（日本語、English）は構成の 3 案の窓に効きます。切り替えた直後にどう見えるかを、そのまま確かめられます。ステータスの札は英語のままです。設定の同期の流れの窓は日本語だけです。</li>
+<li>「設定の同期の流れ」の (a)〜(e) は 2 案を横に並べます。件数は <b>8 項目</b>と <b>60 項目</b>で切り替えられ、ネイティブの確認ダイアログは macOS のダイアログに似せた絵で示します。</li>
+<li>各案の下に、利用者の 5 つの動き (1)〜(5) で何回の操作でどこを通るかの表と、得るもの、失うもの、作り替えの重さを置きました。操作の回数は「たどり着くまで」で、打鍵は 1 回、ダイアログで決めて押すのも 1 回です。</li>
+<li>いまの設定の画面は 5 つの群（必須、連携、要約器、同期、情報）に 16 の節と約 40 の項目が 1 枚に縦に並び、読み物（使用量の表、索引、この PC、互換の見張り）が項目の 3 分の 1 ほどを占めています。</li>
+</ul>
+</div>
+</div>
+
+<nav class="switch" aria-label="案の切り替え">
+<span class="sw-label">構成</span>
+<button class="sw" data-opt="s1" aria-pressed="true"><span class="opt-id">S1</span>左の目次</button>
+<button class="sw" data-opt="s2" aria-pressed="false"><span class="opt-id">S2</span>1 枚の一覧</button>
+<button class="sw" data-opt="s3" aria-pressed="false"><span class="opt-id">S3</span>操作と状況</button>
+<button class="sw" data-opt="all" aria-pressed="false">3 案を並べる</button>
+<span class="sw-sep"></span>
+<span class="sw-label">設定の同期の流れ</span>
+<button class="sw" data-opt="fa" aria-pressed="false"><span class="opt-id flow">a</span>送るもの</button>
+<button class="sw" data-opt="fb" aria-pressed="false"><span class="opt-id flow">b</span>適用内容</button>
+<button class="sw" data-opt="fc" aria-pressed="false"><span class="opt-id flow">c</span>承諾</button>
+<button class="sw" data-opt="fd" aria-pressed="false"><span class="opt-id flow">d</span>ぶつかり</button>
+<button class="sw" data-opt="fe" aria-pressed="false"><span class="opt-id flow">e</span>送らなかったもの</button>
+<span class="sw-sep"></span>
+<span class="sw-label">例のデータ</span>
+<button class="sw small" data-sync="on" aria-pressed="true">同期している人</button>
+<button class="sw small" data-sync="off" aria-pressed="false">同期していない人</button>
+<span class="sw-sep"></span>
+<span class="sw-label">件数</span>
+<button class="sw small" data-size="small" aria-pressed="false">8 項目</button>
+<button class="sw small" data-size="large" aria-pressed="true">60 項目</button>
+<span class="sw-sep"></span>
+<span class="sw-label">言語</span>
+<button class="sw small" data-lang="ja" aria-pressed="true">日本語</button>
+<button class="sw small" data-lang="en" aria-pressed="false">English</button>
+</nav>
+
+<div id="opts"></div>
+
+<section class="opt verdict" id="verdict" data-on="true">
+<h2>推す案と理由</h2>
+<div class="v-grid">
+<div>
+<p><b>構成は S1（節を左の目次で切り替える）を推します。</b>
+初めて入れた人が設定でまずすることは、言語を確かめ、連携の要修正を潰し、気が向いたらクラウド同期を始めることです。
+S1 は左の目次が「クラウド同期　同期オフ」「連携　要修正 2」のように今の状態を 1 行ずつ添えるので、開いた直後に何がどうなっているかが読め、押せば右がその節だけになります。
+クラウド同期は 1 頁に状態、操作、PC、Claude Code の設定の同期、Cloudflare の使用量と月の予算がそろい、論点 2 の「1 つの節で見せる」に素直です。
+いまの作り（1 枚に目次、スクロールで群を追う）から、目次を頁の切り替えに変えるだけなので、段 4 の 1 本の PR に収まります。
+操作の回数は S2 と S3 に 1 回ずつ負けますが、その 1 回は「どの節か」を目次で選ぶ分で、迷いは増えません。</p>
+<p><b>次点は S2（1 枚の一覧に畳む）です。</b>
+設定の全部が 1 行ずつの要約で 1 画面に収まり、言語と通知は行の中で切り替えられるので、動き (3) と (4) が最短です。
+ただし、クラウド同期のように大きい節を一覧の途中で開くと、下の行が画面の外へ押し出され、要約エンジンやツールのように欄の多い節は折りたたみの中で窮屈になります。
+いまの作りからは遠く（目次の仕組みと群の見出しを捨てる）、作り替えは S1 より重いです。
+S1 の目次の「今の状態の 1 行」は、S2 のこの長所を取り入れたものです。</p>
+<p><b>S3（操作と状況に分ける）は推しません。</b>
+設定が 1 画面の札の格子に収まる軽さは魅力で、動き (1)、(2)、(4) は最短です。
+しかし Cloudflare の使用量と無料枠での停止が「状況」のタブへ移り、「同期を一時停止する」と「なぜ止まったか」が別の場所になります。
+同期を使わない大半の人には「状況」のタブが使用量と索引とこの PC だけの薄い画面になり、タブの意味が伝わりません。
+1 つ目の試作で「読み物は設定のまま」と決めた以上、設定の中でさらに分けるより、S1 の「情報」の節に集める方が覚えることが少なくて済みます。</p>
+<p><b>同期の節（論点 2）。</b>
+同期を使っていない人には、1 文の説明と「クラウドを用意して始める」「参加トークンで参加」の 2 つのボタンだけを見せ、PC の一覧も使用量も出しません。
+Claude Code の設定の同期は、押せないスイッチと「クラウド同期を始めると使えます」の 1 行で、ある事だけ知らせます。
+同期している人には、状態の 1 行（同期済み、最終受信、未送信の変更、未送信のトランスクリプト）、3 つのボタン（今すぐ同期、同期を一時停止、参加トークンを表示）、PC の一覧、Claude Code の設定の同期の 5 行、Cloudflare の使用量と料金（札 3 つと棒 3 本、停止のしきい値の目盛り）、月の予算（D4、Paid のときだけ効く）の順に並べます。
+無料枠で止まったときは、状態の札が「無料枠で停止」になり、使用量の上に理由と「UTC 0:00 にリセット」の帯が出ます。</p>
+<p><b>言語の切り替え（論点 4）。</b>
+置き場は設定の「一般」の先頭（S1）、一覧の先頭の行（S2）、「一般」の札の先頭（S3）で、3 案とも設定を開いて最初に目に入る位置です。
+値は「日本語」と「English」の 2 つの切り替えで、押した瞬間に画面の全部（サイドバー、ヘッダー、設定の見出しと説明）が切り替わり、保存のボタンも再起動も要りません。
+ステータスの札（Active、Paused、Done、Archived）と公式の語（Claude Code、MCP、LM Studio）は両方で同じ表記です。
+上の切り替えで English を押すと、この試作の窓でその直後の見え方を確かめられます。</p>
+<p><b>設定の同期の一覧（論点 3）。</b>
+推すのは a1（種類ごとの折りたたみ）、b1（操作ごとの折りたたみで、競合と削除を上に）、c2（表にチェックで、印の無いものをまとめて承諾）、d1（差分を最初から出す）、e2（同期の節に常設の行と、送った直後の通知カード）です。
+理由は下の表にまとめました。
+いずれも 60 項目で読めることを、上の「件数」の切り替えで確かめられます。</p>
+</div>
+</div>
+<div class="box">
+<table class="cmp" id="cmp"></table>
+<p class="cap" style="margin-top:8px">緑の升はその動きでいちばん少ない案です。回数は「たどり着くまで」です。(5) は、2 台目でスイッチを入れると適用の一覧がすぐ開く前提で数えています。</p>
+</div>
+<div class="box" style="margin-top:20px">
+<h2>設定の同期の一覧の推す案</h2>
+<table class="flow-sum" id="flow-sum"></table>
+</div>
+</section>
+</main>
+
+<script>
+/* ===== 例のデータ（すべて作り物） ===== */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const ic = (n, cls) => `<svg class="icon${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+
+/* 文言の辞書。[日本語, English]。ステータスの札と公式の語は両方で同じ。 */
+const T = {
+  home: ['ホーム', 'Home'], projects: ['プロジェクト', 'Projects'], settings: ['設定', 'Settings'], running: ['実行中', 'Running'],
+  search: ['検索と移動', 'Search and go'], newSession: ['新しいセッション', 'New session'], syncedAgo: ['同期 3 分前', 'Synced 3 min ago'], syncPausedHdr: ['同期を一時停止中', 'Sync paused'],
+  h5: ['5 時間', '5-hour'], week: ['週', 'Weekly'], waitMin: ['4 分待機', 'Waiting 4 min'],
+  general: ['一般', 'General'], cloudSync: ['クラウド同期', 'Cloud sync'], integ: ['連携', 'Integrations'], sumEngine: ['要約エンジン', 'Summary engine'], tools: ['ツール', 'Tools'], info: ['情報', 'Info'], statusTab: ['状況', 'Status'],
+  language: ['言語', 'Language'], languageD: ['画面の言葉。ステータスの札は英語のままです', 'Interface language. Status labels stay in English'],
+  notify: ['通知', 'Notifications'], notifyOn: ['通知を有効にする', 'Enable notifications'], notifyD: ['入力待ちになったセッションをデスクトップ通知で知らせます', 'Desktop notification when a session needs input'],
+  terminalApp: ['ターミナルアプリ', 'Terminal app'], terminalAppD: ['「ターミナルで開く」で使うアプリ', 'App used by "Open in terminal"'],
+  retention: ['トランスクリプトの保持', 'Transcript retention'], retentionD: ['Claude Code の cleanupPeriodDays。変更の前に差分を確認します', "Claude Code's cleanupPeriodDays. Changes are confirmed with a diff"],
+  d30: ['30 日', '30 days'], d90: ['90 日', '90 days'], y1: ['1 年', '1 year'], y10: ['10 年', '10 years'],
+  syncOff: ['同期オフ', 'Sync off'], synced: ['同期済み', 'Synced'], syncPaused: ['同期を一時停止中', 'Sync paused'], quotaStop: ['無料枠で停止', 'Paused at free tier limit'],
+  syncOffLead: ['この PC だけで使っています。ほかの PC とセッションの一覧、ステータス、Claude Code の設定をそろえるには、自分の Cloudflare アカウントにクラウドを用意します。無料枠の範囲で動きます。', 'This computer works on its own. To share sessions, statuses and Claude Code settings across computers, set up a cloud on your own Cloudflare account. It runs within the free tier.'],
+  syncStart: ['クラウドを用意して始める', 'Set up a cloud and start'], syncJoin: ['参加トークンで参加', 'Join with a join token'],
+  syncOffNote: ['段 5 までは、押すとターミナルで打つコマンドを出します。', 'Until stage 5, these show the command to run in a terminal.'],
+  cfgSync: ['Claude Code の設定を同期', 'Sync Claude Code settings'], cfgSyncNeedsCloud: ['クラウド同期を始めると使えます', 'Available once cloud sync is on'],
+  cfgOn: ['この PC で有効にする', 'Enable on this computer'],
+  cfgSyncD: ['CLAUDE.md、settings.json の持ち運べる鍵、スキル、コマンド、エージェント、メモリ、keybindings.json を PC の間でそろえます。既定はオフです。', 'Keeps CLAUDE.md, portable settings.json keys, skills, commands, agents, memory and keybindings.json the same across computers. Off by default.'],
+  state: ['状態', 'State'], lastReceived: ['最終受信', 'Last received'], unsent: ['未送信の変更', 'Unsent changes'], unsentTr: ['未送信のトランスクリプト', 'Unsent transcripts'], n0: ['0 件', '0'], n2: ['2 件', '2'],
+  syncNow: ['今すぐ同期', 'Sync now'], pauseSync: ['同期を一時停止', 'Pause sync'], resumeSync: ['同期を再開', 'Resume sync'], showJoin: ['参加トークンを表示', 'Show join token'],
+  computers: ['PC', 'Computers'], thisPc: ['この PC', 'This computer'], now: ['いま', 'now'], ago3: ['3 分前', '3 min ago'], ago2d: ['2 日前', '2 days ago'],
+  arrived: ['届いている変更', 'Changes received'], arrivedN: ['5 件、Studio から', '5 from Studio'], review: ['適用内容を確認', 'Review changes'],
+  approvalMode: ['届いたスキル、コマンド、エージェント', 'Skills, commands and agents from other computers'], approvalD: ['実行される指示なので、既定では項目ごとに承諾します', 'These run as instructions, so each one is approved by default'],
+  each: ['毎回承諾する', 'Approve each'], auto: ['自動で適用', 'Apply automatically'],
+  autoWarn: ['自動にすると、ほかの PC が乗っ取られたとき、その PC からの指示がこの PC でも実行されます。', 'If set to automatic, instructions from a compromised computer would also run on this one.'],
+  cancel: ['キャンセル', 'Cancel'], makeAuto: ['自動にする', 'Make automatic'],
+  conflicts: ['競合', 'Conflicts'], conflictsN: ['1 件', '1'], conflictsD: ['両方の PC で変わっていたので、新しい方を採り、古い方を写しとして残しました', 'Changed on both computers; the newer one was applied and the older kept as a copy'], showDiff: ['差分を表示', 'Show diff'],
+  notSent: ['送らなかった項目', 'Items not sent'], notSentN: ['2 件、落とした規則 2 件', '2, plus 2 dropped rules'], notSentD: ['秘密らしい文字列があった項目と、落とした絶対パスの規則', 'Items with secret-like strings and dropped absolute-path rules'], show: ['表示', 'Show'],
+  backups: ['バックアップ', 'Backups'], backupsD: ['書き込みの前の世代。~/.agent-hangar/backups/claude-config/', 'Generations saved before each write. ~/.agent-hangar/backups/claude-config/'], restore: ['この世代に戻す…', 'Restore this generation…'], gens: ['3 世代、最新 10/9 09:12', '3 generations, latest 10/9 09:12'],
+  cfUsage: ['Cloudflare の使用量と料金', 'Cloudflare usage and billing'], bill: ['今月の請求額', "This month's bill"], plan: ['プラン', 'Plan'], threshold: ['停止のしきい値', 'Stop threshold'],
+  d1w: ['D1 の書き込み', 'D1 writes'], wreq: ['Workers のリクエスト', 'Workers requests'], r2: ['R2 のストレージ', 'R2 storage'], today: ['今日', 'Today'], month: ['今月', 'This month'],
+  cfLegend: ['Cloudflare の実測値、12 分前に取得。無料枠で停止したときは UTC 0:00 にリセットされます', 'Cloudflare figures, fetched 12 min ago. A stop at the free tier limit resets at 00:00 UTC'],
+  budget: ['月の予算', 'Monthly budget'], budgetD: ['Paid プランのとき、今月の請求額がこの額を超えたら同期を停止します', 'On a Paid plan, sync stops when this month\'s bill exceeds this amount'], budgetOff: ['Free では課金されないので使いません', 'Not used on Free, which is never billed'],
+  compat: ['Claude Code との互換性', 'Claude Code compatibility'], noChanges: ['変更点なし', 'No changes'], installed: ['インストール済みのバージョン', 'Installed version'], verified: ['検証済みのバージョン', 'Verified version'],
+  compatD: ['hangar が読む Claude Code の形（トランスクリプト、レジストリ、ステータスライン、~/.claude の内容、CLI、画面出力）が、検証済みのバージョンから変わっていないかを見ています', 'Watches whether what hangar reads from Claude Code (transcript, registry, status line, ~/.claude contents, CLI, screen output) has changed since the verified version'],
+  mcp: ['MCP サーバー', 'MCP server'], registered: ['登録済み', 'Registered'], mcpD: ['hangar の検索と要約を Claude Code から使えます', "Lets Claude Code use hangar's search and summaries"],
+  statusline: ['ステータスライン', 'Status line'], notSetUp: ['未設定', 'Not set up'], statuslineD: ['ヘッダーの使用率は、この追記から届きます', "The header's percent used comes from this hook"],
+  shell: ['シェル連携', 'Shell integration'], notInstalled: ['未インストール', 'Not installed'], shellD: ['外部ターミナルで起動した claude も hangar で開けます', 'Opens claude started in an external terminal in hangar too'],
+  cliNote: ['ターミナルで実行してください（段 5 でアプリから行えるようにします）', 'Run in a terminal (stage 5 moves this into the app)'],
+  accounts: ['アカウント', 'Accounts'], primary: ['メインアカウント', 'Primary account'], loggedIn: ['ログイン済み', 'Logged in'], addLogin: ['追加してログイン', 'Add and log in'], acctName: ['名前（例：大学）', 'Name (e.g. University)'],
+  lmUrl: ['LM Studio の URL', 'LM Studio URL'], connected: ['接続済み', 'Connected'], models3: ['モデル 3 個', '3 models'], model: ['モデル', 'Model'], autoFirst: ['自動（最初のモデル）', 'Auto (first model)'],
+  allowExt: ['外部の要約エンジンを許可', 'Allow external summary engines'], allowExtD: ['127.0.0.1 と localhost 以外へトランスクリプトを送れるようにします', 'Allows sending transcripts beyond 127.0.0.1 and localhost'],
+  fallback: ['LM Studio が使えないときは Claude を使う', 'Fall back to Claude when LM Studio is unavailable'], hourly: ['Claude での要約の 1 時間あたりの上限', 'Hourly limit for Claude summaries'], perHour: ['件', 'per hour'],
+  save: ['保存', 'Save'], test: ['接続テスト', 'Test connection'],
+  projectsFolder: ['プロジェクトの親フォルダ', 'Projects folder'], projectsFolderD: ['直下のフォルダのうち、Claude のセッションがあるものをプロジェクトとして登録します', 'Folders directly inside it that have Claude sessions are registered as projects'],
+  tmuxPath: ['tmux のパス', 'tmux path'], claudePath: ['claude のパス', 'claude path'], codePath: ['code のパス', 'code path'], nodePath: ['Node のパス', 'Node path'], found: ['見つかりました', 'Found'],
+  usage: ['使用量', 'Usage'], byDay: ['日別（直近 30 日）', 'By day (last 30 days)'], byProject: ['プロジェクト別', 'By project'], day: ['日', 'Day'], input: ['入力', 'Input'], output: ['出力', 'Output'], sessions: ['セッション', 'Sessions'], name: ['名前', 'Name'], tokens: ['トークン', 'Tokens'], cost: ['推定コスト', 'Estimated cost'],
+  usageNote: ['コストはステータスラインが渡した値の合計です。渡されていないセッションは含みません', 'Cost is the sum of values passed by the status line. Sessions without one are not included'],
+  index: ['索引', 'Index'], indexN: ['1,218 セッション、14 プロジェクト', '1,218 sessions, 14 projects'], rebuild: ['索引を再構築', 'Rebuild index'], source: ['読み取り元', 'Source directory'],
+  thisPcSec: ['この PC', 'This computer'], openLog: ['ログを開く', 'Open log'], logLoc: ['ログの場所', 'Log location'],
+  toFix: ['要修正 2', '2 to fix'], allFound: ['すべて検出', 'All found'], on: ['オン', 'On'], off: ['オフ', 'Off'], set: ['設定', 'Settings'],
+  jaName: ['日本語', '日本語'], enName: ['English', 'English'], onNotify: ['通知オン', 'Notifications on'],
+  changeOpts: ['変更…', 'Change…'], start: ['始める', 'Start'], item1: ['1 件', '1'], sessionsN: ['1,218 セッション', '1,218 sessions'],
+  usageRow: ['今日 42k トークン、30 日で $31.20', 'Today 42k tokens, $31.20 over 30 days'], lmRow: ['LM Studio、接続済み', 'LM Studio, connected'],
+  genNote: ['数世代を残し、古いものから消します', 'A few generations are kept; the oldest are removed first'],
+  backupList: ['世代', 'Generations'],
+};
+let lang = 'ja';
+const J = () => (lang === 'en' ? ', ' : '、');
+const t = (k) => { const v = T[k]; if (!v) return k; return v[lang === 'en' ? 1 : 0]; };
+const kbd = (k) => `<span class="kbd">${esc(k)}</span>`;
+
+/* 2 人の利用者。同期している人（PC 3 台、Claude Code の設定の同期もオン）と、同期していない人。 */
+function dataset(syncOn) {
+  return {
+    sync: syncOn,
+    devices: [{ name: 'MacBook', self: true, os: 'macOS', seen: 'now' }, { name: 'Studio', self: false, os: 'macOS', seen: 'ago3' }, { name: 'Work-Mini', self: false, os: 'Windows', seen: 'ago2d' }],
+    sessions: [{ name: 'OpenAPI から型を生成', live: 'busy' }, { name: '決済フォームの検証を直す', live: 'waiting' }],
+  };
+}
+
+/* ===== 画面の部品（1 つ目の試作から写した） ===== */
+const dot = (live) => `<span class="dot" data-status="${live || 'ended'}"></span>`;
+function logoHtml() {
+  return `<div class="header-brand"><span class="lights"><i></i><i></i><i></i></span><span class="brand"><svg class="brand-mark" aria-hidden="true"><use href="#logo"/></svg><span class="brand-word">Hangar</span></span></div>`;
+}
+/* ヘッダー。A 案なので同期は語だけ。同期していない人には何も出さない。 */
+function headerHtml(d, quota = false) {
+  const sync = d.sync ? `<span class="sync"><span class="sync-dot"${quota ? ' data-s="paused"' : ''}></span><span>${quota ? t('quotaStop') : t('syncedAgo')}</span></span>` : '';
+  const gauge = (k, n) => `<span class="gauge"><span class="gauge-key">${k}</span><span class="gauge-bar"><span class="gauge-fill" style="width:${n}%"></span></span><span class="gauge-num">${n}%</span></span>`;
+  const gauges = `<span class="gauges">${gauge(t('h5'), 28)}${gauge(t('week'), 41)}</span>`;
+  return `<header class="header">${logoHtml()}<div class="header-row"><button class="search-pill">${ic('search')}<span>${t('search')}</span>${kbd('⌘K')}</button><span class="spacer"></span><div class="header-end">${sync}${gauges}<button class="btn btn-primary">${ic('add')}${t('newSession')}</button></div></div></header>`;
+}
+/* サイドバー（A 案）。ホーム、プロジェクト、実行中の節、下に設定。 */
+function sidebarHtml(d) {
+  const item = (k, cur) => `<a class="nav-item"${cur ? ' aria-current="page"' : ''}>${ic(k)}<span>${t(k)}</span>${k === 'home' ? `<span class="nav-count">1</span>` : ''}</a>`;
+  const live = d.sessions.map((s) => `<a class="side-live-row" data-live="${s.live}">${dot(s.live)}<span class="side-live-name">${esc(s.name)}</span>${s.live === 'waiting' ? `<span class="side-live-wait">${t('waitMin')}</span>` : ''}</a>`).join('');
+  return `<nav class="sidebar"><div class="nav-row">${item('home')}<span class="sidebar-toggle">${ic('sidebar')}</span></div>${item('projects')}<section class="side-live"><h2 class="side-live-h">${t('running')}<span class="side-live-n">2</span></h2>${live}</section><div class="side-foot">${item('settings', true)}</div></nav>`;
+}
+function pageHead(title, after) {
+  return `<div class="page-head"><div class="page-parent"></div><div class="page-title-row"><h1 class="page-title">${esc(title)}</h1>${after ? `<span class="page-after">${after}</span>` : ''}</div></div>`;
+}
+function frame(inner) { return `<div class="frame"><div class="shell">${inner}</div></div>`; }
+const main = (inner) => `<div class="main"><div class="main-inner">${inner}</div></div>`;
+const shellOf = (d, inner, extra = '', quota = false) => frame(sidebarHtml(d) + headerHtml(d, quota) + main(`<div class="screen">${inner}</div>`) + extra);
+
+/* ===== 設定の部品 ===== */
+const sw = (on, disabled) => `<span class="switch"${on ? ' data-on' : ''}${disabled ? ' data-disabled' : ''}></span>`;
+const seg = (opts, cls = '') => `<span class="seg${cls ? ' ' + cls : ''}">${opts.map(([l, on]) => `<span${on ? ' data-on' : ''}>${esc(l)}</span>`).join('')}</span>`;
+const badge = (tone, text, icon) => `<span class="badge" data-tone="${tone}">${icon ? ic(icon) : ''}${esc(text)}</span>`;
+const row = (title, desc, right) => `<div class="set-row"><div class="set-row-l"><div class="set-row-t">${title}</div>${desc ? `<div class="set-row-d">${desc}</div>` : ''}</div><div class="set-row-r">${right}</div></div>`;
+const cmd = (c) => `<div class="cmd"><span>${esc(c)}</span><span class="btn btn-sm">${ic('copy')}</span></div>`;
+const verify = (text, ok = true) => `<div class="verify"${ok ? '' : ' data-tone="ng"'}>${ic(ok ? 'check' : 'alert')}${esc(text)}</div>`;
+const field = (label, value, line) => `<div class="field"><span class="lbl">${label}</span><span class="input">${esc(value)}</span>${line || ''}</div>`;
+const langSeg = () => seg([[t('jaName'), lang === 'ja'], [t('enName'), lang === 'en']]);
+const retSeg = () => seg([[t('d30'), 0], [t('d90'), 0], [t('y1'), 1], [t('y10'), 0]]);
+
+/* 一般：言語、通知、ターミナルアプリ、保持。 */
+function secGeneral() {
+  return row(t('language'), t('languageD'), langSeg())
+    + row(t('notifyOn'), t('notifyD'), sw(true))
+    + row(t('terminalApp'), t('terminalAppD'), seg([['Terminal.app', 1], ['iTerm2', 0]]))
+    + row(t('retention'), t('retentionD'), retSeg());
+}
+/* クラウド同期の本体（状態、操作、PC）。同期していない人には説明と 2 つのボタンだけ。 */
+function secSyncMain(d, o = {}) {
+  if (!d.sync) {
+    return `<p class="muted-p">${t('syncOffLead')}</p><div class="btns"><span class="btn btn-primary">${ic('cloud')}${t('syncStart')}</span><span class="btn">${t('syncJoin')}</span></div><p class="faint-p">${t('syncOffNote')}</p>`;
+  }
+  const pcs = d.devices.map((x) => `<div class="row"><span>${esc(x.name)}${x.self ? `<span class="faint"> ${t('thisPc')}</span>` : ''}</span><span class="faint">${x.os}</span><span class="faint">${t(x.seen)}</span></div>`).join('');
+  const state = o.quota ? `<b>${t('quotaStop')}</b> <span class="faint">${lang === 'en' ? 'resets at 09:00' : '09:00 にリセット'}</span>` : `<b>${t('synced')}</b>`;
+  const btns = o.quota
+    ? `<span class="btn" aria-disabled>${t('syncNow')}</span><span class="btn" aria-disabled>${t('resumeSync')}</span><span class="btn">${t('showJoin')}</span>`
+    : `<span class="btn">${t('syncNow')}</span><span class="btn">${t('pauseSync')}</span><span class="btn">${t('showJoin')}</span>`;
+  return `<div class="stat"><span>${t('state')} ${state}</span><span>${t('lastReceived')} <b>${o.quota ? (lang === 'en' ? '2 h ago' : '2 時間前') : t('ago3')}</b></span><span>${t('unsent')} <b>${o.quota ? (lang === 'en' ? '14' : '14 件') : t('n0')}</b></span><span>${t('unsentTr')} <b>${t('n2')}</b></span></div>
+<div class="mono faint" style="margin-top:4px">https://hangar-sync.example.workers.dev</div>
+<div class="btns">${btns}</div>
+${o.noPcs ? '' : `<h4 class="sub-h">${t('computers')}<span class="n">3</span></h4><div class="list flat pcs">${pcs}</div>`}`;
+}
+/* Claude Code の設定の同期。同期していない人には押せないスイッチと 1 行。 */
+function secCfg(d, o = {}) {
+  if (!d.sync) return row(t('cfgOn'), t('cfgSyncNeedsCloud'), sw(false, true));
+  const strip = o.strip ? `<div class="confirm-strip">${ic('alert')}<span>${t('autoWarn')}</span><span class="spacer"></span><span class="btn btn-sm">${t('cancel')}</span><span class="btn btn-sm btn-primary">${t('makeAuto')}</span></div>` : '';
+  return row(t('cfgOn'), t('cfgSyncD'), sw(true))
+    + row(t('arrived'), t('arrivedN'), `<span class="btn btn-sm btn-primary">${t('review')}</span>`)
+    + row(t('approvalMode'), t('approvalD'), seg([[t('each'), !o.strip], [t('auto'), !!o.strip]], 'sm')) + strip
+    + (o.short ? '' : row(`${t('conflicts')} <span class="faint">${t('conflictsN')}</span>`, t('conflictsD'), `<span class="btn btn-sm">${t('showDiff')}</span>`)
+    + row(`${t('notSent')} <span class="faint">${t('notSentN')}</span>`, t('notSentD'), `<span class="btn btn-sm">${t('show')}</span>`)
+    + row(`${t('backups')} <span class="faint">${t('gens')}</span>`, t('backupsD'), `<span class="btn btn-sm">${t('restore')}</span>`));
+}
+/* Cloudflare の使用量と料金（札 3 つ、棒 3 本、月の予算）。 */
+function secUsage(d, o = {}) {
+  const tile = (k, v, s) => `<div class="cu-tile"><div class="cu-k">${k}</div><div class="cu-v">${v}${s ? `<small>${s}</small>` : ''}</div></div>`;
+  const bar = (label, when, pct, val, tone) => `<div class="cu-row"><span>${label}<span class="cu-when">${when}</span></span><div class="cu-meter"${tone ? ` data-tone="${tone}"` : ''}><i style="width:${pct}%"></i><span class="cu-tick" style="left:80%"></span></div><span class="cu-n">${val}</span></div>`;
+  const strip = o.quota ? `<div class="cu-strip">${lang === 'en' ? 'Sync stopped at 80% of the free tier. Resets at 00:00 UTC (09:00 local)' : '無料枠の 80% に達したため、同期を停止しました。UTC 0:00（09:00）にリセットされます'}</div>` : '';
+  return `<div class="cu-tiles">${tile(t('bill'), '$0.00', 'Free')}${tile(t('plan'), 'Free')}${tile(t('threshold'), '80%')}</div>${strip}
+${bar(t('d1w'), t('today'), 31, '31,200 / 100,000')}${bar(t('wreq'), t('today'), 8, '8,400 / 100,000')}${bar(t('r2'), t('month'), 12, '1.2 GB / 10 GB')}
+<p class="faint-p">${t('cfLegend')}</p>
+${o.noBudget ? '' : row(t('budget'), t('budgetD'), `<span class="input" style="width:88px">$ 5.00</span><span class="faint" style="font-size:11px">${t('budgetOff')}</span>`)}`;
+}
+/* 連携：互換性、MCP、ステータスライン、シェル連携、アカウント。 */
+function secCompat() {
+  return `<p class="muted-p" style="font-size:12px">${t('compatD')}</p><div class="stat"><span>${t('installed')} <b class="mono">2.1.0</b></span><span>${t('verified')} <b class="mono">2.1.0</b></span></div>`;
+}
+function secLink(o = {}) {
+  return `${o.noCompat ? '' : `<h4 class="sub-h">${t('compat')}${badge('ok', t('noChanges'), 'check')}</h4>${secCompat()}`}
+<h4 class="sub-h">${t('mcp')}${badge('ok', t('registered'), 'check')}</h4><p class="faint-p" style="margin:0">${t('mcpD')}</p>
+<h4 class="sub-h">${t('statusline')}${badge('warn', t('notSetUp'), 'alert')}</h4><p class="faint-p" style="margin:0">${t('statuslineD')}。${t('cliNote')}</p>${cmd('hangar statusline install')}
+<h4 class="sub-h">${t('shell')}${badge('warn', t('notInstalled'), 'alert')}</h4><p class="faint-p" style="margin:0">${t('shellD')}。${t('cliNote')}</p>${cmd('hangar shell install')}
+${o.noAccounts ? '' : `<h4 class="sub-h">${t('accounts')}<span class="n">1</span></h4><div class="list flat"><div class="row" style="grid-template-columns:minmax(0,1fr) auto auto"><span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2a57b8;margin-right:8px;vertical-align:middle"></span>${t('primary')}<span class="faint"> Max</span></span>${badge('ok', t('loggedIn'))}<span></span></div></div><div class="btns"><span class="input" data-empty style="width:200px">${t('acctName')}</span><span class="btn">${t('addLogin')}</span></div>`}`;
+}
+/* S3 の連携の札。行と札だけにして、コマンドはボタンの先に置く。 */
+function secLinkCompact() {
+  const cmdBtn = `<span class="btn btn-sm">${lang === 'en' ? 'Show command' : 'コマンドを表示'}</span>`;
+  return row(t('mcp'), t('mcpD'), badge('ok', t('registered'), 'check'))
+    + row(t('statusline'), t('statuslineD'), `${badge('warn', t('notSetUp'), 'alert')}${cmdBtn}`)
+    + row(t('shell'), t('shellD'), `${badge('warn', t('notInstalled'), 'alert')}${cmdBtn}`)
+    + row(t('accounts'), `${t('primary')}${J()}Max`, `<span class="btn btn-sm">${t('addLogin')}</span>`);
+}
+function secSummary() {
+  return `<div class="grid2">${field(t('lmUrl'), 'http://127.0.0.1:1234', verify(`${t('connected')}（${t('models3')}）`))}<div class="field"><span class="lbl">${t('model')}</span><span class="listbox">${t('autoFirst')}${ic('chev')}</span></div></div>
+${row(t('allowExt'), t('allowExtD'), sw(false))}${row(t('fallback'), '', sw(true))}${row(t('hourly'), '', `<span class="input" style="width:64px">20</span><span class="faint">${t('perHour')}</span>`)}
+<div class="btns"><span class="btn btn-primary" aria-disabled>${t('save')}</span><span class="btn">${t('test')}</span></div>`;
+}
+function secTools() {
+  return `${field(t('projectsFolder'), '~/code', verify(t('found')))}<p class="faint-p">${t('projectsFolderD')}</p>
+<div class="grid2" style="margin-top:10px">${field(t('tmuxPath'), '/opt/homebrew/bin/tmux', verify('tmux 3.5a'))}${field(t('claudePath'), '/opt/homebrew/bin/claude', verify('2.1.0'))}${field(t('codePath'), '/usr/local/bin/code', verify('1.104'))}${field(t('nodePath'), '/opt/homebrew/bin/node', verify('v22.11'))}</div>`;
+}
+function secUsageClaude() {
+  const days = [['10/09', '18.2k', '6.1k', 4], ['10/08', '41.0k', '12.4k', 7], ['10/07', '22.7k', '8.9k', 5], ['10/06', '9.4k', '3.2k', 2], ['10/03', '30.1k', '11.0k', 6]];
+  const pjs = [['web-shop', '142k', '$12.40', 11], ['billing-api', '96k', '$9.10', 7], ['docs-site', '38k', '$4.20', 5], ['data-pipeline', '61k', '$5.50', 4]];
+  return `<div class="grid2"><table class="mini"><caption>${t('byDay')}</caption><thead><tr><th>${t('day')}</th><th class="r">${t('input')}</th><th class="r">${t('output')}</th><th class="r">${t('sessions')}</th></tr></thead><tbody>${days.map((r) => `<tr><td class="mono">${r[0]}</td><td class="r">${r[1]}</td><td class="r">${r[2]}</td><td class="r">${r[3]}</td></tr>`).join('')}</tbody></table>
+<table class="mini"><caption>${t('byProject')}</caption><thead><tr><th>${t('name')}</th><th class="r">${t('tokens')}</th><th class="r">${t('cost')}</th><th class="r">${t('sessions')}</th></tr></thead><tbody>${pjs.map((r) => `<tr><td>${r[0]}</td><td class="r">${r[1]}</td><td class="r">${r[2]}</td><td class="r">${r[3]}</td></tr>`).join('')}</tbody></table></div><p class="faint-p">${t('usageNote')}</p>`;
+}
+function secIndex() {
+  return row(`${t('index')} <span class="faint">${t('indexN')}</span>`, `${t('source')} <span class="mono">~/.claude</span>`, `<span class="btn btn-sm">${t('rebuild')}</span>`);
+}
+function secThisPc() {
+  return row(`MacBook <span class="faint mono">pc_7f3a</span>`, `agent-hangar 0.9.0 · ${t('logLoc')} <span class="mono">~/.agent-hangar/logs/</span>`, `<span class="btn btn-sm">${t('openLog')}</span>`);
+}
+const card = (title, inner, o = {}) => `<section class="card"${o.span ? ' data-span' : ''}><h3 class="card-h">${title}${o.badge || ''}${o.end ? `<span class="end">${o.end}</span>` : ''}</h3>${inner}</section>`;
+const syncBadge = (d) => d.sync ? badge('ok', t('synced'), 'check') : badge('off', t('syncOff'));
+
+/* ===== S1 節を左の目次で切り替える ===== */
+function s1Toc(d, cur) {
+  const items = [
+    ['general', 'general', `${t('jaName')}${J()}${t('onNotify')}`],
+    ['cloud', 'cloudSync', d.sync ? `${t('synced')}${J()}${t('ago3')}` : t('syncOff')],
+    ['link', 'integ', t('toFix'), 'warn'],
+    ['spark', 'sumEngine', 'LM Studio'],
+    ['tool', 'tools', t('allFound')],
+    ['info', 'info', t('sessionsN')],
+  ];
+  return `<nav class="set-toc">${items.map(([icon, k, sub, tone]) => `<a class="set-toc-item"${k === cur ? ' aria-current="page"' : ''}>${ic(icon)}<span class="set-toc-text"><span class="set-toc-t">${t(k)}</span><span class="set-toc-s"${tone ? ` data-tone="${tone}"` : ''}>${sub}</span></span></a>`).join('')}</nav>`;
+}
+function s1Html(d, page, o = {}) {
+  let body;
+  if (page === 'general') body = card(t('general'), secGeneral());
+  else if (page === 'cloud') body = card(t('cloudSync'), secSyncMain(d, { quota: o.quota }), { badge: o.quota ? badge('stop', t('quotaStop'), 'alert') : syncBadge(d) }) + card(t('cfgSync'), secCfg(d, { strip: o.strip })) + (d.sync ? card(t('cfUsage'), secUsage(d, { quota: o.quota })) : '');
+  if (o.scrolled && d.sync) body = `<div class="set-scrolled">${body}</div>`;
+  return shellOf(d, pageHead(t('settings')) + `<div class="set-layout">${s1Toc(d, page)}<div class="set-page">${body}</div></div>`, '', o.quota);
+}
+
+/* ===== S2 1 枚の一覧に畳む ===== */
+function s2Item(icon, title, value, right, o = {}) {
+  return `<div class="set-item"${o.open ? ' data-open' : ''}>${ic(icon)}<span class="set-item-t">${title}</span><span class="set-item-v">${value}</span><span class="set-item-r">${right || ''}</span>${o.inline ? '<span></span>' : ic('chev', 'chev')}</div>${o.body ? `<div class="set-item-body">${o.body}</div>` : ''}`;
+}
+function s2Html(d, open) {
+  const h = (k) => `<div class="set-item-h">${t(k)}</div>`;
+  const syncVal = d.sync ? `${badge('ok', t('synced'), 'check')} ${t('lastReceived')} ${t('ago3')}${J()}${t('d1w')} 31%` : badge('off', t('syncOff'));
+  const syncRight = d.sync ? `<span class="btn btn-sm">${t('syncNow')}</span>` : `<span class="btn btn-sm btn-primary">${t('start')}</span>`;
+  const syncBody = secSyncMain(d) + (d.sync ? `<h4 class="sub-h">${t('cfUsage')}</h4>${secUsage(d, { noBudget: false })}` : '');
+  return shellOf(d, pageHead(t('settings')) + `<div class="set-list">
+${h('general')}
+${s2Item('general', t('language'), t('languageD'), langSeg(), { inline: true })}
+${s2Item('general', t('notify'), t('notifyD'), sw(true), { inline: true })}
+${s2Item('general', t('terminalApp'), 'Terminal.app')}
+${s2Item('general', t('retention'), t('y1'))}
+${h('cloudSync')}
+${s2Item('cloud', t('cloudSync'), syncVal, syncRight, { open: open === 'cloud', body: open === 'cloud' ? syncBody : '' })}
+${s2Item('cloud', t('cfgSync'), d.sync ? `${badge('info', t('on'))} ${t('arrived')} ${t('arrivedN')}` : `${badge('off', t('off'))} ${t('cfgSyncNeedsCloud')}`, d.sync ? `<span class="btn btn-sm btn-primary">${t('review')}</span>` : '')}
+${h('integ')}
+${s2Item('link', t('compat'), `${badge('ok', t('noChanges'), 'check')} 2.1.0`)}
+${s2Item('link', t('mcp'), badge('ok', t('registered'), 'check'))}
+${s2Item('link', t('statusline'), badge('warn', t('notSetUp'), 'alert'))}
+${s2Item('link', t('shell'), badge('warn', t('notInstalled'), 'alert'))}
+${s2Item('link', t('accounts'), `${t('primary')}${J()}Max`)}
+${h('sumEngine')}
+${s2Item('spark', t('sumEngine'), t('lmRow'))}
+${h('tools')}
+${s2Item('tool', t('tools'), `${t('allFound')}${J()}tmux 3.5a${J()}claude 2.1.0${J()}Node v22.11`)}
+${h('info')}
+${s2Item('chart', t('usage'), t('usageRow'))}
+${s2Item('info', t('index'), t('indexN'), `<span class="btn btn-sm">${t('rebuild')}</span>`)}
+${s2Item('pc', t('thisPcSec'), `MacBook${J()}agent-hangar 0.9.0`)}
+</div>`);
+}
+
+/* ===== S3 操作と状況に分ける ===== */
+function s3Tabs(cur) {
+  return `<div class="set-tabs"><span class="set-tab"${cur === 'ops' ? ' aria-pressed="true"' : ''}>${t('set')}<span class="n" data-hot>${t('toFix')}</span></span><span class="set-tab"${cur === 'status' ? ' aria-pressed="true"' : ''}>${t('statusTab')}</span></div>`;
+}
+function s3Html(d, tab) {
+  let body;
+  if (tab === 'ops') {
+    body = `<div class="set-grid">
+${card(t('general'), secGeneral())}
+${card(t('cloudSync'), secSyncMain(d, { noPcs: false }), { badge: syncBadge(d) })}
+${card(t('cfgSync'), secCfg(d, { short: true }))}
+${card(t('integ'), secLinkCompact())}
+${card(t('sumEngine'), secSummary())}
+${card(t('tools'), secTools())}
+</div>`;
+  } else {
+    body = `<div class="set-grid">
+${d.sync ? card(t('cfUsage'), secUsage(d, { noBudget: true }), { span: true }) : card(t('cfUsage'), `<p class="muted-p">${t('syncOffLead')}</p>`, { span: true, badge: badge('off', t('syncOff')) })}
+${card(t('usage'), secUsageClaude(), { span: true })}
+${card(t('index'), secIndex() + secThisPc())}
+${card(t('compat'), secCompat(), { badge: badge('ok', t('noChanges'), 'check') })}
+${d.sync ? card(t('backups'), `<div class="list flat"><div class="row"><span class="mono">2026-10-09T09-12</span><span class="faint">12 項目</span><span class="btn btn-sm">${t('restore')}</span></div><div class="row"><span class="mono">2026-10-08T22-40</span><span class="faint">3 項目</span><span class="btn btn-sm">${t('restore')}</span></div><div class="row"><span class="mono">2026-10-07T18-05</span><span class="faint">60 項目</span><span class="btn btn-sm">${t('restore')}</span></div></div><p class="faint-p">${t('genNote')}</p>`, { span: true }) : ''}
+</div>`;
+  }
+  return shellOf(d, pageHead(t('settings')) + s3Tabs(tab) + body);
+}
+
+/* ===== 設定の同期の流れの例のデータ ===== */
+const SKILLS = ['release-notes', 'pr-summary', 'csv-import-check', 'db-migrate-plan', 'api-docs-sync', 'lint-fix-loop', 'deploy-checklist', 'test-triage', 'changelog-draft', 'issue-triage', 'perf-audit', 'i18n-extract', 'schema-review', 'log-digest', 'retro-notes', 'dep-upgrade', 'flaky-test-hunt', 'a11y-check', 'bench-compare', 'design-tokens-sync', 'onboarding-doc', 'incident-writeup'];
+const COMMANDS = ['standup', 'review-pr', 'changelog', 'ship', 'fix-ci', 'explain', 'scaffold', 'bench', 'release'];
+const AGENTS = ['code-reviewer', 'docs-writer', 'test-runner', 'migration-planner', 'perf-profiler', 'security-scan'];
+const MEMORY = ['web-shop', 'billing-api', 'docs-site', 'data-pipeline', 'infra-tools', 'mobile-app', 'design-tokens', 'legacy-admin', 'search-service', 'auth-gateway', 'analytics-etl', 'image-cdn', 'notify-worker', 'admin-console'];
+const SETTINGS_KEYS = [['model', '"opus"'], ['effortLevel', '"high"'], ['language', '"ja"'], ['theme', '"light"'], ['cleanupPeriodDays', '365'], ['permissions.allow', '[6 件、うち 1 件を落とす]'], ['permissions.deny', '["Bash(rm -rf *)"]']];
+const KIND_LABEL = { claude: 'CLAUDE.md', settings: 'settings.json の鍵', skills: 'スキル', commands: 'コマンド', agents: 'エージェント', memory: 'メモリ', keys: 'keybindings.json' };
+const KIND_ORDER = ['claude', 'settings', 'skills', 'commands', 'agents', 'memory', 'keys'];
+/* 落とすものと、秘密らしい文字列で送らない項目。件数に依らず同じ。 */
+const DROPPED = [
+  { k: 'settings.json: env（3 鍵）', why: '実行と機械の事情', a: 'drop' },
+  { k: 'settings.json: apiKeyHelper', why: '認証', a: 'drop' },
+  { k: 'settings.json: hooks', why: '実行', a: 'drop' },
+  { k: 'settings.json: statusLine', why: '実行', a: 'drop' },
+  { k: 'settings.json: permissions.additionalDirectories', why: '絶対パス', a: 'drop' },
+  { k: 'permissions.allow: "Read(//Volumes/work/**)"', why: '絶対パスの規則', a: 'drop' },
+  { k: 'permissions.allow: "Bash(//Volumes/work/bin/deploy *)"', why: '絶対パスの規則', a: 'drop' },
+  { k: 'skills/deploy-checklist/SKILL.md', why: '秘密らしい文字列（ghp_ で始まる）', a: 'secret' },
+  { k: 'memory/notes.md', why: '秘密らしい文字列（sk-ant- で始まる）', a: 'secret' },
+];
+const sizes = ['1.2 KB', '2.1 KB', '640 B', '3.4 KB', '910 B', '1.8 KB', '5.0 KB', '420 B'];
+const sz = (i) => sizes[i % sizes.length];
+/* 送る項目。small は 8、large は 60。 */
+function items(size) {
+  const out = [];
+  out.push({ kind: 'claude', k: 'CLAUDE.md', v: '', size: '2.1 KB' });
+  const keys = size === 'small' ? [SETTINGS_KEYS[0], SETTINGS_KEYS[4], SETTINGS_KEYS[5]] : SETTINGS_KEYS;
+  keys.forEach(([k, v]) => out.push({ kind: 'settings', k: `settings.json: ${k}`, v, size: '' }));
+  (size === 'small' ? SKILLS.slice(0, 2) : SKILLS).forEach((s, i) => out.push({ kind: 'skills', k: `skills/${s}/SKILL.md`, v: '', size: sz(i) }));
+  if (size !== 'small') COMMANDS.forEach((s, i) => out.push({ kind: 'commands', k: `commands/${s}.md`, v: '', size: sz(i + 2) }));
+  if (size !== 'small') AGENTS.forEach((s, i) => out.push({ kind: 'agents', k: `agents/${s}.md`, v: '', size: sz(i + 4) }));
+  (size === 'small' ? MEMORY.slice(0, 1) : MEMORY).forEach((s, i) => out.push({ kind: 'memory', k: `projects/${s}/memory/MEMORY.md`, v: '', size: sz(i + 1) }));
+  out.push({ kind: 'keys', k: 'keybindings.json', v: '', size: '380 B' });
+  return out;
+}
+/* 2 台目で適用するときの操作。新規、上書き、削除、競合。 */
+function applyItems(size) {
+  const base = items(size).map((x, i) => ({ ...x, from: 'Studio', when: '10/9 08:40', a: 'create' }));
+  if (size === 'small') {
+    base[0].a = 'conflict'; base[1].a = 'overwrite'; base[4].a = 'overwrite';
+    return base;
+  }
+  const ov = [1, 2, 5, 8, 9, 12, 15, 20, 24, 30, 40, 45];
+  ov.forEach((i) => { if (base[i]) base[i].a = 'overwrite'; });
+  base[0].a = 'conflict'; base[6].a = 'conflict'; base[48].a = 'conflict';
+  base.push({ kind: 'skills', k: 'skills/old-lint-rules/SKILL.md', from: 'Studio', when: '10/9 08:40', a: 'delete', size: '1.1 KB' });
+  base.push({ kind: 'commands', k: 'commands/retro.md', from: 'Studio', when: '10/9 08:40', a: 'delete', size: '500 B' });
+  base.push({ kind: 'memory', k: 'projects/legacy-admin/memory/MEMORY.md', from: 'Studio', when: '10/9 08:40', a: 'delete', size: '2.0 KB' });
+  base.push({ kind: 'skills', k: 'skills/scratch-ideas/SKILL.md', from: 'Studio', when: '10/9 08:40', a: 'delete', size: '700 B' });
+  return base;
+}
+const ACT_LABEL = { create: '新規', overwrite: '上書き', delete: '削除', conflict: '競合', drop: '落とす', secret: '秘密らしい' };
+const ACT_ORDER = ['conflict', 'delete', 'overwrite', 'create'];
+const ACT_NOTE = { conflict: '両方の PC で変わっていました。新しい方を採り、古い方は conflicts/ に写しを残します', delete: 'Studio で消えていました。この PC では消さず、backups/claude-config/removed/ へ移します', overwrite: 'この PC にもあります。書く前にバックアップを取ります', create: 'この PC にはまだありません' };
+/* 届いた実行される指示（スキル、コマンド、エージェント）。印はフックと !`cmd`。 */
+function arrivals(size) {
+  const a = applyItems(size).filter((x) => ['skills', 'commands', 'agents'].includes(x.kind) && x.a !== 'delete');
+  a.forEach((x, i) => { x.hook = x.k.includes('deploy-checklist') || x.k.includes('fix-ci') || x.k.includes('security-scan'); x.exec = x.k.includes('db-migrate-plan') || x.k.includes('ship'); });
+  return a;
+}
+const PRE = {
+  default: ['---', 'name: release-notes', 'description: Draft release notes from merged PRs since the last tag', '---', 'Read `git log --oneline <last-tag>..HEAD` and group by label.', 'Write the draft to docs/releases/<version>.md.'],
+  hook: ['---', 'name: deploy-checklist', 'description: Walk the deploy checklist before shipping', 'hooks:', '  PreToolUse:', '    - matcher: Bash', '      hooks: [{ type: command, command: "scripts/guard.sh" }]', '---'],
+  exec: ['---', 'name: db-migrate-plan', 'description: Plan a migration from the current schema', '---', 'Current schema: !`psql -c "\\d+ orders"`', 'List the steps and the rollback for each.'],
+};
+function preHtml(x) {
+  const nm = (x.k.split('/')[1] || x.k).replace(/\.md$/, '');
+  const lines = (x.hook ? PRE.hook : x.exec ? PRE.exec : PRE.default).map((l) => l.replace(/^name: .*/, `name: ${nm}`));
+  return `<div class="ap-pre">${lines.map((l) => { const e = esc(l); return (x.hook && /hooks|command/.test(l)) || (x.exec && /!`/.test(l)) ? `<mark>${e}</mark>` : e; }).join('\n')}</div>`;
+}
+const CONFLICTS = [
+  { k: 'CLAUDE.md', newer: 'Studio 10/9 08:40', older: 'この PC 10/8 22:15', diff: [['@', '@@ -12,6 +12,8 @@'], [' ', '## 作業の決まり'], [' ', '- PR は squash で入れる'], ['-', '- テストは npm test で全部を回す'], ['+', '- テストは npm test -- --changed で変えた所だけ回す'], ['+', '- 週末は CI を回さない'], [' ', '- コミットの件名は英語'], [' ', '']] },
+  { k: 'settings.json: permissions.allow', newer: 'Studio 10/9 08:40', older: 'この PC 10/8 19:02', diff: [['@', '@@ -3,5 +3,6 @@'], [' ', '  "Bash(npm test *)",'], [' ', '  "Bash(git status)",'], ['-', '  "Bash(gh pr view *)"'], ['+', '  "Bash(gh pr view *)",'], ['+', '  "Bash(gh pr checks *)"'], [' ', ']']] },
+  { k: 'projects/web-shop/memory/MEMORY.md', newer: 'Studio 10/9 08:12', older: 'この PC 10/8 23:40', diff: [['@', '@@ -1,4 +1,4 @@'], [' ', '# web-shop'], ['-', '- 決済は Stripe、テストは mock サーバ'], ['+', '- 決済は Stripe、テストは stripe-mock（docker）'], [' ', '- 画像は IntersectionObserver で遅延読み込み']] },
+];
+function conflictsOf(size) { return size === 'small' ? CONFLICTS.slice(0, 1) : CONFLICTS; }
+const diffHtml = (lines) => `<div class="diff">${lines.map(([k, l]) => `<span class="dl" data-k="${k}">${esc((k === ' ' ? ' ' : k) + ' ' + l)}</span>`).join('')}</div>`;
+
+/* ===== ダイアログの部品 ===== */
+function dlg(title, sub, body, foot, o = {}) {
+  return `<div class="scrim"${o.deep ? ' data-deep' : ''}><div class="dlg" style="${o.w ? `width:${o.w}px;` : ''}${o.h ? `height:${o.h}px;` : ''}"><div class="dlg-h">${title}${o.end ? `<span class="end">${o.end}</span>` : ''}</div>${sub ? `<div class="dlg-sub">${sub}</div>` : ''}<div class="dlg-b"${o.scroll ? ' data-scroll' : ''}>${body}${o.scroll ? '<div class="scroll-hint"></div><div class="scrollbar"><i style="top:0"></i></div>' : ''}</div><div class="dlg-f">${foot}</div></div></div>`;
+}
+function grp(title, n, rows, o = {}) {
+  return `<div class="grp"${o.closed ? ' data-closed' : ''}><div class="grp-h">${ic('chev', 'chev')}${title}<span class="n">${n}</span>${o.end ? `<span class="end">${esc(o.end)}</span>` : ''}</div>${o.closed ? '' : rows}</div>`;
+}
+const itRow = (x, right) => `<div class="it"${x.a === 'drop' || x.a === 'secret' ? ' data-dim' : ''}><span class="k">${esc(x.k)}</span>${x.v ? `<span class="v">${esc(x.v)}</span>` : '<span></span>'}<span class="it-r">${right ?? `<span class="sz">${esc(x.size || '')}</span>`}</span></div>`;
+const macAlert = (title, text, primary, secondary) => `<div class="mac"><svg class="mac-icon" aria-hidden="true"><use href="#logo"/></svg><b>${title}</b><p>${text}</p><span class="mac-btn" data-primary>${primary}</span><span class="mac-btn">${secondary}</span></div>`;
+const bgOf = (d) => s1Html(d, 'cloud');
+const withOverlay = (d, overlay) => bgOf(d).replace(/<\/div><\/div>$/, overlay + '</div></div>');
+
+/* (a) 1 台目で送るもの */
+function fa1(d, size) {
+  const list = items(size);
+  const byKind = KIND_ORDER.map((k) => [k, list.filter((x) => x.kind === k)]).filter(([, xs]) => xs.length);
+  const big = size !== 'small';
+  const groups = byKind.map(([k, xs]) => {
+    const closed = big && ['skills', 'commands', 'agents', 'memory'].includes(k);
+    return grp(KIND_LABEL[k], `${xs.length} 件`, xs.map((x) => itRow(x)).join(''), { closed, end: closed ? xs.slice(0, 3).map((x) => x.k.split('/')[1] || x.k).join('、') + (xs.length > 3 ? `、ほか ${xs.length - 3}` : '') : '' });
+  }).join('');
+  const dropped = grp('送らないもの', `${DROPPED.length} 件`, DROPPED.map((x) => itRow(x, `<span class="why">${esc(x.why)}</span>`)).join(''), { closed: big });
+  const body = groups + dropped;
+  return withOverlay(d, dlg('ほかの PC へ送るもの', `この PC の <b>~/.claude</b> から、次の <b>${list.length} 項目</b>をクラウドへ送ります。認証、env、hooks、statusLine、絶対パスの規則は送りません。種類の見出しを押すと中身が開きます。`, body, `<span>送った後は、変わるたびに同じ仕分けで送ります</span><span class="spacer"></span><span class="btn">キャンセル</span><span class="btn btn-primary">${list.length} 項目を送る</span>`, { scroll: big, h: big ? 660 : undefined }));
+}
+function fa2(d, size) {
+  const list = items(size);
+  const all = [...list, ...DROPPED.map((x) => ({ kind: 'drop', ...x }))];
+  const cnt = (k) => list.filter((x) => x.kind === k).length;
+  const chips = `<div class="chips"><span class="chip-f" data-on>すべて<span class="n">${list.length}</span></span>${KIND_ORDER.filter(cnt).map((k) => `<span class="chip-f">${KIND_LABEL[k]}<span class="n">${cnt(k)}</span></span>`).join('')}<span class="chip-f">送らないもの<span class="n">${DROPPED.length}</span></span><span class="input" data-empty>${ic('search')} 項目を検索</span></div>`;
+  const rows = all.map((x) => `<tr${x.a ? ' data-dim' : ''}><td class="mono">${esc(x.k)}${x.v ? ` <span class="faint">${esc(x.v)}</span>` : ''}</td><td><span class="act" data-a="kind">${KIND_LABEL[x.kind] || '送らない'}</span></td><td class="r faint">${esc(x.size || '')}</td><td>${x.a ? `<span class="act" data-a="${x.a}">${ACT_LABEL[x.a]}</span> <span class="faint">${esc(x.why)}</span>` : `<span class="act" data-a="create">送る</span>`}</td></tr>`).join('');
+  const body = chips + `<table class="ft"><thead><tr><th style="width:44%">項目</th><th style="width:150px">種類</th><th class="r" style="width:80px">大きさ</th><th>扱い</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return withOverlay(d, dlg('ほかの PC へ送るもの', `この PC の <b>~/.claude</b> から <b>${list.length} 項目</b>を送ります。上の札で種類に絞れ、欄で名前を検索できます。送らないものも同じ表の中に薄く出ます。`, body, `<span class="spacer"></span><span class="btn">キャンセル</span><span class="btn btn-primary">${list.length} 項目を送る</span>`, { scroll: true, h: 660 }));
+}
+/* (b) 2 台目の適用内容 */
+function applySummary(list) { return ACT_ORDER.map((a) => `${ACT_LABEL[a]} <b>${list.filter((x) => x.a === a).length}</b>`).join('　'); }
+function fb1(d, size) {
+  const list = applyItems(size);
+  const big = size !== 'small';
+  const groups = ACT_ORDER.map((a) => {
+    const xs = list.filter((x) => x.a === a);
+    if (!xs.length) return '';
+    const closed = big && a === 'create';
+    return grp(ACT_LABEL[a], `${xs.length} 件`, xs.map((x) => itRow(x, `<span class="why">${esc(x.from)} ${esc(x.when)}</span>`)).join(''), { closed, end: closed ? `${xs.slice(0, 3).map((x) => x.k.split('/')[1] || x.k).join('、')}、ほか ${xs.length - 3}` : ACT_NOTE[a] });
+  }).join('');
+  return withOverlay(d, dlg('適用内容を確認', `Studio から届いた <b>${list.length} 項目</b>を <b>~/.claude</b> に書きます。${applySummary(list)}。危ないものから順に並べ、書く前に全部のバックアップを取ります。`, groups, `<span>バックアップ ~/.agent-hangar/backups/claude-config/2026-10-09T09-12/</span><span class="spacer"></span><span class="btn">キャンセル</span><span class="btn btn-primary">${ic('lock')}適用…</span>`, { scroll: big, h: big ? 660 : undefined }));
+}
+function fb2(d, size) {
+  const list = applyItems(size).sort((x, y) => ACT_ORDER.indexOf(x.a) - ACT_ORDER.indexOf(y.a));
+  const chips = `<div class="chips"><span class="chip-f" data-on>すべて<span class="n">${list.length}</span></span>${ACT_ORDER.map((a) => `<span class="chip-f">${ACT_LABEL[a]}<span class="n">${list.filter((x) => x.a === a).length}</span></span>`).join('')}<span class="input" data-empty>${ic('search')} 項目を検索</span></div>`;
+  const rows = list.map((x) => `<tr><td class="acts"><span class="act" data-a="${x.a}">${ACT_LABEL[x.a]}</span></td><td class="mono">${esc(x.k)}</td><td><span class="act" data-a="kind">${KIND_LABEL[x.kind]}</span></td><td class="faint">${esc(x.from)} ${esc(x.when)}</td><td class="r faint">${esc(x.size || '')}</td></tr>`).join('');
+  const body = chips + `<table class="ft"><thead><tr><th style="width:64px">操作</th><th style="width:42%">項目</th><th style="width:150px">種類</th><th>送り主</th><th class="r" style="width:80px">大きさ</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return withOverlay(d, dlg('適用内容を確認', `Studio から届いた <b>${list.length} 項目</b>を <b>~/.claude</b> に書きます。${applySummary(list)}。操作の列で並べ、競合と削除が上に来ます。`, body, `<span>バックアップ ~/.agent-hangar/backups/claude-config/2026-10-09T09-12/</span><span class="spacer"></span><span class="btn">キャンセル</span><span class="btn btn-primary">${ic('lock')}適用…</span>`, { scroll: true, h: 660 }));
+}
+function fbNative(d, size) {
+  const list = applyItems(size);
+  const n = (a) => list.filter((x) => x.a === a).length;
+  const base = fb1(d, size).replace('<div class="scrim">', '<div class="scrim" data-deep>');
+  return base.replace(/<\/div><\/div>$/, macAlert('Hangar が ~/.claude に書き込みます', `${list.length} 項目を書き込み、${n('overwrite') + n('conflict')} 項目を上書きし、${n('delete')} 項目をバックアップへ移します。書く前の状態は ~/.agent-hangar/backups/claude-config/2026-10-09T09-12/ に残ります。`, '書き込み', 'キャンセル') + '</div></div>');
+}
+/* (c) 届いた実行される指示の承諾 */
+function fc1(d, size) {
+  const list = arrivals(size);
+  const cards = list.map((x, i) => `<div class="ap-card"><div><div class="ap-t">${esc(x.k)}<span class="act" data-a="kind">${KIND_LABEL[x.kind]}</span>${x.hook ? '<span class="act" data-a="hook">フック</span>' : ''}${x.exec ? '<span class="act" data-a="hook">コマンド実行</span>' : ''}</div><div class="ap-src">Studio、${esc(x.when)}、${x.a === 'overwrite' ? 'この PC の版を上書き' : '新規'}</div></div><div class="ap-btns"><span class="btn btn-sm btn-primary">承諾</span><span class="btn btn-sm">却下</span></div>${i < 2 || x.hook || x.exec ? preHtml(x) : ''}</div>`).join('');
+  return withOverlay(d, dlg('届いたスキル、コマンド、エージェント', `Studio から <b>${list.length} 件</b>。承諾したものだけ <b>~/.claude</b> に書きます。実行される指示なので中身を出し、フックや <code>!\`cmd\`</code> を含む所に印を付けています。`, cards, `<span>承諾 0 件、却下 0 件</span><span class="spacer"></span><span class="btn">あとで</span><span class="btn btn-primary" aria-disabled>${ic('lock')}承諾したものを書き込み…</span>`, { scroll: size !== 'small', h: 660 }));
+}
+function fc2(d, size) {
+  const list = arrivals(size);
+  const openIdx = list.findIndex((x) => x.hook);
+  const rows = list.map((x, i) => `<tr${i === openIdx ? ' data-open' : ''}><td style="width:28px"><span class="cb"${x.hook || x.exec ? '' : ' data-on'}></span></td><td class="mono">${esc(x.k)}</td><td><span class="act" data-a="kind">${KIND_LABEL[x.kind]}</span></td><td>${x.hook ? '<span class="act" data-a="hook">フック</span>' : ''}${x.exec ? '<span class="act" data-a="hook">コマンド実行</span>' : ''}</td><td class="faint">${x.a === 'overwrite' ? '上書き' : '新規'}、${esc(x.when)}</td><td class="r"><span class="btn btn-sm btn-ghost">内容${ic('chev')}</span></td></tr>${i === openIdx ? `<tr><td colspan="6" class="detail">${preHtml(x)}</td></tr>` : ''}`).join('');
+  const marked = list.filter((x) => x.hook || x.exec).length;
+  const body = `<div class="chips"><span class="chip-f" data-on>印の無いものを選択<span class="n">${list.length - marked}</span></span><span class="chip-f">選択を解除</span><span class="faint" style="font-size:11px">印のあるものは中身を見てから 1 件ずつ選びます</span></div><table class="ft"><thead><tr><th></th><th style="width:40%">名前</th><th>種類</th><th>印</th><th>届いた</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  return withOverlay(d, dlg('届いたスキル、コマンド、エージェント', `Studio から <b>${list.length} 件</b>。選んだものだけ <b>~/.claude</b> に書きます。「内容」でその場に中身が開き、フックや <code>!\`cmd\`</code> を含む行には印が付きます。`, body, `<span>選択 ${list.length - marked} 件</span><span class="spacer"></span><span class="btn">あとで</span><span class="btn btn-primary">${ic('lock')}選んだ ${list.length - marked} 件を承諾して書き込み…</span>`, { scroll: size !== 'small', h: 660 }));
+}
+function fcSetting(d) { return s1Html(d, 'cloud', { strip: true }); }
+/* (d) ぶつかりの写し */
+function fd1(d, size) {
+  const cs = conflictsOf(size);
+  const cards = cs.map((c, i) => `<div class="cf-card"><div class="cf-t">${esc(c.k)}<span class="act" data-a="conflict">競合</span></div><p class="cf-d">新しい <b>${esc(c.newer)}</b> を適用し、古い <b>${esc(c.older)}</b> の版を ~/.agent-hangar/claude-config/conflicts/2026-10-09T09-12/ に残しました。</p>${diffHtml(c.diff)}<div class="btns" style="margin-top:0"><span class="btn btn-sm">${i === 0 ? '相手（Studio）を採用　採用済み' : '相手（Studio）を採用'}</span><span class="btn btn-sm">自分（この PC）を採用</span><span class="btn btn-sm btn-ghost">写しを Finder で表示</span></div></div>`).join('');
+  return withOverlay(d, dlg(`競合 ${cs.length} 件`, `両方の PC で変わっていた項目です。新しい方をすでに適用してあり、古い方は写しとして残っています。差分は古い方から新しい方への変更です。`, cards, `<span>写しは ~/.claude の外に置き、スキルとしては読まれません</span><span class="spacer"></span><span class="btn btn-primary">閉じる</span>`, { scroll: size !== 'small', h: size !== 'small' ? 660 : undefined }));
+}
+function fd2(d, size) {
+  const cs = conflictsOf(size);
+  const side = (c, k0, title) => `<div><div class="dh">${title}</div>${c.diff.filter(([k]) => k !== '@' && k !== k0).map(([k, l]) => `<span class="dl" data-k="${k === k0 ? ' ' : k}">${esc(l)}</span>`).join('')}</div>`;
+  const rows = cs.map((c, i) => `<tr${i === 0 ? ' data-open' : ''}><td class="mono">${esc(c.k)}</td><td class="faint">新 ${esc(c.newer)}</td><td class="faint">旧 ${esc(c.older)}</td><td class="acts"><span class="btn btn-sm">相手を採用</span> <span class="btn btn-sm">自分を採用</span> <span class="btn btn-sm btn-ghost">差分${ic('chev')}</span></td></tr>${i === 0 ? `<tr><td colspan="4" class="detail"><div class="diff-cols">${side(c, '+', `旧　${esc(c.older)}`)}${side(c, '-', `新　${esc(c.newer)}（適用済み）`)}</div></td></tr>` : ''}`).join('');
+  return withOverlay(d, dlg(`競合 ${cs.length} 件`, `両方の PC で変わっていた項目です。新しい方を適用し、古い方は写しとして残っています。「差分」を押すと、その行の下に旧と新を並べて出します。`, `<table class="ft"><thead><tr><th style="width:30%">項目</th><th style="width:150px">新しい方</th><th style="width:150px">古い方</th><th></th></tr></thead><tbody>${rows}</tbody></table>`, `<span>写しは ~/.agent-hangar/claude-config/conflicts/ にあります</span><span class="spacer"></span><span class="btn btn-primary">閉じる</span>`, {}));
+}
+/* (e) 落とした規則と秘密らしい文字列 */
+function fe1(d, size) {
+  const list = items(size);
+  const big = size !== 'small';
+  const groups = KIND_ORDER.map((k) => { const xs = list.filter((x) => x.kind === k); return xs.length ? grp(KIND_LABEL[k], `${xs.length} 件`, '', { closed: true, end: xs.slice(0, 3).map((x) => x.k.split('/')[1] || x.k).join('、') + (xs.length > 3 ? `、ほか ${xs.length - 3}` : '') }) : ''; }).join('');
+  const dropped = grp('送らないもの', `${DROPPED.length} 件`, DROPPED.map((x) => itRow(x, `<span class="why">${esc(x.why)}</span>${x.a === 'secret' ? ' <span class="btn btn-sm">それでも送る</span>' : ''}`)).join(''));
+  return withOverlay(d, dlg('ほかの PC へ送るもの', `<b>${list.length} 項目</b>を送ります。下の「送らないもの」は、実行や認証や機械の事情で落とす鍵、絶対パスの規則、秘密らしい文字列が見つかった項目です。秘密らしい項目は「それでも送る」で項目ごとに送れます。`, groups + dropped, `<span class="spacer"></span><span class="btn">キャンセル</span><span class="btn btn-primary">${list.length} 項目を送る</span>`, {}));
+}
+function fe2(d) {
+  const panel = DROPPED.map((x) => itRow(x, `<span class="why">${esc(x.why)}</span>${x.a === 'secret' ? ' <span class="btn btn-sm">それでも送る</span>' : ''}`)).join('');
+  const bodyCfg = row(t('cfgOn'), t('cfgSyncD'), sw(true)) + row(t('arrived'), t('arrivedN'), `<span class="btn btn-sm btn-primary">${t('review')}</span>`) + row(t('approvalMode'), t('approvalD'), seg([[t('each'), 1], [t('auto'), 0]], 'sm')) + row(`${t('notSent')} <span class="faint">${DROPPED.length} 件</span>`, t('notSentD'), `<span class="btn btn-sm">折りたたむ</span>`) + `<div class="list flat" style="margin:0 0 6px">${panel}</div>` + row(`${t('conflicts')} <span class="faint">${t('conflictsN')}</span>`, t('conflictsD'), `<span class="btn btn-sm">${t('showDiff')}</span>`) + row(`${t('backups')} <span class="faint">${t('gens')}</span>`, t('backupsD'), `<span class="btn btn-sm">${t('restore')}</span>`);
+  const inner = pageHead(t('settings')) + `<div class="set-layout">${s1Toc(d, 'cloud')}<div class="set-page">${card(t('cloudSync'), secSyncMain(d, { noPcs: true }), { badge: syncBadge(d) })}${card(t('cfgSync'), bodyCfg)}</div></div>`;
+  const toast = `<div class="toasts"><div class="notice" data-tone="warn"><div class="notice-head"><span class="nd"></span>設定の同期<span class="who">· MacBook</span><span class="end">いま</span></div><div class="notice-body">送らなかった項目が 2 件あります<small>秘密らしい文字列が見つかりました。落とした規則も 2 件あります。</small></div><div class="notice-acts"><span class="btn btn-sm btn-primary">表示</span><span class="btn btn-sm">閉じる</span></div></div></div>`;
+  return shellOf(d, inner, toast);
+}
+
+/* ===== 案の定義 ===== */
+const SCREENS = {
+  s1: [
+    { key: 'open', label: '開いた直後（一般）', note: '左の目次は 6 節で、各行に今の状態を 1 行添える（<b>クラウド同期　同期オフ</b>、<b>連携　要修正 2</b>）。右は「一般」だけで、先頭が言語。押した瞬間に全部が切り替わる。', html: (d) => s1Html(d, 'general') },
+    { key: 'sync', label: '同期の節（クラウド同期）', note: '1 頁に、状態と操作と PC、Claude Code の設定の同期（届いている変更、承諾の仕方、競合、送らなかった項目、バックアップ）、Cloudflare の使用量と料金と月の予算の 3 枚の札が縦に並ぶ。3 枚目は下へスクロールして読む（次のタブ）。同期していない人には、1 文と 2 つのボタンと、押せないスイッチの 1 行だけ。', html: (d) => s1Html(d, 'cloud') },
+    { key: 'sync2', label: '同期の節（下へスクロール）', note: '同じ頁を下へ送った所。Cloudflare の使用量と料金は、札 3 つ（今月の請求額、プラン、停止のしきい値）、棒 3 本（D1 の書き込み、Workers のリクエスト、R2 のストレージ、80% の目盛り）、月の予算（D4、Paid のときだけ効く）。同期していない人には、この頁は 1 枚目で終わる。', html: (d) => s1Html(d, 'cloud', { scrolled: true }) },
+    { key: 'quota', label: '無料枠で停止したとき', note: '状態の札とヘッダーが「無料枠で停止」になり、今すぐ同期と同期を再開は押せず、使用量の上に理由とリセットの時刻の帯が出る。同期していない人にはこの状態は無い。', html: (d) => s1Html(d, 'cloud', { scrolled: d.sync, quota: d.sync }) },
+  ],
+  s2: [
+    { key: 'open', label: '開いた直後（全部が畳まれた一覧）', note: '設定の全部が 1 行ずつの要約（名前と今の値）。言語と通知は行の中で切り替え、クラウド同期の行には同期していない人なら「始める」、している人なら「今すぐ同期」が並ぶ。押した行だけがその場で開く。', html: (d) => s2Html(d, null) },
+    { key: 'sync', label: '同期の節（行を開いた所）', note: 'クラウド同期の行を開くと、状態と操作と PC と使用量がその行の下に出て、ほかの行は下へ押し出される。Claude Code の設定の同期は別の行。', html: (d) => s2Html(d, 'cloud') },
+  ],
+  s3: [
+    { key: 'open', label: '開いた直後（設定のタブ）', note: '上のタブで「設定」（変えるもの）と「状況」（読むもの）を分け、設定は 6 枚の札の格子。上の 4 枚が 1 画面に入り、要約エンジンとツールは下へスクロール。クラウド同期の札は状態と操作だけで、使用量は状況のタブへ。', html: (d) => s3Html(d, 'ops') },
+    { key: 'sync', label: '同期の読み物（状況のタブ）', note: 'Cloudflare の使用量と料金、Claude の使用量、索引、この PC、互換性、バックアップの世代。同期を一時停止するのは設定のタブなので、「なぜ止まったか」と「止める」が別の場所になる。', html: (d) => s3Html(d, 'status') },
+  ],
+  fa: [
+    { key: '1', label: 'a1 種類ごとの折りたたみ', note: '種類（CLAUDE.md、settings.json の鍵、スキル、コマンド、エージェント、メモリ、keybindings.json）ごとに件数つきの見出し。settings.json は鍵と値を見せ、60 項目では実行される種類とメモリを畳んで、見出しに先頭 3 つの名前を添える。送らないものは最後の群。', html: (d, s) => fa1(d, s) },
+    { key: '2', label: 'a2 1 本の表に絞り込み', note: '全部を 1 本の表に並べ、上の札で種類に絞り、欄で名前を検索する。送らないものも同じ表に薄く出し、「扱い」の列に理由を書く。60 項目ではスクロール。', html: (d, s) => fa2(d, s) },
+  ],
+  fb: [
+    { key: '1', label: 'b1 操作ごとの折りたたみ（競合と削除を上に）', note: '競合、削除、上書き、新規の順に群を置き、各群の見出しにその操作で何が起きるかを 1 文で書く。60 項目では新規だけ畳む。「適用…」を押すと次のタブのネイティブの確認が出る。', html: (d, s) => fb1(d, s) },
+    { key: '2', label: 'b2 1 本の表、操作の列で並べる', note: '操作の札を先頭の列にして、競合、削除、上書き、新規の順に並べる。上の札で操作に絞れる。送り主と届いた時刻を各行に出す。', html: (d, s) => fb2(d, s) },
+    { key: '3', label: '書き込みの確認（ネイティブ、b1 と b2 で共通）', note: '「適用…」を押すと、殻が macOS のダイアログを出す（D9）。件数と上書きと退避の数、バックアップの場所を書く。「書き込み」で hangar config apply と同じ処理。ブラウザで使う人には、ここでコマンドを案内する。', html: (d, s) => fbNative(d, s) },
+  ],
+  fc: [
+    { key: '1', label: 'c1 1 件ずつの札（中身を出す）', note: '届いた項目を 1 枚ずつ札にし、先頭の 2 件と印の付いた件には中身（SKILL.md の先頭）をその場で出す。フックと !`cmd` の行に色を付ける。承諾と却下は札ごと。', html: (d, s) => fc1(d, s) },
+    { key: '2', label: 'c2 表にチェック、印の無いものをまとめて選ぶ', note: '1 本の表で、印（フック、コマンド実行）の無い行だけ「まとめて選択」できる。印のある行は中身を開いてから 1 件ずつ選ぶ。「すべて選択」は置かない。', html: (d, s) => fc2(d, s) },
+    { key: '3', label: '設定で「自動で適用」に切り替えるとき', note: '同期の節（S1）で「自動で適用」を押した直後。1 文の注意と、キャンセル、自動にする。設定の同期の設計の決めたこと 2。', html: (d) => fcSetting(d) },
+  ],
+  fd: [
+    { key: '1', label: 'd1 差分を最初から出す', note: '競合を 1 枚ずつの札にし、差分（旧から新への変更）をはじめから出す。適用済みの側が分かるように「採用済み」を添える。60 項目でも競合は 3 件なので読める。', html: (d, s) => fd1(d, s) },
+    { key: '2', label: 'd2 1 行の一覧、差分は押したとき', note: '競合は 1 行ずつで、新しい方と古い方と 3 つのボタン。「差分」を押すと行の下に旧と新を左右に並べる。', html: (d, s) => fd2(d, s) },
+  ],
+  fe: [
+    { key: '1', label: 'e1 送る一覧の中の「送らないもの」', note: '(a) の一覧の最後の群に、落とした鍵と規則と秘密らしい項目を理由つきで出す。秘密らしい項目には「それでも送る」を付ける。送る前に 1 度だけ見る。', html: (d, s) => fe1(d, s) },
+    { key: '2', label: 'e2 同期の節に常設の行と、送った直後の通知カード', note: '設定の「Claude Code の設定を同期」に「送らなかった項目 N 件」の行を常に置き、開くと理由と「それでも送る」が出る。送った直後は右下に通知カード。後から見つかった秘密もここに増える。', html: (d) => fe2(d) },
+  ],
+};
+const OPTS = [
+  { id: 's1', name: '節を左の目次で切り替える', tag: 'S1', rec: '推す', blurb: 'macOS のシステム設定の形です。左の目次が 6 節（一般、クラウド同期、連携、要約エンジン、ツール、情報）で、各行に<b>今の状態を 1 行</b>添えます。右は選んだ節だけを出し、スクロールはその節の中で済みます。言語は「一般」の先頭です。',
+    answers: ['目次の 6 節で、押した節だけを出す。読み物は「情報」の節に集め、同期の使用量だけはクラウド同期の節に置く。初めての人は、目次の「クラウド同期　同期オフ」「連携　要修正 2」で何をすればよいかが読める。', '1 頁に、状態の 1 行と 3 つのボタン、PC の一覧、Claude Code の設定の同期の 5 行、Cloudflare の使用量と料金と月の予算の順。同期していない人には、1 文と 2 つのボタンと、押せないスイッチの 1 行だけで、PC も使用量も出さない。', '「一般」の先頭の行で、日本語と English の切り替え。押した瞬間に画面の全部が切り替わる。'],
+    moves: [['3 回', '設定 → クラウド同期', 'サイドバーの「設定」→ 目次の「クラウド同期」→「クラウドを用意して始める」'], ['3 回', '設定 → クラウド同期', 'サイドバーの「設定」→ 目次の「クラウド同期」→「同期を一時停止」'], ['2 回', '設定 → クラウド同期', 'サイドバーの「設定」→ 目次の「クラウド同期」。頁の 3 枚目の札'], ['2 回', '設定', 'サイドバーの「設定」→「一般」が開いているので先頭の行の「English」'], ['7 回', '設定 → クラウド同期 → 一覧 → ネイティブの確認 → 通知カード → ネイティブの確認', '設定 → クラウド同期 → スイッチを入れる（適用の一覧が開く）→ 適用 → 書き込み → 届いた skill の承諾 → 書き込み']],
+    gain: '目次に今の状態が見え、どの節も 1 画面に収まる。クラウド同期が 1 頁にそろう。いまの目次の仕組みを頁の切り替えに変えるだけ。', lose: '同期の操作と言語の切り替えに、節を選ぶ 1 回が足される。目次の 1 行の要約は、状態が増えると書き切れない。', weight: '画面 1（設定）。目次を頁の切り替えにし、節の並びを 6 つに組み直す。' },
+  { id: 's2', name: '1 枚の一覧に畳む', tag: 'S2', rec: '次点', blurb: '設定の全部を<b>1 行ずつの要約</b>（名前と今の値）にし、押した行だけがその場で開きます。言語と通知のような小さい設定は行の中で切り替え、クラウド同期の行には「始める」か「今すぐ同期」が並びます。目次は持ちません。',
+    answers: ['群の見出しを挟んだ 1 本の一覧で、全部が 1 画面に収まる。読み物も行になり、使用量は「今日 42k トークン」のような要約が行に出る。初めての人は上から読めば全部に当たる。', 'クラウド同期の行に状態と D1 の割合を出し、開くと状態、操作、PC、使用量がその場に出る。Claude Code の設定の同期は別の行。同期していない人の行は「同期オフ」と「始める」だけ。', '一覧の先頭の行の中に、日本語と English の切り替え。行を開かずに押せる。'],
+    moves: [['2 回', '設定', 'サイドバーの「設定」→ クラウド同期の行の「始める」'], ['3 回', '設定', 'サイドバーの「設定」→ クラウド同期の行を開く →「同期を一時停止」'], ['1 回', '設定', 'サイドバーの「設定」。行の右に D1 の割合が見える。棒と料金は行を開いて 2 回'], ['2 回', '設定', 'サイドバーの「設定」→ 先頭の行の「English」'], ['7 回', '設定 → 一覧 → ネイティブの確認 → 通知カード → ネイティブの確認', '設定 → Claude Code の設定の同期の行のスイッチ（適用の一覧が開く）→ 適用 → 書き込み → 承諾 → 書き込み。行を開く 1 回を含む']],
+    gain: '全部の今の値が 1 画面で読め、小さい設定は行の中で済む。動き (3) と (4) が最短。', lose: '大きい節を一覧の途中で開くと下の行が画面の外へ押し出される。欄の多い節（要約エンジン、ツール）が折りたたみの中で窮屈。いまの目次と群の見出しを捨てる。', weight: '画面 1（設定）。一覧の部品を新しく作り、16 の節を行と折りたたみに組み直す。S1 より重い。' },
+  { id: 's3', name: '操作と状況に分ける', tag: 'S3', blurb: '上のタブで「設定」（変えるもの）と「状況」（読むもの）を分けます。設定は 6 枚の<b>札の格子</b>にして、よく触る 4 枚（一般、クラウド同期、Claude Code の設定の同期、連携）を上に、要約エンジンとツールを下に置きます。クラウド同期の札は状態と操作だけにして、Cloudflare の使用量、Claude の使用量、索引、この PC、互換性、バックアップは状況のタブに集めます。',
+    answers: ['設定と状況の 2 タブ。設定は札の格子で、上の 4 枚が 1 画面に入り、残り 2 枚は下へスクロール。状況は読み物だけ。初めての人は設定のタブだけ見ればよいが、「状況」の名前から中身は想像しにくい。', '設定の札に状態と操作と PC、別の札に Claude Code の設定の同期。使用量と無料枠での停止の理由は状況のタブ。同期していない人の札は 1 文と 2 つのボタン、状況の使用量の札は同じ 1 文。', '「一般」の札の先頭の行で切り替え。札の格子の左上なので目に入る。'],
+    moves: [['2 回', '設定', 'サイドバーの「設定」→ クラウド同期の札の「クラウドを用意して始める」'], ['2 回', '設定', 'サイドバーの「設定」→ クラウド同期の札の「同期を一時停止」'], ['2 回', '設定 → 状況', 'サイドバーの「設定」→「状況」のタブ'], ['2 回', '設定', 'サイドバーの「設定」→ 一般の札の「English」'], ['6 回', '設定 → 一覧 → ネイティブの確認 → 通知カード → ネイティブの確認', '設定 → Claude Code の設定の同期の札のスイッチ（適用の一覧が開く）→ 適用 → 書き込み → 承諾 → 書き込み']],
+    gain: 'よく触るものが 1 画面に収まり、動き (1)、(2)、(4) が最短。読み物が邪魔しない。', lose: '同期の使用量と停止の理由が操作と別の場所になる（論点 2 に逆らう）。同期を使わない人には状況のタブが薄い。1280×800 でも 6 枚のうち 2 枚は下にはみ出し、900px の窓では格子が 1 列に崩れる。', weight: '画面 1（設定）。タブと札の格子を作り、読み物を状況へ移す。S1 と同程度。' },
+];
+const FLOWS = [
+  { id: 'fa', name: '(a) 1 台目で入れるときの「送るものの一覧」', tag: 'a', pair: [
+    { gain: '種類の件数が先に見え、settings.json の鍵と値が読める。60 項目でも畳んだ見出しで 1 画面に収まる。', lose: '名前で探すには群を開いて目で追う。畳んだ群の中身は見出しの 3 つしか分からない。', weight: '群と行の部品。既存の取り込みのダイアログの行を流用できる。', rec: '推す' },
+    { gain: '名前で検索でき、送らないものも同じ表で理由ごと読める。', lose: '60 項目では 1 画面に入らず、種類の全体像は札の数字でしか分からない。settings.json の値が表の中で窮屈。', weight: '表と絞り込みと検索の欄。a1 より重い。' },
+  ] },
+  { id: 'fb', name: '(b) 2 台目で「適用内容を確認」するときの一覧', tag: 'b', pair: [
+    { gain: '危ないもの（競合、削除）が上に来て、各群の見出しに何が起きるかが書いてある。新規だけ畳めば 60 項目でも読める。', lose: '同じ種類の項目が群に散る。送り主が 1 台のときは右端の列が全部同じ。', weight: 'a1 と同じ部品。', rec: '推す' },
+    { gain: '操作で絞れ、種類と送り主と大きさが列で読める。', lose: '群の見出しの説明（削除は退避、競合は写し）を置く所が無く、表の上の 1 文に押し込む。', weight: 'a2 と同じ部品。' },
+  ] },
+  { id: 'fc', name: '(c) 届いた skills、commands、agents の承諾', tag: 'c', pair: [
+    { gain: '中身を読んでから承諾する形がそのまま画面になる。フックと !`cmd` の行が色で分かる。', lose: '37 件の札は長く、2 台目の初回に全部を 1 件ずつ押すのは重い。', weight: '札と中身の表示。' },
+    { gain: '印の無いものはまとめて選べ、印のあるものは中身を開いて 1 件ずつ。37 件でも 1 画面と数回の操作で済む。「すべて選択」を置かないので、読まずに承諾する道は無い。', lose: '中身は押さないと見えない。チェックの表は札より硬い。', weight: '表と行の展開。c1 より少し重い。', rec: '推す' },
+  ] },
+  { id: 'fd', name: '(d) ぶつかりの写しの扱い', tag: 'd', pair: [
+    { gain: '競合は多くて数件なので、差分を最初から見せても読める。何が変わったかを押さずに判断できる。', lose: '10 件を超えると長い。差分が長いファイルは先頭しか見えない。', weight: '差分の表示（既存の diff の表示を流用）。', rec: '推す' },
+    { gain: '件数が多くても 1 行ずつで収まる。旧と新を左右に並べて読める。', lose: '押すまで何が変わったか分からず、3 件のために 3 回押す。', weight: 'd1 と同じ部品に行の展開を足す。' },
+  ] },
+  { id: 'fe', name: '(e) 落とした権限の規則と、秘密らしい項目の知らせ', tag: 'e', pair: [
+    { gain: '送る直前に、送るものと送らないものを 1 つの画面で見られる。「それでも送る」がその場にある。', lose: '送った後は見られない。後から見つかった秘密（夜中の自動の送信で落とした項目）を知らせる場所が無い。', weight: 'a1 の群を 1 つ足すだけ。' },
+    { gain: '後からいつでも見られ、増えたときは通知カードで知らせる。「それでも送る」も同じ行から。', lose: '設定の同期の節が 1 行長くなる。(a) の一覧にも同じ群を 1 行は出したい。', weight: '設定の行と通知カードの種類を 1 つ足す。', rec: '推す' },
+  ] },
+];
+const MOVE_LABELS = ['(1) 初めての人がクラウド同期を始める', '(2) 同期を一時停止する', '(3) 今月の Cloudflare の使用量を見る', '(4) 言語を English に変える', '(5) 2 台目で設定の同期を入れ、届いた skill を 1 つ承諾する'];
+const Q_LABELS = ['論点 1 設定の画面の構成', '論点 2 同期の節', '論点 4 言語の切り替え'];
+
+/* ===== 頁の組み立て ===== */
+let syncOn = true;
+let size = 'large';
+let shown = 's1';
+const host = document.getElementById('opts');
+
+function optSection(o, d) {
+  const screens = SCREENS[o.id];
+  return `<section class="opt" id="opt-${o.id}" data-opt="${o.id}">
+<div class="opt-h"><span class="opt-id">${o.tag}</span><h2>${esc(o.name)}</h2>${o.rec ? `<span class="rec${o.rec === '次点' ? ' second' : ''}">${o.rec}</span>` : ''}</div>
+<p class="opt-d">${o.blurb}</p>
+<div class="tabs-row" data-tabs="${o.id}">${screens.map((s, i) => `<button class="stab" data-screen="${s.key}" aria-pressed="${i === 0}"><i>${i + 1}</i>${esc(s.label)}</button>`).join('')}</div>
+${screens.map((s, i) => `<div class="screen-note" data-note="${s.key}"${i ? ' hidden' : ''}>${s.note}</div><div class="frame-wrap" data-screen="${s.key}"${i ? ' hidden' : ''}>${s.html(d)}</div>`).join('')}
+<div class="below">
+<div><table class="tbl"><thead><tr><th>利用者の動き</th><th>操作</th><th>通る場所と手順</th></tr></thead><tbody>${o.moves.map((m, i) => `<tr><td>${MOVE_LABELS[i]}</td><td><span class="n">${esc(m[0])}</span></td><td><span class="path">${esc(m[1])}</span><br>${esc(m[2])}</td></tr>`).join('')}</tbody></table>
+<div class="ans"><h3>論点への答え</h3><ol>${o.answers.map((a, i) => `<li><b>${Q_LABELS[i]}</b>　${esc(a)}</li>`).join('')}</ol></div></div>
+<div class="gl"><div><b>得るもの</b>${esc(o.gain)}</div><div><b>失うもの</b>${esc(o.lose)}</div><div><b>作り替えの重さ</b>${esc(o.weight)}</div></div>
+</div>
+</section>`;
+}
+function flowSection(f, d) {
+  const screens = SCREENS[f.id];
+  return `<section class="opt" id="opt-${f.id}" data-opt="${f.id}">
+<div class="opt-h"><span class="opt-id flow">${f.tag}</span><h2>${esc(f.name)}</h2></div>
+<p class="opt-d">件数は上の切り替え（8 項目、60 項目）で替わります。背景は S1 のクラウド同期の頁で、同期している人の例です。</p>
+<div class="tabs-row" data-tabs="${f.id}">${screens.map((s, i) => `<button class="stab" data-screen="${s.key}" aria-pressed="${i === 0}"><i>${i + 1}</i>${esc(s.label)}</button>`).join('')}</div>
+${screens.map((s, i) => `<div class="screen-note" data-note="${s.key}"${i ? ' hidden' : ''}>${s.note}</div><div class="frame-wrap" data-screen="${s.key}"${i ? ' hidden' : ''}>${s.html(d, size)}</div>`).join('')}
+<div class="pair">${f.pair.map((p, i) => `<div><div class="col-h"><span class="opt-id flow">${f.tag}${i + 1}</span>${esc(screens[i].label.replace(/^\S+ /, ''))}${p.rec ? `<span class="rec">${p.rec}</span>` : ''}</div><div class="gl"><div><b>得るもの</b>${esc(p.gain)}</div><div><b>失うもの</b>${esc(p.lose)}</div><div><b>作り替えの重さ</b>${esc(p.weight)}</div></div></div>`).join('')}</div>
+</section>`;
+}
+function renderAll() {
+  const d = dataset(syncOn);
+  const dOn = dataset(true);
+  host.innerHTML = OPTS.map((o) => optSection(o, d)).join('')
+    + `<section class="opt" id="opt-all" data-opt="all"><div class="opt-h"><h2>3 案の開いた直後の画面</h2><span class="faint">1280×800 を半分に縮めて並べた</span></div><div class="all-grid">${OPTS.map((o) => `<div class="all-cell"><div class="col-h"><span class="opt-id">${o.tag}</span>${esc(o.name)}<small>${esc(SCREENS[o.id][0].label)}</small></div><div class="frame-wrap">${SCREENS[o.id][0].html(d)}</div></div>`).join('')}<div class="all-cell"><div class="col-h"><span class="opt-id">S1</span>同期の節<small>${esc(SCREENS.s1[1].label)}</small></div><div class="frame-wrap">${SCREENS.s1[1].html(d)}</div></div></div></section>`
+    + FLOWS.map((f) => flowSection(f, dOn)).join('');
+  const best = (i) => Math.min(...OPTS.map((o) => parseFloat(o.moves[i][0]) || 0));
+  document.getElementById('cmp').innerHTML = `<thead><tr><th>利用者の動き</th>${OPTS.map((o) => `<th><span class="opt-id">${o.tag}</span></th>`).join('')}</tr></thead><tbody>${MOVE_LABELS.map((l, i) => `<tr><td>${l}</td>${OPTS.map((o) => { const v = parseFloat(o.moves[i][0]) || 0; return `<td${v === best(i) ? ' data-best' : ''}><span class="n">${esc(o.moves[i][0])}</span><br><span class="faint">${esc(o.moves[i][1])}</span></td>`; }).join('')}</tr>`).join('')}<tr><td>作り替えの重さ</td>${OPTS.map((o) => `<td><span class="faint">${esc(o.weight)}</span></td>`).join('')}</tr></tbody>`;
+  document.getElementById('flow-sum').innerHTML = `<thead><tr><th>一覧</th><th>推す案</th><th>理由</th><th>次点</th></tr></thead><tbody>${FLOWS.map((f) => { const r = f.pair.findIndex((p) => p.rec); const n = r === 0 ? 1 : 0; return `<tr><td>${esc(f.name)}</td><td><b>${f.tag}${r + 1}</b> ${esc(SCREENS[f.id][r].label.replace(/^\S+ /, ''))}</td><td>${esc(f.pair[r].gain)}</td><td>${f.tag}${n + 1}。${esc(f.pair[n].lose)}</td></tr>`; }).join('')}</tbody>`;
+  applyShown();
+  fitFrames();
+}
+function applyShown() {
+  for (const el of host.querySelectorAll('.opt')) el.dataset.on = String(el.dataset.opt === shown);
+  for (const b of document.querySelectorAll('.sw[data-opt]')) b.setAttribute('aria-pressed', String(b.dataset.opt === shown));
+}
+/* 1280×800 の窓を、器の幅に合わせて縮める。 */
+function fitFrames() {
+  for (const wrap of document.querySelectorAll('.frame-wrap')) {
+    if (wrap.hidden || wrap.closest('.opt')?.dataset.on !== 'true') continue;
+    const f = wrap.querySelector('.frame');
+    const scale = Math.min(1, wrap.clientWidth / 1280);
+    f.style.transform = `scale(${scale})`;
+    wrap.style.height = `${Math.round(800 * scale)}px`;
+  }
+}
+document.querySelector('.switch').addEventListener('click', (e) => {
+  const b = e.target.closest('.sw');
+  if (!b) return;
+  if (b.dataset.opt) { shown = b.dataset.opt; applyShown(); fitFrames(); document.getElementById('opt-' + shown).scrollIntoView({ block: 'start' }); }
+  if (b.dataset.sync) { syncOn = b.dataset.sync === 'on'; for (const x of document.querySelectorAll('.sw[data-sync]')) x.setAttribute('aria-pressed', String(x.dataset.sync === b.dataset.sync)); renderAll(); }
+  if (b.dataset.size) { size = b.dataset.size; for (const x of document.querySelectorAll('.sw[data-size]')) x.setAttribute('aria-pressed', String(x.dataset.size === size)); renderAll(); }
+  if (b.dataset.lang) { lang = b.dataset.lang; for (const x of document.querySelectorAll('.sw[data-lang]')) x.setAttribute('aria-pressed', String(x.dataset.lang === lang)); renderAll(); }
+});
+host.addEventListener('click', (e) => {
+  const b = e.target.closest('.stab');
+  if (!b) return;
+  const sec = b.closest('.opt');
+  for (const x of sec.querySelectorAll('.stab')) x.setAttribute('aria-pressed', String(x === b));
+  for (const x of sec.querySelectorAll('[data-screen], [data-note]')) if (x.classList.contains('frame-wrap') || x.classList.contains('screen-note')) x.hidden = (x.dataset.screen || x.dataset.note) !== b.dataset.screen;
+  fitFrames();
+});
+window.addEventListener('resize', fitFrames);
+renderAll();
+</script>
+</body>
+</html>

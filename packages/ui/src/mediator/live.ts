@@ -1,15 +1,19 @@
-import type { Effect, Input, State, Step } from './types.ts';
+import { waitingSessionIds, type Store } from '../store/store.ts';
+import type { Effect, State, Step } from './types.ts';
 
 /**
  * live 領域：入力待ちの知らせ。
- * 入力待ちのセッションの一覧は、ランタイムが hangar のセッションの id に引き当てて届ける（waiting.changed）。
+ * 入力待ちのセッションの一覧は、ストアから読む（store.ts の waitingSessionIds）。
+ * live.update はプロバイダの id で届くので、hangar のセッションへの引き当てはストアが済ませている。
+ * ストアが変わるたびに呼ばれ、前に見た顔ぶれ（waitingSeen）と違うときだけ動く。並びの順だけが変わっても動かない。
  * 新たに入力待ちになったものを右下のカードに積み、通知の効果を出す。
  * 解けたものはカードから下げる。
  * 数が変わったら、バッジの効果を出す。
  */
-export function liveStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'runtime' || input.event.type !== 'waiting.changed') return null;
-  const ids = input.event.ids;
+export function liveStep(state: State, store: Store): Step {
+  const ids = waitingSessionIds(store);
+  const was = new Set(state.waitingSeen);
+  if (ids.length === was.size && ids.every((id) => was.has(id))) return { state, effects: [] };
   const now = new Set(ids);
   const seen = new Set(state.waitingSeen);
   const added = ids.filter((id) => !seen.has(id));
