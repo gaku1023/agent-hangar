@@ -16,5 +16,6 @@ export function relaxSqliteSync(Base: DatabaseClass): DatabaseClass {
       if (typeof filename === 'string' && filename !== '' && filename !== ':memory:') this.pragma('synchronous = OFF');
     }
   }
-  return RelaxedDatabase;
+  // better-sqlite3 の型は呼び出しシグネチャ（new 無しの呼び出し）も持つが、試験では new でしか使わない。
+  return RelaxedDatabase as unknown as DatabaseClass;
 }
