@@ -3824,7 +3824,7 @@ heartbeat は 30 秒ごとの push で更新する。
 
 リポジトリは public で、MIT ライセンスで公開している（`LICENSE`、著作権者は `gaku1023`）。
 GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` と Windows 用の NSIS のインストーラをビルドして Releases に置く。
-`.app` は Developer ID では署名せず、自作の証明書で署名する（署名の台本と手順は `docs/signing.md`）。zip と SHA-256 の checksum を添える。
+`.app` は Developer ID では署名せず、自作の証明書で署名する方針である（署名の台本と手順は `docs/signing.md`。CI の署名はまだ入れていない）。zip と SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 クラウド同期の設定は `.app` の同梱 CLI からは行えない。
