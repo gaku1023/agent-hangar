@@ -94,7 +94,7 @@ runs:
         Set-Content -Path (Join-Path $home1 'ci-keep.txt') -Value 'x'
         $out = & $cmd.FullName --help 2>&1 | Out-String
         $out
-        if ($LASTEXITCODE -ne 0 -or $out -notmatch 'setup') { throw "hangar.cmd --help が動かない（終了コード $LASTEXITCODE）" }
+        if ($LASTEXITCODE -ne 0 -or $out -notmatch 'setup') { throw "hangar.cmd --help が動かない（終了コード ${LASTEXITCODE}）" }
         # _?= を付けると、消す側が自分を写さずその場で動き、終わるまで待てる。
         $u = Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList "/S _?=$dir" -Wait -PassThru
         if ($u.ExitCode -ne 0) { throw "アンインストーラが終了コード $($u.ExitCode) で終わった" }

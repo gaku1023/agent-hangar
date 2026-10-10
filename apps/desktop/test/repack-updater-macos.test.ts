@@ -119,6 +119,19 @@ describe.skipIf(!onMac)('更新物の作り直し（実物の tar と codesign�
     expect(Buffer.from(sig, 'base64').toString('utf8')).toMatch(/untrusted comment/);
   });
 
+  it('ロケールが UTF-8 でも pack と verify が通る（$名前 の直後の全角の字を変数名に読まない）', () => {
+    const d = tmp('hangar-repack-utf8-');
+    const app = makeBundleDir(d);
+    signApp({ app, mode: 'adhoc', identifier: ID });
+    // release の macOS ランナーは UTF-8 のロケール。手元の試験はロケールを渡さないので、ここで明示する
+    const utf8 = { LC_ALL: 'en_US.UTF-8', LANG: 'en_US.UTF-8' };
+    const p = run(['pack', app], { ...updaterKey(d), ...utf8 });
+    expect(p.status, p.out).toBe(0);
+    expect(p.out).toContain('（と .sig）');
+    const v = run(['verify', app], utf8);
+    expect(v.status, v.out).toBe(0);
+  });
+
   it('verify は、展開した .app の識別子と DR が元の .app と同じで、verify が通れば 0', () => {
     const d = tmp('hangar-repack-verify-');
     const app = makeBundleDir(d);

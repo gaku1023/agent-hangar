@@ -31,11 +31,11 @@ case "$DAYS" in ''|*[!0-9]*) echo "--days は整数" >&2; exit 2 ;; esac
 # 秘密鍵をリポジトリの中へ書き出さない（うっかり commit しないため）
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd -P)"
 if TOP="$(git -C "$OUT" rev-parse --show-toplevel 2>/dev/null)"; then
-  echo "出力先がリポジトリの中（$TOP）にある。リポジトリの外を --out に渡す" >&2; exit 1
+  echo "出力先がリポジトリの中（${TOP}）にある。リポジトリの外を --out に渡す" >&2; exit 1
 fi
 chmod 700 "$OUT"
 for f in hangar-signing.p12 hangar-signing.cer certificate-sha1.txt; do
-  [ ! -e "$OUT/$f" ] || { echo "既にある: $OUT/$f（上書きしない。作り直すと身元が変わり、利用者の許可が外れる）" >&2; exit 1; }
+  [ ! -e "$OUT/$f" ] || { echo "既にある: $OUT/${f}（上書きしない。作り直すと身元が変わり、利用者の許可が外れる）" >&2; exit 1; }
 done
 [ -z "$KC" ] || [ ! -e "$KC" ] || { echo "キーチェーンが既にある: $KC" >&2; exit 1; }
 
