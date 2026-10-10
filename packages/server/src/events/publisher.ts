@@ -87,7 +87,7 @@ const TABLES: Record<string, TableRule> = {
   // ルートの行は、そのプロジェクトの DTO（この端末のパスと、解決しているか）に載る。
   // この端末のルートが未解決になった書き込みだけは、ここでは配らない。
   // それを書くのはルートの確かめ（checkProjectRoots）で、解決済みから未解決へ移ったときである。
-  // そのときは呼び手（server.ts の checkRoots）が project.unresolved を手で渡す。画面はそれで置き場の選び直しを開くので、遷移を知っている側だけが出す。
+  // そのときは呼び手（projects/rootCheck.ts の checkRoots）が project.unresolved を手で渡す。画面はそれで置き場の選び直しを開くので、遷移を知っている側だけが出す。
   // 同期で降りた行と名指しは遷移ではないので、未解決のままでも project.upsert にする。
   project_roots: {
     to: (c, ctx) => {

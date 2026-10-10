@@ -63,12 +63,12 @@ export type AppDeps = {
   memos: MemoStore;
   summary: SummaryApi;
   promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
-  /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する（server.ts は渡さない）。 */
+  /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する（boot/http.ts は渡さない）。 */
   gitInit?: (dir: string) => void;
   sync: SyncApi;
   /** 設定の「使用量と費用」。同期を設定していない端末では current() が null を返す。 */
   cloudUsage: { current(): CloudUsageDto | null; refresh(): Promise<CloudUsageDto | null> };
-  /** アカウントの一覧と切り替え。組み立てる側（server.ts）が 1 か所で作り、起動後の認証の読み直しにも同じものを使う。 */
+  /** アカウントの一覧と切り替え。組み立てる側（boot/runs.ts）が 1 か所で作り、起動後の認証の読み直しにも同じものを使う。 */
   accounts: AccountsDeps;
   /** 降ろすのを諦めた項目。RemotePuller.skippedEntries() をそのまま載せる。 */
   syncSkipped: () => SyncSkippedDto[];
