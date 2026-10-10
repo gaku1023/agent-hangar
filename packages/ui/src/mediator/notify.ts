@@ -9,16 +9,12 @@ export const NOTIFY_KEY = 'notify.waiting';
 
 /**
  * 通知の受け取りの切り替え。
- * 受け取るにするときは許可を求めるだけで、切り替えは許可の結果（notify.changed）を待つ。
+ * 通知を出せるか、受け取るかは Runtime しか知らない事実なので、Store が持つ（store.ts の notify）。ここは切り替えを効果にするだけである。
+ * 受け取るにするときは許可を求める。切り替わるのは、許可の結果を Runtime が Store に入れたときである。
  * ブラウザの許可ダイアログは利用者の操作の中でしか出せないので、この効果は押した操作のその場で走る。
- * 受け取らないにするときは、その場で切り替えて覚える。
+ * 受け取らないにするときは、Runtime がその場で切り替えて覚える。
  */
 export function notifyStep(state: State, input: Input): Step | null {
-  if (input.kind === 'runtime' && input.event.type === 'notify.changed') {
-    const { available, on, blocked } = input.event;
-    return { state: { ...state, notify: { available, on, blocked: blocked ?? false } }, effects: [] };
-  }
   if (input.kind !== 'intent' || input.intent.type !== 'notify.set') return null;
-  if (input.intent.on) return { state, effects: [{ kind: 'notify.request' }] };
-  return { state: { ...state, notify: { ...state.notify, on: false } }, effects: [{ kind: 'storage.save', key: NOTIFY_KEY, value: false }] };
+  return { state, effects: [{ kind: input.intent.on ? 'notify.request' : 'notify.off' }] };
 }

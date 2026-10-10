@@ -172,6 +172,6 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     retention: retentionSettings(store),
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
     focus: state.screen.name === 'settings' && state.screen.at === 'accounts' ? 'accounts' : null,
-    notify: { available: state.notify.available, on: state.notify.on, blocked: state.notify.blocked },
+    notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },
   };
 }

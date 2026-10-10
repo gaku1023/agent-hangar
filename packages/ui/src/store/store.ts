@@ -1,6 +1,6 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto } from '@agent-hangar/shared';
+import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -9,6 +9,12 @@ import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto,
  * olderDone は、過去へ遡って空の頁が返った（もう古い行が無い）ことを表す。
  */
 export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean; olderDone?: boolean };
+/**
+ * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
+ * blocked はデスクトップのシステム設定で切られていること。
+ * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
+ */
+export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
 export type Store = {
   bootstrapped: boolean; version: string; device: { id: string; name: string } | null; settings: SettingsDto | null;
   projects: Record<string, ProjectDto>; sessions: Record<string, SessionDto>; live: LiveSessionDto[];
@@ -20,6 +26,8 @@ export type Store = {
   index: IndexProgressDto;
   todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
   summaryPending: Record<string, true>;
+  /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
+  summaryFailed: Record<string, string>;
   // 設定画面に入ったときだけ読む値。
   // 未取得は null で、View は「読み込んでいます」を出す。
   usageAggregate: UsageAggregateDto | null; statusline: StatuslineStatusDto | null; shellHook: ShellHookDto | null; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
@@ -41,6 +49,12 @@ export type Store = {
   desktop: boolean;
   // Claude Code のアカウント（この PC の中だけにある）。未取得、またはサーバが知らせない間は null である。
   accounts: AccountsDto | null;
+  /** 通知の受け取り。Runtime だけが知っている事実（環境、OS の許可、利用者の選んだ値）を、Runtime が入れる。 */
+  notify: NotifyState;
+  /** ワークスペース直下の未登録のフォルダ。新しいセッションか作成のダイアログを開くたびに取り直す。未取得は null。 */
+  workspaceDirs: WorkspaceDirDto[] | null;
+  /** Finder で選んだフォルダ。殻が返した値である。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
+  pickedFolder: { path: string; n: number } | null;
 };
 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
@@ -49,11 +63,11 @@ export function initialStore(): Store {
   return {
     bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
-    todos: {}, memos: {}, artifacts: {}, summaryPending: {},
+    todos: {}, memos: {}, artifacts: {}, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null,
     retention: null, retentionPreview: null,
-    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null,
+    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
   };
 }
 
@@ -66,6 +80,13 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
   return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts };
+}
+
+/** 鍵を 1 つ外す。無ければ同じ物を返す。 */
+function without<T>(map: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in map)) return map;
+  const { [key]: _drop, ...rest } = map;
+  return rest;
 }
 
 const sameAside = (a: LiveAsideDto | null, b: LiveAsideDto | null): boolean => a === b || (a !== null && b !== null && a.shell === b.shell && a.agents === b.agents);
@@ -114,16 +135,24 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'retention.changed': return { ...store, retention: ev.retention };
-    case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true } };
-    case 'summary.updated': case 'summary.failed': {
-      // 本文の差し替えは session.upsert が行う。
-      // ここは待ちの印を消すだけである。
-      if (!store.summaryPending[ev.sessionId]) return store;
-      const { [ev.sessionId]: _drop, ...rest } = store.summaryPending;
-      return { ...store, summaryPending: rest };
+    case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
+    // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。
+    case 'summary.updated': {
+      if (!store.summaryPending[ev.sessionId] && store.summaryFailed[ev.sessionId] === undefined) return store;
+      return { ...store, summaryPending: without(store.summaryPending, ev.sessionId), summaryFailed: without(store.summaryFailed, ev.sessionId) };
     }
+    case 'summary.failed': return { ...store, summaryPending: without(store.summaryPending, ev.sessionId), summaryFailed: { ...store.summaryFailed, [ev.sessionId]: ev.message } };
     default: return store;
   }
+}
+
+/**
+ * この知らせで索引の走査が終わるか（動いていた索引が idle に戻る）。知らせを当てる前の Store で見る。
+ * 索引の段階は Store の index だけが持つので、前の段階を知っているのは当てる側（Runtime）である。
+ * 走査中に開いた UI は、そのときの bootstrap にプロジェクトも紐づけも載っていないので、Runtime は終わった瞬間に取り直す。
+ */
+export function indexFinishedBy(store: Store, ev: ServerEvent): boolean {
+  return ev.type === 'index.progress' && ev.progress.phase === 'idle' && store.index.phase !== 'idle';
 }
 
 export const accountList = (store: Store): AccountDto[] => store.accounts?.accounts ?? [];
@@ -394,6 +423,23 @@ export function artifactsOf(store: Store, opts: { projectId?: string; sessionId?
 
 /** 参加トークンを入れる。押して見せたあとに null で伏せ直せる。 */
 export function applyJoinToken(store: Store, token: string | null, expiresAt: number | null = null): Store { return { ...store, joinToken: token, joinTokenExpiresAt: token === null ? null : expiresAt }; }
+
+/** 通知の受け取りを入れる。変わっていなければ同じ Store を返す。 */
+export function applyNotify(store: Store, next: NotifyState): Store {
+  const was = store.notify;
+  return was.available === next.available && was.on === next.on && was.blocked === next.blocked ? store : { ...store, notify: next };
+}
+
+/** 未登録のフォルダの一覧を入れる。 */
+export function applyWorkspaceDirs(store: Store, dirs: WorkspaceDirDto[]): Store { return { ...store, workspaceDirs: dirs }; }
+
+/**
+ * Finder で選ばれたフォルダを入れる。
+ * Finder は NFD のパスを返すことがあり、サーバのパスは NFC である。比べる前にここで一度だけそろえ、末尾の / も落とす（根の / は残す）。
+ */
+export function applyPickedFolder(store: Store, path: string): Store {
+  return { ...store, pickedFolder: { path: path.normalize('NFC').replace(/(.)\/+$/, '$1'), n: (store.pickedFolder?.n ?? 0) + 1 } };
+}
 
 /** Claude Code の設定の下見を入れる。閉じるときに null で捨てる。 */
 export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | null): Store { return { ...store, configPreview: preview }; }
