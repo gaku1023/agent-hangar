@@ -229,6 +229,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   CI の desktop ジョブ（macOS）は `.app` を build し、`apps/desktop/scripts/ci-boot-probe-macos.sh` で一時の場所へ写して、一時のホーム、無いパスを指す `nodePath`、最小の `PATH` だけを渡して起こす（`env -i`）。
   殻が探す場所のうちホームの外のもの（Homebrew の `bin/node` と keg-only の `node@N`、`node.rs` の `UNIX_NODE_PLACES` の `/` で始まるもの）は一時のホームでは外れないので、その段の間だけ脇へ退ける（ランナーには Homebrew の Node がある）。
   windows ジョブは、作ったインストーラで入れ直し、`apps/desktop/scripts/ci-boot-probe-windows.ps1` で殻に渡す環境だけを差し替えて Node を見えなくする（`ProgramFiles` と `LOCALAPPDATA` を空の場所へ、`NVM_*` を外し、`PATH` から `node.exe` のある項目を外す）。
+  Windows は 64 ビットの子を起こすとき `ProgramFiles` を `ProgramW6432` の値で書き直すので、`ProgramW6432` も同じ空の場所へ向ける（向けないと、殻は `C:\Program Files\nodejs` の Node を見つけた）。
   どちらも `apps/desktop/scripts/boot-probe-check.ts` が書き出しを読み、札が見えて種類が `other`、詳細に「Node <版>」が入るまで待つ（上限 60 秒）。
   殻が Node を見つけてサーバを起こしたら（desktop.log の `node … server` の行）、探す場所が増えたとみて落とす。
   撮れた画面と殻の記録は、実行の artifact に 7 日だけ残す。

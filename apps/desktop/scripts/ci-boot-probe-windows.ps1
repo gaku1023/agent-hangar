@@ -5,6 +5,7 @@
 #   一時のホーム（HANGAR_HOME）の settings.json の nodePath は無いパスにする。
 #   殻は公式の入れ先（%ProgramFiles%\nodejs、%LOCALAPPDATA%\Programs\nodejs）、nvm-windows、PATH の順に探す（node.rs の windows_node_paths）。
 #   ランナーには Node が入っているので、殻に渡す環境だけで、ProgramFiles と LOCALAPPDATA を空の一時の場所に向け、NVM_* を外し、PATH から node.exe のある項目を外す。
+#   Windows は 64 ビットの子を起こすとき、ProgramFiles を ProgramW6432 の値で書き直す。ProgramFiles だけを替えても子には届かないので、ProgramW6432 も替える。
 #   機械の上の Node には触らない。WebView2 の置き場は環境変数ではなく既知のフォルダから決まるので、この差し替えに左右されない。
 # 殻には HANGAR_BOOT_PROBE で書き出しの先を渡す。起動画面が描いた様子を殻がそこへ書き（bootprobe.rs）、
 # boot-probe-check.ts が、札が出て種類が other、詳細が「Node <版>」を含む文になるまで待つ（上限 60 秒）。
@@ -38,7 +39,7 @@ foreach ($d in $hangarHome, $emptyProgramFiles, $emptyLocalAppData) { New-Item -
 $probe = Join-Path $Out 'probe.json'
 
 # 殻に渡す環境だけを差し替え、起こしたらすぐ戻す。Start-Process はこのプロセスの環境を子へ渡す。
-$names = 'HANGAR_HOME', 'HANGAR_BOOT_PROBE', 'PATH', 'ProgramFiles', 'LOCALAPPDATA', 'NVM_SYMLINK', 'NVM_HOME'
+$names = 'HANGAR_HOME', 'HANGAR_BOOT_PROBE', 'PATH', 'ProgramFiles', 'ProgramW6432', 'LOCALAPPDATA', 'NVM_SYMLINK', 'NVM_HOME'
 $saved = @{}
 foreach ($n in $names) { $saved[$n] = [Environment]::GetEnvironmentVariable($n) }
 $kept = @($env:PATH -split ';' | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'node.exe')) })
@@ -50,8 +51,11 @@ try {
   $env:HANGAR_BOOT_PROBE = $probe
   $env:PATH = $kept -join ';'
   $env:ProgramFiles = $emptyProgramFiles
+  $env:ProgramW6432 = $emptyProgramFiles
   $env:LOCALAPPDATA = $emptyLocalAppData
   Remove-Item Env:NVM_SYMLINK, Env:NVM_HOME -ErrorAction SilentlyContinue
+  # 子が実際に受け取る値を、同じ環境で起こした 64 ビットの cmd で確かめて印字する。
+  "子が見る ProgramFiles: $((& cmd.exe /d /c 'echo %ProgramFiles%') -join '')"
   $app = Start-Process -FilePath $exe.FullName -PassThru
 } finally {
   foreach ($n in $names) { [Environment]::SetEnvironmentVariable($n, $saved[$n]) }

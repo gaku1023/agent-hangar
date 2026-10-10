@@ -130,6 +130,9 @@ describe('CI の段', () => {
     expect(ps).toContain('HANGAR_BOOT_PROBE');
     expect(ps).toContain('nodePath');
     expect(ps).toContain('node.exe');
+    // 64 ビットの子では ProgramFiles が ProgramW6432 から書き直されるので、両方を替える。
+    expect(ps).toContain('$env:ProgramFiles = ');
+    expect(ps).toContain('$env:ProgramW6432 = ');
     expect(ps).toContain('boot-probe-check.ts');
   });
 });
