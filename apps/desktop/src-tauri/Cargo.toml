@@ -26,6 +26,11 @@ url = "2"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Windows では、子をジョブオブジェクトに入れて孫ごと止める（src/winjob.rs）。
+# 版は Tauri が既に引いているものに合わせ、新しい版を持ち込まない。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
 # トラックパッドの「指を離した」瞬間を読むためだけに使う。
 # WebKit の手勢が使っているのと同じ NSEvent の位相を、こちらでも読む。
 [target.'cfg(target_os = "macos")'.dependencies]

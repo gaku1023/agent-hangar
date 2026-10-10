@@ -12,6 +12,8 @@ pub mod node;
 pub mod notify;
 pub mod paths;
 pub mod server;
+#[cfg(windows)]
+pub mod winjob;
 
 use std::cell::Cell;
 use std::io::Write;
@@ -444,6 +446,16 @@ fn page_loaded(app: &AppHandle, server_page: bool) {
         let (failure, hash) = ui.page_loaded(server_page);
         (failure, hash, replay)
     };
+    // 信号の 3 点が窓の中に重なる殻であることの印。画面はこれを見て、信号の 3 点の分だけヘッダの左を空ける。
+    // macOS でだけ付ける。Windows の窓は標準の枠で、信号は窓の中に無い。
+    // 読み込み画面にも付ける（失敗の札のロゴの位置）。札を出す合図より先に付くよう、流す文言より前に置く。
+    if cfg!(target_os = "macos") {
+        eval_main(app, "document.documentElement.dataset.shell = 'desktop'");
+        // 位相を読めるのはこの殻の中だけである。画面はこの印を見て、時間で当てずっぽうに決めるのをやめる。
+        if server_page {
+            eval_main(app, "window.__hangarPhaseAware = true");
+        }
+    }
     if let Some(js) = replay {
         eval_main(app, &js);
     }
@@ -452,12 +464,6 @@ fn page_loaded(app: &AppHandle, server_page: bool) {
     }
     if let Some(h) = hash {
         eval_main(app, &deeplink::hash_to_js(&h));
-    }
-    // 位相を読めるのはこの殻の中だけである。画面はこの印を見て、時間で当てずっぽうに決めるのをやめる。
-    // 殻の中であることの印も同じ時に付ける。画面はこれを見て、信号の 3 点の分だけサイドバーの上を空ける。
-    if server_page && cfg!(target_os = "macos") {
-        eval_main(app, "window.__hangarPhaseAware = true");
-        eval_main(app, "document.documentElement.dataset.shell = 'desktop'");
     }
 }
 

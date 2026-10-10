@@ -10,6 +10,12 @@ export type MainDeps = {
   home?: string;
   /** Tauri などの親の pid。あれば、親が消えたときに自分も終わる。 */
   parentPid?: number;
+  /**
+   * 閉じたら止める読み口。Windows の殻がつないだ標準入力の管を渡す（HANGAR_STOP_ON_STDIN_END）。
+   * Windows には SIGTERM が無いので、殻は管を閉じることで止める合図を送る（apps/desktop/src-tauri/src/server.rs）。
+   * 渡さなければ見張らない。端末から起こしたサーバの標準入力は端末なので、見張ると Ctrl+D で降りてしまう。
+   */
+  stdin?: NodeJS.ReadableStream & { unref?: () => void };
   /** 以下は試験が差し替える。既定は process と console である。 */
   exit?: (code: number) => void;
   error?: (e: unknown) => void;
@@ -33,6 +39,14 @@ export function runMain(d: MainDeps): Promise<void> {
   // /health は listen した時点で 200 を返し、.app はそれを準備完了の合図にしている。
   // 待ってから立てると、その間に届いた SIGTERM が既定の扱いでプロセスを即座に殺し、close() が 1 行も走らない。
   const stop = installShutdown(startup, d.shutdown);
+  // 読み口の終わりも、信号と同じく起動の解決を待たずに見張る。起動の途中で閉じられたら、起動が終わってから閉じる。
+  // 管が壊れたとき（殻が落ちた）も止める。unref して、この見張りだけのためにイベントループを生かさない。
+  if (d.stdin) {
+    d.stdin.once('end', () => stop('stdin closed'));
+    d.stdin.once('error', () => stop('stdin closed'));
+    d.stdin.resume();
+    d.stdin.unref?.();
+  }
   return startup
     .then(() => {
       // Tauri などの親が消えたら自分も終わる。
