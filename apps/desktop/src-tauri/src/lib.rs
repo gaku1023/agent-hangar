@@ -364,7 +364,14 @@ fn boot_env(app: &AppHandle, home: &std::path::Path) -> bootfail::Env {
 
 /// ログに残す失敗の 1 行。詳細は長いことがあるので、最初の行だけを丸めて載せる。
 fn failure_log_line(f: &bootfail::BootFailure) -> String {
-    let first: String = f.detail.lines().next().unwrap_or("").chars().take(300).collect();
+    let first: String = f
+        .detail
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(300)
+        .collect();
     format!("boot failed ({}): {first}", f.kind)
 }
 
@@ -1642,7 +1649,10 @@ mod tests {
         assert!(js.starts_with("window.__hangarBootFail && window.__hangarBootFail({"));
         assert!(js.contains("\"kind\":\"compat-mismatch\""));
         assert!(js.contains(&format!("\"ours\":{}", health::COMPAT_VERSION)));
-        assert!(!js.contains("もう一度試す"), "the shell does not write the page's sentences");
+        assert!(
+            !js.contains("もう一度試す"),
+            "the shell does not write the page's sentences"
+        );
     }
 
     // 入場の鍵が詳細に混じっても、頁へ渡す前に伏せる（`fail` は read_token の値で map_text を通す）。
@@ -1650,13 +1660,23 @@ mod tests {
     fn a_token_in_the_detail_is_hidden_before_it_is_sent_to_the_page() {
         let f = bootfail::BootFailure::other("open http://127.0.0.1:4177/?t=abc123 failed")
             .map_text(|s| redact(s, "abc123"));
-        assert!(!bootfail::fail_js(&f, &bootfail::Env { lang: "ja", version: String::new(), os: String::new(), home: String::new() }).contains("abc123"));
+        assert!(!bootfail::fail_js(
+            &f,
+            &bootfail::Env {
+                lang: "ja",
+                version: String::new(),
+                os: String::new(),
+                home: String::new()
+            }
+        )
+        .contains("abc123"));
     }
 
     // ログには種類と詳細の最初の行だけを残す。詳細は長いことがある。
     #[test]
     fn the_log_keeps_the_kind_and_the_first_line_of_the_detail() {
-        let f = bootfail::BootFailure::server_exited(format!("first\nsecond\n{}", "x".repeat(2000)));
+        let f =
+            bootfail::BootFailure::server_exited(format!("first\nsecond\n{}", "x".repeat(2000)));
         assert_eq!(failure_log_line(&f), "boot failed (server-exited): first");
         let long = bootfail::BootFailure::other("y".repeat(2000));
         assert!(failure_log_line(&long).chars().count() < 400);
