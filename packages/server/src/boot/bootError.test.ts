@@ -29,7 +29,7 @@ describe('起動の失敗の種類（classifyBootError）', () => {
     const e = classifyBootError(new DbTooOldError('/x/hangar.db', 3, 16));
     expect(e.kind).toBe('db-too-old');
     expect(e.params).toEqual({ file: '/x/hangar.db', found: 3, baseline: 16 });
-    expect(e.detail).toContain('版 3');
+    expect(e.detail).toContain('バージョン 3');
   });
 
   it('listen の EADDRINUSE は port-in-use で、ポートと宛先を params に持つ', () => {
@@ -58,7 +58,7 @@ describe('boot-error.json を書く（writeBootError）', () => {
     const home = path.join(root, 'new', 'home');
     expect(writeBootError(home, new DbTooOldError('/x/hangar.db', 3, 16))).toBe(true);
     expect(bootErrorPath(home)).toBe(path.join(home, 'boot-error.json'));
-    expect(read(home)).toEqual({ kind: 'db-too-old', params: { file: '/x/hangar.db', found: 3, baseline: 16 }, detail: expect.stringContaining('版 3') });
+    expect(read(home)).toEqual({ kind: 'db-too-old', params: { file: '/x/hangar.db', found: 3, baseline: 16 }, detail: expect.stringContaining('バージョン 3') });
   });
 
   it('置き場の設定の言語で detail を書く。設定が無い、壊れている、知らない言語なら日本語', () => {
@@ -71,10 +71,10 @@ describe('boot-error.json を書く（writeBootError）', () => {
       return home;
     };
     expect(detailIn(withSettings('en', '{"language":"en"}'))).toContain('is at version 3');
-    expect(detailIn(withSettings('ja', '{"language":"ja"}'))).toContain('版 3');
-    expect(detailIn(withSettings('broken', '{ not json'))).toContain('版 3');
-    expect(detailIn(withSettings('unknown', '{"language":"fr"}'))).toContain('版 3');
-    expect(detailIn(path.join(root, 'none'))).toContain('版 3');
+    expect(detailIn(withSettings('ja', '{"language":"ja"}'))).toContain('バージョン 3');
+    expect(detailIn(withSettings('broken', '{ not json'))).toContain('バージョン 3');
+    expect(detailIn(withSettings('unknown', '{"language":"fr"}'))).toContain('バージョン 3');
+    expect(detailIn(path.join(root, 'none'))).toContain('バージョン 3');
   });
 
   it('前の失敗は新しい失敗で置き換わり、書きかけの一時ファイルは残らない', () => {

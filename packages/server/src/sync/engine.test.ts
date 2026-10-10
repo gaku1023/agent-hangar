@@ -339,7 +339,7 @@ describe('SyncEngine の pull', () => {
     await b.pullNow();
 
     expect(toasts).toHaveLength(1);
-    expect(toasts[0]).toContain('作り直');
+    expect(toasts[0]).toContain('再同期');
     expect(applied).toEqual(['p2', 'p3']);
     expect((dbB.prepare('select id from projects order by id').all() as { id: string }[]).map((r) => r.id)).toEqual(['p1', 'p2', 'p3']);
     expect(b.state.get('snapshotDone')).toBe('1');
@@ -812,8 +812,8 @@ describe('上限で退く', () => {
   };
 
   it('知らせの文は、戻る時刻を渡した時間帯の時刻で書く', () => {
-    expect(limitedMessage(Date.UTC(2026, 9, 9), 'Asia/Tokyo')).toBe('Cloudflare の無料枠の上限に達したので、9:00 まで同期を止めます。枠が戻ると自動で再開します');
-    expect(limitedMessage(Date.UTC(2026, 9, 9), 'UTC')).toBe('Cloudflare の無料枠の上限に達したので、0:00 まで同期を止めます。枠が戻ると自動で再開します');
+    expect(limitedMessage(Date.UTC(2026, 9, 9), 'Asia/Tokyo')).toBe('Cloudflare の無料枠の上限に達したので、9:00 まで同期を停止します。枠がリセットされると自動で再開します');
+    expect(limitedMessage(Date.UTC(2026, 9, 9), 'UTC')).toBe('Cloudflare の無料枠の上限に達したので、0:00 まで同期を停止します。枠がリセットされると自動で再開します');
   });
 
   it('上限の失敗を受けたら、次の UTC の 0 時まで外へ出ず、戻る時刻を見せ、1 度だけ知らせる', async () => {

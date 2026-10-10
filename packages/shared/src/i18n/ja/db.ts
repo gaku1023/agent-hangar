@@ -2,7 +2,7 @@ import type { dbKeys } from '../keys/db.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const dbJa: AreaDictionary<typeof dbKeys> = {
-  'db.backup.failed': 'DB の控えを {file} に取れなかったので、マイグレーションを当てずに止めました（{cause}）。置き場に書けるか、空きがあるかを確かめてください',
-  'db.backup.symlink': 'backups/db がシンボリックリンクなので控えを置きません',
-  'db.open.tooOld': 'DB（{file}）は版 {found} で、このアプリが開けるのは版 {baseline} 以降です。古い版から上げる道はもう無いので、DB の中身は変えず、マイグレーションも当てずに止めました。版 {baseline} まで上げられる以前の版の Hangar で一度起動して DB を上げてから、このアプリをもう一度起動してください',
+  'db.backup.failed': 'DB のバックアップを {file} に作成できなかったので、マイグレーションを適用せずに停止しました（{cause}）。フォルダに書き込めるか、空き容量があるかを確認してください',
+  'db.backup.symlink': 'backups/db がシンボリックリンクなので、バックアップを作成しません',
+  'db.open.tooOld': 'DB（{file}）はバージョン {found} で、このアプリが開けるのはバージョン {baseline} 以降です。古いバージョンから更新する手段はもう無いので、DB の中身は変更せず、マイグレーションも適用せずに停止しました。バージョン {baseline} まで更新できる以前のバージョンの Hangar を一度起動して DB を更新してから、このアプリをもう一度起動してください',
 };

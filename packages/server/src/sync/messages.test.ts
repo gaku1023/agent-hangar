@@ -41,7 +41,7 @@ describe('クラウドの失敗の文', () => {
     expect(errorText('en', new LimitError('d1-read', 429))).toBe('Reached the Cloudflare free tier limit (D1 reads per day)');
     expect(errorText('en', new LimitError('d1-write', 429))).toBe('Reached the Cloudflare free tier limit (D1 writes per day)');
     expect(errorText('en', new LimitError('requests', 429))).toBe('Reached the Cloudflare free tier limit (Workers requests per day)');
-    expect(errorText('ja', new LimitError('requests', 429))).toBe('Cloudflare の無料枠の上限（Workers の 1 日の要求）に達しました');
+    expect(errorText('ja', new LimitError('requests', 429))).toBe('Cloudflare の無料枠の上限（Workers の 1 日のリクエスト）に達しました');
   });
 
   it('応答の本文をそのまま持つ失敗は、言語に依らずその文字列を返す', () => {
@@ -54,8 +54,8 @@ describe('クラウドの失敗の文', () => {
 describe('同期の知らせの文', () => {
   it('上限で止めた知らせは、戻る時刻をその言語の書き方で言う', () => {
     const noon = Date.UTC(2026, 9, 9, 15);
-    expect(limitedMessage(noon, 'UTC')).toBe('Cloudflare の無料枠の上限に達したので、15:00 まで同期を止めます。枠が戻ると自動で再開します');
-    expect(limitedMessage(noon, 'UTC', 'en')).toBe('The Cloudflare free tier limit was reached, so sync is stopped until 3:00 PM. It resumes automatically when the allowance resets');
+    expect(limitedMessage(noon, 'UTC')).toBe('Cloudflare の無料枠の上限に達したので、15:00 まで同期を停止します。枠がリセットされると自動で再開します');
+    expect(limitedMessage(noon, 'UTC', 'en')).toBe('The Cloudflare free tier limit was reached, so sync is paused until 3:00 PM. It resumes automatically after the limit resets');
   });
 
   it('一時停止のまま頼んだ 1 巡が上限で断られた知らせは、時刻も自動の再開も言わない', () => {
@@ -64,8 +64,8 @@ describe('同期の知らせの文', () => {
   });
 
   it('変更ログが古くなって作り直した知らせ', () => {
-    expect(resyncedMessage()).toBe('クラウドの変更ログが古くなっていたので、同期を作り直しました');
-    expect(resyncedMessage('en')).toBe("The cloud's change log had expired, so sync was started over");
+    expect(resyncedMessage()).toBe('クラウドの変更ログが古くなっていたので、全体を再同期しました');
+    expect(resyncedMessage('en')).toBe("The cloud's change log had expired, so sync was redone from the beginning");
   });
 });
 
@@ -120,7 +120,7 @@ describe('本文を降ろす失敗の文', () => {
     const k = `transcripts/dev-b/${UUID}.jsonl.gz`;
     const meta: FileMetaIn = { key: k, path: `projects/-w-alpha/${UUID}.jsonl`, kind: 'transcript', sha256: sha256Hex('different'), size: 8, mtime: 1_700_000_000_000, encrypted: true };
     await cloud.asDevice('dev-b').putFile(meta, Readable.from([enc]));
-    for (const [language, expected] of [['ja', `本文の SHA-256 が一致しません: ${k}`], ['en', `Transcript SHA-256 does not match: ${k}`]] as const) {
+    for (const [language, expected] of [['ja', `トランスクリプトの SHA-256 が一致しません: ${k}`], ['en', `Transcript SHA-256 does not match: ${k}`]] as const) {
       // 言語ごとに新しい DB で試す。諦めた回数と理由は DB（sync_state）に残る。
       const fresh = openDb(':memory:');
       const p = new RemotePuller({ db: fresh, deviceId: 'dev-a', home, client: cloud, key, state: new SyncStateStore(fresh), language: () => language });

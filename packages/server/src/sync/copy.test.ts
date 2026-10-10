@@ -133,7 +133,7 @@ describe('copyTranscriptForResume', () => {
     writeLocal('short\n');
     // backups を普通のファイルで塞ぐと、控えの入れ物が作れなくなる。
     fs.writeFileSync(path.join(home, 'backups'), 'x');
-    expect(() => copy(true)).toThrow(/控え/);
+    expect(() => copy(true)).toThrow(/バックアップ/);
     expect(fs.readFileSync(target(), 'utf8')).toBe('short\n');
     expect(fs.readdirSync(path.dirname(target()))).toEqual([`${UUID}.jsonl`]);
   });
@@ -176,7 +176,7 @@ describe('copyTranscriptForResume', () => {
     fs.symlinkSync(outside, path.join(home, 'backups', 'transcripts'));
     seedRemote('dev-b', 'remote-longer\n', NOW);
     writeLocal('short\n');
-    expect(() => copy(true)).toThrow(/控え/);
+    expect(() => copy(true)).toThrow(/バックアップ/);
     expect(fs.readFileSync(target(), 'utf8')).toBe('short\n');
     expect(fs.readdirSync(outside)).toEqual([]);
   });

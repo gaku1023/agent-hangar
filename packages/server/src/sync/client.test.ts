@@ -478,7 +478,7 @@ describe('互換の版', () => {
     const e = await new HttpCloudClient({ url: 'https://h', token: 't', fetch }).listFiles(0, 10).catch((x: unknown) => x);
     expect(e).toMatchObject({ name: 'CompatError', upgrade: 'device', need: null });
     expect((e as Error).message).toContain('この PC の hangar');
-    expect((e as Error).message).toContain('それより新しい版');
+    expect((e as Error).message).toContain('それより新しいバージョン');
   });
 
   it('Worker の版がこの PC の下限より古ければ、通った応答でも CompatError にして Worker を上げるよう伝える', async () => {
