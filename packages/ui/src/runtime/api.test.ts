@@ -174,8 +174,8 @@ describe('createApi（セッションの状態）', () => {
     ]);
   });
   it('409 の本文の一文をそのまま投げる', async () => {
-    const ng = harness(409, { error: 'このセッションには確かめる提案がありません' });
-    await expect(ng.api.confirmSessionState('s1', {})).rejects.toThrow('このセッションには確かめる提案がありません');
+    const ng = harness(409, { error: 'このセッションには確認する提案がありません' });
+    await expect(ng.api.confirmSessionState('s1', {})).rejects.toThrow('このセッションには確認する提案がありません');
   });
 });
 

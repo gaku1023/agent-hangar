@@ -175,7 +175,7 @@ describe('Listbox の検索', () => {
   it('8 件以上では検索欄に入力が向き、名前と補足で絞れ、一致を塗る', () => {
     render(<Harness options={many} />);
     fireEvent.click(face());
-    const box = screen.getByRole('combobox', { name: 'プロジェクトを探す' });
+    const box = screen.getByRole('combobox', { name: 'プロジェクトを検索' });
     expect(box).toHaveFocus();
     fireEvent.change(box, { target: { value: 'WORK' } });
     expect(screen.getAllByRole('option').map((o) => o.getAttribute('aria-label'))).toEqual(['proj-1', 'proj-3', 'proj-5', 'proj-7']);

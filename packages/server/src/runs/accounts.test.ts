@@ -131,10 +131,10 @@ describe('switchAccount（run の寿命は偽物）', () => {
     const a = store.add({ name: '別' });
     const cases: [Parameters<typeof host>[0], string, number, string][] = [
       [{ alive: true }, 'nope', 400, 'アカウントが見つかりません'],
-      [{ alive: true }, 'primary', 409, 'このセッションはもうそのアカウントで動いています'],
+      [{ alive: true }, 'primary', 409, 'このセッションはもうそのアカウントで実行中です'],
       [{ alive: true, body: false }, a.id, 400, 'このセッションにはまだトランスクリプトがありません。そのアカウントで新しいセッションを始めてください'],
       [{ alive: true, cwdOk: false }, a.id, 400, 'ディレクトリが見つかりません: x'],
-      [{ alive: true, background: true }, a.id, 409, 'バックグラウンドのセッションは、アカウントを切り替えられません。止めてから、そのアカウントで再開してください'],
+      [{ alive: true, background: true }, a.id, 409, 'バックグラウンドセッションは、アカウントを切り替えられません。停止してから、そのアカウントで再開してください'],
       [{ alive: false, liveFor: 99 }, a.id, 409, 'このセッションは hangar の外で実行中です'],
     ];
     for (const [o, account, status, message] of cases) {
@@ -155,7 +155,7 @@ describe('switchAccount（run の寿命は偽物）', () => {
   it('止めたあとも 5 秒残り続けたら 409 で断り、再開しない', async () => {
     const a = store.add({ name: '別' });
     const { h, calls } = host({ alive: true, liveFor: 999 });
-    await expect(switchAccount(make(), h, 's1', a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: expect.stringContaining('前の Claude がまだ終わっていません') }));
+    await expect(switchAccount(make(), h, 's1', a.id)).rejects.toThrow(expect.objectContaining({ status: 409, message: expect.stringContaining('前の Claude がまだ終了していません') }));
     expect(calls[0]).toBe('kill r-old');
     expect(calls.filter((c) => c.startsWith('sleep'))).toHaveLength(20);
     expect(calls.some((c) => c.startsWith('resume'))).toBe(false);

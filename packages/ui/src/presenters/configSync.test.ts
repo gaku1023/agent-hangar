@@ -132,7 +132,7 @@ describe('競合の札（d1）', () => {
   it('片側が消えているときは「消えています」と言う', () => {
     const r = presentConfigDialog(open('conflicts'), storeOf(dto(), { conflicts: [{ ...c, remote: null }, { ...c, local: null }] }));
     if (r?.part !== 'conflicts') throw new Error('part');
-    expect([r.cards[0]!.remoteWhen, r.cards[1]!.localWhen]).toEqual(['消えています', '消えています']);
+    expect([r.cards[0]!.remoteWhen, r.cards[1]!.localWhen]).toEqual(['削除されています', '削除されています']);
     expect(r.cards[0]!.remoteName).toBe('相手');
   });
 });

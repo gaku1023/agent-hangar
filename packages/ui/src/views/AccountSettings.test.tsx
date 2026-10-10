@@ -102,12 +102,12 @@ describe('AccountSettings の状態', () => {
   });
   it('ログイン済みの行は、メニューの「ログインし直す」で account.login を出す', () => {
     const onAction = mount();
-    choose('大学', 'ログインし直す');
+    choose('大学', '再ログイン');
     expect(onAction.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
   });
   it('メニューの「状態を読み直す」で account.refresh を出す', () => {
     const onAction = mount();
-    choose('大学', '状態を読み直す');
+    choose('大学', '状態を再読み込み');
     expect(onAction.mock.calls).toEqual([[{ type: 'account.refresh', accountId: 'a1' }]]);
   });
   it('linkProblem があれば、その行の下に注意の色で 1 行出す', () => {
@@ -166,7 +166,7 @@ describe('AccountSettings の「ログイン」と「やめる」の入れ替わ
 describe('AccountSettings の名前を変える', () => {
   it('メニューから、その行の名前がその場の入力欄になり、Enter で account.update { name } を出す', () => {
     const onAction = mount();
-    choose('大学', '名前を変える');
+    choose('大学', '名前を変更');
     const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
     expect(input).toHaveValue('大学');
     expect(input).toHaveFocus();
@@ -177,7 +177,7 @@ describe('AccountSettings の名前を変える', () => {
   });
   it('欄を出ると、変えていれば保存する', () => {
     const onAction = mount();
-    choose('大学', '名前を変える');
+    choose('大学', '名前を変更');
     const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
     fireEvent.change(input, { target: { value: '研究室' } });
     fireEvent.blur(input);
@@ -185,7 +185,7 @@ describe('AccountSettings の名前を変える', () => {
   });
   it('Esc ではやめて、何も出さない（欄を出ても保存しない）', () => {
     const onAction = mount();
-    choose('大学', '名前を変える');
+    choose('大学', '名前を変更');
     const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
     fireEvent.change(input, { target: { value: '研究室' } });
     fireEvent.keyDown(input, { key: 'Escape' });
@@ -196,10 +196,10 @@ describe('AccountSettings の名前を変える', () => {
   });
   it('名前が変わっていなければ、空にしたときは送らずに欄を閉じる', () => {
     const onAction = mount();
-    choose('大学', '名前を変える');
+    choose('大学', '名前を変更');
     fireEvent.keyDown(within(row('大学')).getByRole('textbox'), { key: 'Enter' });
     expect(onAction).not.toHaveBeenCalled();
-    choose('大学', '名前を変える');
+    choose('大学', '名前を変更');
     const input = within(row('大学')).getByRole('textbox');
     fireEvent.change(input, { target: { value: '   ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -207,7 +207,7 @@ describe('AccountSettings の名前を変える', () => {
   });
   it('変換中の Enter では確定しない', () => {
     const onAction = mount();
-    choose('大学', '名前を変える');
+    choose('大学', '名前を変更');
     const input = within(row('大学')).getByRole('textbox');
     fireEvent.change(input, { target: { value: 'けんきゅう' } });
     fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
@@ -219,7 +219,7 @@ describe('AccountSettings の色を変える', () => {
   it('メニューから、5 色の点が並ぶ帯がその行に出て、押すと account.update { color } を出す', () => {
     const onAction = mount();
     expect(within(row('大学')).queryByRole('radiogroup')).toBeNull();
-    choose('大学', '色を変える');
+    choose('大学', '色を変更');
     const band = within(row('大学')).getByRole('radiogroup', { name: '大学の色' });
     const dots = within(band).getAllByRole('radio');
     expect(dots).toHaveLength(5);
@@ -234,14 +234,14 @@ describe('AccountSettings の色を変える', () => {
   });
   it('選んでいる色を押しても何も出さず、帯を閉じる', () => {
     const onAction = mount();
-    choose('大学', '色を変える');
+    choose('大学', '色を変更');
     fireEvent.click(within(row('大学')).getByRole('radio', { name: '紫' }));
     expect(onAction).not.toHaveBeenCalled();
     expect(within(row('大学')).queryByRole('radiogroup')).toBeNull();
   });
   it('Esc で、何も出さずに帯を閉じる', () => {
     const onAction = mount();
-    choose('大学', '色を変える');
+    choose('大学', '色を変更');
     fireEvent.keyDown(within(row('大学')).getByRole('radiogroup'), { key: 'Escape' });
     expect(onAction).not.toHaveBeenCalled();
     expect(within(row('大学')).queryByRole('radiogroup')).toBeNull();
@@ -251,15 +251,15 @@ describe('AccountSettings の色を変える', () => {
 describe('AccountSettings の一覧から外す', () => {
   it('最初でないアカウントは、メニューの「一覧から外す」で account.remove を出す（confirmed は付けない）', () => {
     const onAction = mount();
-    choose('大学', '一覧から外す');
+    choose('大学', '登録を解除');
     expect(onAction.mock.calls).toEqual([[{ type: 'account.remove', accountId: 'a1' }]]);
   });
   it('最初のアカウントでは押せず、理由「最初のアカウントは外せません」を添える（項目は消さない）', () => {
     const onAction = mount();
     fireEvent.click(within(row('会社')).getByRole('button', { name: '会社の操作' }));
-    const item = screen.getByRole('menuitem', { name: /一覧から外す/ });
+    const item = screen.getByRole('menuitem', { name: /登録を解除/ });
     expect(item).toHaveAttribute('aria-disabled', 'true');
-    expect(within(item).getByText('最初のアカウントは外せません')).toBeInTheDocument();
+    expect(within(item).getByText('メインアカウントは登録を解除できません')).toBeInTheDocument();
     fireEvent.click(item);
     expect(onAction).not.toHaveBeenCalled();
   });

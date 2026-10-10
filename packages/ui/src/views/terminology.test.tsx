@@ -11,13 +11,13 @@ import { StatusDot } from './primitives/StatusDot.tsx';
 // docs/superpowers/specs/2026-10-01-ux-refresh/terminology.md の用語表のうち、ほかの試験が見ていない語をここで押さえる。
 
 describe('用語表', () => {
-  it('休みの点は、チップと同じく「休み」と読み上げる', () => {
+  it('アイドルの点は、チップと同じく「アイドル」と読み上げる', () => {
     render(<StatusDot status="idle" />);
-    expect(screen.getByLabelText('休み')).toHaveAttribute('title', '休み');
+    expect(screen.getByLabelText('アイドル')).toHaveAttribute('title', 'アイドル');
   });
   it('hangar への移動の確認は「外部ターミナル」と書く', () => {
     render(<ActionRoot onAction={() => {}}><ConfirmDialog confirm={{ kind: 'adoptSession', sessionId: 's1' }} /></ActionRoot>);
-    expect(screen.getByText(/^外部ターミナル（VS Code など）で動いている claude を終了し/)).toBeInTheDocument();
+    expect(screen.getByText(/^外部ターミナル（VS Code など）で実行中の claude を終了し/)).toBeInTheDocument();
   });
   it('キーボードショートカットのダイアログは、開く操作と同じ名前を題にする', () => {
     render(<ActionRoot onAction={() => {}}><ShortcutsDialog /></ActionRoot>);

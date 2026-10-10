@@ -40,7 +40,7 @@ describe('アカウント', () => {
 
   it('リンクの問題は、並びをその言語の区切りでつなぐ', () => {
     expect(linkProblemMessage([])).toBeNull();
-    expect(linkProblem(['skills', 'projects'])).toBe('置き場の skills、projects が共有のリンクではありません。中身を確かめて、要らなければ消してください');
+    expect(linkProblem(['skills', 'projects'])).toBe('置き場の skills、projects が共有のリンクではありません。中身を確認して、要らなければ削除してください');
     expect(render('en', linkProblemMessage(['skills', 'projects'])!)).toBe('These items in the config directory are not shared links: skills, projects. Check their contents and delete them if they are not needed');
   });
 });
@@ -70,7 +70,7 @@ describe('設定のファイルと外部の道具', () => {
 
   it('エディタを開けない理由は、設定の欄の名前ごと英語になる', async () => {
     const e = await openInEditor({ codePath: null, target: '/x' }).catch((x: unknown) => x);
-    expect(errorText('ja', e)).toBe('VS Code の code コマンドが見つかりません。設定の「code のパス」を入れてください');
+    expect(errorText('ja', e)).toBe('VS Code の code コマンドが見つかりません。設定の「code のパス」を入力してください');
     expect(errorText('en', e)).toBe('The code command of VS Code was not found. Enter the "code path" in Settings');
   });
 

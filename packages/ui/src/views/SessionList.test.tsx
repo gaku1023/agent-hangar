@@ -51,7 +51,7 @@ describe('SessionList（ホームとプロジェクトの画面が使う部品�
   });
   it('欄の語を消すボタンは、いまの絞り込みを添えて出す（プロジェクトの画面で、画面を移さずに語だけを外すため）', () => {
     const { onAction } = mountList({ text: '動画', filter: { status: 'done' } });
-    fireEvent.click(screen.getByRole('button', { name: 'キーワードを消す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キーワードをクリア' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.query', text: '', filter: { status: 'done' } });
   });
   it('ボタンの印に数えるのは、絞り込みの中にあるプロジェクト、期間、操作したファイルだけ', () => {

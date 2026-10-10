@@ -110,7 +110,7 @@ describe('registerProjectDir', () => {
       } catch (e) {
         expect(e).toBeInstanceOf(ProjectCreateError);
         expect((e as ProjectCreateError).status).toBe(400);
-        expect((e as Error).message).toBe('ワークスペースのルートやその上のフォルダはプロジェクトにできません');
+        expect((e as Error).message).toBe('プロジェクトの親フォルダやその上のフォルダはプロジェクトにできません');
       }
     }
     expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });

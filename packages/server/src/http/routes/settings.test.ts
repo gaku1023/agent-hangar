@@ -50,10 +50,10 @@ describe('routes', () => {
     };
     // 実在しないルートと、ファイルを指したルートは弾く。どちらも 500 にはしない。
     const missing = path.join(ws, 'no-such-root');
-    expect(await error({ workspaceRoot: missing })).toBe(`「ワークスペースのルート」に ${missing} が見つかりません`);
+    expect(await error({ workspaceRoot: missing })).toBe(`「プロジェクトの親フォルダ」に ${missing} が見つかりません`);
     const asFile = path.join(ws, 'root-is-a-file');
     fs.writeFileSync(asFile, 'x');
-    expect(await error({ workspaceRoot: asFile })).toBe(`「ワークスペースのルート」の ${asFile} はディレクトリではありません`);
+    expect(await error({ workspaceRoot: asFile })).toBe(`「プロジェクトの親フォルダ」の ${asFile} はディレクトリではありません`);
     // ツールは、無い、ファイルでない、実行できないを分けて言う。
     expect(await error({ tmuxPath: path.join(ws, 'no-tmux') })).toBe(`「tmux のパス」に ${path.join(ws, 'no-tmux')} が見つかりません`);
     expect(await error({ claudePath: ws })).toBe(`「claude のパス」の ${ws} はファイルではありません`);
@@ -108,7 +108,7 @@ describe('routes', () => {
       expect(r.status).toBe(400);
       return ((await r.json()) as { error: string }).error;
     };
-    expect(await error({ workspaceRoot: '' })).toBe('「ワークスペースのルート」は空にできません');
+    expect(await error({ workspaceRoot: '' })).toBe('「プロジェクトの親フォルダ」は空にできません');
     expect(await error({ claudeDir: ' ' })).toBe('「読み取り元」は空にできません');
     expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形が違います');
     expect(await error({ codePath: 3 })).toBe('「code のパス」の値の形が違います');
@@ -121,8 +121,8 @@ describe('routes', () => {
     expect(await error({ summaryHourlyCap: 0 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
     // 画面の入力と同じく 200 までにする。
     expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
-    expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約器を許す」の値の形が違います');
-    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約器の宛先は 127.0.0.1 か localhost だけです。トランスクリプトが送られるため、ほかの宛先は、設定の「外部の要約器を許す」を入れてから指定してください');
+    expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約エンジンを許可」の値の形が違います');
+    expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの宛先は 127.0.0.1 か localhost だけです。トランスクリプトが送られるため、ほかの宛先は、設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -188,7 +188,7 @@ describe('routes', () => {
     expect((await (await patch({ codePath: null })).json()).codePath).toBeNull();
   });
   const post = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-  it('要約器の設定を検査する', async () => {
+  it('要約エンジンの設定を検査する', async () => {
     const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
     expect(await (await patch({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 })).json()).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5 });
     expect((await patch({ lmStudioUrl: 'ftp://x' })).status).toBe(400);
@@ -199,12 +199,12 @@ describe('routes', () => {
     expect((await patch({ summaryFallback: 'yes' })).status).toBe(400);
     expect((await (await patch({ lmStudioModel: null })).json()).lmStudioModel).toBeNull();
   });
-  it('要約器の宛先は、既定ではループバックだけを受ける', async () => {
+  it('要約エンジンの宛先は、既定ではループバックだけを受ける', async () => {
     const patch = (body: unknown) => post('/api/settings', body, 'PATCH');
     // 会話の本文はこの宛先へ送られる。外部のホストは、明示の許可が無ければ断る。
     const bad = await patch({ lmStudioUrl: 'https://attacker.example.com/collect' });
     expect(bad.status).toBe(400);
-    expect((await bad.json()).error).toMatch(/外部の要約器/);
+    expect((await bad.json()).error).toMatch(/外部の要約エンジン/);
     expect((await json(await get('/api/settings'))).body.lmStudioUrl).toBe('http://127.0.0.1:1234');
     for (const u of ['http://127.0.0.1:1234', 'http://localhost:4321', 'http://[::1]:1234']) {
       expect([u, (await patch({ lmStudioUrl: u })).status]).toEqual([u, 200]);

@@ -16,7 +16,7 @@ function mount(p: ToastsProps) {
 describe('入力待ちのカード', () => {
   it('見出しにラベル、名前、待っている時間を、その下に問いを出し、押すとそのセッションを開く', () => {
     const { onAction } = mount(props({ waiting: [card('s1')] }));
-    const c = screen.getByRole('button', { name: '名前 s1 が入力を待っています：問い s1' });
+    const c = screen.getByRole('button', { name: '名前 s1 が入力待ちです：問い s1' });
     const head = within(c.querySelector<HTMLElement>('.notice-head')!);
     expect(head.getByText('入力待ち')).toBeInTheDocument();
     expect(head.getByText('名前 s1')).toBeInTheDocument();
@@ -33,7 +33,7 @@ describe('入力待ちのカード', () => {
   // 問いが取れない入力待ち（許可待ちなど）は、決まり文句で段を埋めず、名前を主役の段へ上げる。
   it('問いがなければ、見出しはラベルと時間だけにして、名前を問いの段に出す', () => {
     mount(props({ waiting: [card('s1', { question: null })] }));
-    const c = screen.getByRole('button', { name: '名前 s1 が入力を待っています' });
+    const c = screen.getByRole('button', { name: '名前 s1 が入力待ちです' });
     expect(within(c).getAllByText('名前 s1')).toHaveLength(1);
     expect(c.querySelector('.notice-title')).toHaveTextContent('名前 s1');
     expect(within(c.querySelector<HTMLElement>('.notice-head')!).getByText('2 分')).toBeInTheDocument();
@@ -64,7 +64,7 @@ describe('入力待ちのカード', () => {
   });
   it('ダイアログが開いている間は、カードも「ほか N 件」も押せず、理由は乗せたときの説明に出す', () => {
     const { onAction } = mount(props({ waiting: [card('s1')], more: 2, blocked: true }));
-    const c = screen.getByRole('button', { name: '名前 s1 が入力を待っています：問い s1' });
+    const c = screen.getByRole('button', { name: '名前 s1 が入力待ちです：問い s1' });
     expect(c).toBeDisabled();
     expect(c).toHaveAttribute('title', 'ダイアログを閉じると開けます');
     expect(screen.queryByText('ダイアログを閉じると開けます')).toBeNull();
@@ -74,7 +74,7 @@ describe('入力待ちのカード', () => {
   });
   it('押せる間は、乗せたときの説明を付けない', () => {
     mount(props({ waiting: [card('s1')] }));
-    expect(screen.getByRole('button', { name: '名前 s1 が入力を待っています：問い s1' })).not.toHaveAttribute('title');
+    expect(screen.getByRole('button', { name: '名前 s1 が入力待ちです：問い s1' })).not.toHaveAttribute('title');
   });
 });
 

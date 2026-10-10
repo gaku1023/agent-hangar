@@ -73,7 +73,7 @@ describe('LmStudioSummarizer', () => {
     }) as unknown as typeof fetch;
     const s = new LmStudioSummarizer({ baseUrl: 'http://127.0.0.1:1234', model: 'gemma-4-26b', fetch: fetchFn });
     await expect(s.summarize(CANNED_INPUT)).rejects.toThrow(SummarizerError);
-    await expect(s.summarize(CANNED_INPUT)).rejects.toThrow('要約器の宛先がリダイレクトを返しました。飛ばし先へは送りません。設定の「LM Studio の URL」を確かめてください');
+    await expect(s.summarize(CANNED_INPUT)).rejects.toThrow('要約エンジンの宛先がリダイレクトを返しました。飛ばし先へは送りません。設定の「LM Studio の URL」を確認してください');
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((r) => r === 'manual')).toBe(true);
   });

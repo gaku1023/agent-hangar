@@ -43,8 +43,8 @@ describe('presentCloudUsage', () => {
     ]);
     expect(p.bars.every((b) => !('tickPct' in b))).toBe(true);
     expect(p.splitAfter).toBe(2);
-    expect(p.legend).toEqual(['今日の枠は 9:00 に戻る', '今月は 9/5〜10/5']);
-    expect(p.source).toBe('Cloudflare の数 · 2 分前');
+    expect(p.legend).toEqual(['今日の枠は 9:00 にリセット', '今月は 9/5〜10/5']);
+    expect(p.source).toBe('Cloudflare の実測値 · 2 分前');
     expect(p.strip).toBeNull();
     expect(p.command).toBeNull();
   });
@@ -53,7 +53,7 @@ describe('presentCloudUsage', () => {
     const p = presentCloudUsage({ ...base, today: { ...base.today, d1RowsWritten: 86_120 } }, sync(), NOW, TZ)!;
     expect(p.tiles[1]).toMatchObject({ value: '86%', tone: 'warn' });
     expect(p.bars[0]!.tone).toBe('warn');
-    expect(p.legend).toEqual(['あと 13,880 行で無料枠の上限です · 9:00 に戻る']);
+    expect(p.legend).toEqual(['あと 13,880 行で無料枠の上限です · 9:00 にリセット']);
     expect(presentCloudUsage({ ...base, today: { ...base.today, d1RowsWritten: 79_999 } }, sync(), NOW, TZ)!.tiles[1]!.tone).toBe('ok');
   });
 
@@ -62,17 +62,17 @@ describe('presentCloudUsage', () => {
     expect(p.tiles[1]!.tone).toBe('stop');
     expect(p.bars[0]!.tone).toBe('stop');
     expect(p.legend).toEqual([]);
-    expect(p.strip).toEqual({ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を止めています。9:00 に枠が戻ると、自動で再開します。' });
+    expect(p.strip).toEqual({ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を停止しています。9:00 に枠がリセットされると、自動で再開します。' });
     expect(p.command).toBeNull();
   });
 
   it('上限で退いている間の帯の時刻は、同期の戻る時刻（limitedUntil）から出す', () => {
     // UTC の 0 時の直後に断られると、戻る時刻は 0 時の 5 分後になる。帯をヘッダーとそろえる。
     const p = presentCloudUsage(base, sync({ state: 'paused', limitedUntil: RESET + 5 * 60_000 }), NOW, TZ)!;
-    expect(p.strip).toEqual({ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を止めています。9:05 に枠が戻ると、自動で再開します。' });
+    expect(p.strip).toEqual({ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を停止しています。9:05 に枠がリセットされると、自動で再開します。' });
     // 退いていないときの凡例と出どころの時刻は、今までどおり今日の枠の戻る時刻である。
-    expect(presentCloudUsage(base, sync(), NOW, TZ)!.legend[0]).toBe('今日の枠は 9:00 に戻る');
-    expect(presentCloudUsage(unknown, sync(), NOW, TZ)!.source).toBe('数は不明（hangar は数えません） · 今日の枠は 9:00 に戻る');
+    expect(presentCloudUsage(base, sync(), NOW, TZ)!.legend[0]).toBe('今日の枠は 9:00 にリセット');
+    expect(presentCloudUsage(unknown, sync(), NOW, TZ)!.source).toBe('数は不明（hangar は数えません） · 今日の枠は 9:00 にリセット');
   });
 
   it('手で止めたときは帯を出さない', () => {
@@ -83,7 +83,7 @@ describe('presentCloudUsage', () => {
     const p = presentCloudUsage(unknown, sync({ state: 'paused' }), NOW, TZ)!;
     expect(p.tiles.map((t) => [t.key, t.value, t.sub])).toEqual([['bill', '—', '同期の停止中'], ['d1', '—', '同期の停止中'], ['plan', '—', '同期の停止中']]);
     expect(p.bars).toEqual([]);
-    expect(p.strip).toEqual({ tone: 'info', text: '同期を止めている間は Cloudflare に問い合わせません。再開すると Cloudflare の数と今月の費用が出ます。' });
+    expect(p.strip).toEqual({ tone: 'info', text: '同期を一時停止している間は Cloudflare に問い合わせません。再開すると Cloudflare の実測値と今月の請求額が出ます。' });
     expect(p.command).toBeNull();
     // 上限で止まっているときは、止まった帯を先に出す。
     const q = presentCloudUsage(unknown, limitedSync(), NOW, TZ)!;
@@ -102,8 +102,8 @@ describe('presentCloudUsage', () => {
     expect(p.bars).toEqual([]);
     expect(p.splitAfter).toBe(0);
     expect(p.legend).toEqual([]);
-    expect(p.source).toBe('数は不明（hangar は数えません） · 今日の枠は 9:00 に戻る');
-    expect(p.strip).toEqual({ tone: 'info', text: 'Cloudflare の数、R2、今月の費用は、読み取り専用のトークンを入れると出ます。' });
+    expect(p.source).toBe('数は不明（hangar は数えません） · 今日の枠は 9:00 にリセット');
+    expect(p.strip).toEqual({ tone: 'info', text: 'Cloudflare の実測値、R2、今月の請求額は、読み取り専用の API トークンを入力すると出ます。' });
     expect(p.command).toBe(TOKEN_COMMAND);
   });
 
@@ -114,7 +114,7 @@ describe('presentCloudUsage', () => {
 
   it('取れなかった：最後の値と時刻と失敗', () => {
     const p = presentCloudUsage({ ...base, stale: true, fetchedAt: Date.parse('2026-10-02T05:02:00Z') }, sync(), NOW, TZ)!;
-    expect(p.source).toBe('Cloudflare の数 · 14:02 · 取得に失敗');
+    expect(p.source).toBe('Cloudflare の実測値 · 14:02 · 取得に失敗');
   });
 
   it('Workers Paid：今日の札と棒を出さない', () => {
@@ -129,7 +129,7 @@ describe('presentCloudUsage', () => {
     const p = presentCloudUsage({ ...base, month: { periodStart: '', periodEnd: '2026-11-05T00:00:00Z', throughDay: null, billedUsd: 0, rows: [] } }, sync(), NOW, TZ)!;
     expect(p.tiles[0]).toEqual({ key: 'bill', label: '今月の請求', value: '$0.00', sub: '', tone: 'ok' });
     expect(p.bars.map((b) => b.when)).toEqual(['day', 'day']);
-    expect(p.legend).toEqual(['今日の枠は 9:00 に戻る']);
+    expect(p.legend).toEqual(['今日の枠は 9:00 にリセット']);
   });
 
   it('期の日付は UTC の日で書く（端末の時差で前の日にずれない）', () => {

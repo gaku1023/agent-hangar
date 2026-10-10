@@ -16,7 +16,7 @@ const paletteCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '.
 const items: PaletteItem[] = [
   { id: 'cmd:new-session', label: '新しいセッション', kind: 'command', lead: { kind: 'icon', icon: 'add' }, sub: '', meta: '', keys: '⌘N' },
   { id: 'settings:cloud', label: 'クラウド同期', kind: 'command', lead: { kind: 'icon', icon: 'cloud' }, sub: '設定', meta: '', keys: '' },
-  { id: 'session:s1', label: '動画の変換', kind: 'session', lead: { kind: 'dot', live: 'waiting', aside: false }, sub: 'alpha', meta: '4 分待っている', keys: '' },
+  { id: 'session:s1', label: '動画の変換', kind: 'session', lead: { kind: 'dot', live: 'waiting', aside: false }, sub: 'alpha', meta: '入力待ち 4 分', keys: '' },
 ];
 const sections: PaletteSection[] = [
   { title: 'コマンド', count: 1, limit: null, items: [items[0]!] },
@@ -111,7 +111,7 @@ describe('CommandPalette', () => {
     const waiting = screen.getByRole('option', { name: /動画の変換/ });
     expect(waiting.querySelector('.dot')).toHaveAttribute('data-status', 'waiting');
     expect(waiting).toHaveTextContent('alpha');
-    expect(waiting).toHaveTextContent('4 分待っている');
+    expect(waiting).toHaveTextContent('入力待ち 4 分');
     // 設定の節の行は、絵と「設定」の添え書きを持つ。
     expect(screen.getByRole('option', { name: /クラウド同期/ }).querySelector('svg')).toHaveAttribute('data-icon', 'cloud');
     expect(screen.getByRole('option', { name: /クラウド同期/ })).toHaveTextContent('設定');
@@ -141,7 +141,7 @@ describe('CommandPalette', () => {
 
   it('下に打鍵の案内を出し、トランスクリプトはホームの欄で探すと添える', () => {
     const { container } = render(<ActionRoot onAction={() => {}}><CommandPalette query="" sections={sections} noMatch={false} onQuery={() => {}} /></ActionRoot>);
-    expect(container.querySelector('.palette-foot')).toHaveTextContent('↑↓ 選ぶ↵ 開くesc 閉じるトランスクリプトはホームの欄で');
+    expect(container.querySelector('.palette-foot')).toHaveTextContent('↑↓ 選択↵ 開くesc 閉じるトランスクリプトはホームの欄で');
     expect(screen.getByPlaceholderText('セッションへ移動、または操作を実行')).toBeInTheDocument();
   });
 

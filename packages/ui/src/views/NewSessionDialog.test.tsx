@@ -699,12 +699,12 @@ describe('NewSessionDialog から作って始める', () => {
   it('「ほかの場所を選ぶ…」は殻の中だけで出て、押すと folder.pick を送る', () => {
     const { out, view } = collect();
     openList();
-    fireEvent.click(screen.getByRole('option', { name: 'ほかの場所を選ぶ…' }));
+    fireEvent.click(screen.getByRole('option', { name: 'ほかの場所を選択…' }));
     expect(out).toContainEqual({ type: 'folder.pick' });
     view.unmount();
     collect({ desktop: false });
     openList();
-    expect(screen.queryByRole('option', { name: 'ほかの場所を選ぶ…' })).toBeNull();
+    expect(screen.queryByRole('option', { name: 'ほかの場所を選択…' })).toBeNull();
   });
   it('Finder で選んだプロジェクトの親フォルダの外のフォルダは、外である旨を添えて登録して始める', () => {
     const { out, view } = collect();

@@ -4,10 +4,10 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const projectScreenEn: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.page.notFound': 'Project not found',
   'projectScreen.status.label': 'Project status',
-  'projectScreen.status.activeHint': 'In progress now',
-  'projectScreen.status.pausedHint': 'Set aside for now',
+  'projectScreen.status.activeHint': 'In progress',
+  'projectScreen.status.pausedHint': 'On hold for now',
   'projectScreen.status.doneHint': 'Finished',
-  'projectScreen.status.archivedHint': 'Tucked away at the end of the list',
+  'projectScreen.status.archivedHint': 'Hidden from lists',
   'projectScreen.quick.start': 'Start a quick session',
   'projectScreen.open.editor': 'Open in VS Code',
   'projectScreen.open.terminal': 'Open in terminal',

@@ -23,7 +23,7 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
     const live = liveOf(store, at('projects'));
     expect(live.rows.map((r) => r.id)).toEqual(['a', 'b', 'c']);
     expect(live.count).toBe(3);
-    expect(live.rows[2]).toMatchObject({ live: 'waiting', waited: '待ち 4 分', current: false });
+    expect(live.rows[2]).toMatchObject({ live: 'waiting', waited: '入力待ち 4 分', current: false });
     expect(live.rows[1]).toMatchObject({ live: 'busy', waited: null });
   });
   it('置いていないセッションは、始めた時刻の古い順に並べる。時刻の無いものは後ろ、同じ時刻は id の順', () => {
@@ -166,7 +166,7 @@ describe('行の移し方', () => {
 });
 
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
-const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
+const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 
 // jsdom はドラッグのイベントにポインタの位置を載せないので、作ったイベントに clientY を足してから送る。
@@ -191,7 +191,7 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
   });
   it('入力待ちの行には待った時間を添え、いま見ている行には印を付ける', () => {
     mount(liveProps());
-    expect(screen.getByRole('link', { name: /name-b/ })).toHaveTextContent('待ち 4 分');
+    expect(screen.getByRole('link', { name: /name-b/ })).toHaveTextContent('入力待ち 4 分');
     expect(screen.getByRole('link', { name: /name-c/ })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('aria-current');
   });
@@ -297,7 +297,7 @@ describe('行のメニュー（右クリックと .）', () => {
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
     const item = screen.getByRole('menuitem', { name: /停止/ });
     expect(item).toHaveAttribute('aria-disabled', 'true');
-    expect(item).toHaveTextContent('hangar の外で動いています');
+    expect(item).toHaveTextContent('外部ターミナルで実行中');
     expect(item).not.toHaveTextContent(NOTE);
     fireEvent.click(item);
     expect(onAction).not.toHaveBeenCalled();

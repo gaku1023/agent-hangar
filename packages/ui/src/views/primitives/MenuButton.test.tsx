@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { MenuButton, type MenuItem } from './MenuButton.tsx';
 
 const items = (onSelect = vi.fn()): MenuItem[] => [
-  { key: 'term', label: 'ターミナルで開く', icon: 'openTerminal', note: '外のターミナルで同じセッションにつなぐ', onSelect },
-  { key: 'fork', label: 'フォーク', icon: 'fork', disabled: '実行中は押せません。止めると押せます', onSelect },
+  { key: 'term', label: 'ターミナルで開く', icon: 'openTerminal', note: '外部ターミナルで同じセッションに接続する', onSelect },
+  { key: 'fork', label: 'フォーク', icon: 'fork', disabled: '実行中は押せません。停止すると押せます', onSelect },
   { key: 'sum', label: '要約を作り直す', icon: 'rebuild', onSelect },
   { key: 'stop', label: '停止', icon: 'stop', danger: true, onSelect },
 ];
@@ -68,13 +68,13 @@ describe('MenuButton', () => {
     fireEvent.click(face);
     const fork = menuItems()[1]!;
     expect(fork).toHaveAttribute('aria-disabled', 'true');
-    expect(fork).toHaveTextContent('実行中は押せません。止めると押せます');
+    expect(fork).toHaveTextContent('実行中は押せません。停止すると押せます');
     fireEvent.click(fork);
     fireEvent.keyDown(fork, { key: 'Enter' });
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByRole('menu')).toBeInTheDocument();
     // 補足は押せる項目にも添える。
-    expect(menuItems()[0]).toHaveTextContent('外のターミナルで同じセッションにつなぐ');
+    expect(menuItems()[0]).toHaveTextContent('外部ターミナルで同じセッションに接続する');
   });
   it('危険な項目は区切りの後ろに危険色で置く', () => {
     const { face, menuItems } = mount();

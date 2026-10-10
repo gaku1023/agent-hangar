@@ -58,8 +58,8 @@ describe('presentAccount', () => {
   });
   it('note：5 時間が 80 以上なら warn、戻る時刻が無ければ「まもなく上限」だけ', () => {
     const at = NOW + 3 * HOUR;
-    expect(view({ usage: usage(82, MIN, at) }).note).toEqual({ tone: 'warn', text: `まもなく上限。${resetsLabel(at, NOW)} に戻ります` });
-    expect(view({ usage: usage(82, MIN, null) }).note).toEqual({ tone: 'warn', text: 'まもなく上限' });
+    expect(view({ usage: usage(82, MIN, at) }).note).toEqual({ tone: 'warn', text: `上限間近。${resetsLabel(at, NOW)} にリセット` });
+    expect(view({ usage: usage(82, MIN, null) }).note).toEqual({ tone: 'warn', text: '上限間近' });
   });
   it('note：5 時間が 79 で値が古ければ stale（1 時間以上は時間、24 時間以上は日）、59 分前なら null', () => {
     expect(view({ usage: usage(79, 3 * HOUR + 10 * MIN) }).note).toEqual({ tone: 'stale', text: '3 時間前の値' });

@@ -108,7 +108,7 @@ describe('presentShell', () => {
     expect(p.nav.find((n) => n.current)?.label).toBe('プロジェクト');
     expect(p).not.toHaveProperty('crumbs');
     expect(p.indexLabel).toBe('索引 10 / 40 件');
-    expect(presentShell(state, { ...store, index: { phase: 'rebuilding', done: 10, total: 200 } }, NOW).indexLabel).toBe('索引の作り直し 10 / 200 件');
+    expect(presentShell(state, { ...store, index: { phase: 'rebuilding', done: 10, total: 200 } }, NOW).indexLabel).toBe('索引を再構築中 10 / 200 件');
     expect(presentShell(state, { ...store, index: { phase: 'scanning', done: 0, total: 0 } }, NOW).indexLabel).toBe('索引を準備中');
     expect(presentShell(state, { ...store, index: { phase: 'idle', done: 0, total: 0 } }, NOW).indexLabel).toBeNull();
   });
@@ -121,7 +121,7 @@ describe('presentShell', () => {
   it('設定の索引の文は、ヘッダーと同じ文にし、終わっていれば件数を出す', () => {
     const store = storeWith();
     store.index = { phase: 'rebuilding', done: 10, total: 200 };
-    expect(presentSettings(initialState(), store, NOW).indexLabel).toBe('索引の作り直し 10 / 200 件');
+    expect(presentSettings(initialState(), store, NOW).indexLabel).toBe('索引を再構築中 10 / 200 件');
     store.index = { phase: 'idle', done: 0, total: 0 };
     expect(presentSettings(initialState(), store, NOW).indexLabel).toBe('3 セッション、3 プロジェクト');
   });
@@ -234,7 +234,7 @@ describe('presentHome', () => {
     store.runs = { rw1: runDto('rw1', 'w1') };
     expect(presentHome(initialState(), store, NOW).attention).toEqual([
       { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？', answer: 'terminal' },
-      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力を待っています', answer: null },
+      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力待ちです', answer: null },
     ]);
   });
   it('外のターミナルで動く入力待ちは引き取りを、バックグラウンドのものは attach を出す', () => {
@@ -272,7 +272,7 @@ describe('presentHome', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
     expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
-    expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: '休み。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
+    expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: 'アイドル。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
   });
   it('意図は、作業中のセッションがこのターンに書いたものだけを出す', () => {
     const store = homeStore();
@@ -661,7 +661,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     const a = presentSession(initialState(), store, NOW, 's1').actions;
     expect(a.primary).toMatchObject({ id: 'openEditor', label: 'VS Code で開く', disabled: null });
     expect(ids(a)).toEqual(['openTerminal', 'fork', 'regenerate', 'stop']);
-    expect(a.menu.find((m) => m.id === 'fork')!.disabled).toBe('実行中は押せません。止めると押せます');
+    expect(a.menu.find((m) => m.id === 'fork')!.disabled).toBe('実行中は押せません。停止すると押せます');
     expect(a.menu.at(-1)).toMatchObject({ id: 'stop', label: '停止', danger: true, disabled: null });
   });
   it('終わったセッションは再開を主にし、フォーク、VS Code で開く、要約を作り直すを「…」へ', () => {
@@ -945,8 +945,8 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     const r: ReadinessDto = { ...READY, compat: { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 1 } };
     const full = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry' as const, value: 'status=compacting', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };
     const p = presentSettings(initialState(), { ...initialStore(), version: '0.3.0', readiness: r, compat: full });
-    expect(p.compat).toMatchObject({ state: 'drift', badge: 'ずれ 1 件', localVersion: '2.1.300', verifiedVersion: '2.1.292', stops: ['休んでいるセッションを自動で止めるのを無効にしています'] });
-    expect(p.compat!.report!.split('\n')[0]).toBe('Claude Code との互換のずれ（hangar 0.3.0）');
+    expect(p.compat).toMatchObject({ state: 'drift', badge: '変更点 1 件', localVersion: '2.1.300', verifiedVersion: '2.1.292', stops: ['アイドルのセッションを自動で停止するのを無効にしています'] });
+    expect(p.compat!.report!.split('\n')[0]).toBe('Claude Code との互換性の変更点（hangar 0.3.0）');
     // 直すもの（目次の点と群の見出しの札）は、ずれの無いときと同じ数のまま。
     expect(p.todo).toEqual(presentSettings(initialState(), { ...initialStore(), readiness: READY }).todo);
     expect(p.todo).toEqual({ must: 1, link: 1 });
@@ -1629,12 +1629,12 @@ describe('presentSessionRow の本文の印', () => {
 
 describe('presentSessionRow の要約の見立て（B1）', () => {
   const judged = (state: SessionSummaryDto['state'], source: SessionSummaryDto['source'] = 'in_session') => session('a', { summary: { ...session('a').summary!, state, source } });
-  it('詰まっているとやめただけに色の調子を付け、ほかは調子なしで語だけを出す', () => {
+  it('ブロック中と中止だけに色の調子を付け、ほかは調子なしで語だけを出す', () => {
     const store = initialStore();
-    expect(presentSessionRow(judged('blocked'), store, NOW).summaryState).toEqual({ label: '詰まっている', tone: 'blocked' });
-    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toEqual({ label: 'やめた', tone: 'abandoned' });
-    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toEqual({ label: 'やりかけ', tone: null });
-    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toEqual({ label: '済んだ', tone: null });
+    expect(presentSessionRow(judged('blocked'), store, NOW).summaryState).toEqual({ label: 'ブロック中', tone: 'blocked' });
+    expect(presentSessionRow(judged('abandoned', 'post_hoc'), store, NOW).summaryState).toEqual({ label: '中止', tone: 'abandoned' });
+    expect(presentSessionRow(judged('in_progress'), store, NOW).summaryState).toEqual({ label: '進行中', tone: null });
+    expect(presentSessionRow(judged('done'), store, NOW).summaryState).toEqual({ label: '完了', tone: null });
   });
   it('土台の要約の状態は生きているかどうかの写しで見立てではないので出さず、要約が無ければ出さない', () => {
     const store = initialStore();

@@ -24,14 +24,14 @@ describe('行の戻る時刻', () => {
     expect(screen.getByText('今日 21:50')).not.toHaveAttribute('data-due');
     // 時刻を過ぎたら、過ぎた長さを言う。時刻はポインタを乗せると読める。
     expect(screen.getByText('30 分過ぎ')).toHaveAttribute('data-due', 'true');
-    expect(screen.getByText('30 分過ぎ')).toHaveAttribute('title', '戻る時刻 今日 11:30 · 最後の活動 3 分前');
+    expect(screen.getByText('30 分過ぎ')).toHaveAttribute('title', 'リマインダーの時刻 今日 11:30 · 最後の活動 3 分前');
     expect(screen.getByText('10/6 13:30')).not.toHaveAttribute('data-due');
     // 列が狭いので曜日は省き、ポインタを乗せると言い切る。
-    expect(screen.getByText('10/6 13:30')).toHaveAttribute('title', '戻る時刻 10/6（火）13:30 · 最後の活動 3 分前');
+    expect(screen.getByText('10/6 13:30')).toHaveAttribute('title', 'リマインダーの時刻 10/6（火）13:30 · 最後の活動 3 分前');
     expect(screen.getByText('今日')).toHaveAttribute('data-due', 'true');
     // 時刻つきの札は、ポインタを乗せると戻る時点を言い切る。
-    expect(screen.getByText('今日 21:50')).toHaveAttribute('title', '戻る時刻 今日 21:50 · 最後の活動 3 分前');
-    expect(screen.getByText('今日')).toHaveAttribute('title', '戻る日 · 最後の活動 3 分前');
+    expect(screen.getByText('今日 21:50')).toHaveAttribute('title', 'リマインダーの時刻 今日 21:50 · 最後の活動 3 分前');
+    expect(screen.getByText('今日')).toHaveAttribute('title', 'リマインダーの日付 · 最後の活動 3 分前');
   });
 });
 

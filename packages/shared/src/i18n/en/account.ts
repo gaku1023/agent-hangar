@@ -47,7 +47,7 @@ export const accountEn: AreaDictionary<typeof accountKeys> = {
   'account.menu.color': 'Change color',
   'account.menu.loginAgain': 'Log in again',
   'account.menu.refresh': 'Reload status',
-  'account.menu.remove': 'Remove from list',
+  'account.menu.remove': 'Remove account',
   'account.menu.primaryLocked': 'The primary account cannot be removed',
   'account.colorName.blue': 'Blue',
   'account.colorName.purple': 'Purple',

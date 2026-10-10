@@ -14,7 +14,7 @@ export const confirmJa: AreaDictionary<typeof confirmKeys> = {
   'confirm.killRun.transcriptKept': 'Claude を終了します。トランスクリプトは残るので、あとで再開できます。',
   'confirm.killRun.action': '停止',
   'confirm.adopt.title': 'hangar に移動しますか',
-  'confirm.adopt.lead': '外部ターミナル（VS Code など）で動いている claude を終了し、同じ会話を hangar のターミナルで開き直します。',
+  'confirm.adopt.lead': '外部ターミナル（VS Code など）で実行中の claude を終了し、同じ会話を hangar のターミナルで開き直します。',
   'confirm.adopt.pendingQuestion': '答えを待っている問いは、答えなかったものとして閉じます。開いた後に文で答えてください。',
   'confirm.adopt.backToHangar': '元のターミナルからは、シェル連携をインストールしていれば、同じ会話の {command} で hangar の画面に戻れます。',
   'confirm.adopt.action': 'hangar に移動',

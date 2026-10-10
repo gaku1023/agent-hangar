@@ -45,7 +45,7 @@ describe('NowStrip の 1 行目', () => {
   it('入力待ちは、待機の経過と問いを出し、色を tone に出す', () => {
     mount();
     expect(strip()).toHaveAttribute('data-tone', 'wait');
-    expect(within(strip()).getByText('4 分待機')).toBeInTheDocument();
+    expect(within(strip()).getByText('入力待ち 4 分')).toBeInTheDocument();
     expect(within(strip()).getByText('既存のテストを書き換えてよいですか？')).toBeInTheDocument();
   });
 

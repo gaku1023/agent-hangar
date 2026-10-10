@@ -62,6 +62,6 @@ describe('ensureAccountLinks', () => {
 
   it('conflicts を文にする', () => {
     expect(linkProblem([])).toBeNull();
-    expect(linkProblem(['settings.json', 'skills'])).toBe('置き場の settings.json、skills が共有のリンクではありません。中身を確かめて、要らなければ消してください');
+    expect(linkProblem(['settings.json', 'skills'])).toBe('置き場の settings.json、skills が共有のリンクではありません。中身を確認して、要らなければ削除してください');
   });
 });

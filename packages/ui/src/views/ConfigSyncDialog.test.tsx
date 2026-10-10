@@ -65,8 +65,8 @@ describe('適用内容の確認（b1）', () => {
   it('競合と承諾の入口を出し、押すとそのダイアログを開く', () => {
     const onAction = vi.fn();
     show(open('review'), store({ inbox: { items, approval: 'each' } }), onAction);
-    fireEvent.click(screen.getByRole('button', { name: '競合 1 件を選ぶ…' }));
-    fireEvent.click(screen.getByRole('button', { name: '承諾が要るもの 1 件を選ぶ…' }));
+    fireEvent.click(screen.getByRole('button', { name: '競合 1 件を選択…' }));
+    fireEvent.click(screen.getByRole('button', { name: '承諾が要るもの 1 件を選択…' }));
     expect(onAction.mock.calls.map((c) => (c[0] as { part: string }).part)).toEqual(['conflicts', 'approve']);
   });
   it('適用の最中は、押せず「適用しています…」と出し、ブラウザでは指示書のあとにターミナルで実行すると書く', () => {
@@ -87,7 +87,7 @@ describe('承諾の表（c2）', () => {
   const plainA = inb('file:commands/a.md', 'commands', 'commands/a.md', 'create', { needsApproval: true, head: '# a' });
   const plainB = inb('file:agents/b.md', 'agents', 'agents/b.md', 'overwrite', { needsApproval: true, head: '# b' });
   const view = (onAction: (i: UiAction) => void = () => {}) => show(open('approve'), store({ inbox: { items: [hooky, plainA, plainB], approval: 'each' } }), onAction);
-  const cb = (name: string) => screen.getByRole('checkbox', { name: `${name} を選ぶ` });
+  const cb = (name: string) => screen.getByRole('checkbox', { name: `${name} を選択` });
 
   it('「すべて選択」は置かず、印の無い行だけをまとめて選べる', () => {
     view();

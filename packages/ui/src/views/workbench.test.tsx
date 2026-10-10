@@ -61,14 +61,14 @@ const noSync = syncFixture({ visible: false, state: 'off', label: '' });
 describe('Header', () => {
   it('2 つのゲージと最終更新を出す', () => {
     render(<ActionRoot onAction={() => {}}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: 47, sevenDay: 7, fiveHourResets: '18:00', sevenDayResets: '10/4 09:00', updatedLabel: '10 分前' }} sync={noSync} /></ActionRoot>);
-    expect(screen.getByRole('meter', { name: '5 時間枠の使用率' })).toBeTruthy();
-    expect(screen.getByRole('meter', { name: '週の枠の使用率' })).toBeTruthy();
+    expect(screen.getByRole('meter', { name: '5 時間の使用率' })).toBeTruthy();
+    expect(screen.getByRole('meter', { name: '週の使用率' })).toBeTruthy();
     // 何の割合かが画面から読めるよう、見出しを常に出す。
     expect(screen.getByText('5 時間')).toBeTruthy();
     expect(screen.getByText('週')).toBeTruthy();
     // ホバーで、枠が戻る時刻と最終更新を読める。最終更新は狭いヘッダで畳むので、title にも添える。
-    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 47%、18:00 に戻ります、最終更新 10 分前');
-    expect(screen.getByText('週').closest('.gauge')).toHaveAttribute('title', '週の枠の使用率 7%、10/4 09:00 に戻ります、最終更新 10 分前');
+    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間の使用率 47%、18:00 にリセットされます、最終更新 10 分前');
+    expect(screen.getByText('週').closest('.gauge')).toHaveAttribute('title', '週の使用率 7%、10/4 09:00 にリセットされます、最終更新 10 分前');
     expect(screen.getByText('最終更新 10 分前')).toBeTruthy();
   });
   // 幅が狭いと、同期のボタンと錠剤の文字と新規セッションの文字を畳む（headerFold.ts が測って畳む）。畳んでも同じ操作ができる。
@@ -88,7 +88,7 @@ describe('Header', () => {
     expect(screen.queryByText(/最終更新/)).toBeNull();
     expect(screen.getAllByText('未取得')).toHaveLength(1);
     // 戻る時刻が届いていなければ、title に時刻を添えない。
-    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 未取得');
+    expect(screen.getByText('5 時間').closest('.gauge')).toHaveAttribute('title', '5 時間の使用率 未取得');
   });
   it('使用率が一度も届いていない間は、空の棒を並べず 1 語にまとめ、押すと設定へ行く', () => {
     const onAction = vi.fn();

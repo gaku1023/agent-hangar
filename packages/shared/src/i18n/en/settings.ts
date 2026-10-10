@@ -122,7 +122,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.shell.installHint': 'To install on this computer, run this in a terminal. It shows the line to add, asks for your approval, and backs up {zshrc} first.',
   'settings.integrations.shell.installedHint': 'It takes effect in terminals opened from now on. To start once without the wrapper, use command claude. To remove it, run {uninstall}.',
   'settings.integrations.shell.noTmux': 'tmux was not found on this computer. Install it with {install}, or set the tmux path under Tools.',
-  'settings.integrations.shell.adopt': 'Even without it, a claude waiting for input or idle in an external terminal can be opened with Take over in hangar.',
+  'settings.integrations.shell.adopt': 'Even without it, a claude waiting for input or idle in an external terminal can be opened with Move to Hangar.',
   'settings.summary.title': 'Summary engine',
   'settings.summary.url': 'LM Studio URL',
   'settings.summary.model': 'Model',

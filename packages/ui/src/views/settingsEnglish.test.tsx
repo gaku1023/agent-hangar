@@ -77,7 +77,7 @@ describe('設定（英語）', () => {
     expect(screen.getByText('Not logged in')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Log in' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: `Actions for ${list[0]!.name}` }));
-    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Rename', 'Change color', 'Log in again', 'Reload status', 'Remove from listThe primary account cannot be removed']);
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Rename', 'Change color', 'Log in again', 'Reload status', 'Remove accountThe primary account cannot be removed']);
     noJapanese();
   });
   it('アカウント：使用率の棒と、上限間近と古い値の注記', () => {

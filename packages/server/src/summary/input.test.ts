@@ -78,7 +78,7 @@ describe('types', () => {
   });
   it('状態の提案は任意で読み、none と欠けたものは付けない', () => {
     expect(SUMMARY_SCHEMA).toMatchObject({ properties: { proposed_status: { type: 'string', enum: ['done', 'paused', 'none'] }, proposed_note: { type: 'string', maxLength: 200 }, proposed_return_in_days: { type: 'integer' } } });
-    expect(SUMMARY_SYSTEM_PROMPT).toContain('proposed_status の判定：頼まれたことが終わり、確かめることも残っていなければ done。終わったが確かめることが残っていれば paused。まだ途中なら none。');
+    expect(SUMMARY_SYSTEM_PROMPT).toContain('proposed_status の判定：頼まれたことが終わり、確認することも残っていなければ done。終わったが確認することが残っていれば paused。まだ途中なら none。');
     const base = { title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: [] };
     expect(parseSummaryOutput({ ...base, proposed_status: 'done', proposed_note: ' 直した ', proposed_return_in_days: 0 })).toEqual({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], proposal: { status: 'done', note: '直した', returnInDays: null } });
     expect(parseSummaryOutput({ ...base, proposed_status: 'none', proposed_note: '', proposed_return_in_days: 0 })).toEqual({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] });
