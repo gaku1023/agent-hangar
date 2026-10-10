@@ -69,6 +69,25 @@ describe('表にある Intent', () => {
     expect(rt.getState().toasts.map((t) => t.level)).toEqual(['info']);
     expect(rt.getState().toasts[0]?.message).toContain('Terminal.app');
   });
+  it('同期の応答と bootstrap の同期の状態は Store に直に当て、サーバのイベントに見せかけて transition へ流さない', async () => {
+    const sync = { state: 'idle', pending: 4, skipped: [] } as unknown as NonNullable<ReturnType<ReturnType<typeof createRuntime>['getStore']>['sync']>;
+    const devices = [{ id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null }];
+    const boot = { version: 'v', device: { id: 'd', name: 'mac' }, settings: null, projects: [], sessions: [{ id: 's1' }], live: [], runs: [], tabs: [], index: { phase: 'idle', done: 0, total: 0 }, todos: [], artifacts: [], summaryPending: [], sync, devices, retention: null, cloudUsage: null, accounts: null } as unknown as BootstrapDto;
+    const paused = { ...sync, state: 'paused' };
+    const { rt } = harness({ bootstrap: vi.fn(async () => boot), syncNow: vi.fn(async () => sync), syncPause: vi.fn(async () => paused) } as Partial<ApiClient>);
+    vi.mocked(mediator.transition).mockClear();
+    rt.dispatch({ kind: 'runtime', event: { type: 'ws.open' } });
+    await flush();
+    expect(rt.getStore().sync).toBe(sync);
+    expect(rt.getStore().devices).toEqual(devices);
+    rt.emit({ type: 'sync.now' });
+    await flush();
+    rt.emit({ type: 'sync.pause', paused: true });
+    await flush();
+    expect(rt.getStore().sync).toBe(paused);
+    const served = vi.mocked(mediator.transition).mock.calls.map((c) => c[2]).filter((i) => i.kind === 'server').map((i) => i.event.type);
+    expect(served.filter((t) => t === 'sync.status' || t === 'devices.update')).toEqual([]);
+  });
   it('表の鍵はどれも、transition に渡しても何も起きない（二重に扱っていない）', () => {
     // 型でも止めているが、default で拾って何かをする領域が紛れ込まないことを実行でも確かめる。
     const state = mediator.initialState();

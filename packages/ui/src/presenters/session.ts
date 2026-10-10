@@ -384,7 +384,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     // 裏だけ動いているときは、本体は最後の返答から空いているので、休みと同じく最後の動きから数える。
     liveLabel: liveLabelOf(s, now),
     artifacts: artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(a, now)),
-    summaryPending: store.summaryPending[id] === true, summaryError: state.summaryFailed[id] ?? null,
+    summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null,
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone,

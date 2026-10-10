@@ -57,5 +57,5 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
     if (!s || typeof time !== 'string' || !isReturnTime(time)) return [];
     return [{ sessionId: s.id, name: s.name ?? '（名前なし）', time, reason: s.state?.note || null }];
   });
-  return { toasts: state.toasts, waiting, returning, more: cards.length - waiting.length, offerNotify: state.notify.available && !state.notify.on && !state.notify.blocked, blocked: !overlayReplaceable(state.overlay) };
+  return { toasts: state.toasts, waiting, returning, more: cards.length - waiting.length, offerNotify: store.notify.available && !store.notify.on && !store.notify.blocked, blocked: !overlayReplaceable(state.overlay) };
 }

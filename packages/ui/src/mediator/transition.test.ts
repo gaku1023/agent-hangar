@@ -232,16 +232,14 @@ describe('ダイアログを開いている間の開く操作', () => {
 });
 
 describe('索引の進み', () => {
-  it('走査が終わった瞬間に bootstrap を取り直す', () => {
-    const a = run([server({ type: 'index.progress', progress: { phase: 'scanning', done: 0, total: 0 } })]);
-    expect(a.effects).toEqual([]);
-    const b = run([server({ type: 'index.progress', progress: { phase: 'indexing', done: 1, total: 3 } })], a.state);
-    expect(b.effects).toEqual([]);
-    const c = run([server({ type: 'index.progress', progress: { phase: 'idle', done: 3, total: 3 } })], b.state);
-    expect(c.effects).toEqual([{ kind: 'api.bootstrap' }]);
-    // 同じ idle が続いても取り直さない。
-    const d = run([server({ type: 'index.progress', progress: { phase: 'idle', done: 3, total: 3 } })], c.state);
-    expect(d.effects).toEqual([]);
+  it('index.progress は State を変えない（索引の段階は Store だけが持つ）', () => {
+    // 走査が終わった瞬間の取り直しは、前の段階を知っている Runtime が、Store に当てるときに見る（store.ts の indexFinishedBy）。
+    const start = initialState();
+    expect(start).not.toHaveProperty('indexPhase');
+    for (const phase of ['scanning', 'indexing', 'idle'] as const) {
+      const r = run([server({ type: 'index.progress', progress: { phase, done: 1, total: 3 } })], start);
+      expect([phase, r.state === start, r.effects]).toEqual([phase, true, []]);
+    }
   });
 });
 
@@ -700,21 +698,19 @@ describe('入力待ちの知らせ', () => {
 });
 
 describe('通知を受け取るか', () => {
-  it('受け取るにすると、許可を求める効果だけを出す。結果が届いてから切り替える', () => {
-    const a = run([intent({ type: 'notify.set', on: true })]);
+  // 通知を出せるか、受け取るかは Runtime しか知らない事実なので、Store が持つ。Mediator は切り替えを効果にするだけである。
+  it('受け取るにすると、許可を求める効果だけを出す', () => {
+    const start = initialState();
+    expect(start).not.toHaveProperty('notify');
+    const a = run([intent({ type: 'notify.set', on: true })], start);
     expect(a.effects).toEqual([{ kind: 'notify.request' }]);
-    expect(a.state.notify.on).toBe(false);
-    const b = run([runtime({ type: 'notify.changed', available: true, on: true })], a.state);
-    expect(b.state.notify).toEqual({ available: true, on: true, blocked: false });
-    // OS で切られていれば、その印を持つ。
-    const c = run([runtime({ type: 'notify.changed', available: true, on: false, blocked: true })], b.state);
-    expect(c.state.notify).toEqual({ available: true, on: false, blocked: true });
+    expect(a.state).toBe(start);
   });
-  it('受け取らないにすると、その場で切り替えて覚える', () => {
-    const on = run([runtime({ type: 'notify.changed', available: true, on: true })]).state;
-    const a = run([intent({ type: 'notify.set', on: false })], on);
-    expect(a.state.notify).toEqual({ available: true, on: false, blocked: false });
-    expect(a.effects).toEqual([{ kind: 'storage.save', key: 'notify.waiting', value: false }]);
+  it('受け取らないにすると、切る効果だけを出す', () => {
+    const start = initialState();
+    const a = run([intent({ type: 'notify.set', on: false })], start);
+    expect(a.effects).toEqual([{ kind: 'notify.off' }]);
+    expect(a.state).toBe(start);
   });
 });
 
@@ -825,13 +821,12 @@ describe('作業台の操作', () => {
     expect(r.effects).toEqual([]);
     expect(r.state).toEqual(initialState());
   });
-  it('要約の失敗は画面に残し、次の pending で消える', () => {
-    const a = run([server({ type: 'summary.failed', sessionId: 's1', message: 'LM Studio に繋がりません' })]);
-    expect(a.state.summaryFailed).toEqual({ s1: 'LM Studio に繋がりません' });
-    const b = run([server({ type: 'summary.pending', sessionId: 's1' })], a.state);
-    expect(b.state.summaryFailed).toEqual({});
-    const c = run([server({ type: 'summary.failed', sessionId: 's1', message: 'x' }), server({ type: 'summary.updated', sessionId: 's1' })]);
-    expect(c.state.summaryFailed).toEqual({});
+  it('要約の知らせは State を変えない（要約の失敗は Store だけが持つ）', () => {
+    const start = initialState();
+    expect(start).not.toHaveProperty('summaryFailed');
+    const r = run([server({ type: 'summary.failed', sessionId: 's1', message: 'x' }), server({ type: 'summary.pending', sessionId: 's1' }), server({ type: 'summary.updated', sessionId: 's1' })], start);
+    expect(r.state).toBe(start);
+    expect(r.effects).toEqual([]);
   });
 });
 
@@ -994,28 +989,18 @@ describe('画面に入るときの読み込み', () => {
 const status = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
 
 describe('同期', () => {
-  it('sync.status が領域の状態と未送信件数になる', () => {
-    const a = run([server({ type: 'sync.status', status: status() })]);
-    expect(a.state.sync).toEqual({ kind: 'idle', lastAt: 200 });
-    expect(a.state.pending).toBe(0);
-    const b = run([server({ type: 'sync.status', status: status({ state: 'error', error: '切れました', pending: 3 }) })]);
-    expect(b.state.sync).toEqual({ kind: 'error', message: '切れました' });
-    expect(b.state.pending).toBe(3);
-    expect(run([server({ type: 'sync.status', status: status({ state: 'paused' }) })]).state.sync).toEqual({ kind: 'paused' });
-    expect(run([server({ type: 'sync.status', status: status({ state: 'off', url: null }) })]).state.sync).toEqual({ kind: 'off' });
-    expect(run([server({ type: 'sync.status', status: status({ state: 'pushing' }) })]).state.sync).toEqual({ kind: 'pushing' });
-    expect(run([server({ type: 'sync.status', status: status({ state: 'pulling' }) })]).state.sync).toEqual({ kind: 'pulling' });
+  it('sync.status は State を変えない（同期の状態は Store だけが持つ）', () => {
+    const start = initialState();
+    const a = run([server({ type: 'sync.status', status: status({ state: 'error', error: '切れました', pending: 3 }) })], start);
+    expect(a.state).toBe(start);
+    expect(a.effects).toEqual([]);
+    expect(start).not.toHaveProperty('sync');
+    expect(start).not.toHaveProperty('pending');
   });
-  it('idle の最終時刻は pull を優先し、pull が無ければ push を採る', () => {
-    expect(run([server({ type: 'sync.status', status: status({ lastPullAt: null }) })]).state.sync).toEqual({ kind: 'idle', lastAt: 100 });
-    expect(run([server({ type: 'sync.status', status: status({ lastPullAt: null, lastPushAt: null }) })]).state.sync).toEqual({ kind: 'idle', lastAt: null });
-  });
-  it('error の本文が無いときは既定の文言にする', () => {
-    expect(run([server({ type: 'sync.status', status: status({ state: 'error', error: null }) })]).state.sync).toEqual({ kind: 'error', message: '同期に失敗しました' });
-  });
-  it('今すぐ同期、一時停止、前面化が効果になる', () => {
-    const { effects } = run([intent({ type: 'sync.now' }), intent({ type: 'sync.pause', paused: true }), runtime({ type: 'window.focus' })]);
-    expect(effects).toEqual([{ kind: 'api.syncNow' }, { kind: 'api.syncPause', paused: true }, { kind: 'api.syncFocus' }]);
+  it('前面化が効果になる', () => {
+    // 今すぐ同期と一時停止は、Mediator を通らず表で引く（runtime/intentTable.ts）。
+    const { effects } = run([runtime({ type: 'window.focus' })]);
+    expect(effects).toEqual([{ kind: 'api.syncFocus' }]);
   });
   it('参加トークンの再表示と設定の下見と取り込み', () => {
     const a = run([intent({ type: 'sync.joinToken.show' })]);
@@ -1214,10 +1199,6 @@ describe('この PC で再開', () => {
     const a = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's1', localSize: 1, remoteSize: 2 })]);
     const b = run([runtime({ type: 'api.conflict', kind: 'resumeHere', sessionId: 's2', localSize: 3, remoteSize: 4 })], a.state);
     expect(b.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'overwriteTranscript', sessionId: 's2', localSize: 3, remoteSize: 4 } });
-  });
-  it('同期の操作は未実装の案内を出さない', () => {
-    expect(run([intent({ type: 'sync.now' })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
-    expect(run([intent({ type: 'sync.pause', paused: false })]).effects.some((e) => (e as { kind: string }).kind === 'toast')).toBe(false);
   });
 });
 
@@ -1512,20 +1493,13 @@ describe('プロジェクトを作る', () => {
     expect(state.overlay).toMatchObject({ kind: 'newSession', projectId: null });
     expect(state.launchPrefs.p9).toEqual({ model: 'opus' });
   });
-  it('Finder を頼むと殻に頼み、選ばれたパスは回数を添えて持つ', () => {
-    const { state, effects } = run([intent({ type: 'folder.pick' }), runtime({ type: 'folder.picked', path: '/x' }), runtime({ type: 'folder.picked', path: '/x' })]);
+  it('Finder を頼むと殻に頼む。選ばれたパスと未登録の一覧は State に持たない（Store が持つ）', () => {
+    const start = initialState();
+    expect(start).not.toHaveProperty('pickedFolder');
+    expect(start).not.toHaveProperty('workspaceDirs');
+    const { state, effects } = run([intent({ type: 'folder.pick' })], start);
     expect(effects).toEqual([{ kind: 'desktop.pickFolder' }]);
-    expect(state.pickedFolder).toEqual({ path: '/x', n: 2 });
-  });
-  it('Finder のパスは NFC にそろえ、末尾の / を落とす（根の / はそのまま）', () => {
-    const nfd = '/w/が'.normalize('NFD');
-    expect(nfd).not.toBe('/w/が');
-    expect(run([runtime({ type: 'folder.picked', path: `${nfd}/` })]).state.pickedFolder).toEqual({ path: '/w/が', n: 1 });
-    expect(run([runtime({ type: 'folder.picked', path: '/' })]).state.pickedFolder).toEqual({ path: '/', n: 1 });
-  });
-  it('未登録の一覧が届いたら持つ', () => {
-    const dirs = [{ name: 'a', path: '/w/a' }];
-    expect(run([runtime({ type: 'workspaceDirs.loaded', dirs })]).state.workspaceDirs).toEqual(dirs);
+    expect(state).toBe(start);
   });
   it('作成のダイアログは Esc（overlay.close）で閉じ、状態を idle に戻す', () => {
     const { state } = run([intent({ type: 'project.new.open' }), intent({ type: 'project.new.submit', place, startSession: false }), intent({ type: 'overlay.close' })]);
