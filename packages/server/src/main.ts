@@ -9,7 +9,7 @@ const handoff = takeServerEnv();
 // 止める受け口、親の見張り、起動が転んだときの終わり方は entry.ts の runMain にある。
 // Windows の殻は標準入力の管を閉じて止める合図を送る。そのときだけ、標準入力の終わりを見張る。
 void runMain({
-  start: () => startServer({ port: handoff.port, uiDist: handoff.uiDist }),
+  start: () => startServer({ port: handoff.port, uiDist: handoff.uiDist, launcher: handoff.launcher }),
   parentPid: handoff.parentPid,
   home: hangarHome(),
   stdin: handoff.stopOnStdinEnd ? process.stdin : undefined,

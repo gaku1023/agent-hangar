@@ -12,8 +12,10 @@ import { CLAUDE_CHILD_ENV } from '../provider/claude-code/compat/childEnv.ts';
  * hangar の CLI は --port（既定 4177）で決めるので、claude の中で HANGAR_PORT を読むものは無い。
  * HANGAR_STOP_ON_STDIN_END は Windows の殻が立てる。標準入力が閉じたら止める合図にせよ、という意味である（entry.ts の runMain）。
  * 残すと、claude の中で起こした試しのサーバが、標準入力の閉じで勝手に降りる。
+ * HANGAR_LAUNCHER も Windows の殻が立てる。外のアプリをジョブの外で起こす起こし役（殻の実行ファイル）の場所である（external/breakaway.ts）。
+ * 残すと、claude の中で起こした試しのサーバが、ジョブに入っていないのに殻を起こし役に使う。
  */
-const HANGAR_HANDOFF_ENV = ['HANGAR_PARENT_PID', 'HANGAR_PORT', 'HANGAR_UI_DIST', 'HANGAR_STOP_ON_STDIN_END'];
+const HANGAR_HANDOFF_ENV = ['HANGAR_PARENT_PID', 'HANGAR_PORT', 'HANGAR_UI_DIST', 'HANGAR_STOP_ON_STDIN_END', 'HANGAR_LAUNCHER'];
 
 /**
  * サーバが読まない hangar の変数。
@@ -39,7 +41,7 @@ export const SERVER_DROPPED_ENV: readonly string[] = [...CLAUDE_CHILD_ENV, ...HA
 export const RUN_DROPPED_ENV: readonly string[] = [...CLAUDE_CHILD_ENV, ...HANGAR_HANDOFF_ENV, 'HANGAR_CLOUD_DIR'];
 
 /** サーバが起動のときに受け取る値。 */
-export type ServerHandoff = { port: number | undefined; parentPid: number | undefined; uiDist: string | undefined; stopOnStdinEnd: boolean };
+export type ServerHandoff = { port: number | undefined; parentPid: number | undefined; uiDist: string | undefined; stopOnStdinEnd: boolean; launcher: string | undefined };
 
 /**
  * 受け渡しの値を読んでから、SERVER_DROPPED_ENV を env から消す。サーバの入口（main.ts）が、ほかの何よりも先に呼ぶ。
@@ -50,6 +52,7 @@ export function takeServerEnv(env: NodeJS.ProcessEnv = process.env): ServerHando
   const parentPid = env.HANGAR_PARENT_PID ? Number(env.HANGAR_PARENT_PID) : undefined;
   const uiDist = env.HANGAR_UI_DIST || undefined;
   const stopOnStdinEnd = env.HANGAR_STOP_ON_STDIN_END === '1';
+  const launcher = env.HANGAR_LAUNCHER || undefined;
   for (const n of SERVER_DROPPED_ENV) delete env[n];
-  return { port, parentPid, uiDist, stopOnStdinEnd };
+  return { port, parentPid, uiDist, stopOnStdinEnd, launcher };
 }

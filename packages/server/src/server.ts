@@ -94,7 +94,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     home.stop();
     throw e;
   }
-  const runs = bootRuns(home, delivery, listening, { serverDir });
+  const runs = bootRuns(home, delivery, listening, { serverDir, launcher: opts.launcher });
   const summary = bootSummary(home, delivery, runs, sync);
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, opts, serverDir });
 

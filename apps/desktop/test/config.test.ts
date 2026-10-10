@@ -323,6 +323,20 @@ describe('殻の印', () => {
   });
 });
 
+describe('外のアプリの起こし役', () => {
+  // サーバは外のアプリを、殻の実行ファイルに印を付けて起こさせる（Windows で Hangar のジョブの外に出すため）。
+  // 印は殻（breakaway.rs の FLAG）とサーバ（external/breakaway.ts の BREAKAWAY_FLAG）の 2 か所にある。片方だけ変えると、殻は印に気付かず窓を開く。
+  it('殻とサーバの印が同じで、殻は Tauri を立ち上げる前に印を見る', async () => {
+    const rust = read('src-tauri/src/breakaway.rs').match(/pub const FLAG: &str = "([^"]+)";/)?.[1];
+    expect(rust, 'breakaway.rs の FLAG が見つかりません').toBeDefined();
+    const { BREAKAWAY_FLAG } = await import('../../../packages/server/src/external/breakaway.ts');
+    expect(rust).toBe(BREAKAWAY_FLAG);
+    const main = read('src-tauri/src/main.rs');
+    expect(main.indexOf('breakaway::run_if_requested')).toBeGreaterThan(0);
+    expect(main.indexOf('breakaway::run_if_requested')).toBeLessThan(main.indexOf('hangar_desktop_lib::run()'));
+  });
+});
+
 describe('互換の版', () => {
   // 殻は 4177 の既存のサーバを、自分が名乗る版と同じ版のときだけ採る（health.rs の judge_existing）。
   // 殻の版は同梱するサーバの版と同じでなければならないので、shared の正本と突き合わせる。

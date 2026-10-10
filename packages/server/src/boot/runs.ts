@@ -68,12 +68,13 @@ export type RunsParts = {
  * 組むのは、tmux の口、手元の claude の読み取り、包みの本体、アカウント、RunManager、休みの見張り、使用量、外のターミナルとエディタである。
  * 実際のポート番号を包みの本体と run の起動が使うので、待ち受けの後に呼ぶ。
  * serverDir は、サーバの入口のファイルがある場所である。同梱の hangar をその隣から探す。
+ * launcher は Windows の殻の実行ファイルで、外のターミナルとエディタとブラウザを Hangar のジョブの外で起こすのに使う。
  */
 export function bootRuns(
   home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
   delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion'>,
   listening: { host: string; port: number },
-  o: { serverDir: string },
+  o: { serverDir: string; launcher?: string },
 ): RunsParts {
   const { db, claudeDir, settings, life, device } = home;
   const { hub, registry, compatLog } = delivery;
@@ -140,7 +141,7 @@ export function bootRuns(
     writeShellScript: shell.write,
     shellHook: () => measureShellHook({ db, deviceId: device.id, shellHook: shell.hook, touch }),
     // 設定は書き替わるので、外部連携は呼ばれた時点の settings を読む。
-    external: createExternalApi({ home: home.home, settings: () => settings.current }),
+    external: createExternalApi({ home: home.home, settings: () => settings.current, launcher: o.launcher }),
     // 準備の確かめ。設定画面とホームの帯の始める前の確認が読む。版を読む子プロセスは 3 秒で切る。
     readiness: createReadiness({
       settings: () => settings.current, claudeDir, claudeJson: claudeJsonPath(), db, deviceId: device.id,

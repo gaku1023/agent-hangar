@@ -81,7 +81,7 @@ pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
 /// 殻を Claude Code のセッションの Bash から起こすと（`open` や osascript の launch）、
 /// 呼び手のセッションの印が殻に入る。そのまま渡すと、サーバが起こす tmux サーバと claude まで届き、
 /// hangar の claude が別のセッションの子として振る舞う（再開の一覧から外れる、別のセッションのソケットへ話しかける）。
-/// 後ろの 7 つは hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
+/// 後ろの 8 つは hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
 ///
 /// 正本は `packages/server/src/launch/env.ts` の `SERVER_DROPPED_ENV` で、ここはその写しである。
 /// サーバも起動の最初に同じ名前を自分の環境から消す。
@@ -108,6 +108,7 @@ pub const INHERITED_ENV_DROPPED: &[&str] = &[
     "HANGAR_PORT",
     "HANGAR_UI_DIST",
     "HANGAR_STOP_ON_STDIN_END",
+    "HANGAR_LAUNCHER",
     "HANGAR_RUN_ID",
     "HANGAR_UNSET_ENV",
     "HANGAR_CLOUD_DIR",
@@ -135,6 +136,10 @@ fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
         use std::os::windows::process::CommandExt;
         // 標準入力の閉じを止める合図にするよう頼む（ServerProcess::stop_within）。
         cmd.env("HANGAR_STOP_ON_STDIN_END", "1");
+        // 外のアプリを Hangar のジョブの外で起こす起こし役として、殻自身の場所を渡す（breakaway.rs）。
+        if let Ok(exe) = std::env::current_exe() {
+            cmd.env("HANGAR_LAUNCHER", exe);
+        }
         // 窓を持たない殻から Node を起こすと、黒いコンソールの窓が開いたままになる。
         // 窓の無いコンソールを持たせておけば、サーバが起こす孫（psmux の CLI、PowerShell）もそれを継ぎ、窓を開かない。
         cmd.creation_flags(crate::winjob::CREATE_NO_WINDOW);
@@ -344,6 +349,7 @@ mod tests {
         // Windows では、標準入力の閉じを止める合図にするようサーバに頼む。macOS では立てない。
         if cfg!(windows) {
             own.push("HANGAR_STOP_ON_STDIN_END");
+            own.push("HANGAR_LAUNCHER");
         }
         for name in INHERITED_ENV_DROPPED {
             let v = envs.get(std::ffi::OsStr::new(name));

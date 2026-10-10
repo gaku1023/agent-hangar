@@ -5,7 +5,7 @@ import { RUN_DROPPED_ENV, SERVER_DROPPED_ENV, takeServerEnv } from './env.ts';
 /** Claude Code のセッションの Bash から起こされたときの環境を模す。値は形だけで、意味を持たない。 */
 const dirty = (): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(CLAUDE_CHILD_ENV.map((n) => [n, 'x'])),
-  HANGAR_PORT: '4199', HANGAR_PARENT_PID: '4242', HANGAR_UI_DIST: '/app/ui', HANGAR_STOP_ON_STDIN_END: '1',
+  HANGAR_PORT: '4199', HANGAR_PARENT_PID: '4242', HANGAR_UI_DIST: '/app/ui', HANGAR_STOP_ON_STDIN_END: '1', HANGAR_LAUNCHER: 'C:\\Hangar\\Hangar.exe',
   HANGAR_RUN_ID: 'r', HANGAR_UNSET_ENV: 'A;B', HANGAR_CLOUD_DIR: '/w/cloud',
   // 残すもの。利用者の設定と、サーバが動いている間ずっと読む hangar の変数。
   HANGAR_HOME: '/h', HANGAR_CLAUDE_DIR: '/c', HANGAR_CLAUDE_BIN: '/x/claude', HANGAR_DEV: '1',
@@ -15,7 +15,7 @@ const dirty = (): NodeJS.ProcessEnv => ({
 describe('takeServerEnv', () => {
   it('受け渡しの値を読んでから、印と受け渡しの変数を env から消す', () => {
     const env = dirty();
-    expect(takeServerEnv(env)).toEqual({ port: 4199, parentPid: 4242, uiDist: '/app/ui', stopOnStdinEnd: true });
+    expect(takeServerEnv(env)).toEqual({ port: 4199, parentPid: 4242, uiDist: '/app/ui', stopOnStdinEnd: true, launcher: 'C:\\Hangar\\Hangar.exe' });
     for (const n of SERVER_DROPPED_ENV) expect(env, n).not.toHaveProperty(n);
     expect(env).toEqual({
       HANGAR_HOME: '/h', HANGAR_CLAUDE_DIR: '/c', HANGAR_CLAUDE_BIN: '/x/claude', HANGAR_DEV: '1',
@@ -23,8 +23,8 @@ describe('takeServerEnv', () => {
     });
   });
   it('受け渡しの値が無い、または空なら undefined にする', () => {
-    expect(takeServerEnv({ PATH: '/usr/bin' })).toEqual({ port: undefined, parentPid: undefined, uiDist: undefined, stopOnStdinEnd: false });
-    expect(takeServerEnv({ HANGAR_PORT: '', HANGAR_PARENT_PID: '', HANGAR_UI_DIST: '', HANGAR_STOP_ON_STDIN_END: '' })).toEqual({ port: undefined, parentPid: undefined, uiDist: undefined, stopOnStdinEnd: false });
+    expect(takeServerEnv({ PATH: '/usr/bin' })).toEqual({ port: undefined, parentPid: undefined, uiDist: undefined, stopOnStdinEnd: false, launcher: undefined });
+    expect(takeServerEnv({ HANGAR_PORT: '', HANGAR_PARENT_PID: '', HANGAR_UI_DIST: '', HANGAR_STOP_ON_STDIN_END: '', HANGAR_LAUNCHER: '' })).toEqual({ port: undefined, parentPid: undefined, uiDist: undefined, stopOnStdinEnd: false, launcher: undefined });
   });
 });
 

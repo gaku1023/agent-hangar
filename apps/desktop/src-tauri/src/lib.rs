@@ -3,6 +3,8 @@
 //! `hangar://` のディープリンクは UI のハッシュ経路に変換して webview に流す。
 
 pub mod bootfail;
+#[cfg(windows)]
+pub mod breakaway;
 pub mod configapply;
 pub mod deeplink;
 pub mod filedrop;

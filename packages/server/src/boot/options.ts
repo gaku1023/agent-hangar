@@ -14,4 +14,6 @@ export type StartOptions = {
    * テストの見本の登録は実在しない pid を持つので、テストは「残りは無い」を渡す。
    */
   registryIsGone?: (pid: number) => boolean;
+  /** Windows の殻の実行ファイル。外のアプリをジョブの外で起こす起こし役に使う（external/breakaway.ts）。 */
+  launcher?: string;
 };

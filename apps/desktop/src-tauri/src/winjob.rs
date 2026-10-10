@@ -150,7 +150,7 @@ pub(crate) mod tests {
         cond()
     }
 
-    fn in_job(job: &Job, pid: u32) -> bool {
+    pub(crate) fn in_job(job: &Job, pid: u32) -> bool {
         unsafe {
             let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             assert!(!h.is_null(), "pid {pid} を開けない");
