@@ -2760,19 +2760,29 @@ error は赤みのガラスに警告のアイコンを添え、幅は 420px ま�
 確認や入力のあるダイアログが開いていれば、窓が前に出るだけで、画面は移さない（カードと同じ扱い）。
 Dock（ブラウザならインストールしたアプリ）のバッジには入力待ちの数を出し、0 で消す。
 
-デスクトップの殻では、通知を UNUserNotificationCenter で出す（`src-tauri/src/notify.rs`）。
+デスクトップの殻では、通知を macOS は UNUserNotificationCenter で、Windows は WinRT のトースト（`Windows.UI.Notifications`）で出す（`src-tauri/src/notify.rs`）。
 頁は `notify_waiting` を呼び、殻は id と文を確かめてから OS に渡す。
 押された通知は識別子からセッションを読み戻し、頁の `__hangarOpenWaiting` で開く。
 頁が出来上がる前なら、ディープリンクと同じくハッシュとして貯める。
-`tauri-plugin-notification` は、デスクトップでは押された通知を知らせないので使わない。
-`.app` の外（`tauri dev`）では通知を出さない。
+`tauri-plugin-notification` は、デスクトップでは押された通知を知らせないので使わない（Windows でも、出した後の受け口を捨てる）。
+`.app` の外（`tauri dev`）と、Windows で組み上げたままの実行ファイル（`target` の下の `debug` や `release`）では通知を出さない。
+
+Windows のトーストは、題と本文を XML の文字として入れ、launch に macOS の識別子と同じ値（`hangar-waiting:<id>`）を入れる。
+タグはセッションの id で、同じセッションのトーストは新しい方に置き換わる。
+アプリの名前（AppUserModelID）は `tauri.conf.json` の identifier で、NSIS のインストーラがスタートメニューの近道に付けるものと同じである。
+押されたトーストは 2 つの道で届き、どちらも launch の値からセッションを読み戻して、macOS と同じ受け口へ渡す。
+アプリが動いている間は、出したトーストの Activated で届く。
+アプリが閉じた後に通知センターで押されたときは、Windows が COM の口でアプリを起こし、`INotificationActivationCallback::Activate` で届く。
+そのために殻は起動のたびに、利用者の登録（HKEY_CURRENT_USER）の `Software\Classes\AppUserModelId\<identifier>` へ名前、絵、COM の口の CLSID を書き、`Software\Classes\CLSID\<CLSID>\LocalServer32` へ自分の実行ファイルを書き、COM の口を開く。
+1 回の押下が両方の道で届いても、2 秒の間に同じセッションは 1 回だけ開く。
+Windows には通知の許可を尋ねるダイアログが無いので、`notify_request` と `notify_status` は通知の設定（`NotificationSetting`）を読むだけで、切られていれば denied になる。
 バッジは Tauri の `set_badge_count` で出す。
 ブラウザでは Web Notification と `navigator.setAppBadge` を使い、どちらも無ければ何もしない。
 
 通知を受け取るかは PC ごとに localStorage（`notify.waiting`）に残す。
 選んでいなければ、デスクトップでは受け取り、ブラウザでは受け取らない。
 デスクトップで受け取るときは、起動したときに OS の許可を一度だけ尋ねておく（決まった後は OS が黙って答える）。
-尋ね終えたら、殻の `notify_status` で UNUserNotificationCenter の許可の状態を読む（尋ねはしないのでダイアログは出ない）。
+尋ね終えたら、殻の `notify_status` で OS の許可の状態を読む（macOS は UNUserNotificationCenter、Windows は通知の設定。尋ねはしないのでダイアログは出ない）。
 システム設定で切られていれば（denied）、受け取らないにし、設定の通知の節に「システム設定の「通知」で Hangar を許可してください」と出す。
 このときベルの一覧の「通知を受け取る」の行は出さない。
 利用者の選んだ値（`notify.waiting`）は書き換えない。
@@ -3827,6 +3837,13 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 `.app` は Developer ID では署名せず、自作の証明書で署名する方針である（署名の台本と手順は `docs/signing.md`。CI の署名はまだ入れていない）。zip と SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
+配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
+Release の資産は `Hangar-<タグ>-macos-<arch>.dmg` と `.zip`、それぞれの `.sha256` である。
+dmg の中身は `.app` と `/Applications` へのリンクの 2 つだけで、`apps/desktop/scripts/make-dmg.sh` が hdiutil で作る。
+tauri の dmg ターゲットは使わない。
+tauri の dmg は build の途中の `.app` を詰め、`tauri bundle --bundles dmg` も `.app` を作り直してから詰めるので、build の後で署名した `.app` が入らないからである（2026-10-10 に手元で確かめた）。
+Finder を AppleScript で動かさないので、窓の並びは決めず、窓の無い CI でも同じに作れる。
+利用者の手順（dmg から `/Applications` へドラッグし、初回の警告を右クリックの「開く」かシステム設定の「このまま開く」で越える）は README の「インストール（配布版）」にある。
 クラウド同期の設定は `.app` の同梱 CLI からは行えない。
 wrangler を同梱していないので、リポジトリを clone した場所から `setup cloud` を走らせる。
 

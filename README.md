@@ -17,48 +17,52 @@ macOS の `.app` を入れると、サーバの起動をアプリに任せて使
 ## インストール（配布版）
 
 対象は macOS 13 以降の Apple silicon です。
-`.app` は GitHub Releases で配る予定で、最初のタグ（`v0.1.0`）はまだ打っていません。
+配布物は GitHub Releases に置く予定で、最初のタグ（`v0.1.0`）はまだ打っていません。
 それまでは、このリポジトリを clone して「開発」の手順でビルドしてください。
-Developer ID での署名も公証もしないので、初回だけ Gatekeeper の解除が要ります。
+
+配布物は dmg が主で、zip は予備です。
+Apple の Developer ID では署名せず、公証もしません。
+代わりに自作の証明書で署名します（仕組みは [docs/signing.md](docs/signing.md) にあります）。
+自作の証明書は macOS に信頼されていないので、初めて開くときに「開発者を確認できない」といった警告が出ることがあります。
+その越え方は 3 段目に書きました。
 
 セッションを起こすのは Claude Code 本体なので、`claude` と tmux が先に要ります（tmux は `brew install tmux`）。
 どちらが入っているかは、5 段目の `hangar setup` が報告します。
 
-1. Releases から `Hangar-vX.Y.Z-macos-arm64.zip` を落として展開します。
-   checksum を確かめるには、同じ場所の `.sha256` も落として `shasum -a 256 -c Hangar-vX.Y.Z-macos-arm64.zip.sha256` を実行します。
+1. Releases から `Hangar-vX.Y.Z-macos-arm64.dmg` を落とします。
+   checksum を確かめるには、同じ場所の `.sha256` も落として `shasum -a 256 -c Hangar-vX.Y.Z-macos-arm64.dmg.sha256` を実行します。
 
-   展開の仕方で、検疫属性が `.app` に伝わるかどうかが変わります。
-   Finder でダブルクリックして展開すると伝わり、端末から `unzip` や `tar` で展開すると伝わりません。
-   伝わらなかった場合、3 段目の `xattr` は消すものが無いまま正常に終わるので、そのまま進めてください。
+2. dmg を開き、中の `Hangar.app` を隣の `Applications` へドラッグします。
+   入れ終わったら、Finder のサイドバーで dmg を取り出してかまいません。
 
-2. 展開した `Hangar.app` を `/Applications` へ移します。
+   dmg の中の `Hangar.app` を、そのままダブルクリックして使わないでください。
+   読み取り専用の場所から開くと、macOS が `.app` を別の読み取り専用の場所へ写して起動することがあります（App Translocation）。
+   写しの中ではアプリが自分の同梱物の検疫属性を外せないので、同梱サーバを起こせません。
+   アプリは自分が写しの中にいると気付くと `/Applications` へ移すよう案内しますが、その前に macOS の警告が出ることがあります。
 
-   Finder でドラッグするのが確実です。
-   端末からなら `mv ~/Downloads/Hangar.app /Applications/` でも移せます。
-   ただし `mv` では検疫属性が残ったままなので、次の段を必ず実行してください。
+3. `/Applications/Hangar.app` を初めて開きます。
 
-   移す前にダブルクリックしないでください。
-   署名していない `.app` を検疫属性が付いたまま開くと、最初に出るのは macOS の拒否のダイアログです。
-   実測では、macOS が同時に `.app` を読み取り専用の場所へ写して起動し（App Translocation）、プロセスはその写しから立ち上がりました。
-   ただしウィンドウは出ず、`~/.agent-hangar/desktop.log` にも 1 行も残りませんでした。
-   アプリは自分が写しの中にいると気付いたら移動を案内する画面を出しますが、その画面より先に macOS の拒否が出ます。
-   写しの中ではアプリが自分の同梱物に書き込めないので、後述の検疫属性の解除も効きません。
-   だからこの手順では、開く前に `/Applications` へ移します。
+   ダブルクリックで開けず、開発者を確認できない旨の警告が出たときは、次のどちらかで開きます。
 
-3. 検疫属性を外します。
+   - Finder で `Hangar.app` を右クリック（control キーを押しながらクリック）し、「開く」を選びます。
+     出たダイアログでもう一度「開く」を押します。
+   - 右クリックの「開く」でも開けないときは（macOS 15 以降ではこちらになることがあります）、出たダイアログを一度閉じます。
+     続けてシステム設定の「プライバシーとセキュリティ」を開き、画面の下の方に出る「このまま開く」を押します。
+     ログインパスワードか Touch ID を求められます。
+
+   どちらでも開けないときの最後の手段として、端末から検疫属性を外す道もあります。
 
    ```sh
    xattr -rd com.apple.quarantine /Applications/Hangar.app
    ```
 
-   ターミナルを使わない道もあります。
-   `/Applications/Hangar.app` を一度開き、出たダイアログを閉じてから、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押します。
-   「このまま開く」を押すと、ログインパスワードか Touch ID を求められます。
-   macOS 14 以前では、`Hangar.app` を右クリックして「開く」を選ぶ方法も使えます。
-
-   アプリ自身も、同梱サーバを子プロセスとして起こす前に検疫属性を外します。
-   4177 で既に動いているサーバを見つけた回は、サーバを起こさないのでこの処理も走りません。
+   開いたアプリは、同梱サーバを子プロセスとして起こす前に、同梱物の検疫属性を自分で外します。
+   この処理は Node を探すより前に走るので、4 段目の Node がまだでも効きます。
+   ただし 4177 で既に動いているサーバを見つけた回は、サーバを起こさないのでこの処理も走りません。
    どちらにしても、これが効くのは `/Applications` へ移した後だけです。
+
+   Node 22 がまだ無ければ、読み込み画面が Node を見つけられないと告げます。
+   その場合は次の段へ進み、入れてから開き直してください。
 
 4. Node 22 を入れます（`nvm install 22` が簡単です）。
 
@@ -100,9 +104,21 @@ wrangler が 205MB あるので同梱していないためです。
 配布の版とサーバの版は別々に進みます。
 `.app` は `0.1.0`、サーバは `0.3.0` です（サーバの版は `/health` が返します）。
 
+### zip から入れる（予備）
+
+dmg を使えないときは、同じ場所の `Hangar-vX.Y.Z-macos-arm64.zip` を使います。
+checksum は `shasum -a 256 -c Hangar-vX.Y.Z-macos-arm64.zip.sha256` で確かめます。
+Finder でダブルクリックして展開し、展開した `Hangar.app` を `/Applications` へ移してから、上の 3 段目から続けます。
+
+展開の仕方で、検疫属性が `.app` に伝わるかどうかが変わります。
+Finder でダブルクリックして展開すると伝わり、端末から `unzip` や `tar` で展開すると伝わりません。
+伝わらなかった場合は、3 段目の警告が出ないまま開けるはずです。
+展開した場所でダブルクリックせず、先に `/Applications` へ移してください（理由は 2 段目と同じです）。
+
 ### 実物の `.app` で確かめた範囲（2026-09-20）
 
-ここに書いた手順は、検疫属性を付けた `.app` を `/Applications` へ移して `xattr -rd com.apple.quarantine` を実行する形で、通しで踏んで確かめました。
+2026-09-20 には、署名していない `.app` に検疫属性を付けて `/Applications` へ移し、`xattr -rd com.apple.quarantine` を実行する形で、通しで踏んで確かめました。
+dmg から入れる今の手順と、自作の証明書で署名した `.app` を初めて開くときの警告の出方は、まだ実物で確かめていません。
 あわせて次を確かめています。
 
 - Node の探索（`/opt/homebrew/bin/node` が不在の機械で `/usr/local/bin/node` の v22 arm64 が採られる）。
@@ -384,7 +400,7 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
 ## Windows で動かす（開発中）
 
 対象は Windows 11（x64）だけです。
-タグを打つと、macOS の zip と同じ Release に Windows のインストーラも添えます。
+タグを打つと、macOS の dmg や zip と同じ Release に Windows のインストーラも添えます。
 最初のタグはまだ打っていないので、それまでは下の「ソースから動かす」か「インストーラを作る」の手順で使ってください。
 
 Windows では、ターミナルで打った `claude` を hangar に載せる包み（macOS の `hangar shell install`）を作りません。
@@ -471,5 +487,8 @@ UI の写しの 68 パーセント（実測 2.19MB）が `.map` で、利用者�
 実測で 6.5MB でした。
 
 配布は、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` の版を揃えてから `git tag vX.Y.Z && git push origin vX.Y.Z` で行います。
-GitHub Actions が型検査とテストを回し、`.app` を zip と checksum 付きで Releases に置きます。
+GitHub Actions が型検査とテストを回し、`.app` から作った dmg と zip を、それぞれ checksum 付きで Releases に置きます。
+dmg は `apps/desktop/scripts/make-dmg.sh` が、出来上がった `.app` と `/Applications` へのリンクを詰めて作ります。
+手元でも `bash apps/desktop/scripts/make-dmg.sh <Hangar.app> <出力の .dmg>` で作れます。
+`tauri.conf.json` の bundle の targets に dmg を入れないのは、tauri の dmg が build の途中の `.app` を詰めるので、build の後で署名した `.app` が入らないためです。
 タグと `tauri.conf.json` の版が食い違うと、ビルドの前に止まります。
