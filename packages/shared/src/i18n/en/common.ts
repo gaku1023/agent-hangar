@@ -21,7 +21,7 @@ export const commonEn: AreaDictionary<typeof commonKeys> = {
   'common.ago.hour': '{n} h ago',
   'common.ago.yesterday': 'Yesterday',
   'common.ago.day': '{n} {n|day|days} ago',
-  'common.duration.underMin': 'Under 1 min',
+  'common.duration.underMin': '<1 min',
   'common.duration.min': '{n} min',
   'common.duration.hour': '{n} h',
   'common.duration.day': '{n} {n|day|days}',
