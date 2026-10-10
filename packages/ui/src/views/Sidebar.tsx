@@ -1,4 +1,4 @@
-import { formatRoute } from '@agent-hangar/shared';
+import { formatRoute, type Translate } from '@agent-hangar/shared';
 import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
@@ -16,7 +16,8 @@ const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects',
  * 見えるのは数字だけなので、読み上げには何の数かを添える。
  */
 function NavCount(props: { n: number }) {
-  return <span className="nav-count"><span aria-hidden="true">{props.n}</span><span className="sr-only">、入力待ち {props.n}</span></span>;
+  const t = useT();
+  return <span className="nav-count"><span aria-hidden="true">{props.n}</span><span className="sr-only">{t('sidebar.count.waiting', { n: props.n })}</span></span>;
 }
 
 /** 行を別の行の前か後ろへ移した後の並び。移す先が無ければ元のまま返す。 */
@@ -105,7 +106,7 @@ function LiveSection(props: { live: SideLiveProps }) {
           <li key={r.id}>
             <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={menu?.id === r.id ? 'true' : undefined}
               data-live={r.live ?? undefined} data-dragging={drag === r.id ? 'true' : undefined} data-over={over?.id === r.id ? (over.before ? 'before' : 'after') : undefined}
-              title={r.waited ? `${r.name}（${r.waited}）` : r.name}
+              title={r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name}
               onClick={(e) => { e.preventDefault(); emit({ type: 'session.open', id: r.id }); }} onKeyDown={(e) => onKeyDown(e, r)}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
               onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
@@ -115,8 +116,8 @@ function LiveSection(props: { live: SideLiveProps }) {
           </li>
         ))}
       </ul>
-      {menuRow && <MenuPop key={menuRow.id} label={`${menuRow.name} の操作`} items={rowItems(menuRow, emit)} anchor={anchor} minWidth={260} align="start" onClose={closeMenu} />}
-      {live.more > 0 && <a className="side-live-more" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}>ほか {live.more} 件</a>}
+      {menuRow && <MenuPop key={menuRow.id} label={t('sidebar.live.menuLabel', { name: menuRow.name })} items={rowItems(t, menuRow, emit)} anchor={anchor} minWidth={260} align="start" onClose={closeMenu} />}
+      {live.more > 0 && <a className="side-live-more" href={formatRoute(HOME)} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: HOME }); }}>{t('sidebar.live.more', { n: live.more })}</a>}
     </section>
   );
 }
@@ -126,9 +127,9 @@ function LiveSection(props: { live: SideLiveProps }) {
  * 状態（Paused・Done）は会話の終わりと一覧の「⋯」で付けるので、ここには置かない。置くと、付けたのに行が残って見える。
  * 言葉と色はセッション画面の「停止」に合わせ、何が起きるかを 1 行添える。hangar の外で動いているものは止められないので、押せない形で理由を言う。
  */
-function rowItems(r: SideLiveRow, emit: ReturnType<typeof useEmit>): MenuItem[] {
+function rowItems(t: Translate, r: SideLiveRow, emit: ReturnType<typeof useEmit>): MenuItem[] {
   const stop = r.stop;
-  return [{ key: 'stop', label: '停止', danger: true, note: 'Claude を終わらせます。会話の記録は残るので、あとで再開できます', disabled: stop ? null : 'hangar の外で動いています', onSelect: () => { if (stop) emit({ type: 'session.kill', ...stop }); } }];
+  return [{ key: 'stop', label: t('sidebar.live.stop'), danger: true, note: t('sidebar.live.stopNote'), disabled: stop ? null : t('sidebar.live.stopExternal'), onSelect: () => { if (stop) emit({ type: 'session.kill', ...stop }); } }];
 }
 
 /** 「ほか N 件」の行き先。ホームの実行中と要対応に全部が並ぶ。 */
@@ -140,15 +141,16 @@ const HOME = { name: 'home' } as const;
  */
 export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boolean; live: SideLiveProps }) {
   const emit = useEmit();
+  const t = useT();
   const item = (n: NavItem) => (
     <a key={n.label} className="nav-item" href={formatRoute(n.route)} aria-current={n.current ? 'page' : undefined} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: n.route }); }}>{NAV_ICON[n.route.name] && <Icon name={NAV_ICON[n.route.name]!} />}<span className="nav-label">{n.label}</span>{n.count > 0 && <NavCount n={n.count} />}</a>
   );
   const toggle = (
-    <button className="btn sidebar-toggle" aria-controls="sidebar" aria-expanded={!props.collapsed} aria-label={props.collapsed ? 'サイドバーを開く' : 'サイドバーを閉じる'} onClick={() => emit({ type: 'sidebar.toggle' })}><Icon name="sidebar" /><span className="toggle-tip" aria-hidden="true">{props.collapsed ? '開く' : '閉じる'}<kbd>⌘B</kbd></span></button>
+    <button className="btn sidebar-toggle" aria-controls="sidebar" aria-expanded={!props.collapsed} aria-label={props.collapsed ? t('sidebar.toggle.open') : t('sidebar.toggle.close')} onClick={() => emit({ type: 'sidebar.toggle' })}><Icon name="sidebar" /><span className="toggle-tip" aria-hidden="true">{props.collapsed ? t('sidebar.toggle.tipOpen') : t('sidebar.toggle.tipClose')}<kbd>⌘B</kbd></span></button>
   );
   const [first, ...rest] = props.nav;
   return (
-    <nav id="sidebar" className="sidebar" aria-label="主ナビゲーション">
+    <nav id="sidebar" className="sidebar" aria-label={t('sidebar.nav.label')}>
       {/* ロゴはヘッダへ移した。開閉のボタンは、開いた帯では最初の項目（ホーム）の行の右端に、畳んだ帯では帯の一番上に置く（base.css の .nav-row）。開閉の間は、その 2 か所を滑って移る。
           2 つの形は CSS だけで作り、DOM の組み立ては変えない。開閉の動きは、開閉の印だけを一瞬戻して前の形を測るからである（sidebarMotion.ts）。 */}
       <div className="nav-row">{first && item(first)}{toggle}</div>

@@ -1,0 +1,28 @@
+import type { MessageSpec } from '../messageSpec.ts';
+
+export const composerKeys = {
+  'composer.source.project': [],
+  'composer.source.user': [],
+  'composer.source.plugin': [],
+  'composer.source.builtin': [],
+  'composer.group.frequent': [],
+  'composer.group.project': [],
+  'composer.group.user': [],
+  'composer.group.plugin': [],
+  'composer.group.builtin': [],
+  'composer.card.remove': ['name'],
+  'composer.card.sending': [],
+  'composer.attach.tooLarge': ['name'],
+  'composer.attach.failed': ['name', 'reason'],
+  'composer.attach.unavailable': [],
+  'composer.tool.skill': [],
+  'composer.tool.file': [],
+  'composer.tool.fileNeedsProject': [],
+  'composer.tool.attach': [],
+  'composer.tool.pasteHint': [],
+  'composer.list.fileLabel': [],
+  'composer.list.commandLabel': [],
+  'composer.list.failed': [],
+  'composer.list.recentFiles': [],
+  'composer.cards.label': [],
+} as const satisfies MessageSpec;

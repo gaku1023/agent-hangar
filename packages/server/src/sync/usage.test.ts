@@ -21,10 +21,10 @@ describe('toUsageDto', () => {
     expect(d).toMatchObject({ source: 'cloudflare', fetchedAt: NOW - 120_000, stale: false, notice: null });
     expect(d.limits).toEqual({ d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 });
     expect(d.today).toEqual({ d1RowsWritten: 23480, workersRequests: 4120, resetAt: Date.parse('2026-10-03T00:00:00Z') });
-    expect(d.plan).toEqual({ label: 'Workers 無料 · R2 従量', workersPaid: false });
+    expect(d.plan).toEqual({ workersPaid: false, r2Paid: true });
     expect(d.month?.rows).toEqual([
-      { label: 'R2 の保存', consumed: 0.165, unit: 'GB-月', included: 10 },
-      { label: 'R2 の書く操作', consumed: 6470, unit: '回', included: 1_000_000 },
+      { label: 'R2 Data Storage (First 10GB-Month included)', consumed: 0.165, unit: 'GB-months', included: 10 },
+      { label: 'R2 Storage Class A Operations (First 1M included)', consumed: 6470, unit: 'Count', included: 1_000_000 },
       { label: 'R2 Infrequent Access Data Retrieval', consumed: 3, unit: 'GB', included: null },
     ]);
     expect(d.month).toMatchObject({ periodStart: '2026-09-05T00:00:00Z', periodEnd: '2026-10-05T00:00:00Z', throughDay: '2026-09-30', billedUsd: 0 });
@@ -51,7 +51,7 @@ describe('toUsageDto', () => {
   });
   it('Workers Paid はプランの語を変える', () => {
     const d = toUsageDto({ ...BODY, plan: { ...BODY.plan!, workersPaid: true, items: [{ id: 'workers_paid', name: 'Workers Paid', priceUsd: 5, frequency: 'monthly' }] } }, { now: NOW, stale: false, lastGood: null });
-    expect(d.plan).toEqual({ label: 'Workers Paid', workersPaid: true });
+    expect(d.plan).toEqual({ workersPaid: true, r2Paid: false });
   });
 });
 

@@ -77,4 +77,10 @@ export const homeKeys = {
   'home.ready.openSettings': [],
   'home.ready.toast.done': [],
   'home.ready.toast.required': [],
+  'home.card.noQuestion': [],
+  'home.card.noReason': [],
+  'home.card.asideNote': ['head', 'free'],
+  'home.card.idleNote': ['time'],
+  'home.card.workingNote': [],
+  'home.card.startingNote': [],
 } as const satisfies MessageSpec;

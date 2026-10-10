@@ -1,9 +1,10 @@
-import type { ProjectStatus } from '@agent-hangar/shared';
+import type { ProjectStatus, Translate } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type Store } from '../store/store.ts';
 import { SCRATCH_PREFS } from '../mediator/launch.ts';
-import { APPROVE_TEXT, isPickableAccount, LOGGED_OUT_TEXT, presentAccounts, type AccountView } from './accounts.ts';
+import { approveText, isPickableAccount, loggedOutText, presentAccounts, type AccountView } from './accounts.ts';
 import { relativeTime } from './format.ts';
+import { translatorOf } from './i18n.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
 export type NewSessionProps = {
@@ -56,9 +57,9 @@ export function accountChoice(accounts: NewSessionAccounts, picked: string | nul
 export type NewSessionAccountOption = { value: string; label: string; color: string; disabled: boolean; tag?: string };
 
 /** 札から開く一覧の行。色の点は札の中のアカウントの色で、選べるかどうかは isPickableAccount が決める。 */
-export function accountOptions(accounts: NewSessionAccounts): NewSessionAccountOption[] {
+export function accountOptions(t: Translate, accounts: NewSessionAccounts): NewSessionAccountOption[] {
   return accounts.list.map((a) => {
-    const reason = a.auth === 'out' ? LOGGED_OUT_TEXT : a.auth === 'running' && !a.loggedIn ? APPROVE_TEXT : undefined;
+    const reason = a.auth === 'out' ? loggedOutText(t) : a.auth === 'running' && !a.loggedIn ? approveText(t) : undefined;
     return { value: a.id, label: a.name, color: a.color, disabled: !isPickableAccount(a), ...(reason ? { tag: reason } : {}) };
   });
 }
@@ -93,9 +94,10 @@ export function newSessionTarget(state: State, store: Store): NewSessionTarget {
 /** 起動ダイアログ。overlay が newSession のときだけ props を作る。 */
 export function presentNewSession(state: State, store: Store, now: number): NewSessionProps | null {
   if (state.overlay.kind !== 'newSession') return null;
+  const t = translatorOf(store);
   // スクラッチの擬似プロジェクトは選ばせない。
   const live = Object.values(store.projects).filter((p) => !p.isScratch && p.resolved && p.status !== 'archived');
-  const projects = [...live].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(p.lastActivityAt, now) }));
+  const projects = [...live].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name, path: p.path, status: p.status, lastActivity: p.lastActivityAt === null ? '' : relativeTime(t, p.lastActivityAt, now) }));
   // 最近は最後に使った時刻の新しい順。使ったことのないプロジェクトは入れない。
   const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
   const taken = new Set(Object.values(store.projects).map((p) => p.path).filter((p): p is string => !!p));

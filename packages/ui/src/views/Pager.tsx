@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from 'react';
 import type { PagerProps } from '../presenters/pager.ts';
 import { isComposing } from './ime.ts';
+import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
 
 /** 件数は桁を区切る（タブの件数と同じ書き方）。 */
@@ -28,6 +29,7 @@ export function pageButtons(page: number, count: number): (number | '…')[] {
  * label は何のページかを読み上げに添える語（「セッション」「最近」など）。
  */
 export function Pager(props: { label: string; pager: PagerProps; onPage: (page: number) => void; onSize: (size: number) => void }) {
+  const t = useT();
   const { page, pageCount, size, sizes, from, to, total } = props.pager;
   // 打っている途中の番号。ページが変わったら打ち直しは捨てる。
   const [draft, setDraft] = useState<{ page: number; text: string } | null>(null);
@@ -44,21 +46,21 @@ export function Pager(props: { label: string; pager: PagerProps; onPage: (page: 
     jump();
   };
   return (
-    <nav className="pager" aria-label={`${props.label}のページ`}>
-      <span className="pager-range num"><b>{`${fmt(from)}–${fmt(to)}`}</b> / {fmt(total)} 件</span>
+    <nav className="pager" aria-label={t('pager.nav.label', { label: props.label })}>
+      <span className="pager-range num"><b>{`${fmt(from)}–${fmt(to)}`}</b> {t('pager.range.total', { total: fmt(total) })}</span>
       <span className="pager-nums">
-        <button type="button" className="pager-btn" aria-label="前のページ" disabled={page <= 1} onClick={() => go(page - 1)}>‹</button>
+        <button type="button" className="pager-btn" aria-label={t('pager.nav.prev')} disabled={page <= 1} onClick={() => go(page - 1)}>‹</button>
         {pageButtons(page, pageCount).map((n, i) => (n === '…'
           ? <span key={`gap${i}`} className="pager-gap" aria-hidden="true">…</span>
-          : <button key={n} type="button" className="pager-btn" aria-label={`${n} ページ目`} aria-current={n === page ? 'page' : undefined} onClick={() => go(n)}>{n}</button>))}
-        <button type="button" className="pager-btn" aria-label="次のページ" disabled={page >= pageCount} onClick={() => go(page + 1)}>›</button>
+          : <button key={n} type="button" className="pager-btn" aria-label={t('pager.nav.page', { n })} aria-current={n === page ? 'page' : undefined} onClick={() => go(n)}>{n}</button>))}
+        <button type="button" className="pager-btn" aria-label={t('pager.nav.next')} disabled={page >= pageCount} onClick={() => go(page + 1)}>›</button>
       </span>
-      <label className="pager-jump">ページ
-        <input className="input" type="number" min={1} max={pageCount} aria-label="ページの番号" value={text}
+      <label className="pager-jump">{t('pager.jump.label')}
+        <input className="input" type="number" min={1} max={pageCount} aria-label={t('pager.jump.input')} value={text}
           onChange={(e) => setDraft({ page, text: e.target.value })} onKeyDown={onKeyDown} onBlur={() => setDraft(null)} />
         <span className="num">/ {fmt(pageCount)}</span>
       </label>
-      <Listbox label="1 ページの件数" value={String(size)} options={sizes.map((n) => ({ value: String(n), label: `${n} 件ずつ` }))}
+      <Listbox label={t('pager.size.label')} value={String(size)} options={sizes.map((n) => ({ value: String(n), label: t('pager.size.option', { n }) }))}
         onChange={(v) => props.onSize(Number(v))} faceClassName="listbox-face listbox-pill" align="end" />
     </nav>
   );

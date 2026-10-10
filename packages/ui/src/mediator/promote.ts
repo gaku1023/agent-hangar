@@ -1,17 +1,17 @@
+import { translatorOf } from '../presenters/i18n.ts';
+import type { Store } from '../store/store.ts';
+import type { Translate } from '@agent-hangar/shared';
 import type { Effect, Input, State, Step } from './types.ts';
 
-function nameError(name: string): string | null {
-  const t = name.trim();
-  if (!t) return '名前を入力してください';
-  if (t.includes('/')) return '名前に / は使えません';
+function nameError(name: string, t: Translate): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return t('mediator.promote.nameRequired');
+  if (trimmed.includes('/')) return t('mediator.promote.nameSlash');
   return null;
 }
 
-/** 完了ダイアログを開き直さないときに、昇格したことだけを伝える文言。 */
-const PROMOTED_TOAST = 'プロジェクトに昇格しました';
-
 /** promote 領域：スクラッチのセッションをプロジェクトへ昇格するダイアログ。 */
-export function promoteStep(state: State, input: Input): Step | null {
+export function promoteStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const e = input.event;
     if (e.type !== 'promote.done' && e.type !== 'promote.failed') return null;
@@ -20,7 +20,7 @@ export function promoteStep(state: State, input: Input): Step | null {
     if (state.promote.kind !== 'submitting') {
       const toast: Effect = e.type === 'promote.failed'
         ? { kind: 'toast', level: 'error', message: e.message }
-        : { kind: 'toast', level: 'info', message: PROMOTED_TOAST };
+        : { kind: 'toast', level: 'info', message: translatorOf(store)('mediator.promote.promoted') };
       return { state, effects: [toast] };
     }
     if (e.type === 'promote.done') return { state: { ...state, overlay: { kind: 'promoted', projectId: e.projectId, moved: e.moved, reason: e.reason }, promote: { kind: 'idle' } }, effects: [] };
@@ -33,7 +33,7 @@ export function promoteStep(state: State, input: Input): Step | null {
   if (i.type === 'session.promote.submit') {
     // 送信中の二重送信は捨てる。
     if (state.promote.kind === 'submitting') return { state, effects: [] };
-    const err = nameError(i.name);
+    const err = nameError(i.name, translatorOf(store));
     if (err) return { state: { ...state, promote: { kind: 'failed', message: err } }, effects: [] };
     return { state: { ...state, promote: { kind: 'submitting' } }, effects: [{ kind: 'api.promote', sessionId: i.id, name: i.name.trim(), gitInit: i.gitInit, moveFiles: i.moveFiles }] };
   }

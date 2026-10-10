@@ -5,8 +5,9 @@ import { FILE_DRAG_EVENT, FILE_DROP_EVENT, parseDrag, parseDrop } from '../../ru
 import { isComposing } from '../ime.ts';
 import { fitHeight, highlight, place, type Placement } from './listboxModel.ts';
 import { Icon } from './Icon.tsx';
-import { PromptAssistContext } from './promptAssist.ts';
-import { acceptText, arrangeCommands, attachmentFromPath, dropFileName, formatSize, isImageName, SOURCE_LABEL, triggerAt, type Attachment, type Trigger } from './promptComposerModel.ts';
+import { useT } from './language.tsx';
+import { AttachUnavailableError, PromptAssistContext } from './promptAssist.ts';
+import { acceptText, arrangeCommands, attachmentFromPath, dropFileName, formatSize, isImageName, sourceLabel, triggerAt, type Attachment, type Trigger } from './promptComposerModel.ts';
 
 /** 候補の一覧の高さの上限（px）。controls.css の .pc-pop の max-height（300px）と同じ値なので、変えるなら両方を変える。 */
 const POP_MAX_HEIGHT = 300;
@@ -22,6 +23,7 @@ const keyOf = (t: Trigger) => `${t.kind}${t.start}:${t.query}`;
 
 /** 添付 1 件の札。絵が読めなければ（置き場から消えた、など）、拡張子の印に替える。 */
 function AttachmentCard(props: { attachment: Attachment; onRemove: () => void }) {
+  const t = useT();
   const a = props.attachment;
   const [broken, setBroken] = useState(false);
   const file = isImageName(a.name) ? dropFileName(a.path) : null;
@@ -32,7 +34,7 @@ function AttachmentCard(props: { attachment: Attachment; onRemove: () => void })
         ? <img className="pc-thumb" src={`/api/drops/${encodeURIComponent(file)}`} alt="" onError={() => setBroken(true)} />
         : <span className="pc-thumb pc-thumb-doc" aria-hidden="true">{ext}</span>}
       <span className="pc-card-text"><b>{a.name}</b>{a.size !== null && <small>{formatSize(a.size)}</small>}</span>
-      <button type="button" className="pc-card-x" aria-label={`${a.name} を外す`} onClick={props.onRemove}><Icon name="close" /></button>
+      <button type="button" className="pc-card-x" aria-label={t('composer.card.remove', { name: a.name })} onClick={props.onRemove}><Icon name="close" /></button>
     </li>
   );
 }
@@ -50,6 +52,7 @@ function Marked(props: { text: string; query: string }) {
  * 候補はダイアログの外（body）に描く。ダイアログは backdrop-filter を持ち、中の fixed はダイアログ基準になるからである（Listbox と同じ）。
  */
 export function PromptComposer(props: { id: string; value: string; onChange: (value: string) => void; projectId: string | null; attachments: Attachment[]; onAttachmentsChange: (next: Attachment[]) => void; onPendingChange?: (count: number) => void; hero?: boolean; placeholder?: string }) {
+  const t = useT();
   const assist = useContext(PromptAssistContext);
   const box = useRef<HTMLDivElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -81,7 +84,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
   // @ の語はパスなので / が入るのがふつうで、その規則は持ち込まない。@ はプロジェクトのファイルを探すので、プロジェクトが無い（スクラッチ）ときは出さない。
   const open = trigger !== null && (trigger.kind === '/' ? !trigger.query.includes('/') : props.projectId !== null) && dismissed !== keyOf(trigger);
   const mode = open ? trigger.kind : null;
-  const sections = mode === '/' && Array.isArray(commands) ? arrangeCommands(commands, trigger!.query) : [];
+  const sections = mode === '/' && Array.isArray(commands) ? arrangeCommands(t, commands, trigger!.query) : [];
 
   // @ の候補。問いごとに読み、古い返事は捨てる。
   // 新しい返事を待つ間は、同じ @（同じプロジェクト、同じ位置）の前の問いの一覧（空でないもの）を出したままにする。打鍵のたびに「読み込んでいます」へ替わると、一覧がちらつくためである。
@@ -163,7 +166,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
   /** 貼り付け、ブラウザでのドロップ、添付ボタンのどれも、ここで置き場へ送る。 */
   const send = (files: File[]) => {
     for (const f of files) {
-      if (f.size > MAX_BYTES) { assist.notify(`${f.name} は 20 MB を超えているので添付できません`); continue; }
+      if (f.size > MAX_BYTES) { assist.notify(t('composer.attach.tooLarge', { name: f.name })); continue; }
       const id = nextId.current++;
       setQueue([...queue.current, { id, name: f.name }]);
       assist.upload(f).then(
@@ -172,7 +175,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
           settle();
         },
         (e: unknown) => {
-          assist.notify(`${f.name} を添付できませんでした（${e instanceof Error ? e.message : String(e)}）`);
+          assist.notify(t('composer.attach.failed', { name: f.name, reason: e instanceof AttachUnavailableError ? t('composer.attach.unavailable') : e instanceof Error ? e.message : String(e) }));
           queue.current = queue.current.filter((p) => p.id !== id);
           settle();
         },
@@ -398,10 +401,10 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
           }}
         />
         <div className="pc-tools">
-          <button type="button" className="pc-tool" onMouseDown={(e) => e.preventDefault()} onClick={startSlash}><span className="pc-tool-key" aria-hidden="true">/</span>スキル</button>
-          <button type="button" className="pc-tool" disabled={props.projectId === null} title={props.projectId === null ? 'プロジェクトを選ぶと使えます' : undefined} onMouseDown={(e) => e.preventDefault()} onClick={startAt}><span className="pc-tool-key" aria-hidden="true">@</span>ファイル</button>
-          <button type="button" className="pc-tool" onClick={() => picker.current?.click()}><Icon name="attach" />添付</button>
-          <span className="pc-tools-hint">画像は ⌘V でも貼れます</span>
+          <button type="button" className="pc-tool" onMouseDown={(e) => e.preventDefault()} onClick={startSlash}><span className="pc-tool-key" aria-hidden="true">/</span>{t('composer.tool.skill')}</button>
+          <button type="button" className="pc-tool" disabled={props.projectId === null} title={props.projectId === null ? t('composer.tool.fileNeedsProject') : undefined} onMouseDown={(e) => e.preventDefault()} onClick={startAt}><span className="pc-tool-key" aria-hidden="true">@</span>{t('composer.tool.file')}</button>
+          <button type="button" className="pc-tool" onClick={() => picker.current?.click()}><Icon name="attach" />{t('composer.tool.attach')}</button>
+          <span className="pc-tools-hint">{t('composer.tool.pasteHint')}</span>
           <input ref={picker} type="file" multiple hidden data-testid="pc-picker" onChange={(e) => { send([...(e.target.files ?? [])]); e.target.value = ''; }} />
         </div>
         {open && createPortal(
@@ -409,12 +412,12 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
             // 一覧の余白やスクロールバーを押しても、欄のフォーカスを奪わない（奪うと blur で一覧が閉じる）。
             onMouseDown={(e) => e.preventDefault()}
             style={pos ? { left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom } : { visibility: 'hidden' }}>
-            <div id={listId} role="listbox" aria-label={mode === '@' ? 'ファイル' : 'スキルとコマンド'} className="listbox-rows" data-stale={stale ? 'true' : undefined}>
+            <div id={listId} role="listbox" aria-label={mode === '@' ? t('composer.list.fileLabel') : t('composer.list.commandLabel')} className="listbox-rows" data-stale={stale ? 'true' : undefined}>
               {mode === '/' && (
                 <>
-                  {commands === null && <div className="listbox-empty">読み込んでいます</div>}
-                  {commands === 'failed' && <div className="listbox-empty">読めませんでした</div>}
-                  {Array.isArray(commands) && !flat.length && <div className="listbox-empty">一致するものはありません</div>}
+                  {commands === null && <div className="listbox-empty">{t('common.state.loading')}</div>}
+                  {commands === 'failed' && <div className="listbox-empty">{t('composer.list.failed')}</div>}
+                  {Array.isArray(commands) && !flat.length && <div className="listbox-empty">{t('common.empty.noMatch')}</div>}
                   {sections.map((s, si) => (
                     <div key={s.title ?? 'hit'} role={s.title ? 'group' : undefined} aria-labelledby={s.title ? `${listId}-g${si}` : undefined}>
                       {s.title && <div id={`${listId}-g${si}`} className="listbox-group-title">{s.title}</div>}
@@ -428,7 +431,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
                               <span className="pc-cmd">/<Marked text={c.name} query={trigger!.query} />{c.argumentHint && <span className="pc-arg">{c.argumentHint}</span>}</span>
                               {c.description && <small data-kind="prose" className="pc-desc">{c.description}</small>}
                             </span>
-                            <span className="pc-src" data-source={c.source}>{SOURCE_LABEL[c.source]}</span>
+                            <span className="pc-src" data-source={c.source}>{sourceLabel(t, c.source)}</span>
                           </div>
                         );
                       })}
@@ -438,11 +441,11 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
               )}
               {mode === '@' && (
                 <>
-                  {fileList === null && <div className="listbox-empty">読み込んでいます</div>}
-                  {fileList === 'failed' && <div className="listbox-empty">読めませんでした</div>}
-                  {Array.isArray(fileList) && !fileList.length && <div className="listbox-empty">一致するものはありません</div>}
+                  {fileList === null && <div className="listbox-empty">{t('common.state.loading')}</div>}
+                  {fileList === 'failed' && <div className="listbox-empty">{t('composer.list.failed')}</div>}
+                  {Array.isArray(fileList) && !fileList.length && <div className="listbox-empty">{t('common.empty.noMatch')}</div>}
                   {/* 見出しは、その一覧を引いた問いが空のときだけ。前の問いの一覧を残している間に、いまの問いへ「最近変えた」を付けない。 */}
-                  {Array.isArray(fileList) && fileList.length > 0 && shown?.query === '' && <div className="listbox-group-title">最近変えたファイル</div>}
+                  {Array.isArray(fileList) && fileList.length > 0 && shown?.query === '' && <div className="listbox-group-title">{t('composer.list.recentFiles')}</div>}
                   {Array.isArray(fileList) && fileList.map((f, i) => {
                     const cut = f.lastIndexOf('/');
                     const q = trigger!.query;
@@ -464,12 +467,12 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
         )}
       </div>
       {(props.attachments.length > 0 || pending.length > 0) && (
-        <ul className="pc-cards" aria-label="添付">
+        <ul className="pc-cards" aria-label={t('composer.cards.label')}>
           {props.attachments.map((a) => <AttachmentCard key={a.path} attachment={a} onRemove={() => remove(a.path)} />)}
           {pending.map((p) => (
             <li key={`pending-${p.id}`} className="pc-card" aria-label={p.name} aria-busy="true">
               <span className="pc-thumb pc-thumb-doc" aria-hidden="true" />
-              <span className="pc-card-text"><b>{p.name}</b><small>送っています</small></span>
+              <span className="pc-card-text"><b>{p.name}</b><small>{t('composer.card.sending')}</small></span>
             </li>
           ))}
         </ul>

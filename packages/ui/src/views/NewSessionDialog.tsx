@@ -266,7 +266,7 @@ export function NewSessionDialog(props: NewSessionProps) {
       </div>
       <LaunchChips
         lead={projectChip}
-        account={props.accounts && account !== null ? { value: account, options: accountOptions(props.accounts), onChange: setPickedAccount } : undefined}
+        account={props.accounts && account !== null ? { value: account, options: accountOptions(t, props.accounts), onChange: setPickedAccount } : undefined}
         values={{ model, effort, permissionMode, worktree, addDirs, name }}
         onChange={onChips}
         previousPermission={prev ? prev.permissionMode ?? '' : undefined}

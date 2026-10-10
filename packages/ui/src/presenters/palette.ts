@@ -1,5 +1,5 @@
-import { type LiveStatus, type SessionDto } from '@agent-hangar/shared';
-import { ASIDE_WORD } from '../lib/aside.ts';
+import { type LiveStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { asideWord } from '../lib/aside.ts';
 import { KEYMAP, type KeyId } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownAside, shownLive, type Store } from '../store/store.ts';
@@ -65,16 +65,16 @@ export function fuzzyScore(query: string, text: string): number {
 }
 
 /** 右端に添える語。入力待ちは待った長さ、作業中は動き始めてからの長さ、休みと裏だけは最後の返答からの長さ、終わったものは最後の活動の時期。 */
-function sessionMeta(s: SessionDto, running: boolean, now: number): string {
-  const since = (ts: number | null) => durationLabel(now - (ts ?? now));
+function sessionMeta(t: Translate, s: SessionDto, running: boolean, now: number): string {
+  const since = (ts: number | null) => durationLabel(t, now - (ts ?? now));
   const live = shownLive(s);
-  if (live === 'waiting') return `${since(s.lastActivityAt)}待っている`;
-  if (shownAside(s)) return `${ASIDE_WORD} ${since(s.lastActivityAt)}`;
-  if (live === 'busy') return `作業中 ${since(s.startedAt)}`;
-  if (live === 'idle') return `休み ${since(s.lastActivityAt)}`;
+  if (live === 'waiting') return t('palette.meta.waiting', { time: since(s.lastActivityAt) });
+  if (shownAside(s)) return t('palette.meta.aside', { word: asideWord(t), time: since(s.lastActivityAt) });
+  if (live === 'busy') return t('palette.meta.working', { time: since(s.startedAt) });
+  if (live === 'idle') return t('palette.meta.idle', { time: since(s.lastActivityAt) });
   // hangar の run は生きているが、Claude の一覧にまだ載っていないもの。
-  if (running) return '起動しています';
-  return relativeTime(s.lastActivityAt, now);
+  if (running) return t('palette.meta.starting');
+  return relativeTime(t, s.lastActivityAt, now);
 }
 
 type Scored = { item: PaletteItem; score: number };
@@ -84,11 +84,11 @@ type Scored = { item: PaletteItem; score: number };
  * 点の高い順に並べ（同点は渡した順）、limit で切る。
  * 何も当たらなければ null を返し、空の群は出さない。
  */
-function section(title: string, scored: Scored[], limit: number): { section: PaletteSection; best: number } | null {
+function section(t: Translate, title: string, scored: Scored[], limit: number): { section: PaletteSection; best: number } | null {
   const hits = scored.filter((x) => x.score > 0).map((x, at) => ({ ...x, at })).sort((a, b) => b.score - a.score || a.at - b.at);
   if (hits.length === 0) return null;
   const cut = hits.length > limit;
-  return { section: { title, count: hits.length, limit: cut ? `上位 ${limit}` : null, items: hits.slice(0, limit).map((x) => x.item) }, best: hits[0]!.score };
+  return { section: { title, count: hits.length, limit: cut ? t('palette.limit.top', { n: limit }) : null, items: hits.slice(0, limit).map((x) => x.item) }, best: hits[0]!.score };
 }
 
 /** 群の全件の数を出さない。「最近」は終わったセッションの全件で、千を超える数は見出しに要らない（「上位 3」だけを添える）。 */
@@ -112,11 +112,11 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   // セッションは状態で 3 つに分ける。入力待ちは実行中に含めない（用語の D1）。
   // 引くのは名前だけである。要約と本文は、ホームの欄が引く。
   const sessions = byRecency(Object.values(store.sessions));
-  const sessionItem = (s: SessionDto, running: boolean): PaletteItem => ({ id: `session:${s.id}`, label: s.name ?? '（名前なし）', kind: 'session', lead: { kind: 'dot', live: shownLive(s), aside: shownAside(s) !== null }, sub: projectName(s), meta: sessionMeta(s, running, now), keys: '' });
+  const sessionItem = (s: SessionDto, running: boolean): PaletteItem => ({ id: `session:${s.id}`, label: s.name ?? t('common.label.noName'), kind: 'session', lead: { kind: 'dot', live: shownLive(s), aside: shownAside(s) !== null }, sub: projectName(s), meta: sessionMeta(t, s, running, now), keys: '' });
   const byState = { waiting: [] as Scored[], running: [] as Scored[], ended: [] as Scored[] };
   for (const s of sessions) {
     const f = liveFilterOfSession(store, s, alive);
-    byState[f].push({ item: sessionItem(s, f === 'running'), score: fuzzyScore(q, s.name ?? '（名前なし）') });
+    byState[f].push({ item: sessionItem(s, f === 'running'), score: fuzzyScore(q, s.name ?? t('common.label.noName')) });
   }
 
   // 次の入力待ちへは、移る先を添える。どこへ移るかは ⌘I と同じ関数で決める。
@@ -128,17 +128,17 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   const newId = target.projectId ? `cmd:new-session:project:${target.projectId}` : target.scratch ? 'cmd:new-session:scratch' : 'cmd:new-session';
   // 何も打っていないときに出す操作と、打ったときだけ足す操作。ホームとプロジェクトは、サイドバーから移れるので、打ったときだけ出す。
   const actions = [
-    cmd(newId, '新しいセッション', 'add', keysOf('session.new')),
-    cmd('cmd:new-scratch', 'スクラッチで始める', 'scratch', keysOf('session.newScratch')),
-    cmd('cmd:next-waiting', '次の入力待ちへ', 'next', keysOf('session.nextWaiting'), next ? store.sessions[next]?.name ?? '（名前なし）' : ''),
-    cmd('cmd:new-project', '新しいプロジェクト', 'add'),
-    cmd('cmd:shortcuts', 'キーの一覧', 'keys', keysOf('shortcuts.open')),
+    cmd(newId, t('palette.cmd.newSession'), 'add', keysOf('session.new')),
+    cmd('cmd:new-scratch', t('palette.cmd.newScratch'), 'scratch', keysOf('session.newScratch')),
+    cmd('cmd:next-waiting', t('palette.cmd.nextWaiting'), 'next', keysOf('session.nextWaiting'), next ? store.sessions[next]?.name ?? t('common.label.noName') : ''),
+    cmd('cmd:new-project', t('palette.cmd.newProject'), 'add'),
+    cmd('cmd:shortcuts', t('palette.cmd.shortcuts'), 'keys', keysOf('shortcuts.open')),
   ];
   const typedOnly = [
-    cmd('go:home', 'ホームへ', 'home'),
-    cmd('go:projects', 'プロジェクトへ', 'projects'),
-    cmd('cmd:sidebar', 'サイドバーの開閉', 'sidebar', keysOf('sidebar.toggle')),
-    cmd('cmd:rebuild-index', '索引を作り直す', 'rebuild'),
+    cmd('go:home', t('palette.cmd.home'), 'home'),
+    cmd('go:projects', t('palette.cmd.projects'), 'projects'),
+    cmd('cmd:sidebar', t('palette.cmd.sidebar'), 'sidebar', keysOf('sidebar.toggle')),
+    cmd('cmd:rebuild-index', t('palette.cmd.rebuildIndex'), 'rebuild'),
   ];
   // 設定の節は、行き先として並べる。保持は一般の節の中にあるので、一般の節へ移る。
   const place = t('settings.heading.title');
@@ -159,8 +159,8 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   if (!q) {
     const all = Number.POSITIVE_INFINITY;
     const groups = [
-      section('入力待ち', byState.waiting, all), noCount(section('最近', byState.ended, EMPTY_RECENT)),
-      section('操作', scoreAll(actions), all), section('設定', scoreAll(sectionRows, true), all),
+      section(t, t('palette.section.waiting'), byState.waiting, all), noCount(section(t, t('palette.section.recent'), byState.ended, EMPTY_RECENT)),
+      section(t, t('palette.section.actions'), scoreAll(actions), all), section(t, t('palette.section.settings'), scoreAll(sectionRows, true), all),
     ];
     return { query, sections: groups.filter((g) => g !== null).map((g) => g.section), noMatch: false };
   }
@@ -170,11 +170,11 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   // 点が同じ群は、何も打っていないときと同じ順にする。
   // 終わったセッションは新しいほうの TYPED_ENDED 件だけを引く。古いものは、ホームの欄で引く。
   const groups = [
-    section('入力待ち', byState.waiting, TYPED_LIMIT), section('実行中', byState.running, TYPED_LIMIT), section('セッション', byState.ended.slice(0, TYPED_ENDED), TYPED_LIMIT),
-    section('操作', scoreAll([...actions, ...typedOnly]), TYPED_LIMIT), section('設定', scoreAll([...sectionRows, ...typedSections], true), TYPED_LIMIT),
+    section(t, t('palette.section.waiting'), byState.waiting, TYPED_LIMIT), section(t, t('palette.section.running'), byState.running, TYPED_LIMIT), section(t, t('palette.section.sessions'), byState.ended.slice(0, TYPED_ENDED), TYPED_LIMIT),
+    section(t, t('palette.section.actions'), scoreAll([...actions, ...typedOnly]), TYPED_LIMIT), section(t, t('palette.section.settings'), scoreAll([...sectionRows, ...typedSections], true), TYPED_LIMIT),
   ].map((g, order) => (g ? { ...g, order } : null)).filter((g) => g !== null).sort((a, b) => b.best - a.best || a.order - b.order);
   // 最後の行は、ホームの欄へ渡す。名前と要約とトランスクリプトを引く欄で、件数はそこに並ぶ行の数である。
   const total = found !== null && found.q === q ? found.total : null;
-  const handoff: PaletteSection = { title: 'ホーム', count: null, limit: null, items: [{ id: `search:${q}`, label: `ホームで『${q}』をトランスクリプトから検索`, kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: total === null ? '' : `${total.toLocaleString('en-US')} 件`, keys: '⌘↵' }] };
+  const handoff: PaletteSection = { title: t('palette.section.home'), count: null, limit: null, items: [{ id: `search:${q}`, label: t('palette.search.label', { q }), kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: total === null ? '' : t('palette.meta.count', { n: total.toLocaleString('en-US') }), keys: '⌘↵' }] };
   return { query, sections: [...groups.map((g) => g.section), handoff], noMatch: groups.length === 0 };
 }

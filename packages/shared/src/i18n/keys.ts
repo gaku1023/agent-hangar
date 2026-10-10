@@ -38,6 +38,20 @@ import { syncKeys } from './keys/sync.ts';
 import { systemKeys } from './keys/system.ts';
 import { todoKeys } from './keys/todo.ts';
 import { usageKeys } from './keys/usage.ts';
+import { mediatorKeys } from './keys/mediator.ts';
+import { runtimeKeys } from './keys/runtime.ts';
+import { primitivesKeys } from './keys/primitives.ts';
+import { composerKeys } from './keys/composer.ts';
+import { toolsKeys } from './keys/tools.ts';
+import { transcriptKeys } from './keys/transcript.ts';
+import { terminalKeys } from './keys/terminal.ts';
+import { pagerKeys } from './keys/pager.ts';
+import { paletteKeys } from './keys/palette.ts';
+import { connKeys } from './keys/conn.ts';
+import { toastsKeys } from './keys/toasts.ts';
+import { cloudUsageKeys } from './keys/cloudUsage.ts';
+import { readinessKeys } from './keys/readiness.ts';
+import { compatKeys } from './keys/compat.ts';
 
 /**
  * 文言の鍵の一覧。鍵ごとに、その文が受け取る引数の名前を並べる。
@@ -92,6 +106,20 @@ export const MESSAGES = {
   ...systemKeys,
   ...todoKeys,
   ...usageKeys,
+  ...mediatorKeys,
+  ...runtimeKeys,
+  ...primitivesKeys,
+  ...composerKeys,
+  ...toolsKeys,
+  ...transcriptKeys,
+  ...terminalKeys,
+  ...pagerKeys,
+  ...paletteKeys,
+  ...connKeys,
+  ...toastsKeys,
+  ...cloudUsageKeys,
+  ...readinessKeys,
+  ...compatKeys,
 } as const satisfies MessageSpec;
 
 export type MessageKey = keyof typeof MESSAGES;

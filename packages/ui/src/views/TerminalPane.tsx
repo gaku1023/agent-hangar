@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import type { LiveStatus } from '@agent-hangar/shared';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED, beginLayoutMotion, endLayoutMotion } from './primitives/layoutMotion.ts';
 import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
 import { usePresence } from './primitives/usePresence.ts';
@@ -33,6 +34,7 @@ function useSecondsUntil(at: number | null): number | null {
  */
 export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null }) {
   const host = useContext(TerminalHostContext);
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   // 帯の高さが変わる間は端末の寸法を合わせない（設計書 ⑧）。
@@ -91,7 +93,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   // tmux から抜けて閉じたが、run とタブは生きている。自動ではつながないので、つなぎ直す手を出す。
   const detached = !failed && !dropped && link.detached && status !== 'connected';
   const off = failed || dropped || detached;
-  const who = props.agent ? 'Claude は' : 'シェルは';
+  const running = t(props.agent ? 'terminal.off.agentRunning' : 'terminal.off.shellRunning');
 
   // 帯が出ていても Esc は横取りしない。
   // Esc は Claude の中断に要るうえ、利用者が xterm で自分で transcript を抜けたことを hangar は知らない。
@@ -105,9 +107,9 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
       {band.mounted && lastBand.current && (
         <div ref={band.ref} className="term-band" aria-hidden={band.leaving ? 'true' : undefined}>
           <Icon name="transcriptView" />
-          <b>transcript を表示中</b>
-          <span className="term-band-sub">{lastBand.current.when ? `${lastBand.current.when} のターン · ` : ''}Claude は裏で動き続けています</span>
-          <button type="button" className="btn" onClick={lastBand.current.onLatest}><Icon name="latest" />最新へ戻る</button>
+          <b>{t('terminal.band.title')}</b>
+          <span className="term-band-sub">{lastBand.current.when ? t('terminal.band.subWhen', { when: lastBand.current.when }) : t('terminal.band.sub')}</span>
+          <button type="button" className="btn" onClick={lastBand.current.onLatest}><Icon name="latest" />{t('terminal.band.latest')}</button>
         </div>
       )}
       {hint.mounted && <div ref={hint.ref} className="term-hint" role={hint.leaving ? undefined : 'status'}>{props.hint ?? lastHint.current}</div>}
@@ -117,14 +119,14 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
         <div className="term-veil">
           <div className="term-off-card">
             <span className="term-off-ic"><Icon name="disconnected" /></span>
-            <b role="alert">{failed ? 'ターミナルに接続できませんでした' : detached ? 'ターミナルから切り離されました' : 'ターミナルとの接続が切れました'}</b>
-            <p>{failed ? 'もう一度つなぐか、セッションを開き直してください。' : detached ? `${who}動き続けています。` : link.gaveUp ? 'つなげませんでした。' : `${who}動き続けています。${secs !== null ? `${secs} 秒後にもう一度つなぎます。` : 'つなぎ直しています。'}`}</p>
-            <button type="button" className="btn btn-primary" onClick={() => host?.reconnect(props.tabId)}><Icon name="reconnect" />{detached ? 'つなぎ直す' : '再接続'}</button>
+            <b role="alert">{t(failed ? 'terminal.off.failed' : detached ? 'terminal.off.detached' : 'terminal.off.dropped')}</b>
+            <p>{failed ? t('terminal.off.failedBody') : detached ? running : link.gaveUp ? t('terminal.off.gaveUp') : t('terminal.off.then', { first: running, next: t(secs !== null ? 'terminal.off.retryIn' : 'terminal.off.retrying', { n: secs ?? 0 }) })}</p>
+            <button type="button" className="btn btn-primary" onClick={() => host?.reconnect(props.tabId)}><Icon name="reconnect" />{t(detached ? 'terminal.off.reattach' : 'terminal.off.reconnect')}</button>
           </div>
         </div>
       )}
-      {!off && status === 'closed' && <div className="term-status">接続していません</div>}
-      {!off && status === 'connecting' && <div className="term-status">接続しています</div>}
+      {!off && status === 'closed' && <div className="term-status">{t('terminal.status.closed')}</div>}
+      {!off && status === 'connecting' && <div className="term-status">{t('terminal.status.connecting')}</div>}
     </div>
   );
 }

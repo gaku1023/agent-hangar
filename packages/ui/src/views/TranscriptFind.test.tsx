@@ -4,7 +4,9 @@ import { IntentRoot } from '../intent/chain.tsx';
 import type { FindState } from '../presenters/find.ts';
 import type { TranscriptItem } from '../presenters/session.ts';
 import { toolItem } from '../test/items.ts';
+import { translator } from '@agent-hangar/shared';
 import { createFindStore, FindRoot } from './findStore.tsx';
+import { LanguageRoot } from './primitives/language.tsx';
 import { Transcript } from './Transcript.tsx';
 
 afterEach(cleanup);
@@ -184,5 +186,24 @@ describe('検索の結果から開いたとき（J1）', () => {
     act(() => t.redraw({ hasNewer: true }));
     fireEvent.click(screen.getByRole('button', { name: '新しい行を読み込む' }));
     expect(t.onIntent).toHaveBeenCalledWith({ type: 'transcript.loadNewer', sessionId: 's1' });
+  });
+});
+
+describe('本文の中の検索の欄（英語）', () => {
+  it('欄の名前、ボタン、件数が英語で出る', () => {
+    const finds = createFindStore();
+    finds.open('s1');
+    finds.query('s1', 'nothing', false, null);
+    render(<IntentRoot onIntent={vi.fn()}><LanguageRoot language="en"><FindRoot store={finds}><Transcript sessionId="s1" items={many(2)} hasMore hasNewer loading={false} follow={false} live remaining={3} /></FindRoot></LanguageRoot></IntentRoot>);
+    expect(screen.getByRole('searchbox', { name: 'Find in transcript' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Match case' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous match (⇧⏎)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next match (⏎)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close (esc)' })).toBeInTheDocument();
+    expect(screen.getByText('0 matches')).toBeInTheDocument();
+    expect(screen.getByText('Load older lines (3 left)')).toBeInTheDocument();
+    expect(screen.getByText('Load newer lines')).toBeInTheDocument();
+    expect(translator('en')('transcript.more.unseen', { n: 1 })).toBe('1 new line');
+    expect(translator('en')('transcript.more.unseen', { n: 2 })).toBe('2 new lines');
   });
 });

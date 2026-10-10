@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { CompatDto, Intent, SettingsSection } from '@agent-hangar/shared';
+import { translator, type CompatDto, type Intent, type SettingsSection } from '@agent-hangar/shared';
 import { IntentRoot } from '../intent/chain.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentAccounts } from '../presenters/accounts.ts';
@@ -45,7 +45,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   accounts: { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, Date.parse('2026-10-06T12:00:00+09:00')), colors: ACCOUNT_COLORS },
   section: 'general',
   toc: tocOf(),
-  language: { visible: false, value: 'ja' },
+  language: { value: 'ja' },
   focus: null,
   compat: null,
   ...over,
@@ -164,14 +164,9 @@ describe('設定の目次（S1）', () => {
 });
 
 describe('設定の一般', () => {
-  it('言語の行は作ってあるが、まだ出さない', () => {
-    render(ui(at('general')));
-    expect(screen.queryByText('言語')).toBeNull();
-    expect(screen.queryByRole('radio', { name: 'English' })).toBeNull();
-  });
-  it('言語の行を出す設定では、先頭に置き、押した瞬間に保存する（保存のボタンは無い）', () => {
+  it('言語の行は先頭に置き、押した瞬間に保存する（保存のボタンは無い）', () => {
     const onIntent = vi.fn();
-    render(ui(at('general', { language: { visible: true, value: 'ja' } }), onIntent));
+    render(ui(at('general'), onIntent));
     const rows = [...document.querySelectorAll('.set-row-t')].map((e) => e.textContent);
     expect(rows[0]).toBe('言語');
     expect(screen.getByRole('radio', { name: '日本語' })).toHaveAttribute('aria-checked', 'true');
@@ -180,7 +175,7 @@ describe('設定の一般', () => {
   });
   it('一般には、通知、ターミナルアプリ、トランスクリプトの保持を置く', () => {
     render(ui(at('general', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
-    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['通知を有効にする', 'ターミナルアプリ', 'トランスクリプトの保持']);
+    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'トランスクリプトの保持']);
   });
   it('「通知を有効にする」のスイッチで切り替える', () => {
     const onIntent = vi.fn();
@@ -514,21 +509,21 @@ describe('設定の連携', () => {
       expect(section()).toHaveTextContent('hangar は Claude Code の会話の記録、状態のファイル、statusline、~/.claude の項目、CLI の出力、画面の文字を読んでいます。知らない形に出会ったら、ここに出します。');
     });
     it('問題なしは緑の札で、手元の版と確かめた版を出す', () => {
-      render(ui(at('integrations', { compat: presentCompat({ verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })));
+      render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })));
       expect(within(section()).getByText('問題なし')).toHaveAttribute('data-tone', 'ok');
       expect(section()).toHaveTextContent('手元の版 2.1.292');
       expect(section()).toHaveTextContent('確かめた版 2.1.292');
       expect(within(section()).queryByRole('list', { name: '止めた機能' })).toBeNull();
     });
     it('未確認の版は灰色の札で、版の並びに止めていないことを添える', () => {
-      render(ui(at('integrations', { compat: presentCompat({ verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 0 }, null, '') })));
+      render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 0 }, null, '') })));
       expect(within(section()).getByText('未確認の版')).toHaveAttribute('data-tone', 'info');
       expect(section()).toHaveTextContent('手元の版 2.1.300');
       expect(within(section()).getByText('まだ確かめていない版です。動きは止めていません')).toBeInTheDocument();
     });
     it('ずれは注意の札で、止めた機能の一覧を常に出し、細目は畳む。表の下に置き場と報告用に写す', () => {
       const onIntent = vi.fn();
-      const c = presentCompat(DRIFT, DETAIL, '0.3.0');
+      const c = presentCompat(translator('ja'), DRIFT, DETAIL, '0.3.0');
       render(ui(at('integrations', { compat: c }), onIntent));
       const sec = within(section());
       expect(sec.getByText('ずれ 3 件')).toHaveAttribute('data-tone', 'warn');
@@ -543,14 +538,14 @@ describe('設定の連携', () => {
     });
     it('ずれはあっても止めた機能が無ければ、一覧を出さず、記録だけだと言う', () => {
       const only: CompatDto = { ...DETAIL, drifts: [{ contract: 'cli', value: 'subcommand.added=newcmd', version: null, count: 1, firstSeenAt: when(7, 9, 0), lastSeenAt: when(7, 9, 0) }] };
-      render(ui(at('integrations', { compat: presentCompat({ ...DRIFT, driftCount: 1 }, only, '') })));
+      render(ui(at('integrations', { compat: presentCompat(translator('ja'), { ...DRIFT, driftCount: 1 }, only, '') })));
       expect(within(section()).getByText('ずれ 1 件')).toHaveAttribute('data-tone', 'warn');
       expect(within(section()).getByText('知らない形を記録しましたが、止めた機能はありません。')).toBeInTheDocument();
       expect(within(section()).queryByRole('list', { name: '止めた機能' })).toBeNull();
       expect(within(section()).getByText('ずれ 1 件の中身')).toBeInTheDocument();
     });
     it('ずれがあっても、見出しの「要修正」は灯さない', () => {
-      render(ui(at('integrations', { compat: presentCompat(DRIFT, DETAIL, ''), todo: { must: 0, link: 0 } })));
+      render(ui(at('integrations', { compat: presentCompat(translator('ja'), DRIFT, DETAIL, ''), todo: { must: 0, link: 0 } })));
       expect(screen.getByRole('heading', { level: 2, name: /^連携/ })).not.toHaveTextContent('要修正');
     });
   });

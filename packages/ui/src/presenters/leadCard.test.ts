@@ -145,7 +145,7 @@ describe('見出しの名前の横の札（ロックと、トランスクリプ�
     expect(presentSessionBadges(session({ lock: lock(false) }), NOW, ja)).toEqual([{ kind: 'lock', label: 'office-pc で実行中', title: '最終確認 5 分前' }]);
   });
   it('応答が途絶えていれば「<PC 名> から応答がありません」で、色の種類も替える', () => {
-    expect(presentSessionBadges(session({ lock: lock(true) }), NOW, en)).toEqual([{ kind: 'stale', label: 'office-pc is not responding', title: 'Last seen 5 分前' }]);
+    expect(presentSessionBadges(session({ lock: lock(true) }), NOW, en)).toEqual([{ kind: 'stale', label: 'office-pc is not responding', title: 'Last seen 5 min ago' }]);
   });
   it('トランスクリプトが他の PC にあるときは、ロックと同じ扱いの札を出す。両方あれば、ロック、トランスクリプトの順', () => {
     expect(presentSessionBadges(session({ remoteOnly: true }), NOW, ja)).toEqual([{ kind: 'remote', label: 'トランスクリプトは他の PC にあります', title: null }]);

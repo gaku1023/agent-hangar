@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { PromptCommandDto } from '@agent-hangar/shared';
+import { translator, type PromptCommandDto } from '@agent-hangar/shared';
 import { acceptText, arrangeCommands, attachmentFromPath, composePrompt, dropFileName, formatSize, isImageName, triggerAt, type Attachment } from './promptComposerModel.ts';
 
+const ja = translator('ja');
 const cmd = (name: string, source: PromptCommandDto['source'] = 'user', uses = 0, description = ''): PromptCommandDto => ({ name, description, argumentHint: null, source, uses });
 
 describe('triggerAt', () => {
@@ -38,29 +39,33 @@ describe('triggerAt', () => {
 describe('arrangeCommands', () => {
   const all = [cmd('alpha', 'user', 0), cmd('goal', 'user', 27), cmd('find-session', 'user', 42), cmd('init', 'builtin', 4), cmd('deploy', 'project', 0), cmd('sp:plan', 'plugin', 0), cmd('toggle', 'user', 10), cmd('review', 'builtin', 5), cmd('playwright', 'user', 4), cmd('grill', 'user', 3)];
   it('打つ前は、よく使う 5 つを先頭に、このプロジェクト、自分の、プラグイン、組み込みの順の群にする', () => {
-    const s = arrangeCommands(all, '');
+    const s = arrangeCommands(ja, all, '');
     // 組み込みの init と review は「よく使う」に入ったので、組み込みの群は空になり、出ない。
     expect(s.map((x) => x.title)).toEqual(['よく使う', 'このプロジェクト', '自分の', 'プラグイン']);
     expect(s[0]!.items.map((c) => c.name)).toEqual(['find-session', 'goal', 'toggle', 'review', 'init']);
     expect(s[2]!.items.map((c) => c.name)).toEqual(['alpha', 'playwright', 'grill']);
   });
   it('回数が同じなら、もとの並びを保つ', () => {
-    expect(arrangeCommands([cmd('a', 'user', 4), cmd('b', 'user', 4)], '')[0]!.items.map((c) => c.name)).toEqual(['a', 'b']);
+    expect(arrangeCommands(ja, [cmd('a', 'user', 4), cmd('b', 'user', 4)], '')[0]!.items.map((c) => c.name)).toEqual(['a', 'b']);
   });
   it('回数が 0 のものは、よく使うに入れない。空の群は出さない', () => {
-    const s = arrangeCommands([cmd('a'), cmd('b', 'builtin')], '');
+    const s = arrangeCommands(ja, [cmd('a'), cmd('b', 'builtin')], '');
     expect(s.map((x) => x.title)).toEqual(['自分の', '組み込み']);
   });
   it('打ったら群を解き、名前の頭、名前の途中、説明の順に並べ、同じなら回数の多い順にする', () => {
     const list = [cmd('code-review', 'builtin', 0), cmd('review', 'builtin', 5), cmd('rewind', 'user', 9), cmd('x', 'user', 0, 'review を助ける')];
-    const s = arrangeCommands(list, 're');
+    const s = arrangeCommands(ja, list, 're');
     expect(s).toHaveLength(1);
     expect(s[0]!.title).toBeNull();
     expect(s[0]!.items.map((c) => c.name)).toEqual(['rewind', 'review', 'code-review', 'x']);
   });
   it('大文字と小文字を区別しない。一致が無ければ空を返す', () => {
-    expect(arrangeCommands([cmd('Goal')], 'GO')[0]!.items.map((c) => c.name)).toEqual(['Goal']);
-    expect(arrangeCommands([cmd('goal')], 'zzz')).toEqual([]);
+    expect(arrangeCommands(ja, [cmd('Goal')], 'GO')[0]!.items.map((c) => c.name)).toEqual(['Goal']);
+    expect(arrangeCommands(ja, [cmd('goal')], 'zzz')).toEqual([]);
+  });
+  it('英語では、群の見出しも英語になる', () => {
+    const s = arrangeCommands(translator('en'), all, '');
+    expect(s.map((x) => x.title)).toEqual(['Frequently used', 'This project', 'Personal', 'Plugins']);
   });
 });
 

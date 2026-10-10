@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { LanguageRoot, useLanguage, useT } from './language.tsx';
 
 function Probe() {
@@ -20,5 +20,16 @@ describe('View から辞書を引く', () => {
     expect(screen.getByTestId('probe')).toHaveAttribute('lang', 'en');
     rerender(<LanguageRoot language="ja"><Probe /></LanguageRoot>);
     expect(screen.getByTestId('probe')).toHaveTextContent('2 件のセッション / キャンセル');
+  });
+});
+
+describe('頁の lang', () => {
+  afterEach(() => { document.documentElement.lang = 'ja'; });
+
+  it('いまの言語を頁の lang に書く（読み上げの声と字形の選びが言語に従う）', () => {
+    const { rerender } = render(<LanguageRoot language="en"><span /></LanguageRoot>);
+    expect(document.documentElement.lang).toBe('en');
+    rerender(<LanguageRoot language="ja"><span /></LanguageRoot>);
+    expect(document.documentElement.lang).toBe('ja');
   });
 });

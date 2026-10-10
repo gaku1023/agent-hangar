@@ -31,7 +31,6 @@ export const settingsKeys = {
   'settings.heading.title': [],
   'settings.toc.label': [],
   'settings.toc.row': ['name', 'state'],
-  'settings.toc.separator': [],
   'settings.fix.count': ['n'],
   'settings.toc.checking': [],
   'settings.toc.allFound': [],

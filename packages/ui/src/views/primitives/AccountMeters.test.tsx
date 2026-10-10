@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { AccountDto } from '@agent-hangar/shared';
+import { translator, type AccountDto } from '@agent-hangar/shared';
 import { presentAccount, type AccountView } from '../../presenters/accounts.ts';
 import { accountsFixture } from '../../test/accounts.ts';
 import { AccountMeters } from './AccountMeters.tsx';
@@ -8,7 +8,7 @@ import { AccountMeters } from './AccountMeters.tsx';
 const NOW = new Date(2026, 9, 6, 12, 0).getTime();
 const HOUR = 3_600_000;
 const base = accountsFixture.accounts[0]!;
-const view = (over: Partial<AccountDto> = {}): AccountView => presentAccount({ ...base, ...over }, 'primary', NOW);
+const view = (over: Partial<AccountDto> = {}): AccountView => presentAccount(translator('ja'), { ...base, ...over }, 'primary', NOW);
 /** 82% と 41% で、戻る時刻つきの値を持つ会社のアカウント。 */
 const withUsage = (over: Partial<AccountDto> = {}) => view({ usage: { fiveHour: { usedPercent: 82, resetsAt: NOW + 2 * HOUR }, sevenDay: { usedPercent: 41, resetsAt: NOW + 30 * HOUR }, updatedAt: NOW - 60_000 }, ...over });
 

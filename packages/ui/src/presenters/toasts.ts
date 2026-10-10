@@ -2,6 +2,7 @@ import { overlayReplaceable } from '../mediator/overlay.ts';
 import type { State, Toast } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { durationLabel } from './format.ts';
+import { translatorOf } from './i18n.ts';
 import { arrivedCount } from './unresolved.ts';
 
 /**
@@ -39,10 +40,11 @@ function shownOnScreen(state: State, sessionId: string): boolean {
 }
 
 export function presentToasts(state: State, store: Store, now: number): ToastsProps {
+  const t = translatorOf(store);
   const cards = state.waitingToasts.flatMap((id): WaitingCardProps[] => {
     const s = store.sessions[id];
     if (!s || shownOnScreen(state, id)) return [];
-    return [{ sessionId: s.id, name: s.name ?? '（名前なし）', waited: durationLabel(now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? null }];
+    return [{ sessionId: s.id, name: s.name ?? t('common.label.noName'), waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? null }];
   });
   const waiting = cards.slice(-SHOWN);
   const arrived = arrivedCount(store, state.arrivedProjects);

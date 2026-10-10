@@ -8,7 +8,7 @@ import { toSearchParams } from '../mediator/screen.ts';
 import { cleanSidebarOrder, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
-import { NO_QUESTION } from '../presenters/home.ts';
+import { noQuestionText } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
@@ -72,12 +72,8 @@ export type Runtime = {
   start(): void; stop(): void;
 };
 
-/** OS（システム設定）で通知が切られているときの知らせ。 */
-const NOTIFY_BLOCKED = '通知が切られています。システム設定の「通知」で Hangar を許可してください';
 /** 通知の許可を読み直す間隔の下限。窓に戻ると focus と visibilitychange が続けて来るので、まとめて 1 度にする。 */
 export const NOTIFY_RECHECK_MS = 2000;
-/** クリップボードに写せなかったときの知らせ。写そうとした中身は出さない。 */
-const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C で写してください';
 /** 検索の結果から開くとき、跳び先より前にどれだけ（seq の幅）読むか。跳び先の前の文脈が見える程度にする。 */
 const AROUND_BEFORE = 100;
 
@@ -154,6 +150,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
   const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
+  /** いまの言語の辞書。言語は設定で変わるので、文を出すたびに store から引く。 */
+  const tr = () => translatorOf(store);
   const failWith = (what: string, e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: `${what}: ${errMsg(e)}` } });
   /**
    * 準備の確かめを取りに行く。設定画面の検証と、ホームの帯の始める前の確認が同じ値を読む。
@@ -169,7 +167,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     deps.api.readiness().then((r) => {
       if (seq !== readinessSeq) return;
       const before = store.readiness;
-      if (before && readinessPending(before) && !readinessPending(r)) toast(translatorOf(store)(readinessComplete(r) ? 'home.ready.toast.done' : 'home.ready.toast.required'));
+      if (before && readinessPending(before) && !readinessPending(r)) toast(tr()(readinessComplete(r) ? 'home.ready.toast.done' : 'home.ready.toast.required'));
       const drifts = readinessCompat(r)?.driftCount ?? 0;
       if (drifts > 0) {
         setStore({ ...store, readiness: r });
@@ -266,8 +264,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * 殻の結果（適用または戻し）を知らせにする。
    * applied と restored は済んだので状態を取り直す。cancelled、none、busy、failed は書いていないので、そのまま文を知らせる（失敗だけ赤）。
    */
-  function shellOutcome(r: { status: string; message: string }, fromDialog: boolean): void {
-    dispatch({ kind: 'server', event: { type: 'toast', level: r.status === 'failed' ? 'error' : 'info', message: r.message } });
+  function shellOutcome(r: { status: string; message: string | null }, fromDialog: boolean): void {
+    dispatch({ kind: 'server', event: { type: 'toast', level: r.status === 'failed' ? 'error' : 'info', message: r.message ?? tr()('runtime.shell.unreadable') } });
     const wrote = r.status === 'applied' || r.status === 'restored';
     if (wrote) refreshConfigSync();
     if (fromDialog) dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: wrote } });
@@ -399,11 +397,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.readiness': loadReadiness(); return;
       case 'shell.openLog':
         if (!deps.desktop) return;
-        deps.desktop.openLog().catch((err: unknown) => failWith('ログを開けませんでした', err));
+        deps.desktop.openLog().catch((err: unknown) => failWith(tr()('runtime.shell.openLogFailed'), err));
         return;
       case 'shell.restart':
         if (!deps.desktop) return;
-        deps.desktop.restart().catch((err: unknown) => failWith('再起動できませんでした', err));
+        deps.desktop.restart().catch((err: unknown) => failWith(tr()('runtime.shell.restartFailed'), err));
         return;
       case 'clipboard.copy': {
         const write = deps.clipboard ?? ((text: string) => navigator.clipboard.writeText(text));
@@ -412,7 +410,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 参加トークンのような秘密も写すからである。中身はボタンの横の欄に出ているので、そこから手で写せる。
         Promise.resolve().then(() => write(e.text)).then(
           () => dispatch({ kind: 'runtime', event: { type: 'clipboard.copied', text: e.text } }),
-          () => toast(COPY_FAILED),
+          () => toast(tr()('runtime.copy.failed')),
         );
         return;
       }
@@ -444,7 +442,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 取り消したら何もしない。開く場所はワークスペースのルートにする。
         deps.desktop.pickFolder(store.settings?.workspaceRoot ?? null)
           .then((path) => { if (path) setStore(applyPickedFolder(store, path)); })
-          .catch((err: unknown) => failWith('フォルダを選べませんでした', err));
+          .catch((err: unknown) => failWith(tr()('runtime.shell.pickFolderFailed'), err));
         return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
@@ -453,7 +451,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.killRun': deps.api.killRun(e.runId).then((run) => setStore(applyServerEvent(store, { type: 'run.ended', run }))).catch(fail); return;
       case 'api.openTab': {
         const run = aliveRunOf(store, e.sessionId);
-        if (!run) { fail(new Error('Claude が動いていないので、シェルタブを開けません')); return; }
+        if (!run) { fail(new Error(tr()('runtime.tab.noClaude'))); return; }
         deps.api.openTab(run.id).then((tab) => setStore(applyServerEvent(store, { type: 'tab.upsert', tab }))).catch(fail);
         return;
       }
@@ -495,7 +493,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
-        notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: s.activity?.question ?? NO_QUESTION });
+        notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: s.activity?.question ?? noQuestionText(tr()) });
         return;
       }
       case 'notify.return': {
@@ -504,7 +502,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const s = store.sessions[e.sessionId];
         if (!s) return;
         const time = s.state?.returnTime;
-        notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: `戻る時刻 ${time ?? ''} を過ぎました${s.state?.note ? ` · ${s.state.note}` : ''}` });
+        notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: s.state?.note ? tr()('runtime.notify.returnBodyNote', { time: time ?? '', note: s.state.note }) : tr()('runtime.notify.returnBody', { time: time ?? '' }) });
         return;
       }
       case 'notify.request':
@@ -518,7 +516,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 断られたら、OS で切られているのかを読む。切られていれば、許可の仕方を知らせる。
           const blocked = (await notifier.status()) === 'denied' && notifier.available();
           setNotify(notifier.available(), false, blocked);
-          toast(blocked ? NOTIFY_BLOCKED : '通知が許可されませんでした');
+          toast(tr()(blocked ? 'runtime.notify.blocked' : 'runtime.notify.denied'));
         }).catch(fail);
         return;
       case 'notify.off':
@@ -570,7 +568,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // ブラウザでは殻が無い。画面は、その場合は戻すボタンの代わりにコマンドを出すので、ここへは来ない。
         const shell = deps.desktop;
         if (!shell) return;
-        shell.restoreConfigSync(e.name).then((r) => shellOutcome(r, false)).catch((err: unknown) => failWith('設定を戻せませんでした', err));
+        shell.restoreConfigSync(e.name).then((r) => shellOutcome(r, false)).catch((err: unknown) => failWith(tr()('runtime.shell.restoreFailed'), err));
         return;
       }
       case 'api.retentionPreview':
@@ -580,12 +578,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'api.writeRetention': {
         const p = store.retentionPreview;
-        if (!p || p.days !== e.days) { dispatch({ kind: 'runtime', event: { type: 'retention.failed', message: '差分を読み込んでいます。少し待ってから押してください' } }); return; }
+        if (!p || p.days !== e.days) { dispatch({ kind: 'runtime', event: { type: 'retention.failed', message: tr()('runtime.retention.previewLoading') } }); return; }
         deps.api.writeRetention(e.days, p.baseSha256)
           .then((r) => {
             setStore({ ...store, retention: r, retentionPreview: null });
             dispatch({ kind: 'runtime', event: { type: 'retention.written', days: e.days } });
-            toast(`保持期間を ${daysLabel(e.days)}にしました`);
+            toast(tr()('runtime.retention.set', { days: daysLabel(tr(), e.days) }));
           })
           .catch((err: unknown) => dispatch({ kind: 'runtime', event: err instanceof RetentionConflictApiError ? { type: 'retention.conflict', days: e.days } : { type: 'retention.failed', message: errMsg(err) } }));
         return;
@@ -637,7 +635,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       const on = wanted && available && notifier.granted() && !blocked;
       const was = store.notify;
       setNotify(available, on, blocked);
-      if (was.on && blocked) toast(NOTIFY_BLOCKED);
+      if (was.on && blocked) toast(tr()('runtime.notify.blocked'));
     }, () => {});
   }
 
@@ -649,7 +647,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (c.before) setStore(c.before(store));
     c.run(deps.api).then((done) => {
       if (done.apply) setStore(done.apply(store));
-      if (done.toast !== undefined) toast(done.toast);
+      if (done.toast !== undefined) toast(tr()(done.toast));
     }).catch(fail);
   }
 

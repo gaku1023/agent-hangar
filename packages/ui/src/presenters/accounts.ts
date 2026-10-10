@@ -1,6 +1,7 @@
 import { type AccountDto, type RateWindowDto, type Translate, windowAt } from '@agent-hangar/shared';
 import { accountList, currentAccount, type Store } from '../store/store.ts';
 import { relativeTime, resetsLabel } from './format.ts';
+import { translatorOf } from './i18n.ts';
 
 export type AccountGauge = { percent: number; high: boolean; resets: string | null };
 export type AccountView = {
@@ -22,8 +23,8 @@ export type AccountView = {
 };
 
 /** 認証の状態を言う文。AccountMeters と設定の行が同じものを使う。 */
-export const LOGGED_OUT_TEXT = '未ログイン';
-export const APPROVE_TEXT = 'ブラウザで承認してください…';
+export const loggedOutText = (t: Translate): string => t('account.state.loggedOut');
+export const approveText = (t: Translate): string => t('account.state.approve');
 
 const PLANS: Record<string, string> = { max: 'Max', pro: 'Pro', team: 'Team', enterprise: 'Enterprise' };
 const HOUR = 3_600_000;
@@ -36,16 +37,16 @@ const gauge = (raw: RateWindowDto | null, now: number): AccountGauge | null => {
   return w === null ? null : { percent: w.usedPercent, high: w.usedPercent >= HIGH, resets: resetsLabel(w.resetsAt, now) };
 };
 
-function noteOf(a: AccountDto, five: AccountGauge | null, now: number): AccountView['note'] {
-  if (five?.high) return { tone: 'warn', text: five.resets === null ? 'まもなく上限' : `まもなく上限。${five.resets} に戻ります` };
+function noteOf(t: Translate, a: AccountDto, five: AccountGauge | null, now: number): AccountView['note'] {
+  if (five?.high) return { tone: 'warn', text: five.resets === null ? t('account.note.nearLimit') : t('account.note.nearLimitResets', { resets: five.resets }) };
   const at = a.usage.updatedAt;
   // 境は「1 時間より古い」。ちょうど 1 時間は注記なし。
   if (at === null || now - at <= HOUR) return null;
   const hours = Math.floor((now - at) / HOUR);
-  return { tone: 'stale', text: hours >= 24 ? `${Math.floor(hours / 24)} 日前の値` : `${hours} 時間前の値` };
+  return { tone: 'stale', text: hours >= 24 ? t('account.note.staleDays', { n: Math.floor(hours / 24) }) : t('account.note.staleHours', { n: hours }) };
 }
 
-export function presentAccount(a: AccountDto, currentId: string, now: number): AccountView {
+export function presentAccount(t: Translate, a: AccountDto, currentId: string, now: number): AccountView {
   const plan = a.auth?.plan ?? null;
   const fiveHour = gauge(a.usage.fiveHour, now);
   return {
@@ -55,8 +56,8 @@ export function presentAccount(a: AccountDto, currentId: string, now: number): A
     auth: a.loginRunning ? 'running' : a.auth === null ? 'unknown' : a.auth.loggedIn ? 'in' : 'out',
     loggedIn: a.auth?.loggedIn === true,
     fiveHour, sevenDay: gauge(a.usage.sevenDay, now),
-    updatedLabel: a.usage.updatedAt === null ? null : relativeTime(a.usage.updatedAt, now),
-    note: noteOf(a, fiveHour, now),
+    updatedLabel: a.usage.updatedAt === null ? null : relativeTime(t, a.usage.updatedAt, now),
+    note: noteOf(t, a, fiveHour, now),
     linkProblem: a.linkProblem, dir: a.dir,
   };
 }
@@ -82,7 +83,8 @@ export function switchLabel(t: Translate, a: Pick<AccountView, 'name' | 'fiveHou
 export function presentAccounts(store: Store, now: number): AccountView[] {
   // currentId が一覧に無いとき（外した直後など）は、currentAccount と同じく最初のアカウントがいまのアカウントになる。
   const currentId = currentAccount(store)?.id ?? '';
-  return accountList(store).map((a) => presentAccount(a, currentId, now));
+  const t = translatorOf(store);
+  return accountList(store).map((a) => presentAccount(t, a, currentId, now));
 }
 
 /**

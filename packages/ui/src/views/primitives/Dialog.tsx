@@ -1,6 +1,7 @@
 import { useCallback, useId, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { isComposing } from '../ime.ts';
 import { Icon, type IconName } from './Icon.tsx';
+import { useT } from './language.tsx';
 
 const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]';
 
@@ -72,6 +73,7 @@ export type DialogProps = {
  * Esc は殻が受けて onClose を呼び、既定を止める。Root の Esc（何も開いていないときの入力欄を離れる打鍵、器の外の Esc）と重ねないためである。
  */
 export function Dialog(props: DialogProps) {
+  const t = useT();
   const panel = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -140,7 +142,7 @@ export function Dialog(props: DialogProps) {
 
   const title = <b className="dialog-title" id={titleId}>{!props.danger && props.icon && <Icon name={props.icon} />}{props.title}</b>;
   const close = onClose && (props.closeButton ?? true) && (
-    <button type="button" className="btn dialog-close" aria-label="閉じる" onClick={onClose}><Icon name="close" /></button>
+    <button type="button" className="btn dialog-close" aria-label={t('common.button.close')} onClick={onClose}><Icon name="close" /></button>
   );
   const className = ['dialog', props.danger ? 'dialog-danger' : '', props.className ?? ''].filter(Boolean).join(' ');
 

@@ -30,7 +30,7 @@ export const projectsEn: AreaDictionary<typeof projectsKeys> = {
   'projects.now.waiting': 'Needs input {n}',
   'projects.place.missing': 'No path on this computer',
   'projects.arrived.label': 'Projects',
-  'projects.arrived.message': '{n} projects arrived from another computer. Their folders are not on this computer',
+  'projects.arrived.message': '{n} {n|project|projects} arrived from another computer. {n|Its folder is|Their folders are} not on this computer',
   'projects.arrived.view': 'View in Projects',
   'projects.arrived.later': 'Decide later',
   'projects.resolve.title': '{name}: folder not found',

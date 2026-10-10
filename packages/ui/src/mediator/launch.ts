@@ -1,4 +1,6 @@
 import type { LaunchParams } from '@agent-hangar/shared';
+import { translatorOf } from '../presenters/i18n.ts';
+import type { Store } from '../store/store.ts';
 import { overlayReplaceable } from './overlay.ts';
 import type { Effect, Input, LaunchPrefs, NewSessionDraft, State, Step } from './types.ts';
 
@@ -72,7 +74,7 @@ function setDraft(state: State, draft: NewSessionDraft | null): Step {
 }
 
 /** launch 領域：起動ダイアログ、送信中、失敗。再開とフォークも同じ送信中の状態を使う。 */
-export function launchStep(state: State, input: Input): Step | null {
+export function launchStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const ev = input.event;
     if (ev.type === 'project.created') {
@@ -113,7 +115,7 @@ export function launchStep(state: State, input: Input): Step | null {
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       // 新しいフォルダと未登録のフォルダは、プロジェクトを作ってから起動する（runtime が 2 つを順に行う）。
       if (i.place) return { state: { ...state, launch: { kind: 'submitting' }, newSessionSent: true }, effects: [{ kind: 'api.createProjectThenLaunch', place: i.place, params: i.params }] };
-      if (!i.params.projectId && !i.params.scratch) return { state: { ...state, launch: { kind: 'failed', message: 'プロジェクトを選んでください' } }, effects: [] };
+      if (!i.params.projectId && !i.params.scratch) return { state: { ...state, launch: { kind: 'failed', message: translatorOf(store)('mediator.launch.pickProject') } }, effects: [] };
       {
         // 詳細は、送った時点でそのプロジェクトの前回値にする。起動に失敗しても、選んだ詳細は利用者の意図なので残す。
         const r = rememberPrefs(state, i.params);
@@ -143,7 +145,7 @@ export function launchStep(state: State, input: Input): Step | null {
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       const overlay = state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
       // 元の claude が終わるのを待つので、開くまで数秒かかる。押したことが伝わるよう先に一言出す。
-      return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'toast', level: 'info', message: '引き取っています' }, { kind: 'api.adopt', sessionId: i.id }] };
+      return { state: { ...state, overlay, launch: { kind: 'submitting' } }, effects: [{ kind: 'toast', level: 'info', message: translatorOf(store)('mediator.launch.adopting') }, { kind: 'api.adopt', sessionId: i.id }] };
     }
     case 'session.kill': {
       // サーバの停止はシェルタブを全部閉じてから tmux を落とす。

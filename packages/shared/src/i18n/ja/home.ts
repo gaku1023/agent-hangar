@@ -78,4 +78,10 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.openSettings': '設定を開く',
   'home.ready.toast.done': 'セットアップは完了しています。設定の「情報」でいつでも確認できます',
   'home.ready.toast.required': '必要な準備は完了しました。MCP とステータスラインは設定の「連携」で設定できます',
+  'home.card.noQuestion': '入力を待っています',
+  'home.card.noReason': '理由は書かれていません',
+  'home.card.asideNote': '{head}。{free}',
+  'home.card.idleNote': '休み。最後の返答から {time}',
+  'home.card.workingNote': '作業中',
+  'home.card.startingNote': '起動しています',
 };

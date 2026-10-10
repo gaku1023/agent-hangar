@@ -8,6 +8,7 @@ import { Clamp, estimateLines, MSG_LINES } from './primitives/Clamp.tsx';
 import { createGlide, type Glide } from './primitives/glide.ts';
 import { Hl, MarkProvider, type Marking } from './primitives/Hl.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 import { isComposing } from './ime.ts';
 import { Markdown } from './primitives/Markdown.tsx';
 import { ToolItem } from './ToolItem.tsx';
@@ -72,6 +73,7 @@ export function rowWindow(offsets: number[], from: number, to: number): { first:
  * 語は打つたびに送る。日本語の変換中は送らず、確定したときに送る。
  */
 function FindBar(props: { find: TranscriptFind; finder: FindHandle; topSeq: () => number | null }) {
+  const t = useT();
   const f = props.find;
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(f.query);
@@ -81,12 +83,12 @@ function FindBar(props: { find: TranscriptFind; finder: FindHandle; topSeq: () =
   const send = (query: string, caseSensitive: boolean) => props.finder.query(query, caseSensitive, props.topSeq());
   const step = (delta: number) => props.finder.step(delta);
   const close = () => props.finder.close();
-  const count = f.query === '' ? '' : f.total === 0 ? '0 件' : `${f.current + 1} / ${f.total}`;
+  const count = f.query === '' ? '' : f.total === 0 ? t('transcript.find.noMatch') : `${f.current + 1} / ${f.total}`;
   return (
     <div className="tr-find" role="search">
       <span className="tr-find-in">
         <Icon name="search" />
-        <input ref={inputRef} type="search" aria-label="本文の中を探す" placeholder="本文の中を探す" value={draft} spellCheck={false}
+        <input ref={inputRef} type="search" aria-label={t('transcript.find.label')} placeholder={t('transcript.find.label')} value={draft} spellCheck={false}
           onChange={(e) => { setDraft(e.target.value); if (!composing.current) send(e.target.value, f.caseSensitive); }}
           onCompositionStart={() => { composing.current = true; }}
           onCompositionEnd={(e) => { composing.current = false; send(e.currentTarget.value, f.caseSensitive); }}
@@ -95,12 +97,12 @@ function FindBar(props: { find: TranscriptFind; finder: FindHandle; topSeq: () =
             if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
             else if (e.key === 'Escape') { e.preventDefault(); close(); }
           }} />
-        <button type="button" className="tr-find-opt" aria-label="大文字と小文字を区別" title="大文字と小文字を区別" aria-pressed={f.caseSensitive} onClick={() => send(draft, !f.caseSensitive)}><Icon name="matchCase" /></button>
+        <button type="button" className="tr-find-opt" aria-label={t('transcript.find.matchCase')} title={t('transcript.find.matchCase')} aria-pressed={f.caseSensitive} onClick={() => send(draft, !f.caseSensitive)}><Icon name="matchCase" /></button>
       </span>
       <span className="tr-find-count mono" aria-live="polite">{count}</span>
-      <button type="button" className="tr-find-btn" aria-label="前の一致（⇧⏎）" title="前の一致（⇧⏎）" disabled={f.total === 0} onClick={() => step(-1)}><Icon name="prev" /></button>
-      <button type="button" className="tr-find-btn" aria-label="次の一致（⏎）" title="次の一致（⏎）" disabled={f.total === 0} onClick={() => step(1)}><Icon name="next" /></button>
-      <button type="button" className="tr-find-btn" aria-label="閉じる（esc）" title="閉じる（esc）" onClick={close}><Icon name="close" /></button>
+      <button type="button" className="tr-find-btn" aria-label={t('transcript.find.prev')} title={t('transcript.find.prev')} disabled={f.total === 0} onClick={() => step(-1)}><Icon name="prev" /></button>
+      <button type="button" className="tr-find-btn" aria-label={t('transcript.find.next')} title={t('transcript.find.next')} disabled={f.total === 0} onClick={() => step(1)}><Icon name="next" /></button>
+      <button type="button" className="tr-find-btn" aria-label={t('transcript.find.close')} title={t('transcript.find.close')} onClick={close}><Icon name="close" /></button>
     </div>
   );
 }
@@ -111,6 +113,7 @@ function FindBar(props: { find: TranscriptFind; finder: FindHandle; topSeq: () =
  */
 export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; jump?: JumpState | null; hasNewer?: boolean; head?: ReactNode }) {
   const emit = useEmit();
+  const t = useT();
   const boxRef = useRef<HTMLDivElement>(null);
   // 新着を追う寄せ。ブラウザの滑らかなスクロールは使わない（primitives/glide.ts）。
   // 位置を一気に書き換える所はすべて jumpTo を通し、寄せている途中ならそれを止めてから書き換える。
@@ -402,9 +405,9 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
       {ticks && <div className="tr-ticks" aria-hidden="true">{ticks.map((t) => <i key={t.seq} style={{ top: `${t.top}%` }} data-cur={t.seq === find!.seq ? 'true' : undefined} />)}</div>}
       <div ref={boxRef} className="tr" onScroll={onScroll}>
         {props.head}
-        {n === 0 && !props.loading && <div className="empty">本文がありません</div>}
+        {n === 0 && !props.loading && <div className="empty">{t('transcript.empty.none')}</div>}
         {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
-        {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古い行を読み込む（残り ${props.remaining} 件）`}</button>}
+        {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? t('common.state.loading') : t('transcript.more.older', { n: props.remaining })}</button>}
         <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
           {drawn.map((it) => (
             <div key={it.seq} className={it.seq === flashSeq ? 'tr-row tr-flash' : 'tr-row'} data-seq={it.seq} ref={setRowEl(it.seq)}>
@@ -413,8 +416,8 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
           ))}
         </div>
         {/* 検索の結果から真ん中の頁だけを読んで開いたときは、後ろ（新しい側）を読み足すボタンを一覧の下に置く。 */}
-        {props.hasNewer && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadNewer', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : '新しい行を読み込む'}</button>}
-        {props.live && !props.follow && unseen > 0 && <button className="btn btn-primary new-banner" onClick={() => emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true })}>新着 {unseen} 件</button>}
+        {props.hasNewer && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadNewer', sessionId: props.sessionId })}>{props.loading ? t('common.state.loading') : t('transcript.more.newer')}</button>}
+        {props.live && !props.follow && unseen > 0 && <button className="btn btn-primary new-banner" onClick={() => emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true })}>{t('transcript.more.unseen', { n: unseen })}</button>}
       </div>
     </div>
     </MarkProvider>

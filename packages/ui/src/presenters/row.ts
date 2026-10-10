@@ -1,6 +1,7 @@
-import { isReturnOn, isReturnTime, overdueDays, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, overdueDays, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
 import { aliveRunOf, shownAside, shownLive, type Store } from '../store/store.ts';
-import { absoluteTime, costLabel, relativeTime, shortModel, STATE_LABEL } from './format.ts';
+import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
+import { translatorOf } from './i18n.ts';
 import type { Segment } from './highlight.ts';
 import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.ts';
 
@@ -40,13 +41,14 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
  * 土台の要約の state は Claude の見立てではなく、プロセスが生きているかどうかの写しなので札にしない。
  * 終わったセッションのほとんどに「済んだ」が並ぶと、本当に済んだものと見分けが付かなくなるためである。
  */
-function summaryStateTag(summary: SessionSummaryDto | null): SummaryStateTag | null {
+function summaryStateTag(t: Translate, summary: SessionSummaryDto | null): SummaryStateTag | null {
   if (!summary || summary.source === 'baseline') return null;
   const tone = summary.state === 'blocked' || summary.state === 'abandoned' ? summary.state : null;
-  return { label: STATE_LABEL[summary.state], tone };
+  return { label: stateLabel(t, summary.state), tone };
 }
 
 export function presentSessionRow(s: SessionDto, store: Store, now: number, excerpt?: Segment[]): SessionRowProps {
+  const t = translatorOf(store);
   // state が null なら Active として読む。
   const st = s.state;
   const status = st?.status ?? null;
@@ -55,17 +57,17 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   // 時刻は日があってはじめて意味を持つ。古いサーバは returnTime を送らないので、欠けたものと形の違うものは時刻なしとして読む。
   const returnTime = returnOn !== null && typeof st!.returnTime === 'string' && isReturnTime(st!.returnTime) ? st!.returnTime : null;
   const row: SessionRowProps = {
-    id: s.id, name: s.name ?? '（名前なし）', oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
+    id: s.id, name: s.name ?? t('common.label.noName'), oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null,
-    live: shownLive(s), aside: shownAside(s) !== null, stateLabel: s.summary ? STATE_LABEL[s.summary.state] : '', summaryState: summaryStateTag(s.summary), model: shortModel(s.stats.model), effort: s.stats.effort ?? '',
-    when: relativeTime(s.lastActivityAt, now), whenAbs: absoluteTime(s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, memo: s.memo, hasTranscript: s.hasTranscript,
+    live: shownLive(s), aside: shownAside(s) !== null, stateLabel: s.summary ? stateLabel(t, s.summary.state) : '', summaryState: summaryStateTag(t, s.summary), model: shortModel(s.stats.model), effort: s.stats.effort ?? '',
+    when: relativeTime(t, s.lastActivityAt, now), whenAbs: absoluteTime(t, s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, memo: s.memo, hasTranscript: s.hasTranscript,
     transcript: transcriptMark(s, store.retention?.days ?? DEFAULT_DAYS, now),
     // 区切りを付けて休みのまま残っているもの（parked）は、終わった行と同じに作る。灯も run も持たせず、状態の節に入れる。
     cost: costLabel(s.stats.costUsd), runId: s.parked ? null : aliveRunOf(store, s.id)?.id ?? null,
     state: status, returnOn, returnTime, overdueDays: returnOn ? overdueDays(returnOn, now) : null,
     returnDue: status === 'paused' && (returnOn === null || returnDue(returnOn, returnTime, now)),
     returnPastMin: returnOn !== null ? returnPastMinutes(returnOn, returnTime, now) : null,
-    candidate: st?.candidate ? { status: st.candidate.status, note: st.candidate.note, returnOn: st.candidate.returnOn, returnTime: st.candidate.returnTime ?? null, source: st.candidate.source, ago: relativeTime(st.candidate.at, now) } : null,
+    candidate: st?.candidate ? { status: st.candidate.status, note: st.candidate.note, returnOn: st.candidate.returnOn, returnTime: st.candidate.returnTime ?? null, source: st.candidate.source, ago: relativeTime(t, st.candidate.at, now) } : null,
     setBy: status ? st!.setBy : null,
   };
   if (excerpt) row.excerpt = excerpt;
@@ -144,9 +146,11 @@ export const STATUS_LABEL: Record<SessionStatus, string> = { paused: 'Paused', d
 /** 状態の無い行（Active）の札の語。Active は値として持たないので、STATUS_LABEL とは別に置く。 */
 export const ACTIVE_LABEL = 'Active';
 /** 提案の出どころの語。ポップに「出どころ：会話 · 12 分前」と出す。exit は型に残るだけで、いまは書き手がいない。 */
-export const CANDIDATE_SOURCE_LABEL: Record<CandidateSource, string> = { in_session: '会話', exit: '抜けるとき', post_hoc: '要約' };
+const CANDIDATE_SOURCE_KEY = { in_session: 'row.candidateSource.conversation', exit: 'row.candidateSource.exit', post_hoc: 'row.candidateSource.summary' } as const;
+export const candidateSourceLabel = (t: Translate, source: CandidateSource): string => t(CANDIDATE_SOURCE_KEY[source]);
 
-const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
+/** 曜日の語。0 が日曜（Date の getUTCDay と同じ並び）。 */
+const WEEKDAY_KEY = ['row.weekday.sun', 'row.weekday.mon', 'row.weekday.tue', 'row.weekday.wed', 'row.weekday.thu', 'row.weekday.fri', 'row.weekday.sat'] as const;
 
 /**
  * 戻る日の札の文言。今日は「今日」、過ぎたものは「N 日過ぎ」、先のものは「10/2（金）」。
@@ -155,31 +159,37 @@ const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
  * 時刻があれば「今日 13:30」「10/2（金）13:30」と日の後ろに添える。過ぎた日は日数だけを言う（何日も前の時刻は読んでも使い道が無い）。
  * 当日の時刻を過ぎたら（pastMin）、日と同じく過ぎた長さを言う。1 分未満は「いま」、60 分未満は分、それ以上は時間（切り捨て）。
  */
-export function returnOnLabel(returnOn: string | null, overdue: number | null, returnTime: string | null = null, pastMin: number | null = null): string {
-  if (returnOn === null || !isReturnOn(returnOn)) return '日付なし';
-  if (overdue === 0 && pastMin !== null) return pastMin < 1 ? 'いま' : pastMin < 60 ? `${pastMin} 分過ぎ` : `${Math.floor(pastMin / 60)} 時間過ぎ`;
+export function returnOnLabel(t: Translate, returnOn: string | null, overdue: number | null, returnTime: string | null = null, pastMin: number | null = null): string {
+  return returnOnText(t, returnOn, overdue, returnTime, pastMin, false);
+}
+
+/** returnOnLabel の本体。short が真なら、先の日の時刻つきだけ曜日を省く（行の時刻の列用）。 */
+function returnOnText(t: Translate, returnOn: string | null, overdue: number | null, returnTime: string | null, pastMin: number | null, short: boolean): string {
+  if (returnOn === null || !isReturnOn(returnOn)) return t('row.return.noDate');
+  if (overdue === 0 && pastMin !== null) return pastMin < 1 ? t('row.return.now') : pastMin < 60 ? t('row.return.minOver', { n: pastMin }) : t('row.return.hourOver', { n: Math.floor(pastMin / 60) });
   const time = returnTime !== null && isReturnTime(returnTime) ? returnTime : null;
-  if (overdue === 0) return time ? `今日 ${time}` : '今日';
-  if (overdue !== null) return `${overdue} 日過ぎ`;
+  if (overdue === 0) return time ? t('row.return.todayAt', { time }) : t('row.return.today');
+  if (overdue !== null) return t('row.return.dayOver', { n: overdue });
   const [y, m, d] = returnOn.split('-').map(Number);
-  return `${m}/${d}（${WEEKDAY[new Date(Date.UTC(y!, m! - 1, d!)).getUTCDay()]}）${time ?? ''}`;
+  if (short && time) return t('row.return.dateTimeShort', { date: t('row.date.monthDay', { month: m!, day: d! }), time });
+  const date = t('row.date.monthDayWeekday', { month: m!, day: d!, weekday: t(WEEKDAY_KEY[new Date(Date.UTC(y!, m! - 1, d!)).getUTCDay()]!) });
+  return time ? t('row.return.dateTime', { date, time }) : date;
 }
 
 /**
  * 行の時刻の列に置く戻る日の札の文言。列は 72px なので、先の日の時刻つきだけ曜日を省いて「10/6 13:30」にする。
  * 省いた曜日は、ポインタを乗せたときの説明（returnOnLabel）で読める。
  */
-export function returnOnRowLabel(returnOn: string | null, overdue: number | null, returnTime: string | null, pastMin: number | null = null): string {
-  const full = returnOnLabel(returnOn, overdue, returnTime, pastMin);
-  return overdue === null && returnTime !== null && isReturnTime(returnTime) ? full.replace(/（.）/, ' ') : full;
+export function returnOnRowLabel(t: Translate, returnOn: string | null, overdue: number | null, returnTime: string | null, pastMin: number | null = null): string {
+  return returnOnText(t, returnOn, overdue, returnTime, pastMin, overdue === null);
 }
 
 /** 行の状態の列に置く提案の札の語（F1）。列は 62px なので短く言い、言い切り（candidateLabel）はポインタを乗せると読める。 */
-export function candidateShortLabel(c: { status: 'paused' | 'done' }): string {
-  return c.status === 'done' ? 'Done？' : 'Paused？';
+export function candidateShortLabel(t: Translate, c: { status: 'paused' | 'done' }): string {
+  return t(c.status === 'done' ? 'row.candidate.doneShort' : 'row.candidate.pausedShort');
 }
 
 /** 提案の札の文言（Q3 の枠だけの札）。 */
-export function candidateLabel(c: { status: 'paused' | 'done'; returnOn: string | null; returnTime?: string | null }): string {
-  return c.status === 'done' ? 'Done にする？' : `Paused · ${c.returnOn ? returnOnLabel(c.returnOn, null, c.returnTime ?? null) : '日付なし'}？`;
+export function candidateLabel(t: Translate, c: { status: 'paused' | 'done'; returnOn: string | null; returnTime?: string | null }): string {
+  return c.status === 'done' ? t('row.candidate.done') : t('row.candidate.paused', { date: returnOnLabel(t, c.returnOn, null, c.returnTime ?? null) });
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { SettingsDto, SettingsSection, TerminalApp } from '@agent-hangar/shared';
+import type { Language, SettingsDto, SettingsSection, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../intent/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
@@ -230,10 +230,8 @@ export function SettingsScreen(props: SettingsProps) {
 
   const general = (
     <section aria-label={cur.title}>
-      {props.language.visible && (
-        <SetRow title={t('settings.general.language.title')} desc={t('settings.general.language.desc')}
-          control={<Segmented label={t('settings.general.language.title')} value={props.language.value} options={[{ value: 'ja', label: t('settings.general.language.ja') }, { value: 'en', label: t('settings.general.language.en') }]} onChange={(v) => setNow({ language: v as 'ja' | 'en' })} />} />
-      )}
+      <SetRow title={t('settings.general.language.title')} desc={t('settings.general.language.desc')}
+        control={<Segmented label={t('settings.general.language.title')} value={props.language.value} options={[{ value: 'ja', label: t('settings.general.language.ja') }, { value: 'en', label: t('settings.general.language.en') }]} onChange={(v) => setNow({ language: v as Language })} />} />
       {/* 入力待ちを OS の通知で知らせる。直すものの数には入れない（無くても動くため）。 */}
       <SetRow title={t('settings.general.notify.title')}
         desc={<>

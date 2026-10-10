@@ -1,4 +1,5 @@
 import { formatRoute, type SearchFilter, type SearchParamsDto } from '@agent-hangar/shared';
+import { translatorOf } from '../presenters/i18n.ts';
 import { overlayReplaceable } from './overlay.ts';
 import { pageSizeStep, pageStep } from './paging.ts';
 import { agentTabStep, jumpStep, leaveTranscriptStep, openAtLeadStep } from './sessionView.ts';
@@ -93,9 +94,6 @@ export function canMoveBehind(state: State): boolean {
   return overlayReplaceable(state.overlay);
 }
 
-/** 入力待ちが無いときの知らせ。 */
-export const NO_WAITING = '入力待ちのセッションはありません';
-
 /**
  * 「次の入力待ちへ」。
  * どのセッションが入力待ちかはストアにあるので、いまいるセッションの次をストアから決める（store.ts の nextWaitingSession）。
@@ -106,7 +104,7 @@ export function nextWaitingStep(state: State, store: Store): Step {
   const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
   const from = state.screen.name === 'session' ? state.screen.id : null;
   const id = nextWaitingSession(store, from);
-  if (!id) return { state: closed, effects: [{ kind: 'toast', level: 'info', message: NO_WAITING }] };
+  if (!id) return { state: closed, effects: [{ kind: 'toast', level: 'info', message: translatorOf(store)('mediator.screen.noWaiting') }] };
   return screenStep(closed, store, { kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } }) ?? { state: closed, effects: [] };
 }
 

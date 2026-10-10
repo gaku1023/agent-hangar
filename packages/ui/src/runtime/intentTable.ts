@@ -2,11 +2,13 @@ import type { AccountsDto, Intent, SyncStatusBody } from '@agent-hangar/shared';
 import { applyConfigDetail, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 
-/** iTerm2 で開けず、Terminal.app に落ちたときの知らせ。 */
-export const FELL_BACK = 'iTerm2 で開けなかったので Terminal.app で開きました';
+/** iTerm2 で開けず、Terminal.app に落ちたときの知らせ。文そのものではなく辞書の鍵で、Runtime が現在の言語で引いて出す。 */
+export const FELL_BACK = 'runtime.openTerminal.fellBack' as const;
+/** 応答のあとに知らせられる文の鍵（引数の無いもの）。 */
+export type CallToast = typeof FELL_BACK;
 
 /** 応答を受けた後にすること。apply は応答が着いた時点の Store に当てる。toast は情報の知らせである。 */
-export type CallDone = { apply?: (store: Store) => Store; toast?: string };
+export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast };
 /**
  * API の呼び出し 1 回と、その前後の扱い。
  * before は呼ぶ前に Store に当てる（実行中だと分かるよう、前の結果を消すなど）。
@@ -14,7 +16,7 @@ export type CallDone = { apply?: (store: Store) => Store; toast?: string };
  */
 export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone> };
 
-type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => string | null };
+type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null };
 
 /** 行の共通の形。API を呼び、応答を Store に当て、知らせがあれば添える。応答の型は、ここで閉じる。 */
 function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): ApiCall {

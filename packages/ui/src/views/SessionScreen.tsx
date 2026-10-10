@@ -23,9 +23,6 @@ import { Transcript } from './Transcript.tsx';
 import { TurnIndex } from './TurnIndex.tsx';
 import { useNarrow } from './useNarrow.ts';
 
-const TRUST_HINT = 'Claude の起動を待っています。信頼確認のダイアログが出ていればターミナルで答えてください。';
-const ENDED_HINT = 'Claude は終了しました。シェルタブは残っています。';
-
 const ACTION_ICON: Record<SessionActionId, IconName> = {
   openEditor: 'openEditor', resume: 'resume', resumeHere: 'resumeHere', fork: 'fork', openTerminal: 'openTerminal',
   attach: 'shell', adopt: 'resumeHere', regenerate: 'rebuild', promote: 'promote', stop: 'stop',
@@ -72,7 +69,7 @@ export function SessionScreen(props: SessionProps) {
   useLayoutEffect(() => { paneSession.current = props.id; });
   if (props.notFound) return <div className="screen"><div className="empty">{t('session.error.notFound')}</div></div>;
   // run は知っているのに、そのセッションの情報がまだ届いていない状態。
-  if (props.loadingSession) return <div className="screen"><div className="empty">セッションを読み込んでいます</div></div>;
+  if (props.loadingSession) return <div className="screen"><div className="empty">{t('session.screen.loading')}</div></div>;
   const id = props.id;
   const run = props.run;
 
@@ -117,7 +114,7 @@ export function SessionScreen(props: SessionProps) {
         <Icon name={ACTION_ICON[primary.id]} /><span className="btn-label">{primary.label}</span>
       </button>
       {primary.disabled && <span id={reasonId} className="sr-only">{primary.disabled}</span>}
-      <MenuButton label="ほかの操作" items={props.actions.menu.map(item)} />
+      <MenuButton label={t('session.screen.moreActions')} items={props.actions.menu.map(item)} />
       <InfoPopover rows={detailRows} width={360} />
     </PageHeading>
   );
@@ -154,7 +151,7 @@ export function SessionScreen(props: SessionProps) {
         <div className="session-body" data-gone="true">
           <div className="gone-note" role="note">
             {props.gone.note}
-            {props.gone.canExtend && <> <button type="button" className="btn-link" onClick={() => emit({ type: 'retention.edit', days: props.gone!.extendTo, from: 'session' })}>保持期間を延ばす…</button></>}
+            {props.gone.canExtend && <> <button type="button" className="btn-link" onClick={() => emit({ type: 'retention.edit', days: props.gone!.extendTo, from: 'session' })}>{t('session.screen.extendRetention')}</button></>}
           </div>
           {props.lead && <LeadCard sessionId={id} {...props.lead} />}
         </div>
@@ -167,7 +164,7 @@ export function SessionScreen(props: SessionProps) {
     // 分割で 2 つ並ぶときも、シェルの側には出さない。
     const terminal = (tabId: string) => {
       const agentTab = tabId === run.id;
-      const hint = agentTab && props.trustHint ? TRUST_HINT : agentTab && !run.alive ? ENDED_HINT : null;
+      const hint = agentTab && props.trustHint ? t('session.screen.trustHint') : agentTab && !run.alive ? t('session.screen.endedHint') : null;
       const transcript = agentTab && run.alive && props.transcriptBand ? { when: props.transcriptBand.when, onLatest: () => emit({ type: 'turn.latest', sessionId: id, runId: run.id }) } : null;
       return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} aside={props.aside} agent={agentTab} transcript={transcript} />;
     };
@@ -193,16 +190,16 @@ export function SessionScreen(props: SessionProps) {
 
   // サブエージェントは、メイン会話と 3 つまでなら帯に並べ、それより多ければ一覧にする。
   // 帯が横にあふれないようにするため。
-  const agentOptions = [{ value: '', label: 'メイン会話' }, ...props.subagents.map((a) => ({ value: a, label: a }))];
+  const agentOptions = [{ value: '', label: t('session.screen.mainConversation') }, ...props.subagents.map((a) => ({ value: a, label: a }))];
   const selectAgent = (v: string) => emit({ type: 'transcript.selectAgent', sessionId: id, agentId: v || null });
   const toggles = (
     <div className="transcript-toggles">
-      <ToggleChip label="思考を表示" text="思考" icon="thinking" pressed={props.showThinking} onChange={(show) => emit({ type: 'transcript.showThinking', sessionId: id, show })} />
+      <ToggleChip label={t('session.screen.thinkingLabel')} text={t('session.screen.thinkingText')} icon="thinking" pressed={props.showThinking} onChange={(show) => emit({ type: 'transcript.showThinking', sessionId: id, show })} />
       <ToggleChip label={t('session.transcript.rawToggleLabel')} text={t('session.transcript.rawToggle')} icon="rawLog" pressed={props.showRaw} onChange={(show) => emit({ type: 'transcript.showRaw', sessionId: id, show })} />
       {props.subagents.length > 0 && <span className="transcript-toggles-sep" aria-hidden="true" />}
       {props.subagents.length > 0 && (props.subagents.length <= 3
-        ? <Segmented label="サブエージェント" value={props.agentId ?? ''} options={agentOptions.map((o) => (o.value ? { ...o, lead: <Icon name="agent" /> } : o))} onChange={selectAgent} />
-        : <Listbox label="サブエージェント" value={props.agentId ?? ''} options={agentOptions.map((o) => (o.value ? { ...o, label: `サブエージェント ${o.value}`, icon: 'agent' as const } : o))} onChange={selectAgent} faceClassName="listbox-face listbox-pill" minWidth={260} />)}
+        ? <Segmented label={t('session.screen.subagents')} value={props.agentId ?? ''} options={agentOptions.map((o) => (o.value ? { ...o, lead: <Icon name="agent" /> } : o))} onChange={selectAgent} />
+        : <Listbox label={t('session.screen.subagents')} value={props.agentId ?? ''} options={agentOptions.map((o) => (o.value ? { ...o, label: t('session.toc.subagent', { id: o.value }), icon: 'agent' as const } : o))} onChange={selectAgent} faceClassName="listbox-face listbox-pill" minWidth={260} />)}
       <span className="spacer" /><span className="faint mono">{props.loaded} / {props.total}</span>
       {/* 目次は閉じている間だけ、ここに「目次 N」の札を置く（⌘J でも開閉できる）。 */}
       {props.hasTranscript && !tocOpen && opener}

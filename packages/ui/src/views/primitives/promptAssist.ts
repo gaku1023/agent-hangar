@@ -13,11 +13,14 @@ export type PromptAssist = {
   notify(message: string): void;
 };
 
+/** 添付が使えない場所の、置き場へ送る口が返す失敗。文は使う側が現在の言語で引く（composer.attach.unavailable）。 */
+export class AttachUnavailableError extends Error {}
+
 /** Context が無い場所（部品だけの試験など）で使う、何も返さない既定。 */
 export const NO_ASSIST: PromptAssist = {
   commands: () => Promise.resolve([]),
   files: () => Promise.resolve([]),
-  upload: () => Promise.reject(new Error('添付は使えません')),
+  upload: () => Promise.reject(new AttachUnavailableError('attach unavailable')),
   existing: (paths) => Promise.resolve(paths),
   notify: () => {},
 };

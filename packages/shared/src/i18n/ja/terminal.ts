@@ -1,0 +1,30 @@
+import type { terminalKeys } from '../keys/terminal.ts';
+import type { AreaDictionary } from '../messageSpec.ts';
+
+export const terminalJa: AreaDictionary<typeof terminalKeys> = {
+  'terminal.band.title': 'transcript を表示中',
+  'terminal.band.sub': 'Claude は裏で動き続けています',
+  'terminal.band.subWhen': '{when} のターン · Claude は裏で動き続けています',
+  'terminal.band.latest': '最新へ戻る',
+  'terminal.off.failed': 'ターミナルに接続できませんでした',
+  'terminal.off.detached': 'ターミナルから切り離されました',
+  'terminal.off.dropped': 'ターミナルとの接続が切れました',
+  'terminal.off.failedBody': 'もう一度つなぐか、セッションを開き直してください。',
+  'terminal.off.agentRunning': 'Claude は動き続けています。',
+  'terminal.off.shellRunning': 'シェルは動き続けています。',
+  'terminal.off.gaveUp': 'つなげませんでした。',
+  'terminal.off.retryIn': '{n} 秒後にもう一度つなぎます。',
+  'terminal.off.retrying': 'つなぎ直しています。',
+  'terminal.off.reconnect': '再接続',
+  'terminal.off.reattach': 'つなぎ直す',
+  'terminal.status.closed': '接続していません',
+  'terminal.status.connecting': '接続しています',
+  'terminal.tab.close': '{title} を閉じる',
+  'terminal.tab.addShell': 'シェルタブを追加',
+  'terminal.tab.split': '横に並べる',
+  'terminal.tab.splitTitle': '横に並べる（⌘\\）',
+  'terminal.tab.splitNeedsTwo': 'タブが 2 つ必要です',
+  'terminal.split.width': '左右の幅',
+  'terminal.split.valueText': '左 {percent}%',
+  'terminal.off.then': '{first}{next}',
+};

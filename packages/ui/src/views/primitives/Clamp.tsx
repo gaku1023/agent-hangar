@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useOpen } from '../transcriptOpen.tsx';
 import { Icon } from './Icon.tsx';
+import { useT } from './language.tsx';
 
 /** 出力（コマンドの出力、コード、結果の文）を切る行数。 */
 export const OUT_LINES = 12;
@@ -24,6 +25,7 @@ export function estimateLines(text: string, width = 76): number {
  * height を付けると、行で切らずに CSS の高さで切る（Markdown のように行と高さが揃わない中身）。
  */
 export function Clamp(props: { seq: number; part: string; lines: number; shown: number; tone?: 'surface' | 'term' | 'accent'; height?: boolean; children: (open: boolean) => ReactNode }) {
+  const t = useT();
   const [open, setOpen] = useOpen(props.seq, props.part);
   if (props.lines <= props.shown + SLACK) return <>{props.children(true)}</>;
   const rest = props.lines - props.shown;
@@ -32,7 +34,7 @@ export function Clamp(props: { seq: number; part: string; lines: number; shown: 
       <div className="clamp-body">{props.children(open)}</div>
       <div className="clamp-more">
         <button type="button" className="btn btn-sm" onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
-          <Icon name={open ? 'chevronUp' : 'chevronDown'} />{open ? '畳む' : `全文を表示（残り ${rest} 行）`}
+          <Icon name={open ? 'chevronUp' : 'chevronDown'} />{open ? t('primitives.clamp.collapse') : t('primitives.clamp.expand', { rest })}
         </button>
       </div>
     </div>

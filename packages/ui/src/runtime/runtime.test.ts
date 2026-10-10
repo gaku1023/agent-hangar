@@ -963,7 +963,7 @@ describe('フェーズ 3 の効果', () => {
       source: 'cloudflare', fetchedAt: 1_000, stale: false, notice: null,
       limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 },
       today: { d1RowsWritten: 23_480, workersRequests: 4_120, resetAt: 2_000 },
-      plan: { label: 'Workers 無料 · R2 従量', workersPaid: false }, month: null,
+      plan: { workersPaid: false, r2Paid: true }, month: null,
     };
     const syncUsage = vi.fn(async () => dto);
     const { rt, wsHandlers, setHash } = harness({ syncUsage });
@@ -2164,5 +2164,57 @@ describe('設定の同期（作り直した実装）', () => {
     await flush();
     expect(api.configSendUnsent).toHaveBeenCalledWith('u');
     expect(rt.getStore().configDetail.unsent?.items[0]?.allowed).toBe(true);
+  });
+});
+
+describe('ランタイムの文（英語）', () => {
+  const JAPANESE = /[぀-ヿ㐀-鿿]/;
+  const english = { ...boot, settings: { ...boot.settings, language: 'en' as const } };
+  const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
+  const nameless: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
+  async function startedEnglish(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}, sessions: SessionDto[] = []) {
+    const h = harness({ bootstrap: vi.fn(async () => ({ ...english, sessions })), ...overrides }, extra);
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    return h;
+  }
+  const toasts = (rt: ReturnType<typeof harness>['rt']) => rt.getState().toasts.map((t) => t.message);
+
+  it('コピーに失敗したときの知らせ', async () => {
+    const { rt } = await startedEnglish({}, { clipboard: vi.fn(async () => { throw new Error('denied'); }) });
+    rt.emit({ type: 'clipboard.copy', text: 'x' });
+    await flush();
+    expect(toasts(rt)).toEqual(['Could not copy. Select the text and press ⌘C']);
+  });
+  it('iTerm2 から Terminal.app に落ちたときの知らせ', async () => {
+    const { rt } = await startedEnglish({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
+    rt.emit({ type: 'session.openTerminalApp', runId: 'r1' });
+    await flush();
+    expect(toasts(rt)).toEqual(['Could not open in iTerm2, so opened in Terminal.app instead']);
+  });
+  it('殻の操作の失敗は、英語の頭に原因を添える', async () => {
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => { throw new Error('busy'); }), pickFolder: vi.fn(async () => { throw new Error('gone'); }), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn() };
+    const { rt } = await startedEnglish({}, { desktop });
+    rt.emit({ type: 'shell.openLog' });
+    rt.emit({ type: 'shell.restart' });
+    rt.emit({ type: 'folder.pick' });
+    await flush();
+    expect(toasts(rt)).toEqual(['Could not open the log: denied', 'Could not restart: busy', 'Could not select the folder: gone']);
+  });
+  it('殻の返事が読めなかったときは、英語の文を知らせる', async () => {
+    const desktop = { openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(async () => ({ status: 'failed' as const, message: null, generation: null })) };
+    const { rt } = await startedEnglish({}, { desktop });
+    rt.emit({ type: 'configSync.restore', name: '20261010-120000' });
+    await flush();
+    expect(toasts(rt)).toEqual(['Could not read the response from the desktop app.']);
+  });
+  it('デスクトップ通知：名前の無いセッションの題と、問いの取れない本文が英語になる', async () => {
+    let shown: unknown = null;
+    const notifier = { defaultOn: true, available: () => true, granted: () => true, request: vi.fn(async () => true), prepare: vi.fn(async () => {}), status: vi.fn(async (): Promise<NotifyPermission> => 'granted'), background: () => true, show: vi.fn((n: unknown) => { shown = n; }), badge: vi.fn(), onOpen: () => () => {} };
+    const { wsHandlers } = await startedEnglish({}, { notifier }, [nameless]);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1 }] });
+    expect(shown).toEqual({ sessionId: 's1', title: '(No name)', body: 'Waiting for input' });
+    expect(JSON.stringify(shown)).not.toMatch(JAPANESE);
   });
 });
