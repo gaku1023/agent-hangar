@@ -465,13 +465,13 @@ mod tests {
     /// 殻は互換の版の合うサーバだけを採り、それは必ず `ready` を持つ。
     #[test]
     fn boot_state_does_not_read_a_response_without_ready() {
-        assert_eq!(boot_state(200, r#"{"ok":true,"version":"0.2.0"}"#), None);
+        assert_eq!(boot_state(200, r#"{"ok":true,"version":"1.2.3"}"#), None);
         assert_eq!(
-            boot_state(200, r#"{"ok":true,"version":"0.2.0","ready":"no"}"#),
+            boot_state(200, r#"{"ok":true,"version":"1.2.3","ready":"no"}"#),
             None
         );
         assert_eq!(
-            boot_state(200, r#"{"ok":true,"version":"0.2.0","ready":null}"#),
+            boot_state(200, r#"{"ok":true,"version":"1.2.3","ready":null}"#),
             None
         );
     }
@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn judge_existing_adopts_only_a_server_of_the_same_compat() {
         let body =
-            |c: &str| format!(r#"{{"ok":true,"version":"0.4.0","compat":{c},"ready":true}}"#);
+            |c: &str| format!(r#"{{"ok":true,"version":"1.2.3","compat":{c},"ready":true}}"#);
         assert_eq!(judge_existing(200, &body("1"), 1), Existing::Adopt);
         assert_eq!(
             judge_existing(200, &body("2"), 1),
@@ -815,7 +815,7 @@ mod tests {
     /// ソケット越しにも同じに決める。誰も待ち受けていなければ「居ない」。
     #[test]
     fn probe_existing_decides_over_a_socket() {
-        let same = serve_json(r#"{"ok":true,"version":"0.4.0","compat":1,"ready":true}"#);
+        let same = serve_json(r#"{"ok":true,"version":"1.2.3","compat":1,"ready":true}"#);
         assert_eq!(probe_existing(same, 1), Existing::Adopt);
         let older = serve_json(r#"{"ok":true,"version":"1.2.3"}"#);
         assert_eq!(probe_existing(older, 1), Existing::Mismatch { theirs: 0 });
