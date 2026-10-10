@@ -245,6 +245,8 @@ fn parse_probe_line(line: &str) -> Option<NodeProbe> {
 
 /// 打ち切った子を、その子が作った孫ごと止める。
 /// 包みの shell を候補に据えられた場合、shell だけ止めても孫が残り、読み口を握ったままになる。
+/// Windows では、ここで止めるのは子だけである。
+/// 孫は、子を入れたジョブ（`probe_node_within` の `_job`）を落とすときに止まる。
 fn kill_group(child: &mut std::process::Child) {
     #[cfg(unix)]
     // `setsid` させてあるので、グループの番号は子の番号と同じである。
@@ -280,7 +282,7 @@ pub fn probe_node_within(path: &Path, timeout: Duration) -> ProbeOutcome {
     {
         use std::os::windows::process::CommandExt;
         // 窓を持たない殻から起こすと、候補ごとに黒い窓が一瞬開く（CREATE_NO_WINDOW）。
-        cmd.creation_flags(0x0800_0000);
+        cmd.creation_flags(crate::winjob::CREATE_NO_WINDOW);
     }
     #[cfg(unix)]
     unsafe {
@@ -295,6 +297,10 @@ pub fn probe_node_within(path: &Path, timeout: Duration) -> ProbeOutcome {
     let Ok(mut child) = cmd.spawn() else {
         return ProbeOutcome::NotExecutable;
     };
+    // Windows では子をジョブに入れる。この関数を出るときにジョブが落ち、残った孫ごと止まる。
+    // unix の setsid と killpg に当たる。
+    #[cfg(windows)]
+    let _job = crate::winjob::contain(&child);
     let Some(stdout) = child.stdout.take() else {
         kill_group(&mut child);
         return ProbeOutcome::Failed;

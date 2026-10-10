@@ -22,10 +22,12 @@
       /* 合図の光の輪。ロゴの上に重ね、窓の端まで広げる。 */
       #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
       /* 失敗の札。殻が種類と数を渡し（__hangarBootFail）、頁が 1 枚の札で出す。読み込みの絵（main）は退け、ロゴは左上に小さく置く。 */
-      /* 窓の左上には信号の 3 点が重なる（UI の --lights-end と同じ 81px）。ヘッダーの高さ 44px の中にロゴを置く。 */
+      /* macOS の窓の左上には信号の 3 点が重なる（UI の --lights-end と同じ 81px）。ヘッダーの高さ 44px の中にロゴを置く。
+         殻は macOS でだけ data-shell の印を付ける。Windows の窓は標準の枠なので、UI の既定の余白（16px）から始める。 */
       body[data-fail] { box-sizing: border-box; padding: 44px 16px 24px; }
       main[hidden], .fail-card[hidden], .fail-brand[hidden], .fail-cmd[hidden] { display: none; }
-      .fail-brand { position: fixed; left: 81px; top: 8px; display: flex; align-items: center; gap: 8px; height: 28px; color: var(--ink); font-weight: 700; }
+      .fail-brand { position: fixed; left: 16px; top: 8px; display: flex; align-items: center; gap: 8px; height: 28px; color: var(--ink); font-weight: 700; }
+      [data-shell='desktop'] .fail-brand { left: 81px; }
       .fail-brand img { width: 28px; height: 28px; }
       .fail-card { box-sizing: border-box; display: flex; flex-direction: column; width: min(640px, 100%); max-height: calc(100vh - 68px); padding: 18px 22px 16px; border-radius: 18px; background: #ffffff; box-shadow: 0 1px 2px rgba(30, 40, 90, 0.06), 0 20px 50px -24px rgba(30, 40, 90, 0.45); text-align: left; overflow-y: auto; }
       .fc-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }

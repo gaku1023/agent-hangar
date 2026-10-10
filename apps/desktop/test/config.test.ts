@@ -25,9 +25,21 @@ describe('tauri.windows.conf.json', () => {
     const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
     expect(conf.bundle.targets).toEqual(['app']);
     expect(conf.bundle.windows).toBeUndefined();
-    // 重ねる側が、読み込み画面や同梱サーバの置き場まで書き換えていない。
-    expect(Object.keys(win).sort()).toEqual(['$schema', 'bundle']);
+    // 重ねる側が、読み込み画面や同梱サーバの置き場まで書き換えていない。重ねるのは配布物と窓の装飾だけである。
+    expect(Object.keys(win).sort()).toEqual(['$schema', 'app', 'bundle']);
+    expect(Object.keys(win.app)).toEqual(['windows']);
     expect(Object.keys(win.bundle).sort()).toEqual(['targets', 'windows']);
+    // macOS の窓は、信号の 3 点をヘッダに重ねる装飾のまま。
+    expect(conf.app.windows[0]).toMatchObject({ titleBarStyle: 'Overlay', hiddenTitle: true, trafficLightPosition: { x: 11, y: 24 } });
+  });
+  // titleBarStyle、hiddenTitle、trafficLightPosition は macOS の装飾である。Windows では標準の枠（タイトルバーと閉じるなどのボタン）にする。
+  // 配列は丸ごと置き換わるので、窓の名前と大きさは tauri.conf.json の写しを持つ。片方だけ変えるとここが落ちる。
+  it('Windows の窓は標準の枠にし、名前と大きさは macOS の窓と同じにする', () => {
+    const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
+    expect(win.app.windows).toHaveLength(1);
+    const { titleBarStyle, hiddenTitle, trafficLightPosition, ...shared } = conf.app.windows[0];
+    expect([titleBarStyle, hiddenTitle, trafficLightPosition]).not.toContain(undefined);
+    expect(win.app.windows[0]).toEqual({ ...shared, decorations: true });
   });
 });
 
@@ -174,12 +186,15 @@ describe('読み込み画面', () => {
     expect(html).not.toContain("main:has(#status[data-level='error'])");
     expect(html).not.toMatch(/main \{[^}]*white-space/);
   });
-  // 窓の左上には信号の 3 点が重なる。失敗の札のロゴは、UI のヘッダーの左の空き（--lights-end）と同じだけ右に置く。
-  it('失敗の札のロゴは、信号の 3 点の右（UI の --lights-end と同じ幅）から始める', () => {
+  // macOS の窓の左上には信号の 3 点が重なる。失敗の札のロゴは、UI のヘッダーの左の空き（--lights-end）と同じだけ右に置く。
+  // Windows の窓は標準の枠で、窓の中に信号は無い。殻は印を付けないので、UI の既定（--head-lead、16px）と同じ位置から始める。
+  it('失敗の札のロゴは、macOS の殻の中では信号の 3 点の右（--lights-end）から、それ以外では 16px から始める', () => {
     const tokens = fs.readFileSync(path.resolve(app, '../../packages/ui/src/styles/tokens.css'), 'utf8');
     const lights = tokens.match(/--lights-end: (\d+)px;/)?.[1];
     expect(lights).toBeDefined();
-    expect(read('loading/index.html')).toContain(`.fail-brand { position: fixed; left: ${lights}px;`);
+    const html = read('loading/index.html');
+    expect(html).toContain('.fail-brand { position: fixed; left: 16px;');
+    expect(html).toContain(`[data-shell='desktop'] .fail-brand { left: ${lights}px; }`);
   });
   // 札の操作の並びは Tab の順（命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す）で、DOM もこの順に置く。
   it('失敗の札の操作は、DOM を Tab の順に置く', () => {
@@ -370,6 +385,14 @@ describe('殻の印', () => {
   // ヘッダの左の列はロゴから始まる。ロゴの始まり（--head-lead）を、殻の中でだけ信号の 3 点の右にする。
   it('殻は頁に data-shell="desktop" を付け、画面はそれでヘッダの左を信号の 3 点の分だけ空ける', () => {
     expect(read('src-tauri/src/lib.rs')).toContain("document.documentElement.dataset.shell = 'desktop'");
+    // 印は macOS の殻でだけ付ける。Windows の窓は標準の枠で、信号の 3 点が無いので空けない。
+    // 読み込み画面（失敗の札のロゴ）にもサーバの頁にも、同じ条件で付ける。
+    const lib = read('src-tauri/src/lib.rs');
+    const mark = lib.indexOf("document.documentElement.dataset.shell = 'desktop'");
+    const guard = lib.lastIndexOf('if cfg!(target_os = "macos") {', mark);
+    expect(guard).toBeGreaterThan(0);
+    expect(lib.slice(guard, mark)).not.toContain('}');
+    expect(lib.slice(guard, mark)).not.toContain('server_page');
     const base = fs.readFileSync(path.resolve(app, '../../packages/ui/src/styles/base.css'), 'utf8');
     expect(base).toContain("[data-shell='desktop'] .shell { --head-lead: var(--lights-end); }");
   });
