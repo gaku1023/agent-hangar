@@ -120,7 +120,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.shell.unsupported': 'tmux が無いので使えません',
   'settings.integrations.shell.unknown': '分かりません（hangar が古い版です）',
   'settings.integrations.shell.installHint': 'この PC にインストールするには、ターミナルで次を実行してください。足す行を見せて承諾を求め、足す前に {zshrc} のバックアップを取ります。',
-  'settings.integrations.shell.installedHint': '新しく開いたターミナルから効きます。1 回だけ包まずに起動するときは command claude、解除するときは {uninstall} です。',
+  'settings.integrations.shell.installedHint': '新しく開いたターミナルから効きます。1 回だけ包まずに起動するときは command claude、アンインストールするときは {uninstall} です。',
   'settings.integrations.shell.noTmux': 'この PC では tmux が見つかりません。{install} でインストールするか、ツールの「tmux のパス」を入力してください。',
   'settings.integrations.shell.adopt': 'インストールしていないときも、外部ターミナルで入力待ちかアイドルの claude は「hangar に移動」で開けます。',
   'settings.summary.title': '要約エンジン',

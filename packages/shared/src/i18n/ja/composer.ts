@@ -11,7 +11,7 @@ export const composerJa: AreaDictionary<typeof composerKeys> = {
   'composer.group.user': '自分の',
   'composer.group.plugin': 'プラグイン',
   'composer.group.builtin': '組み込み',
-  'composer.card.remove': '{name} を解除',
+  'composer.card.remove': '{name} を削除',
   'composer.card.sending': '送っています',
   'composer.attach.tooLarge': '{name} は 20 MB を超えているので添付できません',
   'composer.attach.failed': '{name} を添付できませんでした（{reason}）',

@@ -206,7 +206,7 @@ describe('HomeScreen の欄（欄が正）', () => {
     const { onAction } = mount({ list: listProps({ tokens: [{ key: 'status', token: 'is:paused' }, { key: 'days', token: 'since:7d' }] }) });
     const box = document.querySelector('.sessions-keyword') as HTMLElement;
     expect(within(box).getByText('is:paused')).toBeInTheDocument();
-    fireEvent.click(within(box).getByRole('button', { name: 'is:paused を解除' }));
+    fireEvent.click(within(box).getByRole('button', { name: 'is:paused を削除' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: undefined } });
     const kw = screen.getByLabelText('キーワード');
     fireEvent.keyDown(kw, { key: 'Backspace' });

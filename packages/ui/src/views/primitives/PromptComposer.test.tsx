@@ -723,7 +723,7 @@ describe('PromptComposer の添付', () => {
   it('× で外す', async () => {
     const onAttachments = vi.fn();
     await mount({}, { initial: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 10 }], onAttachments });
-    fireEvent.click(screen.getByRole('button', { name: 'a.png を解除' }));
+    fireEvent.click(screen.getByRole('button', { name: 'a.png を削除' }));
     expect(onAttachments).toHaveBeenLastCalledWith([]);
   });
   it('添付ボタンで選んだファイルも同じ道を通る', async () => {
@@ -923,7 +923,7 @@ describe('PromptComposer の送っている最中の札', () => {
     const real = screen.getByRole('listitem', { name: 'a.png' });
     expect(real).not.toHaveAttribute('aria-busy');
     expect(real).toHaveTextContent('2 KB');
-    expect(within(real).getByRole('button', { name: 'a.png を解除' })).toBeInTheDocument();
+    expect(within(real).getByRole('button', { name: 'a.png を削除' })).toBeInTheDocument();
     expect(onPending.mock.calls).toEqual([[1], [0]]);
   });
   it('2 件送って後のほうが先に終わっても、札は渡した順に並ぶ', async () => {

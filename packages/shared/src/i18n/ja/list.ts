@@ -11,7 +11,7 @@ export const listJa: AreaDictionary<typeof listKeys> = {
   'list.search.tagSummary': '要約',
   'list.search.tagTranscript': 'トランスクリプト',
   'list.search.clear': 'キーワードをクリア',
-  'list.token.remove': '{token} を解除',
+  'list.token.remove': '{token} を削除',
   'list.filter.button': '絞り込み',
   'list.filter.buttonCount': '絞り込み、条件 {n}',
   'list.filter.project': 'プロジェクト',
