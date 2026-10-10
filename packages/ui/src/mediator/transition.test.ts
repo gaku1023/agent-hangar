@@ -796,8 +796,11 @@ describe('昇格', () => {
   it('名前を検査し、失敗はダイアログに残す', () => {
     const open = run([action({ type: 'session.promote.open', id: 's1' })]).state;
     const bad = run([action({ type: 'session.promote.submit', id: 's1', name: 'a/b', gitInit: false, moveFiles: false })], open);
-    expect(bad.state.promote).toEqual({ kind: 'failed', message: '名前に / は使えません' });
+    expect(bad.state.promote).toEqual({ kind: 'failed', message: '名前に / と \\ は使えません' });
     expect(bad.effects).toEqual([]);
+    const back = run([action({ type: 'session.promote.submit', id: 's1', name: 'a\\b', gitInit: false, moveFiles: false })], open);
+    expect(back.state.promote).toEqual({ kind: 'failed', message: '名前に / と \\ は使えません' });
+    expect(back.effects).toEqual([]);
     const empty = run([action({ type: 'session.promote.submit', id: 's1', name: '  ', gitInit: false, moveFiles: false })], open);
     expect(empty.state.promote).toEqual({ kind: 'failed', message: '名前を入力してください' });
     const sent = run([action({ type: 'session.promote.submit', id: 's1', name: 'ok', gitInit: false, moveFiles: false })], open);

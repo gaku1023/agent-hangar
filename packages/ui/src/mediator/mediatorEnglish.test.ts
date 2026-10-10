@@ -28,7 +28,8 @@ describe('Mediator の文（英語）', () => {
   it('昇格：名前の検査と、ダイアログを閉じたあとの知らせ', () => {
     const open = step(initialState(), action({ type: 'session.promote.open', id: 's1' })).state;
     expect(step(open, action({ type: 'session.promote.submit', id: 's1', name: ' ', gitInit: false, moveFiles: false })).state.promote).toEqual({ kind: 'failed', message: 'Enter a name' });
-    expect(step(open, action({ type: 'session.promote.submit', id: 's1', name: 'a/b', gitInit: false, moveFiles: false })).state.promote).toEqual({ kind: 'failed', message: 'The name cannot contain /' });
+    expect(step(open, action({ type: 'session.promote.submit', id: 's1', name: 'a/b', gitInit: false, moveFiles: false })).state.promote).toEqual({ kind: 'failed', message: 'The name cannot contain / or \\' });
+    expect(step(open, action({ type: 'session.promote.submit', id: 's1', name: 'a\\b', gitInit: false, moveFiles: false })).state.promote).toEqual({ kind: 'failed', message: 'The name cannot contain / or \\' });
     expect(messages(step(initialState(), runtime({ type: 'promote.done', projectId: 'p1', moved: false, reason: null })).effects)).toEqual(['Promoted to project']);
   });
   it('作成：ダイアログを閉じたあとの知らせ', () => {

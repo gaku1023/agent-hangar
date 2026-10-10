@@ -6,7 +6,8 @@ import type { Effect, Input, State, Step } from './types.ts';
 function nameError(name: string, t: Translate): string | null {
   const trimmed = name.trim();
   if (!trimmed) return t('mediator.promote.nameRequired');
-  if (trimmed.includes('/')) return t('mediator.promote.nameSlash');
+  // サーバの checkDirName と同じく、どちらの OS の区切りも名前に入れさせない。
+  if (trimmed.includes('/') || trimmed.includes('\\')) return t('mediator.promote.nameSlash');
   return null;
 }
 

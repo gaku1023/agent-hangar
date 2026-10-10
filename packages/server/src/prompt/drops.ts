@@ -59,7 +59,8 @@ export function promptMentionsDrops(prompt: string | undefined, dropsDir: string
   for (const raw of prompt.split(/\r?\n/)) {
     let line = raw.trim();
     // 引用符で包んだ行は、空白を含んでよい。包んでいない行は、空白が出たらそこから先は文なので数えない。
-    const quoted = line.length >= 2 && line.startsWith("'") && line.endsWith("'");
+    // 画面は macOS と Linux のパスを単引用符で、Windows のパスを二重引用符で包む（ui の quotePath）。
+    const quoted = line.length >= 2 && ((line.startsWith("'") && line.endsWith("'")) || (line.startsWith('"') && line.endsWith('"')));
     if (quoted) line = line.slice(1, -1);
     if (!line.startsWith(dropsDir) || !seps.includes(line[dropsDir.length] ?? '')) continue;
     const name = line.slice(dropsDir.length + 1);

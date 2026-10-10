@@ -10,6 +10,7 @@ import { SessionList } from './SessionList.tsx';
 import type { SessionListProps } from '../presenters/sessions.ts';
 import { SettingsScreen } from './SettingsScreen.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 import { syncFixture } from '../test/syncProps.ts';
 import type { CloudUsageProps } from '../presenters/cloudUsage.ts';
 
@@ -170,6 +171,18 @@ describe('ResolveProjectDialog', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } });
     fireEvent.click(screen.getByText('あとで'));
     expect(onAction).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+});
+
+describe('ResolveProjectDialog の新しいパスの例', () => {
+  it('画面の OS の形で出す', () => {
+    const dialog = () => <ActionRoot onAction={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></ActionRoot>;
+    const { unmount } = render(dialog());
+    expect(screen.getByLabelText('新しいパス')).toHaveAttribute('placeholder', '/Users/you/…');
+    unmount();
+    setClientUserAgent(WINDOWS_UA);
+    render(dialog());
+    expect(screen.getByLabelText('新しいパス')).toHaveAttribute('placeholder', 'C:\\Users\\you\\…');
   });
 });
 

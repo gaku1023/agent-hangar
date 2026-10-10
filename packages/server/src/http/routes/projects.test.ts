@@ -90,7 +90,7 @@ describe('routes', () => {
     expect((await postProject({ kind: 'newDir', name: 'fresh', gitInit: false })).status).toBe(409);
     const bad = await postProject({ kind: 'newDir', name: 'a/b', gitInit: false });
     expect(bad.status).toBe(400);
-    expect((await bad.json()).error).toBe('名前はディレクトリ名として使える 1 字以上で、/ を含められません');
+    expect((await bad.json()).error).toBe('名前はディレクトリ名として使える 1 字以上で、/ と \\ を含められません');
     expect((await postProject({ kind: 'newDir', gitInit: false })).status).toBe(400);
   });
   it('kind が dir なら既存のフォルダを登録し、名前を省けば basename にする', async () => {

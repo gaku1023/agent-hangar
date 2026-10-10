@@ -20,6 +20,7 @@ export const newProjectEn: AreaDictionary<typeof newProjectKeys> = {
   'newProject.folder.or': 'or',
   'newProject.path.aria': 'Folder path',
   'newProject.path.placeholder': '/Users/you/… (type a path)',
+  'newProject.path.placeholderWindows': 'C:\\Users\\you\\… (type a path)',
   'newProject.footer.create': 'Create',
   'newProject.footer.createAndStart': 'Create and start',
 };

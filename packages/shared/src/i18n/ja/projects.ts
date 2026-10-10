@@ -42,6 +42,8 @@ export const projectsJa: AreaDictionary<typeof projectsKeys> = {
   'projects.resolve.hintElsewhere': '他の PC のプロジェクトです。この PC に同じフォルダがあれば、その場所を選択してください。この PC で使わないなら、あとで決めても構いません',
   'projects.resolve.candidates': 'プロジェクトの親フォルダの中の候補',
   'projects.resolve.newPath': '新しいパス',
+  'projects.resolve.newPathPlaceholder': '/Users/you/…',
+  'projects.resolve.newPathPlaceholderWindows': 'C:\\Users\\you\\…',
   'projects.resolve.useThis': 'この場所にする',
   'projects.resolve.archive': 'Archived にする',
   'projects.resolve.unlink': '一覧から削除',

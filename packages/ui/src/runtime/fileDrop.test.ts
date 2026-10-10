@@ -14,9 +14,31 @@ describe('quotePath', () => {
   });
 });
 
+describe('quotePath（Windows のパス）', () => {
+  // psmux のペインで動くのは claude か PowerShell（シェルタブ、psmux の既定も PowerShell）である。
+  it('PowerShell と cmd で特別な意味を持たないパスはそのまま渡す', () => {
+    expect(quotePath('C:\\Users\\a\\.agent-hangar\\drops\\1-スクリーンショット_19.51.52.png')).toBe('C:\\Users\\a\\.agent-hangar\\drops\\1-スクリーンショット_19.51.52.png');
+    expect(quotePath('D:/work/a-b+c=d.png')).toBe('D:/work/a-b+c=d.png');
+  });
+  it('空白、単引用符、PowerShell と cmd の記号を含むパスは二重引用符で囲む（Windows の名前に " は使えない）', () => {
+    expect(quotePath('C:\\Users\\Taro Yamada\\.agent-hangar\\drops\\1-a.png')).toBe('"C:\\Users\\Taro Yamada\\.agent-hangar\\drops\\1-a.png"');
+    expect(quotePath("C:\\work\\Bob's.png")).toBe('"C:\\work\\Bob\'s.png"');
+    for (const name of ['a,b.png', 'a;b.png', 'a&b.png', 'a(1).png', 'a{1}.png', '100%.png', '@a.png', 'a#b.png']) {
+      expect(quotePath(`C:\\work\\${name}`), name).toBe(`"C:\\work\\${name}"`);
+    }
+    expect(quotePath('\\\\server\\share\\a b.png')).toBe('"\\\\server\\share\\a b.png"');
+  });
+  it('$ と ` を含むパスは、PowerShell が二重引用符の中で展開するので、単引用符で囲み、中の単引用符は 2 つにする', () => {
+    expect(quotePath('C:\\work\\$tmp\\a.png')).toBe("'C:\\work\\$tmp\\a.png'");
+    expect(quotePath('C:\\work\\a`b.png')).toBe("'C:\\work\\a`b.png'");
+    expect(quotePath("C:\\work\\$it's.png")).toBe("'C:\\work\\$it''s.png'");
+  });
+});
+
 describe('dropText', () => {
   it('複数のパスを空白で区切り、端末へのドロップと同じく末尾に空白を 1 つ付ける', () => {
     expect(dropText(['/a.png', '/b c.png'])).toBe("/a.png '/b c.png' ");
+    expect(dropText(['C:\\a.png', 'C:\\b c.png'])).toBe('C:\\a.png "C:\\b c.png" ');
   });
 });
 

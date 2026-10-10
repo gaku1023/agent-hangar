@@ -10,6 +10,7 @@ import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { pick } from '../test/pick.ts';
 import { SettingsScreen } from './SettingsScreen.tsx';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 const TITLES: Record<SettingsSection, string> = { general: '一般', cloud: 'クラウド同期', integrations: '連携', summary: '要約エンジン', tools: 'ツール', update: '更新', info: '情報' };
 const IDS = Object.keys(TITLES) as SettingsSection[];
@@ -755,6 +756,17 @@ describe('設定のツール', () => {
     render(ui(at('tools')));
     expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'code のパス', 'Node のパス']);
     expect(screen.queryByRole('radio', { name: 'iTerm2' })).toBeNull();
+  });
+  it('Node のパスの例と探す順の説明は、画面の OS の形で出す', () => {
+    const { unmount } = render(ui(at('tools')));
+    expect(screen.getByRole('textbox', { name: 'Node のパス' })).toHaveAttribute('placeholder', '/opt/homebrew/bin/node');
+    expect(screen.getByText(/空なら \/opt\/homebrew\/bin\/node/)).toBeInTheDocument();
+    unmount();
+    setClientUserAgent(WINDOWS_UA);
+    render(ui(at('tools')));
+    expect(screen.getByRole('textbox', { name: 'Node のパス' })).toHaveAttribute('placeholder', 'C:\\Program Files\\nodejs\\node.exe');
+    expect(screen.getByText(/空なら C:\\Program Files\\nodejs\\node\.exe/)).toBeInTheDocument();
+    expect(screen.queryByText(/homebrew/)).toBeNull();
   });
   it('Node のパスを保存でき、空なら null を送る', () => {
     const onAction = vi.fn();

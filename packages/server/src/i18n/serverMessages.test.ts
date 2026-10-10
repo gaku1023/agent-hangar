@@ -47,7 +47,7 @@ describe('アカウント', () => {
 
 describe('プロジェクト', () => {
   it('名前の検査と、既にあるフォルダ', () => {
-    expect(errorText('en', caught(() => checkDirName('a/b')))).toBe('Name must be at least one character that can be used as a directory name, and cannot contain /');
+    expect(errorText('en', caught(() => checkDirName('a/b')))).toBe('Name must be at least one character that can be used as a directory name, and cannot contain / or \\');
     fs.mkdirSync(path.join(dir, 'taken'));
     const e = caught(() => makeProjectDir(dir, 'taken', false));
     expect(errorText('ja', e)).toMatch(/taken は既にあります$/);

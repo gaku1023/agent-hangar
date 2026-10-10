@@ -102,6 +102,12 @@ describe('promptMentionsDrops', () => {
     expect(promptMentionsDrops(`${W}-old\\a.png`, W)).toBe(false);
     expect(promptMentionsDrops(`${W}\\`, W)).toBe(false);
   });
+  it('二重引用符で包まれた行（Windows の空白入りのパス）も、外側の引用符を 1 組外して見る', () => {
+    const W = 'C:\\Users\\Taro Yamada\\.agent-hangar\\drops';
+    expect(promptMentionsDrops(`見て\n\n"${W}\\1000-0-a.png"`, W)).toBe(true);
+    expect(promptMentionsDrops(`"${W}\\sub\\a.png"`, W)).toBe(false);
+    expect(promptMentionsDrops(`"${W}\\1000-0-a.png'`, W)).toBe(false);
+  });
   it('Windows 形式と相対パスは false', () => {
     expect(promptMentionsDrops('C:\\Users\\u\\.agent-hangar\\drops\\a.png', D)).toBe(false);
     expect(promptMentionsDrops('drops/a.png', D)).toBe(false);

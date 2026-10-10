@@ -20,6 +20,7 @@ export const newProjectJa: AreaDictionary<typeof newProjectKeys> = {
   'newProject.folder.or': 'または',
   'newProject.path.aria': 'フォルダのパス',
   'newProject.path.placeholder': '/Users/you/…（パスを入力）',
+  'newProject.path.placeholderWindows': 'C:\\Users\\you\\…（パスを入力）',
   'newProject.footer.create': '作成',
   'newProject.footer.createAndStart': '作成して開始',
 };

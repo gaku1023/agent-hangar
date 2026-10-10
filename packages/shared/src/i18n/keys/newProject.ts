@@ -19,6 +19,7 @@ export const newProjectKeys = {
   'newProject.folder.or': [],
   'newProject.path.aria': [],
   'newProject.path.placeholder': [],
+  'newProject.path.placeholderWindows': [],
   'newProject.footer.create': [],
   'newProject.footer.createAndStart': [],
 } as const satisfies MessageSpec;

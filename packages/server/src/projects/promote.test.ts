@@ -73,6 +73,7 @@ describe('promoteSession', () => {
     expect(() => promoteSession(deps(), { sessionId: 'nope', name: 'x', gitInit: false, moveFiles: false })).toThrow(expect.objectContaining({ status: 404 }));
     expect(() => promoteSession(deps(), { sessionId: 's1', name: '', gitInit: false, moveFiles: false })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => promoteSession(deps(), { sessionId: 's1', name: 'a/b', gitInit: false, moveFiles: false })).toThrow(PromoteError);
+    expect(() => promoteSession(deps(), { sessionId: 's1', name: 'a\\b', gitInit: false, moveFiles: false })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => promoteSession(deps(), { sessionId: 's1', name: '..', gitInit: false, moveFiles: false })).toThrow(expect.objectContaining({ status: 400 }));
     expect(() => promoteSession(deps(), { sessionId: 's9', name: 'x', gitInit: false, moveFiles: false })).toThrow(expect.objectContaining({ status: 400 }));
     fs.mkdirSync(path.join(ws, 'taken'));

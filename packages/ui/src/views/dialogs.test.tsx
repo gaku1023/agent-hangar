@@ -7,6 +7,7 @@ import { RetentionDialog } from './RetentionDialog.tsx';
 import type { NewProjectProps } from '../presenters/newProject.ts';
 import type { UiAction } from '@agent-hangar/shared';
 import { revealWithin } from './primitives/revealWithin.ts';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 // 一覧の中だけをスクロールしたかを確かめるため、寄せる関数を差し替える。
 vi.mock('./primitives/revealWithin.ts', () => ({ revealWithin: vi.fn() }));
@@ -342,6 +343,16 @@ describe('NewProjectDialog', () => {
     collect({ desktop: false });
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
     expect(screen.queryByRole('button', { name: 'ほかの場所を選択…' })).toBeNull();
+  });
+  it('パスの欄の例は、画面の OS の形で出す', () => {
+    const { view } = collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    expect(screen.getByLabelText('フォルダのパス')).toHaveAttribute('placeholder', '/Users/you/…（パスを入力）');
+    view.unmount();
+    setClientUserAgent(WINDOWS_UA);
+    collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    expect(screen.getByLabelText('フォルダのパス')).toHaveAttribute('placeholder', 'C:\\Users\\you\\…（パスを入力）');
   });
   it('Windows の親フォルダなら、作る場所を \\ でつないで見せる', () => {
     collect({ workspaceRoot: 'C:\\Users\\me\\workspace' });
