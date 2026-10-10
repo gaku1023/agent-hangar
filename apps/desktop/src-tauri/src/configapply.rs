@@ -585,10 +585,12 @@ mod tests {
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(
-            args,
-            ["/s/server/cli.mjs", "config", "apply", "--plan", "--json"]
-        );
+        // 区切りは OS に従う（Windows では \）。
+        let cli = Path::new("/s/server")
+            .join("cli.mjs")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(args, [cli.as_str(), "config", "apply", "--plan", "--json"]);
         let envs: Vec<_> = cmd.get_envs().collect();
         for name in crate::server::INHERITED_ENV_DROPPED {
             assert!(
