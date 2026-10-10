@@ -3,13 +3,15 @@ import { type LiveStatus, type RunDto, type RunKind, type SessionDto, type Sessi
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
-import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.ts';
+import { DEFAULT_DAYS, EXTEND_TO, transcriptMark } from './retention.ts';
+import { periodLabel } from './retentionDialog.ts';
 import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 import { presentTool, relPath, type ToolView } from './tools.ts';
 import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import { permissionLabel } from '../views/primitives/permissionModel.ts';
 import { bandsOf, presentNowStrip, resultsOf, type NowStripProps } from './live.ts';
 import { buildTurns } from './turns.ts';
@@ -30,8 +32,8 @@ export type TurnRowProps = { seq: number; when: string; text: string; head: stri
  * `sourceId` を持たない古い行は、どの要約器が書いたか分からないので「不明」と出す。
  * 要約器を通していない要約（土台とセッション内）は、どちらも持たないので札を出さない。
  */
-export function summarizerLabel(sourceId: string | null, sourceModel: string | null): string | null {
-  if (!sourceId) return sourceModel ? `不明 / ${sourceModel}` : null;
+export function summarizerLabel(sourceId: string | null, sourceModel: string | null, t: Translate): string | null {
+  if (!sourceId) return sourceModel ? t('session.lead.summarizerUnknown', { model: sourceModel }) : null;
   const kind = SUMMARIZER_LABEL[sourceId] ?? sourceId;
   return sourceModel && sourceModel !== kind ? `${kind} / ${sourceModel}` : kind;
 }
@@ -95,13 +97,18 @@ export type ChangedFileProps = { path: string; dir: string; base: string; added:
  */
 export type SessionLockProps = { deviceName: string; stale: boolean; heartbeat: string; label: string };
 
-function lockProps(lock: SessionDto['lock'], now: number): SessionLockProps | null {
+function lockProps(lock: SessionDto['lock'], now: number, t: Translate): SessionLockProps | null {
   if (!lock) return null;
-  return { deviceName: lock.deviceName, stale: lock.stale, heartbeat: relativeTime(lock.heartbeatAt, now), label: `${lock.deviceName} ${lock.stale ? 'から応答がありません' : 'で実行中'}` };
+  return { deviceName: lock.deviceName, stale: lock.stale, heartbeat: relativeTime(t, lock.heartbeatAt, now), label: t(lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: lock.deviceName }) };
 }
 
 const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
-const when = (ts: number | undefined) => (ts === undefined ? '' : absoluteTime(ts).slice(11));
+/** 時刻の時と分（`HH:MM`）。表示の言語に依らない。 */
+const when = (ts: number | undefined) => {
+  if (ts === undefined) return '';
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
 
 /** タグの中身。無ければ null。 */
 const tagText = (text: string, tag: string): string | null => {
@@ -115,12 +122,12 @@ const tagText = (text: string, tag: string): string | null => {
  * 決まり文句（local-command-caveat）と空の出力は落とし、コマンドは「/model opus」の 1 行に、出力は中身だけにする。
  * どのタグでもない system の記録はそのまま返す。
  */
-export function localCommandText(text: string): string | null {
+export function localCommandText(text: string, t: Translate): string | null {
   const head = text.trimStart();
   if (head.startsWith('<local-command-caveat>')) return null;
   // スキルを読み込むと、その本文がまるごと記録に入る。ターミナルは 1 行しか出さないので、ここも名前だけにする。
   const skill = /^Base directory for this skill: (\S+)/.exec(head);
-  if (skill) return `スキル ${skill[1]!.split('/').filter(Boolean).pop()} を読み込みました`;
+  if (skill) return t('session.transcript.skillLoaded', { name: skill[1]!.split('/').filter(Boolean).pop() ?? '' });
   const name = tagText(head, 'command-name');
   if (name !== null) {
     const args = tagText(head, 'command-args') ?? '';
@@ -147,16 +154,17 @@ type ToolResult = { text: string; isError: boolean };
  * ツールの見せ方の控え。差分を取るので安くはなく、描くたびに作り直すと重い。
  * ストアの本文は同じ呼び出しを同じ物のまま持つので、呼び出しの物を鍵にし、結果か作業ディレクトリが変わったときだけ作り直す。
  */
-const toolViews = new WeakMap<ToolCall, { result: ToolResult | null; cwd: string; view: ToolView }>();
-function toolView(call: ToolCall, result: ToolResult | null, cwd: string): ToolView {
+const toolViews = new WeakMap<ToolCall, { result: ToolResult | null; cwd: string; t: Translate; view: ToolView }>();
+function toolView(call: ToolCall, result: ToolResult | null, cwd: string, t: Translate): ToolView {
   const hit = toolViews.get(call);
-  if (hit && hit.cwd === cwd && (hit.result === result || (hit.result?.text === result?.text && hit.result?.isError === result?.isError))) return hit.view;
-  const view = presentTool(call, result, cwd);
-  toolViews.set(call, { result, cwd, view });
+  // 辞書の関数は言語ごとに同じ物が返るので、言語を替えたときだけ作り直す。
+  if (hit && hit.cwd === cwd && hit.t === t && (hit.result === result || (hit.result?.text === result?.text && hit.result?.isError === result?.isError))) return hit.view;
+  const view = presentTool(call, result, cwd, t);
+  toolViews.set(call, { result, cwd, t, view });
   return view;
 }
 
-export function buildItems(events: TranscriptEvent[], opts: { showThinking: boolean; showRaw: boolean; subagents: string[]; cwd?: string }): TranscriptItem[] {
+export function buildItems(events: TranscriptEvent[], opts: { showThinking: boolean; showRaw: boolean; subagents: string[]; cwd?: string }, t: Translate): TranscriptItem[] {
   const results = new Map<string, { text: string; isError: boolean }>();
   for (const e of events) if (e.kind === 'tool_result') results.set(e.toolId, { text: e.text, isError: e.isError });
   const items: TranscriptItem[] = [];
@@ -168,7 +176,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
         // 生の記録を出すときは、手を加えずにそのまま見せる。
         // 種類の名前しか持たない行（turn_duration と stop_hook_summary は毎ターン 1 つずつ出る）は、読む中身が無いので落とす。
         if (!opts.showRaw && e.subtype !== undefined && e.text === e.subtype) break;
-        const text = opts.showRaw ? e.text : localCommandText(e.text);
+        const text = opts.showRaw ? e.text : localCommandText(e.text, t);
         if (text !== null) items.push({ kind: 'system', seq: e.seq, text, when: when(e.ts) });
         break;
       }
@@ -177,7 +185,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
         const sub = SUBAGENT_TOOLS.has(e.name) && opts.subagents[nextSub] ? { agentId: opts.subagents[nextSub++]!, label: e.summary } : null;
         const result = results.get(e.toolId) ?? null;
         const raw = opts.showRaw ? { input: JSON.stringify(e.input, null, 2) ?? '', result: result?.text ?? null } : null;
-        items.push({ kind: 'tool', seq: e.seq, summary: e.summary, name: e.name, view: toolView(e, result, opts.cwd ?? ''), raw, result, when: when(e.ts), subagent: sub });
+        items.push({ kind: 'tool', seq: e.seq, summary: e.summary, name: e.name, view: toolView(e, result, opts.cwd ?? '', t), raw, result, when: when(e.ts), subagent: sub });
         break;
       }
       case 'tool_result': break;
@@ -188,8 +196,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
   return items;
 }
 
-const OPEN_EDITOR: SessionAction = { id: 'openEditor', label: 'VS Code で開く', disabled: null, note: null };
-const RUNNING_REASON = '実行中は押せません。止めると押せます';
+const openEditor = (t: Translate): SessionAction => ({ id: 'openEditor', label: t('session.action.openEditor'), disabled: null, note: null });
 
 /** 見出しの行の操作を決めるのに要る事実。 */
 export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch'>;
@@ -202,35 +209,36 @@ export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOn
  * 理由は再開とフォークを閉じている事実（実行中、ロック、本文の在りか）から言う。
  * 生きているロックの「この PC で再開」は Ruling 14 のとおり閉じたままにし、主の操作のまま理由を添える。
  */
-export function sessionActions(f: ActionFacts): SessionActions {
+export function sessionActions(f: ActionFacts, t: Translate): SessionActions {
   const running = f.run?.alive === true || (f.live !== null && f.lock === null && !f.remoteOnly);
   const dev = f.lock?.deviceName ?? null;
   const why = (kind: 'resume' | 'fork'): string => {
-    if (running) return RUNNING_REASON;
-    if (f.lock) return f.lock.stale && kind === 'resume' ? `${dev} から応答がありません。「この PC で再開」で続けられます` : `${dev} で実行中です`;
-    if (f.remoteOnly) return kind === 'resume' ? '本文が他の PC にあります。「この PC で再開」で本文を降ろして続けられます' : '本文が他の PC にあります';
-    if (!f.hasTranscript) return '本文がありません';
-    return '起動しています';
+    if (running) return t('session.action.runningReason');
+    if (f.lock) return f.lock.stale && kind === 'resume' ? t('session.action.reason.staleResume', { device: dev ?? '' }) : t('session.action.reason.running', { device: dev ?? '' });
+    if (f.remoteOnly) return kind === 'resume' ? t('session.action.reason.remoteResume') : t('session.action.reason.remote');
+    if (!f.hasTranscript) return t('session.action.reason.noTranscript');
+    return t('session.action.reason.starting');
   };
-  const resume: SessionAction = { id: 'resume', label: '再開', disabled: f.canResume ? null : why('resume'), note: f.fromScratch ? '再開しても作業ディレクトリはスクラッチのままです' : null };
-  const fork: SessionAction = { id: 'fork', label: 'フォーク', disabled: f.canFork ? null : why('fork'), note: f.canFork ? 'この会話から枝分かれした新しいセッション' : null };
-  const regenerate: SessionAction[] = f.gone ? [] : [{ id: 'regenerate', label: '要約を作り直す', disabled: null, note: f.summaryPending ? '作成しています' : f.summaryError ? '前回は作成できませんでした' : null }];
-  const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: 'プロジェクトに昇格', disabled: null, note: null }] : [];
+  const resume: SessionAction = { id: 'resume', label: t('session.action.resume'), disabled: f.canResume ? null : why('resume'), note: f.fromScratch ? t('session.action.resumeQuickNote') : null };
+  const fork: SessionAction = { id: 'fork', label: t('session.action.fork'), disabled: f.canFork ? null : why('fork'), note: f.canFork ? t('session.action.forkNote') : null };
+  const regenerate: SessionAction[] = f.gone ? [] : [{ id: 'regenerate', label: t('session.action.regenerate'), disabled: null, note: f.summaryPending ? t('session.action.regenerateBusy') : f.summaryError ? t('session.action.regenerateFailed') : null }];
+  const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: t('session.action.promote'), disabled: null, note: null }] : [];
+  const editor = openEditor(t);
   if (running) {
     const alive = f.run?.alive === true;
-    const outside: SessionAction[] = f.outsideOpen === 'attach' ? [{ id: 'attach', label: 'hangar でつなぐ', disabled: null, note: '外で動いている Claude に hangar のターミナルからつなぐ' }]
-      : f.outsideOpen === 'adopt' ? [{ id: 'adopt', label: 'hangar で引き取る', disabled: null, note: '外のターミナルの claude を終わらせ、hangar で続ける' }] : [];
-    return { primary: OPEN_EDITOR, menu: [
-      ...(alive ? [{ id: 'openTerminal', label: 'ターミナルで開く', disabled: null, note: '外のターミナルで同じセッションにつなぐ' } satisfies SessionAction] : []),
+    const outside: SessionAction[] = f.outsideOpen === 'attach' ? [{ id: 'attach', label: t('session.action.attach'), disabled: null, note: t('session.action.attachNote') }]
+      : f.outsideOpen === 'adopt' ? [{ id: 'adopt', label: t('session.action.adopt'), disabled: null, note: t('session.action.adoptNote') }] : [];
+    return { primary: editor, menu: [
+      ...(alive ? [{ id: 'openTerminal', label: t('session.action.openTerminal'), disabled: null, note: t('session.action.openTerminalNote') } satisfies SessionAction] : []),
       ...outside, fork, ...regenerate, ...promote,
-      ...(alive ? [{ id: 'stop', label: '停止', disabled: null, note: null, danger: true } satisfies SessionAction] : []),
+      ...(alive ? [{ id: 'stop', label: t('session.action.stop'), disabled: null, note: null, danger: true } satisfies SessionAction] : []),
     ] };
   }
   if (f.lock || f.remoteOnly) {
-    const here: SessionAction = { id: 'resumeHere', label: 'この PC で再開', disabled: f.canResumeHere ? null : `${dev ?? '他の PC'} で実行中です。止まるか応答が無くなると選べます`, note: null };
-    return { primary: here, menu: [resume, fork, OPEN_EDITOR, ...regenerate, ...promote] };
+    const here: SessionAction = { id: 'resumeHere', label: t('session.action.resumeHere'), disabled: f.canResumeHere ? null : t('session.action.resumeHereBlocked', { device: dev ?? t('session.action.otherComputer') }), note: null };
+    return { primary: here, menu: [resume, fork, editor, ...regenerate, ...promote] };
   }
-  return { primary: resume, menu: [fork, OPEN_EDITOR, ...regenerate, ...promote] };
+  return { primary: resume, menu: [fork, editor, ...regenerate, ...promote] };
 }
 
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
@@ -241,7 +249,7 @@ const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
  * 足した行と消した行は、本文の欄と同じ差分（ツールの見せ方の控え）から数える。
  * Write は中身の行を足した数にする。
  */
-function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResult>, cwd: string): ChangedFileProps[] {
+function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResult>, cwd: string, t: Translate): ChangedFileProps[] {
   const files = new Map<string, ChangedFileProps>();
   for (const e of events) {
     if (e.kind !== 'tool_call' || !FILE_TOOLS.has(e.name)) continue;
@@ -255,9 +263,9 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
       f = { path, dir: rel.slice(0, cut), base: rel.slice(cut), added: 0, removed: 0, created: false };
       files.set(path, f);
     }
-    const view = toolView(e, results.get(e.toolId) ?? null, cwd);
+    const view = toolView(e, results.get(e.toolId) ?? null, cwd, t);
     if (view.body.kind === 'diff') for (const h of view.body.hunks) for (const l of h.lines) { if (l.t === 'add') f.added++; else if (l.t === 'del') f.removed++; }
-    if (view.body.kind === 'code') { f.added += view.body.text === '' ? 0 : view.body.text.split('\n').length; if (view.head.dim === '新しいファイル') f.created = true; }
+    if (view.body.kind === 'code') { f.added += view.body.text === '' ? 0 : view.body.text.split('\n').length; if (view.body.created) f.created = true; }
   }
   return [...files.values()];
 }
@@ -342,18 +350,18 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
   const sum = s.summary;
   const stopped = s.stoppedByStatus && s.state?.status && s.live === null ? t('session.lead.stopped', { status: STATUS_LABEL[s.state.status] }) : null;
   const flags = [...(i.gone ? [t('session.lead.summaryOnly')] : []), ...(!s.hasTranscript && !i.gone ? [t('session.lead.noTranscript')] : [])];
-  const sourceParts = sum ? [t(SUMMARY_SOURCE_KEY[sum.source]), summarizerLabel(sum.sourceId, sum.sourceModel)].filter((x): x is string => !!x) : [];
+  const sourceParts = sum ? [t(SUMMARY_SOURCE_KEY[sum.source]), summarizerLabel(sum.sourceId, sum.sourceModel, t)].filter((x): x is string => !!x) : [];
   return {
     label: t('session.lead.label'),
     status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null },
-    ended: stopped ? null : t('session.lead.ended', { when: relativeTime(s.lastActivityAt, i.now) }),
+    ended: stopped ? null : t('session.lead.ended', { when: relativeTime(t, s.lastActivityAt, i.now) }),
     stopped,
     turns: turnsText(stats.turns, t), tokens: t('session.stats.tokens', { n: tokensLabel(stats.inputTokens + stats.outputTokens) }), cost: stats.costUsd === null ? null : costLabel(stats.costUsd),
     flags,
     summary: sum ? {
       body: sum.body, nextSteps: sum.nextSteps, nextStepsLabel: t('session.lead.nextSteps'),
       progress: t('session.lead.progress', { state: t(SUMMARY_STATE_KEY[sum.state]), turns: sum.basedOnTurns }),
-      sourceLine: t('session.lead.sourceLine', { parts: sourceParts.join(t('common.list.separator')), when: absoluteTime(sum.updatedAt) }),
+      sourceLine: t('session.lead.sourceLine', { parts: sourceParts.join(t('common.list.separator')), when: absoluteTime(t, sum.updatedAt) }),
     } : null,
     empty: sum ? null : t('session.lead.noSummary'),
     notice: i.summaryPending ? { kind: 'pending', text: t('session.lead.pending'), title: null } : i.summaryError !== null ? { kind: 'failed', text: t('session.lead.failed'), title: i.summaryError } : null,
@@ -377,7 +385,7 @@ export type BadgeProps = { kind: 'lock' | 'stale' | 'remote'; label: string; tit
 export function presentSessionBadges(s: SessionDto, now: number, t: Translate): BadgeProps[] {
   const badges: BadgeProps[] = [];
   if (s.lock) {
-    badges.push({ kind: s.lock.stale ? 'stale' : 'lock', label: t(s.lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: s.lock.deviceName }), title: t('session.lock.lastSeen', { when: relativeTime(s.lock.heartbeatAt, now) }) });
+    badges.push({ kind: s.lock.stale ? 'stale' : 'lock', label: t(s.lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: s.lock.deviceName }), title: t('session.lock.lastSeen', { when: relativeTime(t, s.lock.heartbeatAt, now) }) });
   }
   if (s.remoteOnly) badges.push({ kind: 'remote', label: t('session.lock.remoteTranscript'), title: null });
   return badges;
@@ -400,10 +408,10 @@ export function presentDetails(s: SessionDto, run: RunDto | null, account: { nam
   if (model) rows.push({ name: t('session.details.model'), value: model });
   if (s.stats.effort) rows.push({ name: t('session.details.effort'), value: s.stats.effort });
   if (run?.permissionMode) rows.push({ name: t('session.details.permission'), value: permissionLabel(run.permissionMode, t) });
-  if (s.startedAt !== null) rows.push({ name: t('session.details.started'), value: absoluteTime(s.startedAt), mono: true });
+  if (s.startedAt !== null) rows.push({ name: t('session.details.started'), value: absoluteTime(t, s.startedAt), mono: true });
   rows.push({ name: t('session.details.cwd'), value: s.cwd, mono: true });
   if (account) rows.push({ name: t('session.details.account'), value: account.name, dot: account.color });
-  if (run) rows.push({ name: t('session.details.launch'), value: t('session.details.launchValue', { kind: t(LAUNCH_KEY[run.kind]), when: absoluteTime(run.startedAt).slice(11) }) });
+  if (run) rows.push({ name: t('session.details.launch'), value: t('session.details.launchValue', { kind: t(LAUNCH_KEY[run.kind]), when: when(run.startedAt) }) });
   rows.push({ name: t('session.details.usage'), value: t('session.details.usageValue', { turns: turnsText(s.stats.turns, t), tokens: t('session.stats.tokens', { n: tokensLabel(s.stats.inputTokens + s.stats.outputTokens) }) }) });
   if (s.stats.filesChanged > 0) rows.push({ name: t('session.details.files'), value: t('session.details.filesValue', { n: s.stats.filesChanged }) });
   if (s.stats.prUrl) rows.push({ name: t('session.details.pr'), value: prLabel(s.stats.prUrl, t) });
@@ -413,8 +421,9 @@ export function presentDetails(s: SessionDto, run: RunDto | null, account: { nam
 
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
+  const t = translatorOf(store);
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, strip: null, lead: null, badges: [], details: [], account: null, gone: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, transcriptBand: null };
+  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, strip: null, lead: null, badges: [], details: [], account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(t), menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -426,14 +435,14 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   for (let i = 1; i < raw.length; i++) if (raw[i]!.seq < raw[i - 1]!.seq) { sorted = false; break; }
   const events = sorted ? raw : [...raw].sort((a, b) => a.seq - b.seq);
   const itemOpts = { showThinking: view.showThinking, showRaw: view.showRaw, subagents: store.subagents[id] ?? [], cwd: s.cwd };
-  const items = buildItems(events, itemOpts);
+  const items = buildItems(events, itemOpts, t);
   const turnList = buildTurns(events);
-  const openTurn = turnList.find((t) => t.seq === view.openTurn) ?? null;
+  const openTurn = turnList.find((x) => x.seq === view.openTurn) ?? null;
   // 結果の表は 1 回だけ作り、色帯と現在の帯で使い回す。
   const results = resultsOf(events);
   const bands = bandsOf(events, turnList, results);
-  const turnRows: TurnRowProps[] = turnList.map((t, n) => ({ seq: t.seq, when: when(t.ts), text: t.text, head: t.head, tools: t.tools, open: t === openTurn, band: bands[n]! }));
-  const openTurnItems = openTurn ? buildItems(events.filter((e) => e.seq >= openTurn.from && e.seq < openTurn.to), itemOpts) : [];
+  const turnRows: TurnRowProps[] = turnList.map((x, n) => ({ seq: x.seq, when: when(x.ts), text: x.text, head: x.head, tools: x.tools, open: x === openTurn, band: bands[n]! }));
+  const openTurnItems = openTurn ? buildItems(events.filter((e) => e.seq >= openTurn.from && e.seq < openTurn.to), itemOpts, t) : [];
   const project = s.projectId ? store.projects[s.projectId] ?? null : null;
   const run = currentRunOf(store, id);
   const alive = aliveRunOf(store, id) !== null;
@@ -444,14 +453,14 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const complete = slice ? slice.total <= slice.items.length : true;
   const turnNo = complete && turnList.length > 0 ? turnList.length : s.stats.turns > 0 ? s.stats.turns : null;
   const open = run ? tabsOf(store, run.id) : [];
-  const selectedTab = run ? (view.selectedTab && open.some((t) => t.id === view.selectedTab) ? view.selectedTab : run.id) : null;
-  const tabs: TabItemProps[] = open.map((t) => ({ id: t.id, title: t.title, kind: t.kind, selected: t.id === selectedTab, closable: t.kind === 'shell' }));
+  const selectedTab = run ? (view.selectedTab && open.some((x) => x.id === view.selectedTab) ? view.selectedTab : run.id) : null;
+  const tabs: TabItemProps[] = open.map((x) => ({ id: x.id, title: x.title, kind: x.kind, selected: x.id === selectedTab, closable: x.kind === 'shell' }));
   const idle = !alive && s.live === null && state.launch.kind !== 'submitting';
   const canSplit = open.length >= 2;
   // 保持期間で本文が消えたとみられる会話。要約しか残っていないことを、要約の上の一行で伝える。
   const r = store.retention;
   const gone = transcriptMark(s, r?.days ?? DEFAULT_DAYS, now) === 'gone'
-    ? { note: `本文は、Claude Code の保持期間（${daysLabel(DEFAULT_DAYS)}）を過ぎたため削除されたとみられます。残っているのは要約だけです。`, canExtend: !!r && r.source === 'default' && r.writable, extendTo: EXTEND_TO }
+    ? { note: t('session.gone.note', { period: periodLabel(t, DEFAULT_DAYS) }), canExtend: !!r && r.source === 'default' && r.writable, extendTo: EXTEND_TO }
     : null;
   // 変更したファイルは主線から数える（冒頭の 1 枚が、サーバの一覧に足した行と消した行を付けるのに使う）。
   // サブエージェントを見ている間も、主線の分を出す。
@@ -459,7 +468,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const mainEvents = view.agentId === null ? events : (mainSlice?.items ?? []);
   const toolResults = new Map<string, ToolResult>();
   for (const e of mainEvents) if (e.kind === 'tool_result') toolResults.set(e.toolId, { text: e.text, isError: e.isError });
-  const changedFiles = changedFilesOf(mainEvents, toolResults, s.cwd);
+  const changedFiles = changedFilesOf(mainEvents, toolResults, s.cwd, t);
   // transcript を表示中の帯は、今の生きた run を transcript に入れたと確かめられた間だけ出す。
   // サーバは着けなかった（notFound）ときも transcript を開いたままにするので、そのときも出す。
   // 答えを待つ間（pending）と、入れなかった（mode）ときと、API が失敗した（failed）ときは出さない。
@@ -468,37 +477,36 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const aliveRun = aliveRunOf(store, id);
   const transcriptBand = tj && aliveRun && tj.runId === aliveRun.id && (tj.status === 'found' || tj.status === 'notFound') ? { when: (turnRows.find((r) => r.seq === tj.seq)?.when ?? '').slice(0, 5) } : null;
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
-  const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
+  const right = view.split && canSplit && selectedTab ? open.find((x) => x.id === view.splitTab && x.id !== selectedTab) ?? open.find((x) => x.id !== selectedTab) ?? null : null;
   const sessionAccount = hasMultipleAccounts(store) ? accountOfSession(store, id) : null;
-  const t = translatorOf(store);
-  const artifactCards = artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(a, now));
+  const artifactCards = artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(t, a, now));
   const account = sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null;
   // 現在の帯は生きた run があるときだけ。右パネルの「いま」の段が持っていた中身がここへ移る。
   const strip = alive ? presentNowStrip({
     digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0, turnNo,
     live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
-    idleFor: durationLabel(now - (s.lastActivityAt ?? now)), results,
-    waited: durationLabel(now - (s.lastActivityAt ?? now)), contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd), turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), artifacts: artifactCards, note: s.memo,
+    idleFor: durationLabel(t, now - (s.lastActivityAt ?? now)), results,
+    waited: durationLabel(t, now - (s.lastActivityAt ?? now)), contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd), turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), artifacts: artifactCards, note: s.memo,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
   const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
   const props: SessionProps = {
-    ...base, account, name: s.name ?? '（名前なし）', live: s.live, aside: asideOf(s.live, s.liveAside) !== null,
+    ...base, account, name: s.name ?? t('common.label.noName'), live: s.live, aside: asideOf(s.live, s.liveAside) !== null,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
-    parent: project ? { label: project.name, route: { name: 'project', id: project.id } } : null,
+    parent: project ? { label: projectDisplayName(project, t), route: { name: 'project', id: project.id } } : null,
     oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length && !slice.olderDone : false, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
     strip, lead, badges: presentSessionBadges(s, now, t), details: presentDetails(s, run, account, t),
     turnRows, turnsComplete: complete, turnsPending: s.hasTranscript && (!slice || (slice.loading && slice.items.length === 0)), openTurnItems, turnJump: view.turnJump,
     jump: view.jump,
-    run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
+    run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(t, run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null,
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。
     // 手元で続けたいときは「この PC で再開」に回して、本文を降ろしてから新しい run を立てる。
     canResume: s.hasTranscript && idle && s.lock === null && !s.remoteOnly, canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
     // Ruling 14。heartbeat が途絶えたロック（stale）は行き止まりにせず、「この PC で再開」だけを開ける。
     // 相手の run は止めに行かないので、同じ run の続きである再開とフォークは閉じたままにする。
-    lock: lockProps(s.lock, now), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly : s.lock.stale,
+    lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly : s.lock.stale,
     // hangar の run が無いまま外で動いているとき、本文しか見せられない。hangar の端末で開く手を出す（store の outsideOpenOf）。
     outsideOpen: outsideOpenOf(store, s),
     summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null,
@@ -506,5 +514,5 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone, transcriptBand,
   };
-  return { ...props, actions: sessionActions(props) };
+  return { ...props, actions: sessionActions(props, t) };
 }

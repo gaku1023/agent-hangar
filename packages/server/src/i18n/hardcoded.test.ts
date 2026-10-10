@@ -68,7 +68,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/pruneBackups.ts': { lines: 3, why: SYNC },
   'sync/puller.ts': { lines: 7, why: SYNC },
   'sync/uploader.ts': { lines: 2, why: SYNC },
-  'sync/usage.ts': { lines: 7, why: SYNC },
+  'sync/usage.ts': { lines: 1, why: SYNC },
   'tmux/tmux.ts': { lines: 1, why: INTERNAL },
 };
 

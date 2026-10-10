@@ -1,5 +1,5 @@
 import { asideOf } from '../lib/aside.ts';
-import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type SyncStatusDto, type UsageDto, usageAt } from '@agent-hangar/shared';
+import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
@@ -74,15 +74,16 @@ export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide:
  */
 function connProps(state: State, store: Store, now: number): ConnProps {
   const desktop = store.desktop;
+  const t = translatorOf(store);
   if (state.connection !== 'disconnected') return { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop };
   const left = state.nextRetryAt === null ? 0 : Math.ceil((state.nextRetryAt - now) / 1000);
   // 1 分未満は「1 分未満前のまま」と読みにくいので、時刻を言わずに止まったことだけを言う。
   const justNow = state.staleSince === null || now - state.staleSince < 60_000;
   return {
     visible: true,
-    staleLabel: justNow ? '画面の更新が止まっています' : `画面は ${relativeTime(state.staleSince, now)}のまま止まっています`,
+    staleLabel: justNow ? t('conn.stale.stopped') : t('conn.stale.since', { time: relativeTime(t, state.staleSince, now) }),
     // 待ち時間が尽きたあとは、秒を 0 と出さずに、試している最中だと言う。
-    retryLabel: left > 0 ? `${left} 秒後に再接続します` : '再接続しています',
+    retryLabel: left > 0 ? t('conn.retry.in', { n: left }) : t('conn.retry.now'),
     // reconnectAttempt は最初の切断で 1 になり、再接続に失敗するたびに 1 ずつ増える。
     hard: state.reconnectAttempt - 1 >= HARD_AFTER_FAILURES,
     desktop,
@@ -132,7 +133,7 @@ function syncProps(store: Store, now: number, tz?: string): SyncProps {
     : s.kind === 'error' ? t(paused ? 'header.sync.pausedError' : 'header.sync.errorDetail', { message: s.message ?? t('header.sync.failed') })
     : s.kind !== 'idle' ? syncStateWord(t, s.kind)
     : s.lastAt === null ? t('header.sync.preparing')
-    : t('header.sync.synced', { time: relativeTime(s.lastAt, now) });
+    : t('header.sync.synced', { time: relativeTime(t, s.lastAt, now) });
   const count = (n: number | undefined, key: 'header.sync.pending' | 'header.sync.sweepPending' | 'header.sync.skipped') => (n !== undefined && n > 0 ? t(key, { n }) : null);
   const pending = count(store.sync?.pending, 'header.sync.pending');
   const sweepPending = count(store.sync?.sweepPending ?? undefined, 'header.sync.sweepPending');
@@ -143,13 +144,13 @@ function syncProps(store: Store, now: number, tz?: string): SyncProps {
 
 type NavDef = { route: Route; label: string; matches: string[] };
 /** サイドバーの上の組。セッションの一覧の画面は無くなったので、項目はこの 2 つと、その下の「実行中」の節である（設計書 2.1）。 */
-const NAV: NavDef[] = [
-  { route: { name: 'home' }, label: 'ホーム', matches: ['home', 'booting'] },
-  { route: { name: 'projects' }, label: 'プロジェクト', matches: ['projects', 'project'] },
+const navDefs = (t: Translate): NavDef[] => [
+  { route: { name: 'home' }, label: t('sidebar.nav.home'), matches: ['home', 'booting'] },
+  { route: { name: 'projects' }, label: t('sidebar.nav.projects'), matches: ['projects', 'project'] },
 ];
 /** 下端の組。設定だけを置く。 */
-const FOOT: NavDef[] = [
-  { route: { name: 'settings' }, label: '設定', matches: ['settings'] },
+const footDefs = (t: Translate): NavDef[] => [
+  { route: { name: 'settings' }, label: t('sidebar.nav.settings'), matches: ['settings'] },
 ];
 
 /** サイドバーの「実行中」に並べる行の上限。超えた分は数だけにして、ホームへ案内する。 */
@@ -163,6 +164,7 @@ export const SIDE_LIVE_MAX = 8;
  * 入力待ちになっても行は動かさない。待ちは色と太字と待った時間で知らせる。
  */
 function sideLive(state: State, store: Store, now: number): SideLiveProps {
+  const t = translatorOf(store);
   const live = liveSessionIds(store);
   const on = new Set(live);
   const known = new Set(state.sidebarOrder);
@@ -174,8 +176,8 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 作業中の数え方と、数えるタブは、セッション画面の「停止」と同じにする（views/SessionScreen.tsx）。
     // 裏だけ動いているものも作業中として確かめる。止めると裏の作業も消える。
     const aside = asideOf(s.live, s.liveAside);
-    const stop = run ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', aside: aside !== null, shellTabs: tabsOf(store, run.id).filter((t) => t.kind === 'shell').length } : null;
-    return { id, name: s.name ?? '（名前なし）', live: s.live, aside: aside !== null, waited: s.live === 'waiting' ? `待ち ${durationLabel(now - (s.lastActivityAt ?? now))}` : null, current: id === current, stop };
+    const stop = run ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', aside: aside !== null, shellTabs: tabsOf(store, run.id).filter((tab) => tab.kind === 'shell').length } : null;
+    return { id, name: s.name ?? t('common.label.noName'), live: s.live, aside: aside !== null, waited: s.live === 'waiting' ? t('sidebar.live.waited', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : null, current: id === current, stop };
   });
   return { count: ids.length, ids, rows, more: ids.length - rows.length };
 }
@@ -191,9 +193,10 @@ const NO_USAGE: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
  * 1 件以下のときは、いまのアカウント（最初のアカウント）の値から作る。使用率は accounts.update だけで届く。
  */
 function headerAccount(state: State, store: Store, now: number): { account: HeaderAccountProps; usage: UsageProps } {
+  const t = translatorOf(store);
   if (!hasMultipleAccounts(store)) {
     const u = usageAt(currentAccount(store)?.usage ?? NO_USAGE, now);
-    return { account: null, usage: { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(u.updatedAt, now) } };
+    return { account: null, usage: { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now) } };
   }
   const sessionId = state.screen.name === 'session' ? state.screen.id : null;
   const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
@@ -208,12 +211,13 @@ function headerAccount(state: State, store: Store, now: number): { account: Head
 export function presentShell(state: State, store: Store, now: number, tz?: string): ShellProps {
   const s = state.screen;
   const idx = store.index;
-  const indexLabel = indexProgressLabel(idx);
+  const t = translatorOf(store);
+  const indexLabel = indexProgressLabel(t, idx);
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
   const { account, usage } = headerAccount(state, store, now);
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
   const item = (n: NavDef): NavItem => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 });
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map(item), foot: FOOT.map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

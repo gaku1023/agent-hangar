@@ -24,37 +24,37 @@ export function clientPlatform(userAgent: string | undefined = globalThis.naviga
   return userAgent !== undefined && /Windows/.test(userAgent) ? 'win32' : 'darwin';
 }
 
-/** ツールごとの直し方。コマンドで直せるものはコマンドを、そうでなければ文を持つ。tmux の入れ方だけは OS で変わるので、toolLine で差し替える。 */
-const FIX: Record<ToolKey, { fix: string | null; fixCommand: string | null; soft: boolean }> = {
+/** ツールごとの直し方。コマンドで直せるものはコマンドを、そうでなければ文（辞書の鍵）を持つ。tmux の入れ方だけは OS で変わるので、toolLine で差し替える。 */
+const FIX = {
   tmux: { fix: null, fixCommand: 'brew install tmux', soft: false },
-  claude: { fix: 'claude コマンドの絶対パスを入れてください', fixCommand: null, soft: false },
-  code: { fix: 'VS Code から code コマンドを入れてください', fixCommand: null, soft: true },
-  node: { fix: '同梱のサーバと同じメジャー版の Node のパスを入れてください', fixCommand: null, soft: false },
-};
+  claude: { fix: 'readiness.fix.claude', fixCommand: null, soft: false },
+  code: { fix: 'readiness.fix.code', fixCommand: null, soft: true },
+  node: { fix: 'readiness.fix.node', fixCommand: null, soft: false },
+} as const satisfies Record<ToolKey, { fix: 'readiness.fix.claude' | 'readiness.fix.code' | 'readiness.fix.node' | null; fixCommand: string | null; soft: boolean }>;
 
 /** 動かせない理由の文。パスがあればパスを主語にする。 */
-function problemText(c: ToolCheckDto): string {
-  if (c.path === null || c.problem === 'unset') return '見つかりません';
-  if (c.problem === 'notFile') return `${c.path} はファイルではありません`;
-  if (c.problem === 'notExecutable') return `${c.path} には実行権がありません`;
-  return `${c.path} が見つかりません`;
+function problemText(t: Translate, c: ToolCheckDto): string {
+  if (c.path === null || c.problem === 'unset') return t('readiness.problem.unset');
+  if (c.problem === 'notFile') return t('readiness.problem.notFile', { path: c.path });
+  if (c.problem === 'notExecutable') return t('readiness.problem.notExecutable', { path: c.path });
+  return t('readiness.problem.missing', { path: c.path });
 }
 
-export function toolLine(key: ToolKey, c: ToolCheckDto & { auto?: boolean }, platform: string = clientPlatform()): VerifyLine {
+export function toolLine(t: Translate, key: ToolKey, c: ToolCheckDto & { auto?: boolean }, platform: string = clientPlatform()): VerifyLine {
   const f = FIX[key];
   if (c.ok) {
-    const auto = key === 'node' && c.auto ? '自動で見つけました' : null;
-    const note = [c.version, auto].filter((x): x is string => x !== null).join('、');
+    const auto = key === 'node' && c.auto ? t('readiness.tool.autoFound') : null;
+    const note = [c.version, auto].filter((x): x is string => x !== null).join(t('common.list.separator'));
     return { ok: true, soft: false, text: c.path ?? '', note: note === '' ? null : note, fix: null, fixCommand: null };
   }
-  return { ok: false, soft: f.soft, text: problemText(c), note: f.soft ? '無くても動きます' : null, fix: f.fix, fixCommand: key === 'tmux' ? muxInstallCommand(platform) : f.fixCommand };
+  return { ok: false, soft: f.soft, text: problemText(t, c), note: f.soft ? t('readiness.tool.optional') : null, fix: f.fix === null ? null : t(f.fix), fixCommand: key === 'tmux' ? muxInstallCommand(platform) : f.fixCommand };
 }
 
 /** ワークスペースの検証。登録したプロジェクトが 1 つも無いのも ✗ にする。何も始められないからである。 */
-export function workspaceLine(w: ReadinessDto['workspace']): VerifyLine {
-  if (!w.exists) return { ok: false, soft: false, text: `${w.path} が見つかりません`, note: null, fix: 'セッションのあるディレクトリをまとめた場所を入れてください', fixCommand: null };
-  if (w.projectCount === 0) return { ok: false, soft: false, text: '直下に、Claude のセッションがあるディレクトリがありません', note: null, fix: null, fixCommand: null };
-  return { ok: true, soft: false, text: w.path, note: `プロジェクト ${w.projectCount} 件`, fix: null, fixCommand: null };
+export function workspaceLine(t: Translate, w: ReadinessDto['workspace']): VerifyLine {
+  if (!w.exists) return { ok: false, soft: false, text: t('readiness.problem.missing', { path: w.path }), note: null, fix: t('readiness.fix.workspace'), fixCommand: null };
+  if (w.projectCount === 0) return { ok: false, soft: false, text: t('readiness.workspace.empty'), note: null, fix: null, fixCommand: null };
+  return { ok: true, soft: false, text: w.path, note: t('readiness.workspace.projects', { n: w.projectCount }), fix: null, fixCommand: null };
 }
 
 /** 始める前の確認の 6 行の名前。 */

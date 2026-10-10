@@ -38,6 +38,20 @@ import { syncJa } from './ja/sync.ts';
 import { systemJa } from './ja/system.ts';
 import { todoJa } from './ja/todo.ts';
 import { usageJa } from './ja/usage.ts';
+import { mediatorJa } from './ja/mediator.ts';
+import { runtimeJa } from './ja/runtime.ts';
+import { primitivesJa } from './ja/primitives.ts';
+import { composerJa } from './ja/composer.ts';
+import { toolsJa } from './ja/tools.ts';
+import { transcriptJa } from './ja/transcript.ts';
+import { terminalJa } from './ja/terminal.ts';
+import { pagerJa } from './ja/pager.ts';
+import { paletteJa } from './ja/palette.ts';
+import { connJa } from './ja/conn.ts';
+import { toastsJa } from './ja/toasts.ts';
+import { cloudUsageJa } from './ja/cloudUsage.ts';
+import { readinessJa } from './ja/readiness.ts';
+import { compatJa } from './ja/compat.ts';
 
 /** 日本語の辞書。文は領域ごとのファイル（`ja/<領域>.ts`）にあり、ここは束ねるだけである。 */
 export const ja: Dictionary = {
@@ -80,4 +94,18 @@ export const ja: Dictionary = {
   ...systemJa,
   ...todoJa,
   ...usageJa,
+  ...mediatorJa,
+  ...runtimeJa,
+  ...primitivesJa,
+  ...composerJa,
+  ...toolsJa,
+  ...transcriptJa,
+  ...terminalJa,
+  ...pagerJa,
+  ...paletteJa,
+  ...connJa,
+  ...toastsJa,
+  ...cloudUsageJa,
+  ...readinessJa,
+  ...compatJa,
 };

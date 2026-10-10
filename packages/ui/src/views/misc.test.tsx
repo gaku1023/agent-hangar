@@ -210,9 +210,9 @@ const USAGE: CloudUsageProps = {
     { key: 'plan', label: 'プラン', value: 'Workers 無料', sub: 'R2 従量', tone: 'ok' },
   ],
   bars: [
-    { label: 'D1 の書き込み', when: '今日', pct: 86.12, value: '86,120 / 100,000 行', tone: 'warn' },
-    { label: 'R2 の保存', when: '今月', pct: 1.65, value: '0.17 / 10 GB-月', tone: 'ok' },
-    { label: 'R2 Infrequent Access Data Retrieval', when: '今月', pct: null, value: '3 GB', tone: 'ok' },
+    { label: 'D1 の書き込み', when: 'day', pct: 86.12, value: '86,120 / 100,000 行', tone: 'warn' },
+    { label: 'R2 の保存', when: 'month', pct: 1.65, value: '0.17 / 10 GB-月', tone: 'ok' },
+    { label: 'R2 Infrequent Access Data Retrieval', when: 'month', pct: null, value: '3 GB', tone: 'ok' },
   ],
   splitAfter: 1, legend: ['あと 13,880 行で無料枠の上限です · 9:00 に戻る'], source: 'Cloudflare の数 · 2 分前', strip: null, command: null,
 };

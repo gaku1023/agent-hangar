@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { DEFAULT_LANGUAGE, translator, type Language, type Translate } from '@agent-hangar/shared';
 
 /**
@@ -8,6 +8,8 @@ import { DEFAULT_LANGUAGE, translator, type Language, type Translate } from '@ag
 export const LanguageContext = createContext<Language>(DEFAULT_LANGUAGE);
 
 export function LanguageRoot(props: { language: Language; children: ReactNode }) {
+  // 頁の lang も言語に合わせる。読み上げの声と、字形（CJK の書体の選び）が、言語に従う。
+  useEffect(() => { document.documentElement.lang = props.language; }, [props.language]);
   return <LanguageContext.Provider value={props.language}>{props.children}</LanguageContext.Provider>;
 }
 

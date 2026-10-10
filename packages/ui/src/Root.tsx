@@ -6,7 +6,7 @@ import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfigDialog } from './presenters/configSync.ts';
 import { presentConfirm } from './presenters/confirm.ts';
 import { presentHomeScreen } from './presenters/home.ts';
-import { storeLanguage } from './presenters/i18n.ts';
+import { storeLanguage, translatorOf } from './presenters/i18n.ts';
 import { presentNewProject } from './presenters/newProject.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
@@ -340,7 +340,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
 
   const shell = presentShell(state, store, now);
   let body: ReactNode;
-  if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty boot-wait">読み込んでいます</div>;
+  if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty boot-wait">{translatorOf(store)('common.state.loading')}</div>;
   else switch (state.screen.name) {
     case 'home': body = <HomeScreen {...presentHomeScreen(state, store, now)} />; break;
     case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;

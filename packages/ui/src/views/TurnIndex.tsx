@@ -161,7 +161,7 @@ export function TurnIndex(props: TurnIndexProps) {
       <div className="turns-head">
         {props.lead}
         <b>{t('session.toc.label')}</b>
-        <span className="faint"><RollingText key={scope} text={t(props.rows.length === 1 && !props.hasMore ? 'session.toc.countOne' : 'session.toc.count', { n: `${props.rows.length}${props.hasMore ? '+' : ''}` })} /></span>
+        <span className="faint"><RollingText key={scope} text={t('session.toc.count', { n: `${props.rows.length}${props.hasMore ? '+' : ''}` })} /></span>
         {props.agentId && <><span className="faint">{t('session.toc.subagent', { id: props.agentId })}</span><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: null })}>{t('session.toc.backToMain')}</button></>}
       </div>
       <div ref={listRef} className="turns-list">

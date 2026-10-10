@@ -3,6 +3,7 @@ import { useEmit } from '../intent/chain.tsx';
 import type { PaletteIcon, PaletteItem, PaletteProps } from '../presenters/palette.ts';
 import { isComposing } from './ime.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 import { motionEase, motionMs } from './primitives/motion.ts';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
@@ -36,6 +37,7 @@ function Lead(props: { item: PaletteItem }) {
  */
 export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => void }) {
   const emit = useEmit();
+  const t = useT();
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(0);
@@ -88,26 +90,26 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
     <div className="overlay" onClick={() => emit({ type: 'palette.close' })}>
       {/* 器は読み上げに対してダイアログである。
           器と入力欄には別の名前を付ける。同じ名前だと、名前で引いたときに 2 つ見つかって区別できない。 */}
-      <div ref={box} className="dialog palette" role="dialog" aria-modal="true" aria-label="コマンドパレット" onClick={(e) => e.stopPropagation()}>
+      <div ref={box} className="dialog palette" role="dialog" aria-modal="true" aria-label={t('palette.dialog.label')} onClick={(e) => e.stopPropagation()}>
         {/* 入力欄と一覧は combobox と listbox の組で結ぶ。
             選択位置は DOM のフォーカスではなく aria-activedescendant で伝えるので、打鍵は入力欄に残る。 */}
         <input
           ref={input}
           id="palette-input"
           className="input palette-input"
-          aria-label="移動・操作"
+          aria-label={t('palette.input.label')}
           role="combobox"
           aria-expanded
           aria-controls="palette-list"
           aria-activedescendant={items[index] ? `palette-opt-${index}` : undefined}
-          placeholder="セッションへ移動、または操作を実行"
+          placeholder={t('palette.input.placeholder')}
           value={props.query}
           onChange={(e) => props.onQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        {props.noMatch && <div className="palette-empty">名前にも操作にも一致しません。</div>}
-        {items.length === 0 && <div className="empty">一致する項目がありません</div>}
-        <div id="palette-list" className="palette-list" role="listbox" aria-label="移動・操作の候補">
+        {props.noMatch && <div className="palette-empty">{t('palette.empty.noMatch')}</div>}
+        {items.length === 0 && <div className="empty">{t('palette.empty.noItems')}</div>}
+        <div id="palette-list" className="palette-list" role="listbox" aria-label={t('palette.list.label')}>
           {props.sections.map((s) => (
             <div key={s.title} className="palette-section" role="group" aria-label={s.title}>
               {/* 群の名前は器の aria-label が読み上げるので、見出しは目で見る分だけにする。 */}
@@ -136,7 +138,7 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
                     <span className="palette-meta">
                       {item.meta && <span className="palette-when">{item.meta}</span>}
                       {item.keys && <kbd className="palette-keys">{item.keys}</kbd>}
-                      {item.kind !== 'search' && <span className="palette-ret"><kbd>↵</kbd>{item.kind === 'command' ? '' : ' 開く'}</span>}
+                      {item.kind !== 'search' && <span className="palette-ret"><kbd>↵</kbd>{item.kind === 'command' ? '' : ` ${t('palette.hint.open')}`}</span>}
                     </span>
                   </div>
                 );
@@ -145,10 +147,10 @@ export function CommandPalette(props: PaletteProps & { onQuery: (q: string) => v
           ))}
         </div>
         <div className="palette-foot" aria-hidden="true">
-          <span><kbd>↑</kbd><kbd>↓</kbd> 選ぶ</span>
-          <span><kbd>↵</kbd> 開く</span>
-          <span><kbd>esc</kbd> 閉じる</span>
-          <span className="palette-foot-end">トランスクリプトはホームの欄で</span>
+          <span><kbd>↑</kbd><kbd>↓</kbd> {t('palette.foot.select')}</span>
+          <span><kbd>↵</kbd> {t('palette.foot.open')}</span>
+          <span><kbd>esc</kbd> {t('palette.foot.close')}</span>
+          <span className="palette-foot-end">{t('palette.foot.transcript')}</span>
         </div>
       </div>
     </div>

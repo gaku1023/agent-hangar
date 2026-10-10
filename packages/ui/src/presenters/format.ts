@@ -1,25 +1,25 @@
-import type { IndexProgressDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, SummaryState, Translate } from '@agent-hangar/shared';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-export function absoluteTime(ts: number | null): string {
-  if (ts === null) return '不明';
+export function absoluteTime(t: Translate, ts: number | null): string {
+  if (ts === null) return t('common.time.unknown');
   const d = new Date(ts);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function relativeTime(ts: number | null, now: number): string {
-  if (ts === null) return '不明';
+export function relativeTime(t: Translate, ts: number | null, now: number): string {
+  if (ts === null) return t('common.time.unknown');
   const diff = now - ts;
   const min = Math.floor(diff / 60_000);
-  if (min < 1) return '1 分未満前';
-  if (min < 60) return `${min} 分前`;
+  if (min < 1) return t('common.ago.underMin');
+  if (min < 60) return t('common.ago.min', { n: min });
   const hours = Math.floor(min / 60);
-  if (hours < 24) return `${hours} 時間前`;
+  if (hours < 24) return t('common.ago.hour', { n: hours });
   const days = Math.floor(hours / 24);
-  if (days < 2) return '昨日';
-  if (days < 30) return `${days} 日前`;
-  return absoluteTime(ts).slice(0, 10);
+  if (days < 2) return t('common.ago.yesterday');
+  if (days < 30) return t('common.ago.day', { n: days });
+  return absoluteTime(t, ts).slice(0, 10);
 }
 
 /**
@@ -36,13 +36,13 @@ export function resetsLabel(ts: number | null, now: number): string | null {
   return sameDay ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
 
-export function durationLabel(ms: number): string {
+export function durationLabel(t: Translate, ms: number): string {
   const min = Math.floor(ms / 60_000);
-  if (min < 1) return '1 分未満';
-  if (min < 60) return `${min} 分`;
+  if (min < 1) return t('common.duration.underMin');
+  if (min < 60) return t('common.duration.min', { n: min });
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h} 時間`;
-  return `${Math.floor(h / 24)} 日`;
+  if (h < 24) return t('common.duration.hour', { n: h });
+  return t('common.duration.day', { n: Math.floor(h / 24) });
 }
 
 export function shortModel(model: string | null): string {
@@ -64,13 +64,8 @@ export function tokensLabel(n: number): string {
  * Claude が要約を書いた時点で、その仕事がどこまで進んだかを表す。
  * セッションのプロセスが生きているかどうかとは別物なので、実行中や終了とは重ならない語にする。
  */
-export const STATE_LABEL = { in_progress: 'やりかけ', done: '済んだ', blocked: '詰まっている', abandoned: 'やめた' } as const;
-/**
- * Claude の起こし方。
- * 内部の語（run、start）を画面に出さない。
- */
-export const RUN_KIND_LABEL = { start: '起動', resume: '再開', fork: 'フォーク' } as const;
-export const SOURCE_LABEL = { baseline: '自動', in_session: 'セッション', post_hoc: '事後' } as const;
+const STATE_KEY = { in_progress: 'common.summaryState.inProgress', done: 'common.summaryState.done', blocked: 'common.summaryState.blocked', abandoned: 'common.summaryState.abandoned' } as const;
+export const stateLabel = (t: Translate, state: SummaryState): string => t(STATE_KEY[state]);
 /** 要約器の id を短い名前にする。表に無い id はそのまま出す。 */
 export const SUMMARIZER_LABEL: Record<string, string> = { lmstudio: 'LM Studio', 'claude-headless': 'claude' };
 export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' } as const;
@@ -80,10 +75,10 @@ export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', 
  * ヘッダーと設定の索引の節の両方がこれを使う。
  * 終わっている（idle）ときは言うことが無いので null を返す。
  */
-export function indexProgressLabel(idx: IndexProgressDto): string | null {
+export function indexProgressLabel(t: Translate, idx: IndexProgressDto): string | null {
   if (idx.phase === 'idle') return null;
-  if (idx.phase === 'scanning') return '索引を準備中';
-  return `${idx.phase === 'rebuilding' ? '索引の作り直し' : '索引'} ${idx.done} / ${idx.total} 件`;
+  if (idx.phase === 'scanning') return t('common.index.preparing');
+  return t(idx.phase === 'rebuilding' ? 'common.index.rebuilding' : 'common.index.indexing', { done: idx.done, total: idx.total });
 }
 
 /**
@@ -96,8 +91,8 @@ export function shortenPaths(text: string): string {
 }
 
 /** 使用率の表示。値が無いときは「未取得」にする。 */
-export function percentLabel(n: number | null): string {
-  return n === null ? '未取得' : `${Math.round(n)}%`;
+export function percentLabel(t: Translate, n: number | null): string {
+  return n === null ? t('common.percent.unknown') : `${Math.round(n)}%`;
 }
 
 /** 推定コスト。値が無いときは空文字にして、行の桁を崩さない。 */

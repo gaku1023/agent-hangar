@@ -2,6 +2,7 @@ import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactN
 import { useEmit } from '../intent/chain.tsx';
 import type { TabItemProps } from '../presenters/session.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 import { useMotionList } from './primitives/useMotionList.ts';
 
 /**
@@ -14,6 +15,7 @@ import { useMotionList } from './primitives/useMotionList.ts';
  */
 export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAdd: boolean; canSplit: boolean; split: boolean; trailing?: ReactNode }) {
   const emit = useEmit();
+  const tr = useT();
   // タブの出入り。足したタブは幅も伸ばして隣を押し、閉じたタブは畳んでから外す。
   // セッションが替わる描画は、前のセッションのタブを畳まず入れ替える。
   const { list, ref: tabRef } = useMotionList(props.tabs, (t) => t.id, { enter: 'grow', axis: 'x', scope: props.sessionId });
@@ -58,13 +60,13 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
           <div key={key} ref={tabRef(key)} className={`tab${t.selected ? ' tab-selected' : ''}`} role="tab" aria-selected={t.selected} tabIndex={t.id === stopId ? 0 : -1}
             onClick={() => emit({ type: 'tab.select', tabId: t.id })} onFocus={() => setFocusId(t.id)} onKeyDown={(e) => onTabKey(e, i)}>
             <Icon name={t.kind === 'agent' ? 'agent' : 'shell'} /><span>{t.title}</span>
-            {t.closable && <button className="tab-close" tabIndex={-1} aria-label={`${t.title} を閉じる`} onClick={(e) => { e.stopPropagation(); emit({ type: 'tab.close', tabId: t.id }); }}><Icon name="close" /></button>}
+            {t.closable && <button className="tab-close" tabIndex={-1} aria-label={tr('terminal.tab.close', { title: t.title })} onClick={(e) => { e.stopPropagation(); emit({ type: 'tab.close', tabId: t.id }); }}><Icon name="close" /></button>}
           </div>
         );
       })}
-      {props.canAdd && <button className="tab-add" aria-label="シェルタブを追加" onClick={() => emit({ type: 'tab.open', sessionId: props.sessionId, kind: 'shell' })}><Icon name="add" /></button>}
+      {props.canAdd && <button className="tab-add" aria-label={tr('terminal.tab.addShell')} onClick={() => emit({ type: 'tab.open', sessionId: props.sessionId, kind: 'shell' })}><Icon name="add" /></button>}
       {/* 横に並べるのはタブが 2 つ以上あるときだけ押せる。左は選択中のタブ、右は Mediator が選ぶ。 */}
-      <button className="btn tab-action" aria-label="横に並べる" aria-pressed={props.split} disabled={!props.canSplit} title={props.canSplit ? '横に並べる（⌘\\）' : 'タブが 2 つ必要です'} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
+      <button className="btn tab-action" aria-label={tr('terminal.tab.split')} aria-pressed={props.split} disabled={!props.canSplit} title={props.canSplit ? tr('terminal.tab.splitTitle') : tr('terminal.tab.splitNeedsTwo')} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
       {/* 右の欄を閉じている間の、開くボタン（設計書 ②）。帯の右端に寄せる。 */}
       {props.trailing && <span className="tabs-trailing">{props.trailing}</span>}
     </div>

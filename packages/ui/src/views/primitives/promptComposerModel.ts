@@ -1,4 +1,4 @@
-import type { PromptCommandDto, PromptCommandSource } from '@agent-hangar/shared';
+import type { PromptCommandDto, PromptCommandSource, Translate } from '@agent-hangar/shared';
 import { quotePath } from '../../runtime/fileDrop.ts';
 
 /** 候補を出すきっかけ。start は、きっかけの記号（/ か @）の位置。 */
@@ -19,8 +19,9 @@ export function triggerAt(text: string, caret: number): Trigger | null {
   return null;
 }
 
-export const SOURCE_LABEL: Record<PromptCommandSource, string> = { project: 'プロジェクト', user: '自分の', plugin: 'プラグイン', builtin: '組み込み' };
-const GROUP_TITLE: Record<PromptCommandSource, string> = { project: 'このプロジェクト', user: '自分の', plugin: 'プラグイン', builtin: '組み込み' };
+/** 候補の行の右に出す、出どころの名前。 */
+export const sourceLabel = (t: Translate, source: PromptCommandSource): string => t(`composer.source.${source}`);
+const groupTitle = (t: Translate, source: PromptCommandSource): string => t(`composer.group.${source}`);
 const GROUP_ORDER: PromptCommandSource[] = ['project', 'user', 'plugin', 'builtin'];
 /** 「よく使う」に置く件数。 */
 export const FREQUENT_COUNT = 5;
@@ -32,13 +33,13 @@ export type CommandSection = { title: string | null; items: PromptCommandDto[] }
  * 打つ前は群にする。自分では打たないスキルが多いので、最初の一言になった回数の多いものを先頭の「よく使う」に出す。
  * 打ったら群を解く。一致した行が群ごとに散らばると、探し直すことになるためである（Listbox と同じ）。
  */
-export function arrangeCommands(commands: PromptCommandDto[], query: string): CommandSection[] {
+export function arrangeCommands(t: Translate, commands: PromptCommandDto[], query: string): CommandSection[] {
   const q = query.trim().toLowerCase();
   if (!q) {
     // sort は安定なので、回数が同じものはもとの並びを保つ。
     const frequent = commands.filter((c) => c.uses > 0).sort((a, b) => b.uses - a.uses).slice(0, FREQUENT_COUNT);
     const taken = new Set(frequent.map((c) => c.name));
-    const sections: CommandSection[] = [{ title: 'よく使う', items: frequent }, ...GROUP_ORDER.map((s) => ({ title: GROUP_TITLE[s], items: commands.filter((c) => c.source === s && !taken.has(c.name)) }))];
+    const sections: CommandSection[] = [{ title: t('composer.group.frequent'), items: frequent }, ...GROUP_ORDER.map((s) => ({ title: groupTitle(t, s), items: commands.filter((c) => c.source === s && !taken.has(c.name)) }))];
     return sections.filter((s) => s.items.length > 0);
   }
   const rank = (c: PromptCommandDto): number => { const n = c.name.toLowerCase(); return n.startsWith(q) ? 0 : n.includes(q) ? 1 : c.description.toLowerCase().includes(q) ? 2 : 3; };

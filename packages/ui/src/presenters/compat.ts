@@ -1,4 +1,4 @@
-import { compatState, type CompatContract, type CompatDriftDto, type CompatDto, type CompatState, type CompatSummaryDto, type ReadinessDto } from '@agent-hangar/shared';
+import { compatState, type CompatContract, type CompatDriftDto, type CompatDto, type CompatState, type CompatSummaryDto, type ReadinessDto, type Translate } from '@agent-hangar/shared';
 import { absoluteTime } from './format.ts';
 
 /**
@@ -9,28 +9,45 @@ import { absoluteTime } from './format.ts';
 export type CompatStop = { short: string; line: string };
 
 /** 契約の呼び名。表の「契約」の列と、報告用の写しに使う。 */
-export const CONTRACT_LABEL: Record<CompatContract, string> = {
-  transcript: 'トランスクリプト', registry: 'レジストリ', statusline: 'statusline', 'claude-dir': '~/.claude の項目', cli: 'CLI', screen: '画面の文字',
-};
+const CONTRACT_KEY = {
+  transcript: 'compat.contract.transcript', registry: 'compat.contract.registry', statusline: 'compat.contract.statusline',
+  'claude-dir': 'compat.contract.claudeDir', cli: 'compat.contract.cli', screen: 'compat.contract.screen',
+} as const satisfies Record<CompatContract, string>;
+export const contractLabel = (t: Translate, c: CompatContract): string => t(CONTRACT_KEY[c]);
+
+/** 止めた機能の名前。文は `compat.stop.<名前>Short` と `compat.stop.<名前>Line` から引く。 */
+type StopId = 'jump' | 'park' | 'adopt' | 'live' | 'usage' | 'share' | 'help' | 'auth' | 'attach' | 'summary';
+const STOP_KEYS = {
+  jump: ['compat.stop.jumpShort', 'compat.stop.jumpLine'],
+  park: ['compat.stop.parkShort', 'compat.stop.parkLine'],
+  adopt: ['compat.stop.adoptShort', 'compat.stop.adoptLine'],
+  live: ['compat.stop.liveShort', 'compat.stop.liveLine'],
+  usage: ['compat.stop.usageShort', 'compat.stop.usageLine'],
+  share: ['compat.stop.shareShort', 'compat.stop.shareLine'],
+  help: ['compat.stop.helpShort', 'compat.stop.helpLine'],
+  auth: ['compat.stop.authShort', 'compat.stop.authLine'],
+  attach: ['compat.stop.attachShort', 'compat.stop.attachLine'],
+  summary: ['compat.stop.summaryShort', 'compat.stop.summaryLine'],
+} as const satisfies Record<StopId, readonly [string, string]>;
 
 // 止めた機能。どれも、契約がずれのときに実際にしていること（docs/design.md「Claude Code との互換」）に合わせる。
-const JUMP: CompatStop = { short: '目次から跳ぶ', line: 'ターンの目次から端末の指示へ跳ぶのを止めています' };
-const PARK: CompatStop = { short: '休みで止める', line: '休んでいるセッションを自動で止めるのを控えています' };
-const ADOPT: CompatStop = { short: '引き取り', line: '外のターミナルで動いている会話を引き取るのを止めています' };
-const LIVE: CompatStop = { short: '実行中の印', line: '状態のファイルが読めない会話を、実行中として出すのを控えています' };
-const USAGE: CompatStop = { short: '使用率の一部', line: '使用率のゲージの欠けた項目の更新を止めています' };
-const SHARE: CompatStop = { short: 'アカウントの共有', line: '新しい ~/.claude の項目をアカウントの間で共有するのを控えています' };
-const HELP: CompatStop = { short: '外のターミナル', line: '外のターミナルの包み方で、サブコマンドの一覧を claude --help から作るのを止めています' };
-const AUTH: CompatStop = { short: 'ログインの状態', line: 'アカウントのログインの状態を読むのを止めています' };
-const ATTACH: CompatStop = { short: 'attach で再開', line: 'バックグラウンドのセッションを attach で再開するのを止めています' };
-const SUMMARY: CompatStop = { short: 'Claude で要約', line: 'Claude で要約するのを止めています' };
+const JUMP: StopId = 'jump';
+const PARK: StopId = 'park';
+const ADOPT: StopId = 'adopt';
+const LIVE: StopId = 'live';
+const USAGE: StopId = 'usage';
+const SHARE: StopId = 'share';
+const HELP: StopId = 'help';
+const AUTH: StopId = 'auth';
+const ATTACH: StopId = 'attach';
+const SUMMARY: StopId = 'summary';
 
 /**
  * 契約ごとに、値の形から止めた機能を引く表。上から見て、最初に当たった行を使う。
  * null は記録だけで、止めた機能が無いことを表す。
  * DTO は止めた機能を持たない。契約だけでは CLI、statusline、レジストリの止めたものが 1 つに決まらないので、値の頭でも分ける。
  */
-const STOPS: Record<CompatContract, readonly (readonly [RegExp, CompatStop | null])[]> = {
+const STOPS: Record<CompatContract, readonly (readonly [RegExp, StopId | null])[]> = {
   // 知らない行は meta として残し、知らない塊は捨てる。いまの扱いのままなので、止めたものは無い。
   transcript: [[/^/, null]],
   // 知らない status は作業中と読むので、休みで止めない。pid が無いと、引き取る前にプロセスを確かめられない。
@@ -45,8 +62,11 @@ const STOPS: Record<CompatContract, readonly (readonly [RegExp, CompatStop | nul
 };
 
 /** そのずれで止めた機能。止めたものが無ければ null。 */
-export function stopOf(d: Pick<CompatDriftDto, 'contract' | 'value'>): CompatStop | null {
-  for (const [re, stop] of STOPS[d.contract]) if (re.test(d.value)) return stop;
+export function stopOf(t: Translate, d: Pick<CompatDriftDto, 'contract' | 'value'>): CompatStop | null {
+  for (const [re, id] of STOPS[d.contract]) {
+    if (!re.test(d.value)) continue;
+    return id === null ? null : { short: t(STOP_KEYS[id][0]), line: t(STOP_KEYS[id][1]) };
+  }
   return null;
 }
 
@@ -72,11 +92,9 @@ export type CompatProps = {
   report: string | null;
 };
 
-const UNKNOWN = '不明';
-
 /** 表の時刻。月と日と時刻だけにする（10/07 14:02）。 */
-export function seenLabel(ts: number): string {
-  return absoluteTime(ts).slice(5).replace('-', '/');
+export function seenLabel(t: Translate, ts: number): string {
+  return absoluteTime(t, ts).slice(5).replace('-', '/');
 }
 
 /** Markdown の表のセル。改行と縦棒で表が崩れないようにする。 */
@@ -89,14 +107,15 @@ const code = (s: string): string => (s.includes('`') ? `\`\` ${s} \`\`` : `\`${s
  * 画面の表に無い回数と最後に見た時刻も載せ、時刻は年まで書く。
  * hangarVersion は頭に書く hangar の版で、空なら書かない。
  */
-export function compatReport(summary: CompatSummaryDto, drifts: CompatDriftDto[], hangarVersion: string): string {
+export function compatReport(t: Translate, summary: CompatSummaryDto, drifts: CompatDriftDto[], hangarVersion: string): string {
+  const unknown = t('common.time.unknown');
   return [
-    hangarVersion ? `Claude Code との互換のずれ（hangar ${hangarVersion}）` : 'Claude Code との互換のずれ',
-    `手元の版 ${summary.localVersion ?? UNKNOWN}、確かめた版 ${summary.verifiedVersion}`,
+    hangarVersion ? t('compat.report.titleVersion', { version: hangarVersion }) : t('compat.report.title'),
+    t('compat.report.versions', { local: summary.localVersion ?? unknown, verified: summary.verifiedVersion }),
     '',
-    '| 契約 | 値 | 版 | 回数 | 最初に見た | 最後に見た | 止めた機能 |',
+    t('compat.report.header'),
     '| --- | --- | --- | --- | --- | --- | --- |',
-    ...drifts.map((d) => `| ${CONTRACT_LABEL[d.contract]} | ${cell(code(d.value))} | ${cell(d.version ?? UNKNOWN)} | ${d.count} | ${absoluteTime(d.firstSeenAt)} | ${absoluteTime(d.lastSeenAt)} | ${stopOf(d)?.short ?? 'なし'} |`),
+    ...drifts.map((d) => `| ${contractLabel(t, d.contract)} | ${cell(code(d.value))} | ${cell(d.version ?? unknown)} | ${d.count} | ${absoluteTime(t, d.firstSeenAt)} | ${absoluteTime(t, d.lastSeenAt)} | ${stopOf(t, d)?.short ?? t('compat.table.none')} |`),
   ].join('\n');
 }
 
@@ -105,24 +124,24 @@ export function compatReport(summary: CompatSummaryDto, drifts: CompatDriftDto[]
  * 中身が届いていれば、件数は中身の数にそろえる。要約より後に読んだ分だけ新しいからである。
  * 6 行目の「ずれ N 件（版）」は手元の版で、分からなければ版を添えない。
  */
-export function presentCompat(summary: CompatSummaryDto, full: CompatDto | null, hangarVersion: string): CompatProps {
+export function presentCompat(t: Translate, summary: CompatSummaryDto, full: CompatDto | null, hangarVersion: string): CompatProps {
   const count = full ? full.drifts.length : summary.driftCount;
   const state = compatState({ ...summary, driftCount: count });
-  const local = summary.localVersion ?? UNKNOWN;
+  const local = summary.localVersion ?? t('common.time.unknown');
   const base = { state, localVersion: local, verifiedVersion: summary.verifiedVersion, count, stops: null, rows: null, report: null };
-  if (state === 'ok') return { ...base, note: `ずれなし（${summary.verifiedVersion} で確かめた版）`, lead: 'hangar が読む Claude Code の形を見張っています', badge: '問題なし' };
-  if (state === 'unverified') return { ...base, note: `${local}（確かめた版は ${summary.verifiedVersion}）`, lead: 'まだ確かめていない版です。動きは止めていません', badge: '未確認の版' };
-  const note = summary.localVersion ? `ずれ ${count} 件（${summary.localVersion}）` : `ずれ ${count} 件`;
-  const badge = `ずれ ${count} 件`;
-  if (!full) return { ...base, note, badge, lead: 'ずれの中身を読み込んでいます' };
+  if (state === 'ok') return { ...base, note: t('compat.status.okNote', { verified: summary.verifiedVersion }), lead: t('compat.status.okLead'), badge: t('compat.status.okBadge') };
+  if (state === 'unverified') return { ...base, note: t('compat.status.unverifiedNote', { local, verified: summary.verifiedVersion }), lead: t('compat.status.unverifiedLead'), badge: t('compat.status.unverifiedBadge') };
+  const note = summary.localVersion ? t('compat.status.driftNote', { n: count, local: summary.localVersion }) : t('compat.status.driftNoteNoVersion', { n: count });
+  const badge = t('compat.status.driftNoteNoVersion', { n: count });
+  if (!full) return { ...base, note, badge, lead: t('compat.status.loadingLead') };
   // 同じ機能に当たるずれは、一覧では 1 行にまとめる。並びは中身の順（最後に見た時刻の新しい順）である。
-  const stops = [...new Set(full.drifts.map((d) => stopOf(d)?.line).filter((l): l is string => l !== undefined))];
+  const stops = [...new Set(full.drifts.map((d) => stopOf(t, d)?.line).filter((l): l is string => l !== undefined))];
   return {
     ...base, note, badge,
-    lead: stops.length > 0 ? '知らない形に頼る機能だけを止め、ほかは動かしています' : '知らない形を記録しましたが、止めた機能はありません',
+    lead: stops.length > 0 ? t('compat.status.stopsLead') : t('compat.status.noStopsLead'),
     stops,
-    rows: full.drifts.map((d) => ({ key: `${d.contract}:${d.value}`, contract: CONTRACT_LABEL[d.contract], value: d.value, version: d.version ?? UNKNOWN, firstSeen: seenLabel(d.firstSeenAt), stop: stopOf(d)?.short ?? null })),
-    report: compatReport(summary, full.drifts, hangarVersion),
+    rows: full.drifts.map((d) => ({ key: `${d.contract}:${d.value}`, contract: contractLabel(t, d.contract), value: d.value, version: d.version ?? t('common.time.unknown'), firstSeen: seenLabel(t, d.firstSeenAt), stop: stopOf(t, d)?.short ?? null })),
+    report: compatReport(t, summary, full.drifts, hangarVersion),
   };
 }
 

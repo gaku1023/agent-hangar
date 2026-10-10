@@ -1,4 +1,4 @@
-import { stepKind, stepLine, type StepCell, type ToolCallEvent } from '@agent-hangar/shared';
+import { stepKind, stepLine, type StepCell, type ToolCallEvent, type Translate } from '@agent-hangar/shared';
 import { diffHunk, snippetStart, type DiffHunk } from './diff.ts';
 import { safeHref } from './markdown.ts';
 
@@ -15,7 +15,7 @@ export type SearchLink = { title: string; url: string; domain: string };
 
 export type ToolBody =
   | { kind: 'diff'; hunks: DiffHunk[] }
-  | { kind: 'code'; lang: string; text: string; note: string }
+  | { kind: 'code'; lang: string; text: string; note: string; created: boolean }
   | { kind: 'bash'; command: string; output: string; exit: number | null; failed: boolean }
   | { kind: 'read'; path: string; range: string | null }
   | { kind: 'fetch'; url: string; prompt: string | null; text: string | null }
@@ -63,7 +63,7 @@ function bashResult(result: { text: string; isError: boolean } | null): { output
 }
 
 /** cat -n の形の行番号から、読んだ行の範囲を出す。 */
-function numberedRange(text: string): string | null {
+function numberedRange(text: string, t: Translate): string | null {
   let first: number | null = null;
   let last: number | null = null;
   for (const line of text.split('\n')) {
@@ -73,7 +73,7 @@ function numberedRange(text: string): string | null {
     if (first === null) first = n;
     last = n;
   }
-  return first === null || last === null ? null : `${first}〜${last} 行`;
+  return first === null || last === null ? null : t('tools.lines.range', { from: first, to: last });
 }
 
 /** WebSearch の結果に入る「Links: [...]」を読む。読めなければ空。 */
@@ -102,9 +102,10 @@ function argValue(v: unknown): string {
   return JSON.stringify(v, null, 2) ?? String(v);
 }
 
-const TODO_LABEL: Record<string, string> = { completed: '済み', in_progress: '作業中', pending: '未着手' };
+const TODO_KEY = { completed: 'tools.todo.status.completed', in_progress: 'tools.todo.status.inProgress', pending: 'tools.todo.status.pending' } as const;
+const todoLabel = (status: string, t: Translate): string => (status in TODO_KEY ? t(TODO_KEY[status as keyof typeof TODO_KEY]) : status);
 
-export function presentTool(call: ToolCallEvent, result: { text: string; isError: boolean } | null, cwd: string): ToolView {
+export function presentTool(call: ToolCallEvent, result: { text: string; isError: boolean } | null, cwd: string, t: Translate): ToolView {
   const input: Rec = isRec(call.input) ? call.input : {};
   const step: StepCell = result?.isError ? 'fail' : stepKind(call);
   const failText = result?.isError ? result.text : null;
@@ -119,7 +120,7 @@ export function presentTool(call: ToolCallEvent, result: { text: string; isError
       // 行番号は結果に付く cat -n の抜粋から読む。抜粋の無い版の Claude Code もあるので、読めなければ番号を付けない。
       const start = result && !result.isError ? snippetStart(result.text, after) : null;
       const d = diffHunk(before, after, { start });
-      return view(rel, input.replace_all === true ? 'すべて置き換え' : null, counts(d.added, d.removed), { kind: 'diff', hunks: [d.hunk] });
+      return view(rel, input.replace_all === true ? t('tools.edit.replaceAll') : null, counts(d.added, d.removed), { kind: 'diff', hunks: [d.hunk] });
     }
     case 'MultiEdit': {
       const edits = Array.isArray(input.edits) ? input.edits.filter(isRec) : [];
@@ -128,20 +129,20 @@ export function presentTool(call: ToolCallEvent, result: { text: string; isError
       const hunks = edits.map((e, i) => {
         const d = diffHunk(str(e.old_string) ?? '', str(e.new_string) ?? '', { start: null });
         added += d.added; removed += d.removed;
-        return { ...d.hunk, header: `@@ ${i + 1} か所目 @@` };
+        return { ...d.hunk, header: t('tools.edit.hunk', { n: i + 1 }) };
       });
-      return view(rel, `${edits.length} か所`, counts(added, removed), { kind: 'diff', hunks });
+      return view(rel, t('tools.edit.count', { n: edits.length }), counts(added, removed), { kind: 'diff', hunks });
     }
     case 'Write': {
       const content = typeof input.content === 'string' ? input.content : '';
-      const n = `${lineCount(content)} 行`;
+      const n = t('tools.lines.count', { n: lineCount(content) });
       const created = !!result && !result.isError && /created/i.test(result.text);
-      return view(rel, created ? '新しいファイル' : null, [{ text: n, tone: 'plain' }], { kind: 'code', lang: langOf(path), text: content, note: n });
+      return view(rel, created ? t('tools.write.created') : null, [{ text: n, tone: 'plain' }], { kind: 'code', lang: langOf(path), text: content, note: n, created });
     }
     case 'Bash': {
       const command = str(input.command) ?? '';
       const r = bashResult(result);
-      const meta: ToolMeta[] = !result ? [] : r.exit === 0 ? [{ text: '0', tone: 'ok' }] : r.exit !== null ? [{ text: `終了 ${r.exit}`, tone: 'ng' }] : [{ text: '失敗', tone: 'ng' }];
+      const meta: ToolMeta[] = !result ? [] : r.exit === 0 ? [{ text: '0', tone: 'ok' }] : r.exit !== null ? [{ text: t('tools.bash.exit', { code: r.exit }), tone: 'ng' }] : [{ text: t('tools.bash.failed'), tone: 'ng' }];
       // 出力は中身に入っているので、下へ重ねて出さない。
       return view(firstLine(command), str(input.description) ?? null, meta, { kind: 'bash', command, output: r.output, exit: r.exit, failed: r.failed }, null);
     }
@@ -149,8 +150,8 @@ export function presentTool(call: ToolCallEvent, result: { text: string; isError
       const offset = num(input.offset);
       const limit = num(input.limit);
       const range = offset !== undefined || limit !== undefined
-        ? (limit !== undefined ? `${offset ?? 1}〜${(offset ?? 1) + limit - 1} 行` : `${offset} 行から`)
-        : result && !result.isError ? numberedRange(result.text) : null;
+        ? (limit !== undefined ? t('tools.lines.range', { from: offset ?? 1, to: (offset ?? 1) + limit - 1 }) : t('tools.lines.from', { n: offset ?? 0 }))
+        : result && !result.isError ? numberedRange(result.text, t) : null;
       return view(rel, range, [], { kind: 'read', path: rel, range });
     }
     case 'WebFetch': {
@@ -162,12 +163,12 @@ export function presentTool(call: ToolCallEvent, result: { text: string; isError
       const links = result && !result.isError ? searchLinks(result.text) : [];
       // 結果の形が読めなかったときは、結果の文をそのまま下に出す。
       const res = links.length === 0 && result ? result.text : failText;
-      return view(query, null, links.length > 0 ? [{ text: `${links.length} 件`, tone: 'plain' }] : [], { kind: 'search', query, links }, res);
+      return view(query, null, links.length > 0 ? [{ text: t('tools.search.count', { n: links.length }), tone: 'plain' }] : [], { kind: 'search', query, links }, res);
     }
     case 'Grep': case 'Glob': {
       const where = [str(input.path) ? relPath(str(input.path)!, cwd) : undefined, str(input.glob)].filter((x): x is string => !!x);
       const rows = Object.entries(input).map(([key, v]) => ({ key, value: key === 'path' && typeof v === 'string' ? relPath(v, cwd) : argValue(v) }));
-      return view(str(input.pattern) ?? '', where.length > 0 ? `in ${where.join(' ')}` : null, findCount(result), { kind: 'args', rows }, result?.text ?? null);
+      return view(str(input.pattern) ?? '', where.length > 0 ? `in ${where.join(' ')}` : null, findCount(result, t), { kind: 'args', rows }, result?.text ?? null);
     }
     case 'Agent': case 'Task': {
       const rows = ['description', 'subagent_type', 'prompt'].filter((k) => input[k] !== undefined).map((key) => ({ key, value: argValue(input[key]) }));
@@ -181,9 +182,9 @@ export function presentTool(call: ToolCallEvent, result: { text: string; isError
     }
     case 'TodoWrite': {
       const todos = Array.isArray(input.todos) ? input.todos.filter(isRec) : [];
-      const done = todos.filter((t) => t.status === 'completed').length;
-      const rows = todos.map((t) => ({ key: TODO_LABEL[str(t.status) ?? ''] ?? (str(t.status) ?? ''), value: str(t.content) ?? '' }));
-      return view(`TODO ${todos.length} 件`, `済み ${done}`, [], { kind: 'args', rows }, failText);
+      const done = todos.filter((x) => x.status === 'completed').length;
+      const rows = todos.map((x) => ({ key: todoLabel(str(x.status) ?? '', t), value: str(x.content) ?? '' }));
+      return view(t('tools.todo.title', { n: todos.length }), t('tools.todo.done', { n: done }), [], { kind: 'args', rows }, failText);
     }
     default: {
       const rows = isRec(call.input) ? Object.entries(input).map(([key, v]) => ({ key, value: argValue(v) })) : call.input === undefined ? [] : [{ key: 'input', value: argValue(call.input) }];
@@ -198,11 +199,11 @@ function counts(added: number, removed: number): ToolMeta[] {
 }
 
 /** Grep と Glob の結果の件数。「Found N files」を読み、無ければ行を数える。 */
-function findCount(result: { text: string; isError: boolean } | null): ToolMeta[] {
+function findCount(result: { text: string; isError: boolean } | null, t: Translate): ToolMeta[] {
   if (!result || result.isError) return [];
   const m = /^Found (\d+) files?/m.exec(result.text);
-  if (m) return [{ text: `${m[1]} ファイル`, tone: 'plain' }];
-  if (/^No (files|matches) found/m.test(result.text)) return [{ text: 'なし', tone: 'plain' }];
+  if (m) return [{ text: t('tools.find.files', { n: Number(m[1]) }), tone: 'plain' }];
+  if (/^No (files|matches) found/m.test(result.text)) return [{ text: t('tools.find.none'), tone: 'plain' }];
   return [];
 }
 

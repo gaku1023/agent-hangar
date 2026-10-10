@@ -1,0 +1,26 @@
+import type { MessageSpec } from '../messageSpec.ts';
+
+export const transcriptKeys = {
+  'transcript.diff.gap': ['n'],
+  'transcript.bash.exitCode': ['code'],
+  'transcript.bash.failed': [],
+  'transcript.bash.noResult': [],
+  'transcript.bash.noOutput': [],
+  'transcript.bash.lines': ['n'],
+  'transcript.fetch.prompt': [],
+  'transcript.search.results': ['n'],
+  'transcript.tool.hits': ['n'],
+  'transcript.tool.result': [],
+  'transcript.tool.raw': [],
+  'transcript.tool.viewSubagent': ['id'],
+  'transcript.find.noMatch': [],
+  'transcript.find.label': [],
+  'transcript.find.matchCase': [],
+  'transcript.find.prev': [],
+  'transcript.find.next': [],
+  'transcript.find.close': [],
+  'transcript.empty.none': [],
+  'transcript.more.older': ['n'],
+  'transcript.more.newer': [],
+  'transcript.more.unseen': ['n'],
+} as const satisfies MessageSpec;

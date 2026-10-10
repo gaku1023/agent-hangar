@@ -13,8 +13,11 @@ export type DesktopBridge = {
   restoreConfigSync(name: string): Promise<ConfigShellOutcome>;
 };
 
-/** 殻の命令の結果。message は日本語の 1 文で、そのまま知らせに出せる。generation は控えた世代の名前。 */
-export type ConfigShellOutcome = { status: 'applied' | 'restored' | 'cancelled' | 'none' | 'failed' | 'busy'; message: string; generation: string | null };
+/**
+ * 殻の命令の結果。message は殻が返した 1 文で、そのまま知らせに出せる。generation は控えた世代の名前。
+ * 殻の返事が読めなかったときは message が null で、知らせる文は Runtime が現在の言語で引く。
+ */
+export type ConfigShellOutcome = { status: 'applied' | 'restored' | 'cancelled' | 'none' | 'failed' | 'busy'; message: string | null; generation: string | null };
 
 /** 殻の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧にそろえる。 */
 export const DESKTOP_COMMANDS = { openLog: 'open_log', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync' } as const;
@@ -24,7 +27,7 @@ const STATUSES: ReadonlySet<string> = new Set(['applied', 'restored', 'cancelled
 /** 殻の返した値を、決まった形に直す。形が違えば失敗として扱い、頁の側で書き込んだとは言わない。 */
 function outcomeOf(r: unknown): ConfigShellOutcome {
   const o = r as { status?: unknown; message?: unknown; generation?: unknown } | null;
-  if (!o || typeof o.status !== 'string' || !STATUSES.has(o.status) || typeof o.message !== 'string') return { status: 'failed', message: '殻の返事を読めませんでした。', generation: null };
+  if (!o || typeof o.status !== 'string' || !STATUSES.has(o.status) || typeof o.message !== 'string') return { status: 'failed', message: null, generation: null };
   return { status: o.status as ConfigShellOutcome['status'], message: o.message, generation: typeof o.generation === 'string' ? o.generation : null };
 }
 

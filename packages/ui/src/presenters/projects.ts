@@ -114,12 +114,12 @@ export function presentProjects(_state: State, store: Store, now: number, filter
     if (counts.running > 0) items.push({ kind: 'running', text: t('projects.now.running', { n: counts.running }) });
     if (pending > 0) items.push({ kind: 'pending', text: t('projects.now.pending', { n: pending }) });
     if (p.openTodoCount > 0) items.push({ kind: 'todo', text: t('projects.now.todo', { n: p.openTodoCount }) });
-    if (reminder) items.push({ kind: 'reminder', text: t('projects.now.reminder', { date: returnOnLabel(reminder.on, overdueDays(reminder.on, now), reminder.time, returnPastMinutes(reminder.on, reminder.time, now)) }) });
+    if (reminder) items.push({ kind: 'reminder', text: t('projects.now.reminder', { date: returnOnLabel(t, reminder.on, overdueDays(reminder.on, now), reminder.time, returnPastMinutes(reminder.on, reminder.time, now)) }) });
     const status = STATUS_LABEL[p.status];
     const outside = placeOutside(p.path, workspaceRoot);
     const place: ProjectPlace | null = !p.resolved ? { kind: 'missing' } : outside !== null ? { kind: 'outside', path: outside } : null;
     return {
-      id: p.id, name: p.name, status: p.status, place, now: items, sessionCount: mine.length, sessionsText: t('projects.row.sessions', { n: mine.length }), lastActivity: relativeTime(p.lastActivityAt, now),
+      id: p.id, name: p.name, status: p.status, place, now: items, sessionCount: mine.length, sessionsText: t('projects.row.sessions', { n: mine.length }), lastActivity: relativeTime(t, p.lastActivityAt, now),
       label: items.length === 0 ? t('projects.row.label', { name: p.name, status }) : t('projects.row.labelNow', { name: p.name, status, now: items.map((i) => i.text).join(t('projects.now.separator')) }),
     };
   };

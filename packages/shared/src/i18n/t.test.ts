@@ -3,10 +3,11 @@ import { en } from './en.ts';
 import { ja } from './ja.ts';
 import { MESSAGES, type MessageKey } from './keys.ts';
 import { DEFAULT_LANGUAGE, isLanguage, LANGUAGES, languageOf } from './language.ts';
-import { placeholdersOf, t, translator } from './t.ts';
+import { placeholdersOf, renderMessage, t, translator } from './t.ts';
 
 const keys = Object.keys(MESSAGES) as MessageKey[];
 const dictionaries = { ja, en };
+const plural = renderMessage;
 
 describe('言語', () => {
   it('日本語と英語の 2 つで、既定は日本語', () => {
@@ -89,6 +90,9 @@ describe('t', () => {
   it('{名前} を渡した値で置き換える', () => {
     expect(t('ja', 'sessions.list.count', { n: 3 })).toBe('3 件のセッション');
     expect(t('en', 'sessions.list.count', { n: 3 })).toBe('3 sessions');
+    expect(t('en', 'sessions.list.count', { n: 1 })).toBe('1 session');
+    expect(t('en', 'session.stats.turns', { n: 1 })).toBe('1 turn');
+    expect(t('ja', 'session.stats.turns', { n: 1 })).toBe('1 ターン');
     expect(t('ja', 'session.kill.confirm', { name: 'alpha' })).toContain('alpha');
   });
   it('値に {名前} の形が入っていても、もう一度は置き換えない', () => {
@@ -111,8 +115,20 @@ describe('t', () => {
     expect(loose('ja', 'toString')).toBe('toString');
   });
   it('型をすり抜けて引数が足りないときは、その {名前} を残す', () => {
-    expect(loose('en', 'sessions.list.count')).toBe('{n} sessions');
-    expect(loose('en', 'sessions.list.count', {})).toBe('{n} sessions');
+    expect(loose('en', 'sessions.list.count')).toBe('{n} {n|session|sessions}');
+    expect(loose('en', 'sessions.list.count', {})).toBe('{n} {n|session|sessions}');
+  });
+  it('{n|単数|複数} は、n が 1 のときだけ単数の形にする（英語の複数形）', () => {
+    // 数そのものは {n} で別に書く。日本語の文は複数形を持たないので、この形を使わない。
+    expect(plural('{n} {n|turn|turns}', { n: 1 })).toBe('1 turn');
+    expect(plural('{n} {n|turn|turns}', { n: 0 })).toBe('0 turns');
+    expect(plural('{n} {n|turn|turns}', { n: 2 })).toBe('2 turns');
+    expect(plural('{n} {n|turn|turns}', { n: '1' })).toBe('1 turn');
+    expect(plural('{n} {n|turn|turns}', {})).toBe('{n} {n|turn|turns}');
+  });
+  it('複数形の書き方は、引数の名前として数える', () => {
+    expect(placeholdersOf('{n} {n|turn|turns}')).toEqual(['n']);
+    expect(placeholdersOf('{a|x|y} and {b}')).toEqual(['a', 'b']);
   });
   it('知らない言語が届いたら、既定の言語で引く', () => {
     expect(t('fr' as 'ja', 'common.button.cancel')).toBe(ja['common.button.cancel']);

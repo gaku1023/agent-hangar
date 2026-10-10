@@ -18,13 +18,14 @@ export const INFO_TOAST_MS = 4000;
  */
 export function ToastStack(props: ToastsProps) {
   const emit = useEmit();
+  const t = useT();
   return (
     <div className="toasts">
-      {props.toasts.map((t) => (t.level === 'error' ? <ErrorToast key={t.id} toast={t} /> : <InfoToast key={t.id} toast={t} />))}
+      {props.toasts.map((toast) => (toast.level === 'error' ? <ErrorToast key={toast.id} toast={toast} /> : <InfoToast key={toast.id} toast={toast} />))}
       {props.arrived && <ArrivedCard count={props.arrived.count} blocked={props.blocked} />}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
       <div className="toast-waiting-list" aria-live="polite">
-        {props.more > 0 && <button type="button" className="toast toast-pill toast-more" disabled={props.blocked} onClick={() => emit({ type: 'nav.go', to: { name: 'home' } })}>ほか {props.more} 件をホームで見る</button>}
+        {props.more > 0 && <button type="button" className="toast toast-pill toast-more" disabled={props.blocked} onClick={() => emit({ type: 'nav.go', to: { name: 'home' } })}>{t('toasts.more.view', { n: props.more })}</button>}
         {props.waiting.map((c) => <WaitingCard key={c.sessionId} card={c} blocked={props.blocked} />)}
       </div>
     </div>
@@ -41,13 +42,14 @@ export function ToastStack(props: ToastsProps) {
  */
 function WaitingCard(props: { card: WaitingCardProps; blocked: boolean }) {
   const emit = useEmit();
+  const t = useT();
   const c = props.card;
-  const label = c.question === null ? `${c.name} が入力を待っています` : `${c.name} が入力を待っています：${c.question}`;
+  const label = c.question === null ? t('toasts.waiting.label', { name: c.name }) : t('toasts.waiting.labelQuestion', { name: c.name, question: c.question });
   return (
-    <button type="button" className="toast notice" data-kind="waiting" aria-label={label} disabled={props.blocked} title={props.blocked ? 'ダイアログを閉じると開けます' : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' })}>
+    <button type="button" className="toast notice" data-kind="waiting" aria-label={label} disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' })}>
       <span className="notice-head">
         <span className="notice-dot" aria-hidden="true" />
-        <span className="notice-label">入力待ち</span>
+        <span className="notice-label">{t('toasts.waiting.head')}</span>
         {c.question !== null && <><span className="notice-sep" aria-hidden="true">·</span><span className="notice-who">{c.name}</span></>}
         <span className="notice-end">{c.waited}</span>
       </span>
@@ -72,7 +74,7 @@ function ArrivedCard(props: { count: number; blocked: boolean }) {
       <div className="notice-body">
         <div className="notice-message">{t('projects.arrived.message', { n: props.count })}</div>
         <div className="notice-acts">
-          <button type="button" className="btn btn-sm btn-primary" disabled={props.blocked} title={props.blocked ? 'ダイアログを閉じると開けます' : undefined} onClick={() => emit({ type: 'projects.arrived.view' })}>{t('projects.arrived.view')}</button>
+          <button type="button" className="btn btn-sm btn-primary" disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'projects.arrived.view' })}>{t('projects.arrived.view')}</button>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'projects.arrived.dismiss' })}>{t('projects.arrived.later')}</button>
         </div>
       </div>
@@ -106,11 +108,12 @@ function useAutoDismiss(ms: number, onDone: () => void) {
  */
 function InfoToast(props: { toast: Toast }) {
   const emit = useEmit();
+  const t = useT();
   const dismiss = () => emit({ type: 'toast.dismiss', id: props.toast.id });
   const pause = useAutoDismiss(INFO_TOAST_MS, dismiss);
   return (
     <div className="toast notice" data-kind="info" role="status" onClick={dismiss} {...pause}>
-      <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">お知らせ</span></div>
+      <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('toasts.info.head')}</span></div>
       <div className="notice-body"><div className="notice-message">{props.toast.message}</div></div>
     </div>
   );
@@ -123,6 +126,7 @@ function InfoToast(props: { toast: Toast }) {
  */
 function ErrorToast(props: { toast: Toast }) {
   const emit = useEmit();
+  const t = useT();
   const message = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   const [open, setOpen] = useState(false);
@@ -135,12 +139,12 @@ function ErrorToast(props: { toast: Toast }) {
     <div className="toast notice" data-kind="error" role="alert" data-open={open ? 'true' : undefined}>
       <div className="notice-head">
         <Icon name="alert" />
-        <span className="notice-label">エラー</span>
-        <button type="button" className="notice-close" aria-label="閉じる" onClick={() => emit({ type: 'toast.dismiss', id: props.toast.id })}><Icon name="close" /></button>
+        <span className="notice-label">{t('toasts.error.head')}</span>
+        <button type="button" className="notice-close" aria-label={t('common.button.close')} onClick={() => emit({ type: 'toast.dismiss', id: props.toast.id })}><Icon name="close" /></button>
       </div>
       <div className="notice-body">
         <div ref={message} className="notice-message">{props.toast.message}</div>
-        {long && <button type="button" className="btn-link notice-more" aria-expanded={open} onClick={() => setOpen(!open)}>詳しく</button>}
+        {long && <button type="button" className="btn-link notice-more" aria-expanded={open} onClick={() => setOpen(!open)}>{t('toasts.error.more')}</button>}
       </div>
     </div>
   );

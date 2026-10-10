@@ -38,6 +38,20 @@ import { syncEn } from './en/sync.ts';
 import { systemEn } from './en/system.ts';
 import { todoEn } from './en/todo.ts';
 import { usageEn } from './en/usage.ts';
+import { mediatorEn } from './en/mediator.ts';
+import { runtimeEn } from './en/runtime.ts';
+import { primitivesEn } from './en/primitives.ts';
+import { composerEn } from './en/composer.ts';
+import { toolsEn } from './en/tools.ts';
+import { transcriptEn } from './en/transcript.ts';
+import { terminalEn } from './en/terminal.ts';
+import { pagerEn } from './en/pager.ts';
+import { paletteEn } from './en/palette.ts';
+import { connEn } from './en/conn.ts';
+import { toastsEn } from './en/toasts.ts';
+import { cloudUsageEn } from './en/cloudUsage.ts';
+import { readinessEn } from './en/readiness.ts';
+import { compatEn } from './en/compat.ts';
 
 /** 英語の辞書。文は領域ごとのファイル（`en/<領域>.ts`）にあり、ここは束ねるだけである。 */
 export const en: Dictionary = {
@@ -80,4 +94,18 @@ export const en: Dictionary = {
   ...systemEn,
   ...todoEn,
   ...usageEn,
+  ...mediatorEn,
+  ...runtimeEn,
+  ...primitivesEn,
+  ...composerEn,
+  ...toolsEn,
+  ...transcriptEn,
+  ...terminalEn,
+  ...pagerEn,
+  ...paletteEn,
+  ...connEn,
+  ...toastsEn,
+  ...cloudUsageEn,
+  ...readinessEn,
+  ...compatEn,
 };

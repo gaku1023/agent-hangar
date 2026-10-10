@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { CloudUsageDto, SyncStatusBody } from '@agent-hangar/shared';
-import { presentCloudUsage } from './cloudUsage.ts';
+import { translator, type CloudUsageDto, type SyncStatusBody } from '@agent-hangar/shared';
+import { presentCloudUsage as present } from './cloudUsage.ts';
+
+const ja = translator('ja');
+const en = translator('en');
+const presentCloudUsage = (...a: Parameters<typeof present> extends [unknown, ...infer R] ? R : never) => present(ja, ...a);
 
 const NOW = Date.parse('2026-10-02T06:48:00Z'); // 日本時間 15:48
 const TZ = 'Asia/Tokyo';
@@ -9,10 +13,10 @@ const base: CloudUsageDto = {
   source: 'cloudflare', fetchedAt: NOW - 120_000, stale: false, notice: null,
   limits: { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 },
   today: { d1RowsWritten: 23480, workersRequests: 4120, resetAt: RESET },
-  plan: { label: 'Workers 無料 · R2 従量', workersPaid: false },
+  plan: { workersPaid: false, r2Paid: true },
   month: { periodStart: '2026-09-05T00:00:00Z', periodEnd: '2026-10-05T00:00:00Z', throughDay: '2026-09-30', billedUsd: 0, rows: [
-    { label: 'R2 の保存', consumed: 0.165, unit: 'GB-月', included: 10 },
-    { label: 'R2 の書く操作', consumed: 6470, unit: '回', included: 1_000_000 },
+    { label: 'R2 Data Storage', consumed: 0.165, unit: 'GB-months', included: 10 },
+    { label: 'R2 Storage Class A Operations', consumed: 6470, unit: 'Count', included: 1_000_000 },
     { label: 'R2 Infrequent Access Data Retrieval', consumed: 3, unit: 'GB', included: null },
   ] },
 };
@@ -31,11 +35,11 @@ describe('presentCloudUsage', () => {
       { key: 'plan', label: 'プラン', value: 'Workers 無料', sub: 'R2 従量', tone: 'ok' },
     ]);
     expect(p.bars.map((b) => [b.label, b.when, b.pct, b.value, b.tone])).toEqual([
-      ['D1 の書き込み', '今日', 23.48, '23,480 / 100,000 行', 'ok'],
-      ['Workers の要求', '今日', 4.12, '4,120 / 100,000 回', 'ok'],
-      ['R2 の保存', '今月', 1.65, '0.17 / 10 GB-月', 'ok'],
-      ['R2 の書く操作', '今月', 0.65, '6,470 / 100 万', 'ok'],
-      ['R2 Infrequent Access Data Retrieval', '今月', null, '3 GB', 'ok'],
+      ['D1 の書き込み', 'day', 23.48, '23,480 / 100,000 行', 'ok'],
+      ['Workers の要求', 'day', 4.12, '4,120 / 100,000 回', 'ok'],
+      ['R2 の保存', 'month', 1.65, '0.17 / 10 GB-月', 'ok'],
+      ['R2 の書く操作', 'month', 0.65, '6,470 / 100 万', 'ok'],
+      ['R2 Infrequent Access Data Retrieval', 'month', null, '3 GB', 'ok'],
     ]);
     expect(p.bars.every((b) => !('tickPct' in b))).toBe(true);
     expect(p.splitAfter).toBe(2);
@@ -114,9 +118,9 @@ describe('presentCloudUsage', () => {
   });
 
   it('Workers Paid：今日の札と棒を出さない', () => {
-    const p = presentCloudUsage({ ...base, plan: { label: 'Workers Paid', workersPaid: true } }, sync(), NOW, TZ)!;
+    const p = presentCloudUsage({ ...base, plan: { workersPaid: true, r2Paid: false } }, sync(), NOW, TZ)!;
     expect(p.tiles.map((t) => t.key)).toEqual(['bill', 'plan']);
-    expect(p.bars.every((b) => b.when === '今月')).toBe(true);
+    expect(p.bars.every((b) => b.when === 'month')).toBe(true);
     expect(p.splitAfter).toBe(0);
     expect(p.legend).toEqual(['今月は 9/5〜10/5']);
   });
@@ -124,7 +128,7 @@ describe('presentCloudUsage', () => {
   it('期の初めで請求の行がまだ無い：$0.00 と出し、「分まで」と期の添え書きを出さず、落ちない', () => {
     const p = presentCloudUsage({ ...base, month: { periodStart: '', periodEnd: '2026-11-05T00:00:00Z', throughDay: null, billedUsd: 0, rows: [] } }, sync(), NOW, TZ)!;
     expect(p.tiles[0]).toEqual({ key: 'bill', label: '今月の請求', value: '$0.00', sub: '', tone: 'ok' });
-    expect(p.bars.map((b) => b.when)).toEqual(['今日', '今日']);
+    expect(p.bars.map((b) => b.when)).toEqual(['day', 'day']);
     expect(p.legend).toEqual(['今日の枠は 9:00 に戻る']);
   });
 
@@ -138,5 +142,21 @@ describe('presentCloudUsage', () => {
 
   it('使用量がまだ届いていなければ null', () => {
     expect(presentCloudUsage(null, sync(), NOW, TZ)).toBeNull();
+  });
+
+  it('英語：日本語を出さず、万にまとめず、単数と複数を使い分ける', () => {
+    const p = present(en, base, sync(), NOW, TZ)!;
+    expect(p.tiles.map((t) => [t.label, t.sub])).toEqual([["This month's bill", 'Through 9/30'], ['D1 writes (today)', '23,480 rows'], ['Plan', 'R2 pay-as-you-go']]);
+    expect(p.bars.map((b) => [b.label, b.when, b.value])).toEqual([
+      ['D1 writes', 'day', '23,480 / 100,000 rows'],
+      ['Workers requests', 'day', '4,120 / 100,000 requests'],
+      ['R2 storage', 'month', '0.17 / 10 GB-months'],
+      ['R2 write operations', 'month', '6,470 / 1,000,000'],
+      ['R2 Infrequent Access Data Retrieval', 'month', '3 GB'],
+    ]);
+    expect(p.legend).toEqual(["Today's allowance resets at 9:00", 'This month: 9/5–10/5']);
+    expect(p.source).toBe('Cloudflare figures · 2 min ago');
+    expect(present(en, { ...base, today: { ...base.today, d1RowsWritten: 99_999 } }, sync(), NOW, TZ)!.legend).toEqual(['1 row left before the free tier limit · Resets at 9:00']);
+    expect(present(en, unknown, limitedSync(), NOW, TZ)!.strip!.text).toBe('Sync is paused because the Cloudflare free tier limit was reached. It resumes automatically when the allowance resets at 9:00.');
   });
 });

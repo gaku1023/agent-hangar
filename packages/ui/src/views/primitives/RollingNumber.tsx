@@ -1,3 +1,4 @@
+import { useT } from './language.tsx';
 import { RollingText } from './RollingText.tsx';
 
 /**
@@ -5,5 +6,6 @@ import { RollingText } from './RollingText.tsx';
  * 回し方は RollingText が持つ。
  */
 export function RollingNumber(props: { value: number | null; suffix?: string }) {
-  return <RollingText text={props.value === null ? '未取得' : `${props.value}${props.suffix ?? ''}`} />;
+  const t = useT();
+  return <RollingText text={props.value === null ? t('primitives.rollingNumber.unavailable') : `${props.value}${props.suffix ?? ''}`} />;
 }

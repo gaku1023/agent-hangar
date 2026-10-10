@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import type { Intent } from '@agent-hangar/shared';
 import { IntentBoundary, useEmit, type Handled } from '../intent/chain.tsx';
+import { useT } from './primitives/language.tsx';
 
 const clamp = (r: number) => (Number.isFinite(r) ? Math.max(0.2, Math.min(0.8, r)) : 0.5);
 
 /** 仕切り。境界の内側なので、ここで出す split.resize は SplitPane が受けて止める。 */
 function Divider(props: { hostRef: RefObject<HTMLDivElement | null>; ratio: number; onDrag: (dragging: boolean) => void }) {
   const emit = useEmit();
+  const t = useT();
   const onPointerDown = (e: PointerEvent) => {
     e.preventDefault();
     const host = props.hostRef.current;
@@ -25,8 +27,8 @@ function Divider(props: { hostRef: RefObject<HTMLDivElement | null>; ratio: numb
   };
   // いまの割合を読み上げに出す。丸めの範囲をそのまま min と max にするので、端に着いたことも分かる。
   const percent = Math.round(props.ratio * 100);
-  return <div className="split-divider" role="separator" aria-label="左右の幅" aria-orientation="vertical"
-    aria-valuenow={percent} aria-valuemin={20} aria-valuemax={80} aria-valuetext={`左 ${percent}%`}
+  return <div className="split-divider" role="separator" aria-label={t('terminal.split.width')} aria-orientation="vertical"
+    aria-valuenow={percent} aria-valuemin={20} aria-valuemax={80} aria-valuetext={t('terminal.split.valueText', { percent })}
     tabIndex={0} onPointerDown={onPointerDown} onKeyDown={onKeyDown} />;
 }
 

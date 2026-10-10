@@ -12,24 +12,24 @@ const READY: ReadinessDto = {
 
 describe('欄の下の検証（設定の B1）', () => {
   it('動かせるときは、見つかったパスと版', () => {
-    expect(toolLine('tmux', READY.tools.tmux)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/tmux', note: '3.4', fix: null, fixCommand: null });
+    expect(toolLine(ja, 'tmux', READY.tools.tmux)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/tmux', note: '3.4', fix: null, fixCommand: null });
   });
   it('動かせないときは、理由と直し方。tmux は入れるコマンドを添える', () => {
-    expect(toolLine('tmux', { path: null, ok: false, problem: 'unset', version: null })).toEqual({ ok: false, soft: false, text: '見つかりません', note: null, fix: null, fixCommand: 'brew install tmux' });
-    expect(toolLine('claude', { path: '/x/claude', ok: false, problem: 'notExecutable', version: null })).toMatchObject({ ok: false, text: '/x/claude には実行権がありません', fix: 'claude コマンドの絶対パスを入れてください' });
-    expect(toolLine('claude', { path: '/x', ok: false, problem: 'notFile', version: null })).toMatchObject({ text: '/x はファイルではありません' });
-    expect(toolLine('claude', { path: '/x/claude', ok: false, problem: 'missing', version: null })).toMatchObject({ text: '/x/claude が見つかりません' });
+    expect(toolLine(ja, 'tmux', { path: null, ok: false, problem: 'unset', version: null })).toEqual({ ok: false, soft: false, text: '見つかりません', note: null, fix: null, fixCommand: 'brew install tmux' });
+    expect(toolLine(ja, 'claude', { path: '/x/claude', ok: false, problem: 'notExecutable', version: null })).toMatchObject({ ok: false, text: '/x/claude には実行権がありません', fix: 'claude コマンドの絶対パスを入れてください' });
+    expect(toolLine(ja, 'claude', { path: '/x', ok: false, problem: 'notFile', version: null })).toMatchObject({ text: '/x はファイルではありません' });
+    expect(toolLine(ja, 'claude', { path: '/x/claude', ok: false, problem: 'missing', version: null })).toMatchObject({ text: '/x/claude が見つかりません' });
   });
   it('code は無くても動くので、弱い印にして一言添える', () => {
-    expect(toolLine('code', READY.tools.code)).toEqual({ ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドを入れてください', fixCommand: null });
+    expect(toolLine(ja, 'code', READY.tools.code)).toEqual({ ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドを入れてください', fixCommand: null });
   });
   it('Node の設定が空なら、自動で見つけた Node だと添える', () => {
-    expect(toolLine('node', READY.tools.node)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/node', note: 'v22.9.0、自動で見つけました', fix: null, fixCommand: null });
+    expect(toolLine(ja, 'node', READY.tools.node)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/node', note: 'v22.9.0、自動で見つけました', fix: null, fixCommand: null });
   });
   it('ワークスペースは、登録したプロジェクトの数を出し、0 件なら理由を言う', () => {
-    expect(workspaceLine({ ...READY.workspace, projectCount: 12 })).toEqual({ ok: true, soft: false, text: '/Users/me/workspace', note: 'プロジェクト 12 件', fix: null, fixCommand: null });
-    expect(workspaceLine(READY.workspace)).toMatchObject({ ok: false, text: '直下に、Claude のセッションがあるディレクトリがありません' });
-    expect(workspaceLine({ ...READY.workspace, exists: false })).toMatchObject({ ok: false, text: '/Users/me/workspace が見つかりません' });
+    expect(workspaceLine(ja, { ...READY.workspace, projectCount: 12 })).toEqual({ ok: true, soft: false, text: '/Users/me/workspace', note: 'プロジェクト 12 件', fix: null, fixCommand: null });
+    expect(workspaceLine(ja, READY.workspace)).toMatchObject({ ok: false, text: '直下に、Claude のセッションがあるディレクトリがありません' });
+    expect(workspaceLine(ja, { ...READY.workspace, exists: false })).toMatchObject({ ok: false, text: '/Users/me/workspace が見つかりません' });
   });
 });
 
@@ -47,8 +47,16 @@ describe('tmux の役を担う道具の入れ方', () => {
   });
   it('Windows では、tmux が無いときに psmux の入れ方を出す', () => {
     const missing = { path: null, ok: false, problem: 'unset' as const, version: null };
-    expect(toolLine('tmux', missing, 'win32').fixCommand).toBe('winget install marlocarlo.psmux');
-    expect(toolLine('tmux', missing, 'darwin').fixCommand).toBe('brew install tmux');
+    expect(toolLine(ja, 'tmux', missing, 'win32').fixCommand).toBe('winget install marlocarlo.psmux');
+    expect(toolLine(ja, 'tmux', missing, 'darwin').fixCommand).toBe('brew install tmux');
+  });
+  it('英語：日本語を出さず、プロジェクトの数は単数と複数を使い分ける', () => {
+    expect(toolLine(en, 'node', READY.tools.node)).toMatchObject({ note: 'v22.9.0, Found automatically' });
+    expect(toolLine(en, 'code', READY.tools.code)).toEqual({ ok: false, soft: true, text: 'Not found', note: 'Works without it', fix: 'Install the code command from VS Code', fixCommand: null });
+    expect(toolLine(en, 'claude', { path: '/x/claude', ok: false, problem: 'notExecutable', version: null }).text).toBe('/x/claude is not executable');
+    expect(workspaceLine(en, { ...READY.workspace, projectCount: 1 }).note).toBe('1 project');
+    expect(workspaceLine(en, { ...READY.workspace, projectCount: 12 }).note).toBe('12 projects');
+    expect(workspaceLine(en, READY.workspace).text).toBe('No directory with Claude sessions directly inside it');
   });
 });
 
@@ -61,7 +69,7 @@ const noTmux: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: 
 describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   it('6 つ中の済んだ数を錠剤に、直すものの数を件数に、済んだ割合を進みに持つ', () => {
     const b = presentReadiness(READY, ja)!;
-    expect(b.group).toMatchObject({ id: 'readiness', label: 'セットアップの確認', countText: '6 つ中 3 つ', count: 3, progress: 50, tone: 'warn', morning: true, summary: '要修正 3' });
+    expect(b.group).toMatchObject({ id: 'readiness', label: 'セットアップの確認', countText: '6 つ中 3 つ', count: 3, progress: 50, tone: 'warn', morning: true, summary: '設定の残り 3 件' });
     // 直すものが残っているので、済んだように読める ✓ ではなく、注意の印にする。
     expect(b.group.icon).toBe('alert');
   });
@@ -95,8 +103,19 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     expect(b.group.countText).toBe('6 つ中 3 つ');
   });
   it('帯の文は、tmux と claude がそろっていれば始められると言い、欠けていればあればと言う', () => {
-    expect(presentReadiness(READY, ja)!.note).toBe('要修正 3。tmux と claude があるので始められます');
-    expect(presentReadiness(noTmux, ja)!.note).toBe('要修正 4。tmux と claude があれば始められます');
+    expect(presentReadiness(READY, ja)!.note).toBe('もう始められます。設定の残りは 3 件です');
+    expect(presentReadiness(noTmux, ja)!.note).toBe('始めるには tmux と claude が必要です。設定の残りは 4 件です');
+  });
+  it('英語の帯の文は、残りが 1 件なら単数、2 件以上なら複数で言う', () => {
+    const one: ReadinessDto = { ...READY, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } };
+    const two: ReadinessDto = { ...READY, statusline: { ...READY.statusline, installed: true } };
+    const b1 = presentReadiness(one, en)!;
+    expect(b1.group.summary).toBe('1 item left to set up');
+    expect(b1.note).toBe('You can start now. 1 item left to set up');
+    const b2 = presentReadiness(two, en)!;
+    expect(b2.group.summary).toBe('2 items left to set up');
+    expect(b2.note).toBe('You can start now. 2 items left to set up');
+    expect(presentReadiness({ ...noTmux, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } }, en)!.note).toBe('You need tmux and claude to start. 2 items left to set up');
   });
   it('tmux が無ければ入れる命令をコピーさせる。パスはあるのに使えないなら設定を開く', () => {
     const row = presentReadiness(noTmux, ja, 'darwin')!.group.rows[0]!;
@@ -138,9 +157,9 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   });
   it('文は辞書の言語で引く', () => {
     const b = presentReadiness(READY, en)!;
-    expect(b.group).toMatchObject({ label: 'Setup check', countText: '3 of 6', summary: 'To fix 3' });
+    expect(b.group).toMatchObject({ label: 'Setup check', countText: '3 of 6', summary: '3 items left to set up' });
     expect(b.group.rows.map((r) => r.badge ?? null)).toEqual([null, 'Optional', 'Optional']);
     expect(b.group.fold!.text).toBe('tmux, claude, Claude Code compatibility: ready');
-    expect(b.note).toBe('To fix 3. tmux and claude are ready, so you can start');
+    expect(b.note).toBe('You can start now. 3 items left to set up');
   });
 });

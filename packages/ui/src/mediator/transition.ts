@@ -50,7 +50,12 @@ export function transition(state: State, store: Store, input: Input): Step {
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
   const arrived = (s: State, i: Input) => arrivedStep(s, store, i);
   const configSync = (s: State, i: Input) => configSyncStep(s, store, i);
-  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, returnStep, arrived, noticesStep, notifyStep, workbench]) {
+  const connection = (s: State, i: Input) => connectionStep(s, store, i);
+  const launch = (s: State, i: Input) => launchStep(s, store, i);
+  const promote = (s: State, i: Input) => promoteStep(s, store, i);
+  const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
+  const settings = (s: State, i: Input) => settingsStep(s, store, i);
+  for (const step of [connection, screen, launch, promote, projectCreate, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, returnStep, arrived, noticesStep, notifyStep, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }
