@@ -1,4 +1,5 @@
-import type { IndexProgressDto, Intent, LaunchParams, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { IndexProgressDto, Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { TableIntent } from '../runtime/intentTable.ts';
 
 /**
  * 検索の問い合わせ。期間を日数のまま持つ。
@@ -21,17 +22,6 @@ export type RuntimeEvent =
   | { type: 'workspaceDirs.loaded'; dirs: WorkspaceDirDto[] }
   // Finder で選ばれたフォルダ。取り消したときは届かない。
   | { type: 'folder.picked'; path: string }
-  // 分割の右に置くタブはストアを見ないと決まらないので、ランタイムが決めて返す。
-  | { type: 'split.resolved'; sessionId: string; tabId: string | null }
-  // 「次の入力待ちへ」の行き先。入力待ちが無ければ null。これもストアを見ないと決まらないので、ランタイムが決めて返す。
-  | { type: 'waiting.resolved'; sessionId: string | null }
-  // 入力待ちのセッションの一覧（hangar のセッションの id）。
-  // 変わったときだけランタイムが届ける。
-  // live.update はプロバイダの id で届き、hangar のセッションに引き当てるにはストアが要るからである。
-  | { type: 'waiting.changed'; ids: string[] }
-  // サイドバーの「動いている」に載るセッションの一覧（hangar のセッションの id、始めた順）。
-  // 顔ぶれが変わったときだけランタイムが届ける。
-  | { type: 'live.changed'; ids: string[] }
   // 通知を出せるか、受け取るか。
   // 起動時と、許可を求めた結果が出たときにランタイムが届ける。
   // blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
@@ -52,10 +42,20 @@ export type RuntimeEvent =
   // クリップボードに写せた。写せなかったときはランタイムがトーストで知らせ、これは届かない。
   | { type: 'clipboard.copied'; text: string };
 
+/**
+ * Mediator が裁定する Intent。
+ * API を 1 回呼ぶだけの Intent は Runtime が表で引いて実行する（runtime/intentTable.ts）ので、ここには入らない。
+ * 表にある kind を領域の switch に書くと、型が合わなくなる（二重に扱わない）。
+ */
+export type MediatedIntent = Exclude<Intent, TableIntent>;
+
 export type Input =
-  | { kind: 'intent'; intent: Intent }
+  | { kind: 'intent'; intent: MediatedIntent }
   | { kind: 'server'; event: ServerEvent }
-  | { kind: 'runtime'; event: RuntimeEvent };
+  | { kind: 'runtime'; event: RuntimeEvent }
+  // Store が変わった。中身は運ばない。Mediator は渡された Store を読み、そこから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）を合わせる。
+  // Store を変えるのは Runtime なので、変わったことだけは Runtime が知らせる。
+  | { kind: 'store' };
 
 export type Effect =
   | { kind: 'navigate'; route: Route }
@@ -65,7 +65,6 @@ export type Effect =
   // aroundSeq は検索の結果から開いたときの跳び先で、開いたときに最新の側ではなくその周りを読む。
   | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number; aroundSeq?: number }
   | { kind: 'api.search'; params: SearchQuery }
-  | { kind: 'api.setProjectStatus'; projectId: string; status: ProjectStatus }
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }
   | { kind: 'api.updateSettings'; patch: Partial<SettingsDto>; field?: string }
   | { kind: 'api.readiness' }
@@ -74,10 +73,8 @@ export type Effect =
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
-  | { kind: 'api.openTerminalApp'; runId: string; tabId: string | null } | { kind: 'api.openEditor'; sessionId: string; file?: string }
   | { kind: 'api.jumpToPrompt'; sessionId: string; runId: string; seq: number; heads: string[]; index: number; from: 'top' | 'bottom' }
   | { kind: 'api.leaveTranscript'; runId: string }
-  | { kind: 'api.projectOpenEditor'; projectId: string } | { kind: 'api.projectOpenTerminal'; projectId: string }
   | { kind: 'terminal.connect'; sessionId: string; tabId: string | null } | { kind: 'terminal.disconnect'; tabId: string }
   | { kind: 'terminal.disconnectSession'; sessionId: string }
   | { kind: 'ws.connect' } | { kind: 'ws.reconnectAfter'; ms: number }
@@ -96,44 +93,24 @@ export type Effect =
   | { kind: 'badge'; count: number }
   | { kind: 'storage.save'; key: string; value: unknown }
   | { kind: 'api.addTodo'; projectId: string; text: string }
-  | { kind: 'api.toggleTodo'; id: string }
-  | { kind: 'api.removeTodo'; id: string }
-  | { kind: 'api.confirmTodo'; id: string }
-  | { kind: 'api.rejectTodo'; id: string }
   // セッションの状態。本文には渡されたものだけを載せる。
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
-  | { kind: 'api.rejectSessionState'; id: string }
   | { kind: 'api.loadMemo'; projectId: string }
-  | { kind: 'api.saveMemo'; projectId: string; markdown: string }
-  | { kind: 'api.setSessionMemo'; sessionId: string; text: string }
-  | { kind: 'api.openArtifact'; id: string }
-  | { kind: 'api.openArtifactEditor'; id: string }
-  | { kind: 'api.addArtifact'; projectId: string; url: string }
   | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }
   | { kind: 'api.createProject'; place: ProjectPlace; startSession: boolean }
   | { kind: 'api.createProjectThenLaunch'; place: ProjectPlace; params: LaunchParams }
   | { kind: 'api.workspaceDirs' }
   | { kind: 'desktop.pickFolder' }
-  | { kind: 'api.regenerateSummary'; sessionId: string }
   | { kind: 'api.loadSettingsExtras' }
-  | { kind: 'api.testSummarizer' }
-  | { kind: 'split.resolve'; sessionId: string }
-  | { kind: 'waiting.next'; from: string | null }
   | { kind: 'api.syncNow' } | { kind: 'api.syncPause'; paused: boolean } | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
   // Claude Code のアカウント。
-  | { kind: 'api.accounts.load' }
-  | { kind: 'api.accounts.setCurrent'; accountId: string }
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
   | { kind: 'api.accounts.add'; name: string }
-  | { kind: 'api.accounts.update'; accountId: string; patch: { name?: string; color?: string } }
-  | { kind: 'api.accounts.remove'; accountId: string }
-  | { kind: 'api.accounts.login'; accountId: string }
-  | { kind: 'api.accounts.cancelLogin'; accountId: string }
-  | { kind: 'api.accounts.refresh'; accountId: string };
+  | { kind: 'api.accounts.remove'; accountId: string };
 
 export type Screen = { name: 'booting' } | Route;
 /** results はセッションの一覧の画面の結果の一覧である。 */
@@ -177,12 +154,6 @@ export type LaunchPrefs = Pick<LaunchParams, 'model' | 'effort' | 'permissionMod
 export type LaunchState = { kind: 'idle' } | { kind: 'submitting'; createdProjectId?: string } | { kind: 'failed'; message: string; createdProjectId?: string };
 /** 目次から左のターミナルを跳ばした結果。pending の間は注記を出さない。 */
 export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed';
-/**
- * 本文の中の検索（⌘F）の状態。その場の操作なので保存しない。
- * from は語を打ったときに見ていた行の seq で、そこから後ろの最初の一致から数える。step はそこから進めた数。
- * n は ⌘F を押した回数で、押すたびに欄へフォーカスを戻す合図にする。
- */
-export type FindState = { query: string; caseSensitive: boolean; from: number | null; step: number; n: number };
 /** 検索の結果から開いたときの跳び先（J1）。n は開いた回数で、同じ所をもう一度開いても跳び直す合図にする。 */
 export type JumpState = { seq: number; query: string; n: number };
 export type SessionViewState = {
@@ -197,8 +168,6 @@ export type SessionViewState = {
    * runId は跳ばした Claude の run で、ターンを閉じたときと画面を離れたときに transcript から抜けさせる先である。
    */
   turnJump: { seq: number; status: TurnJumpStatus; runId: string } | null;
-  /** 本文の中の検索。閉じていれば null。 */
-  find: FindState | null;
   /** 検索の結果から開いたときの跳び先。無ければ null。 */
   jump: JumpState | null;
 };
