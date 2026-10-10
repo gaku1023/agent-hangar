@@ -391,7 +391,8 @@ describe.skipIf(!posix)('証明書を作る台本', () => {
         const app = makeApp(d);
         const opts = { app, mode: 'cert' as const, identifier: ID, fingerprint: fp!, keychain: kc, keychainPassword: PW.HANGAR_SIGN_P12_PASSWORD };
         unlockKeychain(opts);
-        signApp(opts);
+        const diag = (): string => ['find-identity -p codesigning', 'find-identity', 'list-keychains -d user', 'show-keychain-info'].map((a) => { const x = spawnSync('security', [...a.split(' '), ...(a.startsWith('find') || a.startsWith('show') ? [kc] : [])], { encoding: 'utf8' }); return `$ security ${a}\n${x.stdout}${x.stderr}`; }).join('\n');
+        try { signApp(opts); } catch (e) { throw new Error(`${(e as Error).message}\n${diag()}`); }
         const dr = spawnSync('codesign', ['-d', '-r-', app], { encoding: 'utf8' });
         expect(`${dr.stdout}${dr.stderr}`).toContain(`designated => certificate leaf = H"${fp}"`);
         // 内容の違う 2 回目の build でも DR は同じ
