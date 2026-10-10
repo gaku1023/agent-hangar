@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionDto, SessionStateDto } from '@agent-hangar/shared';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY, returnStep, sessionIdOfReturnKey, settleReturn } from './returnDue.ts';
 import { initialState, transition } from './transition.ts';
+import { initialStore } from '../store/store.ts';
 import type { State } from './types.ts';
 
 /** 2026-10-05（月）。時刻は手元の時刻で作る。 */
@@ -88,7 +89,7 @@ describe('returnStep', () => {
     const first = returnStep(initialState(), due([K1, K2]))!.state;
     expect(settleReturn({ ...first, screen: { name: 'session', id: 'timer' } }).returnToasts).toEqual(['night']);
     // transition を通しても同じ。
-    const opened = transition(first, { kind: 'runtime', event: { type: 'hash.changed', route: { name: 'session', id: 'timer' } } });
+    const opened = transition(first, initialStore(), { kind: 'runtime', event: { type: 'hash.changed', route: { name: 'session', id: 'timer' } } });
     expect(opened.state.returnToasts).toEqual(['night']);
   });
   it('ほかの入力は扱わない', () => {

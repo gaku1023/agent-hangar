@@ -10,8 +10,6 @@ export function accountsStep(state: State, input: Input): Step | null {
   if (input.kind !== 'intent') return null;
   const i = input.intent;
   switch (i.type) {
-    case 'accounts.load': return { state, effects: [{ kind: 'api.accounts.load' }] };
-    case 'account.choose': return { state, effects: [{ kind: 'api.accounts.setCurrent', accountId: i.accountId }] };
     case 'account.switchSession': {
       // 動いている claude を止めて別の置き場で再開するので、押しただけでは動かさず、先に確認を出す。
       if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'switchAccount', sessionId: i.sessionId, accountId: i.accountId, working: i.working } } }, effects: [] };
@@ -23,20 +21,11 @@ export function accountsStep(state: State, input: Input): Step | null {
       const name = i.name.trim();
       return { state, effects: name === '' ? [] : [{ kind: 'api.accounts.add', name }] };
     }
-    case 'account.update': {
-      // 名前は add と同じく前後の空白を落とす。空になった名前は送らず、送るものが無ければ何もしない。
-      const name = i.name?.trim();
-      const patch = { ...(name ? { name } : {}), ...(i.color !== undefined ? { color: i.color } : {}) };
-      return { state, effects: Object.keys(patch).length === 0 ? [] : [{ kind: 'api.accounts.update', accountId: i.accountId, patch }] };
-    }
     case 'account.remove': {
       if (!i.confirmed) return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'removeAccount', accountId: i.accountId } } }, effects: [] };
       const overlay = state.overlay.kind === 'confirm' ? { kind: 'none' as const } : state.overlay;
       return { state: { ...state, overlay }, effects: [{ kind: 'api.accounts.remove', accountId: i.accountId }] };
     }
-    case 'account.login': return { state, effects: [{ kind: 'api.accounts.login', accountId: i.accountId }] };
-    case 'account.login.cancel': return { state, effects: [{ kind: 'api.accounts.cancelLogin', accountId: i.accountId }] };
-    case 'account.refresh': return { state, effects: [{ kind: 'api.accounts.refresh', accountId: i.accountId }] };
     default: return null;
   }
 }
