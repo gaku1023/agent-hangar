@@ -23,6 +23,13 @@ pub fn server_dir(resource_dir: &Path) -> Option<PathBuf> {
 
 pub struct ServerProcess {
     child: Child,
+    /// 止める合図に閉じる、サーバの標準入力の管（Windows だけ）。
+    /// Windows には SIGTERM が無いので、管を閉じることで止める合図を送る。
+    #[cfg(windows)]
+    stdin: Option<std::process::ChildStdin>,
+    /// サーバとその孫を入れたジョブ（Windows だけ）。入れられなかったときは None で、サーバだけを止める。
+    #[cfg(windows)]
+    job: Option<crate::winjob::Job>,
 }
 
 /// サーバの番犬が `process.exit(0)` を呼ぶまでの秒数。
@@ -74,7 +81,7 @@ pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
 /// 殻を Claude Code のセッションの Bash から起こすと（`open` や osascript の launch）、
 /// 呼び手のセッションの印が殻に入る。そのまま渡すと、サーバが起こす tmux サーバと claude まで届き、
 /// hangar の claude が別のセッションの子として振る舞う（再開の一覧から外れる、別のセッションのソケットへ話しかける）。
-/// 後ろの 6 つは hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
+/// 後ろの 7 つは hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
 ///
 /// 正本は `packages/server/src/launch/env.ts` の `SERVER_DROPPED_ENV` で、ここはその写しである。
 /// サーバも起動の最初に同じ名前を自分の環境から消す。
@@ -100,6 +107,7 @@ pub const INHERITED_ENV_DROPPED: &[&str] = &[
     "HANGAR_PARENT_PID",
     "HANGAR_PORT",
     "HANGAR_UI_DIST",
+    "HANGAR_STOP_ON_STDIN_END",
     "HANGAR_RUN_ID",
     "HANGAR_UNSET_ENV",
     "HANGAR_CLOUD_DIR",
@@ -122,12 +130,24 @@ fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
         .env("HANGAR_PORT", PORT.to_string())
         .env("HANGAR_UI_DIST", dir.join("ui"))
         .env("HANGAR_HOME", hangar_home);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // 標準入力の閉じを止める合図にするよう頼む（ServerProcess::stop_within）。
+        cmd.env("HANGAR_STOP_ON_STDIN_END", "1");
+        // 窓を持たない殻から Node を起こすと、黒いコンソールの窓が開いたままになる。
+        // 窓の無いコンソールを持たせておけば、サーバが起こす孫（psmux の CLI、PowerShell）もそれを継ぎ、窓を開かない。
+        cmd.creation_flags(crate::winjob::CREATE_NO_WINDOW);
+    }
     cmd
 }
 
 /// `node server.mjs` を起動する。標準出力と標準エラーはログファイルに追記する。
 /// UI の置き場は、同梱の場所を環境変数で教える。
 /// 単一ファイルにまとめた server.mjs からは、相対では届かないためである。
+///
+/// Windows では標準入力を管でつなぎ（止める合図に閉じる）、サーバをジョブに入れる（孫ごと止める）。
+/// macOS では標準入力は空のままで、止めるのは SIGTERM である。
 pub fn spawn_server(
     node: &Path,
     dir: &Path,
@@ -136,12 +156,24 @@ pub fn spawn_server(
 ) -> std::io::Result<ServerProcess> {
     let out = OpenOptions::new().create(true).append(true).open(log)?;
     let err = out.try_clone()?;
-    let child = server_command(node, dir, hangar_home)
-        .stdin(Stdio::null())
+    let stdin = if cfg!(windows) {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    };
+    #[allow(unused_mut)]
+    let mut child = server_command(node, dir, hangar_home)
+        .stdin(stdin)
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err))
         .spawn()?;
-    Ok(ServerProcess { child })
+    Ok(ServerProcess {
+        #[cfg(windows)]
+        job: crate::winjob::contain(&child),
+        #[cfg(windows)]
+        stdin: child.stdin.take(),
+        child,
+    })
 }
 
 impl ServerProcess {
@@ -159,7 +191,7 @@ impl ServerProcess {
         self.child.try_wait().ok().flatten()
     }
 
-    /// SIGTERM を送ってから SIGKILL に移るまでの猶予。
+    /// 止める合図（macOS は SIGTERM、Windows は標準入力の閉じ）を送ってから、力ずくで止めるまでの猶予。
     ///
     /// 終了の時間は 3 つの数が噛み合っていなければならない。
     /// 決め方の正本は `packages/server/src/server.ts` の `CLOSE_DEADLINE_MS` の説明である。
@@ -168,30 +200,43 @@ impl ServerProcess {
     /// 2. サーバの番犬（`SERVER_WATCHDOG_SECS`、8 秒）。締め切りより後でなければ `db.close()` に届かない。
     /// 3. この猶予。番犬より後でなければ、サーバが自分で降りる前に殺される。
     ///
-    /// 普段は待つものが無いので SIGTERM の直後に終わり、この猶予は使い切らない。
+    /// 普段は待つものが無いので合図の直後に終わり、この猶予は使い切らない。
     /// 10 秒は最悪の場合の保険である。
     pub const STOP_GRACE: Duration = Duration::from_secs(10);
 
-    /// SIGTERM を送って猶予まで待ち、まだ生きていれば SIGKILL。サーバは SIGTERM で DB を閉じてから終わる。
+    /// 止める合図を送って猶予まで待ち、まだ生きていれば力ずくで止める。サーバは合図で DB を閉じてから終わる。
     pub fn stop(&mut self) {
         self.stop_within(Self::STOP_GRACE);
     }
 
-    /// 猶予を指定して止める。試験が実時間を使わずに SIGKILL の経路を踏むために分けてある。
+    /// 猶予を指定して止める。試験が実時間を使わずに力ずくの経路を踏むために分けてある。
+    ///
+    /// macOS は SIGTERM を送り、残れば SIGKILL でサーバだけを止める。
+    /// Windows は標準入力の管を閉じ（サーバはそれを SIGTERM と同じに受け取る）、残ればジョブごと止める。
+    /// Windows では、サーバが猶予のうちに降りた後も、ジョブに残った孫（node-pty の端末など）をここで止める。
+    /// psmux のサーバは自分からジョブを抜けているので止まらない（winjob.rs）。
     pub fn stop_within(&mut self, grace: Duration) {
         #[cfg(unix)]
         unsafe {
             libc::kill(self.child.id() as libc::pid_t, libc::SIGTERM);
         }
-        // Windows には SIGTERM が無い。穏やかに止める道は、殻のプロセス管理を作る段（段 6 の 6-4）で足す。
-        // それまでは猶予を待たず、すぐ止める。
-        let grace = if cfg!(unix) { grace } else { Duration::ZERO };
+        #[cfg(windows)]
+        drop(self.stdin.take());
         let t0 = Instant::now();
+        let mut exited = false;
         while t0.elapsed() < grace {
             if !self.is_running() {
-                return;
+                exited = true;
+                break;
             }
             std::thread::sleep(Duration::from_millis(50));
+        }
+        #[cfg(windows)]
+        if let Some(job) = self.job.take() {
+            job.terminate();
+        }
+        if exited {
+            return;
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -295,7 +340,11 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let cmd = server_command(Path::new("/bin/sh"), dir.path(), home.path());
         let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
-        let own = ["HANGAR_PARENT_PID", "HANGAR_PORT", "HANGAR_UI_DIST"];
+        let mut own = vec!["HANGAR_PARENT_PID", "HANGAR_PORT", "HANGAR_UI_DIST"];
+        // Windows では、標準入力の閉じを止める合図にするようサーバに頼む。macOS では立てない。
+        if cfg!(windows) {
+            own.push("HANGAR_STOP_ON_STDIN_END");
+        }
         for name in INHERITED_ENV_DROPPED {
             let v = envs.get(std::ffi::OsStr::new(name));
             if own.contains(name) {
@@ -388,6 +437,82 @@ mod tests {
         assert!(!p.is_running());
         assert!(waited >= Duration::from_millis(400), "{waited:?}");
         assert!(waited < Duration::from_secs(2), "{waited:?}");
+    }
+
+    /// Windows の試験のサーバ。Node の本物で、server.mjs だけを差し替える。
+    /// Node は CI の windows ジョブに入っている（setup-node）。
+    #[cfg(windows)]
+    fn spawn_windows_server(body: &str) -> (ServerProcess, tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("server.mjs"), body).unwrap();
+        let log = dir.path().join("desktop.log");
+        let p = spawn_server(Path::new("node"), dir.path(), dir.path(), &log).unwrap();
+        (p, dir, log)
+    }
+
+    #[cfg(windows)]
+    fn wait_for_log(log: &Path, needle: &str) -> String {
+        let mut text = String::new();
+        let found = crate::winjob::tests::wait_until(Duration::from_secs(20), || {
+            text = std::fs::read_to_string(log).unwrap_or_default();
+            text.contains(needle)
+        });
+        assert!(found, "{needle} が出ない: {text}");
+        text
+    }
+
+    // Windows には SIGTERM が無い。殻は標準入力の管を閉じ、サーバはそれを合図に自分で降りる（entry.ts の runMain）。
+    // 猶予（10 秒）を使い切らずに終わることで、力ずくの経路を踏んでいないことを見る。
+    #[cfg(windows)]
+    #[test]
+    fn stop_closes_stdin_and_the_server_leaves_on_its_own() {
+        let (mut p, _dir, log) = spawn_windows_server(
+            "console.log(`flag=${process.env.HANGAR_STOP_ON_STDIN_END}`);\n\
+             process.stdin.on('end', () => { console.log('stdin closed'); process.exit(0); });\n\
+             process.stdin.resume();\n\
+             setInterval(() => {}, 1000);\n",
+        );
+        wait_for_log(&log, "flag=1");
+        assert!(p.is_running());
+        let t0 = Instant::now();
+        p.stop();
+        assert!(!p.is_running());
+        assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+        wait_for_log(&log, "stdin closed");
+    }
+
+    // 合図を聞かないサーバは、猶予を使い切ってから孫ごと止める。
+    // 孫は detached で起こす。Node（libuv）が自分の子を道連れにする仕組みには乗らないので、残れば殻のジョブの落ち度である。
+    #[cfg(windows)]
+    #[test]
+    fn stop_kills_the_whole_tree_when_the_server_does_not_leave() {
+        let (mut p, _dir, log) = spawn_windows_server(
+            "import { spawn } from 'node:child_process';\n\
+             const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });\n\
+             console.log(`grandchild=${c.pid};`);\n\
+             setInterval(() => {}, 1000);\n",
+        );
+        let text = wait_for_log(&log, ";");
+        let grandchild: u32 = text
+            .split("grandchild=")
+            .nth(1)
+            .and_then(|r| r.split(';').next())
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("孫の番号が読めない: {text}"));
+        assert!(crate::winjob::tests::is_alive(grandchild));
+        let t0 = Instant::now();
+        p.stop_within(Duration::from_millis(400));
+        let waited = t0.elapsed();
+        assert!(!p.is_running());
+        assert!(waited >= Duration::from_millis(400), "{waited:?}");
+        assert!(waited < Duration::from_secs(5), "{waited:?}");
+        let gone = crate::winjob::tests::wait_until(Duration::from_secs(10), || {
+            !crate::winjob::tests::is_alive(grandchild)
+        });
+        if !gone {
+            crate::winjob::tests::kill_pid(grandchild);
+        }
+        assert!(gone, "孫が残った");
     }
 
     #[test]
