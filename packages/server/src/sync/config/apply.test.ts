@@ -188,7 +188,7 @@ describe('適用する', () => {
     inbox('dev-b', [{ id: 'file:commands/x.md', kind: 'commands', content: 'new' }]);
     order(fileOrder('commands/x.md', 'overwrite', 'new'));
     runApply(ctx());
-    expect(fs.statSync(abs('commands/x.md')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(fs.statSync(abs('commands/x.md')).mode & 0o777).toBe(0o600);
   });
 
   it('競合で手元を採る項目は書かず、基準を相手の指紋に合わせる（次の同期で手元が送られる）', () => {
