@@ -2,6 +2,7 @@ import type { LaunchResultDto, ResumeHereConflictDto } from '@agent-hangar/share
 import type { Db } from '../db/open.ts';
 import { RunError } from '../runs/manager.ts';
 import { copyTranscriptForResume } from './copy.ts';
+import { msg } from '../i18n/message.ts';
 
 export type ResumeHereDeps = {
   db: Db; home: string; claudeDir: string;
@@ -17,7 +18,7 @@ export type ResumeHereDeps = {
 export function resumeHere(deps: ResumeHereDeps, sessionId: string, overwrite: boolean): LaunchResultDto | ResumeHereConflictDto {
   const r = (deps.copy ?? copyTranscriptForResume)({ db: deps.db, home: deps.home, claudeDir: deps.claudeDir, sessionId, overwrite });
   if (r.kind === 'ask') return { error: 'local_smaller', localSize: r.localSize, remoteSize: r.remoteSize };
-  if (r.kind === 'none') throw new RunError(400, 'このセッションの本文がありません');
+  if (r.kind === 'none') throw new RunError(400, msg('sync.resume.noTranscript'));
   // 控えを取った回だけ刈る。控えはもうファイルになっているので、ここで転んでも書き戻しには響かない。
   if (r.kind === 'copied' && r.backedUp !== null) deps.pruneTranscripts();
   return deps.resume(sessionId);

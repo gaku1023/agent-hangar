@@ -12,11 +12,12 @@ import { searchSessions } from '../../search/search.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
-import type { AppDeps } from '../deps.ts';
+import { errorText, render, translatorOf } from '../../i18n/message.ts';
+import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester'>;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -27,6 +28,8 @@ const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
  * 起動（resume、fork など）は run を作るので runs.ts にある。
  */
 export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
+  const language = deps.language;
+  const tr = translatorOf(deps.language);
   const { db, deviceId } = deps;
   const session = sessionOf(deps);
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
@@ -36,7 +39,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId') })));
   api.get('/sessions/:id', (c) => {
     const s = session(c.req.param('id'));
-    return s ? c.json(s) : c.json({ error: 'セッションが見つかりません' }, 404);
+    return s ? c.json(s) : c.json({ error: tr('session.error.notFound') }, 404);
   });
   api.get('/sessions/:id/events', (c) => {
     const q = c.req.query();
@@ -52,7 +55,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       return c.json(readEvents(db, id, { fromSeq: numberOr(q.fromSeq), limit: numberOr(q.limit), agentId: q.agentId || null, latest: q.latest === '1', beforeSeq: before }));
     } catch (e) {
       // 索引はあるのに本文ファイルが消えている場合だけ 404 にし、他は 500 に任せる。
-      if (isEnoent(e)) return c.json({ error: 'このセッションの本文はこの PC にありません' }, 404);
+      if (isEnoent(e)) return c.json({ error: tr('session.transcript.notOnThisComputer') }, 404);
       throw e;
     }
   });
@@ -60,11 +63,11 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   // 実行中のセッションの右ペイン。UI は追記のたびに取り直すが、索引が変わっていなければ覚えた要約を返す。
   api.get('/sessions/:id/live', (c) => {
     const id = c.req.param('id');
-    if (!session(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!session(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     try {
       return c.json(digester.digest(id));
     } catch (e) {
-      if (isEnoent(e)) return c.json({ error: 'このセッションの本文はこの PC にありません' }, 404);
+      if (isEnoent(e)) return c.json({ error: tr('session.transcript.notOnThisComputer') }, 404);
       throw e;
     }
   });
@@ -91,18 +94,18 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   // 画面の右欄の「変更したファイル」から来る道で、任意のパスを code に渡させないために、索引に無いパスは断る。
   api.post('/sessions/:id/open-editor', async (c) => {
     const s = session(c.req.param('id'));
-    if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!s) return c.json({ error: tr('session.error.notFound') }, 404);
     const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const file = (b.value as { file?: unknown } | undefined)?.file;
     if (file === undefined) return external(c, () => deps.external.openEditor({ target: s.cwd }), true);
-    if (typeof file !== 'string' || !path.isAbsolute(file)) return c.json({ error: 'file は絶対パスの文字列で送ってください' }, 400);
+    if (typeof file !== 'string' || !path.isAbsolute(file)) return c.json({ error: tr('session.file.mustBeAbsolute') }, 400);
     const marks = EDIT_TOOLS.map(() => '?').join(',');
     const known = db.prepare(`select 1 from event_index where session_id = ? and tool_name in (${marks}) and file_path = ? limit 1`).get(s.id, ...EDIT_TOOLS, file);
-    if (!known) return c.json({ error: 'このセッションが変更したファイルではありません' }, 404);
+    if (!known) return c.json({ error: tr('session.file.notChanged') }, 404);
     // 変えた後に消えたり、ディレクトリに替わったりしていたら開かない。
     // ディレクトリを渡すと、code はファイルではなくその中身を開いてしまう。
-    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return c.json({ error: '元のファイルが見つかりません' }, 404);
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return c.json({ error: tr('common.file.sourceMissing') }, 404);
     return external(c, () => deps.external.openEditor({ target: file }), true);
   });
 
@@ -110,65 +113,65 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   api.patch('/sessions/:id', async (c) => {
     const id = c.req.param('id');
     const row = db.prepare('select * from sessions where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
-    if (!row) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!row) return c.json({ error: tr('session.error.notFound') }, 404);
     const b = await readJson(c, BODY_LIMITS.todo);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo, tr);
     const body = (b.value ?? {}) as { memo?: unknown };
-    if (typeof body.memo !== 'string') return c.json({ error: 'memo は文字列です' }, 400);
+    if (typeof body.memo !== 'string') return c.json({ error: tr('common.field.mustBeString', { field: 'memo' }) }, 400);
     upsertShared(db, 'sessions', { ...row, memo: body.memo.trim() || null }, deviceId);
     return c.json(session(id)!);
   });
   // セッションの状態（Paused・Done・Archived）と Claude の提案の確定・却下。どれも利用者の操作で、MCP からは呼べない。
   // run に配る MCP の秘密は /api を開けない（authMiddleware は本体のトークンしか見ない）。
   // 成功したら、書いた行（session_states）から配る層が session.upsert を配る。画面の正はその配信である。
-  const NO_STATE_CANDIDATE = 'このセッションには確かめる提案がありません';
+  const noStateCandidate = () => tr('session.status.noSuggestion');
   const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
   const stateResult = (c: Context, fn: () => { state: SessionStateDto; result?: string }) => {
     try {
       const r = fn();
-      if (r.result === 'not_candidate') return c.json({ error: NO_STATE_CANDIDATE }, 409);
+      if (r.result === 'not_candidate') return c.json({ error: noStateCandidate() }, 409);
       return c.json({ state: r.state });
     } catch (e) {
-      if (e instanceof StateInputError) return c.json({ error: e.message }, 400);
+      if (e instanceof StateInputError) return c.json({ error: errorText(language(), e) }, 400);
       throw e;
     }
   };
   const putSessionState = async (c: Context, id: string) => {
-    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     const b = await readJson(c, BODY_LIMITS.todo);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo, tr);
     const body = (b.value ?? {}) as { status?: unknown; note?: unknown; returnOn?: unknown; returnTime?: unknown };
-    if (body.status !== null && !(typeof body.status === 'string' && SESSION_STATUSES.has(body.status))) return c.json({ error: '状態は paused、done、archived か、Active に戻す null です' }, 400);
-    if (body.note !== undefined && typeof body.note !== 'string') return c.json({ error: '理由は文字列です' }, 400);
-    if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
-    if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
+    if (body.status !== null && !(typeof body.status === 'string' && SESSION_STATUSES.has(body.status))) return c.json({ error: tr('session.status.invalid') }, 400);
+    if (body.note !== undefined && typeof body.note !== 'string') return c.json({ error: tr('session.status.reasonMustBeString') }, 400);
+    if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: tr('session.status.returnOnMustBeString') }, 400);
+    if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: tr('session.status.returnTimeMustBeString') }, 400);
     const status = body.status as SessionStatus | null;
     return stateResult(c, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }));
   };
   api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
   api.post('/sessions/:id/state/confirm', async (c) => {
     const id = c.req.param('id');
-    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const body = (b.value ?? {}) as { returnOn?: unknown; returnTime?: unknown };
-    if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
-    if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
+    if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: tr('session.status.returnOnMustBeString') }, 400);
+    if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: tr('session.status.returnTimeMustBeString') }, 400);
     return stateResult(c, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
   });
   api.post('/sessions/:id/state/reject', (c) => {
     const id = c.req.param('id');
-    if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     return stateResult(c, () => rejectSessionState(db, deviceId, id));
   });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');
     const b = await readJson(c, BODY_LIMITS.default);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const body = (b.value ?? {}) as { name?: unknown; gitInit?: unknown; moveFiles?: unknown };
-    if (typeof body.name !== 'string') return c.json({ error: 'name は必須です' }, 400);
+    if (typeof body.name !== 'string') return c.json({ error: tr('common.field.required', { field: 'name' }) }, 400);
     const before = session(id);
-    if (!before) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!before) return c.json({ error: tr('session.error.notFound') }, 404);
     try {
       const r = deps.promote({ sessionId: id, name: body.name, gitInit: body.gitInit === true, moveFiles: body.moveFiles === true });
       const project = getProject(db, deviceId, deps.live(), r.projectId)!;
@@ -176,16 +179,16 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
       // 新しいプロジェクトとセッションは、書いた行から配る層が配る。
       // 昇格元のスクラッチは、行は変わらないがセッションが 1 件減るので、名指しして配り直してもらう。
       if (before.projectId && before.projectId !== r.projectId) touchRow(db, 'projects', before.projectId);
-      const out: PromoteResultDto = { project, session: updated, moved: r.moved, reason: r.reason };
+      const out: PromoteResultDto = { project, session: updated, moved: r.moved, reason: r.reasonMessage ? render(language(), r.reasonMessage) : r.reason };
       return c.json(out, 201);
     } catch (e) {
-      if (e instanceof PromoteError) return c.json({ error: e.message }, e.status);
+      if (e instanceof PromoteError) return c.json({ error: errorText(language(), e) }, e.status);
       throw e;
     }
   });
   api.post('/sessions/:id/summarize', (c) => {
     const id = c.req.param('id');
-    if (!session(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
+    if (!session(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     // 受け付けられなくても 202 を返す。UI は accepted を見て「作成中」を出すかどうかだけを決める。
     // 要約は補助の機能なので、受け付けが投げても 500 にせず accepted: false で返す（GET /events と同じ扱い）。
     let accepted = false;

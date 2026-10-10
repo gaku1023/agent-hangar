@@ -1,6 +1,8 @@
 import type { SyncStatusDto } from '@agent-hangar/shared';
 import type { Toast } from './notices.ts';
 import { PausedPass } from './pausedPass.ts';
+import type { GetLanguage } from '../i18n/language.ts';
+import { msg, render, type Message } from '../i18n/message.ts';
 
 /** 一時停止のまま頼まれた 1 巡の最中に、進み（未送信の件数）を画面へ配る間隔。手元の DB を数えるだけで、外とは話さない。 */
 export const PASS_TICK_MS = 1_000;
@@ -25,6 +27,8 @@ export type OncePassDeps = {
   /** 同期の状態を、付録を添えて画面へ配る。 */
   broadcastSync: (s: SyncStatusDto) => void;
   toast: Toast;
+  /** 知らせの文の言語。 */
+  language: GetLanguage;
   tickMs?: number;
   log?: (...a: unknown[]) => void;
 };
@@ -41,6 +45,7 @@ export type OncePassDeps = {
 export function createOncePass(deps: OncePassDeps): { pass: PausedPass; syncNow(): Promise<void>; stopTicker(): void } {
   const { engine } = deps;
   const log = deps.log ?? console.error;
+  const text = (m: Message): string => render(deps.language(), m);
   /** 1 段ずつ失敗を畳む。繋がらない段があっても、残りの段は試す。 */
   const passStep = async (label: string, work: () => Promise<unknown>): Promise<void> => {
     try { await work(); } catch (e) { log(`[${label}]`, e instanceof Error ? e.message : e); }
@@ -70,15 +75,19 @@ export function createOncePass(deps: OncePassDeps): { pass: PausedPass; syncNow(
       deps.broadcastSync(status);
       // 版で断られた 1 巡は何も同期していない。成功や残りの件数の知らせは出さず、同期の状態と同じ版の文で知らせる。
       if (engine.compatBlocked()) {
-        deps.toast('error', status.error ?? 'クラウドと互換の版が合わないので、同期できませんでした');
+        deps.toast('error', status.error ?? text(msg('sync.once.compatBlocked')));
         return;
       }
       // 上限で退いた 1 巡は、エンジンが戻る時刻を知らせてある。成功や残りの件数の知らせを重ねない。
       if (engine.limitedUntil() !== null) return;
       // 一時停止の間は状態が paused に隠れて失敗が画面に出ないので、残りの件数で伝える。
-      const left = [status.pending > 0 ? `未送信 ${status.pending} 件` : null, (sweepPending ?? 0) > 0 ? `未送信の本文 ${sweepPending} 件` : null].filter((t) => t !== null);
-      if (left.length > 0) deps.toast('error', `1 回だけ同期しましたが、${left.join('、')}が残りました。同期は一時停止のままです`);
-      else deps.toast('info', '1 回だけ同期しました。同期は一時停止のままです');
+      // 残り方ごとに 1 つの文にする。件数の句をつないで作ると、言語で語順を変えられない。
+      const pending = status.pending;
+      const transcripts = sweepPending ?? 0;
+      if (pending > 0 && transcripts > 0) deps.toast('error', text(msg('sync.once.leftBoth', { pending, transcripts })));
+      else if (pending > 0) deps.toast('error', text(msg('sync.once.leftChanges', { pending })));
+      else if (transcripts > 0) deps.toast('error', text(msg('sync.once.leftTranscripts', { transcripts })));
+      else deps.toast('info', text(msg('sync.once.done')));
     },
   });
   /** 利用者が押した「今すぐ同期」。止まっていれば 1 巡だけ通し、止まっていなければ今までどおり。 */

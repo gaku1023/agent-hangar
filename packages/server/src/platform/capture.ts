@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type StdioOptions } from 'node:chi
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { MessageError, msg } from '../i18n/message.ts';
 
 // 子プロセスの標準出力を、一時ファイルへ書かせて読む。
 // claude は標準出力がパイプだと非同期に書き、書き切る前に終わることがある。Node の子プロセスのパイプで読むと、
@@ -45,7 +46,7 @@ function openOut(tmpDir: string): Out {
 
 /** 子と同じ開き口を持つので、位置は子が書いた末尾にある。中身はパスから読み直す。 */
 function readOut(out: Out, maxBytes: number): string {
-  if (fs.fstatSync(out.fd).size > maxBytes) throw new Error(`標準出力が上限（${maxBytes} バイト）を越えました`);
+  if (fs.fstatSync(out.fd).size > maxBytes) throw new MessageError(msg('platform.capture.stdoutTooLarge', { max: maxBytes }));
   return fs.readFileSync(out.file, 'utf8');
 }
 
@@ -59,7 +60,7 @@ function stdioOf(out: Out, o: CaptureOptions): StdioOptions {
   return [o.stdin === undefined ? 'ignore' : 'pipe', out.fd, o.stderr ? 'pipe' : 'ignore'];
 }
 
-const timeoutError = (ms: number) => new Error(`${ms} ミリ秒で応答がありませんでした`);
+const timeoutError = (ms: number) => new MessageError(msg('platform.capture.timeout', { ms }));
 
 /**
  * file を起こし、標準出力を一時ファイルへ書かせて、終わったら読む。

@@ -7,6 +7,8 @@ import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX } from '../live/intents.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
+import type { GetLanguage } from '../i18n/language.ts';
+import { MessageError, msg, type Message } from '../i18n/message.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
@@ -22,14 +24,16 @@ export type ToolDeps = {
   /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
   accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
   memos: MemoStore;
+  /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
+  language?: GetLanguage;
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
 export type ToolContext = { sessionId: string | null };
 
-/** ツールの呼び出しが失敗したこと。MCP の層はこれを isError の応答に変える。 */
-export class ToolError extends Error {
-  constructor(message: string) {
-    super(message);
+/** ツールの呼び出しが失敗したこと。MCP の層はこれを、いまの言語の文にして isError の応答に変える。 */
+export class ToolError extends MessageError {
+  constructor(text: Message | string) {
+    super(text);
     this.name = 'ToolError';
   }
 }
@@ -60,10 +64,10 @@ const strs = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter(
 function sessionIdOf(ctx: ToolContext, args: Record<string, unknown>): string {
   const given = str(args.session_id);
   if (ctx.sessionId) {
-    if (given && given !== ctx.sessionId) throw new ToolError(`この MCP の URL はセッション ${ctx.sessionId} 専用です。ほかの session_id は指定できません`);
+    if (given && given !== ctx.sessionId) throw new ToolError(msg('mcp.scope.sessionOnly', { sessionId: ctx.sessionId }));
     return ctx.sessionId;
   }
-  if (!given) throw new ToolError('session_id が必要です（セッション別 URL では省略できます）');
+  if (!given) throw new ToolError(msg('mcp.args.sessionIdRequired'));
   return given;
 }
 
@@ -76,14 +80,14 @@ function scopeProjectId(deps: ToolDeps, ctx: ToolContext): string | null | undef
   return requireSession(deps, ctx.sessionId).projectId;
 }
 
-const NO_PROJECT = 'このセッションはまだプロジェクトに属していないため、プロジェクトの道具は使えません';
+const NO_PROJECT = msg('mcp.scope.noProject');
 
 /** 引数の project_id を枠に照らし、枠の外を指していれば断る。返すのは枠そのものである。 */
 function projectScope(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>): string | null | undefined {
   const scope = scopeProjectId(deps, ctx);
   const given = str(args.project_id);
   if (scope !== undefined && given && given !== scope) {
-    throw new ToolError(scope === null ? NO_PROJECT : `この MCP の URL はプロジェクト ${scope} に閉じています。ほかの project_id は指定できません`);
+    throw new ToolError(scope === null ? NO_PROJECT : msg('mcp.scope.projectOnly', { projectId: scope }));
   }
   return scope;
 }
@@ -93,7 +97,7 @@ function projectIdOf(deps: ToolDeps, ctx: ToolContext, args: Record<string, unkn
   const scope = projectScope(deps, ctx, args);
   if (scope === null) throw new ToolError(NO_PROJECT);
   const id = scope ?? str(args.project_id);
-  if (!id) throw new ToolError('project_id が必要です');
+  if (!id) throw new ToolError(msg('mcp.args.projectIdRequired'));
   return id;
 }
 
@@ -126,26 +130,26 @@ type TodoOutcome = ProposeOutcome | 'reopened';
 /** propose_done の引数を検査して取り出す。1 件でも崩れていれば全体を断る（どの TODO も書かない）。 */
 function proposalsOf(v: unknown): { todoId: string; note: string }[] {
   if (v === undefined) return [];
-  if (!Array.isArray(v)) throw new ToolError('propose_done は { todo_id, note } の配列です');
+  if (!Array.isArray(v)) throw new ToolError(msg('mcp.proposeDone.notArray'));
   return v.map((x) => {
     const o = (typeof x === 'object' && x !== null ? x : {}) as { todo_id?: unknown; note?: unknown };
-    if (typeof o.todo_id !== 'string' || typeof o.note !== 'string') throw new ToolError('propose_done の各項目には todo_id と note の文字列が要ります');
+    if (typeof o.todo_id !== 'string' || typeof o.note !== 'string') throw new ToolError(msg('mcp.proposeDone.badItem'));
     const note = o.note.trim();
-    if (!note) throw new ToolError('propose_done の note（根拠の一文）が空です');
-    if ([...note].length > CANDIDATE_NOTE_MAX) throw new ToolError(`propose_done の note は ${CANDIDATE_NOTE_MAX} 字までです`);
+    if (!note) throw new ToolError(msg('mcp.proposeDone.noteEmpty'));
+    if ([...note].length > CANDIDATE_NOTE_MAX) throw new ToolError(msg('mcp.proposeDone.noteTooLong', { max: CANDIDATE_NOTE_MAX }));
     return { todoId: o.todo_id, note };
   });
 }
 
 function requireSession(deps: ToolDeps, id: string): SessionDto {
   const s = getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId });
-  if (!s) throw new ToolError(`セッションが見つかりません: ${id}`);
+  if (!s) throw new ToolError(msg('mcp.error.sessionNotFound', { id }));
   return s;
 }
 
 function requireProject(deps: ToolDeps, id: string): ProjectDto {
   const p = getProject(deps.db, deps.deviceId, deps.live(), id);
-  if (!p) throw new ToolError(`プロジェクトが見つかりません: ${id}`);
+  if (!p) throw new ToolError(msg('mcp.error.projectNotFound', { id }));
   return p;
 }
 
@@ -177,13 +181,13 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = projectIdOf(deps, ctx, args);
   const row = deps.db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
-  if (!row) throw new ToolError(`プロジェクトが見つかりません: ${id}`);
+  if (!row) throw new ToolError(msg('mcp.error.projectNotFound', { id }));
   // 検証は書き込みの前に全部済ませる。status だけ書いてから propose_done で断ると、呼び出し側は「何も起きなかった」と読む。
   const proposals = proposalsOf(args.propose_done);
   // status を「省略」と「型違いの値」で区別する。str() だけでは数値や null が黙って無視される。
   if (args.status !== undefined) {
     const status = args.status;
-    if (typeof status !== 'string' || !STATUSES.includes(status as ProjectStatus)) throw new ToolError(`status は ${STATUSES.join('、')} のいずれかです`);
+    if (typeof status !== 'string' || !STATUSES.includes(status as ProjectStatus)) throw new ToolError(msg('mcp.args.oneOf', { values: STATUSES, field: 'status' }));
     upsertShared(deps.db, 'projects', { ...row, status }, deps.deviceId);
   }
   const adds = strs(args.add_todos) ?? [];
@@ -198,7 +202,7 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
       for (const t of adds) addTodo(deps.db, deps.deviceId, { projectId: id, text: t, sessionId: ctx.sessionId });
       const ofProject = (tid: string) => {
         const cur = deps.db.prepare('select done from todos where id = ? and project_id = ? and deleted_at is null').get(tid, id) as { done: number } | undefined;
-        if (!cur) throw new ToolError(`TODO が見つかりません: ${tid}`);
+        if (!cur) throw new ToolError(msg('mcp.error.todoNotFound', { id: tid }));
         return cur;
       };
       // 同じ ID が両方にあるときは根拠つきの提案を先に通す。toggle が先だと根拠なしの候補になり、根拠が捨てられる。
@@ -294,8 +298,8 @@ export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Re
   const oneLiner = str(args.one_liner);
   const body = str(args.body);
   const state = str(args.state);
-  if (!title || !oneLiner || !body || !state) throw new ToolError('title、one_liner、body、state が必要です');
-  if (!STATES.includes(state as SummaryState)) throw new ToolError(`state は ${STATES.join('、')} のいずれかです`);
+  if (!title || !oneLiner || !body || !state) throw new ToolError(msg('mcp.summary.fieldsRequired'));
+  if (!STATES.includes(state as SummaryState)) throw new ToolError(msg('mcp.args.oneOf', { values: STATES, field: 'state' }));
   const turns = (deps.db.prepare('select turns from session_stats where session_id = ?').get(id) as { turns: number } | undefined)?.turns ?? 0;
   upsertShared(deps.db, 'session_summaries', {
     session_id: id, title, one_liner: oneLiner, body, state,
@@ -313,7 +317,7 @@ export function setTurnIntentTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const id = sessionIdOf(ctx, args);
   requireSession(deps, id);
   const text = typeof args.text === 'string' ? args.text.trim() : '';
-  if (text.length === 0 || [...text].length > INTENT_MAX) throw new ToolError(`text は空白を除いて 1 字以上 ${INTENT_MAX} 字以下です`);
+  if (text.length === 0 || [...text].length > INTENT_MAX) throw new ToolError(msg('mcp.intent.badLength', { max: INTENT_MAX }));
   const it = addIntent(deps.db, id, text, now);
   return { ok: true, session_id: id, at: it.at };
 }
@@ -343,9 +347,9 @@ function rejectPastReturn(returnOn: string | null, returnTime: string | null, no
   const today = localDate(now);
   const nowText = `${today} ${localTime(now)} ${returnAtIso(today, localTime(now))!.slice(-6)}`;
   if (returnTime !== null) {
-    if (returnAtMs(returnOn, returnTime) <= now) throw new ToolError(`戻る時点が過去です（${returnOn} ${returnTime}。いまは ${nowText}）`);
+    if (returnAtMs(returnOn, returnTime) <= now) throw new ToolError(msg('mcp.sessionStatus.pastReturnAt', { returnOn, returnTime, now: nowText }));
   } else if (returnOn < today) {
-    throw new ToolError(`戻る日が過去です（${returnOn}。いまは ${nowText}）`);
+    throw new ToolError(msg('mcp.sessionStatus.pastReturnOn', { returnOn, now: nowText }));
   }
 }
 
@@ -353,11 +357,11 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   const id = sessionIdOf(ctx, args);
   requireSession(deps, id);
   const status = args.status;
-  if (status !== 'done' && status !== 'paused') throw new ToolError('status は done か paused です');
-  if (args.note !== undefined && typeof args.note !== 'string') throw new ToolError('note は文字列です');
-  if (args.return_on !== undefined && typeof args.return_on !== 'string') throw new ToolError('return_on は YYYY-MM-DD の形の文字列です');
-  if (args.return_time !== undefined && typeof args.return_time !== 'string') throw new ToolError('return_time は HH:MM の形の文字列です');
-  if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') throw new ToolError('confirmed は true か false です');
+  if (status !== 'done' && status !== 'paused') throw new ToolError(msg('mcp.sessionStatus.statusInvalid'));
+  if (args.note !== undefined && typeof args.note !== 'string') throw new ToolError(msg('common.field.mustBeString', { field: 'note' }));
+  if (args.return_on !== undefined && typeof args.return_on !== 'string') throw new ToolError(msg('mcp.sessionStatus.returnOnMustBeString'));
+  if (args.return_time !== undefined && typeof args.return_time !== 'string') throw new ToolError(msg('mcp.sessionStatus.returnTimeMustBeString'));
+  if (args.confirmed !== undefined && typeof args.confirmed !== 'boolean') throw new ToolError(msg('common.field.mustBeBoolean', { field: 'confirmed' }));
   try {
     const given = args.note ?? '';
     const { returnOn, returnTime } = validateStateInput(status, { note: given, returnOn: args.return_on, returnTime: args.return_time, requireNote: true });
@@ -373,7 +377,7 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
     }
     return { outcome: r.outcome, state: withReturnAt(r.state) };
   } catch (e) {
-    if (e instanceof StateInputError) throw new ToolError(e.message);
+    if (e instanceof StateInputError) throw new ToolError(e.text ?? e.message);
     throw e;
   }
 }
@@ -431,6 +435,6 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
     case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);
-    default: throw new ToolError(`知らないツールです: ${name}`);
+    default: throw new ToolError(msg('mcp.error.unknownTool', { name }));
   }
 }

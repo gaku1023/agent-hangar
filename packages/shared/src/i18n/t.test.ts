@@ -38,6 +38,14 @@ describe('辞書', () => {
       for (const key of keys) expect([lang, key, placeholdersOf(dictionaries[lang][key])]).toEqual([lang, key, [...MESSAGES[key]].sort()]);
     }
   });
+  it('英語の辞書に、かなと漢字が残っていない', () => {
+    // 訳し忘れは、日本語のまま英語の画面と Claude への指示に出る。
+    for (const key of keys) expect([key, /[\u3040-\u30ff\u4e00-\u9fff]/.test(en[key])]).toEqual([key, false]);
+  });
+  it('日本語と英語で、行の数が同じである', () => {
+    // 何行かにわたる文（Claude に渡す指示、要約器への指示）は、1 行が 1 つの求めに当たる。行が減っていれば、求めを落としている。
+    for (const key of keys) expect([key, en[key].split('\n').length]).toEqual([key, ja[key].split('\n').length]);
+  });
   it('文は空でない', () => {
     for (const lang of LANGUAGES) for (const key of keys) expect([lang, key, dictionaries[lang][key].trim() !== '']).toEqual([lang, key, true]);
   });

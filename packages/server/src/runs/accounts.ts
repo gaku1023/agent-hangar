@@ -1,9 +1,10 @@
 import type { LaunchResultDto, RunDto } from '@agent-hangar/shared';
 import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
-import { ensureAccountLinks, linkProblem } from '../config/accountLinks.ts';
+import { ensureAccountLinks, linkProblemMessage } from '../config/accountLinks.ts';
 import type { Db } from '../db/open.ts';
 import { accountOfSession } from '../db/queries.ts';
 import { RunError } from './errors.ts';
+import { msg } from '../i18n/message.ts';
 
 /**
  * run を起こすときのアカウントの解決。
@@ -22,7 +23,7 @@ export class RunAccounts {
     if (!store) return null;
     if (id === undefined) return store.current();
     const a = store.get(id);
-    if (!a) throw new RunError(400, 'アカウントが見つかりません');
+    if (!a) throw new RunError(400, msg('account.error.notFound'));
     return a;
   }
 
@@ -48,7 +49,7 @@ export class RunAccounts {
    */
   envFor(a: Account | null): Record<string, string> {
     if (!a || a.id === PRIMARY_ACCOUNT_ID) return {};
-    const problem = linkProblem(ensureAccountLinks(this.deps.claudeDir, a.dir).conflicts);
+    const problem = linkProblemMessage(ensureAccountLinks(this.deps.claudeDir, a.dir).conflicts);
     if (problem) throw new RunError(400, problem);
     return { CLAUDE_CONFIG_DIR: a.dir };
   }
@@ -82,20 +83,20 @@ export type SwitchHost = {
 export async function switchAccount(accounts: RunAccounts, host: SwitchHost, sessionId: string, accountId: string): Promise<LaunchResultDto> {
   const s = host.session(sessionId);
   const account = accounts.resolve(accountId);
-  if (!account) throw new RunError(400, 'アカウントが見つかりません');
-  if (accounts.accountFor(s.id) === account.id) throw new RunError(409, 'このセッションはもうそのアカウントで動いています');
+  if (!account) throw new RunError(400, msg('account.error.notFound'));
+  if (accounts.accountFor(s.id) === account.id) throw new RunError(409, msg('account.switch.sameAccount'));
   accounts.envFor(account);
   // resume の前提も止める前に確かめる。本文が無いと、止めた時点でセッションの行ごと消え、起こし直せない。
-  if (!host.hasBody(s.id)) throw new RunError(400, 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください');
+  if (!host.hasBody(s.id)) throw new RunError(400, msg('account.switch.noTranscript'));
   host.precheck(s.cwd);
   // バックグラウンドのサービスは置き場ごとに別で、jobs と sessions は共有のリンクになる。この組み合わせの動きは実物で確かめていないので、確かめが済むまで断る。
-  if (host.isBackground(s.provider_session_id)) throw new RunError(409, 'バックグラウンドのセッションは、アカウントを切り替えられません。止めてから、そのアカウントで再開してください');
+  if (host.isBackground(s.provider_session_id)) throw new RunError(409, msg('account.switch.background'));
   const alive = host.aliveRun(s.id);
   // hangar の run が無いのにレジストリに残っているのは、hangar の外で動いている Claude である。止められないので待たずに断る。
-  if (!alive && host.isLive(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
+  if (!alive && host.isLive(s.provider_session_id)) throw new RunError(409, msg('run.error.runningOutside'));
   if (alive) host.kill(alive.id);
   for (let waited = 0; host.isLive(s.provider_session_id); waited += 250) {
-    if (waited >= 5000) throw new RunError(409, '前の Claude がまだ終わっていません。少し待ってから、もう一度切り替えてください');
+    if (waited >= 5000) throw new RunError(409, msg('account.switch.previousStillRunning'));
     await host.sleep(250);
   }
   return host.resume(s.id, { account: account.id });

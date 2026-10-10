@@ -52,4 +52,51 @@ describe('renderInjection', () => {
     expect(at11).toContain('- [id10] t10\n');
     expect(at11).not.toContain('- [id11] t11');
   });
+
+  it('日本語の指示は、辞書へ移す前と 1 字も変わらない', () => {
+    const t = renderInjection({ projectName: 'alpha', projectPath: '/w/alpha', memo: 'メモ', todos: [{ id: 'ta', text: 'a' }] });
+    expect(t).toBe([
+      'あなたは agent-hangar から起動されたセッションです。',
+      'プロジェクト：alpha（/w/alpha）',
+      'プロジェクトのメモの要約：メモ',
+      '未完の TODO：',
+      '- [ta] a',
+      '過去のセッションは MCP ツール search_sessions と get_transcript で参照できます。',
+      '依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、',
+      'set_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。',
+      'TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。',
+      '完了にするのは利用者です。確かめられていないものは出さないでください。',
+      '頼まれたことを終えたと判断したターンの終わりに、AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <戻る日。時刻に意味があれば時刻も>（何を確かめに戻るか）」「まだ続ける」です。',
+      '利用者が Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。',
+      'Paused の戻る日は return_on（YYYY-MM-DD）に、確かめる時刻が決まっているときは return_time（HH:MM、手元の時刻）にも渡してください。時刻を note の文だけに書かないでください。',
+      '途中のターンでは聞かないでください。',
+      'ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。',
+      'Bash と Agent の description は日本語で 20 字以内にしてください。',
+      '',
+    ].join('\n'));
+  });
+
+  it('英語では、指示の全部が英語になり、求めることを 1 つも落とさない', () => {
+    const input = { projectName: 'alpha', projectPath: '/w/alpha', memo: 'note', todos: [{ id: 'ta', text: 'a' }] };
+    const en = renderInjection(input, 'en');
+    expect(en).not.toMatch(/[\u3040-\u30ff\u4e00-\u9fff\uff00-\uffef]/);
+    // 行の数は日本語と同じである。1 行が 1 つの求めに当たる。
+    expect(en.split('\n').length).toBe(renderInjection(input, 'ja').split('\n').length);
+    expect(en).toContain('Project: alpha (/w/alpha)');
+    expect(en).toContain('Summary of the project note: note');
+    expect(en).toContain('Open to-dos: \n- [ta] a');
+    // 呼ぶ道具と引数の名前は、どれも残る。
+    for (const name of ['search_sessions', 'get_transcript', 'set_session_summary', 'update_project', 'propose_done', 'AskUserQuestion', 'propose_session_status', 'confirmed: true', 'without confirmed', 'return_on (YYYY-MM-DD)', 'return_time (HH:MM, local time)', 'set_turn_intent', 'Bash and Agent']) expect(en, name).toContain(name);
+    // してはいけないことも残る。
+    expect(en).toContain('Only the user marks a to-do as done. Do not suggest anything that has not been verified.');
+    expect(en).toContain('Do not write the time only in the note text.');
+    expect(en).toContain('Do not ask in the turns before that.');
+    // 選択肢は用語集の語にする。
+    expect(en).toContain('"Mark as Done", "Paused · <reminder date, plus the time if the time matters> (what to come back and check)", and "Keep going"');
+  });
+  it('英語では、メモと TODO が無いときの語も英語になる', () => {
+    const en = renderInjection({ projectName: 'p', projectPath: '/p', memo: null, todos: [] }, 'en');
+    expect(en).toContain('Summary of the project note: (none)');
+    expect(en).toContain('Open to-dos: (none)');
+  });
 });

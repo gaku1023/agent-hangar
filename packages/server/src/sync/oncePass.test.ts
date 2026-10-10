@@ -28,6 +28,7 @@ function setup(o: { paused: boolean; compatBlocked?: boolean; limited?: boolean;
     sweepPending: () => (o.sweepPending === undefined ? 0 : o.sweepPending),
     broadcastSync: (s) => { sent.push(s); },
     toast: (level, message) => { toasts.push({ level, message }); },
+    language: () => 'ja',
     tickMs: 5,
     log: () => {},
   };

@@ -1,6 +1,7 @@
 import { isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
+import { MessageError, msg, type Message } from '../i18n/message.ts';
 
 /**
  * セッションの状態の移り方。設計は docs/superpowers/specs/2026-10-01-session-status-design.md の「状態の移り方」。
@@ -10,9 +11,9 @@ import { upsertShared } from '../db/shared.ts';
  */
 
 /** 状態の入力の誤り。message はトーストにそのまま出せる日本語の一文である。 */
-export class StateInputError extends Error {
-  constructor(message: string) {
-    super(message);
+export class StateInputError extends MessageError {
+  constructor(text: Message | string) {
+    super(text);
     this.name = 'StateInputError';
   }
 }
@@ -65,19 +66,19 @@ function write(db: Db, deviceId: string, sessionId: string, patch: Partial<State
 function noteOf(v: string | null | undefined, required: boolean): string | null {
   const s = (v ?? '').replace(/\s*[\r\n]+\s*/g, ' ').trim();
   if (!s) {
-    if (required) throw new StateInputError('根拠の一文が空です');
+    if (required) throw new StateInputError(msg('session.status.noteEmpty'));
     return null;
   }
-  if (Array.from(s).length > STATE_NOTE_MAX) throw new StateInputError(`理由は ${STATE_NOTE_MAX} 字までです`);
+  if (Array.from(s).length > STATE_NOTE_MAX) throw new StateInputError(msg('session.status.noteTooLong', { max: STATE_NOTE_MAX }));
   return s;
 }
 
 /** 戻る日。Paused だけが持ち、ほかの状態では渡されても捨てる（捨てる前に形は検査する）。 */
 function returnOnOf(status: SessionStatus, v: string | null | undefined): string | null {
   const given = v !== null && v !== undefined && v !== '';
-  if (given && !isReturnOn(v)) throw new StateInputError('戻る日は YYYY-MM-DD の形の、暦にある日付です');
+  if (given && !isReturnOn(v)) throw new StateInputError(msg('session.status.returnOnInvalid'));
   if (status !== 'paused') return null;
-  if (!given) throw new StateInputError('Paused には戻る日が要ります');
+  if (!given) throw new StateInputError(msg('session.status.returnOnRequired'));
   return v;
 }
 
@@ -87,7 +88,7 @@ function returnOnOf(status: SessionStatus, v: string | null | undefined): string
  */
 function returnTimeOf(status: SessionStatus, v: string | null | undefined): string | null {
   const given = v !== null && v !== undefined && v !== '';
-  if (given && !isReturnTime(v)) throw new StateInputError(`戻る時刻は HH:MM の形で、00:00〜23:59 です（${v}）`);
+  if (given && !isReturnTime(v)) throw new StateInputError(msg('session.status.returnTimeInvalid', { value: v }));
   return status === 'paused' && given ? v : null;
 }
 

@@ -70,7 +70,7 @@ export type RunsParts = {
  * serverDir は、サーバの入口のファイルがある場所である。同梱の hangar をその隣から探す。
  */
 export function bootRuns(
-  home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'life'>,
+  home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
   delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion'>,
   listening: { host: string; port: number },
   o: { serverDir: string },
@@ -108,6 +108,8 @@ export function bootRuns(
     live: () => registry.current(),
     accounts: new RunAccounts({ db, claudeDir, store: accountStore }),
     compat: compatLog,
+    // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
+    language: home.language,
   });
   // 区切り（Paused、Done、Archived）を付けたセッションが休みになったら、Claude を止める。
   // 登録は 500 ミリ秒ごとの写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。

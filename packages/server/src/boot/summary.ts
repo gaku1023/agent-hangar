@@ -27,14 +27,14 @@ export type SummaryParts = {
  * 受け手は足した順に呼ばれる。アカウントの配り（boot/runs.ts）、ここの配りと要約、本文の上げ、の順である。
  */
 export function bootSummary(
-  home: Pick<HomeParts, 'db' | 'device' | 'settings'>,
+  home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'language'>,
   delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog'>,
   runs: Pick<RunsParts, 'runs' | 'usage' | 'claudeBin'>,
   sync: Pick<SyncParts, 'uploader'>,
 ): SummaryParts {
   const { db } = home;
   const summarizers = new SummarizerSet({ settings: () => home.settings.current, claudeBin: runs.claudeBin, usage: () => runs.usage.current(), compat: delivery.compatLog });
-  const summary = new SummaryJob({ db, deviceId: home.device.id, summarizers: summarizers.list, live: () => delivery.registry.current(), hub: delivery.hub });
+  const summary = new SummaryJob({ db, deviceId: home.device.id, summarizers: summarizers.list, live: () => delivery.registry.current(), hub: delivery.hub, language: home.language });
   runs.runs.on(runAnnouncer({ db, hub: delivery.hub, onEnded: (run) => { summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); } }));
   // RunManager.on は listener を足せるので、上の登録はそのまま残して 2 つ目として足す。
   runs.runs.on({ runEnded: flushOnRunEnded({ db, uploader: sync.uploader }) });

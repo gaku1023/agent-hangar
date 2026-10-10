@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono } from 'hono';
-import { COMPAT_VERSION, type SyncSkippedDto, type SyncStatusBody } from '@agent-hangar/shared';
+import { COMPAT_VERSION, t, type Language, type SyncSkippedDto, type SyncStatusBody } from '@agent-hangar/shared';
 import { createMcpApp } from '../mcp/app.ts';
 import { accountsRoutes, type AccountsDeps } from './accounts.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
@@ -48,9 +48,10 @@ const entryCookie = (token: string) => `hangar_token=${token}; HttpOnly; SameSit
 /**
  * 鍵を持たずに GET / を叩いたときに返す案内。
  * トークンは書かない。ここは認証の前なので、誰が見ているか分からない。
+ * 文は辞書（http.entry.*）から引く。コマンドの名前は訳さないので、引数で渡す。
  */
-const ENTRY_NOTICE_HTML = `<!doctype html>
-<html lang="ja">
+const entryNoticeHtml = (language: Language) => `<!doctype html>
+<html lang="${language}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -66,10 +67,10 @@ const ENTRY_NOTICE_HTML = `<!doctype html>
 </head>
 <body>
 <main>
-<h1>認証できていません</h1>
-<p><code>hangar start</code> が印字した鍵付きの URL から開いてください。</p>
-<p>その URL は、ターミナルで <code>hangar url</code> を実行すれば何度でも出せます。</p>
-<p>一度そこから開けば、このブラウザには鍵が残ります。次からはブックマークでそのまま開けます。</p>
+<h1>${t(language, 'http.entry.title')}</h1>
+<p>${t(language, 'http.entry.openFromUrl', { command: '<code>hangar start</code>' })}</p>
+<p>${t(language, 'http.entry.printUrl', { command: '<code>hangar url</code>' })}</p>
+<p>${t(language, 'http.entry.cookieStays')}</p>
 </main>
 </body>
 </html>
@@ -101,6 +102,8 @@ const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js
 /** HTTP API を組み立てる。/api 配下は認証必須で、/health と UI 配信だけが素通しになる。 */
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
+  // 言語の読み手は、組み立てる側が 1 つ作って渡す。経路と MCP の道具へ同じものを配る。
+  const { language } = deps;
   const { db, deviceId } = deps;
 
   // 鍵の要らない経路なので、起動の進み具合は段階と件数だけを載せる。
@@ -108,12 +111,12 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/health', (c) => c.json({ ok: true, version: deps.version, compat: COMPAT_VERSION, ready: deps.ready(), index: deps.indexer.progress() }));
 
   const api = new Hono();
-  api.use('*', authMiddleware(deps.token, deps.port));
+  api.use('*', authMiddleware(deps.token, deps.port, language));
 
   // 経路の登録。同じメソッドで同じパスに当たる経路の組は無いので、当たり方は登録の順に依らない。
   // 経路を足すときも、そうなるようにパスを決める。
   // アカウントの切り替えは、resume と同じく起動の前に同期の取り込みを待つ。
-  const accountsDeps: AccountsDeps = { beforeLaunch: beforeLaunchOf(deps), ...deps.accounts };
+  const accountsDeps: AccountsDeps = { beforeLaunch: beforeLaunchOf(deps), language, ...deps.accounts };
   accountsRoutes(api, accountsDeps);
   bootstrapRoutes(api, deps);
   projectRoutes(api, deps);
@@ -131,7 +134,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, memos: deps.memos }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, memos: deps.memos, language }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);
@@ -145,7 +148,7 @@ export function createApp(deps: AppDeps): Hono {
       // 鍵の有無に関わらず付ける。枠に嵌められるのは、認証が通ったあとの姿である。
       c.header('X-Frame-Options', 'DENY');
       c.header('Content-Security-Policy', CSP);
-      if (!authed) return c.html(ENTRY_NOTICE_HTML, 401);
+      if (!authed) return c.html(entryNoticeHtml(language()), 401);
       // ここで鍵をクッキーに換える。URL に残った鍵は UI が history.replaceState で消す。
       c.header('Set-Cookie', entryCookie(deps.token));
       return c.html(index());

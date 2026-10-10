@@ -1,6 +1,8 @@
 import type { CloudUsageDto, CompatDto, ConfigPreviewDto, DeviceDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
+import type { GetLanguage } from '../i18n/language.ts';
+import type { Message } from '../i18n/message.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import type { MemoStore } from '../projects/memo.ts';
@@ -39,7 +41,14 @@ export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onF
  * ClaudeConfigSync に pull() は無いので、呼び手が applyPull(pendingRemote()) の形に包んで渡す。
  */
 export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
+/**
+ * いまの言語を返す関数。経路のファイルは、これを受け取って文を引く。
+ * createApp が AppDeps の language を、どの経路にも渡す。
+ */
+export type LanguageDeps = { language: GetLanguage };
 export type AppDeps = {
+  /** 応答の文の言語。組み立てる側が、設定を読む関数を 1 つ作り、起動の管理や要約と同じものを渡す。 */
+  language: GetLanguage;
   db: Db; deviceId: string; deviceName: string; token: string; home: string; port: number; version: string;
   settings: () => Settings; updateSettings: (patch: Partial<SettingsDto>) => Settings;
   live: () => LiveSessionDto[];
@@ -62,7 +71,7 @@ export type AppDeps = {
   usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   memos: MemoStore;
   summary: SummaryApi;
-  promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null };
+  promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null; /** reason と同じ理由の、言語を決めていない文。あれば経路がこちらを応答の言語で出す。 */ reasonMessage?: Message | null };
   /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する（boot/http.ts は渡さない）。 */
   gitInit?: (dir: string) => void;
   sync: SyncApi;

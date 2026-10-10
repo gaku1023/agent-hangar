@@ -34,7 +34,7 @@ export type IndexingParts = {
  * 手元の本文が動いたら、同期の上げ手へ知らせる。
  */
 export function bootIndexing(
-  home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'life'>,
+  home: Pick<HomeParts, 'home' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
   delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion'>,
   sync: Pick<SyncParts, 'uploader' | 'syncState'>,
 ): IndexingParts {
@@ -56,7 +56,7 @@ export function bootIndexing(
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
     // 本文が消えて hasTranscript が偽に変わったとき（transcriptGone）は、索引が行の変化の口へ知らせるので、ここでは受けない。
     sessionChanged: createSessionChangeHandler({
-      db, deviceId, hub,
+      db, deviceId, hub, language: home.language,
       started: () => life.started,
       workspaceRoot: () => settings.current.workspaceRoot,
       onLocalTranscript: (f) => sync.uploader?.noteChanged(f),

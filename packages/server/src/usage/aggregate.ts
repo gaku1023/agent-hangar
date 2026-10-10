@@ -1,5 +1,6 @@
 import type { UsageAggregateDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { DEFAULT_LANGUAGE, translator, type Language } from '@agent-hangar/shared';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -10,7 +11,8 @@ export function localDay(ts: number): string {
 }
 
 /** jsonl の usage から導いたトークン数を、日別とプロジェクト別に束ねる。副情報なので推定コストは statusline の値の和だけを出す。 */
-export function aggregateUsage(db: Db, opts: { days: number; now?: number }): UsageAggregateDto {
+export function aggregateUsage(db: Db, opts: { days: number; now?: number; /** プロジェクトの無い行の名前の言語。渡さなければ日本語で出す。 */ language?: Language }): UsageAggregateDto {
+  const tr = translator(opts.language ?? DEFAULT_LANGUAGE);
   const now = opts.now ?? Date.now();
   const since = localDay(now - (opts.days - 1) * 86_400_000);
   // 論理削除したセッションはプロジェクト別でも数えないので、日別でも同じように外す。
@@ -40,6 +42,6 @@ export function aggregateUsage(db: Db, opts: { days: number; now?: number }): Us
     left join session_live_stats ls on ls.provider_session_id = s.provider_session_id
     group by s.project_id
     order by i desc`).all(since) as { pid: string | null; name: string | null; i: number; o: number; n: number; cost: number | null; cost_n: number }[])
-    .map((r) => ({ projectId: r.pid, name: r.name ?? '未分類', inputTokens: r.i, outputTokens: r.o, costUsd: r.cost_n > 0 ? r.cost : null, sessions: r.n }));
+    .map((r) => ({ projectId: r.pid, name: r.name ?? tr('project.name.uncategorized'), inputTokens: r.i, outputTokens: r.o, costUsd: r.cost_n > 0 ? r.cost : null, sessions: r.n }));
   return { days, projects };
 }

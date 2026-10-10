@@ -23,7 +23,7 @@ describe('要約の契機', () => {
       const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
       const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/w', pid: 1 }];
       const summarizer: Summarizer = { id: 'lmstudio', available: async () => true, summarize: async () => ({ title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [] }) };
-      const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [summarizer], live: () => live, hub: { broadcast: () => {} } });
+      const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [summarizer], live: () => live, hub: { broadcast: () => {} }, language: () => 'ja' });
       // セッションを開いたときの契機は、レジストリが生きていると言う間は受け付けない。
       expect(job.enqueue(id)).toBe(false);
       // run の終了の契機は受け付ける。こちらは run が終わったことを知っている。

@@ -37,7 +37,7 @@ const hubFor = (live: LiveSessionDto[]): Publisher => {
   publishers.push(p);
   return p;
 };
-const make = (summarizers: Summarizer[], live: LiveSessionDto[] = []) => new SummaryJob({ db, deviceId: 'd', summarizers: () => summarizers, live: () => live, hub: hubFor(live) });
+const make = (summarizers: Summarizer[], live: LiveSessionDto[] = []) => new SummaryJob({ db, deviceId: 'd', summarizers: () => summarizers, live: () => live, hub: hubFor(live), language: () => 'ja' });
 
 describe('isSummaryStale', () => {
   it('土台のままか 5 ターン以上進んでいれば真', () => {
@@ -109,7 +109,7 @@ describe('SummaryJob', () => {
   it('配信が失敗しても待ち行列は進む', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     const boom = { broadcast: (e: ServerEvent) => { sent.push(e); throw new Error('socket closed'); } };
-    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('lmstudio')], live: () => [], hub: boom });
+    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('lmstudio')], live: () => [], hub: boom, language: () => 'ja' });
     const other = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000003'").get() as { id: string }).id;
     expect(job.enqueue(alphaId, { force: true })).toBe(true);
     expect(job.enqueue(other, { force: true })).toBe(true);
@@ -164,7 +164,7 @@ describe('事後の要約からの状態の提案', () => {
   const NOW = new Date(2026, 9, 1, 23, 30).getTime();
   const proposing = (proposal?: SummaryProposal): Summarizer => ({ id: 'lmstudio', available: async () => true, summarize: async () => (proposal ? { ...out, proposal } : out) });
   const runWith = async (s: Summarizer, live: LiveSessionDto[] = []) => {
-    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [s], live: () => live, hub: hubFor(live), now: () => NOW });
+    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [s], live: () => live, hub: hubFor(live), now: () => NOW, language: () => 'ja' });
     expect(job.enqueue(alphaId, { force: true })).toBe(true);
     await job.idle();
   };

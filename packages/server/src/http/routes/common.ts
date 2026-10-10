@@ -1,8 +1,10 @@
 import type { Context } from 'hono';
-import type { SyncStatusBody } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, type Language, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
 import { getProject, getSession } from '../../db/queries.ts';
+import type { GetLanguage } from '../../i18n/language.ts';
+import { errorText } from '../../i18n/message.ts';
 import { RunError } from '../../runs/manager.ts';
-import type { AppDeps } from '../deps.ts';
+import type { AppDeps, LanguageDeps } from '../deps.ts';
 
 /**
  * 経路のファイルが共通で使う補助。
@@ -51,24 +53,24 @@ export async function readJson(c: Context, limit: number): Promise<{ tooLarge: t
 
 // 上限が 1 MB 以上のちょうどの MB なら MB で、それ以外は KB で読ませる（添付の 20 MB が「20480KB」では読みにくいため）。
 export const sizeLabel = (limit: number) => (limit >= 1024 * 1024 && limit % (1024 * 1024) === 0 ? `${limit / (1024 * 1024)}MB` : `${Math.round(limit / 1024)}KB`);
-export const tooLargeResult = (c: Context, limit: number) => c.json({ error: `本文が大きすぎます（上限は ${sizeLabel(limit)} です）` }, 413);
+export const tooLargeResult = (c: Context, limit: number, tr: Translate) => c.json({ error: tr('http.request.tooLarge', { limit: sizeLabel(limit) }) }, 413);
 
-/** RunError は status 付きで返し、それ以外は投げ直す。 */
-export function runResult<T>(c: Context, fn: () => T, status: 200 | 201 = 200) {
+/** RunError は status 付きで、いまの言語の文にして返し、それ以外は投げ直す。 */
+export function runResult<T>(c: Context, language: GetLanguage, fn: () => T, status: 200 | 201 = 200) {
   try {
     return c.json(fn() as object, status);
   } catch (e) {
-    if (e instanceof RunError) return c.json({ error: e.message }, e.status);
+    if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);
     throw e;
   }
 }
 
 /** runResult の非同期版。引き取りは元の claude が終わるのを待つので、応答まで数秒かかる。 */
-export async function runResultAsync<T>(c: Context, fn: () => Promise<T>, status: 200 | 201 = 200) {
+export async function runResultAsync<T>(c: Context, language: GetLanguage, fn: () => Promise<T>, status: 200 | 201 = 200) {
   try {
     return c.json((await fn()) as object, status);
   } catch (e) {
-    if (e instanceof RunError) return c.json({ error: e.message }, e.status);
+    if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);
     throw e;
   }
 }
@@ -80,20 +82,21 @@ const MAX_ERROR_LEN = 200;
  * 外部コマンドの失敗を応答に載せる前に整える。
  * RunManager.safeError と同じ覆いである。いまの呼び先にトークンは渡らないが、
  * 覆いが片方にしか無いと、呼び先が増えたときに漏れる。
+ * 辞書の文を持つ失敗は、渡された言語の文にする。
  */
-export function safeExternalMessage(e: unknown, token: string): string {
-  const line = (e instanceof Error ? e.message : String(e)).split('\n')[0]!.trim();
+export function safeExternalMessage(e: unknown, token: string, language: Language = DEFAULT_LANGUAGE): string {
+  const line = errorText(language, e).split('\n')[0]!.trim();
   const masked = token ? line.replaceAll(token, '***') : line;
   return masked.length > MAX_ERROR_LEN ? `${masked.slice(0, MAX_ERROR_LEN)}…` : masked;
 }
 
 /** 外部連携の失敗は 500 で理由を返す。UI はこれをそのままトーストに出す。 */
-export async function externalResult(c: Context, token: string, fn: () => Promise<unknown>, empty = false) {
+export async function externalResult(c: Context, token: string, fn: () => Promise<unknown>, empty = false, language: Language = DEFAULT_LANGUAGE) {
   try {
     const r = await fn();
     return empty ? c.body(null, 204) : c.json(r as object);
   } catch (e) {
-    return c.json({ error: safeExternalMessage(e, token) }, 500);
+    return c.json({ error: safeExternalMessage(e, token, language) }, 500);
   }
 }
 
@@ -105,7 +108,7 @@ export const sessionOf = (deps: Pick<AppDeps, 'db' | 'deviceId' | 'live'>) => (i
 /** プロジェクトを 1 件引く。無ければ null で、呼び手は 404 にする。 */
 export const projectOf = (deps: Pick<AppDeps, 'db' | 'deviceId' | 'live'>) => (id: string) => getProject(deps.db, deps.deviceId, deps.live(), id);
 /** 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。 */
-export const externalOf = (deps: Pick<AppDeps, 'token'>) => (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
+export const externalOf = (deps: Pick<AppDeps, 'token'> & LanguageDeps) => (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty, deps.language());
 /** 同期の状態。諦めた項目と、取り残しの残り件数を添えて返す。 */
 export const syncStatusOf = (deps: Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass'>) => (): SyncStatusBody => ({ ...deps.sync.status(), skipped: deps.syncSkipped(), sweepPending: deps.syncSweep(), oncePass: deps.syncOncePass() });
 /**

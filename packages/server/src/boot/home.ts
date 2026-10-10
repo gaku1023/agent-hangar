@@ -5,6 +5,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { ensureWrapperScript } from '../launch/wrapper.ts';
 import { ensureSpawnHelper } from '../pty/helper.ts';
 import type { StartOptions } from './options.ts';
+import { languageReader, type GetLanguage } from '../i18n/language.ts';
 
 /**
  * サーバの寿命の印。
@@ -19,6 +20,11 @@ export type HomeParts = {
   device: DeviceInfo;
   /** いまの設定。書き替えるのは config/settingsUpdate.ts だけである。 */
   settings: { current: Settings };
+  /**
+   * いまの言語を返す関数。設定の language を読む。
+   * サーバにこの関数は 1 つだけで、HTTP の経路、MCP の道具、起動の管理、要約、保持期間、知らせが同じものを受け取る。
+   */
+  language: GetLanguage;
   /** 索引の読み取り元。opts.claudeDir、設定、既定の順に決める。 */
   claudeDir: string;
   db: Db;
@@ -49,5 +55,6 @@ export function bootHome(opts: Pick<StartOptions, 'home' | 'claudeDir'> = {}): H
 
   const claudeDir = opts.claudeDir ?? (settings.current.claudeDir || defaultClaudeDir());
   const db = openDb(dbPath(home));
-  return { home, token, device, settings, claudeDir, db, life: { started: false, closed: false }, stop: () => db.close() };
+  const language = languageReader(() => settings.current);
+  return { home, token, device, settings, language, claudeDir, db, life: { started: false, closed: false }, stop: () => db.close() };
 }
