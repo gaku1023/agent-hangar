@@ -674,8 +674,8 @@ describe('presentSession（見出しの操作、A1）', () => {
     // 本文が無ければ、再開もフォークも理由を添えて押せない。
     store.sessions.s2 = { ...store.sessions.s2!, hasTranscript: false };
     const b = presentSession(initialState(), store, NOW, 's2').actions;
-    expect(b.primary).toMatchObject({ id: 'resume', disabled: '本文がありません' });
-    expect(b.menu[0]!.disabled).toBe('本文がありません');
+    expect(b.primary).toMatchObject({ id: 'resume', disabled: 'トランスクリプトがありません' });
+    expect(b.menu[0]!.disabled).toBe('トランスクリプトがありません');
   });
   it('他の PC で実行中は「この PC で再開」を主にし、再開とフォークはロックの理由で押せない', () => {
     const store = storeWith();
@@ -696,8 +696,8 @@ describe('presentSession（見出しの操作、A1）', () => {
     store.sessions.s2 = { ...store.sessions.s2!, lock: null, remoteOnly: true };
     const c = presentSession(initialState(), store, NOW, 's2').actions;
     expect(c.primary).toMatchObject({ id: 'resumeHere', disabled: null });
-    expect(c.menu[0]!.disabled).toBe('本文が他の PC にあります。「この PC で再開」で本文を降ろして続けられます');
-    expect(c.menu[1]!.disabled).toBe('本文が他の PC にあります');
+    expect(c.menu[0]!.disabled).toBe('トランスクリプトは他の PC にあります。「この PC で再開」でトランスクリプトを降ろして続けられます');
+    expect(c.menu[1]!.disabled).toBe('トランスクリプトは他の PC にあります');
   });
   it('hangar の外で動いているときは、つなぐか引き取るを「…」に入れる', () => {
     const facts: Parameters<typeof sessionActions>[0] = { run: null, live: 'busy', lock: null, remoteOnly: false, hasTranscript: true, canResume: false, canFork: false, canResumeHere: false, outsideOpen: 'attach', canPromote: false, gone: null, summaryPending: false, summaryError: null, fromScratch: false };
@@ -945,7 +945,7 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
     const r: ReadinessDto = { ...READY, compat: { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 1 } };
     const full = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry' as const, value: 'status=compacting', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };
     const p = presentSettings(initialState(), { ...initialStore(), version: '0.3.0', readiness: r, compat: full });
-    expect(p.compat).toMatchObject({ state: 'drift', badge: 'ずれ 1 件', localVersion: '2.1.300', verifiedVersion: '2.1.292', stops: ['休んでいるセッションを自動で止めるのを控えています'] });
+    expect(p.compat).toMatchObject({ state: 'drift', badge: 'ずれ 1 件', localVersion: '2.1.300', verifiedVersion: '2.1.292', stops: ['休んでいるセッションを自動で止めるのを無効にしています'] });
     expect(p.compat!.report!.split('\n')[0]).toBe('Claude Code との互換のずれ（hangar 0.3.0）');
     // 直すもの（目次の点と群の見出しの札）は、ずれの無いときと同じ数のまま。
     expect(p.todo).toEqual(presentSettings(initialState(), { ...initialStore(), readiness: READY }).todo);
@@ -1649,7 +1649,7 @@ describe('presentSession の本文が消えた会話', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   it('注記を出し、既定のままなら延ばす手を添える', () => {
     const p = presentSession(initialState(), { ...initialStore(), retention: R, sessions: { g: gone } }, NOW, 'g');
-    expect(p.gone).toEqual({ note: '本文は、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 });
+    expect(p.gone).toEqual({ note: 'トランスクリプトは、Claude Code の保持期間（30 日）を過ぎたため削除されたとみられます。残っているのは要約だけです。', canExtend: true, extendTo: 365 });
   });
   it('自分で値を入れた後は、延ばす手を出さない。まだ 30 日を過ぎていなければ gone は null', () => {
     expect(presentSession(initialState(), { ...initialStore(), retention: { ...R, source: 'user', userValue: 365 }, sessions: { g: gone } }, NOW, 'g').gone!.canExtend).toBe(false);

@@ -9,7 +9,7 @@ export const sidebarEn: AreaDictionary<typeof sidebarKeys> = {
   'sidebar.live.waited': 'Waiting {time}',
   'sidebar.live.menuLabel': 'Actions for {name}',
   'sidebar.live.stop': 'Stop',
-  'sidebar.live.stopNote': 'Ends Claude. The conversation record is kept, so you can resume later',
+  'sidebar.live.stopNote': 'This ends Claude. The transcript is kept, so you can resume later',
   'sidebar.live.stopExternal': 'Running in an external terminal',
   'sidebar.live.more': '{n} more',
   'sidebar.toggle.open': 'Open sidebar',

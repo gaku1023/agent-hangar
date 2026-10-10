@@ -7,7 +7,7 @@ export const accountJa: AreaDictionary<typeof accountKeys> = {
   'account.request.nameAndDir': 'name（文字列）と、任意で dir（絶対パス）を送ってください',
   'account.login.alreadyRunning': 'このアカウントのログインは、もう始まっています。ブラウザで承認してください',
   'account.switch.sameAccount': 'このセッションはもうそのアカウントで動いています',
-  'account.switch.noTranscript': 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください',
+  'account.switch.noTranscript': 'このセッションにはまだトランスクリプトがありません。そのアカウントで新しいセッションを始めてください',
   'account.switch.background': 'バックグラウンドのセッションは、アカウントを切り替えられません。止めてから、そのアカウントで再開してください',
   'account.switch.previousStillRunning': '前の Claude がまだ終わっていません。少し待ってから、もう一度切り替えてください',
   'account.name.required': 'アカウントの名前を入れてください',

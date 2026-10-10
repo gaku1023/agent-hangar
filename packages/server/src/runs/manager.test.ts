@@ -1727,7 +1727,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     const m = make({ accounts });
     const first = m.start({ projectId: 'p1' });
     await envOf(first.run.id);
-    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください' }));
+    await expect(m.switchAccount(first.sessionId, a.id)).rejects.toThrow(expect.objectContaining({ status: 400, message: 'このセッションにはまだトランスクリプトがありません。そのアカウントで新しいセッションを始めてください' }));
     expect(endedAt(first.run.id)).toBeNull();
     expect(db.prepare('select 1 from sessions where id = ?').get(first.sessionId)).toBeTruthy();
   });

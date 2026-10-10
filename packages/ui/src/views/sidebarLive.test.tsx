@@ -267,7 +267,7 @@ describe('行の「停止」に要る情報（presentShell）', () => {
 });
 
 describe('行のメニュー（右クリックと .）', () => {
-  const NOTE = 'Claude を終わらせます。会話の記録は残るので、あとで再開できます';
+  const NOTE = 'Claude を終了します。トランスクリプトは残るので、あとで再開できます';
   it('行を右クリックすると、その行に印を付けて「停止」だけのメニューを出す。ブラウザのメニューは出さない', () => {
     mount(liveProps());
     const a = screen.getByRole('link', { name: /name-a/ });

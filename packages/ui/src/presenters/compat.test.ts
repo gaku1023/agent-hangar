@@ -22,13 +22,13 @@ describe('止めた機能の表（stopOf）', () => {
   it('試作の 3 行：画面の文字は目次から跳ぶ、レジストリの状態は休みで止める、トランスクリプトは記録だけ', () => {
     expect(stopOf(ja, drift('screen', 'prompt-marker=(missing)'))).toEqual({ short: '目次から跳ぶ', line: 'ターンの目次から端末の指示へ跳ぶのを止めています' });
     expect(stopOf(ja, drift('screen', 'transcript-footer=(missing)'))?.short).toBe('目次から跳ぶ');
-    expect(stopOf(ja, drift('registry', 'status=compacting'))).toEqual({ short: '休みで止める', line: '休んでいるセッションを自動で止めるのを控えています' });
+    expect(stopOf(ja, drift('registry', 'status=compacting'))).toEqual({ short: '休みで止める', line: '休んでいるセッションを自動で止めるのを無効にしています' });
     expect(stopOf(ja, drift('transcript', 'system.subtype=turn_summary'))).toBeNull();
     expect(stopOf(ja, drift('transcript', 'attachment.type=queued_prompt'))).toBeNull();
   });
   it('レジストリは、pid が無ければ引き取りを、読めない登録は実行中の印を止める', () => {
     expect(stopOf(ja, drift('registry', 'pid=(missing)'))).toEqual({ short: '引き取り', line: '外のターミナルで動いている会話を引き取るのを止めています' });
-    expect(stopOf(ja, drift('registry', 'sessionId=(missing)'))).toEqual({ short: '実行中の印', line: '状態のファイルが読めない会話を、実行中として出すのを控えています' });
+    expect(stopOf(ja, drift('registry', 'sessionId=(missing)'))).toEqual({ short: '実行中の印', line: '状態のファイルが読めない会話を、実行中として出すのを無効にしています' });
     expect(stopOf(ja, drift('registry', 'entry=(not-object)'))?.short).toBe('実行中の印');
   });
   it('statusline は、ミリ秒の resets_at は記録だけで、欠けた項目は使用率の一部を止める', () => {
@@ -37,7 +37,7 @@ describe('止めた機能の表（stopOf）', () => {
     expect(stopOf(ja, drift('statusline', 'session_id=(missing)'))?.short).toBe('使用率の一部');
   });
   it('~/.claude の項目は、アカウントの間で共有するのを控える', () => {
-    expect(stopOf(ja, drift('claude-dir', 'entry=brand-new'))).toEqual({ short: 'アカウントの共有', line: '新しい ~/.claude の項目をアカウントの間で共有するのを控えています' });
+    expect(stopOf(ja, drift('claude-dir', 'entry=brand-new'))).toEqual({ short: 'アカウントの共有', line: '新しい ~/.claude の項目をアカウントの間で共有するのを無効にしています' });
   });
   it('CLI は出力の種類ごとに止めるものが違い、サブコマンドの増減は記録だけ', () => {
     expect(stopOf(ja, drift('cli', 'help.commands=(missing)'))).toEqual({ short: '外のターミナル', line: '外のターミナルの包み方で、サブコマンドの一覧を claude --help から作るのを止めています' });
@@ -48,13 +48,13 @@ describe('止めた機能の表（stopOf）', () => {
     expect(stopOf(ja, drift('cli', 'subcommand.added=newcmd'))).toBeNull();
     expect(stopOf(ja, drift('cli', 'subcommand.removed=purge'))).toBeNull();
   });
-  it('止めた機能の 1 行は、どれも「〜を止めています」か「〜を控えています」で結ぶ（B1）', () => {
+  it('止めた機能の 1 行は、どれも「〜を止めています」か「〜を無効にしています」で結ぶ（B1）', () => {
     const cases: [CompatDriftDto['contract'], string][] = [
       ['screen', 'prompt-marker=(missing)'], ['registry', 'status=x'], ['registry', 'pid=(missing)'], ['registry', 'entry=(not-object)'],
       ['statusline', 'model=(missing)'], ['claude-dir', 'entry=x'], ['cli', 'help.commands=(missing)'], ['cli', 'auth-status=(not-json)'],
       ['cli', 'agents-json=(not-json)'], ['cli', 'print-json=(not-json)'],
     ];
-    for (const [c, v] of cases) expect(stopOf(ja, drift(c, v))!.line, `${c} ${v}`).toMatch(/(止めています|控えています)$/);
+    for (const [c, v] of cases) expect(stopOf(ja, drift(c, v))!.line, `${c} ${v}`).toMatch(/(止めています|無効にしています)$/);
   });
   it('契約の呼び名は spec の 6 つ', () => {
     const labels = (t: typeof ja) => Object.fromEntries((['transcript', 'registry', 'statusline', 'claude-dir', 'cli', 'screen'] as CompatContract[]).map((c) => [c, contractLabel(t, c)]));
@@ -91,7 +91,7 @@ describe('presentCompat', () => {
   it('止めた機能は機能ごとに 1 行にまとめて常に出し、表は 1 件ずつ届いた順に並べる', () => {
     const more: CompatDto = { ...DETAIL, drifts: [...DETAIL.drifts, drift('registry', 'status=thinking'), drift('screen', 'transcript-footer=(missing)')] };
     const p = presentCompat(ja, { ...SUM, driftCount: 5 }, more, '0.3.0');
-    expect(p.stops).toEqual(['ターンの目次から端末の指示へ跳ぶのを止めています', '休んでいるセッションを自動で止めるのを控えています']);
+    expect(p.stops).toEqual(['ターンの目次から端末の指示へ跳ぶのを止めています', '休んでいるセッションを自動で止めるのを無効にしています']);
     expect(p.lead).toBe('知らない形に頼る機能だけを止め、ほかは動かしています');
     expect(p.rows).toHaveLength(5);
     expect(p.rows!.slice(0, 3)).toEqual([
@@ -151,7 +151,7 @@ describe('英語', () => {
   it('日本語を出さず、件数は単数と複数を使い分ける', () => {
     const p = presentCompat(en, SUM, DETAIL, '0.3.0');
     expect(p).toMatchObject({ note: '3 changes (2.1.300)', badge: '3 changes', lead: 'Only features that rely on unknown formats are disabled; everything else keeps running' });
-    expect(p.stops).toEqual(['Jumping from the turn outline to the instruction in the terminal is disabled', 'Automatically stopping idle sessions is held back']);
+    expect(p.stops).toEqual(['Jumping from the turn outline to the instruction in the terminal is disabled', 'Automatically stopping idle sessions is disabled']);
     expect(p.rows!.map((r) => [r.contract, r.stop])).toEqual([['Screen output', 'Jump from outline'], ['Registry', 'Auto-stop when idle'], ['Transcript', null]]);
     expect(presentCompat(en, { ...SUM, driftCount: 1 }, null, '').badge).toBe('1 change');
     expect(presentCompat(en, { ...SUM, driftCount: 0, localVersion: null }, null, '')).toMatchObject({ localVersion: 'Unknown', note: 'No changes (verified on 2.1.292)', badge: 'No issues' });
