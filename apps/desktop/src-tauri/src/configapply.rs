@@ -374,8 +374,18 @@ pub fn run_cli(mut cmd: Command, timeout: Duration) -> Result<String, String> {
         Ok(Err(e)) => Err(format!("設定の同期の命令の結果を読めません: {e}")),
         Err(_) => {
             // 子を止めれば、待っているスレッドも終わる。
+            #[cfg(unix)]
             unsafe {
                 libc::kill(pid as libc::pid_t, libc::SIGKILL);
+            }
+            // Windows には信号が無い。孫まで含めて、プロセスの木ごと止める。
+            #[cfg(not(unix))]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
             }
             Err(format!(
                 "設定の同期の命令が {} 秒以内に終わりませんでした。",
@@ -575,10 +585,12 @@ mod tests {
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(
-            args,
-            ["/s/server/cli.mjs", "config", "apply", "--plan", "--json"]
-        );
+        // 区切りは OS に従う（Windows では \）。
+        let cli = Path::new("/s/server")
+            .join("cli.mjs")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(args, [cli.as_str(), "config", "apply", "--plan", "--json"]);
         let envs: Vec<_> = cmd.get_envs().collect();
         for name in crate::server::INHERITED_ENV_DROPPED {
             assert!(

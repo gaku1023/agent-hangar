@@ -16,7 +16,7 @@ import { RunAccounts } from '../runs/accounts.ts';
 import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { ParkWatch, parkedSessionIds } from '../sessions/park.ts';
-import { tmuxPaneOps, type PaneOps } from '../tmux/pane.ts';
+import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
 import { UsageTracker } from '../usage/statusline.ts';
@@ -30,9 +30,9 @@ const RUN_POLL_MS = 2000;
 export function tmuxOf(s: Pick<Settings, 'tmuxPath'>): Tmux | null {
   return s.tmuxPath ? new Tmux({ tmuxPath: s.tmuxPath }) : null;
 }
-/** RunManager が画面に触る口。いまの裏は tmux である。 */
+/** RunManager が画面に触る口。裏は macOS と Linux では tmux、Windows では psmux である。 */
 export function panesOf(t: Tmux | null): PaneOps | null {
-  return t ? tmuxPaneOps(t) : null;
+  return t ? paneOpsFor(t) : null;
 }
 
 export type RunsParts = {

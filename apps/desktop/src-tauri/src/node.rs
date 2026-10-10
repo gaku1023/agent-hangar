@@ -557,7 +557,8 @@ mod tests {
         );
         assert!(text.contains("nvm install 22"), "{text}");
         // HANGAR_HOME を使っていれば、その場所を案内する。
-        assert!(text.contains("/elsewhere/hangar/settings.json"), "{text}");
+        let settings = Path::new("/elsewhere/hangar").join("settings.json");
+        assert!(text.contains(&settings.display().to_string()), "{text}");
         assert!(!text.contains("~/.agent-hangar"), "{text}");
         // 「無し」の理由が読み分けられる。
         assert!(

@@ -314,6 +314,7 @@ fn redact(text: &str, token: &str) -> String {
 /// サーバ側の `ensureHome` と同じ意思をここでも守る。
 /// 既に 0755 で作られてしまった手元も直るように、作るときだけでなく起動のたびに確かめる。
 /// 利用者が 0700 より厳しくした権限は緩めない。
+#[cfg(unix)]
 fn ensure_hangar_home(home: &std::path::Path) {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let _ = std::fs::DirBuilder::new()
@@ -325,6 +326,13 @@ fn ensure_hangar_home(home: &std::path::Path) {
             let _ = std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700));
         }
     }
+}
+
+/// Windows には 0700 に当たるモードが無い。
+/// 利用者のプロフィールの下に作れば、既定の ACL で他の利用者からは読めないので、作るだけにする。
+#[cfg(not(unix))]
+fn ensure_hangar_home(home: &std::path::Path) {
+    let _ = std::fs::create_dir_all(home);
 }
 
 /// `~/.agent-hangar/desktop.log` に 1 行追記する。サーバの標準出力も同じファイルに流れる。
@@ -1414,6 +1422,7 @@ mod tests {
     // データの置き場所は 0700 で作る。
     // 中の hangar.db と desktop.log は 0644 なので、ここが緩いと同じ機械の別の利用者に全セッションの記録が読める。
     // 既に 0755 で作られている手元も、起動のたびに直す。
+    #[cfg(unix)]
     #[test]
     fn the_data_dir_is_created_private_and_tightened_every_time() {
         use std::os::unix::fs::PermissionsExt;
