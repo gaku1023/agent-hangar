@@ -143,7 +143,7 @@ pub fn http_get(addr: SocketAddr, path: &str, timeout: Duration) -> Option<(u16,
 /// hangar の `/health` の応答か。
 /// 200 であること、ボディが真偽値の `ok` を真で持つ JSON であること、
 /// さらに `version` を文字列で持つことを求める。
-/// 実物は `{"ok":true,"version":"0.3.0"}` を返すのでこれを満たす。
+/// 実物は `{"ok":true,"version":"<サーバの版>"}` の形を返すのでこれを満たす。
 /// `{"ok":true}` を返すだけの別のプログラムはここで弾く。
 pub fn is_healthy(status: u16, body: &str) -> bool {
     if status != 200 {
@@ -385,10 +385,10 @@ mod tests {
 
     #[test]
     fn http_get_reads_status_and_body() {
-        let addr = serve_once("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 29\r\nConnection: close\r\n\r\n{\"ok\":true,\"version\":\"0.3.0\"}");
+        let addr = serve_once("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 29\r\nConnection: close\r\n\r\n{\"ok\":true,\"version\":\"1.2.3\"}");
         let (status, body) = http_get(addr, "/health", Duration::from_secs(2)).unwrap();
         assert_eq!(status, 200);
-        assert_eq!(body, "{\"ok\":true,\"version\":\"0.3.0\"}");
+        assert_eq!(body, "{\"ok\":true,\"version\":\"1.2.3\"}");
     }
 
     #[test]
@@ -410,10 +410,10 @@ mod tests {
 
     #[test]
     fn is_healthy_requires_200_and_ok_true() {
-        assert!(is_healthy(200, "{\"ok\":true,\"version\":\"0.3.0\"}"));
+        assert!(is_healthy(200, "{\"ok\":true,\"version\":\"1.2.3\"}"));
         assert!(!is_healthy(200, "{\"ok\":false}"));
         assert!(!is_healthy(200, "<html>"));
-        assert!(!is_healthy(500, "{\"ok\":true,\"version\":\"0.3.0\"}"));
+        assert!(!is_healthy(500, "{\"ok\":true,\"version\":\"1.2.3\"}"));
     }
 
     /// 4177 に別のプログラムがいる場合を弾く。
@@ -433,12 +433,12 @@ mod tests {
         assert!(!is_healthy(200, "{\"ok\":true}"));
         assert!(!is_healthy(200, "{\"ok\":true,\"version\":1}"));
         assert!(!is_healthy(200, "{\"ok\":true,\"version\":null}"));
-        assert!(is_healthy(200, "{\"ok\":true,\"version\":\"0.3.0\"}"));
+        assert!(is_healthy(200, "{\"ok\":true,\"version\":\"1.2.3\"}"));
     }
 
     #[test]
     fn boot_state_reads_ready_and_the_index_progress() {
-        let body = r#"{"ok":true,"version":"0.3.0","ready":false,"index":{"phase":"indexing","done":412,"total":987}}"#;
+        let body = r#"{"ok":true,"version":"1.2.3","ready":false,"index":{"phase":"indexing","done":412,"total":987}}"#;
         assert_eq!(
             boot_state(200, body),
             Some(Boot {
@@ -448,7 +448,7 @@ mod tests {
                 total: 987
             })
         );
-        let done = r#"{"ok":true,"version":"0.3.0","ready":true,"index":{"phase":"idle","done":987,"total":987}}"#;
+        let done = r#"{"ok":true,"version":"1.2.3","ready":true,"index":{"phase":"idle","done":987,"total":987}}"#;
         assert_eq!(boot_state(200, done).map(|b| b.ready), Some(true));
         for (name, phase) in [
             ("scanning", Phase::Scanning),
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn probe_health_is_true_only_for_a_hangar_response() {
-        let addr = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 29\r\nConnection: close\r\n\r\n{\"ok\":true,\"version\":\"0.3.0\"}");
+        let addr = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 29\r\nConnection: close\r\n\r\n{\"ok\":true,\"version\":\"1.2.3\"}");
         assert!(probe_health(addr));
 
         let addr = serve_once(
@@ -651,7 +651,7 @@ mod tests {
     /// chunked を始めて終端を送らずに切る相手。
     #[test]
     fn probe_health_rejects_a_truncated_chunked_body() {
-        let addr = serve_once("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n1d\r\n{\"ok\":true,\"version\":\"0.3.0\"}\r\n5\r\nab");
+        let addr = serve_once("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n1d\r\n{\"ok\":true,\"version\":\"1.2.3\"}\r\n5\r\nab");
         assert_eq!(
             guarded(Duration::from_secs(5), move || {
                 probe_health_with_timeout(addr, T)
@@ -752,7 +752,7 @@ mod tests {
                 let mut buf = [0u8; 1024];
                 let n = s.read(&mut buf).unwrap_or(0);
                 let _ = tx.send(n);
-                let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 29\r\nConnection: close\r\n\r\n{\"ok\":true,\"version\":\"0.3.0\"}");
+                let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 29\r\nConnection: close\r\n\r\n{\"ok\":true,\"version\":\"1.2.3\"}");
             });
             assert!(probe_health_with_timeout(addr, Duration::from_secs(2)));
             let n = rx.recv_timeout(Duration::from_secs(2)).unwrap_or(0);
@@ -781,7 +781,7 @@ mod tests {
     #[test]
     fn judge_existing_reads_a_missing_or_broken_compat_as_zero() {
         assert_eq!(
-            judge_existing(200, r#"{"ok":true,"version":"0.3.0","ready":true}"#, 1),
+            judge_existing(200, r#"{"ok":true,"version":"1.2.3","ready":true}"#, 1),
             Existing::Mismatch { theirs: 0 }
         );
         for c in ["-1", "1.5", "\"1\"", "null", "1e3", "{}"] {
@@ -817,7 +817,7 @@ mod tests {
     fn probe_existing_decides_over_a_socket() {
         let same = serve_json(r#"{"ok":true,"version":"0.4.0","compat":1,"ready":true}"#);
         assert_eq!(probe_existing(same, 1), Existing::Adopt);
-        let older = serve_json(r#"{"ok":true,"version":"0.3.0"}"#);
+        let older = serve_json(r#"{"ok":true,"version":"1.2.3"}"#);
         assert_eq!(probe_existing(older, 1), Existing::Mismatch { theirs: 0 });
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let nobody = l.local_addr().unwrap();
