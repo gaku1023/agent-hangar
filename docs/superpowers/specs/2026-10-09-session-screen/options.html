@@ -1,0 +1,946 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>セッション画面の構成 試作</title>
+<style>
+:root {
+  /* packages/ui/src/styles/tokens.css から写した値（1 つ目の試作 2026-10-09-screen-structure/options.html と同じ）。 */
+  --bg: #eef1f7; --aura-1: #cfe0ff;
+  --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+  --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --aside: color-mix(in srgb, #c77a1a 42%, #ffffff); --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+  --term-lift: 0 12px 26px -16px rgba(20, 20, 60, 0.55);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --glass-drop: 0 10px 28px -12px rgba(30, 40, 90, 0.3);
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+  --row-h: 28px; --session-row-h: 56px; --section-head-h: 32px;
+  --hit: #fff3c4; --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px;
+  --sidebar-w: 208px; --header-h: 44px; --lights-end: 81px; --brand-mark: 26px; --brand-w: 104px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: radial-gradient(900px 640px at 0 0, var(--aura-1), transparent 70%), var(--bg); background-attachment: fixed; color: var(--ink); font-family: var(--font-sans); font-size: var(--fs); line-height: 1.45; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.num { font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.icon { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ===== 試作の頁そのもの（1 つ目の試作の写し） ===== */
+.pg { max-width: 1320px; margin: 0 auto; padding: 28px 20px 120px; }
+.pg h1 { margin: 0 0 6px; font-size: var(--fs-lg); letter-spacing: -0.015em; }
+.lead { margin: 0; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.lead code, .box code, .note code, .ans code, .tbl code { font: 500 11px var(--font-mono); background: var(--surface-2); padding: 0 4px; border-radius: 4px; color: var(--ink); }
+.top { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
+.box { padding: 16px 20px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.box h2 { margin: 0 0 8px; font-size: var(--fs); }
+.box ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+.box li + li { margin-top: 4px; }
+.box li b { color: var(--ink); }
+.box.rec-box { box-shadow: var(--surface-shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--st-done) 45%, transparent); }
+.sum { width: 100%; border-collapse: collapse; }
+.sum td { padding: 5px 8px 5px 0; border-top: 1px solid var(--line); vertical-align: baseline; color: var(--ink-2); }
+.sum tr:first-child td { border-top: 0; }
+.sum td:first-child { width: 48px; }
+.sum td:last-child { width: 48px; text-align: right; }
+.sum td b { display: block; color: var(--ink); }
+.opt-id { display: inline-block; font: 700 12px var(--font-mono); color: #fff; background: var(--ink); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+.rec { font-size: var(--fs-xs); font-weight: 700; color: var(--st-done); background: var(--st-done-soft); border-radius: var(--r-pill); padding: 1px 8px; white-space: nowrap; }
+.rec.second { color: var(--st-active); background: var(--st-active-soft); }
+
+.switch { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 24px -20px 0; padding: 10px 20px; background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-strong); }
+.sw { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); font-weight: 600; cursor: pointer; }
+.sw[aria-pressed='true'] { background: var(--ink); color: #fff; box-shadow: none; }
+.sw[aria-pressed='true'] .opt-id { background: #fff; color: var(--ink); }
+.sw-sep { width: 1px; height: 20px; margin: 0 6px; background: var(--line-strong); }
+.sw-label { font-size: var(--fs-xs); color: var(--ink-3); margin-right: 2px; }
+.sw.small { height: 26px; padding: 0 10px; font-size: var(--fs-sm); }
+
+.opt { display: none; margin-top: 28px; scroll-margin-top: 70px; }
+.opt[data-on='true'] { display: block; }
+.opt-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin: 0 0 6px; }
+.opt-h h2 { margin: 0; font-size: 17px; }
+.opt-d { margin: 0 0 14px; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.opt-d b { color: var(--ink); }
+.tabs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.stab { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: none; font-weight: 600; font-size: var(--fs-sm); color: var(--ink-2); cursor: pointer; }
+.stab:hover { background: rgba(255, 255, 255, 0.6); }
+.stab[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.stab i { font-style: normal; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--surface-2); font-size: 10.5px; color: var(--ink-2); }
+.stab[aria-pressed='true'] i { background: var(--ink); color: #fff; }
+.screen-note { margin: 0 2px 10px; font-size: var(--fs-sm); color: var(--ink-2); max-width: 1100px; line-height: 1.6; }
+.screen-note b { color: var(--ink); }
+.frame-wrap { position: relative; width: 100%; max-width: 1280px; overflow: hidden; border-radius: 12px; }
+.frame-wrap[hidden] { display: none; }
+.cap { margin: 6px 2px 0; font-size: var(--fs-xs); color: var(--ink-3); }
+
+.below { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 20px; margin-top: 18px; align-items: start; }
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.tbl th, .tbl td { padding: 7px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.55; }
+.tbl th { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; border-top: 0; }
+.tbl td:first-child { white-space: nowrap; font-weight: 600; color: var(--ink); width: 150px; }
+.tbl td .n { display: inline-block; min-width: 36px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl td .eye { color: var(--ink-2); }
+.gl { display: grid; gap: 10px; }
+.gl > div { padding: 10px 14px; border-radius: var(--r); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.gl b { display: block; margin-bottom: 2px; color: var(--ink); font-size: var(--fs-xs); letter-spacing: 0.02em; }
+.ans { margin-top: 14px; padding: 12px 16px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.ans h3 { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--ink); }
+.ans ol { margin: 0; padding-left: 0; list-style: none; }
+.ans li + li { margin-top: 6px; }
+.ans li b { color: var(--ink); }
+
+.all-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 14px; margin-top: 10px; }
+.all-cell .col-h { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 6px; font-weight: 700; }
+.all-cell .col-h small { font-weight: 500; color: var(--ink-3); font-size: var(--fs-xs); }
+.all-row-h { margin: 18px 0 0; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+
+.verdict { margin-top: 36px; }
+.verdict > h2 { margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line-strong); font-size: var(--fs-md); }
+.v-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; max-width: 1100px; }
+.v-grid p { margin: 0 0 8px; color: var(--ink-2); line-height: 1.65; }
+.v-grid p b { color: var(--ink); }
+.cmp { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.cmp th, .cmp td { padding: 7px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; line-height: 1.5; }
+.cmp th { font-size: var(--fs-xs); color: var(--ink-3); border-top: 0; }
+.cmp td:first-child { white-space: nowrap; font-weight: 600; width: 250px; }
+.cmp td .n { font-weight: 700; color: var(--ink); }
+.cmp td[data-best] { background: var(--st-done-soft); }
+@media (max-width: 1000px) { .top, .below, .v-grid { grid-template-columns: minmax(0, 1fr); } .all-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ===== 画面の試作（.frame の中だけ。1 つ目の試作から写し、セッション画面の分を足した） ===== */
+.frame { position: relative; width: 1280px; height: 800px; overflow: hidden; border-radius: 12px; background: var(--bg); color: var(--ink); font-size: var(--fs); line-height: 1.45; transform-origin: 0 0; box-shadow: 0 0 0 1px rgba(30, 40, 90, 0.14), 0 24px 50px -22px rgba(30, 40, 90, 0.4); }
+.frame[data-w='900'] { width: 900px; height: 640px; }
+.frame .shell { --col1: 216px; position: relative; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; overflow: hidden; background: radial-gradient(60% 70% at 18% 8%, var(--aura-1), transparent 72%), var(--bg); }
+/* 900px の窓ではサイドバーを閉じている（今のアプリの「サイドバーを閉じる」）。 */
+.frame .shell[data-side='closed'] { --col1: 0px; }
+.frame .shell[data-side='closed'] .header { grid-template-columns: 196px minmax(0, 1fr); }
+.frame .shell[data-side='closed'] .sidebar { display: none; }
+.frame .header { grid-column: 1 / -1; grid-row: 1; z-index: 3; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); align-items: center; height: var(--header-h); background: rgba(255, 255, 255, 0.4); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); }
+.frame .header-brand { grid-column: 1 / -1; grid-row: 1; justify-self: start; position: relative; display: flex; align-items: center; height: 100%; padding-left: var(--lights-end); }
+.frame .lights { position: absolute; left: 11px; top: 50%; translate: 0 -50%; display: flex; gap: 8px; }
+.frame .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.frame .lights i:nth-child(2) { background: #febc2e; } .frame .lights i:nth-child(3) { background: #28c840; }
+.frame .brand { display: flex; align-items: center; gap: 6px; width: var(--brand-w); color: var(--ink); }
+.frame .brand-mark { flex: none; width: 26px; height: 26px; }
+.frame .brand-word { font-size: 16px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+.frame .brand-word::after { content: ''; display: inline-block; width: 8px; height: 2.5px; margin-left: 2px; border-radius: 1.25px; background: #ffb86b; }
+.frame .header-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 18px; min-width: 0; height: 100%; }
+.frame .side-open { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; margin-left: 4px; color: var(--ink-2); }
+.frame .side-open .icon { width: 18px; height: 18px; }
+.frame .search-pill { display: inline-flex; flex: none; align-items: center; gap: 8px; height: var(--row-h); margin-left: 16px; padding: 0 5px 0 11px; border: 0; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 600; white-space: nowrap; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); }
+.frame .side-open + .search-pill { margin-left: 4px; }
+.frame .kbd { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: 5px; font: 600 10.5px/18px var(--font-mono); color: var(--ink-2); background: rgba(30, 40, 90, 0.07); box-shadow: inset 0 -1px 0 rgba(30, 40, 90, 0.08); }
+.frame .spacer { flex: 1; }
+.frame .header-end { display: flex; align-items: center; gap: 18px; margin-right: 12px; }
+.frame .sync { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ink-2); padding-left: 18px; white-space: nowrap; }
+.frame .sync::before, .frame .gauges::before { content: ''; position: absolute; left: 0; top: 50%; height: 16px; translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+.frame .sync-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.frame .gauges { position: relative; display: flex; align-items: center; gap: 10px; padding-left: 18px; }
+.frame .gauge { display: inline-flex; align-items: center; gap: 4px; }
+.frame .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
+.frame .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+.frame .gauge-fill[data-high] { background: var(--waiting); }
+.frame .gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 32px; }
+.frame .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: default; }
+.frame .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+.frame .btn-sm { height: 22px; padding: 0 8px; font-size: var(--fs-sm); }
+.frame .btn-icon { justify-content: center; width: var(--row-h); padding: 0; }
+.frame .btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+.frame .btn[aria-disabled] { opacity: 0.5; }
+.frame .listbox { display: inline-flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 8px 0 12px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .seg { display: inline-flex; height: 22px; padding: 2px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); }
+.frame .seg span { display: inline-flex; align-items: center; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+.frame .seg span[data-on] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(30, 40, 90, 0.12); }
+/* サイドバー */
+.frame .sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; display: flex; flex-direction: column; margin: 52px 0 8px 8px; padding: 10px 8px; overflow: hidden; min-height: 0; }
+.frame .nav-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; }
+.frame .nav-row > .nav-item { flex: 1; margin-bottom: 0; }
+.frame .sidebar-toggle { flex: none; display: grid; place-items: center; width: 32px; height: 32px; color: var(--ink-2); }
+.frame .sidebar-toggle .icon { width: 18px; height: 18px; }
+.frame .nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: var(--r-pill); }
+.frame .nav-item .icon { width: 18px; height: 18px; }
+.frame .nav-item[aria-current] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.frame .nav-count { margin-left: auto; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--waiting); color: #fff; font-size: 11px; font-weight: 700; line-height: 1; }
+.frame .side-live { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .side-live-h { display: flex; align-items: center; gap: 6px; height: 24px; margin: 0; padding: 0 12px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; color: var(--ink-3); white-space: nowrap; }
+.frame .side-live-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 12px; border-radius: var(--r); color: var(--ink); min-width: 0; }
+.frame .side-live-row[aria-current] { background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.frame .side-live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
+.frame .side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
+.frame .side-live-n { flex: none; font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.frame .side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); vertical-align: middle; }
+.frame .dot[data-status='busy'] { background: var(--busy); }
+.frame .dot[data-status='idle'] { background: var(--ink-3); }
+.frame .dot[data-status='waiting'] { background: var(--waiting); }
+.frame .dot[data-status='ended'] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ended); }
+/* 本文 */
+.frame .main { grid-column: 2; grid-row: 1 / -1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding-top: 52px; }
+.frame .main-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; margin: 0 auto; padding: 8px 16px 16px 16px; }
+.frame .screen { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.frame .page-head { flex: none; margin: 0 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
+.frame .page-head[data-tight] { margin-bottom: 10px; }
+.frame .page-parent { display: flex; align-items: center; gap: 3px; height: 18px; margin-bottom: 2px; font-size: var(--fs-sm); color: var(--ink-3); white-space: nowrap; }
+.frame .page-parent a { color: var(--ink-2); }
+.frame .page-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: var(--row-h); }
+.frame .page-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+.frame .oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.frame .st-chip { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+.frame .st-chip[data-s='done'] { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.frame .st-chip[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.frame .st-chip[data-s='active'] { color: var(--st-active); background: var(--st-active-soft); }
+.frame .info-btn { flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--ink-2); }
+.frame .info-btn[data-open] { background: rgba(255, 255, 255, 0.8); box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* 情報の行（今の 1 行と、A の 2 行） */
+.frame .session-info { display: flex; align-items: center; height: 24px; margin: -6px 0 8px; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; overflow: hidden; }
+.frame .session-info > * { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-left: 1px solid rgba(30, 40, 90, 0.12); }
+.frame .session-info > :first-child { padding-left: 0; border-left: 0; }
+.frame .session-info > .cwd { flex: 0 1 auto; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); font-family: var(--font-mono); }
+.frame .session-info .gauge-bar { width: 40px; }
+.frame .session-info-state { font-weight: 600; }
+.frame .session-info-state[data-s='busy'] { color: #8a520c; }
+.frame .session-info-state[data-s='waiting'] { color: var(--waiting); }
+.frame .session-info > .detail-chip { margin-left: auto; border-left: 0; padding: 0 8px; height: 20px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); gap: 3px; }
+.frame .detail-chip .icon { width: 12px; height: 12px; }
+.frame .session-attrs { display: flex; align-items: center; height: 20px; margin: -4px 0 10px; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; }
+.frame .session-attrs > * { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border-left: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .session-attrs > :first-child { padding-left: 0; border-left: 0; }
+.frame .session-attrs > .cwd { flex: 0 1 auto; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); }
+.frame .session-attrs .key { color: var(--ink-3); }
+.frame .session-attrs .val { color: var(--ink-2); }
+.frame .acct-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--st-active); }
+/* タブ、分割、ターミナル */
+.frame .tabs { flex: none; display: flex; align-items: flex-end; gap: 3px; height: var(--row-h); }
+.frame .tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; height: var(--row-h); border-radius: var(--r) var(--r) 0 0; background: rgba(255, 255, 255, 0.55); color: var(--ink-2); }
+.frame .tab-selected { color: var(--term-fg); background: var(--term-bg); }
+.frame .tab-add { display: inline-grid; place-items: center; width: 20px; height: 20px; align-self: center; color: var(--ink-2); }
+.frame .tabs-trailing { margin-left: auto; align-self: center; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.frame .tabs-trailing .session-info-state { font-size: var(--fs-sm); }
+.frame .split { flex: 1; min-height: 160px; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 8px; }
+.frame .split[data-pane='wide'] { grid-template-columns: minmax(0, 1fr) 380px; }
+.frame .split[data-pane='narrow'] { grid-template-columns: minmax(0, 1fr) 300px; }
+.frame .split[data-pane='closed'] { grid-template-columns: minmax(0, 1fr); }
+.frame .term-host { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.frame .term-host > .term-pane { flex: 1; min-height: 0; }
+.frame .term-pane { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term-bg); border-radius: 0 var(--r-lg) var(--r-lg) var(--r-lg); overflow: hidden; box-shadow: var(--term-lift); }
+.frame .term-pane[data-live='busy'] { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 90%, transparent), 0 0 22px -2px color-mix(in srgb, var(--busy) 45%, transparent), var(--term-lift); }
+.frame .term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
+.frame .term-body { flex: 1; min-height: 0; padding: 14px 16px; font: 12px/1.6 var(--font-mono); color: var(--term-fg); white-space: pre; overflow: hidden; }
+.frame .term-body .tl { display: block; }
+.frame .term-body .tl[data-k='u'] { color: #b8c4ff; }
+.frame .term-body .tl[data-k='t'] { color: var(--term-tool); }
+.frame .term-body .tl[data-k='r'] { color: color-mix(in srgb, var(--term-fg) 55%, var(--term-bg)); }
+.frame .term-body .tl[data-k='q'] { color: #fff; font-weight: 600; }
+.frame .term-body .tl[data-k='o'] { color: #ffd59a; }
+.frame .term-body .tl[data-k='d'] { color: color-mix(in srgb, var(--term-fg) 40%, var(--term-bg)); }
+.frame .term-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); font: 11px var(--font-mono); color: color-mix(in srgb, var(--term-fg) 55%, var(--term-bg)); white-space: nowrap; overflow: hidden; }
+.frame .term-foot b { color: var(--term-fg); font-weight: 500; }
+/* 右パネル（現在と目次） */
+.frame .tr-pane { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.frame .tr-pane[data-fade]::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 44px; background: linear-gradient(transparent, var(--surface)); pointer-events: none; }
+.frame .live-pane-head { flex: none; display: flex; align-items: center; gap: 8px; height: var(--row-h); font-size: var(--fs-sm); }
+.frame .live-pane-head .faint { font-weight: 600; }
+.frame .live-top > * { flex: none; }
+.frame .live-top { flex: 0 1 50%; display: flex; flex-direction: column; gap: 8px; min-height: 40px; overflow: hidden; }
+.frame .live-lamp { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r); font-weight: 600; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); }
+.frame .live-lamp[data-tone='wait'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 12%, var(--surface)); }
+.frame .live-lamp[data-tone='idle'] { color: var(--ink-2); background: var(--surface-2); }
+.frame .live-lamp-sub { flex: 1; min-width: 0; margin-left: auto; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .live-dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+.frame .live-dot[data-tone='busy'] { background: var(--busy); }
+.frame .live-dot[data-tone='wait'] { background: var(--waiting); }
+.frame .live-dot[data-tone='done'] { background: var(--idle); }
+.frame .live-intent { padding: 5px 9px; border-left: 3px solid var(--cand); border-radius: 0 var(--r) var(--r) 0; background: var(--cand-soft); font-size: var(--fs); }
+.frame .live-intent small { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .live-label { margin: 2px 0 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.frame .live-step { display: flex; align-items: center; gap: 8px; height: 24px; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; }
+.frame .live-step .mono { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+.frame .live-step .t { color: var(--busy); font-weight: 600; font-family: var(--font-mono); font-size: var(--fs-sm); }
+.frame .live-step .when { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); font-family: var(--font-mono); }
+.frame .live-lane { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px; border-radius: var(--r); background: var(--surface-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; }
+.frame .live-lane .ln { font-weight: 600; }
+.frame .live-lane .lt { color: var(--ink-3); font-size: var(--fs-xs); }
+.frame .live-lane .ll { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.frame .live-artifact { display: flex; align-items: center; gap: 8px; height: 26px; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; }
+.frame .live-artifact .when { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .live-divider { flex: none; height: 1px; margin: 8px 0; background: var(--line); }
+.frame .live-toc { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.frame .toc-head { flex: none; display: flex; align-items: center; gap: 8px; height: 24px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .toc-head .faint { font-weight: 500; }
+.frame .toc-rows { flex: 1; min-height: 0; overflow: hidden; }
+.frame .toc-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 8px; height: 30px; padding: 0 6px; border-radius: var(--r); font-size: var(--fs-sm); white-space: nowrap; }
+.frame .toc-row[data-cur] { background: var(--accent-soft); }
+.frame .toc-row .toc-n { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+.frame .toc-row .toc-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.frame .toc-row .toc-tools { font-size: var(--fs-xs); color: var(--ink-3); font-family: var(--font-mono); }
+.frame .toc-band { display: flex; gap: 2px; height: 3px; margin: 0 6px 6px 50px; }
+.frame .toc-band i { flex: 0 1 8px; border-radius: 2px; background: var(--accent); }
+.frame .toc-band i[data-k='r'] { background: color-mix(in srgb, var(--ink-3) 55%, var(--surface)); }
+.frame .toc-band i[data-k='e'] { background: var(--busy); }
+.frame .toc-band i[data-k='g'] { background: var(--idle); }
+.frame .toc-band i[data-k='f'] { background: var(--error); }
+.frame .toc-foot { flex: none; display: flex; align-items: center; height: 30px; padding-top: 4px; }
+.frame .toc-open { margin: 0 6px 6px; padding: 6px 8px; border-radius: var(--r); background: var(--surface-2); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
+.frame .toc-open .tool { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0; padding: 1px 6px; border-radius: 6px; background: var(--surface); font: 11px var(--font-mono); color: var(--ink-2); }
+.frame .toc-open .tool b { color: var(--busy); font-weight: 600; }
+/* 終わったセッションの面と右パネル */
+.frame .session-body { flex: 1; min-height: 160px; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; }
+.frame .session-body[data-pane='wide'] { grid-template-columns: minmax(0, 1fr) 380px; }
+.frame .tr-sheet { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 8px 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.frame .tr-toggles { flex: none; display: flex; align-items: center; gap: 8px; height: var(--row-h); margin-bottom: 8px; font-size: var(--fs-sm); color: var(--ink-3); }
+.frame .chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.08); white-space: nowrap; }
+.frame .chip .icon { width: 12px; height: 12px; }
+.frame .msg { padding: 8px 10px; border-radius: var(--r); font-size: var(--fs); line-height: 1.55; margin-bottom: 8px; }
+.frame .msg[data-k='u'] { background: var(--accent-soft); color: var(--ink); }
+.frame .msg[data-k='a'] { color: var(--ink); }
+.frame .msg .when { float: right; margin-left: 8px; font: 11px var(--font-mono); color: var(--ink-3); }
+.frame .msg .tool { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); font: 11px var(--font-mono); color: var(--ink-2); }
+.frame .msg .tool b { color: var(--busy); font-weight: 600; }
+.frame .tr-foot { flex: none; display: flex; align-items: center; gap: 10px; height: 26px; margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.frame .session-rail { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
+.frame .session-rail[data-fade]::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 56px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
+.frame .rail-panel { flex: none; padding: 12px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.frame .rail-panel[data-grow] { flex: 0 1 auto; min-height: 200px; display: flex; flex-direction: column; overflow: hidden; }
+.frame .rail-h { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .rail-n { font-weight: 500; color: var(--ink-3); }
+.frame .rail-act { margin-left: auto; }
+.frame .rail-panel .toc-row { height: 26px; }
+.frame .rail-panel .toc-band { margin-bottom: 4px; }
+.frame .todo { display: flex; align-items: center; gap: 6px; height: var(--row-h); font-size: var(--fs); }
+.frame .todo-check { flex: none; width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px #c3c5d6; }
+.frame .todo-check[data-done] { background: var(--st-done); box-shadow: none; }
+.frame .todo[data-done] .todo-text { color: var(--ink-3); text-decoration: line-through; }
+.frame .todo-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .memo-text { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.55; }
+.frame .memo-text p { margin: 0 0 4px; }
+.frame .artifact { padding: 8px; border-radius: var(--r); background: var(--surface-2); }
+.frame .artifact-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.frame .artifact-desc { font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .sum-body { margin: 0 0 8px; line-height: 1.6; font-size: var(--fs); }
+.frame .sum-next { margin: 0 0 8px; padding-left: 18px; font-size: var(--fs-sm); }
+.frame .sum-src { font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .changed-file { display: flex; align-items: center; gap: 8px; height: 28px; font: 12px var(--font-mono); white-space: nowrap; overflow: hidden; }
+.frame .changed-file .dir { color: var(--ink-3); }
+.frame .changed-file .add { margin-left: auto; color: var(--st-done); }
+.frame .changed-file .del { color: var(--error); }
+.frame .rail-note { font-size: var(--fs-xs); color: var(--ink-3); margin-top: 4px; }
+/* B：右パネルに集める */
+.frame .rail-card { flex: none; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); }
+.frame .vals-state { display: flex; align-items: center; gap: 8px; min-height: 24px; font-weight: 600; white-space: nowrap; }
+.frame .vals-state[data-s='waiting'] { color: var(--waiting); }
+.frame .vals-state .faint { font-weight: 400; }
+.frame .vals-state .btn { margin-left: auto; }
+.frame .vals-q { margin: 2px 0 8px; font-size: var(--fs-sm); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .vals3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.frame .vals3 > div { min-width: 0; }
+.frame .vals3 small { display: block; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.frame .vals3 b { display: block; font-size: var(--fs-md); color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.frame .vals3 .gauge-bar { display: block; width: 100%; margin-top: 4px; }
+.frame .st-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.frame .st-actions .btn-sm { height: 24px; }
+.frame .rsec { flex: none; padding: 8px 0 6px; border-top: 1px solid var(--line); }
+.frame .rsec[data-grow] { flex: 0 1 auto; min-height: 170px; display: flex; flex-direction: column; overflow: hidden; }
+.frame .rsec-h { display: flex; align-items: center; gap: 6px; height: 22px; margin-bottom: 2px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .rsec-h .faint { font-weight: 500; }
+.frame .rsec-h .end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.frame .rsec-fold { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.frame .drawer-scrim { position: absolute; inset: 0; z-index: 4; background: rgba(28, 27, 46, 0.22); border-radius: 0 var(--r-lg) var(--r-lg) var(--r-lg); }
+.frame .drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 380px; z-index: 5; }
+.frame .drawer > .tr-pane { height: 100%; background: rgba(255, 255, 255, 0.97); box-shadow: var(--glass-edge), 0 24px 50px -16px rgba(30, 40, 90, 0.5); }
+/* C：現在をターミナルの上の帯に、右パネルは目次だけ */
+.frame .c-body { flex: 1; min-height: 160px; display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 8px; }
+.frame .c-body[data-toc='closed'] { grid-template-columns: minmax(0, 1fr); }
+.frame .c-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 8px; }
+.frame .c-main > .term-pane { flex: 1; min-height: 0; }
+.frame .c-main > .tr-sheet { flex: 1; min-height: 0; }
+.frame .now-strip { flex: none; display: flex; flex-direction: column; gap: 3px; padding: 7px 12px 7px 14px; border-radius: 0 var(--r-lg) var(--r-lg) var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); overflow: hidden; }
+.frame .now-strip[data-tone='wait'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--waiting); }
+.frame .now-strip[data-tone='busy'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--busy); }
+.frame .ns-row { display: flex; align-items: center; gap: 10px; height: 22px; min-width: 0; white-space: nowrap; }
+.frame .ns-row[data-wrap] { flex-wrap: wrap; height: auto; row-gap: 3px; }
+.frame .ns-state { flex: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.frame .ns-state[data-s='wait'] { color: var(--waiting); }
+.frame .ns-state[data-s='busy'] { color: #8a520c; }
+.frame .ns-state .faint { font-weight: 400; }
+.frame .ns-q { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.frame .ns-vals { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: var(--fs-xs); }
+.frame .ns-vals .gauge-bar { width: 40px; }
+.frame .ns-vals b { color: var(--ink); font-weight: 600; }
+.frame .ns-intent { flex: 0 1 auto; max-width: 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 1px 8px; border-left: 3px solid var(--cand); background: var(--cand-soft); border-radius: 0 6px 6px 0; }
+.frame .ns-intent small { color: var(--ink-3); margin-left: 6px; font-size: var(--fs-xs); }
+.frame .ns-steps { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-2); }
+.frame .ns-steps i { font-style: normal; color: var(--busy); font-weight: 600; }
+.frame .ns-steps .ok { color: var(--idle); } .frame .ns-steps .wt { color: var(--waiting); }
+.frame .ns-lane { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: var(--r-pill); background: var(--surface-2); font-size: var(--fs-xs); color: var(--ink-2); }
+.frame .toc-thin { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 10px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.frame .toc-thin .toc-row { grid-template-columns: 36px minmax(0, 1fr); height: 28px; padding: 0 4px; }
+.frame .toc-thin .toc-band { margin-left: 46px; }
+.frame .lead-card { flex: none; margin: 0 0 10px; padding: 10px 12px; border-radius: var(--r); background: var(--surface-2); }
+.frame .lead-h { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; min-width: 0; }
+.frame .lead-h .end { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.frame .lead-card .sum-body { margin-bottom: 6px; }
+.frame .lead-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.frame .lead-chips .chip { height: 22px; font-size: var(--fs-sm); background: var(--surface); }
+.frame .lead-chips .chip .icon { width: 13px; height: 13px; }
+.frame .pop { position: absolute; z-index: 6; width: 360px; padding: 12px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.96); box-shadow: var(--glass-edge), 0 24px 50px -16px rgba(30, 40, 90, 0.45), 0 0 0 1px rgba(30, 40, 90, 0.06); font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .pop h4 { margin: 0 0 6px; font-size: var(--fs); color: var(--ink); }
+.frame .pop .pop-row { display: flex; align-items: center; gap: 8px; height: 24px; white-space: nowrap; overflow: hidden; }
+.frame .pop .pop-row b { flex: none; color: var(--ink); font-weight: 600; min-width: 104px; }
+.frame .pop .pop-row .mono { color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.frame .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs><linearGradient id="hangar-rail" gradientUnits="userSpaceOnUse" x1="-13.362" y1="0" x2="34.096" y2="0"><stop offset="0" stop-color="#1c1b2e"/><stop offset="0.25" stop-color="#1c1b2e"/><stop offset="1" stop-color="#e2e7ff"/></linearGradient></defs>
+<!-- apps/desktop/loading/logo.svg の写し -->
+<symbol id="logo" viewBox="0 0 100 100"><g transform="translate(46.256 25.106) scale(0.854)"><path d="M-13.362 3.178L34.096 -11.66" stroke="url(#hangar-rail)" stroke-width="2.6" stroke-linecap="round"/><g transform="translate(20.734 -6.483) scale(0.614)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#c6cae2" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#c6cae2"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#cdd5fc" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#e6d6e7"/><circle cx="-16.5" cy="37" r="2" fill="#e6e2e6"/><circle cx="-10" cy="37" r="2" fill="#cbe0ef"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e5e7f0" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#f4caa4"/></g><g transform="translate(14.911 -4.662) scale(0.722)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#8e90a6" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#8e90a6"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#a1aff5" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#eeb2b6"/><circle cx="-16.5" cy="37" r="2" fill="#eed8b3"/><circle cx="-10" cy="37" r="2" fill="#9cd2cd"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e6e6eb" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#c1c0d3"/></g><g transform="translate(8.06 -2.52) scale(0.85)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#55556a" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#55556a"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#7689ef" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#f78e86"/><circle cx="-16.5" cy="37" r="2" fill="#f7cd80"/><circle cx="-10" cy="37" r="2" fill="#6ec3ac"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e7e6e6" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#e56656"/></g><g><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#1c1b2e" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#1c1b2e"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#4a63e8" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#ff6a55"/><circle cx="-16.5" cy="37" r="2" fill="#ffc34d"/><circle cx="-10" cy="37" r="2" fill="#3fb58a"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e8e6e1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#ffb86b"/></g></g></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="i-add" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10"/></symbol>
+<symbol id="i-projects" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+<symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></symbol>
+<symbol id="i-pane" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/><path d="m14 5-4 14"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></symbol>
+<symbol id="i-resume" viewBox="0 0 24 24"><path d="m7 5 11 7-11 7z"/></symbol>
+<symbol id="i-fork" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M6 7v2a4 4 0 0 0 4 4h4a4 4 0 0 0 4-4V7"/><path d="M12 13v4"/></symbol>
+<symbol id="i-latest" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m6 13 6 6 6-6"/></symbol>
+<symbol id="i-art" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></symbol>
+<symbol id="i-note" viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="m13 7 4 4"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+<symbol id="i-think" viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.3 1 2.1h5c0-.8.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></symbol>
+</svg>
+
+<main class="pg">
+<h1>セッション画面の構成 試作</h1>
+<p class="lead">段 4「画面と言葉」の 2 つ目の試作です（<code>docs/superpowers/specs/2026-10-07-refactor-roadmap-design.md</code> の「段 4 画面と言葉」）。<br>
+決めるのは、セッション画面の<b>中の構成</b>です。<br>
+画面の分け方は 1 つ目の試作の A 案（セッションの一覧をホームへ吸収し、プロジェクトの画面は残す）に決まったので、どの案もその枠（サイドバーはホーム、プロジェクト、実行中の節、設定）の中に描いています。<br>
+文言は用語集（<code>2026-10-09-glossary.md</code>）の語で書き、色と書体と余白は <code>packages/ui/src/styles</code> のトークンを写しました。<br>
+中の名前、パス、金額、使用率はすべて作り物で、1 つ目の試作と同じ架空のプロジェクト（web-shop）と同じセッションを使っています。<br>
+判断の目線は、公開した hangar を初めて入れた開発者です。</p>
+
+<div class="top">
+<div class="box rec-box">
+<h2>推す案：C　現在を帯に、右パネルは目次だけ。次点：A　今の構成を整える</h2>
+<table class="sum"><tbody>
+<tr><td><span class="opt-id">A</span></td><td><b>今の構成を整える</b>情報の行を「いまの値」と「属性」の 2 行に分け、終わったセッションの右パネルの先頭に目次を足す。ほかは今のまま</td><td><span class="rec second">次点</span></td></tr>
+<tr><td><span class="opt-id">B</span></td><td><b>右パネルに集める</b>情報の行と主の操作を右パネルへ移し、右パネルをこのセッションの札の積み（いまの値、ステータス、現在、要約、ノート、目次、詳細）にする</td><td></td></tr>
+<tr><td><span class="opt-id">C</span></td><td><b>現在を帯に、右パネルは目次だけ</b>「現在」といまの値をターミナルの上の帯に、属性は見出しのポップオーバーに、右パネルは目次だけに薄くする。終わった後は要約がトランスクリプトの冒頭になる</td><td><span class="rec">推す</span></td></tr>
+</tbody></table>
+</div>
+<div class="box">
+<h2>読み方</h2>
+<ul>
+<li>上の切り替えで案を選ぶと、その案の画面を 1280×800 の窓で描きます。状態の切り替え（実行中、終わった後、900px）は全案で同期します。「全案を並べる」で 3 案の 2 つの状態を縮めて並べます。</li>
+<li><b>実行中</b>は入力待ちのセッション（決済フォームの検証を直す、4 分待機）、<b>終わった後</b>は 3 日前に終わって Done の札が付いたセッション（画像の遅延読み込み、PR #88）です。</li>
+<li><b>900px</b> は窓を 900×640 に縮めたときの実行中の画面で、サイドバーは閉じています。どこが畳まれるかを見るための 1 枚です。</li>
+<li>各案の下に、利用者の 5 つの動き (a)〜(e) で目がどう動き、何回の操作で済むかの表と、論点 1〜4 への答え、得るもの、失うもの、作り替えの重さを置きました。</li>
+<li>操作の回数は、セッション画面を開いた後から数えます。打鍵は 1 回、押すのも 1 回です。</li>
+<li>アカウントの行は、アカウントが 2 件以上あるときだけ出ます（今の決まりのまま）。例は 2 件ある人で描いています。</li>
+</ul>
+</div>
+</div>
+
+<nav class="switch" aria-label="案と状態の切り替え">
+<span class="sw-label">案</span>
+<button class="sw" data-opt="a" aria-pressed="false"><span class="opt-id">A</span>今の構成を整える</button>
+<button class="sw" data-opt="b" aria-pressed="false"><span class="opt-id">B</span>右パネルに集める</button>
+<button class="sw" data-opt="c" aria-pressed="true"><span class="opt-id">C</span>現在を帯に、右パネルは目次だけ</button>
+<button class="sw" data-opt="all" aria-pressed="false">全案を並べる</button>
+<span class="sw-sep"></span>
+<span class="sw-label">状態</span>
+<button class="sw small" data-screen="live" aria-pressed="true">実行中（入力待ち）</button>
+<button class="sw small" data-screen="ended" aria-pressed="false">終わった後（Done、3 日前）</button>
+<button class="sw small" data-screen="narrow" aria-pressed="false">900px の窓</button>
+</nav>
+
+<div id="opts"></div>
+
+<section class="opt verdict" id="verdict" data-on="true">
+<h2>推す案と理由</h2>
+<div class="v-grid">
+<div>
+<p><b>推す案は C（現在を帯に、右パネルは目次だけ）です。</b>
+初めて入れた人がセッション画面で見るのはターミナルで、知りたいのは「いま何をしていて、何を待っているか」です。
+C はそれをターミナルの真上の帯に置くので、目がターミナルから離れません。
+入力待ちの問いも、意図も、ツール呼び出しも、コンテキスト使用量とコストも同じ帯にあり、右パネルは目次だけになって、実行中と終わった後で同じ場所に同じものがあります。
+終わった後は要約と次のステップがトランスクリプトの冒頭に来るので、「あのとき何を決めたか」は読み始めた所で答えが出ることが多く、無ければ右の目次で跳べます。
+属性（モデル、effort レベル、権限モード、開始、作業ディレクトリ、PR、アカウント）は毎回見るものではないので、見出しの「詳細」のポップオーバーに下げます。</p>
+<p><b>C で失うもの</b>は、帯の分だけターミナルが縦に 60px ほど縮むことと、サブエージェントのレーン（最大 6 本）とアーティファクトの一覧が帯に入り切らず、数の札を押して開く形になることです。
+右パネルの境目（「現在」と目次の高さ、セッションごとの比率）は役目が無くなるので捨てます。
+作り替えは右パネルの作り直しと帯と冒頭の札で、PR 2 本の重さです。</p>
+<p><b>次点は A（今の構成を整える）です。</b>
+情報の行を 2 行に分けて終わった後の右パネルに目次を足すだけで、論点 1 と 2 には答えが出ます。
+PR 1 本で入り、右パネルの境目の仕組みもそのまま使えます。
+ただし見出しの下に小さい文字の行が 2 本並ぶのは変わらず、終わった後の右パネルは目次、要約、ノート、TODO、変更したファイル、アーティファクトの 6 つの箱を縦に積んでスクロールする長さになります。
+C を重いと見るなら、A を先に入れてから C へ近づける順でもよいと考えます。</p>
+<p><b>B（右パネルに集める）は推しません。</b>
+1 か所に全部が揃う気持ちよさはあり、終わった後の右パネルがプロジェクト画面の右パネル（TODO、ノート、アーティファクト）と同じ作りになる筋のよさもあります。
+しかし右パネルが 7 つの節の長い積みになり、目次が 3 番目か 4 番目に下がるので、「あのとき何を決めたか」を探すのにスクロールが要ります。
+主の操作（ターミナルで回答、再開）を右パネルに移すと、右パネルを閉じている間と 900px の引き出しの裏で見失います。
+初めて入れた人には、右パネルを読み解く学習が要る案です。</p>
+</div>
+</div>
+<div class="box">
+<table class="cmp" id="cmp"></table>
+<p class="cap" style="margin-top:8px">緑の升はその動きでいちばん少ない案です。回数はセッション画面を開いた後の操作の数で、(b) と (c) の「0」は見るだけで分かることを表します。</p>
+</div>
+</section>
+</main>
+
+<script>
+/* ===== 例のデータ（すべて作り物。1 つ目の試作と同じ web-shop のセッション） ===== */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const ic = (n, cls) => `<svg class="icon${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const kbd = (k) => `<span class="kbd">${esc(k)}</span>`;
+const gaugeBar = (n) => `<span class="gauge-bar"><span class="gauge-fill"${n >= 80 ? ' data-high' : ''} style="width:${n}%"></span></span>`;
+
+const PROJECT = { name: 'web-shop', path: '~/code/web-shop' };
+
+/* 実行中（入力待ち）のセッション。 */
+const LIVE = {
+  id: 's1', name: '決済フォームの検証を直す', live: 'waiting', waited: '4 分', q: '既存のテストを書き換えてよいですか？',
+  one: '入力の検証をサーバ側へ寄せ、フォームのテストを更新中',
+  model: 'opus', effort: 'high', perm: 'Accept edits', ctx: 41, cost: '$0.86', turns: 9, tokens: '31k', started: '08:52', files: 2, account: '仕事用',
+  note: '決済は Stripe の v3。テストは checkout/ 以下に置く',
+  intent: 'フォームの検証をサーバ側へ寄せる', intentAt: '10:01', intentSince: 3,
+  steps: [['done', 'Read', 'src/checkout/form.ts', '10:01'], ['done', 'Read', 'src/checkout/form.test.ts', '10:02'], ['wait', 'AskUserQuestion', '既存のテストを書き換えてよいですか？', '10:03']],
+  lanes: [['done', 'テストの一覧を集める', '1 分', 'checkout/ の 12 件を列挙した']],
+  artifacts: [['検証の仕様', '12 分前']],
+  turnList: [
+    ['08:52', '決済フォームの構成を読んで要点をまとめて', 3, 'rrr'], ['08:58', 'クライアント側の検証の一覧を出して', 2, 'rr'], ['09:06', '金額の上限の検証を足して', 4, 'rrew'],
+    ['09:14', 'form.ts を読んで要点を', 1, 'r'], ['09:21', 'バリデーションの順を直して', 5, 'rewwe'], ['09:33', 'エラー文を i18n の鍵にして', 6, 'rrwwwe'],
+    ['09:41', 'テストを通して', 7, 'eeefeee'], ['09:52', 'カード番号の検証を Luhn に', 4, 'rwwe'], ['10:01', '決済フォームの入力の検証を、サーバ側にも足して', 3, 'rr'],
+  ],
+};
+
+/* 3 日前に終わった Done のセッション。 */
+const ENDED = {
+  id: 's7', name: '画像の遅延読み込み', live: null, status: 'done', statusAt: '10/6', when: '3 日前',
+  one: 'IntersectionObserver で置き換え、PR #88 をマージ',
+  model: 'sonnet', effort: '', perm: 'Accept edits', cost: '$0.42', turns: 11, tokens: '20k', started: '10/6 09:30', ended: '10/6 12:10', files: 5, pr: '#88', account: '仕事用',
+  note: '詳細の頁は別のセッションで',
+  sum: '商品一覧の画像を IntersectionObserver で遅延読み込みにし、LCP を 3.1 秒から 1.8 秒に縮めて PR #88 をマージした。先頭の 4 枚は即時に読む。枠の高さは固定にすると決めた（ターン 6）。',
+  next: ['詳細の頁の画像にも同じ部品を使う'], prog: '完了', src: '作成元 事後、LM Studio / qwen3-8b、10/6 18:40 生成',
+  todos: [['', '詳細の頁の画像にも同じ部品を使う'], ['done', '一覧の画像の遅延読み込み']],
+  changed: [['src/components/', 'ProductImage.tsx', 52, 18], ['src/pages/', 'products.tsx', 6, 2], ['src/components/', 'ProductImage.test.tsx', 40, 0]], changedNote: 'ほか 2 件はサブエージェントの変更です',
+  artifacts: [['計測の結果', '3 日前']],
+  msgs: [
+    ['u', '09:30', '商品一覧の画像を遅延読み込みにして。スクロールしてから読む形で。'],
+    ['a', '09:31', 'IntersectionObserver で見えてから読む部品に置き換えます。<br><span class="tool"><b>Read</b> src/components/ProductImage.tsx</span> <span class="tool"><b>Edit</b> src/components/ProductImage.tsx</span><br>先頭の 4 枚は見えているので、即時に読む指定を残しました。'],
+    ['u', '09:41', '先頭の 4 枚は即時に読んで'],
+    ['a', '09:42', '一覧の側で先頭の 4 枚に <code>eager</code> を渡すようにしました。<br><span class="tool"><b>Edit</b> src/pages/products.tsx</span> <span class="tool"><b>Bash</b> npm test -- ProductImage</span><br>テストは 8 件すべて通っています。'],
+    ['u', '09:52', 'rootMargin を 200px にして'],
+    ['a', '09:53', '見える 200px 手前から読み始めるようにしました。<br><span class="tool"><b>Edit</b> src/components/ProductImage.tsx</span>'],
+    ['u', '10:05', 'テストを足して'],
+    ['a', '10:06', 'IntersectionObserver を差し替えるテストを 4 件足しました。<br><span class="tool"><b>Write</b> src/components/ProductImage.test.tsx</span> <span class="tool"><b>Bash</b> npm test -- ProductImage</span>'],
+  ],
+  turnList: [
+    ['09:30', '商品一覧の画像を遅延読み込みにして。スクロールしてから読む形で', 4, 'rrww'], ['09:41', '先頭の 4 枚は即時に読んで', 3, 'wwe'], ['09:52', 'rootMargin を 200px にして', 1, 'w'],
+    ['10:05', 'テストを足して', 3, 'wee'], ['10:18', 'Safari でも動くか確認して', 5, 'rreee'], ['10:31', '枠の高さを固定して、ずれないように', 4, 'rwwe'],
+    ['10:49', 'Lighthouse で確認して', 3, 'eee'], ['11:02', 'LCP の数字を README に書いて', 2, 'rw'], ['11:15', 'PR を作って', 3, 'ggg'],
+    ['11:40', 'レビューの指摘（alt が無い）を直して', 4, 'rwwg'], ['12:04', 'マージして', 2, 'gg'],
+  ],
+};
+
+/* サイドバーの「実行中」の節に出す行。 */
+const SIDE_LIVE = [
+  { id: 's1', name: '決済フォームの検証を直す', live: 'waiting', waited: '4 分' },
+  { id: 's2', name: 'OpenAPI から型を生成', live: 'busy' },
+  { id: 's3', name: 'リリースノートの下書き', live: 'idle' },
+];
+
+/* ===== 共通の部品（1 つ目の試作の A 案の枠） ===== */
+const dot = (live) => `<span class="dot" data-status="${live || 'ended'}"></span>`;
+function logoHtml() {
+  return `<div class="header-brand"><span class="lights"><i></i><i></i><i></i></span><span class="brand"><svg class="brand-mark" aria-hidden="true"><use href="#logo"/></svg><span class="brand-word">Hangar</span></span></div>`;
+}
+function headerHtml(o = {}) {
+  const gauge = (k, n) => `<span class="gauge"><span class="gauge-key">${k}</span>${gaugeBar(n)}<span class="gauge-num">${n}%</span></span>`;
+  const open = o.narrow ? `<span class="side-open">${ic('sidebar')}</span>` : '';
+  return `<header class="header">${logoHtml()}<div class="header-row">${open}<button class="search-pill">${ic('search')}<span>検索・移動</span>${kbd('⌘K')}</button><span class="spacer"></span><div class="header-end"><span class="sync"><span class="sync-dot"></span><span>同期 3 分前</span></span><span class="gauges">${gauge('5 時間', 28)}${gauge('週', 41)}</span>${o.narrow ? `<button class="btn btn-primary btn-icon">${ic('add')}</button>` : `<button class="btn btn-primary">${ic('add')}新しいセッション</button>`}</div></div></header>`;
+}
+function sidebarHtml(currentId) {
+  const item = (k, label, extra = '') => `<a class="nav-item">${ic(k)}<span>${label}</span>${extra}</a>`;
+  const rows = SIDE_LIVE.map((s) => `<a class="side-live-row" data-live="${s.live}"${currentId === s.id ? ' aria-current="page"' : ''}>${dot(s.live)}<span class="side-live-name">${esc(s.name)}</span>${s.live === 'waiting' ? `<span class="side-live-wait">${s.waited}待機</span>` : ''}</a>`).join('');
+  return `<nav class="sidebar"><div class="nav-row">${item('home', 'ホーム', '<span class="nav-count">1</span>')}<span class="sidebar-toggle">${ic('sidebar')}</span></div>${item('projects', 'プロジェクト')}<section class="side-live"><h2 class="side-live-h">実行中<span class="side-live-n">3</span></h2>${rows}</section><div class="side-foot">${item('settings', '設定')}</div></nav>`;
+}
+const frame = (inner, o = {}) => `<div class="frame"${o.narrow ? ' data-w="900" data-h="640"' : ''}><div class="shell"${o.narrow ? ' data-side="closed"' : ''}>${inner}</div></div>`;
+const main = (inner) => `<div class="main"><div class="main-inner">${inner}</div></div>`;
+const chip = (s) => s.status ? `<span class="st-chip" data-s="${s.status}">${{ done: 'Done', paused: 'Paused', archived: 'Archived' }[s.status]}</span>` : '';
+
+/* 見出しの段。lead は点、after は札と要約の 1 文と操作。 */
+function pageHead(s, after, o = {}) {
+  return `<div class="page-head"${o.tight ? ' data-tight' : ''}><div class="page-parent"><a>${esc(PROJECT.name)}</a><span>›</span></div><div class="page-title-row">${dot(s.live)}<h1 class="page-title">${esc(s.name)}</h1>${chip(s)}<span class="oneliner">${esc(s.one)}</span>${after}</div></div>`;
+}
+const primaryBtn = (s) => s.live ? `<button class="btn btn-primary">${ic('code')}VS Code で開く</button>` : `<button class="btn btn-primary">${ic('resume')}再開</button>`;
+const moreBtn = `<button class="btn btn-icon">${ic('more')}</button>`;
+
+/* ターミナル（作り物）。 */
+function termHtml(s, o = {}) {
+  const lines = s.live === 'waiting' ? [
+    ['u', '> 決済フォームの入力の検証を、サーバ側にも足して'],
+    ['a', '● サーバ側の検証を追加します。既存のフォームのテストが前提を変えるので、先に確認します。'],
+    ['t', '● Read(src/checkout/form.ts)'], ['r', '  ⎿  Read 142 lines'],
+    ['t', '● Read(src/checkout/form.test.ts)'], ['r', '  ⎿  Read 88 lines'],
+    ['t', '● AskUserQuestion'], ['q', '  既存のテストを書き換えてよいですか？'],
+    ['o', '  ❯ 1. はい、書き換える'], ['o', '    2. 新しいテストを足す'], ['o', '    3. 先に差分を見せて'], ['d', ''], ['d', '  Enter で選ぶ · Esc でキャンセル'],
+  ] : [];
+  const body = lines.map(([k, t]) => `<span class="tl" data-k="${k}">${esc(t)}</span>`).join('');
+  return `<div class="term-pane" data-live="${s.live || 'ended'}"${o.round ? ' style="border-radius:var(--r-lg)"' : ''}><div class="term-body">${body}</div><div class="term-foot"><b>${esc(s.model)}</b> · <b>${s.ctx}%</b> context · ${s.cost} · ${esc(PROJECT.path)}</div></div>`;
+}
+const tabsHtml = (trailing = '') => `<div class="tabs"><span class="tab tab-selected">Claude</span><span class="tab-add">${ic('add')}</span>${trailing ? `<span class="tabs-trailing">${trailing}</span>` : ''}</div>`;
+
+/* 目次の行。cur は開いている行（実行中はいちばん新しい指示）。 */
+function tocRows(s, o = {}) {
+  const rows = s.turnList.map((t, i) => {
+    const cur = o.cur === i + 1;
+    const band = `<div class="toc-band">${[...t[3]].map((k) => `<i data-k="${k}"></i>`).join('')}</div>`;
+    const open = cur && o.openBody ? `<div class="toc-open">${o.openBody}</div>` : '';
+    return `<div class="toc-row"${cur ? ' data-cur' : ''}><span class="toc-n">${o.thin ? t[0] : t[0]}</span><span class="toc-t">${esc(t[1])}</span>${o.thin ? '' : `<span class="toc-tools">${t[2]}</span>`}</div>${band}${open}`;
+  });
+  return rows.slice(o.from || 0).join('');
+}
+const tocFoot = () => `<div class="toc-foot"><span class="btn btn-sm">${ic('latest')}最新へ移動</span></div>`;
+
+/* 実行中の「現在」の中身（灯、意図、ツール呼び出し、サブエージェント、アーティファクト）。 */
+function nowHtml(s, o = {}) {
+  const lamp = `<div class="live-lamp" data-tone="wait"><span class="live-dot" data-tone="wait"></span><span>入力待ち</span><span class="live-lamp-sub">${esc(s.q)}</span></div>`;
+  const intent = `<div class="live-intent">「${esc(s.intent)}」<small>Claude が記入 · ${s.intentAt} · 以降のツール呼び出し ${s.intentSince} 回</small></div>`;
+  const steps = `<div class="live-label">ツール呼び出し</div>${s.steps.map(([m, t, a, w]) => `<div class="live-step"><span class="live-dot" data-tone="${m === 'wait' ? 'wait' : 'done'}"></span><span class="t">${t}</span><span class="mono">${esc(a)}</span><span class="when">${w}</span></div>`).join('')}`;
+  const lanes = `<div class="live-label">サブエージェント</div>${s.lanes.map(([m, t, e, l]) => `<div class="live-lane"><span class="live-dot" data-tone="${m}"></span><span class="ln">${esc(t)}</span><span class="lt">${e}</span><span class="ll">「${esc(l)}」</span></div>`).join('')}`;
+  const arts = `<div class="live-label">アーティファクト</div>${s.artifacts.map(([t, w]) => `<div class="live-artifact">${ic('art')}<span>${esc(t)}</span><span class="when">${w}</span></div>`).join('')}`;
+  return (o.noLamp ? '' : lamp) + intent + steps + lanes + (o.noArts ? '' : arts);
+}
+
+/* 終わった後の右パネルの箱。 */
+const todoHtml = (s) => s.todos.map(([k, t]) => `<div class="todo"${k === 'done' ? ' data-done' : ''}><span class="todo-check"${k ? ` data-${k}` : ''}></span><span class="todo-text">${esc(t)}</span></div>`).join('');
+const filesHtml = (s) => s.changed.map(([d, b, a, r]) => `<div class="changed-file">${ic('file')}<span class="dir">${esc(d)}</span>${esc(b)}<span class="add">+${a}</span>${r ? `<span class="del">−${r}</span>` : ''}</div>`).join('') + `<div class="rail-note">${esc(s.changedNote)}</div>`;
+const summaryBody = (s) => `<p class="sum-body">${esc(s.sum)}</p><div class="live-label">次のステップ</div><ul class="sum-next">${s.next.map((n) => `<li>${esc(n)}</li>`).join('')}</ul><div class="sum-src">${esc(s.src)}</div>`;
+const msgsHtml = (s, n) => s.msgs.slice(0, n || s.msgs.length).map(([k, w, m]) => `<div class="msg" data-k="${k}"><span class="when">${w}</span>${m}</div>`).join('');
+function trToggles(s, extra = '') {
+  return `<div class="tr-toggles"><span class="chip">${ic('think')}思考</span><span class="seg"><span data-on>メイン会話</span><span>サブエージェント 1</span><span>サブエージェント 2</span></span><span class="spacer"></span><span class="mono">${s.turnList.length} / ${s.turnList.length}</span>${extra}</div>`;
+}
+const paneClose = (label = '右パネルを閉じる') => `<span class="btn btn-sm btn-ghost">${ic('pane')}${label}</span>`;
+const attrsLine = (s) => `${esc(s.model)}${s.effort ? ' · ' + s.effort : ''} · ${s.perm} · 開始 ${esc(s.started)}${s.ended ? ` · 終了 ${esc(s.ended)}` : ''}${s.pr ? ` · PR ${s.pr}` : ''} · ${esc(PROJECT.path)} · ${s.account}`;
+
+/* ===== A：今の構成を整える ===== */
+function infoRowsA(s, o = {}) {
+  const state = s.live ? `<span class="session-info-state" data-s="waiting">入力待ち · ${s.waited}待機</span>` : `<span class="session-info-state">終了 · ${esc(s.when)}</span>`;
+  const row1 = `<div class="session-info">${state}${s.live ? `<span>コンテキスト使用量 ${gaugeBar(s.ctx)}${s.ctx}%</span>` : ''}<span class="mono">${s.cost}</span><span>${s.turns} ターン · ${s.tokens} トークン</span>${s.files ? `<span>変更 ${s.files}</span>` : ''}${o.narrow ? `<span class="detail-chip">詳細${ic('chev')}</span>` : ''}</div>`;
+  if (o.narrow) return row1;
+  const row2 = `<div class="session-attrs"><span><span class="key">モデル</span><span class="val mono">${esc(s.model)}${s.effort ? ' · ' + s.effort : ''}</span></span><span><span class="key">権限モード</span><span class="val">${s.perm}</span></span><span><span class="key">開始</span><span class="val">${esc(s.started)}</span></span>${s.ended ? `<span><span class="key">終了</span><span class="val">${esc(s.ended)}</span></span>` : ''}${s.pr ? `<span><a>PR ${s.pr}</a></span>` : ''}<span><span class="acct-dot"></span><span class="val">${s.account}</span></span><span class="cwd">${esc(PROJECT.path)}</span></div>`;
+  return row1 + row2;
+}
+function livePaneA(s, o = {}) {
+  const turnsN = s.turnList.length;
+  return `<aside class="tr-pane"><div class="live-pane-head">${paneClose()}<span class="faint">現在</span></div><div class="live-top"${o.narrow ? ' style="flex-basis:70%"' : ''}>${nowHtml(s)}</div><div class="live-divider"></div><div class="live-toc"><div class="toc-head">目次<span class="faint">${turnsN} ターン</span></div><div class="toc-rows">${tocRows(s, { cur: turnsN, from: o.narrow ? 6 : 4 })}</div>${tocFoot()}</div></aside>`;
+}
+function sessionA(s, o = {}) {
+  const head = pageHead(s, `${primaryBtn(s)}${moreBtn}`);
+  if (s.live) {
+    return `<div class="screen">${head}${infoRowsA(s, o)}${tabsHtml()}<div class="split"${o.narrow ? ' data-pane="narrow"' : ''}>${termHtml(s)}${livePaneA(s, o)}</div></div>`;
+  }
+  const sheet = `<section class="tr-sheet">${trToggles(s, paneClose(''))}${msgsHtml(s)}</section>`;
+  const rail = `<aside class="session-rail" data-fade>
+<section class="rail-panel" data-grow><h2 class="rail-h"><span>目次</span><span class="rail-n">${s.turnList.length} ターン</span></h2><div class="toc-rows">${tocRows(s, { cur: 6 })}</div></section>
+<section class="rail-panel"><h2 class="rail-h"><span>要約</span><span class="rail-n">進捗 ${s.prog} · ${s.turnList.length} ターン時点</span><span class="rail-act btn btn-sm btn-ghost">要約を再生成</span></h2>${summaryBody(s)}</section>
+<section class="rail-panel"><h2 class="rail-h"><span>ノート</span><span class="rail-act btn btn-sm btn-ghost">${ic('note')}ノートを編集</span></h2><div class="memo-text"><p>${esc(s.note)}</p></div></section>
+<section class="rail-panel"><h2 class="rail-h"><span>TODO</span><span class="rail-n">${s.todos.length}</span></h2>${todoHtml(s)}</section>
+<section class="rail-panel"><h2 class="rail-h"><span>変更したファイル</span><span class="rail-n">${s.files}</span></h2>${filesHtml(s)}</section>
+<section class="rail-panel"><h2 class="rail-h"><span>アーティファクト</span><span class="rail-n">1</span></h2><div class="artifact"><div class="artifact-head">${ic('art')}${esc(s.artifacts[0][0])}</div><div class="artifact-desc">最終公開 ${s.artifacts[0][1]}</div></div></section>
+</aside>`;
+  return `<div class="screen">${head}${infoRowsA(s, o)}<div class="session-body">${sheet}${rail}</div></div>`;
+}
+
+/* ===== B：右パネルに集める ===== */
+function valsCardB(s) {
+  if (s.live) {
+    return `<div class="rail-card"><div class="vals-state" data-s="waiting"><span class="live-dot" data-tone="wait"></span>入力待ち<span class="faint">${s.waited}待機</span><span class="btn btn-sm btn-primary">ターミナルで回答</span></div><div class="vals-q">${esc(s.q)}</div><div class="vals3"><div><small>コンテキスト使用量</small><b>${s.ctx}%</b>${gaugeBar(s.ctx)}</div><div><small>コスト</small><b>${s.cost}</b></div><div><small>ターン</small><b>${s.turns}</b><small>${s.tokens} トークン</small></div></div></div>`;
+  }
+  return `<div class="rail-card"><div class="vals-state">${chip(s)}<span class="faint">${s.statusAt} に Done · 終了 ${esc(s.when)}</span></div><div class="st-actions"><span class="btn btn-sm btn-primary">${ic('resume')}再開</span><span class="btn btn-sm">${ic('fork')}フォーク</span><span class="btn btn-sm btn-ghost">ステータスを変更${ic('chev')}</span></div><div class="vals3"><div><small>コスト</small><b>${s.cost}</b></div><div><small>ターン</small><b>${s.turns}</b><small>${s.tokens} トークン</small></div><div><small>変更したファイル</small><b>${s.files}</b></div></div></div>`;
+}
+const rsec = (title, body, o = {}) => `<div class="rsec"${o.grow ? ' data-grow' : ''}><div class="rsec-h"><span>${title}</span>${o.n ? `<span class="faint">${o.n}</span>` : ''}<span class="end">${o.end || ''}</span></div>${body}</div>`;
+function paneB(s, o = {}) {
+  const turnsN = s.turnList.length;
+  const detail = rsec('詳細', `<div class="rsec-fold">${attrsLine(s)}</div>`, { end: ic('chev') });
+  let body;
+  if (s.live) {
+    body = valsCardB(s)
+      + rsec('現在', nowHtml(s, { noLamp: true, noArts: true }))
+      + rsec('目次', `<div class="toc-rows">${tocRows(s, { cur: turnsN, from: o.narrow ? 6 : 5 })}</div>${tocFoot()}`, { n: `${turnsN} ターン`, grow: true })
+      + rsec('アーティファクト', `<div class="live-artifact">${ic('art')}<span>${esc(s.artifacts[0][0])}</span><span class="when">${s.artifacts[0][1]}</span></div>`, { n: '1' })
+      + rsec('ノート', `<div class="memo-text"><p>${esc(s.note)}</p></div>`, { end: `<span class="btn btn-sm btn-ghost">${ic('note')}ノートを編集</span>` })
+      + detail;
+  } else {
+    body = valsCardB(s)
+      + rsec('要約', summaryBody(s), { n: `進捗 ${s.prog} · ${turnsN} ターン時点`, end: `<span class="btn btn-sm btn-ghost">要約を再生成</span>` })
+      + rsec('ノート', `<div class="memo-text"><p>${esc(s.note)}</p></div>`, { end: `<span class="btn btn-sm btn-ghost">${ic('note')}ノートを編集</span>` })
+      + rsec('目次', `<div class="toc-rows">${tocRows(s, { cur: 6 })}</div>`, { n: `${turnsN} ターン`, grow: true })
+      + rsec('変更したファイル', filesHtml(s), { n: String(s.files) })
+      + rsec('アーティファクト', `<div class="live-artifact">${ic('art')}<span>${esc(s.artifacts[0][0])}</span><span class="when">${s.artifacts[0][1]}</span></div>`, { n: '1' })
+      + detail;
+  }
+  return `<aside class="tr-pane" data-fade><div class="live-pane-head">${paneClose()}<span class="faint">このセッション</span></div>${body}</aside>`;
+}
+function sessionB(s, o = {}) {
+  const head = pageHead(s, moreBtn, { tight: true });
+  if (s.live) {
+    if (o.narrow) {
+      // 900px では右パネルが引き出しになり、ターミナルの上に重なる。状態の語だけタブの列に残る。
+      const trailing = `<span class="session-info-state" data-s="waiting">入力待ち · ${s.waited}待機</span><span class="btn btn-sm">${ic('pane')}右パネル ${kbd('⌘J')}</span>`;
+      return `<div class="screen">${head}${tabsHtml(trailing)}<div class="split" data-pane="closed"><div class="term-host">${termHtml(s)}<div class="drawer-scrim"></div><div class="drawer">${paneB(s, o)}</div></div></div></div>`;
+    }
+    return `<div class="screen">${head}${tabsHtml()}<div class="split" data-pane="wide">${termHtml(s)}${paneB(s)}</div></div>`;
+  }
+  const sheet = `<section class="tr-sheet">${trToggles(s, paneClose(''))}${msgsHtml(s)}</section>`;
+  return `<div class="screen">${head}<div class="session-body" data-pane="wide">${sheet}${paneB(s)}</div></div>`;
+}
+
+/* ===== C：現在を帯に、右パネルは目次だけ ===== */
+function stripC(s, o = {}) {
+  // 帯では道具の名前とファイル名だけ（問いは 1 行目にある）。
+  const steps = s.steps.map(([m, t, a]) => `<span class="${m === 'wait' ? 'wt' : 'ok'}">${m === 'wait' ? '●' : '✓'}</span> <i>${t}</i>${m === 'wait' ? '' : ' ' + esc(a.split('/').pop())}`).join(' · ');
+  const vals = `<span class="ns-vals"><span>コンテキスト使用量 ${gaugeBar(s.ctx)}<b>${s.ctx}%</b></span><span><b>${s.cost}</b></span><span><b>${s.turns}</b> ターン · ${s.tokens} トークン</span></span>`;
+  const row1 = `<div class="ns-row"><span class="ns-state" data-s="wait"><span class="live-dot" data-tone="wait"></span>入力待ち<span class="faint">${s.waited}待機</span></span><span class="ns-q">${esc(s.q)}</span>${o.narrow ? '' : vals}</div>`;
+  const row2 = `<div class="ns-row"${o.narrow ? ' data-wrap' : ''}><span class="ns-intent" title="Claude が記入 · ${s.intentAt}">「${esc(s.intent)}」<small>${s.intentAt}</small></span><span class="ns-steps">${steps}</span><span class="ns-lane"><span class="live-dot" data-tone="done"></span>サブエージェント 1 完了</span><span class="ns-lane">${ic('art')}アーティファクト 1</span></div>`;
+  const row3 = o.narrow ? `<div class="ns-row">${vals}</div>` : '';
+  return `<div class="now-strip" data-tone="wait">${row1}${row2}${row3}</div>`;
+}
+function tocThin(s, o = {}) {
+  const turnsN = s.turnList.length;
+  const cur = s.live ? turnsN : 6;
+  const openBody = s.live ? '' : `枠の高さを <code>aspect-ratio</code> で固定し、読み込み前も場所を取るようにしました。<br><span class="tool"><b>Edit</b> ProductImage.tsx</span> <span class="tool"><b>Bash</b> npm test</span>`;
+  return `<aside class="toc-thin"><div class="toc-head">${paneClose('')}目次<span class="faint">${turnsN} ターン</span></div><div class="toc-rows">${tocRows(s, { cur, thin: true, openBody })}</div>${tocFoot()}</aside>`;
+}
+function leadCardC(s) {
+  return `<div class="lead-card"><div class="lead-h">${chip(s)}<span>${s.statusAt} に Done · 終了 ${esc(s.ended)} · <b>${s.turns}</b> ターン · ${s.tokens} トークン · <b>${s.cost}</b></span><span class="end"><span class="faint">要約 進捗 ${s.prog} · ${s.turnList.length} ターン時点</span><span class="btn btn-sm btn-ghost">要約を再生成</span></span></div><p class="sum-body">${esc(s.sum)}</p><div class="live-label">次のステップ</div><ul class="sum-next">${s.next.map((n) => `<li>${esc(n)}</li>`).join('')}</ul><div class="lead-chips"><span class="chip">${ic('file')}変更したファイル ${s.files}${ic('chev')}</span><span class="chip">${ic('art')}アーティファクト 1${ic('chev')}</span><span class="chip">${ic('link')}PR ${s.pr}</span><span class="chip">${ic('note')}ノート：${esc(s.note)}</span></div></div>`;
+}
+function popC(s) {
+  const row = (k, v) => `<div class="pop-row"><b>${k}</b><span class="mono">${v}</span></div>`;
+  return `<div class="pop" style="top:96px;right:16px"><h4>詳細</h4>${row('モデル', `${esc(s.model)}${s.effort ? ' · ' + s.effort : ''}`)}${row('effort レベル', s.effort || '既定')}${row('権限モード', s.perm)}${row('開始', esc(s.started))}${row('作業ディレクトリ', esc(PROJECT.path))}${row('アカウント', `<span class="acct-dot"></span> ${s.account}`)}${row('起動', '新しいセッション · 08:52')}</div>`;
+}
+function sessionC(s, o = {}) {
+  const info = `<span class="info-btn"${o.narrow ? ' data-open' : ''}>${ic('info')}</span>`;
+  const head = pageHead(s, `${primaryBtn(s)}${moreBtn}${info}`, { tight: true });
+  if (s.live) {
+    if (o.narrow) {
+      return `<div class="screen">${head}${tabsHtml(`<span class="btn btn-sm">${ic('pane')}目次 ${s.turnList.length}</span>`)}<div class="c-body" data-toc="closed"><div class="c-main">${stripC(s, o)}${termHtml(s, { round: true })}</div></div></div>${popC(s)}`;
+    }
+    return `<div class="screen">${head}${tabsHtml()}<div class="c-body"><div class="c-main">${stripC(s)}${termHtml(s, { round: true })}</div>${tocThin(s)}</div></div>`;
+  }
+  const sheet = `<section class="tr-sheet">${trToggles(s)}${leadCardC(s)}${msgsHtml(s, 4)}</section>`;
+  return `<div class="screen">${head}<div class="c-body"><div class="c-main">${sheet}</div>${tocThin(s)}</div></div>`;
+}
+
+/* ===== 案ごとの画面 ===== */
+const SCREEN_LIST = [
+  { key: 'live', label: '実行中（入力待ち）' },
+  { key: 'ended', label: '終わった後（Done、3 日前）' },
+  { key: 'narrow', label: '900px の窓' },
+];
+const render = { a: sessionA, b: sessionB, c: sessionC };
+function screenHtml(opt, key) {
+  const narrow = key === 'narrow';
+  const s = key === 'ended' ? ENDED : LIVE;
+  return frame(sidebarHtml(s.id) + headerHtml({ narrow }) + main(render[opt](s, { narrow })), { narrow });
+}
+
+const OPTS = [
+  { id: 'a', name: '今の構成を整える', tag: 'A', rec: '次点',
+    blurb: `上から見出し、情報の行、タブ、ターミナルと右パネルという今の積み方はそのままです。
+情報の行を、<b>いまの値</b>（状態、コンテキスト使用量、コスト、ターンとトークン、変更）の 1 行目と、<b>属性</b>（モデル、権限モード、開始、PR、アカウント、作業ディレクトリ）の薄い 2 行目に分けます。
+終わったセッションの右パネルの先頭に目次を足し、ノートの箱も置きます。
+ステータスの札は見出しの名前の横です。`,
+    notes: {
+      live: '今の画面と同じ積み方。見出しの下が 2 行になり、1 行目は入力待ちの語と使用量、2 行目は薄い属性。右パネルは今のまま「現在」（灯、意図、ツール呼び出し、サブエージェント、アーティファクト）と目次で、境目をドラッグできる。',
+      ended: '右パネルの先頭に<b>目次</b>が入る（論点 1）。その下に要約、ノート、TODO、変更したファイル、アーティファクトの順。6 つの箱は 800px に収まらず、右パネルがスクロールする。1 行目のコンテキスト使用量は終わったセッションでは届かないので出さない。',
+      narrow: '900px ではサイドバーを閉じ、2 行目の属性を 1 行目の右端の「詳細」の札に畳む（押すとポップオーバー）。右パネルは 300px に縮み、「現在」の段を広めにして目次を短くする。ターミナルは 560px。',
+    },
+    answers: [
+      `出す。終わったセッションの右パネルの先頭に置く。
+行を押すとトランスクリプトがそのターンへジャンプする（実行中はターミナルも跳ぶ）。`,
+      `見出しの下を 2 行に分ける。
+1 行目がいまの値、2 行目が薄い属性。
+900px では 2 行目を「詳細」の札に畳み、押すとポップオーバーで読む。`,
+      `実行中は「現在」（灯、意図、ツール呼び出し、サブエージェント、アーティファクト）の上に目次の下。
+終わった後は目次、要約、ノート、TODO、変更したファイル、アーティファクトの順。
+ステータスとリマインダーは見出しの札で、変更は「…」から。`,
+      `トランスクリプトを読む画面。
+左に流れ、右の目次で跳ぶ。
+再開とフォークは見出しの主の操作と「…」。`,
+    ],
+    moves: [
+      ['1 回', '見出しの点と 1 行目の赤い語 → ターミナルの赤い縁 → 右パネルの灯の問い。3 か所が同じことを言う', 'ターミナルを押して番号を打つ'],
+      ['0 回', '右パネルの上の段へ。意図の箱 → ツール呼び出しの 3 行 → サブエージェントの行', '見るだけ。段が切れていれば段の中でスクロール'],
+      ['1 回', '右パネルの先頭の目次へ。11 行を上から読み、「枠の高さを固定」の行で止まる', '行を押すと左のトランスクリプトがそのターンへジャンプ。要約を先に読むなら右パネルの 2 番目'],
+      ['1 回', '見出しの右端の「再開」', '「再開」を押す。フォークは「…」を開いて 2 回'],
+      ['0 回', '見出しの下の 1 行目。左から 2 番目と 3 番目', '見るだけ'],
+    ],
+    gain: '覚え直しがほぼ無い。論点 1 と 2 が片付き、右パネルの境目と動きの仕組みはそのまま使える。',
+    lose: '見出しの下に小さい文字の行が 2 本並ぶ。終わった後の右パネルが 6 つの箱の長い積みになり、目次と要約が場所を取り合う。',
+    weight: 'PR 1 本。InfoLine を 2 つに分けて 900px で畳む、終わった画面の右パネルに TurnIndex とノートの箱を足す。',
+  },
+  { id: 'b', name: '右パネルに集める', tag: 'B',
+    blurb: `見出しの下の情報の行を無くし、主の操作（ターミナルで回答、再開、フォーク）も右パネルへ移して、右パネルを<b>このセッションの札の積み</b>にします。
+実行中はいまの値の札、現在、目次、アーティファクト、ノート、詳細の順、終わった後はステータスの札（再開とフォークもここ）、要約、ノート、目次、変更したファイル、アーティファクト、詳細の順です。
+右パネルは 380px に広げ、節は縦にスクロールします。
+終わった後の右パネルは、プロジェクト画面の右パネル（TODO、ノート、アーティファクト）と同じ作りになります。`,
+    notes: {
+      live: '見出しは名前と要約の 1 文と「…」だけで、線の下に行が無い。右パネルの先頭の札に入力待ちの語と問い、「ターミナルで回答」、コンテキスト使用量とコストとターン。その下に現在（意図、ツール呼び出し、サブエージェント）、目次、アーティファクト、ノート、詳細（畳んだ属性）。',
+      ended: '先頭の札が<b>ステータス</b>（Done、いつ付けたか、再開、フォーク、ステータスを変更）。その下に要約、ノート、目次、変更したファイル、アーティファクト、詳細。要約とノートが先で目次は 4 番目（論点 1、4）。800px では変更したファイルから下が折り返しの下。',
+      narrow: '900px では右パネルが<b>引き出し</b>になり、⌘J かタブの列の「右パネル」で開くとターミナルの上に重なる。閉じている間は入力待ちの語だけタブの列に残る。描いているのは開いた状態。',
+    },
+    answers: [
+      `出す。右パネルの節の 1 つ。
+実行中は 3 番目、終わった後は要約とノートの下の 4 番目。`,
+      `いまの値は右パネルの先頭の札（大きい数字 3 つ）、属性は右パネルの末尾の「詳細」の畳み。
+見出しの下の行は無くす。
+900px では右パネルが引き出しになり、状態の語だけタブの列に残る。`,
+      `実行中はいまの値、現在、目次、アーティファクト、ノート、詳細。
+終わった後はステータスとリマインダー、要約、ノート、目次、変更したファイル、アーティファクト、詳細。
+主の操作も先頭の札の中。`,
+      `右パネルの要約とステータスが先に見える画面。
+続きを始める操作（再開、フォーク）も右パネルの先頭。
+トランスクリプトは左に流れ、目次は右パネルを下げて使う。`,
+    ],
+    moves: [
+      ['1 回', 'ターミナルの赤い縁 → 右パネルの先頭の札の赤い語と問い。見出しには状態の語が無い', 'ターミナルを押して番号を打つ。札の「ターミナルで回答」でも 1 回'],
+      ['0 回', '右パネルの先頭の札の下、「現在」の節へ。意図 → ツール呼び出し → サブエージェント', '見るだけ'],
+      ['2 回', '右パネルの要約を読む（決めたことが書いてあれば 0 回）→ 無ければ目次の節まで下げる', '右パネルをスクロール → 行を押す。要約に書いてあれば 0 回'],
+      ['1 回', '右パネルの先頭の札', '「再開」を押す。フォークも同じ札で 1 回。右パネルを閉じていれば ⌘J で 2 回'],
+      ['0 回', '右パネルの先頭の札の 3 つの数字', '見るだけ。右パネルを閉じていれば ⌘J で 1 回'],
+    ],
+    gain: '1 か所に全部が揃い、見出しが軽くなる。終わった後の右パネルがプロジェクト画面の右パネルと同じ作りになる。',
+    lose: '右パネルが 7 節の長い積みになり、目次が下がる。主の操作が右パネルの中なので、閉じている間と 900px の引き出しの裏で見失う。',
+    weight: 'PR 2 本。右パネルを節の積みに作り直し（いまの値の札、ステータスの札、詳細の畳み）、主の操作を移し、900px の引き出しを足す。境目の仕組みは節の畳みに置き換える。',
+  },
+  { id: 'c', name: '現在を帯に、右パネルは目次だけ', tag: 'C', rec: '推す',
+    blurb: `「現在」（状態と問い、意図、ツール呼び出し、サブエージェント、アーティファクトの数）と<b>いまの値</b>を、ターミナルの真上の 2 行の帯に置きます。
+右パネルは<b>目次だけ</b>の 240px になり、実行中も終わった後も同じ場所に同じものがあります。
+属性は見出しの「詳細」のポップオーバーに下げ、見出しの下の行を無くします。
+終わった後は、要約と次のステップと変更したファイルとアーティファクトとノートが<b>トランスクリプトの冒頭の 1 枚</b>に入ります。`,
+    notes: {
+      live: 'ターミナルの上の帯の 1 行目に入力待ちの語と問い、右端にコンテキスト使用量とコストとターン。2 行目に意図、ツール呼び出しの並び、サブエージェントとアーティファクトの数の札。右の 240px は目次だけで、行の下に手の種類の色帯。属性は見出しの右端の i から。',
+      ended: 'トランスクリプトの<b>冒頭の 1 枚</b>に Done の札、終了とコスト、要約、次のステップ、変更したファイルとアーティファクトと PR とノートの札。その下にメッセージが流れる。右は目次で、押したターン（6）を開くと、中身が目次の中に出て左もそこへジャンプする（今の目次と同じ動き）。',
+      narrow: '900px ではサイドバーを閉じ、目次の列をタブの列の「目次 9」の札に畳んでターミナルを全幅にする。帯は 3 行に折り返す（いまの値が 3 行目）。見出しの i を押した「詳細」のポップオーバーを開いて描いた。',
+    },
+    answers: [
+      `出す。右パネルは目次だけになり、実行中も終わった後も同じ場所。
+行を押すと中身が目次の中に開き、トランスクリプト（実行中はターミナル）がそのターンへジャンプする。`,
+      `いまの値はターミナルの上の帯の右端（終わった後は冒頭の 1 枚の 1 行目）。
+属性は見出しの「詳細」のポップオーバー。
+見出しの下の行は無くす。
+900px では目次の列を札に畳み、帯を 3 行に折り返す。畳む属性が無い。`,
+      `現在はターミナルの上の帯（状態と問い、意図、ツール呼び出し、サブエージェントとアーティファクトの数）。
+右パネルは目次だけ。
+終わった後は、要約、次のステップ、変更したファイル、アーティファクト、ノートが冒頭の 1 枚に入る。
+ステータスとリマインダーは見出しの札と冒頭の 1 行目。
+TODO はプロジェクト画面に任せる。`,
+      `目次とトランスクリプトを読む画面。
+冒頭の 1 枚に要約と次のステップがあり、読み始めた所で「何を決めたか」に答える。
+再開とフォークは見出し。`,
+    ],
+    moves: [
+      ['1 回', 'ターミナルの赤い縁 → その真上の帯の赤い語と問い。同じ列で目が上下するだけ', 'ターミナルを押して番号を打つ'],
+      ['0 回', '帯の 2 行目。意図 → ツール呼び出しの並び → サブエージェントの数', '見るだけ。ツール呼び出しが 4 回を超える分とサブエージェント 1 本ずつは、数の札を押して 1 回'],
+      ['0〜1 回', 'トランスクリプトの冒頭の要約（決めたことが書いてあれば 0 回）→ 無ければ右の目次の 11 行', '目次の行を押すと左がそのターンへジャンプし、中身も目次の中に開く'],
+      ['1 回', '見出しの右端の「再開」', '「再開」を押す。フォークは「…」を開いて 2 回'],
+      ['0 回', '帯の 1 行目の右端（終わった後は冒頭の 1 行目）', '見るだけ'],
+    ],
+    gain: '目がターミナルから離れない。右パネルが実行中と終わった後で同じ。終わった後は読み物として自然で、要約が冒頭にある。',
+    lose: '帯の分だけターミナルが 60px ほど縮む。サブエージェントのレーンとアーティファクトの一覧は帯に入らず、数の札を押して開く。右パネルの境目（セッションごとの比率）を捨てる。',
+    weight: 'PR 2 本。LivePane を帯と目次だけの右パネルに分け、いまの値を帯へ、属性をポップオーバーへ、終わった画面に冒頭の 1 枚を足す。境目と動きのコードは消える。',
+  },
+];
+const MOVE_LABELS = ['(a) 入力待ちに気づいて答える', '(b) いま何をしているかを知る（意図とツール呼び出し）', '(c) 3 日前のセッションで「あのとき何を決めたか」を探す', '(d) 終わったセッションの続きを始める', '(e) コストとコンテキスト使用量を確かめる'];
+const Q_LABELS = ['1 終わったセッションにも目次を出すか', '2 情報の行（11 項目）をどう分けるか、狭いときは', '3 右パネルの中身と順番、実行中と終わった後の入れ替わり', '4 終わったセッションを開いたときの主役'];
+
+/* ===== 頁の組み立て ===== */
+let shown = 'c';
+let screen = 'live';
+const host = document.getElementById('opts');
+
+function renderAll() {
+  host.innerHTML = OPTS.map((o) => `<section class="opt" id="opt-${o.id}" data-opt="${o.id}">
+<div class="opt-h"><span class="opt-id">${o.tag}</span><h2>${esc(o.name)}</h2>${o.rec ? `<span class="rec${o.rec === '次点' ? ' second' : ''}">${o.rec}</span>` : ''}</div>
+<p class="opt-d">${o.blurb}</p>
+<div class="tabs-row">${SCREEN_LIST.map((s, i) => `<button class="stab" data-screen="${s.key}" aria-pressed="${s.key === screen}"><i>${i + 1}</i>${esc(s.label)}</button>`).join('')}</div>
+${SCREEN_LIST.map((s) => `<div class="screen-note" data-note="${s.key}"${s.key === screen ? '' : ' hidden'}>${o.notes[s.key]}</div><div class="frame-wrap" data-screen="${s.key}"${s.key === screen ? '' : ' hidden'}>${screenHtml(o.id, s.key)}</div>`).join('')}
+<div class="below">
+<div><table class="tbl"><thead><tr><th>利用者の動き</th><th>操作</th><th>目の動き</th><th>手順</th></tr></thead><tbody>${o.moves.map((m, i) => `<tr><td>${MOVE_LABELS[i]}</td><td><span class="n">${esc(m[0])}</span></td><td><span class="eye">${esc(m[1])}</span></td><td>${esc(m[2])}</td></tr>`).join('')}</tbody></table>
+<div class="ans"><h3>論点への答え</h3><ol>${o.answers.map((a, i) => `<li><b>${Q_LABELS[i]}</b>　${esc(a)}</li>`).join('')}</ol></div></div>
+<div class="gl"><div><b>得るもの</b>${esc(o.gain)}</div><div><b>失うもの</b>${esc(o.lose)}</div><div><b>作り替えの重さ</b>${esc(o.weight)}</div></div>
+</div>
+</section>`).join('')
+  + `<section class="opt" id="opt-all" data-opt="all"><div class="opt-h"><h2>3 案の画面を並べる</h2><span class="faint">1280×800 を 3 分の 1 に縮めた。文字は読めないので、何がどこにあるかを見比べる</span></div>`
+  + ['live', 'ended'].map((k) => `<h3 class="all-row-h">${SCREEN_LIST.find((s) => s.key === k).label}</h3><div class="all-grid">${OPTS.map((o) => `<div class="all-cell"><div class="col-h"><span class="opt-id">${o.tag}</span>${esc(o.name)}</div><div class="frame-wrap">${screenHtml(o.id, k)}</div></div>`).join('')}</div>`).join('')
+  + `</section>`;
+  // 比較の表
+  const num = (v) => parseFloat(v.replace(/[^0-9.]/g, '')) || 0;
+  const best = (i) => Math.min(...OPTS.map((o) => num(o.moves[i][0])));
+  document.getElementById('cmp').innerHTML = `<thead><tr><th>利用者の動き</th>${OPTS.map((o) => `<th><span class="opt-id">${o.tag}</span> ${esc(o.name)}</th>`).join('')}</tr></thead><tbody>${MOVE_LABELS.map((l, i) => `<tr><td>${l.replace(/（.*）/, '')}</td>${OPTS.map((o) => `<td${num(o.moves[i][0]) === best(i) ? ' data-best' : ''}><span class="n">${esc(o.moves[i][0])}</span><br><span class="faint">${esc(o.moves[i][1])}</span></td>`).join('')}</tr>`).join('')}<tr><td>作り替えの重さ</td><td><span class="n">PR 1 本</span></td><td><span class="n">PR 2 本</span></td><td><span class="n">PR 2 本</span></td></tr></tbody>`;
+  applyShown();
+  fitFrames();
+}
+
+function applyShown() {
+  for (const el of host.querySelectorAll('.opt')) el.dataset.on = String(el.dataset.opt === shown);
+  for (const b of document.querySelectorAll('.sw[data-opt]')) b.setAttribute('aria-pressed', String(b.dataset.opt === shown));
+}
+function applyScreen() {
+  for (const b of document.querySelectorAll('[data-screen].sw, [data-screen].stab')) b.setAttribute('aria-pressed', String(b.dataset.screen === screen));
+  for (const x of host.querySelectorAll('.frame-wrap[data-screen], .screen-note[data-note]')) x.hidden = (x.dataset.screen || x.dataset.note) !== screen;
+  fitFrames();
+}
+/* 窓を、器の幅に合わせて縮める。 */
+function fitFrames() {
+  for (const wrap of document.querySelectorAll('.frame-wrap')) {
+    if (wrap.hidden || wrap.closest('.opt')?.dataset.on !== 'true') continue;
+    const f = wrap.querySelector('.frame');
+    const w = Number(f.dataset.w || 1280);
+    const h = Number(f.dataset.h || 800);
+    const scale = Math.min(1, wrap.clientWidth / w);
+    f.style.transform = `scale(${scale})`;
+    wrap.style.height = `${Math.round(h * scale)}px`;
+  }
+}
+document.querySelector('.switch').addEventListener('click', (e) => {
+  const b = e.target.closest('.sw');
+  if (!b) return;
+  if (b.dataset.opt) { shown = b.dataset.opt; applyShown(); fitFrames(); document.getElementById('opt-' + shown).scrollIntoView({ block: 'start' }); }
+  if (b.dataset.screen) { screen = b.dataset.screen; applyScreen(); }
+});
+host.addEventListener('click', (e) => {
+  const b = e.target.closest('.stab');
+  if (!b) return;
+  screen = b.dataset.screen;
+  applyScreen();
+});
+window.addEventListener('resize', fitFrames);
+renderAll();
+</script>
+</body>
+</html>

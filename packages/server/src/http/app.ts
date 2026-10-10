@@ -78,6 +78,11 @@ export type AppDeps = {
    * .app はこれが真になるまで起動画面に残る。渡さなければ済んだものとして扱う。
    */
   ready?: () => boolean;
+  /**
+   * 右ペインの要約器。裏の印（live/aside.ts）が 500 ミリ秒ごとに同じ要約を引くので、サーバは 1 つを両方に渡して覚えを共有する。
+   * 渡さなければ、ここで作る。
+   */
+  digester?: Pick<LiveDigester, 'digest'>;
   hub: { broadcast(ev: ServerEvent): void };
   runs: RunsApi;
   external: ExternalApi;
@@ -326,7 +331,7 @@ export function createApp(deps: AppDeps): Hono {
   const session = (id: string) => getSession(db, deps.live(), id, { deviceId });
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
   const broadcastSession = (id: string) => { const s = session(id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
-  const digester = new LiveDigester(db);
+  const digester = deps.digester ?? new LiveDigester(db);
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);

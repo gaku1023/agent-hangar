@@ -3,11 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { IntentRoot } from '../intent/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
-import type { ProjectCardProps } from '../presenters/projects.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { Header } from './Header.tsx';
 import { MemoEditor } from './MemoEditor.tsx';
-import { ProjectCard } from './ProjectCard.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
 import { TodoList } from './TodoList.tsx';
 import { fakeMotionTokens } from '../test/motion.ts';
@@ -15,7 +13,6 @@ import { RollingNumber } from './primitives/RollingNumber.tsx';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
 
 const art = (id: string, over: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: '題名 ' + id, description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/' + id, lastPublished: '1 分前', versionCount: 2, canOpenEditor: false, ...over });
-const card = (over: Partial<ProjectCardProps> = {}): ProjectCardProps => ({ id: 'p1', name: 'alpha', path: '/w/alpha', pathLabel: null, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 0, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'セッションはまだありません', excerptFromPrompt: false, ...over });
 const wrap = (node: ReactNode, onIntent = vi.fn()) => { render(<IntentRoot onIntent={onIntent}>{node}</IntentRoot>); return onIntent; };
 
 describe('UsageGauge', () => {
@@ -266,20 +263,5 @@ describe('ProjectScreen の右レール', () => {
     wrap(<ProjectScreen {...props} isScratch />);
     expect(screen.getByText('スクラッチで始める')).toBeTruthy();
     expect(screen.queryByText('新しいセッション')).toBeNull();
-  });
-});
-
-describe('ProjectCard の追加分', () => {
-  it('メモの 1 行目を出し、ここで始めるは親のクリックを巻き込まない', () => {
-    const onIntent = wrap(<ProjectCard {...card({ memoHead: '買い物の段取り' })} />);
-    expect(screen.getByText('買い物の段取り')).toBeTruthy();
-    fireEvent.click(screen.getByText('ここで始める'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'p1' });
-    expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'p1' });
-  });
-  it('メモが無ければその行を出さない', () => {
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectCard {...card()} /></IntentRoot>);
-    expect(container.querySelector('.card-memo')).toBeNull();
-    expect(screen.getByText('ここで始める')).toBeTruthy();
   });
 });

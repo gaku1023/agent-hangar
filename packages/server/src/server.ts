@@ -34,6 +34,7 @@ import { CompatLog, compatPath } from './provider/claude-code/compat/log.ts';
 import type { Drift } from './provider/claude-code/compat/types.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { AsideReader } from './live/aside.ts';
+import { LiveDigester } from './live/digest.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
@@ -386,7 +387,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const compatLog = new CompatLog({ file: compatPath(home), localVersion: () => claudeVersion });
   compatLog.start();
   // 裏でサブエージェントだけが動いているものに、読み直しのたびに印を足す（live/aside.ts）。
-  const aside = new AsideReader(db);
+  // 右ペインの要約は、裏の印と HTTP（UI の取り直し）で 1 つの覚えを共有する。別々に持つと、長いセッションの同じ要約を二度作る。
+  const digester = new LiveDigester(db);
+  const aside = new AsideReader(db, digester);
   const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone, (live) => aside.apply(live, Date.now()), compatLog);
 
   // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
@@ -933,7 +936,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       engine.setClaudeConfigStatus({ enabled: settings.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
       return settings;
     },
-    live: () => registry.current(), indexer, hub, runs, external, usage, memos,
+    live: () => registry.current(), indexer, hub, runs, external, usage, memos, digester,
     summary: {
       enqueue: (id, opts) => summary.enqueue(id, opts),
       pending: () => summary.pending(),
