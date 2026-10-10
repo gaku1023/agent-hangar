@@ -175,7 +175,11 @@ export function signApp(opts: SignOptions, run: Runner = defaultRun, machOs: str
   const base = ['--force', ...(opts.mode === 'cert' && opts.keychain ? ['--keychain', opts.keychain] : []), '-s', identity];
   const codesign = (args: string[]): RunResult => {
     const r = run('codesign', args);
-    if (r.status !== 0) throw new Error(`codesign が失敗した（${args[args.length - 1]}）\n${r.stderr}`);
+    if (r.status !== 0) {
+      // 自作の証明書は、信頼されていないと「有効な識別」に数えられず、検索リストに無いキーチェーンも探されないことがある（macOS 26 の CI で実測）。
+      const hint = /no identity found/.test(r.stderr) ? '\nmacOS 26 では、証明書をコード署名用に信頼し、キーチェーンを検索リストへ足さないと見つからない。scripts/prepare-signing-keychain.sh（docs/signing.md）を先に走らせる' : '';
+      throw new Error(`codesign が失敗した（${args[args.length - 1]}）\n${r.stderr}${hint}`);
+    }
     return r;
   };
 
