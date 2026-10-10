@@ -94,7 +94,8 @@ describe('サーバに残る日本語の直書き', () => {
   const actual: Record<string, number> = {};
   for (const file of sourceFiles(SRC)) {
     const n = japaneseLines(file);
-    if (n > 0) actual[path.relative(SRC, file)] = n;
+    // 許可の一覧のキーは '/' 区切りなので、Windows の '\\' はそろえる。
+    if (n > 0) actual[path.relative(SRC, file).split(path.sep).join('/')] = n;
   }
 
   it('ファイルごとの行数が、許可の一覧と同じである', () => {
