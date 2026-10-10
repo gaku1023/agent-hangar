@@ -112,17 +112,102 @@ pub fn nvm_node_paths(user_home: &Path) -> Vec<PathBuf> {
     found.into_iter().map(|(_, p)| p).collect()
 }
 
-/// 探索の順序。Settings の明示、Homebrew、/usr/local、nvm（新しい版が先）。
+/// Windows で Node を探す手掛かり。環境変数の値を引数で受け取る形にして、試験が環境を書き換えずに済むようにする。
+#[derive(Debug, Default, Clone)]
+pub struct WindowsEnv {
+    /// `ProgramFiles`。公式のインストーラの入れ先（`nodejs\node.exe`）の親。
+    pub program_files: Option<PathBuf>,
+    /// `LOCALAPPDATA`。ユーザー単位のインストーラの入れ先（`Programs\nodejs\node.exe`）の親。
+    pub local_app_data: Option<PathBuf>,
+    /// `NVM_SYMLINK`。nvm-windows が選んだ版を指すリンクの場所。
+    pub nvm_symlink: Option<PathBuf>,
+    /// `NVM_HOME`。nvm-windows が版ごとの Node を置く場所。
+    pub nvm_home: Option<PathBuf>,
+    /// `PATH` の各項目。
+    pub path_dirs: Vec<PathBuf>,
+}
+
+impl WindowsEnv {
+    pub fn from_process_env() -> Self {
+        let var = |k: &str| std::env::var_os(k).map(PathBuf::from);
+        Self {
+            program_files: var("ProgramFiles"),
+            local_app_data: var("LOCALAPPDATA"),
+            nvm_symlink: var("NVM_SYMLINK"),
+            nvm_home: var("NVM_HOME"),
+            path_dirs: std::env::var_os("PATH")
+                .map(|p| std::env::split_paths(&p).collect())
+                .unwrap_or_default(),
+        }
+    }
+}
+
+/// Windows の探索先。公式のインストーラの入れ先、nvm-windows（新しい版が先）、PATH の順。
+/// サーバ側の同梱 CLI の入口（`scripts/launch-cli.ts`）と同じ並びにそろえてある。
+/// PATH は実在する `node.exe` だけを足す。実在しない項目を候補に混ぜると、`describe_error` の「調べた場所」が読みにくくなる。
+pub fn windows_node_paths(env: &WindowsEnv) -> Vec<PathBuf> {
+    let mut all = Vec::new();
+    if let Some(pf) = &env.program_files {
+        all.push(pf.join("nodejs").join("node.exe"));
+    }
+    if let Some(local) = &env.local_app_data {
+        all.push(local.join("Programs").join("nodejs").join("node.exe"));
+    }
+    if let Some(link) = &env.nvm_symlink {
+        all.push(link.join("node.exe"));
+    }
+    if let Some(home) = &env.nvm_home {
+        if let Ok(rd) = std::fs::read_dir(home) {
+            let mut found: Vec<((u32, u32, u32), PathBuf)> = rd
+                .flatten()
+                .filter_map(|e| {
+                    parse_version(&e.file_name().to_string_lossy())
+                        .map(|v| (v, e.path().join("node.exe")))
+                })
+                .filter(|(_, p)| p.is_file())
+                .collect();
+            found.sort_by_key(|a| std::cmp::Reverse(a.0));
+            all.extend(found.into_iter().map(|(_, p)| p));
+        }
+    }
+    all.extend(
+        env.path_dirs
+            .iter()
+            .map(|d| d.join("node.exe"))
+            .filter(|p| p.is_file()),
+    );
+    all
+}
+
+/// OS ごとの固定の探索先。macOS と Linux は Homebrew、/usr/local、nvm。Windows は上の `windows_node_paths`。
+fn platform_node_paths(user_home: &Path) -> Vec<PathBuf> {
+    if cfg!(windows) {
+        let _ = user_home;
+        windows_node_paths(&WindowsEnv::from_process_env())
+    } else {
+        let mut all = vec![
+            PathBuf::from("/opt/homebrew/bin/node"),
+            PathBuf::from("/usr/local/bin/node"),
+        ];
+        all.extend(nvm_node_paths(user_home));
+        all
+    }
+}
+
+/// 探索の順序。Settings の明示、そのあとは OS ごとの固定の場所（`platform_node_paths`）。
 /// 同じ場所は一度しか調べない。
 /// Settings の指定が探索先と重なることがあるためである。
 pub fn candidate_paths(user_home: &Path, hangar_home: &Path) -> Vec<PathBuf> {
+    candidates_from(hangar_home, platform_node_paths(user_home))
+}
+
+/// Settings の明示を先頭に、与えられた場所を続けて、重複を除く。
+fn candidates_from(hangar_home: &Path, fixed: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut all = Vec::new();
     if let Some(p) = settings_node_path(hangar_home) {
         all.push(p);
     }
-    all.push(PathBuf::from("/opt/homebrew/bin/node"));
-    all.push(PathBuf::from("/usr/local/bin/node"));
-    all.extend(nvm_node_paths(user_home));
+    all.extend(fixed);
     let mut seen = HashSet::new();
     all.into_iter().filter(|p| seen.insert(p.clone())).collect()
 }
@@ -191,6 +276,12 @@ pub fn probe_node_within(path: &Path, timeout: Duration) -> ProbeOutcome {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // 窓を持たない殻から起こすと、候補ごとに黒い窓が一瞬開く（CREATE_NO_WINDOW）。
+        cmd.creation_flags(0x0800_0000);
+    }
     #[cfg(unix)]
     unsafe {
         use std::os::unix::process::CommandExt;
@@ -340,6 +431,7 @@ mod tests {
         std::fs::write(path, "").unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn nvm_versions_are_sorted_newest_first() {
         let home = tempfile::tempdir().unwrap();
@@ -360,6 +452,7 @@ mod tests {
         assert!(nvm_node_paths(Path::new("/nonexistent")).is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn candidates_put_settings_first_then_fixed_then_nvm() {
         let user = tempfile::tempdir().unwrap();
@@ -382,6 +475,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn candidates_drop_duplicates() {
         let user = tempfile::tempdir().unwrap();
@@ -417,6 +511,69 @@ mod tests {
                 PathBuf::from("/opt/homebrew/bin/node"),
                 PathBuf::from("/usr/local/bin/node"),
             ]
+        );
+    }
+
+    /// Windows の探索先を、環境変数に頼らず組み立てる関数の試験。
+    /// 置き場は実在のディレクトリで作る。パスの区切りは OS のものなので、期待値も join で組む。
+    #[test]
+    fn windows_candidates_follow_installer_then_nvm_then_path() {
+        let root = tempfile::tempdir().unwrap();
+        let pf = root.path().join("Program Files");
+        let local = root.path().join("Local");
+        let symlink = root.path().join("nvm-link");
+        let nvm = root.path().join("nvm");
+        for v in ["v20.1.0", "v22.14.0", "v22.9.0", "junk"] {
+            touch(&nvm.join(v).join("node.exe"));
+        }
+        // node.exe を置かない版は候補に入れない。
+        std::fs::create_dir_all(nvm.join("v21.0.0")).unwrap();
+        let on_path = root.path().join("tools");
+        touch(&on_path.join("node.exe"));
+        let empty_dir = root.path().join("no-node-here");
+        std::fs::create_dir_all(&empty_dir).unwrap();
+
+        let got = windows_node_paths(&WindowsEnv {
+            program_files: Some(pf.clone()),
+            local_app_data: Some(local.clone()),
+            nvm_symlink: Some(symlink.clone()),
+            nvm_home: Some(nvm.clone()),
+            path_dirs: vec![empty_dir, on_path.clone()],
+        });
+        assert_eq!(
+            got,
+            vec![
+                pf.join("nodejs").join("node.exe"),
+                local.join("Programs").join("nodejs").join("node.exe"),
+                symlink.join("node.exe"),
+                nvm.join("v22.14.0").join("node.exe"),
+                nvm.join("v22.9.0").join("node.exe"),
+                nvm.join("v20.1.0").join("node.exe"),
+                // PATH は、実在する node.exe だけを後ろに足す。
+                on_path.join("node.exe"),
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_candidates_are_empty_without_any_environment() {
+        assert!(windows_node_paths(&WindowsEnv::default()).is_empty());
+    }
+
+    // Windows の PATH は、公式の入れ先と同じ場所を指すことが多い。同じ場所は 1 つにまとめる。
+    #[test]
+    fn candidates_with_a_platform_list_drop_duplicates_and_keep_settings_first() {
+        let hangar = tempfile::tempdir().unwrap();
+        std::fs::write(
+            hangar.path().join("settings.json"),
+            r#"{ "nodePath": "C:/mine/node.exe" }"#,
+        )
+        .unwrap();
+        let a = PathBuf::from("C:/a/node.exe");
+        let b = PathBuf::from("C:/b/node.exe");
+        assert_eq!(
+            candidates_from(hangar.path(), vec![a.clone(), b.clone(), a.clone()]),
+            vec![PathBuf::from("C:/mine/node.exe"), a, b]
         );
     }
 

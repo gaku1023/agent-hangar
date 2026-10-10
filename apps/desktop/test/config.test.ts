@@ -9,6 +9,28 @@ import { LANGUAGES } from '../../../packages/shared/src/i18n/language.ts';
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => fs.readFileSync(path.join(app, p), 'utf8');
 
+// Tauri は tauri.windows.conf.json を、Windows のビルドのときだけ tauri.conf.json に重ねる（JSON merge patch。配列は丸ごと置き換わる）。
+// macOS の配布（.app だけ）を変えずに、Windows の配布物を NSIS の 1 本に決めるための置き場である（段 6 の 6-8）。
+describe('tauri.windows.conf.json', () => {
+  const win = JSON.parse(read('src-tauri/tauri.windows.conf.json'));
+  it('配布物は NSIS の 1 本で、管理者権限を要らないユーザー単位のインストールにする', () => {
+    expect(win.bundle.targets).toEqual(['nsis']);
+    expect(win.bundle.windows.nsis.installMode).toBe('currentUser');
+    // 署名はしない（利用者の決定）。署名の設定が紛れ込んで、鍵の無い CI を落とさないようにする。
+    expect(win.bundle.windows.certificateThumbprint).toBeUndefined();
+    expect(win.bundle.windows.signCommand).toBeUndefined();
+    expect(win.bundle.createUpdaterArtifacts).toBeUndefined();
+  });
+  it('macOS の設定を変えない（.app だけ、重ねるのは Windows のビルドのときだけ）', () => {
+    const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
+    expect(conf.bundle.targets).toEqual(['app']);
+    expect(conf.bundle.windows).toBeUndefined();
+    // 重ねる側が、読み込み画面や同梱サーバの置き場まで書き換えていない。
+    expect(Object.keys(win).sort()).toEqual(['$schema', 'bundle']);
+    expect(Object.keys(win.bundle).sort()).toEqual(['targets', 'windows']);
+  });
+});
+
 describe('tauri.conf.json', () => {
   const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
   it('hangar スキームを登録し、同梱サーバを server/ に置き、読み込み画面から始める', () => {

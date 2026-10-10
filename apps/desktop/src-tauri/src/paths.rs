@@ -3,8 +3,14 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// 利用者のホーム。`HOME` が無ければ `/`。
+/// Windows は `USERPROFILE` を先に見る。スタートメニューから起こしたアプリに `HOME` は無く、あっても Git Bash の持ち物である。
+/// サーバ側の `os.homedir()` も Windows では `USERPROFILE` を返す。
 pub fn user_home() -> PathBuf {
-    user_home_from(std::env::var_os("HOME"))
+    #[cfg(windows)]
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"));
+    #[cfg(not(windows))]
+    let home = std::env::var_os("HOME");
+    user_home_from(home)
 }
 
 /// hangar のデータディレクトリ。サーバと同じく `HANGAR_HOME` を優先する。

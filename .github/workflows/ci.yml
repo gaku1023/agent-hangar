@@ -37,8 +37,9 @@ jobs:
       - run: npm run build
   windows:
     runs-on: windows-latest
-    # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分かかる。
-    timeout-minutes: 40
+    # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分、
+    # 配布物のビルド（release の Rust と NSIS）にさらに数分から十数分かかる。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -83,6 +84,46 @@ jobs:
         working-directory: apps/desktop/src-tauri
       - run: cargo test
         working-directory: apps/desktop/src-tauri
+      # 配布物（NSIS のインストーラ）を作り、入れて、同梱の hangar.cmd が動くところまで見る（段 6 の 6-8）。
+      # 署名はしない（利用者の決定）。Release には上げず、この実行の artifact に 7 日だけ残す。
+      # server-dist は beforeBuildCommand（npm run bundle-server）が作る。UI の dist が先に要るので build を先に回す。
+      - run: npm run build
+      - name: インストーラを作る
+        run: npm run tauri -w apps/desktop -- build --bundles nsis
+      - name: インストーラの名前、大きさ、SHA-256
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis -Filter '*-setup.exe'
+          if (-not $files) { throw 'NSIS のインストーラができていない' }
+          foreach ($f in $files) {
+            '{0}  {1:N1} MB  {2}' -f $f.Name, ($f.Length / 1MB), (Get-FileHash -Algorithm SHA256 $f.FullName).Hash
+          }
+      # 管理者権限なし（ユーザー単位）で静かに入る。入った先の同梱の hangar.cmd が、Node を見つけて cli.mjs を動かす。
+      # 入れた先は %LOCALAPPDATA%\Hangar（NSIS のユーザー単位の既定）。レイアウトを決め打ちしすぎないよう、hangar.cmd は探して使う。
+      # アプリ本体は起動しない（窓を持つので CI では動かさない）。
+      - name: 静かに入れ、同梱の hangar.cmd を動かし、静かに消す
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem apps/desktop/src-tauri/target/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "インストーラが終了コード $($p.ExitCode) で終わった" }
+          $dir = Join-Path $env:LOCALAPPDATA 'Hangar'
+          if (-not (Test-Path $dir)) { Get-ChildItem $env:LOCALAPPDATA | Format-Table Name; throw "$dir に入っていない" }
+          Get-ChildItem $dir | Format-Table Name, Length
+          $cmd = Get-ChildItem $dir -Recurse -Filter hangar.cmd | Select-Object -First 1
+          if (-not $cmd) { throw '同梱の hangar.cmd が入っていない' }
+          $out = & $cmd.FullName --help 2>&1 | Out-String
+          $out
+          if ($LASTEXITCODE -ne 0 -or $out -notmatch 'setup') { throw "hangar.cmd --help が動かない（終了コード $LASTEXITCODE）" }
+          # _?= を付けると、消す側が自分を写さずその場で動き、終わるまで待てる。
+          $u = Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList "/S _?=$dir" -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "アンインストーラが終了コード $($u.ExitCode) で終わった" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Hangar-windows-x64-setup
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
   desktop:
     runs-on: macos-latest
     # Rust のビルドがキャッシュ外れで長引いたときの上限。
