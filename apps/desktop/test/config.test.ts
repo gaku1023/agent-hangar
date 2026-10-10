@@ -31,6 +31,44 @@ describe('tauri.windows.conf.json', () => {
   });
 });
 
+// 殻は起動のたびに、トーストのための登録（AppUserModelId と COM の口の CLSID）と絵（notify-icon.png）を利用者の領域へ書く（notify.rs の mod toast）。
+// アンインストールで消さないと、消したあとも登録が残る。消す側（NSIS のフック）の値が、書く側の定数と食い違わないことを見る。
+describe('NSIS のアンインストールの後片付け', () => {
+  const win = JSON.parse(read('src-tauri/tauri.windows.conf.json'));
+  const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
+  const hooksPath = win.bundle.windows.nsis.installerHooks as string;
+  /** NSIS_HOOK_POSTUNINSTALL の本体（macro と macroend の間）。 */
+  const body = () => {
+    const m = /!macro NSIS_HOOK_POSTUNINSTALL\r?\n([\s\S]*?)!macroend/.exec(read(path.join('src-tauri', hooksPath)));
+    expect(m, 'NSIS_HOOK_POSTUNINSTALL が見つかりません').not.toBeNull();
+    return m![1]!;
+  };
+  /** notify.rs の定数。`0x1ce6ab2a_d79d_49f4_88b0_5a9e624a75e4` を `{1CE6AB2A-D79D-49F4-88B0-5A9E624A75E4}` にする。 */
+  const clsid = () => {
+    const m = /ACTIVATOR_CLSID: u128 = 0x([0-9a-f_]+);/.exec(read('src-tauri/src/notify.rs'));
+    expect(m, 'ACTIVATOR_CLSID が見つかりません').not.toBeNull();
+    const h = m![1]!.replaceAll('_', '').toUpperCase();
+    return `{${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}}`;
+  };
+  it('設定がフックの .nsh を指し、実在する', () => {
+    expect(hooksPath).toBeTruthy();
+    expect(fs.existsSync(path.join(app, 'src-tauri', hooksPath))).toBe(true);
+  });
+  it('AppUserModelId の登録を、書く側と同じ名前（identifier）で消す', () => {
+    expect(body()).toContain(`DeleteRegKey HKCU "Software\\Classes\\AppUserModelId\\${conf.identifier}"`);
+  });
+  it('COM の口の CLSID の登録を、書く側の定数と同じ値で消す', () => {
+    expect(body()).toContain(`DeleteRegKey HKCU "Software\\Classes\\CLSID\\${clsid()}"`);
+  });
+  it('トーストの絵だけを消し、利用者のデータ（~\\.agent-hangar の DB など）は消さない', () => {
+    const b = body();
+    expect(b).toContain('Delete "$PROFILE\\.agent-hangar\\notify-icon.png"');
+    expect(b).not.toMatch(/RMDir/i);
+    expect(b).not.toMatch(/Delete\s+"[^"]*\*/);
+    expect(b).not.toMatch(/\.db/);
+  });
+});
+
 describe('tauri.conf.json', () => {
   const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
   it('hangar スキームを登録し、同梱サーバを server/ に置き、読み込み画面から始める', () => {

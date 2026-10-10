@@ -193,6 +193,16 @@ describe('設定の一般', () => {
     expect(screen.getByText(/システム設定の「通知」で Hangar を許可してください/)).toBeInTheDocument();
     expect(screen.getByText(/通知がオフになっています/)).toBeInTheDocument();
   });
+  it('Windows では、Windows の設定の「通知」で許可するよう添える', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
+    try {
+      render(ui(at('general', { notify: { available: true, on: false, blocked: true } })));
+      expect(screen.getByText(/Windows の設定の「通知」で Hangar を許可してください/)).toBeInTheDocument();
+      expect(screen.queryByText(/システム設定/)).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('通知を出せない環境では、スイッチを押せなくして理由を添える', () => {
     render(ui(at('general', { notify: { available: false, on: false, blocked: false } })));
     expect(screen.getByRole('switch', { name: '通知を有効にする' })).toBeDisabled();

@@ -54,9 +54,25 @@ runs:
         Get-ChildItem $dir | Format-Table Name, Length
         $cmd = Get-ChildItem $dir -Recurse -Filter hangar.cmd | Select-Object -First 1
         if (-not $cmd) { throw '同梱の hangar.cmd が入っていない' }
+        # 殻が起動のたびに書くトーストの登録と絵を、ここで代わりに置く（アプリ本体は CI では動かさない）。
+        # 消したあとに残っていないことと、利用者のデータには触れないことを、消したあとで見る。
+        $appKey = 'HKCU:\Software\Classes\AppUserModelId\dev.agent-hangar.hangar'
+        $clsidKey = 'HKCU:\Software\Classes\CLSID\{1CE6AB2A-D79D-49F4-88B0-5A9E624A75E4}'
+        $home1 = Join-Path $env:USERPROFILE '.agent-hangar'
+        New-Item -Path $appKey -Force | Out-Null
+        New-Item -Path "$clsidKey\LocalServer32" -Force | Out-Null
+        New-Item -ItemType Directory -Path $home1 -Force | Out-Null
+        Set-Content -Path (Join-Path $home1 'notify-icon.png') -Value 'x'
+        Set-Content -Path (Join-Path $home1 'ci-keep.txt') -Value 'x'
         $out = & $cmd.FullName --help 2>&1 | Out-String
         $out
         if ($LASTEXITCODE -ne 0 -or $out -notmatch 'setup') { throw "hangar.cmd --help が動かない（終了コード $LASTEXITCODE）" }
         # _?= を付けると、消す側が自分を写さずその場で動き、終わるまで待てる。
         $u = Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList "/S _?=$dir" -Wait -PassThru
         if ($u.ExitCode -ne 0) { throw "アンインストーラが終了コード $($u.ExitCode) で終わった" }
+        # アンインストールのフックが、トーストの登録と絵を消す。利用者のデータ（.agent-hangar の中のほかのもの）は消さない。
+        if (Test-Path $appKey) { throw 'アンインストール後に AppUserModelId の登録が残っている' }
+        if (Test-Path $clsidKey) { throw 'アンインストール後に COM の口の CLSID の登録が残っている' }
+        if (Test-Path (Join-Path $home1 'notify-icon.png')) { throw 'アンインストール後に notify-icon.png が残っている' }
+        if (-not (Test-Path (Join-Path $home1 'ci-keep.txt'))) { throw 'アンインストールが利用者のデータを消した' }
+        Remove-Item (Join-Path $home1 'ci-keep.txt') -Force

@@ -1415,6 +1415,18 @@ describe('入力待ちの知らせ', () => {
     // 利用者の選んだ値は書き換えない。OS で許可し直せば、スイッチを入れ直すだけで戻る。
     expect(store.get('notify.waiting')).toBeUndefined();
   });
+  it('Windows では、切られているときの知らせが Windows の設定を指す', async () => {
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
+    try {
+      const n = fakeNotifier({ defaultOn: false, granted: false, grant: false, status: 'denied' });
+      const { rt } = await started(n);
+      rt.emit({ type: 'notify.set', on: true });
+      await flush();
+      expect(rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。Windows の設定の「通知」で Hangar を許可してください');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('起動したときに尋ねて断られたときも、受け取らないにする', async () => {
     let answer: NotifyPermission = 'undetermined';
     const n = { ...fakeNotifier({ defaultOn: true }), prepare: vi.fn(async () => { answer = 'denied'; }), status: vi.fn(async () => answer) };
