@@ -69,12 +69,25 @@ UI は同じサーバから配信され、HTTP で読み書きし、WebSocket �
 ターミナルは WebSocket 上の別チャネルで、node-pty の入出力をそのまま流す。
 MCP は Streamable HTTP で、共通の `/mcp` とセッション別の `/mcp/s/<sessionId>` を持つ。
 Tauri のシェルは、起動時にサーバの子プロセスを立て、終了時に止める。
+止め方は OS で分ける（`src-tauri/src/server.rs` の `stop_within`）。
+macOS は SIGTERM を送り、猶予（`STOP_GRACE`、10 秒）を過ぎても残ればサーバに SIGKILL を送る。
+Windows には SIGTERM が無いので、殻はサーバの標準入力を管でつなぎ、`HANGAR_STOP_ON_STDIN_END=1` を渡しておき、止めるときに管を閉じる。
+サーバはその読み口の終わりを SIGTERM と同じ合図として受け取り、DB を閉じてから降りる（`entry.ts` の `runMain`）。
+Windows のサーバはジョブオブジェクトに入れる（`src-tauri/src/winjob.rs`）。
+猶予を過ぎても残っていればジョブごと止め、猶予のうちに降りた後も、ジョブに残った孫（node-pty の端末など）をそこで止める。
+ジョブは閉じたら中身を止める（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）ので、殻が落ちたときもサーバと孫は残らない。
+その代わり、殻が落ちたときのサーバは後始末をせずに止まる（macOS は親の見張りで 5 秒後に自分で降りる）。
+ジョブは自分から抜けることを許す（`JOB_OBJECT_LIMIT_BREAKAWAY_OK`）。
+psmux はサーバを `CREATE_BREAKAWAY_FROM_JOB` で起こしてジョブの外へ出るので、psmux のサーバとその中の claude は Hangar を閉じても残る（macOS の tmux と同じ）。
+黙って抜けるのを許す `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` は付けない。付けると孫がみなジョブの外に出て、ジョブで止められるのがサーバ 1 つだけになる。
+殻が Windows で起こす子（サーバ、Node の候補、設定の同期の CLI）には `CREATE_NO_WINDOW` を付け、黒いコンソールの窓を開かない。
+Node の候補もジョブに入れ、打ち切ったときに孫ごと止める（unix の `setsid` と `killpg` に当たる）。
 Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
 配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
-サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`）を自分の環境から消す（`launch/env.ts`）。
+サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`）を自分の環境から消す（`launch/env.ts`）。
 殻も、サーバを起こすときに同じ名前を外してから自分の値を入れる（`server.rs` の `INHERITED_ENV_DROPPED`。サーバの正本との一致は試験で縛る）。
 アプリを Claude Code のセッションの Bash から `open` で起こすと、呼び手の環境がそのまま殻とサーバに入り、サーバが起こす tmux サーバの全体の環境と、サーバが直に起こす claude（`--help`、`agents --json`、要約の `-p`、`auth status`）にまで届くためである。
 `/health` の `ready` が真になってから、鍵付きの URL を印字する。
@@ -975,7 +988,7 @@ tmux で `claude` を直接起動すると異常終了時の出力が失われ�
 込んだ機械で `tee` が後回しになると、書きかけのまま落ちて終わり際の標準エラーが消えていたので、`tee` は SIGHUP を無視する形で起こし、bash は `tee` が書き終えるのを 2 秒まで待ってから `exit=` を書く。
 2 秒で見切るのは、claude の残した子が標準エラーを握り続けても、ペインを閉じるためである。
 包みの中身が変わったときはサーバの起動時に書き直すが、走っている run の bash は台本を読みながら進むので、その場で書き換えずに別のファイルから rename で入れ替える。
-起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`）と `HANGAR_CLOUD_DIR` を `-u` で外す。
+起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`）と `HANGAR_CLOUD_DIR` を `-u` で外す。
 Windows は名前を包みへ `HANGAR_UNSET_ENV` で渡し、包みが消してから claude を起こす。
 tmux の新しいセッションは、`PATH` のほかは tmux サーバの全体の環境を継ぐ（`PATH` は下に書くとおり起こした側の値になる）。tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境に別のセッションの印が残る。
 印を持って始まった claude は、そのセッションの子として振る舞う（再開の一覧と履歴から外れる、裏のセッションと見なす、別のセッションの名前やソケットを使う）。
@@ -2013,6 +2026,10 @@ Home でも同じ行を同じ並びで出す。帯の「要対応」「実行中
 メインはヘッダーの下をくぐって流れ、ヘッダーの高さと隙間の分だけ上に余白を取ってから始まる。
 `.app` では標準のタイトルバーを消し、信号の 3 点をヘッダーの左端に乗せ、ヘッダーの空いた所を掴んで窓を動かし、そこをダブルクリックすると窓が拡大する。
 そのために、UI の出どころ（`http://127.0.0.1:4177`）に窓を動かす権限（`core:window:allow-start-dragging`）とダブルクリックで拡大する権限（`core:window:allow-internal-toggle-maximize`）の 2 つだけ与え（`capabilities/remote-drag.json`）、殻は頁に `data-shell="desktop"` の印を付けて、ヘッダーのロゴはその印があるときだけ信号の 3 点の右から始まる。
+印は読み込み画面にも付け、失敗の札のロゴも同じく信号の 3 点の右から始める。
+Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉じるのボタン）にする。
+`titleBarStyle`、`hiddenTitle`、`trafficLightPosition` は macOS の装飾なので、`tauri.windows.conf.json` が窓の定義を、それらを外して `decorations: true` にしたもので置き換える（配列は丸ごと置き換わるので、窓の名前と大きさは `tauri.conf.json` の写しで、一致は試験で縛る）。
+殻は Windows では `data-shell` の印を付けないので、ヘッダーのロゴと失敗の札のロゴは既定の余白（16px）から始まる。
 入力待ちを窓の外へ知らせるために、同じ出どころには通知を出す権限（`allow-notify-waiting`）、通知の許可を求める権限（`allow-notify-request`）、通知の許可の状態を読む権限（`allow-notify-status`）、Dock のバッジに数を出す権限（`core:window:allow-set-badge-count`）の 4 つだけを別に与える（`capabilities/remote-notify.json`）。
 前の 3 つは殻が自分で持つコマンドで、`build.rs` の AppManifest に並べたものだけが権限になる。
 殻の命令は 7 つだけ持つ（`src-tauri/build.rs` の一覧と `lib.rs` の `#[tauri::command]`）。
@@ -4092,7 +4109,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   win32-x64 の束は、`bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
   cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直し（HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows の順）は `launch-cli.mjs` が行う。
   殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、PATH の順に探す。Node 本体は Windows でも同梱しない。
-- Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消すところまでを行う。
+- Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる（重ねるのは配布物と窓の装飾だけ）。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消すところまでを行う。
   CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。
   タグの `release.yml` では、windows ジョブが同じ手順で作って `Hangar-<タグ>-windows-x64-setup.exe` と `.sha256` を artifact に置き、`windows-upload` ジョブが macos ジョブの後でそれを macos ジョブの作った Release に `gh release upload` で添える。Release を作るのは macos ジョブだけで、書き込みの権限もこの 2 つのジョブだけが持つ。
   署名鍵があれば、インストーラの署名（`.sig`）も作り、`updater-manifest` ジョブが更新の目録に載せる（次の「アプリの自動更新」）。

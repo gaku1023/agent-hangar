@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BASELINE_DB_VERSION, dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { BOOT_ERROR_FILE } from './boot/bootError.ts';
@@ -130,5 +131,63 @@ describe('サーバの入口（runMain）', () => {
     const r = await run(async () => ({ close: async () => { closed++; } }));
     expect(r).toEqual({ codes: [], errors: [] });
     expect(closed).toBe(0);
+  });
+});
+
+// Windows には SIGTERM が無い。殻（server.rs）はサーバの標準入力を管でつなぎ、止めるときにそれを閉じる。
+// サーバはその「読み口の終わり」を SIGTERM と同じ止める合図として受け取り、DB を閉じてから降りる。
+describe('標準入力が閉じたら止める（runMain の stdin）', () => {
+  it('読み口が終わると close() を走らせて 0 で降り、理由を 1 行残す', async () => {
+    const stdin = new PassThrough();
+    const exits: number[] = [];
+    const lines: string[] = [];
+    let closed = 0;
+    await runMain({
+      start: async () => ({ close: async () => { closed++; } }),
+      stdin,
+      exit: () => {},
+      error: () => {},
+      shutdown: { on: () => {}, exit: (c) => { exits.push(c); }, log: (l) => { lines.push(l); } },
+    });
+    expect(closed).toBe(0);
+    stdin.end();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(1);
+    expect(exits).toEqual([0]);
+    expect(lines).toEqual(['[shutdown] stdin closed']);
+  });
+
+  it('起動が終わる前に閉じられても、起動が終わってから close() が走る', async () => {
+    const stdin = new PassThrough();
+    const exits: number[] = [];
+    let closed = 0;
+    let ready: (s: { close(): Promise<void> }) => void = () => {};
+    const done = runMain({
+      start: () => new Promise((r) => { ready = r; }),
+      stdin,
+      exit: () => {},
+      error: () => {},
+      shutdown: { on: () => {}, exit: (c) => { exits.push(c); }, log: () => {} },
+    });
+    stdin.end();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(0);
+    ready({ close: async () => { closed++; } });
+    await done;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).toBe(1);
+    expect(exits).toEqual([0]);
+  });
+
+  it('stdin を渡さなければ見張らない（macOS の殻と、端末から起こしたサーバ）', async () => {
+    const exits: number[] = [];
+    await runMain({
+      start: async () => ({ close: async () => {} }),
+      exit: () => {},
+      error: () => {},
+      shutdown: { on: () => {}, exit: (c) => { exits.push(c); }, log: () => {} },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(exits).toEqual([]);
   });
 });

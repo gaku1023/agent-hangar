@@ -90,3 +90,42 @@ describe.skipIf(process.platform === 'win32')('サーバの起動（main.ts）',
     }
   }, 90_000);
 });
+
+// Windows の殻はサーバを SIGTERM で止められない。代わりに標準入力の管を閉じる（apps/desktop/src-tauri/src/server.rs）。
+// 本物の管とプロセスで、閉じたらサーバが自分で後始末をして 0 で降りることを見る。Windows の CI でもここは走る。
+describe('標準入力を閉じて止める（main.ts、HANGAR_STOP_ON_STDIN_END）', () => {
+  it('HANGAR_STOP_ON_STDIN_END=1 のとき、標準入力が閉じたら後始末をして 0 で降りる', async () => {
+    const root = tmp('hangar-main-stdin-');
+    const home = path.join(root, 'home');
+    const claude = path.join(root, 'claude');
+    const ws = path.join(root, 'ws');
+    for (const d of [home, path.join(claude, 'projects'), path.join(claude, 'sessions'), ws]) fs.mkdirSync(d, { recursive: true });
+    // tmux も claude も起こさない。止め方だけを見る。
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir: claude, tmuxPath: null, toolsResolved: true, claudePath: null }));
+    const port = await freePort();
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const n of SERVER_DROPPED_ENV) delete env[n];
+    const child = spawn(process.execPath, ['--import', 'tsx', path.join(here, 'main.ts')], {
+      cwd: path.resolve(here, '..'),
+      stdio: ['pipe', 'pipe', 'ignore'],
+      env: {
+        ...env,
+        HANGAR_STOP_ON_STDIN_END: '1', HANGAR_PORT: String(port),
+        HANGAR_HOME: home, HANGAR_CLAUDE_DIR: claude, HANGAR_CLAUDE_BIN: path.join(root, 'no-claude'),
+      },
+    });
+    let out = '';
+    child.stdout.setEncoding('utf8').on('data', (s: string) => { out += s; });
+    const exited = new Promise<number | null>((r) => child.on('exit', (code) => r(code)));
+    try {
+      expect(await waitFor(async () => (await fetch(`http://127.0.0.1:${port}/health`)).ok, 30_000)).toBe(true);
+      child.stdin.end();
+      const code = await Promise.race([exited, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 20_000))]);
+      expect(code).toBe(0);
+      expect(out).toContain('[shutdown] stdin closed');
+    } finally {
+      if (child.exitCode === null) child.kill();
+      await exited;
+    }
+  }, 90_000);
+});

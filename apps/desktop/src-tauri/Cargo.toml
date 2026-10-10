@@ -48,6 +48,9 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Data_Xml_Dom", "Foundation", "UI_Notifications", "Win32_Foundation", "Win32_System_Com", "Win32_Security", "Win32_System_Registry", "Win32_UI_Notifications"] }
 windows-core = "0.61"
+# Windows では、子をジョブオブジェクトに入れて孫ごと止める（src/winjob.rs）。
+# 版は Tauri が既に引いているものに合わせ、新しい版を持ち込まない。
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = "3"

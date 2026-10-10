@@ -355,6 +355,12 @@ pub fn cli_command(node: &Path, server_dir: &Path, hangar_home: &Path, args: &[&
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // 窓を持たない殻から起こすと、命令ごとに黒いコンソールの窓が開く。
+        cmd.creation_flags(crate::winjob::CREATE_NO_WINDOW);
+    }
     cmd
 }
 
@@ -379,12 +385,15 @@ pub fn run_cli(mut cmd: Command, timeout: Duration) -> Result<String, String> {
                 libc::kill(pid as libc::pid_t, libc::SIGKILL);
             }
             // Windows には信号が無い。孫まで含めて、プロセスの木ごと止める。
-            #[cfg(not(unix))]
+            // taskkill も窓の無いコンソールで起こす。
+            #[cfg(windows)]
             {
+                use std::os::windows::process::CommandExt;
                 let _ = Command::new("taskkill")
                     .args(["/PID", &pid.to_string(), "/T", "/F"])
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
+                    .creation_flags(crate::winjob::CREATE_NO_WINDOW)
                     .status();
             }
             Err(format!(
