@@ -9,10 +9,14 @@ import type { Input, MuxPending, State, Step } from './types.ts';
  */
 const muxMissing = (store: Store): boolean => store.readiness !== null && !store.readiness.tools.tmux.ok;
 
-/** 止める操作か。新しいセッション、再開、フォーク、この PC で再開である。 */
+/**
+ * 止める操作か。新しいセッション、再開、フォーク、この PC で再開、hangar に移動（adopt）、接続（attach）である。
+ * adopt は外の claude を終わらせてから hangar の tmux で起こすので、無いまま進むと元の会話を止めたまま失敗する。確認の前でも後でも止める。
+ * attach は Claude のバックグラウンドのサービスにつなぐが、つなぐ口（`claude attach`）は hangar の tmux のペインで起こすので、無ければ断られる。
+ */
 function pendingOf(a: Extract<Input, { kind: 'action' }>['action']): MuxPending | null {
   switch (a.type) {
-    case 'session.new.submit': case 'session.resume': case 'session.fork': case 'session.resumeHere': return a;
+    case 'session.new.submit': case 'session.resume': case 'session.fork': case 'session.resumeHere': case 'session.adopt': case 'session.attach': return a;
     default: return null;
   }
 }

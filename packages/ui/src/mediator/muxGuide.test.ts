@@ -84,3 +84,33 @@ describe('再確認（B1、B2、B3 が共有する）', () => {
     expect(r.effects).toEqual([]);
   });
 });
+
+// adopt（hangar に移動）は外の claude を終わらせてから hangar の tmux で起こすので、無ければ元の会話を止めたまま失敗する。
+// attach も hangar の tmux のペインで `claude attach` を起こすので、無ければ断られる。どちらも始める前に止める。
+describe('hangar に移動と接続も止める', () => {
+  it('adopt は確認の前に止め、見つかったら確認へ進む', () => {
+    const g = transition(initialState(), storeWith(MISSING), action({ type: 'session.adopt', id: 's1' }));
+    expect(g.state.overlay).toEqual({ kind: 'muxGuide', pending: { type: 'session.adopt', id: 's1' }, back: null });
+    expect(g.effects).toEqual([]);
+    const r = transition(g.state, storeWith(READY), action({ type: 'mux.guide.proceed' }));
+    expect(r.state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } });
+    expect(r.effects).toEqual([]);
+  });
+  it('確認で承諾したあとでも、無ければ外の claude を止める前に止める', () => {
+    const confirming: State = { ...initialState(), overlay: { kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } } };
+    const g = transition(confirming, storeWith(MISSING), action({ type: 'session.adopt', id: 's1', confirmed: true }));
+    expect(g.state.overlay).toEqual({ kind: 'muxGuide', pending: { type: 'session.adopt', id: 's1', confirmed: true }, back: null });
+    expect(g.effects).toEqual([]);
+    const r = transition(g.state, storeWith(READY), action({ type: 'mux.guide.proceed' }));
+    expect(r.effects).toContainEqual({ kind: 'api.adopt', sessionId: 's1' });
+  });
+  it('attach も止め、見つかったら送る', () => {
+    const g = transition(initialState(), storeWith(MISSING), action({ type: 'session.attach', id: 's1' }));
+    expect(g.state.overlay.kind).toBe('muxGuide');
+    expect(g.effects).toEqual([]);
+    expect(transition(g.state, storeWith(READY), action({ type: 'mux.guide.proceed' })).effects).toEqual([{ kind: 'api.attach', sessionId: 's1' }]);
+  });
+  it('見つかっていれば、adopt はいつもどおり確認を出す', () => {
+    expect(transition(initialState(), storeWith(READY), action({ type: 'session.adopt', id: 's1' })).state.overlay).toEqual({ kind: 'confirm', confirm: { kind: 'adoptSession', sessionId: 's1' } });
+  });
+});
