@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken } from '@agent-hangar/server/src/cliEntry.ts';
+import { runConfigApply, runConfigRestore } from './config.ts';
 import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage } from './probe.ts';
@@ -217,6 +218,31 @@ shell
   .command('status')
   .description('この PC に入っているかを表示する')
   .action(() => { console.log(shellStatusLine({ tmuxPath: tmuxPathFor(hangarHome()) })); });
+
+const config = program.command('config').description('Claude Code の設定の同期（他の PC から届いた設定を適用する、控えの世代へ戻す）');
+
+config
+  .command('apply')
+  .description('適用の指示書を読み、件数と種類を見せて承諾を得てから、控えを取って ~/.claude に書く（書いたら指示書を消す）')
+  .option('--yes', '問わずに書く')
+  .option('--plan', '書かずに、何をどれだけ書くかだけを出す')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
+  .option('--order <createdAt>', '確認した指示書の作成時刻。違う指示書に替わっていたら書かない（殻の命令が使う）')
+  .action(async (o: { yes?: boolean; plan?: boolean; json?: boolean; order?: string }) => {
+    const order = o.order === undefined ? undefined : Number(o.order);
+    if (order !== undefined && !Number.isFinite(order)) throw new Error('--order には指示書の作成時刻（数）を渡してください');
+    process.exitCode = await runConfigApply({ yes: o.yes, plan: o.plan, json: o.json, order });
+  });
+
+config
+  .command('restore [generation]')
+  .description('控えの世代へ戻す。世代を省くと一覧を出す。戻す前の状態も新しい世代に控える')
+  .option('--yes', '問わずに戻す')
+  .option('--plan', '戻さずに、戻す先と消す先だけを出す')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
+  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; json?: boolean }) => {
+    process.exitCode = await runConfigRestore({ name: generation, yes: o.yes, plan: o.plan, json: o.json });
+  });
 
 const statusline = program.command('statusline').description('statusline スクリプトへの追記');
 

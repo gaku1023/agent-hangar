@@ -182,4 +182,5 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.info.index.source': '読み取り元 {dir}',
   'settings.info.index.note': '読み取り元を変えたときは、再起動後に反映されます。',
   'settings.info.thisPc.title': 'この PC',
+  'settings.label.configApproval': '届いた設定の承諾の仕方',
 };

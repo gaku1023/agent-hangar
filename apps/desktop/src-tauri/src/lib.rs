@@ -3,6 +3,7 @@
 //! `hangar://` のディープリンクは UI のハッシュ経路に変換して webview に流す。
 
 pub mod bootfail;
+pub mod configapply;
 pub mod deeplink;
 pub mod filedrop;
 pub mod health;
@@ -31,6 +32,8 @@ struct AppState {
     /// 今の子を起こす直前の時刻。子が死んだとき、`boot-error.json` がこの子のものかを更新の時刻で見分ける。
     /// 子を起こさずに既存のサーバを採ったときは、前の値のまま使わない（その経路では子の死を見ない）。
     child_started: Mutex<Option<SystemTime>>,
+    /// 設定の同期の確認（適用、世代へ戻す）が出ているか。頁から続けて呼ばれても、確認を重ねて出さない。
+    config_busy: AtomicBool,
 }
 
 /// ウィンドウが今どの段にいるか。
@@ -496,6 +499,57 @@ fn accept_server_dir(
     inside.then_some(dir)
 }
 
+/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文（2026-10-09 に利用者が選んだ、案 B と C を合わせたもの）。
+/// どちらが古いかで言い分け、文の下に、そのポートで待ち受けているプロセスを調べる命令を添える。
+/// 殻はそのサーバを止めない。利用者が自分で起こしたもの（hangar start や npm run dev）かもしれないからである。
+/// 止めてから「もう一度試す」を押せば、起動をやり直して同梱のサーバを起こす（`retry_boot`）。
+fn refusal_message(port: u16, theirs: u64, ours: u64) -> String {
+    let head = if theirs < ours {
+        format!(
+            "{port} で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
+             そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。"
+        )
+    } else {
+        format!(
+            "この Hangar.app が、{port} で動いている hangar のサーバより古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
+             Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。"
+        )
+    };
+    // lsof は macOS と Linux にしか無い。Windows のデスクトップのアプリはまだ作っておらず（殻のクレートは `std::os::unix` を条件なしに使うので、いまは Windows で組み上がらない）、確かめられる命令が無いので、そこでは添えない。
+    if cfg!(windows) {
+        head
+    } else {
+        format!("{head}\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:{port} -sTCP:LISTEN")
+    }
+}
+
+/// 同梱のサーバの置き場と、それを走らせる Node を決める。
+/// サーバを起こすときと、設定の同期の命令（CLI の cli.mjs は同じ置き場にある）が使う。
+fn bundled_node_and_dir(
+    app: &AppHandle,
+    hangar_home: &std::path::Path,
+) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("リソースの場所が分かりません: {e}"))?;
+    let dir = server::server_dir(&resource_dir)
+        .ok_or_else(|| format!("同梱のサーバが見つかりません: {}", resource_dir.display()))?;
+    let dir = accept_server_dir(dir, &resource_dir, cfg!(debug_assertions)).ok_or_else(|| {
+        concat!(
+            "HANGAR_SERVER_DIR は開発のときだけ効きます。\n",
+            "配布版はアプリの中に同梱したサーバだけを使います。"
+        )
+        .to_string()
+    })?;
+    server::strip_quarantine(&dir);
+    let manifest = node::read_manifest(&dir)?;
+    let candidates = node::candidate_paths(&paths::user_home(), hangar_home);
+    let node_path = node::choose_node(&candidates, &manifest, node::probe_node)
+        .map_err(|e| node::describe_error(&e))?;
+    Ok((node_path, dir))
+}
+
 /// 同梱サーバを起こす。成功したら `Ok(())`。
 /// 既に 4177 で互換の版の合う hangar が動いていれば、子は起こさずそれを使う。
 /// 版の合わない hangar が動いていれば、採らずに理由を返す（そのサーバは止めない）。
@@ -538,24 +592,7 @@ fn start_server(
             .into());
         }
     }
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("リソースの場所が分かりません: {e}"))?;
-    let dir = server::server_dir(&resource_dir)
-        .ok_or_else(|| format!("同梱のサーバが見つかりません: {}", resource_dir.display()))?;
-    let dir = accept_server_dir(dir, &resource_dir, cfg!(debug_assertions)).ok_or_else(|| {
-        concat!(
-            "HANGAR_SERVER_DIR は開発のときだけ効きます。\n",
-            "配布版はアプリの中に同梱したサーバだけを使います。"
-        )
-        .to_string()
-    })?;
-    server::strip_quarantine(&dir);
-    let manifest = node::read_manifest(&dir)?;
-    let candidates = node::candidate_paths(&paths::user_home(), hangar_home);
-    let node_path = node::choose_node(&candidates, &manifest, node::probe_node)
-        .map_err(|e| node::describe_error(&e))?;
+    let (node_path, dir) = bundled_node_and_dir(app, hangar_home)?;
     log(&format!(
         "node {} server {}",
         node_path.display(),
@@ -742,7 +779,7 @@ fn spawn_boot(app: AppHandle) -> bool {
     true
 }
 
-// ここから下の 4 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）が、頁から呼べる殻の命令である。
+// ここから下の 4 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
 // pick_folder のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 
@@ -771,6 +808,179 @@ async fn pick_folder(app: AppHandle, default_path: Option<String>) -> Option<Str
         .into_path()
         .ok()
         .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// 設定の同期の確認と、その後の CLI の呼び出しに要るもの。
+/// 同梱の Node と cli.mjs の置き場、hangar の置き場の 3 つ。
+fn config_runtime(
+    app: &AppHandle,
+) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf), String> {
+    let home = paths::hangar_home();
+    let (node, dir) = bundled_node_and_dir(app, &home)?;
+    Ok((node, dir, home))
+}
+
+/// ネイティブの確認を出し、承諾されたかを返す。選ぶまで戻らないので、呼び手は別のスレッドで待つ。
+/// 実行される内容を含むときは、警告の見た目で出す。
+fn confirm_natively(app: &AppHandle, c: &configapply::Confirm) -> bool {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    app.dialog()
+        .message(c.body.clone())
+        .title(c.title.clone())
+        .kind(if c.warn {
+            MessageDialogKind::Warning
+        } else {
+            MessageDialogKind::Info
+        })
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            c.ok.to_string(),
+            c.cancel.to_string(),
+        ))
+        .blocking_show()
+}
+
+/// 失敗を、画面を見ていなくても気付けるよう、ネイティブの確認で知らせる。
+fn show_failure(app: &AppHandle, title: &str, message: &str) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+    app.dialog()
+        .message(message.to_string())
+        .title(title.to_string())
+        .kind(MessageDialogKind::Error)
+        .blocking_show();
+}
+
+/// 失敗の結果を作る。指示書がまだ無いだけのとき（none）は、確認を出さずに結果だけを返す。
+fn config_failure(app: &AppHandle, title: &str, f: &configapply::Failure) -> configapply::Outcome {
+    let outcome = configapply::Outcome::failure(f);
+    if outcome.status == "failed" {
+        log(&format!("config sync: {} ({})", f.message, f.code));
+        show_failure(app, title, &f.message);
+    }
+    outcome
+}
+
+fn config_runtime_failure(app: &AppHandle, title: &str, message: String) -> configapply::Outcome {
+    log(&format!("config sync: {message}"));
+    show_failure(app, title, &message);
+    configapply::Outcome::simple("failed", message)
+}
+
+/// 確認が重ならないよう、走っている間は印を立てる。
+fn with_config_guard(
+    app: &AppHandle,
+    run: impl FnOnce() -> configapply::Outcome,
+) -> configapply::Outcome {
+    let state = app.state::<AppState>();
+    if state.config_busy.swap(true, Ordering::SeqCst) {
+        return configapply::Outcome::simple("busy", "設定の確認がすでに出ています。");
+    }
+    let outcome = run();
+    state.config_busy.store(false, Ordering::SeqCst);
+    outcome
+}
+
+fn apply_config_flow(app: &AppHandle) -> configapply::Outcome {
+    const TITLE: &str = "設定の適用";
+    let (node, dir, home) = match config_runtime(app) {
+        Ok(v) => v,
+        Err(e) => return config_runtime_failure(app, TITLE, e),
+    };
+    let run = |args: &[&str]| {
+        configapply::run_cli(
+            configapply::cli_command(&node, &dir, &home, args),
+            configapply::CLI_TIMEOUT,
+        )
+    };
+    // 見立ては CLI に出させる。書くものの数と種類を、殻が自分では数えない。
+    let plan_out = match run(&["config", "apply", "--plan", "--json"]) {
+        Ok(o) => o,
+        Err(e) => return config_runtime_failure(app, TITLE, e),
+    };
+    let plan = match configapply::parse_reply::<configapply::ApplyPlan>(&plan_out, "plan") {
+        Ok(p) => p,
+        Err(f) => return config_failure(app, TITLE, &f),
+    };
+    if !confirm_natively(app, &configapply::apply_confirm(&plan)) {
+        log("config sync: apply declined");
+        return configapply::Outcome::simple(
+            "cancelled",
+            "適用しませんでした。指示書はそのまま残しています。",
+        );
+    }
+    // 確認したのと同じ指示書にだけ適用する。確認のあとに選び直されていたら、CLI が断る。
+    let order = plan.created_at.to_string();
+    let applied = match run(&["config", "apply", "--yes", "--json", "--order", &order]) {
+        Ok(o) => o,
+        Err(e) => return config_runtime_failure(app, TITLE, e),
+    };
+    match configapply::parse_reply::<configapply::ApplyResult>(&applied, "result") {
+        Ok(r) => {
+            log(&format!("config sync: applied ({:?})", r.generation));
+            configapply::Outcome::applied(&r)
+        }
+        Err(f) => config_failure(app, TITLE, &f),
+    }
+}
+
+fn restore_config_flow(app: &AppHandle, name: &str) -> configapply::Outcome {
+    const TITLE: &str = "設定を世代へ戻す";
+    // 頁から来る値は、世代の名前の形だけを受け取る。
+    if !configapply::valid_generation_name(name) {
+        return configapply::Outcome::simple("failed", "世代の名前が正しくありません。");
+    }
+    let (node, dir, home) = match config_runtime(app) {
+        Ok(v) => v,
+        Err(e) => return config_runtime_failure(app, TITLE, e),
+    };
+    let run = |args: &[&str]| {
+        configapply::run_cli(
+            configapply::cli_command(&node, &dir, &home, args),
+            configapply::CLI_TIMEOUT,
+        )
+    };
+    let plan_out = match run(&["config", "restore", name, "--plan", "--json"]) {
+        Ok(o) => o,
+        Err(e) => return config_runtime_failure(app, TITLE, e),
+    };
+    let plan = match configapply::parse_reply::<configapply::RestorePlan>(&plan_out, "plan") {
+        Ok(p) => p,
+        Err(f) => return config_failure(app, TITLE, &f),
+    };
+    if !confirm_natively(app, &configapply::restore_confirm(&plan)) {
+        log("config sync: restore declined");
+        return configapply::Outcome::simple("cancelled", "戻しませんでした。");
+    }
+    let restored = match run(&["config", "restore", name, "--yes", "--json"]) {
+        Ok(o) => o,
+        Err(e) => return config_runtime_failure(app, TITLE, e),
+    };
+    match configapply::parse_reply::<configapply::RestoreResult>(&restored, "result") {
+        Ok(r) => {
+            log(&format!("config sync: restored ({:?})", r.safety));
+            configapply::Outcome::restored(&r)
+        }
+        Err(f) => config_failure(app, TITLE, &f),
+    }
+}
+
+/// 他の PC から届いて、承諾した設定を適用する。UI の設定の「適用…」が呼ぶ。引数は受け取らない。
+/// 適用の指示書（hangar の置き場の claude-config/apply-order.json）を CLI が読み、
+/// 件数と種類をネイティブの確認に見せ、承諾されたときだけ、控えを取って書く。サーバは `~/.claude` に書かない。
+#[tauri::command]
+async fn apply_config_sync(app: AppHandle) -> configapply::Outcome {
+    tauri::async_runtime::spawn_blocking(move || with_config_guard(&app, || apply_config_flow(&app)))
+        .await
+        .unwrap_or_else(|_| configapply::Outcome::simple("failed", "設定の適用の処理が止まりました。"))
+}
+
+/// 控えの世代へ戻す。UI の設定の「この世代に戻す」が呼ぶ。受け取るのは世代の名前（yyyyMMdd-HHmmss）だけで、形を確かめる。
+#[tauri::command]
+async fn restore_config_sync(app: AppHandle, name: String) -> configapply::Outcome {
+    tauri::async_runtime::spawn_blocking(move || {
+        with_config_guard(&app, || restore_config_flow(&app, &name))
+    })
+    .await
+    .unwrap_or_else(|_| configapply::Outcome::simple("failed", "設定を戻す処理が止まりました。"))
 }
 
 /// `~/.agent-hangar/desktop.log` を開く。起動画面と、UI の切断の帯の「ログを開く」が呼ぶ。
@@ -998,6 +1208,7 @@ pub fn run() {
             ui: Mutex::new(Ui::default()),
             booting: AtomicBool::new(false),
             child_started: Mutex::new(None),
+            config_busy: AtomicBool::new(false),
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
@@ -1009,7 +1220,9 @@ pub fn run() {
             retry_boot,
             notify_waiting,
             notify_request,
-            notify_status
+            notify_status,
+            apply_config_sync,
+            restore_config_sync
         ])
         // 頁の読み込みが終わる前の評価は捨てられることがある。
         // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。

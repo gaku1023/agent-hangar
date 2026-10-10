@@ -132,7 +132,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, configApproval: 'each', nodePath: null, claudePath: null, language: 'ja' });
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -273,6 +273,7 @@ describe('設定の往復', () => {
         ['summaryHourlyCap', 7],
         ['allowExternalSummarizer', true],
         ['syncClaudeConfig', true],
+        ['configApproval', 'auto'],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -292,6 +293,18 @@ describe('設定の往復', () => {
     }
   });
 
+  it('届いた設定の承諾の仕方は、既定が毎回で、auto を保存でき、知らない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.configApproval).toBe('each');
+    expect((await json(await get('/api/bootstrap'))).body.settings.configApproval).toBe('each');
+    expect((await (await patch({ configApproval: 'auto' })).json()).configApproval).toBe('auto');
+    expect((await json(await get('/api/settings'))).body.configApproval).toBe('auto');
+    for (const v of ['always', 'AUTO', '', null, true, ['auto']]) {
+      const r = await patch({ configApproval: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「届いた設定の承諾の仕方」の値の形が違います');
+    }
+    expect((await json(await get('/api/settings'))).body.configApproval).toBe('auto');
+  });
   it('言語の既定は日本語で、英語を保存して読める', async () => {
     expect((await json(await get('/api/settings'))).body.language).toBe('ja');
     expect((await json(await get('/api/bootstrap'))).body.settings.language).toBe('ja');

@@ -622,3 +622,58 @@ describe('互換の版', () => {
     });
   });
 });
+
+describe('作り直した設定の同期の組み立て', () => {
+  it('cloud.json が無ければ作らない', () => {
+    expect(boot().sync.configBundle).toBeNull();
+  });
+
+  it('cloud.json があれば組み、スイッチは既定で切で、切のあいだは何も送らず、クラウドにも触らない', async () => {
+    joinTo(NOWHERE);
+    fs.writeFileSync(path.join(claudeDir, 'CLAUDE.md'), '# rules');
+    const b = boot({ start: true });
+    const bundle = b.sync.configBundle!;
+    expect(bundle).not.toBeNull();
+    expect(bundle.dto()).toMatchObject({ enabled: false, approval: 'each', incoming: 0 });
+    expect(await bundle.send()).toEqual({ sent: false, items: 0 });
+    expect(await bundle.receive()).toEqual({ fetched: 0, failed: 0 });
+    await bundle.tick();
+    expect(b.h.db.prepare('select count(*) n from config_snapshots').get()).toEqual({ n: 0 });
+    // 手元の項目は読めるので、入れる前に何が出るかは見せられる。
+    expect(bundle.outgoing().items.map((i) => i.id)).toEqual(['file:CLAUDE.md']);
+  });
+
+  it('スイッチは旧実装の syncClaudeConfig と別で、承諾の仕方は設定から読む', () => {
+    joinTo(NOWHERE);
+    const b = boot();
+    const bundle = b.sync.configBundle!;
+    b.h.settings.current = { ...b.h.settings.current, syncClaudeConfig: true };
+    expect(bundle.dto().enabled).toBe(false);
+    b.h.settings.current = { ...b.h.settings.current, configBundleSync: true, configApproval: 'auto' };
+    expect(bundle.dto()).toMatchObject({ enabled: true, approval: 'auto' });
+  });
+
+  it('配る層へ、状態の組み方を渡す', () => {
+    joinTo(NOWHERE);
+    const h = bootHome({ home, claudeDir });
+    const sent: NoticeEvent[] = [];
+    const hub = { broadcast: (ev: NoticeEvent) => { sent.push(ev); } };
+    const setConfigSync = vi.fn();
+    const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
+    expect(setConfigSync).toHaveBeenCalledTimes(1);
+    const read = setConfigSync.mock.calls[0]![0] as () => unknown;
+    expect(read()).toMatchObject({ enabled: false, approval: 'each' });
+    sync.stopTimers();
+    h.stop();
+  });
+
+  it('参加していない端末では、組み方は常に null を返す', () => {
+    const h = bootHome({ home, claudeDir });
+    const hub = { broadcast: () => {} };
+    const setConfigSync = vi.fn();
+    const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
+    expect((setConfigSync.mock.calls[0]![0] as () => unknown)()).toBeNull();
+    sync.stopTimers();
+    h.stop();
+  });
+});

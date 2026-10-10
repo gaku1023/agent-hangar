@@ -190,6 +190,11 @@ export interface CloudClient {
   listFiles(since: number, limit: number): Promise<ListFilesResponse>;
   /** 使用量と費用。 */
   usage(): Promise<CloudUsageBody>;
+  /**
+   * Worker が最後に（2xx の応答で）名乗った互換の版。まだ話していなければ null。
+   * 設定の同期が、Worker が束の行を知る版に届くまで行を書かないために読む。実装しない偽物は null を返してよい。
+   */
+  lastWorkerCompat?(): number | null;
 }
 
 export type HttpCloudClientOptions = {
@@ -217,6 +222,7 @@ export class HttpCloudClient implements CloudClient {
   private readonly spoolDir: string;
   private readonly maxBodyBytes: number;
   private readonly minWorkerCompat: number;
+  private seenWorkerCompat: number | null = null;
   /**
    * 端末トークンは閉じ込めて持つ。
    * 文字列の項目にすると console.log(client) や JSON.stringify(client) で読めてしまう。
@@ -281,6 +287,8 @@ export class HttpCloudClient implements CloudClient {
       }
     }
     const workerCompat = parseCompat(res.headers.get(COMPAT_HEADER));
+    // 版は 2xx の応答でだけ覚える。Cloudflare の端の応答は Worker の版を語らない。
+    if (res.ok) this.seenWorkerCompat = workerCompat;
     if (res.ok && workerCompat < this.minWorkerCompat) {
       if (text === null) void res.body?.cancel().catch(() => {});
       d.clear();
@@ -310,6 +318,7 @@ export class HttpCloudClient implements CloudClient {
     if (!isValidFileKey(key)) throw new CloudError(400, JSON.stringify({ error: 'invalid key' }));
   }
 
+  lastWorkerCompat(): number | null { return this.seenWorkerCompat; }
   health() { return this.json<{ ok: boolean; version: string }>('/health'); }
   pushChanges(changes: ChangeIn[]) { return this.json<PushChangesResponse>('/changes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ changes }) }); }
   pullChanges(since: number, limit: number) { return this.json<PullChangesResponse>(`/changes?since=${since}&limit=${limit}`); }

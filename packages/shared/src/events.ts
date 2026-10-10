@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, CloudUsageDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
+import type { AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -28,5 +28,7 @@ export type ServerEvent =
   /** 設定の「使用量と費用」。端末のサーバが 5 分ごとに取り直して配る。 */
   | { type: 'sync.usage'; usage: CloudUsageDto }
   | { type: 'devices.update'; devices: DeviceDto[] }
+  /** 設定の同期（作り直した実装）の状態。届いた変更、競合、送らなかった項目、適用の指示書が動いたときに配る。 */
+  | { type: 'config.update'; configSync: ConfigSyncDto }
   | { type: 'retention.changed'; retention: RetentionDto }
   | { type: 'toast'; level: 'info' | 'error'; message: string };
