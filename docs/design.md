@@ -1189,6 +1189,17 @@ tmux の window ではなく別セッションにするのは、同じ tmux セ�
 既定は `tmux attach` を書いた `.command` ファイルを `open -a Terminal` で開く経路で、AppleEvent を使わないため macOS の自動化許可が要らない。
 ディレクトリを開くときの既定の shell の決め方（`${SHELL:-/bin/zsh}` を `-l` で起こす）は、`.command` の経路と iTerm2 の経路で同じにする。
 iTerm2 を使う設定にしたときは AppleScript で新規ウィンドウを開く。初回に macOS の自動化許可ダイアログが出るので、Settings で有効化したときに一度だけ案内し、Tauri の Info.plist に `NSAppleEventsUsageDescription` を入れる。AppleScript には 10 秒のタイムアウトを付け、失敗したら Terminal.app の経路に落とす。
+Windows では、選べるターミナルが「Windows Terminal」と「既定のターミナル」の 2 つになる（`TerminalApp` の `windowsTerminal` と `windowsDefault`）。
+設定画面は、画面を開いている OS の選択肢だけを同じ切り替えの部品に並べ、サーバも動いている OS の値だけを保存する。
+別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、読み込むときにその OS の既定（macOS は Terminal.app、Windows は Windows Terminal）に読み替える。
+Windows Terminal は `wt.exe -w 0 new-tab -- <psmux> attach -t =<名前>` で、直近の窓の新しいタブ（窓が無ければ新しい窓）に開く。
+wt は `;` を次のコマンドの区切りに読むので、引数の `;` は `\;` にして渡す。
+`wt.exe` を起こせなければ、既定のターミナルに落とし、落ちたことを知らせる。
+既定のターミナルは `cmd.exe /d /v:off /s /c "start "" "<psmux>" attach -t "=<名前>""` で、Windows の設定の「既定のターミナル アプリ」の新しい窓に開く。
+この 1 行は Node に引用させずにそのまま渡す（Node の `\"` は cmd.exe に通じない）。
+cmd.exe は引用符の中でも `%name%` を置き換えるので、`%` だけは引用の外へ出して `^%` にする。
+`"` と改行を含む名前とパスは、どちらの経路でも引用を破るので、開かずに断る。
+ディレクトリを開くときは、Windows Terminal は `new-tab -d <dir>` で既定のプロファイルを、既定のターミナルは `start "" /D "<dir>" powershell.exe -NoLogo` で PowerShell を開く。
 
 ### 指示の注入
 
