@@ -7,6 +7,8 @@ import type { TerminalHost } from './terminals.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { State } from '../mediator/types.ts';
+import { presentNewProject } from '../presenters/newProject.ts';
+import { presentShell } from '../presenters/shell.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
 const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false };
@@ -507,8 +509,18 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'project.new.open' });
     rt.emit({ type: 'folder.pick' });
     await flush();
-    expect(rt.getState().workspaceDirs).toEqual([{ name: 'a', path: '/w/a' }]);
-    expect(rt.getState().pickedFolder).toEqual({ path: '/Users/me/thesis', n: 1 });
+    expect(rt.getStore().workspaceDirs).toEqual([{ name: 'a', path: '/w/a' }]);
+    expect(rt.getStore().pickedFolder).toEqual({ path: '/Users/me/thesis', n: 1 });
+    // 画面は Store から読む。
+    expect(presentNewProject(rt.getState(), rt.getStore())).toMatchObject({ dirs: [{ name: 'a', path: '/w/a' }], picked: { path: '/Users/me/thesis', n: 1 } });
+  });
+  it('未登録の一覧が取れなければ、空の一覧にする', async () => {
+    const { rt } = harness({ workspaceDirs: vi.fn(async () => { throw new Error('500'); }) });
+    rt.start();
+    rt.emit({ type: 'project.new.open' });
+    await flush();
+    expect(rt.getStore().workspaceDirs).toEqual([]);
+    expect(rt.getState().toasts).toEqual([]);
   });
   it('作成のダイアログの送信は、作ってから done を返す', async () => {
     const { rt } = harness({ createProject: vi.fn(async () => created) });
@@ -1016,6 +1028,36 @@ describe('繰り越しの掃除', () => {
   });
 });
 
+describe('索引の進み（ランタイム）', () => {
+  const progress = (phase: 'idle' | 'scanning' | 'indexing') => ({ type: 'index.progress' as const, progress: { phase, done: 0, total: 0 } });
+  it('走査が終わった瞬間に bootstrap を取り直す', async () => {
+    const { rt, api, wsHandlers } = harness();
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    expect(api.bootstrap).toHaveBeenCalledTimes(1);
+    wsHandlers[0]!.onEvent(progress('scanning'));
+    wsHandlers[0]!.onEvent(progress('indexing'));
+    expect(api.bootstrap).toHaveBeenCalledTimes(1);
+    wsHandlers[0]!.onEvent(progress('idle'));
+    expect(api.bootstrap).toHaveBeenCalledTimes(2);
+    await flush();
+    // 同じ idle が続いても取り直さない。
+    wsHandlers[0]!.onEvent(progress('idle'));
+    expect(api.bootstrap).toHaveBeenCalledTimes(2);
+  });
+  it('走査中に開いて、最初の知らせが idle でも取り直す', async () => {
+    // 走査中の bootstrap にはプロジェクトも紐づけも載っていない。段階は Store の 1 か所だけにあるので、bootstrap が運んだ段階からも終わりが分かる。
+    const bootstrap = vi.fn(async () => ({ ...boot, index: { phase: 'scanning' as const, done: 0, total: 0 } }));
+    const { rt, api, wsHandlers } = harness({ bootstrap });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    wsHandlers[0]!.onEvent(progress('idle'));
+    expect(api.bootstrap).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('同期とこの PC で再開', () => {
   it('今すぐ同期と一時停止はストアの sync を差し替える', async () => {
     const { rt, api } = harness();
@@ -1024,23 +1066,22 @@ describe('同期とこの PC で再開', () => {
     await flush();
     expect(api.syncNow).toHaveBeenCalled();
     expect(rt.getStore().sync?.state).toBe('idle');
-    // Mediator も同じ応答で揃う。ヘッダは state.sync を読む。
-    expect(rt.getState().sync).toEqual({ kind: 'idle', lastAt: 2 });
+    // 応答は Store に直に当たる。ヘッダは Store の sync を読む。
+    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ visible: true, state: 'idle' });
     rt.emit({ type: 'sync.pause', paused: true });
     await flush();
     expect(api.syncPause).toHaveBeenCalledWith(true);
     expect(rt.getStore().sync?.state).toBe('paused');
-    expect(rt.getState().sync).toEqual({ kind: 'paused' });
+    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ state: 'paused' });
   });
-  it('bootstrap の sync と devices は Mediator にも入る', async () => {
+  it('bootstrap の sync と devices は Store に入り、ヘッダに出る', async () => {
     // 読み込み直した直後にヘッダの同期表示が空にならないことを固定する。
     const device = { id: 'd2', name: 'mini', platform: 'darwin', lastSeenAt: 3, self: false, shell: null };
     const { rt, wsHandlers } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sync: { ...syncStatus, pending: 4 }, devices: [device] })) });
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
-    expect(rt.getState().sync).toEqual({ kind: 'idle', lastAt: 2 });
-    expect(rt.getState().pending).toBe(4);
+    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ visible: true, state: 'idle', pending: 4 });
     expect(rt.getStore().devices).toEqual([device]);
   });
   it('websocket の sync.status で、片付いた取り残しと回復した失敗が画面から消える', async () => {
@@ -1270,14 +1311,14 @@ describe('入力待ちの知らせ', () => {
   });
   it('選んでいなければ環境の既定に従い、既定で受け取る環境ではあらかじめ許可を尋ねておく', async () => {
     const desk = fakeNotifier({ defaultOn: true });
-    expect((await started(desk)).rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+    expect((await started(desk)).rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
     expect(desk.prepare).toHaveBeenCalledTimes(1);
     const web = fakeNotifier({ defaultOn: false, granted: false });
-    expect((await started(web)).rt.getState().notify).toEqual({ available: true, on: false, blocked: false });
+    expect((await started(web)).rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
     expect(web.prepare).not.toHaveBeenCalled();
     // 受け取ると選んでいても、ブラウザの許可が外れていれば受け取らない。
     const revoked = fakeNotifier({ defaultOn: false, granted: false });
-    expect((await started(revoked, undefined, true)).rt.getState().notify.on).toBe(false);
+    expect((await started(revoked, undefined, true)).rt.getStore().notify.on).toBe(false);
   });
   it('受け取るにすると許可を求め、許されたら切り替えて覚える', async () => {
     const n = fakeNotifier({ defaultOn: false, granted: false });
@@ -1285,15 +1326,23 @@ describe('入力待ちの知らせ', () => {
     rt.emit({ type: 'notify.set', on: true });
     expect(n.request).toHaveBeenCalledTimes(1);
     await flush();
-    expect(rt.getState().notify.on).toBe(true);
+    expect(rt.getStore().notify.on).toBe(true);
     expect(store.get('notify.waiting')).toBe(true);
+  });
+  it('受け取らないにすると、その場で切り替えて覚える', async () => {
+    const n = fakeNotifier({ defaultOn: true, granted: true });
+    const { rt, store } = await started(n);
+    expect(rt.getStore().notify.on).toBe(true);
+    rt.emit({ type: 'notify.set', on: false });
+    expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
+    expect(store.get('notify.waiting')).toBe(false);
   });
   it('許されなかったら受け取らないままにして、そう知らせる', async () => {
     const n = fakeNotifier({ defaultOn: false, granted: false, grant: false });
     const { rt, store } = await started(n);
     rt.emit({ type: 'notify.set', on: true });
     await flush();
-    expect(rt.getState().notify.on).toBe(false);
+    expect(rt.getStore().notify.on).toBe(false);
     expect(store.get('notify.waiting')).toBeUndefined();
     expect(rt.getState().toasts.at(-1)?.message).toBe('通知が許可されませんでした');
   });
@@ -1302,7 +1351,7 @@ describe('入力待ちの知らせ', () => {
     const n = fakeNotifier({ defaultOn: true, status: 'denied' });
     const { rt, store } = await started(n);
     await flush();
-    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+    expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
     // 利用者の選んだ値は書き換えない。OS で許可し直せば、スイッチを入れ直すだけで戻る。
     expect(store.get('notify.waiting')).toBeUndefined();
   });
@@ -1312,24 +1361,24 @@ describe('入力待ちの知らせ', () => {
     const { rt } = await started(n);
     await flush();
     expect(n.prepare).toHaveBeenCalledTimes(1);
-    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+    expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
   });
   it('許されていれば、受け取るのまま', async () => {
     const { rt } = await started(fakeNotifier({ defaultOn: true, status: 'granted' }));
     await flush();
-    expect(rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+    expect(rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
   });
   it('受け取るにして OS で切られていたら、システム設定で許可するよう知らせる。許されたら切られた印を外す', async () => {
     const n = fakeNotifier({ defaultOn: false, granted: false, grant: false, status: 'denied' });
     const { rt } = await started(n);
     rt.emit({ type: 'notify.set', on: true });
     await flush();
-    expect(rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+    expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
     expect(rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。システム設定の「通知」で Hangar を許可してください');
     n.request.mockResolvedValue(true);
     rt.emit({ type: 'notify.set', on: true });
     await flush();
-    expect(rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+    expect(rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
   });
   describe('戻る時刻を過ぎた知らせ', () => {
     /** 2026-10-05 の手元の時刻。 */
@@ -1435,23 +1484,23 @@ describe('入力待ちの知らせ', () => {
     it('OS で切られていたのを許可して戻ったら、受け取るに戻す', async () => {
       const n = mutableNotifier('desktop', 'denied');
       const h = await boot2(n, true);
-      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
       n.set('granted');
       h.advance(5000);
       h.fireFocus();
       await flush();
-      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
       expect(h.store.get('notify.waiting')).toBe(true);
     });
     it('受け取っている間に OS で切られたら、受け取らないにして設定の仕方を知らせる', async () => {
       const n = mutableNotifier('desktop', 'granted');
       const h = await boot2(n);
-      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
       n.set('denied');
       h.advance(5000);
       h.fireVisible();
       await flush();
-      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
       expect(h.rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。システム設定の「通知」で Hangar を許可してください');
       // 利用者の選んだ値は書き換えない。許可し直して戻れば、受け取るに戻る。
       expect(h.store.has('notify.waiting')).toBe(false);
@@ -1459,7 +1508,7 @@ describe('入力待ちの知らせ', () => {
       h.advance(5000);
       h.fireFocus();
       await flush();
-      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
     });
     it('受け取らないと選んでいれば、許可されても受け取るにしない', async () => {
       const n = mutableNotifier('desktop', 'denied');
@@ -1468,22 +1517,22 @@ describe('入力待ちの知らせ', () => {
       h.advance(5000);
       h.fireFocus();
       await flush();
-      expect(h.rt.getState().notify.on).toBe(false);
+      expect(h.rt.getStore().notify.on).toBe(false);
     });
     it('ブラウザの許可も同じ契機で読み直す', async () => {
       const n = mutableNotifier('web', 'denied');
       const h = await boot2(n, true);
-      expect(h.rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+      expect(h.rt.getStore().notify).toEqual({ available: false, on: false, blocked: false });
       n.set('granted');
       h.advance(5000);
       h.fireVisible();
       await flush();
-      expect(h.rt.getState().notify).toEqual({ available: true, on: true, blocked: false });
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
       n.set('denied');
       h.advance(5000);
       h.fireFocus();
       await flush();
-      expect(h.rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+      expect(h.rt.getStore().notify).toEqual({ available: false, on: false, blocked: false });
     });
     it('読んでいる間にスイッチを切られたら、答えが届いた時点の選んだ値と状態で決める', async () => {
       // 許可されたと届いても、切った後なので受け取るに戻さない。
@@ -1496,7 +1545,7 @@ describe('入力待ちの知らせ', () => {
       h.rt.emit({ type: 'notify.set', on: false });
       answer('granted');
       await flush();
-      expect(h.rt.getState().notify).toEqual({ available: true, on: false, blocked: false });
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
       // 切られたと届いても、もう受け取っていないので設定の仕方は知らせない。
       const m = mutableNotifier('desktop', 'granted');
       const k = await boot2(m, true);
@@ -1506,7 +1555,7 @@ describe('入力待ちの知らせ', () => {
       k.rt.emit({ type: 'notify.set', on: false });
       answer('denied');
       await flush();
-      expect(k.rt.getState().notify).toEqual({ available: true, on: false, blocked: true });
+      expect(k.rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
       expect(k.rt.getState().toasts).toEqual([]);
     });
     it('設定の仕方を知らせるのは、受け取っていたのに OS で切られたときだけ', async () => {
@@ -1517,17 +1566,17 @@ describe('入力待ちの知らせ', () => {
       h.advance(5000);
       h.fireFocus();
       await flush();
-      expect(h.rt.getState().notify.blocked).toBe(true);
+      expect(h.rt.getStore().notify.blocked).toBe(true);
       expect(h.rt.getState().toasts).toEqual([]);
       // ブラウザで拒まれたのは OS の設定ではない。
       const m = mutableNotifier('web', 'granted');
       const k = await boot2(m, true);
-      expect(k.rt.getState().notify.on).toBe(true);
+      expect(k.rt.getStore().notify.on).toBe(true);
       m.set('denied');
       k.advance(5000);
       k.fireFocus();
       await flush();
-      expect(k.rt.getState().notify.on).toBe(false);
+      expect(k.rt.getStore().notify.on).toBe(false);
       expect(k.rt.getState().toasts).toEqual([]);
     });
     it('最後に読んでから 2 秒以内は読み直さない', async () => {
@@ -1552,7 +1601,7 @@ describe('入力待ちの知らせ', () => {
     const { rt, wsHandlers } = await started(undefined);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
     expect(rt.getState().waitingToasts).toEqual(['s1']);
-    expect(rt.getState().notify).toEqual({ available: false, on: false, blocked: false });
+    expect(rt.getStore().notify).toEqual({ available: false, on: false, blocked: false });
   });
 });
 
