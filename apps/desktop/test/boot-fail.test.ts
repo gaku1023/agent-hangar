@@ -9,7 +9,7 @@ type View = {
   kind: string; lang: string; title: string; what: string; steps: string[]; command: string | null; detail: string; footer: string; copyText: string;
   labels: { whatNext: string; details: string; logAt: string; copyAll: string; copyCommand: string; copied: string; tryAgain: string; openLog: string };
 };
-type Mod = { FAIL_KINDS: string[]; failView(info: Info): View; shellQuote(s: string): string };
+type Mod = { FAIL_KINDS: string[]; failView(info: Info): View; shellQuote(s: string): string; psQuote(s: string): string };
 const loading = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'loading');
 const m = (await import(pathToFileURL(path.join(loading, 'boot-fail.js')).href)) as Mod;
 
@@ -125,10 +125,31 @@ describe('種類ごとの文', () => {
     expect(v.command).toBeNull();
     expect(v.steps.length).toBeGreaterThanOrEqual(2);
   });
-  it('Windows では lsof の命令を出さない（命令が無い）', () => {
-    expect(view('port-in-use', { os: 'Windows 11' }).command).toBeNull();
-    expect(view('compat-mismatch', { os: 'Windows 11', params: { theirs: 1, ours: 2 } }).command).toBeNull();
+  it('Windows では lsof の代わりに、PowerShell でポートを握っているプロセスを出す', () => {
+    const ps = 'Get-Process -Id (Get-NetTCPConnection -LocalPort 4390 -State Listen).OwningProcess';
+    expect(view('port-in-use', { os: 'Windows 11', params: { port: 4390 } }).command).toBe(ps);
+    expect(view('compat-mismatch', { os: 'Windows 11', params: { port: 4390, theirs: 1, ours: 2 } }).command).toBe(ps);
+    expect(view('compat-mismatch', { os: 'Windows 11', params: { port: 4390, theirs: 2, ours: 1 } }).command).toBe(ps);
     expect(view('server-exited', { os: 'Windows 11' }).command).toBe('node --version');
+  });
+  it('Windows では DB の退避を Move-Item で出し、~ は $HOME に替えて二重引用符で包む', () => {
+    const v = view('db-too-old', { os: 'Windows 11', sep: '\\', params: { file: '~\\.agent-hangar\\hangar.db', found: 6 } });
+    expect(v.command).toBe('Move-Item -LiteralPath "$HOME\\.agent-hangar\\hangar.db" -Destination "$HOME\\.agent-hangar\\hangar-v6.db"');
+  });
+  it('Windows では控えの置き場を Get-ChildItem で見る', () => {
+    const v = view('db-backup-failed', { os: 'Windows 11', sep: '\\', params: { dir: 'D:\\hangar data\\backups\\db' } });
+    expect(v.command).toBe("Get-ChildItem -Force -LiteralPath 'D:\\hangar data\\backups\\db'");
+  });
+  it('Windows でも、置き場が渡されなければ既定の置き場を $HOME から指す', () => {
+    const v = view('db-backup-failed', { os: 'Windows 11', sep: '\\', home: '~\\.agent-hangar' });
+    expect(v.command).toBe('Get-ChildItem -Force -LiteralPath "$HOME\\.agent-hangar\\backups\\db"');
+  });
+  it('Windows の命令には、POSIX の命令（mv、ls、lsof）を出さない', () => {
+    const p = { port: 4177, theirs: 1, ours: 2, found: 3, baseline: 10 };
+    for (const kind of m.FAIL_KINDS) {
+      const c = view(kind, { os: 'Windows 11', sep: '\\', home: '~\\.agent-hangar', params: p }).command ?? '';
+      expect(c, kind).not.toMatch(/^(mv|ls|lsof) /);
+    }
   });
 });
 
@@ -146,7 +167,7 @@ describe('パスの区切り', () => {
   it('DB のファイルと控えの置き場の既定も、同じ区切りでつなぐ', () => {
     const old = view('db-too-old', { ...win, params: { found: 6, baseline: 10 } });
     expect(old.what).toContain('~\\.agent-hangar\\hangar.db');
-    expect(old.command).toContain('~\\.agent-hangar\\hangar-v6.db');
+    expect(old.command).toContain('$HOME\\.agent-hangar\\hangar-v6.db');
     expect(old.command).not.toContain('/');
     const backup = view('db-backup-failed', win);
     expect(backup.what).toContain('~\\.agent-hangar\\backups\\db');
@@ -173,6 +194,26 @@ describe('札の下端と全文のコピー', () => {
   });
   it('詳細が空でも、全文のコピーは版と種類を持つ', () => {
     expect(view('other', { detail: '' }).copyText).toBe('Hangar 0.1.0 · macOS 15.1\nother');
+  });
+});
+
+describe('PowerShell の引用（psQuote）', () => {
+  it('安全な文字だけなら、そのまま', () => {
+    expect(m.psQuote('C:\\data\\hangar.db')).toBe('C:\\data\\hangar.db');
+  });
+  it('空白や記号を含めば単引用符で包み、中の単引用符は 2 つにする', () => {
+    expect(m.psQuote('C:\\My Data\\x')).toBe("'C:\\My Data\\x'");
+    expect(m.psQuote("C:\\it's")).toBe("'C:\\it''s'");
+    expect(m.psQuote('C:\\a$b')).toBe("'C:\\a$b'");
+  });
+  it('~ で始まるものは $HOME に替えて二重引用符で包み、残りの $ と ` と " を ` で逃がす', () => {
+    expect(m.psQuote('~\\.agent-hangar')).toBe('"$HOME\\.agent-hangar"');
+    expect(m.psQuote('~/a b')).toBe('"$HOME/a b"');
+    expect(m.psQuote('~\\$x`y"z')).toBe('"$HOME\\`$x``y`"z"');
+    expect(m.psQuote('~')).toBe('"$HOME"');
+  });
+  it('空の文字は空の引用', () => {
+    expect(m.psQuote('')).toBe("''");
   });
 });
 

@@ -212,6 +212,36 @@ pub fn tilde(path: &str, home: &Path) -> String {
     }
 }
 
+/// パスに使われる文字か。ホームの前後がこれなら、もっと長いパスの一部なので縮めない。
+fn is_path_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '\\' | '~')
+}
+
+/// 文の中でホームから始まるパスを、すべて `~` に縮める。
+/// Node の「調べた場所」、設定ファイルの場所、サーバが書く `params` の `file` と `dir`、例外の文に、ユーザー名を出さないためである。
+/// ホームの前がパスの文字でなく、後ろが区切り（`/` か `\\`）か、パスの文字でないときだけ縮める。
+/// `/Users/ab` や `/mnt/Users/a` のような、別の人のホームや途中の一致は縮めない。
+pub fn shorten_home(text: &str, home: &Path) -> String {
+    let home = home.to_string_lossy();
+    let home = home.trim_end_matches(['/', '\\']);
+    if home.is_empty() {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(home) {
+        let before = rest[..i].chars().next_back();
+        let after = rest[i + home.len()..].chars().next();
+        let starts = before.map_or(true, |c| !is_path_char(c));
+        let ends = after.map_or(true, |c| matches!(c, '/' | '\\') || !is_path_char(c));
+        out.push_str(&rest[..i]);
+        out.push_str(if starts && ends { "~" } else { home });
+        rest = &rest[i + home.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// 頁に渡す、失敗のほかの材料。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Env {
@@ -693,6 +723,63 @@ mod tests {
         assert_eq!(tilde(r"C:\Users\a", home), "~");
         assert_eq!(tilde(r"C:\Users\ab\x", home), r"C:\Users\ab\x");
         assert_eq!(tilde(r"C:\Users\a\x", Path::new(r"C:\Users\a\")), r"~\x");
+    }
+
+    // 詳細の中のパス（Node の「調べた場所」や設定ファイル、サーバの例外の文）も、ホームを ~ に縮めてユーザー名を出さない。
+    #[test]
+    fn the_home_is_shortened_wherever_it_starts_a_path_in_the_text() {
+        let home = Path::new("/Users/a");
+        let text = "Node 22 (arm64) was not found.\nRun nvm install 22, or set nodePath in /Users/a/.agent-hangar/settings.json to its location.\nPlaces checked:\n  /opt/homebrew/bin/node: not found\n  /Users/a/.nvm/versions/node/v24.1.0/bin/node: v24 arm64 (needs 22 arm64)";
+        let got = shorten_home(text, home);
+        assert!(got.contains("in ~/.agent-hangar/settings.json to"), "{got}");
+        assert!(
+            got.contains("  ~/.nvm/versions/node/v24.1.0/bin/node: v24"),
+            "{got}"
+        );
+        assert!(got.contains("/opt/homebrew/bin/node"), "{got}");
+        assert!(!got.contains("/Users/a"), "{got}");
+        assert_eq!(shorten_home("open '/Users/a/x.db'", home), "open '~/x.db'");
+        assert_eq!(shorten_home("/Users/a", home), "~");
+    }
+
+    #[test]
+    fn the_home_is_shortened_in_windows_text_with_its_own_separator() {
+        let home = Path::new(r"C:\Users\a");
+        let text = r"  C:\Users\a\AppData\Local\Programs\nodejs\node.exe: not found
+  C:\Program Files\nodejs\node.exe: not found";
+        let got = shorten_home(text, home);
+        assert!(
+            got.starts_with(r"  ~\AppData\Local\Programs\nodejs\node.exe"),
+            "{got}"
+        );
+        assert!(got.contains(r"C:\Program Files\nodejs\node.exe"), "{got}");
+    }
+
+    // 別の人のホーム（/Users/ab）や、途中に同じ並びがあるだけのパスは縮めない。
+    #[test]
+    fn only_the_home_itself_is_shortened_not_a_longer_name_or_a_deeper_match() {
+        let home = Path::new("/Users/a");
+        assert_eq!(shorten_home("/Users/ab/x", home), "/Users/ab/x");
+        assert_eq!(shorten_home("/mnt/Users/a/x", home), "/mnt/Users/a/x");
+        assert_eq!(shorten_home("/Users/a.bak/x", home), "/Users/a.bak/x");
+        // ホームが読めず / に落ちたときは何も縮めない。
+        assert_eq!(shorten_home("/Users/a/x", Path::new("/")), "/Users/a/x");
+    }
+
+    // サーバが書く params の file と dir も同じく縮める（macOS でも縮めていなかった）。
+    #[test]
+    fn the_paths_the_server_writes_into_params_are_shortened_too() {
+        let f = parse_boot_error(r#"{"kind":"db-backup-failed","params":{"file":"/Users/a/.agent-hangar/backups/db/hangar-1.db","dir":"/Users/a/.agent-hangar/backups/db"},"detail":"copy /Users/a/.agent-hangar/hangar.db failed"}"#)
+            .unwrap()
+            .map_text(|s| shorten_home(s, Path::new("/Users/a")));
+        assert_eq!(f.params["file"], "~/.agent-hangar/backups/db/hangar-1.db");
+        assert_eq!(f.params["dir"], "~/.agent-hangar/backups/db");
+        assert_eq!(f.detail, "copy ~/.agent-hangar/hangar.db failed");
+        let f = parse_boot_error(r#"{"kind":"db-too-old","params":{"file":"C:\\Users\\a\\.agent-hangar\\hangar.db","found":3},"detail":""}"#)
+            .unwrap()
+            .map_text(|s| shorten_home(s, Path::new(r"C:\Users\a")));
+        assert_eq!(f.params["file"], r"~\.agent-hangar\hangar.db");
+        assert_eq!(f.params["found"], 3);
     }
 
     #[test]

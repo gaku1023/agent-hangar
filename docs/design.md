@@ -195,10 +195,19 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   `sep` は OS のパスの区切り（Windows は `\`）で、頁は置き場とファイルの名前（`desktop.log`、`hangar.db`、`backups` と `db`）をこれでつなぐ。
   `~` に縮めるときも、ホームの後ろの区切りはそのまま残す（Windows なら `~\.agent-hangar`）。
   区切りを `/` に決め打ちしていたので、Windows では記録の場所が `\.agent-hangar/desktop.log` のように区切りを混ぜて出ていた（2026-10-11、Windows の実機の確かめで見つけた）。
-  `sep` が無い（前の版の殻）か `\` でなければ、頁は `/` と読む。`params` の文字と `detail` は長さを切り、`detail` に入場の鍵が混じっていたら伏せてから渡す。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。読み込みが終わる前に出た失敗は殻が貯め、読み込みの合図で渡す（以前の文言と同じ扱い）。
+  `sep` が無い（前の版の殻）か `\` でなければ、頁は `/` と読む。`params` の文字と `detail` は長さを切り、`detail` に入場の鍵が混じっていたら伏せてから渡す。
+  渡す前に、`detail` と文字の `params` の中で利用者のホームから始まるパスを、すべて `~` に縮める（`bootfail.rs` の `shorten_home`、呼ぶのは `lib.rs` の `for_page`）。
+  サーバが書く `params` の `file` と `dir`、Node の「調べた場所」と設定ファイルの場所、例外の文に、ユーザー名を出さないためである。
+  サーバはホームを縮めずに書くので、縮めるのは殻の 1 か所に寄せ、macOS と Windows で同じにする。
+  ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。読み込みが終わる前に出た失敗は殻が貯め、読み込みの合図で渡す（以前の文言と同じ扱い）。
 - 札の中は、見出し、何が起きたか、番号つきの次にすること（順序つきの一覧）、コピーできる命令、詳細（最初から開いた記録。「全文をコピー」つき）、下端のアプリの版と OS、「ログを開く」「もう一度試す」の順に並べる。ロゴは左上に小さく退ける（信号の 3 点の右、UI の `--lights-end` と同じ幅から）。命令と詳細だけを等幅にする。詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す。
 - 「全文をコピー」は、版と OS、種類、詳細の順の文をクリップボードへ書く。そのまま報告に貼れる形である。クリップボードの口が無い頁では、選択と `copy` の命令で写す。
-- ポートと互換の失敗では、動いているサーバ（利用者が起こしたものかもしれない）を止めないと文で言う。lsof の命令は Windows では添えない。
+- ポートと互換の失敗では、動いているサーバ（利用者が起こしたものかもしれない）を止めないと文で言う。
+- 命令は OS で出し分ける（`boot-fail.js` の `POSIX` と `POWERSHELL`）。OS の名前が `Windows` で始まれば PowerShell の形にする。
+  ポートを握っているものは、macOS と Linux では `lsof -nP -iTCP:<port> -sTCP:LISTEN`、Windows では `Get-Process -Id (Get-NetTCPConnection -LocalPort <port> -State Listen).OwningProcess` で見る。
+  DB の退避は `mv` と `Move-Item -LiteralPath … -Destination …`、控えの置き場は `ls -la` と `Get-ChildItem -Force -LiteralPath …` である。
+  PowerShell のパスは、`~` で始まれば `$HOME` に替えて二重引用符で包み、残りの `$` と `` ` `` と `"` を `` ` `` で逃がす。それ以外で安全でない文字を含めば単引用符で包み、中の単引用符を 2 つにする（`psQuote`）。
+  以前は Windows で lsof の命令を添えず、`mv` と `ls -la` はそのまま出していた（2026-10-11、Windows の実機の確かめで見つけた）。
 - 版は殻（`app.package_info()`）、OS の名前と版は殻が失敗のときに読む（macOS は `sw_vers -productVersion`、Linux は `/etc/os-release`、Windows は登録簿の `CurrentBuildNumber` と `DisplayVersion`）。Windows の製品名は Windows 11 でも「Windows 10」のままなので使わず、ビルド番号 22000 からを Windows 11 と呼ぶ（「Windows 11 24H2 (build 26100)」）。
 - 頁の言語は、`<HANGAR_HOME>/settings.json` の `language`（`ja` か `en`）を**殻が読めればそれ**、読めなければ OS の言語で決める（設計書 10 章の未決の点を、こう決めた）。OS の言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、Windows では表示言語の並び（`GetUserPreferredUILanguages`）の先頭、ほかは `LC_ALL`、`LC_MESSAGES`、`LANG` で、日本語なら ja、それ以外は en にする。どちらも決まらなければ日本語（UI の既定）にする。設定ファイルがあっても `language` が無い（利用者がまだ選んでいない）ときも OS の言語に従う。UI は同じ場合に日本語の既定で出るので、英語の OS ではこの頁だけ先に英語になる。設定ファイルが読めれば OS には聞かない（失敗の最中に外のコマンドを呼ばないため）。
 - 頁の文は UI の辞書を使えないので、日英の表を頁に持つ（`boot-fail.js`）。言語の並びは shared の `LANGUAGES` と同じにし、試験が突き合わせる。
