@@ -59,6 +59,7 @@ jobs:
         run: npm run tauri -- build --target ${{ matrix.target }}
         working-directory: apps/desktop
       # 自作の証明書で署名し、識別子と DR を固定する（docs/signing.md）。
+      # dmg と zip の両方に署名済みの .app が入るように、tauri build と dmg のあいだに置く。
       # secret が無いとき（fork や、まだ入れていないとき）は、警告を出して未署名のまま続ける。
       # secret があれば、署名に入った証明書の指紋が signing/certificate-sha1.txt と違うときに止まる。
       # 一時のキーチェーンは台本が終わりに消す。公証はしない。
@@ -68,10 +69,15 @@ jobs:
           HANGAR_SIGN_P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
         run: bash apps/desktop/scripts/ci-sign-macos.sh apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app
       # ditto で作った zip は Finder の展開でも .app の属性（署名を含む）が保たれる。
-      - name: zip と checksum
+      # 配布物は dmg が主、zip が従（自動更新と予備）。
+      # dmg は tauri の dmg ターゲットでは作らず、ここで出来上がった .app から作る（理由は make-dmg.sh の頭）。
+      - name: dmg と zip と checksum
         run: |
           cd apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos
           name="Hangar-${GITHUB_REF_NAME}-macos-${{ matrix.arch }}"
+          bash "$GITHUB_WORKSPACE/apps/desktop/scripts/make-dmg.sh" Hangar.app "$name.dmg"
+          shasum -a 256 "$name.dmg" > "$name.dmg.sha256"
+          cat "$name.dmg.sha256"
           ditto -c -k --sequesterRsrc --keepParent Hangar.app "$name.zip"
           shasum -a 256 "$name.zip" > "$name.zip.sha256"
           cat "$name.zip.sha256"
@@ -79,6 +85,8 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: |
+            ${{ env.ASSET_DIR }}/*.dmg
+            ${{ env.ASSET_DIR }}/*.dmg.sha256
             ${{ env.ASSET_DIR }}/*.zip
             ${{ env.ASSET_DIR }}/*.zip.sha256
           # 資産が 1 つも付かない Release が黙って公開されるのを防ぐ。
