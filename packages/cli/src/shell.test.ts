@@ -75,3 +75,18 @@ posixDescribe('hangar shell uninstall と status', () => {
     expect(runShellUninstall({ zshrc, log: () => {} }).removed).toBe(false);
   });
 });
+
+// Windows では包みを作らない（2026-10-10 の決定）。どの OS の上でも、Windows として確かめる。
+describe('hangar shell（Windows）', () => {
+  it('install は何も書かずに、Windows では使えないと言う', async () => {
+    const r = await runShellInstall({ ...base(), loginShell: '', tmuxPath: ok, platform: 'win32', yes: true });
+    expect(r.installed).toBe(false);
+    expect(logs.join('\n')).toMatch(/Windows/);
+    expect(fs.readFileSync(zshrc, 'utf8')).toBe('export A=1\n');
+    expect(fs.existsSync(shellScriptPath(home))).toBe(false);
+  });
+
+  it('status は Windows では使えないと言う', () => {
+    expect(shellStatusLine({ zshrc, tmuxPath: ok, platform: 'win32' })).toMatch(/Windows では使えません/);
+  });
+});

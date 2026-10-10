@@ -5,6 +5,7 @@
 import type { IClipboardProvider } from '@xterm/addon-clipboard';
 import type { ITerminalOptions } from '@xterm/xterm';
 import { FONT_SIZE } from './terminals.ts';
+import { isMacClient } from '../keys.ts';
 
 /**
  * Shift+Enter で送る列。
@@ -17,10 +18,8 @@ export const NEWLINE_SEQ = '\x1b\r';
 
 type KeyEventLike = Pick<KeyboardEvent, 'type' | 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing' | 'keyCode' | 'preventDefault'>;
 
-/** 画面を開いている PC が macOS か。ブラウザの名乗りから読む。 */
-export function isMacClient(userAgent: string | undefined = globalThis.navigator?.userAgent): boolean {
-  return userAgent === undefined || /Macintosh|Mac OS X/.test(userAgent);
-}
+// 画面を開いている PC が macOS かは、キーの表と同じ判定を使う。
+export { isMacClient };
 
 /**
  * xterm の attachCustomKeyEventHandler に渡す関数を作る。

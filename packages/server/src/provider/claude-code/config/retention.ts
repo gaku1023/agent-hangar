@@ -28,10 +28,14 @@ const RATE_WINDOW_DAYS = 30;
 /** Claude Code が受け付ける値か。1 以上の整数だけである（0 は検証で弾かれる）。 */
 const validDays = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1;
 
-/** 組織の設定の置き場。macOS と Linux のファイルだけを読む。MDM とコンソールから配る設定は読まない。 */
-export function defaultManagedDir(): string | null {
-  if (process.platform === 'darwin') return '/Library/Application Support/ClaudeCode';
-  if (process.platform === 'linux') return '/etc/claude-code';
+/**
+ * 組織の設定の置き場。macOS、Linux、Windows のファイルだけを読む。MDM とコンソールから配る設定、Windows のレジストリの設定は読まない。
+ * Windows の置き場は、Claude Code 2.1.296 の本体が持つ値である。
+ */
+export function defaultManagedDir(platform: NodeJS.Platform = process.platform): string | null {
+  if (platform === 'darwin') return '/Library/Application Support/ClaudeCode';
+  if (platform === 'linux') return '/etc/claude-code';
+  if (platform === 'win32') return 'C:\\Program Files\\ClaudeCode';
   return null;
 }
 

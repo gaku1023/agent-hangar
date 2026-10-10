@@ -19,7 +19,7 @@ export const composerKeys = {
   'composer.tool.file': [],
   'composer.tool.fileNeedsProject': [],
   'composer.tool.attach': [],
-  'composer.tool.pasteHint': [],
+  'composer.tool.pasteHint': ['keys'],
   'composer.list.fileLabel': [],
   'composer.list.commandLabel': [],
   'composer.list.failed': [],

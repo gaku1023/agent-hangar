@@ -8,7 +8,7 @@
 export { hangarHome, defaultClaudeDir, dbPath, ensureHome, readOrCreateToken, readOrCreateDevice, loadSettings, saveSettings } from './config/paths.ts';
 export { STATUSLINE_MARKER, appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, statuslineHeaderPath, statuslineSnippet, statuslineSnippetUpToDate, statuslineStatus, writeStatuslineHeaderFile } from './provider/claude-code/config/statusline.ts';
 export { claudeJsonPath, upsertUserMcpServer } from './provider/claude-code/config/claudeJson.ts';
-export { SHELL_MARKER, ensureShellScript, installShellHook, shellHookInstalled, shellHookLine, shellHookState, shellHookUpToDate, shellScriptPath, shellWrapSupported, uninstallShellHook, zshrcPath, type ShellHookState, type ShellScriptOptions } from './config/shellHook.ts';
+export { SHELL_MARKER, ensureShellScript, installShellHook, shellHookInstalled, shellHookLine, shellHookState, shellHookUpToDate, shellScriptPath, shellWrapOsSupported, shellWrapSupported, uninstallShellHook, zshrcPath, type ShellHookState, type ShellScriptOptions } from './config/shellHook.ts';
 export { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig, type CloudConfig, type CloudConfigRead } from './config/cloud.ts';
 export { SyncStateStore, type SyncStateKey } from './sync/state.ts';
 // 本文をどこから上げるかの床。
@@ -27,3 +27,6 @@ export { remoteTranscriptPath } from './sync/puller.ts';
 export { ApplyError, planApply, planRestore, runApply, runRestore, type ApplyErrorCode, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type RestorePlan, type RestoreResult } from './sync/config/apply.ts';
 export { listBackups } from './sync/config/backups.ts';
 export { openDb, type Db } from './db/open.ts';
+// OS の違いを吸う口。CLI の hangar open（ブラウザを開く）と hangar setup（道具を探す）が使う。
+export { openTargetCommand } from './platform/browser.ts';
+export { findInDirs, knownDirs, MUX_NAMES, splitPathEnv } from './platform/exec.ts';

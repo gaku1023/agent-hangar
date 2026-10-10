@@ -20,7 +20,7 @@ export const composerJa: AreaDictionary<typeof composerKeys> = {
   'composer.tool.file': 'ファイル',
   'composer.tool.fileNeedsProject': 'プロジェクトを選択すると使えます',
   'composer.tool.attach': '添付',
-  'composer.tool.pasteHint': '画像は ⌘V でも貼れます',
+  'composer.tool.pasteHint': '画像は {keys} でも貼れます',
   'composer.list.fileLabel': 'ファイル',
   'composer.list.commandLabel': 'スキルとコマンド',
   'composer.list.failed': '読めませんでした',

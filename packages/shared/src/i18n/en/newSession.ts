@@ -19,6 +19,8 @@ export const newSessionEn: AreaDictionary<typeof newSessionKeys> = {
   'newSession.project.newFolderNamed': 'Create "{name}" as a new folder',
   'newSession.project.newFolder': 'Create a new folder…',
   'newSession.project.other': 'Choose another location…',
+  'newSession.project.otherPickerMac': 'Finder',
+  'newSession.project.otherPickerWindows': 'File Explorer',
   'newSession.project.newFolderChip': 'New folder',
   'newSession.project.newFolderPath': '{path} (to be created)',
   'newSession.note.quick': 'Without a project, a quick session starts in a directory named by date and time. You can promote it to a project later.',
@@ -39,6 +41,6 @@ export const newSessionEn: AreaDictionary<typeof newSessionKeys> = {
   'newSession.button.startBypass': 'Launch with Bypass permissions',
   'newSession.button.starting': 'Launching',
   'newSession.button.uploading': 'Sending attachments',
-  'newSession.hint.quick': 'Press ⌘↵ to start a quick session as is',
+  'newSession.hint.quick': 'Press {keys} to start a quick session as is',
   'newSession.note.trust': 'In a new directory, Claude shows a trust dialog. Answer it in the terminal after launching.',
 };

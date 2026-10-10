@@ -24,7 +24,7 @@ import { presentToasts } from './presenters/toasts.ts';
 import { createApi, type ApiClient } from './runtime/api.ts';
 import type { Runtime } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
-import { matchKey } from './keys.ts';
+import { isMacClient, matchKey } from './keys.ts';
 import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
@@ -167,6 +167,9 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       }
       // ターミナルにフォーカスがあるときは、⌘ を含む組み合わせだけを hangar が処理する。
       // Ctrl の打鍵は端末のものなので、preventDefault せずに xterm へ渡す。
+      // macOS の外には ⌘ が無いので、ターミナルの中では hangar は何も受け取らない（キーの一覧に一言添える）。
+      // ターミナルの外では、⌘ の役を Ctrl が担う（keys.ts）。
+      const mac = isMacClient();
       const inTerminal = !!el?.closest?.('.term-host');
       if (inTerminal && !e.metaKey) return;
       const id = matchKey(e);
@@ -183,6 +186,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       }
       // 修飾の無い打鍵は入力欄では文字なので、横取りしない。
       if (!e.metaKey && !e.ctrlKey && typing) return;
+      // Windows と Linux の入力欄の Ctrl+← と Ctrl+→ は単語の移動なので、戻ると進むに使わない（Ctrl+[ と Ctrl+] は使う）。
+      if (typing && !mac && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
       const take = () => e.preventDefault();
       switch (id) {
         case 'tab.select': {
@@ -222,8 +227,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         // 次の入力待ちへ。ダイアログを開いている間は、その裏で画面を移さない。
         case 'session.nextWaiting': if (overlayKind === 'none' || overlayKind === 'palette') { take(); rt.emit({ type: 'session.nextWaiting' }); } return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
-        // 入力欄の Ctrl+B はカーソルを 1 字戻す macOS の打鍵なので、⌘B だけを受け取る。
-        case 'sidebar.toggle': if (typing && !e.metaKey) return; take(); rt.emit({ type: 'sidebar.toggle' }); return;
+        // macOS の入力欄の Ctrl+B はカーソルを 1 字戻す打鍵なので、⌘B だけを受け取る。Windows と Linux の Ctrl+B はその打鍵ではないので受け取る。
+        case 'sidebar.toggle': if (typing && mac && !e.metaKey) return; take(); rt.emit({ type: 'sidebar.toggle' }); return;
         case 'shortcuts.open': take(); rt.emit({ type: 'shortcuts.open' }); return;
         case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;

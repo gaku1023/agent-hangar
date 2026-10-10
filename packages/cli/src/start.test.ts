@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { assertPortFree, runStart, serverArgs } from './start.ts';
+import { assertPortFree, forwardsSignal, runStart, serverArgs } from './start.ts';
 
 const temps: string[] = [];
 const servers: ReturnType<typeof createServer>[] = [];
@@ -66,6 +66,22 @@ function emitSigtermToRunStart(before: NodeJS.SignalsListener[]): void {
     for (const l of before) process.on('SIGTERM', l);
   }
 }
+
+describe('forwardsSignal', () => {
+  it('macOS と Linux は、届いた信号をどれも子へ渡す', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+      for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) expect([platform, sig, forwardsSignal(sig, platform)]).toEqual([platform, sig, true]);
+    }
+  });
+
+  it('Windows は、コンソールが子にも直に届ける Ctrl+C と窓の閉じを渡さない', () => {
+    // Windows の child.kill は信号を送らずにその場で終わらせる。渡すと、子が自分で受けた Ctrl+C の後始末（DB を閉じる）を途中で断ち切る。
+    expect(forwardsSignal('SIGINT', 'win32')).toBe(false);
+    expect(forwardsSignal('SIGHUP', 'win32')).toBe(false);
+    // SIGTERM はコンソールからは届かない。プロセスの中から送られたときだけなので、子へ渡す（止めないと待ち続ける）。
+    expect(forwardsSignal('SIGTERM', 'win32')).toBe(true);
+  });
+});
 
 describe('serverArgs', () => {
   it('隣に server.mjs があれば（配布版）、それだけを起こす', () => {

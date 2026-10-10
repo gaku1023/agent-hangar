@@ -29,7 +29,8 @@ export type CloudSettingsProps = { configured: boolean; url: string | null; stat
  * state はこの PC の状態で、読み込む前は null。devices は同期している PC ごとの状態で、自端末は測り直した値を使う。
  * command は入れるために貼るコマンドで、uninstallCommand は外すためのコマンド。
  */
-export type ShellSettingsProps = { state: ShellHookStateDto | null; zshrc: string; line: string; command: string; uninstallCommand: string; devices: { id: string; name: string; self: boolean; state: ShellHookStateDto | null; label: string }[] };
+/** available は、この PC の OS で包みを作るか。Windows のサーバでは偽で、画面は節ごと出さない。 */
+export type ShellSettingsProps = { state: ShellHookStateDto | null; zshrc: string; line: string; command: string; uninstallCommand: string; available: boolean; devices: { id: string; name: string; self: boolean; state: ShellHookStateDto | null; label: string }[] };
 
 /** 参加トークンを画面に置いておく長さ。全セッションの読み書き権を持つ秘密なので、写し終わる頃に消す。 */
 export const JOIN_TOKEN_TTL_MS = 120_000;
@@ -217,8 +218,11 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
   const command = h?.command ?? 'hangar shell install';
   const shell: ShellSettingsProps = {
     state: h?.state ?? null, zshrc: h?.zshrc ?? '', line: h?.line ?? '', command, uninstallCommand: command.replace(/ install$/, ' uninstall'),
+    // osSupported を返さない古いサーバは、今までどおり出す。
+    available: h?.osSupported !== false,
     // 自端末の行は 10 分おきにしか書き直されないので、Settings を開いたときに測った値で上書きする。
-    devices: store.devices.map((d) => { const state = d.self && h ? h.state : d.shell; return { id: d.id, name: d.name, self: d.self, state, label: shellLabel(t, state) }; }),
+    // Windows の端末は包みを作らないので、tmux の有無ではなく OS で使えないと書く。
+    devices: store.devices.map((d) => { const state = d.self && h ? h.state : d.shell; return { id: d.id, name: d.name, self: d.self, state, label: d.platform === 'win32' ? t('settings.integrations.shell.unsupportedOs') : shellLabel(t, state) }; }),
   };
   const r = store.readiness;
   const verify = {

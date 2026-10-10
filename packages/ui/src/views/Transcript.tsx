@@ -9,6 +9,7 @@ import { createGlide, type Glide } from './primitives/glide.ts';
 import { Hl, MarkProvider, type Marking } from './primitives/Hl.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { keyLabel } from '../keys.ts';
 import { isComposing } from './ime.ts';
 import { Markdown } from './primitives/Markdown.tsx';
 import { ToolItem } from './ToolItem.tsx';
@@ -100,8 +101,8 @@ function FindBar(props: { find: TranscriptFind; finder: FindHandle; topSeq: () =
         <button type="button" className="tr-find-opt" aria-label={t('transcript.find.matchCase')} title={t('transcript.find.matchCase')} aria-pressed={f.caseSensitive} onClick={() => send(draft, !f.caseSensitive)}><Icon name="matchCase" /></button>
       </span>
       <span className="tr-find-count mono" aria-live="polite">{count}</span>
-      <button type="button" className="tr-find-btn" aria-label={t('transcript.find.prev')} title={t('transcript.find.prev')} disabled={f.total === 0} onClick={() => step(-1)}><Icon name="prev" /></button>
-      <button type="button" className="tr-find-btn" aria-label={t('transcript.find.next')} title={t('transcript.find.next')} disabled={f.total === 0} onClick={() => step(1)}><Icon name="next" /></button>
+      <button type="button" className="tr-find-btn" aria-label={t('transcript.find.prev', { keys: keyLabel('⇧⏎') })} title={t('transcript.find.prev', { keys: keyLabel('⇧⏎') })} disabled={f.total === 0} onClick={() => step(-1)}><Icon name="prev" /></button>
+      <button type="button" className="tr-find-btn" aria-label={t('transcript.find.next', { keys: keyLabel('⏎') })} title={t('transcript.find.next', { keys: keyLabel('⏎') })} disabled={f.total === 0} onClick={() => step(1)}><Icon name="next" /></button>
       <button type="button" className="tr-find-btn" aria-label={t('transcript.find.close')} title={t('transcript.find.close')} onClick={close}><Icon name="close" /></button>
     </div>
   );

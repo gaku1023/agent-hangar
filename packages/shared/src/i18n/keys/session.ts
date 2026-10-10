@@ -73,7 +73,7 @@ export const sessionKeys = {
   'session.toc.label': [],
   'session.toc.close': [],
   'session.toc.open': [],
-  'session.toc.shortcut': [],
+  'session.toc.shortcut': ['keys'],
   'session.lead.label': [],
   'session.lead.statusSince': ['date'],
   'session.lead.ended': ['when'],

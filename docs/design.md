@@ -2955,6 +2955,10 @@ hangar は、tmux サーバに端末のための設定を入れる。どれも�
 2026-10-01 に、この設定の tmux へ iTerm2 からつなぎ、Shift+Enter の改行、スクロール、ドラッグでのコピーが動くことを確かめた。通知は確かめていない。
 
 各 PC の包み方の状態は `devices.shell_hook` に書いて同期する。使えない（`unsupported`）は、zsh でないか tmux が見つからないことを指す。
+Windows では包みを作らない（2026-10-10 の決定）。包みは zsh のもので、PowerShell の同じ形は壊れやすいからである。
+Windows のサーバは本体（`claude.zsh`）を置かず、`GET /api/shell-hook` は `unsupported` と `osSupported: false` を返し、設定画面はシェル連携の節ごと出さない。
+`hangar shell install` も Windows では何も書かずに断る。ほかの PC の一覧では、Windows の端末を「Windows では使えません」と書く。
+Windows で外のターミナルの claude を hangar で開くのは、引き取り（「hangar に移動」）だけである。
 同じ tmux に 2 つのターミナルがつないでいるとき、画面の大きさは最後につないだか大きさを変えた側に合う（tmux の `window-size latest`）。
 使用量の節には、直近 30 日の日別（日、入力トークン、出力トークン、セッション数）と、プロジェクト別（名前、トークン、推定コスト、セッション数）の 2 つの小さな表を置く。
 推定コストの列には、そのセッションの走り全体の累計であることを添える。
@@ -2984,6 +2988,14 @@ Home に入ったら、行が初めて並んだときに一度だけ一覧にフ
 打鍵と操作の対応は `packages/ui/src/keys.ts` の 1 つの表が持ち、照合も ? の一覧もそこから引く。
 一覧の中の j や k のように画面の部品が自分で処理するものは、打鍵を持たない行として同じ表に並べる。
 ⌘ の付いた割り当ては Ctrl でも受ける。
+
+画面を開いている PC の OS は、ブラウザの名乗り（`navigator.userAgent`）で決める（`keys.ts` の `clientPlatform`）。Windows があれば win32、Macintosh か Mac OS X があるか名乗りが無ければ darwin、ほかは linux とする。打鍵と表示（`isMacClient`）、tmux の入れ方、通知の案内は、どれもこの 1 つの判定から決める。
+表と辞書の打鍵は macOS の記号（⌘、⇧、⌥、⌃、↵）で書き、Windows と Linux では見せるときに `keyLabel` が Ctrl+、Shift+、Alt+、Enter に読み替える（⌘⇧N は Ctrl+Shift+N）。
+辞書の文に打鍵を書くときは `{keys}` の引数にし、呼び手が `keyLabel` を通した値を渡す。起動ボタンの `aria-keyshortcuts` も Windows では `Control+Enter` にする。
+macOS の外では、入力欄の Ctrl+B もサイドバーを開閉する（macOS の Ctrl+B はカーソルを戻す打鍵なので、⌘B だけを受ける）。
+macOS の外の入力欄の Ctrl+← と Ctrl+→ は単語の移動なので、戻ると進むに使わない（Ctrl+[ と Ctrl+] は使う）。
+macOS の外には ⌘ が無いので、ターミナルにフォーカスがある間は hangar の操作はどれも効かない。キーの一覧の下の一言で、ターミナルの外へフォーカスを移してから使うよう添える。
+試験は `src/test/setup.ts` が名乗りを macOS にそろえ、Windows の振る舞いは試験の中で名乗りを替えて確かめる。
 
 ⌘I（次の入力待ちへ）は、入力待ち（live が waiting）のセッションを Home の帯の要対応と同じ順（長く待っている順）に 1 つずつ開き、ターミナルにフォーカスする。
 いまいるセッションが入力待ちなら、その次へ移り、末尾の次は先頭へ戻る。
@@ -3921,7 +3933,7 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過ぎた本文を、セッションを始めたあとの掃除で通知なしに消す。消えた本文は hangar でも読めなくなる。
 設計は `docs/superpowers/specs/2026-10-01-retention-notice-design.md` にある。要点は次のとおりである。
 
-- サーバは組織の設定（macOS は `/Library/Application Support/ClaudeCode/`）とユーザー設定を読み、効いている日数と、それがどこで決まったかを配る。プロジェクトの設定と `--settings` は読まない。
+- サーバは組織の設定（macOS は `/Library/Application Support/ClaudeCode/`、Linux は `/etc/claude-code/`、Windows は `C:\Program Files\ClaudeCode\`）とユーザー設定を読み、効いている日数と、それがどこで決まったかを配る。プロジェクトの設定と `--settings` は読まない。
 - 本文の使用量（`~/.claude/projects` の合計と、直近 30 日の増え方）は起動の 30 秒後と 1 時間ごとに測る。見込みは増え方を日数で掛けた概算である。
 - 書き込みは下見の指紋を添えた `PUT /api/retention` だけが行う。文字列の上で 1 か所だけを書き換え、読み直して他のキーが変わっていないことを確かめる。組織の設定があるとき、UTF-8 として読めないとき、書式を読み取れないときは書かない。
 - 設定の同期の取り込みは、降ろした後に手元の状態を判断し直す。通信の最中に書かれた保持期間を巻き戻さない。
@@ -4123,6 +4135,11 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   更新物づくり（`createUpdaterArtifacts`）は `tauri.conf.json` に書かず、`release.yml` が鍵のあるときだけ `--config src-tauri/tauri.updater.conf.json` を重ねて入れる。手元と ci の build は鍵を持たないので、更新物を作らずに通る。
   `release.yml` は、macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`updater-manifest` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を Release に添える。目録は最後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。secret が無ければ、更新物と目録だけを飛ばし、失敗にしない。
 - Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知はまだ無い。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
+- macOS にしか無いコマンドは、OS で分けて呼ぶ。URL とファイルを既定のアプリで開くのは `platform/browser.ts`（macOS は `open`、Windows はシェルを通さない `rundll32.exe url.dll,FileProtocolHandler`、Linux は `xdg-open`）。
+  CLI の `hangar open` は、macOS の外では鍵付きの URL へ移るページ（`<HANGAR_HOME>/open.html`、0600）を書き、そのファイルを開かせる。既定のブラウザは開く対象を自分の argv で受け取るので、URL を直に渡すと鍵が argv に載るからである。
+  CLI の道具の探索は `which` を起こさず、サーバと同じ `platform/exec.ts` で PATH と既知の置き場を見る（Windows では PATHEXT を補い、tmux の役は psmux を先に見る）。
+  `hangar start` は Windows では Ctrl+C と窓の閉じを子のサーバへ渡さない。同じコンソールの子にも直に届き、Windows の `child.kill` は後始末を待たずに終わらせるからである。
+  Claude Code の組織の設定は、Windows では `C:\Program Files\ClaudeCode` から読む。
 - 署名の身元（段 5 の 5-1、2026-10-10 の実測と決定）：macOS のローカルネットワークの許可は署名の識別子で引かれる（DR は空でよい）。
   署名しない Tauri の build は識別子が `hangar_desktop-<ハッシュ>` で build ごとに変わり、入れ替えるたびに許可が外れていた。
   署名で識別子を `tauri.conf.json` の identifier（`dev.agent-hangar.hangar`）に固定すると保たれる。

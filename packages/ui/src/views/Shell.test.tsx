@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { syncFixture } from '../test/syncProps.ts';
 import { Shell } from './Shell.tsx';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
 
@@ -272,6 +273,16 @@ describe('Shell', () => {
     expect(kbd).toHaveTextContent('⌘K');
     expect(kbd).toHaveAttribute('aria-hidden', 'true');
     expect(container.querySelector('header.header .search-icon')).toBeNull();
+  });
+
+  it('Windows では、入口のキー帽と吹き出しとサイドバーの吹き出しを Ctrl で見せる', () => {
+    setClientUserAgent(WINDOWS_UA);
+    render(<ActionRoot onAction={() => {}}><Shell {...props} overlays={null}><div /></Shell></ActionRoot>);
+    const pill = screen.getByRole('button', { name: '移動・操作' });
+    expect(pill.querySelector('kbd')).toHaveTextContent('Ctrl+K');
+    expect(pill).toHaveAttribute('title', '移動・操作（Ctrl+K または /）');
+    const side = within(screen.getByRole('navigation', { name: '主ナビゲーション' }));
+    expect(side.getByRole('button', { name: 'サイドバーを閉じる' }).querySelector('.toggle-tip')).toHaveTextContent('閉じるCtrl+B');
   });
 });
 

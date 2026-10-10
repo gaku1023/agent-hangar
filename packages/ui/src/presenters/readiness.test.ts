@@ -47,6 +47,10 @@ describe('tmux の役を担う道具の入れ方', () => {
     expect(clientPlatform('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')).toBe('win32');
     expect(clientPlatform('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15')).toBe('darwin');
     expect(clientPlatform(undefined)).toBe('darwin');
+    // ブラウザで開いた Linux は、macOS とも Windows とも分ける。tmux の入れ方と通知の案内は macOS の側に寄る。
+    expect(clientPlatform('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36')).toBe('linux');
+    expect(muxInstallCommand('linux')).toBe('brew install tmux');
+    expect(notifyBlockedKey('linux', 'toast')).toBe('runtime.notify.blocked');
   });
   // 通知の許可は OS ごとに別の場所にある。案内の文は、画面を開いている OS の設定の名前で言う。
   it('通知が切られているときの案内の文は、Windows だけ Windows の設定を指す', () => {
