@@ -85,17 +85,17 @@ describe('ナビゲーション', () => {
     const a = run([intent({ type: 'search.query', text: '動画' })]);
     expect(a.state.search.text).toBe('動画');
     // 検索したらフォーカスを結果の一覧へ移す。同じ語で検索し直して画面が作り直されないときも移るように、毎回出す。
-    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '動画' } }, { kind: 'focus', target: 'results' }]);
-    const b = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })], a.state);
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'home', q: '動画' } }, { kind: 'focus', target: 'results' }]);
+    const b = run([runtime({ type: 'hash.changed', route: { name: 'home', q: '動画' } })], a.state);
     expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', hideArchived: true, limit: 50 } }]);
     const c = run([intent({ type: 'search.filter', patch: { projectId: 'p1' } })], b.state);
     expect(c.state.search.filter).toEqual({ projectId: 'p1' });
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '動画', projectId: 'p1', hideArchived: true, limit: 50 } }]);
-    expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }, { kind: 'focus', target: 'results' }]);
+    expect(run([intent({ type: 'search.query', text: '' })]).effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }, { kind: 'focus', target: 'results' }]);
   });
   // 期間は日数のまま効果に載せ、時刻に直すのは問い合わせる瞬間（Runtime）に任せる。
   it('期間は日数のまま検索効果に載る', () => {
-    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } })]);
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'home', q: '動画' } })]);
     const b = run([intent({ type: 'search.filter', patch: { days: 7 } })], a.state);
     expect(b.state.search.filter).toEqual({ days: 7 });
     expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', days: 7, hideArchived: true, limit: 50 } }]);
@@ -110,25 +110,25 @@ describe('ナビゲーション', () => {
   });
   // 「条件をクリア」は語と絞り込みをまとめて外し、手元の全件の一覧へ戻す。語は URL にも乗っているので、URL からも外す。
   it('search.clear は語と絞り込みを外し、語の無い一覧の URL へ移る', () => {
-    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1', days: 7, file: 'a.md' } })]);
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'home', q: '動画' } }), intent({ type: 'search.filter', patch: { projectId: 'p1', days: 7, file: 'a.md' } })]);
     const b = run([intent({ type: 'search.clear' })], a.state);
     expect(b.state.search).toEqual({ text: '', filter: {}, page: 1 });
-    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    expect(b.effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }]);
     // 着いた先では手元の一覧を組むので、問い合わせない。
-    expect(run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state).effects).toEqual([]);
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'home' } })], b.state).effects).toEqual([]);
   });
   it('状態の絞り込みは live としてサーバへ渡す', () => {
-    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions', q: '動画' } }), intent({ type: 'search.filter', patch: { live: 'waiting' } })]);
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'home', q: '動画' } }), intent({ type: 'search.filter', patch: { live: 'waiting' } })]);
     expect(a.effects).toContainEqual({ kind: 'api.search', params: { q: '動画', live: 'waiting', hideArchived: true, limit: 50 } });
   });
   // 触ったファイルは手元のセッションに無い情報なので、キーワードが無くてもサーバに問い合わせる。
   it('キーワードが無くても、触ったファイルがあれば検索効果になる', () => {
-    const a = run([runtime({ type: 'hash.changed', route: { name: 'sessions' } })]);
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'home' } })]);
     expect(a.effects).toEqual([]);
     const b = run([intent({ type: 'search.filter', patch: { file: 'a.md' } })], a.state);
     expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } }]);
     // ほかの画面から戻ってきたときも、同じ絞り込みで問い合わせ直す。
-    const c = run([runtime({ type: 'hash.changed', route: { name: 'home' } }), runtime({ type: 'hash.changed', route: { name: 'sessions' } })], b.state);
+    const c = run([runtime({ type: 'hash.changed', route: { name: 'projects' } }), runtime({ type: 'hash.changed', route: { name: 'home' } })], b.state);
     expect(c.effects).toEqual([{ kind: 'api.search', params: { q: '', file: 'a.md', hideArchived: true, limit: 50 } }]);
     // ファイルを外せば手元の一覧に戻るので、問い合わせない。
     expect(run([intent({ type: 'search.filter', patch: { file: undefined } })], b.state).effects).toEqual([]);
@@ -283,6 +283,34 @@ describe('その他', () => {
 const runDto = (id: string, sessionId: string, endedAt: number | null = null) => ({ id, sessionId, deviceId: 'd', kind: 'start' as const, tmuxName: `hangar-${id}`, pid: null, startedAt: 1, endedAt, endReason: null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, closedAt: number | null = null) => ({ id, runId, sessionId: 's1', kind: 'shell' as const, title: 'シェル 1', tmuxName: `hangar-${runId}-t1`, createdAt: 2, closedAt });
 const onSession = (id = 's1') => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })]).state;
+
+describe('終わったセッションの開き方（冒頭の 1 枚が見える先頭から）', () => {
+  const stored = (id: string, over: Partial<SessionDto> = {}): Store => ({ ...initialStore(), sessions: { [id]: { id, live: null, parked: false, ...over } as SessionDto } });
+  const open = (store: Store, id = 's1') => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })], initialState(), store).state;
+  it('動いていないセッションは、末尾を追わず先頭から開く（冒頭の 1 枚はトランスクリプトの先頭にある）', () => {
+    expect(open(stored('s1')).sessionView.s1?.follow).toBe(false);
+  });
+  it('動いているセッション（作業中、入力待ち、休み）は、これまでどおり末尾を追う', () => {
+    for (const live of ['busy', 'waiting', 'idle'] as const) expect(open(stored('s1', { live })).sessionView.s1?.follow ?? true).toBe(true);
+  });
+  it('生きた run があるセッションは、これまでどおり末尾を追う', () => {
+    const store = { ...stored('s1'), runs: { r1: runDto('r1', 's1') } };
+    expect(open(store).sessionView.s1?.follow ?? true).toBe(true);
+  });
+  it('まだストアに無いセッションは、決めつけず既定のままにする', () => {
+    expect(open(initialStore()).sessionView.s1?.follow ?? true).toBe(true);
+  });
+  it('「最新へ」で末尾を追う形に戻せる', () => {
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } }), intent({ type: 'turn.latest', sessionId: 's1', runId: null })], initialState(), stored('s1'));
+    expect(a.state.sessionView.s1?.follow).toBe(true);
+  });
+  it('検索の結果から開いたときの跳び先は、これまでどおり追わない', () => {
+    const s = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), jump: { seq: 5, query: 'a', n: 1 }, follow: false } } };
+    const r = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], s, stored('s1'));
+    expect(r.effects).toContainEqual({ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0, aroundSeq: 5 });
+    expect(r.state.sessionView.s1?.follow).toBe(false);
+  });
+});
 
 describe('起動', () => {
   it('ダイアログを開き、送信で submitting になり、done で画面へ移る', () => {
@@ -480,30 +508,9 @@ describe('タブと接続', () => {
     expect(r.state.sessionView.s2?.selectedTab).toBeNull();
     expect(r.effects.filter((e) => String((e as { kind: string }).kind).startsWith('terminal.'))).toEqual([{ kind: 'terminal.disconnect', tabId: 't9' }]);
   });
-  it('右ペインの上下の比率は、離したときに丸めて、そのセッションの値と最後に動かした値の両方に保存する', () => {
-    expect(initialState().livePaneSplit).toBe(0.5);
-    const a = run([intent({ type: 'livePane.split', sessionId: 's1', ratio: 0.3 })]);
-    expect(a.state.livePaneSplit).toBe(0.3);
-    expect(a.state.sessionView.s1?.livePaneSplit).toBe(0.3);
-    expect(a.effects).toEqual([
-      { kind: 'storage.save', key: 'livePane.split', value: 0.3 },
-      { kind: 'storage.save', key: 'sv:s1', value: expect.objectContaining({ livePaneSplit: 0.3 }) },
-    ]);
-    // 端まで寄せられる。どちらの端でも、見出しの 1 行は CSS の下限で残る。
-    const at = (ratio: number) => run([intent({ type: 'livePane.split', sessionId: 's1', ratio })]).state.sessionView.s1?.livePaneSplit;
-    expect(at(0.99)).toBe(0.99);
-    expect(at(-1)).toBe(0);
-    expect(at(2)).toBe(1);
-    expect(at(Number.NaN)).toBe(0.5);
-  });
-  it('右ペインの比率はセッションごとに持ち、ほかのセッションの値は変えない', () => {
-    const a = run([intent({ type: 'livePane.split', sessionId: 's1', ratio: 0.3 })]);
-    const b = run([intent({ type: 'livePane.split', sessionId: 's2', ratio: 0.7 })], a.state);
-    expect(b.state.sessionView.s1?.livePaneSplit).toBe(0.3);
-    expect(b.state.sessionView.s2?.livePaneSplit).toBe(0.7);
-    expect(b.state.livePaneSplit).toBe(0.7);
-    // まだ動かしていないセッションは自分の値を持たない（画面は最後に動かした値で開く）。
-    expect(defaultSessionView().livePaneSplit).toBeNull();
+  it('右ペインの境目の比率は持たない（右パネルは目次だけで、分ける相手が無い）', () => {
+    expect(initialState()).not.toHaveProperty('livePaneSplit');
+    expect(defaultSessionView()).not.toHaveProperty('livePaneSplit');
   });
   it('サイドバーの折りたたみは開閉のたびに保存する', () => {
     expect(initialState().sidebarCollapsed).toBe(false);
@@ -865,7 +872,7 @@ describe('パレット', () => {
     expect(run([intent({ type: 'palette.run', command: { id: 'go:projects', label: 'プロジェクトへ' } })], opened()).effects).toEqual([{ kind: 'navigate', route: { name: 'projects' } }]);
     const s = run([intent({ type: 'palette.run', command: { id: 'go:sessions', label: 'セッション一覧へ' } })], opened());
     expect(s.state.overlay).toEqual({ kind: 'none' });
-    expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions' } }]);
+    expect(s.effects).toEqual([{ kind: 'navigate', route: { name: 'home' } }]);
     const bar = run([intent({ type: 'palette.run', command: { id: 'cmd:sidebar', label: 'サイドバーの開閉' } })], opened());
     expect(bar.state.overlay).toEqual({ kind: 'none' });
     expect(bar.state.sidebarCollapsed).toBe(true);
@@ -876,7 +883,7 @@ describe('パレット', () => {
     const a = run([intent({ type: 'palette.run', command: { id: 'search:索引 再構築', label: '『索引 再構築』を全文検索' } })], opened());
     expect(a.state.overlay).toEqual({ kind: 'none' });
     expect(a.state.search.text).toBe('索引 再構築');
-    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'sessions', q: '索引 再構築' } }, { kind: 'focus', target: 'results' }]);
+    expect(a.effects).toEqual([{ kind: 'navigate', route: { name: 'home', q: '索引 再構築' } }, { kind: 'focus', target: 'results' }]);
   });
   // パレットが開いていないのにコマンドが届いても、開いている別のダイアログを消さない。
   it('パレットが開いていなければオーバーレイを閉じない', () => {
@@ -983,6 +990,12 @@ describe('画面に入るときの読み込み', () => {
     expect(p.effects).toEqual([{ kind: 'api.loadMemo', projectId: 'p1' }]);
     const s = run([runtime({ type: 'hash.changed', route: { name: 'settings' } })]);
     expect(s.effects).toEqual([{ kind: 'api.loadSettingsExtras' }]);
+  });
+  it('設定の中で節を切り替えても、付属の値は取り直さない。入り直したときは取る', () => {
+    const inCloud = run([runtime({ type: 'hash.changed', route: { name: 'settings', at: 'cloud' } })]).state;
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'settings', at: 'tools' } })], inCloud).effects).toEqual([]);
+    const away = run([runtime({ type: 'hash.changed', route: { name: 'home' } })], inCloud).state;
+    expect(run([runtime({ type: 'hash.changed', route: { name: 'settings', at: 'cloud' } })], away).effects).toEqual([{ kind: 'api.loadSettingsExtras' }]);
   });
 });
 

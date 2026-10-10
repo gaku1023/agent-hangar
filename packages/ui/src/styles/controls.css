@@ -209,6 +209,7 @@ button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .count-chip[aria-expanded='true'] { color: var(--ink); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 3px rgba(30, 40, 90, 0.1); }
 .count-chip[data-tone='wait'], .count-chip[data-tone='wait'] b { color: var(--waiting); }
 .count-chip[data-tone='cand'] b { color: var(--cand); }
+.count-chip[data-tone='warn'], .count-chip[data-tone='warn'] b { color: var(--st-paused); }
 .count-chip[data-zero='true'], .count-chip[data-zero='true'] b { color: var(--ink-3); font-weight: 500; }
 /* 小さい札。帯の数の札と、終わったセッションの冒頭の 1 枚の札で使う。 */
 .count-chip[data-size='sm'] { gap: var(--u); height: 22px; padding: 0 calc(var(--u) * 2); background: var(--surface); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.08); }

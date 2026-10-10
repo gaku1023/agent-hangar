@@ -1,0 +1,35 @@
+/* ベルと知らせの一覧（段 4 の PR 28。試作 small-screens の「知らせ」B の .bell と .pop）。
+   面は .menu-pop と .popover（controls.css）をそのまま使い、ここでは余白、行の並び、ベルの形だけを決める。 */
+
+/* ヘッダーのベル。押せる 28px の透明なボタンで、未読があれば右上に数の札を重ねる。
+   ヘッダーの区切り線と並べる位置は、ヘッダーに置く変更で決める。 */
+.bell { position: relative; flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.bell:hover, .bell[aria-expanded='true'] { background: var(--surface-2); color: var(--ink); }
+.bell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bell .icon { width: 17px; height: 17px; }
+.bell-n { position: absolute; top: -2px; right: -6px; display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill); background: var(--waiting); color: #fff; font-size: 10px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; pointer-events: none; }
+
+/* 知らせの一覧の面。行が増えても窓に収まるよう、中で縦に送る。 */
+.notices-pop { width: 400px; max-width: calc(100vw - 24px); padding: calc(var(--u) * 1.5); max-height: min(72vh, 560px); overflow-y: auto; overscroll-behavior: contain; color: var(--ink); }
+.pop-h { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 28px; padding: 0 calc(var(--u) * 2); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.pop-h .faint { font-weight: 500; }
+.pop-h .end { margin-left: auto; color: var(--accent); font-weight: 600; }
+.pop-h .end:disabled { color: var(--ink-3); }
+.notices { margin: 0; padding: 0; list-style: none; }
+.notices-empty { margin: 0; padding: calc(var(--u) * 4) calc(var(--u) * 2); font-size: var(--fs-sm); }
+
+/* 行。左に種類、真ん中に題と説明と操作、右に時。未読は左端の点で見せる。 */
+.prow { position: relative; display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 3.5); border-top: 1px solid var(--line); }
+.prow[data-unread]::before { content: ''; position: absolute; left: 4px; top: 15px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.prow .n-kind { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.25); width: 92px; padding-top: 1px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); }
+.prow .n-kind .icon { flex: none; width: 13px; height: 13px; }
+.prow .n-kind[data-tone='err'] { color: var(--error); }
+.prow .n-kind[data-tone='warn'] { color: var(--st-paused); }
+.prow .n-kind[data-tone='info'] { color: var(--accent); }
+.prow .p-body { flex: 1; min-width: 0; }
+/* 題と説明は 1 行に切り詰めず、2 行まで読ませる（同期の理由や互換の文は長い）。 */
+.prow .p-t { font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.prow .p-d { font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.prow .p-acts { display: flex; gap: calc(var(--u) * 1); margin-top: calc(var(--u) * 1.25); }
+.prow .p-acts .btn-sm { height: 20px; padding: 0 7px; font-size: var(--fs-xs); }
+.prow .p-when { flex: none; padding-top: 2px; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }

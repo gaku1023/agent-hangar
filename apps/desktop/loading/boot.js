@@ -1,4 +1,5 @@
 import { BEAT_S, FINISH_MS, detailText, dots, finishOf, finishSvg, frameSvg, nearestBoundary, slowSuffix } from './boot-frames.js';
+import { failView } from './boot-fail.js';
 
 // 起動画面の描画。動きの時計は頁の load から数える。
 // 合図の口（__hangarBootFinish）は、読み込みが終わった合図を打ち、UI の背景の光を画面いっぱいに満たす。
@@ -118,8 +119,8 @@ new MutationObserver(() => {
 window.__hangarBootFinish = finish;
 
 // 待っている間の文。「読み込み中」の後ろの点を増やし、長いときは秒数を、境目を過ぎたら何をしているかを添える。
-// 殻が書くのは失敗の文（data-level="error"）と、索引の進み具合（__hangarBootProgress）だけで、ほかの文はここで作る。
-// 失敗の文や合図の文が出たら、もう触らない。
+// 殻が渡すのは失敗（__hangarBootFail。data-level="error" の印が立つ）と、索引の進み具合（__hangarBootProgress）だけで、ほかの文はここで作る。
+// 失敗や合図の文が出たら、もう触らない。
 let progress = null;
 window.__hangarBootProgress = (p) => { progress = p; };
 const tick = setInterval(() => {
@@ -134,19 +135,85 @@ const tick = setInterval(() => {
   if (detail.textContent !== d) detail.textContent = d;
 }, 100);
 
-// 起動に失敗したら、文の下に「もう一度試す」と「ログを開く」を出す（初回と障害の C1）。
-// どちらも殻の命令（lib.rs の retry_boot と open_log）で、この頁（tauri://localhost）からだけ呼べる（capabilities/boot-screen.json）。
-// やり直すと殻がこの頁を読み込み直すので、ボタンは一度押したら押せなくしておく。
-const actions = document.getElementById('boot-actions');
-const retry = document.getElementById('boot-retry');
-const openLog = document.getElementById('boot-log');
+// 起動に失敗したら、殻が種類と数を渡し、頁が 1 枚の札で出す（2.11.3）。
+// 札の文は boot-fail.js の表から引く。殻の文字列は innerHTML に入れず、textContent だけで書く。
+// 「もう一度試す」と「ログを開く」は殻の命令（lib.rs の retry_boot と open_log）で、この頁（tauri://localhost）からだけ呼べる（capabilities/boot-screen.json）。
+// やり直すと殻がこの頁を読み込み直すので、ボタンは一度押したら押せなくしておく。殻が断ったら戻す。
+const $ = (id) => document.getElementById(id);
+const card = $('fail');
+const brand = $('fail-brand');
+const retry = $('boot-retry');
+const openLog = $('boot-log');
+const copyCommand = $('fail-command-copy');
+const copyAll = $('fail-copy-all');
 const invoke = (cmd) => window.__TAURI_INTERNALS__?.invoke?.(cmd);
-const showActions = () => { if (actions) actions.hidden = status.dataset.level !== 'error'; };
-new MutationObserver(showActions).observe(status, { attributes: true, attributeFilter: ['data-level'] });
-showActions();
-retry?.addEventListener('click', () => {
+// 今の札のコピーする文と、押した印を戻す文。
+let view = null;
+const restore = new Map();
+
+// クリップボードの口が無い頁（権限が無い、口そのものが無い）でも写せるよう、選択して copy の命令を打つ。
+function legacyCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.append(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+async function copy(text, button, idle) {
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch {
+    ok = legacyCopy(text);
+  }
+  if (!ok || !view) return;
+  button.textContent = view.labels.copied;
+  clearTimeout(restore.get(button));
+  restore.set(button, setTimeout(() => { button.textContent = idle(); }, 1500));
+}
+
+window.__hangarBootFail = (info) => {
+  view = failView(info);
+  const v = view;
+  document.documentElement.lang = v.lang;
+  $('fail-title').textContent = v.title;
+  $('fail-what').textContent = v.what;
+  $('fail-next').textContent = v.labels.whatNext;
+  $('fail-steps').replaceChildren(...v.steps.map((step) => Object.assign(document.createElement('li'), { textContent: step })));
+  $('fail-command-box').hidden = v.command === null;
+  $('fail-command').textContent = v.command ?? '';
+  $('fail-details-label').textContent = v.labels.details;
+  $('fail-log-at').textContent = v.labels.logAt;
+  $('fail-detail').textContent = v.detail;
+  $('fail-env').textContent = v.footer;
+  copyCommand.textContent = v.labels.copyCommand;
+  copyAll.textContent = v.labels.copyAll;
+  openLog.textContent = v.labels.openLog;
+  retry.textContent = v.labels.tryAgain;
+  retry.disabled = false;
+  // 待っている間の絵はもう進まない。印を立てると、流れと待ちの文が止まり、合図の途中だったなら元へ戻す（上の観察）。
+  status.dataset.level = 'error';
+  main.hidden = true;
+  // 札を窓の中に収める余白（上はヘッダーの高さ）を効かせる。種類は印として残す。
+  document.body.dataset.fail = v.kind;
+  brand.hidden = false;
+  card.hidden = false;
+  // Enter で「もう一度試す」を押せるよう、焦点をここに置く。
+  retry.focus({ preventScroll: true });
+};
+
+retry.addEventListener('click', () => {
   if (retry.disabled) return;
   retry.disabled = true;
   Promise.resolve(invoke('retry_boot')).catch(() => { retry.disabled = false; });
 });
-openLog?.addEventListener('click', () => { Promise.resolve(invoke('open_log')).catch(() => {}); });
+openLog.addEventListener('click', () => { Promise.resolve(invoke('open_log')).catch(() => {}); });
+copyCommand.addEventListener('click', () => { if (view?.command) copy(view.command, copyCommand, () => view.labels.copyCommand); });
+copyAll.addEventListener('click', () => { if (view) copy(view.copyText, copyAll, () => view.labels.copyAll); });

@@ -3,11 +3,12 @@ import { useCallback, useEffect, useRef, useState, type DragEvent, type Keyboard
 import { useEmit } from '../intent/chain.tsx';
 import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 import { MenuPop, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
 /** 画面の名前からナビのアイコンへの対応。見た目の話なので Presenter ではなくここに置く。 */
-const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', sessions: 'sessions', settings: 'settings' };
+const NAV_ICON: Record<string, IconName> = { home: 'home', projects: 'projects', settings: 'settings' };
 
 /**
  * 項目に添える入力待ちの数。
@@ -39,7 +40,7 @@ export function nudgeId(ids: string[], id: string, delta: -1 | 1): string[] {
 }
 
 /**
- * 「動いている」の節。
+ * 「実行中」の節。
  * 行を押すとそのセッションへ移る。行を掴んで上下に動かすと並べ替えられ、並びは端末が覚える（sidebar.order）。
  * キーボードでは、行に焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。
  * 動かすのは行だけで、見出しは動かない。ドラッグの途中の印（入る場所の線）は、ここだけで持つ。
@@ -49,6 +50,7 @@ export function nudgeId(ids: string[], id: string, delta: -1 | 1): string[] {
  */
 function LiveSection(props: { live: SideLiveProps }) {
   const emit = useEmit();
+  const t = useT();
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<{ id: string; before: boolean } | null>(null);
   // 開いているメニュー。at は吊るす相手で、右クリックなら押した点、打鍵なら行の矩形。
@@ -96,8 +98,8 @@ function LiveSection(props: { live: SideLiveProps }) {
     if (ids !== live.ids) emit({ type: 'sidebar.order', ids });
   };
   return (
-    <section className="side-live" aria-label="動いているセッション">
-      <h2 className="side-live-h">動いている<span className="side-live-n">{live.count}</span></h2>
+    <section className="side-live" aria-label={t('sidebar.live.label')}>
+      <h2 className="side-live-h">{t('sidebar.live.title')}<span className="side-live-n">{live.count}</span></h2>
       <ul className="side-live-list" ref={list}>
         {live.rows.map((r) => (
           <li key={r.id}>
@@ -132,7 +134,11 @@ function rowItems(r: SideLiveRow, emit: ReturnType<typeof useEmit>): MenuItem[] 
 /** 「ほか N 件」の行き先。ホームの実行中と要対応に全部が並ぶ。 */
 const HOME = { name: 'home' } as const;
 
-export function Sidebar(props: { nav: NavItem[]; collapsed: boolean; live: SideLiveProps }) {
+/**
+ * サイドバー。上から「ホーム」「プロジェクト」の 2 項目、「実行中」の節、下端の「設定」の順に置く（設計書 2.1）。
+ * 設定は foot で受け取り、残りの高さの底に寄せる。
+ */
+export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boolean; live: SideLiveProps }) {
   const emit = useEmit();
   const item = (n: NavItem) => (
     <a key={n.label} className="nav-item" href={formatRoute(n.route)} aria-current={n.current ? 'page' : undefined} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: n.route }); }}>{NAV_ICON[n.route.name] && <Icon name={NAV_ICON[n.route.name]!} />}<span className="nav-label">{n.label}</span>{n.count > 0 && <NavCount n={n.count} />}</a>
@@ -148,6 +154,7 @@ export function Sidebar(props: { nav: NavItem[]; collapsed: boolean; live: SideL
       <div className="nav-row">{first && item(first)}{toggle}</div>
       {rest.map(item)}
       <LiveSection live={props.live} />
+      {props.foot.length > 0 && <div className="side-foot">{props.foot.map(item)}</div>}
     </nav>
   );
 }

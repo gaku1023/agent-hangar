@@ -3,6 +3,7 @@ import { connectionStep } from './connection.ts';
 import { launchStep } from './launch.ts';
 import { liveStep, settleWaiting } from './live.ts';
 import { returnStep, settleReturn } from './returnDue.ts';
+import { noticesStep } from './notices.ts';
 import { notifyStep } from './notify.ts';
 import { overlayStep, settleQueue } from './overlay.ts';
 import { projectCreateStep } from './projectCreate.ts';
@@ -14,7 +15,7 @@ import { screenStep } from './screen.ts';
 import { sectionsStep } from './sections.ts';
 import { sessionViewStep } from './sessionView.ts';
 import { settingsStep } from './settings.ts';
-import { LIVE_PANE_SPLIT_DEFAULT, livePaneSplitStep, sidebarLiveStep, sidebarOrderStep, sidebarStep } from './sidebar.ts';
+import { sidebarLiveStep, sidebarOrderStep, sidebarStep } from './sidebar.ts';
 import { syncStep } from './sync.ts';
 import { workbenchStep } from './workbench.ts';
 import type { Input, State, Step } from './types.ts';
@@ -24,7 +25,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], sectionsOpen: {}, livePaneSplit: LIVE_PANE_SPLIT_DEFAULT, retentionBannerDismissed: false, newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, listPages: {}, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], returnToasts: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], unresolvedQueue: [], resolveDeferred: [], sidebarCollapsed: false, sidebarOrder: [], sectionsOpen: {}, retentionBannerDismissed: false, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {
@@ -45,7 +46,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const screen = (s: State, i: Input) => screenStep(s, store, i);
   const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
-  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sectionsStep, livePaneSplitStep, returnStep, notifyStep, workbench]) {
+  for (const step of [connectionStep, screen, launchStep, promoteStep, projectCreateStep, retentionStep, accountsStep, overlayStep, syncStep, resumeHereStep, settingsStep, sessionView, sidebarStep, sidebarOrderStep, sectionsStep, returnStep, noticesStep, notifyStep, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }

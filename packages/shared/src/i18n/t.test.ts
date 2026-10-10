@@ -40,7 +40,9 @@ describe('辞書', () => {
   });
   it('英語の辞書に、かなと漢字が残っていない', () => {
     // 訳し忘れは、日本語のまま英語の画面と Claude への指示に出る。
-    for (const key of keys) expect([key, /[\u3040-\u30ff\u4e00-\u9fff]/.test(en[key])]).toEqual([key, false]);
+    // 言語の名前は、どちらの画面でもその言語の文字で書く（切り替えの選びで、読めない言語を選べるように）ので除く。
+    const ownLanguageNames = new Set(['settings.general.language.ja']);
+    for (const key of keys.filter((k) => !ownLanguageNames.has(k))) expect([key, /[\u3040-\u30ff\u4e00-\u9fff]/.test(en[key])]).toEqual([key, false]);
   });
   it('日本語と英語で、行の数が同じである', () => {
     // 何行かにわたる文（Claude に渡す指示、要約器への指示）は、1 行が 1 つの求めに当たる。行が減っていれば、求めを落としている。

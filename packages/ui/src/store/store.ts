@@ -1,6 +1,6 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import type { AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -22,6 +22,8 @@ export type Store = {
   events: Record<string, EventsSlice>; subagents: Record<string, string[]>;
   /** 実行中のセッションの右ペインに出すライブの要約。実行中に開いたセッションの分が溜まる（今開いているものだけではない）。 */
   liveDigests: Record<string, LiveDigestDto>;
+  /** 終わったセッションの冒頭の 1 枚に出す、変更したファイルの一覧（`GET /api/sessions/:id/files`）。画面を開いたときと run が終わったときに取る。 */
+  sessionFiles: Record<string, SessionFilesDto['files']>;
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;
   todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
@@ -38,7 +40,7 @@ export type Store = {
   sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
   // Claude Code の会話の保持期間。下見は確認を開いたときだけ取りに行く値なので、未取得は null である。
   retention: RetentionDto | null; retentionPreview: RetentionPreviewDto | null;
-  // 準備の確かめ。設定画面と空のホームで取りに行く値なので、未取得は null である。
+  // 準備の確かめ。設定画面とホームの帯で取りに行く値なので、未取得は null である。
   readiness: ReadinessDto | null;
   // Claude Code との互換のずれの中身（GET /api/compat）。準備の確かめでずれが 1 件以上あるときだけ取りに行く。
   // 未取得と、ずれが無いときは null である。
@@ -61,7 +63,7 @@ export const eventsKey = (sessionId: string, agentId: string | null): string => 
 
 export function initialStore(): Store {
   return {
-    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {},
+    bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {}, sessionFiles: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, artifacts: {}, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
@@ -198,8 +200,23 @@ export function applySearch(store: Store, params: SearchParamsDto, result: Searc
   return { ...store, search: { params, result, loading } };
 }
 
+/**
+ * 検索の結果の続きを、持っている結果の後ろに足す（「さらに読み込む」）。
+ * 重なった行（読んでいる間に順が動いたもの）は先に持っている方だけ残す。件数は新しく届いた全件の数に更新する。
+ * 持っている結果が無ければ、届いたものがそのまま結果になる。
+ */
+export function appendSearchResult(prev: SearchResultDto | null, next: SearchResultDto): SearchResultDto {
+  if (!prev) return next;
+  const seen = new Set(prev.hits.map((h) => h.sessionId));
+  return { hits: [...prev.hits, ...next.hits.filter((h) => !seen.has(h.sessionId))], total: next.total };
+}
+
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
+}
+
+export function applySessionFiles(store: Store, sessionId: string, files: SessionFilesDto['files']): Store {
+  return { ...store, sessionFiles: { ...store.sessionFiles, [sessionId]: files } };
 }
 
 export function applyLiveDigest(store: Store, d: LiveDigestDto): Store {

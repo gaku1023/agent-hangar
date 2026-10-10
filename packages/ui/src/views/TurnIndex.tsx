@@ -4,6 +4,7 @@ import type { TurnJumpStatus } from '../mediator/types.ts';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
 import { jumpWindow } from '../presenters/turns.ts';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 import { collapseOut, fadeIn, growIn, motionOn } from './primitives/motionKit.ts';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { RollingText } from './primitives/RollingText.tsx';
@@ -27,12 +28,8 @@ export type TurnIndexProps = {
   lead?: ReactNode;
 };
 
-/** 跳ばした結果の言い方。着いたときと待っている間は何も言わない。 */
-const JUMP_NOTE: Partial<Record<TurnJumpStatus, string>> = {
-  notFound: 'ターミナルでは見つかりませんでした',
-  mode: 'ターミナルの表示を切り替えられませんでした',
-  failed: 'ターミナルを動かせませんでした',
-};
+/** 跳ばした結果の言い方の鍵。着いたときと待っている間は何も言わない。 */
+const JUMP_NOTE = { notFound: 'session.toc.jump.notFound', mode: 'session.toc.jump.mode', failed: 'session.toc.jump.failed' } as const;
 
 /** 1 行目だけを行に出す。全文は title で読める。 */
 const firstLine = (s: string) => s.split('\n').find((l) => l.trim() !== '') ?? '';
@@ -44,6 +41,7 @@ const firstLine = (s: string) => s.split('\n').find((l) => l.trim() !== '') ?? '
  * Tab で止まる行は 1 つだけにする（roving tabindex）。既定は開いている行、無ければいちばん新しい指示である。
  */
 export function TurnIndex(props: TurnIndexProps) {
+  const t = useT();
   const emit = useEmit();
   const listRef = useRef<HTMLDivElement>(null);
   const openRef = useRef<HTMLDivElement | null>(null);
@@ -136,7 +134,8 @@ export function TurnIndex(props: TurnIndexProps) {
     const jump = props.runId && !row.open ? jumpWindow(props.rows.map((r) => r.head), i, props.complete) : null;
     emit({ type: 'turn.open', sessionId: props.sessionId, seq: row.seq, runId: jump ? props.runId : null, jump });
   };
-  const note = props.turnJump && props.turnJump.seq === openSeq ? JUMP_NOTE[props.turnJump.status] : undefined;
+  const noteKey = props.turnJump && props.turnJump.seq === openSeq ? JUMP_NOTE[props.turnJump.status as keyof typeof JUMP_NOTE] : undefined;
+  const note = noteKey ? t(noteKey) : undefined;
 
   // 最後にフォーカスした行。キーで移った先を、次に Tab で戻ってきたときの止まり先にする。
   const [focusSeq, setFocusSeq] = useState<number | null>(null);
@@ -161,13 +160,14 @@ export function TurnIndex(props: TurnIndexProps) {
     <div className="turns">
       <div className="turns-head">
         {props.lead}
-        <span className="faint">ターン <RollingText key={scope} text={`${props.rows.length}${props.hasMore ? '+' : ''}`} /></span>
-        {props.agentId && <><span className="faint">・サブエージェント {props.agentId}</span><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: null })}>主線に戻る</button></>}
+        <b>{t('session.toc.label')}</b>
+        <span className="faint"><RollingText key={scope} text={t(props.rows.length === 1 && !props.hasMore ? 'session.toc.countOne' : 'session.toc.count', { n: `${props.rows.length}${props.hasMore ? '+' : ''}` })} /></span>
+        {props.agentId && <><span className="faint">{t('session.toc.subagent', { id: props.agentId })}</span><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: null })}>{t('session.toc.backToMain')}</button></>}
       </div>
       <div ref={listRef} className="turns-list">
-        {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古いターンを読み込む（残り ${props.remaining} 件）`}</button>}
+        {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? t('session.toc.loading') : t('session.toc.loadOlder', { n: props.remaining })}</button>}
         {props.rows.length === 0 && props.pending && Array.from({ length: 6 }, (_, i) => <div key={`skel${i}`} className="turn-skel" style={{ width: `${70 + ((i * 37) % 30)}%` }} aria-hidden="true" />)}
-        {props.rows.length === 0 && !props.loading && !props.pending && <div className="empty">まだ指示がありません</div>}
+        {props.rows.length === 0 && !props.loading && !props.pending && <div className="empty">{t('session.toc.empty')}</div>}
         {entries.map(({ item: r, key, leaving }) => {
           const i = props.rows.indexOf(r);
           const isOpen = r.open && !leaving;
@@ -196,7 +196,7 @@ export function TurnIndex(props: TurnIndexProps) {
         })}
       </div>
       <div className="turns-foot">
-        <button className="btn" onClick={() => { emit({ type: 'turn.latest', sessionId: props.sessionId, runId: props.runId }); const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }}><Icon name="latest" />最新へ</button>
+        <button className="btn" onClick={() => { emit({ type: 'turn.latest', sessionId: props.sessionId, runId: props.runId }); const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }}><Icon name="latest" />{t('session.toc.latest')}</button>
       </div>
     </div>
   );

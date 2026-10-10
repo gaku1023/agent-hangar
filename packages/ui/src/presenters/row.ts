@@ -101,6 +101,15 @@ export function sortForSections(list: SessionDto[]): SessionDto[] {
   });
 }
 
+/**
+ * PR の URL の末尾の番号（`/pull/88` の 88）。URL がこの形でなければ null。
+ * 一覧の行の 2 段目の右端に「PR #88」と出す。取れなければ「PR」とだけ出す（設計書 4.1）。
+ */
+export function prNumberOf(url: string | null): string | null {
+  const m = url ? /\/pull\/(\d+)(?:[/?#]|$)/.exec(url) : null;
+  return m ? m[1]! : null;
+}
+
 /** 状態の札の語。プロジェクトの状態と同じ英語にする。 */
 export const STATUS_LABEL: Record<SessionStatus, string> = { paused: 'Paused', done: 'Done', archived: 'Archived' };
 /** 状態の無い行（Active）の札の語。Active は値として持たないので、STATUS_LABEL とは別に置く。 */

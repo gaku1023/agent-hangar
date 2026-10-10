@@ -4,8 +4,20 @@ import type { Db } from '../db/open.ts';
 export type RunRow = { id: string; session_id: string; device_id: string; kind: RunKind; tmux_name: string; pid: number | null; launch_params: string; started_at: number; ended_at: number | null; end_reason: EndReason | null; heartbeat_at: number };
 type TabRow = { id: string; run_id: string; tmux_name: string; title: string | null; created_at: number; closed_at: number | null };
 
+/** 起動のときの launch_params に入っている権限モード。無い、空、文字列でない、JSON が壊れている、のどれも null。 */
+function permissionModeIn(launchParams: string | null): string | null {
+  if (!launchParams) return null;
+  try {
+    const v = (JSON.parse(launchParams) as { permissionMode?: unknown } | null)?.permissionMode;
+    return typeof v === 'string' && v.trim() ? v.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export function toRunDto(r: RunRow): RunDto {
-  return { id: r.id, sessionId: r.session_id, deviceId: r.device_id, kind: r.kind, tmuxName: r.tmux_name, pid: r.pid, startedAt: r.started_at, endedAt: r.ended_at, endReason: r.end_reason, heartbeatAt: r.heartbeat_at };
+  const permissionMode = permissionModeIn(r.launch_params);
+  return { id: r.id, sessionId: r.session_id, deviceId: r.device_id, kind: r.kind, tmuxName: r.tmux_name, pid: r.pid, startedAt: r.started_at, endedAt: r.ended_at, endReason: r.end_reason, heartbeatAt: r.heartbeat_at, ...(permissionMode ? { permissionMode } : {}) };
 }
 
 const RUN_SELECT = 'select * from runs where deleted_at is null';

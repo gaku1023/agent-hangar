@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
+import { syncFixture } from '../test/syncProps.ts';
 import { Shell } from './Shell.tsx';
 
-const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: { visible: false, state: 'off' as const, label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null }, retention: { visible: false, title: '', detail: '', extendTo: 365 }, account: null, newSession: {} };
+const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), retention: { visible: false, title: '', detail: '', extendTo: 365 }, account: null, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -32,6 +33,26 @@ describe('Shell のホームの入力待ちの数', () => {
   it('畳んだ帯でも同じ印を出す', () => {
     const { container } = render(<IntentRoot onIntent={vi.fn()}><Shell {...withCount(3)} sidebarCollapsed overlays={null}><div>body</div></Shell></IntentRoot>);
     expect(container.querySelector('.shell[data-sidebar="collapsed"] .nav-count')).toHaveTextContent('3');
+  });
+});
+
+describe('Shell のサイドバーの並び', () => {
+  const side = () => screen.getByRole('navigation', { name: '主ナビゲーション' });
+  const live = { count: 2, ids: ['a', 'b'], rows: [{ id: 'a', name: 'name-a', live: 'busy' as const, aside: false, waited: null, current: false, stop: null }, { id: 'b', name: 'name-b', live: 'idle' as const, aside: false, waited: null, current: false, stop: null }], more: 0 };
+  it('項目は「ホーム」「プロジェクト」の 2 つと「実行中」の節で、設定は下端に置く。「セッション」の項目は無い', () => {
+    render(<IntentRoot onIntent={vi.fn()}><Shell {...props} live={live} overlays={null}><div>body</div></Shell></IntentRoot>);
+    const order = [...side().querySelectorAll('.nav-item, .side-live')].map((e) => (e.classList.contains('side-live') ? '実行中の節' : e.textContent));
+    expect(order).toEqual(['ホーム', 'プロジェクト', '実行中の節', '設定']);
+    expect(within(side()).queryByRole('link', { name: 'セッション' })).toBeNull();
+    expect(side().querySelector('.side-foot')).toContainElement(within(side()).getByRole('link', { name: '設定' }));
+  });
+  it('設定の項目は押すと設定へ移り、設定の画面にいる間は印が付く', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} overlays={null}><div>body</div></Shell></IntentRoot>);
+    fireEvent.click(within(side()).getByRole('link', { name: '設定' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+    rerender(<IntentRoot onIntent={onIntent}><Shell {...props} foot={[{ ...props.foot[0]!, current: true }]} overlays={null}><div>body</div></Shell></IntentRoot>);
+    expect(within(side()).getByRole('link', { name: '設定' })).toHaveAttribute('aria-current', 'page');
   });
 });
 
@@ -154,69 +175,70 @@ describe('Shell', () => {
     render(<IntentRoot onIntent={() => {}}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.queryByRole('status')).toBeNull();
   });
-  it('同期の状態と操作を出し、off では出さない', () => {
-    const onIntent = vi.fn();
-    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null };
-    const { rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} sync={sync} overlays={null}><div /></Shell></IntentRoot>);
+  it('同期は状態の語と件数だけを出し、操作のボタンは持たない', () => {
+    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture({ pending: '未送信の変更 2' })} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('同期 1 分前')).toBeInTheDocument();
-    expect(screen.getByText('未送信 2')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
-    fireEvent.click(screen.getByRole('button', { name: '同期を一時停止' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.pause', paused: true });
-    rerender(<IntentRoot onIntent={onIntent}><Shell {...props} sync={{ ...sync, state: 'paused', label: '一時停止中', paused: true }} overlays={null}><div /></Shell></IntentRoot>);
-    fireEvent.click(screen.getByRole('button', { name: '同期を再開' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.pause', paused: false });
-    rerender(<IntentRoot onIntent={onIntent}><Shell {...props} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.getByText('未送信の変更 2')).toBeInTheDocument();
+    // 今すぐ同期と一時停止は、設定の同期の群にある。
     expect(screen.queryByRole('button', { name: '今すぐ同期' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
+    expect(document.querySelector('.sync button')).toBeNull();
+  });
+  it('語を押すと、設定の同期の群へ移る', () => {
+    const onIntent = vi.fn();
+    render(<IntentRoot onIntent={onIntent}><Shell {...props} sync={syncFixture()} overlays={null}><div /></Shell></IntentRoot>);
+    const link = screen.getByRole('link', { name: '同期 1 分前' });
+    expect(link).toHaveAttribute('href', '#/settings?at=sync');
+    fireEvent.click(link);
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
+  });
+  it('同期オフも語で言い、点は灰色の印（data-state=off）で、押せば同期の群へ行く', () => {
+    const onIntent = vi.fn();
+    const { container } = render(<IntentRoot onIntent={onIntent}><Shell {...props} sync={syncFixture({ state: 'off', label: '同期オフ' })} overlays={null}><div /></Shell></IntentRoot>);
+    expect(container.querySelector('.sync')).toHaveAttribute('data-state', 'off');
+    fireEvent.click(screen.getByRole('link', { name: '同期オフ' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
+  });
+  it('一時停止と 1 回だけ同期の最中は、それぞれ印で見分ける', () => {
+    const { container, rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture({ state: 'paused', label: '同期を一時停止中', reason: 'user' })} overlays={null}><div /></Shell></IntentRoot>);
+    expect(container.querySelector('.sync')).toHaveAttribute('data-state', 'paused');
+    expect(container.querySelector('.sync')).toHaveAttribute('data-reason', 'user');
+    expect(container.querySelector('.sync-label')).not.toHaveClass('sync-error');
+    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture({ state: 'paused', label: '1 回だけ同期中…', reason: 'user', once: true })} overlays={null}><div /></Shell></IntentRoot>);
+    expect(container.querySelector('.sync')).toHaveAttribute('data-once');
   });
   // 無料枠で止まったときは、手で止めたのと見分けがつくよう点と文を赤にする（CSS が data-reason を見る）。
   it('無料枠で止まったときは点に data-reason を付け、文を警告の色にする', () => {
-    const base = { visible: true, state: 'paused' as const, label: '無料枠で停止 · 9:00 に戻る', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null };
-    const { container, rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...base, reason: 'quota' }} overlays={null}><div /></Shell></IntentRoot>);
+    const base = syncFixture({ state: 'paused', label: '無料枠で停止 · 9:00 にリセット', reason: 'quota' });
+    const { container, rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={base} overlays={null}><div /></Shell></IntentRoot>);
     expect(container.querySelector('.sync')?.getAttribute('data-reason')).toBe('quota');
     expect(container.querySelector('.sync-label')).toHaveClass('sync-error');
-    expect(screen.getByText('無料枠で停止 · 9:00 に戻る')).toBeInTheDocument();
-    // 上限で退いている間は「今すぐ同期」だけを出し、一時停止の切り替えは描かない（試作の Q4 の案 B）。
-    expect(screen.getByRole('button', { name: '今すぐ同期' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
-    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...base, label: '一時停止中', paused: true, reason: 'user' }} overlays={null}><div /></Shell></IntentRoot>);
-    expect(container.querySelector('.sync')?.getAttribute('data-reason')).toBe('user');
-    expect(container.querySelector('.sync-label')).not.toHaveClass('sync-error');
-    // 手で止めたときは、再開のボタンを出す。
-    expect(screen.getByRole('button', { name: '同期を再開' })).toBeInTheDocument();
-    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...base, state: 'idle', paused: false, label: '同期 1 分前', reason: null }} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.getByText('無料枠で停止 · 9:00 にリセット')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture()} overlays={null}><div /></Shell></IntentRoot>);
     expect(container.querySelector('.sync')?.hasAttribute('data-reason')).toBe(false);
   });
-  it('一時停止中に版で止まっている間は、一時停止の切り替えを出さず、今すぐ同期だけを出す', () => {
-    // 再開しても、互換の版が合うまで同期できない（この PC が古くても Worker が古くても同じである）。切り替えを出すと、押しても直らないボタンになる。
-    const stuck = { visible: true, state: 'error' as const, label: '一時停止中 · 同期エラー: x', pending: 0, sweepPending: 0, skipped: 0, paused: true, reason: null };
-    const onIntent = vi.fn();
-    const { rerender } = render(<IntentRoot onIntent={onIntent}><Shell {...props} sync={stuck} overlays={null}><div /></Shell></IntentRoot>);
-    expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
-    expect(screen.getByRole('button', { name: '今すぐ同期' })).toHaveAttribute('title', '一時停止のまま、1 回だけ同期する');
-    // 一時停止していない版のエラーは、今までどおり一時停止の切り替えを出す。
-    rerender(<IntentRoot onIntent={onIntent}><Shell {...props} sync={{ ...stuck, paused: false, label: '同期エラー: x' }} overlays={null}><div /></Shell></IntentRoot>);
-    expect(screen.getByRole('button', { name: '同期を一時停止' })).toBeInTheDocument();
+  it('エラーは文を警告の色にする。一時停止中に版で止まっているときも同じ', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture({ state: 'error', label: '同期を一時停止中 · 同期エラー: x' })} overlays={null}><div /></Shell></IntentRoot>);
+    expect(container.querySelector('.sync-label')).toHaveClass('sync-error');
+    expect(container.querySelector('.sync')).toHaveAttribute('data-state', 'error');
   });
-  it('取り残しと送れなかった本文は、溜まっているときだけ出す', () => {
-    const sync = { visible: true, state: 'idle' as const, label: '同期 1 分前', pending: 0, sweepPending: 1500, skipped: 2, paused: false, reason: null };
+  it('件数は溜まっているときだけ出す', () => {
+    const sync = syncFixture({ sweepPending: '未送信のトランスクリプト 1500', skipped: '送信に失敗したトランスクリプト 2' });
     const { rerender } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={sync} overlays={null}><div /></Shell></IntentRoot>);
-    expect(screen.getByText('未送信の本文 1500')).toBeInTheDocument();
-    expect(screen.getByText('送れなかった本文 2')).toBeInTheDocument();
-    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ ...sync, sweepPending: 0, skipped: 0 }} overlays={null}><div /></Shell></IntentRoot>);
-    expect(screen.queryByText('未送信の本文 0')).toBeNull();
-    expect(screen.queryByText('送れなかった本文 0')).toBeNull();
+    expect(screen.getByText('未送信のトランスクリプト 1500')).toBeInTheDocument();
+    expect(screen.getByText('送信に失敗したトランスクリプト 2')).toBeInTheDocument();
+    rerender(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture()} overlays={null}><div /></Shell></IntentRoot>);
+    expect(screen.queryByText(/未送信/)).toBeNull();
+    expect(screen.queryByText(/送信に失敗/)).toBeNull();
   });
-  // 未送信が無いときに「未送信 0」と出すと、止まっているように見える。
-  it('未送信が 0 なら件数を出さず、使用量ゲージも残る', () => {
-    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={{ visible: true, state: 'pushing', label: '送信中', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null }} usage={{ fiveHour: 12, sevenDay: 34, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></IntentRoot>);
+  it('まだ届いていない間（visible が偽）は、同期の一行を描かない', () => {
+    const { container } = render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture({ visible: false, state: 'off', label: '' })} overlays={null}><div /></Shell></IntentRoot>);
+    expect(container.querySelector('.sync')).toBeNull();
+  });
+  it('件数が無いとき使用量ゲージは残る', () => {
+    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture({ state: 'pushing', label: '送信中' })} usage={{ fiveHour: 12, sevenDay: 34, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></IntentRoot>);
     expect(screen.getByText('送信中')).toBeInTheDocument();
-    expect(screen.queryByText('未送信 0')).toBeNull();
     expect(screen.getByRole('meter', { name: '5 時間枠の使用率' })).toBeInTheDocument();
     expect(screen.getByText('最終更新 3 分前')).toBeInTheDocument();
   });

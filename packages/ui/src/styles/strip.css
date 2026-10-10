@@ -1,0 +1,135 @@
+/* セッション画面 C の部品（設計書 2.3、試作は specs/2026-10-09-session-screen/options.html の C）。
+   現在の帯、冒頭の 1 枚、見出しの札、目次だけの右パネル、ノートの編集欄。画面を切り替えるまでは、どの画面にも付いていない。
+   どれも白い不透明な読む面で、ぼかしは掛けない。 */
+
+/* ---- 現在の帯。ターミナルの真上の 2 行。左上の角は、上のタブに続くので丸めない。 ---- */
+.now-strip { container-type: inline-size; padding: calc(var(--u) * 1.75) calc(var(--u) * 3) calc(var(--u) * 1.75) calc(var(--u) * 3.5); border-radius: 0 var(--r-lg) var(--r-lg) var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); overflow: hidden; }
+.now-strip[data-tone='wait'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--waiting); }
+.now-strip[data-tone='busy'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--busy); }
+.now-strip[data-tone='aside'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--aside); }
+/* 広いときは「状態と問い」と「いまの値」を 1 行目に、「意図と呼び出しと札」を 2 行目に置く。
+   帯の幅が足りなければ（container query）、いまの値が 3 行目に下がる。 */
+.ns-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'head vals' 'detail detail'; align-items: center; column-gap: calc(var(--u) * 2.5); row-gap: calc(var(--u) * 0.75); }
+.ns-head { grid-area: head; display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; min-height: 22px; white-space: nowrap; }
+.ns-state { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); font-weight: 600; }
+.ns-state[data-tone='wait'] { color: var(--waiting); }
+.ns-state[data-tone='busy'] { color: color-mix(in srgb, var(--busy) 60%, var(--ink)); }
+.ns-state .faint { font-weight: 400; }
+.ns-q { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.ns-vals { grid-area: vals; display: inline-flex; align-items: center; gap: calc(var(--u) * 2.5); min-height: 22px; font-size: var(--fs-xs); color: var(--ink-2); white-space: nowrap; }
+.ns-vals b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ns-vals .gauge-bar { width: 40px; margin: 0 2px; vertical-align: middle; }
+.ns-detail { grid-area: detail; display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-width: 0; min-height: 22px; white-space: nowrap; }
+@container (max-width: 720px) {
+  .ns-body { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'head' 'detail' 'vals'; }
+  .ns-detail { flex-wrap: wrap; row-gap: calc(var(--u) * 0.75); }
+  /* 意図は 1 行を使い切り、呼び出しと札は次の行に並べる。 */
+  .ns-intent, .ns-intent-none { flex: 1 1 100%; max-width: 100%; }
+  .ns-steps-wrap { flex: 1 1 12em; }
+  .ns-vals { flex-wrap: wrap; }
+}
+/* 意図。Claude がこのターンに書いた「何のために何をするか」。候補の色の縁で、書き手が Claude であることを見せる。 */
+.ns-intent { flex: 0 1 auto; max-width: 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 1px calc(var(--u) * 2); border-left: 3px solid var(--cand); border-radius: 0 6px 6px 0; background: var(--cand-soft); }
+.ns-intent small { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
+.ns-intent[data-stale='true'] { opacity: 0.6; }
+.ns-intent-none { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* ツール呼び出しの並び。道具の名前は杏、引数は墨の薄い色。入り切らない札は丸ごと落とし、左に「ほか N」を置く（古い側から落とす）。
+   幅は見えない写し（.ns-steps-measure）で測る。 */
+.ns-steps-wrap { position: relative; flex: 1 1 0; min-width: 10em; display: flex; align-items: center; gap: calc(var(--u) * 2.5); overflow: hidden; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-2); }
+.ns-steps { min-width: 0; display: flex; gap: calc(var(--u) * 2.5); overflow: hidden; }
+.ns-steps-wrap > .count-chip { flex: none; font-family: var(--font-sans); }
+.ns-steps-measure { position: absolute; top: 0; left: 0; display: flex; gap: calc(var(--u) * 2.5); visibility: hidden; pointer-events: none; white-space: nowrap; }
+.ns-steps-measure > .count-chip { font-family: var(--font-sans); }
+.ns-step { flex: none; display: inline-flex; align-items: baseline; gap: var(--u); }
+.ns-step i { font-style: normal; font-weight: 600; color: var(--busy); }
+.ns-step-mark { font-family: var(--font-sans); }
+.ns-step[data-mark='done'] .ns-step-mark { color: var(--idle); }
+.ns-step[data-mark='now'] .ns-step-mark { color: var(--busy); }
+.ns-step[data-mark='wait'] .ns-step-mark { color: var(--waiting); }
+.ns-step[data-mark='fail'] .ns-step-mark { color: var(--error); }
+.ns-step-arg { overflow: hidden; text-overflow: ellipsis; }
+.ns-chips { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+/* 「ノート」の札。中身があれば青い印を付ける。 */
+.ns-note { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.25); height: 22px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.ns-note:hover { color: var(--ink); background: var(--surface); }
+.ns-note:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ns-note[aria-expanded='true'] { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.ns-note[data-filled='true'] { color: var(--ink); }
+.ns-note > .icon { width: 12px; height: 12px; }
+.ns-note-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+/* 数の札のポップオーバーの中身。 */
+.ns-steps-all { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }
+.ns-steps-all .ns-step { height: 24px; align-items: center; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-2); }
+.ns-lanes, .ns-arts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }
+.ns-lane-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; column-gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 1) calc(var(--u) * 1.5); border: 0; border-radius: var(--r); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ns-lane-row:hover:not(:disabled) { background: var(--surface-2); }
+.ns-lane-row:disabled { cursor: default; }
+.ns-lane-row[data-tone='error'] { background: color-mix(in srgb, var(--error) 9%, var(--surface)); }
+.ns-lane-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-lane-time { font-size: var(--fs-xs); color: var(--ink-3); }
+.ns-lane-line { grid-column: 2 / 4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink-2); }
+.ns-lane-row[data-tone='error'] .ns-lane-line { color: var(--error); }
+.ns-lane-row[data-tone='done'] .ns-lane-line { color: var(--idle); }
+.ns-art { display: flex; align-items: center; gap: var(--u); }
+.ns-art-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: calc(var(--u) * 2); height: 28px; padding: 0 calc(var(--u) * 1.5); border: 0; border-radius: var(--r); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ns-art-open:hover { background: var(--surface-2); }
+.ns-art-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-art-when { flex: none; font-size: var(--fs-xs); }
+
+/* ---- ノートの編集欄（帯の札のポップオーバーと、冒頭の 1 枚の中）。 ---- */
+.note-editor { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.note-area { width: 100%; height: auto; min-height: 72px; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); font-size: var(--fs-sm); line-height: 1.55; resize: vertical; color: var(--ink); }
+.note-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+
+/* ---- 冒頭の 1 枚（終わったセッションのトランスクリプトの先頭）。 ---- */
+.lead-card { margin: 0 0 calc(var(--u) * 2.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); }
+.lead-h { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 2); margin-bottom: calc(var(--u) * 1.5); min-width: 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.lead-status { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--st-active); background: var(--st-active-soft); }
+.lead-status[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.lead-status[data-s='done'] { color: var(--st-done); background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.lead-status[data-s='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
+.lead-facts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
+.lead-facts b { font-weight: 600; color: var(--ink); }
+.lead-end { margin-left: auto; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.lead-notice { margin-bottom: calc(var(--u) * 1.5); font-size: var(--fs-sm); color: var(--ink-2); }
+.lead-notice[data-kind='failed'] { color: var(--error); }
+.lead-card .sum-body { margin-bottom: calc(var(--u) * 1.5); }
+.lead-sub { margin: calc(var(--u) * 0.5) 0 var(--u); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.lead-chips { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 2); }
+.lead-pr { display: inline-flex; align-items: center; gap: var(--u); height: 22px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 0 0 1px rgba(30, 40, 90, 0.08); font-size: var(--fs-sm); font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.lead-pr > .icon { width: 13px; height: 13px; }
+.lead-pr:hover { text-decoration: underline; }
+.lead-panel { margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: var(--r); background: var(--surface); }
+.lead-files { list-style: none; margin: 0; padding: 0; }
+.lead-file { display: flex; align-items: center; gap: calc(var(--u) * 2); width: 100%; height: 28px; padding: 0 calc(var(--u) * 1.5); border: 0; border-radius: var(--r); background: none; color: var(--ink); font: inherit; font-size: var(--fs-sm); text-align: left; white-space: nowrap; cursor: pointer; }
+.lead-file:hover { background: var(--surface-2); }
+.lead-file > .icon { color: var(--ink-3); }
+/* 長いときはフォルダの側を省略し、ファイル名は必ず残す。 */
+.lead-file-path { flex: 1; display: flex; min-width: 0; overflow: hidden; }
+.lead-file-path > .faint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lead-file-new { flex: none; padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); font-size: 10.5px; color: var(--st-done); background: var(--st-done-soft); }
+.lead-file-agent, .lead-file-edits { flex: none; font-size: var(--fs-xs); }
+.lead-file-add { flex: none; font-size: var(--fs-xs); color: var(--st-done); }
+.lead-file-del { flex: none; font-size: var(--fs-xs); color: var(--error); }
+.lead-panel-note { margin-top: var(--u); font-size: var(--fs-xs); }
+.lead-note { margin-top: calc(var(--u) * 2.5); padding-top: calc(var(--u) * 2); border-top: 1px solid var(--line); }
+.lead-note-h { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+.lead-note-h .lead-sub { margin: 0; }
+.lead-note-text { margin: var(--u) 0 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; }
+
+/* ---- 見出しの名前の横の札（ロック、トランスクリプトの在りか）。操作できない理由なので、隠さずに見出しへ出す。 ---- */
+.session-badges { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.session-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--st-active); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-active) 40%, transparent); }
+.session-badge[data-kind='stale'] { color: var(--st-paused); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 45%, transparent); }
+.session-badge[data-kind='remote'] { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+
+/* ---- 目次だけの右パネル（240px）。畳む動きは、外の枠（overflow: hidden の列）が受け持つので、幅は固定にする。 ---- */
+.toc-pane { flex: none; width: 240px; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.toc-pane > .turns { flex: 1; }
+.toc-pane .turns .tr-toggle { margin-left: calc(var(--u) * -2); }
+/* 240px の細い列では、手の数は出さず（色帯が手の種類を言う）、古いターンを読み込むボタンは折り返す。 */
+.toc-pane .turn-tools { display: none; }
+.toc-pane .turns-more { height: auto; min-height: var(--row-h); padding-top: var(--u); padding-bottom: var(--u); white-space: normal; text-align: center; }
+/* (i) のポップオーバーの、アカウントの色の点。 */
+.pop-row dd > .st-dot { margin-right: calc(var(--u) * 1.5); }

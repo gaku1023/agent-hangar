@@ -12,7 +12,7 @@ function run(inputs: Input[], start: State = initialState()) {
 }
 const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
-const sessions = (q?: string) => runtime({ type: 'hash.changed', route: q ? { name: 'sessions', q } : { name: 'sessions' } });
+const sessions = (q?: string) => runtime({ type: 'hash.changed', route: q ? { name: 'home', q } : { name: 'home' } });
 
 describe('一覧のページ送り（A4）', () => {
   it('はじめは 1 ページ目、1 ページ 50 件', () => {
@@ -26,11 +26,11 @@ describe('一覧のページ送り（A4）', () => {
     expect(a.effects).toEqual([]);
   });
 
-  it('検索の結果のページ送りは、そのページの範囲を offset と limit で問い合わせる', () => {
+  it('検索の結果は「さらに読み込む」で足す。ページ送りは検索を問い合わせ直さず、最初の検索は先頭から 50 件を読む', () => {
     const a = run([sessions('動画')]);
     expect(a.effects).toEqual([{ kind: 'api.search', params: { q: '動画', hideArchived: true, limit: 50 } }]);
     const b = run([intent({ type: 'search.page', page: 3 })], a.state);
-    expect(b.effects).toEqual([{ kind: 'api.search', params: { q: '動画', hideArchived: true, limit: 50, offset: 100 } }]);
+    expect(b.effects).toEqual([]);
   });
 
   it('1 より前のページへは行かない', () => {
@@ -62,10 +62,10 @@ describe('一覧のページ送り（A4）', () => {
     expect(run([intent({ type: 'list.pageSize', size: 25 })], at).state.search.page).toBe(5);
   });
 
-  it('検索の結果で件数を変えたら、新しい範囲で問い合わせ直す', () => {
+  it('検索の結果は件数に依らず 50 件ずつ読むので、件数を変えても問い合わせ直さない', () => {
     const at = run([sessions('動画'), intent({ type: 'search.page', page: 3 })]).state;
     const b = run([intent({ type: 'list.pageSize', size: 100 })], at);
-    expect(b.effects).toEqual([{ kind: 'storage.save', key: PAGE_SIZE_KEY, value: 100 }, { kind: 'api.search', params: { q: '動画', hideArchived: true, limit: 100, offset: 100 } }]);
+    expect(b.effects).toEqual([{ kind: 'storage.save', key: PAGE_SIZE_KEY, value: 100 }]);
   });
 
   it('選択肢に無い件数は受け取らない', () => {

@@ -1,8 +1,8 @@
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
-import { currentRunOf, tabsOf, type Store } from '../store/store.ts';
+import { aliveRunOf, currentRunOf, tabsOf, type Store } from '../store/store.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, livePaneSplit: null, openTurn: null, turnJump: null, jump: null };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, jump: null };
 }
 
 /**
@@ -39,6 +39,20 @@ export function jumpStep(state: State, id: string, jump: { seq: number; query: s
   const cur = state.sessionView[id] ?? defaultSessionView();
   if (!jump) return cur.jump === null ? state : local(state, id, { jump: null }).state;
   return local(state, id, { jump: { ...jump, n: (cur.jump?.n ?? 0) + 1 }, follow: false }).state;
+}
+
+/**
+ * セッション画面を開いたとき、動いていないセッションは末尾を追わず、先頭から開く。
+ * 冒頭の 1 枚（要約、変更したファイル、ノートなど）はトランスクリプトの先頭にあるので、開いた直後に見えるようにするためである。
+ * 動いているセッション（作業中、入力待ち、休み、生きた run があるもの）は、これまでどおり末尾を追う。
+ * ストアがまだそのセッションを知らないときは、決めつけず何もしない。
+ * 追うかどうかは保存しない状態なので、書き込みは出さない。「最新へ」（turn.latest）で追う形に戻せる。
+ */
+export function openAtLeadStep(state: State, store: Store, id: string): State {
+  const s = store.sessions[id];
+  if (!s || s.live !== null || aliveRunOf(store, id) !== null) return state;
+  const cur = state.sessionView[id] ?? defaultSessionView();
+  return cur.follow ? local(state, id, { follow: false }).state : state;
 }
 
 /**

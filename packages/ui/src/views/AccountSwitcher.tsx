@@ -4,6 +4,7 @@ import { useEmit } from '../intent/chain.tsx';
 import { isPickableAccount, switchLabel, type AccountView } from '../presenters/accounts.ts';
 import type { HeaderAccountProps } from '../presenters/shell.ts';
 import { AccountMeters } from './primitives/AccountMeters.tsx';
+import { useT } from './primitives/language.tsx';
 import { place, type Placement } from './primitives/listboxModel.ts';
 import { foldAt } from './headerFold.ts';
 
@@ -25,6 +26,7 @@ const SETTINGS = { name: 'settings', at: 'accounts' } as const;
 export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps>; children: ReactNode }) {
   const { shown, list, sessionId, working } = props.account;
   const emit = useEmit();
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<Placement | null>(null);
   const face = useRef<HTMLButtonElement>(null);
@@ -91,7 +93,7 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
 
   return (
     <>
-      <button ref={face} type="button" className="account-switch" aria-label={switchLabel(shown)} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popId : undefined}
+      <button ref={face} type="button" className="account-switch" aria-label={switchLabel(t, shown)} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popId : undefined}
         onClick={() => (open ? hide(false) : show())}>
         <span className="st-dot account-dot" style={{ color: shown.color }} aria-hidden="true" />
         <span className="account-name" data-fold-at={foldAt('account-name')}>{shown.name}</span>
@@ -99,23 +101,23 @@ export function AccountSwitcher(props: { account: NonNullable<HeaderAccountProps
         <span className="account-caret" aria-hidden="true">▾</span>
       </button>
       {open && createPortal(
-        <div ref={pop} id={popId} role="dialog" aria-label="アカウントを切り替える" tabIndex={-1} className="menu-pop account-pop" data-up={pos?.up ? 'true' : undefined} onKeyDown={onKey}
+        <div ref={pop} id={popId} role="dialog" aria-label={t('accountSwitcher.dialog.aria')} tabIndex={-1} className="menu-pop account-pop" data-up={pos?.up ? 'true' : undefined} onKeyDown={onKey}
           style={pos ? { left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom } : { visibility: 'hidden', left: 0, top: 0, width: WIDTH }}>
-          <div role="menu" aria-label="アカウント" className="account-cards">
+          <div role="menu" aria-label={t('accountSwitcher.menu.aria')} className="account-cards">
             {list.map((a) => {
               const isShown = a.id === shown.id;
               const disabled = blocked(a);
               return (
                 <button key={a.id} type="button" role="menuitemradio" aria-checked={isShown} aria-disabled={disabled ? 'true' : undefined} className="account-card" onClick={() => choose(a)}>
                   {/* 押せない札の右上は空にする。理由は札の中身（メールの行）が言う。 */}
-                  {!disabled && <span className="account-card-tag" data-kind={isShown ? 'shown' : 'go'}>{isShown ? (sessionId === null ? 'いまのアカウント' : 'このセッション') : '切り替える'}</span>}
+                  {!disabled && <span className="account-card-tag" data-kind={isShown ? 'shown' : 'go'}>{isShown ? (sessionId === null ? t('accountSwitcher.tag.current') : t('accountSwitcher.tag.session')) : t('accountSwitcher.tag.switch')}</span>}
                   <AccountMeters account={a} showResets />
                 </button>
               );
             })}
           </div>
           <div className="account-pop-foot">
-            <button type="button" className="account-settings" onClick={() => { hide(true); emit({ type: 'nav.go', to: SETTINGS }); }}>アカウントの設定</button>
+            <button type="button" className="account-settings" onClick={() => { hide(true); emit({ type: 'nav.go', to: SETTINGS }); }}>{t('accountSwitcher.footer.settings')}</button>
           </div>
         </div>,
         document.body,

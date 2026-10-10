@@ -35,6 +35,11 @@ describe('createApi（フェーズ 2）', () => {
     await api.workspaceDirs();
     expect(lastCall()).toMatchObject({ url: '/api/workspace/dirs', method: 'GET' });
   });
+  it('変更したファイルの一覧は GET /api/sessions/:id/files で取る', async () => {
+    const { api, calls } = harness(200, { files: [{ path: '/w/a.ts', edits: 2, agentId: null }] });
+    expect(await api.sessionFiles('s1')).toEqual({ files: [{ path: '/w/a.ts', edits: 2, agentId: null }] });
+    expect(calls).toEqual([{ url: '/api/sessions/s1/files', method: 'GET', body: undefined }]);
+  });
   it('204 は undefined、失敗は status と経路のエラー', async () => {
     const ok = harness(204);
     expect(await ok.api.openEditor('s1')).toBeUndefined();

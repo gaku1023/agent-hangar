@@ -2,6 +2,7 @@
 //! 起動時に同梱サーバを子プロセスとして立て、`/health` が通ったらウィンドウをサーバの URL へ移す。
 //! `hangar://` のディープリンクは UI のハッシュ経路に変換して webview に流す。
 
+pub mod bootfail;
 pub mod deeplink;
 pub mod filedrop;
 pub mod health;
@@ -16,7 +17,7 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -27,6 +28,9 @@ struct AppState {
     ui: Mutex<Ui>,
     /// 起動の本体（`boot`）が走っているか。「もう一度試す」を連打しても、二つ目の起動を重ねない。
     booting: AtomicBool,
+    /// 今の子を起こす直前の時刻。子が死んだとき、`boot-error.json` がこの子のものかを更新の時刻で見分ける。
+    /// 子を起こさずに既存のサーバを採ったときは、前の値のまま使わない（その経路では子の死を見ない）。
+    child_started: Mutex<Option<SystemTime>>,
 }
 
 /// ウィンドウが今どの段にいるか。
@@ -39,7 +43,8 @@ struct Ui {
     /// 今出している頁の読み込みが終わったか。
     loaded: bool,
     pending_hash: Option<String>,
-    pending_status: Option<(String, bool)>,
+    /// 読み込みの前に届いた失敗の式（`bootfail::fail_js`）。読み込みの合図で流す。
+    pending_failure: Option<String>,
     /// 読み込み画面の load の合図が届いた時刻。起動画面の動きの時計も同じ合図から数える。
     loading_since: Option<Instant>,
     /// 最後に起動画面へ渡した進み具合の式。
@@ -48,11 +53,11 @@ struct Ui {
 }
 
 impl Ui {
-    /// 読み込みの前に出す文言を控える。
+    /// 読み込みの前に出す失敗を控える。
     /// 読み込みが済んでいれば、呼び出し側がその場で評価できるので控えない。
-    fn remember_status(&mut self, text: &str, error: bool) {
+    fn remember_failure(&mut self, js: &str) {
         if !self.loaded {
-            self.pending_status = Some((text.to_string(), error));
+            self.pending_failure = Some(js.to_string());
         }
     }
 
@@ -82,8 +87,8 @@ impl Ui {
         self.loaded = true;
     }
 
-    /// 頁の読み込みが終わった。今流してよい文言とハッシュを返す。
-    /// 文言は読み込み画面のものだけ、ハッシュはサーバの頁のものだけを流す。
+    /// 頁の読み込みが終わった。今流してよい失敗の式とハッシュを返す。
+    /// 失敗は読み込み画面のものだけ、ハッシュはサーバの頁のものだけを流す。
     /// 段に合わない合図（navigate の後に届く読み込み画面の側の合図など）は何もしない。
     /// 消えていく頁へ流すと、そのハッシュはそのまま失われるからである。
     /// 読み込み画面の読み込みが終わったときに渡し直す進み具合。サーバの頁へ移った後は渡さない。
@@ -97,18 +102,18 @@ impl Ui {
     /// 起動に失敗した後の「もう一度試す」。
     /// サーバの頁へ移った後はやり直さないので偽を返す。
     /// やり直すときは、殻が読み込み画面を読み込み直すので、読み込みの合図まで文言を貯める側へ戻す。
-    /// 前の失敗の文言と進み具合は、新しい頁へ持ち込まない。
+    /// 前の失敗と進み具合は、新しい頁へ持ち込まない。
     fn retry(&mut self) -> bool {
         if self.ready {
             return false;
         }
         self.loaded = false;
-        self.pending_status = None;
+        self.pending_failure = None;
         self.last_progress = None;
         true
     }
 
-    fn page_loaded(&mut self, server_page: bool) -> (Option<(String, bool)>, Option<String>) {
+    fn page_loaded(&mut self, server_page: bool) -> (Option<String>, Option<String>) {
         if self.ready != server_page {
             return (None, None);
         }
@@ -116,7 +121,7 @@ impl Ui {
         if self.ready {
             (None, self.pending_hash.take())
         } else {
-            (self.pending_status.take(), None)
+            (self.pending_failure.take(), None)
         }
     }
 }
@@ -234,8 +239,13 @@ fn wait_ready_with(
 /// サーバは索引づけより先に待ち受けを始めるので、`/health` が返った時点ではまだ済んでいないことがある。
 /// 済む前に移ると、UI は索引づけの間 API の応答を待たされる（100 件溜まっていたとき最大 1.4 秒、2026-09-30 の実測）。
 /// ふだんは 0.2 秒で済むので、起動はほとんど長くならない。
-/// 待つ間に子が終わったか、応答が途切れたまま戻らなければ、落ちたサーバへ移らず失敗の文を出す。
-fn wait_for_ready(app: &AppHandle, addr: SocketAddr, deadline: Duration) -> Result<(), String> {
+/// 待つ間に子が終わったか、応答が途切れたまま戻らなければ、落ちたサーバへ移らず失敗の札を出す。
+fn wait_for_ready(
+    app: &AppHandle,
+    addr: SocketAddr,
+    home: &std::path::Path,
+    deadline: Duration,
+) -> Result<(), bootfail::BootFailure> {
     let t0 = Instant::now();
     let outcome = wait_ready_with(
         ReadyLimits {
@@ -259,14 +269,11 @@ fn wait_for_ready(app: &AppHandle, addr: SocketAddr, deadline: Duration) -> Resu
             log("moving on before the first index finished");
             Ok(())
         }
-        ReadyWait::Died => Err(
-            "サーバが起動の途中で終了しました。~/.agent-hangar/desktop.log を確認してください。"
-                .to_string(),
-        ),
-        ReadyWait::Unresponsive => Err(format!(
+        ReadyWait::Died => Err(server_died(app, home)),
+        ReadyWait::Unresponsive => Err(bootfail::BootFailure::other(format!(
             "サーバが {} 秒応答しません。~/.agent-hangar/desktop.log を確認してください。",
             UNRESPONSIVE_AFTER.as_secs()
-        )),
+        ))),
     }
 }
 
@@ -335,36 +342,54 @@ fn log(line: &str) {
     }
 }
 
-/// 読み込み画面の `#status` を書き換える JavaScript。
-fn status_js(text: &str, error: bool) -> String {
-    format!(
-        "(function(){{var s=document.getElementById('status');if(!s)return;s.textContent={};s.dataset.level={};}})();",
-        serde_json::to_string(text).unwrap_or_default(),
-        if error { "'error'" } else { "''" }
-    )
-}
-
 fn eval_main(app: &AppHandle, js: &str) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.eval(js);
     }
 }
 
-/// 読み込み画面の文言を差し替える。サーバへ移る前だけ意味を持つ。
-/// 読み込みが終わる前の評価は捨てられることがあるので、そのときは文言を控えて読み込みの合図でもう一度流す。
-/// 控えるときも評価自体は試す。
-/// 読み込みの合図が来ない作りに変わっても、今までの見え方を下回らないためである。
-fn set_status(app: &AppHandle, text: &str, error: bool) {
-    {
-        let state = app.state::<AppState>();
-        state.ui.lock().unwrap().remember_status(text, error);
+/// 失敗の札の材料のうち、失敗の種類によらないもの。頁の言語、アプリの版、OS、置き場の名前である。
+/// 置き場の名前は、利用者のホームを `~` に縮めて渡す（札の文に、ユーザー名の入ったパスを出さない）。
+fn boot_env(app: &AppHandle, home: &std::path::Path) -> bootfail::Env {
+    bootfail::Env {
+        lang: bootfail::page_language(home),
+        version: app.package_info().version.to_string(),
+        os: bootfail::os_label(),
+        home: bootfail::tilde(&home.to_string_lossy(), &paths::user_home()),
     }
-    eval_main(app, &status_js(text, error));
 }
 
-fn fail(app: &AppHandle, msg: &str) {
-    log(msg);
-    set_status(app, msg, true);
+/// ログに残す失敗の 1 行。詳細は長いことがあるので、最初の行だけを丸めて載せる。
+fn failure_log_line(f: &bootfail::BootFailure) -> String {
+    let first: String = f
+        .detail
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(300)
+        .collect();
+    format!("boot failed ({}): {first}", f.kind)
+}
+
+/// 起動の失敗を札で出す。サーバへ移る前だけ意味を持つ。
+/// 読み込みが終わる前の評価は捨てられることがあるので、そのときは式を控えて読み込みの合図でもう一度流す。
+/// 控えるときも評価自体は試す。
+/// 読み込みの合図が来ない作りに変わっても、今までの見え方を下回らないためである。
+/// 詳細に入場の鍵が混じっていたら、頁へ渡す前に伏せる。
+fn fail(app: &AppHandle, failure: bootfail::BootFailure) {
+    let home = paths::hangar_home();
+    let failure = match server::read_token(&home) {
+        Some(token) => failure.map_text(|s| redact(s, &token)),
+        None => failure,
+    };
+    log(&failure_log_line(&failure));
+    let js = bootfail::fail_js(&failure, &boot_env(app, &home));
+    {
+        let state = app.state::<AppState>();
+        state.ui.lock().unwrap().remember_failure(&js);
+    }
+    eval_main(app, &js);
 }
 
 /// ディープリンクをハッシュとして適用する。
@@ -397,7 +422,7 @@ fn is_server_page(u: &url::Url) -> bool {
 /// 頁の読み込みが終わった合図。
 /// 読み込みの前に出しそこねた文言と、navigate の最中に届いたハッシュをここで流す。
 fn page_loaded(app: &AppHandle, server_page: bool) {
-    let (status, hash, replay) = {
+    let (failure, hash, replay) = {
         let state = app.state::<AppState>();
         let mut ui = state.ui.lock().unwrap();
         // 読み込み画面の最初の load だけを時計の起点にする。
@@ -405,14 +430,14 @@ fn page_loaded(app: &AppHandle, server_page: bool) {
             ui.loading_since = Some(Instant::now());
         }
         let replay = ui.progress_to_replay(server_page);
-        let (status, hash) = ui.page_loaded(server_page);
-        (status, hash, replay)
+        let (failure, hash) = ui.page_loaded(server_page);
+        (failure, hash, replay)
     };
     if let Some(js) = replay {
         eval_main(app, &js);
     }
-    if let Some((text, error)) = status {
-        eval_main(app, &status_js(&text, error));
+    if let Some(js) = failure {
+        eval_main(app, &js);
     }
     if let Some(h) = hash {
         eval_main(app, &deeplink::hash_to_js(&h));
@@ -478,30 +503,6 @@ fn accept_server_dir(
     inside.then_some(dir)
 }
 
-/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文（2026-10-09 に利用者が選んだ、案 B と C を合わせたもの）。
-/// どちらが古いかで言い分け、文の下に、そのポートで待ち受けているプロセスを調べる命令を添える。
-/// 殻はそのサーバを止めない。利用者が自分で起こしたもの（hangar start や npm run dev）かもしれないからである。
-/// 止めてから「もう一度試す」を押せば、起動をやり直して同梱のサーバを起こす（`retry_boot`）。
-fn refusal_message(port: u16, theirs: u64, ours: u64) -> String {
-    let head = if theirs < ours {
-        format!(
-            "{port} で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
-             そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。"
-        )
-    } else {
-        format!(
-            "この Hangar.app が、{port} で動いている hangar のサーバより古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
-             Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。"
-        )
-    };
-    // lsof は macOS と Linux にしか無い。Windows のデスクトップのアプリはまだ作っておらず（殻のクレートは `std::os::unix` を条件なしに使うので、いまは Windows で組み上がらない）、確かめられる命令が無いので、そこでは添えない。
-    if cfg!(windows) {
-        head
-    } else {
-        format!("{head}\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:{port} -sTCP:LISTEN")
-    }
-}
-
 /// 同梱サーバを起こす。成功したら `Ok(())`。
 /// 既に 4177 で互換の版の合う hangar が動いていれば、子は起こさずそれを使う。
 /// 版の合わない hangar が動いていれば、採らずに理由を返す（そのサーバは止めない）。
@@ -509,7 +510,7 @@ fn start_server(
     app: &AppHandle,
     hangar_home: &std::path::Path,
     addr: SocketAddr,
-) -> Result<(), String> {
+) -> Result<(), bootfail::BootFailure> {
     match health::probe_existing(addr, health::COMPAT_VERSION) {
         health::Existing::Adopt => {
             // hangar start などで既にサーバがいる。子は起こさず、そのサーバを使う。
@@ -521,7 +522,12 @@ fn start_server(
                 "refusing the server on 4177 (compat {theirs}, ours {})",
                 health::COMPAT_VERSION
             ));
-            return Err(refusal_message(addr.port(), theirs, health::COMPAT_VERSION));
+            // 札の文は頁の表が持つ（loading/boot-fail.js）。殻は版の数とポートだけを渡す。
+            return Err(bootfail::BootFailure::compat_mismatch(
+                addr.port(),
+                theirs,
+                health::COMPAT_VERSION,
+            ));
         }
         health::Existing::Absent => {}
     }
@@ -535,7 +541,8 @@ fn start_server(
                 "移さずに使うときは、ダウンロードした Hangar.app に対して次を実行してください。\n",
                 "xattr -rd com.apple.quarantine /path/to/Hangar.app"
             )
-            .to_string());
+            .to_string()
+            .into());
         }
     }
     let resource_dir = app
@@ -561,6 +568,9 @@ fn start_server(
         node_path.display(),
         dir.display()
     ));
+    // 子を起こす直前の時刻を控える。サーバは起動の先頭で古い boot-error.json を消し、失敗したら書き直す。
+    // 子の死を見たとき、これより古いファイルは前の起動のものとして捨てる。
+    *app.state::<AppState>().child_started.lock().unwrap() = Some(SystemTime::now());
     let child = server::spawn_server(
         &node_path,
         &dir,
@@ -570,7 +580,7 @@ fn start_server(
     .map_err(|e| format!("サーバを起動できません: {e}"))?;
     log(&format!("server pid {}", child.pid()));
     *app.state::<AppState>().server.lock().unwrap() = Some(child);
-    wait_for_server(app, addr, Duration::from_secs(20))
+    wait_for_server(app, addr, hangar_home, Duration::from_secs(20))
 }
 
 /// 子が死んでいたら、状態から外して真を返す。
@@ -594,7 +604,12 @@ fn take_dead_server(app: &AppHandle) -> bool {
 /// 同梱サーバが応えるのを待つ。
 /// 子が先に死んだときは、残りの時間を待たずに理由を返す。
 /// ネイティブモジュールが読めない、ポートが取れないといった即死で 20 秒固まらないためである。
-fn wait_for_server(app: &AppHandle, addr: SocketAddr, deadline: Duration) -> Result<(), String> {
+fn wait_for_server(
+    app: &AppHandle,
+    addr: SocketAddr,
+    home: &std::path::Path,
+    deadline: Duration,
+) -> Result<(), bootfail::BootFailure> {
     let died = Cell::new(false);
     let t0 = Instant::now();
     let healthy = health::wait_until(
@@ -623,15 +638,21 @@ fn wait_for_server(app: &AppHandle, addr: SocketAddr, deadline: Duration) -> Res
         return Ok(());
     }
     if died.get() {
-        return Err(
-            "サーバが起動直後に終了しました。~/.agent-hangar/desktop.log を確認してください。"
-                .to_string(),
-        );
+        return Err(server_died(app, home));
     }
-    Err(format!(
+    Err(bootfail::BootFailure::other(format!(
         "サーバが {} 秒以内に応答しませんでした。~/.agent-hangar/desktop.log を確認してください。",
         deadline.as_secs()
-    ))
+    )))
+}
+
+/// 子のサーバが死んだ失敗。サーバが書いた `boot-error.json` が今の子のものなら、その種類を採る。
+/// 読めない、古い、無いときは「サーバが起きない」にし、詳細にはログの終わりの数行を載せる（Node の読み込みの失敗などは、標準エラーにしか出ない）。
+fn server_died(app: &AppHandle, home: &std::path::Path) -> bootfail::BootFailure {
+    let started = *app.state::<AppState>().child_started.lock().unwrap();
+    bootfail::for_dead_server(home, started, || {
+        bootfail::log_tail(&home.join("desktop.log"), 20)
+    })
 }
 
 /// 起動の本体。別スレッドで走り、ウィンドウはその間読み込み画面を出している。
@@ -640,11 +661,11 @@ fn boot(app: AppHandle) {
     ensure_hangar_home(&hangar_home);
     let addr: SocketAddr = ([127, 0, 0, 1], server::PORT).into();
 
-    if let Err(msg) = start_server(&app, &hangar_home, addr) {
-        return fail(&app, &msg);
+    if let Err(failure) = start_server(&app, &hangar_home, addr) {
+        return fail(&app, failure);
     }
-    if let Err(msg) = wait_for_ready(&app, addr, READY_DEADLINE) {
-        return fail(&app, &msg);
+    if let Err(failure) = wait_for_ready(&app, addr, &hangar_home, READY_DEADLINE) {
+        return fail(&app, failure);
     }
 
     // サーバの `GET /` は鍵かクッキーが無ければ 401 の案内を返す。
@@ -652,19 +673,17 @@ fn boot(app: AppHandle) {
     let Some(token) = server::read_token(&hangar_home) else {
         return fail(
             &app,
-            &format!(
+            bootfail::BootFailure::other(format!(
                 "入場の鍵が読めません: {}\nサーバが鍵を作れたか ~/.agent-hangar/desktop.log を確認してください。",
                 hangar_home.join("token").display()
-            ),
+            )),
         );
     };
 
     // ウィンドウが取れなければ行き先を変えられない。黙って止まらず、理由を残す。
     let Some(w) = app.get_webview_window("main") else {
-        return fail(
-            &app,
-            "ウィンドウが見つからないので、サーバの画面へ移れません。",
-        );
+        let msg = "ウィンドウが見つからないので、サーバの画面へ移れません。";
+        return fail(&app, bootfail::BootFailure::other(msg));
     };
 
     // 読み込みが終わった合図を打たせ、光が満ち切るまで待ってから移る。起動画面は周のどこからでも合図に入れる。
@@ -703,11 +722,11 @@ fn boot(app: AppHandle) {
         // 例外の文言に URL が混じることがある。鍵を伏せてから出す。
         fail(
             &app,
-            &format!(
+            bootfail::BootFailure::other(format!(
                 "サーバの画面（ポート {}）へ移れません: {}",
                 server::PORT,
                 redact(&e, &token)
-            ),
+            )),
         );
         return;
     }
@@ -983,6 +1002,7 @@ pub fn run() {
             server: Mutex::new(None),
             ui: Mutex::new(Ui::default()),
             booting: AtomicBool::new(false),
+            child_started: Mutex::new(None),
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
@@ -1072,19 +1092,16 @@ mod tests {
     // 読み込み画面が出来上がる前の評価は捨てられることがある。
     // 早すぎる失敗の文言を貯めておき、読み込みが終わった合図で出す。
     #[test]
-    fn a_status_from_before_the_load_comes_out_after_it() {
+    fn a_failure_from_before_the_load_comes_out_after_it() {
         let mut ui = Ui::default();
-        ui.remember_status("同梱のサーバが見つかりません", true);
-        let (status, hash) = ui.page_loaded(false);
-        assert_eq!(
-            status,
-            Some(("同梱のサーバが見つかりません".to_string(), true))
-        );
+        ui.remember_failure("fail-js-1");
+        let (failure, hash) = ui.page_loaded(false);
+        assert_eq!(failure, Some("fail-js-1".to_string()));
         assert_eq!(hash, None);
         // 一度出したものは二度出さない。
         assert_eq!(ui.page_loaded(false).0, None);
-        // 読み込みが済んだ後の文言は、その場で評価できるので貯めない。
-        ui.remember_status("次の文言", false);
+        // 読み込みが済んだ後の失敗は、その場で評価できるので貯めない。
+        ui.remember_failure("fail-js-2");
         assert_eq!(ui.page_loaded(false).0, None);
     }
 
@@ -1106,9 +1123,9 @@ mod tests {
         ui.page_loaded(false);
         assert_eq!(ui.navigating(), "");
         assert_eq!(ui.hash_to_eval("#/session/2".to_string()), None);
-        let (status, hash) = ui.page_loaded(true);
+        let (failure, hash) = ui.page_loaded(true);
         assert_eq!(hash, Some("#/session/2".to_string()));
-        assert_eq!(status, None);
+        assert_eq!(failure, None);
         // サーバの頁が出来た後は、その場で評価する。
         assert_eq!(
             ui.hash_to_eval("#/project/3".to_string()),
@@ -1117,42 +1134,42 @@ mod tests {
     }
 
     // navigate に至らなかったときは読み込み画面がそのまま残る。
-    // 失敗の文言はその場で評価できるので、貯めない。
+    // 失敗はその場で評価できるので、貯めない。
     #[test]
     fn a_failed_navigation_puts_the_loading_page_back() {
         let mut ui = Ui::default();
         ui.page_loaded(false);
         ui.navigating();
         ui.navigation_failed();
-        ui.remember_status("行き先を組み立てられません", true);
+        ui.remember_failure("fail-js");
         assert_eq!(ui.page_loaded(false).0, None);
         // ready は降りているので、次のリンクは貯める側へ回る。
         assert_eq!(ui.hash_to_eval("#/session/4".to_string()), None);
     }
 
-    // サーバの頁へ移った後は、貯めた文言を流さない。UI の DOM を書き換えないためである。
+    // サーバの頁へ移った後は、貯めた失敗を流さない。UI の DOM を書き換えないためである。
     #[test]
-    fn a_stale_status_never_reaches_the_server_page() {
+    fn a_stale_failure_never_reaches_the_server_page() {
         let mut ui = Ui::default();
-        ui.remember_status("サーバを起動しています", false);
+        ui.remember_failure("fail-js");
         ui.navigating();
         assert_eq!(ui.page_loaded(true).0, None);
     }
 
     // 起動に失敗した後の「もう一度試す」。殻は読み込み画面を読み込み直してから起動をやり直す。
-    // 読み込み直しの最中に出た文言は捨てられうるので、読み込みの合図まで貯める側へ戻す。
-    // 前の失敗の文言と進み具合は、新しい頁へ持ち込まない。
+    // 読み込み直しの最中に出た失敗は捨てられうるので、読み込みの合図まで貯める側へ戻す。
+    // 前の失敗と進み具合は、新しい頁へ持ち込まない。
     #[test]
-    fn a_retry_reloads_the_loading_page_and_holds_new_statuses_for_it() {
+    fn a_retry_reloads_the_loading_page_and_holds_new_failures_for_it() {
         let mut ui = Ui::default();
         ui.page_loaded(false);
         ui.last_progress = Some("progress".to_string());
         assert!(ui.retry());
         assert_eq!(ui.progress_to_replay(false), None);
-        ui.remember_status("サーバが起動直後に終了しました。", true);
+        ui.remember_failure("fail-js-after-retry");
         assert_eq!(
             ui.page_loaded(false).0,
-            Some(("サーバが起動直後に終了しました。".to_string(), true))
+            Some("fail-js-after-retry".to_string())
         );
     }
 
@@ -1403,58 +1420,50 @@ mod tests {
         }
     }
 
-    // 採らなかった理由の文は、どちらの向きでも、相手と自分の版、ポート、次の一手を言う。
-    // 読み込み画面は「もう一度試す」と「ログを開く」を出すので、文はそのボタンへつなぐ。
+    // 起動の失敗は、種類と数を決まった式に埋めて頁へ渡す。文は殻が書かない。
     #[test]
-    fn the_refusal_names_both_versions_the_port_and_the_next_step() {
-        for (theirs, ours) in [(0, 1), (2, 1)] {
-            let m = refusal_message(server::PORT, theirs, ours);
-            assert!(m.contains(&format!("版 {theirs}")), "{m}");
-            assert!(m.contains(&format!("版 {ours}")), "{m}");
-            assert!(m.contains(&server::PORT.to_string()), "{m}");
-            assert!(m.contains("もう一度試す"), "{m}");
-        }
-    }
-
-    // 利用者が選んだ文（2026-10-09、案 B と C を合わせたもの）をそのまま留める。
-    // どちらが古いかで言い分け、アプリが古いときだけ入れ替えを案内し、文の下に相手を調べる命令を添える。
-    #[test]
-    #[cfg(not(windows))]
-    fn the_refusal_reads_as_chosen() {
-        assert_eq!(
-            refusal_message(4177, 0, 1),
-            "4177 で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 0、この Hangar.app は版 1）。\n\
-             そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。\n\
-             動いているサーバは次で調べられます。\n\
-             lsof -nP -iTCP:4177 -sTCP:LISTEN"
-        );
-        assert_eq!(
-            refusal_message(4177, 2, 1),
-            "この Hangar.app が、4177 で動いている hangar のサーバより古い版です（動いているサーバは版 2、この Hangar.app は版 1）。\n\
-             Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。\n\
-             動いているサーバは次で調べられます。\n\
-             lsof -nP -iTCP:4177 -sTCP:LISTEN"
+    fn a_failure_reaches_the_page_as_one_fixed_call_with_kind_and_numbers() {
+        let env = bootfail::Env {
+            lang: "en",
+            version: "0.1.0".to_string(),
+            os: "macOS 15.1".to_string(),
+            home: "~/.agent-hangar".to_string(),
+        };
+        let f = bootfail::BootFailure::compat_mismatch(server::PORT, 0, health::COMPAT_VERSION);
+        let js = bootfail::fail_js(&f, &env);
+        assert!(js.starts_with("window.__hangarBootFail && window.__hangarBootFail({"));
+        assert!(js.contains("\"kind\":\"compat-mismatch\""));
+        assert!(js.contains(&format!("\"ours\":{}", health::COMPAT_VERSION)));
+        assert!(
+            !js.contains("もう一度試す"),
+            "the shell does not write the page's sentences"
         );
     }
 
-    // 相手を調べる命令は、渡されたポートで書く（4177 に決め打ちしない）。
-    // lsof の無い Windows では命令を添えない。
+    // 入場の鍵が詳細に混じっても、頁へ渡す前に伏せる（`fail` は read_token の値で map_text を通す）。
     #[test]
-    fn the_refusal_shows_how_to_find_the_server_on_the_given_port() {
-        for (theirs, ours) in [(0, 1), (2, 1)] {
-            let m = refusal_message(4390, theirs, ours);
-            assert!(m.contains("4390 で動いている hangar のサーバ"), "{m}");
-            assert!(!m.contains("4177"), "{m}");
-            if cfg!(windows) {
-                assert!(!m.contains("lsof"), "{m}");
-            } else {
-                assert!(
-                    m.ends_with(
-                        "\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:4390 -sTCP:LISTEN"
-                    ),
-                    "{m}"
-                );
+    fn a_token_in_the_detail_is_hidden_before_it_is_sent_to_the_page() {
+        let f = bootfail::BootFailure::other("open http://127.0.0.1:4177/?t=abc123 failed")
+            .map_text(|s| redact(s, "abc123"));
+        assert!(!bootfail::fail_js(
+            &f,
+            &bootfail::Env {
+                lang: "ja",
+                version: String::new(),
+                os: String::new(),
+                home: String::new()
             }
-        }
+        )
+        .contains("abc123"));
+    }
+
+    // ログには種類と詳細の最初の行だけを残す。詳細は長いことがある。
+    #[test]
+    fn the_log_keeps_the_kind_and_the_first_line_of_the_detail() {
+        let f =
+            bootfail::BootFailure::server_exited(format!("first\nsecond\n{}", "x".repeat(2000)));
+        assert_eq!(failure_log_line(&f), "boot failed (server-exited): first");
+        let long = bootfail::BootFailure::other("y".repeat(2000));
+        assert!(failure_log_line(&long).chars().count() < 400);
     }
 }

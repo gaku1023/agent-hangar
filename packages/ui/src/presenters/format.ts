@@ -1,4 +1,4 @@
-import type { IndexProgressDto, SyncStateKind } from '@agent-hangar/shared';
+import type { IndexProgressDto } from '@agent-hangar/shared';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -74,23 +74,6 @@ export const SOURCE_LABEL = { baseline: '自動', in_session: 'セッション',
 /** 要約器の id を短い名前にする。表に無い id はそのまま出す。 */
 export const SUMMARIZER_LABEL: Record<string, string> = { lmstudio: 'LM Studio', 'claude-headless': 'claude' };
 export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' } as const;
-
-/**
- * 同期の状態の語。
- * ヘッダーの一行と設定の「状態」の両方がここから引く。
- * ヘッダーは idle のときに語の代わりに最後の同期の時刻を出し、error のときは理由を後ろに添える。
- */
-/** 一時停止のまま、利用者が押した 1 回の同期が進んでいるあいだの文。ヘッダーと設定の両方がこれを使う。 */
-export const SYNC_ONCE_LABEL = '1 回だけ同期中…';
-export const SYNC_STATE_LABEL: Record<SyncStateKind, string> = { off: '同期していません', idle: '同期済み', pushing: '送信中', pulling: '受信中', paused: '一時停止中', error: '同期エラー' };
-
-/**
- * Cloudflare の上限で退いている間の同期の一行。戻る時刻（次の UTC の 0 時）を端末の時刻で書く。
- * ヘッダーと設定の「状態」が同じ語で言う。tz は試験でだけ決めて渡す。
- */
-export function limitedLabel(until: number, tz?: string): string {
-  return `無料枠で停止 · ${new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(until)} に戻る`;
-}
 
 /**
  * 索引の進みの文。

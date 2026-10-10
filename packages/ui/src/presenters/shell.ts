@@ -3,9 +3,11 @@ import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind,
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
-import { durationLabel, indexProgressLabel, limitedLabel, relativeTime, resetsLabel, SYNC_ONCE_LABEL, SYNC_STATE_LABEL } from './format.ts';
+import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
+import { translatorOf, storeLanguage } from './i18n.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { bytesLabel, countExpiring, daysLabel, EXTEND_TO } from './retention.ts';
+import { limitedWord, syncStateWord } from './syncLabel.ts';
 
 /**
  * count は項目に添える数で、今はホームの入力待ちの数だけに使う。
@@ -23,11 +25,13 @@ export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiv
  */
 export type HeaderAccountProps = { shown: AccountView; list: AccountView[]; sessionId: string | null; working: boolean } | null;
 /**
- * pending は未送信のメタデータ、sweepPending はまだ上げていない本文、skipped は送れなかった本文の件数である。
- * 後ろの 2 つは、数えられないときも 0 にする。
- * ヘッダーは 0 件を描かない約束なので、「分からない」と「無い」をここで同じ扱いにしてよい。
+ * 同期の一行は状態を示すだけで、操作は持たない。今すぐ同期、一時停止、参加トークンは設定の同期の群にある。
+ * label は状態の語、title は label と件数を並べた全文で、狭いヘッダーで畳んだ部品もここから読める。
+ * pending、sweepPending、skipped は件数の文で、0 件のときは null にする（ヘッダーは 0 件を描かない約束で、「分からない」と「無い」を同じ扱いにしてよい）。
+ * pending は未送信の変更、sweepPending はまだ上げていないトランスクリプト、skipped は送信に失敗したトランスクリプトである。
+ * visible が偽なのは、状態がまだ届いていない間だけである。同期を使っていない端末は、state が off で「同期オフ」と言う。
  */
-export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; pending: number; sweepPending: number; skipped: number; paused: boolean; /** quota は Cloudflare の上限で退いている、user は利用者が止めた。 */ reason: 'quota' | 'user' | null; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean };
+export type SyncProps = { visible: boolean; state: SyncStateKind; label: string; title: string; pending: string | null; sweepPending: string | null; skipped: string | null; /** quota は Cloudflare の上限で退いている、user は利用者が止めた。 */ reason: 'quota' | 'user' | null; /** 一時停止のまま、押した 1 回の同期が進んでいる最中。 */ once?: boolean };
 /** 切れているあいだだけ出す帯。つながっている間は visible が false で、文言も空である。 */
 /**
  * 切断の帯。
@@ -53,17 +57,17 @@ export type RetentionBannerProps = { visible: boolean; title: string; detail: st
  */
 export type SideLiveStop = { runId: string; working: boolean; aside: boolean; shellTabs: number };
 /**
- * サイドバーの「動いている」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
+ * サイドバーの「実行中」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
  * aside は裏だけ動いていること。丸を薄いオレンジにするだけで、名前の横に語は添えない（利用者の決定）。
  * stop は hangar の run が生きているときだけ持つ。hangar の外で動いているもの（VS Code の中の claude など）は hangar から止められないので null にする。
  */
 export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; waited: string | null; current: boolean; stop: SideLiveStop | null };
 /**
- * サイドバーの「動いている」。
+ * サイドバーの「実行中」。
  * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
  */
 export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number };
-export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
+export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; retention: RetentionBannerProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -89,14 +93,14 @@ function connProps(state: State, store: Store, now: number): ConnProps {
 
 /**
  * ヘッダーに出す同期の一行。
- * 同期を設定していない端末（off）では出さないので、visible を false にする。
+ * 状態がまだ届いていない間（Store の sync が null）は何も出さない。届いた off は「同期オフ」と言い、押せば設定の同期の群へ行ける。
  * 一度も往復していない間は時刻が無いので、時刻の代わりに準備中と出す。
  * Cloudflare の上限で退いている間（state は paused で、戻る時刻 limitedUntil がある）は、手で止めたのと分けて、いつ戻るかを言う。
- * 上限で退いているのは利用者が止めたのではないので paused は偽にし、一時停止の切り替えは描かない（試作の Q4 の案 B。view は reason を見る）。
+ * 語は設定の同期の群の「状態」と同じ表（syncLabel.ts）から、設定の言語で引く。
  * tz は端末の時差で、試験でだけ決めて渡す。
  */
 /** 同期の見え方。サーバの SyncStatusDto を、ヘッダーが描く形に写したもの。 */
-type SyncView = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
+type SyncView = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string | null };
 
 /** サーバの同期状態を写す。まだ届いていない間（null）は、同期を設定していないのと同じに扱う。 */
 function toSyncView(s: SyncStatusDto | null): SyncView {
@@ -106,31 +110,37 @@ function toSyncView(s: SyncStatusDto | null): SyncView {
     case 'pushing': return { kind: 'pushing' };
     case 'pulling': return { kind: 'pulling' };
     case 'paused': return { kind: 'paused' };
-    case 'error': return { kind: 'error', message: s.error ?? '同期に失敗しました' };
+    case 'error': return { kind: 'error', message: s.error };
     case 'idle': return { kind: 'idle', lastAt: s.lastPullAt ?? s.lastPushAt };
   }
 }
 
 function syncProps(store: Store, now: number, tz?: string): SyncProps {
   // 同期の状態と未送信の数は、Store の sync だけから読む。
+  const t = translatorOf(store);
+  const language = storeLanguage(store);
   const s = toSyncView(store.sync);
   const limitedUntil = s.kind === 'paused' ? (store.sync?.limitedUntil ?? null) : null;
   const reason = s.kind === 'paused' ? (limitedUntil !== null ? 'quota' : 'user') : null;
   // 一時停止のまま押した 1 巡の最中。状態は paused のままなので、付録の印で見分ける。
   const once = s.kind === 'paused' && store.sync?.oncePass === true;
   // 版で止まると state は error になり、一時停止していることが state だけでは読めない。印でも見る。
-  // 上限で退いている間は利用者が止めたのではないので、今までどおり偽にする。
+  // 上限で退いている間は利用者が止めたのではないので、一時停止とは見なさない。
   const paused = (s.kind === 'paused' && limitedUntil === null) || store.sync?.paused === true;
-  // 語は設定の「状態」と同じ表から引く。
   const label =
-    s.kind === 'off' ? ''
-    : once ? SYNC_ONCE_LABEL
-    : limitedUntil !== null ? limitedLabel(limitedUntil, tz)
-    : s.kind === 'error' ? `${paused ? `${SYNC_STATE_LABEL.paused} · ` : ''}${SYNC_STATE_LABEL.error}: ${s.message}`
-    : s.kind !== 'idle' ? SYNC_STATE_LABEL[s.kind]
-    : s.lastAt === null ? '同期の準備中'
-    : `同期 ${relativeTime(s.lastAt, now)}`;
-  return { visible: s.kind !== 'off', state: s.kind, label, pending: store.sync?.pending ?? 0, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused, reason, once };
+    store.sync === null ? ''
+    : once ? t('header.sync.once')
+    : limitedUntil !== null ? limitedWord(t, language, limitedUntil, tz)
+    : s.kind === 'error' ? t(paused ? 'header.sync.pausedError' : 'header.sync.errorDetail', { message: s.message ?? t('header.sync.failed') })
+    : s.kind !== 'idle' ? syncStateWord(t, s.kind)
+    : s.lastAt === null ? t('header.sync.preparing')
+    : t('header.sync.synced', { time: relativeTime(s.lastAt, now) });
+  const count = (n: number | undefined, key: 'header.sync.pending' | 'header.sync.sweepPending' | 'header.sync.skipped') => (n !== undefined && n > 0 ? t(key, { n }) : null);
+  const pending = count(store.sync?.pending, 'header.sync.pending');
+  const sweepPending = count(store.sync?.sweepPending ?? undefined, 'header.sync.sweepPending');
+  const skipped = count(store.sync?.skipped.length, 'header.sync.skipped');
+  const text = [label, pending, sweepPending, skipped].filter((x): x is string => x !== null && x !== '').join(t('header.sync.separator'));
+  return { visible: store.sync !== null, state: s.kind, label, title: store.sync === null ? '' : t('header.sync.title', { text }), pending, sweepPending, skipped, reason, once };
 }
 
 /**
@@ -148,18 +158,22 @@ function retentionBanner(state: State, store: Store, now: number): RetentionBann
     : { visible: true, title: `会話は ${daysLabel(r.days)}で削除されます`, detail: `hangar の履歴からも消えます${usage}`, extendTo: EXTEND_TO };
 }
 
-const NAV: { route: Route; label: string; matches: string[] }[] = [
+type NavDef = { route: Route; label: string; matches: string[] };
+/** サイドバーの上の組。セッションの一覧の画面は無くなったので、項目はこの 2 つと、その下の「実行中」の節である（設計書 2.1）。 */
+const NAV: NavDef[] = [
   { route: { name: 'home' }, label: 'ホーム', matches: ['home', 'booting'] },
   { route: { name: 'projects' }, label: 'プロジェクト', matches: ['projects', 'project'] },
-  { route: { name: 'sessions' }, label: 'セッション', matches: ['sessions', 'session'] },
+];
+/** 下端の組。設定だけを置く。 */
+const FOOT: NavDef[] = [
   { route: { name: 'settings' }, label: '設定', matches: ['settings'] },
 ];
 
-/** サイドバーの「動いている」に並べる行の上限。超えた分は数だけにして、ホームへ案内する。 */
+/** サイドバーの「実行中」に並べる行の上限。超えた分は数だけにして、ホームへ案内する。 */
 export const SIDE_LIVE_MAX = 8;
 
 /**
- * サイドバーの「動いている」。
+ * サイドバーの「実行中」。
  * セッション画面にいる間、ほかのセッションのどれが待っているかを横目で見て、1 押しで移るための場所である。
  * 並びは覚えた順（state.sidebarOrder）だけで決め、状態や最後の活動では並べ直さない。動かすのは利用者の手だけである。
  * 覚えた並びにまだ無いもの（いま動き始めたもの）は、始めた順で末尾に置く。Mediator が同じ順で並びに書き足すので（sidebar.ts の sidebarLiveStep）、書き足す前と後で行は動かない。
@@ -217,5 +231,6 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  const item = (n: NavDef): NavItem => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 });
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map(item), foot: FOOT.map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

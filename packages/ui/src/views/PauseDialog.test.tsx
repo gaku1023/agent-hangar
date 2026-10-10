@@ -9,7 +9,7 @@ const props = (over: Partial<PauseProps> = {}): PauseProps => ({
   choices: [
     { key: 'today', label: '今日の夕方', returnOn: '2026-10-01' }, { key: 'tomorrow', label: '明日', returnOn: '2026-10-02' },
     { key: 'monday', label: '月曜', returnOn: '2026-10-05' }, { key: 'nextWeek', label: '来週', returnOn: '2026-10-08' },
-    { key: 'pick', label: '日付を選ぶ…', returnOn: null },
+    { key: 'pick', label: '日付を選択…', returnOn: null },
   ],
   ...over,
 });
@@ -46,26 +46,26 @@ describe('PauseDialog（B1）', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', note: '確認' });
   });
-  it('「日付を選ぶ…」は日付の欄を出し、日を入れるまで送れない', () => {
+  it('「日付を選択…」は日付の欄を出し、日を入れるまで送れない', () => {
     const { onIntent } = mount();
-    fireEvent.click(radio(/^日付を選ぶ/));
+    fireEvent.click(radio(/^日付を選択/));
     expect(submit()).toBeDisabled();
-    const date = screen.getByLabelText('日付');
+    const date = screen.getByLabelText('リマインダーの日付');
     expect(date).toHaveAttribute('min', '2026-10-01');
     fireEvent.change(date, { target: { value: '2026-10-20' } });
     expect(submit()).toBeEnabled();
     fireEvent.click(submit());
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-20' });
   });
-  it('札に無い日で開いたら「日付を選ぶ…」にその日を入れておく', () => {
+  it('札に無い日で開いたら「日付を選択…」にその日を入れておく', () => {
     mount(props({ initialReturnOn: '2026-10-20' }));
-    expect(radio(/^日付を選ぶ/)).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByLabelText('日付')).toHaveValue('2026-10-20');
+    expect(radio(/^日付を選択/)).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByLabelText('リマインダーの日付')).toHaveValue('2026-10-20');
   });
   it('提案から開くと根拠が下書きに入り、変えずに送れば提案の確定に日を添える。変えたら手で選んだことにする', () => {
     const p = props({ from: 'candidate', draft: '明日の朝、CPU の数字を確かめる', candidateNote: '明日の朝、CPU の数字を確かめる' });
     const first = mount(p);
-    expect(screen.getByText('Claude の下書き')).toBeInTheDocument();
+    expect(screen.getByText('提案')).toBeInTheDocument();
     expect(screen.getByLabelText('理由')).toHaveValue('明日の朝、CPU の数字を確かめる');
     fireEvent.click(radio(/^月曜/));
     fireEvent.click(submit());
@@ -85,11 +85,11 @@ describe('PauseDialog（B1）', () => {
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: '😀'.repeat(201) } });
     expect(submit()).toBeDisabled();
   });
-  it('Esc と「やめる」で閉じる', () => {
+  it('Esc と「キャンセル」で閉じる', () => {
     const { onIntent } = mount();
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.pause.close' });
-    fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+    fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
     expect(onIntent).toHaveBeenCalledTimes(2);
   });
 });

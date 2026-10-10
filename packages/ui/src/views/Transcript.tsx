@@ -105,7 +105,11 @@ function FindBar(props: { find: TranscriptFind; finder: FindHandle; topSeq: () =
   );
 }
 
-export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; jump?: JumpState | null; hasNewer?: boolean }) {
+/**
+ * head は本文の先頭（スクロールの内側、古い行を読み込むボタンの上）に置くもの。終わったセッションの冒頭の 1 枚が入る。
+ * 行の高さの計算は、行の一覧の上端の位置（rowsTop）を測って足すので、head の高さに左右されない。
+ */
+export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; jump?: JumpState | null; hasNewer?: boolean; head?: ReactNode }) {
   const emit = useEmit();
   const boxRef = useRef<HTMLDivElement>(null);
   // 新着を追う寄せ。ブラウザの滑らかなスクロールは使わない（primitives/glide.ts）。
@@ -397,6 +401,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
       {found && <FindBar find={found} finder={finder} topSeq={topSeq} />}
       {ticks && <div className="tr-ticks" aria-hidden="true">{ticks.map((t) => <i key={t.seq} style={{ top: `${t.top}%` }} data-cur={t.seq === find!.seq ? 'true' : undefined} />)}</div>}
       <div ref={boxRef} className="tr" onScroll={onScroll}>
+        {props.head}
         {n === 0 && !props.loading && <div className="empty">本文がありません</div>}
         {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
         {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? '読み込んでいます' : `古い行を読み込む（残り ${props.remaining} 件）`}</button>}

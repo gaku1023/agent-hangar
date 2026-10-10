@@ -145,6 +145,39 @@ describe('routes', () => {
     // なくした none も知らない値で、絞り込みなしになる。
     expect(await total('&status=none')).toBe(1);
   });
+  it('変更したファイルの一覧は、編集系のツールの呼び出しをパスでまとめて、索引した順に返す', async () => {
+    const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    const at = '/Users/me/workspace/alpha/channels/a.md';
+    // 索引にあるのは、メイン会話の Edit 1 回だけ。
+    expect(await json(await get(`/api/sessions/${id}/files`))).toEqual({ status: 200, body: { files: [{ path: at, edits: 1, agentId: null }] } });
+    const row = db.prepare("insert into event_index (session_id, seq, kind, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path) values (?, ?, 'tool_call', 0, 0, 'x', ?, ?, ?)");
+    row.run(id, 900_001, null, 'Edit', at);
+    row.run(id, 900_002, null, 'MultiEdit', at);
+    // サブエージェントだけが触ったファイルは、そのサブエージェントの id を添える。
+    row.run(id, 900_003, 'abc123', 'Write', '/w/only-agent.ts');
+    row.run(id, 900_004, 'def456', 'Edit', '/w/only-agent.ts');
+    // サブエージェントが先に触り、メイン会話も触ったファイルは null。
+    row.run(id, 900_005, 'abc123', 'Edit', '/w/both.ts');
+    row.run(id, 900_006, null, 'NotebookEdit', '/w/both.ts');
+    // 読んだだけのパスと、パスの無い呼び出しと、ほかのセッションの編集は入れない。
+    row.run(id, 900_007, null, 'Read', '/w/read-only.ts');
+    row.run(id, 900_008, null, 'Edit', null);
+    row.run('another-session', 900_009, null, 'Edit', '/w/other-session.ts');
+    const { status, body } = await json(await get(`/api/sessions/${id}/files`));
+    expect(status).toBe(200);
+    expect(body).toEqual({ files: [
+      { path: at, edits: 3, agentId: null },
+      { path: '/w/only-agent.ts', edits: 2, agentId: 'abc123' },
+      { path: '/w/both.ts', edits: 2, agentId: null },
+    ] });
+  });
+  it('変更したファイルの一覧は、見つからないセッションに 404、編集の無いセッションに空の一覧を返す', async () => {
+    expect((await get('/api/sessions/nope/files')).status).toBe(404);
+    const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    db.prepare('delete from event_index where session_id = ?').run(id);
+    expect(await json(await get(`/api/sessions/${id}/files`))).toEqual({ status: 200, body: { files: [] } });
+    expect((await app.request(`/api/sessions/${id}/files`)).status).toBe(401);
+  });
   it('外部連携の失敗は、トークンを伏せて 1 行に切り詰めて返す', async () => {
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);

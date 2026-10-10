@@ -1,7 +1,8 @@
+import { translator } from '@agent-hangar/shared';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { IntentRoot } from '../intent/chain.tsx';
-import type { HomeProps, ReturnCard } from '../presenters/home.ts';
+import { presentHomeBand, type ReturnCard } from '../presenters/home.ts';
 import type { PauseProps } from '../presenters/pause.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { HomeScreen } from './HomeScreen.tsx';
@@ -34,12 +35,14 @@ describe('行の戻る時刻', () => {
   });
 });
 
-describe('Home の今日戻るの札の時刻', () => {
-  const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
+describe('ホームの帯の今日戻るの行の時刻', () => {
+  const ja = translator('ja');
   const ret = (id: string, returnTime: string | null, due: boolean): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'agent-hangar', reason: `${id} を見る`, returnOn: '2026-10-05', returnTime, overdueDays: 0, due, pastMin: due && returnTime ? 30 : null });
   it('時刻を出し、時刻の前のものは塗らない', () => {
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...home({ returning: [ret('timer', '11:30', true), ret('night', '21:50', false), ret('allday', null, true)] })} /></IntentRoot>);
-    const when = [...container.querySelectorAll('.return-when')];
+    const band = presentHomeBand({ attention: [], returning: [ret('timer', '11:30', true), ret('night', '21:50', false), ret('allday', null, true)], running: [], confirm: [] }, ja);
+    const props = { band, idle: false, searching: false, list: { text: '', filter: {}, projects: [], rows: [], total: 0, loading: false, mode: 'all' as const, conditions: [], tabs: [], tab: 'all' as const, pager: null, statusColumn: true, tokens: [], hints: [], allCount: 0 }, allCount: 0, loadMore: null, note: null };
+    const { container } = render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...props} /></IntentRoot>);
+    const when = [...container.querySelectorAll('.drawer .return-when')];
     expect(when.map((w) => [w.textContent, w.getAttribute('data-due')])).toEqual([['30 分過ぎ', 'true'], ['今日 21:50', null], ['今日', 'true']]);
   });
 });
@@ -50,7 +53,7 @@ describe('PauseDialog の時刻', () => {
     choices: [
       { key: 'today', label: '今日の夕方', returnOn: '2026-10-01' }, { key: 'tomorrow', label: '明日', returnOn: '2026-10-02' },
       { key: 'monday', label: '月曜', returnOn: '2026-10-05' }, { key: 'nextWeek', label: '来週', returnOn: '2026-10-08' },
-      { key: 'pick', label: '日付を選ぶ…', returnOn: null },
+      { key: 'pick', label: '日付を選択…', returnOn: null },
     ],
     ...over,
   });
@@ -60,7 +63,7 @@ describe('PauseDialog の時刻', () => {
     return { onIntent, unmount: r.unmount };
   };
   const submit = () => screen.getByRole('button', { name: 'Paused にする' });
-  const time = () => screen.getByLabelText('時刻（任意）');
+  const time = () => screen.getByLabelText('リマインダーの時刻（任意）');
 
   it('時刻の欄は空で始まり、入れると戻る時刻として送る。空のままなら送らない', () => {
     const { onIntent } = mount(props());

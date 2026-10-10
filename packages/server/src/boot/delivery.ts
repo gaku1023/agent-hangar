@@ -23,10 +23,10 @@ export type DeliveryParts = {
   compatLog: CompatLog;
   /** 手元の claude の版。listen の後に裏で読む。読めるまでは null で、版の無いずれを null で記録する。 */
   claudeVersion: { current: string | null };
-  /** 実行中の一覧（Claude の登録の見張り）。作るだけで、読み始めるのは起動の手続きの中である。 */
-  registry: RegistryWatcher;
   /** 右ペインの要約器。裏の印と HTTP（UI の取り直し）で 1 つの覚えを共有する。別々に持つと、長いセッションの同じ要約を二度作る。 */
   digester: LiveDigester;
+  /** 実行中の一覧（Claude の登録の見張り）。作るだけで、読み始めるのは起動の手続きの中である。 */
+  registry: RegistryWatcher;
   /** 溜まっている知らせを出し切ってから配る層を止め、WebSocket を畳む。止めた後は DB を読みに行かない。 */
   stopPublishing(): Promise<void>;
 };
@@ -46,6 +46,7 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   const compatLog = new CompatLog({ file: compatPath(home.home), localVersion: () => claudeVersion.current });
   compatLog.start();
   // 裏でサブエージェントだけが動いているものに、読み直しのたびに印を足す（live/aside.ts）。
+  // 右ペインの要約は、裏の印と HTTP（UI の取り直し）で 1 つの覚えを共有する。別々に持つと、長いセッションの同じ要約を二度作る。
   const digester = new LiveDigester(db);
   const aside = new AsideReader(db, digester);
   const registry = new RegistryWatcher(home.claudeDir, undefined, opts.registryIsGone, (live) => aside.apply(live, Date.now()), compatLog);

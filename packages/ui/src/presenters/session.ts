@@ -1,14 +1,17 @@
-import { ASIDE_WORD, asideOf } from '../lib/aside.ts';
-import { type LiveStatus, type RunKind, type SessionDto, type SessionSummaryDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
+import { asideOf } from '../lib/aside.ts';
+import { type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type StepCell, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
-import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';
+import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
 import { DEFAULT_DAYS, daysLabel, EXTEND_TO, transcriptMark } from './retention.ts';
-import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, SOURCE_LABEL, STATE_LABEL, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
+import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
-import { presentArtifactCard, presentTodoCandidate, type ArtifactCardProps, type TodoItemProps } from './project.ts';
+import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 import { presentTool, relPath, type ToolView } from './tools.ts';
-import { bandsOf, presentLivePane, resultsOf, type LivePaneProps } from './live.ts';
+import { turnsText } from './stats.ts';
+import { translatorOf } from './i18n.ts';
+import { permissionLabel } from '../views/primitives/permissionModel.ts';
+import { bandsOf, presentNowStrip, resultsOf, type NowStripProps } from './live.ts';
 import { buildTurns } from './turns.ts';
 import type { JumpState, TurnJumpStatus } from '../mediator/types.ts';
 
@@ -33,21 +36,21 @@ export function summarizerLabel(sourceId: string | null, sourceModel: string | n
   return sourceModel && sourceModel !== kind ? `${kind} / ${sourceModel}` : kind;
 }
 
-export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; aside: boolean; cwd: string; projectName: string | null; projectId: string | null; summary: (SessionSummaryDto & { sourceLabel: string; stateLabel: string; summarizerLabel: string | null; generatedAt: string }) | null; model: string; effort: string; turns: number; tokens: string; prUrl: string | null; memo: string | null; started: string; lastActivity: string; hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; contextPercent: number | null; cost: string; artifacts: ArtifactCardProps[]; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null; liveLabel: string | null; filesChanged: number;
+export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; aside: boolean;
+  /** 見出しの名前の横に出す、要約の 1 文。無ければ null。 */
+  oneLiner: string | null;
+  hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
   /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
   gone: { note: string; canExtend: boolean; extendTo: number } | null;
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
   turnRows: TurnRowProps[]; turnsComplete: boolean; turnsPending: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null;
-  /** 本文の中の検索（⌘F）。閉じていれば null。 */
   /** 検索の結果から開いたときの跳び先。 */
   jump: JumpState | null;
   /** 読んだ頁より新しい行がまだあるか（検索の結果から真ん中の頁だけを読んで開いたとき）。 */
   hasNewer: boolean;
-  /** 実行中の右ペイン。終わった run では null。 */
-  livePane: LivePaneProps | null;
   /**
    * そのセッションを最後に動かしたアカウントの札（名前と色）。
-   * アカウントが 2 件以上あるときだけ出し、1 件以下なら null で、情報の行に何も足さない。
+   * アカウントが 2 件以上あるときだけ出し、1 件以下なら null で、(i) のポップオーバーに行を足さない。
    */
   account: { name: string; color: string } | null;
   /**
@@ -56,38 +59,18 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
    */
   actions: SessionActions;
   /**
-   * 終わった画面の右欄（E1）の変更したファイル。
-   * 読み込んだ主線の本文から作る。
-   * changedMore は統計の変更数のうち、行に出ていない数（サブエージェントの編集も数に入る）。
-   * changedNote はその訳で、主線を読み切っていればサブエージェントの変更、まだなら古い本文の中にあると言う。
-   * 主線を読んでいない（サブエージェントを見ている）間は訳が分からないので null にし、数だけ出す。
-   */
-  changedFiles: ChangedFileProps[]; changedMore: number; changedNote: string | null;
-  /**
-   * 終わった画面の右欄の TODO。
-   * そのセッションのプロジェクトのもの。
-   */
-  todos: TodoItemProps[];
-  /**
    * 目次から跳ばした Claude が transcript を表示している間の帯（F1）。
    * when は跳ばしたターンの時刻。
    */
   transcriptBand: { when: string } | null;
-  /** 右の欄の「いま」の段が取る高さの上限（割合）。 */
-  livePaneSplit: number;
-  /** 区切り（Paused・Done・Archived）を付けたので hangar が Claude を止めた、という知らせ。情報の行の「終了」の代わりに出す。そうでなければ null。 */
-  stoppedNote: string | null };
-
-/**
- * 区切りを付けたので止めた、という知らせの文。端末が急に閉じた訳が分かるようにする。
- * 印が外れるか、新しい run を起こすと、サーバが stoppedByStatus を偽に戻す。
- * 動いている間は出さない。バックグラウンドの本体が止まり切る前に、動きの語と食い違わせないためである。
- */
-function stoppedNoteOf(s: SessionDto): string | null {
-  const status = s.state?.status ?? null;
-  if (!s.stoppedByStatus || status === null || s.live !== null) return null;
-  return `${STATUS_LABEL[status]} にしたので止めました。再開で続けられます`;
-}
+  /** 現在の帯（セッション画面 C）。生きた run があるときだけ。 */
+  strip: NowStripProps | null;
+  /** 終わったセッションの、トランスクリプトの冒頭の 1 枚。run が無いときだけ。 */
+  lead: LeadCardProps | null;
+  /** 見出しの名前の横の札（ロック、トランスクリプトの在りか）。 */
+  badges: BadgeProps[];
+  /** 見出しの (i) のポップオーバーの行。 */
+  details: DetailRow[] };
 
 export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'stop';
 /**
@@ -115,16 +98,6 @@ export type SessionLockProps = { deviceName: string; stale: boolean; heartbeat: 
 function lockProps(lock: SessionDto['lock'], now: number): SessionLockProps | null {
   if (!lock) return null;
   return { deviceName: lock.deviceName, stale: lock.stale, heartbeat: relativeTime(lock.heartbeatAt, now), label: `${lock.deviceName} ${lock.stale ? 'から応答がありません' : 'で実行中'}` };
-}
-
-/** チップの状態の言い方。Home の札（休み、入力待ち）と揃える。 */
-const LIVE_WORD: Record<LiveStatus, string> = { busy: '作業中', idle: '休み', waiting: '入力待ち' };
-
-function liveLabelOf(s: SessionDto, now: number): string | null {
-  if (!s.live) return null;
-  const since = (ts: number | null) => durationLabel(now - (ts ?? now));
-  if (asideOf(s.live, s.liveAside)) return `${ASIDE_WORD} ${since(s.lastActivityAt)}`;
-  return `${LIVE_WORD[s.live]} ${since(s.live === 'busy' ? s.startedAt : s.lastActivityAt)}`;
 }
 
 const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
@@ -289,10 +262,159 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
   return [...files.values()];
 }
 
+/* ---- 冒頭の 1 枚と見出しの札（セッション画面 C。画面を切り替えるまでは、今の画面は使わない） ---- */
+
+/** 冒頭の 1 枚の「変更したファイル」の 1 行。added と removed は、読み込んだ本文の窓にある分だけ持つ（無ければ null）。 */
+export type LeadFileRow = { path: string; dir: string; base: string; created: boolean; added: number | null; removed: number | null; edits: string; byAgent: string | null; openLabel: string };
+export type LeadCardProps = {
+  label: string;
+  status: { value: 'active' | 'paused' | 'done' | 'archived'; label: string; since: string | null };
+  /** 終了の文。区切りを付けたので止めたときは stopped を出すので null。 */
+  ended: string | null;
+  stopped: string | null;
+  turns: string; tokens: string; cost: string | null;
+  /** 「要約のみ」「トランスクリプトがありません」。 */
+  flags: string[];
+  summary: { body: string; nextSteps: string[]; nextStepsLabel: string; progress: string; sourceLine: string } | null;
+  /** 要約が無いときの文。 */
+  empty: string | null;
+  /** 要約の上の注記（作成中、作成できなかった）。失敗の理由は title で読める。 */
+  notice: { kind: 'pending' | 'failed'; text: string; title: string | null } | null;
+  canRegenerate: boolean; regenerate: string;
+  files: { label: string; count: number; rows: LeadFileRow[]; note: string | null };
+  artifacts: { label: string; count: number; items: ArtifactCardProps[] };
+  pr: { label: string; url: string } | null;
+  note: { text: string; filled: boolean };
+};
+export type LeadInput = {
+  session: SessionDto;
+  now: number;
+  /** 保持期間で本文が消えたとみられる会話。 */
+  gone: boolean;
+  summaryPending: boolean;
+  summaryError: string | null;
+  artifacts: ArtifactCardProps[];
+  /** サーバの変更したファイルの一覧（`GET /api/sessions/:id/files`）。届く前は null。 */
+  files: SessionFilesDto['files'] | null;
+  /** 読み込んだ本文の窓から数えた分（足した行と消した行を持つ）。 */
+  windowFiles: ChangedFileProps[];
+};
+
+const SUMMARY_STATE_KEY = { in_progress: 'session.lead.state.inProgress', done: 'session.lead.state.done', blocked: 'session.lead.state.blocked', abandoned: 'session.lead.state.abandoned' } as const;
+const SUMMARY_SOURCE_KEY = { baseline: 'session.lead.source.baseline', in_session: 'session.lead.source.inSession', post_hoc: 'session.lead.source.postHoc' } as const;
+
+/** 月と日（端末の時刻）。 */
+const monthDay = (ts: number): string => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()}`; };
+
+/** PR の URL の末尾の `/pull/<番号>` から番号を取る。取れなければ「PR」だけ。 */
+function prLabel(url: string, t: Translate): string {
+  const n = /\/pull\/(\d+)/.exec(url)?.[1];
+  return n ? t('session.lead.prNumber', { n }) : t('session.lead.pr');
+}
+
+/**
+ * 変更したファイルの行。
+ * サーバの一覧（索引から。窓には依らない）を並びと件数の正とし、読み込んだ窓にあるファイルにだけ足した行と消した行を付ける。
+ * サーバの一覧が届く前は、窓から数えた分だけを出す。
+ */
+function leadFiles(i: LeadInput, t: Translate): LeadCardProps['files'] {
+  const cwd = i.session.cwd;
+  const byPath = new Map(i.windowFiles.map((f) => [f.path, f]));
+  const split = (path: string) => { const rel = relPath(path, cwd); const cut = rel.lastIndexOf('/') + 1; return { dir: rel.slice(0, cut), base: rel.slice(cut) }; };
+  const row = (path: string, edits: number | null, agentId: string | null): LeadFileRow => {
+    const w = byPath.get(path);
+    return { path, ...split(path), created: w?.created ?? false, added: w ? w.added : null, removed: w ? w.removed : null, edits: edits === null ? '' : t('session.files.edits', { n: edits }), byAgent: agentId === null ? null : t('session.files.byAgent', { id: agentId }), openLabel: t('session.files.open', { path }) };
+  };
+  const rows = i.files ? i.files.map((f) => row(f.path, f.edits, f.agentId)) : i.windowFiles.map((f) => row(f.path, null, null));
+  const count = i.files ? i.files.length : Math.max(i.session.stats.filesChanged, rows.length);
+  return { label: t('session.lead.files'), count, rows, note: rows.some((r) => r.added === null) ? t('session.files.diffPartial') : null };
+}
+
+/**
+ * 終わったセッションの、トランスクリプトの冒頭の 1 枚（設計書 2.3 の C）。
+ * 1 行目にステータスの札と設定した日、終了、ターンとトークンとコスト。続けて要約、次のステップ、変更したファイルとアーティファクトと PR の札、ノート。
+ * 右パネルの要約と変更したファイルの箱が、ここへ移る。
+ */
+export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
+  const s = i.session;
+  const status = s.state?.status ?? 'active';
+  const stats = s.stats;
+  const sum = s.summary;
+  const stopped = s.stoppedByStatus && s.state?.status && s.live === null ? t('session.lead.stopped', { status: STATUS_LABEL[s.state.status] }) : null;
+  const flags = [...(i.gone ? [t('session.lead.summaryOnly')] : []), ...(!s.hasTranscript && !i.gone ? [t('session.lead.noTranscript')] : [])];
+  const sourceParts = sum ? [t(SUMMARY_SOURCE_KEY[sum.source]), summarizerLabel(sum.sourceId, sum.sourceModel)].filter((x): x is string => !!x) : [];
+  return {
+    label: t('session.lead.label'),
+    status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null },
+    ended: stopped ? null : t('session.lead.ended', { when: relativeTime(s.lastActivityAt, i.now) }),
+    stopped,
+    turns: turnsText(stats.turns, t), tokens: t('session.stats.tokens', { n: tokensLabel(stats.inputTokens + stats.outputTokens) }), cost: stats.costUsd === null ? null : costLabel(stats.costUsd),
+    flags,
+    summary: sum ? {
+      body: sum.body, nextSteps: sum.nextSteps, nextStepsLabel: t('session.lead.nextSteps'),
+      progress: t('session.lead.progress', { state: t(SUMMARY_STATE_KEY[sum.state]), turns: sum.basedOnTurns }),
+      sourceLine: t('session.lead.sourceLine', { parts: sourceParts.join(t('common.list.separator')), when: absoluteTime(sum.updatedAt) }),
+    } : null,
+    empty: sum ? null : t('session.lead.noSummary'),
+    notice: i.summaryPending ? { kind: 'pending', text: t('session.lead.pending'), title: null } : i.summaryError !== null ? { kind: 'failed', text: t('session.lead.failed'), title: i.summaryError } : null,
+    // 本文が無いと作り直しは必ず失敗するので、消えた会話では出さない。
+    canRegenerate: !i.gone, regenerate: t('session.lead.regenerate'),
+    files: leadFiles(i, t),
+    artifacts: { label: t('session.lead.artifacts'), count: i.artifacts.length, items: i.artifacts },
+    pr: stats.prUrl ? { label: prLabel(stats.prUrl, t), url: stats.prUrl } : null,
+    note: { text: s.memo ?? '', filled: (s.memo ?? '').trim() !== '' },
+  };
+}
+
+/** 見出しの名前の横に出す札。ロックと、トランスクリプトが他の PC にあること。どちらも操作できない理由なので、ポップオーバーには隠さない。 */
+export type BadgeProps = { kind: 'lock' | 'stale' | 'remote'; label: string; title: string | null };
+
+/**
+ * 見出しの名前の横の札。
+ * ロックは、他の PC が握っている間の「<PC 名> で実行中」と、応答が途絶えた「<PC 名> から応答がありません」（kind を stale にして色を替える）。
+ * 「トランスクリプトは他の PC にあります」は再開とフォークを押せない理由なので、ロックと同じ扱いにする。
+ */
+export function presentSessionBadges(s: SessionDto, now: number, t: Translate): BadgeProps[] {
+  const badges: BadgeProps[] = [];
+  if (s.lock) {
+    badges.push({ kind: s.lock.stale ? 'stale' : 'lock', label: t(s.lock.stale ? 'session.lock.stale' : 'session.lock.running', { device: s.lock.deviceName }), title: t('session.lock.lastSeen', { when: relativeTime(s.lock.heartbeatAt, now) }) });
+  }
+  if (s.remoteOnly) badges.push({ kind: 'remote', label: t('session.lock.remoteTranscript'), title: null });
+  return badges;
+}
+
+/** (i) のポップオーバーの 1 行。mono は値を等幅で描く（パス、時刻）、dot は値の前に置く色の点（アカウント）。 */
+export type DetailRow = { name: string; value: string; mono?: boolean; dot?: string };
+
+/** 起動の種類を、辞書の語に引く。 */
+const LAUNCH_KEY = { start: 'session.launch.start', resume: 'session.launch.resume', fork: 'session.launch.fork' } as const;
+
+/**
+ * 見出しの (i) のポップオーバーの行（設計書 2.3 の表）。毎回は見ない属性と、帯や冒頭の 1 枚に置かない数をここに集める。
+ * 値の無い行は出さない（効果レベルを選んでいない、権限モードを選ばなかった起動、変更も PR も無い、など）。
+ * 権限モードは、起動のときに選んだ値で、起動のあとに Claude の中で切り替えた値は分からない（`RunDto.permissionMode`）。
+ */
+export function presentDetails(s: SessionDto, run: RunDto | null, account: { name: string; color: string } | null, t: Translate): DetailRow[] {
+  const rows: DetailRow[] = [];
+  const model = shortModel(s.stats.model);
+  if (model) rows.push({ name: t('session.details.model'), value: model });
+  if (s.stats.effort) rows.push({ name: t('session.details.effort'), value: s.stats.effort });
+  if (run?.permissionMode) rows.push({ name: t('session.details.permission'), value: permissionLabel(run.permissionMode, t) });
+  if (s.startedAt !== null) rows.push({ name: t('session.details.started'), value: absoluteTime(s.startedAt), mono: true });
+  rows.push({ name: t('session.details.cwd'), value: s.cwd, mono: true });
+  if (account) rows.push({ name: t('session.details.account'), value: account.name, dot: account.color });
+  if (run) rows.push({ name: t('session.details.launch'), value: t('session.details.launchValue', { kind: t(LAUNCH_KEY[run.kind]), when: absoluteTime(run.startedAt).slice(11) }) });
+  rows.push({ name: t('session.details.usage'), value: t('session.details.usageValue', { turns: turnsText(s.stats.turns, t), tokens: t('session.stats.tokens', { n: tokensLabel(s.stats.inputTokens + s.stats.outputTokens) }) }) });
+  if (s.stats.filesChanged > 0) rows.push({ name: t('session.details.files'), value: t('session.details.filesValue', { n: s.stats.filesChanged }) });
+  if (s.stats.prUrl) rows.push({ name: t('session.details.pr'), value: prLabel(s.stats.prUrl, t) });
+  if (s.fromScratch) rows.push({ name: t('session.details.quick'), value: t('session.details.quickValue') });
+  return rows;
+}
+
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, aside: false, cwd: '', projectName: null, projectId: null, summary: null, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, account: null, livePaneSplit: view.livePaneSplit ?? state.livePaneSplit, gone: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, stoppedNote: null };
+  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, strip: null, lead: null, badges: [], details: [], account: null, gone: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -307,7 +429,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const items = buildItems(events, itemOpts);
   const turnList = buildTurns(events);
   const openTurn = turnList.find((t) => t.seq === view.openTurn) ?? null;
-  // 結果の表は 1 回だけ作り、色帯と右ペインで使い回す。
+  // 結果の表は 1 回だけ作り、色帯と現在の帯で使い回す。
   const results = resultsOf(events);
   const bands = bandsOf(events, turnList, results);
   const turnRows: TurnRowProps[] = turnList.map((t, n) => ({ seq: t.seq, when: when(t.ts), text: t.text, head: t.head, tools: t.tools, open: t === openTurn, band: bands[n]! }));
@@ -315,17 +437,12 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const project = s.projectId ? store.projects[s.projectId] ?? null : null;
   const run = currentRunOf(store, id);
   const alive = aliveRunOf(store, id) !== null;
-  // 右ペインは実行中だけ。サブエージェントの transcript を開いている間は、events が主線ではない。
+  // 現在の帯は実行中だけ。サブエージェントの transcript を開いている間は、events が主線ではない。
   // events は最新の 500 件の窓かもしれないので、ターンの頭は digest（サーバが全体から決めた seq）を先に使う。
   // ターンの番号も、全部を読み込んでいるときだけ目次の数にし、そうでなければ統計の数にする。どちらも当てにならなければ出さない。
   const lastTurn = turnList[turnList.length - 1] ?? null;
   const complete = slice ? slice.total <= slice.items.length : true;
   const turnNo = complete && turnList.length > 0 ? turnList.length : s.stats.turns > 0 ? s.stats.turns : null;
-  const livePane = alive ? presentLivePane({
-    digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0, turnNo,
-    live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
-    idleFor: durationLabel(now - (s.lastActivityAt ?? now)), results,
-  }) : null;
   const open = run ? tabsOf(store, run.id) : [];
   const selectedTab = run ? (view.selectedTab && open.some((t) => t.id === view.selectedTab) ? view.selectedTab : run.id) : null;
   const tabs: TabItemProps[] = open.map((t) => ({ id: t.id, title: t.title, kind: t.kind, selected: t.id === selectedTab, closable: t.kind === 'shell' }));
@@ -336,19 +453,13 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const gone = transcriptMark(s, r?.days ?? DEFAULT_DAYS, now) === 'gone'
     ? { note: `本文は、Claude Code の保持期間（${daysLabel(DEFAULT_DAYS)}）を過ぎたため削除されたとみられます。残っているのは要約だけです。`, canExtend: !!r && r.source === 'default' && r.writable, extendTo: EXTEND_TO }
     : null;
-  // 変更したファイルは主線から数える。
-  // サブエージェントを見ている間も、右欄は主線の分を出す。
+  // 変更したファイルは主線から数える（冒頭の 1 枚が、サーバの一覧に足した行と消した行を付けるのに使う）。
+  // サブエージェントを見ている間も、主線の分を出す。
   const mainSlice = store.events[eventsKey(id, null)];
   const mainEvents = view.agentId === null ? events : (mainSlice?.items ?? []);
   const toolResults = new Map<string, ToolResult>();
   for (const e of mainEvents) if (e.kind === 'tool_result') toolResults.set(e.toolId, { text: e.text, isError: e.isError });
   const changedFiles = changedFilesOf(mainEvents, toolResults, s.cwd);
-  // 行に出ていない分の訳。
-  // 統計の変更数はサブエージェントの編集も数えるので、主線を読み切っていれば残りはサブエージェントの変更である。
-  const changedMore = Math.max(0, s.stats.filesChanged - changedFiles.length);
-  const changedNote = changedMore === 0 || !mainSlice ? null
-    : mainSlice.total <= mainSlice.items.length ? `ほか ${changedMore} 件はサブエージェントの変更です`
-    : `ほか ${changedMore} 件は、古い本文を読み込むと出ます`;
   // transcript を表示中の帯は、今の生きた run を transcript に入れたと確かめられた間だけ出す。
   // サーバは着けなかった（notFound）ときも transcript を開いたままにするので、そのときも出す。
   // 答えを待つ間（pending）と、入れなかった（mode）ときと、API が失敗した（failed）ときは出さない。
@@ -359,15 +470,26 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   // splitTab が閉じたタブを指していることがあるので、左と違う最初のタブに落とす。
   const right = view.split && canSplit && selectedTab ? open.find((t) => t.id === view.splitTab && t.id !== selectedTab) ?? open.find((t) => t.id !== selectedTab) ?? null : null;
   const sessionAccount = hasMultipleAccounts(store) ? accountOfSession(store, id) : null;
+  const t = translatorOf(store);
+  const artifactCards = artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(a, now));
+  const account = sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null;
+  // 現在の帯は生きた run があるときだけ。右パネルの「いま」の段が持っていた中身がここへ移る。
+  const strip = alive ? presentNowStrip({
+    digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0, turnNo,
+    live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
+    idleFor: durationLabel(now - (s.lastActivityAt ?? now)), results,
+    waited: durationLabel(now - (s.lastActivityAt ?? now)), contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd), turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), artifacts: artifactCards, note: s.memo,
+  }, t) : null;
+  // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
+  const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
   const props: SessionProps = {
-    ...base, account: sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null, name: s.name ?? '（名前なし）', live: s.live, aside: asideOf(s.live, s.liveAside) !== null, cwd: s.cwd, projectName: project?.name ?? null, projectId: s.projectId,
+    ...base, account, name: s.name ?? '（名前なし）', live: s.live, aside: asideOf(s.live, s.liveAside) !== null,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
     parent: project ? { label: project.name, route: { name: 'project', id: project.id } } : null,
-    summary: s.summary ? { ...s.summary, sourceLabel: SOURCE_LABEL[s.summary.source], stateLabel: STATE_LABEL[s.summary.state], summarizerLabel: summarizerLabel(s.summary.sourceId, s.summary.sourceModel), generatedAt: absoluteTime(s.summary.updatedAt) } : null,
-    model: shortModel(s.stats.model), effort: s.stats.effort ?? '', turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), prUrl: s.stats.prUrl, memo: s.memo,
-    started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
+    oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length && !slice.olderDone : false, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
-    turnRows, turnsComplete: complete, turnsPending: s.hasTranscript && (!slice || (slice.loading && slice.items.length === 0)), openTurnItems, turnJump: view.turnJump, livePane, livePaneSplit: view.livePaneSplit ?? state.livePaneSplit,
+    strip, lead, badges: presentSessionBadges(s, now, t), details: presentDetails(s, run, account, t),
+    turnRows, turnsComplete: complete, turnsPending: s.hasTranscript && (!slice || (slice.loading && slice.items.length === 0)), openTurnItems, turnJump: view.turnJump,
     jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null,
@@ -379,17 +501,10 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     lock: lockProps(s.lock, now), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly : s.lock.stale,
     // hangar の run が無いまま外で動いているとき、本文しか見せられない。hangar の端末で開く手を出す（store の outsideOpenOf）。
     outsideOpen: outsideOpenOf(store, s),
-    contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd), filesChanged: s.stats.filesChanged,
-    // 作業中は Home の実行中の札と同じく始まりから、入力待ちと休みは Home の要対応と休みの札と同じく最後の動きから数える。
-    // 裏だけ動いているときは、本体は最後の返答から空いているので、休みと同じく最後の動きから数える。
-    liveLabel: liveLabelOf(s, now),
-    artifacts: artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(a, now)),
     summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null,
     fromScratch: s.fromScratch, canPromote: !!(s.projectId && store.projects[s.projectId]?.isScratch),
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
-    gone,
-    changedFiles, changedMore, changedNote, transcriptBand, stoppedNote: stoppedNoteOf(s),
-    todos: s.projectId ? todosOf(store, s.projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, candidate: presentTodoCandidate(t, store, now) })) : [],
+    gone, transcriptBand,
   };
   return { ...props, actions: sessionActions(props) };
 }

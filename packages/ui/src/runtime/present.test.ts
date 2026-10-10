@@ -49,7 +49,7 @@ describe('createPresent', () => {
   it('Sessions の検索語が変わるだけなら包まない。打つたびに画面の移り変わりを走らせない', () => {
     const f = fake();
     const commit = vi.fn();
-    createPresent(f.env)(commit, at({ name: 'sessions', q: 'a' }), at({ name: 'sessions', q: 'ab' }));
+    createPresent(f.env)(commit, at({ name: 'home', q: 'a' }), at({ name: 'home', q: 'ab' }));
     expect(commit).toHaveBeenCalledTimes(1);
     expect(f.start).not.toHaveBeenCalled();
   });
@@ -152,7 +152,7 @@ describe('createPresent', () => {
     expect(f.skips[0]).toHaveBeenCalledTimes(1);
     // 一度終わらせた遷移は、もう終わらせない。
     expect(present.skip()).toBe(false);
-    present(() => {}, at({ name: 'projects' }), at({ name: 'sessions' }));
+    present(() => {}, at({ name: 'projects' }), at({ name: 'home' }));
     f.run();
     f.finish();
     await flush();
@@ -163,7 +163,7 @@ describe('createPresent', () => {
     const f = fake();
     const present = createPresent(f.env);
     present(() => {}, at({ name: 'home' }), at({ name: 'projects' }));
-    present(() => {}, at({ name: 'projects' }), at({ name: 'sessions' }));
+    present(() => {}, at({ name: 'projects' }), at({ name: 'home' }));
     f.skip(0);
     await flush();
     expect(present.skip()).toBe(true);
@@ -180,7 +180,7 @@ describe('createPresent', () => {
     document.body.innerHTML = row('row');
     const f = fake({ pressed: () => $('#row-name') });
     // 出る側を残したまま入る側を足し、描き替えの前に出る側から外したことを確かめる。
-    createPresent(f.env)(() => { document.body.insertAdjacentHTML('beforeend', hero()); }, at({ name: 'sessions' }), at({ name: 'session', id: 's1' }));
+    createPresent(f.env)(() => { document.body.insertAdjacentHTML('beforeend', hero()); }, at({ name: 'home' }), at({ name: 'session', id: 's1' }));
     expect(trio('row')).toEqual(MORPHS);
     f.run();
     expect(trio('row')).toEqual(NONE);
@@ -236,7 +236,7 @@ describe('createPresent', () => {
   it('戻る先は見えている行に限る。好む種類が見えていなければ、見えている別の行へ縮む', () => {
     document.body.innerHTML = hero();
     const f = fake({ visible: (el) => el.id !== 'hidden' });
-    createPresent(f.env)(() => { document.body.innerHTML = row('hidden') + row('shown'); }, at({ name: 'session', id: 's1' }), at({ name: 'sessions' }));
+    createPresent(f.env)(() => { document.body.innerHTML = row('hidden') + row('shown'); }, at({ name: 'session', id: 's1' }), at({ name: 'home' }));
     f.run();
     expect(trio('hidden')).toEqual(NONE);
     expect(trio('shown')).toEqual(MORPHS);
@@ -244,14 +244,14 @@ describe('createPresent', () => {
   it('見えている行が 1 つも無ければ、戻る先に名前を付けない', () => {
     document.body.innerHTML = hero();
     const f = fake({ visible: (el) => el.id === 'hero' });
-    createPresent(f.env)(() => { document.body.innerHTML = row('row'); }, at({ name: 'session', id: 's1' }), at({ name: 'sessions' }));
+    createPresent(f.env)(() => { document.body.innerHTML = row('row'); }, at({ name: 'session', id: 's1' }), at({ name: 'home' }));
     f.run();
     expect(trio('row')).toEqual(NONE);
   });
   it('見えていない行は、押されていても広げる元にしない', () => {
     document.body.innerHTML = row('row');
     const f = fake({ pressed: () => $('#row'), visible: () => false });
-    createPresent(f.env)(() => { document.body.innerHTML = hero(); }, at({ name: 'sessions' }), at({ name: 'session', id: 's1' }));
+    createPresent(f.env)(() => { document.body.innerHTML = hero(); }, at({ name: 'home' }), at({ name: 'session', id: 's1' }));
     expect(trio('row')).toEqual(NONE);
     f.run();
     expect(trio('hero')).toEqual(NONE);
@@ -280,8 +280,8 @@ describe('createPresent', () => {
     const present = createPresent(f.env);
     const shown: string[] = [];
     // 1 回目は一覧から開き、2 回目はその update が走る前に戻る（Enter の直後の ⌘[）。
-    present(() => { shown.push('session'); document.body.innerHTML = hero(); }, at({ name: 'sessions' }), at({ name: 'session', id: 's1' }));
-    present(() => { shown.push('sessions'); document.body.innerHTML = row('row'); }, at({ name: 'session', id: 's1' }), at({ name: 'sessions' }));
+    present(() => { shown.push('session'); document.body.innerHTML = hero(); }, at({ name: 'home' }), at({ name: 'session', id: 's1' }));
+    present(() => { shown.push('sessions'); document.body.innerHTML = row('row'); }, at({ name: 'session', id: 's1' }), at({ name: 'home' }));
     expect(f.start).toHaveBeenCalledTimes(2);
     f.run();
     f.run();

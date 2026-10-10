@@ -1,24 +1,26 @@
 /* Settings の statusline、要約器、使用量（Task 26） */
 
-/* 1 枚の長い頁のまま、左に固定の目次を置く（設定の A1）。値の正本は試作 settings-layout.html。 */
-.settings-layout { display: grid; grid-template-columns: 176px minmax(0, 720px); gap: calc(var(--u) * 5); align-items: start; }
+/* 左の目次で 6 つの節を切り替え、右は選んだ節だけを出す（設定の S1）。値の正本は試作 2026-10-09-settings-screen/options.html。 */
+.settings-layout { display: grid; grid-template-columns: 208px minmax(0, 720px); gap: calc(var(--u) * 5); align-items: start; }
 .settings-toc { position: sticky; top: calc(var(--header-h) + var(--float-gap) + var(--u) * 2); display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
-.settings-toc-group { display: flex; flex-direction: column; }
-.settings-toc-item { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 30px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); font: 600 var(--fs-sm) var(--font-sans); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.settings-toc-item { display: flex; align-items: center; gap: calc(var(--u) * 2.5); min-height: 46px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r); background: none; color: var(--ink-2); font: 500 var(--fs-sm) var(--font-sans); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .settings-toc-item:hover { background: rgba(255, 255, 255, 0.55); }
-.settings-toc-item[aria-current='true'] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.8); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
-.settings-toc-item .icon { width: 15px; height: 15px; }
-.settings-toc-dot { width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: var(--st-paused); }
-.settings-toc-sub { display: flex; align-items: center; height: 22px; padding-left: 28px; font-size: var(--fs-xs); color: var(--ink-3); }
-/* 目次を置く幅が無い窓では、目次を外して 1 列にする。 */
-@media (max-width: 1000px) { .settings-layout { grid-template-columns: minmax(0, 1fr); } .settings-toc { display: none; } }
+.settings-toc-item[aria-current='page'] { color: var(--ink); background: rgba(255, 255, 255, 0.8); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.settings-toc-item .icon { flex: none; width: 18px; height: 18px; }
+.settings-toc-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.settings-toc-t { font-weight: 600; white-space: nowrap; }
+.settings-toc-s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+.settings-toc-s[data-tone='warn'] { color: var(--st-paused); font-weight: 600; }
+/* 目次を縦に置く幅が無い窓では、頁の上に 3 列 2 段で並べる。目次は消さない（節を切り替える道は目次だけである）。 */
+@media (max-width: 1000px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: calc(var(--u) * 3); }
+  .settings-toc { position: static; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 
-/* 群。見出しの右に中の節の名前を淡く並べる。スクロールで跳んだとき、浮いているヘッダの下に見出しが来るようにする。 */
+/* 右に出す節。見出しの右に、状態の札（クラウド同期）か要修正の札を置く。 */
 .settings-group { scroll-margin-top: calc(var(--u) * 2); }
-.settings-group + .settings-group { margin-top: calc(var(--u) * 7); }
-.settings-group-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2.5) var(--u); font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; }
-.settings-group-h > span:not(.badge) { font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
-.settings-group-h > .badge { margin-left: auto; align-self: center; }
+.settings-group-h { display: flex; flex-wrap: wrap; align-items: center; gap: 0 calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2.5) var(--u); font-size: var(--fs-md); font-weight: 700; letter-spacing: -0.01em; }
+.settings-group-h > .badge { margin-left: auto; }
 
 /* 設定の中身は読む面である。節ごとに白い不透明な面を敷き、光の背景の上に並べる。 */
 .settings-group > section { padding: calc(var(--u) * 3) calc(var(--u) * 4) calc(var(--u) * 4); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
@@ -26,10 +28,30 @@
 .settings-group > section > .h2:first-child { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: 0; }
 .settings-group > section > .h2:first-child > .badge { margin-left: auto; }
 
+/* 面に敷いた使用量の節（.cu）は、頁の中の 1 枚の面である。区切りの線とすき間は面の側が持つ。 */
+.settings-group > section.cu { border-top: 0; }
+
+/* 設定の 1 行（試作の set-row）。名前と説明を左、操作を右端に置く。below は行の下いっぱいの中身。 */
+.set-row { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 3.5); min-height: 40px; padding: calc(var(--u) * 1.25) 0; border-top: 1px solid var(--line); }
+.set-row:first-child { border-top: 0; }
+.set-row-l { flex: 1 1 240px; min-width: 0; }
+.set-row-t { font-weight: 600; }
+.set-row-d { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.45; }
+.set-row-r { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 2); }
+.set-row-below { flex: 1 0 100%; }
+/* 同期の節の状態の行、ボタンの段、小見出し。 */
+.stat { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1) calc(var(--u) * 4.5); font-size: var(--fs-sm); color: var(--ink-2); }
+.btns { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2.5); }
+.sub-h { display: flex; align-items: center; gap: calc(var(--u) * 2); margin: calc(var(--u) * 3) 0 calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.sub-h .n { font-weight: 500; color: var(--ink-3); }
+.muted-p { margin: 0; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
+
 /* 札（✓ 登録済み、まだです）。 */
 .badge { display: inline-flex; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
 .badge[data-tone='ok'] { color: var(--st-done); background: var(--st-done-soft); }
 .badge[data-tone='warn'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.badge[data-tone='off'] { color: var(--ink-3); background: var(--surface-2); }
+.badge[data-tone='stop'] { color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--surface)); }
 /* 未確認の版（Claude Code との互換）。止めてはいないので、印の無い灰色の地と縁にする。 */
 .badge[data-tone='info'] { color: var(--ink-2); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .badge .icon { width: 12px; height: 12px; stroke-width: 2; }
@@ -47,11 +69,6 @@
 .tok small { font-size: var(--fs-xs); color: var(--ink-3); }
 @media (prefers-reduced-motion: reduce) { .tbar > i { transition: none; } }
 
-/* ラベルと入力を横に並べる行。チェックボックスと小さな数値の入力に使う。 */
-/* palette.css の .field-row とは別物なので、設定画面だけの名前にしている。 */
-.settings-row { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
-.settings-row .input { color: var(--ink); }
-
 /* 設定の小さな表。行高は一覧と揃える。 */
 .mini { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .mini caption { text-align: left; padding-bottom: 2px; }
@@ -60,9 +77,7 @@
 .mini td.cell-right, .mini th.cell-right { text-align: right; }
 
 
-/* スイッチの行は、文を左に、スイッチを右端に置く。 */
-.settings-switch-row { justify-content: space-between; }
-/* 外部の要約器をオンにする前の確かめの帯。 */
+/* 外部の要約エンジンを許可する前の確かめの帯。 */
 .confirm-strip { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--ink); background: color-mix(in srgb, var(--error) 6%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 30%, transparent); }
 
 /* 設定の「使用量と費用」（2026-10-02 の決定。試作 usage-merged.html）。 */
