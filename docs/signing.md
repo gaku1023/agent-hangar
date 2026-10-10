@@ -66,6 +66,24 @@ npm run sign-macos -w apps/desktop -- "$PWD/$APP" --adhoc
 2. 最後に .app を、識別子と DR を指定して署名する。
 3. `codesign -dvv` の識別子、`codesign -d -r-` の DR、`codesign --verify --deep --strict` を確かめ、違えば非 0 で終わる。
 
+## 署名する機械の前提（macOS 26 の CI で実測）
+
+自作の証明書は Gatekeeper の信頼の鎖に入らない。
+macOS 27 の手元では、そのまま `codesign -s <指紋>` が通った。
+macOS 26 の CI のランナーでは、そのままだと `no identity found` で落ちた。
+`security find-identity -p codesigning` は識別を出すが、`CSSMERR_TP_NOT_TRUSTED` で「有効な識別」には数えられなかった。
+
+次の 3 つを合わせると通った（それぞれ単独の効き目までは切り分けていない）。
+
+1. 証明書をコード署名用に信頼する（`sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain <cer>`）。
+2. 秘密鍵の入ったキーチェーンをユーザーの検索リストに足す。
+3. `codesign -s` に渡す指紋は大文字の 16 進にする（台本が直す）。
+
+1 と 2 は `apps/desktop/scripts/prepare-signing-keychain.sh --cer <cer> --keychain <キーチェーン>` が行う。
+1 は機械全体の信頼設定を書き換えるので、使い捨ての CI のランナーで走らせる想定である。
+手元の Mac で走らせたときは、Keychain Access でその証明書の信頼設定を「システム既定を使用」に戻すか、証明書をキーチェーンごと消す。
+台本は、`no identity found` で落ちたときにこの台本を案内する。
+
 ## 証明書を作る（利用者の手元で、一度だけ）
 
 自己署名のコード署名証明書を作る。

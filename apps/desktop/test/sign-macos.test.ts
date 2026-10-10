@@ -189,7 +189,7 @@ describe('署名の手順（偽の codesign）', () => {
     expect(signs.map((c) => c.args[c.args.length - 1])).toEqual([found[0], found[1], app]);
     for (const c of signs) {
       expect(c.args).toContain('--keychain');
-      expect(c.args[c.args.indexOf('-s') + 1]).toBe(FP_LC);
+      expect(c.args[c.args.indexOf('-s') + 1]).toBe(FP);  // macOS 26 の codesign は大文字の指紋でしか当てない
     }
     const last = signs[signs.length - 1]!.args;
     expect(last[last.indexOf('--identifier') + 1]).toBe(ID);
@@ -219,6 +219,10 @@ describe('署名の手順（偽の codesign）', () => {
   it('verify が落ちれば落とす', () => {
     const { run } = fakeRunner((cmd, args) => (args.includes('--verify') ? { status: 1, stderr: 'a sealed resource is missing' } : okResponder(FP_LC)(cmd, args)));
     expect(() => signApp(certOpts, run, found)).toThrow(/verify/);
+  });
+  it('識別が見つからないときは、信頼と検索リストを整える台本を案内する', () => {
+    const { run } = fakeRunner((cmd, args) => (args.includes('--force') ? { status: 1, stderr: 'no identity found' } : {}));
+    expect(() => signApp(certOpts, run, found)).toThrow(/prepare-signing-keychain/);
   });
   it('codesign が落ちたらそこで止まる', () => {
     const { run, calls } = fakeRunner((cmd, args) => (args.includes('--force') ? { status: 1, stderr: 'no identity found' } : {}));
@@ -391,19 +395,12 @@ describe.skipIf(!posix)('証明書を作る台本', () => {
         const app = makeApp(d);
         const opts = { app, mode: 'cert' as const, identifier: ID, fingerprint: fp!, keychain: kc, keychainPassword: PW.HANGAR_SIGN_P12_PASSWORD };
         unlockKeychain(opts);
-        const sh = (cmd: string, args: string[]): string => { const x = spawnSync(cmd, args, { encoding: 'utf8' }); return `$ ${cmd} ${args.join(' ')} -> ${x.status}\n${x.stdout}${x.stderr}`; };
         if (process.env.CI) {
-          const cer = path.join(d, 'out/hangar-signing.cer');
-          const logA = sh('security', ['add-trusted-cert', '-r', 'trustRoot', '-p', 'codeSign', '-k', kc, cer]);
-          const validA = sh('security', ['find-identity', '-v', '-p', 'codesigning', kc]);
-          let logB = '';
-          if (!/ 1 valid identities/.test(validA)) {
-            logB = sh('sudo', ['-n', 'security', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'codeSign', '-k', kc, cer]) + sh('security', ['find-identity', '-v', '-p', 'codesigning', kc]);
-          }
-          console.log(`TRUSTEXP\n${logA}\n${validA}\n${logB}`);
+          // macOS 26 のランナーでは、信頼と検索リストを整えないと codesign が識別を見つけない（実測）。使い捨てのランナーでだけ行う。
+          const prep = spawnSync('bash', [script('prepare-signing-keychain.sh'), '--cer', path.join(d, 'out/hangar-signing.cer'), '--keychain', kc], { encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] });
+          expect(prep.status, `${prep.stdout}${prep.stderr}`).toBe(0);
         }
-        const diag = (): string => ['find-identity -p codesigning', 'find-identity', 'list-keychains -d user', 'show-keychain-info'].map((a) => { const x = spawnSync('security', [...a.split(' '), ...(a.startsWith('find') || a.startsWith('show') ? [kc] : [])], { encoding: 'utf8' }); return `$ security ${a}\n${x.stdout}${x.stderr}`; }).join('\n');
-        try { signApp(opts); } catch (e) { throw new Error(`${(e as Error).message}\n${diag()}`); }
+        signApp(opts);
         const dr = spawnSync('codesign', ['-d', '-r-', app], { encoding: 'utf8' });
         expect(`${dr.stdout}${dr.stderr}`).toContain(`designated => certificate leaf = H"${fp}"`);
         // 内容の違う 2 回目の build でも DR は同じ
