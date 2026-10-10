@@ -5,10 +5,10 @@ import type { JumpFrom } from '../../provider/claude-code/screen/promptJump.ts';
 import { decodeTerminalRequest } from '../../runs/terminal.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
-import { beforeLaunchOf, BODY_LIMITS, externalOf, readJson, runResult, runResultAsync, tooLargeResult } from './common.ts';
+import { beforeLaunchOf, BODY_LIMITS, externalOf, readJson, runResult, runResultAsync, sessionOf, tooLargeResult } from './common.ts';
 
 /** run の経路が使う依存。 */
-export type RunRouteDeps = Pick<AppDeps, 'runs' | 'sync' | 'resumeHere' | 'external' | 'token'> & LanguageDeps;
+export type RunRouteDeps = Pick<AppDeps, 'runs' | 'sync' | 'resumeHere' | 'external' | 'token' | 'db' | 'deviceId' | 'live'> & LanguageDeps;
 
 /**
  * run の経路。
@@ -19,6 +19,7 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
   const tr = translatorOf(deps.language);
   const external = externalOf(deps);
   const beforeLaunch = beforeLaunchOf(deps);
+  const session = sessionOf(deps);
 
   // 他端末の本文を手元に写してから再開する。手元の方が小さいときだけ 409 で確認を求める。
   api.post('/sessions/:id/resume-here', async (c) => {
@@ -76,7 +77,10 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
     if (!t || t.runId !== run.id) return c.json({ error: tr('run.tab.notFound') }, 404);
     // 終了した run の Claude のタブは繋ぎ先がもう無い。シェルタブは終了後も開いてよい。
     if (!deps.runs.attachTarget(tabId)) return c.json({ error: tr('run.error.alreadyEnded') }, 409);
-    return external(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName }));
+    // Windows のタブや窓の題名にするセッション名。シェルタブは、どのタブかが分かるよう名前の後ろにタブの題名を添える。
+    const name = session(run.sessionId)?.name;
+    const title = name ? (t.kind === 'shell' ? `${name} (${t.title})` : name) : undefined;
+    return external(c, () => deps.external.openTerminal({ tmuxName: t.tmuxName, title }));
   });
   // 目次で押した指示へ、Claude のタブを transcript の中で跳ばす。本文には書き出し（HEAD_LEN 字）だけを並べて受ける。
   api.post('/runs/:id/jump', async (c) => {

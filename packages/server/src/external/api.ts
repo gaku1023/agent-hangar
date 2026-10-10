@@ -27,10 +27,10 @@ export function createExternalApi(o: {
   const direct = o.exec ?? execFile;
   const exec = platform === 'win32' && o.launcher ? breakawayExec(direct, o.launcher) : direct;
   return {
-    openTerminal: ({ tmuxName }) => {
+    openTerminal: ({ tmuxName, title }) => {
       const s = o.settings();
       if (!s.tmuxPath) throw new MessageError(msg('run.launch.tmuxMissing', { label: msg('settings.label.tmuxPath') }));
-      return openInTerminalApp({ home: o.home, tmuxPath: s.tmuxPath, tmuxName, app: terminalAppFor(s.terminalApp, platform), exec });
+      return openInTerminalApp({ home: o.home, tmuxPath: s.tmuxPath, tmuxName, title, app: terminalAppFor(s.terminalApp, platform), exec });
     },
     openDirTerminal: ({ dir }) => openDirInTerminalApp({ home: o.home, dir, app: terminalAppFor(o.settings().terminalApp, platform), exec }),
     openEditor: ({ target }) => openInEditor({ codePath: o.settings().codePath, target, exec, platform }),

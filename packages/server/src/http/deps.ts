@@ -21,7 +21,8 @@ import type { AccountsDeps } from './accounts.ts';
 export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
 export type ExternalApi = {
-  openTerminal(o: { tmuxName: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
+  /** title は Windows のタブや窓の題名（セッション名）。省くと tmux の名前になる。 */
+  openTerminal(o: { tmuxName: string; title?: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
   openDirTerminal(o: { dir: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
   openEditor(o: { target: string }): Promise<void>;
   /** 既定のブラウザで URL を開く。アーティファクトの「開く」で使う。 */

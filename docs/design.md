@@ -1200,6 +1200,9 @@ tmux セッションが消えたら run を終了とみなし、`end_reason` を
 
 UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux attach -t <tmux_name>` を実行して入出力を中継する。
 リサイズは xterm.js の寸法を PTY に伝える。
+Windows で pty を閉じるとき、node-pty は子のコンソールの一覧を取る補助のプロセスを起こしてから pseudoconsole を閉じるので、補助が「AttachConsole failed」を標準エラー（サーバのログ）へ出すことがある。
+そこで Windows では pty の kill を直には呼ばず、子の `tmux attach` のプロセスだけを終わらせて、node-pty が終了を見て後始末をするのを待つ（`pty/close.ts`）。
+5 秒待っても終わらなければ、元の kill に落とす（node-pty は子が終わってから終了を伝えるまでに 1 秒以上かかることがある）。終わっている pty は閉じ直さない。
 
 ターミナルの打鍵と写しは次のようにする。
 
@@ -1235,14 +1238,16 @@ iTerm2 を使う設定にしたときは AppleScript で新規ウィンドウを
 Windows では、選べるターミナルが「Windows Terminal」と「既定のターミナル」の 2 つになる（`TerminalApp` の `windowsTerminal` と `windowsDefault`）。
 設定画面は、画面を開いている OS の選択肢だけを同じ切り替えの部品に並べ、サーバも動いている OS の値だけを保存する。
 別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、読み込むときにその OS の既定（macOS は Terminal.app、Windows は Windows Terminal）に読み替える。
-Windows Terminal は `wt.exe -w 0 new-tab -- <psmux> attach -t =<名前>` で、直近の窓の新しいタブ（窓が無ければ新しい窓）に開く。
+Windows Terminal は `wt.exe -w 0 new-tab --title <題名> --suppressApplicationTitle -- <psmux> attach -t =<名前>` で、直近の窓の新しいタブ（窓が無ければ新しい窓）に開く。
 wt は `;` を次のコマンドの区切りに読むので、引数の `;` は `\;` にして渡す。
 `wt.exe` を起こせなければ、既定のターミナルに落とし、落ちたことを知らせる。
-既定のターミナルは `cmd.exe /d /v:off /s /c "start "" "<psmux>" attach -t "=<名前>""` で、Windows の設定の「既定のターミナル アプリ」の新しい窓に開く。
+既定のターミナルは `cmd.exe /d /v:off /s /c "start "<題名>" "<psmux>" attach -t "=<名前>""` で、Windows の設定の「既定のターミナル アプリ」の新しい窓に開く。
 この 1 行は Node に引用させずにそのまま渡す（Node の `\"` は cmd.exe に通じない）。
 cmd.exe は引用符の中でも `%name%` を置き換えるので、`%` だけは引用の外へ出して `^%` にする。
 `"` と改行を含む名前とパスは、どちらの経路でも引用を破るので、開かずに断る。
-ディレクトリを開くときは、Windows Terminal は `new-tab -d <dir>` で既定のプロファイルを、既定のターミナルは `start "" /D "<dir>" powershell.exe -NoLogo` で PowerShell を開く。
+題名を付けないと、タブも窓も起こした実行ファイル（psmux）のフルパスが題名になる。
+題名はセッション名（シェルタブは名前の後ろに `(シェル 1)` のようなタブの題名を添える）で、80 字までに切り、`"` は `'` に、改行と制御文字は空白に潰す（名前は利用者が付けるので、断らない）。名前が無ければ tmux の名前にする。
+ディレクトリを開くときは、Windows Terminal は `new-tab --title <題名> --suppressApplicationTitle -d <dir>` で既定のプロファイルを、既定のターミナルは `start "<題名>" /D "<dir>" powershell.exe -NoLogo` で PowerShell を開く（題名はフォルダ名）。
 `.app`（Windows の殻）から起こしたサーバでは、ターミナルもエディタもブラウザも殻の起こし役越しに起こし、Hangar を閉じても開いた窓は残る（「Tauri のシェル」の節）。
 
 ### 指示の注入
