@@ -1,5 +1,6 @@
-import type { Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
 import type { TableIntent } from '../runtime/intentTable.ts';
+import type { ConfigDetailPart } from '../store/store.ts';
 
 /**
  * 検索の問い合わせ。期間を日数のまま持つ。
@@ -20,6 +21,8 @@ export type RuntimeEvent =
   | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
   // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
   | { type: 'return.due'; keys: string[] }
+  // 同期で、この PC に場所を持ったことが無いプロジェクトが降りてきた（Runtime が project.upsert から見分ける）。ids は降りたプロジェクト。起動の読み込みで入るものは届けない。
+  | { type: 'projects.arrived'; ids: string[] }
   // 窓が前面に戻ったら、寝ていた間の変更をすぐ取りに行く。
   | { type: 'window.focus' }
   // 目次から左のターミナルを跳ばした結果。
@@ -32,7 +35,9 @@ export type RuntimeEvent =
   // 欄ごとの保存の結果。失敗はトーストにせず、その欄の下に理由を出す。
   | { type: 'settings.saved'; field: string } | { type: 'settings.failed'; field: string; message: string }
   // クリップボードに写せた。写せなかったときはランタイムがトーストで知らせ、これは届かない。
-  | { type: 'clipboard.copied'; text: string };
+  | { type: 'clipboard.copied'; text: string }
+  // 設定の同期の適用（指示書を書き、殻のネイティブの確認を待った）の結果。close が真ならダイアログを閉じる。
+  | { type: 'configSync.done'; close: boolean };
 
 /**
  * Mediator が裁定する Intent。
@@ -101,6 +106,10 @@ export type Effect =
   | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
   | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
+  // 設定の同期（作り直した実装）。Load は中身を取る。Apply は指示書を書き（entries が null なら、いまある指示書を使い）、殻のネイティブの確認へ進む。Restore は控えの世代へ戻す。
+  | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
+  | { kind: 'api.configSyncApply'; entries: ConfigApplyOrderEntryIn[] | null }
+  | { kind: 'api.configSyncRestore'; name: string }
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
   // Claude Code のアカウント。
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
@@ -119,7 +128,8 @@ export type ConfirmRequest =
   | { kind: 'overwriteTranscript'; sessionId: string; localSize: number; remoteSize: number }
   | { kind: 'adoptSession'; sessionId: string }
   | { kind: 'killRun'; runId: string; working: boolean; aside?: boolean; shellTabs: number }
-  | { kind: 'unlinkProject'; projectId: string }
+  // fromDialog は、未解決のプロジェクトのダイアログから来たこと。やめるとそのダイアログへ戻る。
+  | { kind: 'unlinkProject'; projectId: string; fromDialog?: true }
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
   | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }
   | { kind: 'removeAccount'; accountId: string };
@@ -132,6 +142,8 @@ export type Overlay =
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
   | { kind: 'configPreview' }
+  // 設定の同期（作り直した実装）。part が顔を決める。working は、適用の返事（指示書を書き、ネイティブの確認を経る）を待っているあいだ。
+  | { kind: 'configSync'; part: ConfigSyncPart; working: boolean }
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
   // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
   | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' };
@@ -176,15 +188,14 @@ export type State = {
   /** 次に自動で試す時刻。待っているのか固まっているのかを見せるために持つ。 */
   nextRetryAt: number | null;
   sessionView: Record<string, SessionViewState>;
-  /** 一覧の語と絞り込み、平らな一覧のいまのページ（1 から）。ページは条件を変えるか画面に入り直すと 1 に戻る。 */
+  /**
+   * 一覧の語と絞り込み、平らな一覧のいまのページ（1 から）。ページは条件を変えるか画面に入り直すと 1 に戻る。
+   * ホームと 1 つのプロジェクトの画面が同じものを使う。プロジェクトの画面では、そのプロジェクトに絞る（絞り込みには projectId を入れない。mediator/screen.ts の listProjectId）。
+   * 別の画面から入ると、持ち込まずに空から始める。
+   */
   search: { text: string; filter: SearchFilter; page: number };
   /** 一覧の 1 ページの件数（PAGE_SIZES のどれか）。どの一覧も同じ件数を使う。端末ごとに localStorage に残し、起動時に読み戻す。 */
   pageSize: number;
-  /**
-   * プロジェクト画面の一覧のいまのページ（1 から）。鍵は 'project:<id>'。無ければ 1 ページ目。
-   * プロジェクトの節を広げる・畳むと、そのプロジェクトは 1 ページ目に戻る。保存はしない。
-   */
-  listPages: Record<string, number>;
   /** 起動の進み。ダイアログからの起動も、再開もフォークも同じ状態を共有する。 */
   launch: LaunchState;
   /**
@@ -198,10 +209,14 @@ export type State = {
    * 入力待ちが解けるか、そのセッションを開くまで残す。
    */
   waitingToasts: string[];
-  /** 戻る時刻を過ぎたと知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
+  /**
+   * 同期で他の PC から降りてきたプロジェクトで、まだ札を下げていないもの（降りた順）。
+   * 右下に「他の PC のプロジェクト N 件が届きました」の札を 1 枚だけ出す（設計書 2.11.5）。N は、いまも他の PC から届いたままのものを数える。
+   * 「プロジェクトで見る」か「あとで決める」で空にする。帯の件数には入らない。
+   */
+  arrivedProjects: string[];
+  /** 戻る時刻を過ぎたと OS の通知で知らせ終えた鍵（id|日 時刻）。同じ時点を 2 度知らせないために覚え、localStorage にも残す。 */
   returnSeen: string[];
-  /** 右下に積む「戻る時刻を過ぎた」の札のセッション。古いものが先。閉じるか、そのセッションを開くか、状態が変わるまで残す。 */
-  returnToasts: string[];
   /** focus: terminal で開いたセッション。その画面に着いたら端末にフォーカスし、着いたら忘れる。 */
   focusOnOpen: string | null;
   /**
@@ -211,13 +226,7 @@ export type State = {
   promote: LaunchState;
   /** プロジェクト画面の作成のダイアログの送信。 */
   projectCreate: LaunchState;
-  toasts: Toast[]; unresolvedQueue: string[]; nextToastId: number;
-  /**
-   * 未解決のまま「あとで」を選んだプロジェクト。
-   * bootstrap のたびに同じことを聞かれないように覚える。
-   * 永続させないので、サーバを立て直せばまた聞く。
-   */
-  resolveDeferred: string[];
+  toasts: Toast[]; nextToastId: number;
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;
   /**
@@ -226,17 +235,10 @@ export type State = {
    */
   sidebarOrder: string[];
   /**
-   * プロジェクト画面で広げた節（末尾の Archived）。鍵はプロジェクトの id。
-   * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。
-   */
-  sectionsOpen: Record<string, 'archived'[]>;
-  /**
    * ベルの一覧で既読にした行の鍵（種類、対象、事実の版）。新しいものが後ろ。端末ごとに localStorage に残し、起動時に読み戻す。
    * 一覧の行は事実から Presenter が組み、ここは既読の鍵だけを持つ（mediator/notices.ts）。
    */
   noticesRead: string[];
-  /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
-  retentionBannerDismissed: boolean;
   /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */
   newSessionDraft: NewSessionDraft | null;
   /**

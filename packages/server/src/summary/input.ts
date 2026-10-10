@@ -57,17 +57,11 @@ export function buildSummaryInput(db: Db, sessionId: string, running: boolean, l
   return { sessionId, text, turns, running, titleHint: s.ai_title ?? sessionTitleOf(db, sessionId), language };
 }
 
-/** 「要約器を試す」に使う決め打ちの入力。DB には書かない。 */
-export const CANNED_INPUT: SummaryInput = {
-  sessionId: 'canned', turns: 3, running: false, titleHint: null,
-  text: [
-    '[user] README の導入手順が古いので、Node 22 と npm workspaces 前提に書き直して。',
-    '[assistant] 現状の README を読み、setup 節と開発の節を書き直します。',
-    '[tool] Read README.md',
-    '[tool] Edit README.md',
-    '[assistant] 導入手順を Node 22、npm ci、npm run dev の 3 手順にし、pnpm の記述を消しました。CI の節も同じ前提に揃えました。',
-    '[user] ありがとう。CONTRIBUTING.md も同じ前提で直しておいて。',
-    '[tool] Edit CONTRIBUTING.md',
-    '[assistant] CONTRIBUTING.md の開発環境の節を直しました。他に古い記述は見つかりませんでした。',
-  ].join('\n'),
-};
+/** 「要約器を試す」に使う決め打ちの入力。DB には書かない。要約を書かせる言語に合わせた文にする。 */
+export const cannedInput = (language: Language): SummaryInput => ({
+  sessionId: 'canned', turns: 3, running: false, titleHint: null, language,
+  text: t(language, 'summary.canned.text'),
+});
+
+/** 日本語の決め打ちの入力。言語を決めない呼び手（試験）が使う。 */
+export const CANNED_INPUT: SummaryInput = { ...cannedInput(DEFAULT_LANGUAGE), language: undefined };

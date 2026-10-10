@@ -6,6 +6,7 @@ import { presentHomeBand, type AttentionCard, type ConfirmCard, type HomeScreenP
 import { presentReadiness } from '../presenters/readiness.ts';
 import { pagerOf } from '../presenters/pager.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
+import type { ListItem } from '../presenters/listItem.ts';
 import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/sessions.ts';
 import { HomeScreen } from './HomeScreen.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
@@ -177,13 +178,21 @@ describe('HomeScreen の状態のタブ（★）', () => {
 });
 
 describe('HomeScreen の欄（欄が正）', () => {
-  it('欄の案内は、トランスクリプトを探すことと、条件の書き方を言う。「名前はコマンドパレットで」は言わない', () => {
+  it('欄の案内は、名前、要約、トランスクリプトを探すことと、条件の書き方を言う。「名前はコマンドパレットで」は言わない', () => {
     mount();
     const kw = screen.getByLabelText('キーワード');
-    expect(kw.getAttribute('placeholder')).toContain('トランスクリプトを検索');
+    expect(kw.getAttribute('placeholder')).toContain('名前、要約、トランスクリプトを検索');
     expect(kw.getAttribute('placeholder')).toContain('is:paused');
     expect(kw.getAttribute('placeholder')).not.toContain('コマンドパレット');
-    expect(screen.getByText('トランスクリプト', { selector: '.sessions-keyword-tag' })).toBeInTheDocument();
+  });
+  it('欄の札は「名前」「要約」「トランスクリプト」の 3 つで、語を打っているあいだだけ色が付く', () => {
+    const { unmount } = mount();
+    const tags = () => Array.from(document.querySelectorAll('.sessions-keyword-tag'));
+    expect(tags().map((x) => x.textContent)).toEqual(['名前', '要約', 'トランスクリプト']);
+    expect(tags().some((x) => x.hasAttribute('data-on'))).toBe(false);
+    unmount();
+    mount({ searching: true, list: listProps({ text: '動画', mode: 'search', conditions: ['『動画』'] }) });
+    expect(tags().every((x) => x.hasAttribute('data-on'))).toBe(true);
   });
   it('Enter で欄のトークンを読み、今の条件に重ねて search.query を出し、読めた分は欄から消す', () => {
     const { onIntent } = mount({ list: listProps({ filter: { projectId: 'p1' } }) });
@@ -223,6 +232,46 @@ describe('HomeScreen の欄（欄が正）', () => {
     expect(screen.getByLabelText('キーワード')).toHaveValue('動画');
     rerender(ui(''));
     expect(screen.getByLabelText('キーワード')).toHaveValue('');
+  });
+});
+
+describe('HomeScreen の検索の結果（見出しと札）', () => {
+  const head = (id: 'nameMatch' | 'transcriptMatch', label: string, count: number | null): ListItem => ({ kind: 'head', id, label, count });
+  const rows = [row('a', { name: 'CSV の書き出し', nameMarks: [{ text: 'CSV', hit: true }, { text: ' の書き出し', hit: false }] }), row('b', { summaryMatch: true }), row('c', { excerpt: [{ text: '…', hit: false }, { text: 'CSV', hit: true }, { text: '…', hit: false }] })];
+  const items: ListItem[] = [head('nameMatch', '名前に一致', 2), { kind: 'row', row: rows[0]! }, { kind: 'row', row: rows[1]! }, head('transcriptMatch', 'トランスクリプトに一致', 12), { kind: 'row', row: rows[2]! }];
+  const found = (over: Partial<SessionListProps> = {}) => mount({ searching: true, list: listProps({ text: 'CSV', mode: 'search', conditions: ['『CSV』'], rows, items, total: 14, ...over }) });
+
+  it('「名前に一致」と「トランスクリプトに一致」の見出しを件数つきで挟む', () => {
+    found();
+    const heads = screen.getAllByRole('heading', { level: 2 }).filter((h) => h.classList.contains('row-head'));
+    expect(heads.map((h) => h.textContent)).toEqual(['名前に一致2', 'トランスクリプトに一致12']);
+    expect(heads.map((h) => h.getAttribute('data-section'))).toEqual(['nameMatch', 'transcriptMatch']);
+  });
+  it('件数を言えない見出しは、件数を出さない', () => {
+    mount({ searching: true, list: listProps({ text: 'CSV', mode: 'search', rows: rows.slice(0, 2), items: [head('nameMatch', '名前に一致', null), { kind: 'row', row: rows[0]! }, { kind: 'row', row: rows[1]! }], total: 40 }) });
+    const h = screen.getByRole('heading', { name: '名前に一致' });
+    expect(h.querySelector('.row-head-count')).toBeNull();
+  });
+  it('名前の一致は、行の名前の中で印を付け、要約に当たった行には「要約に一致」の札を付ける', () => {
+    found();
+    const els = screen.getAllByRole('row');
+    expect(els[0]!.querySelector('.row-name mark.hit')).toHaveTextContent('CSV');
+    expect(within(els[1]!).getByText('要約に一致')).toBeInTheDocument();
+    expect(within(els[0]!).queryByText('要約に一致')).toBeNull();
+    expect(els[2]!.querySelector('.row-name mark')).toBeNull();
+  });
+  it('見出しは行ではないので、行の数にも矢印の送りにも入らない', () => {
+    const { onIntent } = found();
+    expect(screen.getAllByRole('row')).toHaveLength(3);
+    const host = screen.getByTestId('session-rows');
+    fireEvent.keyDown(host, { key: 'j' });
+    fireEvent.keyDown(host, { key: 'Enter' });
+    expect(onIntent).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'session.open', id: 'a' }));
+  });
+  it('items が無ければ、行だけを平らに並べる', () => {
+    mount({ searching: true, list: listProps({ text: 'CSV', mode: 'search', rows, total: 3 }) });
+    expect(screen.queryByRole('heading', { name: '名前に一致' })).toBeNull();
+    expect(screen.getAllByRole('row')).toHaveLength(3);
   });
 });
 

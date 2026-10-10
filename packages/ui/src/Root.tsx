@@ -3,6 +3,7 @@ import { useRuntime } from './hooks/useRuntime.ts';
 import { IntentRoot } from './intent/chain.tsx';
 import { canMoveBehind } from './mediator/screen.ts';
 import { defaultSessionView } from './mediator/sessionView.ts';
+import { presentConfigDialog } from './presenters/configSync.ts';
 import { presentConfirm } from './presenters/confirm.ts';
 import { presentHomeScreen } from './presenters/home.ts';
 import { storeLanguage } from './presenters/i18n.ts';
@@ -10,6 +11,7 @@ import { presentNewProject } from './presenters/newProject.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
 import { presentPause } from './presenters/pause.ts';
+import { presentResolveDialog } from './presenters/unresolved.ts';
 import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
@@ -25,8 +27,10 @@ import { matchKey } from './keys.ts';
 import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
+import { usePaletteFound } from './views/usePaletteFound.ts';
 import { createFindStore, FindRoot } from './views/findStore.tsx';
 import { ConfigPreviewDialog } from './views/ConfigPreviewDialog.tsx';
+import { ConfigSyncDialog } from './views/ConfigSyncDialog.tsx';
 import { RetentionDialog } from './views/RetentionDialog.tsx';
 import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
@@ -115,6 +119,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   // 本文の部品は画面を離れると外れるので、ここに置いて、戻ってきたときに同じ欄と語を出す。
   const [finds] = useState(createFindStore);
   useEffect(() => { if (!paletteOpen) setPaletteQuery(''); }, [paletteOpen]);
+  // 最後の行に添える件数。ホームの欄と同じ検索を、少し待ってから 1 件だけ引いて数える。
+  const paletteFound = usePaletteFound((params) => (props.api ?? apiFromRuntime(rt)).search(params), paletteQuery, paletteOpen);
 
   // ショートカットの対象になる、いま見ているセッションのタブ。
   const sessionId = state.screen.name === 'session' ? state.screen.id : null;
@@ -221,12 +227,11 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;
         // Esc はオーバーレイを閉じる。
-        // 未解決のプロジェクトだけは決めてもらうまで閉じない。
         // ダイアログの中にフォーカスがあるときは、ダイアログの殻（views/primitives/Dialog.tsx）が Esc を受けて既定を止めるので、二重に出さない。
-        // 二重に閉じると、確認の後ろに控えた未解決のダイアログまで「あとで」で閉じてしまう。
+        // 二重に閉じると、確認から戻った先の未解決のダイアログまで閉じてしまう。
         // ここが受けるのは、フォーカスが器の外（body など）にあるときの Esc だけである。
         case 'overlay.close':
-          if (e.defaultPrevented || overlayKind === 'none' || overlayKind === 'resolveProject') return;
+          if (e.defaultPrevented || overlayKind === 'none') return;
           rt.emit(overlayKind === 'palette' ? { type: 'palette.close' } : { type: 'overlay.close' });
           return;
         default: return;
@@ -354,11 +359,13 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const newSession = presentNewSession(state, store, now);
   // Paused の入力は開くたびに作り直す（札と下書きの初期値を、開いたセッションと入口から取り直すため）。
   const pause = presentPause(state, store, now);
+  // 設定の同期のダイアログ（作り直した実装）。開いたときに取った中身（Store の configDetail）から組む。
+  const configDialog = presentConfigDialog(state, store);
   const overlays = (
     <>
-      {unresolvedId && <ResolveProjectDialog projectId={unresolvedId} name={store.projects[unresolvedId]?.name ?? unresolvedId} path={store.projects[unresolvedId]?.path ?? null} candidates={candidates} onQueryCandidates={queryCandidates} />}
+      {unresolvedId && <ResolveProjectDialog {...presentResolveDialog(store, unresolvedId)} candidates={candidates} onQueryCandidates={queryCandidates} />}
       {newSession && <NewSessionDialog key={newSession.projectId ?? ''} {...newSession} />}
-      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now)!} onQuery={setPaletteQuery} />}
+      {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now, paletteFound)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'newProject' && <NewProjectDialog {...presentNewProject(state, store)!} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
@@ -367,6 +374,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {/* 取り込みの下見は押したときだけ取りに来る一時の値なので、Presenter を通さず store から直に渡す。 */}
       {/* 未解決ダイアログの候補と同じ扱いである。 */}
       {overlay.kind === 'configPreview' && <ConfigPreviewDialog preview={store.configPreview} />}
+      {configDialog && <ConfigSyncDialog {...configDialog} />}
       {overlay.kind === 'retention' && <RetentionDialog {...presentRetentionDialog(state, store, now)!} />}
       {overlay.kind === 'shortcuts' && <ShortcutsDialog />}
       <ToastStack {...presentToasts(state, store, now)} />

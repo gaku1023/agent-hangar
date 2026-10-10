@@ -132,7 +132,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, configApproval: 'each', nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, configApproval: 'each', configBundleSync: false, nodePath: null, claudePath: null, language: 'ja' });
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -274,6 +274,7 @@ describe('設定の往復', () => {
         ['allowExternalSummarizer', true],
         ['syncClaudeConfig', true],
         ['configApproval', 'auto'],
+        ['configBundleSync', true],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -304,6 +305,18 @@ describe('設定の往復', () => {
       expect((await r.json()).error).toBe('「届いた設定の承諾の仕方」の値の形が違います');
     }
     expect((await json(await get('/api/settings'))).body.configApproval).toBe('auto');
+  });
+  it('設定の同期（作り直した実装）のスイッチは、既定が切で、保存でき、真偽値でない値は断る', async () => {
+    expect((await json(await get('/api/settings'))).body.configBundleSync).toBe(false);
+    expect((await (await patch({ configBundleSync: true })).json()).configBundleSync).toBe(true);
+    expect((await json(await get('/api/bootstrap'))).body.settings.configBundleSync).toBe(true);
+    // 旧実装のスイッチと同じ要求で切り替えられる（画面は、新しい実装を入れるとき旧実装を切る）。
+    const both = await (await patch({ configBundleSync: false, syncClaudeConfig: false })).json();
+    expect([both.configBundleSync, both.syncClaudeConfig]).toEqual([false, false]);
+    for (const v of ['true', 1, null, []]) {
+      const r = await patch({ configBundleSync: v });
+      expect([v, r.status]).toEqual([v, 400]);
+    }
   });
   it('言語の既定は日本語で、英語を保存して読める', async () => {
     expect((await json(await get('/api/settings'))).body.language).toBe('ja');

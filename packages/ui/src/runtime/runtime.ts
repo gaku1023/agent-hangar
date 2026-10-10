@@ -1,10 +1,9 @@
-import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type ConfigApplyOrderEntryIn, type Intent, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
 import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
-import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { cleanSidebarOrder, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
@@ -16,8 +15,9 @@ import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
 import { readinessComplete, readinessPending } from '../presenters/readiness.ts';
+import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearchResult, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -82,6 +82,15 @@ const COPY_FAILED = 'コピーできませんでした。文字を選んで ⌘C
 const AROUND_BEFORE = 100;
 
 /** Mediator の効果を実行し、サーバとブラウザの出来事を入力に変える。 */
+/**
+ * 同期で他の PC から降りてきたプロジェクトか（設計書 2.11.5）。
+ * 起動の読み込みが済んでいて、この Store がまだ知らない id で、この PC に場所を持ったことが無いもの（elsewhere）である。
+ * 同じ id の更新（他の PC での改名など）は、届いたことにしない。
+ */
+function arrivedFromSync(store: Store, p: ProjectDto): boolean {
+  return store.bootstrapped && store.projects[p.id] === undefined && p.status !== 'archived' && unresolvedKind(p) === 'elsewhere';
+}
+
 /** 先の戻る時点を見直す間隔の上限。 */
 const RETURN_RECHECK_MAX_MS = 12 * 60 * 60_000;
 
@@ -233,6 +242,59 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     return tab.id;
   }
 
+  /**
+   * 設定の同期の中身を取る。件数と状態は config.update と bootstrap で届く値が正なので、ここは項目の一覧だけを入れる。
+   * 同期を組んでいない端末では 404 になるので、取りに来る前に configSync があることを見る（呼ぶ側の Mediator が見る）。
+   * 失敗は 1 つの部分ごとに知らせる。
+   */
+  function loadConfigDetail(parts: ConfigDetailPart[]): void {
+    for (const part of parts) {
+      switch (part) {
+        case 'outgoing': deps.api.configOutgoing().then((v) => setStore(applyConfigDetail(store, 'outgoing', v))).catch(fail); break;
+        case 'inbox': deps.api.configInbox().then((v) => setStore(applyConfigDetail(store, 'inbox', v))).catch(fail); break;
+        case 'conflicts': deps.api.configConflicts().then((v) => setStore(applyConfigDetail(store, 'conflicts', v))).catch(fail); break;
+        case 'unsent': deps.api.configUnsent().then((v) => setStore(applyConfigDetail(store, 'unsent', v))).catch(fail); break;
+        case 'backups': deps.api.configBackups().then((v) => setStore(applyConfigDetail(store, 'backups', v))).catch(fail); break;
+      }
+    }
+  }
+  /** 状態を取り直し、そこから決まる件数のある中身を取り直す。適用と戻しは殻が行い、サーバは次の周期まで知らないので、済んだらすぐ呼ぶ。 */
+  function refreshConfigSync(): void {
+    deps.api.configSyncState().then((c) => { setStore({ ...store, configSync: c }); loadConfigDetail(configPartsToLoad(c)); }).catch(fail);
+  }
+  /**
+   * 殻の結果（適用または戻し）を知らせにする。
+   * applied と restored は済んだので状態を取り直す。cancelled、none、busy、failed は書いていないので、そのまま文を知らせる（失敗だけ赤）。
+   */
+  function shellOutcome(r: { status: string; message: string }, fromDialog: boolean): void {
+    dispatch({ kind: 'server', event: { type: 'toast', level: r.status === 'failed' ? 'error' : 'info', message: r.message } });
+    const wrote = r.status === 'applied' || r.status === 'restored';
+    if (wrote) refreshConfigSync();
+    if (fromDialog) dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: wrote } });
+  }
+  /**
+   * 選んだ項目を指示書にして、殻のネイティブの確認へ進む。entries が null なら、いまある指示書をそのまま使う。
+   * ブラウザには殻が無いので、指示書を書いたところで止め、画面の「適用の待ち」の行が hangar config apply を案内する。
+   */
+  function applyConfigSync(entries: ConfigApplyOrderEntryIn[] | null): void {
+    const t = translatorOf(store);
+    void (async () => {
+      try {
+        if (entries) await deps.api.configPutOrder(entries);
+        const shell = deps.desktop;
+        if (!shell) {
+          toast(t('configSyncUi.toast.orderWritten'));
+          dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: true } });
+          return;
+        }
+        shellOutcome(await shell.applyConfigSync(), true);
+      } catch (err) {
+        fail(err);
+        dispatch({ kind: 'runtime', event: { type: 'configSync.done', close: false } });
+      }
+    })();
+  }
+
   function runEffect(e: Effect): void {
     switch (e.kind) {
       // 履歴を動かすだけで、行き先はハッシュの変化として戻ってくる。
@@ -261,8 +323,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           for (const run of gone.runs) dispatch({ kind: 'server', event: { type: 'run.ended', run } });
           for (const tab of gone.tabs) dispatch({ kind: 'server', event: { type: 'tab.upsert', tab } });
           // 同期の状態と端末の一覧は applyBootstrap が Store に入れてある。画面は Store から読むので、イベントにして流し直さない。
-          // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
-          for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
           // ホームの帯は、直すものがあれば始める前の確認を出す。誰にでも出すので、起動のたびにその中身を取りに行く（遅れは 1 回の which の数回分）。
           loadReadiness();
@@ -439,7 +499,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       }
       case 'notify.return': {
-        // 窓が前にあるときは右下の札で足りる（入力待ちと同じ）。
+        // 窓が前にあるときは OS の通知は出さない（ベルの一覧に行がある）。
         if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
@@ -506,6 +566,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'api.configPreview': deps.api.configPreview().then((p) => setStore(applyConfigPreview(store, p))).catch(fail); return;
       case 'api.configPull': deps.api.configPull().then((r) => toast(`${r.applied} 件を取り込みました（競合 ${r.conflicts} 件）`)).catch(fail); return;
+      case 'api.configSyncLoad': loadConfigDetail(e.parts); return;
+      case 'api.configSyncApply': applyConfigSync(e.entries); return;
+      case 'api.configSyncRestore': {
+        // ブラウザでは殻が無い。画面は、その場合は戻すボタンの代わりにコマンドを出すので、ここへは来ない。
+        const shell = deps.desktop;
+        if (!shell) return;
+        shell.restoreConfigSync(e.name).then((r) => shellOutcome(r, false)).catch((err: unknown) => failWith('設定を戻せませんでした', err));
+        return;
+      }
       case 'api.retentionPreview':
         // 前の下見を先に消し、取り直している最中に古い差分で書かないようにする。
         setStore({ ...store, retentionPreview: null });
@@ -601,6 +670,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (input.kind === 'intent' && isTableIntent(input.intent)) { emit(input.intent); return; }
     // 索引の走査がこの知らせで終わるかは、当てる前の Store でしか分からない。
     const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
+    // 同期で降りた、この PC に場所を持ったことが無いプロジェクトか。これも、当てる前の Store でしか分からない（初めて見る id かどうか）。
+    // 起動の読み込み（bootstrap）で入るものは project.upsert では届かないので、ここには来ない。読み込みが済む前に届いたものも数えない。
+    const arrivedId = input.kind === 'server' && input.event.type === 'project.upsert' && arrivedFromSync(store, input.event.project) ? input.event.project.id : null;
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
@@ -623,6 +695,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (indexDone) runEffect({ kind: 'api.bootstrap' });
     // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
     if (!wasHome && state.screen.name === 'home') for (const run of Object.values(store.runs)) if (run.endedAt === null) loadLive(run.sessionId);
+    // 他の PC から降りたプロジェクトは、ダイアログではなく、右下の札 1 枚にまとめる（mediator/arrived.ts）。
+    if (arrivedId !== null) dispatch({ kind: 'runtime', event: { type: 'projects.arrived', ids: [arrivedId] } });
   }
 
   return {
@@ -646,7 +720,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
-        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // 知らせ終えた戻る時点。開き直しても同じ時点を 2 度知らせない。
         returnSeen: readReturnSeen(deps.storage.get(RETURN_SEEN_KEY)),

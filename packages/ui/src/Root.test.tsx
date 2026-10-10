@@ -77,10 +77,74 @@ describe('Root', () => {
     act(() => setHash('#/projects'));
     expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
     expect(screen.getByText('alpha')).toBeInTheDocument();
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    act(() => rt.emit({ type: 'project.resolve.open', id: 'p1' }));
     await flush();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('/w/alpha2')).toBeInTheDocument();
+  });
+  describe('未解決のプロジェクト（2.11.5）', () => {
+    const lost = { id: 'p9', name: 'old-shop', status: 'active' as const, isScratch: false, path: '/w/old-shop', resolved: false, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: { kind: 'missing' as const, previousPath: '/w/old-shop', deviceName: null } };
+    const arrived = (id: string) => ({ ...lost, id, name: id, path: null, unresolved: { kind: 'elsewhere' as const, previousPath: `/o/${id}`, deviceName: 'Mac mini' } });
+    const bootWith = (projects: BootstrapDto['projects']): BootstrapDto => ({ ...boot, projects: [...boot.projects, ...projects] });
+
+    it('起動時には、場所の消えたプロジェクトがあってもダイアログを出さない。帯の 4 つ目の錠剤に 1 件と出て、届いただけの 3 件は数えない', async () => {
+      await mounted({ boot: bootWith([lost, arrived('x1'), arrived('x2'), arrived('x3')]) });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' })).toBeInTheDocument();
+    });
+
+    it('錠剤から引き出しを開き、「場所を再指定」を押したときだけダイアログが開く。Esc で閉じ、錠剤は残る', async () => {
+      await mounted({ boot: bootWith([lost]) });
+      fireEvent.click(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '場所を再指定、old-shop' }));
+      await flush();
+      const dialog = screen.getByRole('dialog', { name: 'old-shop のディレクトリが見つかりません' });
+      expect(dialog).toHaveTextContent('/w/old-shop');
+      fireEvent.keyDown(screen.getByLabelText('新しいパス'), { key: 'Escape' });
+      await flush();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button', { name: '場所の不明なプロジェクト 1' })).toBeInTheDocument();
+    });
+
+    it('サーバが project.unresolved を流しても、ダイアログは出ない', async () => {
+      const { handlers } = await mounted({ boot: bootWith([lost]) });
+      act(() => handlers[0]!.onEvent({ type: 'project.unresolved', projectId: 'p9' }));
+      await flush();
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('他の PC から届いただけのプロジェクトは、帯に数えず、プロジェクトの一覧に「この PC にパスがありません」の札で出る。札から「場所を再指定」が開く', async () => {
+      const { setHash } = await mounted({ boot: bootWith([arrived('x1'), arrived('x2')]) });
+      expect(screen.queryByRole('button', { name: /^場所の不明なプロジェクト/ })).toBeNull();
+      act(() => setHash('#/projects'));
+      await flush();
+      const flags = screen.getAllByRole('button', { name: 'この PC にパスがありません' });
+      expect(flags).toHaveLength(2);
+      fireEvent.click(flags[0]!);
+      await flush();
+      expect(screen.getByRole('dialog', { name: 'x1 はこの PC にパスがありません' })).toHaveTextContent('Mac mini でのパス');
+    });
+
+    it('同期で他の PC のプロジェクトが降りたら、札を 1 枚だけ出す。「あとで決める」で下がる', async () => {
+      const { handlers } = await mounted();
+      act(() => { for (const id of ['x1', 'x2', 'x3']) handlers[0]!.onEvent({ type: 'project.upsert', project: arrived(id) }); });
+      await flush();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getAllByText('他の PC のプロジェクト 3 件が届きました。この PC にはフォルダがありません')).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
+      expect(screen.queryByText(/件が届きました/)).toBeNull();
+    });
+
+    it('札の「プロジェクトで見る」で、プロジェクトの一覧へ移る', async () => {
+      const { handlers } = await mounted();
+      act(() => handlers[0]!.onEvent({ type: 'project.upsert', project: arrived('x1') }));
+      await flush();
+      fireEvent.click(screen.getByRole('button', { name: 'プロジェクトで見る' }));
+      await flush();
+      expect(screen.getByRole('heading', { level: 1, name: 'プロジェクト' })).toBeInTheDocument();
+      expect(screen.queryByText(/件が届きました/)).toBeNull();
+    });
   });
   it('トーストは出て、5 秒で消える', async () => {
     vi.useFakeTimers();
@@ -114,7 +178,7 @@ describe('Root', () => {
     fireEvent.keyDown(window, { key: '/' });
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     // パレットの入力欄での / は文字なので、横取りしない。
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: '/' });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: '/' });
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
@@ -125,7 +189,7 @@ describe('Root', () => {
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
     field.blur();
     // ヘッダーの錠剤を押しても開く。
-    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    fireEvent.click(screen.getByRole('button', { name: '移動・操作' }));
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
@@ -133,11 +197,12 @@ describe('Root', () => {
     expect(screen.getByLabelText('コマンドパレット')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
-    // Esc は未解決ダイアログを閉じない。
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    // 未解決のダイアログは、押して開くので、Esc で閉じる。
+    act(() => rt.emit({ type: 'project.resolve.open', id: 'p1' }));
     await flush();
-    fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('⌘N と新規ボタンで起動ダイアログが開き、閉じられる', async () => {
     const { rt, deps, handlers } = make();
@@ -380,14 +445,14 @@ describe('フェーズ 3 のショートカットとオーバーレイ', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    const input = screen.getByLabelText('探す・移動') as HTMLInputElement;
+    const input = screen.getByLabelText('移動・操作') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'alp' } });
-    expect((screen.getByLabelText('探す・移動') as HTMLInputElement).value).toBe('alp');
+    expect((screen.getByLabelText('移動・操作') as HTMLInputElement).value).toBe('alp');
     act(() => rt.emit({ type: 'palette.close' }));
     await flush();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    expect((screen.getByLabelText('探す・移動') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('移動・操作') as HTMLInputElement).value).toBe('');
   });
 
   it('昇格のダイアログと完了のダイアログが出る', async () => {
@@ -430,7 +495,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
   it('一覧から削除は確認を挟み、件数を出し、Esc で未解決のダイアログへ戻る', async () => {
     const resolveProject = vi.fn(async () => ({}));
     const { rt } = await mounted({ api: { resolveProject } });
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    act(() => rt.emit({ type: 'project.resolve.open', id: 'p1' }));
     await flush();
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
     await flush();
@@ -453,7 +518,7 @@ describe('フェーズ 4 のオーバーレイ', () => {
   // Root の Esc も重ねて閉じると、戻ったはずの未解決のダイアログまで「あとで」で閉じてしまう。
   it('一覧から削除の確認の中の Esc は 1 度だけ閉じ、未解決のダイアログへ戻る', async () => {
     const { rt } = await mounted();
-    act(() => rt.dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: 'p1' } }));
+    act(() => rt.emit({ type: 'project.resolve.open', id: 'p1' }));
     await flush();
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除' }));
     await flush();
@@ -1023,7 +1088,7 @@ describe('入力欄の Esc（C4）', () => {
     const { rt } = await mounted();
     act(() => rt.emit({ type: 'palette.open' }));
     await flush();
-    fireEvent.keyDown(screen.getByLabelText('探す・移動'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('移動・操作'), { key: 'Escape' });
     await flush();
     expect(screen.queryByLabelText('コマンドパレット')).toBeNull();
   });
@@ -1108,13 +1173,49 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     const search = vi.fn(async () => ({ hits: [hit], total: 1 }));
     const { deps } = await mounted({ api: { search } });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    fireEvent.change(screen.getByLabelText('探す・移動'), { target: { value: 'せっ' } });
-    fireEvent.click(screen.getByRole('option', { name: /『せっ』を全文検索/ }));
+    fireEvent.change(screen.getByLabelText('移動・操作'), { target: { value: 'せっ' } });
+    fireEvent.click(screen.getByRole('option', { name: /ホームで『せっ』をトランスクリプトから検索/ }));
     await flush();
     await flush();
     expect(deps.location.getHash()).toBe(`#/?q=${encodeURIComponent('せっ')}`);
     expect(search).toHaveBeenCalledWith(expect.objectContaining({ q: 'せっ' }));
     expect(document.activeElement).toBe(rows());
+  });
+
+  // 最後の行の件数は、ホームの欄に同じ語を打ったときの件数である。打つたびには引かず、少し待ってから 1 回だけ引く。
+  it('パレットに語を打つと、少し待ってから、ホームの欄に出る件数を最後の行に添える', async () => {
+    const search = vi.fn(async (p: { q: string }) => ({ hits: [], total: p.q === 'せっ' ? 12 : 3 }));
+    await mounted({ api: { search } });
+    const countCalls = () => search.mock.calls.filter(([p]) => (p as { limit?: number }).limit === 1);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    const input = screen.getByLabelText('移動・操作');
+    const settle = () => act(() => new Promise((r) => setTimeout(r, 400)));
+    // 何も打っていないあいだは引かない。
+    await settle();
+    expect(countCalls()).toHaveLength(0);
+    fireEvent.change(input, { target: { value: 'せ' } });
+    fireEvent.change(input, { target: { value: 'せっ' } });
+    const last = () => screen.getByRole('option', { name: /トランスクリプトから検索/ });
+    expect(last()).not.toHaveTextContent('件');
+    await settle();
+    // 続けて打った分は 1 回にまとめ、その語で、名前と要約とトランスクリプトを数える（欄の検索と同じ条件）。
+    expect(countCalls()).toEqual([[{ q: 'せっ', limit: 1, hideArchived: true }]]);
+    expect(last()).toHaveTextContent('12 件');
+    // 語が変われば、古い件数は出さない。
+    fireEvent.change(input, { target: { value: 'せっし' } });
+    expect(last()).not.toHaveTextContent('12 件');
+    await settle();
+    expect(last()).toHaveTextContent('3 件');
+  });
+
+  it('件数を引けなくても、パレットはそのまま使える', async () => {
+    const search = vi.fn(async () => { throw new Error('down'); });
+    await mounted({ api: { search } });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.change(screen.getByLabelText('移動・操作'), { target: { value: 'せっ' } });
+    await act(() => new Promise((r) => setTimeout(r, 400)));
+    expect(screen.getByRole('option', { name: /トランスクリプトから検索/ })).not.toHaveTextContent('件');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('パレットから同じ語で検索し直しても、結果の一覧へ移る（⌘↵）', async () => {
@@ -1123,7 +1224,7 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
     const settle = () => act(() => new Promise((r) => setTimeout(r, 100)));
     for (let n = 0; n < 2; n++) {
       fireEvent.keyDown(window, { key: 'k', metaKey: true });
-      const input = screen.getByLabelText('探す・移動');
+      const input = screen.getByLabelText('移動・操作');
       fireEvent.change(input, { target: { value: 'せっ' } });
       fireEvent.keyDown(input, { key: 'Enter', metaKey: true });
       await settle();

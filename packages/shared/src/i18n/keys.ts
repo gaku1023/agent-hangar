@@ -5,6 +5,7 @@ import { artifactKeys } from './keys/artifact.ts';
 import { commonKeys } from './keys/common.ts';
 import { configKeys } from './keys/config.ts';
 import { configSyncKeys } from './keys/configSync.ts';
+import { configSyncUiKeys } from './keys/configSyncUi.ts';
 import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
 import { headerKeys } from './keys/header.ts';
@@ -20,6 +21,7 @@ import { pauseKeys } from './keys/pause.ts';
 import { platformKeys } from './keys/platform.ts';
 import { projectKeys } from './keys/project.ts';
 import { projectsKeys } from './keys/projects.ts';
+import { projectScreenKeys } from './keys/projectScreen.ts';
 import { promoteKeys } from './keys/promote.ts';
 import { promptKeys } from './keys/prompt.ts';
 import { retentionKeys } from './keys/retention.ts';
@@ -57,6 +59,7 @@ export const MESSAGES = {
   ...commonKeys,
   ...configKeys,
   ...configSyncKeys,
+  ...configSyncUiKeys,
   ...confirmKeys,
   ...externalKeys,
   ...headerKeys,
@@ -72,6 +75,7 @@ export const MESSAGES = {
   ...platformKeys,
   ...projectKeys,
   ...projectsKeys,
+  ...projectScreenKeys,
   ...promoteKeys,
   ...promptKeys,
   ...retentionKeys,

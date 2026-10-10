@@ -51,10 +51,12 @@ const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps
 });
 
 describe('SessionRows のフェーズ 3', () => {
-  it('コストとメモの列を出す', () => {
+  it('プロジェクトの画面の行は、コストとメモの本文を出さない（ノートは印だけ。編集は帯とセッションの冒頭にある）', () => {
     render(<IntentRoot onIntent={() => {}}><SessionRows rows={[p3Row('s1', { memo: '覚書' })]} height={400} variant="project" /></IntentRoot>);
-    expect(screen.getByText('$0.50')).toBeTruthy();
-    expect(screen.getByText('✎ 覚書')).toBeTruthy();
+    expect(screen.queryByText('$0.50')).toBeNull();
+    expect(screen.queryByText('✎ 覚書')).toBeNull();
+    expect(screen.queryByLabelText('名前 s1 のメモを編集')).toBeNull();
+    expect(document.querySelector('.row-note')).not.toBeNull();
   });
   it('j と k で選び、Enter で開く', () => {
     const onIntent = vi.fn();
@@ -137,19 +139,14 @@ describe('SessionRows のフェーズ 3', () => {
   it('入力欄から焦点が外れたら編集を閉じ、何も出さない', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1', { memo: '前' })]} height={400} variant="project" /></IntentRoot>);
-    fireEvent.click(screen.getByLabelText('名前 s1 のメモを編集'));
+    const list = screen.getByTestId('session-rows');
+    fireEvent.keyDown(list, { key: 'j' });
+    fireEvent.keyDown(list, { key: 'm' });
     const input = screen.getByLabelText('名前 s1 のメモ');
     fireEvent.change(input, { target: { value: '書きかけ' } });
     fireEvent.blur(input);
     expect(onIntent).not.toHaveBeenCalled();
     expect(screen.queryByLabelText('名前 s1 のメモ')).toBeNull();
-  });
-  it('鉛筆ボタンでも編集に入り、行は開かない', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><SessionRows rows={[p3Row('s1')]} height={400} variant="project" /></IntentRoot>);
-    fireEvent.click(screen.getByLabelText('名前 s1 のメモを編集'));
-    expect(onIntent).not.toHaveBeenCalled();
-    expect(screen.getByLabelText('名前 s1 のメモ')).toBeTruthy();
   });
 });
 
@@ -239,18 +236,14 @@ describe('SessionRows（2 段の行）', () => {
       unmount();
     }
   });
-  it('プロジェクト詳細は右にモデル、変更、PR、コストと時刻、2 段目にメモ', () => {
+  it('プロジェクトの画面の行は、右に時刻、2 段目に要約と PR の番号とノートの印だけを出す。モデル、変更の数、コストは出さない', () => {
     render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a')]} height={400} variant="project" /></IntentRoot>);
     const row = rowOf('名前 a');
-    for (const t of ['opus 4.1 · high', '変更 6', '$1.82', '3 分前', '要約 a', '✎ スワイプは実機で']) expect(row).toHaveTextContent(t);
-    expect(within(row).getByText('PR').closest('a')).toHaveAttribute('href', 'https://github.com/x/y/pull/1');
-  });
-  it('変更が 0 で PR もコストもメモも無ければ、その印を出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[r('a', { filesChanged: 0, prUrl: null, cost: '', memo: null })]} height={400} variant="project" /></IntentRoot>);
-    const row = rowOf('名前 a');
-    expect(row).not.toHaveTextContent('変更');
-    expect(row).not.toHaveTextContent('✎');
-    expect(within(row).queryByText('PR')).toBeNull();
+    for (const t of ['3 分前', '要約 a']) expect(row).toHaveTextContent(t);
+    for (const t of ['opus', '変更', '$1.82', '✎']) expect(row).not.toHaveTextContent(t);
+    expect(row.querySelector('.row-meta')).toBeNull();
+    expect(row.querySelector('.row-pr')).toHaveAttribute('href', 'https://github.com/x/y/pull/1');
+    expect(row.querySelector('.row-proj')).toBeNull();
   });
   it('検索は 1 段目にプロジェクト名、2 段目に一致箇所を印つきで出す', () => {
     const excerpt = [{ text: '…床（', hit: false }, { text: 'transcriptsFrom', hit: true }, { text: '）を…', hit: false }];
@@ -330,12 +323,11 @@ describe('一覧のキー操作（C1）', () => {
 
   it('行の中のボタンで押した Enter は行を開かない', () => {
     const { onIntent } = mount();
-    const pencil = screen.getByLabelText('名前 s1 のメモを編集');
-    act(() => pencil.focus());
-    fireEvent.keyDown(pencil, { key: 'Enter' });
-    expect(onIntent).not.toHaveBeenCalled();
-    // 中のボタンへ Tab で入っても、フォーカスは行へ引き戻さない。
-    expect(document.activeElement).toBe(pencil);
+    const more = screen.getByLabelText('名前 s1 の状態');
+    act(() => more.focus());
+    fireEvent.keyDown(more, { key: 'Enter' });
+    // 行は開かない（「⋯」の Enter はメニューを開く）。
+    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
 
   it('⌘ や Ctrl の付いた打鍵は一覧で使わない', () => {

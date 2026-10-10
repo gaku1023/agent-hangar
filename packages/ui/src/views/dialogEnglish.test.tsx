@@ -14,6 +14,7 @@ import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { NewProjectDialog } from './NewProjectDialog.tsx';
 import { PauseDialog } from './PauseDialog.tsx';
 import { PromoteDialog, PromotedDialog } from './PromoteDialog.tsx';
+import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
 import { RetentionDialog } from './RetentionDialog.tsx';
 import { ShortcutsDialog } from './ShortcutsDialog.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
@@ -125,5 +126,20 @@ describe('ダイアログ類（英語）', () => {
     expect(screen.getByRole('dialog', { name: 'Switch account' })).toBeInTheDocument();
     expect(screen.getByText('Account settings')).toBeInTheDocument();
     expect(screen.getByText('Current account')).toBeInTheDocument();
+  });
+
+  it('未解決のプロジェクト：この PC で消えたものと、他の PC から届いただけのもの', () => {
+    const { unmount } = inEnglish(<ResolveProjectDialog projectId="p1" name="demo" previousPath="/w/demo" candidates={['/w/demo2']} onQueryCandidates={() => {}} />);
+    expect(screen.getByRole('dialog', { name: 'demo: folder not found' })).toBeInTheDocument();
+    expect(screen.getByText('Previous path')).toBeInTheDocument();
+    expect(screen.getByText('Candidates in the projects folder')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'New path' })).toBeInTheDocument();
+    for (const name of ['Use this location', 'Mark as Archived', 'Remove from list', 'Later']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    noJapanese();
+    unmount();
+    inEnglish(<ResolveProjectDialog projectId="p1" name="demo" elsewhere deviceName="Mac mini" previousPath="/o/demo" candidates={[]} onQueryCandidates={() => {}} />);
+    expect(screen.getByRole('dialog', { name: 'No path on this computer for demo' })).toBeInTheDocument();
+    expect(screen.getByText('Path on Mac mini')).toBeInTheDocument();
+    noJapanese();
   });
 });

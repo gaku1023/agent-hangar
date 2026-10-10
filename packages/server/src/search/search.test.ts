@@ -219,14 +219,35 @@ describe('searchSessions の名前と要約', () => {
     const r = searchSessions(db, { q: 'quokka' });
     expect(r).toEqual({ hits: [{ sessionId: alpha(), matchCount: 0, snippets: [], matched: ['name'] }], total: 1 });
   });
-  it('名前の列は 4 つとも引く（session_notes.name、custom_title、ai_title、first_prompt）', () => {
+  // 名前の照合は、一覧に出す表示名と同じ優先順の 1 つだけを引く（db/queries.ts の displayName）。
+  // 隠れた列だけに当たった行を「名前に一致」に混ぜると、見える名前に語が無いのに名前の一致と読めてしまう。
+  it('表示名は custom_title、session_notes.name、ai_title、first_prompt の先頭 40 字の順に採る。どれで当たっても matched は name', () => {
     note(alpha(), 'wombatA');
     setCols(other(), { custom_title: 'wombatB' });
     setCols(beta(), { ai_title: 'wombatC' });
     expect(new Set(ids(searchSessions(db, { q: 'wombat' })))).toEqual(new Set([alpha(), other(), beta()]));
     setCols(beta(), { ai_title: null, first_prompt: 'start wombatD now' });
-    const r = searchSessions(db, { q: 'wombatd' });
-    expect(r.hits).toMatchObject([{ sessionId: beta(), matched: ['name'] }]);
+    expect(searchSessions(db, { q: 'wombatd' }).hits).toMatchObject([{ sessionId: beta(), matched: ['name'] }]);
+  });
+  it('表示名にならない隠れた列だけに当たった行は、名前では当たらない', () => {
+    // custom_title が表示名で、note の名前と ai_title と first_prompt は隠れている。
+    setCols(alpha(), { custom_title: 'shown title', ai_title: 'hiddenAi', first_prompt: 'hiddenPrompt' });
+    note(alpha(), 'hiddenNote');
+    for (const q of ['hiddenai', 'hiddenprompt', 'hiddennote']) expect(searchSessions(db, { q })).toEqual({ hits: [], total: 0 });
+    expect(searchSessions(db, { q: 'shown' }).hits).toMatchObject([{ sessionId: alpha(), matched: ['name'] }]);
+    // custom_title が無ければ note の名前が表示名になり、ai_title と first_prompt は隠れる。
+    setCols(alpha(), { custom_title: null });
+    expect(searchSessions(db, { q: 'hiddennote' }).total).toBe(1);
+    expect(searchSessions(db, { q: 'hiddenai' }).total).toBe(0);
+    // 空の文字列は無いものとして飛ばす（displayName と同じ）。
+    setCols(alpha(), { custom_title: '' });
+    expect(searchSessions(db, { q: 'hiddennote' }).total).toBe(1);
+  });
+  it('first_prompt が表示名になるのは先頭の 40 字までで、その先には当たらない', () => {
+    setCols(beta(), { first_prompt: `${'あ'.repeat(40)}quokkaZ` });
+    expect(searchSessions(db, { q: 'quokkaz' })).toEqual({ hits: [], total: 0 });
+    setCols(beta(), { first_prompt: `${'あ'.repeat(30)}quokkaZ` });
+    expect(searchSessions(db, { q: 'quokkaz' }).total).toBe(1);
   });
   it('名前の行が論理削除されていれば、その名前では当たらない', () => {
     note(alpha(), 'quokka');

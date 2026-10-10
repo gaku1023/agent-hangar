@@ -100,7 +100,11 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
   const tokens = [...long, ...short];
   const hayOf = (cols: string[]) => '(' + cols.map((c) => `coalesce(${c}, '')`).join(" || char(10) || ") + ')';
   const allLike = (hay: string) => tokens.map(() => `${hay} like ? escape '\\'`).join(' and ');
-  const nameHay = hayOf(['n.name', 's.custom_title', 's.ai_title', 's.first_prompt']);
+  // 名前の照合は、一覧に出す表示名と同じ優先順の 1 つだけを引く（db/queries.ts の displayName）。
+  // 隠れた列だけに当たった行が「名前に一致」に混ざると、見える名前に語が無いのに名前の一致に見えるからである。
+  // 空の文字列は無いものとして飛ばし、first_prompt は先頭の 40 字（SQLite の substr は文字数で数える）である。
+  // 実行中の Claude Code が持つ利用者の名前（nameSource が user の live 名）は DB に無いので、ここでは使えない。
+  const nameHay = "coalesce(nullif(s.custom_title, ''), nullif(n.name, ''), nullif(s.ai_title, ''), substr(s.first_prompt, 1, 40), '')";
   const summaryHay = hayOf(['m.title', 'm.one_liner', 'm.body']);
   const tokenArgs = tokens.map(likePattern);
   const nameSql = `select * from (select s.id sid, s.provider_session_id psid, s.last_activity_at la, case when ${allLike(nameHay)} then 1 else 0 end nm, case when ${allLike(summaryHay)} then 1 else 0 end sm from sessions s left join session_notes n on n.session_id = s.id and n.deleted_at is null left join session_summaries m on m.session_id = s.id and m.deleted_at is null where ${where.join(' and ')}) where nm = 1 or sm = 1`;

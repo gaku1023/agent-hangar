@@ -1,4 +1,4 @@
-import { compatState, type Intent, type Language, type Translate } from '@agent-hangar/shared';
+import { compatState, type Intent, type Language, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
@@ -9,11 +9,12 @@ import { countExpiring } from './retention.ts';
 import { limitedWord } from './syncLabel.ts';
 
 /**
- * ベルの一覧の種類。並びは 2.11.2 の決めたとおり、リマインダー、同期、互換、保持期間である。
+ * ベルの一覧の種類。並びは 2.11.2 の決めたとおり、リマインダー、同期、互換、保持期間で、最後に通知の誘いを置く。
+ * 通知の誘い（notify）は、右下の積みの上に添えていたものを、ここへ移した（PR 29）。
  * 設定の同期で送らなかった項目と、更新の案内は、事実の出どころがまだ無いので、いまは行を作らない。
  * 足すときは、種類をここに足し、BUILDERS に事実から行を組む関数を 1 つ足すだけで済む。
  */
-export type NoticeKind = 'reminder' | 'sync' | 'compat' | 'retention';
+export type NoticeKind = 'reminder' | 'sync' | 'compat' | 'retention' | 'notify';
 /** 行の色の意味。err は赤（失敗）、warn は黄（気づいてほしい）、info は青（案内）。 */
 export type NoticeTone = 'err' | 'warn' | 'info';
 
@@ -82,6 +83,12 @@ function syncFacts({ store, t, language, tz }: Ctx): Draft[] {
   const s = store.sync;
   if (!s) return [];
   const base = { kind: 'sync', icon: 'sync', kindLabel: t('notices.kind.sync'), when: null, action: { label: t('notices.sync.open'), intent: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } } } as const;
+  return [...syncState(s, base, t, language, tz), ...syncSkipped(s, base, t)];
+}
+
+type SyncBase = { kind: 'sync'; icon: 'sync'; kindLabel: string; when: null; action: NoticeRow['action'] };
+
+function syncState(s: SyncStatusBody, base: SyncBase, t: Translate, language: Language, tz: string | undefined): Draft[] {
   if (s.state === 'error') {
     // 版で止まると state は error のまま paused の印だけが立つ。止まっていることも言う。
     const message = s.error ?? '';
@@ -91,6 +98,17 @@ function syncFacts({ store, t, language, tz }: Ctx): Draft[] {
   if (s.state !== 'paused') return [];
   if (s.limitedUntil !== null) return [{ ...base, key: `sync|paused|quota|${s.limitedUntil}`, tone: 'warn', title: limitedWord(t, language, s.limitedUntil, tz), detail: null }];
   return [{ ...base, key: 'sync|paused|user', tone: 'warn', title: t('header.sync.paused'), detail: null }];
+}
+
+/**
+ * 本文を降ろせず、諦めた項目（同期の状態の skipped）。
+ * 以前はサーバが、降ろせなかった 1 回目と諦めたときに error の toast を流していた。今は事実だけを出し、文は画面が組む（PR 29）。
+ * 同期の状態の行とは別の行にする。止まってはいなくても、降ろせない本文が残るからである。
+ * 理由は先頭の項目のものを添える。数が変われば鍵が変わり、また未読になる。
+ */
+function syncSkipped(s: SyncStatusBody, base: SyncBase, t: Translate): Draft[] {
+  if (s.state === 'off' || s.skipped.length === 0) return [];
+  return [{ ...base, key: `sync|skipped|${s.skipped.length}`, tone: 'err', title: t('notices.sync.skipped', { n: s.skipped.length }), detail: s.skipped[0]!.message }];
 }
 
 /**
@@ -129,8 +147,23 @@ function retention({ store, now, t }: Ctx): Draft[] {
     : { ...base, key: `retention|${r.days}|rule`, title: t('notices.retention.rule', { days: r.days }), detail: t('notices.retention.ruleDetail') }];
 }
 
+/**
+ * 通知の誘い。通知を出せる環境なのに受け取っていないときだけ行にする。
+ * OS で切られているときは勧めない（直し方は設定の通知の節に出す）。
+ * 受け取りを入れると事実が無くなり、行も消える。
+ */
+function notifyOffer({ store, t }: Ctx): Draft[] {
+  const n = store.notify;
+  if (!n.available || n.on || n.blocked) return [];
+  return [{
+    key: 'notify|offer', kind: 'notify', tone: 'info', icon: 'bell', kindLabel: t('notices.kind.notify'),
+    title: t('notices.notify.title'), detail: t('notices.notify.detail'), when: null,
+    action: { label: t('notices.notify.open'), intent: { type: 'notify.set', on: true } },
+  }];
+}
+
 /** 種類の並び。この順に行を並べる。 */
-const BUILDERS: readonly ((c: Ctx) => Draft[])[] = [reminders, syncFacts, compat, retention];
+const BUILDERS: readonly ((c: Ctx) => Draft[])[] = [reminders, syncFacts, compat, retention, notifyOffer];
 
 /**
  * ベルの一覧。行は事実から毎回組み、一覧そのものは保存しない。事実が無くなれば行も消える（閉じても残るのは、事実が残る間のことである）。

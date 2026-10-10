@@ -101,7 +101,7 @@ export function createPresent(env: PresentEnv): Present {
       if (src) pairs.push(...morph(heroParts(src), () => { const el = returnTo(from.id); return el ? rowParts(el) : null; }));
     }
     if (paletteClosed) {
-      // ヘッダーの「探す・移動」の錠剤へ戻す。狭いときも錠剤は虫眼鏡だけになって残る。
+      // ヘッダーの「移動・操作」の錠剤へ戻す。狭いときも錠剤は虫眼鏡だけになって残る。
       // 畳んだ（display: none の）要素は写しの行き先にならず、名前だけ付けるとパレットの写しがその場に残って薄れていくので、見えていなければ組を作らない。
       // 要素は描き替えの後に探す（描き替えで作り直されることがある）。
       if (drawn(q('#global-search'))) pairs.push({ name: PALETTE_MORPH, from: q('.palette'), to: () => q('#global-search') });

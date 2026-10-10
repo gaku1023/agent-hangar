@@ -18,5 +18,6 @@ export const summaryKeys = {
   'summary.error.noEngine': [],
   'summary.input.omitted': ['n'],
   'summary.input.running': [],
+  'summary.canned.text': [],
   'summary.prompt.system': [],
 } as const satisfies MessageSpec;

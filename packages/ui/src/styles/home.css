@@ -25,7 +25,7 @@
 /* 帯と引き出し（views/HomeBand.tsx、試作 B）。上の 40px の帯に件数の錠剤（controls.css の .count-chip）を並べ、押した群だけが帯の下に開く。
    引き出しは白い不透明な読む面で、1 件 1 行（40px）で読む。行の幅が足りないときは、本文、添え、名前の順に切り、ボタンは切らない。 */
 .home-band { --compact-row-h: 40px; flex: none; margin-bottom: calc(var(--u) * 3); }
-.home-band .band { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 40px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); box-shadow: var(--glass-edge); }
+.home-band .band { display: flex; flex-wrap: wrap; align-items: center; gap: 0 calc(var(--u) * 2); min-height: 40px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); box-shadow: var(--glass-edge); }
 .home-band .band-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-size: var(--fs-sm); color: var(--ink-2); }
 .drawer { margin: calc(var(--u) * 1.5) 0 0; padding: calc(var(--u) * 1.5) calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
 .drawer-h { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 26px; padding: 0 calc(var(--u) * 2); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
@@ -69,6 +69,11 @@
 .crow[data-k='check'] .c-text i { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
 /* 幅が足りないときは、説明を残して命令は隠す（命令は右端のボタンで写せる）。 */
 @media (max-width: 1100px) { .crow[data-k='check'] .c-text i { display: none; } }
+/* 場所の不明なプロジェクト（2.11.5）。印はフォルダの絵で、錠剤と同じ警告の色。前のパスは等幅で、薄く出す。 */
+.place-mark { flex: none; display: inline-flex; color: var(--st-paused); }
+.place-mark .icon { width: 16px; height: 16px; }
+.crow > .place-mark { flex: none; }
+.crow[data-k='place'] .c-text i { color: var(--ink-3); }
 /* ホームの一覧の空の札は、一覧の白い面の中に置くので、札の面と影は持たない。 */
 .list .empty-card { margin-top: calc(var(--u) * 6); background: none; box-shadow: none; }
 .c-badge { margin-left: calc(var(--u) * 1.5); padding: 0 5px; border-radius: 4px; background: var(--surface-2); font-size: 10px; font-weight: 600; color: var(--ink-3); vertical-align: 1px; }

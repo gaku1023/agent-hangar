@@ -144,18 +144,22 @@ export function PopoverRows(props: { rows: PopoverRow[] }) {
 
 /**
  * 見出しの右端の (i)。押すと、見出しと名前と値の行の面が開く。
- * 行のあとに、操作の行など任意の中身を置ける。
+ * 行のあとに、操作の行など任意の中身を置ける。関数を渡すと、面を閉じる関数を受け取れる（押すとダイアログが開く操作のあとに閉じる）。
  * 名前と見出しは label（既定は「詳細」）で、画面が別の語を渡してもよい。
  */
-export function InfoPopover(props: { rows: PopoverRow[]; label?: string; children?: ReactNode; width?: number; defaultOpen?: boolean }) {
+export function InfoPopover(props: { rows: PopoverRow[]; label?: string; children?: ReactNode | ((api: { close: () => void }) => ReactNode); width?: number; defaultOpen?: boolean }) {
   const t = useT();
   const label = props.label ?? t('common.popover.details');
   return (
     <Popover label={label} width={props.width} defaultOpen={props.defaultOpen}
       face={(p) => <button type="button" className="btn btn-icon btn-ghost" aria-label={label} title={label} {...p}><Icon name="info" /></button>}>
-      <h4 className="pop-title">{label}</h4>
-      <PopoverRows rows={props.rows} />
-      {props.children}
+      {(api) => (
+        <>
+          <h4 className="pop-title">{label}</h4>
+          <PopoverRows rows={props.rows} />
+          {typeof props.children === 'function' ? props.children(api) : props.children}
+        </>
+      )}
     </Popover>
   );
 }

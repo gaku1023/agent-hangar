@@ -50,84 +50,85 @@ describe('presentPalette（何も打っていないとき）', () => {
   it('パレットが開いていなければ null', () => {
     expect(presentPalette(initialState(), store(), '', NOW)).toBeNull();
   });
-  it('入力待ち、実行中、最近、プロジェクト、移動、コマンドの群に並べる', () => {
+  it('入力待ち、最近、操作、設定の 4 群に並べる。実行中とプロジェクトの群は出さない', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
     expect(p.query).toBe('');
     expect(p.noMatch).toBe(false);
-    expect(titles(p)).toEqual(['入力待ち', '実行中', '最近', 'プロジェクト', '移動', 'コマンド']);
+    expect(titles(p)).toEqual(['入力待ち', '最近', '操作', '設定']);
     expect(ids(p, '入力待ち')).toEqual(['session:w1']);
-    // 実行中は作業中と休みで、入力待ちを含めない（用語の D1）。
-    expect(ids(p, '実行中')).toEqual(['session:b1', 'session:i1']);
+    // 作業中とアイドルの名前はサイドバーの「実行中」にあるので、ここには出さない。
+    const all = p.sections.flatMap((x) => x.items.map((i) => i.id));
+    expect(all).not.toContain('session:b1');
+    expect(all).not.toContain('session:i1');
+    expect(all.some((id) => id.startsWith('project:'))).toBe(false);
   });
   it('空白だけの入力も、何も打っていないのと同じに扱う', () => {
     expect(titles(presentPalette(withPalette(), busy(), '  ', NOW))).toEqual(titles(presentPalette(withPalette(), busy(), '', NOW)));
   });
+  it('入力待ちが 4 本の朝でも、操作と設定の群まで 16 行前後に収まる', () => {
+    const st = busy();
+    for (const id of ['w2', 'w3', 'w4']) st.sessions[id] = at(session(id, `待ち ${id}`, null), { live: 'waiting', lastActivityAt: NOW - 9 * MIN });
+    const p = presentPalette(withPalette(), st, '', NOW)!;
+    const rows = p.sections.reduce((n, x) => n + x.items.length, 0);
+    expect(ids(p, '入力待ち')).toHaveLength(4);
+    expect(rows).toBe(16);
+  });
   it('セッションの行には状態の点とプロジェクト名、右に待った長さや経った時間を添える', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
     expect(item(p, 'session:w1')).toMatchObject({ label: '認証の期限切れを直す', kind: 'session', lead: { kind: 'dot', live: 'waiting' }, sub: 'alpha', meta: '4 分待っている' });
-    expect(item(p, 'session:b1')).toMatchObject({ lead: { kind: 'dot', live: 'busy' }, meta: '作業中 7 分' });
-    expect(item(p, 'session:i1')).toMatchObject({ lead: { kind: 'dot', live: 'idle' }, meta: '休み 12 分' });
     expect(item(p, 'session:e0')).toMatchObject({ lead: { kind: 'dot', live: null }, meta: '1 時間前' });
   });
   it('区切りを付けて休みのまま残っているものは、実行中ではなく最近に、終わったものと同じ見た目で置く', () => {
     const st = busy();
     st.sessions.i1 = at(st.sessions.i1!, { parked: true, state: { status: 'paused', note: '明日見る', returnOn: '2026-10-03', returnTime: null, setBy: 'conversation', setAt: NOW - MIN, candidate: null } });
     const p = presentPalette(withPalette(), st, '', NOW)!;
-    expect(ids(p, '実行中')).toEqual(['session:b1']);
     expect(ids(p, '最近')[0]).toBe('session:i1');
     expect(item(p, 'session:i1')).toMatchObject({ lead: { kind: 'dot', live: null }, meta: '12 分前' });
   });
-  it('最近は札に出したものを重ねず、新しい順に 5 件まで。切ったら「上位 5」と全件の数を添える', () => {
+  it('最近は終わったものを新しい順に 3 件まで。切ったら「上位 3」だけを添え、全件の数は出さない', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
     const recent = p.sections.find((x) => x.title === '最近')!;
-    expect(recent.items.map((i) => i.id)).toEqual(['session:e0', 'session:e1', 'session:e2', 'session:e3', 'session:e4']);
-    expect(recent.count).toBe(7);
-    expect(recent.limit).toBe('上位 5');
+    expect(recent.items.map((i) => i.id)).toEqual(['session:e0', 'session:e1', 'session:e2']);
+    expect(recent.count).toBeNull();
+    expect(recent.limit).toBe('上位 3');
     // 切っていない群には上限の印を付けない。
     const waiting = p.sections.find((x) => x.title === '入力待ち')!;
     expect(waiting).toMatchObject({ count: 1, limit: null });
   });
-  it('プロジェクトは最後の活動が新しい順に 4 件まで。行には状態の点とパスを添える', () => {
+  it('操作の群は、新しいセッション、スクラッチ、次の入力待ち、新しいプロジェクト、キーの一覧で、打鍵はキーの表から引く', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
-    const projects = p.sections.find((x) => x.title === 'プロジェクト')!;
-    expect(projects.items.map((i) => i.id)).toEqual(['project:q4', 'project:q3', 'project:q2', 'project:q1']);
-    expect(projects).toMatchObject({ count: 7, limit: '上位 4' });
-    expect(item(p, 'project:q4')).toMatchObject({ kind: 'project', lead: { kind: 'status', status: 'active' }, meta: '/w/proj-4' });
-  });
-  it('この PC にパスの無いプロジェクトは、そう添える', () => {
-    const s = store();
-    s.projects.p1 = { ...s.projects.p1!, path: null, lastActivityAt: 999 };
-    expect(item(presentPalette(withPalette(), s, '', NOW), 'project:p1').meta).toBe('この PC にパスがありません');
-  });
-  it('移動の群は画面を移る行とキーの行で、打鍵はキーの表から引く', () => {
-    const p = presentPalette(withPalette(), busy(), '', NOW)!;
-    expect(ids(p, '移動')).toEqual(['go:home', 'go:projects', 'go:sessions', 'cmd:settings', 'cmd:next-waiting', 'cmd:sidebar', 'cmd:shortcuts']);
-    expect(p.sections.find((x) => x.title === '移動')!.items.map((i) => i.label)).toEqual(['ホームへ', 'プロジェクトへ', 'セッション一覧へ', '設定', '次の入力待ちへ', 'サイドバーの開閉', 'キーの一覧']);
-    expect(item(p, 'cmd:settings').keys).toBe('⌘,');
+    expect(ids(p, '操作')).toEqual(['cmd:new-session', 'cmd:new-scratch', 'cmd:next-waiting', 'cmd:new-project', 'cmd:shortcuts']);
+    expect(item(p, 'cmd:new-session')).toMatchObject({ label: '新しいセッション', keys: '⌘N', kind: 'command', lead: { kind: 'icon', icon: 'add' } });
+    expect(item(p, 'cmd:new-scratch').keys).toBe('⌘⇧N');
     expect(item(p, 'cmd:next-waiting').keys).toBe('⌘I');
-    expect(item(p, 'cmd:sidebar').keys).toBe('⌘B');
     expect(item(p, 'cmd:shortcuts').keys).toBe('? / ⌘/');
     // 次の入力待ちへは、移る先のセッションの名前を添える。
     expect(item(p, 'cmd:next-waiting').sub).toBe('認証の期限切れを直す');
     expect(item(presentPalette(withPalette(), store(), '', NOW), 'cmd:next-waiting').sub).toBe('');
   });
-  it('コマンドの群に、新しいセッション、スクラッチ、索引の作り直しを残す', () => {
+  it('「セッション一覧へ」の行は無い。ホームへ移る行は、打ったときだけ出る', () => {
+    const empty = presentPalette(withPalette(), busy(), '', NOW)!;
+    const all = empty.sections.flatMap((x) => x.items);
+    expect(all.some((i) => i.id === 'go:sessions' || i.label === 'セッション一覧へ')).toBe(false);
+    expect(all.some((i) => i.id === 'go:home')).toBe(false);
+    expect(ids(presentPalette(withPalette(), busy(), 'ホーム', NOW), '操作')).toContain('go:home');
+  });
+  it('設定の群は節への行き先で、設定の添え書きを付ける。保持は一般の節へ移る', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
-    expect(ids(p, 'コマンド')).toEqual(['cmd:new-session', 'cmd:new-scratch', 'cmd:new-project', 'cmd:rebuild-index']);
-    expect(item(p, 'cmd:new-session')).toMatchObject({ label: '新しいセッション', keys: '⌘N', kind: 'command', lead: { kind: 'icon', icon: 'add' } });
-    expect(item(p, 'cmd:new-scratch').keys).toBe('⌘⇧N');
-    expect(item(p, 'cmd:new-project')).toMatchObject({ label: '新しいプロジェクト', kind: 'command', lead: { kind: 'icon', icon: 'add' } });
+    expect(ids(p, '設定')).toEqual(['settings:general', 'settings:cloud', 'settings:integrations', 'settings:retention']);
+    expect(p.sections.find((x) => x.title === '設定')!.items.map((i) => i.label)).toEqual(['一般', 'クラウド同期', '連携', 'トランスクリプトの保持']);
+    expect(item(p, 'settings:cloud')).toMatchObject({ kind: 'command', sub: '設定', lead: { kind: 'icon', icon: 'cloud' } });
   });
   it('新しいセッションは、いまの画面のプロジェクトを最初から選ぶ', () => {
     const onProject = { ...withPalette(), screen: { name: 'project' as const, id: 'p1' } };
-    expect(ids(presentPalette(onProject, busy(), '', NOW), 'コマンド')[0]).toBe('cmd:new-session:project:p1');
+    expect(ids(presentPalette(onProject, busy(), '', NOW), '操作')[0]).toBe('cmd:new-session:project:p1');
     const onSession = { ...withPalette(), screen: { name: 'session' as const, id: 'w1' } };
-    expect(ids(presentPalette(onSession, busy(), '', NOW), 'コマンド')[0]).toBe('cmd:new-session:project:p1');
+    expect(ids(presentPalette(onSession, busy(), '', NOW), '操作')[0]).toBe('cmd:new-session:project:p1');
     const onScratch = { ...withPalette(), screen: { name: 'project' as const, id: 'sc' } };
-    expect(ids(presentPalette(onScratch, busy(), '', NOW), 'コマンド')[0]).toBe('cmd:new-session:scratch');
+    expect(ids(presentPalette(onScratch, busy(), '', NOW), '操作')[0]).toBe('cmd:new-session:scratch');
   });
   it('空の群は出さない', () => {
-    expect(titles(presentPalette(withPalette(), store(), '', NOW))).toEqual(['最近', 'プロジェクト', '移動', 'コマンド']);
+    expect(titles(presentPalette(withPalette(), { ...store(), sessions: {} }, '', NOW))).toEqual(['操作', '設定']);
   });
   it('後から届いた新しいセッションが最近の先頭に来る', () => {
     // session.upsert は辞書の末尾に鍵を足すので、積んだ順のままだと新しいセッションが枠の外に出てしまう。
@@ -140,36 +141,68 @@ describe('presentPalette（何も打っていないとき）', () => {
 });
 
 describe('presentPalette（打ち始めた後）', () => {
-  it('名前で絞り、要約の 1 文でも当たる。最後の行はいつも全文検索', () => {
-    const a = presentPalette(withPalette(), store(), 'alpha', NOW)!;
-    expect(a.sections[0]!.items[0]!.id).toBe('project:p1');
+  it('実行中と最近の名前で絞る。要約の 1 文は引かない', () => {
+    const a = presentPalette(withPalette(), store(), '動画', NOW)!;
+    expect(titles(a)).toEqual(['セッション', 'ホーム']);
+    expect(ids(a, 'セッション')).toEqual(['session:s1']);
+    expect(a.noMatch).toBe(false);
+    // 要約の文は、ホームの欄が引く。
     const b = presentPalette(withPalette(), store(), 'mp4', NOW)!;
-    expect(titles(b)).toEqual(['セッション', '本文']);
-    expect(ids(b, 'セッション')).toEqual(['session:s1']);
-    expect(b.noMatch).toBe(false);
+    expect(b.noMatch).toBe(true);
+    expect(b.sections.flatMap((x) => x.items.map((i) => i.id))).toEqual(['search:mp4']);
   });
-  it('全文検索の行は語を ID に持ち、セッション一覧で開くと添える', () => {
-    const p = presentPalette(withPalette(), store(), ' 索引 ', NOW)!;
-    const last = p.sections.at(-1)!;
-    expect(last.title).toBe('本文');
-    expect(last.items).toEqual([{ id: 'search:索引', label: '『索引』を全文検索', kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: 'セッション一覧で開く', keys: '⌘↵' }]);
+  it('プロジェクトの名前は引かない', () => {
+    const p = presentPalette(withPalette(), store(), 'alpha', NOW)!;
+    expect(p.sections.flatMap((x) => x.items.map((i) => i.id)).some((id) => id.startsWith('project:'))).toBe(false);
   });
-  it('名前に一致しなくても全文検索の行は残り、一致しないことを知らせる', () => {
-    const p = presentPalette(withPalette(), store(), 'zzzz', NOW)!;
-    expect(titles(p)).toEqual(['本文']);
-    expect(p.noMatch).toBe(true);
+  it('終わった古いセッションは引かず、新しいほうの 20 件だけを引く', () => {
+    const many: Record<string, SessionDto> = {};
+    for (let i = 0; i < 30; i++) many[`x${i}`] = { ...session(`x${i}`, `案件 ${i}`, null), lastActivityAt: 1000 + i };
+    const p = presentPalette(withPalette(), { ...store(), sessions: many }, '案件', NOW)!;
+    expect(p.sections.find((x) => x.title === 'セッション')).toMatchObject({ count: 20, limit: '上位 8' });
+    expect(ids(p, 'セッション')[0]).toBe('session:x29');
+    // 20 件の外のものは、名前が当たっても出ない。
+    const old = presentPalette(withPalette(), { ...store(), sessions: many }, '案件 3', NOW)!;
+    expect(old.sections.flatMap((x) => x.items.map((i) => i.id))).not.toContain('session:x3');
   });
-  it('群は、いちばんよく当たった行の点の高い順に並べる', () => {
-    // 「設定」の語は、要約に散らばって当たるセッションより、名前の頭から当たるコマンドを先に出す。
-    const s = store();
-    s.sessions.s3 = session('s3', 'ログ', '設計を見直して定数を足した');
-    const p = presentPalette(withPalette(), s, '設定', NOW)!;
-    expect(p.sections[0]!.items[0]!.id).toBe('cmd:settings');
-  });
-  it('入力待ちと実行中は群を分けたまま絞る', () => {
+  it('入力待ちと実行中は群を分けたまま、名前で絞る', () => {
     const p = presentPalette(withPalette(), busy(), '直す', NOW)!;
     expect(ids(p, '入力待ち')).toEqual(['session:w1']);
     expect(ids(p, '実行中')).toEqual(['session:i1']);
+  });
+  it('操作と設定の節にも当たる。実行は打ったときだけ出る行を含む', () => {
+    const p = presentPalette(withPalette(), store(), 'クラウド', NOW)!;
+    expect(ids(p, '設定')).toEqual(['settings:cloud']);
+    const side = presentPalette(withPalette(), store(), 'サイドバー', NOW)!;
+    expect(ids(side, '操作')).toEqual(['cmd:sidebar']);
+    const idx = presentPalette(withPalette(), store(), '索引', NOW)!;
+    expect(ids(idx, '操作')).toEqual(['cmd:rebuild-index']);
+  });
+  it('最後の行は、ホームの欄へ渡す行。語を ID に持ち、トランスクリプトから検索すると書く', () => {
+    const p = presentPalette(withPalette(), store(), ' 索引 ', NOW)!;
+    const last = p.sections.at(-1)!;
+    expect(last.title).toBe('ホーム');
+    expect(last.items).toEqual([{ id: 'search:索引', label: 'ホームで『索引』をトランスクリプトから検索', kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: '', keys: '⌘↵' }]);
+  });
+  it('最後の行に、ホームの欄に出る件数を添える。語が違う件数は添えない', () => {
+    const last = (p: ReturnType<typeof presentPalette>) => p!.sections.at(-1)!.items[0]!;
+    expect(last(presentPalette(withPalette(), store(), '索引', NOW, { q: '索引', total: 12 })).meta).toBe('12 件');
+    expect(last(presentPalette(withPalette(), store(), '索引', NOW, { q: '索引', total: 0 })).meta).toBe('0 件');
+    expect(last(presentPalette(withPalette(), store(), '索引', NOW, { q: '索', total: 12 })).meta).toBe('');
+    expect(last(presentPalette(withPalette(), store(), '索引', NOW, null)).meta).toBe('');
+    expect(last(presentPalette(withPalette(), store(), '1', NOW, { q: '1', total: 1234 })).meta).toBe('1,234 件');
+  });
+  it('名前に一致しなくても、ホームへ渡す行は残り、一致しないことを知らせる', () => {
+    const p = presentPalette(withPalette(), store(), 'zzzz', NOW)!;
+    expect(titles(p)).toEqual(['ホーム']);
+    expect(p.noMatch).toBe(true);
+  });
+  it('群は、いちばんよく当たった行の点の高い順に並べる', () => {
+    // 「設定」の語は、名前に散らばって当たるセッションより、名前の頭から当たる設定の群を先に出す。
+    const s = store();
+    s.sessions.s3 = session('s3', '設計を見直して定数を足した', null);
+    const p = presentPalette(withPalette(), s, '設定', NOW)!;
+    expect(p.sections[0]!.title).toBe('設定');
   });
   it('群ごとに 8 件で切り、全件の数を添える', () => {
     const many: Record<string, SessionDto> = {};

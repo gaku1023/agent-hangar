@@ -12,6 +12,7 @@ export const noticesJa: AreaDictionary<typeof noticesKeys> = {
   'notices.kind.sync': '同期',
   'notices.kind.compat': '互換性',
   'notices.kind.retention': '保持期間',
+  'notices.kind.notify': '通知',
   'notices.ago.now': 'いま',
   'notices.ago.min': '{n} 分前',
   'notices.ago.hour': '{n} 時間前',
@@ -27,6 +28,7 @@ export const noticesJa: AreaDictionary<typeof noticesKeys> = {
   'notices.reminder.open': 'セッションを開く',
   'notices.sync.pausedToo': '同期は一時停止中です',
   'notices.sync.open': '同期の設定を開く',
+  'notices.sync.skipped': '降ろせなかったトランスクリプト {n} 件',
   'notices.compat.title': '変更点あり',
   'notices.compat.detailOne': 'Claude Code {version}：変更点 1 件',
   'notices.compat.detailMany': 'Claude Code {version}：変更点 {n} 件',
@@ -37,4 +39,7 @@ export const noticesJa: AreaDictionary<typeof noticesKeys> = {
   'notices.retention.soonDetail': 'Claude Code は {days} 日でトランスクリプトを削除します',
   'notices.retention.ruleDetail': 'hangar の履歴からも消えます',
   'notices.retention.open': '保持期間を延長…',
+  'notices.notify.title': '離れていても気づけます',
+  'notices.notify.detail': '窓が背面にあるとき、入力待ちとリマインダーの時刻を OS の通知でお知らせします',
+  'notices.notify.open': '通知を受け取る',
 };

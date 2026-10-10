@@ -123,7 +123,7 @@ describe('一覧の絞り込みと欄', () => {
     expect(box.querySelector('svg')).toHaveAttribute('data-icon', 'fullText');
     expect(box).toHaveTextContent('トランスクリプト');
     fireEvent.click(within(box as HTMLElement).getByRole('button', { name: 'キーワードを消す' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '' });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '', filter: {} });
   });
   it('検索中は条件の行の件数の代わりにそう言う', () => {
     render(<IntentRoot onIntent={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" conditions={['『q』']} /></IntentRoot>);
@@ -145,11 +145,11 @@ describe('一覧の絞り込みと欄', () => {
 });
 
 describe('Header', () => {
-  it('探す・移動の錠剤を押すとパレットを開く', () => {
+  it('移動・操作の錠剤を押すとパレットを開く', () => {
     const onIntent = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは錠剤だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header account={null} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={syncFixture({ visible: false, state: 'off', label: '' })} /></IntentRoot>);
-    fireEvent.click(screen.getByRole('button', { name: '探す・移動' }));
+    render(<IntentRoot onIntent={onIntent}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={syncFixture({ visible: false, state: 'off', label: '' })} /></IntentRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '移動・操作' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
   });
 });
@@ -157,11 +157,11 @@ describe('Header', () => {
 describe('ResolveProjectDialog', () => {
   it('三つの解決と閉じる', () => {
     const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={['/w/alpha-moved']} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={['/w/alpha-moved']} onQueryCandidates={() => {}} /></IntentRoot>);
     fireEvent.click(screen.getByText('/w/alpha-moved'));
     fireEvent.click(screen.getByText('この場所にする'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/alpha-moved' } });
-    fireEvent.click(screen.getByText('アーカイブにする'));
+    fireEvent.click(screen.getByText('Archived にする'));
     expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } });
     // 一覧から削除は取り消せないので危険色にし、押しても Mediator が先に確認を出す。
     const remove = screen.getByRole('button', { name: '一覧から削除' });
@@ -175,7 +175,7 @@ describe('ResolveProjectDialog', () => {
 
 describe('ResolveProjectDialog のフォーカス', () => {
   it('開いたら中の最初の操作にフォーカスを入れる', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
     const dialog = screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' });
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).toBe(screen.getByLabelText('新しいパス'));
@@ -195,10 +195,10 @@ describe('SessionRows（空のとき）', () => {
 
 describe('ResolveProjectDialog のアイコン', () => {
   it('三つの解決はそれぞれのアイコンを持つ', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" path="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
     const iconOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon') ?? null;
     expect(iconOf('この場所にする')).toBe('repoint');
-    expect(iconOf('アーカイブにする')).toBe('archive');
+    expect(iconOf('Archived にする')).toBe('archive');
     expect(iconOf('一覧から削除')).toBe('unlink');
   });
 });

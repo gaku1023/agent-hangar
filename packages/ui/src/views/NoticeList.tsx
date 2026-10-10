@@ -14,7 +14,7 @@ export function NoticeList(props: { rows: NoticeRow[]; onAct: (row: NoticeRow) =
   return (
     <ul className="notices">
       {props.rows.map((r) => (
-        <li key={r.key} className="prow" data-unread={r.unread ? '' : undefined}>
+        <li key={r.key} className="nrow" data-unread={r.unread ? '' : undefined}>
           <span className="n-kind" data-tone={r.tone}><Icon name={r.icon} />{r.kindLabel}</span>
           <div className="p-body">
             {/* 読み上げ用の「未読」は題の外に置く。題は行数で切るので、中に入れると見えない語のせいで省略記号が付く。 */}

@@ -119,9 +119,37 @@ describe('presentNotices：事実から行を組む', () => {
     expect(row).toMatchObject({ key: 'retention|30|soon', title: 'セッションのトランスクリプト 2 件が、まもなく削除されます', detail: 'Claude Code は 30 日でトランスクリプトを削除します' });
   });
 
-  it('種類の並びは、リマインダー、同期、互換、保持期間', () => {
-    const store = storeOf({ ...withSessions([paused('p', '2026-10-02')]), sync: sync({ state: 'error', error: 'x' }), readiness: compatSummary(1), retention: retention() });
-    expect(presentNotices(initialState(), store, NOW).rows.map((r) => r.kind)).toEqual(['reminder', 'sync', 'compat', 'retention']);
+  // 本文を降ろせなかったときの error のトーストは、サーバから外した（PR 29）。事実は同期の状態の skipped に残るので、ベルの行にする。
+  it('降ろせなかった本文（諦めた項目）があれば、同期の状態とは別の赤の行にして、最初の理由を添える', () => {
+    const skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }, { key: 'transcripts/mini/u2.jsonl.gz', attempts: 3, message: '壊れています' }];
+    const rows = presentNotices(initialState(), storeOf({ sync: sync({ skipped }) }), NOW).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ key: 'sync|skipped|2', kind: 'sync', tone: 'err', kindLabel: '同期', title: '降ろせなかったトランスクリプト 2 件', detail: '復号できません', unread: true });
+    expect(rows[0]!.action.intent).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
+    // 状態の行（エラー）と並べても、別の行になる。状態の行が先。
+    const both = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'x', skipped }) }), NOW).rows;
+    expect(both.map((r) => r.key)).toEqual(['sync|error|x', 'sync|skipped|2']);
+    // 数が変われば鍵が変わり、また未読になる。同期を使っていない端末には出さない。
+    expect(presentNotices(read(['sync|skipped|2']), storeOf({ sync: sync({ skipped }) }), NOW).unread).toBe(0);
+    expect(presentNotices(read(['sync|skipped|2']), storeOf({ sync: sync({ skipped: skipped.slice(0, 1) }) }), NOW).unread).toBe(1);
+    expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'off', url: null, skipped }) }), NOW).rows).toEqual([]);
+  });
+
+  // 通知の誘いは右下の積みの上から外し、ベルの一覧の行にした（PR 29）。
+  it('通知を出せるのに受け取っていないときだけ、「通知を受け取る」の行を出し、押すと受け取りを入れる', () => {
+    const rows = (notify: { available: boolean; on: boolean; blocked: boolean }) => presentNotices(initialState(), storeOf({ notify }), NOW).rows;
+    const [row] = rows({ available: true, on: false, blocked: false });
+    expect(row).toMatchObject({ key: 'notify|offer', kind: 'notify', tone: 'info', kindLabel: '通知', title: '離れていても気づけます', unread: true });
+    expect(row!.action).toEqual({ label: '通知を受け取る', intent: { type: 'notify.set', on: true } });
+    expect(rows({ available: true, on: true, blocked: false })).toEqual([]);
+    expect(rows({ available: false, on: false, blocked: false })).toEqual([]);
+    // OS で切られているときは勧めない。直し方は設定の通知の節に出す。
+    expect(rows({ available: true, on: false, blocked: true })).toEqual([]);
+  });
+
+  it('種類の並びは、リマインダー、同期、互換、保持期間、通知', () => {
+    const store = storeOf({ ...withSessions([paused('p', '2026-10-02')]), sync: sync({ state: 'error', error: 'x' }), readiness: compatSummary(1), retention: retention(), notify: { available: true, on: false, blocked: false } });
+    expect(presentNotices(initialState(), store, NOW).rows.map((r) => r.kind)).toEqual(['reminder', 'sync', 'compat', 'retention', 'notify']);
   });
 
   it('既読の鍵の行は未読でなくなり、未読の数と鍵の一覧に反映する', () => {

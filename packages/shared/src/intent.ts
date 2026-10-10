@@ -1,4 +1,4 @@
-import type { ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
+import type { ConfigApplyOrderEntryIn, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -21,6 +21,8 @@ export type SearchFilter = { projectId?: string; days?: number; until?: number; 
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string };
+/** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承諾、conflicts は競合。 */
+export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };
 export type Settings = SettingsDto;
 
@@ -36,15 +38,13 @@ export type Intent =
   | { type: 'search.page'; page: number }
   // 検索の結果の末尾の「さらに N 件を読み込む」。いま持っている行の続きを読み足す（置き換えない）。
   | { type: 'search.more' }
-  // プロジェクト画面の一覧のページを移る。key は 'project:<id>'。
-  | { type: 'list.page'; key: string; page: number }
   // 1 ページの件数を変える（25・50・100・200）。どの一覧も同じ件数を使う。セッション一覧は見ていた先頭の行を含むページに留まる。
   | { type: 'list.pageSize'; size: number }
   // 「条件をクリア」。語と絞り込みをまとめて外す。
   | { type: 'search.clear' }
   | { type: 'project.open'; id: ProjectId } | { type: 'project.setStatus'; id: ProjectId; status: ProjectStatus }
-  // プロジェクト画面の節を広げる・畳む（P3）。末尾の Archived の行だけで、Done は畳まない。
-  | { type: 'project.section.toggle'; projectId: ProjectId; section: 'archived' }
+  // プロジェクトの名前を変える。見出しの (i) のポップオーバーから出す。
+  | { type: 'project.rename'; id: ProjectId; name: string }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
   // 起動と作成のダイアログの「ほかの場所を選ぶ…」。殻の中だけで出す。
   | { type: 'folder.pick' }
@@ -87,6 +87,16 @@ export type Intent =
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
+  // 設定の同期（作り直した実装）。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
+  | { type: 'configSync.open'; part: ConfigSyncPart }
+  | { type: 'configSync.send.confirm' }
+  | { type: 'configSync.apply'; entries: ConfigApplyOrderEntryIn[] }
+  // すでにある指示書で、もう一度適用の確認へ進む。指示書の取り消し。
+  | { type: 'configSync.order.apply' } | { type: 'configSync.order.cancel' }
+  // 送らなかった項目を、それでも送る。
+  | { type: 'configSync.unsent.send'; id: string }
+  // 控えの世代へ戻す。name は yyyyMMdd-HHmmss。
+  | { type: 'configSync.restore'; name: string }
   | { type: 'summary.regenerate'; sessionId: SessionId }
   | { type: 'tab.open'; sessionId: SessionId; kind: 'agent' | 'shell' } | { type: 'tab.close'; tabId: TabId } | { type: 'tab.select'; tabId: TabId }
   | { type: 'split.toggle' } | { type: 'split.resize'; ratio: number } | { type: 'transcript.toggle' }
@@ -112,13 +122,12 @@ export type Intent =
   // 窓が背面にあるとき、入力待ちを OS やブラウザの通知で知らせるか。
   // 受け取るにするときは許可を求める。
   | { type: 'notify.set'; on: boolean }
-  // 戻る時刻を過ぎた知らせの札を閉じる。
-  | { type: 'return.toast.dismiss'; id: SessionId }
+  // 他の PC から届いたプロジェクトの札。見るはプロジェクトの画面へ移り、あとで決めるは札だけを下げる。どちらも札を下げる。
+  | { type: 'projects.arrived.view' } | { type: 'projects.arrived.dismiss' }
   | { type: 'sync.now' } | { type: 'sync.pause'; paused: boolean }
   | { type: 'conn.retry' }
   // ベルの一覧の行を既読にする。keys は行の鍵（種類、対象、事実の版）で、「すべて既読にする」はいまある鍵を全部送る。
   | { type: 'notices.read'; keys: string[] }
-  | { type: 'retention.dismiss' }
   | { type: 'retention.edit'; days: number; from: RetentionFrom }
   | { type: 'retention.write' }
   | { type: 'retention.settings' }

@@ -5,6 +5,7 @@ import { artifactEn } from './en/artifact.ts';
 import { commonEn } from './en/common.ts';
 import { configEn } from './en/config.ts';
 import { configSyncEn } from './en/configSync.ts';
+import { configSyncUiEn } from './en/configSyncUi.ts';
 import { confirmEn } from './en/confirm.ts';
 import { externalEn } from './en/external.ts';
 import { headerEn } from './en/header.ts';
@@ -20,6 +21,7 @@ import { pauseEn } from './en/pause.ts';
 import { platformEn } from './en/platform.ts';
 import { projectEn } from './en/project.ts';
 import { projectsEn } from './en/projects.ts';
+import { projectScreenEn } from './en/projectScreen.ts';
 import { promoteEn } from './en/promote.ts';
 import { promptEn } from './en/prompt.ts';
 import { retentionEn } from './en/retention.ts';
@@ -45,6 +47,7 @@ export const en: Dictionary = {
   ...commonEn,
   ...configEn,
   ...configSyncEn,
+  ...configSyncUiEn,
   ...confirmEn,
   ...externalEn,
   ...headerEn,
@@ -60,6 +63,7 @@ export const en: Dictionary = {
   ...platformEn,
   ...projectEn,
   ...projectsEn,
+  ...projectScreenEn,
   ...promoteEn,
   ...promptEn,
   ...retentionEn,

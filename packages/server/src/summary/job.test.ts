@@ -157,6 +157,13 @@ describe('SummaryJob', () => {
     const bad = await make([fake('lmstudio', { fail: true }), fake('claude-headless', { available: false })]).test();
     expect(bad).toEqual({ ok: false, tried: [{ id: 'lmstudio', message: 'lmstudio failed' }, { id: 'claude-headless', message: '使えません（接続できないか、上限に達しています）' }] });
   });
+  it('test は、そのときの言語の決め打ちの入力を要約器へ渡す', async () => {
+    const seen: SummaryInput[] = [];
+    const job = new SummaryJob({ db, deviceId: 'd', summarizers: () => [fake('lmstudio', { seen })], live: () => [], hub: hubFor([]), language: () => 'en' });
+    await job.test();
+    expect(seen[0]!.language).toBe('en');
+    expect(/[\u3040-\u30ff\u4e00-\u9fff]/.test(seen[0]!.text)).toBe(false);
+  });
 });
 
 describe('事後の要約からの状態の提案', () => {

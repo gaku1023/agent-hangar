@@ -168,3 +168,39 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
     expect(p.note).toBe('To fix 3. tmux and claude are ready, so you can start');
   });
 });
+
+describe('presentHomeScreen の場所の不明なプロジェクト（2.11.5）', () => {
+  const missing = (id: string): ProjectDto => ({ ...project(id), resolved: false, unresolved: { kind: 'missing', previousPath: `/w/${id}`, deviceName: null } });
+  const arrived = (id: string): ProjectDto => ({ ...project(id), path: null, resolved: false, unresolved: { kind: 'elsewhere', previousPath: `/o/${id}`, deviceName: 'Mac mini' } });
+  const withProjects = (store: Store, list: ProjectDto[]): Store => ({ ...store, projects: { ...store.projects, ...Object.fromEntries(list.map((p) => [p.id, p])) } });
+
+  it('場所の消えたものがあれば、確認待ちの後ろに 4 つ目の錠剤を足す。帯の件数に入れるのはこの PC で消えたものだけ', () => {
+    const p = presentHomeScreen(initialState(), withProjects(busyMorning(), [missing('lost'), arrived('x1'), arrived('x2'), arrived('x3')]), NOW);
+    expect(p.band.groups.map((g) => [g.id, g.count])).toEqual([['attention', 1], ['running', 1], ['pending', 1], ['unresolved', 1]]);
+    expect(p.band.morning).toBe('attention');
+  });
+
+  it('他の PC から届いただけなら、群を足さない。帯は消え、空の日の 1 行が出る', () => {
+    const p = presentHomeScreen(initialState(), withProjects(storeOf([]), [arrived('x1'), arrived('x2'), arrived('x3')]), NOW);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending']);
+    expect(p.idle).toBe(true);
+  });
+
+  it('ほかの 3 つの群がどれも 0 件でも、場所の消えたものがあれば静かな日ではない。薄い 3 つの錠剤は出さず、その群だけを置く', () => {
+    const p = presentHomeScreen(initialState(), withProjects(storeOf([]), [missing('lost')]), NOW);
+    expect(p.idle).toBe(false);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['unresolved']);
+    // 朝に開く群ではないので、引き出しは閉じたまま。
+    expect(p.band.morning).toBeNull();
+  });
+
+  it('確認の群と並ぶときは、場所の不明なプロジェクトが先、確認が最後', () => {
+    const READY: ReadinessDto = {
+      tools: { tmux: { path: null, ok: false, problem: 'unset', version: null }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/n', ok: true, problem: null, version: 'v22', auto: true } },
+      workspace: { path: '/w', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/c' }, statusline: { command: 'x', scriptPath: '/s', installed: false },
+      commands: { mcp: 'a', statusline: 'b', shell: 'c' }, compat: { verifiedVersion: '1', localVersion: '1', driftCount: 0 },
+    };
+    const p = presentHomeScreen(initialState(), { ...withProjects(storeOf([]), [missing('lost')]), readiness: READY }, NOW);
+    expect(p.band.groups.map((g) => g.id)).toEqual(['unresolved', 'readiness']);
+  });
+});
