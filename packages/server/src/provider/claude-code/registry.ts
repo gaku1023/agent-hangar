@@ -19,20 +19,61 @@ export function goneOn(platform: NodeJS.Platform): (pid: number) => boolean {
 }
 
 /**
+ * 書きかけで読めなかった登録を、前に読めた中身のまま続ける回数の上限。
+ * 500 ミリ秒ごとの読み直しで 2 秒ぶんにあたる。
+ * これを超えて読めないままなら、壊れた登録として読まない（いままでと同じ扱い）。
+ */
+export const UNREADABLE_CARRY_POLLS = 4;
+
+/**
+ * 登録のファイル名ごとの、最後に読めた中身と、それから続けて読めなかった回数。
+ * Claude Code は、一時のファイルからの改名に失敗すると、登録をその場で書き直す（切り詰めてから書く）。
+ * Windows では、ほかのプロセスがファイルを開いているだけで改名が失敗しうる。
+ * その間に読むと中身が空か途中までになり、読めないまま捨てると、そのセッションが一瞬だけ終わったように見える。
+ * 終わったと見ると、待っている問いを消してしまう（sessions/liveChange.ts）ので、1 回の読めなさでは消さない。
+ * 読み直しのたびに同じものを渡す（RegistryWatcher が持つ）。
+ */
+export type RegistryCarry = Map<string, { raw: unknown; misses: number }>;
+
+const UNREADABLE = Symbol('unreadable');
+
+/** 登録 1 件を読む。読めなければ、覚えがあり上限の内なら前の中身を返す。ファイルが無くなったものは続けない。 */
+function readEntry(file: string, name: string, carry: RegistryCarry | undefined): unknown {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    carry?.set(name, { raw, misses: 0 });
+    return raw;
+  } catch (e) {
+    const prev = carry?.get(name);
+    if (!prev || (e as NodeJS.ErrnoException).code === 'ENOENT' || prev.misses >= UNREADABLE_CARRY_POLLS) {
+      carry?.delete(name);
+      return UNREADABLE;
+    }
+    prev.misses += 1;
+    return prev.raw;
+  }
+}
+
+/**
  * ~/.claude/sessions/<pid>.json を読む。ファイルの出現と消失が起動と終了に対応する。
  * isGone が真を返す pid の項目は、消えたプロセスの残りとして読まない。hangar は ~/.claude のファイルを消さないので、読まないことで扱う。
  * onDrift を渡すと、形が契約と違う登録を、登録の見分け（compat/registry.ts の registryKey）と組で知らせる。読み方はいまのまま変えない。
  * オブジェクトでない登録（配列や null）は読まない。1 件の形が崩れても、ほかのセッションの状態は出し続ける。
+ * carry を渡すと、書きかけで読めなかった登録を、前に読めた中身のまま続ける（RegistryCarry）。
  */
-export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean = () => false, onDrift?: (d: Drift, key: string) => void): LiveSession[] {
+export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean = () => false, onDrift?: (d: Drift, key: string) => void, carry?: RegistryCarry): LiveSession[] {
   const dir = path.join(claudeDir, 'sessions');
-  if (!fs.existsSync(dir)) return [];
+  if (!fs.existsSync(dir)) { carry?.clear(); return []; }
   const out: LiveSession[] = [];
-  for (const f of fs.readdirSync(dir)) {
+  const names = fs.readdirSync(dir);
+  // 消えた登録の覚えは捨てる。同じ名前で書き直されたものを、前の中身で続けないためである。
+  if (carry) { const now = new Set(names); for (const f of [...carry.keys()]) if (!now.has(f)) carry.delete(f); }
+  for (const f of names) {
     if (!f.endsWith('.json')) continue;
-    let raw: unknown;
+    const raw = readEntry(path.join(dir, f), f, carry);
     // 書きかけの登録は JSON として読めない。これはずれではないので、黙って次の周期に回す。
-    try { raw = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
+    // 前に読めた中身があれば readEntry がそれを返すので、ここで飛ばすのは覚えの無いものと、読めないままが続いたものだけである。
+    if (raw === UNREADABLE) continue;
     if (onDrift) { const key = registryKey(f, raw); for (const d of registryDrifts(raw)) onDrift(d, key); }
     if (!isRec(raw)) continue;
     const rec = raw;
@@ -61,6 +102,8 @@ export class RegistryWatcher {
   private lastRegKey = '';
   /** 一瞬だけ欠けうる欄（status）を、同じ登録で続けて欠けていたときだけ通す門。 */
   private readonly missGate = new RegistryMissGate();
+  /** 書きかけで読めなかった登録を、前に読めた中身で続けるための覚え（RegistryCarry）。 */
+  private readonly carry: RegistryCarry = new Map();
   private listeners = new Set<(live: LiveSession[]) => void>();
   /**
    * enrich は、読んだ登録に裏だけの印などを足す関数（live/aside.ts）。読み直しのたびに通し、足した後の形で変化を見る。
@@ -95,7 +138,7 @@ export class RegistryWatcher {
     let regKey: string;
     try {
       const found: { key: string; drift: Drift }[] = [];
-      const raw = readRegistry(this.claudeDir, this.isGone, (drift, key) => found.push({ key, drift }));
+      const raw = readRegistry(this.claudeDir, this.isGone, (drift, key) => found.push({ key, drift }), this.carry);
       drifts = this.missGate.pass(found);
       regKey = JSON.stringify(raw) + JSON.stringify(drifts);
       live = this.enrich(raw);

@@ -528,12 +528,16 @@ mod win {
 
     /// トーストを出す。
     /// 設定で切られていれば、Windows が黙って捨てる。
+    /// 出せたかどうかを 1 行ずつ残す。
+    /// 出なかったときに、頁が呼ばなかったのか、OS が捨てたのかを殻のログから見分けるためである。
     pub fn show(w: &Waiting) {
         if !installed() {
+            crate::log("toast skipped: not an installed build");
             return;
         }
-        if let Err(e) = deliver(w) {
-            crate::log(&format!("toast not shown: {e}"));
+        match deliver(w) {
+            Ok(()) => crate::log("toast handed to Windows"),
+            Err(e) => crate::log(&format!("toast not shown: {e}")),
         }
     }
 }

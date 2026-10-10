@@ -75,10 +75,20 @@ function mcpGuard(c: Context, deps: { token: string; port: number; db: ToolDeps[
   return c.json({ error: 'unauthorized' }, 401);
 }
 
-/** 状態を持たない Streamable HTTP。要求ごとにサーバとトランスポートを作る。 */
+/**
+ * 状態を持たない Streamable HTTP。要求ごとにサーバとトランスポートを作る。
+ *
+ * GET の SSE（サーバから送るための開いたままの流れ）は開かず、仕様どおり 405 を返す。
+ * 要求ごとに作ったトランスポートの流れには、送るものが何も無い。
+ * それでいて開いておくと、hangar が止まったときに流れが切れ、Claude Code はサーバが落ちたと見て、
+ * 繋ぎ直しを 5 回（1、2、4、8 秒おき）試したあとに諦める。
+ * 諦めた後は、hangar を起こし直しても、利用者が /mcp で繋ぎ直すまで ECONNREFUSED のままになる。
+ * 開かなければ、止まっている間に呼ばれなかった claude は切れたことに気付かず、起こし直した後の次の呼び出しがそのまま通る。
+ */
 export function createMcpApp(deps: ToolDeps & { token: string }): Hono {
   const app = new Hono();
   const handle = async (req: Request, sessionId: string | null) => {
+    if (req.method === 'GET') return new Response(null, { status: 405, headers: { allow: 'POST, DELETE' } });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await buildMcpServer(deps, { sessionId }).connect(transport);
     return transport.handleRequest(req);

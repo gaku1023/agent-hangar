@@ -75,6 +75,21 @@ describe('createMcpApp', () => {
     const bad = await rpc('/', 'tools/call', { name: 'get_project', arguments: { project_id: 'nope' } }, 4);
     expect(bad.body.result!.isError).toBe(true);
   });
+  it('GET の SSE は開かず 405 を返す。鍵の検査は先に済ませる', async () => {
+    // 開いたままの GET が切れると、Claude Code はサーバが落ちたと見て、15 秒ほど繋ぎ直しを試した後に諦める。
+    // hangar は状態を持たないので、GET の流れで送るものが無い。開かなければ、サーバを起こし直した後の次の呼び出しがそのまま通る。
+    const get = (p: string, headers: Record<string, string>) => app.request(p, { method: 'GET', headers });
+    const sse = { authorization: `Bearer ${TOKEN}`, accept: 'text/event-stream' };
+    for (const p of ['/', `/s/${alphaId}`]) {
+      const res = await get(p, sse);
+      expect(res.status).toBe(405);
+      expect(res.headers.get('allow')).toBe('POST, DELETE');
+      expect(res.headers.get('content-type') ?? '').not.toContain('text/event-stream');
+      expect((await get(p, { accept: 'text/event-stream' })).status).toBe(401);
+    }
+    // POST はこれまでどおり通る。
+    expect((await rpc('/', 'initialize', INIT)).status).toBe(200);
+  });
   it('セッション別 URL では session_id を省ける。無いセッションは 404', async () => {
     const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_session_memo', arguments: { text: 'from mcp' } }, 5);
     expect(JSON.parse((r.body.result!.content as { text: string }[])[0]!.text)).toEqual({ ok: true, session_id: alphaId });

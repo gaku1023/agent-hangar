@@ -144,6 +144,54 @@ describe('RegistryWatcher', () => {
     w.stop();
   });
 
+  // Claude Code は、一時のファイルからの改名に失敗すると、登録をその場で書き直す（切り詰めてから書く）。
+  // その間に読むと、中身が空か途中までになる。消えたと読むと、終わったセッションとして待っている問いまで消える。
+  it('書きかけで読めない登録は、前に読めた中身のまま続け、知らせない', () => {
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE);
+    const seen: unknown[] = [];
+    w.onChange((l) => seen.push(l));
+    w.start();
+    const before = w.current();
+    expect(before).toHaveLength(1);
+    const file = path.join(dir, 'sessions/12345.json');
+    const text = fs.readFileSync(file, 'utf8');
+    for (const partial of ['', text.slice(0, 20)]) {
+      fs.writeFileSync(file, partial);
+      vi.advanceTimersByTime(500);
+      expect(w.current()).toEqual(before);
+      fs.writeFileSync(file, text);
+      vi.advanceTimersByTime(500);
+    }
+    expect(seen).toEqual([]);
+    w.stop();
+  });
+
+  it('読めないままが続けば、その登録は読まない', () => {
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE);
+    const seen: unknown[] = [];
+    w.onChange((l) => seen.push(l));
+    w.start();
+    fs.writeFileSync(path.join(dir, 'sessions/12345.json'), '{"pid":');
+    vi.advanceTimersByTime(500);
+    expect(seen).toEqual([]);
+    vi.advanceTimersByTime(5000);
+    expect(seen).toEqual([[]]);
+    expect(w.current()).toEqual([]);
+    w.stop();
+  });
+
+  it('はじめから読めない登録は読まない。消えた登録は次の読み直しで外す', () => {
+    const sessions = path.join(dir, 'sessions');
+    fs.writeFileSync(path.join(sessions, '99.json'), '{"pid":');
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE);
+    w.start();
+    expect(w.current().map((l) => l.pid)).toEqual([12345]);
+    fs.rmSync(path.join(sessions, '12345.json'));
+    vi.advanceTimersByTime(500);
+    expect(w.current()).toEqual([]);
+    w.stop();
+  });
+
   it('ずれは登録が変わったときだけ数え、同じ登録の読み直しでは数えない', () => {
     const file = path.join(dir, 'sessions/12345.json');
     const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
