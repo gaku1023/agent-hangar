@@ -287,8 +287,47 @@ pub fn choose_language(settings: Option<&str>, os: Option<&'static str>) -> &'st
         .unwrap_or("ja")
 }
 
-/// OS の言語。macOS は `defaults read -g AppleLanguages`（.app は LANG を持たない）、ほかは環境変数。
+/// Windows の表示言語の並び（NUL で区切った名前、`ja-JP\0en-US\0\0`）から、先頭の言語を ja か en に寄せる。
+pub fn language_from_ui_languages(names: &str) -> Option<&'static str> {
+    let first = names.split('\0').find(|t| !t.is_empty())?;
+    Some(language_of_tag(first))
+}
+
+/// Windows の表示言語の並び。利用者が設定で選んだ順に、名前を NUL で区切って返す。
+#[cfg(windows)]
+fn windows_ui_languages() -> Option<String> {
+    use windows_sys::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
+    let mut count = 0u32;
+    let mut len = 0u32;
+    // 1 回目で長さを訊き、2 回目で読む。
+    let ok = unsafe {
+        GetUserPreferredUILanguages(
+            MUI_LANGUAGE_NAME,
+            &mut count,
+            std::ptr::null_mut(),
+            &mut len,
+        )
+    };
+    if ok == 0 || len == 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; len as usize];
+    let ok = unsafe {
+        GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, buf.as_mut_ptr(), &mut len)
+    };
+    (ok != 0).then(|| String::from_utf16_lossy(&buf))
+}
+
+/// OS の言語。macOS は `defaults read -g AppleLanguages`（.app は LANG を持たない）、
+/// Windows は表示言語の並び（GUI のアプリも LANG を持たない）、ほかは環境変数。
 fn os_language() -> Option<&'static str> {
+    #[cfg(windows)]
+    if let Some(l) = windows_ui_languages()
+        .as_deref()
+        .and_then(language_from_ui_languages)
+    {
+        return Some(l);
+    }
     if cfg!(target_os = "macos") {
         let out = std::process::Command::new("/usr/bin/defaults")
             .args(["read", "-g", "AppleLanguages"])
@@ -329,6 +368,61 @@ pub fn pretty_name(os_release: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Windows の名前と版（「Windows 11 24H2 (build 26100)」など）。
+/// 登録簿の製品名（ProductName）は Windows 11 でも「Windows 10」のままなので使わず、ビルド番号で 11 か 10 かを決める。
+/// ビルド番号が読めなければ、版を付けずに「Windows」とだけ言う。
+pub fn windows_label(build: Option<&str>, display: Option<&str>) -> String {
+    let Some(n) = build.and_then(|b| b.trim().parse::<u32>().ok()) else {
+        return "Windows".to_string();
+    };
+    let name = if n >= 22000 {
+        "Windows 11"
+    } else {
+        "Windows 10"
+    };
+    let version = match display.map(str::trim) {
+        Some(d) if !d.is_empty() => format!("{d} (build {n})"),
+        _ => format!("(build {n})"),
+    };
+    os_label_from(name, Some(&version))
+}
+
+/// `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` の文字列の値。
+#[cfg(windows)]
+fn windows_current_version(name: &str) -> Option<String> {
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+    let wide = |s: &str| {
+        s.encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
+    let key = wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+    let value = wide(name);
+    let mut buf = vec![0u16; 256];
+    let mut size = (buf.len() * 2) as u32;
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr() as *mut core::ffi::c_void,
+            &mut size,
+        )
+    };
+    if r != ERROR_SUCCESS {
+        return None;
+    }
+    let chars = (size as usize / 2).min(buf.len());
+    Some(
+        String::from_utf16_lossy(&buf[..chars])
+            .trim_end_matches('\0')
+            .to_string(),
+    )
+}
+
 /// 今の OS の名前と版（「macOS 15.1」など）。失敗の札の下端に出す。
 pub fn os_label() -> String {
     if cfg!(target_os = "macos") {
@@ -345,9 +439,14 @@ pub fn os_label() -> String {
             .and_then(|t| pretty_name(&t))
             .unwrap_or_else(|| "Linux".to_string());
     }
-    if cfg!(windows) {
-        return "Windows".to_string();
+    #[cfg(windows)]
+    {
+        windows_label(
+            windows_current_version("CurrentBuildNumber").as_deref(),
+            windows_current_version("DisplayVersion").as_deref(),
+        )
     }
+    #[cfg(not(windows))]
     std::env::consts::OS.to_string()
 }
 
@@ -735,5 +834,34 @@ mod tests {
         );
         assert_eq!(pretty_name("NAME=x\n"), None);
         assert!(!os_label().is_empty());
+    }
+
+    // Windows の言語は、表示言語の並び（GetUserPreferredUILanguages の名前の並び）の先頭で決める。
+    #[test]
+    fn windows_ui_languages_pick_the_first_name() {
+        assert_eq!(language_from_ui_languages("ja-JP\0en-US\0\0"), Some("ja"));
+        assert_eq!(language_from_ui_languages("en-US\0ja-JP\0\0"), Some("en"));
+        assert_eq!(language_from_ui_languages("fr-FR\0"), Some("en"));
+        assert_eq!(language_from_ui_languages("\0\0"), None);
+        assert_eq!(language_from_ui_languages(""), None);
+    }
+
+    // Windows の版。登録簿の製品名は Windows 11 でも「Windows 10」のままなので、ビルド番号（22000 から 11）で決める。
+    #[test]
+    fn windows_label_names_11_from_the_build_number() {
+        assert_eq!(
+            windows_label(Some("26100"), Some("24H2")),
+            "Windows 11 24H2 (build 26100)"
+        );
+        assert_eq!(
+            windows_label(Some("19045"), Some("22H2")),
+            "Windows 10 22H2 (build 19045)"
+        );
+        assert_eq!(
+            windows_label(Some("22000"), None),
+            "Windows 11 (build 22000)"
+        );
+        assert_eq!(windows_label(None, Some("24H2")), "Windows");
+        assert_eq!(windows_label(Some("x"), None), "Windows");
     }
 }

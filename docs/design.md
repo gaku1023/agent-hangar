@@ -82,12 +82,19 @@ psmux はサーバを `CREATE_BREAKAWAY_FROM_JOB` で起こしてジョブの外
 黙って抜けるのを許す `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` は付けない。付けると孫がみなジョブの外に出て、ジョブで止められるのがサーバ 1 つだけになる。
 殻が Windows で起こす子（サーバ、Node の候補、設定の同期の CLI）には `CREATE_NO_WINDOW` を付け、黒いコンソールの窓を開かない。
 Node の候補もジョブに入れ、打ち切ったときに孫ごと止める（unix の `setsid` と `killpg` に当たる）。
+サーバが起こす外のアプリ（Windows Terminal、既定のターミナル、VS Code、ブラウザ）は、そのまま起こすとジョブに入り、Hangar を閉じると窓ごと止まる。
+Node は子に `CREATE_BREAKAWAY_FROM_JOB` を付けられないので、殻の実行ファイルを起こし役にする（`src-tauri/src/breakaway.rs`、`packages/server/src/external/breakaway.ts`）。
+殻はサーバに自分の場所を `HANGAR_LAUNCHER` で渡し、サーバは外のアプリを `Hangar.exe --hangar-breakaway <起こすもの> <引数の 1 行>` で起こさせる。
+殻はこの印を見たら Tauri を立ち上げず、`CREATE_BREAKAWAY_FROM_JOB` を付けて子を起こし、子の終わりを待ってその終了コードで降りる。標準入出力は受け継ぐので、サーバは直に起こしたときと同じ結果を受け取る。
+引数の 1 行はサーバが Windows の規則で引用し終えたもので、殻はそのまま子のコマンド行の後ろに付ける（cmd.exe へ組んだ 1 行を崩さないため）。
+外側のジョブが抜けるのを許していなければ、印を付けずに起こし直す（psmux と同じ）。
+端末から起こしたサーバ（`npm run dev` など）はジョブに入っていないので、`HANGAR_LAUNCHER` は無く、直に起こす。
 Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
 配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
-サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`）を自分の環境から消す（`launch/env.ts`）。
+サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`）を自分の環境から消す（`launch/env.ts`）。
 殻も、サーバを起こすときに同じ名前を外してから自分の値を入れる（`server.rs` の `INHERITED_ENV_DROPPED`。サーバの正本との一致は試験で縛る）。
 アプリを Claude Code のセッションの Bash から `open` で起こすと、呼び手の環境がそのまま殻とサーバに入り、サーバが起こす tmux サーバの全体の環境と、サーバが直に起こす claude（`--help`、`agents --json`、要約の `-p`、`auth status`）にまで届くためである。
 `/health` の `ready` が真になってから、鍵付きの URL を印字する。
@@ -172,8 +179,8 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 - 札の中は、見出し、何が起きたか、番号つきの次にすること（順序つきの一覧）、コピーできる命令、詳細（最初から開いた記録。「全文をコピー」つき）、下端のアプリの版と OS、「ログを開く」「もう一度試す」の順に並べる。ロゴは左上に小さく退ける（信号の 3 点の右、UI の `--lights-end` と同じ幅から）。命令と詳細だけを等幅にする。詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す。
 - 「全文をコピー」は、版と OS、種類、詳細の順の文をクリップボードへ書く。そのまま報告に貼れる形である。クリップボードの口が無い頁では、選択と `copy` の命令で写す。
 - ポートと互換の失敗では、動いているサーバ（利用者が起こしたものかもしれない）を止めないと文で言う。lsof の命令は Windows では添えない。
-- 版は殻（`app.package_info()`）、OS の名前と版は殻が失敗のときに読む（macOS は `sw_vers -productVersion`、Linux は `/etc/os-release`）。
-- 頁の言語は、`<HANGAR_HOME>/settings.json` の `language`（`ja` か `en`）を**殻が読めればそれ**、読めなければ OS の言語で決める（設計書 10 章の未決の点を、こう決めた）。OS の言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、ほかは `LC_ALL`、`LC_MESSAGES`、`LANG` で、日本語なら ja、それ以外は en にする。どちらも決まらなければ日本語（UI の既定）にする。設定ファイルがあっても `language` が無い（利用者がまだ選んでいない）ときも OS の言語に従う。UI は同じ場合に日本語の既定で出るので、英語の OS ではこの頁だけ先に英語になる。設定ファイルが読めれば OS には聞かない（失敗の最中に外のコマンドを呼ばないため）。
+- 版は殻（`app.package_info()`）、OS の名前と版は殻が失敗のときに読む（macOS は `sw_vers -productVersion`、Linux は `/etc/os-release`、Windows は登録簿の `CurrentBuildNumber` と `DisplayVersion`）。Windows の製品名は Windows 11 でも「Windows 10」のままなので使わず、ビルド番号 22000 からを Windows 11 と呼ぶ（「Windows 11 24H2 (build 26100)」）。
+- 頁の言語は、`<HANGAR_HOME>/settings.json` の `language`（`ja` か `en`）を**殻が読めればそれ**、読めなければ OS の言語で決める（設計書 10 章の未決の点を、こう決めた）。OS の言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、Windows では表示言語の並び（`GetUserPreferredUILanguages`）の先頭、ほかは `LC_ALL`、`LC_MESSAGES`、`LANG` で、日本語なら ja、それ以外は en にする。どちらも決まらなければ日本語（UI の既定）にする。設定ファイルがあっても `language` が無い（利用者がまだ選んでいない）ときも OS の言語に従う。UI は同じ場合に日本語の既定で出るので、英語の OS ではこの頁だけ先に英語になる。設定ファイルが読めれば OS には聞かない（失敗の最中に外のコマンドを呼ばないため）。
 - 頁の文は UI の辞書を使えないので、日英の表を頁に持つ（`boot-fail.js`）。言語の並びは shared の `LANGUAGES` と同じにし、試験が突き合わせる。`other` の `detail` と、サーバの例外の文（`detail`）は記録なので、言語を替えない（サーバの文の英語化は段 3 の PR 7 の範囲である）。
 
 試験は 3 層に分ける。
@@ -988,7 +995,7 @@ tmux で `claude` を直接起動すると異常終了時の出力が失われ�
 込んだ機械で `tee` が後回しになると、書きかけのまま落ちて終わり際の標準エラーが消えていたので、`tee` は SIGHUP を無視する形で起こし、bash は `tee` が書き終えるのを 2 秒まで待ってから `exit=` を書く。
 2 秒で見切るのは、claude の残した子が標準エラーを握り続けても、ペインを閉じるためである。
 包みの中身が変わったときはサーバの起動時に書き直すが、走っている run の bash は台本を読みながら進むので、その場で書き換えずに別のファイルから rename で入れ替える。
-起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`）と `HANGAR_CLOUD_DIR` を `-u` で外す。
+起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）と `HANGAR_CLOUD_DIR` を `-u` で外す。
 Windows は名前を包みへ `HANGAR_UNSET_ENV` で渡し、包みが消してから claude を起こす。
 tmux の新しいセッションは、`PATH` のほかは tmux サーバの全体の環境を継ぐ（`PATH` は下に書くとおり起こした側の値になる）。tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境に別のセッションの印が残る。
 印を持って始まった claude は、そのセッションの子として振る舞う（再開の一覧と履歴から外れる、裏のセッションと見なす、別のセッションの名前やソケットを使う）。
@@ -1213,6 +1220,7 @@ wt は `;` を次のコマンドの区切りに読むので、引数の `;` は 
 cmd.exe は引用符の中でも `%name%` を置き換えるので、`%` だけは引用の外へ出して `^%` にする。
 `"` と改行を含む名前とパスは、どちらの経路でも引用を破るので、開かずに断る。
 ディレクトリを開くときは、Windows Terminal は `new-tab -d <dir>` で既定のプロファイルを、既定のターミナルは `start "" /D "<dir>" powershell.exe -NoLogo` で PowerShell を開く。
+`.app`（Windows の殻）から起こしたサーバでは、ターミナルもエディタもブラウザも殻の起こし役越しに起こし、Hangar を閉じても開いた窓は残る（「Tauri のシェル」の節）。
 
 ### 指示の注入
 
@@ -2043,7 +2051,7 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
 UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動をやり直す `retry_boot` と `open_log` だけを与える（`capabilities/boot-screen.json`）。
-`open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open` に渡すだけで、呼び手からパスは受け取らない。
+`open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 UI は殻が差し込む `__TAURI_INTERNALS__` の有無で殻の中かを決め（`runtime/desktop.ts`）、殻の外（ブラウザ）ではこれらのボタンを出さない。
 接続が切れると、ヘッダーの下に切断の帯を出し、止まった時刻と次に再接続する秒数を言う。
 再接続が 3 回続けて失敗したら、同じ帯のまま濃い赤にして「サーバに戻れません」「アプリを再起動してください」と言い、殻の中では「ログを開く」「再起動」を、ブラウザではログの場所（`~/.agent-hangar/desktop.log`）の文とコピーのボタンを置く。
