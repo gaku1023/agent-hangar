@@ -44,6 +44,10 @@ const _: () = assert!(ServerProcess::STOP_GRACE.as_secs() > SERVER_WATCHDOG_SECS
 /// 足すのは後ろで、元の並びは変えない。利用者が選んだ優先順を覆さないためである。
 /// これは念のための備えで、claude の場所を決める正本はサーバ側の `which` と Settings の `claudePath` である。
 pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
+    // 足す置き場は POSIX のものである。Windows の PATH は ';' 区切りで、これらの置き場も無いので、そのまま渡す。
+    if cfg!(windows) {
+        return current.unwrap_or("").to_string();
+    }
     let mut out: Vec<String> = current
         .unwrap_or("")
         .split(':')
@@ -175,9 +179,13 @@ impl ServerProcess {
 
     /// 猶予を指定して止める。試験が実時間を使わずに SIGKILL の経路を踏むために分けてある。
     pub fn stop_within(&mut self, grace: Duration) {
+        #[cfg(unix)]
         unsafe {
             libc::kill(self.child.id() as libc::pid_t, libc::SIGTERM);
         }
+        // Windows には SIGTERM が無い。穏やかに止める道は、殻のプロセス管理を作る段（段 6 の 6-4）で足す。
+        // それまでは猶予を待たず、すぐ止める。
+        let grace = if cfg!(unix) { grace } else { Duration::ZERO };
         let t0 = Instant::now();
         while t0.elapsed() < grace {
             if !self.is_running() {
@@ -413,6 +421,15 @@ mod tests {
         assert_eq!(u.fragment(), Some("/sessions?q=a+b"));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn augmented_path_is_left_alone_on_windows() {
+        let home = Path::new("C:\\Users\\me");
+        assert_eq!(augmented_path(Some("C:\\a;C:\\b"), home), "C:\\a;C:\\b");
+        assert_eq!(augmented_path(None, home), "");
+    }
+
+    #[cfg(unix)]
     #[test]
     fn augmented_path_adds_the_local_tool_dirs_without_duplicates() {
         let home = Path::new("/Users/me");

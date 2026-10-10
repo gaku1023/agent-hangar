@@ -314,6 +314,7 @@ fn redact(text: &str, token: &str) -> String {
 /// サーバ側の `ensureHome` と同じ意思をここでも守る。
 /// 既に 0755 で作られてしまった手元も直るように、作るときだけでなく起動のたびに確かめる。
 /// 利用者が 0700 より厳しくした権限は緩めない。
+#[cfg(unix)]
 fn ensure_hangar_home(home: &std::path::Path) {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let _ = std::fs::DirBuilder::new()
@@ -325,6 +326,13 @@ fn ensure_hangar_home(home: &std::path::Path) {
             let _ = std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700));
         }
     }
+}
+
+/// Windows には 0700 に当たるモードが無い。
+/// 利用者のプロフィールの下に作れば、既定の ACL で他の利用者からは読めないので、作るだけにする。
+#[cfg(not(unix))]
+fn ensure_hangar_home(home: &std::path::Path) {
+    let _ = std::fs::create_dir_all(home);
 }
 
 /// `~/.agent-hangar/desktop.log` に 1 行追記する。サーバの標準出力も同じファイルに流れる。
@@ -504,30 +512,6 @@ fn accept_server_dir(
         _ => false,
     };
     inside.then_some(dir)
-}
-
-/// 4177 で動いている既存のサーバを、互換の版が違うので採らなかったときの文（2026-10-09 に利用者が選んだ、案 B と C を合わせたもの）。
-/// どちらが古いかで言い分け、文の下に、そのポートで待ち受けているプロセスを調べる命令を添える。
-/// 殻はそのサーバを止めない。利用者が自分で起こしたもの（hangar start や npm run dev）かもしれないからである。
-/// 止めてから「もう一度試す」を押せば、起動をやり直して同梱のサーバを起こす（`retry_boot`）。
-fn refusal_message(port: u16, theirs: u64, ours: u64) -> String {
-    let head = if theirs < ours {
-        format!(
-            "{port} で動いている hangar のサーバが、この Hangar.app より古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
-             そのサーバ（hangar start や npm run dev で起こしたもの）を止めてから「もう一度試す」を押してください。止めると、この Hangar.app が同梱のサーバを起こします。"
-        )
-    } else {
-        format!(
-            "この Hangar.app が、{port} で動いている hangar のサーバより古い版です（動いているサーバは版 {theirs}、この Hangar.app は版 {ours}）。\n\
-             Hangar.app を新しい版に入れ替えるか、そのサーバを止めてから「もう一度試す」を押してください。"
-        )
-    };
-    // lsof は macOS と Linux にしか無い。Windows のデスクトップのアプリはまだ作っておらず（殻のクレートは `std::os::unix` を条件なしに使うので、いまは Windows で組み上がらない）、確かめられる命令が無いので、そこでは添えない。
-    if cfg!(windows) {
-        head
-    } else {
-        format!("{head}\n動いているサーバは次で調べられます。\nlsof -nP -iTCP:{port} -sTCP:LISTEN")
-    }
 }
 
 /// 同梱のサーバの置き場と、それを走らせる Node を決める。
@@ -1436,6 +1420,7 @@ mod tests {
     // データの置き場所は 0700 で作る。
     // 中の hangar.db と desktop.log は 0644 なので、ここが緩いと同じ機械の別の利用者に全セッションの記録が読める。
     // 既に 0755 で作られている手元も、起動のたびに直す。
+    #[cfg(unix)]
     #[test]
     fn the_data_dir_is_created_private_and_tightened_every_time() {
         use std::os::unix::fs::PermissionsExt;

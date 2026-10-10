@@ -326,8 +326,18 @@ pub fn run_cli(mut cmd: Command, timeout: Duration) -> Result<String, String> {
         Ok(Err(e)) => Err(format!("設定の同期の命令の結果を読めません: {e}")),
         Err(_) => {
             // 子を止めれば、待っているスレッドも終わる。
+            #[cfg(unix)]
             unsafe {
                 libc::kill(pid as libc::pid_t, libc::SIGKILL);
+            }
+            // Windows には信号が無い。孫まで含めて、プロセスの木ごと止める。
+            #[cfg(not(unix))]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
             }
             Err(format!("設定の同期の命令が {} 秒以内に終わりませんでした。", timeout.as_secs()))
         }
