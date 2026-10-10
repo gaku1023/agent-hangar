@@ -1,4 +1,5 @@
 import { stepKind, stepLine, type StepCell, type ToolCallEvent, type Translate } from '@agent-hangar/shared';
+import { relPath, splitLast } from '../lib/paths.ts';
 import { diffHunk, snippetStart, type DiffHunk } from './diff.ts';
 import { safeHref } from './markdown.ts';
 
@@ -34,16 +35,13 @@ const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
-/** 作業ディレクトリの下のパスは、その中からの相対にして短く見せる。 */
-export function relPath(p: string, cwd: string): string {
-  if (cwd && p.startsWith(cwd.endsWith('/') ? cwd : `${cwd}/`)) return p.slice(cwd.length + (cwd.endsWith('/') ? 0 : 1)) || p;
-  return p;
-}
+/** 作業ディレクトリの下のパスは、その中からの相対にして短く見せる。Windows のパスも読む（lib/paths.ts）。 */
+export { relPath };
 
 const LANG: Record<string, string> = { mjs: 'js', cjs: 'js', mts: 'ts', cts: 'ts', yml: 'yaml', markdown: 'md', zsh: 'sh', bash: 'sh' };
 /** 拡張子から言語名を出す。無ければ空。 */
 function langOf(p: string): string {
-  const base = p.split('/').pop() ?? '';
+  const { base } = splitLast(p);
   const i = base.lastIndexOf('.');
   if (i <= 0) return '';
   const ext = base.slice(i + 1).toLowerCase();

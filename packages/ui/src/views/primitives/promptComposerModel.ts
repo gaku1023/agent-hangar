@@ -1,4 +1,5 @@
 import type { PromptCommandDto, PromptCommandSource, Translate } from '@agent-hangar/shared';
+import { baseName, splitLast } from '../../lib/paths.ts';
 import { quotePath } from '../../runtime/fileDrop.ts';
 
 /** 候補を出すきっかけ。start は、きっかけの記号（/ か @）の位置。 */
@@ -80,18 +81,19 @@ export function composePrompt(body: string, attachments: Attachment[]): string {
 // 置き場は HANGAR_HOME の下の drops だが、UI は HANGAR_HOME を知らない。
 // 場所を決め打ちすると、HANGAR_HOME を変えた環境で札の絵が出なくなるので、親のフォルダが drops かどうかで見る。
 // 当てが外れても、サーバが置き場の外を 404 にし、札が拡張子の印へ替わる。
-const DROPS_MARK = '/drops/';
+// Windows のパス（`C:\…\drops\名前`）も、同じく親のフォルダで見る。
 /** 置き場のファイルらしければ、その名前（GET /api/drops/:name に渡す）。親が drops でないものや、さらに下のフォルダは null。 */
 export function dropFileName(path: string): string | null {
-  const i = path.lastIndexOf(DROPS_MARK);
-  if (i < 0) return null;
-  const rest = path.slice(i + DROPS_MARK.length);
-  return rest && !rest.includes('/') ? rest : null;
+  const { dir, base } = splitLast(path);
+  if (!base) return null;
+  const parent = splitLast(dir.slice(0, -1));
+  // 親の手前にも区切りがあること（`drops/名前` のような相対の形は数えない）。
+  return parent.base === 'drops' && parent.dir !== '' ? base : null;
 }
 
 /** 殻から届いたパスを添付にする。置き場の名前の頭（時刻と連番）は、札に出す名前から落とす。 */
 export function attachmentFromPath(path: string): Attachment {
-  const base = path.replace(/\/+$/, '').split('/').pop() ?? path;
+  const base = baseName(path);
   const name = dropFileName(path) ? base.replace(/^\d+-\d+-/, '') : base;
   return { path, name: name || base, size: null };
 }

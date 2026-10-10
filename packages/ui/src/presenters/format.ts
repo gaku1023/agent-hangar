@@ -81,13 +81,25 @@ export function indexProgressLabel(t: Translate, idx: IndexProgressDto): string 
   return t(idx.phase === 'rebuilding' ? 'common.index.rebuilding' : 'common.index.indexing', { done: idx.done, total: idx.total });
 }
 
+/** ドライブ、UNC、~ のどれかで始まり、区切りの後ろに名前が 4 つ以上続く Windows のパス。区切りは \ と / の両方を読む。 */
+const WINDOWS_PATH = /(^|[\s='"(])((?:[A-Za-z]:|\\|~)(?:[\\/][^\s\\/'"=;:&|()]+){4,})/g;
+const lastSepIndex = (p: string): number => Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/'));
+
 /**
  * 文の中の長い絶対パスを、末尾の 2 階層だけにする（`/Users/a/work/app/src/rows.css` → `…/src/rows.css`）。
  * 1 行しか無い場所（ホームの実行中の札の帯）で使う。頭から出すと、どの行も同じ頭で始まり、違いのある末尾が省略で消えるからである。
  * 4 階層より浅いパスは、そのままでも短いので触らない。
+ * Windows のパス（`C:\…`、`\\server\…`、`~\…`）も同じに縮め、元の区切りで書く。
+ * Windows の形を先に縮め、`/` だけのパスは、これまでと同じ規則で縮める。
  */
 export function shortenPaths(text: string): string {
-  return text.replace(/(^|[\s='"(:])(~?(?:\/[^\s\/'"=;:&|()]+){4,})/g, (_m, lead: string, p: string) => `${lead}…/${p.split('/').slice(-2).join('/')}`);
+  return text
+    .replace(WINDOWS_PATH, (m, lead: string, p: string) => {
+      if (!p.includes('\\')) return m;
+      const sep = p[lastSepIndex(p)]!;
+      return `${lead}…${sep}${p.split(/[\\/]/).slice(-2).join(sep)}`;
+    })
+    .replace(/(^|[\s='"(:])(~?(?:\/[^\s\/'"=;:&|()]+){4,})/g, (_m, lead: string, p: string) => `${lead}…/${p.split('/').slice(-2).join('/')}`);
 }
 
 /** 使用率の表示。値が無いときは「未取得」にする。 */

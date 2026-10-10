@@ -9,6 +9,7 @@ import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { isMacClient, keyLabel } from '../keys.ts';
+import { baseName, joinPath } from '../lib/paths.ts';
 import { Listbox } from './primitives/Listbox.tsx';
 import type { ListboxAction, ListboxOption } from './primitives/listboxModel.ts';
 import { CheckCard } from './primitives/OptionCard.tsx';
@@ -63,7 +64,8 @@ export function NewSessionDialog(props: NewSessionProps) {
   const dirPath = isDir(choice) ? choice.slice(DIR.length) : null;
   // 未登録の一覧に載っているのはプロジェクトの親フォルダ直下のフォルダだけなので、載っていなければ外か深い階層である。
   const outside = dirPath !== null && !props.dirs.some((d) => d.path === dirPath);
-  const root = props.workspaceRoot ?? '~/workspace';
+  // 親フォルダが届く前の仮の場所。区切りは画面の OS に合わせる。
+  const root = props.workspaceRoot ?? joinPath('~', 'workspace');
   const title = newDir ? t('newSession.title.newDir') : dirPath ? t('newSession.title.dir') : t('newSession.title.default');
   // 新しいフォルダの名前と git init。名前は「『語』を新しいフォルダとして作る」で選んだときの語を入れる。
   const [newName, setNewName] = useState('');
@@ -198,8 +200,8 @@ export function NewSessionDialog(props: NewSessionProps) {
     { value: SCRATCH, label: t('newSession.project.quick'), sub: t('newSession.project.quickSub'), subKind: 'prose', icon: 'scratch' },
     ...props.projects.map((p) => ({ value: p.id, label: p.name, sub: p.path ?? undefined, meta: p.lastActivity || undefined, status: p.status })),
     ...props.dirs.map((d) => ({ value: DIR + d.path, label: d.name, sub: d.path, icon: 'folder' as const, tag: t('newSession.project.unregistered'), searchOnly: true })),
-    ...(extraDir ? [{ value: DIR + extraDir, label: extraDir.split('/').pop() || extraDir, sub: extraDir, icon: 'folder' as const, hidden: true }] : []),
-    { value: NEW_DIR, label: newName.trim() || t('newSession.project.newFolderChip'), faceSub: t('newSession.project.newFolderPath', { path: `${root}/${newName.trim()}` }), icon: 'folderPlus', hidden: true },
+    ...(extraDir ? [{ value: DIR + extraDir, label: baseName(extraDir), sub: extraDir, icon: 'folder' as const, hidden: true }] : []),
+    { value: NEW_DIR, label: newName.trim() || t('newSession.project.newFolderChip'), faceSub: t('newSession.project.newFolderPath', { path: joinPath(root, newName.trim()) }), icon: 'folderPlus', hidden: true },
   ];
   // 作れない名前。APFS は大文字小文字を区別しないので、小文字で比べる。
   const names = new Set([...props.takenNames, ...props.projects.map((p) => p.name), ...props.dirs.map((d) => d.name)].map((n) => n.toLowerCase()));
@@ -207,7 +209,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const actions = (q: string): ListboxAction[] => {
     const word = q.trim();
     const first: ListboxAction = word && !taken(word)
-      ? { value: 'new', label: t('newSession.project.newFolderNamed', { name: word }), sub: `${root}/${word}`, icon: 'folderPlus' }
+      ? { value: 'new', label: t('newSession.project.newFolderNamed', { name: word }), sub: joinPath(root, word), icon: 'folderPlus' }
       : { value: 'new', label: t('newSession.project.newFolder'), icon: 'folderPlus' };
     return props.desktop ? [first, { value: 'finder', label: t('newSession.project.other'), sub: t(isMacClient() ? 'newSession.project.otherPickerMac' : 'newSession.project.otherPickerWindows'), icon: 'folderOpen' }] : [first];
   };
@@ -285,7 +287,7 @@ export function NewSessionDialog(props: NewSessionProps) {
           <label className="field" htmlFor="new-session-dir-name">{t('newSession.newDir.nameLabel')}
             <input id="new-session-dir-name" className="input mono" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t('newSession.newDir.namePlaceholder')} />
           </label>
-          <div className="faint">{t('newSession.newDir.note', { path: `${root}/${newName.trim()}` })}</div>
+          <div className="faint">{t('newSession.newDir.note', { path: joinPath(root, newName.trim()) })}</div>
           <CheckCard label={t('newSession.newDir.gitInit')} description={t('newSession.newDir.gitInitNote')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
         </>
       )}

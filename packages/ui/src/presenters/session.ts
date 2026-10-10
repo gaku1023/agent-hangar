@@ -1,4 +1,5 @@
 import { asideOf } from '../lib/aside.ts';
+import { baseName, splitLast } from '../lib/paths.ts';
 import { type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type StepCell, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
@@ -127,7 +128,7 @@ export function localCommandText(text: string, t: Translate): string | null {
   if (head.startsWith('<local-command-caveat>')) return null;
   // スキルを読み込むと、その本文がまるごと記録に入る。ターミナルは 1 行しか出さないので、ここも名前だけにする。
   const skill = /^Base directory for this skill: (\S+)/.exec(head);
-  if (skill) return t('session.transcript.skillLoaded', { name: skill[1]!.split('/').filter(Boolean).pop() ?? '' });
+  if (skill) return t('session.transcript.skillLoaded', { name: baseName(skill[1]!) });
   const name = tagText(head, 'command-name');
   if (name !== null) {
     const args = tagText(head, 'command-args') ?? '';
@@ -258,9 +259,7 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
     if (!path) continue;
     let f = files.get(path);
     if (!f) {
-      const rel = relPath(path, cwd);
-      const cut = rel.lastIndexOf('/') + 1;
-      f = { path, dir: rel.slice(0, cut), base: rel.slice(cut), added: 0, removed: 0, created: false };
+      f = { path, ...splitLast(relPath(path, cwd)), added: 0, removed: 0, created: false };
       files.set(path, f);
     }
     const view = toolView(e, results.get(e.toolId) ?? null, cwd, t);
@@ -328,7 +327,7 @@ function prLabel(url: string, t: Translate): string {
 function leadFiles(i: LeadInput, t: Translate): LeadCardProps['files'] {
   const cwd = i.session.cwd;
   const byPath = new Map(i.windowFiles.map((f) => [f.path, f]));
-  const split = (path: string) => { const rel = relPath(path, cwd); const cut = rel.lastIndexOf('/') + 1; return { dir: rel.slice(0, cut), base: rel.slice(cut) }; };
+  const split = (path: string) => splitLast(relPath(path, cwd));
   const row = (path: string, edits: number | null, agentId: string | null): LeadFileRow => {
     const w = byPath.get(path);
     return { path, ...split(path), created: w?.created ?? false, added: w ? w.added : null, removed: w ? w.removed : null, edits: edits === null ? '' : t('session.files.edits', { n: edits }), byAgent: agentId === null ? null : t('session.files.byAgent', { id: agentId }), openLabel: t('session.files.open', { path }) };

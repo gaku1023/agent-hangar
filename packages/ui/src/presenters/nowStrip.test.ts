@@ -130,6 +130,14 @@ describe('現在の帯のツール呼び出し（2 行目の中）', () => {
     ]);
     expect(s.stepsAll.map((x) => x.name)).toEqual(['Read', 'Edit', 'Grep', 'Bash', 'Bash']);
   });
+  it('Windows のパスのファイルも、名前だけを引数に出す', () => {
+    seq = 0;
+    const turn = prompt('x');
+    const e1 = call('Edit', { file_path: 'C:\\w\\app\\src\\フォーム.test.ts' }); const r1 = res(e1);
+    const e2 = call('Read', { file_path: '\\\\server\\share\\notes\\a.md' }); const r2 = res(e2);
+    const s = present({ events: [turn, e1, r1, e2, r2], turnFrom: turn.seq, live: 'idle' });
+    expect(s.steps.map((x) => x.arg)).toEqual(['フォーム.test.ts', 'a.md']);
+  });
   it('結果の無い最後の呼び出しは、作業中なら「いま」、入力待ちなら「入力待ち」、失敗した呼び出しは「失敗」', () => {
     seq = 0;
     const r1 = call('Read', { file_path: '/w/a.ts' });

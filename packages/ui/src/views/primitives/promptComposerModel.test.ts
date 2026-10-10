@@ -125,6 +125,17 @@ describe('添付の小さな関数', () => {
     expect(dropFileName('/x/drops/sub/a.png')).toBeNull();
     expect(dropFileName('/x/dropsy/a.png')).toBeNull();
   });
+  it('dropFileName は、Windows のパスでも親のフォルダが drops なら名前を返す', () => {
+    expect(dropFileName('C:\\Users\\a\\.agent-hangar\\drops\\1700-0-画面.png')).toBe('1700-0-画面.png');
+    expect(dropFileName('C:\\Users\\a\\.agent-hangar\\drops\\sub\\x.png')).toBeNull();
+    expect(dropFileName('C:\\Users\\a\\Desktop\\画面.png')).toBeNull();
+    expect(dropFileName('C:\\x\\dropsy\\a.png')).toBeNull();
+  });
+  it('attachmentFromPath は、Windows のパスでも最後の名前を札にする', () => {
+    expect(attachmentFromPath('C:\\Users\\a\\.agent-hangar\\drops\\1700-0-画面_1.png')).toEqual({ path: 'C:\\Users\\a\\.agent-hangar\\drops\\1700-0-画面_1.png', name: '画面_1.png', size: null });
+    expect(attachmentFromPath('C:\\Users\\a\\work\\proj\\')).toEqual({ path: 'C:\\Users\\a\\work\\proj\\', name: 'proj', size: null });
+    expect(attachmentFromPath('\\\\server\\share\\資料')).toEqual({ path: '\\\\server\\share\\資料', name: '資料', size: null });
+  });
   it('attachmentFromPath は、置き場の接頭辞（時刻と連番）を名前から落とす', () => {
     expect(attachmentFromPath('/Users/a/.agent-hangar/drops/1700-0-画面_1.png')).toEqual({ path: '/Users/a/.agent-hangar/drops/1700-0-画面_1.png', name: '画面_1.png', size: null });
     expect(attachmentFromPath('/Users/a/work/proj')).toEqual({ path: '/Users/a/work/proj', name: 'proj', size: null });

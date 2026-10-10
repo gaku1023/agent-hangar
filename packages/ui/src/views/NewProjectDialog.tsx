@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
+import { baseName, isRootPath, joinPath } from '../lib/paths.ts';
 import type { NewProjectProps } from '../presenters/newProject.ts';
 import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';
@@ -11,7 +12,8 @@ import { CheckCard } from './primitives/OptionCard.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 
 type Mode = 'newDir' | 'dir';
-const baseName = (p: string) => p.replace(/\/+$/, '').split('/').pop() ?? '';
+/** 選んだフォルダの名前。根だけのパス（`/`、`C:\`）は名前を持たないので空にする。 */
+const folderName = (p: string) => (isRootPath(p) ? '' : baseName(p));
 
 /**
  * プロジェクト画面の作成のダイアログ。新しいフォルダを作るか、既存のフォルダを登録する。
@@ -37,7 +39,7 @@ export function NewProjectDialog(props: NewProjectProps) {
 
   const choosePath = (p: string) => {
     setPath(p);
-    if (!nameTouched) setName(baseName(p));
+    if (!nameTouched) setName(folderName(p));
   };
   useEffect(() => {
     const p = props.picked;
@@ -79,7 +81,8 @@ export function NewProjectDialog(props: NewProjectProps) {
     // Enter は行を選ぶだけで、送信はしない。
     else if (e.key === 'Enter') { e.preventDefault(); if (current >= 0) choosePath(shown[current]!.path); }
   };
-  const root = props.workspaceRoot ?? '~/workspace';
+  // 親フォルダが届く前の仮の場所。区切りは画面の OS に合わせる。
+  const root = props.workspaceRoot ?? joinPath('~', 'workspace');
   const close = () => emit({ type: 'overlay.close' });
   // 名前を打ちかけたまま背景を押し違えても失わないよう、背景では閉じない。
   return (
@@ -102,7 +105,7 @@ export function NewProjectDialog(props: NewProjectProps) {
           <label className="field" htmlFor="new-project-name">{t('newProject.field.name')}
             <input id="new-project-name" className="input mono" data-autofocus value={name} placeholder={t('newProject.field.namePlaceholder')} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} onKeyDown={onEnter} />
           </label>
-          <div className="faint">{t('newProject.name.willCreate', { path: `${root}/${name.trim()}` })}</div>
+          <div className="faint">{t('newProject.name.willCreate', { path: joinPath(root, name.trim()) })}</div>
           <CheckCard label={t('newProject.gitInit.label')} description={t('newProject.gitInit.description')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
         </>
       ) : (

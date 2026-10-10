@@ -245,4 +245,10 @@ describe('placeOutside', () => {
   it('パスが無ければ null', () => {
     expect(placeOutside(null, '/Users/a/workspace')).toBeNull();
   });
+  it('Windows のパスは、区切りの違いと大文字小文字を同じとみなして下にあるかを見る', () => {
+    expect(placeOutside('C:\\Users\\a\\workspace\\agent-hangar', 'C:\\Users\\a\\workspace')).toBeNull();
+    expect(placeOutside('c:\\users\\a\\workspace\\作業', 'C:\\Users\\a\\workspace\\')).toBeNull();
+    expect(placeOutside('C:\\Users\\a\\workspace2\\x', 'C:\\Users\\a\\workspace')).toBe('C:\\Users\\a\\workspace2\\x');
+    expect(placeOutside('D:\\tools\\x', 'C:\\Users\\a\\workspace')).toBe('D:\\tools\\x');
+  });
 });

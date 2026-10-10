@@ -53,15 +53,17 @@ export function resolveDrop(dir: string, name: string): string | null {
  */
 export function promptMentionsDrops(prompt: string | undefined, dropsDir: string): boolean {
   if (!prompt) return false;
-  const prefix = `${dropsDir}/`;
+  // Windows の置き場（\ を含む）では、\ と / のどちらも区切りである。
+  // macOS と Linux では \ は名前に使える字なので区切りにしない。
+  const seps = dropsDir.includes('\\') ? ['\\', '/'] : ['/'];
   for (const raw of prompt.split(/\r?\n/)) {
     let line = raw.trim();
     // 引用符で包んだ行は、空白を含んでよい。包んでいない行は、空白が出たらそこから先は文なので数えない。
     const quoted = line.length >= 2 && line.startsWith("'") && line.endsWith("'");
     if (quoted) line = line.slice(1, -1);
-    if (!line.startsWith(prefix)) continue;
-    const name = line.slice(prefix.length);
-    if (name !== '' && !name.includes('/') && (quoted || !/\s/.test(name))) return true;
+    if (!line.startsWith(dropsDir) || !seps.includes(line[dropsDir.length] ?? '')) continue;
+    const name = line.slice(dropsDir.length + 1);
+    if (name !== '' && !seps.some((s) => name.includes(s)) && (quoted || !/\s/.test(name))) return true;
   }
   return false;
 }

@@ -23,6 +23,10 @@ describe('rankFiles', () => {
   it('区切りを含む問いは、パス全体で探す', () => {
     expect(rankFiles(files, 'views/dia', 10)).toEqual(['src/views/Dialog.tsx']);
   });
+  it('Windows で打った \\ の区切りも / と同じに読む（候補は / で返す）', () => {
+    expect(rankFiles(files, 'views\\dia', 10)).toEqual(['src/views/Dialog.tsx']);
+    expect(rankFiles(files, 'src\\a\\b', 10)).toEqual(['src/a/b/c/dialog.test.ts']);
+  });
 });
 
 describe('listProjectFiles', () => {

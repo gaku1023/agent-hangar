@@ -1,4 +1,5 @@
 import type { RetentionPreviewLine, RetentionUsageDto, Translate } from '@agent-hangar/shared';
+import { withTrailingSep } from '../lib/paths.ts';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { translatorOf } from './i18n.ts';
@@ -47,7 +48,7 @@ export function presentRetentionDialog(state: State, store: Store, now: number):
     path: p?.path ?? '',
     lines: p?.lines ?? null,
     bar: usageBar(store.retention?.usage ?? null, p?.projectedBytes ?? null, o.days, t),
-    backupDir: p ? `${p.backupDir}/` : '',
+    backupDir: p ? withTrailingSep(p.backupDir) : '',
     otherPcs: store.configSync?.enabled === true,
     shrinkNote: lost > 0 ? t('retentionDialog.notice.shrink', { n: lost }) : null,
     reloaded: o.reloaded,

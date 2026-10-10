@@ -343,6 +343,18 @@ describe('NewProjectDialog', () => {
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
     expect(screen.queryByRole('button', { name: 'ほかの場所を選択…' })).toBeNull();
   });
+  it('Windows の親フォルダなら、作る場所を \\ でつないで見せる', () => {
+    collect({ workspaceRoot: 'C:\\Users\\me\\workspace' });
+    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: '価格' } });
+    expect(screen.getByText('C:\\Users\\me\\workspace\\価格 を作成します')).toBeInTheDocument();
+  });
+  it('エクスプローラーで選んだ Windows のフォルダは、最後の名前を名前の欄に入れる', () => {
+    const { out, view } = collect();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewProjectDialog {...base} picked={{ path: 'C:\\Users\\me\\論文\\', n: 1 }} /></ActionRoot>);
+    expect(screen.getByLabelText('フォルダのパス')).toHaveValue('C:\\Users\\me\\論文\\');
+    expect(screen.getByLabelText('プロジェクト名')).toHaveValue('論文');
+  });
   it('送信中は両方のボタンを押せず、失敗の文言を出し、背景では閉じない', () => {
     const { out, view } = collect({ submitting: true, error: '/w/price-watcher は既にあります' });
     expect(screen.getByRole('button', { name: '作成' })).toBeDisabled();

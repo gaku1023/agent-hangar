@@ -93,6 +93,15 @@ describe('promptMentionsDrops', () => {
     expect(promptMentionsDrops(`見て ${D}/a.png`, D)).toBe(false);
     expect(promptMentionsDrops(`見て '${D}/a.png' を`, D)).toBe(false);
   });
+  it('置き場が Windows のパスなら、\\ の区切りの行を数え、サブフォルダは数えない', () => {
+    const W = 'C:\\Users\\u\\.agent-hangar\\drops';
+    expect(promptMentionsDrops(`見て\n\n${W}\\1000-0-a.png`, W)).toBe(true);
+    expect(promptMentionsDrops(`見て\n\n'${W}\\1000-0-画面 1.png'`, W)).toBe(true);
+    expect(promptMentionsDrops(`${W}\\sub\\a.png`, W)).toBe(false);
+    expect(promptMentionsDrops(`${W}\\sub/a.png`, W)).toBe(false);
+    expect(promptMentionsDrops(`${W}-old\\a.png`, W)).toBe(false);
+    expect(promptMentionsDrops(`${W}\\`, W)).toBe(false);
+  });
   it('Windows 形式と相対パスは false', () => {
     expect(promptMentionsDrops('C:\\Users\\u\\.agent-hangar\\drops\\a.png', D)).toBe(false);
     expect(promptMentionsDrops('drops/a.png', D)).toBe(false);

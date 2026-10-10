@@ -1,4 +1,5 @@
 import { isReturnOn, isReturnTime, overdueDays, returnPastMinutes, type ProjectStatus, type SessionDto } from '@agent-hangar/shared';
+import { isUnder } from '../lib/paths.ts';
 import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, runningSessionIds, type Store } from '../store/store.ts';
 import { relativeTime, STATUS_LABEL } from './format.ts';
@@ -60,12 +61,12 @@ export function liveCountsOf(store: Store, projectId: string, alive: Set<string>
  * 親フォルダの外にあるときのパス。下にあるものは null（直下でも深くても、場所は出さない）。
  * 親フォルダがまだ分からないとき（設定が届く前）は、下にあるかを言えないので、パスをそのまま返す。
  * フォルダ名は NFD で届くことがあるので、比べるときは NFC にそろえる。
+ * Windows のパスは、区切りの違いと大文字小文字を同じとみなす（lib/paths.ts の isUnder）。
  */
 export function placeOutside(path: string | null, workspaceRoot: string): string | null {
   if (path === null) return null;
-  const root = workspaceRoot.replace(/\/+$/, '').normalize('NFC');
-  if (root === '') return path;
-  return path.normalize('NFC').startsWith(`${root}/`) ? null : path;
+  if (workspaceRoot === '') return path;
+  return isUnder(path.normalize('NFC'), workspaceRoot.normalize('NFC')) ? null : path;
 }
 
 /**
