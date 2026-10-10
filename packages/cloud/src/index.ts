@@ -6,6 +6,7 @@ import { compatMiddleware, MIN_DEVICE_COMPAT } from './compat.ts';
 import type { AppType, Env, Vars } from './env.ts';
 import { filesApp } from './files.ts';
 import { joinHandler } from './join.ts';
+import { d1LimitOfError, limitBody } from './limits.ts';
 import { ensureSchema } from './schema.ts';
 import { collectUsage } from './usage.ts';
 import { VERSION } from './util.ts';
@@ -62,8 +63,14 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
    * D1 と R2 の文言には表と列と束縛の様子が出るので、そのまま返すと内側の作りを教えてしまう。
    * 詳しい内容は記録にだけ残す。記録に載るのは方式と経路と例外の名前と 1 行目で、
    * 参加用の秘密も端末トークンも本文も問い合わせ文字列も載せない。
+   * D1 の 1 日の上限に当たった失敗だけは、待てば通るので 429 で返す（limits.ts）。
    */
   app.onError((e, c) => {
+    const limit = d1LimitOfError(e);
+    if (limit) {
+      console.error('worker limit', c.req.method, new URL(c.req.url).pathname, limit);
+      return c.json(limitBody(limit, Date.now()), 429);
+    }
     const name = e instanceof Error ? e.name : typeof e;
     const line = (e instanceof Error ? e.message : '').split('\n')[0]!.trim().slice(0, MAX_LOG_LEN);
     console.error('worker error', c.req.method, new URL(c.req.url).pathname, name, line);
