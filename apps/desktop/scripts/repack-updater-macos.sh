@@ -43,13 +43,13 @@ ROOT="$(cd "$DESKTOP/../.." && pwd -P)"
 if [ "$MODE" = pack ]; then
   [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || { echo "更新の署名鍵（TAURI_SIGNING_PRIVATE_KEY）が無い。署名の無い更新物は置かない" >&2; exit 1; }
   TAURI="$ROOT/node_modules/.bin/tauri"
-  [ -x "$TAURI" ] || { echo "tauri の CLI が無い: $TAURI（npm ci を先に）" >&2; exit 1; }
+  [ -x "$TAURI" ] || { echo "tauri の CLI が無い: ${TAURI}（npm ci を先に）" >&2; exit 1; }
   rm -f "$TARGZ" "$TARGZ.sig"
   # COPYFILE_DISABLE と --no-mac-metadata で、拡張属性を ._ のファイルとして入れない。
   COPYFILE_DISABLE=1 tar --no-mac-metadata -czf "$TARGZ" -C "$DIR" "$NAME"
   "$TAURI" signer sign "$TARGZ" >/dev/null
   [ -s "$TARGZ.sig" ] || { echo "更新の署名（.sig）ができていない: $TARGZ.sig" >&2; exit 1; }
-  echo "更新物を、署名済みの .app から作り直した: $TARGZ（と .sig）"
+  echo "更新物を、署名済みの .app から作り直した: ${TARGZ}（と .sig）"
   exit 0
 fi
 
@@ -69,7 +69,7 @@ WANT_ID="$(ident "$APP")"; GOT_ID="$(ident "$GOT_APP")"
 WANT_DR="$(dr "$APP")"; GOT_DR="$(dr "$GOT_APP")"
 [ -n "$WANT_ID" ] || { echo "元の .app に署名の識別子が無い: $APP" >&2; exit 1; }
 if [ "$GOT_ID" != "$WANT_ID" ]; then
-  echo "更新物の .app の識別子が元と違う（元 $WANT_ID、更新物 ${GOT_ID:-無し}）。署名の前の .app から詰めていないか" >&2; exit 1
+  echo "更新物の .app の識別子が元と違う（元 ${WANT_ID}、更新物 ${GOT_ID:-無し}）。署名の前の .app から詰めていないか" >&2; exit 1
 fi
 if [ "$GOT_DR" != "$WANT_DR" ]; then
   printf '更新物の .app の DR が元と違う\n元: %s\n更新物: %s\n' "$WANT_DR" "${GOT_DR:-無し}" >&2; exit 1
@@ -83,9 +83,9 @@ if [ -n "$EXPECT_SIGNED" ]; then
   FP_FILE="${HANGAR_SIGN_FINGERPRINT_FILE:-$DESKTOP/signing/certificate-sha1.txt}"
   FP="$(grep -v '^[[:space:]]*#' "$FP_FILE" 2>/dev/null | tr -d ' \t:\r' | grep -v '^$' | head -n 1 | tr 'A-F' 'a-f' || true)"
   [ -n "$FP" ] || { echo "期待する指紋が $FP_FILE に無い" >&2; exit 1; }
-  [ "$GOT_ID" = "$CONF_ID" ] || { echo "更新物の .app の識別子が $CONF_ID でない（$GOT_ID）" >&2; exit 1; }
+  [ "$GOT_ID" = "$CONF_ID" ] || { echo "更新物の .app の識別子が $CONF_ID でない（${GOT_ID}）" >&2; exit 1; }
   WANT_CERT_DR="designated => certificate leaf = H\"$FP\""
-  [ "$GOT_DR" = "$WANT_CERT_DR" ] || { echo "更新物の .app の DR が証明書の指紋で縛られていない（期待 $WANT_CERT_DR、更新物 ${GOT_DR:-無し}）" >&2; exit 1; }
+  [ "$GOT_DR" = "$WANT_CERT_DR" ] || { echo "更新物の .app の DR が証明書の指紋で縛られていない（期待 ${WANT_CERT_DR}、更新物 ${GOT_DR:-無し}）" >&2; exit 1; }
 fi
 
 echo "更新物の .app の署名は保たれている"

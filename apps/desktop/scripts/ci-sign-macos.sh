@@ -98,7 +98,7 @@ if ! "$OSSL" pkcs12 -in "$TMP/sign.p12" -nokeys -clcerts -passin env:HANGAR_SIGN
 fi
 GOT="$(sha1_of -in "$TMP/cert.pem")"
 if [ "$GOT" != "$EXPECTED" ]; then
-  echo "p12 の証明書の指紋がリポジトリの値と違う（期待 $EXPECTED、p12 $GOT）。署名しない" >&2
+  echo "p12 の証明書の指紋がリポジトリの値と違う（期待 ${EXPECTED}、p12 ${GOT}）。署名しない" >&2
   exit 1
 fi
 echo "p12 の証明書の指紋はリポジトリの値と一致した: $EXPECTED"
@@ -134,7 +134,7 @@ codesign -d --extract-certificates="$TMP/signed-" "$APP" >/dev/null 2>&1
 [ -f "$TMP/signed-0" ] || { echo "署名から証明書を取り出せない: $APP" >&2; exit 1; }
 SIGNED="$(sha1_of -inform DER -in "$TMP/signed-0")"
 if [ "$SIGNED" != "$EXPECTED" ]; then
-  echo "署名に入った証明書の指紋がリポジトリの値と違う（期待 $EXPECTED、署名 $SIGNED）" >&2
+  echo "署名に入った証明書の指紋がリポジトリの値と違う（期待 ${EXPECTED}、署名 ${SIGNED}）" >&2
   exit 1
 fi
 echo "署名に入った証明書の指紋はリポジトリの値と一致した: $SIGNED"
