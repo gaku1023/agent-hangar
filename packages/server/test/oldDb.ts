@@ -27,11 +27,16 @@ function history(): Migration[] {
 export function seedDbAt(file: string, version: number, seed?: (db: Db) => void): void {
   const db = new Database(file);
   try {
+    // 1 本ごとに確定すると、DB を作るたびに数十回の fsync とジャーナルの作り消しが走る。Windows の CI では、混んだディスクでそれが数秒から数十秒かかった。
+    // 試験の DB は落ちても失って困らないので、fsync を省き、全部を 1 つのトランザクションで当てる。
+    db.pragma('synchronous = OFF');
     db.exec('create table if not exists schema_migrations (version integer primary key, applied_at integer not null)');
-    for (const m of history().filter((m) => m.version <= version)) {
-      db.exec(m.sql);
-      db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
-    }
+    db.transaction(() => {
+      for (const m of history().filter((m) => m.version <= version)) {
+        db.exec(m.sql);
+        db.prepare('insert into schema_migrations (version, applied_at) values (?, ?)').run(m.version, 1);
+      }
+    })();
     seed?.(db);
   } finally {
     db.close();
