@@ -1,9 +1,9 @@
 /**
  * 設定の画面で開く先。
- * 節の名前（general、cloud、integrations、summary、tools、info）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
+ * 節の名前（general、cloud、integrations、summary、tools、update、info）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
  * `sync` は、ヘッダーの同期の語が使うクラウド同期の節の別名、`unsent` はその節の「送らなかった項目」の行（ベルの一覧から開く）、`accounts` は連携の節のアカウントの位置である。
  */
-export const SETTINGS_SECTIONS = ['general', 'cloud', 'integrations', 'summary', 'tools', 'info'] as const;
+export const SETTINGS_SECTIONS = ['general', 'cloud', 'integrations', 'summary', 'tools', 'update', 'info'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export type SettingsAt = SettingsSection | 'accounts' | 'sync' | 'unsent';
 const SETTINGS_AT: readonly string[] = [...SETTINGS_SECTIONS, 'accounts', 'sync', 'unsent'];

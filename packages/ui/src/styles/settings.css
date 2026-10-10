@@ -11,10 +11,12 @@
 .settings-toc-t { font-weight: 600; white-space: nowrap; }
 .settings-toc-s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
 .settings-toc-s[data-tone='warn'] { color: var(--st-paused); font-weight: 600; }
-/* 目次を縦に置く幅が無い窓では、頁の上に 3 列 2 段で並べる。目次は消さない（節を切り替える道は目次だけである）。 */
+/* 目次を縦に置く幅が無い窓では、頁の上に 3 列 2 段で並べる。目次は消さない（節を切り替える道は目次だけである）。
+   殻の中は「更新」が加わって 7 つになるので、4 列 2 段にする（3 列だと最後の段に 1 つだけ残る）。 */
 @media (max-width: 1000px) {
   .settings-layout { grid-template-columns: minmax(0, 1fr); gap: calc(var(--u) * 3); }
   .settings-toc { position: static; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .settings-toc:has(> :nth-child(7)) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 /* 右に出す節。見出しの右に、状態の札（クラウド同期）か要修正の札を置く。 */
@@ -159,3 +161,5 @@
 .cp-vers { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px calc(var(--u) * 4); margin-top: calc(var(--u) * 2); font-size: var(--fs-sm); color: var(--ink-2); }
 .cp-vers code { font-size: var(--fs-sm); color: var(--ink); }
 .cp-lead { margin-top: calc(var(--u) * 2.5); padding-top: calc(var(--u) * 2.5); border-top: 1px solid var(--line); font-size: var(--fs-sm); color: var(--ink-2); }
+/* 更新の節の取得の進み（棒は右下の札と同じ .update-bar）。 */
+.update-progress { display: block; max-width: 280px; }

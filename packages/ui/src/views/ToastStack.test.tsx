@@ -3,10 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
 import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { UpdateCardProps } from '../presenters/update.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, ...over });
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, ...over });
 function mount(p: ToastsProps) {
   const onAction = vi.fn();
   const r = render(<ActionRoot onAction={onAction}><ToastStack {...p} /></ActionRoot>);
@@ -148,5 +149,39 @@ describe('info と error のトースト', () => {
   it('2 行に収まる error には「詳しく」を出さない', () => {
     mount(props({ toasts: [error('1')] }));
     expect(screen.queryByRole('button', { name: '詳しく' })).toBeNull();
+  });
+});
+
+describe('更新の札', () => {
+  const upd = (over: Partial<UpdateCardProps> = {}): UpdateCardProps => ({
+    kind: 'available', tone: 'info', head: '更新あり', title: 'Hangar 1.5.0 を利用できます', detail: '現在は 1.4.2 です。', progress: null,
+    actions: [{ label: 'ダウンロードしてインストール', action: { type: 'update.download' }, primary: true }, { label: 'あとで', action: { type: 'update.dismiss' }, primary: false }],
+    ...over,
+  });
+  it('見出し、題、説明と操作を出し、押すとその操作を送る', () => {
+    const { onAction } = mount(props({ update: upd() }));
+    const c = document.querySelector<HTMLElement>('.notice[data-kind="update"]')!;
+    expect(c).toHaveAttribute('data-tone', 'info');
+    expect(within(c).getByText('更新あり')).toBeInTheDocument();
+    expect(within(c).getByText('Hangar 1.5.0 を利用できます')).toBeInTheDocument();
+    expect(within(c).getByText('現在は 1.4.2 です。')).toBeInTheDocument();
+    fireEvent.click(within(c).getByRole('button', { name: 'ダウンロードしてインストール' }));
+    fireEvent.click(within(c).getByRole('button', { name: 'あとで' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'update.download' }], [{ type: 'update.dismiss' }]]);
+  });
+  it('取得中は進みの棒と割合を出す', () => {
+    mount(props({ update: upd({ kind: 'downloading', head: 'ダウンロード中', title: 'Hangar 1.5.0', detail: null, progress: { percent: 62, label: '62%' }, actions: [] }) }));
+    const bar = screen.getByRole('progressbar', { name: 'ダウンロードの進み具合' });
+    expect(bar).toHaveAttribute('aria-valuenow', '62');
+    expect(screen.getByText('62%')).toBeInTheDocument();
+  });
+  it('大きさが分からないときの棒は値を持たない', () => {
+    mount(props({ update: upd({ kind: 'downloading', head: 'ダウンロード中', title: 'Hangar 1.5.0', detail: null, progress: { percent: null, label: 'ダウンロードしています…' }, actions: [] }) }));
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+  });
+  it('入力待ちのカードより上（窓の角から遠い側）に積む', () => {
+    mount(props({ update: upd(), waiting: [card('s1')] }));
+    const kinds = [...document.querySelectorAll<HTMLElement>('.toasts .notice')].map((n) => n.dataset.kind);
+    expect(kinds).toEqual(['update', 'waiting']);
   });
 });

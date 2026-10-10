@@ -48,6 +48,11 @@
       "desktop": {
         "schemes": ["hangar"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwNTlBRUYyOEI3ODE2MzIKUldReUZuaUw4cTVaMERoQ21CZHZzSDk3VmtPbmt3SXdENXh0MDVIQUk4emxaTE52RXBVakxYWUIK",
+      "endpoints": ["https://github.com/gaku1023/agent-hangar/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
     }
   }
 }
