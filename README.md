@@ -400,10 +400,23 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
 ## Windows で動かす（開発中）
 
 対象は Windows 11（x64）だけです。
-インストーラはまだ公開していません。
-CI が動作確認のために作る NSIS のインストーラ（署名なし）はありますが、通知とターミナルで打った `claude` の包みがそろうまで、配布はしません。
-公開するときも署名はしないので、SmartScreen が「Windows によって PC が保護されました」と出します。
-そのときは「詳細情報」を押して「実行」を選びます。
+タグを打つと、macOS の zip と同じ Release に Windows のインストーラも添えます。
+最初のタグはまだ打っていないので、それまでは下の「ソースから動かす」か「インストーラを作る」の手順で使ってください。
+
+Windows では、ターミナルで打った `claude` を hangar に載せる包み（macOS の `hangar shell install`）を作りません。
+セッションは Hangar の画面から始めます。
+
+### インストーラで入れる
+
+1. 下の手順で psmux を先に入れます。
+2. Releases から `Hangar-vX.Y.Z-windows-x64-setup.exe` を落とします。
+   checksum を確かめるには、同じ場所の `.sha256` も落とし、PowerShell の `Get-FileHash Hangar-vX.Y.Z-windows-x64-setup.exe` が出す値と比べます（大文字と小文字の違いは無視します）。
+3. インストーラを開きます。
+   署名していないので、SmartScreen が「Windows によって PC が保護されました」と出します。
+   そのときは「詳細情報」を押して「実行」を選びます。
+   管理者権限は要らず、`%LOCALAPPDATA%\Hangar` に入ります。
+4. Node 22 を入れます（公式のインストーラか nvm-windows）。
+   Node は同梱していません。
 
 ### psmux を入れる
 
@@ -436,7 +449,7 @@ winget を使えない PC では、[リリースのページ](https://github.com
    `--ignore-scripts` を付けないと、`better-sqlite3` が C++ のビルドを始めて、ビルドの道具が無い PC では失敗します。ネイティブモジュールは同梱の prebuild で動きます。
 
 止めるときは Ctrl+C です。
-まだ無いものは、通知、ターミナルで打った `claude` を hangar に載せる包み、外のターミナルへの受け渡し、statusline、`hangar open` です。
+まだ無いものは、通知、外のターミナルへの受け渡し、statusline、`hangar open` です。
 
 ### インストーラを作る
 
