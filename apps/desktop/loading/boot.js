@@ -217,3 +217,15 @@ retry.addEventListener('click', () => {
 openLog.addEventListener('click', () => { Promise.resolve(invoke('open_log')).catch(() => {}); });
 copyCommand.addEventListener('click', () => { if (view?.command) copy(view.command, copyCommand, () => view.labels.copyCommand); });
 copyAll.addEventListener('click', () => { if (view) copy(view.copyText, copyAll, () => view.labels.copyAll); });
+
+// 口を作り終えたので、殻に今の様子を問い合わせ、先に起きたことを引き取る（lib.rs の boot_state）。
+// 殻の評価は、この頁の口が出来る前に届くと捨てられる。macOS では読み込みの合図の時点でもまだこの頁が走っておらず、
+// 起動の直後に出た失敗が落ちて、読み込み中のまま止まった。殻は失敗、進み具合、合図を状態として持っている。
+// 口が出来た後に起きたことは、殻がその場で評価して渡すので、問い合わせは一度でよい。
+// 問い合わせが断られても、待っている間の画面のまま続ける。
+Promise.resolve(invoke('boot_state')).then((s) => {
+  if (!s) return;
+  if (s.progress) progress = s.progress;
+  if (s.failure) window.__hangarBootFail(s.failure);
+  else if (s.finishing) finish();
+}).catch(() => {});
