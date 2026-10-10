@@ -12,13 +12,16 @@ describe.skipIf(process.platform !== 'win32')('nodePtySpawn の kill（Windows �
     const r = await new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
       const child = spawn(process.execPath, ['--import', 'tsx', fixture], { cwd: serverDir, windowsHide: true });
       let out = ''; let err = '';
+      const t0 = Date.now();
       child.stdout.on('data', (d: Buffer) => { out += d.toString(); });
-      child.stderr.on('data', (d: Buffer) => { err += d.toString(); });
+      child.stderr.on('data', (d: Buffer) => { err += `[+${Date.now() - t0}ms] ${d.toString()}`; });
       child.on('close', (code) => resolve({ code, out, err }));
     });
-    expect(r.err).not.toContain('AttachConsole');
-    expect(r.err).not.toContain('conpty_console_list_agent');
-    expect(r.out).toContain('a exited');
-    expect(r.code).toBe(0);
+    // 落ちたときは、記録（標準出力）を添える。
+    const why = `stdout:\n${r.out}`;
+    expect(r.err, why).not.toContain('AttachConsole');
+    expect(r.err, why).not.toContain('conpty_console_list_agent');
+    expect(r.out, why).toContain('a exited');
+    expect(r.code, why).toBe(0);
   }, 60_000);
 });
