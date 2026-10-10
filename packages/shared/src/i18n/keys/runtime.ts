@@ -2,6 +2,7 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 export const runtimeKeys = {
   'runtime.notify.blocked': [],
+  'runtime.notify.blockedWindows': [],
   'runtime.notify.denied': [],
   'runtime.notify.returnBody': ['time'],
   'runtime.notify.returnBodyNote': ['time', 'note'],

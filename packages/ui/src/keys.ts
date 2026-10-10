@@ -84,9 +84,21 @@ function hits(c: KeyChord, e: KeyEventLike): boolean {
   return !e.metaKey && !e.ctrlKey && !e.altKey;
 }
 
-/** 画面を開いている PC が macOS か。ブラウザの名乗りから読む。名乗りが無ければ macOS とみなす。 */
+/**
+ * 画面を開いている PC の OS（Node の process.platform の値）。
+ * hangar の画面は、サーバと同じ PC のブラウザか WebView で開くので、ブラウザの名乗りから読む。
+ * 名乗りに Windows があれば win32、Macintosh か Mac OS X があるか名乗りが無ければ darwin、ほか（ブラウザで開いた Linux など）は linux とする。
+ * 打鍵と表示（⌘ か Ctrl か）、tmux の入れ方、通知の案内は、どれもこの 1 つの判定から決める。
+ */
+export function clientPlatform(userAgent: string | undefined = globalThis.navigator?.userAgent): 'darwin' | 'win32' | 'linux' {
+  if (userAgent === undefined) return 'darwin';
+  if (/Windows/.test(userAgent)) return 'win32';
+  return /Macintosh|Mac OS X/.test(userAgent) ? 'darwin' : 'linux';
+}
+
+/** 画面を開いている PC が macOS か。clientPlatform と同じ判定である。 */
 export function isMacClient(userAgent: string | undefined = globalThis.navigator?.userAgent): boolean {
-  return userAgent === undefined || /Macintosh|Mac OS X/.test(userAgent);
+  return clientPlatform(userAgent) === 'darwin';
 }
 
 /** macOS の外での、記号の読み替え。修飾は「名前+」にして、次のキーへつなぐ。 */

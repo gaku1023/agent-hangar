@@ -21,6 +21,9 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
+# 自動更新（src/updater.rs）。目録と公開鍵は tauri.conf.json の plugins.updater にある。
+# 頁からはプラグインの JS の命令を呼ばせず、lib.rs の update_* の 4 つだけを呼ばせる。
+tauri-plugin-updater = "2"
 
 # 信号と setsid は POSIX だけにある。Windows では使わないので、依存ごと外す。
 [target.'cfg(unix)'.dependencies]
@@ -37,6 +40,14 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSError", "NSSet"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationTrigger", "UNNotificationSound", "UNNotificationSettings"] }
+
+# 入力待ちを Windows のトーストで知らせ、押されたトーストからそのセッションへ戻るために使う（src/notify.rs）。
+# tauri-plugin-notification は Windows でも押されたトーストを返さないので、WinRT のトーストと COM の口を直に使う。
+# 版は Tauri（tao、wry）が Windows で既に使っている windows 0.61 に揃える。
+# windows-core は #[implement] が名指しで使うので、直の依存に置く。
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Data_Xml_Dom", "Foundation", "UI_Notifications", "Win32_Foundation", "Win32_System_Com", "Win32_Security", "Win32_System_Registry", "Win32_UI_Notifications"] }
+windows-core = "0.61"
 
 [dev-dependencies]
 tempfile = "3"

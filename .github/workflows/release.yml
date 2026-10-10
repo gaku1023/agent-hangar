@@ -12,6 +12,11 @@ permissions: {}
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
+# 自動更新（段 5-4）の署名鍵（minisign）が secret にあるか。
+# あれば macos と windows のジョブが更新物とその署名（.sig）も作り、updater-manifest ジョブが目録（latest.json）を Release に添える。
+# 無ければ更新物と目録だけを飛ばし、Release そのものは今までどおり作る（失敗にしない）。
+env:
+  HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
 jobs:
   macos:
     runs-on: macos-latest
@@ -55,15 +60,32 @@ jobs:
       - run: npm run build
       # npx は入っていなければ取りに行くので、ここで動く版が package-lock.json の外から来うる。
       # workspace の script を通せば、動くのは npm ci が入れた @tauri-apps/cli だけになる。
+      # 署名鍵があれば、tauri.updater.conf.json を重ねて更新物（Hangar.app.tar.gz）とその署名も作る。
+      # 鍵は Tauri が読む環境変数の名前のまま、このステップにだけ渡す。
       - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
-        run: npm run tauri -- build --target ${{ matrix.target }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ "$HAS_UPDATER_KEY" = true ]; then
+            set -- --config src-tauri/tauri.updater.conf.json
+          else
+            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+            echo "::notice::TAURI_SIGNING_PRIVATE_KEY が無いので、更新物（createUpdaterArtifacts）を作らない"
+          fi
+          npm run tauri -- build --target ${{ matrix.target }} "$@"
         working-directory: apps/desktop
       # 署名も公証もしない。
       # ditto で作った zip は Finder の展開でも .app の属性が保たれる。
-      - name: zip と checksum
+      # 配布物は dmg が主、zip が従（自動更新と予備）。
+      # dmg は tauri の dmg ターゲットでは作らず、ここで出来上がった .app から作る（理由は make-dmg.sh の頭）。
+      - name: dmg と zip と checksum
         run: |
           cd apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos
           name="Hangar-${GITHUB_REF_NAME}-macos-${{ matrix.arch }}"
+          bash "$GITHUB_WORKSPACE/apps/desktop/scripts/make-dmg.sh" Hangar.app "$name.dmg"
+          shasum -a 256 "$name.dmg" > "$name.dmg.sha256"
+          cat "$name.dmg.sha256"
           ditto -c -k --sequesterRsrc --keepParent Hangar.app "$name.zip"
           shasum -a 256 "$name.zip" > "$name.zip.sha256"
           cat "$name.zip.sha256"
@@ -71,11 +93,31 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: |
+            ${{ env.ASSET_DIR }}/*.dmg
+            ${{ env.ASSET_DIR }}/*.dmg.sha256
             ${{ env.ASSET_DIR }}/*.zip
             ${{ env.ASSET_DIR }}/*.zip.sha256
           # 資産が 1 つも付かない Release が黙って公開されるのを防ぐ。
           fail_on_unmatched_files: true
           generate_release_notes: true
+      # 更新物とその署名に Release の資産の名前を付けて artifact に置く。Release へ添えるのは updater-manifest ジョブである。
+      - name: 更新物と署名に名前を付ける
+        if: env.HAS_UPDATER_KEY == 'true'
+        run: |
+          src="apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          out="$RUNNER_TEMP/updater"
+          mkdir -p "$out"
+          name="Hangar-${GITHUB_REF_NAME}-macos-${{ matrix.arch }}.app.tar.gz"
+          cp "$src/Hangar.app.tar.gz" "$out/$name"
+          cp "$src/Hangar.app.tar.gz.sig" "$out/$name.sig"
+          echo "UPDATER_DIR=$out" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v7
+        if: env.HAS_UPDATER_KEY == 'true'
+        with:
+          name: updater-macos-${{ matrix.arch }}
+          path: ${{ env.UPDATER_DIR }}
+          if-no-files-found: error
+          retention-days: 1
   # Windows 11 の x64 だけ。署名はしない（利用者の決定）。
   # 作る手順は ci の windows ジョブと同じ composite action（.github/actions/windows-installer）で、静かに入れて同梱の hangar.cmd が動くところまで見る。
   # npm test は回さない。psmux を相手にする試験は ci の windows ジョブが main の同じコミットで回している。
@@ -106,10 +148,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri
+      # 署名鍵があれば、インストーラと同じ名前の署名（.sig）も作る。Windows の更新物はインストーラそのものである。
       - id: installer
         uses: ./.github/actions/windows-installer
         with:
           target: ${{ matrix.target }}
+          signing-key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          signing-key-password: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       # .sha256 は macOS の zip と同じ「ハッシュ、空白 2 つ、名前」の形にして、shasum -a 256 -c でも確かめられるようにする。
       - name: 名前を付けて checksum を作る
         shell: pwsh
@@ -129,6 +174,26 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}
           path: ${{ env.ASSET_DIR }}
+          if-no-files-found: error
+          retention-days: 1
+      # インストーラの署名に、Release の資産（上で付けた名前）+ .sig の名前を付けて artifact に置く。
+      - name: 更新物の署名に名前を付ける
+        if: env.HAS_UPDATER_KEY == 'true'
+        shell: pwsh
+        env:
+          SIG: ${{ steps.installer.outputs.sig }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          if (-not $env:SIG) { throw '署名鍵があるのに、インストーラの署名（.sig）ができていない' }
+          $out = Join-Path $env:RUNNER_TEMP 'updater'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Path $env:SIG -Destination (Join-Path $out "Hangar-$env:GITHUB_REF_NAME-windows-$env:ARCH-setup.exe.sig")
+          Add-Content -Path $env:GITHUB_ENV -Value "UPDATER_DIR=$out"
+      - uses: actions/upload-artifact@v7
+        if: env.HAS_UPDATER_KEY == 'true'
+        with:
+          name: updater-windows-${{ matrix.arch }}
+          path: ${{ env.UPDATER_DIR }}
           if-no-files-found: error
           retention-days: 1
   # macos ジョブが作った Release に、windows ジョブのインストーラを添える。
@@ -159,3 +224,41 @@ jobs:
             exit 1
           fi
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+  # 自動更新の目録（latest.json）を作り、macOS の更新物と各 OS の署名と一緒に Release に添える。
+  # アプリは tauri.conf.json の endpoints（Release の最新の latest.json）を引くので、目録が付いた時点で新しい版が知らされる。
+  # Windows の更新物はインストーラそのもので、windows-upload が添えたものを指す。だから windows-upload の後に回す。
+  # 署名鍵が無ければ何も作らない（Release は macos と windows-upload が作ったままにする）。
+  updater-manifest:
+    needs: [macos, windows-upload]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - name: 署名鍵が無ければ飛ばす
+        if: env.HAS_UPDATER_KEY != 'true'
+        run: echo "::notice::TAURI_SIGNING_PRIVATE_KEY が無いので、更新の目録（latest.json）を作らない"
+      - uses: actions/checkout@v7
+        if: env.HAS_UPDATER_KEY == 'true'
+      - uses: actions/setup-node@v7
+        if: env.HAS_UPDATER_KEY == 'true'
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v7
+        if: env.HAS_UPDATER_KEY == 'true'
+        with:
+          pattern: updater-*
+          path: updater
+          merge-multiple: true
+      # 目録の形と platform の決め方は apps/desktop/scripts/updater-manifest.ts（試験は apps/desktop/test/updater-manifest.test.ts）。
+      # 目録を最後に添える。先に添えると、更新物がまだ無い版をアプリが知ってしまう。
+      - name: 目録を作り、更新物と署名と目録を Release に添える
+        if: env.HAS_UPDATER_KEY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la updater
+          node --experimental-strip-types --no-warnings apps/desktop/scripts/updater-manifest.ts updater "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/latest.json"
+          cat "$RUNNER_TEMP/latest.json"
+          gh release upload "$GITHUB_REF_NAME" updater/* --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/latest.json" --clobber --repo "$GITHUB_REPOSITORY"

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
 import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
+import type { UpdateCardProps } from '../presenters/update.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 
@@ -10,7 +11,7 @@ export const INFO_TOAST_MS = 4000;
 
 /**
  * 画面右下に積む知らせ。
- * 上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に積む。
+ * 上から error と info のトースト、更新の札、他の PC から届いたプロジェクトの札、並べきれない入力待ちの数、入力待ちのカードの順に積む。
  * トーストは操作の結果だけである。戻る時刻の札、通知の誘い、保持期間の帯、互換の知らせはベルの一覧にある（PR 29）。
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
@@ -22,6 +23,7 @@ export function ToastStack(props: ToastsProps) {
   return (
     <div className="toasts">
       {props.toasts.map((toast) => (toast.level === 'error' ? <ErrorToast key={toast.id} toast={toast} /> : <InfoToast key={toast.id} toast={toast} />))}
+      {props.update && <UpdateCard card={props.update} />}
       {props.arrived && <ArrivedCard count={props.arrived.count} blocked={props.blocked} />}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
       <div className="toast-waiting-list" aria-live="polite">
@@ -77,6 +79,42 @@ function ArrivedCard(props: { count: number; blocked: boolean }) {
           <button type="button" className="btn btn-sm btn-primary" disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'projects.arrived.view' })}>{t('projects.arrived.view')}</button>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'projects.arrived.dismiss' })}>{t('projects.arrived.later')}</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * アプリの更新の札（段 5-4、試作の A2）。新しい版が出たこと、取得の進み、再起動の確認、失敗までを、この 1 枚の中で移す。
+ * 時間では消えず、「あとで」か「閉じる」で下げる（その版の札は 2 度出さない）。取得中とインストール中は操作を持たない。
+ * 画面を移さないので、ダイアログが開いていても押せる。
+ */
+function UpdateCard(props: { card: UpdateCardProps }) {
+  const emit = useEmit();
+  const t = useT();
+  const c = props.card;
+  return (
+    <div className="toast notice" data-kind="update" data-tone={c.tone} role="status">
+      <div className="notice-head">
+        <Icon name={c.tone === 'err' ? 'alert' : c.tone === 'ok' ? 'check' : 'download'} />
+        <span className="notice-label">{c.head}</span>
+      </div>
+      <div className="notice-body">
+        <div className="notice-title">{c.title}</div>
+        {c.progress && (
+          <>
+            <div className="update-bar" role="progressbar" aria-label={t('update.card.progressLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.progress.percent ?? undefined} data-indeterminate={c.progress.percent === null ? 'true' : undefined}>
+              <i style={c.progress.percent === null ? undefined : { width: `${c.progress.percent}%` }} />
+            </div>
+            <div className="notice-sub">{c.progress.label}</div>
+          </>
+        )}
+        {c.detail !== null && <div className="notice-sub">{c.detail}</div>}
+        {c.actions.length > 0 && (
+          <div className="notice-acts">
+            {c.actions.map((a) => <button key={a.label} type="button" className={`btn btn-sm ${a.primary ? 'btn-primary' : 'btn-ghost'}`} onClick={() => emit(a.action)}>{a.label}</button>)}
+          </div>
+        )}
       </div>
     </div>
   );

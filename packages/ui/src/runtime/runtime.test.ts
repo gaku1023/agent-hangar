@@ -579,7 +579,7 @@ describe('起動とターミナル', () => {
   });
   it('ダイアログを開くと未登録の一覧を取り、Finder の結果を持つ', async () => {
     const pickFolder = vi.fn(async () => '/Users/me/thesis');
-    const { rt } = harness({ workspaceDirs: vi.fn(async () => [{ name: 'a', path: '/w/a' }]) }, { desktop: { openLog: vi.fn(), restart: vi.fn(), pickFolder, applyConfigSync: vi.fn(), restoreConfigSync: vi.fn() } });
+    const { rt } = harness({ workspaceDirs: vi.fn(async () => [{ name: 'a', path: '/w/a' }]) }, { desktop: { openLog: vi.fn(), restart: vi.fn(), pickFolder, applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update: noUpdate() } });
     rt.start();
     rt.emit({ type: 'project.new.open' });
     rt.emit({ type: 'folder.pick' });
@@ -1416,6 +1416,18 @@ describe('入力待ちの知らせ', () => {
     // 利用者の選んだ値は書き換えない。OS で許可し直せば、スイッチを入れ直すだけで戻る。
     expect(store.get('notify.waiting')).toBeUndefined();
   });
+  it('Windows では、切られているときの知らせが Windows の設定を指す', async () => {
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' });
+    try {
+      const n = fakeNotifier({ defaultOn: false, granted: false, grant: false, status: 'denied' });
+      const { rt } = await started(n);
+      rt.emit({ type: 'notify.set', on: true });
+      await flush();
+      expect(rt.getState().toasts.at(-1)?.message).toBe('通知が切られています。Windows の設定の「通知」で Hangar を許可してください');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('起動したときに尋ねて断られたときも、受け取らないにする', async () => {
     let answer: NotifyPermission = 'undetermined';
     const n = { ...fakeNotifier({ defaultOn: true }), prepare: vi.fn(async () => { answer = 'denied'; }), status: vi.fn(async () => answer) };
@@ -1831,9 +1843,12 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
   });
 });
 
+/** updater を持たない殻の口（版を答えない）。 */
+const noUpdate = () => ({ status: vi.fn(async () => { throw new Error('not allowed'); }), check: vi.fn(), download: vi.fn(), install: vi.fn() });
+
 describe('殻の操作（ランタイム）', () => {
   it('殻があれば、ログを開くと再起動を殻に頼む', async () => {
-    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn() };
+    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update: noUpdate() };
     const { rt } = harness({}, { desktop });
     rt.start();
     expect(rt.getStore().desktop).toBe(true);
@@ -1843,8 +1858,23 @@ describe('殻の操作（ランタイム）', () => {
     expect(desktop.openLog).toHaveBeenCalled();
     expect(desktop.restart).toHaveBeenCalled();
   });
+  it('殻が updater を持てば、起動したら確認して Store の update に置き、画面の操作を殻に頼む', async () => {
+    const update = { status: vi.fn(async () => ({ current: '1.4.2', done: 0, total: null })), check: vi.fn(async () => ({ version: '1.5.0' })), download: vi.fn(async () => {}), install: vi.fn(async () => {}) };
+    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update };
+    const { rt } = harness({}, { desktop });
+    rt.start();
+    await flush();
+    expect(rt.getStore().update).toMatchObject({ supported: true, current: '1.4.2', phase: { kind: 'available', version: '1.5.0' } });
+    rt.emit({ type: 'update.download' });
+    await flush();
+    expect(update.download).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().update.phase).toEqual({ kind: 'ready', version: '1.5.0' });
+    rt.emit({ type: 'update.install' });
+    await flush();
+    expect(update.install).toHaveBeenCalledTimes(1);
+  });
   it('殻が断ったらトーストで知らせる', async () => {
-    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn() };
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update: noUpdate() };
     const { rt } = harness({}, { desktop });
     rt.start();
     rt.emit({ type: 'shell.openLog' });
@@ -2042,7 +2072,7 @@ describe('アカウント', () => {
 describe('設定の同期（作り直した実装）', () => {
   const cfg = (over: Partial<NonNullable<BootstrapDto['configSync']>> = {}): NonNullable<BootstrapDto['configSync']> => ({ enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null, ...over });
   const shellOutcome = (status: 'applied' | 'restored' | 'cancelled' | 'none' | 'failed' | 'busy', message = 'm') => ({ status, message, generation: null });
-  const desktopOf = (apply: () => Promise<ReturnType<typeof shellOutcome>>, restore: () => Promise<ReturnType<typeof shellOutcome>> = async () => shellOutcome('restored')) => ({ openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(apply), restoreConfigSync: vi.fn(restore) });
+  const desktopOf = (apply: () => Promise<ReturnType<typeof shellOutcome>>, restore: () => Promise<ReturnType<typeof shellOutcome>> = async () => shellOutcome('restored')) => ({ openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(apply), restoreConfigSync: vi.fn(restore), update: noUpdate() });
   const withConfig = (c: NonNullable<BootstrapDto['configSync']>, over: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}) =>
     harness({ bootstrap: vi.fn(async () => ({ ...boot, configSync: c })), ...over }, extra);
   const toasts = (rt: ReturnType<typeof harness>['rt']) => rt.getState().toasts.map((t) => [t.level, t.message]);
@@ -2204,7 +2234,7 @@ describe('ランタイムの文（英語）', () => {
     expect(toasts(rt)).toEqual(['Could not open in iTerm2, so opened in Terminal.app instead']);
   });
   it('殻の操作の失敗は、英語の頭に原因を添える', async () => {
-    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => { throw new Error('busy'); }), pickFolder: vi.fn(async () => { throw new Error('gone'); }), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn() };
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => { throw new Error('busy'); }), pickFolder: vi.fn(async () => { throw new Error('gone'); }), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update: noUpdate() };
     const { rt } = await startedEnglish({}, { desktop });
     rt.emit({ type: 'shell.openLog' });
     rt.emit({ type: 'shell.restart' });
@@ -2213,7 +2243,7 @@ describe('ランタイムの文（英語）', () => {
     expect(toasts(rt)).toEqual(['Could not open the log: denied', 'Could not restart: busy', 'Could not select the folder: gone']);
   });
   it('殻の返事が読めなかったときは、英語の文を知らせる', async () => {
-    const desktop = { openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(async () => ({ status: 'failed' as const, message: null, generation: null })) };
+    const desktop = { openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(async () => ({ status: 'failed' as const, message: null, generation: null })), update: noUpdate() };
     const { rt } = await startedEnglish({}, { desktop });
     rt.emit({ type: 'configSync.restore', name: '20261010-120000' });
     await flush();

@@ -3,6 +3,7 @@ import type { ReadinessDto, SettingsDto, SummarizerTestDto, SyncStatusBody } fro
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
+import { initialUpdate } from '../store/update.ts';
 import { presentSettings, type SettingsTocRow } from './settings.ts';
 
 const NOW = Date.parse('2026-10-09T12:00:00Z');
@@ -24,6 +25,16 @@ describe('設定の目次（S1）', () => {
     const p = present(store());
     expect(p.toc.map((r) => r.id)).toEqual(['general', 'cloud', 'integrations', 'summary', 'tools', 'info']);
     expect(p.toc.map((r) => r.title)).toEqual(['一般', 'クラウド同期', '連携', '要約エンジン', 'ツール', '情報']);
+  });
+  it('殻の中では、ツールと情報のあいだに「更新」が入り、更新の状態を言う', () => {
+    const update = { ...initialUpdate(), supported: true, current: '1.4.2', phase: { kind: 'latest' as const }, checkedAt: NOW };
+    const p = present(store({ desktop: true, update }));
+    expect(p.toc.map((r) => r.id)).toEqual(['general', 'cloud', 'integrations', 'summary', 'tools', 'update', 'info']);
+    expect(row(p.toc, 'update')).toMatchObject({ title: '更新', state: '最新', tone: 'default', label: '更新、最新' });
+    expect(row(present(store({ desktop: true, update: { ...update, phase: { kind: 'ready', version: '1.5.0' } } })).toc, 'update')).toMatchObject({ state: '再起動待ち', tone: 'warn' });
+    expect(row(present(store({ desktop: true, update: { ...update, phase: { kind: 'failed', step: 'download', version: '1.5.0', reason: 'network' } } })).toc, 'update')).toMatchObject({ state: '失敗', tone: 'warn' });
+    // 節の中身は presentUpdateSection が組む。
+    expect(p.update.badge).toEqual({ text: '最新', tone: 'ok' });
   });
   it('どの行も、読み上げの名前に節の名前と今の状態を含む', () => {
     expect(row(present(store()).toc, 'cloud').label).toBe('クラウド同期、同期オフ');
@@ -84,7 +95,7 @@ describe('設定の節の選び方', () => {
   const at = (a: Extract<State['screen'], { name: 'settings' }>['at']) => present(store(), a ? { name: 'settings', at: a } : { name: 'settings' });
   it('URL に節が無ければ「一般」、節の名前ならその節', () => {
     expect(at(undefined).section).toBe('general');
-    for (const s of ['general', 'cloud', 'integrations', 'summary', 'tools', 'info'] as const) expect(at(s).section).toBe(s);
+    for (const s of ['general', 'cloud', 'integrations', 'summary', 'tools', 'update', 'info'] as const) expect(at(s).section).toBe(s);
   });
   it('ヘッダーの同期の語（at=sync）はクラウド同期の節、アカウントの設定（at=accounts）は連携の節を開く', () => {
     expect(at('sync').section).toBe('cloud');

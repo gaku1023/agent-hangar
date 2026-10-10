@@ -2,6 +2,7 @@ import type { runtimeKeys } from '../keys/runtime.ts';
 import type { AreaDictionary } from '../messageSpec.ts';
 
 export const runtimeEn: AreaDictionary<typeof runtimeKeys> = {
+  'runtime.notify.blockedWindows': 'Notifications are turned off. Allow Hangar under Notifications in Windows Settings',
   'runtime.notify.blocked': 'Notifications are turned off. Allow Hangar under Notifications in System Settings',
   'runtime.notify.denied': 'Notifications were not allowed',
   'runtime.notify.returnBody': 'Return time {time} has passed',

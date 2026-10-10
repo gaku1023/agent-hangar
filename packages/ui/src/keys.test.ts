@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { translator } from '@agent-hangar/shared';
-import { bindingLabel, isMacClient, keyLabel, KEYMAP, matchKey } from './keys.ts';
+import { bindingLabel, clientPlatform, isMacClient, keyLabel, KEYMAP, matchKey } from './keys.ts';
 import { LINUX_UA, MAC_UA, setClientUserAgent, WINDOWS_UA } from './test/client.ts';
 
 const ja = translator('ja');
@@ -133,6 +133,11 @@ describe('画面を開いている OS', () => {
     expect(isMacClient(WINDOWS_UA)).toBe(false);
     expect(isMacClient(LINUX_UA)).toBe(false);
     expect(isMacClient(undefined)).toBe(true);
+  });
+
+  it('macOS かどうかは、画面の OS（clientPlatform）と同じ判定から決める', () => {
+    for (const ua of [MAC_UA, WINDOWS_UA, LINUX_UA, undefined]) expect(isMacClient(ua)).toBe(clientPlatform(ua) === 'darwin');
+    expect(clientPlatform(LINUX_UA)).toBe('linux');
   });
 
   it('引数を省くと、いまの名乗りを読む', () => {
