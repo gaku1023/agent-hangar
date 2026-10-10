@@ -1781,3 +1781,43 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(params(r.run.id).account).toBeUndefined();
   });
 });
+
+// 設定の tmux のパス（Windows は psmux）が指すものが、起動の前に実在して実行できるかを確かめる。
+// 指したファイルが消えていると、引き取りは外の claude を止めたあとで再開に失敗し、元の会話が止まったまま残る。
+describe('tmux のパスの実物を起動の前に確かめる（tmux 不要）', () => {
+  /** 開いた名前だけを覚える偽の画面。tmux は起こさない。 */
+  const stubPanes = () => {
+    const opened: string[] = [];
+    const panes: PaneOps = { open: (o) => { opened.push(o.name); }, close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+    return { panes, opened };
+  };
+  const label = /「tmux のパス」/;
+  it('引き取りは、ファイルが無ければ外の claude を止める前に断る', async () => {
+    const id = seedOldSession();
+    const live = [liveEntry()];
+    const f = fakeProcs(live);
+    const p = stubPanes();
+    const rm = make({ panes: p.panes, live: () => live, procs: f.procs, muxPath: () => path.join(home, 'gone', 'tmux') });
+    await expect(rm.adopt(id)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(label) });
+    expect(f.calls.terminate).toEqual([]);
+    expect(p.opened).toEqual([]);
+  });
+  it('再開も同じ判定で断る。ディレクトリ、実行できないファイル、PATH に無い名前も断る', () => {
+    const id = seedOldSession();
+    const p = stubPanes();
+    const dir = path.join(home, 'muxdir');
+    fs.mkdirSync(dir, { recursive: true });
+    const plain = path.join(home, process.platform === 'win32' ? 'plain.txt' : 'plain');
+    fs.writeFileSync(plain, '', { mode: 0o644 });
+    for (const bad of [path.join(home, 'gone', 'tmux'), dir, plain, 'no-such-mux-xyz']) {
+      expect(() => make({ panes: p.panes, muxPath: () => bad }).resume(id)).toThrow(expect.objectContaining({ status: 400, message: expect.stringMatching(label) }));
+    }
+    expect(p.opened).toEqual([]);
+  });
+  it('実在して実行できるパスなら、そのまま起こす', () => {
+    const id = seedOldSession();
+    const p = stubPanes();
+    const r = make({ panes: p.panes, muxPath: () => fake.bin }).resume(id);
+    expect(p.opened).toEqual([r.run.tmuxName]);
+  });
+});

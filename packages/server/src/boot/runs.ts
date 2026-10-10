@@ -98,7 +98,7 @@ export function bootRuns(
   const claudeDirWatch = new ClaudeDirWatch({ dirs: () => accountStore.list().filter((a) => a.id !== PRIMARY_ACCOUNT_ID).map((a) => a.dir), sink: compatLog });
   claudeDirWatch.check();
   const runs = new RunManager({
-    db, deviceId: device.id, home: home.home, panes: panesOf(tmuxOf(settings.current)), port: listening.port, token: home.token,
+    db, deviceId: device.id, home: home.home, panes: panesOf(tmuxOf(settings.current)), muxPath: () => settings.current.tmuxPath, port: listening.port, token: home.token,
     claudeBin: claudeBin(),
     // 起動に失敗した run の後始末で、本文の jsonl があるかを実体で確かめるために要る。
     claudeDir,

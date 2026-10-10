@@ -14,6 +14,7 @@ import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../provider/cl
 import { runCommand, shellTabCommand } from '../launch/command.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { needsShell } from '../platform/exec.ts';
+import { toolPathIssue } from '../config/readiness.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { promptMentionsDrops } from '../prompt/drops.ts';
 import { assignSession } from '../projects/registry.ts';
@@ -65,7 +66,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * language は、Claude に渡す指示とシェルタブの名前の言語。組み立てる側が、設定を読む関数を渡す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; cwd: string };
@@ -151,6 +152,23 @@ export class RunManager {
   }
 
   /**
+   * 起こすための画面の口。口が無いのに加えて、設定の tmux のパスが指すものが無いか実行できなければ断る。
+   * 口はパスが入っていれば作られるので、指したファイルが後から消えても残る。そのまま進むと、ペインを開く段で初めて失敗する。
+   * 引き取り（adopt）は外の claude を止めたあとに開くので、それでは元の会話を止めたまま終わる。だから起こす前にここで確かめる。
+   * 止める、画面を読むといった既存の run への操作は、この確かめを通さない（panes()）。
+   */
+  private startPanes(): PaneOps {
+    const panes = this.panes();
+    const p = this.deps.muxPath?.();
+    const issue = p ? toolPathIssue(p) : null;
+    if (issue) {
+      const label = msg('settings.label.tmuxPath');
+      throw new RunError(400, issue.key === 'settings.path.notOnPath' ? msg(issue.key, { label, name: issue.name }) : msg(issue.key, { label, path: issue.path }));
+    }
+    return panes;
+  }
+
+  /**
    * claude の絶対パス。分からなければ起動そのものを断る。
    * tmux のペインは hangar の PATH を継ぐので、.app から起こしたときは裸の `claude` を引けない。
    * 引けない名前をそのまま渡すと、応答は成功のままペインの中で 127 で落ち、
@@ -180,7 +198,7 @@ export class RunManager {
   private precheck(cwd: string): PaneOps {
     if (!isDirectory(cwd)) throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }));
     this.claudeBin();
-    return this.panes();
+    return this.startPanes();
   }
 
   /** 注入する指示。プロジェクトが無ければ「未分類」として cwd だけを書く。 */
@@ -314,7 +332,7 @@ export class RunManager {
     // スクラッチは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
     // 後の precheck を待たずに、ここで tmux と claude の有無だけ先に確かめる。
     // これが無いと、どちらも無い端末で起動を試すたびに空のディレクトリが溜まる。
-    if (params.scratch) { this.panes(); this.claudeBin(); }
+    if (params.scratch) { this.startPanes(); this.claudeBin(); }
     // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
