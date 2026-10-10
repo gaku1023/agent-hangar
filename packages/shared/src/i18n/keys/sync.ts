@@ -28,4 +28,12 @@ export const syncKeys = {
   'sync.pull.keyMismatch': [],
   'sync.pull.notEncrypted': ['key'],
   'sync.pull.shaMismatch': ['key'],
+  'sync.copy.badRelPath': [],
+  'sync.copy.symlink': ['here', 'label'],
+  'sync.copy.notDirectory': ['here'],
+  'sync.copy.outside': ['rel', 'label'],
+  'sync.copy.labelBackups': [],
+  'sync.copy.noFreeName': [],
+  'sync.copy.badSessionId': [],
+  'sync.copy.backupFailed': ['cause'],
 } as const satisfies MessageSpec;

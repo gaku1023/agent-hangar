@@ -19,7 +19,6 @@ const LOG_AND_FILE = 'ログの行 3 つと、上書きの前に残すメモの�
 const FILE_BODY = '利用者の PC に置くファイルの中身（スクリプトとその注釈）。文言ではない';
 const SQL_NOTE = 'DB のマイグレーションの SQL の中の注釈。文言ではない';
 const PROTOCOL = 'Worker が返す日本語の文の前置きと照合する印。画面には出さない（Worker の文を鍵へ移すときに一緒に直す）';
-const NOT_SHOWN = 'resume-here の経路が RunError 以外を握らず、利用者には文が届かない（ログにだけ残る）。届く経路を作るときに鍵へ移す';
 const BASELINE = 'DB に保存する自動の要約の本文。書いた文は言語を変えても残るので、言語の扱いを決めてから鍵へ移す';
 const FIRST_NAME = '最初に保存するときの名前。書いたあとは利用者が変えられるデータで、言語を変えても書き直さない';
 const INTERNAL = '呼び手の誤りを弾く内部の検査の文。利用者には届かない（受け取った側は例外の名前だけを記録し、文は捨てる）';
@@ -62,7 +61,6 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/config/bundle.ts': { lines: 17, why: INTERNAL },
   'sync/config/inbox.ts': { lines: 1, why: INTERNAL },
   'sync/config/service.ts': { lines: 4, why: LOG },
-  'sync/copy.ts': { lines: 8, why: NOT_SHOWN },
   'sync/crypto.ts': { lines: 1, why: INTERNAL },
   'sync/engine.ts': { lines: 5, why: LOG },
   'sync/pruneBackups.ts': { lines: 3, why: LOG },
@@ -110,6 +108,6 @@ describe('サーバに残る日本語の直書き', () => {
 
   it('理由の定数は、一覧のどこかで使っている', () => {
     const used = new Set(Object.values(ALLOWED).map((a) => a.why));
-    for (const why of [LOG, LOG_AND_FILE, FILE_BODY, SQL_NOTE, PROTOCOL, NOT_SHOWN, BASELINE, FIRST_NAME, INTERNAL, TEST_SUPPORT, CLI, LEFT]) expect([why, used.has(why)]).toEqual([why, true]);
+    for (const why of [LOG, LOG_AND_FILE, FILE_BODY, SQL_NOTE, PROTOCOL, BASELINE, FIRST_NAME, INTERNAL, TEST_SUPPORT, CLI, LEFT]) expect([why, used.has(why)]).toEqual([why, true]);
   });
 });

@@ -29,4 +29,12 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.pull.keyMismatch': 'The transcript key does not match its path',
   'sync.pull.notEncrypted': 'Transcript is not encrypted: {key}',
   'sync.pull.shaMismatch': 'Transcript SHA-256 does not match: {key}',
+  'sync.copy.badRelPath': 'Invalid relative path',
+  'sync.copy.symlink': '{here} is a symbolic link, so it would leave {label}',
+  'sync.copy.notDirectory': '{here} is not a directory',
+  'sync.copy.outside': '{rel} points outside {label}',
+  'sync.copy.labelBackups': 'the backup folder',
+  'sync.copy.noFreeName': 'No free file name is left for the backup',
+  'sync.copy.badSessionId': 'The session ID is not valid as a file name',
+  'sync.copy.backupFailed': 'The transcript was not replaced because a backup could not be made: {cause}',
 };

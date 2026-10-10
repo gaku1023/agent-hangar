@@ -29,4 +29,12 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.pull.keyMismatch': '本文の鍵と相対パスが食い違っています',
   'sync.pull.notEncrypted': '本文が暗号化されていません: {key}',
   'sync.pull.shaMismatch': '本文の SHA-256 が一致しません: {key}',
+  'sync.copy.badRelPath': '相対パスの形が不正です',
+  'sync.copy.symlink': '{here} がシンボリックリンクなので、{label}の外に出ます',
+  'sync.copy.notDirectory': '{here} がディレクトリではありません',
+  'sync.copy.outside': '{rel} は{label}の外を指しています',
+  'sync.copy.labelBackups': '控えの置き場',
+  'sync.copy.noFreeName': '控えを置く名前が空いていません',
+  'sync.copy.badSessionId': 'セッションの識別子がファイル名として不正です',
+  'sync.copy.backupFailed': '控えを取れなかったので本文を置き換えませんでした: {cause}',
 };
