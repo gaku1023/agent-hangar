@@ -78,7 +78,7 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
 
 describe('並びを覚える（sidebar.order）', () => {
   it('並びを状態に入れ、localStorage に残す', () => {
-    const r = transition(initialState(), { kind: 'intent', intent: { type: 'sidebar.order', ids: ['b', 'a', 'b'] } });
+    const r = transition(initialState(), initialStore(), { kind: 'intent', intent: { type: 'sidebar.order', ids: ['b', 'a', 'b'] } });
     expect(r.state.sidebarOrder).toEqual(['b', 'a']);
     expect(r.effects).toContainEqual({ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: ['b', 'a'] });
   });
@@ -87,7 +87,10 @@ describe('並びを覚える（sidebar.order）', () => {
     expect(cleanSidebarOrder(null)).toEqual([]);
     expect(cleanSidebarOrder(['a', 1, '', 'a', 'b'])).toEqual(['a', 'b']);
   });
-  const appeared = (order: string[], ids: string[]) => transition({ ...initialState(), sidebarOrder: order }, { kind: 'runtime', event: { type: 'live.changed', ids } });
+  // 動いているセッションが、この順（始めた順）でストアにある。
+  const liveStore = (ids: string[]) => storeWith(ids.map((id, n) => session(id, { startedAt: NOW + n })));
+  // ストアが変わったと Mediator に届いた。
+  const appeared = (order: string[], ids: string[]) => transition({ ...initialState(), sidebarOrder: order }, liveStore(ids), { kind: 'store' });
   it('初めて現れたセッションを、届いた順で並びの末尾に書き足し、保存する', () => {
     const r = appeared(['a'], ['c', 'a', 'b']);
     expect(r.state.sidebarOrder).toEqual(['a', 'c', 'b']);
@@ -96,8 +99,14 @@ describe('並びを覚える（sidebar.order）', () => {
   it('保存が空の端末でも、現れた順で 1 回だけ確定する', () => {
     const first = appeared([], ['a', 'b', 'c']);
     expect(first.state.sidebarOrder).toEqual(['a', 'b', 'c']);
-    const again = transition(first.state, { kind: 'runtime', event: { type: 'live.changed', ids: ['c', 'b', 'a'] } });
+    const again = transition(first.state, liveStore(['c', 'b', 'a']), { kind: 'store' });
     expect(again.state.sidebarOrder).toEqual(['a', 'b', 'c']);
+    expect(again.effects).toEqual([]);
+  });
+  it('顔ぶれが同じなら、ストアが何度変わっても状態を変えず、保存もしない', () => {
+    const first = appeared([], ['a', 'b']);
+    const again = transition(first.state, liveStore(['a', 'b']), { kind: 'store' });
+    expect(again.state).toBe(first.state);
     expect(again.effects).toEqual([]);
   });
   it('動いているものが減っても、ゼロになっても、覚えた並びは変えず、保存もしない', () => {
@@ -114,7 +123,7 @@ describe('並びを覚える（sidebar.order）', () => {
   });
   it('並べ替えは動いている行の席だけを入れ替え、抜けているセッションの席を残す', () => {
     expect(mergeSidebarOrder(['a', 'x', 'b', 'c'], ['c', 'a', 'b'])).toEqual(['c', 'x', 'a', 'b']);
-    const r = transition({ ...initialState(), sidebarOrder: ['a', 'x', 'b', 'c'] }, { kind: 'intent', intent: { type: 'sidebar.order', ids: ['a', 'c', 'b'] } });
+    const r = transition({ ...initialState(), sidebarOrder: ['a', 'x', 'b', 'c'] }, initialStore(), { kind: 'intent', intent: { type: 'sidebar.order', ids: ['a', 'c', 'b'] } });
     expect(r.state.sidebarOrder).toEqual(['a', 'x', 'c', 'b']);
     expect(r.effects).toContainEqual({ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: ['a', 'x', 'c', 'b'] });
   });

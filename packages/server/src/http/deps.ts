@@ -2,6 +2,7 @@ import type { CloudUsageDto, CompatDto, ConfigPreviewDto, DeviceDto, IndexProgre
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
+import type { LiveDigester } from '../live/digest.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { SyncEngine } from '../sync/engine.ts';
@@ -49,6 +50,11 @@ export type AppDeps = {
    * .app はこれが真になるまで起動画面に残る。
    */
   ready: () => boolean;
+  /**
+   * 右ペインの要約器。裏の印（live/aside.ts）が 500 ミリ秒ごとに同じ要約を引くので、サーバは 1 つを両方に渡して覚えを共有する。
+   * 渡さなければ、ここで作る。
+   */
+  digester?: Pick<LiveDigester, 'digest'>;
   /** 表の変化に対応しない知らせ（トースト）を渡す先。行のイベントは渡さない。行を書けば、配る層（events/publisher.ts）が配る。 */
   hub: { broadcast(ev: NoticeEvent): void };
   runs: RunsApi;

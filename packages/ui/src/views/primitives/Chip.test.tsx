@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { ChoiceChips, ToggleChip } from './Chip.tsx';
+import { createRef } from 'react';
+import { LanguageRoot } from './language.tsx';
+import { ChoiceChips, CountChip, SettingChip, ToggleChip } from './Chip.tsx';
 
 const models = [{ value: '', label: '既定' }, { value: 'opus', label: 'opus' }, { value: 'sonnet', label: 'sonnet' }];
 function Models(props: { initial?: string; onChange?: (v: string) => void }) {
@@ -73,5 +75,85 @@ describe('ChoiceChips', () => {
     expect(box).toHaveValue('opus');
     expect(onChange).toHaveBeenLastCalledWith('opus');
     expect(screen.getAllByRole('radio').every((r) => r.getAttribute('aria-checked') === 'false')).toBe(true);
+  });
+});
+
+describe('CountChip（数の札）', () => {
+  it('押せないときは、名前と数を読むだけの札で、ボタンにしない', () => {
+    render(<CountChip label="確認待ち" count={3} />);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.getByText('確認待ち').closest('.count-chip')).toHaveTextContent('確認待ち 3');
+    expect(screen.getByText('3')).toHaveAttribute('data-count', 'true');
+  });
+  it('押せるときはボタンで、名前に数が入る。押すと呼ぶ', () => {
+    const onClick = vi.fn();
+    render(<CountChip label="要対応" count={4} onClick={onClick} />);
+    const chip = screen.getByRole('button', { name: '要対応 4' });
+    expect(chip).toHaveAttribute('type', 'button');
+    expect(chip).not.toHaveAttribute('aria-expanded');
+    fireEvent.click(chip);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+  it('expanded を渡すと aria-expanded に出し、矢印は閉じていれば右、開いていれば下を向く', () => {
+    const { rerender } = render(<CountChip label="実行中" count={2} expanded={false} onClick={() => {}} />);
+    const chip = screen.getByRole('button', { name: '実行中 2' });
+    expect(chip).toHaveAttribute('aria-expanded', 'false');
+    expect(chip.querySelector('[data-icon="chevron"]')).not.toBeNull();
+    rerender(<CountChip label="実行中" count={2} expanded onClick={() => {}} />);
+    expect(chip).toHaveAttribute('aria-expanded', 'true');
+    expect(chip.querySelector('[data-icon="chevronDown"]')).not.toBeNull();
+  });
+  it('数が 0 なら薄い印を付ける。色の調子と大きさは属性で出す', () => {
+    render(<CountChip label="確認待ち" count={0} tone="cand" size="sm" icon="check" />);
+    const chip = screen.getByText('確認待ち', { exact: false }).closest('.count-chip')!;
+    expect(chip).toHaveAttribute('data-zero', 'true');
+    expect(chip).toHaveAttribute('data-tone', 'cand');
+    expect(chip).toHaveAttribute('data-size', 'sm');
+    expect(chip.querySelector('[data-icon="check"]')).not.toBeNull();
+  });
+  it('開く元として使える：Popover の渡す属性と ref を受ける', () => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<CountChip ref={ref} label="サブエージェント" count={2} aria-haspopup="dialog" aria-expanded={false} onClick={() => {}} />);
+    expect(ref.current).toBe(screen.getByRole('button', { name: 'サブエージェント 2' }));
+    expect(ref.current).toHaveAttribute('aria-haspopup', 'dialog');
+  });
+});
+
+describe('SettingChip（設定の札）', () => {
+  it('値を見せ、読み上げの名前に項目の名前と値を入れる', () => {
+    render(<SettingChip name="権限モード" value="Accept edits" onClick={() => {}} />);
+    const chip = screen.getByRole('button', { name: '権限モード、Accept edits' });
+    expect(chip).toHaveTextContent('Accept edits');
+    expect(chip).not.toHaveTextContent('権限モード');
+  });
+  it('showName なら、名前も見える文字にする', () => {
+    render(<SettingChip name="モデル" value="opus" showName onClick={() => {}} />);
+    expect(screen.getByRole('button', { name: 'モデル、opus' })).toHaveTextContent('モデルopus');
+  });
+  it('English では名前と値のあいだの区切りが替わる', () => {
+    render(<LanguageRoot language="en"><SettingChip name="Model" value="opus" onClick={() => {}} /></LanguageRoot>);
+    expect(screen.getByRole('button', { name: 'Model: opus' })).toBeInTheDocument();
+  });
+  it('押すと呼び、開く元として aria-expanded と ref を受ける', () => {
+    const onClick = vi.fn();
+    const ref = createRef<HTMLButtonElement>();
+    render(<SettingChip ref={ref} name="worktree" value="なし" aria-haspopup="dialog" aria-expanded={true} onClick={onClick} />);
+    const chip = screen.getByRole('button', { name: 'worktree、なし' });
+    expect(ref.current).toBe(chip);
+    expect(chip).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(chip);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+  it('既定のままの札は muted、危険な値の札は danger を属性で出す', () => {
+    const { rerender } = render(<SettingChip name="モデル" value="既定" tone="muted" onClick={() => {}} />);
+    expect(screen.getByRole('button')).toHaveAttribute('data-tone', 'muted');
+    rerender(<SettingChip name="権限モード" value="Bypass permissions" tone="danger" onClick={() => {}} />);
+    expect(screen.getByRole('button')).toHaveAttribute('data-tone', 'danger');
+  });
+  it('disabled のときは押せない', () => {
+    const onClick = vi.fn();
+    render(<SettingChip name="モデル" value="opus" disabled onClick={onClick} />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(onClick).not.toHaveBeenCalled();
   });
 });
