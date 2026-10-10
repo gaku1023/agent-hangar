@@ -3837,6 +3837,13 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 `.app` は署名せず、zip と SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
+配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
+Release の資産は `Hangar-<タグ>-macos-<arch>.dmg` と `.zip`、それぞれの `.sha256` である。
+dmg の中身は `.app` と `/Applications` へのリンクの 2 つだけで、`apps/desktop/scripts/make-dmg.sh` が hdiutil で作る。
+tauri の dmg ターゲットは使わない。
+tauri の dmg は build の途中の `.app` を詰め、`tauri bundle --bundles dmg` も `.app` を作り直してから詰めるので、build の後で署名した `.app` が入らないからである（2026-10-10 に手元で確かめた）。
+Finder を AppleScript で動かさないので、窓の並びは決めず、窓の無い CI でも同じに作れる。
+利用者の手順（dmg から `/Applications` へドラッグし、初回の警告を右クリックの「開く」かシステム設定の「このまま開く」で越える）は README の「インストール（配布版）」にある。
 クラウド同期の設定は `.app` の同梱 CLI からは行えない。
 wrangler を同梱していないので、リポジトリを clone した場所から `setup cloud` を走らせる。
 
