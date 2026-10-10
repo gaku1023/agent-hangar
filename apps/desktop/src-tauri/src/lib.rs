@@ -1249,11 +1249,26 @@ fn watch_swipe_phase(app: &AppHandle) {
 fn watch_swipe_phase(_app: &AppHandle) {}
 
 /// 入力待ちの通知を出す。
-/// 頁（UI）が、窓が背面にあるときに呼ぶ。
+/// 頁（UI）は、入力待ちになったときと、その問いの文が後から届いたときに呼ぶ。
+/// 窓が前にあるかは、頁ではなくここで窓の実物の様子から決め、前にあれば出さない（notify::window_in_front）。
 /// 値は頁から来るので、notify::waiting で確かめてから OS に渡す。
 #[tauri::command]
-fn notify_waiting(session_id: String, title: String, body: String) -> Result<(), String> {
+fn notify_waiting(
+    app: AppHandle,
+    session_id: String,
+    title: String,
+    body: String,
+) -> Result<(), String> {
     let w = notify::waiting(&session_id, &title, &body)?;
+    if let Some(win) = app.get_webview_window("main") {
+        let visible = win.is_visible().unwrap_or(false);
+        let minimized = win.is_minimized().unwrap_or(false);
+        let focused = win.is_focused().unwrap_or(false);
+        if notify::window_in_front(visible, minimized, focused) {
+            log("notification skipped: the window is in front");
+            return Ok(());
+        }
+    }
     notify::show(&w);
     Ok(())
 }

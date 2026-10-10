@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createBrowserNotifier, createDesktopNotifier, pickNotifier, type BrowserEnv, type DesktopEnv } from './notifier.ts';
+import { createBrowserNotifier, createDesktopNotifier, holdPageAwake, pickNotifier, type BrowserEnv, type DesktopEnv } from './notifier.ts';
 
 function doc(visible: boolean, focused: boolean) {
   return { visibilityState: visible ? 'visible' : 'hidden', hasFocus: () => focused };
@@ -67,10 +67,30 @@ describe('デスクトップの通知', () => {
     off();
     expect(e.__hangarOpenWaiting).toBeUndefined();
   });
-  it('隠れているか、窓にフォーカスが無ければ背面とみなす', () => {
-    expect(createDesktopNotifier(env({ document: doc(true, true) }).e).background()).toBe(false);
+  it('窓が前にあるかは頁では決めず、殻に任せる（頁の見え方は WebView が最小化や背面で絞られると当てにならない）', () => {
+    // 殻の notify_waiting が、窓の実物の様子（見えている、最小化していない、フォーカスがある）を見て、前にあれば出さない。
+    expect(createDesktopNotifier(env({ document: doc(true, true) }).e).background()).toBe(true);
     expect(createDesktopNotifier(env({ document: doc(true, false) }).e).background()).toBe(true);
     expect(createDesktopNotifier(env({ document: doc(false, true) }).e).background()).toBe(true);
+  });
+});
+
+describe('holdPageAwake', () => {
+  // WebView2（Chromium）は、隠れた頁を凍らせたり捨てたりすることがある。Web Lock を握っている頁は凍らせない。
+  // 凍ると、WebSocket で入力待ちが届いても通知を呼べない。握るだけで、時計（timer）の絞りは変えない。
+  it('解けない Web Lock を 1 つ握る', () => {
+    const request = vi.fn((_name: string, _cb: () => Promise<void>) => new Promise<void>(() => {}));
+    holdPageAwake({ locks: { request } });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]![0]).toBe('hangar-keep-page-awake');
+    let settled = false;
+    void request.mock.calls[0]![1]().then(() => { settled = true; });
+    return Promise.resolve().then(() => { expect(settled).toBe(false); });
+  });
+  it('Web Lock が無いか、断られても投げない', () => {
+    expect(() => holdPageAwake({})).not.toThrow();
+    expect(() => holdPageAwake({ locks: { request: () => Promise.reject(new Error('no')) } })).not.toThrow();
+    expect(() => holdPageAwake({ locks: { request: () => { throw new Error('no'); } } })).not.toThrow();
   });
 });
 

@@ -52,7 +52,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'provider/claude-code/config/accountAuth.ts': { lines: 1, why: LOG },
   'provider/claude-code/config/statusline.ts': { lines: 1, why: FILE_BODY },
   'provider/claude-code/index.ts': { lines: 1, why: INTERNAL },
-  'runs/manager.ts': { lines: 4, why: LOG },
+  'runs/manager.ts': { lines: 5, why: LOG },
   'runs/queries.ts': { lines: 1, why: LEFT },
   'sessions/park.ts': { lines: 1, why: LOG },
   'summary/job.ts': { lines: 2, why: LOG },

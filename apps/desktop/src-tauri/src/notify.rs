@@ -64,6 +64,14 @@ pub fn waiting(session_id: &str, title: &str, body: &str) -> Result<Waiting, Str
     })
 }
 
+/// 窓が利用者の目の前にあるか。
+/// 見えていて、最小化しておらず、フォーカスがあるときだけ前にあるとみなし、入力待ちの通知を出さない（右下のカードで足りる）。
+/// 頁の `document.visibilityState` と `hasFocus()` には頼らない。
+/// WebView は最小化や背面で絞られ、その間の頁の答えは当てにならないためである。
+pub fn window_in_front(visible: bool, minimized: bool, focused: bool) -> bool {
+    visible && !minimized && focused
+}
+
 /// 通知の識別子。
 /// 同じセッションの通知は同じ識別子になり、新しい方が古い方と置き換わる。
 pub fn identifier(session_id: &str) -> String {
@@ -741,6 +749,18 @@ mod tests {
         assert_eq!(session_of(&identifier("s1")), Some("s1"));
         assert_eq!(session_of("other:s1"), None);
         assert_eq!(session_of("hangar-waiting:x\"y"), None);
+    }
+
+    #[test]
+    fn only_a_window_the_user_is_looking_at_skips_the_notification() {
+        // 見えていて、最小化しておらず、フォーカスがあるときだけ、窓が前にあるとみなす。
+        assert!(window_in_front(true, false, true));
+        // 別のアプリを前に出した（macOS の Cmd+Tab、Windows の Alt+Tab）。
+        assert!(!window_in_front(true, false, false));
+        // 最小化した。フォーカスの答えに頼らず、最小化を先に見る。
+        assert!(!window_in_front(true, true, true));
+        // 隠した（macOS の Cmd+H、閉じるボタン）。
+        assert!(!window_in_front(false, false, true));
     }
 
     #[test]

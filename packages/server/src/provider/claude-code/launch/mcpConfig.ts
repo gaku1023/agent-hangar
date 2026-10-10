@@ -29,22 +29,36 @@ export function mcpConfigPath(home: string, sessionId: string): string {
   return path.join(home, MCP_CONFIG_DIR, `${safeName(sessionId)}.json`);
 }
 
-/** 0600 で書いて、そのパスを返す。既にあるファイルの mode も 0600 に直す。 */
-export function writeMcpConfig(home: string, sessionId: string, url: string, token: string): string {
-  const file = mcpConfigPath(home, sessionId);
+/**
+ * `--settings` に渡す設定（hook）の置き場。MCP の設定の隣に置き、同じ後始末で消す（hookSettings.ts）。
+ * 名前は `<sessionId>.settings.json` で、掃除はこれも `<sessionId>` のものとして数える。
+ */
+export function runSettingsPath(home: string, sessionId: string): string {
+  return path.join(home, MCP_CONFIG_DIR, `${safeName(sessionId)}.settings.json`);
+}
+
+/** 0600 で書く。既にあるファイルの mode も 0600 に直す。 */
+export function writePrivateFile(file: string, body: string): string {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(file, mcpConfigJson(url, token), { mode: 0o600 });
+  fs.writeFileSync(file, body, { mode: 0o600 });
   // mode は新しく作るときにしか効かないので、既にある分は chmod で直す。
   fs.chmodSync(file, 0o600);
   return file;
 }
 
-/** そのセッションの設定を消す。無くても何も言わない。 */
+/** 0600 で書いて、そのパスを返す。既にあるファイルの mode も 0600 に直す。 */
+export function writeMcpConfig(home: string, sessionId: string, url: string, token: string): string {
+  return writePrivateFile(mcpConfigPath(home, sessionId), mcpConfigJson(url, token));
+}
+
+/** そのセッションの設定（MCP と hook）を消す。無くても何も言わない。 */
 export function removeMcpConfig(home: string, sessionId: string): void {
-  try {
-    fs.rmSync(mcpConfigPath(home, sessionId), { force: true });
-  } catch {
-    // 消せなかった分は次の起動の掃除で当たる。
+  for (const file of [mcpConfigPath(home, sessionId), runSettingsPath(home, sessionId)]) {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {
+      // 消せなかった分は次の起動の掃除で当たる。
+    }
   }
 }
 
@@ -64,7 +78,8 @@ export function pruneMcpConfigs(home: string, aliveSessionIds: Iterable<string>)
   }
   const removed: string[] = [];
   for (const name of names) {
-    const m = /^(.+)\.json$/.exec(name);
+    // hook の設定（<id>.settings.json）も、その run のものとして数える。id に `.` は入らない（safeName）。
+    const m = /^([^.]+)(?:\.settings)?\.json$/.exec(name);
     if (!m || alive.has(m[1]!)) continue;
     try {
       fs.rmSync(path.join(dir, name), { force: true });
