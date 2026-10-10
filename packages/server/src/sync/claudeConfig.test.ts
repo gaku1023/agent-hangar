@@ -540,7 +540,6 @@ describe('preview と applyPull', () => {
       putFile: (m, b) => cloud.putFile(m, b),
       getFile: async (k) => { write('settings.json', '{ "a": 1, "cleanupPeriodDays": 365 }\n', NOW + 1_000); return cloud.getFile(k); },
       listFiles: (s, l) => cloud.listFiles(s, l),
-      deleteFile: (k) => cloud.deleteFile(k),
       usage: () => cloud.usage(),
     };
     const c = make({ client: racing });
@@ -559,7 +558,6 @@ describe('preview と applyPull', () => {
       putFile: async () => { throw new Error('圏外です'); },
       getFile: (k) => cloud.getFile(k),
       listFiles: (s, l) => cloud.listFiles(s, l),
-      deleteFile: (k) => cloud.deleteFile(k),
       usage: () => cloud.usage(),
     };
     const e = await remotePut('memory/x.md', 'remote\n', { mtime: NOW - 60_000 });

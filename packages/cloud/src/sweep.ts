@@ -1,13 +1,11 @@
 import type { Env } from './env.ts';
-import { META_D1_ROWS_PREFIX, meteredBatch } from './meter.ts';
 
 /**
  * R2 と D1 の食い違いを後から拾う掃除である。
  *
  * `PUT /files/<key>` は R2 に本体を置いてから D1 の索引を書く（順は入れ替えられない。
  * 先に索引を書くと、倒れたときに「索引にあるのに降ろせない」になり、降ろす側が永久に 404 を踏む）。
- * `DELETE` は逆に索引から消す。
- * どちらも途中で倒れると、索引に無い本体が R2 に残る。倒れた回数だけ R2 の使用量が増える。
+ * 途中で倒れると、索引に無い本体が R2 に残る。倒れた回数だけ R2 の使用量が増える。
  *
  * 掃除そのものが無料枠を食っては本末転倒なので、次の 3 つで抑えている。
  *
@@ -20,8 +18,9 @@ import { META_D1_ROWS_PREFIX, meteredBatch } from './meter.ts';
  * 索引の方は `delete` に猶予の条件を持たせて、消す文そのものが新しい行を外す形にした（窓は無い）。
  * R2 の方は条件付きの削除が無いので、消す直前に索引と `head` を取り直して窓を 1 往復ぶんまで縮めてある。
  *
- * 1 回の掃除が D1 に書くのは、続きの控えと日ごとの台帳で 10 行ほどである。
- * 1 日 4 回でも 50 行に届かない（無料枠は 1 日 10 万行）。
+ * 1 回の掃除が D1 に書くのは、当番の印と続きの控え 2 行の計 3 行に、消した索引の行を足したものである。
+ * 消す索引の行は途中で倒れた分だけで、1 回に 50 行までである。
+ * 1 日 4 回でも、ふつうは 12 行ほど、多くても 212 行である（無料枠は 1 日 10 万行）。
  * R2 の側は 1 回につき一覧が 1 回（class A）と存在の確認が 50 回（class B）までで、
  * 1 か月に直しても class A が 1 万分の 1 ほどにしかならない。
  */
@@ -41,8 +40,6 @@ export const SWEEP_GRACE_MS = 3_600_000;
 export const SWEEP_LIST_LIMIT = 50;
 /** 1 回に確かめる索引の行数。 */
 export const SWEEP_INDEX_LIMIT = 50;
-/** 日ごとの台帳（`d1_rows:<yyyy-MM-dd>`）を残す日数。掃除のついでに古い行を刈る。 */
-export const LEDGER_KEEP_DAYS = 7;
 
 export type SweepResult = {
   /** 索引に無いので消した R2 の鍵。 */
@@ -82,15 +79,11 @@ export async function sweepIfDue(env: Env, now: number): Promise<SweepResult | n
   if (now - triedAt < SWEEP_EVERY_MS) return null;
   triedAt = now;
   const db = env.DB;
-  const claim = await meteredBatch(
-    db,
-    [
-      db
-        .prepare('insert into meta (key, value) values (?, ?) on conflict(key) do update set value = excluded.value where cast(meta.value as integer) <= ?')
-        .bind(META_SWEEP_AT, String(now), now - SWEEP_EVERY_MS),
-    ],
-    now,
-  );
+  const claim = await db.batch([
+    db
+      .prepare('insert into meta (key, value) values (?, ?) on conflict(key) do update set value = excluded.value where cast(meta.value as integer) <= ?')
+      .bind(META_SWEEP_AT, String(now), now - SWEEP_EVERY_MS),
+  ]);
   if (Number(claim[0]?.meta?.changes ?? 0) !== 1) return null;
   return sweepOnce(env, now);
 }
@@ -103,11 +96,7 @@ export async function sweepOnce(env: Env, now: number): Promise<SweepResult> {
   const db = env.DB;
   const bodies = await sweepBodies(env, now);
   const entries = await sweepEntries(env, now);
-  const stmts = [putMeta(db, META_SWEEP_CURSOR, bodies.cursor), putMeta(db, META_SWEEP_SEQ, String(entries.seq))];
-  // 日ごとの台帳は放っておくと 1 年で 365 行になる。掃除のついでに古い分を落とす。
-  const keepFrom = `${META_D1_ROWS_PREFIX}${new Date(now - LEDGER_KEEP_DAYS * 86_400_000).toISOString().slice(0, 10)}`;
-  stmts.push(db.prepare('delete from meta where key like ? and key < ?').bind(`${META_D1_ROWS_PREFIX}%`, keepFrom));
-  await meteredBatch(db, stmts, now);
+  await db.batch([putMeta(db, META_SWEEP_CURSOR, bodies.cursor), putMeta(db, META_SWEEP_SEQ, String(entries.seq))]);
   return { bodies: bodies.deleted, entries: entries.deleted };
 }
 
@@ -167,11 +156,7 @@ async function sweepEntries(env: Env, now: number): Promise<{ deleted: string[];
   // 消す文そのものに猶予を持たせる。
   // 読んでから消すまでの間に同じ鍵の `PUT` が着地しても、その行の `uploaded_at` は猶予の中なので当たらない。
   // 鍵だけで消すと、置き直したばかりの生きている行を消して、上げた端末だけが 201 を握ったまま取り残される。
-  await meteredBatch(
-    db,
-    [db.prepare(`delete from files where key in (${doomed.map(() => '?').join(',')}) and uploaded_at < ?`).bind(...doomed, cutoff)],
-    now,
-  );
+  await db.batch([db.prepare(`delete from files where key in (${doomed.map(() => '?').join(',')}) and uploaded_at < ?`).bind(...doomed, cutoff)]);
   // 実際に消えた鍵を引き直して返す。
   // 消した数だけを見て先頭から切り出すと、**数は合うのに鍵が合わない**（残ったのが先頭かもしれない）。
   // 残った鍵は次の回でまた見るので、ここで取りこぼす心配は無い。

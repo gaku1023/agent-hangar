@@ -1,5 +1,5 @@
+import { cleanupStage1 } from './cleanup.ts';
 import type { Env } from './env.ts';
-import { meteredBatch } from './meter.ts';
 
 /**
  * D1 の表である。
@@ -35,8 +35,9 @@ export function resetSchemaCache(): void {
 
 async function doEnsure(env: Env): Promise<void> {
   const now = Date.now();
-  // 表と索引を作る書き込みも無料枠の rows_written に入る。台帳（meter.ts）を必ず通す。
-  await meteredBatch(env.DB, SCHEMA_STATEMENTS.map((s) => env.DB.prepare(s)), now);
+  await env.DB.batch(SCHEMA_STATEMENTS.map((s) => env.DB.prepare(s)));
+  // 段 1 で消したものが残した行を 1 回だけ片付ける。落ちても例外を投げず、次の cold start でまた試す（cleanup.ts）。
+  await cleanupStage1(env, now);
   const hash = env.JOIN_SECRET_HASH?.trim();
   if (!hash) return;
   const known = await env.DB.prepare('select revoked_at from join_secrets where secret_hash = ?').bind(hash).first<{ revoked_at: number | null }>();
@@ -45,11 +46,11 @@ async function doEnsure(env: Env): Promise<void> {
   // `ensureSchema` は cold start のたびに走るので、復活を許すと D1 での回収が次の起動で必ず取り消される。
   // 古い秘密を持ったままの端末が hangar setup cloud をやり直すと、回収した秘密が戻り、新しい秘密が回収されてしまう。
   if (known) return;
-  await meteredBatch(env.DB, [
+  await env.DB.batch([
     env.DB.prepare('update join_secrets set revoked_at = ? where revoked_at is null').bind(now),
     // 同時に来た要求どうしがぶつかっても、先に入れた行をそのままにする。
     env.DB
       .prepare('insert into join_secrets (id, secret_hash, created_at, revoked_at) values (?, ?, ?, null) on conflict(secret_hash) do nothing')
       .bind(crypto.randomUUID(), hash, now),
-  ], now);
+  ]);
 }

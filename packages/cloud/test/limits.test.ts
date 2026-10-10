@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { COMPAT_HEADER, COMPAT_VERSION, nextUtcMidnight } from '@agent-hangar/shared';
-import { createApp } from '../src/index.ts';
+import { createApp } from '../src/app.ts';
 import type { Env } from '../src/env.ts';
 import { d1LimitOfError, limitBody } from '../src/limits.ts';
 import { resetSchemaCache } from '../src/schema.ts';

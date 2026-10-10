@@ -28,18 +28,14 @@ const push = (tok: string, changes: unknown): Promise<Response> =>
     body: JSON.stringify({ changes }),
   });
 
-const pushed = async (tok: string, changes: unknown): Promise<{ seq: number; accepted: number; skipped: number; d1RowsToday: number }> =>
-  (await (await push(tok, changes)).json()) as { seq: number; accepted: number; skipped: number; d1RowsToday: number };
+const pushed = async (tok: string, changes: unknown): Promise<{ seq: number; accepted: number; skipped: number }> =>
+  (await (await push(tok, changes)).json()) as { seq: number; accepted: number; skipped: number };
 
-/**
- * push の応答の形。
- * `d1RowsToday`（その日に D1 へ書いた行数）は書いた量で変わるので、ここでは数であることだけを見る。
- * 中身は `meter.test.ts` が実際の行数と突き合わせる。
- */
-const pushResult = (o: { seq: number; accepted: number; skipped: number }) => ({ ...o, d1RowsToday: expect.any(Number) });
+/** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
+const pushResult = (o: { seq: number; accepted: number; skipped: number }) => o;
 
-/** pull の応答の形。`d1RowsToday` は push と同じ理由で、数であることだけを見る。 */
-const pullResult = (o: { changes: unknown[]; nextSeq: number; more: boolean }) => ({ ...o, d1RowsToday: expect.any(Number) });
+/** pull の応答の形。 */
+const pullResult = (o: { changes: unknown[]; nextSeq: number; more: boolean }) => o;
 
 const pullRaw = (tok: string, since: number, limit = 500): Promise<Response> =>
   cloud.SELF.fetch(`https://x/changes?since=${since}&limit=${limit}`, { headers: { authorization: `Bearer ${tok}` } });
@@ -135,6 +131,13 @@ describe('POST /changes', () => {
     const d = await cloud.env.DB.prepare('select id, last_seen_at from devices order by id').all<{ id: string; last_seen_at: number | null }>();
     expect(d.results[0]!.last_seen_at).toBeGreaterThan(Date.now() - 60_000);
     expect(d.results[1]!.last_seen_at).toBe(0); // 他の端末は触らない
+  });
+
+  it('量を数えるための行を D1 に書かない', async () => {
+    await pushed(tokA, [ch('p1', 1)]);
+    await pull(tokB, 0);
+    const n = await cloud.env.DB.prepare("select count(*) as n from meta where substr(key, 1, 8) = 'd1_rows:'").first<{ n: number }>();
+    expect(n?.n).toBe(0);
   });
 });
 

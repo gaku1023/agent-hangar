@@ -41,10 +41,11 @@ const toCloudError = (e: unknown): CloudError => (e instanceof CloudError ? e : 
 
 /**
  * この PC が Worker に求める互換の版の下限。
- * 0 の間は、版の見出しを返さない古い Worker（版 0 として読む）とも話す。
- * Worker の API を古い Worker と話せない形で変えたら、その版に上げる。
+ * 段 1 の PR 6 で 1 に上げた。版の見出しを返さない古い Worker（版 0 として読む）は、最初の 2xx で断る。
+ * そのため、古い Worker のための分岐（/usage の 404 を「トークンなし」に読み替える）は持たない。
+ * Worker の API を古い Worker と話せない形で変えたら、その版に上げる。上げる前に Worker を配備し直す。
  */
-export const MIN_WORKER_COMPAT = 0;
+export const MIN_WORKER_COMPAT = 1;
 
 /** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
 export type CompatUpgrade = 'device' | 'worker';
@@ -52,7 +53,7 @@ export type CompatUpgrade = 'device' | 'worker';
 function compatMessage(upgrade: CompatUpgrade, have: number, need: number | null): string {
   if (upgrade === 'device') {
     const want = need === null ? 'それより新しい版' : `${need} 以上`;
-    return `この PC の hangar が古いので、クラウドが同期を断りました（この PC の互換の版は ${have}、クラウドが求めるのは ${want}）。この PC の hangar を新しい版に入れ替えてください`;
+    return `この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換の版は ${have}、クラウドが求めるのは ${want}）。この PC の hangar を更新してください`;
   }
   return `クラウドの Worker が古いので、同期を止めました（Worker の互換の版は ${have}、この PC が求めるのは ${need ?? '?'} 以上）。setup した PC で hangar setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください`;
 }
@@ -186,8 +187,7 @@ export interface CloudClient {
   putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }>;
   getFile(key: string): Promise<Readable>;
   listFiles(since: number, limit: number): Promise<ListFilesResponse>;
-  deleteFile(key: string): Promise<void>;
-  /** 使用量と費用。古い Worker（404）は configured: false として返す。 */
+  /** 使用量と費用。 */
   usage(): Promise<CloudUsageBody>;
 }
 
@@ -241,8 +241,10 @@ export class HttpCloudClient implements CloudClient {
    * 互換の版は、成否より先に見る。
    * 426 なら Worker がこの PC を断った。Worker の名乗った版が下限より古ければ、こちらが Worker を断る。
    * 古い Worker は要求をもう済ませている（push なら行を受け取っている）が、こちらは失敗として扱う。
-   * Worker の版は、Worker が自分で作った応答にだけ問う。
-   * 端が Worker を通さずに返す 5xx、408、429（CPU 超過の 1102 や日の上限など）は見出しを持たず、Worker の版を語らないので、これまでどおり CloudError に落とす。
+   * Worker の版は 2xx の応答でだけ問う。
+   * Cloudflare の端は Worker を通さずに 4xx と 5xx を返すことがある（WAF の 403、本文が大きすぎるときの 413、CPU の超過の 1102、日の上限など）。
+   * それらは版の見出しを持たないが、Worker の版を語らないので、版の不一致にせず、これまでどおり CloudError に落とす。
+   * 2xx は Worker を通らないと返らないので、古い Worker はどの経路でも最初の 2xx で見分けられる。
    * 行は未送信のまま残り、Worker を上げた後の送り直しは LWW で同じ結果になる。
    * 上限の失敗（共有の readCloudLimit）は、版の検査より先に見る。
    * 端が返す 1027 の頁は版の見出しを持たないので、版の検査に回すと「Worker が古い」と取り違える。本文は 200 字に切る前に全部で読む。
@@ -278,8 +280,7 @@ export class HttpCloudClient implements CloudClient {
       }
     }
     const workerCompat = parseCompat(res.headers.get(COMPAT_HEADER));
-    const fromWorker = res.status < 500 && res.status !== 408 && res.status !== 429;
-    if (fromWorker && workerCompat < this.minWorkerCompat) {
+    if (res.ok && workerCompat < this.minWorkerCompat) {
       if (text === null) void res.body?.cancel().catch(() => {});
       d.clear();
       throw new CompatError('worker', workerCompat, this.minWorkerCompat);
@@ -314,14 +315,7 @@ export class HttpCloudClient implements CloudClient {
   snapshot(after: string | null, limit: number) { return this.json<SnapshotResponse>(`/rows?after=${encodeURIComponent(after ?? '')}&limit=${limit}`); }
   listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
 
-  async usage(): Promise<CloudUsageBody> {
-    try {
-      return await this.json<CloudUsageBody>('/usage');
-    } catch (e) {
-      if (e instanceof CloudError && e.status === 404) return { configured: false };
-      throw e;
-    }
-  }
+  usage() { return this.json<CloudUsageBody>('/usage'); }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
     this.requireValidKey(meta.key);
@@ -398,12 +392,5 @@ export class HttpCloudClient implements CloudClient {
         }
       })(),
     );
-  }
-
-  async deleteFile(key: string): Promise<void> {
-    this.requireValidKey(key);
-    const { res, d } = await this.send(`/files/${encodeFileKeyPath(key)}`, { method: 'DELETE' }, this.timeoutMs);
-    d.clear();
-    void res.body?.cancel().catch(() => {});
   }
 }

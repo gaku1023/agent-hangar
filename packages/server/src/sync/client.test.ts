@@ -9,7 +9,12 @@ import { CloudError, CompatError, goneFloor, HttpCloudClient, isValidFileKey, Li
 
 type Call = { url: string; init: RequestInit };
 
-function fakeFetch(handler: (c: Call) => Response | Promise<Response>): { fetch: typeof fetch; calls: Call[] } {
+/**
+ * Worker の立て替え。
+ * いまの Worker の真似として、版の見出しの無い応答にはこの PC と同じ版を足す（この PC が Worker に求める下限は 1 である）。
+ * 版を試す試験は stamp: false を渡し、見出しを足さない（版 0 の古い Worker や、Cloudflare の端の真似）。
+ */
+function fakeFetch(handler: (c: Call) => Response | Promise<Response>, o: { stamp?: boolean } = {}): { fetch: typeof fetch; calls: Call[] } {
   const calls: Call[] = [];
   const f = (async (input: string | URL | Request, init?: RequestInit) => {
     const c = { url: String(input), init: init ?? {} };
@@ -19,7 +24,9 @@ function fakeFetch(handler: (c: Call) => Response | Promise<Response>): { fetch:
     new Headers(c.init.headers as Record<string, string> | undefined);
     new URL(c.url);
     calls.push(c);
-    return handler(c);
+    const res = await handler(c);
+    if (o.stamp !== false && !res.headers.has(COMPAT_HEADER)) res.headers.set(COMPAT_HEADER, String(COMPAT_VERSION));
+    return res;
   }) as typeof fetch;
   return { fetch: f, calls };
 }
@@ -95,15 +102,16 @@ describe('HttpCloudClient', () => {
     expect(calls[3]!.url).toBe('https://h/rows?after=&limit=50');
   });
 
-  it('listFiles と deleteFile', async () => {
-    const { fetch, calls } = fakeFetch((c) => (c.init.method === 'DELETE' ? new Response(null, { status: 204 }) : json({ files: [], nextSeq: 4, more: false })));
+  it('listFiles', async () => {
+    const { fetch, calls } = fakeFetch(() => json({ files: [], nextSeq: 4, more: false }));
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     expect(await c.listFiles(4, 500)).toEqual({ files: [], nextSeq: 4, more: false });
     expect(calls[0]!.url).toBe('https://h/files?since=4&limit=500');
-    await c.deleteFile('transcripts/d/u.jsonl.gz');
-    expect(calls[1]!.url).toBe('https://h/files/transcripts/d/u.jsonl.gz');
-    expect(calls[1]!.init.method).toBe('DELETE');
-    expect(bearerIs(calls[1]!, 't')).toBe(true);
+    expect(bearerIs(calls[0]!, 't')).toBe(true);
+  });
+
+  it('本文と設定を消す口は無い（Worker に DELETE の経路が無い）', () => {
+    expect('deleteFile' in HttpCloudClient.prototype).toBe(false);
   });
 
   it('putFile はヘッダとストリーム本文を送り、getFile は Readable を返す', async () => {
@@ -184,11 +192,11 @@ describe('HttpCloudClient', () => {
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     await expect(c.getFile('other/u1')).rejects.toMatchObject({ status: 400 });
     await expect(c.getFile('transcripts/d/../e/u1')).rejects.toMatchObject({ status: 400 });
-    await expect(c.deleteFile('transcripts/d/u\u0000.gz')).rejects.toMatchObject({ status: 400 });
+    await expect(c.getFile('transcripts/d/u\u0000.gz')).rejects.toMatchObject({ status: 400 });
     await expect(c.putFile({ key: 'config/../x', path: 'x', kind: 'config', sha256: 'a'.repeat(64), size: 1, mtime: 1, encrypted: false }, Readable.from([Buffer.from('x')]))).rejects.toMatchObject({ status: 400 });
     expect(calls).toHaveLength(0);
     // 空白と `?` は Worker が通すので、端末も通して URL の側で符号化する。
-    await c.deleteFile('transcripts/d/u 1?x.gz');
+    await c.getFile('transcripts/d/u 1?x.gz');
     expect(calls[0]!.url).toBe('https://h/files/transcripts/d/u%201%3Fx.gz');
     expect(new URL(calls[0]!.url).search).toBe('');
   });
@@ -284,7 +292,7 @@ describe('HttpCloudClient', () => {
 
   it('日本語と空白を含む鍵を通し、URL では断片ごとに符号化する', async () => {
     const key = 'config/skills/日本語 メモ/SKILL.md';
-    const { fetch, calls } = fakeFetch((c) => (c.init.method === 'PUT' ? json({ seq: 2 }, 201) : c.init.method === 'DELETE' ? new Response(null, { status: 204 }) : new Response('body', { status: 200 })));
+    const { fetch, calls } = fakeFetch((c) => (c.init.method === 'PUT' ? json({ seq: 2 }, 201) : new Response('body', { status: 200 })));
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
     await c.putFile({ key, path: 'skills/日本語 メモ/SKILL.md', kind: 'config', sha256: 'b'.repeat(64), size: 1, mtime: 1, encrypted: true }, Readable.from([Buffer.from('x')]));
     const expected = 'https://h/files/config/skills/%E6%97%A5%E6%9C%AC%E8%AA%9E%20%E3%83%A1%E3%83%A2/SKILL.md';
@@ -293,8 +301,6 @@ describe('HttpCloudClient', () => {
     for await (const ch of await c.getFile(key)) text += ch;
     expect(text).toBe('body');
     expect(calls[1]!.url).toBe(expected);
-    await c.deleteFile(key);
-    expect(calls[2]!.url).toBe(expected);
     // 断片ごとの復号で元の鍵に戻る（Worker の受け取りと同じ）。
     expect(new URL(calls[0]!.url).pathname.slice('/files/'.length).split('/').map(decodeURIComponent).join('/')).toBe(key);
   });
@@ -415,10 +421,10 @@ describe('usage', () => {
     expect(calls[0]!.url).toBe('https://w.example/usage');
     expect(bearerIs(calls[0]!, 'dev-token')).toBe(true);
   });
-  it('古い Worker の 404 は configured: false として扱う', async () => {
+  it('404 は読み替えずに CloudError のまま投げる（/usage の無い古い Worker は、版の下限で先に断る）', async () => {
     const { fetch } = fakeFetch(() => json({ error: 'not found' }, 404));
     const c = new HttpCloudClient({ url: 'https://w.example', token: 't', fetch });
-    expect(await c.usage()).toEqual({ configured: false });
+    await expect(c.usage()).rejects.toMatchObject({ name: 'CloudError', status: 404 });
   });
   it('それ以外の失敗は CloudError のまま投げる', async () => {
     const { fetch } = fakeFetch(() => json({ error: 'internal error' }, 500));
@@ -431,9 +437,8 @@ describe('互換の版', () => {
   /** どの経路にも、形の合う応答を返す。 */
   const anyRoute = (c: Call): Response =>
     c.init.method === 'PUT' ? json({ seq: 1 }, 201)
-      : c.init.method === 'DELETE' ? new Response(null, { status: 204 })
-        : /\/files\/./.test(new URL(c.url).pathname) ? new Response('payload')
-          : json({ ok: true, version: '1', changes: [], nextAfter: null, seq: 0, nextSeq: 0, more: false, files: [], configured: false });
+      : /\/files\/./.test(new URL(c.url).pathname) ? new Response('payload')
+        : json({ ok: true, version: '1', changes: [], nextAfter: null, seq: 0, nextSeq: 0, more: false, files: [], configured: false });
 
   it('Worker へのすべての要求に、この PC の版を見出しで載せる', async () => {
     const { fetch, calls } = fakeFetch(anyRoute);
@@ -447,9 +452,8 @@ describe('互換の版', () => {
     let got = 0;
     for await (const chunk of await c.getFile('transcripts/d/u.jsonl.gz')) got += (chunk as Buffer).length;
     expect(got).toBe('payload'.length);
-    await c.deleteFile('transcripts/d/u.jsonl.gz');
     await c.usage();
-    expect(calls).toHaveLength(9);
+    expect(calls).toHaveLength(8);
     for (const call of calls) expect(headersOf(call)[COMPAT_HEADER], call.url).toBe(String(COMPAT_VERSION));
     // 端末トークンは変わらず最後に載る。
     expect(bearerIs(calls[0]!, 't')).toBe(true);
@@ -464,6 +468,9 @@ describe('互換の版', () => {
     expect(e).toMatchObject({ name: 'CompatError', status: 426, upgrade: 'device', have: COMPAT_VERSION, need: 2 });
     expect((e as Error).message).toContain('この PC の hangar');
     expect((e as Error).message).toContain('2 以上');
+    // 利用者が選んだ言い回し：クラウドが拒否したことと、更新してほしいことを言う。
+    expect((e as Error).message).toContain('クラウドが同期を拒否しました');
+    expect((e as Error).message).toContain('この PC の hangar を更新してください');
   });
 
   it('426 の本文が読めなくても、この PC の hangar を上げるよう伝える', async () => {
@@ -475,7 +482,7 @@ describe('互換の版', () => {
   });
 
   it('Worker の版がこの PC の下限より古ければ、通った応答でも CompatError にして Worker を上げるよう伝える', async () => {
-    const { fetch } = fakeFetch(() => new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '1' } }));
+    const { fetch } = fakeFetch(() => new Response(JSON.stringify({ changes: [], nextSeq: 0, more: false }), { status: 200, headers: { [COMPAT_HEADER]: '1' } }), { stamp: false });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 2 });
     const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
     expect(e).toMatchObject({ name: 'CompatError', status: 426, upgrade: 'worker', have: 1, need: 2 });
@@ -484,23 +491,18 @@ describe('互換の版', () => {
     expect((e as Error).message).toContain('今すぐ同期');
   });
 
-  it('版の見出しを返さない Worker は版 0 として読み、下限が 0 なら今までどおり話す', async () => {
-    expect(MIN_WORKER_COMPAT).toBe(0);
-    const { fetch } = fakeFetch(() => json({ changes: [], nextSeq: 4, more: false }));
-    expect(await new HttpCloudClient({ url: 'https://h', token: 't', fetch }).pullChanges(0, 10)).toEqual({ changes: [], nextSeq: 4, more: false });
-    // 下限を 1 にすると、同じ Worker を古いと読む。
-    const strict = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
-    await expect(strict.pullChanges(0, 10)).rejects.toMatchObject({ upgrade: 'worker', have: 0, need: 1 });
-  });
-
-  it('古い Worker の 404 は、使用量の「トークンなし」に読み替える前に版の不一致として伝える', async () => {
-    const { fetch } = fakeFetch(() => json({ error: 'not found' }, 404));
-    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
+  it('この PC が Worker に求める下限は 1 で、版の見出しを返さない Worker（版 0）の 2xx は Worker を上げるよう断る', async () => {
+    expect(MIN_WORKER_COMPAT).toBe(1);
+    const { fetch } = fakeFetch(() => json({ changes: [], nextSeq: 4, more: false }), { stamp: false });
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 1 });
     await expect(c.usage()).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker' });
   });
 
-  it.each([503, 429, 408])('Worker を通らずに端が返した %i（版の見出しなし）は、版の不一致にせず、その status の CloudError にする', async (status) => {
-    const { fetch } = fakeFetch(() => new Response('edge', { status }));
+  // Cloudflare の端は、Worker を通さずに 4xx と 5xx を返すことがある（WAF の 403、本文が大きすぎるときの 413、CPU の超過、日の上限など）。
+  // どれも版の見出しを持たないが、Worker の版を語らないので、下限を上げていても版の不一致にはしない。
+  it.each([503, 429, 408, 403, 404, 400, 413])('Worker を通らずに端が返した %i（版の見出しなし）は、版の不一致にせず、その status の CloudError にする', async (status) => {
+    const { fetch } = fakeFetch(() => new Response('<html>edge</html>', { status, headers: { 'content-type': 'text/html' } }), { stamp: false });
     const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
     const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(CloudError);

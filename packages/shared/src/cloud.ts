@@ -16,17 +16,9 @@ export const TABLE_PK: Record<SharedTable, string> = {
 export type ChangeOp = 'upsert' | 'delete';
 export type ChangeIn = { tableName: SharedTable; rowId: string; op: ChangeOp; payload: Record<string, unknown>; updatedAt: number };
 export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
-/**
- * push の応答である。
- *
- * `d1RowsToday` は、その日（UTC で区切る）にこの箱の Worker が D1 へ書いた行数である。
- * Worker は返すが、端末はもう読まない（hangar は量を数えず、上限の失敗で退く）。
- * Worker の台帳と一緒に、段 1 の PR 6 で消す。
- * 古い Worker は返さないので任意である。
- */
-export type PushChangesResponse = { seq: number; accepted: number; skipped: number; d1RowsToday?: number };
-/** pull の応答。`d1RowsToday` は push の応答と同じ数で、端末は読まない（段 1 の PR 6 で消す）。 */
-export type PullChangesResponse = { changes: ChangeOut[]; nextSeq: number; more: boolean; d1RowsToday?: number };
+/** push の応答である。seq はサーバの連番の高水位、accepted は採った行、skipped は新しくなかったので捨てた行の数である。 */
+export type PushChangesResponse = { seq: number; accepted: number; skipped: number };
+export type PullChangesResponse = { changes: ChangeOut[]; nextSeq: number; more: boolean };
 export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
 
 export type FileKind = 'transcript' | 'config';

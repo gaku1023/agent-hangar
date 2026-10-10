@@ -762,6 +762,18 @@ describe('SettingsScreen のクラウド同期', () => {
     expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
     expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
   });
+  it('一時停止中に版で止まっている間は、設定の節も切り替えを出さず、今すぐ同期だけを出す', () => {
+    const onIntent = vi.fn();
+    const { rerender } = render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'error', paused: true, stateLabel: '一時停止中 · 同期エラー' }) })} /></IntentRoot>);
+    expect(screen.getByText('状態 一時停止中 · 同期エラー')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.now' });
+    expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
+    // 一時停止していない版のエラーは、今までどおり切り替えを出す。
+    rerender(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'error', paused: false, stateLabel: '同期エラー' }) })} /></IntentRoot>);
+    expect(screen.getByRole('button', { name: '同期を一時停止' })).toBeInTheDocument();
+  });
   it('1 回だけ同期している最中は、今すぐ同期を押せない姿にする', () => {
     const onIntent = vi.fn();
     render(<IntentRoot onIntent={onIntent}><SettingsScreen {...settingsProps({ cloud: cloudProps({ state: 'paused', paused: true, once: true, stateLabel: '1 回だけ同期中…' }) })} /></IntentRoot>);

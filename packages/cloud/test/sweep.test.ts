@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLOUD_HEADERS } from '@agent-hangar/shared';
-import { d1RowsToday } from '../src/meter.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { META_SWEEP_AT, SWEEP_EVERY_MS, SWEEP_GRACE_MS, SWEEP_LIST_LIMIT, resetSweepThrottle, sweepIfDue, sweepOnce } from '../src/sweep.ts';
 import { sha256Hex } from '../src/util.ts';
@@ -26,6 +25,7 @@ const put = (key: string, body: string, over: Record<string, string> = {}): Prom
     method: 'PUT',
     headers: {
       authorization: `Bearer ${tok}`,
+      'content-length': String(new TextEncoder().encode(body).length),
       [CLOUD_HEADERS.path]: 'projects/-x/u1.jsonl',
       [CLOUD_HEADERS.kind]: 'transcript',
       [CLOUD_HEADERS.sha256]: 'a'.repeat(64),
@@ -234,18 +234,5 @@ describe('掃除の回し方', () => {
       if (value === undefined) await new Promise((r) => setTimeout(r, 20));
     }
     expect(Number(value)).toBeGreaterThan(0);
-  });
-
-  it('掃除そのものが無料枠をほとんど使わない', async () => {
-    const now = Date.now();
-    for (let i = 0; i < 5; i++) await orphanBody(`transcripts/a/o${i}.gz`);
-    await orphanIndex('transcripts/a/gone.gz', now - 2 * HOUR);
-    const before = (await d1RowsToday(cloud.env.DB, now)) ?? 0;
-    await sweepIfDue(cloud.env, now + 2 * HOUR);
-    const spent = ((await d1RowsToday(cloud.env.DB, now)) ?? 0) - before;
-    expect(spent).toBeGreaterThan(0);   // 走らなかったのを「安い」と読み違えない。
-    // 1 回の掃除で D1 に書く行数。走るのは 1 日に 4 回なので、1 日 10 万行の枠の 0.1% にも遠い。
-    expect(spent).toBeLessThanOrEqual(16);
-    expect((86_400_000 / SWEEP_EVERY_MS) * spent).toBeLessThan(100);
   });
 });

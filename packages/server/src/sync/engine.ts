@@ -255,6 +255,8 @@ export class SyncEngine {
     const shownLimit = state === 'paused' ? limitedUntil : null;
     return {
       state,
+      // 版で止まると state は error になり、一時停止していることが state からは読めなくなる。画面の切り替えのために印を別に載せる。
+      paused: this.paused,
       url: this.deps.url ?? null,
       lastPushAt: num('lastPushAt'),
       lastPullAt: num('lastPullAt'),

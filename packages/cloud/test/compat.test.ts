@@ -31,11 +31,11 @@ afterEach(async () => {
 });
 
 describe('互換の版（本番の下限）', () => {
-  it('本番の下限は 0 である（上げるのは段 1 の PR 6）', () => {
-    expect(MIN_DEVICE_COMPAT).toBe(0);
+  it('本番の下限は 1 である（段 1 の PR 6 で上げた）', () => {
+    expect(MIN_DEVICE_COMPAT).toBe(1);
   });
 
-  it('/health は Worker の版を返す', async () => {
+  it('/health は Worker の版を返し、版を名乗らない相手にも答える', async () => {
     const c = await boot();
     const r = await c.RAW.fetch('https://x/health');
     expect(r.status).toBe(200);
@@ -46,11 +46,12 @@ describe('互換の版（本番の下限）', () => {
     const c = await boot();
     const responses = [
       await c.RAW.fetch('https://x/health'),
+      await c.SELF.fetch('https://x/changes?since=0'),
+      await c.SELF.fetch('https://x/nope'),
+      await c.SELF.fetch('https://x/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
       await c.RAW.fetch('https://x/changes?since=0'),
-      await c.RAW.fetch('https://x/nope'),
-      await c.RAW.fetch('https://x/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
     ];
-    expect(responses.map((r) => r.status)).toEqual([200, 401, 404, 400]);
+    expect(responses.map((r) => r.status)).toEqual([200, 401, 404, 400, 426]);
     for (const r of responses) expect(r.headers.get(COMPAT_HEADER), String(r.status)).toBe(String(COMPAT_VERSION));
   });
 
@@ -65,13 +66,12 @@ describe('互換の版（本番の下限）', () => {
     expect(await g.text()).toBe('abc');
   });
 
-  it('見出しの無い要求（版 0 の古い端末）も通す', async () => {
+  it('見出しの無い要求（版 0 の古い端末）は、参加も含めて 426 と下限で断る', async () => {
     const c = await boot();
     const j = await c.RAW.fetch('https://x/join', joinInit());
-    expect(j.status).toBe(201);
-    const { deviceToken } = (await j.json()) as { deviceToken: string };
-    const r = await c.RAW.fetch('https://x/changes?since=0', { headers: { authorization: `Bearer ${deviceToken}` } });
-    expect(r.status).toBe(200);
+    expect(j.status).toBe(426);
+    expect(await j.json()).toEqual({ error: 'upgrade required', minCompat: 1, compat: COMPAT_VERSION });
+    expect((await c.RAW.fetch('https://x/changes?since=0')).status).toBe(426);
   });
 });
 

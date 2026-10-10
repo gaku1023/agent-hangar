@@ -32,6 +32,19 @@ describe('同梱する Worker の束と束縛の定義', () => {
     expect(JSON.stringify(workerMetadata(cloudDir))).not.toContain('00000000-0000');
   });
 
+  // 入口の名前付きの輸出を Workers がどう扱うかは、クラス（Durable Object と WorkerEntrypoint）以外について文書に書かれていない。
+  // 入口は既定の輸出だけにして、配備で確かめなければならない問いそのものを無くす。組み立ては src/app.ts にある。
+  it('入口の束は既定の輸出だけを持つ', async () => {
+    const script = await bundleWorker(cloudDir);
+    const exported = [...script.matchAll(/^export\s*\{([^}]*)\}/gm)]
+      .flatMap((m) => m[1]!.split(','))
+      .map((s) => s.trim())
+      .filter((s) => s !== '')
+      .map((s) => s.split(/\s+as\s+/).pop()!);
+    expect(exported).toEqual(['default']);
+    expect(script).not.toMatch(/^export\s+(const|let|var|function|async function|class)\s/m);
+  });
+
   it('束は外への import を持たない 1 本の ESM で、定義の束縛で起こすと /health が通る', async () => {
     const script = await bundleWorker(cloudDir);
     expect(script).not.toMatch(/^import\s/m);

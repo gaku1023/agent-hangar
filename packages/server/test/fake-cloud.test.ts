@@ -6,12 +6,8 @@ import { CloudError, CompatError, goneFloor } from '../src/sync/client.ts';
 import { FakeCloudClient, MAX_BODY_BYTES, MAX_ROW_BYTES, MAX_ROW_ID_CHARS, MIN_DEVICE_COMPAT } from './fake-cloud.ts';
 
 const ch = (rowId: string, updatedAt: number) => ({ tableName: 'projects' as const, rowId, op: 'upsert' as const, payload: { id: rowId, updated_at: updatedAt }, updatedAt });
-/**
- * push の応答の形。
- * `d1RowsToday`（その日に D1 へ書いた行数）は書いた量で変わるので、ここでは数であることだけを見る。
- * 中身は `fake-cloud-usage.test.ts` が実物のスキーマから出した表と突き合わせる。
- */
-const pushResult = (o: { seq: number; accepted: number; skipped: number }) => ({ ...o, d1RowsToday: expect.any(Number) });
+/** push の応答の形。Worker は量を数えないので、連番と採った数と捨てた数だけを返す。 */
+const pushResult = (o: { seq: number; accepted: number; skipped: number }) => o;
 
 const meta = (key: string, over: Record<string, unknown> = {}) => ({ key, path: 'projects/-x/u.jsonl', kind: 'transcript' as const, sha256: 'a'.repeat(64), size: 3, mtime: 1, encrypted: true, ...over });
 
@@ -120,14 +116,8 @@ describe('FakeCloudClient', () => {
     expect((await a.listFiles(0, 500)).files.map((f) => [f.seq, f.deviceId])).toEqual([[2, 'b'], [3, 'a']]);
   });
 
-  it('DELETE は自端末の分だけ消せる', async () => {
-    const a = new FakeCloudClient({ deviceId: 'a' });
-    const m = meta('transcripts/a/u.jsonl.gz');
-    await a.putFile(m, Readable.from([Buffer.from('abc')]));
-    await expect(a.asDevice('b').deleteFile(m.key)).rejects.toMatchObject({ status: 403 });
-    await a.deleteFile(m.key);
-    expect((await a.listFiles(0, 500)).files).toEqual([]);
-    await expect(a.getFile(m.key)).rejects.toMatchObject({ status: 404 });
+  it('本文と設定を消す口は無い（実物の Worker に DELETE の経路が無い）', () => {
+    expect('deleteFile' in FakeCloudClient.prototype).toBe(false);
   });
 
   it('鍵とメタデータの形が違えば 400', async () => {
@@ -163,7 +153,6 @@ describe('FakeCloudClient', () => {
     await expect(a.snapshot(null, 500)).rejects.toMatchObject({ status: 0 });
     await expect(a.listFiles(0, 500)).rejects.toMatchObject({ status: 0 });
     await expect(a.getFile('transcripts/self/u.gz')).rejects.toMatchObject({ status: 0 });
-    await expect(a.deleteFile('transcripts/self/u.gz')).rejects.toMatchObject({ status: 0 });
     await expect(a.putFile(meta('transcripts/self/u.gz'), Readable.from([Buffer.from('x')]))).rejects.toMatchObject({ status: 0 });
     // 片方を offline にすると同じストアの全端末が落ちる。
     expect(a.asDevice('b').offline).toBe(true);
@@ -217,7 +206,6 @@ describe('FakeCloudClient', () => {
     await expect(a.snapshot(null, 500)).rejects.toMatchObject(shape);
     await expect(a.listFiles(0, 500)).rejects.toMatchObject(shape);
     await expect(a.getFile('transcripts/a/u.gz')).rejects.toMatchObject(shape);
-    await expect(a.deleteFile('transcripts/a/u.gz')).rejects.toMatchObject(shape);
     await expect(a.putFile(meta('transcripts/a/u.gz'), Readable.from([Buffer.from('x')]))).rejects.toMatchObject(shape);
     expect(a.changes).toHaveLength(1);
     // 端末をまたいで効き、offline の方が先に立つ。
@@ -257,7 +245,7 @@ describe('FakeCloudClient', () => {
     const msg = async (p: Promise<unknown>) => (await p.catch((e: CloudError) => e.message)) as string;
     expect(await msg(a.pushChanges([{ ...ch('p1', 1), op: 'drop' } as never]))).toBe(JSON.stringify({ error: 'invalid body' }));
     expect(await msg(a.getFile('other/u1'))).toBe(JSON.stringify({ error: 'invalid key' }));
-    expect(await msg(a.asDevice('b').deleteFile('transcripts/a/u1.gz'))).toBe(JSON.stringify({ error: 'forbidden' }));
+    expect(await msg(a.asDevice('b').putFile(meta('transcripts/a/u1.gz'), body()))).toBe(JSON.stringify({ error: 'forbidden' }));
     expect(await msg(a.getFile('transcripts/a/nope.gz'))).toBe(JSON.stringify({ error: 'not found' }));
     expect(await msg(a.putFile(meta('transcripts/a/u1.gz', { sha256: 'zz' }), body()))).toBe(JSON.stringify({ error: 'invalid headers' }));
   });
@@ -274,8 +262,6 @@ describe('FakeCloudClient', () => {
     let text = '';
     for await (const c of await a.asDevice('b').getFile(key)) text += c;
     expect(text).toBe('abc');
-    await a.deleteFile(key);
-    expect((await a.listFiles(0, 500)).files).toEqual([]);
   });
 
   it('見出しで運べない path は実物と同じところで落ちる', async () => {
@@ -364,8 +350,7 @@ describe('FakeCloudClient', () => {
     await a.putFile(meta('transcripts/a/u1.gz'), Readable.from([Buffer.from('x')]));
     expect(await a.listFiles(999_999, 500)).toMatchObject({ files: [], nextSeq: 1, more: false });
     // 索引が空なら 0 である。
-    await a.deleteFile('transcripts/a/u1.gz');
-    expect(await a.listFiles(999_999, 500)).toMatchObject({ files: [], nextSeq: 0, more: false });
+    expect(await new FakeCloudClient({ deviceId: 'b' }).listFiles(999_999, 500)).toMatchObject({ files: [], nextSeq: 0, more: false });
   });
 
   it('上限は実物の Worker と同じ数である', () => {
@@ -415,11 +400,12 @@ describe('互換の版', () => {
     expect(a.changes).toHaveLength(0);
   });
 
-  it('版の見出しを返さない古い Worker（版 0）とも、下限が 0 の端末は話す', async () => {
+  it('既定の下限は 1 で、版の見出しを返さない古い Worker（版 0）は Worker を上げるよう断る', async () => {
     const a = new FakeCloudClient({ deviceId: 'a' });
-    expect(a.minWorkerCompat).toBe(0);
+    expect(a.minWorkerCompat).toBe(1);
     a.workerCompat = 0;
-    expect(await a.pushChanges([ch('p1', 1)])).toEqual(pushResult({ seq: 1, accepted: 1, skipped: 0 }));
+    await expect(a.pushChanges([ch('p1', 1)])).rejects.toMatchObject({ name: 'CompatError', upgrade: 'worker', have: 0, need: 1 });
+    expect(a.changes).toHaveLength(0);
   });
 
   it('別の端末も、同じ Worker の版と下限を見る', async () => {

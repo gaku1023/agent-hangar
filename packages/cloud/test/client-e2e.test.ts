@@ -28,10 +28,10 @@ beforeEach(async () => {
   resetSchemaCache();
   await ensureSchema({ ...cloud.env, JOIN_SECRET_HASH: await sha256Hex(SECRET) });
   workerUrl = String(await cloud.mf.ready).replace(/\/+$/, '');
-  // 参加は版の見出しを載せない（版 0 の古い端末と同じ）。本番の下限 0 の Worker では通る。
+  // 参加も版を載せる。本番の下限は 1 なので、載せない参加は 426 で断られる。
   const r = await fetch(`${workerUrl}/join`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', [COMPAT_HEADER]: String(COMPAT_VERSION) },
     body: JSON.stringify({ secret: SECRET, device: { id: 'dev-a', name: 'dev-a', platform: 'darwin' } }),
   });
   token = ((await r.json()) as { deviceToken: string }).deviceToken;

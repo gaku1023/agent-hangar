@@ -109,9 +109,12 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     state: sync?.state ?? 'off',
     stateLabel: sync?.state === 'paused' && sync.oncePass ? SYNC_ONCE_LABEL
       : sync?.state === 'paused' && sync.limitedUntil !== null ? limitedLabel(sync.limitedUntil)
+      // 一時停止中に版で止まったときは、状態は error でも一時停止していることを頭に添える。
+      : sync?.state === 'error' && sync.paused ? `${SYNC_STATE_LABEL.paused} · ${SYNC_STATE_LABEL.error}`
       : SYNC_STATE_LABEL[sync?.state ?? 'off'],
     // 上限で退いているのは利用者が止めたのではないので、一時停止とは言わない。そのあいだは切り替えを出さない（limited）。
-    paused: sync?.state === 'paused' && sync.limitedUntil === null,
+    // 版で止まると state は error になるので、一時停止しているかは印でも見る。
+    paused: (sync?.state === 'paused' && sync.limitedUntil === null) || sync?.paused === true,
     limited: sync?.state === 'paused' && sync.limitedUntil !== null,
     once: sync?.state === 'paused' && sync.oncePass,
     lastPullAt: relativeTime(sync?.lastPullAt ?? null, now),

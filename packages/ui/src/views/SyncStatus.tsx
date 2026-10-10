@@ -8,7 +8,7 @@ import { foldAt } from './headerFold.ts';
  * props だけで描き、状態を持たない。状態の文は presenter が組み立てている。
  * 同期を設定していない端末では presenter が visible を false にするので、丸ごと描かない。
  * 狭いヘッダでは、操作、件数、文の順に畳む（headerFold.ts）。
- * Cloudflare の上限で退いている間（reason が quota）は、利用者は止めていないので、操作は「今すぐ同期」だけを出す。
+ * Cloudflare の上限で退いている間（reason が quota）と、一時停止中に版で止まっている間は、操作は「今すぐ同期」だけを出す。
  */
 const SETTINGS = { name: 'settings' } as const;
 
@@ -38,8 +38,10 @@ export function SyncStatus(props: SyncProps) {
       {/* 一時停止の間は、押した 1 回だけ同期して停止に戻る。名前は変えず、添え書きで伝える。
           その 1 回が進んでいるあいだは押せない姿にして、効いていることを見せる。 */}
       <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} disabled={props.once} title={props.paused && !props.once ? '一時停止のまま、1 回だけ同期する' : undefined} onClick={() => emit({ type: 'sync.now' })}>{props.once ? '同期中…' : '今すぐ同期'}</button>
-      {/* 上限で退いている間は、利用者は止めていないので切り替えを出さず、今すぐ同期だけにする（試作の Q4 の案 B）。 */}
-      {props.reason !== 'quota' && <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} onClick={() => emit({ type: 'sync.pause', paused: !props.paused })}>{props.paused ? '同期を再開' : '同期を一時停止'}</button>}
+      {/* 上限で退いている間は、利用者は止めていないので切り替えを出さず、今すぐ同期だけにする（試作の Q4 の案 B）。
+          一時停止中に版で止まっている間も出さない。再開しても、互換の版が合うまで同期できないからである。
+          更新するのがこの PC かクラウドの Worker かは、error の文（CompatError の message）がそのまま言う。 */}
+      {props.reason !== 'quota' && !(props.paused && props.state === 'error') && <button className="btn btn-sm sync-action" data-fold-at={foldAt('sync-actions')} onClick={() => emit({ type: 'sync.pause', paused: !props.paused })}>{props.paused ? '同期を再開' : '同期を一時停止'}</button>}
     </span>
   );
 }

@@ -32,12 +32,8 @@ export type FakeCloudStore = {
   fileSeq: number;
   /** 圧縮で削り終えた連番。since がこれより小さい pull には 410 を返す。 */
   changesFloor: number;
-  /** 最後に掃除が走った時刻。実物は `GET /files` から 6 時間に 1 回だけ始める。 */
-  lastSweepAt: number | null;
   offline: boolean;
   unauthorized: boolean;
-  /** その日（UTC で区切る）に D1 へ書いた行数。実物の Worker の台帳（packages/cloud/src/meter.ts）に当たる。 */
-  d1Rows: Map<string, number>;
   /** Worker の互換の版。0 にすると、版の見出しを返さない古い Worker（版番号を入れる前に配備したもの）の真似になる。 */
   workerCompat: number;
   /** Worker が端末に求める下限。実物の原本は packages/cloud/src/compat.ts の MIN_DEVICE_COMPAT。 */
@@ -45,7 +41,7 @@ export type FakeCloudStore = {
   /**
    * 当たっている Cloudflare の上限。null なら当たっていない。
    * Workers の要求の上限（requests）は全部の口を、D1 の上限は D1 に触らない /health を除く口を断る。
-   * 実物の D1 の上限は段 1 の PR 6 から 429 で返る。偽物は先にその形で断る。
+   * 実物の D1 の上限は 429 で返る。偽物も同じ形で断る。
    */
   limited: CloudLimitKind | null;
   now: () => number;
@@ -69,47 +65,7 @@ export const MAX_BODY_BYTES = 100 * 1024 * 1024;
  * 実物の Worker が端末に求める互換の版の下限（packages/cloud/src/compat.ts の写し）。
  * ずれていないことは fake-cloud.test.ts の「端末に求める下限は実物の Worker の写し」が原本を読んで縛る。
  */
-export const MIN_DEVICE_COMPAT = 0;
-
-/**
- * 実物の Worker が D1 へ書く行数の写しである。
- *
- * 実物は見積もらない。D1 が申告する `rows_written` をそのまま積む（`packages/cloud/src/meter.ts`）。
- * 偽物には申告してくれる D1 がいないので、実測の表を持つ。
- * 数は `packages/cloud/test/meter.test.ts` が実物の Worker に対して測ったもので、
- * スキーマとの辻褄は `fake-cloud-usage.test.ts` が原本（`packages/cloud/src/schema.ts`）を読んで縛る。
- *
- * **insert は autoincrement の連番（`sqlite_sequence`）の 1 行も数える。**
- * `changes` も `files` も `seq integer primary key autoincrement` なので、どちらも同じ扱いにする。
- * delete では連番も索引も動かないので 1 行である（これも実測である）。
- */
-export const D1_ROWS = {
-  /** changes への insert（本体 + changes_device の索引 + 連番）。 */
-  changeInsert: 3,
-  /** 鏡（rows）の upsert（本体 + k の主キーの索引）。 */
-  mirrorUpsert: 2,
-  /** devices の last_seen_at と last_pulled_seq の更新。どの索引にも載らない列なので 1 行である。 */
-  deviceTouch: 1,
-  /** files への insert（本体 + key の unique + files_kind + 連番）。 */
-  fileInsert: 4,
-  /** files からの delete。索引の分は D1 が数えない。 */
-  fileDelete: 1,
-  /** 台帳の 1 文（`packages/cloud/src/meter.ts` の META_ROWS_PER_NOTE）。書き込みのある要求ごとに 1 回。 */
-  note: 2,
-  /**
-   * 掃除が走る回の `GET /files` が書く行数。
-   * 当番を取る 1 文と、続きの控えと台帳で、実測は 10 行である
-   * （`packages/cloud/test/meter.test.ts` の「掃除が走る回の GET /files が D1 に書く行数」が上限を縛る）。
-   * 走らない回は 0 行である。
-   */
-  sweep: 10,
-} as const;
-
-/**
- * 掃除が走る間隔（`packages/cloud/src/sweep.ts` の SWEEP_EVERY_MS の写し）。
- * 偽物にも同じ間隔で掃除の行数を数えさせる。数えないと、偽物だけが 1 日 40 行ぶん甘くなる。
- */
-export const SWEEP_EVERY_MS = 6 * 3_600_000;
+export const MIN_DEVICE_COMPAT = 1;
 
 /** 断りの本文は Worker と同じ JSON にする。CloudError.message がそのまま実物と揃う。 */
 const errorBody = (error: string): string => JSON.stringify({ error });
@@ -163,10 +119,8 @@ export class FakeCloudClient implements CloudClient {
       seq: 0,
       fileSeq: 0,
       changesFloor: 0,
-      lastSweepAt: null,
       offline: false,
       unauthorized: false,
-      d1Rows: new Map(),
       workerCompat: COMPAT_VERSION,
       minDeviceCompat: MIN_DEVICE_COMPAT,
       limited: null,
@@ -193,25 +147,6 @@ export class FakeCloudClient implements CloudClient {
   get rows(): Map<string, ChangeOut> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
   get changesFloor(): number { return this.store.changesFloor; }
-
-  /** その日に D1 へ書いた行数。実物の Worker が push の応答に載せて返す数である。 */
-  d1RowsToday(): number { return this.store.d1Rows.get(this.day()) ?? 0; }
-
-  private day(): string { return new Date(this.store.now()).toISOString().slice(0, 10); }
-
-  /**
-   * PUT /files の 1 回ぶん。
-   * 置き直しのときだけ古い索引の delete が当たるので、鍵が既にあるかどうかで分ける（実物と同じである）。
-   */
-  private noteFilePut(key: string): void {
-    this.noteD1((this.store.files.has(key) ? D1_ROWS.fileDelete : 0) + D1_ROWS.fileInsert + D1_ROWS.deviceTouch + D1_ROWS.note);
-  }
-
-  /** 書いた行数を台帳へ積む。書き込みのある経路は必ずここを通す（Worker の台帳の写しなので、通さないと実物と数がずれる）。 */
-  private noteD1(rows: number): void {
-    const day = this.day();
-    this.store.d1Rows.set(day, (this.store.d1Rows.get(day) ?? 0) + rows);
-  }
 
   /** 同じストアを別の端末として使うクライアント。2 端末の同期のテストはこれで書く。 */
   asDevice(deviceId: string): FakeCloudClient {
@@ -287,15 +222,12 @@ export class FakeCloudClient implements CloudClient {
       this.store.rows.set(k, out);
       accepted++;
     }
-    this.noteD1(accepted * (D1_ROWS.changeInsert + D1_ROWS.mirrorUpsert) + D1_ROWS.deviceTouch + D1_ROWS.note);
-    return { seq: this.store.seq, accepted, skipped, d1RowsToday: this.d1RowsToday() };
+    return { seq: this.store.seq, accepted, skipped };
   }
 
   async pullChanges(since: number, limit: number): Promise<PullChangesResponse> {
     this.guard('pullChanges', since, limit);
     if (since < this.store.changesFloor) throw new CloudError(410, JSON.stringify({ error: 'gone', floor: this.store.changesFloor }));
-    // GET /changes は devices の last_seen_at と last_pulled_seq を 1 行書く。
-    this.noteD1(D1_ROWS.deviceTouch + D1_ROWS.note);
     const n = clampLimit(limit);
     const all = this.store.changes.filter((c) => c.seq > since && c.deviceId !== this.deviceId);
     const page = all.slice(0, n);
@@ -304,8 +236,6 @@ export class FakeCloudClient implements CloudClient {
       changes: page.map((c) => structuredClone(c)),
       nextSeq: more ? page[page.length - 1]!.seq : Math.max(this.store.seq, since),
       more,
-      // 実物の Worker は pull の応答にもその日の行数を載せる（押すものが無い日でも端末へ届くように）。
-      d1RowsToday: this.d1RowsToday(),
     };
   }
 
@@ -321,7 +251,7 @@ export class FakeCloudClient implements CloudClient {
     };
   }
 
-  /** 鍵の形と権限。transcripts は自端末の分にだけ書ける。config は誰でも書ける。GET は誰でも。 */
+  /** 鍵の形と権限。transcripts も config も、書けるのは自端末の分だけ。GET は誰でも。 */
   private checkKey(key: string, write: boolean): void {
     if (!isValidFileKey(key)) throw new CloudError(400, errorBody('invalid key'));
     // 書けるのは自分の接頭辞の下だけ。config も transcripts と同じ守りである（実物の validKey と揃える）。
@@ -363,7 +293,6 @@ export class FakeCloudClient implements CloudClient {
    * 実物の Worker にこの口は無い。
    */
   seedUnchecked(meta: FileMetaIn, body: Buffer): { seq: number } {
-    this.noteFilePut(meta.key);
     const seq = ++this.store.fileSeq;
     this.store.files.set(meta.key, {
       entry: { ...meta, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: body.length },
@@ -393,7 +322,6 @@ export class FakeCloudClient implements CloudClient {
     }
     const buf = Buffer.concat(chunks);
     // 置き直すと新しい seq になる（Worker は古い索引を消して入れ直す）。
-    this.noteFilePut(meta.key);
     const seq = ++this.store.fileSeq;
     this.store.files.set(meta.key, {
       entry: { ...meta, path, seq, deviceId: this.deviceId, uploadedAt: this.store.now(), storedSize: buf.length },
@@ -412,12 +340,6 @@ export class FakeCloudClient implements CloudClient {
 
   async listFiles(since: number, limit: number): Promise<ListFilesResponse> {
     this.guard('listFiles', since, limit);
-    // 一覧そのものは読むだけだが、実物はここから孤児の掃除を始める（6 時間に 1 回）。
-    const at = this.store.now();
-    if (this.store.lastSweepAt === null || at - this.store.lastSweepAt >= SWEEP_EVERY_MS) {
-      this.store.lastSweepAt = at;
-      this.noteD1(D1_ROWS.sweep);
-    }
     const n = clampLimit(limit);
     const entries = [...this.store.files.values()].map((f) => f.entry);
     const all = entries.filter((e) => e.seq > since).sort((a, b) => a.seq - b.seq);
@@ -427,12 +349,6 @@ export class FakeCloudClient implements CloudClient {
     // 返すと、一度でも壊れた since を控えた端末の一覧が、その値のまま固まって永久に空になる。
     const nextSeq = more ? page[page.length - 1]!.seq : entries.reduce((m, e) => Math.max(m, e.seq), 0);
     return { files: page.map((e) => ({ ...e })), nextSeq, more };
-  }
-
-  async deleteFile(key: string): Promise<void> {
-    this.guard('deleteFile', key);
-    this.checkKey(key, true);
-    if (this.store.files.delete(key)) this.noteD1(D1_ROWS.fileDelete + D1_ROWS.note);
   }
 
   /** GET /usage の応答。試験が差し替える。既定はトークンの無い Worker と同じ。 */

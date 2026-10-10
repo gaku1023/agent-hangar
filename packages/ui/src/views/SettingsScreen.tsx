@@ -437,8 +437,10 @@ export function SettingsScreen(props: SettingsProps) {
                   )}
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                     <button className="btn" disabled={props.cloud.once} title={props.cloud.paused && !props.cloud.once ? '一時停止のまま、1 回だけ同期する' : undefined} onClick={() => emit({ type: 'sync.now' })}>{props.cloud.once ? '同期中…' : '今すぐ同期'}</button>
-                    {/* 上限で退いている間は、利用者は止めていないので切り替えを出さず、今すぐ同期だけにする（試作の Q4 の案 B）。 */}
-                    {!props.cloud.limited && <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? '同期を再開' : '同期を一時停止'}</button>}
+                    {/* 上限で退いている間は、利用者は止めていないので切り替えを出さず、今すぐ同期だけにする（試作の Q4 の案 B）。
+                        一時停止中に版で止まっている間も出さない。再開しても、互換の版が合うまで同期できないからである。
+                        更新するのがこの PC かクラウドの Worker かは、error の文（CompatError の message）がそのまま言う。 */}
+                    {!props.cloud.limited && !(props.cloud.paused && props.cloud.state === 'error') && <button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>{props.cloud.paused ? '同期を再開' : '同期を一時停止'}</button>}
                     {/* 参加トークンは全セッションの読み書き権を持つ秘密なので、押すまで取りに行かない。 */}
                     {/* 出したあとはランタイムが 120 秒で store から消すので、props が null に戻ればこのボタンの姿に戻る。 */}
                     {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>参加トークンを表示</button>}

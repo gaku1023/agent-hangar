@@ -254,6 +254,13 @@ WebKit で開いて撮り、4 つの枠が崩れずに並んでいることと�
 選んだ記号を控え、Task 10 で使う。
 利用者が選ぶまで Task 10 には入らない。
 
+**選ばれた案（2026-10-09）：B と C を合わせた案。**
+一時停止中に版で止まったら、文の頭に「一時停止中 · 」を足し（案 B）、一時停止の切り替えは隠して「今すぐ同期」だけにする（案 C）。
+理由の文は「この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換の版は 1、クラウドが求めるのは 2 以上）。この PC の hangar を更新してください」に替える（版の数は実際の値）。
+画面には「同期エラー: 」を頭に付けて出る。
+「版」の語と区切りの「·」は今のまま。
+試作は main の `ff46d79` で入っている。
+
 - [ ] **Step 4: コミットする**
 
 ```bash
@@ -1179,6 +1186,13 @@ git commit -m "feat(cloud): clean up the write ledger once after deploy" -m "Co-
 
 ### Task 6: D1 の上限の失敗を 429 で返す
 
+**PR 6a として先に入れた（2026-10-09）。**
+利用者の決定で、このタスクだけを PR 5 の直後に Worker へ配備するので、PR 5 の上の枝 `worktree-stage1-pr6a-worker-429` に入れ、残りのタスクはその上の枝に重ねた。
+そのとき `app.ts` はまだ無かったので、`onError` の枝は `index.ts` に入れた（Task 2 がそのまま `app.ts` へ移し、試験の import も移す）。
+Step 1 の答え：PR 5 が shared の `cloudLimit.ts` に `CloudLimitBody`、`D1_LIMIT_MESSAGES`、`nextUtcMidnight`、`d1LimitOf(message)` を置いていたので、それを使った。
+Worker の `limits.ts` は、例外の文（cause をたどり、小文字にする）を shared の `d1LimitOf` に渡す `d1LimitOfError` と、`limitBody` だけを持つ。
+`docs/design.md` の 429 の段落（Task 11 の 2 つ目の段落）も、このとき入れた。
+
 **Files:**
 - Create: `packages/cloud/src/limits.ts`
 - Modify: `packages/cloud/src/app.ts`（import と `onError`）
@@ -1822,6 +1836,14 @@ git commit -m "feat(sync): raise the Worker compat floor to 1 and drop the old W
 
 Task 1 で利用者が選ぶまで、このタスクに入らない。
 
+**PR 5 の後の形と、選ばれた案に合わせた直し（2026-10-09。下の本文より優先する）。**
+- 選ばれたのは B と C を合わせた案である。presenter は案 B（文と「状態」の語の頭に「一時停止中 · 」）、view は案 C（ヘッダーと設定の両方で切り替えを隠す）にし、試験も両方の期待を入れる。
+- 理由の文を替える。`packages/server/src/sync/client.ts` の `compatMessage` の `device` の側を「この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換の版は ${have}、クラウドが求めるのは ${want}）。この PC の hangar を更新してください」にし、文で当てている試験を合わせる。CLI の参加の文と `worker` の側の文は替えない。
+- PR 5 で `pausedReason` と `quotaPausedDay` は消え、`limitedUntil` に替わった。Step 6 は飛ばす。
+- `syncProps` は今 `paused: s.kind === 'paused' && limitedUntil === null` と `reason` を返し、設定の `cloud` は `paused: sync?.state === 'paused' && sync.limitedUntil === null` と `limited` を持つ。どちらも印を `||` で足し、上限で退いている間の振る舞いは変えない。
+- view の試験の `SyncStatus` の props は今の `SyncProps` に合わせる（`quotaBack` は無い）。切り替えを隠す条件は、今の `reason !== 'quota'`（ヘッダー）と `!limited`（設定）に足す。
+- 画面は、偽の API の値で描いて WebKit で撮って見る（動いているアプリには触らない）。
+
 **Files:**
 - Modify: `packages/shared/src/api.ts`（`SyncStatusDto` とその説明）
 - Modify: `packages/server/src/sync/engine.ts`（`status()`）
@@ -2019,6 +2041,11 @@ git commit -m "fix(sync): carry the pause flag so a paused sync stopped on a com
 
 ### Task 11: 設計書と README を直し、全体を確かめ、3 つのビルドを通す
 
+**直し（2026-10-09）。**
+「構成と setup」の 2 つ目の段落（D1 の上限を 429 で返す）は PR 6a で入れたので、ここでは 1 つ目の段落（後始末）だけを、その 429 の段落の前に足す。
+Step 6 は、動いているアプリに重ねる代わりに、偽の API の値で描いた画面を WebKit で撮って見る。
+Step 11（PR と CI とマージ）と Task 12（配備）は、まとめ役の親が利用者に聞いてから行う。
+
 **Files:**
 - Modify: `docs/design.md`（「クラウド同期」の節の中の 5 か所）
 - Modify: `README.md`（「割り切りと限界」の 2 と 5）
@@ -2202,6 +2229,12 @@ git commit -m "docs: describe the stage 1 Worker cleanup, the 429 limit answer a
 ---
 
 ### Task 12: Worker の配備（利用者に聞いてから）
+
+**直し（2026-10-09）。**
+配備は 2 回に分かれる。
+PR 6a（429 だけ）を PR 5 の直後に配備し、PR 6b（残り）はその後に配備する。
+PR 6a の Worker は PR 3 以降の Worker と同じく互換の版 1 の見出しを返すので、PR 6b を戻す先が PR 6a の版なら、戻した後もこの PC の同期は止まらない（Step 8 の 2 は要らない）。
+Step 8 の「前の Worker は版の見出しを返さない」は、PR 3 より前の Worker へ戻すときだけの話である。
 
 このタスクの手順は、どれも実物のクラウドに触る。
 Step 1 で利用者に聞き、許されたものだけを行う。
