@@ -20,12 +20,12 @@ export type ChangeOut = ChangeIn & { seq: number; deviceId: string };
  * push の応答である。
  *
  * `d1RowsToday` は、その日（UTC で区切る）にこの箱の Worker が D1 へ書いた行数である。
- * 端末が自分の push から見積もると、圧縮と参加とスキーマの用意の書き込みを数え落とす。
- * Worker は `meta.rows_written` をそのまま積んでいるので、どの端末のどの経路の書き込みも入っている。
- * 古い Worker は返さないので任意である。受け取れないときは端末側の見積もりに落ちる。
+ * Worker は返すが、端末はもう読まない（hangar は量を数えず、上限の失敗で退く）。
+ * Worker の台帳と一緒に、段 1 の PR 6 で消す。
+ * 古い Worker は返さないので任意である。
  */
 export type PushChangesResponse = { seq: number; accepted: number; skipped: number; d1RowsToday?: number };
-/** pull の応答。`d1RowsToday` は push の応答と同じ数である（押すものが無い日でも端末へ届くように載せる）。 */
+/** pull の応答。`d1RowsToday` は push の応答と同じ数で、端末は読まない（段 1 の PR 6 で消す）。 */
 export type PullChangesResponse = { changes: ChangeOut[]; nextSeq: number; more: boolean; d1RowsToday?: number };
 export type SnapshotResponse = { changes: ChangeOut[]; nextAfter: string | null; seq: number };
 
@@ -221,7 +221,7 @@ export function configKey(deviceId: string, rel: string): string {
 /**
  * Cloudflare の無料プランの日の枠。正本は料金の頁（D1 と Workers）で、API からは取れない
  * （entitlements に入っていないことを 2026-10-02 に実物で確かめた）。
- * 端末の見張り（packages/server/src/sync/quota.ts の QUOTA_LIMITS）もこの値を指す。
+ * 設定の「使用量と費用」の表示（packages/server/src/sync/usage.ts）がこの値を使う。
  */
 export const CLOUD_FREE_LIMITS = { d1RowsPerDay: 100_000, workersRequestsPerDay: 100_000 } as const;
 

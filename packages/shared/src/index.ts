@@ -12,6 +12,7 @@ export * from './sessionState.ts';
 export * from './usage.ts';
 export * from './compat.ts';
 export * from './claudeCompat.ts';
+export * from './cloudLimit.ts';
 export * from './i18n/language.ts';
 export * from './i18n/keys.ts';
 export * from './i18n/t.ts';

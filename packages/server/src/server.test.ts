@@ -3,15 +3,13 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { CompatDto, ReadinessDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import type { LiveSessionDto } from '@agent-hangar/shared';
 import { COMPAT_HEADER, COMPAT_VERSION } from '@agent-hangar/shared';
-import { Readable } from 'node:stream';
 import { saveCloudConfig } from './config/cloud.ts';
 import { dbPath } from './config/paths.ts';
-import { D1_WRITES_PER_DEVICE_TOUCH, D1_WRITES_PER_METER_NOTE, QuotaCounter } from './sync/quota.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { DbBackupError } from './db/backup.ts';
 import { openDb } from './db/open.ts';
@@ -24,7 +22,7 @@ import type { Summarizer } from './summary/types.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt } from '../test/oldDb.ts';
 import { BACKUP_GENERATIONS } from './sync/claudeConfig.ts';
-import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, countingClient, sessionMemoBackupMessage, D1_WRITES_PER_FILE_DELETE, D1_WRITES_PER_FILE_PUT, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
+import { checkRoots, CLOSE_DEADLINE_MS, configSyncActive, syncHalted, sessionMemoBackupMessage, installShutdown, pruneBackupFiles, RUN_ENDED_SUMMARY_OPTS, startServer, stopAfterIdle, stopUploader, STOP_WATCHDOG_MS, UPLOAD_SWEEP_MS, waitForSummaryIdle, WS_PATHS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { expectMode, posixIt } from '../test/platform.ts';
@@ -1129,7 +1127,7 @@ describe('一時停止は外と話さない', () => {
   });
 
   it('一時停止のあいだは、起動のファイルの取り込みも含めて 1 度も叩かない', async () => {
-    // 「一時停止」は外と話すのをやめることである。無料枠 80% で自分から止まったときも同じである。
+    // 「一時停止」は外と話すのをやめることである。Cloudflare の上限で退いている間も同じである。
     // 止まっているあいだに R2 へ出入りする経路が残っていると、課金されない約束が崩れる。
     const rec = await recorder();
     saveCloudConfig(home, { url: rec.url, joinSecret: 'test-secret', deviceToken: 'test-device-token', workerName: null, accountId: null, dbName: null, bucketName: null, joinedAt: 1 });
@@ -1183,50 +1181,6 @@ describe('一時停止は外と話さない', () => {
   });
 });
 
-/**
- * ファイルの出し入れの行数を Worker のスキーマから出し直す。
- * 無料枠が数えているのは文の数ではなく rows_written で、索引への書き込みも 1 行ずつ数える。
- * schema.ts は読むだけで、書き換えない。
- */
-describe('ファイルの出し入れの勘定は Worker のスキーマから出す', () => {
-  const schema = fs.readFileSync(new URL('../../cloud/src/schema.ts', import.meta.url), 'utf8');
-  const filesBody = (): string => {
-    const m = schema.match(/create table if not exists files \(([\s\S]*?)\)'/);
-    if (!m?.[1]) throw new Error('files の create table が見つからない');
-    return m[1];
-  };
-  /** files に張られた索引の数。明示の create index と、unique や text の主キーに SQLite が自分で張るもの。 */
-  const filesIndexes = (): number => {
-    const body = filesBody();
-    const explicit = [...schema.matchAll(/create index if not exists (\w+) on (\w+)\(([^)]*)\)/g)].filter((m) => m[2] === 'files').length;
-    // seq integer primary key は rowid そのものなので索引を増やさない。
-    const pk = /integer primary key/.test(body) ? 0 : /primary key/.test(body) ? 1 : 0;
-    return explicit + pk + (body.match(/ unique/g) ?? []).length;
-  };
-  /** autoincrement の表は insert のたびに sqlite_sequence の 1 行も動かす（delete では動かない）。 */
-  const sequenceRow = (): number => (/autoincrement/.test(filesBody()) ? 1 : 0);
-
-  it('files には索引が 2 つある（key の unique と files_kind）', () => {
-    expect(filesIndexes()).toBe(2);
-    expect(sequenceRow()).toBe(1);
-  });
-
-  it('PUT は delete と insert と devices の更新と台帳で 10 行である', () => {
-    // packages/cloud/src/files.ts の batch は delete と insert と devices の更新の 3 文で、
-    // そこに Worker の台帳（meter.ts）の 1 文が乗る。
-    const del = 1 + filesIndexes();
-    const ins = 1 + filesIndexes() + sequenceRow();
-    expect(D1_WRITES_PER_FILE_PUT).toBe(del + ins + D1_WRITES_PER_DEVICE_TOUCH + D1_WRITES_PER_METER_NOTE);
-    expect(D1_WRITES_PER_FILE_PUT).toBe(10);
-  });
-
-  it('DELETE は本体と索引と台帳で 5 行である', () => {
-    // devices は触らず、sqlite_sequence は delete では動かない。台帳の 1 文だけが乗る。
-    expect(D1_WRITES_PER_FILE_DELETE).toBe(1 + filesIndexes() + D1_WRITES_PER_METER_NOTE);
-    expect(D1_WRITES_PER_FILE_DELETE).toBe(5);
-  });
-});
-
 describe('セッションのメモの控えの知らせ', () => {
   it('どの端末に負けて、どこに残したかを言う', () => {
     // 控えはもうファイルになっている。知らせが無いと、利用者は消えたようにしか見えない。
@@ -1235,82 +1189,6 @@ describe('セッションのメモの控えの知らせ', () => {
     expect(m).toContain('/tmp/backups/memos/session-s1-20260919-101112.md');
     // 本文そのものはトーストに出さない（メモは長い文章になりうる）。
     expect(m).not.toContain('手元のメモ');
-  });
-});
-
-describe('無料枠の勘定', () => {
-  /** 呼ばれた名前を記録するだけの立て替え。中身は使わない。 */
-  const stubClient = (calls: string[]) => ({
-    health: async () => { calls.push('health'); return { ok: true, version: 'v' }; },
-    pushChanges: async () => { calls.push('pushChanges'); return { seq: 1, accepted: 1, skipped: 0 }; },
-    pullChanges: async () => { calls.push('pullChanges'); return { changes: [], nextSeq: 0, more: false }; },
-    snapshot: async () => { calls.push('snapshot'); return { changes: [], nextAfter: null, seq: 0 }; },
-    putFile: async () => { calls.push('putFile'); return { seq: 1 }; },
-    getFile: async () => { calls.push('getFile'); return Readable.from([]); },
-    listFiles: async () => { calls.push('listFiles'); return { files: [], nextSeq: 0, more: false }; },
-    deleteFile: async () => { calls.push('deleteFile'); },
-    usage: async () => { calls.push('usage'); return { configured: false as const }; },
-  });
-
-  const counter = () => {
-    const db = openDb(':memory:');
-    return { db, quota: new QuotaCounter({ state: new SyncStateStore(db) }) };
-  };
-
-  it('エンジンが自分で数える経路には二重に掛けない', async () => {
-    // push と pull と写しは SyncEngine が自分で数える。包みでも数えると 2 倍になる。
-    const { db, quota } = counter();
-    try {
-      const calls: string[] = [];
-      const c = countingClient(stubClient(calls), quota);
-      await c.pushChanges([]);
-      await c.pullChanges(0, 1);
-      await c.snapshot(null, 1);
-      expect(calls).toEqual(['pushChanges', 'pullChanges', 'snapshot']);
-      expect(quota.today()).toEqual({ rows: 0, requests: 0 });
-    } finally {
-      db.close();
-    }
-  });
-
-  it('ファイルの出し入れは要求と D1 の書き込みの両方を数える', async () => {
-    // PUT /files/<鍵> は R2 に置くだけでなく D1 の files にも書く。
-    // 要求の側しか数えないと、D1 の 80% の見張りが実際より遅れて効く。
-    const { db, quota } = counter();
-    try {
-      const calls: string[] = [];
-      const c = countingClient(stubClient(calls), quota);
-      await c.putFile({ key: 'transcripts/d/u.jsonl.gz', path: 'projects/p/u.jsonl', kind: 'transcript', sha256: 'x', size: 1, mtime: 1, encrypted: true }, Readable.from([]));
-      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 1 });
-      await c.getFile('transcripts/d/u.jsonl.gz');
-      await c.listFiles(0, 1);
-      await c.health();
-      // 読むだけの経路は D1 に 1 行も書かない。
-      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT, requests: 4 });
-      await c.deleteFile('transcripts/d/u.jsonl.gz');
-      expect(quota.today()).toEqual({ rows: D1_WRITES_PER_FILE_PUT + D1_WRITES_PER_FILE_DELETE, requests: 5 });
-    } finally {
-      db.close();
-    }
-  });
-
-  it('usage は要求 1 回、行 0 として数える', async () => {
-    const { db, quota } = counter();
-    try {
-      const calls: string[] = [];
-      await countingClient(stubClient(calls), quota).usage();
-      expect(calls).toEqual(['usage']);
-      expect(quota.today()).toEqual({ rows: 0, requests: 1 });
-    } finally {
-      db.close();
-    }
-  });
-
-  it('数えるのは文の数ではなく行数である', () => {
-    // 文の数（PUT が 3 文、DELETE が 1 文）で数えると、索引への書き込みが丸ごと抜ける。
-    // 行数の出どころは下の「ファイルの出し入れの勘定は Worker のスキーマから出す」にある。
-    expect(D1_WRITES_PER_FILE_PUT).toBeGreaterThan(3);
-    expect(D1_WRITES_PER_FILE_DELETE).toBeGreaterThan(1);
   });
 });
 
@@ -1585,7 +1463,8 @@ describe('控えの世代を刈る', () => {
 
 describe('互換の版', () => {
   type Seen = { method: string; path: string; compat: string | undefined };
-  type Answer = { status: number; body: unknown; compat?: string };
+  /** raw があれば JSON にせずそのまま返す（Cloudflare が Worker の手前で返す error 1027 のような本文）。 */
+  type Answer = { status: number; body: unknown; compat?: string; raw?: string };
 
   /** 決まった応答を返す立て替えの Worker。受けた要求と、載っていた版の見出しを記録する。実物のクラウドには触らない。 */
   async function fakeWorker(answer: (method: string, path: string) => Answer): Promise<{ url: string; seen: Seen[]; close: () => Promise<void> }> {
@@ -1596,8 +1475,8 @@ describe('互換の版', () => {
       seen.push({ method: req.method ?? '', path: p, compat: Array.isArray(h) ? h[0] : h });
       req.resume();
       const a = answer(req.method ?? '', p);
-      res.writeHead(a.status, { 'content-type': 'application/json', ...(a.compat === undefined ? {} : { [COMPAT_HEADER]: a.compat }) });
-      res.end(JSON.stringify(a.body));
+      res.writeHead(a.status, { 'content-type': a.raw === undefined ? 'application/json' : 'text/plain', ...(a.compat === undefined ? {} : { [COMPAT_HEADER]: a.compat }) });
+      res.end(a.raw ?? JSON.stringify(a.body));
     });
     await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
     const port = (srv.address() as net.AddressInfo).port;
@@ -1620,11 +1499,13 @@ describe('互換の版', () => {
   const metaCalls = (seen: Seen[]): number => seen.filter((r) => r.path === '/changes' || r.path === '/rows').length;
 
   it('版で止まっている間は、本文と設定の出し入れも止める。頼まれた 1 巡の最中でも止める', () => {
-    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false })).toBe(false);
-    expect(syncHalted({ paused: true, oncePass: false, compatBlocked: false })).toBe(true);
-    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false })).toBe(false);
-    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: true })).toBe(true);
-    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: true })).toBe(true);
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false, limited: false })).toBe(false);
+    expect(syncHalted({ paused: true, oncePass: false, compatBlocked: false, limited: false })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false, limited: false })).toBe(false);
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: true, limited: false })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: true, limited: false })).toBe(true);
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false, limited: true })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false, limited: true })).toBe(true);
   });
 
   it('Worker に版が古いと断られたら、同期を止めて、この PC の hangar を上げるよう出す', async () => {
@@ -1702,5 +1583,96 @@ describe('互換の版', () => {
       await s.close();
       await w.close();
     }
+  });
+
+  describe('上限で退く', () => {
+    /** Worker が D1 の上限を 429 と決まった本文で返す（段 1 の PR 6 の Worker の形）。 */
+    const limitAnswer = (): Answer => ({ status: 429, body: { error: 'limit', limit: 'd1-write', resetAt: Date.now() + 86_400_000 } });
+    /** Workers の 1 日の要求の上限。Cloudflare が Worker の手前で、JSON でない本文で返す。 */
+    const requestsAnswer = (): Answer => ({ status: 429, body: null, raw: 'error code: 1027' });
+    const isToast = (e: ServerEvent): e is Extract<ServerEvent, { type: 'toast' }> => e.type === 'toast';
+    const onceToasts = (c: ReturnType<typeof collector>): string[] => c.all().filter(isToast).map((e) => e.message).filter((m) => m.includes('1 回だけ同期しました'));
+    /** 1 巡の終わり（done）が配る知らせが届くだけの間を置く。 */
+    const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 300));
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('退いていて利用者は止めていないときの今すぐ同期は、1 巡の道に回らず、1 回だけの知らせも出さない', async () => {
+      const w = await fakeWorker(() => limitAnswer());
+      joinTo(w.url);
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      const c = collector(s.port, tokenOf());
+      try {
+        await c.opened;
+        await until(async () => { const v = await syncStatus(s.port); return v.state === 'paused' && v.limitedUntil !== null ? v : null; });
+        const before = w.seen.length;
+        const after = await pressSyncNow(s.port);
+        expect(after.state).toBe('paused');
+        expect(after.limitedUntil).not.toBeNull();
+        // 試し直したのはメタデータの送受信である。
+        // 印を外して試す間は止まっていないので、使用量も 1 度取り直す（本文と設定の道へは出ない）。
+        expect(metaCalls(w.seen.slice(before))).toBeGreaterThan(0);
+        await settle();
+        expect(w.seen.slice(before).filter((r) => r.path !== '/changes' && r.path !== '/rows' && r.path !== '/usage')).toEqual([]);
+        // 利用者は止めていないので、一時停止のまま頼まれた 1 巡（PausedPass）には回らない。
+        expect(c.all().some((e) => e.type === 'sync.status' && e.status.oncePass)).toBe(false);
+        expect(onceToasts(c)).toEqual([]);
+      } finally {
+        c.close();
+        await s.close();
+        await w.close();
+      }
+    });
+
+    it('一時停止中に頼んだ 1 巡のメタデータが上限で断られたら、本文、設定、使用量の道へ出ない', async () => {
+      const w = await fakeWorker(() => requestsAnswer());
+      joinTo(w.url);
+      presetPaused();
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      try {
+        expect(w.seen).toEqual([]);
+        const first = await pressSyncNow(s.port);
+        expect(first.state).toBe('paused');
+        expect(metaCalls(w.seen)).toBeGreaterThan(0);
+        // 1 巡の残り（本文と設定の出し入れ、使用量）が終わるまで待つ。
+        await until(async () => { const v = await syncStatus(s.port); return v.oncePass ? null : v; });
+        await settle();
+        // 上限で退いた後は、1 巡の最中でもメタデータ以外の道（本文の降ろし、設定の押し出し、本文の上げ、使用量）へ出ない。
+        expect(w.seen.filter((r) => r.path !== '/changes' && r.path !== '/rows')).toEqual([]);
+      } finally {
+        await s.close();
+        await w.close();
+      }
+    });
+
+    it('一時停止中に頼んだ 1 巡が上限で断られたら、その終わりに成功や残りの件数の知らせを重ねない', async () => {
+      // サーバの時計は実時間なので、UTC の 0 時から 10 分の猶予（黙って退く）に当たらないよう、昼の 12 時に合わせる。
+      // 偽にするのは Date だけで、時計は実時間と同じ速さで進める（待ちの timeout や until の期限を壊さない）。
+      vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
+      vi.setSystemTime(Date.UTC(2026, 9, 9, 12, 0, 0));
+      const w = await fakeWorker(() => limitAnswer());
+      joinTo(w.url);
+      presetPaused();
+      // 送れずに残る行を 1 つ作る。上限で早く抜けなければ「残りました」の知らせが出る形にする。
+      const db = openDb(dbPath(home));
+      try { upsertShared(db, 'projects', { id: 'p-limit', name: 'p-limit', status: 'active', is_scratch: 0 }, 'test'); } finally { db.close(); }
+      const s = await startServer({ port: 0, home, claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(home, 'no-dist') });
+      const c = collector(s.port, tokenOf());
+      try {
+        await c.opened;
+        await pressSyncNow(s.port);
+        await until(async () => { const v = await syncStatus(s.port); return v.oncePass ? null : v; });
+        await settle();
+        const st = await syncStatus(s.port);
+        expect(st.state).toBe('paused');
+        expect(st.pending).toBeGreaterThan(0);
+        expect(onceToasts(c)).toEqual([]);
+        // 知らせは、止めたのは利用者だと分かる文の 1 件だけである。
+        expect(c.all().filter(isToast).map((e) => e.message).filter((m) => m.includes('Cloudflare'))).toEqual(['Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです']);
+      } finally {
+        c.close();
+        await s.close();
+        await w.close();
+      }
+    });
   });
 });

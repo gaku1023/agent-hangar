@@ -9,6 +9,7 @@ import {
   isHeaderSafe,
   isSafeRelPath,
   type ChangeIn,
+  type CloudLimitKind,
   type CloudUsageBody,
   type ChangeOut,
   type FileEntry,
@@ -18,7 +19,7 @@ import {
   type PushChangesResponse,
   type SnapshotResponse,
 } from '@agent-hangar/shared';
-import { CloudError, CompatError, isValidFileKey, MIN_WORKER_COMPAT, type CloudClient } from '../src/sync/client.ts';
+import { CloudError, CompatError, isValidFileKey, LimitError, MIN_WORKER_COMPAT, type CloudClient } from '../src/sync/client.ts';
 
 type StoredFile = { entry: FileEntry; body: Buffer };
 
@@ -41,6 +42,12 @@ export type FakeCloudStore = {
   workerCompat: number;
   /** Worker が端末に求める下限。実物の原本は packages/cloud/src/compat.ts の MIN_DEVICE_COMPAT。 */
   minDeviceCompat: number;
+  /**
+   * 当たっている Cloudflare の上限。null なら当たっていない。
+   * Workers の要求の上限（requests）は全部の口を、D1 の上限は D1 に触らない /health を除く口を断る。
+   * 実物の D1 の上限は段 1 の PR 6 から 429 で返る。偽物は先にその形で断る。
+   */
+  limited: CloudLimitKind | null;
   now: () => number;
 };
 
@@ -162,6 +169,7 @@ export class FakeCloudClient implements CloudClient {
       d1Rows: new Map(),
       workerCompat: COMPAT_VERSION,
       minDeviceCompat: MIN_DEVICE_COMPAT,
+      limited: null,
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -178,6 +186,9 @@ export class FakeCloudClient implements CloudClient {
   /** Worker が端末に求める下限。上げると、この端末が古いと断られる。 */
   get minDeviceCompat(): number { return this.store.minDeviceCompat; }
   set minDeviceCompat(v: number) { this.store.minDeviceCompat = v; }
+  /** 当たっている Cloudflare の上限。立てると、その上限で断る真似になる。 */
+  get limited(): CloudLimitKind | null { return this.store.limited; }
+  set limited(v: CloudLimitKind | null) { this.store.limited = v; }
   get changes(): ChangeOut[] { return this.store.changes; }
   get rows(): Map<string, ChangeOut> { return this.store.rows; }
   get files(): Map<string, StoredFile> { return this.store.files; }
@@ -196,7 +207,7 @@ export class FakeCloudClient implements CloudClient {
     this.noteD1((this.store.files.has(key) ? D1_ROWS.fileDelete : 0) + D1_ROWS.fileInsert + D1_ROWS.deviceTouch + D1_ROWS.note);
   }
 
-  /** 書いた行数を台帳へ積む。書き込みのある経路は必ずここを通す（通さないと見張りが甘くなる）。 */
+  /** 書いた行数を台帳へ積む。書き込みのある経路は必ずここを通す（Worker の台帳の写しなので、通さないと実物と数がずれる）。 */
   private noteD1(rows: number): void {
     const day = this.day();
     this.store.d1Rows.set(day, (this.store.d1Rows.get(day) ?? 0) + rows);
@@ -220,6 +231,8 @@ export class FakeCloudClient implements CloudClient {
     this.calls.push({ method, args });
     // 繋がらなければ認証にも辿り着かないので、offline を先に見る。
     if (this.store.offline) throw new CloudError(0, 'offline');
+    // 上限は Cloudflare の側で断る。Workers の要求の上限は Worker の手前なので、版の関所より先に当たる。
+    if (this.store.limited !== null && (method !== 'health' || this.store.limited === 'requests')) throw new LimitError(this.store.limited, 429);
     // 版の関所は Worker のどの経路よりも先にある（認証より先）。/health だけは版を問わずに通る。
     // 偽物の端末は常に今の版を名乗る（HttpCloudClient と同じ）。
     if (method !== 'health' && COMPAT_VERSION < this.store.minDeviceCompat) throw new CompatError('device', COMPAT_VERSION, this.store.minDeviceCompat);

@@ -90,7 +90,6 @@
 .cu-meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); background: var(--accent); }
 .cu-meter[data-tone='warn'] > i { background: var(--busy); }
 .cu-meter[data-tone='stop'] > i { background: var(--error); }
-.cu-tick { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--st-paused); }
 .cu-legend { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); margin-top: var(--u); font-size: var(--fs-xs); color: var(--ink-2); }
 .cu-cmd { margin-top: calc(var(--u) * 1.5); }
 /* 狭い窓では、名前と数の列を縮めて棒を残す。 */

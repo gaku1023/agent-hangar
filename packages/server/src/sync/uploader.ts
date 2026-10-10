@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { isSafeKeyId, isSafeRelPath, transcriptKey, type FileMetaIn } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { CloudError, type CloudClient } from './client.ts';
+import { CloudError, LimitError, type CloudClient } from './client.ts';
 import { encryptStream, sha256Stream } from './crypto.ts';
 import type { Timers } from './engine.ts';
 import type { SyncStateStore } from './state.ts';
@@ -61,6 +61,7 @@ export const RETRY_SKIPPED_AFTER_MS = 30 * 60_000;
  * 4xx は相手が「この要求は受け取らない」と言っているので、送り直しても結果は変わらない。
  * 408（時間切れ）と 429（多すぎる）は後で通るので除く。
  * 426 は互換の版が合わないときで、この PC か Worker のどちらかを上げれば通るので除く（client.ts の CompatError）。
+ * 上限の失敗（client.ts の LimitError）は、状態番号に依らず一時の失敗として扱う。端の 1027 は 4xx で届きうる。
  * 5xx と 0（繋がらなかった）は一時の失敗として待ち行列に残す。
  */
 const isPermanentStatus = (status: number): boolean => status >= 400 && status < 500 && status !== 408 && status !== 426 && status !== 429;
@@ -478,8 +479,8 @@ export class TranscriptUploader {
     } catch (e) {
       body.destroy();
       await pump;
-      // 4xx（408 と 429 を除く）は何度送っても同じ答えなので、ここで諦めて控えに残す。
-      if (e instanceof CloudError && isPermanentStatus(e.status)) {
+      // 4xx（408 と 429 と上限の失敗を除く）は何度送っても同じ答えなので、ここで諦めて控えに残す。
+      if (e instanceof CloudError && !(e instanceof LimitError) && isPermanentStatus(e.status)) {
         const rec: SkipRecord = { sha, size, status: e.status, message: e.message, at: this.now() };
         const ring = this.noteSkip(key, rec, skip);
         throw new PermanentUploadError(`この本文は上げられないので、いったん諦めます（${e.status}）: ${e.message}`, !ring);

@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { inspect } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COMPAT_HEADER, COMPAT_VERSION, decodeHeaderText, isHeaderSafe } from '@agent-hangar/shared';
-import { CloudError, CompatError, goneFloor, HttpCloudClient, isValidFileKey, MAX_PUT_BODY_BYTES, MIN_WORKER_COMPAT } from './client.ts';
+import { CloudError, CompatError, goneFloor, HttpCloudClient, isValidFileKey, LimitError, MAX_PUT_BODY_BYTES, MIN_WORKER_COMPAT } from './client.ts';
 
 type Call = { url: string; init: RequestInit };
 
@@ -506,5 +506,49 @@ describe('互換の版', () => {
     expect(e).toBeInstanceOf(CloudError);
     expect(e).not.toBeInstanceOf(CompatError);
     expect(e).toMatchObject({ status });
+  });
+});
+
+describe('上限の失敗', () => {
+  it('Worker の 429 と上限の本文は LimitError にする', async () => {
+    const { fetch } = fakeFetch(() => json({ error: 'limit', limit: 'd1-write', resetAt: 1 }, 429));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    await expect(c.pushChanges([])).rejects.toMatchObject({ name: 'LimitError', limit: 'd1-write', status: 429 });
+  });
+
+  it('本文に D1 の上限のメッセージがあれば、状態番号と形を問わずに LimitError にする', async () => {
+    const cases = [
+      [500, '{"error":"D1_ERROR: free tier daily row read limit"}', 'd1-read'],
+      [503, 'D1_ERROR: free tier daily row write limit', 'd1-write'],
+    ] as const;
+    for (const [status, body, limit] of cases) {
+      const { fetch } = fakeFetch(() => new Response(body, { status }));
+      const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+      await expect(c.pullChanges(0, 10)).rejects.toMatchObject({ name: 'LimitError', limit, status });
+    }
+  });
+
+  it('JSON でなく 1027 を含む頁は、200 字より後ろにあっても LimitError にする', async () => {
+    const page = `<html>${'x'.repeat(300)}<p>error code: 1027</p></html>`;
+    const { fetch } = fakeFetch(() => new Response(page, { status: 429 }));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    await expect(c.listFiles(0, 10)).rejects.toMatchObject({ name: 'LimitError', limit: 'requests', status: 429 });
+  });
+
+  it('上限は版の検査より先に見る。版の見出しの無い 4xx の 1027 を、Worker が古いと取り違えない', async () => {
+    const { fetch } = fakeFetch(() => new Response('error code: 1027', { status: 403 }));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch, minWorkerCompat: 1 });
+    const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(LimitError);
+    expect(e).not.toBeInstanceOf(CompatError);
+  });
+
+  it('上限でない失敗は今までどおりの CloudError で、本文の先頭 200 字を運ぶ', async () => {
+    const { fetch } = fakeFetch(() => json({ error: 'internal error' }, 500));
+    const c = new HttpCloudClient({ url: 'https://h', token: 't', fetch });
+    const e = await c.pullChanges(0, 10).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(CloudError);
+    expect(e).not.toBeInstanceOf(LimitError);
+    expect(e).toMatchObject({ status: 500, message: '{"error":"internal error"}' });
   });
 });

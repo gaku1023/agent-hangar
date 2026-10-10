@@ -85,6 +85,14 @@ export const SYNC_ONCE_LABEL = '1 回だけ同期中…';
 export const SYNC_STATE_LABEL: Record<SyncStateKind, string> = { off: '同期していません', idle: '同期済み', pushing: '送信中', pulling: '受信中', paused: '一時停止中', error: '同期エラー' };
 
 /**
+ * Cloudflare の上限で退いている間の同期の一行。戻る時刻（次の UTC の 0 時）を端末の時刻で書く。
+ * ヘッダーと設定の「状態」が同じ語で言う。tz は試験でだけ決めて渡す。
+ */
+export function limitedLabel(until: number, tz?: string): string {
+  return `無料枠で停止 · ${new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(until)} に戻る`;
+}
+
+/**
  * 索引の進みの文。
  * ヘッダーと設定の索引の節の両方がこれを使う。
  * 終わっている（idle）ときは言うことが無いので null を返す。

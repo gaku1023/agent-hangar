@@ -14,8 +14,10 @@ import {
   isSafeRelPath,
   isValidFileKey,
   parseCompat,
+  readCloudLimit,
   readCompatRefusal,
   type ChangeIn,
+  type CloudLimitKind,
   type CloudUsageBody,
   type FileMetaIn,
   type ListFilesResponse,
@@ -66,6 +68,24 @@ export class CompatError extends CloudError {
   constructor(readonly upgrade: CompatUpgrade, readonly have: number, readonly need: number | null) {
     super(426, compatMessage(upgrade, have, need));
     this.name = 'CompatError';
+  }
+}
+
+const LIMIT_LABEL: Record<CloudLimitKind, string> = {
+  'd1-read': 'Cloudflare の無料枠の上限（D1 の 1 日の読み取り）に達しました',
+  'd1-write': 'Cloudflare の無料枠の上限（D1 の 1 日の書き込み）に達しました',
+  requests: 'Cloudflare の無料枠の上限（Workers の 1 日の要求）に達しました',
+};
+
+/**
+ * Cloudflare の無料枠の 1 日の上限に当たったときに投げる（共有の readCloudLimit が見分けたもの）。
+ * status は応答のもの。message は利用者に見せる文で、応答の本文ではない。
+ * 受け手の SyncEngine は、次の UTC の 0 時まで退く。本文の上げ下ろしは、これを諦めに数えない。
+ */
+export class LimitError extends CloudError {
+  constructor(readonly limit: CloudLimitKind, status: number) {
+    super(status, LIMIT_LABEL[limit]);
+    this.name = 'LimitError';
   }
 }
 
@@ -224,6 +244,8 @@ export class HttpCloudClient implements CloudClient {
    * Worker の版は、Worker が自分で作った応答にだけ問う。
    * 端が Worker を通さずに返す 5xx、408、429（CPU 超過の 1102 や日の上限など）は見出しを持たず、Worker の版を語らないので、これまでどおり CloudError に落とす。
    * 行は未送信のまま残り、Worker を上げた後の送り直しは LWW で同じ結果になる。
+   * 上限の失敗（共有の readCloudLimit）は、版の検査より先に見る。
+   * 端が返す 1027 の頁は版の見出しを持たないので、版の検査に回すと「Worker が古い」と取り違える。本文は 200 字に切る前に全部で読む。
    */
   private async send(path: string, init: RequestInit & { duplex?: 'half' }, ms: number): Promise<{ res: Response; d: Deadline }> {
     const d = new Deadline(ms);
@@ -246,17 +268,25 @@ export class HttpCloudClient implements CloudClient {
       d.clear();
       throw new CompatError('device', COMPAT_VERSION, readCompatRefusal(text));
     }
+    let text: string | null = null;
+    if (!res.ok) {
+      text = await d.race(res.text()).catch(() => '');
+      const limit = readCloudLimit(res.status, text);
+      if (limit !== null) {
+        d.clear();
+        throw new LimitError(limit, res.status);
+      }
+    }
     const workerCompat = parseCompat(res.headers.get(COMPAT_HEADER));
     const fromWorker = res.status < 500 && res.status !== 408 && res.status !== 429;
     if (fromWorker && workerCompat < this.minWorkerCompat) {
-      void res.body?.cancel().catch(() => {});
+      if (text === null) void res.body?.cancel().catch(() => {});
       d.clear();
       throw new CompatError('worker', workerCompat, this.minWorkerCompat);
     }
     if (!res.ok) {
-      const text = await d.race(res.text()).catch(() => '');
       d.clear();
-      throw new CloudError(res.status, text.slice(0, 200) || `HTTP ${res.status}`);
+      throw new CloudError(res.status, (text ?? '').slice(0, 200) || `HTTP ${res.status}`);
     }
     return { res, d };
   }

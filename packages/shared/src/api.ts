@@ -151,10 +151,11 @@ export type SummarizerTestDto = { ok: true; id: SummarizerId; ms: number; summar
 export type SessionLockDto = { deviceId: string; deviceName: string; runId: string; heartbeatAt: number; stale: boolean };
 export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 'error';
 /**
- * pausedReason は止めた理由。quota は無料枠の見張りが止めた、user は利用者が止めた。古いサーバは送らない（undefined）。
- * quotaPausedDay は見張りが止めた UTC の日（yyyy-MM-dd）。
+ * limitedUntil は、Cloudflare の無料枠の上限に当たって退いている間の戻る時刻である。
+ * ふつうは次の UTC の 0 時で、UTC の 0 時から 10 分の間に断られたときは断られた 5 分後である。
+ * 退いている間の state は paused で、利用者が一時停止しているときと、退いていないときは null である。
  */
-export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; pausedReason?: 'quota' | 'user' | null; quotaPausedDay?: string | null };
+export type SyncStatusDto = { state: SyncStateKind; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; claudeConfig: { enabled: boolean; confirmed: boolean }; limitedUntil: number | null };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。
@@ -187,17 +188,18 @@ export type ConfigPreviewDto = { entries: ConfigPreviewEntryDto[]; confirmed: bo
 export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number; remoteSize: number };
 
 /**
- * 設定の「使用量と費用」に出す形。端末のサーバが Worker の /usage か見積もりから作る。
- * source が estimate のときは plan と month が null で、today は hangar の見積もりである。
+ * 設定の「使用量と費用」に出す形。端末のサーバが Worker の /usage から作る。
+ * source が unknown のときは、Cloudflare の数を取れていない（トークンが無い、一時停止や上限で問い合わせていない、取れないまま失敗した）。
+ * そのとき今日の数は null で、plan と month も null である。hangar は量を数えない（段 1、D4）。
  * stale は最後の取得が失敗していること（値は最後に取れたもの）。notice はトークンの失効など、画面に添える 1 行。
  */
 export type CloudUsageDto = {
-  source: 'cloudflare' | 'estimate';
+  source: 'cloudflare' | 'unknown';
   fetchedAt: number | null;
   stale: boolean;
   notice: string | null;
-  limits: { d1RowsPerDay: number; workersRequestsPerDay: number; stopRatio: number };
-  today: { d1RowsWritten: number; workersRequests: number | null; resetAt: number };
+  limits: { d1RowsPerDay: number; workersRequestsPerDay: number };
+  today: { d1RowsWritten: number | null; workersRequests: number | null; resetAt: number };
   plan: { label: string; workersPaid: boolean } | null;
   month: { periodStart: string; periodEnd: string | null; throughDay: string | null; billedUsd: number; rows: { label: string; consumed: number; unit: string; included: number | null }[] } | null;
 };

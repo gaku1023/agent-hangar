@@ -69,7 +69,7 @@
 
 - **上限で退いている間にサーバを立て直す**：立て直した直後に外へ出ず、戻る時刻までそのまま退き、時刻を過ぎていれば最初の要求から戻る（Task 6 の立て直しの試験で留める）。
 - **`1027` の頁が 4xx で、版の見出しを持たずに届く**：版の不一致（Worker が古い）と取り違えず、本文の上げも諦めない（Task 3 と Task 4 の試験で留める）。
-- **利用者が一時停止しているあいだに上限に当たり、その後に再開する**：一時停止中は「一時停止中」と見せ、再開した後は戻る時刻まで「無料枠で停止」と見せ、ボタンは一時停止のまま押せる（Task 6 と Task 7 の試験で留める）。
+- **利用者が一時停止しているあいだに上限に当たり、その後に再開する**：一時停止中は「一時停止中」と見せ（ボタンは「同期を再開」）、再開した後は戻る時刻まで「無料枠で停止」と見せ、ボタンは「今すぐ同期」だけにする（Task 1 の Q4 の案 B。Task 6 と Task 7 の試験で留める）。
 - **上限で退いた後に「今すぐ同期」を押す**：1 回だけ試し直し、まだ断られればまた次の 0 時まで退いて知らせ、通れば戻る（Task 6 の試験で留める）。
 - **見張りが止めていた端末（`pausedReason` が `quota`）を入れ替える**：マイグレーションで一時停止を解き、利用者が止めていた端末（`user`）は止めたままにする（Task 8 の試験で留める）。
 - **設定の同期を入れている端末が、エンジンより先に上限に当たる**：設定の押し出しと取り込みはその回を打ち切り、ファイルの数だけトーストを出さない。取り込めなかった設定は一覧に残り、上限が戻れば次の取り込みで書く（Task 4 の試験で留める）。
@@ -77,6 +77,19 @@
 ---
 
 ### Task 1: 試作で、上限で止まったときと「数は不明」の見せ方を選んでもらう
+
+**済み（2026-10-09）。** 試作は docs の PR #35（`docs/superpowers/specs/2026-10-08-stage1-quota-backoff/usage.html`）に入れた。
+文言を見直したうえで、利用者が次を選んだ。
+Task 5、Task 6、Task 7、Task 9 のコードと文は、この答えに合わせて直してある。
+
+- Q1 **案 A**：札 3 枚とも値の無い印と「トークンが要ります」、今日の棒は描かない、出どころは「数は不明（hangar は数えません） · 今日の枠は 9:00 に戻る」。案内の帯は「Cloudflare の数、R2、今月の費用は、読み取り専用のトークンを入れると出ます。」
+- Q2 **案 A（文言を直したもの）**：帯「Cloudflare の無料枠の上限に達したので、同期を止めています。9:00 に枠が戻ると、自動で再開します。」、トースト「Cloudflare の無料枠の上限に達したので、9:00 まで同期を止めます。枠が戻ると自動で再開します」（9:00 は戻る時刻を端末の時刻で書く所）。
+- Q3 **案 B**：凡例「あと 13,880 行で無料枠の上限です · 9:00 に戻る」（数と時刻は実際の値）。
+- Q4 **案 B**：上限で止まっている間、ヘッダーと設定の節のボタンは「今すぐ同期」だけにし、一時停止の切り替えは出さない。「今すぐ同期」は 1 回だけ試し直し、まだ断られればまた戻る時刻まで退いてトーストで知らせる。
+- Q5 **案 A**：設定の「状態」は「無料枠で停止 · 9:00 に戻る」（ヘッダーと同じ）。
+- 「版」と区切りの「·」は今のまま使う。
+
+以下の Step は、記録のために残す（この PR では試作をコミットしない。PR #35 に入っている）。
 
 **Files:**
 - Create: `docs/superpowers/specs/2026-10-08-stage1-quota-backoff/usage.html`
@@ -400,9 +413,9 @@ Expected: FAIL（`LimitError` が無い）。
 
 ```ts
 const LIMIT_LABEL: Record<CloudLimitKind, string> = {
-  'd1-read': 'Cloudflare の無料枠の上限（D1 の 1 日の読み取り）に届きました',
-  'd1-write': 'Cloudflare の無料枠の上限（D1 の 1 日の書き込み）に届きました',
-  requests: 'Cloudflare の無料枠の上限（Workers の 1 日の要求）に届きました',
+  'd1-read': 'Cloudflare の無料枠の上限（D1 の 1 日の読み取り）に達しました',
+  'd1-write': 'Cloudflare の無料枠の上限（D1 の 1 日の書き込み）に達しました',
+  requests: 'Cloudflare の無料枠の上限（Workers の 1 日の要求）に達しました',
 };
 
 /**
@@ -678,7 +691,7 @@ git commit -m "feat(server): do not give up on transcripts or flood config toast
 
 ### Task 5: 使用量の見積もりを「数は不明」に替える
 
-選んだ案：（Task 1 の Step 3 で、Q1 から Q3 の答えを書き足す）
+選んだ案：Q1 は案 A、Q2 は案 A（文言を直したもの）、Q3 は案 B（Task 1 の冒頭）。下のコードと試験の文は、この答えに合わせてある。
 
 **Files:**
 - Modify: `packages/shared/src/api.ts`（`CloudUsageDto` とその説明）
@@ -703,14 +716,13 @@ git commit -m "feat(server): do not give up on transcripts or flood config toast
 見張りを消すので、トークンが無いときと、一時停止や上限で問い合わせていないときの形を「数は不明」にする（spec の「残す境界」）。
 このタスクの間は、上限で止まったことの見分けを今の `sync.pausedReason === 'quota'` で行う（Task 6 が上限で退くときにこの値を渡し、Task 7 で `limitedUntil` に替える）。
 
-ここに書く文は案 A のものである。
-Task 1 で案 B が選ばれた問いは、次の表の文に置き換える（試験の期待値も同じ文にする）。
+ここに書く文は、Task 1 で利用者が選んだものである。
 
-| 問い | 案 A（この計画の文） | 案 B |
-| --- | --- | --- |
-| Q1 | 数が分からないときは今日の棒を描かない（`today` を空にする） | 今日の棒を 2 本描き、`pct` を null、`value` を値の無い印にする |
-| Q2 の帯 | `Cloudflare の無料枠の上限に届いたので、同期を止めています。${reset} に枠が戻ると、自分で再開します。` | `無料枠の上限に届きました。${reset} に自分で再開します。` |
-| Q3 | `あと ${n(left)} 行で Cloudflare が書き込みを断ります · ${reset} に戻る` | `あと ${n(left)} 行で無料枠の上限です · ${reset} に戻る` |
+| 問い | 選んだ案の文 |
+| --- | --- |
+| Q1（案 A） | 数が分からないときは今日の棒を描かない（`today` を空にする） |
+| Q2 の帯（案 A を直したもの） | `Cloudflare の無料枠の上限に達したので、同期を止めています。${reset} に枠が戻ると、自動で再開します。` |
+| Q3（案 B） | `あと ${n(left)} 行で無料枠の上限です · ${reset} に戻る` |
 
 - [ ] **Step 1: 消す前に数え直す**
 
@@ -798,16 +810,16 @@ describe('presentCloudUsage', () => {
     const p = presentCloudUsage({ ...base, today: { ...base.today, d1RowsWritten: 86_120 } }, sync(), NOW, TZ)!;
     expect(p.tiles[1]).toMatchObject({ value: '86%', tone: 'warn' });
     expect(p.bars[0]!.tone).toBe('warn');
-    expect(p.legend).toEqual(['あと 13,880 行で Cloudflare が書き込みを断ります · 9:00 に戻る']);
+    expect(p.legend).toEqual(['あと 13,880 行で無料枠の上限です · 9:00 に戻る']);
     expect(presentCloudUsage({ ...base, today: { ...base.today, d1RowsWritten: 79_999 } }, sync(), NOW, TZ)!.tiles[1]!.tone).toBe('ok');
   });
 
-  it('上限で止まっている：止まった色と、自分で再開する帯', () => {
+  it('上限で止まっている：止まった色と、自動で再開する帯', () => {
     const p = presentCloudUsage({ ...base, today: { ...base.today, d1RowsWritten: 100_000 } }, limitedSync(), NOW, TZ)!;
     expect(p.tiles[1]!.tone).toBe('stop');
     expect(p.bars[0]!.tone).toBe('stop');
     expect(p.legend).toEqual([]);
-    expect(p.strip).toEqual({ tone: 'stop', text: 'Cloudflare の無料枠の上限に届いたので、同期を止めています。9:00 に枠が戻ると、自分で再開します。' });
+    expect(p.strip).toEqual({ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を止めています。9:00 に枠が戻ると、自動で再開します。' });
     expect(p.command).toBeNull();
   });
 
@@ -996,7 +1008,7 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
   // 止まっている間は帯が戻る時刻を言うので出さない。数が分からないときは戻る時刻を出どころの行に添える。
   const legend: string[] = paid ? monthLegend
     : limited || d1 === null ? []
-    : tone === 'warn' ? [`あと ${n(Math.max(0, limit - d1))} 行で Cloudflare が書き込みを断ります · ${reset} に戻る`]
+    : tone === 'warn' ? [`あと ${n(Math.max(0, limit - d1))} 行で無料枠の上限です · ${reset} に戻る`]
     : [`今日の枠は ${reset} に戻る`, ...monthLegend];
 
   const source = unknown ? `数は不明（hangar は数えません）${limited ? '' : ` · 今日の枠は ${reset} に戻る`}`
@@ -1005,7 +1017,7 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
 
   let strip: CloudUsageProps['strip'] = null;
   if (limited) {
-    strip = { tone: 'stop', text: `Cloudflare の無料枠の上限に届いたので、同期を止めています。${reset} に枠が戻ると、自分で再開します。` };
+    strip = { tone: 'stop', text: `Cloudflare の無料枠の上限に達したので、同期を止めています。${reset} に枠が戻ると、自動で再開します。` };
   } else if (pausedNoFetch) {
     strip = { tone: 'info', text: '同期を止めている間は Cloudflare に問い合わせません。再開すると Cloudflare の数と今月の費用が出ます。' };
   } else if (unknown) {
@@ -1027,7 +1039,7 @@ export function presentCloudUsage(u: CloudUsageDto | null, sync: SyncStatusBody 
 Run: `git grep -n -e "'estimate'" -e stopRatio -e tickPct -- packages`
 Expected: 試験の固定値だけが出る。
 出た行の `stopRatio: 0.8` と、`tickPct: …, ` を消し、`source: 'estimate'` を `source: 'unknown'` にする。
-`packages/ui/src/views/misc.test.tsx` の使用量の固定値の凡例「あと 11,880 行で同期を止めます · 9:00 に戻る」と帯「無料枠の 80% に届いたので同期を止めました。」は、Step 7 の文（「あと 13,880 行で Cloudflare が書き込みを断ります · 9:00 に戻る」と、上限で止まったときの帯）に替える（描く側の試験なので、文は固定値をそのまま描けばよい）。
+`packages/ui/src/views/misc.test.tsx` の使用量の固定値の凡例「あと 11,880 行で同期を止めます · 9:00 に戻る」と帯「無料枠の 80% に届いたので同期を止めました。」は、Step 7 の文（「あと 13,880 行で無料枠の上限です · 9:00 に戻る」と、上限で止まったときの帯）に替える（描く側の試験なので、文は固定値をそのまま描けばよい）。
 
 - [ ] **Step 9: 通るのを見る**
 
@@ -1051,7 +1063,7 @@ git commit -m "feat: show usage as unknown instead of the device-side estimate" 
 
 ### Task 6: 同期のエンジンが見張りをやめ、上限で次の UTC の 0 時まで退く
 
-選んだ案：（Task 1 の Step 3 で、Q2 のトーストの答えを書き足す）
+選んだ案：Q2 のトーストは案 A を直したもの（「Cloudflare の無料枠の上限に達したので、9:00 まで同期を止めます。枠が戻ると自動で再開します」）。Q4 は案 B で、「今すぐ同期」は 1 回だけ試し直し、まだ断られればまた戻る時刻まで退いてトーストで知らせる。
 
 **Files:**
 - Delete: `packages/server/src/sync/quota.ts`、`packages/server/src/sync/quota.test.ts`、`packages/server/src/sync/quota.account.test.ts`
@@ -1150,15 +1162,20 @@ describe('上限で退く', () => {
     e.stop();
   });
 
-  it('利用者の今すぐ同期は 1 度だけ試し直し、まだ断られれば退いたまま、通れば戻る', async () => {
+  it('利用者の今すぐ同期は 1 度だけ試し直し、まだ断られれば退いたまま知らせ直し、通れば戻る', async () => {
     beforeMidnight();
+    const toasts: string[] = [];
     const e = make();
+    e.on({ toast: (_l, m) => toasts.push(m) });
     await e.start();
     await hitLimit(e);
+    expect(toasts).toHaveLength(1);
     const before = cloud.calls.length;
     await e.syncNow();
     expect(cloud.calls.length).toBeGreaterThan(before);
     expect(e.limitedUntil()).not.toBeNull();
+    // まだ断られたので、また戻る時刻まで退いたことを知らせる（Task 1 の Q4）。
+    expect(toasts).toHaveLength(2);
     cloud.limited = null;
     await e.syncNow();
     expect(e.limitedUntil()).toBeNull();
@@ -1294,7 +1311,7 @@ import { SyncStateStore } from './state.ts';
  */
 export function limitedMessage(until: number): string {
   const at = new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit' }).format(until);
-  return `Cloudflare の無料枠の上限に届いたので、${at} まで同期を止めます。枠が戻ると自分で再開します`;
+  return `Cloudflare の無料枠の上限に達したので、${at} まで同期を止めます。枠が戻ると自動で再開します`;
 }
 ```
 
@@ -1489,6 +1506,24 @@ export function limitedMessage(until: number): string {
       if (engine.limitedUntil() !== null) return;
 ```
 
+- `syncHalted` に `limited` を足し、互換の版で止まっているときと同じく、利用者が頼んだ 1 巡の最中でも止める。
+  一時停止のまま押した 1 巡でメタデータが上限で断られた後に、本文の降ろし、設定の押し出し、本文の上げ（`uploader.sweep(Infinity)` は未送信の本文の数だけ要求を出す）、使用量の取りに行きが、同じ上限に断られる要求を重ねないためである（「今すぐ同期」は 1 回だけ試し直す。Task 1 の Q4）。
+  説明のコメントに「上限で退いている間も、利用者が頼んだ 1 巡の最中でも止める（その 1 巡のメタデータの送受信が先に試し直し、まだ上限ならまた退いている）。」を足す。
+
+```ts
+export function syncHalted(o: { paused: boolean; oncePass: boolean; compatBlocked: boolean; limited: boolean }): boolean {
+  return o.compatBlocked || o.limited || (o.paused && !o.oncePass);
+}
+```
+
+  `isPaused` は `syncHalted({ paused: engine.status().state === 'paused', oncePass: pausedPass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null })` にする。
+  `server.test.ts` の `syncHalted` の試験（`expect(syncHalted({ … }))` の並び）の既存の行に `limited: false` を足し、次の 2 行を足す。
+
+```ts
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false, limited: true })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false, limited: true })).toBe(true);
+```
+
 - `syncNow` の `const paused = engine.status().state === 'paused' || (engine.compatBlocked() && engine.state.get('paused') === '1');` とその上のコメント 2 行を次にする。
 
 ```ts
@@ -1518,7 +1553,7 @@ git rm packages/server/src/sync/quota.ts packages/server/src/sync/quota.test.ts 
 | `makeEngine` と `pushEnoughToExceed` の補助、`describe('止めた理由')`、`describe('SyncEngine の無料枠の見張り')` | 消す |
 
 Run: `git grep -n -e quota -e Quota -e d1RowsToday -e "setPaused(true, " -- packages/server/src/sync/engine.test.ts packages/server/src/sync/engine.restart.test.ts`
-Expected: 何も出ない（`D1_ROWS` と台帳の試験は偽のクラウドの側にだけ残る）。
+Expected: Step 2 で足した「このタスクの間は、退いていることを今の画面の形（pausedReason が quota）でも渡す」の試験の行（`pausedReason: 'quota'` と `quotaPausedDay`）だけ。Task 7 で消える（`D1_ROWS` と台帳の試験は偽のクラウドの側にだけ残る）。
 
 - [ ] **Step 9: 通るのを見る**
 
@@ -1542,16 +1577,17 @@ git commit -m "feat(server): back off until the next UTC midnight on Cloudflare 
 
 ### Task 7: ヘッダーと設定の「無料枠で停止」を戻る時刻から出し、`pausedReason` と `quotaPausedDay` を消す
 
-選んだ案：（Task 1 の Step 3 で、Q4 と Q5 の答えを書き足す）
+選んだ案：Q4 は案 B（上限で止まっている間、ヘッダーと設定の節のボタンは「今すぐ同期」だけにし、一時停止の切り替えは出さない）、Q5 は案 A（設定の「状態」も「無料枠で停止 · 9:00 に戻る」）。下のコードと試験は、この答えに合わせてある。
 
 **Files:**
 - Modify: `packages/shared/src/api.ts`（`SyncStatusDto` の `pausedReason`、`quotaPausedDay` と説明の 2 行。「古いサーバは送らない」の行を含む）
 - Modify: `packages/server/src/sync/engine.ts`（`status()` の 3 行）
 - Modify: `packages/ui/src/presenters/format.ts`（`limitedLabel` を足す）
 - Modify: `packages/ui/src/presenters/shell.ts:29`、`:89-124`
-- Modify: `packages/ui/src/presenters/settings.ts:104-106`
+- Modify: `packages/ui/src/presenters/settings.ts:20`（`CloudSettingsProps` に `limited`）、`:104-106`
 - Modify: `packages/ui/src/presenters/cloudUsage.ts`（`limited` の 1 行）
-- Modify: `packages/ui/src/views/SyncStatus.tsx:22`、`:26`
+- Modify: `packages/ui/src/views/SyncStatus.tsx:22`、`:26`、`:40`（一時停止の切り替え）
+- Modify: `packages/ui/src/views/SettingsScreen.tsx:440`（一時停止の切り替え）
 - Modify: `packages/ui/src/styles/sync.css:24-30`
 - Modify: `packages/cli/src/cloud.ts:730-734`（`cloudStatus` の同期の行）
 - Test: `packages/ui/src/presenters/presenters.test.ts:1391-1445`、`presenters/cloudUsage.test.ts`、`views/Shell.test.tsx`、`views/headerFold.test.tsx`、`views/workbench.test.tsx`、`views/misc.test.tsx`、`packages/server/src/sync/engine.test.ts`、`packages/cli/src/cloud.test.ts`
@@ -1562,18 +1598,20 @@ git commit -m "feat(server): back off until the next UTC midnight on Cloudflare 
   - `SyncStatusDto` から `pausedReason` と `quotaPausedDay` が消える。
   - `limitedLabel(until: number, tz?: string): string`（`format.ts`）が「無料枠で停止 · X に戻る」を作る。
   - `SyncProps` から `quotaBack` が消える。`reason` は `limitedUntil` から決める（`quota` か `user`）。
-  - 上限で退いている間の `SyncProps.paused` と `CloudSettingsProps.paused` は偽（案 A のボタン「同期を一時停止」）。
+  - 上限で退いている間の `SyncProps.paused` と `CloudSettingsProps.paused` は偽（利用者は止めていない）。
+  - `CloudSettingsProps.limited: boolean`（上限で退いているか）が足される。
+  - 上限で退いている間（ヘッダーは `reason === 'quota'`、設定は `limited`）は、一時停止の切り替えのボタンを描かず、「今すぐ同期」だけを出す（Q4 の案 B）。
 
 このタスクで `git grep -n "古いサーバは送らない"` の 1 件（`packages/shared/src/api.ts` の `pausedReason` の説明）が消える。
 もう 1 件の `docs/superpowers/plans/2026-10-02-cloud-usage.md` は過去の計画なので書き換えない。
 同じ形の「古いサーバは理由を送らない」（`ui/src/presenters/shell.ts` の 106 行）と「古いサーバで理由が無いときは」（`presenters.test.ts`）も、ここで消える。
 
-Task 1 で案 B が選ばれたときの直し方は次のとおりである。
+Task 1 の答えとコードの対応は次のとおりである。
 
-| 問い | 案 A（この計画のコード） | 案 B |
+| 問い | 選んだ案 | コード |
 | --- | --- | --- |
-| Q4 | 退いている間の `paused` は偽で、ボタンは「今すぐ同期」と「同期を一時停止」 | `SyncStatus.tsx` の 2 つめのボタンを `{props.reason !== 'quota' && …}` で包んで出さない。設定の側も同じ |
-| Q5 | 設定の `stateLabel` も `limitedLabel` | 設定の `stateLabel` は今のまま（`SYNC_STATE_LABEL`、「一時停止中」） |
+| Q4 | 案 B | 退いている間の `paused` は偽。`SyncStatus.tsx` の 2 つめのボタン（一時停止の切り替え）を `{props.reason !== 'quota' && …}` で包んで出さない。設定の側も `{!props.cloud.limited && …}` で包んで出さない |
+| Q5 | 案 A | 設定の `stateLabel` も `limitedLabel` |
 
 - [ ] **Step 1: 試験を書く**
 
@@ -1587,7 +1625,7 @@ describe('ヘッダーの無料枠で停止', () => {
   // store.sync と state.sync（toSyncState(sync)）をそろえて、ヘッダーの同期の一行を返す。
   const shellSync = (sync: SyncStatusBody, now: number, tz?: string) => presentShell({ ...initialState(), sync: toSyncState(sync), pending: sync.pending }, { ...initialStore(), sync }, now, tz).sync;
 
-  it('上限で退いている間は、戻る時刻を端末の時刻で言い、ボタンは一時停止のままにする', () => {
+  it('上限で退いている間は、戻る時刻を端末の時刻で言い、利用者が止めたことにはしない', () => {
     const p = shellSync(paused({ limitedUntil: RESET }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo');
     expect(p).toMatchObject({ label: '無料枠で停止 · 9:00 に戻る', reason: 'quota', paused: false, state: 'paused' });
     expect(p).not.toHaveProperty('quotaBack');
@@ -1612,13 +1650,35 @@ describe('ヘッダーの無料枠で停止', () => {
   it('エラーのときも理由は null', () => {
     expect(shellSync(syncStatus({ state: 'error', error: '切れました' }), NOW, 'Asia/Tokyo')).toMatchObject({ reason: null, label: '同期エラー: 切れました' });
   });
-  it('設定の状態も同じ語で言い、再開のボタンにしない', () => {
+  it('設定の状態も同じ語で言い、利用者が止めたことにはせず、上限で退いていることを渡す', () => {
     const settings = presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({ limitedUntil: RESET }) }, at('2026-10-02T06:48:00Z')).cloud;
     expect(settings.paused).toBe(false);
+    expect(settings.limited).toBe(true);
     expect(settings.stateLabel).toMatch(/^無料枠で停止 · \d{1,2}:00 に戻る$/);
+    // 手で止めたときは limited ではない。
+    expect(presentSettings(initialState(), { ...initialStore(), settings: fullSettings(), sync: paused({}) }).cloud).toMatchObject({ paused: true, limited: false });
   });
 });
 ```
+
+`packages/ui/src/views/Shell.test.tsx` の `it('無料枠で止まったときは点に data-reason を付け、文を警告の色にする', …)` の、最初の `render` の断言の後（`quotaBack: true` で描き直す行の前）に足す（Q4 の案 B）。
+
+```tsx
+    // 上限で退いている間は「今すぐ同期」だけを出し、一時停止の切り替えは描かない（試作の Q4 の案 B）。
+    expect(screen.getByRole('button', { name: '今すぐ同期' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '同期を一時停止' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '同期を再開' })).toBeNull();
+```
+
+同じ `it` の、`reason: 'user'` で描き直した後の断言に足す。
+
+```tsx
+    // 手で止めたときは、再開のボタンを出す。
+    expect(screen.getByRole('button', { name: '同期を再開' })).toBeInTheDocument();
+```
+
+`packages/ui/src/views/misc.test.tsx` の、設定の同期の節で「同期を一時停止」と「同期を再開」を押す試験（`fireEvent.click(screen.getByRole('button', { name: '同期を一時停止' }))` のある `it`）の次に、同じ描き方で `cloud` に `paused: false, limited: true, state: 'paused', stateLabel: '無料枠で停止 · 9:00 に戻る'` を渡し、「今すぐ同期」はあり、「同期を一時停止」と「同期を再開」は無いことを確かめる `it` を足す（名前は「上限で退いている間は、設定の節も今すぐ同期だけを出す」）。
+`CloudSettingsProps` を手で組む固定値には `limited: false` を足す（型が求める）。
 
 同じファイルの `syncStatus` の固定値に `limitedUntil: null` が無ければ足す（Task 6 の Step 9 で足していれば、そのまま）。
 `describe('同期の Presenter（フェーズ 4）', …)` の `toEqual({ … reason: null, quotaBack: false, once: false })` から `quotaBack: false, ` を消す。
@@ -1685,7 +1745,7 @@ export function limitedLabel(until: number, tz?: string): string {
  * 同期を設定していない端末（off）では出さないので、visible を false にする。
  * 一度も往復していない間は時刻が無いので、時刻の代わりに準備中と出す。
  * Cloudflare の上限で退いている間（state は paused で、戻る時刻 limitedUntil がある）は、手で止めたのと分けて、いつ戻るかを言う。
- * 上限で退いているのは利用者が止めたのではないので、ボタンは「同期を一時停止」のままにする（試作の Q4）。
+ * 上限で退いているのは利用者が止めたのではないので paused は偽にし、一時停止の切り替えは描かない（試作の Q4 の案 B。view は reason を見る）。
  * tz は端末の時差で、試験でだけ決めて渡す。
  */
 function syncProps(state: State, store: Store, now: number, tz?: string): SyncProps {
@@ -1709,15 +1769,19 @@ function syncProps(state: State, store: Store, now: number, tz?: string): SyncPr
 
 `shell.ts` の import に `limitedLabel` を足す（`./format.ts` から）。
 
-`packages/ui/src/presenters/settings.ts` の `stateLabel` と `paused` の 2 行を次にし、import に `limitedLabel` を足す。
+`packages/ui/src/presenters/settings.ts` の `CloudSettingsProps` の `paused: boolean;` の次に `/** Cloudflare の上限で退いているか。そのあいだは一時停止の切り替えを出さない（試作の Q4 の案 B）。 */ limited: boolean;` を足す。
+`stateLabel` と `paused` の 2 行を次にし、import に `limitedLabel` を足す。
 
 ```ts
     stateLabel: sync?.state === 'paused' && sync.oncePass ? SYNC_ONCE_LABEL
       : sync?.state === 'paused' && sync.limitedUntil !== null ? limitedLabel(sync.limitedUntil)
       : SYNC_STATE_LABEL[sync?.state ?? 'off'],
-    // 上限で退いているのは利用者が止めたのではないので、ボタンは「同期を一時停止」のままにする。
+    // 上限で退いているのは利用者が止めたのではないので、一時停止とは言わない。そのあいだは切り替えを出さない（limited）。
     paused: sync?.state === 'paused' && sync.limitedUntil === null,
+    limited: sync?.state === 'paused' && sync.limitedUntil !== null,
 ```
+
+`packages/ui/src/views/SettingsScreen.tsx` の一時停止の切り替え（`<button className="btn" onClick={() => emit({ type: 'sync.pause', paused: !props.cloud.paused })}>…</button>`）を `{!props.cloud.limited && …}` で包み、上に「上限で退いている間は、利用者は止めていないので切り替えを出さず、今すぐ同期だけにする（試作の Q4 の案 B）。」のコメントを置く。
 
 `packages/ui/src/presenters/cloudUsage.ts` の `limited` の 2 行を次にする。
 
@@ -1731,6 +1795,9 @@ function syncProps(state: State, store: Store, now: number, tz?: string): SyncPr
 ```tsx
       <a className={props.once ? 'mono sync-label faint' : props.state === 'error' || props.reason === 'quota' ? 'mono sync-label sync-error' : 'mono sync-label faint'} href={formatRoute(SETTINGS)} title={`${[props.label, ...counts].join('、')}（押すと同期の設定を開く）`} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>
 ```
+
+同じファイルの 2 つめのボタン（一時停止の切り替え）を `{props.reason !== 'quota' && …}` で包み、上に「上限で退いている間は、利用者は止めていないので切り替えを出さず、今すぐ同期だけにする（試作の Q4 の案 B）。」のコメントを置く。
+`SyncStatus` の説明のコメントと、状態の点の上のコメントにある「同期を一時停止」の言い方は、上限の間は出さないことに合わせて直す（設定への道の説明は残す）。
 
 `packages/ui/src/styles/sync.css` の 24 行と 25 行のコメントを「Cloudflare の上限で止まったときは、手で止めたのと見分けがつくよう点を赤にする（2026-10-02 の決定 H1）。」にし、26 行から 28 行（`[data-quota-back]` の規則とそのコメント、`.sync-warn`）を消す。
 30 行はそのまま残す。
@@ -1750,7 +1817,7 @@ function syncProps(state: State, store: Store, now: number, tz?: string): SyncPr
 - [ ] **Step 6: 通るのを見る**
 
 Run: `git grep -n -e pausedReason -e quotaPausedDay -e quotaBack -e data-quota-back -- packages`
-Expected: Task 8 のマイグレーションとその試験（`sync_state` の鍵の名前として）だけ。
+Expected: 何も出ない（Task 8 のマイグレーションとその試験が `sync_state` の鍵の名前として `pausedReason` を書くのは、このタスクの後である）。
 
 Run: `git grep -n "古いサーバは送らない"`
 Expected: `docs/superpowers/plans/2026-10-02-cloud-usage.md` の 1 件だけ。
@@ -1896,14 +1963,14 @@ Claude Code の設定の同期の記述（「同期対象と暗号化」の設�
 1809 行から 1812 行付近（止まりそう、無料枠で止まっている、食い違い、トークンなし）を次の 4 行に置き換える。
 
 ```
-D1 が上限の 80% 以上なら、札と棒を注意の色にして「あと N 行で Cloudflare が書き込みを断ります」と出す。
-Cloudflare の上限で退いている間は、札と棒を止まった色にして、枠が戻る時刻と、戻れば自分で再開することを帯で言う。
+D1 が上限の 80% 以上なら、札と棒を注意の色にして「あと N 行で無料枠の上限です」と出す。
+Cloudflare の上限で退いている間は、札と棒を止まった色にして、枠が戻る時刻と、戻れば自動で再開することを帯で言う。
 トークンを入れていない端末では、hangar は数えないので、札を 3 枚とも値の無い印と「トークンが要ります」にし、今日の棒は描かず、案内の帯と `npm run hangar -- setup cloud --usage-token` を出す。
 一時停止と上限の間は Cloudflare に問い合わせないので、そのときは「トークンが要ります」の代わりに「同期の停止中」と言う。
 ```
 
-1815 行付近を「ヘッダーの同期の一行は、Cloudflare の上限で退いている間「無料枠で停止 · 9:00 に戻る」（赤い点）と言い、ボタンは「同期を一時停止」のままにする（利用者は止めていない）。」にする。
-Task 1 で Q1、Q4、Q5 に案 B が選ばれたときは、その案の姿に合わせて書く。
+1815 行付近を「ヘッダーの同期の一行は、Cloudflare の上限で退いている間「無料枠で停止 · 9:00 に戻る」（赤い点）と言い、ボタンは「今すぐ同期」だけにする（利用者は止めていないので、一時停止の切り替えは出さない）。設定の「状態」も同じ語で言う。」にする。
+Q1、Q4、Q5 の答え（Task 1 の冒頭）は、上の文にすでに入れてある。
 
 - [ ] **Step 2: design.md のクラウド同期の節を直す**
 
@@ -1965,14 +2032,14 @@ Worker の台帳（`meta` の `d1_rows:<yyyy-MM-dd>` と、push と pull の応�
 
 - [ ] **Step 4: README を直す**
 
-264 行付近の「無料枠（…）に収まる規模で、枠の 80% に達したら同期を自動で止めます。」を「無料枠（…）に収まる規模です。上限に届くと Cloudflare が断るので、そのときは次の UTC の 0 時まで同期を止め、日が変わると自分で再開します。」にする。
+264 行付近の「無料枠（…）に収まる規模で、枠の 80% に達したら同期を自動で止めます。」を「無料枠（…）に収まる規模です。上限に達すると Cloudflare が断るので、そのときは次の UTC の 0 時まで同期を止め、日が変わると自動で再開します。」にする。
 
 割り切りと限界の 2（「**無料枠の 80% に達すると同期が一時停止します。**」から「…先に当たるのは必ず D1 の書き込みの側です。」まで）を、次にする。
 
 ```
-2. **無料枠の上限に届くと、次の UTC の 0 時まで同期が止まります。**
+2. **無料枠の上限に達すると、次の UTC の 0 時まで同期が止まります。**
    hangar は量を数えません。
-   上限に届くと Cloudflare が断るので、その失敗を見分けて止め、日が変わると自分で再開します。
+   上限に達すると Cloudflare が断るので、その失敗を見分けて止め、日が変わると自動で再開します。
    無料プランは上限を超えても課金されず、要求が断られるだけです。
    止まっている間に「今すぐ同期」を押すと、1 回だけ試し直します。
    なお R2 自身の枠は月ごとの別勘定で、この使い方（1 セッションを 1 日走らせて上げ下ろしが 2,880 回ほど）では月の上限に対して桁が 2 つ小さく、先に当たるのは必ず D1 の書き込みの側です。

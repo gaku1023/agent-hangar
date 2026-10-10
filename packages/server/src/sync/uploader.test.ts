@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { FakeCloudClient, MAX_BODY_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
-import { CloudError } from './client.ts';
+import { CloudError, LimitError } from './client.ts';
 import { decryptBuffer, deriveFileKey, sha256Hex } from './crypto.ts';
 import { SyncStateStore } from './state.ts';
 import { TRANSCRIPTS_FROM } from './transcriptsFrom.ts';
@@ -331,6 +331,26 @@ describe('TranscriptUploader', () => {
     expect(skipRow()).toBeNull();
     expect(up.skippedUploads()).toEqual([]);
     cloud.minDeviceCompat = 0;
+    await up.flushAll();
+    expect(cloud.files.size).toBe(1);
+    up.stop();
+  });
+
+  it('上限で断られた本文は、状態番号が 4xx でも諦めず、上限が戻れば上げる', async () => {
+    const up = make();
+    const realPut = cloud.putFile.bind(cloud);
+    cloud.putFile = (meta: FileMetaIn, body: Readable) => {
+      cloud.calls.push({ method: 'putFile', args: [meta] });
+      body.resume();
+      return Promise.reject(new LimitError('requests', 403));
+    };
+    up.noteChanged({ path: mainFile(), sessionId: UUID, agentId: null });
+    await timers.advance(30_000);
+    await up.idle();
+    expect(puts()).toBe(1);
+    expect(skipRow()).toBeNull();
+    expect(up.skippedUploads()).toEqual([]);
+    cloud.putFile = realPut;
     await up.flushAll();
     expect(cloud.files.size).toBe(1);
     up.stop();
