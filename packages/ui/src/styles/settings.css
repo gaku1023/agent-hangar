@@ -109,6 +109,8 @@
 .cu-meter[data-tone='stop'] > i { background: var(--error); }
 .cu-legend { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 3); margin-top: var(--u); font-size: var(--fs-xs); color: var(--ink-2); }
 .cu-cmd { margin-top: calc(var(--u) * 1.5); }
+.cu-cmd-where { margin-top: calc(var(--u) * 1.5); }
+.cu-cmd-where + .cu-cmd { margin-top: calc(var(--u) * 0.5); }
 /* 狭い窓では、名前と数の列を縮めて棒を残す。 */
 @media (max-width: 700px) { .cu-row { grid-template-columns: 110px minmax(0, 1fr) 120px; } }
 

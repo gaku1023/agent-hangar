@@ -507,7 +507,7 @@ export async function offerUsageToken(install: () => Promise<void>, log: (l: str
     await install();
   } catch (e) {
     log(e instanceof Error ? e.message : String(e));
-    log('あとから npm run hangar -- setup cloud --usage-token で入れ直せます');
+    log('あとから、リポジトリを clone して npm install した場所で npm run hangar -- setup cloud --usage-token を実行すると入れ直せます');
   }
 }
 
@@ -516,7 +516,7 @@ export const USAGE_TOKEN_HELP = [
   '使用量と費用を設定画面に出すには、読み取り専用の API トークンを Worker に入れます（無くても同期は動きます）。',
   '作り方: Cloudflare のダッシュボード → Manage account → Account API tokens → Create Token → Start from scratch',
   '  権限は二つだけ: Account Analytics: Read と Billing: Read（Entire Account）',
-  '  1Password に保存し、op read "op://…" | npm run hangar -- setup cloud --usage-token で流し込めます。',
+  '  1Password に保存し、リポジトリを clone して npm install した場所で op read "op://…" | npm run hangar -- setup cloud --usage-token と打つと流し込めます。',
 ];
 
 const CF_API = 'https://api.cloudflare.com/client/v4';

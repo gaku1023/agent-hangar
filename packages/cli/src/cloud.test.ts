@@ -1303,7 +1303,7 @@ describe('installUsageToken', () => {
   it('setup の続きで入れるのに失敗しても、setup は落とさず、入れ直し方を言う', async () => {
     const lines: string[] = [];
     await expect(offerUsageToken(async () => { throw new Error('権限が足りません: Billing: Read を付けてください'); }, (l) => lines.push(l))).resolves.toBeUndefined();
-    expect(lines).toEqual(['権限が足りません: Billing: Read を付けてください', 'あとから npm run hangar -- setup cloud --usage-token で入れ直せます']);
+    expect(lines).toEqual(['権限が足りません: Billing: Read を付けてください', 'あとから、リポジトリを clone して npm install した場所で npm run hangar -- setup cloud --usage-token を実行すると入れ直せます']);
   });
   it('setup の続きで入れられたら、何も足さない', async () => {
     const lines: string[] = [];
@@ -1313,6 +1313,8 @@ describe('installUsageToken', () => {
   it('案内は権限を二つ挙げる', () => {
     expect(USAGE_TOKEN_HELP.join('\n')).toContain('Account Analytics: Read');
     expect(USAGE_TOKEN_HELP.join('\n')).toContain('Billing: Read');
+    // 入れた版の hangar には wrangler が無いので、clone した場所で打つと添える。
+    expect(USAGE_TOKEN_HELP.join('\n')).toContain('リポジトリを clone して npm install した場所で op read');
   });
 });
 

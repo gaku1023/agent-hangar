@@ -12,7 +12,7 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.resume.noTranscript': 'このセッションのトランスクリプトがありません',
   'sync.compat.deviceNeed': 'この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換バージョンは {have}、クラウドが求めるのは {need} 以上）。この PC の hangar を更新してください',
   'sync.compat.deviceNewer': 'この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換バージョンは {have}、クラウドが求めるのはそれより新しいバージョン）。この PC の hangar を更新してください',
-  'sync.compat.worker': 'クラウドの Worker が古いので、同期を停止しました（Worker の互換バージョンは {have}、この PC が求めるのは {need} 以上）。setup した PC で hangar setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください',
+  'sync.compat.worker': 'クラウドの Worker が古いので、同期を停止しました（Worker の互換バージョンは {have}、この PC が求めるのは {need} 以上）。setup した PC の、リポジトリを clone して npm install した場所で npm run hangar -- setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください',
   'sync.limit.d1Read': 'Cloudflare の無料枠の上限（D1 の 1 日の読み取り）に達しました',
   'sync.limit.d1Write': 'Cloudflare の無料枠の上限（D1 の 1 日の書き込み）に達しました',
   'sync.limit.requests': 'Cloudflare の無料枠の上限（Workers の 1 日のリクエスト）に達しました',

@@ -240,7 +240,7 @@ const USAGE: CloudUsageProps = {
     { label: 'R2 の保存', when: 'month', pct: 1.65, value: '0.17 / 10 GB-月', tone: 'ok' },
     { label: 'R2 Infrequent Access Data Retrieval', when: 'month', pct: null, value: '3 GB', tone: 'ok' },
   ],
-  splitAfter: 1, legend: ['あと 13,880 行で無料枠の上限です · 9:00 にリセット'], source: 'Cloudflare の実測値 · 2 分前', strip: null, command: null,
+  splitAfter: 1, legend: ['あと 13,880 行で無料枠の上限です · 9:00 にリセット'], source: 'Cloudflare の実測値 · 2 分前', strip: null, command: null, commandWhere: null,
 };
 
 describe('CloudUsage', () => {
@@ -255,8 +255,9 @@ describe('CloudUsage', () => {
     expect(within(sec).getByText('3 GB')).toBeTruthy();
     expect(within(sec).getByText('Cloudflare の実測値 · 2 分前')).toBeTruthy();
   });
-  it('停止の帯は alert、案内のコマンドは等幅で出す', () => {
-    render(<CloudUsage {...USAGE} strip={{ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を停止しています。9:00 に枠がリセットされると、自動で再開します。' }} command="npm run hangar -- setup cloud --usage-token" />);
+  it('停止の帯は alert、案内のコマンドは等幅で出し、どこで打つかを前に添える', () => {
+    render(<CloudUsage {...USAGE} strip={{ tone: 'stop', text: 'Cloudflare の無料枠の上限に達したので、同期を停止しています。9:00 に枠がリセットされると、自動で再開します。' }} command="npm run hangar -- setup cloud --usage-token" commandWhere="リポジトリを clone して npm install した場所で、次を実行してください。" />);
+    expect(screen.getByText('リポジトリを clone して npm install した場所で、次を実行してください。')).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toContain('同期を停止しています');
     expect(screen.getByText('npm run hangar -- setup cloud --usage-token').className).toContain('mono');
   });

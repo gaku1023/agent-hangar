@@ -5,11 +5,18 @@ export type CloudUsageTone = 'ok' | 'warn' | 'stop';
 export type CloudUsageTile = { key: 'bill' | 'd1' | 'plan'; label: string; value: string; sub: string; tone: CloudUsageTone | 'muted' };
 export type CloudUsageBar = { label: string; /** 棒が見る期間。表示は `cloudUsage.when.<when>` から引く。 */ when: 'day' | 'month'; pct: number | null; value: string; tone: CloudUsageTone };
 /** 設定の「使用量と費用」。試作 usage-merged.html の左上が正本。 */
-export type CloudUsageProps = { tiles: CloudUsageTile[]; bars: CloudUsageBar[]; splitAfter: number; legend: string[]; source: string; strip: { tone: 'stop' | 'info'; text: string } | null; command: string | null };
+/** commandWhere は、command をどこで打つかの添え書き。command があるときだけ出す。 */
+export type CloudUsageProps = { tiles: CloudUsageTile[]; bars: CloudUsageBar[]; splitAfter: number; legend: string[]; source: string; strip: { tone: 'stop' | 'info'; text: string } | null; command: string | null; commandWhere: string | null };
 
 /** 注意の色にする割合。D1 の 1 日の行の上限に対して見る（段 1 で、止める線は Cloudflare の上限そのものになった）。 */
 const WARN_RATIO = 0.8;
-const TOKEN_COMMAND = 'npm run hangar -- setup cloud --usage-token';
+/**
+ * クラウドの用意と使用量のトークンは wrangler で Worker に触るので、リポジトリを clone して npm install した場所から打つ。
+ * 入れた版に同梱した hangar は Worker の源も wrangler も持たず、clone を案内して止まる（packages/cli の requireCloudDir）。
+ * だから、ほかのコマンドと違って入れた版の CLI の呼び方にはそろえず、clone の中の呼び方で書き、どこで打つかを添える。
+ */
+export const SETUP_CLOUD_COMMAND = 'npm run hangar -- setup cloud';
+const TOKEN_COMMAND = `${SETUP_CLOUD_COMMAND} --usage-token`;
 
 const n = (v: number): string => v.toLocaleString('en-US');
 const pct = (used: number, limit: number): number => Math.round((used / limit) * 10_000) / 100;
@@ -101,5 +108,6 @@ export function presentCloudUsage(t: Translate, u: CloudUsageDto | null, sync: S
     strip = { tone: 'info', text: u.notice ?? t('cloudUsage.strip.needToken') };
   }
 
-  return { tiles: paid ? tiles.filter((tile) => tile.key !== 'd1') : tiles, bars: [...today, ...month], splitAfter: today.length, legend, source, strip, command: unknown && !pausedNoFetch && !limited ? TOKEN_COMMAND : null };
+  const showCommand = unknown && !pausedNoFetch && !limited;
+  return { tiles: paid ? tiles.filter((tile) => tile.key !== 'd1') : tiles, bars: [...today, ...month], splitAfter: today.length, legend, source, strip, command: showCommand ? TOKEN_COMMAND : null, commandWhere: showCommand ? t('cloudUsage.command.where') : null };
 }

@@ -272,8 +272,8 @@ export function SettingsScreen(props: SettingsProps) {
               <button type="button" className="btn" aria-pressed={cloudCommand === 'join'} onClick={() => setCloudCommand('join')}>{t('settings.cloud.off.join')}</button>
             </div>
             {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.note')}</div>}
-            {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command="hangar setup cloud" /></>}
-            {cloudCommand === 'join' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runJoin')}</div><CommandLine command="hangar join <token>" /></>}
+            {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
+            {cloudCommand === 'join' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runJoin')}</div><CommandLine command={props.commands.join} /></>}
           </>
         )}
         {!cloudOff && (

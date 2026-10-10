@@ -36,7 +36,7 @@ describe('Claude Code の設定の同期の節', () => {
     render(ui(propsOf(dto({ lastSentAt: NOW - 120_000, workerPending: true })), onAction));
     expect(screen.getByText(/最後に送った時刻: 2 分前/)).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Worker の更新待ち');
-    expect(screen.getByRole('status')).toHaveTextContent('hangar setup cloud');
+    expect(screen.getByRole('status')).toHaveTextContent('リポジトリを clone して npm install した場所で npm run hangar -- setup cloud');
     fireEvent.click(screen.getByRole('button', { name: '送るものを見る' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'configSync.open', part: 'send' });
   });

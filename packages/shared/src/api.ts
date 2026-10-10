@@ -147,7 +147,7 @@ export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProb
  * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
  * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
- * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。
+ * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。join は参加のコマンドで、トークンの所は `<token>` と書く。
  * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
@@ -155,7 +155,7 @@ export type ReadinessDto = {
   workspace: { path: string; exists: boolean; projectCount: number };
   mcp: { registered: boolean; file: string };
   statusline: StatuslineStatusDto;
-  commands: { mcp: string; statusline: string; shell: string };
+  commands: { mcp: string; statusline: string; shell: string; join: string };
   compat: CompatSummaryDto;
 };
 /**
