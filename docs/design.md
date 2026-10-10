@@ -2751,6 +2751,9 @@ Node の欄が空のときは、サーバを動かしている Node を「自動
 LM Studio の URL、モデル、Claude での要約の 1 時間あたりの上限は 3 項目をまとめて「保存」で保存し、そのボタンの横に同じ「✓ 保存しました」を出す。
 URL の欄の下には、モデルの一覧が取れたかで「接続済み（モデル N 個）」か「LM Studio に接続できません」を出す。接続テストのボタンは `summarizer.test` を出し、結果をその下に出す。
 ターミナルで打つコマンドは、薄い地のコードの行と右端のコピーで出し、どれも同じ hangar の呼び方にそろえる（`hangar mcp install`、`hangar statusline install`、`hangar shell install`。hangar に PATH が通っていなければ同梱の hangar の絶対パス）。
+同梱の hangar は、macOS では `.app` の `Contents/Resources/server/bin/hangar`、Windows では入れた先の `server\bin\hangar.cmd` である（`shellWrap.ts` の `bundledHangarIn`）。
+Windows では貼る先を PowerShell とみなし、英数字と `\ : . _ -` 以外の字を含むパスは `& '<パス>'` の形で書く（`shellHook.ts` の `shellInstallCommand`）。二重引用符で包んだだけでは、PowerShell はコマンドとして動かさない。
+リポジトリから動かしているサーバの PATH の `node_modules/.bin`（Windows では `node_modules\.bin`）の hangar は、利用者のターミナルからは引けないので、`npm run hangar -- …` の形にする。
 コピーのボタンは、ランタイムがクリップボードに写せたと返してから（Mediator の `copied` が進んでから）「コピーしました」を出す。
 写せなかったときは「コピーできませんでした。文字を選んで ⌘C で写してください」とだけ知らせ、写そうとした中身はトーストに出さない。
 参加トークンのような秘密も同じボタンで写すからである。
@@ -4165,7 +4168,18 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 配布ターゲットは Apple silicon の macOS 13 以降と、x64 の Windows 11 である。同梱する prebuild は target（`<platform>-<arch>`）のものだけにする。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel の Mac と ARM64 の Windows は作らない。
   束の作り方は `apps/desktop/scripts/bundle-server.ts` の `bundleServer` が target を引数に受け取り（省略すると、この機械の target。配布の対象でなければ止まる）、別の target の束も、どの機械でも作れる。`manifest.json` の `arch` は束の相手のものを書く。
   win32-x64 の束は、`bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
-  cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直し（HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows の順）は `launch-cli.mjs` が行う。
+  cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直しは `launch-cli.mjs` が行う。
+  渡し直しの候補は、HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows（新しい版から）、PATH の各項目の `node.exe` の順で、HANGAR_NODE のあとは殻の `windows_node_paths` と同じ並びである。
+  PATH は、実在する `node.exe` を PATH の順にすべて候補にする。fnm が別の版を PATH の先頭に置いていても、後ろの winget の Packages や Links、volta などにある合う版に届く（実機の A19）。
+  どれも合わなければ、いま動いている Node の版と、調べた場所を探した順に番号付きで挙げ、それぞれがファイルが無い、起動できない、時間内に答えない、版が違う、アーキテクチャが違う、のどれだったかを書く（`launch-cli.ts` の `describeNotFound`）。
+  `hangar.cmd` は、node を起こす最後の行で `endlocal & goto #_end_of_batch_# 2>nul || ver >nul & "<node>" …` の形を使い、node が動き出す前にバッチを終える（npm の cmd-shim と同じ手、npm/cli#969）。
+  cmd は行を丸ごと読んで展開してから動かすので、無い label への goto でバッチが終わっても、行の残りは動く。
+  バッチが終わっているので、Ctrl+C で node が止まったあとに cmd が「バッチ ジョブを終了しますか (Y/N)?」と問わず、node の終了コードがそのまま cmd の終了コードになる。
+  npm は `||` の後に `title` を置くが、端末のタブの名前を変えてしまうので、何もしない `ver >nul` にした。
+  `apps/desktop/test/hangar-cmd.test.ts` が、Windows の CI で、隠したコンソールに Ctrl+C を送って、古い作りでは問いで止まり、いまの作りでは止まらないことを確かめる。
+  インストーラは、`server\bin` を利用者単位の PATH（`HKCU\Environment` の `Path`）の末尾に足し、アンインストールの前に外す（`hooks.nsh` の `NSIS_HOOK_POSTINSTALL` と `NSIS_HOOK_PREUNINSTALL`）。
+  書き換えは PowerShell が値の種類（`REG_EXPAND_SZ`）と展開前の項目をそのまま保って行い、NSIS の文字列（1024 字で切れる）を通さない。もう入っていれば足さず（更新でも増えない）、外すときは書き方の違う重複もまとめて外す。
+  そのあと `WM_SETTINGCHANGE` を流すので、新しく開いたターミナルから `hangar` で呼べる。開いていたターミナルには届かない。
   殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、PATH の順に探す。Node 本体は Windows でも同梱しない。
 - Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる（重ねるのは配布物と窓の装飾だけ）。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、入れた殻を起こして同梱のサーバが `127.0.0.1:4177` の `/health` に応えるまで待ってから止め、静かに消すところまでを行う。殻が resource_dir から作ったパスで Node を起こす経路は、`hangar.cmd` では通らないので、殻そのものを起こして確かめる。殻は Node を公式の入れ先から PATH より先に探すので、このときは一時のホーム（`HANGAR_HOME`）の `settings.json` の `nodePath` で setup-node の Node を指し、殻が使った Node の版を desktop.log から読んで 22.20 以上であることを確かめる（22.20 から verbatim の主スクリプトで落ちるので、それより古い Node では回帰を捕まえられない）。
   CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。

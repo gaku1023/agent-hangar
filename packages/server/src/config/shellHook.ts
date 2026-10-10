@@ -182,11 +182,19 @@ export function shellHookState(zshrc: string, supported: boolean): ShellHookStat
  * Settings に出す、入れるためのコマンド。
  * hangar に PATH が通っていなくても貼るだけで動くよう、アプリに同梱された hangar は絶対パスで書く。
  * 同梱物が無い（リポジトリから動かしている）ときは、リポジトリの中での呼び方にする。
+ * Windows の同梱物は bin\hangar.cmd で、貼る先は PowerShell を前提にする。
+ * 空白などを含むパスは、呼び出し演算子と単引用符で包む（`& 'C:\…\hangar.cmd'`）。二重引用符で包んだだけでは、PowerShell は文字列として読み、コマンドとして動かさない。
  */
-export function shellInstallCommand(o: { hangarOnPath: string | null; bundledHangar: string | null }): string {
+export function shellInstallCommand(o: { hangarOnPath: string | null; bundledHangar: string | null; platform?: NodeJS.Platform }): string {
+  const windows = (o.platform ?? process.platform) === 'win32';
   // npm から起こしたサーバの PATH には node_modules/.bin が入る。そこの hangar は利用者のターミナルからは引けない。
-  if (o.hangarOnPath && !o.hangarOnPath.includes('/node_modules/.bin/')) return 'hangar shell install';
-  if (o.bundledHangar) return `${o.bundledHangar.includes(' ') ? JSON.stringify(o.bundledHangar) : o.bundledHangar} shell install`;
+  if (o.hangarOnPath && !o.hangarOnPath.replaceAll('\\', '/').includes('/node_modules/.bin/')) return 'hangar shell install';
+  if (o.bundledHangar) {
+    const p = o.bundledHangar;
+    // Windows は、英数字と \ : . _ - 以外の字（空白、単引用符、括弧など）を含めば包む。どれも PowerShell では意味を持つ。
+    if (windows) return /^[A-Za-z0-9_.:\\-]+$/.test(p) ? `${p} shell install` : `& '${p.replaceAll("'", "''")}' shell install`;
+    return p.includes(' ') ? `${JSON.stringify(p)} shell install` : `${p} shell install`;
+  }
   return 'npm run hangar -- shell install';
 }
 

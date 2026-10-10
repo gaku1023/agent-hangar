@@ -82,6 +82,21 @@ posixDescribe('この PC の状態', () => {
     // npm run dev のサーバは PATH に node_modules/.bin を持つが、利用者のターミナルからは引けない。
     expect(shellInstallCommand({ hangarOnPath: '/w/agent-hangar/node_modules/.bin/hangar', bundledHangar: null })).toBe('npm run hangar -- shell install');
   });
+  it('Windows では、インストーラで入れた hangar.cmd を、PowerShell にそのまま貼れる形で書く', () => {
+    const bundled = 'C:\\Users\\me\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd';
+    // PATH に入っていれば（インストーラが足す）、名前だけで呼ぶ。
+    expect(shellInstallCommand({ hangarOnPath: bundled, bundledHangar: bundled, platform: 'win32' })).toBe('hangar shell install');
+    // 空白が無ければ、そのまま。
+    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: bundled, platform: 'win32' })).toBe(`${bundled} shell install`);
+    // 空白があれば、PowerShell の呼び出し演算子と単引用符で包む。二重引用符の文字列は PowerShell ではコマンドにならない。
+    const spaced = 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd';
+    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: spaced, platform: 'win32' })).toBe(`& '${spaced}' shell install`);
+    // 単引用符は 2 つ重ねる。
+    const quoted = "C:\\Users\\O'Brien\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd";
+    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: quoted, platform: 'win32' })).toBe("& 'C:\\Users\\O''Brien\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' shell install");
+    // npm run dev のサーバの PATH の node_modules\.bin は、Windows の区切りでも外す。
+    expect(shellInstallCommand({ hangarOnPath: 'C:\\w\\agent-hangar\\node_modules\\.bin\\hangar.cmd', bundledHangar: null, platform: 'win32' })).toBe('npm run hangar -- shell install');
+  });
 });
 
 const ZSH = fs.existsSync('/bin/zsh') ? '/bin/zsh' : null;

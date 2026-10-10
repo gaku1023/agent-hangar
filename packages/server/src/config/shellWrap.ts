@@ -5,11 +5,11 @@ import { ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, 
 import { which } from './tools.ts';
 
 /**
- * 同梱の hangar。アプリの中では server.mjs の隣の bin/hangar にある。リポジトリから動かすときは無い。
+ * 同梱の hangar。アプリの中では server.mjs の隣の bin/hangar（Windows は bin\hangar.cmd）にある。リポジトリから動かすときは無い。
  * serverDir はサーバの入口のファイルがある場所である。
  */
-export function bundledHangarIn(serverDir: string): string | null {
-  const p = path.join(serverDir, 'bin', 'hangar');
+export function bundledHangarIn(serverDir: string, platform: NodeJS.Platform = process.platform): string | null {
+  const p = path.join(serverDir, 'bin', platform === 'win32' ? 'hangar.cmd' : 'hangar');
   return fs.existsSync(p) ? p : null;
 }
 
@@ -36,8 +36,8 @@ export type ShellWrapDeps = {
  * ~/.zshrc は読むだけで、書き換えない。
  */
 export function createShellWrap(deps: ShellWrapDeps): { write(): void; installCommand(): string; hook(): ShellHookDto } {
-  const installCommand = (): string => shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar: deps.bundledHangar });
   const platform = deps.platform ?? process.platform;
+  const installCommand = (): string => shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar: deps.bundledHangar, platform });
   const osSupported = shellWrapOsSupported(platform);
   return {
     write() {

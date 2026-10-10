@@ -92,4 +92,15 @@ describe('包みの本体と、この PC の状態', () => {
     fs.writeFileSync(path.join(home, 'bin', 'hangar'), '');
     expect(bundledHangarIn(home)).toBe(path.join(home, 'bin', 'hangar'));
   });
+
+  it('Windows では、同梱の hangar は bin\\hangar.cmd である', () => {
+    expect(bundledHangarIn(home, 'win32')).toBeNull();
+    fs.mkdirSync(path.join(home, 'bin'));
+    fs.writeFileSync(path.join(home, 'bin', 'hangar'), '');
+    expect(bundledHangarIn(home, 'win32')).toBeNull();
+    fs.writeFileSync(path.join(home, 'bin', 'hangar.cmd'), '');
+    expect(bundledHangarIn(home, 'win32')).toBe(path.join(home, 'bin', 'hangar.cmd'));
+    // macOS の束には hangar.cmd は無く、bin/hangar を見る。
+    expect(bundledHangarIn(home, 'darwin')).toBe(path.join(home, 'bin', 'hangar'));
+  });
 });
