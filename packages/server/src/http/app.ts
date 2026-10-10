@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { COMPAT_VERSION, liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type CompatDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { COMPAT_VERSION, isLanguage, languageOf, LANGUAGES, liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type CompatDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
@@ -78,6 +78,11 @@ export type AppDeps = {
    * .app はこれが真になるまで起動画面に残る。渡さなければ済んだものとして扱う。
    */
   ready?: () => boolean;
+  /**
+   * 右ペインの要約器。裏の印（live/aside.ts）が 500 ミリ秒ごとに同じ要約を引くので、サーバは 1 つを両方に渡して覚えを共有する。
+   * 渡さなければ、ここで作る。
+   */
+  digester?: Pick<LiveDigester, 'digest'>;
   hub: { broadcast(ev: ServerEvent): void };
   runs: RunsApi;
   external: ExternalApi;
@@ -225,7 +230,7 @@ const CSP = [
 ].join('; ');
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.map': 'application/json' };
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, syncClaudeConfig: s.syncClaudeConfig, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, syncClaudeConfig: s.syncClaudeConfig, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
 const numberOr = (v: string | undefined): number | undefined => (v ? Number(v) : undefined);
 const isEnoent = (e: unknown): boolean => (e as NodeJS.ErrnoException | null)?.code === 'ENOENT';
 
@@ -326,7 +331,7 @@ export function createApp(deps: AppDeps): Hono {
   const session = (id: string) => getSession(db, deps.live(), id, { deviceId });
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
   const broadcastSession = (id: string) => { const s = session(id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
-  const digester = new LiveDigester(db);
+  const digester = deps.digester ?? new LiveDigester(db);
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
@@ -619,6 +624,12 @@ export function createApp(deps: AppDeps): Hono {
       const v = body.syncClaudeConfig;
       if (typeof v !== 'boolean') return c.json({ error: '「Claude Code の設定を同期する」の値の形が違います' }, 400);
       patch.syncClaudeConfig = v;
+    }
+    // 言語はこの PC の設定で、画面の文とサーバの文の両方が読む。辞書にある言語だけを受ける。
+    if ('language' in body) {
+      const v = body.language;
+      if (!isLanguage(v)) return c.json({ error: `「言語」は ${LANGUAGES.join(' か ')} から選んでください` }, 400);
+      patch.language = v;
     }
     if (Object.keys(patch).length === 0) return c.json({ error: '更新できる設定が含まれていません' }, 400);
     // 要約器には会話の本文が送られる。宛先は既定でループバックだけにし、明示の許しがあるときだけ外へ出す。

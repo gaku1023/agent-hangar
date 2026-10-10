@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { posixIt } from '../../../../test/platform.ts';
 import { COMPAT_MAX_VALUE, CompatLog, compatPath } from './log.ts';
 
 let tmp: string;
@@ -123,6 +124,70 @@ describe('CompatLog', () => {
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({ localVersion: '2.1.300' });
     log.setLocalVersion('2.1.301');
     expect(log.count()).toBe(0);
+  });
+  it('読み込むとき、今の hangar ではずれでない値を落とし、知らない値と値だけでは決められない値は残して、すぐ書き戻す', () => {
+    // 前の hangar が記録し、手元の claude の版が変わらないので残っていた記録。
+    const file = compatPath(tmp);
+    const e = (contract: string, value: string) => ({ contract, value, version: '2.1.295', count: 1, firstSeenAt: 1, lastSeenAt: 1 });
+    fs.writeFileSync(file, JSON.stringify({ version: 1, localVersion: '2.1.295', entries: [
+      e('transcript', 'type=isolation-latch'), e('transcript', 'type=brand-new'),
+      e('registry', 'status=shell'), e('registry', 'status=(missing)'),
+      e('claude-dir', 'entry=cache'), e('claude-dir', 'entry=zeta-new'),
+      e('cli', 'subcommand.added=purge'), e('cli', 'subcommand.removed=daemon'), e('cli', 'subcommand.added=brand-new'),
+      e('statusline', 'rate_limits.five_hour.resets_at=ms'), e('screen', 'prompt-marker=(missing)'),
+    ] }));
+    const log = new CompatLog({ file, localVersion: () => null });
+    const kept = ['claude-dir entry=zeta-new', 'cli subcommand.added=brand-new', 'registry status=(missing)', 'screen prompt-marker=(missing)',
+      'statusline rate_limits.five_hour.resets_at=ms', 'transcript type=brand-new'];
+    expect(log.list().map((x) => `${x.contract} ${x.value}`)).toEqual(kept);
+    expect(log.count()).toBe(kept.length);
+    // flush を待たずに書き戻している。手元の版も残す。
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8')) as { localVersion: unknown; entries: { contract: string; value: string }[] };
+    expect(saved.localVersion).toBe('2.1.295');
+    expect(saved.entries.map((x) => `${x.contract} ${x.value}`)).toEqual(kept);
+    // 書き戻した後は、変わっていなければ書かない。
+    fs.rmSync(file);
+    log.flush();
+    expect(fs.existsSync(file)).toBe(false);
+  });
+  it('読み込みで何も落とさなければ書き直さない', () => {
+    const file = compatPath(tmp);
+    const body = JSON.stringify({ version: 1, localVersion: '2.1.295', entries: [{ contract: 'transcript', value: 'type=brand-new', version: '2.1.295', count: 1, firstSeenAt: 1, lastSeenAt: 1 }] });
+    fs.writeFileSync(file, body);
+    const log = new CompatLog({ file, localVersion: () => null });
+    expect(log.count()).toBe(1);
+    expect(fs.readFileSync(file, 'utf8')).toBe(body);
+  });
+  it('一覧と件数を返すときも、今の判定でずれでない値を落として書き戻す', () => {
+    // GET /api/compat と GET /api/readiness が読む口。判定と記録が食い違っても、ずれでない値を返さない。
+    const file = compatPath(tmp);
+    const known = new Set<string>();
+    const log = new CompatLog({ file, localVersion: () => '2.1.295', now: () => 1, isDrift: (_c, v) => !known.has(v) });
+    log.note({ contract: 'transcript', value: 'type=a', version: null });
+    log.note({ contract: 'transcript', value: 'type=b', version: null });
+    log.flush();
+    known.add('type=a');
+    expect(log.count()).toBe(1);
+    expect(log.list().map((x) => x.value)).toEqual(['type=b']);
+    expect((JSON.parse(fs.readFileSync(file, 'utf8')) as { entries: { value: string }[] }).entries.map((x) => x.value)).toEqual(['type=b']);
+  });
+  // 書けない置き場をディレクトリのモードで作る。Windows の Node はモードで書き込みを止められないので飛ばす。
+  posixIt('落とした記録を書き戻せなくても投げない', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dir = path.join(tmp, 'ro');
+    fs.mkdirSync(dir);
+    const file = compatPath(dir);
+    fs.writeFileSync(file, JSON.stringify({ version: 1, entries: [{ contract: 'transcript', value: 'type=isolation-latch', version: null, count: 1, firstSeenAt: 1, lastSeenAt: 1 }] }));
+    fs.chmodSync(dir, 0o500);
+    try {
+      let log: CompatLog | null = null;
+      expect(() => { log = new CompatLog({ file, localVersion: () => null }); }).not.toThrow();
+      expect(log!.count()).toBe(0);
+      // 書こうとして失敗した道を通ったこと。
+      expect(err).toHaveBeenCalled();
+    } finally {
+      fs.chmodSync(dir, 0o700);
+    }
   });
   it('書けない置き場でも投げない', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});

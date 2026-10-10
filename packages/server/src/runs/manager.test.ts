@@ -13,6 +13,7 @@ import { ensureSession } from '../indexer/indexFile.ts';
 import { mangleCwd } from '../provider/claude-code/discover.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
+import { tmuxPaneOps, type PaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
@@ -20,6 +21,7 @@ import { createMcpApp } from '../mcp/app.ts';
 import { MemoStore } from '../projects/memo.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/types.ts';
+import { RunAccounts } from './accounts.ts';
 import { RunManager } from './manager.ts';
 import { realProcOps, type ProcOps } from './procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
@@ -56,8 +58,21 @@ afterEach(() => {
 
 /** バックグラウンドのサービスの一覧は既定で空にする。実物の口のままだと、偽の claude を一覧のために起こしてしまう。 */
 const noJobs: ProcOps = { ...realProcOps, listJobs: () => [] };
-const make = (over: Partial<ConstructorParameters<typeof RunManager>[0]> = {}) =>
-  new RunManager({ db, deviceId: 'd', home, tmux, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs, ...over });
+type Deps = ConstructorParameters<typeof RunManager>[0];
+/**
+ * 試験は tmux とアカウントの一覧をそのまま渡す。RunManager が受け取る口（PaneOps、RunAccounts）へは、ここで包む。
+ * panes を渡したときは、tmux を使わずにその口をそのまま使う。
+ */
+const make = (over: Partial<Omit<Deps, 'accounts'>> & { tmux?: Tmux | null; accounts?: AccountStore } = {}) => {
+  const { tmux: t = tmux, accounts, ...rest } = over;
+  return new RunManager({
+    db, deviceId: 'd', home, panes: t ? tmuxPaneOps(t) : null, claudeBin: fake.bin, claudeDir, port: 4177, token: 'tok', shell: 'sh', procs: noJobs,
+    accounts: accounts ? new RunAccounts({ db, claudeDir, store: accounts }) : undefined,
+    ...rest,
+  });
+};
+/** そのセッションを最後に動かしたアカウント。 */
+const accountFor = (accounts: AccountStore, sessionId: string) => new RunAccounts({ db, claudeDir, store: accounts }).accountFor(sessionId);
 
 /** 偽の claude が記録した引数を待って読む。最後の要素は HANGAR_RUN_ID の値である。 */
 const launchedArgs = async (runId: string) => {
@@ -1122,6 +1137,90 @@ describe('transcript の中の指示へ跳ぶ（tmux 不要）', () => {
   });
 });
 
+describe('画面の口を偽物に差し替える（tmux 不要）', () => {
+  /** 名前の集合だけを持つ偽の画面。tmux もプロセスも起こさない。 */
+  function fakePanes() {
+    const open = new Map<string, { cwd: string; command: string[]; env: Record<string, string> }>();
+    const calls: string[] = [];
+    const sent: string[][] = [];
+    /** transcript で、指示 a が見えている画面。 */
+    const TRANSCRIPT = '❯ a\n\n  Showing detailed transcript · ctrl+o to toggle';
+    let screen = '❯ \n';
+    const panes: PaneOps = {
+      open: (o) => {
+        if (open.has(o.name)) throw new Error(`duplicate: ${o.name}`);
+        open.set(o.name, { cwd: o.cwd, command: o.command, env: o.env ?? {} });
+        calls.push(`open ${o.name}`);
+      },
+      close: (name) => { open.delete(name); calls.push(`close ${name}`); },
+      list: () => [...open.keys()],
+      capture: () => screen,
+      sendText: (name, text) => { sent.push([name, 'text', text]); },
+      sendKey: (name, key) => { sent.push([name, 'key', key]); screen = TRANSCRIPT; },
+      prepareForOutsideTerminals: () => { calls.push('prepare'); },
+    };
+    return { panes, open, calls, sent };
+  }
+
+  it('起動、シェルタブ、見張り、停止が、口だけを通って動く', () => {
+    const f = fakePanes();
+    const rm = make({ panes: f.panes });
+    const r = rm.start({ projectId: 'p1' });
+    const pane = f.open.get(r.run.tmuxName)!;
+    expect(pane.cwd).toBe(cwd);
+    expect(pane.command).toContain(fake.bin);
+    // run の印は、OS によってコマンドか環境のどちらかで渡る（launch/command.ts）。
+    expect([...pane.command, ...Object.entries(pane.env).map(([k, v]) => `${k}=${v}`)]).toContain(`HANGAR_RUN_ID=${r.run.id}`);
+    // 外の端末のための設定は run の起動のときだけ確かめる。シェルタブでは確かめない。
+    const tab = rm.openTab(r.run.id);
+    expect(f.calls).toEqual([`open ${r.run.tmuxName}`, 'prepare', `open ${tab.tmuxName}`]);
+    expect(f.open.get(tab.tmuxName)!.cwd).toBe(cwd);
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+    // シェルタブが自分で終わったら、見張りがタブだけを閉じる。
+    f.open.delete(tab.tmuxName);
+    expect(rm.tick().closedTabs.map((t) => t.id)).toEqual([tab.id]);
+    expect(rm.kill(r.run.id).endReason).toBe('killed');
+    expect(f.open.size).toBe(0);
+    expect(f.calls.at(-1)).toBe(`close ${r.run.tmuxName}`);
+  });
+
+  it('画面が自分で消えたら、見張りが run を exited で閉じる', () => {
+    const f = fakePanes();
+    const rm = make({ panes: f.panes });
+    const r = rm.start({ projectId: 'p1' });
+    f.open.clear();
+    expect(rm.tick().ended.map((e) => [e.id, e.endReason])).toEqual([[r.run.id, 'exited']]);
+  });
+
+  it('画面を作れなかったら、run を閉じて 400 を投げる', () => {
+    const f = fakePanes();
+    const rm = make({ panes: { ...f.panes, open: () => { throw new Error('no room'); } } });
+    expect(() => rm.start({ projectId: 'p1' })).toThrow(expect.objectContaining({ status: 400, message: 'tmux の起動に失敗しました: no room' }));
+    expect(rm.listAlive().runs).toEqual([]);
+  });
+
+  it('観測できなかった見回りでは何も閉じない', () => {
+    const f = fakePanes();
+    const rm = make({ panes: f.panes });
+    const r = rm.start({ projectId: 'p1' });
+    rm.setPanes({ ...f.panes, list: () => null });
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+    expect(rm.getRun(r.run.id)!.endedAt).toBeNull();
+  });
+
+  it('transcript へ跳ぶときは、ctrl+o をキーとして、ほかを文字として送る', async () => {
+    const f = fakePanes();
+    const rm = make({ panes: f.panes });
+    const { runId } = seedRun();
+    // はじめは入力欄の画面。ctrl+o で transcript に切り替わる。
+    expect(await rm.jumpToPrompt(runId, ['a', 'b'], 0, 'bottom')).toEqual({ found: true });
+    expect(f.sent).toEqual([[`hangar-${runId}`, 'key', 'ctrl+o'], [`hangar-${runId}`, 'text', 'G'], [`hangar-${runId}`, 'text', '{'], [`hangar-${runId}`, 'text', '{']]);
+    f.sent.length = 0;
+    expect(await rm.leaveTranscript(runId)).toEqual({ left: true });
+    expect(f.sent).toEqual([[`hangar-${runId}`, 'text', 'q']]);
+  });
+});
+
 describe('addDirs の検査（tmux 不要）', () => {
   it('- で始まる値は 400 で弾き、行を作らない', () => {
     // --add-dir は可変長オプションなので、値がそのまま claude のフラグとして食われる。
@@ -1290,7 +1389,7 @@ describe('区切りを付けたセッションを止める（tmux 不要）', ()
     const rm = make({ tmux: fakeTmux({ status: 1, stderr: 'lost server\n' }) });
     expect(rm.park(sessionId)).toBe(true);
     expect(rm.getRun(runId)!.endedAt).toBeNull();
-    rm.setTmux(tmuxWithoutRun());
+    rm.setPanes(tmuxPaneOps(tmuxWithoutRun()));
     expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'parked']]);
   });
 
@@ -1301,7 +1400,7 @@ describe('区切りを付けたセッションを止める（tmux 不要）', ()
     expect(rm.park(sessionId)).toBe(true);
     expect(rm.getRun(runId)!.endedAt).toBeNull();
     expect(rm.tick().ended).toEqual([]);
-    rm.setTmux(tmuxWithoutRun());
+    rm.setPanes(tmuxPaneOps(tmuxWithoutRun()));
     expect(rm.tick().ended.map((r) => [r.id, r.endReason])).toEqual([[runId, 'exited']]);
   });
 
@@ -1422,12 +1521,12 @@ describe.skipIf(!TMUX)('アカウント', () => {
     // 本文の無い start は閉じるときにセッションの行ごと消えるので、先に本文があることにする。
     addTranscript(first.sessionId);
     m.kill(first.run.id);
-    expect(m.accountFor(first.sessionId)).toBe(a.id);
+    expect(accountFor(accounts, first.sessionId)).toBe(a.id);
     const again = m.resume(first.sessionId);
     expect(await envOf(again.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
     m.kill(again.run.id);
     accounts.remove(a.id);
-    expect(m.accountFor(first.sessionId)).toBe('primary');
+    expect(accountFor(accounts, first.sessionId)).toBe('primary');
   });
 
   it('ターミナルから：CLAUDE_CONFIG_DIR が無ければいまのアカウント、登録済みの置き場ならそのアカウント、未登録ならそのまま渡して記録しない', async () => {
@@ -1492,7 +1591,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(r.run.kind).toBe('resume');
     expect(await envOf(r.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
     expect(params(r.run.id).account).toBe(a.id);
-    expect(m.accountFor(first.sessionId)).toBe(a.id);
+    expect(accountFor(accounts, first.sessionId)).toBe(a.id);
   });
 
   it('ターミナルから新規：いまのアカウントのリンクが壊れていれば 400 で断り、セッションの行を作らない', () => {
@@ -1527,7 +1626,7 @@ describe.skipIf(!TMUX)('アカウント', () => {
     expect(next.run.id).not.toBe(first.run.id);
     expect(endReason(first.run.id)).toBe('killed');
     expect(await envOf(next.run.id)).toBe(`CLAUDE_CONFIG_DIR=${a.dir}\n`);
-    expect(m.accountFor(first.sessionId)).toBe(a.id);
+    expect(accountFor(accounts, first.sessionId)).toBe(a.id);
     const args = readArgs(fake.argsFile);
     expect(args[args.indexOf('-r') + 1]).toBe((db.prepare('select provider_session_id p from sessions where id = ?').get(first.sessionId) as { p: string }).p);
   });

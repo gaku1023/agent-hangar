@@ -354,6 +354,13 @@ describe('routes', () => {
     expect(Array.isArray(r.body.agents)).toBe(true);
     expect((await get('/api/sessions/ghost/live')).status).toBe(404);
   });
+  it('GET /api/sessions/:id/live は、渡された要約器を使う（裏の印と覚えを共有し、同じ要約を二度作らない）', async () => {
+    const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    const asked: string[] = [];
+    app = createApp({ ...deps, digester: { digest: (sid) => { asked.push(sid); return { sessionId: sid, turnStartSeq: 42, intent: null, agents: [] }; } } });
+    expect((await json(await get(`/api/sessions/${id}/live`))).body).toEqual({ sessionId: id, turnStartSeq: 42, intent: null, agents: [] });
+    expect(asked).toEqual([id]);
+  });
   it('検索', async () => {
     const { body } = await json(await get('/api/search?q=' + encodeURIComponent('チャンネル')));
     expect(body.total).toBe(1);
@@ -511,7 +518,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null, language: 'ja' });
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -566,7 +573,7 @@ describe('routes', () => {
     const { body } = await json(await get('/api/bootstrap'));
     expect(body.runs).toEqual([run]);
     expect(body.tabs).toHaveLength(2);
-    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null });
+    expect(body.settings).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null, language: 'ja' });
   });
   it('ターミナルからの起動は base64 の本文を読んで渡し、断ったら理由を返す', async () => {
     const post = (body: unknown) => app.request('/api/runs/terminal', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -1272,6 +1279,7 @@ describe('設定の往復', () => {
         ['syncClaudeConfig', true],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
+        ['language', 'en'],
       ];
       for (const [key, value] of cases) {
         const r = await patch({ [key]: value });
@@ -1286,6 +1294,26 @@ describe('設定の往復', () => {
       fs.rmSync(ws2, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
     }
+  });
+
+  it('言語の既定は日本語で、英語を保存して読める', async () => {
+    expect((await json(await get('/api/settings'))).body.language).toBe('ja');
+    expect((await json(await get('/api/bootstrap'))).body.settings.language).toBe('ja');
+    const r = await patch({ language: 'en' });
+    expect(r.status).toBe(200);
+    expect((await r.json()).language).toBe('en');
+    expect((await json(await get('/api/settings'))).body.language).toBe('en');
+    expect((await json(await get('/api/bootstrap'))).body.settings.language).toBe('en');
+    expect((await (await patch({ language: 'ja' })).json()).language).toBe('ja');
+  });
+  it('知らない言語は断り、保存した値を変えない', async () => {
+    await patch({ language: 'en' });
+    for (const v of ['fr', 'EN', '', null, 1, ['en']]) {
+      const r = await patch({ language: v });
+      expect([v, r.status]).toEqual([v, 400]);
+      expect((await r.json()).error).toBe('「言語」は ja か en から選んでください');
+    }
+    expect((await json(await get('/api/settings'))).body.language).toBe('en');
   });
 
   // 前後の空白に意味は無い。パス系の設定と同じ扱いにそろえる。

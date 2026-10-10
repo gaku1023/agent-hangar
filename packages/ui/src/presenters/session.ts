@@ -1,4 +1,5 @@
-import { ASIDE_WORD, asideOf, type LiveStatus, type RunKind, type SessionDto, type SessionSummaryDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
+import { ASIDE_WORD, asideOf } from '../lib/aside.ts';
+import { type LiveStatus, type RunKind, type SessionDto, type SessionSummaryDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, todosOf, type Store } from '../store/store.ts';
@@ -10,7 +11,6 @@ import { presentTool, relPath, type ToolView } from './tools.ts';
 import { bandsOf, presentLivePane, resultsOf, type LivePaneProps } from './live.ts';
 import { buildTurns } from './turns.ts';
 import type { JumpState, TurnJumpStatus } from '../mediator/types.ts';
-import { findIn, type TranscriptFind } from './find.ts';
 
 export type TranscriptItem =
   | { kind: 'user' | 'assistant' | 'thinking' | 'system'; seq: number; text: string; when: string }
@@ -39,7 +39,6 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
   turnRows: TurnRowProps[]; turnsComplete: boolean; turnsPending: boolean; openTurnItems: TranscriptItem[]; turnJump: { seq: number; status: TurnJumpStatus } | null;
   /** 本文の中の検索（⌘F）。閉じていれば null。 */
-  find: TranscriptFind | null;
   /** 検索の結果から開いたときの跳び先。 */
   jump: JumpState | null;
   /** 読んだ頁より新しい行がまだあるか（検索の結果から真ん中の頁だけを読んで開いたとき）。 */
@@ -293,7 +292,7 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
 export function presentSession(state: State, store: Store, now: number, id: string): SessionProps {
   const s = store.sessions[id];
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, aside: false, cwd: '', projectName: null, projectId: null, summary: null, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, account: null, livePaneSplit: view.livePaneSplit ?? state.livePaneSplit, gone: null, find: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, stoppedNote: null };
+  const base = { id, parent: null, live: null, aside: false, cwd: '', projectName: null, projectId: null, summary: null, model: '', effort: '', turns: 0, tokens: '0', prUrl: null, memo: null, started: '', lastActivity: '', hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, contextPercent: null, cost: '', artifacts: [], summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, liveLabel: null, filesChanged: 0, turnRows: [], turnsComplete: true, turnsPending: false, openTurnItems: [], turnJump: null, livePane: null, account: null, livePaneSplit: view.livePaneSplit ?? state.livePaneSplit, gone: null, jump: null, hasNewer: false, actions: { primary: OPEN_EDITOR, menu: [] }, changedFiles: [], changedMore: 0, changedNote: null, todos: [], transcriptBand: null, stoppedNote: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -369,8 +368,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     started: relativeTime(s.startedAt, now), lastActivity: relativeTime(s.lastActivityAt, now), hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length && !slice.olderDone : false, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
     turnRows, turnsComplete: complete, turnsPending: s.hasTranscript && (!slice || (slice.loading && slice.items.length === 0)), openTurnItems, turnJump: view.turnJump, livePane, livePaneSplit: view.livePaneSplit ?? state.livePaneSplit,
-    // 検索は描く行（思考と生の記録の切り替えを通した後）の中で数える。
-    find: view.find ? { ...view.find, ...findIn(items, view.find) } : null, jump: view.jump,
+    jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(run.startedAt, now) } : null,
     tabs, selectedTab, trustHint: alive && s.live === null,
     // 他端末が動かしている間は再開もフォークもさせない。手元に写ししか無いセッションも同じである。

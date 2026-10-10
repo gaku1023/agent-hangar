@@ -2,10 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { newId, runTmuxId, type EndReason, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto } from '@agent-hangar/shared';
-import { PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
-import { ensureAccountLinks, linkProblem } from '../config/accountLinks.ts';
+import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
-import { accountOfSession } from '../db/queries.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
@@ -20,7 +18,8 @@ import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
 import { hasTranscriptFile } from '../provider/claude-code/discover.ts';
 import { claudeCodeProvider } from '../provider/claude-code/index.ts';
 import type { LaunchInput, LiveSession } from '../provider/types.ts';
-import type { Tmux } from '../tmux/tmux.ts';
+import type { PaneOps } from '../tmux/pane.ts';
+import { RunAccounts, switchAccount } from './accounts.ts';
 import { RunError } from './errors.ts';
 import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
 import { realProcOpsWith, sameStartTime, type ProcOps } from './procs.ts';
@@ -58,8 +57,10 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
 /**
  * live は Claude のレジストリの今の中身である。引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引くのに使う。
  * procs は外のプロセスに触る口で、テストでは差し替える。
+ * panes は run とシェルタブの画面に触る口（tmux/pane.ts）。無ければ起動を断り、見張りは何も閉じない。
+ * accounts はアカウントの解決（runs/accounts.ts）。渡さなければ、アカウントを使わない構成として動く。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; tmux: Tmux | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: AccountStore; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; name: string | null; cwd: string };
@@ -85,7 +86,11 @@ export class RunManager {
   /** 画面の目印が続けて見つからなかった回数。run をまたいで数える（形式が変われば、どの run でも見つからない）。 */
   private readonly screenMisses = new ScreenMissGate();
 
-  constructor(private readonly deps: RunManagerDeps) {}
+  private readonly accounts: RunAccounts;
+
+  constructor(private readonly deps: RunManagerDeps) {
+    this.accounts = deps.accounts ?? new RunAccounts({ db: deps.db, claudeDir: deps.claudeDir });
+  }
 
   on(l: RunListener): () => void {
     this.listeners.add(l);
@@ -97,8 +102,8 @@ export class RunManager {
   }
 
   /** Settings で tmuxPath が変わったときに差し替える。生きている run はそのまま観測を続ける。 */
-  setTmux(tmux: Tmux | null): void {
-    this.deps.tmux = tmux;
+  setPanes(panes: PaneOps | null): void {
+    this.deps.panes = panes;
   }
 
   /** Settings で claudePath が変わったときに差し替える。これから起こす run が新しい場所を使う。 */
@@ -128,9 +133,9 @@ export class RunManager {
     return this.deps.db;
   }
 
-  private tmux(): Tmux {
-    if (!this.deps.tmux) throw new RunError(400, 'tmux が見つかりません。設定の「tmux のパス」を入れてください');
-    return this.deps.tmux;
+  private panes(): PaneOps {
+    if (!this.deps.panes) throw new RunError(400, 'tmux が見つかりません。設定の「tmux のパス」を入れてください');
+    return this.deps.panes;
   }
 
   /**
@@ -159,41 +164,11 @@ export class RunManager {
     return `http://127.0.0.1:${this.deps.port}/mcp/s/${sessionId}`;
   }
 
-  /**
-   * 起動に使うアカウントを解く。id が無ければいまのアカウントで、accounts を持たない RunManager は null を返す。
-   * 知らない id は 400 で断る。黙って別のアカウントで起こすと、利用者が選んだものと違う枠を使うためである。
-   */
-  private account(id: string | undefined): Account | null {
-    const store = this.deps.accounts;
-    if (!store) return null;
-    if (id === undefined) return store.current();
-    const a = store.get(id);
-    if (!a) throw new RunError(400, 'アカウントが見つかりません');
-    return a;
-  }
-
-  /** そのセッションを最後に動かしたアカウント。記録が無い、またはアカウントが消えていれば最初のアカウント。 */
-  accountFor(sessionId: string): string {
-    const id = accountOfSession(this.db, sessionId);
-    return id && this.deps.accounts?.get(id) ? id : PRIMARY_ACCOUNT_ID;
-  }
-
-  /**
-   * アカウントの置き場で起こすための環境変数。最初のアカウントは何も足さない。
-   * 起動の前にリンクを確かめる。リンクの場所に別のものがあれば、起こさずに伝える。
-   */
-  private accountEnvFor(a: Account | null): Record<string, string> {
-    if (!a || a.id === PRIMARY_ACCOUNT_ID) return {};
-    const problem = linkProblem(ensureAccountLinks(this.deps.claudeDir, a.dir).conflicts);
-    if (problem) throw new RunError(400, problem);
-    return { CLAUDE_CONFIG_DIR: a.dir };
-  }
-
   /** 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。 */
-  private precheck(cwd: string): Tmux {
+  private precheck(cwd: string): PaneOps {
     if (!isDirectory(cwd)) throw new RunError(400, `ディレクトリが見つかりません: ${cwd}`);
     this.claudeBin();
-    return this.tmux();
+    return this.panes();
   }
 
   /** 注入する指示。プロジェクトが無ければ「未分類」として cwd だけを書く。 */
@@ -238,12 +213,12 @@ export class RunManager {
    * claude の argv は provider が組み立てたものをそのまま受け取る。
    */
   private launch(o: { sessionId: string; cwd: string; kind: RunKind; command: string[]; params: LaunchParams; env?: Record<string, string>; account?: Account | null }): LaunchResult {
-    const tmux = this.precheck(o.cwd);
+    const panes = this.precheck(o.cwd);
     // 利用者が自分で付けた CLAUDE_CONFIG_DIR（o.env）は、アカウントの置き場で上書きしない。
     // その置き場が登録済みならそのアカウントとして、未登録なら何も記録しない。呼び手が別のアカウントを渡していても、実際に動く置き場に合わせる。
     const own = o.env?.CLAUDE_CONFIG_DIR;
-    const account = own ? this.deps.accounts?.byDir(own) ?? null : o.account ?? null;
-    const env = { ...this.accountEnvFor(own ? null : account), ...o.env };
+    const account = own ? this.accounts.byDir(own) : o.account ?? null;
+    const env = { ...this.accounts.envFor(own ? null : account), ...o.env };
     const params: LaunchParams = account ? { ...o.params, account: account.id } : o.params;
     const runId = newId();
     const tmuxName = `hangar-${runTmuxId(runId)}`;
@@ -257,10 +232,9 @@ export class RunManager {
     const now = this.now();
     upsertShared(this.db, 'runs', { id: runId, session_id: o.sessionId, device_id: this.deps.deviceId, kind: o.kind, tmux_name: tmuxName, pid: null, launch_params: JSON.stringify(params), started_at: now, ended_at: null, end_reason: null, heartbeat_at: now }, this.deps.deviceId);
     try {
-      tmux.newSession({ name: tmuxName, cwd: o.cwd, command: wrapped.command, env: withUtf8Locale({ ...env, ...wrapped.env }) });
-      tmux.setOption(tmuxName, 'status', 'off');
+      panes.open({ name: tmuxName, cwd: o.cwd, command: wrapped.command, env: withUtf8Locale({ ...env, ...wrapped.env }) });
       // ターミナルからこの run につなぐ人のための設定。サーバ全体の設定なので、サーバが起き直した後にも効くよう起動のたびに確かめる。
-      tmux.ensureTerminalOptions();
+      panes.prepareForOutsideTerminals();
     } catch (e) {
       this.end(runId, 'exited');
       throw new RunError(400, `tmux の起動に失敗しました: ${this.safeError(e)}`);
@@ -323,12 +297,12 @@ export class RunManager {
   start(params: LaunchParams): LaunchResult {
     this.addDirs(params);
     // 行を作る前に、アカウントとリンクを確かめる。知らないアカウントや壊れたリンクで、本文の無いセッションが残らないようにする。
-    const account = this.account(params.account);
-    this.accountEnvFor(account);
+    const account = this.accounts.resolve(params.account);
+    this.accounts.envFor(account);
     // スクラッチは擬似プロジェクトの行と使い捨てのディレクトリを作ってしまうので、
     // 後の precheck を待たずに、ここで tmux と claude の有無だけ先に確かめる。
     // これが無いと、どちらも無い端末で起動を試すたびに空のディレクトリが溜まる。
-    if (params.scratch) { this.tmux(); this.claudeBin(); }
+    if (params.scratch) { this.panes(); this.claudeBin(); }
     // スクラッチは使い捨てのディレクトリを作り、擬似プロジェクトに属させる。
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
@@ -369,13 +343,13 @@ export class RunManager {
     return s;
   }
 
-  private hasBody(s: SessionRow): boolean {
-    return !!this.db.prepare('select 1 from transcript_files where session_id = ? and agent_id is null limit 1').get(s.id);
+  private hasBody(sessionId: string): boolean {
+    return !!this.db.prepare('select 1 from transcript_files where session_id = ? and agent_id is null limit 1').get(sessionId);
   }
 
   /** 再開できる状態かを確かめる。本文の有無、hangar の run、hangar の外で動いている Claude は、どれも別の原因である。 */
   private assertResumable(s: SessionRow): void {
-    if (!this.hasBody(s)) throw new RunError(400, 'このセッションには本文がありません');
+    if (!this.hasBody(s.id)) throw new RunError(400, 'このセッションには本文がありません');
     if (aliveRunForSession(this.db, s.id)) throw new RunError(409, 'このセッションは実行中です');
     if (this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
   }
@@ -388,7 +362,7 @@ export class RunManager {
   resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string>; account?: string } = {}): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
-    const account = this.account(extra.account ?? (this.deps.accounts ? this.accountFor(s.id) : undefined));
+    const account = extra.account !== undefined ? this.accounts.resolve(extra.account) : this.accounts.lastUsed(s.id);
     const bin = this.claudeBin();
     const job = this.procs().listJobs(bin)?.find((j) => j.sessionId === s.provider_session_id) ?? null;
     if (job) return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
@@ -410,7 +384,7 @@ export class RunManager {
     // 空文字は付けていないのと同じに扱う。渡すと、いまのアカウントの置き場を空文字で上書きして既定の置き場で動いてしまう。
     if (env.CLAUDE_CONFIG_DIR === '') delete env.CLAUDE_CONFIG_DIR;
     // 利用者が自分で置き場を付けたら、それを優先する。登録済みの置き場ならそのアカウントとして記録し、未登録なら記録しない。
-    const account = env.CLAUDE_CONFIG_DIR ? this.deps.accounts?.byDir(env.CLAUDE_CONFIG_DIR) ?? null : this.account(undefined);
+    const account = env.CLAUDE_CONFIG_DIR ? this.accounts.byDir(env.CLAUDE_CONFIG_DIR) : this.accounts.resolve(undefined);
     if (resume) {
       const id = findSession(this.db, resume);
       if (!id) throw new RunError(404, 'この会話は hangar に載っていません');
@@ -423,7 +397,7 @@ export class RunManager {
     }
     this.precheck(req.cwd);
     // リンクの確かめは行を作る前に済ませる。利用者が自分で置き場を付けたときは、アカウントの置き場を使わないので確かめない。
-    if (!env.CLAUDE_CONFIG_DIR) this.accountEnvFor(account);
+    if (!env.CLAUDE_CONFIG_DIR) this.accounts.envFor(account);
     const sessionUuid = crypto.randomUUID();
     const sessionId = ensureSession(this.db, sessionUuid, req.cwd, this.deps.deviceId);
     const projectId = assignSession(this.db, this.deps.deviceId, sessionId);
@@ -439,9 +413,9 @@ export class RunManager {
   fork(sessionId: string): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
-    const account = this.account(this.deps.accounts ? this.accountFor(s.id) : undefined);
+    const account = this.accounts.lastUsed(s.id);
     // リンクの確かめも行を作る前に済ませる。壊れていると、本文の無い行が残る。
-    this.accountEnvFor(account);
+    this.accounts.envFor(account);
     // 新しい行を作る前に起動できるかを確かめる。失敗しても本文の無いセッションが残らないようにするため。
     this.precheck(s.cwd);
     const newUuid = crypto.randomUUID();
@@ -453,33 +427,19 @@ export class RunManager {
     return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined }, account });
   }
 
-  /**
-   * 開いているセッションを、別のアカウントで再開し直す。
-   * 動いていれば止め、Claude のレジストリから消えるのを待ってから、同じ会話を選んだアカウントの置き場で起こす。
-   * 本文は置き場の間で共有なので写さない。
-   * 断る理由（知らないアカウント、壊れたリンク、同じアカウント、本文が無い、起動できない、外で動いている）は、止める前に確かめる。止めてから断ると、利用者の作業だけが失われる。
-   */
-  async switchAccount(sessionId: string, accountId: string): Promise<LaunchResult> {
-    const s = this.session(sessionId);
-    const account = this.account(accountId);
-    if (!account) throw new RunError(400, 'アカウントが見つかりません');
-    if (this.accountFor(s.id) === account.id) throw new RunError(409, 'このセッションはもうそのアカウントで動いています');
-    this.accountEnvFor(account);
-    // resume の前提も止める前に確かめる。本文が無いと、止めた時点でセッションの行ごと消え、起こし直せない。
-    if (!this.hasBody(s)) throw new RunError(400, 'このセッションにはまだ本文がありません。そのアカウントで新しいセッションを始めてください');
-    this.precheck(s.cwd);
-    // バックグラウンドのサービスは置き場ごとに別で、jobs と sessions は共有のリンクになる。この組み合わせの動きは実物で確かめていないので、確かめが済むまで断る。
-    if (this.liveOf(s.provider_session_id)?.background) throw new RunError(409, 'バックグラウンドのセッションは、アカウントを切り替えられません。止めてから、そのアカウントで再開してください');
-    const alive = aliveRunForSession(this.db, s.id);
-    // hangar の run が無いのにレジストリに残っているのは、hangar の外で動いている Claude である。止められないので待たずに断る。
-    if (!alive && this.deps.isLive?.(s.provider_session_id)) throw new RunError(409, 'このセッションは hangar の外で実行中です');
-    if (alive) this.kill(alive.id);
-    const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-    for (let waited = 0; this.deps.isLive?.(s.provider_session_id); waited += 250) {
-      if (waited >= 5000) throw new RunError(409, '前の Claude がまだ終わっていません。少し待ってから、もう一度切り替えてください');
-      await sleep(250);
-    }
-    return this.resume(s.id, { account: account.id });
+  /** 開いているセッションを、別のアカウントで再開し直す。手順と断る理由は runs/accounts.ts にある。ここは run の寿命の側の手を渡すだけである。 */
+  switchAccount(sessionId: string, accountId: string): Promise<LaunchResult> {
+    return switchAccount(this.accounts, {
+      session: (id) => this.session(id),
+      hasBody: (id) => this.hasBody(id),
+      precheck: (cwd) => { this.precheck(cwd); },
+      isBackground: (providerSessionId) => !!this.liveOf(providerSessionId)?.background,
+      isLive: (providerSessionId) => !!this.deps.isLive?.(providerSessionId),
+      aliveRun: (id) => aliveRunForSession(this.db, id),
+      kill: (runId) => { this.kill(runId); },
+      resume: (id, extra) => this.resume(id, extra),
+      sleep: this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
+    }, sessionId, accountId);
   }
 
   /** レジストリのうち、Claude の UUID が一致する項目。 */
@@ -504,7 +464,7 @@ export class RunManager {
     const l = this.liveOf(s.provider_session_id);
     if (!l?.background) throw new RunError(409, 'このセッションはバックグラウンドで動いていません');
     const command = [this.claudeBin(), 'attach', l.background.jobId];
-    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined }, account: this.account(this.deps.accounts ? this.accountFor(s.id) : undefined) });
+    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command, params: { projectId: s.project_id ?? undefined }, account: this.accounts.lastUsed(s.id) });
   }
 
   /**
@@ -566,7 +526,7 @@ export class RunManager {
     // tmux が無いのも、tmux を呼べなかったのも「観測できない」であって「動いていない」ではない。
     // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間や、
     // tmux のバイナリが一瞬消えた隙に、実際には動いている run が全部 exited になって二度と戻らない。
-    const listed = this.deps.tmux?.listSessions() ?? null;
+    const listed = this.deps.panes?.list() ?? null;
     if (listed === null) return { ended: [], closedTabs: [] };
     const names = new Set(listed);
     const ended: RunDto[] = [];
@@ -603,7 +563,7 @@ export class RunManager {
    * tmux を呼べなかったときは観測できていないので、何も閉じない。
    */
   recoverAtStartup(): RunDto[] {
-    const listed = this.deps.tmux ? this.deps.tmux.listSessions() : [];
+    const listed = this.deps.panes ? this.deps.panes.list() : [];
     if (listed === null) return [];
     const names = new Set(listed);
     const out: RunDto[] = [];
@@ -659,7 +619,7 @@ export class RunManager {
     if (run.endedAt !== null) throw new RunError(409, 'この Claude はもう終了しています');
     for (const t of listTabs(this.db, runId)) if (t.kind === 'shell') this.closeTab(t.id);
     this.stopBackground(run.sessionId);
-    this.deps.tmux?.killSession(run.tmuxName);
+    this.deps.panes?.close(run.tmuxName);
     return this.end(runId, 'killed') ?? run;
   }
 
@@ -672,14 +632,14 @@ export class RunManager {
   park(sessionId: string): boolean {
     const run = listAliveRuns(this.db, this.deviceId).filter((r) => r.sessionId === sessionId).at(-1) ?? null;
     const background = this.stopBackground(sessionId);
-    const tmux = this.deps.tmux;
+    const panes = this.deps.panes;
     // tmux が無ければ run には触らない。止められていないのに run を閉じると、動いている claude を hangar が見失う。
-    if (!run || !tmux) return background;
-    tmux.killSession(run.tmuxName);
+    if (!run || !panes) return background;
+    panes.close(run.tmuxName);
     this.parking.add(run.id);
     // 落とせたことを一覧で確かめてから閉じる。確かめられなければ、次の見回り（tick）に任せる。
     // すぐ閉じるのは、claude が登録から消えてから見回りが来るまでの間、画面に「起動しています」と出さないためである。
-    const listed = tmux.listSessions();
+    const listed = panes.list();
     if (listed !== null && !listed.includes(run.tmuxName)) this.end(run.id, 'parked');
     return true;
   }
@@ -740,15 +700,14 @@ export class RunManager {
     const run = getRun(this.db, runId);
     if (!run) throw new RunError(404, '起動した Claude が見つかりません');
     const s = this.session(run.sessionId);
-    const tmux = this.precheck(s.cwd);
+    const panes = this.precheck(s.cwd);
     // 番号は閉じた行も数えて振る。閉じたタブの番号は再利用しない。
     const n = (this.db.prepare('select count(*) c from run_tabs where run_id = ?').get(runId) as { c: number }).c + 1;
     const tmuxName = `${run.tmuxName}-t${n}`;
     // タブも tmux サーバの全体の環境を継ぐ。別のセッションの印を持ったシェルで claude を打たせない。
     const command = shellTabCommand({ shell: this.deps.shell, unset: RUN_DROPPED_ENV });
     try {
-      tmux.newSession({ name: tmuxName, cwd: s.cwd, command, env: withUtf8Locale() });
-      tmux.setOption(tmuxName, 'status', 'off');
+      panes.open({ name: tmuxName, cwd: s.cwd, command, env: withUtf8Locale() });
     } catch (e) {
       throw new RunError(400, `シェルの起動に失敗しました: ${this.safeError(e)}`);
     }
@@ -764,7 +723,7 @@ export class RunManager {
     const t = getTab(this.db, tabId);
     if (!t) throw new RunError(404, 'タブが見つかりません');
     if (t.kind === 'agent') throw new RunError(400, 'Claude のタブは閉じられません。停止を使ってください');
-    this.deps.tmux?.killSession(t.tmuxName);
+    this.deps.panes?.close(t.tmuxName);
     return this.closeTabRow(tabId) ?? t;
   }
 
@@ -803,11 +762,11 @@ export class RunManager {
     const run = this.getRun(runId);
     if (!run) throw new RunError(404, '起動した Claude が見つかりません');
     if (run.endedAt !== null) throw new RunError(409, 'この Claude はもう終了しています');
-    const tmux = this.tmux();
+    const panes = this.panes();
     return {
-      capture: () => tmux.capturePane(run.tmuxName),
-      // ctrl+o だけはキーの名前で送り、ほかは -l で 1 文字として送る。{ や q を tmux のキー名として読ませない。
-      send: (key) => (key === 'C-o' ? tmux.sendKeys(run.tmuxName, 'C-o') : tmux.sendKeys(run.tmuxName, '-l', key)),
+      capture: () => panes.capture(run.tmuxName),
+      // ctrl+o だけはキーの名前で送り、ほかは 1 文字として送る。{ や q をキーの名前として読ませない。
+      send: (key) => (key === 'C-o' ? panes.sendKey(run.tmuxName, 'ctrl+o') : panes.sendText(run.tmuxName, key)),
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     };
   }
