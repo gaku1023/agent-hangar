@@ -15,8 +15,10 @@ concurrency:
 # 自動更新（段 5-4）の署名鍵（minisign）が secret にあるか。
 # あれば macos と windows のジョブが更新物とその署名（.sig）も作り、updater-manifest ジョブが目録（latest.json）を Release に添える。
 # 無ければ更新物と目録だけを飛ばし、Release そのものは今までどおり作る（失敗にしない）。
+# macOS の署名（段 5-2）の証明書が secret にあるか。あれば、作り直した更新物の .app が証明書で署名されていることまで確かめる。
 env:
   HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+  HAS_MACOS_SIGN: ${{ secrets.HANGAR_SIGN_P12_BASE64 != '' }}
 jobs:
   macos:
     runs-on: macos-latest
@@ -75,8 +77,34 @@ jobs:
           fi
           npm run tauri -- build --target ${{ matrix.target }} "$@"
         working-directory: apps/desktop
-      # 署名も公証もしない。
-      # ditto で作った zip は Finder の展開でも .app の属性が保たれる。
+      # 自作の証明書で署名し、識別子と DR を固定する（docs/signing.md）。
+      # dmg と zip の両方に署名済みの .app が入るように、tauri build と dmg のあいだに置く。
+      # secret が無いとき（fork や、まだ入れていないとき）は、警告を出して未署名のまま続ける。
+      # secret があれば、署名に入った証明書の指紋が signing/certificate-sha1.txt と違うときに止まる。
+      # 一時のキーチェーンは台本が終わりに消す。公証はしない。
+      - name: 署名する
+        env:
+          HANGAR_SIGN_P12_BASE64: ${{ secrets.HANGAR_SIGN_P12_BASE64 }}
+          HANGAR_SIGN_P12_PASSWORD: ${{ secrets.HANGAR_SIGN_P12_PASSWORD }}
+        run: bash apps/desktop/scripts/ci-sign-macos.sh apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app
+      # tauri build の中で作られた更新物（Hangar.app.tar.gz と .sig）は、署名の前の .app から詰められている。
+      # そのままでは、更新で配られる .app が未署名になり、更新のたびに許可が外れる。
+      # 署名済みの .app から同じ名前と場所に詰め直し、.sig も付け直す（後の「更新物と署名に名前を付ける」がそれを拾う）。
+      - name: 更新物を署名済みの .app から作り直す
+        if: env.HAS_UPDATER_KEY == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bash apps/desktop/scripts/repack-updater-macos.sh pack apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app
+      # 作り直した tar.gz を展開し、識別子と DR が署名済みの .app と同じで、verify が通ることを確かめる。
+      # 証明書の secret があれば、識別子が dev.agent-hangar.hangar で、DR が certificate-sha1.txt の指紋で縛られていることも確かめる。
+      - name: 更新物の .app の署名を確かめる
+        if: env.HAS_UPDATER_KEY == 'true'
+        run: |
+          set -- apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app
+          if [ "$HAS_MACOS_SIGN" = true ]; then set -- "$@" --expect-signed; fi
+          bash apps/desktop/scripts/repack-updater-macos.sh verify "$@"
+      # ditto で作った zip は Finder の展開でも .app の属性（署名を含む）が保たれる。
       # 配布物は dmg が主、zip が従（自動更新と予備）。
       # dmg は tauri の dmg ターゲットでは作らず、ここで出来上がった .app から作る（理由は make-dmg.sh の頭）。
       - name: dmg と zip と checksum

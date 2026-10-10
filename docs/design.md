@@ -3899,7 +3899,7 @@ heartbeat は 30 秒ごとの push で更新する。
 
 リポジトリは public で、MIT ライセンスで公開している（`LICENSE`、著作権者は `gaku1023`）。
 GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` と Windows 用の NSIS のインストーラをビルドして Releases に置く。
-`.app` は Developer ID では署名せず、自作の証明書で署名する方針である（署名の台本と手順は `docs/signing.md`。CI の署名はまだ入れていない）。dmg（主）と zip（予備）に SHA-256 の checksum を添える。
+`.app` は Developer ID では署名せず、自作の証明書で署名する（署名の台本と手順は `docs/signing.md`）。dmg（主）と zip（予備）に SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
@@ -4148,7 +4148,14 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   `apps/desktop/scripts/sign-macos.ts` が、内側の Mach-O から外側へ署名し（ハードンドランタイムなし、`--deep` に頼らない）、識別子、DR、`codesign --verify --deep --strict` を確かめて、違えば落とす。
   証明書が無い開発者の手元では `--adhoc` で識別子だけ固定できる（DR は build ごとに変わるので、ローカルネットワーク以外の許可は保たれない見込み）。
   証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は 1Password と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
-  本番の証明書はまだ無く、指紋の置き場は空である。CI の署名は PR 5-2 で入れる。
+  本番の証明書は作って CI の secret に入れてあり、指紋と公開の証明書は `apps/desktop/signing/` に置いてある。
+  CI の署名（段 5 の 5-2）：`release.yml` の macOS のジョブが、tauri build のあとに `apps/desktop/scripts/ci-sign-macos.sh` で署名する。
+  台本は secret（`HANGAR_SIGN_P12_BASE64` と `HANGAR_SIGN_P12_PASSWORD`）の p12 を使い捨てのキーチェーンに入れ、`sign-macos.ts` で署名し、終わりにキーチェーンを消す。
+  p12 の証明書と、署名に入った証明書の指紋を、署名の前と後で `certificate-sha1.txt` と比べ、違えば止まる。
+  secret が 2 つとも無いとき（fork や、まだ入れていないとき）は、警告を出して未署名のまま続ける。
+  macOS 26 のランナーでは自作の証明書が信頼されていないと codesign が身元を見つけないので、使い捨てのランナーの中でだけ `prepare-signing-keychain.sh` で信頼と検索リストを整え、終わりに外す。
+  この台本の回帰は、ci の desktop ジョブの試験（`apps/desktop/test/ci-sign-macos.test.ts`）が、その場で作った試しの証明書で拾う。
+  自動更新の更新物（`Hangar.app.tar.gz` と `.sig`）は tauri build の中で署名の前の .app から詰められるので、署名の段の後で `repack-updater-macos.sh` が署名済みの .app から詰め直して `.sig` も付け直し、展開した .app の識別子と DR が保たれていることを確かめる。dmg と zip も署名済みの .app から作る。
 - Gatekeeper：公証はせず、dmg（主）と zip（予備）に SHA-256 の checksum を添えて配る（2026-09-20 の決定、dmg は段 5 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る見込みである。以下は署名しない build の記述で、署名した build でも警告の出方は変わらない前提で読む。
   Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
   署名しないという決めのもとでは、これが既定の姿である。
