@@ -400,7 +400,7 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
 ## Windows で動かす（開発中）
 
 対象は Windows 11（x64）だけです。
-タグを打つと、macOS の zip と同じ Release に Windows のインストーラも添えます。
+タグを打つと、macOS の dmg や zip と同じ Release に Windows のインストーラも添えます。
 最初のタグはまだ打っていないので、それまでは下の「ソースから動かす」か「インストーラを作る」の手順で使ってください。
 
 Windows では、ターミナルで打った `claude` を hangar に載せる包み（macOS の `hangar shell install`）を作りません。
