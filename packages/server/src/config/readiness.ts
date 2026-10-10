@@ -58,6 +58,22 @@ export function recheckMuxPath(tmuxPath: string | null, findMux: () => string | 
   return found !== null && found !== tmuxPath ? found : null;
 }
 
+/**
+ * 道具のパスが使えない理由を、文の鍵と引数で返す。使えれば null。
+ * 設定の保存（PATCH /api/settings）と、起動の前の確かめ（RunManager の precheck）が同じ判定を使う。
+ * 名前だけ（tmux など）は PATH に無いこと、パスは無い、ファイルでない、実行できないのどれかを言う。
+ * 文の「{label}」は呼び手が欄の見出しで埋める。
+ */
+export type ToolPathIssue =
+  | { key: 'settings.path.notOnPath'; name: string }
+  | { key: 'settings.path.missing' | 'settings.path.notFile' | 'settings.path.notExecutable'; path: string };
+export function toolPathIssue(raw: string, homeDir: string = os.homedir(), pathEnv: string | undefined = process.env.PATH): ToolPathIssue | null {
+  const t = checkToolPath(raw, homeDir, pathEnv);
+  if (t.ok) return null;
+  if (t.problem === 'notFile' || t.problem === 'notExecutable') return { key: t.problem === 'notFile' ? 'settings.path.notFile' : 'settings.path.notExecutable', path: String(t.path) };
+  return isCommandName(raw.trim()) ? { key: 'settings.path.notOnPath', name: raw.trim() } : { key: 'settings.path.missing', path: String(t.path ?? raw) };
+}
+
 /** 出力の中の最初の版らしい語。`tmux 3.4`、`2.3.1 (Claude Code)`、`v22.9.0`、`tmux next-3.5a` を読む。 */
 function versionOf(out: string): string | null {
   return out.match(/v?\d+(?:\.\d+)+[a-z]?/)?.[0] ?? null;

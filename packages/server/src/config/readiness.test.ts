@@ -9,7 +9,7 @@ import { isWindows } from '../../test/platform.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { STATUSLINE_MARKER } from '../provider/claude-code/config/statusline.ts';
 import type { Settings } from './paths.ts';
-import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, recheckMuxPath, ToolVersions } from './readiness.ts';
+import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, recheckMuxPath, toolPathIssue, ToolVersions } from './readiness.ts';
 
 // 実物の ~/.claude と ~/.claude.json には触らない。どれも一時ディレクトリに作る。
 let tmp: string;
@@ -106,6 +106,22 @@ describe('recheckMuxPath', () => {
   it('利用者が指したが実行できないファイルとディレクトリは変えない（設定の欄で直す）', () => {
     expect(recheckMuxPath(tmp, found, tmp, '')).toBeNull();
     if (!isWindows) expect(recheckMuxPath(fakeTool('plain', 'x', 0o644), found, tmp, '')).toBeNull();
+  });
+});
+
+// 設定の保存と起動の前の確かめが同じ判定を使う。
+describe('toolPathIssue', () => {
+  it('使えれば null、使えなければ理由の鍵とパスか名前を返す', () => {
+    const ok = fakeTool('tmux', 'tmux 3.4');
+    expect(toolPathIssue(ok, tmp, '')).toBeNull();
+    expect(toolPathIssue('tmux', tmp, path.dirname(ok))).toBeNull();
+    expect(toolPathIssue(path.join(tmp, 'gone'), tmp, '')).toEqual({ key: 'settings.path.missing', path: path.join(tmp, 'gone') });
+    expect(toolPathIssue(tmp, tmp, '')).toEqual({ key: 'settings.path.notFile', path: tmp });
+    expect(toolPathIssue('no-such-tool', tmp, '')).toEqual({ key: 'settings.path.notOnPath', name: 'no-such-tool' });
+    if (!isWindows) {
+      const plain = fakeTool('plain', 'x', 0o644);
+      expect(toolPathIssue(plain, tmp, '')).toEqual({ key: 'settings.path.notExecutable', path: plain });
+    }
   });
 });
 

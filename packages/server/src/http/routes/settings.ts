@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Hono } from 'hono';
 import { isLanguage, languageOf, LANGUAGES, terminalAppsFor, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
-import { checkToolPath, expandHome, isCommandName } from '../../config/readiness.ts';
+import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../../projects/registry.ts';
 import { translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
@@ -85,10 +85,10 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       const raw = v.trim();
       const name = isCommandName(raw);
       if (!name && !path.isAbsolute(expandHome(raw))) return c.json({ error: tr('settings.path.badForm', { label: label(key) }) }, 400);
+      // 判定は起動の前の確かめ（RunManager の precheck）と同じ toolPathIssue を使う。
+      const issue = toolPathIssue(raw);
+      if (issue) return c.json({ error: issue.key === 'settings.path.notOnPath' ? tr(issue.key, { label: label(key), name: issue.name }) : tr(issue.key, { label: label(key), path: issue.path }) }, 400);
       const t = checkToolPath(raw);
-      if (t.problem === 'missing') return c.json({ error: name ? tr('settings.path.notOnPath', { label: label(key), name: raw }) : tr('settings.path.missing', { label: label(key), path: String(t.path) }) }, 400);
-      if (t.problem === 'notFile') return c.json({ error: tr('settings.path.notFile', { label: label(key), path: String(t.path) }) }, 400);
-      if (t.problem === 'notExecutable') return c.json({ error: tr('settings.path.notExecutable', { label: label(key), path: String(t.path) }) }, 400);
       // パスは ~ を直した値で保存する（起動するときに ~ は直されない）。名前は打たれたまま残す。
       patch[key] = name ? raw : t.path;
     }
