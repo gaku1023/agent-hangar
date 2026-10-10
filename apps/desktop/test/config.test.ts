@@ -157,6 +157,19 @@ describe('Windows のインストーラの action', () => {
     // 止めるのはアンインストールの前でなければならない（動いている殻の exe は消せない）。
     expect(action.indexOf('Stop-Process -Id $app.Id')).toBeLessThan(action.indexOf("'uninstall.exe') -ArgumentList"));
   });
+  // 殻は Node を公式の入れ先から PATH より先に探すので、放っておくとランナーに初めから入っている Node を使う。
+  // その版が 22.20 より古いと、verbatim のパスで落ちる回帰をこの段では捕まえられない。
+  // 一時のホームの settings.json の nodePath で setup-node の Node を指し、殻が使った版を確かめる。
+  it('殻には一時のホームで setup-node の Node を使わせ、その版が 22.20 以上であることを確かめる', () => {
+    expect(action).toContain('$env:HANGAR_HOME = $tmpHome');
+    expect(action).toMatch(/nodePath = \$node/);
+    expect(action).toContain("[version]'22.20.0'");
+    // 確かめるのは殻が実際に使った Node で、desktop.log の起動の行から読む。
+    expect(action).toContain(String.raw`'\[desktop\] node (.+) server '`);
+    // 一時のホームは殻を起こす前に作り、起こしたあとは元に戻す。
+    expect(action.indexOf('$env:HANGAR_HOME = $tmpHome')).toBeLessThan(action.indexOf('$app = Start-Process'));
+    expect(action.indexOf('Remove-Item Env:HANGAR_HOME')).toBeGreaterThan(action.indexOf('$app = Start-Process'));
+  });
 });
 
 describe('Info.plist', () => {

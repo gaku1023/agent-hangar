@@ -105,7 +105,16 @@ runs:
         if ($busy) { throw '殻を起こす前から 4177 が応えている' }
         $exe = Get-ChildItem $dir -Filter *.exe | Where-Object { $_.Name -ne 'uninstall.exe' } | Select-Object -First 1
         if (-not $exe) { throw '殻の exe が入っていない' }
+        # 殻は Node を公式の入れ先（%ProgramFiles%\nodejs）から PATH より先に探すので、放っておくとランナーに初めから入っている Node を使う。
+        # その版が 22.20 より古いと、verbatim のパスで落ちる回帰をこの段では捕まえられない。
+        # 一時のホームの settings.json の nodePath で setup-node の Node（22 の最新）を指す。利用者のデータの置き場は使わない。
+        $node = (Get-Command node).Source
+        $tmpHome = Join-Path $env:RUNNER_TEMP 'hangar-home'
+        New-Item -ItemType Directory -Path $tmpHome -Force | Out-Null
+        @{ nodePath = $node } | ConvertTo-Json | Set-Content -Path (Join-Path $tmpHome 'settings.json') -Encoding utf8
+        $env:HANGAR_HOME = $tmpHome
         $app = Start-Process -FilePath $exe.FullName -PassThru
+        Remove-Item Env:HANGAR_HOME
         $ok = $false
         try {
           $deadline = (Get-Date).AddSeconds(90)
@@ -119,10 +128,18 @@ runs:
           $app.WaitForExit(15000) | Out-Null
           $gone = (Get-Date).AddSeconds(20)
           while ((Get-Date) -lt $gone -and (Get-Process | Where-Object { $_.Path -like "$dir\*" })) { Start-Sleep -Milliseconds 500 }
-          $log = Join-Path $home1 'desktop.log'
+          $log = Join-Path $tmpHome 'desktop.log'
           if (Test-Path $log) { Get-Content $log -Tail 40 }
         }
         if (-not $ok) { throw "殻を起こしても $health が応えなかった（殻の終了: $($app.HasExited)）" }
+        # 殻が実際に使った Node を desktop.log の起動の行から読み、版を印字して 22.20 以上であることを確かめる。
+        $m = [regex]::Match((Get-Content $log -Raw), '\[desktop\] node (.+) server ')
+        if (-not $m.Success) { throw '殻が使った Node が desktop.log に出ていない' }
+        $used = $m.Groups[1].Value.Trim()
+        $v = (& $used --version | Out-String).Trim()
+        "殻が使った Node: $used $v"
+        if ($used -ne $node) { throw "殻が nodePath の Node を使っていない（使ったのは ${used}、指したのは ${node}）" }
+        if ([version]$v.TrimStart('v') -lt [version]'22.20.0') { throw "殻が使った Node $v は 22.20 より古く、verbatim のパスの回帰を捕まえられない" }
         # _?= を付けると、消す側が自分を写さずその場で動き、終わるまで待てる。
         $u = Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList "/S _?=$dir" -Wait -PassThru
         if ($u.ExitCode -ne 0) { throw "アンインストーラが終了コード $($u.ExitCode) で終わった" }
