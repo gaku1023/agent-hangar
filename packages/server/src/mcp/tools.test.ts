@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LiveSessionDto, ServerEvent } from '@agent-hangar/shared';
 import { recordArtifactPublish } from '../artifacts/extract.ts';
 import { openDb, type Db } from '../db/open.ts';
+import { Publisher } from '../events/publisher.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { latestIntent } from '../live/intents.ts';
@@ -24,6 +25,8 @@ const sent: ServerEvent[] = [];
 const live: LiveSessionDto[] = [{ sessionId: SESSION_ALPHA, status: 'busy', name: null, nameSource: null, cwd: '/Users/me/workspace/alpha', pid: 1 }];
 const started: unknown[] = [];
 let deps: ToolDeps;
+/** 道具は行を書くだけである。画面へのイベントは、配る層が書いた行から組んで sent へ渡す。 */
+let publisher: Publisher;
 
 beforeEach(async () => {
   dir = copyFixtureClaudeDir(); home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-mcp-')); db = openDb(':memory:'); sent.length = 0; started.length = 0;
@@ -32,14 +35,22 @@ beforeEach(async () => {
   upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: '/Users/me/workspace/alpha', resolved: 1 }, 'd');
   assignSessions(db, 'd');
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
-  deps = { db, deviceId: 'd', port: 4177, live: () => live, hub: { broadcast: (e) => sent.push(e) },
+  publisher = new Publisher({ db, deviceId: 'd', live: () => live, hub: { broadcast: (e) => { sent.push(e); } } });
+  deps = { db, deviceId: 'd', port: 4177, live: () => live,
     runs: { start: (p) => { started.push(p); return { run: { id: 'r1', sessionId: 'sNew', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sNew', tabs: [] }; } },
     usage: () => ({ fiveHour: { usedPercent: 47, resetsAt: 1_760_000_000_000 }, sevenDay: null, updatedAt: 5 }),
     memos: new MemoStore({ db, deviceId: 'd', home }) };
 });
-afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(home, { recursive: true, force: true }); });
+afterEach(() => { publisher.stop(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(home, { recursive: true, force: true }); });
 
-const call = (name: string, args: Record<string, unknown> = {}, ctx = { sessionId: null as string | null }) => callTool(deps, ctx, name, args) as Record<string, unknown>;
+/** 道具を呼ぶ。イベントは tick の終わりに出るので、呼んだ後にその場で配らせてから返す（失敗したときも同じ）。 */
+const call = (name: string, args: Record<string, unknown> = {}, ctx = { sessionId: null as string | null }) => {
+  try {
+    return callTool(deps, ctx, name, args) as Record<string, unknown>;
+  } finally {
+    publisher.flush();
+  }
+};
 
 /** session_id を取るツールと、それ以外の必須引数。存在の検査をまとめて確かめる。 */
 const SESSION_TOOL_CALLS: [string, Record<string, unknown>][] = [
@@ -72,7 +83,11 @@ describe('MCP tools', () => {
     expect((r.project as { status: string }).status).toBe('paused');
     expect((r.todos as { text: string; done: boolean; session_id: string | null }[]).map((t) => [t.text, t.done, t.session_id])).toEqual([['x', false, alphaId], ['y', false, alphaId]]);
     expect(r.memo).toBe('## 追記');
-    expect(sent.map((e) => e.type)).toEqual(['project.upsert', 'todos.update', 'memo.update', 'project.upsert']);
+    // 状態、TODO、メモを 1 回の呼び出しで変えても、プロジェクトは最後の中身で 1 回だけ届く。
+    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'memo.update', 'project.upsert']);
+    expect(sent[0]).toMatchObject({ type: 'todos.update', projectId: 'p1', todos: [{ text: 'x' }, { text: 'y' }] });
+    expect(sent[1]).toMatchObject({ type: 'memo.update', memo: { projectId: 'p1', markdown: '## 追記' } });
+    expect(sent[2]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', status: 'paused', openTodoCount: 2, memoHead: '## 追記' } });
     const ids = (r.todos as { id: string }[]).map((t) => t.id);
     const r2 = call('update_project', { project_id: 'p1', toggle_todos: [ids[0]!], append_memo: '続き' });
     // toggle_todos は未完を完了にしない。候補にするだけで、未完の数も変わらない。
@@ -380,6 +395,8 @@ describe('propose_session_status', () => {
   it('却下された後の提案は rejected_before。会話で選んだものは通る', () => {
     call('propose_session_status', { status: 'done', note: 'n' }, scoped());
     rejectSessionState(db, 'd', alphaId);
+    // 試験が直に書いた却下のイベントを、先に出し切ってから数え始める。
+    publisher.flush();
     sent.length = 0;
     expect(call('propose_session_status', { status: 'done', note: 'もう一度' }, scoped()).outcome).toBe('rejected_before');
     expect(sent).toEqual([]);

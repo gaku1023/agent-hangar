@@ -57,9 +57,10 @@ export class AsideReader {
   /**
    * 主線の最後のターンが終わった時刻。終わっていない（終わりの後に本体が動いた）か、決められなければ null。
    * 500 ミリ秒ごとに呼ばれるので、主線の最後の seq が変わらない間は読み直さない。
+   * 主線は索引の式と同じ ifnull(parent_agent, '') = '' で絞る。parent_agent is null と書くと索引に乗らず、毎回セッションの全行を見に行く。
    */
   private turnEndedAt(sessionId: string): number | null {
-    const key = (this.db.prepare('select max(seq) m from event_index where session_id = ? and parent_agent is null').get(sessionId) as { m: number | null }).m;
+    const key = (this.db.prepare("select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ''").get(sessionId) as { m: number | null }).m;
     const hit = this.ends.get(sessionId);
     if (hit && hit.key === key) return hit.at;
     const at = this.readEnd(sessionId);
@@ -68,7 +69,7 @@ export class AsideReader {
   }
 
   private readEnd(sessionId: string): number | null {
-    const rows = this.db.prepare("select seq, kind from event_index where session_id = ? and parent_agent is null and kind != 'meta' order by seq desc limit ?").all(sessionId, LOOK_BACK) as { seq: number; kind: string }[];
+    const rows = this.db.prepare("select seq, kind from event_index where session_id = ? and ifnull(parent_agent, '') = '' and kind != 'meta' order by seq desc limit ?").all(sessionId, LOOK_BACK) as { seq: number; kind: string }[];
     for (const r of rows) {
       if (ACTIVE.has(r.kind)) return null;
       if (r.kind !== 'system') continue;

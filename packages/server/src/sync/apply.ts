@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SHARED_TABLES, TABLE_PK, type ChangeOut, type SharedTable } from '@agent-hangar/shared';
 import { backupsRoot } from '../config/cloud.ts';
+import { noteApplied } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { hangarHome } from '../config/paths.ts';
 import { safeDeviceLabel, timestampLabel } from './copy.ts';
@@ -205,6 +206,7 @@ export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'appli
 
 /**
  * 1 トランザクションで親から子の順に適用する。失敗した行は最後に 1 度だけ再試行する。
+ * 当てた行は、確定の後に行の変化の口へ知らせる。
  *
  * 外部キーは遅延させない（`defer_foreign_keys` を立てない）。
  * 遅延させると違反が commit のときに出るので、1 行の親不明でそのページ全体が巻き戻ってしまう。
@@ -224,15 +226,9 @@ export function applyRemoteBatch(db: Db, changes: ChangeOut[], o: ApplyOptions):
     }
   });
   run();
+  // 当てた行を、行の変化の口（db/notify.ts）へ知らせる。画面へ配るのは events/publisher.ts である。
+  // 出どころは apply なので、同期の push のデバウンスはこれを拾わない（降りた行を push し返さない）。
+  // 確定の後に知らせる。確定に失敗すれば run() が投げるので、ここには来ない。
+  for (const c of applied) noteApplied(db, c.tableName, c.rowId, c.op);
   return applied;
-}
-
-/**
- * pull で入れ替わった行のうち、画面に配り直すセッション。行がセッションに付く表だけで、ほかは null を返す。
- * session_states を足したときに、server.ts の配り直しから外れないよう、ここで 1 か所にまとめる。
- */
-export function sessionIdOfChange(db: Db, c: Pick<ChangeOut, 'tableName' | 'rowId'>): string | null {
-  if (c.tableName === 'sessions' || c.tableName === 'session_summaries' || c.tableName === 'session_states') return c.rowId;
-  if (c.tableName === 'runs') return (db.prepare('select session_id s from runs where id = ?').get(c.rowId) as { s: string } | undefined)?.s ?? null;
-  return null;
 }

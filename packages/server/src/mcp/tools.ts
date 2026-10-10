@@ -1,4 +1,4 @@
-import { localDate, localTime, returnAtIso, returnAtMs, type LaunchParams, type LiveSessionDto, type ProjectDto, type ProjectStatus, type ServerEvent, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
+import { localDate, localTime, returnAtIso, returnAtMs, type LaunchParams, type LiveSessionDto, type ProjectDto, type ProjectStatus, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -18,7 +18,6 @@ export type ToolDeps = {
   port: number;
   live: () => LiveSessionDto[];
   runs: { start(params: LaunchParams): LaunchResult };
-  hub: { broadcast(ev: ServerEvent): void };
   usage: () => UsageDto;
   /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
   accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
@@ -171,7 +170,10 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, memo, todos, recent_sessions: recent, artifacts };
 }
 
-/** status、add_todos、toggle_todos、propose_done、append_memo を受け、変えた表ごとにイベントを配る。 */
+/**
+ * status、add_todos、toggle_todos、propose_done、append_memo を受けて書く。
+ * 画面へのイベントは、書いた行から配る層（events/publisher.ts）が配る。道具は hub を持たない。
+ */
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = projectIdOf(deps, ctx, args);
   const row = deps.db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
@@ -183,7 +185,6 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
     const status = args.status;
     if (typeof status !== 'string' || !STATUSES.includes(status as ProjectStatus)) throw new ToolError(`status は ${STATUSES.join('、')} のいずれかです`);
     upsertShared(deps.db, 'projects', { ...row, status }, deps.deviceId);
-    deps.hub.broadcast({ type: 'project.upsert', project: getProject(deps.db, deps.deviceId, deps.live(), id)! });
   }
   const adds = strs(args.add_todos) ?? [];
   const toggles = strs(args.toggle_todos) ?? [];
@@ -191,7 +192,7 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
   const todosTouched = adds.length > 0 || toggles.length > 0 || proposals.length > 0;
   if (todosTouched) {
     // 全部成功か全部失敗にする。
-    // 途中で失敗して書き込みだけが残ると、todos.update を配らないまま DB が進み、UI と食い違ったまま気付けない。
+    // 途中で失敗して一部の書き込みだけが残ると、呼び出し側は「何も起きなかった」と読むのに DB だけが進む。
     // MCP からは完了にしない。完了にするのは利用者だけなので、未完の反転は根拠なしの候補にする。
     deps.db.transaction(() => {
       for (const t of adds) addTodo(deps.db, deps.deviceId, { projectId: id, text: t, sessionId: ctx.sessionId });
@@ -214,18 +215,14 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
         }
       }
     })();
-    deps.hub.broadcast({ type: 'todos.update', projectId: id, todos: listTodos(deps.db, id) });
   }
   const append = typeof args.append_memo === 'string' ? args.append_memo : undefined;
   const appended = append !== undefined && append.trim() !== '';
   if (appended) {
     const cur = deps.memos.read(id)?.markdown ?? '';
-    const memo = deps.memos.write(id, cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${append}` : append);
-    deps.hub.broadcast({ type: 'memo.update', memo });
+    deps.memos.write(id, cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${append}` : append);
   }
-  // TODO とメモの変更で ProjectDto の openTodoCount と memoHead が変わるので、最後にもう一度配る。
   const p = getProject(deps.db, deps.deviceId, deps.live(), id)!;
-  if (todosTouched || appended) deps.hub.broadcast({ type: 'project.upsert', project: p });
   return {
     project: { id: p.id, name: p.name, status: p.status, open_todo_count: p.openTodoCount },
     todos: todoBriefs(deps, id),
@@ -305,7 +302,6 @@ export function setSessionSummaryTool(deps: ToolDeps, ctx: ToolContext, args: Re
     next_steps: JSON.stringify(strs(args.next_steps) ?? []),
     source: 'in_session', source_id: null, source_model: null, based_on_turns: turns,
   }, deps.deviceId, 'session_id');
-  deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
   return { ok: true, session_id: id };
 }
 
@@ -375,7 +371,6 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
     } else {
       r = proposeSessionState(deps.db, deps.deviceId, id, { status, note: given, returnOn, returnTime, source: 'in_session', now });
     }
-    if (r.outcome === 'set' || r.outcome === 'proposed') deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
     return { outcome: r.outcome, state: withReturnAt(r.state) };
   } catch (e) {
     if (e instanceof StateInputError) throw new ToolError(e.message);
@@ -388,7 +383,6 @@ export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Recor
   requireSession(deps, id);
   const row = deps.db.prepare('select * from sessions where id = ?').get(id) as Record<string, unknown>;
   upsertShared(deps.db, 'sessions', { ...row, memo: typeof args.text === 'string' ? args.text : '' }, deps.deviceId);
-  deps.hub.broadcast({ type: 'session.upsert', session: getSession(deps.db, deps.live(), id, { deviceId: deps.deviceId })! });
   return { ok: true, session_id: id };
 }
 

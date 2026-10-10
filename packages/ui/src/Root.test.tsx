@@ -148,7 +148,7 @@ describe('Root', () => {
     expect(screen.getByRole('dialog', { name: '新しいセッション' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'プロジェクト' }));
     expect(screen.getByRole('option', { name: /alpha/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByText('やめる'));
+    fireEvent.click(screen.getByText('キャンセル'));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
   it('書きかけのまま閉じた新しいセッションは、次に開くと下書きとして戻る', async () => {
@@ -158,14 +158,14 @@ describe('Root', () => {
     act(() => handlers[0]!.onOpen());
     await flush();
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
-    fireEvent.change(screen.getByLabelText('名前（任意）'), { target: { value: 'API の節' } });
-    fireEvent.keyDown(screen.getByLabelText('名前（任意）'), { key: 'Escape' });
+    fireEvent.change(screen.getByLabelText('初期プロンプト（任意）'), { target: { value: 'API の節を書く' } });
+    fireEvent.keyDown(screen.getByLabelText('初期プロンプト（任意）'), { key: 'Escape' });
     await flush();
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(rt.getState().newSessionDraft).toEqual({ name: 'API の節', prompt: '', attachments: [] });
+    expect(rt.getState().newSessionDraft).toEqual({ name: '', prompt: 'API の節を書く', attachments: [] });
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true })); });
     await flush();
-    expect(screen.getByLabelText('名前（任意）')).toHaveValue('API の節');
+    expect(screen.getByLabelText('初期プロンプト（任意）')).toHaveValue('API の節を書く');
     expect(within(screen.getByRole('dialog')).getByText('下書き')).toBeInTheDocument();
   });
   it('セッションを開くとサブエージェントの一覧が届き、選択欄が出る', async () => {

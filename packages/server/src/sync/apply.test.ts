@@ -4,8 +4,9 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChangeOut } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
-import { upsertShared } from '../db/shared.ts';
-import { applyRemoteBatch, applyRemoteChange, sessionIdOfChange, writeMemoConflictCopy } from './apply.ts';
+import { onRowChange } from '../db/notify.ts';
+import { onSharedWrite, upsertShared } from '../db/shared.ts';
+import { applyRemoteBatch, applyRemoteChange, writeMemoConflictCopy } from './apply.ts';
 import { getSessionState, setSessionState } from '../sessions/states.ts';
 import { expectMode } from '../../test/platform.ts';
 
@@ -366,15 +367,27 @@ describe('セッションの状態の同期', () => {
     expect(applyRemoteChange(db, { ...ch({ rowId: 'x', updatedAt: 5 }), tableName: 'takeover_requests' as never }, o)).toBe('skipped');
     expect(db.prepare('select count(*) c from takeover_requests').get()).toEqual({ c: 0 });
   });
-  it('sessionIdOfChange は、状態・要約・セッションの行ではその id、run ではそのセッション、ほかは null', () => {
+  it('applyRemoteBatch は、当てた行だけを確定の後に行の変化の口へ知らせる。出どころは apply である', () => {
+    // 画面へ配る層（events/publisher.ts）と同期の push のデバウンスが、この知らせを読む。
+    // 表からイベントへの対応（状態・要約・セッション・run はセッション、ほかは表ごと）は events/publisher.test.ts が押さえる。
     const db = openDb(':memory:');
     seedSession(db);
-    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'b', kind: 'start', tmux_name: 'hangar-r1', launch_params: '{}', started_at: 1, heartbeat_at: 1 }, 'b');
-    expect(sessionIdOfChange(db, { tableName: 'session_states', rowId: 's1' })).toBe('s1');
-    expect(sessionIdOfChange(db, { tableName: 'session_summaries', rowId: 's1' })).toBe('s1');
-    expect(sessionIdOfChange(db, { tableName: 'sessions', rowId: 's1' })).toBe('s1');
-    expect(sessionIdOfChange(db, { tableName: 'runs', rowId: 'r1' })).toBe('s1');
-    expect(sessionIdOfChange(db, { tableName: 'runs', rowId: 'nope' })).toBeNull();
-    expect(sessionIdOfChange(db, { tableName: 'todos', rowId: 't1' })).toBeNull();
+    const seen: string[] = [];
+    const writes: string[] = [];
+    const off = onRowChange((c) => { if (c.db === db) seen.push(`${c.origin}:${c.op}:${c.table}:${c.rowId}:${db.inTransaction ? '中' : '外'}`); });
+    const offWrite = onSharedWrite((t, id, d) => { if (d === db) writes.push(`${t}:${id}`); });
+    const fresh = Date.now() + 60_000;
+    applyRemoteBatch(db, [
+      { seq: 2, tableName: 'session_states', rowId: 's1', op: 'upsert', deviceId: 'b', updatedAt: fresh, payload: { status: 'done', set_by: 'user', set_at: 1 } },
+      { seq: 1, tableName: 'sessions', rowId: 's1', op: 'delete', deviceId: 'b', updatedAt: fresh, payload: { provider: 'claude-code', provider_session_id: 'u1', cwd: '/w', home_device: 'b' } },
+      // 手元の方が新しいので採らない行。
+      { seq: 3, tableName: 'sessions', rowId: 's1', op: 'upsert', deviceId: 'b', updatedAt: 1, payload: { memo: '古い' } },
+    ], o);
+    off();
+    offWrite();
+    // 親から子の順（sessions が先）に、当てた 2 行だけが届く。
+    expect(seen).toEqual(['apply:delete:sessions:s1:外', 'apply:upsert:session_states:s1:外']);
+    // この端末の書き込みの購読（同期の push の契機）には届かない。降りた行を push し返さない。
+    expect(writes).toEqual([]);
   });
 });

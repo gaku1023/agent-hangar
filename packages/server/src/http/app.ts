@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
-import { COMPAT_VERSION, isLanguage, languageOf, LANGUAGES, liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type CompatDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type ServerEvent, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
+import { COMPAT_VERSION, isLanguage, languageOf, LANGUAGES, liveFilterOf, MAX_JUMP_HEADS, newId, PROMPT_HEAD_LEN as HEAD_LEN, type ArtifactDto, type BootstrapDto, type CloudUsageDto, type CompatDto, type ConfigPreviewDto, type RetentionDto, type RetentionPreviewDto, type DeviceDto, type IndexProgressDto, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type MemoDto, type PromoteResultDto, type ReadinessDto, type ResolveAction, type ResumeHereConflictDto, type SearchParamsDto, type SessionStateDto, type SessionStatus, type SettingsDto, type ShellHookDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStatusBody, type TerminalApp, type UsageDto } from '@agent-hangar/shared';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../artifacts/queries.ts';
 import { LOCK_BUSY_MESSAGE } from '../config/claudeFileWrite.ts';
@@ -10,7 +10,9 @@ import { isLoopbackSummarizerUrl, type Settings } from '../config/paths.ts';
 import { checkToolPath, expandHome, isCommandName } from '../config/readiness.ts';
 import { RetentionConflictError, RetentionUnwritableError } from '../config/retention.ts';
 import { statuslineStatus } from '../config/statusline.ts';
+import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
+import type { NoticeEvent } from '../events/publisher.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { LiveDigester } from '../live/digest.ts';
@@ -78,7 +80,13 @@ export type AppDeps = {
    * .app はこれが真になるまで起動画面に残る。渡さなければ済んだものとして扱う。
    */
   ready?: () => boolean;
-  hub: { broadcast(ev: ServerEvent): void };
+  /**
+   * 右ペインの要約器。裏の印（live/aside.ts）が 500 ミリ秒ごとに同じ要約を引くので、サーバは 1 つを両方に渡して覚えを共有する。
+   * 渡さなければ、ここで作る。
+   */
+  digester?: Pick<LiveDigester, 'digest'>;
+  /** 表の変化に対応しない知らせ（トースト）を渡す先。行のイベントは渡さない。行を書けば、配る層（events/publisher.ts）が配る。 */
+  hub: { broadcast(ev: NoticeEvent): void };
   runs: RunsApi;
   external: ExternalApi;
   usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
@@ -318,15 +326,13 @@ export function createApp(deps: AppDeps): Hono {
   const api = new Hono();
   api.use('*', authMiddleware(deps.token, deps.port));
 
-  const broadcastProject = (id: string) => { const p = getProject(db, deviceId, deps.live(), id); if (p) deps.hub.broadcast({ type: 'project.upsert', project: p }); };
   /**
    * セッションを引くときは必ず自端末の ID を渡す。
    * 渡さないと lockMap が空のまま返るので、他端末で走っている run が「ロック中」として出てこない。
    */
   const session = (id: string) => getSession(db, deps.live(), id, { deviceId });
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
-  const broadcastSession = (id: string) => { const s = session(id); if (s) deps.hub.broadcast({ type: 'session.upsert', session: s }); };
-  const digester = new LiveDigester(db);
+  const digester = deps.digester ?? new LiveDigester(db);
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
@@ -379,9 +385,7 @@ export function createApp(deps: AppDeps): Hono {
     const row = db.prepare('select * from projects where id = ? and deleted_at is null').get(id) as Record<string, unknown> | undefined;
     if (!row) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
     upsertShared(db, 'projects', { ...row, status: body.status }, deviceId);
-    const p = getProject(db, deviceId, deps.live(), id)!;
-    deps.hub.broadcast({ type: 'project.upsert', project: p });
-    return c.json(p);
+    return c.json(getProject(db, deviceId, deps.live(), id)!);
   });
   api.get('/projects/:id/candidates', (c) => c.json(candidateDirs(deps.settings().workspaceRoot, c.req.query('name') ?? '')));
   // 初期プロンプト欄の `/` の候補。projectId が無ければ（スクラッチなど）、プロジェクトのものは読まない。
@@ -440,12 +444,9 @@ export function createApp(deps: AppDeps): Hono {
     const target: ResolveAction = action.kind === 'repoint' && typeof action.path === 'string' ? { kind: 'repoint', path: normalizeDir(action.path) } : action;
     if (target.kind === 'repoint' && (typeof target.path !== 'string' || !fs.existsSync(target.path))) return c.json({ error: '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください' }, 400);
     if (!getProject(db, deviceId, deps.live(), id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
+    // プロジェクトと、紐づけが変わったセッションは、書いた行から配る層が配る。
     resolveProject(db, deviceId, id, target);
-    const p = getProject(db, deviceId, deps.live(), id);
-    if (p) deps.hub.broadcast({ type: 'project.upsert', project: p });
-    // 紐づけが変わったセッションを絞り込めないので、全件を流して UI 側で置き換えてもらう。
-    for (const s of sessions()) deps.hub.broadcast({ type: 'session.upsert', session: s });
-    return c.json(p ?? { id, unlinked: true });
+    return c.json(getProject(db, deviceId, deps.live(), id) ?? { id, unlinked: true });
   });
 
   api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId') })));
@@ -637,20 +638,12 @@ export function createApp(deps: AppDeps): Hono {
     }
     const before = deps.settings();
     const s = deps.updateSettings(patch);
-    // ワークスペースが変わったら、その場でプロジェクトを登録し直して結果を配る。
+    // ワークスペースが変わったら、その場でプロジェクトを登録し直す。
+    // 登録したプロジェクトと、そこへ入ったセッションは、書いた行から配る層が配る。
     // claudeDir の変更は索引の読み取り元なので、次の起動で反映する。
     if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== before.workspaceRoot) {
-      const unassigned = new Set((db.prepare('select id from sessions where project_id is null and deleted_at is null').all() as { id: string }[]).map((r) => r.id));
       syncProjectsFromWorkspace(db, deviceId, patch.workspaceRoot);
       assignSessions(db, deviceId);
-      const live = deps.live();
-      for (const p of listProjects(db, deviceId, live)) deps.hub.broadcast({ type: 'project.upsert', project: p });
-      for (const id of unassigned) {
-        // 配信にも自端末の ID を渡す。ここだけ抜けると、サーバはロックを持っているのに
-        // ロック無しの SessionDto が配られ、UI の store がそれで置き換えて画面から消える。
-        const sess = getSession(db, live, id, { deviceId });
-        if (sess?.projectId) deps.hub.broadcast({ type: 'session.upsert', session: sess });
-      }
     }
     // 保存の知らせは画面が欄の横に出す（設定の C1）。サーバからはトーストを配らない。
     return c.json(toSettingsDto(s));
@@ -797,10 +790,8 @@ export function createApp(deps: AppDeps): Hono {
       } else {
         return c.json({ error: 'kind は newDir か dir です' }, 400);
       }
-      const p = getProject(db, deviceId, deps.live(), projectId)!;
-      // 登録済みでも配る。アーカイブから戻したときに、ほかの画面の状態も変わるためである。
-      deps.hub.broadcast({ type: 'project.upsert', project: p });
-      return c.json(p, created ? 201 : 200);
+      // 登録済みでも、アーカイブから戻したときは行が変わるので、配る層がほかの画面へ配る。
+      return c.json(getProject(db, deviceId, deps.live(), projectId)!, created ? 201 : 200);
     } catch (e) {
       if (e instanceof ProjectCreateError) return c.json({ error: e.message }, e.status);
       throw e;
@@ -829,8 +820,9 @@ export function createApp(deps: AppDeps): Hono {
     // 使用率は、動かしたアカウントの値として accounts.update で配る。最初のアカウントも同じ道で届く。
     if (r.usageChanged) accountsDeps.broadcast(buildAccountsDto(accountsDeps));
     if (r.providerSessionId) {
+      // 受けた値は手元だけの表（session_live_stats）に入る。セッションの行は変わらないが中身（モデル、文脈の量）が変わるので、名指しして配り直してもらう。
       const s = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(r.providerSessionId) as { id: string } | undefined;
-      if (s) broadcastSession(s.id);
+      if (s) touchRow(db, 'sessions', s.id);
     }
     return c.body(null, 204);
   });
@@ -846,11 +838,7 @@ export function createApp(deps: AppDeps): Hono {
   api.get('/readiness', async (c) => c.json(await deps.readiness()));
   api.get('/compat', async (c) => c.json(deps.compat ? await deps.compat() : ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] } satisfies CompatDto)));
 
-  // TODO。変更のたびに一覧とプロジェクト（未完の数）を配る。
-  const todosChanged = (projectId: string) => {
-    deps.hub.broadcast({ type: 'todos.update', projectId, todos: listTodos(db, projectId) });
-    broadcastProject(projectId);
-  };
+  // TODO。変更のたびに、一覧とプロジェクト（未完の数）を、書いた行から配る層が配る。
   api.get('/projects/:id/todos', (c) => {
     const id = c.req.param('id');
     return requireProject(id) ? c.json(listTodos(db, id)) : c.json({ error: 'プロジェクトが見つかりません' }, 404);
@@ -862,9 +850,7 @@ export function createApp(deps: AppDeps): Hono {
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo);
     const body = (b.value ?? {}) as { text?: unknown };
     if (typeof body.text !== 'string' || !body.text.trim()) return c.json({ error: 'text は必須です' }, 400);
-    const t = addTodo(db, deviceId, { projectId: id, text: body.text });
-    todosChanged(id);
-    return c.json(t, 201);
+    return c.json(addTodo(db, deviceId, { projectId: id, text: body.text }), 201);
   });
   api.patch('/todos/:id', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
@@ -873,7 +859,6 @@ export function createApp(deps: AppDeps): Hono {
     if (typeof body.done !== 'boolean') return c.json({ error: 'done は true か false です' }, 400);
     const t = setTodoDone(db, deviceId, c.req.param('id'), body.done);
     if (!t) return c.json({ error: 'TODO が見つかりません' }, 404);
-    todosChanged(t.projectId);
     return c.json(t);
   });
   // 完了の候補の確定と却下。どちらも利用者の操作で、MCP からは呼べない。
@@ -882,24 +867,21 @@ export function createApp(deps: AppDeps): Hono {
     const r = confirmTodo(db, deviceId, c.req.param('id'));
     if (!r) return c.json({ error: 'TODO が見つかりません' }, 404);
     if (r.result === 'not_candidate') return c.json({ error: NOT_CANDIDATE }, 409);
-    if (r.result === 'confirmed') todosChanged(r.todo.projectId);
     return c.json(r.todo);
   });
   api.post('/todos/:id/reject', (c) => {
     const r = rejectTodo(db, deviceId, c.req.param('id'));
     if (!r) return c.json({ error: 'TODO が見つかりません' }, 404);
     if (r.result === 'not_candidate') return c.json({ error: NOT_CANDIDATE }, 409);
-    todosChanged(r.todo.projectId);
     return c.json(r.todo);
   });
   api.delete('/todos/:id', (c) => {
     const t = removeTodo(db, deviceId, c.req.param('id'));
     if (!t) return c.json({ error: 'TODO が見つかりません' }, 404);
-    todosChanged(t.projectId);
     return c.json(t);
   });
 
-  // メモ。DB とファイルの両方に書き、ファイルの外部編集は MemoStore の監視が配る。
+  // メモ。DB とファイルの両方に書く。ここからの書き込みも、MemoStore の監視が取り込んだファイルの外部編集も、配る層（events/publisher.ts）が配る。
   api.get('/projects/:id/memo', (c) => {
     const id = c.req.param('id');
     if (!requireProject(id)) return c.json({ error: 'プロジェクトが見つかりません' }, 404);
@@ -913,10 +895,7 @@ export function createApp(deps: AppDeps): Hono {
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.memo);
     const body = (b.value ?? {}) as { markdown?: unknown };
     if (typeof body.markdown !== 'string') return c.json({ error: 'markdown は文字列です' }, 400);
-    const m = deps.memos.write(id, body.markdown);
-    deps.hub.broadcast({ type: 'memo.update', memo: m });
-    broadcastProject(id);
-    return c.json(m);
+    return c.json(deps.memos.write(id, body.markdown));
   });
 
   // アーティファクト。索引化が拾うほかに、手で URL を足せる。
@@ -936,7 +915,6 @@ export function createApp(deps: AppDeps): Hono {
       if (e instanceof ArtifactInputError) return c.json({ error: e.message }, 400);
       return c.json({ error: 'アーティファクトを追加できませんでした' }, 500);
     }
-    deps.hub.broadcast({ type: 'artifact.upsert', artifact: a });
     return c.json(a, 201);
   });
   api.post('/artifacts/:id/open', (c) => {
@@ -961,20 +939,17 @@ export function createApp(deps: AppDeps): Hono {
     const body = (b.value ?? {}) as { memo?: unknown };
     if (typeof body.memo !== 'string') return c.json({ error: 'memo は文字列です' }, 400);
     upsertShared(db, 'sessions', { ...row, memo: body.memo.trim() || null }, deviceId);
-    const s = session(id)!;
-    deps.hub.broadcast({ type: 'session.upsert', session: s });
-    return c.json(s);
+    return c.json(session(id)!);
   });
   // セッションの状態（Paused・Done・Archived）と Claude の提案の確定・却下。どれも利用者の操作で、MCP からは呼べない。
   // run に配る MCP の秘密は /api を開けない（authMiddleware は本体のトークンしか見ない）。
-  // 成功したら session.upsert を配る。画面の正はその配信である。
+  // 成功したら、書いた行（session_states）から配る層が session.upsert を配る。画面の正はその配信である。
   const NO_STATE_CANDIDATE = 'このセッションには確かめる提案がありません';
   const liveSessionRow = (id: string) => db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(id) !== undefined;
-  const stateResult = (c: Context, id: string, fn: () => { state: SessionStateDto; result?: string }) => {
+  const stateResult = (c: Context, fn: () => { state: SessionStateDto; result?: string }) => {
     try {
       const r = fn();
       if (r.result === 'not_candidate') return c.json({ error: NO_STATE_CANDIDATE }, 409);
-      broadcastSession(id);
       return c.json({ state: r.state });
     } catch (e) {
       if (e instanceof StateInputError) return c.json({ error: e.message }, 400);
@@ -991,7 +966,7 @@ export function createApp(deps: AppDeps): Hono {
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
     const status = body.status as SessionStatus | null;
-    return stateResult(c, id, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }));
+    return stateResult(c, () => ({ state: setSessionState(db, deviceId, id, { status, note: body.note as string | undefined, returnOn: body.returnOn as string | undefined, returnTime: body.returnTime as string | undefined, setBy: 'user' }) }));
   };
   api.put('/sessions/:id/state', (c) => putSessionState(c, c.req.param('id')));
   api.post('/sessions/:id/state/confirm', async (c) => {
@@ -1002,12 +977,12 @@ export function createApp(deps: AppDeps): Hono {
     const body = (b.value ?? {}) as { returnOn?: unknown; returnTime?: unknown };
     if (body.returnOn !== undefined && typeof body.returnOn !== 'string') return c.json({ error: '戻る日は YYYY-MM-DD の形の文字列です' }, 400);
     if (body.returnTime !== undefined && typeof body.returnTime !== 'string') return c.json({ error: '戻る時刻は HH:MM の形の文字列です' }, 400);
-    return stateResult(c, id, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
+    return stateResult(c, () => confirmSessionState(db, deviceId, id, body.returnOn === undefined ? {} : { returnOn: body.returnOn as string, ...(body.returnTime !== undefined ? { returnTime: body.returnTime as string } : {}) }));
   });
   api.post('/sessions/:id/state/reject', (c) => {
     const id = c.req.param('id');
     if (!liveSessionRow(id)) return c.json({ error: 'セッションが見つかりません' }, 404);
-    return stateResult(c, id, () => rejectSessionState(db, deviceId, id));
+    return stateResult(c, () => rejectSessionState(db, deviceId, id));
   });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');
@@ -1021,10 +996,9 @@ export function createApp(deps: AppDeps): Hono {
       const r = deps.promote({ sessionId: id, name: body.name, gitInit: body.gitInit === true, moveFiles: body.moveFiles === true });
       const project = getProject(db, deviceId, deps.live(), r.projectId)!;
       const updated = session(id)!;
-      deps.hub.broadcast({ type: 'project.upsert', project });
-      // 昇格元のスクラッチはセッションが 1 件減るので、そちらも配り直す。
-      if (before.projectId && before.projectId !== r.projectId) broadcastProject(before.projectId);
-      deps.hub.broadcast({ type: 'session.upsert', session: updated });
+      // 新しいプロジェクトとセッションは、書いた行から配る層が配る。
+      // 昇格元のスクラッチは、行は変わらないがセッションが 1 件減るので、名指しして配り直してもらう。
+      if (before.projectId && before.projectId !== r.projectId) touchRow(db, 'projects', before.projectId);
       const out: PromoteResultDto = { project, session: updated, moved: r.moved, reason: r.reason };
       return c.json(out, 201);
     } catch (e) {
@@ -1046,7 +1020,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, hub: deps.hub, usage: () => deps.usage.current(), accounts: deps.accounts, memos: deps.memos }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, memos: deps.memos }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);

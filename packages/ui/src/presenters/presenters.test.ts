@@ -11,7 +11,6 @@ import { presentConfirm } from './confirm.ts';
 import { HOME_RECENT_MAX, presentHome } from './home.ts';
 import { newSessionTarget, presentNewSession } from './newSession.ts';
 import { presentArtifactCard, presentProject } from './project.ts';
-import { presentProjects } from './projects.ts';
 import { candidateLabel, presentSessionRow, returnOnLabel } from './row.ts';
 import { buildItems, presentSession, sessionActions, type SessionProps } from './session.ts';
 import { presentSessions } from './sessions.ts';
@@ -340,39 +339,6 @@ describe('presentHome', () => {
     store.projects.alpha = { ...store.projects.alpha!, openTodoCount: 0 };
     store.sessions = { s2: store.sessions.s2! };
     expect(presentHome(initialState(), store, NOW).projects[0]!.counts).toBe('');
-  });
-});
-
-describe('presentProjects', () => {
-  it('セクション分けと絞り込みとアーカイブ', () => {
-    const p = presentProjects(initialState(), storeWith(), NOW, '', false);
-    expect(p.sections.map((s) => [s.status, s.cards.length])).toEqual([['active', 1], ['paused', 1], ['done', 0]]);
-    expect(p.archivedCount).toBe(1);
-    expect(presentProjects(initialState(), storeWith(), NOW, 'bet', false).sections[1]!.cards).toHaveLength(1);
-    expect(presentProjects(initialState(), storeWith(), NOW, 'bet', false).sections[0]!.cards).toHaveLength(0);
-    expect(presentProjects(initialState(), storeWith(), NOW, '', true).sections.map((s) => s.status)).toEqual(['active', 'paused', 'done', 'archived']);
-  });
-  it('カードの実行中と要対応は手元のセッションから数え、ホームと同じ数え方にする', () => {
-    const store = storeWith();
-    // サーバの runningCount は入力待ちを含み、起動中を含まないので使わない。
-    store.projects.alpha = { ...store.projects.alpha!, runningCount: 99 };
-    store.sessions.w1 = session('w1', { live: 'waiting' });
-    store.runs = { r2: runDto('r2', 's2') };
-    const alpha = presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
-    expect(alpha).toMatchObject({ runningCount: 2, waitingCount: 1 });
-  });
-  it('カードの抜粋は要約を優先し、雑音を除いた発言を次に使い、どちらも無ければそう書く', () => {
-    const store = storeWith();
-    const real = { ...session('x').summary!, oneLiner: '索引をセッションごとに分けた', source: 'in_session' as const };
-    const card = () => presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards[0]!;
-    store.sessions = { s1: session('s1', { firstPrompt: '<input class="a">', summary: real }) };
-    expect(card()).toMatchObject({ excerpt: '索引をセッションごとに分けた', excerptFromPrompt: false });
-    store.sessions = { s1: session('s1', { firstPrompt: '/init', summary: { ...real, oneLiner: '/init', source: 'baseline' } }), s2: session('s2', { firstPrompt: '画像の圧縮率を比べたい', lastActivityAt: NOW - 86_400_000 }) };
-    expect(card()).toMatchObject({ excerpt: '画像の圧縮率を比べたい', excerptFromPrompt: true });
-    store.sessions = { s1: session('s1', { firstPrompt: 'exit', summary: null }) };
-    expect(card()).toMatchObject({ excerpt: 'まだ要約がありません', excerptFromPrompt: false });
-    store.sessions = {};
-    expect(card()).toMatchObject({ excerpt: 'セッションはまだありません', excerptFromPrompt: false });
   });
 });
 
@@ -1261,10 +1227,9 @@ describe('presentProject の右レール', () => {
   });
 });
 
-describe('presentProjects と presentHome（スクラッチ）', () => {
-  it('スクラッチのプロジェクトはカードに出さない', () => {
+describe('presentHome（スクラッチ）', () => {
+  it('スクラッチのプロジェクトはホームのプロジェクトに出さない', () => {
     const store: Store = { ...initialStore(), projects: { p1: { ...project('p1'), name: 'alpha', path: '/w/alpha', lastActivityAt: NOW }, sc: scratchProject() } };
-    expect(presentProjects(initialState(), store, NOW, '', false).sections[0]!.cards.map((c) => c.id)).toEqual(['p1']);
     expect(presentHome(initialState(), store, NOW).projects.map((c) => c.id)).toEqual(['p1']);
   });
   it('起動ダイアログの選択肢からも外す。並びは名前順のまま', () => {

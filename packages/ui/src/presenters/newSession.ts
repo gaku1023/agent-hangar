@@ -2,7 +2,7 @@ import type { ProjectStatus } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type Store } from '../store/store.ts';
 import { SCRATCH_PREFS } from '../mediator/launch.ts';
-import { isPickableAccount, presentAccounts, type AccountView } from './accounts.ts';
+import { APPROVE_TEXT, isPickableAccount, LOGGED_OUT_TEXT, presentAccounts, type AccountView } from './accounts.ts';
 import { relativeTime } from './format.ts';
 
 export type NewSessionProject = { id: string; name: string; path: string | null; status: ProjectStatus; lastActivity: string };
@@ -50,6 +50,17 @@ export function defaultAccountChoice(accounts: NewSessionAccounts): string {
 export function accountChoice(accounts: NewSessionAccounts, picked: string | null): string {
   const chosen = picked === null ? undefined : accounts.list.find((a) => a.id === picked);
   return chosen && isPickableAccount(chosen) ? chosen.id : defaultAccountChoice(accounts);
+}
+
+/** アカウントの札の一覧の 1 行。選べない行（未ログイン、初めてのログインの途中）は disabled で、理由を tag に持つ。 */
+export type NewSessionAccountOption = { value: string; label: string; color: string; disabled: boolean; tag?: string };
+
+/** 札から開く一覧の行。色の点は札の中のアカウントの色で、選べるかどうかは isPickableAccount が決める。 */
+export function accountOptions(accounts: NewSessionAccounts): NewSessionAccountOption[] {
+  return accounts.list.map((a) => {
+    const reason = a.auth === 'out' ? LOGGED_OUT_TEXT : a.auth === 'running' && !a.loggedIn ? APPROVE_TEXT : undefined;
+    return { value: a.id, label: a.name, color: a.color, disabled: !isPickableAccount(a), ...(reason ? { tag: reason } : {}) };
+  });
 }
 
 const baseName = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';

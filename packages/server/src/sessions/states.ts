@@ -5,7 +5,8 @@ import { upsertShared } from '../db/shared.ts';
 /**
  * セッションの状態の移り方。設計は docs/superpowers/specs/2026-10-01-session-status-design.md の「状態の移り方」。
  * 書き手は MCP（提案と、会話で選んだもの）、HTTP（画面）、索引（新しい発言で外すときだけ）である。
- * 変更のたびに session.upsert を配るのは呼び手の役目にする（TODO の候補と同じ分け方）。
+ * 変更のたびの session.upsert は、ここでも呼び手でもなく、配る層（events/publisher.ts）が配る。
+ * ここの書き込みは upsertShared を通るので、行の変化の口（db/notify.ts）へ自動で知らされる。
  */
 
 /** 状態の入力の誤り。message はトーストにそのまま出せる日本語の一文である。 */

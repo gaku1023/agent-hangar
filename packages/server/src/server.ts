@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { listArtifacts } from './artifacts/queries.ts';
 import { backupsRoot, readCloudConfig, remoteRoot } from './config/cloud.ts';
 import { dbPath, defaultClaudeDir, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings, type Settings } from './config/paths.ts';
 import { ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, shellWrapSupported, zshrcPath } from './config/shellHook.ts';
@@ -13,10 +12,12 @@ import { createReadiness, ToolVersions } from './config/readiness.ts';
 import { defaultManagedDir, RetentionService } from './config/retention.ts';
 import { ensureStatuslineHeaderFile } from './config/statusline.ts';
 import { resolveToolPaths, which } from './config/tools.ts';
-import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ServerEvent, type ShellHookDto, type SyncSkippedDto, type SyncStatusDto } from '@agent-hangar/shared';
+import { encodeJoinToken, PRIMARY_ACCOUNT_ID, type FileEntry, type LaunchResultDto, type LiveSessionDto, type ResumeHereConflictDto, type ShellHookDto, type SyncSkippedDto, type SyncStatusDto } from '@agent-hangar/shared';
 import { openDb, type Db } from './db/open.ts';
-import { accountOfSession, getProject, getSession, listDevices, listProjects } from './db/queries.ts';
+import { touchRow } from './db/notify.ts';
+import { accountOfSession, listDevices } from './db/queries.ts';
 import { upsertShared } from './db/shared.ts';
+import { Publisher, type NoticeEvent } from './events/publisher.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './external/open.ts';
 import { announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from './http/accounts.ts';
 import { createApp, type ExternalApi } from './http/app.ts';
@@ -34,6 +35,7 @@ import { CompatLog, compatPath } from './provider/claude-code/compat/log.ts';
 import type { Drift } from './provider/claude-code/compat/types.ts';
 import { VERIFIED_CLAUDE_VERSION } from './provider/claude-code/compat/version.ts';
 import { AsideReader } from './live/aside.ts';
+import { LiveDigester } from './live/digest.ts';
 import { ensureSpawnHelper } from './pty/helper.ts';
 import { nodePtySpawn } from './pty/nodePty.ts';
 import { PtyRelay } from './pty/relay.ts';
@@ -44,11 +46,12 @@ import { RunError, RunManager } from './runs/manager.ts';
 import { aliveRunForSession } from './runs/queries.ts';
 import { ParkWatch, parkedSessionIds, statusChanged } from './sessions/park.ts';
 import { processStartOfPrompt } from './sessions/promptProcess.ts';
+import { getSessionState } from './sessions/states.ts';
 import { ClaudeHeadlessSummarizer } from './summary/claude.ts';
 import { SummaryJob } from './summary/job.ts';
 import { LmStudioSummarizer } from './summary/lmstudio.ts';
 import type { Summarizer } from './summary/types.ts';
-import { sessionIdOfChange, writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
+import { writeMemoConflictCopy, type SessionMemoBackup } from './sync/apply.ts';
 import { BACKUP_GENERATIONS, ClaudeConfigSync } from './sync/claudeConfig.ts';
 import { HttpCloudClient } from './sync/client.ts';
 import { copyTranscriptForResume } from './sync/copy.ts';
@@ -169,32 +172,33 @@ export const CLOSE_DEADLINE_MS = 5_000;
 export const STOP_WATCHDOG_MS = 8_000;
 
 /**
- * この端末のルートの存在を確かめ、消えたものを知らせ、戻ったものの取りこぼしを拾う。
+ * この端末のルートの存在を確かめ、戻ったものの取りこぼしを拾う。
  * ルートが消えている間に現れたセッションは、解決済みのルートに当たらないので未分類のまま残る。
  * 戻ったときに紐づけ直さないと、次の起動まで未分類のままになり、プロジェクトにも出てこない。
  * 戻ったルートが無いときは何もしない。起動時の 1 回目はたいていこちらを通るので、全件を舐めない。
- * 消えたものの検出と project.unresolved の配信は前のままである。
+ *
+ *
+ * 消えたもの（解決済みから未解決へ移ったルート）は、ここが project.unresolved で知らせる。
+ * 画面はそれで置き場の選び直しを開くので、遷移を知っているここだけが出す。
+ * ほかは画面へ配らない。配るのは events/publisher.ts で、ここが書いた行の知らせから組む。
+ * 戻ったルートは project.upsert、紐づけ直したセッションは session.upsert になる。
+ * 紐づけ直しで中身が変わったプロジェクトだけは、行を書いていないので、ここで名指しする。
  */
-export function checkRoots(o: { db: Db; deviceId: string; live: () => LiveSessionDto[]; broadcast: (ev: ServerEvent) => void }): { unresolved: string[]; recovered: string[] } {
+export function checkRoots(o: { db: Db; deviceId: string; broadcast: (ev: NoticeEvent) => void }): { unresolved: string[]; recovered: string[] } {
   const r = checkProjectRoots(o.db, o.deviceId);
   for (const id of r.unresolved) o.broadcast({ type: 'project.unresolved', projectId: id });
   if (r.recovered.length === 0) return r;
   const unassigned = (o.db.prepare('select id from sessions where project_id is null and deleted_at is null').all() as { id: string }[]).map((x) => x.id);
   assignSessions(o.db, o.deviceId);
-  const live = o.live();
-  // 戻ったプロジェクトと、紐づけ直しで中身が変わったプロジェクトを配る。
+  // 戻ったプロジェクトと、紐づけ直しで中身が変わったプロジェクトを配り直してもらう。
+  // 戻った方はルートの行の知らせでも並んでいるが、セッションの後に来るよう、ここでもう一度名指しする。
   const touched = new Set(r.recovered);
+  const projectOf = o.db.prepare('select project_id p from sessions where id = ? and deleted_at is null');
   for (const id of unassigned) {
-    // ロックを出すために自端末の ID を渡す。渡さないと他端末の run が一切見えない。
-    const s = getSession(o.db, live, id, { deviceId: o.deviceId });
-    if (!s?.projectId) continue;
-    touched.add(s.projectId);
-    o.broadcast({ type: 'session.upsert', session: s });
+    const p = (projectOf.get(id) as { p: string | null } | undefined)?.p;
+    if (p) touched.add(p);
   }
-  for (const id of touched) {
-    const p = getProject(o.db, o.deviceId, live, id);
-    if (p) o.broadcast({ type: 'project.upsert', project: p });
-  }
+  for (const id of touched) touchRow(o.db, 'projects', id);
   return r;
 }
 
@@ -377,7 +381,13 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
 
   const claudeDir = opts.claudeDir ?? (settings.claudeDir || defaultClaudeDir());
   const db = openDb(dbPath(home));
-  const hub = new EventHub(VERSION);
+  const sockets = new EventHub(VERSION);
+  // 画面へ配る 1 層。DB の行の変化はここが DTO に組み直して配り、明示の知らせ（トーストなど）もここを通って同じ順に届く。
+  // 以下の hub はこの層である。WebSocket の束（sockets）へ直に配る箇所は無い。
+  // 受け手がいないあいだは行を読み直さない。起動時の全走査で、誰も受けない DTO を組まないためである。
+  const publisher = new Publisher({ db, deviceId: device.id, live: () => registry.current(), hub: sockets, active: () => sockets.clientCount() > 0 });
+  // 行のイベント（session.upsert など）は、ここからは渡せない（NoticeEvent）。行を書くか、touchRow で名指しする。
+  const hub: { broadcast(ev: NoticeEvent): void } = publisher;
   // 閉じたかどうか。閉じた後に届いた裏の読み取り（claude --help と --version）が、消えた置き場に書かないようにする。
   let closed = false;
   // Claude Code の形式のずれの記録（provider/claude-code/compat/）。端末ごとのファイルで、同期しない。
@@ -386,7 +396,9 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const compatLog = new CompatLog({ file: compatPath(home), localVersion: () => claudeVersion });
   compatLog.start();
   // 裏でサブエージェントだけが動いているものに、読み直しのたびに印を足す（live/aside.ts）。
-  const aside = new AsideReader(db);
+  // 右ペインの要約は、裏の印と HTTP（UI の取り直し）で 1 つの覚えを共有する。別々に持つと、長いセッションの同じ要約を二度作る。
+  const digester = new LiveDigester(db);
+  const aside = new AsideReader(db, digester);
   const registry = new RegistryWatcher(claudeDir, undefined, opts.registryIsGone, (live) => aside.apply(live, Date.now()), compatLog);
 
   // クラウド同期。cloud.json が無ければ client は null で、同期の状態は off になる。
@@ -565,37 +577,28 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
 
   indexer.on({
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
-    // Claude Code が本文を消して索引を片付けた。hasTranscript が偽に変わったことを配る。
-    transcriptGone: (e) => {
-      const s = getSession(db, registry.current(), e.sessionId, { deviceId: device.id });
-      if (s) hub.broadcast({ type: 'session.upsert', session: s });
-    },
+    // セッションの行（session.upsert）は、索引が行の変化の口へ知らせ、events/publisher.ts が配る。
+    // 本文が消えて hasTranscript が偽に変わったとき（transcriptGone）も同じ道である。
     sessionChanged: (e) => {
       // 手元のファイルだけを上げる。他端末の写し（deviceId が入っているもの）は持ち主が上げる。
       if (e.deviceId === null) uploader?.noteChanged({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
-      // 起動後に現れたセッションは project_id が空のままなので、ここで紐づけてから配る。
-      const row = db.prepare('select project_id from sessions where id = ?').get(e.sessionId) as { project_id: string | null } | undefined;
-      let assigned = row && row.project_id === null ? assignSession(db, device.id, e.sessionId) : null;
+      // 起動後に現れたセッションは project_id が空のままなので、ここで紐づける。
+      const row = db.prepare('select project_id, cwd from sessions where id = ? and deleted_at is null').get(e.sessionId) as { project_id: string | null; cwd: string } | undefined;
+      // 消されたセッションは配らない。
+      if (!row) return;
+      let assigned = row.project_id === null ? assignSession(db, device.id, e.sessionId) : null;
       // 当たるルートが無ければ、ワークスペース直下の新しいフォルダかを見て、起動時と同じ規則でその場でプロジェクトにする。
       // 起動の途中は syncProjectsFromWorkspace が受け持つので行わない。同じセッションで何度も試さない。
-      if (row && row.project_id === null && !assigned && started && !triedRegister.has(e.sessionId)) {
+      if (row.project_id === null && !assigned && started && !triedRegister.has(e.sessionId)) {
         triedRegister.add(e.sessionId);
-        const cwd = (db.prepare('select cwd from sessions where id = ?').get(e.sessionId) as { cwd: string }).cwd;
-        if (registerWorkspaceChildOf(db, device.id, settings.workspaceRoot, cwd)) assigned = assignSession(db, device.id, e.sessionId);
+        if (registerWorkspaceChildOf(db, device.id, settings.workspaceRoot, row.cwd)) assigned = assignSession(db, device.id, e.sessionId);
       }
-      // ロックを出すために自端末の ID を渡す。
-      const s = getSession(db, registry.current(), e.sessionId, { deviceId: device.id });
-      if (!s) return;
-      hub.broadcast({ type: 'session.upsert', session: s });
-      if (assigned) {
-        const p = getProject(db, device.id, registry.current(), assigned);
-        if (p) hub.broadcast({ type: 'project.upsert', project: p });
-      } else if (row && row.project_id === null) {
-        tellUnassigned(e.sessionId, s.cwd);
-      }
+      // 紐づいたプロジェクトは、行は書いていないが中身（セッションの数と最終活動）が変わったので、配り直しを頼む。
+      if (assigned) touchRow(db, 'projects', assigned);
+      else if (row.project_id === null) tellUnassigned(e.sessionId, row.cwd);
       if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
-      // 索引化が拾ったアーティファクトを配る。
-      for (const a of listArtifacts(db, { ids: e.artifactIds })) hub.broadcast({ type: 'artifact.upsert', artifact: a });
+      // 索引化が拾ったアーティファクト。書いたときにも知らせてあるが、本文の伸びの後に並ぶよう、ここでもう一度名指しする。
+      for (const id of e.artifactIds) touchRow(db, 'artifacts', id);
     },
     error: (e) => console.error('[indexer]', e.path, e.message),
   });
@@ -619,8 +622,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       // 行を残すと、再開した直後の要対応の札に前の run の問いが出てしまうので、問いだけを消す。
       if (!now.has(providerSessionId)) db.prepare('update session_activity set question = null where session_id = ?').run(sessionId);
       writeBaselineIfNeeded(db, sessionId, device.id, now.has(providerSessionId));
-      const s = getSession(db, live, sessionId, { deviceId: device.id });
-      if (s) hub.broadcast({ type: 'session.upsert', session: s });
+      // 実行中かどうかは行に無い。行は変わらなくても中身が変わるので、名指しして配り直してもらう。
+      touchRow(db, 'sessions', sessionId);
     }
     // 区切りを付けたセッションは、動きが変わると実行中に数えるか（parked）も変わる。
     // UI は live.update から動きしか直せないので、印の付いたものだけ行ごと配り直す。
@@ -629,11 +632,11 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       if (!sessionId) continue;
       // 動きが変わったら、休みの数え直しにする。
       parkWatch.reset(sessionId);
-      const s = getSession(db, live, sessionId, { deviceId: device.id });
-      if (s?.state?.status) hub.broadcast({ type: 'session.upsert', session: s });
+      if (getSessionState(db, sessionId)?.status) touchRow(db, 'sessions', sessionId);
     }
     liveStatus = new Map(live.map((l) => [l.sessionId, l.status]));
-    for (const p of listProjects(db, device.id, live)) hub.broadcast({ type: 'project.upsert', project: p });
+    // 実行中の数はどのプロジェクトでも変わりうるので、全部を名指しする。組むのは配る層で、受け手がいなければ組まない。
+    for (const p of db.prepare('select id from projects where deleted_at is null').all() as { id: string }[]) touchRow(db, 'projects', p.id);
     // hangar が起こした run に Claude の pid を書き込むのはここだけである。
     runs.linkRegistry(live);
   });
@@ -804,8 +807,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   runs.on({
     runStarted: (r) => {
       hub.broadcast({ type: 'run.started', run: r.run, tabs: r.tabs });
-      const s = getSession(db, registry.current(), r.sessionId, { deviceId: device.id });
-      if (s) hub.broadcast({ type: 'session.upsert', session: s });
+      // run が付いたセッションは、行は変わらなくても中身が変わる。run.started の後に届くよう、ここで名指しする。
+      touchRow(db, 'sessions', r.sessionId);
     },
     runUpdated: (run) => hub.broadcast({ type: 'run.upsert', run }),
     // run が終わったときは事後要約の契機になる。受け付けの可否は SummaryJob が決める。
@@ -837,7 +840,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     hub.broadcast({ type: 'sync.status', status: { ...s, skipped: syncSkipped(), sweepPending: syncSweep(), oncePass: syncOncePass() } });
   };
 
-  // 同期のイベントを hub に流す。pull で入れ替わった行は、そのまま画面に届ける。
+  // 同期のイベントを hub に流す。pull で入れ替わった行は、適用の側が行の変化の口へ知らせ、events/publisher.ts が画面に届ける。
   // 一時停止が解けたら取り直す。止まっている間は取りに行かないので、画面の値が古いままになる。
   let wasPaused = isPaused();
   engine.on({
@@ -849,16 +852,6 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       wasPaused = pausedNow;
     },
     toast: (level, message) => toast(level, message),
-    applied: (c) => {
-      // セッションに付く表（sessions、runs、session_summaries、session_states）の行なら、そのセッションを配り直す。
-      const sessionId = sessionIdOfChange(db, c);
-      const s = sessionId ? getSession(db, registry.current(), sessionId, { deviceId: device.id }) : null;
-      if (s) hub.broadcast({ type: 'session.upsert', session: s });
-      if (c.tableName === 'projects' || c.tableName === 'project_roots') {
-        for (const p of listProjects(db, device.id, registry.current())) hub.broadcast({ type: 'project.upsert', project: p });
-      }
-      if (c.tableName === 'devices') hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
-    },
     // メタデータの pull の後に、ファイルの新着を取りに行く。
     // 頼まれた 1 巡の最中は、その巡が自分で降ろしに行く（pausedPass の rest）。
     pulled: () => { if (!pausedPass.active()) pullFiles(); },
@@ -933,7 +926,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       engine.setClaudeConfigStatus({ enabled: settings.syncClaudeConfig, confirmed: syncState.get('configPullConfirmed') === '1' });
       return settings;
     },
-    live: () => registry.current(), indexer, hub, runs, external, usage, memos,
+    live: () => registry.current(), indexer, hub, runs, external, usage, memos, digester,
     summary: {
       enqueue: (id, opts) => summary.enqueue(id, opts),
       pending: () => summary.pending(),
@@ -993,7 +986,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   });
   handler = app.fetch;
 
-  hub.attach(server, { path: '/ws', token, port });
+  sockets.attach(server, { path: '/ws', token, port });
   relay.attach(server, '/ws/pty');
   // 経路を握る側は path が違えば黙って返すので、最後に未知の経路を切る番人を置く。
   // upgrade を受けた時点でこの接続は HTTP 側の管理から外れるため、誰も引き取らないと相手が待ち続ける。
@@ -1010,13 +1003,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   assignSessions(db, device.id);
   ensureScratchProject(db, device.id, home);
   // メモは DB とファイルの両方にある。起動時に食い違いを直し、以後はファイルの外部編集を監視で取り込む。
-  for (const m of memos.reconcileAll()) hub.broadcast({ type: 'memo.update', memo: m });
-  const stopMemoWatch = memos.watch((m) => {
-    hub.broadcast({ type: 'memo.update', memo: m });
-    const p = listProjects(db, device.id, registry.current()).find((x) => x.id === m.projectId);
-    if (p) hub.broadcast({ type: 'project.upsert', project: p });
-  });
-  const checkRootsNow = () => checkRoots({ db, deviceId: device.id, live: () => registry.current(), broadcast: (ev) => hub.broadcast(ev) });
+  // 取り込んだメモは project_memos の行を書くので、memo.update とプロジェクトの配り直しは events/publisher.ts が受け持つ。
+  memos.reconcileAll();
+  const stopMemoWatch = memos.watch(() => undefined);
+  const checkRootsNow = () => checkRoots({ db, deviceId: device.id, broadcast: (ev) => hub.broadcast(ev) });
   checkRootsNow();
   const rootTimer = setInterval(checkRootsNow, ROOT_CHECK_MS);
   rootTimer.unref();
@@ -1039,8 +1029,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   /** 自端末の生存を devices に刻む。他端末の Settings の一覧と、ロックの端末名と、包み方の状態がここから出る。 */
   function touchDevice(): void {
     const row = db.prepare('select * from devices where id = ?').get(device.id) as Record<string, unknown> | undefined;
+    // devices.update は、この行の知らせから events/publisher.ts が配る。
     upsertShared(db, 'devices', { ...(row ?? {}), id: device.id, name: device.name, platform: device.platform, last_seen_at: Date.now(), shell_hook: shellHook().state, deleted_at: null }, device.id);
-    hub.broadcast({ type: 'devices.update', devices: listDevices(db, device.id) });
   }
   touchDevice();
   const deviceTimer = setInterval(touchDevice, DEVICE_TOUCH_MS);
@@ -1120,7 +1110,10 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       relay.close();
       // WebSocket を先に畳み、残った keep-alive の接続を切ってから listen を閉じる。
       // この順でないと server.close が開いたままの接続を待ち続ける。
-      await hub.close();
+      // 溜まっている知らせを先に出し切ってから、配る層を止める。止めた後は DB を読みに行かない。
+      publisher.flush();
+      publisher.stop();
+      await sockets.close();
       server.closeAllConnections?.();
       await new Promise<void>((r) => server.close(() => r()));
       // 走っている要約は DB に書き込む。閉じた DB に触れさせないよう、ここで待ち切ってから閉じる。

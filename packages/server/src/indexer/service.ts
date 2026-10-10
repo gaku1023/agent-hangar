@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { IndexProgressDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
 import { listRemoteTranscriptFiles, listTranscriptFiles, readHistoryIndex, selectFilesToIndex, type HistoryEntry } from '../provider/claude-code/discover.ts';
 import type { TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
@@ -123,7 +124,11 @@ export class IndexerService {
         this.emitError(r.path, errorMessage(e));
       }
     }
-    for (const sessionId of gone) for (const l of this.listeners) l.transcriptGone?.({ sessionId });
+    for (const sessionId of gone) {
+      // 本文の索引（手元だけの表）が消えて、SessionDto の hasTranscript が変わった。行は書いていないので、配り直しを名指しで頼む。
+      touchRow(this.opts.db, 'sessions', sessionId);
+      for (const l of this.listeners) l.transcriptGone?.({ sessionId });
+    }
   }
 
   /** 1 ファイルを索引化し、変わっていたら土台の要約を書いて sessionChanged を出す。 */
@@ -136,6 +141,9 @@ export class IndexerService {
       if (file.deviceId === null && (file.agentId === null || r.appended > 0)) {
         writeBaselineIfNeeded(this.opts.db, r.sessionId, this.opts.deviceId, this.opts.isRunning(file.sessionId));
       }
+      // 索引は手元だけの表（本文の索引と集計）も書く。共有の行が動かなくても SessionDto は変わるので、配り直しを名指しで頼む。
+      // 画面へ配るのは events/publisher.ts で、ここでは DTO を組まない。
+      touchRow(this.opts.db, 'sessions', r.sessionId);
       for (const l of this.listeners) l.sessionChanged?.({ sessionId: r.sessionId, providerSessionId: file.sessionId, agentId: file.agentId, appended: r.appended, artifactIds: r.artifactIds, deviceId: file.deviceId, path: file.path });
       return true;
     } catch (e) {
