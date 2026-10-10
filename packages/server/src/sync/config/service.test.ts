@@ -479,7 +479,7 @@ describe('適用の指示書', () => {
       { id: 'file:CLAUDE.md', kind: 'claude-md', op: 'create', take: 'remote', fromDeviceId: 'dev-a', sha256: sha256Hex('rules'), target: 'CLAUDE.md' },
     ]);
     expect(JSON.parse(fs.readFileSync(file(b), 'utf8'))).toMatchObject({ version: 1, deviceId: 'dev-b', items: expect.any(Array) });
-    // Windows にはファイルのモードが無い。
+    // Windows のファイルには POSIX の権限が無い（読み書きできるものは 0o666 と出る）。
     if (process.platform !== 'win32') expect(fs.statSync(file(b)).mode & 0o777).toBe(0o600);
     expect(fs.readdirSync(b.claudeDir).sort()).toEqual(claudeBefore);
     expect(b.service.applyOrder()).toEqual(order);

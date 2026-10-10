@@ -957,9 +957,11 @@ fn restore_config_flow(app: &AppHandle, name: &str) -> configapply::Outcome {
 /// 件数と種類をネイティブの確認に見せ、承諾されたときだけ、控えを取って書く。サーバは `~/.claude` に書かない。
 #[tauri::command]
 async fn apply_config_sync(app: AppHandle) -> configapply::Outcome {
-    tauri::async_runtime::spawn_blocking(move || with_config_guard(&app, || apply_config_flow(&app)))
-        .await
-        .unwrap_or_else(|_| configapply::Outcome::simple("failed", "設定の適用の処理が止まりました。"))
+    tauri::async_runtime::spawn_blocking(move || {
+        with_config_guard(&app, || apply_config_flow(&app))
+    })
+    .await
+    .unwrap_or_else(|_| configapply::Outcome::simple("failed", "設定の適用の処理が止まりました。"))
 }
 
 /// 控えの世代へ戻す。UI の設定の「この世代に戻す」が呼ぶ。受け取るのは世代の名前（yyyyMMdd-HHmmss）だけで、形を確かめる。
