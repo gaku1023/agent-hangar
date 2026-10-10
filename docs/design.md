@@ -4070,7 +4070,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   台本は secret（`MACOS_SIGN_P12_BASE64` と `MACOS_SIGN_P12_PASSWORD`）の p12 を使い捨てのキーチェーンに入れ、`sign-macos.ts` で署名し、終わりにキーチェーンを消す。
   p12 の証明書と、署名に入った証明書の指紋を、署名の前と後で `certificate-sha1.txt` と比べ、違えば止まる。
   secret が 2 つとも無いとき（fork や、まだ入れていないとき）は、警告を出して未署名のまま続ける。
-  ランナーでは自作の証明書が信頼されていないと codesign が身元を見つけないので、使い捨てのランナーの中でだけ、管理者の領域でコード署名に限って信頼し、終わりに外す。
+  macOS 26 のランナーでは自作の証明書が信頼されていないと codesign が身元を見つけないので、使い捨てのランナーの中でだけ `prepare-signing-keychain.sh` で信頼と検索リストを整え、終わりに外す。
   この台本の回帰は、ci の desktop ジョブの試験（`apps/desktop/test/ci-sign-macos.test.ts`）が、その場で作った試しの証明書で拾う。
 - Gatekeeper：公証はせず、dmg（主）と zip（予備）に SHA-256 の checksum を添えて配る（2026-09-20 の決定、dmg は段 5 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る見込みである。以下は署名しない build の記述で、署名した build でも警告の出方は変わらない前提で読む。
   Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。

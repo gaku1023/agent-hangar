@@ -64,14 +64,16 @@ TMP="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/hangar-sign.XXXXXX")"
 chmod 700 "$TMP"
 KC="$TMP/hangar-sign.keychain-db"
 TRUSTED=""
-ORIG_LIST=""
+ORIG_LIST=()
+# sudo が認可を待って固まらないように、時間を切る（perl の alarm。macOS に timeout は無い）。
+bounded() { local s="$1"; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$s" "$@"; }
 cleanup() {
   set +e
-  if [ -n "$ORIG_LIST" ]; then
-    # shellcheck disable=SC2086
-    eval "security list-keychains -d user -s $ORIG_LIST" >/dev/null 2>&1
+  if [ "${#ORIG_LIST[@]}" -gt 0 ]; then security list-keychains -d user -s "${ORIG_LIST[@]}" >/dev/null 2>&1; fi
+  if [ -n "$TRUSTED" ]; then
+    bounded 30 sudo -n security remove-trusted-cert -d "$TMP/cert.cer" >/dev/null 2>&1
+    bounded 30 sudo -n security delete-certificate -Z "$(printf %s "$EXPECTED" | tr a-f A-F)" /Library/Keychains/System.keychain >/dev/null 2>&1
   fi
-  if [ -n "$TRUSTED" ]; then sudo -n security remove-trusted-cert -d "$TMP/cert.pem" >/dev/null 2>&1; fi
   [ -e "$KC" ] && security delete-keychain "$KC" >/dev/null 2>&1
   rm -rf "$TMP"
 }
@@ -102,16 +104,16 @@ security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PW" "$KC" >/dev
 rm -f "$TMP/sign.p12"
 
 if on_actions; then
-  # CI のランナーでは、自作の証明書が信頼されていないと codesign が身元を見つけない（CSSMERR_TP_NOT_TRUSTED）。
-  # 使い捨てのランナーの中でだけ、管理者の領域でコード署名の用途に限って信頼し、終わりに外す。
-  # 利用者の手元ではこの道を通らない（信頼の設定を書き換えない）。
-  if ! security find-identity -v -p codesigning "$KC" | grep -q ' 1 valid identities found'; then
-    sudo -n security add-trusted-cert -d -r trustRoot -p codeSign -k "$KC" "$TMP/cert.pem"
-    TRUSTED=1
-  fi
-  # codesign が --keychain の外も探すことがあるので、検索リストにも足す。終わりに元へ戻す。
-  ORIG_LIST="$(security list-keychains -d user | tr -d '\n')"
-  eval "security list-keychains -d user -s \"$KC\" $ORIG_LIST"
+  # macOS 26 のランナーでは、自作の証明書をコード署名用に信頼し、キーチェーンを検索リストへ足さないと、
+  # codesign が「no identity found」で落ちる（docs/signing.md の「署名する機械の前提」）。
+  # 信頼は機械全体の設定を書き換えるので、使い捨てのランナーの中でだけ行い、終わりに外す。利用者の手元ではこの道を通らない。
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"; line="${line%\"}"; line="${line#\"}"
+    [ -n "$line" ] && ORIG_LIST+=("$line")
+  done < <(security list-keychains -d user)
+  "$OSSL" x509 -in "$TMP/cert.pem" -outform DER -out "$TMP/cert.cer"
+  TRUSTED=1
+  bounded 120 bash "$HERE/prepare-signing-keychain.sh" --cer "$TMP/cert.cer" --keychain "$KC"
 fi
 
 (

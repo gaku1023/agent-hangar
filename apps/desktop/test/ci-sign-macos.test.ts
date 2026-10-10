@@ -59,8 +59,9 @@ function run(args: string[], env: Record<string, string> = {}): { status: number
     const v = process.env[k];
     if (v !== undefined) pass[k] = v;
   }
-  const r = spawnSync('bash', [SCRIPT, ...args], { encoding: 'utf8', env: { ...pass, ...env } });
-  return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
+  // 認可を待って固まったときに CI のジョブごと止まらないよう、時間を切る。
+  const r = spawnSync('bash', [SCRIPT, ...args], { encoding: 'utf8', env: { ...pass, ...env }, timeout: 240_000, stdio: ['ignore', 'pipe', 'pipe'] });
+  return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}${r.error ? `\n${String(r.error)}` : ''}` };
 }
 
 function fingerprintFile(dir: string, value: string): string {
@@ -106,7 +107,7 @@ describe.skipIf(!posix)('CI の署名の台本（secret の有無）', () => {
   });
 });
 
-describe.skipIf(!onMac)('CI の署名の台本（試しの証明書で実際に署名する）', () => {
+describe.skipIf(!onMac)('CI の署名の台本（試しの証明書で実際に署名する）', { timeout: 300_000 }, () => {
   const makeCert = (dir: string): { b64: string; fp: string } => {
     const out = path.join(dir, 'cert');
     const r = spawnSync('bash', [MAKE_CERT, '--out', out], {
