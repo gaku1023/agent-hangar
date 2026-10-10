@@ -1,4 +1,6 @@
 import { compatState, type UiAction, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
+import type { MuxCheck, State } from '../mediator/types.ts';
+import type { Store } from '../store/store.ts';
 import { readinessCompat } from './compat.ts';
 import type { BandAction, BandGroup, BandRow } from './home.ts';
 
@@ -14,6 +16,32 @@ export type ToolKey = 'tmux' | 'claude' | 'code' | 'node';
 /** tmux の役を担う道具の入れ方。Windows は psmux を入れる。 */
 export function muxInstallCommand(platform: string): string {
   return platform === 'win32' ? 'winget install marlocarlo.psmux' : 'brew install tmux';
+}
+
+/** tmux の役を担う道具の名前。Windows は psmux で、ほかは tmux である。 */
+export function muxName(platform: string): string {
+  return platform === 'win32' ? 'psmux' : 'tmux';
+}
+
+/**
+ * psmux（tmux）の状態（段 6 の案内）。ホームの帯の行（B1）、始める前のダイアログ（B2）、設定のツールの行（B3）が読む。
+ * windows は文を選ぶ印（PowerShell かターミナルか）、command は入れるコマンドである。
+ * checking は再確認の答えを待っている間、stillMissing は再確認しても見つからなかったこと（見つかったら立てない）。
+ */
+export type MuxStatus = { name: string; windows: boolean; installed: boolean; version: string | null; path: string | null; command: string; checking: boolean; stillMissing: boolean };
+
+/** 準備の確かめと再確認の進みから、psmux（tmux）の状態を作る。準備の確かめが届く前は null。 */
+export function presentMux(r: ReadinessDto | null, check: MuxCheck, platform: string = clientPlatform()): MuxStatus | null {
+  if (r === null) return null;
+  const c = r.tools.tmux;
+  return { name: muxName(platform), windows: platform === 'win32', installed: c.ok, version: c.ok ? c.version : null, path: c.ok ? c.path : null, command: muxInstallCommand(platform), checking: check === 'checking', stillMissing: !c.ok && check === 'missing' };
+}
+
+/** 始める前の案内のダイアログ（B2）。開いていなければ null。 */
+export function presentMuxGuide(state: State, store: Store, platform: string = clientPlatform()): { mux: MuxStatus } | null {
+  if (state.overlay.kind !== 'muxGuide') return null;
+  const mux = presentMux(store.readiness, state.muxCheck, platform);
+  return mux ? { mux } : null;
 }
 
 /**
@@ -118,10 +146,11 @@ const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.too
  * 互換のずれは、直すものとして残る（任意の札は付けない）。
  * 右端のボタンは 1 つで、いまは「設定を開く」か「コマンドをコピー」である（段 5 で文が替わるだけにする）。
  */
-export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform()): ReadinessBand | null {
+export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle'): ReadinessBand | null {
   if (!readinessPending(r)) return null;
   const checks = checksOf(r);
-  const name = (k: ReadinessKey) => t(`home.ready.name.${k}`);
+  // tmux の行は、Windows では psmux の名で出す（段 6）。
+  const name = (k: ReadinessKey) => (k === 'tmux' ? muxName(platform) : t(`home.ready.name.${k}`));
   const settings: UiAction = { type: 'nav.go', to: { name: 'settings' } };
   const action = (label: string, who: string, send: UiAction, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, send });
   const toSettings = (k: ReadinessKey) => action(t('home.ready.openSettings'), name(k), settings, true);
@@ -135,6 +164,7 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
     let text = '';
     let detail: string | null = null;
     let act: BandAction;
+    let extra: BandAction[] = [];
     switch (c.key) {
       case 'tmux':
       case 'claude': {
@@ -145,6 +175,12 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
         const command = c.key === 'tmux' && missing ? muxInstallCommand(platform) : null;
         detail = command;
         act = command ? copy(c.key, command) : toSettings(c.key);
+        if (c.key === 'tmux' && missing) text = t(check === 'missing' ? 'mux.status.stillMissing' : 'mux.status.notInstalled', { name: muxName(platform) });
+        // 入れたあとにその場で探し直せるよう、再確認を添える（段 6 の B1）。置いたファイルが消えたときも、探し直せば直る。
+        if (c.key === 'tmux' && (missing || tool.problem === 'missing')) {
+          const label = t(check === 'checking' ? 'mux.action.checking' : 'mux.action.recheck');
+          extra = [{ id: 'recheck', label, ariaLabel: t('home.band.actionFor', { action: label, name: name('tmux') }), primary: false, ghost: false, send: { type: 'mux.recheck' } }];
+        }
         break;
       }
       case 'workspace':
@@ -166,7 +202,7 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
         act = toSettings('compat');
         break;
     }
-    return { key: `ready:${c.key}`, lead: { kind: 'check', tone: c.tone === 'ng' ? 'ng' : 'soft', label: t(c.key === 'compat' ? 'home.ready.state.drift' : c.tone === 'ng' ? 'home.ready.state.ng' : 'home.ready.state.soft') }, name: name(c.key), badge: OPTIONAL.has(c.key) ? t('home.ready.optional') : null, context: null, text, detail, tone: null, trail: [], open: null, actions: [act] };
+    return { key: `ready:${c.key}`, lead: { kind: 'check', tone: c.tone === 'ng' ? 'ng' : 'soft', label: t(c.key === 'compat' ? 'home.ready.state.drift' : c.tone === 'ng' ? 'home.ready.state.ng' : 'home.ready.state.soft') }, name: name(c.key), badge: OPTIONAL.has(c.key) ? t('home.ready.optional') : null, context: null, text, detail, tone: null, trail: [], open: null, actions: [act, ...extra] };
   };
 
   /** 済んだものの行。畳んだ行を開いたときに出す。 */
@@ -193,5 +229,6 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
     progress: Math.round((done.length / total) * 100), summary: t('home.ready.summary', { n: todo.length }), morning: true, rows: todo.map(fixRow),
     fold: done.length > 0 ? { text: t('home.ready.fold', { names: done.map((c) => name(c.key)).join(t('home.ready.separator')) }), rows: done.map(doneRow) } : undefined,
   };
-  return { group, note: t(basics ? 'home.ready.noteStart' : 'home.ready.noteNeed', { n: todo.length }) };
+  // 欠けているときの文は、tmux の役の道具を OS の名で言う（Windows は psmux）。
+  return { group, note: basics ? t('home.ready.noteStart', { n: todo.length }) : t('home.ready.noteNeed', { mux: muxName(platform), n: todo.length }) };
 }

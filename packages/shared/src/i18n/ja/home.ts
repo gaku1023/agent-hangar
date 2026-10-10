@@ -42,7 +42,7 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.progress': '{total} つ中 {done} つ',
   'home.ready.summary': '設定の残り {n} 件',
   'home.ready.noteStart': 'もう始められます。設定の残りは {n} 件です',
-  'home.ready.noteNeed': '始めるには tmux と claude が必要です。設定の残りは {n} 件です',
+  'home.ready.noteNeed': '始めるには {mux} と claude が必要です。設定の残りは {n} 件です',
   'home.ready.optional': '任意',
   'home.ready.fold': '{names}は準備完了',
   'home.ready.separator': '、',

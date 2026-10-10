@@ -44,6 +44,20 @@ export function checkToolPath(p: string | null, homeDir: string = os.homedir(), 
   return { path: full, ok: true, problem: null };
 }
 
+/**
+ * 「再確認」で tmux の役の道具（Windows は psmux）を探し直す。見つかったパスを返し、変えないときは null を返す。
+ * 探すのは、設定が空のときと、設定したファイルが無くなったときだけである。
+ * 設定は最初の起動で一度だけ埋めるので、あとから psmux や tmux を入れた人は、押さない限り空のままになる。
+ * 動いている設定と、利用者が指したが実行できないファイルは変えない（設定の欄で直す）。
+ * 探し方（findMux）は PATH と既知の置き場を見る which にする。winget が入れた直後の道具は、動いているサーバの PATH に無いからである。
+ */
+export function recheckMuxPath(tmuxPath: string | null, findMux: () => string | null, homeDir: string = os.homedir(), pathEnv: string | undefined = process.env.PATH): string | null {
+  const c = checkToolPath(tmuxPath, homeDir, pathEnv);
+  if (c.ok || (c.problem !== 'unset' && c.problem !== 'missing')) return null;
+  const found = findMux();
+  return found !== null && found !== tmuxPath ? found : null;
+}
+
 /** 出力の中の最初の版らしい語。`tmux 3.4`、`2.3.1 (Claude Code)`、`v22.9.0`、`tmux next-3.5a` を読む。 */
 function versionOf(out: string): string | null {
   return out.match(/v?\d+(?:\.\d+)+[a-z]?/)?.[0] ?? null;

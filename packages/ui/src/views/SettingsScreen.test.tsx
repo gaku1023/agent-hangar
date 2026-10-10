@@ -857,3 +857,36 @@ describe('設定の読む面', () => {
     }
   });
 });
+
+// 段 6 の B3。ツールの節の先頭に、psmux（tmux）の状態の行を置く。
+describe('設定のツールの psmux と tmux の行', () => {
+  const missing = { name: 'psmux', windows: true, installed: false, version: null, path: null, command: 'winget install marlocarlo.psmux', checking: false, stillMissing: false };
+  it('未インストールなら札と入れるコマンドと再確認を出す', () => {
+    const onAction = vi.fn();
+    render(ui(at('tools', { mux: missing }), onAction));
+    const sec = within(screen.getByRole('region', { name: 'psmux' }));
+    expect(sec.getByText('未インストール')).toBeInTheDocument();
+    expect(sec.getByText('winget install marlocarlo.psmux')).toBeInTheDocument();
+    fireEvent.click(sec.getByRole('button', { name: '再確認' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'mux.recheck' });
+  });
+  it('再確認しても無ければ一言添え、確かめている間は押せない', () => {
+    const { unmount } = render(ui(at('tools', { mux: { ...missing, stillMissing: true } })));
+    expect(screen.getByText('psmux がまだ見つかりません。インストールしたあと、Hangar の再起動が必要な場合があります')).toBeInTheDocument();
+    unmount();
+    render(ui(at('tools', { mux: { ...missing, checking: true } })));
+    expect(screen.getByRole('button', { name: '確認中…' })).toBeDisabled();
+  });
+  it('インストール済みなら札と版とパスを出し、コマンドは出さない', () => {
+    render(ui(at('tools', { mux: { ...missing, name: 'tmux', windows: false, installed: true, version: '3.4', path: '/opt/homebrew/bin/tmux', command: 'brew install tmux' } })));
+    const sec = within(screen.getByRole('region', { name: 'tmux' }));
+    expect(sec.getByText('インストール済み')).toBeInTheDocument();
+    expect(sec.getByText('バージョン 3.4')).toBeInTheDocument();
+    expect(sec.queryByText('brew install tmux')).toBeNull();
+    expect(sec.getByRole('button', { name: '再確認' })).toBeEnabled();
+  });
+  it('準備の確かめが届く前は行を出さない', () => {
+    render(ui(at('tools', { mux: null })));
+    expect(screen.queryByRole('region', { name: 'psmux' })).toBeNull();
+  });
+});

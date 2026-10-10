@@ -157,6 +157,11 @@ export type ReadinessDto = {
   commands: { mcp: string; statusline: string; shell: string };
   compat: CompatSummaryDto;
 };
+/**
+ * psmux（tmux）の再確認（POST /api/readiness/mux）の答え。
+ * 探し直して見つかれば設定の tmuxPath を埋めるので、取り直した準備の確かめと一緒に、書いた後の設定も返す。
+ */
+export type MuxRecheckDto = { readiness: ReadinessDto; settings: SettingsDto };
 /** 完了の候補。sessionId はセッション別でない MCP の URL から出たとき null、note は根拠が無いとき null。 */
 export type TodoCandidateDto = { sessionId: string | null; note: string | null; at: number };
 /** candidate は完了の候補で、候補でなければ null。完了の行では必ず null である（サーバが読むときにそろえる）。 */

@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -164,16 +164,18 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    */
   const loadReadiness = () => {
     const seq = ++readinessSeq;
-    deps.api.readiness().then((r) => {
-      if (seq !== readinessSeq) return;
-      const before = store.readiness;
-      if (before && readinessPending(before) && !readinessPending(r)) toast(tr()(readinessComplete(r) ? 'home.ready.toast.done' : 'home.ready.toast.required'));
-      const drifts = readinessCompat(r)?.driftCount ?? 0;
-      if (drifts > 0) {
-        setStore({ ...store, readiness: r });
-        deps.api.compat().then((c) => { if (seq === readinessSeq) setStore({ ...store, compat: c }); }).catch(fail);
-      } else setStore({ ...store, readiness: r, compat: null });
-    }).catch(fail);
+    deps.api.readiness().then((r) => takeReadiness(seq, r)).catch(fail);
+  };
+  /** 準備の確かめの答えを Store に入れる。取り直し（loadReadiness）と再確認（api.recheckMux）が使う。 */
+  const takeReadiness = (seq: number, r: ReadinessDto) => {
+    if (seq !== readinessSeq) return;
+    const before = store.readiness;
+    if (before && readinessPending(before) && !readinessPending(r)) toast(tr()(readinessComplete(r) ? 'home.ready.toast.done' : 'home.ready.toast.required'));
+    const drifts = readinessCompat(r)?.driftCount ?? 0;
+    if (drifts > 0) {
+      setStore({ ...store, readiness: r });
+      deps.api.compat().then((c) => { if (seq === readinessSeq) setStore({ ...store, compat: c }); }).catch(fail);
+    } else setStore({ ...store, readiness: r, compat: null });
   };
   const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
@@ -395,6 +397,20 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       }
       case 'api.readiness': loadReadiness(); return;
+      case 'api.recheckMux': {
+        // 再確認の答えも準備の確かめなので、取り直しと同じ番号の列に並べる（古い答えで上書きしない）。
+        const seq = ++readinessSeq;
+        deps.api.recheckMux().then(({ readiness: r, settings }) => {
+          // 見つかればサーバが tmuxPath を埋めているので、設定の欄にも映す。
+          setStore({ ...store, settings });
+          takeReadiness(seq, r);
+          dispatch({ kind: 'runtime', event: { type: 'mux.checked', found: r.tools.tmux.ok } });
+        }).catch((err: unknown) => {
+          dispatch({ kind: 'runtime', event: { type: 'mux.checked', found: false } });
+          fail(err);
+        });
+        return;
+      }
       case 'shell.openLog':
         if (!deps.desktop) return;
         deps.desktop.openLog().catch((err: unknown) => failWith(tr()('runtime.shell.openLogFailed'), err));

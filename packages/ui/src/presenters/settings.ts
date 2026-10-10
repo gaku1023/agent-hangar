@@ -10,7 +10,7 @@ import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
-import { toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
+import { presentMux, toolLine, workspaceLine, type MuxStatus, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 
 // id は一覧の React の key に使う。1 台の Mac で 2 端末を模すと名前も最終確認も揃うので、一意なのは id だけである。
@@ -82,6 +82,8 @@ export type SettingsProps = {
    * 出せる環境か（available）と、受け取るか（on）。
    */
   notify: { available: boolean; on: boolean; blocked: boolean };
+  /** ツールの節の先頭の psmux（tmux）の状態の行（段 6 の B3）。準備の確かめが届く前は null。 */
+  mux?: MuxStatus | null;
   /** 欄の下の 1 行の検証（B1）。準備の確かめが届く前は null。 */
   verify: { workspace: VerifyLine | null; tmux: VerifyLine | null; claude: VerifyLine | null; code: VerifyLine | null; node: VerifyLine | null };
   /** hangar の MCP サーバが user スコープに載っているか。届く前は null。 */
@@ -218,6 +220,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     configSync: presentConfigSection(store, now, at === 'unsent'),
     shell,
     verify, todo,
+    mux: presentMux(r, state.muxCheck),
     compat: compatSummary ? presentCompat(t, compatSummary, store.compat, store.version) : null,
     mcpRegistered: r ? r.mcp.registered : null,
     save: state.settingsSave,
