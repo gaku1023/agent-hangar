@@ -58,10 +58,15 @@ jobs:
         working-directory: apps/desktop
       # 署名も公証もしない。
       # ditto で作った zip は Finder の展開でも .app の属性が保たれる。
-      - name: zip と checksum
+      # 配布物は dmg が主、zip が従（自動更新と予備）。
+      # dmg は tauri の dmg ターゲットでは作らず、ここで出来上がった .app から作る（理由は make-dmg.sh の頭）。
+      - name: dmg と zip と checksum
         run: |
           cd apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos
           name="Hangar-${GITHUB_REF_NAME}-macos-${{ matrix.arch }}"
+          bash "$GITHUB_WORKSPACE/apps/desktop/scripts/make-dmg.sh" Hangar.app "$name.dmg"
+          shasum -a 256 "$name.dmg" > "$name.dmg.sha256"
+          cat "$name.dmg.sha256"
           ditto -c -k --sequesterRsrc --keepParent Hangar.app "$name.zip"
           shasum -a 256 "$name.zip" > "$name.zip.sha256"
           cat "$name.zip.sha256"
@@ -69,6 +74,8 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: |
+            ${{ env.ASSET_DIR }}/*.dmg
+            ${{ env.ASSET_DIR }}/*.dmg.sha256
             ${{ env.ASSET_DIR }}/*.zip
             ${{ env.ASSET_DIR }}/*.zip.sha256
           # 資産が 1 つも付かない Release が黙って公開されるのを防ぐ。
