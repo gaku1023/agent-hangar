@@ -1,5 +1,4 @@
 import { DEFAULT_LANGUAGE, languageOf, type Language } from '@agent-hangar/shared';
-import type { Settings } from '../config/paths.ts';
 
 /**
  * いまの言語を返す関数。
@@ -12,7 +11,9 @@ export type GetLanguage = () => Language;
 export const defaultLanguage: GetLanguage = () => DEFAULT_LANGUAGE;
 
 /**
- * 設定から言語を読む関数を作る。サーバが言語の設定を読むのは、ここだけである。
+ * 設定から言語を読む関数を作る。動いているサーバが言語の設定を読むのは、ここだけである（起動に失敗したときの boot/bootError.ts を除く）。
  * 項目が無い古い設定と、知らない値は、既定の日本語として読む。
+ * 設定の型（config/paths.ts）を引かないのは、クラウドの試験が sync/client.ts を通ってここへ来るためである。
+ * 引くと、Node 専用の config/paths.ts までクラウドの型検査に入る。
  */
-export const languageReader = (settings: () => Pick<Settings, 'language'>): GetLanguage => () => languageOf(settings().language);
+export const languageReader = (settings: () => { language?: Language | undefined }): GetLanguage => () => languageOf(settings().language);

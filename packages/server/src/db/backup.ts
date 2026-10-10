@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
+import { causeOf, msg, MessageError } from '../i18n/message.ts';
 
 /** 控えを残す数。新しいものから数える。 */
 export const DB_BACKUP_GENERATIONS = 5;
@@ -8,9 +9,9 @@ export const DB_BACKUP_GENERATIONS = 5;
 const NAME = /^hangar-v(\d+)-(\d{8}T\d{9}Z)\.db$/;
 
 /** 控えが取れなかった。マイグレーションは当てていない。 */
-export class DbBackupError extends Error {
+export class DbBackupError extends MessageError {
   constructor(readonly file: string, cause: unknown) {
-    super(`DB の控えを ${file} に取れなかったので、マイグレーションを当てずに止めました（${cause instanceof Error ? cause.message : String(cause)}）。置き場に書けるか、空きがあるかを確かめてください`);
+    super(msg('db.backup.failed', { file, cause: causeOf(cause) }));
     this.name = 'DbBackupError';
   }
 }
@@ -62,7 +63,7 @@ export function backupDb(db: Database.Database, dir: string, lastVersion: number
 
 /** 置き場そのものがリンクだと、書くのも刈るのもリンクの先に出てしまう。無いのは構わない（これから作る）。 */
 function assertNotSymlink(dir: string): void {
-  if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('backups/db がシンボリックリンクなので控えを置きません');
+  if (fs.lstatSync(dir, { throwIfNoEntry: false })?.isSymbolicLink()) throw new MessageError(msg('db.backup.symlink'));
 }
 
 /**

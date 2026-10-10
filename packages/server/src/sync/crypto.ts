@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
+import { msg, MessageError } from '../i18n/message.ts';
 
 export const CHUNK_SIZE = 1 << 20;
 const MAGIC = Buffer.from('HGR1');
@@ -70,15 +71,15 @@ export function decryptStream(key: Buffer): Transform {
       try {
         if (!prefix) {
           if (buf.length < HEADER_LEN) return cb();
-          if (!buf.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error('暗号化ファイルの形式が違います');
+          if (!buf.subarray(0, MAGIC.length).equals(MAGIC)) throw new MessageError(msg('sync.crypto.badMagic'));
           prefix = Buffer.from(buf.subarray(MAGIC.length, HEADER_LEN));
           buf = buf.subarray(HEADER_LEN);
         }
         while (buf.length >= FRAME_HEAD) {
-          if (finished) throw new Error('最終チャンクの後にデータがあります');
+          if (finished) throw new MessageError(msg('sync.crypto.dataAfterFinal'));
           const flag = buf[0]!;
           const len = buf.readUInt32BE(1);
-          if (len > MAX_FRAME_LEN) throw new Error('チャンクの長さの申告が上限を超えています');
+          if (len > MAX_FRAME_LEN) throw new MessageError(msg('sync.crypto.frameTooLong'));
           if (buf.length < FRAME_HEAD + len + TAG_LEN) break;
           const body = buf.subarray(FRAME_HEAD, FRAME_HEAD + len);
           const tag = buf.subarray(FRAME_HEAD + len, FRAME_HEAD + len + TAG_LEN);
@@ -90,12 +91,12 @@ export function decryptStream(key: Buffer): Transform {
           buf = buf.subarray(FRAME_HEAD + len + TAG_LEN);
           if (flag === 1) finished = true;
         }
-        if (finished && buf.length > 0) throw new Error('最終チャンクの後にデータがあります');
+        if (finished && buf.length > 0) throw new MessageError(msg('sync.crypto.dataAfterFinal'));
         cb();
       } catch (e) { cb(e as Error); }
     },
     flush(cb) {
-      if (!finished) return cb(new Error('暗号化ファイルが切り詰められています（truncated）'));
+      if (!finished) return cb(new MessageError(msg('sync.crypto.truncated')));
       cb();
     },
   });

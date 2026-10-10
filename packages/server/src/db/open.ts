@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
+import { msg, MessageError } from '../i18n/message.ts';
 import { backupDb, defaultDbBackupDir } from './backup.ts';
 import { BASELINE_VERSION, MIGRATIONS, type Migration } from './migrations.ts';
 
@@ -11,9 +12,9 @@ export type Db = Database.Database;
 export type OpenDbOptions = { backupDir?: string; now?: () => Date; migrations?: Migration[] };
 
 /** 起点より古い版の DB だった。書き込み用には開いておらず、DB の中身は変えていない。 */
-export class DbTooOldError extends Error {
+export class DbTooOldError extends MessageError {
   constructor(readonly file: string, readonly found: number, readonly baseline: number) {
-    super(`DB（${file}）は版 ${found} で、このアプリが開けるのは版 ${baseline} 以降です。古い版から上げる道はもう無いので、DB の中身は変えず、マイグレーションも当てずに止めました。版 ${baseline} まで上げられる以前の版の Hangar で一度起動して DB を上げてから、このアプリをもう一度起動してください`);
+    super(msg('db.open.tooOld', { file, found, baseline }));
     this.name = 'DbTooOldError';
   }
 }

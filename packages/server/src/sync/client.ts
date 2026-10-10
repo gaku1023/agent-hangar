@@ -25,13 +25,15 @@ import {
   type PushChangesResponse,
   type SnapshotResponse,
 } from '@agent-hangar/shared';
+import { msg, MessageError, type Message } from '../i18n/message.ts';
 
 /**
  * クラウドの応答が 2xx でなかったときと、そもそも決着しなかったとき（status 0）に投げる。
  * message は応答本文の先頭 200 字なので、Worker の応答本文に秘密を入れてはいけない。
  */
-export class CloudError extends Error {
-  constructor(public readonly status: number, message: string) {
+export class CloudError extends MessageError {
+  /** 利用者に見せる文を持つ失敗（CompatError と LimitError）は、辞書の文を渡す。応答の本文は文字列のまま渡す。 */
+  constructor(public readonly status: number, message: Message | string) {
     super(message);
     this.name = 'CloudError';
   }
@@ -51,18 +53,16 @@ export const MIN_WORKER_COMPAT = 2;
 /** 上げるべき側。device はこの PC の hangar、worker はクラウドの Worker である。 */
 export type CompatUpgrade = 'device' | 'worker';
 
-function compatMessage(upgrade: CompatUpgrade, have: number, need: number | null): string {
-  if (upgrade === 'device') {
-    const want = need === null ? 'それより新しい版' : `${need} 以上`;
-    return `この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換の版は ${have}、クラウドが求めるのは ${want}）。この PC の hangar を更新してください`;
-  }
-  return `クラウドの Worker が古いので、同期を止めました（Worker の互換の版は ${have}、この PC が求めるのは ${need ?? '?'} 以上）。setup した PC で hangar setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください`;
+function compatMessage(upgrade: CompatUpgrade, have: number, need: number | null): Message {
+  if (upgrade === 'device') return need === null ? msg('sync.compat.deviceNewer', { have }) : msg('sync.compat.deviceNeed', { have, need });
+  return msg('sync.compat.worker', { have, need: need ?? '?' });
 }
 
 /**
  * 互換の版が合わないときに投げる。
  * Worker に 426 で断られたら device（この PC を上げる）、Worker の名乗った版がこちらの下限より古ければ worker（Worker を上げる）である。
- * message は CloudError と違って応答の本文ではなく、利用者に見せる文で、どちらを上げればよいかを書く（同期の状態の error にそのまま出る）。
+ * message は CloudError と違って応答の本文ではなく、利用者に見せる文で、どちらを上げればよいかを書く（同期の状態の error に出る）。
+ * 辞書の文は text が持つので、出す側（SyncEngine）がそのときの言語の文にする。message は既定の言語（日本語）の文である。
  * status は 426 に揃える。届いた要求として無料枠に数える既存の分岐（status が 0 でない）に、そのまま乗る。
  * 直りようのない 4xx として諦める所（uploader の isPermanentStatus）は、426 を一時の失敗として扱う。
  */
@@ -73,10 +73,10 @@ export class CompatError extends CloudError {
   }
 }
 
-const LIMIT_LABEL: Record<CloudLimitKind, string> = {
-  'd1-read': 'Cloudflare の無料枠の上限（D1 の 1 日の読み取り）に達しました',
-  'd1-write': 'Cloudflare の無料枠の上限（D1 の 1 日の書き込み）に達しました',
-  requests: 'Cloudflare の無料枠の上限（Workers の 1 日の要求）に達しました',
+const LIMIT_LABEL: Record<CloudLimitKind, Message> = {
+  'd1-read': msg('sync.limit.d1Read'),
+  'd1-write': msg('sync.limit.d1Write'),
+  requests: msg('sync.limit.requests'),
 };
 
 /**

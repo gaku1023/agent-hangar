@@ -5,6 +5,8 @@ import { createGunzip } from 'node:zlib';
 import { PULL_LIMIT, type FileEntry } from '@agent-hangar/shared';
 import { remoteRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
+import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
+import { errorText, msg, MessageError } from '../i18n/message.ts';
 import { CompatError, LimitError, type CloudClient } from './client.ts';
 import { decryptStream, sha256Stream } from './crypto.ts';
 import type { SyncStateStore } from './state.ts';
@@ -18,9 +20,12 @@ export type PullerDeps = {
   state: SyncStateStore;
   onError?: (key: string, message: string) => void;
   now?: () => number;
+  /**
+   * いまの言語。諦めた項目の理由（利用者に見せる）を、この言語の文で残す。省くと日本語。
+   * 残した理由は書いた時点の言語のままで、言語を変えても書き直さない（次の失敗で新しい言語になる）。
+   */
+  language?: GetLanguage;
 };
-
-const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /**
  * 同じ項目で続けて失敗してよい回数。これを超えたら飛ばして先に進む。
@@ -81,9 +86,9 @@ function parseSkip(raw: string): SkipRecord | null {
  * ここを通さずに R2 の申告した文字列で組み立てると、~/.claude のような外の場所へ書けてしまう。
  */
 export function remoteTranscriptPath(home: string, deviceId: string, rel: string): string {
-  if (!/^[A-Za-z0-9._-]+$/.test(deviceId) || deviceId === '.' || deviceId === '..') throw new Error(`PC の ID が不正です: ${deviceId}`);
+  if (!/^[A-Za-z0-9._-]+$/.test(deviceId) || deviceId === '.' || deviceId === '..') throw new MessageError(msg('sync.pull.badDevice', { id: deviceId }));
   const norm = path.posix.normalize(rel);
-  if (!norm.startsWith('projects/') || norm.split('/').includes('..') || norm.startsWith('/')) throw new Error(`本文の相対パスが不正です: ${rel}`);
+  if (!norm.startsWith('projects/') || norm.split('/').includes('..') || norm.startsWith('/')) throw new MessageError(msg('sync.pull.badPath', { path: rel }));
   return path.join(remoteRoot(home), deviceId, ...norm.split('/'));
 }
 
@@ -95,8 +100,8 @@ export function remoteTranscriptPath(home: string, deviceId: string, rel: string
 function checkKeyMatchesPath(e: FileEntry): void {
   const parts = path.posix.normalize(e.path).split('/');
   const suffix = parts.slice(2).join('/');
-  if (parts[0] !== 'projects' || parts.length < 3 || suffix === '') throw new Error(`本文の相対パスが不正です: ${e.path}`);
-  if (e.key !== `transcripts/${e.deviceId}/${suffix}.gz`) throw new Error('本文の鍵と相対パスが食い違っています');
+  if (parts[0] !== 'projects' || parts.length < 3 || suffix === '') throw new MessageError(msg('sync.pull.badPath', { path: e.path }));
+  if (e.key !== `transcripts/${e.deviceId}/${suffix}.gz`) throw new MessageError(msg('sync.pull.keyMismatch'));
 }
 
 /**
@@ -128,6 +133,9 @@ export class RemotePuller {
   constructor(private readonly deps: PullerDeps) {
     this.now = deps.now ?? (() => Date.now());
   }
+
+  /** 失敗の理由を、いまの言語の文にする。辞書の文を持たない失敗（応答の本文、OS の失敗）は message のまま。 */
+  private errorText(e: unknown): string { return errorText((this.deps.language ?? defaultLanguage)(), e); }
 
   /** 仕事を鎖の末尾につなぐ。前の仕事が転んでも次は走る。 */
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -228,7 +236,7 @@ export class RemotePuller {
         // 版が合わずに断られたのと、上限で断られたのは、この項目のせいではない。
         // 諦めた回数と理由を書き換えずに、その回の残りの取り直しも打ち切る（呼び手の pullNow ごと投げる）。
         if (err instanceof CompatError || err instanceof LimitError) throw err;
-        this.writeSkip(key, { ...rec, count: rec.count + 1, message: errorMessage(err), at: this.now() });
+        this.writeSkip(key, { ...rec, count: rec.count + 1, message: this.errorText(err), at: this.now() });
       }
     }
     return downloaded;
@@ -264,7 +272,7 @@ export class RemotePuller {
         } catch (err) {
           // 版が合わずに断られたのと、上限で断られたのは、この項目のせいではない。諦めに数えずに回ごと止め、filesSeq も進めない。
           if (err instanceof CompatError || err instanceof LimitError) throw err;
-          if (this.noteFailure(e.key, [e], e.sha256, errorMessage(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
+          if (this.noteFailure(e.key, [e], e.sha256, this.errorText(err))) minFailed = minFailed === null ? e.seq : Math.min(minFailed, e.seq);
         }
       }
       // その回の出発点より下がらないようにする。
@@ -285,7 +293,7 @@ export class RemotePuller {
     checkKeyMatchesPath(e);
     // 決定 5 のとおり、本文は必ず暗号化して置く。
     // 申告を鵜呑みにして平文の道を開けておくと、暗号化していない本文が降りてくる筋が残る。
-    if (!e.encrypted) throw new Error(`本文が暗号化されていません: ${e.key}`);
+    if (!e.encrypted) throw new MessageError(msg('sync.pull.notEncrypted', { key: e.key }));
     const target = remoteTranscriptPath(this.deps.home, e.deviceId, e.path);
     const prev = this.deps.db.prepare('select sha256 from file_sync where key = ?').get(e.key) as { sha256: string } | undefined;
     if (prev?.sha256 === e.sha256 && fs.existsSync(target)) return false;
@@ -302,7 +310,7 @@ export class RemotePuller {
       // pipeline でつなぐ。裸の pipe だと復号の error が未処理になってプロセスごと落ちる。
       await pipeline(body, decryptStream(this.deps.key), createGunzip(), fs.createWriteStream(tmp, { mode: FILE_MODE }));
       const sha = await sha256Stream(fs.createReadStream(tmp));
-      if (sha !== e.sha256) throw new Error(`本文の SHA-256 が一致しません: ${e.key}`);
+      if (sha !== e.sha256) throw new MessageError(msg('sync.pull.shaMismatch', { key: e.key }));
       // 本物の名前を付ける前に落とし切る。電源が落ちても、中身の無いファイルが本物として残らない。
       // copy.ts の copyOverAtomically と同じ規則である。
       const fd = fs.openSync(tmp, 'r+');

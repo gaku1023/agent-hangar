@@ -647,6 +647,29 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
   });
 });
 
+describe('SyncEngine の文の言語', () => {
+  it('language を渡すと、失敗の理由と知らせをその言語で出す。失敗の理由は出した時点の言語のまま残る', async () => {
+    let language: 'ja' | 'en' = 'en';
+    const e = make({ language: () => language });
+    await e.start();
+    const toasts: string[] = [];
+    e.on({ toast: (_l, m) => toasts.push(m) });
+    // 大きすぎる行の知らせ
+    project('big');
+    rejectOversize(cloud, (id) => id === 'big');
+    await e.pushNow();
+    expect(toasts).toEqual(["One row of projects (big) is too large to sync (195 KiB, limit 128 KiB). It stays on this computer but will not reach other computers"]);
+    // 互換の版の失敗の理由
+    cloud.minDeviceCompat = COMPAT_VERSION + 1;
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+    expect(e.status().error).toContain("This computer's hangar is out of date");
+    language = 'ja';
+    expect(e.status().error).toContain("This computer's hangar is out of date");
+  });
+});
+
 describe('互換の版', () => {
   /** Worker の下限を上げて、書き込みの push を断らせる。push で止まった状態を作る。 */
   const blockOnPush = async (e: SyncEngine): Promise<void> => {

@@ -61,6 +61,22 @@ describe('boot-error.json を書く（writeBootError）', () => {
     expect(read(home)).toEqual({ kind: 'db-too-old', params: { file: '/x/hangar.db', found: 3, baseline: 16 }, detail: expect.stringContaining('版 3') });
   });
 
+  it('置き場の設定の言語で detail を書く。設定が無い、壊れている、知らない言語なら日本語', () => {
+    const e = new DbTooOldError('/x/hangar.db', 3, 16);
+    const detailIn = (home: string): unknown => { writeBootError(home, e); return (read(home) as { detail: string }).detail; };
+    const withSettings = (name: string, text: string): string => {
+      const home = path.join(root, name);
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(path.join(home, 'settings.json'), text);
+      return home;
+    };
+    expect(detailIn(withSettings('en', '{"language":"en"}'))).toContain('is at version 3');
+    expect(detailIn(withSettings('ja', '{"language":"ja"}'))).toContain('版 3');
+    expect(detailIn(withSettings('broken', '{ not json'))).toContain('版 3');
+    expect(detailIn(withSettings('unknown', '{"language":"fr"}'))).toContain('版 3');
+    expect(detailIn(path.join(root, 'none'))).toContain('版 3');
+  });
+
   it('前の失敗は新しい失敗で置き換わり、書きかけの一時ファイルは残らない', () => {
     writeBootError(root, new Error('first'));
     writeBootError(root, new Error('second'));

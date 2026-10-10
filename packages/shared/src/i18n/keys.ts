@@ -52,6 +52,7 @@ import { toastsKeys } from './keys/toasts.ts';
 import { cloudUsageKeys } from './keys/cloudUsage.ts';
 import { readinessKeys } from './keys/readiness.ts';
 import { compatKeys } from './keys/compat.ts';
+import { dbKeys } from './keys/db.ts';
 
 /**
  * 文言の鍵の一覧。鍵ごとに、その文が受け取る引数の名前を並べる。
@@ -120,6 +121,7 @@ export const MESSAGES = {
   ...cloudUsageKeys,
   ...readinessKeys,
   ...compatKeys,
+  ...dbKeys,
 } as const satisfies MessageSpec;
 
 export type MessageKey = keyof typeof MESSAGES;

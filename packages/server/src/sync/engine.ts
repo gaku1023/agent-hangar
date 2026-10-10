@@ -1,6 +1,8 @@
-import { MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, MAX_PUSH_BATCH, nextUtcMidnight, PULL_LIMIT, type ChangeIn, type ChangeOp, type Language, type ChangeOut, type SharedTable, type SnapshotResponse, type SyncStateKind, type SyncStatusDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { onRowChange } from '../db/notify.ts';
+import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
+import { errorText, msg, render } from '../i18n/message.ts';
 import { noteApplied } from '../db/notify.ts';
 import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
 import { CloudError, CompatError, goneFloor, LimitError, type CloudClient } from './client.ts';
@@ -32,6 +34,11 @@ export type SyncEngineDeps = {
    * 一時ディレクトリで起こしたつもりが実物へ書く事故になる。結線側から必ず渡す。
    */
   home?: string;
+  /**
+   * いまの言語。利用者に見せる文（知らせの札と、同期の状態の失敗の理由）をこの言語で出す。省くと日本語。
+   * 失敗の理由は出した時点の言語のままで、言語を変えても書き直さない（次の失敗で新しい言語になる）。
+   */
+  language?: GetLanguage;
 };
 
 export type SyncListener = {
@@ -64,16 +71,16 @@ const LIMIT_RETRY_MS = 5 * 60_000;
  * tz は試験が時間帯を決めて文そのものを確かめるためにある。
  * 文は試作（docs/superpowers/specs/2026-10-08-stage1-quota-backoff/usage.html）の Q2 で決めた。
  */
-export function limitedMessage(until: number, tz?: string): string {
-  const at = new Intl.DateTimeFormat('ja-JP', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(until);
-  return `Cloudflare の無料枠の上限に達したので、${at} まで同期を止めます。枠が戻ると自動で再開します`;
+export function limitedMessage(until: number, tz?: string, language: Language = DEFAULT_LANGUAGE): string {
+  const at = new Intl.DateTimeFormat(language === 'en' ? 'en-US' : 'ja-JP', { hour: 'numeric', minute: '2-digit', timeZone: tz }).format(until);
+  return render(language, msg('sync.limit.stopped', { time: at }));
 }
 /**
  * 利用者が自分で一時停止している間に頼んだ 1 巡が、上限で断られたときの知らせ。
  * 止めたのは利用者なので、戻る時刻も自動で再開するとも言わない。
  */
-export function limitedWhilePausedMessage(): string {
-  return 'Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです';
+export function limitedWhilePausedMessage(language: Language = DEFAULT_LANGUAGE): string {
+  return render(language, msg('sync.limit.stoppedPaused'));
 }
 /**
  * 持ち越して覚えておく行の上限。
@@ -88,13 +95,15 @@ export const MAX_CARRIED_ROWS = 5_000;
  */
 export const ORPHAN_KEEP_DAYS = 30;
 
-const RESYNC_MESSAGE = 'クラウドの変更ログが古くなっていたので、同期を作り直しました';
+/** クラウドの変更ログが圧縮で消えた区間を指していたので、写しから同期を作り直したときの知らせ。 */
+export function resyncedMessage(language: Language = DEFAULT_LANGUAGE): string {
+  return render(language, msg('sync.resync.rebuilt'));
+}
 
 const REAL_TIMERS: Timers = { setTimeout, clearTimeout, setInterval, clearInterval };
 
 type ChangeRow = { seq: number; table_name: SharedTable; row_id: string; op: ChangeOp; payload: string; updated_at: number; device_id: string };
 
-const errorMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const unref = (h: NodeJS.Timeout): void => { (h as { unref?: () => void }).unref?.(); };
 
 type OversizeRow = { tableName: string; rowId: string; bytes: number; limit: number };
@@ -173,6 +182,9 @@ export class SyncEngine {
   }
 
   protected now(): number { return this.deps.now ? this.deps.now() : Date.now(); }
+  protected language(): Language { return (this.deps.language ?? defaultLanguage)(); }
+  /** 失敗の理由を、いまの言語の文にする。辞書の文を持たない失敗（応答の本文、OS の失敗）は message のまま。 */
+  protected errorText(e: unknown): string { return errorText(this.language(), e); }
   protected get paused(): boolean { return this.state.get('paused') === '1'; }
   /**
    * 一時停止のまま、利用者が頼んだ 1 巡を通している最中か。
@@ -219,7 +231,7 @@ export class SyncEngine {
     this.state.set('limitedUntil', until);
     if (was === null || was !== until) {
       console.warn(`[sync] ${e.message}`);
-      this.emit('toast', 'info', this.paused && this.onePass ? limitedWhilePausedMessage() : limitedMessage(until));
+      this.emit('toast', 'info', this.paused && this.onePass ? limitedWhilePausedMessage(this.language()) : limitedMessage(until, undefined, this.language()));
     }
     return true;
   }
@@ -239,10 +251,10 @@ export class SyncEngine {
   protected get lastError(): string | null { return this.pushError ?? this.pullError; }
 
   /** 失敗の理由を残す。CloudError の message は応答本文の先頭 200 字なので、Worker は本文に秘密を入れない。 */
-  protected failPush(e: unknown): void { if (this.noteLimit(e)) return; this.pushError = errorMessage(e); this.noteCompat(e); this.persistError(); }
-  protected failPull(e: unknown): void { if (this.noteLimit(e)) return; this.pullError = errorMessage(e); this.noteCompat(e); this.persistError(); }
+  protected failPush(e: unknown): void { if (this.noteLimit(e)) return; this.pushError = this.errorText(e); this.noteCompat(e); this.persistError(); }
+  protected failPull(e: unknown): void { if (this.noteLimit(e)) return; this.pullError = this.errorText(e); this.noteCompat(e); this.persistError(); }
   /** 版が合わないと分かったら止める。理由の文は CompatError が持っている（どちらを上げればよいか）。 */
-  private noteCompat(e: unknown): void { if (e instanceof CompatError) this.compatBlock = e.message; }
+  private noteCompat(e: unknown): void { if (e instanceof CompatError) this.compatBlock = this.errorText(e); }
   protected clearPushError(): void { if (this.pushError === null) return; this.pushError = null; this.persistError(); }
   protected clearPullError(): void { if (this.pullError === null) return; this.pullError = null; this.persistError(); }
   private persistError(): void { this.state.set('lastError', this.lastError); }
@@ -441,7 +453,7 @@ export class SyncEngine {
     if (this.oversizeTold.has(key)) return true;
     this.oversizeTold.add(key);
     const kib = (n: number) => Math.round(n / 1024);
-    this.emit('toast', 'error', `${named.tableName} の 1 行（${named.rowId}）が大きすぎるので同期できません（${kib(named.bytes)} KiB、上限 ${kib(named.limit)} KiB）。手元には残りますが、他の PC には届きません`);
+    this.emit('toast', 'error', render(this.language(), msg('sync.oversize.row', { table: named.tableName, id: named.rowId, size: kib(named.bytes), limit: kib(named.limit) })));
     return true;
   }
 
@@ -696,7 +708,7 @@ export class SyncEngine {
         if (goneFloor(e) === null) throw e;
         this.state.set('lastSeq', null);
         this.state.set('snapshotDone', null);
-        this.emit('toast', 'info', RESYNC_MESSAGE);
+        this.emit('toast', 'info', resyncedMessage(this.language()));
         // 作り直しは写しから始まるので、ここで二度目の 410 は出ない（出たら普通の失敗として扱う）。
         await this.pullPass(client, count);
       }
