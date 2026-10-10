@@ -3812,7 +3812,7 @@ heartbeat は 30 秒ごとの push で更新する。
 ## 配布と運用
 
 リポジトリは public で、MIT ライセンスで公開している（`LICENSE`、著作権者は `gaku1023`）。
-GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` をビルドして Releases に置く。
+GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` と Windows 用の NSIS のインストーラをビルドして Releases に置く。
 `.app` は署名せず、zip と SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
@@ -4025,8 +4025,11 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   win32-x64 の束は、`bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
   cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直し（HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows の順）は `launch-cli.mjs` が行う。
   殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、PATH の順に探す。Node 本体は Windows でも同梱しない。
-- Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる。署名はしない（2026-10-10 の決定）。CI の windows ジョブが `tauri build --bundles nsis` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消してから、インストーラを実行の artifact に 7 日だけ残す。Release へ上げる手順（`release.yml`）と、updater の署名鍵と目録は、まだ入れていない。
-- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知とターミナルで打った `claude` の包みはまだ無い。
+- Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消すところまでを行う。
+  CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。
+  タグの `release.yml` では、windows ジョブが同じ手順で作って `Hangar-<タグ>-windows-x64-setup.exe` と `.sha256` を artifact に置き、`windows-upload` ジョブが macos ジョブの後でそれを macos ジョブの作った Release に `gh release upload` で添える。Release を作るのは macos ジョブだけで、書き込みの権限もこの 2 つのジョブだけが持つ。
+  updater の署名鍵と目録は、まだ入れていない。
+- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知はまだ無い。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
 - Gatekeeper：Developer ID での署名も公証もせず、zip と SHA-256 の checksum を添えて配る（2026-09-20 の決定）。
   Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
   署名しないという決めのもとでは、これが既定の姿である。
