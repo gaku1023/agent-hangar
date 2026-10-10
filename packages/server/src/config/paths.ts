@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isLanguage, newId, type ConfigApproval, type Language, type TerminalApp } from '@agent-hangar/shared';
+import { defaultTerminalApp, isLanguage, newId, terminalAppFor, type ConfigApproval, type Language, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
@@ -105,14 +105,17 @@ export function readOrCreateDevice(home: string): DeviceInfo {
   return info;
 }
 
-function defaultSettings(): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null };
+function defaultSettings(platform: NodeJS.Platform = process.platform): Settings {
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null };
 }
 
-export function loadSettings(home: string): Settings {
+/** platform は試験のための差し込み口で、外部ターミナルの既定と読み替えに使う。 */
+export function loadSettings(home: string, platform: NodeJS.Platform = process.platform): Settings {
   const file = path.join(home, 'settings.json');
-  if (!fs.existsSync(file)) return defaultSettings();
-  const s = { ...defaultSettings(), ...(JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Settings>) };
+  if (!fs.existsSync(file)) return defaultSettings(platform);
+  const s = { ...defaultSettings(platform), ...(JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Settings>) };
+  // 別の OS で保存した外部ターミナル（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定に読み替える。
+  s.terminalApp = terminalAppFor(s.terminalApp, platform);
   // 旧実装の設定の同期のスイッチ（syncClaudeConfig）は、設定の同期を作り直したときに消した。
   // 入れていた人の settings.json にはまだ残っているので、未知の鍵として読み捨てる（保存し直すと消える）。
   delete (s as Record<string, unknown>).syncClaudeConfig;

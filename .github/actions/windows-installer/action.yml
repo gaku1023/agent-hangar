@@ -1,0 +1,62 @@
+name: Windows のインストーラを作る
+description: >-
+  NSIS のインストーラ（署名なし）を作り、静かに入れて同梱の hangar.cmd が動くことを見てから、静かに消す。
+  ci と release の windows ジョブが同じ手順を使うためにここへまとめてある。
+  呼ぶ前に checkout、Node 22、npm ci --ignore-scripts、Rust（target 入り）をそろえておく。
+inputs:
+  target:
+    description: Rust の target（x86_64-pc-windows-msvc）。tauri build の --target に渡す。
+    required: true
+outputs:
+  setup:
+    description: できたインストーラのパス（リポジトリの根からの相対、区切りは /）。
+    value: ${{ steps.find.outputs.setup }}
+runs:
+  using: composite
+  steps:
+    # server-dist は beforeBuildCommand（npm run bundle-server）が作る。UI の dist が先に要るので build を先に回す。
+    # 束の target（win32-x64 の prebuild）は、bundle-server がこの機械の Node から決める。
+    - name: UI と サーバをビルドする
+      shell: pwsh
+      run: npm run build
+    # 置き場を先に空ける。target はキャッシュから戻るので、前の版のインストーラが残っていると 2 つになる。
+    - name: インストーラを作る
+      shell: pwsh
+      env:
+        TARGET: ${{ inputs.target }}
+      run: |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "apps/desktop/src-tauri/target/$env:TARGET/release/bundle/nsis"
+        npm run tauri -w apps/desktop -- build --bundles nsis --target $env:TARGET
+    - name: インストーラの名前、大きさ、SHA-256
+      id: find
+      shell: pwsh
+      env:
+        TARGET: ${{ inputs.target }}
+      run: |
+        $dir = "apps/desktop/src-tauri/target/$env:TARGET/release/bundle/nsis"
+        $files = @(Get-ChildItem $dir -Filter '*-setup.exe')
+        if ($files.Count -ne 1) { throw "NSIS のインストーラが 1 つでない（$($files.Count) 個）" }
+        $f = $files[0]
+        '{0}  {1:N1} MB  {2}' -f $f.Name, ($f.Length / 1MB), (Get-FileHash -Algorithm SHA256 $f.FullName).Hash
+        Add-Content -Path $env:GITHUB_OUTPUT -Value "setup=$dir/$($f.Name)"
+    # 管理者権限なし（ユーザー単位）で静かに入る。入った先の同梱の hangar.cmd が、Node を見つけて cli.mjs を動かす。
+    # 入れた先は %LOCALAPPDATA%\Hangar（NSIS のユーザー単位の既定）。レイアウトを決め打ちしすぎないよう、hangar.cmd は探して使う。
+    # アプリ本体は起動しない（窓を持つので CI では動かさない）。
+    - name: 静かに入れ、同梱の hangar.cmd を動かし、静かに消す
+      shell: pwsh
+      env:
+        SETUP: ${{ steps.find.outputs.setup }}
+      run: |
+        $p = Start-Process -FilePath (Resolve-Path $env:SETUP).Path -ArgumentList '/S' -Wait -PassThru
+        if ($p.ExitCode -ne 0) { throw "インストーラが終了コード $($p.ExitCode) で終わった" }
+        $dir = Join-Path $env:LOCALAPPDATA 'Hangar'
+        if (-not (Test-Path $dir)) { Get-ChildItem $env:LOCALAPPDATA | Format-Table Name; throw "$dir に入っていない" }
+        Get-ChildItem $dir | Format-Table Name, Length
+        $cmd = Get-ChildItem $dir -Recurse -Filter hangar.cmd | Select-Object -First 1
+        if (-not $cmd) { throw '同梱の hangar.cmd が入っていない' }
+        $out = & $cmd.FullName --help 2>&1 | Out-String
+        $out
+        if ($LASTEXITCODE -ne 0 -or $out -notmatch 'setup') { throw "hangar.cmd --help が動かない（終了コード $LASTEXITCODE）" }
+        # _?= を付けると、消す側が自分を写さずその場で動き、終わるまで待てる。
+        $u = Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList "/S _?=$dir" -Wait -PassThru
+        if ($u.ExitCode -ne 0) { throw "アンインストーラが終了コード $($u.ExitCode) で終わった" }

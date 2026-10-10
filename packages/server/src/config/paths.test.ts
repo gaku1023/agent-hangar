@@ -61,8 +61,20 @@ describe('paths', () => {
   it('古い settings.json に無い項目は既定値で埋める', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
-    const s = loadSettings(tmp);
+    const s = loadSettings(tmp, 'darwin');
     expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null });
+  });
+  it('外部ターミナルの既定は OS で決め、別の OS で保存した値はその OS の既定に読み替える', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
+    expect(loadSettings(tmp, 'win32').terminalApp).toBe('windowsTerminal');
+    // macOS で iTerm2 を選んだ設定を Windows へ持っていったとき、またはその逆。
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c', terminalApp: 'iterm' }));
+    expect(loadSettings(tmp, 'darwin').terminalApp).toBe('iterm');
+    expect(loadSettings(tmp, 'win32').terminalApp).toBe('windowsTerminal');
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c', terminalApp: 'windowsDefault' }));
+    expect(loadSettings(tmp, 'win32').terminalApp).toBe('windowsDefault');
+    expect(loadSettings(tmp, 'darwin').terminalApp).toBe('terminal');
   });
   it('旧い設定の同期のスイッチ（syncClaudeConfig）が入った settings.json も読め、未知の鍵として持ち越さない', () => {
     // 設定の同期の作り直し（段 4）で旧実装を消した。旧スイッチを入れていた人の settings.json は、そのまま起動できる。

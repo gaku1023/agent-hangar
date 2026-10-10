@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execFile, openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
+import { cmdQuote, execFile, openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
 import { expectMode, posixIt } from '../../test/platform.ts';
 
 let home: string;
@@ -84,6 +84,88 @@ describe('openInTerminalApp', () => {
     const command = JSON.parse(script.split('create window with default profile command ')[1]!.split('\n')[0]!) as string;
     expect(command).toBe(`cd '/w/alpha' && exec "\${SHELL:-/bin/zsh}" -l`);
     expect(fs.readFileSync(writeCdCommand(home, '/w/alpha'), 'utf8')).toBe(`#!/usr/bin/env bash\n${command}\nexit\n`);
+  });
+});
+
+// Windows の 2 つの経路。フェイクの exec で、起こすコマンドと引数だけを確かめる。
+describe('openInTerminalApp（Windows）', () => {
+  const PSMUX = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links\\psmux.exe';
+  type Seen = { cmd: string; args: string[]; verbatim: boolean | undefined };
+  let seen: Seen[];
+  const winExec =
+    (results: Record<string, number> = {}): Exec =>
+    async (cmd, args, opts) => {
+      seen.push({ cmd, args, verbatim: opts?.verbatim });
+      return { code: results[cmd] ?? 0, stdout: '', stderr: '' };
+    };
+  beforeEach(() => { seen = []; });
+
+  it('Windows Terminal は wt.exe の新しいタブで、完全一致の名前に attach する', async () => {
+    const r = await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-ab12cd34', app: 'windowsTerminal', exec: winExec() });
+    expect(r).toEqual({ app: 'windowsTerminal', fellBack: false });
+    // 引数は配列のまま渡す。空白や日本語の引用は Node が Windows の規則で付ける。
+    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '--', PSMUX, 'attach', '-t', '=hangar-ab12cd34'], verbatim: undefined }]);
+    // 何もファイルを書かない。
+    expect(fs.existsSync(path.join(home, 'cmd'))).toBe(false);
+  });
+  it('Windows Terminal に渡す空白と日本語の名前は 1 つの引数のまま、; は wt の区切りにならないよう \\; にする', async () => {
+    await openInTerminalApp({ home, tmuxPath: 'C:\\Program Files\\psmux\\psmux.exe', tmuxName: '作業 1;2', app: 'windowsTerminal', exec: winExec() });
+    expect(seen[0]!.args).toEqual(['-w', '0', 'new-tab', '--', 'C:\\Program Files\\psmux\\psmux.exe', 'attach', '-t', '=作業 1\\;2']);
+  });
+  it('既定のターミナルは cmd /c start で新しい窓を開き、パスと名前を二重引用符で包む', async () => {
+    const r = await openInTerminalApp({ home, tmuxPath: 'C:\\Program Files\\psmux\\psmux.exe', tmuxName: '日本語 の セッション', app: 'windowsDefault', exec: winExec() });
+    expect(r).toEqual({ app: 'windowsDefault', fellBack: false });
+    // start の最初の引用は窓の題名と読まれるので、空の "" を先に置く。
+    // 引数は Node に引用させず、そのまま cmd.exe に渡す（Node の \" は cmd.exe に通じない）。
+    expect(seen).toEqual([{
+      cmd: 'cmd.exe',
+      args: ['/d', '/v:off', '/s', '/c', '"start "" "C:\\Program Files\\psmux\\psmux.exe" attach -t "=日本語 の セッション""'],
+      verbatim: true,
+    }]);
+  });
+  it('既定のターミナルでは、cmd.exe が引用符の中でも読む % を引用の外へ出して ^ で消す', async () => {
+    await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'a%PATH%b & c', app: 'windowsDefault', exec: winExec() });
+    expect(seen[0]!.args[4]).toBe(`"start "" "${PSMUX}" attach -t "=a"^%"PATH"^%"b & c""`);
+  });
+  it('Windows Terminal が無ければ既定のターミナルに落とし、落ちたことを返す', async () => {
+    const r = await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', app: 'windowsTerminal', exec: winExec({ 'wt.exe': 1 }) });
+    expect(r).toEqual({ app: 'windowsDefault', fellBack: true });
+    expect(seen.map((c) => c.cmd)).toEqual(['wt.exe', 'cmd.exe']);
+  });
+  it('既定のターミナルも開けなければ投げる', async () => {
+    await expect(openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', app: 'windowsDefault', exec: winExec({ 'cmd.exe': 1 }) })).rejects.toThrow(/既定のターミナル/);
+  });
+  // " は Windows のファイル名に使えず、どちらの経路でも引用を破る。開けるふりをして別のものを起こさないよう、断る。
+  it('" や改行を含む名前とパスは、起こさずに断る', async () => {
+    await expect(openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'a" & calc & "', app: 'windowsDefault', exec: winExec() })).rejects.toThrow(/開けません/);
+    await expect(openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'a\nb', app: 'windowsTerminal', exec: winExec() })).rejects.toThrow(/開けません/);
+    expect(seen).toEqual([]);
+  });
+  it('フォルダを開くとき、Windows Terminal は -d でそのフォルダの新しいタブを開く', async () => {
+    const r = await openDirInTerminalApp({ home, dir: 'D:\\work space\\日本語', app: 'windowsTerminal', exec: winExec() });
+    expect(r).toEqual({ app: 'windowsTerminal', fellBack: false });
+    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '-d', 'D:\\work space\\日本語'], verbatim: undefined }]);
+  });
+  it('フォルダを開くとき、既定のターミナルは start /D でそのフォルダの PowerShell を開く', async () => {
+    await openDirInTerminalApp({ home, dir: 'D:\\work space\\日本語\\', app: 'windowsDefault', exec: winExec() });
+    // 末尾の \ は取る。"…\" の \" を引用の終わりと読み違える道具がある。
+    expect(seen).toEqual([{ cmd: 'cmd.exe', args: ['/d', '/v:off', '/s', '/c', '"start "" /D "D:\\work space\\日本語" powershell.exe -NoLogo"'], verbatim: true }]);
+  });
+  it('ドライブの直下は末尾の \\ を残す', async () => {
+    await openDirInTerminalApp({ home, dir: 'C:\\', app: 'windowsDefault', exec: winExec() });
+    expect(seen[0]!.args[4]).toBe('"start "" /D "C:\\" powershell.exe -NoLogo"');
+  });
+});
+
+// 引用の組み立てを、実物の cmd.exe に読ませて確かめる。start の代わりに node を起こし、受け取った引数を見る。
+describe.skipIf(process.platform !== 'win32')('cmd.exe の引用（実物）', () => {
+  it('空白、日本語、%、& を含む引数が、そのままの 1 つの引数として届く', async () => {
+    const script = path.join(home, 'argv.cjs');
+    fs.writeFileSync(script, 'process.stdout.write(JSON.stringify(process.argv.slice(2)))');
+    const words = ['=日本語 の セッション', 'a%PATH%b & c', 'x^y|z<w>(v)'];
+    const r = await execFile('cmd.exe', ['/d', '/v:off', '/s', '/c', `"${[process.execPath, script, ...words].map(cmdQuote).join(' ')}"`], { verbatim: true });
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual(words);
   });
 });
 

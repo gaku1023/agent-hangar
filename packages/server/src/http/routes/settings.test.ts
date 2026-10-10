@@ -9,6 +9,11 @@ import { upsertShared } from '../../db/shared.ts';
 import { SESSION_OTHER } from '../../../test/fixtures.ts';
 import { createApp, type RunsApi } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
+import { isWindows } from '../../../test/platform.ts';
+import { terminalAppsFor } from '@agent-hangar/shared';
+
+/** 動いている OS の、既定でないほうの外部ターミナル。macOS は iTerm2、Windows は既定のターミナル。 */
+const OTHER_TERMINAL = terminalAppsFor(process.platform)[1]!;
 
 // 設定の経路（routes/settings.ts）の試験。依存は testDeps() で組み、createApp を通して /api の下から叩く。
 
@@ -114,7 +119,9 @@ describe('routes', () => {
     expect(await error({ codePath: 3 })).toBe('「code のパス」の値の形が違います');
     expect(await error({ nodePath: 3 })).toBe('「Node のパス」の値の形が違います');
     expect(await error({ claudePath: 3 })).toBe('「claude のパス」の値の形が違います');
-    expect(await error({ terminalApp: 'kitty' })).toBe('「ターミナルアプリ」は Terminal.app か iTerm2 から選んでください');
+    // 選択肢は動いている OS のものだけで、文も OS で変わる。
+    expect(await error({ terminalApp: 'kitty' })).toBe(isWindows ? '「ターミナルアプリ」は Windows Terminal か既定のターミナルから選んでください' : '「ターミナルアプリ」は Terminal.app か iTerm2 から選んでください');
+    expect(await error({ terminalApp: isWindows ? 'iterm' : 'windowsTerminal' })).toMatch(/^「ターミナルアプリ」は/);
     expect(await error({ lmStudioUrl: 'ftp://x' })).toBe('「LM Studio の URL」は http か https で始まる URL にしてください');
     expect(await error({ lmStudioModel: 3 })).toBe('「モデル」の値の形が違います');
     expect(await error({ summaryFallback: 'yes' })).toBe('「LM Studio が使えないとき Claude へ切り替える」の値の形が違います');
@@ -182,7 +189,7 @@ describe('routes', () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     // 実物の置き場（/opt/homebrew/bin/tmux）は PC によって無いので、偽の道具を置いて指す。
     const tmuxBin = exe('tmux');
-    expect(await (await patch({ terminalApp: 'iterm', tmuxPath: tmuxBin })).json()).toMatchObject({ terminalApp: 'iterm', tmuxPath: tmuxBin });
+    expect(await (await patch({ terminalApp: OTHER_TERMINAL, tmuxPath: tmuxBin })).json()).toMatchObject({ terminalApp: OTHER_TERMINAL, tmuxPath: tmuxBin });
     expect((await patch({ terminalApp: 'kitty' })).status).toBe(400);
     expect((await patch({ tmuxPath: 3 })).status).toBe(400);
     expect((await (await patch({ codePath: null })).json()).codePath).toBeNull();
@@ -264,7 +271,7 @@ describe('設定の往復', () => {
         ['workspaceRoot', ws2],
         ['claudeDir', dir2],
         ['tmuxPath', exe('tmux')],
-        ['terminalApp', 'iterm'],
+        ['terminalApp', OTHER_TERMINAL],
         ['codePath', exe('code')],
         ['lmStudioUrl', 'http://127.0.0.1:9999'],
         ['lmStudioModel', 'gemma-3'],
