@@ -482,7 +482,7 @@ describe('DB の控えが取れないとき', () => {
     const err = await withPendingMigration(() => runSetupCloud({ home, device, wrangler: w.runner(null, cloudDir), fetch: ff.fetch, sleep: async () => {}, cloudDir, log: () => {} }).then(() => null, (e: unknown) => e));
     // 元の文に、次にすることの 1 文が続く。
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toContain('マイグレーションを当てずに止めました');
+    expect((err as Error).message).toContain('マイグレーションを適用せずに停止しました');
     expect((err as Error).message).toContain('Cloudflare にはまだ何も作っていません。直してから hangar setup cloud をもう一度実行してください。');
     expect((err as Error).message).not.toContain('\n');
     expect(w.calls).toEqual([]);
@@ -499,7 +499,7 @@ describe('DB の控えが取れないとき', () => {
     const f = (async (input: string | URL | Request) => { urls.push(String(input)); return new Response('{}', { status: 500 }); }) as typeof fetch;
     const err = await withPendingMigration(() => runJoin({ home, token: encodeJoinToken({ url: 'https://h.workers.dev', secret: 'sec' }), device, fetch: f, sleep: async () => {}, force: true, log: () => {} }).then(() => null, (e: unknown) => e));
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toContain('マイグレーションを当てずに止めました');
+    expect((err as Error).message).toContain('マイグレーションを適用せずに停止しました');
     expect((err as Error).message).toContain('参加の要求はまだ出していません。直してから hangar join をもう一度実行してください。');
     expect((err as Error).message).not.toContain('\n');
     expect(urls).toEqual([]);

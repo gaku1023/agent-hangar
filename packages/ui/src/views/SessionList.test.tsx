@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { pagerOf } from '../presenters/pager.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
 import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/sessions.ts';
@@ -9,7 +9,7 @@ import { LoadMore, panelConditionCount, SessionList, StatusTabs } from './Sessio
 const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const TABS: StatusTabProps[] = ([['all', 'すべて', '12'], ['proposed', '確認待ち', '1'], ['active', 'Active', '5'], ['paused', 'Paused', '2'], ['done', 'Done', '4'], ['archived', 'Archived', '0']] as [StatusTab, string, string][]).map(([tab, label, count]) => ({ tab, label, count, hot: tab === 'proposed' }));
 const listProps = (over: Partial<SessionListProps> = {}): SessionListProps => ({ text: '', filter: {}, projects: [{ id: 'p1', name: 'alpha' }, { id: 'p2', name: 'beta' }], rows: [row('a'), row('b')], total: 2, loading: false, mode: 'all', conditions: [], tabs: TABS, tab: 'all', pager: null, statusColumn: true, tokens: [], hints: [], allCount: 12, ...over });
-const mountList = (over: Partial<SessionListProps> = {}, extra: Partial<Parameters<typeof SessionList>[0]> = {}, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><div className="host"><SessionList {...listProps(over)} {...extra} /></div></IntentRoot>), onIntent });
+const mountList = (over: Partial<SessionListProps> = {}, extra: Partial<Parameters<typeof SessionList>[0]> = {}, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><div className="host"><SessionList {...listProps(over)} {...extra} /></div></ActionRoot>), onAction });
 
 describe('SessionList（ホームとプロジェクトの画面が使う部品）', () => {
   it('見出しを持たず、タブ、欄と絞り込みのボタン、行を 1 つの組として並べる。絞り込みはボタンを押すまで出さない', () => {
@@ -28,12 +28,12 @@ describe('SessionList（ホームとプロジェクトの画面が使う部品�
     expect(host.querySelector('.sessions-filters')).toBeNull();
   });
   it('状態のタブ、欄、絞り込みの語は search.* の意図で出す', () => {
-    const { onIntent } = mountList();
+    const { onAction } = mountList();
     fireEvent.click(within(screen.getByRole('group', { name: '状態' })).getByRole('button', { name: /^Done/ }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'done' } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'done' } });
     fireEvent.click(screen.getByRole('button', { name: '絞り込み' }));
     fireEvent.keyDown(screen.getByLabelText('操作したファイル'), { key: 'Enter' });
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { file: undefined } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { file: undefined } });
   });
   it('プロジェクトを固定するときは、絞り込みにプロジェクトの選択を出さず、ボタンの数にも入れない', () => {
     mountList({ filter: { projectId: 'p1' } }, { projectFixed: true });
@@ -50,9 +50,9 @@ describe('SessionList（ホームとプロジェクトの画面が使う部品�
     expect(document.querySelectorAll('.row-proj')).toHaveLength(2);
   });
   it('欄の語を消すボタンは、いまの絞り込みを添えて出す（プロジェクトの画面で、画面を移さずに語だけを外すため）', () => {
-    const { onIntent } = mountList({ text: '動画', filter: { status: 'done' } });
+    const { onAction } = mountList({ text: '動画', filter: { status: 'done' } });
     fireEvent.click(screen.getByRole('button', { name: 'キーワードを消す' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.query', text: '', filter: { status: 'done' } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.query', text: '', filter: { status: 'done' } });
   });
   it('ボタンの印に数えるのは、絞り込みの中にあるプロジェクト、期間、操作したファイルだけ', () => {
     expect(panelConditionCount({})).toBe(0);
@@ -69,9 +69,9 @@ describe('SessionList（ホームとプロジェクトの画面が使う部品�
     expect(screen.queryByRole('status', { name: '絞り込みの条件' })).toBeNull();
   });
   it('条件の無い一覧はページ送りで、ページの番号と件数を意図で出す', () => {
-    const { onIntent } = mountList({ pager: pagerOf(1, 25, 60) });
+    const { onAction } = mountList({ pager: pagerOf(1, 25, 60) });
     fireEvent.click(screen.getByRole('button', { name: '2 ページ目' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.page', page: 2 });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.page', page: 2 });
   });
   it('一致が無い検索は、空の文を出す', () => {
     mountList({ rows: [], total: 0, mode: 'search', conditions: ['『x』'], text: 'x' });
@@ -112,9 +112,9 @@ describe('LoadMore（検索の「さらに読み込む」）', () => {
 
 describe('StatusTabs（部品としての単独）', () => {
   it('件数つきで並べ、選んだタブを意図で出す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><StatusTabs tabs={TABS} tab="active" /></IntentRoot>);
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><StatusTabs tabs={TABS} tab="active" /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: /^Paused/ }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'paused' } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'paused' } });
   });
 });

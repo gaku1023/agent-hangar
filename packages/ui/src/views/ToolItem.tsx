@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { DiffLine } from '../presenters/diff.ts';
 import { safeHref } from '../presenters/markdown.ts';
 import type { TranscriptItem } from '../presenters/session.ts';

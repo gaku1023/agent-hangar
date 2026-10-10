@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { translator, type Intent, type ProjectDto, type ReadinessDto, type SessionDto } from '@agent-hangar/shared';
+import { translator, type UiAction, type ProjectDto, type ReadinessDto, type SessionDto } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentHomeBand, type AttentionCard, type BandGroup, type ConfirmCard, type ReturnCard, type RunningCard } from '../presenters/home.ts';
 import { presentReadiness } from '../presenters/readiness.ts';
 import { presentUnresolved } from '../presenters/unresolved.ts';
@@ -19,17 +19,17 @@ const busy = { attention: [waiting('a'), waiting('b')], returning: [reminder('r'
 
 const unresolved: BandGroup = {
   id: 'unresolved', label: '場所の不明なプロジェクト', icon: 'alert', tone: 'default', count: 1, summary: '1 件', morning: false,
-  rows: [{ key: 'pj:p1', lead: { kind: 'todo' }, name: 'old-shop', context: null, text: '前のパス /w/old-shop', detail: null, tone: null, trail: [], open: null, actions: [{ id: 'relocate', label: '場所を再指定', ariaLabel: '場所を再指定、old-shop', primary: false, ghost: false, intent: { type: 'nav.go', to: { name: 'projects' } } }] }],
+  rows: [{ key: 'pj:p1', lead: { kind: 'todo' }, name: 'old-shop', context: null, text: '前のパス /w/old-shop', detail: null, tone: null, trail: [], open: null, actions: [{ id: 'relocate', label: '場所を再指定', ariaLabel: '場所を再指定、old-shop', primary: false, ghost: false, send: { type: 'nav.go', to: { name: 'projects' } } }] }],
 };
 
 function mount(input: Parameters<typeof presentHomeBand>[0], opts: { searching?: boolean; extra?: BandGroup[]; note?: string | null } = {}) {
-  const onIntent = vi.fn<(i: Intent) => void>();
+  const onAction = vi.fn<(i: UiAction) => void>();
   const band = presentHomeBand(input, ja, opts.extra);
   const ui = (b: typeof band, searching?: boolean) => (
-    <LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><HomeBand {...b} searching={searching} note={opts.note} /></IntentRoot></LanguageRoot>
+    <LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeBand {...b} searching={searching} note={opts.note} /></ActionRoot></LanguageRoot>
   );
   const view = render(ui(band, opts.searching));
-  return { onIntent, rerender: (input2: Parameters<typeof presentHomeBand>[0], searching?: boolean) => view.rerender(ui(presentHomeBand(input2, ja, opts.extra), searching)), container: view.container };
+  return { onAction, rerender: (input2: Parameters<typeof presentHomeBand>[0], searching?: boolean) => view.rerender(ui(presentHomeBand(input2, ja, opts.extra), searching)), container: view.container };
 }
 const pill = (name: string | RegExp) => screen.getByRole('button', { name });
 
@@ -144,22 +144,22 @@ describe('HomeBand の引き出し', () => {
 });
 
 describe('HomeBand の行', () => {
-  it('行のボタンは、見える語と相手の名前を読み上げの名前にし、押すと Intent を発行する', () => {
+  it('行のボタンは、見える語と相手の名前を読み上げの名前にし、押すと UiAction を発行する', () => {
     const m = mount(busy);
     const drawer = screen.getByRole('region', { name: '要対応' });
     fireEvent.click(within(drawer).getByRole('button', { name: 'ターミナルで回答、待ち a' }));
-    expect(m.onIntent).toHaveBeenLastCalledWith({ type: 'session.open', id: 'a', focus: 'terminal' });
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'session.open', id: 'a', focus: 'terminal' });
     fireEvent.click(within(drawer).getByRole('button', { name: 'Done、戻る r' }));
-    expect(m.onIntent).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 'r', status: 'done' });
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 'r', status: 'done' });
   });
 
   it('名前を押すと、そのセッションかプロジェクトを開く', () => {
     const m = mount(busy);
     fireEvent.click(within(screen.getByRole('region', { name: '要対応' })).getByRole('button', { name: '待ち b' }));
-    expect(m.onIntent).toHaveBeenLastCalledWith({ type: 'session.open', id: 'b' });
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'session.open', id: 'b' });
     fireEvent.click(pill('確認待ち 2'));
     fireEvent.click(within(screen.getByRole('region', { name: '確認待ち' })).getByRole('button', { name: 'やる t1' }));
-    expect(m.onIntent).toHaveBeenLastCalledWith({ type: 'project.open', id: 'alpha' });
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'project.open', id: 'alpha' });
   });
 
   it('開く先の無い行の名前は、ボタンにしない', () => {
@@ -222,11 +222,11 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
   });
 
   it('「設定を開く」は設定へ、「コマンドをコピー」は命令を写す', () => {
-    const { onIntent } = open();
+    const { onAction } = open();
     fireEvent.click(screen.getByRole('button', { name: '設定を開く、プロジェクトの親フォルダ' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
     fireEvent.click(screen.getByRole('button', { name: 'コマンドをコピー、MCP サーバー' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
   });
 
   it('済んだものは 1 行に畳む。押すと見つかった場所の行が開き、もう一度押すと閉じる', () => {
@@ -251,7 +251,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
   it('English では語が替わる', () => {
     const en = translator('en');
     const b = presentReadiness(READY, en)!;
-    render(<LanguageRoot language="en"><IntentRoot onIntent={() => {}}><HomeBand {...presentHomeBand(none, en, [b.group])} note={b.note} /></IntentRoot></LanguageRoot>);
+    render(<LanguageRoot language="en"><ActionRoot onAction={() => {}}><HomeBand {...presentHomeBand(none, en, [b.group])} note={b.note} /></ActionRoot></LanguageRoot>);
     expect(screen.getByRole('button', { name: /^Setup check 3 of 6$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'tmux, claude, Claude Code compatibility: ready' })).toBeInTheDocument();
   });
@@ -280,21 +280,21 @@ describe('HomeBand の場所の不明なプロジェクト（2.11.5）', () => {
     expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(['alpha', '場所を再指定', 'Archived にする', '一覧から削除']);
   });
 
-  it('「場所を再指定」は project.resolve.open を発行する。ダイアログを開くのは、この Intent だけである', () => {
-    const { onIntent } = mount(busy, { extra: [group([lost('alpha')])] });
-    expect(onIntent).not.toHaveBeenCalled();
+  it('「場所を再指定」は project.resolve.open を発行する。ダイアログを開くのは、この UiAction だけである', () => {
+    const { onAction } = mount(busy, { extra: [group([lost('alpha')])] });
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.click(pill('場所の不明なプロジェクト 1'));
     fireEvent.click(screen.getByRole('button', { name: '場所を再指定、alpha' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
   });
 
-  it('「Archived にする」と「一覧から削除」は、それぞれの解決の Intent を発行する', () => {
-    const { onIntent } = mount(busy, { extra: [group([lost('alpha')])] });
+  it('「Archived にする」と「一覧から削除」は、それぞれの解決の UiAction を発行する', () => {
+    const { onAction } = mount(busy, { extra: [group([lost('alpha')])] });
     fireEvent.click(pill('場所の不明なプロジェクト 1'));
     fireEvent.click(screen.getByRole('button', { name: 'Archived にする、alpha' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'archive' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'archive' } });
     fireEvent.click(screen.getByRole('button', { name: '一覧から削除、alpha' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'unlink' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'unlink' } });
   });
 
   it('朝には開かない（要対応が開いている）', () => {

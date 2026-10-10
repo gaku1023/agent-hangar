@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ProjectDto } from '@agent-hangar/shared';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentToasts, type ToastsProps } from '../presenters/toasts.ts';
 import { initialStore } from '../store/store.ts';
@@ -13,9 +13,9 @@ const storeOf = (list: ProjectDto[]) => ({ ...initialStore(), projects: Object.f
 
 const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, ...over });
 function mount(p: ToastsProps, language: 'ja' | 'en' = 'ja') {
-  const onIntent = vi.fn();
-  render(<LanguageRoot language={language}><IntentRoot onIntent={onIntent}><ToastStack {...p} /></IntentRoot></LanguageRoot>);
-  return { onIntent };
+  const onAction = vi.fn();
+  render(<LanguageRoot language={language}><ActionRoot onAction={onAction}><ToastStack {...p} /></ActionRoot></LanguageRoot>);
+  return { onAction };
 }
 
 describe('presentToasts の他の PC から届いたプロジェクト（2.11.5）', () => {
@@ -41,12 +41,12 @@ describe('他の PC から届いたプロジェクトの札', () => {
     expect(screen.getByRole('button', { name: 'あとで決める' })).toBeInTheDocument();
   });
 
-  it('「プロジェクトで見る」と「あとで決める」は、それぞれの Intent を発行する', () => {
-    const { onIntent } = mount(props({ arrived: { count: 3 } }));
+  it('「プロジェクトで見る」と「あとで決める」は、それぞれの UiAction を発行する', () => {
+    const { onAction } = mount(props({ arrived: { count: 3 } }));
     fireEvent.click(screen.getByRole('button', { name: 'プロジェクトで見る' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'projects.arrived.view' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'projects.arrived.view' });
     fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'projects.arrived.dismiss' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'projects.arrived.dismiss' });
   });
 
   it('時間では消えない（利用者が決めるまで残る）。件数が無ければ札を出さない', () => {
@@ -58,10 +58,10 @@ describe('他の PC から届いたプロジェクトの札', () => {
   });
 
   it('ダイアログが開いている間は「プロジェクトで見る」を押せない。「あとで決める」は押せる', () => {
-    const { onIntent } = mount(props({ arrived: { count: 1 }, blocked: true }));
+    const { onAction } = mount(props({ arrived: { count: 1 }, blocked: true }));
     expect(screen.getByRole('button', { name: 'プロジェクトで見る' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'projects.arrived.dismiss' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'projects.arrived.dismiss' });
   });
 
   it('English では語が替わる', () => {

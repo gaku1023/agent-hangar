@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import type { TranscriptItem } from '../presenters/session.ts';
 import { toolItem } from '../test/items.ts';
 import { Transcript, rowWindow } from './Transcript.tsx';
@@ -12,46 +12,46 @@ const items: TranscriptItem[] = [
 
 // jsdom はレイアウトを持たないので、寸法とスクロール位置を定義して流し込む。
 function setup(follow: boolean, live = true) {
-  const onIntent = vi.fn();
-  const { container } = render(<IntentRoot onIntent={onIntent}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={follow} live={live} remaining={0} /></IntentRoot>);
+  const onAction = vi.fn();
+  const { container } = render(<ActionRoot onAction={onAction}><Transcript sessionId="s1" items={items} hasMore={false} loading={false} follow={follow} live={live} remaining={0} /></ActionRoot>);
   const el = container.querySelector('.tr') as HTMLDivElement;
   Object.defineProperty(el, 'scrollHeight', { value: 1000, configurable: true });
   Object.defineProperty(el, 'clientHeight', { value: 200, configurable: true });
   const scrollTo = (top: number) => { Object.defineProperty(el, 'scrollTop', { value: top, configurable: true, writable: true }); fireEvent.scroll(el); };
-  return { onIntent, scrollTo };
+  return { onAction, scrollTo };
 }
 
 describe('Transcript の追従', () => {
   it('下へ向かう途中のスクロールでは追従を切らない', () => {
     // 追従中の自動スクロールは上から下へ進むので、scrollTop は増え続ける。
-    const { onIntent, scrollTo } = setup(true);
+    const { onAction, scrollTo } = setup(true);
     scrollTo(100); scrollTo(300); scrollTo(600);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('上へ戻ったら追従を切る', () => {
-    const { onIntent, scrollTo } = setup(true);
+    const { onAction, scrollTo } = setup(true);
     scrollTo(600); scrollTo(500);
-    expect(onIntent).toHaveBeenCalledTimes(1);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
   });
   it('追従を切った状態で末尾に着いたら追従に戻す', () => {
-    const { onIntent, scrollTo } = setup(false);
+    const { onAction, scrollTo } = setup(false);
     scrollTo(400);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     scrollTo(790);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: true });
   });
   it('終了したセッションでも上へ戻ったら追従を切る', () => {
     // live が null のセッションこそ読み返す対象である。追うのをやめられないと遡れない。
-    const { onIntent, scrollTo } = setup(true, false);
+    const { onAction, scrollTo } = setup(true, false);
     scrollTo(600); scrollTo(500);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
+    expect(onAction).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
   });
   it('終了したセッションでは末尾に着いても追従に戻さない', () => {
     // 新着が届かないので、末尾に貼り付け直す意味がない。
-    const { onIntent, scrollTo } = setup(false, false);
+    const { onAction, scrollTo } = setup(false, false);
     scrollTo(790);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
 });
 
@@ -59,16 +59,16 @@ const many = (n: number, from = 0): TranscriptItem[] => Array.from({ length: n }
 
 type Over = Partial<Parameters<typeof Transcript>[0]>;
 function draw(over: Over) {
-  const onIntent = vi.fn();
+  const onAction = vi.fn();
   const props = { sessionId: 's1', items: [], hasMore: false, loading: false, follow: true, live: true, remaining: 0, ...over };
-  const r = render(<IntentRoot onIntent={onIntent}><Transcript {...props} /></IntentRoot>);
+  const r = render(<ActionRoot onAction={onAction}><Transcript {...props} /></ActionRoot>);
   const el = r.container.querySelector('.tr') as HTMLDivElement;
   Object.defineProperty(el, 'clientHeight', { value: 600, configurable: true });
   Object.defineProperty(el, 'scrollHeight', { value: 1_000_000, configurable: true });
   const scrollTo = (top: number) => { Object.defineProperty(el, 'scrollTop', { value: top, configurable: true, writable: true }); fireEvent.scroll(el); };
   const seqs = () => [...r.container.querySelectorAll('.tr-row')].map((x) => Number(x.getAttribute('data-seq')));
-  const redraw = (next: Over) => r.rerender(<IntentRoot onIntent={onIntent}><Transcript {...props} {...next} /></IntentRoot>);
-  return { ...r, el, scrollTo, seqs, redraw, onIntent };
+  const redraw = (next: Over) => r.rerender(<ActionRoot onAction={onAction}><Transcript {...props} {...next} /></ActionRoot>);
+  return { ...r, el, scrollTo, seqs, redraw, onAction };
 }
 
 describe('Transcript の追従の寄せ', () => {
@@ -177,7 +177,7 @@ describe('Transcript の仮想スクロール', () => {
     const t = draw({ items: tail, follow: true });
     t.scrollTo(999_000);
     fireEvent.click(t.getByText('サブエージェント abc を見る'));
-    expect(t.onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
+    expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' });
   });
   it('古い行を読み込むボタンと新着の知らせは仮想化の外に残る', () => {
     const t = draw({ items: many(5000), follow: false, hasMore: true, remaining: 12 });
@@ -247,7 +247,7 @@ describe('終了したセッションのトランスクリプト', () => {
     const t = draw({ items: many(5000), follow: true, live: false });
     t.scrollTo(999_000);
     t.scrollTo(100_000);
-    expect(t.onIntent).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
+    expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
     // 親が追うのをやめた状態を返したら、その位置の行が出て、末尾へ引き戻されない。
     t.redraw({ follow: false });
     const seqs = t.seqs();
@@ -300,7 +300,7 @@ describe('Transcript のツールの行', () => {
   const long = 'cd /Users/me/.claude/projects/-Users-me-workspace-agent-hangar/memory && grep -n "Dock" notes-on-building-before-returning.md';
   const tool = toolItem(0, 'Bash', { command: long }, null);
   it('要約は 1 行に収める器に入れ、全文は title で読めるようにする', () => {
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={[tool]} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    const { container } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={[tool]} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></ActionRoot>);
     const summary = container.querySelector('.tool-sum');
     expect(summary?.textContent).toBe(long);
     expect(container.querySelector('.trow')?.getAttribute('title')).toBe(long);
@@ -321,14 +321,14 @@ describe('Transcript のツールの行', () => {
 describe('Transcript の本文', () => {
   it('アシスタントの本文は Markdown として描く', () => {
     const md: TranscriptItem[] = [{ kind: 'assistant', seq: 0, text: '**太字** と `code`', when: '10:00' }];
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    const { container } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></ActionRoot>);
     expect(container.querySelector('.msg-assistant strong')?.textContent).toBe('太字');
     expect(container.querySelector('.msg-assistant code')?.textContent).toBe('code');
     cleanup();
   });
   it('Claude の返答は吹き出しにも入れ子のスクロールにもしない', () => {
     const md: TranscriptItem[] = [{ kind: 'assistant', seq: 0, text: '返答', when: '10:00' }];
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    const { container } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></ActionRoot>);
     const el = container.querySelector('.msg-assistant') as HTMLElement;
     expect(el.style.maxHeight).toBe('');
     expect(el.style.overflow).toBe('');
@@ -338,7 +338,7 @@ describe('Transcript の本文', () => {
   it('長い返答は高さで切り、「全文を表示（残り N 行）」で開く', () => {
     const text = Array.from({ length: 64 }, (_, i) => `段落 ${i + 1}`).join('\n');
     const md: TranscriptItem[] = [{ kind: 'assistant', seq: 0, text, when: '10:00' }];
-    const { container, getByRole } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    const { container, getByRole } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></ActionRoot>);
     expect(container.querySelector('.msg-assistant .clamp[data-clamped="true"]')).not.toBeNull();
     fireEvent.click(getByRole('button', { name: '全文を表示（残り 49 行）' }));
     expect(container.querySelector('.msg-assistant .clamp[data-clamped="true"]')).toBeNull();
@@ -347,7 +347,7 @@ describe('Transcript の本文', () => {
   });
   it('利用者の本文は打ったとおりに出す', () => {
     const md: TranscriptItem[] = [{ kind: 'user', seq: 0, text: '**そのまま**', when: '10:00' }];
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></IntentRoot>);
+    const { container } = render(<ActionRoot onAction={vi.fn()}><Transcript sessionId="s1" items={md} hasMore={false} loading={false} follow={true} live={true} remaining={0} /></ActionRoot>);
     expect(container.querySelector('.msg-user')?.textContent).toBe('**そのまま**');
     cleanup();
   });

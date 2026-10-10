@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import type { PauseProps } from '../presenters/pause.ts';
 import { PauseDialog } from './PauseDialog.tsx';
 
@@ -13,16 +13,16 @@ const props = (over: Partial<PauseProps> = {}): PauseProps => ({
   ],
   ...over,
 });
-const mount = (p: PauseProps = props(), onIntent = vi.fn()) => {
-  const r = render(<IntentRoot onIntent={onIntent}><PauseDialog {...p} /></IntentRoot>);
-  return { onIntent, unmount: r.unmount };
+const mount = (p: PauseProps = props(), onAction = vi.fn()) => {
+  const r = render(<ActionRoot onAction={onAction}><PauseDialog {...p} /></ActionRoot>);
+  return { onAction, unmount: r.unmount };
 };
 const radio = (name: RegExp) => screen.getByRole('radio', { name });
 const submit = () => screen.getByRole('button', { name: 'Paused にする' });
 
 describe('PauseDialog（B1）', () => {
   it('札を押すか 1〜5 で戻る日を選び、理由を添えて Paused にする', () => {
-    const { onIntent } = mount();
+    const { onAction } = mount();
     expect(radio(/^明日/)).toHaveAttribute('aria-checked', 'true');
     // 開いたときのフォーカスは選んである札にあるので、数字がそのまま効く。
     expect(document.activeElement).toBe(radio(/^明日/));
@@ -31,23 +31,23 @@ describe('PauseDialog（B1）', () => {
     fireEvent.click(radio(/^月曜/));
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: '  本番の数字を見る ' } });
     fireEvent.click(submit());
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-05', note: '本番の数字を見る' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-05', note: '本番の数字を見る' });
   });
   // Review Focus 5：欄で打った数字は欄の文字。変換中の Enter は変換の確定。
   it('理由の欄で打った数字は札を切り替えず、変換中の Enter では送らない', () => {
-    const { onIntent } = mount();
+    const { onAction } = mount();
     const input = screen.getByLabelText('理由');
     act(() => input.focus());
     fireEvent.keyDown(input, { key: '1' });
     expect(radio(/^明日/)).toHaveAttribute('aria-checked', 'true');
     fireEvent.change(input, { target: { value: '確認' } });
     fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', note: '確認' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', note: '確認' });
   });
   it('「日付を選択…」は日付の欄を出し、日を入れるまで送れない', () => {
-    const { onIntent } = mount();
+    const { onAction } = mount();
     fireEvent.click(radio(/^日付を選択/));
     expect(submit()).toBeDisabled();
     const date = screen.getByLabelText('リマインダーの日付');
@@ -55,7 +55,7 @@ describe('PauseDialog（B1）', () => {
     fireEvent.change(date, { target: { value: '2026-10-20' } });
     expect(submit()).toBeEnabled();
     fireEvent.click(submit());
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-20' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-20' });
   });
   it('札に無い日で開いたら「日付を選択…」にその日を入れておく', () => {
     mount(props({ initialReturnOn: '2026-10-20' }));
@@ -69,12 +69,12 @@ describe('PauseDialog（B1）', () => {
     expect(screen.getByLabelText('理由')).toHaveValue('明日の朝、CPU の数字を確かめる');
     fireEvent.click(radio(/^月曜/));
     fireEvent.click(submit());
-    expect(first.onIntent).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' });
+    expect(first.onAction).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-05' });
     first.unmount();
     const second = mount(p);
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: '月曜に CPU を見る' } });
     fireEvent.click(submit());
-    expect(second.onIntent).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', note: '月曜に CPU を見る' });
+    expect(second.onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', note: '月曜に CPU を見る' });
   });
   // Review Focus 4：字数は文字単位で数える。
   it('理由は文字単位で数え、絵文字の 200 字は送れて 201 字は送れない', () => {
@@ -86,10 +86,10 @@ describe('PauseDialog（B1）', () => {
     expect(submit()).toBeDisabled();
   });
   it('Esc と「キャンセル」で閉じる', () => {
-    const { onIntent } = mount();
+    const { onAction } = mount();
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.pause.close' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.pause.close' });
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
-    expect(onIntent).toHaveBeenCalledTimes(2);
+    expect(onAction).toHaveBeenCalledTimes(2);
   });
 });

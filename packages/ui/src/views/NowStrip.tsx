@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { NowStripProps, StripLane, StripStep } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { NoteEditor } from './NoteEditor.tsx';

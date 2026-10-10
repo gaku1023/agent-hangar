@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi, type Mock } from 'vitest';
-import { IntentRoot, type Emit } from '../intent/chain.tsx';
+import { ActionRoot, type Emit } from '../action/chain.tsx';
 import type { ProjectRowProps, ProjectsProps } from '../presenters/projects.ts';
 import { LanguageRoot } from './primitives/language.tsx';
 import { ProjectsScreen } from './ProjectsScreen.tsx';
@@ -11,22 +11,22 @@ const rowsCss = readFileSync(['packages/ui/src/styles/rows.css', 'src/styles/row
 
 const row = (id: string, over: Partial<ProjectRowProps> = {}): ProjectRowProps => ({ id, name: id, status: 'active', place: null, now: [], sessionCount: 3, sessionsText: '3 本', lastActivity: '1 時間前', label: `${id}、Active`, ...over });
 const props = (over: Partial<ProjectsProps> = {}): ProjectsProps => ({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha')] }], archived: null, total: 1, empty: null, promoteSessionId: null, ...over });
-const mount = (p: ProjectsProps, o: { onIntent?: Mock<Emit>; filter?: string; onFilter?: (s: string) => void; onShowArchived?: (b: boolean) => void } = {}) => {
-  const onIntent = o.onIntent ?? vi.fn<Emit>();
-  const ui = (next: ProjectsProps) => <IntentRoot onIntent={onIntent}><ProjectsScreen {...next} filter={o.filter ?? ''} onFilter={o.onFilter ?? (() => {})} onShowArchived={o.onShowArchived ?? (() => {})} /></IntentRoot>;
+const mount = (p: ProjectsProps, o: { onAction?: Mock<Emit>; filter?: string; onFilter?: (s: string) => void; onShowArchived?: (b: boolean) => void } = {}) => {
+  const onAction = o.onAction ?? vi.fn<Emit>();
+  const ui = (next: ProjectsProps) => <ActionRoot onAction={onAction}><ProjectsScreen {...next} filter={o.filter ?? ''} onFilter={o.onFilter ?? (() => {})} onShowArchived={o.onShowArchived ?? (() => {})} /></ActionRoot>;
   const r = render(ui(p));
-  return { onIntent, container: r.container, rerender: (next: ProjectsProps) => r.rerender(ui(next)) };
+  return { onAction, container: r.container, rerender: (next: ProjectsProps) => r.rerender(ui(next)) };
 };
-const opened = (onIntent: Mock<Emit>) => onIntent.mock.calls.filter(([i]) => i.type === 'project.open');
+const opened = (onAction: Mock<Emit>) => onAction.mock.calls.filter(([i]) => i.type === 'project.open');
 const menuOf = (name: string) => fireEvent.click(screen.getByRole('button', { name: `${name} のメニュー` }));
 
 describe('ProjectsScreen の見出し', () => {
   it('「新しいプロジェクト」で作成のダイアログを開き、件数を見出しの横に出す', () => {
-    const { onIntent, container } = mount(props({ total: 14 }));
+    const { onAction, container } = mount(props({ total: 14 }));
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('プロジェクト');
     expect(container.querySelector('.page-sub')).toHaveTextContent('14');
     fireEvent.click(screen.getByRole('button', { name: '新しいプロジェクト' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.new.open' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.new.open' });
   });
   it('名前の欄は打った語を渡す。アーカイブを出し入れするボタンは見出しに置かない', () => {
     const onFilter = vi.fn();
@@ -65,12 +65,12 @@ describe('ProjectsScreen の表', () => {
 
 describe('ProjectsScreen の行を開く', () => {
   it('名前を押すと開き、行の空いた所を押しても開く', () => {
-    const { onIntent, container } = mount(props());
+    const { onAction, container } = mount(props());
     fireEvent.click(screen.getByRole('link', { name: 'alpha、Active' }));
-    expect(opened(onIntent)).toHaveLength(1);
-    expect(opened(onIntent)[0]![0]).toEqual({ type: 'project.open', id: 'alpha' });
+    expect(opened(onAction)).toHaveLength(1);
+    expect(opened(onAction)[0]![0]).toEqual({ type: 'project.open', id: 'alpha' });
     fireEvent.click(container.querySelector('.prow .pn')!);
-    expect(opened(onIntent)).toHaveLength(2);
+    expect(opened(onAction)).toHaveLength(2);
   });
   it('名前は本物のリンクで、Tab で届き、リンクの先は 1 つのプロジェクトの画面', () => {
     mount(props());
@@ -107,30 +107,30 @@ describe('ProjectsScreen の場所', () => {
     expect(container.querySelector('.pwarn')).toBeNull();
   });
   it('パスが見つからない行は赤い札を出し、押すと場所の再指定へ進む。行は開かない', () => {
-    const { onIntent } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { place: { kind: 'missing' } })] }] }));
+    const { onAction } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { place: { kind: 'missing' } })] }] }));
     const warn = screen.getByRole('button', { name: 'この PC にパスがありません' });
     expect(warn.querySelector('svg')?.getAttribute('data-icon')).toBe('warning');
     fireEvent.click(warn);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
-    expect(opened(onIntent)).toHaveLength(0);
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
+    expect(opened(onAction)).toHaveLength(0);
   });
 });
 
 describe('ProjectsScreen の「…」のメニュー', () => {
   it('新しいセッションを、その行のプロジェクトで開く。行は開かない', () => {
-    const { onIntent } = mount(props());
+    const { onAction } = mount(props());
     menuOf('alpha');
     fireEvent.click(screen.getByRole('menuitem', { name: '新しいセッション' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
-    expect(opened(onIntent)).toHaveLength(0);
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
+    expect(opened(onAction)).toHaveLength(0);
   });
   it('ステータスを変える項目は、いまのもの以外を出す', () => {
-    const { onIntent } = mount(props());
+    const { onAction } = mount(props());
     menuOf('alpha');
     expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['新しいセッション', 'Paused にする', 'Done にする', 'Archived にする']);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Paused にする' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'paused' });
-    expect(opened(onIntent)).toHaveLength(0);
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'paused' });
+    expect(opened(onAction)).toHaveLength(0);
   });
   it('Active でないプロジェクトは「Active に戻す」を出す', () => {
     mount(props({ sections: [{ status: 'done', label: 'Done', rows: [row('alpha', { status: 'done' })] }] }));
@@ -138,10 +138,10 @@ describe('ProjectsScreen の「…」のメニュー', () => {
     expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['新しいセッション', 'Active に戻す', 'Paused にする', 'Archived にする']);
   });
   it('場所を再指定は、パスが見つからない行にだけ出す', () => {
-    const { onIntent } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { place: { kind: 'missing' } })] }] }));
+    const { onAction } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { place: { kind: 'missing' } })] }] }));
     menuOf('alpha');
     fireEvent.click(screen.getByRole('menuitem', { name: '場所を再指定' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
     cleanup();
     mount(props());
     menuOf('alpha');
@@ -182,7 +182,7 @@ describe('ProjectsScreen の Archived の末尾の 1 行', () => {
 describe('ProjectsScreen の空の状態', () => {
   const none = (over: Partial<ProjectsProps> = {}) => props({ sections: [], total: 0, empty: 'none', ...over });
   it('プロジェクトが無い人には、できるようになることの 2 文と「新しいプロジェクト」を出し、表と名前の欄は出さない', () => {
-    const { container, onIntent } = mount(none());
+    const { container, onAction } = mount(none());
     expect(screen.getByRole('heading', { name: 'プロジェクトはまだありません' })).toBeInTheDocument();
     expect(screen.getByText('フォルダを登録すると、そのフォルダのセッションがここにまとまります。')).toBeInTheDocument();
     expect(screen.getByText('TODO とノートも、プロジェクトごとに置けるようになります。')).toBeInTheDocument();
@@ -191,12 +191,12 @@ describe('ProjectsScreen の空の状態', () => {
     const buttons = screen.getAllByRole('button', { name: '新しいプロジェクト' });
     expect(buttons).toHaveLength(2);
     fireEvent.click(buttons[1]!);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.new.open' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.new.open' });
   });
   it('クイックセッションがあれば、昇格の入口を出す。無ければ出さない', () => {
-    const { onIntent } = mount(none({ promoteSessionId: 'q1' }));
+    const { onAction } = mount(none({ promoteSessionId: 'q1' }));
     fireEvent.click(screen.getByRole('button', { name: 'クイックセッションをプロジェクトに昇格' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.promote.open', id: 'q1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.promote.open', id: 'q1' });
     cleanup();
     mount(none());
     expect(screen.queryByRole('button', { name: /昇格/ })).toBeNull();
@@ -241,7 +241,7 @@ describe('ProjectsScreen の「いま」が入り切らないとき', () => {
   it('English では「N more」と言う', () => {
     withLayout(200, () => {
       const p = props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [...four] })] }] });
-      const { container } = render(<LanguageRoot language="en"><IntentRoot onIntent={vi.fn()}><ProjectsScreen {...p} filter="" onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot></LanguageRoot>);
+      const { container } = render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}><ProjectsScreen {...p} filter="" onFilter={() => {}} onShowArchived={() => {}} /></ActionRoot></LanguageRoot>);
       expect(container.querySelector('.pcounts > [data-now-more]')).toHaveTextContent('3 more');
     });
   });
@@ -250,7 +250,7 @@ describe('ProjectsScreen の「いま」が入り切らないとき', () => {
 describe('ProjectsScreen の言語と見た目', () => {
   it('English では列と語が英語になる（ステータスの札は英語のまま）', () => {
     const p = props({ sections: [{ status: 'paused', label: 'Paused', rows: [row('alpha', { status: 'paused', sessionsText: '3' })] }] });
-    const { container } = render(<LanguageRoot language="en"><IntentRoot onIntent={vi.fn()}><ProjectsScreen {...p} filter="" onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot></LanguageRoot>);
+    const { container } = render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}><ProjectsScreen {...p} filter="" onFilter={() => {}} onShowArchived={() => {}} /></ActionRoot></LanguageRoot>);
     expect([...container.querySelectorAll('.pcols > span')].map((c) => c.textContent)).toEqual(['Status', 'Name and location', 'Now', 'Sessions', 'Last activity', '']);
     expect(screen.getByRole('button', { name: 'New project' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Menu for alpha' }));

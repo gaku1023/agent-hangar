@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
-import type { Intent } from '@agent-hangar/shared';
-import { IntentBoundary, useEmit, type Handled } from '../intent/chain.tsx';
+import type { UiAction } from '@agent-hangar/shared';
+import { ActionBoundary, useEmit, type Handled } from '../action/chain.tsx';
 import { useT } from './primitives/language.tsx';
 
 const clamp = (r: number) => (Number.isFinite(r) ? Math.max(0.2, Math.min(0.8, r)) : 0.5);
@@ -43,16 +43,16 @@ export function SplitPane(props: { left: ReactNode; right: ReactNode }) {
   const [ratio, setRatio] = useState(0.5);
   const [dragging, setDragging] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
-  const handle = useCallback((intent: Intent): Handled => {
-    if (intent.type !== 'split.resize') return { handled: false };
-    setRatio(clamp(intent.ratio));
+  const handle = useCallback((action: UiAction): Handled => {
+    if (action.type !== 'split.resize') return { handled: false };
+    setRatio(clamp(action.ratio));
     return { handled: true };
   }, []);
   // 類名は split-h にする。
   // .split はフェーズ 2 の SessionScreen がターミナルとトランスクリプトの 2 列に使っている。
   const columns = `${Number(ratio.toFixed(4))}fr 6px ${Number((1 - ratio).toFixed(4))}fr`;
   return (
-    <IntentBoundary handle={handle}>
+    <ActionBoundary handle={handle}>
       {/* 掴んでいる間は data-dragging を立てて transition を切る。
           実測で、150ms の transition を残したままだと指を動かしてから列が追いつくまで 150ms 遅れる。 */}
       <div className="split-h" data-testid="split" ref={hostRef} data-dragging={dragging ? 'true' : undefined} style={{ gridTemplateColumns: columns }}>
@@ -60,6 +60,6 @@ export function SplitPane(props: { left: ReactNode; right: ReactNode }) {
         <Divider hostRef={hostRef} ratio={ratio} onDrag={setDragging} />
         <div className="split-pane">{props.right}</div>
       </div>
-    </IntentBoundary>
+    </ActionBoundary>
   );
 }

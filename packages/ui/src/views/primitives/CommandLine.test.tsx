@@ -1,22 +1,22 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../../intent/chain.tsx';
+import { ActionRoot } from '../../action/chain.tsx';
 import type { State } from '../../mediator/types.ts';
 import { CopiedContext, CopyButton } from './CommandLine.tsx';
 
 function mount(copied: State['copied']) {
-  const onIntent = vi.fn();
-  const ui = (c: State['copied']) => <IntentRoot onIntent={onIntent}><CopiedContext.Provider value={c}><CopyButton text="tok-abc" name="参加トークン" label="コピー" /></CopiedContext.Provider></IntentRoot>;
+  const onAction = vi.fn();
+  const ui = (c: State['copied']) => <ActionRoot onAction={onAction}><CopiedContext.Provider value={c}><CopyButton text="tok-abc" name="参加トークン" label="コピー" /></CopiedContext.Provider></ActionRoot>;
   const r = render(ui(copied));
-  return { onIntent, rerender: (c: State['copied']) => r.rerender(ui(c)) };
+  return { onAction, rerender: (c: State['copied']) => r.rerender(ui(c)) };
 }
 
 describe('CopyButton', () => {
   // 写せたかはランタイムが確かめて状態（copied）に返す。押しただけで「コピーしました」を出すと、写せなかったときに嘘になる。
   it('押しただけでは「コピーしました」を出さず、写せた知らせが来てから出す', () => {
-    const { onIntent, rerender } = mount(null);
+    const { onAction, rerender } = mount(null);
     fireEvent.click(screen.getByRole('button', { name: '参加トークン をコピー' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
     expect(screen.queryByText('コピーしました')).toBeNull();
     rerender({ text: 'tok-abc', n: 1 });
     expect(screen.getByText('コピーしました')).toBeInTheDocument();

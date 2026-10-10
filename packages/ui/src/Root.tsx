@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useRuntime } from './hooks/useRuntime.ts';
-import { IntentRoot } from './intent/chain.tsx';
+import { ActionRoot } from './action/chain.tsx';
 import { canMoveBehind } from './mediator/screen.ts';
 import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfigDialog } from './presenters/configSync.ts';
@@ -150,7 +150,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const { projectId: newProjectId, scratch: newScratch } = newSessionTarget(state, store);
 
   // キーボード。
-  // 打鍵と操作の対応は keys.ts の表が持ち、ここは当たった操作を Intent に変えるだけにする。
+  // 打鍵と操作の対応は keys.ts の表が持ち、ここは当たった操作を UiAction に変えるだけにする。
   // 受け取らなかった打鍵は preventDefault せずに落とすので、⌘1 やセッション画面の外の ⌘W はそのままブラウザと OS のものになる。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -379,7 +379,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   );
 
   return (
-    <IntentRoot onIntent={rt.emit}>
+    <ActionRoot onAction={rt.emit}>
       <TerminalHostContext.Provider value={props.terminals}>
         <CopiedContext.Provider value={state.copied}>
           <PromptAssistContext.Provider value={promptAssist}>
@@ -389,7 +389,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
           </PromptAssistContext.Provider>
         </CopiedContext.Provider>
       </TerminalHostContext.Provider>
-    </IntentRoot>
+    </ActionRoot>
   );
 }
 

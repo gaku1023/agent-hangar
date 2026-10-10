@@ -15,6 +15,6 @@ export const NOTIFY_KEY = 'notify.waiting';
  * 受け取らないにするときは、Runtime がその場で切り替えて覚える。
  */
 export function notifyStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'intent' || input.intent.type !== 'notify.set') return null;
-  return { state, effects: [{ kind: input.intent.on ? 'notify.request' : 'notify.off' }] };
+  if (input.kind !== 'action' || input.action.type !== 'notify.set') return null;
+  return { state, effects: [{ kind: input.action.on ? 'notify.request' : 'notify.off' }] };
 }

@@ -1,5 +1,5 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, Intent, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
-import type { TableIntent } from '../runtime/intentTable.ts';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
+import type { TableAction } from '../runtime/actionTable.ts';
 import type { ConfigDetailPart } from '../store/store.ts';
 
 /**
@@ -40,14 +40,14 @@ export type RuntimeEvent =
   | { type: 'configSync.done'; close: boolean };
 
 /**
- * Mediator が裁定する Intent。
- * API を 1 回呼ぶだけの Intent は Runtime が表で引いて実行する（runtime/intentTable.ts）ので、ここには入らない。
+ * Mediator が裁定する UiAction。
+ * API を 1 回呼ぶだけの UiAction は Runtime が表で引いて実行する（runtime/actionTable.ts）ので、ここには入らない。
  * 表にある kind を領域の switch に書くと、型が合わなくなる（二重に扱わない）。
  */
-export type MediatedIntent = Exclude<Intent, TableIntent>;
+export type MediatedAction = Exclude<UiAction, TableAction>;
 
 export type Input =
-  | { kind: 'intent'; intent: MediatedIntent }
+  | { kind: 'action'; action: MediatedAction }
   | { kind: 'server'; event: ServerEvent }
   | { kind: 'runtime'; event: RuntimeEvent }
   // Store が変わった。中身は運ばない。Mediator は渡された Store を読み、そこから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）を合わせる。

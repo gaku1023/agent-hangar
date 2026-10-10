@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { countHits } from '../presenters/highlight.ts';
 import { toolLeaves } from '../presenters/tools.ts';
 import { toolItem } from '../test/items.ts';
@@ -10,7 +10,7 @@ import { OpenContext } from './transcriptOpen.tsx';
 
 afterEach(cleanup);
 
-const draw = (item: ReturnType<typeof toolItem>) => render(<IntentRoot onIntent={vi.fn()}>{renderItem('s1', item)}</IntentRoot>);
+const draw = (item: ReturnType<typeof toolItem>) => render(<ActionRoot onAction={vi.fn()}>{renderItem('s1', item)}</ActionRoot>);
 const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n');
 
 describe('ツールの行（T1、K1）', () => {
@@ -132,7 +132,7 @@ describe('印の数とデータで数えた一致の数', () => {
   ];
   it.each(cases.map((c) => [c.name, c] as const))('%s', (_, item) => {
     const { container } = render(
-      <IntentRoot onIntent={vi.fn()}><OpenContext.Provider value={all}><MarkProvider value={{ query: q, literal: true }}>{renderItem('s1', item)}</MarkProvider></OpenContext.Provider></IntentRoot>,
+      <ActionRoot onAction={vi.fn()}><OpenContext.Provider value={all}><MarkProvider value={{ query: q, literal: true }}>{renderItem('s1', item)}</MarkProvider></OpenContext.Provider></ActionRoot>,
     );
     const want = toolLeaves(item.view).reduce((n, leaf) => n + countHits(leaf, q, { literal: true }), 0);
     expect(want).toBeGreaterThan(0);

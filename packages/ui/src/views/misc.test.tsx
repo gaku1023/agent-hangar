@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { pick } from '../test/pick.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { ResolveProjectDialog } from './ResolveProjectDialog.tsx';
@@ -21,161 +21,161 @@ const openFilters = () => fireEvent.click(screen.getByRole('button', { name: /^�
 
 describe('一覧の絞り込みと欄', () => {
   it('絞り込みは search.filter、キーワードは search.query', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><List text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><List text="" filter={{}} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     openFilters();
     pick('プロジェクト', 'alpha');
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: 'p1' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: 'p1' } });
     expect(screen.queryByRole('radiogroup', { name: '状態' })).toBeNull();
     const kw = screen.getByLabelText('キーワード');
     fireEvent.change(kw, { target: { value: 'x y' } });
     fireEvent.keyDown(kw, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: 'x y', filter: {} });
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.query', text: 'x y', filter: {} });
   });
   it('絞り込みは、何で絞っているかを帯と札で見せる', () => {
-    render(<IntentRoot onIntent={() => {}}><List text="" filter={{ projectId: 'p1', live: 'ended' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><List text="" filter={{ projectId: 'p1', live: 'ended' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     openFilters();
     expect(screen.getByRole('button', { name: 'プロジェクト' })).toHaveTextContent('alpha');
     expect(within(screen.getByRole('radiogroup', { name: '期間' })).getByRole('radio', { name: '全期間' })).toHaveAttribute('aria-checked', 'true');
   });
   it('すべてのプロジェクトに戻すと projectId を外す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><List text="" filter={{ projectId: 'p1' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><List text="" filter={{ projectId: 'p1' }} projects={[{ id: 'p1', name: 'alpha' }]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     openFilters();
     pick('プロジェクト', 'すべてのプロジェクト');
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: undefined } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.filter', patch: { projectId: undefined } });
   });
   it('日本語入力の確定の Enter では検索しない', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><List text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><List text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     const kw = screen.getByLabelText('キーワード');
     fireEvent.change(kw, { target: { value: '動画' } });
     fireEvent.keyDown(kw, { key: 'Enter', isComposing: true });
     fireEvent.keyDown(kw, { key: 'Enter', keyCode: 229 });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.keyDown(kw, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '動画', filter: {} });
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.query', text: '動画', filter: {} });
     openFilters();
     const file = screen.getByLabelText('操作したファイル');
     fireEvent.change(file, { target: { value: 'a.md' } });
-    onIntent.mockClear();
+    onAction.mockClear();
     fireEvent.keyDown(file, { key: 'Enter', isComposing: true });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   // 期間は相対の日数で持つ。絶対の時刻で持つと、時間が経つにつれて表示の日数がずれ、半日ほどで「全期間」に見えていた。
   it('期間は日数で持ち、時間が経っても選んだ帯のまま見える', () => {
-    const onIntent = vi.fn();
-    const { rerender } = render(<IntentRoot onIntent={onIntent}><List text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    const onAction = vi.fn();
+    const { rerender } = render(<ActionRoot onAction={onAction}><List text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     openFilters();
     fireEvent.click(screen.getByRole('radio', { name: '7 日' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: 7 } });
-    rerender(<IntentRoot onIntent={onIntent}><List text="" filter={{ days: 7 }} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: 7 } });
+    rerender(<ActionRoot onAction={onAction}><List text="" filter={{ days: 7 }} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     fireEvent.click(screen.getByRole('radio', { name: '全期間' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: undefined } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.filter', patch: { days: undefined } });
   });
   it('選んだ期間の帯に印が付く', () => {
-    const { rerender } = render(<IntentRoot onIntent={() => {}}><List text="" filter={{ days: 1 }} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    const { rerender } = render(<ActionRoot onAction={() => {}}><List text="" filter={{ days: 1 }} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     openFilters();
     const period = () => within(screen.getByRole('radiogroup', { name: '期間' }));
     expect(period().getByRole('radio', { name: '今日' })).toHaveAttribute('aria-checked', 'true');
-    rerender(<IntentRoot onIntent={() => {}}><List text="" filter={{ days: 30 }} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    rerender(<ActionRoot onAction={() => {}}><List text="" filter={{ days: 30 }} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     expect(period().getByRole('radio', { name: '30 日' })).toHaveAttribute('aria-checked', 'true');
   });
   it('件数は桁を区切って出す（条件の行）', () => {
-    render(<IntentRoot onIntent={() => {}}><List text="q" filter={{}} projects={[]} rows={[row('s1')]} total={1320} loading={false} mode="search" conditions={['『q』']} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><List text="q" filter={{}} projects={[]} rows={[row('s1')]} total={1320} loading={false} mode="search" conditions={['『q』']} /></ActionRoot>);
     expect(screen.getByRole('status', { name: '絞り込みの条件' })).toHaveTextContent('1,320 件');
   });
   // 条件の無い一覧は、一覧の下のページ送りの帯（A4）で移る。件数は条件の行が全件を言い、範囲は帯が言う。
   it('ページ送りの帯で移り、件数を変える', () => {
-    const onIntent = vi.fn();
+    const onAction = vi.fn();
     const pager = { page: 2, pageCount: 3, size: 50, sizes: [25, 50, 100, 200], from: 51, to: 100, total: 132 };
-    render(<IntentRoot onIntent={onIntent}><List text="" filter={{ days: 7 }} projects={[]} rows={[row('s1'), row('s2')]} total={132} loading={false} mode="all" conditions={['7 日']} pager={pager} /></IntentRoot>);
+    render(<ActionRoot onAction={onAction}><List text="" filter={{ days: 7 }} projects={[]} rows={[row('s1'), row('s2')]} total={132} loading={false} mode="all" conditions={['7 日']} pager={pager} /></ActionRoot>);
     expect(screen.getByRole('status', { name: '絞り込みの条件' })).toHaveTextContent('132 件');
     const nav = screen.getByRole('navigation', { name: 'セッションのページ' });
     expect(nav).toHaveTextContent('51–100 / 132 件');
     fireEvent.click(within(nav).getByRole('button', { name: '次のページ' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.page', page: 3 });
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.page', page: 3 });
     fireEvent.click(within(nav).getByRole('button', { name: '1 ページの件数' }));
     fireEvent.click(screen.getByRole('option', { name: '100 件ずつ' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'list.pageSize', size: 100 });
+    expect(onAction).toHaveBeenCalledWith({ type: 'list.pageSize', size: 100 });
   });
   it('ページ送りが無ければ帯を出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><List text="q" filter={{}} projects={[]} rows={[row('s1')]} total={1} loading={false} mode="search" conditions={['『q』']} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><List text="q" filter={{}} projects={[]} rows={[row('s1')]} total={1} loading={false} mode="search" conditions={['『q』']} /></ActionRoot>);
     expect(screen.queryByRole('navigation', { name: 'セッションのページ' })).toBeNull();
   });
   it('条件が 1 つも効いていなければ条件の行を出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><List text="" filter={{}} projects={[]} rows={[row('s1')]} total={1} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><List text="" filter={{}} projects={[]} rows={[row('s1')]} total={1} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     expect(screen.queryByRole('status', { name: '絞り込みの条件' })).toBeNull();
     expect(screen.queryByRole('button', { name: '条件をクリア' })).toBeNull();
   });
   it('条件の行は効いている条件を並べ、「条件をクリア」で全部外す', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><List text="索引" filter={{ projectId: 'p1', days: 7 }} projects={[{ id: 'p1', name: 'orbit-notes' }]} rows={[row('s1')]} total={1} loading={false} mode="search" conditions={['『索引』', 'orbit-notes', '7 日']} /></IntentRoot>);
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><List text="索引" filter={{ projectId: 'p1', days: 7 }} projects={[{ id: 'p1', name: 'orbit-notes' }]} rows={[row('s1')]} total={1} loading={false} mode="search" conditions={['『索引』', 'orbit-notes', '7 日']} /></ActionRoot>);
     expect(screen.getByRole('status', { name: '絞り込みの条件' })).toHaveTextContent('『索引』 · orbit-notes · 7 日 で絞り込み中');
     fireEvent.click(screen.getByRole('button', { name: '条件をクリア' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.clear' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.clear' });
   });
   // 上の欄が全文検索の本体である（D1）。トランスクリプトを探すことを札で言い、打った語は × で消せる。
   it('上の欄はトランスクリプトを探す欄で、語を × で消せる', () => {
-    const onIntent = vi.fn();
-    const { container } = render(<IntentRoot onIntent={onIntent}><List text="索引" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="search" conditions={['『索引』']} /></IntentRoot>);
+    const onAction = vi.fn();
+    const { container } = render(<ActionRoot onAction={onAction}><List text="索引" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="search" conditions={['『索引』']} /></ActionRoot>);
     const box = container.querySelector('.sessions-keyword')!;
     expect(box.querySelector('svg')).toHaveAttribute('data-icon', 'fullText');
     expect(box).toHaveTextContent('トランスクリプト');
     fireEvent.click(within(box as HTMLElement).getByRole('button', { name: 'キーワードを消す' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'search.query', text: '', filter: {} });
+    expect(onAction).toHaveBeenCalledWith({ type: 'search.query', text: '', filter: {} });
   });
   it('検索中は条件の行の件数の代わりにそう言う', () => {
-    render(<IntentRoot onIntent={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" conditions={['『q』']} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" conditions={['『q』']} /></ActionRoot>);
     expect(screen.getByText('検索しています')).toBeInTheDocument();
   });
   it('検索で何も当たらなければ「一致するセッションはありません」', () => {
-    render(<IntentRoot onIntent={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="search" conditions={[]} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="search" conditions={[]} /></ActionRoot>);
     expect(screen.getByText('一致するセッションはありません')).toBeInTheDocument();
     expect(screen.queryByText('セッションはまだありません')).toBeNull();
   });
   it('全件表示で空なら「セッションはまだありません」のまま', () => {
-    render(<IntentRoot onIntent={() => {}}><List text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><List text="" filter={{}} projects={[]} rows={[]} total={0} loading={false} mode="all" conditions={[]} /></ActionRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
   });
   it('検索中は空の文言を出さない', () => {
-    render(<IntentRoot onIntent={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" conditions={[]} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><List text="q" filter={{}} projects={[]} rows={[]} total={0} loading mode="search" conditions={[]} /></ActionRoot>);
     expect(screen.queryByText('一致するセッションはありません')).toBeNull();
   });
 });
 
 describe('Header', () => {
   it('移動・操作の錠剤を押すとパレットを開く', () => {
-    const onIntent = vi.fn();
+    const onAction = vi.fn();
     // sync は Task 23 が Header に足した props である。この節が見るのは錠剤だけなので、出さない形で渡す。
-    render(<IntentRoot onIntent={onIntent}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={syncFixture({ visible: false, state: 'off', label: '' })} /></IntentRoot>);
+    render(<ActionRoot onAction={onAction}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={syncFixture({ visible: false, state: 'off', label: '' })} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: '移動・操作' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'palette.open' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'palette.open' });
   });
 });
 
 describe('ResolveProjectDialog', () => {
   it('三つの解決と閉じる', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={['/w/alpha-moved']} onQueryCandidates={() => {}} /></IntentRoot>);
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={['/w/alpha-moved']} onQueryCandidates={() => {}} /></ActionRoot>);
     fireEvent.click(screen.getByText('/w/alpha-moved'));
     fireEvent.click(screen.getByText('この場所にする'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/alpha-moved' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'repoint', path: '/w/alpha-moved' } });
     fireEvent.click(screen.getByText('Archived にする'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'archive' } });
     // 一覧から削除は取り消せないので危険色にし、押しても Mediator が先に確認を出す。
     const remove = screen.getByRole('button', { name: '一覧から削除' });
     expect(remove).toHaveClass('btn-danger');
     fireEvent.click(remove);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p1', action: { kind: 'unlink' } });
     fireEvent.click(screen.getByText('あとで'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'overlay.close' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'overlay.close' });
   });
 });
 
 describe('ResolveProjectDialog のフォーカス', () => {
   it('開いたら中の最初の操作にフォーカスを入れる', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<ActionRoot onAction={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: 'alpha のディレクトリが見つかりません' });
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).toBe(screen.getByLabelText('新しいパス'));
@@ -185,17 +185,17 @@ describe('ResolveProjectDialog のフォーカス', () => {
 
 describe('SessionRows（空のとき）', () => {
   it('emptyText を渡すとその文言、渡さなければ既定の文言', () => {
-    const { unmount } = render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} variant="search" emptyText="何もない" /></IntentRoot>);
+    const { unmount } = render(<ActionRoot onAction={() => {}}><SessionRows rows={[]} height={100} variant="search" emptyText="何もない" /></ActionRoot>);
     expect(screen.getByText('何もない')).toBeInTheDocument();
     unmount();
-    render(<IntentRoot onIntent={() => {}}><SessionRows rows={[]} height={100} variant="search" /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><SessionRows rows={[]} height={100} variant="search" /></ActionRoot>);
     expect(screen.getByText('セッションはまだありません')).toBeInTheDocument();
   });
 });
 
 describe('ResolveProjectDialog のアイコン', () => {
   it('三つの解決はそれぞれのアイコンを持つ', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></IntentRoot>);
+    render(<ActionRoot onAction={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></ActionRoot>);
     const iconOf = (name: string) => screen.getByRole('button', { name }).querySelector('svg')?.getAttribute('data-icon') ?? null;
     expect(iconOf('この場所にする')).toBe('repoint');
     expect(iconOf('Archived にする')).toBe('archive');

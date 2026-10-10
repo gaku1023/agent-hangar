@@ -23,8 +23,8 @@ export function settingsStep(state: State, store: Store, input: Input): Step | n
     if (e.type === 'clipboard.copied') return { state: { ...state, copied: { text: e.text, n: (state.copied?.n ?? 0) + 1 } }, effects: [] };
     return null;
   }
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     case 'settings.update': {
       const effects: Effect[] = [i.field ? { kind: 'api.updateSettings', patch: i.patch, field: i.field } : { kind: 'api.updateSettings', patch: i.patch }];

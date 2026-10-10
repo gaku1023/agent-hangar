@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { PromptCommandDto } from '@agent-hangar/shared';
-import { IntentRoot } from '../../intent/chain.tsx';
+import { ActionRoot } from '../../action/chain.tsx';
 import { Clamp } from './Clamp.tsx';
 import { CommandLine, CopyButton } from './CommandLine.tsx';
 import { CopyButton as PlainCopyButton } from './CopyButton.tsx';
@@ -17,7 +17,7 @@ import { Stepper } from './Stepper.tsx';
 
 /** 言語を英語にしたとき、共通の部品の文が英語で出る。日本語の文が混ざらないことも見る。 */
 const JAPANESE = /[぀-ヿ㐀-鿿]/;
-const inEnglish = (ui: React.ReactNode) => render(<LanguageRoot language="en"><IntentRoot onIntent={vi.fn()}>{ui}</IntentRoot></LanguageRoot>);
+const inEnglish = (ui: React.ReactNode) => render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}>{ui}</ActionRoot></LanguageRoot>);
 const noJapanese = () => expect(document.body.textContent ?? '').not.toMatch(JAPANESE);
 
 describe('共通の部品（英語）', () => {

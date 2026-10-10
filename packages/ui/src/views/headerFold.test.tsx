@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentAccounts } from '../presenters/accounts.ts';
 import { initialStore } from '../store/store.ts';
 import { syncFixture } from '../test/syncProps.ts';
@@ -60,7 +60,7 @@ const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed
 /** アカウントが 2 件あるときのヘッダ。計器は shown（会社）の値で作る。 */
 const accountList = presentAccounts({ ...initialStore(), accounts: accountsFixture }, 0);
 const withAccount = { ...props, account: { shown: accountList[0]!, list: accountList, sessionId: null, working: false } };
-const renderShell = (account = false) => render(<IntentRoot onIntent={() => {}}><Shell {...(account ? withAccount : props)} overlays={null}><div /></Shell></IntentRoot>);
+const renderShell = (account = false) => render(<ActionRoot onAction={() => {}}><Shell {...(account ? withAccount : props)} overlays={null}><div /></Shell></ActionRoot>);
 
 /**
  * 部品と、それが畳まれる最初の段。
@@ -125,7 +125,7 @@ describe('畳んでも読める', () => {
     expect(link.querySelector('.sync-dot')).not.toBeNull();
   });
   it('件数が無いときは title に足さない', () => {
-    render(<IntentRoot onIntent={() => {}}><Shell {...props} sync={syncFixture()} overlays={null}><div /></Shell></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><Shell {...props} sync={syncFixture()} overlays={null}><div /></Shell></ActionRoot>);
     expect(screen.getByRole('link', { name: '同期 1 分前' })).toHaveAttribute('title', '同期 1 分前（押すと同期の設定を開く）');
   });
   it('最終更新を畳んでも、ゲージの title から読める', () => {
@@ -152,14 +152,14 @@ describe('アカウントの名前を畳んでも読める', () => {
   });
   it('アカウントがあって値が無いときも、切り替えのボタンを出し、値が無いと言う', () => {
     const noValue = { ...withAccount, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null } };
-    render(<IntentRoot onIntent={() => {}}><Shell {...noValue} overlays={null}><div /></Shell></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><Shell {...noValue} overlays={null}><div /></Shell></ActionRoot>);
     const face = screen.getByRole('button', { name: /^アカウントを切り替え（現在は 会社/ });
     expect(face).toHaveTextContent('まだ値がありません');
     expect(screen.queryByRole('link', { name: /使用率/ })).toBeNull();
   });
   it('アカウントが無くて値も無いときは、今までどおり設定へ行くリンクを出す', () => {
     const noValue = { ...props, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null } };
-    render(<IntentRoot onIntent={() => {}}><Shell {...noValue} overlays={null}><div /></Shell></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><Shell {...noValue} overlays={null}><div /></Shell></ActionRoot>);
     expect(screen.getByRole('link', { name: '使用率 未取得' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /アカウントを切り替え/ })).toBeNull();
   });

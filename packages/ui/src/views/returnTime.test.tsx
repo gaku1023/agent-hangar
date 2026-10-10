@@ -1,7 +1,7 @@
 import { translator } from '@agent-hangar/shared';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentHomeBand, type ReturnCard } from '../presenters/home.ts';
 import type { PauseProps } from '../presenters/pause.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
@@ -14,12 +14,12 @@ const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps =>
 
 describe('行の戻る時刻', () => {
   it('時刻を日の後ろに出し、塗るのは時刻を過ぎてからにする', () => {
-    render(<IntentRoot onIntent={vi.fn()}><SessionRows rows={[
+    render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[
       sr('a', { state: 'paused', returnOn: '2026-10-05', returnTime: '21:50', overdueDays: 0, returnDue: false }),
       sr('b', { state: 'paused', returnOn: '2026-10-05', returnTime: '11:30', overdueDays: 0, returnDue: true, returnPastMin: 30 }),
       sr('c', { state: 'paused', returnOn: '2026-10-06', returnTime: '13:30', overdueDays: null, returnDue: false }),
       sr('d', { state: 'paused', returnOn: '2026-10-05', returnTime: null, overdueDays: 0, returnDue: true }),
-    ]} height={400} variant="project" /></IntentRoot>);
+    ]} height={400} variant="project" /></ActionRoot>);
     // 当日でも時刻の前は、先の日と同じ文字だけの札にする。
     expect(screen.getByText('今日 21:50')).not.toHaveAttribute('data-due');
     // 時刻を過ぎたら、過ぎた長さを言う。時刻はポインタを乗せると読める。
@@ -41,7 +41,7 @@ describe('ホームの帯の今日戻るの行の時刻', () => {
   it('時刻を出し、時刻の前のものは塗らない', () => {
     const band = presentHomeBand({ attention: [], returning: [ret('timer', '11:30', true), ret('night', '21:50', false), ret('allday', null, true)], running: [], confirm: [] }, ja);
     const props = { band, idle: false, searching: false, list: { text: '', filter: {}, projects: [], rows: [], total: 0, loading: false, mode: 'all' as const, conditions: [], tabs: [], tab: 'all' as const, pager: null, statusColumn: true, tokens: [], hints: [], allCount: 0 }, allCount: 0, loadMore: null, note: null };
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><HomeScreen {...props} /></IntentRoot>);
+    const { container } = render(<ActionRoot onAction={vi.fn()}><HomeScreen {...props} /></ActionRoot>);
     const when = [...container.querySelectorAll('.drawer .return-when')];
     expect(when.map((w) => [w.textContent, w.getAttribute('data-due')])).toEqual([['30 分過ぎ', 'true'], ['今日 21:50', null], ['今日', 'true']]);
   });
@@ -58,22 +58,22 @@ describe('PauseDialog の時刻', () => {
     ...over,
   });
   const mount = (p: PauseProps) => {
-    const onIntent = vi.fn();
-    const r = render(<IntentRoot onIntent={onIntent}><PauseDialog {...p} /></IntentRoot>);
-    return { onIntent, unmount: r.unmount };
+    const onAction = vi.fn();
+    const r = render(<ActionRoot onAction={onAction}><PauseDialog {...p} /></ActionRoot>);
+    return { onAction, unmount: r.unmount };
   };
   const submit = () => screen.getByRole('button', { name: 'Paused にする' });
   const time = () => screen.getByLabelText('リマインダーの時刻（任意）');
 
   it('時刻の欄は空で始まり、入れると戻る時刻として送る。空のままなら送らない', () => {
-    const { onIntent } = mount(props());
+    const { onAction } = mount(props());
     expect(time()).toHaveValue('');
     expect(time()).toHaveAttribute('type', 'time');
     fireEvent.click(submit());
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02' });
     fireEvent.change(time(), { target: { value: '13:30' } });
     fireEvent.click(submit());
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', returnTime: '13:30' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02', returnTime: '13:30' });
   });
   it('時刻の欄で打った数字は札を切り替えない', () => {
     mount(props());
@@ -81,19 +81,19 @@ describe('PauseDialog の時刻', () => {
     expect(screen.getByRole('radio', { name: /^明日/ })).toHaveAttribute('aria-checked', 'true');
   });
   it('今の時刻を入れて開き、消せば時刻なしに戻せる', () => {
-    const { onIntent } = mount(props({ initialReturnTime: '21:50' }));
+    const { onAction } = mount(props({ initialReturnTime: '21:50' }));
     expect(time()).toHaveValue('21:50');
     fireEvent.change(time(), { target: { value: '' } });
     fireEvent.click(submit());
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', returnOn: '2026-10-02' });
   });
   it('提案から開いて理由を変えずに送ると、確定に日と時刻を添える', () => {
     const p = props({ from: 'candidate', draft: 'timer を見る', candidateNote: 'timer を見る', initialReturnTime: '09:00', candidateReturnTime: '09:00' });
-    const { onIntent } = mount(p);
+    const { onAction } = mount(p);
     fireEvent.click(submit());
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-02', returnTime: '09:00' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-02', returnTime: '09:00' });
     fireEvent.change(time(), { target: { value: '' } });
     fireEvent.click(submit());
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-02' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1', returnOn: '2026-10-02' });
   });
 });

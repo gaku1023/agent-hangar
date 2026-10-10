@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountDto, AccountsDto } from '@agent-hangar/shared';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentAccounts } from '../presenters/accounts.ts';
 import { ACCOUNT_COLORS, type SettingsProps } from '../presenters/settings.ts';
 import { initialStore } from '../store/store.ts';
@@ -16,9 +16,9 @@ function props(over: Record<string, Partial<AccountDto>> = {}, currentId = 'prim
   return { list: presentAccounts({ ...initialStore(), accounts: dto }, NOW), colors: ACCOUNT_COLORS };
 }
 const mount = (p: SettingsProps['accounts'] = props()) => {
-  const onIntent = vi.fn();
-  render(<IntentRoot onIntent={onIntent}><AccountSettings {...p} /></IntentRoot>);
-  return onIntent;
+  const onAction = vi.fn();
+  render(<ActionRoot onAction={onAction}><AccountSettings {...p} /></ActionRoot>);
+  return onAction;
 };
 /** 名前を直している間は名前が欄になるので、行は「⋯」の名前から探す。 */
 const row = (name: string) => screen.getByRole('button', { name: `${name}の操作` }).closest('li')!;
@@ -83,10 +83,10 @@ describe('AccountSettings の状態', () => {
     expect(state).toHaveTextContent('ブラウザで承認してください…');
   });
   it('初めてのログインの途中は「ブラウザで承認してください…」だけを出し、「やめる」を押すと account.login.cancel を出す', () => {
-    const onIntent = mount(props({ a1: { loginRunning: true, auth: { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 } } }));
+    const onAction = mount(props({ a1: { loginRunning: true, auth: { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 } } }));
     expect(row('大学').querySelector('.account-set-state')).toHaveTextContent(/^ブラウザで承認してください…$/);
     fireEvent.click(within(row('大学')).getByRole('button', { name: 'やめる' }));
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.login.cancel', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.login.cancel', accountId: 'a1' }]]);
     // 途中の行には「ログイン」を出さない。
     expect(within(row('大学')).queryByRole('button', { name: 'ログイン' })).toBeNull();
   });
@@ -95,20 +95,20 @@ describe('AccountSettings の状態', () => {
     expect(screen.queryByRole('button', { name: 'やめる' })).toBeNull();
   });
   it('未ログインの行には「ログイン」を直に出し、押すと account.login を出す', () => {
-    const onIntent = mount(props({ a1: { auth: { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 } } }));
+    const onAction = mount(props({ a1: { auth: { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 } } }));
     expect(within(row('会社')).queryByRole('button', { name: 'ログイン' })).toBeNull();
     fireEvent.click(within(row('大学')).getByRole('button', { name: 'ログイン' }));
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
   });
   it('ログイン済みの行は、メニューの「ログインし直す」で account.login を出す', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', 'ログインし直す');
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
   });
   it('メニューの「状態を読み直す」で account.refresh を出す', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '状態を読み直す');
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.refresh', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.refresh', accountId: 'a1' }]]);
   });
   it('linkProblem があれば、その行の下に注意の色で 1 行出す', () => {
     mount(props({ a1: { linkProblem: 'skills がリンクでなく実体のディレクトリです' } }));
@@ -122,38 +122,38 @@ describe('AccountSettings の「ログイン」と「やめる」の入れ替わ
   afterEach(() => { vi.useRealTimers(); });
   const OUT = { loggedIn: false, email: null, plan: null, orgName: null, checkedAt: 1 };
   const mountSwap = (before: Record<string, Partial<AccountDto>>) => {
-    const onIntent = vi.fn();
-    const ui = (p: SettingsProps['accounts']) => <IntentRoot onIntent={onIntent}><AccountSettings {...p} /></IntentRoot>;
+    const onAction = vi.fn();
+    const ui = (p: SettingsProps['accounts']) => <ActionRoot onAction={onAction}><AccountSettings {...p} /></ActionRoot>;
     const view = render(ui(props(before)));
-    return { onIntent, swap: (after: Record<string, Partial<AccountDto>>) => view.rerender(ui(props(after))) };
+    return { onAction, swap: (after: Record<string, Partial<AccountDto>>) => view.rerender(ui(props(after))) };
   };
   it('「ログイン」を押して「やめる」へ入れ替わった直後は押せず、時間が過ぎると押せる', () => {
     vi.useFakeTimers();
-    const { onIntent, swap } = mountSwap({ a1: { auth: OUT } });
+    const { onAction, swap } = mountSwap({ a1: { auth: OUT } });
     fireEvent.click(within(row('大学')).getByRole('button', { name: 'ログイン' }));
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.login', accountId: 'a1' }]]);
     swap({ a1: { auth: OUT, loginRunning: true } });
     const stop = within(row('大学')).getByRole('button', { name: 'やめる' });
     expect(stop).toBeDisabled();
     fireEvent.click(stop);
-    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledTimes(1);
     act(() => { vi.advanceTimersByTime(599); });
     expect(stop).toBeDisabled();
     act(() => { vi.advanceTimersByTime(1); });
     expect(stop).toBeEnabled();
     fireEvent.click(stop);
-    expect(onIntent.mock.calls[1]).toEqual([{ type: 'account.login.cancel', accountId: 'a1' }]);
+    expect(onAction.mock.calls[1]).toEqual([{ type: 'account.login.cancel', accountId: 'a1' }]);
   });
   it('逆向きも同じで、「やめる」を押して「ログイン」へ戻った直後は押せない', () => {
     vi.useFakeTimers();
-    const { onIntent, swap } = mountSwap({ a1: { auth: OUT, loginRunning: true } });
+    const { onAction, swap } = mountSwap({ a1: { auth: OUT, loginRunning: true } });
     expect(within(row('大学')).getByRole('button', { name: 'やめる' })).toBeEnabled();
     fireEvent.click(within(row('大学')).getByRole('button', { name: 'やめる' }));
     swap({ a1: { auth: OUT } });
     const login = within(row('大学')).getByRole('button', { name: 'ログイン' });
     expect(login).toBeDisabled();
     fireEvent.click(login);
-    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledTimes(1);
     act(() => { vi.advanceTimersByTime(600); });
     expect(login).toBeEnabled();
   });
@@ -165,59 +165,59 @@ describe('AccountSettings の「ログイン」と「やめる」の入れ替わ
 
 describe('AccountSettings の名前を変える', () => {
   it('メニューから、その行の名前がその場の入力欄になり、Enter で account.update { name } を出す', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '名前を変える');
     const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
     expect(input).toHaveValue('大学');
     expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: '研究室' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.update', accountId: 'a1', name: '研究室' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.update', accountId: 'a1', name: '研究室' }]]);
     expect(within(row('大学')).queryByRole('textbox')).toBeNull();
   });
   it('欄を出ると、変えていれば保存する', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '名前を変える');
     const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
     fireEvent.change(input, { target: { value: '研究室' } });
     fireEvent.blur(input);
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.update', accountId: 'a1', name: '研究室' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.update', accountId: 'a1', name: '研究室' }]]);
   });
   it('Esc ではやめて、何も出さない（欄を出ても保存しない）', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '名前を変える');
     const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
     fireEvent.change(input, { target: { value: '研究室' } });
     fireEvent.keyDown(input, { key: 'Escape' });
     fireEvent.blur(input);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(within(row('大学')).queryByRole('textbox')).toBeNull();
     expect(row('大学').querySelector('.account-set-name')).toHaveTextContent('大学');
   });
   it('名前が変わっていなければ、空にしたときは送らずに欄を閉じる', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '名前を変える');
     fireEvent.keyDown(within(row('大学')).getByRole('textbox'), { key: 'Enter' });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     choose('大学', '名前を変える');
     const input = within(row('大学')).getByRole('textbox');
     fireEvent.change(input, { target: { value: '   ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
   it('変換中の Enter では確定しない', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '名前を変える');
     const input = within(row('大学')).getByRole('textbox');
     fireEvent.change(input, { target: { value: 'けんきゅう' } });
     fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
 });
 
 describe('AccountSettings の色を変える', () => {
   it('メニューから、5 色の点が並ぶ帯がその行に出て、押すと account.update { color } を出す', () => {
-    const onIntent = mount();
+    const onAction = mount();
     expect(within(row('大学')).queryByRole('radiogroup')).toBeNull();
     choose('大学', '色を変える');
     const band = within(row('大学')).getByRole('radiogroup', { name: '大学の色' });
@@ -228,40 +228,40 @@ describe('AccountSettings の色を変える', () => {
     expect(dots.filter((d) => d.getAttribute('aria-checked') === 'true')).toHaveLength(1);
     expect(within(band).getByRole('radio', { name: '紫' })).toHaveFocus();
     fireEvent.click(within(band).getByRole('radio', { name: '緑' }));
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.update', accountId: 'a1', color: '#2b7048' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.update', accountId: 'a1', color: '#2b7048' }]]);
     // 選んだら帯は閉じる。
     expect(within(row('大学')).queryByRole('radiogroup')).toBeNull();
   });
   it('選んでいる色を押しても何も出さず、帯を閉じる', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '色を変える');
     fireEvent.click(within(row('大学')).getByRole('radio', { name: '紫' }));
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(within(row('大学')).queryByRole('radiogroup')).toBeNull();
   });
   it('Esc で、何も出さずに帯を閉じる', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '色を変える');
     fireEvent.keyDown(within(row('大学')).getByRole('radiogroup'), { key: 'Escape' });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(within(row('大学')).queryByRole('radiogroup')).toBeNull();
   });
 });
 
 describe('AccountSettings の一覧から外す', () => {
   it('最初でないアカウントは、メニューの「一覧から外す」で account.remove を出す（confirmed は付けない）', () => {
-    const onIntent = mount();
+    const onAction = mount();
     choose('大学', '一覧から外す');
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.remove', accountId: 'a1' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.remove', accountId: 'a1' }]]);
   });
   it('最初のアカウントでは押せず、理由「最初のアカウントは外せません」を添える（項目は消さない）', () => {
-    const onIntent = mount();
+    const onAction = mount();
     fireEvent.click(within(row('会社')).getByRole('button', { name: '会社の操作' }));
     const item = screen.getByRole('menuitem', { name: /一覧から外す/ });
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(within(item).getByText('最初のアカウントは外せません')).toBeInTheDocument();
     fireEvent.click(item);
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
 });
 
@@ -282,24 +282,24 @@ describe('AccountSettings の追加', () => {
     expect(add()).toBeEnabled();
   });
   it('名前を入れて Enter で account.add { name } を出し、欄を空にする', () => {
-    const onIntent = mount();
+    const onAction = mount();
     fireEvent.change(field(), { target: { value: '大学' } });
     fireEvent.keyDown(field(), { key: 'Enter' });
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.add', name: '大学' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.add', name: '大学' }]]);
     expect(field()).toHaveValue('');
   });
   it('「追加してログイン」を押しても同じで、前後の空白は落とす', () => {
-    const onIntent = mount();
+    const onAction = mount();
     fireEvent.change(field(), { target: { value: ' 大学 ' } });
     fireEvent.click(add());
-    expect(onIntent.mock.calls).toEqual([[{ type: 'account.add', name: '大学' }]]);
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.add', name: '大学' }]]);
     expect(field()).toHaveValue('');
   });
   it('空のまま Enter では何も出さない。変換中の Enter でも出さない', () => {
-    const onIntent = mount();
+    const onAction = mount();
     fireEvent.keyDown(field(), { key: 'Enter' });
     fireEvent.change(field(), { target: { value: 'だいがく' } });
     fireEvent.keyDown(field(), { key: 'Enter', keyCode: 229 });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
   });
 });

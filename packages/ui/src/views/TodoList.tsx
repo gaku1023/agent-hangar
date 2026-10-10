@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { TodoItemProps } from '../presenters/project.ts';
 import { isComposing } from './ime.ts';
 import { Icon } from './primitives/Icon.tsx';
@@ -8,7 +8,7 @@ import { useT } from './primitives/language.tsx';
 /**
  * プロジェクトの TODO。並び替えは持たず、完了した項目も同じ並びに打消し線で残す。
  * 完了の候補は、欄を半分塗りにし、根拠と出したセッションと確定と却下を行の下に常に出す（開かずに判断できるように）。
- * 候補の欄を押したときの扱い（確定にする）は Runtime が決める。View は反転の Intent を出すだけにする。
+ * 候補の欄を押したときの扱い（確定にする）は Runtime が決める。View は反転の UiAction を出すだけにする。
  * canAdd が偽なら足す欄を出さない（セッション画面の右欄。
  * 足すのはプロジェクト画面に任せる）。
  */

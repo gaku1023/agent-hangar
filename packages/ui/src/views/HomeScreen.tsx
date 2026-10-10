@@ -1,4 +1,4 @@
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { HomeScreenProps } from '../presenters/home.ts';
 import { HomeBand } from './HomeBand.tsx';
 import { PageHeading } from './PageHeading.tsx';

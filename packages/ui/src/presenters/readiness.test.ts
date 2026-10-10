@@ -85,7 +85,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   });
   it('右端のボタンは 1 つ。親フォルダは設定を開き、MCP と statusline は命令をコピーする', () => {
     const rows = presentReadiness(READY, ja)!.group.rows;
-    expect(rows.map((r) => r.actions.map((a) => [a.label, a.primary, a.intent]))).toEqual([
+    expect(rows.map((r) => r.actions.map((a) => [a.label, a.primary, a.send]))).toEqual([
       [['設定を開く', true, { type: 'nav.go', to: { name: 'settings' } }]],
       [['コマンドをコピー', false, { type: 'clipboard.copy', text: 'hangar mcp install' }]],
       [['コマンドをコピー', false, { type: 'clipboard.copy', text: 'hangar statusline install' }]],
@@ -120,12 +120,12 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   it('tmux が無ければ入れる命令をコピーさせる。パスはあるのに使えないなら設定を開く', () => {
     const row = presentReadiness(noTmux, ja, 'darwin')!.group.rows[0]!;
     expect(row).toMatchObject({ name: 'tmux', text: '見つかりません', detail: 'brew install tmux', lead: { tone: 'ng' } });
-    expect(row.actions[0]).toMatchObject({ label: 'コマンドをコピー', intent: { type: 'clipboard.copy', text: 'brew install tmux' } });
+    expect(row.actions[0]).toMatchObject({ label: 'コマンドをコピー', send: { type: 'clipboard.copy', text: 'brew install tmux' } });
     expect(presentReadiness(noTmux, ja, 'win32')!.group.rows[0]!.detail).toBe('winget install marlocarlo.psmux');
     const broken: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: '/x/tmux', ok: false, problem: 'notExecutable', version: null } } };
     const r2 = presentReadiness(broken, ja)!.group.rows[0]!;
     expect(r2).toMatchObject({ text: '/x/tmux には実行権限がありません', detail: null });
-    expect(r2.actions[0]).toMatchObject({ label: '設定を開く', intent: { type: 'nav.go', to: { name: 'settings' } } });
+    expect(r2.actions[0]).toMatchObject({ label: '設定を開く', send: { type: 'nav.go', to: { name: 'settings' } } });
   });
   it('必須が済んで任意の行だけが残ったときは、帯ごと出さない（分母は任意を含めて数える）', () => {
     const optionalOnly: ReadinessDto = { ...READY, workspace: { ...READY.workspace, projectCount: 12 } };

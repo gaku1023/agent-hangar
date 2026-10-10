@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { translator } from '@agent-hangar/shared';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { KEYMAP } from '../keys.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { ShortcutsDialog } from './ShortcutsDialog.tsx';
@@ -16,11 +16,11 @@ describe('用語表', () => {
     expect(screen.getByLabelText('休み')).toHaveAttribute('title', '休み');
   });
   it('hangar への移動の確認は「外部ターミナル」と書く', () => {
-    render(<IntentRoot onIntent={() => {}}><ConfirmDialog confirm={{ kind: 'adoptSession', sessionId: 's1' }} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><ConfirmDialog confirm={{ kind: 'adoptSession', sessionId: 's1' }} /></ActionRoot>);
     expect(screen.getByText(/^外部ターミナル（VS Code など）で動いている claude を終了し/)).toBeInTheDocument();
   });
   it('キーボードショートカットのダイアログは、開く操作と同じ名前を題にする', () => {
-    render(<IntentRoot onIntent={() => {}}><ShortcutsDialog /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><ShortcutsDialog /></ActionRoot>);
     expect(screen.getByRole('dialog', { name: 'キーボードショートカット' })).toHaveTextContent(/^キーボードショートカット/);
     const open = KEYMAP.find((k) => k.id === 'shortcuts.open')!;
     expect(translator('ja')(open.labelKey)).toBe('キーボードショートカット');
@@ -35,7 +35,7 @@ describe('用語表', () => {
     expect(label('list.memo')).toBe('ノートを編集');
   });
   it('横に並べた 2 つの間の仕切りは「左右の幅」と読み上げる', () => {
-    render(<IntentRoot onIntent={() => {}}><SplitPane left={<div />} right={<div />} /></IntentRoot>);
+    render(<ActionRoot onAction={() => {}}><SplitPane left={<div />} right={<div />} /></ActionRoot>);
     expect(screen.getByRole('separator', { name: '左右の幅' })).toBeInTheDocument();
   });
 });

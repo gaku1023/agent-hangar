@@ -103,8 +103,8 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
     }
     return null;
   }
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     case 'session.new.open':
       // 確認や入力のあるダイアログが出ていれば、差し替えない（overlay.ts の overlayReplaceable）。

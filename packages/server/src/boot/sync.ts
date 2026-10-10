@@ -103,7 +103,7 @@ export function bootSync(
   const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
   const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
   const engine = new SyncEngine({
-    db, deviceId, client, url: cloud?.url ?? null, home: home.home,
+    db, deviceId, client, url: cloud?.url ?? null, home: home.home, language: home.language,
     ...memoLossHandlers({ memoPath: o.memoPath, toast, pruneMemos: () => pruneBackups('memos'), language: home.language }),
   });
   // 設定の「使用量と費用」。
@@ -130,7 +130,7 @@ export function bootSync(
   const retention = new RetentionService({ claudeDir, home: home.home, managedDir: defaultManagedDir(), broadcast: (r) => hub.broadcast({ type: 'retention.changed', retention: r }), language: home.language });
   const puller = client
     ? new RemotePuller({
-        db, deviceId, home: home.home, client, key: fileKey, state: syncState,
+        db, deviceId, home: home.home, client, key: fileKey, state: syncState, language: home.language,
         // 画面へは toast を流さない（トーストは操作の結果だけにした）。
         // 諦めた項目は同期の状態（skipped）に残り、画面のベルの一覧が事実からその行を組む。
         onError: (k, m) => { console.error('[pull]', k, m); },

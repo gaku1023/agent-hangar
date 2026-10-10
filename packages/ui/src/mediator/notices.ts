@@ -19,9 +19,9 @@ export function readNoticesRead(v: unknown): string[] {
  * ベルが開いているかは View の中に持つ（Mediator は読まない）。
  */
 export function noticesStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'intent' || input.intent.type !== 'notices.read') return null;
+  if (input.kind !== 'action' || input.action.type !== 'notices.read') return null;
   const seen = new Set(state.noticesRead);
-  const added = [...new Set(input.intent.keys)].filter((k) => !seen.has(k));
+  const added = [...new Set(input.action.keys)].filter((k) => !seen.has(k));
   if (added.length === 0) return { state, effects: [] };
   const next = [...state.noticesRead, ...added].slice(-NOTICES_READ_MAX);
   return { state: { ...state, noticesRead: next }, effects: [{ kind: 'storage.save', key: NOTICES_READ_KEY, value: next }] };

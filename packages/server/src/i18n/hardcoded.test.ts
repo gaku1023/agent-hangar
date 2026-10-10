@@ -15,9 +15,10 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const JAPANESE = /[぀-ヿ一-鿿]/;
 
 const LOG = '開発者向けのログの行。画面にも Claude にも出さない';
+const LOG_AND_FILE = 'ログの行 3 つと、上書きの前に残すメモの控えのファイルの中身 1 つ。ファイルの中身は文言ではなくデータである';
 const FILE_BODY = '利用者の PC に置くファイルの中身（スクリプトとその注釈）。文言ではない';
-const SYNC = '同期の文。段 4 の PR 14 と 18 で作り直すときに鍵へ移す';
-const DB = 'DB の起動の失敗の文と、DB の中の注釈。標準エラーかファイルへ出る。鍵へ移すのは別の PR';
+const SQL_NOTE = 'DB のマイグレーションの SQL の中の注釈。文言ではない';
+const PROTOCOL = 'Worker が返す日本語の文の前置きと照合する印。画面には出さない（Worker の文を鍵へ移すときに一緒に直す）';
 const BASELINE = 'DB に保存する自動の要約の本文。書いた文は言語を変えても残るので、言語の扱いを決めてから鍵へ移す';
 const FIRST_NAME = '最初に保存するときの名前。書いたあとは利用者が変えられるデータで、言語を変えても書き直さない';
 const INTERNAL = '呼び手の誤りを弾く内部の検査の文。利用者には届かない（受け取った側は例外の名前だけを記録し、文は捨てる）';
@@ -37,10 +38,9 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'config/accounts.ts': { lines: 1, why: FIRST_NAME },
   'config/shellHook.ts': { lines: 3, why: FILE_BODY },
   'config/shellWrap.ts': { lines: 1, why: LOG },
-  'db/backup.ts': { lines: 3, why: DB },
-  'db/migrations.ts': { lines: 1, why: DB },
+  'db/backup.ts': { lines: 1, why: LOG },
+  'db/migrations.ts': { lines: 1, why: SQL_NOTE },
   'db/notify.ts': { lines: 3, why: LOG },
-  'db/open.ts': { lines: 1, why: DB },
   'http/testing.ts': { lines: 9, why: TEST_SUPPORT },
   'indexer/baseline.ts': { lines: 11, why: BASELINE },
   'launch/wrapper.ts': { lines: 3, why: FILE_BODY },
@@ -56,19 +56,17 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'runs/queries.ts': { lines: 1, why: LEFT },
   'sessions/park.ts': { lines: 1, why: LOG },
   'summary/job.ts': { lines: 2, why: LOG },
-  'sync/apply.ts': { lines: 4, why: SYNC },
-  'sync/client.ts': { lines: 6, why: SYNC },
+  'sync/apply.ts': { lines: 4, why: LOG_AND_FILE },
   'sync/config/apply.ts': { lines: 26, why: CLI },
   'sync/config/bundle.ts': { lines: 17, why: INTERNAL },
   'sync/config/inbox.ts': { lines: 1, why: INTERNAL },
   'sync/config/service.ts': { lines: 4, why: LOG },
-  'sync/copy.ts': { lines: 8, why: SYNC },
-  'sync/crypto.ts': { lines: 6, why: SYNC },
-  'sync/engine.ts': { lines: 9, why: SYNC },
-  'sync/pruneBackups.ts': { lines: 3, why: SYNC },
-  'sync/puller.ts': { lines: 7, why: SYNC },
-  'sync/uploader.ts': { lines: 2, why: SYNC },
-  'sync/usage.ts': { lines: 1, why: SYNC },
+  'sync/crypto.ts': { lines: 1, why: INTERNAL },
+  'sync/engine.ts': { lines: 5, why: LOG },
+  'sync/pruneBackups.ts': { lines: 3, why: LOG },
+  'sync/puller.ts': { lines: 1, why: LOG },
+  'sync/uploader.ts': { lines: 2, why: LOG },
+  'sync/usage.ts': { lines: 1, why: PROTOCOL },
   'tmux/tmux.ts': { lines: 1, why: INTERNAL },
 };
 
@@ -111,6 +109,6 @@ describe('サーバに残る日本語の直書き', () => {
 
   it('理由の定数は、一覧のどこかで使っている', () => {
     const used = new Set(Object.values(ALLOWED).map((a) => a.why));
-    for (const why of [LOG, FILE_BODY, SYNC, DB, BASELINE, FIRST_NAME, INTERNAL, TEST_SUPPORT, CLI, LEFT]) expect([why, used.has(why)]).toEqual([why, true]);
+    for (const why of [LOG, LOG_AND_FILE, FILE_BODY, SQL_NOTE, PROTOCOL, BASELINE, FIRST_NAME, INTERNAL, TEST_SUPPORT, CLI, LEFT]) expect([why, used.has(why)]).toEqual([why, true]);
   });
 });

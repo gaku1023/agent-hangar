@@ -6,7 +6,7 @@ export const SIDEBAR_KEY = 'sidebar.collapsed';
 
 /** サイドバーを帯に縮める・戻す。開閉のたびに保存し、再読み込みや再起動の後も同じ形で開く。 */
 export function sidebarStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'intent' || input.intent.type !== 'sidebar.toggle') return null;
+  if (input.kind !== 'action' || input.action.type !== 'sidebar.toggle') return null;
   const collapsed = !state.sidebarCollapsed;
   return { state: { ...state, sidebarCollapsed: collapsed }, effects: [{ kind: 'storage.save', key: SIDEBAR_KEY, value: collapsed }] };
 }
@@ -46,8 +46,8 @@ export function trimSidebarOrder(order: string[], live: string[]): string[] {
 
 /** 「動いている」の行を並べ替えたとき。並びを覚え、保存する。ドラッグの途中は部品の中だけで動かし、ここへは離したときだけ来る。 */
 export function sidebarOrderStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'intent' || input.intent.type !== 'sidebar.order') return null;
-  const order = mergeSidebarOrder(state.sidebarOrder, cleanSidebarOrder(input.intent.ids));
+  if (input.kind !== 'action' || input.action.type !== 'sidebar.order') return null;
+  const order = mergeSidebarOrder(state.sidebarOrder, cleanSidebarOrder(input.action.ids));
   return { state: { ...state, sidebarOrder: order }, effects: [{ kind: 'storage.save', key: SIDEBAR_ORDER_KEY, value: order }] };
 }
 

@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type AccountsDto, type ConfigApplyOrderEntryIn, type Intent, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -20,7 +20,7 @@ import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/
 import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
-import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
+import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import type { Notifier } from './notifier.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
@@ -64,7 +64,7 @@ export type RuntimeDeps = {
 };
 
 export type Runtime = {
-  dispatch(input: Input): void; emit(intent: Intent): void;
+  dispatch(input: Input): void; emit(action: UiAction): void;
   getState(): State; getStore(): Store;
   subscribe(cb: () => void): () => void;
   /** アプリの中に戻る先があるか。画面端の矢印を出すかどうかの判断に使う。 */
@@ -640,7 +640,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   }
 
   /**
-   * 表で引いた呼び出しを実行する（runtime/intentTable.ts）。
+   * 表で引いた呼び出しを実行する（runtime/actionTable.ts）。
    * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、どの行もトーストにする。
    */
   function runCall(c: ApiCall): void {
@@ -652,18 +652,18 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   }
 
   /**
-   * View の Intent を受ける。
+   * View の UiAction を受ける。
    * 表にあれば、Mediator を通さずに API を呼ぶ。無ければ、今までどおり Mediator へ渡す。
    */
-  function emit(intent: Intent): void {
-    if (!isTableIntent(intent)) { dispatch({ kind: 'intent', intent }); return; }
-    const c = intentCall(intent, store);
+  function emit(action: UiAction): void {
+    if (!isTableAction(action)) { dispatch({ kind: 'action', action }); return; }
+    const c = actionCall(action, store);
     if (c) runCall(c);
   }
 
   function dispatch(input: Input): void {
-    // 型では表の Intent を渡せないが、型を外して渡されても Mediator へは入れない。
-    if (input.kind === 'intent' && isTableIntent(input.intent)) { emit(input.intent); return; }
+    // 型では表の UiAction を渡せないが、型を外して渡されても Mediator へは入れない。
+    if (input.kind === 'action' && isTableAction(input.action)) { emit(input.action); return; }
     // 索引の走査がこの知らせで終わるかは、当てる前の Store でしか分からない。
     const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
     // 同期で降りた、この PC に場所を持ったことが無いプロジェクトか。これも、当てる前の Store でしか分からない（初めて見る id かどうか）。
@@ -742,7 +742,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         }
         // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。
         // 窓を前に出すのは notifier の役目である。
-        unsubNotify = notifier.onOpen((id) => dispatch({ kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } }));
+        unsubNotify = notifier.onOpen((id) => dispatch({ kind: 'action', action: { type: 'session.open', id, focus: 'terminal' } }));
       }
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),

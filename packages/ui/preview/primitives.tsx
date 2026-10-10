@@ -31,7 +31,7 @@ import { presentHomeBand, type BandGroup, type HomeBandProps } from '../src/pres
 import { translator } from '@agent-hangar/shared';
 import { HomeBand } from '../src/views/HomeBand.tsx';
 import { LanguageRoot } from '../src/views/primitives/language.tsx';
-import { IntentRoot } from '../src/intent/chain.tsx';
+import { ActionRoot } from '../src/action/chain.tsx';
 import { initialState } from '../src/mediator/transition.ts';
 import { presentNotices } from '../src/presenters/notices.ts';
 import { initialStore, type Store } from '../src/store/store.ts';
@@ -170,7 +170,7 @@ const quiet = presentHomeBand({
 /** 4 つ目の錠剤（PR 33 が足す形）。作り物の群を extra に渡すだけで増える。 */
 const unresolved: BandGroup = {
   id: 'unresolved', label: '場所の不明なプロジェクト', icon: 'repoint', tone: 'default', count: 1, summary: '1 件', morning: false,
-  rows: [{ key: 'pj:p1', lead: { kind: 'todo' }, name: 'old-shop', context: 'セッション 3', text: '前のパス /work/old-shop', detail: null, tone: null, trail: [], open: null, actions: [{ id: 'relocate', label: '場所を再指定', ariaLabel: '場所を再指定、old-shop', primary: false, ghost: false, intent: { type: 'nav.go', to: { name: 'projects' } } }] }],
+  rows: [{ key: 'pj:p1', lead: { kind: 'todo' }, name: 'old-shop', context: 'セッション 3', text: '前のパス /work/old-shop', detail: null, tone: null, trail: [], open: null, actions: [{ id: 'relocate', label: '場所を再指定', ariaLabel: '場所を再指定、old-shop', primary: false, ghost: false, send: { type: 'nav.go', to: { name: 'projects' } } }] }],
 };
 const withFourth: HomeBandProps = { ...busyMorning, groups: [...busyMorning.groups, unresolved] };
 
@@ -214,13 +214,13 @@ function BellCase(props: { lang: 'ja' | 'en'; empty?: boolean; allRead?: boolean
   const p = presentNotices({ ...initialState(), noticesRead: read }, store, NOTICE_NOW, 'Asia/Tokyo');
   return (
     <LanguageRoot language={props.lang}>
-      <IntentRoot onIntent={(i) => { if (i.type === 'notices.read') setRead((r) => [...new Set([...r, ...i.keys])]); }}>
+      <ActionRoot onAction={(i) => { if (i.type === 'notices.read') setRead((r) => [...new Set([...r, ...i.keys])]); }}>
         <div id="bell-strip" style={{ width: props.width, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 18, height: 44, padding: '0 12px', borderRadius: 14, background: 'rgba(255, 255, 255, 0.55)', boxShadow: 'var(--glass-edge)', fontSize: 'var(--fs-sm)' }}>
           <span className="faint">{props.lang === 'ja' ? '同期エラー' : 'Sync error'}</span>
           <Bell {...p} defaultOpen={props.open} />
           <button type="button" className="btn btn-primary"><Icon name="add" />{props.lang === 'ja' ? '新しいセッション' : 'New session'}</button>
         </div>
-      </IntentRoot>
+      </ActionRoot>
     </LanguageRoot>
   );
 }

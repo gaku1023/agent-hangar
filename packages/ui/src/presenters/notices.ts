@@ -1,4 +1,4 @@
-import { compatState, type Intent, type Language, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
+import { compatState, type UiAction, type Language, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
@@ -22,12 +22,12 @@ export type NoticeTone = 'err' | 'warn' | 'info';
  * 一覧の 1 行。
  * key は既読の印で、`種類|対象|事実の版` の形である。事実の版が変われば鍵が変わり、また未読になる。
  * when は時の欄（無ければ null）、detail は題の下の 1 行（無ければ null）。
- * action は行の操作 1 つで、押すと行を既読にして intent を送る（views/Bell.tsx）。
+ * action は行の操作 1 つで、押すと行を既読にして send を送る（views/Bell.tsx）。
  */
 export type NoticeRow = {
   key: string; kind: NoticeKind; tone: NoticeTone; icon: IconName; kindLabel: string;
   title: string; detail: string | null; when: string | null; unread: boolean;
-  action: { label: string; intent: Intent };
+  action: { label: string; send: UiAction };
 };
 /**
  * ベルの props。rows は事実から組んだ行（既読も含む。閉じても残る）、keys はその鍵の全部で、「すべて既読にする」が送る。
@@ -71,7 +71,7 @@ function reminders({ store, now, t }: Ctx): Draft[] {
     key: `reminder|${c.id}|${c.returnOn === null ? 'none' : c.returnTime ? `${c.returnOn} ${c.returnTime}` : c.returnOn}`,
     kind: 'reminder', tone: 'warn', icon: 'reminder', kindLabel: t('notices.kind.reminder'),
     title: c.name, detail: store.sessions[c.id]?.state?.note || null, when: reminderWhen(t, c),
-    action: { label: t('notices.reminder.open'), intent: { type: 'session.open', id: c.id } },
+    action: { label: t('notices.reminder.open'), send: { type: 'session.open', id: c.id } },
   }));
 }
 
@@ -83,7 +83,7 @@ function reminders({ store, now, t }: Ctx): Draft[] {
 function syncFacts({ store, t, language, tz }: Ctx): Draft[] {
   const s = store.sync;
   if (!s) return [];
-  const base = { kind: 'sync', icon: 'sync', kindLabel: t('notices.kind.sync'), when: null, action: { label: t('notices.sync.open'), intent: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } } } as const;
+  const base = { kind: 'sync', icon: 'sync', kindLabel: t('notices.kind.sync'), when: null, action: { label: t('notices.sync.open'), send: { type: 'nav.go', to: { name: 'settings', at: 'sync' } } } } as const;
   return [...syncState(s, base, t, language, tz), ...syncSkipped(s, base, t)];
 }
 
@@ -129,7 +129,7 @@ function compat({ store, now, t }: Ctx): Draft[] {
     key: `compat|${version ?? 'unknown'}|${count} change`,
     kind: 'compat', tone: 'warn', icon: 'link', kindLabel: t('notices.kind.compat'),
     title: t('notices.compat.title'), detail, when: seen === null ? null : agoWord(t, seen, now),
-    action: { label: t('notices.compat.open'), intent: { type: 'nav.go', to: { name: 'settings' } } },
+    action: { label: t('notices.compat.open'), send: { type: 'nav.go', to: { name: 'settings' } } },
   }];
 }
 
@@ -142,7 +142,7 @@ function retention({ store, now, t }: Ctx): Draft[] {
   const r = store.retention;
   if (!store.bootstrapped || !r || r.source !== 'default' || !r.writable) return [];
   const soon = countExpiring(Object.values(store.sessions), r.days, now);
-  const base = { kind: 'retention', tone: 'warn', icon: 'retention', kindLabel: t('notices.kind.retention'), when: null, action: { label: t('notices.retention.open'), intent: { type: 'nav.go', to: { name: 'settings' } } } } as const;
+  const base = { kind: 'retention', tone: 'warn', icon: 'retention', kindLabel: t('notices.kind.retention'), when: null, action: { label: t('notices.retention.open'), send: { type: 'nav.go', to: { name: 'settings' } } } } as const;
   return [soon > 0
     ? { ...base, key: `retention|${r.days}|soon`, title: t('notices.retention.soon', { n: soon }), detail: t('notices.retention.soonDetail', { days: r.days }) }
     : { ...base, key: `retention|${r.days}|rule`, title: t('notices.retention.rule', { days: r.days }), detail: t('notices.retention.ruleDetail') }];
@@ -161,7 +161,7 @@ function configUnsent({ store, t }: Ctx): Draft[] {
     covers: (k) => k.startsWith(prefix) && Number(k.slice(prefix.length)) >= c.unsent,
     key: `${prefix}${c.unsent}`, kind: 'config', tone: 'warn', icon: 'settings', kindLabel: t('notices.kind.config'),
     title: t('notices.config.unsent', { n: c.unsent }), detail: t('notices.config.unsentDetail'), when: null,
-    action: { label: t('notices.config.open'), intent: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } },
+    action: { label: t('notices.config.open'), send: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } },
   }];
 }
 
@@ -176,7 +176,7 @@ function notifyOffer({ store, t }: Ctx): Draft[] {
   return [{
     key: 'notify|offer', kind: 'notify', tone: 'info', icon: 'bell', kindLabel: t('notices.kind.notify'),
     title: t('notices.notify.title'), detail: t('notices.notify.detail'), when: null,
-    action: { label: t('notices.notify.open'), intent: { type: 'notify.set', on: true } },
+    action: { label: t('notices.notify.open'), send: { type: 'notify.set', on: true } },
   }];
 }
 

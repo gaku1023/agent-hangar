@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from 'react';
 import { isReturnOn, isReturnTime, STATE_NOTE_MAX } from '@agent-hangar/shared';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { PauseChoice, PauseProps } from '../presenters/pause.ts';
 import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';

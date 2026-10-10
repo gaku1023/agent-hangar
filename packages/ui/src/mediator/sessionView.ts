@@ -156,8 +156,8 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
     if (cur?.seq !== e.seq) return { state, effects: [] };
     return patch(state, e.sessionId, { turnJump: { ...cur, status: e.status } });
   }
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     case 'transcript.showThinking': return patch(state, i.sessionId, { showThinking: i.show });
     case 'transcript.showRaw': return patch(state, i.sessionId, { showRaw: i.show });

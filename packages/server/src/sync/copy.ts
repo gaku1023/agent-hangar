@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backupsRoot } from '../config/cloud.ts';
 import type { Db } from '../db/open.ts';
+import { causeOf, msg, type Message } from '../i18n/message.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
+import { RunError } from '../runs/errors.ts';
 import { remoteTranscriptPath } from './puller.ts';
 
 export type CopyResult =
@@ -134,9 +136,9 @@ function chooseRemote(o: CopyOptions, sessionUuid: string): RemotePick | null {
  * 形は設定の同期の書き込み（sync/config/apply.ts）の経路の塞ぎ方と揃えてある。
  * 返すパスは呼び手が渡した root の綴りのままにする。枠の検査だけ realpath で行う。
  */
-function resolveUnder(root: string, rel: string, label: string, o: { create?: boolean } = {}): string {
+function resolveUnder(root: string, rel: string, label: Message | string, o: { create?: boolean } = {}): string {
   const segs = rel.split('/');
-  if (segs.length === 0 || segs.some((x) => x === '' || x === '.' || x === '..')) throw new Error('相対パスの形が不正です');
+  if (segs.length === 0 || segs.some((x) => x === '' || x === '.' || x === '..')) throw new RunError(409, msg('sync.copy.badRelPath'));
   let fence: string;
   try { fence = fs.realpathSync(root); } catch { fence = path.resolve(root); }
   const base = path.resolve(root);
@@ -146,9 +148,9 @@ function resolveUnder(root: string, rel: string, label: string, o: { create?: bo
     const here = segs.slice(0, i + 1).join('/');
     let st: fs.Stats | null;
     try { st = fs.lstatSync(cur); } catch { st = null; }
-    if (st?.isSymbolicLink()) throw new Error(`${here} がシンボリックリンクなので、${label}の外に出ます`);
+    if (st?.isSymbolicLink()) throw new RunError(409, msg('sync.copy.symlink', { here, label }));
     if (i === segs.length - 1) break;
-    if (st && !st.isDirectory()) throw new Error(`${here} がディレクトリではありません`);
+    if (st && !st.isDirectory()) throw new RunError(409, msg('sync.copy.notDirectory', { here }));
     if (!st && o.create) fs.mkdirSync(cur, { mode: 0o700 });
   }
   const parent = path.dirname(cur);
@@ -157,7 +159,7 @@ function resolveUnder(root: string, rel: string, label: string, o: { create?: bo
   // 綴りの側の枠（base）は cur の組み立て方から必ず満たすが、あると分かっている入れ物は realpath で見る。
   try { real = fs.realpathSync(parent); } catch { real = parent; }
   const under = (p: string, f: string): boolean => p === f || p.startsWith(f + path.sep);
-  if (!under(real, fence) && !under(real, base)) throw new Error(`${rel} は${label}の外を指しています`);
+  if (!under(real, fence) && !under(real, base)) throw new RunError(409, msg('sync.copy.outside', { rel, label }));
   return cur;
 }
 
@@ -203,7 +205,7 @@ function backupBeforeOverwrite(target: string, home: string, sessionUuid: string
   const base = `${sessionUuid}-${timestampLabel(now)}`;
   for (let i = 1; i <= MAX_BACKUP_TRIES; i++) {
     // 控えの置き場も段ごとに解く。transcripts がリンクだと控えが控えの外へ出る。
-    const dest = resolveUnder(root, `transcripts/${i === 1 ? `${base}.jsonl` : `${base}-${i}.jsonl`}`, '控えの置き場', { create: true });
+    const dest = resolveUnder(root, `transcripts/${i === 1 ? `${base}.jsonl` : `${base}-${i}.jsonl`}`, msg('sync.copy.labelBackups'), { create: true });
     const tmp = `${dest}.hangar-tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
     try {
       fs.copyFileSync(target, tmp, fs.constants.COPYFILE_EXCL);
@@ -229,7 +231,7 @@ function backupBeforeOverwrite(target: string, home: string, sessionUuid: string
     }
     return dest;
   }
-  throw new Error('控えを置く名前が空いていません');
+  throw new RunError(409, msg('sync.copy.noFreeName'));
 }
 
 /**
@@ -241,7 +243,7 @@ export function copyTranscriptForResume(o: CopyOptions): CopyResult {
   const s = o.db.prepare('select provider_session_id, cwd from sessions where id = ? and deleted_at is null')
     .get(o.sessionId) as { provider_session_id: string; cwd: string } | undefined;
   if (!s) return { kind: 'none' };
-  if (!UUID_RE.test(s.provider_session_id)) throw new Error('セッションの識別子がファイル名として不正です');
+  if (!UUID_RE.test(s.provider_session_id)) throw new RunError(400, msg('sync.copy.badSessionId'));
   // 途中の段がリンクだと ~/.claude の外のファイルを置き換えてしまうので、段ごとに解く。
   // ここでは入れ物を作らない。書くと決まるまで ~/.claude に足跡を残さない。
   const rel = `projects/${mangleCwd(s.cwd)}/${s.provider_session_id}.jsonl`;
@@ -259,7 +261,7 @@ export function copyTranscriptForResume(o: CopyOptions): CopyResult {
       backedUp = backupBeforeOverwrite(target, o.home, s.provider_session_id, o.now ? o.now() : Date.now());
     } catch (e) {
       // 控えが取れないなら書かない。何を消したか後から追えない上書きは作らない。
-      throw new Error(`控えを取れなかったので本文を置き換えませんでした: ${e instanceof Error ? e.message : String(e)}`);
+      throw new RunError(409, msg('sync.copy.backupFailed', { cause: causeOf(e) }));
     }
   }
   copyOverAtomically(best.path, resolveUnder(o.claudeDir, rel, '~/.claude', { create: true }));

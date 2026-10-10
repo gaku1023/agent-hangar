@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { translator, type Intent } from '@agent-hangar/shared';
+import { translator, type UiAction } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentSessionBadges } from '../presenters/session.ts';
 import { LanguageRoot } from './primitives/language.tsx';
 import { SessionBadges } from './SessionBadges.tsx';
@@ -40,13 +40,13 @@ describe('TocPane（目次だけの右パネル）', () => {
   });
 
   it('開閉のボタンは、開いていれば「閉じる」、閉じていれば「開く」の名前で、押すと transcript.toggle を出す', () => {
-    const onIntent = vi.fn<(i: Intent) => void>();
-    const { rerender } = render(<LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><TocToggle open /></IntentRoot></LanguageRoot>);
+    const onAction = vi.fn<(i: UiAction) => void>();
+    const { rerender } = render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><TocToggle open /></ActionRoot></LanguageRoot>);
     const btn = screen.getByRole('button', { name: '右パネルを閉じる' });
     expect(btn).toHaveAttribute('title', '右パネルの開閉（⌘J）');
     fireEvent.click(btn);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.toggle' });
-    rerender(<LanguageRoot language="ja"><IntentRoot onIntent={onIntent}><TocToggle open={false} /></IntentRoot></LanguageRoot>);
+    expect(onAction).toHaveBeenCalledWith({ type: 'transcript.toggle' });
+    rerender(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><TocToggle open={false} /></ActionRoot></LanguageRoot>);
     expect(screen.getByRole('button', { name: '右パネルを開く' })).toBeInTheDocument();
   });
 });

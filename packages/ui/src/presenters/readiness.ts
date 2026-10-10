@@ -1,4 +1,4 @@
-import { compatState, type Intent, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
+import { compatState, type UiAction, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
 import { readinessCompat } from './compat.ts';
 import type { BandAction, BandGroup, BandRow } from './home.ts';
 
@@ -122,8 +122,8 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
   if (!readinessPending(r)) return null;
   const checks = checksOf(r);
   const name = (k: ReadinessKey) => t(`home.ready.name.${k}`);
-  const settings: Intent = { type: 'nav.go', to: { name: 'settings' } };
-  const action = (label: string, who: string, intent: Intent, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, intent });
+  const settings: UiAction = { type: 'nav.go', to: { name: 'settings' } };
+  const action = (label: string, who: string, send: UiAction, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, send });
   const toSettings = (k: ReadinessKey) => action(t('home.ready.openSettings'), name(k), settings, true);
   const copy = (k: ReadinessKey, command: string) => action(t('home.ready.copyCommand'), name(k), { type: 'clipboard.copy', text: command }, false);
   const sl = r.statusline;

@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { LanguageRoot } from './primitives/language.tsx';
@@ -15,14 +15,14 @@ const rows: TurnRowProps[] = [
 ];
 
 function setup(over: Partial<TurnIndexProps> = {}) {
-  const onIntent = vi.fn();
+  const onAction = vi.fn();
   const props: TurnIndexProps = { sessionId: 's1', runId: 'r1', rows, complete: true, openItems: [], turnJump: null, hasMore: false, loading: false, remaining: 0, agentId: null, ...over };
-  const r = render(<IntentRoot onIntent={onIntent}><TurnIndex {...props} /></IntentRoot>);
-  return { ...r, onIntent };
+  const r = render(<ActionRoot onAction={onAction}><TurnIndex {...props} /></ActionRoot>);
+  return { ...r, onAction };
 }
 
 const row = (n: number): TurnRowProps => ({ seq: n, when: '10:00', text: `t${n}`, head: `t${n}`, tools: 0, open: false, band: [] });
-const indexUi = (p: Partial<TurnIndexProps> = {}) => <IntentRoot onIntent={vi.fn()}><TurnIndex sessionId="s1" runId={null} rows={[]} complete openItems={[]} turnJump={null} hasMore={false} loading={false} remaining={0} agentId={null} {...p} /></IntentRoot>;
+const indexUi = (p: Partial<TurnIndexProps> = {}) => <ActionRoot onAction={vi.fn()}><TurnIndex sessionId="s1" runId={null} rows={[]} complete openItems={[]} turnJump={null} hasMore={false} loading={false} remaining={0} agentId={null} {...p} /></ActionRoot>;
 const renderIndex = (p: Partial<TurnIndexProps> = {}) => render(indexUi(p));
 
 describe('TurnIndex', () => {
@@ -31,9 +31,9 @@ describe('TurnIndex', () => {
     const had = Object.prototype.hasOwnProperty.call(HTMLElement.prototype, 'scrollIntoView');
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: spy, configurable: true, writable: true });
     try {
-      const { rerender, onIntent } = setup();
+      const { rerender, onAction } = setup();
       const props: TurnIndexProps = { sessionId: 's1', runId: 'r1', rows: rows.map((r) => ({ ...r, open: r.seq === 20 })), complete: true, openItems: [], turnJump: null, hasMore: false, loading: false, remaining: 0, agentId: null };
-      rerender(<IntentRoot onIntent={onIntent}><TurnIndex {...props} /></IntentRoot>);
+      rerender(<ActionRoot onAction={onAction}><TurnIndex {...props} /></ActionRoot>);
       expect(spy).not.toHaveBeenCalled();
     } finally {
       if (had) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: undefined, configurable: true, writable: true });
@@ -90,15 +90,15 @@ describe('TurnIndex', () => {
   });
 
   it('押すと、そのターンを開き、左のターミナルを跳ばす切り出しを送る', () => {
-    const { container, onIntent } = setup();
+    const { container, onAction } = setup();
     fireEvent.click(container.querySelectorAll('.turn-row')[2]!);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'turn.open', sessionId: 's1', seq: 20, runId: 'r1', jump: { heads: rows.map((r) => r.head), index: 2, from: 'bottom' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'turn.open', sessionId: 's1', seq: 20, runId: 'r1', jump: { heads: rows.map((r) => r.head), index: 2, from: 'bottom' } });
   });
 
   it('run が無ければ跳ばさずに開くだけ', () => {
-    const { container, onIntent } = setup({ runId: null });
+    const { container, onAction } = setup({ runId: null });
     fireEvent.click(container.querySelectorAll('.turn-row')[0]!);
-    expect(onIntent).toHaveBeenCalledWith({ type: 'turn.open', sessionId: 's1', seq: 1, runId: null, jump: null });
+    expect(onAction).toHaveBeenCalledWith({ type: 'turn.open', sessionId: 's1', seq: 1, runId: null, jump: null });
   });
 
   it('開いたターンは中身を見せる。指示そのものは行に出ているので繰り返さない', () => {
@@ -128,21 +128,21 @@ describe('TurnIndex', () => {
   });
 
   it('最新へで transcript を抜けて末尾に戻る', () => {
-    const { getByRole, onIntent } = setup();
+    const { getByRole, onAction } = setup();
     fireEvent.click(getByRole('button', { name: '最新へ移動' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
   });
 
   it('古いターンが残っていれば、読み込むボタンを先頭に出す', () => {
-    const { getByRole, onIntent } = setup({ hasMore: true, remaining: 40, complete: false });
+    const { getByRole, onAction } = setup({ hasMore: true, remaining: 40, complete: false });
     fireEvent.click(getByRole('button', { name: '古いターンを読み込む（残り 40 件）' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.loadMore', sessionId: 's1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'transcript.loadMore', sessionId: 's1' });
   });
 
   it('サブエージェントを見ている間は、メイン会話へ戻る道を出す', () => {
-    const { getByRole, onIntent } = setup({ agentId: 'abc' });
+    const { getByRole, onAction } = setup({ agentId: 'abc' });
     fireEvent.click(getByRole('button', { name: 'メイン会話に戻る' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: null });
+    expect(onAction).toHaveBeenCalledWith({ type: 'transcript.selectAgent', sessionId: 's1', agentId: null });
   });
 });
 
@@ -158,7 +158,7 @@ describe('TurnIndex のキー操作（C3）', () => {
   });
 
   it('↑ と ↓、k と j でフォーカスを隣の行へ動かし、端で止まる', () => {
-    const { container, onIntent } = setup();
+    const { container, onAction } = setup();
     const b = rowsOf(container);
     act(() => b[2]!.focus());
     fireEvent.keyDown(b[2]!, { key: 'ArrowUp' });
@@ -174,7 +174,7 @@ describe('TurnIndex のキー操作（C3）', () => {
     fireEvent.keyDown(b[2]!, { key: 'ArrowDown' });
     expect(document.activeElement).toBe(b[2]);
     // 動かすだけでは開かない。
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(rowsOf(container).map((x) => x.tabIndex)).toEqual([-1, -1, 0]);
   });
 
@@ -196,17 +196,17 @@ describe('TurnIndex のキー操作（C3）', () => {
   });
 
   it('Enter でフォーカスの行を 1 度だけ開く', () => {
-    const { container, onIntent } = setup();
+    const { container, onAction } = setup();
     const b = rowsOf(container);
     act(() => b[2]!.focus());
     fireEvent.keyDown(b[2]!, { key: 'k' });
     fireEvent.keyDown(b[1]!, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledTimes(1);
-    // 押したときと同じ Intent を出す。
-    const viaKey = onIntent.mock.calls[0]![0];
-    onIntent.mockClear();
+    expect(onAction).toHaveBeenCalledTimes(1);
+    // 押したときと同じ UiAction を出す。
+    const viaKey = onAction.mock.calls[0]![0];
+    onAction.mockClear();
     fireEvent.click(b[1]!);
-    expect(viaKey).toEqual(onIntent.mock.calls[0]![0]);
+    expect(viaKey).toEqual(onAction.mock.calls[0]![0]);
     expect(viaKey).toMatchObject({ type: 'turn.open', sessionId: 's1', seq: 10, runId: 'r1' });
   });
 

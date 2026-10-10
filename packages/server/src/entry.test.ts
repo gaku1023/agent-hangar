@@ -45,7 +45,7 @@ describe('サーバの入口（runMain）', () => {
     expect(r.codes).toEqual([1]);
     expect(r.errors).toHaveLength(1);
     expect(r.errors[0]).toBeInstanceOf(DbBackupError);
-    expect((r.errors[0] as Error).message).toContain('マイグレーションを当てずに止めました');
+    expect((r.errors[0] as Error).message).toContain('マイグレーションを適用せずに停止しました');
     expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION);
   });
 
@@ -68,7 +68,7 @@ describe('サーバの入口（runMain）', () => {
     expect(e.kind).toBe('db-backup-failed');
     expect(e.params.dir).toBe(path.join(home, 'backups', 'db'));
     expect(String(e.params.file)).toContain(path.join(home, 'backups', 'db'));
-    expect(e.detail).toContain('マイグレーションを当てずに止めました');
+    expect(e.detail).toContain('マイグレーションを適用せずに停止しました');
   });
 
   it('起点より古い DB のときは boot-error.json に db-too-old を書く', async () => {

@@ -34,8 +34,8 @@ function closeOverlay(state: State): State {
 
 /** overlay 領域：ダイアログとパレット。未解決のプロジェクトのダイアログは、押したときだけ開く。 */
 export function overlayStep(state: State, input: Input): Step | null {
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
     case 'project.resolve.open': return openResolve(state, i.id);
     case 'project.resolve': {

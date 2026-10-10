@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { pagerOf } from '../presenters/pager.ts';
 import type { ProjectProps } from '../presenters/project.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
@@ -20,7 +20,7 @@ const props = (over: Partial<ProjectProps> = {}): ProjectProps => ({
   todos: [{ id: 't1', text: '買う', done: false, candidate: null }], pendingTodos: 0, note: { text: '決済は Stripe の v3', filled: true }, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }],
   ...over,
 });
-const mount = (p: ProjectProps = props(), onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><ProjectScreen {...p} /></IntentRoot>), onIntent });
+const mount = (p: ProjectProps = props(), onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><ProjectScreen {...p} /></ActionRoot>), onAction });
 const iconOf = (el: Element | null) => el?.querySelector('svg')?.getAttribute('data-icon') ?? null;
 const openInfo = () => { fireEvent.click(screen.getByRole('button', { name: '詳細' })); return screen.getByRole('dialog', { name: '詳細' }); };
 
@@ -37,18 +37,18 @@ describe('ProjectScreen の左の一覧（ホームと同じ部品）', () => {
     expect(container.querySelector('.row-proj')).toBeNull();
   });
   it('状態のタブ、ページ送りは search.* と list.pageSize の意図で出す', () => {
-    const onIntent = vi.fn();
-    mount(props({ list: list({ pager: pagerOf(1, 25, 60), total: 60 }) }), onIntent);
+    const onAction = vi.fn();
+    mount(props({ list: list({ pager: pagerOf(1, 25, 60), total: 60 }) }), onAction);
     fireEvent.click(within(screen.getByRole('group', { name: '状態' })).getByRole('button', { name: /^Active/ }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'active' } });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'active' } });
     fireEvent.click(within(screen.getByRole('navigation', { name: 'セッションのページ' })).getByRole('button', { name: '次のページ' }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.page', page: 2 });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.page', page: 2 });
   });
   it('検索の結果の続きは「さらに読み込む」で、search.more を出す', () => {
-    const onIntent = vi.fn();
-    mount(props({ list: list({ mode: 'search', text: '動画', pager: null }), loadMore: { remaining: 70, step: 50, loading: false } }), onIntent);
+    const onAction = vi.fn();
+    mount(props({ list: list({ mode: 'search', text: '動画', pager: null }), loadMore: { remaining: 70, step: 50, loading: false } }), onAction);
     fireEvent.click(screen.getByRole('button', { name: /さらに 50 件を読み込む/ }));
-    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.more' });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'search.more' });
   });
   it('セッションが 1 つも無いプロジェクトは、決まりの文を出す。絞り込みで 0 件のときはホームと同じ文', () => {
     const { unmount } = mount(props({ list: list({ rows: [], total: 0, allCount: 0 }) }));
@@ -64,15 +64,15 @@ describe('ProjectScreen の見出し', () => {
     mount(props({ notFound: true }));
     expect(screen.getByText('プロジェクトが見つかりません')).toBeInTheDocument();
   });
-  it('操作ボタンは project.* の Intent を出し、アイコンを持つ。新しいセッションの主ボタンは見出しの行に並べない', () => {
-    const onIntent = vi.fn();
-    mount(props(), onIntent);
+  it('操作ボタンは project.* の UiAction を出し、アイコンを持つ。新しいセッションの主ボタンは見出しの行に並べない', () => {
+    const onAction = vi.fn();
+    mount(props(), onAction);
     expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
     expect(iconOf(screen.getByRole('button', { name: 'ターミナルで開く' }))).toBe('openTerminal');
     fireEvent.click(screen.getByText('VS Code で開く'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.openEditor', id: 'alpha' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.openEditor', id: 'alpha' });
     fireEvent.click(screen.getByText('ターミナルで開く'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.openTerminalApp', id: 'alpha' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.openTerminalApp', id: 'alpha' });
     expect(screen.queryByText('新しいセッション')).toBeNull();
   });
   it('状態の選択が data-status を持つ', () => {
@@ -87,18 +87,18 @@ describe('ProjectScreen の見出し', () => {
     expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
   });
   it('パスがこの PC で見つからないときは押せる札を出し、場所の再指定へ進む', () => {
-    const onIntent = vi.fn();
-    mount(props({ resolved: false }), onIntent);
+    const onAction = vi.fn();
+    mount(props({ resolved: false }), onAction);
     fireEvent.click(screen.getByRole('button', { name: '見つかりません。場所を再指定' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
   });
   it('クイックセッションの置き場は、状態と外で開く操作を出さず、始める操作を出す', () => {
-    const onIntent = vi.fn();
-    mount(props({ isScratch: true }), onIntent);
+    const onAction = vi.fn();
+    mount(props({ isScratch: true }), onAction);
     expect(screen.queryByLabelText('プロジェクトの状態')).toBeNull();
     expect(screen.queryByText('VS Code で開く')).toBeNull();
     fireEvent.click(screen.getByText('クイックセッションを開始'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
   });
 });
 
@@ -111,43 +111,43 @@ describe('ProjectScreen の (i) の詳細', () => {
     expect(within(pop).queryByText('作成')).toBeNull();
   });
   it('場所を再指定は、ダイアログを開く意図を出して面を閉じる', () => {
-    const onIntent = vi.fn();
-    mount(props(), onIntent);
+    const onAction = vi.fn();
+    mount(props(), onAction);
     fireEvent.click(within(openInfo()).getByRole('button', { name: '場所を再指定' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
     expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
   });
   it('一覧から削除は、unlink の意図を出して面を閉じる（確認は Mediator が出す）', () => {
-    const onIntent = vi.fn();
-    mount(props(), onIntent);
+    const onAction = vi.fn();
+    mount(props(), onAction);
     fireEvent.click(within(openInfo()).getByRole('button', { name: '一覧から削除' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'unlink' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'unlink' } });
     expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
   });
   it('パスをコピーは clipboard.copy を出し、写せたら「コピーしました」を出す', () => {
-    const onIntent = vi.fn();
-    const view = render(<IntentRoot onIntent={onIntent}><CopiedContext.Provider value={null}><ProjectScreen {...props()} /></CopiedContext.Provider></IntentRoot>);
+    const onAction = vi.fn();
+    const view = render(<ActionRoot onAction={onAction}><CopiedContext.Provider value={null}><ProjectScreen {...props()} /></CopiedContext.Provider></ActionRoot>);
     fireEvent.click(within(openInfo()).getByRole('button', { name: 'パスをコピー' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: '/w/alpha' });
-    act(() => view.rerender(<IntentRoot onIntent={onIntent}><CopiedContext.Provider value={{ text: '/w/alpha', n: 1 }}><ProjectScreen {...props()} /></CopiedContext.Provider></IntentRoot>));
+    expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: '/w/alpha' });
+    act(() => view.rerender(<ActionRoot onAction={onAction}><CopiedContext.Provider value={{ text: '/w/alpha', n: 1 }}><ProjectScreen {...props()} /></CopiedContext.Provider></ActionRoot>));
     expect(within(screen.getByRole('dialog', { name: '詳細' })).getByRole('button', { name: 'コピーしました' })).toBeInTheDocument();
   });
   it('名前を変更は面の中で入力欄に替わり、Enter か保存で project.rename を出す。変換中の Enter と空の名前では出さない', () => {
-    const onIntent = vi.fn();
-    mount(props(), onIntent);
+    const onAction = vi.fn();
+    mount(props(), onAction);
     fireEvent.click(within(openInfo()).getByRole('button', { name: '名前を変更' }));
     const input = screen.getByLabelText('名前') as HTMLInputElement;
     expect(input.value).toBe('alpha');
     fireEvent.change(input, { target: { value: '  お店  ' } });
     fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.rename', id: 'alpha', name: 'お店' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.rename', id: 'alpha', name: 'お店' });
     expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
   });
   it('名前の変更は、保存のボタンでも出せる。空と変えていない名前は出さず、キャンセルで元の操作に戻る', () => {
-    const onIntent = vi.fn();
-    mount(props(), onIntent);
+    const onAction = vi.fn();
+    mount(props(), onAction);
     fireEvent.click(within(openInfo()).getByRole('button', { name: '名前を変更' }));
     const pop = () => screen.getByRole('dialog', { name: '詳細' });
     const input = screen.getByLabelText('名前');
@@ -158,7 +158,7 @@ describe('ProjectScreen の (i) の詳細', () => {
     fireEvent.click(within(pop()).getByRole('button', { name: '名前を変更' }));
     // 変えずに保存すると何も出さず閉じる。
     fireEvent.click(within(pop()).getByRole('button', { name: '保存' }));
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
   });
   it('クイックセッションの置き場は、場所と名前を直す操作も削除も出さず、パスのコピーだけを出す', () => {
@@ -197,17 +197,17 @@ describe('ProjectScreen の右パネル', () => {
     expect(screen.getByRole('textbox', { name: 'ノート' })).toHaveValue('決済は Stripe の v3');
   });
   it('ノートを保存すると memo.save を出して読む表示に戻り、Esc では保存せずに戻る', () => {
-    const { onIntent } = mount();
+    const { onAction } = mount();
     fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: '# b' } });
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'ノート' }), { key: 'Enter', ctrlKey: true });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'memo.save', projectId: 'alpha', markdown: '# b' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'memo.save', projectId: 'alpha', markdown: '# b' });
     expect(screen.queryByRole('textbox', { name: 'ノート' })).toBeNull();
-    onIntent.mockClear();
+    onAction.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: '捨てる' } });
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'ノート' }), { key: 'Escape' });
-    expect(onIntent).not.toHaveBeenCalled();
+    expect(onAction).not.toHaveBeenCalled();
     expect(screen.queryByRole('textbox', { name: 'ノート' })).toBeNull();
   });
   it('ノートが空なら、本文は出さず、ボタンは「ノートを書く」になる', () => {
@@ -231,7 +231,7 @@ describe('ProjectScreen の右パネル', () => {
     expect(screen.queryByText(/確認待ち \d/)).toBeNull();
   });
   it('言語を English にすると、見出しと操作が英語になる。札の語（Active など）は変わらない', () => {
-    render(<LanguageRoot language="en"><IntentRoot onIntent={vi.fn()}><ProjectScreen {...props({ pendingTodos: 1 })} /></IntentRoot></LanguageRoot>);
+    render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}><ProjectScreen {...props({ pendingTodos: 1 })} /></ActionRoot></LanguageRoot>);
     expect(screen.getByRole('heading', { name: /Pending review 1/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Note' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Artifacts/ })).toBeInTheDocument();

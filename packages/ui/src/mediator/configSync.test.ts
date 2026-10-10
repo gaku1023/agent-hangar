@@ -13,7 +13,7 @@ function run(inputs: Input[], start: State = initialState(), store: Store = stor
   for (const i of inputs) { const r = transition(state, store, i); state = r.state; effects.push(...r.effects); }
   return { state, effects };
 }
-const intent = (i: Extract<Input, { kind: 'intent' }>['intent']): Input => ({ kind: 'intent', intent: i });
+const action = (i: Extract<Input, { kind: 'action' }>['action']): Input => ({ kind: 'action', action: i });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
 const server = (e: Extract<Input, { kind: 'server' }>['event']): Input => ({ kind: 'server', event: e });
 
@@ -21,56 +21,56 @@ describe('設定の同期のダイアログ', () => {
   it('開くと、そのダイアログに要る中身を取りに行く', () => {
     const cases = [['send', ['outgoing']], ['review', ['inbox']], ['approve', ['inbox']], ['conflicts', ['conflicts']]] as const;
     for (const [part, parts] of cases) {
-      const a = run([intent({ type: 'configSync.open', part })]);
+      const a = run([action({ type: 'configSync.open', part })]);
       expect(a.state.overlay).toEqual({ kind: 'configSync', part, working: false });
       expect(a.effects).toEqual([{ kind: 'api.configSyncLoad', parts }]);
     }
   });
   it('開いたダイアログの間では、別の部分へ移れる（適用中は移れない）', () => {
-    const a = run([intent({ type: 'configSync.open', part: 'review' }), intent({ type: 'configSync.open', part: 'conflicts' })]);
+    const a = run([action({ type: 'configSync.open', part: 'review' }), action({ type: 'configSync.open', part: 'conflicts' })]);
     expect(a.state.overlay).toEqual({ kind: 'configSync', part: 'conflicts', working: false });
-    const busy = run([intent({ type: 'configSync.open', part: 'review' }), intent({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md' }] })]);
-    const b = run([intent({ type: 'configSync.open', part: 'conflicts' })], busy.state);
+    const busy = run([action({ type: 'configSync.open', part: 'review' }), action({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md' }] })]);
+    const b = run([action({ type: 'configSync.open', part: 'conflicts' })], busy.state);
     expect(b.state).toEqual(busy.state);
   });
   it('確認や入力のあるほかのダイアログの上には開かない', () => {
-    const kill = run([intent({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]).state;
-    const r = run([intent({ type: 'configSync.open', part: 'send' })], kill);
+    const kill = run([action({ type: 'session.kill', runId: 'r1', working: true, shellTabs: 0 })]).state;
+    const r = run([action({ type: 'configSync.open', part: 'send' })], kill);
     expect(r.state).toEqual(kill);
     expect(r.effects).toEqual([]);
   });
   it('送る一覧を承諾すると、スイッチを入れて閉じる', () => {
-    const r = run([intent({ type: 'configSync.open', part: 'send' }), intent({ type: 'configSync.send.confirm' })]);
+    const r = run([action({ type: 'configSync.open', part: 'send' }), action({ type: 'configSync.send.confirm' })]);
     expect(r.state.overlay).toEqual({ kind: 'none' });
     expect(r.effects.at(-1)).toEqual({ kind: 'api.updateSettings', patch: { configBundleSync: true } });
   });
   it('送る一覧の承諾は、その一覧を開いているときだけ効く', () => {
-    const r = run([intent({ type: 'configSync.send.confirm' })]);
+    const r = run([action({ type: 'configSync.send.confirm' })]);
     expect(r.effects).toEqual([]);
   });
   it('適用は、選んだ項目を指示書にする効果を出し、返事が来るまで閉じさせず、二重に出さない', () => {
-    const open = run([intent({ type: 'configSync.open', part: 'review' })]).state;
-    const a = run([intent({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md' }, { id: 'conflict-id', take: 'mine' }] })], open);
+    const open = run([action({ type: 'configSync.open', part: 'review' })]).state;
+    const a = run([action({ type: 'configSync.apply', entries: [{ id: 'file:CLAUDE.md' }, { id: 'conflict-id', take: 'mine' }] })], open);
     expect(a.state.overlay).toEqual({ kind: 'configSync', part: 'review', working: true });
     expect(a.effects).toEqual([{ kind: 'api.configSyncApply', entries: [{ id: 'file:CLAUDE.md' }, { id: 'conflict-id', take: 'mine' }] }]);
-    expect(run([intent({ type: 'configSync.apply', entries: [{ id: 'x' }] })], a.state).effects).toEqual([]);
+    expect(run([action({ type: 'configSync.apply', entries: [{ id: 'x' }] })], a.state).effects).toEqual([]);
     // 閉じる操作は、適用の返事を待つあいだは握りつぶす。
-    expect(run([intent({ type: 'overlay.close' })], a.state).state).toEqual(a.state);
+    expect(run([action({ type: 'overlay.close' })], a.state).state).toEqual(a.state);
   });
   it('選んだ項目が 0 件なら、何も書かない', () => {
-    const open = run([intent({ type: 'configSync.open', part: 'approve' })]).state;
-    expect(run([intent({ type: 'configSync.apply', entries: [] })], open).effects).toEqual([]);
+    const open = run([action({ type: 'configSync.open', part: 'approve' })]).state;
+    expect(run([action({ type: 'configSync.apply', entries: [] })], open).effects).toEqual([]);
   });
   it('適用の返事で、閉じるか、開いたまま押せる状態に戻る', () => {
-    const working = run([intent({ type: 'configSync.open', part: 'review' }), intent({ type: 'configSync.apply', entries: [{ id: 'x' }] })]).state;
+    const working = run([action({ type: 'configSync.open', part: 'review' }), action({ type: 'configSync.apply', entries: [{ id: 'x' }] })]).state;
     expect(run([runtime({ type: 'configSync.done', close: true })], working).state.overlay).toEqual({ kind: 'none' });
     expect(run([runtime({ type: 'configSync.done', close: false })], working).state.overlay).toEqual({ kind: 'configSync', part: 'review', working: false });
     // ダイアログが無いときの返事は、何も変えない。
     expect(run([runtime({ type: 'configSync.done', close: true })]).state.overlay).toEqual({ kind: 'none' });
   });
   it('指示書のやり直しと取り消しと世代へ戻す操作は、そのまま効果にする', () => {
-    expect(run([intent({ type: 'configSync.order.apply' })]).effects).toEqual([{ kind: 'api.configSyncApply', entries: null }]);
-    expect(run([intent({ type: 'configSync.restore', name: '20261010-120000' })]).effects).toEqual([{ kind: 'api.configSyncRestore', name: '20261010-120000' }]);
+    expect(run([action({ type: 'configSync.order.apply' })]).effects).toEqual([{ kind: 'api.configSyncApply', entries: null }]);
+    expect(run([action({ type: 'configSync.restore', name: '20261010-120000' })]).effects).toEqual([{ kind: 'api.configSyncRestore', name: '20261010-120000' }]);
   });
 });
 
@@ -94,7 +94,7 @@ describe('設定の同期の中身の取り直し', () => {
     expect(run([update], initialState(), store).effects).toEqual([]);
   });
   it('ダイアログを開いているときは、そのダイアログの中身を取り直す', () => {
-    const open = run([intent({ type: 'configSync.open', part: 'conflicts' })]).state;
+    const open = run([action({ type: 'configSync.open', part: 'conflicts' })]).state;
     expect(run([server({ type: 'config.update', configSync: dto() })], open).effects).toEqual([{ kind: 'api.configSyncLoad', parts: ['conflicts'] }]);
   });
 });

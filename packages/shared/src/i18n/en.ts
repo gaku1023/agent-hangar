@@ -52,6 +52,7 @@ import { toastsEn } from './en/toasts.ts';
 import { cloudUsageEn } from './en/cloudUsage.ts';
 import { readinessEn } from './en/readiness.ts';
 import { compatEn } from './en/compat.ts';
+import { dbEn } from './en/db.ts';
 
 /** 英語の辞書。文は領域ごとのファイル（`en/<領域>.ts`）にあり、ここは束ねるだけである。 */
 export const en: Dictionary = {
@@ -108,4 +109,5 @@ export const en: Dictionary = {
   ...cloudUsageEn,
   ...readinessEn,
   ...compatEn,
+  ...dbEn,
 };

@@ -88,7 +88,7 @@ function closeTransient(state: State): Overlay {
  * 確認や入力のあるダイアログを開いたまま裏の画面だけを移すと、何に答えているのかが分からなくなる（⌘I と同じ考え方）。
  * ⌘, の設定、⌘[ ⌘] の戻る進む、パレットの行、入力待ちのカードと通知は、どれもここで止める。
  * パレットと読むだけのダイアログは、閉じてから移る（closeTransient）。
- * ダイアログの中から意図して移るもの（保持期間の「ほかの期間…」、起動や引き取りの完了など）は、別の Intent か runtime の入力なのでここを通らない。
+ * ダイアログの中から意図して移るもの（保持期間の「ほかの期間…」、起動や引き取りの完了など）は、別の UiAction か runtime の入力なのでここを通らない。
  */
 export function canMoveBehind(state: State): boolean {
   return overlayReplaceable(state.overlay);
@@ -105,7 +105,7 @@ export function nextWaitingStep(state: State, store: Store): Step {
   const from = state.screen.name === 'session' ? state.screen.id : null;
   const id = nextWaitingSession(store, from);
   if (!id) return { state: closed, effects: [{ kind: 'toast', level: 'info', message: translatorOf(store)('mediator.screen.noWaiting') }] };
-  return screenStep(closed, store, { kind: 'intent', intent: { type: 'session.open', id, focus: 'terminal' } }) ?? { state: closed, effects: [] };
+  return screenStep(closed, store, { kind: 'action', action: { type: 'session.open', id, focus: 'terminal' } }) ?? { state: closed, effects: [] };
 }
 
 /**
@@ -130,11 +130,11 @@ export function searchQueryStep(state: State, text: string, filter?: SearchFilte
   return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'home', q: text } : { name: 'home' } }, { kind: 'focus', target: 'results' }] };
 }
 
-/** screen 領域：どの画面にいるか。URL のハッシュが正で、Intent は navigate 効果を出すだけ。 */
+/** screen 領域：どの画面にいるか。URL のハッシュが正で、UiAction は navigate 効果を出すだけ。 */
 export function screenStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'runtime' && input.event.type === 'hash.changed') {
     const route = input.event.route;
-    // ブラウザの戻る・進む（マウスの戻るボタンなど）は Intent を通らず、ここへ直に届く。何段動いたかが moved に添えてある。
+    // ブラウザの戻る・進む（マウスの戻るボタンなど）は UiAction を通らず、ここへ直に届く。何段動いたかが moved に添えてある。
     const moved = input.event.moved;
     if (moved !== undefined) {
       const here = state.screen.name === 'booting' ? null : state.screen;
@@ -196,10 +196,10 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     }
     return { state: next, effects };
   }
-  if (input.kind !== 'intent') return null;
-  const i = input.intent;
+  if (input.kind !== 'action') return null;
+  const i = input.action;
   switch (i.type) {
-    // 画面を移す Intent は、確認や入力のあるダイアログの裏では何もしない（canMoveBehind）。
+    // 画面を移す UiAction は、確認や入力のあるダイアログの裏では何もしない（canMoveBehind）。
     case 'nav.go': return canMoveBehind(state) ? { state: { ...state, overlay: closeTransient(state) }, effects: [{ kind: 'navigate', route: i.to }] } : { state, effects: [] };
     // 行き先はブラウザの履歴が決めるので、ここでは動かす向きだけを出す。戻った先は hash.changed で入ってくる。
     // 着いた先の hash.changed がパレットや読むだけのダイアログを閉じる。

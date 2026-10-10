@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { translator, type AccountDto, type CompatDto, type CompatSummaryDto, type SettingsDto } from '@agent-hangar/shared';
-import { IntentRoot } from '../intent/chain.tsx';
+import { ActionRoot } from '../action/chain.tsx';
 import { presentAccounts } from '../presenters/accounts.ts';
 import { presentCloudUsage } from '../presenters/cloudUsage.ts';
 import { presentCompat } from '../presenters/compat.ts';
@@ -22,7 +22,7 @@ const english = { ...initialStore(), settings: { language: 'en' } as SettingsDto
 /** 固定データの名前は日本語なので、英語の名前に替えて使う。 */
 const accounts = accountsFixture.accounts.map((a, i): AccountDto => ({ ...a, name: i === 0 ? 'Work' : 'School' }));
 
-const inEnglish = (ui: React.ReactNode, onIntent = vi.fn()) => render(<LanguageRoot language="en"><IntentRoot onIntent={onIntent}>{ui}</IntentRoot></LanguageRoot>);
+const inEnglish = (ui: React.ReactNode, onAction = vi.fn()) => render(<LanguageRoot language="en"><ActionRoot onAction={onAction}>{ui}</ActionRoot></LanguageRoot>);
 const noJapanese = (node: HTMLElement = document.body) => expect(node.textContent ?? '').not.toMatch(JAPANESE);
 
 const when = (d: number, h: number, m: number) => new Date(2026, 9, d, h, m).getTime();

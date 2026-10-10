@@ -18,8 +18,8 @@ export function resumeHereStep(state: State, input: Input): Step | null {
     const overlay = { kind: 'confirm' as const, confirm: { kind: 'overwriteTranscript' as const, sessionId: e.sessionId, localSize: e.localSize, remoteSize: e.remoteSize } };
     return { state: { ...state, overlay, launch: { kind: 'idle' } }, effects: [] };
   }
-  if (input.kind !== 'intent' || input.intent.type !== 'session.resumeHere') return null;
-  const i = input.intent;
+  if (input.kind !== 'action' || input.action.type !== 'session.resumeHere') return null;
+  const i = input.action;
   // 起動と昇格と同じ歯止め。二重に走らせると run が 2 つできる。
   if (state.launch.kind === 'submitting') return { state, effects: [] };
   const overwrite = i.overwrite === true;

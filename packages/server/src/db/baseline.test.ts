@@ -132,8 +132,8 @@ describe('起点より古い版の DB', () => {
       expect(e.found).toBe(from);
       expect(e.baseline).toBe(BASELINE_VERSION);
       // どの版の DB か、起点の版はいくつか、どうすればよいかを言う。
-      expect(e.message).toContain(`版 ${from}`);
-      expect(e.message).toContain(`版 ${BASELINE_VERSION}`);
+      expect(e.message).toContain(`バージョン ${from}`);
+      expect(e.message).toContain(`バージョン ${BASELINE_VERSION}`);
       expect(e.message).toContain(file);
       expect(e.message).toContain('もう一度起動してください');
       expect(e.message).not.toContain('\n');

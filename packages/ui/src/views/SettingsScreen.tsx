@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Language, SettingsDto, SettingsSection, TerminalApp } from '@agent-hangar/shared';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
 import { clientPlatform, muxInstallCommand, type VerifyLine } from '../presenters/readiness.ts';

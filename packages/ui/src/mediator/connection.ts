@@ -5,7 +5,7 @@ import type { Effect, Input, State, Step } from './types.ts';
 /** connection 領域：WebSocket の状態と再接続。開いたら必ず bootstrap を取り直す。 */
 export function connectionStep(state: State, store: Store, input: Input): Step | null {
   // 待ち時間を飛ばして今すぐ試す。自動の再接続とは別に、人が押せる道を残す。
-  if (input.kind === 'intent') return input.intent.type === 'conn.retry' ? { state, effects: [{ kind: 'ws.connect' }] } : null;
+  if (input.kind === 'action') return input.action.type === 'conn.retry' ? { state, effects: [{ kind: 'ws.connect' }] } : null;
   if (input.kind !== 'runtime') return null;
   switch (input.event.type) {
     case 'ws.open': {

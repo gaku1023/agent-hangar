@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { ConfigSyncSectionProps } from '../presenters/configSync.ts';
 import { ConfigRow } from './ConfigSyncParts.tsx';
 import { CommandLine } from './primitives/CommandLine.tsx';

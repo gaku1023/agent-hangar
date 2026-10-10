@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DEFAULT_LANGUAGE, languageOf, type Language } from '@agent-hangar/shared';
+import { loadSettings } from '../config/paths.ts';
 import { DbBackupError } from '../db/backup.ts';
 import { DbTooOldError } from '../db/open.ts';
+import { errorText } from '../i18n/message.ts';
 
 /** 置き場に書く、起動の失敗のファイルの名前。 */
 export const BOOT_ERROR_FILE = 'boot-error.json';
@@ -23,9 +26,12 @@ export function bootErrorPath(home: string): string {
   return path.join(home, BOOT_ERROR_FILE);
 }
 
-/** 起動に失敗した例外を、失敗の種類へ分ける。ここで知らない例外は server-exited に落とす。 */
-export function classifyBootError(e: unknown): BootError {
-  const detail = e instanceof Error ? e.message : String(e);
+/**
+ * 起動に失敗した例外を、失敗の種類へ分ける。ここで知らない例外は server-exited に落とす。
+ * detail は、辞書の文を持つ失敗（DB の失敗）なら language の文にする。language を省くと日本語である。
+ */
+export function classifyBootError(e: unknown, language: Language = DEFAULT_LANGUAGE): BootError {
+  const detail = errorText(language, e);
   if (e instanceof DbBackupError) return { kind: 'db-backup-failed', params: { file: e.file, dir: path.dirname(e.file) }, detail };
   if (e instanceof DbTooOldError) return { kind: 'db-too-old', params: { file: e.file, found: e.found, baseline: e.baseline }, detail };
   if (isAddrInUse(e)) {
@@ -43,6 +49,14 @@ function isAddrInUse(e: unknown): e is { code: 'EADDRINUSE'; port?: unknown; add
 }
 
 /**
+ * 起動に失敗した時点の言語。設定を読み込む前に落ちた失敗もあるので、読めなければ（無い、壊れている）既定の日本語にする。
+ * 起動の途中で落ちたサーバは言語の関数を持たないので、設定のファイルから直に読む。
+ */
+function bootLanguage(home: string): Language {
+  try { return languageOf(loadSettings(home).language); } catch { return DEFAULT_LANGUAGE; }
+}
+
+/**
  * 起動に失敗した理由を `<home>/boot-error.json` に書く。書けたら true。
  * 一時のファイルへ書いてから改名するので、殻が書きかけを読むことは無い。
  * 書けなくても投げない。呼び手は元の失敗の報告と終了コードを守らなければならず、書き込みの失敗がそれを隠してはならないからである。
@@ -54,7 +68,7 @@ export function writeBootError(home: string, e: unknown): boolean {
   const tmp = `${file}.${process.pid}.tmp`;
   try {
     fs.mkdirSync(home, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(tmp, `${JSON.stringify(classifyBootError(e), null, 2)}\n`, { mode: 0o600 });
+    fs.writeFileSync(tmp, `${JSON.stringify(classifyBootError(e, bootLanguage(home)), null, 2)}\n`, { mode: 0o600 });
     fs.renameSync(tmp, file);
     return true;
   } catch (err) {

@@ -16,12 +16,12 @@ export function arrivedStep(state: State, store: Store, input: Input): Step | nu
     for (const id of input.event.ids) if (!next.includes(id)) next.push(id);
     return next.length === state.arrivedProjects.length ? { state, effects: [] } : { state: { ...state, arrivedProjects: next }, effects: [] };
   }
-  if (input.kind !== 'intent') return null;
-  switch (input.intent.type) {
+  if (input.kind !== 'action') return null;
+  switch (input.action.type) {
     case 'projects.arrived.dismiss': return { state: { ...state, arrivedProjects: [] }, effects: [] };
     case 'projects.arrived.view': {
       if (state.screen.name === 'projects') return { state: { ...state, arrivedProjects: [] }, effects: [] };
-      const moved = screenStep(state, store, { kind: 'intent', intent: { type: 'nav.go', to: { name: 'projects' } } });
+      const moved = screenStep(state, store, { kind: 'action', action: { type: 'nav.go', to: { name: 'projects' } } });
       // 移れなかった（開いているダイアログが許さない）なら、何も変えない。
       if (!moved || moved.effects.length === 0) return { state, effects: [] };
       return { state: { ...moved.state, arrivedProjects: [] }, effects: moved.effects };

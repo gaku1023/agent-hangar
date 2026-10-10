@@ -1,6 +1,6 @@
 import { formatRoute } from '@agent-hangar/shared';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { ParentLink } from '../presenters/heading.ts';
 
 /**

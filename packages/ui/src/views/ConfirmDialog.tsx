@@ -1,4 +1,4 @@
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { ConfirmRequest } from '../mediator/types.ts';
 import type { ConfirmProjectProps } from '../presenters/confirm.ts';
 import { Dialog } from './primitives/Dialog.tsx';

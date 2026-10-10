@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react';
 import type { ConfigApplyOrderEntryIn } from '@agent-hangar/shared';
-import { useEmit } from '../intent/chain.tsx';
+import { useEmit } from '../action/chain.tsx';
 import type { ConfigApproveDialogProps, ConfigConflictsDialogProps, ConfigDialogProps, ConfigReviewDialogProps, ConfigSendDialogProps } from '../presenters/configSync.ts';
 import { ConfigGroup, MarkTags } from './ConfigSyncParts.tsx';
 import { Dialog } from './primitives/Dialog.tsx';

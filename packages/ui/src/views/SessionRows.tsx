@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import type { Intent, SessionStatus, StatusFilter, Translate } from '@agent-hangar/shared';
-import { useEmit, type Emit } from '../intent/chain.tsx';
+import type { UiAction, SessionStatus, StatusFilter, Translate } from '@agent-hangar/shared';
+import { useEmit, type Emit } from '../action/chain.tsx';
 import { ACTIVE_LABEL, candidateLabel, candidateSourceLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem } from '../presenters/listItem.ts';
 import { Icon } from './primitives/Icon.tsx';
@@ -74,8 +74,8 @@ type RowsSource = { rows: SessionRowProps[]; items?: never } | { items: ListItem
  */
 export type RowVariant = 'recent' | 'project' | 'search';
 
-/** 行を開く Intent。検索の結果の行は、抜粋の一致へ跳ぶ先を添える。 */
-const openIntent = (r: SessionRowProps) => (r.jump ? { type: 'session.open' as const, id: r.id, seq: r.jump.seq, q: r.jump.q } : { type: 'session.open' as const, id: r.id });
+/** 行を開く UiAction。検索の結果の行は、抜粋の一致へ跳ぶ先を添える。 */
+const openAction = (r: SessionRowProps) => (r.jump ? { type: 'session.open' as const, id: r.id, seq: r.jump.seq, q: r.jump.q } : { type: 'session.open' as const, id: r.id });
 
 /**
  * いまのフォーカスを一覧が奪ってはいけないか。
@@ -101,10 +101,10 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * page はいま見せているページの番号（ページ送りのある一覧）。変わったら一覧を先頭までスクロールし直す。
  * id は一覧の器に付ける。Mediator の focus の効果が、この id で一覧を探す（runtime/focusSoon.ts の FOCUS_IDS）。
  * items を渡すと、行のあいだに検索の結果の組の見出しを挟む。見出しは行ではないので、カーソルとフォーカスは見出しを飛ばす。
- * badgeIntent を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
+ * badgeAction を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
  * statusColumn が偽なら、点の右の状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。
  */
-export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeIntent?: (status: StatusFilter) => Intent }) {
+export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeAction?: (status: StatusFilter) => UiAction }) {
   const emit = useEmit();
   const t = useT();
   const statusColumn = props.statusColumn ?? true;
@@ -230,7 +230,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     switch (e.key) {
       case 'j': case 'ArrowDown': moveTo(Math.min(max, cursor + 1)); break;
       case 'k': case 'ArrowUp': moveTo(Math.max(0, cursor - 1)); break;
-      case 'Enter': if (cur) emit(openIntent(cur)); break;
+      case 'Enter': if (cur) emit(openAction(cur)); break;
       case 'o': if (cur?.runId) emit({ type: 'session.openTerminalApp', runId: cur.runId }); break;
       case 'e': if (cur) emit({ type: 'session.openEditor', sessionId: cur.id }); break;
       case 'm': if (cur) startEdit(cur); break;
@@ -322,8 +322,8 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
 
   // 行の状態の札（Done・Archived の四角の札と、Paused の戻る日の札）。Sessions ではそのタブへ移るボタンにする（★ の E）。
   // 行が開かないよう、クリックは行へ渡さない。Enter はボタンのものなので、行の打鍵（onKeyDown）は横取りしない。
-  const badge = (status: StatusFilter, label: string, node: ReactNode) => (props.badgeIntent ? (
-    <button type="button" className="badge-link" aria-label={t('row.badge.filter', { label })} onClick={(e) => { e.stopPropagation(); emit(props.badgeIntent!(status)); }}>{node}</button>
+  const badge = (status: StatusFilter, label: string, node: ReactNode) => (props.badgeAction ? (
+    <button type="button" className="badge-link" aria-label={t('row.badge.filter', { label })} onClick={(e) => { e.stopPropagation(); emit(props.badgeAction!(status)); }}>{node}</button>
   ) : node);
 
   // 検索の結果の組の見出し。行ではないので、カーソルもフォーカスも止まらない。
@@ -338,7 +338,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const cursorRowId = cursor >= 0 ? rows[cursor]!.id : null;
   const rowEl = (r: SessionRowProps) => (
     <div className="row row-2" role="row" tabIndex={r.id === tabStopId ? 0 : -1} data-cursor={r.id === cursorRowId ? 'true' : undefined} data-archived={r.state === 'archived' ? 'true' : undefined} data-morph-id={r.id}
-      onClick={() => emit(openIntent(r))} onFocus={() => setCursorId(r.id)}>
+      onClick={() => emit(openAction(r))} onFocus={() => setCursorId(r.id)}>
       <StatusDot status={r.live} aside={r.aside} />
       {statusColumn && status(r)}
       <span className="row-main">

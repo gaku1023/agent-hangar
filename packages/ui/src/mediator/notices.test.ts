@@ -4,7 +4,7 @@ import { initialState, transition } from './transition.ts';
 import { initialStore } from '../store/store.ts';
 import type { State } from './types.ts';
 
-const read = (keys: string[]) => ({ kind: 'intent' as const, intent: { type: 'notices.read' as const, keys } });
+const read = (keys: string[]) => ({ kind: 'action' as const, action: { type: 'notices.read' as const, keys } });
 const run = (state: State, keys: string[]) => transition(state, initialStore(), read(keys));
 
 describe('readNoticesRead：localStorage から既読の鍵を読み戻す', () => {
@@ -56,7 +56,7 @@ describe('notices.read：行を既読にする', () => {
     expect(r.effects.every((e) => e.kind === 'storage.save')).toBe(true);
   });
   it('ほかの入力には応じない', () => {
-    expect(noticesStep(initialState(), { kind: 'intent', intent: { type: 'nav.back' } })).toBeNull();
+    expect(noticesStep(initialState(), { kind: 'action', action: { type: 'nav.back' } })).toBeNull();
     expect(noticesStep(initialState(), { kind: 'store' })).toBeNull();
   });
 });
