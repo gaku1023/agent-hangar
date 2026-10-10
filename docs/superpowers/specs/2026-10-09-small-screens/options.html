@@ -1,0 +1,1467 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>小さい画面 試作</title>
+<style>
+:root {
+  /* packages/ui/src/styles/tokens.css から写した値（これまでの試作と同じ）。 */
+  --bg: #eef1f7; --aura-1: #cfe0ff;
+  --surface: #ffffff; --surface-2: #f3f4f9; --line: #eceef5; --line-strong: #d9dbe6;
+  --ink: #1c1b2e; --ink-2: #5f5e78; --ink-3: #6e6d88;
+  --accent: #4a63e8; --accent-hi: #6b8cff; --accent-ink: #ffffff; --accent-soft: #eef2ff;
+  --busy: #c77a1a; --aside: color-mix(in srgb, #c77a1a 42%, #ffffff); --idle: #3a8f5c; --waiting: #a2452f; --ended: #9a968e; --error: #b3261e;
+  --st-active: #2a57b8; --st-active-soft: #e8eefc; --st-paused: #8a5a0b; --st-paused-soft: #faefd9;
+  --st-done: #2b7048; --st-done-soft: #e3f1e8; --st-archived: #66625b; --st-archived-soft: #edebe6;
+  --cand: #6a4fd0; --cand-soft: #f1edff;
+  --term-bg: #1c1b2e; --term-fg: #e8e6f0; --term-tool: #ffb86b;
+  --surface-shadow: 0 1px 2px rgba(30, 40, 90, 0.06);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --glass-drop: 0 10px 30px -12px rgba(30, 40, 90, 0.35);
+  --term-lift: 0 10px 24px -14px rgba(28, 27, 46, 0.6);
+  --font-sans: 'Inter Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'SFMono-Regular', Menlo, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs: 13px; --fs-md: 15px; --fs-lg: 20px;
+  --row-h: 28px; --session-row-h: 56px; --compact-row-h: 40px;
+  --hit: #fff3c4; --u: 4px; --r: 8px; --r-lg: 14px; --r-xl: 16px; --r-pill: 99px;
+  --sidebar-w: 208px; --header-h: 44px; --lights-end: 81px; --brand-w: 104px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: radial-gradient(900px 640px at 0 0, var(--aura-1), transparent 70%), var(--bg); background-attachment: fixed; color: var(--ink); font-family: var(--font-sans); font-size: var(--fs); line-height: 1.45; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+.mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.icon { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ===== 試作の頁そのもの（これまでの試作から写した） ===== */
+.pg { max-width: 1320px; margin: 0 auto; padding: 28px 20px 120px; }
+.pg h1 { margin: 0 0 6px; font-size: var(--fs-lg); letter-spacing: -0.015em; }
+.lead { margin: 0; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.lead code, .box code, .note code, .ans code, .tbl code, .v-grid code, .opt-d code, .screen-note code { font: 500 11px var(--font-mono); background: var(--surface-2); padding: 0 4px; border-radius: 4px; color: var(--ink); }
+.top { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; align-items: start; }
+.box { padding: 16px 20px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.box h2 { margin: 0 0 8px; font-size: var(--fs); }
+.box ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+.box li + li { margin-top: 4px; }
+.box li b { color: var(--ink); }
+.box.rec-box { box-shadow: var(--surface-shadow), inset 0 0 0 1.5px color-mix(in srgb, var(--st-done) 45%, transparent); }
+.sum { width: 100%; border-collapse: collapse; }
+.sum td { padding: 5px 8px 5px 0; border-top: 1px solid var(--line); vertical-align: baseline; color: var(--ink-2); }
+.sum tr:first-child td { border-top: 0; }
+.sum td:first-child { width: 120px; white-space: nowrap; }
+.sum td:last-child { width: 56px; text-align: right; }
+.sum td b { display: block; color: var(--ink); }
+.opt-id { display: inline-block; font: 700 12px var(--font-mono); color: #fff; background: var(--ink); border-radius: 6px; padding: 1px 7px; white-space: nowrap; }
+.rec { font-size: var(--fs-xs); font-weight: 700; color: var(--st-done); background: var(--st-done-soft); border-radius: var(--r-pill); padding: 1px 8px; white-space: nowrap; }
+.rec.second { color: var(--st-active); background: var(--st-active-soft); }
+
+.switch { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 24px -20px 0; padding: 10px 20px; background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-strong); }
+.sw { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line-strong); font-weight: 600; cursor: pointer; }
+.sw[aria-pressed='true'] { background: var(--ink); color: #fff; box-shadow: none; }
+.sw[aria-pressed='true'] .opt-id { background: #fff; color: var(--ink); }
+.sw-sep { width: 1px; height: 20px; margin: 0 6px; background: var(--line-strong); }
+.sw-label { font-size: var(--fs-xs); color: var(--ink-3); margin-right: 2px; }
+.sw.small { height: 26px; padding: 0 10px; font-size: var(--fs-sm); }
+.sw-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
+.sw-row[hidden] { display: none; }
+
+.opt { display: none; margin-top: 28px; scroll-margin-top: 130px; }
+.opt[data-on='true'] { display: block; }
+.opt-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin: 0 0 6px; }
+.opt-h h2 { margin: 0; font-size: 17px; }
+.opt-d { margin: 0 0 14px; max-width: 1000px; color: var(--ink-2); line-height: 1.65; }
+.opt-d b { color: var(--ink); }
+.screen-note { margin: 0 2px 10px; font-size: var(--fs-sm); color: var(--ink-2); max-width: 1000px; line-height: 1.6; }
+.screen-note b { color: var(--ink); }
+.frame-wrap { position: relative; width: 100%; max-width: 1280px; overflow: hidden; border-radius: 12px; }
+.frame-wrap[hidden] { display: none; }
+.below { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; margin-top: 18px; align-items: start; }
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.tbl th, .tbl td { padding: 7px 8px; border-top: 1px solid var(--line); text-align: left; vertical-align: top; }
+.tbl th { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; border-top: 0; }
+.tbl td:first-child { white-space: nowrap; font-weight: 600; color: var(--ink); width: 150px; }
+.tbl td .ok { color: var(--st-done); font-weight: 700; }
+.tbl td .no { color: var(--ink-3); }
+.tbl td small { display: block; color: var(--ink-3); font-weight: 400; }
+.tbl[data-place] td:first-child { width: 140px; }
+.tbl[data-place] td { font-size: var(--fs-xs); }
+.gl { display: grid; gap: 10px; }
+.gl > div { padding: 10px 14px; border-radius: var(--r); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.6; }
+.gl b { display: block; margin-bottom: 2px; color: var(--ink); font-size: var(--fs-xs); letter-spacing: 0.02em; }
+.ans { margin-top: 14px; padding: 12px 16px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); font-size: var(--fs-sm); color: var(--ink-2); }
+.ans h3 { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--ink); }
+.ans ol { margin: 0; padding-left: 0; list-style: none; }
+.ans li + li { margin-top: 6px; }
+.ans li b { color: var(--ink); }
+.all-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; margin-top: 10px; }
+.all-cell .col-h { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 6px; font-weight: 700; }
+.all-cell .col-h small { font-weight: 500; color: var(--ink-3); font-size: var(--fs-xs); }
+.verdict { margin-top: 36px; }
+.verdict > h2 { margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line-strong); font-size: var(--fs-md); }
+.v-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; max-width: 1100px; }
+.v-grid p { margin: 0 0 8px; color: var(--ink-2); line-height: 1.65; }
+.v-grid p b { color: var(--ink); }
+.v-grid h3 { margin: 14px 0 6px; font-size: var(--fs); }
+@media (max-width: 1000px) { .top, .below, .v-grid, .all-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ===== 画面の試作（.frame の中だけ。これまでの試作から写し、小さい画面の分を足した） ===== */
+.frame { position: relative; width: 1280px; height: 800px; overflow: hidden; border-radius: 12px; background: var(--bg); color: var(--ink); font-size: var(--fs); line-height: 1.45; transform-origin: 0 0; box-shadow: 0 0 0 1px rgba(30, 40, 90, 0.14), 0 24px 50px -22px rgba(30, 40, 90, 0.4); }
+.frame .shell { --col1: 216px; position: relative; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); grid-template-rows: auto 1fr; height: 100%; overflow: hidden; background: radial-gradient(60% 70% at 18% 8%, var(--aura-1), transparent 72%), var(--bg); }
+.frame .header { grid-column: 1 / -1; grid-row: 1; z-index: 3; display: grid; grid-template-columns: var(--col1) minmax(0, 1fr); align-items: center; height: var(--header-h); background: rgba(255, 255, 255, 0.4); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.6), 0 6px 18px -12px rgba(30, 40, 90, 0.3); }
+.frame .header-brand { grid-column: 1 / -1; grid-row: 1; justify-self: start; position: relative; display: flex; align-items: center; height: 100%; padding-left: var(--lights-end); }
+.frame .lights { position: absolute; left: 11px; top: 50%; translate: 0 -50%; display: flex; gap: 8px; }
+.frame .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.frame .lights i:nth-child(2) { background: #febc2e; } .frame .lights i:nth-child(3) { background: #28c840; }
+.frame .brand { display: flex; align-items: center; gap: 6px; width: var(--brand-w); color: var(--ink); }
+.frame .brand-mark { flex: none; width: 26px; height: 26px; }
+.frame .brand-word { font-size: 16px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; white-space: nowrap; }
+.frame .brand-word::after { content: ''; display: inline-block; width: 8px; height: 2.5px; margin-left: 2px; border-radius: 1.25px; background: #ffb86b; }
+.frame .header-row { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 18px; min-width: 0; height: 100%; }
+.frame .search-pill { display: inline-flex; flex: none; align-items: center; gap: 8px; height: var(--row-h); margin-left: 16px; padding: 0 5px 0 11px; border: 0; border-radius: var(--r-pill); color: var(--ink-2); font-weight: 600; white-space: nowrap; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #fff, 0 1px 3px rgba(30, 40, 90, 0.14); }
+.frame .kbd { display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border-radius: 5px; font: 600 10.5px/18px var(--font-mono); color: var(--ink-2); background: rgba(30, 40, 90, 0.07); box-shadow: inset 0 -1px 0 rgba(30, 40, 90, 0.08); }
+.frame .spacer { flex: 1; }
+.frame .header-end { display: flex; align-items: center; gap: 18px; margin-right: 12px; }
+.frame .sync { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--ink-2); padding-left: 18px; white-space: nowrap; }
+.frame .sync::before, .frame .gauges::before, .frame .acct::before, .frame .bell::before { content: ''; position: absolute; left: 0; top: 50%; height: 16px; translate: 0 -50%; border-left: 1px solid rgba(30, 40, 90, 0.14); }
+.frame .sync-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.frame .sync[data-err] { color: var(--error); font-weight: 600; }
+.frame .sync[data-err] .sync-dot { background: var(--error); }
+.frame .gauges { position: relative; display: flex; align-items: center; gap: 10px; padding-left: 18px; }
+.frame .gauge { display: inline-flex; align-items: center; gap: 4px; }
+.frame .gauge-key { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
+.frame .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+.frame .gauge-num { font-size: var(--fs-xs); color: var(--ink-3); min-width: 32px; }
+.frame .acct { position: relative; display: inline-flex; align-items: center; gap: 6px; padding-left: 18px; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.frame .acct-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.frame .bell { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; margin-left: -4px; padding-left: 18px; box-sizing: content-box; color: var(--ink-2); }
+.frame .bell .icon { width: 17px; height: 17px; }
+.frame .bell-n { position: absolute; top: -2px; right: -6px; display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill); background: var(--waiting); color: #fff; font-size: 10px; font-weight: 700; line-height: 1; }
+.frame .bell-n[data-soft] { background: var(--ink-2); }
+.frame .bell[data-open] { color: var(--ink); }
+.frame .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 12px; white-space: nowrap; border: 0; border-radius: var(--r-pill); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: default; }
+.frame .btn-primary { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
+.frame .btn-danger { color: var(--error); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 40%, transparent); }
+.frame .btn-sm { height: 22px; padding: 0 8px; font-size: var(--fs-sm); }
+.frame .btn-icon { justify-content: center; width: var(--row-h); padding: 0; }
+.frame .btn-ghost { background: none; box-shadow: none; color: var(--ink-2); }
+.frame .btn[data-dim] { opacity: 0.5; }
+.frame .input { display: flex; align-items: center; height: var(--row-h); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); color: var(--ink-3); white-space: nowrap; overflow: hidden; }
+.frame .listbox { display: inline-flex; align-items: center; gap: 8px; height: var(--row-h); padding: 0 8px 0 12px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .seg { display: inline-flex; height: var(--row-h); padding: 2px; border-radius: var(--r-pill); background: rgba(30, 40, 90, 0.06); }
+.frame .seg span { display: inline-flex; align-items: center; padding: 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .seg span[data-on] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(30, 40, 90, 0.12); }
+/* サイドバー */
+.frame .sidebar { grid-column: 1; grid-row: 1 / -1; z-index: 2; display: flex; flex-direction: column; margin: 52px 0 8px 8px; padding: 10px 8px; overflow: hidden; min-height: 0; }
+.frame .nav-row { display: flex; align-items: center; gap: 2px; margin-bottom: 2px; }
+.frame .nav-row > .nav-item { flex: 1; margin-bottom: 0; }
+.frame .sidebar-toggle { flex: none; display: grid; place-items: center; width: 32px; height: 32px; color: var(--ink-2); }
+.frame .sidebar-toggle .icon { width: 18px; height: 18px; }
+.frame .nav-item { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 2px; font-size: 14px; color: var(--ink-2); border-radius: var(--r-pill); }
+.frame .nav-item .icon { width: 18px; height: 18px; }
+.frame .nav-item[aria-current] { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.frame .nav-count { margin-left: auto; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--waiting); color: #fff; font-size: 11px; font-weight: 700; line-height: 1; }
+.frame .side-live { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .side-live-h { display: flex; align-items: center; gap: 6px; height: 24px; margin: 0; padding: 0 12px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; color: var(--ink-3); white-space: nowrap; }
+.frame .side-live-row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 12px; border-radius: var(--r); color: var(--ink); min-width: 0; }
+.frame .side-live-row[aria-current] { background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 2px 6px rgba(30, 40, 90, 0.1); }
+.frame .side-live-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
+.frame .side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
+.frame .side-live-n { flex: none; font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.frame .side-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid rgba(30, 40, 90, 0.1); }
+.frame .dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ended); vertical-align: middle; }
+.frame .dot[data-status='busy'] { background: var(--busy); }
+.frame .dot[data-status='idle'] { background: var(--ink-3); }
+.frame .dot[data-status='waiting'] { background: var(--waiting); }
+.frame .row > .dot[data-status='ended'], .frame .crow > .dot[data-status='ended'] { background: transparent; }
+/* 本文 */
+.frame .main { grid-column: 2; grid-row: 1 / -1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding-top: 52px; }
+.frame .main-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: 1200px; margin: 0 auto; padding: 8px 16px 16px 16px; }
+.frame .main-inner[data-wide] { max-width: none; }
+.frame .screen { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.frame .page-head { flex: none; margin: 0 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
+.frame .page-head[data-tight] { margin-bottom: 10px; padding-bottom: 8px; }
+.frame .page-parent { display: flex; align-items: center; gap: 3px; height: 18px; margin-bottom: 2px; font-size: var(--fs-sm); color: var(--ink-3); white-space: nowrap; }
+.frame .page-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: var(--row-h); }
+.frame .page-title { flex: none; max-width: 40%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+.frame .oneliner { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--ink-2); }
+/* ホームの帯と引き出しと一覧（3 つ目の試作の B） */
+.frame .band { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 6px 0 12px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); box-shadow: var(--glass-edge); }
+.frame .band-pill { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px 0 10px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .band-pill b { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.frame .band-pill[data-open] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1px 3px rgba(30, 40, 90, 0.1); }
+.frame .band-pill[data-tone='wait'] { color: var(--waiting); }
+.frame .band-pill[data-tone='wait'] b { color: var(--waiting); }
+.frame .band-pill[data-tone='cand'] b { color: var(--cand); }
+.frame .band-pill[data-tone='warn'] { color: var(--st-paused); }
+.frame .band-pill[data-tone='warn'] b { color: var(--st-paused); }
+.frame .band-pill[data-tone='ok'] { color: var(--st-done); }
+.frame .band-pill[data-tone='ok'] b { color: var(--st-done); }
+.frame .band-pill[data-zero] { color: var(--ink-3); font-weight: 500; }
+.frame .band-pill[data-zero] b { color: var(--ink-3); font-weight: 500; }
+.frame .band-pill .icon { width: 14px; height: 14px; }
+.frame .band-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: var(--fs-sm); }
+.frame .band .btn { margin-left: auto; }
+.frame .band-prog { flex: none; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .band-prog .gauge-bar { width: 72px; }
+.frame .band-prog .gauge-fill[data-ok] { background: var(--st-done); }
+.frame .drawer { margin: 6px 0 0; padding: 6px 6px 8px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+.frame .drawer-h { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.frame .drawer-h .faint { font-weight: 500; }
+.frame .drawer-h .drawer-close { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-weight: 500; }
+.frame .crow { display: flex; align-items: center; gap: 10px; height: var(--compact-row-h); padding: 0 8px 0 10px; border-radius: var(--r); white-space: nowrap; min-width: 0; }
+.frame .crow + .crow { border-top: 1px solid var(--line); border-radius: 0; }
+.frame .crow .c-name { flex: none; max-width: 36%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.frame .crow .c-proj { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .crow .c-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.frame .crow .c-text i { font-style: normal; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--busy); }
+.frame .crow .c-end { flex: none; display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .crow .c-wait { font-weight: 600; color: var(--waiting); }
+.frame .crow .btn-sm { height: 24px; }
+.frame .crow[data-k='wait'] { background: color-mix(in srgb, var(--waiting) 5%, var(--surface)); }
+.frame .crow .n-kind { flex: none; display: inline-flex; align-items: center; gap: 5px; min-width: 96px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+.frame .crow .n-kind .icon { width: 13px; height: 13px; }
+.frame .crow .n-kind[data-tone='err'] { color: var(--error); }
+.frame .crow .n-kind[data-tone='warn'] { color: var(--st-paused); }
+.frame .crow .n-kind[data-tone='info'] { color: var(--accent); }
+.frame .return-when { flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--surface); background: var(--st-paused); }
+.frame .cand-mark { flex: none; width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
+.frame .row-cand { display: inline-flex; align-items: center; justify-content: center; height: 16px; padding: 0 8px; border-radius: var(--r-pill); box-shadow: inset 0 0 0 1px var(--cand); color: var(--cand); font-size: 10px; font-weight: 600; }
+.frame .idle-line { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 8px 0 14px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); box-shadow: var(--glass-edge); color: var(--ink-2); }
+.frame .idle-text { flex: 1; }
+/* 一覧 */
+.frame .home-fit { display: flex; flex-direction: column; flex: 1; min-height: 160px; }
+.frame .list { flex: 1; min-height: 120px; display: flex; flex-direction: column; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.frame .list-scroll { flex: 1; min-height: 0; overflow: hidden; }
+.frame .row { display: grid; align-items: center; height: 44px; padding: 0 20px; border-bottom: 1px solid var(--line); gap: 16px; white-space: nowrap; grid-template-columns: 16px 62px minmax(0, 1fr) auto; }
+.frame .row[data-cursor] { background: var(--accent-soft); }
+.frame .row-sq { display: inline-flex; align-items: center; justify-content: center; width: 62px; height: 18px; border-radius: 4px; font-size: var(--fs-xs); font-weight: 600; }
+.frame .row-sq[data-s='active'] { color: var(--st-active); background: var(--st-active-soft); }
+.frame .row-sq[data-s='done'] { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
+.frame .row-sq[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
+.frame .row-main { display: flex; flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
+.frame .row-name { flex: none; max-width: 38%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.frame .row-proj { margin-left: 6px; font-size: var(--fs-xs); font-weight: 400; color: var(--ink-3); }
+.frame .row-sub { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; height: 20px; font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.frame .row-state { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .row-tag { flex: none; height: 16px; padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 600; line-height: 16px; color: var(--ink-3); background: var(--surface-2); }
+.frame .row-tag[data-k='name'] { color: var(--accent); background: var(--accent-soft); }
+.frame .row-side { display: flex; align-items: center; justify-content: flex-end; gap: 10px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .row-live { font-weight: 600; }
+.frame .row-live[data-live='waiting'] { color: var(--waiting); }
+.frame .row-live[data-live='busy'] { color: var(--busy); }
+.frame .row-time { display: inline-flex; justify-content: flex-end; width: 72px; }
+.frame .hit { background: var(--hit); border-radius: 3px; padding: 0 2px; }
+.frame .list-foot { flex: none; display: flex; align-items: center; gap: 16px; padding: 10px 4px 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .empty { padding: 28px 24px; text-align: center; color: var(--ink-2); line-height: 1.6; }
+.frame .empty b { display: block; color: var(--ink); margin-bottom: 2px; }
+.frame .empty .acts { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+.frame .list-head { display: flex; align-items: center; gap: 10px; margin: 14px 0 8px 4px; }
+.frame .home-label { display: flex; align-items: baseline; gap: 6px; margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .home-count { font-weight: 500; color: var(--ink-3); }
+.frame .sessions-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.frame .sessions-tab { display: inline-flex; align-items: center; gap: 6px; height: var(--row-h); padding: 0 11px; border-radius: var(--r-pill); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.frame .sessions-tab[aria-pressed] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.frame .sessions-tab-n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.frame .sessions-tab-n[data-hot] { padding: 0 6px; border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
+.frame .search-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.frame .sessions-keyword { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); }
+.frame .sessions-keyword[data-focus] { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.frame .sessions-keyword .kw { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .sessions-keyword .kw[data-typed] { color: var(--ink); }
+.frame .sessions-keyword-tag { flex: none; height: 18px; padding: 0 6px; border-radius: 5px; font-size: var(--fs-xs); font-weight: 600; line-height: 18px; color: var(--ink-3); background: var(--surface-2); }
+.frame .sessions-keyword-tag[data-on] { color: var(--accent); background: var(--accent-soft); }
+.frame .filter-btn { flex: none; height: 34px; border-radius: 10px; }
+.frame .sessions-cond { display: flex; align-items: center; gap: 8px; height: 20px; margin: 0 4px 10px; font-size: var(--fs-sm); color: var(--ink-2); white-space: nowrap; }
+.frame .sessions-cond .icon { color: var(--accent); }
+.frame .sessions-cond b { color: var(--ink); }
+.frame .sessions-cond .count { margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .res-h { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 20px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.frame .res-h .faint { font-weight: 500; }
+.frame .res-h .more { margin-left: auto; color: var(--accent); font-weight: 600; }
+/* セッション画面（2 つ目の試作の C：帯、ターミナル、目次） */
+.frame .tabs { flex: none; display: flex; align-items: flex-end; gap: 3px; height: var(--row-h); }
+.frame .tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; height: var(--row-h); border-radius: var(--r) var(--r) 0 0; background: rgba(255, 255, 255, 0.55); color: var(--ink-2); }
+.frame .tab-selected { color: var(--term-fg); background: var(--term-bg); }
+.frame .tab-add { display: inline-grid; place-items: center; width: 20px; height: 20px; align-self: center; color: var(--ink-2); }
+.frame .c-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; }
+.frame .c-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 8px; }
+.frame .now-strip { flex: none; display: flex; flex-direction: column; gap: 3px; padding: 7px 12px 7px 14px; border-radius: 0 var(--r-lg) var(--r-lg) var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); overflow: hidden; }
+.frame .now-strip[data-tone='wait'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--waiting); }
+.frame .ns-row { display: flex; align-items: center; gap: 10px; height: 22px; min-width: 0; white-space: nowrap; }
+.frame .ns-state { flex: none; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.frame .ns-state[data-s='wait'] { color: var(--waiting); }
+.frame .ns-state .faint { font-weight: 400; }
+.frame .ns-q { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.frame .ns-vals { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: var(--fs-xs); }
+.frame .ns-vals .gauge-bar { width: 40px; }
+.frame .ns-vals b { color: var(--ink); font-weight: 600; }
+.frame .ns-intent { flex: 0 1 auto; max-width: 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 1px 8px; border-left: 3px solid var(--cand); background: var(--cand-soft); border-radius: 0 6px 6px 0; }
+.frame .ns-intent small { color: var(--ink-3); margin-left: 6px; font-size: var(--fs-xs); }
+.frame .ns-steps { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-2); }
+.frame .ns-steps i { font-style: normal; color: var(--busy); font-weight: 600; }
+.frame .ns-steps .ok { color: var(--idle); } .frame .ns-steps .wt { color: var(--waiting); }
+.frame .ns-lane { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: var(--r-pill); background: var(--surface-2); font-size: var(--fs-xs); color: var(--ink-2); }
+.frame .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+.frame .live-dot[data-tone='wait'] { background: var(--waiting); }
+.frame .live-dot[data-tone='done'] { background: var(--idle); }
+.frame .term-pane { flex: 1; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term-bg); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--term-lift); }
+.frame .term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
+.frame .term-body { flex: 1; min-height: 0; padding: 14px 16px; font: 12px/1.6 var(--font-mono); color: var(--term-fg); white-space: pre; overflow: hidden; }
+.frame .term-body .tl { display: block; }
+.frame .term-body .tl[data-k='u'] { color: #b8c4ff; }
+.frame .term-body .tl[data-k='t'] { color: var(--term-tool); }
+.frame .term-body .tl[data-k='r'] { color: color-mix(in srgb, var(--term-fg) 55%, var(--term-bg)); }
+.frame .term-body .tl[data-k='q'] { color: #fff; font-weight: 600; }
+.frame .term-body .tl[data-k='o'] { color: #ffd59a; }
+.frame .term-body .tl[data-k='d'] { color: color-mix(in srgb, var(--term-fg) 40%, var(--term-bg)); }
+.frame .term-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); font: 11px var(--font-mono); color: color-mix(in srgb, var(--term-fg) 55%, var(--term-bg)); white-space: nowrap; overflow: hidden; }
+.frame .term-foot b { color: var(--term-fg); font-weight: 500; }
+.frame .toc-thin { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 10px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.frame .toc-head { flex: none; display: flex; align-items: center; gap: 8px; height: 24px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.frame .toc-head .faint { font-weight: 500; }
+.frame .toc-rows { flex: 1; min-height: 0; overflow: hidden; }
+.frame .toc-row { display: grid; grid-template-columns: 36px minmax(0, 1fr); align-items: center; gap: 8px; height: 28px; padding: 0 4px; border-radius: var(--r); font-size: var(--fs-sm); white-space: nowrap; }
+.frame .toc-row[data-cur] { background: var(--accent-soft); }
+.frame .toc-row .toc-n { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+.frame .toc-row .toc-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.frame .toc-band { display: flex; gap: 2px; height: 3px; margin: 0 6px 6px 46px; }
+.frame .toc-band i { flex: 0 1 8px; border-radius: 2px; background: var(--accent); }
+.frame .toc-band i[data-k='r'] { background: color-mix(in srgb, var(--ink-3) 55%, var(--surface)); }
+.frame .toc-band i[data-k='e'] { background: var(--busy); }
+.frame .toc-band i[data-k='w'] { background: var(--accent); }
+.frame .toc-band i[data-k='f'] { background: var(--error); }
+.frame .toc-band i[data-k='g'] { background: var(--idle); }
+/* 帯（接続、保持期間） */
+.frame .banner { flex: none; display: flex; align-items: center; gap: 8px; height: var(--row-h); margin: 0 0 10px; padding: 0 6px 0 12px; border-radius: var(--r-lg); font-size: var(--fs-sm); color: var(--st-paused); background: color-mix(in srgb, var(--busy) 12%, rgba(255, 255, 255, 0.85)); box-shadow: var(--glass-edge), var(--glass-drop); white-space: nowrap; }
+.frame .banner > b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.frame .banner > span { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--st-paused) 65%, var(--ink-3)); }
+.frame .banner .btn:first-of-type { margin-left: auto; }
+.frame .banner .btn { flex: none; }
+/* 右下の知らせ */
+.frame .toasts { position: absolute; right: 16px; bottom: 16px; z-index: 20; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.frame .notice { --k: var(--waiting); width: 360px; border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.9); overflow: hidden; box-shadow: var(--glass-edge), 0 0 0 1px color-mix(in srgb, var(--k) 24%, transparent), 0 14px 28px -10px rgba(30, 40, 90, 0.35); text-align: left; }
+.frame .notice[data-kind='error'] { --k: var(--error); }
+.frame .notice[data-kind='info'] { --k: var(--accent); }
+.frame .notice[data-kind='return'] { --k: var(--st-paused); }
+.frame .notice[data-kind='warn'] { --k: var(--st-paused); }
+.frame .notice[data-kind='cand'] { --k: var(--cand); }
+.frame .notice-head { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 14px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--k); background: color-mix(in srgb, var(--k) 10%, transparent); white-space: nowrap; }
+.frame .notice-head > span:not(.notice-who) { flex: none; }
+.frame .notice-head .icon { width: 13px; height: 13px; }
+.frame .notice-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--k); }
+.frame .notice-sep { font-weight: 400; opacity: 0.55; }
+.frame .notice-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; letter-spacing: 0; color: var(--ink-2); }
+.frame .notice-end { flex: none; margin-left: auto; font-weight: 500; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.frame .notice-close { flex: none; display: grid; place-items: center; width: 18px; height: 18px; margin: -2px -6px -2px 0; border-radius: 6px; color: inherit; opacity: 0.75; }
+.frame .notice-close .icon { width: 12px; height: 12px; }
+.frame .notice-body { padding: 9px 14px 11px; }
+.frame .notice-title { font-size: var(--fs); line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.frame .notice-msg { font-size: var(--fs); line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.frame .notice-acts { display: flex; gap: 6px; margin-top: 8px; }
+.frame .notice-sub { margin-top: 3px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .toast-pill { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.9); box-shadow: var(--glass-edge), var(--glass-drop); font-size: var(--fs-xs); color: var(--ink-2); }
+.frame .toast-pill b { color: var(--accent); font-weight: 600; }
+/* 知らせのポップオーバー（ヘッダーのベル） */
+.frame .pop { position: absolute; z-index: 20; width: 400px; padding: 6px; border-radius: 14px; background: rgba(255, 255, 255, 0.94); box-shadow: var(--glass-edge), 0 18px 40px -16px rgba(30, 40, 90, 0.45), 0 0 0 1px rgba(30, 40, 90, 0.08); }
+.frame .pop-h { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.frame .pop-h .faint { font-weight: 500; }
+.frame .pop-h .end { margin-left: auto; color: var(--accent); font-weight: 600; }
+.frame .prow { display: flex; align-items: flex-start; gap: 10px; padding: 8px 8px; border-top: 1px solid var(--line); min-width: 0; }
+.frame .prow .n-kind { flex: none; display: inline-flex; align-items: center; gap: 5px; width: 92px; padding-top: 1px; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); }
+.frame .prow .n-kind .icon { width: 13px; height: 13px; }
+.frame .prow .n-kind[data-tone='err'] { color: var(--error); }
+.frame .prow .n-kind[data-tone='warn'] { color: var(--st-paused); }
+.frame .prow .n-kind[data-tone='info'] { color: var(--accent); }
+.frame .prow .n-kind[data-tone='cand'] { color: var(--cand); }
+.frame .prow .p-body { flex: 1; min-width: 0; }
+.frame .prow .p-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .prow .p-d { font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .prow .p-acts { display: flex; gap: 4px; margin-top: 5px; }
+.frame .prow .p-acts .btn-sm { height: 20px; padding: 0 7px; font-size: var(--fs-xs); }
+.frame .prow .p-when { flex: none; font-size: var(--fs-xs); color: var(--ink-3); padding-top: 2px; }
+/* OS の通知（macOS の形。背面のときだけ） */
+.frame .os-dim { position: absolute; inset: 0; z-index: 30; background: rgba(28, 27, 46, 0.22); }
+.frame .os-note { position: absolute; top: 14px; right: 14px; z-index: 31; display: flex; gap: 10px; width: 344px; padding: 10px 12px; border-radius: 14px; background: rgba(246, 246, 250, 0.96); box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 12px 28px -8px rgba(0, 0, 0, 0.35); }
+.frame .os-note + .os-note { top: 92px; }
+.frame .os-note .os-icon { flex: none; width: 34px; height: 34px; }
+.frame .os-note .os-t { flex: 1; min-width: 0; font-size: 12px; line-height: 1.35; color: #1d1d1f; }
+.frame .os-note .os-t b { display: block; font-size: 12px; }
+.frame .os-note .os-t span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frame .os-note .os-when { flex: none; font-size: 10px; color: #6e6e73; }
+.frame .os-caption { position: absolute; left: 50%; top: 50%; z-index: 31; translate: -50% -50%; padding: 10px 16px; border-radius: var(--r-pill); background: rgba(28, 27, 46, 0.85); color: #fff; font-size: var(--fs-sm); font-weight: 600; white-space: nowrap; }
+/* オーバーレイとダイアログ */
+.frame .ov { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; background: color-mix(in srgb, var(--ink) 18%, transparent); }
+.frame .ov[data-top] { place-items: start center; padding-top: 50px; }
+.frame .dlg { display: flex; flex-direction: column; width: 520px; max-height: 640px; border-radius: 18px; background: rgba(255, 255, 255, 0.94); box-shadow: var(--glass-edge), 0 24px 60px -20px rgba(30, 40, 90, 0.5); overflow: hidden; }
+.frame .dlg[data-w='wide'] { width: 760px; }
+.frame .dlg-head { display: flex; align-items: center; gap: 8px; padding: 18px 20px 12px; font-size: 14px; font-weight: 700; }
+.frame .dlg-head .icon { width: 18px; height: 18px; color: var(--st-paused); }
+.frame .dlg-head .icon[data-tone='err'] { color: var(--error); }
+.frame .dlg-head .count { margin-left: auto; font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
+.frame .dlg-body { display: flex; flex-direction: column; gap: 12px; padding: 2px 20px 16px; font-size: var(--fs); color: var(--ink-2); }
+.frame .dlg-body p { margin: 0; line-height: 1.6; }
+.frame .dlg-body .lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); margin-bottom: 4px; }
+.frame .dlg-foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px 18px; border-top: 1px solid var(--line); }
+.frame .dlg-foot .spacer { flex: 1; }
+.frame .cand-list { display: flex; flex-direction: column; border-radius: var(--r); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); overflow: hidden; }
+.frame .cand-row { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink); }
+.frame .cand-row + .cand-row { border-top: 1px solid var(--line); }
+.frame .cand-row[aria-selected] { background: var(--accent-soft); }
+.frame .cand-row .faint { margin-left: auto; font-family: var(--font-sans); font-size: var(--fs-xs); }
+.frame .path-row { display: flex; gap: 8px; align-items: center; }
+.frame .path-row .input { flex: 1; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink); }
+.frame .rtab { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.frame .rtab th { text-align: left; padding: 4px 8px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); border-bottom: 1px solid var(--line-strong); }
+.frame .rtab td { padding: 8px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.frame .rtab td b { color: var(--ink); }
+.frame .rtab td .mono { color: var(--ink-3); font-size: var(--fs-xs); }
+/* コマンドパレット */
+.frame .pal { display: flex; flex-direction: column; width: 640px; max-height: 700px; padding: 8px; border-radius: 18px; background: rgba(255, 255, 255, 0.88); box-shadow: var(--glass-edge), 0 24px 60px -20px rgba(30, 40, 90, 0.5); overflow: hidden; }
+.frame .pal-in { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: var(--r); background: rgba(255, 255, 255, 0.85); font-size: var(--fs-md); color: var(--ink-3); }
+.frame .pal-in .typed { color: var(--ink); }
+.frame .pal-in .caret { width: 1.5px; height: 18px; background: var(--accent); }
+.frame .pal-in .mode { margin-left: auto; height: 20px; padding: 0 8px; border-radius: 6px; font-size: var(--fs-xs); font-weight: 600; line-height: 20px; color: var(--accent); background: var(--accent-soft); }
+.frame .pal-list { flex: 1; min-height: 0; overflow: hidden; padding-top: 4px; }
+.frame .pal-g { display: flex; align-items: baseline; gap: 6px; padding: 10px 10px 3px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.frame .pal-g:first-child { padding-top: 6px; }
+.frame .pal-g .lim { margin-left: auto; font-weight: 500; }
+.frame .pal-it { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 0 10px; border-radius: var(--r); white-space: nowrap; }
+.frame .pal-it[data-active] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.frame .pal-it > .icon { color: var(--ink-2); }
+.frame .pal-it[data-kind='search'] > .icon { color: var(--accent); }
+.frame .pal-it .st-dot { width: 8px; height: 8px; margin: 0 4px; border-radius: 50%; background: var(--st-active); }
+.frame .pal-it .st-dot[data-s='paused'] { background: var(--st-paused); }
+.frame .pal-lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.frame .pal-lab mark { background: color-mix(in srgb, var(--accent) 16%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+.frame .pal-sub { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .pal-meta { margin-left: auto; flex: none; display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .pal-meta .mono { max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-size: var(--fs-xs); }
+.frame .pal-ret { display: none; align-items: center; gap: 4px; }
+.frame .pal-it[data-active] .pal-ret { display: inline-flex; }
+.frame .pal-it[data-active] .pal-when { display: none; }
+.frame .pal-ex { display: block; padding: 0 10px 6px 36px; margin-top: -4px; font-size: var(--fs-xs); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.frame .pal-ex .hit { background: var(--hit); }
+.frame .pal-empty { padding: 10px 10px 4px; font-size: var(--fs-sm); color: var(--ink-3); }
+.frame .pal-foot { flex: none; display: flex; gap: 14px; align-items: center; margin-top: 4px; padding: 8px 10px 2px; border-top: 1px solid rgba(30, 40, 90, 0.06); font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .pal-foot span { display: inline-flex; align-items: center; gap: 4px; }
+.frame .pal-foot .end { margin-left: auto; }
+.frame .pal-hint { flex: none; display: flex; gap: 8px; align-items: center; margin: 4px 2px 0; padding: 6px 10px; border-radius: var(--r); background: var(--accent-soft); font-size: var(--fs-xs); color: var(--accent); }
+/* 読み込みの頁（apps/desktop/loading/index.html の写しを土台に） */
+.frame .boot { position: absolute; inset: 0; display: grid; place-items: center; background: var(--bg); color: var(--ink-2); }
+.frame .boot[data-aura] { background: radial-gradient(40% 50% at 25% 15%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 75%, #e5d6ff, transparent 70%), var(--bg); }
+.frame .boot-main { display: grid; justify-items: center; text-align: center; }
+.frame .boot-logo { width: 128px; height: 128px; }
+.frame .boot h1 { margin: 6px 0 0; font-size: 15px; font-weight: 600; color: var(--ink); }
+.frame .boot-status { margin: 12px 0 0; }
+.frame .boot-detail { margin: 2px 0 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.frame .boot-err-now { width: 560px; margin-top: 12px; text-align: left; color: var(--error); font: 12px/1.6 var(--font-mono); overflow-wrap: anywhere; white-space: pre-wrap; }
+.frame .boot-acts { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+.frame .boot-acts .btn { height: 32px; }
+/* 失敗の札（A は真ん中の文、B は札、C は段階） */
+.frame .fail { width: 600px; margin-top: 12px; text-align: left; }
+.frame .fail h2 { margin: 0 0 6px; font-size: 16px; color: var(--ink); line-height: 1.4; }
+.frame .fail .f-what { margin: 0 0 10px; color: var(--ink-2); line-height: 1.6; }
+.frame .fail .f-lbl { margin: 12px 0 4px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--ink-3); }
+.frame .fail ol { margin: 0; padding-left: 20px; color: var(--ink); line-height: 1.7; }
+.frame .fail ol li + li { margin-top: 2px; }
+.frame .cmd { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; margin: 2px 0; padding: 3px 8px; border-radius: 6px; background: rgba(28, 27, 46, 0.06); font: 11.5px var(--font-mono); color: var(--ink); white-space: nowrap; overflow: hidden; }
+.frame .cmd .faint { font-family: var(--font-sans); font-size: var(--fs-xs); }
+.frame .cmd[data-block] { display: flex; padding: 6px 10px; }
+.frame .fail-card { width: 640px; padding: 18px 22px 16px; border-radius: 18px; background: var(--surface); box-shadow: var(--surface-shadow), 0 20px 50px -24px rgba(30, 40, 90, 0.45); text-align: left; }
+.frame .fail-card .fc-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.frame .fail-card .fc-h .icon { width: 20px; height: 20px; color: var(--error); }
+.frame .fail-card h2 { margin: 0; font-size: 16px; color: var(--ink); }
+.frame .fail-card .fc-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.frame .fail-card .fc-foot .spacer { flex: 1; }
+.frame .detail { margin-top: 10px; border-radius: var(--r); background: var(--surface-2); }
+.frame .detail-h { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
+.frame .detail-h .end { margin-left: auto; display: inline-flex; gap: 6px; }
+.frame .detail-b { padding: 0 10px 8px; font: 11px/1.6 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.frame .boot-small { position: absolute; left: 24px; top: 20px; display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 700; }
+.frame .boot-small svg { width: 28px; height: 28px; }
+.frame .stages { width: 420px; margin: 18px 0 0; padding: 0; list-style: none; text-align: left; }
+.frame .stage { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-top: 1px solid rgba(30, 40, 90, 0.08); }
+.frame .stage:first-child { border-top: 0; }
+.frame .stage .st-i { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; font-size: 11px; font-weight: 700; color: #fff; background: var(--st-done); }
+.frame .stage[data-s='now'] .st-i { background: var(--accent); }
+.frame .stage[data-s='wait'] .st-i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-strong); color: var(--ink-3); }
+.frame .stage[data-s='ng'] .st-i { background: var(--error); }
+.frame .stage .st-t { flex: 1; min-width: 0; color: var(--ink); }
+.frame .stage[data-s='wait'] .st-t { color: var(--ink-3); }
+.frame .stage .st-d { font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .stage .st-time { flex: none; font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.frame .stage-fail { margin-top: 8px; padding: 10px 12px; border-radius: var(--r); background: color-mix(in srgb, var(--error) 6%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 22%, transparent); }
+/* 始める前の確認（Onboarding.tsx、3 つ目の試作の ck） */
+.frame .ck-list { margin: 0; padding: 0; list-style: none; }
+.frame .ck { display: flex; align-items: flex-start; gap: 10px; padding: 7px 8px; border-top: 1px solid var(--line); }
+.frame .ck:first-child { border-top: 0; }
+.frame .ck .ck-i { flex: none; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; margin-top: 1px; font-size: 11px; font-weight: 700; color: #fff; background: var(--st-done); }
+.frame .ck[data-tone='ng'] .ck-i { background: var(--error); }
+.frame .ck[data-tone='soft'] .ck-i { background: var(--busy); }
+.frame .ck[data-tone='info'] .ck-i { background: var(--ink-3); }
+.frame .ck-t { flex: 1; min-width: 0; }
+.frame .ck-t b { font-weight: 600; }
+.frame .ck-p { font-size: var(--fs-xs); color: var(--ink-3); font-family: var(--font-mono); margin-left: 6px; }
+.frame .ck-opt { margin-left: 6px; font-size: 10px; font-weight: 600; color: var(--ink-3); padding: 0 5px; border-radius: 4px; background: var(--surface-2); }
+.frame .ck-d { font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .ck-act { flex: none; display: flex; align-items: center; gap: 6px; }
+.frame .ck-act .btn-sm { height: 24px; }
+.frame .ck-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 8px 8px 0; border-top: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-3); }
+.frame .ck-foot .spacer { flex: 1; }
+.frame .ck-done { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; font-size: var(--fs-sm); color: var(--st-done); font-weight: 600; }
+.frame .ck-one { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 8px; border-top: 1px solid var(--line); white-space: nowrap; min-width: 0; }
+.frame .ck-one:first-of-type { border-top: 0; }
+.frame .ck-one .ck-name { flex: none; width: 170px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.frame .ck-one .ck-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); font-size: var(--fs-sm); }
+.frame .wiz { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; padding: 6px 8px 8px; }
+.frame .wiz-steps { display: flex; flex-direction: column; gap: 2px; }
+.frame .wiz-step { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: var(--r); font-size: var(--fs-sm); color: var(--ink-2); }
+.frame .wiz-step[data-cur] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.frame .wiz-step .ck-i { width: 16px; height: 16px; font-size: 10px; }
+.frame .wiz-body h3 { margin: 4px 0 4px; font-size: var(--fs-md); }
+.frame .wiz-body p { margin: 0 0 8px; color: var(--ink-2); line-height: 1.6; }
+.frame .wiz-acts { display: flex; gap: 8px; margin-top: 10px; }
+.frame .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs><linearGradient id="hangar-rail" gradientUnits="userSpaceOnUse" x1="-13.362" y1="0" x2="34.096" y2="0"><stop offset="0" stop-color="#1c1b2e"/><stop offset="0.25" stop-color="#1c1b2e"/><stop offset="1" stop-color="#e2e7ff"/></linearGradient></defs>
+<!-- apps/desktop/loading/logo.svg の写し -->
+<symbol id="logo" viewBox="0 0 100 100"><g transform="translate(46.256 25.106) scale(0.854)"><path d="M-13.362 3.178L34.096 -11.66" stroke="url(#hangar-rail)" stroke-width="2.6" stroke-linecap="round"/><g transform="translate(20.734 -6.483) scale(0.614)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#c6cae2" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#c6cae2"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#cdd5fc" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#e6d6e7"/><circle cx="-16.5" cy="37" r="2" fill="#e6e2e6"/><circle cx="-10" cy="37" r="2" fill="#cbe0ef"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e5e7f0" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#f4caa4"/></g><g transform="translate(14.911 -4.662) scale(0.722)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#8e90a6" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#8e90a6"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#a1aff5" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#eeb2b6"/><circle cx="-16.5" cy="37" r="2" fill="#eed8b3"/><circle cx="-10" cy="37" r="2" fill="#9cd2cd"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e6e6eb" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#c1c0d3"/></g><g transform="translate(8.06 -2.52) scale(0.85)"><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#55556a" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#55556a"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#7689ef" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#f78e86"/><circle cx="-16.5" cy="37" r="2" fill="#f7cd80"/><circle cx="-10" cy="37" r="2" fill="#6ec3ac"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e7e6e6" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#e56656"/></g><g><path d="M0 10v-4a4.2 4.2 0 1 0-4.2-4.2" fill="none" stroke="#1c1b2e" stroke-width="2.8" stroke-linecap="round"/><rect x="-30" y="29" width="60" height="40" rx="5" fill="#1c1b2e"/><path d="M0 10L-31 31H31Z" fill="none" stroke="#4a63e8" stroke-width="4" stroke-linejoin="round"/><circle cx="-23" cy="37" r="2" fill="#ff6a55"/><circle cx="-16.5" cy="37" r="2" fill="#ffc34d"/><circle cx="-10" cy="37" r="2" fill="#3fb58a"/><path d="M-23 46l7 5.5-7 5.5" fill="none" stroke="#e8e6e1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="-12" y="55" width="13" height="4" rx="2" fill="#ffb86b"/></g></g></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="i-add" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10"/></symbol>
+<symbol id="i-projects" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+<symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></symbol>
+<symbol id="i-text" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h10"/><path d="M4 18h14"/></symbol>
+<symbol id="i-nothing" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></symbol>
+<symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 4 14h7l-1 7 9-11h-7z"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+<symbol id="i-note" viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16z"/><path d="m12 8 4 4"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 9v5"/><circle cx="12" cy="17" r="0.8" fill="currentColor"/></symbol>
+<symbol id="i-warning" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><circle cx="12" cy="16.5" r="0.8" fill="currentColor"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="8" r="0.8" fill="currentColor"/></symbol>
+<symbol id="i-log" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6"/><path d="M9 16h6"/></symbol>
+<symbol id="i-restart" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5h10"/></symbol>
+<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-sync" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 13.7-5.7"/><path d="M20 12a8 8 0 0 1-13.7 5.7"/><path d="M18 3v4h-4"/><path d="M6 21v-4h4"/></symbol>
+<symbol id="i-compat" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h7"/><path d="m16 15 2 2 4-4"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></symbol>
+<symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v12h14V8"/><path d="M10 12h4"/></symbol>
+<symbol id="i-unlink" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 1 0-5.6l2-2a4 4 0 0 1 5.6 5.6l-1 1"/><path d="M14 10a4 4 0 0 1 0 5.6l-2 2a4 4 0 0 1-5.6-5.6l1-1"/><path d="M4 4l16 16"/></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z"/><circle cx="12" cy="11" r="2"/></symbol>
+<symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></symbol>
+<symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></symbol>
+<symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 13v6H5V6h6"/></symbol>
+</svg>
+
+<main class="pg">
+<h1>小さい画面 試作</h1>
+<p class="lead">段 4「画面と言葉」の 5 つ目の試作です。<br>主な画面のまわりの小さい画面を決めます。<br>コマンドパレット、知らせ（右下の通知カード、トースト、デスクトップ通知、ヘッダーの印）、読み込みと失敗の画面、始める前の確認、未解決のプロジェクトの問いの 5 つです。<br>背景には、これまでの試作で決めた構成のホーム（帯と引き出しと一覧）とセッション画面（2 行の帯と目次）を置いています。<br>文言は用語集（<code>2026-10-09-glossary.md</code>）の語で書き、English は用語集の英語の語で Sentence case にしています。<br>色と書体と余白は <code>packages/ui/src/styles</code> のトークンのままです。<br>中の名前、パス、金額はすべて作り物で、アカウントの例は「仕事用」と「個人用」です。<br>判断の目線は、公開した hangar を初めて入れた開発者です。</p>
+
+<div class="top">
+<div class="box rec-box">
+<h2>まとまりごとの推す案</h2>
+<table class="sum"><tbody>
+<tr><td>1 コマンドパレット</td><td><b>B　欄に名前も、パレットは移動と操作</b>ホームの欄が名前と要約とトランスクリプトを引き、パレットは行き先と操作に絞る</td><td><span class="rec">推す</span></td></tr>
+<tr><td>2 知らせの出し分け</td><td><b>B　ヘッダーの通知に集め、右下は入力待ちだけ</b>右下に積むのは入力待ちとリマインダー、残りはヘッダーの通知の一覧に溜める</td><td><span class="rec">推す</span></td></tr>
+<tr><td>3 読み込みと失敗</td><td><b>B　失敗を 1 枚の札に</b>何が起きたか、次にすること、詳細の 3 段。詳細は折りたたんでコピー</td><td><span class="rec">推す</span></td></tr>
+<tr><td>4 始める前の確認</td><td><b>B　直すものだけ、1 行 1 操作</b>済んだ項目は畳み、残りは 1 行に 1 つのボタン。そろったら帯から消える</td><td><span class="rec">推す</span></td></tr>
+<tr><td>5 未解決のプロジェクト</td><td><b>B　帯の錠剤と引き出し、問うのは押したとき</b>起動時にも同期の直後にもダイアログを出さず、帯に件数を置く</td><td><span class="rec">推す</span></td></tr>
+</tbody></table>
+</div>
+<div class="box">
+<h2>読み方</h2>
+<ul>
+<li>上の切り替えで、まとまり、案、言語、画面を選びます。「全案を並べる」で 3 案の同じ画面を縮めて並べます。</li>
+<li>読み込みと失敗のまとまりでは、失敗の 5 種類を切り替えられます。</li>
+<li>各案の下に、論点への答え、得るもの、失うもの、作り替えの重さを置きました。知らせのまとまりには、知らせの種類ごとに「どこに出すか」の表を案ごとに付けています。</li>
+<li>まとまりの最後に、推す案と理由と次点を書きました。</li>
+<li>画面の中の時刻は 13:25 で、今日のリマインダーの 13:00 を 25 分過ぎたところです。</li>
+</ul>
+</div>
+</div>
+
+<nav class="switch" aria-label="案の切り替え">
+<div class="sw-row">
+<span class="sw-label">まとまり</span>
+<button class="sw" data-group="palette" aria-pressed="true">1 コマンドパレット</button>
+<button class="sw" data-group="notices" aria-pressed="false">2 知らせ</button>
+<button class="sw" data-group="boot" aria-pressed="false">3 読み込みと失敗</button>
+<button class="sw" data-group="readiness" aria-pressed="false">4 始める前の確認</button>
+<button class="sw" data-group="resolve" aria-pressed="false">5 未解決のプロジェクト</button>
+<span class="sw-sep"></span>
+<span class="sw-label">言語</span>
+<button class="sw small" data-lang="ja" aria-pressed="true">日本語</button>
+<button class="sw small" data-lang="en" aria-pressed="false">English</button>
+</div>
+<div class="sw-row">
+<span class="sw-label">案</span>
+<span id="opt-sw"></span>
+<button class="sw" data-opt="all" aria-pressed="false">全案を並べる</button>
+<span class="sw-sep"></span>
+<span class="sw-label">画面</span>
+<span id="screen-sw"></span>
+</div>
+<div class="sw-row" id="fail-row" hidden>
+<span class="sw-label">失敗の種類</span>
+<button class="sw small" data-fail="server" aria-pressed="true">サーバが起きない</button>
+<button class="sw small" data-fail="port" aria-pressed="false">ポートが使われている</button>
+<button class="sw small" data-fail="compat" aria-pressed="false">互換の版が合わない別のサーバ</button>
+<button class="sw small" data-fail="dbold" aria-pressed="false">DB が古い</button>
+<button class="sw small" data-fail="backup" aria-pressed="false">DB のバックアップが取れない</button>
+</div>
+</nav>
+
+<div id="opts"></div>
+
+<section class="opt verdict" id="verdict" data-on="true">
+<h2 id="verdict-h">推す案と理由</h2>
+<div class="v-grid" id="verdict-text"></div>
+</section>
+</main>
+
+<script>
+/* ===== 言語 ===== */
+let lang = 'ja';
+const L = (v) => (Array.isArray(v) ? v[lang === 'en' ? 1 : 0] : v);
+/* 文言の辞書。[日本語, English]。用語集の語で、English は Sentence case。ステータスの札と公式の語は両方で同じ。 */
+const T = {
+  home: ['ホーム', 'Home'], projects: ['プロジェクト', 'Projects'], settings: ['設定', 'Settings'], sessions: ['セッション', 'Sessions'],
+  running: ['実行中', 'Running'], waiting: ['入力待ち', 'Needs input'], attention: ['要対応', 'Needs attention'], pending: ['確認待ち', 'Pending review'], recent: ['最近', 'Recent'],
+  newSession: ['新しいセッション', 'New session'], quick: ['クイックセッションを開始', 'Start a quick session'], newProject: ['新しいプロジェクト', 'New project'], rebuild: ['索引を再構築', 'Rebuild index'],
+  nextWaiting: ['次の入力待ちへ', 'Go to next Needs input'], sidebarToggle: ['サイドバーの開閉', 'Toggle sidebar'], shortcuts: ['キーボードショートカット', 'Keyboard shortcuts'],
+  searchGo: ['検索・移動', 'Search and go'], goActions: ['移動・操作', 'Go to and actions'], palette: ['コマンドパレット', 'Command palette'],
+  goto: ['移動', 'Go to'], commands: ['コマンド', 'Commands'], actions: ['操作', 'Actions'], top: ['上位', 'Top'], transcript: ['トランスクリプト', 'Transcript'], fulltext: ['全文検索', 'Full-text search'],
+  openInHome: ['ホームで開く', 'Open in Home'], select: ['選ぶ', 'Select'], open: ['開く', 'Open'], close: ['閉じる', 'Close'], run: ['実行', 'Run'],
+  noNameMatch: ['名前には一致しません。', 'No names match.'], nameMatch: ['名前に一致', 'Name matches'], trMatch: ['トランスクリプトに一致', 'Transcript matches'], summaryMatch: ['要約に一致', 'Summary matches'],
+  name: ['名前', 'Name'], summary: ['要約', 'Summary'], project: ['プロジェクト', 'Project'], all: ['すべて', 'All'],
+  kwPh: ['トランスクリプトを検索。is:paused · since:7d · project: · file: も使えます', 'Search transcripts. You can also use is:paused · since:7d · project: · file:'],
+  kwPhName: ['名前はコマンドパレット（⌘K）で', 'Search names in the command palette (⌘K)'],
+  kwPhAll: ['名前、要約、トランスクリプトを検索。is:paused · since:7d · project: も使えます', 'Search names, summaries and transcripts. is:paused · since:7d · project: also work'],
+  filter: ['絞り込み', 'Filters'], filtering: ['で絞り込み中', 'applied'], clear: ['条件をクリア', 'Clear filters'], items: ['件', ''],
+  sessionsCount: (n) => (lang === 'en' ? `${n} sessions` : `${n} 件`), results: (n) => (lang === 'en' ? `${n} results` : `${n} 件`),
+  collapse: ['折りたたむ', 'Collapse'], show: ['表示', 'Show'], later: ['あとで', 'Later'], cancel: ['キャンセル', 'Cancel'], copy: ['コピー', 'Copy'], copied: ['コピーしました', 'Copied'],
+  answerTerm: ['ターミナルで回答', 'Answer in terminal'], changeDate: ['日付を変更', 'Change date'], confirm: ['確定', 'Confirm'], dismiss: ['却下', 'Dismiss'], markDone: ['Done にする？', 'Mark as Done?'],
+  reminder: ['リマインダー', 'Reminder'], todayRem: ['今日のリマインダー', "Today's reminders"], overdue: (n) => (lang === 'en' ? `${n} min overdue` : `${n} 分超過`),
+  waited: (n) => (lang === 'en' ? `Waiting ${n} min` : `${n} 分待機`), waitedH: ['1 時間待機', 'Waiting 1 h'], working: (n) => (lang === 'en' ? `Working ${n} min` : `作業中 ${n} 分`), idleFor: (n) => (lang === 'en' ? `Idle for ${n} min` : `アイドル ${n} 分`),
+  waitingForInput: ['入力待ちです', 'Waiting for your input'], suggestion: ['提案', 'Suggestion'], suggestionBy: ['Claude からの提案', 'Suggestion from Claude'],
+  more: (n) => (lang === 'en' ? `${n} more` : `ほか ${n} 件`), moreHome: (n) => (lang === 'en' ? `${n} more in Home` : `ほか ${n} 件をホームで見る`),
+  offerNotify: ['通知を有効にすると、離れていても気づけます', 'Enable notifications to get alerts while away'], enableNotify: ['通知を有効にする', 'Enable notifications'],
+  notifications: ['通知', 'Notifications'], notice: ['お知らせ', 'Notice'], error: ['エラー', 'Error'], markAllRead: ['すべて既読にする', 'Mark all as read'],
+  sync: ['同期', 'Sync'], syncedAgo: ['同期 3 分前', 'Synced 3 min ago'], syncErr: ['同期エラー', 'Sync error'], syncErrMsg: ['サーバが 503 を返しました。14 件の未送信の変更があります。次の再試行 13:30', 'The server returned 503. 14 unsent changes. Next retry at 13:30'],
+  syncPaused: ['同期を一時停止中', 'Sync paused'], quotaStop: ['無料枠で停止', 'Paused at free tier limit'], retryNow: ['今すぐ同期', 'Sync now'], openSync: ['クラウド同期を開く', 'Open Cloud sync'],
+  compat: ['Claude Code との互換性', 'Claude Code compatibility'], compatChanged: ['変更点あり', 'Changes detected'], compatMsg: ['Claude Code 2.4.2 で、レジストリの変更点 1 件。アイドル時の自動停止を無効にしています', 'Claude Code 2.4.2: 1 change in Registry. Disabled: Auto-stop when idle'],
+  compatOpen: ['詳細を開く', 'Open details'], copyReport: ['レポートをコピー', 'Copy report'],
+  retention: ['トランスクリプトの保持', 'Transcript retention'], retentionMsg: ['セッションのトランスクリプト 12 件が、まもなく削除されます', '12 session transcripts will be deleted soon'], retentionDetail: ['Claude Code は 30 日でトランスクリプトを削除します', 'Claude Code deletes transcripts after 30 days'],
+  keep: ['このままでよい', 'Keep as is'], extend: ['保持期間を延長…', 'Extend retention…'],
+  update: ['更新', 'Update'], updateMsg: ['Hangar 0.9.2 が利用できます', 'Hangar 0.9.2 is available'], updateDetail: ['セッション画面の目次の修正と、Windows の対応', 'Fixes to the session outline and Windows support'], download: ['ダウンロード', 'Download'], releaseNotes: ['変更点を読む', 'Read the changes'],
+  saved: ['保存しました', 'Saved'], projectCreated: ['プロジェクトを作成しました', 'Project created'],
+  justNow: ['いま', 'now'], ago2h: ['2 時間前', '2 h ago'], ago3m: ['3 分前', '3 min ago'], ago12m: ['12 分前', '12 min ago'], today: ['今日', 'Today'], yesterday: ['昨日', 'Yesterday'],
+  gauge5: ['5 時間', '5-hour'], gaugeW: ['週', 'Weekly'], acctWork: ['仕事用', 'Work'], acctPersonal: ['個人用', 'Personal'],
+  outline: ['目次', 'Outline'], turns: (n) => (lang === 'en' ? `${n} turns` : `${n} ターン`), ctx: ['コンテキスト使用量', 'Context usage'], turnsTok: ['9 ターン · 31k トークン', '9 turns · 31k tokens'],
+  subDone: ['サブエージェント 1 完了', 'Subagent 1 completed'], artifacts1: ['アーティファクト 1', 'Artifacts 1'], latest: ['最新へ移動', 'Jump to latest'],
+  inBackground: ['窓が背面にあるとき', 'When the window is in the background'],
+  loading: ['読み込み中', 'Loading'], welcome: ['ようこそ', 'Welcome'], indexing: ['索引を作成中 120 / 1,218 件', 'Indexing 120 of 1,218'], tryAgain: ['もう一度試す', 'Try again'], openLog: ['ログを開く', 'Open log'], copyLog: ['ログの場所をコピー', 'Copy log location'],
+  whatNext: ['次にすること', 'What to do next'], details: ['詳細', 'Details'], whatHappened: ['何が起きたか', 'What happened'], logAt: ['記録はこの PC の ~/.agent-hangar/desktop.log にあります', 'The log is at ~/.agent-hangar/desktop.log on this computer'],
+  copyAll: ['全文をコピー', 'Copy all'], hideDetails: ['詳細を閉じる', 'Hide details'], showDetails: ['詳細を表示', 'Show details'], restart: ['再起動', 'Restart'], quit: ['終了', 'Quit'],
+  stStart: ['同梱のサーバを起動', 'Start the bundled server'], stReady: ['サーバの応答を待つ', 'Wait for the server'], stIndex: ['索引を準備', 'Prepare the index'], stScreen: ['画面へ移動', 'Open the screen'],
+  stDone: ['完了', 'Done'], stNow: ['いま', 'Now'], stWait: ['待機', 'Waiting'], stFail: ['失敗', 'Failed'], elapsed: (s) => (lang === 'en' ? `${s} s` : `${s} 秒`),
+  setupCheck: ['セットアップの確認', 'Setup check'], ofN: (a, b) => (lang === 'en' ? `${a} of ${b}` : `${b} つ中 ${a} つ`), ready: ['準備完了', 'Ready'], notFound: ['見つかりません', 'Not found'],
+  optional: ['任意', 'Optional'], openSettings: ['設定を開く', 'Open settings'], checkAgain: ['再確認', 'Check again'], install: ['インストール', 'Install'], register: ['登録', 'Register'], setUp: ['設定する', 'Set up'], chooseFolder: ['フォルダを選択…', 'Choose folder…'],
+  canStart: ['tmux と claude があれば、残りが未設定でも始められます', 'With tmux and claude you can start even if the rest is not set up'],
+  allSet: ['セットアップは完了しています', 'Setup is complete'], dismissCheck: ['帯から消す', 'Remove from the band'], inSettings: ['設定の「情報」でいつでも見られます', 'Available any time under Settings › Info'],
+  stepOf: (a, b) => (lang === 'en' ? `Step ${a} of ${b}` : `${b} 手順中 ${a}`), next: ['次へ', 'Next'], back: ['戻る', 'Back'], doneRecheck: ['済んだら再確認', 'Check again when done'], skip: ['あとで', 'Skip for now'],
+  tmux: 'tmux', claude: 'claude', projFolder: ['プロジェクトの親フォルダ', 'Projects folder'], mcp: ['MCP サーバー', 'MCP server'], statusline: ['ステータスライン', 'Status line'],
+  tmuxD: ['ターミナルを動かすのに使います', 'Runs the terminal'], claudeD: 'Claude Code', folderD: ['まだ指定していません。セッションのあるフォルダをまとめた場所を選択してください', 'Not set yet. Choose the folder that holds your project folders'],
+  mcpD: ['どのセッションからも hangar の検索と要約を使えるようにします', 'Lets every session use hangar search and summaries'], mcpNot: ['未登録', 'Not registered'], mcpOk: ['登録済み', 'Registered'],
+  slD: ['ヘッダーの使用率ゲージの供給源です', 'Feeds the usage gauges in the header'], slNot: ['未設定', 'Not set up'], slOk: ['設定済み', 'Set up'],
+  compatD: ['2.4.1（検証済みのバージョンは 2.4.0）。未検証のバージョンですが、無効にした機能はありません', '2.4.1 (verified version is 2.4.0). Unverified, but no features are disabled'],
+  compatOkD: ['2.4.0（検証済み）。変更点なし', '2.4.0 (verified). No changes'],
+  noPath: ['この PC にパスがありません', 'No path on this computer'], relocate: ['場所を再指定', 'Relocate'], markArchived: ['Archived にする', 'Mark as Archived'], removeList: ['一覧から削除', 'Remove from list'],
+  notFoundTitle: (n) => (lang === 'en' ? `${n}: folder not found` : `${n} のフォルダが見つかりません`), unresolved: ['場所の不明なプロジェクト', 'Projects without a folder'], newPath: ['新しいパス', 'New path'], useThis: ['この場所にする', 'Use this location'],
+  lastPath: ['前のパス', 'Previous path'], onOther: ['他の PC', 'On other computers'], candidates: ['親フォルダの中の候補', 'Candidates in the projects folder'], noCands: ['候補はありません', 'No candidates'],
+  applyAll: ['まとめて適用', 'Apply all'], movedHint: ['移動や改名をしたなら、新しい場所を選択してください。この PC に無いなら、あとで決めても構いません', 'If you moved or renamed it, choose the new location. If it is not on this computer, you can decide later'],
+  arrived: (n) => (lang === 'en' ? `${n} projects arrived from another computer. Their folders are not on this computer` : `他の PC のプロジェクト ${n} 件が届きました。この PC にはフォルダがありません`),
+  seeProjects: ['プロジェクトで見る', 'View in Projects'], decideLater: ['あとで決める', 'Decide later'], askEach: ['1 件ずつ決める', 'Decide one by one'], ofCount: (a, b) => `${a} / ${b}`,
+  sessionsN: (n) => (lang === 'en' ? `${n} sessions` : `セッション ${n} 件`), keepUnresolved: ['未決のまま残す', 'Leave unresolved'],
+  miniMac: ['仕事用 Mac mini', 'Work Mac mini'], laptop: ['ノート PC', 'Laptop'],
+  tabAll: ['すべて', 'All'], tabPending: ['確認待ち', 'Pending review'],
+  inProgress: ['進行中', 'In progress'], completed: ['完了', 'Completed'], blocked: ['ブロック中', 'Blocked'],
+  loadMore: ['さらに 50 件を読み込む', 'Load 50 more'], remaining: (n) => (lang === 'en' ? `${n} remaining` : `残り ${n} 件`),
+  nothingRunning: ['実行中のセッションはありません', 'No sessions are running'],
+};
+const t = (k, ...a) => { const v = T[k]; if (v === undefined) return k; return typeof v === 'function' ? v(...a) : L(v); };
+
+/* ===== 例のデータ（すべて作り物。これまでの試作と同じ架空のプロジェクトとセッション） ===== */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const ic = (n, cls) => `<svg class="icon${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const kbd = (k) => `<span class="kbd">${esc(k)}</span>`;
+const PJ = {
+  'web-shop': { name: 'web-shop', path: '~/code/web-shop', status: 'active' }, 'billing-api': { name: 'billing-api', path: '~/code/billing-api', status: 'active' },
+  'docs-site': { name: 'docs-site', path: '~/code/docs-site', status: 'active' }, 'data-pipeline': { name: 'data-pipeline', path: '~/code/data-pipeline', status: 'active' },
+  'infra-tools': { name: 'infra-tools', path: '~/code/infra-tools', status: 'active' }, 'mobile-app': { name: 'mobile-app', path: '~/code/mobile-app', status: 'active' },
+  'design-tokens': { name: 'design-tokens', path: '~/code/design-tokens', status: 'paused' },
+};
+const pname = (s) => (PJ[s.p] ? PJ[s.p].name : t('project'));
+/* セッション。live は動きの状態。name と q と one は [日本語, English]。 */
+const S = {
+  s1: { id: 's1', name: ['決済フォームの検証を直す', 'Fix checkout form validation'], p: 'web-shop', live: 'waiting', waited: 4, q: ['既存のテストを書き換えてよいですか？', 'May I rewrite the existing tests?'], one: ['入力の検証をサーバ側へ寄せ、フォームのテストを更新中', 'Moving validation to the server and updating form tests'], when: ['いま', 'now'] },
+  w2: { id: 'w2', name: ['i18n の鍵を整理', 'Tidy i18n keys'], p: 'web-shop', live: 'waiting', waited: 11, q: ['src/locales の未使用の鍵 42 件を削除してよいですか？', 'Delete 42 unused keys in src/locales?'], one: ['未使用の鍵を数え、削除の候補を一覧にした', 'Counted unused keys and listed deletion candidates'], when: ['いま', 'now'] },
+  w3: { id: 'w3', name: ['Stripe の webhook の再送', 'Retry Stripe webhooks'], p: 'billing-api', live: 'waiting', waited: 27, q: ['npm install stripe@16 を実行してよいですか？', 'Run npm install stripe@16?'], one: ['再送の冪等キーを設計した', 'Designed idempotency keys for retries'], when: ['いま', 'now'] },
+  w4: { id: 'w4', name: ['E2E の flaky を直す', 'Fix flaky E2E tests'], p: 'mobile-app', live: 'waiting', waited: 60, q: ['テストを 3 回まで再試行する設定にしますか？', 'Retry tests up to 3 times?'], one: ['落ちる 4 本のうち 3 本は待ち時間が原因', '3 of the 4 failures are timing related'], when: ['いま', 'now'] },
+  s2: { id: 's2', name: ['OpenAPI から型を生成', 'Generate types from OpenAPI'], p: 'billing-api', live: 'busy', elapsed: 12, intent: ['生成スクリプトを tsconfig の paths に合わせる', 'Align the generator with tsconfig paths'], tool: ['Edit', 'scripts/gen-types.ts'], one: ['生成スクリプトを書き直し、型の差分を確認中', 'Rewriting the generator and checking type diffs'], when: ['いま', 'now'] },
+  r3: { id: 'r3', name: ['監査ログの保存先を S3 に', 'Store audit logs in S3'], p: 'infra-tools', live: 'busy', elapsed: 31, intent: ['ライフサイクルの規則を Terraform に書く', 'Write lifecycle rules in Terraform'], tool: ['Bash', 'terraform plan'], one: ['バケットと規則を作り、plan の差分を確認中', 'Created the bucket and rules, checking the plan'], when: ['いま', 'now'] },
+  s3: { id: 's3', name: ['リリースノートの下書き', 'Draft release notes'], p: 'docs-site', live: 'idle', idle: 8, one: ['v2.3 の変更点を 12 件拾い、下書きを置いた', 'Collected 12 changes for v2.3 and drafted notes'], when: ['8 分前', '8 min ago'] },
+  p2: { id: 'p2', name: ['Playwright のアップグレード', 'Upgrade Playwright'], p: 'mobile-app', status: 'paused', returnOn: '13:00', reason: ['v1.5 の変更点を読んでから再開', 'Resume after reading the v1.5 changes'], one: ['1.4 で止めた。1.5 の変更点が未読', 'Stopped at 1.4; 1.5 changes unread'], when: ['4 日前', '4 days ago'] },
+  s4: { id: 's4', name: ['価格表の CSV 取り込み', 'Import the price list CSV'], p: 'data-pipeline', one: ['列の対応表を作った。重複行の扱いが未決', 'Built the column map; duplicate rows undecided'], when: ['3 日前', '3 days ago'], ex: [['列の対応表を ', 'CSV', ' の 1 行目から作り、重複行は後で決める'], ['Built the column map from the first row of the ', 'CSV', '; duplicates decided later']] },
+  s5: { id: 's5', name: ['ログインの不具合 #214', 'Login bug #214'], p: 'mobile-app', prog: 'blocked', one: ['再現の手順が足りず、ログの提供待ち', 'Cannot reproduce yet; waiting for logs'], when: ['2 日前', '2 days ago'] },
+  s7: { id: 's7', name: ['画像の遅延読み込み', 'Lazy-load images'], p: 'web-shop', status: 'done', one: ['IntersectionObserver で置き換え、PR #88 をマージ', 'Replaced with IntersectionObserver, merged PR #88'], when: ['3 日前', '3 days ago'] },
+  s8: { id: 's8', name: ['Dockerfile を multi-stage に', 'Multi-stage Dockerfile'], p: 'infra-tools', status: 'done', one: ['ビルドの段を分け、イメージを 410MB から 96MB に', 'Split build stages; image 410MB to 96MB'], when: ['6 日前', '6 days ago'] },
+  s11: { id: 's11', name: ['CSV の文字コードの自動判定', 'Auto-detect CSV encoding'], p: 'data-pipeline', status: 'done', one: ['Shift_JIS と UTF-8 を先頭の 4KB で判定', 'Detect Shift_JIS or UTF-8 from the first 4KB'], when: ['9 日前', '9 days ago'], ex: [['Shift_JIS の ', 'CSV', ' を読むと先頭が化けるので、判定を足した'], ['Reading a Shift_JIS ', 'CSV', ' garbled the header, so detection was added']] },
+  s12: { id: 's12', name: ['注文の CSV 書き出し', 'Export orders as CSV'], p: 'web-shop', status: 'done', one: ['管理画面に書き出しのボタンを足した', 'Added an export button to the admin screen'], when: ['12 日前', '12 days ago'], ex: [['書き出す ', 'CSV', ' の列の順を、取り込みの対応表と同じにした'], ['Made the exported ', 'CSV', ' column order match the import map']] },
+  s9: { id: 's9', name: ['検索の索引を再構築', 'Rebuild the search index'], p: 'docs-site', status: 'done', one: ['Pagefind の設定を直し、索引の生成を CI に入れた', 'Fixed Pagefind config and indexed in CI'], when: ['8 日前', '8 days ago'] },
+};
+const WAITING = [S.s1, S.w2, S.w3, S.w4];
+const RUNNING = [S.s2, S.r3, S.s3];
+const RETURNING = [S.p2];
+const CONFIRM = [{ id: 'c1', text: ['CI の Node を 22 に上げる', 'Bump CI Node to 22'], p: 'infra-tools', ago: ['2 時間前', '2 h ago'], note: ['package.json の engines と .nvmrc を 22 に更新した', 'Updated engines in package.json and .nvmrc to 22'] }];
+const LIST = [S.s1, S.w2, S.w3, S.w4, S.s2, S.r3, S.s3, S.p2, S.s4, S.s5, S.s7, S.s8, S.s9, S.s11, S.s12];
+const HITS = [S.s4, S.s11, S.s12];
+const TOTAL = '1,218';
+
+/* ===== 共通の部品（これまでの試作から写した） ===== */
+const dot = (live) => `<span class="dot" data-status="${live || 'ended'}"></span>`;
+const gaugeBar = (n) => `<span class="gauge-bar"><span class="gauge-fill" style="width:${n}%"></span></span>`;
+function logoHtml() {
+  return `<div class="header-brand"><span class="lights"><i></i><i></i><i></i></span><span class="brand"><svg class="brand-mark" aria-hidden="true"><use href="#logo"/></svg><span class="brand-word">Hangar</span></span></div>`;
+}
+/* ヘッダー。o.pill はパレットの錠剤の語、o.sync は同期の語の状態、o.bell はベルの数（null なら出さない）。 */
+function headerHtml(o = {}) {
+  const gauge = (k, n) => `<span class="gauge"><span class="gauge-key">${k}</span>${gaugeBar(n)}<span class="gauge-num">${n}%</span></span>`;
+  const sync = o.sync === 'error' ? `<span class="sync" data-err><span class="sync-dot"></span><span>${t('syncErr')}</span></span>` : o.sync === 'none' ? '' : `<span class="sync"><span class="sync-dot"></span><span>${t('syncedAgo')}</span></span>`;
+  const gauges = o.first ? '' : `<span class="gauges">${gauge(t('gauge5'), 28)}${gauge(t('gaugeW'), 41)}</span>`;
+  const bell = o.bell === undefined || o.bell === null ? '' : `<span class="bell"${o.bellOpen ? ' data-open' : ''}>${ic('bell')}${o.bell > 0 ? `<span class="bell-n"${o.bellSoft ? ' data-soft' : ''}>${o.bell}</span>` : ''}</span>`;
+  return `<header class="header">${logoHtml()}<div class="header-row"><button class="search-pill">${ic('search')}<span>${o.pill || t('searchGo')}</span>${kbd('⌘K')}</button><span class="spacer"></span><div class="header-end">${sync}${gauges}${bell}<span class="acct"><span class="acct-dot"></span>${t('acctWork')}</span><button class="btn btn-primary">${ic('add')}${t('newSession')}</button></div></div></header>`;
+}
+/* サイドバー。決まりどおり「ホーム」「プロジェクト」と「実行中」の節、下に「設定」。 */
+function sidebarHtml(o = {}) {
+  const label = { home: t('home'), projects: t('projects'), settings: t('settings') };
+  const waiting = o.first ? 0 : WAITING.length;
+  const item = (k) => `<a class="nav-item"${o.current === k ? ' aria-current="page"' : ''}>${ic(k)}<span>${label[k]}</span>${k === 'home' && waiting > 0 && o.count !== false ? `<span class="nav-count">${waiting}</span>` : ''}</a>`;
+  let html = `<nav class="sidebar"><div class="nav-row">${item('home')}<span class="sidebar-toggle">${ic('sidebar')}</span></div>${item('projects')}`;
+  if (!o.first) {
+    const live = [...WAITING, ...RUNNING];
+    html += `<section class="side-live"><h2 class="side-live-h">${t('running')}<span class="side-live-n">${live.length}</span></h2>${live.map((s) => `<a class="side-live-row" data-live="${s.live}"${o.currentId === s.id ? ' aria-current="page"' : ''}>${dot(s.live)}<span class="side-live-name">${esc(L(s.name))}</span>${s.live === 'waiting' ? `<span class="side-live-wait">${s.waited >= 60 ? (lang === 'en' ? '1 h' : '1 時間') : s.waited + (lang === 'en' ? ' min' : ' 分')}</span>` : ''}</a>`).join('')}</section>`;
+  }
+  return html + `<div class="side-foot">${item('settings')}</div></nav>`;
+}
+const pageHead = (title, after = '', parent = '') => `<div class="page-head"><div class="page-parent">${parent}</div><div class="page-title-row"><h1 class="page-title">${esc(title)}</h1>${after}</div></div>`;
+const frame = (inner, o = {}) => `<div class="frame"><div class="shell">${inner}</div>${o.over || ''}</div>`;
+const main = (inner, o = {}) => `<div class="main"><div class="main-inner"${o.wide ? ' data-wide' : ''}>${inner}</div></div>`;
+
+/* 一覧の行（1 行）。o.hit で抜粋、o.tag で一致した場所の札。 */
+const sq = (s) => `<span class="row-sq" data-s="${s.status || 'active'}">${s.status ? { paused: 'Paused', done: 'Done' }[s.status] : 'Active'}</span>`;
+const liveWord = (s) => s.live === 'waiting' ? `<span class="row-live" data-live="waiting">${t('waiting')}</span>` : s.live ? `<span class="row-live" data-live="busy">${t('running')}</span>` : '';
+function rowHtml(s, o = {}) {
+  const ex = s.ex ? L(s.ex) : null;
+  const text = o.hit && ex ? `<span class="row-text mono">${ex.map((x, i) => i === 1 ? `<mark class="hit">${esc(x)}</mark>` : esc(x)).join('')}</span>` : `<span class="row-text">${o.hitName ? L(s.name).split('CSV').map(esc).join('<mark class="hit">CSV</mark>') : esc(L(s.one))}</span>`;
+  const prog = s.prog === 'blocked' ? t('blocked') : s.status === 'done' ? t('completed') : t('inProgress');
+  const tag = o.tag ? `<span class="row-tag" data-k="${o.tag}">${o.tag === 'name' ? t('nameMatch') : o.tag === 'summary' ? t('summaryMatch') : t('trMatch')}</span>` : '';
+  const time = s.status === 'paused' ? `<span class="return-when">${t('today')} ${s.returnOn}</span>` : esc(L(s.when));
+  return `<div class="row"${o.cursor ? ' data-cursor' : ''}>${dot(s.live)}<span>${sq(s)}</span><span class="row-main"><span class="row-name">${esc(L(s.name))}<span class="row-proj">${esc(pname(s))}</span></span><span class="row-sub"><span class="row-state">${prog}</span>${text}${tag}</span></span><span class="row-side">${liveWord(s)}<span class="row-time">${time}</span></span></div>`;
+}
+const listHtml = (inner, foot) => `<div class="list"><div class="list-scroll">${inner}</div>${foot || ''}</div>`;
+function tabsRow() {
+  const tab = (label, n, on, hot) => `<span class="sessions-tab"${on ? ' aria-pressed' : ''}>${label}<span class="sessions-tab-n"${hot ? ' data-hot' : ''}>${n}</span></span>`;
+  return `<div class="sessions-tabs">${tab(t('tabAll'), TOTAL, true)}${tab(t('tabPending'), CONFIRM.length, false, true)}${tab('Active', 41)}${tab('Paused', 6)}${tab('Done', '1,160')}${tab('Archived', 11)}</div>`;
+}
+function keywordHtml(o = {}) {
+  const typed = o.query ? `<span class="kw" data-typed>${esc(o.query)}</span>` : `<span class="kw">${esc(o.placeholder || t('kwPh'))}</span>`;
+  const tags = (o.tags || [[t('transcript'), true]]).map(([l, on]) => `<span class="sessions-keyword-tag"${on ? ' data-on' : ''}>${l}</span>`).join('');
+  return `<div class="search-row"><div class="sessions-keyword"${o.query ? ' data-focus' : ''}>${ic('text')}${typed}${tags}</div><span class="btn filter-btn">${ic('filter')}${t('filter')}</span></div>`;
+}
+/* 一覧の塊。o.query で検索中。o.rows で行を差し替える。 */
+function listBlock(o = {}) {
+  const head = `<div class="list-head"><h2 class="home-label">${t('sessions')}<span class="home-count">${t('sessionsCount', TOTAL)}</span></h2></div>${tabsRow()}${keywordHtml(o)}`;
+  const body = o.body || listHtml(LIST.slice(0, 8).map((s) => rowHtml(s)).join(''), `<div class="load-more"></div>`);
+  return `<section class="home-fit">${head}${body}</section>`;
+}
+/* 帯と引き出し（3 つ目の試作の B）。o.extra は 4 つ目の錠剤、o.open は開く引き出し。 */
+const waitRow = (s) => `<div class="crow" data-k="wait">${dot('waiting')}<span class="c-name">${esc(L(s.name))}</span><span class="c-proj">${esc(pname(s))}</span><span class="c-text">${esc(L(s.q))}</span><span class="c-end"><span class="c-wait">${s.waited >= 60 ? t('waitedH') : t('waited', s.waited)}</span><span class="btn btn-sm btn-primary">${t('answerTerm')}</span></span></div>`;
+const returnRow = (s) => `<div class="crow"><span class="return-when">${s.returnOn} · ${t('overdue', 25)}</span><span class="c-name">${esc(L(s.name))}</span><span class="c-proj">${esc(pname(s))}</span><span class="c-text">${esc(L(s.reason))}</span><span class="c-end"><span class="btn btn-sm">${t('open')}</span><span class="btn btn-sm btn-ghost">${t('changeDate')}</span><span class="btn btn-sm btn-ghost">Done</span></span></div>`;
+const runRow = (s) => `<div class="crow">${dot(s.live)}<span class="c-name">${esc(L(s.name))}</span><span class="c-proj">${esc(pname(s))}</span><span class="c-text">${s.live === 'busy' ? `${esc(L(s.intent))}　<i>${s.tool[0]}</i> ${esc(s.tool[1])}` : t('idleFor', s.idle)}</span><span class="c-end">${s.live === 'busy' ? `<span class="c-busy" style="color:var(--busy);font-weight:600">${t('working', s.elapsed)}</span>` : ''}</span></div>`;
+const confirmRow = (c) => `<div class="crow"><span class="cand-mark"></span><span class="c-name">${esc(L(c.text))}</span><span class="c-proj">${esc(c.p)} · ${esc(L(c.ago))}</span><span class="c-text">${esc(L(c.note))}</span><span class="c-end"><span class="btn btn-sm btn-primary">${t('confirm')}</span><span class="btn btn-sm">${t('dismiss')}</span></span></div>`;
+function bandHtml(o = {}) {
+  const att = (o.waiting || WAITING).length + RETURNING.length;
+  const open = o.open === undefined ? 'att' : o.open;
+  const pill = (k, label, n, tone, icon) => `<span class="band-pill"${open === k ? ' data-open' : ''}${tone ? ` data-tone="${tone}"` : ''}${n === 0 ? ' data-zero' : ''}>${ic(icon)}${label} <b>${n}</b>${ic(open === k ? 'chev' : 'chev-r')}</span>`;
+  let html = `<div class="band">${pill('att', t('attention'), att, 'wait', 'bell')}${pill('run', t('running'), RUNNING.length, null, 'bolt')}${pill('cand', t('pending'), CONFIRM.length, 'cand', 'check')}${o.extra || ''}<span class="band-text">${o.text || ''}</span></div>`;
+  if (open === 'att') html += `<div class="drawer"><div class="drawer-h">${t('attention')}<span class="faint">${t('waiting')} ${(o.waiting || WAITING).length}、${t('todayRem')} ${RETURNING.length}</span><span class="drawer-close">${t('collapse')}${ic('chev')}</span></div>${(o.waiting || WAITING).map(waitRow).join('')}${RETURNING.map(returnRow).join('')}</div>`;
+  if (open === 'run') html += `<div class="drawer"><div class="drawer-h">${t('running')}<span class="drawer-close">${t('collapse')}${ic('chev')}</span></div>${RUNNING.map(runRow).join('')}</div>`;
+  if (open === 'cand') html += `<div class="drawer"><div class="drawer-h">${t('pending')}<span class="drawer-close">${t('collapse')}${ic('chev')}</span></div>${CONFIRM.map(confirmRow).join('')}</div>`;
+  if (o.drawer) html += o.drawer;
+  return html;
+}
+/* ホーム（決まった構成の B）。o.band で帯を差し替え、o.list で一覧を差し替える。 */
+function homeScreen(o = {}) {
+  return `<div class="screen">${o.banner || ''}${pageHead(t('home'))}${o.band === undefined ? bandHtml(o.bandOpts) : o.band}${o.list === undefined ? listBlock(o.listOpts) : o.list}</div>`;
+}
+function homeFrame(o = {}) {
+  return frame(sidebarHtml({ current: 'home', count: false, first: o.first }) + headerHtml(o.header || {}) + main(homeScreen(o)), { over: o.over });
+}
+/* セッション画面（2 つ目の試作の C：2 行の帯、ターミナル、右パネルは目次だけ）。s1 が入力待ち。 */
+function termHtml(s) {
+  const lines = lang === 'en' ? [
+    ['u', '> Add the checkout form validation on the server side too'],
+    ['a', '● Adding server-side validation. The existing form tests assume otherwise, so I will check first.'],
+    ['t', '● Read(src/checkout/form.ts)'], ['r', '  ⎿  Read 142 lines'],
+    ['t', '● Read(src/checkout/form.test.ts)'], ['r', '  ⎿  Read 88 lines'],
+    ['t', '● AskUserQuestion'], ['q', '  May I rewrite the existing tests?'],
+    ['o', '  ❯ 1. Yes, rewrite them'], ['o', '    2. Add new tests'], ['o', '    3. Show me the diff first'], ['d', ''], ['d', '  Enter to select · Esc to cancel'],
+  ] : [
+    ['u', '> 決済フォームの入力の検証を、サーバ側にも足して'],
+    ['a', '● サーバ側の検証を追加します。既存のフォームのテストが前提を変えるので、先に確認します。'],
+    ['t', '● Read(src/checkout/form.ts)'], ['r', '  ⎿  Read 142 lines'],
+    ['t', '● Read(src/checkout/form.test.ts)'], ['r', '  ⎿  Read 88 lines'],
+    ['t', '● AskUserQuestion'], ['q', '  既存のテストを書き換えてよいですか？'],
+    ['o', '  ❯ 1. はい、書き換える'], ['o', '    2. 新しいテストを足す'], ['o', '    3. 先に差分を見せて'], ['d', ''], ['d', '  Enter で選ぶ · Esc でキャンセル'],
+  ];
+  return `<div class="term-pane" data-live="waiting"><div class="term-body">${lines.map(([k, x]) => `<span class="tl" data-k="${k}">${esc(x)}</span>`).join('')}</div><div class="term-foot"><b>opus</b> · <b>41%</b> context · $0.86 · ~/code/web-shop</div></div>`;
+}
+const TURNS = [['08:52', ['決済フォームの構成を読んで要点をまとめて', 'Read the checkout form and summarize'], 'rrr'], ['08:58', ['クライアント側の検証の一覧を出して', 'List the client-side validations'], 'rr'], ['09:06', ['金額の上限の検証を足して', 'Add an upper-bound check on amount'], 'rrew'], ['09:14', ['form.ts を読んで要点を', 'Read form.ts and summarize'], 'r'], ['09:21', ['バリデーションの順を直して', 'Fix the validation order'], 'rewwe'], ['09:33', ['エラー文を i18n の鍵にして', 'Turn error strings into i18n keys'], 'rrwwwe'], ['09:41', ['テストを通して', 'Make the tests pass'], 'eeefeee'], ['09:52', ['カード番号の検証を Luhn に', 'Validate card numbers with Luhn'], 'rwwe'], ['10:01', ['決済フォームの入力の検証を、サーバ側にも足して', 'Add the validation on the server too'], 'rr']];
+function stripHtml(s) {
+  const q = L(s.q);
+  const steps = [['ok', 'Read', 'form.ts'], ['ok', 'Read', 'form.test.ts'], ['wt', 'AskUserQuestion', '']].map(([m, tl, a]) => `<span class="${m}">${m === 'wt' ? '●' : '✓'}</span> <i>${tl}</i>${a ? ' ' + a : ''}`).join(' · ');
+  const vals = `<span class="ns-vals"><span>${t('ctx')} ${gaugeBar(41)}<b>41%</b></span><span><b>$0.86</b></span><span>${t('turnsTok')}</span></span>`;
+  const row1 = `<div class="ns-row"><span class="ns-state" data-s="wait"><span class="live-dot" data-tone="wait"></span>${t('waiting')}<span class="faint">${t('waited', 4)}</span></span><span class="ns-q">${esc(q)}</span>${vals}</div>`;
+  const row2 = `<div class="ns-row"><span class="ns-intent">「${esc(lang === 'en' ? 'Move form validation to the server' : 'フォームの検証をサーバ側へ寄せる')}」<small>10:01</small></span><span class="ns-steps">${steps}</span><span class="ns-lane"><span class="live-dot" data-tone="done"></span>${t('subDone')}</span><span class="ns-lane">${ic('note')}${t('artifacts1')}</span></div>`;
+  return `<div class="now-strip" data-tone="wait">${row1}${row2}</div>`;
+}
+function tocHtml() {
+  const rows = TURNS.map((x, i) => `<div class="toc-row"${i === TURNS.length - 1 ? ' data-cur' : ''}><span class="toc-n">${x[0]}</span><span class="toc-t">${esc(L(x[1]))}</span></div><div class="toc-band">${[...x[2]].map((k) => `<i data-k="${k}"></i>`).join('')}</div>`).join('');
+  return `<aside class="toc-thin"><div class="toc-head">${t('outline')}<span class="faint">${t('turns', 9)}</span></div><div class="toc-rows">${rows}</div><div style="flex:none;height:30px;display:flex;align-items:center"><span class="btn btn-sm">${ic('arrow')}${t('latest')}</span></div></aside>`;
+}
+function sessionScreen(o = {}) {
+  const s = S.s1;
+  const head = `<div class="page-head" data-tight><div class="page-parent"><a>web-shop</a><span>›</span></div><div class="page-title-row">${dot('waiting')}<h1 class="page-title">${esc(L(s.name))}</h1><span class="oneliner">${esc(L(s.one))}</span><button class="btn btn-primary">${ic('ext')}${lang === 'en' ? 'Open in VS Code' : 'VS Code で開く'}</button><button class="btn btn-icon">${ic('more')}</button></div></div>`;
+  return `<div class="screen">${o.banner || ''}${head}<div class="tabs"><span class="tab tab-selected">Claude</span><span class="tab-add">${ic('add')}</span></div><div class="c-body"><div class="c-main">${stripHtml(s)}${termHtml(s)}</div>${tocHtml()}</div></div>`;
+}
+function sessionFrame(o = {}) {
+  return frame(sidebarHtml({ currentId: 's1', count: o.count }) + headerHtml(o.header || {}) + main(sessionScreen(o), { wide: true }), { over: o.over });
+}
+/* 右下の通知カード。 */
+function noticeCard(kind, label, who, end, body, o = {}) {
+  const head = `<div class="notice-head">${kind === 'error' ? ic('alert') : `<span class="notice-dot"></span>`}<span>${label}</span>${who ? `<span class="notice-sep">·</span><span class="notice-who">${esc(who)}</span>` : ''}${end ? `<span class="notice-end">${end}</span>` : ''}${o.close ? `<span class="notice-close">${ic('x')}</span>` : ''}</div>`;
+  return `<div class="notice" data-kind="${kind}">${head}<div class="notice-body">${body}</div></div>`;
+}
+const waitingCard = (s) => noticeCard('waiting', t('waiting'), L(s.name), s.waited >= 60 ? (lang === 'en' ? '1 h' : '1 時間') : s.waited + (lang === 'en' ? ' min' : ' 分'), `<div class="notice-title">${esc(L(s.q))}</div>`);
+const returnCard = (s) => noticeCard('return', t('reminder'), L(s.name), `${s.returnOn} · ${t('overdue', 25)}`, `<div class="notice-title">${esc(L(s.reason))}</div>`, { close: true });
+const toastsHtml = (inner) => `<div class="toasts">${inner}</div>`;
+/* OS の通知（背面のとき）。 */
+const osNote = (title, body, when) => `<div class="os-note"><svg class="os-icon" aria-hidden="true"><use href="#logo"/></svg><div class="os-t"><b>${esc(title)}</b><span>${esc(body)}</span></div><span class="os-when">${when || t('justNow')}</span></div>`;
+const osOverlay = (notes) => `<div class="os-dim"></div><div class="os-caption">${t('inBackground')}</div>${notes.join('')}`;
+/* ===== 1 コマンドパレット ===== */
+const palHit = (label, q) => { const at = q ? label.toLowerCase().indexOf(q.toLowerCase()) : -1; return at < 0 ? esc(label) : `${esc(label.slice(0, at))}<mark>${esc(label.slice(at, at + q.length))}</mark>${esc(label.slice(at + q.length))}`; };
+/* パレットの 1 行。lead は点か絵、meta は右端の淡い語、keys はキー帽。 */
+function palItem(o) {
+  const lead = o.live !== undefined ? dot(o.live) : o.st ? `<span class="st-dot" data-s="${o.st}"></span>` : ic(o.icon || 'arrow');
+  const ret = o.kind === 'search' ? '' : `<span class="pal-ret">${kbd('↵')} ${o.kind === 'command' ? t('run') : t('open')}</span>`;
+  return `<div class="pal-it"${o.active ? ' data-active' : ''} data-kind="${o.kind || 'session'}">${lead}<span class="pal-lab">${palHit(o.label, o.q)}</span>${o.sub ? `<span class="pal-sub">${esc(o.sub)}</span>` : ''}<span class="pal-meta">${o.meta ? `<span class="pal-when${o.mono ? ' mono' : ''}">${esc(o.meta)}</span>` : ''}${o.keys ? kbd(o.keys) : ''}${ret}</span></div>${o.ex ? `<span class="pal-ex">${o.ex}</span>` : ''}`;
+}
+const palGroup = (title, n, lim, items) => `<div class="pal-g">${title}${n !== null ? `<span>${n}</span>` : ''}${lim ? `<span class="lim">${t('top')} ${lim}</span>` : ''}</div>${items.join('')}`;
+function palBox(o) {
+  const input = `<div class="pal-in">${ic('search')}${o.q ? `<span class="typed">${esc(o.q)}</span><span class="caret"></span>` : `<span>${o.placeholder}</span>`}${o.mode ? `<span class="mode">${o.mode}</span>` : ''}</div>`;
+  const foot = `<div class="pal-foot"><span>${kbd('↑')}${kbd('↓')} ${t('select')}</span><span>${kbd('↵')} ${t('open')}</span>${o.foot || ''}<span>${kbd('esc')} ${t('close')}</span>${o.footEnd ? `<span class="end">${o.footEnd}</span>` : ''}</div>`;
+  return `<div class="ov" data-top><div class="pal">${input}${o.hint || ''}<div class="pal-list">${o.body}</div>${foot}</div></div>`;
+}
+const sMeta = (s) => s.live === 'waiting' ? (s.waited >= 60 ? t('waitedH') : t('waited', s.waited)) : s.live === 'busy' ? t('working', s.elapsed) : s.live === 'idle' ? t('idleFor', s.idle) : L(s.when);
+const sItem = (s, q, active) => palItem({ live: s.live || null, label: L(s.name), sub: pname(s), meta: sMeta(s), q, active });
+const cItem = (label, icon, keys, q, active, sub) => palItem({ icon, label, keys, kind: 'command', q, active, sub });
+const pItem = (id) => palItem({ st: PJ[id].status, label: PJ[id].name, meta: PJ[id].path, mono: true, kind: 'project' });
+
+/* A：今の作り。空のときは入力待ち、実行中、最近 5、プロジェクト 4、移動、コマンド。打つと名前で絞り、最後に全文検索の行。 */
+function paletteA(screen) {
+  if (screen === 'field') return homeFrame({ listOpts: { query: 'CSV', placeholder: t('kwPh') }, list: listBlock({ query: 'CSV', body: `<div class="sessions-cond">${ic('filter')}<span><b>「CSV」</b> ${t('filtering')}</span><span class="count">${t('results', 3)}</span></div>` + listHtml(HITS.map((s, i) => rowHtml(s, { hit: true, cursor: i === 0 })).join('')) }) });
+  let body;
+  if (screen === 'empty') {
+    body = palGroup(t('waiting'), 4, null, [sItem(S.s1, '', true), sItem(S.w2), sItem(S.w3), sItem(S.w4)])
+      + palGroup(t('running'), 3, null, [sItem(S.s2), sItem(S.r3), sItem(S.s3)])
+      + palGroup(t('recent'), 1211, 5, [sItem(S.s4), sItem(S.s5), sItem(S.s7), sItem(S.s8), sItem(S.s9)])
+      + palGroup(t('projects'), 7, 4, [pItem('web-shop'), pItem('billing-api'), pItem('docs-site'), pItem('data-pipeline')])
+      + palGroup(t('goto'), null, null, [cItem(t('home'), 'home'), cItem(t('projects'), 'projects'), cItem(t('settings'), 'settings', '⌘,'), cItem(t('nextWaiting'), 'arrow', '⌘I')])
+      + palGroup(t('commands'), null, null, [cItem(t('newSession'), 'add', '⌘N'), cItem(t('quick'), 'bolt', '⇧⌘N'), cItem(t('newProject'), 'add'), cItem(t('rebuild'), 'sync')]);
+  } else {
+    body = palGroup(t('sessions'), 3, null, [sItem(S.s4, 'CSV', true), sItem(S.s11, 'CSV'), sItem(S.s12, 'CSV')])
+      + palGroup(t('transcript'), null, null, [palItem({ icon: 'text', label: lang === 'en' ? 'Full-text search for "CSV"' : '『CSV』を全文検索', meta: t('openInHome'), keys: '⌘↵', kind: 'search' })]);
+  }
+  return homeFrame({ bandOpts: { open: null }, over: palBox({ q: screen === 'typed' ? 'CSV' : '', placeholder: lang === 'en' ? 'Sessions, projects, commands' : 'セッション、プロジェクト、コマンド', body, foot: `<span>${kbd('⌘↵')} ${t('fulltext')}</span>` }) });
+}
+/* B：欄に名前も、パレットは移動と操作。空のときは実行中、最近 3、操作、設定の節。打つと名前（実行中と最近）と操作と設定だけ。最後の行はホームの欄へ渡す。 */
+function paletteB(screen) {
+  if (screen === 'field') {
+    const body = listHtml(`<div class="res-h">${t('nameMatch')}<span class="faint">3</span></div>` + [S.s4, S.s11, S.s12].map((s, i) => rowHtml(s, { hitName: true, cursor: i === 0 })).join('') + `<div class="res-h">${t('trMatch')}<span class="faint">12</span><span class="more">${t('top')} 3</span></div>` + HITS.map((s) => rowHtml(s, { hit: true })).join(''));
+    return homeFrame({ header: { pill: t('goActions') }, list: listBlock({ query: 'CSV', placeholder: t('kwPhAll'), tags: [[t('name'), true], [t('summary'), true], [t('transcript'), true]], body: `<div class="sessions-cond">${ic('filter')}<span><b>「CSV」</b> ${t('filtering')}</span><span class="count">${t('results', 15)}</span></div>` + body }) });
+  }
+  let body;
+  const settingsSub = lang === 'en' ? 'Settings' : '設定';
+  if (screen === 'empty') {
+    body = palGroup(t('waiting'), 4, null, [sItem(S.s1, '', true), sItem(S.w2), sItem(S.w3), sItem(S.w4)])
+      + palGroup(t('recent'), null, 3, [sItem(S.s4), sItem(S.s5), sItem(S.s7)])
+      + palGroup(t('actions'), null, null, [cItem(t('newSession'), 'add', '⌘N'), cItem(t('quick'), 'bolt', '⇧⌘N'), cItem(t('nextWaiting'), 'arrow', '⌘I'), cItem(t('newProject'), 'add'), cItem(t('shortcuts'), 'info', '⌘/')])
+      + palGroup(t('settings'), null, null, [cItem(lang === 'en' ? 'General' : '一般', 'settings', '', '', false, settingsSub), cItem(lang === 'en' ? 'Cloud sync' : 'クラウド同期', 'sync', '', '', false, settingsSub), cItem(lang === 'en' ? 'Integrations' : '連携', 'compat', '', '', false, settingsSub), cItem(t('retention'), 'clock', '', '', false, settingsSub)]);
+  } else {
+    body = palGroup(t('sessions'), 3, null, [sItem(S.s4, 'CSV', true), sItem(S.s11, 'CSV'), sItem(S.s12, 'CSV')])
+      + palGroup(t('home'), null, null, [palItem({ icon: 'text', label: lang === 'en' ? 'Search transcripts for "CSV" in Home' : 'ホームで『CSV』をトランスクリプトから検索', meta: lang === 'en' ? '12 matches' : '12 件', keys: '⌘↵', kind: 'search' })]);
+  }
+  return homeFrame({ header: { pill: t('goActions') }, bandOpts: { open: null }, listOpts: { placeholder: t('kwPhAll'), tags: [[t('name'), false], [t('summary'), false], [t('transcript'), false]] }, over: palBox({ q: screen === 'typed' ? 'CSV' : '', placeholder: lang === 'en' ? 'Go to a session, or run an action' : 'セッションへ移動、または操作を実行', body, footEnd: lang === 'en' ? 'Transcripts: the search field in Home' : 'トランスクリプトはホームの欄で' }) });
+}
+/* C：一つの窓。パレットが名前、トランスクリプトの抜粋、操作、設定を全部出す。ホームの欄は同じ検索の入口。 */
+function paletteC(screen) {
+  if (screen === 'field') {
+    const body = listHtml(`<div class="res-h">${t('name')}<span class="faint">3</span></div>` + [S.s4, S.s11, S.s12].map((s, i) => rowHtml(s, { hitName: true, cursor: i === 0 })).join('') + `<div class="res-h">${t('transcript')}<span class="faint">12</span></div>` + HITS.map((s) => rowHtml(s, { hit: true })).join('') + `<div class="res-h">${t('actions')}<span class="faint">1</span></div><div class="row"><span></span><span></span><span class="row-main"><span class="row-name">${lang === 'en' ? 'Export orders as CSV again' : '注文の CSV 書き出しを再開'}<span class="row-proj">web-shop</span></span></span><span class="row-side">${kbd('↵')}</span></div>`);
+    return homeFrame({ header: { pill: t('searchGo') }, list: listBlock({ query: 'CSV', placeholder: t('kwPhAll'), tags: [[t('all'), true]], body: `<div class="sessions-cond">${ic('filter')}<span><b>「CSV」</b> ${t('filtering')}</span><span class="count">${t('results', 16)}</span></div>` + body }) });
+  }
+  let body;
+  if (screen === 'empty') {
+    body = palGroup(t('goto'), null, null, [cItem(t('home'), 'home', '', '', true), cItem(t('projects'), 'projects'), cItem(t('settings'), 'settings', '⌘,')])
+      + palGroup(t('waiting'), 4, null, [sItem(S.s1), sItem(S.w2), sItem(S.w3), sItem(S.w4)])
+      + palGroup(t('recent'), null, 3, [sItem(S.s4), sItem(S.s5), sItem(S.s7)])
+      + palGroup(t('actions'), null, null, [cItem(t('newSession'), 'add', '⌘N'), cItem(t('quick'), 'bolt', '⇧⌘N'), cItem(t('nextWaiting'), 'arrow', '⌘I'), cItem(t('rebuild'), 'sync')]);
+  } else {
+    const ex = (s) => L(s.ex).map((x, i) => i === 1 ? `<mark class="hit">${esc(x)}</mark>` : esc(x)).join('');
+    body = palGroup(t('sessions'), 3, null, [sItem(S.s4, 'CSV', true), sItem(S.s11, 'CSV'), sItem(S.s12, 'CSV')])
+      + palGroup(t('transcript'), 12, 3, [palItem({ icon: 'text', label: L(S.s4.name), sub: pname(S.s4), meta: L(S.s4.when), ex: ex(S.s4) }), palItem({ icon: 'text', label: L(S.s11.name), sub: pname(S.s11), meta: L(S.s11.when), ex: ex(S.s11) }), palItem({ icon: 'text', label: L(S.s12.name), sub: pname(S.s12), meta: L(S.s12.when), ex: ex(S.s12) }), palItem({ icon: 'arrow', label: lang === 'en' ? 'All 12 in Home' : '12 件すべてをホームで', keys: '⌘↵', kind: 'search' })])
+      + palGroup(t('actions'), 1, null, [cItem(lang === 'en' ? 'Resume: Export orders as CSV' : '再開：注文の CSV 書き出し', 'arrow', '', 'CSV')]);
+  }
+  const hint = screen === 'empty' ? `<div class="pal-hint">${ic('info')}${lang === 'en' ? 'Type to search names, transcripts and actions together. The search field in Home gives the same results as a list' : '打つと名前、トランスクリプト、操作をまとめて検索します。ホームの欄も同じ結果を一覧で出します'}</div>` : '';
+  return homeFrame({ header: { pill: t('searchGo') }, bandOpts: { open: null }, listOpts: { placeholder: t('kwPhAll'), tags: [[t('all'), false]] }, over: palBox({ q: screen === 'typed' ? 'CSV' : '', placeholder: lang === 'en' ? 'Search everything, go anywhere' : 'すべてを検索、どこへでも移動', body, hint, mode: screen === 'typed' ? (lang === 'en' ? 'Everything' : 'すべて') : '' }) });
+}
+/* ===== 2 知らせの出し分け ===== */
+/* いまの状態：s1 を開いていて、ほかに入力待ち 3（w2、w3、w4）、リマインダー 1（p2、25 分超過）、同期エラー、互換の変更点 1、保持期間、更新あり、提案 1。 */
+const OTHERS = [S.w2, S.w3, S.w4];
+const syncToast = () => noticeCard('error', t('syncErr'), '', '', `<div class="notice-msg">${esc(t('syncErrMsg'))}</div><div class="notice-acts"><span class="btn btn-sm">${t('retryNow')}</span><span class="btn btn-sm btn-ghost">${t('openSync')}</span></div>`, { close: true });
+const updateToast = () => noticeCard('info', t('update'), '', '', `<div class="notice-msg">${esc(t('updateMsg'))}</div><div class="notice-sub">${esc(t('updateDetail'))}</div><div class="notice-acts"><span class="btn btn-sm btn-primary">${t('download')}</span><span class="btn btn-sm btn-ghost">${t('releaseNotes')}</span></div>`, { close: true });
+const compatToast = () => noticeCard('warn', t('compat'), '', '', `<div class="notice-msg">${esc(t('compatMsg'))}</div><div class="notice-acts"><span class="btn btn-sm">${t('compatOpen')}</span></div>`, { close: true });
+const candToast = () => noticeCard('cand', t('suggestionBy'), L(S.s2.name), t('ago2h'), `<div class="notice-title">${t('markDone')}</div><div class="notice-acts"><span class="btn btn-sm btn-primary">${t('confirm')}</span><span class="btn btn-sm">${t('dismiss')}</span></div>`, { close: true });
+const retentionBanner = () => `<div class="banner">${ic('clock')}<b>${t('retentionMsg')}</b><span>${t('retentionDetail')}</span><span class="btn btn-sm">${t('keep')}</span><span class="btn btn-sm btn-primary">${t('extend')}</span></div>`;
+const offerPill = () => `<div class="toast-pill">${t('offerNotify')}<b>${t('enableNotify')}</b></div>`;
+const morePill = (n) => `<div class="toast-pill"><b>${t('moreHome', n)}</b></div>`;
+/* ヘッダーのベルの一覧（B）。 */
+function bellPop(o = {}) {
+  const row = (tone, icon, kind, title, d, when, acts) => `<div class="prow"><span class="n-kind" data-tone="${tone}">${ic(icon)}${kind}</span><div class="p-body"><div class="p-t">${esc(title)}</div><div class="p-d">${esc(d)}</div>${acts ? `<div class="p-acts">${acts}</div>` : ''}</div><span class="p-when">${when}</span></div>`;
+  const rows = [
+    o.noRem ? '' : row('warn', 'clock', t('reminder'), `${L(S.p2.name)} · ${S.p2.returnOn}`, L(S.p2.reason), t('overdue', 25), `<span class="btn btn-sm btn-primary">${t('open')}</span><span class="btn btn-sm btn-ghost">${t('changeDate')}</span><span class="btn btn-sm btn-ghost">Done</span>`),
+    row('err', 'sync', t('sync'), t('syncErr'), t('syncErrMsg'), t('ago3m'), `<span class="btn btn-sm">${t('retryNow')}</span><span class="btn btn-sm btn-ghost">${t('openSync')}</span>`),
+    row('warn', 'compat', lang === 'en' ? 'Compatibility' : '互換性', t('compatChanged'), t('compatMsg'), t('ago12m'), `<span class="btn btn-sm">${t('compatOpen')}</span>`),
+    row('warn', 'clock', lang === 'en' ? 'Retention' : '保持', t('retentionMsg'), t('retentionDetail'), t('today'), `<span class="btn btn-sm btn-primary">${t('extend')}</span><span class="btn btn-sm btn-ghost">${t('keep')}</span>`),
+    row('info', 'up', t('update'), t('updateMsg'), t('updateDetail'), t('yesterday'), `<span class="btn btn-sm btn-primary">${t('download')}</span><span class="btn btn-sm btn-ghost">${t('releaseNotes')}</span>`),
+  ].join('');
+  return `<div class="pop" style="top:50px;right:150px"><div class="pop-h">${t('notifications')}<span class="faint">${o.noRem ? 4 : 5}</span><span class="end">${t('markAllRead')}</span></div>${rows}</div>`;
+}
+/* ホームの帯の 4 つ目の錠剤と引き出し（C）。 */
+function noticeDrawer() {
+  const row = (tone, icon, kind, text, acts) => `<div class="crow"><span class="n-kind" data-tone="${tone}">${ic(icon)}${kind}</span><span class="c-text">${esc(text)}</span><span class="c-end">${acts}</span></div>`;
+  return `<div class="drawer"><div class="drawer-h">${t('notifications')}<span class="faint">4</span><span class="drawer-close">${t('collapse')}${ic('chev')}</span></div>`
+    + row('err', 'sync', t('syncErr'), t('syncErrMsg'), `<span class="btn btn-sm">${t('retryNow')}</span><span class="btn btn-sm btn-ghost">${t('openSync')}</span>`)
+    + row('warn', 'compat', lang === 'en' ? 'Compatibility' : '互換性', t('compatMsg'), `<span class="btn btn-sm">${t('compatOpen')}</span>`)
+    + row('warn', 'clock', lang === 'en' ? 'Retention' : '保持', `${t('retentionMsg')}。${t('retentionDetail')}`, `<span class="btn btn-sm btn-primary">${t('extend')}</span><span class="btn btn-sm btn-ghost">${t('keep')}</span>`)
+    + row('info', 'up', t('update'), `${t('updateMsg')}。${t('updateDetail')}`, `<span class="btn btn-sm btn-primary">${t('download')}</span><span class="btn btn-sm btn-ghost">${t('releaseNotes')}</span>`)
+    + `</div>`;
+}
+const osWaiting = (s) => osNote(L(s.name), L(s.q));
+
+/* A：今の作りを整える。右下に入力待ち 3 枚まで、リマインダー、同期の失敗と更新はトースト、保持期間はバナー、提案はホームだけ。 */
+function noticesA(screen) {
+  if (screen === 'session') return sessionFrame({ header: { sync: 'error' }, banner: retentionBanner(), over: toastsHtml(syncToast() + updateToast() + returnCard(S.p2) + offerPill() + OTHERS.map(waitingCard).join('')) });
+  if (screen === 'home') return homeFrame({ header: { sync: 'error' }, banner: retentionBanner(), over: toastsHtml(syncToast() + updateToast() + compatToast()) });
+  if (screen === 'stack') return sessionFrame({ header: { sync: 'error' }, banner: retentionBanner(), over: toastsHtml(syncToast() + returnCard(S.p2) + morePill(3) + [S.w2, S.w3, S.w4].map(waitingCard).join('')) });
+  return sessionFrame({ header: { sync: 'error' }, banner: retentionBanner(), over: osOverlay([osWaiting(S.w4), osNote(L(S.p2.name), `${t('reminder')} ${S.p2.returnOn} · ${L(S.p2.reason)}`, '13:00')]) });
+}
+/* B：ヘッダーの通知に集め、右下は入力待ちだけ。リマインダー、同期、互換、保持、更新はベルの一覧。提案はホームの確認待ち。 */
+function noticesB(screen) {
+  if (screen === 'session') return sessionFrame({ header: { sync: 'error', bell: 5 }, over: toastsHtml(OTHERS.map(waitingCard).join('')) });
+  if (screen === 'home') return homeFrame({ header: { sync: 'error', bell: 5 } });
+  if (screen === 'stack') return sessionFrame({ header: { sync: 'error', bell: 5, bellOpen: true }, over: bellPop() + toastsHtml(morePill(3) + [S.w2, S.w3, S.w4].map(waitingCard).join('')) });
+  return sessionFrame({ header: { sync: 'error', bell: 5 }, over: osOverlay([osWaiting(S.w4), osNote(L(S.p2.name), `${t('reminder')} ${S.p2.returnOn} · ${L(S.p2.reason)}`, '13:00')]) });
+}
+/* C：ホームの帯に集め、右下は 1 枚。右下は最新の入力待ち 1 枚と残りの数。同期、互換、保持、更新はホームの帯の「通知」の錠剤。 */
+function noticesC(screen) {
+  const extra = `<span class="band-pill" data-tone="warn"${screen === 'stack' ? ' data-open' : ''}>${ic('bell')}${t('notifications')} <b>4</b>${ic(screen === 'stack' ? 'chev' : 'chev-r')}</span>`;
+  const one = (s, rest) => noticeCard('waiting', t('waiting'), L(s.name), s.waited >= 60 ? (lang === 'en' ? '1 h' : '1 時間') : s.waited + (lang === 'en' ? ' min' : ' 分'), `<div class="notice-title">${esc(L(s.q))}</div>${rest ? `<div class="notice-sub">${t('more', rest)} · ${kbd('⌘I')} ${t('nextWaiting')}</div>` : ''}`);
+  if (screen === 'session') return sessionFrame({ header: { sync: 'error' }, over: toastsHtml(one(S.w4, 2) + returnCard(S.p2)) });
+  if (screen === 'home') return homeFrame({ header: { sync: 'error' }, bandOpts: { extra, open: 'att' } });
+  if (screen === 'stack') return homeFrame({ header: { sync: 'error' }, bandOpts: { extra, open: null, drawer: noticeDrawer() } });
+  return sessionFrame({ header: { sync: 'error' }, over: osOverlay([osNote('Hangar', lang === 'en' ? 'Needs input: 3 sessions. Latest: ' + L(S.w4.name) : `入力待ち 3 件。最新：${L(S.w4.name)}`), osNote(L(S.p2.name), `${t('reminder')} ${S.p2.returnOn} · ${L(S.p2.reason)}`, '13:00')]) });
+}
+/* 案ごとの「どこに出すか」の表。行は知らせの種類、列は (a)〜(e)。 */
+const PLACE_KINDS = ['入力待ち', '今日のリマインダー', 'Claude からの提案', '同期の失敗や一時停止', '互換の変更点', '保持期間', '更新の案内'];
+const PLACE_COLS = ['(a) ホームの帯と引き出し', '(b) 右下の通知カード', '(c) トースト', '(d) デスクトップ通知', '(e) ヘッダーの印'];
+const PLACES = {
+  a: [['要対応', '3 枚まで。4 件目から「ほか N 件」', '', '背面のとき 1 件ずつ', 'サイドバーの件数'], ['要対応', '時刻を過ぎたら 1 枚', '', '時刻つきは背面のとき', ''], ['確認待ち', '', '', '', ''], ['', '', 'error のトースト（閉じるまで残る）', '', '同期の語が赤'], ['始める前の確認の行', '', 'ホームで 1 回', '', ''], ['', '', '', '', 'ヘッダー下のバナー'], ['', '', 'info のトースト', '', '']],
+  b: [['要対応', '3 枚まで。4 件目から「ほか N 件」', '', '背面のとき 1 件ずつ', 'サイドバーの件数'], ['要対応', '', '', '時刻つきは背面のとき', 'ベルの一覧'], ['確認待ち', '', '', '', ''], ['', '', '', '', '同期の語が赤、ベルの一覧'], ['', '', '', '', 'ベルの一覧（設定の節へ）'], ['', '', '', '', 'ベルの一覧（設定の節へ）'], ['', '', '', '', 'ベルの一覧']],
+  c: [['要対応', '最新の 1 枚と残りの数', '', '背面のとき 1 件にまとめる', 'サイドバーの件数'], ['要対応', '時刻を過ぎたら 1 枚', '', '時刻つきは背面のとき', ''], ['確認待ち', '', '', '', ''], ['通知の錠剤', '', '', '', '同期の語が赤'], ['通知の錠剤', '', '', '', ''], ['通知の錠剤', '', '', '', ''], ['通知の錠剤', '', '', '', '']],
+};
+function placeTable(opt) {
+  const rows = PLACES[opt].map((r, i) => `<tr><td>${PLACE_KINDS[i]}</td>${r.map((c) => `<td>${c ? `<span class="ok">✓</span><small>${esc(c)}</small>` : '<span class="no">—</span>'}</td>`).join('')}</tr>`).join('');
+  return `<table class="tbl" data-place><thead><tr><th>知らせの種類</th>${PLACE_COLS.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+/* ===== 3 読み込みと失敗 ===== */
+let fail = 'server';
+/* 失敗の 5 種類。what は何が起きたか、steps は次にすること、cmd はコピーできる命令、log は詳しい記録（殻とサーバの文をそのまま）。 */
+const FAILS = {
+  server: {
+    title: ['サーバを起動できませんでした', 'The server could not start'],
+    what: ['同梱のサーバが起動の途中で終了しました。多くは Node が見つからないか、~/.agent-hangar に書けないときに起きます。', 'The bundled server exited during startup. This usually happens when Node is missing or ~/.agent-hangar is not writable.'],
+    steps: [['「もう一度試す」を押します', 'Press "Try again"'], ['直らなければ、ログを開いて最後の数行を読みます', 'If that does not help, open the log and read the last lines'], ['Node 22 以上が入っているか確認します', 'Check that Node 22 or later is installed'], ['直らないときは、ログの全文を添えて報告してください', 'If it still fails, report with the full log']],
+    cmd: 'node --version',
+    log: '13:24:58 node /opt/homebrew/bin/node server /Applications/Hangar.app/Contents/Resources/server\n13:24:58 server exited with code 1 before /healthz answered\n13:24:58 stderr: Error: EACCES: permission denied, open \'~/.agent-hangar/hangar.db\'\nサーバが起動直後に終了しました。~/.agent-hangar/desktop.log を確認してください。',
+    stage: 1,
+  },
+  port: {
+    title: ['ポート 4177 を別のアプリが使っています', 'Port 4177 is in use by another app'],
+    what: ['hangar はポート 4177 で動きます。別のプロセスがそのポートで待ち受けていて、hangar のサーバではありません。', 'hangar runs on port 4177. Another process is listening there, and it is not a hangar server.'],
+    steps: [['そのプロセスを調べて、止められるなら止めます', 'Find the process and stop it if you can'], ['「もう一度試す」を押します', 'Press "Try again"'], ['止められないときは、そのアプリを閉じてから hangar を開き直してください', 'If you cannot stop it, close that app and reopen hangar']],
+    cmd: 'lsof -nP -iTCP:4177 -sTCP:LISTEN',
+    log: '13:24:58 probing 127.0.0.1:4177\n13:24:58 GET /healthz -> 404 (not hangar)\n13:24:58 listen EADDRINUSE: address already in use 127.0.0.1:4177',
+    stage: 0,
+  },
+  compat: {
+    title: ['4177 で動いている hangar のサーバが、この Hangar.app より古い版です', 'The hangar server on 4177 is older than this Hangar.app'],
+    what: ['動いているサーバは版 14、この Hangar.app は版 16 です。hangar start や npm run dev で起こしたサーバが残っています。hangar はそのサーバを止めません。', 'The running server is version 14 and this Hangar.app is version 16. A server started with hangar start or npm run dev is still running. hangar does not stop it.'],
+    steps: [['そのサーバを止めます', 'Stop that server'], ['「もう一度試す」を押します。この Hangar.app が同梱のサーバを起こします', 'Press "Try again". This Hangar.app will start its bundled server']],
+    cmd: 'lsof -nP -iTCP:4177 -sTCP:LISTEN',
+    log: '13:24:58 probing 127.0.0.1:4177\n13:24:58 GET /healthz -> 200 compat=14\n13:24:58 refusing the server on 4177 (compat 14, ours 16)',
+    stage: 0,
+  },
+  dbold: {
+    title: ['データベースが古く、自動では更新できません', 'The database is too old to update automatically'],
+    what: ['~/.agent-hangar/hangar.db は版 6 で作られていて、この Hangar.app が更新できるのは版 10 以降です。索引は Claude Code のトランスクリプトから作り直せますが、ノートとステータスは残せません。', '~/.agent-hangar/hangar.db was created at version 6, and this Hangar.app can update version 10 or later. The index can be rebuilt from Claude Code transcripts, but notes and statuses cannot be kept.'],
+    steps: [['hangar.db を別の名前に退避します', 'Move hangar.db aside under another name'], ['「もう一度試す」を押します。索引を作り直します', 'Press "Try again". The index will be rebuilt'], ['ノートとステータスが要るときは、退避したファイルを添えて報告してください', 'If you need the notes and statuses, report with the file you moved aside']],
+    cmd: 'mv ~/.agent-hangar/hangar.db ~/.agent-hangar/hangar-v6.db',
+    log: '13:24:59 db schema version 6, supported 10..16\n13:24:59 migration path not found for 6\nサーバが起動直後に終了しました。~/.agent-hangar/desktop.log を確認してください。',
+    stage: 1,
+  },
+  backup: {
+    title: ['データベースのバックアップが取れないため、起動を止めました', 'Startup stopped because the database could not be backed up'],
+    what: ['更新の前にバックアップを ~/.agent-hangar/backups/db に置きますが、書けませんでした。ディスクの空きが無いか、フォルダに書く権限が無いときに起きます。', 'A backup goes to ~/.agent-hangar/backups/db before updating, but it could not be written. This happens when the disk is full or the folder is not writable.'],
+    steps: [['ディスクの空きを確認します', 'Check free disk space'], ['backups/db に書けるか確認します', 'Check that backups/db is writable'], ['「もう一度試す」を押します', 'Press "Try again"']],
+    cmd: 'ls -la ~/.agent-hangar/backups/db',
+    log: '13:24:59 DB の控えを ~/.agent-hangar/backups/db/hangar-20261009-132459.db に取れなかったので、マイグレーションを当てずに止めました（ENOSPC: no space left on device）。置き場に書けるか、空きがあるかを確かめてください',
+    stage: 1,
+  },
+};
+const bootLogo = () => `<svg class="boot-logo" aria-hidden="true"><use href="#logo"/></svg>`;
+const cmdLine = (c, o = {}) => `<div class="cmd"${o.block ? ' data-block' : ''}><span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(c)}</span><span class="faint" style="margin-left:auto">${ic('copy')} ${t('copy')}</span></div>`;
+const bootActs = () => `<div class="boot-acts"><span class="btn btn-primary">${ic('restart')}${t('tryAgain')}</span><span class="btn">${ic('log')}${t('openLog')}</span></div>`;
+const bootFrame = (inner, o = {}) => `<div class="frame"><div class="boot"${o.aura ? ' data-aura' : ''}>${inner}</div></div>`;
+const detailBox = (f, open) => `<div class="detail"><div class="detail-h">${ic(open ? 'chev' : 'chev-r')}${t('details')}<span class="faint">${t('logAt')}</span><span class="end"><span class="btn btn-sm btn-ghost">${ic('copy')}${t('copyAll')}</span></span></div>${open ? `<div class="detail-b">${esc(f.log)}</div>` : ''}</div>`;
+
+/* 読み込み中の絵（3 案で共通の土台。C だけ段階の一覧を足す）。 */
+function bootLoading(extra = '') {
+  return bootFrame(`<div class="boot-main">${bootLogo()}<h1>Hangar</h1><p class="boot-status">${t('loading')}...</p><p class="boot-detail">${t('indexing')}</p>${extra}</div>`, { aura: true });
+}
+/* A：今の頁のまま、文を 3 段に分ける。見出し、何が起きたか、次にすること、詳細の折りたたみ。 */
+function bootA(screen) {
+  const f = FAILS[fail];
+  if (screen === 'loading') return bootLoading();
+  const body = `<div class="fail"><h2>${esc(L(f.title))}</h2><p class="f-what">${esc(L(f.what))}</p><div class="f-lbl">${t('whatNext')}</div><ol>${f.steps.map((s) => L(s)).map((s) => `<li>${esc(s)}</li>`).join('')}</ol>${cmdLine(f.cmd)}${detailBox(f, false)}</div>`;
+  return bootFrame(`<div class="boot-main">${bootLogo()}<h1>Hangar</h1>${body}${bootActs()}</div>`);
+}
+/* B：失敗を 1 枚の札に。ロゴは左上に小さく。札の中に見出し、何が起きたか、次にすること、命令、詳細（開いた状態）、ボタン。 */
+function bootB(screen) {
+  const f = FAILS[fail];
+  if (screen === 'loading') return bootLoading();
+  const card = `<div class="fail-card"><div class="fc-h">${ic('alert')}<h2>${esc(L(f.title))}</h2></div><p class="f-what" style="margin:0 0 8px;color:var(--ink-2);line-height:1.6">${esc(L(f.what))}</p><div class="f-lbl" style="margin:10px 0 4px;font-size:11px;font-weight:700;color:var(--ink-3)">${t('whatNext')}</div><ol style="margin:0;padding-left:20px;line-height:1.7">${f.steps.map((s) => L(s)).map((s) => `<li>${esc(s)}</li>`).join('')}</ol>${cmdLine(f.cmd, { block: true })}${detailBox(f, true)}<div class="fc-foot"><span class="faint" style="font-size:11px">Hangar 0.9.1 · macOS 15.1</span><span class="spacer"></span><span class="btn">${ic('log')}${t('openLog')}</span><span class="btn btn-primary">${ic('restart')}${t('tryAgain')}</span></div></div>`;
+  return bootFrame(`<div class="boot-small"><svg aria-hidden="true"><use href="#logo"/></svg>Hangar</div>${card}`);
+}
+/* C：起動の段階を見せる。読み込み中も段階が進み、失敗した段階に赤い印、その下に理由と次にすること。 */
+function stagesHtml(failAt, now) {
+  const names = [t('stStart'), t('stReady'), t('stIndex'), t('stScreen')];
+  const times = ['0.3', '1.2', '4.8', ''];
+  return `<ul class="stages">${names.map((n, i) => {
+    const s = failAt !== null ? (i < failAt ? 'ok' : i === failAt ? 'ng' : 'wait') : (i < now ? 'ok' : i === now ? 'now' : 'wait');
+    const mark = { ok: '✓', ng: '✗', now: '…', wait: String(i + 1) }[s];
+    const d = s === 'now' && i === 2 ? `<div class="st-d">${t('indexing')}</div>` : '';
+    return `<li class="stage" data-s="${s}"><span class="st-i">${mark}</span><span class="st-t">${n}${d}</span><span class="st-time">${s === 'ok' ? t('elapsed', times[i]) : s === 'ng' ? t('stFail') : ''}</span></li>`;
+  }).join('')}</ul>`;
+}
+function bootC(screen) {
+  const f = FAILS[fail];
+  if (screen === 'loading') return bootLoading(stagesHtml(null, 2));
+  const body = `<div class="fail" style="width:560px">${stagesHtml(f.stage, null)}<div class="stage-fail"><h2 style="font-size:14px">${esc(L(f.title))}</h2><p class="f-what" style="margin-bottom:6px">${esc(L(f.what))}</p><div class="f-lbl" style="margin-top:8px">${t('whatNext')}</div><ol>${f.steps.map((s) => L(s)).map((s) => `<li>${esc(s)}</li>`).join('')}</ol>${cmdLine(f.cmd)}</div><div class="boot-acts" style="justify-content:flex-start"><span class="btn btn-primary">${ic('restart')}${t('tryAgain')}</span><span class="btn">${ic('log')}${t('openLog')}</span><span class="btn btn-ghost">${ic('copy')}${t('copyAll')}</span></div></div>`;
+  return bootFrame(`<div class="boot-main"><div style="display:flex;align-items:center;gap:10px"><svg style="width:48px;height:48px" aria-hidden="true"><use href="#logo"/></svg><h1 style="margin:0;font-size:18px">Hangar</h1></div>${body}</div>`);
+}
+/* ===== 4 始める前の確認 ===== */
+/* 6 項目。tmux と claude は ✓、親フォルダは ✗、MCP とステータスラインは未（任意）、互換は未検証のバージョン。 */
+const CHECKS = () => [
+  { key: 'tmux', label: 'tmux', tone: 'ok', path: '/opt/homebrew/bin/tmux (3.5a)', detail: t('tmuxD'), cmd: 'brew install tmux', btn: t('install') },
+  { key: 'claude', label: 'claude', tone: 'ok', path: '~/.local/bin/claude (2.4.1)', detail: t('claudeD'), cmd: null, btn: t('openSettings') },
+  { key: 'folder', label: t('projFolder'), tone: 'ng', path: null, detail: t('folderD'), cmd: null, btn: t('chooseFolder'), action: 'settings' },
+  { key: 'mcp', label: t('mcp'), tone: 'soft', path: null, state: t('mcpNot'), detail: t('mcpD'), cmd: 'hangar setup mcp', btn: t('register'), opt: true },
+  { key: 'statusline', label: t('statusline'), tone: 'soft', path: null, state: t('slNot'), detail: t('slD'), cmd: 'hangar setup statusline', btn: t('setUp'), opt: true },
+  { key: 'compat', label: t('compat'), tone: 'info', path: null, detail: t('compatD'), cmd: null, btn: null },
+];
+const MARK = { ok: '✓', ng: '✗', soft: '!', info: 'i' };
+/* 直し方の見せ方。mode が now なら CLI の命令をコピー、future なら段 5 のボタン。 */
+function fixHtml(c, mode) {
+  if (c.tone === 'ok' || c.tone === 'info') return '';
+  if (mode === 'future') return `<span class="btn btn-sm btn-primary">${c.key === 'folder' ? ic('folder') : ''}${c.btn}</span>`;
+  if (c.action === 'settings') return `<span class="btn btn-sm">${t('openSettings')}</span>`;
+  return cmdLine(c.cmd);
+}
+const checkBand = (done, total, o = {}) => `<div class="band"><span class="band-pill" data-tone="${done === total ? 'ok' : 'warn'}"${o.open !== false ? ' data-open' : ''}>${ic('check')}${t('setupCheck')} <b>${t('ofN', done, total)}</b>${ic(o.open !== false ? 'chev' : 'chev-r')}</span><span class="band-prog">${gaugeBar(Math.round(done / total * 100)).replace('gauge-fill', done === total ? 'gauge-fill" data-ok' : 'gauge-fill')}</span><span class="band-text">${o.text || ''}</span>${o.btn || ''}</div>`;
+const firstList = () => listBlock({ body: `<div class="list"><div class="empty"><b>${lang === 'en' ? 'No sessions yet' : 'セッションはまだありません'}</b>${lang === 'en' ? 'You can start a quick session before the check is complete' : '確認が済んでいなくても、クイックセッションから始められます'}<div class="acts"><span class="btn btn-primary">${ic('bolt')}${t('quick')}</span><span class="btn">${ic('add')}${t('newSession')}</span></div></div></div>` });
+const firstHome = (band, o = {}) => frame(sidebarHtml({ current: 'home', first: true }) + headerHtml({ first: true, sync: 'none' }) + main(`<div class="screen">${pageHead(t('home'))}${band}${o.list || firstList()}</div>`), { over: o.over });
+
+/* A：行ごとに直し方を並べる。今の確認リストを引き出しに入れ、6 行とも出す。各行に説明と命令（またはボタン）。そろったら錠剤が緑になり、「帯から消す」で消える。 */
+function readinessA(screen) {
+  const mode = screen === 'future' ? 'future' : 'now';
+  if (screen === 'done') {
+    const rows = CHECKS().map((c) => ({ ...c, tone: c.tone === 'info' ? 'info' : 'ok', path: c.path || (c.key === 'folder' ? '~/code' : c.key === 'mcp' ? t('mcpOk') : t('slOk')) }));
+    const list = `<ul class="ck-list">${rows.map((c) => `<li class="ck" data-tone="${c.tone}"><span class="ck-i">${MARK[c.tone]}</span><div class="ck-t"><b>${esc(c.label)}</b><span class="ck-p">${esc(c.path)}</span><div class="ck-d">${esc(c.detail)}</div></div></li>`).join('')}</ul>`;
+    return firstHome(checkBand(6, 6, { text: t('allSet'), btn: `<span class="btn btn-sm">${t('dismissCheck')}</span>` }) + `<div class="drawer">${list}<div class="ck-foot"><span>${t('inSettings')}</span></div></div>`);
+  }
+  const list = `<ul class="ck-list">${CHECKS().map((c) => `<li class="ck" data-tone="${c.tone}"><span class="ck-i">${MARK[c.tone]}</span><div class="ck-t"><b>${esc(c.label)}</b>${c.path ? `<span class="ck-p">${esc(c.path)}</span>` : ''}${c.state ? `<span class="ck-p">${esc(c.state)}</span>` : ''}${c.opt ? `<span class="ck-opt">${t('optional')}</span>` : ''}<div class="ck-d">${esc(c.detail)}</div>${mode === 'now' && c.cmd && c.tone !== 'ok' ? cmdLine(c.cmd) : ''}</div>${mode === 'future' || c.action ? `<div class="ck-act">${fixHtml(c, mode)}</div>` : ''}</li>`).join('')}</ul>`;
+  return firstHome(checkBand(3, 6) + `<div class="drawer">${list}<div class="ck-foot"><span>${t('canStart')}</span><span class="spacer"></span><span class="btn btn-sm btn-ghost">${ic('restart')}${t('checkAgain')}</span></div></div>`);
+}
+/* B：直すものだけ、1 行 1 操作。済んだものは 1 行に畳み、残りの 3 行に右端のボタン 1 つ。そろったら帯ごと消え、設定の「情報」へ引っ込む。 */
+function readinessB(screen) {
+  const mode = screen === 'future' ? 'future' : 'now';
+  if (screen === 'done') {
+    const toast = toastsHtml(noticeCard('info', t('notice'), '', '', `<div class="notice-msg">${t('allSet')}。${t('inSettings')}</div>`));
+    return firstHome('', { over: toast });
+  }
+  const todo = CHECKS().filter((c) => c.tone === 'ng' || c.tone === 'soft');
+  const done = CHECKS().filter((c) => c.tone === 'ok' || c.tone === 'info');
+  const act = (c) => mode === 'future' ? `<span class="btn btn-sm btn-primary">${c.key === 'folder' ? ic('folder') : ''}${c.btn}</span>` : c.action === 'settings' ? `<span class="btn btn-sm btn-primary">${t('openSettings')}</span>` : `<span class="btn btn-sm">${ic('copy')}${lang === 'en' ? 'Copy command' : 'コマンドをコピー'}</span>`;
+  const rows = todo.map((c) => `<div class="ck-one"><span class="ck-i" style="flex:none;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:11px;font-weight:700;color:#fff;background:${c.tone === 'ng' ? 'var(--error)' : 'var(--busy)'}">${MARK[c.tone]}</span><span class="ck-name">${esc(c.label)}${c.opt ? `<span class="ck-opt">${t('optional')}</span>` : ''}</span><span class="ck-text">${esc(c.detail)}${mode === 'now' && c.cmd ? `　<span class="mono" style="font-size:11px;color:var(--ink)">${esc(c.cmd)}</span>` : ''}</span><span class="ck-act">${act(c)}</span></div>`).join('');
+  const doneLine = `<div class="ck-done">${ic('check')}${done.map((c) => esc(c.label)).join('、')}<span class="faint" style="font-weight:500">${lang === 'en' ? 'are ready' : 'は準備完了'}</span><span class="faint" style="margin-left:auto;font-weight:500">${ic('chev-r')}</span></div>`;
+  return firstHome(checkBand(3, 6, { text: lang === 'en' ? '3 to fix. tmux and claude are ready, so you can start' : '要修正 3。tmux と claude があるので始められます' }) + `<div class="drawer">${rows}${doneLine}</div>`);
+}
+/* C：手順の案内。引き出しが 1 手順ずつ進み、左に手順の一覧、右に大きな命令と「済んだら再確認」。そろったら「準備完了」のトーストで帯から消える。 */
+function readinessC(screen) {
+  const mode = screen === 'future' ? 'future' : 'now';
+  if (screen === 'done') return firstHome('', { over: toastsHtml(noticeCard('info', t('notice'), '', '', `<div class="notice-msg">${t('ready')}。${t('allSet')}。${t('inSettings')}</div>`)) });
+  const steps = [[t('projFolder'), 'ng'], [t('mcp'), 'soft'], [t('statusline'), 'soft']];
+  const left = `<div class="wiz-steps">${steps.map(([n, tone], i) => `<div class="wiz-step"${i === 0 ? ' data-cur' : ''}><span class="ck-i" style="display:inline-grid;place-items:center;border-radius:50%;color:#fff;background:${i === 0 ? 'var(--accent)' : 'var(--line-strong)'}">${i + 1}</span>${esc(n)}</div>`).join('')}<div class="wiz-step" style="margin-top:8px;color:var(--st-done)">${ic('check')}tmux · claude</div></div>`;
+  const right = mode === 'future'
+    ? `<div class="wiz-body"><div class="faint" style="font-size:11px">${t('stepOf', 1, 3)}</div><h3>${t('projFolder')}</h3><p>${t('folderD')}</p><div class="path-row"><span class="input">~/code</span><span class="btn btn-primary">${ic('folder')}${t('chooseFolder')}</span></div><p class="faint" style="margin-top:8px;font-size:11px">${lang === 'en' ? 'Folders directly inside it that have Claude sessions become projects' : '直下のフォルダのうち、Claude のセッションがあるものがプロジェクトになります'}</p><div class="wiz-acts"><span class="btn btn-primary">${t('next')}</span><span class="btn btn-ghost">${t('skip')}</span></div></div>`
+    : `<div class="wiz-body"><div class="faint" style="font-size:11px">${t('stepOf', 1, 3)}</div><h3>${t('projFolder')}</h3><p>${t('folderD')}</p><p>${lang === 'en' ? 'Enter it under Settings › Required, or run this in a terminal:' : '設定の「必須」で入力するか、ターミナルで次を実行します。'}</p>${cmdLine('hangar setup workspace ~/code', { block: true })}<div class="wiz-acts"><span class="btn btn-primary">${t('openSettings')}</span><span class="btn">${ic('restart')}${t('doneRecheck')}</span><span class="btn btn-ghost">${t('skip')}</span></div></div>`;
+  return firstHome(checkBand(3, 6) + `<div class="drawer"><div class="wiz">${left}${right}</div></div>`);
+}
+
+/* ===== 5 未解決のプロジェクトの問い ===== */
+/* 他の PC から降りてきた 3 件。この PC にはフォルダが無い。 */
+const UNRES = () => [
+  { id: 'u1', name: 'design-tokens', path: '/Users/you/projects/design-tokens', other: t('miniMac'), n: 6, cands: ['~/code/design-tokens', '~/code/tokens'] },
+  { id: 'u2', name: 'legacy-admin', path: '/Users/you/projects/legacy-admin', other: t('miniMac'), n: 2, cands: [] },
+  { id: 'u3', name: 'mobile-app-v2', path: '/Users/you/projects/mobile-app-v2', other: t('laptop'), n: 14, cands: ['~/code/mobile-app'] },
+];
+/* 今の形のダイアログ（ResolveProjectDialog.tsx）。o.count で「1 / 3」。 */
+function resolveDialog(u, o = {}) {
+  const cands = u.cands.length ? `<div class="cand-list">${u.cands.map((c, i) => `<div class="cand-row"${o.pick && i === 0 ? ' aria-selected' : ''}>${ic('folder')}${esc(c)}<span class="faint">${lang === 'en' ? 'similar name' : '名前が近い'}</span></div>`).join('')}</div>` : `<div class="faint">${t('noCands')}</div>`;
+  return `<div class="ov"><div class="dlg"><div class="dlg-head">${ic('warning')}<span>${esc(t('notFoundTitle', u.name))}</span>${o.count ? `<span class="count">${o.count}</span>` : ''}</div><div class="dlg-body"><div><div class="lbl">${t('lastPath')}</div><div class="mono faint">${esc(u.path)}</div></div>${o.hint ? `<p>${t('movedHint')}</p>` : ''}<div><div class="lbl">${t('candidates')}</div>${cands}</div><div><div class="lbl">${t('newPath')}</div><div class="path-row"><span class="input"${o.pick ? '' : ' style="color:var(--ink-3)"'}>${o.pick ? esc(u.cands[0]) : '/Users/you/…'}</span><span class="btn"${o.pick ? '' : ''}>${ic('folder')}${t('chooseFolder')}</span><span class="btn btn-primary"${o.pick ? '' : ' data-dim'}>${t('useThis')}</span></div></div></div><div class="dlg-foot"><span class="btn">${ic('archive')}${t('markArchived')}</span><span class="btn btn-danger">${ic('unlink')}${t('removeList')}</span><span class="spacer"></span><span class="btn">${o.count ? (lang === 'en' ? 'Later (all)' : 'あとで（全部）') : t('later')}</span></div></div></div>`;
+}
+const arrivedToast = (n, o = {}) => noticeCard('info', t('projects'), '', '', `<div class="notice-msg">${esc(t('arrived', n))}</div><div class="notice-acts"><span class="btn btn-sm btn-primary">${o.act || t('seeProjects')}</span><span class="btn btn-sm btn-ghost">${t('decideLater')}</span></div>`, { close: true });
+
+/* A：起動時のダイアログ（今の形）。1 件ずつ、決めるまで閉じない。同期で降りてきた直後も同じダイアログが続けて出る。 */
+function resolveA(screen) {
+  const us = UNRES();
+  if (screen === 'start') return homeFrame({ over: resolveDialog(us[0], { count: t('ofCount', 1, 3) }) });
+  if (screen === 'pick') return homeFrame({ over: resolveDialog(us[0], { count: t('ofCount', 1, 3), pick: true }) });
+  return sessionFrame({ over: resolveDialog(us[2], { count: t('ofCount', 3, 3) }) + toastsHtml(OTHERS.slice(0, 1).map(waitingCard).join('')) });
+}
+/* B：帯の錠剤と引き出し。起動時も同期の直後も問わず、帯に「場所の不明なプロジェクト 3」。押した行だけダイアログ。 */
+function resolveB(screen) {
+  const us = UNRES();
+  const extra = `<span class="band-pill" data-tone="warn"${screen !== 'synced' ? ' data-open' : ''}>${ic('folder')}${t('unresolved')} <b>3</b>${ic(screen !== 'synced' ? 'chev' : 'chev-r')}</span>`;
+  const row = (u) => `<div class="crow"><span class="n-kind" data-tone="warn" style="min-width:auto">${ic('folder')}</span><span class="c-name">${esc(u.name)}</span><span class="c-proj">${t('sessionsN', u.n)} · ${esc(u.other)}</span><span class="c-text mono" style="font-size:11px">${esc(u.path)}</span><span class="c-end"><span class="btn btn-sm btn-primary">${ic('pin')}${t('relocate')}</span><span class="btn btn-sm">${t('markArchived')}</span><span class="btn btn-sm btn-ghost">${t('removeList')}</span></span></div>`;
+  const drawer = `<div class="drawer"><div class="drawer-h">${t('unresolved')}<span class="faint">${t('noPath')}</span><span class="drawer-close">${t('collapse')}${ic('chev')}</span></div>${us.map(row).join('')}</div>`;
+  if (screen === 'start') return homeFrame({ bandOpts: { extra, open: null, drawer } });
+  if (screen === 'pick') return homeFrame({ bandOpts: { extra, open: null, drawer }, over: resolveDialog(us[0], { pick: true, hint: true }) });
+  return sessionFrame({ over: toastsHtml(arrivedToast(3) + OTHERS.slice(0, 1).map(waitingCard).join('')) });
+}
+/* C：まとめて 1 つのダイアログ。起動時に 3 件を表にし、行ごとに候補を選んで「まとめて適用」。同期の直後はトーストだけ。 */
+function resolveC(screen) {
+  const us = UNRES();
+  const sel = (u, i) => `<span class="listbox" style="height:26px;max-width:260px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono);font-weight:500;color:var(--ink)">${u.cands.length ? esc(u.cands[0]) : t('keepUnresolved')}</span>${ic('chev')}</span>`;
+  const rows = us.map((u, i) => `<tr><td><b>${esc(u.name)}</b><div class="mono">${esc(u.path)}</div></td><td>${esc(u.other)}<div class="mono">${t('sessionsN', u.n)}</div></td><td>${sel(u, i)}${screen === 'pick' && i === 0 ? `<div class="cand-list" style="position:absolute;z-index:2;width:260px;margin-top:2px"><div class="cand-row" aria-selected>${ic('folder')}~/code/design-tokens</div><div class="cand-row">${ic('folder')}~/code/tokens</div><div class="cand-row">${ic('folder')}${t('chooseFolder')}</div><div class="cand-row">${ic('archive')}${t('markArchived')}</div><div class="cand-row">${ic('x')}${t('keepUnresolved')}</div></div>` : ''}</td></tr>`).join('');
+  const dlg = `<div class="ov"><div class="dlg" data-w="wide"><div class="dlg-head">${ic('warning')}<span>${lang === 'en' ? '3 projects have no folder on this computer' : 'この PC にフォルダが無いプロジェクトが 3 件あります'}</span></div><div class="dlg-body"><p>${t('movedHint')}</p><table class="rtab"><thead><tr><th>${t('project')}</th><th>${t('onOther')}</th><th>${lang === 'en' ? 'On this computer' : 'この PC では'}</th></tr></thead><tbody>${rows}</tbody></table></div><div class="dlg-foot"><span class="faint" style="font-size:11px">${lang === 'en' ? 'Rows left unresolved stay in Projects with "No path on this computer"' : '未決のまま残した行は、プロジェクトの一覧に「この PC にパスがありません」の札で残ります'}</span><span class="spacer"></span><span class="btn">${t('later')}</span><span class="btn btn-primary">${t('applyAll')}</span></div></div></div>`;
+  if (screen === 'start' || screen === 'pick') return homeFrame({ over: dlg });
+  return sessionFrame({ over: toastsHtml(arrivedToast(3, { act: lang === 'en' ? 'Decide now' : 'いま決める' }) + OTHERS.slice(0, 1).map(waitingCard).join('')) });
+}
+/* ===== まとまりと案の説明 ===== */
+const GROUPS = {
+  palette: {
+    name: 'コマンドパレット',
+    screens: [['empty', '空のとき'], ['typed', '「CSV」と打ったとき'], ['field', 'ホームの欄で「CSV」']],
+    qs: ['1 欄とパレットの役割の分け方', '2 パレットに出すもの', '3 空のときに出すもの', '4 結果の 1 行に出すもの'],
+    opts: [
+      { id: 'a', tag: 'A', name: '今の作り：名前はパレット、トランスクリプトは欄', render: paletteA,
+        blurb: 'いまの作りです。ヘッダーの錠剤は「検索・移動」で、パレットは<b>名前</b>（セッション、プロジェクト）と移動とコマンドを引き、最後の行に「『CSV』を全文検索」を置いて ⌘↵ でホームの欄へ渡します。ホームの欄はトランスクリプトだけを引き、案内に「名前はコマンドパレットで」と添えます。空のときは入力待ち、実行中、最近 5、プロジェクト 4、移動、コマンドの 6 群です。',
+        notes: { empty: '空のときに 6 群 24 行が並び、窓の下で切れる。入力待ち 4 本の朝は、コマンドの群が見えない位置まで下がる。', typed: '名前に当たった 3 本と、最後の全文検索の行。「CSV」はトランスクリプトに 12 件あるが、ここでは数が分からない。', field: 'ホームの欄に打つと、トランスクリプトの抜粋が 3 件。名前に「CSV」が入る 3 本は、名前では引かれず、抜粋に出た分だけが見える。' },
+        answers: ['名前はパレット、トランスクリプトは欄。初めての人は「名前で探したのに欄に出ない」「欄で探したのにパレットに無い」の 2 回の空振りを経て覚える。', 'セッション、プロジェクト、移動、コマンド。設定の節は無く、設定は 1 行。', '入力待ち、実行中、最近 5、プロジェクト 4、移動、コマンド。全部で 24 行前後。', '点、名前、プロジェクト、右端に状態の語か経った時間。プロジェクトはパス。'],
+        gain: 'いまの画面と設計書と試験がそのまま使える。パレットから全部の種類へ届く。', lose: '欄とパレットの分担が、使う人の頭の中の分け方（探す、移動する）と合わない。空のときの 6 群が長い。', weight: 'PR 0 本（文言だけ）。' },
+      { id: 'b', tag: 'B', name: '欄に名前も、パレットは移動と操作', render: paletteB, rec: '推す',
+        blurb: 'ホームの欄が<b>名前と要約とトランスクリプト</b>を引き、結果を「名前に一致」「トランスクリプトに一致」の 2 つの見出しで一覧に出します。パレットは<b>行き先と操作</b>に絞り、ヘッダーの錠剤を「移動・操作」にします。空のときは入力待ち、最近 3、操作、設定の節の 4 群です（作業中とアイドルの名前はサイドバーの「実行中」にあるので出しません）。打つと実行中と最近の名前、操作、設定の節だけに当て、最後の行は「ホームで『CSV』をトランスクリプトから検索」で件数も添えます。',
+        notes: { empty: '4 群 16 行で、入力待ち 4 本の朝でも操作と設定の節まで同じ窓に入る。設定の節が行き先として並ぶので、「クラウド同期」へ 2 回で着く。', typed: '名前に当たった 3 本と、ホームの欄へ渡す行。渡す行にトランスクリプトの件数（12 件）が添う。', field: '欄に「CSV」と打つと、名前に一致 3 本が上、トランスクリプトに一致 12 件（上位 3）が下。名前の一致は黄色で印を付ける。欄の札が「名前」「要約」「トランスクリプト」の 3 つになる。' },
+        answers: ['探すのは欄、移動と操作はパレット。欄は名前も引くので、「あの作業」を名前で探す人が欄で空振りしない。', '入力待ちと最近のセッション（行き先として）、操作、設定の節。打てば実行中の名前にも当たる。終わった古いセッションはパレットで引かず、欄で引く。', '入力待ち、最近 3、操作、設定の節。16 行で 1 画面に収まる。', 'セッションは点、名前、プロジェクト、状態の語。設定の節は絵と「設定」の添え書き。'],
+        gain: '欄が「探す」の全部を引き受け、パレットは「移動と操作」の短い一覧になる。設定の節へパレットから着ける。', lose: '古いセッションの名前をパレットで引けない（欄へ渡す 1 回が挟まる）。欄の検索に名前と要約の索引が要る。', weight: 'PR 2 本。欄の検索に名前と要約を足し、結果の見出しを付ける。パレットの群を組み直し、設定の節を足す。' },
+      { id: 'c', tag: 'C', name: '一つの窓：パレットが全部を引く', render: paletteC, rec: '次点',
+        blurb: 'パレットが<b>名前、トランスクリプトの抜粋、操作、設定</b>を一度に引きます。打つと、名前に当たったセッション、トランスクリプトの抜粋（上位 3 と「12 件すべてをホームで」）、操作の順に群が並びます。ホームの欄は同じ検索の入口で、同じ結果を一覧の形で出します。空のときは移動、入力待ち、最近 3、操作の 4 群と、使い方の 1 行です。',
+        notes: { empty: '移動が先頭で、ホームとプロジェクトと設定の 3 行。入力待ち 4 本、最近 3、操作で 15 行。上に使い方の 1 行がある。', typed: 'セッション 3、トランスクリプト 12 件のうち 3 件の抜粋、操作 1（再開）。抜粋が入るので 1 行が 2 段になり、同じ高さで行数が減る。', field: '欄に打つと、名前、トランスクリプト、操作の 3 つの見出しで一覧に出る。パレットと欄の結果が同じ。' },
+        answers: ['分けない。どちらに打っても同じ結果。覚えることが無い代わりに、どちらも長い。', '全部。セッション、プロジェクト、トランスクリプトの抜粋、操作、設定の節。', '移動、入力待ち、最近 3、操作。使い方の 1 行を足す。', 'セッションは名前と状態、抜粋の行は名前の下に当たった 1 行。'],
+        gain: 'どこに打つかを覚えなくてよい。トランスクリプトの当たりがパレットの中で読める。', lose: 'パレットがサーバの全文検索を待つので、打つたびに遅れる。抜粋で 1 行が 2 段になり、一覧として読みにくい。欄とパレットが同じものになり、2 つある理由が薄れる。', weight: 'PR 3 本。パレットから全文検索を呼ぶ口、抜粋の行、欄の結果の見出し。' },
+    ],
+    verdict: `<p><b>推す案は B（欄に名前も、パレットは移動と操作）です。</b>
+初めて入れた開発者が最初に打つのは、ヘッダーの ⌘K ではなく、ホームの一覧の上の欄です。
+その欄で「あの作業」の名前を打って空振りするのが、いまの作りの最初のつまずきです。
+B は欄に名前と要約を足して空振りをなくし、パレットは「いま動いているものへ移る」「操作する」「設定の節へ行く」の短い一覧にします。
+パレットの空のときが 16 行で 1 画面に収まり、設定の節へ 2 回で着けるのも B だけです。</p>
+<p><b>次点は C（一つの窓）です。</b>
+覚えることが無いのは強みですが、パレットがサーバの全文検索を待つようになり、打つたびに遅れます。
+B を入れたあとで、パレットの最後の行（ホームへ渡す行）にトランスクリプトの件数を添えるところまでは C の良さを取り込めます。</p>
+<p><b>A は推しません。</b>
+文言だけで済む安心はありますが、「名前は欄に出ない」をずっと説明し続けることになります。</p>
+<h3>案に依らず決められること</h3>
+<p>結果の 1 行は、点、名前、プロジェクト、右端に状態の語か経った時間、のままでよいです。
+選んでいる行だけ右端を「↵ 開く」に替えるのも、いまのままです。
+空のときに入力待ちを先頭に置くのは、どの案でも守ります。</p>`,
+  },
+  notices: {
+    name: '知らせの出し分け',
+    screens: [['session', 'セッション画面にいるとき'], ['home', 'ホームにいるとき'], ['stack', '溜まったとき'], ['background', '窓が背面のとき']],
+    qs: ['1 7 種類をどこに出すか', '2 いま開いている画面の知らせを出さない決まり', '3 溜まったときの畳み方', '4 OS の通知に出すもの'],
+    opts: [
+      { id: 'a', tag: 'A', name: '今の作りを整える：右下の通知カードが主', render: noticesA, table: true,
+        blurb: 'いまの作りを、種類ごとの色の見出しの札でそろえます。右下に<b>入力待ち（3 枚まで）、リマインダー、同期の失敗（error のトースト）、更新（info のトースト）</b>を積み、保持期間はヘッダーの下のバナー、互換の変更点はホームで 1 回のトースト、提案はホームの確認待ちだけに出します。ホームにいる間は入力待ちとリマインダーの札を出しません（いまの決まり）。',
+        notes: { session: 's1 を開いている間に、右下に同期エラー、更新、リマインダー、通知の誘い、入力待ち 3 枚の 7 つが積まれる。ターミナルの右下の 3 分の 1 を覆う。', home: 'ホームでは入力待ちとリマインダーが帯に移って札が消えるが、同期エラー、更新、互換の 3 枚は残る。保持期間のバナーが見出しの上に乗る。', stack: '入力待ちが 4 本になると、3 枚と「ほか 1 件をホームで見る」の錠剤。同期エラーとリマインダーはその上に残る。', background: '背面では入力待ちごとに 1 件、時刻つきのリマインダーに 1 件のデスクトップ通知。' },
+        answers: ['入力待ちとリマインダーは帯と札と通知、同期と更新はトースト、保持期間はバナー、互換はホームのトースト、提案はホームだけ。', '保つ。ホームでは入力待ちとリマインダーの札を出さない。セッション画面では自分の分を出さない。', '入力待ちは 3 枚と「ほか N 件」。ほかの種類は畳まず、閉じるまで残る。', '入力待ちは 1 件ずつ、リマインダーは時刻つきだけ。'],
+        gain: 'いまの作りの延長で、設計書と試験が使える。気づいてほしいものが目の前に来る。', lose: 'セッション画面で 7 つが積まれ、ターミナルを覆う。同期と更新と互換の札に「閉じる」以外の居場所が無く、閉じたら二度と見られない。', weight: 'PR 1 本。札の形をそろえ、互換と更新の札を足す。' },
+      { id: 'b', tag: 'B', name: 'ヘッダーの通知に集め、右下は入力待ちだけ', render: noticesB, table: true, rec: '推す',
+        blurb: 'ヘッダーにベルの印「通知」を置き、<b>リマインダー、同期の失敗や一時停止、互換の変更点、保持期間、更新</b>をその一覧に溜めます。右下に積むのは<b>入力待ちだけ</b>（3 枚まで、4 件目から「ほか N 件」）。同期の語はヘッダーで赤くなり、ベルの数は未読の数です。提案はホームの確認待ち、保持期間のバナーと互換のトーストは廃止して一覧の行にします。',
+        notes: { session: 's1 を開いている間、右下は入力待ち 3 枚だけ。ヘッダーの同期の語が赤く、ベルに 5。ターミナルの上に何も乗らない。', home: 'ホームでは右下が空。帯の要対応に入力待ちとリマインダー、ベルに 5。保持期間のバナーは無い。', stack: 'ベルを押すと一覧。リマインダー、同期、互換、保持、更新の 5 行で、行ごとに操作のボタン。右下は入力待ち 3 枚と「ほか 1 件」。', background: 'A と同じ。入力待ちごとに 1 件、時刻つきのリマインダーに 1 件。' },
+        answers: ['入力待ちは帯と札と通知。リマインダーは帯とベルと通知。提案は帯。同期は語の色とベル。互換、保持期間、更新はベルだけ。', '保つ。さらに、ベルの一覧は画面に依らず同じ中身で、開いている画面の分を除く仕組みを要らなくする。', '右下は入力待ちの 3 枚と「ほか N 件」だけ。ほかの種類はベルの数に畳まれ、一覧で読む。', 'A と同じ。'],
+        gain: 'セッション画面で右下が入力待ちだけになり、ターミナルを覆わない。閉じても一覧に残るので、同期や互換や更新を見返せる。知らせの種類を足すときの置き場が決まる。', lose: 'ベルを押す 1 回が増える。リマインダーの時刻を過ぎたことに、右下の札では気づけない（ベルの数と帯と通知で気づく）。', weight: 'PR 2 本。ベルと一覧（未読の数、既読）。保持期間のバナーと互換のトーストを一覧の行に移す。' },
+      { id: 'c', tag: 'C', name: 'ホームの帯に集め、右下は 1 枚', render: noticesC, table: true, rec: '次点',
+        blurb: '右下には<b>最新の入力待ち 1 枚</b>だけを置き、残りは「ほか N 件 · ⌘I 次の入力待ちへ」と札の中に添えます。リマインダーは時刻を過ぎたら 1 枚。<b>同期の失敗、互換の変更点、保持期間、更新</b>はホームの帯の 4 つ目の錠剤「通知 N」とその引き出しに集め、ヘッダーには同期の語の色だけを残します。',
+        notes: { session: 's1 を開いている間、右下は入力待ち 1 枚とリマインダー 1 枚。入力待ちの札に「ほか 2 件 · ⌘I」。', home: 'ホームの帯に「通知 4」の錠剤が増える。要対応の引き出しが開いていて、通知の中身は押すまで見えない。', stack: '「通知」の錠剤を押すと引き出しに 4 行。同期、互換、保持、更新で、行ごとに操作のボタン。', background: '入力待ちは「入力待ち 3 件。最新：…」の 1 件にまとめ、リマインダーは 1 件。' },
+        answers: ['入力待ちとリマインダーは帯と札と通知。提案は帯。同期は語の色と帯の錠剤。互換、保持期間、更新は帯の錠剤。', '保つ。ホームでは右下に何も出ない（帯が全部を持つ）。', '右下は常に 1 枚 + 残りの数。ほかの種類は帯の錠剤の数。', '入力待ちは 1 件にまとめ、リマインダーは 1 件。'],
+        gain: '右下が最大 2 枚で、ターミナルをほぼ覆わない。ホームが「朝に読む場所」として全部を持つ。', lose: 'セッション画面にいる間、同期の失敗や更新に気づく手がかりが同期の語の色だけになる。帯の錠剤が 4 つになり、要対応の引き出しと通知の引き出しを行き来する。', weight: 'PR 2 本。帯の錠剤と引き出し、右下の 1 枚にまとめる形。' },
+    ],
+    verdict: `<p><b>推す案は B（ヘッダーの通知に集め、右下は入力待ちだけ）です。</b>
+右下の札は「いま手を動かしてほしいもの」の場所です。
+入力待ちはそれに当たりますが、同期の失敗、互換の変更点、保持期間、更新は、いま手を動かさなくてもよく、あとで見返したいものです。
+その 2 つを分けると、セッション画面の右下は入力待ちだけになり、ターミナルを覆いません。
+閉じたら二度と見られない札が無くなり、知らせの種類を足すときの置き場も決まります。</p>
+<p><b>次点は C（ホームの帯に集める）です。</b>
+右下が最大 2 枚で静かですが、セッション画面にいる間に同期の失敗や更新へ気づく手がかりが同期の語の色だけになります。
+B のベルは画面に依らず同じ場所にあるので、そこが違います。</p>
+<p><b>A は推しません。</b>
+セッション画面で 7 つが積まれる絵が、この試作の出発点です。</p>
+<h3>推す表（B）</h3>
+<p>入力待ち：ホームの帯、右下の札（3 枚まで）、背面ならデスクトップ通知、サイドバーの件数。
+今日のリマインダー：ホームの帯、ベルの一覧、時刻つきは背面ならデスクトップ通知。
+Claude からの提案：ホームの帯の確認待ちだけ。
+同期の失敗や一時停止：ヘッダーの同期の語の色とベルの一覧。
+互換の変更点、保持期間、更新の案内：ベルの一覧だけ（行から設定の節へ）。
+トーストは、操作の結果（保存しました、コピーしました）だけに使います。</p>
+<h3>案に依らず決められること</h3>
+<p>いま開いている画面の知らせは出さない、の決まりは 3 案とも保ちます。
+B では、ベルの一覧が画面に依らず同じ中身なので、この決まりが要るのは右下の札とホームの帯だけになります。
+右下の札の 4 件目からは「ほか N 件をホームで見る」の錠剤にするのも、いまのままです。</p>`,
+  },
+  boot: {
+    name: '読み込みと失敗の画面',
+    screens: [['loading', '読み込み中'], ['fail', '失敗したとき']],
+    qs: ['1 読み込み中に何を見せるか', '2 失敗の文の分け方（何が起きたか、次にすること、詳細）', '3 詳しい記録の見方', '4 文の折り返し'],
+    opts: [
+      { id: 'a', tag: 'A', name: '今の頁のまま、文を 3 段に分ける', render: bootA,
+        blurb: '読み込み中はいまのまま（真ん中のロゴ、「読み込み中」、索引の進み具合）です。失敗したときは、赤い等幅の文をやめ、<b>見出し、何が起きたか、次にすること（番号付き）、命令のコピー、詳細（折りたたみ）</b>の順に分けます。ロゴは真ん中に残り、文は 600px で折り返します。ボタンは「もう一度試す」と「ログを開く」のままです。',
+        notes: { loading: 'いまのまま。ロゴ、「読み込み中...」、「索引を作成中 120 / 1,218 件」。', fail: 'ロゴの下に見出しと文。詳細は折りたたまれていて、開くと記録の文が等幅で出る。ボタンは文の下。' },
+        answers: ['いまのまま。ロゴと 1 行と索引の進み具合。', '見出し、何が起きたか、次にすること、命令、詳細の 5 段。', '折りたたみの中に等幅で。「全文をコピー」と「ログを開く」。', '文は 600px で普通の書体。等幅は命令と詳細だけ。'],
+        gain: 'いまの頁の構造を保ったまま、殻が書く文を 3 つの欄に分けるだけで済む。', lose: 'ロゴが真ん中に残るので、失敗の文が長いと縦に伸びて小さい窓で切れる。5 種類の失敗に合わせた文を殻が持つ必要がある。', weight: 'PR 1 本。殻が失敗の種類と 3 つの欄を渡し、頁が並べる。' },
+      { id: 'b', tag: 'B', name: '失敗を 1 枚の札に', render: bootB, rec: '推す',
+        blurb: '読み込み中は A と同じです。失敗したときは、ロゴを左上に小さく退け、<b>1 枚の白い札</b>に見出し、何が起きたか、次にすること、命令のコピー、詳細（開いた状態、コピー）、ボタンを置きます。札の下端に hangar と macOS の版を添え、報告に使えるようにします。',
+        notes: { loading: 'A と同じ。', fail: '640px の札。見出しの左に警告の印。命令は 1 行の箱でコピー。詳細は開いていて、記録の最後の数行が読める。下端に版と「ログを開く」「もう一度試す」。' },
+        answers: ['A と同じ。', 'B は札の中で同じ 5 段。札の下端に版を添える。', '詳細は最初から開いていて、「全文をコピー」。ログを開くボタンは札の下端。', '札の幅 640px で折り返す。等幅は命令と詳細だけ。'],
+        gain: '失敗の文が「読むもの」として 1 枚にまとまり、何をすればよいかが上から読める。版と記録が同じ札にあり、報告に写せる。', lose: 'ロゴが退くので、読み込み中と失敗で絵が変わる。札の高さが詳細の分だけ伸びる。', weight: 'PR 1 本。A と同じ口に、札の見た目を足す。' },
+      { id: 'c', tag: 'C', name: '起動の段階を見せる', render: bootC, rec: '次点',
+        blurb: '読み込み中から<b>起動の 4 段階</b>（同梱のサーバを起動、サーバの応答を待つ、索引を準備、画面へ移動）を一覧で見せ、進んだ段階に ✓ と秒数を付けます。失敗したときは、その段階に赤い ✗ が付き、その下に理由と次にすること、命令のコピーが出ます。ボタンは「もう一度試す」「ログを開く」「全文をコピー」です。',
+        notes: { loading: 'ロゴの下に 4 段階。「索引を準備」が進行中で、件数が添う。', fail: '失敗した段階（ポートと互換は 1 段目、ほかは 2 段目）に ✗。その下の赤い枠に理由と次にすること。' },
+        answers: ['4 段階の一覧と、進んでいる段階の件数。', '段階の ✗ の下に、見出し、何が起きたか、次にすること、命令。', '「全文をコピー」のボタン。詳細の文は出さない（段階が代わりになる）。', '560px で折り返す。'],
+        gain: 'どこで止まったかが段階で読める。読み込みが長いときも、どこまで進んだかが分かる。', lose: '段階の一覧が、読み込みが 2 秒で終わる普段の起動にも毎回出る。殻の起動の順を頁が知る必要があり、順が変わると頁も変わる。', weight: 'PR 2 本。殻が段階を通知する口と、頁の段階の一覧。' },
+    ],
+    verdict: `<p><b>推す案は B（失敗を 1 枚の札に）です。</b>
+初めて入れた開発者が失敗の画面に出会うのは、たいてい最初の 1 回です（検疫、Node、ポート）。
+そのとき読むのは、「何が起きたか」と「次にすること」の 2 つで、記録は報告するときに要ります。
+B はその 3 つを 1 枚の札に上から並べ、版と記録を同じ札に置くので、報告に写すときに 1 か所で済みます。
+ロゴが退いても、札が「アプリが答えている」ことを言っています。</p>
+<p><b>次点は C（段階を見せる）です。</b>
+どこで止まったかが読めるのは良いですが、普段の 2 秒の起動にも段階の一覧が出ます。
+読み込みが 10 秒を超えたときだけ段階を出す、という足し方なら、B のあとで入れられます。</p>
+<p><b>A は推しません。</b>
+文を分けても、ロゴが真ん中に残る分だけ縦に伸びます。</p>
+<h3>案に依らず決められること</h3>
+<p>失敗の文は、殻が「種類」「何が起きたか」「次にすること」「記録」の 4 つを別々に渡し、頁が並べます。
+いまのように 1 つの文字列に改行で詰めるのをやめます。
+命令はコピーのボタンを添え、等幅は命令と記録だけに使います。
+ポートと互換の失敗では、動いているサーバを止めないこと（利用者が起こしたものかもしれない）を文で言います。</p>`,
+  },
+  readiness: {
+    name: '始める前の確認',
+    screens: [['now', 'いま（CLI の命令）'], ['future', '段 5（アプリの中から直す）'], ['done', '全部そろった後']],
+    qs: ['1 項目ごとの直し方の見せ方', '2 CLI の案内と将来のボタン', '3 全部そろった後の引っ込み先', '4 済んだ項目の見せ方'],
+    opts: [
+      { id: 'a', tag: 'A', name: '行ごとに直し方を並べる', render: readinessA,
+        blurb: 'いまの確認リストを、ホームの帯の引き出しに入れます。<b>6 行とも出し</b>、行ごとに印、名前、見つかった場所、説明、直し方（命令のコピーか「設定を開く」）を並べます。段 5 では命令の行がボタンに替わります。全部そろったら錠剤が緑の「6 つ中 6 つ」になり、「帯から消す」で消えて設定の「情報」に残ります。',
+        notes: { now: '6 行で引き出しが 330px。親フォルダの行に「設定を開く」、MCP とステータスラインに命令のコピー。', future: '命令の行が「フォルダを選択…」「登録」「設定する」のボタンに替わる。行の高さは変わらない。', done: '6 行とも ✓。錠剤が緑。帯の右に「帯から消す」。押すまで残る。' },
+        answers: ['行の中に命令の箱（コピー）か、右端に「設定を開く」。', 'いまは命令の箱、段 5 では同じ場所がボタン。', '錠剤が緑になり、「帯から消す」を押すと消える。設定の「情報」に残る。', '✓ の行もそのまま出す。'],
+        gain: 'いまの確認リストの部品がそのまま使える。6 つ全部が一度に見える。', lose: '済んだ行が場所を取り、直すものが埋もれる。全部そろっても押すまで帯に残る。', weight: 'PR 1 本。確認リストを引き出しに移す。' },
+      { id: 'b', tag: 'B', name: '直すものだけ、1 行 1 操作', render: readinessB, rec: '推す',
+        blurb: '引き出しには<b>済んでいない 3 行だけ</b>を出し、済んだ 3 つは下の 1 行「tmux、claude、Claude Code との互換性は準備完了」に畳みます。各行は 36px で、名前、説明、右端に<b>ボタン 1 つ</b>（いまは「コマンドをコピー」か「設定を開く」、段 5 では「フォルダを選択…」「登録」「設定する」）。全部そろったら帯ごと消え、トーストで 1 回知らせて、設定の「情報」に引っ込みます。',
+        notes: { now: '3 行で引き出しが 150px。命令は行の中に薄く見え、右端の「コマンドをコピー」で写す。帯の文に「要修正 3。tmux と claude があるので始められます」。', future: '右端のボタンが「フォルダを選択…」「登録」「設定する」に替わる。行の形は同じ。', done: '帯が消え、ホームは一覧だけ。右下に「セットアップは完了しています。設定の「情報」でいつでも見られます」のトーストが 1 回。' },
+        answers: ['行の右端にボタン 1 つ。命令は行の中に薄く見せ、ボタンで写す。', '同じ場所のボタンの文が変わるだけ。段 5 で行の形を変えない。', '帯ごと消え、トーストで 1 回。設定の「情報」のセットアップの確認に残る。', '1 行に畳む。押すと A の形で開く。'],
+        gain: '直すものだけが見え、引き出しが短い。段 5 でボタンに替えても形が変わらない。そろったら自然に消える。', lose: '済んだ項目の場所（パスと版）が、畳んだ行を開くまで見えない。', weight: 'PR 1 本。確認リストを引き出しに移し、畳む行と 1 操作の行を足す。' },
+      { id: 'c', tag: 'C', name: '手順の案内', render: readinessC, rec: '次点',
+        blurb: '引き出しを<b>1 手順ずつ</b>進む案内にします。左に手順の一覧（親フォルダ、MCP、ステータスライン）、右に 1 つの手順の説明と大きな命令の箱と「済んだら再確認」。段 5 では命令の箱が「フォルダを選択…」の 1 ボタンになります。全部そろったら「準備完了」のトーストで帯から消えます。',
+        notes: { now: '左に 3 手順、右に親フォルダの手順。命令の箱が大きい。「設定を開く」「済んだら再確認」「あとで」。', future: '右が「フォルダを選択…」の 1 ボタンと短い説明。', done: 'B と同じ。' },
+        answers: ['1 手順ずつ、大きな命令の箱。', 'いまは命令の箱、段 5 では 1 ボタン。', 'B と同じ。', '左の一覧の下に「tmux · claude」と小さく。'],
+        gain: '1 つずつに集中でき、初めての人が迷わない。', lose: '3 つしか無い手順に案内の形は重い。順に進まなくてもよいものを順に見せる。引き出しの高さが 200px を超える。', weight: 'PR 2 本。手順の案内の部品と、手順の進み方。' },
+    ],
+    verdict: `<p><b>推す案は B（直すものだけ、1 行 1 操作）です。</b>
+初めて入れた開発者がホームで最初に見るのは、この引き出しです。
+そこに「済んだ 3 つ」が並ぶより、「直す 3 つ」だけが 150px で並ぶほうが、やることが読めます。
+行の右端にボタンを 1 つだけ置く形は、段 5 でアプリの中から直せるようになっても変わらず、文が「コマンドをコピー」から「登録」に替わるだけです。
+全部そろったら帯ごと消えるので、「帯から消す」を押す手間がありません。</p>
+<p><b>次点は C（手順の案内）です。</b>
+初めての人が迷わない形ですが、手順が 3 つしか無く、順に進まなくてもよいものを順に見せることになります。</p>
+<p><b>A は推しません。</b>
+6 行が毎朝 330px を取り、済んだ行が直すものを埋めます。</p>
+<h3>案に依らず決められること</h3>
+<p>任意の項目（MCP サーバー、ステータスライン）には「任意」の札を付け、「tmux と claude があれば始められます」を帯の文に書きます。
+全部そろった後の置き場は設定の「情報」のセットアップの確認で、そこから「再確認」を押せます。
+互換の行は、未検証のバージョンを済んだものとして数え、変更点があるときだけ直すものに入れます（いまの数え方のまま）。</p>`,
+  },
+  resolve: {
+    name: '未解決のプロジェクトの問い',
+    screens: [['start', '起動した直後'], ['pick', '選び直す'], ['synced', '同期で 3 件届いた直後']],
+    qs: ['1 問う時機', '2 選び直すダイアログの形', '3 同期で何件も降りてきたとき', '4 決めないまま残したときの見え方'],
+    opts: [
+      { id: 'a', tag: 'A', name: '起動時のダイアログ（今の形）', render: resolveA,
+        blurb: 'いまの形です。起動した直後に、見つからないプロジェクトごとに<b>ダイアログを 1 件ずつ</b>出し、決めるまで閉じません（閉じるのは「あとで」だけ）。候補は親フォルダの直下で名前が近いもの。同期で他の PC のプロジェクトが降りてきた直後も、同じダイアログが続けて出ます。見出しの右に「1 / 3」を添えるところだけ足します。',
+        notes: { start: '起動した直後にホームの上にダイアログ。「1 / 3」。候補 2 件と新しいパスの欄。', pick: '候補の 1 つを選ぶと欄に入り、「この場所にする」が押せる。', synced: 'セッション画面で作業中に、同期で 3 件が降りてきて、ダイアログが 3 回続けて出る。入力待ちの札もその下にある。' },
+        answers: ['起動した直後と、同期で降りてきた直後。', 'いまの形に「1 / 3」を足す。候補、新しいパス、Archived にする、一覧から削除、あとで。', '1 件ずつ 3 回。「あとで（全部）」で全部を飛ばせる。', 'プロジェクトの一覧に「この PC にパスがありません」の札。次の起動でまた問う。'],
+        gain: 'いまのまま。見つからないことを見逃さない。', lose: '作業中に同期で降りてきた 3 件が、3 回続けてダイアログになる。他の PC のプロジェクトは、この PC に無いのが普通で、毎回問われる。', weight: 'PR 0 本（件数の添え書きだけ）。' },
+      { id: 'b', tag: 'B', name: '帯の錠剤と引き出し、問うのは押したとき', render: resolveB, rec: '推す',
+        blurb: '起動時にも同期の直後にもダイアログを出さず、ホームの帯に<b>「場所の不明なプロジェクト 3」</b>の錠剤を置きます。引き出しに 1 件 1 行（名前、セッションの数、他の PC の名前、前のパス、「場所を再指定」「Archived にする」「一覧から削除」）。<b>「場所を再指定」を押したときだけ</b>ダイアログで、候補とフォルダの選択を出します。同期で降りてきた直後は、トーストで 1 回「他の PC のプロジェクト 3 件が届きました」と知らせます。',
+        notes: { start: '起動した直後のホーム。帯の 4 つ目の錠剤と、引き出しに 3 行。ダイアログは無い。', pick: '行の「場所を再指定」を押したときだけダイアログ。候補の 1 つが選ばれ、「フォルダを選択…」もある。', synced: 'セッション画面で作業中に、右下に「他の PC のプロジェクト 3 件が届きました」のトーストが 1 枚。「プロジェクトで見る」「あとで決める」。' },
+        answers: ['問わない。帯に件数を置き、押したときだけ。', '候補、フォルダを選択、新しいパス、Archived にする、一覧から削除、あとで。', 'トースト 1 枚と帯の数。ダイアログは出ない。', '帯の錠剤に残る。プロジェクトの一覧にも「この PC にパスがありません」の札。'],
+        gain: '作業中に問われない。他の PC のプロジェクトを、この PC に無いまま残せる。帯の形は要対応や通知と同じ。', lose: '見つからないことに気づくのが、ホームを開いたときになる。帯の錠剤が増える。', weight: 'PR 2 本。帯の錠剤と引き出し、起動時のダイアログをやめて同期のトーストにする。' },
+      { id: 'c', tag: 'C', name: 'まとめて 1 つのダイアログ', render: resolveC, rec: '次点',
+        blurb: '起動した直後に、見つからないプロジェクトを<b>1 つのダイアログの表</b>にまとめ、行ごとに候補を選んで「まとめて適用」します。行の選択肢は候補、フォルダを選択、Archived にする、未決のまま残す。同期で降りてきた直後はトーストだけで、次の起動のときに表に出ます。',
+        notes: { start: '起動した直後に 760px のダイアログ。3 行の表で、右の列に候補の選択。', pick: '1 行目の選択を開いたところ。候補 2 件、フォルダを選択、Archived にする、未決のまま残す。', synced: 'B と同じトースト。「いま決める」で表を開く。' },
+        answers: ['起動した直後に 1 回。同期の直後はトースト。', '表の行の選択肢で済ませる。候補が無ければ「未決のまま残す」が既定。', 'トースト 1 枚。次の起動で表に入る。', '表で「未決のまま残す」を選ぶとプロジェクトの一覧に札で残り、次の起動でまた表に出る。'],
+        gain: '3 件を 1 回で済ませられる。起動した直後に全部を見渡せる。', lose: '起動のたびに表が出る（未決を残す限り）。表の行の選択肢に 5 つを入れるので、1 行が重い。', weight: 'PR 2 本。表のダイアログと、まとめて適用の口。' },
+    ],
+    verdict: `<p><b>推す案は B（帯の錠剤と引き出し、問うのは押したとき）です。</b>
+他の PC のプロジェクトは、この PC に無いのが普通です。
+2 台で使う人は、起動のたびに「見つかりません」と問われることになり、A と C はどちらもそれを起動時に出します。
+B は問わず、帯の件数として置き、押したときだけ選び直します。
+帯の形はホームの要対応や通知（知らせのまとまりの B）と同じで、増える部品がありません。
+同期で降りてきた直後は、トースト 1 枚で足ります。</p>
+<p><b>次点は C（まとめて 1 つのダイアログ）です。</b>
+3 件を 1 回で片付けられる良さはあり、B の引き出しに「まとめて適用」を足す形で取り込めます。</p>
+<p><b>A は推しません。</b>
+作業中に同期で降りてきた 3 件が、3 回続けてダイアログになります。</p>
+<h3>案に依らず決められること</h3>
+<p>選び直すダイアログの中身は、前のパス、候補（親フォルダの直下で名前が近いもの）、フォルダを選択、新しいパス、Archived にする、一覧から削除、あとで、です。
+「一覧から削除」は取り消せず同期で他の PC からも消えるので、危険色のまま確認を挟みます（いまの決まり）。
+決めないまま残したものは、プロジェクトの一覧に「この PC にパスがありません」の札で残します。</p>`,
+  },
+};
+
+/* ===== 頁の組み立て ===== */
+let group = 'palette';
+let shown = 'b';
+let screen = 'empty';
+const host = document.getElementById('opts');
+
+function renderAll() {
+  const g = GROUPS[group];
+  const screens = g.screens;
+  const label = Object.fromEntries(screens);
+  host.innerHTML = g.opts.map((o) => `<section class="opt" id="opt-${o.id}" data-opt="${o.id}">
+<div class="opt-h"><span class="opt-id">${o.tag}</span><h2>${esc(o.name)}</h2>${o.rec ? `<span class="rec${o.rec === '次点' ? ' second' : ''}">${o.rec}</span>` : ''}</div>
+<p class="opt-d">${o.blurb}</p>
+${screens.map(([k]) => `<div class="screen-note" data-note="${k}"${k !== screen ? ' hidden' : ''}><b>${label[k]}</b>　${o.notes[k] || ''}</div><div class="frame-wrap" data-screen="${k}"${k !== screen ? ' hidden' : ''}>${o.render(k)}</div>`).join('')}
+${o.table ? `<div class="box" style="margin-top:14px"><h2>知らせの種類ごとに、どこに出すか（${o.tag}）</h2>${placeTable(o.id)}</div>` : ''}
+<div class="below">
+<div class="ans"><h3>論点への答え</h3><ol>${o.answers.map((a, i) => `<li><b>${g.qs[i]}</b>　${esc(a)}</li>`).join('')}</ol></div>
+<div class="gl"><div><b>得るもの</b>${esc(o.gain)}</div><div><b>失うもの</b>${esc(o.lose)}</div><div><b>作り替えの重さ</b>${esc(o.weight)}</div></div>
+</div>
+</section>`).join('') + `<section class="opt" id="opt-all" data-opt="all"><div class="opt-h"><h2>3 案の「${label[screen]}」</h2><span class="faint">縮めて並べた</span></div><div class="all-grid">${g.opts.map((o) => `<div class="all-cell"><div class="col-h"><span class="opt-id">${o.tag}</span>${esc(o.name)}<small>${label[screen]}</small></div><div class="frame-wrap">${o.render(screen)}</div></div>`).join('')}</div></section>`;
+  document.getElementById('verdict-h').textContent = `${g.name}：推す案と理由`;
+  document.getElementById('verdict-text').innerHTML = `<div>${g.verdict}</div>`;
+  document.getElementById('opt-sw').innerHTML = g.opts.map((o) => `<button class="sw" data-opt="${o.id}" aria-pressed="${o.id === shown}"><span class="opt-id">${o.tag}</span>${esc(o.name)}</button>`).join('');
+  document.getElementById('screen-sw').innerHTML = screens.map(([k, l]) => `<button class="sw small" data-screen="${k}" aria-pressed="${k === screen}">${l}</button>`).join('');
+  document.getElementById('fail-row').hidden = group !== 'boot';
+  applyShown();
+  fitFrames();
+}
+function applyShown() {
+  for (const el of host.querySelectorAll('.opt')) el.dataset.on = String(el.dataset.opt === shown);
+  for (const b of document.querySelectorAll('.sw[data-opt]')) b.setAttribute('aria-pressed', String(b.dataset.opt === shown));
+}
+/* 窓を器の幅に合わせて縮める。 */
+function fitFrames() {
+  for (const wrap of document.querySelectorAll('.frame-wrap')) {
+    if (wrap.hidden || wrap.closest('.opt')?.dataset.on !== 'true') continue;
+    const f = wrap.querySelector('.frame');
+    const scale = Math.min(1, wrap.clientWidth / 1280);
+    f.style.transform = `scale(${scale})`;
+    wrap.style.height = `${Math.round(800 * scale)}px`;
+  }
+}
+document.querySelector('.switch').addEventListener('click', (e) => {
+  const b = e.target.closest('.sw');
+  if (!b) return;
+  if (b.dataset.group) {
+    group = b.dataset.group;
+    for (const x of document.querySelectorAll('.sw[data-group]')) x.setAttribute('aria-pressed', String(x.dataset.group === group));
+    screen = GROUPS[group].screens[0][0];
+    shown = 'b';
+    renderAll();
+    window.scrollTo({ top: document.querySelector('.switch').offsetTop });
+    return;
+  }
+  if (b.dataset.opt) { shown = b.dataset.opt; applyShown(); fitFrames(); document.getElementById('opt-' + shown).scrollIntoView({ block: 'start' }); }
+  if (b.dataset.lang) { lang = b.dataset.lang; for (const x of document.querySelectorAll('.sw[data-lang]')) x.setAttribute('aria-pressed', String(x.dataset.lang === lang)); renderAll(); }
+  if (b.dataset.screen) { screen = b.dataset.screen; renderAll(); }
+  if (b.dataset.fail) { fail = b.dataset.fail; for (const x of document.querySelectorAll('.sw[data-fail]')) x.setAttribute('aria-pressed', String(x.dataset.fail === fail)); renderAll(); }
+});
+window.addEventListener('resize', fitFrames);
+renderAll();
+</script>
+</body>
+</html>

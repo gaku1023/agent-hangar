@@ -1,7 +1,8 @@
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
+import { currentRunOf, tabsOf, type Store } from '../store/store.ts';
 
 export function defaultSessionView(): SessionViewState {
-  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, livePaneSplit: null, openTurn: null, turnJump: null, find: null, jump: null };
+  return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, livePaneSplit: null, openTurn: null, turnJump: null, jump: null };
 }
 
 /**
@@ -9,14 +10,14 @@ export function defaultSessionView(): SessionViewState {
  * 遡るために一度上へスクロールすると follow: false が焼き付き、次からそのセッションは最古の側で開いてしまう。
  * 追うかどうかはその場の操作で決まるものなので、開くたびに既定（真）から始める。
  * 目次で開いたターンと、そこへ跳ばした結果も同じくその場のものなので残さない。
- * 本文の中の検索と、検索の結果から開いたときの跳び先も残さない。
+ * 検索の結果から開いたときの跳び先も残さない。
  */
-export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow' | 'openTurn' | 'turnJump' | 'find' | 'jump'> {
-  const { follow: _drop, openTurn: _turn, turnJump: _jump, find: _find, jump: _to, ...rest } = v;
+export function persistedSessionView(v: SessionViewState): Omit<SessionViewState, 'follow' | 'openTurn' | 'turnJump' | 'jump'> {
+  const { follow: _drop, openTurn: _turn, turnJump: _jump, jump: _to, ...rest } = v;
   return rest;
 }
 
-/** 保存しない一時の状態（検索と跳び先）だけを変える。保存する形は変わらないので、書き込みも出さない。 */
+/** 保存しない一時の状態（開いたターンと跳び先）だけを変える。保存する形は変わらないので、書き込みも出さない。 */
 function local(state: State, id: string, p: Partial<SessionViewState>): Step {
   const cur = state.sessionView[id] ?? defaultSessionView();
   return { state: { ...state, sessionView: { ...state.sessionView, [id]: { ...cur, ...p } } }, effects: [] };
@@ -93,7 +94,7 @@ const currentSession = (state: State): string | null => (state.screen.name === '
 const viewOf = (state: State, id: string) => state.sessionView[id] ?? defaultSessionView();
 
 /** sessionView 領域：セッション画面の一時状態とターミナル接続の開閉。localStorage に保存し、同期しない。 */
-export function sessionViewStep(state: State, input: Input): Step | null {
+export function sessionViewStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'server') {
     const ev = input.event;
     switch (ev.type) {
@@ -140,12 +141,6 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     if (cur?.seq !== e.seq) return { state, effects: [] };
     return patch(state, e.sessionId, { turnJump: { ...cur, status: e.status } });
   }
-  if (input.kind === 'runtime' && input.event.type === 'split.resolved') {
-    const e = input.event;
-    // ランタイムが右に置けるタブを見つけられなかったときだけトーストにする。
-    if (!e.tabId) return { state, effects: [{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }] };
-    return patch(state, e.sessionId, { split: true, splitTab: e.tabId });
-  }
   if (input.kind !== 'intent') return null;
   const i = input.intent;
   switch (i.type) {
@@ -154,21 +149,6 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     case 'transcript.follow': return patch(state, i.sessionId, { follow: i.follow });
     case 'transcript.loadMore': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -1 }] };
     case 'transcript.loadNewer': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -2 }] };
-    case 'transcript.find': {
-      if (!i.open) return local(state, i.sessionId, { find: null });
-      const cur = viewOf(state, i.sessionId).find;
-      return local(state, i.sessionId, { find: { query: cur?.query ?? '', caseSensitive: cur?.caseSensitive ?? false, from: cur?.from ?? null, step: cur?.step ?? 0, n: (cur?.n ?? 0) + 1 } });
-    }
-    case 'transcript.findQuery': {
-      const cur = viewOf(state, i.sessionId).find;
-      if (!cur) return { state, effects: [] };
-      return local(state, i.sessionId, { find: { ...cur, query: i.query, caseSensitive: i.caseSensitive, from: i.from, step: 0 } });
-    }
-    case 'transcript.findStep': {
-      const cur = viewOf(state, i.sessionId).find;
-      if (!cur) return { state, effects: [] };
-      return local(state, i.sessionId, { find: { ...cur, step: cur.step + i.delta } });
-    }
     case 'transcript.selectAgent': {
       const r = patch(state, i.sessionId, { agentId: i.agentId });
       return { state: r.state, effects: [...r.effects, { kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: 0 }] };
@@ -220,10 +200,16 @@ export function sessionViewStep(state: State, input: Input): Step | null {
     case 'split.toggle': {
       const sid = currentSession(state);
       if (!sid) return { state, effects: [] };
-      // 閉じるのはその場でできる。
-      // 開くときに右へ置くタブはストアを見ないと決まらないので、ランタイムに任せる。
-      if (viewOf(state, sid).split) return patch(state, sid, { split: false, splitTab: null });
-      return { state, effects: [{ kind: 'split.resolve', sessionId: sid }] };
+      const view = viewOf(state, sid);
+      if (view.split) return patch(state, sid, { split: false, splitTab: null });
+      // 開くときに右へ置くタブは、ストアのタブの並びから決める。
+      // 左は選択中のタブ、無ければ先頭。右はそれと違う最初のタブ。2 つ無ければ開かずに知らせる。
+      const run = currentRunOf(store, sid);
+      const tabs = run ? tabsOf(store, run.id) : [];
+      const left = view.selectedTab ?? tabs[0]?.id ?? null;
+      const right = tabs.find((t) => t.id !== left);
+      if (!right) return { state, effects: [{ kind: 'toast', level: 'info', message: '横に並べるにはタブが 2 つ必要です' }] };
+      return patch(state, sid, { split: true, splitTab: right.id });
     }
     case 'tab.close': {
       const sid = currentSession(state);
