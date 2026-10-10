@@ -14,6 +14,7 @@ import { errorText } from '../i18n/message.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { mangleCwd } from '../provider/claude-code/transcript/discover.ts';
 import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
+import { writeFakeTool } from '../../test/fake-bin.ts';
 import { TMUX, removeDirsWhenIdle, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { tmuxPaneOps, type PaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
@@ -1817,7 +1818,9 @@ describe('tmux のパスの実物を起動の前に確かめる（tmux 不要）
   it('実在して実行できるパスなら、そのまま起こす', () => {
     const id = seedOldSession();
     const p = stubPanes();
-    const r = make({ panes: p.panes, muxPath: () => fake.bin }).resume(id);
+    // Windows は拡張子で実行できるかを見るので、偽の claude（拡張子なし）ではなく、OS ごとの偽の道具を置く。
+    const mux = writeFakeTool(path.join(home, 'muxbin'), 'tmux', { sh: '', cmd: '' });
+    const r = make({ panes: p.panes, muxPath: () => mux }).resume(id);
     expect(p.opened).toEqual([r.run.tmuxName]);
   });
 });
