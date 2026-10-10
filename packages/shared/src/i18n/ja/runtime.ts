@@ -16,4 +16,5 @@ export const runtimeJa: AreaDictionary<typeof runtimeKeys> = {
   'runtime.retention.previewLoading': '差分を読み込んでいます。少し待ってから押してください',
   'runtime.retention.set': '保持期間を {days}にしました',
   'runtime.openTerminal.fellBack': 'iTerm2 で開けなかったので Terminal.app で開きました',
+  'runtime.openTerminal.fellBackWindows': 'Windows Terminal が見つからなかったので既定のターミナルで開きました',
 };

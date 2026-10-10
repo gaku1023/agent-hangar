@@ -16,4 +16,5 @@ export const runtimeEn: AreaDictionary<typeof runtimeKeys> = {
   'runtime.retention.previewLoading': 'Loading the diff. Wait a moment, then try again',
   'runtime.retention.set': 'Retention period set to {days}',
   'runtime.openTerminal.fellBack': 'Could not open in iTerm2, so opened in Terminal.app instead',
+  'runtime.openTerminal.fellBackWindows': 'Windows Terminal was not found, so opened in the default terminal instead',
 };

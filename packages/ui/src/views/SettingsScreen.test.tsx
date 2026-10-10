@@ -26,7 +26,7 @@ const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): Setti
 
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
-  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' },
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' },
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
@@ -203,6 +203,16 @@ describe('設定の一般', () => {
     render(ui(at('general'), onAction));
     fireEvent.click(screen.getByRole('radio', { name: 'iTerm2' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { terminalApp: 'iterm' } });
+  });
+  it('ターミナルアプリの選択肢は presenter が渡したものだけを、同じ部品で出す', () => {
+    const onAction = vi.fn();
+    render(ui(at('general', { terminalApp: 'windowsTerminal', terminalOptions: [{ value: 'windowsTerminal', label: 'Windows Terminal' }, { value: 'windowsDefault', label: '既定のターミナル' }], terminalDesc: 'Windows Terminal が無いときは既定のターミナルで開きます。' }), onAction));
+    const group = screen.getByRole('radiogroup', { name: 'ターミナルアプリ' });
+    expect(within(group).getAllByRole('radio').map((r) => r.textContent)).toEqual(['Windows Terminal', '既定のターミナル']);
+    expect(within(group).getByRole('radio', { name: 'Windows Terminal' })).toBeChecked();
+    expect(screen.getByText('Windows Terminal が無いときは既定のターミナルで開きます。')).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole('radio', { name: '既定のターミナル' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { terminalApp: 'windowsDefault' } });
   });
   describe('トランスクリプトの保持', () => {
     const bar = { nowLabel: 'いま 1.5 GB', projLabel: '10 年たつと約 178 GB', freeLabel: '空き 400 GB', nowPct: 0.4, projPct: 44, warn: false };
