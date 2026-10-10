@@ -4171,6 +4171,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   `release.yml` は、macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`updater-manifest` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を Release に添える。目録は最後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。secret が無ければ、更新物と目録だけを飛ばし、失敗にしない。
 - 版と試しの版（2026-10-10）：版はリポジトリのファイルで上げてからタグを打ち、タグから版を決めて build に渡すことはしない。手順は `docs/release.md` にある。
   版の在りかは 5 つ（`tauri.conf.json`、`apps/desktop/package.json`、`Cargo.toml`、`Cargo.lock`、`package-lock.json`）で、`apps/desktop/scripts/release-plan.ts` の `VERSION_FILES` が正である。`npm run set-version -w apps/desktop -- <版>` がまとめて書き換え、試験が 5 つのそろいを見る。
+  サーバ（`/health`、WebSocket の `ready`、MCP）が名乗る版は、6 つ目の在りかを作らず、`apps/desktop/package.json` の版を読む（`packages/server/src/boot/options.ts`）。配布物では esbuild が束ねるときに取り込むので、build のときの版が入る。set-version で上げればサーバの版も上がり、`plan` の照合もサーバの版を見たことになる。以前はサーバが `0.3.0` を決め打ちしていて、アプリの `0.2.0-rc.1` と食い違っていた（2026-10-11）。
   `release.yml` の最初の `plan` ジョブがタグと 5 つを照らし、1 つでも違えば何も作らずに止まる。食い違ったまま配ると、目録の版とアプリの名乗る版と更新物の署名に入る版がずれるからである。タグにビルドメタデータ（`+`）は付けない（semver の比べ方が `+` を見ず、更新として見つからない）。
   タグに `-` が入っていれば試しの版で、Release を prerelease にして Release の最新にしない。安定版の利用者が引く Release の最新の `latest.json` に、試しの版を入れないためである。
   試しの版の目録の取り先は、固定のタグ `updater-prerelease` の Release（prerelease）に 1 つだけ置く `latest.json` にした。`updater-manifest` ジョブが、試しの版でも正式な版でも、その版が今の目録より新しいか同じときだけ置き換える。試しの版の利用者は次の rc も正式な版も受け取り、古い版の再実行で巻き戻らない。

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { VERSION } from '../boot/options.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
@@ -59,6 +60,8 @@ describe('createMcpApp', () => {
     const init = await rpc('/', 'initialize', INIT);
     expect(init.status).toBe(200);
     expect((init.body.result!.serverInfo as { name: string }).name).toBe('agent-hangar');
+    // MCP で名乗る版も、/health と同じアプリの版である。
+    expect((init.body.result!.serverInfo as { version: string }).version).toBe(VERSION);
     const list = await rpc('/', 'tools/list', {}, 2);
     const tools = list.body.result!.tools as { name: string; description: string }[];
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
