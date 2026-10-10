@@ -156,15 +156,21 @@ export type ShellHookState = 'on' | 'off' | 'unsupported';
 /**
  * この PC で包めるか。包み方は hangar の tmux の中で claude を起こすので、tmux を実行できることが要る。
  * Claude のバックグラウンドのサービスは使わない。
+ * Windows では包みを作らない（2026-10-10 の決定）。包みは zsh のもので、PowerShell の同じ形は壊れやすい。
  */
-export function shellWrapSupported(tmuxPath: string | null): boolean {
-  if (!tmuxPath) return false;
+export function shellWrapSupported(tmuxPath: string | null, platform: NodeJS.Platform = process.platform): boolean {
+  if (!shellWrapOsSupported(platform) || !tmuxPath) return false;
   try {
     fs.accessSync(tmuxPath, fs.constants.X_OK);
     return fs.statSync(tmuxPath).isFile();
   } catch {
     return false;
   }
+}
+
+/** この OS で包みを作るか。Windows では作らない。 */
+export function shellWrapOsSupported(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32';
 }
 
 export function shellHookState(zshrc: string, supported: boolean): ShellHookState {

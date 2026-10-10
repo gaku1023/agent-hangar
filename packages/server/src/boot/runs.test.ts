@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
-import { posixIt } from '../../test/platform.ts';
+import { isWindows, posixIt } from '../../test/platform.ts';
 import { errorText } from '../i18n/message.ts';
 import { bootDelivery, type DeliveryParts } from './delivery.ts';
 import { bootHome, type HomeParts } from './home.ts';
@@ -101,9 +101,15 @@ describe('言語', () => {
 });
 
 describe('手元の claude と包み', () => {
-  it('組んだ時点で、待ち受けているポートを埋めた包みの本体を書く', () => {
+  // 包みは zsh のもので、Windows では作らない。
+  posixIt('組んだ時点で、待ち受けているポートを埋めた包みの本体を書く', () => {
     boot();
     expect(script()).toContain(`http://127.0.0.1:${PORT}`);
+  });
+
+  it.skipIf(!isWindows)('Windows では、組んでも包みの本体を書かない', () => {
+    boot();
+    expect(fs.existsSync(path.join(home, 'shell', 'claude.zsh'))).toBe(false);
   });
 
   // 偽の claude は sh の case で引数を見るので、Windows では飛ばす。
@@ -225,7 +231,7 @@ describe('手元の claude と包み', () => {
     expect((await b.r.compat()).localVersion).toBe('9.9.9');
   }, 20_000);
 
-  it('閉じた後に届いた裏の読み取りは、消えた置き場に書かない', async () => {
+  posixIt('閉じた後に届いた裏の読み取りは、消えた置き場に書かない', async () => {
     const b = boot();
     b.close();
     const before = script();

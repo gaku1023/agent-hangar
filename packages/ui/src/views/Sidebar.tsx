@@ -4,6 +4,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { keyLabel } from '../keys.ts';
 import { MenuPop, type MenuAnchor, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
 
@@ -146,7 +147,7 @@ export function Sidebar(props: { nav: NavItem[]; foot: NavItem[]; collapsed: boo
     <a key={n.label} className="nav-item" href={formatRoute(n.route)} aria-current={n.current ? 'page' : undefined} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: n.route }); }}>{NAV_ICON[n.route.name] && <Icon name={NAV_ICON[n.route.name]!} />}<span className="nav-label">{n.label}</span>{n.count > 0 && <NavCount n={n.count} />}</a>
   );
   const toggle = (
-    <button className="btn sidebar-toggle" aria-controls="sidebar" aria-expanded={!props.collapsed} aria-label={props.collapsed ? t('sidebar.toggle.open') : t('sidebar.toggle.close')} onClick={() => emit({ type: 'sidebar.toggle' })}><Icon name="sidebar" /><span className="toggle-tip" aria-hidden="true">{props.collapsed ? t('sidebar.toggle.tipOpen') : t('sidebar.toggle.tipClose')}<kbd>⌘B</kbd></span></button>
+    <button className="btn sidebar-toggle" aria-controls="sidebar" aria-expanded={!props.collapsed} aria-label={props.collapsed ? t('sidebar.toggle.open') : t('sidebar.toggle.close')} onClick={() => emit({ type: 'sidebar.toggle' })}><Icon name="sidebar" /><span className="toggle-tip" aria-hidden="true">{props.collapsed ? t('sidebar.toggle.tipOpen') : t('sidebar.toggle.tipClose')}<kbd>{keyLabel('⌘B')}</kbd></span></button>
   );
   const [first, ...rest] = props.nav;
   return (

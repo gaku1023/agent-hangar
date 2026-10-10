@@ -29,7 +29,8 @@ beforeEach(() => {
   fs.mkdirSync(path.join(claudeDir, 'projects'), { recursive: true });
   fs.mkdirSync(fakeBin, { recursive: true });
   // ブラウザは開かせない。呼ばれたことだけを控えに残す。
-  for (const name of ['osascript', 'open']) {
+  // macOS は osascript、Linux は xdg-open でブラウザを開く（url.ts）。
+  for (const name of ['osascript', 'open', 'xdg-open']) {
     fs.writeFileSync(path.join(fakeBin, name), `#!/bin/sh\necho "called ${name}" >> "$HANGAR_TEST_MARKER"\ncat >> "$HANGAR_TEST_MARKER" 2>/dev/null\nexit 0\n`, { mode: 0o755 });
   }
 });
@@ -155,7 +156,7 @@ describe('hangar open', () => {
     expect(r.out).not.toContain('?t=');
   });
 
-  // osascript でブラウザを開く。Windows で開く経路は次の区切りで作る。
+  // 偽の開く道具は sh なので、Windows では飛ばす。Windows の開き方は url.test.ts が偽の spawn で確かめる。
   posixIt('サーバが居れば、鍵付きの URL を印字してから開く', async () => {
     const port = await listenHealth();
     const r = await runCli(['open', '--port', String(port)]);

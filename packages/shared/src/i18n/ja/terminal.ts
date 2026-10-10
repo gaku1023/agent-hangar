@@ -22,7 +22,7 @@ export const terminalJa: AreaDictionary<typeof terminalKeys> = {
   'terminal.tab.close': '{title} を閉じる',
   'terminal.tab.addShell': 'シェルタブを追加',
   'terminal.tab.split': '横に並べる',
-  'terminal.tab.splitTitle': '横に並べる（⌘\\）',
+  'terminal.tab.splitTitle': '横に並べる（{keys}）',
   'terminal.tab.splitNeedsTwo': 'タブが 2 つ必要です',
   'terminal.split.width': '左右の幅',
   'terminal.split.valueText': '左 {percent}%',

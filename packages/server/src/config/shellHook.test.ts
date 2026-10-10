@@ -48,6 +48,15 @@ posixDescribe('~/.zshrc の 1 行', () => {
   });
 });
 
+describe('Windows の包み', () => {
+  // Windows では包みを作らない（2026-10-10 の決定）。tmux の役の psmux が実行できても、包めないとする。
+  it('Windows では、実行できる tmux の役があっても包めない', () => {
+    const exe = path.join(dir, 'psmux.exe'); fs.writeFileSync(exe, '', { mode: 0o755 });
+    expect(shellWrapSupported(exe, 'win32')).toBe(false);
+    expect(shellWrapSupported(null, 'win32')).toBe(false);
+  });
+});
+
 // zsh の包み。Windows の包みは次の区切りで作る。
 posixDescribe('この PC の状態', () => {
   it('包めなければ unsupported、包めれば行の有無で on と off', () => {

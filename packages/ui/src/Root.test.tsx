@@ -10,6 +10,7 @@ import { fakeApiExtras } from './test/fakeApi.ts';
 import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
 import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { fakeMotionTokens } from './test/motion.ts';
+import { setClientUserAgent, WINDOWS_UA } from './test/client.ts';
 
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [{ id: 'p1', name: 'alpha', status: 'active', isScratch: false, path: '/w/alpha', resolved: true, lastActivityAt: Date.now(), runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 }], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
 
@@ -697,6 +698,49 @@ describe('キーの見直し', () => {
     expect(go).toHaveBeenCalledWith(-1);
     key({ key: ']', metaKey: true });
     expect(go).toHaveBeenCalledWith(1);
+  });
+
+  it('macOS の入力欄の Ctrl+B はカーソルを戻す打鍵なので、サイドバーを開閉しない', async () => {
+    const { rt } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'b', ctrlKey: true }, textField()).defaultPrevented).toBe(false);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+    key({ key: 'b', metaKey: true }, textField());
+    expect(emit).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+  });
+
+  it('Windows では、入力欄の Ctrl+B でもサイドバーを開閉する', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'b', ctrlKey: true }, textField()).defaultPrevented).toBe(true);
+    expect(emit).toHaveBeenCalledWith({ type: 'sidebar.toggle' });
+  });
+
+  it('Windows の入力欄の Ctrl+← と Ctrl+→ は単語の移動なので、戻ると進むに使わない', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { go, setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    expect(key({ key: 'ArrowLeft', ctrlKey: true }, textField()).defaultPrevented).toBe(false);
+    expect(key({ key: 'ArrowRight', ctrlKey: true }, textField()).defaultPrevented).toBe(false);
+    expect(go).not.toHaveBeenCalled();
+    // 入力欄の外と、Ctrl+[ は戻る。
+    key({ key: 'ArrowLeft', ctrlKey: true });
+    expect(go).toHaveBeenCalledWith(-1);
+    key({ key: '[', ctrlKey: true }, textField());
+    expect(go).toHaveBeenCalledTimes(2);
+  });
+
+  it('Windows のキーの一覧は Ctrl で見せ、ターミナルの中では Ctrl もターミナルへ渡すと添える', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    await mounted();
+    key({ key: '?', shiftKey: true });
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: 'キーボードショートカット' });
+    expect(within(dialog).getByText('Ctrl+K / /')).toBeInTheDocument();
+    expect(within(dialog).getByText('Ctrl+Shift+N')).toBeInTheDocument();
+    expect(within(dialog).queryByText(/⌘/)).toBeNull();
+    expect(within(dialog).getByText(/Ctrl の付いた打鍵もターミナルへ渡します/)).toBeInTheDocument();
   });
 
   it('入力欄の外の Backspace では戻らない', async () => {

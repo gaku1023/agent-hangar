@@ -356,7 +356,8 @@ export function SettingsScreen(props: SettingsProps) {
         {/* 既定の 4177 のまま追記すると、別のポートで動かしているサーバには届かない。 */}
         <div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.statusline.port')}</div>
       </section>
-      <section>
+      {/* 包みは zsh のもので、Windows では作らない。Windows のサーバでは節ごと出さない。 */}
+      {props.shell.available && <section>
         <h3 className="h2">{t('settings.integrations.shell.title')}<Badge ok={props.shell.state === null ? null : props.shell.state === 'on'} yes={t('settings.integrations.shell.yes')} no={t('settings.integrations.shell.no')} /></h3>
         <div className="muted">{t('settings.integrations.shell.desc')}</div>
         {props.shell.devices.length > 0 && (
@@ -380,7 +381,7 @@ export function SettingsScreen(props: SettingsProps) {
         {props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installedHint', { uninstall: props.shell.uninstallCommand })}</div>}
         {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.noTmux', { install: muxInstallCommand(clientPlatform()) })}</div>}
         <div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.shell.adopt')}</div>
-      </section>
+      </section>}
       {/* アカウントの追加の入口はここだけ。1 件でも出す。届く前（一覧が空）は出さない。 */}
       {showAccounts && <AccountSettings {...props.accounts} />}
     </>

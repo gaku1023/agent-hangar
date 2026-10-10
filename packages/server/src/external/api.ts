@@ -4,6 +4,7 @@ import type { Settings } from '../config/paths.ts';
 import type { ExternalApi } from '../http/deps.ts';
 import { openDirInTerminalApp, openInEditor, openInTerminalApp } from './open.ts';
 import { MessageError, msg } from '../i18n/message.ts';
+import { openTargetCommand } from '../platform/browser.ts';
 
 /**
  * ターミナルとエディタとブラウザへの受け渡しを、HTTP が触る形に組む。
@@ -19,6 +20,6 @@ export function createExternalApi(o: { home: string; settings: () => Pick<Settin
     },
     openDirTerminal: ({ dir }) => openDirInTerminalApp({ home: o.home, dir, app: terminalAppFor(o.settings().terminalApp, process.platform) }),
     openEditor: ({ target }) => openInEditor({ codePath: o.settings().codePath, target }),
-    openUrl: (url) => new Promise<void>((resolve, reject) => execFile('open', [url], (err) => (err ? reject(err) : resolve()))),
+    openUrl: (url) => { const c = openTargetCommand(url); return new Promise<void>((resolve, reject) => execFile(c.file, c.args, { windowsHide: true }, (err) => (err ? reject(err) : resolve()))); },
   };
 }

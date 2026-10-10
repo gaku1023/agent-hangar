@@ -4,7 +4,7 @@ import { runConfigApply, runConfigRestore } from './config.ts';
 import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage } from './probe.ts';
-import { formatSetupReport, runSetup, whichCmd } from './setup.ts';
+import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { runStart } from './start.ts';
 import { runStatuslineInstall } from './statusline.ts';
@@ -193,9 +193,9 @@ mcp
     if (!r.ok) process.exitCode = 1;
   });
 
-/** hangar が使う tmux。Settings の tmuxPath、無ければ PATH。 */
+/** hangar が使う tmux。Settings の tmuxPath、無ければ PATH（Windows では psmux を先に見る）。 */
 function tmuxPathFor(home: string): string | null {
-  return loadSettings(home).tmuxPath ?? whichCmd('tmux');
+  return loadSettings(home).tmuxPath ?? whichMuxCmd();
 }
 
 const shell = program.command('shell').description('外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする');

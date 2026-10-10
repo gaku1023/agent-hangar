@@ -123,6 +123,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.shell.on': 'インストール済み',
   'settings.integrations.shell.off': '未インストール',
   'settings.integrations.shell.unsupported': 'tmux が無いので使えません',
+  'settings.integrations.shell.unsupportedOs': 'Windows では使えません',
   'settings.integrations.shell.unknown': '分かりません（hangar が古い版です）',
   'settings.integrations.shell.installHint': 'この PC にインストールするには、ターミナルで次を実行してください。足す行を見せて承諾を求め、足す前に {zshrc} のバックアップを取ります。',
   'settings.integrations.shell.installedHint': '新しく開いたターミナルから効きます。1 回だけ包まずに起動するときは command claude、アンインストールするときは {uninstall} です。',

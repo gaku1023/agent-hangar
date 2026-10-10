@@ -8,6 +8,7 @@ import { translator } from '@agent-hangar/shared';
 import { createFindStore, FindRoot } from './findStore.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 import { Transcript } from './Transcript.tsx';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 afterEach(cleanup);
 
@@ -58,6 +59,12 @@ const items: TranscriptItem[] = [
 ];
 
 describe('本文の中の検索の欄（S1）', () => {
+  it('Windows では、前へ次への打鍵を Shift+Enter と Enter で見せる', () => {
+    setClientUserAgent(WINDOWS_UA);
+    draw(items, findOf(items, 'バリデーション', 1));
+    expect(screen.getByRole('button', { name: '前の一致（Shift+Enter）' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '次の一致（Enter）' })).toBeInTheDocument();
+  });
   it('右上に浮く欄に、件数と前へ次へと大文字小文字と閉じるを並べる', () => {
     draw(items, findOf(items, 'バリデーション', 1));
     const box = screen.getByRole('searchbox', { name: 'トランスクリプト内を検索' });
