@@ -3,7 +3,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { TabItemProps } from '../presenters/session.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { keyLabel } from '../keys.ts';
+import { ariaKeyShortcuts, shortcutHint } from '../keys.ts';
 import { useMotionList } from './primitives/useMotionList.ts';
 
 /**
@@ -67,7 +67,7 @@ export function TabStrip(props: { sessionId: string; tabs: TabItemProps[]; canAd
       })}
       {props.canAdd && <button className="tab-add" aria-label={tr('terminal.tab.addShell')} onClick={() => emit({ type: 'tab.open', sessionId: props.sessionId, kind: 'shell' })}><Icon name="add" /></button>}
       {/* 横に並べるのはタブが 2 つ以上あるときだけ押せる。左は選択中のタブ、右は Mediator が選ぶ。 */}
-      <button className="btn tab-action" aria-label={tr('terminal.tab.split')} aria-pressed={props.split} disabled={!props.canSplit} title={props.canSplit ? tr('terminal.tab.splitTitle', { keys: keyLabel('⌘\\') }) : tr('terminal.tab.splitNeedsTwo')} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
+      <button className="btn tab-action" aria-label={tr('terminal.tab.split')} aria-pressed={props.split} aria-keyshortcuts={ariaKeyShortcuts('split.toggle')} disabled={!props.canSplit} title={props.canSplit ? tr('terminal.tab.splitTitle', { keys: shortcutHint(tr, 'split.toggle', '⌘\\') }) : tr('terminal.tab.splitNeedsTwo')} onClick={() => emit({ type: 'split.toggle' })}><Icon name="split" /></button>
       {/* 右の欄を閉じている間の、開くボタン（設計書 ②）。帯の右端に寄せる。 */}
       {props.trailing && <span className="tabs-trailing">{props.trailing}</span>}
     </div>

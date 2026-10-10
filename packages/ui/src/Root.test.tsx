@@ -731,16 +731,95 @@ describe('キーの見直し', () => {
     expect(go).toHaveBeenCalledTimes(2);
   });
 
-  it('Windows のキーの一覧は Ctrl で見せ、ターミナルの中では Ctrl もターミナルへ渡すと添える', async () => {
+  it('Windows のキーの一覧は Ctrl で見せ、ターミナルの中の Ctrl+Shift の欄を添える', async () => {
     setClientUserAgent(WINDOWS_UA);
     await mounted();
     key({ key: '?', shiftKey: true });
     await flush();
     const dialog = screen.getByRole('dialog', { name: 'キーボードショートカット' });
-    expect(within(dialog).getByText('Ctrl+K / /')).toBeInTheDocument();
-    expect(within(dialog).getByText('Ctrl+Shift+N')).toBeInTheDocument();
     expect(within(dialog).queryByText(/⌘/)).toBeNull();
-    expect(within(dialog).getByText(/Ctrl の付いた打鍵もターミナルへ渡します/)).toBeInTheDocument();
+    const row = (label: string) => within(dialog).getByText(label).closest('.keys-row')!;
+    expect(row('コマンドパレット（検索と移動）')).toHaveTextContent('Ctrl+K / /');
+    expect(row('コマンドパレット（検索と移動）')).toHaveTextContent('Ctrl+Shift+K');
+    expect(row('クイックセッションを開始')).toHaveTextContent('Ctrl+Alt+N');
+    expect(row('クイックセッションを開始')).not.toHaveTextContent('Ctrl+Shift+N');
+    expect(within(dialog).getByText('ターミナルの中')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Ctrl\+Shift を加えて打つと/)).toBeInTheDocument();
+  });
+
+  it('macOS のキーの一覧には、ターミナルの中の欄を足さない', async () => {
+    await mounted();
+    key({ key: '?', shiftKey: true });
+    await flush();
+    const dialog = screen.getByRole('dialog', { name: 'キーボードショートカット' });
+    expect(within(dialog).queryByText('ターミナルの中')).toBeNull();
+    expect(within(dialog).getByText('⌘⇧N')).toBeInTheDocument();
+  });
+
+  it('Windows のターミナルの中では、Ctrl+Shift+<キー> が Hangar に届き、Ctrl だけとコピー貼り付けはターミナルに残る', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt } = await mounted();
+    const host = document.createElement('div');
+    host.className = 'term-host';
+    document.body.appendChild(host);
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'K', code: 'KeyK', ctrlKey: true, shiftKey: true }, host).defaultPrevented).toBe(true);
+    expect(emit).toHaveBeenCalledWith({ type: 'palette.open' });
+    emit.mockClear();
+    expect(key({ key: 'k', code: 'KeyK', ctrlKey: true }, host).defaultPrevented).toBe(false);
+    expect(key({ key: 'C', code: 'KeyC', ctrlKey: true, shiftKey: true }, host).defaultPrevented).toBe(false);
+    expect(key({ key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true }, host).defaultPrevented).toBe(false);
+    expect(key({ key: '_', code: 'Minus', ctrlKey: true, shiftKey: true }, host).defaultPrevented).toBe(false);
+    expect(emit).not.toHaveBeenCalled();
+    host.remove();
+  });
+
+  it('Windows の Ctrl+Alt+N でクイックセッションを開く', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    key({ key: 'n', code: 'KeyN', ctrlKey: true, altKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });
+  });
+
+  it('macOS の入力欄の ⌘← と ⌘→ は行頭と行末へ動く打鍵なので、戻ると進むに使わない', async () => {
+    const { go, setHash } = await mounted();
+    act(() => setHash('#/projects'));
+    expect(key({ key: 'ArrowLeft', metaKey: true }, textField()).defaultPrevented).toBe(false);
+    expect(key({ key: 'ArrowRight', metaKey: true }, textField()).defaultPrevented).toBe(false);
+    const editable = document.createElement('div');
+    editable.contentEditable = 'true';
+    Object.defineProperty(editable, 'isContentEditable', { value: true });
+    document.body.append(editable);
+    fields.push(editable);
+    expect(key({ key: 'ArrowLeft', metaKey: true }, editable).defaultPrevented).toBe(false);
+    expect(go).not.toHaveBeenCalled();
+    // 入力欄の外の ⌘← と、入力欄の ⌘[ は戻る。
+    key({ key: 'ArrowLeft', metaKey: true });
+    expect(go).toHaveBeenCalledWith(-1);
+    key({ key: '[', metaKey: true }, textField());
+    expect(go).toHaveBeenCalledTimes(2);
+  });
+
+  it('macOS の入力欄の Ctrl+K は行末まで消す打鍵なので、パレットを開かない。⌘K は開く', async () => {
+    const { rt } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'k', ctrlKey: true }, textField()).defaultPrevented).toBe(false);
+    expect(emit).not.toHaveBeenCalledWith({ type: 'palette.open' });
+    key({ key: 'k', metaKey: true }, textField());
+    expect(emit).toHaveBeenCalledWith({ type: 'palette.open' });
+    // 入力欄の外の Ctrl+K は、いまのままパレットを開く。
+    emit.mockClear();
+    key({ key: 'k', ctrlKey: true });
+    expect(emit).toHaveBeenCalledWith({ type: 'palette.open' });
+  });
+
+  it('Windows の入力欄の Ctrl+K は、ほかに使い道が無いのでパレットを開く', async () => {
+    setClientUserAgent(WINDOWS_UA);
+    const { rt } = await mounted();
+    const emit = vi.spyOn(rt, 'emit');
+    expect(key({ key: 'k', ctrlKey: true }, textField()).defaultPrevented).toBe(true);
+    expect(emit).toHaveBeenCalledWith({ type: 'palette.open' });
   });
 
   it('入力欄の外の Backspace では戻らない', async () => {

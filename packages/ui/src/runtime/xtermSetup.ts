@@ -5,7 +5,7 @@
 import type { IClipboardProvider } from '@xterm/addon-clipboard';
 import type { ITerminalOptions } from '@xterm/xterm';
 import { FONT_SIZE } from './terminals.ts';
-import { isMacClient } from '../keys.ts';
+import { isMacClient, matchKey } from '../keys.ts';
 
 /**
  * Shift+Enter で送る列。
@@ -16,7 +16,7 @@ import { isMacClient } from '../keys.ts';
  */
 export const NEWLINE_SEQ = '\x1b\r';
 
-type KeyEventLike = Pick<KeyboardEvent, 'type' | 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing' | 'keyCode' | 'preventDefault'>;
+type KeyEventLike = Pick<KeyboardEvent, 'type' | 'key' | 'code' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing' | 'keyCode' | 'preventDefault'>;
 
 // 画面を開いている PC が macOS かは、キーの表と同じ判定を使う。
 export { isMacClient };
@@ -28,6 +28,9 @@ export { isMacClient };
  */
 export function createKeyHandler(input: (data: string) => void, mac: boolean = isMacClient()): (e: KeyEventLike) => boolean {
   return (e) => {
+    // macOS の外では、ターミナルの中の Ctrl+Shift+<キー>（と Ctrl+Alt+N）が Hangar のショートカットである（keys.ts）。
+    // xterm に処理させると ^K などを中へ送ってしまうので、渡さずに画面（Root）へ届ける。既定は Root が止める。
+    if (!mac && e.type === 'keydown' && matchKey(e, { mac: false, terminal: true }) !== null) return false;
     // xterm は Ctrl+V を ^V（0x16）として中のアプリへ送り、ブラウザの貼り付けを止める。
     // macOS の貼り付けは ⌘V なので困らないが、Windows と Linux では Ctrl+V で貼り付けられなくなる。
     // xterm に渡さなければブラウザが paste のイベントを起こし、xterm がそれを貼り付けとして受ける。既定の動きは止めない。

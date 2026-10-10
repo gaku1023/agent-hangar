@@ -165,14 +165,12 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         if (!typing && !el?.isContentEditable) e.preventDefault();
         return;
       }
-      // ターミナルにフォーカスがあるときは、⌘ を含む組み合わせだけを hangar が処理する。
-      // Ctrl の打鍵は端末のものなので、preventDefault せずに xterm へ渡す。
-      // macOS の外には ⌘ が無いので、ターミナルの中では hangar は何も受け取らない（キーの一覧に一言添える）。
-      // ターミナルの外では、⌘ の役を Ctrl が担う（keys.ts）。
+      // ターミナルにフォーカスがあるときは、macOS は ⌘ を含む組み合わせだけを、ほかは Ctrl+Shift+<キー>（と Ctrl+Alt+N）だけを hangar が処理する。
+      // Ctrl だけの打鍵は端末のものなので、preventDefault せずに xterm へ渡す。どれを受けるかは keys.ts の matchKey が決める。
+      // ターミナルの外では、macOS の外は ⌘ の役を Ctrl が担う。
       const mac = isMacClient();
       const inTerminal = !!el?.closest?.('.term-host');
-      if (inTerminal && !e.metaKey) return;
-      const id = matchKey(e);
+      const id = matchKey(e, { mac, terminal: inTerminal });
       if (!id) return;
       // 何も開いていないときの入力欄の Esc は、その欄を離れる打鍵にする。ヘッダーの検索欄から抜ける手がほかに無いからである。
       // ダイアログやパレットの入力欄では、そのダイアログが自分で Esc を処理して閉じるので、ここでは触らない。
@@ -186,8 +184,12 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       }
       // 修飾の無い打鍵は入力欄では文字なので、横取りしない。
       if (!e.metaKey && !e.ctrlKey && typing) return;
-      // Windows と Linux の入力欄の Ctrl+← と Ctrl+→ は単語の移動なので、戻ると進むに使わない（Ctrl+[ と Ctrl+] は使う）。
-      if (typing && !mac && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
+      // 入力欄の ⌘← と ⌘→（macOS の行頭と行末）、Ctrl+← と Ctrl+→（ほかの単語の移動）は、欄の打鍵なので戻ると進むに使わない（⌘[ と ⌘] は使う）。
+      const editing = typing || !!el?.isContentEditable;
+      if (editing && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
+      // macOS の入力欄の Ctrl の打鍵は文字の編集（Ctrl+K で行末まで消す、Ctrl+B で 1 字戻るなど）なので、⌘ の付いたものだけを受け取る。
+      // ほかの OS の入力欄の Ctrl+K や Ctrl+B には編集の役が無いので、受け取る。
+      if (editing && mac && e.ctrlKey && !e.metaKey && !e.altKey) return;
       const take = () => e.preventDefault();
       switch (id) {
         case 'tab.select': {
@@ -227,8 +229,8 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
         // 次の入力待ちへ。ダイアログを開いている間は、その裏で画面を移さない。
         case 'session.nextWaiting': if (overlayKind === 'none' || overlayKind === 'palette') { take(); rt.emit({ type: 'session.nextWaiting' }); } return;
         case 'settings.open': take(); rt.emit({ type: 'nav.go', to: { name: 'settings' } }); return;
-        // macOS の入力欄の Ctrl+B はカーソルを 1 字戻す打鍵なので、⌘B だけを受け取る。Windows と Linux の Ctrl+B はその打鍵ではないので受け取る。
-        case 'sidebar.toggle': if (typing && mac && !e.metaKey) return; take(); rt.emit({ type: 'sidebar.toggle' }); return;
+        // macOS の入力欄の Ctrl+B（1 字戻る）は、上の入力欄の規則で渡している。
+        case 'sidebar.toggle': take(); rt.emit({ type: 'sidebar.toggle' }); return;
         case 'shortcuts.open': take(); rt.emit({ type: 'shortcuts.open' }); return;
         case 'nav.back': take(); rt.emit({ type: 'nav.back' }); return;
         case 'nav.forward': take(); rt.emit({ type: 'nav.forward' }); return;

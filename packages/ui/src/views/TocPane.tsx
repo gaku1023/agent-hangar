@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { keyLabel } from '../keys.ts';
+import { ariaKeyShortcuts, shortcutHint } from '../keys.ts';
 
 /**
  * 目次だけの右パネル（設計書 2.3 の C）。240px の細い列で、実行中も終わった後も同じ場所に同じもの（目次）がある。
@@ -22,7 +22,7 @@ export function TocToggle(props: { open: boolean; onToggle?: () => void }) {
   const t = useT();
   const emit = useEmit();
   return (
-    <button type="button" className="tr-toggle" aria-label={props.open ? t('session.toc.close') : t('session.toc.open')} title={t('session.toc.shortcut', { keys: keyLabel('⌘J') })} onClick={() => (props.onToggle ? props.onToggle() : emit({ type: 'transcript.toggle' }))}>
+    <button type="button" className="tr-toggle" aria-label={props.open ? t('session.toc.close') : t('session.toc.open')} aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} title={t('session.toc.shortcut', { keys: shortcutHint(t, 'transcript.toggle', '⌘J') })} onClick={() => (props.onToggle ? props.onToggle() : emit({ type: 'transcript.toggle' }))}>
       <Icon name={props.open ? 'paneClose' : 'paneOpen'} />
     </button>
   );

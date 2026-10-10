@@ -9,7 +9,7 @@ import { StatusDot } from './primitives/StatusDot.tsx';
 import { ToggleChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
-import { keyLabel } from '../keys.ts';
+import { ariaKeyShortcuts, keyLabel, shortcutHint } from '../keys.ts';
 import { Listbox } from './primitives/Listbox.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
@@ -125,7 +125,7 @@ export function SessionScreen(props: SessionProps) {
   const toggleToc = () => (narrow ? setDrawer((d) => !d) : emit({ type: 'transcript.toggle' }));
   // 閉じている間は、タブの列（終わった後は切り替えの行）の右端に「目次 N」の札を置く。開いている間は目次の見出しの行の TocToggle を使う。
   const opener = (
-    <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" title={t('session.toc.shortcut', { keys: keyLabel('⌘J') })} onClick={toggleToc}>
+    <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} title={t('session.toc.shortcut', { keys: shortcutHint(t, 'transcript.toggle', '⌘J') })} onClick={toggleToc}>
       <Icon name="paneOpen" /><span>{t('session.toc.opener', { n: tocCount })}</span>{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
     </button>
   );

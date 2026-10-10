@@ -5,7 +5,7 @@ import type { Terminal } from '@xterm/xterm';
 import { describe, expect, it, vi } from 'vitest';
 import { NEWLINE_SEQ, clipboardProvider, createKeyHandler, terminalOptions } from './xtermSetup.ts';
 
-type KeyInit = { type?: string; key: string; shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; isComposing?: boolean; keyCode?: number };
+type KeyInit = { type?: string; key: string; code?: string; shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; isComposing?: boolean; keyCode?: number };
 function key(init: KeyInit) {
   const e = { type: 'keydown', shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, isComposing: false, keyCode: 0, preventDefault: vi.fn(), ...init };
   return e as typeof e & KeyboardEvent;
@@ -76,6 +76,28 @@ describe('createKeyHandler（Windows と Linux の貼り付け）', () => {
     expect(handle(key({ key: 'c', ctrlKey: true, keyCode: 67 }))).toBe(true);
     expect(handle(key({ key: 'V', ctrlKey: true, shiftKey: true, keyCode: 86 }))).toBe(true);
     expect(handle(key({ key: 'v', ctrlKey: true, altKey: true, keyCode: 86 }))).toBe(true);
+  });
+});
+
+describe('createKeyHandler（macOS の外の Ctrl+Shift のショートカット）', () => {
+  it('Hangar に回す Ctrl+Shift の打鍵は xterm に処理させず、画面へ届ける', () => {
+    const handle = createKeyHandler(vi.fn(), false);
+    const e = key({ key: 'K', code: 'KeyK', ctrlKey: true, shiftKey: true, keyCode: 75 });
+    expect(handle(e)).toBe(false);
+    // 画面（Root）が受けて既定を止めるので、ここでは止めない。
+    expect(e.preventDefault).not.toHaveBeenCalled();
+    expect(handle(key({ key: 'n', code: 'KeyN', ctrlKey: true, altKey: true, keyCode: 78 }))).toBe(false);
+  });
+  it('コピーと貼り付け、Ctrl だけの打鍵、Claude Code の取り消しは xterm に渡す', () => {
+    const handle = createKeyHandler(vi.fn(), false);
+    expect(handle(key({ key: 'C', code: 'KeyC', ctrlKey: true, shiftKey: true, keyCode: 67 }))).toBe(true);
+    expect(handle(key({ key: 'V', code: 'KeyV', ctrlKey: true, shiftKey: true, keyCode: 86 }))).toBe(true);
+    expect(handle(key({ key: 'k', code: 'KeyK', ctrlKey: true, keyCode: 75 }))).toBe(true);
+    expect(handle(key({ key: '_', code: 'Minus', ctrlKey: true, shiftKey: true, keyCode: 189 }))).toBe(true);
+  });
+  it('macOS では、Ctrl+Shift の打鍵をいまのまま xterm に渡す', () => {
+    const handle = createKeyHandler(vi.fn(), true);
+    expect(handle(key({ key: 'K', code: 'KeyK', ctrlKey: true, shiftKey: true, keyCode: 75 }))).toBe(true);
   });
 });
 
