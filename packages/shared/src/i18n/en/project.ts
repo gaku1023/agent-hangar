@@ -1,0 +1,31 @@
+import type { projectKeys } from '../keys/project.ts';
+import type { AreaDictionary } from '../messageSpec.ts';
+
+export const projectEn: AreaDictionary<typeof projectKeys> = {
+  'project.error.notFound': 'Project not found',
+  'project.status.invalid': 'Status must be one of active, paused, done, archived',
+  'project.resolve.badKind': 'The action is not valid. Use repoint, archive, or unlink',
+  'project.resolve.dirMissing': 'The directory was not found. Select an existing directory',
+  'project.create.pathNotDir': 'path is not an existing directory',
+  'project.create.badKind': 'kind must be newDir or dir',
+  'project.create.nameRule': 'Name must be at least one character that can be used as a directory name, and cannot contain /',
+  'project.create.dirExists': '{dir} already exists',
+  'project.create.cannotCreate': 'Cannot create {dir}: {reason}',
+  'project.create.gitInitFailed': 'git init failed: {reason}',
+  'project.create.nameEmpty': 'name cannot be empty',
+  'project.create.pathMustBeAbsolute': 'path must be an absolute path starting with / or ~',
+  'project.create.rootNotAllowed': 'The projects folder and the folders above it cannot be projects',
+  'project.name.uncategorized': 'Uncategorized',
+  'project.promote.scratchUnverified': 'The quick session folder could not be verified, so the files were not moved ({reason})',
+  'project.promote.sourceMissing': '{from} was not found',
+  'project.promote.outsideScratch': '{from} points outside the quick session folder ({real}), so the files were not moved',
+  'project.promote.unreadable': 'Could not read the contents of {from} ({reason})',
+  'project.promote.clash': '{name} already exists in the destination, so the files were not moved. Move them by hand',
+  'project.promote.sourceNotRemoved': 'The files were moved to {to}, but {from} could not be removed ({reason})',
+  'project.promote.notScratch': 'This session is not a quick session',
+  'project.promote.claudeRunning': 'Claude is running, so the files were not moved. End it, then move them by hand',
+  'project.promote.failedNothingMoved': 'Could not move {name} ({cause}). The files are still in {from}',
+  'project.promote.failedRolledBack': 'Could not move {name} ({cause}). What had already been moved was put back in {from}. No files were moved',
+  'project.promote.failedLeftBoth': 'Could not move {name} ({cause}). These also remain in {to}: {left}. Check both {from} and {to}',
+  'project.unassigned.appeared': 'A session that belongs to no project appeared ({cwd}). It is left as Uncategorized',
+};

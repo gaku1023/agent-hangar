@@ -1,7 +1,7 @@
 import type { SearchFilter, StatusFilter } from '@agent-hangar/shared';
 
 /**
- * Sessions 画面の検索欄のトークン（★）。
+ * Home の検索欄のトークン（★）。
  * 欄を正とし、タブと絞り込みはその表示である。読むのは parseQuery、書くのは formatQuery で、どちらも純粋な関数にする。
  * 読めないトークン（打ち間違い、当たらないプロジェクト）は捨てずに語として残し、badTokens が知らせる。
  * 黙って捨てると、利用者には絞り込みが効いたように見えて、実は全件を見ていることになるからである。

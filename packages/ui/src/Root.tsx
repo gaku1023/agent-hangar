@@ -4,9 +4,8 @@ import { IntentRoot } from './intent/chain.tsx';
 import { canMoveBehind } from './mediator/screen.ts';
 import { defaultSessionView } from './mediator/sessionView.ts';
 import { presentConfirm } from './presenters/confirm.ts';
-import { presentHome } from './presenters/home.ts';
+import { presentHomeScreen } from './presenters/home.ts';
 import { storeLanguage } from './presenters/i18n.ts';
-import { presentOnboarding } from './presenters/onboarding.ts';
 import { presentNewProject } from './presenters/newProject.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
@@ -16,7 +15,6 @@ import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
 import { presentRetentionDialog } from './presenters/retentionDialog.ts';
 import { presentSession } from './presenters/session.ts';
-import { presentSessions } from './presenters/sessions.ts';
 import { presentSettings } from './presenters/settings.ts';
 import { presentShell } from './presenters/shell.ts';
 import { presentToasts } from './presenters/toasts.ts';
@@ -40,7 +38,6 @@ import { ProjectsScreen } from './views/ProjectsScreen.tsx';
 import { PromoteDialog, PromotedDialog } from './views/PromoteDialog.tsx';
 import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
 import { SessionScreen } from './views/SessionScreen.tsx';
-import { SessionsScreen } from './views/SessionsScreen.tsx';
 import { SettingsScreen } from './views/SettingsScreen.tsx';
 import { ShortcutsDialog } from './views/ShortcutsDialog.tsx';
 import { Shell } from './views/Shell.tsx';
@@ -341,7 +338,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   let body: ReactNode;
   if (!store.bootstrapped || state.screen.name === 'booting') body = <div className="empty boot-wait">読み込んでいます</div>;
   else switch (state.screen.name) {
-    case 'home': body = <HomeScreen {...presentHome(state, store, now)} onboarding={presentOnboarding(store)} />; break;
+    case 'home': body = <HomeScreen {...presentHomeScreen(state, store, now)} />; break;
     case 'projects': body = <ProjectsScreen {...presentProjects(state, store, now, projectFilter, showArchived)} filter={projectFilter} onFilter={setProjectFilter} onShowArchived={setShowArchived} />; break;
     case 'project': body = <ProjectScreen {...presentProject(state, store, now, state.screen.id)} />; break;
     case 'session': {
@@ -350,8 +347,6 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       body = <SessionScreen {...p} />;
       break;
     }
-    // 検索欄は defaultValue なので、外からの文言リセットで作り直せるように key を付ける。
-    case 'sessions': body = <SessionsScreen key={state.search.text} {...presentSessions(state, store, now)} />; break;
     case 'settings': body = <SettingsScreen {...presentSettings(state, store, now)} />; break;
   }
 

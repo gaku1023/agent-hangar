@@ -149,7 +149,7 @@ export function presentPalette(state: State, store: Store, query: string, now: n
     section('入力待ち', byState.waiting, TYPED_LIMIT), section('実行中', byState.running, TYPED_LIMIT), section('セッション', byState.ended, TYPED_LIMIT),
     section('プロジェクト', projects, TYPED_LIMIT), section('移動', scoreAll(moves), TYPED_LIMIT), section('コマンド', scoreAll(commands), TYPED_LIMIT),
   ].map((g, order) => (g ? { ...g, order } : null)).filter((g) => g !== null).sort((a, b) => b.best - a.best || a.order - b.order);
-  // 全文検索はいつも最後の行に置く。名前の照合とは別の経路（セッション一覧の画面）へ移る。
+  // 全文検索はいつも最後の行に置く。名前の照合とは別の経路（ホームの検索）へ移る。
   const search: PaletteSection = { title: '本文', count: null, limit: null, items: [{ id: `search:${q}`, label: `『${q}』を全文検索`, kind: 'search', lead: { kind: 'icon', icon: 'fulltext' }, sub: '', meta: 'セッション一覧で開く', keys: '⌘↵' }] };
   return { query, sections: [...groups.map((g) => g.section), search], noMatch: groups.length === 0 };
 }

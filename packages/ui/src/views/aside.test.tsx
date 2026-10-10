@@ -30,6 +30,6 @@ describe('裏だけ動いている', () => {
   });
   it('停止の確認は、裏の作業も消えることを言う', () => {
     render(<IntentRoot onIntent={() => {}}><ConfirmDialog confirm={{ kind: 'killRun', runId: 'r1', working: true, aside: true, shellTabs: 0 }} /></IntentRoot>);
-    expect(screen.getByText('バックグラウンドで作業が動いています。止めると、それも終わります。')).toBeInTheDocument();
+    expect(screen.getByText('バックグラウンドで作業中です。停止すると、その作業も終了します。')).toBeInTheDocument();
   });
 });

@@ -3,9 +3,10 @@ import { initialState, transition, type Effect, type Input, type State } from '.
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
 import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
+import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
 import { RETENTION_BANNER_KEY } from '../mediator/retention.ts';
 import { toSearchParams } from '../mediator/screen.ts';
-import { clampLivePaneSplit, cleanSidebarOrder, LIVE_PANE_SPLIT_KEY, readSessionLivePaneSplit, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
+import { cleanSidebarOrder, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
 import { NO_QUESTION } from '../presenters/home.ts';
@@ -13,8 +14,10 @@ import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
+import { translatorOf } from '../presenters/i18n.ts';
+import { readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, appendSearchResult, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -144,16 +147,20 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const fail = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e) } });
   const failWith = (what: string, e: unknown) => dispatch({ kind: 'runtime', event: { type: 'api.failed', message: `${what}: ${errMsg(e)}` } });
   /**
-   * 準備の確かめを取りに行く。設定画面の検証と、空のホームの確認リストが同じ値を読む。
+   * 準備の確かめを取りに行く。設定画面の検証と、ホームの帯の始める前の確認が同じ値を読む。
    * Claude Code との互換にずれがあれば、続けてずれの中身（GET /api/compat）も取る。止めた機能の一覧は常に出すので（A4）、開くのを待たない。
    * ずれが無ければ、前に取った中身を捨てる。compat の無い古いサーバの答えでは取りに行かない。
    * 要求には番号を振り、最新の要求の答えだけを取る（検索の searchSeq と同じ作り）。
    * 答えが順番を違えて着いても、古い答えが新しい答えを上書きせず、古い答えに続けて取ったずれの中身も入れない。
+   * 前の答えで帯に直すものがあり、この答えでは無くなっていたら、そろったことをトーストで 1 回知らせる（設計書 2.11.4）。
+   * 前の答えが無い（起動して最初に取った）ときは、そろったのではなく、はじめから問題が無いので知らせない。
    */
   const loadReadiness = () => {
     const seq = ++readinessSeq;
     deps.api.readiness().then((r) => {
       if (seq !== readinessSeq) return;
+      const before = store.readiness;
+      if (before && readinessPending(before) && !readinessPending(r)) toast(translatorOf(store)(readinessComplete(r) ? 'home.ready.toast.done' : 'home.ready.toast.required'));
       const drifts = readinessCompat(r)?.driftCount ?? 0;
       if (drifts > 0) {
         setStore({ ...store, readiness: r });
@@ -204,6 +211,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     else { liveWaiting.add(sessionId); deps.setTimeout(go, wait); }
   }
 
+  /**
+   * 変更したファイルの一覧を取る。終わったセッションの冒頭の 1 枚が使う補助の表示なので、失敗は知らせない。
+   * 画面を開いたときに 1 回、見ているセッションの run が終わったときにもう 1 回取る（実行中に増えた分を拾う）。
+   */
+  function loadFiles(sessionId: string): void {
+    deps.api.sessionFiles(sessionId).then((d) => setStore(applySessionFiles(store, sessionId, d.files))).catch(() => {});
+  }
+
   /** 繋ぐタブを決める。
    * 指定が無ければ選択中のタブ、無ければ現在の run の Claude タブ。
    * 終了した run の Claude タブには繋がない。
@@ -249,8 +264,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
-          // セッションが 1 つも無ければ、ホームは準備の確認リストを出す。その中身をここで取りに行く。
-          if (b.sessions.length === 0) loadReadiness();
+          // ホームの帯は、直すものがあれば始める前の確認を出す。誰にでも出すので、起動のたびにその中身を取りに行く（遅れは 1 回の which の数回分）。
+          loadReadiness();
         }).catch(fail);
         return;
       case 'api.loadEvents': {
@@ -258,6 +273,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (store.sessions[e.sessionId]?.hasTranscript === false) return;
         loadSubagents(e.sessionId);
         loadLive(e.sessionId);
+        if (e.fromSeq === 0) loadFiles(e.sessionId);
         const view = state.sessionView[e.sessionId] ?? defaultSessionView();
         const key = eventsKey(e.sessionId, view.agentId);
         const cur = store.events[key];
@@ -297,11 +313,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const seq = ++searchSeq;
         // 期間の日数は、送るこの瞬間の時刻で since に直す。
         const params = toSearchParams(e.params, (deps.now ?? Date.now)());
-        // 読んでいる間も持っている行は消さない。届いたら、そのページの行に入れ替える。
+        // 読んでいる間も持っている行は消さない。届いたら、置き換える（append なら後ろに足す）。
         setStore(applySearch(store, params, store.search.result, true));
-        // 失敗したら読み込み中を解く。解かないとページ送りが「検索しています」のまま残る。
+        // 失敗したら読み込み中を解く。解かないと「さらに読み込む」が「読み込んでいます」のまま残る。
         deps.api.search(params)
-          .then((r) => { if (seq === searchSeq) setStore(applySearch(store, params, r, false)); })
+          .then((r) => { if (seq === searchSeq) setStore(applySearch(store, params, e.append ? appendSearchResult(store.search.result, r) : r, false)); })
           .catch((err) => { if (seq === searchSeq) setStore(applySearch(store, store.search.params ?? params, store.search.result, false)); fail(err); });
         return;
       }
@@ -591,6 +607,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // ここでは取りに行かず、次に本文を読むときに取り直させる。
       // 本文を読むのは画面に出ているセッションだけなので、見ていないセッションの分は無駄に取らない。
       if (input.event.type === 'transcript.appended') subagentsAsked.delete(input.event.sessionId);
+      if (input.event.type === 'run.ended' && state.screen.name === 'session' && state.screen.id === input.event.run.sessionId) loadFiles(input.event.run.sessionId);
       // ホームの実行中の札は意図の 1 行を出す。見ている間に動いたセッションの分を取り直す（loadLive が 1 秒に 1 回までにまとめる）。
       if (state.screen.name === 'home') {
         if (input.event.type === 'transcript.appended') loadLive(input.event.sessionId);
@@ -623,15 +640,18 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (!v || typeof v !== 'object') continue;
         // follow は残さない決まりだが、古い保存に残っていることがある。読み戻すときに落として既定（真）に戻す。
         // summaryOpen は使われていない欄として消した。古い保存に残っているので、読み戻すときに捨てる（捨てないと次の保存で書き戻る）。
-        const { follow: _ignore, summaryOpen: _gone, ...rest } = v as Partial<SessionViewState> & { summaryOpen?: unknown };
-        sv[k.slice(3)] = { ...defaultSessionView(), ...rest, livePaneSplit: readSessionLivePaneSplit(rest.livePaneSplit) };
+        // livePaneSplit（右パネルの境目の比率）も、境目を無くしたので同じく捨てる。
+        const { follow: _ignore, summaryOpen: _gone, livePaneSplit: _split, ...rest } = v as Partial<SessionViewState> & { summaryOpen?: unknown; livePaneSplit?: unknown };
+        sv[k.slice(3)] = { ...defaultSessionView(), ...rest };
       }
       // 真偽値以外が残っていたら（手で書き換えられたなど）、開いたままにする。
       state = {
-        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)), livePaneSplit: clampLivePaneSplit(deps.storage.get(LIVE_PANE_SPLIT_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
+        ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)), retentionBannerDismissed: deps.storage.get(RETENTION_BANNER_KEY) === true,
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // 知らせ終えた戻る時点。開き直しても同じ時点を 2 度知らせない。
         returnSeen: readReturnSeen(deps.storage.get(RETURN_SEEN_KEY)),
+        // ベルの既読の鍵。事実が変われば鍵も変わるので、残っていても古い版の鍵が行を隠すことはない。
+        noticesRead: readNoticesRead(deps.storage.get(NOTICES_READ_KEY)),
         // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。
         newSessionDraft: readDraft(deps.storage.get(NEW_SESSION_DRAFT_KEY)), launchPrefs: readLaunchPrefs(deps.storage.get(LAUNCH_PREFS_KEY)),
       };

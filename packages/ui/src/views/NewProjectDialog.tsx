@@ -5,12 +5,12 @@ import type { NewProjectProps } from '../presenters/newProject.ts';
 import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
+import { useT } from './primitives/language.tsx';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { CheckCard } from './primitives/OptionCard.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 
 type Mode = 'newDir' | 'dir';
-const MODES = [{ value: 'newDir', label: '新しいフォルダを作る' }, { value: 'dir', label: '既存のフォルダを登録' }];
 const baseName = (p: string) => p.replace(/\/+$/, '').split('/').pop() ?? '';
 
 /**
@@ -20,6 +20,8 @@ const baseName = (p: string) => p.replace(/\/+$/, '').split('/').pop() ?? '';
  */
 export function NewProjectDialog(props: NewProjectProps) {
   const emit = useEmit();
+  const t = useT();
+  const modes = [{ value: 'newDir', label: t('newProject.mode.newDir') }, { value: 'dir', label: t('newProject.mode.dir') }];
   const [mode, setMode] = useState<Mode>('newDir');
   const [name, setName] = useState('');
   const [gitInit, setGitInit] = useState(true);
@@ -82,33 +84,33 @@ export function NewProjectDialog(props: NewProjectProps) {
   // 名前を打ちかけたまま背景を押し違えても失わないよう、背景では閉じない。
   return (
     <Dialog
-      title="新しいプロジェクト"
+      title={t('newProject.dialog.title')}
       icon="folderPlus"
       className="dialog-wide"
       onClose={close}
       closeOnBackdrop={false}
       footer={<>
-        <button type="button" className="btn" onClick={close}>やめる</button>
+        <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <span className="spacer" />
-        <button type="button" className="btn" disabled={props.submitting} onClick={() => submit(false)}>作成</button>
-        <button type="button" className="btn btn-primary" disabled={props.submitting} onClick={() => submit(true)}>作成して始める</button>
+        <button type="button" className="btn" disabled={props.submitting} onClick={() => submit(false)}>{t('newProject.footer.create')}</button>
+        <button type="button" className="btn btn-primary" disabled={props.submitting} onClick={() => submit(true)}>{t('newProject.footer.createAndStart')}</button>
       </>}
     >
-      <div><Segmented label="作り方" value={mode} options={MODES} onChange={(v) => setMode(v as Mode)} /></div>
+      <div><Segmented label={t('newProject.mode.aria')} value={mode} options={modes} onChange={(v) => setMode(v as Mode)} /></div>
       {mode === 'newDir' ? (
         <>
-          <label className="field" htmlFor="new-project-name">プロジェクト名
-            <input id="new-project-name" className="input mono" data-autofocus value={name} placeholder="ワークスペースに作るディレクトリの名前" onChange={(e) => { setNameTouched(true); setName(e.target.value); }} onKeyDown={onEnter} />
+          <label className="field" htmlFor="new-project-name">{t('newProject.field.name')}
+            <input id="new-project-name" className="input mono" data-autofocus value={name} placeholder={t('newProject.field.namePlaceholder')} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} onKeyDown={onEnter} />
           </label>
-          <div className="faint">{root}/{name.trim()} を作ります</div>
-          <CheckCard label="git init する" description="空のリポジトリを作ります" icon="gitInit" checked={gitInit} onChange={setGitInit} />
+          <div className="faint">{t('newProject.name.willCreate', { path: `${root}/${name.trim()}` })}</div>
+          <CheckCard label={t('newProject.gitInit.label')} description={t('newProject.gitInit.description')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
         </>
       ) : (
         <>
-          <div className="field">フォルダ
+          <div className="field">{t('newProject.field.folder')}
             <div className="new-project-dirs">
-              <div className="listbox-search"><Icon name="search" /><input role="combobox" aria-label="未登録のフォルダを探す" placeholder="ワークスペースの未登録のフォルダを探す" aria-expanded="true" aria-controls={`${uid}-dirs`} aria-autocomplete="list" aria-activedescendant={current >= 0 ? rowId(current) : undefined} value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onSearchKey} /></div>
-              <div ref={rowsRef} id={`${uid}-dirs`} role="listbox" aria-label="ワークスペースの未登録のフォルダ" className="listbox-rows">
+              <div className="listbox-search"><Icon name="search" /><input role="combobox" aria-label={t('newProject.search.placeholder')} placeholder={t('newProject.search.placeholder')} aria-expanded="true" aria-controls={`${uid}-dirs`} aria-autocomplete="list" aria-activedescendant={current >= 0 ? rowId(current) : undefined} value={query} onChange={(e) => { setQuery(e.target.value); setActive(0); }} onKeyDown={onSearchKey} /></div>
+              <div ref={rowsRef} id={`${uid}-dirs`} role="listbox" aria-label={t('newProject.list.aria')} className="listbox-rows">
                 {shown.map((d, i) => (
                   <div key={d.path} id={rowId(i)} role="option" aria-selected={d.path === path} aria-label={d.name} className="listbox-opt" data-active={i === current ? 'true' : undefined} onMouseMove={() => { if (i !== current) setActive(i); }} onClick={() => choosePath(d.path)}>
                     <Icon name="folder" />
@@ -116,15 +118,15 @@ export function NewProjectDialog(props: NewProjectProps) {
                     <span className="listbox-check" aria-hidden="true"><Icon name="check" /></span>
                   </div>
                 ))}
-                {shown.length === 0 && <div className="listbox-empty">{props.dirs.length ? '一致するものはありません' : '未登録のフォルダはありません'}</div>}
+                {shown.length === 0 && <div className="listbox-empty">{props.dirs.length ? t('newProject.list.noMatch') : t('newProject.list.empty')}</div>}
               </div>
             </div>
             <div className="field-row">
-              {props.desktop && <><button type="button" className="btn" onClick={() => emit({ type: 'folder.pick' })}><Icon name="folderOpen" />ほかの場所を選ぶ…</button><span className="faint">または</span></>}
-              <input className="input mono" style={{ flex: 1 }} aria-label="フォルダのパス" placeholder="/Users/you/…（パスを打つ）" value={path} onChange={(e) => choosePath(e.target.value)} onKeyDown={onEnter} />
+              {props.desktop && <><button type="button" className="btn" onClick={() => emit({ type: 'folder.pick' })}><Icon name="folderOpen" />{t('newProject.folder.pick')}</button><span className="faint">{t('newProject.folder.or')}</span></>}
+              <input className="input mono" style={{ flex: 1 }} aria-label={t('newProject.path.aria')} placeholder={t('newProject.path.placeholder')} value={path} onChange={(e) => choosePath(e.target.value)} onKeyDown={onEnter} />
             </div>
           </div>
-          <label className="field" htmlFor="new-project-reg-name">プロジェクト名
+          <label className="field" htmlFor="new-project-reg-name">{t('newProject.field.name')}
             <input id="new-project-reg-name" className="input" value={name} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} onKeyDown={onEnter} />
           </label>
         </>

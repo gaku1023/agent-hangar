@@ -11,29 +11,48 @@
       /* ロゴの中心を窓の中心に置く。名前と状態の文は流れから外してロゴの下に下げ、真ん中の決め方に混ぜない。 */
       main { position: relative; display: grid; justify-items: center; padding: 16px; text-align: center; }
       .caption { position: absolute; top: 100%; left: 50%; width: min(560px, 100vw - 32px); transform: translateX(-50%); margin-top: -16px; }
-      /* 失敗の文言は長く、何行にもなる。そのときだけ流れに戻し、ロゴと文言をまとめて真ん中に置いて、窓からはみ出さないようにする。 */
-      main:has(#status[data-level='error']) { max-width: 560px; }
-      main:has(#status[data-level='error']) .caption { position: static; width: auto; transform: none; margin-top: 0; }
       h1 { font-size: 15px; font-weight: 600; color: var(--ink); margin: 6px 0 0; }
-      /* 殻が書く文言は改行を含むことがある。 */
-      #status { margin: 12px 0 0; white-space: pre-wrap; }
+      #status { margin: 12px 0 0; }
       #status .dots, #status .dots-pad { display: inline-block; width: 1.4em; text-align: left; }
       /* 何をしているかの文。件数が増えても文字が揺れないよう、数字の幅を揃える。 */
       #detail { margin: 2px 0 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
-      main:has(#status[data-level='error']) #detail { display: none; }
       /* 合図の後に満ちる光。UI の背景（packages/ui の .shell::before と tokens.css の --aura-1、--aura-2）と同じ絵にし、移った先と継ぎ目を作らない。 */
       #aura { position: fixed; inset: 0; overflow: hidden; opacity: 0; pointer-events: none; }
       #aura::before { content: ''; position: absolute; inset: -25%; background: radial-gradient(40% 50% at 25% 15%, #cfe0ff, transparent 70%), radial-gradient(40% 50% at 85% 75%, #e5d6ff, transparent 70%); }
       /* 合図の光の輪。ロゴの上に重ね、窓の端まで広げる。 */
       #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-      /* 失敗の文言には手で打つコマンドや長いパスが混ざる。選んで写せるようにし、枠からはみ出さないようにする。 */
-      /* 失敗したときの操作。UI のボタン（packages/ui の .btn と .btn-primary）と同じ形にする。 */
-      #boot-actions { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
-      #boot-actions[hidden] { display: none; }
-      .btn { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 0; border-radius: 999px; font: 560 13px 'Inter Variable', 'Hiragino Sans', sans-serif; color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; }
+      /* 失敗の札。殻が種類と数を渡し（__hangarBootFail）、頁が 1 枚の札で出す。読み込みの絵（main）は退け、ロゴは左上に小さく置く。 */
+      /* 窓の左上には信号の 3 点が重なる（UI の --lights-end と同じ 81px）。ヘッダーの高さ 44px の中にロゴを置く。 */
+      body[data-fail] { box-sizing: border-box; padding: 44px 16px 24px; }
+      main[hidden], .fail-card[hidden], .fail-brand[hidden], .fail-cmd[hidden] { display: none; }
+      .fail-brand { position: fixed; left: 81px; top: 8px; display: flex; align-items: center; gap: 8px; height: 28px; color: var(--ink); font-weight: 700; }
+      .fail-brand img { width: 28px; height: 28px; }
+      .fail-card { box-sizing: border-box; display: flex; flex-direction: column; width: min(640px, 100%); max-height: calc(100vh - 68px); padding: 18px 22px 16px; border-radius: 18px; background: #ffffff; box-shadow: 0 1px 2px rgba(30, 40, 90, 0.06), 0 20px 50px -24px rgba(30, 40, 90, 0.45); text-align: left; overflow-y: auto; }
+      .fc-h { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+      .fc-icon { flex: none; width: 20px; height: 20px; color: var(--error); }
+      .fail-card h2 { text-wrap: balance; margin: 0; font-size: 16px; line-height: 1.4; color: var(--ink); }
+      .fail-card p { margin: 0 0 8px; line-height: 1.6; color: var(--ink-2); }
+      .f-lbl { margin: 10px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; color: var(--ink-3); }
+      #fail-steps { margin: 0; padding-left: 20px; line-height: 1.7; color: var(--ink); }
+      #fail-steps li + li { margin-top: 2px; }
+      .fail-cmd { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; padding: 5px 6px 5px 10px; border-radius: 6px; background: rgba(28, 27, 46, 0.06); }
+      .fail-cmd code { min-width: 0; flex: 1; font: 11.5px 'JetBrains Mono Variable', Menlo, monospace; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-user-select: text; user-select: text; }
+      /* 詳細は最初から開いた記録。伸びても札が窓からはみ出さないよう、ここだけが縮んで中で流れる。 */
+      .fail-detail { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'head copy' 'body body'; grid-template-rows: auto minmax(0, 1fr); align-items: start; column-gap: 8px; flex: 0 1 auto; min-height: 64px; margin-top: 10px; border-radius: 8px; background: #f3f4f9; overflow: hidden; }
+      .fd-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-height: 28px; padding: 6px 10px 0; font-size: 11px; font-weight: 600; color: var(--ink-2); }
+      .fd-head h3 { margin: 0; font: inherit; }
+      .faint { font-weight: 400; color: var(--ink-3); }
+      #fail-detail { grid-area: body; box-sizing: border-box; min-height: 0; max-height: 100%; margin: 0; padding: 4px 10px 8px; overflow: auto; font: 11px/1.6 'JetBrains Mono Variable', Menlo, monospace; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+      #fail-copy-all { grid-area: copy; margin: 4px 6px 0 0; }
+      .fc-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eceef5; }
+      .fc-foot .faint { font-size: 11px; }
+      .fc-foot .spacer { flex: 1; }
+      .btn-mini { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 0; border-radius: 999px; font: 560 11px 'Inter Variable', 'Hiragino Sans', sans-serif; color: var(--ink-2); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 2px rgba(30, 40, 90, 0.14); cursor: pointer; white-space: nowrap; }
+      /* 札の操作は Tab で巡る。焦点は輪で見せる。 */
+      .btn:focus-visible, .btn-mini:focus-visible, #fail-detail:focus-visible { outline: 2px solid #4a63e8; outline-offset: 2px; }
+      .btn { flex: none; display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 0; border-radius: 999px; font: 560 13px 'Inter Variable', 'Hiragino Sans', sans-serif; color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; }
       .btn:disabled { opacity: 0.55; cursor: default; }
       .btn-primary { color: #ffffff; background: linear-gradient(180deg, #6b8cff, #4a63e8); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
-      #status[data-level='error'] { color: var(--error); text-align: left; font-family: 'JetBrains Mono Variable', Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
     </style>
   </head>
   <body>
@@ -44,13 +63,34 @@
         <h1>Hangar</h1>
         <p id="status">読み込み中</p>
         <p id="detail"></p>
-        <!-- 起動に失敗したときだけ出す（初回と障害の C1）。押すと殻が起動をやり直すか、ログを開く。 -->
-        <div id="boot-actions" hidden>
-          <button id="boot-retry" class="btn btn-primary" type="button">もう一度試す</button>
-          <button id="boot-log" class="btn" type="button">ログを開く</button>
-        </div>
       </div>
     </main>
+    <!-- 起動に失敗したときだけ出す。殻が種類と数を渡し（window.__hangarBootFail）、頁の表（boot-fail.js）の文で並べる。 -->
+    <div id="fail-brand" class="fail-brand" hidden><img src="logo.svg" width="28" height="28" alt="" />Hangar</div>
+    <section id="fail" class="fail-card" aria-labelledby="fail-title" hidden>
+      <div class="fc-h" role="alert">
+        <svg class="fc-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="currentColor" /><path d="M10 5.2v5.6" stroke="#fff" stroke-width="1.8" stroke-linecap="round" /><circle cx="10" cy="14.2" r="1.1" fill="#fff" /></svg>
+        <h2 id="fail-title"></h2>
+      </div>
+      <p id="fail-what"></p>
+      <h3 id="fail-next" class="f-lbl"></h3>
+      <ol id="fail-steps"></ol>
+      <div id="fail-command-box" class="fail-cmd" hidden>
+        <code id="fail-command"></code>
+        <button id="fail-command-copy" class="btn-mini" type="button"></button>
+      </div>
+      <div class="fail-detail">
+        <div class="fd-head"><h3 id="fail-details-label"></h3><span id="fail-log-at" class="faint"></span></div>
+        <pre id="fail-detail" tabindex="0" aria-labelledby="fail-details-label"></pre>
+        <button id="fail-copy-all" class="btn-mini" type="button"></button>
+      </div>
+      <div class="fc-foot">
+        <span id="fail-env" class="faint"></span>
+        <span class="spacer"></span>
+        <button id="boot-log" class="btn" type="button"></button>
+        <button id="boot-retry" class="btn btn-primary" type="button"></button>
+      </div>
+    </section>
     <svg id="fx" aria-hidden="true"></svg>
     <script type="module" src="boot.js"></script>
   </body>

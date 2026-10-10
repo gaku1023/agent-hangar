@@ -1,0 +1,26 @@
+import type { MessageSpec } from '../messageSpec.ts';
+
+export const retentionDialogKeys = {
+  'retentionDialog.period.days': ['n'],
+  'retentionDialog.period.oneDay': [],
+  'retentionDialog.period.years': ['n'],
+  'retentionDialog.period.oneYear': [],
+  'retentionDialog.title.shrink': ['period'],
+  'retentionDialog.title.set': ['period'],
+  'retentionDialog.lead.replace': [],
+  'retentionDialog.lead.add': [],
+  'retentionDialog.notice.reloaded': [],
+  'retentionDialog.diff.loading': [],
+  'retentionDialog.notice.shrink': ['n'],
+  'retentionDialog.info.backup': [],
+  'retentionDialog.info.otherPcs': [],
+  'retentionDialog.info.otherPcsNote': [],
+  'retentionDialog.info.deleted': [],
+  'retentionDialog.info.deletedNote': [],
+  'retentionDialog.footer.other': [],
+  'retentionDialog.footer.write': [],
+  'retentionDialog.bar.now': ['size'],
+  'retentionDialog.bar.projected': ['period', 'size'],
+  'retentionDialog.bar.free': ['size'],
+  'retentionDialog.bar.freeUnknown': [],
+} as const satisfies MessageSpec;

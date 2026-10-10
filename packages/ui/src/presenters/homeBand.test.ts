@@ -168,7 +168,7 @@ describe('行（確認待ち）', () => {
   it('TODO の完了の提案：名前は TODO の文、確定と却下。名前を押すとプロジェクトへ', () => {
     const row = presentHomeBand({ ...none, confirm: [todoCard('t1')] }, ja).groups[2]!.rows[0]!;
     expect(row).toMatchObject({ key: 'todo:t1', lead: { kind: 'todo' }, name: 'やる t1', context: 'alpha · 1 時間前', text: '片付いた', open: { type: 'project.open', id: 'alpha' } });
-    expect(row.actions.map((a) => [a.id, a.label, a.ariaLabel, a.primary])).toEqual([['confirm', '確定', '確定、やる t1', true], ['dismiss', '却下', '却下、やる t1', false]]);
+    expect(row.actions.map((a) => [a.id, a.label, a.ariaLabel, a.primary])).toEqual([['confirm', '確定', '確定、やる t1（alpha）', true], ['dismiss', '却下', '却下、やる t1（alpha）', false]]);
     expect(row.actions.map((a) => a.intent)).toEqual([{ type: 'todo.confirm', id: 't1' }, { type: 'todo.reject', id: 't1' }]);
   });
 

@@ -67,15 +67,18 @@ export type LiveIntentDto = { text: string; at: number; stepsSince: number; inTh
 export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; intent: LiveIntentDto | null; agents: LiveAgentDto[] };
 /**
  * status はセッションの状態で絞る（session_states を見る）。hideArchived は「すべて」のタブで条件を入れたときに Archived を除く印である。
- * どちらも Sessions 画面だけが送り、MCP の search_sessions は送らない。
+ * どちらも Home の一覧だけが送り、MCP の search_sessions は送らない。
  */
 export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'active' | 'proposed'; hideArchived?: boolean };
 /**
  * 検索の 1 件。
  * 抜粋の seq は主線とサブエージェントで別々に振るので、agentId でどの線の行かを表す（主線は null）。
  * 抜粋は主線を先に、seq の順に並ぶ。
+ * matched は、どこに当たったか（名前、要約、トランスクリプト）で、name、summary、transcript の順に並ぶ。
+ * 名前と要約だけで当たった行は matchCount 0、snippets 空である。
+ * 語の無いファイルだけの検索の行には付かない。古いサーバも送らないので、受け取る側は無いものとして読む。
  */
-export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[] };
+export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[]; matched?: ('name' | 'summary' | 'transcript')[] };
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
@@ -83,7 +86,22 @@ export type RunKind = 'start' | 'resume' | 'fork';
 export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
 export type TerminalApp = 'terminal' | 'iterm';
 /** 1 回の起動または再開。tmux 上の寿命と一致する。 */
-export type RunDto = { id: string; sessionId: string; deviceId: string; kind: RunKind; tmuxName: string; pid: number | null; startedAt: number; endedAt: number | null; endReason: EndReason | null; heartbeatAt: number };
+export type RunDto = {
+  id: string; sessionId: string; deviceId: string; kind: RunKind; tmuxName: string; pid: number | null; startedAt: number; endedAt: number | null; endReason: EndReason | null; heartbeatAt: number;
+  /**
+   * 起動のときに選んだ権限モード（`LaunchParams.permissionMode` の値）。サーバが `runs.launch_params` から読んで組む。
+   * 選ばなかった起動と、hangar の外で起動したセッション（ターミナルの包み方からの起動）は値が無く、鍵ごと送らない。
+   * 起動のあとに Claude の中で切り替えた値は分からない。
+   */
+  permissionMode?: string | null;
+};
+/**
+ * `GET /api/sessions/:id/files`。そのセッションが編集系のツール（Edit、Write、MultiEdit、NotebookEdit）で変えたファイルの一覧。
+ * `event_index` の呼び出しをパスでまとめたもので、読み込んだトランスクリプトの窓には依らない。索引した順に並ぶ。
+ * edits はそのパスへの呼び出しの回数。agentId は、メイン会話が一度も触れておらずサブエージェントだけが触ったときの、最初のサブエージェントの id で、それ以外は null。
+ * 足した行と消した行の数は `event_index` に無いので持たない。
+ */
+export type SessionFilesDto = { files: { path: string; edits: number; agentId: string | null }[] };
 /** セッション画面のタブ。agent タブの id は run の id と同じ。 */
 export type TabDto = { id: string; runId: string; sessionId: string; kind: 'agent' | 'shell'; title: string; tmuxName: string; createdAt: number; closedAt: number | null };
 export type LaunchResultDto = { run: RunDto; sessionId: string; tabs: TabDto[] };
@@ -117,12 +135,12 @@ export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable';
 export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null };
 /**
  * 準備の確かめ（GET /api/readiness）。
- * 設定画面の欄の下の検証と、空のホームの確認リストが、同じこの 1 つを読む。
+ * 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、同じこの 1 つを読む。
  * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
  * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
  * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。
- * compat は Claude Code との互換の要約で、設定の互換の節と確認リストの 6 行目が読む。ずれの中身は GET /api/compat で取る。
+ * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
   tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: ToolCheckDto & { auto: boolean } };

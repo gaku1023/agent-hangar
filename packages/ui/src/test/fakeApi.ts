@@ -9,7 +9,7 @@ type Extras = Pick<
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'configPreview' | 'configPull'
   | 'retention' | 'retentionPreview' | 'writeRetention'
-  | 'live' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
+  | 'live' | 'sessionFiles' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
 >;
 
@@ -44,7 +44,7 @@ export function fakeApiExtras(): Extras {
     usageAggregate: vi.fn(async () => ({ days: [], projects: [] })),
     statusline: vi.fn(async () => ({ command: null, scriptPath: null, installed: false })),
     shellHook: vi.fn(async () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' })),
-    // 準備の確かめは、空のホームでも取りに行くので、どのテストでも答えを返す。
+    // 準備の確かめは、起動のたびに取りに行くので、どのテストでも答えを返す。
     readiness: vi.fn(async () => ({
       tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset' as const, version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
       workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
@@ -85,6 +85,7 @@ export function fakeApiExtras(): Extras {
     retentionPreview: vi.fn(async () => unused()),
     writeRetention: vi.fn(async () => unused()),
     live: vi.fn(async (sessionId: string) => ({ sessionId, turnStartSeq: null, intent: null, agents: [] })),
+    sessionFiles: vi.fn(async () => ({ files: [] })),
     // アカウントは既定で 2 件の固定データを返す。切り替えの結果は使うテストが自分で上書きする。
     accounts: vi.fn(async () => accountsFixture),
     setCurrentAccount: vi.fn(async () => accountsFixture),

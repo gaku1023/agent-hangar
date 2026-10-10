@@ -117,6 +117,30 @@ describe('createRuntime', () => {
     await flush();
     expect(api.live).toHaveBeenCalledTimes(2);
   });
+  it('セッションを開くとき、変更したファイルの一覧も取り、run が終わったら取り直す', async () => {
+    const files = [{ path: '/w/a.ts', edits: 2, agentId: null }];
+    const sessionFiles = vi.fn(async () => ({ files }));
+    const { rt, api, setHash } = harness({ sessionFiles });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(api.sessionFiles).toHaveBeenCalledTimes(1);
+    expect(api.sessionFiles).toHaveBeenCalledWith('s1');
+    expect(rt.getStore().sessionFiles.s1).toEqual(files);
+    // 実行中に増えた分は、終わったときに取り直す。
+    rt.dispatch({ kind: 'server', event: { type: 'run.ended', run: { ...aliveRun, endedAt: 5, endReason: 'exited' } } });
+    await flush();
+    expect(api.sessionFiles).toHaveBeenCalledTimes(2);
+  });
+  it('変更したファイルの一覧を取れなくても、知らせは出さない（補助の表示）', async () => {
+    const sessionFiles = vi.fn(async () => { throw new Error('500'); });
+    const { rt, setHash } = harness({ sessionFiles });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(rt.getStore().sessionFiles.s1).toBeUndefined();
+    expect(rt.getState().toasts).toEqual([]);
+  });
   it('生きた run の無いセッションでは要約を取らない', async () => {
     const { rt, api, setHash } = harness();
     rt.start();
@@ -192,32 +216,46 @@ describe('createRuntime', () => {
     expect(api.events).toHaveBeenLastCalledWith('s1', { fromSeq: 3, agentId: null });
     expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([2, 3]);
   });
-  it('検索の別のページは、そのページの行に入れ替える', async () => {
+  it('検索の「さらに読み込む」は、届いた行を持っている行の後ろに足す', async () => {
     const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
-    const search = vi.fn(async (p: { offset?: number }) => (p.offset ? { hits: [hit('s3')], total: 3 } : { hits: [hit('s1'), hit('s2')], total: 3 }));
-    const { rt, setHash, store } = harness({ search });
-    // 1 ページの件数は、起動時に保存から読み戻す。
-    store.set('sessions.pageSize', 25);
+    const search = vi.fn(async (p: { offset?: number }) => (p.offset ? { hits: [hit('s2'), hit('s3')], total: 3 } : { hits: [hit('s1'), hit('s2')], total: 3 }));
+    const { rt, setHash } = harness({ search });
     rt.start();
-    setHash('#/sessions?q=x');
+    setHash('#/?q=x');
     await flush();
-    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, limit: 25 });
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, limit: 50 });
     expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2']);
-    rt.emit({ type: 'search.page', page: 2 });
+    rt.emit({ type: 'search.more' });
     // 読んでいる間も、持っている行は消さない。
     expect(rt.getStore().search).toMatchObject({ loading: true, result: { total: 3 } });
     expect(rt.getStore().search.result?.hits).toHaveLength(2);
     await flush();
-    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, limit: 25, offset: 25 });
+    expect(search).toHaveBeenLastCalledWith({ q: 'x', hideArchived: true, limit: 50, offset: 2 });
     expect(rt.getStore().search).toMatchObject({ loading: false, result: { total: 3 } });
-    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s3']);
+    // 重なった行（s2）は 1 度だけ。
+    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1', 's2', 's3']);
+  });
+  it('「さらに読み込む」の最中に条件を変えたら、古い続きは捨てる', async () => {
+    const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
+    let release: (r: { hits: ReturnType<typeof hit>[]; total: number }) => void = () => {};
+    const search = vi.fn((p: { offset?: number; status?: string }) => (p.offset ? new Promise<{ hits: ReturnType<typeof hit>[]; total: number }>((res) => { release = res; }) : Promise.resolve(p.status ? { hits: [hit('d1')], total: 1 } : { hits: [hit('s1'), hit('s2')], total: 5 })));
+    const { rt, setHash } = harness({ search });
+    rt.start();
+    setHash('#/?q=x');
+    await flush();
+    rt.emit({ type: 'search.more' });
+    rt.emit({ type: 'search.filter', patch: { status: 'done' } });
+    await flush();
+    release({ hits: [hit('s3'), hit('s4')], total: 5 });
+    await flush();
+    expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['d1']);
   });
   it('期間の日数は、問い合わせる時刻で since に直してから送る', async () => {
     const search = vi.fn(async () => ({ hits: [], total: 0 }));
     const now = new Date(2026, 9, 1, 15, 30).getTime();
     const { rt, setHash } = harness({ search }, { now: () => now });
     rt.start();
-    setHash('#/sessions?q=x');
+    setHash('#/?q=x');
     await flush();
     rt.emit({ type: 'search.filter', patch: { days: 1 } });
     await flush();
@@ -227,7 +265,7 @@ describe('createRuntime', () => {
     const search = vi.fn(async () => ({ hits: [], total: 0 }));
     const { rt, setHash } = harness({ search });
     rt.start();
-    setHash('#/sessions?q=x');
+    setHash('#/?q=x');
     await flush();
     expect(search).toHaveBeenCalledTimes(1);
     rt.emit({ type: 'search.query', text: 'x', filter: { status: 'done' } });
@@ -239,7 +277,7 @@ describe('createRuntime', () => {
     const search = vi.fn(async () => ({ hits: [], total: 0 }));
     const { rt, setHash } = harness({ search });
     rt.start();
-    setHash('#/sessions');
+    setHash('#/');
     await flush();
     expect(search).not.toHaveBeenCalled();
     rt.emit({ type: 'search.query', text: '', filter: { file: 'a.md' } });
@@ -247,14 +285,14 @@ describe('createRuntime', () => {
     expect(search).toHaveBeenCalledTimes(1);
     expect(search).toHaveBeenLastCalledWith({ q: '', file: 'a.md', hideArchived: true, limit: 50 });
   });
-  it('検索の別のページに失敗しても、読み込み中のまま残さず、持っている結果も消さない', async () => {
+  it('「さらに読み込む」に失敗しても、読み込み中のまま残さず、持っている結果も消さない', async () => {
     const hit = (id: string) => ({ sessionId: id, matchCount: 1, snippets: [] });
     const search = vi.fn(async (p: { offset?: number }) => { if (p.offset) throw new Error('500 /api/search'); return { hits: [hit('s1')], total: 3 }; });
     const { rt, setHash } = harness({ search });
     rt.start();
-    setHash('#/sessions?q=x');
+    setHash('#/?q=x');
     await flush();
-    rt.emit({ type: 'search.page', page: 2 });
+    rt.emit({ type: 'search.more' });
     await flush();
     expect(rt.getStore().search).toMatchObject({ loading: false, result: { total: 3 } });
     expect(rt.getStore().search.result?.hits.map((h) => h.sessionId)).toEqual(['s1']);
@@ -355,32 +393,16 @@ describe('createRuntime', () => {
     b.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
     expect(b.store.get('sv:s1')).not.toHaveProperty('summaryOpen');
   });
-  it('右ペインの上下の比率を起動時に読み戻す。数でない値や範囲の外は丸める', () => {
+  it('古い保存に残る右ペインの境目の比率は、読み戻すときに捨て、書き戻さない', () => {
     const a = harness();
     a.store.set('livePane.split', 0.35);
+    a.store.set('sv:s1', { showThinking: true, livePaneSplit: 0.25 });
     a.rt.start();
-    expect(a.rt.getState().livePaneSplit).toBe(0.35);
-    const b = harness();
-    b.store.set('livePane.split', 'half');
-    b.rt.start();
-    expect(b.rt.getState().livePaneSplit).toBe(0.5);
-    const c = harness();
-    c.store.set('livePane.split', 3);
-    c.rt.start();
-    expect(c.rt.getState().livePaneSplit).toBe(1);
-  });
-  it('セッションごとの右ペインの比率を起動時に読み戻す。数でない値は持たないものとし、範囲の外は丸める', () => {
-    const a = harness();
-    a.store.set('sv:s1', { livePaneSplit: 0.25 });
-    a.store.set('sv:s2', { livePaneSplit: 'half' });
-    a.store.set('sv:s3', { livePaneSplit: 3 });
-    a.store.set('sv:s4', { showRaw: true });
-    a.rt.start();
-    const sv = a.rt.getState().sessionView;
-    expect(sv.s1?.livePaneSplit).toBe(0.25);
-    expect(sv.s2?.livePaneSplit).toBeNull();
-    expect(sv.s3?.livePaneSplit).toBe(1);
-    expect(sv.s4?.livePaneSplit).toBeNull();
+    expect(a.rt.getState()).not.toHaveProperty('livePaneSplit');
+    expect(a.rt.getState().sessionView.s1).toMatchObject({ showThinking: true });
+    expect(a.rt.getState().sessionView.s1).not.toHaveProperty('livePaneSplit');
+    a.rt.emit({ type: 'transcript.showRaw', sessionId: 's1', show: true });
+    expect(a.store.get('sv:s1')).not.toHaveProperty('livePaneSplit');
   });
   it('サイドバーの折りたたみを保存し、起動時に読み戻す。真でない値は開いたまま', () => {
     const a = harness();
@@ -1081,7 +1103,7 @@ describe('同期とこの PC で再開', () => {
     rt.start();
     wsHandlers[0]!.onOpen();
     await flush();
-    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ visible: true, state: 'idle', pending: 4 });
+    expect(presentShell(rt.getState(), rt.getStore(), 10).sync).toMatchObject({ visible: true, state: 'idle', pending: '未送信の変更 4' });
     expect(rt.getStore().devices).toEqual([device]);
   });
   it('websocket の sync.status で、片付いた取り残しと回復した失敗が画面から消える', async () => {
@@ -1644,15 +1666,47 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     await flush();
     expect(readiness).toHaveBeenCalledTimes(2);
   });
-  it('セッションが 1 つも無い起動では、ホームの確認リストのために準備の確かめを取る', async () => {
-    const readiness = vi.fn(async () => READY);
-    const { rt, wsHandlers } = harness({ readiness });
-    rt.start();
-    wsHandlers[0]!.onOpen();
-    await flush();
-    await flush();
-    expect(readiness).toHaveBeenCalledTimes(1);
-    expect(rt.getStore().readiness).toEqual(READY);
+  it('起動のたびに、ホームの帯の確認のために準備の確かめを取る（セッションが 1 つも無いときに限らない）', async () => {
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
+    for (const sessions of [[], [s1]]) {
+      const readiness = vi.fn(async () => READY);
+      const { rt, wsHandlers } = harness({ readiness, bootstrap: vi.fn(async () => ({ ...boot, sessions })) });
+      rt.start();
+      wsHandlers[0]!.onOpen();
+      await flush();
+      await flush();
+      expect([sessions.length, readiness.mock.calls.length]).toEqual([sessions.length, 1]);
+      expect(rt.getStore().readiness).toEqual(READY);
+    }
+  });
+  describe('そろったときのトースト（2.11.4）', () => {
+    const PENDING = { ...READY, workspace: { ...READY.workspace, projectCount: 0 } };
+    const OPTIONAL_LEFT = READY;
+    const COMPLETE = { ...READY, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } };
+    /** 答えを順に返す。呼ぶたびに 1 つ進む。 */
+    const run = async (answers: unknown[]) => {
+      const readiness = vi.fn(async () => answers.shift() as never);
+      const { rt } = harness({ readiness });
+      rt.start();
+      for (let i = 0; i < 3; i++) { rt.emit({ type: 'readiness.check' }); await flush(); }
+      return rt;
+    };
+    it('直すものがあった後で全部そろったら、トーストを 1 回だけ出す。取り直しを重ねても繰り返さない', async () => {
+      const rt = await run([PENDING, COMPLETE, COMPLETE]);
+      expect(rt.getState().toasts.map((t) => t.message)).toEqual(['セットアップは完了しています。設定の「情報」でいつでも確認できます']);
+    });
+    it('必須が済んで任意の行だけが残ったときは、帯が消えるので、任意が設定の「連携」に残ることをトーストで言う', async () => {
+      const rt = await run([PENDING, OPTIONAL_LEFT, OPTIONAL_LEFT]);
+      expect(rt.getState().toasts.map((t) => t.message)).toEqual(['必要な準備は完了しました。MCP とステータスラインは設定の「連携」で設定できます']);
+    });
+    it('最初の取得で、すでにそろっているときは出さない（そろったのではなく、はじめから問題が無い）', async () => {
+      const rt = await run([COMPLETE, COMPLETE, COMPLETE]);
+      expect(rt.getState().toasts).toEqual([]);
+    });
+    it('直すものが残っている間は出さない', async () => {
+      const rt = await run([PENDING, PENDING, PENDING]);
+      expect(rt.getState().toasts).toEqual([]);
+    });
   });
   it('互換にずれがあれば、準備の確かめに続けてずれの中身を取る。ずれが無くなれば中身を捨てる', async () => {
     const DETAIL = { verifiedVersion: '2.1.292', localVersion: '2.1.300', drifts: [{ contract: 'registry' as const, value: 'status=compacting', version: '2.1.300', count: 1, firstSeenAt: 1, lastSeenAt: 2 }] };

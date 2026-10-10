@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -23,6 +23,8 @@ export type ApiClient = {
   subagents(sessionId: string): Promise<string[]>;
   /** 実行中のセッションの右ペインに出すライブの要約。 */
   live(sessionId: string): Promise<LiveDigestDto>;
+  /** そのセッションが編集系のツールで変えたファイル（索引から。読み込んだ本文の窓には依らない）。冒頭の 1 枚の「変更したファイル」が使う。 */
+  sessionFiles(sessionId: string): Promise<SessionFilesDto>;
   search(params: SearchParamsDto): Promise<SearchResultDto>;
   setProjectStatus(id: string, status: ProjectStatus): Promise<ProjectDto>;
   resolveProject(id: string, action: ResolveAction): Promise<unknown>;
@@ -59,7 +61,7 @@ export type ApiClient = {
   usageAggregate(days: number): Promise<UsageAggregateDto>;
   statusline(): Promise<StatuslineStatusDto>;
   shellHook(): Promise<ShellHookDto>;
-  /** 準備の確かめ。設定画面の検証と、空のホームの確認リストが読む。 */
+  /** 準備の確かめ。設定画面の検証と、ホームの帯の始める前の確認が読む。 */
   readiness(): Promise<ReadinessDto>;
   /** Claude Code との互換のずれの中身。準備の確かめでずれが 1 件以上あるときに、続けて取る（止めた機能の一覧を常に出すため）。 */
   compat(): Promise<CompatDto>;
@@ -139,6 +141,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     events: (sessionId, q) => call(`/api/sessions/${sessionId}/events${qs({ latest: q.latest ? 1 : undefined, before: q.beforeSeq, fromSeq: q.fromSeq, agentId: q.agentId })}`),
     subagents: (sessionId) => call(`/api/sessions/${sessionId}/subagents`),
     live: (sessionId) => call(`/api/sessions/${sessionId}/live`),
+    sessionFiles: (sessionId) => call(`/api/sessions/${sessionId}/files`),
     search: (params) => call(`/api/search${qs(params)}`),
     setProjectStatus: (id, status) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     resolveProject: (id, action) => call(`/api/projects/${id}/resolve`, { method: 'POST', body: JSON.stringify(action) }),

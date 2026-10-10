@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs } from './queries.ts';
+import { aliveRunForSession, getRun, getTab, listActiveRuns, listAliveRuns, listTabs, toRunDto, type RunRow } from './queries.ts';
 
 function seed() {
   const db = openDb(':memory:');
@@ -42,5 +42,32 @@ describe('runs/queries', () => {
     expect(getTab(db, 't1')?.tmuxName).toBe('hangar-r1-t1');
     expect(getTab(db, 't2')).toBeNull();
     expect(getTab(db, 'nope')).toBeNull();
+  });
+
+  describe('RunDto.permissionMode', () => {
+    const row = (launchParams: string): RunRow => ({ id: 'r', session_id: 's', device_id: 'd', kind: 'start', tmux_name: 't', pid: null, launch_params: launchParams, started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 });
+
+    it('起動のときの launch_params の permissionMode を、そのまま返す', () => {
+      expect(toRunDto(row('{"projectId":"p","permissionMode":"acceptEdits"}')).permissionMode).toBe('acceptEdits');
+      expect(toRunDto(row('{"permissionMode":"bypassPermissions"}')).permissionMode).toBe('bypassPermissions');
+    });
+
+    it('前後の空白は落とす（起動は trim した値を claude に渡している）', () => {
+      expect(toRunDto(row('{"permissionMode":"  plan "}')).permissionMode).toBe('plan');
+    });
+
+    it('値が無いときは、鍵ごと出さない（hangar の外で起動したセッションの run、権限モードを選ばなかった起動）', () => {
+      for (const lp of ['{}', '{"projectId":"p"}', '{"permissionMode":""}', '{"permissionMode":"   "}', '{"permissionMode":3}', '{"permissionMode":null}', 'null', '[]', '壊れた JSON']) {
+        expect(toRunDto(row(lp)), lp).not.toHaveProperty('permissionMode');
+      }
+    });
+
+    it('getRun と一覧の行にも載る。列は足さない', () => {
+      const db = seed();
+      upsertShared(db, 'runs', { id: 'r3', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-r3', pid: null, launch_params: '{"permissionMode":"auto"}', started_at: 200, ended_at: null, end_reason: null, heartbeat_at: 200 }, 'd');
+      expect(getRun(db, 'r3')?.permissionMode).toBe('auto');
+      expect(listAliveRuns(db, 'd').find((r) => r.id === 'r3')?.permissionMode).toBe('auto');
+      expect(getRun(db, 'r1')).not.toHaveProperty('permissionMode');
+    });
   });
 });

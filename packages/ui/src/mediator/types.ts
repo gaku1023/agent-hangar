@@ -56,7 +56,8 @@ export type Effect =
   // fromSeq の 0 は「開いた（最新側）」、-1 は「過去へ遡る」、-2 は「追記の取り込み（後ろを読み足す）」。
   // aroundSeq は検索の結果から開いたときの跳び先で、開いたときに最新の側ではなくその周りを読む。
   | { kind: 'api.loadEvents'; sessionId: string; fromSeq: number; aroundSeq?: number }
-  | { kind: 'api.search'; params: SearchQuery }
+  // append が真なら、届いた行を持っている結果の後ろに足す（「さらに読み込む」）。偽か無ければ置き換える。
+  | { kind: 'api.search'; params: SearchQuery; append?: boolean }
   | { kind: 'api.resolveProject'; projectId: string; action: ResolveAction }
   | { kind: 'api.updateSettings'; patch: Partial<SettingsDto>; field?: string }
   | { kind: 'api.readiness' }
@@ -150,8 +151,6 @@ export type TurnJumpStatus = 'pending' | 'found' | 'notFound' | 'mode' | 'failed
 export type JumpState = { seq: number; query: string; n: number };
 export type SessionViewState = {
   agentId: string | null; showThinking: boolean; showRaw: boolean; follow: boolean; selectedTab: string | null; transcriptOpen: boolean; split: boolean; splitTab: string | null;
-  /** 右ペインの「いま」の段が取る高さの割合。まだ境目を動かしていなければ null で、画面は最後に動かした値（State の livePaneSplit）で開く。 */
-  livePaneSplit: number | null;
   /** 目次で開いているターン（区切りの行の seq）。その場の操作なので保存しない。 */
   openTurn: number | null;
   /**
@@ -231,8 +230,11 @@ export type State = {
    * Presenter が読む（presenters/project.ts）ので View ではなくここに持つ。保存はしない。
    */
   sectionsOpen: Record<string, 'archived'[]>;
-  /** 最後に動かした、実行中の右ペインで「いま」の段が取る高さの割合（0〜1）。境目を動かしていないセッションはこれで開く。端末ごとに localStorage に残す。 */
-  livePaneSplit: number;
+  /**
+   * ベルの一覧で既読にした行の鍵（種類、対象、事実の版）。新しいものが後ろ。端末ごとに localStorage に残し、起動時に読み戻す。
+   * 一覧の行は事実から Presenter が組み、ここは既読の鍵だけを持つ（mediator/notices.ts）。
+   */
+  noticesRead: string[];
   /** 保持期間の帯を「このままでよい」で閉じたか。端末ごとに localStorage に残し、起動時に読み戻す。 */
   retentionBannerDismissed: boolean;
   /** 新しいセッションのダイアログの書きかけ。閉じても残し、次に開いたときに戻す。端末ごとに localStorage に残す。 */

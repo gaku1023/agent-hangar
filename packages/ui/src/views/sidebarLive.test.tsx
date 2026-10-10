@@ -64,7 +64,7 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
   it('ホームでも、ほかの画面と同じ行を同じ並びで出す', () => {
     const st = { sidebarOrder: ['c', 'a', 'b'] };
     expect(liveOf(store, { ...at('home'), ...st })).toEqual(liveOf(store, { ...at('projects'), ...st }));
-    render(<IntentRoot onIntent={vi.fn()}><Sidebar nav={[]} collapsed={false} live={liveOf(store, { ...at('home'), ...st })} /></IntentRoot>);
+    render(<IntentRoot onIntent={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={liveOf(store, { ...at('home'), ...st })} /></IntentRoot>);
     expect(screen.getAllByRole('link').map((a) => a.textContent)).toEqual([expect.stringContaining('name-c'), expect.stringContaining('name-a'), expect.stringContaining('name-b')]);
   });
   it('並べるのは上限までで、超えた分は数だけ返す。並べ替えの計算には全部の並びを渡す', () => {
@@ -167,7 +167,7 @@ describe('行の移し方', () => {
 
 const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
-const mount = (live: SideLiveProps, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><Sidebar nav={[]} collapsed={false} live={live} /></IntentRoot>), onIntent });
+const mount = (live: SideLiveProps, onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></IntentRoot>), onIntent });
 
 // jsdom はドラッグのイベントにポインタの位置を載せないので、作ったイベントに clientY を足してから送る。
 const dragAt = (kind: 'dragOver' | 'drop', el: HTMLElement, clientY: number) => {
@@ -176,7 +176,7 @@ const dragAt = (kind: 'dragOver' | 'drop', el: HTMLElement, clientY: number) => 
   fireEvent(el, ev);
 };
 
-describe('サイドバーの「動いている」の節（Sidebar）', () => {
+describe('サイドバーの「実行中」の節（Sidebar）', () => {
   it('バックグラウンドだけ動いている行は、丸だけを薄いオレンジにし、名前の横に語を添えない', () => {
     const { container } = mount({ count: 1, ids: ['a'], rows: [row('a', { aside: true })], more: 0 });
     const link = screen.getByRole('link', { name: /name-a/ });
@@ -185,7 +185,7 @@ describe('サイドバーの「動いている」の節（Sidebar）', () => {
   });
   it('見出しに件数を出し、行を押すとそのセッションを開く', () => {
     const { onIntent } = mount(liveProps());
-    expect(screen.getByRole('heading', { name: /動いている/ })).toHaveTextContent('3');
+    expect(screen.getByRole('heading', { name: /実行中/ })).toHaveTextContent('3');
     fireEvent.click(screen.getByRole('link', { name: /name-a/ }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
   });
@@ -195,9 +195,14 @@ describe('サイドバーの「動いている」の節（Sidebar）', () => {
     expect(screen.getByRole('link', { name: /name-c/ })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /name-a/ })).not.toHaveAttribute('aria-current');
   });
+  it('節の名前は「実行中」で、読み上げの名前は「実行中のセッション」にする', () => {
+    mount(liveProps());
+    expect(screen.getByRole('region', { name: '実行中のセッション' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /実行中/ })).toHaveTextContent(/^実行中3$/);
+  });
   it('動いているものが無ければ、節ごと出さない', () => {
     mount(liveProps({ count: 0, ids: [], rows: [] }));
-    expect(screen.queryByRole('heading', { name: /動いている/ })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /実行中/ })).toBeNull();
   });
   it('並べきれない分は「ほか N 件」にして、押すとホームへ行く', () => {
     const { onIntent } = mount(liveProps({ count: 11, more: 8 }));
@@ -331,7 +336,7 @@ describe('行のメニュー（右クリックと .）', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
   it('メニューを開いている間に行が消えたら閉じ、その行がまた現れても開き直さない', () => {
-    const ui = (live: SideLiveProps) => <IntentRoot onIntent={vi.fn()}><Sidebar nav={[]} collapsed={false} live={live} /></IntentRoot>;
+    const ui = (live: SideLiveProps) => <IntentRoot onIntent={vi.fn()}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></IntentRoot>;
     const { rerender } = render(ui(liveProps()));
     fireEvent.contextMenu(screen.getByRole('link', { name: /name-a/ }));
     rerender(ui(liveProps({ count: 2, ids: ['b', 'c'], rows: [row('b'), row('c')] })));
@@ -346,7 +351,7 @@ describe('行のメニュー（右クリックと .）', () => {
   });
 });
 
-describe('サイドバーの「動いている」の見た目', () => {
+describe('サイドバーの「実行中」の見た目', () => {
   const base = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../styles/base.css'), 'utf8');
   it('入る場所は行の上か下の線で示す', () => {
     expect(base).toMatch(/\.side-live-row\[data-over='before'\] \{[^}]*box-shadow: inset 0 2px 0 var\(--accent\)/);

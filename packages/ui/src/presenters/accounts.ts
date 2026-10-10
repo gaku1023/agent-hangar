@@ -1,4 +1,4 @@
-import { type AccountDto, type RateWindowDto, windowAt } from '@agent-hangar/shared';
+import { type AccountDto, type RateWindowDto, type Translate, windowAt } from '@agent-hangar/shared';
 import { accountList, currentAccount, type Store } from '../store/store.ts';
 import { relativeTime, resetsLabel } from './format.ts';
 
@@ -72,11 +72,11 @@ export const isPickableAccount = (a: AccountView): boolean => a.auth !== 'out' &
  * ヘッダの切り替えボタンの読み上げ。
  * 名前に 5 時間と週の使用率（丸めた値）を添える。値が無い窓は言わない。メールアドレスは入れない。
  */
-export function switchLabel(a: Pick<AccountView, 'name' | 'fiveHour' | 'sevenDay'>): string {
+export function switchLabel(t: Translate, a: Pick<AccountView, 'name' | 'fiveHour' | 'sevenDay'>): string {
   const parts = [a.name];
-  if (a.fiveHour !== null) parts.push(`5 時間 ${Math.round(a.fiveHour.percent)}%`);
-  if (a.sevenDay !== null) parts.push(`週 ${Math.round(a.sevenDay.percent)}%`);
-  return `アカウントを切り替える（いまは ${parts.join('、')}）`;
+  if (a.fiveHour !== null) parts.push(t('accountSwitcher.face.fiveHour', { percent: Math.round(a.fiveHour.percent) }));
+  if (a.sevenDay !== null) parts.push(t('accountSwitcher.face.sevenDay', { percent: Math.round(a.sevenDay.percent) }));
+  return t('accountSwitcher.face.aria', { parts: parts.join(t('common.list.separator')) });
 }
 
 export function presentAccounts(store: Store, now: number): AccountView[] {

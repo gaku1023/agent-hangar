@@ -1,6 +1,7 @@
-import { addDays, localDate } from '@agent-hangar/shared';
+import { addDays, localDate, type Translate } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
+import { translatorOf } from './i18n.ts';
 
 /** 戻る日の札（B1）。pick（日付を選ぶ…）だけは日を持たず、選んだときに暦の欄を出す。 */
 export type PauseChoice = { key: 'today' | 'tomorrow' | 'monday' | 'nextWeek' | 'pick'; label: string; returnOn: string | null };
@@ -16,15 +17,15 @@ export type PauseProps = { sessionId: string; sessionName: string; from: 'menu' 
  * 戻る日は日付だけで持つので、「今日の夕方」は今日、「明日」は明日として扱う。
  * 月曜は次の月曜で、今日が月曜なら 7 日後にする。来週は 7 日後である。
  */
-export function pauseChoices(now: number): PauseChoice[] {
+export function pauseChoices(now: number, t: Translate): PauseChoice[] {
   const today = localDate(now);
   const toMonday = ((8 - new Date(now).getDay()) % 7) || 7;
   return [
-    { key: 'today', label: '今日の夕方', returnOn: today },
-    { key: 'tomorrow', label: '明日', returnOn: addDays(today, 1) },
-    { key: 'monday', label: '月曜', returnOn: addDays(today, toMonday) },
-    { key: 'nextWeek', label: '来週', returnOn: addDays(today, 7) },
-    { key: 'pick', label: '日付を選ぶ…', returnOn: null },
+    { key: 'today', label: t('pause.choice.today'), returnOn: today },
+    { key: 'tomorrow', label: t('pause.choice.tomorrow'), returnOn: addDays(today, 1) },
+    { key: 'monday', label: t('pause.choice.monday'), returnOn: addDays(today, toMonday) },
+    { key: 'nextWeek', label: t('pause.choice.nextWeek'), returnOn: addDays(today, 7) },
+    { key: 'pick', label: t('pause.choice.pick'), returnOn: null },
   ];
 }
 
@@ -40,9 +41,10 @@ export function presentPause(state: State, store: Store, now: number): PauseProp
   const st = s.state;
   const cand = from === 'candidate' ? st?.candidate ?? null : null;
   const own = st?.status === 'paused' ? st : null;
-  const choices = pauseChoices(now);
+  const t = translatorOf(store);
+  const choices = pauseChoices(now, t);
   return {
-    sessionId, sessionName: s.name ?? '（名前なし）', from,
+    sessionId, sessionName: s.name ?? t('pause.session.unnamed'), from,
     draft: cand ? cand.note ?? '' : own?.note ?? '',
     candidateNote: cand?.note ?? null,
     initialReturnOn: cand?.returnOn ?? own?.returnOn ?? choices[1]!.returnOn!,

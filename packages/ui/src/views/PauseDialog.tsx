@@ -4,6 +4,7 @@ import { useEmit } from '../intent/chain.tsx';
 import type { PauseChoice, PauseProps } from '../presenters/pause.ts';
 import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';
+import { useT } from './primitives/language.tsx';
 
 const DIGITS = ['1', '2', '3', '4', '5'];
 /** 改行は 1 つの空白にたたみ、前後の空白を落とす。サーバ（sessions/states.ts）の整え方と同じにする。 */
@@ -18,6 +19,7 @@ const tidy = (s: string) => s.replace(/\s*[\r\n]+\s*/g, ' ').trim();
  */
 export function PauseDialog(props: PauseProps) {
   const emit = useEmit();
+  const t = useT();
   const initial: PauseChoice['key'] = props.choices.find((c) => c.returnOn === props.initialReturnOn)?.key ?? 'pick';
   const [choice, setChoice] = useState<PauseChoice['key']>(initial);
   const [picked, setPicked] = useState(initial === 'pick' ? props.initialReturnOn : '');
@@ -60,16 +62,16 @@ export function PauseDialog(props: PauseProps) {
   // 理由を打ちかけたまま背景を押し違えても失わないよう、背景では閉じない。
   return (
     <Dialog
-      title="Paused にする"
-      titleAside={props.from === 'candidate' ? <span className="pause-draft">Claude の下書き</span> : undefined}
+      title={t('pause.dialog.title')}
+      titleAside={props.from === 'candidate' ? <span className="pause-draft">{t('pause.dialog.draftTag')}</span> : undefined}
       className="dialog-pause"
       onClose={close}
       closeOnBackdrop={false}
       onKeyDown={onKeyDown}
-      footer={<><button type="button" className="btn" onClick={close}>やめる</button><span className="spacer" /><button type="button" className="btn btn-primary" disabled={!canSubmit} onClick={submit}>Paused にする</button></>}
+      footer={<><button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button><span className="spacer" /><button type="button" className="btn btn-primary" disabled={!canSubmit} onClick={submit}>{t('pause.dialog.action')}</button></>}
     >
       <div className="faint">{props.sessionName}</div>
-      <div className="pause-chips" role="radiogroup" aria-label="戻る日の候補">
+      <div className="pause-chips" role="radiogroup" aria-label={t('pause.choices.aria')}>
         {props.choices.map((c, i) => (
           <button key={c.key} type="button" role="radio" aria-checked={choice === c.key} className="pause-chip" data-autofocus={c.key === initial ? 'true' : undefined} onClick={() => setChoice(c.key)}>
             {c.label}<kbd>{i + 1}</kbd>
@@ -77,18 +79,18 @@ export function PauseDialog(props: PauseProps) {
         ))}
       </div>
       {choice === 'pick' && (
-        <label className="field">日付
+        <label className="field">{t('pause.field.date')}
           <input type="date" className="input" min={props.today} value={picked} onChange={(e) => setPicked(e.target.value)} onKeyDown={onFieldKey} />
         </label>
       )}
-      <label className="field pause-time">時刻（任意）
-        <input type="time" className="input" aria-label="時刻（任意）" value={time} onChange={(e) => setTime(e.target.value)} onKeyDown={onFieldKey} />
-        <span className="faint">空なら、その日のうち</span>
+      <label className="field pause-time">{t('pause.field.time')}
+        <input type="time" className="input" aria-label={t('pause.field.time')} value={time} onChange={(e) => setTime(e.target.value)} onKeyDown={onFieldKey} />
+        <span className="faint">{t('pause.field.timeHint')}</span>
       </label>
-      <label className="field">何を確かめに戻るか
-        <input className="input" aria-label="理由" value={note} placeholder="明日の朝、本番の CPU の数字を見る" onChange={(e) => setNote(e.target.value)} onKeyDown={onFieldKey} />
+      <label className="field">{t('pause.field.reason')}
+        <input className="input" aria-label={t('pause.field.reason')} value={note} placeholder={t('pause.field.reasonPlaceholder')} onChange={(e) => setNote(e.target.value)} onKeyDown={onFieldKey} />
       </label>
-      <div className={length > STATE_NOTE_MAX ? 'error' : 'faint'} aria-live="polite">{length} / {STATE_NOTE_MAX} 字</div>
+      <div className={length > STATE_NOTE_MAX ? 'error' : 'faint'} aria-live="polite">{t('pause.field.count', { n: length, max: STATE_NOTE_MAX })}</div>
     </Dialog>
   );
 }
