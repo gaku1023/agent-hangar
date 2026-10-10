@@ -76,7 +76,7 @@ describe('close の本文の上げ待ち', () => {
 });
 
 describe('close の同期の押し出し待ち', () => {
-  /** SyncEngine と ClaudeConfigSync と同じ形の立て替え。idle が返るまで stop を呼んではいけない。 */
+  /** SyncEngine と ConfigSyncService と同じ形の立て替え。idle が返るまで stop を呼んではいけない。 */
   const fakeJob = () => {
     const calls: string[] = [];
     let finish = () => {};

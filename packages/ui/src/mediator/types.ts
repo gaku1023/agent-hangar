@@ -105,7 +105,7 @@ export type Effect =
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
-  | { kind: 'api.configPreview' } | { kind: 'api.configPull' } | { kind: 'api.joinToken' }
+  | { kind: 'api.joinToken' }
   // 設定の同期（作り直した実装）。Load は中身を取る。Apply は指示書を書き（entries が null なら、いまある指示書を使い）、殻のネイティブの確認へ進む。Restore は控えの世代へ戻す。
   | { kind: 'api.configSyncLoad'; parts: ConfigDetailPart[] }
   | { kind: 'api.configSyncApply'; entries: ConfigApplyOrderEntryIn[] | null }
@@ -141,7 +141,6 @@ export type Overlay =
   | { kind: 'newProject' }
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
-  | { kind: 'configPreview' }
   // 設定の同期（作り直した実装）。part が顔を決める。working は、適用の返事（指示書を書き、ネイティブの確認を経る）を待っているあいだ。
   | { kind: 'configSync'; part: ConfigSyncPart; working: boolean }
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }

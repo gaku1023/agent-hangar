@@ -57,7 +57,6 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sessions/park.ts': { lines: 1, why: LOG },
   'summary/job.ts': { lines: 2, why: LOG },
   'sync/apply.ts': { lines: 4, why: SYNC },
-  'sync/claudeConfig.ts': { lines: 23, why: SYNC },
   'sync/client.ts': { lines: 6, why: SYNC },
   'sync/config/apply.ts': { lines: 26, why: CLI },
   'sync/config/bundle.ts': { lines: 17, why: INTERNAL },

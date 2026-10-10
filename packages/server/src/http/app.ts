@@ -27,7 +27,7 @@ import { usageRoutes } from './routes/usage.ts';
  * 依存の一覧（AppDeps）は deps.ts にある。
  * 下の再輸出は、これらを app.ts から引いている呼び手を切らないためである。
  */
-export type { AppDeps, ConfigSyncApi, ExternalApi, RunsApi, SummaryApi, SummaryEnqueueOpts, SyncApi } from './deps.ts';
+export type { AppDeps, ExternalApi, RunsApi, SummaryApi, SummaryEnqueueOpts, SyncApi } from './deps.ts';
 export { safeExternalMessage } from './routes/common.ts';
 export { toSettingsDto } from './routes/settings.ts';
 /**

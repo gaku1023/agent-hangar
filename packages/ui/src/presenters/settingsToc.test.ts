@@ -7,8 +7,8 @@ import { presentSettings, type SettingsTocRow } from './settings.ts';
 
 const NOW = Date.parse('2026-10-09T12:00:00Z');
 
-const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null };
-const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW - 3 * 60_000, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
+const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+const SYNC: SyncStatusBody = { state: 'idle', paused: false, url: 'https://h.example', lastPushAt: null, lastPullAt: NOW - 3 * 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: null, oncePass: false };
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/opt/homebrew/bin/claude', ok: true, problem: null, version: '2.1.0' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
   workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: true, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: '/h/s.sh', installed: true },
@@ -93,6 +93,9 @@ describe('設定の節の選び方', () => {
   it('アカウントの位置へ移る印は、at=accounts のときだけ立つ', () => {
     expect(at('accounts').focus).toBe('accounts');
     expect(at('sync').focus).toBeNull();
+    // ベルの「送らなかった項目」の行から来たときは、クラウド同期の節の送らなかった項目の位置へ移る。
+    expect(at('unsent').section).toBe('cloud');
+    expect(at('unsent').focus).toBe('unsent');
     expect(at('integrations').focus).toBeNull();
     expect(at(undefined).focus).toBeNull();
   });

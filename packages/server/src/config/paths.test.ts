@@ -62,7 +62,21 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp);
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null });
+  });
+  it('旧い設定の同期のスイッチ（syncClaudeConfig）が入った settings.json も読め、未知の鍵として持ち越さない', () => {
+    // 設定の同期の作り直し（段 4）で旧実装を消した。旧スイッチを入れていた人の settings.json は、そのまま起動できる。
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c', syncClaudeConfig: true, configBundleSync: true }));
+    const s = loadSettings(tmp);
+    expect(s.workspaceRoot).toBe('/old');
+    expect(s.configBundleSync).toBe(true);
+    expect(Object.keys(s)).not.toContain('syncClaudeConfig');
+    // 保存し直しても旧い鍵は書かれない（新しい実装のスイッチは残る）。
+    saveSettings(tmp, s);
+    const written = JSON.parse(fs.readFileSync(path.join(tmp, 'settings.json'), 'utf8')) as Record<string, unknown>;
+    expect(written).not.toHaveProperty('syncClaudeConfig');
+    expect(written.configBundleSync).toBe(true);
   });
   it('言語は保存して読め、知らない値は読み込みで落とす', () => {
     ensureHome(tmp);

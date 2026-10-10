@@ -1,7 +1,8 @@
 import { useId, useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { LeadCardProps } from '../presenters/session.ts';
-import { NoteEditor } from './NoteEditor.tsx';
+import { EditableNote } from './EditableNote.tsx';
+import { sessionNoteTexts } from './NoteEditor.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -20,7 +21,6 @@ export function LeadCard(props: LeadCardProps & { sessionId: string }) {
   const emit = useEmit();
   const uid = useId();
   const [open, setOpen] = useState<Open>(null);
-  const [editing, setEditing] = useState(false);
   const toggle = (which: Exclude<Open, null>) => setOpen((o) => (o === which ? null : which));
   const panelId = (which: string) => `${uid}-${which}`;
   const { files, artifacts } = props;
@@ -102,13 +102,8 @@ export function LeadCard(props: LeadCardProps & { sessionId: string }) {
         </div>
       )}
       <div className="lead-note">
-        <div className="lead-note-h">
-          <span className="lead-sub">{t('session.note.label')}</span>
-          {!editing && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditing(true)}><Icon name="edit" />{props.note.filled ? t('session.note.edit') : t('session.note.write')}</button>}
-        </div>
-        {editing
-          ? <NoteEditor sessionId={props.sessionId} text={props.note.text} autoFocus />
-          : props.note.filled && <p className="lead-note-text">{props.note.text}</p>}
+        <EditableNote text={props.note.text} onSave={(text) => emit({ type: 'session.setMemo', id: props.sessionId, text })} texts={sessionNoteTexts(t)}
+          head={(button) => <div className="lead-note-h"><span className="lead-sub">{t('session.note.label')}</span>{button}</div>} />
       </div>
     </section>
   );

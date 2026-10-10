@@ -29,7 +29,6 @@ const seedLeftovers = async (): Promise<void> => {
   ]);
 };
 
-const ALL_FILES = ['config/dev-a/CLAUDE.md', 'config/dev-a/skills/x/SKILL.md', 'transcripts/dev-a/u1.jsonl.gz'];
 const fileKeys = async (): Promise<string[]> => (await cloud.env.DB.prepare('select key from files order by key').all<{ key: string }>()).results.map((r) => r.key);
 const metaKeys = async (): Promise<string[]> => (await cloud.env.DB.prepare('select key from meta order by key').all<{ key: string }>()).results.map((r) => r.key);
 
@@ -45,12 +44,12 @@ afterEach(async () => {
 });
 
 describe('段 1 の後始末', () => {
-  it('台帳の行を消し、設定の同期の索引とほかの行は残して、済んだ印を置く', async () => {
+  it('台帳の行を消し、本文の索引とほかの行は残して、済んだ印を置く。旧実装の設定の索引は、同じ cold start の別の掃除が消す', async () => {
     await makeTables();
     await seedLeftovers();
     await ensureSchema(cloud.env);
-    expect(await fileKeys()).toEqual(ALL_FILES);
-    expect(await metaKeys()).toEqual(['changes_floor', META_STAGE1_CLEANUP]);
+    expect(await fileKeys()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
+    expect(await metaKeys()).toEqual(['changes_floor', META_LEGACY_CONFIG_CLEANUP, META_STAGE1_CLEANUP]);
   });
 
   it('印があれば、2 度目の cold start では消しにいかない', async () => {
@@ -65,7 +64,7 @@ describe('段 1 の後始末', () => {
 
   it('台帳の行が 1 行も無い箱でも印を置く', async () => {
     await ensureSchema(cloud.env);
-    expect(await metaKeys()).toEqual([META_STAGE1_CLEANUP]);
+    expect(await metaKeys()).toEqual([META_LEGACY_CONFIG_CLEANUP, META_STAGE1_CLEANUP]);
     expect(await cleanupStage1(cloud.env, Date.now())).toBe(false);
   });
 
@@ -76,7 +75,7 @@ describe('段 1 の後始末', () => {
     expect(r.status).toBe(200);
     expect(await metaKeys()).toContain(META_STAGE1_CLEANUP);
     expect((await metaKeys()).filter((k) => k.startsWith('d1_rows:'))).toEqual([]);
-    expect(await fileKeys()).toEqual(ALL_FILES);
+    expect(await fileKeys()).toEqual(['transcripts/dev-a/u1.jsonl.gz']);
   });
 
   it('落ちても例外を投げず、何も消さずに印も置かない。次の回でまた試す', async () => {
@@ -95,15 +94,22 @@ describe('段 1 の後始末', () => {
     expect(await metaKeys()).toEqual(['changes_floor', META_STAGE1_CLEANUP]);
   });
 
-  it('設定の同期の R2 の本体は、後始末の後も孤児の掃除に拾われない', async () => {
+  it('設定の同期の束の R2 の本体は、後始末の後も孤児の掃除に拾われない', async () => {
+    const bundle = 'config/dev-a/.hangar/config-bundle.hgr';
     await makeTables();
     await seedLeftovers();
+    await cloud.env.DB.batch([
+      cloud.env.DB.prepare('insert into files (key, path, kind, device_id, sha256, size, stored_size, mtime, encrypted, uploaded_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(bundle, '.hangar/config-bundle.hgr', 'config', 'dev-a', 'a'.repeat(64), 1, 1, 1, 1, 1),
+    ]);
     await cloud.env.BUCKET.put('config/dev-a/skills/x/SKILL.md', 'x');
+    await cloud.env.BUCKET.put(bundle, 'b');
     await cloud.env.BUCKET.put('transcripts/dev-a/u1.jsonl.gz', 'y');
     await ensureSchema(cloud.env);
+    // 旧実装の項目ごとの本体は後始末が消し、束と本文は残る。
     const r = await sweepIfDue(cloud.env, Date.now() + 2 * HOUR);
     expect(r?.bodies).toEqual([]);
-    expect((await cloud.env.BUCKET.list()).objects.map((o) => o.key)).toEqual(['config/dev-a/skills/x/SKILL.md', 'transcripts/dev-a/u1.jsonl.gz']);
+    expect((await cloud.env.BUCKET.list()).objects.map((o) => o.key)).toEqual([bundle, 'transcripts/dev-a/u1.jsonl.gz']);
   });
 });
 
@@ -129,12 +135,19 @@ describe('旧実装の設定（config/ の項目ごとの本体と索引）の�
   };
   const r2Keys = async (): Promise<string[]> => (await cloud.env.BUCKET.list()).objects.map((o) => o.key).sort();
 
-  it('旧実装が読むうちは（既定では）何も消さず、印も置かない', async () => {
+  it('関門は開いている（段 4 の PR 18。旧実装を持たない版を下限にした Worker だけが、これを走らせる）', async () => {
     await makeTables();
     await seedConfig();
-    expect(LEGACY_CONFIG_CLEANUP_ENABLED).toBe(false);
-    expect(await cleanupLegacyConfig(cloud.env, Date.now())).toBe(false);
-    await ensureSchema(cloud.env);
+    expect(LEGACY_CONFIG_CLEANUP_ENABLED).toBe(true);
+    expect(await cleanupLegacyConfig(cloud.env, Date.now())).toBe(true);
+    expect(await fileKeys()).toEqual([BUNDLE, TRANSCRIPT]);
+    expect(await metaKeys()).toContain(META_LEGACY_CONFIG_CLEANUP);
+  });
+
+  it('関門を閉じて呼べば、何も消さず、印も置かない', async () => {
+    await makeTables();
+    await seedConfig();
+    expect(await cleanupLegacyConfig(cloud.env, Date.now(), false)).toBe(false);
     expect(await fileKeys()).toEqual([...LEGACY, BUNDLE, TRANSCRIPT].sort());
     expect(await r2Keys()).toHaveLength(5);
     expect(await metaKeys()).not.toContain(META_LEGACY_CONFIG_CLEANUP);

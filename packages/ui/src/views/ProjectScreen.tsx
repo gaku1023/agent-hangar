@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { ProjectProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
-import { MemoEditor } from './MemoEditor.tsx';
+import { EditableNote } from './EditableNote.tsx';
+import { projectNoteTexts } from './NoteEditor.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { ProjectInfo } from './ProjectInfo.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -54,8 +55,8 @@ export function ProjectScreen(props: ProjectProps) {
             <TodoList projectId={props.id} todos={props.todos} />
           </section>
           <section className="rail-panel">
-            <h2 className="rail-h"><span>{t('projectScreen.rail.note')}</span></h2>
-            <MemoEditor projectId={props.id} markdown={props.memo?.markdown ?? ''} updatedAt={props.memo?.updatedAt ?? 0} />
+            <EditableNote text={props.note.text} onSave={(markdown) => emit({ type: 'memo.save', projectId: props.id, markdown })} texts={projectNoteTexts(t)} mono rows={6}
+              head={(button) => <div className="rail-head"><h2 className="rail-h"><span>{t('projectScreen.rail.note')}</span></h2>{button}</div>} />
           </section>
           <section className="rail-panel">
             <h2 className="rail-h"><span>{t('projectScreen.rail.artifacts')}</span><span className="rail-n num">{props.artifacts.length}</span></h2>

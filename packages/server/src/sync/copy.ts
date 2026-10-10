@@ -131,7 +131,7 @@ function chooseRemote(o: CopyOptions, sessionUuid: string): RemotePick | null {
  * 足りない段は recursive を使わず 1 段ずつ自分で作るので、作る途中でリンクを踏むこともない。
  * 最後に親の realpath が枠の中にあることも見て、競合状態の取りこぼしに備える。
  *
- * 形は claudeConfig.ts の `resolveUnder` と揃えてある（あちらは設定の取り込みの側で同じ穴を塞いだ）。
+ * 形は設定の同期の書き込み（sync/config/apply.ts）の経路の塞ぎ方と揃えてある。
  * 返すパスは呼び手が渡した root の綴りのままにする。枠の検査だけ realpath で行う。
  */
 function resolveUnder(root: string, rel: string, label: string, o: { create?: boolean } = {}): string {
@@ -195,7 +195,7 @@ const MAX_BACKUP_TRIES = 100;
  *
  * 控えも一時ファイルと rename で置く。途中までの控えは履歴として当てにならない。
  * 置けなければ投げる。呼び手は ~/.claude を触らずに戻る。
- * この形は claudeConfig.ts の `backupBeforeWrite` と apply.ts の `writeMemoConflictCopy` と揃えてある。
+ * この形は apply.ts の `writeMemoConflictCopy` と揃えてある。
  */
 function backupBeforeOverwrite(target: string, home: string, sessionUuid: string, now: number): string {
   const root = backupsRoot(home);

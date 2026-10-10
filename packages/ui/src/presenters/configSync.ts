@@ -272,6 +272,8 @@ export type ConfigSyncSectionProps = {
   awaiting: number;
   conflicts: number;
   unsent: { count: number; rows: ConfigRowProps[] };
+  /** ベルの一覧の行から来た（at=unsent）。送らなかった項目の行を開き、見える所へ移る。 */
+  focusUnsent: boolean;
   backups: { count: number; rows: ConfigBackupRowProps[] };
 };
 
@@ -279,7 +281,7 @@ function backupRow(t: Translate, store: Store, g: ConfigBackupGenerationDto): Co
   return { name: g.name, when: g.at === null ? g.name : absoluteTime(g.at), files: t('configSyncUi.word.count', { n: g.files }), command: hangarCommand(store, `config restore ${g.name}`) };
 }
 
-export function presentConfigSection(store: Store, now: number): ConfigSyncSectionProps {
+export function presentConfigSection(store: Store, now: number, focusUnsent = false): ConfigSyncSectionProps {
   const t = translatorOf(store);
   const c = store.configSync;
   const d = store.configDetail;
@@ -301,6 +303,7 @@ export function presentConfigSection(store: Store, now: number): ConfigSyncSecti
     awaiting: c?.approval === 'each' ? inbox.filter(needsPick).length : 0,
     conflicts: c?.conflicts ?? 0,
     unsent: { count: c?.unsent ?? 0, rows: (c?.unsent ?? 0) === 0 ? [] : (d.unsent?.items ?? []).map(rowOfUnsent) },
+    focusUnsent,
     backups: { count: c?.backups ?? 0, rows: (c?.backups ?? 0) === 0 ? [] : (d.backups?.generations ?? []).map((g) => backupRow(t, store, g)) },
   };
 }

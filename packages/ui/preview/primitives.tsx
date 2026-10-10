@@ -200,10 +200,11 @@ function noticeStore(lang: 'ja' | 'en', empty: boolean): Store {
   return {
     ...base,
     sessions: { 's-bench': noticeSession() },
-    sync: { state: 'error', paused: false, url: 'https://sync.example', lastPushAt: null, lastPullAt: null, pending: 14, error: lang === 'ja' ? 'サーバが 503 を返しました' : 'The server returned 503', deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false },
+    sync: { state: 'error', paused: false, url: 'https://sync.example', lastPushAt: null, lastPullAt: null, pending: 14, error: lang === 'ja' ? 'サーバが 503 を返しました' : 'The server returned 503', deviceCount: 2, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false },
     readiness: { compat: { verifiedVersion: '2.4.0', localVersion: '2.4.2', driftCount: 1 } } as unknown as ReadinessDto,
     compat: drifts,
     retention: { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: null },
+    configSync: { enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 2, backups: 0, applyOrder: null, lastSentAt: NOTICE_NOW - 60_000 },
   };
 }
 /** ヘッダーの右の塊に見立てた帯の中にベルを置く。既読は頁の中だけで動き、開く、既読にする、Esc を手で確かめられる。 */

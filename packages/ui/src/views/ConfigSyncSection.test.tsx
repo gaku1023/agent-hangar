@@ -8,8 +8,8 @@ import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 
 const NOW = Date.parse('2026-10-10T12:00:00+09:00');
 const dto = (over: Partial<ConfigSyncDto> = {}): ConfigSyncDto => ({ enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null, ...over });
-const propsOf = (c: ConfigSyncDto | null, detail: Partial<ConfigDetail> = {}, desktop = true): ConfigSyncSectionProps =>
-  presentConfigSection({ ...initialStore(), configSync: c, configDetail: { ...EMPTY_CONFIG_DETAIL, ...detail }, desktop }, NOW);
+const propsOf = (c: ConfigSyncDto | null, detail: Partial<ConfigDetail> = {}, desktop = true, focusUnsent = false): ConfigSyncSectionProps =>
+  presentConfigSection({ ...initialStore(), configSync: c, configDetail: { ...EMPTY_CONFIG_DETAIL, ...detail }, desktop }, NOW, focusUnsent);
 const ui = (cfg: ConfigSyncSectionProps, onIntent: (i: Intent) => void = () => {}, cloudOff = false) => <IntentRoot onIntent={onIntent}><ConfigSyncSection cfg={cfg} cloudOff={cloudOff} /></IntentRoot>;
 const sw = () => screen.getByRole('switch', { name: 'この PC で有効にする' });
 
@@ -102,6 +102,14 @@ describe('Claude Code の設定の同期の節', () => {
     expect(screen.getByText('秘密らしい文字列（ghp_ の形）')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'skills/x/SKILL.md をそれでも送る' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'configSync.unsent.send', id: 'secret:x' });
+  });
+  it('ベルの行から来たとき（at=unsent）は、送らなかった項目の行を開いた状態で出す。印が無ければ畳んだまま', () => {
+    const unsent = { items: [{ id: 'secret:x', kind: 'secret' as const, itemId: 'file:x', label: 'skills/x/SKILL.md', reason: 'secret:ghp_', allowed: false }] };
+    const { rerender } = render(ui(propsOf(dto({ unsent: 1 }), { unsent })));
+    expect(screen.queryByText('skills/x/SKILL.md')).toBeNull();
+    rerender(ui(propsOf(dto({ unsent: 1 }), { unsent }, true, true)));
+    expect(screen.getByText('skills/x/SKILL.md')).toBeInTheDocument();
+    expect(screen.getByText(/^送らなかった項目 1 件$/).closest('.set-row')).toHaveAttribute('id', 'settings-config-unsent');
   });
   it('バックアップの世代は、殻があれば戻すボタンを、無ければターミナルのコマンドを出す', () => {
     const onIntent = vi.fn();

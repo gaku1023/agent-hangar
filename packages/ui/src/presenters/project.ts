@@ -21,7 +21,7 @@ export type ProjectInfoProps = { sessionsText: string; lastActivity: string };
 export type ProjectProps = {
   id: string; name: string; parent: ParentLink; path: string | null; resolved: boolean; status: ProjectStatus; notFound: boolean; isScratch: boolean;
   list: SessionListProps; loadMore: { remaining: number; step: number; loading: boolean } | null; info: ProjectInfoProps;
-  todos: TodoItemProps[]; pendingTodos: number; memo: { markdown: string; updatedAt: number } | null; artifacts: ArtifactCardProps[];
+  todos: TodoItemProps[]; pendingTodos: number; note: { text: string; filled: boolean }; artifacts: ArtifactCardProps[];
 };
 
 /**
@@ -52,11 +52,11 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const p = store.projects[id];
   // 一覧はホームと同じ部品で、このプロジェクトのセッションだけを出す。見つからないプロジェクトは行が 0 になる。
   const list = presentSessionList(state, store, now, id);
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], pendingTodos: 0, memo: null, artifacts: [] };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], pendingTodos: 0, note: { text: '', filled: false }, artifacts: [] };
   const t = translatorOf(store);
   const remaining = list.total - list.rows.length;
   const todos = todosOf(store, id).map((x) => ({ id: x.id, text: x.text, done: x.done, candidate: presentTodoCandidate(x, store, now) }));
-  const memo = store.memos[id];
+  const memo = store.memos[id]?.markdown ?? '';
   return {
     id, name: p.name, parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, notFound: false, isScratch: p.isScratch,
     list,
@@ -65,7 +65,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     info: { sessionsText: t('projects.row.sessions', { n: Object.values(store.sessions).filter((s) => s.projectId === id).length }), lastActivity: relativeTime(p.lastActivityAt, now) },
     todos,
     pendingTodos: todos.filter((x) => x.candidate !== null).length,
-    memo: memo ? { markdown: memo.markdown, updatedAt: memo.updatedAt } : null,
+    note: { text: memo, filled: memo.trim() !== '' },
     artifacts: artifactsOf(store, { projectId: id }).map((a) => presentArtifactCard(a, now)),
   };
 }

@@ -10,9 +10,7 @@ import { onRowChange } from '../../db/notify.ts';
 import { openDb, type Db } from '../../db/open.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { applyRemoteChange } from '../apply.ts';
-import { ClaudeConfigSync } from '../claudeConfig.ts';
 import { decryptBuffer, deriveFileKey, encryptBuffer, sha256Hex } from '../crypto.ts';
-import { SyncStateStore } from '../state.ts';
 import { unpackBundle } from './bundle.ts';
 import { slugOfPath } from './ids.ts';
 import { writeApplyOrder } from './applyOrder.ts';
@@ -580,35 +578,20 @@ describe('控えの世代と状態', () => {
   });
 });
 
-describe('旧実装と並んで動く', () => {
-  it('新しい束は旧実装が受け取る形ではなく、旧実装の台帳と一覧に何も足さない', async () => {
+describe('旧実装の置き場が残っていても', () => {
+  it('束の鍵だけを送り、旧実装が残した R2 のオブジェクトにも、台帳 file_sync にも触らない', async () => {
+    // 旧実装（段 4 の PR 18 で消した）が上げた config/<端末>/<相対パス> は、Worker の掃除が消すまで R2 に残りうる。
     const a = pc('dev-a', 'mac'); const b = pc('dev-b', 'mini');
-    a.write('CLAUDE.md', 'from new');
-    await a.service.send();
-    const entry = shared.files.get(`config/dev-a/${BUNDLE_PATH}`)!.entry;
-    const old = new ClaudeConfigSync({
-      db: b.db, deviceId: 'dev-b', deviceName: 'mini', claudeDir: b.claudeDir, home: b.home, client: b.cloud, key, state: new SyncStateStore(b.db),
-      enabled: () => true, onToast: () => {}, now: () => clock,
-    });
-    // 旧実装は束を設定ファイルとして数えない。
-    expect(old.preview([entry]).entries).toEqual([]);
-    expect(await old.applyPull([entry])).toMatchObject({ applied: 0, conflicts: 0 });
-    expect(b.read(BUNDLE_PATH)).toBeNull();
-    expect(b.db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 0 });
-  });
-
-  it('旧実装が上げたファイルの鍵は、新しい束の鍵と重ならない', async () => {
-    const a = pc('dev-a', 'mac');
-    a.write('CLAUDE.md', 'x');
-    const old = new ClaudeConfigSync({
-      db: a.db, deviceId: 'dev-a', deviceName: 'mac', claudeDir: a.claudeDir, home: a.home, client: a.cloud, key, state: new SyncStateStore(a.db),
-      enabled: () => true, onToast: () => {}, now: () => clock,
-    });
-    await old.pushChanged();
-    await a.service.send();
+    await a.cloud.putFile(
+      { key: 'config/dev-a/CLAUDE.md', path: 'CLAUDE.md', kind: 'config', sha256: sha256Hex('old'), size: 3, mtime: 1, encrypted: true },
+      Readable.from([await encryptBuffer(key, Buffer.from('old'))]),
+    );
+    a.write('CLAUDE.md', 'new');
+    await sync(a, b);
+    expect(ids(b)).toEqual(['create:file:CLAUDE.md']);
     expect([...shared.files.keys()].sort()).toEqual([`config/dev-a/${BUNDLE_PATH}`, 'config/dev-a/CLAUDE.md']);
-    // 新しい実装は旧実装の台帳 file_sync に触らない（旧実装の 1 行だけが残る）。
-    expect(a.db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 1 });
+    expect(a.db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 0 });
+    expect(b.db.prepare('select count(*) n from file_sync').get()).toEqual({ n: 0 });
   });
 });
 

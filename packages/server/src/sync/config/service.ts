@@ -37,7 +37,7 @@ import { judge, type Action, type RemoteSnapshot } from './threeWay.ts';
  * - クラウド：`config/<端末>/.hangar/config-bundle.hgr` の 1 オブジェクト（旧実装の鍵とは別）。
  * 適用（~/.claude への書き込み、控え、基準の更新、競合の採り直し、世代へ戻す）は、指示書を読む殻の命令と hangar config apply の役目である。
  *
- * 旧実装（sync/claudeConfig.ts）とは、表も、クラウドの鍵も、設定のスイッチも共有しない。既定は切である。
+ * 既定は切である（settings.json の configBundleSync）。
  */
 
 /** クラウドとの出し入れ。いまの同期のクライアントのうち、本文を運ぶ 2 つだけを使う。 */

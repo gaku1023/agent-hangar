@@ -10,8 +10,8 @@ import type { State } from '../mediator/types.ts';
 import { presentNewProject } from '../presenters/newProject.ts';
 import { presentShell } from '../presenters/shell.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, syncClaudeConfig: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
-const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false };
 const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
 const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
 
@@ -39,8 +39,6 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     syncFocus: vi.fn(async () => {}),
     resumeHere: vi.fn(async () => launchResult),
     joinToken: vi.fn(async () => ({ token: 'tok' })),
-    configPreview: vi.fn(async () => ({ entries: [], confirmed: false })),
-    configPull: vi.fn(async () => ({ applied: 2, conflicts: 1 })),
     ...overrides,
   };
   const focusListeners = new Set<() => void>();
@@ -1216,20 +1214,12 @@ describe('同期とこの PC で再開', () => {
     await flush();
     expect(api.resumeHere).toHaveBeenCalledTimes(2);
   });
-  it('参加トークンと設定の下見と取り込み', async () => {
+  it('参加トークンを取りに行く', async () => {
     const { rt, api } = harness();
     rt.start();
     rt.emit({ type: 'sync.joinToken.show' });
     await flush();
     expect(rt.getStore().joinToken).toBe('tok');
-    rt.emit({ type: 'sync.config.preview' });
-    await flush();
-    expect(api.configPreview).toHaveBeenCalled();
-    expect(rt.getStore().configPreview).toEqual({ entries: [], confirmed: false });
-    rt.emit({ type: 'sync.config.apply' });
-    await flush();
-    expect(api.configPull).toHaveBeenCalled();
-    expect(rt.getState().toasts[0]?.message).toContain('2 件');
   });
   it('参加トークンはしばらく置くと自分で消える', async () => {
     const { rt, timers } = harness();
@@ -2153,7 +2143,7 @@ describe('設定の同期（作り直した実装）', () => {
     expect(api.configSyncState).toHaveBeenCalledTimes(1);
   });
 
-  it('送る一覧の承諾は、新しい実装のスイッチを入れ、旧実装のスイッチを切る', async () => {
+  it('送る一覧の承諾は、スイッチを入れる', async () => {
     const { rt, api } = withConfig(cfg({ enabled: false }));
     rt.start();
     await flush();
@@ -2162,7 +2152,7 @@ describe('設定の同期（作り直した実装）', () => {
     expect(api.configOutgoing).toHaveBeenCalledTimes(1);
     rt.emit({ type: 'configSync.send.confirm' });
     await flush();
-    expect(api.updateSettings).toHaveBeenCalledWith({ configBundleSync: true, syncClaudeConfig: false });
+    expect(api.updateSettings).toHaveBeenCalledWith({ configBundleSync: true });
     expect(rt.getState().overlay).toEqual({ kind: 'none' });
   });
 

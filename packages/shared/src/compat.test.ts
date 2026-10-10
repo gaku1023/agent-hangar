@@ -4,11 +4,11 @@ import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
   it('版は整数で（いまは 3。Worker が設定の束の行を受け取る版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
-    expect(COMPAT_VERSION).toBe(3);
+    expect(COMPAT_VERSION).toBe(4);
     expect(Number.isSafeInteger(COMPAT_VERSION)).toBe(true);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(CONFIG_BUNDLE_MIN_WORKER_COMPAT);
     expect(COMPAT_HEADER).toBe('x-hangar-compat');
-    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '3' });
+    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '4' });
   });
 
   it('パッケージの入口から取れる', () => {

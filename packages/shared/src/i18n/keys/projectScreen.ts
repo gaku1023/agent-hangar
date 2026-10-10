@@ -48,6 +48,8 @@ export const projectScreenKeys = {
   'projectScreen.note.external': [],
   'projectScreen.note.reload': [],
   'projectScreen.note.save': [],
+  'projectScreen.note.placeholder': [],
+  'projectScreen.note.write': [],
   'projectScreen.artifact.empty': [],
   'projectScreen.artifact.versions': ['n'],
   'projectScreen.artifact.openEditor': [],

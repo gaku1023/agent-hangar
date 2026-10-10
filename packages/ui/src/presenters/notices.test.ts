@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CompatDto, ReadinessDto, RetentionDto, SessionDto, SessionStateDto, SettingsDto, SyncStatusBody } from '@agent-hangar/shared';
+import type { CompatDto, ConfigSyncDto, ReadinessDto, RetentionDto, SessionDto, SessionStateDto, SettingsDto, SyncStatusBody } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
@@ -12,10 +12,11 @@ const MIN = 60_000;
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
 const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 5 * H, lastActivityAt: NOW - 4 * H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
 const paused = (id: string, returnOn: string | null, returnTime: string | null = null, note = `${id} を確かめる`) => dto(id, { state: st({ status: 'paused', note, returnOn, returnTime, setBy: 'user', setAt: 1 }) });
-const sync = (o: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', paused: false, url: 'https://w', lastPushAt: null, lastPullAt: NOW - MIN, pending: 0, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false, ...o });
+const sync = (o: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', paused: false, url: 'https://w', lastPushAt: null, lastPullAt: NOW - MIN, pending: 0, error: null, deviceCount: 1, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false, ...o });
 const compatSummary = (driftCount: number, localVersion: string | null = '2.4.2') => ({ compat: { verifiedVersion: '2.4.0', localVersion, driftCount } }) as unknown as ReadinessDto;
 const drift = (n: number, lastSeenAt = NOW - 12 * MIN): CompatDto => ({ verifiedVersion: '2.4.0', localVersion: '2.4.2', drifts: Array.from({ length: n }, (_, i) => ({ contract: 'registry' as const, value: `status=v${i}`, version: '2.4.2', count: 3, firstSeenAt: lastSeenAt - H, lastSeenAt: lastSeenAt - i * MIN })) });
 const retention = (o: Partial<RetentionDto> = {}): RetentionDto => ({ days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: null, ...o });
+const cfgSync = (o: Partial<ConfigSyncDto> = {}): ConfigSyncDto => ({ enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null, ...o });
 const storeOf = (over: Partial<Store> = {}): Store => ({ ...initialStore(), bootstrapped: true, ...over });
 const withSessions = (list: SessionDto[]) => ({ sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 const read = (keys: string[]): State => ({ ...initialState(), noticesRead: keys });
@@ -147,9 +148,35 @@ describe('presentNotices：事実から行を組む', () => {
     expect(rows({ available: true, on: false, blocked: true })).toEqual([]);
   });
 
-  it('種類の並びは、リマインダー、同期、互換、保持期間、通知', () => {
-    const store = storeOf({ ...withSessions([paused('p', '2026-10-02')]), sync: sync({ state: 'error', error: 'x' }), readiness: compatSummary(1), retention: retention(), notify: { available: true, on: false, blocked: false } });
-    expect(presentNotices(initialState(), store, NOW).rows.map((r) => r.kind)).toEqual(['reminder', 'sync', 'compat', 'retention', 'notify']);
+  // 設定の同期で送らなかった項目（段 4 の PR 19）。事実は ConfigSyncDto.unsent の件数で、件数が 0 に戻れば行も消える。
+  it('設定の同期で送らなかった項目があれば、件数を言う行にして、送らなかった項目の常設の行へ移る', () => {
+    const [row] = presentNotices(initialState(), storeOf({ configSync: cfgSync({ unsent: 3 }) }), NOW).rows;
+    expect(row).toMatchObject({ key: 'config|unsent|3', kind: 'config', tone: 'warn', icon: 'settings', kindLabel: '設定の同期', title: '送らなかった項目 3 件', when: null, unread: true });
+    expect(row!.detail).toContain('それでも送る');
+    expect(row!.action).toEqual({ label: '送らなかった項目を開く', intent: { type: 'nav.go', to: { name: 'settings', at: 'unsent' } } });
+  });
+
+  it('送らなかった項目が 0 件、設定の同期が切、まだ届いていない（古いサーバ）なら行にしない', () => {
+    for (const c of [cfgSync(), cfgSync({ enabled: false, unsent: 2 }), null]) {
+      expect(presentNotices(initialState(), storeOf({ configSync: c }), NOW).rows, String(c?.unsent)).toEqual([]);
+    }
+  });
+
+  it('送らなかった項目の件数が、既読にした時点より増えたときだけ未読に戻る。減ったときは既読のまま、0 になれば行も消える', () => {
+    const state = read(['config|unsent|2']);
+    expect(presentNotices(state, storeOf({ configSync: cfgSync({ unsent: 2 }) }), NOW).unread).toBe(0);
+    expect(presentNotices(state, storeOf({ configSync: cfgSync({ unsent: 3 }) }), NOW).unread).toBe(1);
+    const fewer = presentNotices(state, storeOf({ configSync: cfgSync({ unsent: 1 }) }), NOW);
+    expect(fewer.rows).toHaveLength(1);
+    expect(fewer.unread).toBe(0);
+    expect(presentNotices(state, storeOf({ configSync: cfgSync({ unsent: 0 }) }), NOW).rows).toEqual([]);
+    // 1 件の時点で既読にして、2 件に増えたときは未読に戻る。
+    expect(presentNotices(read(['config|unsent|1']), storeOf({ configSync: cfgSync({ unsent: 2 }) }), NOW).unread).toBe(1);
+  });
+
+  it('種類の並びは、リマインダー、同期、互換、保持期間、設定の同期、通知', () => {
+    const store = storeOf({ ...withSessions([paused('p', '2026-10-02')]), sync: sync({ state: 'error', error: 'x' }), readiness: compatSummary(1), retention: retention(), configSync: cfgSync({ unsent: 1 }), notify: { available: true, on: false, blocked: false } });
+    expect(presentNotices(initialState(), store, NOW).rows.map((r) => r.kind)).toEqual(['reminder', 'sync', 'compat', 'retention', 'config', 'notify']);
   });
 
   it('既読の鍵の行は未読でなくなり、未読の数と鍵の一覧に反映する', () => {
@@ -188,12 +215,12 @@ describe('presentNotices：事実から行を組む', () => {
   });
 
   it('English では、同じ事実から英語の文を引く', () => {
-    const store = storeOf({ settings: en, ...withSessions([paused('p', '2026-10-02', '08:35')]), sync: sync({ state: 'error', error: 'HTTP 503' }), readiness: compatSummary(1), retention: retention() });
+    const store = storeOf({ settings: en, ...withSessions([paused('p', '2026-10-02', '08:35')]), sync: sync({ state: 'error', error: 'HTTP 503' }), readiness: compatSummary(1), retention: retention(), configSync: cfgSync({ unsent: 2 }) });
     const p = presentNotices(initialState(), store, NOW);
-    expect(p.label).toBe('Notifications, 4 unread');
-    expect(p.rows.map((r) => [r.kindLabel, r.title])).toEqual([['Reminder', 'p'], ['Sync', 'Sync error'], ['Compatibility', 'Changes detected'], ['Retention', 'Transcripts are deleted after 30 days']]);
+    expect(p.label).toBe('Notifications, 5 unread');
+    expect(p.rows.map((r) => [r.kindLabel, r.title])).toEqual([['Reminder', 'p'], ['Sync', 'Sync error'], ['Compatibility', 'Changes detected'], ['Retention', 'Transcripts are deleted after 30 days'], ['Config sync', '2 items not sent']]);
     expect(p.rows[0]!.when).toBe('25 min overdue');
     expect(p.rows[2]!.detail).toBe('Claude Code 2.4.2: 1 change');
-    expect(p.rows.map((r) => r.action.label)).toEqual(['Open session', 'Open sync settings', 'Open details', 'Extend retention…']);
+    expect(p.rows.map((r) => r.action.label)).toEqual(['Open session', 'Open sync settings', 'Open details', 'Extend retention…', 'Show unsent items']);
   });
 });

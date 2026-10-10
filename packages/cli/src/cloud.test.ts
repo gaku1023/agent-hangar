@@ -689,7 +689,7 @@ describe('cloudStatus', () => {
       if (u.endsWith('/api/sync/status')) {
         authOk = (init!.headers as Record<string, string>).authorization === 'Bearer local-token';
         return new Response(
-          JSON.stringify({ state: 'idle', pending: 2, lastPullAt: 1000, lastPushAt: 1000, deviceCount: 2, url: 'https://h', error: null, claudeConfig: { enabled: false, confirmed: false } }),
+          JSON.stringify({ state: 'idle', pending: 2, lastPullAt: 1000, lastPushAt: 1000, deviceCount: 2, url: 'https://h', error: null }),
           { status: 200 },
         );
       }

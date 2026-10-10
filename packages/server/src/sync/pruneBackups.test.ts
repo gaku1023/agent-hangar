@@ -2,14 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BACKUP_GENERATIONS } from './claudeConfig.ts';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { setSessionMemo } from '../sessions/notes.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { SyncEngine } from './engine.ts';
-import { backupPruner, MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS, pruneBackupFiles, pruneBackupFilesByAge, pruneMemoBackups } from './pruneBackups.ts';
+import { BACKUP_GENERATIONS, backupPruner, MEMO_BACKUP_KEEP_COUNT, MEMO_BACKUP_KEEP_DAYS, pruneBackupFiles, pruneBackupFilesByAge, pruneMemoBackups } from './pruneBackups.ts';
 
 let home: string;
 beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-')); });

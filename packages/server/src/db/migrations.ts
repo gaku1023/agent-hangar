@@ -306,7 +306,7 @@ alter table sessions drop column memo;
 
 /**
  * 版 18。Claude Code の設定の同期の作り直し（docs/superpowers/specs/2026-10-09-config-sync-rebuild-design.md）の 3 表。
- * 旧実装（sync/claudeConfig.ts）は file_sync の行と R2 の config/<端末>/<相対パス>で動いており、この 3 表には触らない。
+ * 旧実装は file_sync の行と R2 の config/<端末>/<相対パス>で動いていた（版 19 が、その記録を消す）。この 3 表は旧実装の記録とは別である。
  *
  * - config_snapshots は共有テーブルで、PC ごとに 1 行（主キーは端末の ID）。その PC がいま送っている束の指紋と、目録（manifest）を持つ。
  *   目録の JSON が大きすぎる（クラウドの 1 行の上限 128 KiB に近い）ときは null にする。束の中にも同じ目録があり、受け手はそちらを読む。
@@ -341,6 +341,20 @@ create table config_unsent (
 `;
 
 /**
+ * 版 19。旧実装の設定の同期（段 4 の PR 18 で消した）が端末に残した記録を、1 回だけ消す。
+ *
+ * - file_sync の kind が config の行は、旧実装が取り込んだ相手の設定ファイルの台帳だった。
+ * - sync_state の configPullConfirmed（取り込みの確認の印）と configPending（まだ取り込んでいない相手の設定の一覧）も旧実装のものである。
+ * - sync_state の skipped:(config) は、旧実装の取り込みが 3 回続けて失敗したときの降ろしの諦めの控えである。
+ *   残すと「諦めた本文」として画面に出続け、取り直しが設定の項目を本文として降ろそうとする。
+ * 設定の同期の作り直しの表（config_*）と、本文の記録（kind が transcript の file_sync、ほかの skipped:）には触らない。
+ */
+const V19_DROP_LEGACY_CONFIG_SQL = `
+delete from file_sync where kind = 'config';
+delete from sync_state where key in ('configPullConfirmed', 'configPending', 'skipped:(config)');
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -349,4 +363,5 @@ export const MIGRATIONS: Migration[] = [
   { version: BASELINE_VERSION, sql: BASELINE_SQL },
   { version: 17, sql: V17_SESSION_NOTES_SQL },
   { version: 18, sql: V18_CONFIG_SYNC_SQL },
+  { version: 19, sql: V19_DROP_LEGACY_CONFIG_SQL },
 ];

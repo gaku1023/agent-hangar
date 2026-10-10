@@ -17,7 +17,7 @@ const list = (over: Partial<SessionListProps> = {}): SessionListProps => ({ text
 const props = (over: Partial<ProjectProps> = {}): ProjectProps => ({
   id: 'alpha', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' } }, path: '/w/alpha', resolved: true, status: 'active', notFound: false, isScratch: false,
   list: list(), loadMore: null, info: { sessionsText: '2 本', lastActivity: '3 時間前' },
-  todos: [{ id: 't1', text: '買う', done: false, candidate: null }], pendingTodos: 0, memo: { markdown: '# a', updatedAt: 1 }, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }],
+  todos: [{ id: 't1', text: '買う', done: false, candidate: null }], pendingTodos: 0, note: { text: '決済は Stripe の v3', filled: true }, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }],
   ...over,
 });
 const mount = (p: ProjectProps = props(), onIntent = vi.fn()) => ({ ...render(<IntentRoot onIntent={onIntent}><ProjectScreen {...p} /></IntentRoot>), onIntent });
@@ -179,12 +179,42 @@ describe('ProjectScreen の右パネル', () => {
   it('TODO、ノート、アーティファクトを並べ、折りたためる', () => {
     mount();
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
-    expect(screen.getByLabelText('ノート')).toBeTruthy();
+    expect(screen.getByText('決済は Stripe の v3')).toBeTruthy();
     expect(screen.getByText('題名 a1')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('右パネルを閉じる'));
     expect(screen.queryByLabelText('TODO を追加')).toBeNull();
     fireEvent.click(screen.getByLabelText('右パネルを開く'));
     expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
+  });
+  it('ノートは読む表示で出し、「ノートを編集」を押したときだけ入力欄にする。見出しの右にボタンを置く', () => {
+    const { container } = mount();
+    expect(screen.queryByRole('textbox', { name: 'ノート' })).toBeNull();
+    const panel = container.querySelectorAll('.rail > .rail-panel')[1]!;
+    // ボタンは見出し（h2）の右に並ぶが、h2 の中には入れない（見出しの名前が「ノート」のままになるように）。
+    expect(panel.querySelector('.rail-head')).toContainElement(screen.getByRole('button', { name: 'ノートを編集' }));
+    expect(screen.getByRole('heading', { name: 'ノート' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
+    expect(screen.getByRole('textbox', { name: 'ノート' })).toHaveValue('決済は Stripe の v3');
+  });
+  it('ノートを保存すると memo.save を出して読む表示に戻り、Esc では保存せずに戻る', () => {
+    const { onIntent } = mount();
+    fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: '# b' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'ノート' }), { key: 'Enter', ctrlKey: true });
+    expect(onIntent).toHaveBeenCalledWith({ type: 'memo.save', projectId: 'alpha', markdown: '# b' });
+    expect(screen.queryByRole('textbox', { name: 'ノート' })).toBeNull();
+    onIntent.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'ノートを編集' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: '捨てる' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'ノート' }), { key: 'Escape' });
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox', { name: 'ノート' })).toBeNull();
+  });
+  it('ノートが空なら、本文は出さず、ボタンは「ノートを書く」になる', () => {
+    mount(props({ note: { text: '', filled: false } }));
+    expect(screen.queryByRole('textbox', { name: 'ノート' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'ノートを書く' }));
+    expect(screen.getByRole('textbox', { name: 'ノート' })).toHaveValue('');
   });
   // アーティファクトの節も白い面に載せ、面の中のカードは淡い地で重ねる（見出しと空のときの文が光の上に出ないように）。
   it('3 つの節は白い面に載り、見出しの名前は「ノート」である', () => {

@@ -85,9 +85,8 @@ export type Intent =
   | { type: 'session.openFile'; sessionId: SessionId; path: string }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
-  | { type: 'sync.config.preview' } | { type: 'sync.config.apply' }
   | { type: 'sync.joinToken.show' }
-  // 設定の同期（作り直した実装）。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
+  // 設定の同期。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
   | { type: 'configSync.open'; part: ConfigSyncPart }
   | { type: 'configSync.send.confirm' }
   | { type: 'configSync.apply'; entries: ConfigApplyOrderEntryIn[] }

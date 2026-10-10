@@ -1,4 +1,4 @@
-import type { CloudUsageDto, CompatDto, ConfigPreviewDto, DeviceDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CloudUsageDto, CompatDto, DeviceDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -38,12 +38,7 @@ export type SummaryApi = { enqueue(sessionId: string, opts?: SummaryEnqueueOpts)
 /** SyncEngine のうち HTTP から触る部分だけ。 */
 export type SyncApi = Pick<SyncEngine, 'status' | 'syncNow' | 'setPaused' | 'onFocus' | 'pullBeforeLaunch'>;
 /**
- * Claude Code 設定の同期のうち HTTP から触る部分だけ。
- * ClaudeConfigSync に pull() は無いので、呼び手が applyPull(pendingRemote()) の形に包んで渡す。
- */
-export type ConfigSyncApi = { preview(): ConfigPreviewDto; pull(): Promise<{ applied: number; conflicts: number }> };
-/**
- * 作り直した設定の同期（sync/config/）のうち HTTP から触る部分だけ。
+ * 設定の同期（sync/config/）のうち HTTP から触る部分だけ。
  * 読む操作と、hangar の置き場の適用の指示書を書く操作だけで、~/.claude に書く操作（適用、競合の採り直し、世代へ戻す）は持たない。
  * それは指示書を読む殻の命令と hangar config apply の役目である（D9）。
  */
@@ -98,9 +93,7 @@ export type AppDeps = {
   syncOncePass: () => boolean;
   /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */
   resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
-  /** 同期を設定していない端末では null。そのとき設定の経路は 404 を返す。 */
-  configSync: ConfigSyncApi | null;
-  /** 作り直した設定の同期。同期を設定していない端末では null で、/config-sync/* は 404 を返す。旧実装の configSync とは別で、既定は切。 */
+  /** 設定の同期。同期を設定していない端末では null で、/config-sync/* は 404 を返す。既定は切。 */
   configBundle: ConfigBundleApi | null;
   /** 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。 */
   joinToken: () => string | null;

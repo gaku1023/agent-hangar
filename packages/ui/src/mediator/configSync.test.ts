@@ -39,10 +39,10 @@ describe('設定の同期のダイアログ', () => {
     expect(r.state).toEqual(kill);
     expect(r.effects).toEqual([]);
   });
-  it('送る一覧を承諾すると、新しい実装のスイッチを入れ、旧実装のスイッチを切って閉じる', () => {
+  it('送る一覧を承諾すると、スイッチを入れて閉じる', () => {
     const r = run([intent({ type: 'configSync.open', part: 'send' }), intent({ type: 'configSync.send.confirm' })]);
     expect(r.state.overlay).toEqual({ kind: 'none' });
-    expect(r.effects.at(-1)).toEqual({ kind: 'api.updateSettings', patch: { configBundleSync: true, syncClaudeConfig: false } });
+    expect(r.effects.at(-1)).toEqual({ kind: 'api.updateSettings', patch: { configBundleSync: true } });
   });
   it('送る一覧の承諾は、その一覧を開いているときだけ効く', () => {
     const r = run([intent({ type: 'configSync.send.confirm' })]);
