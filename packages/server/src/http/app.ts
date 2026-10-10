@@ -80,6 +80,11 @@ export type AppDeps = {
    * .app はこれが真になるまで起動画面に残る。渡さなければ済んだものとして扱う。
    */
   ready?: () => boolean;
+  /**
+   * 右ペインの要約器。裏の印（live/aside.ts）が 500 ミリ秒ごとに同じ要約を引くので、サーバは 1 つを両方に渡して覚えを共有する。
+   * 渡さなければ、ここで作る。
+   */
+  digester?: Pick<LiveDigester, 'digest'>;
   /** 表の変化に対応しない知らせ（トースト）を渡す先。行のイベントは渡さない。行を書けば、配る層（events/publisher.ts）が配る。 */
   hub: { broadcast(ev: NoticeEvent): void };
   runs: RunsApi;
@@ -327,7 +332,7 @@ export function createApp(deps: AppDeps): Hono {
    */
   const session = (id: string) => getSession(db, deps.live(), id, { deviceId });
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
-  const digester = new LiveDigester(db);
+  const digester = deps.digester ?? new LiveDigester(db);
   const requireProject = (id: string) => getProject(db, deviceId, deps.live(), id);
   // 外部連携の失敗の文言は、必ずトークンの覆いを通してから応答に載せる。
   const external = (c: Context, fn: () => Promise<unknown>, empty = false) => externalResult(c, deps.token, fn, empty);
