@@ -36,23 +36,44 @@ export interface PaneOps {
   prepareForOutsideTerminals(): void;
 }
 
-/** tmux のキーの名前。 */
-const TMUX_KEYS: Record<PaneKey, string> = { 'ctrl+o': 'C-o' };
+/** tmux と psmux のキーの名前。 */
+const MUX_KEYS: Record<PaneKey, string> = { 'ctrl+o': 'C-o' };
 
-/** tmux を裏にした PaneOps。画面 1 つを、切り離した tmux のセッション 1 つにする。 */
-export function tmuxPaneOps(tmux: Tmux): PaneOps {
+/** tmux と psmux に共通の口。画面 1 つを、切り離したセッション 1 つにする。 */
+function muxPaneOps(tmux: Tmux): Omit<PaneOps, 'prepareForOutsideTerminals'> {
   return {
     open(opts) {
       tmux.newSession(opts);
-      // hangar の画面は UI の端末に埋めるので、tmux の状態の行は出さない。
+      // hangar の画面は UI の端末に埋めるので、状態の行は出さない。
       tmux.setOption(opts.name, 'status', 'off');
     },
+    // サーバごとは落とさない。名指しの kill-session だけである。
+    // psmux の kill-server は別の名前空間のセッションまで落とすので、どちらの裏でもここでは使わない。
     close: (name) => tmux.killSession(name),
     list: () => tmux.listSessions(),
     capture: (name) => tmux.capturePane(name),
-    // -l を付けて 1 文字として送る。{ や q を tmux のキー名として読ませない。
+    // -l を付けて 1 文字として送る。{ や q をキー名として読ませない。
     sendText: (name, text) => tmux.sendKeys(name, '-l', text),
-    sendKey: (name, key) => tmux.sendKeys(name, TMUX_KEYS[key]),
-    prepareForOutsideTerminals: () => tmux.ensureTerminalOptions(),
+    sendKey: (name, key) => tmux.sendKeys(name, MUX_KEYS[key]),
   };
+}
+
+/** tmux を裏にした PaneOps。外の端末（iTerm2 など）から attach する人のための設定も確かめる。 */
+export function tmuxPaneOps(tmux: Tmux): PaneOps {
+  return { ...muxPaneOps(tmux), prepareForOutsideTerminals: () => tmux.ensureTerminalOptions() };
+}
+
+/**
+ * psmux（Windows）を裏にした PaneOps。
+ * 画面の作り方、止め方、文字とキーの送り方は tmux と同じ口で通る（psmux 3.3.8 の実機で確かめた。psmux.win.test.ts が CI で見張る）。
+ * 違うのは、外の端末のための設定を何も入れないことである。
+ * copy-command の pbcopy は Windows に無く、Shift+Enter は Windows Terminal からそのまま通る。
+ */
+export function psmuxPaneOps(tmux: Tmux): PaneOps {
+  return { ...muxPaneOps(tmux), prepareForOutsideTerminals: () => {} };
+}
+
+/** 動いている OS に合う PaneOps。Windows は psmux、それ以外は tmux。 */
+export function paneOpsFor(tmux: Tmux, platform: NodeJS.Platform = process.platform): PaneOps {
+  return platform === 'win32' ? psmuxPaneOps(tmux) : tmuxPaneOps(tmux);
 }
