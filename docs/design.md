@@ -1201,7 +1201,7 @@ UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux attac
 リサイズは xterm.js の寸法を PTY に伝える。
 Windows で pty を閉じるとき、node-pty は子のコンソールの一覧を取る補助のプロセスを起こしてから pseudoconsole を閉じるので、補助が「AttachConsole failed」を標準エラー（サーバのログ）へ出すことがある。
 そこで Windows では pty の kill を直には呼ばず、子の `tmux attach` のプロセスだけを終わらせて、node-pty が終了を見て後始末をするのを待つ（`pty/close.ts`）。
-2 秒待っても終わらなければ、元の kill に落とす。終わっている pty は閉じ直さない。
+5 秒待っても終わらなければ、元の kill に落とす（node-pty は子が終わってから終了を伝えるまでに 1 秒以上かかることがある）。終わっている pty は閉じ直さない。
 
 ターミナルの打鍵と写しは次のようにする。
 

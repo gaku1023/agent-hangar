@@ -22,6 +22,7 @@ describe.skipIf(process.platform !== 'win32')('nodePtySpawn の kill（Windows �
     expect(r.err, why).not.toContain('AttachConsole');
     expect(r.err, why).not.toContain('conpty_console_list_agent');
     expect(r.out, why).toContain('a exited');
+    expect(r.out, why).toContain('b exited');
     expect(r.code, why).toBe(0);
   }, 60_000);
 });

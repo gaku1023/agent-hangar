@@ -30,7 +30,7 @@ export function createPtyCloser(o: {
   graceMs?: number;
 }): PtyCloser {
   const platform = o.platform ?? process.platform;
-  const graceMs = o.graceMs ?? 2000;
+  const graceMs = o.graceMs ?? 5000;
   let exited = false;
   let closing = false;
   let timer: NodeJS.Timeout | null = null;
