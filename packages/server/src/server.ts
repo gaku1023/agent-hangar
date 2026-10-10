@@ -94,6 +94,8 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
     home.stop();
     throw e;
   }
+  // 起動を断る確かめ（DB の版と控え、待ち受け）が通った。読み替えた設定をここで初めて書き戻す。
+  home.persistSettings();
   const runs = bootRuns(home, delivery, listening, { serverDir, launcher: opts.launcher });
   const summary = bootSummary(home, delivery, runs, sync);
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, opts, serverDir });

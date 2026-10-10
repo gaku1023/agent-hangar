@@ -29,32 +29,51 @@ export type HomeParts = {
   claudeDir: string;
   db: Db;
   life: Life;
+  /**
+   * 読み替えた設定（探した道具のパス、別の OS の外部ターミナル、古い鍵）を settings.json へ書き戻す。
+   * bootHome は書かない。起動の確かめ（DB の版、待ち受け）が通ってから startServer が呼ぶ。
+   * 起動を断るときに利用者のファイルを書き換えると、前の版のアプリへ戻したときに読み替え済みの設定を掴まされるからである。
+   */
+  persistSettings(): void;
   /** DB を閉じる。止める手続きの最後に呼ぶ。 */
   stop(): void;
 };
 
 /**
  * 置き場と、そこに置く物を用意する。
- * 置き場、トークン、statusline のヘッダ、端末の ID、設定、起動の包み、spawn-helper、DB の順である。
- * DB を開くときに、マイグレーションの前の控えを取る（db/open.ts）。控えが取れなければここで投げ、何も待ち受けない。
+ * 置き場、DB、トークン、statusline のヘッダ、端末の ID、設定、起動の包み、spawn-helper の順である。
+ * DB を先に開くのは、起動を断る確かめだからである。起点より古い DB（DbTooOldError）と控えの取れない DB（DbBackupError）はここで投げ、
+ * 置き場の物を 1 つも書かずに終わる（置き場そのものを作ることと、緩い権限を締めることだけは先に行う）。
+ * 設定は読み替えをメモリの上で済ませ、書き戻すのは起動が通ってから（persistSettings）である。
  */
 export function bootHome(opts: Pick<StartOptions, 'home' | 'claudeDir'> = {}): HomeParts {
   const home = opts.home ?? hangarHome();
   ensureHome(home);
-  const token = readOrCreateToken(home);
-  // statusline が curl に読ませるヘッダのファイルは、トークンと同じところで用意する。
-  // install のときにしか置かないと、置き場を消した利用者の使用量が何も言わずに止まる。
-  ensureStatuslineHeaderFile(home, token);
-  const device = readOrCreateDevice(home);
-  // tmux、code、claude のパスが設定に無ければここで探して書き戻す。GUI 起動の貧弱な PATH でも見つけられる。
-  const settings = { current: resolveToolPaths(loadSettings(home)) };
-  saveSettings(home, settings.current);
-  ensureWrapperScript(home);
-  const fixed = ensureSpawnHelper();
-  if (fixed.length) console.log('[pty] spawn-helper に実行権限を付けました:', fixed.join(', '));
-
-  const claudeDir = opts.claudeDir ?? (settings.current.claudeDir || defaultClaudeDir());
+  // 断る確かめを、置き場の物を書くより先に済ませる。
   const db = openDb(dbPath(home));
-  const language = languageReader(() => settings.current);
-  return { home, token, device, settings, language, claudeDir, db, life: { started: false, closed: false }, stop: () => db.close() };
+  try {
+    const token = readOrCreateToken(home);
+    // statusline が curl に読ませるヘッダのファイルは、トークンと同じところで用意する。
+    // install のときにしか置かないと、置き場を消した利用者の使用量が何も言わずに止まる。
+    ensureStatuslineHeaderFile(home, token);
+    const device = readOrCreateDevice(home);
+    // tmux、code、claude のパスが設定に無ければここで探す。GUI 起動の貧弱な PATH でも見つけられる。
+    // 書き戻すのは起動が通ってから（persistSettings）。
+    const settings = { current: resolveToolPaths(loadSettings(home)) };
+    ensureWrapperScript(home);
+    const fixed = ensureSpawnHelper();
+    if (fixed.length) console.log('[pty] spawn-helper に実行権限を付けました:', fixed.join(', '));
+
+    const claudeDir = opts.claudeDir ?? (settings.current.claudeDir || defaultClaudeDir());
+    const language = languageReader(() => settings.current);
+    return {
+      home, token, device, settings, language, claudeDir, db, life: { started: false, closed: false },
+      persistSettings: () => saveSettings(home, settings.current),
+      stop: () => db.close(),
+    };
+  } catch (e) {
+    // ここで転んだら誰も stop を呼ばない。Windows で DB のファイルを握ったまま残さない。
+    db.close();
+    throw e;
+  }
 }

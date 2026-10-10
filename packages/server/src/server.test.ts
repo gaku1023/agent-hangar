@@ -10,13 +10,13 @@ import { saveCloudConfig } from './config/cloud.ts';
 import { dbPath, ensureHome, readOrCreateDevice } from './config/paths.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { DbBackupError } from './db/backup.ts';
-import { openDb } from './db/open.ts';
+import { DbTooOldError, openDb } from './db/open.ts';
 import { upsertShared } from './db/shared.ts';
 import { ensureSession } from './indexer/indexFile.ts';
 import { mangleCwd } from './provider/claude-code/transcript/discover.ts';
 import { answerAll, fakeWorker, fileSink } from '../test/fake-worker.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
-import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
+import { BASELINE_DB_VERSION, dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { CLOSE_DEADLINE_MS, installShutdown, startServer, STOP_WATCHDOG_MS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
 import { expectMode, posixDescribe, posixIt } from '../test/platform.ts';
@@ -315,6 +315,55 @@ describe('startServer', () => {
       fs.writeFileSync(path.join(d.home, 'backups', 'db'), 'x');
       await withPendingMigration(() => expect(start(d)).rejects.toBeInstanceOf(DbBackupError));
       expect(dbVersionOf(file)).toBe(LATEST_DB_VERSION);
+    });
+
+    /** 置き場の中の全ファイルの中身。起動を断ったときに、何も書き換えていないことを見る。 */
+    const snapshot = (dir: string): Record<string, string> => Object.fromEntries(
+      fs.readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((e) => e.isFile())
+        .map((e) => { const p = path.join(e.parentPath, e.name); return [path.relative(dir, p), fs.readFileSync(p).toString('base64')]; }),
+    );
+    /** 起動のときに読み替えが入る設定（古い鍵と知らない言語）。読み替えて書き戻せば中身が変わる。 */
+    const rewrittenSettings = (d: Dirs): string => JSON.stringify({ workspaceRoot: d.ws, claudeDir: d.claudeDir, syncClaudeConfig: true, language: 'xx' });
+
+    it('起点より古い DB で起動を断るときは、置き場のファイルを 1 つも書き換えない', async () => {
+      // 前の版のアプリへ戻す利用者が、読み替え済みの設定や作り直した置き場の物を掴まされないようにする。
+      ensureHome(d.home);
+      fs.writeFileSync(path.join(d.home, 'token'), 'old-token');
+      readOrCreateDevice(d.home);
+      fs.writeFileSync(path.join(d.home, 'settings.json'), rewrittenSettings(d));
+      seedDbAt(path.join(d.home, 'hangar.db'), BASELINE_DB_VERSION - 1);
+      const before = snapshot(d.home);
+      await expect(start(d)).rejects.toBeInstanceOf(DbTooOldError);
+      expect(snapshot(d.home)).toEqual(before);
+    });
+
+    it('ポートが塞がっていて起動を断るときは、設定のファイルを書き換えない', async () => {
+      const busy = net.createServer();
+      await new Promise<void>((r) => busy.listen(0, '127.0.0.1', r));
+      try {
+        const port = (busy.address() as net.AddressInfo).port;
+        const settings = path.join(d.home, 'settings.json');
+        fs.writeFileSync(settings, rewrittenSettings(d));
+        await expect(startServer({ port, home: d.home, claudeDir: d.claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(d.home, 'no-dist') })).rejects.toThrow(/EADDRINUSE/);
+        expect(fs.readFileSync(settings, 'utf8')).toBe(rewrittenSettings(d));
+      } finally {
+        await new Promise((r) => busy.close(r));
+      }
+    });
+
+    it('起動が通れば、読み替えた設定を書き戻す', async () => {
+      const settings = path.join(d.home, 'settings.json');
+      fs.writeFileSync(settings, rewrittenSettings(d));
+      const s = await start(d);
+      try {
+        const saved = JSON.parse(fs.readFileSync(settings, 'utf8')) as Record<string, unknown>;
+        expect(saved.syncClaudeConfig).toBeUndefined();
+        expect(saved.language).toBeUndefined();
+        expect(saved.toolsResolved).toBe(true);
+      } finally {
+        await s.close();
+      }
     });
 
     it('起動後に現れたセッションにもプロジェクトを紐づけて配信する', async () => {
