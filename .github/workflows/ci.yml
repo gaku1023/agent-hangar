@@ -37,8 +37,8 @@ jobs:
       - run: npm run build
   windows:
     runs-on: windows-latest
-    # 試験が固まったときの上限。
-    timeout-minutes: 20
+    # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分かかる。
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -49,9 +49,40 @@ jobs:
       # スクリプト無しで入れる。Linux の node-pty には prebuild が無くビルドが要るので、これは Windows のジョブでだけ行う。
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
-      # psmux は入れない。psmux を相手にする試験は describe.skipIf で飛ぶ。
-      # ここで見るのは、パス、道具の探し方、権限、プロセスの扱いが Windows で壊れていないことである。
+      # psmux を入れないと、psmux を相手にする試験（tmux/psmux.win.test.ts）が describe.skipIf で黙って飛ぶ。
+      # 取得元は公式のリリースの zip で、版と SHA-256 を固定する。
+      # winget はランナーに入っていると限らず、cargo install はビルドで数分かかるので使わない。
+      # 版を上げるときは、この 2 つの値と、psmux.win.test.ts の隔離の試験を合わせて見直す。
+      # zip には psmux.exe、pmux.exe、tmux.exe が入っている。hangar は psmux を先に探す。
+      - name: psmux を入れる
+        shell: pwsh
+        env:
+          PSMUX_VERSION: '3.3.8'
+          PSMUX_SHA256: 1ad127ba937194a890b933a73d9b023e297bd73dc742abd841bf159984c2effe
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'psmux.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'psmux'
+          Invoke-WebRequest -Uri "https://github.com/psmux/psmux/releases/download/v$env:PSMUX_VERSION/psmux-v$env:PSMUX_VERSION-windows-x64.zip" -OutFile $zip
+          $got = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          if ($got -ne $env:PSMUX_SHA256.ToUpper()) { throw "psmux の SHA-256 が合わない: $got" }
+          Expand-Archive -Path $zip -DestinationPath $dir
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+          & (Join-Path $dir 'psmux.exe') -V
       - run: npm test
+      # 殻（Tauri、Rust）が Windows で組み上がることを見る。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
+      # windows-latest に Rust は入っているが、版と components をここで決める。
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - run: cargo check --all-targets
+        working-directory: apps/desktop/src-tauri
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: apps/desktop/src-tauri
+      - run: cargo test
+        working-directory: apps/desktop/src-tauri
   desktop:
     runs-on: macos-latest
     # Rust のビルドがキャッシュ外れで長引いたときの上限。

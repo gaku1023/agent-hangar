@@ -7,6 +7,7 @@ import { waitFor } from '../../test/tmux.ts';
 import { runCommand } from '../launch/command.ts';
 import { ensureWrapperScript, runLogPath } from '../launch/wrapper.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
+import { psmuxPaneOps } from './pane.ts';
 import { Tmux } from './tmux.ts';
 
 // Windows の psmux を相手にした確かめ。macOS と Linux、psmux の無い Windows では丸ごと飛ぶ。
@@ -65,6 +66,26 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     tmux.sendKeys('hangar-keys', 'Enter');
     await waitFor(() => tmux.capturePane('hangar-keys').split('\n').some((l) => l.trim() === '{q} 日本語'), 10_000);
   });
+
+  // RunManager が使う口を、そのまま実物の psmux に通す。
+  it('PaneOps 越しに、画面を作り、文字を送って読み、名指しで止める', async () => {
+    const panes = psmuxPaneOps(tmux);
+    made.push('hangar-pane');
+    panes.open({ name: 'hangar-pane', cwd, command: ['cmd.exe', '/k', 'echo [%HANGAR_NOTE%]'], env: { HANGAR_NOTE: '日本語の値' } });
+    expect(panes.list()).toContain('hangar-pane');
+    await waitFor(() => panes.capture('hangar-pane').includes('[日本語の値]'), 10_000);
+    panes.sendText('hangar-pane', 'echo {q} 日本語');
+    // Enter は PaneOps の口には無い（文字としては送らない）。実績のある Tmux の口で押す。
+    tmux.sendKeys('hangar-pane', 'Enter');
+    await waitFor(() => panes.capture('hangar-pane').split('\n').some((l) => l.trim() === '{q} 日本語'), 10_000);
+    // 外の端末のための設定は入れない。呼んでも失敗せず、psmux の状態も変えない。
+    panes.prepareForOutsideTerminals();
+    panes.close('hangar-pane');
+    made.pop();
+    await waitFor(() => !panes.list()!.includes('hangar-pane'), 10_000);
+    // 無い名前を止めても黙って通る。
+    panes.close('hangar-pane');
+  }, 40_000);
 
   it('無い作業フォルダは、作る前に断る', () => {
     expect(() => tmux.newSession({ name: 'hangar-nocwd', cwd: path.join(cwd, 'nope'), command: ['cmd.exe'] })).toThrow(/cwd not found/);
