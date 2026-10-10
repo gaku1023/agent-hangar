@@ -101,6 +101,7 @@ function finish() {
     if (!done) finishing.raf = requestAnimationFrame(draw);
   };
   draw(start);
+  report();
 }
 
 // 合図の後に失敗の文が出たら（画面を移せなかったとき）、合図を取り消して文が読めるように戻す。
@@ -146,7 +147,24 @@ const retry = $('boot-retry');
 const openLog = $('boot-log');
 const copyCommand = $('fail-command-copy');
 const copyAll = $('fail-copy-all');
-const invoke = (cmd) => window.__TAURI_INTERNALS__?.invoke?.(cmd);
+const invoke = (...a) => window.__TAURI_INTERNALS__?.invoke?.(...a);
+
+// 試験のための書き出し（lib.rs の boot_probe）。殻が HANGAR_BOOT_PROBE を持って起きたときだけ、boot_state が probe を真で返す。
+// そのときだけ、頁が描いた様子（札が出たか、印、種類、見出し、詳細）を DOM から読んで殻へ渡し、殻がファイルに書く。
+// CI はそれを読んで、Node の無い機械で札に切り替わったことを確かめる。ふだんの起動では呼ばない。
+let probing = false;
+function report() {
+  if (!probing) return;
+  const drawn = {
+    level: status.dataset.level ?? null,
+    card: !card.hidden,
+    kind: document.body.dataset.fail ?? null,
+    lang: document.documentElement.lang,
+    title: $('fail-title').textContent,
+    detail: $('fail-detail').textContent,
+  };
+  Promise.resolve(invoke('boot_probe', { drawn })).catch(() => {});
+}
 // 今の札のコピーする文と、押した印を戻す文。
 let view = null;
 const restore = new Map();
@@ -207,6 +225,7 @@ window.__hangarBootFail = (info) => {
   card.hidden = false;
   // Enter で「もう一度試す」を押せるよう、焦点をここに置く。
   retry.focus({ preventScroll: true });
+  report();
 };
 
 retry.addEventListener('click', () => {
@@ -223,9 +242,12 @@ copyAll.addEventListener('click', () => { if (view) copy(view.copyText, copyAll,
 // 起動の直後に出た失敗が落ちて、読み込み中のまま止まった。殻は失敗、進み具合、合図を状態として持っている。
 // 口が出来た後に起きたことは、殻がその場で評価して渡すので、問い合わせは一度でよい。
 // 問い合わせが断られても、待っている間の画面のまま続ける。
+// 試験のための書き出しが求められていれば（probe）、引き取った後の様子を一度渡す。札と合図は描いた時にも渡す。
 Promise.resolve(invoke('boot_state')).then((s) => {
   if (!s) return;
+  probing = s.probe === true;
   if (s.progress) progress = s.progress;
   if (s.failure) window.__hangarBootFail(s.failure);
   else if (s.finishing) finish();
+  else report();
 }).catch(() => {});

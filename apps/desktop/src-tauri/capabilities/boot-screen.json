@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "boot-screen",
-  "description": "殻の中の起動画面（loading/）から、起動の様子を殻に問い合わせ、失敗したときの「もう一度試す」と「ログを開く」を殻に頼むためだけの権限。",
+  "description": "殻の中の起動画面（loading/）から、起動の様子を殻に問い合わせ、失敗したときの「もう一度試す」と「ログを開く」を殻に頼むためだけの権限。boot_probe は試験のための書き出しで、殻が HANGAR_BOOT_PROBE を持って起きたときだけ書き、ふだんは何もしない。",
   "windows": ["main"],
-  "permissions": ["allow-boot-state", "allow-retry-boot", "allow-open-log"]
+  "permissions": ["allow-boot-state", "allow-boot-probe", "allow-retry-boot", "allow-open-log"]
 }

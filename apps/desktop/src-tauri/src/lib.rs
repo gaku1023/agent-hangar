@@ -4,6 +4,7 @@
 
 pub mod bootfail;
 pub mod bootmsg;
+pub mod bootprobe;
 #[cfg(windows)]
 pub mod breakaway;
 pub mod configapply;
@@ -43,6 +44,8 @@ struct AppState {
     child_started: Mutex<Option<SystemTime>>,
     /// 設定の同期の確認（適用、世代へ戻す）が出ているか。頁から続けて呼ばれても、確認を重ねて出さない。
     config_busy: AtomicBool,
+    /// 試験のための書き出しの先（`HANGAR_BOOT_PROBE`、`bootprobe`）。起動のときに一度だけ読む。ふだんは無い。
+    boot_probe: Option<std::path::PathBuf>,
 }
 
 /// ウィンドウが今どの段にいるか。
@@ -824,14 +827,28 @@ fn spawn_boot(app: AppHandle) -> bool {
 
 // ここから下の 5 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
-// pick_folder のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+// pick_folder と boot_probe のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 
 /// 起動画面が口を作り終えた時点で引き取る、起動の今の様子（`Ui::boot_state`）。
 /// 口が出来る前に殻が評価で渡した失敗、進み具合、合図は捨てられるので、頁の側から取りに来る。
 /// 引数は受け取らない。返すのは起動画面へ評価で渡すものと同じ材料だけで、入場の鍵や URL は持たない。
+/// 試験のための書き出しが求められていれば（`HANGAR_BOOT_PROBE`）、`probe` を真で添える。頁はそのときだけ `boot_probe` を呼ぶ。
 #[tauri::command]
 fn boot_state(app: AppHandle) -> serde_json::Value {
-    app.state::<AppState>().ui.lock().unwrap().boot_state()
+    let state = app.state::<AppState>();
+    let now = state.ui.lock().unwrap().boot_state();
+    bootprobe::mark(now, state.boot_probe.is_some())
+}
+
+/// 試験のための書き出し（`bootprobe`）。起動画面が描いた様子を、`HANGAR_BOOT_PROBE` のファイルへ書く。
+/// CI が、Node の無い機械で読み込み画面が失敗の札に切り替わったことを、これで確かめる。
+/// 殻がその変数を持たずに起きたときは何もしない。
+#[tauri::command]
+fn boot_probe(app: AppHandle, drawn: serde_json::Value) -> Result<(), String> {
+    match &app.state::<AppState>().boot_probe {
+        Some(path) => bootprobe::write(path, &drawn),
+        None => Ok(()),
+    }
 }
 
 /// フォルダを 1 つ選ぶ macOS のダイアログを開き、選んだパスを返す。取り消したら None を返す。
@@ -1441,12 +1458,14 @@ pub fn run() {
             booting: AtomicBool::new(false),
             child_started: Mutex::new(None),
             config_busy: AtomicBool::new(false),
+            boot_probe: bootprobe::target_from(std::env::var_os(bootprobe::ENV)),
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
         // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、boot-screen.json で絞る。
         .invoke_handler(tauri::generate_handler![
             boot_state,
+            boot_probe,
             open_log,
             pick_folder,
             restart_app,

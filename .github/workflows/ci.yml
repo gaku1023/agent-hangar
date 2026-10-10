@@ -97,11 +97,27 @@ jobs:
           path: ${{ steps.installer.outputs.setup }}
           if-no-files-found: error
           retention-days: 7
+      # Node の無い Windows で、入れた殻が読み込み画面を失敗の札に切り替えることを確かめる。
+      # 作ったインストーラで入れ直し、殻に渡す環境だけで Node を見えなくして起こす（apps/desktop/scripts/ci-boot-probe-windows.ps1）。
+      # 頁が描いた様子は、殻が HANGAR_BOOT_PROBE のファイルへ書き（bootprobe.rs）、それを読んで判定する。待ちの上限は 60 秒。
+      - name: Node の無い Windows で、読み込み画面が失敗の札に切り替わる
+        timeout-minutes: 4
+        shell: pwsh
+        env:
+          SETUP: ${{ steps.installer.outputs.setup }}
+        run: pwsh -NoProfile -File apps/desktop/scripts/ci-boot-probe-windows.ps1 -Setup $env:SETUP -Out (Join-Path $env:RUNNER_TEMP 'boot-probe-windows')
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: boot-probe-windows
+          path: ${{ runner.temp }}/boot-probe-windows
+          if-no-files-found: warn
+          retention-days: 7
   desktop:
     runs-on: macos-latest
     # Rust のビルドがキャッシュ外れで長引いたときの上限。
-    # キャッシュに当たれば数分で終わる。
-    timeout-minutes: 30
+    # キャッシュに当たれば数分で終わる。release の .app のビルドも含むので、その分を足してある。
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -125,3 +141,24 @@ jobs:
       # ubuntu の check では飛ぶので、走る場所はこの macOS のジョブだけである。
       - name: 同梱サーバの試験
         run: npm test -- --project desktop
+      # まっさらな Mac（Node も tmux も無い）で、入れた殻が読み込み画面を失敗の札に切り替えることを確かめる。
+      # rc.4 では、殻が 40ms で Node が無いと判断したのに、頁の口が出来る前に知らせが落ち、読み込み中のまま止まった（#123）。
+      # .app を build し、一時の場所へ写して、Node が見つからない状態で起こす（apps/desktop/scripts/ci-boot-probe-macos.sh）。
+      # ランナーの Homebrew の Node は、殻が固定で探す場所にあるので、この段の間だけ脇へ退ける（--hide-system-node）。
+      # 頁が描いた様子は、殻が HANGAR_BOOT_PROBE のファイルへ書き（bootprobe.rs）、それを読んで判定する。待ちの上限は 60 秒。
+      # 撮れた画面（boot-screen.png）と殻の記録は、実行の artifact に 7 日だけ残す。
+      - name: UI とサーバをビルドする
+        run: npm run build
+      - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
+        run: npm run tauri -- build --bundles app
+        working-directory: apps/desktop
+      - name: Node の無い Mac で、読み込み画面が失敗の札に切り替わる
+        timeout-minutes: 3
+        run: bash apps/desktop/scripts/ci-boot-probe-macos.sh --hide-system-node apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app "$RUNNER_TEMP/boot-probe-macos"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: boot-probe-macos
+          path: ${{ runner.temp }}/boot-probe-macos
+          if-no-files-found: warn
+          retention-days: 7
