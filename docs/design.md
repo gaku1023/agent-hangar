@@ -1189,6 +1189,17 @@ tmux の window ではなく別セッションにするのは、同じ tmux セ�
 既定は `tmux attach` を書いた `.command` ファイルを `open -a Terminal` で開く経路で、AppleEvent を使わないため macOS の自動化許可が要らない。
 ディレクトリを開くときの既定の shell の決め方（`${SHELL:-/bin/zsh}` を `-l` で起こす）は、`.command` の経路と iTerm2 の経路で同じにする。
 iTerm2 を使う設定にしたときは AppleScript で新規ウィンドウを開く。初回に macOS の自動化許可ダイアログが出るので、Settings で有効化したときに一度だけ案内し、Tauri の Info.plist に `NSAppleEventsUsageDescription` を入れる。AppleScript には 10 秒のタイムアウトを付け、失敗したら Terminal.app の経路に落とす。
+Windows では、選べるターミナルが「Windows Terminal」と「既定のターミナル」の 2 つになる（`TerminalApp` の `windowsTerminal` と `windowsDefault`）。
+設定画面は、画面を開いている OS の選択肢だけを同じ切り替えの部品に並べ、サーバも動いている OS の値だけを保存する。
+別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、読み込むときにその OS の既定（macOS は Terminal.app、Windows は Windows Terminal）に読み替える。
+Windows Terminal は `wt.exe -w 0 new-tab -- <psmux> attach -t =<名前>` で、直近の窓の新しいタブ（窓が無ければ新しい窓）に開く。
+wt は `;` を次のコマンドの区切りに読むので、引数の `;` は `\;` にして渡す。
+`wt.exe` を起こせなければ、既定のターミナルに落とし、落ちたことを知らせる。
+既定のターミナルは `cmd.exe /d /v:off /s /c "start "" "<psmux>" attach -t "=<名前>""` で、Windows の設定の「既定のターミナル アプリ」の新しい窓に開く。
+この 1 行は Node に引用させずにそのまま渡す（Node の `\"` は cmd.exe に通じない）。
+cmd.exe は引用符の中でも `%name%` を置き換えるので、`%` だけは引用の外へ出して `^%` にする。
+`"` と改行を含む名前とパスは、どちらの経路でも引用を破るので、開かずに断る。
+ディレクトリを開くときは、Windows Terminal は `new-tab -d <dir>` で既定のプロファイルを、既定のターミナルは `start "" /D "<dir>" powershell.exe -NoLogo` で PowerShell を開く。
 
 ### 指示の注入
 
@@ -2751,19 +2762,29 @@ error は赤みのガラスに警告のアイコンを添え、幅は 420px ま�
 確認や入力のあるダイアログが開いていれば、窓が前に出るだけで、画面は移さない（カードと同じ扱い）。
 Dock（ブラウザならインストールしたアプリ）のバッジには入力待ちの数を出し、0 で消す。
 
-デスクトップの殻では、通知を UNUserNotificationCenter で出す（`src-tauri/src/notify.rs`）。
+デスクトップの殻では、通知を macOS は UNUserNotificationCenter で、Windows は WinRT のトースト（`Windows.UI.Notifications`）で出す（`src-tauri/src/notify.rs`）。
 頁は `notify_waiting` を呼び、殻は id と文を確かめてから OS に渡す。
 押された通知は識別子からセッションを読み戻し、頁の `__hangarOpenWaiting` で開く。
 頁が出来上がる前なら、ディープリンクと同じくハッシュとして貯める。
-`tauri-plugin-notification` は、デスクトップでは押された通知を知らせないので使わない。
-`.app` の外（`tauri dev`）では通知を出さない。
+`tauri-plugin-notification` は、デスクトップでは押された通知を知らせないので使わない（Windows でも、出した後の受け口を捨てる）。
+`.app` の外（`tauri dev`）と、Windows で組み上げたままの実行ファイル（`target` の下の `debug` や `release`）では通知を出さない。
+
+Windows のトーストは、題と本文を XML の文字として入れ、launch に macOS の識別子と同じ値（`hangar-waiting:<id>`）を入れる。
+タグはセッションの id で、同じセッションのトーストは新しい方に置き換わる。
+アプリの名前（AppUserModelID）は `tauri.conf.json` の identifier で、NSIS のインストーラがスタートメニューの近道に付けるものと同じである。
+押されたトーストは 2 つの道で届き、どちらも launch の値からセッションを読み戻して、macOS と同じ受け口へ渡す。
+アプリが動いている間は、出したトーストの Activated で届く。
+アプリが閉じた後に通知センターで押されたときは、Windows が COM の口でアプリを起こし、`INotificationActivationCallback::Activate` で届く。
+そのために殻は起動のたびに、利用者の登録（HKEY_CURRENT_USER）の `Software\Classes\AppUserModelId\<identifier>` へ名前、絵、COM の口の CLSID を書き、`Software\Classes\CLSID\<CLSID>\LocalServer32` へ自分の実行ファイルを書き、COM の口を開く。
+1 回の押下が両方の道で届いても、2 秒の間に同じセッションは 1 回だけ開く。
+Windows には通知の許可を尋ねるダイアログが無いので、`notify_request` と `notify_status` は通知の設定（`NotificationSetting`）を読むだけで、切られていれば denied になる。
 バッジは Tauri の `set_badge_count` で出す。
 ブラウザでは Web Notification と `navigator.setAppBadge` を使い、どちらも無ければ何もしない。
 
 通知を受け取るかは PC ごとに localStorage（`notify.waiting`）に残す。
 選んでいなければ、デスクトップでは受け取り、ブラウザでは受け取らない。
 デスクトップで受け取るときは、起動したときに OS の許可を一度だけ尋ねておく（決まった後は OS が黙って答える）。
-尋ね終えたら、殻の `notify_status` で UNUserNotificationCenter の許可の状態を読む（尋ねはしないのでダイアログは出ない）。
+尋ね終えたら、殻の `notify_status` で OS の許可の状態を読む（macOS は UNUserNotificationCenter、Windows は通知の設定。尋ねはしないのでダイアログは出ない）。
 システム設定で切られていれば（denied）、受け取らないにし、設定の通知の節に「システム設定の「通知」で Hangar を許可してください」と出す。
 このときベルの一覧の「通知を受け取る」の行は出さない。
 利用者の選んだ値（`notify.waiting`）は書き換えない。

@@ -29,6 +29,9 @@ export const SAVED_TICK_MS = 2000;
 const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', tools: 'tool', update: 'download', info: 'info' };
 
 /** 欄の横に「✓ 保存しました」を 2 秒出す。n が進むたびに出し直す（設定の C1）。 */
+/** 外部ターミナルの選択肢の印。製品のアプリは窓の印、OS の素のターミナルはターミナルの印にする。 */
+const TERMINAL_ICON: Record<TerminalApp, IconName> = { terminal: 'openTerminal', iterm: 'appWindow', windowsTerminal: 'appWindow', windowsDefault: 'openTerminal' };
+
 function SavedTick(props: { mark: SaveMark | undefined }) {
   const t = useT();
   const n = props.mark?.kind === 'saved' ? props.mark.n : 0;
@@ -241,9 +244,9 @@ export function SettingsScreen(props: SettingsProps) {
           {props.notify.available && props.notify.blocked && <div style={{ marginTop: 4 }}>{t('settings.general.notify.blocked')}</div>}
         </>}
         control={<Switch label={t('settings.general.notify.title')} checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />} />
-      {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。 */}
-      <SetRow title={t('settings.general.terminal.title')} desc={t('settings.general.terminal.desc')}
-        control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={[{ value: 'terminal', label: 'Terminal.app', lead: <Icon name="openTerminal" /> }, { value: 'iterm', label: 'iTerm2', lead: <Icon name="appWindow" /> }]} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />
+      {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。選択肢は画面を開いている OS のものだけ。 */}
+      <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDesc}
+        control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />
       {/* Claude Code の保持期間。押しても保存せず、差分を見せる確認を開く。hangar が Claude Code の設定を書くのはここだけである。 */}
       {props.retention && (
         <SetRow title={t('settings.general.retention.title')}

@@ -1,5 +1,5 @@
-// Terminal.app と iTerm2 と VS Code への受け渡し。
-// AppleEvent を避けられる経路（.command ファイル）を既定にして、自動化の許可を要らなくする。
+// 外部ターミナル（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）と VS Code への受け渡し。
+// macOS は AppleEvent を避けられる経路（.command ファイル）を既定にして、自動化の許可を要らなくする。
 import { execFile as execFileCb } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -8,12 +8,13 @@ import type { TerminalApp } from '@agent-hangar/shared';
 import { needsShell } from '../platform/exec.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 
-export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number; shell?: boolean }) => Promise<{ code: number; stdout: string; stderr: string }>;
+/** verbatim は Windows で引数を引用せずそのまま渡す指定で、cmd.exe へ自前で組んだ 1 行を渡すときに使う。 */
+export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number; shell?: boolean; verbatim?: boolean }) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /** child_process.execFile の Promise 版。失敗でも投げず code を返す。 */
 export const execFile: Exec = (cmd, args, opts) =>
   new Promise((resolve) => {
-    execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? 30_000, encoding: 'utf8', shell: opts?.shell ?? false, windowsHide: true }, (err, stdout, stderr) => {
+    execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? 30_000, encoding: 'utf8', shell: opts?.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts?.verbatim ?? false }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0;
       resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
     });
@@ -91,21 +92,93 @@ async function openCommand(o: { app: TerminalApp; command: string; file: () => s
   return { app: 'terminal', fellBack: o.app === 'iterm' };
 }
 
+/**
+ * Windows で何を開くか。
+ * Windows Terminal には wt.exe へ渡す引数の並びを、既定のターミナルには start へ渡す 1 行（cmd.exe の引用済み）を持たせる。
+ */
+type WindowsTarget = { wt: string[]; start: string };
+
+/** " と改行は、どちらの経路でも引用を破る。" は Windows のファイル名にも使えない。開けるふりをして別のものを起こさないよう、断る。 */
+function assertWindowsSafe(...values: string[]): void {
+  for (const v of values) if (/["\r\n]/.test(v)) throw new MessageError(msg('external.terminal.badTarget', { target: v }));
+}
+
+/**
+ * wt.exe の引数の 1 つ。wt は ; を「次のコマンド」の区切りに読むので、\; にして文字のまま通す。
+ * 空白や日本語の引用は、Node が Windows の規則で付ける。
+ */
+const wtArg = (s: string) => s.replace(/;/g, '\\;');
+
+/**
+ * cmd.exe に読ませる 1 つの語を二重引用符で包む。
+ * 引用符の中でも cmd.exe は %name% を環境変数に置き換えるので、% だけは引用の外へ出して ^ で文字にする。
+ * 受け取る側の C の規則では "a"%"b" は a%b の 1 語になる。" を含む値は assertWindowsSafe が先に断る。
+ */
+export const cmdQuote = (s: string) => `"${s.replace(/%/g, '"^%"')}"`;
+
+/** cmd.exe /s /c へ渡す 1 行。/s で外側の引用符だけを剥がさせ、/d で AutoRun を、/v:off で ! の置き換えを切る。 */
+const cmdArgs = (line: string) => ['/d', '/v:off', '/s', '/c', `"${line}"`];
+
+/** Windows Terminal の新しいタブで開く。-w 0 は直近の窓のタブにする指定で、窓が無ければ新しい窓になる。 */
+async function openWithWindowsTerminal(args: string[], exec: Exec): Promise<boolean> {
+  const r = await exec('wt.exe', ['-w', '0', 'new-tab', ...args]);
+  return r.code === 0;
+}
+
+/**
+ * 既定のターミナル（Windows の設定の「既定のターミナル アプリ」）の新しい窓で開く。
+ * start の最初の引用は窓の題名と読まれるので、空の "" を先に置く。
+ * 引数は Node に引用させない。Node は " を \" で逃がすが、cmd.exe はそれを知らない。
+ */
+async function openWithWindowsDefault(line: string, exec: Exec): Promise<void> {
+  const r = await exec('cmd.exe', cmdArgs(`start "" ${line}`), { verbatim: true });
+  if (r.code !== 0) throw new MessageError(msg('external.terminal.windowsOpenFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
+}
+
+async function openWindows(o: { app: TerminalApp; target: WindowsTarget; exec: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
+  if (o.app === 'windowsTerminal' && (await openWithWindowsTerminal(o.target.wt, o.exec))) return { app: 'windowsTerminal', fellBack: false };
+  await openWithWindowsDefault(o.target.start, o.exec);
+  return { app: 'windowsDefault', fellBack: o.app === 'windowsTerminal' };
+}
+
+const isWindowsApp = (app: TerminalApp) => app === 'windowsTerminal' || app === 'windowsDefault';
+
+/** Windows の tmux（psmux）の attach。target は macOS と同じく = を付けた完全一致にする。 */
+function windowsAttach(tmuxPath: string, tmuxName: string): WindowsTarget {
+  assertWindowsSafe(tmuxPath, tmuxName);
+  const target = `=${tmuxName}`;
+  return { wt: ['--', wtArg(tmuxPath), 'attach', '-t', wtArg(target)], start: `${cmdQuote(tmuxPath)} attach -t ${cmdQuote(target)}` };
+}
+
+/**
+ * Windows でフォルダを開く。Windows Terminal は既定のプロファイルをそのフォルダで、既定のターミナルは PowerShell を開く。
+ * 末尾の \ は取る（ドライブの直下は残す）。"…\" の \" を引用の終わりと読み違える道具がある。
+ */
+function windowsDir(dir: string): WindowsTarget {
+  assertWindowsSafe(dir);
+  const d = /^[A-Za-z]:\\$/.test(dir) ? dir : dir.replace(/[\\/]+$/, '');
+  return { wt: ['-d', wtArg(d)], start: `/D ${cmdQuote(d)} powershell.exe -NoLogo` };
+}
+
 export function openInTerminalApp(o: { home: string; tmuxPath: string; tmuxName: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
+  const exec = o.exec ?? execFile;
+  if (isWindowsApp(o.app)) return Promise.resolve().then(() => openWindows({ app: o.app, target: windowsAttach(o.tmuxPath, o.tmuxName), exec }));
   return openCommand({
     app: o.app,
     command: attachLine(o.tmuxPath, o.tmuxName),
     file: () => writeAttachCommand(o.home, o.tmuxPath, o.tmuxName),
-    exec: o.exec ?? execFile,
+    exec,
   });
 }
 
 export function openDirInTerminalApp(o: { home: string; dir: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
+  const exec = o.exec ?? execFile;
+  if (isWindowsApp(o.app)) return Promise.resolve().then(() => openWindows({ app: o.app, target: windowsDir(o.dir), exec }));
   return openCommand({
     app: o.app,
     command: cdLine(o.dir),
     file: () => writeCdCommand(o.home, o.dir),
-    exec: o.exec ?? execFile,
+    exec,
   });
 }
 

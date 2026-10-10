@@ -1,4 +1,4 @@
-import { SETTINGS_SECTIONS, settingsSectionOf, type IndexProgressDto, type Language, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
+import { SETTINGS_SECTIONS, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -10,7 +10,7 @@ import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
 import { presentConfigSection, type ConfigSyncSectionProps } from './configSync.ts';
 import { daysLabel, RETENTION_CHOICES } from './retention.ts';
 import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
-import { toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
+import { clientPlatform, toolLine, workspaceLine, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 import { presentUpdateSection, type UpdateSectionProps } from './update.ts';
 
@@ -63,6 +63,8 @@ export type AccountSettingsProps = { list: AccountView[]; colors: string[] };
 export type SettingsProps = {
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
   tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null;
+  /** 外部ターミナルの選択肢と説明。画面を開いている OS のものだけを出す（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）。 */
+  terminalOptions: { value: TerminalApp; label: string }[]; terminalDesc: string;
   /** ターミナルで打つコマンド。どれも同じ hangar の呼び方にそろえる。 */
   commands: { mcp: string; statusline: string };
   lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean;
@@ -161,8 +163,19 @@ function presentToc(a: {
   });
 }
 
+/** 外部ターミナルの選択肢の名前。製品の名前はそのまま出し、Windows の既定のターミナルだけ辞書で引く。 */
+function terminalLabel(t: Translate, app: TerminalApp): string {
+  switch (app) {
+    case 'terminal': return 'Terminal.app';
+    case 'iterm': return 'iTerm2';
+    case 'windowsTerminal': return 'Windows Terminal';
+    case 'windowsDefault': return t('settings.general.terminal.windowsDefault');
+  }
+}
+
 // now は相対時刻のためだけに使う。フェーズ 3 までの呼び出しは 2 引数なので既定値を置く。
-export function presentSettings(state: State, store: Store, now: number = Date.now()): SettingsProps {
+// platform は画面を開いている OS で、外部ターミナルの選択肢を決める。試験では差し込む。
+export function presentSettings(state: State, store: Store, now: number = Date.now(), platform: string = clientPlatform()): SettingsProps {
   const s = store.settings;
   const sync = store.sync;
   const t = translatorOf(store);
@@ -235,7 +248,10 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     // 進んでいる間はヘッダーと同じ文にし、終わっていれば数を出す。
     indexLabel: indexProgressLabel(t, store.index) ?? t('settings.info.index.counts', { sessions: Object.keys(store.sessions).length, projects: Object.keys(store.projects).length }),
     sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length,
-    tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null,
+    // 別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定として見せる。
+    tmuxPath: s?.tmuxPath ?? null, terminalApp: terminalAppFor(s?.terminalApp, platform), codePath: s?.codePath ?? null,
+    terminalOptions: terminalAppsFor(platform).map((value) => ({ value, label: terminalLabel(t, value) })),
+    terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'),
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
     statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },

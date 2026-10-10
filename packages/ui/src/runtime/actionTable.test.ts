@@ -5,7 +5,7 @@ import { initialStore, type Store } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { ApiClient } from './api.ts';
-import { FELL_BACK, actionCall, actionTable, isTableAction, type TableAction } from './actionTable.ts';
+import { FELL_BACK, FELL_BACK_WINDOWS, actionCall, actionTable, isTableAction, type TableAction } from './actionTable.ts';
 
 /** 表が使う API だけの偽物。表に無い API を呼べば、型が合わなくなるか、無い関数を呼んで落ちる。 */
 function fakeApi(over: Partial<ApiClient> = {}): ApiClient {
@@ -86,6 +86,12 @@ describe('セッション', () => {
     expect([a.toast, b.toast]).toEqual([null, null]);
     const c = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) }));
     expect(c.toast).toBe(FELL_BACK);
+  });
+  it('Windows Terminal が無く既定のターミナルに落ちたときは、Windows の文で知らせる', async () => {
+    const c = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'windowsDefault' as const, fellBack: true })) }));
+    expect(c.toast).toBe(FELL_BACK_WINDOWS);
+    const d = await runRow({ type: 'project.openTerminalApp', id: 'p1' }, fakeApi({ projectOpenTerminal: vi.fn(async () => ({ app: 'windowsDefault' as const, fellBack: true })) }));
+    expect(d.toast).toBe(FELL_BACK_WINDOWS);
   });
   it('エディタで開く。変更したファイルを押したときだけ、そのファイルを添える', async () => {
     const openEditor = vi.fn(async (_sessionId: string, _file?: string) => {});

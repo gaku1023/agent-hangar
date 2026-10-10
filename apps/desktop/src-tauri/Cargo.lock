@@ -1311,6 +1311,8 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "url",
+ "windows",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
