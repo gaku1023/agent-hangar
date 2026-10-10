@@ -83,7 +83,17 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   const sync = bootSync(home, delivery, { memoPath: (projectId) => indexing.memos.memoPath(projectId) });
   const indexing = bootIndexing(home, delivery, sync);
   // 待ち受けを始める。/health はここから返る。実際のポート番号を、この後の run と包みと MCP が使う。
-  const listening = await bootListen(opts, home);
+  let listening: Awaited<ReturnType<typeof bootListen>>;
+  try {
+    listening = await bootListen(opts, home);
+  } catch (e) {
+    // 待ち受けに失敗したら（ポートが塞がれているなど）、ここまでに開いたものを閉じてから投げる。
+    // 入口はすぐ終了するが、閉じずに残すと Windows では DB のファイルが握られたままになる。
+    await delivery.stopPublishing().catch(() => {});
+    delivery.compatLog.stop();
+    home.stop();
+    throw e;
+  }
   const runs = bootRuns(home, delivery, listening, { serverDir });
   const summary = bootSummary(home, delivery, runs, sync);
   const web = bootHttp({ home, delivery, sync, indexing, listening, runs, summary, opts, serverDir });
