@@ -1,5 +1,6 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
+import { initialUpdate, type UpdateState } from './update.ts';
 import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
@@ -67,6 +68,8 @@ export type Store = {
   workspaceDirs: WorkspaceDirDto[] | null;
   /** Finder で選んだフォルダ。殻が返した値である。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
   pickedFolder: { path: string; n: number } | null;
+  /** アプリの自動更新（store/update.ts）。殻が updater を持つかと、確認と取得の段階を、Runtime が入れる（runtime/updater.ts）。 */
+  update: UpdateState;
 };
 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
@@ -80,6 +83,7 @@ export function initialStore(): Store {
     cloudUsage: null, sync: null, devices: [], joinToken: null, configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
+    update: initialUpdate(),
   };
 }
 

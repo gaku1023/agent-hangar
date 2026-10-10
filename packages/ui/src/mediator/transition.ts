@@ -7,6 +7,7 @@ import { liveStep, settleWaiting } from './live.ts';
 import { returnStep } from './returnDue.ts';
 import { noticesStep } from './notices.ts';
 import { notifyStep } from './notify.ts';
+import { updateStep } from './update.ts';
 import { overlayStep } from './overlay.ts';
 import { projectCreateStep } from './projectCreate.ts';
 import { PAGE_SIZE_DEFAULT } from './paging.ts';
@@ -55,7 +56,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const promote = (s: State, i: Input) => promoteStep(s, store, i);
   const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
-  for (const step of [connection, screen, launch, promote, projectCreate, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, returnStep, arrived, noticesStep, notifyStep, workbench]) {
+  for (const step of [connection, screen, launch, promote, projectCreate, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, returnStep, arrived, noticesStep, notifyStep, updateStep, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }

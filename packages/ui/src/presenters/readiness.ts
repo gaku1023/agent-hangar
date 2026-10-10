@@ -24,6 +24,17 @@ export function clientPlatform(userAgent: string | undefined = globalThis.naviga
   return userAgent !== undefined && /Windows/.test(userAgent) ? 'win32' : 'darwin';
 }
 
+/**
+ * 通知が OS で切られているときの案内の文の鍵。
+ * 許可する場所は OS ごとに名前が違う（macOS はシステム設定、Windows は Windows の設定）ので、画面を開いている OS で選ぶ。
+ * settings は設定の欄の文、toast は右下の知らせの文。
+ */
+export function notifyBlockedKey(platform: string, where: 'settings' | 'toast'): 'settings.general.notify.blocked' | 'settings.general.notify.blockedWindows' | 'runtime.notify.blocked' | 'runtime.notify.blockedWindows' {
+  const win = platform === 'win32';
+  if (where === 'settings') return win ? 'settings.general.notify.blockedWindows' : 'settings.general.notify.blocked';
+  return win ? 'runtime.notify.blockedWindows' : 'runtime.notify.blocked';
+}
+
 /** ツールごとの直し方。コマンドで直せるものはコマンドを、そうでなければ文（辞書の鍵）を持つ。tmux の入れ方だけは OS で変わるので、toolLine で差し替える。 */
 const FIX = {
   tmux: { fix: null, fixCommand: 'brew install tmux', soft: false },

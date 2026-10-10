@@ -11,7 +11,7 @@ import { LanguageRoot } from './primitives/language.tsx';
 const arrived = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: null, resolved: false, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, unresolved: { kind: 'elsewhere', previousPath: `/o/${id}`, deviceName: 'Mac mini' }, ...over });
 const storeOf = (list: ProjectDto[]) => ({ ...initialStore(), projects: Object.fromEntries(list.map((p) => [p.id, p])) });
 
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, ...over });
 function mount(p: ToastsProps, language: 'ja' | 'en' = 'ja') {
   const onAction = vi.fn();
   render(<LanguageRoot language={language}><ActionRoot onAction={onAction}><ToastStack {...p} /></ActionRoot></LanguageRoot>);
