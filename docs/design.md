@@ -875,8 +875,9 @@ Claude Code の形式や振る舞いを直接知っている部分は、`package
 | 置き場 | 中身 |
 | --- | --- |
 | `transcript/` | jsonl の走査（`discover.ts`）、追記分の読み（`lines.ts`）、正規化（`normalize.ts`）、最後の動きの畳み込み（`activity.ts`） |
+| `hooks/` | hook の入力から AskUserQuestion の出入りを読む（`question.ts`） |
 | `registry.ts` | 実行中のセッションの登録（`~/.claude/sessions/<pid>.json`）の読み |
-| `launch/` | 起動の引数（`args.ts`）、`--mcp-config` に渡すファイル（`mcpConfig.ts`） |
+| `launch/` | 起動の引数（`args.ts`）、`--mcp-config` に渡すファイル（`mcpConfig.ts`）、`--settings` に渡す hook の設定（`hookSettings.ts`） |
 | `config/` | `~/.claude.json`（`claudeJson.ts`）、設定ファイルの書き方（`claudeFileWrite.ts`）、保持期間（`retention.ts`）、statusline の台本（`statusline.ts`）、アカウントの認証（`accountAuth.ts`）と共有のリンク（`accountLinks.ts`） |
 | `prompt/` | `/` の候補（`commands.ts`、`frontmatter.ts`）、入力の履歴（`history.ts`） |
 | `process/` | `claude agents --json` と `claude stop`、プロセスの起動時刻（`procs.ts`） |
@@ -904,7 +905,8 @@ Claude Code の保存先と、その読み方を定める。
 - サブエージェントの本文は `<sessionId>/subagents/agent-<hex>.jsonl` にあり、`isSidechain: true` で親に紐づく。件数はセッション本体の 3 倍以上あり、インデクサは両方を読む。
 - 実行中の状態は `~/.claude/sessions/<pid>.json` にあり、`sessionId`、`cwd`、`name`、`nameSource`、`status`（busy、idle、waiting、shell）を持つ。ファイルの出現と消失が起動と終了に対応する。
   - Claude Code は、一時のファイルからの改名に失敗すると、登録をその場で書き直す（切り詰めてから書く）。Windows では、ほかのプロセスがファイルを開いているだけで改名が失敗しうる。その間に読むと中身が空か途中までになる。`RegistryWatcher` は、読めなかった登録を、前に読めた中身のまま 4 回（500 ミリ秒ごとの読み直しで 2 秒）まで続ける（`registry.ts` の `RegistryCarry`）。読めないまま捨てると、そのセッションが一瞬だけ終わったように見え、待っている問いまで消える（「Home の帯と引き出し」の節）。ファイルが無くなった登録と、はじめから読めない登録は、今までどおり読まない。
-- 起動フラグは `--session-id`、`-n`、`--append-system-prompt`、`--mcp-config`、`--model`、`--effort`、`--permission-mode`、`-w`、`--add-dir`、`-r`、`--fork-session` を使う。
+- 起動フラグは `--session-id`、`-n`、`--append-system-prompt`、`--mcp-config`、`--settings`、`--model`、`--effort`、`--permission-mode`、`-w`、`--add-dir`、`-r`、`--fork-session` を使う。
+- Windows の実機（2.1.296）で、AskUserQuestion だけを呼んだ回に、入力待ちの間は本文から問いの文が取れなかった。macOS の 2.1.296 で 2 回試した回は、答える前に本文に書かれて取れた。本文に頼り切らないよう、問いの文は hook からも受け取る（「Home の帯と引き出し」の節）。
 
 サブエージェントの本文は主線と別のファイルで独立に伸びるので、`event_index` の一意制約は `(session_id, ifnull(parent_agent, ''), seq)` とし、主線とサブエージェントで `seq` の空間を分ける。
 主線を絞る問い合わせは、この索引の式に合わせて `ifnull(parent_agent, '') = ''` と書く。
@@ -1046,6 +1048,7 @@ tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
   bash ~/.agent-hangar/bin/hangar-run.sh ~/.agent-hangar/logs/run-<runId>.log \
   <claude の絶対パス> \
     --mcp-config ~/.agent-hangar/mcp/<sessionId>.json \
+    --settings ~/.agent-hangar/mcp/<sessionId>.settings.json \
     [--add-dir <dir>]... \
     --session-id <sessionUuid> -n "<name>" \
     --append-system-prompt "<生成した指示>" \
@@ -1058,6 +1061,13 @@ tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
 JSON には Bearer トークンが入るので、文字列で渡すと claude の argv に載り、同じ利用者の権限で動く任意のプロセスが `ps` から 64 桁を読めてしまう。
 ファイルは `~/.agent-hangar/mcp/<sessionId>.json` に置き、run が終わったときに消す。
 消し損ねたものは、次の起動と起動時の回復のときに、生きている run のぶんを残して落とす。
+`--settings` には hook の設定（`provider/claude-code/launch/hookSettings.ts`）を書いた 0600 のファイルを渡し、`--mcp-config` の直後に置く。
+中身は AskUserQuestion の前（`PreToolUse`）と後（`PostToolUse`、取り消しは `PostToolUseFailure`）の hook で、hangar の台本 `~/.agent-hangar/bin/hangar-hook.mjs`（`launch/hookScript.ts`）をサーバ自身の node で起こす。
+shell を通さない exec の形（`command` に node、`args` に台本と MCP の設定ファイル）にして、Windows の PowerShell と Git Bash の引用の違いに左右されないようにする。
+裏で走らせ（`async`）、問いの表示を待たせない。台本は失敗しても何も書かずに 0 で抜けるので、hangar が止まっている間も claude の画面に失敗が出ない（http の hook は失敗を画面に出すので使わない）。
+鍵は設定に書かない。台本は MCP の設定ファイルから宛先と鍵を読み、標準入力をそのまま `/mcp/s/<sessionId>/hook` へ送る。
+ファイルは MCP の設定と同じ後始末で消す（run の終わりと、起動のときの掃除）。書けなかったときは `--settings` を省いて起こす。
+利用者の設定の `disableAllHooks` などで hook が走らないときは、問いの文は今までどおり本文から取る。
 `--mcp-config` と `--add-dir` は可変長オプションで、直後の位置引数を飲み込む。
 起動コマンドの組み立てでは、可変長オプションを他のオプションの前に置き、初期プロンプトは必ず末尾に置く（フェーズ 0 の検証で、逆順にすると初期プロンプトが設定ファイル名として解釈されて即時終了した）。
 tmux で `claude` を直接起動すると異常終了時の出力が失われるので、薄いラッパースクリプトを介して起動し、終了コードと標準エラーをログに残してから tmux セッションを閉じる。
@@ -2374,6 +2384,11 @@ TODO の行は半分塗りの印、本文、プロジェクト名と経過時間
 引き出しの行の「いま何をしているか」と「待っている問い」は、サーバが索引の追記を読む経路（`indexFile`）で主線の出来事を畳んで取り出す。
 最後の `tool_call` の名前と要約を残し、それが AskUserQuestion なら入力の最初の問いの文も残す。
 その呼び出しへの `tool_result` が来たら、答えが済んだとして問いを消す。
+hangar が起こした run では、問いの文を hook からも受け取る（「起動」の節の `--settings`）。
+受け口は `/mcp/s/<sessionId>/hook` で、run の MCP の秘密で開く。hook の会話（`session_id`）が URL のセッションのものでなければ書かない。
+`PreToolUse` で同じ表へ問いを書き（`sessions/questionHook.ts`）、`PostToolUse` と `PostToolUseFailure` でその呼び出しの問いを消す。
+索引はこの行を前の値として本文を畳むので、同じ呼び出しが本文に載っても問いは残り、その答えが載れば消える。
+本文が答えの時まで呼び出しを書かなくても、入力待ちの間に問いの文が出る。
 値は端末ローカルの表 `session_activity`（マイグレーション version 9）に置き、共有テーブルにも同期の changes にも入れない。
 `SessionDto.activity`（`{ tool, summary, question }`）は実行中のセッションにだけ値を持ち、実行中でないときと、呼び出しがまだ無いときは `null` になる。
 Home を開いたときにトランスクリプトを読み直すことはしない。
@@ -2906,8 +2921,17 @@ error は赤みのガラスに警告のアイコンを添え、幅は 420px ま�
 時間切れはトーストごとに持ち、マウスを乗せている間とフォーカスが中にある間は止める。
 読み上げは info が `role="status"`、error が `role="alert"` である。
 
-窓が背面にあるとき（頁が隠れているか、窓にフォーカスが無いとき）は、入力待ちになったセッションごとに通知を出す。
+窓が背面にあるときは、入力待ちになったセッションごとに通知を出す。
 題はセッションの名前、本文は問いの文（取れなければ「入力を待っています」）である。
+問いの文は入力待ちより少し遅れて届くことがある（hook の台本や本文の索引が後になる）。
+問いの文なしで知らせたセッション（`waitingBare`）に問いの文が届いたら、同じセッションの通知をもう一度出す。
+OS は同じ識別子（macOS）と同じタグ（Windows、ブラウザ）の通知を書き換えるので、2 枚にはならない。
+問いの文を待ってから出す形にしないのは、待つ時計（timer）が頁に要るからで、頁の時計は窓を最小化すると絞られる。
+デスクトップでは、窓が前にあるかを頁では決めない。頁はいつも `notify_waiting` を呼び、殻が窓の実物の様子（見えている、最小化していない、フォーカスがある）を見て、前にあれば出さない（`notify::window_in_front`）。
+頁の `visibilityState` と `hasFocus()` は、WebView が最小化や背面で絞られている間は当てにならないためである（Windows の実機で、最小化して約 3 分置いた後の入力待ちに、頁が通知を呼ばなかった）。
+頁が止まらないよう、macOS は窓の設定 `backgroundThrottling` を `throttle`（止めずに絞る。macOS 14 から効く）にし、Windows は頁が解けない Web Lock を 1 つ握る（`runtime/notifier.ts` の `holdPageAwake`。Chromium は Web Lock を握っている頁を凍らせない。Tauri の `backgroundThrottling` は WebView2 には効かない）。
+どちらも時計の絞りは変えないので、電池への響きは小さい。入力待ちは WebSocket で届き、頁の通知の判断と呼び出しは時計を使わない。
+ブラウザでは今までどおり、頁が隠れているか窓にフォーカスが無いときを背面とみなす。
 通知を押すと窓が前に出て、そのセッションを開いてターミナルにフォーカスする。
 確認や入力のあるダイアログが開いていれば、窓が前に出るだけで、画面は移さない（カードと同じ扱い）。
 Dock（ブラウザならインストールしたアプリ）のバッジには入力待ちの数を出し、0 で消す。

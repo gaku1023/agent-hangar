@@ -92,6 +92,13 @@ describe('tauri.conf.json', () => {
     expect(fs.existsSync(path.join(app, 'src-tauri', conf.build.frontendDist, 'index.html'))).toBe(true);
     expect(conf.app.windows[0]).toMatchObject({ label: 'main', title: 'Hangar', width: 1400, height: 900, titleBarStyle: 'Overlay', hiddenTitle: true });
   });
+  // 入力待ちの通知は、頁が WebSocket で受けて殻の notify_waiting を呼ぶ。
+  // WKWebView は窓が隠れると既定で頁を止める（suspend）ので、最小化している間に入力待ちを受けても通知を呼べない。
+  // throttle は止めずに絞るだけで、電池への響きは disabled より小さい。効くのは macOS 14 から（wry の with_background_throttling）。
+  // Windows の WebView2 には効かない。頁が Web Lock を握って凍らないようにする（packages/ui/src/runtime/notifier.ts の holdPageAwake）。
+  it('窓が隠れても頁を止めず、絞るだけにする（macOS の入力待ちの通知のため）', () => {
+    expect(conf.app.windows[0].backgroundThrottling).toBe('throttle');
+  });
   // csp を null にしてあるのは、ウィンドウが読み込み画面から離れたあとはサーバ自身の
   // Content-Security-Policy だけが効く形にするためである。
   // Tauri の csp は、frontendDist として配る読み込み画面にしか付かない。

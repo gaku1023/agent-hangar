@@ -28,7 +28,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], returnSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle' };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], returnSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle' };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string): State {

@@ -26,6 +26,13 @@ describe('buildClaudeArgs', () => {
     expect(a).toEqual(['--mcp-config', base.mcpConfigPath, '--session-id', 'u1', '--append-system-prompt', 'SYS']);
   });
 
+  it('hook の設定ファイルは --mcp-config の直後に --settings で渡す', () => {
+    // --mcp-config は可変長なので、次のオプションで区切る。--settings は値を 1 つだけ取る。
+    const a = buildClaudeArgs({ ...base, settingsPath: '/home/.agent-hangar/mcp/s1.settings.json', mode: { kind: 'start', sessionUuid: 'u1' }, addDirs: ['/a'], prompt: 'やって' });
+    expect(a.slice(0, 6)).toEqual(['--mcp-config', base.mcpConfigPath, '--settings', '/home/.agent-hangar/mcp/s1.settings.json', '--add-dir', '/a']);
+    expect(a.at(-1)).toBe('やって');
+  });
+
   it('再開とフォーク', () => {
     expect(buildClaudeArgs({ ...base, mode: { kind: 'resume', sessionUuid: 'u1' } }).slice(2)).toEqual(['-r', 'u1', '--append-system-prompt', 'SYS']);
     expect(buildClaudeArgs({ ...base, mode: { kind: 'fork', sessionUuid: 'u1', newSessionUuid: 'u2' } }).slice(2)).toEqual(['-r', 'u1', '--fork-session', '--session-id', 'u2', '--append-system-prompt', 'SYS']);

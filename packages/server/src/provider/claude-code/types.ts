@@ -16,6 +16,8 @@ export type LaunchInput = {
   systemPrompt: string;
   /** MCP の設定を書いた 0600 のファイル。トークンを argv に載せないため、パスだけを渡す。 */
   mcpConfigPath: string;
+  /** hook の設定を書いたファイル（launch/hookSettings.ts）。書けなかったときは省き、hook なしで起こす。 */
+  settingsPath?: string;
   model?: string;
   effort?: string;
   permissionMode?: string;

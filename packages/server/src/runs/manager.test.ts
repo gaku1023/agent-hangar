@@ -208,6 +208,13 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     // 渡すのは本体のトークンではなく、この run 専用の秘密である。
     expect(cfg.mcpServers.hangar.headers.Authorization).toBe(`Bearer ${mcpSecretFor(db, r.sessionId)}`);
     expect(cfg.mcpServers.hangar.headers.Authorization).not.toContain('tok');
+    // AskUserQuestion の問いの文を本文より先に受け取るため、hook の設定を --settings で渡す（provider/claude-code/launch/hookSettings.ts）。
+    expect(args.slice(2, 4)).toEqual(['--settings', path.join(home, 'mcp', `${r.sessionId}.settings.json`)]);
+    const hooks = JSON.parse(fs.readFileSync(args[3]!, 'utf8')) as { hooks: { PreToolUse: { hooks: { command: string; args: string[] }[] }[] } };
+    const hook = hooks.hooks.PreToolUse[0]!.hooks[0]!;
+    expect(hook.command).toBe(process.execPath);
+    expect(hook.args).toEqual([path.join(home, 'bin', 'hangar-hook.mjs'), args[1]]);
+    expect(fs.existsSync(hook.args[0]!)).toBe(true);
     expect(args.at(-2)).toBe('やって');
     expect(args).toContain('--model');
     const uuid = args[args.indexOf('--session-id') + 1]!;
@@ -645,8 +652,10 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(r.run.kind).toBe('resume');
     const args = await launchedArgs(r.run.id);
     expect(args.slice(0, 1)).toEqual(['--mcp-config']);
-    expect(args.indexOf('-r')).toBe(2);
-    expect(args[3]).toBe('u-old');
+    // 再開でも hook の設定を渡す。
+    expect(args[2]).toBe('--settings');
+    expect(args.indexOf('-r')).toBe(4);
+    expect(args[5]).toBe('u-old');
     expect(args).not.toContain('--session-id');
     expect(args).not.toContain('-n');
     // 添付の置き場を渡すのは新規の起動だけで、再開には足さない。

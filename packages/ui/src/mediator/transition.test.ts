@@ -642,6 +642,29 @@ describe('入力待ちの知らせ', () => {
     expect(c.state.waitingSeen).toEqual([]);
     expect(c.effects).toEqual([{ kind: 'badge', count: 0 }]);
   });
+  // 問いの文は、入力待ちより少し遅れて届くことがある（本文の索引や hook の台本が後になる）。
+  const withQuestion = (store: Store, id: string, question: string | null): Store =>
+    ({ ...store, sessions: { ...store.sessions, [id]: { ...store.sessions[id]!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question } } } });
+  it('問いの文なしで知らせた入力待ちに、後から問いの文が届いたら、同じセッションの通知をもう一度出す（OS は同じ識別子で書き換える）', () => {
+    const a = run([waiting('s1', 's2')]);
+    expect(a.state.waitingBare).toEqual(['s1', 's2']);
+    const later = withQuestion(waitingStore('s1', 's2'), 's1', '色は？');
+    const b = run([{ store: later }], a.state);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }]);
+    expect(b.state.waitingBare).toEqual(['s2']);
+    expect(b.state.waitingToasts).toEqual(['s1', 's2']);
+    // 一度書き換えたら、問いの文が変わらない限り、もう出さない。
+    expect(run([{ store: later }], b.state).effects).toEqual([]);
+  });
+  it('はじめから問いの文があれば、通知は 1 度だけで、書き換えを待たない', () => {
+    const a = run([{ store: withQuestion(waitingStore('s1'), 's1', '色は？') }]);
+    expect(a.effects.filter((e) => (e as { kind: string }).kind === 'notify.waiting')).toHaveLength(1);
+    expect(a.state.waitingBare).toEqual([]);
+  });
+  it('入力待ちが解けたら、書き換えの待ちも忘れる', () => {
+    const a = run([waiting('s1'), waiting()]);
+    expect(a.state.waitingBare).toEqual([]);
+  });
   it('解けてからまた入力待ちになれば、もう一度知らせる', () => {
     const a = run([waiting('s1'), waiting(), waiting('s1')]);
     expect(a.state.waitingToasts).toEqual(['s1']);

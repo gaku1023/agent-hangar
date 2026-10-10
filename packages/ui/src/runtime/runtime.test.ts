@@ -1356,6 +1356,15 @@ describe('入力待ちの知らせ', () => {
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
     expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力待ちです' });
   });
+  it('問いの文が入力待ちより遅れて届いたら、同じセッションの通知を問いの文で出し直す（待つ時計は持たない）', async () => {
+    const n = fakeNotifier();
+    const { wsHandlers } = await started(n);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
+    expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '入力待ちです' });
+    wsHandlers[0]!.onEvent({ type: 'session.upsert', session: waitingSession({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '用紙の向きをどちらにしますか' } }) });
+    expect(n.show).toHaveBeenCalledTimes(2);
+    expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか' });
+  });
   it('窓が前にあるときと、受け取らない設定のときは通知しない', async () => {
     const front = fakeNotifier({ background: false });
     (await started(front)).wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });

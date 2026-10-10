@@ -33,11 +33,14 @@ import { clickThrough } from './runtime/clickThrough.ts';
 import { tabAlive } from './store/store.ts';
 import { createPresent } from './runtime/present.ts';
 import { FILE_DROP_EVENT, handleFileDrop } from './runtime/fileDrop.ts';
-import { pickNotifier, type BrowserEnv, type DesktopEnv } from './runtime/notifier.ts';
+import { holdPageAwake, pickNotifier, type BrowserEnv, type DesktopEnv, type LockEnv } from './runtime/notifier.ts';
 
 // 鍵付きの URL で開かれたときは、サーバがもうクッキーを配り終えている。
 // 履歴に鍵を残さないよう、ここで URL から消す。ハッシュの経路は残す。
 stripEntryToken(location.href, (u) => history.replaceState(null, '', u));
+
+// デスクトップの殻の頁は、窓を最小化しても凍らせない。入力待ちの通知は、この頁が WebSocket で受けて殻へ渡すからである（runtime/notifier.ts）。
+if (typeof (window as unknown as Partial<DesktopEnv>).__TAURI_INTERNALS__?.invoke === 'function') holdPageAwake(navigator as unknown as LockEnv);
 
 const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
 const api = createApi();

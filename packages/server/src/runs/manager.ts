@@ -10,11 +10,13 @@ import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
 import { renderInjection } from '../launch/injection.ts';
+import { writeHookSettings } from '../provider/claude-code/launch/hookSettings.ts';
 import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { needsShell } from '../platform/exec.ts';
 import { toolPathIssue } from '../config/readiness.ts';
+import { ensureHookScript } from '../launch/hookScript.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { promptMentionsDrops } from '../prompt/drops.ts';
 import { assignSession } from '../projects/registry.ts';
@@ -66,7 +68,7 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * language は、Claude に渡す指示とシェルタブの名前の言語。組み立てる側が、設定を読む関数を渡す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; cwd: string };
@@ -194,6 +196,20 @@ export class RunManager {
     return `http://127.0.0.1:${this.deps.port}/mcp/s/${sessionId}`;
   }
 
+  /**
+   * AskUserQuestion の問いの文を本文より先に受け取る hook の設定を書く（provider/claude-code/launch/hookSettings.ts）。
+   * 台本はサーバ自身の node で走らせる。
+   * 書けなくても起動は止めない。問いの文は今までどおり本文から取る。
+   */
+  private hookSettings(sessionId: string, mcpConfigPath: string): string | undefined {
+    try {
+      return writeHookSettings(this.deps.home, sessionId, { node: this.deps.nodeBin ?? process.execPath, script: ensureHookScript(this.deps.home), mcpConfigPath });
+    } catch (e) {
+      console.error('[runs] hook の設定を書けませんでした', e instanceof Error ? e.message : e);
+      return undefined;
+    }
+  }
+
   /** 起動できるかを先に確かめる。行を作る前に呼ぶので、失敗しても孤児の行が残らない。 */
   private precheck(cwd: string): PaneOps {
     if (!isDirectory(cwd)) throw new RunError(400, msg('run.launch.dirMissing', { path: cwd }));
@@ -222,12 +238,14 @@ export class RunManager {
 
   private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams): Omit<LaunchInput, 'mode'> {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
+    // claude に渡すのは本体のトークンではなく、この run 専用の秘密である。
+    // 本体のトークンを渡すと、claude は自分の設定ファイルを読んで共通の /mcp と /api に回れる。
+    // 秘密を argv に載せないため、MCP の設定は 0600 のファイルに置き、パスだけを claude に渡す。
+    const mcpConfigPath = writeMcpConfig(this.deps.home, sessionId, this.mcpUrl(sessionId), issueMcpSecret(this.db, sessionId, this.now()));
     return {
       systemPrompt: this.injectionFor(projectId, cwd),
-      // claude に渡すのは本体のトークンではなく、この run 専用の秘密である。
-      // 本体のトークンを渡すと、claude は自分の設定ファイルを読んで共通の /mcp と /api に回れる。
-      // 秘密を argv に載せないため、MCP の設定は 0600 のファイルに置き、パスだけを claude に渡す。
-      mcpConfigPath: writeMcpConfig(this.deps.home, sessionId, this.mcpUrl(sessionId), issueMcpSecret(this.db, sessionId, this.now())),
+      mcpConfigPath,
+      settingsPath: this.hookSettings(sessionId, mcpConfigPath),
       name: s(params.name),
       prompt: s(params.prompt),
       model: s(params.model),
