@@ -1,5 +1,5 @@
 import { asideOf } from '../lib/aside.ts';
-import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type UsageDto, usageAt } from '@agent-hangar/shared';
+import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type SyncStatusDto, type UsageDto, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
@@ -95,8 +95,25 @@ function connProps(state: State, store: Store, now: number): ConnProps {
  * 上限で退いているのは利用者が止めたのではないので paused は偽にし、一時停止の切り替えは描かない（試作の Q4 の案 B。view は reason を見る）。
  * tz は端末の時差で、試験でだけ決めて渡す。
  */
-function syncProps(state: State, store: Store, now: number, tz?: string): SyncProps {
-  const s = state.sync;
+/** 同期の見え方。サーバの SyncStatusDto を、ヘッダーが描く形に写したもの。 */
+type SyncView = { kind: 'off' } | { kind: 'idle'; lastAt: number | null } | { kind: 'pushing' } | { kind: 'pulling' } | { kind: 'paused' } | { kind: 'error'; message: string };
+
+/** サーバの同期状態を写す。まだ届いていない間（null）は、同期を設定していないのと同じに扱う。 */
+function toSyncView(s: SyncStatusDto | null): SyncView {
+  if (s === null) return { kind: 'off' };
+  switch (s.state) {
+    case 'off': return { kind: 'off' };
+    case 'pushing': return { kind: 'pushing' };
+    case 'pulling': return { kind: 'pulling' };
+    case 'paused': return { kind: 'paused' };
+    case 'error': return { kind: 'error', message: s.error ?? '同期に失敗しました' };
+    case 'idle': return { kind: 'idle', lastAt: s.lastPullAt ?? s.lastPushAt };
+  }
+}
+
+function syncProps(store: Store, now: number, tz?: string): SyncProps {
+  // 同期の状態と未送信の数は、Store の sync だけから読む。
+  const s = toSyncView(store.sync);
   const limitedUntil = s.kind === 'paused' ? (store.sync?.limitedUntil ?? null) : null;
   const reason = s.kind === 'paused' ? (limitedUntil !== null ? 'quota' : 'user') : null;
   // 一時停止のまま押した 1 巡の最中。状態は paused のままなので、付録の印で見分ける。
@@ -113,7 +130,7 @@ function syncProps(state: State, store: Store, now: number, tz?: string): SyncPr
     : s.kind !== 'idle' ? SYNC_STATE_LABEL[s.kind]
     : s.lastAt === null ? '同期の準備中'
     : `同期 ${relativeTime(s.lastAt, now)}`;
-  return { visible: s.kind !== 'off', state: s.kind, label, pending: state.pending, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused, reason, once };
+  return { visible: s.kind !== 'off', state: s.kind, label, pending: store.sync?.pending ?? 0, sweepPending: store.sync?.sweepPending ?? 0, skipped: store.sync?.skipped.length ?? 0, paused, reason, once };
 }
 
 /**
@@ -200,5 +217,5 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(state, store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: NAV.map((n) => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 })), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), retention: retentionBanner(state, store, now), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

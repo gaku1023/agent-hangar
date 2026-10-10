@@ -52,18 +52,8 @@ function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
   return { state: closed, effects: [] };
 }
 
-/** workbench 領域：TODO、メモ、アーティファクト、事後要約、パレットの実行。状態はほとんど持たない。 */
+/** workbench 領域：TODO、メモ、アーティファクト、パレットの実行。状態はほとんど持たない。事後要約の待ちと失敗は Store が持つ。 */
 export function workbenchStep(state: State, store: Store, input: Input): Step | null {
-  if (input.kind === 'server') {
-    const e = input.event;
-    if (e.type === 'summary.failed') return { state: { ...state, summaryFailed: { ...state.summaryFailed, [e.sessionId]: e.message } }, effects: [] };
-    if (e.type === 'summary.pending' || e.type === 'summary.updated') {
-      if (!state.summaryFailed[e.sessionId]) return { state, effects: [] };
-      const { [e.sessionId]: _drop, ...rest } = state.summaryFailed;
-      return { state: { ...state, summaryFailed: rest }, effects: [] };
-    }
-    return null;
-  }
   if (input.kind !== 'intent') return null;
   const i = input.intent;
   switch (i.type) {

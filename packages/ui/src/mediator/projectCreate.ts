@@ -2,15 +2,13 @@ import { overlayReplaceable } from './overlay.ts';
 import type { Input, State, Step } from './types.ts';
 
 /**
- * projectCreate 領域：プロジェクト画面の作成のダイアログと、2 つのダイアログが共有する未登録の一覧と Finder の結果。
+ * projectCreate 領域：プロジェクト画面の作成のダイアログ。
+ * 2 つのダイアログが共有する未登録の一覧と Finder の結果は、取った値なので Store が持つ。
  * 作成で終えたらそのプロジェクトの画面へ移り、作成して始めるなら新しいセッションのダイアログを開く。
  */
 export function projectCreateStep(state: State, input: Input): Step | null {
   if (input.kind === 'runtime') {
     const e = input.event;
-    if (e.type === 'workspaceDirs.loaded') return { state: { ...state, workspaceDirs: e.dirs }, effects: [] };
-    // Finder は NFD のパスを返すことがあり、サーバのパスは NFC である。比べる前にここで一度だけそろえ、末尾の / も落とす（根の / は残す）。
-    if (e.type === 'folder.picked') return { state: { ...state, pickedFolder: { path: e.path.normalize('NFC').replace(/(.)\/+$/, '$1'), n: (state.pickedFolder?.n ?? 0) + 1 } }, effects: [] };
     if (e.type !== 'project.create.done' && e.type !== 'project.create.failed') return null;
     // 送信中でなければ（送った直後に閉じた）、結果で画面を動かさない。ただし黙って捨てない。
     if (state.projectCreate.kind !== 'submitting') {

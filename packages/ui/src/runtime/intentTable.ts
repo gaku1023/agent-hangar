@@ -1,4 +1,4 @@
-import type { AccountsDto, Intent } from '@agent-hangar/shared';
+import type { AccountsDto, Intent, SyncStatusBody } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 
@@ -28,6 +28,7 @@ function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): Api
   };
 }
 
+const withSync = (store: Store, sync: SyncStatusBody): Store => ({ ...store, sync });
 const withAccounts = (store: Store, accounts: AccountsDto): Store => ({ ...store, accounts });
 
 type Rows = { [K in Intent['type']]?: (intent: Extract<Intent, { type: K }>, store: Store) => ApiCall | null };
@@ -75,6 +76,10 @@ export const intentTable = {
 
   // 前回の結果を先に消して、試している最中だと分かるようにする。
   'summarizer.test': () => call((api) => api.testSummarizer(), { before: (store) => ({ ...store, summarizerTest: null }), apply: (store, r) => ({ ...store, summarizerTest: r }) }),
+
+  // 同期。応答の状態は Store に直に当てる（サーバの sync.status と同じ形）。同期の状態は Store だけが持つので、Mediator へは流さない。
+  'sync.now': () => call((api) => api.syncNow(), { apply: withSync }),
+  'sync.pause': (i) => call((api) => api.syncPause(i.paused), { apply: withSync }),
 
   // Claude Code のアカウント。一覧を返すものは、応答をそのまま Store に入れる（サーバの accounts.update と同じ形）。
   'accounts.load': () => call((api) => api.accounts(), { apply: withAccounts }),

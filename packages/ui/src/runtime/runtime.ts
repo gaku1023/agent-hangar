@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ServerEvent, type SyncStatusBody } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, type AccountsDto, type Intent, type LaunchResultDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -14,7 +14,7 @@ import { daysLabel } from '../presenters/retention.ts';
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
 import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applySearch, applyServerEvent, applySubagents, currentRunOf, eventsKey, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
+import { aliveRunOf, applyBootstrap, applyConfigPreview, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { intentCall, isTableIntent, type ApiCall } from './intentTable.ts';
@@ -165,11 +165,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
   /**
-   * HTTP の応答をそのまま sync.status の経路に載せる。
-   * 付録（送れなかった本文と取り残しの件数）は HTTP も websocket も運ぶので、型は両方とも SyncStatusBody である。
+   * 通知を出せるか、受け取るかを Store に入れる。Runtime しか知らない事実なので、Mediator を通さない。
+   * blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
    */
-  const syncStatus = (status: SyncStatusBody) => dispatch({ kind: 'server', event: { type: 'sync.status', status } });
-  /** アカウントの応答も同じく、accounts.update の経路に載せる。 */
+  const setNotify = (available: boolean, on: boolean, blocked = false) => setStore(applyNotify(store, { available, on, blocked }));
+  /** アカウントの応答は、accounts.update の経路に載せる。 */
   const accountsUpdated = (accounts: AccountsDto) => dispatch({ kind: 'server', event: { type: 'accounts.update', accounts } });
 
   /** サブエージェントの一覧を 1 回だけ取る。
@@ -245,10 +245,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // run.ended と tab.upsert を通すのは、届いていれば起きたこと（接続を切る、跳び先を忘れる）を同じ道で起こすためである。
           for (const run of gone.runs) dispatch({ kind: 'server', event: { type: 'run.ended', run } });
           for (const tab of gone.tabs) dispatch({ kind: 'server', event: { type: 'tab.upsert', tab } });
-          // 同期の状態と端末の一覧は Mediator が持つので、読み込み直すたびに入れ直す。
-          // ここで流さないと、次の sync.status が届くまでヘッダの同期表示が空になる。
-          dispatch({ kind: 'server', event: { type: 'sync.status', status: b.sync } });
-          dispatch({ kind: 'server', event: { type: 'devices.update', devices: b.devices } });
+          // 同期の状態と端末の一覧は applyBootstrap が Store に入れてある。画面は Store から読むので、イベントにして流し直さない。
           // 起動時の通知は誰も繋がっていないうちに流れてしまうので、今ある未解決のプロジェクトをここで入力に変える。
           for (const p of b.projects) if (p.path && !p.resolved) dispatch({ kind: 'server', event: { type: 'project.unresolved', projectId: p.id } });
           dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(deps.location.getHash()) } });
@@ -365,12 +362,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           .catch((err) => dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }));
         return;
       // 取れなければ空にする。一覧が出ないだけで、作ることもパスで選ぶこともできる。
-      case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => dispatch({ kind: 'runtime', event: { type: 'workspaceDirs.loaded', dirs } })).catch(() => dispatch({ kind: 'runtime', event: { type: 'workspaceDirs.loaded', dirs: [] } })); return;
+      case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => setStore(applyWorkspaceDirs(store, dirs))).catch(() => setStore(applyWorkspaceDirs(store, []))); return;
       case 'desktop.pickFolder':
         if (!deps.desktop) return;
         // 取り消したら何もしない。開く場所はワークスペースのルートにする。
         deps.desktop.pickFolder(store.settings?.workspaceRoot ?? null)
-          .then((path) => { if (path) dispatch({ kind: 'runtime', event: { type: 'folder.picked', path } }); })
+          .then((path) => { if (path) setStore(applyPickedFolder(store, path)); })
           .catch((err: unknown) => failWith('フォルダを選べませんでした', err));
         return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
@@ -419,7 +416,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'toast': dispatch({ kind: 'server', event: { type: 'toast', level: e.level, message: e.message } }); return;
       case 'notify.waiting': {
         // 窓が前にあるときは右下のカードで足りる。
-        if (!notifier || !state.notify.on || !notifier.background()) return;
+        if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
         notifier.show({ sessionId: s.id, title: s.name ?? '（名前なし）', body: s.activity?.question ?? NO_QUESTION });
@@ -427,7 +424,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'notify.return': {
         // 窓が前にあるときは右下の札で足りる（入力待ちと同じ）。
-        if (!notifier || !state.notify.on || !notifier.background()) return;
+        if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
         const time = s.state?.returnTime;
@@ -439,14 +436,19 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         notifier.request().then(async (granted) => {
           if (granted) {
             deps.storage.set(NOTIFY_KEY, true);
-            dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on: true } });
+            setNotify(notifier.available(), true);
             return;
           }
           // 断られたら、OS で切られているのかを読む。切られていれば、許可の仕方を知らせる。
           const blocked = (await notifier.status()) === 'denied' && notifier.available();
-          dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on: false, blocked } });
+          setNotify(notifier.available(), false, blocked);
           toast(blocked ? NOTIFY_BLOCKED : '通知が許可されませんでした');
         }).catch(fail);
+        return;
+      case 'notify.off':
+        // その場で切り替えて覚える。許可は求めない。
+        deps.storage.set(NOTIFY_KEY, false);
+        setStore(applyNotify(store, { ...store.notify, on: false }));
         return;
       case 'badge': notifier?.badge(e.count); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
@@ -476,9 +478,6 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));
         return;
       case 'storage.save': deps.storage.set(e.key, e.value); return;
-      // 返ってきた状態は sync.status と同じ経路に載せる。ストアと Mediator の両方が一度に揃う。
-      case 'api.syncNow': deps.api.syncNow().then(syncStatus).catch(fail); return;
-      case 'api.syncPause': deps.api.syncPause(e.paused).then(syncStatus).catch(fail); return;
       // 前面化は静かに失敗させる。窓を触るたびに赤い通知が出ると邪魔になる。
       case 'api.syncFocus': deps.api.syncFocus().catch(() => {}); return;
       case 'api.resumeHere':
@@ -553,9 +552,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       const available = notifier.available();
       const blocked = s === 'denied' && available;
       const on = wanted && available && notifier.granted() && !blocked;
-      const was = state.notify;
-      if (was.available === available && was.on === on && was.blocked === blocked) return;
-      dispatch({ kind: 'runtime', event: { type: 'notify.changed', available, on, blocked } });
+      const was = store.notify;
+      setNotify(available, on, blocked);
       if (was.on && blocked) toast(NOTIFY_BLOCKED);
     }, () => {});
   }
@@ -585,6 +583,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   function dispatch(input: Input): void {
     // 型では表の Intent を渡せないが、型を外して渡されても Mediator へは入れない。
     if (input.kind === 'intent' && isTableIntent(input.intent)) { emit(input.intent); return; }
+    // 索引の走査がこの知らせで終わるかは、当てる前の Store でしか分からない。
+    const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
     if (input.kind === 'server') {
       setStore(applyServerEvent(store, input.event));
       // 本文が伸びたセッションは、サブエージェントが増えているかもしれない。
@@ -602,6 +602,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     const r = transition(state, store, input);
     if (r.state !== state) { const prev = shown; state = r.state; present(commit, prev, state); }
     for (const eff of r.effects) runEffect(eff);
+    // 走査中に開いた UI の bootstrap には、プロジェクトも紐づけも載っていない。走査が終わった瞬間に取り直す。
+    if (indexDone) runEffect({ kind: 'api.bootstrap' });
     // ホームへ入ったら、動いているセッションの意図をまとめて取りに行く。
     if (!wasHome && state.screen.name === 'home') for (const run of Object.values(store.runs)) if (run.endedAt === null) loadLive(run.sessionId);
   }
@@ -639,13 +641,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       if (notifier) {
         const pref = deps.storage.get(NOTIFY_KEY);
         const on = (typeof pref === 'boolean' ? pref : notifier.defaultOn) && notifier.available() && notifier.granted();
-        dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: notifier.available(), on } });
+        setNotify(notifier.available(), on);
         // 受け取るなら、OS の許可をあらかじめ尋ねておき（決まっていれば OS が黙って答える）、尋ね終えたら許可の状態を読む。
         // デスクトップの許可は OS が持つので、システム設定で切られていれば受け取るのままにしない。
         // 利用者の選んだ値（NOTIFY_KEY）は書き換えない。OS で許可し直したら、スイッチを入れ直すだけで戻る。
         if (on) {
           notifier.prepare().then(() => notifier.status()).then((s) => {
-            if (s === 'denied' && notifier.available()) dispatch({ kind: 'runtime', event: { type: 'notify.changed', available: true, on: false, blocked: true } });
+            if (s === 'denied' && notifier.available()) setNotify(true, false, true);
           }, () => {});
         }
         // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。

@@ -99,13 +99,13 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   // 最近は最後に使った時刻の新しい順。使ったことのないプロジェクトは入れない。
   const recentIds = live.filter((p) => p.lastActivityAt !== null).sort((a, b) => b.lastActivityAt! - a.lastActivityAt!).slice(0, RECENT_COUNT).map((p) => p.id);
   const taken = new Set(Object.values(store.projects).map((p) => p.path).filter((p): p is string => !!p));
-  const dirs = (state.workspaceDirs ?? []).filter((d) => !taken.has(d.path));
+  const dirs = (store.workspaceDirs ?? []).filter((d) => !taken.has(d.path));
   // スクラッチはワークスペースの外に置くので、その名前で作っても重ならない。
   const takenNames = [...new Set(Object.values(store.projects).filter((p) => !p.isScratch && p.path).map((p) => baseName(p.path!).toLowerCase()))];
   const createdProjectId = state.launch.kind === 'failed' || state.launch.kind === 'submitting' ? state.launch.createdProjectId ?? null : null;
   return {
     projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
-    dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: state.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now),
+    dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now),
   };
 }
 

@@ -2,7 +2,6 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { addDays, localDate } from '@agent-hangar/shared';
 import type { ArtifactDto, ProjectDto, ReadinessDto, RetentionDto, RetentionPreviewDto, RunDto, SearchFilter, SessionDto, SessionLockDto, SessionSummaryDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageDto } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
-import { toSyncState } from '../mediator/sync.ts';
 import { initialState } from '../mediator/transition.ts';
 import { accountsFixture, FIVE_RESETS, SEVEN_RESETS } from '../test/accounts.ts';
 import type { State } from '../mediator/types.ts';
@@ -934,9 +933,13 @@ describe('presentNewSession', () => {
     expect(presentNewSession(state, storeWith(), NOW)).toMatchObject({ draft: { name: 'n', prompt: '' }, prefs: { alpha: { model: 'opus' } } });
   });
   it('未登録のフォルダから、store にあるプロジェクトのパスを除く', () => {
-    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, workspaceDirs: [{ name: 'alpha', path: '/w/alpha' }, { name: 'fresh', path: '/w/fresh' }] };
-    const props = presentNewSession(state, storeWithProjectAt('/w/alpha'), NOW)!;
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    const store = { ...storeWithProjectAt('/w/alpha'), workspaceDirs: [{ name: 'alpha', path: '/w/alpha' }, { name: 'fresh', path: '/w/fresh' }], pickedFolder: { path: '/w/fresh', n: 2 } };
+    const props = presentNewSession(state, store, NOW)!;
     expect(props.dirs).toEqual([{ name: 'fresh', path: '/w/fresh' }]);
+    expect(props.picked).toEqual({ path: '/w/fresh', n: 2 });
+    // 一覧をまだ取っていない間は空で、選んだフォルダも無い。
+    expect(presentNewSession(state, storeWithProjectAt('/w/alpha'), NOW)).toMatchObject({ dirs: [], picked: null });
   });
   it('作れない名前として、アーカイブも含む store のプロジェクトのフォルダ名を小文字で渡す', () => {
     const store = storeWithProjectAt('/w/Old-Kadai');
@@ -1248,9 +1251,9 @@ describe('presentSession のフェーズ 3 の項目', () => {
       sessions: { s1: { ...base, projectId: 'sc', fromScratch: false, stats: { ...base.stats, contextPercent: 25, costUsd: 0.5 } } },
       artifacts: { a1: artDto('a1') },
       summaryPending: { s1: true as const },
+      summaryFailed: { s1: 'LM Studio に繋がりません' },
     };
-    const state = { ...initialState(), summaryFailed: { s1: 'LM Studio に繋がりません' } };
-    const p = presentSession(state, store, NOW, 's1');
+    const p = presentSession(initialState(), store, NOW, 's1');
     expect(p.contextPercent).toBe(25);
     expect(p.cost).toBe('$0.50');
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
@@ -1375,8 +1378,8 @@ describe('ヘッダーの無料枠で停止', () => {
   const RESET = at('2026-10-03T00:00:00Z');
   // 実際のエンジンは、上限で退いている間は一時停止の印を立てない（limitedUntil は一時停止していないときだけ出る）。
   const paused = (o: Partial<SyncStatusBody>): SyncStatusBody => syncStatus({ state: 'paused', paused: o.limitedUntil == null, ...o });
-  // store.sync と state.sync（toSyncState(sync)）をそろえて、ヘッダーの同期の一行を返す。
-  const shellSync = (sync: SyncStatusBody, now: number, tz?: string) => presentShell({ ...initialState(), sync: toSyncState(sync), pending: sync.pending }, { ...initialStore(), sync }, now, tz).sync;
+  // ヘッダーの同期の一行は、Store の sync だけから決まる。
+  const shellSync = (sync: SyncStatusBody, now: number, tz?: string) => presentShell(initialState(), { ...initialStore(), sync }, now, tz).sync;
 
   it('上限で退いている間は、戻る時刻を端末の時刻で言い、利用者が止めたことにはしない', () => {
     const p = shellSync(paused({ limitedUntil: RESET }), at('2026-10-02T06:48:00Z'), 'Asia/Tokyo');
@@ -1415,7 +1418,7 @@ describe('ヘッダーの無料枠で停止', () => {
 
 describe('一時停止中に版で止まったとき', () => {
   const REASON = 'この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換の版は 1、クラウドが求めるのは 2 以上）。この PC の hangar を更新してください';
-  const shellSync = (sync: SyncStatusBody) => presentShell({ ...initialState(), sync: toSyncState(sync), pending: sync.pending }, { ...initialStore(), sync }, NOW).sync;
+  const shellSync = (sync: SyncStatusBody) => presentShell(initialState(), { ...initialStore(), sync }, NOW).sync;
   it('状態は error のまま、文の頭に「一時停止中 · 」を添え、一時停止の印を渡す', () => {
     const sync = syncStatus({ state: 'error', error: REASON, paused: true });
     expect(shellSync(sync)).toMatchObject({ state: 'error', paused: true, reason: null, label: `一時停止中 · 同期エラー: ${REASON}` });
@@ -1440,25 +1443,34 @@ describe('一時停止中に版で止まったとき', () => {
 });
 
 describe('同期の Presenter（フェーズ 4）', () => {
+  // ヘッダーの同期の一行は、Store の sync だけから決まる。State は同期の状態を持たない。
+  const shellSync = (sync: SyncStatusBody | null) => presentShell(initialState(), { ...initialStore(), sync }, NOW).sync;
   it('ヘッダーの同期状態は種別ごとに文言が変わる', () => {
-    const s = { ...initialState(), sync: { kind: 'idle' as const, lastAt: NOW - 60_000 }, pending: 2 };
-    expect(presentShell(s, initialStore(), NOW).sync).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null, once: false });
-    expect(presentShell({ ...s, sync: { kind: 'off' } }, initialStore(), NOW).sync).toMatchObject({ visible: false, state: 'off', label: '' });
-    expect(presentShell({ ...s, sync: { kind: 'pushing' } }, initialStore(), NOW).sync).toMatchObject({ visible: true, state: 'pushing', label: '送信中' });
-    expect(presentShell({ ...s, sync: { kind: 'pulling' } }, initialStore(), NOW).sync).toMatchObject({ state: 'pulling', label: '受信中' });
-    expect(presentShell({ ...s, sync: { kind: 'paused' } }, initialStore(), NOW).sync).toMatchObject({ state: 'paused', label: '一時停止中', paused: true });
-    expect(presentShell({ ...s, sync: { kind: 'error', message: '切れました' } }, initialStore(), NOW).sync).toMatchObject({ state: 'error', label: '同期エラー: 切れました' });
+    expect(shellSync(syncStatus({ pending: 2 }))).toEqual({ visible: true, state: 'idle', label: '同期 1 分前', pending: 2, sweepPending: 0, skipped: 0, paused: false, reason: null, once: false });
+    expect(shellSync(syncStatus({ state: 'off', url: null }))).toMatchObject({ visible: false, state: 'off', label: '' });
+    expect(shellSync(syncStatus({ state: 'pushing' }))).toMatchObject({ visible: true, state: 'pushing', label: '送信中' });
+    expect(shellSync(syncStatus({ state: 'pulling' }))).toMatchObject({ state: 'pulling', label: '受信中' });
+    expect(shellSync(syncStatus({ state: 'paused', paused: true }))).toMatchObject({ state: 'paused', label: '一時停止中', paused: true });
+    expect(shellSync(syncStatus({ state: 'error', error: '切れました', pending: 3 }))).toMatchObject({ state: 'error', label: '同期エラー: 切れました', pending: 3 });
     // まだ一度も往復していない間は、時刻の代わりに準備中と出す。
-    expect(presentShell({ ...s, sync: { kind: 'idle', lastAt: null } }, initialStore(), NOW).sync).toMatchObject({ state: 'idle', label: '同期の準備中' });
+    expect(shellSync(syncStatus({ lastPullAt: null, lastPushAt: null }))).toMatchObject({ state: 'idle', label: '同期の準備中' });
+  });
+  it('同期の状態がまだ届いていない間（Store の sync が null）は、同期を設定していないのと同じに出す', () => {
+    expect(shellSync(null)).toEqual({ visible: false, state: 'off', label: '', pending: 0, sweepPending: 0, skipped: 0, paused: false, reason: null, once: false });
+  });
+  it('idle の最終時刻は pull を優先し、pull が無ければ push を採る', () => {
+    expect(shellSync(syncStatus({ lastPullAt: NOW - 3 * 60_000, lastPushAt: NOW - 60_000 })).label).toBe('同期 3 分前');
+    expect(shellSync(syncStatus({ lastPullAt: null, lastPushAt: NOW - 2 * 60_000 })).label).toBe('同期 2 分前');
+  });
+  it('error の本文が無いときは既定の文言にする', () => {
+    expect(shellSync(syncStatus({ state: 'error', error: null })).label).toBe('同期エラー: 同期に失敗しました');
   });
   it('ヘッダーに取り残しの件数と送れなかった本文の件数が出る', () => {
     // 本文は 60 秒に 20 件ずつしか流れないので、残りが見えないと進んでいるか分からない。
-    const state = { ...initialState(), sync: { kind: 'idle' as const, lastAt: NOW }, pending: 2 };
-    const store: Store = { ...initialStore(), sync: syncStatus({ sweepPending: 1500, skipped: [{ key: 'k1', attempts: 3, message: 'x' }, { key: 'k2', attempts: 1, message: 'y' }] }) };
-    expect(presentShell(state, store, NOW).sync).toMatchObject({ pending: 2, sweepPending: 1500, skipped: 2 });
+    expect(shellSync(syncStatus({ pending: 2, sweepPending: 1500, skipped: [{ key: 'k1', attempts: 3, message: 'x' }, { key: 'k2', attempts: 1, message: 'y' }] }))).toMatchObject({ pending: 2, sweepPending: 1500, skipped: 2 });
     // 数えられない端末は 0 として渡す。ヘッダーは 0 件を描かないので、「分からない」と「無い」を分けなくてよい。
-    expect(presentShell(state, { ...initialStore(), sync: syncStatus() }, NOW).sync).toMatchObject({ sweepPending: 0, skipped: 0 });
-    expect(presentShell(state, initialStore(), NOW).sync).toMatchObject({ sweepPending: 0, skipped: 0 });
+    expect(shellSync(syncStatus())).toMatchObject({ sweepPending: 0, skipped: 0 });
+    expect(shellSync(null)).toMatchObject({ sweepPending: 0, skipped: 0 });
   });
   it('設定のクラウドの節に取り残しと送れなかった本文が出る', () => {
     // ヘッダーと違って、ここは 0 件も描く。0 と書いてあれば「追いついた」と読める。
@@ -1472,7 +1484,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
   });
   it('同期の行を足してもフェーズ 3 の使用量ゲージは残る', () => {
     const store: Store = { ...storeWith(), accounts: { currentId: 'primary', accounts: [{ ...accountsFixture.accounts[0]!, usage: { fiveHour: { usedPercent: 40, resetsAt: null }, sevenDay: null, updatedAt: NOW - 60_000 } }], sessions: {} } };
-    const p = presentShell({ ...initialState(), sync: { kind: 'idle', lastAt: NOW } }, store, NOW);
+    const p = presentShell(initialState(), { ...store, sync: syncStatus() }, NOW);
     expect(p.usage).toEqual({ fiveHour: 40, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: '1 分前' });
     expect(p.sync.visible).toBe(true);
   });
@@ -1761,11 +1773,11 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('通知を出せるのに受け取っていないときだけ、「通知を受け取る」を添える', () => {
     const base = { ...initialState(), waitingToasts: ['w1'] };
     const store = waitingStore(['w1']);
-    expect(presentToasts({ ...base, notify: { available: true, on: false, blocked: false } }, store, NOW).offerNotify).toBe(true);
-    expect(presentToasts({ ...base, notify: { available: true, on: true, blocked: false } }, store, NOW).offerNotify).toBe(false);
-    expect(presentToasts({ ...base, notify: { available: false, on: false, blocked: false } }, store, NOW).offerNotify).toBe(false);
+    expect(presentToasts(base, { ...store, notify: { available: true, on: false, blocked: false } }, NOW).offerNotify).toBe(true);
+    expect(presentToasts(base, { ...store, notify: { available: true, on: true, blocked: false } }, NOW).offerNotify).toBe(false);
+    expect(presentToasts(base, { ...store, notify: { available: false, on: false, blocked: false } }, NOW).offerNotify).toBe(false);
     // OS で切られているときは、カードごとに勧めない。直し方は設定の通知の節に出す。
-    expect(presentToasts({ ...base, notify: { available: true, on: false, blocked: true } }, store, NOW).offerNotify).toBe(false);
+    expect(presentToasts(base, { ...store, notify: { available: true, on: false, blocked: true } }, NOW).offerNotify).toBe(false);
   });
   // 確認や入力のあるダイアログが開いている間は、カードを押しても画面を移さない（Mediator も止める）。押せないように見せる。
   it('確認や入力のあるダイアログが開いている間は、カードを押せないものとして渡す', () => {
@@ -1796,9 +1808,11 @@ describe('presentShell の入力待ちの数', () => {
 
 describe('presentSettings の通知', () => {
   it('通知を出せるかと、受け取るかをそのまま渡す', () => {
-    const state = { ...initialState(), notify: { available: true, on: true, blocked: false } };
-    expect(presentSettings(state, initialStore(), NOW).notify).toEqual({ available: true, on: true, blocked: false });
-    expect(presentSettings({ ...state, notify: { available: true, on: false, blocked: true } }, initialStore(), NOW).notify).toEqual({ available: true, on: false, blocked: true });
+    const store = { ...initialStore(), notify: { available: true, on: true, blocked: false } };
+    expect(presentSettings(initialState(), store, NOW).notify).toEqual({ available: true, on: true, blocked: false });
+    expect(presentSettings(initialState(), { ...store, notify: { available: true, on: false, blocked: true } }, NOW).notify).toEqual({ available: true, on: false, blocked: true });
+    // Runtime がまだ何も知らせていない間は、出せない環境と同じに出す。
+    expect(presentSettings(initialState(), initialStore(), NOW).notify).toEqual({ available: false, on: false, blocked: false });
   });
 });
 

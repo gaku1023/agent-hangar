@@ -202,10 +202,28 @@ Intent の一覧は型が正である。
 - 起動の詳細の前回値（`launchPrefs`）の鍵はプロジェクトの id で、スクラッチは `:scratch` の 1 枠である。
   送った詳細をそのプロジェクトの前回値にする。
   書きかけも前回値も、端末ごとに localStorage（`newSession.draft`、`newSession.prefs`）に残し、起動時に読み戻す。形の違う値は捨てる。
+- 他端末の本文で手元を上書きしてよいかは、確認（`confirm`）を挟んで聞く。
+
+同じ事実を State と Store の両方には持たない。
+State に置くのは、操作の途中の状態（どのダイアログが開いているか、送信中か、利用者が並べた順）だけである。
+外から届いた事実は Store だけに置き、Mediator も Presenter も Store から読む。
+サーバのイベント、API の応答、殻（Finder）の答え、通知の許可のように Runtime しか知らない事実が、これに当たる。
+写しを State に持つと、片方だけが新しくなる経路ができ、2 つをそろえるために応答をサーバのイベントに見せかけて流すことになるからである。
+だから Runtime は、応答と bootstrap を Store に直に当て、サーバのイベントに作り直して `transition` へ流さない。
+bootstrap で消えた run とタブ、未解決のプロジェクトをイベントにして流すのは別の話で、届いていれば起きたこと（接続を切る、問いを出す）を同じ道で起こすためである。
+
+Store に置いた事実のうち、型から読み取れない決まりを次に書く。
+
+- 同期の状態と未送信の数は `sync` だけにある。ヘッダーの一行は、Presenter がこれを写して作る。まだ届いていない間（null）は、同期を設定していないのと同じに出す。
+- 索引の段階は `index` だけにある。
+  走査中に開いた UI の bootstrap にはプロジェクトも紐づけも載っていないので、走査が終わった瞬間に bootstrap を取り直す。
+  終わった瞬間は、`index.progress` を当てる前の Store でしか分からないので、当てる側の Runtime が見る（`store.ts` の `indexFinishedBy`）。
+  bootstrap が運んだ段階も数えるので、走査中に開いて最初に届いた知らせが idle でも取り直す。
+- 事後要約の待ち（`summaryPending`）と失敗の理由（`summaryFailed`）は並べて持つ。失敗は、次に作り始めるか作れたら消える。bootstrap は失敗を運ばないので、取り直しても残す。
+- `workspaceDirs` は、2 つのダイアログを開いたときに読む。まだ読んでいなければ null である。
 - `pickedFolder` の `n` は、同じパスをもう一度選んでも気付くための回数である。
   開いているダイアログは、マウントしたときより新しい選択かを調べるのに使う。
-- `workspaceDirs` は、2 つのダイアログを開いたときに読む。まだ読んでいなければ null である。
-- 他端末の本文で手元を上書きしてよいかは、確認（`confirm`）を挟んで聞く。
+- 通知を出せるか、受け取るか（`notify`）は Runtime が入れる。Mediator は切り替えを効果にするだけである（受け取るは `notify.request`、受け取らないは `notify.off`）。
 
 状態機械の実装は `packages/ui/src/mediator/` に置き、領域ごとにファイルを分ける。
 テストは「入力の列を与えて最終状態と効果の列を検証する」形で書く。
@@ -216,6 +234,8 @@ Intent の一覧は型が正である。
 Runtime が Intent を受けたとき、`packages/ui/src/runtime/intentTable.ts` の表（Intent の kind から API の呼び出しへ）を引き、あればそれを実行する。
 無ければ、今までどおり `transition` へ渡す。
 Intent と Effect の 2 つの定義を持つと、画面を作り替えるたびに 2 か所を触ることになるからである。
+
+今すぐ同期と一時停止もここにある。応答の状態は Store に当てるだけで、Mediator へは戻さない。
 
 表の 1 行は、Intent の中身と Store（読むだけ）から呼び出しを組む小さな関数である。
 応答の扱いは共通の形にまとめてある。
@@ -835,10 +855,10 @@ Finder で選んだパスが登録済みのプロジェクトのルートなら�
 Finder を取り消したら、選択を変えない。
 新しいフォルダと未登録のフォルダでは、札の値（モデルなど）の初期値は前回値が無いので既定である。
 
-Finder のパスは、Mediator に入る所（`folder.picked`）で NFC にそろえ、末尾の `/` を除く。
-結果は `pickedFolder { path, n }` に入れ、各ダイアログはマウントしたときより `n` が新しい選択だけを受け取る。
+Finder のパスは、Store に入れる所（`store.ts` の `applyPickedFolder`）で NFC にそろえ、末尾の `/` を除く。
+結果は Store の `pickedFolder { path, n }` に入れ、各ダイアログはマウントしたときより `n` が新しい選択だけを受け取る。
 ダイアログを開く前の選択を拾い直さないためである。
-2 つのダイアログのどちらを開いても、Mediator は未登録のフォルダの一覧を読む（`api.workspaceDirs`、`transition.ts` の 1 か所）。
+2 つのダイアログのどちらを開いても、Mediator は未登録のフォルダの一覧を読ませる（`api.workspaceDirs`、`transition.ts` の 1 か所）。届いた一覧は Store の `workspaceDirs` に入る。
 
 場所を指定した送信（`session.new.submit` の `place`）は、runtime が次の順に行う（`api.createProjectThenLaunch`）。
 
