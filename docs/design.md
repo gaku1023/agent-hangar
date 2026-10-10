@@ -3834,7 +3834,7 @@ heartbeat は 30 秒ごとの push で更新する。
 
 リポジトリは public で、MIT ライセンスで公開している（`LICENSE`、著作権者は `gaku1023`）。
 GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` と Windows 用の NSIS のインストーラをビルドして Releases に置く。
-`.app` は Developer ID では署名せず、自作の証明書で署名する方針である（署名の台本と手順は `docs/signing.md`。CI の署名はまだ入れていない）。zip と SHA-256 の checksum を添える。
+`.app` は Developer ID では署名せず、自作の証明書で署名する方針である（署名の台本と手順は `docs/signing.md`。CI の署名はまだ入れていない）。dmg（主）と zip（予備）に SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
@@ -4066,7 +4066,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   証明書が無い開発者の手元では `--adhoc` で識別子だけ固定できる（DR は build ごとに変わるので、ローカルネットワーク以外の許可は保たれない見込み）。
   証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は 1Password と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
   本番の証明書はまだ無く、指紋の置き場は空である。CI の署名は PR 5-2 で入れる。
-- Gatekeeper：公証はせず、zip と SHA-256 の checksum を添えて配る（2026-09-20 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る見込みである。以下は署名しない build の記述で、署名した build でも警告の出方は変わらない前提で読む。
+- Gatekeeper：公証はせず、dmg（主）と zip（予備）に SHA-256 の checksum を添えて配る（2026-09-20 の決定、dmg は段 5 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る見込みである。以下は署名しない build の記述で、署名した build でも警告の出方は変わらない前提で読む。
   Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
   署名しないという決めのもとでは、これが既定の姿である。
   利用者の手順は、`.app` を `/Applications` へ移してから検疫属性を外すことである。
