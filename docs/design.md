@@ -3813,7 +3813,7 @@ heartbeat は 30 秒ごとの push で更新する。
 
 リポジトリは public で、MIT ライセンスで公開している（`LICENSE`、著作権者は `gaku1023`）。
 GitHub Actions で型検査とテストを回し、タグを打つと macOS 用の `.app` をビルドして Releases に置く。
-`.app` は署名せず、zip と SHA-256 の checksum を添える。
+`.app` は Developer ID では署名せず、自作の証明書で署名する（署名の台本と手順は `docs/signing.md`）。zip と SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、検疫属性を `xattr -rd com.apple.quarantine` で外すか、システム設定の「このまま開く」で許可してから、`hangar setup` を走らせる。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 クラウド同期の設定は `.app` の同梱 CLI からは行えない。
@@ -4027,7 +4027,15 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、PATH の順に探す。Node 本体は Windows でも同梱しない。
 - Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる。署名はしない（2026-10-10 の決定）。CI の windows ジョブが `tauri build --bundles nsis` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消してから、インストーラを実行の artifact に 7 日だけ残す。Release へ上げる手順（`release.yml`）と、updater の署名鍵と目録は、まだ入れていない。
 - Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知とターミナルで打った `claude` の包みはまだ無い。
-- Gatekeeper：Developer ID での署名も公証もせず、zip と SHA-256 の checksum を添えて配る（2026-09-20 の決定）。
+- 署名の身元（段 5 の 5-1、2026-10-10 の実測と決定）：macOS のローカルネットワークの許可は署名の識別子で引かれる（DR は空でよい）。
+  署名しない Tauri の build は識別子が `hangar_desktop-<ハッシュ>` で build ごとに変わり、入れ替えるたびに許可が外れていた。
+  署名で識別子を `tauri.conf.json` の identifier（`dev.agent-hangar.hangar`）に固定すると保たれる。
+  ファイルなどほかの許可は DR で引かれるので、DR は葉の証明書の指紋（`certificate leaf = H"<SHA-1>"`）で固定する。
+  `apps/desktop/scripts/sign-macos.ts` が、内側の Mach-O から外側へ署名し（ハードンドランタイムなし、`--deep` に頼らない）、識別子、DR、`codesign --verify --deep --strict` を確かめて、違えば落とす。
+  証明書が無い開発者の手元では `--adhoc` で識別子だけ固定できる（DR は build ごとに変わるので、ローカルネットワーク以外の許可は保たれない見込み）。
+  証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は 1Password と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
+  本番の証明書はまだ無く、指紋の置き場は空である。CI の署名は PR 5-2 で入れる。
+- Gatekeeper：公証はせず、zip と SHA-256 の checksum を添えて配る（2026-09-20 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る見込みである。以下は署名しない build の記述で、署名した build でも警告の出方は変わらない前提で読む。
   Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
   署名しないという決めのもとでは、これが既定の姿である。
   利用者の手順は、`.app` を `/Applications` へ移してから検疫属性を外すことである。
