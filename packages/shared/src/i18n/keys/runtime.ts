@@ -15,4 +15,5 @@ export const runtimeKeys = {
   'runtime.retention.previewLoading': [],
   'runtime.retention.set': ['days'],
   'runtime.openTerminal.fellBack': [],
+  'runtime.openTerminal.fellBackWindows': [],
 } as const satisfies MessageSpec;
