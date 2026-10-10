@@ -1,7 +1,7 @@
-import { addDays, localDate, type LiveSessionDto, type ServerEvent, type SummarizerTestDto } from '@agent-hangar/shared';
+import { addDays, localDate, type LiveSessionDto, type SummarizerTestDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
-import { getSession } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
+import type { NoticeEvent } from '../events/publisher.ts';
 import { getSessionState, proposeSessionState, StateInputError } from '../sessions/states.ts';
 import { buildSummaryInput, CANNED_INPUT } from './input.ts';
 import type { Summarizer, SummaryInput, SummaryOutput, SummaryProposal } from './types.ts';
@@ -23,7 +23,8 @@ export type SummaryJobDeps = {
   deviceId: string;
   summarizers: () => Summarizer[];
   live: () => LiveSessionDto[];
-  hub: { broadcast(ev: ServerEvent): void };
+  /** 要約の進み（summary.pending、summary.updated、summary.failed）を渡す先。行のイベントは渡さない。 */
+  hub: { broadcast(ev: NoticeEvent): void };
   now?: () => number;
 };
 
@@ -51,7 +52,7 @@ export class SummaryJob {
    * 購読者が切れているだけで待ち行列が取り残されると、そのセッションの要約が二度と進まなくなる。
    * 握りつぶしたことが分かるように、種別と理由だけを 1 行に残す（本文と秘密は出さない）。
    */
-  private emit(ev: ServerEvent): void {
+  private emit(ev: NoticeEvent): void {
     try {
       this.deps.hub.broadcast(ev);
     } catch (e) {
@@ -175,8 +176,8 @@ export class SummaryJob {
       based_on_turns: input.turns,
     }, this.deps.deviceId, 'session_id');
     this.proposeFrom(sessionId, r.out.proposal);
-    const s = getSession(this.deps.db, this.deps.live(), sessionId);
-    if (s) this.emit({ type: 'session.upsert', session: s });
+    // 書いた行（要約と、状態の提案）の session.upsert は、配る層（events/publisher.ts）が配る。
+    // ここでは組まない。以前はここで端末の ID を渡さずに組んでいて、他端末のロックの無い行が配られていた。
     this.emit({ type: 'summary.updated', sessionId });
   }
 

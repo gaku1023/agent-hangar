@@ -6,7 +6,7 @@ import { openDb, type Db } from '../db/open.ts';
 import { getProject, getSession, listDevices } from '../db/queries.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { applyRemoteBatch } from '../sync/apply.ts';
-import { Publisher } from './publisher.ts';
+import { Publisher, type NoticeEvent } from './publisher.ts';
 
 const ME = 'dev-me';
 const OTHER = 'dev-other';
@@ -205,11 +205,43 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([]);
   });
 
-  it('対応の無い表と、知らない表は無視する', () => {
+  it('todos の行は、そのプロジェクトの一覧ごとの todos.update と、未完の数を載せる project.upsert になる', () => {
     const t = setup();
     seedProject(t.db);
     t.reset();
     upsertShared(t.db, 'todos', { id: 't1', project_id: 'p1', text: 'やる', done: 0, position: 1, session_id: null }, ME);
+    upsertShared(t.db, 'todos', { id: 't2', project_id: 'p1', text: 'もう 1 つ', done: 0, position: 2, session_id: null }, ME);
+    t.publisher.flush();
+    expect(t.types()).toEqual(['todos.update', 'project.upsert']);
+    expect(t.sent[0]).toMatchObject({ type: 'todos.update', projectId: 'p1', todos: [{ id: 't1' }, { id: 't2' }] });
+    expect(t.sent[1]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', openTodoCount: 2 } });
+  });
+
+  it('消した TODO も、残りの一覧を配る', () => {
+    const t = setup();
+    seedProject(t.db);
+    upsertShared(t.db, 'todos', { id: 't1', project_id: 'p1', text: 'やる', done: 0, position: 1, session_id: null }, ME);
+    t.reset();
+    softDeleteShared(t.db, 'todos', 't1', ME);
+    t.publisher.flush();
+    expect(t.sent[0]).toEqual({ type: 'todos.update', projectId: 'p1', todos: [] });
+    expect(t.sent[1]).toMatchObject({ type: 'project.upsert', project: { openTodoCount: 0 } });
+  });
+
+  it('TODO は、同期で降りた行では配らない（今の画面と同じ）', () => {
+    const t = setup();
+    seedProject(t.db);
+    upsertShared(t.db, 'todos', { id: 't1', project_id: 'p1', text: 'やる', done: 0, position: 1, session_id: null }, ME);
+    t.reset();
+    noteApplied(t.db, 'todos', 't1', 'upsert');
+    t.publisher.flush();
+    expect(t.sent).toEqual([]);
+  });
+
+  it('対応の無い表と、知らない表は無視する', () => {
+    const t = setup();
+    seedProject(t.db);
+    t.reset();
     touchRow(t.db, 'no_such_table', 'x');
     noteApplied(t.db, 'run_tabs', 'tab1', 'upsert');
     t.publisher.flush();
@@ -252,8 +284,17 @@ describe('表から DTO とイベントへ', () => {
   });
 });
 
-describe('明示のイベントとの畳み込み', () => {
-  const toast = (message: string): ServerEvent => ({ type: 'toast', level: 'info', message });
+describe('明示のイベントとの並び', () => {
+  const toast = (message: string): NoticeEvent => ({ type: 'toast', level: 'info', message });
+
+  it('行のイベントは、呼び手からは渡せない（型で断る）。組むのはこの層だけである', () => {
+    const t = setup();
+    seedSession(t.db);
+    const s = getSession(t.db, [], 's1', { deviceId: ME })!;
+    // @ts-expect-error 行のイベントは broadcast の引数に入らない。行を書くか、touchRow で名指しする。
+    const handBuilt = () => t.publisher.broadcast({ type: 'session.upsert', session: s });
+    expect(handBuilt).toBeTypeOf('function');
+  });
 
   it('明示のイベントも同じ列に並び、呼んだ順に届く', () => {
     const t = setup();
@@ -274,90 +315,18 @@ describe('明示のイベントとの畳み込み', () => {
     expect(t.types()).toEqual(['toast', 'session.upsert']);
   });
 
-  it('呼び手が同じ行のイベントを手で配った tick では、この層は重ねて配らない。届くのは呼び手の 1 つである', () => {
-    const t = setup();
-    seedSession(t.db);
-    const mine = { ...getSession(t.db, [], 's1', { deviceId: ME })!, memo: '呼び手が組んだもの' };
-    t.publisher.broadcast({ type: 'session.upsert', session: mine });
-    t.publisher.flush();
-    expect(t.sent).toEqual([{ type: 'session.upsert', session: mine }]);
-  });
-
-  it('書いた後に手で配れば、トランザクションの中の書き込みでも 1 つにまとまり、届く中身は最新である', async () => {
-    const t = setup();
-    seedProject(t.db);
-    t.reset();
-    const row = t.db.prepare('select * from projects where id = ?').get('p1') as Record<string, unknown>;
-    t.db.transaction(() => { upsertShared(t.db, 'projects', { ...row, status: 'paused' }, ME); })();
-    // 確定を待つ知らせはまだ届いていない。書いた後に組んだ手の配りが先に並ぶ。
-    const p = getProject(t.db, ME, [], 'p1')!;
-    t.publisher.broadcast({ type: 'project.upsert', project: p });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(t.sent).toEqual([{ type: 'project.upsert', project: p }]);
-    expect(p.status).toBe('paused');
-  });
-
-  it('手で配った後に同じ行がまた書かれたら、最後に届くのは最新の中身である', () => {
+  it('行は書かずに名指し（touch）しても、同じ tick の書き込みと合わせて 1 回で、中身は最新である', async () => {
     const t = setup();
     seedSession(t.db);
     t.reset();
     const row = t.db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
-    upsertShared(t.db, 'sessions', { ...row, memo: 'v1' }, ME);
-    t.publisher.broadcast({ type: 'session.upsert', session: getSession(t.db, [], 's1', { deviceId: ME })! });
-    upsertShared(t.db, 'sessions', { ...row, memo: 'v2' }, ME);
-    t.publisher.flush();
-    expect(upserts(t.sent).at(-1)!.session.memo).toBe('v2');
-  });
-
-  it('手の配りの後、配る前に別の流れ（先に並んでいたマイクロタスク）が同じ行を書いても、最新の中身が届く', async () => {
-    const t = setup();
-    seedSession(t.db);
-    t.reset();
-    const row = t.db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
-    // 準備で並んだこの層の番を先に済ませ、ここからの並びだけにする。
-    await Promise.resolve();
-    // 索引の続きのように、この層の番より前に並んでいた仕事。
-    queueMicrotask(() => { upsertShared(t.db, 'sessions', { ...row, memo: 'v2' }, ME); });
-    upsertShared(t.db, 'sessions', { ...row, memo: 'v1' }, ME);
-    t.publisher.broadcast({ type: 'session.upsert', session: getSession(t.db, [], 's1', { deviceId: ME })! });
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(upserts(t.sent).at(-1)!.session.memo).toBe('v2');
-  });
-
-  it('手で配った後にトランザクションの中でまた書かれても、最新の中身が届く', async () => {
-    const t = setup();
-    seedSession(t.db);
-    t.reset();
-    const row = t.db.prepare('select * from sessions where id = ?').get('s1') as Record<string, unknown>;
-    t.publisher.broadcast({ type: 'session.upsert', session: getSession(t.db, [], 's1', { deviceId: ME })! });
-    t.db.transaction(() => { upsertShared(t.db, 'sessions', { ...row, memo: 'v2' }, ME); })();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(upserts(t.sent).at(-1)!.session.memo).toBe('v2');
-  });
-
-  it('呼び手が同じイベントを 2 回手で配れば、今までどおり 2 回届く', () => {
-    const t = setup();
-    seedSession(t.db);
-    const s = getSession(t.db, [], 's1', { deviceId: ME })!;
-    t.publisher.broadcast({ type: 'session.upsert', session: s });
-    t.publisher.broadcast({ type: 'session.upsert', session: s });
-    t.publisher.flush();
-    expect(t.types()).toEqual(['session.upsert', 'session.upsert']);
-  });
-
-  it('手で配ったのが別の行なら、この層の分は残る', () => {
-    const t = setup();
-    seedSession(t.db, 's1');
-    seedSession(t.db, 's2');
-    t.reset();
+    // 実行中の一覧が動いたときのように、書き込みと名指しが同じ tick に重なる。
+    t.db.transaction(() => { upsertShared(t.db, 'sessions', { ...row, memo: 'v1' }, ME); })();
     touchRow(t.db, 'sessions', 's1');
-    t.publisher.broadcast({ type: 'session.upsert', session: getSession(t.db, [], 's2', { deviceId: ME })! });
-    t.publisher.flush();
-    expect(upserts(t.sent).map((e) => e.session.id)).toEqual(['s1', 's2']);
+    upsertShared(t.db, 'sessions', { ...row, memo: 'v2' }, ME);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(upserts(t.sent).map((e) => e.session.memo)).toEqual(['v2']);
   });
 
   it('受け手がいなければ行を読み直さない。明示のイベントはそのまま渡す', () => {

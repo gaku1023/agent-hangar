@@ -12,6 +12,7 @@ import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
  * サーバを丸ごと起こし、WebSocket の購読者に届くイベントの数と中身を押さえる。
  * 書き込みの経路（索引、HTTP、MCP）ごとに、同じ行のイベントが重なって届かないことを見る。
  * 数は、配る層（events/publisher.ts）を入れる前の main と同じである。
+ * ただし、同じ tick に同じ行を 2 回配っていた所（MCP の update_project の project.upsert）は、1 回になっている。
  */
 
 /** 見本の登録の pid は実在しない。Windows の既定は動いていない pid の登録を読まないので、試験では全部読ませる。 */
@@ -169,7 +170,7 @@ describe('届くイベントの数と中身', () => {
     }
   }, 30000);
 
-  it('MCP の書き込み：メモは session.upsert が 1 つ、update_project は書いた表ごとに今までどおり', async () => {
+  it('MCP の書き込み：メモは session.upsert が 1 つ、update_project は書いた表ごとに 1 つずつ', async () => {
     const t = await boot();
     try {
       await t.tool('set_session_memo', { session_id: t.first.id, text: 'MCP から' });
@@ -179,15 +180,36 @@ describe('届くイベントの数と中身', () => {
       expect(ups.map((e) => e.session.memo)).toEqual(['MCP から']);
       expect(ups[0]!.session).toEqual((await t.sessions()).find((x) => x.id === t.first.id));
 
-      // status と append_memo を一緒に渡すと、status の直後と最後に 1 つずつ project.upsert が出る（今の作り）。
+      // status、TODO、メモを 1 回で変えても、project.upsert は最後の中身で 1 つである。
+      // 道具が手で配っていた頃は、status の直後と最後に 1 つずつ出ていた。同じ tick の同じ行なので、配る層は 1 つに畳む。
       const from = t.c.all().length;
       await t.tool('update_project', { project_id: t.alpha.id, status: 'paused', add_todos: ['やること'], append_memo: '追記' });
       await t.c.waitFor((e): e is MemoUpdate => e.type === 'memo.update' && e.memo.projectId === t.alpha.id);
       await settle();
       const after = t.c.all().slice(from).filter((e) => e.type === 'project.upsert' || e.type === 'todos.update' || e.type === 'memo.update');
-      expect(after.map((e) => e.type)).toEqual(['project.upsert', 'todos.update', 'memo.update', 'project.upsert']);
-      const last = after[3] as ProjectUpsert;
+      expect(after.map((e) => e.type)).toEqual(['todos.update', 'memo.update', 'project.upsert']);
+      const last = after[2] as ProjectUpsert;
       expect(last.project).toMatchObject({ status: 'paused', openTodoCount: 1, memoHead: '追記' });
+    } finally {
+      await t.close();
+    }
+  }, 30000);
+
+  it('実行中の一覧が動いたとき：live.update の後に、そのセッションの session.upsert と、実行中の数を載せた project.upsert が 1 つずつ', async () => {
+    const t = await boot();
+    try {
+      // 行は書かれないが中身が変わる。サーバは行を名指しするだけで、組むのは配る層である。
+      const rec = JSON.parse(fs.readFileSync(path.join(claudeDir, 'sessions', '12345.json'), 'utf8')) as Record<string, unknown>;
+      fs.writeFileSync(path.join(claudeDir, 'sessions', '23456.json'), JSON.stringify({ ...rec, pid: 23456, sessionId: t.first.providerSessionId, cwd: t.dir, name: null, nameSource: null }));
+      await t.c.waitFor((e): e is ProjectUpsert => e.type === 'project.upsert' && e.project.id === t.alpha.id && e.project.runningCount === 1);
+      await settle();
+      const evs = t.since();
+      const ups = sessionUpserts(evs, t.first.id);
+      expect(ups.map((e) => e.session.live)).toEqual(['busy']);
+      expect(projectUpserts(evs, t.alpha.id).map((e) => e.project.runningCount)).toEqual([1]);
+      const live = evs.findIndex((e) => e.type === 'live.update' && e.live.some((l) => l.sessionId === t.first.providerSessionId));
+      expect(live).toBeGreaterThanOrEqual(0);
+      expect(evs.indexOf(ups[0]!)).toBeGreaterThan(live);
     } finally {
       await t.close();
     }

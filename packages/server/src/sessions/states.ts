@@ -7,7 +7,6 @@ import { upsertShared } from '../db/shared.ts';
  * 書き手は MCP（提案と、会話で選んだもの）、HTTP（画面）、索引（新しい発言で外すときだけ）である。
  * 変更のたびの session.upsert は、ここでも呼び手でもなく、配る層（events/publisher.ts）が配る。
  * ここの書き込みは upsertShared を通るので、行の変化の口（db/notify.ts）へ自動で知らされる。
- * HTTP と MCP の経路にはまだ手書きの配りが残っているが、同じ tick の分は配る層が 1 つに畳む。
  */
 
 /** 状態の入力の誤り。message はトーストにそのまま出せる日本語の一文である。 */

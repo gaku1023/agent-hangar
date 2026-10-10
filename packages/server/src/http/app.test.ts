@@ -10,6 +10,7 @@ import { AccountAuth } from '../config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { RetentionConflictError } from '../config/retention.ts';
 import { openDb, type Db } from '../db/open.ts';
+import { Publisher } from '../events/publisher.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { MemoStore } from '../projects/memo.ts';
@@ -31,6 +32,8 @@ let ws: string;
 let app: ReturnType<typeof createApp>;
 let deps: AppDeps;
 const sent: ServerEvent[] = [];
+/** 行の変化を配る層。経路は行を書くだけで、画面へのイベントはこの層が組んで sent へ渡す（tick の終わりに出る）。 */
+let publisher: Publisher;
 const TOKEN = 'test-token';
 const H = { authorization: `Bearer ${TOKEN}` };
 const get = (p: string, headers: Record<string, string> = H) => app.request(p, { headers });
@@ -171,17 +174,18 @@ beforeEach(async () => {
   memos = new MemoStore({ db, deviceId: 'd', home: ws });
   summary = fakeSummary();
   list0ProjectId = () => (db.prepare("select id from projects where name = 'alpha'").get() as { id: string }).id;
+  publisher = new Publisher({ db, deviceId: 'd', live: () => [], hub: { broadcast: (e) => { sent.push(e); } } });
   deps = {
     db, deviceId: 'd', deviceName: 'mac', token: TOKEN, home: ws, port: 4177, version: '0.0.0-test',
     settings: () => settings, updateSettings: (p) => (settings = { ...settings, ...p }), live: () => [], indexer,
-    hub: { broadcast: (e) => sent.push(e) }, runs, external, usage, memos, summary,
+    hub: publisher, runs, external, usage, memos, summary,
     promote: (o) => { if (o.name === 'taken') throw new PromoteError(409, 'あります'); return { projectId: list0ProjectId(), moved: o.moveFiles, reason: null }; },
     accounts: primaryOnlyAccounts(usage), cloudUsage: noCloudUsage(),
     ...syncDeps(),
   };
   app = createApp(deps);
 });
-afterEach(() => { db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); });
+afterEach(() => { publisher.stop(); db.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }); });
 
 describe('auth', () => {
   it('トークンが無ければ 401、Origin が違えば 403、/health は素通し', async () => {
@@ -1664,5 +1668,178 @@ describe('Claude Code との互換', () => {
     const withCompat = createApp({ ...deps, compat: async () => COMPAT });
     expect(await (await withCompat.request('/api/compat', { headers: H })).json()).toEqual(COMPAT);
     expect((await json(await get('/api/compat'))).body).toEqual({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] });
+  });
+});
+
+// 経路は行を書くだけで、画面へのイベントは配る層（events/publisher.ts）が組む。
+// 書いた行のイベントが、1 回だけ、最新の中身で届くことを経路ごとに押さえる。
+describe('書いた行のイベントは配る層から届く', () => {
+  const send = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const of = <T extends ServerEvent['type']>(type: T) => sent.filter((e): e is Extract<ServerEvent, { type: T }> => e.type === type);
+  const sessionsOf = async () => (await json(await get('/api/sessions'))).body as { id: string; projectId: string | null; providerSessionId: string }[];
+
+  describe('プロジェクト', () => {
+    it('状態を変えると、その project.upsert が 1 回だけ届く', async () => {
+      const id = list0ProjectId();
+      await send(`/api/projects/${id}`, { status: 'paused' }, 'PATCH');
+      expect(sent).toEqual([{ type: 'project.upsert', project: expect.objectContaining({ id, status: 'paused' }) }]);
+    });
+
+    it('置き場を選び直すと、プロジェクトと、紐づけが変わったセッションだけが届く', async () => {
+      const id = list0ProjectId();
+      const all = await sessionsOf();
+      const orphan = all.find((s) => s.projectId === null)!;
+      const moved = path.join(ws, 'moved');
+      fs.mkdirSync(moved);
+      db.prepare('update sessions set cwd = ? where id = ?').run(moved, orphan.id);
+      const r = await send(`/api/projects/${id}/resolve`, { kind: 'repoint', path: moved });
+      expect(r.status).toBe(200);
+      expect(of('project.upsert')).toEqual([{ type: 'project.upsert', project: expect.objectContaining({ id, path: moved, resolved: true }) }]);
+      // 以前は絞り込めずに全件を流していた。紐づけが変わった 1 件だけになる。
+      expect(of('session.upsert')).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id: orphan.id, projectId: id }) }]);
+    });
+
+    it('一覧から外すと、未分類に戻ったセッションが届き、消えたプロジェクトは届かない', async () => {
+      const id = list0ProjectId();
+      const mine = (await sessionsOf()).filter((s) => s.projectId === id).map((s) => s.id).sort();
+      expect(mine.length).toBeGreaterThan(0);
+      const r = await send(`/api/projects/${id}/resolve`, { kind: 'unlink' });
+      expect(await r.json()).toEqual({ id, unlinked: true });
+      expect(of('project.upsert')).toEqual([]);
+      expect(of('session.upsert').map((e) => e.session.id).sort()).toEqual(mine);
+      expect(of('session.upsert').every((e) => e.session.projectId === null)).toBe(true);
+    });
+
+    it('ワークスペースを変えると、新しく登録したプロジェクトと、そこへ入ったセッションが 1 回ずつ届く', async () => {
+      const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app3-'));
+      try {
+        fs.mkdirSync(path.join(ws2, 'other'));
+        const other = db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_OTHER) as { id: string };
+        db.prepare('update sessions set cwd = ? where id = ?').run(path.join(ws2, 'other'), other.id);
+        await send('/api/settings', { workspaceRoot: ws2 }, 'PATCH');
+        const created = (db.prepare('select id from projects where name = ?').get('other') as { id: string }).id;
+        // 中身の変わっていない既存のプロジェクトは配らない。
+        expect(of('project.upsert').map((e) => e.project.id)).toEqual([created]);
+        // 入ったセッションの最終の活動が、プロジェクトの中身に載っている（紐づけた後に組んでいる）。
+        expect(of('project.upsert')[0]!.project.lastActivityAt).not.toBeNull();
+        expect(of('session.upsert')).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id: other.id, projectId: created }) }]);
+      } finally {
+        fs.rmSync(ws2, { recursive: true, force: true });
+      }
+    });
+
+    it('登録済みのフォルダを登録し直しても、行が変わらなければ何も届かない。アーカイブから戻したときは届く', async () => {
+      const id = list0ProjectId();
+      const again = await send('/api/projects', { kind: 'dir', path: path.join(ws, 'alpha') });
+      expect(again.status).toBe(200);
+      expect(sent).toEqual([]);
+      await send(`/api/projects/${id}`, { status: 'archived' }, 'PATCH');
+      sent.length = 0;
+      await send('/api/projects', { kind: 'dir', path: path.join(ws, 'alpha') });
+      expect(sent).toEqual([{ type: 'project.upsert', project: expect.objectContaining({ id, status: 'active' }) }]);
+    });
+
+    it('新しく登録すると、その project.upsert が 1 回だけ届く', async () => {
+      fs.mkdirSync(path.join(ws, 'gamma'));
+      const p = await (await send('/api/projects', { kind: 'dir', path: path.join(ws, 'gamma') })).json();
+      expect(sent).toEqual([{ type: 'project.upsert', project: expect.objectContaining({ id: p.id, name: 'gamma' }) }]);
+    });
+  });
+
+  describe('セッション', () => {
+    const alpha = async () => (await sessionsOf()).find((s) => s.providerSessionId === SESSION_ALPHA)!;
+
+    it('1 行メモを書くと、その session.upsert が 1 回だけ届く', async () => {
+      const { id } = await alpha();
+      await send(`/api/sessions/${id}`, { memo: '一行' }, 'PATCH');
+      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id, memo: '一行' }) }]);
+    });
+
+    it('状態を付ける、提案を確定する、却下する、のどれでも session.upsert が 1 回だけ届く', async () => {
+      const { id } = await alpha();
+      await send(`/api/sessions/${id}/state`, { status: 'done' }, 'PUT');
+      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id, state: expect.objectContaining({ status: 'done' }) }) }]);
+      await send(`/api/sessions/${id}/state`, { status: null }, 'PUT');
+      proposeSessionState(db, 'd', id, { status: 'done', note: '終わった', returnOn: null, source: 'in_session' });
+      await Promise.resolve();
+      sent.length = 0;
+      await send(`/api/sessions/${id}/state/confirm`, {});
+      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id, state: expect.objectContaining({ status: 'done', candidate: null }) }) }]);
+      // 確かめる提案が無ければ、書かないので何も届かない。
+      sent.length = 0;
+      expect((await send(`/api/sessions/${id}/state/reject`)).status).toBe(409);
+      expect(sent).toEqual([]);
+    });
+
+    it('昇格すると、新しいプロジェクト、移ったセッション、1 件減った元のプロジェクトが 1 回ずつ届く', async () => {
+      const s = await alpha();
+      const from = s.projectId!;
+      app = createApp({ ...deps, promote: (o) => {
+        // 本物の昇格（projects/promote.ts）と同じく、1 つのトランザクションでプロジェクトを作ってセッションを付け替える。
+        db.transaction(() => {
+          upsertShared(db, 'projects', { id: 'promoted', name: o.name, status: 'active', is_scratch: 0 }, 'd');
+          const row = db.prepare('select * from sessions where id = ?').get(o.sessionId) as Record<string, unknown>;
+          upsertShared(db, 'sessions', { ...row, project_id: 'promoted' }, 'd');
+        })();
+        return { projectId: 'promoted', moved: false, reason: null };
+      } });
+      const r = await send(`/api/sessions/${s.id}/promote`, { name: 'newp', gitInit: false, moveFiles: false });
+      expect(r.status).toBe(201);
+      expect(await r.json()).toMatchObject({ project: { id: 'promoted' }, session: { id: s.id, projectId: 'promoted' } });
+      expect(of('project.upsert').map((e) => e.project.id).sort()).toEqual([from, 'promoted'].sort());
+      // 元のプロジェクトは、セッションが抜けた後の中身で届く。
+      expect(of('project.upsert').find((e) => e.project.id === from)!.project.lastActivityAt).toBeNull();
+      expect(of('session.upsert')).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id: s.id, projectId: 'promoted' }) }]);
+    });
+
+    it('statusline を受けると、そのセッションの session.upsert が 1 回だけ届く。知らないセッションでは届かない', async () => {
+      const body = { session_id: SESSION_ALPHA, model: { id: 'claude-opus-4-1' }, effort: 'high', context_window: { context_window_size: 200000, current_usage: null } };
+      await send('/api/ingest/statusline', body);
+      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ providerSessionId: SESSION_ALPHA, stats: expect.objectContaining({ model: 'claude-opus-4-1' }) }) }]);
+      sent.length = 0;
+      await send('/api/ingest/statusline', { ...body, session_id: 'no-such-session' });
+      expect(sent).toEqual([]);
+    });
+  });
+
+  describe('TODO、メモ、アーティファクト', () => {
+    it('TODO を足す、完了にする、消す、のどれでも一覧と未完の数が 1 回ずつ届く', async () => {
+      const pid = list0ProjectId();
+      const todo = await (await send(`/api/projects/${pid}/todos`, { text: 'やる' })).json();
+      expect(sent).toEqual([
+        { type: 'todos.update', projectId: pid, todos: [expect.objectContaining({ id: todo.id, done: false })] },
+        { type: 'project.upsert', project: expect.objectContaining({ id: pid, openTodoCount: 1 }) },
+      ]);
+      sent.length = 0;
+      await send(`/api/todos/${todo.id}`, { done: true }, 'PATCH');
+      expect(sent).toEqual([
+        { type: 'todos.update', projectId: pid, todos: [expect.objectContaining({ id: todo.id, done: true })] },
+        { type: 'project.upsert', project: expect.objectContaining({ id: pid, openTodoCount: 0 }) },
+      ]);
+      sent.length = 0;
+      await send(`/api/todos/${todo.id}`, undefined, 'DELETE');
+      expect(sent).toEqual([{ type: 'todos.update', projectId: pid, todos: [] }, { type: 'project.upsert', project: expect.objectContaining({ id: pid }) }]);
+    });
+
+    it('メモを書くと、memo.update と、メモの頭を載せた project.upsert が 1 回ずつ届く', async () => {
+      const pid = list0ProjectId();
+      await send(`/api/projects/${pid}/memo`, { markdown: '# 見出し\n本文' }, 'PUT');
+      expect(sent).toEqual([
+        { type: 'memo.update', memo: expect.objectContaining({ projectId: pid, markdown: '# 見出し\n本文' }) },
+        { type: 'project.upsert', project: expect.objectContaining({ id: pid, memoHead: '# 見出し' }) },
+      ]);
+    });
+
+    it('URL を足すと artifact.upsert が 1 回だけ届く。同じ URL をもう一度足しても、行が変わらないので届かない', async () => {
+      const pid = list0ProjectId();
+      const url = 'https://claude.ai/code/artifact/abc123';
+      const a = await (await send(`/api/projects/${pid}/artifacts`, { url })).json();
+      expect(sent).toEqual([{ type: 'artifact.upsert', artifact: a }]);
+      sent.length = 0;
+      const again = await send(`/api/projects/${pid}/artifacts`, { url });
+      expect(again.status).toBe(201);
+      expect((await again.json()).id).toBe(a.id);
+      expect(sent).toEqual([]);
+    });
   });
 });
