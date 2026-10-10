@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 // 起動の失敗の札の文（loading/boot-fail.js）。頁は UI の辞書を持たないので、この小さい日英の表が札の文を全部持つ。
 // 殻は種類と数だけを渡し、文はここで作る（殻は文を書かない）。
-type Info = { kind: string; params?: Record<string, string | number>; detail?: string; lang?: string; version?: string; os?: string; home?: string };
+type Info = { kind: string; params?: Record<string, string | number>; detail?: string; lang?: string; version?: string; os?: string; home?: string; sep?: string };
 type View = {
   kind: string; lang: string; title: string; what: string; steps: string[]; command: string | null; detail: string; footer: string; copyText: string;
   labels: { whatNext: string; details: string; logAt: string; copyAll: string; copyCommand: string; copied: string; tryAgain: string; openLog: string };
@@ -129,6 +129,33 @@ describe('種類ごとの文', () => {
     expect(view('port-in-use', { os: 'Windows 11' }).command).toBeNull();
     expect(view('compat-mismatch', { os: 'Windows 11', params: { theirs: 1, ours: 2 } }).command).toBeNull();
     expect(view('server-exited', { os: 'Windows 11' }).command).toBe('node --version');
+  });
+});
+
+describe('パスの区切り', () => {
+  // Windows では置き場が ~\.agent-hangar で届く。記録の場所が `\.agent-hangar/desktop.log` のように区切りを混ぜて出ていた。
+  const win = { os: 'Windows 11', home: '~\\.agent-hangar', sep: '\\' };
+  it('記録の場所は、殻が渡した区切りで置き場とつなぐ', () => {
+    expect(view('other', win).labels.logAt).toBe('記録はこの PC の ~\\.agent-hangar\\desktop.log にあります');
+    expect(view('other', { ...win, lang: 'en' }).labels.logAt).toBe('The log is at ~\\.agent-hangar\\desktop.log on this computer');
+  });
+  it('区切りが渡されなければ / でつなぐ（macOS と、前の版の殻）', () => {
+    expect(view('other').labels.logAt).toBe('記録はこの PC の ~/.agent-hangar/desktop.log にあります');
+    expect(view('other', { sep: 'x' }).labels.logAt).toBe('記録はこの PC の ~/.agent-hangar/desktop.log にあります');
+  });
+  it('DB のファイルと控えの置き場の既定も、同じ区切りでつなぐ', () => {
+    const old = view('db-too-old', { ...win, params: { found: 6, baseline: 10 } });
+    expect(old.what).toContain('~\\.agent-hangar\\hangar.db');
+    expect(old.command).toContain('~\\.agent-hangar\\hangar-v6.db');
+    expect(old.command).not.toContain('/');
+    const backup = view('db-backup-failed', win);
+    expect(backup.what).toContain('~\\.agent-hangar\\backups\\db');
+    expect(backup.steps.join('\n')).toContain('backups\\db');
+    expect(backup.steps.join('\n')).not.toContain('backups/db');
+  });
+  it('サーバが渡した Windows のパスでも、隣の名前は同じ置き場に作る', () => {
+    const v = view('db-too-old', { ...win, params: { file: 'D:\\data\\hangar.db', found: 6 } });
+    expect(v.command).toContain('D:\\data\\hangar-v6.db');
   });
 });
 

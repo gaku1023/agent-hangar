@@ -1,4 +1,5 @@
 //! Node の探索。PATH に頼らず、決まった候補を順に調べ、同梱したネイティブモジュールと ABI が合う版だけを採る。
+use crate::bootmsg::Msg;
 use std::collections::HashSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -67,11 +68,18 @@ pub enum NodeError {
     },
 }
 
-pub fn read_manifest(server_dir: &Path) -> Result<Manifest, String> {
+/// 同梱の `manifest.json` を読む。
+/// 読めないときの文は、呼び手が頁の言語で作る（bootmsg.rs）。
+pub fn read_manifest(server_dir: &Path) -> Result<Manifest, Msg> {
     let file = server_dir.join("manifest.json");
-    let text = std::fs::read_to_string(&file)
-        .map_err(|e| format!("{} を読めません: {e}", file.display()))?;
-    serde_json::from_str(&text).map_err(|e| format!("{} が壊れています: {e}", file.display()))
+    let text = std::fs::read_to_string(&file).map_err(|e| Msg::ManifestUnreadable {
+        file: file.display().to_string(),
+        err: e.to_string(),
+    })?;
+    serde_json::from_str(&text).map_err(|e| Msg::ManifestBroken {
+        file: file.display().to_string(),
+        err: e.to_string(),
+    })
 }
 
 /// `settings.json` の `nodePath`。空文字と null は無しとみなす。
@@ -368,44 +376,74 @@ pub fn choose_node(
     })
 }
 
-/// 利用者に見せる文言。読み込み画面にそのまま出す。
-pub fn describe_error(e: &NodeError) -> String {
-    describe_error_in(e, &crate::paths::hangar_home())
+/// 利用者に見せる文言。読み込み画面の詳細にそのまま出す。
+/// `lang` は頁の言語（`bootfail::page_language` の ja か en）である。
+pub fn describe_error(e: &NodeError, lang: &str) -> String {
+    describe_error_in(e, &crate::paths::hangar_home(), lang)
 }
 
 /// 同上。設定の置き場所を引数で受け取る形。
 /// `HANGAR_HOME` を使っている利用者に、存在しない場所を直せと案内しないためである。
-pub fn describe_error_in(e: &NodeError, hangar_home: &Path) -> String {
+/// 英語の設定でも日本語のまま出ていた（2026-10-11、Windows の実機の確かめで見つけた）ので、文は頁の言語で作る。
+pub fn describe_error_in(e: &NodeError, hangar_home: &Path, lang: &str) -> String {
     let NodeError::NotFound { manifest, tried } = e;
-    let mut lines = vec![
-        format!(
-            "Node {}（{}）が見つかりません。",
-            manifest.node_major, manifest.arch
-        ),
-        format!(
-            "nvm install {} を実行するか、{} の nodePath で場所を指定してください。",
-            manifest.node_major,
-            hangar_home.join("settings.json").display()
-        ),
-        "調べた場所:".to_string(),
-    ];
+    let settings = hangar_home.join("settings.json").display().to_string();
+    let en = lang == "en";
+    let mut lines = if en {
+        not_found_en(manifest, &settings)
+    } else {
+        not_found_ja(manifest, &settings)
+    };
     for t in tried {
-        let what = match &t.outcome {
-            ProbeOutcome::Ok(p) => format!(
-                "v{} {}（要る版は {} {}）",
-                p.major, p.arch, manifest.node_major, manifest.arch
-            ),
-            ProbeOutcome::Missing => "ありません".to_string(),
-            ProbeOutcome::NotExecutable => "起動できません（実行権を確かめてください）".to_string(),
-            ProbeOutcome::Failed => "Node ではありません（別の実行ファイルのようです）".to_string(),
-            ProbeOutcome::TimedOut => format!(
-                "{} 秒のあいだ応答しません（打ち切りました）",
-                PROBE_TIMEOUT.as_secs()
-            ),
+        let what = if en {
+            outcome_en(&t.outcome, manifest)
+        } else {
+            outcome_ja(&t.outcome, manifest)
         };
         lines.push(format!("  {}: {}", t.path.display(), what));
     }
     lines.join("\n")
+}
+
+// CI の rustfmt は日本語の幅を手元と違って数えるので、文の表は整形を止めて書いたままにする。
+#[rustfmt::skip]
+fn not_found_ja(m: &Manifest, settings: &str) -> Vec<String> {
+    vec![
+        format!("Node {}（{}）が見つかりません。", m.node_major, m.arch),
+        format!("nvm install {} を実行するか、{} の nodePath で場所を指定してください。", m.node_major, settings),
+        "調べた場所:".to_string(),
+    ]
+}
+
+#[rustfmt::skip]
+fn not_found_en(m: &Manifest, settings: &str) -> Vec<String> {
+    vec![
+        format!("Node {} ({}) was not found.", m.node_major, m.arch),
+        format!("Run nvm install {}, or set nodePath in {} to its location.", m.node_major, settings),
+        "Places checked:".to_string(),
+    ]
+}
+
+#[rustfmt::skip]
+fn outcome_ja(o: &ProbeOutcome, m: &Manifest) -> String {
+    match o {
+        ProbeOutcome::Ok(p) => format!("v{} {}（要る版は {} {}）", p.major, p.arch, m.node_major, m.arch),
+        ProbeOutcome::Missing => "ありません".to_string(),
+        ProbeOutcome::NotExecutable => "起動できません（実行権を確かめてください）".to_string(),
+        ProbeOutcome::Failed => "Node ではありません（別の実行ファイルのようです）".to_string(),
+        ProbeOutcome::TimedOut => format!("{} 秒のあいだ応答しません（打ち切りました）", PROBE_TIMEOUT.as_secs()),
+    }
+}
+
+#[rustfmt::skip]
+fn outcome_en(o: &ProbeOutcome, m: &Manifest) -> String {
+    match o {
+        ProbeOutcome::Ok(p) => format!("v{} {} (needs {} {})", p.major, p.arch, m.node_major, m.arch),
+        ProbeOutcome::Missing => "not found".to_string(),
+        ProbeOutcome::NotExecutable => "cannot run it (check that it is executable)".to_string(),
+        ProbeOutcome::Failed => "not Node (it looks like another program)".to_string(),
+        ProbeOutcome::TimedOut => format!("no answer for {} seconds (gave up)", PROBE_TIMEOUT.as_secs()),
+    }
 }
 
 #[cfg(test)]
@@ -679,8 +717,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn describe_error_names_the_real_settings_file_and_each_reason() {
+    fn every_reason() -> NodeError {
         let tried = vec![
             Tried {
                 path: PathBuf::from("/a/node"),
@@ -706,14 +743,19 @@ mod tests {
                 outcome: ProbeOutcome::TimedOut,
             },
         ];
-        let err = NodeError::NotFound {
+        NodeError::NotFound {
             manifest: Manifest {
                 arch: "x64".into(),
                 ..manifest()
             },
             tried,
-        };
-        let text = describe_error_in(&err, Path::new("/elsewhere/hangar"));
+        }
+    }
+
+    #[test]
+    fn describe_error_names_the_real_settings_file_and_each_reason() {
+        let err = every_reason();
+        let text = describe_error_in(&err, Path::new("/elsewhere/hangar"), "ja");
         assert!(
             text.starts_with("Node 22（x64）が見つかりません。"),
             "{text}"
@@ -736,12 +778,37 @@ mod tests {
         assert_eq!(lines.len(), 8, "{text}");
     }
 
+    // 英語の設定では、見つからない理由も調べた場所も英語で出す（Windows の実機で、ここだけ日本語のまま出ていた）。
+    #[test]
+    fn describe_error_follows_the_page_language() {
+        let err = every_reason();
+        let text = describe_error_in(&err, Path::new("/elsewhere/hangar"), "en");
+        assert!(text.starts_with("Node 22 (x64) was not found."), "{text}");
+        assert!(text.contains("nvm install 22"), "{text}");
+        let settings = Path::new("/elsewhere/hangar").join("settings.json");
+        assert!(text.contains(&settings.display().to_string()), "{text}");
+        assert!(text.contains("Places checked:"), "{text}");
+        assert!(text.contains("/a/node: v24 arm64 (needs 22 x64)"), "{text}");
+        assert!(text.contains("/b/node: not found"), "{text}");
+        assert!(text.contains("/c/node: cannot run it"), "{text}");
+        assert!(text.contains("/d/node: not Node"), "{text}");
+        assert!(text.contains("/e/node: no answer for 5 seconds"), "{text}");
+        assert!(
+            !text
+                .chars()
+                .any(|c| matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{ff08}' | '\u{ff09}')),
+            "{text}"
+        );
+        assert_eq!(text.lines().count(), 8, "{text}");
+    }
+
     #[test]
     fn read_manifest_parses_and_reports_errors() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(read_manifest(dir.path())
-            .unwrap_err()
-            .contains("読めません"));
+        assert!(matches!(
+            read_manifest(dir.path()).unwrap_err(),
+            crate::bootmsg::Msg::ManifestUnreadable { .. }
+        ));
         std::fs::write(
             dir.path().join("manifest.json"),
             r#"{ "version": "0.1.0", "nodeMajor": 22, "arch": "arm64", "builtAt": "x" }"#,
@@ -749,9 +816,13 @@ mod tests {
         .unwrap();
         assert_eq!(read_manifest(dir.path()).unwrap(), manifest());
         std::fs::write(dir.path().join("manifest.json"), "{").unwrap();
-        assert!(read_manifest(dir.path())
-            .unwrap_err()
-            .contains("壊れています"));
+        let broken = read_manifest(dir.path()).unwrap_err();
+        assert!(
+            matches!(broken, crate::bootmsg::Msg::ManifestBroken { .. }),
+            "{broken:?}"
+        );
+        assert!(broken.text("ja").contains("壊れています"));
+        assert!(broken.text("en").contains("is broken"));
     }
 
     #[test]

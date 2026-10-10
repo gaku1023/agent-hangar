@@ -53,6 +53,12 @@ windows-core = "0.61"
 # 版は Tauri が既に引いているものに合わせ、新しい版を持ち込まない。
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_Threading"] }
 
+# 二つ目の起動を、動いている最初の殻へまとめる（lib.rs の run）。
+# macOS は OS が .app を 1 つにまとめ、ディープリンクも動いている側へ届くので、入れない。
+# deep-link の機能で、二つ目に渡った hangar:// を最初の側の on_open_url へ回す。
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
 [dev-dependencies]
 tempfile = "3"
 

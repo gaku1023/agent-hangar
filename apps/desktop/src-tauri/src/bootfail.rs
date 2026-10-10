@@ -1,7 +1,8 @@
 //! 起動の失敗を、頁に出す札の種類と数に直す。
 //! サーバが書いた `boot-error.json`（packages/server/src/boot/bootError.ts）を読み、殻が自分で決める失敗
 //! （互換の版が合わない別のサーバ、殻のそれ以外の失敗）と合わせて、6 種類のどれかにする。
-//! 殻は文を書かない。文は読み込みの頁の表（loading/boot-fail.js）が種類と数から作る。
+//! 殻は札の文を書かない。札の文は読み込みの頁の表（loading/boot-fail.js）が種類と数から作る。
+//! 殻が書くのは詳細（`detail`）だけで、殻が自分で書く詳細は頁の言語で作る（bootmsg.rs）。
 
 use serde_json::{Map, Value};
 use std::path::Path;
@@ -197,15 +198,16 @@ pub fn log_tail(file: &Path, max_lines: usize) -> String {
 }
 
 /// 利用者のホームで始まるパスを `~` に縮める。画面と命令に、ユーザー名の入ったパスを出さないためである。
+/// 区切りは `/` と、Windows の `\` の両方を読み、縮めた後もパスの区切りのまま残す（`~\.agent-hangar`）。
 pub fn tilde(path: &str, home: &Path) -> String {
     let home = home.to_string_lossy();
-    let home = home.trim_end_matches('/');
+    let home = home.trim_end_matches(['/', '\\']);
     if home.is_empty() {
         return path.to_string();
     }
     match path.strip_prefix(home) {
         Some("") => "~".to_string(),
-        Some(rest) if rest.starts_with('/') => format!("~{rest}"),
+        Some(rest) if rest.starts_with(['/', '\\']) => format!("~{rest}"),
         _ => path.to_string(),
     }
 }
@@ -217,9 +219,11 @@ pub struct Env {
     pub version: String,
     pub os: String,
     pub home: String,
+    /// パスの区切り（`std::path::MAIN_SEPARATOR_STR`）。頁は置き場の名前とファイルの名前をこれでつなぐ。
+    pub sep: &'static str,
 }
 
-/// 頁に渡す JSON。種類、数、詳細、言語、版、OS、置き場の名前。
+/// 頁に渡す JSON。種類、数、詳細、言語、版、OS、置き場の名前、パスの区切り。
 pub fn payload(f: &BootFailure, env: &Env) -> String {
     serde_json::json!({
         "kind": f.kind,
@@ -229,6 +233,7 @@ pub fn payload(f: &BootFailure, env: &Env) -> String {
         "version": env.version,
         "os": env.os,
         "home": env.home,
+        "sep": env.sep,
     })
     .to_string()
 }
@@ -680,6 +685,16 @@ mod tests {
         assert_eq!(tilde("/Users/a/x", Path::new("/")), "/Users/a/x");
     }
 
+    // Windows のホームは \ で区切る。縮めた後も区切りを混ぜない（`\.agent-hangar/desktop.log` と出ていた）。
+    #[test]
+    fn a_windows_path_under_the_home_is_shortened_with_its_own_separator() {
+        let home = Path::new(r"C:\Users\a");
+        assert_eq!(tilde(r"C:\Users\a\.agent-hangar", home), r"~\.agent-hangar");
+        assert_eq!(tilde(r"C:\Users\a", home), "~");
+        assert_eq!(tilde(r"C:\Users\ab\x", home), r"C:\Users\ab\x");
+        assert_eq!(tilde(r"C:\Users\a\x", Path::new(r"C:\Users\a\")), r"~\x");
+    }
+
     #[test]
     fn the_compat_mismatch_names_both_versions_and_the_port_and_writes_the_log_line() {
         let f = BootFailure::compat_mismatch(4177, 14, 16);
@@ -716,11 +731,12 @@ mod tests {
             version: "0.1.0".into(),
             os: "macOS 15.1".into(),
             home: "~/.agent-hangar".into(),
+            sep: "/",
         }
     }
 
     #[test]
-    fn the_payload_carries_the_kind_numbers_detail_language_version_os_and_home() {
+    fn the_payload_carries_the_kind_numbers_detail_language_version_os_home_and_separator() {
         let f = BootFailure::compat_mismatch(4177, 14, 16);
         let v: Value = serde_json::from_str(&payload(&f, &env())).unwrap();
         assert_eq!(
@@ -729,7 +745,8 @@ mod tests {
                 "kind": "compat-mismatch",
                 "params": {"port": 4177, "theirs": 14, "ours": 16},
                 "detail": "refusing the server on 4177 (compat 14, ours 16)",
-                "lang": "ja", "version": "0.1.0", "os": "macOS 15.1", "home": "~/.agent-hangar"
+                "lang": "ja", "version": "0.1.0", "os": "macOS 15.1", "home": "~/.agent-hangar",
+                "sep": "/"
             })
         );
     }
