@@ -1,7 +1,7 @@
 // 起動に失敗したときの札の文。
 // この頁は殻の中の静的な頁で、UI の辞書（packages/shared/src/i18n）を持たない。
 // なので、失敗の札の文だけを入れた小さい日英の表をここに持つ。用語は UI の辞書と同じ用語集の語に合わせる。
-// 殻は種類と数だけを渡し（lib.rs の fail_js と bootfail.rs）、文はここで作る。殻は文を書かない。
+// 殻は種類と数だけを渡し（lib.rs の fail_js と bootfail.rs）、文はここで作る。殻は札の文を書かない（詳細だけを頁の言語で書く）。
 
 /** 札を出せる失敗の種類。bootfail.rs の KINDS と同じ並びにする（config.test.ts が突き合わせる）。 */
 export const FAIL_KINDS = ['server-exited', 'port-in-use', 'db-too-old', 'db-backup-failed', 'compat-mismatch', 'other'];
@@ -24,15 +24,15 @@ export function shellQuote(s) {
   return /^[A-Za-z0-9_@%+=:,./~-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-/** パスの最後の名前を、同じ置き場の別の名前に替える。 */
+/** パスの最後の名前を、同じ置き場の別の名前に替える。区切りは / と Windows の \\ の両方を読み、元の区切りを残す。 */
 const sibling = (file, name) => {
-  const i = file.lastIndexOf('/');
+  const i = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
   return i < 0 ? name : `${file.slice(0, i + 1)}${name}`;
 };
 
 const LSOF = (port) => `lsof -nP -iTCP:${port} -sTCP:LISTEN`;
 
-// 種類ごとの文。c は params から作った値（port、theirs、ours、found、baseline、file、dir）と、置き場の名前（home）。
+// 種類ごとの文。c は params から作った値（port、theirs、ours、found、baseline、file、dir）と、置き場の名前（home）と、パスの区切り（sep）。
 const TABLE = {
   ja: {
     'server-exited': (c) => ({
@@ -72,7 +72,7 @@ const TABLE = {
     'db-backup-failed': (c) => ({
       title: 'データベースのバックアップが取れないため、起動を止めました',
       what: `更新の前にバックアップを ${c.dir} に置きますが、書けませんでした。ディスクの空きが無いか、フォルダに書く権限が無いときに起きます。`,
-      steps: ['ディスクの空きを確認します', 'backups/db に書けるか確認します', '「もう一度試す」を押します'],
+      steps: ['ディスクの空きを確認します', `backups${c.sep}db に書けるか確認します`, '「もう一度試す」を押します'],
       command: `ls -la ${shellQuote(c.dir)}`,
     }),
     other: () => ({
@@ -120,7 +120,7 @@ const TABLE = {
     'db-backup-failed': (c) => ({
       title: 'Startup stopped because the database could not be backed up',
       what: `A backup goes to ${c.dir} before updating, but it could not be written. This happens when the disk is full or the folder is not writable.`,
-      steps: ['Check free disk space', 'Check that backups/db is writable', 'Press "Try again"'],
+      steps: ['Check free disk space', `Check that backups${c.sep}db is writable`, 'Press "Try again"'],
       command: `ls -la ${shellQuote(c.dir)}`,
     }),
     other: () => ({
@@ -134,29 +134,33 @@ const TABLE = {
 
 // 札の見出しや操作の名前。種類に依らない。
 const LABELS = {
-  ja: { whatNext: '次にすること', details: '詳細', logAt: (home) => `記録はこの PC の ${home}/desktop.log にあります`, copyAll: '全文をコピー', copyCommand: 'コピー', copied: 'コピーしました', tryAgain: 'もう一度試す', openLog: 'ログを開く' },
-  en: { whatNext: 'What to do next', details: 'Details', logAt: (home) => `The log is at ${home}/desktop.log on this computer`, copyAll: 'Copy all', copyCommand: 'Copy', copied: 'Copied', tryAgain: 'Try again', openLog: 'Open log' },
+  ja: { whatNext: '次にすること', details: '詳細', logAt: (log) => `記録はこの PC の ${log} にあります`, copyAll: '全文をコピー', copyCommand: 'コピー', copied: 'コピーしました', tryAgain: 'もう一度試す', openLog: 'ログを開く' },
+  en: { whatNext: 'What to do next', details: 'Details', logAt: (log) => `The log is at ${log} on this computer`, copyAll: 'Copy all', copyCommand: 'Copy', copied: 'Copied', tryAgain: 'Try again', openLog: 'Open log' },
 };
 
 /**
  * 殻が渡した失敗から、札に並べるものを作る。
- * info は { kind, params, detail, lang, version, os, home }。知らない種類は other、知らない言語は日本語で出す。
+ * info は { kind, params, detail, lang, version, os, home, sep }。知らない種類は other、知らない言語は日本語で出す。
+ * sep はパスの区切りで、殻が OS のもの（Windows は \\）を渡す。\\ のほかは / と読む（前の版の殻は渡さない）。
  * params の値は文字か数だけを読み、ほかは捨てる。
  */
 export function failView(info) {
   const kind = FAIL_KINDS.includes(info?.kind) ? info.kind : 'other';
   const lang = LANGS.includes(info?.lang) ? info.lang : LANGS[0];
-  const home = text(info?.home, '~/.agent-hangar') || '~/.agent-hangar';
+  const sep = info?.sep === '\\' ? '\\' : '/';
+  const home = text(info?.home, `~${sep}.agent-hangar`) || `~${sep}.agent-hangar`;
+  const join = (...names) => [home, ...names].join(sep);
   const p = info?.params && typeof info.params === 'object' ? info.params : {};
   const c = {
     home,
+    sep,
     port: num(p.port) ?? DEFAULT_PORT,
     theirs: num(p.theirs),
     ours: num(p.ours),
     found: num(p.found),
     baseline: num(p.baseline),
-    file: text(p.file) || `${home}/hangar.db`,
-    dir: text(p.dir) || `${home}/backups/db`,
+    file: text(p.file) || join('hangar.db'),
+    dir: text(p.dir) || join('backups', 'db'),
   };
   const row = TABLE[lang][kind](c);
   const os = text(info?.os);
@@ -177,6 +181,6 @@ export function failView(info) {
     footer,
     // 報告にそのまま貼れる形。版と OS、種類、詳細の順に置く。
     copyText: [...(footer ? [footer] : []), kind, ...(detail ? ['', detail] : [])].join('\n'),
-    labels: { whatNext: L.whatNext, details: L.details, logAt: L.logAt(home), copyAll: L.copyAll, copyCommand: L.copyCommand, copied: L.copied, tryAgain: L.tryAgain, openLog: L.openLog },
+    labels: { whatNext: L.whatNext, details: L.details, logAt: L.logAt(join('desktop.log')), copyAll: L.copyAll, copyCommand: L.copyCommand, copied: L.copied, tryAgain: L.tryAgain, openLog: L.openLog },
   };
 }

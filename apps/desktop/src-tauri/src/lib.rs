@@ -3,6 +3,7 @@
 //! `hangar://` のディープリンクは UI のハッシュ経路に変換して webview に流す。
 
 pub mod bootfail;
+pub mod bootmsg;
 #[cfg(windows)]
 pub mod breakaway;
 pub mod configapply;
@@ -281,9 +282,12 @@ fn wait_for_ready(
             Ok(())
         }
         ReadyWait::Died => Err(server_died(app, home)),
-        ReadyWait::Unresponsive => Err(bootfail::BootFailure::other(format!(
-            "サーバが {} 秒応答しません。~/.agent-hangar/desktop.log を確認してください。",
-            UNRESPONSIVE_AFTER.as_secs()
+        ReadyWait::Unresponsive => Err(bootfail::BootFailure::other(say(
+            home,
+            bootmsg::Msg::Unresponsive {
+                secs: UNRESPONSIVE_AFTER.as_secs(),
+                log: log_display(home),
+            },
         ))),
     }
 }
@@ -361,6 +365,21 @@ fn log(line: &str) {
     }
 }
 
+/// 失敗の詳細に書く、記録のファイルの場所。
+/// 利用者のホームを `~` に縮め、OS の区切りのまま出す（Windows なら `~\.agent-hangar\desktop.log`）。
+fn log_display(home: &std::path::Path) -> String {
+    bootfail::tilde(
+        &home.join("desktop.log").to_string_lossy(),
+        &paths::user_home(),
+    )
+}
+
+/// 殻が書く失敗の詳細を、頁の言語で文にする。
+/// 言語は失敗の札と同じく、置き場の設定ファイルか OS から決める（`bootfail::page_language`）。
+fn say(home: &std::path::Path, m: bootmsg::Msg) -> String {
+    m.text(bootfail::page_language(home))
+}
+
 fn eval_main(app: &AppHandle, js: &str) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.eval(js);
@@ -375,6 +394,7 @@ fn boot_env(app: &AppHandle, home: &std::path::Path) -> bootfail::Env {
         version: app.package_info().version.to_string(),
         os: bootfail::os_label(),
         home: bootfail::tilde(&home.to_string_lossy(), &paths::user_home()),
+        sep: std::path::MAIN_SEPARATOR_STR,
     }
 }
 
@@ -534,25 +554,32 @@ fn bundled_node_and_dir(
 ) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
     // Windows の resource_dir は `\\?\C:\…`（verbatim）の形で来る。子へ渡す前に普通の形へ直す。
     // Node 22.20 以降はその形の主スクリプトを読めず、起動の直後に落ちる。
+    // 文は失敗したときだけ頁の言語で作る（言語を決めるのに OS へ聞くことがあるので、成功の道では聞かない）。
     let resource_dir = app
         .path()
         .resource_dir()
         .map(|d| paths::plain(&d))
-        .map_err(|e| format!("リソースの場所が分かりません: {e}"))?;
-    let dir = server::server_dir(&resource_dir)
-        .ok_or_else(|| format!("同梱のサーバが見つかりません: {}", resource_dir.display()))?;
-    let dir = accept_server_dir(dir, &resource_dir, cfg!(debug_assertions)).ok_or_else(|| {
-        concat!(
-            "HANGAR_SERVER_DIR は開発のときだけ効きます。\n",
-            "配布版はアプリの中に同梱したサーバだけを使います。"
+        .map_err(|e| {
+            say(
+                hangar_home,
+                bootmsg::Msg::NoResourceDir { err: e.to_string() },
+            )
+        })?;
+    let dir = server::server_dir(&resource_dir).ok_or_else(|| {
+        say(
+            hangar_home,
+            bootmsg::Msg::NoBundledServer {
+                dir: resource_dir.display().to_string(),
+            },
         )
-        .to_string()
     })?;
+    let dir = accept_server_dir(dir, &resource_dir, cfg!(debug_assertions))
+        .ok_or_else(|| say(hangar_home, bootmsg::Msg::ServerDirDevOnly))?;
     server::strip_quarantine(&dir);
-    let manifest = node::read_manifest(&dir)?;
+    let manifest = node::read_manifest(&dir).map_err(|m| say(hangar_home, m))?;
     let candidates = node::candidate_paths(&paths::user_home(), hangar_home);
     let node_path = node::choose_node(&candidates, &manifest, node::probe_node)
-        .map_err(|e| node::describe_error(&e))?;
+        .map_err(|e| node::describe_error(&e, bootfail::page_language(hangar_home)))?;
     Ok((node_path, dir))
 }
 
@@ -588,14 +615,7 @@ fn start_server(
     // ここでは検疫属性を外せないので、外せないまま Node にネイティブを読ませることになる。
     if let Ok(exe) = std::env::current_exe() {
         if server::is_translocated(&exe) {
-            return Err(concat!(
-                "この .app は読み取り専用の写しから起動されています（macOS の App Translocation）。\n",
-                "Hangar.app を /Applications へ移してから開き直してください。\n",
-                "移さずに使うときは、ダウンロードした Hangar.app に対して次を実行してください。\n",
-                "xattr -rd com.apple.quarantine /path/to/Hangar.app"
-            )
-            .to_string()
-            .into());
+            return Err(say(hangar_home, bootmsg::Msg::Translocated).into());
         }
     }
     let (node_path, dir) = bundled_node_and_dir(app, hangar_home)?;
@@ -613,7 +633,12 @@ fn start_server(
         hangar_home,
         &hangar_home.join("desktop.log"),
     )
-    .map_err(|e| format!("サーバを起動できません: {e}"))?;
+    .map_err(|e| {
+        say(
+            hangar_home,
+            bootmsg::Msg::CannotSpawn { err: e.to_string() },
+        )
+    })?;
     log(&format!("server pid {}", child.pid()));
     *app.state::<AppState>().server.lock().unwrap() = Some(child);
     wait_for_server(app, addr, hangar_home, Duration::from_secs(20))
@@ -676,9 +701,12 @@ fn wait_for_server(
     if died.get() {
         return Err(server_died(app, home));
     }
-    Err(bootfail::BootFailure::other(format!(
-        "サーバが {} 秒以内に応答しませんでした。~/.agent-hangar/desktop.log を確認してください。",
-        deadline.as_secs()
+    Err(bootfail::BootFailure::other(say(
+        home,
+        bootmsg::Msg::NoAnswerWithin {
+            secs: deadline.as_secs(),
+            log: log_display(home),
+        },
     )))
 }
 
@@ -707,18 +735,19 @@ fn boot(app: AppHandle) {
     // サーバの `GET /` は鍵かクッキーが無ければ 401 の案内を返す。
     // 新しい webview はクッキーを持たないので、鍵付きの URL で開く。
     let Some(token) = server::read_token(&hangar_home) else {
-        return fail(
-            &app,
-            bootfail::BootFailure::other(format!(
-                "入場の鍵が読めません: {}\nサーバが鍵を作れたか ~/.agent-hangar/desktop.log を確認してください。",
-                hangar_home.join("token").display()
-            )),
-        );
+        let msg = bootmsg::Msg::TokenUnreadable {
+            file: bootfail::tilde(
+                &hangar_home.join("token").to_string_lossy(),
+                &paths::user_home(),
+            ),
+            log: log_display(&hangar_home),
+        };
+        return fail(&app, say(&hangar_home, msg).into());
     };
 
     // ウィンドウが取れなければ行き先を変えられない。黙って止まらず、理由を残す。
     let Some(w) = app.get_webview_window("main") else {
-        let msg = "ウィンドウが見つからないので、サーバの画面へ移れません。";
+        let msg = say(&hangar_home, bootmsg::Msg::NoWindow);
         return fail(&app, bootfail::BootFailure::other(msg));
     };
 
@@ -746,7 +775,7 @@ fn boot(app: AppHandle) {
     // 鍵は URL に載るので、ログには載せない。行き先はハッシュだけを残して書く。
     log("navigating to the server");
     let navigated = tauri::Url::parse(&url)
-        .map_err(|e| format!("URL を組み立てられません: {e}"))
+        .map_err(|e| say(&hangar_home, bootmsg::Msg::BadUrl { err: e.to_string() }))
         .and_then(|u| w.navigate(u).map_err(|e| format!("{e}")));
     if let Err(e) = navigated {
         // navigate に至らなかったので、読み込み画面がそのまま残る。段を戻してから文言を出す。
@@ -756,14 +785,11 @@ fn boot(app: AppHandle) {
             .unwrap()
             .navigation_failed();
         // 例外の文言に URL が混じることがある。鍵を伏せてから出す。
-        fail(
-            &app,
-            bootfail::BootFailure::other(format!(
-                "サーバの画面（ポート {}）へ移れません: {}",
-                server::PORT,
-                redact(&e, &token)
-            )),
-        );
+        let msg = bootmsg::Msg::CannotNavigate {
+            port: server::PORT,
+            err: redact(&e, &token),
+        };
+        fail(&app, bootfail::BootFailure::other(say(&hangar_home, msg)));
         return;
     }
     watch_server(app);
@@ -1823,6 +1849,7 @@ mod tests {
             version: "0.1.0".to_string(),
             os: "macOS 15.1".to_string(),
             home: "~/.agent-hangar".to_string(),
+            sep: "/",
         };
         let f = bootfail::BootFailure::compat_mismatch(server::PORT, 0, health::COMPAT_VERSION);
         let js = bootfail::fail_js(&f, &env);
@@ -1846,7 +1873,8 @@ mod tests {
                 lang: "ja",
                 version: String::new(),
                 os: String::new(),
-                home: String::new()
+                home: String::new(),
+                sep: "/",
             }
         )
         .contains("abc123"));
