@@ -17,7 +17,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -33,7 +33,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   const { db, deviceId } = deps;
   const session = sessionOf(deps);
   const sessions = (opts: { projectId?: string } = {}) => listSessions(db, deps.live(), { ...opts, deviceId });
-  const digester = new LiveDigester(db);
+  const digester = deps.digester ?? new LiveDigester(db);
   const external = externalOf(deps);
 
   api.get('/sessions', (c) => c.json(sessions({ projectId: c.req.query('projectId') })));

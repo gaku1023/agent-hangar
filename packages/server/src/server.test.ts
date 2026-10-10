@@ -7,17 +7,19 @@ import WebSocket from 'ws';
 import type { CompatDto, ServerEvent, SessionDto, SyncStatusBody } from '@agent-hangar/shared';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
 import { saveCloudConfig } from './config/cloud.ts';
-import { dbPath } from './config/paths.ts';
+import { dbPath, ensureHome, readOrCreateDevice } from './config/paths.ts';
 import { SyncStateStore } from './sync/state.ts';
 import { DbBackupError } from './db/backup.ts';
 import { openDb } from './db/open.ts';
+import { upsertShared } from './db/shared.ts';
+import { ensureSession } from './indexer/indexFile.ts';
 import { mangleCwd } from './provider/claude-code/discover.ts';
 import { answerAll, fakeWorker, fileSink } from '../test/fake-worker.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_OTHER } from '../test/fixtures.ts';
 import { dbVersionOf, LATEST_DB_VERSION, seedDbAt, withPendingMigration } from '../test/oldDb.ts';
 import { CLOSE_DEADLINE_MS, installShutdown, startServer, STOP_WATCHDOG_MS } from './server.ts';
 import { writeFakeTool } from '../test/fake-bin.ts';
-import { expectMode, posixIt } from '../test/platform.ts';
+import { expectMode, posixDescribe, posixIt } from '../test/platform.ts';
 
 /**
  * サーバを丸ごと起こす端到端の試験。
@@ -485,6 +487,212 @@ describe('startServer', () => {
       expect(typeof jt.token).toBe('string');
       expect((jt.token ?? '').length).toBeGreaterThan(0);
     });
+  });
+});
+
+/**
+ * 起動の手続きと止める手続きの配線。
+ * 組み立て関数の試験は部品を 1 つずつ起こすので、startServer が呼び忘れた手続きは拾えない。ここで全体を起こして見る。
+ */
+describe('起動と停止の手続きの配線', () => {
+  let d: Dirs;
+  beforeEach(() => { d = makeDirs(); });
+  afterEach(() => { d.cleanup(); });
+
+  it('起動の手続きが済むまでは準備完了を名乗らず、未分類の知らせも出さない。済んだ後に現れた未分類だけを知らせる', async () => {
+    // 索引は 20 件ごとにイベントループへ譲る。起動の途中を外から見られるよう、どのルートにも属さない本文を多めに置く。
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
+    for (let i = 0; i < 200; i++) writeTranscript(d.claudeDir, outside, `cccccccc-0000-4000-8000-${i.toString().padStart(12, '0')}`, 'stray');
+    fs.writeFileSync(path.join(d.home, 'settings.json'), JSON.stringify({ workspaceRoot: d.ws, claudeDir: d.claudeDir }));
+    // 起動の途中に叩けるよう、空いているポートを先に決めておく。
+    const port = await new Promise<number>((resolve) => { const srv = net.createServer(); srv.listen(0, '127.0.0.1', () => { const p = (srv.address() as net.AddressInfo).port; srv.close(() => resolve(p)); }); });
+    const ready: boolean[] = [];
+    let c: ReturnType<typeof collector> | null = null;
+    let done = false;
+    const startup = startServer({ port, home: d.home, claudeDir: d.claudeDir, registryIsGone: ALL_ALIVE, uiDist: path.join(d.home, 'no-dist') });
+    const watching = (async () => {
+      while (!done) {
+        try {
+          const r = await fetch(`http://127.0.0.1:${port}/health`);
+          if (r.status === 200) {
+            ready.push(((await r.json()) as { ready: boolean }).ready);
+            // 待ち受けが始まったら、起動の途中から知らせを受ける。
+            c ??= collector(port, tokenIn(d.home));
+          }
+        } catch { /* まだ待ち受けていない。 */ }
+        await new Promise((r) => setImmediate(r));
+      }
+    })();
+    const s = await startup;
+    try {
+      // 解決した時点で、もう準備完了を名乗っている。
+      const after = (await (await fetch(`http://127.0.0.1:${port}/health`)).json()) as { ready: boolean };
+      done = true;
+      await watching;
+      expect(after.ready).toBe(true);
+      // 起動の途中は /health が返っても、準備完了は名乗らない。
+      expect(ready[0]).toBe(false);
+      expect(c).not.toBeNull();
+      const col = c as unknown as ReturnType<typeof collector>;
+      await col.opened;
+      const strayToasts = () => col.all().filter((e) => e.type === 'toast' && e.message.includes(outside)).length;
+      // 済んだ後に現れた未分類は知らせる。
+      writeTranscript(d.claudeDir, outside, 'cccccccc-0000-4000-8000-999999999999', 'late');
+      await col.waitFor((e): e is Extract<ServerEvent, { type: 'toast' }> => e.type === 'toast' && e.message.includes(outside));
+      await new Promise((r) => setTimeout(r, 300));
+      // 最初の全走査が流した 200 件ぶんは、1 件も知らせていない。
+      expect(strayToasts()).toBe(1);
+    } finally {
+      done = true;
+      (c as ReturnType<typeof collector> | null)?.close();
+      await s.close();
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('閉じた後にメモのファイルが書かれても、DB のメモは変わらない', async () => {
+    const dir = path.join(d.ws, 'alpha');
+    fs.mkdirSync(dir);
+    writeTranscript(d.claudeDir, dir, 'bbbbbbbb-0000-4000-8000-000000000031', 'first');
+    fs.writeFileSync(path.join(d.home, 'settings.json'), JSON.stringify({ workspaceRoot: d.ws, claudeDir: d.claudeDir }));
+    const memoOf = (projectId: string): string | undefined => {
+      const db = openDb(dbPath(d.home));
+      try { return (db.prepare('select markdown m from project_memos where project_id = ?').get(projectId) as { m: string } | undefined)?.m; } finally { db.close(); }
+    };
+    // 止め忘れた監視は、取り込みの失敗を黙って飲むので、DB を見るだけでは分からない。開いたままのファイルの監視の数でも見る。
+    const fileWatches = (): number => process.getActiveResourcesInfo().filter((n) => /fsevent|fswatch/i.test(n)).length;
+    // 前の試験が閉じた監視は、少し遅れて数から消える。数が落ち着いてから数える。
+    const settled = async (): Promise<number> => {
+      for (let last = fileWatches(), same = 0; ; ) {
+        await new Promise((r) => setTimeout(r, 50));
+        const now = fileWatches();
+        same = now === last ? same + 1 : 0;
+        last = now;
+        if (same >= 6) return now;
+      }
+    };
+    const watchesBefore = await settled();
+    const s = await start(d);
+    expect(fileWatches()).toBeGreaterThan(watchesBefore);
+    let projectId = '';
+    let file = '';
+    try {
+      const headers = { authorization: `Bearer ${tokenIn(d.home)}`, 'content-type': 'application/json', origin: `http://127.0.0.1:${s.port}` };
+      const projects = (await (await fetch(`http://127.0.0.1:${s.port}/api/projects`, { headers })).json()) as { id: string; name: string }[];
+      projectId = projects.find((p) => p.name === 'alpha')!.id;
+      const put = await fetch(`http://127.0.0.1:${s.port}/api/projects/${projectId}/memo`, { method: 'PUT', headers, body: JSON.stringify({ markdown: 'one' }) });
+      expect(put.status).toBe(200);
+      file = path.join(d.home, 'projects', projectId, 'memo.md');
+      expect(fs.readFileSync(file, 'utf8')).toBe('one');
+      // 動いている間は、ファイルの外部編集を監視で取り込む。この確かめ方で取り込みが見えることを、先に固定しておく。
+      await new Promise((r) => setTimeout(r, 50));
+      fs.writeFileSync(file, 'two');
+      await until(async () => (memoOf(projectId) === 'two' ? true : null));
+    } finally {
+      await s.close();
+    }
+    // 閉じた後の書き込み。監視が残っていると、閉じた DB へ取り込みに行く。
+    await new Promise((r) => setTimeout(r, 50));
+    fs.writeFileSync(file, 'three');
+    await new Promise((r) => setTimeout(r, 800));
+    expect(memoOf(projectId)).toBe('two');
+    // メモの監視も、索引と設定の監視も、1 つも残っていない。
+    expect(await settled()).toBe(watchesBefore);
+  }, 20_000);
+
+  /**
+   * tmux は偽のコマンドにする。呼ばれた引数を記録し、list-sessions には隣のファイルの名前を返すだけで、本物の tmux には触らない。
+   * 偽のコマンドは sh で書くので、Windows では飛ばす。
+   */
+  posixDescribe('偽の tmux で起動して確かめる', () => {
+    const RUN_LOST = 'dead0001';
+    const RUN_ENDS = 'b0b00001';
+    const RUN_STAYS = 'a11ce001';
+    const fakeTmux = (name: string, sessions: string[]) => {
+      const dir = path.join(d.home, name);
+      const bin = writeFakeTool(dir, 'tmux', {
+        sh: `echo "$*" >> "${dir}/calls.log"\ncase "$1" in list-sessions) cat "${dir}/sessions.txt" ;; show-options) exit 1 ;; esac\nexit 0`,
+        cmd: '',
+      });
+      const setSessions = (list: string[]): void => { fs.writeFileSync(path.join(dir, 'sessions.txt'), list.map((n) => `${n}\n`).join('')); };
+      setSessions(sessions);
+      return { bin, setSessions, calls: (): string[] => (fs.existsSync(path.join(dir, 'calls.log')) ? fs.readFileSync(path.join(dir, 'calls.log'), 'utf8').split('\n').filter(Boolean) : []) };
+    };
+    /** 前回の起動が残した run の行を置く。どれも終わりを書かれていない。 */
+    const seedRuns = (ids: string[]): void => {
+      ensureHome(d.home);
+      const device = readOrCreateDevice(d.home);
+      const db = openDb(dbPath(d.home));
+      try {
+        const sessionId = ensureSession(db, 'dddddddd-0000-4000-8000-000000000001', d.ws, device.id);
+        for (const id of ids) upsertShared(db, 'runs', { id, session_id: sessionId, device_id: device.id, kind: 'start', tmux_name: `hangar-${id}`, pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, device.id);
+      } finally { db.close(); }
+    };
+    const endReasonOf = (id: string): string | null => {
+      const db = openDb(dbPath(d.home));
+      try { return (db.prepare('select end_reason r from runs where id = ?').get(id) as { r: string | null }).r; } finally { db.close(); }
+    };
+    /** 端末の中継へ繋ぎ、相手が閉じるまで待つ。偽の tmux はすぐ終わるので、中継も閉じる。 */
+    const attachOnce = (port: number, tab: string): Promise<void> => new Promise<void>((resolve, reject) => {
+      const sock = new WebSocket(`ws://127.0.0.1:${port}/ws/pty?tab=${tab}`, { headers: { authorization: `Bearer ${tokenIn(d.home)}` } });
+      sock.once('close', () => resolve());
+      sock.once('error', reject);
+    });
+
+    it('起動で、tmux に残っていない run を lost で閉じ、その後も run の終了を見張る', async () => {
+      const tmux = fakeTmux('tmux-a', [`hangar-${RUN_ENDS}`, `hangar-${RUN_STAYS}`]);
+      seedRuns([RUN_LOST, RUN_ENDS, RUN_STAYS]);
+      fs.writeFileSync(path.join(d.home, 'settings.json'), JSON.stringify({ tmuxPath: tmux.bin }));
+      const s = await start(d);
+      try {
+        // 起動の手続きの中で済んでいる。待たずに見る。
+        expect(endReasonOf(RUN_LOST)).toBe('lost');
+        expect(endReasonOf(RUN_ENDS)).toBeNull();
+        expect(endReasonOf(RUN_STAYS)).toBeNull();
+        const alive = async (): Promise<string[]> => ((await (await fetch(`http://127.0.0.1:${s.port}/api/runs`, { headers: { authorization: `Bearer ${tokenIn(d.home)}` } })).json()) as { runs: { id: string }[] }).runs.map((r) => r.id).sort();
+        expect(await alive()).toEqual([RUN_STAYS, RUN_ENDS].sort());
+        // tmux から 1 つ消える。見張りが動いていれば、次の周期で終わりを拾う。
+        tmux.setSessions([`hangar-${RUN_STAYS}`]);
+        await until(async () => (endReasonOf(RUN_ENDS) !== null ? true : null));
+        expect(await alive()).toEqual([RUN_STAYS]);
+        expect(endReasonOf(RUN_STAYS)).toBeNull();
+      } finally {
+        await s.close();
+      }
+    }, 20_000);
+
+    it('設定で tmux のパスを替えると、run の見張りも端末の中継も新しいパスを使う', async () => {
+      const a = fakeTmux('tmux-a', [`hangar-${RUN_STAYS}`]);
+      const b = fakeTmux('tmux-b', [`hangar-${RUN_STAYS}`]);
+      seedRuns([RUN_STAYS]);
+      fs.writeFileSync(path.join(d.home, 'settings.json'), JSON.stringify({ tmuxPath: a.bin }));
+      const s = await start(d);
+      const attaches = (calls: string[]): string[] => calls.filter((x) => x.startsWith('attach'));
+      const lists = (calls: string[]): number => calls.filter((x) => x.startsWith('list-sessions')).length;
+      try {
+        // 替える前は、中継は前のパスの tmux で繋ぐ。
+        await attachOnce(s.port, RUN_STAYS);
+        expect(attaches(a.calls())).toEqual([`attach -t =hangar-${RUN_STAYS}`]);
+        expect(b.calls()).toEqual([]);
+        const r = await fetch(`http://127.0.0.1:${s.port}/api/settings`, {
+          method: 'PATCH', headers: { authorization: `Bearer ${tokenIn(d.home)}`, 'content-type': 'application/json', origin: `http://127.0.0.1:${s.port}` }, body: JSON.stringify({ tmuxPath: b.bin }),
+        });
+        expect(r.status).toBe(200);
+        // 新しい attach は新しいパスを使う。前のパスへは、もう繋ぎに行かない。
+        await attachOnce(s.port, RUN_STAYS);
+        expect(attaches(b.calls())).toEqual([`attach -t =hangar-${RUN_STAYS}`]);
+        expect(attaches(a.calls()).length).toBe(1);
+        // run の見張りも、次の周期から新しいパスで一覧を取る。前のパスの一覧は、もう増えない。
+        await until(async () => (lists(b.calls()) > 0 ? true : null));
+        const settled = lists(a.calls());
+        await new Promise((res) => setTimeout(res, 2_500));
+        expect(lists(a.calls())).toBe(settled);
+        // 包みの本体にも、新しいパスが入る。
+        expect(fs.readFileSync(path.join(d.home, 'shell', 'claude.zsh'), 'utf8')).toContain(b.bin);
+      } finally {
+        await s.close();
+      }
+    }, 30_000);
   });
 });
 

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { useEmit } from '../intent/chain.tsx';
 import type { JumpState } from '../mediator/types.ts';
-import type { TranscriptFind } from '../presenters/find.ts';
+import { findIn, type TranscriptFind } from '../presenters/find.ts';
 import type { TranscriptItem } from '../presenters/session.ts';
+import { useFind, type FindHandle } from './findStore.tsx';
 import { Clamp, estimateLines, MSG_LINES } from './primitives/Clamp.tsx';
 import { createGlide, type Glide } from './primitives/glide.ts';
 import { Hl, MarkProvider, type Marking } from './primitives/Hl.tsx';
@@ -70,17 +71,16 @@ export function rowWindow(offsets: number[], from: number, to: number): { first:
  * 本文の中の検索の欄（S1）。本文の面の右上に浮くガラスで、件数、前へ・次へ、大文字小文字、閉じるを並べる。
  * 語は打つたびに送る。日本語の変換中は送らず、確定したときに送る。
  */
-function FindBar(props: { sessionId: string; find: TranscriptFind; topSeq: () => number | null }) {
-  const emit = useEmit();
+function FindBar(props: { find: TranscriptFind; finder: FindHandle; topSeq: () => number | null }) {
   const f = props.find;
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(f.query);
   const composing = useRef(false);
   // ⌘F を押すたびに（開いたままでも）欄へ戻り、語を選び直す。
   useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, [f.n]);
-  const send = (query: string, caseSensitive: boolean) => emit({ type: 'transcript.findQuery', sessionId: props.sessionId, query, caseSensitive, from: props.topSeq() });
-  const step = (delta: number) => emit({ type: 'transcript.findStep', sessionId: props.sessionId, delta });
-  const close = () => emit({ type: 'transcript.find', sessionId: props.sessionId, open: false });
+  const send = (query: string, caseSensitive: boolean) => props.finder.query(query, caseSensitive, props.topSeq());
+  const step = (delta: number) => props.finder.step(delta);
+  const close = () => props.finder.close();
   const count = f.query === '' ? '' : f.total === 0 ? '0 件' : `${f.current + 1} / ${f.total}`;
   return (
     <div className="tr-find" role="search">
@@ -105,7 +105,7 @@ function FindBar(props: { sessionId: string; find: TranscriptFind; topSeq: () =>
   );
 }
 
-export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; find?: TranscriptFind | null; jump?: JumpState | null; hasNewer?: boolean }) {
+export function Transcript(props: { sessionId: string; items: TranscriptItem[]; hasMore: boolean; loading: boolean; follow: boolean; live: boolean; remaining: number; jump?: JumpState | null; hasNewer?: boolean }) {
   const emit = useEmit();
   const boxRef = useRef<HTMLDivElement>(null);
   // 新着を追う寄せ。ブラウザの滑らかなスクロールは使わない（primitives/glide.ts）。
@@ -311,7 +311,11 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
   }, [props.items, props.follow, props.sessionId, emit, measureBox]);
 
   // 本文の中の検索。今の一致が変わったら、その行の畳んだものを開き、行まで送る。
-  const find = props.find && props.find.query !== '' ? props.find : null;
+  // 欄の状態は View の側の置き場に持ち、一致はここで数える。数えるのは描く行（思考と生の記録の切り替えを通した後）の中である。
+  const finder = useFind(props.sessionId);
+  const findState = finder.state;
+  const found = useMemo<TranscriptFind | null>(() => (findState ? { ...findState, ...findIn(props.items, findState) } : null), [findState, props.items]);
+  const find = found && found.query !== '' ? found : null;
   const findKey = find && find.seq !== null ? `${find.query}|${find.caseSensitive}|${find.from}|${find.step}|${find.n}` : null;
   const lastFindKey = useRef<string | null>(null);
   // 送った後、行が描かれたら今の一致の印まで細かく寄せる。
@@ -390,7 +394,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     <HitsContext.Provider value={find ? find.hits : null}>
     <MarkProvider value={marking}>
     <div className="tr-wrap">
-      {props.find && <FindBar sessionId={props.sessionId} find={props.find} topSeq={topSeq} />}
+      {found && <FindBar find={found} finder={finder} topSeq={topSeq} />}
       {ticks && <div className="tr-ticks" aria-hidden="true">{ticks.map((t) => <i key={t.seq} style={{ top: `${t.top}%` }} data-cur={t.seq === find!.seq ? 'true' : undefined} />)}</div>}
       <div ref={boxRef} className="tr" onScroll={onScroll}>
         {n === 0 && !props.loading && <div className="empty">本文がありません</div>}

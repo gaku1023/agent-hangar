@@ -3,6 +3,7 @@ import { overlayReplaceable } from './overlay.ts';
 import { canMoveBehind, nextWaitingStep, searchQueryStep } from './screen.ts';
 import { sidebarStep } from './sidebar.ts';
 import type { Input, State, Step } from './types.ts';
+import type { Store } from '../store/store.ts';
 
 /** Paused の入力をそのセッションへ送ったら閉じる。別のセッションへの操作では閉じない。 */
 const closePause = (state: State, id: string): State => (state.overlay.kind === 'pause' && state.overlay.sessionId === id ? { ...state, overlay: { kind: 'none' } } : state);
@@ -15,7 +16,7 @@ function splitId(id: string): [string, string] {
   return at < 0 ? [id, ''] : [id.slice(0, at), id.slice(at + 1)];
 }
 
-function paletteRun(state: State, command: PaletteCommand): Step {
+function paletteRun(state: State, store: Store, command: PaletteCommand): Step {
   // 閉じるのはパレット自身だけ。別のダイアログが開いているときに走っても、それは消さない。
   const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
   const [kind, rest] = splitId(command.id);
@@ -45,14 +46,14 @@ function paletteRun(state: State, command: PaletteCommand): Step {
       case 'settings': return { state: closed, effects: [{ kind: 'navigate', route: { name: 'settings' } }] };
       case 'rebuild-index': return { state: closed, effects: [{ kind: 'api.rebuildIndex' }] };
       case 'shortcuts': return { state: { ...closed, overlay: { kind: 'shortcuts' } }, effects: [] };
-      case 'next-waiting': return nextWaitingStep(state);
+      case 'next-waiting': return nextWaitingStep(state, store);
     }
   }
   return { state: closed, effects: [] };
 }
 
 /** workbench 領域：TODO、メモ、アーティファクト、事後要約、パレットの実行。状態はほとんど持たない。 */
-export function workbenchStep(state: State, input: Input): Step | null {
+export function workbenchStep(state: State, store: Store, input: Input): Step | null {
   if (input.kind === 'server') {
     const e = input.event;
     if (e.type === 'summary.failed') return { state: { ...state, summaryFailed: { ...state.summaryFailed, [e.sessionId]: e.message } }, effects: [] };
@@ -68,23 +69,11 @@ export function workbenchStep(state: State, input: Input): Step | null {
   switch (i.type) {
     // 追加した後も入力欄に居座らせて、続けて書けるようにする。
     case 'todo.add': return i.text.trim() ? { state, effects: [{ kind: 'api.addTodo', projectId: i.projectId, text: i.text.trim() }, { kind: 'focus', target: 'todoInput' }] } : { state, effects: [] };
-    case 'todo.toggle': return { state, effects: [{ kind: 'api.toggleTodo', id: i.id }] };
-    case 'todo.remove': return { state, effects: [{ kind: 'api.removeTodo', id: i.id }] };
-    case 'todo.confirm': return { state, effects: [{ kind: 'api.confirmTodo', id: i.id }] };
-    case 'todo.reject': return { state, effects: [{ kind: 'api.rejectTodo', id: i.id }] };
     case 'session.state.set': return { state: closePause(state, i.id), effects: [{ kind: 'api.setSessionState', id: i.id, body: stateBody(i) }] };
     case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {} }] };
-    case 'session.state.reject': return { state, effects: [{ kind: 'api.rejectSessionState', id: i.id }] };
-    case 'memo.save': return { state, effects: [{ kind: 'api.saveMemo', projectId: i.projectId, markdown: i.markdown }] };
-    case 'session.setMemo': return { state, effects: [{ kind: 'api.setSessionMemo', sessionId: i.id, text: i.text }] };
-    case 'artifact.open': return { state, effects: [{ kind: 'api.openArtifact', id: i.id }] };
-    case 'artifact.openEditor': return { state, effects: [{ kind: 'api.openArtifactEditor', id: i.id }] };
-    case 'artifact.add': return i.url.trim() ? { state, effects: [{ kind: 'api.addArtifact', projectId: i.projectId, url: i.url.trim() }] } : { state, effects: [] };
-    case 'summary.regenerate': return { state, effects: [{ kind: 'api.regenerateSummary', sessionId: i.sessionId }] };
-    case 'summarizer.test': return { state, effects: [{ kind: 'api.testSummarizer' }] };
     // 幅の変更は SplitPane の IntentBoundary が処理する。ここへ来るのは境界の外で発行されたときだけで、無視してよい。
     case 'split.resize': return { state, effects: [] };
-    case 'palette.run': return paletteRun(state, i.command);
+    case 'palette.run': return paletteRun(state, store, i.command);
     default: return null;
   }
 }

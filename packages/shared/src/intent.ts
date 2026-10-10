@@ -101,9 +101,6 @@ export type Intent =
   // 検索の結果から、真ん中の頁だけを読んで開いたとき、その後ろ（新しい側）を読み足す。
   | { type: 'transcript.loadNewer'; sessionId: SessionId }
   // 本文の中の検索（⌘F）。from は語を打ったときに見ていた行の seq で、そこから後ろの最初の一致から数える。
-  | { type: 'transcript.find'; sessionId: SessionId; open: boolean }
-  | { type: 'transcript.findQuery'; sessionId: SessionId; query: string; caseSensitive: boolean; from: number | null }
-  | { type: 'transcript.findStep'; sessionId: SessionId; delta: number }
   | { type: 'transcript.selectAgent'; sessionId: SessionId; agentId: string | null }
   // ターンの目次。開いたターンの中身を見せ、run が生きていれば左の Claude のタブもその指示へ跳ばす。
   // 跳ぶ先の数え方は目次の並びで決まるので、View が書き出しの切り出しを添えて送る。

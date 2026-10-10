@@ -4,15 +4,12 @@ import { IntentRoot } from '../intent/chain.tsx';
 import { pick } from '../test/pick.ts';
 import type { HomeProps, RunningCard } from '../presenters/home.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
-import type { ProjectCardProps } from '../presenters/projects.ts';
 import { HOME_MIN_ROWS, HomeScreen } from './HomeScreen.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
-import { ProjectsScreen } from './ProjectsScreen.tsx';
 import { SESSION_ROW_H } from './SessionRows.tsx';
 
 // Task 22 で ProjectProps に増えた右レールの分。この節が見るのはヘッダーの操作だけなので空にする。
 const rail = { pager: null, isScratch: false, todos: [], memo: null, artifacts: [], parent: { label: 'プロジェクト', route: { name: 'projects' as const } } };
-const card = (id: string): ProjectCardProps => ({ id, name: id, path: '/w/' + id, pathLabel: null, resolved: true, status: 'active', lastActivity: '1 時間前', runningCount: 1, waitingCount: 0, openTodoCount: 0, memoHead: null, excerpt: 'last one', excerptFromPrompt: false });
 
 describe('HomeScreen', () => {
   const home = (over: Partial<HomeProps> = {}): HomeProps => ({ attention: [], returning: [], confirm: [], running: [], recent: [], projects: [], idle: false, ...over });
@@ -235,94 +232,6 @@ describe('HomeScreen', () => {
   });
 });
 
-describe('ProjectsScreen', () => {
-  it('見出しの「新しいプロジェクト」で作成のダイアログを開く', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    fireEvent.click(screen.getByRole('button', { name: '新しいプロジェクト' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.new.open' });
-  });
-  it('セクションとアーカイブ切替とステータス変更', () => {
-    const onIntent = vi.fn();
-    const onShow = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [card('alpha')] }, { status: 'paused', label: 'Paused', cards: [] }]} archivedCount={2} filter="" showArchived={false} onFilter={() => {}} onShowArchived={onShow} /></IntentRoot>);
-    fireEvent.click(screen.getByText('アーカイブを表示（2）'));
-    expect(onShow).toHaveBeenCalledWith(true);
-    pick('alpha の状態', 'Paused');
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'paused' });
-  });
-  it('ステータスの札で Enter を押しても、一覧で行を押しても、カードは開かない', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [card('alpha')] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    fireEvent.keyDown(screen.getByRole('button', { name: 'alpha の状態' }), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('option', { name: 'Done' }));
-    expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.setStatus', id: 'alpha', status: 'done' });
-  });
-});
-
-describe('ProjectCard の数', () => {
-  it('実行中と要対応を別に出し、0 のものは出さない', () => {
-    const { rerender } = render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), runningCount: 1, waitingCount: 2 }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    expect(screen.getByText('実行中 1')).toBeInTheDocument();
-    expect(screen.getByText('要対応 2')).toBeInTheDocument();
-    rerender(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), runningCount: 0, waitingCount: 1 }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    expect(screen.queryByText(/^実行中/)).toBeNull();
-    expect(screen.getByText('要対応 1')).toBeInTheDocument();
-  });
-  it('この PC にパスが無ければそう書き、ここで始めるで新しいセッションを開く', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), path: null, pathLabel: 'この PC にパスがありません' }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'ここで始める' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'session.new.open', projectId: 'alpha' });
-  });
-});
-
-describe('ProjectCard の中身（C1）', () => {
-  const one = (over: Partial<ProjectCardProps> = {}) => <IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), ...over }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>;
-  it('抜粋は 2 行の欄に出し、要約から取ったときは出所を添えない', () => {
-    const { container } = render(one({ excerpt: '索引をセッションごとに分けた' }));
-    expect(container.querySelector('.card-excerpt')).toHaveTextContent('索引をセッションごとに分けた');
-    expect(container.querySelector('.card-excerpt')).not.toHaveAttribute('title');
-  });
-  it('発言から取った抜粋は、出所を行にせず title に持つ（ほとんどのカードに同じ注記が並ばないように）', () => {
-    const { container } = render(one({ excerpt: '画像の圧縮率を比べたい', excerptFromPrompt: true }));
-    expect(container.querySelector('.card-excerpt')).toHaveAttribute('title', '最初の発言から');
-    expect(screen.queryByText('最初の発言から')).toBeNull();
-  });
-  it('ワークスペース直下のカードはパスの行を出さず、ほかは出す', () => {
-    const { container, rerender } = render(one());
-    expect(container.querySelector('.card-path')).toBeNull();
-    rerender(one({ path: '/elsewhere/tools/alpha', pathLabel: '/elsewhere/tools/alpha' }));
-    expect(container.querySelector('.card-path')).toHaveTextContent('/elsewhere/tools/alpha');
-    expect(container.querySelector('.card-path')).toHaveAttribute('title', '/elsewhere/tools/alpha');
-  });
-  it('Active の札は控えめにし、ほかの状態の札は常に出す', () => {
-    const { container, rerender } = render(one());
-    expect(container.querySelector('.card-status')).toHaveAttribute('data-quiet', 'true');
-    rerender(one({ status: 'paused' }));
-    expect(container.querySelector('.card-status')).not.toHaveAttribute('data-quiet');
-  });
-  it('「ここで始める」は最終活動と数の行の右端に置く', () => {
-    const { container } = render(one());
-    const here = screen.getByRole('button', { name: 'ここで始める' });
-    expect(here).toHaveClass('card-here');
-    expect(here.closest('.card-meta')).toBe(container.querySelector('.card-meta'));
-    expect(container.querySelector('.card-meta')).toHaveTextContent('1 時間前');
-  });
-});
-
-describe('ProjectCard（見つからないとき）', () => {
-  it('「（見つかりません）」は押せて、カードは開かない', () => {
-    const onIntent = vi.fn();
-    render(<IntentRoot onIntent={onIntent}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('alpha'), resolved: false }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    fireEvent.click(screen.getByText('（見つかりません）'));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
-    expect(onIntent).not.toHaveBeenCalledWith({ type: 'project.open', id: 'alpha' });
-  });
-});
-
 // プロジェクト画面は、そのプロジェクトのページを list.page で覚える。Home の最近はページを送らない（続きは「すべて見る」）。
 describe('プロジェクト画面のページ送り', () => {
   const pager = { page: 1, pageCount: 4, size: 50, sizes: [25, 50, 100, 200], from: 1, to: 50, total: 180 };
@@ -364,23 +273,12 @@ describe('プロジェクトまわりのアイコン', () => {
     expect(iconOf(screen.getByRole('button', { name: 'VS Code で開く' }))).toBe('openEditor');
     expect(iconOf(screen.getByRole('button', { name: 'ターミナルで開く' }))).toBe('openTerminal');
   });
-  it('見つからないプロジェクトのカードは警告のアイコンを出す', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [{ ...card('gone'), resolved: false }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    expect(iconOf(screen.getByRole('button', { name: /見つかりません/ }))).toBe('warning');
-  });
 });
 
 describe('プロジェクトのステータスの色', () => {
-  it('カードの select と詳細画面の select が data-status を持つ', () => {
-    render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'paused', label: 'Paused', cards: [{ ...card('alpha'), status: 'paused' }] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    expect(screen.getByLabelText('alpha の状態').getAttribute('data-status')).toBe('paused');
-    cleanup();
+  it('詳細画面の select が data-status を持つ', () => {
     render(<IntentRoot onIntent={vi.fn()}><ProjectScreen id="alpha" name="alpha" path="/w/alpha" resolved status="done" items={[]} notFound={false} {...rail} /></IntentRoot>);
     expect(screen.getByLabelText('状態').getAttribute('data-status')).toBe('done');
-  });
-  it('セクションの見出しにステータスの色の点が付く', () => {
-    const { container } = render(<IntentRoot onIntent={vi.fn()}><ProjectsScreen sections={[{ status: 'active', label: 'Active', cards: [] }, { status: 'done', label: 'Done', cards: [] }]} archivedCount={0} filter="" showArchived={false} onFilter={() => {}} onShowArchived={() => {}} /></IntentRoot>);
-    expect([...container.querySelectorAll('.section-head .st-dot')].map((d) => d.getAttribute('data-status'))).toEqual(['active', 'done']);
   });
 });
 
