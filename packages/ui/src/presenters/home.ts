@@ -8,9 +8,9 @@ import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } f
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
 import { presentReadiness } from './readiness.ts';
-import { candidateLabel, returnOnLabel, sortSessions } from './row.ts';
+import { presentUnresolved } from './unresolved.ts';
+import { candidateLabel, dueOn, returnKey, returnOnLabel, sortSessions } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
-import { dueOn, returnKey } from './sections.ts';
 
 /**
  * 要対応の札。入力待ちのセッション 1 件につき 1 枚。
@@ -75,8 +75,7 @@ export function returningCards(store: Store, now: number, alive: Set<string> = r
   // 今日戻る（C1）。戻る日の古い順で、欠けた日と壊れた日を先頭に、同じ日の中は新しい順にする。
   // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
   const today = localDate(now);
-  // 並びの鍵は節の並び（presenters/sections.ts）と同じ式を使う。
-  const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
+    const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
   return Object.values(store.sessions)
     .filter((s) => s.state?.status === 'paused' && dueOn(s.state.returnOn, today) && liveFilterOfSession(store, s, alive) === 'ended')
     .sort((a, b) => keyOf(a).localeCompare(keyOf(b)) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
@@ -145,11 +144,13 @@ export type BandAction = { id: string; label: string; ariaLabel: string; primary
 /**
  * 行頭の印。dot は状態の点、tag は戻る日や提案の札（tone の due は戻る時点を過ぎて塗る、soon は時刻の前で文字だけ、cand は提案）、todo は TODO の完了の提案の印である。
  * check は始める前の確認の印で、色だけでなく形（✓、ⓘ、!、✗）でも分ける。label は読み上げの名前に添える状態の語である。
+ * place は場所の不明なプロジェクトの印（フォルダの絵）である。
  */
 export type BandLead =
   | { kind: 'dot'; live: LiveStatus | null; aside: boolean }
   | { kind: 'tag'; text: string; tone: 'due' | 'soon' | 'cand'; title?: string }
   | { kind: 'todo' }
+  | { kind: 'place' }
   | { kind: 'check'; tone: 'ok' | 'info' | 'soft' | 'ng'; label: string };
 /** 行の右端に並べる文字。tone の wait は入力待ちの色、busy は作業中の色である。 */
 export type BandTrail = { text: string; tone?: 'wait' | 'busy' };
@@ -280,7 +281,7 @@ export type LoadMoreProps = { remaining: number; step: number; loading: boolean 
  * note は帯の右端に添える 1 行で、始める前の確認があるあいだだけ持つ（2.11.4）。
  * 始める前の確認は、直すものがあるあいだ、帯の最後の群（錠剤と引き出し）になる。
  * 要対応と実行中と確認待ちがどれも 0 件のときは、その 3 つの薄い錠剤を出さず、確認の群だけを帯に置き、「実行中のセッションはありません」の 1 行は出さない。
- * 4 つ目の錠剤（場所の不明なプロジェクト）は、presentHomeBand の extra に群を足して作る（PR 33）。
+ * 4 つ目の錠剤（場所の不明なプロジェクト）は、この PC で場所が消えたものがあるときだけ、3 つの群と確認の群のあいだに足す（presenters/unresolved.ts、2.11.5）。
  */
 export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: boolean; list: SessionListProps; allCount: number; loadMore: LoadMoreProps | null; note: string | null };
 
@@ -289,14 +290,17 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
   const ready = store.readiness ? presentReadiness(store.readiness, t) : null;
   const base = presentHomeBand(presentHome(state, store, now), t);
+  // 3 つの群の後ろに足す群は、場所の不明なプロジェクト、始める前の確認の順に並べる。0 件の群は足さない。
+  const extra = [presentUnresolved(store, t), ready?.group ?? null].filter((g): g is BandGroup => g !== null);
+  // 静かな日は、3 つの群がどれも 0 件のこと。足す群があれば、薄い 3 つの錠剤は出さず、足す群だけを帯に置く。
   const quiet = base.groups.every((g) => g.count === 0);
-  const groups = ready ? (quiet ? [ready.group] : [...base.groups, ready.group]) : base.groups;
-  const band: HomeBandProps = { groups, morning: morningGroup(groups) };
+  const groups = quiet ? extra : [...base.groups, ...extra];
+  const band: HomeBandProps = { groups: groups.length === 0 ? base.groups : groups, morning: morningGroup(groups) };
   const list = presentSessionList(state, store, now);
   const remaining = list.total - list.rows.length;
   return {
     band,
-    idle: quiet && !ready,
+    idle: quiet && extra.length === 0,
     searching: usesServerSearch(state.search),
     list,
     allCount: list.allCount,

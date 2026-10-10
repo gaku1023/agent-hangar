@@ -1,6 +1,6 @@
 import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
-import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigPreviewDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigPreviewDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -15,6 +15,14 @@ export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: nu
  * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
  */
 export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
+/**
+ * 設定の同期（作り直した実装）の中身。節とダイアログを開いたときに取りに行く値で、未取得は null である。
+ * 件数と状態は configSync（bootstrap と config.update）が正で、ここは件数が 0 でないときに、その中身を見せるために持つ。
+ */
+export type ConfigDetail = { outgoing: ConfigOutgoingDto | null; inbox: ConfigInboxDto | null; conflicts: ConfigConflictDto[] | null; unsent: ConfigUnsentDto | null; backups: ConfigBackupsDto | null };
+export type ConfigDetailPart = keyof ConfigDetail;
+export const EMPTY_CONFIG_DETAIL: ConfigDetail = { outgoing: null, inbox: null, conflicts: null, unsent: null, backups: null };
+
 export type Store = {
   bootstrapped: boolean; version: string; device: { id: string; name: string } | null; settings: SettingsDto | null;
   projects: Record<string, ProjectDto>; sessions: Record<string, SessionDto>; live: LiveSessionDto[];
@@ -38,6 +46,8 @@ export type Store = {
   // 設定の「使用量と費用」。未取得は null である。
   cloudUsage: CloudUsageDto | null;
   sync: SyncStatusBody | null; devices: DeviceDto[]; joinToken: string | null; configPreview: ConfigPreviewDto | null;
+  // 設定の同期（作り直した実装）の状態。クラウドに参加していない端末は届かないので null である。
+  configSync: ConfigSyncDto | null; configDetail: ConfigDetail;
   // Claude Code の会話の保持期間。下見は確認を開いたときだけ取りに行く値なので、未取得は null である。
   retention: RetentionDto | null; retentionPreview: RetentionPreviewDto | null;
   // 準備の確かめ。設定画面とホームの帯で取りに行く値なので、未取得は null である。
@@ -67,7 +77,7 @@ export function initialStore(): Store {
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
     todos: {}, memos: {}, artifacts: {}, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
-    cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null,
+    cloudUsage: null, sync: null, devices: [], joinToken: null, configPreview: null, configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
     readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
   };
@@ -81,7 +91,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -133,6 +143,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'memo.update': return { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
     case 'artifact.upsert': return { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
     case 'sync.status': return { ...store, sync: ev.status };
+    case 'config.update': return { ...store, configSync: ev.configSync };
     case 'accounts.update': return { ...store, accounts: ev.accounts };
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
@@ -460,3 +471,22 @@ export function applyPickedFolder(store: Store, path: string): Store {
 
 /** Claude Code の設定の下見を入れる。閉じるときに null で捨てる。 */
 export function applyConfigPreview(store: Store, preview: ConfigPreviewDto | null): Store { return { ...store, configPreview: preview }; }
+
+/** 設定の同期の中身を 1 つ入れる。 */
+export function applyConfigDetail<P extends ConfigDetailPart>(store: Store, part: P, value: ConfigDetail[P]): Store {
+  return { ...store, configDetail: { ...store.configDetail, [part]: value } };
+}
+
+/**
+ * 節を開いたときに取りに行く中身。件数が 0 のものは取りに行かない（サーバは項目の走査をするので、要らない呼び出しを避ける）。
+ * 送らなかった項目と控えの世代は、行を開く前でも件数を言うので、件数があれば取る。
+ */
+export function configPartsToLoad(c: ConfigSyncDto | null): ConfigDetailPart[] {
+  if (!c) return [];
+  const parts: ConfigDetailPart[] = [];
+  if (c.incoming + c.conflicts + c.held > 0) parts.push('inbox');
+  if (c.conflicts > 0) parts.push('conflicts');
+  if (c.unsent > 0) parts.push('unsent');
+  if (c.backups > 0) parts.push('backups');
+  return parts;
+}

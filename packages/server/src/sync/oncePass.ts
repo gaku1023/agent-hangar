@@ -73,11 +73,9 @@ export function createOncePass(deps: OncePassDeps): { pass: PausedPass; syncNow(
       const status = engine.status();
       const sweepPending = deps.sweepPending();
       deps.broadcastSync(status);
-      // 版で断られた 1 巡は何も同期していない。成功や残りの件数の知らせは出さず、同期の状態と同じ版の文で知らせる。
-      if (engine.compatBlocked()) {
-        deps.toast('error', status.error ?? text(msg('sync.once.compatBlocked')));
-        return;
-      }
+      // 版で断られた 1 巡は何も同期していない。成功や残りの件数の知らせは出さない。
+      // 版の文は同期の状態（status.error）が運ぶので、toast は流さない。ヘッダーの同期の語とベルの一覧が、その状態から組む。
+      if (engine.compatBlocked()) return;
       // 上限で退いた 1 巡は、エンジンが戻る時刻を知らせてある。成功や残りの件数の知らせを重ねない。
       if (engine.limitedUntil() !== null) return;
       // 一時停止の間は状態が paused に隠れて失敗が画面に出ないので、残りの件数で伝える。

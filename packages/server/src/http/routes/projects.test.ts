@@ -48,6 +48,19 @@ describe('routes', () => {
     const bad = await app.request(`/api/projects/${id}`, { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ status: 'bogus' }) });
     expect(bad.status).toBe(400);
   });
+  it('名前の変更は PATCH の name で行い、前後の空白を除き、変更を配る。空の名前は断る', async () => {
+    const id = list0ProjectId();
+    const patch = (body: unknown) => app.request(`/api/projects/${id}`, { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await patch({ name: '  お店の画面  ' });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ id, name: 'お店の画面', status: 'active' });
+    expect(sent.at(-1)).toMatchObject({ type: 'project.upsert', project: { id, name: 'お店の画面' } });
+    // 名前と状態は一緒に変えられる。
+    expect(await (await patch({ name: 'shop', status: 'paused' })).json()).toMatchObject({ name: 'shop', status: 'paused' });
+    // 空の名前、文字列でない名前、何も変えない本文は 400。
+    for (const bad of [{ name: '   ' }, { name: 3 }, {}]) expect((await patch(bad)).status).toBe(400);
+    expect((await json(await get(`/api/projects/${id}`))).body.name).toBe('shop');
+  });
   it('プロジェクトの作成', async () => {
     fs.mkdirSync(path.join(ws, 'beta'));
     const r = await app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'beta', path: path.join(ws, 'beta') }) });

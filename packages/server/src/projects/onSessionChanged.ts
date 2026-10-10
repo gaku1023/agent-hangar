@@ -3,19 +3,15 @@ import { touchRow } from '../db/notify.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { IndexerListener } from '../indexer/service.ts';
 import { assignSession, registerWorkspaceChildOf } from './registry.ts';
-import type { GetLanguage } from '../i18n/language.ts';
-import { translatorOf } from '../i18n/message.ts';
 
 type SessionChanged = Parameters<NonNullable<IndexerListener['sessionChanged']>>[0];
 
 export type SessionChangeDeps = {
   db: Db; deviceId: string;
   hub: { broadcast(ev: NoticeEvent): void };
-  /** 知らせの文の言語。 */
-  language: GetLanguage;
   /**
    * 起動の手続きが済んだか。
-   * 最初の全走査では未分類のセッションを数えきれないほど流すので、知らせるのもその場の登録も起動後だけにする。
+   * 最初の全走査では未分類のセッションを数えきれないほど流すので、その場の登録は起動後だけにする。
    */
   started: () => boolean;
   /** ワークスペースの置き場。設定は書き替わるので、呼ばれた時点の値を読む。 */
@@ -31,22 +27,14 @@ export type SessionChangeDeps = {
  * ここが受け持つのは、プロジェクトへの紐づけと、行に対応しない知らせである。
  *
  * どのルートの配下でもない cwd のセッションは「未分類」に残る（設計どおり）。
- * ただし黙って残ると利用者は気付けないので、セッションごとに 1 度だけ知らせる。
- * ワークスペース直下のフォルダは、その場でプロジェクトにするので、知らせるのはワークスペースの外だけである。
- * 外のフォルダで勝手にプロジェクトを作ることはしない。紐づけは利用者が決める。
+ * 一覧にはそのまま出るので、知らせは流さない（toast は操作の結果だけにした。docs/design.md）。
+ * ワークスペース直下のフォルダは、その場でプロジェクトにする。
+ * ワークスペースの外のフォルダで勝手にプロジェクトを作ることはしない。紐づけは利用者が決める。
  */
 export function createSessionChangeHandler(deps: SessionChangeDeps): (e: SessionChanged) => void {
   const { db, deviceId, hub } = deps;
-  const tr = translatorOf(deps.language);
-  // 未分類だと知らせたセッション。本文が伸びるたびに同じ知らせを出さないために持つ。
-  const toldUnassigned = new Set<string>();
   // その場の自動登録を試したセッション。本文が伸びるたびにディスクを見に行かないために持つ。
   const triedRegister = new Set<string>();
-  const tellUnassigned = (sessionId: string, cwd: string): void => {
-    if (!deps.started() || toldUnassigned.has(sessionId)) return;
-    toldUnassigned.add(sessionId);
-    hub.broadcast({ type: 'toast', level: 'info', message: tr('project.unassigned.appeared', { cwd }) });
-  };
   return (e) => {
     // 手元のファイルだけを上げる。他端末の写し（deviceId が入っているもの）は持ち主が上げる。
     if (e.deviceId === null) deps.onLocalTranscript?.({ path: e.path, sessionId: e.providerSessionId, agentId: e.agentId });
@@ -63,7 +51,6 @@ export function createSessionChangeHandler(deps: SessionChangeDeps): (e: Session
     }
     // 紐づいたプロジェクトは、行は書いていないが中身（セッションの数と最終活動）が変わったので、配り直しを頼む。
     if (assigned) touchRow(db, 'projects', assigned);
-    else if (row.project_id === null) tellUnassigned(e.sessionId, row.cwd);
     if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
     // 索引化が拾ったアーティファクト。書いたときにも知らせてあるが、本文の伸びの後に並ぶよう、ここでもう一度名指しする。
     for (const id of e.artifactIds) touchRow(db, 'artifacts', id);

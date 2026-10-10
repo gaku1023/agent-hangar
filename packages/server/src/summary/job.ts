@@ -3,7 +3,7 @@ import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import { getSessionState, proposeSessionState, StateInputError } from '../sessions/states.ts';
-import { buildSummaryInput, CANNED_INPUT } from './input.ts';
+import { buildSummaryInput, cannedInput } from './input.ts';
 import type { Summarizer, SummaryInput, SummaryOutput, SummaryProposal } from './types.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, MessageError, msg, render } from '../i18n/message.ts';
@@ -187,7 +187,7 @@ export class SummaryJob {
   }
 
   /** Settings の「要約器を試す」。決め打ちの入力を投げ、DB には書かない。 */
-  async test(input: SummaryInput = CANNED_INPUT): Promise<SummarizerTestDto> {
+  async test(input: SummaryInput = cannedInput(this.language())): Promise<SummarizerTestDto> {
     const r = await this.trySummarizers({ ...input, language: input.language ?? this.language() });
     if ('tried' in r) return { ok: false, tried: r.tried };
     return {

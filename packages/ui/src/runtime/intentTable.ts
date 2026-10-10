@@ -1,5 +1,5 @@
 import type { AccountsDto, Intent, SyncStatusBody } from '@agent-hangar/shared';
-import type { Store } from '../store/store.ts';
+import { applyConfigDetail, type Store } from '../store/store.ts';
 import type { ApiClient } from './api.ts';
 
 /** iTerm2 で開けず、Terminal.app に落ちたときの知らせ。 */
@@ -42,6 +42,7 @@ type Rows = { [K in Intent['type']]?: (intent: Extract<Intent, { type: K }>, sto
 export const intentTable = {
   // 画面の正は後から届く project.upsert なので、返り値は Store に入れない。
   'project.setStatus': (i) => call((api) => api.setProjectStatus(i.id, i.status)),
+  'project.rename': (i) => call((api) => api.renameProject(i.id, i.name)),
   'project.openEditor': (i) => call((api) => api.projectOpenEditor(i.id)),
   'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: (r) => (r.fellBack ? FELL_BACK : null) }),
 
@@ -80,6 +81,10 @@ export const intentTable = {
   // 同期。応答の状態は Store に直に当てる（サーバの sync.status と同じ形）。同期の状態は Store だけが持つので、Mediator へは流さない。
   'sync.now': () => call((api) => api.syncNow(), { apply: withSync }),
   'sync.pause': (i) => call((api) => api.syncPause(i.paused), { apply: withSync }),
+
+  // 設定の同期（作り直した実装）。件数と状態は config.update で届くので、応答は中身の一覧だけを Store に入れる。
+  'configSync.order.cancel': () => call((api) => api.configDeleteOrder()),
+  'configSync.unsent.send': (i) => call((api) => api.configSendUnsent(i.id), { apply: (store, u) => applyConfigDetail(store, 'unsent', u) }),
 
   // Claude Code のアカウント。一覧を返すものは、応答をそのまま Store に入れる（サーバの accounts.update と同じ形）。
   'accounts.load': () => call((api) => api.accounts(), { apply: withAccounts }),

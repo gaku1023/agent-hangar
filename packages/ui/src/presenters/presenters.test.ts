@@ -319,7 +319,7 @@ describe('presentProject', () => {
     const store = storeWith();
     store.sessions.s4 = session('s4', { live: 'idle', lastActivityAt: NOW - 86_400_000 * 9 });
     const p = presentProject(initialState(), store, NOW, 'alpha');
-    expect(p.items.flatMap((i) => (i.kind === 'row' ? [i.row.id] : []))).toEqual(['s1', 's4', 's2']);
+    expect(p.list.rows.map((r) => r.id)).toEqual(['s1', 's4', 's2']);
     expect(presentProject(initialState(), store, NOW, 'nope').notFound).toBe(true);
   });
   it('見出しの上には、一覧へ戻るリンクを出す', () => {
@@ -1249,7 +1249,7 @@ describe('presentSessionRow のコストと run', () => {
     store.runs = { r1: runDto('r1', 's1') };
     store.sessions.s1 = { ...store.sessions.s1!, stats: { ...store.sessions.s1!.stats, costUsd: 3 } };
     expect(presentSessionList(initialState(), store, NOW).rows[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
-    expect(presentProject(initialState(), store, NOW, 'alpha').items.find((i) => i.kind === 'row')).toMatchObject({ row: { id: 's1', cost: '$3.00', runId: 'r1' } });
+    expect(presentProject(initialState(), store, NOW, 'alpha').list.rows[0]).toMatchObject({ id: 's1', cost: '$3.00', runId: 'r1' });
   });
 });
 
@@ -1435,10 +1435,10 @@ describe('同期の Presenter（フェーズ 4）', () => {
   it('Settings のクラウドの節', () => {
     const store: Store = { ...initialStore(), sync: syncStatus({ pending: 3 }), devices: [{ id: 'd', name: 'mac', platform: 'darwin', lastSeenAt: NOW - 120_000, self: true, shell: null }], joinToken: 'tok', settings: fullSettings({ syncClaudeConfig: true }) };
     const p = presentSettings(initialState(), store, NOW).cloud;
-    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok', syncClaudeConfig: true, configConfirmed: false });
+    expect(p).toMatchObject({ configured: true, url: 'https://h', state: 'idle', stateLabel: '同期済み', paused: false, pending: 3, lastPullAt: '1 分前', joinToken: 'tok' });
     expect(p.devices).toEqual([{ id: 'd', name: 'mac', platform: 'darwin', lastSeen: '2 分前', self: true }]);
     const paused = presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'paused', claudeConfig: { enabled: true, confirmed: true } }) }, NOW).cloud;
-    expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '同期を一時停止中', paused: true, configConfirmed: true });
+    expect(paused).toMatchObject({ configured: true, state: 'paused', stateLabel: '同期を一時停止中', paused: true });
     // ヘッダーと同じ語を使う。
     // エラーの理由はヘッダーにだけ出す。
     expect(presentSettings(initialState(), { ...store, sync: syncStatus({ state: 'pushing' }) }, NOW).cloud.stateLabel).toBe('送信中');
@@ -1460,7 +1460,7 @@ describe('同期の Presenter（フェーズ 4）', () => {
   });
   it('同期を設定していない端末のクラウドの節', () => {
     const p = presentSettings(initialState(), initialStore(), NOW).cloud;
-    expect(p).toMatchObject({ configured: false, url: null, state: 'off', paused: false, pending: 0, lastPullAt: '不明', joinToken: null, syncClaudeConfig: false, configConfirmed: false });
+    expect(p).toMatchObject({ configured: false, url: null, state: 'off', paused: false, pending: 0, lastPullAt: '不明', joinToken: null });
     expect(p.devices).toEqual([]);
     // off が届いているだけの端末も「設定していない」と同じ扱いにする。
     expect(presentSettings(initialState(), { ...initialStore(), sync: syncStatus({ state: 'off', url: null }) }, NOW).cloud.configured).toBe(false);
@@ -1554,26 +1554,17 @@ describe('保持期間の言い方と期限', () => {
   });
 });
 
-describe('presentShell の保持期間の帯', () => {
-  const DAY = 86_400_000;
-  const R: RetentionDto = { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: { bytes: 1_610_612_736, dailyBytes: 52_428_800, freeBytes: 400 * 1024 ** 3, measuredAt: NOW } };
-  const withSessions = (list: SessionDto[], retention: RetentionDto | null = R): Store => ({ ...initialStore(), bootstrapped: true, retention, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
-  it('消えかけが無ければ、30 日で消えることと使用量を言う', () => {
-    expect(presentShell(initialState(), withSessions([]), NOW).retention).toEqual({ visible: true, title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます ・ いま 1.5 GB', extendTo: 365 });
+describe('presentShell のベル', () => {
+  // 保持期間の帯はヘッダーの下から無くなり、ベルの一覧の行になった（PR 29）。行の組み方は notices.test.ts が試す。
+  it('ベルの props を渡し、保持期間の帯の props は持たない', () => {
+    const p = presentShell(initialState(), { ...initialStore(), bootstrapped: true }, NOW);
+    expect(p.notices).toMatchObject({ rows: [], unread: 0, label: '通知' });
+    expect('retention' in p).toBe(false);
   });
-  it('消えかけがあれば件数を言う', () => {
-    const s = [session('a', { transcriptMtime: NOW - 25 * DAY }), session('b', { transcriptMtime: NOW - 26 * DAY }), session('c', { transcriptMtime: NOW - 2 * DAY })];
-    expect(presentShell(initialState(), withSessions(s), NOW).retention).toMatchObject({ title: '2 件の会話が、まもなく削除されます', detail: 'Claude Code は 30 日で本文を消します ・ いま 1.5 GB' });
-  });
-  it('使用量をまだ測っていなければ、その部分を出さない', () => {
-    expect(presentShell(initialState(), withSessions([], { ...R, usage: null }), NOW).retention.detail).toBe('hangar の履歴からも消えます');
-  });
-  it('自分で値を入れた人、組織の設定、書けないとき、閉じた後には出さない', () => {
-    for (const r of [{ ...R, source: 'user' as const, userValue: 30 }, { ...R, source: 'managed' as const, writable: false }, { ...R, writable: false }]) {
-      expect(presentShell(initialState(), withSessions([], r), NOW).retention.visible).toBe(false);
-    }
-    expect(presentShell({ ...initialState(), retentionBannerDismissed: true }, withSessions([]), NOW).retention.visible).toBe(false);
-    expect(presentShell(initialState(), withSessions([], null), NOW).retention.visible).toBe(false);
+  it('既読の鍵は State から読み、未読の数をベルの名前に添える', () => {
+    const store: Store = { ...initialStore(), bootstrapped: true, sync: { state: 'paused', paused: true, url: 'https://w', lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 1, claudeConfig: { enabled: false, confirmed: false }, limitedUntil: null, skipped: [], sweepPending: 0, oncePass: false } };
+    expect(presentShell(initialState(), store, NOW).notices.unread).toBe(1);
+    expect(presentShell({ ...initialState(), noticesRead: ['sync|paused|user'] }, store, NOW).notices.unread).toBe(0);
   });
 });
 
@@ -1594,6 +1585,9 @@ describe('presentRetentionDialog', () => {
     expect(p.lead).toBe('Claude Code の設定ファイルの、次の 1 行を書き換えます。');
     expect(p.otherPcs).toBe(true);
     expect(p.showOther).toBe(false);
+    // 作り直した設定の同期が入っているときも、他の PC の行を出す。
+    const bundle = presentRetentionDialog(open(365, 'settings'), st({ retention: { ...R, days: 3650, source: 'user', userValue: 3650 }, retentionPreview: { ...P, lines }, settings: fullSettings(), configSync: { enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null } }), NOW)!;
+    expect(bundle.otherPcs).toBe(true);
   });
   it('縮めるときは題を変え、消える件数を言う', () => {
     const s = { a: session('a', { transcriptMtime: NOW - 40 * DAY }), b: session('b', { transcriptMtime: NOW - 5 * DAY }) };
@@ -1720,15 +1714,6 @@ describe('presentToasts（入力待ちのカード）', () => {
     expect(p.waiting).toEqual([]);
     expect(p.more).toBe(0);
   });
-  it('通知を出せるのに受け取っていないときだけ、「通知を受け取る」を添える', () => {
-    const base = { ...initialState(), waitingToasts: ['w1'] };
-    const store = waitingStore(['w1']);
-    expect(presentToasts(base, { ...store, notify: { available: true, on: false, blocked: false } }, NOW).offerNotify).toBe(true);
-    expect(presentToasts(base, { ...store, notify: { available: true, on: true, blocked: false } }, NOW).offerNotify).toBe(false);
-    expect(presentToasts(base, { ...store, notify: { available: false, on: false, blocked: false } }, NOW).offerNotify).toBe(false);
-    // OS で切られているときは、カードごとに勧めない。直し方は設定の通知の節に出す。
-    expect(presentToasts(base, { ...store, notify: { available: true, on: false, blocked: true } }, NOW).offerNotify).toBe(false);
-  });
   // 確認や入力のあるダイアログが開いている間は、カードを押しても画面を移さない（Mediator も止める）。押せないように見せる。
   it('確認や入力のあるダイアログが開いている間は、カードを押せないものとして渡す', () => {
     const base = { ...initialState(), waitingToasts: ['w1'] };
@@ -1741,6 +1726,12 @@ describe('presentToasts（入力待ちのカード）', () => {
   it('info と error のトーストはそのまま渡す', () => {
     const toasts = [{ id: '1', level: 'error' as const, message: 'oops' }];
     expect(presentToasts({ ...initialState(), toasts }, storeWith(), NOW).toasts).toEqual(toasts);
+  });
+  // 右下に積むのは入力待ちと、他の PC から届いたプロジェクトの札（PR 33）だけで、戻る時刻の札と通知の誘いはベルの一覧へ移った（PR 29）。
+  it('入力待ちとトーストと届いたプロジェクトの札以外は渡さない（戻る時刻の札、通知の誘い）', () => {
+    const store = { ...waitingStore(['w1']), notify: { available: true, on: false, blocked: false } };
+    const p = presentToasts({ ...initialState(), waitingToasts: ['w1'] }, store, NOW);
+    expect(Object.keys(p).sort()).toEqual(['arrived', 'blocked', 'more', 'toasts', 'waiting']);
   });
 });
 

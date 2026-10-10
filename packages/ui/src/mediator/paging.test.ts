@@ -82,21 +82,3 @@ describe('一覧のページ送り（A4）', () => {
     expect(readPageSize(undefined)).toBe(50);
   });
 });
-
-describe('Home の最近とプロジェクト画面のページ送り', () => {
-  it('一覧ごとにページを覚え、1 より前へは行かない', () => {
-    const a = run([intent({ type: 'list.page', key: 'home', page: 3 }), intent({ type: 'list.page', key: 'project:p1', page: 2 })]);
-    expect(a.state.listPages).toEqual({ home: 3, 'project:p1': 2 });
-    expect(a.effects).toEqual([]);
-    expect(run([intent({ type: 'list.page', key: 'home', page: -1 })]).state.listPages).toEqual({ home: 1 });
-  });
-  it('プロジェクトの節を広げる・畳むと、そのプロジェクトは 1 ページ目に戻る', () => {
-    const at = run([intent({ type: 'list.page', key: 'project:p1', page: 4 }), intent({ type: 'list.page', key: 'project:p2', page: 2 })]).state;
-    const b = run([intent({ type: 'project.section.toggle', projectId: 'p1', section: 'archived' })], at);
-    expect(b.state.listPages).toEqual({ 'project:p2': 2 });
-  });
-  it('件数を変えると、どの一覧も見ていた先頭の行を含むページに留まる', () => {
-    const at = run([intent({ type: 'list.page', key: 'home', page: 3 })]).state;
-    expect(run([intent({ type: 'list.pageSize', size: 100 })], at).state.listPages).toEqual({ home: 2 });
-  });
-});

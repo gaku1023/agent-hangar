@@ -149,6 +149,47 @@ describe('listProjects', () => {
     expect(p2).toMatchObject({ path: null, resolved: false, lastActivityAt: null, runningCount: 0 });
   });
 
+  describe('unresolved（この PC で場所が無いもの）', () => {
+    it('場所のあるプロジェクトは null', () => {
+      expect(listProjects(db, 'd', live)[0]!.unresolved).toBeNull();
+    });
+
+    it('この PC のルートが未解決なら missing で、前のパスを持つ。他の PC の名前は付けない', () => {
+      upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: '/Users/me/workspace/alpha', resolved: 0 }, 'd');
+      const p = listProjects(db, 'd', live)[0]!;
+      expect(p).toMatchObject({ resolved: false, path: '/Users/me/workspace/alpha', unresolved: { kind: 'missing', previousPath: '/Users/me/workspace/alpha', deviceName: null } });
+    });
+
+    it('この PC にルートの行が無く、他の PC に行があれば elsewhere で、その PC の名前とパスを持つ', () => {
+      upsertShared(db, 'devices', { id: 'other-device', name: 'Work Mac mini', platform: 'darwin', last_seen_at: 1 }, 'other-device');
+      upsertShared(db, 'projects', { id: 'p2', name: 'remote-only', status: 'active', is_scratch: 0 }, 'd');
+      upsertShared(db, 'project_roots', { id: 'r2', project_id: 'p2', device_id: 'other-device', path: '/elsewhere', resolved: 1 }, 'other-device');
+      const p2 = listProjects(db, 'd', live).find((p) => p.id === 'p2')!;
+      expect(p2.unresolved).toEqual({ kind: 'elsewhere', previousPath: '/elsewhere', deviceName: 'Work Mac mini' });
+    });
+
+    it('どの PC にもルートが無いものは、前のパスも PC の名前も持たない elsewhere', () => {
+      upsertShared(db, 'projects', { id: 'p3', name: 'no-roots', status: 'active', is_scratch: 0 }, 'd');
+      expect(listProjects(db, 'd', live).find((p) => p.id === 'p3')!.unresolved).toEqual({ kind: 'elsewhere', previousPath: null, deviceName: null });
+    });
+
+    it('他の PC に複数の行があれば、いちばん新しく書かれたものを選ぶ', () => {
+      upsertShared(db, 'devices', { id: 'old-dev', name: 'Old', platform: 'darwin', last_seen_at: 1 }, 'old-dev');
+      upsertShared(db, 'devices', { id: 'new-dev', name: 'New', platform: 'darwin', last_seen_at: 1 }, 'new-dev');
+      upsertShared(db, 'projects', { id: 'p2', name: 'multi', status: 'active', is_scratch: 0 }, 'd');
+      upsertShared(db, 'project_roots', { id: 'ra', project_id: 'p2', device_id: 'old-dev', path: '/old', resolved: 1 }, 'old-dev');
+      db.prepare('update project_roots set updated_at = 100 where id = ?').run('ra');
+      upsertShared(db, 'project_roots', { id: 'rb', project_id: 'p2', device_id: 'new-dev', path: '/new', resolved: 1 }, 'new-dev');
+      db.prepare('update project_roots set updated_at = 200 where id = ?').run('rb');
+      expect(listProjects(db, 'd', live).find((p) => p.id === 'p2')!.unresolved).toMatchObject({ kind: 'elsewhere', previousPath: '/new', deviceName: 'New' });
+    });
+
+    it('スクラッチは、この PC にルートが無くても unresolved にしない', () => {
+      upsertShared(db, 'projects', { id: 'sc', name: 'scratch', status: 'active', is_scratch: 1 }, 'd');
+      expect(listProjects(db, 'd', live).find((p) => p.id === 'sc')!.unresolved).toBeNull();
+    });
+  });
+
   it('ワークスペース登録と組み合わせて動く', () => {
     const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-ws-test-'));
     try {

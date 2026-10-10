@@ -44,6 +44,31 @@ describe('辞書', () => {
     const ownLanguageNames = new Set(['settings.general.language.ja']);
     for (const key of keys.filter((k) => !ownLanguageNames.has(k))) expect([key, /[\u3040-\u30ff\u4e00-\u9fff]/.test(en[key])]).toEqual([key, false]);
   });
+  it('英語の文は、用語集で別の語に決めた言い方を使わない', () => {
+    // 左の語は、用語集の「今の画面の語」に当たる英語の言い方。右は、代わりに使う語（用語集の英語の列）。
+    // 鍵の名前や引数の名前は文の中に出ないので、文だけを見る。
+    const retired: [RegExp, string][] = [
+      [/\bscratch\b/i, 'quick session'],
+      [/\bmemo\b/i, 'note'],
+      [/\bworkspace\b/i, 'projects folder'],
+      [/\bsummari[sz]er\b/i, 'summary engine'],
+      [/\bstatusline\b/i, 'status line'],
+      [/\badopt/i, 'move to Hangar'],
+      [/\bbaton\b|\bconductor\b/i, 'main conversation'],
+      [/\bquota\b/i, 'limit'],
+    ];
+    for (const key of keys) {
+      // Claude Code のスラッシュコマンドの名前（/statusline）、settings.json の鍵（statusLine）、置き場のパス（~/.agent-hangar/scratch/）は、そのまま書く語なので除く。
+      const sentence = en[key].replace(/\{[A-Za-z0-9]+\}/g, '').replace(/\/statusline\b/g, '').replace(/\bstatusLine\b/g, '').replace(/~\/\.agent-hangar\/scratch\//g, '');
+      for (const [bad, use] of retired) expect([key, bad.test(sentence), use]).toEqual([key, false, use]);
+    }
+    // 設定の項目名は、用語集の英語の列と同じ。サーバの文が項目を指すときに、画面と同じ名前になる。
+    expect(en['settings.label.summaryHourlyCap']).toBe('Hourly limit for Claude summaries');
+    expect(en['settings.label.workspaceRoot']).toBe('Projects folder');
+    expect(en['settings.label.claudeDir']).toBe('Source directory');
+    expect(en['settings.label.allowExternalSummarizer']).toBe('Allow external summary engines');
+    expect(en['settings.label.summaryFallback']).toBe('Fall back to Claude when LM Studio is unavailable');
+  });
   it('日本語と英語で、行の数が同じである', () => {
     // 何行かにわたる文（Claude に渡す指示、要約器への指示）は、1 行が 1 つの求めに当たる。行が減っていれば、求めを落としている。
     for (const key of keys) expect([key, en[key].split('\n').length]).toEqual([key, ja[key].split('\n').length]);

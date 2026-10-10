@@ -144,21 +144,23 @@ describe('表から DTO とイベントへ', () => {
     expect(t.sent).toEqual([{ type: 'project.upsert', project: getProject(t.db, ME, [], 'p1') }]);
   });
 
-  it('この端末のルートが消えた書き込みでは、何も配らない。遷移を知っている checkRoots が project.unresolved を手で渡す', () => {
+  it('この端末のルートが消えた書き込みも、project.upsert になる。帯の件数と一覧の札が、再読み込みを待たずに変わる', () => {
     const t = setup();
     seedProject(t.db);
     t.reset();
     const root = t.db.prepare('select * from project_roots where id = ?').get('root-p1') as Record<string, unknown>;
     upsertShared(t.db, 'project_roots', { ...root, resolved: 0 }, ME);
     t.publisher.flush();
-    expect(t.sent).toEqual([]);
+    expect(t.sent).toEqual([{ type: 'project.upsert', project: getProject(t.db, ME, [], 'p1') }]);
+    expect((t.sent[0] as { project: { unresolved?: { kind: string } | null } }).project.unresolved?.kind).toBe('missing');
+    t.reset();
     upsertShared(t.db, 'project_roots', { ...root, resolved: 1 }, ME);
     t.publisher.flush();
     expect(t.types()).toEqual(['project.upsert']);
   });
 
   it('未解決のままのこの端末のルートが同期で降りても名指しされても、project.unresolved は出さず project.upsert にする', () => {
-    // project.unresolved は画面で置き場の選び直しを開く。解決済みから未解決へ移ったときだけ出すものである。
+    // project.unresolved は ルートの確かめ（checkRoots）が遷移を知らせるものである。ここは行の変化を project.upsert にする。
     const t = setup();
     seedProject(t.db);
     const root = t.db.prepare('select * from project_roots where id = ?').get('root-p1') as Record<string, unknown>;

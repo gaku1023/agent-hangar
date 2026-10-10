@@ -14,30 +14,21 @@ export function readPageSize(v: unknown): number {
 /** 1 より前へは行かない。後ろの端は件数を知る Presenter が丸める。 */
 const atLeastOne = (page: number) => Math.max(1, Math.floor(page));
 
-/** セッション一覧のページを移る。 */
+/** 一覧（ホームとプロジェクトの画面）のページを移る。 */
 export function pageStep(state: State, page: number): State {
   return { ...state, search: { ...state.search, page: atLeastOne(page) } };
 }
 
-/** プロジェクト画面の一覧のページを移る。key は 'project:<id>'。 */
-export function listPageStep(state: State, key: string, page: number): State {
-  return { ...state, listPages: { ...state.listPages, [key]: atLeastOne(page) } };
-}
-
-/** プロジェクト画面の一覧のページの鍵。 */
-export const projectPageKey = (projectId: string) => `project:${projectId}`;
-
 /**
  * 1 ページの件数を変える。どの一覧も同じ件数を使う。
- * それぞれ見ていたページの先頭の行を含むページに留まる（50 件ずつの 3 ページ目の先頭は 101 件目で、100 件ずつなら 2 ページ目）。
+ * 見ていたページの先頭の行を含むページに留まる（50 件ずつの 3 ページ目の先頭は 101 件目で、100 件ずつなら 2 ページ目）。
  * 選択肢に無い件数は受け取らない。
  */
 export function pageSizeStep(state: State, size: number): Step | null {
   if (!(PAGE_SIZES as readonly number[]).includes(size)) return null;
   const keep = (page: number) => Math.floor(((page - 1) * state.pageSize) / size) + 1;
-  const listPages = Object.fromEntries(Object.entries(state.listPages).map(([k, p]) => [k, keep(p)]));
   return {
-    state: { ...state, pageSize: size, search: { ...state.search, page: keep(state.search.page) }, listPages },
+    state: { ...state, pageSize: size, search: { ...state.search, page: keep(state.search.page) } },
     effects: [{ kind: 'storage.save', key: PAGE_SIZE_KEY, value: size }],
   };
 }

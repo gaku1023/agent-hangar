@@ -6,7 +6,7 @@ import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
 const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, ...over });
-const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], returning: [], more: 0, offerNotify: false, blocked: false, ...over });
+const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, ...over });
 function mount(p: ToastsProps) {
   const onIntent = vi.fn();
   const r = render(<IntentRoot onIntent={onIntent}><ToastStack {...p} /></IntentRoot>);
@@ -56,20 +56,11 @@ describe('入力待ちのカード', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ほか 2 件をホームで見る' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
   });
-  it('通知を受け取っていなければ、カードが何枚でも「通知を受け取る」を積みの上に 1 回だけ出し、押してもセッションは開かない', () => {
-    const { onIntent } = mount(props({ waiting: [card('s1'), card('s2')], offerNotify: true }));
-    expect(screen.getAllByRole('button', { name: '通知を受け取る' })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: '通知を受け取る' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'notify.set', on: true });
-    expect(onIntent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
-  });
-  it('入力待ちのカードが無ければ、通知の誘いも出さない', () => {
-    mount(props({ offerNotify: true }));
+  // 通知の誘いはベルの一覧の行になった（PR 29）。右下には積まない。
+  it('通知の誘いも戻る時刻の札も積まない', () => {
+    mount(props({ waiting: [card('s1'), card('s2')] }));
     expect(screen.queryByRole('button', { name: '通知を受け取る' })).toBeNull();
-  });
-  it('受け取っていれば添えない', () => {
-    mount(props({ waiting: [card('s1')] }));
-    expect(screen.queryByRole('button', { name: '通知を受け取る' })).toBeNull();
+    expect(document.querySelector('.notice[data-kind="return"]')).toBeNull();
   });
   it('ダイアログが開いている間は、カードも「ほか N 件」も押せず、理由は乗せたときの説明に出す', () => {
     const { onIntent } = mount(props({ waiting: [card('s1')], more: 2, blocked: true }));

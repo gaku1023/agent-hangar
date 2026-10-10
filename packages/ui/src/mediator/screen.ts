@@ -1,9 +1,9 @@
 import { formatRoute, type SearchFilter, type SearchParamsDto } from '@agent-hangar/shared';
-import { overlayReplaceable, settleQueue } from './overlay.ts';
-import { listPageStep, pageSizeStep, pageStep } from './paging.ts';
+import { overlayReplaceable } from './overlay.ts';
+import { pageSizeStep, pageStep } from './paging.ts';
 import { agentTabStep, jumpStep, leaveTranscriptStep, openAtLeadStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
-import { nextWaitingSession, type Store } from '../store/store.ts';
+import { configPartsToLoad, nextWaitingSession, type Store } from '../store/store.ts';
 
 /**
  * サーバに問い合わせるか。
@@ -13,6 +13,17 @@ import { nextWaitingSession, type Store } from '../store/store.ts';
 export function usesServerSearch(search: Pick<State['search'], 'text' | 'filter'>): boolean {
   return search.text !== '' || !!search.filter.file;
 }
+
+/**
+ * 一覧がどのプロジェクトに絞られているか。1 つのプロジェクトの画面にいるときだけそのプロジェクトの id で、それ以外（ホームなど）は null。
+ * プロジェクトの画面の絞り込みは、State.search.filter には入れず、ここから決める。
+ */
+export function listProjectId(state: Pick<State, 'screen'>): string | null {
+  return state.screen.name === 'project' ? state.screen.id : null;
+}
+
+/** 語も絞り込みも無い、はじめの一覧の状態。 */
+const EMPTY_SEARCH: State['search'] = { text: '', filter: {}, page: 1 };
 
 /**
  * 条件が 1 つでも効いているか。キーワード、状態のタブ、プロジェクト、期間、動き、触ったファイルのどれか。
@@ -46,7 +57,9 @@ export function toSearchParams(query: SearchQuery, now: number): SearchParamsDto
 export function searchParams(state: State): SearchQuery {
   const f = state.search.filter;
   const p: SearchQuery = { q: state.search.text };
-  if (f.projectId) p.projectId = f.projectId;
+  // プロジェクトの画面では、画面のプロジェクトで絞る（欄で打った project: より優先する）。
+  const projectId = listProjectId(state) ?? f.projectId;
+  if (projectId) p.projectId = projectId;
   if (f.days) p.days = f.days;
   if (f.until !== undefined) p.until = f.until;
   if (f.live !== undefined) p.live = f.live;
@@ -90,8 +103,7 @@ export const NO_WAITING = '入力待ちのセッションはありません';
  * パレットから出したときも、パレットの上でキーを打ったときも、パレットは閉じる。
  */
 export function nextWaitingStep(state: State, store: Store): Step {
-  // パレットを閉じたら未解決のプロジェクトの問いが出ることがある（overlay.ts の settleQueue）。その裏では画面を移さないので、開く前に出しておく。
-  const closed: State = state.overlay.kind === 'palette' ? settleQueue({ ...state, overlay: { kind: 'none' } }) : state;
+  const closed: State = state.overlay.kind === 'palette' ? { ...state, overlay: { kind: 'none' } } : state;
   const from = state.screen.name === 'session' ? state.screen.id : null;
   const id = nextWaitingSession(store, from);
   if (!id) return { state: closed, effects: [{ kind: 'toast', level: 'info', message: NO_WAITING }] };
@@ -104,11 +116,18 @@ export function nextWaitingStep(state: State, store: Store): Step {
  * 検索したらフォーカスを結果の一覧へ移す。
  * 新しい語なら一覧の画面が作り直され、一覧が自分でフォーカスを取りにくる（SessionRows の autoFocus）。
  * 同じ語で検索し直したときは作り直されず、autoFocus は 1 度きりなので、ここで毎回頼む。
- * filter があれば（ホームの欄の Enter）、欄を読んだ条件で絞り込みをまるごと入れ替える。欄が正だからである。
+ * filter があれば（ホームとプロジェクトの画面の欄の Enter）、欄を読んだ条件で絞り込みをまるごと入れ替える。欄が正だからである。
  * 語が同じでトークンだけ変えたときも、Runtime の navigate がハッシュが同じなら自分で hash.changed を出すので、問い合わせ直しはそこで成り立つ。
  */
 export function searchQueryStep(state: State, text: string, filter?: SearchFilter): Step {
   if (!canMoveBehind(state)) return { state, effects: [] };
+  // 1 つのプロジェクトの画面の欄は、画面を移さずにその場で絞る。パレットの全文検索（filter が無い）は、これまでどおりホームの検索へ移る。
+  if (listProjectId(state) !== null && filter !== undefined) {
+    // このプロジェクトに絞る画面なので、欄で打った project: は効かせない。
+    const { projectId: _ignored, ...rest } = filter;
+    const here: State = { ...state, overlay: closeTransient(state), search: { text, filter: rest, page: 1 } };
+    return { state: here, effects: [...(usesServerSearch(here.search) ? [{ kind: 'api.search' as const, params: searchParams(here) }] : []), { kind: 'focus', target: 'results' }] };
+  }
   const next = { ...state, overlay: closeTransient(state), search: { text, filter: filter ?? state.search.filter, page: 1 } };
   return { state: next, effects: [{ kind: 'navigate', route: text ? { name: 'home', q: text } : { name: 'home' } }, { kind: 'focus', target: 'results' }] };
 }
@@ -152,7 +171,12 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     if (route.name === 'session' && state.focusOnOpen === route.id) effects.push({ kind: 'focus', target: 'terminal' });
     if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id });
     // 設定の中で節を切り替えるだけ（左の目次）のときは、付属の値を取り直さない。
-    if (route.name === 'settings' && state.screen.name !== 'settings') effects.push({ kind: 'api.loadSettingsExtras' });
+    if (route.name === 'settings' && state.screen.name !== 'settings') {
+      effects.push({ kind: 'api.loadSettingsExtras' });
+      // 設定の同期の中身は、件数のあるものだけを取る。同期を組んでいない端末は configSync が無い。
+      const parts = configPartsToLoad(store.configSync);
+      if (parts.length > 0) effects.push({ kind: 'api.configSyncLoad', parts });
+    }
     // 設定の画面を離れたら、欄の下の理由（保存の失敗）を消す。
     // 欄の値は戻ってくると保存済みの値に戻るので、理由だけが残ると、いまの値が断られたように読める。
     // 保存済みの印は番号を続けたいので残す。
@@ -160,10 +184,16 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
       const kept = Object.fromEntries(Object.entries(next.settingsSave).filter(([, m]) => m.kind !== 'error'));
       if (Object.keys(kept).length !== Object.keys(next.settingsSave).length) next = { ...next, settingsSave: kept };
     }
+    // 1 つのプロジェクトの画面の一覧は、ほかの画面から入ったら空から始める（ホームの語や、別のプロジェクトの絞り込みを持ち込まない）。
+    // 同じプロジェクトの URL が入り直しただけなら、絞り込みは残して 1 ページ目から読む。
+    if (route.name === 'project') {
+      next = { ...next, search: listProjectId(state) === route.id ? { ...state.search, page: 1 } : EMPTY_SEARCH };
+    }
     if (route.name === 'home') {
       const text = route.q ?? '';
-      // 画面に入り直したら 1 ページ目から読む。
-      next = { ...next, search: { ...state.search, text, page: 1 } };
+      // 画面に入り直したら 1 ページ目から読む。プロジェクトの画面から来たなら、そこで掛けた絞り込みは持ち込まない。
+      const filter = listProjectId(state) !== null ? {} : state.search.filter;
+      next = { ...next, search: { text, filter, page: 1 } };
       if (usesServerSearch(next.search)) effects.push({ kind: 'api.search', params: searchParams(next) });
     }
     return { state: next, effects };
@@ -200,23 +230,26 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     case 'search.query': return searchQueryStep(state, i.text, i.filter);
     case 'search.filter': {
       const next = { ...state, search: { ...state.search, filter: { ...state.search.filter, ...i.patch }, page: 1 } };
-      const effects: Effect[] = state.screen.name === 'home' && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];
+      const effects: Effect[] = (state.screen.name === 'home' || state.screen.name === 'project') && usesServerSearch(next.search) ? [{ kind: 'api.search', params: searchParams(next) }] : [];
       return { state: next, effects };
     }
     // 語と絞り込みをまとめて外す。語は URL にも乗っているので、語の無い一覧の URL へ移る。
     // 着いた先（hash.changed）では語も触ったファイルも無いので、問い合わせずに手元の全件を組む。
-    case 'search.clear': return !canMoveBehind(state) ? { state, effects: [] } : { state: { ...state, search: { text: '', filter: {}, page: 1 } }, effects: [{ kind: 'navigate', route: { name: 'home' } }] };
+    // 1 つのプロジェクトの画面では、画面に留まる（語は URL に乗っていない）。
+    case 'search.clear':
+      if (!canMoveBehind(state)) return { state, effects: [] };
+      return listProjectId(state) !== null
+        ? { state: { ...state, search: EMPTY_SEARCH }, effects: [] }
+        : { state: { ...state, search: EMPTY_SEARCH }, effects: [{ kind: 'navigate', route: { name: 'home' } }] };
     // ページと件数。ページ送りは手元で組む一覧（語も触ったファイルも無いとき）のもので、Presenter が切り出すから、問い合わせない。
     // 検索の結果は「さらに読み込む」（search.more）で読み足し、ページを送らない。
     case 'search.page': return { state: pageStep(state, i.page), effects: [] };
     // 検索の結果の続き。いま持っている行の数を offset にして、同じ条件で読み足す。読み込み中と、読み終えたあとは何もしない。
     case 'search.more': {
       const result = store.search.result;
-      if (state.screen.name !== 'home' || !usesServerSearch(state.search) || !result || store.search.loading || result.hits.length >= result.total) return { state, effects: [] };
+      if ((state.screen.name !== 'home' && state.screen.name !== 'project') || !usesServerSearch(state.search) || !result || store.search.loading || result.hits.length >= result.total) return { state, effects: [] };
       return { state, effects: [{ kind: 'api.search', params: { ...searchParams(state), offset: result.hits.length }, append: true }] };
     }
-    // プロジェクト画面は手元の行を Presenter が切り出すので、ページを覚えるだけでよい。
-    case 'list.page': return { state: listPageStep(state, i.key, i.page), effects: [] };
     case 'list.pageSize': return pageSizeStep(state, i.size) ?? { state, effects: [] };
     default: return null;
   }

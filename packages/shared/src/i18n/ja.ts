@@ -5,6 +5,7 @@ import { artifactJa } from './ja/artifact.ts';
 import { commonJa } from './ja/common.ts';
 import { configJa } from './ja/config.ts';
 import { configSyncJa } from './ja/configSync.ts';
+import { configSyncUiJa } from './ja/configSyncUi.ts';
 import { confirmJa } from './ja/confirm.ts';
 import { externalJa } from './ja/external.ts';
 import { headerJa } from './ja/header.ts';
@@ -20,6 +21,7 @@ import { pauseJa } from './ja/pause.ts';
 import { platformJa } from './ja/platform.ts';
 import { projectJa } from './ja/project.ts';
 import { projectsJa } from './ja/projects.ts';
+import { projectScreenJa } from './ja/projectScreen.ts';
 import { promoteJa } from './ja/promote.ts';
 import { promptJa } from './ja/prompt.ts';
 import { retentionJa } from './ja/retention.ts';
@@ -45,6 +47,7 @@ export const ja: Dictionary = {
   ...commonJa,
   ...configJa,
   ...configSyncJa,
+  ...configSyncUiJa,
   ...confirmJa,
   ...externalJa,
   ...headerJa,
@@ -60,6 +63,7 @@ export const ja: Dictionary = {
   ...platformJa,
   ...projectJa,
   ...projectsJa,
+  ...projectScreenJa,
   ...promoteJa,
   ...promptJa,
   ...retentionJa,

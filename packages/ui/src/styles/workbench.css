@@ -73,16 +73,28 @@
 .artifact-foot > span { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .artifact-foot .btn { flex: none; }
 
-/* プロジェクト画面。右レールは 280px で、隠すと本体が全幅になる。 */
+/* 1 つのプロジェクトの画面（Q3）。左はホームと同じ一覧の部品、右レールは 280px で、隠すと本体が全幅になる。 */
 /* 右の欄は窓が狭いと細くし、左の一覧に幅を残す。 */
 .project-screen { display: grid; grid-template-columns: minmax(0, 1fr) clamp(220px, 30%, 280px); gap: calc(var(--u) * 4); }
 .project-screen[data-rail='closed'] { grid-template-columns: 1fr; }
 .project-main { min-width: 0; }
-.project-path { margin-bottom: calc(var(--u) * 3); }
+/* 場所の行。長いパスは頭を残して省略し、見つからないときの札は押せる形で右に並べる。 */
+.project-path { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; margin-bottom: calc(var(--u) * 3); }
+.project-path > .mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-path-warn { flex: none; display: inline-flex; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); cursor: pointer; }
+.project-path-warn:hover { background: color-mix(in srgb, var(--waiting) 16%, var(--surface)); }
+.project-path-warn .icon { width: 12px; height: 12px; }
 .rail { display: flex; flex-direction: column; gap: calc(var(--u) * 4); min-width: 0; }
 /* 右レールの TODO、メモ、アーティファクトは、白い読む面に載せる。 */
 .rail-panel { padding: calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
-.rail-panel > .h2:first-child { margin-top: 0; }
+/* 右レールの節の見出し。名前、件数、（TODO は）確認待ちの札を横に並べる。 */
+.rail-h { display: flex; align-items: center; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+.rail-n { font-weight: 500; color: var(--ink-3); }
+/* (i) の面の下の操作と、名前を変える欄。 */
+.pop-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--line); }
+.pop-acts .btn[data-copied='true'] { color: var(--st-done); }
+.pop-rename { display: flex; align-items: center; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--line); }
+.pop-rename .input { flex: 1; min-width: 0; }
 /* 白い面の中のアーティファクトのカードは、淡い地に落として、面の上に面を重ねない。 */
 .rail-panel .artifact { background: var(--surface-2); box-shadow: none; }
 .rail-panel .artifact:hover { background: color-mix(in srgb, var(--accent) 5%, var(--surface-2)); box-shadow: none; }

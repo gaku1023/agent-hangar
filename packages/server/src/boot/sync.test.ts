@@ -526,10 +526,9 @@ describe('互換の版', () => {
     await until(() => (b.status().oncePass ? null : true));
     // 断られた後は、メタデータ以外の道（本文、設定、使用量）へ出ない。
     expect(wk.seen.filter((r) => r.path !== '/changes' && r.path !== '/rows')).toEqual([]);
-    // 何も同期していないのに「1 回だけ同期しました」を出さず、版の文で知らせる。
-    const toast = await until(() => b.toasts().find((e) => e.message.includes('この PC の hangar')) ?? null);
-    expect(toast.level).toBe('error');
-    expect(b.toasts().some((e) => e.message.includes('1 回だけ同期しました'))).toBe(false);
+    // 何も同期していないのに「1 回だけ同期しました」は出さない。版の文は toast では流さず、同期の状態（上の first.error）だけで言う。
+    // ベルの一覧と同期の語が、その状態から行を組む（PR 29）。
+    expect(b.toasts().map((e) => e.message).filter((m) => m.includes('この PC の hangar') || m.includes('1 回だけ同期しました'))).toEqual([]);
     const before = metaCalls(wk.seen);
     const second = await b.pressSyncNow();
     expect(second.state).toBe('error');
@@ -651,6 +650,26 @@ describe('作り直した設定の同期の組み立て', () => {
     expect(bundle.dto().enabled).toBe(false);
     b.h.settings.current = { ...b.h.settings.current, configBundleSync: true, configApproval: 'auto' };
     expect(bundle.dto()).toMatchObject({ enabled: true, approval: 'auto' });
+  });
+
+  it('スイッチを入れた直後に 1 回だけ送受信を回し、次の周期を待たせない', () => {
+    joinTo(NOWHERE);
+    const b = boot();
+    const bundle = b.sync.configBundle!;
+    const tick = vi.spyOn(bundle, 'tick').mockResolvedValue();
+    b.sync.publishConfigSync();
+    expect(tick).not.toHaveBeenCalled();
+    b.h.settings.current = { ...b.h.settings.current, configBundleSync: true };
+    b.sync.publishConfigSync();
+    expect(tick).toHaveBeenCalledTimes(1);
+    // 入ったままの再配りでは回さない。切ってから入れ直せば、また回す。
+    b.sync.publishConfigSync();
+    expect(tick).toHaveBeenCalledTimes(1);
+    b.h.settings.current = { ...b.h.settings.current, configBundleSync: false };
+    b.sync.publishConfigSync();
+    b.h.settings.current = { ...b.h.settings.current, configBundleSync: true };
+    b.sync.publishConfigSync();
+    expect(tick).toHaveBeenCalledTimes(2);
   });
 
   it('配る層へ、状態の組み方を渡す', () => {

@@ -26,5 +26,4 @@ export const projectKeys = {
   'project.promote.failedNothingMoved': ['cause', 'from', 'name'],
   'project.promote.failedRolledBack': ['cause', 'from', 'name'],
   'project.promote.failedLeftBoth': ['cause', 'from', 'left', 'name', 'to'],
-  'project.unassigned.appeared': ['cwd'],
 } as const satisfies MessageSpec;

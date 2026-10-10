@@ -17,6 +17,13 @@ const IDS = Object.keys(TITLES) as SettingsSection[];
 /** 目次の 6 行。状態の文は presenter の試験（settingsToc.test.ts）が見るので、ここでは決まった文を置く。 */
 const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[id], state: id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中', tone: id === 'integrations' ? 'warn' : 'default', label: `${TITLES[id]}、${id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中'}` }));
 
+/** 設定の同期（作り直した実装）の節の既定。クラウドに参加していない形で、使う試験が必要な分だけ上書きする。節の中身の試験は ConfigSyncSection.test.tsx が見る。 */
+const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): SettingsProps['configSync'] => ({
+  needsCloud: true, enabled: false, workerPending: false, lastSent: null, approval: 'each', native: true, order: null,
+  incoming: { count: 0, held: 0, from: null }, awaiting: 0, conflicts: 0, unsent: { count: 0, rows: [] }, backups: { count: 0, rows: [] },
+  ...over,
+});
+
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install' },
@@ -24,7 +31,8 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
-  cloud: { configured: false, url: null, state: 'off', stateLabel: '同期オフ', badge: { text: '同期オフ', tone: 'off' }, paused: false, limited: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, joinTokenExpiresAt: null, syncClaudeConfig: false, configConfirmed: false, usage: null },
+  cloud: { configured: false, url: null, state: 'off', stateLabel: '同期オフ', badge: { text: '同期オフ', tone: 'off' }, paused: false, limited: false, lastPullAt: '不明', pending: 0, sweepPending: null, skipped: [], devices: [], joinToken: null, joinTokenExpiresAt: null, usage: null },
+  configSync: configSyncProps(),
   shell: { state: 'off', zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install', uninstallCommand: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell uninstall', devices: [] },
   nodePath: '',
   claudePath: null,
@@ -49,7 +57,7 @@ const at = (section: SettingsSection, over: Partial<SettingsProps> = {}): Settin
 const cloudProps = (over: Partial<CloudSettingsProps> = {}): CloudSettingsProps => ({
   configured: true, url: 'https://h.workers.dev', state: 'idle', stateLabel: '同期済み', badge: { text: '同期済み', tone: 'ok' }, paused: false, limited: false, lastPullAt: '1 分前', pending: 2, sweepPending: null, skipped: [],
   devices: [{ id: 'dev-a', name: 'mac', platform: 'darwin', lastSeen: '今', self: true }, { id: 'dev-b', name: 'mini', platform: 'darwin', lastSeen: '3 分前', self: false }],
-  joinToken: null, joinTokenExpiresAt: null, syncClaudeConfig: false, configConfirmed: false, usage: null,
+  joinToken: null, joinTokenExpiresAt: null, usage: null,
   ...over,
 });
 
@@ -226,7 +234,7 @@ describe('設定の一般', () => {
 
 describe('設定のクラウド同期', () => {
   it('同期している人には、状態の札と、状態、操作、PC の一覧、設定の同期、使用量を上から並べる', () => {
-    render(ui(at('cloud', { cloud: cloudProps({ syncClaudeConfig: true }) })));
+    render(ui(at('cloud', { cloud: cloudProps() })));
     expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ })).toHaveTextContent('同期済み');
     expect(screen.getByRole('heading', { level: 3, name: 'Claude Code の設定を同期' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'クラウドを用意して始める' })).toBeNull();
@@ -240,7 +248,7 @@ describe('設定のクラウド同期', () => {
     expect(screen.getByRole('switch', { name: 'この PC で有効にする' })).toBeDisabled();
     expect(screen.getByText('クラウド同期を始めると使えます')).toBeInTheDocument();
     // 同期の操作と使用量は出さない。
-    for (const name of ['今すぐ同期', '同期を一時停止', '参加トークンを表示', '取り込み内容を確認']) expect(screen.queryByRole('button', { name })).toBeNull();
+    for (const name of ['今すぐ同期', '同期を一時停止', '参加トークンを表示', '適用内容を確認']) expect(screen.queryByRole('button', { name })).toBeNull();
     expect(screen.queryByRole('region', { name: '使用量と費用' })).toBeNull();
   });
   it('2 つのボタンは、押すとターミナルで打つコマンドを出す（クラウドの用意はアプリからはまだ行わない）', () => {
@@ -252,23 +260,24 @@ describe('設定のクラウド同期', () => {
     expect(screen.getByText('hangar join <token>')).toBeInTheDocument();
     expect(screen.queryByText('hangar setup cloud')).toBeNull();
   });
-  it('クラウドの節: 参加トークン、設定の同期のスイッチ、取り込みの確認', () => {
+  it('クラウドの節: 参加トークンと、設定の同期のスイッチ（入れるときは送るものの一覧を開く）', () => {
     const onIntent = vi.fn();
-    const { rerender } = render(ui(at('cloud', { cloud: cloudProps() }), onIntent));
+    const { rerender } = render(ui(at('cloud', { cloud: cloudProps(), configSync: configSyncProps({ needsCloud: false }) }), onIntent));
     expect(screen.getByText('https://h.workers.dev')).toBeInTheDocument();
     expect(screen.getByText('未送信の変更 2 件')).toBeInTheDocument();
     expect(screen.getByText('mini')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '参加トークンを表示' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'sync.joinToken.show' });
     fireEvent.click(screen.getByRole('switch', { name: 'この PC で有効にする' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { syncClaudeConfig: true } });
-    rerender(ui(at('cloud', { cloud: cloudProps({ joinToken: 'tok-abc', syncClaudeConfig: true }) }), onIntent));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'configSync.open', part: 'send' });
+    rerender(ui(at('cloud', { cloud: cloudProps({ joinToken: 'tok-abc' }), configSync: configSyncProps({ needsCloud: false, enabled: true }) }), onIntent));
     expect(screen.getByText('tok-abc')).toBeInTheDocument();
     expect(screen.getByText(/持つ人は全セッションを読み書きできます/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '参加トークン をコピー' }));
     expect(onIntent).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'tok-abc' });
-    fireEvent.click(screen.getByRole('button', { name: '取り込み内容を確認' }));
-    expect(onIntent).toHaveBeenCalledWith({ type: 'sync.config.preview' });
+    // 入っているスイッチを切るのは、その場で保存する。旧実装のスイッチには触らない。
+    fireEvent.click(screen.getByRole('switch', { name: 'この PC で有効にする' }));
+    expect(onIntent).toHaveBeenCalledWith({ type: 'settings.update', patch: { configBundleSync: false } });
   });
   it('状態の行は用語集の語で言い、未送信のトランスクリプトと、送信に失敗したトランスクリプトの一覧を出す', () => {
     const skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }];
@@ -355,23 +364,9 @@ describe('設定のクラウド同期', () => {
       vi.useRealTimers();
     }
   });
-  it('設定の同期を切っているあいだは取り込みの確認を押せない', () => {
-    const { rerender } = render(ui(at('cloud', { cloud: cloudProps() })));
-    expect(screen.getByRole('button', { name: '取り込み内容を確認' })).toBeDisabled();
-    rerender(ui(at('cloud', { cloud: cloudProps({ syncClaudeConfig: true }) })));
-    expect(screen.getByRole('button', { name: '取り込み内容を確認' })).toBeEnabled();
-  });
-  it('取り込みの対象と控えの置き場と、確認がまだであることを書く', () => {
-    // 利用者の決定 2 と 12。何を書き換えるかと、控えがどこに残るかを押す前に見せる。
-    const { rerender } = render(ui(at('cloud', { cloud: cloudProps({ syncClaudeConfig: true }) })));
-    expect(screen.getByText('CLAUDE.md、settings.json、statusline のスクリプト、skills、memory、projects の memory を PC の間でそろえます。')).toBeInTheDocument();
-    // 同期している PC の一覧で、自分の PC に印を付ける。
+  it('同期している PC の一覧で、自分の PC に印を付ける', () => {
+    render(ui(at('cloud', { cloud: cloudProps() })));
     expect(screen.getByText('この PC', { selector: '.list .faint' })).toBeInTheDocument();
-    expect(screen.getByText(/~\/\.agent-hangar\/backups\/claude-config\//)).toBeInTheDocument();
-    expect(screen.getByText('まだ取り込みを確認していません。確認するまで ~/.claude には書き込みません。')).toBeInTheDocument();
-    rerender(ui(at('cloud', { cloud: cloudProps({ syncClaudeConfig: true, configConfirmed: true }) })));
-    expect(screen.queryByText(/まだ取り込みを確認していません/)).toBeNull();
-    expect(screen.getByText('取り込みを確認済みです。')).toBeInTheDocument();
   });
   it('同じ名前の端末が並んでも React の key が重ならない', () => {
     // 1 台の Mac で 2 端末を模すと、名前も最終確認も揃う（final-review の中 5）。
@@ -859,7 +854,7 @@ describe('設定の読む面', () => {
   // settings.css の .settings-group > section が白い面を敷く。節が直下から外れると、面が消える。
   it('どの節の中身も、右の節の直下に並ぶ', () => {
     for (const id of IDS) {
-      const { container, unmount } = render(ui(at(id, { cloud: cloudProps({ syncClaudeConfig: true }) })));
+      const { container, unmount } = render(ui(at(id, { cloud: cloudProps() })));
       const root = container.querySelector('.settings-screen')!;
       expect(root.querySelectorAll('.settings-group > section').length, id).toBe(root.querySelectorAll('section').length);
       expect(root.querySelectorAll('.settings-group > section').length, id).toBeGreaterThan(0);

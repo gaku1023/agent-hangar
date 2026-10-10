@@ -13,6 +13,7 @@ import './styles/strip.css';
 import './styles/transcript.css';
 import './styles/palette.css';
 import './styles/settings.css';
+import './styles/configSync.css';
 import './styles/readiness.css';
 import './styles/sync.css';
 import './styles/controls.css';

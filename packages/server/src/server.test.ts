@@ -499,7 +499,7 @@ describe('起動と停止の手続きの配線', () => {
   beforeEach(() => { d = makeDirs(); });
   afterEach(() => { d.cleanup(); });
 
-  it('起動の手続きが済むまでは準備完了を名乗らず、未分類の知らせも出さない。済んだ後に現れた未分類だけを知らせる', async () => {
+  it('起動の手続きが済むまでは準備完了を名乗らない。未分類のセッションは、起動の途中も済んだ後も知らせず、一覧にそのまま出す', async () => {
     // 索引は 20 件ごとにイベントループへ譲る。起動の途中を外から見られるよう、どのルートにも属さない本文を多めに置く。
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-outside-'));
     for (let i = 0; i < 200; i++) writeTranscript(d.claudeDir, outside, `cccccccc-0000-4000-8000-${i.toString().padStart(12, '0')}`, 'stray');
@@ -536,12 +536,13 @@ describe('起動と停止の手続きの配線', () => {
       const col = c as unknown as ReturnType<typeof collector>;
       await col.opened;
       const strayToasts = () => col.all().filter((e) => e.type === 'toast' && e.message.includes(outside)).length;
-      // 済んだ後に現れた未分類は知らせる。
+      // 済んだ後に現れた未分類も、知らせは流さない（toast は操作の結果だけ。一覧にそのまま出る）。
+      const before = col.all().filter((e) => e.type === 'transcript.appended').length;
       writeTranscript(d.claudeDir, outside, 'cccccccc-0000-4000-8000-999999999999', 'late');
-      await col.waitFor((e): e is Extract<ServerEvent, { type: 'toast' }> => e.type === 'toast' && e.message.includes(outside));
+      for (let i = 0; i < 100 && col.all().filter((e) => e.type === 'transcript.appended').length === before; i++) await new Promise((r) => setTimeout(r, 100));
+      expect(col.all().filter((e) => e.type === 'transcript.appended').length).toBeGreaterThan(before);
       await new Promise((r) => setTimeout(r, 300));
-      // 最初の全走査が流した 200 件ぶんは、1 件も知らせていない。
-      expect(strayToasts()).toBe(1);
+      expect(strayToasts()).toBe(0);
     } finally {
       done = true;
       (c as ReturnType<typeof collector> | null)?.close();

@@ -43,7 +43,7 @@ export type Settings = {
   configApproval?: ConfigApproval;
   /**
    * 作り直した設定の同期（sync/config/）を動かすか。旧実装の syncClaudeConfig とは別のスイッチで、既定は切。
-   * 設定の画面が新しい実装を使うようになる段 4 の PR 17 までは、settings.json を手で書き換えたときだけ入る。
+   * 設定の画面の「この PC で有効にする」がこのスイッチを入れる（PATCH /api/settings）。画面は入れるとき旧実装の syncClaudeConfig を切る。
    */
   configBundleSync?: boolean;
   /**

@@ -42,6 +42,18 @@ describe('SessionList（ホームとプロジェクトの画面が使う部品�
     expect(screen.queryByRole('button', { name: 'プロジェクト' })).toBeNull();
     expect(screen.getByRole('radiogroup', { name: '期間' })).toBeInTheDocument();
   });
+  it('プロジェクトを固定するときは、行にプロジェクト名を出さない。固定しないときは出す', () => {
+    const { unmount } = mountList({}, { projectFixed: true });
+    expect(document.querySelector('.row-proj')).toBeNull();
+    unmount();
+    mountList();
+    expect(document.querySelectorAll('.row-proj')).toHaveLength(2);
+  });
+  it('欄の語を消すボタンは、いまの絞り込みを添えて出す（プロジェクトの画面で、画面を移さずに語だけを外すため）', () => {
+    const { onIntent } = mountList({ text: '動画', filter: { status: 'done' } });
+    fireEvent.click(screen.getByRole('button', { name: 'キーワードを消す' }));
+    expect(onIntent).toHaveBeenLastCalledWith({ type: 'search.query', text: '', filter: { status: 'done' } });
+  });
   it('ボタンの印に数えるのは、絞り込みの中にあるプロジェクト、期間、操作したファイルだけ', () => {
     expect(panelConditionCount({})).toBe(0);
     expect(panelConditionCount({ status: 'done', live: 'waiting' })).toBe(0);

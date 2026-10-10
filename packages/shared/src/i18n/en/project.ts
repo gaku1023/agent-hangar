@@ -27,5 +27,4 @@ export const projectEn: AreaDictionary<typeof projectKeys> = {
   'project.promote.failedNothingMoved': 'Could not move {name} ({cause}). The files are still in {from}',
   'project.promote.failedRolledBack': 'Could not move {name} ({cause}). What had already been moved was put back in {from}. No files were moved',
   'project.promote.failedLeftBoth': 'Could not move {name} ({cause}). These also remain in {to}: {left}. Check both {from} and {to}',
-  'project.unassigned.appeared': 'A session that belongs to no project appeared ({cwd}). It is left as Uncategorized',
 };

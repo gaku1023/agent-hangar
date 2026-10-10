@@ -430,3 +430,24 @@ describe('appendSearchResult（検索の続き）', () => {
     expect(appendSearchResult(null, next)).toBe(next);
   });
 });
+
+describe('設定の同期（作り直した実装）の状態', () => {
+  const c = (over: Record<string, unknown> = {}) => ({ enabled: true, workerPending: false, approval: 'each' as const, incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null, ...over });
+  it('bootstrap の configSync を入れ、無ければ（古いサーバ、参加していない端末）null にする', async () => {
+    const { initialStore, applyBootstrap, applyServerEvent, applyConfigDetail, configPartsToLoad, EMPTY_CONFIG_DETAIL } = await import('./store.ts');
+    const base = initialStore();
+    const boot = { device: { id: 'd', name: 'mac' }, settings: null, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: 'v', sync: null, devices: [], retention: null, cloudUsage: null, accounts: null } as never;
+    expect(applyBootstrap(base, { ...(boot as object), configSync: c({ incoming: 2 }) } as never).configSync).toMatchObject({ incoming: 2 });
+    expect(applyBootstrap({ ...base, configSync: c() }, boot).configSync).toBeNull();
+    // config.update は状態を丸ごと差し替える。
+    expect(applyServerEvent(base, { type: 'config.update', configSync: c({ conflicts: 3 }) }).configSync).toMatchObject({ conflicts: 3 });
+    // 中身は 1 つずつ入り、ほかの部分を触らない。
+    const withInbox = applyConfigDetail(base, 'inbox', { items: [], approval: 'each' });
+    expect(withInbox.configDetail).toEqual({ ...EMPTY_CONFIG_DETAIL, inbox: { items: [], approval: 'each' } });
+    expect(base.configDetail).toBe(EMPTY_CONFIG_DETAIL);
+    expect(configPartsToLoad(null)).toEqual([]);
+    expect(configPartsToLoad(c())).toEqual([]);
+    expect(configPartsToLoad(c({ held: 1, backups: 2 }))).toEqual(['inbox', 'backups']);
+    expect(configPartsToLoad(c({ incoming: 1, conflicts: 1, unsent: 1, backups: 1 }))).toEqual(['inbox', 'conflicts', 'unsent', 'backups']);
+  });
+});
