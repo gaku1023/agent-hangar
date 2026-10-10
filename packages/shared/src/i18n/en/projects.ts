@@ -42,6 +42,8 @@ export const projectsEn: AreaDictionary<typeof projectsKeys> = {
   'projects.resolve.hintElsewhere': 'This project came from another computer. If the same folder is on this computer, choose its location. If you will not use it here, you can decide later',
   'projects.resolve.candidates': 'Candidates in the projects folder',
   'projects.resolve.newPath': 'New path',
+  'projects.resolve.newPathPlaceholder': '/Users/you/…',
+  'projects.resolve.newPathPlaceholderWindows': 'C:\\Users\\you\\…',
   'projects.resolve.useThis': 'Use this location',
   'projects.resolve.archive': 'Mark as Archived',
   'projects.resolve.unlink': 'Remove from list',

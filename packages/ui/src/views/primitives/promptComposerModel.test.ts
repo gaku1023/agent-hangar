@@ -108,6 +108,9 @@ describe('composePrompt', () => {
   it('本文が空なら、パスだけにする', () => {
     expect(composePrompt('  ', [a('/h/drops/1-0-a.png')])).toBe('/h/drops/1-0-a.png');
   });
+  it('Windows のパスは、空白を含むときだけ二重引用符で囲む', () => {
+    expect(composePrompt('見て', [a('C:\\h\\drops\\1-0-a.png'), a('C:\\Users\\Taro Yamada\\drops\\1-1-b.png')])).toBe('見て\n\nC:\\h\\drops\\1-0-a.png\n"C:\\Users\\Taro Yamada\\drops\\1-1-b.png"');
+  });
   it('空白を含むパス（フォルダを落としたときの元のパス）は、単引用符で囲む', () => {
     expect(composePrompt('', [a('/Users/a/my dir')])).toBe("'/Users/a/my dir'");
   });

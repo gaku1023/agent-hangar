@@ -8,7 +8,7 @@ export const projectJa: AreaDictionary<typeof projectKeys> = {
   'project.resolve.dirMissing': '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください',
   'project.create.pathNotDir': 'path が存在するディレクトリではありません',
   'project.create.badKind': 'kind は newDir か dir です',
-  'project.create.nameRule': '名前はディレクトリ名として使える 1 字以上で、/ を含められません',
+  'project.create.nameRule': '名前はディレクトリ名として使える 1 字以上で、/ と \\ を含められません',
   'project.create.dirExists': '{dir} は既にあります',
   'project.create.cannotCreate': '{dir} を作れません: {reason}',
   'project.create.gitInitFailed': 'git init に失敗しました: {reason}',

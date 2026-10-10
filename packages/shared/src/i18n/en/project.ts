@@ -8,7 +8,7 @@ export const projectEn: AreaDictionary<typeof projectKeys> = {
   'project.resolve.dirMissing': 'The directory was not found. Select an existing directory',
   'project.create.pathNotDir': 'path is not an existing directory',
   'project.create.badKind': 'kind must be newDir or dir',
-  'project.create.nameRule': 'Name must be at least one character that can be used as a directory name, and cannot contain /',
+  'project.create.nameRule': 'Name must be at least one character that can be used as a directory name, and cannot contain / or \\',
   'project.create.dirExists': '{dir} already exists',
   'project.create.cannotCreate': 'Cannot create {dir}: {reason}',
   'project.create.gitInitFailed': 'git init failed: {reason}',

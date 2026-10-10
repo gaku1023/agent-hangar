@@ -437,6 +437,8 @@ export function SettingsScreen(props: SettingsProps) {
     </section>
   );
 
+  // パスの例と Node を探す順の説明は、画面を開いている PC の OS の形で出す。
+  const win = clientPlatform() === 'win32';
   const tools = (
     <>
       {props.mux && <MuxSection mux={props.mux} />}
@@ -451,9 +453,9 @@ export function SettingsScreen(props: SettingsProps) {
           <PathField field="tmuxPath" label={t('settings.tools.tmux')} value={props.tmuxPath} nullable placeholder={t('settings.tools.tmuxPlaceholder', { install: muxInstallCommand(clientPlatform()) })} line={props.verify.tmux} mark={props.save.tmuxPath} />
           <PathField field="claudePath" label={t('settings.tools.claude')} value={props.claudePath} nullable placeholder={t('settings.tools.claudePlaceholder')} line={props.verify.claude} mark={props.save.claudePath} />
           <PathField field="codePath" label={t('settings.tools.code')} value={props.codePath} nullable placeholder={t('settings.tools.codePlaceholder')} line={props.verify.code} mark={props.save.codePath} />
-          <PathField field="nodePath" label={t('settings.tools.node')} value={props.nodePath} nullable placeholder="/opt/homebrew/bin/node" line={props.verify.node} mark={props.save.nodePath} />
+          <PathField field="nodePath" label={t('settings.tools.node')} value={props.nodePath} nullable placeholder={t(win ? 'settings.tools.nodePlaceholderWindows' : 'settings.tools.nodePlaceholder')} line={props.verify.node} mark={props.save.nodePath} />
         </div>
-        <div className="faint" style={{ marginTop: 4 }}>{t('settings.tools.nodeNote')}</div>
+        <div className="faint" style={{ marginTop: 4 }}>{t(win ? 'settings.tools.nodeNoteWindows' : 'settings.tools.nodeNote')}</div>
       </section>
     </>
   );

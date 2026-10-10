@@ -6,7 +6,7 @@ export const mediatorJa: AreaDictionary<typeof mediatorKeys> = {
   'mediator.launch.pickProject': 'プロジェクトを選んでください',
   'mediator.launch.adopting': '移動中',
   'mediator.promote.nameRequired': '名前を入力してください',
-  'mediator.promote.nameSlash': '名前に / は使えません',
+  'mediator.promote.nameSlash': '名前に / と \\ は使えません',
   'mediator.promote.promoted': 'プロジェクトに昇格しました',
   'mediator.projectCreate.created': 'プロジェクトを作りました',
   'mediator.screen.noWaiting': '入力待ちのセッションはありません',

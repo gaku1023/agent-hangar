@@ -41,6 +41,8 @@ export const projectsKeys = {
   'projects.resolve.hintElsewhere': [],
   'projects.resolve.candidates': [],
   'projects.resolve.newPath': [],
+  'projects.resolve.newPathPlaceholder': [],
+  'projects.resolve.newPathPlaceholderWindows': [],
   'projects.resolve.useThis': [],
   'projects.resolve.archive': [],
   'projects.resolve.unlink': [],

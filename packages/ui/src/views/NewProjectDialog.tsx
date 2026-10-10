@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { ProjectPlace } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
+import { clientPlatform } from '../keys.ts';
 import { baseName, isRootPath, joinPath } from '../lib/paths.ts';
 import type { NewProjectProps } from '../presenters/newProject.ts';
 import { isComposing } from './ime.ts';
@@ -126,7 +127,7 @@ export function NewProjectDialog(props: NewProjectProps) {
             </div>
             <div className="field-row">
               {props.desktop && <><button type="button" className="btn" onClick={() => emit({ type: 'folder.pick' })}><Icon name="folderOpen" />{t('newProject.folder.pick')}</button><span className="faint">{t('newProject.folder.or')}</span></>}
-              <input className="input mono" style={{ flex: 1 }} aria-label={t('newProject.path.aria')} placeholder={t('newProject.path.placeholder')} value={path} onChange={(e) => choosePath(e.target.value)} onKeyDown={onEnter} />
+              <input className="input mono" style={{ flex: 1 }} aria-label={t('newProject.path.aria')} placeholder={t(clientPlatform() === 'win32' ? 'newProject.path.placeholderWindows' : 'newProject.path.placeholder')} value={path} onChange={(e) => choosePath(e.target.value)} onKeyDown={onEnter} />
             </div>
           </div>
           <label className="field" htmlFor="new-project-reg-name">{t('newProject.field.name')}

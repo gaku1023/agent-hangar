@@ -6,7 +6,7 @@ export const mediatorEn: AreaDictionary<typeof mediatorKeys> = {
   'mediator.launch.pickProject': 'Select a project',
   'mediator.launch.adopting': 'Moving to Hangar',
   'mediator.promote.nameRequired': 'Enter a name',
-  'mediator.promote.nameSlash': 'The name cannot contain /',
+  'mediator.promote.nameSlash': 'The name cannot contain / or \\',
   'mediator.promote.promoted': 'Promoted to project',
   'mediator.projectCreate.created': 'Project created',
   'mediator.screen.noWaiting': 'No sessions need input',

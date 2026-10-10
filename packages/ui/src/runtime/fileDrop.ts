@@ -1,3 +1,5 @@
+import { isWindowsPath } from '../lib/paths.ts';
+
 /**
  * Hangar.app の殻から届く、ファイルを落とした知らせ（`hangar:drop`）。
  * 殻は落とされたファイルを `~/.agent-hangar/drops/` に写し、写した先のパスと落とした位置（CSS の px）を送ってくる。
@@ -27,8 +29,18 @@ export function parseDrop(detail: unknown): Drop | null {
   return { paths: d.paths as string[], x: d.x, y: d.y };
 }
 
-/** 空白や引用符を含むパスは単引用符で囲む。ほかの端末へ落としたときと同じ形なので、Claude Code がパスとして読める。 */
+/**
+ * 空白や引用符を含むパスは引用符で囲む。ほかの端末へ落としたときと同じ形なので、Claude Code がパスとして読める。
+ * macOS と Linux のパスは、POSIX のシェルの単引用符で囲む。
+ * Windows のパスは、ペインで動く claude と PowerShell（シェルタブは powershell.exe、psmux の既定のシェルも PowerShell）に向けて囲む。
+ * Windows の名前に " は使えないので二重引用符で囲めば足り、Windows Terminal へ落としたときと同じ形になる。cmd でも同じに読める。
+ * ただし PowerShell は二重引用符の中の $ と ` を展開するので、それを含むパスは単引用符で囲み、中の単引用符は 2 つにする。
+ */
 export function quotePath(p: string): string {
+  if (isWindowsPath(p)) {
+    if (/^[\p{L}\p{N}\\/._+\-:=]+$/u.test(p)) return p;
+    return /[$`]/.test(p) ? `'${p.replaceAll("'", "''")}'` : `"${p}"`;
+  }
   return /^[\p{L}\p{N}/._+\-@:,%=]+$/u.test(p) ? p : `'${p.replaceAll("'", "'\\''")}'`;
 }
 
