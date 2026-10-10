@@ -908,6 +908,21 @@ describe('presentNewSession', () => {
 });
 
 describe('presentSettings（フェーズ 2）', () => {
+  it('外部ターミナルの選択肢は動いている OS のものだけで、別の OS の値はその OS の既定として見せる', () => {
+    const store = storeWith();
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const mac = presentSettings(initialState(), store, Date.now(), 'darwin');
+    expect(mac.terminalOptions).toEqual([{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }]);
+    expect(mac.terminalApp).toBe('iterm');
+    expect(mac.terminalDesc).toMatch(/iTerm2/);
+    const win = presentSettings(initialState(), store, Date.now(), 'win32');
+    expect(win.terminalOptions).toEqual([{ value: 'windowsTerminal', label: 'Windows Terminal' }, { value: 'windowsDefault', label: '既定のターミナル' }]);
+    expect(win.terminalApp).toBe('windowsTerminal');
+    expect(win.terminalDesc).not.toMatch(/iTerm2|macOS/);
+    store.settings = { ...store.settings, terminalApp: 'windowsDefault' };
+    expect(presentSettings(initialState(), store, Date.now(), 'win32').terminalApp).toBe('windowsDefault');
+    expect(presentSettings(initialState(), store, Date.now(), 'darwin').terminalApp).toBe('terminal');
+  });
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
     store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
