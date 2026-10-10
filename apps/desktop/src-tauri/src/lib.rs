@@ -1562,9 +1562,11 @@ mod tests {
     // 進み具合と、読み込みが終わった合図も、頁が問い合わせたときに渡す。
     #[test]
     fn the_progress_and_the_finish_signal_are_kept_for_the_page_to_take() {
-        let mut ui = Ui::default();
-        ui.last_progress = Some(boot_at(health::Phase::Indexing, 412, 987));
-        ui.finishing = true;
+        let ui = Ui {
+            last_progress: Some(boot_at(health::Phase::Indexing, 412, 987)),
+            finishing: true,
+            ..Default::default()
+        };
         assert_eq!(
             ui.boot_state(),
             serde_json::json!({
@@ -1578,10 +1580,12 @@ mod tests {
     // サーバの頁へ移った後は、起動画面の様子を渡さない。UI の DOM を書き換えないためである。
     #[test]
     fn the_server_page_gets_no_boot_state() {
-        let mut ui = Ui::default();
-        ui.failure = Some(serde_json::json!({ "kind": "other" }));
-        ui.last_progress = Some(boot_at(health::Phase::Indexing, 1, 2));
-        ui.finishing = true;
+        let mut ui = Ui {
+            failure: Some(serde_json::json!({ "kind": "other" })),
+            last_progress: Some(boot_at(health::Phase::Indexing, 1, 2)),
+            finishing: true,
+            ..Default::default()
+        };
         ui.navigating();
         assert_eq!(
             ui.boot_state(),
