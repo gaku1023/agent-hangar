@@ -100,7 +100,18 @@ Node は子に `CREATE_BREAKAWAY_FROM_JOB` を付けられないので、殻の�
 引数の 1 行はサーバが Windows の規則で引用し終えたもので、殻はそのまま子のコマンド行の後ろに付ける（cmd.exe へ組んだ 1 行を崩さないため）。
 外側のジョブが抜けるのを許していなければ、印を付けずに起こし直す（psmux と同じ）。
 端末から起こしたサーバ（`npm run dev` など）はジョブに入っていないので、`HANGAR_LAUNCHER` は無く、直に起こす。
-Node は PATH に頼らず、Settings の `nodePath`、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、`~/.nvm/versions/node/*/bin/node`（新しい版を優先）の順で探す。
+Node は PATH に頼らず、Settings の `nodePath` のあと、`node.rs` の `UNIX_NODE_PLACES` の順で探す（macOS）。
+並びは `/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の keg（`/opt/homebrew/opt/node@N/bin/node`、`/usr/local/opt/node@N/bin/node`）、nvm（`~/.nvm/versions/node/*/bin/node`）、fnm（`~/Library/Application Support/fnm`、`~/.local/share/fnm`、`~/.fnm` の `node-versions/*/installation/bin/node`）、Volta（`~/.volta/tools/image/node/*/bin/node`）、mise（`~/.local/share/mise/installs/node/*/bin/node`）、asdf（`~/.asdf/installs/nodejs/*/bin/node`）、nodenv（`~/.nodenv/versions/*/bin/node`）である。
+版ごとに並ぶ場所は、実在する `node` だけを新しい版から並べ、manifest と同じメジャー版とアーキテクチャの最初の 1 つを採る。
+版と読む名前は `node@<数>` と `v<数>.<数>.<数>`、`<数>.<数>.<数>` だけで、mise の別名（`22`、`lts`）は実体と重なるので見ない。
+Homebrew の `node@22` は keg-only で `/opt/homebrew/bin` にリンクされないので、keg の場所を見ないと `brew install node@22` だけでは見つからなかった。
+版の管理ツールは、PATH を切り替える仕掛け（fnm の `fnm_multishells`、nvm の `current` など）ではなく、版ごとの実体の場所を見る。
+GUI のアプリの PATH は launchd の最小のものなので、PATH は見ない。
+利用者のログインシェルに訊く案（`$SHELL -lic 'command -v node'`）は採らない。
+対話のシェルとして起こすと rc の全部が走り、tmux を自動で起こす設定や、端末を前提にした出力や問い合わせを踏みうるうえ、遅い rc では読み込み画面を秒単位で止めるためである。
+上の場所に無い入れ方は、`nodePath` で指す。
+同梱の CLI（`hangar.sh`）も同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
+見つからないときの文は、macOS では `brew install node@<版>` で足りることと、調べた場所とそれぞれが合わなかった理由を出す（Windows と Linux は `nvm install <版>` を案内する）。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
@@ -4001,7 +4012,9 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 `.app` は Developer ID では署名せず、自作の証明書で署名する（署名の台本と手順は `docs/signing.md`）。dmg（主）と zip（予備）に SHA-256 の checksum を添える。
 利用者はそれをダウンロードして `/Applications` へ移し、初めて開いて出る警告の後で、システム設定の「プライバシーとセキュリティ」の「このまま開く」で許可してから（管理者のパスワードを求められる）、`hangar setup` を走らせる。
 検疫属性を `xattr -rd com.apple.quarantine` で外す道は、最後の手段として残す。
-前提として Node 22 と tmux と `claude` が要り、Homebrew なら `brew install node@22 tmux` で入る。`node@22` は keg-only なので、アプリに見つけさせるには `brew link --overwrite --force node@22` か `nodePath` の指定が要る（アプリも同梱の CLI も PATH を見ずに探すため、PATH を通すだけでは効かない）。
+前提として Node 22 と tmux と `claude` が要り、Homebrew なら `brew install node@22 tmux` で足りる。
+`node@22` は keg-only だが、アプリも同梱の CLI も keg の場所（`/opt/homebrew/opt/node@22`）を探すので、`brew link` は要らない。
+探す場所に無い入れ方をした人には、README で `nodePath` の指定か `brew link --overwrite --force node@22` を補足として案内する。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
 Release の資産は `Hangar-<タグ>-macos-<arch>.dmg` と `.zip`、それぞれの `.sha256` である。

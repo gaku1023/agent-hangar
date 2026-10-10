@@ -102,22 +102,140 @@ fn parse_version(name: &str) -> Option<(u32, u32, u32)> {
     Some((it.next()??, it.next()??, it.next()??))
 }
 
-/// nvm が入れた Node を新しい版から順に並べる。
-/// `bin/node` が実在するものだけを返す。
+/// 版ごとのディレクトリの名前から版を読む。
+/// Homebrew の keg（`node@22`）はメジャー版だけ、版の管理ツールのもの（`v22.14.0`、`22.14.0`）は 3 つ組で読む。
+/// mise の別名（`22`、`lts`、`latest`）は実体の版と重なるので、版と読まない。
+/// 同梱の CLI（`scripts/hangar.sh` の `versions`）も同じ形だけを採る。
+pub fn parse_dir_version(name: &str) -> Option<(u32, u32, u32)> {
+    let digits = |s: &str| -> Option<u32> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        s.parse().ok()
+    };
+    if let Some(major) = name.strip_prefix("node@") {
+        return Some((digits(major)?, 0, 0));
+    }
+    let mut it = name.strip_prefix('v').unwrap_or(name).split('.');
+    let v = (
+        digits(it.next()?)?,
+        digits(it.next()?)?,
+        digits(it.next()?)?,
+    );
+    if it.next().is_some() {
+        return None;
+    }
+    Some(v)
+}
+
+/// `parent` の下の版ごとのディレクトリから、`leaf` にある Node を新しい版から順に並べる。
+/// 実在するものだけを返す。
 /// 実在しないパスを候補に混ぜると、`describe_error` の「調べた場所」が読みにくくなる。
-pub fn nvm_node_paths(user_home: &Path) -> Vec<PathBuf> {
-    let Ok(rd) = std::fs::read_dir(user_home.join(".nvm/versions/node")) else {
+fn versioned_node_paths(parent: &Path, leaf: &str) -> Vec<PathBuf> {
+    let Ok(rd) = std::fs::read_dir(parent) else {
         return Vec::new();
     };
     let mut found: Vec<((u32, u32, u32), PathBuf)> = rd
         .flatten()
         .filter_map(|e| {
-            parse_version(&e.file_name().to_string_lossy()).map(|v| (v, e.path().join("bin/node")))
+            parse_dir_version(&e.file_name().to_string_lossy()).map(|v| (v, e.path().join(leaf)))
         })
         .filter(|(_, p)| p.is_file())
         .collect();
     found.sort_by_key(|a| std::cmp::Reverse(a.0));
     found.into_iter().map(|(_, p)| p).collect()
+}
+
+/// nvm が入れた Node を新しい版から順に並べる。
+pub fn nvm_node_paths(user_home: &Path) -> Vec<PathBuf> {
+    versioned_node_paths(&user_home.join(".nvm/versions/node"), "bin/node")
+}
+
+/// macOS（と Linux）の探索先の 1 行。
+/// `~/` で始まるものは利用者のホームから、`/` で始まるものはファイルシステムの根から読む。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Place {
+    /// 決まった 1 か所。実在しなくても調べた場所に挙げる。
+    Fixed(&'static str),
+    /// `parent` の下の版ごとのディレクトリ（`parse_dir_version` で読めるもの）の `leaf`。新しい版から並べる。
+    Versions {
+        parent: &'static str,
+        leaf: &'static str,
+    },
+}
+
+/// macOS（と Linux）の探索先。この順に調べ、manifest と同じメジャー版とアーキテクチャの最初の Node を採る。
+/// Homebrew の `node@22` は keg-only で `/opt/homebrew/bin` にリンクされないので、keg の場所（`opt/node@N`）も見る。
+/// 版の管理ツールは、PATH を切り替える仕掛け（fnm の multishells、nvm の current など）ではなく、版ごとの実体の場所を見る。
+/// GUI のアプリの PATH は launchd の最小のものなので、PATH は見ない。
+/// 利用者のログインシェルに PATH を訊く案は採らない（理由は docs/design.md の「プロセスと通信」）。
+/// 同梱の CLI（`scripts/hangar.sh` の `node-places` の印の間）も同じ並びで探す。並びの一致は試験で縛る。
+pub const UNIX_NODE_PLACES: &[Place] = &[
+    Place::Fixed("/opt/homebrew/bin/node"),
+    Place::Fixed("/usr/local/bin/node"),
+    // Homebrew の keg-only の node@N。Apple silicon と Intel。
+    Place::Versions {
+        parent: "/opt/homebrew/opt",
+        leaf: "bin/node",
+    },
+    Place::Versions {
+        parent: "/usr/local/opt",
+        leaf: "bin/node",
+    },
+    Place::Versions {
+        parent: "~/.nvm/versions/node",
+        leaf: "bin/node",
+    },
+    // fnm の既定の置き場は、macOS では Application Support、XDG を使う設定では .local/share、古い版では ~/.fnm。
+    Place::Versions {
+        parent: "~/Library/Application Support/fnm/node-versions",
+        leaf: "installation/bin/node",
+    },
+    Place::Versions {
+        parent: "~/.local/share/fnm/node-versions",
+        leaf: "installation/bin/node",
+    },
+    Place::Versions {
+        parent: "~/.fnm/node-versions",
+        leaf: "installation/bin/node",
+    },
+    Place::Versions {
+        parent: "~/.volta/tools/image/node",
+        leaf: "bin/node",
+    },
+    Place::Versions {
+        parent: "~/.local/share/mise/installs/node",
+        leaf: "bin/node",
+    },
+    Place::Versions {
+        parent: "~/.asdf/installs/nodejs",
+        leaf: "bin/node",
+    },
+    Place::Versions {
+        parent: "~/.nodenv/versions",
+        leaf: "bin/node",
+    },
+];
+
+/// 表の場所を実際のパスにする。`root` は試験で根を差し替えるためのもので、本番では `/`。
+fn resolve_place(at: &str, root: &Path, user_home: &Path) -> PathBuf {
+    match at.strip_prefix("~/") {
+        Some(rest) => user_home.join(rest),
+        None => root.join(at.trim_start_matches('/')),
+    }
+}
+
+/// `UNIX_NODE_PLACES` を順に実際の候補へ広げる。
+pub fn unix_node_paths(root: &Path, user_home: &Path) -> Vec<PathBuf> {
+    UNIX_NODE_PLACES
+        .iter()
+        .flat_map(|place| match place {
+            Place::Fixed(at) => vec![resolve_place(at, root, user_home)],
+            Place::Versions { parent, leaf } => {
+                versioned_node_paths(&resolve_place(parent, root, user_home), leaf)
+            }
+        })
+        .collect()
 }
 
 /// Windows で Node を探す手掛かり。環境変数の値を引数で受け取る形にして、試験が環境を書き換えずに済むようにする。
@@ -187,26 +305,28 @@ pub fn windows_node_paths(env: &WindowsEnv) -> Vec<PathBuf> {
     all
 }
 
-/// OS ごとの固定の探索先。macOS と Linux は Homebrew、/usr/local、nvm。Windows は上の `windows_node_paths`。
-fn platform_node_paths(user_home: &Path) -> Vec<PathBuf> {
+/// OS ごとの探索先。macOS と Linux は `UNIX_NODE_PLACES`、Windows は上の `windows_node_paths`。
+/// `root` は macOS と Linux の固定の場所の根で、本番では `/`。
+fn platform_node_paths(root: &Path, user_home: &Path) -> Vec<PathBuf> {
     if cfg!(windows) {
-        let _ = user_home;
+        let _ = (root, user_home);
         windows_node_paths(&WindowsEnv::from_process_env())
     } else {
-        let mut all = vec![
-            PathBuf::from("/opt/homebrew/bin/node"),
-            PathBuf::from("/usr/local/bin/node"),
-        ];
-        all.extend(nvm_node_paths(user_home));
-        all
+        unix_node_paths(root, user_home)
     }
 }
 
-/// 探索の順序。Settings の明示、そのあとは OS ごとの固定の場所（`platform_node_paths`）。
+/// 探索の順序。Settings の明示、そのあとは OS ごとの場所（`platform_node_paths`）。
 /// 同じ場所は一度しか調べない。
 /// Settings の指定が探索先と重なることがあるためである。
 pub fn candidate_paths(user_home: &Path, hangar_home: &Path) -> Vec<PathBuf> {
-    candidates_from(hangar_home, platform_node_paths(user_home))
+    candidate_paths_in(Path::new("/"), user_home, hangar_home)
+}
+
+/// 同上。固定の場所の根を引数で受け取る形。
+/// 試験が、この機械に実際に入っている Homebrew の Node に左右されないようにするためである。
+fn candidate_paths_in(root: &Path, user_home: &Path, hangar_home: &Path) -> Vec<PathBuf> {
+    candidates_from(hangar_home, platform_node_paths(root, user_home))
 }
 
 /// Settings の明示を先頭に、与えられた場所を続けて、重複を除く。
@@ -386,13 +506,38 @@ pub fn describe_error(e: &NodeError, lang: &str) -> String {
 /// `HANGAR_HOME` を使っている利用者に、存在しない場所を直せと案内しないためである。
 /// 英語の設定でも日本語のまま出ていた（2026-10-11、Windows の実機の確かめで見つけた）ので、文は頁の言語で作る。
 pub fn describe_error_in(e: &NodeError, hangar_home: &Path, lang: &str) -> String {
+    describe_error_for(e, hangar_home, lang, InstallHint::current())
+}
+
+/// 見つからないときに案内する入れ方。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InstallHint {
+    /// macOS。`brew install node@22` で入れれば、keg の場所を探すのでそのまま見つかる。
+    Homebrew,
+    /// Windows と Linux。nvm（Windows は nvm-windows）で入れる。
+    Nvm,
+}
+
+impl InstallHint {
+    pub fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            InstallHint::Homebrew
+        } else {
+            InstallHint::Nvm
+        }
+    }
+}
+
+/// 同上。案内する入れ方を引数で受け取る形。どの OS の上でも、両方の文を試験できるようにする。
+fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: InstallHint) -> String {
     let NodeError::NotFound { manifest, tried } = e;
     let settings = hangar_home.join("settings.json").display().to_string();
     let en = lang == "en";
-    let mut lines = if en {
-        not_found_en(manifest, &settings)
-    } else {
-        not_found_ja(manifest, &settings)
+    let mut lines = match (en, hint) {
+        (false, InstallHint::Nvm) => not_found_ja(manifest, &settings),
+        (true, InstallHint::Nvm) => not_found_en(manifest, &settings),
+        (false, InstallHint::Homebrew) => not_found_brew_ja(manifest, &settings),
+        (true, InstallHint::Homebrew) => not_found_brew_en(manifest, &settings),
     };
     for t in tried {
         let what = if en {
@@ -420,6 +565,26 @@ fn not_found_en(m: &Manifest, settings: &str) -> Vec<String> {
     vec![
         format!("Node {} ({}) was not found.", m.node_major, m.arch),
         format!("Run nvm install {}, or set nodePath in {} to its location.", m.node_major, settings),
+        "Places checked:".to_string(),
+    ]
+}
+
+#[rustfmt::skip]
+fn not_found_brew_ja(m: &Manifest, settings: &str) -> Vec<String> {
+    vec![
+        format!("Node {}（{}）が見つかりません。", m.node_major, m.arch),
+        format!("brew install node@{} で入れれば、次に開いたときに見つけます（nvm、fnm、Volta、mise、asdf、nodenv で入れた版も探します）。", m.node_major),
+        format!("ほかの場所に入れたなら、{} の nodePath で場所を指定してください。", settings),
+        "調べた場所:".to_string(),
+    ]
+}
+
+#[rustfmt::skip]
+fn not_found_brew_en(m: &Manifest, settings: &str) -> Vec<String> {
+    vec![
+        format!("Node {} ({}) was not found.", m.node_major, m.arch),
+        format!("Install it with brew install node@{} and Hangar finds it the next time it opens (it also looks for versions installed with nvm, fnm, Volta, mise, asdf, and nodenv).", m.node_major),
+        format!("If it is installed somewhere else, set nodePath in {} to its location.", settings),
         "Places checked:".to_string(),
     ]
 }
@@ -499,6 +664,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn candidates_put_settings_first_then_fixed_then_nvm() {
+        let root = tempfile::tempdir().unwrap();
         let user = tempfile::tempdir().unwrap();
         let hangar = tempfile::tempdir().unwrap();
         touch(&user.path().join(".nvm/versions/node/v22.14.0/bin/node"));
@@ -507,13 +673,13 @@ mod tests {
             r#"{ "workspaceRoot": "/w", "nodePath": "/custom/node" }"#,
         )
         .unwrap();
-        let got = candidate_paths(user.path(), hangar.path());
+        let got = candidate_paths_in(root.path(), user.path(), hangar.path());
         assert_eq!(
             got,
             vec![
                 PathBuf::from("/custom/node"),
-                PathBuf::from("/opt/homebrew/bin/node"),
-                PathBuf::from("/usr/local/bin/node"),
+                root.path().join("opt/homebrew/bin/node"),
+                root.path().join("usr/local/bin/node"),
                 user.path().join(".nvm/versions/node/v22.14.0/bin/node"),
             ]
         );
@@ -522,40 +688,170 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn candidates_drop_duplicates() {
+        let root = tempfile::tempdir().unwrap();
         let user = tempfile::tempdir().unwrap();
         let hangar = tempfile::tempdir().unwrap();
         let nvm = user.path().join(".nvm/versions/node/v22.14.0/bin/node");
         touch(&nvm);
+        let usr_local = root.path().join("usr/local/bin/node");
         // 探索先と同じ場所を Settings で指定しても、候補は 1 つにまとまる。
-        std::fs::write(
-            hangar.path().join("settings.json"),
-            r#"{ "nodePath": "/usr/local/bin/node" }"#,
-        )
-        .unwrap();
+        let settings_with = |p: &Path| {
+            std::fs::write(
+                hangar.path().join("settings.json"),
+                format!("{{ \"nodePath\": {} }}", serde_json::to_string(p).unwrap()),
+            )
+            .unwrap();
+        };
+        settings_with(&usr_local);
         assert_eq!(
-            candidate_paths(user.path(), hangar.path()),
+            candidate_paths_in(root.path(), user.path(), hangar.path()),
             vec![
-                PathBuf::from("/usr/local/bin/node"),
-                PathBuf::from("/opt/homebrew/bin/node"),
+                usr_local.clone(),
+                root.path().join("opt/homebrew/bin/node"),
                 nvm.clone(),
             ]
         );
-        std::fs::write(
-            hangar.path().join("settings.json"),
-            format!(
-                "{{ \"nodePath\": {} }}",
-                serde_json::to_string(&nvm).unwrap()
-            ),
-        )
-        .unwrap();
+        settings_with(&nvm);
         assert_eq!(
-            candidate_paths(user.path(), hangar.path()),
+            candidate_paths_in(root.path(), user.path(), hangar.path()),
+            vec![nvm, root.path().join("opt/homebrew/bin/node"), usr_local]
+        );
+    }
+
+    #[test]
+    fn dir_version_reads_homebrew_kegs_and_full_versions_only() {
+        assert_eq!(parse_dir_version("node@22"), Some((22, 0, 0)));
+        assert_eq!(parse_dir_version("v22.14.0"), Some((22, 14, 0)));
+        assert_eq!(parse_dir_version("22.14.0"), Some((22, 14, 0)));
+        // mise の別名（22、lts、latest）は実体の版と重なるので採らない。
+        for name in [
+            "22",
+            "22.14",
+            "lts",
+            "latest",
+            "node",
+            "node@",
+            "node@x",
+            "openssl@3",
+            "v22.14.0.1",
+            "22.14.0-rc.1",
+            "v",
+            "",
+        ] {
+            assert_eq!(parse_dir_version(name), None, "{name}");
+        }
+    }
+
+    /// macOS の探索先の並び。
+    /// 固定の 2 か所、Homebrew の keg（版つきの node@N）、版の管理ツールの順で、各々は新しい版から並ぶ。
+    /// 版の管理ツールと keg は、実在する node だけを足す。
+    #[cfg(unix)]
+    #[test]
+    fn unix_places_follow_fixed_then_kegs_then_version_managers_newest_first() {
+        let root = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let r = |p: &str| root.path().join(p);
+        let h = |p: &str| home.path().join(p);
+        for p in [
+            "opt/homebrew/opt/node@20/bin/node",
+            "opt/homebrew/opt/node@24/bin/node",
+            "opt/homebrew/opt/node@22/bin/node",
+            // node@ でない keg は見ない。
+            "opt/homebrew/opt/openssl@3/bin/node",
+            "usr/local/opt/node@22/bin/node",
+        ] {
+            touch(&r(p));
+        }
+        // bin/node の無い keg は足さない。
+        std::fs::create_dir_all(r("opt/homebrew/opt/node@23/bin")).unwrap();
+        for p in [
+            ".nvm/versions/node/v22.14.0/bin/node",
+            "Library/Application Support/fnm/node-versions/v22.9.0/installation/bin/node",
+            "Library/Application Support/fnm/node-versions/v22.10.0/installation/bin/node",
+            ".local/share/fnm/node-versions/v22.1.0/installation/bin/node",
+            ".fnm/node-versions/v22.2.0/installation/bin/node",
+            ".volta/tools/image/node/22.9.0/bin/node",
+            ".volta/tools/image/node/24.1.0/bin/node",
+            ".local/share/mise/installs/node/22.14.0/bin/node",
+            // mise の別名のディレクトリは、実体と重なるので足さない。
+            ".local/share/mise/installs/node/22/bin/node",
+            ".asdf/installs/nodejs/22.3.0/bin/node",
+            ".nodenv/versions/22.4.0/bin/node",
+        ] {
+            touch(&h(p));
+        }
+        assert_eq!(
+            unix_node_paths(root.path(), home.path()),
             vec![
-                nvm,
-                PathBuf::from("/opt/homebrew/bin/node"),
-                PathBuf::from("/usr/local/bin/node"),
+                r("opt/homebrew/bin/node"),
+                r("usr/local/bin/node"),
+                r("opt/homebrew/opt/node@24/bin/node"),
+                r("opt/homebrew/opt/node@22/bin/node"),
+                r("opt/homebrew/opt/node@20/bin/node"),
+                r("usr/local/opt/node@22/bin/node"),
+                h(".nvm/versions/node/v22.14.0/bin/node"),
+                h("Library/Application Support/fnm/node-versions/v22.10.0/installation/bin/node"),
+                h("Library/Application Support/fnm/node-versions/v22.9.0/installation/bin/node"),
+                h(".local/share/fnm/node-versions/v22.1.0/installation/bin/node"),
+                h(".fnm/node-versions/v22.2.0/installation/bin/node"),
+                h(".volta/tools/image/node/24.1.0/bin/node"),
+                h(".volta/tools/image/node/22.9.0/bin/node"),
+                h(".local/share/mise/installs/node/22.14.0/bin/node"),
+                h(".asdf/installs/nodejs/22.3.0/bin/node"),
+                h(".nodenv/versions/22.4.0/bin/node"),
             ]
         );
+        // 何も入っていなければ、固定の 2 か所だけを調べる。
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(
+            unix_node_paths(empty.path(), empty.path()),
+            vec![
+                empty.path().join("opt/homebrew/bin/node"),
+                empty.path().join("usr/local/bin/node"),
+            ]
+        );
+    }
+
+    /// 同梱の CLI（`scripts/hangar.sh`）の探索先は、殻の `UNIX_NODE_PLACES` と同じ並びでなければならない。
+    /// 片方だけ足すと、アプリは起動するのに `hangar` コマンドだけが Node を見失う（またはその逆）。
+    /// hangar.sh の印の間の行を読み、表と 1 行ずつ突き合わせる。
+    #[test]
+    fn hangar_sh_searches_the_same_places_in_the_same_order() {
+        let script = include_str!("../../scripts/hangar.sh");
+        let begin = script
+            .find("# node-places: begin")
+            .expect("hangar.sh に node-places: begin の印が無い");
+        let end = script
+            .find("# node-places: end")
+            .expect("hangar.sh に node-places: end の印が無い");
+        let unquote = |s: &str| s.trim_matches('"').replace("$HOME/", "~/");
+        let listed: Vec<NodePlace> = script[begin..end]
+            .lines()
+            .skip(1)
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(|l| {
+                if let Some(rest) = l.strip_prefix("printf '%s\\n' ") {
+                    NodePlace::Fixed(unquote(rest))
+                } else if let Some(rest) = l.strip_prefix("versions ") {
+                    // 親は空白を含むことがあるので、引用符で括った 1 語として読む。
+                    let (parent, leaf) = if let Some(q) = rest.strip_prefix('"') {
+                        let close = q.find('"').expect("引用符が閉じていない");
+                        (&q[..close], q[close + 1..].trim())
+                    } else {
+                        rest.split_once(' ').expect("versions の引数が 2 つでない")
+                    };
+                    NodePlace::Versions {
+                        parent: unquote(parent),
+                        leaf: leaf.to_string(),
+                    }
+                } else {
+                    panic!("hangar.sh の node-places に読めない行がある: {l}")
+                }
+            })
+            .collect();
+        let table: Vec<NodePlace> = UNIX_NODE_PLACES.iter().map(NodePlace::from).collect();
+        assert_eq!(listed, table);
     }
 
     /// Windows の探索先を、環境変数に頼らず組み立てる関数の試験。
@@ -755,7 +1051,7 @@ mod tests {
     #[test]
     fn describe_error_names_the_real_settings_file_and_each_reason() {
         let err = every_reason();
-        let text = describe_error_in(&err, Path::new("/elsewhere/hangar"), "ja");
+        let text = describe_error_for(&err, Path::new("/elsewhere/hangar"), "ja", InstallHint::Nvm);
         assert!(
             text.starts_with("Node 22（x64）が見つかりません。"),
             "{text}"
@@ -782,7 +1078,7 @@ mod tests {
     #[test]
     fn describe_error_follows_the_page_language() {
         let err = every_reason();
-        let text = describe_error_in(&err, Path::new("/elsewhere/hangar"), "en");
+        let text = describe_error_for(&err, Path::new("/elsewhere/hangar"), "en", InstallHint::Nvm);
         assert!(text.starts_with("Node 22 (x64) was not found."), "{text}");
         assert!(text.contains("nvm install 22"), "{text}");
         let settings = Path::new("/elsewhere/hangar").join("settings.json");
@@ -800,6 +1096,67 @@ mod tests {
             "{text}"
         );
         assert_eq!(text.lines().count(), 8, "{text}");
+    }
+
+    // macOS では、Homebrew の node@22 を入れるだけで足りることを案内する。
+    // 調べた場所はそのまま並べる。
+    #[test]
+    fn describe_error_on_macos_says_brew_install_is_enough() {
+        let err = every_reason();
+        let home = Path::new("/elsewhere/hangar");
+        let settings = home.join("settings.json").display().to_string();
+        let ja = describe_error_for(&err, home, "ja", InstallHint::Homebrew);
+        assert!(ja.starts_with("Node 22（x64）が見つかりません。"), "{ja}");
+        assert!(ja.contains("brew install node@22"), "{ja}");
+        assert!(!ja.contains("nvm install"), "{ja}");
+        assert!(!ja.contains("brew link"), "{ja}");
+        assert!(ja.contains(&settings), "{ja}");
+        assert!(ja.contains("調べた場所:"), "{ja}");
+        assert!(ja.contains("/b/node: ありません"), "{ja}");
+        assert_eq!(ja.lines().count(), 9, "{ja}");
+
+        let en = describe_error_for(&err, home, "en", InstallHint::Homebrew);
+        assert!(en.starts_with("Node 22 (x64) was not found."), "{en}");
+        assert!(en.contains("brew install node@22"), "{en}");
+        assert!(!en.contains("nvm install"), "{en}");
+        assert!(en.contains(&settings), "{en}");
+        assert!(en.contains("Places checked:"), "{en}");
+        assert!(en.contains("/b/node: not found"), "{en}");
+        assert!(
+            !en.chars()
+                .any(|c| matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}')),
+            "{en}"
+        );
+        assert_eq!(en.lines().count(), 9, "{en}");
+    }
+
+    #[test]
+    fn install_hint_is_homebrew_only_on_macos() {
+        let want = if cfg!(target_os = "macos") {
+            InstallHint::Homebrew
+        } else {
+            InstallHint::Nvm
+        };
+        assert_eq!(InstallHint::current(), want);
+    }
+
+    /// 探索先の表の 1 行を、試験で突き合わせるために持ち主のある形にしたもの。
+    #[derive(Debug, PartialEq)]
+    enum NodePlace {
+        Fixed(String),
+        Versions { parent: String, leaf: String },
+    }
+
+    impl From<&Place> for NodePlace {
+        fn from(p: &Place) -> Self {
+            match p {
+                Place::Fixed(at) => NodePlace::Fixed(at.to_string()),
+                Place::Versions { parent, leaf } => NodePlace::Versions {
+                    parent: parent.to_string(),
+                    leaf: leaf.to_string(),
+                },
+            }
+        }
     }
 
     #[test]

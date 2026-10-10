@@ -388,13 +388,78 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     expect(JSON.parse(r.stdout).node).toBe(newer);
   });
 
-  it('どの候補も版が合わなければ、何をすればよいかを述べて exit 1 になる', async () => {
+  // 殻（node.rs の UNIX_NODE_PLACES）と同じ場所を探す。並びの一致は node.rs の試験が hangar.sh を読んで縛る。
+  it.each([
+    ['fnm（macOS の既定）', 'Library/Application Support/fnm/node-versions/v99.0.0/installation/bin/node'],
+    ['fnm（XDG）', '.local/share/fnm/node-versions/v99.0.0/installation/bin/node'],
+    ['fnm（古い版）', '.fnm/node-versions/v99.0.0/installation/bin/node'],
+    ['Volta', '.volta/tools/image/node/99.0.0/bin/node'],
+    ['mise', '.local/share/mise/installs/node/99.0.0/bin/node'],
+    ['asdf', '.asdf/installs/nodejs/99.0.0/bin/node'],
+    ['nodenv', '.nodenv/versions/99.0.0/bin/node'],
+  ])('%s が入れた Node を見つける', async (_label, rel) => {
+    const dist = fakeDist();
+    const userHome = emptyDirFor('hangar user home-');
+    const node = fakeNode(path.join(userHome, rel));
+    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: emptyDirFor('hangar home-'), HOME: userHome });
+    expect(r.code, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout).node).toBe(node);
+  });
+
+  it('版の管理ツールの候補も版として新しい順に見る。v の無い版の名前でも', async () => {
+    const dist = fakeDist();
+    const userHome = emptyDirFor('hangar user home-');
+    fakeNode(path.join(userHome, '.volta/tools/image/node/99.9.0/bin/node'));
+    const newer = fakeNode(path.join(userHome, '.volta/tools/image/node/99.10.0/bin/node'));
+    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: emptyDirFor('hangar home-'), HOME: userHome });
+    expect(r.code, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout).node).toBe(newer);
+  });
+
+  it('mise の別名のディレクトリ（99、lts など）は版と見なさない（殻と同じ）', async () => {
+    const dist = fakeDist();
+    const userHome = emptyDirFor('hangar user home-');
+    fakeNode(path.join(userHome, '.local/share/mise/installs/node/99/bin/node'));
+    fakeNode(path.join(userHome, '.local/share/mise/installs/node/lts/bin/node'));
+    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: emptyDirFor('hangar home-'), HOME: userHome });
+    expect(r.code).toBe(1);
+  });
+
+  it('入れ方の間は表の順に見る。nvm は Volta より先', async () => {
+    const dist = fakeDist();
+    const userHome = emptyDirFor('hangar user home-');
+    fakeNode(path.join(userHome, '.volta/tools/image/node/99.0.0/bin/node'));
+    const nvm = fakeNode(path.join(userHome, '.nvm/versions/node/v99.0.0/bin/node'));
+    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: emptyDirFor('hangar home-'), HOME: userHome });
+    expect(r.code, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout).node).toBe(nvm);
+  });
+
+  it('どの候補も版が合わなければ、brew install で足りることと、調べた場所とその理由を述べて exit 1 になる', async () => {
     const dist = fakeDist();
     const home = emptyDirFor('hangar home-');
-    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: home, HOME: emptyDirFor('hangar userhome-') });
+    const userHome = emptyDirFor('hangar user home-');
+    const older = fakeNode(path.join(userHome, '.nvm/versions/node/v98.0.0/bin/node'), 98);
+    const broken = path.join(userHome, '.volta/tools/image/node/99.0.0/bin/node');
+    fs.mkdirSync(path.dirname(broken), { recursive: true });
+    fs.writeFileSync(broken, '#!/bin/sh\necho hello\n');
+    fs.chmodSync(broken, 0o755);
+    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: home, HOME: userHome });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain(`Node ${UNREACHABLE_MAJOR}（${process.arch}）が見つかりません`);
+    expect(r.stderr).toContain(`brew install node@${UNREACHABLE_MAJOR}`);
+    expect(r.stderr).not.toContain('nvm install');
     expect(r.stderr).toContain(path.join(home, 'settings.json'));
+    const lines = r.stderr.split('\n');
+    const checked = lines.indexOf('調べた場所:');
+    expect(checked, r.stderr).toBeGreaterThan(0);
+    const listed = lines.slice(checked + 1).filter((l) => l !== '');
+    // 固定の場所は、無くても挙げる。この機械に実物があるかどうかで理由は変わるので、場所だけを見る。
+    expect(listed.some((l) => l.startsWith('  /opt/homebrew/bin/node: ')), r.stderr).toBe(true);
+    expect(listed.some((l) => l.startsWith('  /usr/local/bin/node: ')), r.stderr).toBe(true);
+    expect(listed).toContain(`  ${older}: v98 ${process.arch}（要る版は ${UNREACHABLE_MAJOR} ${process.arch}）`);
+    expect(listed).toContain(`  ${broken}: Node ではありません（別の実行ファイルのようです）`);
+    expect(listed.findIndex((l) => l.includes(older))).toBeLessThan(listed.findIndex((l) => l.includes(broken)));
   });
 
   it('manifest.json が無ければ、sed の生のエラーではなく何が起きたかを述べて止まる', async () => {
