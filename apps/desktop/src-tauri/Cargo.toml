@@ -26,11 +26,6 @@ url = "2"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
-# Windows では、子をジョブオブジェクトに入れて孫ごと止める（src/winjob.rs）。
-# 版は Tauri が既に引いているものに合わせ、新しい版を持ち込まない。
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
-
 # トラックパッドの「指を離した」瞬間を読むためだけに使う。
 # WebKit の手勢が使っているのと同じ NSEvent の位相を、こちらでも読む。
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -42,6 +37,17 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSError", "NSSet"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationTrigger", "UNNotificationSound", "UNNotificationSettings"] }
+
+# 入力待ちを Windows のトーストで知らせ、押されたトーストからそのセッションへ戻るために使う（src/notify.rs）。
+# tauri-plugin-notification は Windows でも押されたトーストを返さないので、WinRT のトーストと COM の口を直に使う。
+# 版は Tauri（tao、wry）が Windows で既に使っている windows 0.61 に揃える。
+# windows-core は #[implement] が名指しで使うので、直の依存に置く。
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Data_Xml_Dom", "Foundation", "UI_Notifications", "Win32_Foundation", "Win32_System_Com", "Win32_Security", "Win32_System_Registry", "Win32_UI_Notifications"] }
+windows-core = "0.61"
+# Windows では、子をジョブオブジェクトに入れて孫ごと止める（src/winjob.rs）。
+# 版は Tauri が既に引いているものに合わせ、新しい版を持ち込まない。
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = "3"
