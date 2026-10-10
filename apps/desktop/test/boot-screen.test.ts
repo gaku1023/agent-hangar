@@ -423,3 +423,77 @@ describe('殻が先に知らせた分を引き取る', () => {
     expect(frames.size).toBe(1);
   });
 });
+
+// CI の「Node の無い Mac（と Windows）で札が出る」段は、頁が実際に描いた様子を殻にファイルへ書かせて読む（lib.rs の boot_probe）。
+// 書き出しは、殻が HANGAR_BOOT_PROBE を持って起きたとき（boot_state が probe を真で返したとき）だけ行う。
+// ふだんの起動では、頁は boot_probe を呼ばない。
+describe('試験のために、描いた様子を殻へ渡す', () => {
+  const tauri = window as unknown as { __TAURI_INTERNALS__?: { invoke: (cmd: string, args?: unknown) => Promise<unknown> } };
+  const failWith = win as unknown as { __hangarBootFail?: (info: unknown) => void };
+  const failure = { kind: 'other', params: {}, detail: 'Node 22（arm64）が見つかりません。', lang: 'ja', version: '0.2.0', os: 'macOS 15.5', home: '~/.agent-hangar', sep: '/' };
+  const answer = (state: unknown) => {
+    const invoke = vi.fn(async (cmd: string, _args?: unknown) => (cmd === 'boot_state' ? state : null));
+    tauri.__TAURI_INTERNALS__ = { invoke };
+    return invoke;
+  };
+  const probes = (invoke: ReturnType<typeof answer>) => invoke.mock.calls.filter(([cmd]) => cmd === 'boot_probe').map(([, args]) => (args as { drawn: Record<string, unknown> }).drawn);
+  // 前の試験が札を出すと、body の印（data-fail）が残る。body の中身だけを入れ替える共通の準備では消えない。
+  beforeEach(() => { delete document.body.dataset.fail; });
+  afterEach(() => { delete tauri.__TAURI_INTERNALS__; delete failWith.__hangarBootFail; document.documentElement.lang = ''; });
+
+  it('殻が probe を返さなければ、札が出ても boot_probe を呼ばない', async () => {
+    const invoke = answer({ failure, progress: null, finishing: false });
+    await boot();
+    await flush();
+    failWith.__hangarBootFail!(failure);
+    await flush();
+    expect($('fail').hidden).toBe(false);
+    expect(invoke.mock.calls.map(([cmd]) => cmd)).toEqual(['boot_state']);
+  });
+  it('probe が偽でも呼ばない', async () => {
+    const invoke = answer({ failure, progress: null, finishing: false, probe: false });
+    await boot();
+    await flush();
+    expect(probes(invoke)).toEqual([]);
+  });
+  it('probe が真で、先に失敗が起きていたら、描いた札の見出し、印、種類、詳細を渡す', async () => {
+    const invoke = answer({ failure, progress: null, finishing: false, probe: true });
+    await boot();
+    await flush();
+    const got = probes(invoke);
+    expect(got.at(-1)).toEqual({
+      level: 'error',
+      card: true,
+      kind: 'other',
+      lang: 'ja',
+      title: $('fail-title').textContent,
+      detail: 'Node 22（arm64）が見つかりません。',
+    });
+    expect(String(got.at(-1)!.title)).not.toBe('');
+  });
+  it('probe が真で、まだ何も起きていなければ待っている様子を渡し、後から届いた失敗の札も渡す', async () => {
+    const invoke = answer({ failure: null, progress: null, finishing: false, probe: true });
+    await boot();
+    await flush();
+    expect(probes(invoke)).toEqual([{ level: null, card: false, kind: null, lang: '', title: '', detail: '' }]);
+    failWith.__hangarBootFail!({ ...failure, lang: 'en' });
+    await flush();
+    expect(probes(invoke).at(-1)).toMatchObject({ level: 'error', card: true, kind: 'other', lang: 'en', detail: failure.detail });
+  });
+  it('probe が真で、読み込みが終わった合図を描いたら、その印を渡す', async () => {
+    const invoke = answer({ failure: null, progress: null, finishing: true, probe: true });
+    await boot();
+    await flush();
+    expect(probes(invoke).at(-1)).toMatchObject({ level: 'ready', card: false });
+  });
+  it('書き出しを殻が断っても、札はそのまま出ている', async () => {
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'boot_state') return { failure, progress: null, finishing: false, probe: true };
+      throw new Error('not allowed');
+    });
+    tauri.__TAURI_INTERNALS__ = { invoke };
+    await boot();
+    await flush();
+    expect($('fail').hidden).toBe(false);
+  });
+});

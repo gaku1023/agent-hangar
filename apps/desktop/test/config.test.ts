@@ -326,11 +326,12 @@ describe('capabilities', () => {
   });
   // 起動画面は殻の中の頁（tauri://localhost）なので、remote を持たない。もう一度試すは起動画面からだけ呼べる。
   // 起動の様子の問い合わせ（boot_state）も起動画面だけが使う。頁の口が出来る前に起きた失敗を引き取るためである。
-  it('起動画面には、起動の様子の問い合わせ、もう一度試す、ログを開くだけを与える', () => {
+  // 試験のための書き出し（boot_probe）も起動画面だけに与える。殻は HANGAR_BOOT_PROBE を持って起きたときだけ書き、ふだんは何もしない。
+  it('起動画面には、起動の様子の問い合わせ、試験のための書き出し、もう一度試す、ログを開くだけを与える', () => {
     const c = cap('boot-screen.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toBeUndefined();
-    expect(c.permissions).toEqual(['allow-boot-state', 'allow-retry-boot', 'allow-open-log']);
+    expect(c.permissions).toEqual(['allow-boot-state', 'allow-boot-probe', 'allow-retry-boot', 'allow-open-log']);
   });
   // サーバの頁から頼めるのは、ログを開くことと、アプリの再起動だけにする。起動のやり直しは与えない。
   it('UI の出どころには、ログを開くと再起動だけを与える', () => {
@@ -377,7 +378,7 @@ describe('capabilities', () => {
   // 入力待ちの知らせの 3 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['apply_config_sync', 'boot_state', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
+    expect(listed).toEqual(['apply_config_sync', 'boot_probe', 'boot_state', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
@@ -389,6 +390,7 @@ describe('capabilities', () => {
     expect(boot).toContain("'retry_boot'");
     expect(boot).toContain("'open_log'");
     expect(boot).toContain("'boot_state'");
+    expect(boot).toContain("'boot_probe'");
   });
   // invoke_handler を 2 度呼ぶと、後のものだけが残り、先に並べた命令が黙って呼べなくなる。
   it('殻の命令は invoke_handler の 1 か所でまとめて登録する', () => {
