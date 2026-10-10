@@ -268,8 +268,8 @@ describe('hangar start', () => {
       child.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, out }); });
     });
     expect(r.code).toBe(1);
-    expect(r.out).toContain(`版 ${BASELINE_DB_VERSION - 1} で、このアプリが開けるのは版 ${BASELINE_DB_VERSION} 以降です`);
-    expect(r.out).toContain('マイグレーションも当てずに止めました');
+    expect(r.out).toContain(`バージョン ${BASELINE_DB_VERSION - 1} で、このアプリが開けるのはバージョン ${BASELINE_DB_VERSION} 以降です`);
+    expect(r.out).toContain('マイグレーションも適用せずに停止しました');
     expect(r.out).toContain('起動の途中で終わりました');
     expect(r.out).not.toContain('?t=');
     expect(dbVersionOf(file)).toBe(BASELINE_DB_VERSION - 1);
