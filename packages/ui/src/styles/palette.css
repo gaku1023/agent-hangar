@@ -51,3 +51,6 @@
 .keys-row > .mono { white-space: nowrap; }
 .keys-group { display: flex; flex-direction: column; gap: calc(var(--u) * 0.5); }
 .keys-row { display: grid; grid-template-columns: calc(var(--u) * 30) 1fr; align-items: baseline; gap: calc(var(--u) * 2); padding: calc(var(--u) * 0.5) 0; }
+/* macOS の外は、キーとターミナルの中の打鍵と操作の 3 列にする。 */
+.keys-row[data-terminal] { grid-template-columns: calc(var(--u) * 30) calc(var(--u) * 34) 1fr; }
+.keys-head { font-size: var(--fs-xs); padding-bottom: 0; }

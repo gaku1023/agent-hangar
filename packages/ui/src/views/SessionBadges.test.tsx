@@ -6,6 +6,7 @@ import { presentSessionBadges } from '../presenters/session.ts';
 import { LanguageRoot } from './primitives/language.tsx';
 import { SessionBadges } from './SessionBadges.tsx';
 import { TocPane, TocToggle } from './TocPane.tsx';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 const ja = translator('ja');
 const NOW = Date.UTC(2026, 9, 9, 3, 0, 0);
@@ -37,6 +38,14 @@ describe('TocPane（目次だけの右パネル）', () => {
   it('「目次」の名前を持つ aside に、中身をそのまま入れる', () => {
     render(<LanguageRoot language="ja"><TocPane><div>ターンの一覧</div></TocPane></LanguageRoot>);
     expect(screen.getByRole('complementary', { name: '目次' })).toHaveTextContent('ターンの一覧');
+  });
+
+  it('Windows の開閉のボタンの title は、ターミナルの中の打鍵も書く', () => {
+    setClientUserAgent(WINDOWS_UA);
+    render(<LanguageRoot language="ja"><ActionRoot onAction={() => {}}><TocToggle open /></ActionRoot></LanguageRoot>);
+    const btn = screen.getByRole('button', { name: '右パネルを閉じる' });
+    expect(btn).toHaveAttribute('title', '右パネルの開閉（Ctrl+J、ターミナルの中では Ctrl+Shift+J）');
+    expect(btn).toHaveAttribute('aria-keyshortcuts', 'Control+J Control+Shift+J');
   });
 
   it('開閉のボタンは、開いていれば「閉じる」、閉じていれば「開く」の名前で、押すと transcript.toggle を出す', () => {

@@ -183,7 +183,7 @@ describe('presentPalette（打ち始めた後）', () => {
     setClientUserAgent(WINDOWS_UA);
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
     expect(item(p, 'cmd:new-session').keys).toBe('Ctrl+N');
-    expect(item(p, 'cmd:new-scratch').keys).toBe('Ctrl+Shift+N');
+    expect(item(p, 'cmd:new-scratch').keys).toBe('Ctrl+Alt+N');
     expect(item(p, 'cmd:shortcuts').keys).toBe('? / Ctrl+/');
     const q = presentPalette(withPalette(), store(), '索引', NOW)!;
     expect(q.sections.at(-1)!.items[0]!.keys).toBe('Ctrl+Enter');

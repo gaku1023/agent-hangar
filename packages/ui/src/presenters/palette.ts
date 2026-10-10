@@ -1,6 +1,6 @@
 import { type LiveStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { asideWord } from '../lib/aside.ts';
-import { keyLabel, KEYMAP, type KeyId } from '../keys.ts';
+import { displayKeys, keyLabel, KEYMAP, type KeyId } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownAside, shownLive, type Store } from '../store/store.ts';
 import { durationLabel, relativeTime } from './format.ts';
@@ -14,7 +14,8 @@ const byRecency = <T extends { id: string; lastActivityAt: number | null }>(item
 
 /** ヒントに出す打鍵。キーの表を正にして、割り当てを変えたときにここがずれないようにする。 */
 function keysOf(id: KeyId): string {
-  return keyLabel(KEYMAP.find((b) => b.id === id)?.keys ?? '');
+  const b = KEYMAP.find((k) => k.id === id);
+  return b ? displayKeys(b) : '';
 }
 
 /** 行頭の印に使う絵の名前。View が Icon の名前へ写す。 */
