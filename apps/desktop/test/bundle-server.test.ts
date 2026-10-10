@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bundleServer, NATIVE_MODULES, PREBUILD_ARCH } from '../scripts/bundle-server.ts';
+import { BUNDLE_TARGETS, buildLauncher, bundleServer, hostBundleTarget, NATIVE_MODULES, type BundleTarget } from '../scripts/bundle-server.ts';
+import { chooseNode, windowsNodeCandidates } from '../scripts/launch-cli.ts';
 import { bundleWorker, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -17,10 +18,12 @@ afterEach(() => {
 });
 
 /**
- * 配布物は Apple silicon 向けにしか作らない。
- * ネイティブモジュールの prebuild が他の環境には無いので、そこでは試しても意味が無い。
+ * 配布物は Apple silicon の macOS と x64 の Windows 向けにだけ作る。
+ * この機械が配布の対象でなければ（Linux など）、起動まで確かめる試験は走らせない。
+ * 束の中身を target 別に見る試験は、どの機械でも走る（prebuild は全部 npm の包みに入っている）。
  */
-const onAppleSilicon = process.platform === 'darwin' && process.arch === 'arm64';
+const host = hostBundleTarget();
+const onWindows = process.platform === 'win32';
 
 const dirSize = (dir: string): number => {
   let total = 0;
@@ -54,7 +57,7 @@ async function waitHealth(url: string, ms: number): Promise<boolean> {
   return false;
 }
 
-describe.skipIf(!onAppleSilicon)('bundleServer', () => {
+describe.skipIf(!host)('bundleServer', () => {
   it('server.mjs、cli.mjs、ui、ネイティブモジュール、cloud、manifest、bin/hangar を出し、tsx 無しで起動する', async () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');
@@ -71,7 +74,12 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir: claude }));
 
     const r = await bundleServer({ repoRoot, outDir: out, uiDist: ui });
-    expect(r.files.sort()).toEqual(['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'hangar-run.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui']);
+    // macOS の同梱物は、Windows の対応を足す前から変わらない。launch-cli.mjs は Windows だけに入る。
+    expect(r.files.sort()).toEqual(
+      onWindows
+        ? ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'hangar-run.mjs', 'launch-cli.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui']
+        : ['.gitkeep', 'bin', 'cli.mjs', 'cloud', 'hangar-run.mjs', 'manifest.json', 'node_modules', 'server.mjs', 'ui'],
+    );
 
     // バンドルが外部のまま残した import の宛先と、同梱した node_modules がぴたり一致することを見る。
     // 定数を書き写しても何も主張しないが、これは「外に出したものは必ず隣に置いてある」という起動の条件である。
@@ -84,11 +92,11 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
       'ui/index.html',
       'node_modules/better-sqlite3/package.json',
       'node_modules/better-sqlite3/lib/index.js',
-      `node_modules/better-sqlite3/prebuilds/${PREBUILD_ARCH}.node`,
+      `node_modules/better-sqlite3/prebuilds/${host}.node`,
       'node_modules/node-pty/package.json',
       'node_modules/node-pty/lib/index.js',
-      `node_modules/node-pty/prebuilds/${PREBUILD_ARCH}/pty.node`,
-      `node_modules/node-pty/prebuilds/${PREBUILD_ARCH}/spawn-helper`,
+      `node_modules/node-pty/prebuilds/${host}/pty.node`,
+      onWindows ? `node_modules/node-pty/prebuilds/${host}/conpty.node` : `node_modules/node-pty/prebuilds/${host}/spawn-helper`,
       'cloud/worker.mjs',
       'cloud/metadata.json',
     ]) {
@@ -100,10 +108,10 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
       'node_modules/better-sqlite3/deps',
       'node_modules/better-sqlite3/src',
       'node_modules/better-sqlite3/prebuilds/linux-x64.node',
-      'node_modules/better-sqlite3/prebuilds/win32-x64.node',
+      `node_modules/better-sqlite3/prebuilds/${onWindows ? 'darwin-arm64' : 'win32-x64'}.node`,
       'node_modules/node-pty/deps',
       'node_modules/node-pty/third_party',
-      'node_modules/node-pty/prebuilds/win32-x64',
+      `node_modules/node-pty/prebuilds/${onWindows ? 'darwin-arm64' : 'win32-x64'}`,
       'node_modules/node-pty/prebuilds/darwin-x64',
       // sourcemap は配布物に入れない。UI の写しの大半を占めるうえ、利用者の役には立たない。
       'ui/assets/index.js.map',
@@ -112,10 +120,11 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     }
     expect(dirSize(path.join(out, 'node_modules'))).toBeLessThan(15 * 1024 * 1024);
 
-    expect(fs.statSync(path.join(out, 'bin/hangar')).mode & 0o111).not.toBe(0);
+    if (!onWindows) expect(fs.statSync(path.join(out, 'bin/hangar')).mode & 0o111).not.toBe(0);
     expect(fs.existsSync(path.join(out, 'ui/assets/index.js'))).toBe(true);
     const m = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
     expect(m).toMatchObject({ version: '0.1.0', nodeMajor: Number(process.versions.node.split('.')[0]), arch: process.arch });
+    expect(host).toBe(`${process.platform}-${process.arch}`);
     expect(typeof m.builtAt).toBe('string');
     const js = fs.readFileSync(path.join(out, 'server.mjs'), 'utf8');
     expect(js).not.toContain('from "tsx"');
@@ -137,7 +146,7 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     }
   });
 
-  it('bin/hangar が同梱の Node で cli.mjs を動かし、symlink 経由でも鍵つきの URL を出す', async () => {
+  it.skipIf(onWindows)('bin/hangar が同梱の Node で cli.mjs を動かし、symlink 経由でも鍵つきの URL を出す', async () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');
     const home = tmp('hangar-home-');
@@ -162,7 +171,7 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     expect(token.length).toBeGreaterThan(16);
   });
 
-  it('bin/hangar start がリンク越しでも隣の server.mjs を子で起こし、同梱の UI を配り、SIGINT で子も降りる', async () => {
+  it.skipIf(onWindows)('bin/hangar start がリンク越しでも隣の server.mjs を子で起こし、同梱の UI を配り、SIGINT で子も降りる', async () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');
     const home = tmp('hangar-home-');
@@ -236,7 +245,7 @@ describe.skipIf(!onAppleSilicon)('bundleServer', () => {
     expect(JSON.parse(fs.readFileSync(path.join(out, 'cloud/metadata.json'), 'utf8'))).toEqual(workerMetadata(cloudSrc));
   });
 
-  it('同梱の hangar の setup cloud は、wrangler を探す前に、clone した場所から実行するよう案内して止まる', async () => {
+  it.skipIf(onWindows)('同梱の hangar の setup cloud は、wrangler を探す前に、clone した場所から実行するよう案内して止まる', async () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');
     const home = tmp('hangar-home-');
@@ -489,5 +498,208 @@ describe('bundleServer が途中で失敗したとき', () => {
     await expect(bundleServer({ repoRoot: path.join(out, 'no-such-repo'), outDir: out, uiDist: ui })).rejects.toThrow();
     expect(fs.existsSync(out)).toBe(true);
     expect(fs.existsSync(path.join(out, '.gitkeep'))).toBe(true);
+  });
+});
+
+/** 束の中の全ファイルを、束の根からの相対パス（/ 区切り）で返す。 */
+const listAll = (dir: string): string[] =>
+  fs
+    .readdirSync(dir, { withFileTypes: true, recursive: true })
+    .filter((e) => e.isFile())
+    .map((e) => path.relative(dir, path.join(e.parentPath, e.name)).split(path.sep).join('/'));
+
+/**
+ * 同梱する prebuild は target 別に決まる。
+ * 他の target のものが 1 つでも入ると、配布物が太る（node-pty の win32 だけで 58MB）。
+ * 束の作り方は、作る機械に依らない。macOS でも Linux でも Windows 向けの束を作れて、中身は同じになる。
+ */
+describe('bundleServer の target 別の同梱物', () => {
+  const make = async (target: BundleTarget): Promise<string> => {
+    const out = tmp('hangar-dist-');
+    const ui = tmp('hangar-ui-');
+    dirs.push(out, ui);
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui, target });
+    return out;
+  };
+
+  it('対応する target は darwin-arm64 と win32-x64 だけである', () => {
+    expect([...BUNDLE_TARGETS]).toEqual(['darwin-arm64', 'win32-x64']);
+    expect(hostBundleTarget('darwin', 'arm64')).toBe('darwin-arm64');
+    expect(hostBundleTarget('win32', 'x64')).toBe('win32-x64');
+    // 作らないものは、黙って別の target の束にせず、無いと答える。
+    expect(hostBundleTarget('darwin', 'x64')).toBeUndefined();
+    expect(hostBundleTarget('win32', 'arm64')).toBeUndefined();
+    expect(hostBundleTarget('linux', 'x64')).toBeUndefined();
+  });
+
+  it('darwin-arm64：darwin の prebuild と bin/hangar（sh）だけで、Windows 用の物を置かない', async () => {
+    const out = await make('darwin-arm64');
+    const files = listAll(out);
+    expect(files).toContain('bin/hangar');
+    expect(files).toContain('node_modules/better-sqlite3/prebuilds/darwin-arm64.node');
+    expect(files).toContain('node_modules/node-pty/prebuilds/darwin-arm64/pty.node');
+    expect(files).toContain('node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper');
+    expect(files.filter((f) => f.includes('prebuilds/') && !f.includes('darwin-arm64'))).toEqual([]);
+    expect(files).not.toContain('bin/hangar.cmd');
+    expect(files).not.toContain('launch-cli.mjs');
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')).arch).toBe('arm64');
+  });
+
+  it('win32-x64：win32 の prebuild と bin/hangar.cmd、launch-cli.mjs を置き、darwin 用と sh の起動を置かない', async () => {
+    const out = await make('win32-x64');
+    const files = listAll(out);
+    expect(files).toContain('bin/hangar.cmd');
+    expect(files).toContain('launch-cli.mjs');
+    expect(files).toContain('hangar-run.mjs');
+    expect(files).toContain('node_modules/better-sqlite3/prebuilds/win32-x64.node');
+    // ConPTY（Windows 11 の疑似端末）が要るものが揃っている。
+    for (const f of ['pty.node', 'conpty.node', 'conpty_console_list.node', 'conpty/conpty.dll', 'conpty/OpenConsole.exe']) {
+      expect(files, f).toContain(`node_modules/node-pty/prebuilds/win32-x64/${f}`);
+    }
+    expect(files.filter((f) => f.includes('prebuilds/') && !f.includes('win32-x64'))).toEqual([]);
+    expect(files).not.toContain('bin/hangar');
+    // デバッグの記号（.pdb）は実行に要らず、node-pty だけで 22MB ある。
+    expect(files.filter((f) => f.endsWith('.pdb'))).toEqual([]);
+    expect(dirSize(path.join(out, 'node_modules'))).toBeLessThan(15 * 1024 * 1024);
+    expect(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')).arch).toBe('x64');
+    // cmd が呼ぶ入口は、束の外の依存を持たず、そのまま動く 1 ファイルである。
+    expect(fs.readFileSync(path.join(out, 'launch-cli.mjs'), 'utf8')).not.toMatch(/^import[^\n]* from "(?!node:)/m);
+    // hangar.cmd は CRLF で、束の根の launch-cli.mjs を呼ぶ。
+    const cmd = fs.readFileSync(path.join(out, 'bin/hangar.cmd'), 'utf8');
+    expect(cmd).toContain('launch-cli.mjs');
+    expect(cmd.split('\n').every((l) => l === '' || l.endsWith('\r'))).toBe(true);
+  });
+});
+
+describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
+  const major = Number(process.versions.node.split('.')[0]);
+
+  /** 作り物の dist。launch-cli.mjs は実物と同じ作り方で作り、cli.mjs は受け取った引数と環境を印字するだけの物に替える。 */
+  async function fakeLaunchDist(manifest: object | null): Promise<string> {
+    const dist = tmp('hangar dist-');
+    dirs.push(dist);
+    await buildLauncher(path.join(dist, 'launch-cli.mjs'));
+    fs.writeFileSync(
+      path.join(dist, 'cli.mjs'),
+      'console.log(JSON.stringify({ ui: process.env.HANGAR_UI_DIST, args: process.argv.slice(2), node: process.execPath }));\n',
+    );
+    if (manifest) fs.writeFileSync(path.join(dist, 'manifest.json'), JSON.stringify(manifest) + '\n');
+    // 入口は自分の置き場を実体のパスで知る（macOS の /var は /private/var、Windows の短い名前）。比べる側も実体にそろえるため、実在させておく。
+    fs.mkdirSync(path.join(dist, 'ui'));
+    return dist;
+  }
+
+  /** 印字された UI の置き場が、dist の ui と同じ実体であること。 */
+  const sameUi = (printed: string | undefined, dist: string): boolean =>
+    printed !== undefined && fs.realpathSync.native(printed) === fs.realpathSync.native(path.join(dist, 'ui'));
+
+  const run = (dist: string, args: string[], env: NodeJS.ProcessEnv = {}): Ran => {
+    const r = spawnSync(process.execPath, [path.join(dist, 'launch-cli.mjs'), ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, HANGAR_NODE: '', HANGAR_LAUNCHED: '', ...env },
+    });
+    return { stdout: r.stdout, stderr: r.stderr, code: r.status ?? -1 };
+  };
+
+  it('走っている Node が manifest と合えば、そのまま cli.mjs を動かし、UI の置き場を渡す', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: major, arch: process.arch });
+    const r = run(dist, ['status', '--port', '4231']);
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as { ui?: string; args: string[]; node: string };
+    expect(sameUi(out.ui, dist)).toBe(true);
+    expect(out.args).toEqual(['status', '--port', '4231']);
+    expect(out.node).toBe(process.execPath);
+  });
+
+  it('どの候補も合わなければ、探した Node と次の一手を述べて exit 1 になる', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const home = emptyDirFor('hangar home-');
+    const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(`Node 99（${process.arch}）が見つかりません`);
+    expect(r.stderr).toContain('HANGAR_NODE');
+    expect(r.stderr).toContain(path.join(home, 'settings.json'));
+  });
+
+  it('manifest.json が無ければ、何が起きたかを述べて止まる', async () => {
+    const dist = await fakeLaunchDist(null);
+    const r = run(dist, []);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('manifest.json');
+    expect(r.stderr).toContain('入れ直してください');
+  });
+
+  it('manifest.json が壊れていれば、版を読めないと述べて止まる', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0' });
+    const r = run(dist, []);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('manifest.json');
+  });
+
+  // 偽の node は sh で書くので、Windows では作らない。選び方そのものは下の chooseNode の試験が縛る。
+  it.skipIf(onWindows)('走っている Node が合わないとき、settings.json の nodePath の Node へ引数ごと渡し直す', async () => {
+    const otherArch = process.arch === 'x64' ? 'arm64' : 'x64';
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: major, arch: otherArch });
+    const nodes = emptyDirFor('hangar nodes-');
+    const fake = path.join(nodes, 'n d', 'node');
+    fs.mkdirSync(path.dirname(fake));
+    // 探り（-p）にだけ、manifest と同じ版を名乗る。それ以外は実物の node へ渡す。
+    fs.writeFileSync(fake, `#!/bin/sh\nif [ "$1" = "-p" ]; then echo "${major} ${otherArch}"; exit 0; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+    fs.chmodSync(fake, 0o755);
+    const home = emptyDirFor('hangar home-');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: fake }));
+    const r = run(dist, ['url', '--port', '4231'], { HANGAR_HOME: home });
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as { ui?: string; args: string[] };
+    expect(sameUi(out.ui, dist)).toBe(true);
+    expect(out.args).toEqual(['url', '--port', '4231']);
+  });
+
+  describe('chooseNode', () => {
+    const want = { nodeMajor: 22, arch: 'x64' };
+    const answers: Record<string, { major: number; arch: string } | undefined> = {
+      'C:\\a\\node.exe': undefined,
+      'C:\\b\\node.exe': { major: 20, arch: 'x64' },
+      'C:\\c\\node.exe': { major: 22, arch: 'arm64' },
+      'C:\\d\\node.exe': { major: 22, arch: 'x64' },
+      'C:\\e\\node.exe': { major: 22, arch: 'x64' },
+    };
+    it('先頭から見て、版もアーキも合う最初の 1 つを採る。起動できない候補や版違いは飛ばす', () => {
+      expect(chooseNode(Object.keys(answers), want, (p) => answers[p])).toBe('C:\\d\\node.exe');
+    });
+    it('1 つも合わなければ undefined', () => {
+      expect(chooseNode(['C:\\a\\node.exe', 'C:\\b\\node.exe', 'C:\\c\\node.exe'], want, (p) => answers[p])).toBeUndefined();
+    });
+    it('同じ場所を 2 度は探らない', () => {
+      const seen: string[] = [];
+      chooseNode(['C:\\a\\node.exe', 'C:\\a\\node.exe', 'C:\\b\\node.exe'], want, (p) => (seen.push(p), undefined));
+      expect(seen).toEqual(['C:\\a\\node.exe', 'C:\\b\\node.exe']);
+    });
+  });
+
+  describe('windowsNodeCandidates', () => {
+    it('HANGAR_NODE、設定の nodePath、公式の入れ先、nvm-windows の順に並べ、nvm は新しい版から', () => {
+      const env = {
+        HANGAR_NODE: 'D:\\mine\\node.exe',
+        ProgramFiles: 'C:\\Program Files',
+        LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local',
+        NVM_HOME: 'C:\\Users\\me\\AppData\\Roaming\\nvm',
+        NVM_SYMLINK: 'C:\\Program Files\\nodejs',
+      };
+      const got = windowsNodeCandidates(env, 'E:\\custom\\node.exe', () => ['v20.1.0', 'v22.14.0', 'v22.9.0', 'junk', 'settings.txt']);
+      expect(got).toEqual([
+        'D:\\mine\\node.exe',
+        'E:\\custom\\node.exe',
+        'C:\\Program Files\\nodejs\\node.exe',
+        'C:\\Users\\me\\AppData\\Local\\Programs\\nodejs\\node.exe',
+        'C:\\Users\\me\\AppData\\Roaming\\nvm\\v22.14.0\\node.exe',
+        'C:\\Users\\me\\AppData\\Roaming\\nvm\\v22.9.0\\node.exe',
+        'C:\\Users\\me\\AppData\\Roaming\\nvm\\v20.1.0\\node.exe',
+      ]);
+    });
+    it('環境変数が無ければ、その分は候補に出さない', () => {
+      expect(windowsNodeCandidates({}, undefined, () => [])).toEqual([]);
+    });
   });
 });
