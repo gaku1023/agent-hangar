@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseDisplay, readFingerprintFile } from '../scripts/sign-macos.ts';
+import { withKeychainLock } from './keychain-lock.ts';
 
 /**
  * release.yml の macOS のジョブが使う署名の台本（ci-sign-macos.sh）の試験。
@@ -118,7 +119,8 @@ describe.skipIf(!onMac)('CI の署名の台本（試しの証明書で実際に�
     return { b64: fs.readFileSync(path.join(out, 'hangar-signing.p12')).toString('base64'), fp: readFingerprintFile(path.join(out, 'certificate-sha1.txt'))! };
   };
 
-  it('p12 の指紋がリポジトリの値と違えば、署名せずに止まり、キーチェーンを残さない', () => {
+  it('p12 の指紋がリポジトリの値と違えば、署名せずに止まり、キーチェーンを残さない', () =>
+    withKeychainLock(() => {
     const d = tmp('hangar-ci-sign-mismatch-');
     const { b64 } = makeCert(d);
     const app = makeApp(d);
@@ -128,9 +130,10 @@ describe.skipIf(!onMac)('CI の署名の台本（試しの証明書で実際に�
     expect(r.out).toMatch(/指紋/);
     expect(r.out).not.toContain(PW);
     expect(userKeychains()).toBe(before);
-  });
+    }));
 
-  it('指紋が一致すれば署名し、識別子と DR が固定され、キーチェーンを残さない', () => {
+  it('指紋が一致すれば署名し、識別子と DR が固定され、キーチェーンを残さない', () =>
+    withKeychainLock(() => {
     const d = tmp('hangar-ci-sign-ok-');
     const { b64, fp } = makeCert(d);
     const app = makeApp(d);
@@ -144,5 +147,5 @@ describe.skipIf(!onMac)('CI の署名の台本（試しの証明書で実際に�
     expect(`${dr.stdout}${dr.stderr}`).toContain(`designated => certificate leaf = H"${fp}"`);
     expect(spawnSync('codesign', ['--verify', '--deep', '--strict', app]).status).toBe(0);
     expect(userKeychains()).toBe(before);
-  });
+    }));
 });

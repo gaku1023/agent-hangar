@@ -18,6 +18,7 @@ import {
   type RunResult,
   type Runner,
 } from '../scripts/sign-macos.ts';
+import { withKeychainLock } from './keychain-lock.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const confPath = path.resolve(here, '../src-tauri/tauri.conf.json');
@@ -377,7 +378,8 @@ describe.skipIf(!posix)('証明書を作る台本', () => {
   });
 
   describe.skipIf(!onMac)('実際に作り、専用のキーチェーンで署名する', () => {
-    it('p12、公開の証明書、指紋ができ、署名した .app の DR が指紋で固定される', () => {
+    it('p12、公開の証明書、指紋ができ、署名した .app の DR が指紋で固定される', () =>
+      withKeychainLock(() => {
       const d = tmp('hangar-cert-real-');
       dirs.push(d);
       const kc = path.join(d, 'test.keychain-db');
@@ -414,6 +416,6 @@ describe.skipIf(!posix)('証明書を作る台本', () => {
       } finally {
         spawnSync('security', ['delete-keychain', kc]);
       }
-    });
+      }));
   });
 });

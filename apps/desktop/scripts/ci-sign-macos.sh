@@ -61,15 +61,25 @@ OSSL=/usr/bin/openssl
 sha1_of() { "$OSSL" x509 "$@" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g' | tr 'A-F' 'a-f'; }
 
 TMP="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/hangar-sign.XXXXXX")"
+# 検索リストは実体のパスで出るので、比べられるように実体のパスへ直す。
+TMP="$(cd "$TMP" && pwd -P)"
 chmod 700 "$TMP"
 KC="$TMP/hangar-sign.keychain-db"
 TRUSTED=""
-ORIG_LIST=()
+LISTED=""
 # sudo が認可を待って固まらないように、時間を切る（perl の alarm。macOS に timeout は無い）。
 bounded() { local s="$1"; shift; perl -e 'alarm shift; exec @ARGV or exit 127' "$s" "$@"; }
 cleanup() {
   set +e
-  if [ "${#ORIG_LIST[@]}" -gt 0 ]; then security list-keychains -d user -s "${ORIG_LIST[@]}" >/dev/null 2>&1; fi
+  if [ -n "$LISTED" ]; then
+    # 検索リストからは自分のキーチェーンだけを外す。丸ごと元へ戻すと、同じ機械で同時に足された他のキーチェーンまで消える。
+    REST=()
+    while IFS= read -r line; do
+      line="${line#"${line%%[![:space:]]*}"}"; line="${line%\"}"; line="${line#\"}"
+      [ -n "$line" ] && [ "$line" != "$KC" ] && REST+=("$line")
+    done < <(security list-keychains -d user)
+    security list-keychains -d user -s ${REST[@]+"${REST[@]}"} >/dev/null 2>&1
+  fi
   if [ -n "$TRUSTED" ]; then
     bounded 30 sudo -n security remove-trusted-cert -d "$TMP/cert.cer" >/dev/null 2>&1
     bounded 30 sudo -n security delete-certificate -Z "$(printf %s "$EXPECTED" | tr a-f A-F)" /Library/Keychains/System.keychain >/dev/null 2>&1
@@ -107,12 +117,9 @@ if on_actions; then
   # macOS 26 のランナーでは、自作の証明書をコード署名用に信頼し、キーチェーンを検索リストへ足さないと、
   # codesign が「no identity found」で落ちる（docs/signing.md の「署名する機械の前提」）。
   # 信頼は機械全体の設定を書き換えるので、使い捨てのランナーの中でだけ行い、終わりに外す。利用者の手元ではこの道を通らない。
-  while IFS= read -r line; do
-    line="${line#"${line%%[![:space:]]*}"}"; line="${line%\"}"; line="${line#\"}"
-    [ -n "$line" ] && ORIG_LIST+=("$line")
-  done < <(security list-keychains -d user)
   "$OSSL" x509 -in "$TMP/cert.pem" -outform DER -out "$TMP/cert.cer"
   TRUSTED=1
+  LISTED=1
   bounded 120 bash "$HERE/prepare-signing-keychain.sh" --cer "$TMP/cert.cer" --keychain "$KC"
 fi
 

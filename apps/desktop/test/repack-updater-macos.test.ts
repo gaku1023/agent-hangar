@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readFingerprintFile, signApp } from '../scripts/sign-macos.ts';
+import { withKeychainLock } from './keychain-lock.ts';
 
 /**
  * 自動更新の更新物（Hangar.app.tar.gz と .sig）を、署名を終えた .app から作り直す台本（repack-updater-macos.sh）の試験。
@@ -163,7 +164,8 @@ describe.skipIf(!onMac)('更新物の作り直し（実物の tar と codesign�
       HANGAR_SIGN_P12_PASSWORD: PW,
       HANGAR_SIGN_FINGERPRINT_FILE: fpFile,
     };
-    const s = spawnSync('bash', [CI_SIGN, app], { encoding: 'utf8', env: { ...baseEnv(), ...signEnv }, timeout: 240_000, stdio: ['ignore', 'pipe', 'pipe'] });
+    // 検索リストと信頼設定を書き換えるので、ほかのファイルの署名の試験と重ならないようにする
+    const s = withKeychainLock(() => spawnSync('bash', [CI_SIGN, app], { encoding: 'utf8', env: { ...baseEnv(), ...signEnv }, timeout: 240_000, stdio: ['ignore', 'pipe', 'pipe'] }));
     expect(s.status, `${s.stdout}${s.stderr}`).toBe(0);
     expect(run(['pack', app], updaterKey(d)).status).toBe(0);
     const r = run(['verify', app, '--expect-signed'], { HANGAR_SIGN_FINGERPRINT_FILE: fpFile });
