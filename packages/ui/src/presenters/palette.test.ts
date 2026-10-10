@@ -4,6 +4,7 @@ import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { fuzzyScore, presentPalette } from './palette.ts';
 import { presentPromote, presentPromoted } from './promote.ts';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 const project = (id: string, name: string, isScratch = false): ProjectDto => ({ id, name, status: 'active', isScratch, path: '/w/' + name, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const session = (id: string, name: string, oneLiner: string | null): SessionDto => ({
@@ -177,6 +178,15 @@ describe('presentPalette（打ち始めた後）', () => {
     expect(ids(side, '操作')).toEqual(['cmd:sidebar']);
     const idx = presentPalette(withPalette(), store(), '索引', NOW)!;
     expect(ids(idx, '操作')).toEqual(['cmd:rebuild-index']);
+  });
+  it('Windows では、打鍵を Ctrl で見せる', () => {
+    setClientUserAgent(WINDOWS_UA);
+    const p = presentPalette(withPalette(), busy(), '', NOW)!;
+    expect(item(p, 'cmd:new-session').keys).toBe('Ctrl+N');
+    expect(item(p, 'cmd:new-scratch').keys).toBe('Ctrl+Shift+N');
+    expect(item(p, 'cmd:shortcuts').keys).toBe('? / Ctrl+/');
+    const q = presentPalette(withPalette(), store(), '索引', NOW)!;
+    expect(q.sections.at(-1)!.items[0]!.keys).toBe('Ctrl+Enter');
   });
   it('最後の行は、ホームの欄へ渡す行。語を ID に持ち、トランスクリプトから検索すると書く', () => {
     const p = presentPalette(withPalette(), store(), ' 索引 ', NOW)!;

@@ -6,6 +6,7 @@ import { isComposing } from '../ime.ts';
 import { fitHeight, highlight, place, type Placement } from './listboxModel.ts';
 import { Icon } from './Icon.tsx';
 import { useT } from './language.tsx';
+import { keyLabel } from '../../keys.ts';
 import { AttachUnavailableError, PromptAssistContext } from './promptAssist.ts';
 import { acceptText, arrangeCommands, attachmentFromPath, dropFileName, formatSize, isImageName, sourceLabel, triggerAt, type Attachment, type Trigger } from './promptComposerModel.ts';
 
@@ -404,7 +405,7 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
           <button type="button" className="pc-tool" onMouseDown={(e) => e.preventDefault()} onClick={startSlash}><span className="pc-tool-key" aria-hidden="true">/</span>{t('composer.tool.skill')}</button>
           <button type="button" className="pc-tool" disabled={props.projectId === null} title={props.projectId === null ? t('composer.tool.fileNeedsProject') : undefined} onMouseDown={(e) => e.preventDefault()} onClick={startAt}><span className="pc-tool-key" aria-hidden="true">@</span>{t('composer.tool.file')}</button>
           <button type="button" className="pc-tool" onClick={() => picker.current?.click()}><Icon name="attach" />{t('composer.tool.attach')}</button>
-          <span className="pc-tools-hint">{t('composer.tool.pasteHint')}</span>
+          <span className="pc-tools-hint">{t('composer.tool.pasteHint', { keys: keyLabel('⌘V') })}</span>
           <input ref={picker} type="file" multiple hidden data-testid="pc-picker" onChange={(e) => { send([...(e.target.files ?? [])]); e.target.value = ''; }} />
         </div>
         {open && createPortal(

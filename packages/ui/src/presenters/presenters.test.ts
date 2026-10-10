@@ -1470,10 +1470,23 @@ describe('同期の Presenter（フェーズ 4）', () => {
     ];
     const store: Store = { ...initialStore(), devices, shellHook: { state: 'on', zshrc: '/Users/me/.zshrc', line: 'x', command: '/A/bin/hangar shell install' } };
     expect(presentSettings(initialState(), store, NOW).shell).toEqual({
-      state: 'on', zshrc: '/Users/me/.zshrc', line: 'x', command: '/A/bin/hangar shell install', uninstallCommand: '/A/bin/hangar shell uninstall',
+      state: 'on', zshrc: '/Users/me/.zshrc', line: 'x', command: '/A/bin/hangar shell install', uninstallCommand: '/A/bin/hangar shell uninstall', available: true,
       devices: [{ id: 'd', name: 'mac', self: true, state: 'on', label: 'インストール済み' }, { id: 'd2', name: 'mini', self: false, state: 'unsupported', label: 'tmux が無いので使えません' }, { id: 'd3', name: 'old', self: false, state: null, label: '分かりません（hangar が古い版です）' }],
     });
     expect(presentSettings(initialState(), { ...store, shellHook: null }, NOW).shell.state).toBeNull();
+  });
+  it('Settings のシェル連携の節。Windows のサーバでは節ごと出さず、Windows の端末は OS で使えないと書く', () => {
+    const devices = [
+      { id: 'w', name: 'win', platform: 'win32', lastSeenAt: NOW, self: true, shell: 'unsupported' as const },
+      { id: 'm', name: 'mac', platform: 'darwin', lastSeenAt: NOW, self: false, shell: 'unsupported' as const },
+    ];
+    const store: Store = { ...initialStore(), devices, shellHook: { state: 'unsupported', zshrc: '', line: '', command: 'hangar shell install', osSupported: false } };
+    const shell = presentSettings(initialState(), store, NOW).shell;
+    expect(shell.available).toBe(false);
+    expect(shell.devices.map((d) => d.label)).toEqual(['Windows では使えません', 'tmux が無いので使えません']);
+    // osSupported を返さない古いサーバは、今までどおり節を出す。
+    const { osSupported: _, ...old } = store.shellHook!;
+    expect(presentSettings(initialState(), { ...store, shellHook: old }, NOW).shell.available).toBe(true);
   });
   it('同期を設定していない端末のクラウドの節', () => {
     const p = presentSettings(initialState(), initialStore(), NOW).cloud;

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ShellHookDto } from '@agent-hangar/shared';
-import { ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, shellWrapSupported, zshrcPath } from './shellHook.ts';
+import { ensureShellScript, shellHookLine, shellHookState, shellInstallCommand, shellWrapOsSupported, shellWrapSupported, zshrcPath } from './shellHook.ts';
 import { which } from './tools.ts';
 
 /**
@@ -24,6 +24,8 @@ export type ShellWrapDeps = {
   bundledHangar: string | null;
   /** 試験が ~/.zshrc の場所を差し替える口。 */
   zshrc?: () => string;
+  /** 動いている OS。試験が差し替える。Windows では包みを作らない。 */
+  platform?: NodeJS.Platform;
   errorLog?: (...a: unknown[]) => void;
 };
 
@@ -35,8 +37,12 @@ export type ShellWrapDeps = {
  */
 export function createShellWrap(deps: ShellWrapDeps): { write(): void; installCommand(): string; hook(): ShellHookDto } {
   const installCommand = (): string => shellInstallCommand({ hangarOnPath: which('hangar'), bundledHangar: deps.bundledHangar });
+  const platform = deps.platform ?? process.platform;
+  const osSupported = shellWrapOsSupported(platform);
   return {
     write() {
+      // Windows では包みを作らないので、zsh の本体も置かない。
+      if (!osSupported) return;
       try {
         const host = deps.host === '0.0.0.0' || deps.host === '::' ? '127.0.0.1' : deps.host;
         ensureShellScript(deps.home, { url: `http://${host}:${deps.port}`, tokenFile: path.join(deps.home, 'token'), tmuxPath: deps.tmuxPath(), subcommands: deps.subcommands() });
@@ -46,10 +52,11 @@ export function createShellWrap(deps: ShellWrapDeps): { write(): void; installCo
     },
     installCommand,
     // 包めるかは tmux を実行できるかで見る。ファイルを見るだけなので、毎回測る。
+    // osSupported が偽（Windows）なら、画面はシェル連携の節ごと出さない。
     hook() {
-      const shellSupported = shellWrapSupported(deps.tmuxPath());
+      const shellSupported = shellWrapSupported(deps.tmuxPath(), platform);
       const zshrc = (deps.zshrc ?? zshrcPath)();
-      return { state: shellHookState(zshrc, shellSupported), zshrc, line: shellHookLine(deps.home), command: installCommand() };
+      return { state: shellHookState(zshrc, shellSupported), zshrc, line: shellHookLine(deps.home), command: installCommand(), osSupported };
     },
   };
 }

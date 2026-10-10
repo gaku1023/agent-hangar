@@ -32,6 +32,6 @@ export const headerJa: AreaDictionary<typeof headerKeys> = {
   'header.gauge.noneLink': '使用率 未取得',
   'header.gauge.noneTitle': 'ステータスラインを設定すると、5 時間と週の使用率が出ます',
   'header.search.label': '移動・操作',
-  'header.search.title': '移動・操作（⌘K または /）',
+  'header.search.title': '移動・操作（{keys} または /）',
   'header.new.session': '新しいセッション',
 };

@@ -40,6 +40,16 @@ export function assertPortFree(port: number): Promise<void> {
   });
 }
 
+/**
+ * CLI に届いた信号を子のサーバへ渡すか。
+ * Windows の Ctrl+C と窓の閉じ（SIGINT、SIGHUP）は、同じコンソールにつながる子にも直に届く。
+ * Windows の child.kill は信号を送らずにその場で終わらせるので、渡すと、子が自分で受けた後始末（DB を閉じる）を途中で断ち切る。
+ * SIGTERM はコンソールからは届かず、プロセスの中から送られたときだけなので、Windows でも渡す（渡さないと子が残り、待ち続ける）。
+ */
+export function forwardsSignal(sig: 'SIGINT' | 'SIGTERM' | 'SIGHUP', platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32' || sig === 'SIGTERM';
+}
+
 export type StartOptions = {
   port: number;
   /** 起動が済んだときに 1 度だけ呼ぶ。鍵付きの URL の印字とブラウザを開くことは呼び手が持つ。 */
@@ -86,7 +96,7 @@ export async function runStart(o: StartOptions): Promise<number> {
   // サーバの installShutdown は 2 度目の信号を無視するので、重なっても構わない。
   // 信号が来たら止める途中とみなす。起動の途中で止めても失敗とは言わず、行き違いで起動が済んでも URL を出さない。
   let stopping = false;
-  const handlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((sig) => [sig, (): void => { stopping = true; if (!gone) child.kill(sig); }] as const);
+  const handlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((sig) => [sig, (): void => { stopping = true; if (!gone && forwardsSignal(sig)) child.kill(sig); }] as const);
   for (const [sig, h] of handlers) process.on(sig, h);
   try {
     let ready = false;

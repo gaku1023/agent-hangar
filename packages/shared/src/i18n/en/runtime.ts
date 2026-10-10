@@ -7,7 +7,7 @@ export const runtimeEn: AreaDictionary<typeof runtimeKeys> = {
   'runtime.notify.denied': 'Notifications were not allowed',
   'runtime.notify.returnBody': 'Return time {time} has passed',
   'runtime.notify.returnBodyNote': 'Return time {time} has passed · {note}',
-  'runtime.copy.failed': 'Could not copy. Select the text and press ⌘C',
+  'runtime.copy.failed': 'Could not copy. Select the text and press {keys}',
   'runtime.shell.openLogFailed': 'Could not open the log',
   'runtime.shell.restartFailed': 'Could not restart',
   'runtime.shell.pickFolderFailed': 'Could not select the folder',

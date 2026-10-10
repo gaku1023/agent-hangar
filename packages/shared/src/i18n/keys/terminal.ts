@@ -21,7 +21,7 @@ export const terminalKeys = {
   'terminal.tab.close': ['title'],
   'terminal.tab.addShell': [],
   'terminal.tab.split': [],
-  'terminal.tab.splitTitle': [],
+  'terminal.tab.splitTitle': ['keys'],
   'terminal.tab.splitNeedsTwo': [],
   'terminal.split.width': [],
   'terminal.split.valueText': ['percent'],

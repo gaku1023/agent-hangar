@@ -3,6 +3,7 @@ import type { MuxCheck, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { readinessCompat } from './compat.ts';
 import type { BandAction, BandGroup, BandRow } from './home.ts';
+import { clientPlatform } from '../keys.ts';
 
 /**
  * 欄の下の 1 行の検証（設定の B1）。
@@ -17,6 +18,9 @@ export type ToolKey = 'tmux' | 'claude' | 'code' | 'node';
 export function muxInstallCommand(platform: string): string {
   return platform === 'win32' ? 'winget install marlocarlo.psmux' : 'brew install tmux';
 }
+
+// 画面を開いている PC の OS は、キーの表と同じ 1 つの判定（keys.ts）から読む。
+export { clientPlatform };
 
 /** tmux の役を担う道具の名前。Windows は psmux で、ほかは tmux である。 */
 export function muxName(platform: string): string {
@@ -42,14 +46,6 @@ export function presentMuxGuide(state: State, store: Store, platform: string = c
   if (state.overlay.kind !== 'muxGuide') return null;
   const mux = presentMux(store.readiness, state.muxCheck, platform);
   return mux ? { mux } : null;
-}
-
-/**
- * 画面を開いている PC の OS。
- * hangar の画面は、サーバと同じ PC のブラウザか WebView で開くので、ブラウザの名乗りから読む。
- */
-export function clientPlatform(userAgent: string | undefined = globalThis.navigator?.userAgent): string {
-  return userAgent !== undefined && /Windows/.test(userAgent) ? 'win32' : 'darwin';
 }
 
 /**

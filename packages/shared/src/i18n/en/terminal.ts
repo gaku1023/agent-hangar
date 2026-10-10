@@ -22,7 +22,7 @@ export const terminalEn: AreaDictionary<typeof terminalKeys> = {
   'terminal.tab.close': 'Close {title}',
   'terminal.tab.addShell': 'Add shell tab',
   'terminal.tab.split': 'Split side by side',
-  'terminal.tab.splitTitle': 'Split side by side (⌘\\)',
+  'terminal.tab.splitTitle': 'Split side by side ({keys})',
   'terminal.tab.splitNeedsTwo': 'Needs two tabs',
   'terminal.split.width': 'Left and right width',
   'terminal.split.valueText': 'Left {percent}%',

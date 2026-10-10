@@ -32,6 +32,6 @@ export const headerEn: AreaDictionary<typeof headerKeys> = {
   'header.gauge.noneLink': 'Percent used: not available',
   'header.gauge.noneTitle': 'Add the status line to see the 5-hour and weekly percent used',
   'header.search.label': 'Go to / Actions',
-  'header.search.title': 'Go to / Actions (⌘K or /)',
+  'header.search.title': 'Go to / Actions ({keys} or /)',
   'header.new.session': 'New session',
 };

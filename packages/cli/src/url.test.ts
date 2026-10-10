@@ -4,9 +4,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { entryUrl, openInBrowser, openLocationScript } from './url.ts';
-import { posixIt } from '../../server/test/platform.ts';
+import { EventEmitter } from 'node:events';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { entryUrl, openInBrowser, openLocationScript, redirectPage } from './url.ts';
+import { expectMode, posixIt } from '../../server/test/platform.ts';
 
 describe('entryUrl', () => {
   it('鍵を問い合わせに載せた URL を作る', () => {
@@ -23,9 +24,9 @@ describe('openInBrowser', () => {
     const url = entryUrl(4177, token);
     const fake = ((cmd: string, args: readonly string[]) => {
       calls.push({ cmd, args });
-      return { stdin: { end: (s: string) => written.push(String(s)) }, unref: () => {} };
+      return { stdin: { end: (s: string) => written.push(String(s)) }, unref: () => {}, on: () => {} };
     }) as unknown as typeof spawn;
-    openInBrowser(url, fake);
+    openInBrowser(url, { spawnFn: fake, platform: 'darwin' });
     expect(calls).toEqual([{ cmd: 'osascript', args: ['-'] }]);
     expect(JSON.stringify(calls)).not.toContain(token);
     expect(written.join('')).toContain(`open location "${url}"`);
@@ -45,11 +46,11 @@ describe('openInBrowser', () => {
       // 標準入力を読むだけの osascript の代役。ps を取る間だけ生きている。
       const standIn = path.join(dir, 'fake-osascript');
       fs.writeFileSync(standIn, '#!/bin/sh\nsleep 3\ncat >/dev/null\n', { mode: 0o755 });
-      openInBrowser(url, ((_cmd: string, args: readonly string[], opts: object) => {
+      openInBrowser(url, { platform: 'darwin', spawnFn: ((_cmd: string, args: readonly string[], opts: object) => {
         const c = spawn(standIn, args as string[], opts as Parameters<typeof spawn>[2]);
         children.push(c);
         return c;
-      }) as unknown as typeof spawn);
+      }) as unknown as typeof spawn });
       // 対照。argv に載せる旧来の形なら、同じ ps の取り方で確かに読める。
       const leaky = path.join(dir, 'leaky');
       fs.writeFileSync(leaky, '#!/bin/sh\nsleep 3\n', { mode: 0o755 });
@@ -62,5 +63,61 @@ describe('openInBrowser', () => {
       for (const c of children) if (c.pid) try { process.kill(c.pid, 'SIGKILL'); } catch { /* 既に終わっている */ }
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('openInBrowser（macOS の外）', () => {
+  let home: string;
+  beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-open-home-')); });
+  afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); });
+
+  const token = 'b'.repeat(64);
+  const url = entryUrl(4177, token);
+  /** 起こしたコマンドを覚え、起動に失敗したことにもできる偽の spawn。 */
+  const fakeSpawn = (o: { fail?: boolean } = {}) => {
+    const calls: { cmd: string; args: readonly string[] }[] = [];
+    const fn = ((cmd: string, args: readonly string[]) => {
+      calls.push({ cmd, args });
+      const child = Object.assign(new EventEmitter(), { stdin: null, unref: () => {} });
+      if (o.fail) queueMicrotask(() => child.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })));
+      return child;
+    }) as unknown as typeof spawn;
+    return { fn, calls };
+  };
+
+  it('Windows は、鍵を書いた転送のページを置き場に書き、そのファイルを既定のブラウザで開く', () => {
+    const f = fakeSpawn();
+    openInBrowser(url, { spawnFn: f.fn, platform: 'win32', home });
+    const page = path.join(home, 'open.html');
+    expect(f.calls).toEqual([{ cmd: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', page] }]);
+    // 鍵は argv に載らず、ファイルの中にだけある。
+    expect(JSON.stringify(f.calls)).not.toContain(token);
+    expect(fs.readFileSync(page, 'utf8')).toBe(redirectPage(url));
+  });
+
+  it('Linux は xdg-open で同じページを開く', () => {
+    const f = fakeSpawn();
+    openInBrowser(url, { spawnFn: f.fn, platform: 'linux', home });
+    expect(f.calls).toEqual([{ cmd: 'xdg-open', args: [path.join(home, 'open.html')] }]);
+  });
+
+  posixIt('転送のページは本人だけが読める', () => {
+    openInBrowser(url, { spawnFn: fakeSpawn().fn, platform: 'linux', home });
+    expectMode(path.join(home, 'open.html'), 0o600);
+  });
+
+  it('開く道具が無くても、CLI を落とさない', async () => {
+    const f = fakeSpawn({ fail: true });
+    expect(() => openInBrowser(url, { spawnFn: f.fn, platform: 'win32', home })).not.toThrow();
+    // error を受け手なしで投げると、プロセスごと落ちる。受け手があれば、ここまで進む。
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it('転送のページは、URL を HTML の属性と文字列から抜けられない形で埋める', () => {
+    const page = redirectPage('http://127.0.0.1:4177/?t="<>&\'');
+    expect(page).not.toContain('"<>');
+    expect(page).toContain('&quot;&lt;&gt;&amp;');
+    expect(page).toContain('location.replace(');
   });
 });

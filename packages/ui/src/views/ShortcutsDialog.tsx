@@ -1,5 +1,5 @@
 import { useEmit } from '../action/chain.tsx';
-import { GROUP_KEY, KEYMAP, type KeyGroup } from '../keys.ts';
+import { bindingLabel, GROUP_KEY, isMacClient, keyLabel, KEYMAP, type KeyGroup } from '../keys.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { useT } from './primitives/language.tsx';
 
@@ -12,6 +12,7 @@ const GROUPS: KeyGroup[] = ['global', 'session', 'list'];
 export function ShortcutsDialog() {
   const emit = useEmit();
   const t = useT();
+  const mac = isMacClient();
   return (
     <Dialog title={t('shortcuts.dialog.title')} className="dialog-wide" onClose={() => emit({ type: 'overlay.close' })}>
       {GROUPS.map((g) => (
@@ -19,14 +20,15 @@ export function ShortcutsDialog() {
           <div className="faint">{t(GROUP_KEY[g])}</div>
           {KEYMAP.filter((b) => b.group === g).map((b) => (
             <div key={b.id} className="keys-row">
-              <span className="mono">{b.keys}</span>
-              <span>{t(b.labelKey)}</span>
+              <span className="mono">{keyLabel(b.keys, mac)}</span>
+              <span>{bindingLabel(t, b, mac)}</span>
             </div>
           ))}
         </div>
       ))}
       {/* ターミナルは打鍵の持ち主が違うので、一覧の下に一言添える。 */}
-      <div className="faint">{t('shortcuts.dialog.terminalNote')}</div>
+      {/* macOS の外には ⌘ が無く、Ctrl の打鍵はターミナルのものなので、ターミナルの中ではこの画面の操作が効かない（Root.tsx）。 */}
+      <div className="faint">{t(mac ? 'shortcuts.dialog.terminalNote' : 'shortcuts.dialog.terminalNoteCtrl')}</div>
     </Dialog>
   );
 }

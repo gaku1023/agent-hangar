@@ -10,6 +10,7 @@ import { pick } from '../test/pick.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 import { NO_ASSIST, PromptAssistContext } from './primitives/promptAssist.ts';
+import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
 const projects: NewSessionProps['projects'] = [
   { id: 'p1', name: 'alpha', path: '/w/alpha', status: 'active', lastActivity: '2 分前' },
@@ -263,6 +264,14 @@ describe('NewSessionDialog（N2）', () => {
       const cap = button.querySelector('.kc')!;
       expect(cap).toHaveTextContent('⌘↵');
       expect(cap).toHaveAttribute('aria-hidden', 'true');
+    });
+    it('Windows では、キー帽と一言と読み上げの打鍵を Ctrl で見せる', () => {
+      setClientUserAgent(WINDOWS_UA);
+      render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} /></ActionRoot>);
+      const button = screen.getByRole('button', { name: '起動' });
+      expect(button).toHaveAttribute('aria-keyshortcuts', 'Control+Enter');
+      expect(button.querySelector('.kc')).toHaveTextContent('Ctrl+Enter');
+      expect(screen.getByText('そのまま Ctrl+Enter でクイックセッションを開始')).toBeInTheDocument();
     });
     it('クイックセッションのままのときだけ、下端に「そのまま ⌘↵ で」の一言を出す', () => {
       render(<ActionRoot onAction={() => {}}><NewSessionDialog {...base} /></ActionRoot>);
@@ -705,6 +714,18 @@ describe('NewSessionDialog から作って始める', () => {
     collect({ desktop: false });
     openList();
     expect(screen.queryByRole('option', { name: 'ほかの場所を選択…' })).toBeNull();
+  });
+  it('「ほかの場所を選択…」に添える選び手の名前は、macOS は Finder、Windows はエクスプローラー', () => {
+    const { view } = collect();
+    openList();
+    expect(screen.getByRole('option', { name: 'ほかの場所を選択…' })).toHaveTextContent('Finder');
+    view.unmount();
+    setClientUserAgent(WINDOWS_UA);
+    collect();
+    openList();
+    const option = screen.getByRole('option', { name: 'ほかの場所を選択…' });
+    expect(option).toHaveTextContent('エクスプローラー');
+    expect(option).not.toHaveTextContent('Finder');
   });
   it('Finder で選んだプロジェクトの親フォルダの外のフォルダは、外である旨を添えて登録して始める', () => {
     const { out, view } = collect();

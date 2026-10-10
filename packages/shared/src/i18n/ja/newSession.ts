@@ -19,6 +19,8 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.project.newFolderNamed': '「{name}」を新しいフォルダとして作る',
   'newSession.project.newFolder': '新しいフォルダを作る…',
   'newSession.project.other': 'ほかの場所を選択…',
+  'newSession.project.otherPickerMac': 'Finder',
+  'newSession.project.otherPickerWindows': 'エクスプローラー',
   'newSession.project.newFolderChip': '新しいフォルダ',
   'newSession.project.newFolderPath': '{path}（新しく作る）',
   'newSession.note.quick': 'プロジェクトを選ばないと、クイックセッション（日時の名前のディレクトリ）で始まります。あとでプロジェクトに昇格できます。',
@@ -39,6 +41,6 @@ export const newSessionJa: AreaDictionary<typeof newSessionKeys> = {
   'newSession.button.startBypass': 'Bypass permissions で起動',
   'newSession.button.starting': '起動しています',
   'newSession.button.uploading': '添付を送っています',
-  'newSession.hint.quick': 'そのまま ⌘↵ でクイックセッションを開始',
+  'newSession.hint.quick': 'そのまま {keys} でクイックセッションを開始',
   'newSession.note.trust': '新しいディレクトリでは Claude が信頼確認のダイアログを出します。起動したあとにターミナルで答えてください。',
 };

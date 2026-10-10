@@ -18,6 +18,8 @@ export const newSessionKeys = {
   'newSession.project.newFolderNamed': ['name'],
   'newSession.project.newFolder': [],
   'newSession.project.other': [],
+  'newSession.project.otherPickerMac': [],
+  'newSession.project.otherPickerWindows': [],
   'newSession.project.newFolderChip': [],
   'newSession.project.newFolderPath': ['path'],
   'newSession.note.quick': [],
@@ -38,6 +40,6 @@ export const newSessionKeys = {
   'newSession.button.startBypass': [],
   'newSession.button.starting': [],
   'newSession.button.uploading': [],
-  'newSession.hint.quick': [],
+  'newSession.hint.quick': ['keys'],
   'newSession.note.trust': [],
 } as const satisfies MessageSpec;
