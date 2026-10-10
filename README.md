@@ -383,16 +383,58 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
 
 ## Windows で動かす（開発中）
 
-Windows 11（x64）では、サーバと UI をソースから動かせます。
-デスクトップのアプリはまだありません。
+対象は Windows 11（x64）だけです。
+インストーラはまだ公開していません。
+CI が動作確認のために作る NSIS のインストーラ（署名なし）はありますが、通知とターミナルで打った `claude` の包みがそろうまで、配布はしません。
+公開するときも署名はしないので、SmartScreen が「Windows によって PC が保護されました」と出します。
+そのときは「詳細情報」を押して「実行」を選びます。
+
+### psmux を入れる
+
+hangar は tmux の代わりに [psmux](https://github.com/psmux/psmux) を使います。
+先に入れておく必要があります。
+
+```powershell
+winget install -e --id marlocarlo.psmux
+```
+
+入れたら、新しい PowerShell を開き直して確かめます（winget が張るリンクは、開き直した端末から PATH に載ります）。
+
+```powershell
+psmux -V
+```
+
+`psmux`、`pmux`、`tmux` の 3 つの名前で入ります。hangar は `psmux` を先に探します。
+
+winget の id は `marlocarlo.psmux` です。
+リポジトリは `psmux/psmux` に移りましたが、winget の id は移っていません（2026-10-10 に winget-pkgs の `manifests/m/marlocarlo/psmux` で 3.3.8 を確かめました。`psmux/psmux` という id はありません）。
+手元で確かめるときは `winget search psmux` を使います。
+id が変わっていたら、そこに出る id を `winget install -e --id <id>` に渡してください。
+winget を使えない PC では、[リリースのページ](https://github.com/psmux/psmux/releases)の `psmux-v<版>-windows-x64.zip` を展開し、中の `psmux.exe` の置き場所を PATH に加えます。
+
+### ソースから動かす
 
 1. Node 22、Git for Windows、Claude Code を入れます。
-2. tmux の代わりに psmux を入れます：`winget install marlocarlo.psmux`
+2. 上の手順で psmux を入れます。
 3. `npm ci --ignore-scripts` のあと `npm run dev` で起こし、ブラウザで `http://127.0.0.1:5173/` を開きます。
    `--ignore-scripts` を付けないと、`better-sqlite3` が C++ のビルドを始めて、ビルドの道具が無い PC では失敗します。ネイティブモジュールは同梱の prebuild で動きます。
 
 止めるときは Ctrl+C です。
 まだ無いものは、通知、ターミナルで打った `claude` を hangar に載せる包み、外のターミナルへの受け渡し、statusline、`hangar open` です。
+
+### インストーラを作る
+
+Rust と Node 22 が要ります。
+
+```powershell
+npm ci --ignore-scripts
+npm run build
+npm run tauri -w apps/desktop -- build --bundles nsis
+```
+
+`apps/desktop/src-tauri/target/release/bundle/nsis/` に `Hangar_<版>_x64-setup.exe` ができます。
+管理者権限は要らず、`%LOCALAPPDATA%\Hangar` に入ります。
+`bin\hangar.cmd` が同梱の `hangar` コマンドです。Node は同梱していないので、`HANGAR_NODE`、`~\.agent-hangar\settings.json` の `nodePath`、公式のインストーラの入れ先、nvm-windows、PATH の順に、同梱の `manifest.json` と同じメジャー版の Node を探します。
 
 ## 開発
 
@@ -409,7 +451,7 @@ npm run build                         # UI を作る
 cd apps/desktop && npx tauri build    # server-dist を作り、.app を src-tauri/target/release/bundle/macos に出す
 ```
 
-`.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild、`bin/hangar`、Worker を 1 本に束ねた `cloud/worker.mjs` とその束縛の定義 `cloud/metadata.json`、`manifest.json` です。
+`.app` に入るのは、esbuild でまとめた `server.mjs` と `cli.mjs`、UI、`better-sqlite3` と `node-pty` の darwin-arm64 の prebuild（Windows の束は win32-x64 の prebuild で、`.pdb` は入れません）、`bin/hangar`、Worker を 1 本に束ねた `cloud/worker.mjs` とその束縛の定義 `cloud/metadata.json`、`manifest.json` です。
 `cloud/` は、後の版でアプリから Cloudflare へ Worker を上げるための下地で、いまはどこからも読んでいません。
 UI の sourcemap は入れません。
 UI の写しの 68 パーセント（実測 2.19MB）が `.map` で、利用者の役に立たないためです。
