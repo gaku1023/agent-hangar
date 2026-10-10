@@ -145,7 +145,7 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.action.reason.noTranscript': '本文がありません',
   'session.action.reason.starting': '起動しています',
   'session.action.resume': '再開',
-  'session.action.resumeQuickNote': '再開しても作業ディレクトリはスクラッチのままです',
+  'session.action.resumeQuickNote': '再開しても作業ディレクトリはクイックセッションの置き場のままです',
   'session.action.fork': 'フォーク',
   'session.action.forkNote': 'この会話から枝分かれした新しいセッション',
   'session.action.regenerate': '要約を作り直す',

@@ -6,6 +6,7 @@ import { liveFilterOfSession, runningSessionIds, type Store } from '../store/sto
 import { absoluteTime } from './format.ts';
 import { markTerms } from './highlight.ts';
 import { translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import { pageSlice, pagerOf, type PagerProps } from './pager.ts';
 import { matchesStatus, presentSessionRow, sortForList, type SessionRowProps } from './row.ts';
 import type { ListItem } from './listItem.ts';
@@ -50,7 +51,7 @@ function conditionsOf(t: Translate, text: string, f: SearchFilter, store: Store)
   if (f.live) out.push(liveWord(t, f.live));
   if (f.days) out.push(periodWord(t, f.days));
   if (f.until !== undefined) out.push(t('list.cond.until', { date: absoluteTime(t, f.until).slice(0, 10) }));
-  if (f.projectId) out.push(store.projects[f.projectId]?.name ?? t('list.cond.missingProject'));
+  if (f.projectId) out.push(store.projects[f.projectId] ? projectDisplayName(store.projects[f.projectId]!, t) : t('list.cond.missingProject'));
   if (f.file) out.push(f.file);
   return out;
 }
@@ -90,7 +91,7 @@ function hintOf(t: Translate, token: string): string {
  */
 export function presentSessionList(state: State, store: Store, now: number, inProject?: string): SessionListProps {
   const t = translatorOf(store);
-  const projects = Object.values(store.projects).map((p) => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name));
+  const projects = Object.values(store.projects).map((p) => ({ id: p.id, name: projectDisplayName(p, t) })).sort((a, b) => a.name.localeCompare(b.name));
   const f = state.search.filter;
   const conditions = conditionsOf(t, state.search.text, f, store);
   // 並びの元は row.ts の sortForList（生きているものを先に、残りは新しい順）。タブの件数もこの全件から数える。

@@ -140,7 +140,7 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
     const p = presentHomeScreen(initialState(), busy(READY), NOW);
     expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending', 'readiness']);
     expect(p.band.groups.at(-1)).toMatchObject({ countText: '6 つ中 3 つ', count: 3 });
-    expect(p.note).toBe('要修正 3。tmux と claude があるので始められます');
+    expect(p.note).toBe('もう始められます。設定の残りは 3 件です');
     expect(p.idle).toBe(false);
     // 朝は要対応が開いたまま。
     expect(p.band.morning).toBe('attention');
@@ -165,7 +165,7 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
     const en = { ...empty(READY), settings: { language: 'en' } as SettingsDto };
     const p = presentHomeScreen(initialState(), en, NOW);
     expect(p.band.groups[0]).toMatchObject({ label: 'Setup check', countText: '3 of 6' });
-    expect(p.note).toBe('To fix 3. tmux and claude are ready, so you can start');
+    expect(p.note).toBe('You can start now. 3 items left to set up');
   });
 });
 

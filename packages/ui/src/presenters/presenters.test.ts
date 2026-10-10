@@ -712,7 +712,7 @@ describe('presentSession（見出しの操作、A1）', () => {
     expect(ids(a)).toEqual(['fork', 'openEditor', 'regenerate', 'promote']);
     expect(a.menu[2]!.note).toBe('作成しています');
     // スクラッチで始めたセッションの再開は、作業ディレクトリがスクラッチのままであることを添える。
-    expect(a.primary.note).toBe('再開しても作業ディレクトリはスクラッチのままです');
+    expect(a.primary.note).toBe('再開しても作業ディレクトリはクイックセッションの置き場のままです');
     expect(sessionActions({ ...facts, summaryPending: false, summaryError: 'x' }, ja).menu[2]!.note).toBe('前回は作成できませんでした');
     expect(ids(sessionActions({ ...facts, gone: { note: '', canExtend: false, extendTo: 365 } }, ja))).not.toContain('regenerate');
   });

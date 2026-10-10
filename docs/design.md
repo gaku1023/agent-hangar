@@ -1240,7 +1240,7 @@ Paused の戻る時点は、日付（`return_on`、YYYY-MM-DD）と、任意の�
 ### スクラッチと昇格
 
 リポジトリ名を決める前に使い捨てのセッションを回したい、という用途のために **スクラッチ** を用意する。
-「スクラッチで始める」は `~/.agent-hangar/scratch/<yyyymmdd-HHmmss>/` を作り、そこを cwd にセッションを起動する。
+「クイックセッションを開始」は `~/.agent-hangar/scratch/<yyyymmdd-HHmmss>/` を作り、そこを cwd にセッションを起動する。
 起動ダイアログのプロジェクトの一覧は、先頭の「クイックスタート」の群にクイックセッション（スクラッチ）の行を置く。何も選ばなければ、この行を選んだことになる。
 ⌘⇧N、パレット、スクラッチのプロジェクト画面は、この行を選んだ状態でダイアログを開く。
 スクラッチの詳細の前回値は、どのスクラッチのディレクトリでも共通の 1 枠に持つ。
@@ -2068,7 +2068,7 @@ Home とプロジェクト詳細では、一覧が窓の下端までの残りの
 入力待ちの見出しには群の全件の数を添える。
 動いていないセッションの点は描かず、場所だけを残す（一覧の行も同じ）。終わった行がどれも同じ灰色の点になると、作業中と入力待ちの色を拾いにくくなるからである。
 セッションの行は状態の点、名前、プロジェクト名を並べ、右端に待った長さ（「4 分待っている」）、終わったものは最後の活動の時期を添える。
-操作は新しいセッション、スクラッチで始める、次の入力待ちへ（移る先の名前を添える）、新しいプロジェクト、キーの一覧で、打鍵のあるものはキー帽を添える。
+操作は新しいセッション、クイックセッションを開始、次の入力待ちへ（移る先の名前を添える）、新しいプロジェクト、キーの一覧で、打鍵のあるものはキー帽を添える。
 新しいセッションは ⌘N と同じく、いまの画面のプロジェクトを最初から選ぶ。
 設定は一般、クラウド同期、連携、トランスクリプトの保持の 4 行で、行には「設定」と添える。押すとその節へ移る（保持は一般の節の中にあるので、一般へ移る）。
 打ち始めたら、入力待ちと実行中（作業中とアイドル）の名前、終わったセッションのうち新しいほうの 20 件の名前、操作、設定の節に当て、群は分けたまま、群ごとに 8 件で切る。
@@ -2158,7 +2158,9 @@ UI は起動のたびに `GET /api/readiness` を取る。
 tmux、claude、node の版は子プロセスで読むが、同じファイルなら覚えた版を返すので、起こすのは起動後の最初の 1 回だけである。
 手元の実測では、その最初の 1 回が 20 ms 以下、2 回目からは 1 ms 未満だった。
 画面は取れるのを待たずに描き、取れたら帯に群を足す。
-錠剤は「セットアップの確認 6 つ中 3 つ」の形で、済んだ割合の細い棒を添え、帯の右端に「要修正 3。tmux と claude があるので始められます」を出す（tmux か claude が欠けているときは「tmux と claude があれば始められます」）。
+錠剤は「セットアップの確認 6 つ中 3 つ」の形で、済んだ割合の細い棒を添え、帯の右端に「もう始められます。設定の残りは 3 件です」を出す（tmux か claude が欠けているときは「始めるには tmux と claude が必要です。設定の残りは 3 件です」）。
+錠剤の要約は「設定の残り 3 件」である。
+英語では「You can start now. 3 items left to set up」「You need tmux and claude to start. 3 items left to set up」「3 items left to set up」で、1 件のときは「1 item」と単数にする。
 分母は任意の行も含めて数える（`compat` の無い古いサーバの答えでは互換の行が無く 5 になる）。
 行は、tmux、claude、プロジェクトの親フォルダ、MCP サーバー、ステータスライン、Claude Code との互換性の 6 つである。
 判定は設定画面の欄の下の検証と同じもの（`toolLine`、`workspaceLine`、`compatState`）を使う。
@@ -3910,14 +3912,15 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - TODO の並び：`position` は追加のたびにそのプロジェクトの最大値に 1 を足す。並び替えの操作は持たず、完了した項目も同じ並びに打消し線を引いて残す。削除は論理削除。`todos.session_id` はセッション別 MCP URL の `update_project` から足したときだけ入る。
 - TODO の完了の候補：`todos` に `candidate_at`、`candidate_session_id`、`candidate_note`、`rejected_sessions`（却下したセッション ID の JSON 配列、既定は `'[]'`）の 4 列を足した（マイグレーション version 10）。`candidate_at` が null でなければ候補で、候補は必ず未完である。MCP からは完了にできず、完了にするのは `POST /api/todos/:id/confirm` と、利用者のチェック操作である `PATCH /api/todos/:id` の `done` だけである。却下したセッションの ID は `rejected_sessions` に積み、そのセッションからは同じ TODO の候補を出し直せない（別のセッションなら出せる）。セッション別でない URL から出した候補は、却下してもセッション ID が無いので積まれず、出し直せる。`setTodoDone` は完了にも未完にも戻すときにも候補の列を消し、`rejected_sessions` は完了を開き直しても消さない。同期は行を JSON の payload のまま運ぶので D1 にマイグレーションは要らず、列を持たない古い端末は適用のときに自分の表に無い列を捨てる。`done = 1` かつ `candidate_at` 非 null の行が届いたときは、読むときに完了として扱い、候補は無いものとする。
 - メモの正：`project_memos.markdown` とファイル `~/.agent-hangar/projects/<projectId>/memo.md` の両方に書く。読むときはファイルの mtime が DB の `updated_at` より新しく中身が違えばファイルを正として DB を直す。`~/.agent-hangar/projects/` を `fs.watch`（再帰）で見て、300 ミリ秒のデバウンスで取り込む。取り込みは `project_memos` の行を書くので、`memo.update` と `project.upsert` は配る層が配る（「行の変化の知らせと配る層」）。`memoHead` は空行でない最初の行の先頭 80 字で、全文は `GET /api/projects/:id/memo` で読む。DB を正として書き戻すときは、ファイルの中身が DB と違うときだけ、消える本文を `memo.md.bak-<yyyymmddHHMMSS>` として同じディレクトリに残してから書き戻す。同じ秒に 2 度来たら連番を足し、既にある控えは上書きしない。控えは古くなっても消さない。控えを残せなかったときは書き戻さず、ファイルの方を残す。
-- スクラッチの擬似プロジェクト：端末ごとに 1 つで、名前は「スクラッチ」、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面の表と、新しいセッションのダイアログのプロジェクトの選びにはこの行を出さず、ホームの絞り込みのプロジェクトの選びには出す。
+- スクラッチの擬似プロジェクト：端末ごとに 1 つで、DB の名前は「スクラッチ」（同期で端末をまたぐ値なので、これは変えない）、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面の表と、新しいセッションのダイアログのプロジェクトの選びにはこの行を出さず、ホームの絞り込みのプロジェクトの選びには出す。
+- 擬似プロジェクトの表示名：画面に出す名前は DB の名前ではなく辞書の `project.name.quick`（日本語「クイックセッション」、英語「Quick sessions」）で、いまの言語で出す。`projectDisplayName`（`presenters/projectName.ts`）を通し、一覧の行、絞り込みの選択肢と条件、欄の `project:` の語、プロジェクト画面の見出し、セッション画面の親のリンク、ホームの札、パレットの副題、設定の使用量の表がそろって同じ名前になる。
 - スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。
 - 昇格：`POST /api/sessions/:id/promote { name, gitInit, moveFiles }`。`name` は `/` を含まない 1 字以上で、`<workspaceRoot>/<name>` が既にあれば 409。移動は先に全件の衝突を調べてから `fs.renameSync` で行い、途中で失敗したら逆順に戻す。`moveFiles` が真でも run が生きていれば移動せず、`moved: false` と理由を返す。
 - プロジェクトの作成：`POST /api/projects` は本文を 2 つの形で受ける。`{ kind: 'newDir', name, gitInit }` は `<workspaceRoot>/<name>` を作り（`git init` は選ばれたときだけ）、プロジェクト行とこの端末の `project_roots` を作って 201 を返す。名前の検証、既にあれば 409、`git init` に失敗したら作ったものを片付けることは、昇格と同じ `createProjectDir` を通る。`{ kind: 'dir', path, name? }` は既存のディレクトリを登録し（`registerProjectDir`）、新しければ 201、登録済みなら 200 で既存を返す。名前を省くと basename になり、アーカイブされたプロジェクトなら Active に戻す。先頭の `~/` はホームに直し、相対パスと、ワークスペースのルートやその上のフォルダ（`/` を含む）は 400 で断る。ルートを登録すると最も長い一致でワークスペースの下のセッションをすべて取り込み、直下のフォルダの自動の登録も止まるためである（Finder で何も選ばずに「開く」を押すとルートが返る）。`kind` の無い本文は 400 で断る。
 - 未登録のフォルダの一覧：`GET /api/workspace/dirs` は、ワークスペース直下の隠しでなく、この端末で登録済みのルートに当たらないディレクトリを、名前順に `{ name, path }[]` で返す。比較は `normalizeDir`（NFC）でそろえる。一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
 - その場の登録：サーバの `sessionChanged` で、未分類のセッションを紐づけられなかったとき、cwd がワークスペース直下のディレクトリ（またはその下）で、実在し、隠しでなく、まだ登録されていなければ、起動時の `syncProjectsFromWorkspace` と同じ規則でプロジェクトにし（`registry.ts` の `registerWorkspaceChildOf`）、紐づけ直して `project.upsert` と `session.upsert` を配る。同じセッションで何度も試さない。起動の途中は行わない（起動時の全走査は `syncProjectsFromWorkspace` が受け持つ）。当たらなかった cwd だけが、これまでどおりトーストで知らされる。
 - フォルダ選択の殻の命令：`pick_folder(default_path)` は `blocking_pick_folder` で macOS のフォルダ選択を開き、選んだパスか、取り消しなら null を返す。頁に与える権限は `allow-pick-folder` の 1 つだけで（`capabilities/remote-pick-folder.json`）、プラグインの JS の権限は与えない。UI の `DesktopBridge.pickFolder` は殻の外では口が無く、Finder の操作を出さない。
-- `SessionDto.fromScratch`：cwd がスクラッチのルートの下で、属するプロジェクトがスクラッチでないときに真にする。セッション画面は真のとき「再開すると cwd はスクラッチのままです」を添える。
+- `SessionDto.fromScratch`：cwd がスクラッチのルートの下で、属するプロジェクトがスクラッチでないときに真にする。セッション画面は真のとき「再開しても作業ディレクトリはクイックセッションの置き場のままです」を添える。
 - 分割の持ち方：`SessionViewState` に `split: boolean` と `splitTab: string | null` を持つ。左は選択中のタブ、右は `splitTab` で、幅は `SplitPane` の中の状態にして保存しない（0.5 に戻る）。分割の右に置いたタブが閉じたら `splitTab` を null にし、`split` も偽に戻す。
 - 分割にタブが 2 つ要ることの判定は、Mediator がストアのタブの並びを読んで行う。右に置けるタブがあれば状態を変え、無ければトースト「横に並べるにはタブが 2 つ必要です」を出す。
 - パレットの項目の ID：セッション（`session:<id>`）、移動（`go:home`、`go:projects`）、設定の節（`settings:<節>`。節は `general`、`cloud`、`integrations`、`summary`、`tools`、`info`、保持は `retention` で一般の節へ移る）、コマンド（`cmd:next-waiting`、`cmd:sidebar`、`cmd:shortcuts`、`cmd:new-session`、`cmd:new-project`、`cmd:new-scratch`、`cmd:rebuild-index`）、ホームへ渡す行（`search:<語>`）。新しいセッションは、Mediator がストアを見ないので、presenter が最初に選ぶものを ID の後ろに載せる（`cmd:new-session:project:<id>` か `cmd:new-session:scratch`）。照合は部分列一致で、一致位置が前で連続しているほど高い点を付け、群の中は点の高い順（同点は最後の活動の新しい順）に並べる。群の分け方と上限は「骨格」の節に書いた。入力欄の文字は Root の `useState` が持ち、Mediator には入れない。

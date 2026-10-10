@@ -7,6 +7,7 @@ import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import { presentReadiness } from './readiness.ts';
 import { presentUnresolved } from './unresolved.ts';
 import { candidateLabel, dueOn, returnKey, returnOnLabel, sortSessions } from './row.ts';
@@ -68,7 +69,7 @@ function stripLeadingTool(tool: string, summary: string): string {
 export function returningCards(store: Store, now: number, alive: Set<string> = runningSessionIds(store)): ReturnCard[] {
   const tr = translatorOf(store);
   const name = (s: SessionDto) => s.name ?? tr('common.label.noName');
-  const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
+  const projectName = (s: SessionDto) => (s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, tr) : null);
   // 今日戻る（C1）。戻る日の古い順で、欠けた日と壊れた日を先頭に、同じ日の中は新しい順にする。
   // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
   const today = localDate(now);
@@ -88,7 +89,7 @@ export function returningCards(store: Store, now: number, alive: Set<string> = r
 export function presentHome(_state: State, store: Store, now: number): HomeCards {
   const sessions = Object.values(store.sessions);
   const t = translatorOf(store);
-  const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? null : null);
+  const projectName = (s: SessionDto) => (s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : null);
   const name = (s: SessionDto) => s.name ?? t('common.label.noName');
   // Claude のレジストリに載る前の run も実行中に数える。
   // 信頼確認のダイアログ待ちの run が Home のどこにも出ないと、セッション画面への戻り道がなくなる。
@@ -107,7 +108,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     .filter((x): x is { todo: typeof x.todo; c: NonNullable<typeof x.c> } => x.c !== null);
   const proposed = sessions.filter((s) => !!s.state?.candidate);
   const confirm = [
-    ...candidates.map(({ todo, c }): { at: number; card: ConfirmCard } => ({ at: todo.candidate!.at, card: { kind: 'todo', id: todo.id, text: todo.text, projectId: todo.projectId, projectName: store.projects[todo.projectId]?.name ?? t('common.label.uncategorized'), sessionName: c.sessionName, ago: c.ago, note: c.note } })),
+    ...candidates.map(({ todo, c }): { at: number; card: ConfirmCard } => ({ at: todo.candidate!.at, card: { kind: 'todo', id: todo.id, text: todo.text, projectId: todo.projectId, projectName: store.projects[todo.projectId] ? projectDisplayName(store.projects[todo.projectId]!, t) : t('common.label.uncategorized'), sessionName: c.sessionName, ago: c.ago, note: c.note } })),
     ...proposed.map((s): { at: number; card: ConfirmCard } => {
       const c = s.state!.candidate!;
       // 札の文言は行の提案の札（第 1 段の candidateLabel）と同じにする。

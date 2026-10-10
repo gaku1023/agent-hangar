@@ -198,7 +198,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     expect(chip).toHaveAttribute('aria-expanded', 'true');
     expect(chip.closest('.count-chip')).toHaveAttribute('data-tone', 'warn');
     expect(container.querySelector('.band-prog > span')).toHaveStyle({ width: '50%' });
-    expect(container.querySelector('.band-text')).toHaveTextContent('要修正 3。tmux と claude があるので始められます');
+    expect(container.querySelector('.band-text')).toHaveTextContent('もう始められます。設定の残りは 3 件です');
   });
 
   it('直すものだけを 1 行ずつ出す。任意の行には「任意」の札があり、右端のボタンは 1 つ', () => {

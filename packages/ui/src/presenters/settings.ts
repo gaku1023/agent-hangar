@@ -3,6 +3,7 @@ import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
 import { storeLanguage, translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 import { presentAccounts, type AccountView } from './accounts.ts';
 import { presentCloudUsage, type CloudUsageProps } from './cloudUsage.ts';
@@ -229,7 +230,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     tmuxPath: s?.tmuxPath ?? null, terminalApp: s?.terminalApp ?? 'terminal', codePath: s?.codePath ?? null,
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
-    statusline: store.statusline, usageAggregate: store.usageAggregate,
+    statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },
     nodePath: s?.nodePath ?? '',
     claudePath: s?.claudePath ?? null,
     retention: retentionSettings(store),

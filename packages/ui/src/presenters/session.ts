@@ -11,6 +11,7 @@ import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 import { presentTool, relPath, type ToolView } from './tools.ts';
 import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import { permissionLabel } from '../views/primitives/permissionModel.ts';
 import { bandsOf, presentNowStrip, resultsOf, type NowStripProps } from './live.ts';
 import { buildTurns } from './turns.ts';
@@ -492,7 +493,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const props: SessionProps = {
     ...base, account, name: s.name ?? t('common.label.noName'), live: s.live, aside: asideOf(s.live, s.liveAside) !== null,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
-    parent: project ? { label: project.name, route: { name: 'project', id: project.id } } : null,
+    parent: project ? { label: projectDisplayName(project, t), route: { name: 'project', id: project.id } } : null,
     oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: slice ? slice.total > slice.items.length && !slice.olderDone : false, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
     strip, lead, badges: presentSessionBadges(s, now, t), details: presentDetails(s, run, account, t),

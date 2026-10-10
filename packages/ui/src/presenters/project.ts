@@ -5,6 +5,7 @@ import { artifactsOf, todosOf, type Store } from '../store/store.ts';
 import { relativeTime } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
 
 /** 候補の TODO の表示。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
@@ -59,7 +60,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const todos = todosOf(store, id).map((x) => ({ id: x.id, text: x.text, done: x.done, candidate: presentTodoCandidate(x, store, now) }));
   const memo = store.memos[id]?.markdown ?? '';
   return {
-    id, name: p.name, parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, notFound: false, isScratch: p.isScratch,
+    id, name: projectDisplayName(p, translatorOf(store)), parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, notFound: false, isScratch: p.isScratch,
     list,
     loadMore: list.mode === 'search' && remaining > 0 ? { remaining, step: SEARCH_STEP, loading: list.loading } : null,
     // セッションの数は、Archived も含めた全部（タブの「すべて」は Archived を除く）。
