@@ -4,12 +4,14 @@ import type { LaunchInput } from '../types.ts';
  * claude の引数列を組み立てる。
  * --mcp-config と --add-dir は可変長オプションで直後の位置引数を飲み込むので先頭に置き、
  * 初期プロンプトは必ず末尾に置く。
+ * hook の設定（--settings、値は 1 つ）は --mcp-config の直後に置く。
  *
  * --mcp-config には JSON の文字列ではなくファイルのパスを渡す。
  * トークンを argv に載せると ps から読めるためである（mcpConfig.ts を見よ）。
  */
 export function buildClaudeArgs(input: LaunchInput): string[] {
   const a: string[] = ['--mcp-config', input.mcpConfigPath];
+  if (input.settingsPath) a.push('--settings', input.settingsPath);
   for (const d of input.addDirs ?? []) if (d) a.push('--add-dir', d);
   const m = input.mode;
   if (m.kind === 'start') a.push('--session-id', m.sessionUuid);

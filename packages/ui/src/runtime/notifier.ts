@@ -45,6 +45,7 @@ export type Notifier = {
   /**
    * 窓が背面にあるか。
    * 前にあるときは右下のカードで足りるので、通知を出さない。
+   * デスクトップでは頁では決めず、いつも true を返す。殻の notify_waiting が窓の実物の様子を見て決める。
    */
   background(): boolean;
   show(n: { sessionId: string; title: string; body: string }): void;
@@ -78,13 +79,15 @@ export type DesktopEnv = {
 };
 
 /**
- * macOS の通知（殻の notify_waiting）と Dock のバッジ（Tauri の set_badge_count）。
+ * macOS と Windows の通知（殻の notify_waiting）と Dock のバッジ（Tauri の set_badge_count）。
  * 許可は OS が持つ。
  * 尋ねる前も出せるとみなし、起動したときに notify_request で一度だけ尋ねておく（決まった後は OS が黙って答える）。
  * システム設定で切られているかは notify_status で読む。
  * 殻の命令が失敗したとき（権限で断られた、殻が答えない）と知らない答えのときは、まだ決まっていないとみなし、これまでどおり出せるものとして扱う。
  * 殻の失敗は画面に出さない。
  * 通知が出ないだけで、右下のカードとサイドバーの数は残るからである。
+ * 窓が前にあるかは、殻が窓の実物の様子（見えている、最小化していない、フォーカスがある）で決める。
+ * 頁の visibilityState と hasFocus は、WebView が最小化や背面で絞られている間は当てにならないためである（Windows の実機で、最小化の後に通知が呼ばれなかった）。
  */
 export function createDesktopNotifier(env: DesktopEnv): Notifier {
   const invoke = (cmd: string, args?: Record<string, unknown>) => env.__TAURI_INTERNALS__.invoke(cmd, args);
@@ -96,7 +99,7 @@ export function createDesktopNotifier(env: DesktopEnv): Notifier {
     request: ask,
     prepare: () => ask().then(() => {}),
     status: () => invoke('notify_status', undefined).then((r) => (typeof r === 'string' && PERMISSIONS.includes(r) ? (r as NotifyPermission) : 'undetermined'), () => 'undetermined' as const),
-    background: () => inBackground(env.document),
+    background: () => true,
     show: (n) => { invoke('notify_waiting', { sessionId: n.sessionId, title: n.title, body: n.body }).catch(() => {}); },
     badge: (count) => { invoke('plugin:window|set_badge_count', { value: count > 0 ? count : null }).catch(() => {}); },
     onOpen: (cb) => {
@@ -151,6 +154,24 @@ export function createBrowserNotifier(env: BrowserEnv): Notifier {
     },
     onOpen: (cb) => { open = cb; return () => { open = null; }; },
   };
+}
+
+/** Web Lock の口。無いブラウザがあるので省ける。 */
+export type LockEnv = { locks?: { request(name: string, cb: () => Promise<void>): Promise<unknown> } };
+
+/**
+ * 頁が凍らされないよう、解けない Web Lock を 1 つ握る。デスクトップの殻の頁で、起動のときに 1 度だけ呼ぶ。
+ * WebView2（Chromium）は、隠れた頁を凍らせたり捨てたりすることがあり、Tauri の backgroundThrottling も Windows では効かない。
+ * Chromium は Web Lock を握っている頁を凍らせない。凍らなければ、WebSocket で届いた入力待ちから通知を呼べる。
+ * 時計（timer）の絞りは変えないので、電池への響きは小さい。macOS は窓の設定（tauri.conf.json の backgroundThrottling）で止まらないようにしてある。
+ * 無いか断られたら何もしない。
+ */
+export function holdPageAwake(nav: LockEnv): void {
+  try {
+    nav.locks?.request('hangar-keep-page-awake', () => new Promise<void>(() => {})).catch(() => {});
+  } catch {
+    // Web Lock を使えない頁では、何もしない。
+  }
 }
 
 /** 殻の IPC があればデスクトップ、無ければブラウザの口を使う。 */
