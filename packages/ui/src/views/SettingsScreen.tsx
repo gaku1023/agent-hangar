@@ -17,6 +17,7 @@ import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
+import { UpdateSection } from './UpdateSection.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
@@ -25,7 +26,7 @@ import { Switch } from './primitives/Switch.tsx';
 export const SAVED_TICK_MS = 2000;
 
 /** 目次の各行のアイコン。 */
-const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', tools: 'tool', info: 'info' };
+const SECTION_ICON: Record<SettingsSection, IconName> = { general: 'general', cloud: 'cloud', integrations: 'link', summary: 'permissionAuto', tools: 'tool', update: 'download', info: 'info' };
 
 /** 欄の横に「✓ 保存しました」を 2 秒出す。n が進むたびに出し直す（設定の C1）。 */
 /** 外部ターミナルの選択肢の印。製品のアプリは窓の印、OS の素のターミナルはターミナルの印にする。 */
@@ -134,7 +135,7 @@ function JoinToken(props: { token: string; expiresAt: number | null }) {
 
 /**
  * 設定画面（S1）。
- * 左の目次で 6 つの節（一般、クラウド同期、連携、要約エンジン、ツール、情報）を切り替え、右は選んだ節だけを出す。
+ * 左の目次で 7 つの節（一般、クラウド同期、連携、要約エンジン、ツール、更新、情報）を切り替え、右は選んだ節だけを出す。
  * 目次の各行は、節の名前と今の状態の 1 行を持つ。
  * 開いている節は URL の `at` が決める（props.section）ので、戻ると進むで節も戻り、目次の灯りは URL に従う。
  * パスの欄は欄を出たら保存し、欄の横に「✓ 保存しました」、欄の下に検証の 1 行を出す（C1 と B1）。
@@ -493,7 +494,7 @@ export function SettingsScreen(props: SettingsProps) {
     </>
   );
 
-  const body: Record<SettingsSection, ReactNode> = { general, cloud, integrations, summary, tools, info };
+  const body: Record<SettingsSection, ReactNode> = { general, cloud, integrations, summary, tools, update: <UpdateSection update={props.update} />, info };
 
   return (
     <div ref={root} className="screen settings-screen">
@@ -515,6 +516,7 @@ export function SettingsScreen(props: SettingsProps) {
             <h2 className="settings-group-h" id={`settings-${props.section}-h`}>
               {cur.title}
               {props.section === 'cloud' && <span className="badge" data-tone={props.cloud.badge.tone}>{props.cloud.badge.text}</span>}
+              {props.section === 'update' && props.update.supported && props.update.badge && <span className="badge" data-tone={props.update.badge.tone}>{props.update.badge.text}</span>}
               {todo > 0 && <span className="badge" data-tone="warn"><Icon name="alert" />{t('settings.fix.count', { n: todo })}</span>}
             </h2>
             {body[props.section]}

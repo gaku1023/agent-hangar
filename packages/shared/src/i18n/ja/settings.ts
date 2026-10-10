@@ -51,6 +51,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.section.integrations': '連携',
   'settings.section.summary': '要約エンジン',
   'settings.section.tools': 'ツール',
+  'settings.section.update': '更新',
   'settings.section.info': '情報',
   'settings.common.saved': '保存しました',
   'settings.common.checking': '確認しています',

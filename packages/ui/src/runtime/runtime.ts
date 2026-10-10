@@ -22,6 +22,7 @@ import { ApiConflictError, RetentionConflictApiError, type ApiClient, type Event
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import type { Notifier } from './notifier.ts';
+import { createUpdateRunner } from './updater.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 
@@ -134,6 +135,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     deps.setTimeout(() => { if (gen !== returnTimerGen) return; returnTimerAt = null; syncReturns(); }, Math.min(next - now, RETURN_RECHECK_MAX_MS));
   }
   const notifier = deps.notifier;
+  /**
+   * アプリの自動更新（runtime/updater.ts）。殻の中でだけ作る。
+   * 段階は Store の update に置き、変わったら画面へ出す。
+   */
+  const updater = deps.desktop ? createUpdateRunner({
+    bridge: deps.desktop.update, storage: deps.storage, setTimeout: deps.setTimeout, now: () => clock(),
+    get: () => store.update, set: (u) => { if (u !== store.update) setStore({ ...store, update: u }); },
+  }) : null;
   let unsubNotify: (() => void) | null = null;
   let ws: WsClient | null = null;
   let searchSeq = 0;
@@ -525,6 +534,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         setStore(applyNotify(store, { ...store.notify, on: false }));
         return;
       case 'badge': notifier?.badge(e.count); return;
+      case 'update': updater?.run(e.command); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
@@ -744,6 +754,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         // 窓を前に出すのは notifier の役目である。
         unsubNotify = notifier.onOpen((id) => dispatch({ kind: 'action', action: { type: 'session.open', id, focus: 'terminal' } }));
       }
+      // 更新の確認（起動したときに 1 度、その後は数時間おき）。殻が updater を持たなければ何もしない。
+      updater?.start();
       ws = deps.ws({
         onOpen: () => dispatch({ kind: 'runtime', event: { type: 'ws.open' } }),
         // 切れた時刻を添える。Mediator は純粋な遷移なので、画面がいつから古いかを自分では測れない。

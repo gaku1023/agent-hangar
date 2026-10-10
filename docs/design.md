@@ -186,7 +186,7 @@ Root
 │     ├─ ProjectsScreen     節 × n → ProjectRow（行の表）
 │     ├─ ProjectScreen      見出し / SessionList / 右パネル（TodoList、EditableNote、ArtifactCards）
 │     ├─ SessionScreen      見出しの段（SessionBadges、(i) の詳細） / TabStrip / NowStrip（現在の帯）または LeadCard（冒頭の 1 枚） / TerminalPane または Transcript / TocPane（TurnIndex）
-│     └─ SettingsScreen     目次 / 選んだ節（一般、クラウド同期、連携、要約エンジン、ツール、情報）
+│     └─ SettingsScreen     目次 / 選んだ節（一般、クラウド同期、連携、要約エンジン、ツール、更新、情報）
 └─ Overlays
    ├─ CommandPalette
    ├─ NewSessionDialog / NewProjectDialog / PromoteDialog / ResolveProjectDialog / ConfigSyncDialog
@@ -1769,7 +1769,7 @@ N は UI の store に届いているセッションで数える。
 | プロジェクト | 1 行 1 プロジェクトの表 | 「Projects」 |
 | 1 つのプロジェクト | 左にホームと同じ部品のセッションの一覧、右に TODO、ノート、アーティファクト | 「プロジェクト詳細」 |
 | セッション画面 | 実行中は現在の帯とターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト。右は目次だけ | 「セッション詳細」 |
-| 設定 | 左の目次で 6 つの節を切り替える | 「Settings」 |
+| 設定 | 左の目次で 6 つ（殻の中は更新を加えた 7 つ）の節を切り替える | 「Settings」 |
 | 知らせ（画面の外） | 右下の札は入力待ちだけ。ほかはヘッダーのベルの一覧に入り、トーストは操作の結果だけを言う | 「入力待ちの知らせ」「ベルと知らせの出し分け」 |
 | 起動の失敗（画面の外） | サーバが起きないときは、殻の読み込みの頁が 1 枚の札で理由と次の手を言う | 「起動の失敗の札」 |
 | 始める前の確認（画面の外） | tmux、claude などがそろっていなければ、ホームの帯の最後の群として出る。そろえば消える | 「Home」 |
@@ -2637,11 +2637,13 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 
 ### Settings
 
-左の目次で 6 つの節を切り替え、右は選んだ節だけを出す（S1。試作は `docs/superpowers/specs/2026-10-09-settings-screen/options.html`、決めた構成は `docs/superpowers/specs/2026-10-09-stage4-screens-design.md` の 2.4）。
+左の目次で 6 つの節（殻の中は更新を加えた 7 つ）を切り替え、右は選んだ節だけを出す（S1。試作は `docs/superpowers/specs/2026-10-09-settings-screen/options.html`、決めた構成は `docs/superpowers/specs/2026-10-09-stage4-screens-design.md` の 2.4）。
 節は、一般（言語、通知、ターミナルアプリ、トランスクリプトの保持）、クラウド同期、連携（Claude Code との互換、MCP サーバー、ステータスライン、シェル連携、アカウント）、要約エンジン、ツール（プロジェクトの親フォルダと、tmux、claude、code、Node のパス）、情報（使用量、索引、この PC）である。
+殻の中では、ツールと情報のあいだに更新（版と最終確認、「更新を確認」、見つけた版の取得と再起動、知らせのスイッチ）が入る（「アプリの自動更新」の節）。
+ブラウザの目次には更新を出さない。
 一般の節の最初の行は言語（日本語、English）で、押した瞬間に保存する（保存のボタンは無い）。
 言語はこの PC の設定で、クラウドへは同期しない。
-開いている節は URL の `at` が持つ（`#/settings?at=cloud`。値は `general`、`cloud`、`integrations`、`summary`、`tools`、`info`）ので、戻ると進むで節も戻る。
+開いている節は URL の `at` が持つ（`#/settings?at=cloud`。値は `general`、`cloud`、`integrations`、`summary`、`tools`、`update`、`info`）ので、戻ると進むで節も戻る。
 `at` が無ければ一般を出す。`sync`（ヘッダーの同期の語）はクラウド同期、`accounts`（ヘッダーのアカウントの設定）は連携の別名で、`accounts` は節を開いたあとアカウントの位置まで滑る。
 目次の灯りは URL に従うので、節を移った直後に前の節が灯ったまま残ることは無い。
 節を切り替えたら、頁をスクロールする枠の先頭へ戻す。
@@ -2651,7 +2653,7 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 連携とツールは、準備の確かめが届くまで「確認中」と言う。
 読み上げの名前は「クラウド同期、同期オフ」の形で、節の名前と状態を含む。
 目次は上下の矢印、Home、End で行を移り、選ぶのは Enter と Space である。開いている行だけが Tab の道に入る。
-幅が 1000px 以下の窓では、目次は頁の上に 3 列 2 段で並べる（節を切り替える道は目次だけなので、消さない）。
+幅が 1000px 以下の窓では、目次は頁の上に 3 列 2 段（殻の中の 7 つは 4 列 2 段）で並べる（節を切り替える道は目次だけなので、消さない）。
 直すもの（無くても動くものを除く ✗）がある節（連携とツール）には、目次の状態と、右の節の見出しに「要修正 N」を出す。
 Claude Code との互換のずれは、利用者が直せるものではないので直すものに数えず、目次の状態も見出しの札も要修正にしない。
 「要修正」は、利用者が手を打てるものだけを指す言葉にしておく。
@@ -2831,9 +2833,10 @@ OS で切られているときの案内は、許可する場所の名前を OS �
 | 保持期間 | | | | | 入る（設定へ） |
 | 通知の誘い | | | | | 入る（「通知を受け取る」で受け取りを入れる） |
 | 他の PC から届いたプロジェクト | | 1 枚にまとめる（「プロジェクトで見る」「あとで決める」。「プロジェクトの同定」の節） | | | |
+| アプリの更新 | | 1 枚（新しい版、取得の進み、再起動の確認、失敗を同じ札の中で移す。「アプリの自動更新」の節） | | | |
 | 操作の結果 | | | 出す | | |
 
-- 右下に積むのは入力待ちと、他の PC から届いたプロジェクトの札 1 枚だけである。
+- 右下に積むのは入力待ちと、他の PC から届いたプロジェクトの札 1 枚と、アプリの更新の札 1 枚だけである。
   戻る時刻を過ぎた札、通知の誘い、ヘッダーの下の保持期間の帯は無くした。
   `shownOnScreen`（ホームと、そのセッション自身の画面では、その件を出さない）は右下の札とホームの帯だけに残す。
   ベルの一覧は画面に依らず同じ中身である。
@@ -2852,7 +2855,8 @@ OS で切られているときの案内は、許可する場所の名前を OS �
   行にすると「未分類のセッションがある」という消えない事実になり、プロジェクトに属さないクイックセッションを使う人のベルが、常に未読になる。
   2 つめは、未分類のセッションが一覧にそのまま出ていて、見失わないからである。
   ワークスペースの外で claude を使うのは普通の使い方で、毎回知らせる価値が薄い。
-- 設定の同期で送らなかった項目と更新の案内は、事実の出どころが無いので、まだ行を作らない。
+- 設定の同期で送らなかった項目は、ベルの行にした（`configUnsent`）。
+  アプリの更新は、ベルの行にせず、右下の札と設定の更新の節で知らせる（2026-10-10 の決定、試作の A2）。
 
 ### 外のターミナルのセッション
 
@@ -4060,7 +4064,20 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、静かに消すところまでを行う。
   CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。
   タグの `release.yml` では、windows ジョブが同じ手順で作って `Hangar-<タグ>-windows-x64-setup.exe` と `.sha256` を artifact に置き、`windows-upload` ジョブが macos ジョブの後でそれを macos ジョブの作った Release に `gh release upload` で添える。Release を作るのは macos ジョブだけで、書き込みの権限もこの 2 つのジョブだけが持つ。
-  updater の署名鍵と目録は、まだ入れていない。
+  署名鍵があれば、インストーラの署名（`.sig`）も作り、`updater-manifest` ジョブが更新の目録に載せる（次の「アプリの自動更新」）。
+- アプリの自動更新（段 5-4、2026-10-10 の決定）：更新は「知らせて、押して入れる」で、勝手には入れない。Tauri 2 の updater（`tauri-plugin-updater`）を macOS と Windows（NSIS）の両方で使う。
+  目録は GitHub の Release の最新の `latest.json`（`tauri.conf.json` の `plugins.updater.endpoints`）で、更新物は同じ所の minisign の公開鍵（`plugins.updater.pubkey`）で確かめる。macOS の更新物は `Hangar-<タグ>-macos-arm64.app.tar.gz`、Windows の更新物はインストーラそのもの（`Hangar-<タグ>-windows-x64-setup.exe`、`installMode` は passive）である。
+  頁は殻の 4 つの命令だけを呼ぶ（`capabilities/remote-update.json`）。`update_status` は動いている版と取得の進み、`update_check` は目録を引いて新しい版を返し、見つけた版を殻に持つ。`update_download` はそれを取得して署名を確かめて殻に持ち、`update_install` は入れて再起動する。プラグインの JS の権限は与えないので、頁から目録の URL や公開鍵は変えられない。
+  失敗は殻が network、signature、permission、other の 4 つに分けて返し（`src/updater.rs` の `failure_kind`）、英語の 1 行は `desktop.log` に残す。
+  再起動しても、tmux（Windows は psmux）の中のセッションは止まらない。macOS は `.app` を入れ替えてから終了の手続きを通って起き直し（子のサーバも止まる）、Windows は updater がインストーラを起こしてそのまま抜けるので、その直前（`on_before_exit`）に子のサーバを止める。
+  頁の側は、状態の移り方が `store/update.ts` の `reduceUpdate`（まだ確認していない、確認中、最新、新しい版あり、取得中、準備完了、インストール中、失敗）で、Runtime が `runtime/updater.ts` で殻を呼んで Store の `update` に置く。
+  確かめるのは起動したときに 1 度と、その後 6 時間おき（`UPDATE_CHECK_INTERVAL_MS`）である。取得からインストールまでの途中は確かめない。
+  右下の札（`presenters/update.ts` の `presentUpdateCard`、試作は案 A2）は、新しい版あり（「ダウンロードしてインストール」「あとで」）、取得中（進みの棒）、準備完了（「実行中のセッション N 件は止まりません。再起動のあと、続きから表示します。」に「再起動して更新」「あとで」）、失敗（いまの版は変わらないことと理由に「もう一度試す」「閉じる」）を同じ 1 枚の中で移す。
+  札を閉じた版は `localStorage` の `update.dismissed` に覚え、同じ版の札は 2 度出さない。次の版が出たら出す。閉じた版を設定から取得し直したら、その版の札をまた出す。確認の失敗は札にせず、設定の節にだけ出す。
+  設定の更新の節（試作の「共通」）は、版と最終確認の時刻と「更新を確認」、見つけた版の行（閉じた版も出す）、「更新を通知する」のスイッチ（`localStorage` の `update.notify`、既定は入）を置き、見出しに最新、確認中、通知オフ、新しいバージョンあり、ダウンロード中、再起動待ち、失敗の札を出す。スイッチを切ると自動の確認も止まり、新しい版の札は手動で確認したときだけ出す。
+  署名鍵（minisign）の秘密鍵は GitHub の secret の `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Tauri が読む環境変数と同じ名前）にだけ置き、1Password の「Hangar updater signing key (minisign)」に控えてある。リポジトリには公開鍵だけを置く。
+  更新物づくり（`createUpdaterArtifacts`）は `tauri.conf.json` に書かず、`release.yml` が鍵のあるときだけ `--config src-tauri/tauri.updater.conf.json` を重ねて入れる。手元と ci の build は鍵を持たないので、更新物を作らずに通る。
+  `release.yml` は、macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`updater-manifest` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を Release に添える。目録は最後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。secret が無ければ、更新物と目録だけを飛ばし、失敗にしない。
 - Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知はまだ無い。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
 - 署名の身元（段 5 の 5-1、2026-10-10 の実測と決定）：macOS のローカルネットワークの許可は署名の識別子で引かれる（DR は空でよい）。
   署名しない Tauri の build は識別子が `hangar_desktop-<ハッシュ>` で build ごとに変わり、入れ替えるたびに許可が外れていた。
