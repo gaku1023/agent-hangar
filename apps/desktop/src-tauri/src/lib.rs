@@ -411,17 +411,29 @@ fn failure_log_line(f: &bootfail::BootFailure) -> String {
     format!("boot failed ({}): {first}", f.kind)
 }
 
+/// 頁へ渡す失敗。詳細と文字の params から、入場の鍵を伏せ、利用者のホームを `~` に縮める。
+/// サーバが書く `params` の `file` と `dir`、Node の「調べた場所」、例外の文に、ユーザー名を出さないためである。
+fn for_page(
+    failure: bootfail::BootFailure,
+    token: Option<&str>,
+    user_home: &std::path::Path,
+) -> bootfail::BootFailure {
+    let failure = match token {
+        Some(token) => failure.map_text(|s| redact(s, token)),
+        None => failure,
+    };
+    failure.map_text(|s| bootfail::shorten_home(s, user_home))
+}
+
 /// 起動の失敗を札で出す。サーバへ移る前だけ意味を持つ。
 /// 読み込みが終わる前の評価は捨てられることがあるので、そのときは式を控えて読み込みの合図でもう一度流す。
 /// 控えるときも評価自体は試す。
 /// 読み込みの合図が来ない作りに変わっても、今までの見え方を下回らないためである。
-/// 詳細に入場の鍵が混じっていたら、頁へ渡す前に伏せる。
+/// 詳細に入場の鍵が混じっていたら、頁へ渡す前に伏せ、利用者のホームを `~` に縮める（`for_page`）。
 fn fail(app: &AppHandle, failure: bootfail::BootFailure) {
     let home = paths::hangar_home();
-    let failure = match server::read_token(&home) {
-        Some(token) => failure.map_text(|s| redact(s, &token)),
-        None => failure,
-    };
+    let token = server::read_token(&home);
+    let failure = for_page(failure, token.as_deref(), &paths::user_home());
     log(&failure_log_line(&failure));
     let js = bootfail::fail_js(&failure, &boot_env(app, &home));
     {
@@ -1878,6 +1890,25 @@ mod tests {
             }
         )
         .contains("abc123"));
+    }
+
+    // 頁へ渡す前に、鍵を伏せ、ホームを ~ に縮める。サーバが書いた params のパスも同じく縮める。
+    #[test]
+    fn the_failure_for_the_page_hides_the_token_and_the_user_name() {
+        let f = bootfail::parse_boot_error(
+            r#"{"kind":"db-too-old","params":{"file":"/Users/me/.agent-hangar/hangar.db","found":3},"detail":"open /Users/me/.agent-hangar/hangar.db?t=abc123"}"#,
+        )
+        .unwrap();
+        let f = for_page(f, Some("abc123"), std::path::Path::new("/Users/me"));
+        assert_eq!(f.params["file"], "~/.agent-hangar/hangar.db");
+        assert!(!f.detail.contains("abc123"), "{}", f.detail);
+        assert!(!f.detail.contains("/Users/me"), "{}", f.detail);
+        let f = for_page(
+            bootfail::BootFailure::other("x /Users/me/y"),
+            None,
+            std::path::Path::new("/Users/me"),
+        );
+        assert_eq!(f.detail, "x ~/y");
     }
 
     // ログには種類と詳細の最初の行だけを残す。詳細は長いことがある。

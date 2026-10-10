@@ -30,9 +30,31 @@ const sibling = (file, name) => {
   return i < 0 ? name : `${file.slice(0, i + 1)}${name}`;
 };
 
-const LSOF = (port) => `lsof -nP -iTCP:${port} -sTCP:LISTEN`;
+/**
+ * 命令に埋めるパスを、PowerShell がそのまま読める形にする。
+ * ~ で始まるものは $HOME に替えて二重引用符で包み、残りの $ と ` と " を ` で逃がす（~ を確実に展開させるため）。
+ * 安全な文字だけならそのまま、そうでなければ単引用符で包み、中の単引用符を 2 つにする。
+ */
+export function psQuote(s) {
+  if (s === '') return "''";
+  if (s === '~') return '"$HOME"';
+  if (s.startsWith('~\\') || s.startsWith('~/')) return `"$HOME${s.slice(1).replace(/[`$"]/g, (ch) => `\`${ch}`)}"`;
+  return /^[A-Za-z0-9_.:\\/-]+$/.test(s) ? s : `'${s.replace(/'/g, "''")}'`;
+}
 
-// 種類ごとの文。c は params から作った値（port、theirs、ours、found、baseline、file、dir）と、置き場の名前（home）と、パスの区切り（sep）。
+// 札に添える命令。macOS と Linux はシェル、Windows は PowerShell で動く形にする。
+const POSIX = {
+  listening: (port) => `lsof -nP -iTCP:${port} -sTCP:LISTEN`,
+  move: (from, to) => `mv ${shellQuote(from)} ${shellQuote(to)}`,
+  list: (dir) => `ls -la ${shellQuote(dir)}`,
+};
+const POWERSHELL = {
+  listening: (port) => `Get-Process -Id (Get-NetTCPConnection -LocalPort ${port} -State Listen).OwningProcess`,
+  move: (from, to) => `Move-Item -LiteralPath ${psQuote(from)} -Destination ${psQuote(to)}`,
+  list: (dir) => `Get-ChildItem -Force -LiteralPath ${psQuote(dir)}`,
+};
+
+// 種類ごとの文。c は params から作った値（port、theirs、ours、found、baseline、file、dir）と、置き場の名前（home）と、パスの区切り（sep）と、OS の命令の組（cmd）。
 const TABLE = {
   ja: {
     'server-exited': (c) => ({
@@ -45,35 +67,32 @@ const TABLE = {
       title: `ポート ${c.port} を別のアプリが使っています`,
       what: `hangar はポート ${c.port} で動きます。別のプロセスがそのポートで待ち受けていて、hangar のサーバではありません。hangar はそのプロセスを止めません。`,
       steps: ['そのプロセスを調べて、止められるなら止めます', '「もう一度試す」を押します', '止められないときは、そのアプリを閉じてから Hangar を開き直してください'],
-      command: LSOF(c.port),
-      needsLsof: true,
+      command: c.cmd.listening(c.port),
     }),
     'compat-mismatch': (c) => (c.theirs !== null && c.ours !== null && c.theirs > c.ours
       ? {
           title: `この Hangar.app が、${c.port} で動いている hangar のサーバより古い版です`,
           what: `動いているサーバは版 ${c.theirs}、この Hangar.app は版 ${c.ours} です。そのサーバは、この Hangar.app より新しい hangar が起こしたものです。hangar はそのサーバを止めません。`,
           steps: ['Hangar.app を新しい版に入れ替えます', '入れ替えずに使うときは、そのサーバを止めてから「もう一度試す」を押します'],
-          command: LSOF(c.port),
-          needsLsof: true,
+          command: c.cmd.listening(c.port),
         }
       : {
           title: `${c.port} で動いている hangar のサーバが、この Hangar.app より古い版です`,
           what: `動いているサーバは版 ${c.theirs ?? '?'}、この Hangar.app は版 ${c.ours ?? '?'} です。hangar start や npm run dev で起こしたサーバが残っています。hangar はそのサーバを止めません。`,
           steps: ['そのサーバを止めます', '「もう一度試す」を押します。この Hangar.app が同梱のサーバを起こします'],
-          command: LSOF(c.port),
-          needsLsof: true,
+          command: c.cmd.listening(c.port),
         }),
     'db-too-old': (c) => ({
       title: 'データベースが古く、自動では更新できません',
       what: `${c.file} は${c.found !== null ? `版 ${c.found} で作られていて、この Hangar.app が更新できるのは版 ${c.baseline ?? '?'} 以降です` : '、この Hangar.app が更新できる版より古いものです'}。索引は Claude Code のトランスクリプトから作り直せますが、ノートとステータスは残せません。`,
       steps: ['hangar.db を別の名前に退避します', '「もう一度試す」を押します。索引を作り直します', 'ノートとステータスが要るときは、退避したファイルを添えて報告してください'],
-      command: `mv ${shellQuote(c.file)} ${shellQuote(sibling(c.file, c.found !== null ? `hangar-v${c.found}.db` : 'hangar-old.db'))}`,
+      command: c.cmd.move(c.file, sibling(c.file, c.found !== null ? `hangar-v${c.found}.db` : 'hangar-old.db')),
     }),
     'db-backup-failed': (c) => ({
       title: 'データベースのバックアップが取れないため、起動を止めました',
       what: `更新の前にバックアップを ${c.dir} に置きますが、書けませんでした。ディスクの空きが無いか、フォルダに書く権限が無いときに起きます。`,
       steps: ['ディスクの空きを確認します', `backups${c.sep}db に書けるか確認します`, '「もう一度試す」を押します'],
-      command: `ls -la ${shellQuote(c.dir)}`,
+      command: c.cmd.list(c.dir),
     }),
     other: () => ({
       title: 'Hangar を起動できませんでした',
@@ -93,35 +112,32 @@ const TABLE = {
       title: `Port ${c.port} is in use by another app`,
       what: `hangar runs on port ${c.port}. Another process is listening there, and it is not a hangar server. hangar does not stop that process.`,
       steps: ['Find the process and stop it if you can', 'Press "Try again"', 'If you cannot stop it, close that app and reopen Hangar'],
-      command: LSOF(c.port),
-      needsLsof: true,
+      command: c.cmd.listening(c.port),
     }),
     'compat-mismatch': (c) => (c.theirs !== null && c.ours !== null && c.theirs > c.ours
       ? {
           title: `This Hangar.app is older than the hangar server running on ${c.port}`,
           what: `The running server is version ${c.theirs} and this Hangar.app is version ${c.ours}. That server was started by a newer hangar. hangar does not stop it.`,
           steps: ['Replace Hangar.app with a newer version', 'To keep using this version, stop that server and press "Try again"'],
-          command: LSOF(c.port),
-          needsLsof: true,
+          command: c.cmd.listening(c.port),
         }
       : {
           title: `The hangar server running on ${c.port} is older than this Hangar.app`,
           what: `The running server is version ${c.theirs ?? '?'} and this Hangar.app is version ${c.ours ?? '?'}. A server started with hangar start or npm run dev is still running. hangar does not stop it.`,
           steps: ['Stop that server', 'Press "Try again". This Hangar.app will start its bundled server'],
-          command: LSOF(c.port),
-          needsLsof: true,
+          command: c.cmd.listening(c.port),
         }),
     'db-too-old': (c) => ({
       title: 'The database is too old to update automatically',
       what: `${c.file} ${c.found !== null ? `was created at version ${c.found}, and this Hangar.app can update version ${c.baseline ?? '?'} or later` : 'is older than the versions this Hangar.app can update'}. The index can be rebuilt from Claude Code transcripts, but notes and statuses cannot be kept.`,
       steps: ['Move hangar.db aside under another name', 'Press "Try again". The index will be rebuilt', 'If you need the notes and statuses, report it with the file you moved aside'],
-      command: `mv ${shellQuote(c.file)} ${shellQuote(sibling(c.file, c.found !== null ? `hangar-v${c.found}.db` : 'hangar-old.db'))}`,
+      command: c.cmd.move(c.file, sibling(c.file, c.found !== null ? `hangar-v${c.found}.db` : 'hangar-old.db')),
     }),
     'db-backup-failed': (c) => ({
       title: 'Startup stopped because the database could not be backed up',
       what: `A backup goes to ${c.dir} before updating, but it could not be written. This happens when the disk is full or the folder is not writable.`,
       steps: ['Check free disk space', `Check that backups${c.sep}db is writable`, 'Press "Try again"'],
-      command: `ls -la ${shellQuote(c.dir)}`,
+      command: c.cmd.list(c.dir),
     }),
     other: () => ({
       title: 'Hangar could not start',
@@ -151,9 +167,12 @@ export function failView(info) {
   const home = text(info?.home, `~${sep}.agent-hangar`) || `~${sep}.agent-hangar`;
   const join = (...names) => [home, ...names].join(sep);
   const p = info?.params && typeof info.params === 'object' ? info.params : {};
+  const os = text(info?.os);
   const c = {
     home,
     sep,
+    // Windows には lsof も mv も無い。PowerShell で動く形の命令を出す。
+    cmd: /^Windows/.test(os) ? POWERSHELL : POSIX,
     port: num(p.port) ?? DEFAULT_PORT,
     theirs: num(p.theirs),
     ours: num(p.ours),
@@ -163,10 +182,8 @@ export function failView(info) {
     dir: text(p.dir) || join('backups', 'db'),
   };
   const row = TABLE[lang][kind](c);
-  const os = text(info?.os);
   const version = text(info?.version);
-  // Windows には lsof が無い。確かめられない命令は添えない。
-  const command = row.needsLsof && /^Windows/.test(os) ? null : row.command;
+  const command = row.command;
   const detail = text(info?.detail);
   const footer = [version ? `Hangar ${version}` : '', os].filter(Boolean).join(' · ');
   const L = LABELS[lang];
