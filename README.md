@@ -465,7 +465,12 @@ npm run tauri -w apps/desktop -- build --bundles nsis
 
 `apps/desktop/src-tauri/target/release/bundle/nsis/` に `Hangar_<版>_x64-setup.exe` ができます。
 管理者権限は要らず、`%LOCALAPPDATA%\Hangar` に入ります。
-`bin\hangar.cmd` が同梱の `hangar` コマンドです。Node は同梱していないので、`HANGAR_NODE`、`~\.agent-hangar\settings.json` の `nodePath`、公式のインストーラの入れ先、nvm-windows、PATH の順に、同梱の `manifest.json` と同じメジャー版の Node を探します。
+`server\bin\hangar.cmd` が同梱の `hangar` コマンドです。
+インストーラがこの置き場を利用者の PATH に足すので、入れたあとに新しく開いたターミナルで `hangar start` のように打てます（アンインストールで外します）。
+入れる前から開いていたターミナルでは、開き直すか、`%LOCALAPPDATA%\Hangar\server\bin\hangar.cmd` をフルパスで打ちます。
+Node は同梱していないので、`HANGAR_NODE`、`~\.agent-hangar\settings.json` の `nodePath`、公式のインストーラの入れ先、nvm-windows、PATH にあるすべての `node.exe` の順に、同梱の `manifest.json` と同じメジャー版とアーキテクチャの Node を探します。
+fnm などが別の版を PATH の先頭に置いていても、PATH の後ろに Node 22 があればそれを使います。
+見つからないときは、調べた場所と、それぞれが合わなかった理由を順に出します。
 
 ## 開発
 

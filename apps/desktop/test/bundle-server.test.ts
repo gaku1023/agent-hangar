@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BUNDLE_TARGETS, buildLauncher, bundleServer, hostBundleTarget, NATIVE_MODULES, type BundleTarget } from '../scripts/bundle-server.ts';
-import { chooseNode, windowsNodeCandidates } from '../scripts/launch-cli.ts';
+import { chooseNode, describeNotFound, type ProbeResult, windowsNodeCandidates } from '../scripts/launch-cli.ts';
 import { bundleWorker, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -660,38 +660,107 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     expect(out.args).toEqual(['url', '--port', '4231']);
   });
 
+  it('どの候補も合わなければ、調べた場所を探した順に挙げ、それぞれが合わなかった理由を述べる', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const home = emptyDirFor('hangar home-');
+    const missing = path.join(emptyDirFor('hangar nodes-'), 'none', 'node.exe');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: missing }));
+    const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(`いま動いている Node：${major}（${process.arch}）`);
+    expect(r.stderr).toContain('調べた場所');
+    const lines = r.stderr.split(/\r?\n/);
+    // 調べた場所の行（番号付き）の中で探す。
+    const at = (p: string) => lines.findIndex((l) => /^\s+\d+\. /.test(l) && l.includes(p));
+    expect(at(process.execPath)).toBeGreaterThan(-1);
+    expect(at(missing)).toBeGreaterThan(at(process.execPath));
+    expect(lines[at(process.execPath)]).toContain(`Node ${major}（${process.arch}）`);
+    expect(lines[at(process.execPath)]).toContain('版が違う');
+    expect(lines[at(missing)]).toContain('ファイルが無い');
+  });
+
   describe('chooseNode', () => {
     const want = { nodeMajor: 22, arch: 'x64' };
-    const answers: Record<string, { major: number; arch: string } | undefined> = {
-      'C:\\a\\node.exe': undefined,
+    const answers: Record<string, ProbeResult> = {
+      'C:\\a\\node.exe': 'failed',
       'C:\\b\\node.exe': { major: 20, arch: 'x64' },
       'C:\\c\\node.exe': { major: 22, arch: 'arm64' },
       'C:\\d\\node.exe': { major: 22, arch: 'x64' },
       'C:\\e\\node.exe': { major: 22, arch: 'x64' },
+      'C:\\m\\node.exe': 'missing',
     };
     it('先頭から見て、版もアーキも合う最初の 1 つを採る。起動できない候補や版違いは飛ばす', () => {
-      expect(chooseNode(Object.keys(answers), want, (p) => answers[p])).toBe('C:\\d\\node.exe');
+      expect(chooseNode(Object.keys(answers), want, (p) => answers[p]!).node).toBe('C:\\d\\node.exe');
     });
-    it('1 つも合わなければ undefined', () => {
-      expect(chooseNode(['C:\\a\\node.exe', 'C:\\b\\node.exe', 'C:\\c\\node.exe'], want, (p) => answers[p])).toBeUndefined();
+    it('採るまでに調べた候補と、その答えを順に返す', () => {
+      expect(chooseNode(Object.keys(answers), want, (p) => answers[p]!).tried).toEqual([
+        { node: 'C:\\a\\node.exe', result: 'failed' },
+        { node: 'C:\\b\\node.exe', result: { major: 20, arch: 'x64' } },
+        { node: 'C:\\c\\node.exe', result: { major: 22, arch: 'arm64' } },
+        { node: 'C:\\d\\node.exe', result: { major: 22, arch: 'x64' } },
+      ]);
     });
-    it('同じ場所を 2 度は探らない', () => {
+    it('1 つも合わなければ node は undefined で、調べた候補を全部返す', () => {
+      const got = chooseNode(['C:\\a\\node.exe', 'C:\\m\\node.exe', 'C:\\c\\node.exe'], want, (p) => answers[p]!);
+      expect(got.node).toBeUndefined();
+      expect(got.tried.map((t) => t.node)).toEqual(['C:\\a\\node.exe', 'C:\\m\\node.exe', 'C:\\c\\node.exe']);
+    });
+    it('同じ場所を 2 度は探らない。Windows のパスなので大文字小文字は区別しない', () => {
       const seen: string[] = [];
-      chooseNode(['C:\\a\\node.exe', 'C:\\a\\node.exe', 'C:\\b\\node.exe'], want, (p) => (seen.push(p), undefined));
+      chooseNode(['C:\\a\\node.exe', 'C:\\a\\node.exe', 'c:\\A\\NODE.EXE', 'C:\\b\\node.exe'], want, (p) => (seen.push(p), 'failed'));
       expect(seen).toEqual(['C:\\a\\node.exe', 'C:\\b\\node.exe']);
     });
   });
 
+  describe('describeNotFound', () => {
+    it('探した順に番号を振り、ファイルが無い、答えない、時間切れ、版やアーキが違う、を分けて書く', () => {
+      const text = describeNotFound(
+        { nodeMajor: 22, arch: 'x64' },
+        { path: 'C:\\fnm\\node.exe', result: { major: 24, arch: 'x64' } },
+        [
+          { node: 'C:\\Program Files\\nodejs\\node.exe', result: 'missing' },
+          { node: 'C:\\fnm\\node.exe', result: { major: 24, arch: 'x64' } },
+          { node: 'C:\\x\\node.exe', result: 'failed' },
+          { node: 'C:\\y\\node.exe', result: 'timeout' },
+          { node: 'C:\\z\\node.exe', result: { major: 22, arch: 'arm64' } },
+        ],
+        'C:\\Users\\me\\.agent-hangar\\settings.json',
+      );
+      expect(text).toContain('Node 22（x64）が見つかりません。');
+      expect(text).toContain('いま動いている Node：24（x64）、C:\\fnm\\node.exe');
+      const lines = text.split('\n');
+      expect(lines).toContain('  1. C:\\Program Files\\nodejs\\node.exe：ファイルが無い');
+      expect(lines).toContain('  2. C:\\fnm\\node.exe：Node 24（x64）。版が違う');
+      expect(lines).toContain('  3. C:\\x\\node.exe：起動できないか、Node として答えない');
+      expect(lines).toContain('  4. C:\\y\\node.exe：時間内に答えない');
+      expect(lines).toContain('  5. C:\\z\\node.exe：Node 22（arm64）。アーキテクチャが違う');
+      expect(text).toContain('HANGAR_NODE');
+      expect(text).toContain('C:\\Users\\me\\.agent-hangar\\settings.json');
+    });
+    it('候補が 1 つも無ければ、そう述べる', () => {
+      const text = describeNotFound({ nodeMajor: 22, arch: 'x64' }, { path: 'node', result: { major: 24, arch: 'x64' } }, [], 'settings.json');
+      expect(text).toContain('調べた場所はありません');
+    });
+  });
+
   describe('windowsNodeCandidates', () => {
-    it('HANGAR_NODE、設定の nodePath、公式の入れ先、nvm-windows の順に並べ、nvm は新しい版から', () => {
+    const exists = (files: string[]) => (p: string) => files.some((f) => f.toLowerCase() === p.toLowerCase());
+    it('HANGAR_NODE、設定の nodePath、公式の入れ先、nvm-windows、PATH の順に並べ、nvm は新しい版から（殻の node.rs と同じ並び）', () => {
       const env = {
         HANGAR_NODE: 'D:\\mine\\node.exe',
         ProgramFiles: 'C:\\Program Files',
         LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local',
         NVM_HOME: 'C:\\Users\\me\\AppData\\Roaming\\nvm',
         NVM_SYMLINK: 'C:\\Program Files\\nodejs',
+        Path: 'C:\\Users\\me\\bin;C:\\Users\\me\\AppData\\Local\\Volta\\bin',
       };
-      const got = windowsNodeCandidates(env, 'E:\\custom\\node.exe', () => ['v20.1.0', 'v22.14.0', 'v22.9.0', 'junk', 'settings.txt']);
+      const files = [
+        'C:\\Users\\me\\AppData\\Roaming\\nvm\\v20.1.0\\node.exe',
+        'C:\\Users\\me\\AppData\\Roaming\\nvm\\v22.14.0\\node.exe',
+        'C:\\Users\\me\\AppData\\Roaming\\nvm\\v22.9.0\\node.exe',
+        'C:\\Users\\me\\AppData\\Local\\Volta\\bin\\node.exe',
+      ];
+      const got = windowsNodeCandidates(env, 'E:\\custom\\node.exe', () => ['v20.1.0', 'v22.14.0', 'v22.9.0', 'junk', 'settings.txt'], exists(files));
       expect(got).toEqual([
         'D:\\mine\\node.exe',
         'E:\\custom\\node.exe',
@@ -700,10 +769,37 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
         'C:\\Users\\me\\AppData\\Roaming\\nvm\\v22.14.0\\node.exe',
         'C:\\Users\\me\\AppData\\Roaming\\nvm\\v22.9.0\\node.exe',
         'C:\\Users\\me\\AppData\\Roaming\\nvm\\v20.1.0\\node.exe',
+        'C:\\Users\\me\\AppData\\Local\\Volta\\bin\\node.exe',
       ]);
     });
+    it('PATH のすべての node.exe を、PATH の順に候補にする。実在しない項目、空の項目、引用符、相対の項目を扱う', () => {
+      const fnm = 'C:\\Users\\me\\AppData\\Local\\fnm_multishells\\1234_5678';
+      const winget = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Packages\\OpenJS.NodeJS.22_Microsoft.Winget.Source_8wekyb3d8bbwe\\node-v22.20.0-win-x64';
+      const env = { PATH: `${fnm};;"${winget}";C:\\Windows\\system32;.\\rel` };
+      const got = windowsNodeCandidates(env, undefined, () => [], exists([`${fnm}\\node.exe`, `${winget}\\node.exe`, 'rel\\node.exe']));
+      expect(got).toEqual([`${fnm}\\node.exe`, `${winget}\\node.exe`]);
+    });
+    it('PATH に v24 と v22 が並ぶと、前の v24 を飛ばして後ろの v22 を採る（A19）', () => {
+      const fnm = 'C:\\Users\\me\\AppData\\Local\\fnm_multishells\\1234_5678';
+      const winget = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links';
+      const env = { Path: `${fnm};${winget}`, ProgramFiles: 'C:\\Program Files', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' };
+      const candidates = windowsNodeCandidates(env, undefined, () => [], exists([`${fnm}\\node.exe`, `${winget}\\node.exe`]));
+      const answers: Record<string, ProbeResult> = { [`${fnm}\\node.exe`]: { major: 24, arch: 'x64' }, [`${winget}\\node.exe`]: { major: 22, arch: 'x64' } };
+      const got = chooseNode(candidates, { nodeMajor: 22, arch: 'x64' }, (p) => answers[p] ?? 'missing');
+      expect(got.node).toBe(`${winget}\\node.exe`);
+      expect(got.tried.map((t) => [t.node, t.result])).toEqual([
+        ['C:\\Program Files\\nodejs\\node.exe', 'missing'],
+        ['C:\\Users\\me\\AppData\\Local\\Programs\\nodejs\\node.exe', 'missing'],
+        [`${fnm}\\node.exe`, { major: 24, arch: 'x64' }],
+        [`${winget}\\node.exe`, { major: 22, arch: 'x64' }],
+      ]);
+    });
+    it('同じ場所は大文字小文字を問わず 1 度だけ並べる', () => {
+      const env = { ProgramFiles: 'C:\\Program Files', PATH: 'c:\\program files\\nodejs' };
+      expect(windowsNodeCandidates(env, undefined, () => [], () => true)).toEqual(['C:\\Program Files\\nodejs\\node.exe']);
+    });
     it('環境変数が無ければ、その分は候補に出さない', () => {
-      expect(windowsNodeCandidates({}, undefined, () => [])).toEqual([]);
+      expect(windowsNodeCandidates({}, undefined, () => [], () => true)).toEqual([]);
     });
   });
 });
