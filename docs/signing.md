@@ -94,18 +94,65 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 1. 上の台本で証明書を作る。
 2. 指紋を `apps/desktop/signing/certificate-sha1.txt` に 1 行で書き、公開の証明書（`hangar-signing.cer`）と一緒に PR に入れる。
 3. p12 とそのパスワードを、1Password に保管する（p12 は添付、パスワードは別の項目）。
-4. 同じ p12 の base64 とパスワードを、GitHub のリポジトリの secret に置く（名前は PR 5-2 で決める）。`base64 -i hangar-signing.p12 | pbcopy` のように、ファイルを画面に出さずに渡す。
+4. 同じ p12 の base64 とパスワードを、GitHub のリポジトリの secret（`MACOS_SIGN_P12_BASE64` と `MACOS_SIGN_P12_PASSWORD`）に置く。入れ方は下の「CI の secret を入れる」にある。
 5. 作業用のディレクトリから p12 を消す。鍵は 1Password と CI の 2 か所だけが持つ。
 6. 手元で署名する開発者は、1Password から p12 を取り出して専用のキーチェーンへ入れる。
 
 公開リポジトリに入れてよいのは、公開の証明書と指紋だけである。
 秘密鍵、p12、パスワードは、どのファイルにも、コミットにも、ログにも書かない。
 
+## CI で署名する
+
+タグで走る `release.yml` の macOS のジョブが、tauri build のあとに `apps/desktop/scripts/ci-sign-macos.sh` で .app に署名する。
+台本が使う secret は次の 2 つである。
+
+| secret の名前 | 中身 |
+|---|---|
+| `MACOS_SIGN_P12_BASE64` | p12（秘密鍵と証明書）を base64 にしたもの |
+| `MACOS_SIGN_P12_PASSWORD` | p12 のパスワード |
+
+台本は次を行う。
+
+1. secret が 2 つとも無ければ、警告を出して未署名のまま続ける（fork や、まだ入れていないとき）。片方だけなら、設定の誤りとして止まる。
+2. p12 の証明書の指紋が `apps/desktop/signing/certificate-sha1.txt` と一致するかを確かめる。違えば、署名せずに止まる。secret があるのに指紋の置き場が空なら、それも止まる。
+3. その場で決めたパスワードで、使い捨てのキーチェーンを作って p12 を入れる。
+4. ランナーでは自作の証明書が信頼されていないと codesign が身元を見つけないので、ランナーの中でだけ、管理者の領域でコード署名に限って信頼する。利用者の手元ではこの道を通らない。
+5. `sign-macos.ts` で署名し、識別子、DR、verify を確かめる。
+6. 署名に入った葉の証明書を取り出し、指紋をもう一度 `certificate-sha1.txt` と比べる。違えば止まる。
+7. 成否にかかわらず、キーチェーン、取り出した p12、足した信頼を消す。
+
+台本の回帰は、ci の desktop ジョブの試験（`apps/desktop/test/ci-sign-macos.test.ts`）が拾う。
+試験は `make-signing-cert.sh` で試しの証明書をその場で作り、`HANGAR_SIGN_FINGERPRINT_FILE` でその指紋を期待の値として渡して、同じ台本で署名する。
+本物の secret は使わない。
+
+## CI の secret を入れる（利用者が、1Password から）
+
+秘密を画面、ファイル、シェルの履歴に残さないように、1Password から直接 `gh` へ流す。
+1Password の CLI（`op`）と GitHub の CLI（`gh`）にサインインしたうえで、リポジトリの checkout の中で次を打つ。
+`<保管庫>` と `<項目>` は、手順 3 で p12 を保管した 1Password の場所に置き換える。
+
+```bash
+# p12 の添付を base64 にして、そのまま secret へ（ファイルにも画面にも出さない）
+op read "op://<保管庫>/<項目>/hangar-signing.p12" | base64 | gh secret set MACOS_SIGN_P12_BASE64
+
+# パスワードの欄を、そのまま secret へ
+op read -n "op://<保管庫>/<項目>/password" | gh secret set MACOS_SIGN_P12_PASSWORD
+```
+
+`gh secret set` は標準入力から値を読むので、値が引数やシェルの履歴に載らない。
+`op` を使わないときは、1Password の画面から p12 を一時の場所へ保存し、`base64 -i <p12> | gh secret set MACOS_SIGN_P12_BASE64` で入れてから、その p12 を消す。
+パスワードは `gh secret set MACOS_SIGN_P12_PASSWORD` を打ち、尋ねられたところへ貼る。
+GitHub の画面（Settings の Secrets and variables の Actions）から入れてもよい。
+
+入れたら、`gh secret list` で 2 つの名前があることを確かめる（値は表示されない）。
+次のタグの release の macOS のジョブで、「署名する」の段が「指紋はリポジトリの値と一致した」を 2 回出せば、署名が効いている。
+指紋の置き場（`certificate-sha1.txt`）が空のまま secret だけを入れると、release は止まる。指紋の PR を先に入れる。
+
 ## 状態
 
 本番の証明書はまだ無い。
 `apps/desktop/signing/certificate-sha1.txt` は値が空で、置き場だけを用意してある。
-CI の署名（`release.yml`）は PR 5-2 で入れる。
+secret もまだ入れていないので、release は警告を出して未署名のまま作られる。
 
 ## 鍵を失ったとき
 

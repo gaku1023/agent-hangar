@@ -56,8 +56,16 @@ jobs:
       - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
         run: npm run tauri -- build --target ${{ matrix.target }}
         working-directory: apps/desktop
-      # 署名も公証もしない。
-      # ditto で作った zip は Finder の展開でも .app の属性が保たれる。
+      # 自作の証明書で署名し、識別子と DR を固定する（docs/signing.md）。
+      # secret が無いとき（fork や、まだ入れていないとき）は、警告を出して未署名のまま続ける。
+      # secret があれば、署名に入った証明書の指紋が signing/certificate-sha1.txt と違うときに止まる。
+      # 一時のキーチェーンは台本が終わりに消す。公証はしない。
+      - name: 署名する
+        env:
+          HANGAR_SIGN_P12_BASE64: ${{ secrets.MACOS_SIGN_P12_BASE64 }}
+          HANGAR_SIGN_P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
+        run: bash apps/desktop/scripts/ci-sign-macos.sh apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app
+      # ditto で作った zip は Finder の展開でも .app の属性（署名を含む）が保たれる。
       - name: zip と checksum
         run: |
           cd apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos
