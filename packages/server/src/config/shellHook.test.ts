@@ -75,12 +75,12 @@ posixDescribe('この PC の状態', () => {
     expect(shellWrapSupported(null)).toBe(false);
   });
   it('入れるコマンドは、PATH の hangar、同梱の hangar の絶対パス、リポジトリの順に選ぶ', () => {
-    expect(shellInstallCommand({ hangarOnPath: '/usr/local/bin/hangar', bundledHangar: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar' })).toBe('hangar shell install');
-    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar' })).toBe('/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install');
-    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: '/Applications/My Apps/Hangar.app/bin/hangar' })).toBe('"/Applications/My Apps/Hangar.app/bin/hangar" shell install');
-    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: null })).toBe('npm run hangar -- shell install');
+    expect(shellInstallCommand({ hangarOnPath: '/usr/local/bin/hangar', bundledHangar: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar', platform: 'darwin' })).toBe('hangar shell install');
+    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar', platform: 'darwin' })).toBe('/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install');
+    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: '/Applications/My Apps/Hangar.app/bin/hangar', platform: 'darwin' })).toBe('"/Applications/My Apps/Hangar.app/bin/hangar" shell install');
+    expect(shellInstallCommand({ hangarOnPath: null, bundledHangar: null, platform: 'darwin' })).toBe('npm run hangar -- shell install');
     // npm run dev のサーバは PATH に node_modules/.bin を持つが、利用者のターミナルからは引けない。
-    expect(shellInstallCommand({ hangarOnPath: '/w/agent-hangar/node_modules/.bin/hangar', bundledHangar: null })).toBe('npm run hangar -- shell install');
+    expect(shellInstallCommand({ hangarOnPath: '/w/agent-hangar/node_modules/.bin/hangar', bundledHangar: null, platform: 'darwin' })).toBe('npm run hangar -- shell install');
   });
   it('Windows では、インストーラで入れた hangar.cmd を、PowerShell にそのまま貼れる形で書く', () => {
     const bundled = 'C:\\Users\\me\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd';
