@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isAlive, parseStartTime, probeStartTime, sameStartTime, spawnRun, startTimeOf, terminate, type ProcRun } from './proc.ts';
 
@@ -140,7 +141,13 @@ describe('実物のプロセス', () => {
     const exited = new Promise((r) => child.once('exit', r));
     try {
       // 読めなかったときは、各回の終了コード、締め切りで止められたか、出力、かかった時間を失敗の文に載せる。
+      const cpu0 = os.cpus().map((c) => ({ ...c.times }));
       const probe = probeStartTime(pid);
+      const cpu1 = os.cpus().map((c) => c.times);
+      let busy = 0; let total = 0;
+      cpu1.forEach((t, i) => { const a = cpu0[i]!; const idle = t.idle - a.idle; const all = (t.user - a.user) + (t.sys - a.sys) + (t.irq - a.irq) + idle; busy += all - idle; total += all; });
+      console.log('[diag-ps]', JSON.stringify(probe.tries.map((t) => t.ms)), `cpuBusy=${total === 0 ? 'n/a' : Math.round((100 * busy) / total)}%`, new Date().toISOString());
+      const t2 = Date.now(); startTimeOf(pid); console.log('[diag-ps] second', Date.now() - t2);
       expect(probe.value, JSON.stringify(probe.tries)).not.toBeNull();
       const started = probe.value;
       // 起こす前から読み終わるまでの間に収まる。読み取りにかかった時間に左右されないよう、今の時刻との差では比べない。
