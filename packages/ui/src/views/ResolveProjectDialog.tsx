@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
+import { splitLast } from '../lib/paths.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -47,7 +48,7 @@ export function ResolveProjectDialog(props: { projectId: string; name: string; p
         )}
         <div className="muted" style={{ marginBottom: 4 }}>{t('projects.resolve.newPath')}</div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input className="input mono" style={{ flex: 1 }} data-autofocus aria-label={t('projects.resolve.newPath')} value={path} onChange={(e) => { setPath(e.target.value); props.onQueryCandidates(e.target.value.split('/').pop() ?? ''); }} placeholder="/Users/you/workspace/..." />
+          <input className="input mono" style={{ flex: 1 }} data-autofocus aria-label={t('projects.resolve.newPath')} value={path} onChange={(e) => { setPath(e.target.value); props.onQueryCandidates(splitLast(e.target.value).base); }} placeholder="/Users/you/workspace/..." />
           <button type="button" className="btn btn-primary" disabled={!path} onClick={() => resolve({ kind: 'repoint', path })}><Icon name="repoint" />{t('projects.resolve.useThis')}</button>
         </div>
       </div>

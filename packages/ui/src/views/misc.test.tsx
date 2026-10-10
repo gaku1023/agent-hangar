@@ -173,6 +173,19 @@ describe('ResolveProjectDialog', () => {
   });
 });
 
+describe('ResolveProjectDialog の候補の問い', () => {
+  it('打ったパスの最後の名前で候補を問う。Windows のパスでも同じ', () => {
+    const asked: string[] = [];
+    render(<ActionRoot onAction={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={(q) => asked.push(q)} /></ActionRoot>);
+    const box = screen.getByLabelText('新しいパス');
+    fireEvent.change(box, { target: { value: '/Users/me/work/alpha' } });
+    fireEvent.change(box, { target: { value: '/Users/me/work/' } });
+    fireEvent.change(box, { target: { value: 'C:\\Users\\me\\work\\作業' } });
+    fireEvent.change(box, { target: { value: 'C:\\Users\\me\\work\\' } });
+    expect(asked).toEqual(['alpha', '', '作業', '']);
+  });
+});
+
 describe('ResolveProjectDialog のフォーカス', () => {
   it('開いたら中の最初の操作にフォーカスを入れる', () => {
     render(<ActionRoot onAction={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" previousPath="/w/alpha" candidates={[]} onQueryCandidates={() => {}} /></ActionRoot>);

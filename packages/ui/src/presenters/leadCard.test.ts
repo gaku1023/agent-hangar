@@ -110,6 +110,13 @@ describe('冒頭の 1 枚の札（変更したファイル、アーティファ�
     expect(c.note).toBe('足した行と消した行は、読み込んだ分だけ出ています');
     expect(c.rows[0]!.openLabel).toBe('/w/web-shop/src/a.ts を VS Code で開く');
   });
+  it('Windows のパスでも、作業ディレクトリからの相対の場所と名前に分ける', () => {
+    const c = present({
+      session: session({ cwd: 'C:\\w\\web-shop' }),
+      files: [{ path: 'C:\\w\\web-shop\\src\\a.ts', edits: 2, agentId: null }, { path: 'C:\\w\\web-shop\\作業.md', edits: 1, agentId: null }, { path: 'D:\\other\\b.ts', edits: 1, agentId: null }],
+    }).files;
+    expect(c.rows.map((r) => [r.dir, r.base])).toEqual([['src\\', 'a.ts'], ['', '作業.md'], ['D:\\other\\', 'b.ts']]);
+  });
   it('窓にある分が全部そろっていれば、注記は出さない', () => {
     const c = present({ files: [{ path: '/w/web-shop/a.ts', edits: 1, agentId: null }], windowFiles: [win('/w/web-shop/a.ts')] }).files;
     expect(c.note).toBeNull();

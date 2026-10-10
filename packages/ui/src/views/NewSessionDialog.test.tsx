@@ -752,6 +752,33 @@ describe('NewSessionDialog から作って始める', () => {
     start();
     expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: { projectId: 'p2' } });
   });
+  it('Windows の親フォルダなら、新しいフォルダの場所を \\ でつないで見せ、送るのは名前だけ', () => {
+    const { out } = collect({ workspaceRoot: 'C:\\Users\\me\\workspace' });
+    openList();
+    typeQuery('価格');
+    const option = screen.getByRole('option', { name: '「価格」を新しいフォルダとして作る' });
+    expect(option).toHaveTextContent('C:\\Users\\me\\workspace\\価格');
+    fireEvent.click(option);
+    expect(screen.getByText('C:\\Users\\me\\workspace\\価格 を作り、プロジェクトに登録して起動します')).toBeInTheDocument();
+    start();
+    expect(out.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: '価格', gitInit: true } }]);
+  });
+  it('親フォルダがまだ届いていないときの仮の場所は、Windows では \\ で書く', () => {
+    setClientUserAgent(WINDOWS_UA);
+    collect({ workspaceRoot: null });
+    openList();
+    typeQuery('price');
+    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
+    expect(screen.getByText('~\\workspace\\price を作り、プロジェクトに登録して起動します')).toBeInTheDocument();
+  });
+  it('エクスプローラーで選んだ Windows のフォルダは、最後の名前を札にし、パスはそのまま送る', () => {
+    const { out, view } = collect({ workspaceRoot: 'C:\\Users\\me\\workspace' });
+    view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewSessionDialog {...base} workspaceRoot="C:\\Users\\me\\workspace" picked={{ path: 'C:\\Users\\me\\論文', n: 1 }} /></ActionRoot>);
+    expect(chip('プロジェクト')).toHaveTextContent('論文');
+    expect(chip('プロジェクト')).not.toHaveTextContent('C:');
+    start();
+    expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: 'C:\\Users\\me\\論文' } });
+  });
   it('開いたときに既にあった Finder の結果は使わない（別のダイアログで選んだもの）', () => {
     collect({ picked: { path: '/Users/me/old', n: 3 } });
     expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいセッション');

@@ -1,4 +1,5 @@
 import { stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type SessionActivityDto, type StepCell, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
+import { baseName } from '../lib/paths.ts';
 import { durationLabel } from './format.ts';
 import type { ArtifactCardProps } from './project.ts';
 import { turnsText } from './stats.ts';
@@ -117,7 +118,6 @@ const STRIP_STEPS = 4;
 const STRIP_STEPS_ALL = 30;
 const STRIP_LANES = 20;
 const SHORT = 80;
-const baseName = (p: string): string => p.split('/').filter(Boolean).pop() ?? p;
 const textOf = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
 
 /** 引数の短い形。ファイルは名前だけ、検索は語、Bash は Claude が書いた説明か、コマンドの 1 行目。 */

@@ -136,9 +136,12 @@ const isFileNow = (root: string, rel: string) => {
   try { return fs.statSync(path.join(root, rel)).isFile(); } catch { return false; }
 };
 
-/** 問いに合うものを、ファイル名の頭、ファイル名の途中、パスの途中の順に並べる。同じなら短いパスを先にする。 */
+/**
+ * 問いに合うものを、ファイル名の頭、ファイル名の途中、パスの途中の順に並べる。同じなら短いパスを先にする。
+ * 候補は git と歩いた結果のどちらも / で区切る。Windows で打った \ の区切りは / に読み替えてから比べる。
+ */
 export function rankFiles(files: string[], query: string, limit: number): string[] {
-  const q = query.toLowerCase();
+  const q = query.toLowerCase().replaceAll('\\', '/');
   const inPath = q.includes('/');
   const scored: { f: string; r: number }[] = [];
   for (const f of files) {

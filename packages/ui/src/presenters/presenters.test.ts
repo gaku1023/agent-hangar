@@ -157,6 +157,10 @@ describe('ローカルコマンドの記録', () => {
     expect(buildItems([skill], { showThinking: false, showRaw: false, subagents: [] }, ja).map((i) => 'text' in i ? i.text : '')).toEqual(['スキル brainstorming を読み込みました']);
     expect(buildItems([skill], { showThinking: false, showRaw: true, subagents: [] }, ja)[0]).toMatchObject({ text: skill.text });
   });
+  it('Windows のスキルの置き場でも、名前だけの 1 行にする', () => {
+    const skill = sys(9, 'Base directory for this skill: C:\\Users\\me\\.claude\\skills\\レビュー\n\n# 本文');
+    expect(buildItems([skill], { showThinking: false, showRaw: false, subagents: [] }, ja).map((i) => 'text' in i ? i.text : '')).toEqual(['スキル レビュー を読み込みました']);
+  });
 });
 
 describe('本文のツール', () => {
@@ -1021,6 +1025,9 @@ describe('homePath', () => {
     expect(homePath('/srv/Users/taro/x')).toBe('/srv/Users/taro/x');
     expect(homePath('/homework/x')).toBe('/homework/x');
   });
+  it('Windows のホームの下も ~ で始まる形に縮める', () => {
+    expect(homePath('C:\\Users\\taro\\.claude-univ')).toBe('~\\.claude-univ');
+  });
 });
 
 const todoDto = (id: string, position: number, done = false, candidate: TodoDto['candidate'] = null, projectId = 'p1'): TodoDto => ({ id, projectId, text: `やる ${id}`, done, position, sessionId: null, updatedAt: 1, candidate });
@@ -1609,6 +1616,10 @@ describe('presentRetentionDialog', () => {
     const p = presentRetentionDialog(open(), st(), NOW)!;
     expect(p).toMatchObject({ title: 'トランスクリプトの保持期間を 1 年にします', lead: 'Claude Code の設定ファイルに、次の 1 行を追加します。', path: P.path, backupDir: P.backupDir + '/', otherPcs: false, shrinkNote: null, showOther: true });
     expect(p.bar).toMatchObject({ nowLabel: 'いま 1.5 GB', projLabel: '1 年たつと約 18 GB', freeLabel: '空き 400 GB', warn: false });
+  });
+  it('控えの置き場は、Windows のパスなら \\ で閉じる', () => {
+    const backupDir = 'C:\\Users\\me\\.agent-hangar\\backups\\claude-config';
+    expect(presentRetentionDialog(open(), st({ retentionPreview: { ...P, backupDir } }), NOW)!.backupDir).toBe(`${backupDir}\\`);
   });
   it('値を替えるときは「書き換えます」、同期が有効なら他の PC の行を出す', () => {
     const lines = [{ kind: 'del' as const, text: '  "cleanupPeriodDays" : 3650' }, { kind: 'add' as const, text: '  "cleanupPeriodDays" : 365' }];

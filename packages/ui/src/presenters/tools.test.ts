@@ -9,6 +9,17 @@ const CWD = '/w/app';
 const ja = translator('ja');
 const en = translator('en');
 
+describe('presentTool の Windows のパス', () => {
+  const WIN = 'C:\\w\\app';
+  it('作業ディレクトリの下は相対にし、拡張子から言語を読む', () => {
+    const v = presentTool(call('Write', { file_path: 'C:\\w\\app\\src\\a.test.tsx', content: 'a' }), ok('File created successfully'), WIN, ja);
+    expect(v.head.main).toBe('src\\a.test.tsx');
+    expect(v.body).toMatchObject({ kind: 'code', lang: 'tsx' });
+    expect(presentTool(call('Read', { file_path: 'C:/w/app/i18n/ja.json' }), ok(''), WIN, ja).body).toMatchObject({ kind: 'read', path: 'i18n/ja.json' });
+    expect(presentTool(call('Read', { file_path: 'D:\\elsewhere\\b.png' }), ok('[image]'), WIN, ja).body).toMatchObject({ kind: 'read', path: 'D:\\elsewhere\\b.png' });
+  });
+});
+
 describe('presentTool の札の色', () => {
   it('手の種類は live-explainer の規則に従い、失敗は種類より先に赤にする', () => {
     expect(presentTool(call('Read', { file_path: '/w/app/a.ts' }), ok(''), CWD, ja).step).toBe('read');

@@ -7,6 +7,7 @@ import { fitHeight, highlight, place, type Placement } from './listboxModel.ts';
 import { Icon } from './Icon.tsx';
 import { useT } from './language.tsx';
 import { keyLabel } from '../../keys.ts';
+import { splitLast } from '../../lib/paths.ts';
 import { AttachUnavailableError, PromptAssistContext } from './promptAssist.ts';
 import { acceptText, arrangeCommands, attachmentFromPath, dropFileName, formatSize, isImageName, sourceLabel, triggerAt, type Attachment, type Trigger } from './promptComposerModel.ts';
 
@@ -448,15 +449,16 @@ export function PromptComposer(props: { id: string; value: string; onChange: (va
                   {/* 見出しは、その一覧を引いた問いが空のときだけ。前の問いの一覧を残している間に、いまの問いへ「最近変えた」を付けない。 */}
                   {Array.isArray(fileList) && fileList.length > 0 && shown?.query === '' && <div className="listbox-group-title">{t('composer.list.recentFiles')}</div>}
                   {Array.isArray(fileList) && fileList.map((f, i) => {
-                    const cut = f.lastIndexOf('/');
+                    // 候補はサーバが / で区切って返す。問いは Windows では \ で打たれることもあるので、どちらの区切りでも最後の名前を光らせる。
+                    const { dir, base } = splitLast(f);
                     const q = trigger!.query;
                     // 前の問いの一覧（stale）の行は、選ばれた印を持たず、押しても入らない（欄のフォーカスだけは奪わない）。
                     const on = !stale && i === current;
                     return (
                       <div key={f} id={`${listId}-${i}`} role="option" aria-selected={on} aria-label={f} data-value={f} data-active={on ? 'true' : undefined}
                         className="listbox-opt pc-file" onMouseDown={(e) => { e.preventDefault(); if (!stale && e.button === 0) accept(f); }} onMouseMove={() => { if (!stale && i !== current) setActive(i); }}>
-                        <span className="pc-file-name"><Marked text={f.slice(cut + 1)} query={q.slice(q.lastIndexOf('/') + 1)} /></span>
-                        {cut >= 0 && <span className="pc-file-dir">{f.slice(0, cut)}</span>}
+                        <span className="pc-file-name"><Marked text={base} query={splitLast(q).base} /></span>
+                        {dir !== '' && <span className="pc-file-dir">{dir.slice(0, -1)}</span>}
                       </div>
                     );
                   })}
