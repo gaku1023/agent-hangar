@@ -188,10 +188,10 @@ describe('アカウントの HTTP', () => {
 
   it('切り替えを断られたら、その状態と文言を返し、いまのアカウントは変えない', async () => {
     const id = (await call('POST', '/accounts', { name: '大学' })).json.accounts[1]!.id;
-    switchAccount.mockRejectedValueOnce(new RunError(409, '前の Claude がまだ終わっていません'));
+    switchAccount.mockRejectedValueOnce(new RunError(409, '前の Claude がまだ終了していません'));
     const res = await app.request('/sessions/s1/switch-account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account: id }) });
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toContain('まだ終わっていません');
+    expect(((await res.json()) as { error: string }).error).toContain('まだ終了していません');
     expect(store.current().id).toBe('primary');
   });
 

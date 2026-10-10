@@ -1024,7 +1024,7 @@ describe('外で動くセッションを hangar で開く', () => {
     const b = run([action({ type: 'session.adopt', id: 's1', confirmed: true }), action({ type: 'session.adopt', id: 's1', confirmed: true })], a.state);
     expect(b.state.overlay).toEqual({ kind: 'none' });
     expect(b.state.launch).toEqual({ kind: 'submitting' });
-    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '引き取っています' }, { kind: 'api.adopt', sessionId: 's1' }]);
+    expect(b.effects).toEqual([{ kind: 'toast', level: 'info', message: '移動中' }, { kind: 'api.adopt', sessionId: 's1' }]);
     // 失敗はトーストで知らせ、送信中を解く。
     const c = run([runtime({ type: 'launch.failed', message: '作業中のセッションは引き取れません' })], b.state);
     expect(c.state.launch).toEqual({ kind: 'failed', message: '作業中のセッションは引き取れません' });

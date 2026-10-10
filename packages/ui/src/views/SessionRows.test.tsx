@@ -55,7 +55,7 @@ describe('SessionRows のフェーズ 3', () => {
     render(<ActionRoot onAction={() => {}}><SessionRows rows={[p3Row('s1', { memo: '覚書' })]} height={400} variant="project" /></ActionRoot>);
     expect(screen.queryByText('$0.50')).toBeNull();
     expect(screen.queryByText('✎ 覚書')).toBeNull();
-    expect(screen.queryByLabelText('名前 s1 のメモを編集')).toBeNull();
+    expect(screen.queryByLabelText('名前 s1 のノートを編集')).toBeNull();
     expect(document.querySelector('.row-note')).not.toBeNull();
   });
   it('j と k で選び、Enter で開く', () => {
@@ -99,7 +99,7 @@ describe('SessionRows のフェーズ 3', () => {
     fireEvent.keyDown(list, { key: 'o' });
     fireEvent.keyDown(list, { key: 'e' });
     expect(onAction).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('名前 s1 のメモ')).toBeNull();
+    expect(screen.queryByLabelText('名前 s1 のノート')).toBeNull();
   });
   it('m でメモの入力欄に変わり、Enter で保存、Esc で捨てる', () => {
     const onAction = vi.fn();
@@ -107,19 +107,19 @@ describe('SessionRows のフェーズ 3', () => {
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'm' });
-    const input = screen.getByLabelText('名前 s1 のメモ') as HTMLInputElement;
+    const input = screen.getByLabelText('名前 s1 のノート') as HTMLInputElement;
     expect(input.value).toBe('前');
     fireEvent.change(input, { target: { value: '後' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '後' });
     expect(onAction).toHaveBeenCalledTimes(1);
-    expect(screen.queryByLabelText('名前 s1 のメモ')).toBeNull();
+    expect(screen.queryByLabelText('名前 s1 のノート')).toBeNull();
     onAction.mockClear();
     fireEvent.keyDown(list, { key: 'm' });
-    fireEvent.change(screen.getByLabelText('名前 s1 のメモ'), { target: { value: '捨てる' } });
-    fireEvent.keyDown(screen.getByLabelText('名前 s1 のメモ'), { key: 'Escape' });
+    fireEvent.change(screen.getByLabelText('名前 s1 のノート'), { target: { value: '捨てる' } });
+    fireEvent.keyDown(screen.getByLabelText('名前 s1 のノート'), { key: 'Escape' });
     expect(onAction).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('名前 s1 のメモ')).toBeNull();
+    expect(screen.queryByLabelText('名前 s1 のノート')).toBeNull();
   });
   it('編集中の入力欄では j と k を横取りしない', () => {
     const onAction = vi.fn();
@@ -127,12 +127,12 @@ describe('SessionRows のフェーズ 3', () => {
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'm' });
-    const input = screen.getByLabelText('名前 s1 のメモ') as HTMLInputElement;
+    const input = screen.getByLabelText('名前 s1 のノート') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'jk' } });
     fireEvent.keyDown(input, { key: 'j' });
     fireEvent.keyDown(input, { key: 'k' });
     // カーソルは動かず、入力欄も開いたまま。
-    expect(screen.getByLabelText('名前 s1 のメモ')).toBe(input);
+    expect(screen.getByLabelText('名前 s1 のノート')).toBe(input);
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: 'jk' });
   });
@@ -142,11 +142,11 @@ describe('SessionRows のフェーズ 3', () => {
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'm' });
-    const input = screen.getByLabelText('名前 s1 のメモ');
+    const input = screen.getByLabelText('名前 s1 のノート');
     fireEvent.change(input, { target: { value: '書きかけ' } });
     fireEvent.blur(input);
     expect(onAction).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('名前 s1 のメモ')).toBeNull();
+    expect(screen.queryByLabelText('名前 s1 のノート')).toBeNull();
   });
 });
 
@@ -265,7 +265,7 @@ describe('SessionRows（2 段の行）', () => {
     const host = screen.getByTestId('session-rows');
     fireEvent.keyDown(host, { key: 'j' });
     fireEvent.keyDown(host, { key: 'm' });
-    const input = screen.getByLabelText('名前 a のメモ');
+    const input = screen.getByLabelText('名前 a のノート');
     fireEvent.change(input, { target: { value: '新' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 'a', text: '新' });
@@ -323,7 +323,7 @@ describe('一覧のキー操作（C1）', () => {
 
   it('行の中のボタンで押した Enter は行を開かない', () => {
     const { onAction } = mount();
-    const more = screen.getByLabelText('名前 s1 の状態');
+    const more = screen.getByLabelText('名前 s1 のステータス');
     act(() => more.focus());
     fireEvent.keyDown(more, { key: 'Enter' });
     // 行は開かない（「⋯」の Enter はメニューを開く）。
@@ -343,7 +343,7 @@ describe('一覧のキー操作（C1）', () => {
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'm' });
-    fireEvent.keyDown(screen.getByLabelText('名前 s1 のメモ'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByLabelText('名前 s1 のノート'), { key: 'Enter' });
     expect(document.activeElement).toBe(rowsOf()[0]);
   });
 
@@ -463,7 +463,7 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(when('名前 e')).toHaveTextContent('2 日過ぎ');
     expect(screen.getByText('2 日過ぎ')).toHaveAttribute('data-due', 'true');
     expect(screen.getByText('10/2（金）')).not.toHaveAttribute('data-due');
-    expect(screen.getByText('10/2（金）')).toHaveAttribute('title', '戻る日 · 最後の活動 3 分前');
+    expect(screen.getByText('10/2（金）')).toHaveAttribute('title', 'リマインダーの日付 · 最後の活動 3 分前');
     expect(when('名前 c')).toHaveTextContent('3 分前');
     // Paused の行も 2 段目の頭は要約の見立てになる。
     expect(rowOf('名前 e').querySelector('.row-sub > .row-state')).toHaveTextContent('済んだ');
@@ -494,7 +494,7 @@ describe('セッションの状態の札と「⋯」', () => {
   });
   it('「⋯」から 4 択を選ぶ。押しても行は開かない', () => {
     const onAction = mount([sr('a')]);
-    fireEvent.click(screen.getByRole('button', { name: '名前 a の状態' }));
+    fireEvent.click(screen.getByRole('button', { name: '名前 a のステータス' }));
     expect(labels()).toEqual(['Paused にする…', 'Done にする', 'Archived にする', 'Active に戻す']);
     expect(screen.getAllByRole('menuitem').map((i) => i.querySelector('kbd')?.textContent)).toEqual(['p', 'd', 'a', 'u']);
     expect(screen.getAllByRole('menuitem')[3]).toHaveAttribute('aria-disabled', 'true');
@@ -504,13 +504,13 @@ describe('セッションの状態の札と「⋯」', () => {
   });
   it('付いている状態は選べず、Active に戻すは選べる。Active の行では「すでに Active です」と添えて押せない', () => {
     const onAction = mount([sr('a', { state: 'done' }), sr('b')]);
-    fireEvent.click(screen.getByRole('button', { name: '名前 a の状態' }));
+    fireEvent.click(screen.getByRole('button', { name: '名前 a のステータス' }));
     const items = screen.getAllByRole('menuitem');
     expect(items[1]).toHaveAttribute('aria-disabled', 'true');
     expect(items[1]).toHaveTextContent('すでに Done です');
     fireEvent.click(items[3]!);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.state.set', id: 'a', status: null });
-    fireEvent.click(screen.getByRole('button', { name: '名前 b の状態' }));
+    fireEvent.click(screen.getByRole('button', { name: '名前 b のステータス' }));
     const last = screen.getAllByRole('menuitem')[3]!;
     expect(last).toHaveAttribute('aria-disabled', 'true');
     expect(last).toHaveTextContent('すでに Active です');
@@ -520,7 +520,7 @@ describe('セッションの状態の札と「⋯」', () => {
     const rb = screen.getByText('名前 b').closest('[role="row"]') as HTMLElement;
     act(() => rb.focus());
     fireEvent.keyDown(rb, { key: '.' });
-    expect(screen.getByRole('menu', { name: '名前 b の状態' })).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: '名前 b のステータス' })).toBeInTheDocument();
     fireEvent.keyDown(document.activeElement!, { key: 'p' });
     expect(onAction).toHaveBeenCalledWith({ type: 'session.pause.open', id: 'b', from: 'menu' });
     expect(screen.queryByRole('menu')).toBeNull();
@@ -531,7 +531,7 @@ describe('セッションの状態の札と「⋯」', () => {
     const ra = screen.getByText('名前 a').closest('[role="row"]') as HTMLElement;
     act(() => ra.focus());
     fireEvent.keyDown(ra, { key: 'm' });
-    fireEvent.keyDown(screen.getByLabelText('名前 a のメモ'), { key: '.' });
+    fireEvent.keyDown(screen.getByLabelText('名前 a のノート'), { key: '.' });
     expect(screen.queryByRole('menu')).toBeNull();
   });
   it('「⋯」はポインタを乗せた行、カーソルの行、焦点のある行、開いている間だけ見せる', () => {
@@ -560,7 +560,7 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(ra);
     fireEvent.keyDown(ra, { key: '.' });
-    expect(screen.getByRole('menu', { name: '名前 a の状態' })).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: '名前 a のステータス' })).toBeInTheDocument();
   });
 });
 
@@ -578,7 +578,7 @@ describe('提案の札とポップ（Q3＋Q1）', () => {
     expect(menu).toHaveTextContent('Paused · 10/2（金） にしますか');
     expect(menu).toHaveTextContent('明日の朝、CPU の数字を確かめる');
     expect(menu).toHaveTextContent('出どころ：抜けるとき · 12 分前');
-    expect(labels()).toEqual(['確定', '日を変える', '却下']);
+    expect(labels()).toEqual(['確定', '日付を変更', '却下']);
     // 頭の段にはフォーカスが止まらず、確定から始まる。
     expect(document.activeElement).toBe(screen.getAllByRole('menuitem')[0]);
     fireEvent.click(screen.getAllByRole('menuitem')[1]!);

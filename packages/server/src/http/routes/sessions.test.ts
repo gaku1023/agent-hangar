@@ -268,7 +268,7 @@ describe('セッションの状態', () => {
     expect((await r.json()).state).toMatchObject({ status: 'paused', returnOn: '2026-10-05', returnTime: '13:30' });
     const bad = await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: '25:00' }, 'PUT');
     expect(bad.status).toBe(400);
-    expect(await err(bad)).toBe('戻る時刻は HH:MM の形で、00:00〜23:59 です（25:00）');
+    expect(await err(bad)).toBe('リマインダーの時刻は HH:MM の形で、00:00〜23:59 です（25:00）');
     expect((await send(`/api/sessions/${id}/state`, { status: 'paused', returnOn: '2026-10-05', returnTime: 1330 }, 'PUT')).status).toBe(400);
     await send(`/api/sessions/${id}/state`, { status: null }, 'PUT');
     proposeSessionState(db, 'd', id, { status: 'paused', note: '明日見る', returnOn: '2026-10-02', returnTime: '09:00', source: 'in_session' });
@@ -291,7 +291,7 @@ describe('セッションの状態', () => {
     const id = alphaId();
     const paused = await send(`/api/sessions/${id}/state`, { status: 'paused' }, 'PUT');
     expect(paused.status).toBe(400);
-    expect(await err(paused)).toBe('Paused には戻る日が要ります');
+    expect(await err(paused)).toBe('Paused にはリマインダーの日付が要ります');
     for (const body of [{}, { status: 'active' }, { status: 'done', note: 5 }, { status: 'paused', returnOn: 20261002 }, { status: 'paused', returnOn: '2026-02-30' }, { status: 'done', note: 'あ'.repeat(201) }]) {
       const r = await send(`/api/sessions/${id}/state`, body, 'PUT');
       expect([JSON.stringify(body), r.status]).toEqual([JSON.stringify(body), 400]);
@@ -309,7 +309,7 @@ describe('セッションの状態', () => {
     const id = alphaId();
     const none = await send(`/api/sessions/${id}/state/confirm`);
     expect(none.status).toBe(409);
-    expect(await err(none)).toBe('このセッションには確かめる提案がありません');
+    expect(await err(none)).toBe('このセッションには確認する提案がありません');
     proposeSessionState(db, 'd', id, { status: 'paused', note: '明日見る', returnOn: '2026-10-02', source: 'in_session' });
     expect((await send(`/api/sessions/${id}/state/confirm`, { returnOn: '2026-02-30' })).status).toBe(400);
     sent.length = 0;

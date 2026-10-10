@@ -88,8 +88,8 @@ describe('AccountSwitcher の開いた先', () => {
     expect(card(/大学/)).toHaveAttribute('aria-checked', 'false');
     // 札の中は AccountMeters で、戻る時刻つきで出す。
     expect(within(card(/会社/)).getByText('taro@example.co.jp')).toBeInTheDocument();
-    expect(within(card(/会社/)).getAllByText(`${list[0]!.fiveHour!.resets} に戻る`).length).toBeGreaterThan(0);
-    expect(within(card(/大学/)).getByRole('meter', { name: '大学 週の枠の使用率' })).toBeInTheDocument();
+    expect(within(card(/会社/)).getAllByText(`${list[0]!.fiveHour!.resets} にリセット`).length).toBeGreaterThan(0);
+    expect(within(card(/大学/)).getByRole('meter', { name: '大学 週の使用率' })).toBeInTheDocument();
   });
   it('札の右上は、shown が「現在のアカウント」、ほかは「切り替える」', () => {
     const { face } = mount(home());

@@ -27,8 +27,8 @@ describe('AccountMeters', () => {
   });
   it('5 時間と週の 2 本の棒を出し、80% 以上の棒だけが警告の印を持つ', () => {
     render(<AccountMeters account={withUsage()} showResets={false} />);
-    const five = screen.getByRole('meter', { name: '会社 5 時間枠の使用率' });
-    const week = screen.getByRole('meter', { name: '会社 週の枠の使用率' });
+    const five = screen.getByRole('meter', { name: '会社 5 時間の使用率' });
+    const week = screen.getByRole('meter', { name: '会社 週の使用率' });
     expect(five).toHaveAttribute('aria-valuenow', '82');
     expect(week).toHaveAttribute('aria-valuenow', '41');
     expect(five.querySelector('.gauge-fill')).toHaveAttribute('data-high', 'true');
@@ -41,8 +41,8 @@ describe('AccountMeters', () => {
   });
   it('使用率は丸めて、0 から 100 に収めて棒にする', () => {
     render(<AccountMeters account={view({ usage: { fiveHour: { usedPercent: 120.4, resetsAt: null }, sevenDay: { usedPercent: -3, resetsAt: null }, updatedAt: NOW } })} showResets={false} />);
-    expect(screen.getByRole('meter', { name: '会社 5 時間枠の使用率' }).querySelector('.gauge-fill')).toHaveStyle({ width: '100%' });
-    expect(screen.getByRole('meter', { name: '会社 週の枠の使用率' }).querySelector('.gauge-fill')).toHaveStyle({ width: '0%' });
+    expect(screen.getByRole('meter', { name: '会社 5 時間の使用率' }).querySelector('.gauge-fill')).toHaveStyle({ width: '100%' });
+    expect(screen.getByRole('meter', { name: '会社 週の使用率' }).querySelector('.gauge-fill')).toHaveStyle({ width: '0%' });
     expect(screen.getByText('120%')).toBeInTheDocument();
   });
   it('showResets のときだけ、戻る時刻を出す', () => {
@@ -50,8 +50,8 @@ describe('AccountMeters', () => {
     const { rerender } = render(<AccountMeters account={v} showResets={false} />);
     expect(screen.queryByText(/に戻る/)).toBeNull();
     rerender(<AccountMeters account={v} showResets />);
-    expect(screen.getByText(`${v.fiveHour!.resets} に戻る`)).toBeInTheDocument();
-    expect(screen.getByText(`${v.sevenDay!.resets} に戻る`)).toBeInTheDocument();
+    expect(screen.getByText(`${v.fiveHour!.resets} にリセット`)).toBeInTheDocument();
+    expect(screen.getByText(`${v.sevenDay!.resets} にリセット`)).toBeInTheDocument();
   });
   it('戻る時刻の届いていない枠には、時刻を添えない', () => {
     render(<AccountMeters account={view({ usage: { fiveHour: { usedPercent: 10, resetsAt: null }, sevenDay: { usedPercent: 20, resetsAt: null }, updatedAt: NOW } })} showResets />);
@@ -70,7 +70,7 @@ describe('AccountMeters', () => {
   });
   it('note は最後の 1 行で、tone を印に持つ', () => {
     const { rerender, container } = render(<AccountMeters account={withUsage()} showResets={false} />);
-    const warn = screen.getByText(/^まもなく上限/);
+    const warn = screen.getByText(/^上限間近/);
     expect(warn).toHaveClass('account-note');
     expect(warn).toHaveAttribute('data-tone', 'warn');
     expect(container.querySelector('.account-meters')!.lastElementChild).toBe(warn);

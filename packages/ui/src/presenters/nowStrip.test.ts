@@ -22,7 +22,7 @@ const present = (p: Partial<StripInput> = {}, t = ja) => presentNowStrip(input(p
 describe('現在の帯の状態（1 行目の左）', () => {
   it('入力待ちは、状態の語と待機の経過と、問いを出す', () => {
     const s = present({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: '既存のテストを書き換えてよいですか？' } });
-    expect(s).toMatchObject({ tone: 'wait', state: '入力待ち', sub: '4 分待機', detail: '既存のテストを書き換えてよいですか？' });
+    expect(s).toMatchObject({ tone: 'wait', state: '入力待ち', sub: '入力待ち 4 分', detail: '既存のテストを書き換えてよいですか？' });
   });
   it('質問の文が無い入力待ちは、活動の要約を出す。それも無ければ何も出さない', () => {
     expect(present({ live: 'waiting', activity: { tool: 'ExitPlanMode', summary: '計画の承認', question: null } }).detail).toBe('計画の承認');

@@ -244,7 +244,7 @@ describe('設定のクラウド同期', () => {
     expect(screen.getByText('クラウド同期を始めると使えます')).toBeInTheDocument();
     // 同期の操作と使用量は出さない。
     for (const name of ['今すぐ同期', '同期を一時停止', '参加トークンを表示', '適用内容を確認']) expect(screen.queryByRole('button', { name })).toBeNull();
-    expect(screen.queryByRole('region', { name: '使用量と費用' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'クラウドの使用量と料金' })).toBeNull();
   });
   it('2 つのボタンは、押すとターミナルで打つコマンドを出す（クラウドの用意はアプリからはまだ行わない）', () => {
     render(ui(at('cloud', { cloud: cloudProps({ configured: false, url: null, state: 'off', devices: [] }) })));
@@ -304,8 +304,8 @@ describe('設定のクラウド同期', () => {
   });
   it('上限で退いている間は、状態の札を止まった色で言い、今すぐ同期だけを出す', () => {
     const onAction = vi.fn();
-    render(ui(at('cloud', { cloud: cloudProps({ state: 'paused', paused: false, limited: true, stateLabel: '無料枠で停止 · 9:00 に戻る', badge: { text: '無料枠で停止', tone: 'stop' } }) }), onAction));
-    expect(screen.getByText('状態 無料枠で停止 · 9:00 に戻る')).toBeInTheDocument();
+    render(ui(at('cloud', { cloud: cloudProps({ state: 'paused', paused: false, limited: true, stateLabel: '無料枠で停止 · 9:00 にリセット', badge: { text: '無料枠で停止', tone: 'stop' } }) }), onAction));
+    expect(screen.getByText('状態 無料枠で停止 · 9:00 にリセット')).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ }).querySelector('.badge')).toHaveAttribute('data-tone', 'stop');
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'sync.now' });
@@ -338,7 +338,7 @@ describe('設定のクラウド同期', () => {
     rerender(ui(at('cloud', { cloud: cloudProps({ joinToken: 'tok-abc' }) })));
     expect(screen.getByText('tok-abc')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '参加トークンを表示' })).toBeNull();
-    expect(screen.getByText(/1Password などに写してください/)).toBeInTheDocument();
+    expect(screen.getByText(/1Password などにコピーしてください/)).toBeInTheDocument();
     rerender(ui(at('cloud', { cloud: cloudProps() })));
     expect(screen.queryByText('tok-abc')).toBeNull();
     expect(screen.getByRole('button', { name: '参加トークンを表示' })).toBeInTheDocument();
@@ -385,7 +385,7 @@ describe('設定のクラウド同期', () => {
 describe('設定の連携', () => {
   it('互換、MCP サーバー、ステータスライン、シェル連携、アカウントの順に並べ、通知は置かない', () => {
     render(ui(at('integrations')));
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確かめています|問題なし)$/, ''))).toEqual(['Claude Code との互換', 'MCP サーバー', 'ステータスライン', 'シェル連携', 'アカウント']);
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認しています|問題なし)$/, ''))).toEqual(['Claude Code との互換性', 'MCP サーバー', 'ステータスライン', 'シェル連携', 'アカウント']);
     expect(screen.queryByRole('switch', { name: '通知を有効にする' })).toBeNull();
   });
   it('アカウントの節は「連携」の中に出し、1 件でも出す', () => {
@@ -505,44 +505,44 @@ describe('設定の連携', () => {
     });
     it('準備の確かめが届く前は、本文の下に「確かめています」と出し、札は出さない', () => {
       render(ui(at('integrations', { compat: null })));
-      expect(within(section()).getByText('確かめています')).toBeInTheDocument();
-      expect(section()).toHaveTextContent('hangar は Claude Code のトランスクリプト、状態のファイル、statusline、~/.claude の項目、CLI の出力、画面の文字を読んでいます。知らない形に出会ったら、ここに出します。');
+      expect(within(section()).getByText('確認しています')).toBeInTheDocument();
+      expect(section()).toHaveTextContent('hangar は Claude Code のトランスクリプト、状態のファイル、ステータスライン、~/.claude の内容、CLI の出力、画面出力を読んでいます。知らない形に出会ったら、ここに出します。');
     });
     it('問題なしは緑の札で、手元の版と確かめた版を出す', () => {
       render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 }, null, '') })));
       expect(within(section()).getByText('問題なし')).toHaveAttribute('data-tone', 'ok');
-      expect(section()).toHaveTextContent('手元の版 2.1.292');
-      expect(section()).toHaveTextContent('確かめた版 2.1.292');
-      expect(within(section()).queryByRole('list', { name: '止めた機能' })).toBeNull();
+      expect(section()).toHaveTextContent('インストール済みのバージョン 2.1.292');
+      expect(section()).toHaveTextContent('検証済みのバージョン 2.1.292');
+      expect(within(section()).queryByRole('list', { name: '無効にした機能' })).toBeNull();
     });
     it('未確認の版は灰色の札で、版の並びに止めていないことを添える', () => {
       render(ui(at('integrations', { compat: presentCompat(translator('ja'), { verifiedVersion: '2.1.292', localVersion: '2.1.300', driftCount: 0 }, null, '') })));
-      expect(within(section()).getByText('未確認の版')).toHaveAttribute('data-tone', 'info');
-      expect(section()).toHaveTextContent('手元の版 2.1.300');
-      expect(within(section()).getByText('まだ確かめていない版です。動きは止めていません')).toBeInTheDocument();
+      expect(within(section()).getByText('未検証のバージョン')).toHaveAttribute('data-tone', 'info');
+      expect(section()).toHaveTextContent('インストール済みのバージョン 2.1.300');
+      expect(within(section()).getByText('未検証のバージョンです。無効にした機能はありません')).toBeInTheDocument();
     });
     it('ずれは注意の札で、止めた機能の一覧を常に出し、細目は畳む。表の下に置き場と報告用に写す', () => {
       const onAction = vi.fn();
       const c = presentCompat(translator('ja'), DRIFT, DETAIL, '0.3.0');
       render(ui(at('integrations', { compat: c }), onAction));
       const sec = within(section());
-      expect(sec.getByText('ずれ 3 件')).toHaveAttribute('data-tone', 'warn');
-      expect(sec.getByText('知らない形に頼る機能だけを止め、ほかは動かしています。')).toBeInTheDocument();
-      expect(within(sec.getByRole('list', { name: '止めた機能' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['ターンの目次から端末の指示へ跳ぶのを止めています', '休んでいるセッションを自動で止めるのを無効にしています']);
-      const more = sec.getByText('ずれ 3 件の中身').closest('details')!;
+      expect(sec.getByText('変更点 3 件')).toHaveAttribute('data-tone', 'warn');
+      expect(sec.getByText('知らない形に頼る機能だけを無効にし、ほかは動かしています。')).toBeInTheDocument();
+      expect(within(sec.getByRole('list', { name: '無効にした機能' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['ターンの目次からターミナルの指示へジャンプするのを無効にしています', 'アイドルのセッションを自動で停止するのを無効にしています']);
+      const more = sec.getByText('変更点 3 件の詳細').closest('details')!;
       expect(more).not.toHaveAttribute('open');
       expect(within(more).getAllByRole('row')).toHaveLength(4);
       expect(within(more).getByText('~/.agent-hangar/compat.json')).toBeInTheDocument();
-      fireEvent.click(within(more).getByRole('button', { name: '報告用に写す' }));
+      fireEvent.click(within(more).getByRole('button', { name: 'レポートをコピー' }));
       expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: c.report });
     });
     it('ずれはあっても止めた機能が無ければ、一覧を出さず、記録だけだと言う', () => {
       const only: CompatDto = { ...DETAIL, drifts: [{ contract: 'cli', value: 'subcommand.added=newcmd', version: null, count: 1, firstSeenAt: when(7, 9, 0), lastSeenAt: when(7, 9, 0) }] };
       render(ui(at('integrations', { compat: presentCompat(translator('ja'), { ...DRIFT, driftCount: 1 }, only, '') })));
-      expect(within(section()).getByText('ずれ 1 件')).toHaveAttribute('data-tone', 'warn');
-      expect(within(section()).getByText('知らない形を記録しましたが、止めた機能はありません。')).toBeInTheDocument();
-      expect(within(section()).queryByRole('list', { name: '止めた機能' })).toBeNull();
-      expect(within(section()).getByText('ずれ 1 件の中身')).toBeInTheDocument();
+      expect(within(section()).getByText('変更点 1 件')).toHaveAttribute('data-tone', 'warn');
+      expect(within(section()).getByText('知らない形を記録しましたが、無効にした機能はありません。')).toBeInTheDocument();
+      expect(within(section()).queryByRole('list', { name: '無効にした機能' })).toBeNull();
+      expect(within(section()).getByText('変更点 1 件の詳細')).toBeInTheDocument();
     });
     it('ずれがあっても、見出しの「要修正」は灯さない', () => {
       render(ui(at('integrations', { compat: presentCompat(translator('ja'), DRIFT, DETAIL, ''), todo: { must: 0, link: 0 } })));
@@ -674,10 +674,10 @@ describe('設定の要約エンジン', () => {
       fireEvent.change(cap, { target: { value: bad } });
       fireEvent.click(screen.getByRole('button', { name: '保存' }));
       expect(onAction).not.toHaveBeenCalled();
-      expect(screen.getByText('1 から 200 までの整数を入れてください')).toBeTruthy();
+      expect(screen.getByText('1 から 200 までの整数を入力してください')).toBeTruthy();
     }
     fireEvent.change(cap, { target: { value: '12' } });
-    expect(screen.queryByText('1 から 200 までの整数を入れてください')).toBeNull();
+    expect(screen.queryByText('1 から 200 までの整数を入力してください')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 12 }, field: 'summarizer' });
   });
@@ -782,7 +782,7 @@ describe('設定のツール', () => {
       workspace: { ok: true, soft: false, text: '/w', note: 'プロジェクト 12 件', fix: null, fixCommand: null },
       tmux: { ok: false, soft: false, text: '見つかりません', note: null, fix: null, fixCommand: 'brew install tmux' },
       claude: { ok: true, soft: false, text: '/Users/me/.local/bin/claude', note: '2.3.1', fix: null, fixCommand: null },
-      code: { ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドを入れてください', fixCommand: null },
+      code: { ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドをインストールしてください', fixCommand: null },
       node: null,
     };
     const onAction = vi.fn();
@@ -794,7 +794,7 @@ describe('設定のツール', () => {
     expect(under('tmux のパス')).toHaveAttribute('data-tone', 'ng');
     expect(under('code のパス')).toHaveAttribute('data-tone', 'soft');
     expect(under('code のパス')).toHaveTextContent('無くても動きます');
-    expect(under('Node のパス')).toHaveTextContent('確かめています');
+    expect(under('Node のパス')).toHaveTextContent('確認しています');
     fireEvent.click(screen.getByRole('button', { name: 'brew install tmux をコピー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'brew install tmux' });
   });

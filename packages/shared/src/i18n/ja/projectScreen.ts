@@ -3,11 +3,11 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const projectScreenJa: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.page.notFound': 'プロジェクトが見つかりません',
-  'projectScreen.status.label': 'プロジェクトの状態',
-  'projectScreen.status.activeHint': 'いま進めている',
-  'projectScreen.status.pausedHint': 'いったん止めている',
-  'projectScreen.status.doneHint': 'やり終えた',
-  'projectScreen.status.archivedHint': '一覧の奥へしまう',
+  'projectScreen.status.label': 'プロジェクトのステータス',
+  'projectScreen.status.activeHint': '進行中のもの',
+  'projectScreen.status.pausedHint': '一時的に止めているもの',
+  'projectScreen.status.doneHint': '完了したもの',
+  'projectScreen.status.archivedHint': '一覧に表示しないもの',
   'projectScreen.quick.start': 'クイックセッションを開始',
   'projectScreen.open.editor': 'VS Code で開く',
   'projectScreen.open.terminal': 'ターミナルで開く',

@@ -98,7 +98,7 @@ describe('行（要対応）', () => {
   it('入力待ちの行：点、名前、プロジェクト、問い、待った時間、答えるボタン', () => {
     const row = presentHomeBand({ ...none, attention: [waiting('a')] }, ja).groups[0]!.rows[0]!;
     expect(row).toMatchObject({ key: 'wait:a', lead: { kind: 'dot', live: 'waiting', aside: false }, name: '待ち a', context: 'alpha', text: '削除してよいですか', detail: null, tone: 'wait' });
-    expect(row.trail).toEqual([{ text: '12分待機', tone: 'wait' }]);
+    expect(row.trail).toEqual([{ text: '入力待ち 12分', tone: 'wait' }]);
     expect(row.open).toEqual({ type: 'session.open', id: 'a' });
     expect(row.actions).toEqual([{ id: 'answer', label: 'ターミナルで回答', ariaLabel: 'ターミナルで回答、待ち a', primary: true, ghost: false, send: { type: 'session.open', id: 'a', focus: 'terminal' } }]);
   });

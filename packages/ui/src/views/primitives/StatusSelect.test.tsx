@@ -5,12 +5,12 @@ import { ProjectStatusDot, StatusSelect } from './StatusSelect.tsx';
 
 describe('StatusSelect', () => {
   it('押すと 4 つのステータスを、点とひとことの意味つきで開く', () => {
-    render(<StatusSelect label="alpha の状態" value="paused" onChange={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: 'alpha の状態' }));
+    render(<StatusSelect label="alpha のステータス" value="paused" onChange={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'alpha のステータス' }));
     const options = screen.getAllByRole('option');
     expect(options.map((o) => o.getAttribute('aria-label'))).toEqual(['Active', 'Paused', 'Done', 'Archived']);
     expect(screen.getByRole('option', { name: 'Paused' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('option', { name: 'Done' })).toHaveAccessibleDescription('やり終えた');
+    expect(screen.getByRole('option', { name: 'Done' })).toHaveAccessibleDescription('完了したもの');
     expect(options.map((o) => o.querySelector('.st-dot')?.getAttribute('data-status'))).toEqual(['active', 'paused', 'done', 'archived']);
   });
   it('選び直すと新しいステータスを渡す', () => {
@@ -40,7 +40,7 @@ describe('StatusSelect の見た目', () => {
     expect(pill.querySelector('.status-text')!.textContent).toBe('Paused');
   });
   it('読み上げで見つかるのは、名前つきの札 1 つだけ', () => {
-    render(<StatusSelect label="alpha の状態" value="done" onChange={() => {}} />);
+    render(<StatusSelect label="alpha のステータス" value="done" onChange={() => {}} />);
     expect(screen.getAllByRole('button')).toHaveLength(1);
     expect(screen.queryByRole('combobox')).toBeNull();
   });

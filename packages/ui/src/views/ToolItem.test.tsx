@@ -104,7 +104,7 @@ describe('長い中身の畳み（F1）', () => {
     expect(container.querySelector('.clamp[data-clamped="true"]')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '全文を表示（残り 28 行）' }));
     expect(container.querySelector('.bash .out')?.textContent?.split('\n')).toHaveLength(40);
-    fireEvent.click(screen.getByRole('button', { name: '畳む' }));
+    fireEvent.click(screen.getByRole('button', { name: '折りたたむ' }));
     expect(container.querySelector('.bash .out')?.textContent?.split('\n')).toHaveLength(12);
   });
   it('少しだけ長い出力は切らない', () => {

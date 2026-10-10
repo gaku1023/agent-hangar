@@ -145,24 +145,24 @@ describe('見出しの段（A1、C1）', () => {
     fireEvent.click(screen.getByRole('button', { name: 'VS Code で開く' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.openEditor', sessionId: 's1' });
     const m = menu();
-    expect(m.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')!.textContent)).toEqual(['ターミナルで開く', 'フォーク', '要約を作り直す', '停止']);
+    expect(m.getAllByRole('menuitem').map((i) => i.querySelector('.menu-item-text > span')!.textContent)).toEqual(['ターミナルで開く', 'フォーク', '要約を再生成', '停止']);
     // 押せない項目は理由を 1 行添える。
     expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveAttribute('aria-disabled', 'true');
-    expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveTextContent('実行中は押せません。止めると押せます');
+    expect(m.getByRole('menuitem', { name: /フォーク/ })).toHaveTextContent('実行中は押せません。停止すると押せます');
     fireEvent.click(m.getByRole('menuitem', { name: /ターミナルで開く/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.openTerminalApp', runId: 'r1', tabId: 'r1' });
-    fireEvent.click(menu().getByRole('menuitem', { name: /要約を作り直す/ }));
+    fireEvent.click(menu().getByRole('menuitem', { name: /要約を再生成/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'summary.regenerate', sessionId: 's1' });
   });
   it('停止は危険色でメニューの最後。作業中か、シェルタブの数を添えて送り、確認は Mediator が出す', () => {
     const onAction = withHost(<SS {...running} live="waiting" />);
-    const stop = menu().getByRole('menuitem', { name: /停止/ });
+    const stop = menu().getByRole('menuitem', { name: /^停止/ });
     expect(stop).toHaveAttribute('data-danger', 'true');
     fireEvent.click(stop);
     expect(onAction).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: true, aside: false, shellTabs: 1 });
     cleanup();
     const idle = withHost(<SS {...running} live="idle" tabs={[running.tabs[0]!]} />);
-    fireEvent.click(menu().getByRole('menuitem', { name: /停止/ }));
+    fireEvent.click(menu().getByRole('menuitem', { name: /^停止/ }));
     expect(idle).toHaveBeenCalledWith({ type: 'session.kill', runId: 'r1', working: false, aside: false, shellTabs: 0 });
   });
   it('終わったセッションは再開を主にし、フォークと VS Code で開くは「…」から', () => {
@@ -490,7 +490,7 @@ describe('SessionScreen（実行中）', () => {
     // 終了した run では新しいシェルを開けないので、＋ を出さない。
     expect(screen.queryByLabelText('シェルタブを追加')).toBeNull();
     expect(screen.getByRole('button', { name: '再開' })).toBeEnabled();
-    expect(menu().queryByRole('menuitem', { name: /停止/ })).toBeNull();
+    expect(menu().queryByRole('menuitem', { name: /^停止/ })).toBeNull();
   });
   it('分割の指定があれば 2 つのターミナルを並べ、帯は 1 つだけ置く', () => {
     withHost(<SS {...running} canSplit split={{ left: 'r1', right: 't1' }} />);
@@ -513,7 +513,7 @@ describe('ターミナルの知らせ（F1）', () => {
     expect(within(screen.getByTestId('term-r1')).queryByText('ターミナルとの接続が切れました')).toBeNull();
     const right = within(screen.getByTestId('term-t1'));
     expect(right.getByText('ターミナルとの接続が切れました')).toBeInTheDocument();
-    expect(right.getByText(/シェルは動き続けています。5 秒後にもう一度つなぎます。/)).toBeInTheDocument();
+    expect(right.getByText(/シェルは動き続けています。5 秒後に再接続します。/)).toBeInTheDocument();
     fireEvent.click(right.getByRole('button', { name: '再接続' }));
     expect(h.reconnect).toHaveBeenCalledWith('t1');
   });
@@ -523,7 +523,7 @@ describe('ターミナルの知らせ（F1）', () => {
     expect(left.getByText('transcript を表示中')).toBeInTheDocument();
     expect(left.getByText('12:09 のターン · Claude は裏で動き続けています')).toBeInTheDocument();
     expect(within(screen.getByTestId('term-t1')).queryByText('transcript を表示中')).toBeNull();
-    fireEvent.click(left.getByRole('button', { name: /最新へ戻る/ }));
+    fireEvent.click(left.getByRole('button', { name: /最新へ移動/ }));
     expect(onAction).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
   });
   it('帯が出ていても、枠の中の Esc は横取りせずに Claude へ渡す', () => {
@@ -554,7 +554,7 @@ describe('SessionScreen のアイコン', () => {
     expect(iconOf(screen.getByRole('button', { name: '詳細' }))).toBe('info');
     const m = menu();
     expect(iconOf(m.getByRole('menuitem', { name: /ターミナルで開く/ }))).toBe('openTerminal');
-    expect(iconOf(m.getByRole('menuitem', { name: /停止/ }))).toBe('stop');
+    expect(iconOf(m.getByRole('menuitem', { name: /^停止/ }))).toBe('stop');
     expect(iconOf(m.getByRole('menuitem', { name: /フォーク/ }))).toBe('fork');
   });
   it('タブは種類ごとのアイコンを持ち、閉じると追加は読み上げ名を保つ', () => {
@@ -598,15 +598,15 @@ describe('フェーズ 4 のセッション画面', () => {
   it('外で動くセッションには、引き取りと attach を「…」に出す', () => {
     const onAction = vi.fn();
     const { rerender } = render(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} canFork={false} outsideOpen="adopt" /></ActionRoot>);
-    fireEvent.click(menu().getByRole('menuitem', { name: /hangar で引き取る/ }));
+    fireEvent.click(menu().getByRole('menuitem', { name: /hangar に移動/ }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.adopt', id: 's1' });
     rerender(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} canFork={false} outsideOpen="attach" /></ActionRoot>);
-    fireEvent.click(menu().getByRole('menuitem', { name: /hangar でつなぐ/ }));
+    fireEvent.click(menu().getByRole('menuitem', { name: /hangar で接続/ }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'session.attach', id: 's1' });
     rerender(<ActionRoot onAction={onAction}><SS {...base} live="waiting" canResume={false} canFork={false} /></ActionRoot>);
     const m = menu();
-    expect(m.queryByRole('menuitem', { name: /hangar で引き取る/ })).toBeNull();
-    expect(m.queryByRole('menuitem', { name: /hangar でつなぐ/ })).toBeNull();
+    expect(m.queryByRole('menuitem', { name: /hangar に移動/ })).toBeNull();
+    expect(m.queryByRole('menuitem', { name: /hangar で接続/ })).toBeNull();
   });
   it('写しだけのセッションはこの PC で再開を主にする', () => {
     const onAction = vi.fn();
@@ -821,7 +821,7 @@ describe('SessionScreen（本文が消えた会話）', () => {
   it('本文が無いので、冒頭の 1 枚の要約の作り直しは出さない', () => {
     render(<ActionRoot onAction={() => {}}><SS {...props} /></ActionRoot>);
     expect(screen.queryByRole('button', { name: '要約を再生成' })).toBeNull();
-    expect(menu().queryByRole('menuitem', { name: /要約を作り直す/ })).toBeNull();
+    expect(menu().queryByRole('menuitem', { name: /要約を再生成/ })).toBeNull();
   });
   it('延ばせないときは手を出さず、要約も無ければそう言う', () => {
     const lead = leadOf({ summary: null, hasTranscript: false }, { gone: true });
@@ -874,7 +874,7 @@ describe('SessionScreen（英語）', () => {
     expect(screen.getByRole('separator', { name: 'Left and right width' })).toHaveAttribute('aria-valuetext', 'Left 50%');
     expect(screen.getByText('Transcript view')).toBeInTheDocument();
     expect(screen.getByText('Turn from 12:09 · Claude keeps working in the background')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Back to latest/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Jump to latest/ }).length).toBeGreaterThan(0);
     const right = within(screen.getByTestId('term-t1'));
     expect(right.getByText('Terminal disconnected')).toBeInTheDocument();
     expect(right.getByText('The shell is still running. Reconnecting in 5 seconds.')).toBeInTheDocument();

@@ -234,7 +234,7 @@ describe('PromptComposer の @ の候補', () => {
     expect(screen.queryByRole('listbox')).toBeNull();
     const b = screen.getByRole('button', { name: 'ファイル' });
     expect(b).toBeDisabled();
-    expect(b).toHaveAttribute('title', 'プロジェクトを選ぶと使えます');
+    expect(b).toHaveAttribute('title', 'プロジェクトを選択すると使えます');
   });
   it('道具の段の「ファイル」は、カーソルの位置に @ を入れて候補を開く。前が空白でなければ空白を挟む', async () => {
     const onValue = vi.fn();
@@ -723,7 +723,7 @@ describe('PromptComposer の添付', () => {
   it('× で外す', async () => {
     const onAttachments = vi.fn();
     await mount({}, { initial: [{ path: '/h/.agent-hangar/drops/1-0-a.png', name: 'a.png', size: 10 }], onAttachments });
-    fireEvent.click(screen.getByRole('button', { name: 'a.png を外す' }));
+    fireEvent.click(screen.getByRole('button', { name: 'a.png を解除' }));
     expect(onAttachments).toHaveBeenLastCalledWith([]);
   });
   it('添付ボタンで選んだファイルも同じ道を通る', async () => {
@@ -923,7 +923,7 @@ describe('PromptComposer の送っている最中の札', () => {
     const real = screen.getByRole('listitem', { name: 'a.png' });
     expect(real).not.toHaveAttribute('aria-busy');
     expect(real).toHaveTextContent('2 KB');
-    expect(within(real).getByRole('button', { name: 'a.png を外す' })).toBeInTheDocument();
+    expect(within(real).getByRole('button', { name: 'a.png を解除' })).toBeInTheDocument();
     expect(onPending.mock.calls).toEqual([[1], [0]]);
   });
   it('2 件送って後のほうが先に終わっても、札は渡した順に並ぶ', async () => {

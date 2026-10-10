@@ -97,7 +97,7 @@ describe('presentNotices：事実から行を組む', () => {
 
   it('手元の版が読めないときは「版は不明」と言う', () => {
     const [row] = presentNotices(initialState(), storeOf({ readiness: compatSummary(2, null) }), NOW).rows;
-    expect(row).toMatchObject({ key: 'compat|unknown|2 change', detail: 'Claude Code：変更点 2 件（手元の版は不明）' });
+    expect(row).toMatchObject({ key: 'compat|unknown|2 change', detail: 'Claude Code：変更点 2 件（インストール済みのバージョンは不明）' });
   });
 
   it('古いサーバ（readiness に compat が無い）でも落ちず、行を作らない', () => {
@@ -109,7 +109,7 @@ describe('presentNotices：事実から行を組む', () => {
       expect(presentNotices(initialState(), storeOf({ retention: r }), NOW).rows).toEqual([]);
     }
     const [row] = presentNotices(initialState(), storeOf({ retention: retention() }), NOW).rows;
-    expect(row).toMatchObject({ key: 'retention|30|rule', kind: 'retention', tone: 'warn', kindLabel: '保持期間', title: 'トランスクリプトは 30 日で削除されます', detail: 'hangar の履歴からも消えます', when: null });
+    expect(row).toMatchObject({ key: 'retention|30|rule', kind: 'retention', tone: 'warn', kindLabel: '保持期間', title: 'トランスクリプトは 30 日で削除されます', detail: 'hangar の履歴からも削除されます', when: null });
     expect(row!.action).toEqual({ label: '保持期間を延長…', send: { type: 'nav.go', to: { name: 'settings' } } });
   });
 

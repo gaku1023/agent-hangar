@@ -8,6 +8,6 @@ export const retentionJa: AreaDictionary<typeof retentionKeys> = {
   'retention.unwritable.managed': '組織の設定で決まっています',
   'retention.unwritable.noDir': '設定の置き場が見つからないので書き換えません',
   'retention.unwritable.generic': '保持期間を書き換えられません',
-  'retention.error.conflict': '設定ファイルがほかで変わったので、読み直しました',
+  'retention.error.conflict': '設定ファイルが外部で変更されたため、再読み込みしました',
   'retention.backup.noFreeName': 'バックアップを置く名前が空いていません',
 };

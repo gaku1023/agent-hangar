@@ -40,7 +40,7 @@ describe('裏だけ動いているセッションの見せ方', () => {
   });
   it('ホームの札は、いまの手を出さず、指揮役が空いていることを言う', () => {
     const card = presentHome(initialState(), storeWith(), NOW).running.find((c) => c.id === 'a');
-    expect(card).toMatchObject({ live: 'busy', aside: true, activity: null, intent: null, note: 'バックグラウンドでシェル。指揮役は入力を受け付けている' });
+    expect(card).toMatchObject({ live: 'busy', aside: true, activity: null, intent: null, note: 'バックグラウンドでシェル。メイン会話は入力を受け付けている' });
   });
   it('セッション画面の帯は「バックグラウンドで作業中」と、メイン会話が空いていることを言い、灯は裏だけの色', () => {
     const p = presentSession(initialState(), storeWith(), NOW, 'a');

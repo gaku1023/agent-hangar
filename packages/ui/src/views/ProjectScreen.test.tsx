@@ -77,7 +77,7 @@ describe('ProjectScreen の見出し', () => {
   });
   it('状態の選択が data-status を持つ', () => {
     mount(props({ status: 'done' }));
-    expect(screen.getByLabelText('プロジェクトの状態').getAttribute('data-status')).toBe('done');
+    expect(screen.getByLabelText('プロジェクトのステータス').getAttribute('data-status')).toBe('done');
   });
   it('場所の行はパスを出す。パスが無いときはそう言う', () => {
     const { unmount } = mount();
@@ -95,7 +95,7 @@ describe('ProjectScreen の見出し', () => {
   it('クイックセッションの置き場は、状態と外で開く操作を出さず、始める操作を出す', () => {
     const onAction = vi.fn();
     mount(props({ isScratch: true }), onAction);
-    expect(screen.queryByLabelText('プロジェクトの状態')).toBeNull();
+    expect(screen.queryByLabelText('プロジェクトのステータス')).toBeNull();
     expect(screen.queryByText('VS Code で開く')).toBeNull();
     fireEvent.click(screen.getByText('クイックセッションを開始'));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open', scratch: true });

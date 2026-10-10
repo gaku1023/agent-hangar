@@ -1223,7 +1223,7 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
   // Paused の入力（B1）。Dialog の殻が持つ Esc と、開いた元へのフォーカスの戻りを Root ごしに確かめる。
   it('「⋯」から Paused の入力を開き、Esc で閉じると「⋯」へフォーカスが戻る', async () => {
     await mounted();
-    const more = screen.getByRole('button', { name: 'せっしょん の状態' });
+    const more = screen.getByRole('button', { name: 'せっしょん のステータス' });
     fireEvent.click(more);
     fireEvent.click(screen.getByRole('menuitem', { name: /Paused にする/ }));
     const dialog = screen.getByRole('dialog', { name: 'Paused にする' });
@@ -1237,7 +1237,7 @@ describe('画面に入ったときの一覧のフォーカス（C1）', () => {
   it('Paused の入力で送ると、API の結果を待たずに閉じて、PUT に戻る日と理由が載る', async () => {
     const setSessionState = vi.fn(() => new Promise<never>(() => {}));
     await mounted({ api: { setSessionState } });
-    fireEvent.click(screen.getByRole('button', { name: 'せっしょん の状態' }));
+    fireEvent.click(screen.getByRole('button', { name: 'せっしょん のステータス' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Paused にする/ }));
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: '数字を見る' } });
     fireEvent.click(screen.getByRole('button', { name: 'Paused にする' }));

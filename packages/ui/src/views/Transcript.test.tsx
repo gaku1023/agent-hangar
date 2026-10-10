@@ -342,7 +342,7 @@ describe('Transcript の本文', () => {
     expect(container.querySelector('.msg-assistant .clamp[data-clamped="true"]')).not.toBeNull();
     fireEvent.click(getByRole('button', { name: '全文を表示（残り 49 行）' }));
     expect(container.querySelector('.msg-assistant .clamp[data-clamped="true"]')).toBeNull();
-    expect(getByRole('button', { name: '畳む' })).toBeInTheDocument();
+    expect(getByRole('button', { name: '折りたたむ' })).toBeInTheDocument();
     cleanup();
   });
   it('利用者の本文は打ったとおりに出す', () => {

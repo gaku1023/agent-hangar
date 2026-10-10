@@ -130,8 +130,8 @@ describe('畳んでも読める', () => {
   });
   it('最終更新を畳んでも、ゲージの title から読める', () => {
     renderShell();
-    expect(screen.getByRole('meter', { name: '5 時間枠の使用率' }).closest('.gauge')).toHaveAttribute('title', '5 時間枠の使用率 48%、最終更新 3 分前');
-    expect(screen.getByRole('meter', { name: '週の枠の使用率' }).closest('.gauge')).toHaveAttribute('title', '週の枠の使用率 12%、最終更新 3 分前');
+    expect(screen.getByRole('meter', { name: '5 時間の使用率' }).closest('.gauge')).toHaveAttribute('title', '5 時間の使用率 48%、最終更新 3 分前');
+    expect(screen.getByRole('meter', { name: '週の使用率' }).closest('.gauge')).toHaveAttribute('title', '週の使用率 12%、最終更新 3 分前');
   });
 });
 

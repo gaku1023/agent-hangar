@@ -140,7 +140,7 @@ describe('Shell', () => {
     const el = screen.getByRole('status', { name: '接続の状態' });
     expect(el).toHaveAttribute('data-hard', 'true');
     const banner = within(el);
-    expect(banner.getByText('サーバに戻れません')).toBeInTheDocument();
+    expect(banner.getByText('サーバに接続できません')).toBeInTheDocument();
     expect(banner.getByText('アプリを再起動してください')).toBeInTheDocument();
     expect(banner.queryByRole('button', { name: '今すぐ再接続' })).toBeNull();
     fireEvent.click(banner.getByRole('button', { name: 'ログを開く' }));
@@ -160,7 +160,7 @@ describe('Shell', () => {
   });
   it('ヘッダーにベルを置く。未読の数を札に出し、押すと知らせの一覧が開いて、行の操作を送れる', () => {
     const onAction = vi.fn();
-    const row = { key: 'retention|30|rule', kind: 'retention' as const, tone: 'warn' as const, icon: 'retention' as const, kindLabel: '保持期間', title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも消えます', when: null, unread: true, action: { label: '設定を開く', send: { type: 'nav.go' as const, to: { name: 'settings' as const } } } };
+    const row = { key: 'retention|30|rule', kind: 'retention' as const, tone: 'warn' as const, icon: 'retention' as const, kindLabel: '保持期間', title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも削除されます', when: null, unread: true, action: { label: '設定を開く', send: { type: 'nav.go' as const, to: { name: 'settings' as const } } } };
     const notices = { rows: [row], unread: 1, keys: [row.key], label: '通知（未読 1 件）' };
     render(<ActionRoot onAction={onAction}><Shell {...props} notices={notices} overlays={null}><div /></Shell></ActionRoot>);
     const bell = screen.getByRole('button', { name: '通知（未読 1 件）' });
@@ -246,7 +246,7 @@ describe('Shell', () => {
   it('件数が無いとき使用量ゲージは残る', () => {
     render(<ActionRoot onAction={() => {}}><Shell {...props} sync={syncFixture({ state: 'pushing', label: '送信中' })} usage={{ fiveHour: 12, sevenDay: 34, fiveHourResets: null, sevenDayResets: null, updatedLabel: '3 分前' }} overlays={null}><div /></Shell></ActionRoot>);
     expect(screen.getByText('送信中')).toBeInTheDocument();
-    expect(screen.getByRole('meter', { name: '5 時間枠の使用率' })).toBeInTheDocument();
+    expect(screen.getByRole('meter', { name: '5 時間の使用率' })).toBeInTheDocument();
     expect(screen.getByText('最終更新 3 分前')).toBeInTheDocument();
   });
   // .app ではヘッダの空いた所を掴んで窓を動かす。操作する部品に印が付くと、押しても窓が動くだけになる。

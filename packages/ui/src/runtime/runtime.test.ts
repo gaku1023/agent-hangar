@@ -661,7 +661,7 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'tab.open', sessionId: 's1', kind: 'shell' });
     await flush();
     expect(api.openTab).not.toHaveBeenCalled();
-    expect(rt.getState().toasts.at(-1)?.message).toBe('Claude が動いていないので、シェルタブを開けません');
+    expect(rt.getState().toasts.at(-1)?.message).toBe('Claude が実行中ではないので、シェルタブを開けません');
   });
   it('セッションを渡り歩いても、離れたセッションの接続は残らない', () => {
     const forSession = (sid: string) => ({ run: { ...launched.run, id: `r-${sid}`, sessionId: sid }, tabs: [{ ...launched.tabs[0]!, id: `r-${sid}`, runId: `r-${sid}`, sessionId: sid }] });
@@ -1353,7 +1353,7 @@ describe('入力待ちの知らせ', () => {
     const n = fakeNotifier();
     const { wsHandlers } = await started(n, [waitingSession({ name: null })]);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
-    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力を待っています' });
+    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力待ちです' });
   });
   it('窓が前にあるときと、受け取らない設定のときは通知しない', async () => {
     const front = fakeNotifier({ background: false });
@@ -1463,7 +1463,7 @@ describe('入力待ちの知らせ', () => {
       timer!.fn();
       expect(h.rt.getState().returnSeen).toEqual(['s1|2026-10-05 13:30']);
       expect(h.n.show).toHaveBeenCalledTimes(1);
-      expect(h.n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '会話 s1', body: '戻る時刻 13:30 を過ぎました · timer の初回を見る' });
+      expect(h.n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 13:30 を過ぎました · timer の初回を見る' });
       expect(h.store.get('return.notified')).toEqual(['s1|2026-10-05 13:30']);
       // 同じ予約がもう一度走っても、ストアが変わっても、2 度は出さない。
       timer!.fn();
@@ -1509,7 +1509,7 @@ describe('入力待ちの知らせ', () => {
       h.timers.at(-1)!.fn();
       expect(h.rt.getState().returnSeen).toEqual(['s1|2026-10-05 21:50']);
       expect(h.n.show).toHaveBeenCalledTimes(2);
-      expect(h.n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '会話 s1', body: '戻る時刻 21:50 を過ぎました · timer の初回を見る' });
+      expect(h.n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 21:50 を過ぎました · timer の初回を見る' });
     });
   });
   // OS やブラウザの許可は、hangar の外（システム設定、ブラウザの設定）で変わる。
@@ -1869,7 +1869,7 @@ describe('殻の操作（ランタイム）', () => {
     rt.emit({ type: 'clipboard.copy', text: 'secret-token-123' });
     await flush();
     const messages = rt.getState().toasts.map((t) => t.message);
-    expect(messages).toEqual(['コピーできませんでした。文字を選んで ⌘C で写してください']);
+    expect(messages).toEqual(['コピーできませんでした。文字を選択して ⌘C でコピーしてください']);
     expect(messages.join('')).not.toContain('secret-token-123');
     expect(rt.getState().copied).toBeNull();
   });
@@ -1878,7 +1878,7 @@ describe('殻の操作（ランタイム）', () => {
 describe('セッションの状態', () => {
   const NONE = { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null };
   it('状態の操作をそのまま API へ渡し、失敗はトーストにする', async () => {
-    const setSessionState = vi.fn(async () => { throw new Error('Paused には戻る日が要ります'); });
+    const setSessionState = vi.fn(async () => { throw new Error('Paused にはリマインダーの日付が要ります'); });
     const confirmSessionState = vi.fn(async () => ({ state: NONE }));
     const rejectSessionState = vi.fn(async () => ({ state: NONE }));
     const { rt, wsHandlers } = harness({ setSessionState, confirmSessionState, rejectSessionState });
@@ -1892,7 +1892,7 @@ describe('セッションの状態', () => {
     expect(setSessionState).toHaveBeenCalledWith('s1', { status: 'paused' });
     expect(confirmSessionState).toHaveBeenCalledWith('s1', { returnOn: '2026-10-05' });
     expect(rejectSessionState).toHaveBeenCalledWith('s1');
-    expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: 'Paused には戻る日が要ります' });
+    expect(rt.getState().toasts.at(-1)).toMatchObject({ level: 'error', message: 'Paused にはリマインダーの日付が要ります' });
   });
 });
 
@@ -1988,11 +1988,11 @@ describe('アカウント', () => {
     expect(h.rt.getState()).toMatchObject({ launch: { kind: 'idle' }, overlay: { kind: 'none' }, screen: { name: 'session', id: 's1' } });
   });
   it('account.switchSession の失敗は、サーバの文をトーストに出し、launch は submitting のまま残らない', async () => {
-    const h = await started({ switchAccount: vi.fn(async () => { throw new Error('このセッションはもうそのアカウントで動いています'); }) });
+    const h = await started({ switchAccount: vi.fn(async () => { throw new Error('このセッションはもうそのアカウントで実行中です'); }) });
     h.rt.emit({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true, confirmed: true });
     await flush();
-    expect(h.rt.getState().launch).toEqual({ kind: 'failed', message: 'このセッションはもうそのアカウントで動いています' });
-    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['このセッションはもうそのアカウントで動いています']);
+    expect(h.rt.getState().launch).toEqual({ kind: 'failed', message: 'このセッションはもうそのアカウントで実行中です' });
+    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['このセッションはもうそのアカウントで実行中です']);
   });
   it('account.login が 409 で失敗したら、その文をトーストに出す', async () => {
     const h = await started({ loginAccount: vi.fn(async () => { throw new Error('ログインはすでに始まっています'); }) });

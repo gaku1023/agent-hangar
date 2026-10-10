@@ -75,7 +75,7 @@ describe('presentPalette（何も打っていないとき）', () => {
   });
   it('セッションの行には状態の点とプロジェクト名、右に待った長さや経った時間を添える', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
-    expect(item(p, 'session:w1')).toMatchObject({ label: '認証の期限切れを直す', kind: 'session', lead: { kind: 'dot', live: 'waiting' }, sub: 'alpha', meta: '4 分待っている' });
+    expect(item(p, 'session:w1')).toMatchObject({ label: '認証の期限切れを直す', kind: 'session', lead: { kind: 'dot', live: 'waiting' }, sub: 'alpha', meta: '入力待ち 4 分' });
     expect(item(p, 'session:e0')).toMatchObject({ lead: { kind: 'dot', live: null }, meta: '1 時間前' });
   });
   it('区切りを付けて休みのまま残っているものは、実行中ではなく最近に、終わったものと同じ見た目で置く', () => {

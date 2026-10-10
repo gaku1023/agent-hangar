@@ -16,12 +16,12 @@ describe('欄の下の検証（設定の B1）', () => {
   });
   it('動かせないときは、理由と直し方。tmux は入れるコマンドを添える', () => {
     expect(toolLine(ja, 'tmux', { path: null, ok: false, problem: 'unset', version: null })).toEqual({ ok: false, soft: false, text: '見つかりません', note: null, fix: null, fixCommand: 'brew install tmux' });
-    expect(toolLine(ja, 'claude', { path: '/x/claude', ok: false, problem: 'notExecutable', version: null })).toMatchObject({ ok: false, text: '/x/claude には実行権がありません', fix: 'claude コマンドの絶対パスを入れてください' });
+    expect(toolLine(ja, 'claude', { path: '/x/claude', ok: false, problem: 'notExecutable', version: null })).toMatchObject({ ok: false, text: '/x/claude には実行権がありません', fix: 'claude コマンドの絶対パスを入力してください' });
     expect(toolLine(ja, 'claude', { path: '/x', ok: false, problem: 'notFile', version: null })).toMatchObject({ text: '/x はファイルではありません' });
     expect(toolLine(ja, 'claude', { path: '/x/claude', ok: false, problem: 'missing', version: null })).toMatchObject({ text: '/x/claude が見つかりません' });
   });
   it('code は無くても動くので、弱い印にして一言添える', () => {
-    expect(toolLine(ja, 'code', READY.tools.code)).toEqual({ ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドを入れてください', fixCommand: null });
+    expect(toolLine(ja, 'code', READY.tools.code)).toEqual({ ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドをインストールしてください', fixCommand: null });
   });
   it('Node の設定が空なら、自動で見つけた Node だと添える', () => {
     expect(toolLine(ja, 'node', READY.tools.node)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/node', note: 'v22.9.0、自動で見つけました', fix: null, fixCommand: null });
@@ -141,7 +141,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     const drifting = withCompat({ localVersion: '2.1.300', driftCount: 2 });
     expect(readinessPending({ ...ALL_OK, compat: drifting.compat })).toBe(true);
     const b = presentReadiness({ ...ALL_OK, compat: drifting.compat }, ja)!;
-    expect(b.group.rows.map((r) => [r.key, r.badge ?? null, r.text])).toEqual([['ready:compat', null, 'ずれが 2 件あります。無効にした機能は設定で確認できます']]);
+    expect(b.group.rows.map((r) => [r.key, r.badge ?? null, r.text])).toEqual([['ready:compat', null, '変更点が 2 件あります。無効にした機能は設定で確認できます']]);
     expect(b.group.rows[0]!.actions[0]).toMatchObject({ label: '設定を開く' });
     expect(b.group.countText).toBe('6 つ中 5 つ');
   });

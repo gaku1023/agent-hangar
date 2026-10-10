@@ -4,7 +4,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const mediatorJa: AreaDictionary<typeof mediatorKeys> = {
   'mediator.connection.caughtUp': '最新の状態に追いつきました',
   'mediator.launch.pickProject': 'プロジェクトを選んでください',
-  'mediator.launch.adopting': '引き取っています',
+  'mediator.launch.adopting': '移動中',
   'mediator.promote.nameRequired': '名前を入力してください',
   'mediator.promote.nameSlash': '名前に / は使えません',
   'mediator.promote.promoted': 'プロジェクトに昇格しました',

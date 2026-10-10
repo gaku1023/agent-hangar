@@ -39,7 +39,7 @@ describe('メモで負けたときの後始末', () => {
     expect(files.length).toBe(1);
     expect(files[0]).toMatch(/^memo\.conflict-mini-/);
     expect(fs.readFileSync(path.join(dir, 'projects', 'p1', files[0]!), 'utf8')).toBe('手元の文章');
-    expect(toasts).toEqual([{ level: 'info', message: `メモが競合しました。手元の内容を ${files[0]} に残しました` }]);
+    expect(toasts).toEqual([{ level: 'info', message: `ノートが競合しました。手元の内容を ${files[0]} に残しました` }]);
     // 写しはメモの隣に置く。控えの世代には数えないので、刈らない。
     expect(pruned()).toBe(0);
   });
