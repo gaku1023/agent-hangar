@@ -151,7 +151,7 @@ describe('promoteSession', () => {
     fs.symlinkSync(outside, link);
     upsertShared(db, 'sessions', { id: 's2', provider: 'claude-code', provider_session_id: 'u2', cwd: link, home_device: 'd', project_id: scratchId }, 'd');
     const r = promoteSession(deps(), { sessionId: 's2', name: 'linkproj', gitInit: false, moveFiles: true });
-    expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('スクラッチの外') });
+    expect(r).toMatchObject({ moved: false, reason: expect.stringContaining('クイックセッションの置き場の外') });
     expect(fs.readFileSync(path.join(outside, 'secret.txt'), 'utf8')).toBe('S');
     expect(fs.existsSync(path.join(ws, 'linkproj', 'secret.txt'))).toBe(false);
     expect(fs.existsSync(link)).toBe(true);

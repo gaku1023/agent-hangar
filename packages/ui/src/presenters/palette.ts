@@ -5,6 +5,7 @@ import type { State } from '../mediator/types.ts';
 import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownAside, shownLive, type Store } from '../store/store.ts';
 import { durationLabel, relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import { newSessionTarget } from './newSession.ts';
 
 /** 最後の活動が新しい順。時刻が同じか無いものは id の順にして、並びを決定的にする。 */
@@ -107,7 +108,7 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   const q = query.trim();
   const t = translatorOf(store);
   const alive = runningSessionIds(store);
-  const projectName = (s: SessionDto) => (s.projectId ? store.projects[s.projectId]?.name ?? '' : '');
+  const projectName = (s: SessionDto) => (s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : '');
 
   // セッションは状態で 3 つに分ける。入力待ちは実行中に含めない（用語の D1）。
   // 引くのは名前だけである。要約と本文は、ホームの欄が引く。

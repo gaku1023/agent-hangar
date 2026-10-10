@@ -28,7 +28,7 @@ export const paletteJa: AreaDictionary<typeof paletteKeys> = {
   'palette.meta.starting': '起動しています',
   'palette.meta.count': '{n} 件',
   'palette.cmd.newSession': '新しいセッション',
-  'palette.cmd.newScratch': 'スクラッチで始める',
+  'palette.cmd.newScratch': 'クイックセッションを開始',
   'palette.cmd.nextWaiting': '次の入力待ちへ',
   'palette.cmd.newProject': '新しいプロジェクト',
   'palette.cmd.shortcuts': 'キーの一覧',

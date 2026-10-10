@@ -2,6 +2,7 @@ import { isReturnOn, isReturnTime, overdueDays, returnDue, returnPastMinutes, ty
 import { aliveRunOf, shownAside, shownLive, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
+import { projectDisplayName } from './projectName.ts';
 import type { Segment } from './highlight.ts';
 import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.ts';
 
@@ -58,7 +59,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   const returnTime = returnOn !== null && typeof st!.returnTime === 'string' && isReturnTime(st!.returnTime) ? st!.returnTime : null;
   const row: SessionRowProps = {
     id: s.id, name: s.name ?? t('common.label.noName'), oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
-    projectName: s.projectId ? store.projects[s.projectId]?.name ?? null : null,
+    projectName: s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : null,
     live: shownLive(s), aside: shownAside(s) !== null, stateLabel: s.summary ? stateLabel(t, s.summary.state) : '', summaryState: summaryStateTag(t, s.summary), model: shortModel(s.stats.model), effort: s.stats.effort ?? '',
     when: relativeTime(t, s.lastActivityAt, now), whenAbs: absoluteTime(t, s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, memo: s.memo, hasTranscript: s.hasTranscript,
     transcript: transcriptMark(s, store.retention?.days ?? DEFAULT_DAYS, now),

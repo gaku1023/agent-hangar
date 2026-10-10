@@ -334,7 +334,7 @@ describe('HomeScreen の始める前の確認（帯の最後の群）', () => {
   it('確認の群は帯の錠剤になり、帯の右端に 1 行の文を出す。ようこその札と確認リストの区画は無い', () => {
     const { container } = mount(withReady(none), none);
     expect(screen.getByRole('button', { name: /^セットアップの確認 6 つ中 3 つ$/ })).toBeInTheDocument();
-    expect(container.querySelector('.band-text')).toHaveTextContent('要修正 3。tmux と claude があるので始められます');
+    expect(container.querySelector('.band-text')).toHaveTextContent('もう始められます。設定の残りは 3 件です');
     expect(container.querySelector('.onboarding')).toBeNull();
     expect(screen.queryByRole('heading', { name: 'ようこそ' })).toBeNull();
     // 一覧の空の札の「クイックセッションを開始」は、初めての人に残す。

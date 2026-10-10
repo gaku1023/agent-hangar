@@ -15,6 +15,7 @@ export const projectKeys = {
   'project.create.pathMustBeAbsolute': [],
   'project.create.rootNotAllowed': [],
   'project.name.uncategorized': [],
+  'project.name.quick': [],
   'project.promote.scratchUnverified': ['reason'],
   'project.promote.sourceMissing': ['from'],
   'project.promote.outsideScratch': ['from', 'real'],

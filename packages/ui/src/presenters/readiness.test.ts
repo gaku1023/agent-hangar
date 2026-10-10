@@ -69,7 +69,7 @@ const noTmux: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: 
 describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   it('6 つ中の済んだ数を錠剤に、直すものの数を件数に、済んだ割合を進みに持つ', () => {
     const b = presentReadiness(READY, ja)!;
-    expect(b.group).toMatchObject({ id: 'readiness', label: 'セットアップの確認', countText: '6 つ中 3 つ', count: 3, progress: 50, tone: 'warn', morning: true, summary: '要修正 3' });
+    expect(b.group).toMatchObject({ id: 'readiness', label: 'セットアップの確認', countText: '6 つ中 3 つ', count: 3, progress: 50, tone: 'warn', morning: true, summary: '設定の残り 3 件' });
     // 直すものが残っているので、済んだように読める ✓ ではなく、注意の印にする。
     expect(b.group.icon).toBe('alert');
   });
@@ -103,8 +103,19 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     expect(b.group.countText).toBe('6 つ中 3 つ');
   });
   it('帯の文は、tmux と claude がそろっていれば始められると言い、欠けていればあればと言う', () => {
-    expect(presentReadiness(READY, ja)!.note).toBe('要修正 3。tmux と claude があるので始められます');
-    expect(presentReadiness(noTmux, ja)!.note).toBe('要修正 4。tmux と claude があれば始められます');
+    expect(presentReadiness(READY, ja)!.note).toBe('もう始められます。設定の残りは 3 件です');
+    expect(presentReadiness(noTmux, ja)!.note).toBe('始めるには tmux と claude が必要です。設定の残りは 4 件です');
+  });
+  it('英語の帯の文は、残りが 1 件なら単数、2 件以上なら複数で言う', () => {
+    const one: ReadinessDto = { ...READY, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } };
+    const two: ReadinessDto = { ...READY, statusline: { ...READY.statusline, installed: true } };
+    const b1 = presentReadiness(one, en)!;
+    expect(b1.group.summary).toBe('1 item left to set up');
+    expect(b1.note).toBe('You can start now. 1 item left to set up');
+    const b2 = presentReadiness(two, en)!;
+    expect(b2.group.summary).toBe('2 items left to set up');
+    expect(b2.note).toBe('You can start now. 2 items left to set up');
+    expect(presentReadiness({ ...noTmux, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } }, en)!.note).toBe('You need tmux and claude to start. 2 items left to set up');
   });
   it('tmux が無ければ入れる命令をコピーさせる。パスはあるのに使えないなら設定を開く', () => {
     const row = presentReadiness(noTmux, ja, 'darwin')!.group.rows[0]!;
@@ -146,9 +157,9 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   });
   it('文は辞書の言語で引く', () => {
     const b = presentReadiness(READY, en)!;
-    expect(b.group).toMatchObject({ label: 'Setup check', countText: '3 of 6', summary: 'To fix 3' });
+    expect(b.group).toMatchObject({ label: 'Setup check', countText: '3 of 6', summary: '3 items left to set up' });
     expect(b.group.rows.map((r) => r.badge ?? null)).toEqual([null, 'Optional', 'Optional']);
     expect(b.group.fold!.text).toBe('tmux, claude, Claude Code compatibility: ready');
-    expect(b.note).toBe('To fix 3. tmux and claude are ready, so you can start');
+    expect(b.note).toBe('You can start now. 3 items left to set up');
   });
 });
