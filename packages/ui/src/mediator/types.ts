@@ -157,7 +157,7 @@ export type Overlay =
   // pending は止めた操作で、見つかったあとの「開始」でそのまま進める。back は止めたときに開いていた新しいセッションのダイアログで、閉じたらそこへ戻る。
   | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | null };
 /** psmux（tmux）が無いときに止める、セッションを始める操作。 */
-export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' }>;
+export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' | 'session.adopt' | 'session.attach' }>;
 /** psmux（tmux）の再確認の進み。missing は、再確認しても見つからなかったこと。 */
 export type MuxCheck = 'idle' | 'checking' | 'missing';
 /**
