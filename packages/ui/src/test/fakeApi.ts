@@ -5,7 +5,7 @@ import { accountsFixture } from './accounts.ts';
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'setSessionMemo'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'setSessionMemo'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
@@ -53,6 +53,8 @@ export function fakeApiExtras(): Extras {
       commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install' },
       compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
     })),
+    // 再確認は、使う試験が答えを上書きする。
+    recheckMux: vi.fn(async () => unused()),
     compat: vi.fn(async () => ({ verifiedVersion: '2.1.292', localVersion: '2.1.292', drifts: [] })),
     addTodo: vi.fn(async (projectId: string, text: string) => ({ id: 't1', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null })),
     setTodoDone: vi.fn(async (id: string, done: boolean) => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null })),

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ReadinessDto } from '@agent-hangar/shared';
 import { translator } from '@agent-hangar/shared';
-import { clientPlatform, muxInstallCommand, notifyBlockedKey, presentReadiness, readinessPending, toolLine, workspaceLine } from './readiness.ts';
+import { initialState } from '../mediator/transition.ts';
+import { initialStore } from '../store/store.ts';
+import { presentSettings } from './settings.ts';
+import { clientPlatform, muxInstallCommand, muxName, notifyBlockedKey, presentMux, presentMuxGuide, presentReadiness, readinessPending, toolLine, workspaceLine } from './readiness.ts';
 
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -130,7 +133,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   });
   it('tmux が無ければ入れる命令をコピーさせる。パスはあるのに使えないなら設定を開く', () => {
     const row = presentReadiness(noTmux, ja, 'darwin')!.group.rows[0]!;
-    expect(row).toMatchObject({ name: 'tmux', text: '見つかりません', detail: 'brew install tmux', lead: { tone: 'ng' } });
+    expect(row).toMatchObject({ name: 'tmux', text: 'tmux がインストールされていません', detail: 'brew install tmux', lead: { tone: 'ng' } });
     expect(row.actions[0]).toMatchObject({ label: 'コマンドをコピー', send: { type: 'clipboard.copy', text: 'brew install tmux' } });
     expect(presentReadiness(noTmux, ja, 'win32')!.group.rows[0]!.detail).toBe('winget install marlocarlo.psmux');
     const broken: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: '/x/tmux', ok: false, problem: 'notExecutable', version: null } } };
@@ -172,5 +175,62 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     expect(b.group.rows.map((r) => r.badge ?? null)).toEqual([null, 'Optional', 'Optional']);
     expect(b.group.fold!.text).toBe('tmux, claude, Claude Code compatibility: ready');
     expect(b.note).toBe('You can start now. 3 items left to set up');
+  });
+});
+
+// 段 6 の psmux の案内。帯（B1）、始める前のダイアログ（B2）、設定の状態の行（B3）が同じ事実を読む。
+describe('psmux と tmux の案内', () => {
+  it('Windows は psmux、ほかは tmux と呼ぶ', () => {
+    expect(muxName('win32')).toBe('psmux');
+    expect(muxName('darwin')).toBe('tmux');
+    expect(muxName('linux')).toBe('tmux');
+  });
+  it('状態を、名前、インストール済みか、版、入れるコマンド、再確認の進みにまとめる', () => {
+    expect(presentMux(null, 'idle', 'win32')).toBeNull();
+    expect(presentMux(READY, 'idle', 'darwin')).toEqual({ name: 'tmux', windows: false, installed: true, version: '3.4', path: '/opt/homebrew/bin/tmux', command: 'brew install tmux', checking: false, stillMissing: false });
+    expect(presentMux(noTmux, 'idle', 'win32')).toEqual({ name: 'psmux', windows: true, installed: false, version: null, path: null, command: 'winget install marlocarlo.psmux', checking: false, stillMissing: false });
+    expect(presentMux(noTmux, 'checking', 'win32')).toMatchObject({ checking: true, stillMissing: false });
+    expect(presentMux(noTmux, 'missing', 'win32')).toMatchObject({ checking: false, stillMissing: true });
+    // 見つかったあとは、前の「まだ見つかりません」を引きずらない。
+    expect(presentMux(READY, 'missing', 'win32')).toMatchObject({ installed: true, stillMissing: false });
+  });
+  it('帯の行は、Windows では psmux の名で、コピーと再確認の 2 つのボタンを持つ', () => {
+    const row = presentReadiness(noTmux, ja, 'win32')!.group.rows[0]!;
+    expect(row).toMatchObject({ name: 'psmux', text: 'psmux がインストールされていません', detail: 'winget install marlocarlo.psmux' });
+    expect(row.actions.map((a) => [a.label, a.send])).toEqual([
+      ['コマンドをコピー', { type: 'clipboard.copy', text: 'winget install marlocarlo.psmux' }],
+      ['再確認', { type: 'mux.recheck' }],
+    ]);
+  });
+  it('再確認しても無ければ、再起動が要るかもしれないと添える。確かめている間はボタンの文を変える', () => {
+    expect(presentReadiness(noTmux, ja, 'win32', 'missing')!.group.rows[0]!.text).toBe('psmux がまだ見つかりません。インストールしたあと、Hangar の再起動が必要な場合があります');
+    expect(presentReadiness(noTmux, ja, 'win32', 'checking')!.group.rows[0]!.actions[1]!.label).toBe('確認中…');
+    expect(presentReadiness(noTmux, en, 'win32', 'missing')!.group.rows[0]!.text).toBe('psmux still not found. You may need to restart Hangar after installing it');
+  });
+  it('見つかったら、帯から psmux の行が消える', () => {
+    const rows = presentReadiness(READY, ja, 'win32', 'idle')!.group.rows.map((r) => r.key);
+    expect(rows).not.toContain('ready:tmux');
+  });
+  it('帯の右端の文も、Windows では psmux の名で言う', () => {
+    expect(presentReadiness(noTmux, ja, 'win32')!.note).toBe('始めるには psmux と claude が必要です。設定の残りは 4 件です');
+    expect(presentReadiness(noTmux, en, 'win32')!.note).toBe('You need psmux and claude to start. 4 items left to set up');
+  });
+  it('パスはあるのに実行できないものは、再確認では直らないので設定へ案内するだけにする', () => {
+    const broken: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: '/x/tmux', ok: false, problem: 'notExecutable', version: null } } };
+    expect(presentReadiness(broken, ja, 'darwin')!.group.rows[0]!.actions.map((a) => a.id)).toEqual(['fix']);
+  });
+});
+
+describe('案内を画面へ渡す', () => {
+  const store = (r: ReadinessDto | null) => ({ ...initialStore(), readiness: r });
+  it('設定の props に psmux（tmux）の状態を載せ、再確認の進みも渡す', () => {
+    expect(presentSettings({ ...initialState(), muxCheck: 'missing' }, store(noTmux)).mux).toMatchObject({ installed: false, stillMissing: true });
+    expect(presentSettings(initialState(), store(null)).mux).toBeNull();
+  });
+  it('案内のダイアログは、開いているときだけ状態を返す', () => {
+    expect(presentMuxGuide(initialState(), store(noTmux))).toBeNull();
+    const open = { ...initialState(), overlay: { kind: 'muxGuide' as const, pending: { type: 'session.resume' as const, id: 's1' }, back: null } };
+    expect(presentMuxGuide(open, store(noTmux))).toMatchObject({ mux: { installed: false } });
+    expect(presentMuxGuide(open, store(READY))).toMatchObject({ mux: { installed: true, version: '3.4' } });
   });
 });
