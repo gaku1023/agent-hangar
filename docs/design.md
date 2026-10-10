@@ -79,6 +79,13 @@ Windows のサーバはジョブオブジェクトに入れる（`src-tauri/src/
 その代わり、殻が落ちたときのサーバは後始末をせずに止まる（macOS は親の見張りで 5 秒後に自分で降りる）。
 ジョブは自分から抜けることを許す（`JOB_OBJECT_LIMIT_BREAKAWAY_OK`）。
 psmux はサーバを `CREATE_BREAKAWAY_FROM_JOB` で起こしてジョブの外へ出るので、psmux のサーバとその中の claude は Hangar を閉じても残る（macOS の tmux と同じ）。
+hangar が起こす psmux には `PSMUX_NO_WARM=1` を渡す（`packages/server/src/tmux/tmux.ts` の `PSMUX_ENV`、Windows だけ）。
+psmux は既定で、セッションのサーバを起こすと次の new-session のための控えのサーバ（`__warm__`）と予備の PowerShell を、そのセッションの cwd のまま起こす。
+控えは最後のセッションを止めた後も残ってそのフォルダを掴み、フォルダを消せなくする（2026-10-11、Windows の実機の確かめで見つけた）。
+hangar の new-session は `-c`、`-x`、`-y`、`-e` とコマンドを渡すので、psmux が控えを引き取る条件（どれも渡さないこと）に当たらず、控えは一度も使われない。予備のシェルも、コマンドを渡す窓には使われない。
+だから止めても hangar のセッションの起動は遅くならない。遅くなるのは、利用者が hangar のセッションの中で新しい窓や分割を自分で作るときに PowerShell を一から起こす分だけである。
+控えの cwd だけをホームにする道は採らない。psmux はセッションのサーバの cwd を `-c` の場所に替えてから控えを起こすので、hangar からは控えの cwd を選べないからである。
+macOS と Linux の tmux には何も足さない。
 黙って抜けるのを許す `JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK` は付けない。付けると孫がみなジョブの外に出て、ジョブで止められるのがサーバ 1 つだけになる。
 殻が Windows で起こす子（サーバ、Node の候補、設定の同期の CLI）には `CREATE_NO_WINDOW` を付け、黒いコンソールの窓を開かない。
 Node の候補もジョブに入れ、打ち切ったときに孫ごと止める（unix の `setsid` と `killpg` に当たる）。

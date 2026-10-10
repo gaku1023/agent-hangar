@@ -31,6 +31,23 @@ describe('Tmux の環境変数', () => {
     expect(t.run('-e', 'process.stdout.write(process.env.HANGAR_TMUX_ENV_TEST ?? "none")').stdout).toBe('値');
     expect(new Tmux({ tmuxPath: process.execPath }).run('-e', 'process.stdout.write(process.env.HANGAR_TMUX_ENV_TEST ?? "none")').stdout).toBe('none');
   });
+
+  // psmux はセッションのサーバを起こすと、次の new-session のための控えのサーバ（__warm__）を、そのセッションの cwd のまま起こす。
+  // 控えは最後のセッションを止めた後も残り、そのフォルダを掴み続ける（Windows ではフォルダを消せない）。
+  // hangar の new-session は -c と -x と -y と -e とコマンドを渡すので、控えを引き取る条件に当たらず、控えは使われない。
+  // だから hangar が起こす psmux には PSMUX_NO_WARM=1 を渡して、控えも予備のシェルも作らせない。
+  const warmOf = (t: Tmux): string => t.run('-e', 'process.stdout.write(process.env.PSMUX_NO_WARM ?? "none")').stdout;
+  it('Windows（psmux）では、控えのサーバを起こさせない PSMUX_NO_WARM=1 を足す', () => {
+    expect(warmOf(new Tmux({ tmuxPath: process.execPath, platform: 'win32' }))).toBe('1');
+    // 呼び手の env（試験の PSMUX_DATA_DIR など）とも合わせて渡す。
+    const both = new Tmux({ tmuxPath: process.execPath, platform: 'win32', env: { HANGAR_TMUX_ENV_TEST: '値' } });
+    expect(warmOf(both)).toBe('1');
+    expect(both.run('-e', 'process.stdout.write(process.env.HANGAR_TMUX_ENV_TEST ?? "none")').stdout).toBe('値');
+  });
+  it('macOS と Linux の tmux には足さない', () => {
+    expect(warmOf(new Tmux({ tmuxPath: process.execPath, platform: 'darwin' }))).toBe('none');
+    expect(warmOf(new Tmux({ tmuxPath: process.execPath, platform: 'linux' }))).toBe('none');
+  });
 });
 
 describe('Tmux.killServer', () => {
