@@ -313,7 +313,7 @@ describe('起動の失敗の札', () => {
     click('boot-retry');
     click('boot-retry');
     click('boot-log');
-    expect(invoke.mock.calls).toEqual([['retry_boot'], ['open_log']]);
+    expect(invoke.mock.calls).toEqual([['boot_state'], ['retry_boot'], ['open_log']]);
     expect(($('boot-retry') as HTMLButtonElement).disabled).toBe(true);
   });
   it('やり直しを殻が断ったら、もう一度押せるように戻す', async () => {
@@ -366,5 +366,60 @@ describe('起動の失敗の札', () => {
     await flush();
     expect(exec).toHaveBeenCalledWith('copy');
     delete (document as unknown as { execCommand?: unknown }).execCommand;
+  });
+});
+
+// 殻の知らせ（評価）は、頁の口が出来る前に届くと落ちる。
+// macOS では、読み込みの合図（PageLoadEvent::Finished）の時点でまだ boot.js が走っておらず、合図で渡し直した失敗も落ちた（2026-10-11、Node の無い Mac で再現）。
+// なので頁は、口を作り終えた時点で殻に今の様子を問い合わせ（boot_state）、先に起きた失敗、進み具合、合図を引き取る。
+describe('殻が先に知らせた分を引き取る', () => {
+  const tauri = window as unknown as { __TAURI_INTERNALS__?: { invoke: (cmd: string) => Promise<unknown> } };
+  const failWith = win as unknown as { __hangarBootFail?: unknown };
+  const failure = { kind: 'other', params: {}, detail: 'Node 22（arm64）が見つかりません。', lang: 'ja', version: '0.2.0', os: 'macOS 15.5', home: '~/.agent-hangar', sep: '/' };
+  const answer = (state: unknown) => {
+    const invoke = vi.fn(async (cmd: string) => (cmd === 'boot_state' ? state : null));
+    tauri.__TAURI_INTERNALS__ = { invoke };
+    return invoke;
+  };
+  afterEach(() => { delete tauri.__TAURI_INTERNALS__; delete failWith.__hangarBootFail; document.documentElement.lang = ''; });
+
+  it('頁の口を作り終えたら、殻に今の様子を一度だけ問い合わせる', async () => {
+    const invoke = answer({ failure: null, progress: null, finishing: false });
+    await boot();
+    await flush();
+    expect(invoke.mock.calls).toEqual([['boot_state']]);
+    expect($('fail').hidden).toBe(true);
+    expect($('status').dataset.level).toBeUndefined();
+  });
+  it('頁が出来る前に起きた失敗を引き取り、札を出す', async () => {
+    answer({ failure, progress: null, finishing: false });
+    await boot();
+    await flush();
+    expect($('fail').hidden).toBe(false);
+    expect($('status').dataset.level).toBe('error');
+    expect($('fail-detail').textContent).toBe('Node 22（arm64）が見つかりません。');
+    expect(document.body.dataset.fail).toBe('other');
+  });
+  it('先に届いていた進み具合を引き取り、待っている間の文に使う', async () => {
+    answer({ failure: null, progress: { phase: 'indexing', done: 412, total: 987 }, finishing: false });
+    await boot();
+    await flush();
+    clock = T0 + m.CYCLE_MS + 100;
+    vi.advanceTimersByTime(100);
+    expect($('detail').textContent).toBe('セッションを索引中 412 / 987 件');
+  });
+  it('先に打たれていた読み込みが終わった合図を引き取り、合図を描く', async () => {
+    answer({ failure: null, progress: null, finishing: true });
+    await boot();
+    await flush();
+    expect($('status').dataset.level).toBe('ready');
+  });
+  it('問い合わせが断られても、待っている間の画面のまま止まらない', async () => {
+    tauri.__TAURI_INTERNALS__ = { invoke: vi.fn(async () => { throw new Error('not allowed'); }) };
+    await boot();
+    await flush();
+    expect($('fail').hidden).toBe(true);
+    step(500);
+    expect(frames.size).toBe(1);
   });
 });

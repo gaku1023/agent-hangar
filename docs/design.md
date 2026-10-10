@@ -199,7 +199,17 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   渡す前に、`detail` と文字の `params` の中で利用者のホームから始まるパスを、すべて `~` に縮める（`bootfail.rs` の `shorten_home`、呼ぶのは `lib.rs` の `for_page`）。
   サーバが書く `params` の `file` と `dir`、Node の「調べた場所」と設定ファイルの場所、例外の文に、ユーザー名を出さないためである。
   サーバはホームを縮めずに書くので、縮めるのは殻の 1 か所に寄せ、macOS と Windows で同じにする。
-  ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。読み込みが終わる前に出た失敗は殻が貯め、読み込みの合図で渡す（以前の文言と同じ扱い）。
+  ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。
+- 失敗は、殻が状態として持ち、頁が引き取る。
+  殻は失敗の材料を `Ui.failure` に置いてから、その場でも評価で渡す。
+  起動画面（`loading/boot.js`）は口（`__hangarBootFail` など）を作り終えた時点で、殻の命令 `boot_state` を一度だけ呼び、`{ failure, progress, finishing }` を引き取る。
+  失敗があれば札を出し、無くて読み込みが終わった合図（`finishing`）が打たれていれば合図を描き、索引の進み具合（`progress`）は待っている間の文に使う。
+  口が出来た後に起きたことは、その場の評価で届く。殻は状態に置くのを先にするので、どちらかで必ず届く。
+  状態は「もう一度試す」（`retry_boot`）で空にし、サーバの頁へ移った後は何も返さない。
+  以前は、読み込みが終わる前の失敗を殻が貯め、読み込みの合図（`PageLoadEvent::Finished`）で渡し直していた。
+  macOS では合図の時点でまだ `boot.js` が走っておらず（`document.readyState` は `interactive`、口は未定義）、渡し直しも落ちた。
+  Node の無い Mac で、起動から 40ms で出た失敗が届かず、読み込み中のまま止まった（2026-10-11）。
+  Windows も同じ作りで引き取るので、合図と頁の走る順に頼らない。
 - 札の中は、見出し、何が起きたか、番号つきの次にすること（順序つきの一覧）、コピーできる命令、詳細（最初から開いた記録。「全文をコピー」つき）、下端のアプリの版と OS、「ログを開く」「もう一度試す」の順に並べる。ロゴは左上に小さく退ける（信号の 3 点の右、UI の `--lights-end` と同じ幅から）。命令と詳細だけを等幅にする。詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す。
 - 「全文をコピー」は、版と OS、種類、詳細の順の文をクリップボードへ書く。そのまま報告に貼れる形である。クリップボードの口が無い頁では、選択と `copy` の命令で写す。
 - ポートと互換の失敗では、動いているサーバ（利用者が起こしたものかもしれない）を止めないと文で言う。
@@ -2103,7 +2113,7 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動をやり直す `retry_boot` と `open_log` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、起動をやり直す `retry_boot`、`open_log` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 UI は殻が差し込む `__TAURI_INTERNALS__` の有無で殻の中かを決め（`runtime/desktop.ts`）、殻の外（ブラウザ）ではこれらのボタンを出さない。
 接続が切れると、ヘッダーの下に切断の帯を出し、止まった時刻と次に再接続する秒数を言う。

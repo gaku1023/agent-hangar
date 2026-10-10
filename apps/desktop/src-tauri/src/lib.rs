@@ -48,6 +48,12 @@ struct AppState {
 /// ウィンドウが今どの段にいるか。
 /// 評価（`eval`）は、頁の読み込みが終わっていないと捨てられることがある。
 /// そのため「出せるか」をここで決め、出せないものは貯めて読み込みの合図で流す。
+///
+/// 起動画面への知らせ（失敗、進み具合、読み込みが終わった合図）は、読み込みの合図でも間に合わない。
+/// macOS では合図（`PageLoadEvent::Finished`）の時点で、起動画面の口を作る boot.js がまだ走っていないことがある。
+/// Node の無い Mac で、起動から 40ms で出た失敗が合図で渡し直しても落ち、読み込み中のまま止まった（2026-10-11）。
+/// なので殻はこの 3 つを状態として持ち、起動画面が口を作り終えてから問い合わせる（`boot_state`）。
+/// その場の評価も続けるので、口が出来た後に起きたことはそのまま届く。
 #[derive(Default)]
 struct Ui {
     /// サーバの URL へ navigate を出したか。
@@ -55,22 +61,29 @@ struct Ui {
     /// 今出している頁の読み込みが終わったか。
     loaded: bool,
     pending_hash: Option<String>,
-    /// 読み込みの前に届いた失敗の式（`bootfail::fail_js`）。読み込みの合図で流す。
-    pending_failure: Option<String>,
+    /// 起動の失敗。起動画面へ渡す材料（`bootfail::payload`）で、やり直すまで持ち続ける。
+    failure: Option<serde_json::Value>,
     /// 読み込み画面の load の合図が届いた時刻。起動画面の動きの時計も同じ合図から数える。
     loading_since: Option<Instant>,
-    /// 最後に起動画面へ渡した進み具合の式。
-    /// 殻は変わったときだけ渡すので、読み込みの前に渡して捨てられた分を、読み込みの合図で渡し直す。
-    last_progress: Option<String>,
+    /// 最後に起動画面へ渡した索引の進み具合。
+    last_progress: Option<health::Boot>,
+    /// 読み込みが終わった合図（`BOOT_FINISH_JS`）を打ったか。
+    finishing: bool,
 }
 
 impl Ui {
-    /// 読み込みの前に出す失敗を控える。
-    /// 読み込みが済んでいれば、呼び出し側がその場で評価できるので控えない。
-    fn remember_failure(&mut self, js: &str) {
-        if !self.loaded {
-            self.pending_failure = Some(js.to_string());
+    /// 起動画面が問い合わせたときに渡す、起動の今の様子。
+    /// `{ failure, progress, finishing }` の形で、起動画面（loading/boot.js）が引き取る。
+    /// サーバの頁へ移った後は、何も渡さない。UI の DOM を書き換えないためである。
+    fn boot_state(&self) -> serde_json::Value {
+        if self.ready {
+            return serde_json::json!({ "failure": null, "progress": null, "finishing": false });
         }
+        serde_json::json!({
+            "failure": self.failure,
+            "progress": self.last_progress.as_ref().map(progress_payload),
+            "finishing": self.finishing,
+        })
     }
 
     /// ディープリンクのハッシュ。
@@ -99,41 +112,34 @@ impl Ui {
         self.loaded = true;
     }
 
-    /// 頁の読み込みが終わった。今流してよい失敗の式とハッシュを返す。
-    /// 失敗は読み込み画面のものだけ、ハッシュはサーバの頁のものだけを流す。
-    /// 段に合わない合図（navigate の後に届く読み込み画面の側の合図など）は何もしない。
-    /// 消えていく頁へ流すと、そのハッシュはそのまま失われるからである。
-    /// 読み込み画面の読み込みが終わったときに渡し直す進み具合。サーバの頁へ移った後は渡さない。
-    fn progress_to_replay(&self, server_page: bool) -> Option<String> {
-        if server_page || self.ready {
-            return None;
-        }
-        self.last_progress.clone()
-    }
-
     /// 起動に失敗した後の「もう一度試す」。
     /// サーバの頁へ移った後はやり直さないので偽を返す。
-    /// やり直すときは、殻が読み込み画面を読み込み直すので、読み込みの合図まで文言を貯める側へ戻す。
-    /// 前の失敗と進み具合は、新しい頁へ持ち込まない。
+    /// やり直すときは、殻が読み込み画面を読み込み直すので、読み込みの合図まで段を戻す。
+    /// 前の失敗、進み具合、合図は、新しい頁へ持ち込まない。
     fn retry(&mut self) -> bool {
         if self.ready {
             return false;
         }
         self.loaded = false;
-        self.pending_failure = None;
+        self.failure = None;
         self.last_progress = None;
+        self.finishing = false;
         true
     }
 
-    fn page_loaded(&mut self, server_page: bool) -> (Option<String>, Option<String>) {
+    /// 頁の読み込みが終わった。今流してよいハッシュを返す。ハッシュはサーバの頁のものだけを流す。
+    /// 段に合わない合図（navigate の後に届く読み込み画面の側の合図など）は何もしない。
+    /// 消えていく頁へ流すと、そのハッシュはそのまま失われるからである。
+    /// 起動画面への知らせはここで渡し直さない。起動画面が口を作り終えてから問い合わせる（`boot_state`）。
+    fn page_loaded(&mut self, server_page: bool) -> Option<String> {
         if self.ready != server_page {
-            return (None, None);
+            return None;
         }
         self.loaded = true;
         if self.ready {
-            (None, self.pending_hash.take())
+            self.pending_hash.take()
         } else {
-            (self.pending_failure.take(), None)
+            None
         }
     }
 }
@@ -165,6 +171,11 @@ fn progress_js(b: &health::Boot) -> String {
         b.done,
         b.total
     )
+}
+
+/// 起動画面が問い合わせたときに渡す進み具合（`boot_state`）。中身は `progress_js` と同じ 3 つである。
+fn progress_payload(b: &health::Boot) -> serde_json::Value {
+    serde_json::json!({ "phase": b.phase.as_str(), "done": b.done, "total": b.total })
 }
 
 /// 応答が途切れたまま、これだけ経ったら諦める。
@@ -268,9 +279,8 @@ fn wait_for_ready(
         || health::probe_boot(addr),
         || take_dead_server(app),
         |b| {
-            let js = progress_js(b);
-            app.state::<AppState>().ui.lock().unwrap().last_progress = Some(js.clone());
-            eval_main(app, &js);
+            app.state::<AppState>().ui.lock().unwrap().last_progress = Some(*b);
+            eval_main(app, &progress_js(b));
         },
         std::thread::sleep,
         || t0.elapsed(),
@@ -426,21 +436,19 @@ fn for_page(
 }
 
 /// 起動の失敗を札で出す。サーバへ移る前だけ意味を持つ。
-/// 読み込みが終わる前の評価は捨てられることがあるので、そのときは式を控えて読み込みの合図でもう一度流す。
-/// 控えるときも評価自体は試す。
-/// 読み込みの合図が来ない作りに変わっても、今までの見え方を下回らないためである。
+/// 失敗は状態に置き、起動画面が口を作り終えてから問い合わせたとき（`boot_state`）に渡す。
+/// 口が出来る前の評価は捨てられるからである（`Ui` の説明）。
+/// 口が出来た後の失敗のために、その場の評価も続ける。状態に置くのを先にするので、どちらかで必ず届く。
 /// 詳細に入場の鍵が混じっていたら、頁へ渡す前に伏せ、利用者のホームを `~` に縮める（`for_page`）。
 fn fail(app: &AppHandle, failure: bootfail::BootFailure) {
     let home = paths::hangar_home();
     let token = server::read_token(&home);
     let failure = for_page(failure, token.as_deref(), &paths::user_home());
     log(&failure_log_line(&failure));
-    let js = bootfail::fail_js(&failure, &boot_env(app, &home));
-    {
-        let state = app.state::<AppState>();
-        state.ui.lock().unwrap().remember_failure(&js);
-    }
-    eval_main(app, &js);
+    let env = boot_env(app, &home);
+    app.state::<AppState>().ui.lock().unwrap().failure =
+        Some(bootfail::payload_value(&failure, &env));
+    eval_main(app, &bootfail::fail_js(&failure, &env));
 }
 
 /// ディープリンクをハッシュとして適用する。
@@ -471,18 +479,17 @@ fn is_server_page(u: &url::Url) -> bool {
 }
 
 /// 頁の読み込みが終わった合図。
-/// 読み込みの前に出しそこねた文言と、navigate の最中に届いたハッシュをここで流す。
+/// navigate の最中に届いたハッシュをここで流す。
+/// 起動画面への知らせは、起動画面が口を作り終えてから自分で引き取る（`boot_state`）。
 fn page_loaded(app: &AppHandle, server_page: bool) {
-    let (failure, hash, replay) = {
+    let hash = {
         let state = app.state::<AppState>();
         let mut ui = state.ui.lock().unwrap();
         // 読み込み画面の最初の load だけを時計の起点にする。
         if !server_page && ui.loading_since.is_none() {
             ui.loading_since = Some(Instant::now());
         }
-        let replay = ui.progress_to_replay(server_page);
-        let (failure, hash) = ui.page_loaded(server_page);
-        (failure, hash, replay)
+        ui.page_loaded(server_page)
     };
     // 信号の 3 点が窓の中に重なる殻であることの印。画面はこれを見て、信号の 3 点の分だけヘッダの左を空ける。
     // macOS でだけ付ける。Windows の窓は標準の枠で、信号は窓の中に無い。
@@ -493,12 +500,6 @@ fn page_loaded(app: &AppHandle, server_page: bool) {
         if server_page {
             eval_main(app, "window.__hangarPhaseAware = true");
         }
-    }
-    if let Some(js) = replay {
-        eval_main(app, &js);
-    }
-    if let Some(js) = failure {
-        eval_main(app, &js);
     }
     if let Some(h) = hash {
         eval_main(app, &deeplink::hash_to_js(&h));
@@ -765,13 +766,13 @@ fn boot(app: AppHandle) {
 
     // 読み込みが終わった合図を打たせ、光が満ち切るまで待ってから移る。起動画面は周のどこからでも合図に入れる。
     // load の合図がまだ来ていなければ、描いている札も無いので、合図も待ちもしない。
-    let drawing = app
-        .state::<AppState>()
-        .ui
-        .lock()
-        .unwrap()
-        .loading_since
-        .is_some();
+    // 合図を打ったことは状態にも置く。口が出来る前に打った合図は、起動画面が問い合わせて引き取る。
+    let drawing = {
+        let state = app.state::<AppState>();
+        let mut ui = state.ui.lock().unwrap();
+        ui.finishing = ui.loading_since.is_some();
+        ui.finishing
+    };
     if drawing {
         eval_main(&app, BOOT_FINISH_JS);
         std::thread::sleep(Duration::from_millis(BOOT_FINISH_MS));
@@ -821,9 +822,17 @@ fn spawn_boot(app: AppHandle) -> bool {
     true
 }
 
-// ここから下の 4 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
+// ここから下の 5 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
 // pick_folder のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+
+/// 起動画面が口を作り終えた時点で引き取る、起動の今の様子（`Ui::boot_state`）。
+/// 口が出来る前に殻が評価で渡した失敗、進み具合、合図は捨てられるので、頁の側から取りに来る。
+/// 引数は受け取らない。返すのは起動画面へ評価で渡すものと同じ材料だけで、入場の鍵や URL は持たない。
+#[tauri::command]
+fn boot_state(app: AppHandle) -> serde_json::Value {
+    app.state::<AppState>().ui.lock().unwrap().boot_state()
+}
 
 /// フォルダを 1 つ選ぶ macOS のダイアログを開き、選んだパスを返す。取り消したら None を返す。
 /// 新しいセッションのダイアログと、プロジェクトを作るダイアログの「ほかの場所を選ぶ…」が呼ぶ。
@@ -1437,6 +1446,7 @@ pub fn run() {
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
         // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、boot-screen.json で絞る。
         .invoke_handler(tauri::generate_handler![
+            boot_state,
             open_log,
             pick_folder,
             restart_app,
@@ -1521,20 +1531,66 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    // 読み込み画面が出来上がる前の評価は捨てられることがある。
-    // 早すぎる失敗の文言を貯めておき、読み込みが終わった合図で出す。
+    fn boot_at(phase: health::Phase, done: u64, total: u64) -> health::Boot {
+        health::Boot {
+            ready: false,
+            phase,
+            done,
+            total,
+        }
+    }
+
+    // 起動画面の口（boot.js）が出来る前の評価は捨てられる。
+    // macOS では、読み込みの合図（PageLoadEvent::Finished）の時点でもまだ口が無く、合図で渡し直した失敗も落ちた。
+    // 殻は失敗を状態として持ち続け、頁が口を作り終えてから問い合わせたとき（boot_state）に渡す。
     #[test]
-    fn a_failure_from_before_the_load_comes_out_after_it() {
+    fn a_failure_from_before_the_page_is_ready_is_kept_for_the_page_to_take() {
         let mut ui = Ui::default();
-        ui.remember_failure("fail-js-1");
-        let (failure, hash) = ui.page_loaded(false);
-        assert_eq!(failure, Some("fail-js-1".to_string()));
-        assert_eq!(hash, None);
-        // 一度出したものは二度出さない。
-        assert_eq!(ui.page_loaded(false).0, None);
-        // 読み込みが済んだ後の失敗は、その場で評価できるので貯めない。
-        ui.remember_failure("fail-js-2");
-        assert_eq!(ui.page_loaded(false).0, None);
+        assert_eq!(
+            ui.boot_state(),
+            serde_json::json!({ "failure": null, "progress": null, "finishing": false })
+        );
+        ui.failure = Some(serde_json::json!({ "kind": "other", "detail": "Node" }));
+        // 読み込みの合図が先に来ても、失敗は消さない。
+        ui.page_loaded(false);
+        let want = serde_json::json!({ "kind": "other", "detail": "Node" });
+        assert_eq!(ui.boot_state()["failure"], want);
+        // 頁が二度問い合わせても（読み込み直しなど）、同じ失敗を渡す。
+        assert_eq!(ui.boot_state()["failure"], want);
+    }
+
+    // 進み具合と、読み込みが終わった合図も、頁が問い合わせたときに渡す。
+    #[test]
+    fn the_progress_and_the_finish_signal_are_kept_for_the_page_to_take() {
+        let ui = Ui {
+            last_progress: Some(boot_at(health::Phase::Indexing, 412, 987)),
+            finishing: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            ui.boot_state(),
+            serde_json::json!({
+                "failure": null,
+                "progress": { "phase": "indexing", "done": 412, "total": 987 },
+                "finishing": true
+            })
+        );
+    }
+
+    // サーバの頁へ移った後は、起動画面の様子を渡さない。UI の DOM を書き換えないためである。
+    #[test]
+    fn the_server_page_gets_no_boot_state() {
+        let mut ui = Ui {
+            failure: Some(serde_json::json!({ "kind": "other" })),
+            last_progress: Some(boot_at(health::Phase::Indexing, 1, 2)),
+            finishing: true,
+            ..Default::default()
+        };
+        ui.navigating();
+        assert_eq!(
+            ui.boot_state(),
+            serde_json::json!({ "failure": null, "progress": null, "finishing": false })
+        );
     }
 
     // 起動と同時に届いたリンクは、最初の navigate の URL の末尾に載せる。
@@ -1545,7 +1601,7 @@ mod tests {
         assert_eq!(ui.hash_to_eval("#/session/1".to_string()), None);
         assert_eq!(ui.navigating(), "#/session/1");
         // 取り出した後は残さない。
-        assert_eq!(ui.page_loaded(true).1, None);
+        assert_eq!(ui.page_loaded(true), None);
     }
 
     // ready を立ててから読み込みが終わるまでの窓で届いたリンクも落とさない。
@@ -1555,9 +1611,7 @@ mod tests {
         ui.page_loaded(false);
         assert_eq!(ui.navigating(), "");
         assert_eq!(ui.hash_to_eval("#/session/2".to_string()), None);
-        let (failure, hash) = ui.page_loaded(true);
-        assert_eq!(hash, Some("#/session/2".to_string()));
-        assert_eq!(failure, None);
+        assert_eq!(ui.page_loaded(true), Some("#/session/2".to_string()));
         // サーバの頁が出来た後は、その場で評価する。
         assert_eq!(
             ui.hash_to_eval("#/project/3".to_string()),
@@ -1566,42 +1620,41 @@ mod tests {
     }
 
     // navigate に至らなかったときは読み込み画面がそのまま残る。
-    // 失敗はその場で評価できるので、貯めない。
+    // その後の失敗は、残った起動画面が問い合わせれば受け取れる。
     #[test]
     fn a_failed_navigation_puts_the_loading_page_back() {
         let mut ui = Ui::default();
         ui.page_loaded(false);
         ui.navigating();
         ui.navigation_failed();
-        ui.remember_failure("fail-js");
-        assert_eq!(ui.page_loaded(false).0, None);
+        ui.failure = Some(serde_json::json!({ "kind": "other" }));
+        assert_eq!(
+            ui.boot_state()["failure"],
+            serde_json::json!({ "kind": "other" })
+        );
         // ready は降りているので、次のリンクは貯める側へ回る。
         assert_eq!(ui.hash_to_eval("#/session/4".to_string()), None);
     }
 
-    // サーバの頁へ移った後は、貯めた失敗を流さない。UI の DOM を書き換えないためである。
-    #[test]
-    fn a_stale_failure_never_reaches_the_server_page() {
-        let mut ui = Ui::default();
-        ui.remember_failure("fail-js");
-        ui.navigating();
-        assert_eq!(ui.page_loaded(true).0, None);
-    }
-
     // 起動に失敗した後の「もう一度試す」。殻は読み込み画面を読み込み直してから起動をやり直す。
-    // 読み込み直しの最中に出た失敗は捨てられうるので、読み込みの合図まで貯める側へ戻す。
-    // 前の失敗と進み具合は、新しい頁へ持ち込まない。
+    // 前の失敗、進み具合、合図は、新しい頁へ持ち込まない。
+    // やり直しの後の失敗は、読み込み直した頁が問い合わせたときに渡す。
     #[test]
     fn a_retry_reloads_the_loading_page_and_holds_new_failures_for_it() {
         let mut ui = Ui::default();
         ui.page_loaded(false);
-        ui.last_progress = Some("progress".to_string());
+        ui.failure = Some(serde_json::json!({ "kind": "server-exited" }));
+        ui.last_progress = Some(boot_at(health::Phase::Scanning, 0, 0));
+        ui.finishing = true;
         assert!(ui.retry());
-        assert_eq!(ui.progress_to_replay(false), None);
-        ui.remember_failure("fail-js-after-retry");
         assert_eq!(
-            ui.page_loaded(false).0,
-            Some("fail-js-after-retry".to_string())
+            ui.boot_state(),
+            serde_json::json!({ "failure": null, "progress": null, "finishing": false })
+        );
+        ui.failure = Some(serde_json::json!({ "kind": "other" }));
+        assert_eq!(
+            ui.boot_state()["failure"],
+            serde_json::json!({ "kind": "other" })
         );
     }
 
@@ -1624,9 +1677,9 @@ mod tests {
         ui.navigating();
         assert_eq!(ui.hash_to_eval("#/session/5".to_string()), None);
         // 読み込み画面の側の遅れた合図。
-        assert_eq!(ui.page_loaded(false), (None, None));
+        assert_eq!(ui.page_loaded(false), None);
         // サーバの頁の合図でだけ流れる。
-        assert_eq!(ui.page_loaded(true).1, Some("#/session/5".to_string()));
+        assert_eq!(ui.page_loaded(true), Some("#/session/5".to_string()));
     }
 
     #[test]
@@ -1805,19 +1858,6 @@ mod tests {
             waited >= Duration::from_secs(120) && waited < Duration::from_secs(121),
             "{waited:?}"
         );
-    }
-
-    // 読み込みの前に渡した進み具合は捨てられることがある。読み込み画面の読み込みの合図で渡し直す。
-    #[test]
-    fn the_last_progress_is_replayed_when_the_loading_page_loads() {
-        let mut ui = Ui::default();
-        assert_eq!(ui.progress_to_replay(false), None);
-        ui.last_progress = Some("p".to_string());
-        assert_eq!(ui.progress_to_replay(false), Some("p".to_string()));
-        // サーバの頁には渡さない。
-        assert_eq!(ui.progress_to_replay(true), None);
-        ui.navigating();
-        assert_eq!(ui.progress_to_replay(false), None);
     }
 
     // 進み具合の式は、決まった段階の名前と整数だけでできている。
