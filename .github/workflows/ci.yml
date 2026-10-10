@@ -37,8 +37,8 @@ jobs:
       - run: npm run build
   windows:
     runs-on: windows-latest
-    # 試験が固まったときの上限。
-    timeout-minutes: 20
+    # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分かかる。
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -69,6 +69,20 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $dir
           & (Join-Path $dir 'psmux.exe') -V
       - run: npm test
+      # 殻（Tauri、Rust）が Windows で組み上がることを見る。窓や通知の振る舞いまでは見ない（段 6 の 6-2）。
+      # windows-latest に Rust は入っているが、版と components をここで決める。
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - run: cargo check --all-targets
+        working-directory: apps/desktop/src-tauri
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: apps/desktop/src-tauri
+      - run: cargo test
+        working-directory: apps/desktop/src-tauri
   desktop:
     runs-on: macos-latest
     # Rust のビルドがキャッシュ外れで長引いたときの上限。

@@ -315,6 +315,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn spawn_passes_env_and_stop_terminates() {
         // Node の代わりに /bin/sh を使い、server.mjs をシェルスクリプトにして環境変数と停止を確かめる。
@@ -367,6 +368,7 @@ mod tests {
 
     // SIGTERM を無視する子は、猶予を使い切ってから SIGKILL で止める。
     // 猶予の途中で切らないこと（走っている押し出しを待つため）も同時に見る。
+    #[cfg(unix)]
     #[test]
     fn stop_waits_the_grace_then_kills() {
         let dir = tempfile::tempdir().unwrap();
