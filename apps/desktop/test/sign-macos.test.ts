@@ -189,7 +189,7 @@ describe('署名の手順（偽の codesign）', () => {
     expect(signs.map((c) => c.args[c.args.length - 1])).toEqual([found[0], found[1], app]);
     for (const c of signs) {
       expect(c.args).toContain('--keychain');
-      expect(c.args[c.args.indexOf('-s') + 1]).toBe(FP_LC);
+      expect(c.args[c.args.indexOf('-s') + 1]).toBe(FP);  // macOS 26 の codesign は大文字の指紋でしか当てない
     }
     const last = signs[signs.length - 1]!.args;
     expect(last[last.indexOf('--identifier') + 1]).toBe(ID);

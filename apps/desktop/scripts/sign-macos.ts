@@ -169,7 +169,8 @@ export function unlockKeychain(opts: SignOptions, run: Runner = defaultRun): voi
  * `run` と `machOs` は試験のために差し替えられる。
  */
 export function signApp(opts: SignOptions, run: Runner = defaultRun, machOs: string[] = findMachOs(opts.app)): void {
-  const identity = opts.mode === 'adhoc' ? '-' : opts.fingerprint;
+  // codesign は -s の 16 進の指紋を、macOS 26 では大文字でしか当てない（小文字だと no identity found になる）。DR の H"..." は小文字で出る。
+  const identity = opts.mode === 'adhoc' ? '-' : opts.fingerprint?.toUpperCase();
   if (!identity) throw new Error('証明書の指紋が無い');
   const base = ['--force', ...(opts.mode === 'cert' && opts.keychain ? ['--keychain', opts.keychain] : []), '-s', identity];
   const codesign = (args: string[]): RunResult => {
