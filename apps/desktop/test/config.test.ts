@@ -75,7 +75,8 @@ describe('NSIS のアンインストールの後片付け', () => {
   it('トーストの絵だけを消し、利用者のデータ（~\\.agent-hangar の DB など）は消さない', () => {
     const b = body();
     expect(b).toContain('Delete "$PROFILE\\.agent-hangar\\notify-icon.png"');
-    expect(b).not.toMatch(/RMDir/i);
+    // RMDir は同梱サーバの置き場と $INSTDIR だけに使う（nsis-cleanup.test.ts）。利用者のホームには向けない。
+    expect(b).not.toMatch(/RMDir[^\r\n]*\$PROFILE/i);
     expect(b).not.toMatch(/Delete\s+"[^"]*\*/);
     expect(b).not.toMatch(/\.db/);
   });
@@ -172,6 +173,54 @@ describe('Windows のインストーラの action', () => {
   });
 });
 
+// 更新は前の版にしか無いファイル（名前に指紋の付いた UI の assets）を消さず、アンインストーラは今の版のファイルだけを消していた。
+// 古い名前の偽のファイルを置いてから入れ直すと消えていることと、消したあとに $INSTDIR に何も残らないことを見る。
+describe('Windows のインストーラの action の、入れ直しと消し切り', () => {
+  const action = fs.readFileSync(path.resolve(app, '../../.github/actions/windows-installer/action.yml'), 'utf8');
+  const at = (s: string) => {
+    const i = action.indexOf(s);
+    expect(i, s).toBeGreaterThanOrEqual(0);
+    return i;
+  };
+  it('殻を止めたあと、古い名前の偽の assets を置いてから入れ直し、偽のものが消えて本物が残ることを見る', () => {
+    const stop = at('Stop-Process -Id $app.Id');
+    const fake = at('$stale = @(');
+    const reinstall = at("$p2 = Start-Process -FilePath (Resolve-Path $env:SETUP).Path -ArgumentList '/S' -Wait -PassThru");
+    const gone = at('入れ直しても古い名前のファイルが残っている');
+    const kept = at('入れ直したら同梱のファイルが無くなった');
+    expect(stop).toBeLessThan(fake);
+    expect(fake).toBeLessThan(reinstall);
+    expect(reinstall).toBeLessThan(gone);
+    expect(reinstall).toBeLessThan(kept);
+    expect(action).toMatch(/server\\ui\\assets\\index-[A-Za-z0-9_-]+\.js/);
+    expect(action).toMatch(/server\\ui\\assets\\index-[A-Za-z0-9_-]+\.css/);
+  });
+  it('消す前にもう一度偽のものを置き、消したあとの $INSTDIR にはアンインストーラのほか何も残らないことを見る', () => {
+    const reinstall = at("$p2 = Start-Process");
+    const refake = action.indexOf('$stale | ForEach-Object', reinstall + 1);
+    const uninstall = at("'uninstall.exe') -ArgumentList");
+    const left = at('アンインストール後に $INSTDIR に残っている');
+    expect(refake).toBeGreaterThan(reinstall);
+    expect(refake).toBeLessThan(uninstall);
+    expect(left).toBeGreaterThan(uninstall);
+    // _?= で動かした消す側は自分（uninstall.exe）を消せないので、それだけは残ってよい。
+    expect(action).toContain("$rest = @(Get-ChildItem $dir -Force -Recurse | Where-Object { $_.Name -ne 'uninstall.exe' })");
+  });
+});
+
+// 自動更新は %TEMP% の <アプリ名>-<版>-updater-* にインストーラを残す。殻は起動のたびに、今の版より新しくないものを片付ける（tempclean.rs）。
+describe('更新の残りの片付け', () => {
+  it('殻の setup から、片付けを 1 行で呼ぶ', () => {
+    const lib = read('src-tauri/src/lib.rs');
+    const setup = lib.slice(lib.indexOf('.setup(|app| {'), lib.indexOf('.build(tauri::generate_context!())'));
+    expect(setup).toContain('tempclean::sweep_in_background(app.package_info(), log);');
+  });
+  // updater の置き場の名前は、アプリの名前（productName）から始まる。殻の package_info().name も productName である。
+  it('updater の置き場の名前の頭（productName）は Hangar', () => {
+    expect(JSON.parse(read('src-tauri/tauri.conf.json')).productName).toBe('Hangar');
+  });
+});
+
 describe('Info.plist', () => {
   it('iTerm2 の AppleScript 用の説明文を持つ', () => {
     expect(read('src-tauri/Info.plist')).toContain('NSAppleEventsUsageDescription');
@@ -221,6 +270,16 @@ describe('読み込み画面', () => {
     const html = read('loading/index.html');
     expect(html).toContain('.fail-brand { position: fixed; left: 16px;');
     expect(html).toContain(`[data-shell='desktop'] .fail-brand { left: ${lights}px; }`);
+  });
+  // 日本語の Windows の既定の等幅（MS ゴシックなど）は、\ を ¥ の字形で描く。パスやコマンドが ¥ に見えないよう、
+  // \ を正しく描く等幅のフォント（macOS の ui-monospace、SF Mono、Menlo、Windows の Cascadia Mono、Consolas）を先に並べる。
+  it('起動画面の等幅の欄は、\\ を正しく描くフォントを先頭に並べ、総称の monospace は最後に置く', () => {
+    const html = read('loading/index.html');
+    const fonts = [...html.matchAll(/font:[^;]*monospace;/g)].map((m) => m[0]);
+    expect(fonts.length).toBeGreaterThanOrEqual(2);
+    // 大きさ（と行の高さ）のすぐ後が、決めた並びになっている。
+    for (const f of fonts) expect(f).toMatch(/^font: [\d.]+px(\/[\d.]+)? ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace;$/);
+    expect(html).not.toContain('JetBrains Mono');
   });
   // 札の操作の並びは Tab の順（命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す）で、DOM もこの順に置く。
   it('失敗の札の操作は、DOM を Tab の順に置く', () => {

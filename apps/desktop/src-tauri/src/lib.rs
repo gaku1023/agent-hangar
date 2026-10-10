@@ -17,6 +17,7 @@ pub mod notify;
 pub mod paths;
 pub mod placement;
 pub mod server;
+pub mod tempclean;
 pub mod updater;
 #[cfg(windows)]
 pub mod winjob;
@@ -1476,6 +1477,7 @@ pub fn run() {
                 handle_urls(app.handle(), &urls);
             }
             spawn_boot(app.handle().clone());
+            tempclean::sweep_in_background(app.package_info(), log);
             Ok(())
         })
         .build(tauri::generate_context!())

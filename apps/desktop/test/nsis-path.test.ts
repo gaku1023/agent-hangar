@@ -40,7 +40,20 @@ describe('NSIS のフックで PATH を足し、外す', () => {
     expect(b).toContain('SetEnvironmentVariable(t "HANGAR_PATH_OP", t "${OP}")');
     expect(b).toContain('${HANGAR_PATH_PS}');
     // HWND_BROADCAST に WM_SETTINGCHANGE。
-    expect(b).toMatch(/SendMessage 0xFFFF 0x1A 0 "STR:Environment"/);
+    expect(b).toContain(`System::Call 'user32::SendMessageTimeoutW(p 0xFFFF, i 0x1A, p 0, w "Environment", i 0x2, i 5000, p 0)'`);
+  });
+
+  // NSIS の SendMessage /TIMEOUT は、応答しない窓 1 つごとに上限まで待つ。
+  // 実機では応答しない窓が 10 個あり、入れるのも消すのも約 50 秒止まった。
+  // SendMessageTimeout に SMTO_ABORTIFHUNG（0x2）を渡し、固まった窓は待たずに飛ばす。
+  it('環境の変化の一斉送信は、固まった窓を待たない（SMTO_ABORTIFHUNG）', () => {
+    expect(hooks).not.toMatch(/^\s*SendMessage\s/m);
+    const m = /SendMessageTimeoutW\(([^)]*)\)/.exec(macro('HANGAR_EDIT_USER_PATH'));
+    expect(m).not.toBeNull();
+    const args = m![1]!.split(',').map((a) => a.trim());
+    // hWnd、Msg、wParam、lParam、fuFlags、uTimeout、lpdwResult の 7 つ。
+    expect(args).toHaveLength(7);
+    expect(args[4]).toBe('i 0x2');
   });
 
   it('入れたあと（POSTINSTALL）に足す', () => {
@@ -48,7 +61,7 @@ describe('NSIS のフックで PATH を足し、外す', () => {
   });
 
   it('消す前（PREUNINSTALL）に外す。ファイルを消す前なので $INSTDIR がまだ入れた場所を指す', () => {
-    expect(macro('NSIS_HOOK_PREUNINSTALL').trim()).toBe('!insertmacro HANGAR_EDIT_USER_PATH "remove"');
+    expect(macro('NSIS_HOOK_PREUNINSTALL').trim().split(/\r?\n/)[0]).toBe('!insertmacro HANGAR_EDIT_USER_PATH "remove"');
   });
 
   it('PowerShell の 1 行は、NSIS の文字列の上限（1024 字）に収まる', () => {

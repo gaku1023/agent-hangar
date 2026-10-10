@@ -24,6 +24,8 @@ url = "2"
 # 自動更新（src/updater.rs）。目録と公開鍵は tauri.conf.json の plugins.updater にある。
 # 頁からはプラグインの JS の命令を呼ばせず、lib.rs の update_* の 4 つだけを呼ばせる。
 tauri-plugin-updater = "2"
+# 自動更新が %TEMP% に残す置き場の版を、今の版と比べる（src/tempclean.rs）。版は Tauri が既に引いている 1 系に合わせる。
+semver = "1"
 
 # 信号と setsid は POSIX だけにある。Windows では使わないので、依存ごと外す。
 [target.'cfg(unix)'.dependencies]

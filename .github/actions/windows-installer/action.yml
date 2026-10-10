@@ -1,6 +1,7 @@
 name: Windows のインストーラを作る
 description: >-
-  NSIS のインストーラ（署名なし）を作り、静かに入れて同梱の hangar.cmd が動くことと、殻を起こすとサーバが応えることを見てから、静かに消す。
+  NSIS のインストーラ（署名なし）を作り、静かに入れて同梱の hangar.cmd が動くことと、殻を起こすとサーバが応えることを見て、
+  前の版の残りに見立てたファイルが入れ直しで消えることを見てから、静かに消し、何も残らないことを見る。
   ci と release の windows ジョブが同じ手順を使うためにここへまとめてある。
   呼ぶ前に checkout、Node 22、npm ci --ignore-scripts、Rust（target 入り）をそろえておく。
 inputs:
@@ -140,9 +141,29 @@ runs:
         "殻が使った Node: $used $v"
         if ($used -ne $node) { throw "殻が nodePath の Node を使っていない（使ったのは ${used}、指したのは ${node}）" }
         if ([version]$v.TrimStart('v') -lt [version]'22.20.0') { throw "殻が使った Node $v は 22.20 より古く、verbatim のパスの回帰を捕まえられない" }
+        # 更新は、前の版にしか無いファイル（名前に指紋の付いた UI の assets）を消さない。
+        # 前の版の残りに見立てた偽のファイルを置いて入れ直し、入れるときのフック（hooks.nsh の NSIS_HOOK_PREINSTALL）が同梱サーバの置き場を一度空にすることを見る。
+        $stale = @('server\ui\assets\index-ciStale0.js', 'server\ui\assets\index-ciStale0.css', 'server\ci-stale.txt') | ForEach-Object { Join-Path $dir $_ }
+        $stale | ForEach-Object { Set-Content -Path $_ -Value 'stale' }
+        $p2 = Start-Process -FilePath (Resolve-Path $env:SETUP).Path -ArgumentList '/S' -Wait -PassThru
+        if ($p2.ExitCode -ne 0) { throw "入れ直しのインストーラが終了コード $($p2.ExitCode) で終わった" }
+        '入れ直しにかかった時間: {0:N1} 秒' -f ($p2.ExitTime - $p2.StartTime).TotalSeconds
+        $left = @($stale | Where-Object { Test-Path $_ })
+        if ($left.Count -ne 0) { throw "入れ直しても古い名前のファイルが残っている: $($left -join ', ')" }
+        if (-not (Test-Path $cmd.FullName) -or -not (Test-Path (Join-Path $dir 'server\ui\index.html'))) { throw '入れ直したら同梱のファイルが無くなった' }
+        # アンインストールでも、前の版の残りまで消し切ることを見るため、もう一度置く。
+        $stale | ForEach-Object { Set-Content -Path $_ -Value 'stale' }
         # _?= を付けると、消す側が自分を写さずその場で動き、終わるまで待てる。
         $u = Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList "/S _?=$dir" -Wait -PassThru
         if ($u.ExitCode -ne 0) { throw "アンインストーラが終了コード $($u.ExitCode) で終わった" }
+        'アンインストールにかかった時間: {0:N1} 秒' -f ($u.ExitTime - $u.StartTime).TotalSeconds
+        # 消したあとの $INSTDIR には何も残らない（hooks.nsh の NSIS_HOOK_POSTUNINSTALL が server を丸ごと消す）。
+        # _?= で動かした消す側は自分を消せないので、uninstall.exe だけは残ってよい。
+        if (Test-Path $dir) {
+          $rest = @(Get-ChildItem $dir -Force -Recurse | Where-Object { $_.Name -ne 'uninstall.exe' })
+          if ($rest.Count -ne 0) { $rest | Format-Table FullName; throw ('アンインストール後に $INSTDIR に残っている（{0} 個）' -f $rest.Count) }
+          Remove-Item $dir -Recurse -Force
+        }
         # アンインストールのフックが、トーストの登録と絵を消す。利用者のデータ（.agent-hangar の中のほかのもの）は消さない。
         if (Test-Path $appKey) { throw 'アンインストール後に AppUserModelId の登録が残っている' }
         if (Test-Path $clsidKey) { throw 'アンインストール後に COM の口の CLSID の登録が残っている' }
