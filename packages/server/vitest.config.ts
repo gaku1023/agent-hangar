@@ -5,4 +5,4 @@ import { defineConfig } from 'vitest/config';
 // ファイルの DB を何度も開く試験（開くたびにマイグレーションの前の控えを VACUUM INTO と fsync で取る）は、
 // 混んだランナーで 1 件 24〜48 秒かかった（session_notes の移し替えの試験、手元の macOS では 0.1 秒）。
 const testTimeout = process.platform === 'win32' ? 60_000 : 5_000;
-export default defineConfig({ test: { name: 'server', environment: 'node', include: ['src/**/*.test.ts', 'test/**/*.test.ts'], testTimeout } });
+export default defineConfig({ test: { name: 'server', environment: 'node', include: ['src/**/*.test.ts', 'test/**/*.test.ts'], testTimeout, setupFiles: ['./test/setup-sqlite.ts'] } });
