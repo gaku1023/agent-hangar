@@ -173,7 +173,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
   # Windows 11 の x64 だけ。署名はしない（利用者の決定）。
-  # 作る手順は ci の windows ジョブと同じ composite action（.github/actions/windows-installer）で、静かに入れて同梱の hangar.cmd が動くところまで見る。
+  # 作る手順は ci の windows ジョブと同じ composite action（.github/actions/windows-installer）で、静かに入れて同梱の hangar.cmd が動くところと、殻を起こすとサーバが応えるところまで見る。
   # npm test は回さない。psmux を相手にする試験は ci の windows ジョブが main の同じコミットで回している。
   # タグと版の照合は plan ジョブが行い、合わなければここまで来ない。
   windows:

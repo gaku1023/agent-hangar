@@ -146,6 +146,19 @@ describe('tauri.conf.json', () => {
   });
 });
 
+// 殻が resource_dir（Windows では \\?\ 付き）から作ったパスで Node を起こす経路は、同梱の hangar.cmd では通らない。
+// 0.2.0-rc.1 はこの経路で起動しなかったので、入れた殻そのものを起こして /health が応えるまで見る段を外さない。
+describe('Windows のインストーラの action', () => {
+  const action = fs.readFileSync(path.resolve(app, '../../.github/actions/windows-installer/action.yml'), 'utf8');
+  it('入れた殻を起こし、同梱のサーバが /health に応えるまで待ってから止める', () => {
+    expect(action).toContain("http://127.0.0.1:4177/health");
+    expect(action).toMatch(/\$app = Start-Process -FilePath \$exe\.FullName -PassThru/);
+    expect(action).toContain('Stop-Process -Id $app.Id -Force');
+    // 止めるのはアンインストールの前でなければならない（動いている殻の exe は消せない）。
+    expect(action.indexOf('Stop-Process -Id $app.Id')).toBeLessThan(action.indexOf("'uninstall.exe') -ArgumentList"));
+  });
+});
+
 describe('Info.plist', () => {
   it('iTerm2 の AppleScript 用の説明文を持つ', () => {
     expect(read('src-tauri/Info.plist')).toContain('NSAppleEventsUsageDescription');

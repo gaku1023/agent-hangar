@@ -339,19 +339,21 @@ pub fn valid_generation_name(name: &str) -> bool {
 // ---- CLI の呼び出し ----
 
 /// `node cli.mjs <引数>` のコマンド。サーバの子と同じに、受け継いだ Claude Code の印を外し、hangar の置き場を殻の値で入れる。
+/// パスはサーバの子と同じに、Windows の verbatim の接頭辞を外してから渡す（`paths::plain`）。
 pub fn cli_command(node: &Path, server_dir: &Path, hangar_home: &Path, args: &[&str]) -> Command {
+    use crate::paths::plain;
     let path = crate::server::augmented_path(
         std::env::var("PATH").ok().as_deref(),
         &crate::paths::user_home(),
     );
-    let mut cmd = Command::new(node);
+    let mut cmd = Command::new(plain(node));
     for name in crate::server::INHERITED_ENV_DROPPED {
         cmd.env_remove(name);
     }
-    cmd.arg(server_dir.join("cli.mjs"))
+    cmd.arg(plain(server_dir).join("cli.mjs"))
         .args(args)
         .env("PATH", path)
-        .env("HANGAR_HOME", hangar_home)
+        .env("HANGAR_HOME", plain(hangar_home))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -612,6 +614,52 @@ mod tests {
             .iter()
             .any(|(k, v)| *k == std::ffi::OsStr::new("HANGAR_HOME")
                 && *v == Some(std::ffi::OsStr::new("/h/home"))));
+    }
+
+    // 設定の同期の命令も、同梱の置き場（resource_dir の下）の cli.mjs を Node に渡す。
+    // サーバと同じく、verbatim の形を外して渡す（Node 22.20 以降はその形の主スクリプトを読めない）。
+    #[cfg(windows)]
+    #[test]
+    fn the_cli_gets_plain_paths_on_windows() {
+        let cmd = cli_command(
+            Path::new("node"),
+            Path::new(r"\\?\C:\Users\me\AppData\Local\Hangar\server"),
+            Path::new(r"\\?\C:\Users\me\.agent-hangar"),
+            &["config", "apply"],
+        );
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(
+            args[0],
+            std::ffi::OsStr::new(r"C:\Users\me\AppData\Local\Hangar\server\cli.mjs")
+        );
+        assert!(cmd
+            .get_envs()
+            .any(|(k, v)| k == std::ffi::OsStr::new("HANGAR_HOME")
+                && v == Some(std::ffi::OsStr::new(r"C:\Users\me\.agent-hangar"))));
+    }
+
+    // 実物の Node に、verbatim の置き場から cli.mjs を走らせる。
+    #[cfg(windows)]
+    #[test]
+    fn node_runs_the_cli_from_a_verbatim_resource_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let verbatim = tmp.path().canonicalize().unwrap();
+        assert!(
+            verbatim.to_string_lossy().starts_with(r"\\?\"),
+            "{verbatim:?}"
+        );
+        std::fs::write(
+            verbatim.join("cli.mjs"),
+            "console.log(JSON.stringify({ ok: true, main: process.argv[1] }));\n",
+        )
+        .unwrap();
+        let out = run_cli(
+            cli_command(Path::new("node"), &verbatim, tmp.path(), &[]),
+            Duration::from_secs(30),
+        )
+        .unwrap();
+        assert!(out.contains("\"ok\":true"), "{out}");
+        assert!(!out.contains(r"\\\\?\\"), "{out}");
     }
 
     #[cfg(unix)]
