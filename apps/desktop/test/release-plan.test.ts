@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   checkCommitGate, checkSigningSecrets, compareVersions, type CiRun, isPrerelease, manifestUrl, missingAssets, planRelease,
-  PRERELEASE_CHANNEL_TAG, PRERELEASE_TAURI_CONFIG, readVersions, setVersionIn, shouldUpdateChannel, UPSTREAM_REPO,
+  PRERELEASE_CHANNEL_TAG, PRERELEASE_TAURI_CONFIG, readVersions, releaseNotesFile, setVersionIn, shouldUpdateChannel, UPSTREAM_REPO,
   versionOfTag, VERSION_FILES,
 } from '../scripts/release-plan.ts';
 
@@ -57,20 +57,41 @@ describe('semver の順序（tauri-plugin-updater と NSIS の比べ方と同じ
 
 describe('release の計画', () => {
   const same = (v: string) => Object.fromEntries(VERSION_FILES.map((f) => [f, v]));
+  // 本文のファイルを読む口。渡したものだけがあるように見せ、読みに来た名前を控える。
+  const notes = (files: Record<string, string> = {}) => {
+    const asked: string[] = [];
+    const read = (f: string) => { asked.push(f); return files[f]; };
+    return { read, asked };
+  };
+  const withNotes = (v: string) => notes({ [`docs/release-notes/${v}.md`]: `# Hangar ${v}\n` }).read;
   it('正式な版は、最新の Release にして、目録は安定版の道（Release の最新）だけに置く', () => {
-    expect(planRelease('v0.2.0', same('0.2.0'))).toEqual({ version: '0.2.0', prerelease: false, tauriConfig: '' });
+    expect(planRelease('v0.2.0', same('0.2.0'), withNotes('0.2.0'))).toEqual({ version: '0.2.0', prerelease: false, tauriConfig: '', releaseNotes: 'docs/release-notes/0.2.0.md' });
   });
   it('試しの版は prerelease にして、試しの道の endpoint を焼き込む設定を重ねる', () => {
-    expect(planRelease('v0.2.0-rc.1', same('0.2.0-rc.1'))).toEqual({ version: '0.2.0-rc.1', prerelease: true, tauriConfig: PRERELEASE_TAURI_CONFIG });
+    expect(planRelease('v0.2.0-rc.1', same('0.2.0-rc.1'), withNotes('0.2.0-rc.1'))).toEqual({ version: '0.2.0-rc.1', prerelease: true, tauriConfig: PRERELEASE_TAURI_CONFIG, releaseNotes: '' });
   });
   it('どれか 1 つのファイルの版がタグと違えば、どのファイルが何かを挙げて止める', () => {
     const files = { ...same('0.2.0-rc.1'), 'apps/desktop/src-tauri/Cargo.toml': '0.1.0' };
-    expect(() => planRelease('v0.2.0-rc.1', files)).toThrow(/Cargo\.toml.*0\.1\.0/);
+    expect(() => planRelease('v0.2.0-rc.1', files, withNotes('0.2.0-rc.1'))).toThrow(/Cargo\.toml.*0\.1\.0/);
     // tauri.conf.json がまだ前の版のまま（版を上げる PR を入れずにタグを打った）
-    expect(() => planRelease('v0.2.0', same('0.1.0'))).toThrow(/tauri\.conf\.json/);
+    expect(() => planRelease('v0.2.0', same('0.1.0'), withNotes('0.2.0'))).toThrow(/tauri\.conf\.json/);
     // ファイルが読めなかった（版が見つからない）も止める。
     const missing: Record<string, string | undefined> = { ...same('0.2.0'), 'package-lock.json': undefined };
-    expect(() => planRelease('v0.2.0', missing)).toThrow(/package-lock\.json/);
+    expect(() => planRelease('v0.2.0', missing, withNotes('0.2.0'))).toThrow(/package-lock\.json/);
+  });
+  // 正式な版の Release の本文は docs/release-notes/<版>.md で、release.yml がそのまま本文にする。
+  // 無いまま進むと、GitHub の自動生成（PR の一覧）が本文になって、最新の Release として利用者に見える。
+  it('正式な版は、本文のファイル（docs/release-notes/<版>.md）が無いか空なら止める', () => {
+    expect(releaseNotesFile('0.2.0')).toBe('docs/release-notes/0.2.0.md');
+    expect(() => planRelease('v0.2.0', same('0.2.0'), notes().read)).toThrow(/docs\/release-notes\/0\.2\.0\.md/);
+    expect(() => planRelease('v0.2.0', same('0.2.0'), notes({ 'docs/release-notes/0.2.0.md': ' \n\n' }).read)).toThrow(/docs\/release-notes\/0\.2\.0\.md.*empty/);
+    // 別の版の本文は数えない。
+    expect(() => planRelease('v0.2.1', same('0.2.1'), withNotes('0.2.0'))).toThrow(/docs\/release-notes\/0\.2\.1\.md/);
+  });
+  it('試しの版は本文のファイルを見ず、GitHub の自動生成に任せる', () => {
+    const n = notes();
+    expect(planRelease('v0.2.0-rc.1', same('0.2.0-rc.1'), n.read).releaseNotes).toBe('');
+    expect(n.asked).toEqual([]);
   });
 });
 
@@ -216,6 +237,18 @@ describe('リポジトリの版', () => {
       expect(setVersionIn(f, after, current), f).toBe(before);
     }
   });
+  // 本文のファイルはそのまま Release の本文になる。正式な版の名前だけを置き、中身を空にしない。
+  it('リポジトリの Release の本文は、正式な版の名前で、空でない', () => {
+    const dir = path.join(root, 'docs/release-notes');
+    for (const f of fs.readdirSync(dir)) {
+      const m = /^(.+)\.md$/.exec(f);
+      expect(m, f).not.toBeNull();
+      expect(() => versionOfTag(`v${m![1]}`), f).not.toThrow();
+      expect(isPrerelease(m![1]!), f).toBe(false);
+      expect(releaseNotesFile(m![1]!)).toBe(`docs/release-notes/${f}`);
+      expect(fs.readFileSync(path.join(dir, f), 'utf8').trim(), f).not.toBe('');
+    }
+  });
   it('版を上げる手順（docs/release.md）が呼ぶ npm の script がある', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(app, 'package.json'), 'utf8'));
     expect(pkg.scripts['set-version']).toBe('node --experimental-strip-types --no-warnings scripts/release-plan.ts set-version');
@@ -300,6 +333,17 @@ describe('release.yml の配線', () => {
     expect(p.slice(publish)).not.toContain('gh release upload');
     for (const name of ['macos', 'windows-upload', 'channel']) expect(job(name), name).not.toContain('--draft=false');
   });
+  // 正式な版は docs/release-notes/<版>.md を本文にし、試しの版は GitHub の自動生成にする。
+  // 本文と自動生成を両方渡すと、GitHub は本文の後ろに自動生成を足すので、どちらか一方だけにする。
+  it('Release の本文は、plan が決めた本文のファイルを使い、無いとき（試しの版）だけ自動生成にする', () => {
+    expect(job('plan')).toContain('release-notes: ${{ steps.plan.outputs.release-notes }}');
+    const m = job('macos');
+    expect(m).toContain('body_path: ${{ needs.plan.outputs.release-notes }}');
+    expect(m).toContain("generate_release_notes: ${{ needs.plan.outputs.release-notes == '' }}");
+    expect(release).not.toContain('generate_release_notes: true');
+    // 公開の段は本文に触らない（下書きに入れた本文がそのまま公開される）。
+    expect(job('publish')).not.toMatch(/--notes/);
+  });
   it('試しの道の目録の置き換えは 1 本ずつ走り、取得の失敗を「目録が無い」と取り違えない', () => {
     const c = job('channel');
     expect(c).toMatch(/concurrency:\n {6}group: release-channel-\$\{\{ needs\.plan\.outputs\.channel-tag \}\}\n {6}cancel-in-progress: false\n/);
@@ -360,10 +404,27 @@ describe('release.yml の配線', () => {
   });
 });
 
+// plan の関門は、タグのコミットへの main の push で走った ci の run が成功していることを見る。
+// GitHub の concurrency は、cancel-in-progress が false でも、同じ group で待っている run を新しい run が来たときに取り消す。
+// main の run を枝ごとの 1 つの group にすると、続けて入れたときに間のコミットの ci が cancelled になり、そのコミットにはタグを打てなくなる。
+describe('ci.yml の concurrency', () => {
+  const ci = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
+  const block = /^concurrency:\n {2}group: (.+)\n {2}cancel-in-progress: (.+)\n/m.exec(ci);
+  it('main への push はコミットごとの group にして、ほかの run に取り消されない', () => {
+    expect(block, 'top-level concurrency').not.toBeNull();
+    const [, group, cancel] = block!;
+    expect(group).toBe("${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}");
+    // push の run は走っている途中でも取り消さない。PR は同じ枝に続けて押したとき、古い実行を畳む。
+    expect(cancel).toBe("${{ github.event_name != 'push' }}");
+    // push で走るのは main だけである（ほかの枝の push に広げると、group がコミットごとなので畳まれなくなる）。
+    expect(ci).toMatch(/^on:\n {2}push:\n {4}branches: \[main\]\n {2}pull_request:\n/m);
+  });
+});
+
 // release.yml の plan ジョブは npm ci をしない。Node が型を剥がすだけで動き、GitHub の出力の形で書く。
 describe('release.yml から呼ぶ形', () => {
   const v = readVersions(root)['apps/desktop/src-tauri/tauri.conf.json']!;
-  const planOut = (required: boolean) => `version=${v}\nprerelease=${isPrerelease(v)}\ntauri-config=${isPrerelease(v) ? PRERELEASE_TAURI_CONFIG : ''}\nchannel-tag=${PRERELEASE_CHANNEL_TAG}\nsigning-required=${required}\n`;
+  const planOut = (required: boolean) => `version=${v}\nprerelease=${isPrerelease(v)}\ntauri-config=${isPrerelease(v) ? PRERELEASE_TAURI_CONFIG : ''}\nchannel-tag=${PRERELEASE_CHANNEL_TAG}\nsigning-required=${required}\nrelease-notes=${isPrerelease(v) ? '' : releaseNotesFile(v)}\n`;
   it('plan は版と prerelease と重ねる設定と署名の要否を key=value で書き、食い違えば 0 以外で終わる', () => {
     const out = execFileSync(process.execPath, ['--experimental-strip-types', '--no-warnings', script, 'plan', `v${v}`, root], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } });
     expect(out).toBe(planOut(false));
@@ -387,6 +448,24 @@ describe('release.yml から呼ぶ形', () => {
     expect(fork.stderr).toMatch(/^::warning/m);
     // 警告は GITHUB_OUTPUT へ流れる標準出力に混ぜない。
     expect(fork.stdout).not.toContain('::');
+  });
+  it('plan は、正式な版なら本文のファイルの場所を書き、無ければ何も書かずに止まる', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-plan-'));
+    for (const f of VERSION_FILES) {
+      fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      fs.copyFileSync(path.join(root, f), path.join(dir, f));
+    }
+    expect(node(['set-version', '9.9.9', dir]).status).toBe(0);
+    const missing = node(['plan', 'v9.9.9', dir]);
+    expect(missing.status).not.toBe(0);
+    expect(missing.stdout).toBe('');
+    expect(missing.stderr).toContain('docs/release-notes/9.9.9.md');
+    fs.mkdirSync(path.join(dir, 'docs/release-notes'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docs/release-notes/9.9.9.md'), '# Hangar 9.9.9\n');
+    const ok = node(['plan', 'v9.9.9', dir]);
+    expect(ok.status, ok.stderr).toBe(0);
+    expect(ok.stdout).toContain('\nprerelease=false\n');
+    expect(ok.stdout).toMatch(/\nrelease-notes=docs\/release-notes\/9\.9\.9\.md\n$/);
   });
   it('gate は、main の祖先かと ci の run の一覧（API の応答のまま）を受け、通らなければ 0 以外で終わる', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-plan-'));

@@ -94,7 +94,13 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
 
   // hangar の画面の端末は、接続ごとに node-pty で attach を起こす。2 つのタブで同じセッションを開ける必要がある。
   it('node-pty 越しに 2 つの口からつなぎ、片方が抜けてもセッションは残る', async () => {
-    start('hangar-att', ['cmd.exe']);
+    // 打ち始めるのは、両方の口が画面の中身（ATT_READY）を描いてからにする。
+    // psmux の attach は、画面を描く前に、外の端末へ色の問い合わせ（OSC 10/11/4 など）を書き、最大 500ms のあいだ入力を答えとして読み捨てる。
+    // node-pty は答えないので、その間に打った文字は消える。
+    // 以前は何かが出たら（length > 0）打っていたが、最初に出るのは ConPTY の初めの制御列とその問い合わせなので、読み捨ての最中に打つことがあり、
+    // from-a がどちらの口にも出ないまま 10 秒で時間切れになった（CI の windows で 10.6 秒の失敗が続いた。ふだんは全体で 2.5 秒）。
+    const ATT_READY = 'att-ready';
+    start('hangar-att', ['cmd.exe', '/k', `echo ${ATT_READY}`]);
     const open = () => {
       let out = '';
       const p = nodePtySpawn(tmux.tmuxPath, tmux.attachArgs('hangar-att'), { name: 'xterm-256color', cols: 100, rows: 30, cwd: os.homedir(), env: { ...process.env, ...env } });
@@ -104,7 +110,7 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     const a = open();
     const b = open();
     try {
-      await waitFor(() => a.text().length > 0 && b.text().length > 0, 10_000);
+      await waitFor(() => a.text().includes(ATT_READY) && b.text().includes(ATT_READY), 10_000);
       a.p.write('echo from-a\r');
       await waitFor(() => a.text().includes('from-a') && b.text().includes('from-a'), 10_000);
       a.p.kill();

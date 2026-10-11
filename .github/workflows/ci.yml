@@ -7,11 +7,13 @@ on:
 # public のリポジトリなので、ここを明記しないと設定次第で書き込みの持ち主が走る。
 permissions:
   contents: read
-# 同じ枝に続けて押したとき、古い実行を畳む。
-# main だけは畳まない。畳むと、その手前のコミットが緑だったかどうかが記録に残らない。
+# PR は、同じ枝に続けて押したとき、古い実行を畳む。
+# main への push は、コミットごとに別の group にして畳まない。
+# 畳むと、その手前のコミットが緑だったかどうかが記録に残らず、release の関門（release-plan.ts の checkCommitGate）がそのコミットで止まる。
+# cancel-in-progress を false にするだけでは足りない。GitHub は同じ group で待っている run を、新しい run が来たときに取り消す（cancelled）。
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 jobs:
   check:
     runs-on: ubuntu-latest

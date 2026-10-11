@@ -2,6 +2,7 @@
 // 使い方:
 //   node --experimental-strip-types scripts/release-plan.ts plan <タグ> [リポジトリの根]
 //     タグと版の在りかのファイルを照らし、GitHub の出力の形（key=value）で計画を書く。食い違えば止まる。
+//     正式な版で Release の本文（docs/release-notes/<版>.md）が無いか空なら止まる。
 //     環境変数 GITHUB_REPOSITORY、HAS_MACOS_SIGN、HAS_UPDATER_KEY を見て、本家で署名の secret が無ければ止まる。
 //   node --experimental-strip-types scripts/release-plan.ts gate <コミット> <main の祖先か true|false> <ci.yml の runs の JSON>
 //     タグのコミットが main にあり、その ci が成功していなければ止まる。
@@ -87,10 +88,22 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 {
   return 0;
 }
 
-export type Plan = { version: string; prerelease: boolean; tauriConfig: string };
+/** 正式な版の Release の本文（リポジトリの根からの相対）。release.yml が下書きの Release を作るときに、そのまま本文にする。 */
+export function releaseNotesFile(version: string): string {
+  return `docs/release-notes/${version}.md`;
+}
 
-/** タグと、版の在りかの各ファイルの版を照らし、release の計画を返す。1 つでも違えば止める（食い違ったまま配らない）。 */
-export function planRelease(tag: string, versions: Record<string, string | undefined>): Plan {
+/** releaseNotes は Release の本文にするファイル（リポジトリの根からの相対）。空なら GitHub の自動生成にする（試しの版）。 */
+export type Plan = { version: string; prerelease: boolean; tauriConfig: string; releaseNotes: string };
+
+/**
+ * タグと、版の在りかの各ファイルの版を照らし、release の計画を返す。1 つでも違えば止める（食い違ったまま配らない）。
+ * 正式な版は、Release の本文のファイル（releaseNotesFile）が無いか空なら止める。
+ * 本文が無いまま進むと、GitHub の自動生成（PR の一覧）が本文になり、最新の Release として利用者に見えるからである。
+ * 試しの版は本文のファイルを見ず、GitHub の自動生成に任せる。
+ * readNotes はリポジトリの根からの相対の名前を受け、ファイルの中身か、無ければ undefined を返す。
+ */
+export function planRelease(tag: string, versions: Record<string, string | undefined>, readNotes: (file: string) => string | undefined): Plan {
   const version = versionOfTag(tag);
   const wrong = VERSION_FILES.filter((f) => versions[f] !== version);
   if (wrong.length > 0) {
@@ -98,7 +111,12 @@ export function planRelease(tag: string, versions: Record<string, string | undef
     throw new Error(`tag ${tag} does not match the version in:\n${lines.join('\n')}\nraise the version (npm run set-version -w apps/desktop -- ${version}) and merge it before tagging`);
   }
   const prerelease = isPrerelease(version);
-  return { version, prerelease, tauriConfig: prerelease ? PRERELEASE_TAURI_CONFIG : '' };
+  if (prerelease) return { version, prerelease, tauriConfig: PRERELEASE_TAURI_CONFIG, releaseNotes: '' };
+  const notes = releaseNotesFile(version);
+  const body = readNotes(notes);
+  if (body === undefined) throw new Error(`${notes} is missing; write the release notes for ${version} and merge them before tagging (docs/release.md)`);
+  if (body.trim() === '') throw new Error(`${notes} is empty; write the release notes for ${version} and merge them before tagging (docs/release.md)`);
+  return { version, prerelease, tauriConfig: '', releaseNotes: notes };
 }
 
 /** 本家のリポジトリ。ここで走る release は、署名の secret が無ければ止める（fork は警告で続ける）。 */
@@ -246,7 +264,11 @@ const repoRoot = () => path.resolve(path.dirname(fileURLToPath(import.meta.url))
 function main(argv: string[]): number {
   const [cmd, ...rest] = argv;
   if (cmd === 'plan' && rest[0]) {
-    const plan = planRelease(rest[0], readVersions(rest[1] ?? repoRoot()));
+    const root = rest[1] ?? repoRoot();
+    const plan = planRelease(rest[0], readVersions(root), (f) => {
+      const p = path.join(root, f);
+      return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : undefined;
+    });
     // secret の有無は release.yml の env（HAS_MACOS_SIGN、HAS_UPDATER_KEY）から受ける。値そのものは受けない。
     const signing = checkSigningSecrets(process.env.GITHUB_REPOSITORY ?? '', {
       macosSign: process.env.HAS_MACOS_SIGN === 'true',
@@ -254,7 +276,7 @@ function main(argv: string[]): number {
     });
     // 標準出力は GITHUB_OUTPUT へ流れるので、警告は標準エラーに出す（GitHub はどちらの workflow command も読む）。
     for (const w of signing.warnings) console.error(`::warning title=unsigned::${w}`);
-    process.stdout.write(`version=${plan.version}\nprerelease=${plan.prerelease}\ntauri-config=${plan.tauriConfig}\nchannel-tag=${PRERELEASE_CHANNEL_TAG}\nsigning-required=${signing.required}\n`);
+    process.stdout.write(`version=${plan.version}\nprerelease=${plan.prerelease}\ntauri-config=${plan.tauriConfig}\nchannel-tag=${PRERELEASE_CHANNEL_TAG}\nsigning-required=${signing.required}\nrelease-notes=${plan.releaseNotes}\n`);
     return 0;
   }
   if (cmd === 'gate' && rest[0] && rest[1] !== undefined && rest[2]) {
