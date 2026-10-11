@@ -87,19 +87,15 @@ export function envMismatches(psLine: string, want: Record<string, string>): str
   return out;
 }
 
-/**
- * 殻がサーバの PATH の後ろへ足す置き場。src-tauri/src/server.rs の augmented_path の写しで、試験が突き合わせる。
- * 決まった置き場の後ろに、殻が選んだ Node の置き場（server_command が渡す node.parent()）を最後に足す。空なら足さない。
- */
-export function extraPathDirs(userHome: string, nodeDir: string): string[] {
-  const fixed = [`${userHome}/.local/bin`, '/opt/homebrew/bin', '/usr/local/bin', `${userHome}/.claude/local`];
-  return nodeDir === '' ? fixed : [...fixed, nodeDir];
+/** 殻がサーバの PATH の後ろへ足す置き場。src-tauri/src/server.rs の augmented_path の写しで、試験が突き合わせる。 */
+export function extraPathDirs(userHome: string): string[] {
+  return [`${userHome}/.local/bin`, '/opt/homebrew/bin', '/usr/local/bin', `${userHome}/.claude/local`];
 }
 
 /** 殻が受け継いだ PATH に置き場を足した、サーバの PATH。元の並びは変えず、既にあるものは足さない。 */
-export function expectedServerPath(base: string, userHome: string, nodeDir: string): string {
+export function expectedServerPath(base: string, userHome: string): string {
   const out = base.split(':').filter((s) => s !== '');
-  for (const d of extraPathDirs(userHome, nodeDir)) if (!out.includes(d)) out.push(d);
+  for (const d of extraPathDirs(userHome)) if (!out.includes(d)) out.push(d);
   return out.join(':');
 }
 
@@ -250,7 +246,7 @@ async function run(a: Args): Promise<void> {
     HANGAR_PARENT_PID: String(a.shellPid),
     HANGAR_PORT: String(a.port),
     HANGAR_HOME: a.hangarHome,
-    PATH: expectedServerPath(a.pathBase, a.userHome, path.dirname(a.node)),
+    PATH: expectedServerPath(a.pathBase, a.userHome),
   };
   const wrong = envMismatches(ps, want);
   if (wrong.length > 0) throw new Failed(`サーバの環境が殻の渡すものと違う: ${wrong.join('、')}`);
