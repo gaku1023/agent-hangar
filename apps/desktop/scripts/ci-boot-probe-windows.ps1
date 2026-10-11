@@ -8,7 +8,7 @@
 #   Windows は 64 ビットの子を起こすとき、ProgramFiles を ProgramW6432 の値で書き直す。ProgramFiles だけを替えても子には届かないので、ProgramW6432 も替える。
 #   機械の上の Node には触らない。WebView2 の置き場は環境変数ではなく既知のフォルダから決まるので、この差し替えに左右されない。
 # 殻には HANGAR_BOOT_PROBE で書き出しの先を渡す。起動画面が描いた様子を殻がそこへ書き（bootprobe.rs）、
-# boot-probe-check.ts が、札が出て種類が other、詳細が「Node <版>」を含む文になるまで待つ（上限 60 秒）。
+# boot-probe-check.ts が、札が出て種類が other、詳細が「Node <版>」と winget の入れ方（node.rs の winget_command）を含む文になるまで待つ（上限 60 秒）。
 # 画面を撮れれば boot-screen.png を、殻の記録（desktop.log）と一緒に成果物の置き場に残す。撮れなくても落とさない。
 param(
   [Parameter(Mandatory = $true)][string]$Setup,
@@ -64,7 +64,7 @@ try {
 
 $rc = 0
 try {
-  & node --experimental-strip-types --no-warnings $check wait $probe --kind other --detail 'Node [0-9]+' --timeout 60 --pid $app.Id
+  & node --experimental-strip-types --no-warnings $check wait $probe --kind other --detail 'Node [0-9]+[\s\S]*winget install -e --id OpenJS\.NodeJS\.[0-9]+' --timeout 60 --pid $app.Id
   $rc = $LASTEXITCODE
   # 札が描き終わるのを少し待ってから撮る。窓のある画面に出ていなければ撮れない。
   Start-Sleep -Seconds 1

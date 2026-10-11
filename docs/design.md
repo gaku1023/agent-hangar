@@ -111,7 +111,9 @@ GUI のアプリの PATH は launchd の最小のものなので、PATH は見�
 対話のシェルとして起こすと rc の全部が走り、tmux を自動で起こす設定や、端末を前提にした出力や問い合わせを踏みうるうえ、遅い rc では読み込み画面を秒単位で止めるためである。
 上の場所に無い入れ方は、`nodePath` で指す。
 同梱の CLI（`hangar.sh`）も同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
-見つからないときの文は、macOS では `brew install node@<版>` で足りることと、調べた場所とそれぞれが合わなかった理由を出す（Windows と Linux は `nvm install <版>` を案内する）。
+見つからないときの文は、macOS では `brew install node@<版>` で足りることと、調べた場所とそれぞれが合わなかった理由を出す。
+Windows では `winget install -e --id OpenJS.NodeJS.<版>` を先に案内し（README の Windows の前提と同じ命令。公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探す）、nvm-windows の `nvm install <版>` をほかの入れ方として添える（`node.rs` の `winget_command` と `not_found_winget_*`）。
+Linux は `nvm install <版>` を案内する。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
@@ -4273,6 +4275,9 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   渡し直しの候補は、HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows（新しい版から）、PATH の各項目の `node.exe` の順で、HANGAR_NODE のあとは殻の `windows_node_paths` と同じ並びである。
   PATH は、実在する `node.exe` を PATH の順にすべて候補にする。fnm が別の版を PATH の先頭に置いていても、後ろの winget の Packages や Links、volta などにある合う版に届く（実機の A19）。
   どれも合わなければ、いま動いている Node の版と、調べた場所を探した順に番号付きで挙げ、それぞれがファイルが無い、起動できない、時間内に答えない、版が違う、アーキテクチャが違う、のどれだったかを書く（`launch-cli.ts` の `describeNotFound`）。
+  最後の次の一手は、殻の札と同じく winget の命令を先に、nvm-windows を添え、ほかの場所なら HANGAR_NODE か `nodePath` を指すよう書く。
+  文は日本語と英語で、言語は殻の札と同じ決め方にする（`settings.json` の `language`、無ければ OS の言語、それも無ければ日本語。`cliLanguage`）。OS の言語は Node が OS から受け取った地域の設定（`Intl` の既定の locale）で読む。
+  `hangar.cmd` がどこにも Node を見つけられないときの文（ASCII だけの英語）も、同じ winget の命令と nvm-windows を案内する。
   `hangar.cmd` は、node を起こす最後の行で `endlocal & goto #_end_of_batch_# 2>nul || ver >nul & "<node>" …` の形を使い、node が動き出す前にバッチを終える（npm の cmd-shim と同じ手、npm/cli#969）。
   cmd は行を丸ごと読んで展開してから動かすので、無い label への goto でバッチが終わっても、行の残りは動く。
   バッチが終わっているので、Ctrl+C で node が止まったあとに cmd が「バッチ ジョブを終了しますか (Y/N)?」と問わず、node の終了コードがそのまま cmd の終了コードになる。

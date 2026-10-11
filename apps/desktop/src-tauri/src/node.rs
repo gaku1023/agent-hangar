@@ -514,7 +514,10 @@ pub fn describe_error_in(e: &NodeError, hangar_home: &Path, lang: &str) -> Strin
 pub enum InstallHint {
     /// macOS。`brew install node@22` で入れれば、keg の場所を探すのでそのまま見つかる。
     Homebrew,
-    /// Windows と Linux。nvm（Windows は nvm-windows）で入れる。
+    /// Windows。`winget install -e --id OpenJS.NodeJS.22` を先に案内し、nvm-windows はほかの入れ方として添える。
+    /// winget の Node は公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探すので、そのまま見つかる。
+    Winget,
+    /// Linux。nvm で入れる。
     Nvm,
 }
 
@@ -522,6 +525,8 @@ impl InstallHint {
     pub fn current() -> Self {
         if cfg!(target_os = "macos") {
             InstallHint::Homebrew
+        } else if cfg!(windows) {
+            InstallHint::Winget
         } else {
             InstallHint::Nvm
         }
@@ -538,6 +543,8 @@ fn describe_error_for(e: &NodeError, hangar_home: &Path, lang: &str, hint: Insta
         (true, InstallHint::Nvm) => not_found_en(manifest, &settings),
         (false, InstallHint::Homebrew) => not_found_brew_ja(manifest, &settings),
         (true, InstallHint::Homebrew) => not_found_brew_en(manifest, &settings),
+        (false, InstallHint::Winget) => not_found_winget_ja(manifest, &settings),
+        (true, InstallHint::Winget) => not_found_winget_en(manifest, &settings),
     };
     for t in tried {
         let what = if en {
@@ -584,6 +591,33 @@ fn not_found_brew_en(m: &Manifest, settings: &str) -> Vec<String> {
     vec![
         format!("Node {} ({}) was not found.", m.node_major, m.arch),
         format!("Install it with brew install node@{} and Hangar finds it the next time it opens (it also looks for versions installed with nvm, fnm, Volta, mise, asdf, and nodenv).", m.node_major),
+        format!("If it is installed somewhere else, set nodePath in {} to its location.", settings),
+        "Places checked:".to_string(),
+    ]
+}
+
+/// Windows で Node を入れる命令。README の Windows の前提と同じ形にする（同梱の CLI の launch-cli.ts も同じ）。
+pub fn winget_command(node_major: u32) -> String {
+    format!("winget install -e --id OpenJS.NodeJS.{node_major}")
+}
+
+#[rustfmt::skip]
+fn not_found_winget_ja(m: &Manifest, settings: &str) -> Vec<String> {
+    vec![
+        format!("Node {}（{}）が見つかりません。", m.node_major, m.arch),
+        format!("PowerShell で {} を実行して入れれば、次に開いたときに見つけます。", winget_command(m.node_major)),
+        format!("nvm-windows を使うなら、nvm install {} で入れた版も見つけます（PATH にある版も探します）。", m.node_major),
+        format!("ほかの場所に入れたなら、{} の nodePath で場所を指定してください。", settings),
+        "調べた場所:".to_string(),
+    ]
+}
+
+#[rustfmt::skip]
+fn not_found_winget_en(m: &Manifest, settings: &str) -> Vec<String> {
+    vec![
+        format!("Node {} ({}) was not found.", m.node_major, m.arch),
+        format!("Install it with {} in PowerShell and Hangar finds it the next time it opens.", winget_command(m.node_major)),
+        format!("With nvm-windows, a version installed with nvm install {} is found too (Hangar also looks on PATH).", m.node_major),
         format!("If it is installed somewhere else, set nodePath in {} to its location.", settings),
         "Places checked:".to_string(),
     ]
@@ -1130,10 +1164,52 @@ mod tests {
         assert_eq!(en.lines().count(), 9, "{en}");
     }
 
+    // Windows では、winget の 1 行で入れられることを先に案内し、nvm-windows はほかの入れ方として添える。
+    // winget の Node（OpenJS.NodeJS.22）は公式のインストーラで %ProgramFiles%\nodejs に入り、殻はそこを先に探す。
+    // 案内の命令は README の Windows の前提と同じものにする。
     #[test]
-    fn install_hint_is_homebrew_only_on_macos() {
+    fn describe_error_on_windows_says_winget_first_and_nvm_windows_too() {
+        let err = every_reason();
+        let home = Path::new("/elsewhere/hangar");
+        let settings = home.join("settings.json").display().to_string();
+        let ja = describe_error_for(&err, home, "ja", InstallHint::Winget);
+        assert!(ja.starts_with("Node 22（x64）が見つかりません。"), "{ja}");
+        let ja_lines: Vec<&str> = ja.lines().collect();
+        assert!(ja_lines[1].contains(WINGET_NODE_22), "{ja}");
+        assert!(ja_lines[2].contains("nvm-windows"), "{ja}");
+        assert!(ja_lines[2].contains("nvm install 22"), "{ja}");
+        assert!(ja_lines[3].contains(&settings), "{ja}");
+        assert!(!ja.contains("brew"), "{ja}");
+        assert!(ja.contains("調べた場所:"), "{ja}");
+        assert!(ja.contains("/b/node: ありません"), "{ja}");
+        assert_eq!(ja.lines().count(), 10, "{ja}");
+
+        let en = describe_error_for(&err, home, "en", InstallHint::Winget);
+        assert!(en.starts_with("Node 22 (x64) was not found."), "{en}");
+        let en_lines: Vec<&str> = en.lines().collect();
+        assert!(en_lines[1].contains(WINGET_NODE_22), "{en}");
+        assert!(en_lines[2].contains("nvm-windows"), "{en}");
+        assert!(en_lines[2].contains("nvm install 22"), "{en}");
+        assert!(en_lines[3].contains(&settings), "{en}");
+        assert!(!en.contains("brew"), "{en}");
+        assert!(en.contains("Places checked:"), "{en}");
+        assert!(
+            !en.chars()
+                .any(|c| matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}')),
+            "{en}"
+        );
+        assert_eq!(en.lines().count(), 10, "{en}");
+    }
+
+    /// README の Windows の前提と同じ、winget で Node 22 を入れる命令。
+    const WINGET_NODE_22: &str = "winget install -e --id OpenJS.NodeJS.22";
+
+    #[test]
+    fn install_hint_is_homebrew_on_macos_winget_on_windows_and_nvm_elsewhere() {
         let want = if cfg!(target_os = "macos") {
             InstallHint::Homebrew
+        } else if cfg!(windows) {
+            InstallHint::Winget
         } else {
             InstallHint::Nvm
         };

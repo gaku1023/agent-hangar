@@ -61,29 +61,95 @@ export function chooseNode(candidates: string[], want: Want, probe: (node: strin
   return { node: undefined, tried };
 }
 
-const describeResult = (want: Want, r: ProbeResult): string => {
-  if (r === 'missing') return 'ファイルが無い';
-  if (r === 'failed') return '起動できないか、Node として答えない';
-  if (r === 'timeout') return '時間内に答えない';
-  const what = `Node ${r.major}（${r.arch}）`;
-  if (r.major !== want.nodeMajor) return `${what}。版が違う`;
-  if (r.arch !== want.arch) return `${what}。アーキテクチャが違う`;
+/** 見つからないときの文の言語。殻の札と同じく、日本語と英語の 2 つだけである。 */
+export type Lang = 'ja' | 'en';
+
+/**
+ * 見つからないときの文の言語を決める。殻の札（src-tauri の bootfail.rs の choose_language）と同じ決め方にする。
+ * 設定（settings.json）の language が ja か en ならそれ、無ければ OS の言語（日本語なら ja、ほかは en）、それも分からなければ日本語（UI の既定）。
+ */
+export function cliLanguage(settingsText: string | undefined, osLocale: string | undefined): Lang {
+  if (settingsText !== undefined) {
+    try {
+      const l = (JSON.parse(settingsText) as { language?: unknown }).language;
+      if (l === 'ja' || l === 'en') return l;
+    } catch {
+      // 読めない設定は無いものとして、OS の言語へ進む。
+    }
+  }
+  const tag = (osLocale ?? '').trim();
+  if (tag === '') return 'ja';
+  return tag.toLowerCase().startsWith('ja') ? 'ja' : 'en';
+}
+
+/** Windows で Node を入れる命令。README の Windows の前提と、殻の札（node.rs の winget_command）と同じ形にする。 */
+export const WINGET_NODE = (major: number): string => `winget install -e --id OpenJS.NodeJS.${major}`;
+
+const TEXT = {
+  ja: {
+    notFound: (w: Want) => `Node ${w.nodeMajor}（${w.arch}）が見つかりません。`,
+    running: (what: string, at: string) => `いま動いている Node：${what}、${at}`,
+    runningOf: (p: Probed) => `${p.major}（${p.arch}）`,
+    unknownVersion: '版は不明',
+    noPlaces: '調べた場所はありません。',
+    places: '調べた場所（この順に探し、版とアーキテクチャが合う最初の 1 つを使います）：',
+    place: (i: number, node: string, what: string) => `  ${i}. ${node}：${what}`,
+    missing: 'ファイルが無い',
+    failed: '起動できないか、Node として答えない',
+    timeout: '時間内に答えない',
+    probed: (p: Probed) => `Node ${p.major}（${p.arch}）`,
+    wrongVersion: (what: string) => `${what}。版が違う`,
+    wrongArch: (what: string) => `${what}。アーキテクチャが違う`,
+    winget: (w: Want) => `PowerShell で ${WINGET_NODE(w.nodeMajor)} を実行して入れれば、次から見つけます。`,
+    nvm: (w: Want) => `nvm-windows を使うなら、nvm install ${w.nodeMajor} で入れた版も見つけます（PATH にある版も探します）。`,
+    elsewhere: (settings: string) => `ほかの場所に入れたなら、環境変数 HANGAR_NODE か ${settings} の nodePath で場所を指定してください。`,
+  },
+  en: {
+    notFound: (w: Want) => `Node ${w.nodeMajor} (${w.arch}) was not found.`,
+    running: (what: string, at: string) => `Node running now: ${what}, ${at}`,
+    runningOf: (p: Probed) => `${p.major} (${p.arch})`,
+    unknownVersion: 'unknown version',
+    noPlaces: 'No places to check.',
+    places: 'Places checked (in this order; the first one whose version and architecture match is used):',
+    place: (i: number, node: string, what: string) => `  ${i}. ${node}: ${what}`,
+    missing: 'no such file',
+    failed: 'cannot start it, or it does not answer as Node',
+    timeout: 'no answer in time',
+    probed: (p: Probed) => `Node ${p.major} (${p.arch})`,
+    wrongVersion: (what: string) => `${what}, wrong version`,
+    wrongArch: (what: string) => `${what}, wrong architecture`,
+    winget: (w: Want) => `Install it with ${WINGET_NODE(w.nodeMajor)} in PowerShell and it is found from then on.`,
+    nvm: (w: Want) => `With nvm-windows, a version installed with nvm install ${w.nodeMajor} is found too (PATH is searched as well).`,
+    elsewhere: (settings: string) => `If it is installed somewhere else, set the HANGAR_NODE environment variable or nodePath in ${settings} to its location.`,
+  },
+} as const;
+
+const describeResult = (want: Want, r: ProbeResult, lang: Lang): string => {
+  const t = TEXT[lang];
+  if (r === 'missing') return t.missing;
+  if (r === 'failed') return t.failed;
+  if (r === 'timeout') return t.timeout;
+  const what = t.probed(r);
+  if (r.major !== want.nodeMajor) return t.wrongVersion(what);
+  if (r.arch !== want.arch) return t.wrongArch(what);
   return what;
 };
 
 /**
  * 合う Node が見つからなかったときの文。
  * 何を探したか、いま動いている Node が何か、どの場所をどの順に調べて、それぞれがなぜ合わなかったかを並べ、最後に次の一手を書く。
+ * 次の一手は、winget の 1 行を先に案内し、nvm-windows はほかの入れ方として添える（殻の札と同じ）。
  */
-export function describeNotFound(want: Want, mine: { path: string; result: ProbeResult }, tried: Tried[], settingsFile: string): string {
-  const lines = [`Node ${want.nodeMajor}（${want.arch}）が見つかりません。`, `いま動いている Node：${isProbed(mine.result) ? `${mine.result.major}（${mine.result.arch}）` : '版は不明'}、${mine.path}`];
+export function describeNotFound(want: Want, mine: { path: string; result: ProbeResult }, tried: Tried[], settingsFile: string, lang: Lang = 'ja'): string {
+  const t = TEXT[lang];
+  const lines = [t.notFound(want), t.running(isProbed(mine.result) ? t.runningOf(mine.result) : t.unknownVersion, mine.path)];
   if (tried.length === 0) {
-    lines.push('調べた場所はありません。');
+    lines.push(t.noPlaces);
   } else {
-    lines.push('調べた場所（この順に探し、版とアーキテクチャが合う最初の 1 つを使います）：');
-    tried.forEach((t, i) => lines.push(`  ${i + 1}. ${t.node}：${describeResult(want, t.result)}`));
+    lines.push(t.places);
+    tried.forEach((x, i) => lines.push(t.place(i + 1, x.node, describeResult(want, x.result, lang))));
   }
-  lines.push(`Node ${want.nodeMajor}（${want.arch}）を入れるか、環境変数 HANGAR_NODE か ${settingsFile} の nodePath で場所を指定してください。`);
+  lines.push(t.winget(want), t.nvm(want), t.elsewhere(settingsFile));
   return lines.join('\n') + '\n';
 }
 
@@ -142,9 +208,18 @@ export function windowsNodeCandidates(env: NodeJS.ProcessEnv, settingsNodePath: 
   return all.filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
 }
 
-function readSettingsNodePath(hangarHome: string): string | undefined {
+function readSettingsText(hangarHome: string): string | undefined {
   try {
-    const v = JSON.parse(fs.readFileSync(path.join(hangarHome, 'settings.json'), 'utf8')) as { nodePath?: unknown };
+    return fs.readFileSync(path.join(hangarHome, 'settings.json'), 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function settingsNodePath(text: string | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  try {
+    const v = JSON.parse(text) as { nodePath?: unknown };
     return typeof v.nodePath === 'string' && v.nodePath.trim() !== '' ? v.nodePath.trim() : undefined;
   } catch {
     return undefined;
@@ -189,9 +264,10 @@ export async function run(dist: string, argv: string[] = process.argv.slice(2), 
     return;
   }
   const home = env.HANGAR_HOME || path.join(os.homedir(), '.agent-hangar');
+  const settingsText = readSettingsText(home);
   const candidates = windowsNodeCandidates(
     env,
-    readSettingsNodePath(home),
+    settingsNodePath(settingsText),
     (d) => {
       try {
         return fs.readdirSync(d);
@@ -209,6 +285,8 @@ export async function run(dist: string, argv: string[] = process.argv.slice(2), 
     process.exitCode = r.status ?? 1;
     return;
   }
-  process.stderr.write(describeNotFound(want, { path: process.execPath, result: mine }, tried, path.join(home, 'settings.json')));
+  // OS の言語は、Node が OS から受け取った地域の設定で読む（Windows では利用者の地域の言語）。
+  const lang = cliLanguage(settingsText, Intl.DateTimeFormat().resolvedOptions().locale);
+  process.stderr.write(describeNotFound(want, { path: process.execPath, result: mine }, tried, path.join(home, 'settings.json'), lang));
   process.exitCode = 1;
 }
