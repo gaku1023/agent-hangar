@@ -187,6 +187,8 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
  * 退いている間の state は paused で、利用者が一時停止しているときと、退いていないときは null である。
  * paused は利用者が同期を一時停止しているか（sync_state の paused の印）である。
  * 版で止まって state が error のときも、一時停止していれば true になる。
+ * pending は、送り先があって送るのを待っている変更の数である。state が off のあいだは送り先が無いので 0 にする。
+ * off のあいだの変更も changes に積んであり、同期を有効にした後に送る。
  */
 export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null };
 /**

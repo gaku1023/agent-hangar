@@ -287,7 +287,10 @@ export class SyncEngine {
       url: this.deps.url ?? null,
       lastPushAt: num('lastPushAt'),
       lastPullAt: num('lastPullAt'),
-      pending: this.pending(),
+      // 未送信は、送り先があって送るのを待っている行の数である。
+      // off のあいだは送り先が無いので数えない（入れたての端末が、同期していないのに「未送信の変更 3」と出していた）。
+      // 行は changes に残り、同期を有効にした後の push で送る。
+      pending: state === 'off' ? 0 : this.pending(),
       error: state === 'error' ? (this.compatBlock ?? this.lastError) : null,
       deviceCount: this.deviceCount(),
       limitedUntil: shownLimit,

@@ -142,9 +142,34 @@ describe('SyncEngine の push', () => {
     await e.start();
     project('p1');
     await timers.advance(2000);
-    expect(e.status()).toMatchObject({ state: 'off', pending: 1, url: null });
+    expect(unpushed()).toBe(1);
     expect(cloud.calls).toEqual([]);
     e.stop();
+  });
+
+  it('off のあいだは送り先が無いので、未送信として数えない', async () => {
+    // 入れたての端末は、スクラッチのプロジェクトとその置き場と自分の端末の行を書く。
+    // 同期を有効にしていないのに「未送信の変更 3」と出ていた。
+    const e = make({ client: null, url: null });
+    await e.start();
+    project('p1'); project('p2'); project('p3');
+    expect(unpushed()).toBe(3);
+    expect(e.status()).toMatchObject({ state: 'off', pending: 0, url: null });
+    e.stop();
+  });
+
+  it('off のあいだに積んだ行は、同期を有効にした後に送る', async () => {
+    const off = make({ client: null, url: null });
+    await off.start();
+    project('p1'); project('p2');
+    off.stop();
+    const on = make();
+    expect(on.status().pending).toBe(2);
+    await on.start();
+    await on.pushNow();
+    expect(cloud.changes.map((c) => c.rowId)).toEqual(['p1', 'p2']);
+    expect(on.status()).toMatchObject({ state: 'idle', pending: 0 });
+    on.stop();
   });
 
   it('push 済みで 7 日を過ぎた行を消す', async () => {
