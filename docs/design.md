@@ -2965,7 +2965,8 @@ OS は同じ識別子（macOS）と同じタグ（Windows、ブラウザ）の�
 デスクトップでは、窓が前にあるかを頁では決めない。頁はいつも `notify_waiting` を呼び、殻が窓の実物の様子（見えている、最小化していない、フォーカスがある）を見て、前にあれば出さない（`notify::window_in_front`）。
 フォーカスは、macOS では窓（NSWindow）が key window かで見る。中の WKWebView がフォーカスを持っていても key window のままなので、tao の `is_focused` で足りる。
 Windows では、tao の `is_focused` は最上位の窓そのものがフォーカスを持つときだけ真で、ふだんフォーカスを持つ中の WebView2 の子窓（`Chrome_WidgetWin_1`）にあると偽になる。
-そこで Windows では、OS の前景の窓（`GetForegroundWindow`）が hangar の窓か、その根（`GetAncestor` の `GA_ROOT`）が hangar の窓なら、フォーカスがあるとみなす（`notify::window_owns_foreground`）。
+そこで Windows では、OS の前景の窓（`GetForegroundWindow`）が hangar の窓か、その根（`GetAncestor` の `GA_ROOTOWNER`）が hangar の窓なら、フォーカスがあるとみなす（`notify::window_owns_foreground`）。
+`GA_ROOTOWNER` は親と持ち主をたどるので、hangar の窓が持ち主のダイアログが前にあるときも、利用者は hangar を見ているとみなして知らせない。
 頁の `visibilityState` と `hasFocus()` は、WebView が最小化や背面で絞られている間は当てにならないためである（Windows の実機で、最小化して約 3 分置いた後の入力待ちに、頁が通知を呼ばなかった）。
 頁が止まらないよう、macOS は窓の設定 `backgroundThrottling` を `throttle`（止めずに絞る。macOS 14 から効く）にし、Windows は頁が解けない Web Lock を 1 つ握る（`runtime/notifier.ts` の `holdPageAwake`。Chromium は Web Lock を握っている頁を凍らせない。Tauri の `backgroundThrottling` は WebView2 には効かない）。
 どちらも時計の絞りは変えないので、電池への響きは小さい。入力待ちは WebSocket で届き、頁の通知の判断と呼び出しは時計を使わない。
