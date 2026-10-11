@@ -10,6 +10,17 @@ import type { SessionStatus, StateSetBy } from './sessionState.ts';
 export type LiveFilter = 'running' | 'waiting' | 'ended';
 
 /**
+ * 利用者の注意を求める数や印に使う、セッションの動き。
+ * Done と Archived にしたセッションは、問いで待っている最中に区切りを付けても Claude は止まらず（休みではないので）、live が waiting のまま残る。
+ * 利用者はもう答えないと決めているので、入力待ちには数えず、休み（idle）として扱う。動いている事実は変わらないので、実行中の側には残る。
+ * Paused は戻ってくるものなので、そのまま入力待ちにする。
+ * 入力待ちの件数、要対応、バッジ、「入力待ち」の札や色は、すべてこの値から決める（liveFilterOf に渡す live も、これを通す）。
+ */
+export function quietLive(live: LiveStatus | null, status: SessionStatus | null | undefined): LiveStatus | null {
+  return live === 'waiting' && (status === 'done' || status === 'archived') ? 'idle' : live;
+}
+
+/**
  * Claude の一覧の状態と、hangar の run が生きているかから、画面で数える状態を決める。
  * parked（区切りを付けて休みのまま残っているもの、isParked）は、プロセスが残っていても終了に数える。
  */
