@@ -1032,11 +1032,43 @@ mod tests {
         assert!(!window_in_front(false, false, true));
     }
 
+    /// OS の前景を取り合う試験を 1 本ずつにする錠。
+    /// cargo test は試験を並列の糸で走らせ、前景は机に 1 つしかない。
+    /// 錠が無いと、前に出してから確かめるまでのあいだに、もう一方の試験が前景を取って落ちる（CI の windows で起きた）。
+    /// 錠を持ったまま落ちた試験があっても、残りは中身の無い錠をそのまま使う（毒を気にしない）。
+    #[cfg(windows)]
+    static FOREGROUND: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[cfg(windows)]
+    fn hold_foreground() -> std::sync::MutexGuard<'static, ()> {
+        FOREGROUND.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 前景を取り合う試験は、どちらも錠を持ってから窓を作る。
+    /// Windows でない机でも、錠を使う試験の名前がそろっていることを確かめられるように、ここに挙げる。
+    #[test]
+    fn the_tests_that_take_the_foreground_hold_one_lock() {
+        let src = include_str!("notify.rs");
+        for name in [
+            "fn a_focused_child_window_still_counts_as_the_window_in_front()",
+            "fn a_dialog_owned_by_the_window_counts_as_the_window_in_front()",
+        ] {
+            let body = src.split(&format!("{name} {{\n")).nth(1).expect(name);
+            let first = body.lines().next().unwrap_or_default().trim();
+            assert_eq!(first, "let _front = hold_foreground();", "{name}");
+        }
+        // 錠を持たずに前景を取る試験を足さない（前景を取りに行くのは上の 2 つだけ）。
+        // 呼び出しの形を 2 つに割って書くのは、この行そのものを数えないためである。
+        let call = ["SetForeground", "Window("].concat();
+        assert_eq!(src.matches(call.as_str()).count(), 2);
+    }
+
     /// Windows では、フォーカスが WebView2 の子窓にあっても、hangar の窓が前景なら前にあるとみなす。
     /// 実物の窓（最上位の窓とその子）を作って、子にフォーカスを置いた形で確かめる。
     #[cfg(windows)]
     #[test]
     fn a_focused_child_window_still_counts_as_the_window_in_front() {
+        let _front = hold_foreground();
         use windows::core::w;
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
@@ -1109,6 +1141,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_dialog_owned_by_the_window_counts_as_the_window_in_front() {
+        let _front = hold_foreground();
         use windows::core::w;
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{

@@ -30,6 +30,7 @@ jobs:
   # 1 つでも違えば、何も作らずに止まる（食い違ったまま配らない）。版はリポジトリで上げてからタグを打つ（docs/release.md）。
   # タグに - が入っていれば（v0.2.0-rc.1 など）試しの版で、Release を prerelease にし、updater の endpoint を試しの道に替えて焼き込む。
   # 本家で署名の secret が無ければ止まる（正式な版も試しの版も）。
+  # 正式な版は、Release の本文（docs/release-notes/<版>.md）が無いか空なら止まる。試しの版の本文は GitHub の自動生成にする。
   # タグのコミットが origin/main の祖先で、そのコミットへの main の push で走った ci.yml が成功していなければ止まる。
   # ci がまだ走っていれば止まるので、終わってから、この release を Re-run する。
   plan:
@@ -44,6 +45,7 @@ jobs:
       tauri-config: ${{ steps.plan.outputs.tauri-config }}
       channel-tag: ${{ steps.plan.outputs.channel-tag }}
       signing-required: ${{ steps.plan.outputs.signing-required }}
+      release-notes: ${{ steps.plan.outputs.release-notes }}
     steps:
       # main の祖先かを git で見るので、履歴を全部取る。
       - uses: actions/checkout@v7
@@ -172,6 +174,8 @@ jobs:
           echo "ASSET_DIR=$PWD" >> "$GITHUB_ENV"
       # Release は下書きで作る。公開と、正式な版を最新にするのは publish ジョブの最後の段である。
       # 試しの版は prerelease にする。安定版の利用者が引く目録（Release の最新の latest.json）に、試しの版が入らないようにするためである。
+      # 本文は、正式な版なら plan が確かめた docs/release-notes/<版>.md、試しの版なら GitHub の自動生成にする。
+      # 両方を渡すと GitHub は本文の後ろに自動生成を足すので、本文のファイルがあるときは自動生成を切る。
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
@@ -181,7 +185,8 @@ jobs:
             ${{ env.ASSET_DIR }}/*.zip.sha256
           # 資産が 1 つも付かない Release を作らない。
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          body_path: ${{ needs.plan.outputs.release-notes }}
+          generate_release_notes: ${{ needs.plan.outputs.release-notes == '' }}
           draft: true
           prerelease: ${{ needs.plan.outputs.prerelease == 'true' }}
           make_latest: 'false'

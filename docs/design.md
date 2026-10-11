@@ -4500,7 +4500,8 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   札を閉じた版は `localStorage` の `update.dismissed` に覚え、同じ版の札は 2 度出さない。次の版が出たら出す。閉じた版を設定から取得し直したら、その版の札をまた出す。確認の失敗は札にせず、設定の節にだけ出す。
   設定の更新の節（試作の「共通」）は、版と最終確認の時刻と「更新を確認」、見つけた版の行（閉じた版も出す）、「更新を通知する」のスイッチ（`localStorage` の `update.notify`、既定は入）を置き、見出しに最新、確認中、通知オフ、新しいバージョンあり、ダウンロード中、再起動待ち、失敗の札を出す。スイッチを切ると自動の確認も止まり、新しい版の札は手動で確認したときだけ出す。
   署名鍵（minisign）の秘密鍵は GitHub の secret の `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Tauri が読む環境変数と同じ名前）にだけ置き、保守者のパスワード管理に控えてある。リポジトリには公開鍵だけを置く。
-  更新物づくり（`createUpdaterArtifacts`）は、どの build にも入れない。build は npm の script（`beforeBuildCommand`）や依存のコードを走らせるので、鍵を build に渡さないためである（2026-10-11）。
+  更新物づくり（`createUpdaterArtifacts`）は、配る build には入れない。build は npm の script（`beforeBuildCommand`）や依存のコードを走らせるので、本物の鍵を build に渡さないためである（2026-10-11）。
+  CI の更新の通し稽古（`apps/desktop/scripts/update-rehearsal.ts`）だけが、CI の中で作る使い捨ての鍵で、稽古の build に入れる。
   更新物と署名は build の後で作る。macOS は署名済みの .app を `repack-updater-macos.sh pack` が tar.gz に詰めて `tauri signer sign` で `.sig` を付け、Windows は composite action の署名の段がインストーラに `tauri signer sign` で `.sig` を付ける。鍵を受け取るのはこの 2 つの段だけである。
   `release.yml` は、Release を下書きで作り、最新にしない。macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`publish` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を下書きの Release に添える。目録は更新物の後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。
   `publish` ジョブは最後の段で、資産がそろったこと（`release-plan.ts` の `expectedAssets`）を確かめてから Release を公開し、正式な版なら最新にする。途中のジョブが落ちれば下書きのまま残るので、最新が目録の無い Release になることはない。
@@ -4510,6 +4511,8 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   サーバ（`/health`、WebSocket の `ready`、MCP）が名乗る版は、6 つ目の在りかを作らず、`apps/desktop/package.json` の版を読む（`packages/server/src/boot/options.ts`）。配布物では esbuild が束ねるときに取り込むので、build のときの版が入る。set-version で上げればサーバの版も上がり、`plan` の照合もサーバの版を見たことになる。以前はサーバが `0.3.0` を決め打ちしていて、アプリの `0.2.0-rc.1` と食い違っていた（2026-10-11）。
   `release.yml` の最初の `plan` ジョブがタグと 5 つを照らし、1 つでも違えば何も作らずに止まる。食い違ったまま配ると、目録の版とアプリの名乗る版と更新物の署名に入る版がずれるからである。
   `plan` は、タグのコミットが `origin/main` の祖先であることと、そのコミットへの main の push で走った `ci.yml` のいちばん新しい run が成功していることも確かめ、違えば止める（`release-plan.ts` の `checkCommitGate`）。release の windows ジョブは npm test を回さず、ci の windows ジョブが同じコミットで回したことに頼るからである。タグにビルドメタデータ（`+`）は付けない（semver の比べ方が `+` を見ず、更新として見つからない）。
+  `ci.yml` の concurrency は、main への push をコミットごとの group（`ci-push-<sha>`）にし、PR だけを ref ごとの group で畳む。GitHub は `cancel-in-progress` が `false` でも、同じ group で待っている run を新しい run が来たときに取り消すので、main を 1 つの group にしていた間は、続けて入れたコミットの ci が `cancelled` になり、そのコミットで関門が止まっていた（2026-10-11）。関門が `cancelled` や `failure` で止まったら、その ci の run を Re-run して緑にしてから、release の失敗したジョブを Re-run する（`docs/release.md`）。
+  正式な版の Release の本文は `docs/release-notes/<版>.md` で、`plan` が場所を決め（`release-plan.ts` の `releaseNotesFile`）、macos ジョブが下書きの Release を作るときにそのまま本文にする。ファイルが無いか空なら `plan` で止める。自動生成に落とすと、PR の一覧が最新の Release の本文として利用者に見えるからである。試しの版の本文は GitHub の自動生成にする。
   タグに `-` が入っていれば試しの版で、Release を prerelease にして Release の最新にしない。安定版の利用者が引く Release の最新の `latest.json` に、試しの版を入れないためである。
   試しの版の目録の取り先は、固定のタグ `updater-prerelease` の Release（prerelease）に 1 つだけ置く `latest.json` にした。`channel` ジョブが、Release の公開の後で、試しの版でも正式な版でも、その版が今の目録より新しいか同じときだけ置き換える。試しの版の利用者は次の rc も正式な版も受け取り、古い版の再実行で巻き戻らない。
   置き換えは読んで比べて書くので、`channel` ジョブは concurrency で、どのタグの run からでも 1 本ずつ走る。今の目録が無いとみなすのは、その Release の資産に `latest.json` が無いときだけで、一覧や取得の失敗は止める（失敗を「無い」と取り違えると、古い版で置き換えてしまう）。
