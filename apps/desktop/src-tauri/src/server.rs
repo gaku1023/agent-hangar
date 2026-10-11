@@ -153,7 +153,7 @@ fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
         node.parent(),
     );
     let dir = plain(dir);
-    let mut cmd = Command::new(&node);
+    let mut cmd = Command::new(node);
     for name in INHERITED_ENV_DROPPED {
         cmd.env_remove(name);
     }
@@ -653,18 +653,30 @@ mod tests {
     #[test]
     fn augmented_path_on_windows_only_adds_the_chosen_node_dir() {
         let home = Path::new("C:\\Users\\me");
-        assert_eq!(augmented_path(Some("C:\\a;C:\\b"), home, None), "C:\\a;C:\\b");
+        assert_eq!(
+            augmented_path(Some("C:\\a;C:\\b"), home, None),
+            "C:\\a;C:\\b"
+        );
         assert_eq!(augmented_path(None, home, None), "");
         // 殻が選んだ Node の置き場は、元の並びを変えずに後ろへ足す。
-        let fnm = Path::new("C:\\Users\\me\\AppData\\Roaming\\fnm\\node-versions\\v22.14.0\\installation");
+        let fnm = Path::new(
+            "C:\\Users\\me\\AppData\\Roaming\\fnm\\node-versions\\v22.14.0\\installation",
+        );
         assert_eq!(
             augmented_path(Some("C:\\a;C:\\b"), home, Some(fnm)),
             format!("C:\\a;C:\\b;{}", fnm.display())
         );
-        assert_eq!(augmented_path(None, home, Some(fnm)), fnm.display().to_string());
+        assert_eq!(
+            augmented_path(None, home, Some(fnm)),
+            fnm.display().to_string()
+        );
         // 既にあれば足さない。Windows のパスは大文字小文字と末尾の区切りを問わない。
         assert_eq!(
-            augmented_path(Some("C:\\PROGRAM FILES\\NODEJS\\;C:\\b"), home, Some(Path::new("C:\\Program Files\\nodejs"))),
+            augmented_path(
+                Some("C:\\PROGRAM FILES\\NODEJS\\;C:\\b"),
+                home,
+                Some(Path::new("C:\\Program Files\\nodejs"))
+            ),
             "C:\\PROGRAM FILES\\NODEJS\\;C:\\b"
         );
     }
@@ -688,7 +700,10 @@ mod tests {
             augmented_path(None, home, None),
             "/Users/me/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.claude/local"
         );
-        assert_eq!(augmented_path(Some(""), home, None), augmented_path(None, home, None));
+        assert_eq!(
+            augmented_path(Some(""), home, None),
+            augmented_path(None, home, None)
+        );
     }
 
     // 殻が nvm、fnm、keg-only の場所で見つけた Node でサーバを起こしても、ペインの claude が使う node や npx の MCP が引けるよう、

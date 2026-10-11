@@ -348,7 +348,7 @@ pub fn cli_command(node: &Path, server_dir: &Path, hangar_home: &Path, args: &[&
         &crate::paths::user_home(),
         node.parent(),
     );
-    let mut cmd = Command::new(&node);
+    let mut cmd = Command::new(node);
     for name in crate::server::INHERITED_ENV_DROPPED {
         cmd.env_remove(name);
     }

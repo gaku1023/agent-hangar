@@ -101,6 +101,10 @@ Node は子に `CREATE_BREAKAWAY_FROM_JOB` を付けられないので、殻の�
 外側のジョブが抜けるのを許していなければ、印を付けずに起こし直す（psmux と同じ）。
 端末から起こしたサーバ（`npm run dev` など）はジョブに入っていないので、`HANGAR_LAUNCHER` は無く、直に起こす。
 Node は PATH に頼らず、Settings の `nodePath` のあと、`node.rs` の `UNIX_NODE_PLACES` の順で探す（macOS）。
+`nodePath` は `node` の実行ファイルのフルパスだけを受け、名前や相対のパスは無いものとして扱う（殻の作業ディレクトリや PATH で指す先が変わるため）。
+アプリ（殻）は環境変数 `HANGAR_NODE` を見ない。
+Finder やスタートメニューから開いたアプリには端末で決めた環境変数が届かないので、見ると、開き方によって使う Node が変わるためである。
+環境変数で指せるのは同梱の CLI（`hangar` コマンド）だけで、CLI は `HANGAR_NODE`、`nodePath`、殻と同じ探索先の順に探す。
 並びは `/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の keg（`/opt/homebrew/opt/node@N/bin/node`、`/usr/local/opt/node@N/bin/node`）、nvm（`~/.nvm/versions/node/*/bin/node`）、fnm（`~/Library/Application Support/fnm`、`~/.local/share/fnm`、`~/.fnm` の `node-versions/*/installation/bin/node`）、Volta（`~/.volta/tools/image/node/*/bin/node`）、mise（`~/.local/share/mise/installs/node/*/bin/node`）、asdf（`~/.asdf/installs/nodejs/*/bin/node`）、nodenv（`~/.nodenv/versions/*/bin/node`）である。
 版ごとに並ぶ場所は、実在する `node` だけを新しい版から並べ、manifest と同じメジャー版とアーキテクチャの最初の 1 つを採る。
 版と読む名前は `node@<数>` と `v<数>.<数>.<数>`、`<数>.<数>.<数>` だけで、mise の別名（`22`、`lts`）は実体と重なるので見ない。
@@ -111,7 +115,13 @@ GUI のアプリの PATH は launchd の最小のものなので、PATH は見�
 利用者のログインシェルに訊く案（`$SHELL -lic 'command -v node'`）は採らない。
 対話のシェルとして起こすと rc の全部が走り、tmux を自動で起こす設定や、端末を前提にした出力や問い合わせを踏みうるうえ、遅い rc では読み込み画面を秒単位で止めるためである。
 上の場所に無い入れ方は、`nodePath` で指す。
-同梱の CLI（`hangar.sh`）も同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
+設定の画面は `nodePath` を保存する前に、殻と同じ条件で確かめる（`config/node.ts`、`PATCH /api/settings`）。
+フルパスであること、Node として答えること、同梱の `manifest.json` と同じメジャー版とアーキテクチャであること、の 3 つで、合わなければ理由を返して保存しない。
+新しいメジャー版も代わりにならないので断る。
+準備の確かめ（欄の下の ✓ と ✗）も同じ 3 つを見て、`settings.json` を直に書き換えた値でも、殻が使わない Node には ✓ を付けない。
+要る版は、配布版では `server.mjs` の隣の `manifest.json` から読み、ソースから動かしているときはサーバを動かしている Node の版とアーキである。
+同梱の CLI（`hangar.sh`）は `HANGAR_NODE` と `nodePath` を先に見て、そのあとは同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
+`HANGAR_NODE` と `nodePath` は、殻と同じくフルパスだけを受け、そうでなければ「絶対パスではありません」と挙げて次へ進む。
 見つからないときの文は、macOS では `brew install node@<版>` で足りることと、調べた場所とそれぞれが合わなかった理由を出す。
 Windows では `winget install -e --id OpenJS.NodeJS.<版>` を先に案内し（README の Windows の前提と同じ命令。公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探す）、nvm-windows の `nvm install <版>` をほかの入れ方として添える（`node.rs` の `winget_command` と `not_found_winget_*`）。
 Linux は `nvm install <版>` を案内する。
@@ -119,7 +129,7 @@ Linux は `nvm install <版>` を案内する。
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
 配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
-サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`）を自分の環境から消す（`launch/env.ts`）。
+サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED`）を自分の環境から消す（`launch/env.ts`）。
 殻も、サーバを起こすときに同じ名前を外してから自分の値を入れる（`server.rs` の `INHERITED_ENV_DROPPED`。サーバの正本との一致は試験で縛る）。
 アプリを Claude Code のセッションの Bash から `open` で起こすと、呼び手の環境がそのまま殻とサーバに入り、サーバが起こす tmux サーバの全体の環境と、サーバが直に起こす claude（`--help`、`agents --json`、要約の `-p`、`auth status`）にまで届くためである。
 `/health` の `ready` が真になってから、鍵付きの URL を印字する。
@@ -1098,7 +1108,7 @@ tmux で `claude` を直接起動すると異常終了時の出力が失われ�
 込んだ機械で `tee` が後回しになると、書きかけのまま落ちて終わり際の標準エラーが消えていたので、`tee` は SIGHUP を無視する形で起こし、bash は `tee` が書き終えるのを 2 秒まで待ってから `exit=` を書く。
 2 秒で見切るのは、claude の残した子が標準エラーを握り続けても、ペインを閉じるためである。
 包みの中身が変わったときはサーバの起動時に書き直すが、走っている run の bash は台本を読みながら進むので、その場で書き換えずに別のファイルから rename で入れ替える。
-起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）と `HANGAR_CLOUD_DIR` を `-u` で外す。
+起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）と `HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED` を `-u` で外す。
 Windows は名前を包みへ `HANGAR_UNSET_ENV` で渡し、包みが消してから claude を起こす。
 tmux の新しいセッションは、`PATH` のほかは tmux サーバの全体の環境を継ぐ（`PATH` は下に書くとおり起こした側の値になる）。tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境に別のセッションの印が残る。
 印を持って始まった claude は、そのセッションの子として振る舞う（再開の一覧と履歴から外れる、裏のセッションと見なす、別のセッションの名前やソケットを使う）。
@@ -1124,6 +1134,10 @@ claude も同じく絶対パスで渡す。
 既に使っている `settings.json` には `toolsResolved: true` が入っており、一括で止めると永久に埋まらないからである。
 デスクトップアプリ側も、サーバを起こすときの `PATH` に手元のツールの置き場所を足す。
 これは念のための備えで、場所を決める正本はサーバ側にある。
+最後に、殻が選んだ Node の置き場（`node.rs` の `choose_node` が採った `node` の親）も足す（`server.rs` の `augmented_path`）。
+nvm、fnm、Homebrew の keg のように PATH に無い場所で見つけた Node でサーバを起こしても、ペインの claude が使う `node` や、npx で起こす MCP が `command not found` にならないようにするためである。
+足すのはどれも後ろで、元の並びは変えない。
+Windows で足すのは、この Node の置き場だけである。
 新しいセッションのダイアログ（N2、`NewSessionDialog`）の主役は、開いた直後に焦点が入る大きな初期プロンプトの欄（150px から）である。
 欄の下の 1 行に設定の札を並べる（`LaunchChips`）。
 札はプロジェクト、アカウント（2 件以上あるときだけ）、モデル、effort レベル、権限モード、worktree の順で、最後に名前と追加ディレクトリを足す「＋」を置く。
@@ -4304,14 +4318,28 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   `cloud/` は段 5 で Cloudflare の REST から Worker を上げるための下地で、いまは誰も読まない。
   UI の sourcemap は入れないので、実測で 6.5MB である。
   Node 本体は同梱しない。
-- Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
+- Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、束が要る Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
+  新しいメジャー版も代わりにならないので、利用者に見せる文（起動の失敗の札、README）は「Node 22 以上」ではなく「Node 22」と書き、札は `manifest.json` の `nodeMajor` を埋める。
+  `manifest.json` の `nodeMajor` は、build した機械の Node から取らず、`bundle-server.ts` の `BUNDLE_NODE_MAJOR`（22）に固定する。
+  build している Node のメジャー版がそれと違えば、束を作らずに止める。
+  ネイティブモジュールは `npm ci` を走らせた Node に合わせて入るので、固定の値を書くだけにすると、別の版の Node で作った束が名乗った版で動く保証が無くなるためである。
+  版を上げるときは、`BUNDLE_NODE_MAJOR`、CI の setup-node、起動の失敗の札の `DEFAULT_NODE_MAJOR` を一緒に上げる（札の既定と束の版の一致は試験で縛る）。
+  リポジトリの `engines`（`>=22`）は、ソースから動かすときのもので、そのときのネイティブモジュールは動かしている Node に合わせて入るので、22 より新しい版でも動く。
 - `nodePath` の重さ：Settings の `nodePath` は、次の起動で `.app` がそのまま起こす実行ファイルの場所なので、設定への書き込みが次回起動時のコード実行になる。
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。
 - 配布ターゲットは Apple silicon の macOS 13 以降と、x64 の Windows 11 である。同梱する prebuild は target（`<platform>-<arch>`）のものだけにする。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel の Mac と ARM64 の Windows は作らない。
   束の作り方は `apps/desktop/scripts/bundle-server.ts` の `bundleServer` が target を引数に受け取り（省略すると、この機械の target。配布の対象でなければ止まる）、別の target の束も、どの機械でも作れる。`manifest.json` の `arch` は束の相手のものを書く。
   win32-x64 の束は、`bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
-  cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直しは `launch-cli.mjs` が行う。
-  渡し直しの候補は、HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows（新しい版から）、PATH の各項目の `node.exe` の順で、HANGAR_NODE のあとは殻の `windows_node_paths` と同じ並びである。
+  cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH の各項目の `node.exe`（`where $PATH:node.exe`。作業ディレクトリは見ない）、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直しは `launch-cli.mjs` が行う。
+  cmd は、無いファイルと、`-p` に Node 16 以上と答えないもの（古い Node、Node でない実行ファイル）を飛ばして次の候補へ進む。
+  `launch-cli.mjs` は Node 16 を target に作る（`bundle-server.ts` の `LAUNCHER_MIN_NODE`。cmd の境目との一致は試験で縛る）ので、PATH の先頭に古い Node があっても、構文の誤りで落ちずに後ろの Node へ届く。
+  利用者の HANGAR_NODE が無いファイルを指していれば、cmd はそれを使わずに次へ進む。値そのものは書き換えないので、`launch-cli.mjs` が調べた場所の 1 つとして「ファイルが無い」と挙げる。
+  渡し直しの候補は、HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows（新しい版から）、fnm、Volta、scoop（それぞれ新しい版から）、PATH の各項目の `node.exe` の順で、HANGAR_NODE のあとは殻の `windows_node_paths` と同じ並びである。
+  フルパスでない候補（名前だけの `nodePath` など）は起こさず「ファイルが無い」とする。起こすと PATH から引かれ、殻が使う Node と食い違う。
+  渡し直すときは、子に `HANGAR_LAUNCHED=1` を付けて、子が版の確かめを繰り返さないようにする（輪を避けるためでもある）。
+  子は読んだ直後に自分の環境から消すので、`cli.mjs` にも、`hangar start` が起こすサーバ、tmux、ペインにも届かない。
+  前の版の入口から起こされたサーバのために、サーバの落とし名簿（`SERVER_DROPPED_ENV`、`RUN_DROPPED_ENV`）と殻の `INHERITED_ENV_DROPPED` にも入れてある。
+  残すと、ペインの中で打った `hangar` が版の確かめを飛ばし、PATH の先頭の Node で `cli.mjs` を直に読む。
   PATH は、実在する `node.exe` を PATH の順にすべて候補にする。fnm が別の版を PATH の先頭に置いていても、後ろの winget の Packages や Links、volta などにある合う版に届く（実機の A19）。
   どれも合わなければ、いま動いている Node の版と、調べた場所を探した順に番号付きで挙げ、それぞれがファイルが無い、起動できない、時間内に答えない、版が違う、アーキテクチャが違う、のどれだったかを書く（`launch-cli.ts` の `describeNotFound`）。
   最後の次の一手は、殻の札と同じく winget の命令を先に、nvm-windows を添え、ほかの場所なら HANGAR_NODE か `nodePath` を指すよう書く。
@@ -4330,7 +4358,10 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   Tauri の NSIS は今の版のファイルを上書きするだけで、前の版にしか無いファイル（名前に指紋の付いた UI の `index-*.js` と `index-*.css`）を消さず、アンインストーラも今の版のファイルだけを 1 つずつ消すので、更新を重ねると古い assets と `$INSTDIR` が残っていた（実機の rc.2 から rc.4）。
   消すのは、`$INSTDIR` に `uninstall.exe` があり、`server` に `server.mjs` と `cli.mjs` があって、Hangar の置き場だと確かめられたときだけである。アンインストールでは、ファイルを消す前（`NSIS_HOOK_PREUNINSTALL`）に確かめておき、消したあとで `server` を消して、空になった `$INSTDIR` を消す。利用者のデータ（`~\.agent-hangar`）には触れない。
   入れるときのフックは、Tauri が動いている殻を止める確認（`CheckIfAppIsRunning`）より前に動く。殻が動いていれば空にせず（そのあと確認で取りやめられると、入っていた版が壊れるので）、更新（`/UPDATE`）のときだけ、殻が抜けるのを 0.5 秒おきに 10 秒まで待つ。
-  殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、PATH の順に探す。Node 本体は Windows でも同梱しない。
+  殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、fnm、Volta、scoop、PATH の順に探す。Node 本体は Windows でも同梱しない。
+  fnm、Volta、scoop は、PATH を切り替える仕掛け（fnm の multishells、Volta と scoop の shim）ではなく、版ごとの実体の場所を新しい版から見る。
+  fnm は `%FNM_DIR%`（無ければ `%APPDATA%\fnm`）の `node-versions\<版>\installation\node.exe`、Volta は `%VOLTA_HOME%`（無ければ `%LOCALAPPDATA%\Volta`）の `tools\image\node\<版>\node.exe`、scoop は `%SCOOP%`（無ければ `%USERPROFILE%\scoop`）の `apps\<nodejs、nodejs-lts、nodejs22 など>\<版>\node.exe` である。
+  版と読む名前は `v<数>.<数>.<数>` と `<数>.<数>.<数>` だけで、scoop の `current` のような別名は実体と重なるので見ない。
 - Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる（重ねるのは配布物と窓の装飾だけ）。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、入れた殻を起こして同梱のサーバが `127.0.0.1:4177` の `/health` に応えるまで待ってから止め、前の版の残りに見立てた古い名前の偽のファイル（`server\ui\assets\index-*.js` など）を置いて入れ直すとそれが消えていることを見て、もう一度置いてから静かに消し、`$INSTDIR` に何も残らない（`_?=` で動かした `uninstall.exe` 自身のほかは）ところまでを行う。殻が resource_dir から作ったパスで Node を起こす経路は、`hangar.cmd` では通らないので、殻そのものを起こして確かめる。殻は Node を公式の入れ先から PATH より先に探すので、このときは一時のホーム（`HANGAR_HOME`）の `settings.json` の `nodePath` で setup-node の Node を指し、殻が使った Node の版を desktop.log から読んで 22.20 以上であることを確かめる（22.20 から verbatim の主スクリプトで落ちるので、それより古い Node では回帰を捕まえられない）。
   CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。
   タグの `release.yml` では、windows ジョブが同じ手順で作って `Hangar-<タグ>-windows-x64-setup.exe` と `.sha256` を artifact に置き、`windows-upload` ジョブが macos ジョブの後でそれを macos ジョブの作った Release に `gh release upload` で添える。Release を作るのは macos ジョブだけで、書き込みの権限もこの 2 つのジョブだけが持つ。

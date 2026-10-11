@@ -267,7 +267,11 @@ pub struct WindowsEnv {
 
 impl WindowsEnv {
     pub fn from_process_env() -> Self {
-        let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+        let var = |k: &str| {
+            std::env::var_os(k)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        };
         Self {
             program_files: var("ProgramFiles"),
             local_app_data: var("LOCALAPPDATA"),
@@ -703,7 +707,7 @@ fn not_found_winget_ja(m: &Manifest, settings: &str) -> Vec<String> {
     vec![
         format!("Node {}（{}）が見つかりません。", m.node_major, m.arch),
         format!("PowerShell で {} を実行して入れれば、次に開いたときに見つけます。", winget_command(m.node_major)),
-        format!("nvm-windows を使うなら、nvm install {} で入れた版も見つけます（PATH にある版も探します）。", m.node_major),
+        format!("nvm-windows を使うなら、nvm install {} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。", m.node_major),
         format!("ほかの場所に入れたなら、{} の nodePath で場所を指定してください。", settings),
         "調べた場所:".to_string(),
     ]
@@ -714,7 +718,7 @@ fn not_found_winget_en(m: &Manifest, settings: &str) -> Vec<String> {
     vec![
         format!("Node {} ({}) was not found.", m.node_major, m.arch),
         format!("Install it with {} in PowerShell and Hangar finds it the next time it opens.", winget_command(m.node_major)),
-        format!("With nvm-windows, a version installed with nvm install {} is found too (Hangar also looks on PATH).", m.node_major),
+        format!("With nvm-windows, a version installed with nvm install {} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).", m.node_major),
         format!("If it is installed somewhere else, set nodePath in {} to its location.", settings),
         "Places checked:".to_string(),
     ]
@@ -1080,11 +1084,30 @@ mod tests {
 
         // 環境変数で置き場を移していれば、そちらを見る。
         let fnm_dir = root.path().join("my-fnm");
-        touch(&fnm_dir.join("node-versions").join("v22.2.0").join("installation").join("node.exe"));
+        touch(
+            &fnm_dir
+                .join("node-versions")
+                .join("v22.2.0")
+                .join("installation")
+                .join("node.exe"),
+        );
         let volta_home = root.path().join("my-volta");
-        touch(&volta_home.join("tools").join("image").join("node").join("22.3.0").join("node.exe"));
+        touch(
+            &volta_home
+                .join("tools")
+                .join("image")
+                .join("node")
+                .join("22.3.0")
+                .join("node.exe"),
+        );
         let scoop_root = root.path().join("my-scoop");
-        touch(&scoop_root.join("apps").join("nodejs22").join("22.4.0").join("node.exe"));
+        touch(
+            &scoop_root
+                .join("apps")
+                .join("nodejs22")
+                .join("22.4.0")
+                .join("node.exe"),
+        );
         let got = windows_node_paths(&WindowsEnv {
             app_data: Some(roaming.clone()),
             local_app_data: Some(local.clone()),
@@ -1098,9 +1121,22 @@ mod tests {
             got,
             vec![
                 local.join("Programs").join("nodejs").join("node.exe"),
-                fnm_dir.join("node-versions").join("v22.2.0").join("installation").join("node.exe"),
-                volta_home.join("tools").join("image").join("node").join("22.3.0").join("node.exe"),
-                scoop_root.join("apps").join("nodejs22").join("22.4.0").join("node.exe"),
+                fnm_dir
+                    .join("node-versions")
+                    .join("v22.2.0")
+                    .join("installation")
+                    .join("node.exe"),
+                volta_home
+                    .join("tools")
+                    .join("image")
+                    .join("node")
+                    .join("22.3.0")
+                    .join("node.exe"),
+                scoop_root
+                    .join("apps")
+                    .join("nodejs22")
+                    .join("22.4.0")
+                    .join("node.exe"),
             ]
         );
     }
