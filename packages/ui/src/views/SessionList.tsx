@@ -8,8 +8,10 @@ import { Pager } from './Pager.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
+import { RollingText } from './primitives/RollingText.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { SessionRows } from './SessionRows.tsx';
+import { useThumb } from './primitives/useThumb.ts';
 
 /** 件数は桁を区切る（タブの件数と同じ書き方）。 */
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -20,16 +22,19 @@ const unset = (key: keyof SearchFilter) => ({ [key]: undefined }) as Partial<Sea
 /**
  * 件数つきの状態のタブ。押すと search.filter で状態を絞り、「すべて」は外す。いま選んでいるタブは何も出さない。
  * 数字を灯すのは hot のタブ（確認待ちが 1 件以上のとき）。
+ * 選んだタブの塗りは 1 つだけ敷き、タブを替えると塗りがタブの間を滑る（Segmented と同じ useThumb。帯は折り返すので縦も合わせる）。件数は回す。
  */
 export function StatusTabs(props: { tabs: StatusTabProps[]; tab: StatusTab }) {
   const emit = useEmit();
   const t = useT();
+  const { box, thumb, ready } = useThumb<HTMLDivElement>('[aria-pressed="true"]', [props.tab, props.tabs.map((x) => `${x.label} ${x.count}`).join('|')], { block: true });
   const pick = (tab: StatusTab) => { if (tab !== props.tab) emit({ type: 'search.filter', patch: { status: tab === 'all' ? undefined : tab } }); };
   return (
-    <div className="sessions-tabs" role="group" aria-label={t('list.tabs.label')}>
+    <div ref={box} className="sessions-tabs" role="group" aria-label={t('list.tabs.label')} data-ready={ready ? 'true' : undefined}>
+      <span ref={thumb} className="sessions-tab-thumb" aria-hidden="true" />
       {props.tabs.map((x) => (
-        <button key={x.tab} type="button" className="sessions-tab" data-empty={x.count === '0' ? 'true' : undefined} aria-pressed={x.tab === props.tab} onClick={() => pick(x.tab)}>
-          {x.label}<span className="sessions-tab-n" data-hot={x.hot ? 'true' : undefined}>{x.count}</span>
+        <button key={x.tab} type="button" className="sessions-tab" data-tab={x.tab} data-empty={x.count === '0' ? 'true' : undefined} aria-pressed={x.tab === props.tab} onClick={() => pick(x.tab)}>
+          {x.label}<span className="sessions-tab-n" data-hot={x.hot ? 'true' : undefined}><RollingText text={x.count} /></span>
         </button>
       ))}
     </div>
@@ -202,6 +207,9 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
   // 行の状態の札を押すと、そのタブへ移る（★ の E）。
   const badgeAction = (status: StatusFilter): UiAction => ({ type: 'search.filter', patch: { status } });
   const id = props.id ?? 'session-results';
+  // 並びの替わりを知らせる範囲。タブ、語、条件、ページ、1 ページの件数が替わったら、一覧はいきなり替えて何も知らせない（⑥）。
+  // 同じ範囲のまま並びが替わったときは、並びはいきなり替え、上がった行と新しい行に淡い黄の印を付ける（⑤ の c）。
+  const listScope = JSON.stringify([props.tab, props.mode, props.text, props.filter, props.pager?.page ?? null, props.pager?.size ?? null]);
   const autoFocus = props.autoFocus ?? true;
   return (
     <>
@@ -214,7 +222,7 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
       {filtersOpen && <Filters id={filtersId} filter={props.filter} projects={props.projects} projectFixed={props.projectFixed} />}
       <Hints hints={props.hints} />
       <ConditionRow conditions={props.conditions} tab={props.tab} filter={props.filter} loading={props.loading} total={props.total} />
-      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeAction={badgeAction} />
+      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeAction={badgeAction} scope={listScope} />
       {props.loadMore
         ? <LoadMore {...props.loadMore} />
         : props.pager && <Pager label={t('list.pager.label')} pager={props.pager} onPage={(page) => emit({ type: 'search.page', page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}

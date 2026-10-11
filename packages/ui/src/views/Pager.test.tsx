@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { PagerProps } from '../presenters/pager.ts';
 import { Pager, pageButtons } from './Pager.tsx';
 
@@ -54,5 +54,38 @@ describe('ページ送りの帯（A4）', () => {
     expect(pageButtons(12, 25)).toEqual([1, '…', 11, 12, 13, '…', 25]);
     expect(pageButtons(25, 25)).toEqual([1, '…', 22, 23, 24, 25]);
     expect(pageButtons(2, 3)).toEqual([1, 2, 3]);
+  });
+});
+
+describe('ページ送りの塗り（⑥ の c）', () => {
+  const real = { left: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetLeft')!, width: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')! };
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    frames = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb));
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    // jsdom は配置を持たないので、番号のボタンは番号 × 30px の位置に、幅 28px で並ぶとする。
+    Object.defineProperty(HTMLElement.prototype, 'offsetLeft', { configurable: true, get(this: HTMLElement) { return this.classList.contains('pager-btn') ? Number(this.textContent) * 30 : 0; } });
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get(this: HTMLElement) { return this.classList.contains('pager-btn') ? 28 : 0; } });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(HTMLElement.prototype, 'offsetLeft', real.left);
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', real.width);
+  });
+
+  it('いまのページの塗りを番号の下に 1 つ置き、ページを移ると塗りの位置だけを移す。動きは 1 コマ置いてから有効にする', () => {
+    const { container, rerender } = render(<Pager label="x" pager={props({ page: 2 })} onPage={vi.fn()} onSize={vi.fn()} />);
+    const nums = container.querySelector('.pager-nums')!;
+    const thumb = nums.querySelector<HTMLElement>('.pager-thumb')!;
+    expect(thumb).toHaveAttribute('aria-hidden', 'true');
+    expect(thumb.style.left).toBe('60px');
+    expect(thumb.style.width).toBe('28px');
+    expect(nums).not.toHaveAttribute('data-ready');
+    act(() => { frames.forEach((f) => f(0)); });
+    expect(nums).toHaveAttribute('data-ready', 'true');
+    rerender(<Pager label="x" pager={props({ page: 4, from: 151, to: 200 })} onPage={vi.fn()} onSize={vi.fn()} />);
+    expect(nums.querySelector('.pager-thumb')).toBe(thumb);
+    expect(thumb.style.left).toBe('120px');
   });
 });

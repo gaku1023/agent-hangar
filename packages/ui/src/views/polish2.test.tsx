@@ -60,9 +60,10 @@ describe('一覧の絞り込みの反復', () => {
     expect(screen.getByRole('button', { name: /Done/ })).not.toHaveAttribute('data-empty');
     expect(css('rows.css')).toMatch(/\.sessions-tab\[data-empty='true'\]:not\(\[aria-pressed='true'\]\) \{[^}]*color: var\(--ink-3\)/);
   });
-  it('帯のいまのページは塗りつぶさず、淡い地と色の文字で示す', () => {
+  it('帯のいまのページは塗りつぶさず、淡い地と色の文字で示す（淡い地は番号の下に敷く 1 つの塗りが持ち、ページを移ると滑る）', () => {
     const rule = css('rows.css').match(/\.pager-btn\[aria-current='page'\] \{[^}]*\}/)?.[0] ?? '';
-    expect(rule).toContain('background: var(--accent-soft)');
     expect(rule).toContain('color: var(--accent)');
+    const thumb = css('rows.css').match(/\.pager-thumb \{[^}]*\}/)?.[0] ?? '';
+    expect(thumb).toContain('background: var(--accent-soft)');
   });
 });
