@@ -8,11 +8,19 @@ function mark(state: State, field: string, next: SaveMark | undefined): State {
   return { ...state, settingsSave: next ? { ...rest, [field]: next } : rest };
 }
 
+/** 変わると準備の確かめ（道具のパス、作業フォルダ、claude の置き場）の答えが変わる欄。 */
+const READINESS_KEYS: ReadonlySet<string> = new Set(['claudePath', 'tmuxPath', 'nodePath', 'codePath', 'workspaceRoot', 'claudeDir']);
+
 /**
  * settings 領域：設定の保存と、準備の確かめと、殻に頼む操作。
  * 欄ごとの保存は、結果をその欄に返す（✓ 保存しました、または欄の下の理由）。
  */
 export function settingsStep(state: State, store: Store, input: Input): Step | null {
+  // API やほかの窓から設定が直された。自分の保存でも届くが、取り直しは番号で最新の答えだけを採るので二重になってよい。
+  if (input.kind === 'server') {
+    if (input.event.type !== 'settings.changed') return null;
+    return { state, effects: input.event.keys.some((k) => READINESS_KEYS.has(k)) ? [{ kind: 'api.readiness' }] : [] };
+  }
   if (input.kind === 'runtime') {
     const e = input.event;
     if (e.type === 'settings.saved') {

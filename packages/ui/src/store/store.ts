@@ -160,6 +160,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'retention.changed': return { ...store, retention: ev.retention };
+    case 'settings.changed': return { ...store, settings: ev.settings };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
     // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。
     case 'summary.updated': {

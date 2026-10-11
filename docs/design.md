@@ -801,6 +801,7 @@ MCP の道具は hub を持たない。
 | `sync.status`、`sync.usage` | `sync/statusFeed.ts`（同期の状態）、`boot/sync.ts`（使用量の見張りの結び） |
 | `accounts.update` | `http/accounts.ts`、statusline の受け口 |
 | `retention.changed` | `provider/claude-code/config/retention.ts` |
+| `settings.changed` | `http/routes/settings.ts`（`PATCH /api/settings` が保存できたとき。変えた欄の名前 `keys` と保存後の設定を運ぶ） |
 | `summary.pending`、`summary.updated`、`summary.failed` | `summary/job.ts` |
 | `project.unresolved` | ルートの確かめ（`projects/rootCheck.ts`）。解決済みから未解決への遷移の知らせである。画面はこれでダイアログを開かない（使う側は無い。型は段 4 の中では消さない） |
 
@@ -1858,6 +1859,9 @@ Claude Code との互換の要約（確かめた版、手元の claude の版、
 版は `tmux -V` と `--version` を 3 秒の時間切れ付きで起こして読み、同じファイル（パス、更新時刻、大きさ）なら覚えた版を返して起こし直さない。
 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、どちらもこれを読む。
 UI は起動のたび、設定画面に入ったとき、設定を保存した後、「もう一度確かめる」を押したときに取りに行く。
+API やほかの窓から設定が保存されたときは、`settings.changed` が届く。
+変えた欄が `claudePath`、`tmuxPath`、`nodePath`、`codePath`、`workspaceRoot`、`claudeDir` のどれかなら、UI は準備の確かめを取り直し、ホームの帯と欄の下の検証を新しい答えにする（アプリを開き直さなくてよい）。
+サーバは準備の確かめを毎回その時点の設定から作り直し、結果を持ち越さない（覚えるのは版だけである）。
 
 tmux の役の道具（Windows は psmux、ほかは tmux）は、設定の `tmuxPath` を最初の起動で一度だけ埋める（`resolveToolPaths`）。
 あとから psmux や tmux を入れた人のために、「再確認」の経路 `POST /api/readiness/mux` を置く（段 6）。
