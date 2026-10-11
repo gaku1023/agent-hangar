@@ -8,7 +8,7 @@
 #   HANGAR_SIGN_P12_BASE64     p12（秘密鍵と証明書）の base64。
 #   HANGAR_SIGN_P12_PASSWORD   p12 のパスワード。
 #   HANGAR_SIGN_FINGERPRINT_FILE  期待する指紋の置き場。既定は apps/desktop/signing/certificate-sha1.txt。
-#                                 ci.yml の試しの署名だけが、その場で作った証明書の指紋を指すのに使う。
+#                                 試験（apps/desktop/test/ci-sign-macos.test.ts）だけが、その場で作った証明書の指紋を指すのに使う。
 #
 # 振る舞い:
 #   - secret が 2 つとも無い（fork や、まだ入れていないとき）：警告を出し、未署名のまま 0 で終わる。

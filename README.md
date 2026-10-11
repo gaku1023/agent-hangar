@@ -17,7 +17,8 @@ macOS の `.app` を入れると、サーバの起動をアプリに任せて使
 ## インストール（配布版）
 
 対象は macOS 13 以降の Apple silicon です。
-配布物は GitHub Releases に置いています（最初の版は `v0.1.0`）。
+配布物は GitHub Releases に置いています（最初の版は `v0.1.0` で、macOS だけでした）。
+v0.1.0 から入れ替える人は、先に「v0.1.0 からの移行」を読んでください。
 ふだんは Latest の印の付いた版を使ってください。
 Pre-release の印の付いた版（`v0.2.0-rc.1` など）は試しの版で、確かめが済むまでの間だけ置きます。
 試しの版を入れると、自動更新は次の試しの版と、その後の正式な版を知らせます（手順は [docs/release.md](docs/release.md)）。
@@ -89,7 +90,8 @@ echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zshrc
 
    1. 「完了」を押して、警告を閉じます（「ゴミ箱に入れる」は押しません）。
    2. システム設定を開き、「プライバシーとセキュリティ」を選びます。
-   3. 画面を下へ送り、「セキュリティ」の欄にある「"Hangar" は開いていません…」の行を探して、その「このまま開く」を押します。
+   3. 画面を下へ送り、「セキュリティ」の欄（見出しが「アプリケーションの実行許可」と出る版もあります）にある、「…"Hangar"がブロックされました。」という行を探して、右の「このまま開く」を押します。
+      行の文言は macOS の版によって違うので、「Hangar」と「ブロック」の語を手がかりに探してください。
    4. 「Mac に損害を与えたり、プライバシーを侵害する可能性のあるアプリを開こうとしています」と出て、「プライバシーとセキュリティで続けるには、管理者の名前とパスワードを入力してください。」と求められます。管理者のパスワードを入れると、Hangar が開きます。
 
    この行は、警告を一度出した後にだけ現れます。
@@ -147,6 +149,26 @@ wrangler が 205MB あるので同梱していないためです。
 `.app` の版はタグと同じで、設定の更新の節に出ます。
 同梱のサーバも同じ版を名乗ります（サーバの版は `/health` が返します）。
 
+### v0.1.0 からの移行
+
+v0.1.0 には自動更新が無いので、v0.1.0 のアプリは新しい版を知らせません。
+v0.2.0 以降の dmg を、上の手順 1 から 3 のとおり手で入れ直してください。
+Hangar が動いていたら、先に終了してから `/Applications` の `Hangar.app` を置き換えます。
+`~/.agent-hangar` の中身（設定、索引、メモ、クラウド同期の設定）は、そのまま引き継がれます。
+データベースの版が上がるときは、上げる前の控えを同じ置き場に取ります。
+
+署名が変わるので、入れ直しの初回だけ、次の 2 つが起きます。
+v0.1.0 は署名なしの build で、v0.2.0 からは自作の証明書で署名します。
+macOS は署名の違うアプリを別のアプリとして扱います。
+
+- 3 段目の初回の警告がもう一度出ます。同じ手順で越えます。
+- ローカルネットワークや、ファイルとフォルダなどの許可を、一度だけ取り直します。
+  アプリが尋ねてくるので、許可してください。
+
+v0.2.0 からは、更新でも同じ証明書で署名します。
+更新のたびに警告や許可が出直すことはありません。
+v0.2.0 の入れ直しのあとは、設定の更新の節が新しい版を知らせるので、手で入れ直す必要はありません。
+
 ### zip から入れる（予備）
 
 dmg を使えないときは、同じ場所の `Hangar-vX.Y.Z-macos-arm64.zip` を使います。
@@ -163,6 +185,7 @@ Finder でダブルクリックして展開すると伝わり、端末から `un
 2026-09-20 には、署名していない `.app` に検疫属性を付けて `/Applications` へ移し、`xattr -rd com.apple.quarantine` を実行する形で、通しで踏んで確かめました。
 dmg から入れる今の手順と、初めて開くときの警告の出方は、この日の時点では実物で確かめていませんでした。
 2026-10-11 には、もう 1 台の Mac で `v0.2.0-rc.4` の dmg をブラウザで落として入れ、3 段目の流れを実機で見ています（右クリックの「開く」が効かず、「このまま開く」と管理者のパスワードで開けたこと）。
+その後、macOS 27.0（Gatekeeper の設定は「App Store と既知のデベロッパ」）の仮想マシンで `v0.2.0-rc.5` の dmg を撮り直し、警告の題、本文、ボタンと、右クリックの「開く」が効かないことが上の記述のとおりであることと、システム設定の行の文言が「…"Hangar"がブロックされました。」であることを確かめています。
 2026-09-20 には、あわせて次を確かめています。
 
 - Node の探索（`/opt/homebrew/bin/node` が不在の機械で `/usr/local/bin/node` の v22 arm64 が採られる）。
@@ -444,8 +467,8 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
 ## Windows で動かす（開発中）
 
 対象は Windows 11（x64）だけです。
-タグを打つと、macOS の dmg や zip と同じ Release に Windows のインストーラも添えます。
-最初のタグはまだ打っていないので、それまでは下の「ソースから動かす」か「インストーラを作る」の手順で使ってください。
+タグを打つと、macOS の dmg や zip と同じ Release に Windows のインストーラも添えます（`v0.2.0-rc.1` から添えています）。
+インストーラを使わずに、下の「ソースから動かす」か「インストーラを作る」の手順で使うこともできます。
 
 Windows では、ターミナルで打った `claude` を hangar に載せる包み（macOS の `hangar shell install`）を作りません。
 セッションは Hangar の画面から始めます。
@@ -495,7 +518,9 @@ winget を使えない PC では、[リリースのページ](https://github.com
    `--ignore-scripts` を付けないと、`better-sqlite3` が C++ のビルドを始めて、ビルドの道具が無い PC では失敗します。ネイティブモジュールは同梱の prebuild で動きます。
 
 止めるときは Ctrl+C です。
-まだ無いものは、通知、外のターミナルへの受け渡し、statusline、`hangar open` です。
+通知（WinRT のトースト）、外のターミナルへの受け渡し（Windows Terminal）、`hangar open`（鍵付きの URL を既定のブラウザで開きます）は Windows でも使えます。
+Windows でまだ無いのは、ターミナルで打った `claude` の包み（`hangar shell install`）です。
+statusline への追記は Windows の実機で確かめていないので、使えるものとして書きません。
 
 ### インストーラを作る
 
@@ -537,9 +562,11 @@ UI の sourcemap は入れません。
 UI の写しの 68 パーセント（実測 2.19MB）が `.map` で、利用者の役に立たないためです。
 実測で 6.5MB でした。
 
-配布は、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` の版を揃えてから `git tag vX.Y.Z && git push origin vX.Y.Z` で行います。
+配布は、版を上げる PR を入れてから `git tag vX.Y.Z && git push origin vX.Y.Z` で行います。
+版の在りかは 5 つ（`apps/desktop/src-tauri/tauri.conf.json`、`apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/Cargo.lock` の `hangar-desktop` の項、`package-lock.json` の `apps/desktop` の項）で、`npm run set-version -w apps/desktop -- <版>` がまとめて書き換えます。
+詳しい手順は [docs/release.md](docs/release.md) にあります。
 GitHub Actions が型検査とテストを回し、`.app` から作った dmg と zip を、それぞれ checksum 付きで Releases に置きます。
 dmg は `apps/desktop/scripts/make-dmg.sh` が、出来上がった `.app` と `/Applications` へのリンクを詰めて作ります。
 手元でも `bash apps/desktop/scripts/make-dmg.sh <Hangar.app> <出力の .dmg>` で作れます。
 `tauri.conf.json` の bundle の targets に dmg を入れないのは、tauri の dmg が build の途中の `.app` を詰めるので、build の後で署名した `.app` が入らないためです。
-タグと `tauri.conf.json` の版が食い違うと、ビルドの前に止まります。
+タグと 5 つの版のどれかが食い違うと、何も作らずに止まります。
