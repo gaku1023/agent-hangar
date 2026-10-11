@@ -129,7 +129,7 @@ export const sessionKeys = {
   'session.toc.subagent': ['id'],
   'session.toc.backToMain': [],
   'session.toc.latest': [],
-  'session.toc.loadOlder': ['n'],
+  'session.toc.loadOlder': [],
   'session.toc.loading': [],
   'session.toc.empty': [],
   'session.toc.jump.notFound': [],

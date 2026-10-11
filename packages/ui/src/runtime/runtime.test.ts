@@ -170,6 +170,33 @@ describe('createRuntime', () => {
     expect(api.events).toHaveBeenLastCalledWith('s1', { beforeSeq: 2, agentId: null });
     expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([1, 2]);
   });
+  it('追記を読み足す間は、古い側の読み込みの印を立てない（目次の読み込みボタンを動かさない）', async () => {
+    let release: (() => void) | null = null;
+    let hold = false;
+    const events = vi.fn(async (_s: string, q: { latest?: boolean; beforeSeq?: number; fromSeq?: number }) => {
+      if (hold) await new Promise<void>((r) => { release = r; });
+      return q.latest ? page([2], 3) : q.beforeSeq !== undefined ? page([q.beforeSeq - 1], 3) : page([q.fromSeq!], 4);
+    });
+    const { rt, setHash } = harness({ events });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: false, loadingOlder: false });
+    hold = true;
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: true, loadingOlder: false });
+    release!();
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: false, loadingOlder: false });
+    // 利用者が「古いターンを読み込む」を押したときだけ、古い側の印が立つ。
+    rt.emit({ type: 'transcript.loadMore', sessionId: 's1' });
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: true, loadingOlder: true });
+    release!();
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: false, loadingOlder: false });
+  });
   it('検索の結果から開いたら、跳び先の少し前から前向きに読む。ターミナルが出るセッションでは最新の側から読む', async () => {
     const { rt, api, wsHandlers } = harness();
     rt.start();

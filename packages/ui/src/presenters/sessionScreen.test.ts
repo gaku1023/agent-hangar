@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { translator, type RunDto, type SessionDto, type SettingsDto, type TranscriptEvent } from '@agent-hangar/shared';
+import { defaultSessionView } from '../mediator/sessionView.ts';
 import { initialState } from '../mediator/transition.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { applyEventsPage, eventsKey, initialStore, type Store } from '../store/store.ts';
@@ -123,6 +124,48 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
       const key = eventsKey('s1', null);
       const filled = applyEventsPage(st, key, { sessionId: 's1', events: [user(1, 'a'), user(2, 'b')], total: 2, nextSeq: null }, false, false);
       expect(present(filled).turnRows).toHaveLength(2);
+    });
+    describe('見出しの数と読み込みの印', () => {
+      const key = eventsKey('s1', null);
+      const live = () => store(session({ live: 'idle' }), run());
+      it('最初の events が届くまでは数を出さない（仮の 0 を出さない）', () => {
+        expect(present(live()).turnCount).toBeNull();
+        const loading = { ...live(), events: { [key]: { items: [], total: 0, nextSeq: null, loading: true } } };
+        expect(present(loading).turnCount).toBeNull();
+      });
+      it('届いたら、帯と同じ統計の数を出す。窓に入っている行の数ではない', () => {
+        const filled = applyEventsPage(live(), key, { sessionId: 's1', events: [user(1, 'a'), user(2, 'b')], total: 90, nextSeq: null }, false, false);
+        const p = present(filled);
+        expect(p.turnRows).toHaveLength(2);
+        expect(p.turnCount).toEqual({ n: 11, plus: false });
+        // 帯の「N ターン」と同じ出所である。
+        expect(p.strip?.values.turns).toBe('11 ターン');
+        const st2 = { ...filled, sessions: { s1: session({ live: 'idle', stats: { ...stats, turns: 104 } }) } };
+        expect(present(st2).turnCount?.n).toBe(104);
+        expect(present(st2).strip?.values.turns).toBe('104 ターン');
+      });
+      it('追記を読み足している間（loading だけ立つ）も、数と読み込みの印は動かない', () => {
+        const filled = applyEventsPage(live(), key, { sessionId: 's1', events: [user(1, 'a')], total: 1, nextSeq: null }, false, false);
+        const before = present(filled);
+        const appending = { ...filled, events: { [key]: { ...filled.events[key]!, loading: true } } };
+        const during = present(appending);
+        expect(during.turnCount).toEqual(before.turnCount);
+        expect(during.loadingOlder).toBe(false);
+        expect(during.turnsPending).toBe(false);
+      });
+      it('古い側を読んでいる間だけ loadingOlder が立つ', () => {
+        const filled = applyEventsPage(live(), key, { sessionId: 's1', events: [user(1, 'a')], total: 9, nextSeq: null }, false, false);
+        const older = { ...filled, events: { [key]: { ...filled.events[key]!, loading: true, loadingOlder: true } } };
+        expect(present(older).loadingOlder).toBe(true);
+      });
+      it('サブエージェントを見ている間は、メインの統計ではなく、その窓の行の数を出す', () => {
+        const st = live();
+        const sub = eventsKey('s1', 'ag1');
+        const filled = applyEventsPage(st, sub, { sessionId: 's1', events: [user(1, 'a')], total: 1, nextSeq: null }, false, false);
+        const state = initialState();
+        state.sessionView = { s1: { ...defaultSessionView(), agentId: 'ag1' } };
+        expect(presentSession(state, filled, NOW, 's1').turnCount).toEqual({ n: 1, plus: false });
+      });
     });
   });
 });

@@ -9,7 +9,11 @@ import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDt
  * 検索の結果から真ん中の頁だけを読んで開いたときに、後ろを読み足すのに使う。
  * olderDone は、過去へ遡って空の頁が返った（もう古い行が無い）ことを表す。
  */
-export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean; olderDone?: boolean };
+/**
+ * loading は読んでいる最中の全部（追記も含む）。
+ * loadingOlder は、利用者が「古いターンを読み込む」を押した読み込みだけ。追記の読み込みでは立てない（目次のボタンと数を動かさないため）。
+ */
+export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean; loadingOlder?: boolean; olderDone?: boolean };
 /**
  * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
  * blocked はデスクトップのシステム設定で切られていること。
@@ -196,9 +200,9 @@ export function accountOfSession(store: Store, sessionId: string): AccountDto | 
 /** アカウントが 2 件以上あるか。1 件以下のうちは、画面にアカウントの印を出さない。 */
 export const hasMultipleAccounts = (store: Store): boolean => accountList(store).length >= 2;
 
-export function setEventsLoading(store: Store, key: string, loading: boolean): Store {
+export function setEventsLoading(store: Store, key: string, loading: boolean, older = false): Store {
   const cur = store.events[key] ?? { items: [], total: 0, nextSeq: null, loading: false };
-  return { ...store, events: { ...store.events, [key]: { ...cur, loading } } };
+  return { ...store, events: { ...store.events, [key]: { ...cur, loading, loadingOlder: loading && older } } };
 }
 
 /**
@@ -212,7 +216,7 @@ export function applyEventsPage(store: Store, key: string, page: EventsPageDto, 
   const items = [...base, ...page.events.filter((e) => !seen.has(e.seq))];
   const nextSeq = older && cur ? cur.nextSeq : page.nextSeq;
   const olderDone = older ? page.events.length === 0 || cur?.olderDone === true : append ? cur?.olderDone === true : false;
-  return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq, loading: false, olderDone } } };
+  return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq, loading: false, loadingOlder: false, olderDone } } };
 }
 
 export function applySearch(store: Store, params: SearchParamsDto, result: SearchResultDto | null, loading: boolean): Store {
