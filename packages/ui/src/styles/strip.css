@@ -3,8 +3,10 @@
    どれも白い不透明な読む面で、ぼかしは掛けない。 */
 
 /* ---- 現在の札。右の列の上、目次の上に置く（2026-10-11 の試作の A2・C1・D3）。
-   左の縁の色で状態を言う。意図は切らずに折り返す。 ---- */
-.now-card { flex: none; display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); overflow: hidden; }
+   左の縁の色で状態を言う。意図は切らずに折り返す。
+   札の背は useCardHeight が中身の箱（.nc-body）を測って書く。余白と縦の積みは中身の箱が持ち、札は背を保つ外枠になる。 ---- */
+.now-card { flex: none; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); overflow: hidden; }
+.nc-body { display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); }
 .now-card[data-tone='wait'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--waiting); }
 .now-card[data-tone='busy'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--busy); }
 .now-card[data-tone='aside'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--aside); }
