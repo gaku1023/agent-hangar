@@ -7,7 +7,7 @@ import { translatorOf } from './i18n.ts';
 import { returnOnLabel } from './row.ts';
 
 /** 「いま」の列に並べる 1 つ。kind は色の決め手で、text は数を含む見える文字である。 */
-export type ProjectNowItem = { kind: 'waiting' | 'running' | 'pending' | 'todo' | 'reminder'; text: string };
+export type ProjectNowItem = { kind: 'waiting' | 'running' | 'pending' | 'suggested' | 'todo' | 'reminder'; text: string };
 
 /**
  * 名前の下に出す場所。
@@ -93,6 +93,14 @@ function pendingCount(store: Store, projectId: string, sessions: SessionDto[]): 
   return todos + sessions.filter((s) => !!s.state?.candidate).length;
 }
 
+/**
+ * 利用者がまだ受け入れていない Claude の TODO の提案の数。プロジェクト画面を開かなくても溜まっていると気づけるように、行の「いま」に出す。
+ * プロジェクト画面の「Claude の提案」の節と同じく、済みかどうかを見ずに数える（版 19 の端末で済みにされた提案も、ここでは受け入れ待ちに残る）。
+ */
+function suggestedCount(store: Store, projectId: string): number {
+  return Object.values(store.todos).filter((t) => t.projectId === projectId && !!t.suggestion).length;
+}
+
 export function presentProjects(_state: State, store: Store, now: number, filter: string, showArchived: boolean): ProjectsProps {
   const t = translatorOf(store);
   const workspaceRoot = store.settings?.workspaceRoot ?? '';
@@ -114,6 +122,8 @@ export function presentProjects(_state: State, store: Store, now: number, filter
     if (counts.waiting > 0) items.push({ kind: 'waiting', text: t('projects.now.waiting', { n: counts.waiting }) });
     if (counts.running > 0) items.push({ kind: 'running', text: t('projects.now.running', { n: counts.running }) });
     if (pending > 0) items.push({ kind: 'pending', text: t('projects.now.pending', { n: pending }) });
+    const suggested = suggestedCount(store, p.id);
+    if (suggested > 0) items.push({ kind: 'suggested', text: t('projects.now.suggested', { n: suggested }) });
     if (p.openTodoCount > 0) items.push({ kind: 'todo', text: t('projects.now.todo', { n: p.openTodoCount }) });
     if (reminder) items.push({ kind: 'reminder', text: t('projects.now.reminder', { date: returnOnLabel(t, reminder.on, overdueDays(reminder.on, now), reminder.time, returnPastMinutes(reminder.on, reminder.time, now)) }) });
     const status = STATUS_LABEL[p.status];
