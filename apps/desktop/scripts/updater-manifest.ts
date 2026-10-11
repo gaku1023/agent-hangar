@@ -1,4 +1,4 @@
-// updater の目録（latest.json）を作る。release.yml の updater-manifest ジョブが動かす。
+// updater の目録（latest.json）を作る。release.yml の publish ジョブが動かす。
 // 使い方: node --experimental-strip-types scripts/updater-manifest.ts <置き場> <タグ> <owner/repo>
 // 置き場には、各 OS の更新物の署名（Release の資産の名前 + .sig）が入っている。
 // 目録は tauri-plugin-updater の静的な形で、アプリは tauri.conf.json の endpoints（Release の最新の latest.json）からこれを引く。

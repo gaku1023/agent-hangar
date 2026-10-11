@@ -150,15 +150,20 @@ describe('tauri.conf.json', () => {
     expect(u.dangerousAcceptInvalidCerts).toBeUndefined();
     expect(u.allowDowngrades).toBeUndefined();
   });
-  // 更新物の署名には秘密鍵が要る。手元と ci の build は鍵を持たないので、更新物づくりは release.yml が --config で入れる。
-  it('更新物づくり（createUpdaterArtifacts）は設定に書かず、release.yml だけが入れる', () => {
+  // 更新物の署名には秘密鍵が要る。build は npm の script や依存のコードを走らせるので、鍵を持たせない。
+  // tauri build の更新物づくり（createUpdaterArtifacts）は鍵が無いと落ちるので、どの build でも入れない。
+  // 更新物とその署名は、release.yml が build の後で作る（macOS は署名済みの .app を詰め直して signer sign、Windows はインストーラに signer sign）。
+  it('更新物づくり（createUpdaterArtifacts）はどの build にも入れず、署名は build の後で付ける', () => {
     expect(conf.bundle.createUpdaterArtifacts).toBeUndefined();
-    // 重ねる側は更新物づくりだけを入れる。
-    expect(JSON.parse(read('src-tauri/tauri.updater.conf.json'))).toEqual({ $schema: 'https://schema.tauri.app/config/2', bundle: { createUpdaterArtifacts: true } });
+    expect(fs.existsSync(path.join(app, 'src-tauri/tauri.updater.conf.json'))).toBe(false);
     const release = fs.readFileSync(path.resolve(app, '../../.github/workflows/release.yml'), 'utf8');
     const action = fs.readFileSync(path.resolve(app, '../../.github/actions/windows-installer/action.yml'), 'utf8');
-    expect(release).toContain('--config src-tauri/tauri.updater.conf.json');
-    expect(action).toContain("'--config', 'src-tauri/tauri.updater.conf.json'");
+    for (const text of [release, action]) {
+      expect(text).not.toContain('tauri.updater.conf.json');
+      expect(text).not.toContain('createUpdaterArtifacts');
+    }
+    expect(release).toContain('repack-updater-macos.sh pack');
+    expect(action).toContain('signer sign');
     expect(release).toContain('secrets.TAURI_SIGNING_PRIVATE_KEY');
     expect(release).toContain('secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD');
     expect(release).toContain('latest.json');

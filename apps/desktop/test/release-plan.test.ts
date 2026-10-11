@@ -5,14 +5,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  compareVersions, isPrerelease, manifestUrl, planRelease, PRERELEASE_CHANNEL_TAG, PRERELEASE_TAURI_CONFIG,
-  readVersions, setVersionIn, shouldUpdateChannel, versionOfTag, VERSION_FILES,
+  checkCommitGate, checkSigningSecrets, compareVersions, type CiRun, isPrerelease, manifestUrl, missingAssets, planRelease,
+  PRERELEASE_CHANNEL_TAG, PRERELEASE_TAURI_CONFIG, readVersions, setVersionIn, shouldUpdateChannel, UPSTREAM_REPO,
+  versionOfTag, VERSION_FILES,
 } from '../scripts/release-plan.ts';
 
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = path.resolve(app, '../..');
 const script = path.join(app, 'scripts/release-plan.ts');
-const node = (args: string[]) => spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', script, ...args], { encoding: 'utf8' });
+// 呼び手の環境（GitHub Actions の印や secret の有無）を持ち込まない。試験が渡したものだけを見せる。
+const node = (args: string[], env: Record<string, string> = {}) => spawnSync(process.execPath, ['--experimental-strip-types', '--no-warnings', script, ...args], {
+  encoding: 'utf8',
+  env: { PATH: process.env.PATH ?? '', ...env },
+});
 
 // タグを打つと release.yml が走る。
 // アプリの版はリポジトリのファイル（tauri.conf.json ほか）にあり、タグはそれを名指すだけである。
@@ -99,6 +104,87 @@ describe('更新の目録の行き先', () => {
   });
 });
 
+// 本家で署名の secret が無いまま走ると、証明書の署名の無い .app（入れ替えのたびに許可が外れる）や、目録の無い Release を配ってしまう。
+// 本家では、正式な版も試しの版も止める。試しの版は正式な版の通し稽古で、試す人の許可も同じ証明書で保たれなければならない。
+// fork には secret が無いのがふつうなので、警告だけで続ける。
+describe('署名の secret', () => {
+  const both = { macosSign: true, updaterKey: true };
+  it('本家で 2 つともあれば、署名を必須として続ける', () => {
+    expect(checkSigningSecrets(UPSTREAM_REPO, both)).toEqual({ required: true, warnings: [] });
+  });
+  it('本家でどちらかが無ければ、無い secret の名前を挙げて止める', () => {
+    expect(() => checkSigningSecrets(UPSTREAM_REPO, { ...both, macosSign: false })).toThrow(/HANGAR_SIGN_P12_BASE64/);
+    expect(() => checkSigningSecrets(UPSTREAM_REPO, { ...both, updaterKey: false })).toThrow(/TAURI_SIGNING_PRIVATE_KEY/);
+    expect(() => checkSigningSecrets(UPSTREAM_REPO, { macosSign: false, updaterKey: false })).toThrow(/HANGAR_SIGN_P12_BASE64[\s\S]*TAURI_SIGNING_PRIVATE_KEY/);
+  });
+  it('fork では、無い secret ごとに警告を返して続ける', () => {
+    expect(checkSigningSecrets('someone/agent-hangar', both)).toEqual({ required: false, warnings: [] });
+    const r = checkSigningSecrets('someone/agent-hangar', { macosSign: false, updaterKey: false });
+    expect(r.required).toBe(false);
+    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings.join('\n')).toMatch(/HANGAR_SIGN_P12_BASE64[\s\S]*TAURI_SIGNING_PRIVATE_KEY/);
+  });
+  it('本家の名前は大文字と小文字を区別しない（GitHub のリポジトリ名と同じ）', () => {
+    expect(() => checkSigningSecrets(UPSTREAM_REPO.toUpperCase(), { macosSign: false, updaterKey: true })).toThrow();
+  });
+});
+
+// タグは main に入って ci が緑になったコミットにだけ打つ。
+// release の windows ジョブは npm test を回さず、ci の windows ジョブが同じコミットで回したことに頼るので、plan で確かめる。
+describe('タグのコミットの関門', () => {
+  const sha = 'a'.repeat(40);
+  const run = (over: Partial<CiRun> = {}): CiRun => ({ run_number: 10, run_attempt: 1, status: 'completed', conclusion: 'success', head_sha: sha, event: 'push', head_branch: 'main', ...over });
+  it('main の祖先で、main への push の ci が成功していれば通す', () => {
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run()] })).not.toThrow();
+  });
+  it('main の祖先でなければ止める', () => {
+    expect(() => checkCommitGate({ sha, onMain: false, runs: [run()] })).toThrow(/not on main/);
+  });
+  it('そのコミットの main への push の ci が無ければ止める（PR の ci や、ほかのコミットの ci は数えない）', () => {
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [] })).toThrow(/no ci run/);
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ event: 'pull_request', head_branch: 'feature' })] })).toThrow(/no ci run/);
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ head_sha: 'b'.repeat(40) })] })).toThrow(/no ci run/);
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ head_branch: 'other' })] })).toThrow(/no ci run/);
+  });
+  it('ci が走っている途中なら、終わってから release をもう一度走らせるよう告げて止める', () => {
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ status: 'in_progress', conclusion: null })] })).toThrow(/still in_progress[\s\S]*re-run/);
+  });
+  it('ci が成功で終わっていなければ止める', () => {
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ conclusion: 'failure' })] })).toThrow(/failure/);
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ conclusion: 'cancelled' })] })).toThrow(/cancelled/);
+  });
+  it('同じコミットに ci が何度か走ったら、いちばん新しいものを見る', () => {
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ run_number: 9, conclusion: 'failure' }), run({ run_number: 10 })] })).not.toThrow();
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ run_number: 11, conclusion: 'failure' }), run({ run_number: 10 })] })).toThrow(/failure/);
+    // 同じ run を回し直したもの（run_attempt が増える）も、新しいほうを見る。
+    expect(() => checkCommitGate({ sha, onMain: true, runs: [run({ run_attempt: 1, conclusion: 'failure' }), run({ run_attempt: 2 })] })).not.toThrow();
+  });
+});
+
+// Release は下書きで作り、資産と目録がそろってから最後に公開する。
+// 公開の前に、そろうべき資産の名前を照らす（途中で落ちたら公開しないが、そろわないまま公開する誤りも防ぐ）。
+describe('公開の前にそろう資産', () => {
+  const tag = 'v9.9.9';
+  const base = [
+    'Hangar-v9.9.9-macos-arm64.dmg', 'Hangar-v9.9.9-macos-arm64.dmg.sha256',
+    'Hangar-v9.9.9-macos-arm64.zip', 'Hangar-v9.9.9-macos-arm64.zip.sha256',
+    'Hangar-v9.9.9-windows-x64-setup.exe', 'Hangar-v9.9.9-windows-x64-setup.exe.sha256',
+  ];
+  const updater = ['Hangar-v9.9.9-macos-arm64.app.tar.gz', 'Hangar-v9.9.9-macos-arm64.app.tar.gz.sig', 'Hangar-v9.9.9-windows-x64-setup.exe.sig', 'latest.json'];
+  it('更新の署名鍵があれば、配布物と更新物と目録のすべてが要る', () => {
+    expect(missingAssets(tag, [...base, ...updater], true)).toEqual([]);
+    expect(missingAssets(tag, [...base, ...updater.filter((n) => n !== 'latest.json')], true)).toEqual(['latest.json']);
+    expect(missingAssets(tag, base, true)).toEqual(updater);
+  });
+  it('鍵が無ければ（fork）、配布物だけが要る', () => {
+    expect(missingAssets(tag, base, false)).toEqual([]);
+    expect(missingAssets(tag, base.slice(1), false)).toEqual([base[0]]);
+  });
+  it('ほかのタグの資産は数えない', () => {
+    expect(missingAssets(tag, [...base, ...updater].map((n) => n.replace('v9.9.9', 'v9.9.8')), true)).toContain('Hangar-v9.9.9-macos-arm64.dmg');
+  });
+});
+
 describe('リポジトリの版', () => {
   // 版を上げる PR が 1 つのファイルを上げ忘れると、ここで落ちる（タグを打つ前に気づける）。
   it('版の在りかの 5 つが同じ版を名乗る', () => {
@@ -160,17 +246,71 @@ describe('release.yml の配線', () => {
     expect(m, name).not.toBeNull();
     return m![1]!;
   };
+  const at = (text: string, s: string) => {
+    const i = text.indexOf(s);
+    expect(i, s).toBeGreaterThanOrEqual(0);
+    return i;
+  };
+  // ジョブの段（6 つの空白の字下げ）と、composite action の段（4 つ）に分ける。
+  const steps = (body: string, indent: number) => body.split(new RegExp(`\\n {${indent}}- `)).slice(1);
   it('plan ジョブが計画を決め、作るジョブはすべてその後に回る', () => {
     expect(job('plan')).toContain('release-plan.ts plan "$GITHUB_REF_NAME"');
     expect(job('macos')).toMatch(/needs: plan\n/);
     expect(job('windows')).toMatch(/needs: plan\n/);
-    expect(job('updater-manifest')).toMatch(/needs: \[plan, /);
+    expect(job('windows-upload')).toMatch(/needs: \[macos, windows\]\n/);
+    expect(job('publish')).toMatch(/needs: \[plan, macos, windows-upload\]\n/);
+    expect(job('channel')).toMatch(/needs: \[plan, publish\]\n/);
     // 照合は plan の 1 か所にする（tauri.conf.json だけを見る古い段は残さない）。
     expect(release).not.toContain("require('./apps/desktop/src-tauri/tauri.conf.json').version");
   });
-  it('試しの版は prerelease で、Release の最新にしない', () => {
-    expect(job('macos')).toContain("prerelease: ${{ needs.plan.outputs.prerelease == 'true' }}");
-    expect(job('macos')).toContain("make_latest: ${{ needs.plan.outputs.prerelease == 'true' && 'false' || 'true' }}");
+  it('plan は、タグのコミットが origin/main の祖先で、そのコミットの main の ci が成功していることを確かめる', () => {
+    const p = job('plan');
+    expect(p).toContain('fetch-depth: 0');
+    expect(p).toContain('git merge-base --is-ancestor "$sha" origin/main');
+    expect(p).toContain('actions/workflows/ci.yml/runs?head_sha=${sha}&event=push&branch=main');
+    expect(p).toContain('release-plan.ts gate "$sha" "$on_main"');
+    // 走った ci を読むのに actions: read が要る。
+    expect(p).toMatch(/permissions:\n {6}contents: read\n {6}actions: read\n/);
+    // 関門は計画を書き出す前に置く（関門で落ちたら、作るジョブに何も渡らない）。
+    expect(at(p, 'release-plan.ts gate')).toBeLessThan(at(p, '>> "$GITHUB_OUTPUT"'));
+  });
+  it('plan は署名の secret の有無を受け取り、署名が必須かを作るジョブへ渡す', () => {
+    const p = job('plan');
+    expect(p).toContain('signing-required: ${{ steps.plan.outputs.signing-required }}');
+    expect(release).toContain("HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}");
+    expect(release).toContain("HAS_MACOS_SIGN: ${{ secrets.HANGAR_SIGN_P12_BASE64 != '' }}");
+    const sign = steps(job('macos'), 6).find((s) => s.includes('ci-sign-macos.sh'));
+    expect(sign).toContain('HANGAR_SIGN_REQUIRED: ${{ needs.plan.outputs.signing-required }}');
+  });
+  it('Release は下書きで作って最新にせず、公開と最新への格上げは publish ジョブの最後の段だけが行う', () => {
+    const m = job('macos');
+    expect(m).toContain('draft: true');
+    expect(m).toContain("make_latest: 'false'");
+    expect(m).toContain("prerelease: ${{ needs.plan.outputs.prerelease == 'true' }}");
+    const p = job('publish');
+    const manifest = at(p, 'gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/latest.json"');
+    const check = at(p, 'release-plan.ts assets "$GITHUB_REF_NAME"');
+    const publish = at(p, '--draft=false');
+    expect(manifest).toBeLessThan(check);
+    expect(check).toBeLessThan(publish);
+    // 正式な版だけを最新にし、試しの版は prerelease のまま最新にしない。
+    expect(p).toContain('--prerelease --latest=false');
+    expect(p).toMatch(/--draft=false --latest\n/);
+    // 公開した後に資産を足す段は無い（公開は最後）。
+    expect(p.slice(publish)).not.toContain('gh release upload');
+    for (const name of ['macos', 'windows-upload', 'channel']) expect(job(name), name).not.toContain('--draft=false');
+  });
+  it('試しの道の目録の置き換えは 1 本ずつ走り、取得の失敗を「目録が無い」と取り違えない', () => {
+    const c = job('channel');
+    expect(c).toMatch(/concurrency:\n {6}group: release-channel-\$\{\{ needs\.plan\.outputs\.channel-tag \}\}\n {6}cancel-in-progress: false\n/);
+    expect(c).not.toContain('|| true');
+    expect(c).toContain('--prerelease');
+    expect(c).toContain('isPrerelease');
+    expect(c).toContain('release-plan.ts channel');
+    expect(c).toContain('CHANNEL: ${{ needs.plan.outputs.channel-tag }}');
+    // 目録が無いと決めるのは、Release の資産の一覧に latest.json が無いときだけ。
+    expect(c).toContain("--json assets -q '.assets[].name'");
+    expect(c).toContain('set -euo pipefail');
   });
   it('試しの版の build は、macOS も Windows も試しの道の endpoint を重ねる', () => {
     expect(job('macos')).toContain('EXTRA_CONFIG: ${{ needs.plan.outputs.tauri-config }}');
@@ -178,25 +318,101 @@ describe('release.yml の配線', () => {
     expect(job('windows')).toContain('extra-config: ${{ needs.plan.outputs.tauri-config }}');
     expect(action).toContain("$extra += @('--config', $env:EXTRA_CONFIG)");
   });
-  it('試しの道の目録は prerelease の Release に、新しいときだけ置く', () => {
-    const m = job('updater-manifest');
-    expect(m).toContain('--prerelease');
-    expect(m).toContain('isPrerelease');
-    expect(m).toContain('release-plan.ts channel');
-    expect(m).toContain('CHANNEL: ${{ needs.plan.outputs.channel-tag }}');
+  // build は npm の script（beforeBuildCommand の bundle-server）や依存のコードを走らせる。そこへ鍵を置かない。
+  it('更新の署名鍵は build に渡さず、更新物に署名する段だけに渡す', () => {
+    const withKey = (list: string[]) => list.filter((s) => /TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)?:/.test(s));
+    const mac = withKey(steps(job('macos'), 6));
+    expect(mac).toHaveLength(1);
+    expect(mac[0]).toContain('repack-updater-macos.sh pack');
+    const macBuild = steps(job('macos'), 6).find((s) => s.includes('npm run tauri -- build'));
+    expect(macBuild).toBeDefined();
+    expect(macBuild).not.toContain('TAURI_SIGNING');
+    const win = withKey(steps(action, 4));
+    expect(win).toHaveLength(1);
+    expect(win[0]).toContain('signer sign');
+    const winBuild = steps(action, 4).find((s) => s.includes('build --bundles nsis'));
+    expect(winBuild).toBeDefined();
+    expect(winBuild).not.toContain('TAURI_SIGNING');
+    // 署名はインストーラができた後で、入れて確かめる段より前に付ける（署名はファイルを書き換えない）。
+    expect(at(action, '-- signer sign $setup')).toBeGreaterThan(at(action, '-- build --bundles nsis'));
+    expect(at(action, '-- signer sign $setup')).toBeLessThan(at(action, "-ArgumentList '/S' -Wait -PassThru"));
+    expect(action).toContain('value: ${{ steps.sign.outputs.sig }}');
+  });
+  it('第三者の action は版の SHA で固定し、元の版をコメントに書く', () => {
+    const uses = [...release.matchAll(/uses: (\S+)(.*)$/gm)];
+    expect(uses.length).toBeGreaterThan(0);
+    const third = uses.filter(([, ref]) => !ref!.startsWith('actions/') && !ref!.startsWith('./'));
+    expect(third.map(([, ref]) => ref!.split('@')[0]).sort()).toEqual(['Swatinem/rust-cache', 'Swatinem/rust-cache', 'dtolnay/rust-toolchain', 'dtolnay/rust-toolchain', 'softprops/action-gh-release']);
+    for (const [, ref, rest] of third) {
+      expect(ref, ref).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
+      expect(rest, ref).toMatch(/^ # \S+/);
+    }
+  });
+  // 書き込みの権限のあるジョブで、checkout が token を .git/config に残すと、build の script から読める。
+  it('checkout は token を残さない', () => {
+    const checkouts = release.split('\n').map((l, i) => [l, i] as const).filter(([l]) => l.includes('uses: actions/checkout@'));
+    expect(checkouts.length).toBeGreaterThan(0);
+    const lines = release.split('\n');
+    for (const [, i] of checkouts) {
+      const block = lines.slice(i + 1, i + 6).join('\n');
+      expect(block, `line ${i + 1}`).toMatch(/with:\n(?: {10}.*\n)*? {10}persist-credentials: false/);
+    }
   });
 });
 
 // release.yml の plan ジョブは npm ci をしない。Node が型を剥がすだけで動き、GitHub の出力の形で書く。
 describe('release.yml から呼ぶ形', () => {
-  it('plan は版と prerelease と重ねる設定を key=value で書き、食い違えば 0 以外で終わる', () => {
-    const v = readVersions(root)['apps/desktop/src-tauri/tauri.conf.json']!;
-    const out = execFileSync(process.execPath, ['--experimental-strip-types', '--no-warnings', script, 'plan', `v${v}`, root], { encoding: 'utf8' });
-    expect(out).toBe(`version=${v}\nprerelease=${isPrerelease(v)}\ntauri-config=${isPrerelease(v) ? PRERELEASE_TAURI_CONFIG : ''}\nchannel-tag=${PRERELEASE_CHANNEL_TAG}\n`);
+  const v = readVersions(root)['apps/desktop/src-tauri/tauri.conf.json']!;
+  const planOut = (required: boolean) => `version=${v}\nprerelease=${isPrerelease(v)}\ntauri-config=${isPrerelease(v) ? PRERELEASE_TAURI_CONFIG : ''}\nchannel-tag=${PRERELEASE_CHANNEL_TAG}\nsigning-required=${required}\n`;
+  it('plan は版と prerelease と重ねる設定と署名の要否を key=value で書き、食い違えば 0 以外で終わる', () => {
+    const out = execFileSync(process.execPath, ['--experimental-strip-types', '--no-warnings', script, 'plan', `v${v}`, root], { encoding: 'utf8', env: { PATH: process.env.PATH ?? '' } });
+    expect(out).toBe(planOut(false));
     const bad = node(['plan', 'v99.0.0', root]);
     expect(bad.status).not.toBe(0);
     expect(bad.stdout).toBe('');
     expect(bad.stderr).toContain('99.0.0');
+  });
+  it('plan は本家で署名の secret が無ければ何も書かずに止め、fork では警告を標準エラーに出して続ける', () => {
+    const upstream = { GITHUB_REPOSITORY: UPSTREAM_REPO };
+    const missing = node(['plan', `v${v}`, root], { ...upstream, HAS_MACOS_SIGN: 'false', HAS_UPDATER_KEY: 'true' });
+    expect(missing.status).not.toBe(0);
+    expect(missing.stdout).toBe('');
+    expect(missing.stderr).toContain('HANGAR_SIGN_P12_BASE64');
+    const ok = node(['plan', `v${v}`, root], { ...upstream, HAS_MACOS_SIGN: 'true', HAS_UPDATER_KEY: 'true' });
+    expect(ok.status, ok.stderr).toBe(0);
+    expect(ok.stdout).toBe(planOut(true));
+    const fork = node(['plan', `v${v}`, root], { GITHUB_REPOSITORY: 'someone/agent-hangar', HAS_MACOS_SIGN: 'false', HAS_UPDATER_KEY: 'false' });
+    expect(fork.status, fork.stderr).toBe(0);
+    expect(fork.stdout).toBe(planOut(false));
+    expect(fork.stderr).toMatch(/^::warning/m);
+    // 警告は GITHUB_OUTPUT へ流れる標準出力に混ぜない。
+    expect(fork.stdout).not.toContain('::');
+  });
+  it('gate は、main の祖先かと ci の run の一覧（API の応答のまま）を受け、通らなければ 0 以外で終わる', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-plan-'));
+    const sha = 'c'.repeat(40);
+    const runs = path.join(dir, 'runs.json');
+    fs.writeFileSync(runs, JSON.stringify({ total_count: 1, workflow_runs: [{ run_number: 3, run_attempt: 1, status: 'completed', conclusion: 'success', head_sha: sha, event: 'push', head_branch: 'main' }] }));
+    const ok = node(['gate', sha, 'true', runs]);
+    expect(ok.status, ok.stderr).toBe(0);
+    const off = node(['gate', sha, 'false', runs]);
+    expect(off.status).not.toBe(0);
+    expect(off.stderr).toContain('not on main');
+    // true と false のほかは受けない（git の失敗を「祖先でない」と取り違えない）。
+    expect(node(['gate', sha, '', runs]).status).not.toBe(0);
+    fs.writeFileSync(runs, '{"message":"Bad credentials"}');
+    expect(node(['gate', sha, 'true', runs]).status).not.toBe(0);
+  });
+  it('assets は、Release の資産の名前（1 行に 1 つ）を受け、足りなければ名前を挙げて 0 以外で終わる', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-plan-'));
+    const names = path.join(dir, 'names.txt');
+    const base = ['dmg', 'dmg.sha256', 'zip', 'zip.sha256'].map((s) => `Hangar-v9.9.9-macos-arm64.${s}`)
+      .concat(['Hangar-v9.9.9-windows-x64-setup.exe', 'Hangar-v9.9.9-windows-x64-setup.exe.sha256']);
+    fs.writeFileSync(names, `${base.join('\n')}\n`);
+    expect(node(['assets', 'v9.9.9', 'false', names]).status).toBe(0);
+    const r = node(['assets', 'v9.9.9', 'true', names]);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('latest.json');
   });
   it('channel は、試しの道の目録を置き換えるかを true か false で書く（目録が無ければ true）', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-plan-'));
@@ -205,5 +421,10 @@ describe('release.yml から呼ぶ形', () => {
     fs.writeFileSync(existing, JSON.stringify({ version: '0.2.0-rc.2' }));
     expect(node(['channel', existing, '0.2.0-rc.1']).stdout).toBe('false\n');
     expect(node(['channel', existing, '0.2.0']).stdout).toBe('true\n');
+    // 読めない目録は「無い」と取り違えずに止める（古い版で置き換えない）。
+    fs.writeFileSync(existing, '<html>rate limited</html>');
+    expect(node(['channel', existing, '0.2.0']).status).not.toBe(0);
+    fs.writeFileSync(existing, '{}');
+    expect(node(['channel', existing, '0.2.0']).status).not.toBe(0);
   });
 });
