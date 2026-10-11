@@ -103,6 +103,11 @@ describe('サーバへ渡る PATH', () => {
     expect(expectedServerPath('/usr/bin:/bin:/usr/sbin:/sbin', '/h')).toBe('/usr/bin:/bin:/usr/sbin:/sbin:/h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/h/.claude/local');
     expect(expectedServerPath('/opt/homebrew/bin:/usr/bin', '/h')).toBe('/opt/homebrew/bin:/usr/bin:/h/.local/bin:/usr/local/bin:/h/.claude/local');
   });
+  // 殻は選んだ Node の置き場も最後に足す（server.rs の augmented_path の node_dir）。
+  it('殻が選んだ Node の置き場を最後に足し、既にあれば足さない', () => {
+    expect(expectedServerPath('/usr/bin:/bin', '/h', '/n/v22/bin')).toBe('/usr/bin:/bin:/h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/h/.claude/local:/n/v22/bin');
+    expect(expectedServerPath('/usr/bin:/usr/local/bin', '/h', '/usr/local/bin')).toBe('/usr/bin:/usr/local/bin:/h/.local/bin:/opt/homebrew/bin:/h/.claude/local');
+  });
 });
 
 describe('UI の頁と資産', () => {

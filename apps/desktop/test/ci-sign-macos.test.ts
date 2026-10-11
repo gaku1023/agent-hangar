@@ -88,6 +88,17 @@ describe.skipIf(!posix)('CI の署名の台本（secret の有無）', () => {
       expect(parseDisplay(info.stderr).identifier).not.toBe(ID);
     }
   });
+  // 本家の release では、plan が HANGAR_SIGN_REQUIRED=true を渡す。plan の確かめを外れても、未署名のまま配らない。
+  it('署名が必須（HANGAR_SIGN_REQUIRED=true）なのに secret が無ければ、未署名で続けずに止まる', () => {
+    const d = tmp('hangar-ci-sign-required-');
+    const app = makeApp(d);
+    const r = run([app], { HANGAR_SIGN_REQUIRED: 'true' });
+    expect(r.status, r.out).not.toBe(0);
+    expect(r.out).toContain('HANGAR_SIGN_P12_BASE64');
+    expect(r.out).not.toContain('::warning');
+    // 必須でなければ（fork）、今までどおり警告だけで続ける。
+    expect(run([app], { HANGAR_SIGN_REQUIRED: 'false' }).status).toBe(0);
+  });
   it('secret が片方だけなら、設定の誤りとして止まる', () => {
     const d = tmp('hangar-ci-sign-half-');
     const app = makeApp(d);

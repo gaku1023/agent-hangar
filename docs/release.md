@@ -20,6 +20,21 @@
 5 つがそろっていなければ、ふだんの試験（`apps/desktop/test/release-plan.test.ts`）が落ちる。
 release.yml の最初の plan ジョブが、タグと 5 つを照らし、1 つでも違えば何も作らずに止まる。
 
+## release.yml の流れ
+
+ジョブは plan、macos、windows、windows-upload、publish、channel の順に回る。
+
+- plan は、次のどれかに当たれば何も作らずに止まる。
+  - タグと版の在りかの 5 つが食い違う。
+  - タグのコミットが `origin/main` の祖先でない（main に入っていないコミットにタグを打った）。
+  - そのコミットへの main の push で走った ci（`ci.yml`）のいちばん新しい run が、成功で終わっていない。走っている途中でも止まる。
+  - 本家のリポジトリで、署名の secret（`HANGAR_SIGN_P12_BASE64` か `TAURI_SIGNING_PRIVATE_KEY`）が無い。正式な版も試しの版も止まる（`docs/signing.md`）。fork では警告を出して、署名せずに続ける。
+- macos ジョブが Release を下書き（draft）で作り、最新にしない。windows-upload が Windows のインストーラを、publish が更新物と署名と目録（`latest.json`）を、その下書きに添える。
+- publish は最後の段で、資産がそろったことを確かめてから Release を公開し、正式な版なら Release の最新にする。
+  途中のジョブが落ちたら、Release は下書きのまま残り、利用者には見えない。直してから、Actions の画面で失敗したジョブを Re-run すれば、続きから公開される。
+- channel は、公開の後で試しの道の目録を置き換える（下の「試しの版（rc）」）。
+  タグの run が重なっても、channel ジョブは 1 本ずつ走る。3 本以上重なると、待っていた古いほうは取り消されるので、そのときは取り消された run の channel ジョブだけを Re-run する。
+
 タグは `v<semver>` で、ビルドメタデータ（`+`）は付けない。
 更新の比べ方（semver）は `+` を見ないので、`+` だけが違う版は更新として見つからないからである。
 
@@ -45,7 +60,8 @@ Windows のインストーラのファイルの版（`VIProductVersion`）は数
 1. 版を上げる PR を作る。
    `npm run set-version -w apps/desktop -- 0.2.0-rc.1` を走らせ、5 つのファイルの差分だけをコミットして PR にする。
    CI が緑になったらマージする。
-2. main のそのコミットにタグを打って push する。
+2. main のそのコミットの ci が緑になってから、そのコミットにタグを打って push する。
+   ci がまだ走っているうちに打つと plan が止まる。そのときは ci が緑になってから release を Re-run する。
 
    ```bash
    git fetch origin
@@ -53,8 +69,8 @@ Windows のインストーラのファイルの版（`VIProductVersion`）は数
    git push origin v0.2.0-rc.1
    ```
 
-3. Actions の release が、plan、macos、windows、windows-upload、updater-manifest のすべてで緑になるのを待つ。
-   plan が落ちたら、版を上げる PR が入っていない。
+3. Actions の release が、plan、macos、windows、windows-upload、publish、channel のすべてで緑になるのを待つ。
+   plan が版の食い違いで落ちたら、版を上げる PR が入っていない。
    plan の前に Release は作られないので、`gh release delete` ではなく、リモートのタグを直に消す（`git push origin :refs/tags/v0.2.0-rc.1`。手元のタグは `git tag -d` で消す）。
    PR を入れてから打ち直す。
 
