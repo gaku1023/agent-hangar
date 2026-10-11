@@ -5,7 +5,7 @@ import { MessageError, msg, type Message } from '../i18n/message.ts';
 
 /**
  * セッションの状態の移り方。設計は docs/superpowers/specs/2026-10-01-session-status-design.md の「状態の移り方」。
- * 書き手は MCP（提案と、会話で選んだもの）、HTTP（画面）、索引（新しい発言で外すときだけ）である。
+ * 書き手は MCP（提案と、会話で選んだもの）、HTTP（画面）、索引（新しい発言で外すときだけ）、自動の Done（sessions/autoDone.ts）である。
  * 変更のたびの session.upsert は、ここでも呼び手でもなく、配る層（events/publisher.ts）が配る。
  * ここの書き込みは upsertShared を通るので、行の変化の口（db/notify.ts）へ自動で知らされる。
  */
@@ -119,6 +119,18 @@ export function setSessionState(db: Db, deviceId: string, sessionId: string, o: 
   if (o.status === null) return write(db, deviceId, sessionId, { ...NO_STATUS, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
   const { note, returnOn, returnTime } = validateStateInput(o.status, { note: o.note, returnOn: o.returnOn, returnTime: o.returnTime, requireNote: o.requireNote ?? false });
   return write(db, deviceId, sessionId, { status: o.status, note, return_on: returnOn, return_time: returnTime, set_by: o.setBy, set_at: now, ...NO_CANDIDATE });
+}
+
+/**
+ * 止まったセッションを自動で Done にする（sessions/autoDone.ts）。書いたら true。
+ * 利用者が決めたものではないので set_by は import にする。新しい値を足すと、上げていない PC が同期で受け取った行を CHECK で弾くためである。
+ * 書く直前に読み直し、状態が付いた、Paused の提案が出た、却下されたものは書かない。対象を引いてから書くまでの間に、利用者が触ったときのためである。
+ */
+export function markAutoDone(db: Db, deviceId: string, sessionId: string, now = Date.now()): boolean {
+  const cur = liveRow(db, sessionId);
+  if (cur && (cur.status !== null || cur.rejected_at !== null || visibleCandidate(cur)?.status === 'paused')) return false;
+  write(db, deviceId, sessionId, { status: 'done', note: null, return_on: null, return_time: null, set_by: 'import', set_at: now, ...NO_CANDIDATE });
+  return true;
 }
 
 export type ProposeStateOutcome = 'proposed' | 'set' | 'rejected_before' | 'already_set';

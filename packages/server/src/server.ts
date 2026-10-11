@@ -105,6 +105,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
   runs.primeLive();
   await indexing.start();
   runs.start();
+  summary.startAutoDone();
   // ここまでで既存のセッションの紐づけは済んでいる。以後に現れた未分類だけを知らせる。
   home.life.started = true;
   runs.startPresence();
@@ -123,6 +124,7 @@ export async function startServer(opts: StartOptions = {}): Promise<{ close(): P
       // まず周期の仕事を止め、次に走っている通信を待ってから止める。
       indexing.stopTimers();
       runs.stopParkTimer();
+      summary.stopAutoDone();
       runs.stopPresence();
       sync.stopTimers();
       await sync.drain(left);
