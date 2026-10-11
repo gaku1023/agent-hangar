@@ -7,6 +7,7 @@ import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Popover } from './primitives/Popover.tsx';
+import { useHeightFloor } from './useHeightFloor.ts';
 
 /** ツール呼び出しの印。色だけに頼らないよう、形も変える（完了は ✓、いまと入力待ちは ●、失敗は ✕）。読み上げには語で言う。 */
 const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const;
@@ -18,14 +19,16 @@ const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const
  * 「ほか N」、サブエージェント、アーティファクトの数の札を積む。意図は切らずに折り返す。
  * 札の全体は読み上げの領域にせず（追記のたびに読み上げない）、状態の語だけを role="status" にする。
  * 動き（D3）：描いた後に増えた呼び出しはフェードで入り一度だけ光る。意図は替わったときにフェードで入れ替わる。灯は静止する。
+ * 高さは伸びるだけで縮めない（useHeightFloor）。中身（意図の折り返し、手の数、問い）で縮むと、下の目次が押されて跳ねるためである。
  */
 export function NowCard(props: NowCardProps & { sessionId: string }) {
   const t = useT();
   const dot = props.tone === 'wait' ? 'wait' : props.tone === 'busy' ? 'busy' : props.tone === 'aside' ? 'aside' : 'idle';
   const fresh = useFreshKeys(props.sessionId, props.steps.map((s) => s.key));
   const hidden = props.stepsTotal - props.steps.length;
+  const ref = useHeightFloor<HTMLElement>(props.sessionId);
   return (
-    <section className="now-card" data-tone={props.tone} aria-label={t('session.strip.label')}>
+    <section ref={ref} className="now-card" data-tone={props.tone} aria-label={t('session.strip.label')}>
       <div className="nc-head">
         <span className="nc-state" data-tone={props.tone}>
           <span className="live-dot" data-tone={dot} aria-hidden="true" />
