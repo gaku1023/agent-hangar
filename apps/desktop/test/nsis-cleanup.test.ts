@@ -82,8 +82,9 @@ describe('入れるとき（PREINSTALL）に、同梱サーバの置き場を一
 });
 
 describe('アンインストールで、$INSTDIR の中の Hangar のものを消し切る', () => {
-  it('ファイルを消す前（PREUNINSTALL）に、Hangar の置き場かどうかを確かめておく', () => {
-    expect(lines(macro('NSIS_HOOK_PREUNINSTALL'))).toContain('!insertmacro HANGAR_CHECK_SERVER_OWNED');
+  // 消す前のフックは、取り消せる確認（CheckIfAppIsRunning）より前に走る。ここでは確かめるだけで、何も書き換えない。
+  it('ファイルを消す前（PREUNINSTALL）には、Hangar の置き場かどうかを確かめるだけにする', () => {
+    expect(lines(macro('NSIS_HOOK_PREUNINSTALL'))).toEqual(['!insertmacro HANGAR_CHECK_SERVER_OWNED']);
   });
 
   // Tauri はファイルを 1 つずつ消したあと、$INSTDIR を中身が空のときだけ消す。古い assets が残ると、$INSTDIR ごと残る。

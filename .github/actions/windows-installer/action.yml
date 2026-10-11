@@ -83,6 +83,14 @@ runs:
         Get-ChildItem $dir | Format-Table Name, Length
         $cmd = Get-ChildItem $dir -Recurse -Filter hangar.cmd | Select-Object -First 1
         if (-not $cmd) { throw '同梱の hangar.cmd が入っていない' }
+        # 入れるときのフック（hooks.nsh の NSIS_HOOK_POSTINSTALL）が、hangar.cmd の置き場を利用者単位の PATH に足す。消すときのフック（NSIS_HOOK_POSTUNINSTALL）が外す。
+        $bin = Join-Path $dir 'server\bin'
+        function Test-BinOnPath {
+          $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+          $v = if ($k) { [string]$k.GetValue('Path', '', 'DoNotExpandEnvironmentNames') } else { '' }
+          return @($v -split ';' | Where-Object { $_.TrimEnd('\') -eq $bin }).Count -gt 0
+        }
+        if (-not (Test-BinOnPath)) { throw "入れても PATH に $bin が無い" }
         # 殻が起動のたびに書くトーストの登録と絵を、殻を起こす前にここでも置く（殻が起きなくても消す側を確かめられるように）。
         # 消したあとに残っていないことと、利用者のデータには触れないことを、消したあとで見る。
         $appKey = 'HKCU:\Software\Classes\AppUserModelId\dev.agent-hangar.hangar'
@@ -157,6 +165,7 @@ runs:
         $u = Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList "/S _?=$dir" -Wait -PassThru
         if ($u.ExitCode -ne 0) { throw "アンインストーラが終了コード $($u.ExitCode) で終わった" }
         'アンインストールにかかった時間: {0:N1} 秒' -f ($u.ExitTime - $u.StartTime).TotalSeconds
+        if (Test-BinOnPath) { throw "消したのに PATH に $bin が残っている" }
         # 消したあとの $INSTDIR には何も残らない（hooks.nsh の NSIS_HOOK_POSTUNINSTALL が server を丸ごと消す）。
         # _?= で動かした消す側は自分を消せないので、uninstall.exe だけは残ってよい。
         if (Test-Path $dir) {

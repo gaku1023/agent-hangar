@@ -38,8 +38,8 @@ jobs:
   windows:
     runs-on: windows-latest
     # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分、
-    # 配布物のビルド（release の Rust と NSIS）にさらに数分から十数分かかる。
-    timeout-minutes: 60
+    # 配布物のビルド（release の Rust と NSIS）にさらに数分から十数分、更新の経路の 2 回の build に 8 分ほどかかる。
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -113,11 +113,28 @@ jobs:
           path: ${{ runner.temp }}/boot-probe-windows
           if-no-files-found: warn
           retention-days: 7
+      # 本当の更新の経路を 1 回通す（apps/desktop/scripts/ci-update-windows.ps1）。
+      # 版 A の殻を入れて起こし、殻の updater がインストーラを /P /UPDATE /R /ARGS で起こして版 B を入れ、起き直した殻のサーバが /health で版 B を名乗るまでを見る。
+      # 途中で、殻がインストーラへ渡す直前（on_before_exit）にサーバを止めることと、入れるときのフック（hooks.nsh）が殻の抜けるのを待って置き場を空にすることも見る。
+      # 鍵は CI の中で作る使い捨てのもので、目録と更新物はローカルの HTTP で配る。本物の secret は使わない。
+      # 版 A と版 B の 2 回の build（release の Rust と NSIS）に、キャッシュに当たって合わせて 8 分ほどかかる。
+      # 版 B が開いている間に、アンインストールを動いている殻の問いで取り消すと、PATH と入れた先が残ることも見る。
+      - name: 版 A から版 B へ、updater の経路で更新する
+        timeout-minutes: 25
+        shell: pwsh
+        run: pwsh -NoProfile -File apps/desktop/scripts/ci-update-windows.ps1 -Target x86_64-pc-windows-msvc -Out (Join-Path $env:RUNNER_TEMP 'update-windows')
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: update-windows
+          path: ${{ runner.temp }}/update-windows
+          if-no-files-found: warn
+          retention-days: 7
   desktop:
     runs-on: macos-latest
     # Rust のビルドがキャッシュ外れで長引いたときの上限。
-    # キャッシュに当たれば数分で終わる。release の .app のビルドも含むので、その分を足してある。
-    timeout-minutes: 45
+    # キャッシュに当たれば数分で終わる。release の .app のビルド（更新の経路の 2 回を含めて 3 回）も含むので、その分を足してある。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -160,5 +177,18 @@ jobs:
         with:
           name: boot-probe-macos
           path: ${{ runner.temp }}/boot-probe-macos
+          if-no-files-found: warn
+          retention-days: 7
+      # 本当の更新の経路を 1 回通す（apps/desktop/scripts/ci-update-macos.sh）。
+      # 版 A の .app を一時の場所へ写して起こし、殻の updater が版 B の .app.tar.gz を取って .app を入れ替え、起き直した殻のサーバが /health で版 B を名乗るまでを見る。
+      # 鍵は CI の中で作る使い捨てのもので、目録と更新物はローカルの HTTP で配る。本物の secret は使わない。
+      - name: 版 A から版 B へ、updater の経路で .app を入れ替える
+        timeout-minutes: 20
+        run: bash apps/desktop/scripts/ci-update-macos.sh "$RUNNER_TEMP/update-macos"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: update-macos
+          path: ${{ runner.temp }}/update-macos
           if-no-files-found: warn
           retention-days: 7
