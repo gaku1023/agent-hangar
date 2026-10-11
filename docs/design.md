@@ -117,13 +117,14 @@ GUI のアプリの PATH は launchd の最小のものなので、PATH は見�
 上の場所に無い入れ方は、`nodePath` で指す。
 設定の画面は `nodePath` を保存する前に、殻と同じ条件で確かめる（`config/node.ts`、`PATCH /api/settings`）。
 フルパスであること、Node として答えること、同梱の `manifest.json` と同じメジャー版とアーキテクチャであること、の 3 つで、合わなければ理由を返して保存しない。
+フルパスかどうかは、`~` を展開する前の値で見る。殻と CLI（`launch-cli.ts`、`hangar.sh`）は `~` を展開しないので、`~/` で始まる値は、展開すれば実在しても `notAbsolute` にして保存しない（展開を殻と CLI に足すより、層の数が少なく済む）。
 新しいメジャー版も代わりにならないので断る。
-準備の確かめ（欄の下の ✓ と ✗）も同じ 3 つを見て、`settings.json` を直に書き換えた値でも、殻が使わない Node には ✓ を付けない。
+準備の確かめ（欄の下の ✓ と ✗）も同じ 3 つを、同じく展開前の値で見て、`settings.json` を直に書き換えた値でも、殻が使わない Node には ✓ を付けない。
 要る版は、配布版では `server.mjs` の隣の `manifest.json` から読み、ソースから動かしているときはサーバを動かしている Node の版とアーキである。
 同梱の CLI（`hangar.sh`）は `HANGAR_NODE` と `nodePath` を先に見て、そのあとは同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
 `HANGAR_NODE` と `nodePath` は、殻と同じくフルパスだけを受け、そうでなければ「絶対パスではありません」と挙げて次へ進む。
 見つからないときの文は、macOS では `brew install node@<版>` で足りることと、調べた場所とそれぞれが合わなかった理由を出す。
-Windows では `winget install -e --id OpenJS.NodeJS.<版>` を先に案内し（README の Windows の前提と同じ命令。公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探す）、nvm-windows の `nvm install <版>` をほかの入れ方として添える（`node.rs` の `winget_command` と `not_found_winget_*`）。
+Windows では `winget install -e --id OpenJS.NodeJS.<版>` を先に案内し（README の Windows の前提と同じ命令。公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探す）、nvm-windows の `nvm install <版>` をほかの入れ方として添え、fnm、Volta、scoop で入れた版と PATH にある版も探すと言い添える（文は殻の `not_found_winget_*` と CLI の `launch-cli.ts` の `TEXT` で同じ中身にする。`node.rs` の `winget_command` と `not_found_winget_*`）。
 Linux は `nvm install <版>` を案内する。
 サーバ側でも親プロセスの生存を監視し、親が消えたら自ら終了する。
 `hangar start` も、サーバを子プロセスとして立てる。
@@ -4435,6 +4436,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   build している Node のメジャー版がそれと違えば、束を作らずに止める。
   ネイティブモジュールは `npm ci` を走らせた Node に合わせて入るので、固定の値を書くだけにすると、別の版の Node で作った束が名乗った版で動く保証が無くなるためである。
   版を上げるときは、`BUNDLE_NODE_MAJOR`、CI の setup-node、起動の失敗の札の `DEFAULT_NODE_MAJOR` を一緒に上げる（札の既定と束の版の一致は試験で縛る）。
+  開発機の Node は、リポジトリの根の `.nvmrc`（22）で合わせる。`bundle-server.ts` の試験は `buildNodeMajor` に `BUNDLE_NODE_MAJOR` を渡し、開発機の既定の Node が 22 でなくても落ちない（違う版で止まる試験だけは違う版を渡す）。
   リポジトリの `engines`（`>=22`）は、ソースから動かすときのもので、そのときのネイティブモジュールは動かしている Node に合わせて入るので、22 より新しい版でも動く。
 - `nodePath` の重さ：Settings の `nodePath` は、次の起動で `.app` がそのまま起こす実行ファイルの場所なので、設定への書き込みが次回起動時のコード実行になる。
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。

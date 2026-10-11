@@ -177,7 +177,8 @@ describe('routes', () => {
       return ((await r.json()) as { error: string }).error;
     };
     const right = withNode({ major: 22, arch: 'arm64' });
-    for (const p of ['node', './node', 'bin/node']) expect(await error(right, p), p).toBe('「Node のパス」は node の実行ファイルのフルパスにしてください');
+    // ~ で始まる値も弾く。殻は ~ を展開しないので、展開すれば保存できても殻は使えない。
+    for (const p of ['node', './node', 'bin/node', '~/bin/node', '~']) expect(await error(right, p), p).toBe('「Node のパス」は node の実行ファイルのフルパスにしてください');
     expect(await error(withNode({ major: 24, arch: 'arm64' }), node)).toBe(`「Node のパス」の ${node} は Node 24（arm64）です。同梱のサーバには Node 22（arm64）が要ります`);
     expect(await error(withNode({ major: 22, arch: 'x64' }), node)).toBe(`「Node のパス」の ${node} は Node 22（x64）です。同梱のサーバには Node 22（arm64）が要ります`);
     expect(await error(withNode(null), node)).toBe(`「Node のパス」の ${node} は Node として答えません`);

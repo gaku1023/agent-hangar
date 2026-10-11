@@ -265,6 +265,12 @@ describe('createReadiness', () => {
       expect(await readNode('node', { major: 22, arch: 'arm64' })).toEqual({ path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false });
       expect(await readNode('./node', { major: 22, arch: 'arm64' })).toMatchObject({ ok: false, problem: 'notAbsolute' });
     });
+    it('~ で始まる値は、展開すれば実在しても ✗ にする（殻は ~ を展開しない）', async () => {
+      const node = fakeTool('node', 'v22.9.0');
+      const home = `~/${path.relative(tmp, node).split(path.sep).join('/')}`;
+      expect(fs.existsSync(expandHome(home, tmp))).toBe(true);
+      expect(await readNode(home, { major: 22, arch: 'arm64' })).toEqual({ path: home, ok: false, problem: 'notAbsolute', version: null, auto: false });
+    });
   });
   it('Node の設定が空なら、サーバを動かしている Node を見せる', async () => {
     const read = createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', serverNode: { path: '/opt/node/bin/node', version: 'v22.1.0' } });
