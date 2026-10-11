@@ -23,6 +23,8 @@ export type ProjectProps = {
   id: string; name: string; parent: ParentLink; path: string | null; resolved: boolean; status: ProjectStatus; notFound: boolean; isScratch: boolean;
   list: SessionListProps; loadMore: { remaining: number; step: number; loading: boolean } | null; info: ProjectInfoProps;
   todos: TodoItemProps[]; pendingTodos: number; note: { text: string; filled: boolean }; artifacts: ArtifactCardProps[];
+  /** 手で足した URL が断られたときの理由と、入れた URL。このプロジェクトのものだけ。 */
+  artifactAddError: { url: string; message: string } | null;
 };
 
 /**
@@ -55,7 +57,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const PARENT = parentOf(t);
   // 一覧はホームと同じ部品で、このプロジェクトのセッションだけを出す。見つからないプロジェクトは行が 0 になる。
   const list = presentSessionList(state, store, now, id);
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], pendingTodos: 0, note: { text: '', filled: false }, artifacts: [] };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], pendingTodos: 0, note: { text: '', filled: false }, artifacts: [], artifactAddError: null };
   const remaining = list.total - list.rows.length;
   const todos = todosOf(store, id).map((x) => ({ id: x.id, text: x.text, done: x.done, candidate: presentTodoCandidate(x, store, now) }));
   const memo = store.memos[id]?.markdown ?? '';
@@ -69,5 +71,6 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     pendingTodos: todos.filter((x) => x.candidate !== null).length,
     note: { text: memo, filled: memo.trim() !== '' },
     artifacts: artifactsOf(store, { projectId: id }).map((a) => presentArtifactCard(t, a, now)),
+    artifactAddError: store.artifactAddError?.projectId === id ? { url: store.artifactAddError.url, message: store.artifactAddError.message } : null,
   };
 }

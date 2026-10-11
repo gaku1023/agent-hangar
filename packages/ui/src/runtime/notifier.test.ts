@@ -20,12 +20,26 @@ describe('デスクトップの通知', () => {
   it('通知とバッジは殻のコマンドへ渡す', () => {
     const { e, invoke } = env();
     const n = createDesktopNotifier(e);
-    n.show({ sessionId: 's1', title: '名前', body: '問い' });
-    expect(invoke).toHaveBeenCalledWith('notify_waiting', { sessionId: 's1', title: '名前', body: '問い' });
+    n.show({ sessionId: 's1', title: '名前', body: '問い', kind: 'waiting' });
+    expect(invoke).toHaveBeenCalledWith('notify_waiting', { sessionId: 's1', title: '名前', body: '問い', kind: 'waiting' });
     n.badge(3);
     expect(invoke).toHaveBeenCalledWith('plugin:window|set_badge_count', { value: 3 });
     n.badge(0);
     expect(invoke).toHaveBeenLastCalledWith('plugin:window|set_badge_count', { value: null });
+  });
+  // 種類ごとに殻が通知の枠を分ける。戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消さないためである。
+  it('戻る時刻の知らせは、種類を添えて殻へ渡す', () => {
+    const { e, invoke } = env();
+    createDesktopNotifier(e).show({ sessionId: 's1', title: '名前', body: '13:30 を過ぎました', kind: 'return' });
+    expect(invoke).toHaveBeenCalledWith('notify_waiting', { sessionId: 's1', title: '名前', body: '13:30 を過ぎました', kind: 'return' });
+  });
+  it('残してよい知らせの顔ぶれを殻へ渡し、ほかを通知センターから外させる', async () => {
+    const { e, invoke } = env();
+    createDesktopNotifier(e).prune({ waiting: ['s1'], returning: ['s2'] });
+    expect(invoke).toHaveBeenCalledWith('notify_prune', { waiting: ['s1'], returning: ['s2'] });
+    const failing = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => { throw new Error('not allowed'); }) }, document: doc(true, true) });
+    expect(() => failing.prune({ waiting: [], returning: [] })).not.toThrow();
+    await Promise.resolve();
   });
   it('許可を求めると殻が OS に尋ね、その答えを返す', async () => {
     const { e, invoke } = env();
@@ -53,7 +67,7 @@ describe('デスクトップの通知', () => {
   it('殻のコマンドが失敗しても、投げ出さない', async () => {
     const invoke = vi.fn(async () => { throw new Error('not allowed'); });
     const n = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke }, document: doc(true, true) });
-    expect(() => n.show({ sessionId: 's1', title: 't', body: 'b' })).not.toThrow();
+    expect(() => n.show({ sessionId: 's1', title: 't', body: 'b', kind: 'waiting' })).not.toThrow();
     expect(() => n.badge(1)).not.toThrow();
     await expect(n.request()).resolves.toBe(false);
   });
@@ -138,12 +152,31 @@ describe('ブラウザの通知', () => {
     const n = createBrowserNotifier(e);
     const cb = vi.fn();
     n.onOpen(cb);
-    n.show({ sessionId: 's1', title: '名前', body: '問い' });
+    n.show({ sessionId: 's1', title: '名前', body: '問い', kind: 'waiting' });
     expect(made[0]).toMatchObject({ title: '名前', opts: { body: '問い', tag: 'hangar-waiting-s1' } });
     made[0]!.onclick?.();
     expect(e.focus).toHaveBeenCalled();
     expect(cb).toHaveBeenCalledWith('s1');
     expect(made[0]!.close).toHaveBeenCalled();
+  });
+  it('戻る時刻の知らせは、同じセッションの入力待ちの知らせと別の tag にする', () => {
+    const { N, made } = fakeNotification('granted');
+    const n = createBrowserNotifier(env({ Notification: N }));
+    n.show({ sessionId: 's1', title: '名前', body: '問い', kind: 'waiting' });
+    n.show({ sessionId: 's1', title: '名前', body: '13:30 を過ぎました', kind: 'return' });
+    expect(made.map((m) => m.opts?.tag)).toEqual(['hangar-waiting-s1', 'hangar-return-s1']);
+  });
+  it('残してよい顔ぶれに無い知らせを閉じる', () => {
+    const { N, made } = fakeNotification('granted');
+    const n = createBrowserNotifier(env({ Notification: N }));
+    n.show({ sessionId: 's1', title: 'a', body: 'b', kind: 'waiting' });
+    n.show({ sessionId: 's2', title: 'a', body: 'b', kind: 'waiting' });
+    n.show({ sessionId: 's1', title: 'a', body: 'b', kind: 'return' });
+    n.prune({ waiting: ['s1'], returning: [] });
+    expect(made.map((m) => m.close.mock.calls.length)).toEqual([0, 1, 1]);
+    // 一度閉じたものは、もう一度は閉じない。
+    n.prune({ waiting: [], returning: [] });
+    expect(made.map((m) => m.close.mock.calls.length)).toEqual([1, 1, 1]);
   });
   it('バッジはあれば使い、無ければ何もしない', () => {
     const setAppBadge = vi.fn(async () => {});

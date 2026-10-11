@@ -224,6 +224,9 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   サーバが書く `params` の `file` と `dir`、Node の「調べた場所」と設定ファイルの場所、例外の文に、ユーザー名を出さないためである。
   サーバはホームを縮めずに書くので、縮めるのは殻の 1 か所に寄せ、macOS と Windows で同じにする。
   ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。
+  Windows の形のホーム（ドライブか `\\` で始まる）は、大文字小文字と区切り（`/` と `\`）の違いを同じとみなして比べる（`home_len_at`）。
+  Windows のパスは大文字小文字を区別せず、どちらの区切りでも書けるので、書き方が違うだけの同じホームを縮めずにユーザー名を出していた。
+  macOS と Linux のホームは、これまでどおり字のまま比べる。置き場の名前（`tilde`）も同じ比べ方にする。
 - 失敗は、殻が状態として持ち、頁が引き取る。
   殻は失敗の材料を `Ui.failure` に置いてから、その場でも評価で渡す。
   起動画面（`loading/boot.js`）は口（`__hangarBootFail` など）を作り終えた時点で、殻の命令 `boot_state` を一度だけ呼び、`{ failure, progress, finishing, lang }` を引き取る。
@@ -237,7 +240,10 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   Node の無い Mac で、起動から 40ms で出た失敗が届かず、読み込み中のまま止まった（2026-10-11）。
   Windows も同じ作りで引き取るので、合図と頁の走る順に頼らない。
 - 札に切り替わることは、CI が build した殻で確かめる。
-  試験のための書き出しの口があり、殻が `HANGAR_BOOT_PROBE`（書き出す先のファイル）を持って起きたときだけ働く（`src-tauri/src/bootprobe.rs`）。
+  試験のための書き出しの口があり、試験用の feature（`boot-probe`）を立てた build で、殻が `HANGAR_BOOT_PROBE`（書き出す先のファイル）を持って起きたときだけ働く（`src-tauri/src/bootprobe.rs`）。
+  CI の段も配布も release の build（`tauri build`）なので、`debug_assertions` では分けられない。
+  そこで CI の段の build だけが `--features boot-probe` を立て（desktop ジョブの `.app` の build と、windows ジョブが composite action に渡す `features`）、`release.yml` は立てない。
+  配布の build では、環境変数を渡されても書き出さない。
   そのとき殻は `boot_state` に `probe: true` を添え、起動画面は描いた様子（`data-level`、札が見えているか、種類、言語、見出し、詳細）を DOM から読んで、命令 `boot_probe` で殻に渡す（`loading/boot.js` の `report`）。
   殻はそれを JSON にして、そのファイルへ書く（16 KiB まで、一時のファイルから名前を替える）。
   変数が無いときは、`probe` は偽で、頁は `boot_probe` を呼ばず、呼ばれても殻は何も書かない。
@@ -271,7 +277,20 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   起動画面は UI の書体（JetBrains Mono）を読み込まないので、等幅は `ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace` の順に OS の書体を使う。日本語の Windows の既定の等幅（MS ゴシックなど）は `\` を `¥` の字形で描くので、パスやコマンドが `¥` に見えないよう、`\` を正しく描く書体を総称の `monospace` より先に置く。
   本文とボタンも、起動画面は Inter を読み込まないので、欧文は日本語の書体で描かれ、Windows では `\` が `¥` に見えていた（2026-10-11、Windows の実機の確かめで見つけた）。
   そこで `'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif` と、Windows の UI の書体を日本語の書体より先に置く。Segoe UI は macOS に無いので macOS の見た目は変わらず、日本語の字は Segoe UI に無いので、これまでどおり後ろの書体で描く。
-  詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す。
+  詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、更新を確認、ログを開く、もう一度試す。
+- 札の中から更新を受け取れる（2026-10-11）。
+  起動に失敗する版を入れた人は UI まで届かないので、UI の自動の確認と右下の札では新しいバージョンを受け取れず、手で入れ直すしかなかった（rc.1 の Windows）。
+  下端の版と OS の横に「更新を確認」を置き、押すと殻の `update_check` を呼ぶ（その間は押せない「確認中…」）。
+  新しいバージョンが無ければ釦を退けて「最新」と添え、あれば札の中に帯（「Hangar X を利用できます」と「ダウンロードしてインストール」）を出す。
+  帯の釦を押すと、`update_download` で取得しながら `update_status` で進みを読んで帯に出し、済んだら `update_install` を呼ぶ。インストールが済むと殻が再起動する。
+  失敗は殻の分けた 4 つ（network、signature、permission、other）で理由を言い、もう一度押せるようにする。
+  帯が主の釦を持つ間は、主の釦を 2 つにしないよう「もう一度試す」を主の見た目から外す。取得とインストールの途中は、頁を読み込み直させないよう「もう一度試す」を押せなくする。
+  Node が無いときの札では、新しいバージョンを入れても Node は入らないので、帯に「直っていることがあります」と添えない。
+  命令は UI と同じ 4 つで、起動画面にも与える（`capabilities/boot-screen.json`）。文は `boot-fail.js` の `updateView` の日英の表が持ち、語は UI の辞書（`update.*`）にそろえる（試験が突き合わせる）。
+  殻も、起動に失敗したとき 1 度だけ自分で確かめる（`lib.rs` の `check_update_after_failure`）。
+  見つけた版は `Ui.update` に置いて `boot_state` の `update` で渡し、その場でも `window.__hangarBootUpdate({ version })` で渡すので、押さなくても札に帯が出る。
+  やり直しても `Ui.update` は消さない。確かめに失敗したときはログに残すだけで、札には出さない。
+  UI の「更新を通知する」のスイッチ（`localStorage`）は殻から読めないが、起動できない版から抜け出す口なので、この 1 度の確認はスイッチに依らず行う。
 - Node が無いときの札（`node-missing`）は、ほかの札と並びを変え、入れるコマンドを主にする（利用者が選んだ形、2026-10-11）。
   以前は種類が `other` で、見出しは「Hangar を起動できませんでした」、本文は「起動の途中で止まりました。理由は下の詳細にあります」の汎用の文で、入れ方は詳細の枠の中にしか無かった。
   殻は `node.rs` の `failure_params` で、要る版（`major`）とアーキテクチャ（`arch`）と理由（`reason`）を `params` に入れる。
@@ -1404,7 +1423,7 @@ Paused の戻る時点は、日付（`return_on`、YYYY-MM-DD）と、任意の�
 過去を断るのは MCP の入口だけで、画面からの確定と同期では断らない（時刻を過ぎた提案を確定でき、届いた行を弾かないため）。
 持つ時点は 1 つだけである。同じ日に 2 回確かめたいときは、戻って resume したときに状態が外れ、区切りの問いで次の時点を入れる。
 時刻つきの Paused は、当日は朝から「今日戻る」に出し、時刻を過ぎてから札を塗る。同じ日の中は時刻の早い順で、時刻なしはその日の最後に並べる。
-時刻を過ぎたら、通知を受け取る設定で窓が背面なら OS の通知を 1 回出す。右下の札は出さない。ベルの一覧には、今日戻るの行が朝から事実として出る（「ベルと知らせの出し分け」の節）。OS の通知で知らせ終えた時点は localStorage に覚える（画面の時計で見るので、hangar を開いていない間は出ない。開いたときに、その日に過ぎた分を 1 回知らせる）。
+時刻を過ぎたら、通知を受け取る設定で窓が背面なら OS の通知を 1 回出す。この通知は、同じセッションの入力待ちの通知とは別の枠に入れる（「入力待ちの知らせ」の節）。右下の札は出さない。ベルの一覧には、今日戻るの行が朝から事実として出る（「ベルと知らせの出し分け」の節）。OS の通知で知らせ終えた時点は localStorage に覚える（画面の時計で見るので、hangar を開いていない間は出ない。開いたときに、その日に過ぎた分を 1 回知らせる）。
 日付だけの Paused は知らせない。
 
 状態の問いは、依頼を終えた区切りでだけ AskUserQuestion で聞かせる。利用者が選んだものは `propose_session_status` の `confirmed: true` でそのまま状態になり、答えずに進めたものは候補として残る。
@@ -1758,6 +1777,12 @@ Tauri のシェルは `hangar://` スキームを登録する。
 カードには favicon、題名、説明、最終公開時刻、更新回数を出し、クリックで既定のブラウザに開く。
 元ファイルが残っていれば「VS Code で開く」も付ける。
 利用者は URL を手で追加できる。
+手で足した URL がすでにあるときは、付いているプロジェクトで分ける。
+同じプロジェクトなら、既存をそのまま返す。
+どのプロジェクトにも付いていない、または外した（論理削除した、行が無い）プロジェクトに付いているなら、いま足したプロジェクトへ付け替える。
+今も一覧にある別のプロジェクトに付いているなら（アーカイブ済みを含む）、付け替えずに `409` と「すでにプロジェクト「〇〇」に付いています」を返す。
+画面は、この理由を追加欄の下に出し、入れた URL を欄へ戻す（欄を空にしたままにしない）。
+1 つの URL を複数のプロジェクトに付けることは、今はしない。`artifacts.url` が一意で `artifacts.project_id` が 1 つなので、付け先は 1 つである。
 
 呼び出しと結果は別の記録にあり、追記の境目で分かれることがあるので、端末ローカルの `artifact_calls` に呼び出しを控えて結果と突き合わせる。
 題名は表示のたびに計算せず、公開を記録するときに決めて `artifacts.title` に書く。
@@ -2226,13 +2251,13 @@ Home でも同じ行を同じ並びで出す。帯の「要対応」「実行中
 Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉じるのボタン）にする。
 `titleBarStyle`、`hiddenTitle`、`trafficLightPosition` は macOS の装飾なので、`tauri.windows.conf.json` が窓の定義を、それらを外して `decorations: true` にしたもので置き換える（配列は丸ごと置き換わるので、窓の名前と大きさは `tauri.conf.json` の写しで、一致は試験で縛る）。
 殻は Windows では `data-shell` の印を付けないので、ヘッダーのロゴと失敗の札のロゴは既定の余白（16px）から始まる。
-入力待ちを窓の外へ知らせるために、同じ出どころには通知を出す権限（`allow-notify-waiting`）、通知の許可を求める権限（`allow-notify-request`）、通知の許可の状態を読む権限（`allow-notify-status`）、Dock のバッジに数を出す権限（`core:window:allow-set-badge-count`）の 4 つだけを別に与える（`capabilities/remote-notify.json`）。
-前の 3 つは殻が自分で持つコマンドで、`build.rs` の AppManifest に並べたものだけが権限になる。
+入力待ちを窓の外へ知らせるために、同じ出どころには通知を出す権限（`allow-notify-waiting`）、もう待っていない通知を外す権限（`allow-notify-prune`）、通知の許可を求める権限（`allow-notify-request`）、通知の許可の状態を読む権限（`allow-notify-status`）、Dock のバッジに数を出す権限（`core:window:allow-set-badge-count`）の 5 つだけを別に与える（`capabilities/remote-notify.json`）。
+前の 4 つは殻が自分で持つコマンドで、`build.rs` の AppManifest に並べたものだけが権限になる。
 殻の命令は 7 つだけ持つ（`src-tauri/build.rs` の一覧と `lib.rs` の `#[tauri::command]`）。
-入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
+入力待ちの知らせの 4 つ（`notify_waiting`、`notify_prune`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 UI は殻が差し込む `__TAURI_INTERNALS__` の有無で殻の中かを決め（`runtime/desktop.ts`）、殻の外（ブラウザ）ではこれらのボタンを出さない。
 接続が切れると、ヘッダーの下に切断の帯を出し、止まった時刻と次に再接続する秒数を言う。
@@ -3038,6 +3063,26 @@ Windows では、tao の `is_focused` は最上位の窓そのものがフォー
 確認や入力のあるダイアログが開いていれば、窓が前に出るだけで、画面は移さない（カードと同じ扱い）。
 Dock（ブラウザならインストールしたアプリ）のバッジには入力待ちの数を出し、0 で消す。
 
+入力待ちの知らせと戻る時刻の知らせは、種類ごとに別の枠に入れる（macOS は識別子、Windows はタグと組の対、ブラウザは tag）。
+同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである（Windows の実機で見つけた）。
+同じ種類の 2 度目は、今までどおり同じ枠で置き換わる。
+頁は `notify_waiting` に種類（`kind` の `waiting` か `return`）を添え、殻は種類の無いもの（前の版の頁）を入力待ちとみなす。
+
+もう待っていない知らせは、通知センターから外す。
+通知センターの知らせは、答えた後も、アプリを閉じても消して入れ直しても残るためである（Windows の実機で、前の版の試しのセッションのトーストが残っていた）。
+残してよいのは、いま入力待ちのセッションの入力待ちの知らせと、今日の戻る時刻を過ぎてまだ Paused のセッションの戻る時刻の知らせだけである（`mediator/notify.ts` の `notifyKeep`）。
+頁はこの顔ぶれが変わるたびに、殻の `notify_prune` へ渡す（`runtime.ts` の `syncPrune`）。
+答えた、止めた、Archived や Done にしたセッションは入力待ちでなくなり、resume して Paused が外れたものと日が変わったものは戻る時刻の顔ぶれから外れるので、その知らせが外れる。
+起動したときは、bootstrap で一覧を読み終えてから 1 回必ず渡す。前の起動の間に出して、もう待っていない知らせはここで外れる。今も待っているものは残し、出し直しはしない。
+bootstrap の前は渡さない。セッションが空で何も待っていないように見え、まだ待っている知らせまで外してしまうからである。
+通知を受け取らない設定でも渡す（外すだけである）。
+殻は、macOS では通知センターに届いている通知の識別子を読み、hangar の識別子で顔ぶれに無いものを外す（`removeDeliveredNotificationsWithIdentifiers`、hangar の識別子でないものには触らない）。
+届いている通知の一覧は OS が後から答えるので、その間に出した知らせは、次の顔ぶれが届くまで残すものに足しておく。
+Windows では、hangar の AppUserModelID のトーストの履歴（`ToastNotificationHistory` の `GetHistoryWithId`）を読み、顔ぶれに無いタグと組の対を外す（`RemoveGroupedTagWithId`）。
+履歴は hangar の名前のものだけなので、知らない組のトーストも hangar の古い版が出したものとして外す。
+外すものを選ぶのは純関数である（`notify.rs` の `stale_identifiers` と `toast::stale_toasts`）。
+ブラウザでは、頁が出した知らせのうち、顔ぶれに無いものを閉じる。
+
 デスクトップの殻では、通知を macOS は UNUserNotificationCenter で、Windows は WinRT のトースト（`Windows.UI.Notifications`）で出す（`src-tauri/src/notify.rs`）。
 頁は `notify_waiting` を呼び、殻は id と文を確かめてから OS に渡す。
 押された通知は識別子からセッションを読み戻し、頁の `__hangarOpenWaiting` で開く。
@@ -3045,8 +3090,9 @@ Dock（ブラウザならインストールしたアプリ）のバッジには�
 `tauri-plugin-notification` は、デスクトップでは押された通知を知らせないので使わない（Windows でも、出した後の受け口を捨てる）。
 `.app` の外（`tauri dev`）と、Windows で組み上げたままの実行ファイル（`target` の下の `debug` や `release`）では通知を出さない。
 
-Windows のトーストは、題と本文を XML の文字として入れ、launch に macOS の識別子と同じ値（`hangar-waiting:<id>`）を入れる。
-タグはセッションの id で、同じセッションのトーストは新しい方に置き換わる。
+Windows のトーストは、題と本文を XML の文字として入れ、launch に macOS の識別子と同じ値（入力待ちは `hangar-waiting:<id>`、戻る時刻は `hangar-return:<id>`）を入れる。
+入力待ちの識別子と組は前の版と同じにしてあるので、前の版が出したトーストを押しても同じセッションが開く。
+タグはセッションの id、組は種類ごとの名前（`hangar-waiting` か `hangar-return`）で、同じセッションの同じ種類のトーストは新しい方に置き換わる。
 アプリの名前（AppUserModelID）は `tauri.conf.json` の identifier で、NSIS のインストーラがスタートメニューの近道に付けるものと同じである。
 押されたトーストは 2 つの道で届き、どちらも launch の値からセッションを読み戻して、macOS と同じ受け口へ渡す。
 アプリが動いている間は、出したトーストの Activated で届く。
@@ -3054,6 +3100,7 @@ Windows のトーストは、題と本文を XML の文字として入れ、laun
 そのために殻は起動のたびに、利用者の登録（HKEY_CURRENT_USER）の `Software\Classes\AppUserModelId\<identifier>` へ名前、絵、COM の口の CLSID を書き、`Software\Classes\CLSID\<CLSID>\LocalServer32` へ自分の実行ファイルを書き、COM の口を開く。
 1 回の押下が両方の道で届いても、2 秒の間に同じセッションは 1 回だけ開く。
 アンインストールでは、NSIS のフック（`src-tauri/windows/hooks.nsh` の `NSIS_HOOK_POSTUNINSTALL`、`tauri.windows.conf.json` の `installerHooks`）が、利用者の領域からは、この 2 つの登録と `~/.agent-hangar/notify-icon.png` だけを消す。
+登録を消す前に、通知センターに残った hangar のトーストの履歴も消す。NSIS は WinRT を呼べないので、Windows PowerShell の 1 行で `ToastNotificationManager` の `History.Clear` を名前を指して呼ぶ（失敗しても消すのは止めない）。
 `.agent-hangar` の中のほかのもの（DB など）は消さない。
 フックの値は notify.rs の定数と同じで、`apps/desktop/test/config.test.ts` が食い違いを見る。
 Windows には通知の許可を尋ねるダイアログが無いので、`notify_request` と `notify_status` は通知の設定（`NotificationSetting`）を読むだけで、切られていれば denied になる。
@@ -3243,7 +3290,9 @@ xterm には、hangar に回す打鍵を処理させない（`runtime/xtermSetup
 macOS と Linux の形では `\` は名前に使える字なので、区切りにしない。
 つなぐときは親のパスの区切りに合わせ、区切りの無い親（`~` だけ）のときだけ `clientPlatform` の OS の区切りにする。
 Windows の形で下にあるかを比べるときは、区切りの違いと大文字小文字を同じとみなす。
-`~` への縮めは、`C:\Users\<名前>\` の下も元の区切りのまま `~\…` にする。
+`~` への縮め（`homePath`）は、サーバが返す本当のホーム（bootstrap の `home`、`os.homedir()`）の下だけを、元の区切りのまま `~/…` や `~\…` にする。
+`/Users/<名前>` や `C:\Users\<名前>` の形からホームを推測しない。推測すると `/Users/Shared` や `C:\Users\Public` まで `~` に見えるからである（2026-10-11 に推測をやめた）。
+ホームを返さない古いサーバでは縮めない。Windows の形のホームは、区切りの違いと大文字小文字を同じとみなして比べる。
 サーバへ送るパス（登録するフォルダ、追加のフォルダ）は、受け取った形のまま送る。
 `@` の候補はサーバが `/` で区切って返し、問いに打たれた `\` は `/` に読み替えて探す（`prompt/files.ts` の `rankFiles`）。
 
@@ -4425,7 +4474,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - アプリの自動更新（段 5-4、2026-10-10 の決定）：更新は「知らせて、押して入れる」で、勝手には入れない。Tauri 2 の updater（`tauri-plugin-updater`）を macOS と Windows（NSIS）の両方で使う。
   目録は GitHub の Release の最新の `latest.json`（`tauri.conf.json` の `plugins.updater.endpoints`）で、更新物は同じ所の minisign の公開鍵（`plugins.updater.pubkey`）で確かめる。
   試しの版（rc）の build だけは、`tauri.prerelease.conf.json` を重ねて、目録を固定のタグ `updater-prerelease` の Release（prerelease）の `latest.json` から引く（次の「版と試しの版」）。macOS の更新物は `Hangar-<タグ>-macos-arm64.app.tar.gz`、Windows の更新物はインストーラそのもの（`Hangar-<タグ>-windows-x64-setup.exe`、`installMode` は passive）である。
-  頁は殻の 4 つの命令だけを呼ぶ（`capabilities/remote-update.json`）。`update_status` は動いている版と取得の進み、`update_check` は目録を引いて新しい版を返し、見つけた版を殻に持つ。`update_download` はそれを取得して署名を確かめて殻に持ち、`update_install` は入れて再起動する。プラグインの JS の権限は与えないので、頁から目録の URL や公開鍵は変えられない。
+  頁は殻の 4 つの命令だけを呼ぶ（`capabilities/remote-update.json`。起動画面の札にも同じ 4 つを与える。「起動の失敗の札」の節）。`update_status` は動いている版と取得の進み、`update_check` は目録を引いて新しい版を返し、見つけた版を殻に持つ。`update_download` はそれを取得して署名を確かめて殻に持ち、`update_install` は入れて再起動する。プラグインの JS の権限は与えないので、頁から目録の URL や公開鍵は変えられない。
   失敗は殻が network、signature、permission、other の 4 つに分けて返し（`src/updater.rs` の `failure_kind`）、英語の 1 行は `desktop.log` に残す。
   再起動しても、tmux（Windows は psmux）の中のセッションは止まらない。macOS は `.app` を入れ替えてから終了の手続きを通って起き直し（子のサーバも止まる）、Windows は updater がインストーラを起こしてそのまま抜けるので、その直前（`on_before_exit`）に子のサーバを止める。
   Windows の updater は、取得したインストーラを `%TEMP%\<アプリ名>-<版>-updater-<英数字 6 字>` に置いたまま抜けるので、置き場が更新のたびに 1 つずつ残る。殻は起動のたびに別の糸で、名前の形が完全に合い、版が今の版より新しくなく、中身がふつうのファイルだけの置き場を消す（`src/tempclean.rs`）。今の版の置き場は、今の版を入れたインストーラのものである。まだ動いていて消せなければ、次の起動に任せる。

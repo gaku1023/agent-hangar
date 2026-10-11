@@ -1,5 +1,5 @@
 import { BEAT_S, FINISH_MS, detailText, dots, finishOf, finishSvg, frameSvg, nearestBoundary, slowSuffix, waitText } from './boot-frames.js';
-import { failView } from './boot-fail.js';
+import { failView, updateView } from './boot-fail.js';
 
 // 起動画面の描画。動きの時計は頁の load から数える。
 // 合図の口（__hangarBootFinish）は、読み込みが終わった合図を打ち、UI の背景の光を画面いっぱいに満たす。
@@ -252,10 +252,110 @@ window.__hangarBootFail = (info) => {
   document.body.dataset.fail = v.kind;
   brand.hidden = false;
   card.hidden = false;
+  // 札の中の更新も、この札の言語で描き直す。
+  drawUpdate();
   // Enter で「もう一度試す」を押せるよう、焦点をここに置く。
   retry.focus({ preventScroll: true });
   report();
 };
+
+// 札の中の更新（lib.rs の update_check、update_download、update_status、update_install。起動画面にも与えてある：capabilities/boot-screen.json）。
+// 起動に失敗する版を入れた人は UI まで届かず、UI の自動の確認では新しいバージョンを受け取れない。なので札の中から確かめ、ダウンロードしてインストールする。
+// インストールが済むと殻が再起動する。殻は起動に失敗したとき 1 度だけ自分でも確かめ、見つけた版を boot_state の update と __hangarBootUpdate で渡す。
+// 文と見せ方は boot-fail.js の updateView が決め、ここは様子（upd）を持って命令を呼ぶだけにする。
+const updateBox = $('fail-update');
+const updateBar = $('fail-update-bar');
+const updateGo = $('fail-update-go');
+const updateCheck = $('boot-update');
+const updateNote = $('fail-update-note');
+/** 取得の進みを読む間隔（ミリ秒）。 */
+const UPDATE_POLL_MS = 250;
+let upd = { phase: 'idle' };
+let poll = 0;
+// 取得とインストールの途中で「もう一度試す」を止めているか。
+let retryHeld = false;
+
+function drawUpdate() {
+  if (!view) return;
+  const u = updateView(view.lang, upd, view.current, view.kind);
+  updateCheck.hidden = u.check.hidden;
+  updateCheck.disabled = u.check.disabled;
+  updateCheck.textContent = u.check.label;
+  updateNote.hidden = u.note === null;
+  updateNote.textContent = u.note ?? '';
+  // 帯が主の釦（ダウンロードしてインストール）を持つ間は、主の釦を 2 つにしない。
+  retry.classList.toggle('btn-primary', !u.demote);
+  // ダウンロードとインストールの途中は、起動のやり直しで頁を読み込み直させない。済まずに失敗したら戻す。
+  const busy = upd.phase === 'downloading' || upd.phase === 'installing';
+  if (busy) retry.disabled = true;
+  else if (retryHeld) retry.disabled = false;
+  retryHeld = busy;
+  updateBox.hidden = u.band === null;
+  if (u.band === null) return;
+  updateBox.dataset.tone = u.band.tone;
+  $('fail-update-title').textContent = u.band.title;
+  $('fail-update-detail').textContent = u.band.detail;
+  updateBar.hidden = u.band.progress === null;
+  if (u.band.progress !== null) {
+    const pct = Math.round(u.band.progress * 100);
+    updateBar.setAttribute('aria-valuenow', String(pct));
+    updateBar.setAttribute('aria-label', u.band.progressLabel);
+    updateBar.firstElementChild.style.width = `${pct}%`;
+  }
+  updateGo.hidden = u.band.action === null;
+  updateGo.textContent = u.band.action ?? '';
+}
+const setUpdate = (next) => { upd = next; drawUpdate(); };
+// 殻が返した失敗の分類（updater.rs の failure_kind）。知らない形は other と読む（文は updateView が選ぶ）。
+const reasonOf = (e) => (typeof e?.kind === 'string' ? e.kind : 'other');
+const versionOf = (v) => (typeof v?.version === 'string' && v.version !== '' ? v.version : null);
+
+// 殻が見つけた版を帯に出す。ダウンロードとインストールの途中は崩さない。
+function offerUpdate(found) {
+  const version = versionOf(found);
+  if (version === null) return;
+  const quiet = ['idle', 'checking', 'latest', 'available'].includes(upd.phase) || (upd.phase === 'failed' && upd.step === 'check');
+  if (quiet) setUpdate({ phase: 'available', version });
+}
+window.__hangarBootUpdate = offerUpdate;
+
+updateCheck.addEventListener('click', () => {
+  if (updateCheck.disabled) return;
+  setUpdate({ phase: 'checking' });
+  Promise.resolve(invoke('update_check')).then(
+    (r) => {
+      if (upd.phase !== 'checking') return;
+      const version = versionOf(r);
+      setUpdate(version === null ? { phase: 'latest' } : { phase: 'available', version });
+    },
+    (e) => { if (upd.phase === 'checking') setUpdate({ phase: 'failed', step: 'check', version: null, reason: reasonOf(e) }); },
+  );
+});
+
+updateGo.addEventListener('click', () => {
+  const version = upd.version;
+  if (typeof version !== 'string' || !(upd.phase === 'available' || upd.phase === 'failed')) return;
+  setUpdate({ phase: 'downloading', version, done: 0, total: null });
+  clearInterval(poll);
+  poll = setInterval(() => {
+    Promise.resolve(invoke('update_status')).then((s) => {
+      if (upd.phase !== 'downloading' || typeof s?.done !== 'number') return;
+      setUpdate({ ...upd, done: s.done, total: typeof s.total === 'number' ? s.total : null });
+    }).catch(() => {});
+  }, UPDATE_POLL_MS);
+  let step = 'download';
+  Promise.resolve(invoke('update_download'))
+    .then(() => {
+      clearInterval(poll);
+      step = 'install';
+      setUpdate({ phase: 'installing', version });
+      return invoke('update_install');
+    })
+    .catch((e) => {
+      clearInterval(poll);
+      setUpdate({ phase: 'failed', step, version, reason: reasonOf(e) });
+    });
+});
 
 retry.addEventListener('click', () => {
   if (retry.disabled) return;
@@ -278,6 +378,8 @@ Promise.resolve(invoke('boot_state')).then((s) => {
   if (!s) return;
   probing = s.probe === true;
   if (s.progress) progress = s.progress;
+  // 殻が先に見つけていた新しいバージョン。札を出すときに帯へ載る。
+  if (s.update) offerUpdate(s.update);
   if (s.failure) window.__hangarBootFail(s.failure);
   else if (s.finishing) finish();
   else report();

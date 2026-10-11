@@ -1,4 +1,5 @@
 import { type AccountDto, type RateWindowDto, type Translate, windowAt } from '@agent-hangar/shared';
+import { homePath } from '../lib/paths.ts';
 import { accountList, currentAccount, type Store } from '../store/store.ts';
 import { relativeTime, resetsLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -20,6 +21,8 @@ export type AccountView = {
   note: { tone: 'warn' | 'stale'; text: string } | null;
   linkProblem: string | null;
   dir: string;
+  /** 画面に出す置き場。サーバが返したホームの下なら ~ で始まる形に縮める。ホームが分からなければ dir のまま。 */
+  dirLabel: string;
 };
 
 /** 認証の状態を言う文。AccountMeters と設定の行が同じものを使う。 */
@@ -46,7 +49,7 @@ function noteOf(t: Translate, a: AccountDto, five: AccountGauge | null, now: num
   return { tone: 'stale', text: hours >= 24 ? t('account.note.staleDays', { n: Math.floor(hours / 24) }) : t('account.note.staleHours', { n: hours }) };
 }
 
-export function presentAccount(t: Translate, a: AccountDto, currentId: string, now: number): AccountView {
+export function presentAccount(t: Translate, a: AccountDto, currentId: string, now: number, home: string | null = null): AccountView {
   const plan = a.auth?.plan ?? null;
   const fiveHour = gauge(a.usage.fiveHour, now);
   return {
@@ -58,7 +61,7 @@ export function presentAccount(t: Translate, a: AccountDto, currentId: string, n
     fiveHour, sevenDay: gauge(a.usage.sevenDay, now),
     updatedLabel: a.usage.updatedAt === null ? null : relativeTime(t, a.usage.updatedAt, now),
     note: noteOf(t, a, fiveHour, now),
-    linkProblem: a.linkProblem, dir: a.dir,
+    linkProblem: a.linkProblem, dir: a.dir, dirLabel: homePath(a.dir, home),
   };
 }
 
@@ -84,8 +87,8 @@ export function presentAccounts(store: Store, now: number): AccountView[] {
   // currentId が一覧に無いとき（外した直後など）は、currentAccount と同じく最初のアカウントがいまのアカウントになる。
   const currentId = currentAccount(store)?.id ?? '';
   const t = translatorOf(store);
-  return accountList(store).map((a) => presentAccount(t, a, currentId, now));
+  return accountList(store).map((a) => presentAccount(t, a, currentId, now, store.home));
 }
 
-/** ホームの下の置き場を、~ で始まる形に縮める（macOS、Linux、Windows。lib/paths.ts）。 */
-export { homePath } from '../lib/paths.ts';
+/** ホームの下の置き場を、~ で始まる形に縮める（macOS、Linux、Windows。lib/paths.ts）。ホームはサーバが返したものを渡す。 */
+export { homePath };

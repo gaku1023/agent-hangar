@@ -105,6 +105,15 @@ describe('presentAccounts', () => {
   it('store.accounts が null なら空の配列', () => {
     expect(presentAccounts(initialStore(), NOW)).toEqual([]);
   });
+  // 置き場の表示は、サーバが返した本当のホーム（bootstrap の home）で ~ に縮める。/Users/<誰か> の形から推測しない。
+  it('置き場の表示（dirLabel）は、サーバが返したホームの下だけを ~ に縮め、ホームが分からなければそのまま', () => {
+    const dto = { ...accountsFixture, accounts: accountsFixture.accounts.map((a, i) => ({ ...a, dir: i === 0 ? '/Users/taro/.claude' : '/Users/Shared/.claude' })) };
+    const known = presentAccounts({ ...initialStore(), home: '/Users/taro', accounts: dto }, NOW);
+    expect(known.map((a) => a.dirLabel)).toEqual(['~/.claude', '/Users/Shared/.claude']);
+    expect(known.map((a) => a.dir)).toEqual(['/Users/taro/.claude', '/Users/Shared/.claude']);
+    const unknown = presentAccounts({ ...initialStore(), accounts: dto }, NOW);
+    expect(unknown.map((a) => a.dirLabel)).toEqual(['/Users/taro/.claude', '/Users/Shared/.claude']);
+  });
 });
 
 describe('isPickableAccount', () => {

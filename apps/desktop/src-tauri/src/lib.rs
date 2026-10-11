@@ -46,7 +46,10 @@ struct AppState {
     /// 設定の同期の確認（適用、世代へ戻す）が出ているか。頁から続けて呼ばれても、確認を重ねて出さない。
     config_busy: AtomicBool,
     /// 試験のための書き出しの先（`HANGAR_BOOT_PROBE`、`bootprobe`）。起動のときに一度だけ読む。ふだんは無い。
+    /// 試験用の feature（`boot-probe`）を立てていない build では、変数があっても無い。
     boot_probe: Option<std::path::PathBuf>,
+    /// 起動に失敗したとき、殻が自分で更新を確かめたか（`check_update_after_failure`）。確かめるのは 1 度だけである。
+    boot_update_checked: AtomicBool,
 }
 
 /// ウィンドウが今どの段にいるか。
@@ -73,21 +76,35 @@ struct Ui {
     last_progress: Option<health::Boot>,
     /// 読み込みが終わった合図（`BOOT_FINISH_JS`）を打ったか。
     finishing: bool,
+    /// 起動に失敗した後に殻が見つけた、新しい版。起動画面の札に出す。やり直しても消さない（新しい版があることは変わらない）。
+    update: Option<String>,
 }
 
 impl Ui {
     /// 起動画面が問い合わせたときに渡す、起動の今の様子。
-    /// `{ failure, progress, finishing }` の形で、起動画面（loading/boot.js）が引き取る。
+    /// `{ failure, progress, finishing, update }` の形で、起動画面（loading/boot.js）が引き取る。
+    /// `update` は殻が見つけた新しい版（`{ version }`）で、無ければ null。
     /// サーバの頁へ移った後は、何も渡さない。UI の DOM を書き換えないためである。
     fn boot_state(&self) -> serde_json::Value {
         if self.ready {
-            return serde_json::json!({ "failure": null, "progress": null, "finishing": false });
+            return serde_json::json!({ "failure": null, "progress": null, "finishing": false, "update": null });
         }
         serde_json::json!({
             "failure": self.failure,
             "progress": self.last_progress.as_ref().map(progress_payload),
             "finishing": self.finishing,
+            "update": self.update.as_ref().map(|v| serde_json::json!({ "version": v })),
         })
+    }
+
+    /// 起動に失敗した後に、殻が新しい版を見つけた。起動画面へ渡してよければ真を返す。
+    /// サーバの頁へ移った後は渡さない（UI が自分で確かめて知らせる）。
+    fn update_found(&mut self, version: String) -> bool {
+        if self.ready {
+            return false;
+        }
+        self.update = Some(version);
+        true
     }
 
     /// ディープリンクのハッシュ。
@@ -439,6 +456,46 @@ fn for_page(
     failure.map_text(|s| bootfail::shorten_home(s, user_home))
 }
 
+/// 殻が見つけた新しい版を、起動画面へ渡す式（loading/boot.js の __hangarBootUpdate）。
+/// 版は JSON の文字として埋める。
+fn boot_update_js(version: &str) -> String {
+    format!(
+        "window.__hangarBootUpdate && window.__hangarBootUpdate({})",
+        serde_json::json!({ "version": version })
+    )
+}
+
+/// 起動に失敗したとき、1 度だけ殻が自分で更新を確かめ、新しい版があれば起動画面の札に出す。
+/// 起動に失敗する版を入れた人は UI まで届かないので、UI の自動の確認では新しい版を受け取れない。
+/// 見つけた版は状態に置き（`Ui::update_found`）、その場の評価でも渡す。失敗はログに残すだけで、札には出さない。
+fn check_update_after_failure(app: &AppHandle) {
+    if app
+        .state::<AppState>()
+        .boot_update_checked
+        .swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let Ok(updater::Found {
+            version: Some(version),
+        }) = find_update(&app).await
+        else {
+            return;
+        };
+        let now = app
+            .state::<AppState>()
+            .ui
+            .lock()
+            .unwrap()
+            .update_found(version.clone());
+        if now {
+            eval_main(&app, &boot_update_js(&version));
+        }
+    });
+}
+
 /// 起動の失敗を札で出す。サーバへ移る前だけ意味を持つ。
 /// 失敗は状態に置き、起動画面が口を作り終えてから問い合わせたとき（`boot_state`）に渡す。
 /// 口が出来る前の評価は捨てられるからである（`Ui` の説明）。
@@ -453,6 +510,7 @@ fn fail(app: &AppHandle, failure: bootfail::BootFailure) {
     app.state::<AppState>().ui.lock().unwrap().failure =
         Some(bootfail::payload_value(&failure, &env));
     eval_main(app, &bootfail::fail_js(&failure, &env));
+    check_update_after_failure(app);
 }
 
 /// ディープリンクをハッシュとして適用する。
@@ -834,7 +892,7 @@ fn spawn_boot(app: AppHandle) -> bool {
     true
 }
 
-// ここから下の 5 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
+// ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
 // pick_folder と boot_probe のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 
@@ -1129,8 +1187,14 @@ fn update_status(app: AppHandle) -> updater::Status {
 
 /// GitHub の Release の目録を引き、新しい版があればその版を返す。見つけた版は取得のために持っておく。
 /// 取得からインストールまでの途中は、見つけた版を差し替えない（頁もその間は呼ばない）。
+/// UI と起動画面の「更新を確認」が呼ぶ。起動に失敗したときは殻も 1 度だけ自分で呼ぶ（`check_update_after_failure`）。
 #[tauri::command]
 async fn update_check(app: AppHandle) -> Result<updater::Found, updater::Failure> {
+    find_update(&app).await
+}
+
+/// `update_check` の中身。
+async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure> {
     let slot = app.state::<updater::UpdateSlot>();
     if slot.bytes.lock().unwrap().is_some() {
         return Err(updater::Failure::other("an update is already downloaded"));
@@ -1285,8 +1349,9 @@ fn watch_swipe_phase(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn watch_swipe_phase(_app: &AppHandle) {}
 
-/// 入力待ちの通知を出す。
-/// 頁（UI）は、入力待ちになったときと、その問いの文が後から届いたときに呼ぶ。
+/// 入力待ちと、戻る時刻を過ぎた知らせの通知を出す。
+/// 頁（UI）は、入力待ちになったときと、その問いの文が後から届いたとき、戻る時刻を過ぎたときに呼ぶ。
+/// 種類（kind）は waiting か return で、種類ごとに通知の枠を分ける（notify::Kind）。渡さなければ入力待ちとみなす。
 /// 窓が前にあるかは、頁ではなくここで窓の実物の様子から決め、前にあれば出さない（notify::window_in_front）。
 /// 値は頁から来るので、notify::waiting で確かめてから OS に渡す。
 #[tauri::command]
@@ -1295,10 +1360,12 @@ fn notify_waiting(
     session_id: String,
     title: String,
     body: String,
+    kind: Option<String>,
 ) -> Result<(), String> {
+    let kind = notify::Kind::parse(kind.as_deref())?;
     // 題や本文が空のときの代わりの文は、殻の頁と同じ言語で書く。
     let lang = bootfail::page_language(&paths::hangar_home());
-    let w = notify::waiting(&session_id, &title, &body, lang)?;
+    let w = notify::waiting(kind, &session_id, &title, &body, lang)?;
     if let Some(win) = app.get_webview_window("main") {
         let visible = win.is_visible().unwrap_or(false);
         let minimized = win.is_minimized().unwrap_or(false);
@@ -1313,6 +1380,15 @@ fn notify_waiting(
     }
     notify::show(&w);
     Ok(())
+}
+
+/// もう待っていないセッションの知らせを、通知センターから外す。
+/// 頁は、いま入力待ちのセッション（waiting）と、今日の戻る時刻を過ぎてまだ Paused のセッション（returning）を渡す。
+/// 頁が呼ぶのは、その顔ぶれが変わったときと、起動して一覧を読み終えたときである。
+/// 窓が前にあっても外す（答えた入力待ちの知らせを通知センターに残さない）。
+#[tauri::command]
+fn notify_prune(waiting: Vec<String>, returning: Vec<String>) {
+    notify::prune(notify::Keep::new(&waiting, &returning));
 }
 
 /// 通知の許可を求め、許されたかを返す。
@@ -1515,7 +1591,8 @@ pub fn run() {
             booting: AtomicBool::new(false),
             child_started: Mutex::new(None),
             config_busy: AtomicBool::new(false),
-            boot_probe: bootprobe::target_from(std::env::var_os(bootprobe::ENV)),
+            boot_probe: bootprobe::target(std::env::var_os(bootprobe::ENV)),
+            boot_update_checked: AtomicBool::new(false),
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
@@ -1528,6 +1605,7 @@ pub fn run() {
             restart_app,
             retry_boot,
             notify_waiting,
+            notify_prune,
             notify_request,
             notify_status,
             apply_config_sync,
@@ -1635,7 +1713,7 @@ mod tests {
         let mut ui = Ui::default();
         assert_eq!(
             ui.boot_state(),
-            serde_json::json!({ "failure": null, "progress": null, "finishing": false })
+            serde_json::json!({ "failure": null, "progress": null, "finishing": false, "update": null })
         );
         ui.failure = Some(serde_json::json!({ "kind": "other", "detail": "Node" }));
         // 読み込みの合図が先に来ても、失敗は消さない。
@@ -1659,8 +1737,52 @@ mod tests {
             serde_json::json!({
                 "failure": null,
                 "progress": { "phase": "indexing", "done": 412, "total": 987 },
-                "finishing": true
+                "finishing": true,
+                "update": null
             })
+        );
+    }
+
+    // 起動に失敗したとき、殻は 1 度だけ自分で更新を確かめる。見つけた版は状態に置き、起動画面が問い合わせたときにも渡す。
+    // 起動に失敗する版を入れた人が、UI まで届かなくても、起動画面から新しい版を受け取れるようにするためである。
+    #[test]
+    fn an_update_found_after_a_failure_is_kept_for_the_page_and_survives_a_retry() {
+        let mut ui = Ui::default();
+        ui.page_loaded(false);
+        ui.failure = Some(serde_json::json!({ "kind": "server-exited" }));
+        assert!(ui.update_found("0.2.1".into()));
+        assert_eq!(
+            ui.boot_state()["update"],
+            serde_json::json!({ "version": "0.2.1" })
+        );
+        // やり直しても、新しい版があることは変わらない。読み込み直した頁の札にも出す。
+        assert!(ui.retry());
+        assert_eq!(
+            ui.boot_state()["update"],
+            serde_json::json!({ "version": "0.2.1" })
+        );
+    }
+
+    // サーバの頁へ移った後に見つかった版は、起動画面へ渡さない（UI が自分で知らせる）。
+    #[test]
+    fn an_update_found_after_the_server_page_is_not_passed_to_the_boot_screen() {
+        let mut ui = Ui::default();
+        ui.page_loaded(false);
+        ui.navigating();
+        assert!(!ui.update_found("0.2.1".into()));
+        assert_eq!(ui.boot_state()["update"], serde_json::Value::Null);
+    }
+
+    // 見つけた版を起動画面へ渡す式。版は JSON の文字として埋め、式を壊す字が混じっても外へ出さない。
+    #[test]
+    fn the_update_signal_embeds_the_version_as_json() {
+        assert_eq!(
+            boot_update_js("0.2.1"),
+            r#"window.__hangarBootUpdate && window.__hangarBootUpdate({"version":"0.2.1"})"#
+        );
+        assert_eq!(
+            boot_update_js(r#"1");alert("x"#),
+            r#"window.__hangarBootUpdate && window.__hangarBootUpdate({"version":"1\");alert(\"x"})"#
         );
     }
 
@@ -1676,7 +1798,7 @@ mod tests {
         ui.navigating();
         assert_eq!(
             ui.boot_state(),
-            serde_json::json!({ "failure": null, "progress": null, "finishing": false })
+            serde_json::json!({ "failure": null, "progress": null, "finishing": false, "update": null })
         );
     }
 
@@ -1736,7 +1858,7 @@ mod tests {
         assert!(ui.retry());
         assert_eq!(
             ui.boot_state(),
-            serde_json::json!({ "failure": null, "progress": null, "finishing": false })
+            serde_json::json!({ "failure": null, "progress": null, "finishing": false, "update": null })
         );
         ui.failure = Some(serde_json::json!({ "kind": "other" }));
         assert_eq!(

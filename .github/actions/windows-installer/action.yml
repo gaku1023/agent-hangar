@@ -14,6 +14,12 @@ inputs:
       空なら何も重ねない。ci からは渡さない。
     required: false
     default: ''
+  features:
+    description: >-
+      殻の build に立てる cargo の feature（tauri build の --features）。ci は起動の試しの段のために boot-probe を渡す。
+      release からは渡さない（配布の build では試験のための書き出しの口を効かせない）。
+    required: false
+    default: ''
   signing-key:
     description: >-
       自動更新の署名鍵（minisign の秘密鍵、Tauri の TAURI_SIGNING_PRIVATE_KEY）。
@@ -46,10 +52,12 @@ runs:
       env:
         TARGET: ${{ inputs.target }}
         EXTRA_CONFIG: ${{ inputs.extra-config }}
+        FEATURES: ${{ inputs.features }}
       run: |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "apps/desktop/src-tauri/target/$env:TARGET/release/bundle/nsis"
         $extra = @()
         if ($env:EXTRA_CONFIG) { $extra += @('--config', $env:EXTRA_CONFIG) }
+        if ($env:FEATURES) { $extra += @('--features', $env:FEATURES) }
         npm run tauri -w apps/desktop -- build --bundles nsis --target $env:TARGET @extra
     - name: インストーラの名前、大きさ、SHA-256
       id: find

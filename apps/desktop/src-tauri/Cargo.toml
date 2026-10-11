@@ -9,6 +9,12 @@ rust-version = "1.80"
 name = "hangar_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# 試験のための書き出しの口（src/bootprobe.rs）を効かせる。
+# CI の起動の試しの段の build だけが --features boot-probe で立て、配布の build（release.yml）は立てない。
+# CI の段も配布も release の build なので、debug_assertions では分けられない。
+[features]
+boot-probe = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -40,7 +46,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 # tauri-plugin-notification は押された通知を受け取れない（デスクトップでは押しても何も返らない）ので、
 # UNUserNotificationCenter を直に呼ぶ。objc2 と objc2-foundation は Tauri が既に使っている版をそのまま使う。
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSError", "NSSet"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSBundle", "NSError", "NSSet"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationTrigger", "UNNotificationSound", "UNNotificationSettings"] }
 
 # 入力待ちを Windows のトーストで知らせ、押されたトーストからそのセッションへ戻るために使う（src/notify.rs）。

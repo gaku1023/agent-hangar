@@ -48,6 +48,11 @@ describe('auth', () => {
     expect((await get('/api/bootstrap', { cookie: `hangar_token=${TOKEN}` })).status).toBe(200);
     expect((await get('/health', {})).status).toBe(200);
   });
+  // 画面は置き場をホームの下なら ~ に縮めて出す。ホームを /Users/<誰か> の形から推測しないよう、サーバが本当のホームを渡す。
+  it('bootstrap はサーバのホーム（os.homedir()）を返す', async () => {
+    const { body } = await json(await get('/api/bootstrap'));
+    expect(body.home).toBe(os.homedir());
+  });
 
   // .app は起動のたびに 4177 の /health を叩き、200 かつ ok が真で version が文字列のときだけ
   // 「hangar がいる」と見なす（apps/desktop/src-tauri/src/health.rs の is_healthy がこれに依存している）。

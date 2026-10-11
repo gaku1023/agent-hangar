@@ -86,6 +86,12 @@ Var HangarServerOwned
   !insertmacro HANGAR_CHECK_SERVER_OWNED
 !macroend
 
+; Toasts stay in the notification center after the app is removed, so clear Hangar's toast history first.
+; NSIS cannot call WinRT, so Windows PowerShell (5.1) loads the WinRT type and clears the history of the app id.
+; It runs while the app id is still registered (before the DeleteRegKey lines below). A failure is ignored.
+; apps/desktop/test/nsis-toasts.test.ts runs this line against a throwaway app id on Windows.
+!define HANGAR_TOAST_CLEAR_PS "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; [Windows.UI.Notifications.ToastNotificationManager]::History.Clear('dev.agent-hangar.hangar')"
+
 ; The shell writes these on every launch, for toast notifications (src-tauri/src/notify.rs, mod toast).
 ; Remove them on uninstall so nothing is left behind.
 ; The values must match notify.rs (APP_ID and ACTIVATOR_CLSID); apps/desktop/test/config.test.ts checks that.
@@ -94,6 +100,10 @@ Var HangarServerOwned
 ; $INSTDIR still names the installed folder here.
 !macro NSIS_HOOK_POSTUNINSTALL
   !insertmacro HANGAR_EDIT_USER_PATH "remove"
+  Push $0
+  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "${HANGAR_TOAST_CLEAR_PS}"`
+  Pop $0
+  Pop $0
   DeleteRegKey HKCU "Software\Classes\AppUserModelId\dev.agent-hangar.hangar"
   DeleteRegKey HKCU "Software\Classes\CLSID\{1CE6AB2A-D79D-49F4-88B0-5A9E624A75E4}"
   Delete "$PROFILE\.agent-hangar\notify-icon.png"

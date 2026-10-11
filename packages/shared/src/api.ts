@@ -61,7 +61,7 @@ export type RetentionPreviewDto = { days: number; path: string; lines: Retention
 /** 確認をどこから開いたか。帯から開いたときだけ「ほかの期間…」を出す。 */
 export type RetentionFrom = 'banner' | 'session' | 'settings';
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。

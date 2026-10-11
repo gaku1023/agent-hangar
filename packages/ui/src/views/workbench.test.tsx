@@ -178,6 +178,37 @@ describe('ArtifactCards', () => {
     fireEvent.click(screen.getByText('追加'));
     expect(onAction).toHaveBeenCalledWith({ type: 'artifact.add', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' });
   });
+  it('追加が断られたら、理由を欄の下に出し、消えた URL を欄へ戻す。成功したときは空のまま', () => {
+    const onAction = vi.fn();
+    const ui = (addError: { url: string; message: string } | null) => (
+      <ActionRoot onAction={onAction}><ArtifactCards projectId="p1" artifacts={[]} canAdd addError={addError} /></ActionRoot>
+    );
+    const { rerender } = render(ui(null));
+    const url = 'https://claude.ai/code/artifact/x';
+    const input = screen.getByLabelText('アーティファクトの URL') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: url } });
+    fireEvent.click(screen.getByText('追加'));
+    // 送った直後は空にする。成功ならそのまま空である。
+    expect(input.value).toBe('');
+    expect(screen.queryByRole('alert')).toBeNull();
+    // 断られた。理由が出て、URL が戻る。
+    rerender(ui({ url, message: 'すでにプロジェクト「alpha」に付いています' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('すでにプロジェクト「alpha」に付いています');
+    expect((screen.getByLabelText('アーティファクトの URL') as HTMLInputElement).value).toBe(url);
+  });
+  it('断られたあとに、利用者がもう別の URL を打っていたら、それを上書きしない', () => {
+    const onAction = vi.fn();
+    const ui = (addError: { url: string; message: string } | null) => (
+      <ActionRoot onAction={onAction}><ArtifactCards projectId="p1" artifacts={[]} canAdd addError={addError} /></ActionRoot>
+    );
+    const { rerender } = render(ui(null));
+    const input = screen.getByLabelText('アーティファクトの URL') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'https://claude.ai/code/artifact/x' } });
+    fireEvent.click(screen.getByText('追加'));
+    fireEvent.change(input, { target: { value: 'https://claude.ai/code/artifact/y' } });
+    rerender(ui({ url: 'https://claude.ai/code/artifact/x', message: 'だめ' }));
+    expect((screen.getByLabelText('アーティファクトの URL') as HTMLInputElement).value).toBe('https://claude.ai/code/artifact/y');
+  });
   it('canAdd が偽なら追加欄を出さない', () => {
     wrap(<ArtifactCards projectId={null} artifacts={[]} canAdd={false} />);
     expect(screen.queryByLabelText('アーティファクトの URL')).toBeNull();
