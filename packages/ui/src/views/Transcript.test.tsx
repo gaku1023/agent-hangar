@@ -284,6 +284,76 @@ describe('終了したセッションのトランスクリプト', () => {
   });
 });
 
+describe('止まったセッションの本文は最新の末尾から開く', () => {
+  const withRowHeight = (h: number, fn: () => void) => {
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return this.classList.contains('tr-row') ? h : 0; } });
+    try { fn(); } finally { if (desc) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', desc); else delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight; }
+  };
+  it('最初のページが届いて描き終わったら、末尾へ送る（届く前の仮の高さのままにしない）', () => {
+    const t = draw({ items: [], follow: true, live: false });
+    withRowHeight(200, () => {
+      Object.defineProperty(t.el, 'scrollHeight', { value: 5000, configurable: true });
+      t.redraw({ items: many(40) });
+      // 測り直した後の全体の高さ（scrollHeight）の底（器の高さ 600 を引いた位置）へ着く。
+      expect(t.el.scrollTop).toBeGreaterThanOrEqual(5000 - 600);
+      expect(t.seqs().at(-1)).toBe(39);
+    });
+  });
+  it('最初のページを描いたあとに全体の高さが変わっても、末尾に居る', () => {
+    const t = draw({ items: many(40), follow: true, live: false });
+    withRowHeight(120, () => {
+      Object.defineProperty(t.el, 'scrollHeight', { value: 7000, configurable: true });
+      t.redraw({});
+      expect(t.el.scrollTop).toBeGreaterThanOrEqual(7000 - 600);
+    });
+  });
+  it('冒頭の 1 枚（head）が後から伸びて本文が下へ押されても、末尾に居る', () => {
+    // 要約やファイルの一覧は後から届く。本文の位置は 1 枚の高さの分だけ下がる。
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop');
+    let top = 100;
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', { configurable: true, get(this: HTMLElement) { return this.classList.contains('tr-rows') ? top : 0; } });
+    try {
+      const t = draw({ items: many(40), follow: true, live: false, head: <div>札</div> });
+      top = 400;
+      Object.defineProperty(t.el, 'scrollHeight', { value: 9000, configurable: true });
+      t.redraw({ head: <div>伸びた札</div> });
+      expect(t.el.scrollTop).toBeGreaterThanOrEqual(9000 - 600);
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, 'offsetTop', desc); else delete (HTMLElement.prototype as { offsetTop?: number }).offsetTop;
+    }
+  });
+  it('跳び先があって追っていないときは、末尾へ送らず跳び先の行へ送る', () => {
+    const t = draw({ items: many(40), follow: false, live: false });
+    t.redraw({ jump: { seq: 10, query: '', n: 1 } });
+    // 見積もり 56px の 10 行目の上端から、器の 3 分の 1（200px）手前。
+    expect(t.el.scrollTop).toBe(10 * 56 - 200);
+  });
+  it('利用者がスクロールして追うのをやめたら、行が増えても末尾へ送らない', () => {
+    const t = draw({ items: many(500), follow: true, live: false });
+    t.scrollTo(20_000);
+    t.scrollTo(10_000);
+    expect(t.onAction).toHaveBeenCalledWith({ type: 'transcript.follow', sessionId: 's1', follow: false });
+    t.redraw({ follow: false });
+    t.redraw({ follow: false, items: many(501) });
+    expect(t.el.scrollTop).toBe(10_000);
+  });
+  it('古い行を読み込むボタンは、追っている最中なら追うのをやめてから読み込む', () => {
+    const t = draw({ items: many(40, 100), follow: true, live: false, hasMore: true, remaining: 100 });
+    fireEvent.click(t.getByText('古い行を読み込む（残り 100 件）'));
+    expect(t.onAction.mock.calls.map(([a]) => (a as { type: string }).type)).toEqual(['transcript.follow', 'transcript.loadMore']);
+    expect(t.onAction.mock.calls[0]![0]).toMatchObject({ follow: false });
+  });
+  it('古い行を読み込んで前に足しても、見ていた位置を保つ', () => {
+    const t = draw({ items: many(40, 100), follow: true, live: false, hasMore: true, remaining: 100 });
+    t.scrollTo(0);
+    fireEvent.click(t.getByText('古い行を読み込む（残り 100 件）'));
+    t.redraw({ follow: false });
+    t.redraw({ follow: false, items: [...many(100, 0), ...many(40, 100)] });
+    expect(t.el.scrollTop).toBe(100 * 56);
+  });
+});
+
 describe('rowWindow', () => {
   const offsets = [0, 100, 200, 300, 400, 500];
   it('範囲に重なる行だけを返す', () => {

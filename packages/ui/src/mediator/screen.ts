@@ -2,7 +2,7 @@ import { formatRoute, type SearchFilter, type SearchParamsDto } from '@agent-han
 import { translatorOf } from '../presenters/i18n.ts';
 import { overlayReplaceable } from './overlay.ts';
 import { pageSizeStep, pageStep } from './paging.ts';
-import { agentTabStep, jumpStep, leaveTranscriptStep, openAtLeadStep } from './sessionView.ts';
+import { agentTabStep, jumpStep, leaveTranscriptStep, openAtLatestStep } from './sessionView.ts';
 import type { Effect, Input, Overlay, SearchQuery, State, Step } from './types.ts';
 import { configPartsToLoad, nextWaitingSession, type Store } from '../store/store.ts';
 
@@ -159,8 +159,8 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
       if (leave) { next = leave.state; effects.push(...leave.effects); }
     }
     if (route.name === 'session') {
-      // 動いていないセッションは、冒頭の 1 枚が見える先頭から開く。
-      next = openAtLeadStep(next, store, route.id);
+      // 本文は末尾（いちばん新しい会話）が見える位置から開く。跳び先があるときは、そちらを優先する。
+      next = openAtLatestStep(next, route.id);
       // 検索の結果から開いたときは、最新の側ではなく跳び先の周りを読む。
       const jump = next.sessionView[route.id]?.jump;
       effects.push(jump ? { kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0, aroundSeq: jump.seq } : { kind: 'api.loadEvents', sessionId: route.id, fromSeq: 0 }, { kind: 'terminal.connect', sessionId: route.id, tabId: null });

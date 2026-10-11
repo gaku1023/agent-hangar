@@ -1,6 +1,6 @@
 import { translatorOf } from '../presenters/i18n.ts';
 import type { Effect, Input, SessionViewState, State, Step } from './types.ts';
-import { aliveRunOf, currentRunOf, tabsOf, type Store } from '../store/store.ts';
+import { currentRunOf, tabsOf, type Store } from '../store/store.ts';
 
 export function defaultSessionView(): SessionViewState {
   return { agentId: null, showThinking: false, showRaw: false, follow: true, selectedTab: null, transcriptOpen: true, split: false, splitTab: null, openTurn: null, turnJump: null, jump: null };
@@ -43,17 +43,16 @@ export function jumpStep(state: State, id: string, jump: { seq: number; query: s
 }
 
 /**
- * セッション画面を開いたとき、動いていないセッションは末尾を追わず、先頭から開く。
- * 冒頭の 1 枚（要約、変更したファイル、ノートなど）はトランスクリプトの先頭にあるので、開いた直後に見えるようにするためである。
- * 動いているセッション（作業中、入力待ち、休み、生きた run があるもの）は、これまでどおり末尾を追う。
- * ストアがまだそのセッションを知らないときは、決めつけず何もしない。
- * 追うかどうかは保存しない状態なので、書き込みは出さない。「最新へ」（turn.latest）で追う形に戻せる。
+ * セッション画面を開いたとき、本文は末尾（いちばん新しい会話）が見える位置から始める。
+ * 動いているかどうかは問わない。止まったセッションも、Done も Archived も同じである。
+ * 前に上へ遡って追うのをやめていたセッションも、開き直したら末尾から始める（追うかどうかはその場の操作で決まる）。
+ * 例外は検索の結果から開いたときで、跳び先（jump）を優先して追わないままにする。
+ * 追うかどうかは保存しない状態なので、書き込みは出さない。
  */
-export function openAtLeadStep(state: State, store: Store, id: string): State {
-  const s = store.sessions[id];
-  if (!s || s.live !== null || aliveRunOf(store, id) !== null) return state;
+export function openAtLatestStep(state: State, id: string): State {
   const cur = state.sessionView[id] ?? defaultSessionView();
-  return cur.follow ? local(state, id, { follow: false }).state : state;
+  if (cur.jump !== null || cur.follow) return state;
+  return local(state, id, { follow: true }).state;
 }
 
 /**
@@ -165,7 +164,8 @@ export function sessionViewStep(state: State, store: Store, input: Input): Step 
     case 'transcript.loadMore': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -1 }] };
     case 'transcript.loadNewer': return { state, effects: [{ kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: -2 }] };
     case 'transcript.selectAgent': {
-      const r = patch(state, i.sessionId, { agentId: i.agentId });
+      // 切り替えた窓も、本文は末尾から始める。
+      const r = patch(state, i.sessionId, { agentId: i.agentId, follow: true });
       return { state: r.state, effects: [...r.effects, { kind: 'api.loadEvents', sessionId: i.sessionId, fromSeq: 0 }] };
     }
     case 'turn.open': {

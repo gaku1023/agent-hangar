@@ -211,10 +211,22 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     // 末尾に着いたら追うのに戻すのは、新着が届くセッションだけでよい。live を見るのはこちらだけである。
     // 検索の結果から真ん中の頁だけを読んだときは、その後ろをまだ持っていないので、末尾に着いても追うのに戻さない。
     if (atBottom && !props.follow && props.live && !props.hasNewer) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: true });
-    // いま器の上端に掛かっている行を目印にする。描いてある内容はこの描画の offsets と一致している。
+    captureAnchor();
+  };
+  // いま器の上端に掛かっている行を目印にする。描いてある内容はこの描画の offsets と一致している。
+  // 利用者のスクロールと、古い行を読み込む前（追っていた位置を失わないため）に取る。
+  const captureAnchor = () => {
+    const el = boxRef.current; if (!el) return;
     const top = Math.max(el.scrollTop - box.rowsTop, 0);
     const at = rowWindow(offsets, top, top).first;
     anchor.current = n > 0 && at < n ? { seq: props.items[at]!.seq, delta: top - offsets[at]! } : null;
+  };
+  // 古い行を読み込むとき。追っている最中なら、追うのをやめてから読み込む。
+  // 追ったままだと、前に足した行の分だけ末尾へ引き戻され、見ていた位置が失われる。
+  const loadOlder = () => {
+    captureAnchor();
+    if (props.follow) emit({ type: 'transcript.follow', sessionId: props.sessionId, follow: false });
+    emit({ type: 'transcript.loadMore', sessionId: props.sessionId });
   };
 
   // 高さは描くたびに積み直す。5,000 行でも足し算 5,000 回で、描画そのものより十分に軽い。
@@ -264,6 +276,13 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
     lastLayoutKey.current = layoutKey;
     const el = boxRef.current;
     if (!el) { if (changed) remeasured(); return; }
+    // 先頭の 1 枚（head）が後から伸び縮みすると、行の一覧の上端が動く。
+    // 要約やファイルの一覧は開いた後に届くので、追っている間はそのまま末尾に着け直し、窓も新しい上端で引き直す。
+    const rowsTopNow = rowsRef.current ? rowsRef.current.offsetTop - el.offsetTop : box.rowsTop;
+    if (rowsTopNow !== box.rowsTop) {
+      measureBox();
+      if (props.follow) { jumpTo(el, el.scrollHeight); lastScrollTop.current = el.scrollTop; }
+    }
     let moved = false;
     if (props.follow) {
       // 測り直しで全体の高さが動くので、追っている間はその場で下端へ寄せ直す。
@@ -408,7 +427,7 @@ export function Transcript(props: { sessionId: string; items: TranscriptItem[]; 
         {props.head}
         {n === 0 && !props.loading && <div className="empty">{t('transcript.empty.none')}</div>}
         {/* 押すと過去が前に入るので、ボタンは一覧の上に置く。窓の外にあるので仮想化の対象にしない。 */}
-        {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? t('common.state.loading') : t('transcript.more.older', { n: props.remaining })}</button>}
+        {props.hasMore && <button className="btn" style={{ alignSelf: 'center' }} disabled={props.loading} onClick={loadOlder}>{props.loading ? t('common.state.loading') : t('transcript.more.older', { n: props.remaining })}</button>}
         <div ref={rowsRef} className="tr-rows" style={{ paddingTop: padTop, paddingBottom: padBottom }}>
           {drawn.map((it) => (
             <div key={it.seq} className={it.seq === flashSeq ? 'tr-row tr-flash' : 'tr-row'} data-seq={it.seq} ref={setRowEl(it.seq)}>
