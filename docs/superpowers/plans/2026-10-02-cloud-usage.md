@@ -1944,7 +1944,7 @@ git commit docs/design.md -m "docs: cloud usage and cost in settings"
 次は利用者の確認と操作が要るので、実装者は手順を報告に書いて止まる。オーケストレータが利用者に頼む。
 
 1. ブランチを main へ入れてから `npm run hangar -- setup cloud` で Worker を配る（wrangler の設定の `main` がメインの checkout を指すため）。
-2. `op read "op://Employee/agent-hangar Cloudflare usage token/credential" | npm run hangar -- setup cloud --usage-token`（Touch ID の承認が要る）。
+2. 保守者のパスワード管理から読み出して、`npm run hangar -- setup cloud --usage-token` へ標準入力で流す（Touch ID の承認が要る）。
 3. `/Applications/Hangar.app` を入れ替えて開き、設定の「クラウド同期」に札と棒が出ること、D1 の今日の数が GraphQL を手で叩いた数と合うことを確かめる。
 4. subscriptions の生の応答を取り直し、伏せ字にして `fixtures/subscriptions.json` を差し替える（項目の形が違えば collectUsage と試験を直す）。
 ```

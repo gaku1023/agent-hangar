@@ -21,10 +21,10 @@ const mount = (p: SettingsProps['accounts'] = props()) => {
   return onAction;
 };
 /** 名前を直している間は名前が欄になるので、行は「⋯」の名前から探す。 */
-const row = (name: string) => screen.getByRole('button', { name: `${name}の操作` }).closest('li')!;
+const row = (name: string) => screen.getByRole('button', { name: `${name} の操作` }).closest('li')!;
 /** 行の「⋯」を開いて、項目を押す。メニューは body の portal に出る。 */
 const choose = (name: string, item: string | RegExp) => {
-  fireEvent.click(within(row(name)).getByRole('button', { name: `${name}の操作` }));
+  fireEvent.click(within(row(name)).getByRole('button', { name: `${name} の操作` }));
   fireEvent.click(screen.getByRole('menuitem', { name: item }));
 };
 
@@ -167,7 +167,7 @@ describe('AccountSettings の名前を変える', () => {
   it('メニューから、その行の名前がその場の入力欄になり、Enter で account.update { name } を出す', () => {
     const onAction = mount();
     choose('大学', '名前を変更');
-    const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
+    const input = within(row('大学')).getByRole('textbox', { name: '大学 の名前' });
     expect(input).toHaveValue('大学');
     expect(input).toHaveFocus();
     fireEvent.change(input, { target: { value: '研究室' } });
@@ -178,7 +178,7 @@ describe('AccountSettings の名前を変える', () => {
   it('欄を出ると、変えていれば保存する', () => {
     const onAction = mount();
     choose('大学', '名前を変更');
-    const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
+    const input = within(row('大学')).getByRole('textbox', { name: '大学 の名前' });
     fireEvent.change(input, { target: { value: '研究室' } });
     fireEvent.blur(input);
     expect(onAction.mock.calls).toEqual([[{ type: 'account.update', accountId: 'a1', name: '研究室' }]]);
@@ -186,7 +186,7 @@ describe('AccountSettings の名前を変える', () => {
   it('Esc ではやめて、何も出さない（欄を出ても保存しない）', () => {
     const onAction = mount();
     choose('大学', '名前を変更');
-    const input = within(row('大学')).getByRole('textbox', { name: '大学の名前' });
+    const input = within(row('大学')).getByRole('textbox', { name: '大学 の名前' });
     fireEvent.change(input, { target: { value: '研究室' } });
     fireEvent.keyDown(input, { key: 'Escape' });
     fireEvent.blur(input);
@@ -220,7 +220,7 @@ describe('AccountSettings の色を変える', () => {
     const onAction = mount();
     expect(within(row('大学')).queryByRole('radiogroup')).toBeNull();
     choose('大学', '色を変更');
-    const band = within(row('大学')).getByRole('radiogroup', { name: '大学の色' });
+    const band = within(row('大学')).getByRole('radiogroup', { name: '大学 の色' });
     const dots = within(band).getAllByRole('radio');
     expect(dots).toHaveLength(5);
     dots.forEach((d, i) => expect(d.querySelector('.st-dot')).toHaveStyle({ color: ACCOUNT_COLORS[i]! }));
@@ -256,7 +256,7 @@ describe('AccountSettings の一覧から外す', () => {
   });
   it('最初のアカウントでは押せず、理由「最初のアカウントは外せません」を添える（項目は消さない）', () => {
     const onAction = mount();
-    fireEvent.click(within(row('会社')).getByRole('button', { name: '会社の操作' }));
+    fireEvent.click(within(row('会社')).getByRole('button', { name: '会社 の操作' }));
     const item = screen.getByRole('menuitem', { name: /登録を解除/ });
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(within(item).getByText('メインアカウントは登録を解除できません')).toBeInTheDocument();

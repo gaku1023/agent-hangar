@@ -60,7 +60,7 @@ describe('この PC で再開の写しの失敗', () => {
     fs.symlinkSync(outside, path.join(claudeDir, 'projects', '-w-alpha'));
     const ja = await post('ja');
     expect(ja.status).toBe(409);
-    expect((await body(ja)).error).toContain('がシンボリックリンクなので、~/.claudeの外に出ます');
+    expect((await body(ja)).error).toContain('がシンボリックリンクなので、~/.claude の外に出ます');
     const en = await post('en');
     expect(en.status).toBe(409);
     expect((await body(en)).error).toBe('projects/-w-alpha is a symbolic link, so it would leave ~/.claude');
@@ -75,7 +75,7 @@ describe('この PC で再開の写しの失敗', () => {
     fs.symlinkSync(outside, path.join(home, 'backups', 'transcripts'));
     const ja = await post('ja');
     expect(ja.status).toBe(409);
-    expect((await body(ja)).error).toBe('バックアップを作成できなかったので、トランスクリプトを置き換えませんでした: transcripts がシンボリックリンクなので、バックアップのフォルダの外に出ます');
+    expect((await body(ja)).error).toBe('バックアップを作成できなかったので、トランスクリプトを置き換えませんでした: transcripts がシンボリックリンクなので、バックアップのフォルダ の外に出ます');
     const en = await post('en');
     expect(en.status).toBe(409);
     expect((await body(en)).error).toBe('The transcript was not replaced because a backup could not be made: transcripts is a symbolic link, so it would leave the backup folder');

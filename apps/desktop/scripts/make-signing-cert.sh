@@ -1,12 +1,13 @@
 #!/bin/bash
 # Hangar.app の署名に使う自己署名のコード署名証明書を作る（利用者の手元で、一度だけ）。
 # 手順の全体は docs/signing.md。
+# 新しい証明書を作る台本である。既にある p12 を手元のキーチェーンへ入れたいときは、これではなく import-signing-cert.sh を使う（作り直すと指紋と DR が変わり、全員の許可が外れる）。
 #
 # 使い方:
 #   bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外のディレクトリ> [--keychain <新しいキーチェーンのパス>] [--days <日数>] [--cn <名前>]
 #
 # 出力（--out の中）:
-#   hangar-signing.p12        秘密鍵と証明書。秘密。1Password と CI の secret にだけ置く。リポジトリへ入れない。
+#   hangar-signing.p12        秘密鍵と証明書。秘密。保守者のパスワード管理と CI の secret にだけ置く。リポジトリへ入れない。
 #   hangar-signing.cer        公開の証明書（DER）。リポジトリに置いてよい。
 #   certificate-sha1.txt      葉の証明書の指紋（SHA-1）。DR の H"..." に使う。リポジトリに置いてよい。
 #
@@ -86,4 +87,4 @@ fi
 echo "指紋（SHA-1）: $FP"
 echo "出力先: $OUT"
 [ -z "$KC" ] || echo "キーチェーン: $KC"
-echo "次: p12 を 1Password と CI の secret に置き、このディレクトリから p12 を消す（docs/signing.md の手順 3 と 4）。"
+echo "次: p12 を保守者のパスワード管理と CI の secret に置き、このディレクトリから p12 を消す（docs/signing.md の手順 3 と 4）。"

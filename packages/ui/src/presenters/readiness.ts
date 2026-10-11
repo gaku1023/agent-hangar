@@ -1,4 +1,4 @@
-import { compatState, type UiAction, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
+import { compatState, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
 import type { MuxCheck, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { readinessCompat } from './compat.ts';
@@ -67,15 +67,22 @@ const FIX = {
   node: { fix: 'readiness.fix.node', fixCommand: null, soft: false },
 } as const satisfies Record<ToolKey, { fix: 'readiness.fix.claude' | 'readiness.fix.code' | 'readiness.fix.node' | null; fixCommand: string | null; soft: boolean }>;
 
-/** 動かせない理由の文。パスがあればパスを主語にする。 */
-function problemText(t: Translate, c: ToolCheckDto): string {
+/**
+ * 動かせない理由の文。パスがあればパスを主語にする。
+ * フルパスでない、Node でない、版かアーキが違う、の 3 つは Node の設定だけのもの（殻が使える Node かを見た結果）。
+ */
+function problemText(t: Translate, c: ToolCheckDto & Partial<Pick<NodeCheckDto, 'found' | 'need'>>): string {
   if (c.path === null || c.problem === 'unset') return t('readiness.problem.unset');
   if (c.problem === 'notFile') return t('readiness.problem.notFile', { path: c.path });
   if (c.problem === 'notExecutable') return t('readiness.problem.notExecutable', { path: c.path });
+  if (c.problem === 'notAbsolute') return t('readiness.problem.notAbsolute', { path: c.path });
+  if (c.problem === 'notNode') return t('readiness.problem.notNode', { path: c.path });
+  if (c.problem === 'wrongNode' && c.found && c.need) return t('readiness.problem.wrongNode', { path: c.path, found: c.found.major, foundArch: c.found.arch, major: c.need.major, arch: c.need.arch });
+  if (c.problem === 'wrongNode') return t('readiness.problem.notNode', { path: c.path });
   return t('readiness.problem.missing', { path: c.path });
 }
 
-export function toolLine(t: Translate, key: ToolKey, c: ToolCheckDto & { auto?: boolean }, platform: string = clientPlatform()): VerifyLine {
+export function toolLine(t: Translate, key: ToolKey, c: ToolCheckDto & Partial<NodeCheckDto>, platform: string = clientPlatform()): VerifyLine {
   const f = FIX[key];
   if (c.ok) {
     const auto = key === 'node' && c.auto ? t('readiness.tool.autoFound') : null;

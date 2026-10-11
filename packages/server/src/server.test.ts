@@ -359,7 +359,8 @@ describe('startServer', () => {
       try {
         const saved = JSON.parse(fs.readFileSync(settings, 'utf8')) as Record<string, unknown>;
         expect(saved.syncClaudeConfig).toBeUndefined();
-        expect(saved.language).toBeUndefined();
+        // 知らない言語は、OS に合わせる前の日本語として書き戻す。
+        expect(saved.language).toBe('ja');
         expect(saved.toolsResolved).toBe(true);
       } finally {
         await s.close();

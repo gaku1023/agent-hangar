@@ -106,6 +106,48 @@ describe.runIf(onWindows)('hangar.cmd を Windows で動かす', () => {
     expect(JSON.parse(r.stdout.trim()).hangarNode).toBeNull();
   });
 
+  /** PATH 以外の Node の手掛かりを外した環境。PATH の先頭に dirs を置く。 */
+  const envWithPath = (dirs: string[], extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => {
+    const env: NodeJS.ProcessEnv = { ...process.env, FAKE_EXIT: '0' };
+    for (const k of Object.keys(env)) if (k.toUpperCase() === 'HANGAR_NODE') delete env[k];
+    const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'Path';
+    env[pathKey] = [...dirs, env[pathKey] ?? ''].join(';');
+    return { ...env, ...extra };
+  };
+  const whoRan = 'console.log(JSON.stringify({ node: process.execPath, hangarNode: process.env.HANGAR_NODE ?? null }));\n';
+
+  // 利用者の HANGAR_NODE が古い場所を指したままでも、止まらずに次の候補へ進む。
+  it('HANGAR_NODE が無いファイルを指していれば、それを捨てて PATH の Node へ進む', () => {
+    const { cmd } = fakeBundle(whoRan);
+    const missing = path.join(os.tmpdir(), 'hangar-no-such-dir', 'node.exe');
+    const r = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', cmd], {
+      encoding: 'utf8',
+      env: envWithPath([path.dirname(process.execPath)], { HANGAR_NODE: missing }),
+      windowsHide: true,
+    });
+    expect(r.status, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout.trim()) as { node: string; hangarNode: string | null };
+    expect(out.node.toLowerCase()).toBe(process.execPath.toLowerCase());
+    // 利用者の値は書き換えない。launch-cli.mjs が候補の 1 つとして見て、「ファイルが無い」と書く。
+    expect(out.hangarNode).toBe(missing);
+  });
+
+  // PATH の先頭の node.exe が launch-cli.mjs を読めない（古い Node、Node でない物）なら、PATH の後ろの Node を使う。
+  // 古い Node の代わりに、-p に Node として答えない実行ファイルを node.exe の名前で置く。
+  it('PATH の先頭の node.exe が Node として答えなければ、PATH の後ろの Node を使う', () => {
+    const { cmd } = fakeBundle(whoRan);
+    const bad = fs.mkdtempSync(path.join(os.tmpdir(), 'hangarbad-'));
+    dirs.push(bad);
+    fs.copyFileSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe'), path.join(bad, 'node.exe'));
+    const r = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', cmd], {
+      encoding: 'utf8',
+      env: envWithPath([bad, path.dirname(process.execPath)]),
+      windowsHide: true,
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect((JSON.parse(r.stdout.trim()) as { node: string }).node.toLowerCase()).toBe(process.execPath.toLowerCase());
+  });
+
   /**
    * Ctrl+C の確かめ。
    * 隠した新しいコンソールで cmd /c <バッチ> を起こし、バッチが起こした node が、同じコンソールの全員へ Ctrl+C を送る。

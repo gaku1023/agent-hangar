@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { dbPath, ensureHome, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, saveSettings } from './paths.ts';
 import { expectMode } from '../../test/platform.ts';
 
@@ -58,11 +58,11 @@ describe('paths', () => {
     saveSettings(tmp, loadSettings(tmp));
     expectMode(file, 0o600);
   });
-  it('古い settings.json に無い項目は既定値で埋める', () => {
+  it('古い settings.json に無い項目は既定値で埋める（言語は OS に合わせる前の日本語）', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp, 'darwin');
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, language: 'ja' });
   });
   it('外部ターミナルの既定は OS で決め、別の OS で保存した値はその OS の既定に読み替える', () => {
     ensureHome(tmp);
@@ -90,15 +90,31 @@ describe('paths', () => {
     expect(written).not.toHaveProperty('syncClaudeConfig');
     expect(written.configBundleSync).toBe(true);
   });
-  it('言語は保存して読め、知らない値は読み込みで落とす', () => {
+  it('言語は保存して読め、知らない値は OS に合わせる前の日本語として読む', () => {
     ensureHome(tmp);
-    // 項目が無いうちは持たない。読む側（languageOf）が既定の日本語として読む。
-    expect(loadSettings(tmp).language).toBeUndefined();
     saveSettings(tmp, { ...loadSettings(tmp), language: 'en' });
-    expect(loadSettings(tmp).language).toBe('en');
+    expect(loadSettings(tmp, process.platform, () => 'ja').language).toBe('en');
     // 手で書き換えた settings.json の値を、そのまま画面とサーバへ流さない。
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', language: 'fr' }));
-    expect(loadSettings(tmp).language).toBeUndefined();
+    expect(loadSettings(tmp, process.platform, () => 'en').language).toBe('ja');
+  });
+  it('設定が無い（初めての起動）なら OS の表示言語、あって言語が無い（前からの利用者）なら日本語', () => {
+    ensureHome(tmp);
+    expect(loadSettings(tmp, process.platform, () => 'en').language).toBe('en');
+    expect(loadSettings(tmp, process.platform, () => 'ja').language).toBe('ja');
+    // OS が読めなければ英語。
+    expect(loadSettings(tmp, process.platform, () => undefined).language).toBe('en');
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    expect(loadSettings(tmp, process.platform, () => 'en').language).toBe('ja');
+  });
+  it('OS の表示言語は、差し替えの変数（HANGAR_OS_LANGUAGE）でも決められる', () => {
+    ensureHome(tmp);
+    vi.stubEnv('HANGAR_OS_LANGUAGE', 'en');
+    try {
+      expect(loadSettings(tmp).language).toBe('en');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
   it('要約器の設定は既定値で埋まる', () => {
     ensureHome(tmp);

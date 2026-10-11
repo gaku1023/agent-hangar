@@ -101,6 +101,10 @@ Node は子に `CREATE_BREAKAWAY_FROM_JOB` を付けられないので、殻の�
 外側のジョブが抜けるのを許していなければ、印を付けずに起こし直す（psmux と同じ）。
 端末から起こしたサーバ（`npm run dev` など）はジョブに入っていないので、`HANGAR_LAUNCHER` は無く、直に起こす。
 Node は PATH に頼らず、Settings の `nodePath` のあと、`node.rs` の `UNIX_NODE_PLACES` の順で探す（macOS）。
+`nodePath` は `node` の実行ファイルのフルパスだけを受け、名前や相対のパスは無いものとして扱う（殻の作業ディレクトリや PATH で指す先が変わるため）。
+アプリ（殻）は環境変数 `HANGAR_NODE` を見ない。
+Finder やスタートメニューから開いたアプリには端末で決めた環境変数が届かないので、見ると、開き方によって使う Node が変わるためである。
+環境変数で指せるのは同梱の CLI（`hangar` コマンド）だけで、CLI は `HANGAR_NODE`、`nodePath`、殻と同じ探索先の順に探す。
 並びは `/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の keg（`/opt/homebrew/opt/node@N/bin/node`、`/usr/local/opt/node@N/bin/node`）、nvm（`~/.nvm/versions/node/*/bin/node`）、fnm（`~/Library/Application Support/fnm`、`~/.local/share/fnm`、`~/.fnm` の `node-versions/*/installation/bin/node`）、Volta（`~/.volta/tools/image/node/*/bin/node`）、mise（`~/.local/share/mise/installs/node/*/bin/node`）、asdf（`~/.asdf/installs/nodejs/*/bin/node`）、nodenv（`~/.nodenv/versions/*/bin/node`）である。
 版ごとに並ぶ場所は、実在する `node` だけを新しい版から並べ、manifest と同じメジャー版とアーキテクチャの最初の 1 つを採る。
 版と読む名前は `node@<数>` と `v<数>.<数>.<数>`、`<数>.<数>.<数>` だけで、mise の別名（`22`、`lts`）は実体と重なるので見ない。
@@ -111,7 +115,13 @@ GUI のアプリの PATH は launchd の最小のものなので、PATH は見�
 利用者のログインシェルに訊く案（`$SHELL -lic 'command -v node'`）は採らない。
 対話のシェルとして起こすと rc の全部が走り、tmux を自動で起こす設定や、端末を前提にした出力や問い合わせを踏みうるうえ、遅い rc では読み込み画面を秒単位で止めるためである。
 上の場所に無い入れ方は、`nodePath` で指す。
-同梱の CLI（`hangar.sh`）も同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
+設定の画面は `nodePath` を保存する前に、殻と同じ条件で確かめる（`config/node.ts`、`PATCH /api/settings`）。
+フルパスであること、Node として答えること、同梱の `manifest.json` と同じメジャー版とアーキテクチャであること、の 3 つで、合わなければ理由を返して保存しない。
+新しいメジャー版も代わりにならないので断る。
+準備の確かめ（欄の下の ✓ と ✗）も同じ 3 つを見て、`settings.json` を直に書き換えた値でも、殻が使わない Node には ✓ を付けない。
+要る版は、配布版では `server.mjs` の隣の `manifest.json` から読み、ソースから動かしているときはサーバを動かしている Node の版とアーキである。
+同梱の CLI（`hangar.sh`）は `HANGAR_NODE` と `nodePath` を先に見て、そのあとは同じ場所を同じ順に探し、並びの一致は `node.rs` の試験が `hangar.sh` の `node-places` の印の間を読んで縛る。
+`HANGAR_NODE` と `nodePath` は、殻と同じくフルパスだけを受け、そうでなければ「絶対パスではありません」と挙げて次へ進む。
 見つからないときの文は、macOS では `brew install node@<版>` で足りることと、調べた場所とそれぞれが合わなかった理由を出す。
 Windows では `winget install -e --id OpenJS.NodeJS.<版>` を先に案内し（README の Windows の前提と同じ命令。公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探す）、nvm-windows の `nvm install <版>` をほかの入れ方として添える（`node.rs` の `winget_command` と `not_found_winget_*`）。
 Linux は `nvm install <版>` を案内する。
@@ -119,7 +129,7 @@ Linux は `nvm install <版>` を案内する。
 `hangar start` も、サーバを子プロセスとして立てる。
 子を起こす Node は、シェルの探し方を通らず、CLI 自身を動かしている Node（`process.execPath`）である。
 配布版は `cli.mjs` の隣の `server.mjs` を、リポジトリでは `packages/server/src/main.ts` を tsx で起こし、`HANGAR_PORT` と `HANGAR_PARENT_PID` を渡す。
-サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`）を自分の環境から消す（`launch/env.ts`）。
+サーバは起動の最初に、受け渡しの値（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）を読んでから、それらと、Claude Code が子に立てる印と、サーバが読まない hangar の変数（`HANGAR_RUN_ID`、`HANGAR_UNSET_ENV`、`HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED`）を自分の環境から消す（`launch/env.ts`）。
 殻も、サーバを起こすときに同じ名前を外してから自分の値を入れる（`server.rs` の `INHERITED_ENV_DROPPED`。サーバの正本との一致は試験で縛る）。
 アプリを Claude Code のセッションの Bash から `open` で起こすと、呼び手の環境がそのまま殻とサーバに入り、サーバが起こす tmux サーバの全体の環境と、サーバが直に起こす claude（`--help`、`agents --json`、要約の `-p`、`auth status`）にまで届くためである。
 `/health` の `ready` が真になってから、鍵付きの URL を印字する。
@@ -159,7 +169,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 - `/health` は待ち受けた時点から返るが、`ready` は起動の手続きが済むまで偽である。
 - 起動を断る確かめは、利用者のファイルを書き換えるより先に済ませる。
   DB を置き場の物より先に開くので、起点より古い DB（`DbTooOldError`）と控えの取れない DB（`DbBackupError`）は、トークン、statusline のヘッダ、端末の ID、起動の包みを 1 つも書かずに断る（置き場を作ることと、緩い権限を締めることだけは先に行う）。
-  設定（`settings.json`）の読み替え（探した道具のパス、別の OS の外部ターミナル、古い鍵の削除、知らない言語の削除）はメモリの上で済ませ、待ち受けが通ってから `persistSettings` で書き戻す。
+  設定（`settings.json`）の読み替え（探した道具のパス、別の OS の外部ターミナル、古い鍵の削除、言語を埋めること）はメモリの上で済ませ、待ち受けが通ってから `persistSettings` で書き戻す。
   前の版のアプリへ戻す利用者が、読み替え済みの設定を掴まされないためである（2026-10-11、Windows の実機の確かめで見つけた）。
   ただし、未適用のマイグレーションは待ち受けより前に当てる。ポートが塞がっていて断る回でも DB は上がる（控えは取ってある）。
 
@@ -216,8 +226,10 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。
 - 失敗は、殻が状態として持ち、頁が引き取る。
   殻は失敗の材料を `Ui.failure` に置いてから、その場でも評価で渡す。
-  起動画面（`loading/boot.js`）は口（`__hangarBootFail` など）を作り終えた時点で、殻の命令 `boot_state` を一度だけ呼び、`{ failure, progress, finishing }` を引き取る。
+  起動画面（`loading/boot.js`）は口（`__hangarBootFail` など）を作り終えた時点で、殻の命令 `boot_state` を一度だけ呼び、`{ failure, progress, finishing, lang }` を引き取る。
   失敗があれば札を出し、無くて読み込みが終わった合図（`finishing`）が打たれていれば合図を描き、索引の進み具合（`progress`）は待っている間の文に使う。
+  `lang` は待っている間の文（読み込み中、何をしているか、ようこそ）の言語で、札と同じ `page_language` で決める。
+  日英の表は `loading/boot-frames.js` の `WAIT` にある。頁は `lang` が届くまで待っている間の文を出さない（英語の OS で日本語を一瞬出さないため）。問い合わせが断られたら日本語にする。
   口が出来た後に起きたことは、その場の評価で届く。殻は状態に置くのを先にするので、どちらかで必ず届く。
   状態は「もう一度試す」（`retry_boot`）で空にし、サーバの頁へ移った後は何も返さない。
   以前は、読み込みが終わる前の失敗を殻が貯め、読み込みの合図（`PageLoadEvent::Finished`）で渡し直していた。
@@ -237,6 +249,23 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   殻が Node を見つけてサーバを起こしたら（desktop.log の `node … server` の行）、探す場所が増えたとみて落とす。
   撮れた画面と殻の記録は、実行の artifact に 7 日だけ残す。
   殻（Tauri）は実行ファイルのパスにシンボリックリンクが混じるとリソースの場所を決められないので、写す先は実の名前に直してから使う（macOS の `/var` はリンクである）。
+- 殻が同梱のサーバを起こして本当の画面へ移る正常な道も、macOS の CI が build した殻で確かめる。
+  札の段は Node を隠すので、殻の `server_command`（選んだ Node、`HANGAR_UI_DIST`、`HANGAR_PARENT_PID`、PATH の足し方）を通らない。
+  `bundle-server.test.ts` が通す `bin/hangar start` の経路も、殻のこの経路とは別である。
+  desktop ジョブは `apps/desktop/scripts/ci-boot-normal-macos.sh` で `.app` を一時の場所へ写し、一時のホームの `settings.json` の `nodePath` で setup-node の Node を指し、`PATH` を Finder から起きたときと同じ最小のものにして起こす（`env -i`）。
+  `apps/desktop/scripts/boot-normal-check.ts` が次を順に見る（上限 150 秒）。
+  `/health` が `ok` と `ready` を返す。
+  `desktop.log` の `node … server …` の行で、殻が `nodePath` の Node と `.app` の中のサーバを選んだ（ランナーには Homebrew の Node もある）。
+  サーバが殻の子で、`ps -E` で読んだ環境が `HANGAR_UI_DIST`、`HANGAR_PARENT_PID`、`HANGAR_PORT`、`HANGAR_HOME` と、最小の `PATH` の後ろに `augmented_path` の置き場を足したものである。
+  鍵付きの `GET /` が同梱の `ui/index.html` をそのまま返し、そこから読む資産も返る。
+  殻が画面を移し（`navigating to the server`）、WebKit の通信のプロセスがサーバへつなぐ（UI は起動の時に WebSocket を張る）。
+  起動画面は tauri の中の頁でサーバへはつながないので、このつなぎはサーバの頁のものである。
+  起動画面の書き出し（`HANGAR_BOOT_PROBE`）は、失敗の札が出ていれば落とし、読み込みの合図（印が `ready`）を描いていれば記録に書く。
+  合図は必須にしない。サーバが起動画面の読み込みより先に用意できると、殻は合図を打たずに画面を移す。
+  CI の空のホームでは索引が 0.1 秒で済み、起動画面は何も書かないうちに移った（2026-10-11）。
+  殻を止めると、サーバも `HANGAR_PARENT_PID` の見張りで降りる（20 秒まで待つ）。
+  release の macos ジョブも、署名した後、dmg を作る前に、署名した `.app` で同じ台本を回す。
+  書き出しを必須にしないので、配布の build から書き出しの口を外しても、この段は落ちない。
 - 札の中は、見出し、何が起きたか、番号つきの次にすること（順序つきの一覧）、コピーできる命令、詳細（最初から開いた記録。「全文をコピー」つき）、下端のアプリの版と OS、「ログを開く」「もう一度試す」の順に並べる。ロゴは左上に小さく退ける（信号の 3 点の右、UI の `--lights-end` と同じ幅から）。命令と詳細だけを等幅にする。
   命令の欄は切らずに折り返して全文を見せる（以前は 1 行に収めて末尾を … で切っていて、Windows の長い PowerShell の命令が画面で読めなかった。2026-10-11）。
   起動画面は UI の書体（JetBrains Mono）を読み込まないので、等幅は `ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace` の順に OS の書体を使う。日本語の Windows の既定の等幅（MS ゴシックなど）は `\` を `¥` の字形で描くので、パスやコマンドが `¥` に見えないよう、`\` を正しく描く書体を総称の `monospace` より先に置く。
@@ -266,12 +295,13 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   互換の別のサーバが新しいときの次にすることは、macOS では「Hangar.app を新しい版に入れ替えます」、ほかでは「Hangar の新しい版をインストールします」にする。
   以前は Windows の札にも「この Hangar.app」と出ていた。殻が書く詳細のうち `.app` と言うのは App Translocation の案内だけで、これは macOS の写しの場所でしか起きない。
 - 版は殻（`app.package_info()`）、OS の名前と版は殻が失敗のときに読む（macOS は `sw_vers -productVersion`、Linux は `/etc/os-release`、Windows は登録簿の `CurrentBuildNumber` と `DisplayVersion`）。Windows の製品名は Windows 11 でも「Windows 10」のままなので使わず、ビルド番号 22000 からを Windows 11 と呼ぶ（「Windows 11 24H2 (build 26100)」）。
-- 頁の言語は、`<HANGAR_HOME>/settings.json` の `language`（`ja` か `en`）を**殻が読めればそれ**、読めなければ OS の言語で決める（設計書 10 章の未決の点を、こう決めた）。OS の言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、Windows では表示言語の並び（`GetUserPreferredUILanguages`）の先頭、ほかは `LC_ALL`、`LC_MESSAGES`、`LANG` で、日本語なら ja、それ以外は en にする。どちらも決まらなければ日本語（UI の既定）にする。設定ファイルがあっても `language` が無い（利用者がまだ選んでいない）ときも OS の言語に従う。UI は同じ場合に日本語の既定で出るので、英語の OS ではこの頁だけ先に英語になる。設定ファイルが読めれば OS には聞かない（失敗の最中に外のコマンドを呼ばないため）。
+- 頁の言語は、サーバと UI と同じく `<HANGAR_HOME>/settings.json` の `language` で決める（「言語の決め方」の節。`bootfail::page_language`）。
+  設定で決まれば OS には聞かない。初めての起動で殻が先に動けば、起動の頭（`boot` の最初）で殻が OS の表示言語を設定に書く（`bootfail::ensure_language`）。
 - 頁の文は UI の辞書を使えないので、日英の表を頁に持つ（`boot-fail.js`）。言語の並びは shared の `LANGUAGES` と同じにし、試験が突き合わせる。
 - 殻が自分で書く `detail`（`other` と `node-missing` の理由と、時間切れの案内）は、頁と同じ言語で書く。
   英語の設定でも「Node 22（x64）が見つかりません」「調べた場所」が日本語のまま出ていた（2026-10-11、Windows の実機の確かめで見つけた）ためである。
   文の日英の表は殻に持つ（`src-tauri/src/bootmsg.rs` の `Msg`、Node が見つからないときは調べた場所を並べるので `node.rs` の `describe_error_in`）。
-  言語は札と同じく `page_language` で決め、決めるのは失敗したときだけにする（成功の道で OS に聞かない）。
+  言語は札と同じく `page_language` で決める。
   文の中の記録の場所は、置き場の名前と同じく `~` に縮め、OS の区切りで書く。
   文に埋める例外の文、OS や Node が返した文、サーバの例外の文（サーバが書く `detail`）は記録なので、言語を替えない（サーバの文の英語化は段 3 の PR 7 の範囲である）。
 
@@ -1098,7 +1128,7 @@ tmux で `claude` を直接起動すると異常終了時の出力が失われ�
 込んだ機械で `tee` が後回しになると、書きかけのまま落ちて終わり際の標準エラーが消えていたので、`tee` は SIGHUP を無視する形で起こし、bash は `tee` が書き終えるのを 2 秒まで待ってから `exit=` を書く。
 2 秒で見切るのは、claude の残した子が標準エラーを握り続けても、ペインを閉じるためである。
 包みの中身が変わったときはサーバの起動時に書き直すが、走っている run の bash は台本を読みながら進むので、その場で書き換えずに別のファイルから rename で入れ替える。
-起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）と `HANGAR_CLOUD_DIR` を `-u` で外す。
+起動コマンドの `env` は、Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_CHILD_SESSION`、`CLAUDE_CODE_SESSION_ID` など。一覧は `provider/claude-code/compat/childEnv.ts`）と、サーバが読み終えた hangar の受け渡しの変数（`HANGAR_PORT`、`HANGAR_PARENT_PID`、`HANGAR_UI_DIST`、`HANGAR_STOP_ON_STDIN_END`、`HANGAR_LAUNCHER`）と `HANGAR_CLOUD_DIR`、`HANGAR_LAUNCHED` を `-u` で外す。
 Windows は名前を包みへ `HANGAR_UNSET_ENV` で渡し、包みが消してから claude を起こす。
 tmux の新しいセッションは、`PATH` のほかは tmux サーバの全体の環境を継ぐ（`PATH` は下に書くとおり起こした側の値になる）。tmux サーバを Claude Code のセッションの中から起こしていると、全体の環境に別のセッションの印が残る。
 印を持って始まった claude は、そのセッションの子として振る舞う（再開の一覧と履歴から外れる、裏のセッションと見なす、別のセッションの名前やソケットを使う）。
@@ -1124,6 +1154,10 @@ claude も同じく絶対パスで渡す。
 既に使っている `settings.json` には `toolsResolved: true` が入っており、一括で止めると永久に埋まらないからである。
 デスクトップアプリ側も、サーバを起こすときの `PATH` に手元のツールの置き場所を足す。
 これは念のための備えで、場所を決める正本はサーバ側にある。
+最後に、殻が選んだ Node の置き場（`node.rs` の `choose_node` が採った `node` の親）も足す（`server.rs` の `augmented_path`）。
+nvm、fnm、Homebrew の keg のように PATH に無い場所で見つけた Node でサーバを起こしても、ペインの claude が使う `node` や、npx で起こす MCP が `command not found` にならないようにするためである。
+足すのはどれも後ろで、元の並びは変えない。
+Windows で足すのは、この Node の置き場だけである。
 新しいセッションのダイアログ（N2、`NewSessionDialog`）の主役は、開いた直後に焦点が入る大きな初期プロンプトの欄（150px から）である。
 欄の下の 1 行に設定の札を並べる（`LaunchChips`）。
 札はプロジェクト、アカウント（2 件以上あるときだけ）、モデル、effort レベル、権限モード、worktree の順で、最後に名前と追加ディレクトリを足す「＋」を置く。
@@ -2050,10 +2084,10 @@ Claude が動く場所は、公式に合わせて「ディレクトリ」（作�
 `{n|単数|複数}` の `n` も引数の名前として数えるので、鍵の一覧の引数と食い違えば試験（`t.test.ts`）で止まる。
 
 言語の設定は、この PC の設定（`~/.agent-hangar/settings.json` の `language`、API では `SettingsDto.language`）に置く。
-既定は日本語（`ja`）で、項目が無いうちは日本語として読む。
+初めての起動では OS の表示言語に合わせ、日本語なら `ja`、それ以外は `en` を書く（下の「言語の決め方」）。
 PC ごとの設定なので、クラウドへは同期しない。
 読み書きはほかの設定と同じ `GET /api/settings` と `PATCH /api/settings` で行い、辞書に無い言語は 400 で断る。
-手で書き換えた `settings.json` の知らない値は、読み込みのときに落とす。
+手で書き換えた `settings.json` の知らない値は、読み込みのときに言語の無い設定と同じ日本語に読み替える（下の「言語の決め方」の 2）。
 切り替えの部品は、設定の「一般」の節の最初の行にある（日本語、English の 2 択。`views/SettingsScreen.tsx`）。
 選んだ時点で保存し、UI はすぐその言語になる（読み直しは要らない）。
 ステータスの札（Active、Paused、Done、Archived）は、どちらの言語でも英語のままである。
@@ -2070,6 +2104,34 @@ UI の日本語の直書きは、試験（`packages/ui/src/hardcoded.test.ts`）
 `packages/ui/src` の試験でないソースを走査し、文字列、テンプレート、JSX の文のうち、かなか漢字を含むものが始まる行を、ファイルごとに数える。
 数は許可の一覧（理由つき）と同じでなければ落ちる。サーバ側の `packages/server/src/i18n/hardcoded.test.ts` と同じ形である。
 文を足すときは、辞書に鍵を足して引く。表示に出ない日本語（開発者向けのログなど）だけを、理由を添えて許可の一覧に足す。
+
+#### 言語の決め方
+
+殻の札と起動画面、サーバ、UI、Windows の CLI の入口（`launch-cli`）は、同じ決め方で同じ値を使う。
+読み口は、Node の側が `packages/server/src/i18n/osLanguage.ts` の `decideLanguage` と `osDisplayLanguage`、殻の側が `bootfail.rs` の `decide_language` と `os_language` で、両方の試験が同じ表（`packages/server/src/i18n/language-cases.json`）を読む。
+
+1. `settings.json` に `language`（`ja` か `en`）があれば、それを使う。
+2. `settings.json` はオブジェクトとして読めるが `language` が無い（知らない値も含む）なら、日本語にする。
+   OS に合わせる前（0.2.0 の前）から使っている人は、項目が無いまま日本語で見ていたので、変えない。
+3. `settings.json` が無い（初めての起動）か読めなければ、OS の表示言語にする。日本語なら `ja`、それ以外と読めないときは `en` である。
+
+OS の表示言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、Windows では表示言語で読む。
+殻は `GetUserPreferredUILanguages` の先頭、Node は PowerShell の `[Globalization.CultureInfo]::CurrentUICulture.Name` を読む。
+どちらも地域の書式（`Intl` の既定の locale）は見ない。英語の表示で地域だけ日本の人に、日本語の画面を出さないためである。
+ほかの OS は `LC_ALL`、`LC_MESSAGES`、`LANG` の順に見る（`C` と `POSIX` では決めない）。
+環境変数 `HANGAR_OS_LANGUAGE`（`ja` か `en`）があれば、OS の代わりにその値を使う。試験と、英語の OS を真似て画面を確かめるときのためで、殻と Node の両方が読む。
+
+初めての起動の値を `settings.json` に書くのは、最初に動いたものである。
+
+- アプリから起動したときは殻が先に動く。殻は起動の頭（サーバを起こす前）で、`settings.json` が無ければ `{"language": …}` だけのファイルを作る（`ensure_language`。`create_new` で作るので、同じ時に作られたファイルは上書きしない）。サーバはこれに既定の値を足して読み、起動が通ってから自分の形で書き戻す。
+- CLI（`hangar start`、開発の `npm run dev`）から起動したときはサーバが先に動く。サーバは設定の読み込み（`loadSettings`）で 2 と 3 を埋め、起動が通ってから `persistSettings` で書く。`hangar setup` も同じ読み込みを通って書く。
+- `launch-cli` は読むだけで書かない。Node が見つからないときの文を、同じ決め方の言語で出す。
+
+どれが先に動いても、OS の表示言語が同じなら同じ値になる。
+設定がある人のファイルには殻は触らない（2 の日本語は、サーバが起動のあとに書き戻す）。
+
+殻が自分で出す文も、同じ言語で出す。
+起動の失敗の札と詳細（上の「起動の失敗の札」）、待っている間の文（`boot_state` の `lang`）、設定の同期のネイティブの確認と結果の文（`configapply.rs` の `words`。CLI が返す失敗の文は CLI の日本語のまま）、入力待ちの通知の題と本文が空のときの代わりの文（`notify::waiting`）である。
 
 #### サーバでの引き方
 
@@ -2360,7 +2422,7 @@ attach は Claude のバックグラウンドのサービスにつなぐが、�
 新しいセッションのダイアログから来たときは、キャンセルでそのダイアログへ戻る。
 再確認で見つかれば「psmux を確認しました」と版を出し、「開始」で止めていた操作をそのまま送る。
 幅が 1100px 以下のときは、命令を隠してボタンだけにする。
-済んだ行は、引き出しの末尾の 1 行（「tmux、claude、Claude Code との互換性は準備完了」）に畳み、押すと見つかった場所の行が開く。
+済んだ行は、引き出しの末尾の 1 行（「tmux、claude、Claude Code との互換性 は準備完了」）に畳み、押すと見つかった場所の行が開く。
 互換は、未確認の版を済んだものに数え、ずれのときだけ直すものに入れて、設定を開くボタンを置く。
 止めた機能の一覧とずれの表は、設定の「連携」の群の節にある。
 必須の行がすべて済んで任意の行だけが残ったとき、または全部そろったときは、群ごと消える。
@@ -2949,7 +3011,7 @@ error は赤みのガラスに警告のアイコンを添え、幅は 420px ま�
 読み上げは info が `role="status"`、error が `role="alert"` である。
 
 窓が背面にあるときは、入力待ちになったセッションごとに通知を出す。
-題はセッションの名前、本文は問いの文（取れなければ「入力を待っています」）である。
+題はセッションの名前、本文は問いの文（取れなければ「入力を待っています」、英語では Waiting for input）である。
 問いの文は入力待ちより少し遅れて届くことがある（hook の台本や本文の索引が後になる）。
 問いの文なしで知らせたセッション（`waitingBare`）に問いの文が届いたら、同じセッションの通知をもう一度出す。
 OS は同じ識別子（macOS）と同じタグ（Windows、ブラウザ）の通知を書き換えるので、2 枚にはならない。
@@ -2965,7 +3027,9 @@ OS は同じ識別子（macOS）と同じタグ（Windows、ブラウザ）の�
 デスクトップでは、窓が前にあるかを頁では決めない。頁はいつも `notify_waiting` を呼び、殻が窓の実物の様子（見えている、最小化していない、フォーカスがある）を見て、前にあれば出さない（`notify::window_in_front`）。
 フォーカスは、macOS では窓（NSWindow）が key window かで見る。中の WKWebView がフォーカスを持っていても key window のままなので、tao の `is_focused` で足りる。
 Windows では、tao の `is_focused` は最上位の窓そのものがフォーカスを持つときだけ真で、ふだんフォーカスを持つ中の WebView2 の子窓（`Chrome_WidgetWin_1`）にあると偽になる。
-そこで Windows では、OS の前景の窓（`GetForegroundWindow`）が hangar の窓か、その根（`GetAncestor` の `GA_ROOT`）が hangar の窓なら、フォーカスがあるとみなす（`notify::window_owns_foreground`）。
+そこで Windows では、OS の前景の窓（`GetForegroundWindow`）が hangar の窓か、その根（`GetAncestor` の `GA_ROOTOWNER`）が hangar の窓なら、フォーカスがあるとみなす（`notify::window_owns_foreground`）。
+`GA_ROOTOWNER` は親と持ち主をたどるので、hangar の窓が持ち主のダイアログが前にあるときも、利用者は hangar を見ているとみなして知らせない。
+殻のフォルダの選択のダイアログ（`pick_folder`）も、Windows では hangar の窓を親として渡して開くので、その窓が持ち主になる（macOS はシートに変わって見た目が変わるので渡さない）。
 頁の `visibilityState` と `hasFocus()` は、WebView が最小化や背面で絞られている間は当てにならないためである（Windows の実機で、最小化して約 3 分置いた後の入力待ちに、頁が通知を呼ばなかった）。
 頁が止まらないよう、macOS は窓の設定 `backgroundThrottling` を `throttle`（止めずに絞る。macOS 14 から効く）にし、Windows は頁が解けない Web Lock を 1 つ握る（`runtime/notifier.ts` の `holdPageAwake`。Chromium は Web Lock を握っている頁を凍らせない。Tauri の `backgroundThrottling` は WebView2 には効かない）。
 どちらも時計の絞りは変えないので、電池への響きは小さい。入力待ちは WebSocket で届き、頁の通知の判断と呼び出しは時計を使わない。
@@ -3618,6 +3682,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
   世代を指すと戻す先と消す先を見せて承諾を取る（`--plan`、`--yes`、`--json` は同じ）。
 - 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name)`：CLI に `--plan --json` を走らせ、返った件数と種類をネイティブの確認（`tauri-plugin-dialog` のメッセージ）に出し、承諾されたときだけ `--yes --json`（適用は `--order` 付き）を走らせる。
   実行される内容（skills、commands、agents、フックとコマンド実行とスクリプトの印）を含むときは警告の見た目で出し、その件数と項目の名前（5 件まで）を書く。
+  確認と結果の文は、殻の頁と同じ言語で書く（`configapply::words`。「言語の決め方」の節）。CLI が返した失敗の文は、そのまま出す。
   結果は `{ status, message, generation }`（`status` は `applied`、`restored`、`cancelled`、`none`、`failed`、`busy`）で頁へ返す。
   失敗は確認と同じネイティブの窓でも知らせる。
   頁から渡せるのは世代の名前だけで、`yyyyMMdd-HHmmss` の形を殻が確かめる。
@@ -4044,7 +4109,7 @@ Worker を配備した時点で、まだ上げていない端末（版 1）は 4
 サーバが古いときは、そのサーバを止めてから「もう一度試す」を押すことを言う（止めれば、殻が同梱のサーバを起こす）。
 殻が古いときは、Hangar.app を入れ替えるか、そのサーバを止めてから「もう一度試す」を押すことを言う。
 札に、そのポートで待ち受けているプロセスを調べる命令（`lsof -nP -iTCP:4177 -sTCP:LISTEN`）を添える。
-lsof の無い Windows では添えない（Windows のデスクトップのアプリはまだ無い）。
+lsof の無い Windows では添えない。
 殻はポートと 2 つの版の数だけを渡し（`BootFailure::compat_mismatch`）、文は頁の表（`loading/boot-fail.js`）が作る。
 殻はそのサーバを止めない。
 利用者が自分で起こしたもの（`hangar start` や `npm run dev`）かもしれず、ポートの番号だけを頼りに止めないためである。
@@ -4120,7 +4185,7 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 - **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
 - **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。併せて、鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）を入れた。計画は `docs/plans/phase3-workbench.md`。
 - **フェーズ 4**：クラウド同期。Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り（段 1 で消し、上限で退く形に替えた）、他端末のロックと「この PC で再開」まで実装した。引き継ぎの握手は作らなかった（段 1 で作らないと決めた）。計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
-- **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。署名と公証は行わない。計画は `docs/plans/phase5-desktop.md`。
+- **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。公証は行わず、自作の証明書で署名する（段 5 で加えた。「署名の身元」と「Gatekeeper」の項）。計画は `docs/plans/phase5-desktop.md`。
 
 ## 会話の保持期間
 
@@ -4304,18 +4369,32 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   `cloud/` は段 5 で Cloudflare の REST から Worker を上げるための下地で、いまは誰も読まない。
   UI の sourcemap は入れないので、実測で 6.5MB である。
   Node 本体は同梱しない。
-- Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、同梱時の Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
+- Node の版の一致：ネイティブモジュール（`better-sqlite3`、`node-pty`）は Node の ABI に縛られるので、束が要る Node のメジャー版とアーキテクチャを `manifest.json` に記録し、候補を順に起動して一致する版だけを採る。一致する Node が無ければ、探した場所を挙げて起動を諦める。
+  新しいメジャー版も代わりにならないので、利用者に見せる文（起動の失敗の札、README）は「Node 22 以上」ではなく「Node 22」と書き、札は `manifest.json` の `nodeMajor` を埋める。
+  `manifest.json` の `nodeMajor` は、build した機械の Node から取らず、`bundle-server.ts` の `BUNDLE_NODE_MAJOR`（22）に固定する。
+  build している Node のメジャー版がそれと違えば、束を作らずに止める。
+  ネイティブモジュールは `npm ci` を走らせた Node に合わせて入るので、固定の値を書くだけにすると、別の版の Node で作った束が名乗った版で動く保証が無くなるためである。
+  版を上げるときは、`BUNDLE_NODE_MAJOR`、CI の setup-node、起動の失敗の札の `DEFAULT_NODE_MAJOR` を一緒に上げる（札の既定と束の版の一致は試験で縛る）。
+  リポジトリの `engines`（`>=22`）は、ソースから動かすときのもので、そのときのネイティブモジュールは動かしている Node に合わせて入るので、22 より新しい版でも動く。
 - `nodePath` の重さ：Settings の `nodePath` は、次の起動で `.app` がそのまま起こす実行ファイルの場所なので、設定への書き込みが次回起動時のコード実行になる。
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。
 - 配布ターゲットは Apple silicon の macOS 13 以降と、x64 の Windows 11 である。同梱する prebuild は target（`<platform>-<arch>`）のものだけにする。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel の Mac と ARM64 の Windows は作らない。
   束の作り方は `apps/desktop/scripts/bundle-server.ts` の `bundleServer` が target を引数に受け取り（省略すると、この機械の target。配布の対象でなければ止まる）、別の target の束も、どの機械でも作れる。`manifest.json` の `arch` は束の相手のものを書く。
   win32-x64 の束は、`bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
-  cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直しは `launch-cli.mjs` が行う。
-  渡し直しの候補は、HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows（新しい版から）、PATH の各項目の `node.exe` の順で、HANGAR_NODE のあとは殻の `windows_node_paths` と同じ並びである。
+  cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH の各項目の `node.exe`（`where $PATH:node.exe`。作業ディレクトリは見ない）、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直しは `launch-cli.mjs` が行う。
+  cmd は、無いファイルと、`-p` に Node 16 以上と答えないもの（古い Node、Node でない実行ファイル）を飛ばして次の候補へ進む。
+  `launch-cli.mjs` は Node 16 を target に作る（`bundle-server.ts` の `LAUNCHER_MIN_NODE`。cmd の境目との一致は試験で縛る）ので、PATH の先頭に古い Node があっても、構文の誤りで落ちずに後ろの Node へ届く。
+  利用者の HANGAR_NODE が無いファイルを指していれば、cmd はそれを使わずに次へ進む。値そのものは書き換えないので、`launch-cli.mjs` が調べた場所の 1 つとして「ファイルが無い」と挙げる。
+  渡し直しの候補は、HANGAR_NODE、`settings.json` の `nodePath`、公式の入れ先、nvm-windows（新しい版から）、fnm、Volta、scoop（それぞれ新しい版から）、PATH の各項目の `node.exe` の順で、HANGAR_NODE のあとは殻の `windows_node_paths` と同じ並びである。
+  フルパスでない候補（名前だけの `nodePath` など）は起こさず「ファイルが無い」とする。起こすと PATH から引かれ、殻が使う Node と食い違う。
+  渡し直すときは、子に `HANGAR_LAUNCHED=1` を付けて、子が版の確かめを繰り返さないようにする（輪を避けるためでもある）。
+  子は読んだ直後に自分の環境から消すので、`cli.mjs` にも、`hangar start` が起こすサーバ、tmux、ペインにも届かない。
+  前の版の入口から起こされたサーバのために、サーバの落とし名簿（`SERVER_DROPPED_ENV`、`RUN_DROPPED_ENV`）と殻の `INHERITED_ENV_DROPPED` にも入れてある。
+  残すと、ペインの中で打った `hangar` が版の確かめを飛ばし、PATH の先頭の Node で `cli.mjs` を直に読む。
   PATH は、実在する `node.exe` を PATH の順にすべて候補にする。fnm が別の版を PATH の先頭に置いていても、後ろの winget の Packages や Links、volta などにある合う版に届く（実機の A19）。
   どれも合わなければ、いま動いている Node の版と、調べた場所を探した順に番号付きで挙げ、それぞれがファイルが無い、起動できない、時間内に答えない、版が違う、アーキテクチャが違う、のどれだったかを書く（`launch-cli.ts` の `describeNotFound`）。
   最後の次の一手は、殻の札と同じく winget の命令を先に、nvm-windows を添え、ほかの場所なら HANGAR_NODE か `nodePath` を指すよう書く。
-  文は日本語と英語で、言語は殻の札と同じ決め方にする（`settings.json` の `language`、無ければ OS の言語、それも無ければ日本語。`cliLanguage`）。OS の言語は Node が OS から受け取った地域の設定（`Intl` の既定の locale）で読む。
+  文は日本語と英語で、言語は殻の札とサーバと同じ決め方にする（「言語の決め方」の節。`cliLanguage` が `decideLanguage` を呼ぶ）。OS の言語は表示言語で読み、地域の書式（`Intl` の既定の locale）は見ない。
   `hangar.cmd` がどこにも Node を見つけられないときの文（ASCII だけの英語）も、同じ winget の命令と nvm-windows を案内する。
   `hangar.cmd` は、node を起こす最後の行で `endlocal & goto #_end_of_batch_# 2>nul || ver >nul & "<node>" …` の形を使い、node が動き出す前にバッチを終える（npm の cmd-shim と同じ手、npm/cli#969）。
   cmd は行を丸ごと読んで展開してから動かすので、無い label への goto でバッチが終わっても、行の残りは動く。
@@ -4331,7 +4410,10 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   Tauri の NSIS は今の版のファイルを上書きするだけで、前の版にしか無いファイル（名前に指紋の付いた UI の `index-*.js` と `index-*.css`）を消さず、アンインストーラも今の版のファイルだけを 1 つずつ消すので、更新を重ねると古い assets と `$INSTDIR` が残っていた（実機の rc.2 から rc.4）。
   消すのは、`$INSTDIR` に `uninstall.exe` があり、`server` に `server.mjs` と `cli.mjs` があって、Hangar の置き場だと確かめられたときだけである。アンインストールでは、ファイルを消す前（`NSIS_HOOK_PREUNINSTALL`）に確かめておき、消したあとで `server` を消して、空になった `$INSTDIR` を消す。利用者のデータ（`~\.agent-hangar`）には触れない。
   入れるときのフックは、Tauri が動いている殻を止める確認（`CheckIfAppIsRunning`）より前に動く。殻が動いていれば空にせず（そのあと確認で取りやめられると、入っていた版が壊れるので）、更新（`/UPDATE`）のときだけ、殻が抜けるのを 0.5 秒おきに 10 秒まで待つ。
-  殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、PATH の順に探す。Node 本体は Windows でも同梱しない。
+  殻（`node.rs`）の Node の探索は Windows で、設定の `nodePath`、公式の入れ先（`%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`）、nvm-windows、fnm、Volta、scoop、PATH の順に探す。Node 本体は Windows でも同梱しない。
+  fnm、Volta、scoop は、PATH を切り替える仕掛け（fnm の multishells、Volta と scoop の shim）ではなく、版ごとの実体の場所を新しい版から見る。
+  fnm は `%FNM_DIR%`（無ければ `%APPDATA%\fnm`）の `node-versions\<版>\installation\node.exe`、Volta は `%VOLTA_HOME%`（無ければ `%LOCALAPPDATA%\Volta`）の `tools\image\node\<版>\node.exe`、scoop は `%SCOOP%`（無ければ `%USERPROFILE%\scoop`）の `apps\<nodejs、nodejs-lts、nodejs22 など>\<版>\node.exe` である。
+  版と読む名前は `v<数>.<数>.<数>` と `<数>.<数>.<数>` だけで、scoop の `current` のような別名は実体と重なるので見ない。
 - Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる（重ねるのは配布物と窓の装飾だけ）。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、入れた殻を起こして同梱のサーバが `127.0.0.1:4177` の `/health` に応えるまで待ってから止め、前の版の残りに見立てた古い名前の偽のファイル（`server\ui\assets\index-*.js` など）を置いて入れ直すとそれが消えていることを見て、もう一度置いてから静かに消し、`$INSTDIR` に何も残らない（`_?=` で動かした `uninstall.exe` 自身のほかは）ところまでを行う。殻が resource_dir から作ったパスで Node を起こす経路は、`hangar.cmd` では通らないので、殻そのものを起こして確かめる。殻は Node を公式の入れ先から PATH より先に探すので、このときは一時のホーム（`HANGAR_HOME`）の `settings.json` の `nodePath` で setup-node の Node を指し、殻が使った Node の版を desktop.log から読んで 22.20 以上であることを確かめる（22.20 から verbatim の主スクリプトで落ちるので、それより古い Node では回帰を捕まえられない）。
   CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。
   入れたあと PATH に `server\bin` があり、静かに消したあと外れていることも、この段で見る。
@@ -4352,7 +4434,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   右下の札（`presenters/update.ts` の `presentUpdateCard`、試作は案 A2）は、新しい版あり（「ダウンロードしてインストール」「あとで」）、取得中（進みの棒）、準備完了（「実行中のセッション N 件は止まりません。再起動のあと、続きから表示します。」に「再起動して更新」「あとで」）、失敗（いまの版は変わらないことと理由に「もう一度試す」「閉じる」）を同じ 1 枚の中で移す。
   札を閉じた版は `localStorage` の `update.dismissed` に覚え、同じ版の札は 2 度出さない。次の版が出たら出す。閉じた版を設定から取得し直したら、その版の札をまた出す。確認の失敗は札にせず、設定の節にだけ出す。
   設定の更新の節（試作の「共通」）は、版と最終確認の時刻と「更新を確認」、見つけた版の行（閉じた版も出す）、「更新を通知する」のスイッチ（`localStorage` の `update.notify`、既定は入）を置き、見出しに最新、確認中、通知オフ、新しいバージョンあり、ダウンロード中、再起動待ち、失敗の札を出す。スイッチを切ると自動の確認も止まり、新しい版の札は手動で確認したときだけ出す。
-  署名鍵（minisign）の秘密鍵は GitHub の secret の `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Tauri が読む環境変数と同じ名前）にだけ置き、1Password の「Hangar updater signing key (minisign)」に控えてある。リポジトリには公開鍵だけを置く。
+  署名鍵（minisign）の秘密鍵は GitHub の secret の `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Tauri が読む環境変数と同じ名前）にだけ置き、保守者のパスワード管理に控えてある。リポジトリには公開鍵だけを置く。
   更新物づくり（`createUpdaterArtifacts`）は `tauri.conf.json` に書かず、`release.yml` が鍵のあるときだけ `--config src-tauri/tauri.updater.conf.json` を重ねて入れる。手元と ci の build は鍵を持たないので、更新物を作らずに通る。
   `release.yml` は、macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`updater-manifest` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を Release に添える。目録は最後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。secret が無ければ、更新物と目録だけを飛ばし、失敗にしない。
 - 版と試しの版（2026-10-10）：版はリポジトリのファイルで上げてからタグを打ち、タグから版を決めて build に渡すことはしない。手順は `docs/release.md` にある。
@@ -4363,7 +4445,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   試しの版の目録の取り先は、固定のタグ `updater-prerelease` の Release（prerelease）に 1 つだけ置く `latest.json` にした。`updater-manifest` ジョブが、試しの版でも正式な版でも、その版が今の目録より新しいか同じときだけ置き換える。試しの版の利用者は次の rc も正式な版も受け取り、古い版の再実行で巻き戻らない。
   取り先を版ごとの Release にせず固定のタグに置くのは、rc.1 に焼き込んだ取り先から rc.2 を見つけるためである。安定版の道（Release の最新）を固定のタグに移さないのは、すでに配った版の取り先を変えないためである。
   プレリリースの付いた版は Tauri と NSIS がそのまま受ける。NSIS の `VIProductVersion` は数字の 4 つ組なのでプレリリースの部分が落ちて `0.2.0.0` になるが、入れ替えの比べ方（`nsis_tauri_utils::SemverCompare`）と updater の比べ方は semver のままである。macOS の `Info.plist` の版は `0.2.0-rc.1` のまま入る（2026-10-10 に手元の build で確かめた）。
-- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知はまだ無い。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
+- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知は WinRT のトーストで出す（「通知」の節）。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
 - macOS にしか無いコマンドは、OS で分けて呼ぶ。URL とファイルを既定のアプリで開くのは `platform/browser.ts`（macOS は `open`、Windows はシェルを通さない `rundll32.exe url.dll,FileProtocolHandler`、Linux は `xdg-open`）。
   CLI の `hangar open` は、macOS の外では鍵付きの URL へ移るページ（`<HANGAR_HOME>/open.html`、0600）を書き、そのファイルを開かせる。既定のブラウザは開く対象を自分の argv で受け取るので、URL を直に渡すと鍵が argv に載るからである。
   CLI の道具の探索は `which` を起こさず、サーバと同じ `platform/exec.ts` で PATH と既知の置き場を見る（Windows では PATHEXT を補い、tmux の役は psmux を先に見る）。
@@ -4375,8 +4457,9 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   ファイルなどほかの許可は DR で引かれるので、DR は葉の証明書の指紋（`certificate leaf = H"<SHA-1>"`）で固定する。
   `apps/desktop/scripts/sign-macos.ts` が、内側の Mach-O から外側へ署名し（ハードンドランタイムなし、`--deep` に頼らない）、識別子、DR、`codesign --verify --deep --strict` を確かめて、違えば落とす。
   証明書が無い開発者の手元では `--adhoc` で識別子だけ固定できる（DR は build ごとに変わるので、ローカルネットワーク以外の許可は保たれない見込み）。
-  証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は 1Password と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
+  証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は保守者のパスワード管理と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
   本番の証明書は作って CI の secret に入れてあり、指紋と公開の証明書は `apps/desktop/signing/` に置いてある。
+  手元で署名する開発者は、既存の p12 を `import-signing-cert.sh` で専用のキーチェーンへ取り込む。指紋がリポジトリの値と違えば取り込まない。`make-signing-cert.sh` で作り直すと別の証明書になり、DR が変わって全員の許可が外れるためである。
   CI の署名（段 5 の 5-2）：`release.yml` の macOS のジョブが、tauri build のあとに `apps/desktop/scripts/ci-sign-macos.sh` で署名する。
   台本は secret（`HANGAR_SIGN_P12_BASE64` と `HANGAR_SIGN_P12_PASSWORD`）の p12 を使い捨てのキーチェーンに入れ、`sign-macos.ts` で署名し、終わりにキーチェーンを消す。
   p12 の証明書と、署名に入った証明書の指紋を、署名の前と後で `certificate-sha1.txt` と比べ、違えば止まる。
@@ -4384,14 +4467,18 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   macOS 26 のランナーでは自作の証明書が信頼されていないと codesign が身元を見つけないので、使い捨てのランナーの中でだけ `prepare-signing-keychain.sh` で信頼と検索リストを整え、終わりに外す。
   この台本の回帰は、ci の desktop ジョブの試験（`apps/desktop/test/ci-sign-macos.test.ts`）が、その場で作った試しの証明書で拾う。
   自動更新の更新物（`Hangar.app.tar.gz` と `.sig`）は tauri build の中で署名の前の .app から詰められるので、署名の段の後で `repack-updater-macos.sh` が署名済みの .app から詰め直して `.sig` も付け直し、展開した .app の識別子と DR が保たれていることを確かめる。dmg と zip も署名済みの .app から作る。
-- Gatekeeper：公証はせず、dmg（主）と zip（予備）に SHA-256 の checksum を添えて配る（2026-09-20 の決定、dmg は段 5 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る。以下は署名しない build の記述で、署名した build でも警告の出方は変わらない前提で読む。
+- Gatekeeper：公証はせず、dmg（主）と zip（予備）に SHA-256 の checksum を添えて配る（2026-09-20 の決定、dmg は段 5 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る。以下の初回の警告の記述は、自作の証明書で署名した `v0.2.0-rc.4` と `v0.2.0-rc.5` の dmg を実機で見たものである。
   初回の警告は、2026-10-11 に、もう 1 台の Mac へ `v0.2.0-rc.4` の dmg をブラウザで落として入れた実機で見た。
   「"Hangar" は開いていません」と出て、ボタンは「ゴミ箱に入れる」と「完了」だけである。
   Finder の右クリックの「開く」でも同じ画面で、開く道は出なかった（macOS の版は控えていない。版によって違う可能性があるので、主の手順からは外し、効かなかったことだけを README に書いた）。
   システム設定の「プライバシーとセキュリティ」に出る「このまま開く」を押すと、管理者の名前とパスワードを求められ、入れると開けた。
   README はこの順で書いてある。
-  Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
-  署名しないという決めのもとでは、これが既定の姿である。
+  2026-10-11 に、macOS 27.0（Gatekeeper の設定は「App Store と既知のデベロッパ」）の仮想マシンで `v0.2.0-rc.5` の dmg を撮り直した。
+  警告の題、本文、ボタンと、右クリックの「開く」が効かないことは上のとおりだった。
+  システム設定の「セキュリティ」の欄（見出しは「アプリケーションの実行許可」）の行は「お使いのMacを保護するために"Hangar"がブロックされました。」で、右に「このまま開く」があった。
+  行の文言は macOS の版で違いうるので、README は「…がブロックされました」の行、と探しやすい書き方にした。
+  署名しない Tauri の build（開発者の手元や、署名の secret の無い fork の build）は、バイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
+  署名した配布版は、`sign-macos.ts` が封まで行うので、この状態にはならない。
   利用者の手順は、`.app` を `/Applications` へ移してから、初回の警告を越えることである（越え方は上の実機の流れ。`xattr` で検疫属性を外す道は最後の手段）。
   移動を先に置くのは順序の実測による。
   検疫属性が付いたまま開くと、App Translocation の案内より先に Gatekeeper のダイアログが出る。

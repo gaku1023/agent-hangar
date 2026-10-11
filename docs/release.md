@@ -34,7 +34,7 @@ release.yml の最初の plan ジョブが、タグと 5 つを照らし、1 つ
   release.yml は、試しの版でも正式な版でも、その版が今の目録より新しいか同じときだけ、この目録を置き換える。
 - 安定版の道は、Release の最新の `latest.json` である。prerelease は Release の最新に入らないので、安定版の利用者に試しの版は届かない。
 - 試しの版の利用者は、次の rc も、その後の正式な版も、試しの道から受け取る。
-  試しの道を抜けるには、正式な版の dmg かインストーラを手で入れ直す。
+  正式な版を受け取った時点で試しの道を抜け、以後は rc を受け取らない。
 
 macOS の `Info.plist` の版は `0.2.0-rc.1` のまま入る（2026-10-10 に手元の build で確かめた）。
 Windows のインストーラのファイルの版（`VIProductVersion`）は数字の 4 つ組なので `0.2.0.0` になる。
@@ -54,7 +54,9 @@ Windows のインストーラのファイルの版（`VIProductVersion`）は数
    ```
 
 3. Actions の release が、plan、macos、windows、windows-upload、updater-manifest のすべてで緑になるのを待つ。
-   plan が落ちたら、版を上げる PR が入っていない。タグを消し（下の「消す」）、PR を入れてから打ち直す。
+   plan が落ちたら、版を上げる PR が入っていない。
+   plan の前に Release は作られないので、`gh release delete` ではなく、リモートのタグを直に消す（`git push origin :refs/tags/v0.2.0-rc.1`。手元のタグは `git tag -d` で消す）。
+   PR を入れてから打ち直す。
 
 ## 確かめる
 

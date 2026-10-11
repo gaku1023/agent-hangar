@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_LANGUAGE, languageOf, type Language } from '@agent-hangar/shared';
-import { loadSettings } from '../config/paths.ts';
+import { DEFAULT_LANGUAGE, type Language } from '@agent-hangar/shared';
+import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 import { DbBackupError } from '../db/backup.ts';
 import { DbTooOldError } from '../db/open.ts';
 import { errorText } from '../i18n/message.ts';
@@ -49,11 +49,13 @@ function isAddrInUse(e: unknown): e is { code: 'EADDRINUSE'; port?: unknown; add
 }
 
 /**
- * 起動に失敗した時点の言語。設定を読み込む前に落ちた失敗もあるので、読めなければ（無い、壊れている）既定の日本語にする。
- * 起動の途中で落ちたサーバは言語の関数を持たないので、設定のファイルから直に読む。
+ * 起動に失敗した時点の言語。起動の途中で落ちたサーバは言語の関数を持たないので、設定のファイルから直に読む。
+ * 決め方は設定の読み込みと同じ（i18n/osLanguage.ts の decideLanguage）。設定が無いか壊れていれば、OS の表示言語にする。
  */
 function bootLanguage(home: string): Language {
-  try { return languageOf(loadSettings(home).language); } catch { return DEFAULT_LANGUAGE; }
+  let text: string | undefined;
+  try { text = fs.readFileSync(path.join(home, 'settings.json'), 'utf8'); } catch { text = undefined; }
+  return decideLanguage(text, osDisplayLanguage).language;
 }
 
 /**

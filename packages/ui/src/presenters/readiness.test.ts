@@ -29,6 +29,14 @@ describe('欄の下の検証（設定の B1）', () => {
   it('Node の設定が空なら、自動で見つけた Node だと添える', () => {
     expect(toolLine(ja, 'node', READY.tools.node)).toEqual({ ok: true, soft: false, text: '/opt/homebrew/bin/node', note: 'v22.9.0、自動で見つけました', fix: null, fixCommand: null });
   });
+  // 殻は同梱のサーバと同じメジャー版とアーキの Node だけを使う。違う Node は、見つけたものと要るものを並べて言う。
+  it('Node の設定が使えないときは、フルパスでない、Node でない、版かアーキが違う、を分けて言う', () => {
+    expect(toolLine(ja, 'node', { path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false })).toMatchObject({ ok: false, text: 'node はフルパスではありません', fix: '同梱のサーバと同じメジャー版とアーキテクチャの Node を、node の実行ファイルのフルパスで入力してください' });
+    expect(toolLine(ja, 'node', { path: '/x/node', ok: false, problem: 'notNode', version: null, auto: false })).toMatchObject({ ok: false, text: '/x/node は Node として答えません' });
+    const wrong = { path: '/x/node', ok: false, problem: 'wrongNode' as const, version: 'v24.1.0', auto: false, found: { major: 24, arch: 'arm64' }, need: { major: 22, arch: 'arm64' } };
+    expect(toolLine(ja, 'node', wrong)).toMatchObject({ ok: false, soft: false, text: '/x/node は Node 24（arm64）です。Node 22（arm64）が要ります' });
+    expect(toolLine(en, 'node', wrong)).toMatchObject({ text: '/x/node is Node 24 (arm64). Node 22 (arm64) is needed' });
+  });
   it('ワークスペースは、登録したプロジェクトの数を出し、0 件なら理由を言う', () => {
     expect(workspaceLine(ja, { ...READY.workspace, projectCount: 12 })).toEqual({ ok: true, soft: false, text: '/Users/me/workspace', note: 'プロジェクト 12 件', fix: null, fixCommand: null });
     expect(workspaceLine(ja, READY.workspace)).toMatchObject({ ok: false, text: '直下に、Claude のセッションがあるディレクトリがありません' });
@@ -110,7 +118,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   });
   it('済んだものは 1 行に畳み、開くと見つかった場所を出す。互換の未確認の版も済んだものに数える', () => {
     const b = presentReadiness(withCompat({ localVersion: '2.1.300' }), ja)!;
-    expect(b.group.fold!.text).toBe('tmux、claude、Claude Code との互換性は準備完了');
+    expect(b.group.fold!.text).toBe('tmux、claude、Claude Code との互換性 は準備完了');
     expect(b.group.fold!.rows.map((r) => [r.name, r.text, r.lead])).toEqual([
       ['tmux', '/opt/homebrew/bin/tmux（3.4）', { kind: 'check', tone: 'ok', label: '準備できています' }],
       ['claude', '/Users/me/.local/bin/claude（2.3.1）', { kind: 'check', tone: 'ok', label: '準備できています' }],

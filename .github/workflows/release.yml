@@ -126,6 +126,12 @@ jobs:
           set -- apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app
           if [ "$HAS_MACOS_SIGN" = true ]; then set -- "$@" --expect-signed; fi
           bash apps/desktop/scripts/repack-updater-macos.sh verify "$@"
+      # 署名した .app を起こし、殻が同梱のサーバを起こして本当の画面へ移ることを確かめる（apps/desktop/scripts/ci-boot-normal-macos.sh）。
+      # ci の desktop ジョブと同じ台本で、配る .app そのもの（署名の後、dmg の前）を見る。写しを起こすので、配る .app には触らない。
+      # 起動画面の書き出し（HANGAR_BOOT_PROBE）は必須にしないので、配布の build から書き出しの口を外しても落ちない。
+      - name: 署名した .app で、殻が同梱のサーバを起こし、本当の画面へ移る
+        timeout-minutes: 4
+        run: bash apps/desktop/scripts/ci-boot-normal-macos.sh --node "$(command -v node)" apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app "$RUNNER_TEMP/boot-normal-macos"
       # ditto で作った zip は Finder の展開でも .app の属性（署名を含む）が保たれる。
       # 配布物は dmg が主、zip が従（自動更新と予備）。
       # dmg は tauri の dmg ターゲットでは作らず、ここで出来上がった .app から作る（理由は make-dmg.sh の頭）。
