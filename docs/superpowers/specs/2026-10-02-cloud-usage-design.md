@@ -194,4 +194,4 @@ type CloudUsageDto = {
 
 - Worker の変更は、main へ入れた後に `npm run hangar -- setup cloud` で配る（wrangler の設定の `main` がメインの checkout を指すため）。
 - 古い端末は `/usage` を叩かないので、Worker を先に入れても端末を先に入れても通じる。
-- トークンは 1Password の Employee「agent-hangar Cloudflare usage token」にある（2026-10-02 に作った「agent-hangar usage (read)」、期限なし）。
+- トークンは保守者のパスワード管理にある（2026-10-02 に作った読み取り専用のトークン、期限なし）。

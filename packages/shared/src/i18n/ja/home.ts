@@ -43,7 +43,7 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.noteNeed': '始めるには {names} が必要です',
   'home.ready.and': ' と ',
   'home.ready.optional': '任意',
-  'home.ready.fold': '{names}は準備完了',
+  'home.ready.fold': '{names} は準備完了',
   'home.ready.separator': '、',
   'home.ready.name.tmux': 'tmux',
   'home.ready.name.claude': 'claude',

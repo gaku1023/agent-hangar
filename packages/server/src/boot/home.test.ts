@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DbBackupError } from '../db/backup.ts';
 import { DbTooOldError } from '../db/open.ts';
 import { copyFixtureClaudeDir } from '../../test/fixtures.ts';
@@ -118,6 +118,35 @@ describe('置き場の用意', () => {
       expect(fs.readdirSync(home)).toEqual(expect.arrayContaining(['token', 'hangar.db', 'settings.json']));
     } finally {
       h.stop();
+    }
+  });
+
+  // 英語の OS で入れたばかりの状態。サーバが最初に動いても、OS の表示言語を設定の language に書き、画面とサーバの文は英語になる。
+  it('設定が無ければ OS の表示言語で始め、起動が通ってから settings.json の language に書く', () => {
+    vi.stubEnv('HANGAR_OS_LANGUAGE', 'en');
+    const h = bootHome({ home, claudeDir });
+    try {
+      expect(h.language()).toBe('en');
+      expect(fs.existsSync(path.join(home, 'settings.json'))).toBe(false);
+      h.persistSettings();
+      expect(JSON.parse(fs.readFileSync(path.join(home, 'settings.json'), 'utf8')).language).toBe('en');
+    } finally {
+      h.stop();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('設定はあるが language が無い（OS に合わせる前からの利用者）なら日本語のままにして、それを書く', () => {
+    vi.stubEnv('HANGAR_OS_LANGUAGE', 'en');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: home }));
+    const h = bootHome({ home, claudeDir });
+    try {
+      expect(h.language()).toBe('ja');
+      h.persistSettings();
+      expect(JSON.parse(fs.readFileSync(path.join(home, 'settings.json'), 'utf8')).language).toBe('ja');
+    } finally {
+      h.stop();
+      vi.unstubAllEnvs();
     }
   });
 });

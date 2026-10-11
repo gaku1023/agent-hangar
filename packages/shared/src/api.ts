@@ -137,10 +137,19 @@ export type StatuslineStatusDto = { command: string | null; scriptPath: string |
  * ツールのパスを確かめた結果。
  * problem は動かせない理由で、動かせるときは null。
  * unset は設定が空、missing は無い、notFile はディレクトリなどファイルでない、notExecutable は実行権が無い。
+ * 残りの 3 つは Node の設定だけのもの。notAbsolute はフルパスでない、notNode は Node として答えない、
+ * wrongNode は同梱のサーバと違うメジャー版かアーキテクチャの Node（殻はその Node を使わない）。
  * version は `--version` などで読んだ版で、読めなかったときは null。
  */
-export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable';
+export type ToolProblem = 'unset' | 'missing' | 'notFile' | 'notExecutable' | 'notAbsolute' | 'notNode' | 'wrongNode';
 export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProblem | null; version: string | null };
+/** Node のメジャー版とアーキテクチャ（`process.arch`）。同梱のサーバの manifest.json の nodeMajor と arch に当たる。 */
+export type NodeBuildDto = { major: number; arch: string };
+/**
+ * Node の設定の確かめ。auto は設定が空で、サーバを動かしている Node をそのまま見せていること。
+ * found と need は problem が wrongNode のときだけ持ち、見つけた Node と、同梱のサーバが要る Node を表す。
+ */
+export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto; need?: NodeBuildDto };
 /**
  * 準備の確かめ（GET /api/readiness）。
  * 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、同じこの 1 つを読む。
@@ -151,7 +160,7 @@ export type ToolCheckDto = { path: string | null; ok: boolean; problem: ToolProb
  * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
-  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: ToolCheckDto & { auto: boolean } };
+  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: NodeCheckDto };
   workspace: { path: string; exists: boolean; projectCount: number };
   mcp: { registered: boolean; file: string };
   statusline: StatuslineStatusDto;

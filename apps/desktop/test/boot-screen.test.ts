@@ -503,6 +503,34 @@ describe('殻が先に知らせた分を引き取る', () => {
     await flush();
     expect($('status').dataset.level).toBe('ready');
   });
+  // 英語の OS で入れたばかりの状態。殻が起動の頭で書いた言語（boot_state の lang）で、待っている間の文から英語にする。
+  it('殻の言語が英語なら、待っている間の文、何をしているかの文、合図の文を英語で出す', async () => {
+    answer({ failure: null, progress: { phase: 'indexing', done: 412, total: 987 }, finishing: false, lang: 'en' });
+    await boot();
+    await flush();
+    expect(document.documentElement.lang).toBe('en');
+    clock = T0;
+    vi.advanceTimersByTime(100);
+    expect($('status').textContent).toBe('Loading.');
+    clock = T0 + 3200;
+    vi.advanceTimersByTime(100);
+    expect($('status').textContent).toMatch(/^Loading\.+ \(3 s\)$/);
+    expect($('detail').textContent).toBe('Indexing sessions 412 / 987');
+    win.__hangarBootFinish!();
+    expect($('status').textContent).toBe('Welcome');
+  });
+  it('殻の言語が届くまでは、待っている間の文を出さない（日本語を一瞬出さない）', async () => {
+    let reply: (v: unknown) => void = () => {};
+    tauri.__TAURI_INTERNALS__ = { invoke: vi.fn((cmd: string) => (cmd === 'boot_state' ? new Promise((r) => { reply = r; }) : Promise.resolve(null))) };
+    await boot();
+    clock = T0;
+    vi.advanceTimersByTime(100);
+    expect($('status').textContent).toBe('');
+    reply({ failure: null, progress: null, finishing: false, lang: 'en' });
+    await flush();
+    vi.advanceTimersByTime(100);
+    expect($('status').textContent).toBe('Loading.');
+  });
   it('問い合わせが断られても、待っている間の画面のまま止まらない', async () => {
     tauri.__TAURI_INTERNALS__ = { invoke: vi.fn(async () => { throw new Error('not allowed'); }) };
     await boot();
@@ -564,7 +592,8 @@ describe('試験のために、描いた様子を殻へ渡す', () => {
     const invoke = answer({ failure: null, progress: null, finishing: false, probe: true });
     await boot();
     await flush();
-    expect(probes(invoke)).toEqual([{ level: null, card: false, kind: null, lang: '', title: '', detail: '' }]);
+    // 殻が言語を返さなければ、頁の言語は日本語（UI の既定）になる。
+    expect(probes(invoke)).toEqual([{ level: null, card: false, kind: null, lang: 'ja', title: '', detail: '' }]);
     failWith.__hangarBootFail!({ ...failure, lang: 'en' });
     await flush();
     expect(probes(invoke).at(-1)).toMatchObject({ level: 'error', card: true, kind: 'other', lang: 'en', detail: failure.detail });

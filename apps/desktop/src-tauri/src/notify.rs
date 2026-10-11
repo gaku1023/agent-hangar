@@ -50,17 +50,29 @@ fn tidy(text: &str, max: usize, fallback: &str) -> String {
     cut
 }
 
+/// 題と本文が空のときの代わりの文。UI の辞書の言い方に合わせる（common.label.noName と home.card.noQuestion）。
+/// 並びは（題、本文）。
+fn fallbacks(lang: &str) -> (&'static str, &'static str) {
+    if lang == "en" {
+        ("(No name)", "Waiting for input")
+    } else {
+        ("（名前なし）", "入力を待っています")
+    }
+}
+
 /// 頁から届いた値を、通知に出せる形に整える。
 /// id が変なら断る。
-/// 題が空なら名前の無いセッションとして、本文が空なら問いの取れなかった入力待ちとして出す（UI の言い方に合わせる）。
-pub fn waiting(session_id: &str, title: &str, body: &str) -> Result<Waiting, String> {
+/// 題が空なら名前の無いセッションとして、本文が空なら問いの取れなかった入力待ちとして出す。
+/// 代わりの文の言語は殻の頁と同じ（`bootfail::page_language` の ja か en）。en のほかは日本語にする。
+pub fn waiting(session_id: &str, title: &str, body: &str, lang: &str) -> Result<Waiting, String> {
     if !valid_id(session_id) {
         return Err("invalid session id".to_string());
     }
+    let (no_title, no_body) = fallbacks(lang);
     Ok(Waiting {
         session_id: session_id.to_string(),
-        title: tidy(title, TITLE_MAX, "（名前なし）"),
-        body: tidy(body, BODY_MAX, "入力を待っています"),
+        title: tidy(title, TITLE_MAX, no_title),
+        body: tidy(body, BODY_MAX, no_body),
     })
 }
 
@@ -72,10 +84,11 @@ pub fn window_in_front(visible: bool, minimized: bool, focused: bool) -> bool {
     visible && !minimized && focused
 }
 
-/// Windows で、前景の窓が hangar の窓（`ours`）か、その子孫か。
+/// Windows で、前景の窓が hangar の窓（`ours`）か、その子孫か、hangar の窓が持ち主の窓（ダイアログなど）か。
 /// tao の `is_focused` は、最上位の窓そのものがフォーカスを持つときだけ真になる。
 /// hangar の窓では、フォーカスはふだん中の WebView2 の子窓（Chrome_WidgetWin_1）にあるので、窓が前にあっても偽になる。
-/// そこで Windows では、OS の前景の窓（GetForegroundWindow）とその根（GetAncestor の GA_ROOT）で見て、`window_in_front` の focused に足す。
+/// そこで Windows では、OS の前景の窓（GetForegroundWindow）とその根（GetAncestor の GA_ROOTOWNER）で見て、`window_in_front` の focused に足す。
+/// GA_ROOTOWNER は親と持ち主をたどるので、hangar の窓が持ち主のダイアログ（ファイルの選択など）が前にあるときも、利用者は hangar を見ているとみなせる。
 /// macOS の `is_focused` は NSWindow の isKeyWindow で、中の WKWebView がフォーカスを持っていても真なので、この穴は無い。
 #[cfg(windows)]
 pub fn window_owns_foreground(ours: windows::Win32::Foundation::HWND) -> bool {
@@ -83,18 +96,18 @@ pub fn window_owns_foreground(ours: windows::Win32::Foundation::HWND) -> bool {
     owns_foreground_window(unsafe { GetForegroundWindow() }, ours)
 }
 
-/// 前景の窓 `foreground` が、`ours` そのものか、根が `ours` の子孫か。
+/// 前景の窓 `foreground` が、`ours` そのものか、親と持ち主をたどった根が `ours` か。
 /// 前景が無い（ほかのアプリへ移る途中など）ときは偽。
 #[cfg(windows)]
 fn owns_foreground_window(
     foreground: windows::Win32::Foundation::HWND,
     ours: windows::Win32::Foundation::HWND,
 ) -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOTOWNER};
     if foreground.is_invalid() || ours.is_invalid() {
         return false;
     }
-    foreground == ours || unsafe { GetAncestor(foreground, GA_ROOT) } == ours
+    foreground == ours || unsafe { GetAncestor(foreground, GA_ROOTOWNER) } == ours
 }
 
 /// 通知の識別子。
@@ -730,6 +743,7 @@ mod tests {
             "0192f0a1-7c3e-7b2d-9f00-aa11bb22cc33",
             "請求書の書き出し",
             "向きはどちらにしますか",
+            "ja",
         )
         .unwrap();
         assert_eq!(w.session_id, "0192f0a1-7c3e-7b2d-9f00-aa11bb22cc33");
@@ -747,22 +761,29 @@ mod tests {
             "s1\n",
             &"a".repeat(65),
         ] {
-            assert!(waiting(bad, "t", "b").is_err(), "{bad:?}");
+            assert!(waiting(bad, "t", "b", "ja").is_err(), "{bad:?}");
         }
-        assert!(waiting("s_1-A", "t", "b").is_ok());
+        assert!(waiting("s_1-A", "t", "b", "ja").is_ok());
     }
 
     #[test]
     fn empty_texts_fall_back_to_the_words_the_ui_uses() {
-        let w = waiting("s1", "  ", "").unwrap();
+        let w = waiting("s1", "  ", "", "ja").unwrap();
         assert_eq!(w.title, "（名前なし）");
         assert_eq!(w.body, "入力を待っています");
     }
 
     #[test]
+    fn empty_texts_fall_back_to_english_in_english() {
+        let w = waiting("s1", "  ", "", "en").unwrap();
+        assert_eq!(w.title, "(No name)");
+        assert_eq!(w.body, "Waiting for input");
+    }
+
+    #[test]
     fn long_texts_are_cut_by_characters_with_an_ellipsis() {
         let long = "あ".repeat(300);
-        let w = waiting("s1", &long, &long).unwrap();
+        let w = waiting("s1", &long, &long, "ja").unwrap();
         assert_eq!(w.title.chars().count(), TITLE_MAX);
         assert!(w.title.ends_with('…'));
         assert_eq!(w.body.chars().count(), BODY_MAX);
@@ -860,6 +881,63 @@ mod tests {
         }
     }
 
+    /// Windows では、hangar の窓が持ち主のダイアログ（ファイルの選択など）が前景にあるときも、利用者は hangar を見ているので前にあるとみなす。
+    /// 持ち主のある最上位の窓（owned window）とその中の子を、実物で作って確かめる。
+    #[cfg(windows)]
+    #[test]
+    fn a_dialog_owned_by_the_window_counts_as_the_window_in_front() {
+        use windows::core::w;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, GetForegroundWindow, SetForegroundWindow,
+            WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+        };
+        unsafe {
+            // owner に Some を渡し WS_CHILD を付けなければ、親ではなく持ち主になる。
+            let window = |style: WINDOW_STYLE, owner: Option<HWND>| {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    w!("hangar-owner-test"),
+                    style | WS_VISIBLE,
+                    0,
+                    0,
+                    200,
+                    200,
+                    owner,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap()
+            };
+            let ours = window(WS_OVERLAPPEDWINDOW, None);
+            let other = window(WS_OVERLAPPEDWINDOW, None);
+            // hangar の窓が持ち主のダイアログと、その中のボタンなどの子。
+            let dialog = window(WS_POPUP, Some(ours));
+            let in_dialog = window(WS_CHILD, Some(dialog));
+            // ほかのアプリの窓が持ち主のダイアログ。
+            let foreign = window(WS_POPUP, Some(other));
+            assert!(owns_foreground_window(dialog, ours));
+            assert!(owns_foreground_window(in_dialog, ours));
+            assert!(!owns_foreground_window(foreign, ours));
+            assert!(!owns_foreground_window(other, ours));
+            // 実際にダイアログを前に出せたときは、OS の前景から見ても前にあると答えることを確かめる。
+            // CI の机では前景を取れないことがあるので、取れなかったときはここを飛ばす。
+            let _ = SetForegroundWindow(dialog);
+            if GetForegroundWindow() == dialog {
+                assert!(window_owns_foreground(ours));
+            } else {
+                eprintln!(
+                    "skipped the live foreground check: the test could not take the foreground"
+                );
+            }
+            for h in [in_dialog, dialog, foreign, other, ours] {
+                let _ = DestroyWindow(h);
+            }
+        }
+    }
+
     #[test]
     fn the_authorization_status_is_named_for_the_page() {
         // 殻が .app の外で動いているときは、OS に尋ねられない。
@@ -878,7 +956,7 @@ mod tests {
     fn the_toast_carries_the_name_the_question_and_where_to_go() {
         let name = "請求書の書き出し";
         let question = "向きはどちらにしますか";
-        let w = waiting("s1", name, question).unwrap();
+        let w = waiting("s1", name, question, "ja").unwrap();
         let xml = toast_xml(&w);
         assert!(
             xml.starts_with("<toast launch=\"hangar-waiting:s1\" activationType=\"foreground\">"),
@@ -891,7 +969,7 @@ mod tests {
 
     #[test]
     fn the_toast_escapes_the_texts_so_the_page_cannot_change_its_shape() {
-        let w = waiting("s1", "a<b>&\"c'", "</text><text>x").unwrap();
+        let w = waiting("s1", "a<b>&\"c'", "</text><text>x", "ja").unwrap();
         let xml = toast_xml(&w);
         assert!(
             xml.contains("<text>a&lt;b&gt;&amp;&quot;c&apos;</text>"),
@@ -907,7 +985,7 @@ mod tests {
     #[test]
     fn a_click_on_the_toast_reads_back_the_same_session_as_on_macos() {
         // Windows は押されたトーストの launch の値を、そのまま殻へ返す。
-        let w = waiting("s_1-A", "t", "b").unwrap();
+        let w = waiting("s_1-A", "t", "b", "ja").unwrap();
         let xml = toast_xml(&w);
         let launch = xml.split('"').nth(1).unwrap();
         assert_eq!(session_of(launch), Some("s_1-A"));
@@ -919,7 +997,7 @@ mod tests {
         assert_ne!(toast_tag("s1"), toast_tag("s2"));
         // Windows のタグは 64 文字まで。
         let longest = "a".repeat(ID_MAX);
-        assert!(waiting(&longest, "t", "b").is_ok());
+        assert!(waiting(&longest, "t", "b", "ja").is_ok());
         assert!(toast_tag(&longest).chars().count() <= 64);
     }
 

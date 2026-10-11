@@ -288,16 +288,6 @@ pub fn fail_js(f: &BootFailure, env: &Env) -> String {
     )
 }
 
-/// 設定ファイル（settings.json）の `language`。ja か en のときだけ返す。
-pub fn language_from_settings(text: &str) -> Option<&'static str> {
-    let v: Value = serde_json::from_str(text).ok()?;
-    match v.get("language")?.as_str()? {
-        "ja" => Some("ja"),
-        "en" => Some("en"),
-        _ => None,
-    }
-}
-
 /// 言語の名前（`ja-JP`、`ja_JP.UTF-8` など）を ja か en に寄せる。日本語以外は英語にする（画面の辞書は 2 つだけである）。
 fn language_of_tag(tag: &str) -> &'static str {
     if tag.to_ascii_lowercase().starts_with("ja") {
@@ -324,13 +314,58 @@ pub fn language_from_locale(v: &str) -> Option<&'static str> {
     Some(language_of_tag(v))
 }
 
-/// 頁の言語を決める。設定ファイルを読めればその `language`、読めなければ OS の言語、それも無ければ日本語（UI の既定）。
-/// 設定ファイルに `language` が無い（利用者がまだ選んでいない）ときも、OS の言語に従う。
-pub fn choose_language(settings: Option<&str>, os: Option<&'static str>) -> &'static str {
-    settings
-        .and_then(language_from_settings)
-        .or(os)
-        .unwrap_or("ja")
+/// OS の表示言語の代わりに使う値（ja か en）の環境変数。試験と、英語の OS を真似て画面を確かめるときに使う。
+/// サーバと Windows の CLI の入口（packages/server/src/i18n/osLanguage.ts の `OS_LANGUAGE_ENV`）も同じ名前を読む。
+pub const OS_LANGUAGE_ENV: &str = "HANGAR_OS_LANGUAGE";
+
+/// 差し替えの変数の値。ja と en だけを受け取る。
+pub fn language_from_override(v: Option<&str>) -> Option<&'static str> {
+    match v? {
+        "ja" => Some("ja"),
+        "en" => Some("en"),
+        _ => None,
+    }
+}
+
+/// 言語をどこから決めたか。名前は packages/server/src/i18n/osLanguage.ts の `LanguageFrom` と同じにする。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LanguageFrom {
+    /// 設定の `language`。
+    Settings,
+    /// 設定はあるが `language` が無い。OS に合わせる前からの利用者で、これまで日本語で見ていた。
+    BeforeOs,
+    /// 設定が無い（初めての起動）か読めないので、OS の表示言語。
+    Os,
+}
+
+impl LanguageFrom {
+    pub fn name(self) -> &'static str {
+        match self {
+            LanguageFrom::Settings => "settings",
+            LanguageFrom::BeforeOs => "before-os",
+            LanguageFrom::Os => "os",
+        }
+    }
+}
+
+/// 言語を決める。サーバの設定の読み込みと Windows の CLI の入口（osLanguage.ts の `decideLanguage`）と同じ決め方で、同じ表で試験する。
+/// 1. 設定の `language`（ja か en）。
+/// 2. 設定はオブジェクトとして読めるが `language` が無い（知らない値も含む）なら日本語。
+/// 3. 設定が無いか読めなければ、OS の表示言語。読めなければ英語。
+///
+/// OS には、要るときにだけ聞く。
+pub fn decide_language(
+    settings: Option<&str>,
+    os: impl FnOnce() -> Option<&'static str>,
+) -> (&'static str, LanguageFrom) {
+    if let Some(Value::Object(m)) = settings.and_then(|t| serde_json::from_str::<Value>(t).ok()) {
+        return match m.get("language").and_then(Value::as_str) {
+            Some("ja") => ("ja", LanguageFrom::Settings),
+            Some("en") => ("en", LanguageFrom::Settings),
+            _ => ("ja", LanguageFrom::BeforeOs),
+        };
+    }
+    (os().unwrap_or("en"), LanguageFrom::Os)
 }
 
 /// Windows の表示言語の並び（NUL で区切った名前、`ja-JP\0en-US\0\0`）から、先頭の言語を ja か en に寄せる。
@@ -364,9 +399,13 @@ fn windows_ui_languages() -> Option<String> {
     (ok != 0).then(|| String::from_utf16_lossy(&buf))
 }
 
-/// OS の言語。macOS は `defaults read -g AppleLanguages`（.app は LANG を持たない）、
-/// Windows は表示言語の並び（GUI のアプリも LANG を持たない）、ほかは環境変数。
+/// OS の表示言語。macOS は `defaults read -g AppleLanguages`（.app は LANG を持たない）、
+/// Windows は表示言語の並び（GUI のアプリも LANG を持たない。地域の書式は見ない）、ほかは環境変数。
+/// 差し替えの変数（`HANGAR_OS_LANGUAGE`）があれば OS には聞かない。
 fn os_language() -> Option<&'static str> {
+    if let Some(l) = language_from_override(std::env::var(OS_LANGUAGE_ENV).ok().as_deref()) {
+        return Some(l);
+    }
     #[cfg(windows)]
     if let Some(l) = windows_ui_languages()
         .as_deref()
@@ -387,14 +426,46 @@ fn os_language() -> Option<&'static str> {
         .find_map(|v| language_from_locale(&v))
 }
 
-/// 置き場の設定ファイルと OS から、頁の言語を決める。
+/// 置き場の設定ファイルと OS から、頁の言語を決める（`decide_language`）。
+/// 設定で決まれば、OS には聞かない（失敗の最中に外のコマンドを呼ばない）。
 pub fn page_language(home: &Path) -> &'static str {
     let settings = std::fs::read_to_string(home.join("settings.json")).ok();
-    // 設定ファイルの言語が決まれば、OS には聞かない（失敗の最中に外のコマンドを呼ばない）。
-    if let Some(l) = settings.as_deref().and_then(language_from_settings) {
-        return l;
+    decide_language(settings.as_deref(), os_language).0
+}
+
+/// 初めての起動の言語を決めて、`settings.json` に書く。起動の頭で、サーバを起こす前に呼ぶ。
+/// 書くのは `settings.json` が無いとき（初めての起動）だけで、OS の表示言語の `{"language": …}` だけのファイルを作る。
+/// サーバはこのファイルに既定の値を足して読み、起動が通ってから自分の形で書き戻す。
+/// 設定がある人のファイルには触らない。言語の無い設定はサーバが日本語で書き戻す（`decide_language` の 2）。
+/// サーバが先に動いた（CLI の hangar start）ときは、サーバが同じ決め方で書く。どちらが先でも同じ値になる。
+pub fn ensure_language(home: &Path) -> &'static str {
+    ensure_language_with(home, os_language)
+}
+
+/// `ensure_language` の本体。OS の表示言語を引数で受け取る（試験のため）。
+pub fn ensure_language_with(
+    home: &Path,
+    os: impl FnOnce() -> Option<&'static str>,
+) -> &'static str {
+    let file = home.join("settings.json");
+    let settings = std::fs::read_to_string(&file).ok();
+    let exists = settings.is_some() || file.exists();
+    let (lang, _) = decide_language(settings.as_deref(), os);
+    if !exists {
+        // 同じ時に CLI のサーバが作っていたら、そちらを残す（create_new）。書けなくても起動は続け、サーバが書く。
+        let mut open = std::fs::OpenOptions::new();
+        open.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open.mode(0o600);
+        }
+        if let Ok(mut f) = open.open(&file) {
+            use std::io::Write;
+            let _ = writeln!(f, "{}", serde_json::json!({ "language": lang }));
+        }
     }
-    choose_language(settings.as_deref(), os_language())
+    lang
 }
 
 /// OS の名前と版の文。
@@ -878,25 +949,6 @@ mod tests {
     }
 
     #[test]
-    fn the_language_comes_from_the_settings_file_only_when_it_is_ja_or_en() {
-        assert_eq!(
-            language_from_settings(r#"{"language":"en","x":1}"#),
-            Some("en")
-        );
-        assert_eq!(language_from_settings(r#"{"language":"ja"}"#), Some("ja"));
-        for t in [
-            r#"{"language":"fr"}"#,
-            r#"{"language":3}"#,
-            r#"{}"#,
-            "not json",
-            "",
-            "[]",
-        ] {
-            assert_eq!(language_from_settings(t), None, "{t:?}");
-        }
-    }
-
-    #[test]
     fn the_os_language_is_the_first_apple_language() {
         assert_eq!(
             language_from_apple_languages("(\n    \"ja-JP\",\n    \"en-US\"\n)\n"),
@@ -928,20 +980,113 @@ mod tests {
         assert_eq!(language_from_locale(""), None);
     }
 
+    /// 言語の決め方の表。サーバと Windows の CLI の入口（packages/server/src/i18n/osLanguage.ts）の試験も同じ表を読む。
+    fn language_cases() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../../packages/server/src/i18n/language-cases.json"
+        ))
+        .unwrap()
+    }
+
+    fn opt(v: &Value) -> Option<&str> {
+        v.as_str()
+    }
+
     #[test]
-    fn the_settings_language_beats_the_os_and_the_os_beats_the_default() {
+    fn the_shared_table_decides_tags_apple_languages_locales_and_the_override() {
+        let c = language_cases();
+        for row in c["tags"].as_array().unwrap() {
+            assert_eq!(
+                language_of_tag(row[0].as_str().unwrap()),
+                row[1].as_str().unwrap(),
+                "{row}"
+            );
+        }
+        for row in c["appleLanguages"].as_array().unwrap() {
+            assert_eq!(
+                language_from_apple_languages(row[0].as_str().unwrap()),
+                opt(&row[1]),
+                "{row}"
+            );
+        }
+        for row in c["locale"].as_array().unwrap() {
+            assert_eq!(
+                language_from_locale(row[0].as_str().unwrap()),
+                opt(&row[1]),
+                "{row}"
+            );
+        }
+        for row in c["override"].as_array().unwrap() {
+            assert_eq!(
+                language_from_override(row[0].as_str()),
+                opt(&row[1]),
+                "{row}"
+            );
+        }
+        assert_eq!(language_from_override(None), None);
+    }
+
+    // 設定の language、設定はあるが言語が無ければ日本語（OS に合わせる前からの利用者）、設定が無いか読めなければ OS の表示言語（読めなければ英語）。
+    #[test]
+    fn the_shared_table_decides_the_language_from_settings_and_the_os() {
+        for row in language_cases()["decide"].as_array().unwrap() {
+            let os = opt(&row["os"]).map(|l| if l == "ja" { "ja" } else { "en" });
+            let (lang, from) = decide_language(opt(&row["settings"]), || os);
+            assert_eq!(lang, row["language"].as_str().unwrap(), "{row}");
+            assert_eq!(from.name(), row["from"].as_str().unwrap(), "{row}");
+        }
+    }
+
+    #[test]
+    fn the_os_is_asked_only_when_the_settings_do_not_decide() {
+        let asked = std::cell::Cell::new(false);
+        let os = || {
+            asked.set(true);
+            Some("en")
+        };
+        assert_eq!(decide_language(Some(r#"{"language":"ja"}"#), os).0, "ja");
+        assert_eq!(decide_language(Some(r#"{"nodePath":"x"}"#), os).0, "ja");
+        assert!(!asked.get());
+    }
+
+    // 英語の OS で入れたばかりの状態。殻が最初に動けば、OS の表示言語を settings.json に書き、札もサーバも UI も英語で始まる。
+    #[test]
+    fn a_fresh_home_on_an_english_os_gets_en_written_to_settings_json() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(ensure_language_with(dir.path(), || Some("en")), "en");
+        let text = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
         assert_eq!(
-            choose_language(Some(r#"{"language":"en"}"#), Some("ja")),
-            "en"
+            decide_language(Some(&text), || None),
+            ("en", LanguageFrom::Settings)
         );
-        assert_eq!(
-            choose_language(Some(r#"{"language":"ja"}"#), Some("en")),
-            "ja"
-        );
-        assert_eq!(choose_language(None, Some("en")), "en");
-        assert_eq!(choose_language(Some("not json"), Some("en")), "en");
-        assert_eq!(choose_language(Some("{}"), Some("en")), "en");
-        assert_eq!(choose_language(None, None), "ja");
+        assert_eq!(page_language(dir.path()), "en");
+        // 一度書いたら、OS が変わっても設定のまま。
+        assert_eq!(ensure_language_with(dir.path(), || Some("ja")), "en");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.path().join("settings.json"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    // 設定がある人のファイルには触らない。言語の無い設定（OS に合わせる前からの利用者）はサーバが日本語で書き戻す。
+    #[test]
+    fn an_existing_settings_file_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        for text in [r#"{"nodePath":"x"}"#, "{ not json", r#"{"language":"ja"}"#] {
+            std::fs::write(&file, text).unwrap();
+            ensure_language_with(dir.path(), || Some("en"));
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+        }
+        std::fs::write(&file, r#"{"nodePath":"x"}"#).unwrap();
+        assert_eq!(ensure_language_with(dir.path(), || Some("en")), "ja");
+        std::fs::write(&file, "{ not json").unwrap();
+        assert_eq!(ensure_language_with(dir.path(), || Some("en")), "en");
     }
 
     #[test]
@@ -950,6 +1095,8 @@ mod tests {
         std::fs::write(dir.path().join("settings.json"), r#"{"language":"en"}"#).unwrap();
         assert_eq!(page_language(dir.path()), "en");
         std::fs::write(dir.path().join("settings.json"), r#"{"language":"ja"}"#).unwrap();
+        assert_eq!(page_language(dir.path()), "ja");
+        std::fs::write(dir.path().join("settings.json"), r#"{"nodePath":"x"}"#).unwrap();
         assert_eq!(page_language(dir.path()), "ja");
     }
 
