@@ -79,7 +79,7 @@ export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y'): Promise<voi
 }
 
 /** 並びの FLIP。前の位置から今の位置へ滑らせる。 */
-export function slideFrom(el: HTMLElement, before: DOMRect, after: DOMRect): Animation | null {
+export function slideFrom(el: HTMLElement, before: Pick<DOMRect, 'left' | 'top'>, after: Pick<DOMRect, 'left' | 'top'>): Animation | null {
   const dx = before.left - after.left;
   const dy = before.top - after.top;
   if ((dx === 0 && dy === 0) || !motionOn(el)) return null;

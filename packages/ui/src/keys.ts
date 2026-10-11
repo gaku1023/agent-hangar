@@ -17,9 +17,10 @@ export type KeyId =
   | 'nav.back' | 'nav.forward' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'tab.move' | 'turn.move'
   | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
-  | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo' | 'list.state';
+  | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo' | 'list.state'
+  | 'todo.move' | 'todo.toggle' | 'todo.edit' | 'todo.remove' | 'todo.reorder' | 'todo.reject' | 'todo.add' | 'todo.undo';
 
-export type KeyGroup = 'global' | 'session' | 'list';
+export type KeyGroup = 'global' | 'session' | 'list' | 'todo';
 
 /**
  * 1 つの打鍵。
@@ -82,9 +83,18 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'list.editor', group: 'list', keys: 'e', labelKey: 'shortcuts.key.listEditor', chords: [] },
   { id: 'list.memo', group: 'list', keys: 'm', labelKey: 'shortcuts.key.listNote', chords: [] },
   { id: 'list.state', group: 'list', keys: '.', labelKey: 'shortcuts.key.listStatus', chords: [] },
+  // TODO の欄（プロジェクトの画面の右の欄）は、欄の行にフォーカスがある間だけ自分で受ける（views/TodoList.tsx）。
+  { id: 'todo.move', group: 'todo', keys: 'j / k / ↑ / ↓', labelKey: 'shortcuts.key.todoMove', chords: [] },
+  { id: 'todo.toggle', group: 'todo', keys: 'Space / x', labelKey: 'shortcuts.key.todoToggle', chords: [] },
+  { id: 'todo.edit', group: 'todo', keys: 'Enter', labelKey: 'shortcuts.key.todoEdit', chords: [] },
+  { id: 'todo.remove', group: 'todo', keys: '⌫', keysOther: 'Backspace', labelKey: 'shortcuts.key.todoRemove', chords: [] },
+  { id: 'todo.reorder', group: 'todo', keys: '⌥↑ / ⌥↓', labelKey: 'shortcuts.key.todoReorder', also: '⌥⌘↑ / ⌥⌘↓', chords: [] },
+  { id: 'todo.reject', group: 'todo', keys: 'r', labelKey: 'shortcuts.key.todoReject', chords: [] },
+  { id: 'todo.add', group: 'todo', keys: 'a', labelKey: 'shortcuts.key.todoAdd', chords: [] },
+  { id: 'todo.undo', group: 'todo', keys: '⌘Z', labelKey: 'shortcuts.key.todoUndo', chords: [] },
 ];
 
-export const GROUP_KEY: Record<KeyGroup, PlainKey> = { global: 'shortcuts.group.global', session: 'shortcuts.group.session', list: 'shortcuts.group.list' };
+export const GROUP_KEY: Record<KeyGroup, PlainKey> = { global: 'shortcuts.group.global', session: 'shortcuts.group.session', list: 'shortcuts.group.list', todo: 'shortcuts.group.todo' };
 
 /** 物理のキー（code）から、⇧ を押す前の文字を読む。US 配列の位置で読み、知らないキーは key のまま。 */
 const CODE_KEY: Record<string, string> = { Slash: '/', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Comma: ',', Period: '.', Equal: '=', Minus: '-', Semicolon: ';', Quote: "'", Backquote: '`' };

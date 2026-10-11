@@ -764,13 +764,13 @@ describe('起動とターミナル', () => {
 
 const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
-const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null });
+const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null });
 const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
 const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
 
 describe('フェーズ 3 の効果', () => {
   it('TODO の追加は前後の空白を落として渡し、削除は id をそのまま渡す', async () => {
-    const addTodo = vi.fn(async (projectId: string, text: string) => ({ id: 't9', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null }));
+    const addTodo = vi.fn(async (projectId: string, text: string) => ({ id: 't9', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null }));
     const removeTodo = vi.fn(async (id: string) => p3Todo(id, false));
     const { rt, wsHandlers } = harness({ addTodo, removeTodo });
     rt.start();
@@ -783,6 +783,8 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'todo.add', projectId: 'p1', text: '   ' });
     await flush();
     expect(addTodo).toHaveBeenCalledTimes(1);
+    // 消すのは Store にある TODO だけ（取り消しのために前の形を Store から写す）。
+    wsHandlers[0]!.onEvent({ type: 'todos.update', projectId: 'p1', todos: [p3Todo('t9', false)] });
     rt.emit({ type: 'todo.remove', id: 't9' });
     await flush();
     expect(removeTodo).toHaveBeenCalledWith('t9');
