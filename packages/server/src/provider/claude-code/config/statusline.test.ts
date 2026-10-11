@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendStatuslineSnippet, ensureStatuslineHeaderFile, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
+import { appendStatuslineSnippet, ensureStatuslineHeaderFile, planStatuslineRemoval, planStatuslineSnippet, removeStatuslineSnippet, resolveStatuslineScript, STATUSLINE_MARKER, statuslineHeaderPath, statuslineSnippet, statuslineSnippetFor, statuslineStatus, writeStatuslineHeaderFile } from './statusline.ts';
 import { expectMode, posixDescribe } from '../../../../test/platform.ts';
 
 let dir: string;
@@ -336,4 +336,122 @@ describe('appendStatuslineSnippet', () => {
     appendStatuslineSnippet(file, 4177);
     expectMode(file, 0o755);
   });
+});
+
+describe('planStatuslineSnippet と planStatuslineRemoval（書く中身だけを決め、書かない）', () => {
+  it('追記、差し替え、同じ、読み取れない、を見分ける', () => {
+    const sh = path.join(dir, 'p.sh');
+    expect(planStatuslineSnippet('#!/bin/bash\necho hi\n', sh, 4177)).toEqual({ kind: 'add', next: `#!/bin/bash\n${statuslineSnippet(4177)}echo hi\n` });
+    const cur = `#!/bin/bash\n${statuslineSnippet(4177)}echo hi\n`;
+    expect(planStatuslineSnippet(cur, sh, 4177)).toEqual({ kind: 'same' });
+    expect(planStatuslineSnippet(cur, sh, 4200)).toEqual({ kind: 'replace', next: `#!/bin/bash\n${statuslineSnippet(4200)}echo hi\n` });
+    expect(planStatuslineSnippet(`#!/bin/bash\n${STATUSLINE_MARKER}\necho x\n`, sh, 4177)).toEqual({ kind: 'unreadable' });
+  });
+
+  it('外すのは目印から終わりの行までで、ほかの行は残す', () => {
+    const cur = `#!/bin/bash\n${statuslineSnippet(4177)}echo hi\n`;
+    expect(planStatuslineRemoval(cur)).toEqual({ kind: 'remove', next: '#!/bin/bash\necho hi\n' });
+    expect(planStatuslineRemoval('#!/bin/bash\necho hi\n')).toEqual({ kind: 'absent' });
+    expect(planStatuslineRemoval(`#!/bin/bash\n${STATUSLINE_MARKER}\necho x\n`)).toEqual({ kind: 'unreadable' });
+  });
+});
+
+describe('removeStatuslineSnippet', () => {
+  it('バックアップを取ってから外し、実行権限を保つ。入っていなければ触らない', () => {
+    const file = path.join(dir, 'r.sh');
+    fs.writeFileSync(file, '#!/bin/bash\necho hi\n', { mode: 0o755 });
+    appendStatuslineSnippet(file, 4177);
+    const r = removeStatuslineSnippet(file, new Date(2026, 9, 12, 10, 36, 12));
+    expect(r.changed).toBe(true);
+    expect(r.backup).toBe(path.join(dir, 'r.sh.bak-20261012103612'));
+    expect(fs.readFileSync(r.backup!, 'utf8')).toContain(STATUSLINE_MARKER);
+    expect(fs.readFileSync(file, 'utf8')).toBe('#!/bin/bash\necho hi\n');
+    expectMode(file, 0o755);
+    expect(removeStatuslineSnippet(file)).toEqual({ changed: false, backup: null });
+  });
+});
+
+describe('PowerShell のステータスライン（.ps1）', () => {
+  it('pwsh や powershell の -File と、.ps1 を直に書いた command を解決する', () => {
+    const ps = path.join(dir, 'statusline.ps1');
+    fs.writeFileSync(ps, '$j = [Console]::In.ReadToEnd()\n');
+    settings(`pwsh -NoProfile -File ${ps}`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(ps);
+    settings(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${ps}"`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(ps);
+    settings('~/.claude/statusline.ps1');
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(ps);
+  });
+
+  it('.ps1 には PowerShell の行を先頭に入れ、改行の形（CRLF）を保ち、外すと元に戻る', () => {
+    const ps = path.join(dir, 's.ps1');
+    const src = '$j = [Console]::In.ReadToEnd() | ConvertFrom-Json\r\nWrite-Output $j.model.display_name\r\n';
+    const snippet = statuslineSnippetFor(ps, 4177);
+    expect(snippet.split('\n')[0]).toBe(STATUSLINE_MARKER);
+    expect(snippet).toContain('[Console]::SetIn(');
+    expect(snippet).not.toContain('curl');
+    const plan = planStatuslineSnippet(src, ps, 4177);
+    expect(plan.kind).toBe('add');
+    const next = (plan as { next: string }).next;
+    expect(next.startsWith(`${STATUSLINE_MARKER}\r\n`)).toBe(true);
+    expect(next.endsWith(src)).toBe(true);
+    expect(next.replace(/\r\n/g, '')).not.toContain('\n');
+    expect(planStatuslineSnippet(next, ps, 4177)).toEqual({ kind: 'same' });
+    expect(planStatuslineRemoval(next)).toEqual({ kind: 'remove', next: src });
+  });
+
+  it('param の塊で始まるものと、$input で読むものには自動では入れない', () => {
+    const ps = path.join(dir, 'p.ps1');
+    expect(planStatuslineSnippet('# 説明\n[CmdletBinding()]\nparam([string]$x)\n$j = [Console]::In.ReadToEnd()\n', ps, 4177)).toEqual({ kind: 'ps-param' });
+    expect(planStatuslineSnippet('param($x)\n', ps, 4177)).toEqual({ kind: 'ps-param' });
+    expect(planStatuslineSnippet('$j = $input | Out-String\n', ps, 4177)).toEqual({ kind: 'ps-input' });
+  });
+});
+
+// 本物の PowerShell で走らせる。Windows の CI で確かめる（macOS と Linux の手元には PowerShell が無いことが多い）。
+describe.skipIf(process.platform !== 'win32')('PowerShell のスニペットを実際に走らせる', () => {
+  const TOKEN = 'f0e1d2c3'.repeat(8);
+  function runPs(script: string, hangarHome: string, input: string): Promise<string> {
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script], { env: { ...process.env, HANGAR_HOME: hangarHome }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (c: string) => (out += c));
+    child.stdin.end(input);
+    return new Promise((r) => child.on('close', () => r(out)));
+  }
+
+  it('本文と Authorization が届き、元のスクリプトは同じ標準入力を [Console]::In で読める', async () => {
+    const hangarHome = path.join(home, '.agent-hangar');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    writeStatuslineHeaderFile(hangarHome, TOKEN);
+    const got: { auth?: string; body: string }[] = [];
+    const server = createServer((req, res) => {
+      let b = '';
+      req.on('data', (c) => (b += c));
+      req.on('end', () => { got.push({ auth: req.headers.authorization, body: b }); res.writeHead(200).end('{}'); });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const script = path.join(home, 'real.ps1');
+      fs.writeFileSync(script, '$j = [Console]::In.ReadToEnd()\r\n[Console]::Out.Write("got:" + $j)\r\n');
+      const plan = planStatuslineSnippet(fs.readFileSync(script, 'utf8'), script, port);
+      fs.writeFileSync(script, (plan as { next: string }).next);
+      const out = await runPs(script, hangarHome, '{"session_id":"x"}');
+      expect(out).toBe('got:{"session_id":"x"}');
+      expect(got).toHaveLength(1);
+      expect(got[0]!.auth).toBe(`Bearer ${TOKEN}`);
+      expect(got[0]!.body).toBe('{"session_id":"x"}');
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  }, 30_000);
+
+  it('ヘッダのファイルが無くても、表示は壊さない', async () => {
+    const hangarHome = path.join(home, '.agent-hangar-empty');
+    fs.mkdirSync(hangarHome, { recursive: true });
+    const script = path.join(home, 'quiet.ps1');
+    fs.writeFileSync(script, `${statuslineSnippetFor(script, 9)}$j = [Console]::In.ReadToEnd()\r\n[Console]::Out.Write("got:" + $j)\r\n`.replace(/\r?\n/g, '\r\n'));
+    expect(await runPs(script, hangarHome, '{"session_id":"y"}')).toBe('got:{"session_id":"y"}');
+  }, 30_000);
 });

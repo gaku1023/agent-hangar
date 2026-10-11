@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-cloud",
+  "description": "サーバの UI（127.0.0.1:4177）から、クラウド同期への参加（見立てと参加）、ほかの PC の解除、この PC の参加の解除を殻に頼むためだけの権限。参加トークンはサーバの HTTP API に載せず、殻が同梱の CLI に標準入力で渡す。ほかの殻の機能は与えない。",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:4177/*"] },
+  "permissions": ["allow-cloud-join-plan", "allow-cloud-join", "allow-cloud-revoke", "allow-cloud-leave"]
+}

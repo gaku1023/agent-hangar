@@ -2,6 +2,7 @@ import type { ConfigApplyOrderEntryIn, InstructionFileKind, ProjectPlace, Projec
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
+import type { SetupTarget } from './setup.ts';
 
 export type ProjectId = string;
 export type SessionId = string;
@@ -72,7 +73,7 @@ export type UiAction =
   | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind }
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
-  | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string } | { type: 'session.setMemo'; id: SessionId; text: string }
+  | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string }
   // セッションの状態（Paused・Done・Archived）。status の null は Active に戻す。画面の正は後から届く session.upsert である。
   | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。
@@ -101,6 +102,15 @@ export type UiAction =
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   | { type: 'sync.joinToken.show' }
+  /**
+   * クラウド同期への参加と、PC の解除と、この PC の参加の解除（0.4.0）。殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。
+   * join.plan は貼った参加トークンを殻へ渡して宛先を確かめる。トークンは Runtime だけが持ち、Store にも画面にも残さない。
+   * join.go は確かめた宛先に参加する（overwrite は別のクラウドへの上書きの承諾）。join.cancel は段を閉じてトークンを捨てる。
+   * device.revoke はほかの PC を解除する。leave はこの PC の参加を解除する（revoke はクラウドでもこの PC を解除するか）。
+   */
+  | { type: 'cloud.join.plan'; token: string } | { type: 'cloud.join.go'; overwrite: boolean } | { type: 'cloud.join.cancel' }
+  | { type: 'cloud.device.revoke'; id: string } | { type: 'cloud.revoke.dismiss' }
+  | { type: 'cloud.leave'; revoke: boolean } | { type: 'cloud.leave.dismiss' }
   // 設定の同期。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
   | { type: 'configSync.open'; part: ConfigSyncPart }
   | { type: 'configSync.send.confirm' }
@@ -156,6 +166,8 @@ export type UiAction =
   // psmux（Windows）と tmux の再確認。サーバが探し直し、見つかれば設定の tmuxPath を埋める。
   // proceed は、始める前の案内で止めていた操作（新しいセッション、再開）を、見つかったあとに進める。
   | { type: 'mux.recheck' } | { type: 'mux.guide.proceed' }
+  // 連携の書き込み（MCP、シェル連携、ステータスライン）を殻に頼む。殻が承諾の窓で見せ、承諾されたときだけ CLI が書く。ブラウザでは何もしない。
+  | { type: 'setup.run'; target: SetupTarget }
   // Claude Code のアカウント。load は一覧を取り直す。choose は新しいセッションの既定（いまのアカウント）を変える。
   // switchSession はそのセッションを別のアカウントで再開する。working は作業中かで、確認の文に使う。confirmed が無ければ先に確認を出す。
   // add は名前だけで置き場を作り、続けてログインを始める。remove は一覧から外すだけで、置き場の中身は消さない。confirmed が無ければ先に確認を出す。

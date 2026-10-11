@@ -12,6 +12,8 @@ export const syncKeys = {
   'sync.compat.deviceNeed': ['have', 'need'],
   'sync.compat.deviceNewer': ['have'],
   'sync.compat.worker': ['have', 'need'],
+  'sync.revoked.thisPc': [],
+  'sync.devices.workerOutdated': [],
   'sync.limit.d1Read': [],
   'sync.limit.d1Write': [],
   'sync.limit.requests': [],

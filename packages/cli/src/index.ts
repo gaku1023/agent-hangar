@@ -1,13 +1,15 @@
 import { Command } from 'commander';
-import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken } from '@agent-hangar/server/src/cliEntry.ts';
+import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, zshrcPath } from '@agent-hangar/server/src/cliEntry.ts';
 import { runConfigApply, runConfigRestore } from './config.ts';
 import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
+import { devicesCommand, joinCommand, leaveCommand, revokeCommand } from './membership.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage } from './probe.ts';
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { runStart } from './start.ts';
-import { runStatuslineInstall } from './statusline.ts';
+import { promptYesNo, runStatuslineInstall } from './statusline.ts';
+import { runSetupCommand, setupEnvFor, type SetupCommandFlags, type SetupTarget } from './setupPlan.ts';
 import { entryUrl, openedMessage, openFailedMessage, openInBrowser } from './url.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
@@ -60,16 +62,26 @@ program
   .command('join [token]')
   .description('参加トークンでクラウド同期に参加する（トークンは引数を省くと標準入力から受け取る）')
   .option('--force', '確認を省いて参加する（既存の cloud.json も上書きする）')
-  .action(async (token: string | undefined, o: { force?: boolean }) => {
+  .option('--plan', '参加せずに、宛先といまの参加との違いだけを出す（殻の命令が読む）')
+  .option('--yes', '宛先の確認を省いて参加する（確認を画面で済ませたとき。殻の命令が使う）。別のクラウドへの上書きは --overwrite が無ければ断る')
+  .option('--overwrite', '--yes と一緒に使い、別のクラウドに参加済みでも上書きして参加する')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
+  .action(async (token: string | undefined, o: { force?: boolean; plan?: boolean; yes?: boolean; overwrite?: boolean; json?: boolean }) => {
     // 秘密は argv に載せない。引数で渡されたときは、残ることを伝える。
-    if (token !== undefined) {
+    if (token !== undefined && !o.json) {
       console.log('注意: 参加トークンを引数で渡しました。ps とシェルの履歴に残ります。次からは引数なしの hangar join を使ってください。');
+    }
+    const home = hangarHome();
+    // 殻の命令は、参加トークンを標準入力で渡し、宛先の確認は画面で済ませてある。
+    if (o.plan || o.yes || o.json) {
+      const t = token ?? (await readJoinToken());
+      process.exitCode = await joinCommand({ home, token: t, device: readOrCreateDevice(home), plan: o.plan ?? false, yes: o.yes ?? false, overwrite: o.overwrite ?? false, json: o.json ?? false });
+      return;
     }
     // 確認は標準入力で取る。トークンを流し込んだ後の標準入力ではもう聞けないので、先に断る。
     if (!process.stdin.isTTY && !o.force) {
       throw new Error('標準入力が対話ではないので確認を取れません。端末から実行するか、--force を付けてください');
     }
-    const home = hangarHome();
     const t = token ?? (await readJoinToken());
     await runJoin({ home, token: t, device: readOrCreateDevice(home), force: o.force, confirm: promptWord });
   });
@@ -89,6 +101,36 @@ cloud
   .description('参加より前の本文もクラウドへ上げ直す（既定では、参加より後に動いた本文だけを上げる）')
   .action(() => {
     console.log(cloudBackfill({ home: hangarHome() }));
+  });
+
+cloud
+  .command('devices')
+  .description('同期に参加している PC と、解除した PC を一覧する（参加日、最後に同期した時刻と IP とおおよその場所）')
+  .option('--json', '結果を JSON で 1 行出す')
+  .action(async (o: { json?: boolean }) => {
+    const home = hangarHome();
+    process.exitCode = await devicesCommand({ home, deviceId: readOrCreateDevice(home).id, json: o.json ?? false });
+  });
+
+cloud
+  .command('revoke <id>')
+  .description('ほかの PC を同期から解除する（その PC の端末トークンを無効にする。ID は hangar cloud devices で調べる）')
+  .option('--yes', '問わずに解除する')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
+  .action(async (id: string, o: { yes?: boolean; json?: boolean }) => {
+    const home = hangarHome();
+    process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, confirm: promptWord });
+  });
+
+cloud
+  .command('leave')
+  .description('この PC の参加を解除する（cloud.json を削除し、既定でクラウドの一覧でもこの PC を解除する）')
+  .option('--keep-device', 'クラウドの一覧ではこの PC を解除しない（端末トークンを無効にしない）')
+  .option('--yes', '問わずに解除する')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
+  .action(async (o: { keepDevice?: boolean; yes?: boolean; json?: boolean }) => {
+    const home = hangarHome();
+    process.exitCode = await leaveCommand({ home, deviceId: readOrCreateDevice(home).id, revoke: !o.keepDevice, yes: o.yes ?? false, json: o.json ?? false, confirm: promptWord });
   });
 
 cloud
@@ -176,9 +218,14 @@ const mcp = program.command('mcp').description('Claude Code への MCP 登録');
 
 mcp
   .command('install')
-  .description('user スコープに hangar を登録する')
+  .description('user スコープに hangar を登録する（~/.claude.json の mcpServers.hangar を書く。書く前にバックアップを取る）')
   .option('--port <n>', 'ポート', '4177')
-  .action(async (o: { port: string }) => {
+  .option('--dry-run', '書かずに、書く先と差分だけを出す')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）。書くときは --yes が要る')
+  .option('--yes', '問わずに書く（--json のとき）')
+  .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら書かない（殻の命令が使う）')
+  .action(async (o: { port: string } & SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('mcp-install', Number(o.port), o); return; }
     const r = await runMcpInstall({ home: hangarHome(), port: Number(o.port), claudeJson: claudeJsonPath() });
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
@@ -186,9 +233,14 @@ mcp
 
 mcp
   .command('uninstall')
-  .description('user スコープの hangar を削除する')
-  .action(async () => {
-    const r = await runMcpUninstall();
+  .description('user スコープの hangar を削除する（書く前にバックアップを取る）')
+  .option('--dry-run', '書かずに、書く先と差分だけを出す')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）。書くときは --yes が要る')
+  .option('--yes', '問わずに書く（--json のとき）')
+  .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら書かない（殻の命令が使う）')
+  .action(async (o: SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('mcp-uninstall', 4177, o); return; }
+    const r = await runMcpUninstall({ home: hangarHome(), claudeJson: claudeJsonPath() });
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
   });
@@ -198,21 +250,41 @@ function tmuxPathFor(home: string): string | null {
   return loadSettings(home).tmuxPath ?? whichMuxCmd();
 }
 
+/** 連携の書き込みの、--dry-run と --json と --expect の道（setupPlan.ts）。殻の承諾の窓が使う。 */
+function setupCommand(target: SetupTarget, port: number, flags: SetupCommandFlags): Promise<number> {
+  const home = hangarHome();
+  const env = setupEnvFor({ home, claudeDir: loadSettings(home).claudeDir || defaultClaudeDir(), claudeJson: claudeJsonPath(), zshrc: zshrcPath(), port, tmuxPath: tmuxPathFor(home) });
+  return runSetupCommand(target, env, flags, { ask: promptYesNo });
+}
+
+/** 連携の書き込みの旗。殻の承諾の窓が使う。 */
+function setupFlags(c: Command): Command {
+  return c
+    .option('--dry-run', '書かずに、書く先と差分だけを出す')
+    .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）。書くときは --yes が要る')
+    .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら書かない（殻の命令が使う）');
+}
+
 const shell = program.command('shell').description('外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする');
 
-shell
+setupFlags(shell
   .command('install')
   .description('~/.zshrc に 1 行を足し、claude を hangar の tmux の中で起こしてつなぐ形に包む（承諾を求め、控えを取る）')
-  .option('--yes', '問わずに足す')
-  .action(async (o: { yes?: boolean }) => {
+  .option('--yes', '問わずに足す'))
+  .action(async (o: SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('shell-install', 4177, o); return; }
     const r = await runShellInstall({ tmuxPath: tmuxPathFor(hangarHome()), yes: o.yes ?? false });
     if (!r.installed) process.exitCode = 1;
   });
 
-shell
+setupFlags(shell
   .command('uninstall')
   .description('~/.zshrc から hangar の足した行を外す（控えを取る）')
-  .action(() => { runShellUninstall(); });
+  .option('--yes', '問わずに外す（--json のとき）'))
+  .action(async (o: SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('shell-uninstall', 4177, o); return; }
+    runShellUninstall();
+  });
 
 shell
   .command('status')
@@ -228,10 +300,12 @@ config
   .option('--plan', '書かずに、何をどれだけ書くかだけを出す')
   .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
   .option('--order <createdAt>', '確認した指示書の作成時刻。違う指示書に替わっていたら書かない（殻の命令が使う）')
-  .action(async (o: { yes?: boolean; plan?: boolean; json?: boolean; order?: string }) => {
+  .option('--dry-run', '--plan と同じ（書かずに、書く先と差分だけを出す）')
+  .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら書かない（殻の命令が使う）')
+  .action(async (o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; order?: string; expect?: string }) => {
     const order = o.order === undefined ? undefined : Number(o.order);
     if (order !== undefined && !Number.isFinite(order)) throw new Error('--order には指示書の作成時刻（数）を渡してください');
-    process.exitCode = await runConfigApply({ yes: o.yes, plan: o.plan, json: o.json, order });
+    process.exitCode = await runConfigApply({ yes: o.yes, plan: o.plan || o.dryRun, json: o.json, order, expect: o.expect });
   });
 
 config
@@ -240,21 +314,32 @@ config
   .option('--yes', '問わずに戻す')
   .option('--plan', '戻さずに、戻す先と消す先だけを出す')
   .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
-  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; json?: boolean }) => {
-    process.exitCode = await runConfigRestore({ name: generation, yes: o.yes, plan: o.plan, json: o.json });
+  .option('--dry-run', '--plan と同じ（戻さずに、書く先と差分だけを出す）')
+  .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら戻さない（殻の命令が使う）')
+  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; expect?: string }) => {
+    process.exitCode = await runConfigRestore({ name: generation, yes: o.yes, plan: o.plan || o.dryRun, json: o.json, expect: o.expect });
   });
 
 const statusline = program.command('statusline').description('statusline スクリプトへの追記');
 
-statusline
+setupFlags(statusline
   .command('install')
   .description('使用量をサーバへ渡すスニペットを statusline スクリプトに追記する（承諾を求め、バックアップを取る）')
   .option('--port <n>', 'ポート', '4177')
-  .option('--yes', '問わずに追記する')
-  .action(async (o: { port: string; yes?: boolean }) => {
+  .option('--yes', '問わずに追記する'))
+  .action(async (o: { port: string } & SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('statusline-install', Number(o.port), o); return; }
     const claudeDir = loadSettings(hangarHome()).claudeDir || defaultClaudeDir();
     const r = await runStatuslineInstall({ claudeDir, port: Number(o.port), yes: o.yes ?? false });
     if (!r.installed) process.exitCode = 1;
+  });
+
+setupFlags(statusline
+  .command('uninstall')
+  .description('statusline スクリプトから hangar の足した行を外す（承諾を求め、バックアップを取る）')
+  .option('--yes', '問わずに外す'))
+  .action(async (o: SetupCommandFlags) => {
+    process.exitCode = await setupCommand('statusline-uninstall', 4177, o);
   });
 
 // どのコマンドの失敗でも、端末には 1 行だけ出す。生のスタックは読み手の役に立たない。

@@ -18,6 +18,7 @@ import { newProjectKeys } from './keys/newProject.ts';
 import { newSessionKeys } from './keys/newSession.ts';
 import { noticesKeys } from './keys/notices.ts';
 import { muxKeys } from './keys/mux.ts';
+import { approveKeys } from './keys/approve.ts';
 import { pauseKeys } from './keys/pause.ts';
 import { platformKeys } from './keys/platform.ts';
 import { projectKeys } from './keys/project.ts';
@@ -51,6 +52,7 @@ import { paletteKeys } from './keys/palette.ts';
 import { connKeys } from './keys/conn.ts';
 import { toastsKeys } from './keys/toasts.ts';
 import { cloudUsageKeys } from './keys/cloudUsage.ts';
+import { cloudMemberKeys } from './keys/cloudMember.ts';
 import { readinessKeys } from './keys/readiness.ts';
 import { compatKeys } from './keys/compat.ts';
 import { dbKeys } from './keys/db.ts';
@@ -89,6 +91,7 @@ export const MESSAGES = {
   ...newSessionKeys,
   ...noticesKeys,
   ...muxKeys,
+  ...approveKeys,
   ...pauseKeys,
   ...platformKeys,
   ...projectKeys,
@@ -122,6 +125,7 @@ export const MESSAGES = {
   ...connKeys,
   ...toastsKeys,
   ...cloudUsageKeys,
+  ...cloudMemberKeys,
   ...readinessKeys,
   ...compatKeys,
   ...dbKeys,

@@ -32,7 +32,8 @@ describe('用語表', () => {
     expect(label('transcript.toggle')).toBe('右パネルの開閉');
     expect(label('split.toggle')).toBe('タブを横に並べる');
     expect(label('session.newScratch')).toBe('クイックセッションを開始');
-    expect(label('list.memo')).toBe('ノートを編集');
+    // 一覧の m（ノートを編集）は、ノートと一緒に外した。
+    expect(label('list.memo')).toBeUndefined();
   });
   it('横に並べた 2 つの間の仕切りは「左右の幅」と読み上げる', () => {
     render(<ActionRoot onAction={() => {}}><SplitPane left={<div />} right={<div />} /></ActionRoot>);

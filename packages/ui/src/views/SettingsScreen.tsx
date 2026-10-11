@@ -4,7 +4,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
 import { clientPlatform, muxInstallCommand, notifyBlockedKey, type VerifyLine } from '../presenters/readiness.ts';
-import { JOIN_TOKEN_TTL_MS, type SettingsProps } from '../presenters/settings.ts';
+import { JOIN_TOKEN_TTL_MS, type IntegrationCard, type SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { MuxSection } from './MuxSection.tsx';
 import { PageHeading } from './PageHeading.tsx';
@@ -18,6 +18,7 @@ import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
+import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudRevokedBand } from './CloudMember.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
 import { UpdateSection } from './UpdateSection.tsx';
@@ -113,6 +114,40 @@ const FIELD_BOX: Record<SettingsField, string> = { workspace: 'settings-field-wo
 function Badge(props: { ok: boolean | null; yes: string; no: string }) {
   if (props.ok === null) return null;
   return <span className="badge" data-tone={props.ok ? 'ok' : 'warn'}><Icon name={props.ok ? 'check' : 'alert'} />{props.ok ? props.yes : props.no}</span>;
+}
+
+/**
+ * 連携の札の書き込みの段（試作の連携 A）。
+ * 殻の中では、書き込む先とバックアップの添え書きをボタンの横に常に出し、コマンドは「ターミナルで行うとき」に畳む。
+ * ボタンは殻に頼むだけで、書く中身は殻の承諾の窓が見せ、承諾されたときだけ書く（D9）。
+ * ブラウザでは書き込まないので、ボタンを出さずに、その旨とコマンドを出す。
+ */
+function IntegrationWrite(props: { card: IntegrationCard; desktop: boolean; extra?: ReactNode }) {
+  const t = useT();
+  const emit = useEmit();
+  const { card } = props;
+  if (!props.desktop) {
+    return (
+      <>
+        <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.browserNote')}</div>
+        <CommandLine command={card.command} />
+        {props.extra}
+      </>
+    );
+  }
+  const a = card.action;
+  return (
+    <>
+      <div className="integ-write">
+        {card.file && <div className="faint integ-dest"><span>{t('settings.integrations.writesTo', { path: card.file })}</span><span>{t('settings.integrations.backupNote')}</span></div>}
+        {a && <button type="button" className={a.primary ? 'btn btn-sm btn-primary' : 'btn btn-sm'} disabled={a.disabled} aria-busy={a.running || undefined} onClick={() => emit({ type: 'setup.run', target: a.target })}>{a.label}</button>}
+      </div>
+      <details className="cp-more integ-terminal">
+        <summary><Icon name="chevron" />{t('settings.integrations.terminal')}</summary>
+        <div className="cp-more-body"><CommandLine command={card.command} />{props.extra}</div>
+      </details>
+    </>
+  );
 }
 
 /** 参加トークン（設定の E2）。トークンとコピー、減る棒と「あと N 秒で消えます」。 */
@@ -279,23 +314,41 @@ export function SettingsScreen(props: SettingsProps) {
   );
 
   const cloudOff = !props.cloud.configured;
+  const member = props.cloud.member;
   const cloud = (
     <>
       <section aria-label={cur.title}>
         {cloudOff && (
           <>
             <p className="muted-p">{t('settings.cloud.off.lead')}</p>
-            <div className="btns">
-              <button type="button" className="btn btn-primary" aria-pressed={cloudCommand === 'start'} onClick={() => setCloudCommand('start')}><Icon name="cloud" />{t('settings.cloud.off.start')}</button>
-              <button type="button" className="btn" aria-pressed={cloudCommand === 'join'} onClick={() => setCloudCommand('join')}>{t('settings.cloud.off.join')}</button>
-            </div>
-            {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.note')}</div>}
-            {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
-            {cloudCommand === 'join' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runJoin')}</div><CommandLine command={props.commands.join} /></>}
+            {/* 殻の中では、参加トークンで参加を節の中の段で行う（0.4.0）。クラウドの用意はターミナルのまま。 */}
+            {member?.desktop ? (
+              <>
+                <div className="btns">
+                  <button type="button" className="btn btn-primary" aria-pressed={cloudCommand === 'join'} onClick={() => setCloudCommand('join')}>{t('cloudMember.join.button')}</button>
+                  <button type="button" className="btn" aria-pressed={cloudCommand === 'start'} onClick={() => setCloudCommand('start')}><Icon name="cloud" />{t('settings.cloud.off.start')}</button>
+                </div>
+                {cloudCommand === 'join' && <CloudJoinSteps m={member} onClose={() => setCloudCommand(null)} />}
+                {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
+                {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('cloudMember.join.startNote')}</div>}
+              </>
+            ) : (
+              <>
+                <div className="btns">
+                  <button type="button" className="btn btn-primary" aria-pressed={cloudCommand === 'start'} onClick={() => setCloudCommand('start')}><Icon name="cloud" />{t('settings.cloud.off.start')}</button>
+                  <button type="button" className="btn" aria-pressed={cloudCommand === 'join'} onClick={() => setCloudCommand('join')}>{t('settings.cloud.off.join')}</button>
+                </div>
+                {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.note')}</div>}
+                {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
+                {cloudCommand === 'join' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runJoin')}</div><CommandLine command={props.commands.join} /></>}
+              </>
+            )}
           </>
         )}
         {!cloudOff && (
           <>
+            {/* ほかの PC で、この PC の参加が解除されたとき（0.4.0）。 */}
+            {member?.revoked && <CloudRevokedBand m={member} joinCommand={props.commands.join} />}
             <div className="stat">
               <span>{t('settings.cloud.state')} {props.cloud.stateLabel}</span>
               <span>{t('settings.cloud.lastReceived')} {props.cloud.lastPullAt}</span>
@@ -324,16 +377,21 @@ export function SettingsScreen(props: SettingsProps) {
               {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>{t('settings.cloud.showToken')}</button>}
             </div>
             {props.cloud.joinToken !== null && <JoinToken token={props.cloud.joinToken} expiresAt={props.cloud.joinTokenExpiresAt} />}
-            <h4 className="sub-h">{t('settings.cloud.computers')}<span className="n">{props.cloud.devices.length}</span></h4>
-            <div className="list flat">
-              {props.cloud.devices.map((d) => (
-                <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
-                  <span>{d.name}{d.self && <span className="faint"> {t('settings.cloud.thisPc')}</span>}</span>
-                  <span className="faint">{d.platform}</span>
-                  <span className="faint">{d.lastSeen}</span>
+            {/* PC の表（0.4.0）。Worker の一覧から、参加日、最終同期、最後の IP と場所、解除を出す。 */}
+            {member ? <CloudPcTable m={member} heading={t('settings.cloud.computers')} /> : (
+              <>
+                <h4 className="sub-h">{t('settings.cloud.computers')}<span className="n">{props.cloud.devices.length}</span></h4>
+                <div className="list flat">
+                  {props.cloud.devices.map((d) => (
+                    <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
+                      <span>{d.name}{d.self && <span className="faint"> {t('settings.cloud.thisPc')}</span>}</span>
+                      <span className="faint">{d.platform}</span>
+                      <span className="faint">{d.lastSeen}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </>
         )}
       </section>
@@ -341,6 +399,8 @@ export function SettingsScreen(props: SettingsProps) {
       <ConfigSyncSection cfg={props.configSync} cloudOff={cloudOff} />
       {/* 使用量と費用。同期している人にだけ出す（試作 usage-merged.html の「置き場所」）。 */}
       {!cloudOff && props.cloud.usage && <CloudUsage {...props.cloud.usage} />}
+      {/* この PC の参加を解除（0.4.0）。節の末尾に、ほかの PC の解除から離して置く。 */}
+      {!cloudOff && member && !member.revoked && <CloudLeaveBand m={member} />}
     </>
   );
 
@@ -351,7 +411,7 @@ export function SettingsScreen(props: SettingsProps) {
       <section>
         <h3 className="h2">{t('settings.integrations.mcp.title')}<Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
         <div className="muted">{t('settings.integrations.mcp.desc')}</div>
-        <CommandLine command={props.commands.mcp} />
+        <IntegrationWrite card={props.integrations.mcp} desktop={props.integrations.desktop} />
       </section>
       <section>
         <h3 className="h2">{t('settings.integrations.statusline.title')}<Badge ok={props.statusline ? props.statusline.installed : null} yes={t('settings.integrations.statusline.yes')} no={t('settings.integrations.statusline.no')} /></h3>
@@ -365,14 +425,14 @@ export function SettingsScreen(props: SettingsProps) {
         {props.statusline?.scriptPath && (
           <>
             <div className="muted">{props.statusline.installed ? t('settings.integrations.statusline.installed') : t('settings.integrations.statusline.notInstalled')}</div>
-            <div className="faint mono">{props.statusline.scriptPath}</div>
+            {/* 殻の中では、書き込む先としてボタンの横に出す。 */}
+            {!props.integrations.desktop && <div className="faint mono">{props.statusline.scriptPath}</div>}
           </>
         )}
         <div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.statusline.note')}</div>
-        <CommandLine command={props.commands.statusline} />
         {/* 追記されるスニペットの宛先はこのコマンドの --port で決まる。 */}
-        {/* 既定の 4177 のまま追記すると、別のポートで動かしているサーバには届かない。 */}
-        <div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.statusline.port')}</div>
+        {/* 既定の 4177 のまま追記すると、別のポートで動かしているサーバには届かない。ボタンは殻のポートを渡すので、添えるのはコマンドの側だけである。 */}
+        <IntegrationWrite card={props.integrations.statusline} desktop={props.integrations.desktop} extra={<div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.statusline.port')}</div>} />
       </section>
       {/* 包みは zsh のもので、Windows では作らない。Windows のサーバでは節ごと出さない。 */}
       {props.shell.available && <section>
@@ -389,14 +449,21 @@ export function SettingsScreen(props: SettingsProps) {
           </div>
         )}
         {props.shell.state === null && <div className="faint" style={{ marginTop: 4 }}>{t('settings.common.loading')}</div>}
-        {/* 利用者のファイルは UI から書き換えない（ステータスラインと同じ）。入れるのは CLI で、承諾を求めて控えを取る。 */}
-        {props.shell.state === 'off' && (
+        {/* 殻の中では、ボタンで殻に頼む。書くのは殻の承諾の窓を経た CLI で、サーバと画面は書かない（D9）。 */}
+        {props.integrations.desktop && (props.shell.state === 'off' || props.shell.state === 'on') && (
+          <>
+            {props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installedHintApp')}</div>}
+            <IntegrationWrite card={props.integrations.shell} desktop />
+          </>
+        )}
+        {/* ブラウザでは書き込まない。入れるのは CLI で、承諾を求めてバックアップを取る。 */}
+        {!props.integrations.desktop && props.shell.state === 'off' && (
           <>
             <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installHint', { zshrc: props.shell.zshrc })}</div>
             <CommandLine command={props.shell.command} />
           </>
         )}
-        {props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installedHint', { uninstall: props.shell.uninstallCommand })}</div>}
+        {!props.integrations.desktop && props.shell.state === 'on' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.installedHint', { uninstall: props.shell.uninstallCommand })}</div>}
         {props.shell.state === 'unsupported' && <div className="faint" style={{ marginTop: 8 }}>{t('settings.integrations.shell.noTmux', { install: muxInstallCommand(clientPlatform()) })}</div>}
         <div className="faint" style={{ marginTop: 4 }}>{t('settings.integrations.shell.adopt')}</div>
       </section>}

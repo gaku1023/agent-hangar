@@ -5,7 +5,7 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, render } from '../i18n/message.ts';
 import { noteApplied } from '../db/notify.ts';
 import { adoptNoteFromOldSession, applyRemoteBatch, type MemoConflict, type SessionMemoBackup } from './apply.ts';
-import { CloudError, CompatError, goneFloor, LimitError, type CloudClient } from './client.ts';
+import { CloudError, CompatError, goneFloor, LimitError, RevokedError, type CloudClient } from './client.ts';
 import { SyncStateStore } from './state.ts';
 
 /** 時計は必ず注入する。テストは FakeTimers（packages/server/test/fake-timers.ts）を渡す。 */
@@ -24,7 +24,7 @@ export type SyncEngineDeps = {
    */
   onMemoConflict?: (o: MemoConflict) => void;
   /**
-   * セッションの名前かメモ（session_notes）を他端末の新しい版で上書きしたときに呼ばれる。
+   * セッションの名前（session_notes）を他端末の新しい版で上書きしたときに呼ばれる。
    * 控えのファイルはもう書かれている（apply.ts が backups/memos に残す）ので、
    * ここでやることは利用者に置き場を知らせることだけである。投げても適用は止まらない。
    */
@@ -155,6 +155,12 @@ export class SyncEngine {
    * 残すと、直した後も止まり続ける。
    */
   private compatBlock: string | null = null;
+  /**
+   * この PC が同期から解除されたと Worker に言われた（RevokedError）。
+   * 版で止まったときと同じく、止めて、sync_state には残さない。
+   * 立て直せば最初の要求でまた断られて立ち、参加し直した後なら立たない。利用者の「今すぐ同期」でも 1 度だけ試し直す。
+   */
+  private revokedBlock = false;
   private started = false;
   /** 413 で諦めた行。同じ行で何度も知らせない。 */
   private readonly oversizeTold = new Set<string>();
@@ -192,10 +198,13 @@ export class SyncEngine {
    */
   private onePass = false;
   /** push と pull の入口を閉じているか。版で止まっているとき、上限で退いているとき、一時停止していて頼まれた 1 巡の最中でもないとき。 */
-  private get halted(): boolean { return this.compatBlock !== null || this.limitedUntil() !== null || (this.paused && !this.onePass); }
+  private get halted(): boolean { return this.compatBlock !== null || this.revokedBlock || this.limitedUntil() !== null || (this.paused && !this.onePass); }
 
   /** 互換の版が合わずに止まっているか。本文と設定の出し入れと使用量も、これを見て止まる（sync/halt.ts の syncHalted）。 */
   compatBlocked(): boolean { return this.compatBlock !== null; }
+
+  /** この PC が同期から解除されて止まっているか。本文と設定の出し入れと使用量も、これを見て止まる。 */
+  revoked(): boolean { return this.revokedBlock; }
 
   /**
    * Cloudflare の上限で退いている間の、戻る時刻。退いていなければ null。
@@ -254,7 +263,10 @@ export class SyncEngine {
   protected failPush(e: unknown): void { if (this.noteLimit(e)) return; this.pushError = this.errorText(e); this.noteCompat(e); this.persistError(); }
   protected failPull(e: unknown): void { if (this.noteLimit(e)) return; this.pullError = this.errorText(e); this.noteCompat(e); this.persistError(); }
   /** 版が合わないと分かったら止める。理由の文は CompatError が持っている（どちらを上げればよいか）。 */
-  private noteCompat(e: unknown): void { if (e instanceof CompatError) this.compatBlock = this.errorText(e); }
+  private noteCompat(e: unknown): void {
+    if (e instanceof CompatError) this.compatBlock = this.errorText(e);
+    if (e instanceof RevokedError) this.revokedBlock = true;
+  }
   protected clearPushError(): void { if (this.pushError === null) return; this.pushError = null; this.persistError(); }
   protected clearPullError(): void { if (this.pullError === null) return; this.pullError = null; this.persistError(); }
   private persistError(): void { this.state.set('lastError', this.lastError); }
@@ -272,7 +284,7 @@ export class SyncEngine {
     const limitedUntil = this.deps.client && !this.paused ? this.limitedUntil() : null;
     const state: SyncStateKind = !this.deps.client ? 'off'
       // 版で止まっているときは、一時停止より先に見せる。直す道（どちらを上げるか）が error の文にしか無いからである。
-      : this.compatBlock !== null ? 'error'
+      : this.compatBlock !== null || this.revokedBlock ? 'error'
       : this.paused || limitedUntil !== null ? 'paused'
       : this.pushing ? 'pushing'
       : this.pulling ? 'pulling'
@@ -291,9 +303,11 @@ export class SyncEngine {
       // off のあいだは送り先が無いので数えない（入れたての端末が、同期していないのに「未送信の変更 3」と出していた）。
       // 行は changes に残り、同期を有効にした後の push で送る。
       pending: state === 'off' ? 0 : this.pending(),
-      error: state === 'error' ? (this.compatBlock ?? this.lastError) : null,
+      error: state === 'error' ? (this.compatBlock ?? (this.revokedBlock ? this.errorText(new RevokedError()) : null) ?? this.lastError) : null,
       deviceCount: this.deviceCount(),
       limitedUntil: shownLimit,
+      // 解除されたことは error の文でも言うが、画面は節の先頭に専用の帯を出すので、印を別に載せる。
+      revoked: this.revokedBlock,
     };
   }
 
@@ -595,7 +609,7 @@ export class SyncEngine {
     return applied.length;
   }
 
-  /** 古い形の sessions の行が持っていた名前とメモを、本物の行が届かなかったものだけ拾う。 */
+  /** 古い形の sessions の行が持っていた名前を、本物の行が届かなかったものだけ拾う（メモは拾わない）。 */
   private adoptOldNotes(): void {
     if (this.oldNotes.size === 0) return;
     const rows = [...this.oldNotes.values()];
@@ -628,7 +642,7 @@ export class SyncEngine {
       for (const [k, c] of before) if (!failed.has(k) && this.carried.get(k) === c) this.uncarry(k);
     }
     if (endOfPass) {
-      // 古い形の行の名前とメモは、写しの後の差分まで読み切ってから拾う。差分で本物の行が届くことがある。
+      // 古い形の行の名前は、写しの後の差分まで読み切ってから拾う。差分で本物の行が届くことがある。
       this.adoptOldNotes();
       this.expireCarried();
     }
@@ -738,6 +752,7 @@ export class SyncEngine {
     // 一時停止のまま何も送らない回では外さない。外すと、試してもいないのに表示だけが変わる。
     if (!this.paused || o.evenIfPaused || this.onePass) {
       this.compatBlock = null;
+      this.revokedBlock = false;
       this.state.set('limitedUntil', null);
     }
     if (!o.evenIfPaused || !this.paused || this.onePass) {
@@ -756,7 +771,7 @@ export class SyncEngine {
 
   /** セッション起動の直前に呼ぶ。2 秒で諦めるが pull 自体は続く。 */
   async pullBeforeLaunch(timeoutMs = 2000): Promise<boolean> {
-    if (!this.deps.client || this.paused || this.compatBlock !== null || this.limitedUntil() !== null) return false;
+    if (!this.deps.client || this.paused || this.compatBlock !== null || this.revokedBlock || this.limitedUntil() !== null) return false;
     let timer: NodeJS.Timeout | null = null;
     const gaveUp = new Promise<boolean>((r) => { timer = this.timers.setTimeout(() => r(false), timeoutMs); });
     const done = this.pulling ?? this.pullNow();

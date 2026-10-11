@@ -1,9 +1,10 @@
-import { encodeJoinToken } from '@agent-hangar/shared';
+import { encodeJoinToken, type CloudDevicesDto } from '@agent-hangar/shared';
 import { readCloudConfig } from '../config/cloud.ts';
 import { defaultManagedDir, RetentionService } from '../provider/claude-code/config/retention.ts';
 import { ConfigSyncService } from '../sync/config/service.ts';
 import { HttpCloudClient } from '../sync/client.ts';
 import { deriveFileKey } from '../sync/crypto.ts';
+import { loadCloudDevices } from '../sync/devices.ts';
 import { SyncEngine } from '../sync/engine.ts';
 import { syncHalted } from '../sync/halt.ts';
 import { memoLossHandlers, type Toast } from '../sync/notices.ts';
@@ -52,6 +53,8 @@ export type SyncParts = {
   publishConfigSync(): void;
   /** 参加トークン。全セッションの読み書き権を持つ。作るのはここだけで、ログにも例外にも出さない。 */
   joinToken(): string | null;
+  /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。 */
+  cloudDevices(): Promise<CloudDevicesDto>;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -98,7 +101,7 @@ export function bootSync(
    * 互換の版が合わずに止まっているときも止まっていると答える（1 巡の最中でも）。
    * 本文と設定の出し入れはどれもここを見るので、その 1 巡だけ通る。
    */
-  const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: once.pass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null });
+  const isPaused = (): boolean => syncHalted({ paused: engine.status().state === 'paused', oncePass: once.pass.active(), compatBlocked: engine.compatBlocked(), limited: engine.limitedUntil() !== null, revoked: engine.revoked() });
   const pruneBackups = backupPruner(home.home);
   const client = cloud ? new HttpCloudClient({ url: cloud.url, token: cloud.deviceToken }) : null;
   const fileKey = cloud ? deriveFileKey(cloud.joinSecret) : Buffer.alloc(32);
@@ -167,6 +170,7 @@ export function bootSync(
     syncNow: once.syncNow,
     publishConfigSync,
     joinToken: () => (cloud ? encodeJoinToken({ url: cloud.url, secret: cloud.joinSecret }) : null),
+    cloudDevices: () => loadCloudDevices({ client, deviceId, creator: cloud?.workerName != null, language: home.language }),
     start() {
       publishConfigSync();
       // 最初の同期の完了を待たない。

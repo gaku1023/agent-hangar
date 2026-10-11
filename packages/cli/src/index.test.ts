@@ -295,3 +295,25 @@ describe('hangar start', () => {
     expect(await probeHealth(port, 500)).toBe(false);
   }, 90_000);
 });
+
+describe('連携の書き込みの --dry-run --json（殻の承諾の窓が読む）', () => {
+  it('mcp、shell、statusline の見立てを 1 行の JSON で出し、何も書かない', async () => {
+    const claudeJson = path.join(path.dirname(home), '.claude.json');
+    fs.writeFileSync(claudeJson, JSON.stringify({ mcpServers: { hangar: { type: 'http', url: 'http://127.0.0.1:4177/mcp' } } }));
+    const before = fs.readFileSync(claudeJson, 'utf8');
+    for (const [args, target] of [[['mcp', 'uninstall'], 'mcp-uninstall'], [['shell', 'uninstall'], 'shell-uninstall'], [['statusline', 'uninstall'], 'statusline-uninstall'], [['statusline', 'install'], 'statusline-install']] as const) {
+      const r = await runCli([...args, '--dry-run', '--json'], 60_000, { CLAUDE_CONFIG_DIR: '' });
+      expect(r.code, r.out).toBe(0);
+      const j = JSON.parse(r.out.trim().split('\n').at(-1)!) as { ok: boolean; plan: { target: string; state: string } };
+      expect(j.ok).toBe(true);
+      expect(j.plan.target).toBe(target);
+    }
+    expect(fs.readFileSync(claudeJson, 'utf8')).toBe(before);
+  }, 120_000);
+
+  it('--json の書き込みは --yes が無ければ断る', async () => {
+    const r = await runCli(['statusline', 'uninstall', '--json']);
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.out.trim())).toMatchObject({ ok: false, code: 'confirm-required' });
+  });
+});

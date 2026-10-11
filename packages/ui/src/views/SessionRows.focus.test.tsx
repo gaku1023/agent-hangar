@@ -4,7 +4,7 @@ import { ActionRoot } from '../action/chain.tsx';
 import type { SessionRowProps } from '../presenters/row.ts';
 import { SessionRows } from './SessionRows.tsx';
 
-const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const ROWS = [row('a'), row('b'), row('c'), row('d')];
 const mount = (rows: SessionRowProps[] = ROWS, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><SessionRows rows={rows} height={400} variant="project" /></ActionRoot>), onAction });
 const rowsOf = () => [...screen.getByTestId('session-rows').querySelectorAll<HTMLElement>('[role="row"]')];
@@ -51,15 +51,15 @@ describe('SessionRows の打鍵と行の印', () => {
     mount([row('z', { state: 'archived' }), row('y')]);
     expect(rowsOf().map((x) => x.getAttribute('data-archived'))).toEqual(['true', null]);
   });
-  it('project の変種は、行にプロジェクト名とモデルとコストと鉛筆を出さず、PR の番号とノートの印は出す', () => {
-    render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[row('p', { model: 'opus', cost: '$1.00', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', memo: '覚書' })]} height={400} variant="project" /></ActionRoot>);
+  it('project の変種は、行にプロジェクト名とモデルとコストと鉛筆を出さず、PR の番号は出す。ノートの印は無い', () => {
+    render(<ActionRoot onAction={vi.fn()}><SessionRows rows={[row('p', { model: 'opus', cost: '$1.00', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88' })]} height={400} variant="project" /></ActionRoot>);
     const r = rowsOf()[0]!;
     expect(r.querySelector('.row-proj')).toBeNull();
     expect(r.querySelector('.row-meta')).toBeNull();
     expect(r.querySelector('.memo-pencil')).toBeNull();
     expect(r).not.toHaveTextContent('$1.00');
     expect(r.querySelector('.row-pr')).toHaveTextContent('88');
-    expect(r.querySelector('.row-note')).not.toBeNull();
+    expect(r.querySelector('.row-note')).toBeNull();
   });
 });
 

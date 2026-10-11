@@ -68,6 +68,7 @@ export const homeKeys = {
   'home.ready.mcp.ok': [],
   'home.ready.statusline.text': [],
   'home.ready.statusline.noScript': [],
+  'home.ready.statusline.noScriptApp': [],
   'home.ready.statusline.ok': [],
   'home.ready.compat.drift': ['n'],
   'home.ready.compat.unverified': ['local', 'verified'],

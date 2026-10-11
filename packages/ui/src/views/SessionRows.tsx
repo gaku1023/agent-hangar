@@ -114,13 +114,10 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   // カーソルは一覧の中だけの状態なので Mediator には置かない。
   // 行の番号ではなくセッションの id で持つ。
   // 行の DOM は id で付いて動くので、番号で持つと並びが変わったときにフォーカスの行とカーソルの行が食い違い、Enter で別の行が開く。
-  // null は未選択で、このとき Enter や o や m は何も起こさない。
+  // null は未選択で、このとき Enter や o は何も起こさない。
   // 選んでいた行が一覧から消えたときも未選択に戻る。
   const [cursorId, setCursorId] = useState<string | null>(null);
   const cursor = cursorId === null ? -1 : rows.findIndex((r) => r.id === cursorId);
-  // 編集中のセッションの id。null なら編集していない。
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
 
   const hostRef = useRef<HTMLDivElement>(null);
   // 打鍵でカーソルを動かしたときだけ、フォーカスをその行へ運ぶ。
@@ -159,17 +156,6 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     const scroller = hostRef.current?.querySelector('.list-scroll');
     if (scroller) scroller.scrollTop = 0;
   }, [props.page]);
-
-  const startEdit = (r: SessionRowProps) => { setEditing(r.id); setDraft(r.memo ?? ''); };
-  // Enter と Esc で編集を終えたら、フォーカスを行へ戻す。入力欄が消えると、フォーカスの行き場が無くなるからである。
-  const requestFocusBack = useRef(false);
-  const endEdit = () => { setEditing(null); requestFocusBack.current = true; };
-  useEffect(() => {
-    if (editing !== null || !requestFocusBack.current) return;
-    requestFocusBack.current = false;
-    cursorRow()?.focus({ preventScroll: true });
-  }, [editing]);
-  const commit = (id: string) => { emit({ type: 'session.setMemo', id, text: draft }); endEdit(); };
 
   // 「⋯」が閉じた。打鍵で開いたものを選んで閉じた・Esc で閉じたときは、フォーカスを行へ戻す。外を押した・Tab はそれぞれの行き先に任せる。
   const menuClosed = (id: string, how: MenuCloseHow) => {
@@ -218,8 +204,6 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   });
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
-    // 編集中の入力欄から上がってきたキーは横取りしない。
-    if (editing !== null) return;
     // 行の中のボタンやリンクの打鍵は、その部品のものである。Enter で行まで開くと二重になる。
     if (e.target !== e.currentTarget && (e.target as HTMLElement).getAttribute('role') !== 'row') return;
     // ⌘ や Ctrl の付いた打鍵はアプリ全体のもの（⌘K や ⌘J）なので、一覧では使わない。
@@ -233,7 +217,6 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       case 'Enter': if (cur) emit(openAction(cur)); break;
       case 'o': if (cur?.runId) emit({ type: 'session.openTerminalApp', runId: cur.runId }); break;
       case 'e': if (cur) emit({ type: 'session.openEditor', sessionId: cur.id }); break;
-      case 'm': if (cur) startEdit(cur); break;
       // 状態の 4 択。カーソルの行の「⋯」を押したのと同じにする（見えていなくても押せる）。
       case '.': if (cur) { cursorRow()?.querySelector<HTMLButtonElement>('.row-more button')?.click(); menuFromKey.current = cur.id; } break;
       default: return;
@@ -243,21 +226,9 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
 
   if (items.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? t('row.empty.default')}</div>}</div>;
 
-  const memoEditor = (r: SessionRowProps) => (
-    <input className="input memo-input" autoFocus aria-label={t('row.note.label', { name: r.name })} value={draft} onChange={(e) => setDraft(e.target.value)} onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        // 入力欄のキーは行にも一覧にも渡さない。
-        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(r.id); }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endEdit(); }
-        else e.stopPropagation();
-      }}
-      onBlur={() => setEditing(null)} />
-  );
-
-  // 2 段目。頭に要約の見立ての札を置き（B1）、検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。右端に PR の番号とノートの印を置く。
+  // 2 段目。頭に要約の見立ての札を置き（B1）、検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。右端に PR の番号を置く。
   const flat = props.variant !== 'recent';
   const sub = (r: SessionRowProps) => {
-    if (editing === r.id) return <span className="row-sub">{memoEditor(r)}</span>;
     const excerpt = flat && r.excerpt && r.excerpt.length > 0 ? r.excerpt : null;
     return (
       <span className="row-sub">
@@ -266,11 +237,10 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
         {/* 要約に当たった行の札（検索の結果）。一致した語そのものは要約の本文にあるので、ここは札だけにする。 */}
         {r.summaryMatch && <span className="row-tag">{t('list.match.summary')}</span>}
-        {flat && (r.prUrl || r.memo) && (
-          // 2 段目の右端。PR の番号とノートの印（設計書 2.2）。PR は外のブラウザで開くリンクで、行は開かない。
+        {flat && r.prUrl && (
+          // 2 段目の右端。PR の番号（設計書 2.2）。PR は外のブラウザで開くリンクで、行は開かない。
           <span className="row-marks">
-            {r.prUrl && <a className="row-pr" href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{prNumberOf(r.prUrl) ? t('row.mark.pr', { n: prNumberOf(r.prUrl)! }) : t('row.mark.prPlain')}</a>}
-            {r.memo && <span className="row-note"><Icon name="note" label={t('row.mark.note')} /></span>}
+            <a className="row-pr" href={r.prUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{prNumberOf(r.prUrl) ? t('row.mark.pr', { n: prNumberOf(r.prUrl)! }) : t('row.mark.prPlain')}</a>
           </span>
         )}
       </span>

@@ -206,7 +206,7 @@ describe('searchSessions の名前と要約', () => {
   };
   const summary = (sid: string, s: { title?: string; one_liner?: string; body?: string }) =>
     upsertShared(db, 'session_summaries', { session_id: sid, title: s.title ?? '', one_liner: s.one_liner ?? '', body: s.body ?? '', state: 'done', next_steps: '[]', source: 'in_session', source_model: null, based_on_turns: 2 }, 'd', 'session_id');
-  const note = (sid: string, name: string) => upsertShared(db, 'session_notes', { session_id: sid, name, memo: null, deleted_at: null }, 'd', 'session_id');
+  const note = (sid: string, name: string) => upsertShared(db, 'session_notes', { session_id: sid, name, deleted_at: null }, 'd', 'session_id');
   const fts = (sid: string, seq: number, text: string) => db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)').run(sid, null, seq, 'user', text);
   const ids = (r: { hits: { sessionId: string }[] }) => r.hits.map((h) => h.sessionId);
   // 3 本とも名前の列を空にして、固有の語だけで当たりを数えられるようにする。

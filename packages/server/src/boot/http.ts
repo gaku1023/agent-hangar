@@ -126,6 +126,7 @@ export function bootHttp(p: {
     configBundle: sync.configBundle,
     joinToken: sync.joinToken,
     devices: () => listDevices(db, device.id),
+    cloudDevices: sync.cloudDevices,
     shellHook: runs.shellHook,
     retention: sync.retention,
     readiness: runs.readiness,

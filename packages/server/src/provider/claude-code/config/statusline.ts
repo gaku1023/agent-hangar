@@ -90,9 +90,27 @@ export function statuslineSnippet(port: number): string {
   ].join('\n');
 }
 
-const expandHome = (p: string, homeDir: string) => (p === '~' ? homeDir : p.startsWith('~/') ? path.join(homeDir, p.slice(2)) : p);
+const expandHome = (p: string, homeDir: string) => (p === '~' ? homeDir : p.startsWith('~/') || p.startsWith('~\\') ? path.join(homeDir, p.slice(2)) : p);
 
-/** ~/.claude/settings.json の statusLine.command を読み、先頭の語がファイルならその絶対パスを返す。 */
+/** 引用符で包まれた語の外側の引用符を外す（Windows の "C:\\…\\statusline.ps1" など）。 */
+const unquote = (w: string) => (w.length >= 2 && ((w.startsWith('"') && w.endsWith('"')) || (w.startsWith("'") && w.endsWith("'"))) ? w.slice(1, -1) : w);
+
+/**
+ * command の中でスクリプトを指す語。
+ * bash、sh、zsh の後ろの語、pwsh や powershell の -File の後ろの語、それ以外は先頭の語である。
+ */
+function scriptWord(command: string): string | undefined {
+  const words = command.split(/\s+/);
+  const head = (words[0] ?? '').toLowerCase();
+  if (['bash', 'sh', 'zsh'].includes(head)) return words[1];
+  if (/^(pwsh|powershell)(\.exe)?$/.test(head)) {
+    const i = words.findIndex((w, n) => n > 0 && /^-(f|file)$/i.test(w));
+    return i === -1 ? undefined : words[i + 1];
+  }
+  return words[0];
+}
+
+/** ~/.claude/settings.json の statusLine.command を読み、スクリプトを指す語がファイルならその絶対パスを返す。 */
 export function resolveStatuslineScript(claudeDir: string, homeDir: string = os.homedir()): { command: string | null; scriptPath: string | null } {
   const file = path.join(claudeDir, 'settings.json');
   if (!fs.existsSync(file)) return { command: null, scriptPath: null };
@@ -104,10 +122,9 @@ export function resolveStatuslineScript(claudeDir: string, homeDir: string = os.
     return { command: null, scriptPath: null };
   }
   if (!command) return { command: null, scriptPath: null };
-  const words = command.split(/\s+/);
-  const first = ['bash', 'sh', 'zsh'].includes(words[0] ?? '') ? words[1] : words[0];
+  const first = scriptWord(command);
   if (!first) return { command, scriptPath: null };
-  const candidate = path.resolve(expandHome(first, homeDir));
+  const candidate = path.resolve(expandHome(unquote(first), homeDir));
   const ok = fs.existsSync(candidate) && fs.statSync(candidate).isFile();
   return { command, scriptPath: ok ? candidate : null };
 }
@@ -121,53 +138,154 @@ export function statuslineStatus(claudeDir: string, homeDir: string = os.homedir
 const stamp = (d: Date) =>
   `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
 
+/** PowerShell のスニペットの終わりの行。読んだ標準入力を、元のスクリプトが [Console]::In で読めるように戻す。 */
+const PS_SNIPPET_END = '[Console]::SetIn([System.IO.StringReader]::new($__hangar_input))';
+
+/** スクリプトが PowerShell か。拡張子で決める。 */
+export function isPowerShellScript(scriptPath: string): boolean {
+  return /\.ps1$/i.test(scriptPath);
+}
+
 /**
- * 入っているスニペットの行の範囲。目印の行から終わりの行までを見る。
+ * PowerShell のスクリプト（Windows の .ps1）に入れるスニペット。bash の形と同じことをする。
+ * 標準入力を読み、ヘッダのファイルが読めるときだけ、短い時間（0.3 秒）を区切ってサーバへ送る。失敗は黙る。
+ * 送り終えたら、読んだ内容を [Console]::SetIn で標準入力に戻す。元のスクリプトは [Console]::In.ReadToEnd() で同じ内容を読める。
+ * トークンはどのプロセスの引数にも載せない（同じプロセスの中で、ヘッダのファイルから読む）。
+ * PowerShell には裏で送る軽い道が無い（Start-Job は別のプロセスを起こして 1 秒近くかかる）ので、送るのは待つ。宛先は同じ PC なので短い。
+ */
+export function powershellStatuslineSnippet(port: number): string {
+  return [
+    STATUSLINE_MARKER,
+    '$__hangar_input = [Console]::In.ReadToEnd()',
+    "$__hangar_home = if ($env:HANGAR_HOME) { $env:HANGAR_HOME } else { Join-Path $HOME '.agent-hangar' }",
+    `$__hangar_header = Join-Path $__hangar_home '${STATUSLINE_HEADER_FILE}'`,
+    'if (Test-Path -LiteralPath $__hangar_header) {',
+    '  try {',
+    '    Add-Type -AssemblyName System.Net.Http',
+    "    $__hangar_auth = ((Get-Content -LiteralPath $__hangar_header -Raw) -replace '^Authorization:\\s*', '').Trim()",
+    `    $__hangar_req = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Post, 'http://127.0.0.1:${port}/api/ingest/statusline')`,
+    "    $null = $__hangar_req.Headers.TryAddWithoutValidation('Authorization', $__hangar_auth)",
+    "    $__hangar_req.Content = [System.Net.Http.StringContent]::new($__hangar_input, [System.Text.Encoding]::UTF8, 'application/json')",
+    '    $__hangar_http = [System.Net.Http.HttpClient]::new()',
+    '    $null = $__hangar_http.SendAsync($__hangar_req).Wait(300)',
+    '  } catch {}',
+    '}',
+    PS_SNIPPET_END,
+    '',
+  ].join('\n');
+}
+
+/** スクリプトの種類に合うスニペット。.ps1 は PowerShell の形、ほかは bash の形である。 */
+export function statuslineSnippetFor(scriptPath: string, port: number): string {
+  return isPowerShellScript(scriptPath) ? powershellStatuslineSnippet(port) : statuslineSnippet(port);
+}
+
+/** 行に分ける。改行の形（CRLF か LF）は eol に覚え、行の中に \r を残さない。 */
+function splitLines(src: string): { lines: string[]; eol: string } {
+  const eol = src.includes('\r\n') ? '\r\n' : '\n';
+  return { lines: src.split(/\r?\n/), eol };
+}
+
+/**
+ * 入っているスニペットの行の範囲。目印の行から終わりの行（bash か PowerShell）までを見る。
  * 手で書き換えられていて終わりの行が見つからないときは null を返し、呼び手は何もしない。
  */
 function snippetRange(lines: string[]): { from: number; to: number } | null {
   const from = lines.indexOf(STATUSLINE_MARKER);
   if (from === -1) return null;
-  const limit = Math.min(lines.length, from + 20);
-  for (let i = from + 1; i < limit; i++) if (lines[i] === SNIPPET_END) return { from, to: i };
+  const limit = Math.min(lines.length, from + 24);
+  for (let i = from + 1; i < limit; i++) if (lines[i] === SNIPPET_END || lines[i] === PS_SNIPPET_END) return { from, to: i };
   return null;
 }
 
+/** スニペットの行（末尾の空の要素を除く）を、ファイルの改行の形でつなぐ。 */
+const snippetLines = (scriptPath: string, port: number) => statuslineSnippetFor(scriptPath, port).split('\n').slice(0, -1);
+
 /** 入っているスニペットが今の形かどうか。目印が無ければ偽。 */
 export function statuslineSnippetUpToDate(scriptPath: string, port: number): boolean {
-  const lines = fs.readFileSync(scriptPath, 'utf8').split('\n');
-  const r = snippetRange(lines);
-  return r !== null && `${lines.slice(r.from, r.to + 1).join('\n')}\n` === statuslineSnippet(port);
+  return planStatuslineSnippet(fs.readFileSync(scriptPath, 'utf8'), scriptPath, port).kind === 'same';
+}
+
+/**
+ * PowerShell のスクリプトの先頭に、自動で入れてよいか。
+ * param の塊は最初の文でなければならないので、その前には入れられない（ps-param）。
+ * $input で標準入力を読むスクリプトは、[Console]::SetIn で戻した内容を読めないことがある（ps-input）。
+ * どちらも、何も書かずに断り、手で入れる道を案内する。
+ */
+function powershellBlock(src: string): 'ps-param' | 'ps-input' | null {
+  const body = src.replace(/^﻿/, '').replace(/<#[\s\S]*?#>/g, '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('#'));
+  const head = (body[0] ?? '').toLowerCase();
+  if (/^param\s*\(/.test(head) || /^\[cmdletbinding/.test(head)) return 'ps-param';
+  if (/\$input\b/i.test(src)) return 'ps-input';
+  return null;
+}
+
+/**
+ * 書く中身だけを決める。書かない。
+ * add は新しく入れる、replace は古い形を今の形に差し替える、same は今の形が入っている、
+ * unreadable は目印はあるが範囲を読み取れない（手で書き換えられている）、ps-param と ps-input は PowerShell で自動では入れられないもの。
+ * bash の形は shebang の直後（無ければ先頭）、PowerShell の形は先頭に入れる。改行の形はファイルに合わせる。
+ */
+export type StatuslineEdit = { kind: 'add' | 'replace'; next: string } | { kind: 'same' | 'unreadable' | 'ps-param' | 'ps-input' };
+export function planStatuslineSnippet(src: string, scriptPath: string, port: number): StatuslineEdit {
+  const { lines, eol } = splitLines(src);
+  const want = snippetLines(scriptPath, port);
+  if (lines.includes(STATUSLINE_MARKER)) {
+    const range = snippetRange(lines);
+    if (!range) return { kind: 'unreadable' };
+    const cur = lines.slice(range.from, range.to + 1);
+    if (cur.length === want.length && cur.every((l, i) => l === want[i])) return { kind: 'same' };
+    return { kind: 'replace', next: [...lines.slice(0, range.from), ...want, ...lines.slice(range.to + 1)].join(eol) };
+  }
+  if (isPowerShellScript(scriptPath)) {
+    const block = powershellBlock(src);
+    if (block) return { kind: block };
+    const bom = src.startsWith('﻿') ? '﻿' : '';
+    return { kind: 'add', next: `${bom}${want.join(eol)}${eol}${src.slice(bom.length)}` };
+  }
+  const snippet = want.join(eol) + eol;
+  const nl = src.indexOf('\n');
+  // shebang の行だけで改行が無いときは、行を閉じてからスニペットを足す。
+  const hasShebang = src.startsWith('#!');
+  const head = hasShebang ? (nl === -1 ? `${src}${eol}` : src.slice(0, nl + 1)) : '';
+  const rest = hasShebang ? (nl === -1 ? '' : src.slice(nl + 1)) : src;
+  return { kind: 'add', next: head + snippet + rest };
+}
+
+/** 外す中身だけを決める。remove は目印から終わりの行までを除いたもの、absent は入っていない、unreadable は範囲を読み取れない。 */
+export type StatuslineRemoval = { kind: 'remove'; next: string } | { kind: 'absent' | 'unreadable' };
+export function planStatuslineRemoval(src: string): StatuslineRemoval {
+  const { lines, eol } = splitLines(src);
+  if (!lines.includes(STATUSLINE_MARKER)) return { kind: 'absent' };
+  const range = snippetRange(lines);
+  if (!range) return { kind: 'unreadable' };
+  return { kind: 'remove', next: [...lines.slice(0, range.from), ...lines.slice(range.to + 1)].join(eol) };
+}
+
+/** バックアップを取ってから、決めた中身を書く。実行権限は保つ。 */
+function writeWithBackup(scriptPath: string, next: string, now: Date): string {
+  const backup = `${scriptPath}.bak-${stamp(now)}`;
+  fs.copyFileSync(scriptPath, backup);
+  const mode = fs.statSync(scriptPath).mode;
+  fs.writeFileSync(scriptPath, next, { mode });
+  return backup;
 }
 
 /**
  * バックアップを取ってから、shebang の直後（無ければ先頭）にスニペットを入れる。
  * 既に入っていて今の形と違えば、その範囲だけを差し替える。
  * 目印だけを見て何もしないと、トークンを argv に載せる古い形が残り続けるためである。
+ * 書く中身は planStatuslineSnippet が決める（承諾の窓で見せる差分と同じもの）。
  */
 export function appendStatuslineSnippet(scriptPath: string, port: number, now: Date = new Date()): { changed: boolean; backup: string | null } {
-  const src = fs.readFileSync(scriptPath, 'utf8');
-  if (src.includes(STATUSLINE_MARKER)) {
-    const lines = src.split('\n');
-    const range = snippetRange(lines);
-    if (!range) return { changed: false, backup: null };
-    const snippet = statuslineSnippet(port);
-    if (`${lines.slice(range.from, range.to + 1).join('\n')}\n` === snippet) return { changed: false, backup: null };
-    const backup = `${scriptPath}.bak-${stamp(now)}`;
-    fs.copyFileSync(scriptPath, backup);
-    const mode = fs.statSync(scriptPath).mode;
-    const next = [...lines.slice(0, range.from), ...snippet.split('\n').slice(0, -1), ...lines.slice(range.to + 1)].join('\n');
-    fs.writeFileSync(scriptPath, next, { mode });
-    return { changed: true, backup };
-  }
-  const backup = `${scriptPath}.bak-${stamp(now)}`;
-  fs.copyFileSync(scriptPath, backup);
-  const nl = src.indexOf('\n');
-  // shebang の行だけで改行が無いときは、行を閉じてからスニペットを足す。
-  const hasShebang = src.startsWith('#!');
-  const head = hasShebang ? (nl === -1 ? `${src}\n` : src.slice(0, nl + 1)) : '';
-  const rest = hasShebang ? (nl === -1 ? '' : src.slice(nl + 1)) : src;
-  const mode = fs.statSync(scriptPath).mode;
-  fs.writeFileSync(scriptPath, head + statuslineSnippet(port) + rest, { mode });
-  return { changed: true, backup };
+  const plan = planStatuslineSnippet(fs.readFileSync(scriptPath, 'utf8'), scriptPath, port);
+  if (plan.kind !== 'add' && plan.kind !== 'replace') return { changed: false, backup: null };
+  return { changed: true, backup: writeWithBackup(scriptPath, plan.next, now) };
+}
+
+/** 入っているスニペットを外す。バックアップを取ってから書く。入っていないか、範囲を読み取れなければ触らない。 */
+export function removeStatuslineSnippet(scriptPath: string, now: Date = new Date()): { changed: boolean; backup: string | null } {
+  const plan = planStatuslineRemoval(fs.readFileSync(scriptPath, 'utf8'));
+  if (plan.kind !== 'remove') return { changed: false, backup: null };
+  return { changed: true, backup: writeWithBackup(scriptPath, plan.next, now) };
 }

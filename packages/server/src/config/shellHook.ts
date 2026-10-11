@@ -213,30 +213,45 @@ const stamp = (d: Date) =>
   `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
 
 /**
+ * 足した後の中身を決める。書かない。今の形の行がちょうど 1 行あれば null。
+ * もう目印の行があれば、その行を外してから末尾に今の形を足す（置き場を変えたときに古い行を残さない）。
+ */
+export function planShellHook(cur: string | null, line: string): string | null {
+  const lines = cur === null ? [] : cur.split('\n');
+  const marked = lines.filter((l) => l.includes(SHELL_MARKER));
+  if (marked.length === 1 && marked[0] === line) return null;
+  const body = lines.filter((l) => !l.includes(SHELL_MARKER)).join('\n').replace(/\n*$/, '');
+  return `${body === '' ? '' : `${body}\n`}${line}\n`;
+}
+
+/** 目印の行を外した後の中身を決める。書かない。目印の行が無ければ null。 */
+export function planShellUnhook(cur: string | null): string | null {
+  if (cur === null) return null;
+  const lines = cur.split('\n');
+  const kept = lines.filter((l) => !l.includes(SHELL_MARKER));
+  return kept.length === lines.length ? null : kept.join('\n');
+}
+
+/**
  * ~/.zshrc の末尾に 1 行を足す。書き換える前に同じディレクトリへ控えを取る。
- * もう目印の行があれば、その行を今の形に置き換える（置き場を変えたときに古い行を残さない）。
+ * 書く中身は planShellHook が決める（承諾の窓で見せる差分と同じもの）。
  */
 export function installShellHook(zshrc: string, line: string, now: Date = new Date()): { changed: boolean; backup: string | null } {
   const cur = readText(zshrc);
-  const lines = cur === null ? [] : cur.split('\n');
-  if (shellHookUpToDate(zshrc, line)) return { changed: false, backup: null };
-  const kept = lines.filter((l) => !l.includes(SHELL_MARKER));
+  const next = planShellHook(cur, line);
+  if (next === null) return { changed: false, backup: null };
   const backup = cur === null ? null : `${zshrc}.bak-${stamp(now)}`;
   if (backup) fs.copyFileSync(zshrc, backup);
-  const body = kept.join('\n').replace(/\n*$/, '');
-  fs.writeFileSync(zshrc, `${body === '' ? '' : `${body}\n`}${line}\n`);
+  fs.writeFileSync(zshrc, next);
   return { changed: true, backup };
 }
 
 /** 目印の付いた行だけを消す。控えを取ってから書く。 */
 export function uninstallShellHook(zshrc: string, now: Date = new Date()): { changed: boolean; backup: string | null } {
-  const cur = readText(zshrc);
-  if (cur === null) return { changed: false, backup: null };
-  const lines = cur.split('\n');
-  const kept = lines.filter((l) => !l.includes(SHELL_MARKER));
-  if (kept.length === lines.length) return { changed: false, backup: null };
+  const next = planShellUnhook(readText(zshrc));
+  if (next === null) return { changed: false, backup: null };
   const backup = `${zshrc}.bak-${stamp(now)}`;
   fs.copyFileSync(zshrc, backup);
-  fs.writeFileSync(zshrc, kept.join('\n'));
+  fs.writeFileSync(zshrc, next);
   return { changed: true, backup };
 }

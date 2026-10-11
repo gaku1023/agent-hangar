@@ -84,8 +84,6 @@ export type NowCardProps = {
   detail: string | null;
   /** detail が Claude の問いか。真なら「Claude の問い」の見出しを付けて目立たせる。 */
   question: boolean;
-  /** 見出しの行の「ノート」の札に渡すノート。 */
-  note: { text: string; filled: boolean };
   intent: CardIntent;
   /** 札に縦に並べる直近のツール呼び出し（3 つまで）。全部は stepsAll（直近 30 回まで）で、「ほか N」の札のポップオーバーが使う。 */
   steps: CardStep[];
@@ -99,7 +97,6 @@ export type CardInput = LiveInput & {
   /** 入力待ちになってからの経過の文（「4 分」）。 */
   waited: string;
   artifacts: ArtifactCardProps[];
-  note: string | null;
 };
 
 const STRIP_STEPS = 3;
@@ -192,14 +189,13 @@ function stripLanes(i: LiveInput, t: Translate): NowCardProps['lanes'] {
 /**
  * 現在の札。セッション画面の右の欄の上（目次の上）に置く値を組む（2026-10-11 の試作の A2・B2）。
  * 状態の行、入力待ちの問い、意図の全文、直近 3 つのツール呼び出し、サブエージェントとアーティファクトの数の札である。
- * コンテキスト使用量、コスト、ターンとトークンは見出しの (i)（presentDetails）、ノートは見出しの札に出す。
+ * コンテキスト使用量、コスト、ターンとトークンは見出しの (i)（presentDetails）に出す。
  */
 export function presentNowCard(i: CardInput, t: Translate): NowCardProps {
   const results = i.results ?? resultsOf(i.events);
   const steps = stripSteps(i, results);
   return {
     ...stripState(i, t, results),
-    note: { text: i.note ?? '', filled: (i.note ?? '').trim() !== '' },
     intent: stripIntent(i, t),
     steps: steps.steps, stepsTotal: steps.total, stepsAll: steps.all,
     lanes: stripLanes(i, t),

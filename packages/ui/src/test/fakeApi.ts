@@ -5,9 +5,9 @@ import { accountsFixture } from './accounts.ts';
 type Extras = Pick<
   ApiClient,
   | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs'
-  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction' | 'setSessionMemo'
+  | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
-  | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken'
+  | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'cloudDevices'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'renameProject' | 'live' | 'sessionFiles' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
@@ -72,7 +72,6 @@ export function fakeApiExtras(): Extras {
     saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     instructions: vi.fn(async (projectId: string) => ({ projectId, available: true, files: [] })),
     openInstruction: vi.fn(async () => {}),
-    setSessionMemo: vi.fn(async () => unused()),
     addArtifact: vi.fn(async () => unused()),
     openArtifact: vi.fn(async () => {}),
     openArtifactEditor: vi.fn(async () => {}),
@@ -89,6 +88,7 @@ export function fakeApiExtras(): Extras {
     resumeHere: vi.fn(async () => unused()),
     // 参加トークンは押したときだけ取りに行く値なので、既定は未発行の null にする。
     joinToken: vi.fn(async () => ({ token: null })),
+    cloudDevices: vi.fn(async () => ({ state: 'off' as const, devices: [], creator: false, message: null })),
     // 設定の同期（作り直した実装）。既定は何も無い状態で、使うテストが自分で上書きする。
     configSyncState: vi.fn(async () => ({ enabled: false, workerPending: false, approval: 'each' as const, incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null })),
     configOutgoing: vi.fn(async () => ({ enabled: false, items: [], droppedKeys: [], unsentCount: 0, lastSentAt: null })),

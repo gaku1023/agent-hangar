@@ -11,7 +11,7 @@ const DAY = 86_400_000;
 const summary = (p: Partial<SessionSummaryDto> = {}): SessionSummaryDto => ({ title: 't', oneLiner: 'o', body: '商品一覧の画像を遅延読み込みにし、PR をマージした。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'qwen3-8b', basedOnTurns: 11, updatedAt: Date.UTC(2026, 9, 6, 9, 40), ...p });
 const state = (p: Partial<SessionStateDto> = {}): SessionStateDto => ({ status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: Date.UTC(2026, 9, 6, 3, 0), candidate: null, ...p });
 const session = (p: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, memo: null,
+  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, 
   hasTranscript: true, live: null, summary: summary(), stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
   fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: state(), parked: false, stoppedByStatus: false, liveAside: null, ...p,
 });
@@ -140,9 +140,8 @@ describe('冒頭の 1 枚の札（変更したファイル、アーティファ�
     expect(present({ session: session({ stats: { ...session().stats, prUrl: 'https://example.com/x' } }) }).pr).toEqual({ label: 'PR', url: 'https://example.com/x' });
     expect(present({ session: session({ stats: { ...session().stats, prUrl: null } }) }).pr).toBeNull();
   });
-  it('ノートは本文と、中身があるかを渡す', () => {
-    expect(present({ session: session({ memo: '詳細の頁は別のセッションで' }) }).note).toEqual({ text: '詳細の頁は別のセッションで', filled: true });
-    expect(present().note).toEqual({ text: '', filled: false });
+  it('ノートは渡さない（ノートは 0.4.0 で外した）', () => {
+    expect(present()).not.toHaveProperty('note');
   });
 });
 

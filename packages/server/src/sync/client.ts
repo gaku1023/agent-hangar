@@ -11,12 +11,17 @@ import {
   compatHeaders,
   encodeFileKeyPath,
   encodeHeaderText,
+  isSafeKeyId,
   isSafeRelPath,
   isValidFileKey,
   parseCompat,
   readCloudLimit,
   readCompatRefusal,
+  REVOKED_ERROR,
   type ChangeIn,
+  type CloudDeviceOut,
+  type CloudDeviceRevokeResponse,
+  type CloudDevicesResponse,
   type CloudLimitKind,
   type CloudUsageBody,
   type FileMetaIn,
@@ -70,6 +75,27 @@ export class CompatError extends CloudError {
   constructor(readonly upgrade: CompatUpgrade, readonly have: number, readonly need: number | null) {
     super(426, compatMessage(upgrade, have, need));
     this.name = 'CompatError';
+  }
+}
+
+/**
+ * この PC が同期から解除されているときに投げる（Worker が端末トークンを 401 の `{ error: 'revoked' }` で断った）。
+ * 受け手の SyncEngine は同期を止め、状態に revoked の印を立てる。直す道は参加トークンで参加し直すことだけである。
+ * message は応答の本文ではなく、利用者に見せる文である。
+ */
+export class RevokedError extends CloudError {
+  constructor() {
+    super(401, msg('sync.revoked.thisPc'));
+    this.name = 'RevokedError';
+  }
+}
+
+/** 401 の本文が解除の印か。本文は Worker のもので、形が違えば解除とは読まない。 */
+function isRevokedBody(text: string): boolean {
+  try {
+    return (JSON.parse(text) as { error?: unknown } | null)?.error === REVOKED_ERROR;
+  } catch {
+    return false;
   }
 }
 
@@ -191,6 +217,13 @@ export interface CloudClient {
   /** 使用量と費用。 */
   usage(): Promise<CloudUsageBody>;
   /**
+   * 同期に参加している PC の一覧（互換の版 5 の Worker から）。解除した PC も revokedAt つきで入る。
+   * 版 4 までの Worker は 404 を返す。偽物は実装しなくてよい。
+   */
+  listDevices?(): Promise<CloudDeviceOut[]>;
+  /** PC を解除する（自分自身も）。解除した PC の行を返す。 */
+  revokeDevice?(id: string): Promise<CloudDeviceOut>;
+  /**
    * Worker が最後に（2xx の応答で）名乗った互換の版。まだ話していなければ null。
    * 設定の同期が、Worker が束の行を知る版に届くまで行を書かないために読む。実装しない偽物は null を返してよい。
    */
@@ -285,6 +318,10 @@ export class HttpCloudClient implements CloudClient {
         d.clear();
         throw new LimitError(limit, res.status);
       }
+      if (res.status === 401 && isRevokedBody(text)) {
+        d.clear();
+        throw new RevokedError();
+      }
     }
     const workerCompat = parseCompat(res.headers.get(COMPAT_HEADER));
     // 版は 2xx の応答でだけ覚える。Cloudflare の端の応答は Worker の版を語らない。
@@ -326,6 +363,14 @@ export class HttpCloudClient implements CloudClient {
   listFiles(since: number, limit: number) { return this.json<ListFilesResponse>(`/files?since=${since}&limit=${limit}`); }
 
   usage() { return this.json<CloudUsageBody>('/usage'); }
+
+  async listDevices(): Promise<CloudDeviceOut[]> { return (await this.json<CloudDevicesResponse>('/devices')).devices; }
+
+  async revokeDevice(id: string): Promise<CloudDeviceOut> {
+    // ID は URL の断片に入る。Worker も入口で断るが、形の違うものは外へ出さない。
+    if (!isSafeKeyId(id)) throw new CloudError(400, JSON.stringify({ error: 'invalid id' }));
+    return (await this.json<CloudDeviceRevokeResponse>(`/devices/${encodeURIComponent(id)}/revoke`, { method: 'POST' })).device;
+  }
 
   async putFile(meta: FileMetaIn, body: Readable): Promise<{ seq: number }> {
     this.requireValidKey(meta.key);

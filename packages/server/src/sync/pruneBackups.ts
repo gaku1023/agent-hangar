@@ -31,8 +31,8 @@ export function pruneBackupFiles(root: string, kind: string, keep: number): numb
 }
 
 /**
- * セッションの名前とメモの控え（backups/memos）のうち、日数に依らず残す件数。新しい方から数える。
- * 控えは、負けた名前とメモの唯一の置き場である。日数だけで刈ると、しばらく使わなかった PC を起こした時点で消える。
+ * セッションの名前の控え（backups/memos。0.4.0 でノートを外す前はノートも入った）のうち、日数に依らず残す件数。新しい方から数える。
+ * 控えは、負けた名前の唯一の置き場である。日数だけで刈ると、しばらく使わなかった PC を起こした時点で消える。
  */
 export const MEMO_BACKUP_KEEP_COUNT = 200;
 
@@ -60,7 +60,7 @@ export function pruneBackupFilesByAge(root: string, kind: string, maxAgeMs: numb
   return removed;
 }
 
-/** セッションの名前とメモの控えを刈る。新しい方から 200 件は残し、超えた分のうち 180 日より古いものだけを消す。`home` は hangar の home である。 */
+/** セッションの名前の控えを刈る。新しい方から 200 件は残し、超えた分のうち 180 日より古いものだけを消す。`home` は hangar の home である。 */
 export function pruneMemoBackups(home: string, now: number = Date.now()): number {
   return pruneBackupFilesByAge(backupsRoot(home), 'memos', MEMO_BACKUP_KEEP_DAYS * 86_400_000, now, MEMO_BACKUP_KEEP_COUNT);
 }
@@ -100,7 +100,7 @@ function listBackupFiles(root: string, kind: string): { dir: string; files: { n:
  * 本文の控えに残す数は `BACKUP_GENERATIONS`（20）にする。
  * 覚える数が 1 つで済み、「控えは直近 20 回ぶん」という説明が同じになる。
  * 本文の控えはセッション 1 本ぶんの大きさがあるので、これ以上は溜めない。
- * セッションの名前とメモの控えだけは、件数と日数の両方で刈る（`pruneMemoBackups`。新しい方から `MEMO_BACKUP_KEEP_COUNT` 件は残し、超えた分のうち `MEMO_BACKUP_KEEP_DAYS` 日より古いものだけを消す）。
+ * セッションの名前の控えだけは、件数と日数の両方で刈る（`pruneMemoBackups`。新しい方から `MEMO_BACKUP_KEEP_COUNT` 件は残し、超えた分のうち `MEMO_BACKUP_KEEP_DAYS` 日より古いものだけを消す）。
  *
  * 刈るのは控えを取った後だけなので、「控えを取れなかったときは書き戻さない」という決まりには触らない。
  * いま取った控えは最も新しいので、この刈り込みで消えることはない。

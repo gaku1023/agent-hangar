@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { claudeJsonPath, upsertUserMcpServer } from './claudeJson.ts';
+import { claudeJsonPath, readUserMcpServers, removeUserMcpServer, upsertUserMcpServer } from './claudeJson.ts';
 import { expectMode, posixIt } from '../../../../test/platform.ts';
 
 let root: string;
@@ -148,5 +148,50 @@ describe('upsertUserMcpServer の安全（同時書き込み、リンク、控�
     const r2 = upsertUserMcpServer(other, 'hangar', { type: 'http' }, { backupDir: backups });
     expect(r2.tightened).toBe(false);
     expectMode(other, 0o700);
+  });
+});
+
+describe('removeUserMcpServer', () => {
+  it('mcpServers の hangar だけを消し、ほかの項目とサーバと mode を残し、控えを取る', () => {
+    fs.writeFileSync(file, JSON.stringify({ userID: 'u1', mcpServers: { other: { type: 'stdio' }, hangar: { type: 'http' } } }), { mode: 0o600 });
+    const r = removeUserMcpServer(file, 'hangar', { backupDir: backups, now: new Date(2026, 9, 12, 10, 31, 5) });
+    expect(r.changed).toBe(true);
+    expect(r.backup).toBe(path.join(backups, 'claude.json-20261012103105'));
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ userID: 'u1', mcpServers: { other: { type: 'stdio' } } });
+    expect(JSON.parse(fs.readFileSync(r.backup!, 'utf8')).mcpServers.hangar).toEqual({ type: 'http' });
+    expectMode(file, 0o600);
+  });
+
+  it('載っていなければ、書かずに控えも取らない', () => {
+    fs.writeFileSync(file, JSON.stringify({ userID: 'u1', mcpServers: { other: { type: 'stdio' } } }), { mode: 0o600 });
+    expect(removeUserMcpServer(file, 'hangar', { backupDir: backups })).toEqual({ changed: false, backup: null, file: fs.realpathSync(file) });
+    expect(fs.existsSync(backups)).toBe(false);
+    expect(removeUserMcpServer(path.join(dir, 'none.json'), 'hangar', { backupDir: backups }).changed).toBe(false);
+  });
+});
+
+describe('書く直前の確かめ（check）', () => {
+  it('ロックを取って読んだ中身を check に渡し、投げたら書かず、控えも取らない', () => {
+    fs.writeFileSync(file, JSON.stringify({ mcpServers: { other: { type: 'stdio' } } }), { mode: 0o600 });
+    const seen: unknown[] = [];
+    expect(() => upsertUserMcpServer(file, 'hangar', { type: 'http' }, { backupDir: backups, check: (cur) => { seen.push(cur.mcpServers); throw new Error('changed'); } })).toThrow('changed');
+    expect(seen).toEqual([{ other: { type: 'stdio' } }]);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ mcpServers: { other: { type: 'stdio' } } });
+    expect(fs.existsSync(backups)).toBe(false);
+    expect(fs.existsSync(`${fs.realpathSync(file)}.hangar-lock`)).toBe(false);
+    expect(() => removeUserMcpServer(file, 'other', { backupDir: backups, check: () => { throw new Error('changed'); } })).toThrow('changed');
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ mcpServers: { other: { type: 'stdio' } } });
+  });
+});
+
+describe('readUserMcpServers', () => {
+  it('mcpServers を読む。無いファイルと鍵は null、壊れた JSON は投げる', () => {
+    expect(readUserMcpServers(file)).toBeNull();
+    fs.writeFileSync(file, JSON.stringify({ userID: 'u1' }));
+    expect(readUserMcpServers(file)).toBeNull();
+    fs.writeFileSync(file, JSON.stringify({ mcpServers: { a: { type: 'stdio' } } }));
+    expect(readUserMcpServers(file)).toEqual({ a: { type: 'stdio' } });
+    fs.writeFileSync(file, '{ x');
+    expect(() => readUserMcpServers(file)).toThrow();
   });
 });

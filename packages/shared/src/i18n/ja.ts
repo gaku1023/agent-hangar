@@ -18,6 +18,7 @@ import { newProjectJa } from './ja/newProject.ts';
 import { newSessionJa } from './ja/newSession.ts';
 import { noticesJa } from './ja/notices.ts';
 import { muxJa } from './ja/mux.ts';
+import { approveJa } from './ja/approve.ts';
 import { pauseJa } from './ja/pause.ts';
 import { platformJa } from './ja/platform.ts';
 import { projectJa } from './ja/project.ts';
@@ -51,6 +52,7 @@ import { paletteJa } from './ja/palette.ts';
 import { connJa } from './ja/conn.ts';
 import { toastsJa } from './ja/toasts.ts';
 import { cloudUsageJa } from './ja/cloudUsage.ts';
+import { cloudMemberJa } from './ja/cloudMember.ts';
 import { readinessJa } from './ja/readiness.ts';
 import { compatJa } from './ja/compat.ts';
 import { dbJa } from './ja/db.ts';
@@ -77,6 +79,7 @@ export const ja: Dictionary = {
   ...newSessionJa,
   ...noticesJa,
   ...muxJa,
+  ...approveJa,
   ...pauseJa,
   ...platformJa,
   ...projectJa,
@@ -110,6 +113,7 @@ export const ja: Dictionary = {
   ...connJa,
   ...toastsJa,
   ...cloudUsageJa,
+  ...cloudMemberJa,
   ...readinessJa,
   ...compatJa,
   ...dbJa,

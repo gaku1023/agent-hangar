@@ -6,7 +6,7 @@ import type { ConfigApplyOrderItemDto, ConfigExecMark, ConfigInboxOp, ConfigItem
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { posixIt } from '../../../test/platform.ts';
 import { openDb, type Db } from '../../db/open.ts';
-import { ApplyError, planApply, planRestore, runApply, runRestore } from './apply.ts';
+import { ApplyError, planApply, planApplyFiles, planRestore, planRestoreFiles, runApply, runRestore } from './apply.ts';
 import { applyOrderPath } from './paths.ts';
 import { deleteApplyOrder, readApplyOrder, writeApplyOrder } from './applyOrder.ts';
 import { listBackups } from './backups.ts';
@@ -493,5 +493,75 @@ describe('指示書の読み書きの補助', () => {
     order(fileOrder('commands/a.md', 'create', 'A'));
     expect(deleteApplyOrder(home)).toBe(true);
     expect(deleteApplyOrder(home)).toBe(false);
+  });
+});
+
+describe('承諾の窓に見せる中身（ファイルごとの差分）と、書く直前の確かめ', () => {
+  function prepared(): void {
+    write('commands/over.md', 'old\n');
+    write('commands/del.md', 'bye\n');
+    write('settings.json', '{\n  "model": "sonnet"\n}\n');
+    new ConfigBase(db).set('file:commands/del.md', sha('bye\n'), NOW);
+    inbox('dev-b', [
+      { id: 'file:commands/new.md', kind: 'commands', content: 'N\n' },
+      { id: 'file:commands/over.md', kind: 'commands', content: 'O\n' },
+      { id: 'settings:model', kind: 'settings', content: '"opus"' },
+    ]);
+    order(
+      fileOrder('commands/new.md', 'create', 'N\n'),
+      fileOrder('commands/over.md', 'overwrite', 'O\n'),
+      fileOrder('commands/del.md', 'delete', null),
+      { id: 'settings:model', kind: 'settings', op: 'overwrite', content: '"opus"', target: 'settings.json#model' },
+    );
+  }
+
+  it('適用：書く先ごとに、新規、変更、削除と、手元から届いた中身への差分を返す。何も書かない', () => {
+    prepared();
+    const d = planApplyFiles({ home, claudeDir });
+    expect(d.files.map((f) => [f.rel, f.op])).toEqual([['commands/new.md', 'create'], ['commands/over.md', 'modify'], ['commands/del.md', 'remove'], ['settings.json', 'modify']]);
+    expect(d.files[0]!.path).toBe(abs('commands/new.md'));
+    expect(d.files[1]!.lines).toEqual([{ kind: 'del', text: 'old' }, { kind: 'add', text: 'O' }]);
+    expect(d.files[2]!.lines).toEqual([{ kind: 'del', text: 'bye' }]);
+    expect(d.files[3]!.lines).toEqual([{ kind: 'ctx', text: '{' }, { kind: 'del', text: '  "model": "sonnet"' }, { kind: 'add', text: '  "model": "opus"' }, { kind: 'ctx', text: '}' }]);
+    expect(d.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(read('commands/over.md')).toBe('old\n');
+    expect(fs.existsSync(applyOrderPath(home))).toBe(true);
+  });
+
+  it('適用：見せた後に手元のファイルが変わっていたら、何も書かずに changed で断り、指示書は残す', () => {
+    prepared();
+    const d = planApplyFiles({ home, claudeDir });
+    write('commands/over.md', 'edited by hand\n');
+    expect(fail(() => runApply({ ...ctx(), expect: d.fingerprint })).code).toBe('changed');
+    expect(read('commands/over.md')).toBe('edited by hand\n');
+    expect(exists('commands/new.md')).toBe(false);
+    expect(gens()).toEqual([]);
+    expect(fs.existsSync(applyOrderPath(home))).toBe(true);
+    // 合っていれば書く。
+    const again = planApplyFiles({ home, claudeDir });
+    expect(runApply({ ...ctx(), expect: again.fingerprint }).written).toBe(3);
+  });
+
+  it('戻す：書き戻すものと消すものの差分を返し、見せた後に変わっていたら戻さない', () => {
+    prepared();
+    const { generation } = runApply(ctx());
+    clock += 60_000;
+    const d = planRestoreFiles({ home, claudeDir, name: generation! });
+    expect(d.files.map((f) => [f.rel, f.op]).sort()).toEqual([['commands/del.md', 'create'], ['commands/new.md', 'remove'], ['commands/over.md', 'modify'], ['settings.json', 'modify']]);
+    expect(d.files.find((f) => f.rel === 'commands/over.md')!.lines).toEqual([{ kind: 'del', text: 'O' }, { kind: 'add', text: 'old' }]);
+    write('commands/over.md', 'edited\n');
+    expect(fail(() => runRestore({ ...ctx(), name: generation!, expect: d.fingerprint })).code).toBe('changed');
+    expect(read('commands/over.md')).toBe('edited\n');
+    expect(gens().map((g) => g.name)).toEqual([generation]);
+    const again = planRestoreFiles({ home, claudeDir, name: generation! });
+    expect(runRestore({ ...ctx(), name: generation!, expect: again.fingerprint }).restored.length).toBe(3);
+    expect(read('commands/over.md')).toBe('old\n');
+  });
+
+  it('文字でない中身は、差分を出さずに印だけ返す', () => {
+    write('commands/bin.md', Buffer.from([0, 1, 2]));
+    inbox('dev-b', [{ id: 'file:commands/bin.md', kind: 'commands', content: 'text\n' }]);
+    order(fileOrder('commands/bin.md', 'overwrite', 'text\n'));
+    expect(planApplyFiles({ home, claudeDir }).files[0]).toMatchObject({ binary: true, lines: [] });
   });
 });

@@ -3,7 +3,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.error.notConfigured': 'クラウド同期が設定されていません',
-  'sync.note.sessionReplaced': 'セッションのノートを {deviceName} の新しい内容で置き換えました。手元の内容は {backupFile} に残してあります',
+  'sync.note.sessionReplaced': 'セッションの名前を {deviceName} の新しい名前で置き換えました。手元の名前は {backupFile} に残してあります',
   'sync.note.conflict': 'ノートが競合しました。手元の内容を {file} に残しました',
   'sync.once.done': '1 回だけ同期しました。同期は一時停止のままです',
   'sync.once.leftBoth': '1 回だけ同期しましたが、未送信 {pending} 件、未送信のトランスクリプト {transcripts} 件が残りました。同期は一時停止のままです',
@@ -13,6 +13,8 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.compat.deviceNeed': 'この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換バージョンは {have}、クラウドが求めるのは {need} 以上）。この PC の hangar を更新してください',
   'sync.compat.deviceNewer': 'この PC の hangar が古いので、クラウドが同期を拒否しました（この PC の互換バージョンは {have}、クラウドが求めるのはそれより新しいバージョン）。この PC の hangar を更新してください',
   'sync.compat.worker': 'クラウドの Worker が古いので、同期を停止しました（Worker の互換バージョンは {have}、この PC が求めるのは {need} 以上）。setup した PC の、リポジトリを clone して npm install した場所で npm run hangar -- setup cloud をもう一度実行して Worker を入れ替えてから、「今すぐ同期」を押してください',
+  'sync.revoked.thisPc': 'この PC は同期から解除されました。ほかの PC で、この PC の参加が解除されています。参加し直すには、参加トークンでもう一度参加してください',
+  'sync.devices.workerOutdated': 'クラウドの Worker が古いので、PC の一覧と解除を使えません。setup した PC の、リポジトリを clone して npm install した場所で npm run hangar -- setup cloud をもう一度実行して Worker を入れ替えてください',
   'sync.limit.d1Read': 'Cloudflare の無料枠の上限（D1 の 1 日の読み取り）に達しました',
   'sync.limit.d1Write': 'Cloudflare の無料枠の上限（D1 の 1 日の書き込み）に達しました',
   'sync.limit.requests': 'Cloudflare の無料枠の上限（Workers の 1 日のリクエスト）に達しました',

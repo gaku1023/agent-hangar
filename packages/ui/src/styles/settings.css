@@ -165,3 +165,10 @@
 .cp-lead { margin-top: calc(var(--u) * 2.5); padding-top: calc(var(--u) * 2.5); border-top: 1px solid var(--line); font-size: var(--fs-sm); color: var(--ink-2); }
 /* 更新の節の取得の進み（棒は右下の札と同じ .update-bar）。 */
 .update-progress { display: block; max-width: 280px; }
+
+/* 連携の札の書き込みの段（試作の連携 A）。書き込む先とバックアップの添え書きを左に、ボタンを右に置く。狭い窓ではボタンが下の行へ回る。 */
+.integ-write { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2) calc(var(--u) * 3); margin-top: calc(var(--u) * 2); }
+.integ-dest { flex: 1; min-width: 200px; display: flex; flex-wrap: wrap; gap: 0 calc(var(--u) * 2); overflow-wrap: anywhere; }
+.integ-dest > span + span::before { content: '\00b7'; margin-right: calc(var(--u) * 2); }
+.integ-write .btn { margin-left: auto; }
+.integ-terminal { margin-top: calc(var(--u) * 2); }

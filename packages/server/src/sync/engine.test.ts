@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { getSessionNote, setSessionMemo, setSessionName } from '../sessions/notes.ts';
+import { getSessionNote, setSessionName } from '../sessions/notes.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
@@ -449,7 +449,7 @@ describe('SyncEngine の pull', () => {
   });
 
   it('別の PC で付けた名前とメモは、本文を持つ PC が sessions の行を書き直しても消えない', async () => {
-    // a は本文を持つ PC で、索引が sessions の行を書き直す。b は名前とメモを付ける PC である。
+    // a は本文を持つ PC で、索引が sessions の行を書き直す。b は名前を付ける PC である。
     const a = make();
     await a.start();
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'a' }, 'a');
@@ -458,7 +458,6 @@ describe('SyncEngine の pull', () => {
     await b.start();
     await b.pullNow();
     setSessionName(dbB, 'b', 's1', 'b で付けた名前');
-    setSessionMemo(dbB, 'b', 's1', 'b で書いたメモ');
     await b.pushNow();
 
     // a は b の行を受ける前に、手元の古い行に本文の伸びを重ねて書く（索引がしていること）。
@@ -469,12 +468,12 @@ describe('SyncEngine の pull', () => {
     await a.pullNow();
     await b.pullNow();
 
-    // どちらの PC でも、名前とメモは残り、本文の伸びも届いている。
+    // どちらの PC でも、名前は残り、本文の伸びも届いている。
     for (const d of [db, dbB]) {
-      expect(getSessionNote(d, 's1')).toEqual({ name: 'b で付けた名前', memo: 'b で書いたメモ' });
+      expect(getSessionNote(d, 's1')).toEqual({ name: 'b で付けた名前' });
       expect((d.prepare('select last_activity_at l from sessions where id = ?').get('s1') as { l: number }).l).toBe(999);
     }
-    // sessions の payload は、名前とメモを運ばない。
+    // sessions の payload は、名前もノートも運ばない。
     for (const c of cloud.changes.filter((x) => x.tableName === 'sessions')) {
       expect(Object.keys(c.payload)).not.toContain('name');
       expect(Object.keys(c.payload)).not.toContain('memo');
@@ -818,6 +817,49 @@ describe('互換の版', () => {
     await e.syncNow();
     expect(e.compatBlocked()).toBe(true);
     expect(e.status().state).toBe('error');
+    e.stop();
+  });
+});
+
+describe('この PC の解除', () => {
+  it('Worker に解除された（401 の revoked）ら同期を止め、revoked の印と理由を出す', async () => {
+    const e = make();
+    await e.start();
+    cloud.revoke('a');
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+    expect(e.revoked()).toBe(true);
+    expect(e.status()).toMatchObject({ state: 'error', revoked: true });
+    expect(e.status().error).toContain('解除');
+    // 止めた後は、書き込みも定期実行も外へ出ない。
+    const calls = cloud.calls.length;
+    project('p2');
+    await timers.advance(5 * 60_000);
+    await e.idle();
+    expect(cloud.calls.length).toBe(calls);
+    e.stop();
+  });
+
+  it('参加し直して（解除が外れて）から今すぐ同期を押せば戻る', async () => {
+    const e = make();
+    await e.start();
+    cloud.revoke('a');
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+    expect(e.revoked()).toBe(true);
+    cloud.unrevoke('a');
+    await e.syncNow();
+    expect(e.revoked()).toBe(false);
+    expect(e.status()).toMatchObject({ state: 'idle', revoked: false, error: null, pending: 0 });
+    e.stop();
+  });
+
+  it('解除されていなければ revoked は偽', async () => {
+    const e = make();
+    await e.start();
+    expect(e.status().revoked).toBe(false);
     e.stop();
   });
 });

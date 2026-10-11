@@ -41,7 +41,6 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.setSessionSummary': "Updates this session's summary. Call it when a request is completed, when the approach changes, or when work is interrupted.",
   'mcp.tool.setTurnIntent': 'Writes what you will do in this turn and why, in one or two sentences (up to 200 characters). Call it when you start a turn and when you change approach. It appears in the right panel of Hangar.',
   'mcp.tool.proposeSessionStatus': 'Suggests a status for this session (Done or Paused). Set confirmed to true only when the user chose it in the conversation. Never set it to true without asking the user.',
-  'mcp.tool.setSessionMemo': 'Writes a one-line note on the session for people to read.',
   'mcp.tool.getUsage': "Percent used of Claude's 5-hour and 7-day usage limits, and when the values were last updated. These are the latest values received from the status line. The three top-level fields are for the primary account; accounts lists the values per account (name, whether it is the current account, and the same three fields).",
   'mcp.tool.openInHangar': 'Returns a URL and a deep link that open the session or project in the Hangar UI.',
 };

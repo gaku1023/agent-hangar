@@ -6,7 +6,7 @@ import { presentNowCard, type CardInput, type NowCardProps } from '../src/presen
 import type { ArtifactCardProps } from '../src/presenters/project.ts';
 import { presentLeadCard, presentSessionBadges, type LeadCardProps, type TurnRowProps } from '../src/presenters/session.ts';
 import { LeadCard } from '../src/views/LeadCard.tsx';
-import { NoteChip, NowCard } from '../src/views/NowCard.tsx';
+import { NowCard } from '../src/views/NowCard.tsx';
 import { PageHeading } from '../src/views/PageHeading.tsx';
 import { InfoPopover } from '../src/views/primitives/Popover.tsx';
 import { StatusDot } from '../src/views/primitives/StatusDot.tsx';
@@ -48,7 +48,7 @@ function busyEvents(): TranscriptEvent[] {
 
 const base = (p: Partial<CardInput>): CardInput => ({
   digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] }, events: [], turnFrom: 0, live: 'busy', activity: null, now: NOW, viewingAgent: false, clock: () => '10:01', idleFor: '3 分',
-  waited: '4 分', artifacts: [], note: null, ...p,
+  waited: '4 分', artifacts: [], ...p,
 });
 const intent = { text: 'フォームの検証をサーバ側へ寄せる', at: 0, stepsSince: 3, inThisTurn: true };
 
@@ -56,7 +56,7 @@ export const CARD_CASES: { id: string; title: string; card: NowCardProps }[] = [
   { id: 'waiting', title: '入力待ち（試作 C の実行中）', card: presentNowCard(base({
     live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: '既存のテストを書き換えてよいですか？' }, events: waitingEvents(), turnFrom: 0,
     digest: { sessionId: 's1', turnStartSeq: 0, intent, agents: [agent({ agentId: 'a1', title: 'テストの一覧を集める', state: 'done', report: 'checkout/ の 12 件を列挙した' })] },
-    artifacts: [artifact('a1', '検証の仕様', '12 分前')], note: '決済は Stripe の v3。テストは checkout/ 以下に置く',
+    artifacts: [artifact('a1', '検証の仕様', '12 分前')],
   }), ja) },
   { id: 'busy', title: '作業中（呼び出しが 3 つを超える。サブエージェントが動いている）', card: presentNowCard(base({
     events: busyEvents(), turnFrom: 0,
@@ -69,7 +69,6 @@ export const CARD_CASES: { id: string; title: string; card: NowCardProps }[] = [
   }), ja) },
   { id: 'aside', title: '裏だけ動いている（メイン会話は入力を受け付けている）', card: presentNowCard(base({
     aside: { shell: false, agents: 2 }, digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'a1', title: '型を直す' }), agent({ agentId: 'a2', title: 'テストを書く' })] },
-    note: '休み明けに続き',
   }), ja) },
   { id: 'idle', title: 'アイドルで、意図もツール呼び出しも無い', card: presentNowCard(base({ live: 'idle', events: [], digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] } }), ja) },
   { id: 'long', title: '意図が長い（切らずに折り返して全文を出す）', card: presentNowCard(base({
@@ -79,7 +78,7 @@ export const CARD_CASES: { id: string; title: string; card: NowCardProps }[] = [
 ];
 
 const session = (p: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's7', provider: 'claude-code', providerSessionId: 'u7', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/code/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 3 * DAY - 3 * 3_600_000, lastActivityAt: NOW - 3 * DAY, memo: '詳細の頁は別のセッションで',
+  id: 's7', provider: 'claude-code', providerSessionId: 'u7', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/code/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 3 * DAY - 3 * 3_600_000, lastActivityAt: NOW - 3 * DAY, 
   hasTranscript: true, live: null,
   summary: { title: 't', oneLiner: 'o', body: '商品一覧の画像を IntersectionObserver で遅延読み込みにし、LCP を 3.1 秒から 1.8 秒に縮めて PR #88 をマージした。先頭の 4 枚は即時に読む。枠の高さは固定にすると決めた（ターン 6）。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'qwen3-8b', basedOnTurns: 11, updatedAt: NOW - 2 * DAY - 6 * 3_600_000 },
   stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://example.invalid/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
@@ -99,7 +98,7 @@ const leadInput = (p: Partial<Parameters<typeof presentLeadCard>[0]> = {}) => ({
 export const LEAD_CASES: { id: string; title: string; lead: LeadCardProps }[] = [
   { id: 'done', title: 'Done（試作 C の終わった後）', lead: presentLeadCard(leadInput(), ja) },
   { id: 'stopped', title: 'Paused にしたので止めた。ノートは空。要約は作成中', lead: presentLeadCard(leadInput({
-    session: session({ memo: null, stoppedByStatus: true, state: { status: 'paused', note: null, returnOn: '2026-10-12', returnTime: null, setBy: 'user', setAt: NOW - DAY, candidate: null }, stats: { ...session().stats, prUrl: null } }), summaryPending: true, artifacts: [], files: [], windowFiles: [],
+    session: session({ stoppedByStatus: true, state: { status: 'paused', note: null, returnOn: '2026-10-12', returnTime: null, setBy: 'user', setAt: NOW - DAY, candidate: null }, stats: { ...session().stats, prUrl: null } }), summaryPending: true, artifacts: [], files: [], windowFiles: [],
   }), ja) },
   { id: 'gone', title: '本文が消えた会話（要約のみ）', lead: presentLeadCard(leadInput({ gone: true, session: session({ hasTranscript: false }), files: null, windowFiles: [] }), ja) },
 ];
@@ -116,13 +115,12 @@ const frame: CSSProperties = { width: 1032, padding: 16, borderRadius: 12, backg
 const termStyle: CSSProperties = { flex: 1, minHeight: 0, borderRadius: 'var(--r-lg)', background: 'var(--term-bg)', color: 'var(--term-fg)', padding: '14px 16px', font: '12px/1.6 var(--font-mono)', whiteSpace: 'pre', overflow: 'hidden', boxShadow: 'var(--term-lift)' };
 const tab: CSSProperties = { display: 'inline-flex', alignItems: 'center', height: 28, padding: '0 12px', borderRadius: 'var(--r) var(--r) 0 0', background: 'var(--term-bg)', color: 'var(--term-fg)' };
 
-/** 見出しの行。ロックの札、要約の 1 文、（実行中は）ノートの札、主の操作、(i)。 */
-function Heading(props: { badges: ReturnType<typeof presentSessionBadges>; live: 'waiting' | null; name: string; oneLiner: string; primary: string; note?: NowCardProps['note'] }) {
+/** 見出しの行。ロックの札、要約の 1 文、主の操作、(i)。 */
+function Heading(props: { badges: ReturnType<typeof presentSessionBadges>; live: 'waiting' | null; name: string; oneLiner: string; primary: string }) {
   return (
     <PageHeading title={props.name} parent={{ label: 'web-shop', route: { name: 'projects' } }} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero">
       <SessionBadges badges={props.badges} />
       <span className="session-oneliner">{props.oneLiner}</span>
-      {props.note && <NoteChip sessionId="s1" text={props.note.text} filled={props.note.filled} />}
       <button type="button" className="btn btn-primary"><Icon name="openEditor" /><span className="btn-label">{props.primary}</span></button>
       <InfoPopover rows={[{ name: 'モデル', value: 'opus', mono: true }, { name: '権限モード', value: 'Accept edits', mono: true }, { name: '開始', value: '今日 08:52', mono: true }]} />
     </PageHeading>
@@ -135,7 +133,7 @@ const TERM = ['> 決済フォームの入力の検証を、サーバ側にも足
 function LiveMock(props: { card: NowCardProps }) {
   return (
     <div style={frame} id="mock-live">
-      <Heading badges={[]} live="waiting" name="決済フォームの検証を直す" oneLiner="入力の検証をサーバ側へ寄せ、フォームのテストを更新中" primary="VS Code で開く" note={props.card.note} />
+      <Heading badges={[]} live="waiting" name="決済フォームの検証を直す" oneLiner="入力の検証をサーバ側へ寄せ、フォームのテストを更新中" primary="VS Code で開く" />
       {/* 実物と同じく、タブの列を本体の 1 行目に入れ、右の列はその行から始める（頭の行の右端に畳むボタン）。 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gridTemplateRows: '28px minmax(0, 1fr)', columnGap: 8, height: 548, marginTop: 8 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gridColumn: 1, gridRow: 1 }}><span style={tab}>Claude</span></div>

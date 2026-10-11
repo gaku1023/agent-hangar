@@ -72,7 +72,6 @@ export const actionTable = {
   'session.openFile': (i) => call((api) => api.openEditor(i.sessionId, i.path)),
   // 画面の正は後から届く session.upsert なので、返り値は Store に入れない。
   'session.state.reject': (i) => call((api) => api.rejectSessionState(i.id)),
-  'session.setMemo': (i) => call((api) => api.setSessionMemo(i.id, i.text), { apply: (store, s) => ({ ...store, sessions: { ...store.sessions, [s.id]: s } }) }),
   // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
   'summary.regenerate': (i) => call((api) => api.regenerateSummary(i.sessionId)),
 

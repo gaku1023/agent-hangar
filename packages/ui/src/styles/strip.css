@@ -3,8 +3,10 @@
    どれも白い不透明な読む面で、ぼかしは掛けない。 */
 
 /* ---- 現在の札。右の列の上、目次の上に置く（2026-10-11 の試作の A2・C1・D3）。
-   左の縁の色で状態を言う。意図は切らずに折り返す。 ---- */
-.now-card { flex: none; display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); overflow: hidden; }
+   左の縁の色で状態を言う。意図は切らずに折り返す。
+   札の背は useCardHeight が中身の箱（.nc-body）を測って書く。余白と縦の積みは中身の箱が持ち、札は背を保つ外枠になる。 ---- */
+.now-card { flex: none; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); font-size: var(--fs-sm); overflow: hidden; }
+.nc-body { display: flex; flex-direction: column; gap: calc(var(--u) * 2); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); }
 .now-card[data-tone='wait'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--waiting); }
 .now-card[data-tone='busy'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--busy); }
 .now-card[data-tone='aside'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--aside); }
@@ -43,15 +45,6 @@
 .nc-step[data-new='true'] { animation: nc-in var(--dur) var(--ease-out) both, nc-flash var(--dur-flash) ease-out; }
 .nc-intent, .nc-question { animation: nc-in var(--dur) var(--ease-out) both; }
 @media (prefers-reduced-motion: reduce) { .nc-step[data-new='true'], .nc-intent, .nc-question { animation: none; } }
-/* 見出しの行の「ノート」の札。中身があれば青い印を付ける。 */
-.nc-note { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.25); height: 26px; padding: 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); background: rgba(255, 255, 255, 0.75); box-shadow: inset 0 0 0 1px var(--line-strong); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
-.nc-note:hover { color: var(--ink); background: var(--surface); }
-.nc-note:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.nc-note[aria-expanded='true'] { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
-.nc-note[data-filled='true'] { color: var(--ink); }
-.nc-note > .icon { width: 12px; height: 12px; }
-.nc-note-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-
 /* 数の札のポップオーバーの中身。 */
 .nc-steps-all { gap: 2px; max-height: 320px; overflow: auto; }
 .nc-steps-all .nc-step { height: 24px; align-items: center; }
@@ -70,11 +63,6 @@
 .nc-art-open:hover { background: var(--surface-2); }
 .nc-art-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nc-art-when { flex: none; font-size: var(--fs-xs); }
-
-/* ---- ノートの編集欄（見出しの「ノート」の札のポップオーバーと、冒頭の 1 枚の中）。 ---- */
-.note-editor { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
-.note-area { width: 100%; height: auto; min-height: 72px; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); font-size: var(--fs-sm); line-height: 1.55; resize: vertical; color: var(--ink); }
-.note-foot { display: flex; align-items: center; gap: calc(var(--u) * 2); }
 
 /* ---- 冒頭の 1 枚（終わったセッションのトランスクリプトの先頭）。 ---- */
 .lead-card { margin: 0 0 calc(var(--u) * 2.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); }
@@ -107,10 +95,6 @@
 .lead-file-add { flex: none; font-size: var(--fs-xs); color: var(--st-done); }
 .lead-file-del { flex: none; font-size: var(--fs-xs); color: var(--error); }
 .lead-panel-note { margin-top: var(--u); font-size: var(--fs-xs); }
-.lead-note { margin-top: calc(var(--u) * 2.5); padding-top: calc(var(--u) * 2); border-top: 1px solid var(--line); }
-.lead-note-h { display: flex; align-items: center; gap: calc(var(--u) * 2); min-height: calc(var(--row-h) - 6px); }
-.lead-note-h .lead-sub { margin: 0; }
-.note-text { margin: var(--u) 0 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; }
 
 /* ---- 見出しの名前の横の札（ロック、トランスクリプトの在りか）。操作できない理由なので、隠さずに見出しへ出す。 ---- */
 .session-badges { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }

@@ -6,7 +6,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, syncStatusOf, tooLargeResult } from './common.ts';
 
 /** 同期の経路が使う依存。 */
-export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'joinToken' | 'configBundle'> & LanguageDeps;
+export type SyncRouteDeps = Pick<AppDeps, 'sync' | 'syncSkipped' | 'syncSweep' | 'syncOncePass' | 'cloudUsage' | 'devices' | 'cloudDevices' | 'joinToken' | 'configBundle'> & LanguageDeps;
 
 /** 同期の経路。状態、今すぐ同期、一時停止、前面化、使用量、端末の一覧、参加トークン、設定の同期（/config-sync/*）を持つ。 */
 export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
@@ -30,6 +30,8 @@ export function syncRoutes(api: Hono, deps: SyncRouteDeps): void {
   // 設定を開いたときは refresh=1 で取り直す。一時停止の間は取りに行かず、最後の値を返す（CloudUsagePoller が守る）。
   api.get('/sync/usage', async (c) => c.json(c.req.query('refresh') === '1' ? await deps.cloudUsage.refresh() : deps.cloudUsage.current()));
   api.get('/devices', (c) => c.json(deps.devices()));
+  // Worker の devices（参加日、解除日、最後に同期した IP と場所）。読むだけで、解除の口は HTTP に載せない。
+  api.get('/sync/cloud-devices', async (c) => c.json(await deps.cloudDevices()));
   // 参加トークンは全セッションの読み書き権を持つ。ログには出さず、UI が押したときだけ取りに来る。
   api.get('/sync/joinToken', (c) => c.json({ token: deps.joinToken() }));
 

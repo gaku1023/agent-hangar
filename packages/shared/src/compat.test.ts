@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
+import { COMPAT_HEADER, COMPAT_VERSION, CONFIG_BUNDLE_MIN_WORKER_COMPAT, DEVICE_ADMIN_MIN_WORKER_COMPAT, compatHeaders, compatRefusalBody, parseCompat, readCompatRefusal } from './compat.ts';
 import * as shared from './index.ts';
 
 describe('互換の版番号', () => {
-  it('版は整数で（いまは 3。Worker が設定の束の行を受け取る版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
-    expect(COMPAT_VERSION).toBe(4);
+  it('版は整数で（いまは 5。Worker が PC の一覧と解除の口を持つ版）、見出しは小文字の x-hangar-compat で運ぶ', () => {
+    expect(COMPAT_VERSION).toBe(5);
+    expect(COMPAT_VERSION).toBeGreaterThanOrEqual(DEVICE_ADMIN_MIN_WORKER_COMPAT);
     expect(Number.isSafeInteger(COMPAT_VERSION)).toBe(true);
     expect(COMPAT_VERSION).toBeGreaterThanOrEqual(CONFIG_BUNDLE_MIN_WORKER_COMPAT);
     expect(COMPAT_HEADER).toBe('x-hangar-compat');
-    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '4' });
+    expect(compatHeaders()).toEqual({ 'x-hangar-compat': '5' });
   });
 
   it('パッケージの入口から取れる', () => {

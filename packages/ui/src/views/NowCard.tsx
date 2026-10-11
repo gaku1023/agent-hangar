@@ -2,12 +2,11 @@ import { useLayoutEffect, useRef } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { CardLane, CardStep, NowCardProps } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
-import { NoteEditor } from './NoteEditor.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Popover } from './primitives/Popover.tsx';
-import { useHeightFloor } from './useHeightFloor.ts';
+import { useCardHeight } from './useCardHeight.ts';
 
 /** ツール呼び出しの印。色だけに頼らないよう、形も変える（完了は ✓、いまと入力待ちは ●、失敗は ✕）。読み上げには語で言う。 */
 const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const;
@@ -19,48 +18,68 @@ const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const
  * 「ほか N」、サブエージェント、アーティファクトの数の札を積む。意図は切らずに折り返す。
  * 札の全体は読み上げの領域にせず（追記のたびに読み上げない）、状態の語だけを role="status" にする。
  * 動き（D3）：描いた後に増えた呼び出しはフェードで入り一度だけ光る。意図は替わったときにフェードで入れ替わる。灯は静止する。
- * 高さは伸びるだけで縮めない（useHeightFloor）。中身（意図の折り返し、手の数、問い）で縮むと、下の目次が押されて跳ねるためである。
+ * 背は中身に合わせ、伸びるのはすぐ、縮むのは節目だけにする（useCardHeight と usePhaseKey）。
+ * 中身（意図の折り返し、手の数、問い）のたびに縮めると、下の目次が押されて跳ねるためである。
  */
 export function NowCard(props: NowCardProps & { sessionId: string }) {
   const t = useT();
   const dot = props.tone === 'wait' ? 'wait' : props.tone === 'busy' ? 'busy' : props.tone === 'aside' ? 'aside' : 'idle';
   const fresh = useFreshKeys(props.sessionId, props.steps.map((s) => s.key));
   const hidden = props.stepsTotal - props.steps.length;
-  const ref = useHeightFloor<HTMLElement>(props.sessionId);
+  const phase = usePhaseKey(props.sessionId, props.tone, props.detail !== null, props.stepsTotal);
+  const { card, body } = useCardHeight<HTMLElement, HTMLDivElement>(props.sessionId, phase);
   return (
-    <section ref={ref} className="now-card" data-tone={props.tone} aria-label={t('session.strip.label')}>
-      <div className="nc-head">
-        <span className="nc-state" data-tone={props.tone}>
-          <span className="live-dot" data-tone={dot} aria-hidden="true" />
-          <span role="status">{props.state}</span>
-        </span>
-        {props.sub && <span className="nc-sub">{props.sub}</span>}
-      </div>
-      {props.detail !== null && (props.question
-        ? <p className="nc-question" key={props.detail}><span className="nc-question-label">{t('session.strip.questionLabel')}</span><span className="nc-question-text">{props.detail}</span></p>
-        : <p className="nc-detail">{props.detail}</p>)}
-      {props.intent.kind === 'said'
-        ? (
-          <div className="nc-intent" key={props.intent.text} data-stale={props.intent.stale ? 'true' : undefined} title={props.intent.title}>
-            <span className="nc-intent-label">{props.intent.label}</span>
-            <p className="nc-intent-text">{props.intent.text}</p>
-          </div>
-        )
-        : <p className="nc-intent-none">{props.intent.text}</p>}
-      {props.steps.length > 0 && (
-        <ul className="nc-steps" aria-label={t('session.strip.steps.label')}>
-          {props.steps.map((s) => <StepItem key={s.key} step={s} fresh={fresh.has(s.key)} />)}
-        </ul>
-      )}
-      {(hidden > 0 || props.lanes.count > 0 || props.artifacts.count > 0) && (
-        <div className="nc-chips">
-          {hidden > 0 && <AllSteps steps={props.stepsAll} hidden={hidden} />}
-          {props.lanes.count > 0 && <Lanes sessionId={props.sessionId} lanes={props.lanes} />}
-          {props.artifacts.count > 0 && <Artifacts items={props.artifacts.items} />}
+    <section ref={card} className="now-card" data-tone={props.tone} aria-label={t('session.strip.label')}>
+      <div ref={body} className="nc-body">
+        <div className="nc-head">
+          <span className="nc-state" data-tone={props.tone}>
+            <span className="live-dot" data-tone={dot} aria-hidden="true" />
+            <span role="status">{props.state}</span>
+          </span>
+          {props.sub && <span className="nc-sub">{props.sub}</span>}
         </div>
-      )}
+        {props.detail !== null && (props.question
+          ? <p className="nc-question" key={props.detail}><span className="nc-question-label">{t('session.strip.questionLabel')}</span><span className="nc-question-text">{props.detail}</span></p>
+          : <p className="nc-detail">{props.detail}</p>)}
+        {props.intent.kind === 'said'
+          ? (
+            <div className="nc-intent" key={props.intent.text} data-stale={props.intent.stale ? 'true' : undefined} title={props.intent.title}>
+              <span className="nc-intent-label">{props.intent.label}</span>
+              <p className="nc-intent-text">{props.intent.text}</p>
+            </div>
+          )
+          : <p className="nc-intent-none">{props.intent.text}</p>}
+        {props.steps.length > 0 && (
+          <ul className="nc-steps" aria-label={t('session.strip.steps.label')}>
+            {props.steps.map((s) => <StepItem key={s.key} step={s} fresh={fresh.has(s.key)} />)}
+          </ul>
+        )}
+        {(hidden > 0 || props.lanes.count > 0 || props.artifacts.count > 0) && (
+          <div className="nc-chips">
+            {hidden > 0 && <AllSteps steps={props.stepsAll} hidden={hidden} />}
+            {props.lanes.count > 0 && <Lanes sessionId={props.sessionId} lanes={props.lanes} />}
+            {props.artifacts.count > 0 && <Artifacts items={props.artifacts.items} />}
+          </div>
+        )}
+      </div>
     </section>
   );
+}
+
+/**
+ * 札の背の節目の鍵。状態の色（tone）か、問いやサブエージェントの 1 行（detail）の有無が替わるたびに数を進める。
+ * 新しいターンの始まり（作業中に入って手がまだ無い）は節目にしない。前のターンの背を保ち、手が埋まるまで縮めない。
+ * そのときも見た状態は覚え直すので、手が入ってきても鍵は替わらず、次に縮むのはその次の節目になる。
+ */
+function usePhaseKey(sessionId: string, tone: NowCardProps['tone'], detail: boolean, stepsTotal: number): string {
+  const seen = useRef<{ sessionId: string; phase: string; n: number } | null>(null);
+  const phase = `${tone}:${detail ? 'detail' : '-'}`;
+  const turnStart = tone === 'busy' && stepsTotal === 0;
+  const prev = seen.current;
+  const n = prev === null || prev.sessionId !== sessionId ? 0 : prev.phase === phase || turnStart ? prev.n : prev.n + 1;
+  // 覚え直すのは描き終えた後にする（描き直しで数が進まないように）。
+  useLayoutEffect(() => { seen.current = { sessionId, phase, n }; });
+  return String(n);
 }
 
 /**
@@ -103,23 +122,6 @@ function AllSteps(props: { steps: CardStep[]; hidden: number }) {
       face={(p) => <CountChip size="sm" label={t('session.strip.stepsMore')} count={props.hidden} {...p} />}>
       <h4 className="pop-title">{t('session.strip.steps.label')}</h4>
       <ul className="nc-steps-all">{props.steps.map((s) => <StepItem key={s.key} step={s} />)}</ul>
-    </Popover>
-  );
-}
-
-/** 見出しの行の「ノート」の札。中身があれば印を付け、押すとポップオーバーでノートを読み書きする。実行中だけ置く（終わった後は冒頭の 1 枚の中）。 */
-export function NoteChip(props: { sessionId: string; text: string; filled: boolean }) {
-  const t = useT();
-  const emit = useEmit();
-  return (
-    <Popover label={t('session.note.label')} width={340} align="end"
-      face={(p) => (
-        <button type="button" className="nc-note" data-filled={props.filled ? 'true' : undefined} aria-label={props.filled ? t('session.note.labelFilled') : t('session.note.label')} {...p}>
-          <Icon name="edit" />{t('session.note.label')}{props.filled && <span className="nc-note-dot" aria-hidden="true" />}
-        </button>
-      )}>
-      <h4 className="pop-title">{t('session.note.label')}</h4>
-      <NoteEditor text={props.text} onSave={(text) => emit({ type: 'session.setMemo', id: props.sessionId, text })} />
     </Popover>
   );
 }

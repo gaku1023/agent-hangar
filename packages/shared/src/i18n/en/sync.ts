@@ -3,7 +3,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.error.notConfigured': 'Cloud sync is not set up',
-  'sync.note.sessionReplaced': 'The session note was replaced with the newer content from {deviceName}. Your local content is kept in {backupFile}',
+  'sync.note.sessionReplaced': 'The session name was replaced with the newer one from {deviceName}. Your local name is kept in {backupFile}',
   'sync.note.conflict': 'The note had a conflict. Your local content is kept in {file}',
   'sync.once.done': 'Synced once. Sync is still paused',
   'sync.once.leftBoth': 'Synced once, but {pending} unsent changes and {transcripts} unsent transcripts remain. Sync is still paused',
@@ -13,6 +13,8 @@ export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.compat.deviceNeed': "This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is {have}; the cloud requires {need} or later). Update hangar on this computer",
   'sync.compat.deviceNewer': "This computer's hangar is out of date, so the cloud refused to sync (this computer's compatibility version is {have}; the cloud requires a newer version). Update hangar on this computer",
   'sync.compat.worker': 'The Worker in your cloud is out of date, so sync was stopped (the Worker\'s compatibility version is {have}; this computer requires {need} or later). On the computer where you set up the cloud, run npm run hangar -- setup cloud again in the folder where you cloned the repository and ran npm install, to replace the Worker, then press "Sync now"',
+  'sync.revoked.thisPc': 'This computer was removed from sync. Another computer removed it. To join again, join with a join token',
+  'sync.devices.workerOutdated': 'The Worker in your cloud is out of date, so the computer list and removing computers are not available. On the computer where you set up the cloud, run npm run hangar -- setup cloud again in the folder where you cloned the repository and ran npm install, to replace the Worker',
   'sync.limit.d1Read': 'Reached the Cloudflare free tier limit (D1 reads per day)',
   'sync.limit.d1Write': 'Reached the Cloudflare free tier limit (D1 writes per day)',
   'sync.limit.requests': 'Reached the Cloudflare free tier limit (Workers requests per day)',

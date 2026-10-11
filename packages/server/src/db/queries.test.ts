@@ -8,7 +8,7 @@ import { softDeleteShared, upsertShared } from './shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
-import { setSessionMemo, setSessionName } from '../sessions/notes.ts';
+import { setSessionName } from '../sessions/notes.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions } from './queries.ts';
 
@@ -74,16 +74,14 @@ describe('getSession', () => {
     expect(getSession(db, live, alpha.id)).toEqual(alpha);
   });
 
-  it('名前とメモは session_notes から載せ、DTO の鍵は増やさない', () => {
+  it('名前は session_notes から載せ、DTO の鍵は増やさない。ノート（memo）の鍵は無い', () => {
     const id = listSessions(db, []).find((s) => s.providerSessionId === SESSION_BETA)!.id;
     const before = getSession(db, [], id)!;
-    expect(before.memo).toBeNull();
     setSessionName(db, 'd', id, 'hangar で付けた名前');
-    setSessionMemo(db, 'd', id, '一行メモ');
     const after = getSession(db, [], id)!;
-    expect(after).toEqual({ ...before, name: 'hangar で付けた名前', memo: '一行メモ' });
+    expect(after).toEqual({ ...before, name: 'hangar で付けた名前' });
     expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort());
-    for (const k of ['custom_title', 'customTitle', 'sn_name', 'sn_memo']) expect(Object.keys(after)).not.toContain(k);
+    for (const k of ['custom_title', 'customTitle', 'sn_name', 'sn_memo', 'memo']) expect(Object.keys(after)).not.toContain(k);
     expect(listSessions(db, []).find((s) => s.id === id)).toEqual(after);
   });
 

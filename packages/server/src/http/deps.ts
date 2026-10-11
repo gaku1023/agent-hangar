@@ -1,5 +1,5 @@
 import type { NodeCheck } from '../config/node.ts';
-import type { CloudUsageDto, CompatDto, DeviceDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -100,6 +100,11 @@ export type AppDeps = {
   /** 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。 */
   joinToken: () => string | null;
   devices: () => DeviceDto[];
+  /**
+   * 設定のクラウド同期の節の PC の一覧。Worker の devices を取りに行く（sync/devices.ts）。
+   * 解除と参加と参加の解除は、殻の命令と CLI だけが行い、HTTP の経路は持たない。
+   */
+  cloudDevices: () => Promise<CloudDevicesDto>;
   /**
    * 外のターミナルで起動した claude を hangar で開けるようにする包み方の、この PC の状態。
    * 読むだけで、~/.zshrc を書き換える経路は持たない。書き換えるのは hangar shell install（CLI）だけである。

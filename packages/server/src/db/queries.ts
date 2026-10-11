@@ -20,7 +20,6 @@ type SessionRow = {
   last_activity_at: number | null;
   // session_notes の左結合。hangar で付けた名前と、メモ。行が無ければどちらも null。
   sn_name: string | null;
-  sn_memo: string | null;
   has_transcript: number;
   has_local: number;
   project_is_scratch: number | null;
@@ -79,7 +78,7 @@ select s.*, exists(select 1 from transcript_files t where t.session_id = s.id an
   m.title sum_title, m.one_liner sum_one, m.body sum_body, m.state sum_state, m.next_steps sum_next, m.source sum_source, m.source_id sum_source_id, m.source_model sum_model, m.based_on_turns sum_turns, m.updated_at sum_updated,
   st.turns st_turns, st.model st_model, st.effort st_effort, st.files_changed st_files, st.pr_url st_pr, st.input_tokens st_in, st.output_tokens st_out,
   ls.model ls_model, ls.effort ls_effort, ls.context_used ls_used, ls.context_size ls_size, ls.cost_usd ls_cost, a.tool a_tool, a.summary a_summary, a.question a_question,
-  sn.name sn_name, sn.memo sn_memo,
+  sn.name sn_name,
   ss.session_id ss_id, ss.status ss_status, ss.note ss_note, ss.return_on ss_return_on, ss.return_time ss_return_time, ss.set_by ss_set_by, ss.set_at ss_set_at,
   ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at,
   (select r.end_reason from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_end_reason,
@@ -231,7 +230,6 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     aiTitle: r.ai_title,
     startedAt: r.started_at,
     lastActivityAt: r.last_activity_at,
-    memo: r.sn_memo,
     hasTranscript: r.has_transcript === 1,
     live: live?.status ?? null,
     liveAside: live?.aside ?? null,
