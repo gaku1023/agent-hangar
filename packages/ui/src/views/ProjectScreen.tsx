@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { ProjectProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
-import { EditableNote } from './EditableNote.tsx';
-import { projectNoteTexts } from './NoteEditor.tsx';
+import { InstructionsPanel } from './InstructionsPanel.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { ProjectInfo } from './ProjectInfo.tsx';
 import { Icon } from './primitives/Icon.tsx';
@@ -16,7 +15,7 @@ import { RollingNumber } from './primitives/RollingNumber.tsx';
 /**
  * 1 つのプロジェクトの画面（Q3、左右に割る）。
  * 左は、ホームと同じ部品（ステータスのタブ、検索の欄、平らな行、ページ送り）で、このプロジェクトのセッションだけを出す。
- * 右パネルは TODO（見出しに確認待ちの数）、ノート、アーティファクトで、折りたためる。
+ * 右パネルは TODO（見出しに確認待ちの数）、指示とメモリ、アーティファクトで、折りたためる。
  * 見出しの (i) に、場所、セッションの数、最後の活動と、場所や名前を直す操作を置く。
  * スクラッチの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
  */
@@ -56,8 +55,7 @@ export function ProjectScreen(props: ProjectProps) {
             <TodoList projectId={props.id} todos={props.todos} done={props.doneTodos} suggestions={props.suggestions} />
           </section>
           <section className="rail-panel">
-            <EditableNote text={props.note.text} onSave={(markdown) => emit({ type: 'memo.save', projectId: props.id, markdown })} texts={projectNoteTexts(t)} mono rows={6}
-              head={(button) => <div className="rail-head"><h2 className="rail-h"><span>{t('projectScreen.rail.note')}</span></h2>{button}</div>} />
+            <InstructionsPanel projectId={props.id} instructions={props.instructions} />
           </section>
           <section className="rail-panel">
             <h2 className="rail-h"><span>{t('projectScreen.rail.artifacts')}</span><span className="rail-n num">{props.artifacts.length}</span></h2>

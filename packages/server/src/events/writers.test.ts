@@ -7,7 +7,6 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { callTool, type ToolDeps } from '../mcp/tools.ts';
-import { MemoStore } from '../projects/memo.ts';
 import { resolveProject } from '../projects/registry.ts';
 import { addTodo, confirmTodo, proposeTodoDone, rejectTodo } from '../projects/todos.ts';
 import { SummaryJob } from '../summary/job.ts';
@@ -126,7 +125,7 @@ describe('MCP の道具', () => {
     seedProject('p1', path.join(tmp, 'p1'));
     seedSession('s1', 'p1', path.join(tmp, 'p1'));
     deps = { db, deviceId: ME, port: 4177, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-      usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: ME, home: tmp }) };
+      usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) };
     reset();
   });
 

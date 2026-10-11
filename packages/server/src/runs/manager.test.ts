@@ -21,7 +21,6 @@ import { Tmux } from '../tmux/tmux.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
 import { createMcpApp } from '../mcp/app.ts';
-import { MemoStore } from '../projects/memo.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { RunAccounts } from './accounts.ts';
@@ -1362,7 +1361,7 @@ describe.skipIf(!TMUX)('run に配る秘密は、その run の入口しか開�
   const rpcBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } } });
   const hdr = (secret: string) => ({ authorization: `Bearer ${secret}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' });
   const mcp = () => createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }) });
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) });
 
   /** --mcp-config に書かれた鍵。閉じ込められた claude が自分で読める唯一の鍵である。 */
   const credential = (cfgPath: string): string => (JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { mcpServers: { hangar: { headers: { Authorization: string } } } }).mcpServers.hangar.headers.Authorization.replace('Bearer ', '');

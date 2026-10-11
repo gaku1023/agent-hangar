@@ -1,4 +1,4 @@
-import type { ArtifactDto, ProjectStatus, TodoDto, Translate } from '@agent-hangar/shared';
+import type { ArtifactDto, InstructionFileDto, InstructionFileKind, ProjectStatus, TodoDto, Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import { artifactsOf, todosOf, type Store } from '../store/store.ts';
@@ -6,6 +6,7 @@ import { relativeTime } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
+import { bytesLabel } from './retention.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
 
 /** 候補の TODO の表示。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
@@ -27,7 +28,7 @@ export type ProjectInfoProps = { sessionsText: string; lastActivity: string };
 export type ProjectProps = {
   id: string; name: string; parent: ParentLink; path: string | null; resolved: boolean; status: ProjectStatus; notFound: boolean; isScratch: boolean;
   list: SessionListProps; loadMore: { remaining: number; step: number; loading: boolean } | null; info: ProjectInfoProps;
-  todos: TodoItemProps[]; doneTodos: TodoItemProps[]; suggestions: TodoSuggestionProps[]; pendingTodos: number; note: { text: string; filled: boolean }; artifacts: ArtifactCardProps[];
+  todos: TodoItemProps[]; doneTodos: TodoItemProps[]; suggestions: TodoSuggestionProps[]; pendingTodos: number; instructions: InstructionsProps; artifacts: ArtifactCardProps[];
   /** 手で足した URL が断られたときの理由と、入れた URL。このプロジェクトのものだけ。 */
   artifactAddError: { url: string; message: string } | null;
 };
@@ -59,6 +60,51 @@ export function presentArtifactCard(t: Translate, a: ArtifactDto, now: number): 
   };
 }
 
+/**
+ * 指示とメモリの 1 行。desc は種類の説明（AGENTS.md は読まれるかで替える）、meta は大きさと更新、off は起動時に読まれないもの。
+ * markdown と truncated はダイアログに描く本文で、読めなかったら markdown は null。
+ */
+export type InstructionRowProps = { kind: InstructionFileKind; name: string; desc: string; meta: string; off: boolean; markdown: string | null; truncated: boolean };
+/**
+ * 右パネルの「指示とメモリ」。state は読み込む前（loading）、この PC にフォルダが無い（missing）、読み込んだ（ready）。
+ * legacyNote は、やめたプロジェクトのノートに中身が残っているときの本文で、空なら null。
+ */
+export type InstructionsProps = { state: 'loading' | 'missing' | 'ready'; rows: InstructionRowProps[]; legacyNote: string | null };
+
+/** ファイルの大きさ。1 KB 未満はバイト、10 KB 未満は小数 1 桁の KB、それより上は bytesLabel に任せる。 */
+function sizeLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 10 * 1024) return `${Math.round((bytes / 1024) * 10) / 10} KB`;
+  return bytesLabel(bytes);
+}
+
+/** AGENTS.md の代わりに読まれる種類。並んでいれば、読まれない理由を言い切れる。 */
+const CLAUDE_KINDS = new Set<InstructionFileKind>(['project', 'projectDotClaude', 'local']);
+
+function descOf(t: Translate, f: InstructionFileDto, files: InstructionFileDto[]): string {
+  switch (f.kind) {
+    case 'project': case 'projectDotClaude': return t('projectScreen.instructions.desc.project');
+    case 'local': return t('projectScreen.instructions.desc.local');
+    case 'memory': return t('projectScreen.instructions.desc.memory');
+    case 'agents':
+      if (f.read) return t('projectScreen.instructions.desc.agentsRead');
+      return t(files.some((x) => CLAUDE_KINDS.has(x.kind)) ? 'projectScreen.instructions.desc.agentsShadowed' : 'projectScreen.instructions.desc.agentsOff');
+  }
+}
+
+export function presentInstructions(t: Translate, store: Store, id: string, now: number): InstructionsProps {
+  const memo = store.memos[id]?.markdown ?? '';
+  const legacyNote = memo.trim() !== '' ? memo : null;
+  const dto = store.instructions[id];
+  if (!dto) return { state: 'loading', rows: [], legacyNote };
+  if (!dto.available) return { state: 'missing', rows: [], legacyNote };
+  const rows = dto.files.map((f) => ({
+    kind: f.kind, name: f.name, desc: descOf(t, f, dto.files), meta: t('projectScreen.instructions.meta', { size: sizeLabel(f.size), ago: relativeTime(t, f.updatedAt, now) }),
+    off: !f.read, markdown: f.markdown, truncated: f.truncated,
+  }));
+  return { state: 'ready', rows, legacyNote };
+}
+
 /** プロジェクト詳細の見出しの上には、一覧へ戻るリンクを出す。 */
 const parentOf = (t: Translate): ParentLink => ({ label: t('projects.heading.title'), route: { name: 'projects' } });
 
@@ -68,7 +114,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const PARENT = parentOf(t);
   // 一覧はホームと同じ部品で、このプロジェクトのセッションだけを出す。見つからないプロジェクトは行が 0 になる。
   const list = presentSessionList(state, store, now, id);
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, note: { text: '', filled: false }, artifacts: [], artifactAddError: null };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [], artifactAddError: null };
   const remaining = list.total - list.rows.length;
   const all = todosOf(store, id);
   const item = (x: TodoDto): TodoItemProps => ({ id: x.id, text: x.text, done: x.done, position: x.position, candidate: presentTodoCandidate(x, store, now) });
@@ -76,7 +122,6 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const doneTodos = all.filter((x) => x.done && !x.suggestion).sort((a, b) => b.updatedAt - a.updatedAt || a.position - b.position).map(item);
   const suggestions = all.filter((x) => x.suggestion).sort((a, b) => a.suggestion!.at - b.suggestion!.at || a.position - b.position)
     .map((x): TodoSuggestionProps => ({ id: x.id, text: x.text, note: x.suggestion!.note, ...sessionLabel(store, x.sessionId), ago: relativeTime(t, x.suggestion!.at, now) }));
-  const memo = store.memos[id]?.markdown ?? '';
   return {
     id, name: projectDisplayName(p, translatorOf(store)), parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, notFound: false, isScratch: p.isScratch,
     list,
@@ -85,7 +130,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     info: { sessionsText: t('projects.row.sessions', { n: Object.values(store.sessions).filter((s) => s.projectId === id).length }), lastActivity: relativeTime(t, p.lastActivityAt, now) },
     todos, doneTodos, suggestions,
     pendingTodos: todos.filter((x) => x.candidate !== null).length,
-    note: { text: memo, filled: memo.trim() !== '' },
+    instructions: presentInstructions(t, store, id, now),
     artifacts: artifactsOf(store, { projectId: id }).map((a) => presentArtifactCard(t, a, now)),
     artifactAddError: store.artifactAddError?.projectId === id ? { url: store.artifactAddError.url, message: store.artifactAddError.message } : null,
   };

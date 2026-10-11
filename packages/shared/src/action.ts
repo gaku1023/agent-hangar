@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
+import type { ConfigApplyOrderEntryIn, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -63,6 +63,8 @@ export type UiAction =
   // 直前の操作を戻す。todoId があれば、その TODO を消した操作を戻す（消した場所の帯の「元に戻す」）。
   | { type: 'todo.undo'; projectId: ProjectId; todoId?: TodoId }
   | { type: 'memo.save'; projectId: ProjectId; markdown: string }
+  // 指示とメモリ。load は読み直し（ダイアログを開いたとき）、openEditor はそのファイルをエディタで開く。
+  | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind }
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string } | { type: 'session.setMemo'; id: SessionId; text: string }

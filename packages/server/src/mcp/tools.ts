@@ -5,10 +5,9 @@ import type { Db } from '../db/open.ts';
 import { getProject, getSession, listProjects, listSessions } from '../db/queries.ts';
 import { upsertShared } from '../db/shared.ts';
 import { addIntent, INTENT_MAX } from '../live/intents.ts';
-import type { MemoStore } from '../projects/memo.ts';
 import { addTodo, CANDIDATE_NOTE_MAX, listTodos, proposeTodoDone, setTodoDone, type ProposeOutcome } from '../projects/todos.ts';
-import type { GetLanguage } from '../i18n/language.ts';
-import { MessageError, msg, type Message } from '../i18n/message.ts';
+import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
+import { MessageError, msg, render, type Message } from '../i18n/message.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { setSessionMemo } from '../sessions/notes.ts';
@@ -24,7 +23,6 @@ export type ToolDeps = {
   usage: () => UsageDto;
   /** アカウントごとの使用量を返すための口。無ければ get_usage は最初のアカウントの値だけを返す。 */
   accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
-  memos: MemoStore;
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
 };
@@ -192,16 +190,16 @@ export function listProjectsTool(deps: ToolDeps, ctx: ToolContext) {
 export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
   const id = projectIdOf(deps, ctx, args);
   const p = requireProject(deps, id);
-  const memo = deps.memos.read(id)?.markdown ?? null;
   const todos = todoBriefs(deps, id);
   const recent = listSessions(deps.db, deps.live(), { projectId: id, deviceId: deps.deviceId }).slice(0, RECENT_SESSIONS).map(sessionBrief);
   const artifacts = listArtifacts(deps.db, { projectId: id })
     .map((a) => ({ id: a.id, url: a.url, title: a.title, favicon: a.favicon, last_published_at: a.lastPublishedAt, version_count: a.versionCount }));
-  return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, memo, todos, recent_sessions: recent, artifacts };
+  return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, todos, recent_sessions: recent, artifacts };
 }
 
 /**
- * status、add_todos、toggle_todos、propose_done、append_memo を受けて書く。
+ * status、add_todos、toggle_todos、propose_done を受けて書く。プロジェクトのノートは書かない（append_memo はやめた）。
+ * 古い指示を覚えた Claude が append_memo を渡したときは、黙って捨てずに、やめたことと書く場所を notice で返す。エラーにはしないので、いっしょに渡したほかの項目は書く。
  * 画面へのイベントは、書いた行から配る層（events/publisher.ts）が配る。道具は hub を持たない。
  */
 export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -247,18 +245,12 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
       }
     })();
   }
-  const append = typeof args.append_memo === 'string' ? args.append_memo : undefined;
-  const appended = append !== undefined && append.trim() !== '';
-  if (appended) {
-    const cur = deps.memos.read(id)?.markdown ?? '';
-    deps.memos.write(id, cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${append}` : append);
-  }
   const p = getProject(deps.db, deps.deviceId, deps.live(), id)!;
   return {
     project: { id: p.id, name: p.name, status: p.status, open_todo_count: p.openTodoCount },
     todos: todoBriefs(deps, id),
     todo_results: results,
-    memo: deps.memos.read(id)?.markdown ?? null,
+    ...(args.append_memo !== undefined ? { notice: render((deps.language ?? defaultLanguage)(), msg('mcp.updateProject.memoRetired')) } : {}),
   };
 }
 

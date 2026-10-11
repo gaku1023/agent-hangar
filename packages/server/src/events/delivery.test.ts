@@ -170,7 +170,7 @@ describe('届くイベントの数と中身', () => {
     }
   }, 30000);
 
-  it('MCP の書き込み：メモは session.upsert が 1 つ、update_project は書いた表ごとに 1 つずつ', async () => {
+  it('MCP の書き込み：セッションのメモは session.upsert が 1 つ、update_project は書いた表ごとに 1 つずつ', async () => {
     const t = await boot();
     try {
       await t.tool('set_session_memo', { session_id: t.first.id, text: 'MCP から' });
@@ -180,17 +180,17 @@ describe('届くイベントの数と中身', () => {
       expect(ups.map((e) => e.session.memo)).toEqual(['MCP から']);
       expect(ups[0]!.session).toEqual((await t.sessions()).find((x) => x.id === t.first.id));
 
-      // status、TODO、メモを 1 回で変えても、project.upsert は最後の中身で 1 つである。
+      // status と TODO を 1 回で変えても、project.upsert は最後の中身で 1 つである。
       // 道具が手で配っていた頃は、status の直後と最後に 1 つずつ出ていた。同じ tick の同じ行なので、配る層は 1 つに畳む。
       const from = t.c.all().length;
-      await t.tool('update_project', { project_id: t.alpha.id, status: 'paused', add_todos: ['やること'], append_memo: '追記' });
-      await t.c.waitFor((e): e is MemoUpdate => e.type === 'memo.update' && e.memo.projectId === t.alpha.id);
+      await t.tool('update_project', { project_id: t.alpha.id, status: 'paused', add_todos: ['やること'] });
+      await t.c.waitFor((e): e is ProjectUpsert => e.type === 'project.upsert' && e.project.id === t.alpha.id && e.project.status === 'paused');
       await settle();
       const after = t.c.all().slice(from).filter((e) => e.type === 'project.upsert' || e.type === 'todos.update' || e.type === 'memo.update');
-      expect(after.map((e) => e.type)).toEqual(['todos.update', 'memo.update', 'project.upsert']);
-      const last = after[2] as ProjectUpsert;
+      expect(after.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
+      const last = after[1] as ProjectUpsert;
       // MCP から足した TODO は提案なので、未完の数には入らない。
-      expect(last.project).toMatchObject({ status: 'paused', openTodoCount: 0, memoHead: '追記' });
+      expect(last.project).toMatchObject({ status: 'paused', openTodoCount: 0 });
     } finally {
       await t.close();
     }

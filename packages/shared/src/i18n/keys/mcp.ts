@@ -14,6 +14,7 @@ export const mcpKeys = {
   'mcp.addTodos.notArray': [],
   'mcp.addTodos.badItem': [],
   'mcp.addTodos.noteTooLong': ['max'],
+  'mcp.updateProject.memoRetired': [],
   'mcp.error.sessionNotFound': ['id'],
   'mcp.error.projectNotFound': ['id'],
   'mcp.error.todoNotFound': ['id'],

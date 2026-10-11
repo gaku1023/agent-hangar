@@ -6,6 +6,8 @@ export const projectEn: AreaDictionary<typeof projectKeys> = {
   'project.status.invalid': 'Status must be one of active, paused, done, archived',
   'project.resolve.badKind': 'The action is not valid. Use repoint, archive, or unlink',
   'project.resolve.dirMissing': 'The directory was not found. Select an existing directory',
+  'project.instructions.badKind': 'kind must be one of project, projectDotClaude, local, agents, memory',
+  'project.instructions.fileMissing': 'The file was not found. Reopen the project screen',
   'project.create.pathNotDir': 'path is not an existing directory',
   'project.create.badKind': 'kind must be newDir or dir',
   'project.create.nameRule': 'Name must be at least one character that can be used as a directory name, and cannot contain / or \\',

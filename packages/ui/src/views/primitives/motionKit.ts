@@ -102,6 +102,18 @@ export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y', opts: { fade
 }
 
 /**
+ * ダイアログを引っ込める形。背景（.overlay）を薄れさせ、板（.dialog）を少し沈めて縮める。開くときの pop を逆にたどる。
+ * 終わったら解決する。取り消されたとき（引っ込める途中で開き直したとき）と、動かないときも解決する。
+ */
+export function popOut(overlay: HTMLElement): Promise<void> {
+  if (!motionOn(overlay)) return Promise.resolve();
+  const opts: KeyframeAnimationOptions = { duration: motionMs('--dur-exit', overlay), easing: motionEase('--ease-in', overlay), fill: 'forwards' };
+  const a = overlay.animate([{ opacity: 1 }, { opacity: 0 }], opts);
+  overlay.querySelector<HTMLElement>('.dialog')?.animate([{ transform: 'none' }, { transform: 'translateY(4px) scale(0.96)' }], opts);
+  return a.finished.then(() => undefined, () => undefined);
+}
+
+/**
  * 横へ抜ける形。薄れながら dx（px）だけ横へ動き、最後の形を残す。--dur-exit、--ease-in で動かす。
  * 右下の知らせが出るときに使い、そのあと collapseOut の fade: false で高さを畳む。
  * 抜け切ったら真で、途中で取り消された（出る途中で戻った）ら偽で解決する。呼び手は偽なら続きの畳みを始めない。動かないときはすぐ真で解決する。

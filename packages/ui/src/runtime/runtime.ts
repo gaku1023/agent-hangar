@@ -591,6 +591,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
+      case 'api.loadInstructions': deps.api.instructions(e.projectId).then((d) => setStore({ ...store, instructions: { ...store.instructions, [d.projectId]: d } })).catch(fail); return;
       case 'api.promote':
         deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles })
           .then((r) => {

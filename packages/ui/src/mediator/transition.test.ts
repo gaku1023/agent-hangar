@@ -1107,7 +1107,7 @@ describe('分割', () => {
 describe('画面に入るときの読み込み', () => {
   it('プロジェクト画面はメモを、設定画面は付属の値を読む', () => {
     const p = run([runtime({ type: 'hash.changed', route: { name: 'project', id: 'p1' } })]);
-    expect(p.effects).toEqual([{ kind: 'api.loadMemo', projectId: 'p1' }]);
+    expect(p.effects).toEqual([{ kind: 'api.loadMemo', projectId: 'p1' }, { kind: 'api.loadInstructions', projectId: 'p1' }]);
     const s = run([runtime({ type: 'hash.changed', route: { name: 'settings' } })]);
     expect(s.effects).toEqual([{ kind: 'api.loadSettingsExtras' }]);
   });
