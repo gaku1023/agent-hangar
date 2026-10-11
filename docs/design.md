@@ -159,7 +159,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 - `/health` は待ち受けた時点から返るが、`ready` は起動の手続きが済むまで偽である。
 - 起動を断る確かめは、利用者のファイルを書き換えるより先に済ませる。
   DB を置き場の物より先に開くので、起点より古い DB（`DbTooOldError`）と控えの取れない DB（`DbBackupError`）は、トークン、statusline のヘッダ、端末の ID、起動の包みを 1 つも書かずに断る（置き場を作ることと、緩い権限を締めることだけは先に行う）。
-  設定（`settings.json`）の読み替え（探した道具のパス、別の OS の外部ターミナル、古い鍵の削除、知らない言語の削除）はメモリの上で済ませ、待ち受けが通ってから `persistSettings` で書き戻す。
+  設定（`settings.json`）の読み替え（探した道具のパス、別の OS の外部ターミナル、古い鍵の削除、言語を埋めること）はメモリの上で済ませ、待ち受けが通ってから `persistSettings` で書き戻す。
   前の版のアプリへ戻す利用者が、読み替え済みの設定を掴まされないためである（2026-10-11、Windows の実機の確かめで見つけた）。
   ただし、未適用のマイグレーションは待ち受けより前に当てる。ポートが塞がっていて断る回でも DB は上がる（控えは取ってある）。
 
@@ -216,8 +216,10 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。
 - 失敗は、殻が状態として持ち、頁が引き取る。
   殻は失敗の材料を `Ui.failure` に置いてから、その場でも評価で渡す。
-  起動画面（`loading/boot.js`）は口（`__hangarBootFail` など）を作り終えた時点で、殻の命令 `boot_state` を一度だけ呼び、`{ failure, progress, finishing }` を引き取る。
+  起動画面（`loading/boot.js`）は口（`__hangarBootFail` など）を作り終えた時点で、殻の命令 `boot_state` を一度だけ呼び、`{ failure, progress, finishing, lang }` を引き取る。
   失敗があれば札を出し、無くて読み込みが終わった合図（`finishing`）が打たれていれば合図を描き、索引の進み具合（`progress`）は待っている間の文に使う。
+  `lang` は待っている間の文（読み込み中、何をしているか、ようこそ）の言語で、札と同じ `page_language` で決める。
+  日英の表は `loading/boot-frames.js` の `WAIT` にある。頁は `lang` が届くまで待っている間の文を出さない（英語の OS で日本語を一瞬出さないため）。問い合わせが断られたら日本語にする。
   口が出来た後に起きたことは、その場の評価で届く。殻は状態に置くのを先にするので、どちらかで必ず届く。
   状態は「もう一度試す」（`retry_boot`）で空にし、サーバの頁へ移った後は何も返さない。
   以前は、読み込みが終わる前の失敗を殻が貯め、読み込みの合図（`PageLoadEvent::Finished`）で渡し直していた。
@@ -266,12 +268,13 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   互換の別のサーバが新しいときの次にすることは、macOS では「Hangar.app を新しい版に入れ替えます」、ほかでは「Hangar の新しい版をインストールします」にする。
   以前は Windows の札にも「この Hangar.app」と出ていた。殻が書く詳細のうち `.app` と言うのは App Translocation の案内だけで、これは macOS の写しの場所でしか起きない。
 - 版は殻（`app.package_info()`）、OS の名前と版は殻が失敗のときに読む（macOS は `sw_vers -productVersion`、Linux は `/etc/os-release`、Windows は登録簿の `CurrentBuildNumber` と `DisplayVersion`）。Windows の製品名は Windows 11 でも「Windows 10」のままなので使わず、ビルド番号 22000 からを Windows 11 と呼ぶ（「Windows 11 24H2 (build 26100)」）。
-- 頁の言語は、`<HANGAR_HOME>/settings.json` の `language`（`ja` か `en`）を**殻が読めればそれ**、読めなければ OS の言語で決める（設計書 10 章の未決の点を、こう決めた）。OS の言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、Windows では表示言語の並び（`GetUserPreferredUILanguages`）の先頭、ほかは `LC_ALL`、`LC_MESSAGES`、`LANG` で、日本語なら ja、それ以外は en にする。どちらも決まらなければ日本語（UI の既定）にする。設定ファイルがあっても `language` が無い（利用者がまだ選んでいない）ときも OS の言語に従う。UI は同じ場合に日本語の既定で出るので、英語の OS ではこの頁だけ先に英語になる。設定ファイルが読めれば OS には聞かない（失敗の最中に外のコマンドを呼ばないため）。
+- 頁の言語は、サーバと UI と同じく `<HANGAR_HOME>/settings.json` の `language` で決める（「言語の決め方」の節。`bootfail::page_language`）。
+  設定で決まれば OS には聞かない。初めての起動で殻が先に動けば、起動の頭（`boot` の最初）で殻が OS の表示言語を設定に書く（`bootfail::ensure_language`）。
 - 頁の文は UI の辞書を使えないので、日英の表を頁に持つ（`boot-fail.js`）。言語の並びは shared の `LANGUAGES` と同じにし、試験が突き合わせる。
 - 殻が自分で書く `detail`（`other` と `node-missing` の理由と、時間切れの案内）は、頁と同じ言語で書く。
   英語の設定でも「Node 22（x64）が見つかりません」「調べた場所」が日本語のまま出ていた（2026-10-11、Windows の実機の確かめで見つけた）ためである。
   文の日英の表は殻に持つ（`src-tauri/src/bootmsg.rs` の `Msg`、Node が見つからないときは調べた場所を並べるので `node.rs` の `describe_error_in`）。
-  言語は札と同じく `page_language` で決め、決めるのは失敗したときだけにする（成功の道で OS に聞かない）。
+  言語は札と同じく `page_language` で決める。
   文の中の記録の場所は、置き場の名前と同じく `~` に縮め、OS の区切りで書く。
   文に埋める例外の文、OS や Node が返した文、サーバの例外の文（サーバが書く `detail`）は記録なので、言語を替えない（サーバの文の英語化は段 3 の PR 7 の範囲である）。
 
@@ -2050,10 +2053,10 @@ Claude が動く場所は、公式に合わせて「ディレクトリ」（作�
 `{n|単数|複数}` の `n` も引数の名前として数えるので、鍵の一覧の引数と食い違えば試験（`t.test.ts`）で止まる。
 
 言語の設定は、この PC の設定（`~/.agent-hangar/settings.json` の `language`、API では `SettingsDto.language`）に置く。
-既定は日本語（`ja`）で、項目が無いうちは日本語として読む。
+初めての起動では OS の表示言語に合わせ、日本語なら `ja`、それ以外は `en` を書く（下の「言語の決め方」）。
 PC ごとの設定なので、クラウドへは同期しない。
 読み書きはほかの設定と同じ `GET /api/settings` と `PATCH /api/settings` で行い、辞書に無い言語は 400 で断る。
-手で書き換えた `settings.json` の知らない値は、読み込みのときに落とす。
+手で書き換えた `settings.json` の知らない値は、読み込みのときに言語の無い設定と同じ日本語に読み替える（下の「言語の決め方」の 2）。
 切り替えの部品は、設定の「一般」の節の最初の行にある（日本語、English の 2 択。`views/SettingsScreen.tsx`）。
 選んだ時点で保存し、UI はすぐその言語になる（読み直しは要らない）。
 ステータスの札（Active、Paused、Done、Archived）は、どちらの言語でも英語のままである。
@@ -2070,6 +2073,34 @@ UI の日本語の直書きは、試験（`packages/ui/src/hardcoded.test.ts`）
 `packages/ui/src` の試験でないソースを走査し、文字列、テンプレート、JSX の文のうち、かなか漢字を含むものが始まる行を、ファイルごとに数える。
 数は許可の一覧（理由つき）と同じでなければ落ちる。サーバ側の `packages/server/src/i18n/hardcoded.test.ts` と同じ形である。
 文を足すときは、辞書に鍵を足して引く。表示に出ない日本語（開発者向けのログなど）だけを、理由を添えて許可の一覧に足す。
+
+#### 言語の決め方
+
+殻の札と起動画面、サーバ、UI、Windows の CLI の入口（`launch-cli`）は、同じ決め方で同じ値を使う。
+読み口は、Node の側が `packages/server/src/i18n/osLanguage.ts` の `decideLanguage` と `osDisplayLanguage`、殻の側が `bootfail.rs` の `decide_language` と `os_language` で、両方の試験が同じ表（`packages/server/src/i18n/language-cases.json`）を読む。
+
+1. `settings.json` に `language`（`ja` か `en`）があれば、それを使う。
+2. `settings.json` はオブジェクトとして読めるが `language` が無い（知らない値も含む）なら、日本語にする。
+   OS に合わせる前（0.2.0 の前）から使っている人は、項目が無いまま日本語で見ていたので、変えない。
+3. `settings.json` が無い（初めての起動）か読めなければ、OS の表示言語にする。日本語なら `ja`、それ以外と読めないときは `en` である。
+
+OS の表示言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、Windows では表示言語で読む。
+殻は `GetUserPreferredUILanguages` の先頭、Node は PowerShell の `[Globalization.CultureInfo]::CurrentUICulture.Name` を読む。
+どちらも地域の書式（`Intl` の既定の locale）は見ない。英語の表示で地域だけ日本の人に、日本語の画面を出さないためである。
+ほかの OS は `LC_ALL`、`LC_MESSAGES`、`LANG` の順に見る（`C` と `POSIX` では決めない）。
+環境変数 `HANGAR_OS_LANGUAGE`（`ja` か `en`）があれば、OS の代わりにその値を使う。試験と、英語の OS を真似て画面を確かめるときのためで、殻と Node の両方が読む。
+
+初めての起動の値を `settings.json` に書くのは、最初に動いたものである。
+
+- アプリから起動したときは殻が先に動く。殻は起動の頭（サーバを起こす前）で、`settings.json` が無ければ `{"language": …}` だけのファイルを作る（`ensure_language`。`create_new` で作るので、同じ時に作られたファイルは上書きしない）。サーバはこれに既定の値を足して読み、起動が通ってから自分の形で書き戻す。
+- CLI（`hangar start`、開発の `npm run dev`）から起動したときはサーバが先に動く。サーバは設定の読み込み（`loadSettings`）で 2 と 3 を埋め、起動が通ってから `persistSettings` で書く。`hangar setup` も同じ読み込みを通って書く。
+- `launch-cli` は読むだけで書かない。Node が見つからないときの文を、同じ決め方の言語で出す。
+
+どれが先に動いても、OS の表示言語が同じなら同じ値になる。
+設定がある人のファイルには殻は触らない（2 の日本語は、サーバが起動のあとに書き戻す）。
+
+殻が自分で出す文も、同じ言語で出す。
+起動の失敗の札と詳細（上の「起動の失敗の札」）、待っている間の文（`boot_state` の `lang`）、設定の同期のネイティブの確認と結果の文（`configapply.rs` の `words`。CLI が返す失敗の文は CLI の日本語のまま）、入力待ちの通知の題と本文が空のときの代わりの文（`notify::waiting`）である。
 
 #### サーバでの引き方
 
@@ -2949,7 +2980,7 @@ error は赤みのガラスに警告のアイコンを添え、幅は 420px ま�
 読み上げは info が `role="status"`、error が `role="alert"` である。
 
 窓が背面にあるときは、入力待ちになったセッションごとに通知を出す。
-題はセッションの名前、本文は問いの文（取れなければ「入力を待っています」）である。
+題はセッションの名前、本文は問いの文（取れなければ「入力を待っています」、英語では Waiting for input）である。
 問いの文は入力待ちより少し遅れて届くことがある（hook の台本や本文の索引が後になる）。
 問いの文なしで知らせたセッション（`waitingBare`）に問いの文が届いたら、同じセッションの通知をもう一度出す。
 OS は同じ識別子（macOS）と同じタグ（Windows、ブラウザ）の通知を書き換えるので、2 枚にはならない。
@@ -3618,6 +3649,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
   世代を指すと戻す先と消す先を見せて承諾を取る（`--plan`、`--yes`、`--json` は同じ）。
 - 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name)`：CLI に `--plan --json` を走らせ、返った件数と種類をネイティブの確認（`tauri-plugin-dialog` のメッセージ）に出し、承諾されたときだけ `--yes --json`（適用は `--order` 付き）を走らせる。
   実行される内容（skills、commands、agents、フックとコマンド実行とスクリプトの印）を含むときは警告の見た目で出し、その件数と項目の名前（5 件まで）を書く。
+  確認と結果の文は、殻の頁と同じ言語で書く（`configapply::words`。「言語の決め方」の節）。CLI が返した失敗の文は、そのまま出す。
   結果は `{ status, message, generation }`（`status` は `applied`、`restored`、`cancelled`、`none`、`failed`、`busy`）で頁へ返す。
   失敗は確認と同じネイティブの窓でも知らせる。
   頁から渡せるのは世代の名前だけで、`yyyyMMdd-HHmmss` の形を殻が確かめる。
@@ -4315,7 +4347,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   PATH は、実在する `node.exe` を PATH の順にすべて候補にする。fnm が別の版を PATH の先頭に置いていても、後ろの winget の Packages や Links、volta などにある合う版に届く（実機の A19）。
   どれも合わなければ、いま動いている Node の版と、調べた場所を探した順に番号付きで挙げ、それぞれがファイルが無い、起動できない、時間内に答えない、版が違う、アーキテクチャが違う、のどれだったかを書く（`launch-cli.ts` の `describeNotFound`）。
   最後の次の一手は、殻の札と同じく winget の命令を先に、nvm-windows を添え、ほかの場所なら HANGAR_NODE か `nodePath` を指すよう書く。
-  文は日本語と英語で、言語は殻の札と同じ決め方にする（`settings.json` の `language`、無ければ OS の言語、それも無ければ日本語。`cliLanguage`）。OS の言語は Node が OS から受け取った地域の設定（`Intl` の既定の locale）で読む。
+  文は日本語と英語で、言語は殻の札とサーバと同じ決め方にする（「言語の決め方」の節。`cliLanguage` が `decideLanguage` を呼ぶ）。OS の言語は表示言語で読み、地域の書式（`Intl` の既定の locale）は見ない。
   `hangar.cmd` がどこにも Node を見つけられないときの文（ASCII だけの英語）も、同じ winget の命令と nvm-windows を案内する。
   `hangar.cmd` は、node を起こす最後の行で `endlocal & goto #_end_of_batch_# 2>nul || ver >nul & "<node>" …` の形を使い、node が動き出す前にバッチを終える（npm の cmd-shim と同じ手、npm/cli#969）。
   cmd は行を丸ごと読んで展開してから動かすので、無い label への goto でバッチが終わっても、行の残りは動く。

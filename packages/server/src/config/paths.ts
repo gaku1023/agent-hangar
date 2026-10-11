@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaultTerminalApp, isLanguage, newId, terminalAppFor, type ConfigApproval, type Language, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
+import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
 export type Settings = {
@@ -55,7 +56,7 @@ export type Settings = {
   claudePath?: string | null;
   /**
    * 画面とサーバの文の言語。この PC だけの設定で、端末の間では同期しない。
-   * 項目が無いうちは既定の日本語として読む（`languageOf`）。
+   * `loadSettings` が必ず埋める。settings.json が無ければ OS の表示言語、あって項目が無ければ日本語にする（i18n/osLanguage.ts の decideLanguage）。
    */
   language?: Language;
 };
@@ -109,11 +110,16 @@ function defaultSettings(platform: NodeJS.Platform = process.platform): Settings
   return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null };
 }
 
-/** platform は試験のための差し込み口で、外部ターミナルの既定と読み替えに使う。 */
-export function loadSettings(home: string, platform: NodeJS.Platform = process.platform): Settings {
+/**
+ * platform と osLanguage は試験のための差し込み口である。
+ * platform は外部ターミナルの既定と読み替えに、osLanguage は settings.json が無いとき（初めての起動）の言語に使う。
+ * 言語はここで必ず埋める。初めての起動で決めた言語は、起動が通ってから書き戻す（boot/home.ts の persistSettings）。
+ */
+export function loadSettings(home: string, platform: NodeJS.Platform = process.platform, osLanguage: () => Language | undefined = osDisplayLanguage): Settings {
   const file = path.join(home, 'settings.json');
-  if (!fs.existsSync(file)) return defaultSettings(platform);
-  const s = { ...defaultSettings(platform), ...(JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Settings>) };
+  if (!fs.existsSync(file)) return { ...defaultSettings(platform), language: decideLanguage(undefined, osLanguage).language };
+  const text = fs.readFileSync(file, 'utf8');
+  const s = { ...defaultSettings(platform), ...(JSON.parse(text) as Partial<Settings>) };
   // 別の OS で保存した外部ターミナル（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定に読み替える。
   s.terminalApp = terminalAppFor(s.terminalApp, platform);
   // 旧実装の設定の同期のスイッチ（syncClaudeConfig）は、設定の同期を作り直したときに消した。
@@ -122,8 +128,8 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 許しの無い外部の宛先は、読み込みのときに既定へ戻す。
   // 手で書き換えた settings.json や、この制限より前に保存された設定から、会話の本文が外へ出ていかないようにする。
   if (!s.allowExternalSummarizer && !isLoopbackSummarizerUrl(s.lmStudioUrl)) s.lmStudioUrl = defaultSettings().lmStudioUrl;
-  // 知らない言語は持ち続けない。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
-  if (s.language !== undefined && !isLanguage(s.language)) delete s.language;
+  // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
+  if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;
 }
 

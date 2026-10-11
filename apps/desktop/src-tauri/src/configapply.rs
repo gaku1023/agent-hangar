@@ -22,22 +22,173 @@ const LISTED_EXEC: usize = 5;
 /// 確認に並べる、戻す先のファイルの数の上限。
 const LISTED_FILES: usize = 8;
 
-/// 種類の並べ方と名前。CLI（packages/cli/src/config.ts の KIND_LABEL）と同じ言い方にする。
-const KINDS: &[(&str, &str)] = &[
-    ("claude-md", "CLAUDE.md"),
-    ("settings", "settings.json の鍵"),
-    ("keybindings", "keybindings.json"),
-    ("skills", "スキル"),
-    ("commands", "コマンド"),
-    ("agents", "エージェント"),
-    ("memory", "メモリ"),
+/// 種類の並べ方。名前は `Words::kinds` に同じ順で持つ。
+const KIND_KEYS: [&str; 7] = [
+    "claude-md",
+    "settings",
+    "keybindings",
+    "skills",
+    "commands",
+    "agents",
+    "memory",
 ];
 
-fn mark_name(mark: &str) -> &str {
+/// 殻が出す設定の同期の文。言語は殻の頁と同じく `bootfail::page_language` で決め、`words` で引く。
+/// 日本語の名前は CLI（packages/cli/src/config.ts の KIND_LABEL）と同じ言い方、英語は UI の辞書（configSyncUi）と同じ言い方にする。
+/// 文の中の `{n}` などは、出すときに値へ置き換える。
+/// CLI が返す失敗の文（`Failure::message`）は CLI の文なので、ここでは訳さない。
+pub struct Words {
+    kinds: [&'static str; 7],
+    /// フック、コマンド実行、スクリプトの印の名前。
+    marks: [&'static str; 3],
+    /// 新規、上書き、削除、競合で相手を採る、競合で手元を残す。
+    counts: [&'static str; 5],
+    /// 件数の 1 つ。`{word}` と `{n}`。
+    count: &'static str,
+    sep: &'static str,
+    /// 項目の後ろに印を添える括弧。
+    open: &'static str,
+    close: &'static str,
+    apply_lead: &'static str,
+    kinds_line: &'static str,
+    /// 実行される指示の件数。1 件のときと、ほか。
+    caution: [&'static str; 2],
+    exec_head: &'static str,
+    more: &'static str,
+    apply_backup: &'static str,
+    apply_title: &'static str,
+    apply_ok: &'static str,
+    cancel: &'static str,
+    restore_lead: &'static str,
+    restore_files: &'static str,
+    restore_remove: &'static str,
+    restore_note: &'static str,
+    restore_title: &'static str,
+    restore_ok: &'static str,
+    unreadable: &'static str,
+    applied: &'static str,
+    applied_generation: &'static str,
+    restored: &'static str,
+    restored_safety: &'static str,
+    cannot_start: &'static str,
+    cannot_read: &'static str,
+    too_long: &'static str,
+    /// lib.rs の流れが出す文。
+    pub apply_flow_title: &'static str,
+    pub restore_flow_title: &'static str,
+    pub busy: &'static str,
+    pub apply_cancelled: &'static str,
+    pub restore_cancelled: &'static str,
+    pub bad_generation: &'static str,
+    pub apply_stopped: &'static str,
+    pub restore_stopped: &'static str,
+}
+
+// CI の rustfmt は日本語の幅を手元と違って数えるので、文の表は整形を止めて書いたままにする。
+#[rustfmt::skip]
+const JA: Words = Words {
+    kinds: ["CLAUDE.md", "settings.json の鍵", "keybindings.json", "スキル", "コマンド", "エージェント", "メモリ"],
+    marks: ["フック", "シェルのコマンド実行", "スクリプト"],
+    counts: ["新規", "上書き", "削除", "競合で相手を採る", "競合で手元を残す"],
+    count: "{word} {n} 件",
+    sep: "、",
+    open: "（",
+    close: "）",
+    apply_lead: "他の PC から届いた設定を、このパソコンの Claude Code の設定フォルダ（~/.claude）に書きます。\n",
+    kinds_line: "種類: {kinds}",
+    caution: [
+        "注意: Claude が読んで実行する指示（スキル、コマンド、エージェント）を {n} 件書きます。",
+        "注意: Claude が読んで実行する指示（スキル、コマンド、エージェント）を {n} 件書きます。",
+    ],
+    exec_head: "このうち、フックやコマンドの実行を含むもの:",
+    more: "ほか {n} 件",
+    apply_backup: "書く前に、元の中身を控えの世代に取ります。あとから設定の「この世代に戻す」で戻せます。",
+    apply_title: "他の PC の設定を適用しますか",
+    apply_ok: "適用する",
+    cancel: "やめる",
+    restore_lead: "控えの世代 {name} の時点へ戻します。",
+    restore_files: "書き戻すファイル:",
+    restore_remove: "その時点で無かったので消すファイル:",
+    restore_note: "その世代のあとで手元で変えた内容も、世代の時点へ戻ります。戻す前の状態は新しい世代に控えるので、戻しも取り消せます。",
+    restore_title: "この世代へ戻しますか",
+    restore_ok: "戻す",
+    unreadable: "設定の同期の命令の返事を読めませんでした。~/.agent-hangar/desktop.log か、端末で hangar config apply を確かめてください。",
+    applied: "適用しました（書き込み {written} 件、削除 {removed} 件、手元を残す {kept} 件）。",
+    applied_generation: "控えの世代 {g} から戻せます。",
+    restored: "戻しました（書き戻し {restored} 件、消去 {removed} 件）。",
+    restored_safety: "戻す前の状態を世代 {g} に控えました。",
+    cannot_start: "設定の同期の命令を起こせません: {e}",
+    cannot_read: "設定の同期の命令の結果を読めません: {e}",
+    too_long: "設定の同期の命令が {s} 秒以内に終わりませんでした。",
+    apply_flow_title: "設定の適用",
+    restore_flow_title: "設定を世代へ戻す",
+    busy: "設定の確認がすでに出ています。",
+    apply_cancelled: "適用しませんでした。指示書はそのまま残しています。",
+    restore_cancelled: "戻しませんでした。",
+    bad_generation: "世代の名前が正しくありません。",
+    apply_stopped: "設定の適用の処理が止まりました。",
+    restore_stopped: "設定を戻す処理が止まりました。",
+};
+
+#[rustfmt::skip]
+const EN: Words = Words {
+    kinds: ["CLAUDE.md", "settings.json keys", "keybindings.json", "skills", "commands", "agents", "memory"],
+    marks: ["hooks", "shell commands", "script"],
+    counts: ["New", "Overwrite", "Delete", "Conflict, take the other computer's", "Conflict, keep this computer's"],
+    count: "{word}: {n}",
+    sep: ", ",
+    open: " (",
+    close: ")",
+    apply_lead: "Writes the settings that came from other computers to the Claude Code settings folder (~/.claude) on this computer.\n",
+    kinds_line: "Kinds: {kinds}",
+    caution: [
+        "Caution: this writes {n} instruction that Claude reads and runs (skills, commands and agents).",
+        "Caution: this writes {n} instructions that Claude reads and runs (skills, commands and agents).",
+    ],
+    exec_head: "Of these, the ones with hooks or commands that run:",
+    more: "and {n} more",
+    apply_backup: "Before writing, the current contents are saved as a backup generation. You can go back with Restore this generation in Settings.",
+    apply_title: "Apply settings from other computers?",
+    apply_ok: "Apply",
+    cancel: "Cancel",
+    restore_lead: "Restores the files to backup generation {name}.",
+    restore_files: "Files to write back:",
+    restore_remove: "Files to delete because they did not exist then:",
+    restore_note: "Changes made on this computer after that generation are reverted too. The current state is saved as a new generation first, so the restore can be undone.",
+    restore_title: "Restore this generation?",
+    restore_ok: "Restore",
+    unreadable: "Could not read the reply of the settings sync command. Check ~/.agent-hangar/desktop.log, or run hangar config apply in a terminal.",
+    applied: "Applied ({written} written, {removed} deleted, {kept} kept as they were on this computer).",
+    applied_generation: " You can go back to backup generation {g}.",
+    restored: "Restored ({restored} written back, {removed} deleted).",
+    restored_safety: " The state before the restore was saved as generation {g}.",
+    cannot_start: "Cannot start the settings sync command: {e}",
+    cannot_read: "Cannot read the result of the settings sync command: {e}",
+    too_long: "The settings sync command did not finish within {s} seconds.",
+    apply_flow_title: "Apply settings",
+    restore_flow_title: "Restore settings to a generation",
+    busy: "A settings confirmation is already open.",
+    apply_cancelled: "Not applied. The order is kept as it is.",
+    restore_cancelled: "Not restored.",
+    bad_generation: "The generation name is not valid.",
+    apply_stopped: "Applying the settings stopped.",
+    restore_stopped: "Restoring the settings stopped.",
+};
+
+/// 言語（`bootfail::page_language` の ja か en）の文の表。en のほかは日本語にする。
+pub fn words(lang: &str) -> &'static Words {
+    if lang == "en" {
+        &EN
+    } else {
+        &JA
+    }
+}
+
+fn mark_name<'a>(w: &Words, mark: &'a str) -> &'a str {
     match mark {
-        "hooks" => "フック",
-        "shell" => "シェルのコマンド実行",
-        "script" => "スクリプト",
+        "hooks" => w.marks[0],
+        "shell" => w.marks[1],
+        "script" => w.marks[2],
         other => other,
     }
 }
@@ -101,25 +252,31 @@ pub struct Confirm {
     pub warn: bool,
 }
 
-fn counts_line(c: &Counts) -> String {
+fn counts_line(w: &Words, c: &Counts) -> String {
     let mut parts = Vec::new();
-    for (n, word) in [
-        (c.create, "新規"),
-        (c.overwrite, "上書き"),
-        (c.delete, "削除"),
-        (c.conflict_remote, "競合で相手を採る"),
-        (c.conflict_mine, "競合で手元を残す"),
-    ] {
+    let all = [
+        c.create,
+        c.overwrite,
+        c.delete,
+        c.conflict_remote,
+        c.conflict_mine,
+    ];
+    for (n, word) in all.into_iter().zip(w.counts) {
         if n > 0 {
-            parts.push(format!("{word} {n} 件"));
+            parts.push(
+                w.count
+                    .replace("{word}", word)
+                    .replace("{n}", &n.to_string()),
+            );
         }
     }
-    parts.join("、")
+    parts.join(w.sep)
 }
 
-fn kinds_line(by_kind: &HashMap<String, u32>) -> String {
-    KINDS
+fn kinds_line(w: &Words, by_kind: &HashMap<String, u32>) -> String {
+    KIND_KEYS
         .iter()
+        .zip(w.kinds)
         .filter_map(|(key, name)| {
             by_kind
                 .get(*key)
@@ -127,49 +284,53 @@ fn kinds_line(by_kind: &HashMap<String, u32>) -> String {
                 .map(|n| format!("{name} {n}"))
         })
         .collect::<Vec<_>>()
-        .join("、")
+        .join(w.sep)
 }
 
 /// 適用の確認の文。件数、種類、実行される指示とフックやコマンド実行を含む項目、控えと戻し方の順に並べる。
-pub fn apply_confirm(plan: &ApplyPlan) -> Confirm {
-    let mut body = String::from(
-        "他の PC から届いた設定を、このパソコンの Claude Code の設定フォルダ（~/.claude）に書きます。\n",
-    );
-    body.push_str(&format!("\n{}", counts_line(&plan.counts)));
-    let kinds = kinds_line(&plan.by_kind);
+pub fn apply_confirm(plan: &ApplyPlan, lang: &str) -> Confirm {
+    let w = words(lang);
+    let mut body = String::from(w.apply_lead);
+    body.push_str(&format!("\n{}", counts_line(w, &plan.counts)));
+    let kinds = kinds_line(w, &plan.by_kind);
     if !kinds.is_empty() {
-        body.push_str(&format!("\n種類: {kinds}"));
+        body.push('\n');
+        body.push_str(&w.kinds_line.replace("{kinds}", &kinds));
     }
     let warn = plan.instructions > 0 || !plan.exec.is_empty();
     if warn {
-        body.push_str(&format!(
-            "\n\n注意: Claude が読んで実行する指示（スキル、コマンド、エージェント）を {} 件書きます。",
-            plan.instructions
-        ));
+        let caution = w.caution[usize::from(plan.instructions != 1)];
+        body.push_str("\n\n");
+        body.push_str(&caution.replace("{n}", &plan.instructions.to_string()));
     }
     if !plan.exec.is_empty() {
-        body.push_str("\nこのうち、フックやコマンドの実行を含むもの:");
+        body.push('\n');
+        body.push_str(w.exec_head);
         for item in plan.exec.iter().take(LISTED_EXEC) {
-            let marks: Vec<&str> = item.marks.iter().map(|m| mark_name(m)).collect();
-            body.push_str(&format!("\n  {}（{}）", item.label, marks.join("、")));
+            let marks: Vec<&str> = item.marks.iter().map(|m| mark_name(w, m)).collect();
+            let marks = marks.join(w.sep);
+            body.push_str(&format!("\n  {}{}{marks}{}", item.label, w.open, w.close));
         }
         if plan.exec.len() > LISTED_EXEC {
-            body.push_str(&format!("\n  ほか {} 件", plan.exec.len() - LISTED_EXEC));
+            let rest = (plan.exec.len() - LISTED_EXEC).to_string();
+            body.push_str(&format!("\n  {}", w.more.replace("{n}", &rest)));
         }
     }
-    body.push_str("\n\n書く前に、元の中身を控えの世代に取ります。あとから設定の「この世代に戻す」で戻せます。");
+    body.push_str("\n\n");
+    body.push_str(w.apply_backup);
     Confirm {
-        title: "他の PC の設定を適用しますか".to_string(),
+        title: w.apply_title.to_string(),
         body,
-        ok: "適用する",
-        cancel: "やめる",
+        ok: w.apply_ok,
+        cancel: w.cancel,
         warn,
     }
 }
 
 /// 世代へ戻す確認の文。
-pub fn restore_confirm(plan: &RestorePlan) -> Confirm {
-    let mut body = format!("控えの世代 {} の時点へ戻します。", plan.name);
+pub fn restore_confirm(plan: &RestorePlan, lang: &str) -> Confirm {
+    let w = words(lang);
+    let mut body = w.restore_lead.replace("{name}", &plan.name);
     let list = |body: &mut String, head: &str, files: &[String]| {
         if files.is_empty() {
             return;
@@ -179,28 +340,26 @@ pub fn restore_confirm(plan: &RestorePlan) -> Confirm {
             body.push_str(&format!("\n  {f}"));
         }
         if files.len() > LISTED_FILES {
-            body.push_str(&format!("\n  ほか {} 件", files.len() - LISTED_FILES));
+            let rest = (files.len() - LISTED_FILES).to_string();
+            body.push_str(&format!("\n  {}", w.more.replace("{n}", &rest)));
         }
     };
-    list(&mut body, "書き戻すファイル:", &plan.restore);
-    list(
-        &mut body,
-        "その時点で無かったので消すファイル:",
-        &plan.remove,
-    );
-    body.push_str("\n\nその世代のあとで手元で変えた内容も、世代の時点へ戻ります。戻す前の状態は新しい世代に控えるので、戻しも取り消せます。");
+    list(&mut body, w.restore_files, &plan.restore);
+    list(&mut body, w.restore_remove, &plan.remove);
+    body.push_str("\n\n");
+    body.push_str(w.restore_note);
     Confirm {
-        title: "この世代へ戻しますか".to_string(),
+        title: w.restore_title.to_string(),
         body,
-        ok: "戻す",
-        cancel: "やめる",
+        ok: w.restore_ok,
+        cancel: w.cancel,
         warn: false,
     }
 }
 
 // ---- CLI の返事 ----
 
-/// CLI が ok: false で返した失敗。message はそのまま利用者に見せる日本語の文である。
+/// CLI が ok: false で返した失敗。message はそのまま利用者に見せる文である（CLI の文は日本語だけ）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Failure {
     pub code: String,
@@ -208,13 +367,11 @@ pub struct Failure {
 }
 
 /// CLI の標準出力の最後の 1 行（JSON）を読む。`key` は成功のときの中身の名前（plan か result）。
-/// ok: false は Failure、JSON として読めないものも Failure にする。
-pub fn parse_reply<T: DeserializeOwned>(stdout: &str, key: &str) -> Result<T, Failure> {
-    let unreadable = || {
-        Failure {
+/// ok: false は Failure、JSON として読めないものも Failure にする。読めないときの文は `lang` の言語で書く。
+pub fn parse_reply<T: DeserializeOwned>(stdout: &str, key: &str, lang: &str) -> Result<T, Failure> {
+    let unreadable = || Failure {
         code: "unreadable".to_string(),
-        message: "設定の同期の命令の返事を読めませんでした。~/.agent-hangar/desktop.log か、端末で hangar config apply を確かめてください。".to_string(),
-    }
+        message: words(lang).unreadable.to_string(),
     };
     let line = stdout
         .lines()
@@ -265,7 +422,7 @@ pub struct RestoreResult {
 }
 
 /// 頁へ返す結果。status は applied、restored、cancelled、none、failed、busy のどれか。
-/// message は画面の知らせにそのまま出せる日本語の 1 文である。
+/// message は画面の知らせにそのまま出せる 1 文で、殻の頁と同じ言語で書く（CLI の失敗の文は CLI のまま）。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Outcome {
     pub status: &'static str,
@@ -283,13 +440,15 @@ impl Outcome {
         }
     }
 
-    pub fn applied(r: &ApplyResult) -> Self {
-        let mut message = format!(
-            "適用しました（書き込み {} 件、削除 {} 件、手元を残す {} 件）。",
-            r.written, r.removed, r.kept_mine
-        );
+    pub fn applied(r: &ApplyResult, lang: &str) -> Self {
+        let w = words(lang);
+        let mut message = w
+            .applied
+            .replace("{written}", &r.written.to_string())
+            .replace("{removed}", &r.removed.to_string())
+            .replace("{kept}", &r.kept_mine.to_string());
         if let Some(g) = &r.generation {
-            message.push_str(&format!("控えの世代 {g} から戻せます。"));
+            message.push_str(&w.applied_generation.replace("{g}", g));
         }
         Outcome {
             status: "applied",
@@ -298,14 +457,14 @@ impl Outcome {
         }
     }
 
-    pub fn restored(r: &RestoreResult) -> Self {
-        let mut message = format!(
-            "戻しました（書き戻し {} 件、消去 {} 件）。",
-            r.restored.len(),
-            r.removed.len()
-        );
+    pub fn restored(r: &RestoreResult, lang: &str) -> Self {
+        let w = words(lang);
+        let mut message = w
+            .restored
+            .replace("{restored}", &r.restored.len().to_string())
+            .replace("{removed}", &r.removed.len().to_string());
         if let Some(g) = &r.safety {
-            message.push_str(&format!("戻す前の状態を世代 {g} に控えました。"));
+            message.push_str(&w.restored_safety.replace("{g}", g));
         }
         Outcome {
             status: "restored",
@@ -367,11 +526,12 @@ pub fn cli_command(node: &Path, server_dir: &Path, hangar_home: &Path, args: &[&
 }
 
 /// CLI を走らせて、標準出力を返す。失敗の終了コードでも、標準出力に JSON の返事があるので、そのまま返す。
-/// 起こせない、待ちすぎ、のときだけ Err。待ちすぎたら子を止める。
-pub fn run_cli(mut cmd: Command, timeout: Duration) -> Result<String, String> {
+/// 起こせない、待ちすぎ、のときだけ Err で、その文は `lang` の言語で書く。待ちすぎたら子を止める。
+pub fn run_cli(mut cmd: Command, timeout: Duration, lang: &str) -> Result<String, String> {
+    let w = words(lang);
     let child = cmd
         .spawn()
-        .map_err(|e| format!("設定の同期の命令を起こせません: {e}"))?;
+        .map_err(|e| w.cannot_start.replace("{e}", &e.to_string()))?;
     let pid = child.id();
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
@@ -379,7 +539,7 @@ pub fn run_cli(mut cmd: Command, timeout: Duration) -> Result<String, String> {
     });
     match rx.recv_timeout(timeout) {
         Ok(Ok(out)) => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
-        Ok(Err(e)) => Err(format!("設定の同期の命令の結果を読めません: {e}")),
+        Ok(Err(e)) => Err(w.cannot_read.replace("{e}", &e.to_string())),
         Err(_) => {
             // 子を止めれば、待っているスレッドも終わる。
             #[cfg(unix)]
@@ -398,10 +558,7 @@ pub fn run_cli(mut cmd: Command, timeout: Duration) -> Result<String, String> {
                     .creation_flags(crate::winjob::CREATE_NO_WINDOW)
                     .status();
             }
-            Err(format!(
-                "設定の同期の命令が {} 秒以内に終わりませんでした。",
-                timeout.as_secs()
-            ))
+            Err(w.too_long.replace("{s}", &timeout.as_secs().to_string()))
         }
     }
 }
@@ -419,10 +576,13 @@ mod tests {
 
     #[test]
     fn the_apply_confirm_shows_counts_and_kinds_in_a_fixed_order() {
-        let c = apply_confirm(&plan(
-            r#"{"counts":{"create":2,"overwrite":1,"delete":0,"conflictRemote":1,"conflictMine":0},
+        let c = apply_confirm(
+            &plan(
+                r#"{"counts":{"create":2,"overwrite":1,"delete":0,"conflictRemote":1,"conflictMine":0},
                 "byKind":{"skills":2,"claude-md":1,"commands":1,"settings":3},"instructions":0,"exec":[]}"#,
-        ));
+            ),
+            "ja",
+        );
         assert!(c
             .body
             .contains("新規 2 件、上書き 1 件、競合で相手を採る 1 件"));
@@ -443,10 +603,13 @@ mod tests {
 
     #[test]
     fn instructions_and_hooks_make_it_a_warning_that_names_them() {
-        let c = apply_confirm(&plan(
-            r#"{"counts":{"create":3},"byKind":{"skills":2,"commands":1},"instructions":3,
+        let c = apply_confirm(
+            &plan(
+                r#"{"counts":{"create":3},"byKind":{"skills":2,"commands":1},"instructions":3,
                 "exec":[{"label":"skills/a/SKILL.md","marks":["hooks"]},{"label":"commands/b.md","marks":["shell","script"]}]}"#,
-        ));
+            ),
+            "ja",
+        );
         assert!(c.warn);
         assert!(c.body.contains(
             "Claude が読んで実行する指示（スキル、コマンド、エージェント）を 3 件書きます"
@@ -460,9 +623,10 @@ mod tests {
 
     #[test]
     fn instructions_without_marks_still_warn_but_list_nothing() {
-        let c = apply_confirm(&plan(
-            r#"{"counts":{"create":1},"byKind":{"agents":1},"instructions":1,"exec":[]}"#,
-        ));
+        let c = apply_confirm(
+            &plan(r#"{"counts":{"create":1},"byKind":{"agents":1},"instructions":1,"exec":[]}"#),
+            "ja",
+        );
         assert!(c.warn);
         assert!(c.body.contains("1 件書きます"));
         assert!(!c.body.contains("フックやコマンドの実行を含むもの"));
@@ -473,10 +637,13 @@ mod tests {
         let exec: Vec<String> = (1..=8)
             .map(|i| format!(r#"{{"label":"skills/s{i}/SKILL.md","marks":["hooks"]}}"#))
             .collect();
-        let c = apply_confirm(&plan(&format!(
-            r#"{{"counts":{{"create":8}},"byKind":{{"skills":8}},"instructions":8,"exec":[{}]}}"#,
-            exec.join(",")
-        )));
+        let c = apply_confirm(
+            &plan(&format!(
+                r#"{{"counts":{{"create":8}},"byKind":{{"skills":8}},"instructions":8,"exec":[{}]}}"#,
+                exec.join(",")
+            )),
+            "ja",
+        );
         assert!(c.body.contains("skills/s5/SKILL.md"));
         assert!(!c.body.contains("skills/s6/SKILL.md"));
         assert!(c.body.contains("ほか 3 件"));
@@ -484,11 +651,14 @@ mod tests {
 
     #[test]
     fn the_restore_confirm_lists_files_and_says_it_can_be_undone() {
-        let c = restore_confirm(&RestorePlan {
-            name: "20261010-120000".to_string(),
-            restore: (1..=10).map(|i| format!("commands/c{i}.md")).collect(),
-            remove: vec!["skills/x/SKILL.md".to_string()],
-        });
+        let c = restore_confirm(
+            &RestorePlan {
+                name: "20261010-120000".to_string(),
+                restore: (1..=10).map(|i| format!("commands/c{i}.md")).collect(),
+                remove: vec!["skills/x/SKILL.md".to_string()],
+            },
+            "ja",
+        );
         assert!(c
             .body
             .contains("控えの世代 20261010-120000 の時点へ戻します"));
@@ -503,12 +673,17 @@ mod tests {
 
     #[test]
     fn replies_are_read_from_the_last_json_line() {
-        let ok: Result<ApplyPlan, Failure> = parse_reply("ログ\n{\"ok\":true,\"plan\":{\"createdAt\":42,\"counts\":{\"create\":1},\"byKind\":{}}}\n", "plan");
+        // 前置きの行（ログ）があっても、最後の JSON の行を読む。
+        let reply = r#"log
+{"ok":true,"plan":{"createdAt":42,"counts":{"create":1},"byKind":{}}}
+"#;
+        let ok: Result<ApplyPlan, Failure> = parse_reply(reply, "plan", "ja");
         let ok = ok.unwrap();
         assert_eq!((ok.created_at, ok.counts.create), (42, 1));
         let failed: Result<ApplyPlan, Failure> = parse_reply(
             "{\"ok\":false,\"code\":\"no-order\",\"message\":\"適用の指示書がありません\"}\n",
             "plan",
+            "ja",
         );
         assert_eq!(
             failed.unwrap_err(),
@@ -524,28 +699,34 @@ mod tests {
             "{\"ok\":true}",
             "{\"ok\":true,\"plan\":3}",
         ] {
-            let r: Result<ApplyPlan, Failure> = parse_reply(bad, "plan");
+            let r: Result<ApplyPlan, Failure> = parse_reply(bad, "plan", "ja");
             assert_eq!(r.unwrap_err().code, "unreadable", "{bad}");
         }
     }
 
     #[test]
     fn outcomes_read_naturally_and_a_missing_order_is_not_a_failure() {
-        let applied = Outcome::applied(&ApplyResult {
-            generation: Some("20261010-120000".to_string()),
-            written: 2,
-            removed: 1,
-            kept_mine: 0,
-        });
+        let applied = Outcome::applied(
+            &ApplyResult {
+                generation: Some("20261010-120000".to_string()),
+                written: 2,
+                removed: 1,
+                kept_mine: 0,
+            },
+            "ja",
+        );
         assert_eq!(applied.status, "applied");
         assert!(applied.message.contains("書き込み 2 件、削除 1 件"));
         assert!(applied.message.contains("20261010-120000"));
         assert_eq!(applied.generation.as_deref(), Some("20261010-120000"));
-        let restored = Outcome::restored(&RestoreResult {
-            restored: vec!["a".into()],
-            removed: vec![],
-            safety: Some("20261010-120100".to_string()),
-        });
+        let restored = Outcome::restored(
+            &RestoreResult {
+                restored: vec!["a".into()],
+                removed: vec![],
+                safety: Some("20261010-120100".to_string()),
+            },
+            "ja",
+        );
         assert_eq!(restored.status, "restored");
         assert!(restored.message.contains("20261010-120100"));
         assert_eq!(
@@ -564,6 +745,82 @@ mod tests {
             .status,
             "failed"
         );
+    }
+
+    fn has_japanese(s: &str) -> bool {
+        s.chars().any(|c| {
+            matches!(c, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{ff08}' | '\u{ff09}' | '\u{3001}')
+        })
+    }
+
+    // 英語の設定（と英語の OS で入れたばかりの状態）では、確認のダイアログも結果の文も英語で出す。
+    #[test]
+    fn the_confirms_and_outcomes_are_english_in_english() {
+        let c = apply_confirm(
+            &plan(
+                r#"{"counts":{"create":2,"overwrite":1},"byKind":{"skills":2,"settings":1},"instructions":1,
+                "exec":[{"label":"skills/a/SKILL.md","marks":["hooks","shell"]}]}"#,
+            ),
+            "en",
+        );
+        assert_eq!(c.title, "Apply settings from other computers?");
+        assert_eq!((c.ok, c.cancel), ("Apply", "Cancel"));
+        assert!(c.body.contains("New: 2, Overwrite: 1"), "{}", c.body);
+        assert!(
+            c.body.contains("Kinds: settings.json keys 1, skills 2"),
+            "{}",
+            c.body
+        );
+        assert!(c.body.contains("writes 1 instruction that"), "{}", c.body);
+        assert!(
+            c.body.contains("skills/a/SKILL.md (hooks, shell commands)"),
+            "{}",
+            c.body
+        );
+        assert!(!has_japanese(&c.body), "{}", c.body);
+        let r = restore_confirm(
+            &RestorePlan {
+                name: "20261010-120000".to_string(),
+                restore: (1..=10).map(|i| format!("commands/c{i}.md")).collect(),
+                remove: vec!["skills/x/SKILL.md".to_string()],
+            },
+            "en",
+        );
+        assert_eq!(
+            (r.title.as_str(), r.ok, r.cancel),
+            ("Restore this generation?", "Restore", "Cancel")
+        );
+        assert!(r.body.contains("and 2 more"), "{}", r.body);
+        assert!(!has_japanese(&r.body), "{}", r.body);
+        let applied = Outcome::applied(
+            &ApplyResult {
+                generation: Some("20261010-120000".to_string()),
+                written: 2,
+                removed: 1,
+                kept_mine: 0,
+            },
+            "en",
+        );
+        assert_eq!(applied.message, "Applied (2 written, 1 deleted, 0 kept as they were on this computer). You can go back to backup generation 20261010-120000.");
+        let restored = Outcome::restored(
+            &RestoreResult {
+                restored: vec!["a".into()],
+                removed: vec![],
+                safety: Some("20261010-120100".to_string()),
+            },
+            "en",
+        );
+        assert!(!has_japanese(&restored.message), "{}", restored.message);
+        let r: Result<ApplyPlan, Failure> = parse_reply("not json", "plan", "en");
+        assert!(!has_japanese(&r.unwrap_err().message));
+        for w in [
+            words("en").busy,
+            words("en").apply_cancelled,
+            words("en").bad_generation,
+            words("en").apply_flow_title,
+        ] {
+            assert!(!has_japanese(w), "{w}");
+        }
     }
 
     #[test]
@@ -656,6 +913,7 @@ mod tests {
         let out = run_cli(
             cli_command(Path::new("node"), &verbatim, tmp.path(), &[]),
             Duration::from_secs(30),
+            "ja",
         )
         .unwrap();
         assert!(out.contains("\"ok\":true"), "{out}");
@@ -685,9 +943,10 @@ mod tests {
             let out = run_cli(
                 cli_command(&node, dir.path(), dir.path(), &["config", "apply"]),
                 Duration::from_secs(10),
+                "ja",
             )
             .unwrap();
-            let r: Result<ApplyPlan, Failure> = parse_reply(&out, "plan");
+            let r: Result<ApplyPlan, Failure> = parse_reply(&out, "plan", "ja");
             assert_eq!(r.unwrap_err().code, "no-order");
         }
 
@@ -698,9 +957,23 @@ mod tests {
             let err = run_cli(
                 cli_command(&node, dir.path(), dir.path(), &[]),
                 Duration::from_millis(300),
+                "ja",
             )
             .unwrap_err();
             assert!(err.contains("以内に終わりませんでした"));
+        }
+
+        #[test]
+        fn a_cli_that_takes_too_long_is_reported_in_english() {
+            let dir = tempfile::tempdir().unwrap();
+            let node = fake_node(dir.path(), "sleep 30");
+            let err = run_cli(
+                cli_command(&node, dir.path(), dir.path(), &[]),
+                Duration::from_millis(300),
+                "en",
+            )
+            .unwrap_err();
+            assert!(err.contains("did not finish within 0 seconds"), "{err}");
         }
 
         #[test]
@@ -713,6 +986,7 @@ mod tests {
                     &[],
                 ),
                 Duration::from_secs(1),
+                "ja",
             )
             .unwrap_err();
             assert!(err.contains("起こせません"));
