@@ -280,7 +280,7 @@ describe('Shell', () => {
     render(<ActionRoot onAction={() => {}}><Shell {...props} overlays={null}><div /></Shell></ActionRoot>);
     const pill = screen.getByRole('button', { name: '移動・操作' });
     const hint = pill.querySelector('.search-pill-hint')!;
-    expect(hint).toHaveTextContent('セッション、プロジェクト、操作を検索');
+    expect(hint).toHaveTextContent('セッションと操作を検索');
     expect(hint).toHaveAttribute('aria-hidden', 'true');
   });
 
