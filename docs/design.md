@@ -224,6 +224,9 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   サーバが書く `params` の `file` と `dir`、Node の「調べた場所」と設定ファイルの場所、例外の文に、ユーザー名を出さないためである。
   サーバはホームを縮めずに書くので、縮めるのは殻の 1 か所に寄せ、macOS と Windows で同じにする。
   ホームの前後がパスの文字なら（`/Users/ab`、`/mnt/Users/a`）縮めない。頁は文字を `textContent` だけで書き、`innerHTML` に入れない。
+  Windows の形のホーム（ドライブか `\\` で始まる）は、大文字小文字と区切り（`/` と `\`）の違いを同じとみなして比べる（`home_len_at`）。
+  Windows のパスは大文字小文字を区別せず、どちらの区切りでも書けるので、書き方が違うだけの同じホームを縮めずにユーザー名を出していた。
+  macOS と Linux のホームは、これまでどおり字のまま比べる。置き場の名前（`tilde`）も同じ比べ方にする。
 - 失敗は、殻が状態として持ち、頁が引き取る。
   殻は失敗の材料を `Ui.failure` に置いてから、その場でも評価で渡す。
   起動画面（`loading/boot.js`）は口（`__hangarBootFail` など）を作り終えた時点で、殻の命令 `boot_state` を一度だけ呼び、`{ failure, progress, finishing, lang }` を引き取る。
@@ -237,7 +240,10 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   Node の無い Mac で、起動から 40ms で出た失敗が届かず、読み込み中のまま止まった（2026-10-11）。
   Windows も同じ作りで引き取るので、合図と頁の走る順に頼らない。
 - 札に切り替わることは、CI が build した殻で確かめる。
-  試験のための書き出しの口があり、殻が `HANGAR_BOOT_PROBE`（書き出す先のファイル）を持って起きたときだけ働く（`src-tauri/src/bootprobe.rs`）。
+  試験のための書き出しの口があり、試験用の feature（`boot-probe`）を立てた build で、殻が `HANGAR_BOOT_PROBE`（書き出す先のファイル）を持って起きたときだけ働く（`src-tauri/src/bootprobe.rs`）。
+  CI の段も配布も release の build（`tauri build`）なので、`debug_assertions` では分けられない。
+  そこで CI の段の build だけが `--features boot-probe` を立て（desktop ジョブの `.app` の build と、windows ジョブが composite action に渡す `features`）、`release.yml` は立てない。
+  配布の build では、環境変数を渡されても書き出さない。
   そのとき殻は `boot_state` に `probe: true` を添え、起動画面は描いた様子（`data-level`、札が見えているか、種類、言語、見出し、詳細）を DOM から読んで、命令 `boot_probe` で殻に渡す（`loading/boot.js` の `report`）。
   殻はそれを JSON にして、そのファイルへ書く（16 KiB まで、一時のファイルから名前を替える）。
   変数が無いときは、`probe` は偽で、頁は `boot_probe` を呼ばず、呼ばれても殻は何も書かない。
@@ -271,7 +277,20 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   起動画面は UI の書体（JetBrains Mono）を読み込まないので、等幅は `ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace` の順に OS の書体を使う。日本語の Windows の既定の等幅（MS ゴシックなど）は `\` を `¥` の字形で描くので、パスやコマンドが `¥` に見えないよう、`\` を正しく描く書体を総称の `monospace` より先に置く。
   本文とボタンも、起動画面は Inter を読み込まないので、欧文は日本語の書体で描かれ、Windows では `\` が `¥` に見えていた（2026-10-11、Windows の実機の確かめで見つけた）。
   そこで `'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif` と、Windows の UI の書体を日本語の書体より先に置く。Segoe UI は macOS に無いので macOS の見た目は変わらず、日本語の字は Segoe UI に無いので、これまでどおり後ろの書体で描く。
-  詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す。
+  詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、更新を確認、ログを開く、もう一度試す。
+- 札の中から更新を受け取れる（2026-10-11）。
+  起動に失敗する版を入れた人は UI まで届かないので、UI の自動の確認と右下の札では新しいバージョンを受け取れず、手で入れ直すしかなかった（rc.1 の Windows）。
+  下端の版と OS の横に「更新を確認」を置き、押すと殻の `update_check` を呼ぶ（その間は押せない「確認中…」）。
+  新しいバージョンが無ければ釦を退けて「最新」と添え、あれば札の中に帯（「Hangar X を利用できます」と「ダウンロードしてインストール」）を出す。
+  帯の釦を押すと、`update_download` で取得しながら `update_status` で進みを読んで帯に出し、済んだら `update_install` を呼ぶ。インストールが済むと殻が再起動する。
+  失敗は殻の分けた 4 つ（network、signature、permission、other）で理由を言い、もう一度押せるようにする。
+  帯が主の釦を持つ間は、主の釦を 2 つにしないよう「もう一度試す」を主の見た目から外す。取得とインストールの途中は、頁を読み込み直させないよう「もう一度試す」を押せなくする。
+  Node が無いときの札では、新しいバージョンを入れても Node は入らないので、帯に「直っていることがあります」と添えない。
+  命令は UI と同じ 4 つで、起動画面にも与える（`capabilities/boot-screen.json`）。文は `boot-fail.js` の `updateView` の日英の表が持ち、語は UI の辞書（`update.*`）にそろえる（試験が突き合わせる）。
+  殻も、起動に失敗したとき 1 度だけ自分で確かめる（`lib.rs` の `check_update_after_failure`）。
+  見つけた版は `Ui.update` に置いて `boot_state` の `update` で渡し、その場でも `window.__hangarBootUpdate({ version })` で渡すので、押さなくても札に帯が出る。
+  やり直しても `Ui.update` は消さない。確かめに失敗したときはログに残すだけで、札には出さない。
+  UI の「更新を通知する」のスイッチ（`localStorage`）は殻から読めないが、起動できない版から抜け出す口なので、この 1 度の確認はスイッチに依らず行う。
 - Node が無いときの札（`node-missing`）は、ほかの札と並びを変え、入れるコマンドを主にする（利用者が選んだ形、2026-10-11）。
   以前は種類が `other` で、見出しは「Hangar を起動できませんでした」、本文は「起動の途中で止まりました。理由は下の詳細にあります」の汎用の文で、入れ方は詳細の枠の中にしか無かった。
   殻は `node.rs` の `failure_params` で、要る版（`major`）とアーキテクチャ（`arch`）と理由（`reason`）を `params` に入れる。
@@ -2238,7 +2257,7 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 UI は殻が差し込む `__TAURI_INTERNALS__` の有無で殻の中かを決め（`runtime/desktop.ts`）、殻の外（ブラウザ）ではこれらのボタンを出さない。
 接続が切れると、ヘッダーの下に切断の帯を出し、止まった時刻と次に再接続する秒数を言う。
@@ -3249,7 +3268,9 @@ xterm には、hangar に回す打鍵を処理させない（`runtime/xtermSetup
 macOS と Linux の形では `\` は名前に使える字なので、区切りにしない。
 つなぐときは親のパスの区切りに合わせ、区切りの無い親（`~` だけ）のときだけ `clientPlatform` の OS の区切りにする。
 Windows の形で下にあるかを比べるときは、区切りの違いと大文字小文字を同じとみなす。
-`~` への縮めは、`C:\Users\<名前>\` の下も元の区切りのまま `~\…` にする。
+`~` への縮め（`homePath`）は、サーバが返す本当のホーム（bootstrap の `home`、`os.homedir()`）の下だけを、元の区切りのまま `~/…` や `~\…` にする。
+`/Users/<名前>` や `C:\Users\<名前>` の形からホームを推測しない。推測すると `/Users/Shared` や `C:\Users\Public` まで `~` に見えるからである（2026-10-11 に推測をやめた）。
+ホームを返さない古いサーバでは縮めない。Windows の形のホームは、区切りの違いと大文字小文字を同じとみなして比べる。
 サーバへ送るパス（登録するフォルダ、追加のフォルダ）は、受け取った形のまま送る。
 `@` の候補はサーバが `/` で区切って返し、問いに打たれた `\` は `/` に読み替えて探す（`prompt/files.ts` の `rankFiles`）。
 
@@ -4426,7 +4447,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - アプリの自動更新（段 5-4、2026-10-10 の決定）：更新は「知らせて、押して入れる」で、勝手には入れない。Tauri 2 の updater（`tauri-plugin-updater`）を macOS と Windows（NSIS）の両方で使う。
   目録は GitHub の Release の最新の `latest.json`（`tauri.conf.json` の `plugins.updater.endpoints`）で、更新物は同じ所の minisign の公開鍵（`plugins.updater.pubkey`）で確かめる。
   試しの版（rc）の build だけは、`tauri.prerelease.conf.json` を重ねて、目録を固定のタグ `updater-prerelease` の Release（prerelease）の `latest.json` から引く（次の「版と試しの版」）。macOS の更新物は `Hangar-<タグ>-macos-arm64.app.tar.gz`、Windows の更新物はインストーラそのもの（`Hangar-<タグ>-windows-x64-setup.exe`、`installMode` は passive）である。
-  頁は殻の 4 つの命令だけを呼ぶ（`capabilities/remote-update.json`）。`update_status` は動いている版と取得の進み、`update_check` は目録を引いて新しい版を返し、見つけた版を殻に持つ。`update_download` はそれを取得して署名を確かめて殻に持ち、`update_install` は入れて再起動する。プラグインの JS の権限は与えないので、頁から目録の URL や公開鍵は変えられない。
+  頁は殻の 4 つの命令だけを呼ぶ（`capabilities/remote-update.json`。起動画面の札にも同じ 4 つを与える。「起動の失敗の札」の節）。`update_status` は動いている版と取得の進み、`update_check` は目録を引いて新しい版を返し、見つけた版を殻に持つ。`update_download` はそれを取得して署名を確かめて殻に持ち、`update_install` は入れて再起動する。プラグインの JS の権限は与えないので、頁から目録の URL や公開鍵は変えられない。
   失敗は殻が network、signature、permission、other の 4 つに分けて返し（`src/updater.rs` の `failure_kind`）、英語の 1 行は `desktop.log` に残す。
   再起動しても、tmux（Windows は psmux）の中のセッションは止まらない。macOS は `.app` を入れ替えてから終了の手続きを通って起き直し（子のサーバも止まる）、Windows は updater がインストーラを起こしてそのまま抜けるので、その直前（`on_before_exit`）に子のサーバを止める。
   Windows の updater は、取得したインストーラを `%TEMP%\<アプリ名>-<版>-updater-<英数字 6 字>` に置いたまま抜けるので、置き場が更新のたびに 1 つずつ残る。殻は起動のたびに別の糸で、名前の形が完全に合い、版が今の版より新しくなく、中身がふつうのファイルだけの置き場を消す（`src/tempclean.rs`）。今の版の置き場は、今の版を入れたインストーラのものである。まだ動いていて消せなければ、次の起動に任せる。

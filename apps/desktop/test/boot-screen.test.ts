@@ -331,10 +331,10 @@ describe('起動の失敗の札', () => {
     await fail();
     expect(document.activeElement).toBe($('boot-retry'));
   });
-  it('操作は Tab の順に、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す', async () => {
+  it('操作は Tab の順に、命令のコピー、詳細、全文をコピー、更新を確認、ログを開く、もう一度試す', async () => {
     await boot();
     await fail();
-    expect(tabOrder()).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry']);
+    expect(tabOrder()).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-update', 'boot-log', 'boot-retry']);
   });
   it('命令のコピーと全文のコピーは、それぞれの文をクリップボードへ書き、押した印を出して戻す', async () => {
     const writeText = vi.fn(async () => undefined);
@@ -389,12 +389,12 @@ describe('起動の失敗の札', () => {
       expect(toggle.textContent).toBe('詳細（調べた場所、別の入れ方）');
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect($('fail-detail-box').hidden).toBe(true);
-      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'fail-detail-toggle', 'boot-log']);
+      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'fail-detail-toggle', 'boot-update', 'boot-log']);
       click('fail-detail-toggle');
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
       expect($('fail-detail-box').hidden).toBe(false);
       expect($('fail-detail').textContent).toContain('調べた場所');
-      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'fail-detail-toggle', 'fail-detail', 'fail-copy-all', 'boot-log']);
+      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'fail-detail-toggle', 'fail-detail', 'fail-copy-all', 'boot-update', 'boot-log']);
       click('fail-detail-toggle');
       expect($('fail-detail-box').hidden).toBe(true);
     });
@@ -434,7 +434,7 @@ describe('起動の失敗の札', () => {
       expect($('fail-detail-toggle').hidden).toBe(true);
       expect($('fail-detail-box').hidden).toBe(false);
       expect($('boot-retry').textContent).toBe('もう一度試す');
-      expect(tabOrder()).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry']);
+      expect(tabOrder()).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-update', 'boot-log', 'boot-retry']);
     });
     it('二度目の Node の札は、開いていた詳細を畳み直す', async () => {
       await boot();
@@ -613,5 +613,182 @@ describe('試験のために、描いた様子を殻へ渡す', () => {
     await boot();
     await flush();
     expect($('fail').hidden).toBe(false);
+  });
+});
+
+// 起動に失敗する版を入れた人が、UI まで届かなくても新しいバージョンを受け取れるよう、札の中から更新を確かめ、ダウンロードしてインストールする。
+// 命令は UI と同じ殻の 4 つ（update_check、update_download、update_status、update_install）で、起動画面にも与えてある（boot-screen.json）。
+// 殻は起動に失敗したとき 1 度だけ自分でも確かめ、見つけた版を boot_state の update と __hangarBootUpdate で渡す。
+describe('札の中の更新', () => {
+  type Invoke = (cmd: string, args?: unknown) => Promise<unknown>;
+  const tauri = window as unknown as { __TAURI_INTERNALS__?: { invoke: Invoke } };
+  const w = win as unknown as { __hangarBootFail?: (info: unknown) => void; __hangarBootUpdate?: (u: unknown) => void };
+  const failure = { kind: 'server-exited', params: {}, detail: 'exit 1', lang: 'ja', version: '0.2.0-rc.5', os: 'macOS 15.5', home: '~/.agent-hangar', sep: '/' };
+  // 命令ごとの答えを、試験が後から決められる約束で返す。
+  const pending = new Map<string, Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }>>();
+  const settle = (cmd: string, ok: boolean, v: unknown) => { const p = pending.get(cmd)!.shift()!; (ok ? p.resolve : p.reject)(v); };
+  let state: unknown;
+  let status: unknown;
+  const calls = () => invoke.mock.calls.map(([cmd]) => cmd);
+  const invoke = vi.fn<Invoke>();
+  const btn = (id: string) => $(id) as HTMLButtonElement;
+  const shown = (id: string) => !$(id).hidden && !$(id).closest('[hidden]');
+  beforeEach(() => {
+    pending.clear();
+    state = { failure, progress: null, finishing: false };
+    status = { current: '0.2.0-rc.5', done: 0, total: null };
+    invoke.mockReset();
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === 'boot_state') return Promise.resolve(state);
+      if (cmd === 'update_status') return Promise.resolve(status);
+      if (!cmd.startsWith('update_')) return Promise.resolve(null);
+      return new Promise((resolve, reject) => { pending.set(cmd, [...(pending.get(cmd) ?? []), { resolve, reject }]); });
+    });
+    tauri.__TAURI_INTERNALS__ = { invoke };
+    delete document.body.dataset.fail;
+  });
+  afterEach(() => { delete tauri.__TAURI_INTERNALS__; delete w.__hangarBootFail; delete w.__hangarBootUpdate; document.documentElement.lang = ''; });
+
+  it('札の下端に「更新を確認」を出す。押すまでは確かめない', async () => {
+    await boot();
+    await flush();
+    expect(shown('boot-update')).toBe(true);
+    expect(btn('boot-update').textContent).toBe('更新を確認');
+    expect(shown('fail-update')).toBe(false);
+    expect(calls()).toEqual(['boot_state']);
+  });
+  it('押すと殻に確かめさせ、その間は押せない「確認中…」にする。無ければ釦を退けて版の横に「最新」と添える', async () => {
+    await boot();
+    await flush();
+    btn('boot-update').click();
+    expect(calls()).toEqual(['boot_state', 'update_check']);
+    expect(btn('boot-update').disabled).toBe(true);
+    expect(btn('boot-update').textContent).toBe('確認中…');
+    settle('update_check', true, { version: null });
+    await flush();
+    expect(shown('boot-update')).toBe(false);
+    expect($('fail-update-note').textContent).toBe('最新');
+    expect(shown('fail-update-note')).toBe(true);
+    expect(shown('fail-update')).toBe(false);
+  });
+  it('新しいバージョンがあれば、札の中に帯を出し、「もう一度試す」を主の釦から外す', async () => {
+    await boot();
+    await flush();
+    btn('boot-update').click();
+    settle('update_check', true, { version: '0.2.1' });
+    await flush();
+    expect(shown('fail-update')).toBe(true);
+    expect($('fail-update-title').textContent).toBe('Hangar 0.2.1 を利用できます');
+    expect($('fail-update-detail').textContent).toContain('現在は 0.2.0-rc.5 です。');
+    expect(btn('fail-update-go').textContent).toBe('ダウンロードしてインストール');
+    expect(shown('boot-update')).toBe(false);
+    expect($('boot-retry').classList.contains('btn-primary')).toBe(false);
+    expect($('fail-update-go').classList.contains('btn-primary')).toBe(true);
+  });
+  it('ダウンロードしてインストールは、取得の進みを出し、終わったらインストールを殻に頼む（殻が再起動する）', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    await boot();
+    await flush();
+    btn('boot-update').click();
+    settle('update_check', true, { version: '0.2.1' });
+    await flush();
+    btn('fail-update-go').click();
+    expect(calls().at(-1)).toBe('update_download');
+    expect(shown('fail-update-go')).toBe(false);
+    expect($('fail-update-detail').textContent).toBe('ダウンロードしています…');
+    status = { current: '0.2.0-rc.5', done: 50, total: 200 };
+    vi.advanceTimersByTime(300);
+    await flush();
+    expect($('fail-update-detail').textContent).toBe('25%');
+    expect($('fail-update-bar').getAttribute('aria-valuenow')).toBe('25');
+    expect(shown('fail-update-bar')).toBe(true);
+    settle('update_download', true, null);
+    await flush();
+    expect(calls().at(-1)).toBe('update_install');
+    expect($('fail-update-detail').textContent).toContain('インストールしています…');
+    // 取得が済んだら、進みを読みに行かない。
+    const n = calls().length;
+    vi.advanceTimersByTime(1000);
+    await flush();
+    expect(calls().length).toBe(n);
+  });
+  it('ダウンロードに失敗したら、理由を出し、もう一度押せるようにする', async () => {
+    await boot();
+    await flush();
+    btn('boot-update').click();
+    settle('update_check', true, { version: '0.2.1' });
+    await flush();
+    btn('fail-update-go').click();
+    // ダウンロードとインストールの途中は、起動のやり直しで頁を読み込み直させない。
+    expect(btn('boot-retry').disabled).toBe(true);
+    settle('update_download', false, { kind: 'network', detail: 'x' });
+    await flush();
+    expect(btn('boot-retry').disabled).toBe(false);
+    expect($('fail-update').dataset.tone).toBe('error');
+    expect($('fail-update-title').textContent).toBe('ダウンロードできませんでした');
+    expect($('fail-update-detail').textContent).toBe('いまのバージョン 0.2.0-rc.5 は変わりません。ネットワークか配布元に接続できませんでした。');
+    expect(shown('fail-update-go')).toBe(true);
+    btn('fail-update-go').click();
+    expect(calls().at(-1)).toBe('update_download');
+  });
+  it('確認に失敗したら、理由を帯に出し、「更新を確認」を戻す', async () => {
+    await boot();
+    await flush();
+    btn('boot-update').click();
+    settle('update_check', false, { kind: 'network', detail: 'x' });
+    await flush();
+    expect($('fail-update-title').textContent).toBe('更新を確認できませんでした');
+    expect(shown('fail-update-go')).toBe(false);
+    expect(shown('boot-update')).toBe(true);
+    expect(btn('boot-update').disabled).toBe(false);
+    expect($('boot-retry').classList.contains('btn-primary')).toBe(true);
+  });
+  it('殻が先に見つけていた版（boot_state の update）は、押さなくても帯に出す', async () => {
+    state = { failure, progress: null, finishing: false, update: { version: '0.2.1' }, lang: 'ja' };
+    await boot();
+    await flush();
+    expect(shown('fail-update')).toBe(true);
+    expect($('fail-update-title').textContent).toBe('Hangar 0.2.1 を利用できます');
+    expect(calls()).toEqual(['boot_state']);
+    // 焦点は「もう一度試す」のまま動かさない。
+    expect(document.activeElement).toBe($('boot-retry'));
+  });
+  it('札が出た後に殻が見つけた版（__hangarBootUpdate）も帯に出す。札の前に届いたものは札を出すときに出す', async () => {
+    state = { failure: null, progress: null, finishing: false };
+    await boot();
+    await flush();
+    w.__hangarBootUpdate!({ version: '0.2.1' });
+    expect($('fail').hidden).toBe(true);
+    w.__hangarBootFail!(failure);
+    await flush();
+    expect($('fail-update-title').textContent).toBe('Hangar 0.2.1 を利用できます');
+    w.__hangarBootUpdate!({ version: '0.2.2' });
+    expect($('fail-update-title').textContent).toBe('Hangar 0.2.2 を利用できます');
+  });
+  it('取得の途中に殻の知らせが届いても、取得の様子を崩さない。形の違う知らせは捨てる', async () => {
+    await boot();
+    await flush();
+    btn('boot-update').click();
+    settle('update_check', true, { version: '0.2.1' });
+    await flush();
+    btn('fail-update-go').click();
+    w.__hangarBootUpdate!({ version: '0.2.2' });
+    expect($('fail-update-title').textContent).toBe('Hangar 0.2.1');
+    expect(shown('fail-update-go')).toBe(false);
+    w.__hangarBootUpdate!({ version: 3 });
+    w.__hangarBootUpdate!(null);
+    expect($('fail-update-title').textContent).toBe('Hangar 0.2.1');
+  });
+  it('確かめている間の「確認中…」は、押せない見た目にする', () => {
+    expect(fs.readFileSync(path.join(loading, 'index.html'), 'utf8')).toMatch(/\.btn-mini:disabled \{[^}]*opacity/);
+  });
+  it('英語の札では、更新の文と釦も英語にする（殻が boot_state で渡す言語と札の言語は同じ決め方）', async () => {
+    state = { failure: { ...failure, lang: 'en' }, progress: null, finishing: false, update: { version: '0.2.1' }, lang: 'en' };
+    await boot();
+    await flush();
+    expect(document.documentElement.lang).toBe('en');
+    expect(btn('boot-update').textContent).toBe('Check for updates');
+    expect($('fail-update-title').textContent).toBe('Hangar 0.2.1 is available');
+    expect(btn('fail-update-go').textContent).toBe('Download and install');
   });
 });
