@@ -102,4 +102,13 @@ gh release delete updater-prerelease --cleanup-tag --yes
 ```
 
 手元に残ったタグは `git tag -d v0.2.0-rc.1` で消す。
-main の版は rc のままでよく、正式な版を出すときに `npm run set-version -w apps/desktop -- 0.2.0` の PR を入れてから `v0.2.0` を打つ。
+main の版は rc のままでよく、正式な版を出すときに `npm run set-version -w apps/desktop -- 0.2.0` の PR を入れてから `v0.2.0` を打つ（次の節）。
+
+## 正式な版を出す
+
+rc と同じ手順で、版を上げる PR を入れてから `v0.2.0` を打つ。
+Release の本文には `docs/release-notes/<版>.md`（`0.2.0.md` など）を使う。
+タグを打つ前に、この下書きを仕上げて main に入れておく。
+macos ジョブが作る下書きの Release の本文は、GitHub が作る変更の一覧である。
+windows のジョブを待つ間に `gh release edit v0.2.0 --notes-file docs/release-notes/0.2.0.md` で本文を差し替えると、publish が公開するときにはこの本文になる。
+公開の後に気付いても、同じコマンドで差し替えられる。

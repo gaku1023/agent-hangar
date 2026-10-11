@@ -2259,6 +2259,10 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
 UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
+`desktop.log` には殻の行（`<ミリ秒> [desktop] …`）とサーバの標準出力と標準エラーが入る。
+サーバは子の起動のときに追記で開いたファイルへ書く。
+殻は 1 行を本文と改行の 1 つの塊にして、追記で開いたファイルへ 1 回の write で書き、殻の中の糸どうしは錠でも並べる（`src/logfile.rs` の `append_line`）。
+以前は `writeln!` で書式の部品ごとに write が出て、糸が同時に書くと行が別の行の途中に割り込んでいた（2026-10-11、CI の通し稽古で見つけた）。
 UI は殻が差し込む `__TAURI_INTERNALS__` の有無で殻の中かを決め（`runtime/desktop.ts`）、殻の外（ブラウザ）ではこれらのボタンを出さない。
 接続が切れると、ヘッダーの下に切断の帯を出し、止まった時刻と次に再接続する秒数を言う。
 再接続が 3 回続けて失敗したら、同じ帯のまま濃い赤にして「サーバに戻れません」「アプリを再起動してください」と言い、殻の中では「ログを開く」「再起動」を、ブラウザではログの場所（`~/.agent-hangar/desktop.log`）の文とコピーのボタンを置く。
@@ -4448,6 +4452,16 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   目録は GitHub の Release の最新の `latest.json`（`tauri.conf.json` の `plugins.updater.endpoints`）で、更新物は同じ所の minisign の公開鍵（`plugins.updater.pubkey`）で確かめる。
   試しの版（rc）の build だけは、`tauri.prerelease.conf.json` を重ねて、目録を固定のタグ `updater-prerelease` の Release（prerelease）の `latest.json` から引く（次の「版と試しの版」）。macOS の更新物は `Hangar-<タグ>-macos-arm64.app.tar.gz`、Windows の更新物はインストーラそのもの（`Hangar-<タグ>-windows-x64-setup.exe`、`installMode` は passive）である。
   頁は殻の 4 つの命令だけを呼ぶ（`capabilities/remote-update.json`。起動画面の札にも同じ 4 つを与える。「起動の失敗の札」の節）。`update_status` は動いている版と取得の進み、`update_check` は目録を引いて新しい版を返し、見つけた版を殻に持つ。`update_download` はそれを取得して署名を確かめて殻に持ち、`update_install` は入れて再起動する。プラグインの JS の権限は与えないので、頁から目録の URL や公開鍵は変えられない。
+  殻は見つけた版から入れ終えるまでを 1 つの段（`src/updater.rs` の `Flow`。待ち、取得中、取得済み、インストール中）で持つ。
+  確認は待ちのときだけ見つけた版を差し替え、取得中、取得済み、インストール中は目録を引かずに途中の版を答える。
+  目録を引いている間に取得が始まっていたら、引いた答えを捨てて途中の版を答える。
+  確認は UI（起動時と 6 時間おきと設定の「更新を確認」）、起動画面の札の「更新を確認」、殻自身（起動に失敗した後の 1 度）から呼ばれ、頁どうしは互いの途中を知らないからである。
+  以前は取得済みの中身しか見ておらず、取得の最中の確認が見つけた版を別の Update に差し替えていた（2026-10-11、CI の通し稽古で見つけた）。
+  断らずに途中の版を答えるのは、どの呼び手もその答えで困らないからである。
+  起動画面は取得中なら札を崩さず、UI は新しい版ありの札を出し、押せばその版を取得する。
+  取得した中身は取得済みの段に版と一緒に持ち、取得を始めた版と同じ版のときだけ受け取るので、入れる中身と版は食い違わない。
+  取得済みで `update_download` が呼ばれたら取りに行かずに済んだと答え、取得の最中のもう 1 本は断る（other）。
+  取得かインストールに失敗したら、見つけた版の待ちに戻る（インストールの失敗は中身を渡した後なので、取り直してから入れる）。
   失敗は殻が network、signature、permission、other の 4 つに分けて返し（`src/updater.rs` の `failure_kind`）、英語の 1 行は `desktop.log` に残す。
   再起動しても、tmux（Windows は psmux）の中のセッションは止まらない。macOS は `.app` を入れ替えてから終了の手続きを通って起き直し（子のサーバも止まる）、Windows は updater がインストーラを起こしてそのまま抜けるので、その直前（`on_before_exit`）に子のサーバを止める。
   Windows の updater は、取得したインストーラを `%TEMP%\<アプリ名>-<版>-updater-<英数字 6 字>` に置いたまま抜けるので、置き場が更新のたびに 1 つずつ残る。殻は起動のたびに別の糸で、名前の形が完全に合い、版が今の版より新しくなく、中身がふつうのファイルだけの置き場を消す（`src/tempclean.rs`）。今の版の置き場は、今の版を入れたインストーラのものである。まだ動いていて消せなければ、次の起動に任せる。

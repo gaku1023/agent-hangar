@@ -24,7 +24,6 @@ pub mod updater;
 pub mod winjob;
 
 use std::cell::Cell;
-use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -383,17 +382,12 @@ fn ensure_hangar_home(home: &std::path::Path) {
 fn log(line: &str) {
     let home = paths::hangar_home();
     ensure_hangar_home(&home);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(home.join("desktop.log"))
-    {
-        let ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let _ = writeln!(f, "{ms} [desktop] {line}");
-    }
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    // 1 行を 1 回の write で書く。糸が同時に書いても行がつながらない（logfile.rs）。
+    let _ = logfile::append_line(&logfile::log_path(&home), &format!("{ms} [desktop] {line}"));
 }
 
 /// 失敗の詳細に書く、記録のファイルの場所。
@@ -1186,8 +1180,9 @@ fn update_status(app: AppHandle) -> updater::Status {
 }
 
 /// GitHub の Release の目録を引き、新しい版があればその版を返す。見つけた版は取得のために持っておく。
-/// 取得からインストールまでの途中は、見つけた版を差し替えない（頁もその間は呼ばない）。
+/// 取得からインストールまでの途中は、目録を引かずに途中の版を返し、見つけた版を差し替えない（`updater::Flow`）。
 /// UI と起動画面の「更新を確認」が呼ぶ。起動に失敗したときは殻も 1 度だけ自分で呼ぶ（`check_update_after_failure`）。
+/// 頁どうしは互いの途中を知らないので、別の頁の取得の最中にも呼ばれる。
 #[tauri::command]
 async fn update_check(app: AppHandle) -> Result<updater::Found, updater::Failure> {
     find_update(&app).await
@@ -1196,8 +1191,12 @@ async fn update_check(app: AppHandle) -> Result<updater::Found, updater::Failure
 /// `update_check` の中身。
 async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure> {
     let slot = app.state::<updater::UpdateSlot>();
-    if slot.bytes.lock().unwrap().is_some() {
-        return Err(updater::Failure::other("an update is already downloaded"));
+    let busy = slot.flow.lock().unwrap().busy_version();
+    if let Some(version) = busy {
+        log(&format!("update: checked while {version} is in progress"));
+        return Ok(updater::Found {
+            version: Some(version),
+        });
     }
     let handle = app.clone();
     // Windows ではインストーラへ渡すとき、updater が std::process::exit で抜ける。終了の手続きを通らないので、ここで子のサーバを止める。
@@ -1213,33 +1212,68 @@ async fn find_update(app: &AppHandle) -> Result<updater::Found, updater::Failure
         .check()
         .await
         .map_err(|e| update_failed("check", &e))?;
-    let version = found.as_ref().map(|u| u.version.clone());
-    log(&format!(
-        "update: checked, found {}",
-        version.as_deref().unwrap_or("none")
-    ));
-    *slot.pending.lock().unwrap() = found;
+    let seen = found.as_ref().map(|u| u.version.clone());
+    let checked = slot.flow.lock().unwrap().checked(found);
+    let version = match checked {
+        updater::Checked::Kept(version) => {
+            log(&format!(
+                "update: checked, found {}",
+                version.as_deref().unwrap_or("none")
+            ));
+            version
+        }
+        // 目録を引いている間に、別の頁が取得を始めていた。見つけた版は捨て、途中の版を答える。
+        updater::Checked::Busy(version) => {
+            log(&format!(
+                "update: checked, found {} but kept {version} in progress",
+                seen.as_deref().unwrap_or("none")
+            ));
+            Some(version)
+        }
+    };
     Ok(updater::Found { version })
 }
 
 /// 見つけた版を取得し、公開鍵で署名を確かめて持っておく。進みは update_status で読める。
+/// 取得が済んでいれば取りに行かずに済んだと答え、取得の最中ならもう 1 本は断る。
 #[tauri::command]
 async fn update_download(app: AppHandle) -> Result<(), updater::Failure> {
     let slot = app.state::<updater::UpdateSlot>();
-    let update = slot
-        .pending
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or_else(|| updater::Failure::other("no update to download"))?;
+    let begin = slot.flow.lock().unwrap().begin_download();
+    let update = match begin.map_err(|e| update_refused("download", e))? {
+        updater::Begin::Fetch(update) => update,
+        updater::Begin::Ready => return Ok(()),
+    };
     slot.progress.reset();
-    let bytes = update
+    let result = update
         .download(|chunk, total| slot.progress.record(chunk, total), || {})
-        .await
-        .map_err(|e| update_failed("download", &e))?;
-    log(&format!("update: downloaded {}", update.version));
-    *slot.bytes.lock().unwrap() = Some(bytes);
-    Ok(())
+        .await;
+    match result {
+        Ok(bytes) => {
+            log(&format!("update: downloaded {}", update.version));
+            // 中身は取得を始めた版の段にだけ置く（`Flow::finish_download`）。
+            if slot
+                .flow
+                .lock()
+                .unwrap()
+                .finish_download(&update.version, Some(bytes))
+            {
+                Ok(())
+            } else {
+                Err(update_refused(
+                    "download",
+                    "the update changed while downloading",
+                ))
+            }
+        }
+        Err(e) => {
+            slot.flow
+                .lock()
+                .unwrap()
+                .finish_download(&update.version, None);
+            Err(update_failed("download", &e))
+        }
+    }
 }
 
 /// 取得した更新物を入れ、アプリを再起動する。
@@ -1249,26 +1283,28 @@ async fn update_download(app: AppHandle) -> Result<(), updater::Failure> {
 #[tauri::command]
 async fn update_install(app: AppHandle) -> Result<(), updater::Failure> {
     let slot = app.state::<updater::UpdateSlot>();
-    let update = slot
-        .pending
-        .lock()
-        .unwrap()
-        .clone()
-        .ok_or_else(|| updater::Failure::other("no update to install"))?;
-    let bytes = slot
-        .bytes
-        .lock()
-        .unwrap()
-        .take()
-        .ok_or_else(|| updater::Failure::other("the update is not downloaded"))?;
+    let begin = slot.flow.lock().unwrap().begin_install();
+    // 版と中身は取得済みの段から一緒に受け取るので、取得した版と入れる版は必ず同じである。
+    let (update, bytes) = begin.map_err(|e| update_refused("install", e))?;
+    log(&format!("update: installing {}", update.version));
     // 入れ替えは管理者の許可を尋ねることがあり、答えを待つので、窓の描画を止めないよう別のスレッドで行う。
-    tauri::async_runtime::spawn_blocking(move || update.install(bytes))
+    let result = tauri::async_runtime::spawn_blocking(move || update.install(bytes))
         .await
-        .map_err(|e| updater::Failure::other(e.to_string()))?
-        .map_err(|e| update_failed("install", &e))?;
+        .map_err(|e| updater::Failure::other(e.to_string()))
+        .and_then(|r| r.map_err(|e| update_failed("install", &e)));
+    if let Err(e) = result {
+        slot.flow.lock().unwrap().install_failed();
+        return Err(e);
+    }
     log("update: installed, restarting");
     app.request_restart();
     Ok(())
+}
+
+/// 段が合わずに断った命令をログに 1 行残し、頁へ返す形にする。
+fn update_refused(step: &str, detail: &str) -> updater::Failure {
+    log(&format!("update: {step} refused: {detail}"));
+    updater::Failure::other(detail)
 }
 
 /// 更新の失敗をログに 1 行残し、頁へ返す形にする。

@@ -1,9 +1,12 @@
-//! `~/.agent-hangar/desktop.log` を開く。
+//! `~/.agent-hangar/desktop.log` に書き足し、開く。
+//! 殻の行は `append_line` で 1 行ずつ書く。
 //! 起動画面の「ログを開く」と、UI の切断の帯の「ログを開く」が使う。
 //! 開く先は決まった 1 つのファイルだけで、呼び手からパスは受け取らない。
 
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// 殻とサーバがともに書くログ。
 pub fn log_path(hangar_home: &Path) -> PathBuf {
@@ -18,6 +21,27 @@ pub fn ensure_log(file: &Path) -> std::io::Result<()> {
         .append(true)
         .open(file)
         .map(|_| ())
+}
+
+/// 殻の中で書き足しを 1 つずつにする錠。
+static APPEND: Mutex<()> = Mutex::new(());
+
+/// ログに 1 行を書き足す。
+/// 本文と改行を 1 つの塊にしてから、追記（O_APPEND、Windows は FILE_APPEND_DATA）で開いたファイルへ 1 回の write で書く。
+/// `writeln!` は書式の部品ごとに write を出すので、殻の糸が同時に書くと行が別の行の途中に割り込んでいた。
+/// 殻の中の糸どうしは錠でも並べる。
+/// 1 回の write が途中までしか書けず `write_all` が残りを書き足すとき、その間に別の行を割り込ませないためである。
+/// サーバ（子）は自分の標準出力を同じファイルへ追記で書くので、行の途中に割り込むのは 1 回の write が分かれたときだけである。
+pub fn append_line(file: &Path, line: &str) -> std::io::Result<()> {
+    let mut buf = String::with_capacity(line.len() + 1);
+    buf.push_str(line);
+    buf.push('\n');
+    let _held = APPEND.lock().unwrap_or_else(|e| e.into_inner());
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)?
+        .write_all(buf.as_bytes())
 }
 
 /// ログを開くコマンド。.log に結び付いたアプリで開く。
@@ -81,6 +105,52 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&file).unwrap(),
             "1 [desktop] setup\n"
+        );
+    }
+
+    // 殻の糸がいくつも同時に 1 行ずつ書いても、行が別の行の途中に割り込まない。
+    // 以前は本文と改行を別々の write で書いていて、取得の終わりの行と確認の行がつながった（2026-10-11、CI の通し稽古）。
+    #[test]
+    fn lines_written_from_many_threads_never_interleave() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = log_path(dir.path());
+        let threads: Vec<_> = (0..8)
+            .map(|t| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    for i in 0..400 {
+                        append_line(&file, &format!("t{t} n{i} {}", "x".repeat(64 + t * 7)))
+                            .unwrap();
+                    }
+                })
+            })
+            .collect();
+        for h in threads {
+            h.join().unwrap();
+        }
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.ends_with('\n'));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 8 * 400);
+        for line in lines {
+            let mut parts = line.split(' ');
+            let t: usize = parts.next().unwrap()[1..].parse().unwrap();
+            assert!(parts.next().unwrap().starts_with('n'), "{line}");
+            assert_eq!(parts.next().unwrap(), "x".repeat(64 + t * 7), "{line}");
+            assert_eq!(parts.next(), None, "{line}");
+        }
+    }
+
+    // 書き足すだけで、前の中身は残す。
+    #[test]
+    fn a_line_is_appended_after_what_is_already_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = log_path(dir.path());
+        std::fs::write(&file, "1 [desktop] setup\n").unwrap();
+        append_line(&file, "2 [desktop] server pid 7").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "1 [desktop] setup\n2 [desktop] server pid 7\n"
         );
     }
 
