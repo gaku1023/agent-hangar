@@ -31,6 +31,29 @@ export type JoinRequest = { secret: string; device: { id: string; name: string; 
 export type JoinResponse = { deviceToken: string; deviceId: string };
 export type JoinToken = { url: string; secret: string };
 
+/**
+ * Worker の `GET /devices` が返す PC の 1 行（互換の版 5 から）。
+ * 時刻は epoch のミリ秒で、revokedAt が null でなければ解除した PC である。
+ * 最後に同期した IP と場所は、Worker が同期の要求を受けたときの CF-Connecting-IP と request.cf の city、region、country をそのまま写したもので、PC ごとに最後の 1 件だけを持つ。
+ * 場所は Cloudflare の推定で、英語の表記のままである。
+ */
+export type CloudDeviceOut = {
+  id: string;
+  name: string;
+  platform: string;
+  joinedAt: number;
+  lastSeenAt: number | null;
+  revokedAt: number | null;
+  lastIp: string | null;
+  lastCity: string | null;
+  lastRegion: string | null;
+  lastCountry: string | null;
+};
+export type CloudDevicesResponse = { devices: CloudDeviceOut[] };
+export type CloudDeviceRevokeResponse = { device: CloudDeviceOut };
+/** 解除した PC の端末トークンで来た要求に、Worker が 401 で返す本文の error。トークンが合ったときにだけ返す（違うトークンには一律の unauthorized）。 */
+export const REVOKED_ERROR = 'revoked';
+
 export const CLOUD_HEADERS = { path: 'x-hangar-path', kind: 'x-hangar-kind', sha256: 'x-hangar-sha256', size: 'x-hangar-size', mtime: 'x-hangar-mtime', encrypted: 'x-hangar-encrypted' } as const;
 
 /** 1 回の POST /changes に載せる上限。Worker は 1 行を 2 文で書くので 81 文以内に収まる。 */

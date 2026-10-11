@@ -9,6 +9,7 @@ import {
   isHeaderSafe,
   isSafeRelPath,
   type ChangeIn,
+  type CloudDeviceOut,
   type CloudLimitKind,
   type CloudUsageBody,
   type ChangeOut,
@@ -19,7 +20,7 @@ import {
   type PushChangesResponse,
   type SnapshotResponse,
 } from '@agent-hangar/shared';
-import { CloudError, CompatError, isValidFileKey, LimitError, MIN_WORKER_COMPAT, type CloudClient } from '../src/sync/client.ts';
+import { CloudError, CompatError, isValidFileKey, LimitError, MIN_WORKER_COMPAT, RevokedError, type CloudClient } from '../src/sync/client.ts';
 
 type StoredFile = { entry: FileEntry; body: Buffer };
 
@@ -44,6 +45,8 @@ export type FakeCloudStore = {
    * 実物の D1 の上限は 429 で返る。偽物も同じ形で断る。
    */
   limited: CloudLimitKind | null;
+  /** 参加している PC の行。要求を受けた端末を、初めて見たときに足す（実物は /join で足す）。 */
+  devices: Map<string, CloudDeviceOut>;
   now: () => number;
 };
 
@@ -125,6 +128,7 @@ export class FakeCloudClient implements CloudClient {
       workerCompat: COMPAT_VERSION,
       minDeviceCompat: MIN_DEVICE_COMPAT,
       limited: null,
+      devices: new Map(),
       now: o.now ?? (() => Date.now()),
     };
     if (o.store && o.now) this.store.now = o.now;
@@ -181,6 +185,36 @@ export class FakeCloudClient implements CloudClient {
     // どちらでも行は未送信のまま残り、Worker を上げた後の送り直しは LWW で同じ結果になる。
     if (this.store.workerCompat < this.minWorkerCompat) throw new CompatError('worker', this.store.workerCompat, this.minWorkerCompat);
     if (this.store.unauthorized) throw new CloudError(401, errorBody('unauthorized'));
+    const now = this.store.now();
+    const row = this.store.devices.get(this.deviceId) ?? { id: this.deviceId, name: this.deviceId, platform: 'darwin', joinedAt: now, lastSeenAt: null, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null };
+    // 解除した PC の端末トークンは、Worker が 401 の revoked で断る。
+    if (row.revokedAt !== null) throw new RevokedError();
+    this.store.devices.set(this.deviceId, { ...row, lastSeenAt: now });
+  }
+
+  /** 端末を解除した状態にする（ほかの PC から解除された筋）。 */
+  revoke(deviceId: string): void {
+    const now = this.store.now();
+    const row = this.store.devices.get(deviceId) ?? { id: deviceId, name: deviceId, platform: 'darwin', joinedAt: now, lastSeenAt: null, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null };
+    this.store.devices.set(deviceId, { ...row, revokedAt: row.revokedAt ?? now });
+  }
+
+  /** 解除を外す（参加し直した筋）。 */
+  unrevoke(deviceId: string): void {
+    const row = this.store.devices.get(deviceId);
+    if (row) this.store.devices.set(deviceId, { ...row, revokedAt: null, joinedAt: this.store.now() });
+  }
+
+  async listDevices(): Promise<CloudDeviceOut[]> {
+    this.guard('listDevices');
+    return [...this.store.devices.values()].map((d) => ({ ...d }));
+  }
+
+  async revokeDevice(id: string): Promise<CloudDeviceOut> {
+    this.guard('revokeDevice', id);
+    if (!this.store.devices.has(id)) throw new CloudError(404, errorBody('not found'));
+    this.revoke(id);
+    return { ...this.store.devices.get(id)! };
   }
 
   async health(): Promise<{ ok: boolean; version: string }> {

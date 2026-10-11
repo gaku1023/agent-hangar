@@ -9,13 +9,42 @@ import type { Env } from './env.ts';
 export const SCHEMA_STATEMENTS: readonly string[] = [
   'create table if not exists meta (key text primary key, value text not null)',
   'create table if not exists join_secrets (id text primary key, secret_hash text not null unique, created_at integer not null, revoked_at integer)',
-  'create table if not exists devices (id text primary key, name text not null, platform text not null, token_hash text not null unique, joined_at integer not null, last_seen_at integer, last_pulled_seq integer not null default 0)',
+  'create table if not exists devices (id text primary key, name text not null, platform text not null, token_hash text not null unique, joined_at integer not null, last_seen_at integer, last_pulled_seq integer not null default 0, revoked_at integer, last_ip text, last_city text, last_region text, last_country text)',
   'create table if not exists rows (k text primary key, table_name text not null, row_id text not null, op text not null, payload text not null, updated_at integer not null, device_id text not null)',
   'create table if not exists changes (seq integer primary key autoincrement, table_name text not null, row_id text not null, op text not null, payload text not null, updated_at integer not null, device_id text not null, received_at integer not null)',
   'create index if not exists changes_device on changes(device_id, seq)',
   'create table if not exists files (seq integer primary key autoincrement, key text not null unique, path text not null, kind text not null, device_id text not null, sha256 text not null, size integer not null, stored_size integer not null, mtime integer not null, encrypted integer not null, uploaded_at integer not null)',
   'create index if not exists files_kind on files(kind, seq)',
 ];
+
+/**
+ * 後から devices に足した列（互換の版 5、0.4.0）。
+ * `create table if not exists` は既にある表に列を足さないので、版 4 までの Worker が作った D1 には、起動のたびの用意で足す。
+ * 足すのは無い列だけで、2 回目からは表の列を読むだけで帰る。
+ */
+export const DEVICE_ADDED_COLUMNS: readonly [name: string, type: string][] = [
+  ['revoked_at', 'integer'],
+  ['last_ip', 'text'],
+  ['last_city', 'text'],
+  ['last_region', 'text'],
+  ['last_country', 'text'],
+];
+
+/**
+ * devices に無い列を足す。
+ * 別の isolate が同時に足していれば `duplicate column name` で落ちるが、そのときは足せているので握る。
+ */
+async function addDeviceColumns(env: Env): Promise<void> {
+  const have = new Set((await env.DB.prepare('pragma table_info(devices)').all<{ name: string }>()).results.map((c) => c.name));
+  for (const [name, type] of DEVICE_ADDED_COLUMNS) {
+    if (have.has(name)) continue;
+    try {
+      await env.DB.prepare(`alter table devices add column ${name} ${type}`).run();
+    } catch (e) {
+      if (!/duplicate column/i.test(e instanceof Error ? e.message : String(e))) throw e;
+    }
+  }
+}
 
 let ready: Promise<void> | null = null;
 
@@ -36,6 +65,7 @@ export function resetSchemaCache(): void {
 async function doEnsure(env: Env): Promise<void> {
   const now = Date.now();
   await env.DB.batch(SCHEMA_STATEMENTS.map((s) => env.DB.prepare(s)));
+  await addDeviceColumns(env);
   // 段 1 で消したものが残した行を 1 回だけ片付ける。落ちても例外を投げず、次の cold start でまた試す（cleanup.ts）。
   await cleanupStage1(env, now);
   // 旧実装の設定の同期の本体と索引を 1 回だけ消す。段 4 の PR 18 が関門を開けた（cleanup.ts）。

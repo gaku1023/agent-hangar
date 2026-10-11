@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { CLOUD_HEADERS, MAX_KEY_BYTES, PULL_LIMIT, decodeHeaderText, isSafeKeyId, isSafeRelPath, splitFileKey, type FileEntry, type FileKind, type ListFilesResponse } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
+import { seenOf, touchDevice } from './seen.ts';
 import { sweepIfDue } from './sweep.ts';
 
 type FileRow = {
@@ -213,7 +214,7 @@ filesApp.put('/:key{.+}', async (c) => {
     c.env.DB
       .prepare('insert into files (key, path, kind, device_id, sha256, size, stored_size, mtime, encrypted, uploaded_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(key, path, kind, device.id, sha, size, storedSize, mtime, enc === '1' ? 1 : 0, now),
-    c.env.DB.prepare('update devices set last_seen_at = ? where id = ?').bind(now, device.id),
+    touchDevice(c.env.DB, device.id, now, seenOf(c)),
   ]);
   const seq = Number(r[1]!.meta.last_row_id);
   return c.json({ seq }, 201);

@@ -12,6 +12,8 @@ export type OncePassDeps = {
     syncNow(o?: { evenIfPaused?: boolean }): Promise<void>;
     status(): SyncStatusDto;
     compatBlocked(): boolean;
+    /** この PC が同期から解除されて止まっているか。持たない試験の偽物は解除されていないとみなす。 */
+    revoked?(): boolean;
     limitedUntil(): number | null;
     /** 利用者が止めた印（sync_state の paused）を読む。 */
     state: { get(key: 'paused'): string | null };
@@ -76,7 +78,8 @@ export function createOncePass(deps: OncePassDeps): { pass: PausedPass; syncNow(
       deps.broadcastSync(status);
       // 版で断られた 1 巡は何も同期していない。成功や残りの件数の知らせは出さない。
       // 版の文は同期の状態（status.error）が運ぶので、toast は流さない。ヘッダーの同期の語とベルの一覧が、その状態から組む。
-      if (engine.compatBlocked()) return;
+      // 解除されていた 1 巡も同じで、理由は同期の状態（revoked の印と error）が運ぶ。
+      if (engine.compatBlocked() || engine.revoked?.()) return;
       // 上限で退いた 1 巡は、エンジンが戻る時刻を知らせてある。成功や残りの件数の知らせを重ねない。
       if (engine.limitedUntil() !== null) return;
       // 一時停止の間は状態が paused に隠れて失敗が画面に出ないので、残りの件数で伝える。

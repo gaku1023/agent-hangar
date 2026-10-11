@@ -10,6 +10,7 @@ import {
   type SnapshotResponse,
 } from '@agent-hangar/shared';
 import type { Env, Vars } from './env.ts';
+import { seenOf, touchDevice } from './seen.ts';
 
 /** 前回の圧縮からこれだけ連番が進んだら、次の push の後で圧縮を試す。 */
 export const COMPACT_EVERY = 200;
@@ -133,7 +134,8 @@ const raiseMetaInt = (db: D1Database, key: string, value: number): D1PreparedSta
  */
 async function compact(db: D1Database, now: number, seq: number): Promise<void> {
   const active = await db
-    .prepare('select min(last_pulled_seq) m from devices where last_seen_at is not null and last_seen_at > ?')
+    // 解除した PC はもう読みに来ないので、圧縮の足を引っ張らせない。
+    .prepare('select min(last_pulled_seq) m from devices where last_seen_at is not null and last_seen_at > ? and revoked_at is null')
     .bind(now - DEVICE_ACTIVE_MS)
     .first<{ m: number | null }>();
   const upto = active?.m ?? 0;
@@ -242,7 +244,7 @@ changesApp.post('/', async (c) => {
     );
     stmts.push(mirrorUpsert(db, k, row, device.id, payload));
   }
-  stmts.push(db.prepare('update devices set last_seen_at = ? where id = ?').bind(now, device.id));
+  stmts.push(touchDevice(db, device.id, now, seenOf(c)));
   await db.batch(stmts);
   const seq = await maxSeq(db);
   // 連番は 1 回の push で最大 40 飛ぶ。倍数に当たるかで測ると圧縮がほとんど走らないので、前回からの差で測る。
@@ -268,7 +270,7 @@ changesApp.get('/', async (c) => {
   // そのまま `last_pulled_seq` に入り、圧縮がまだ誰も読んでいない変更まで消しにいく。
   const nextSeq = more ? page[page.length - 1]!.seq : await maxSeq(db);
   const now = Date.now();
-  await db.prepare('update devices set last_seen_at = ?, last_pulled_seq = max(last_pulled_seq, ?) where id = ?').bind(now, nextSeq, device.id).run();
+  await touchDevice(db, device.id, now, seenOf(c), nextSeq).run();
   const res: PullChangesResponse = { changes: page.map(toOut), nextSeq, more };
   return c.json(res);
 });

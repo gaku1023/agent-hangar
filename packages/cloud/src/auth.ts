@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
+import { REVOKED_ERROR } from '@agent-hangar/shared';
 import type { DeviceRow, Env, Vars } from './env.ts';
 import { sha256Hex } from './util.ts';
 
@@ -19,6 +20,7 @@ const deny = 'unauthorized';
 /**
  * Bearer の端末トークンを `devices.token_hash` で引く。
  * 見つからなければ 401 で、理由（見出しが無い、形が違う、トークンが違う）は返事に出さない。
+ * 解除した PC（revoked_at のある行）のトークンも 401 だが、本文は `{ error: 'revoked' }` にする。
  * D1 に置いてあるのはハッシュだけなので、平文のトークンはどこにも残らない。
  */
 export function authMiddleware(): MiddlewareHandler<{ Bindings: Env; Variables: Vars }> {
@@ -29,6 +31,9 @@ export function authMiddleware(): MiddlewareHandler<{ Bindings: Env; Variables: 
     if (!token) return c.json({ error: deny }, 401);
     const row = await c.env.DB.prepare('select * from devices where token_hash = ?').bind(await sha256Hex(token)).first<DeviceRow>();
     if (!row) return c.json({ error: deny }, 401);
+    // 解除した PC の端末トークンである。
+    // トークンが合った相手にだけ理由を言う。持ち主は「解除された」と知って参加し直せばよく、トークンを持たない相手には一律の返事しか出ない。
+    if (row.revoked_at !== null && row.revoked_at !== undefined) return c.json({ error: REVOKED_ERROR }, 401);
     c.set('device', row);
     await next();
   };

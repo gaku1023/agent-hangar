@@ -2,6 +2,7 @@ import { isSafeKeyId, type JoinRequest, type JoinResponse } from '@agent-hangar/
 import type { Context } from 'hono';
 import { timingSafeEqualHex } from './auth.ts';
 import type { Env, Vars } from './env.ts';
+import { seenOf } from './seen.ts';
 import { randomToken, sha256Hex } from './util.ts';
 
 const MAX_NAME_CHARS = 128;
@@ -61,9 +62,14 @@ export async function joinHandler(c: Context<{ Bindings: Env; Variables: Vars }>
   if (!ok) return c.json({ error: 'forbidden' }, 403);
   const token = randomToken(32);
   const now = Date.now();
+  const seen = seenOf(c);
+  // 参加し直したときは、名前とトークンを差し替える。
+  // 解除した PC が参加し直したときだけ、解除を外して参加日を今にする（解除していなければ参加日は最初のまま）。
+  // 解除した PC の行は消さずに残っているので、同じ ID で戻ってくると同じ行に戻る。
+  // IP と場所は、端を通った要求（IP がある）のときだけ書き換える。
   const upsert = c.env.DB.prepare(
-    'insert into devices (id, name, platform, token_hash, joined_at, last_seen_at, last_pulled_seq) values (?, ?, ?, ?, ?, ?, 0) on conflict(id) do update set name = excluded.name, platform = excluded.platform, token_hash = excluded.token_hash, last_seen_at = excluded.last_seen_at',
-  ).bind(body.device.id, body.device.name, body.device.platform, await sha256Hex(token), now, now);
+    'insert into devices (id, name, platform, token_hash, joined_at, last_seen_at, last_pulled_seq, revoked_at, last_ip, last_city, last_region, last_country) values (?, ?, ?, ?, ?, ?, 0, null, ?, ?, ?, ?) on conflict(id) do update set name = excluded.name, platform = excluded.platform, token_hash = excluded.token_hash, last_seen_at = excluded.last_seen_at, joined_at = case when devices.revoked_at is null then devices.joined_at else excluded.joined_at end, revoked_at = null, last_ip = coalesce(excluded.last_ip, devices.last_ip), last_city = case when excluded.last_ip is null then devices.last_city else excluded.last_city end, last_region = case when excluded.last_ip is null then devices.last_region else excluded.last_region end, last_country = case when excluded.last_ip is null then devices.last_country else excluded.last_country end',
+  ).bind(body.device.id, body.device.name, body.device.platform, await sha256Hex(token), now, now, seen.ip, seen.city, seen.region, seen.country);
   await upsert.run();
   const res: JoinResponse = { deviceToken: token, deviceId: body.device.id };
   return c.json(res, 201);
