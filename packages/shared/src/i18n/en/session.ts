@@ -130,7 +130,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.toc.subagent': 'Subagent {id}',
   'session.toc.backToMain': 'Back to main conversation',
   'session.toc.latest': 'Jump to latest',
-  'session.toc.loadOlder': 'Load older turns ({n} left)',
+  'session.toc.loadOlder': 'Load older turns',
   'session.toc.loading': 'Loading',
   'session.toc.empty': 'No instructions yet',
   'session.toc.jump.notFound': 'Not found in the terminal',

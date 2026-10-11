@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
+import { fakeMotionTokens } from '../test/motion.ts';
 import type { Toast } from '../mediator/types.ts';
 import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateCardProps } from '../presenters/update.ts';
@@ -192,5 +193,68 @@ describe('更新の札', () => {
     mount(props({ update: upd(), waiting: [card('s1')] }));
     const kinds = [...document.querySelectorAll<HTMLElement>('.toasts .notice')].map((n) => n.dataset.kind);
     expect(kinds).toEqual(['update', 'waiting']);
+  });
+});
+
+describe('知らせの出る動き（⑨ の b）', () => {
+  let restore: (() => void) | null = null;
+  let animations: { el: Element; frames: Keyframe[]; opts: KeyframeAnimationOptions; resolve: () => void }[] = [];
+  beforeEach(() => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    animations = [];
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[], opts: KeyframeAnimationOptions) {
+      let resolve!: () => void;
+      const finished = new Promise<void>((r) => { resolve = r; });
+      animations.push({ el: this, frames, opts, resolve });
+      return { finished, cancel: vi.fn() };
+    };
+  });
+  afterEach(() => {
+    restore?.(); restore = null;
+    delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+  });
+  const info: Toast = { id: 't1', level: 'info', message: '要約を作り直しました' };
+  const step = async (i: number) => { await act(async () => { animations[i]!.resolve(); await Promise.resolve(); await Promise.resolve(); }); };
+
+  it('出る札は右へ 28px 抜けて薄れ、そのあと高さだけを畳み、終わったら外れる。最後の 1 枚でも同じ', async () => {
+    const m = mount(props({ toasts: [info] }));
+    // 入りは今のまま（CSS の slide）で、JS では動かさない。
+    expect(animations).toHaveLength(0);
+    m.rerender(props({ toasts: [] }));
+    const el = document.querySelector<HTMLElement>('.notice[data-kind="info"]')!;
+    expect(el).not.toBeNull();
+    // 出ている間は、役も焦点も持たない見た目だけにする。
+    expect(el).toHaveAttribute('aria-hidden', 'true');
+    expect(el).toHaveAttribute('inert');
+    expect(animations.map((a) => [a.el, a.frames.at(-1), a.opts.duration])).toEqual([[el, { opacity: 0, transform: 'translateX(28px)' }, 250]]);
+    await step(0);
+    expect(animations).toHaveLength(2);
+    expect(animations[1]!.el).toBe(el);
+    for (const f of animations[1]!.frames) expect(f).not.toHaveProperty('opacity');
+    expect(animations[1]!.frames.at(-1)).toMatchObject({ height: '0px' });
+    await step(1);
+    expect(document.querySelector('.notice[data-kind="info"]')).toBeNull();
+  });
+
+  it('入力待ちのカードも、解けたら同じ形で出る。残りのカードは押されて詰まる（並びの滑りは付けない）', async () => {
+    const m = mount(props({ waiting: [card('s1'), card('s2')] }));
+    m.rerender(props({ waiting: [card('s2')] }));
+    const gone = screen.getByText('問い s1').closest('.notice')!;
+    expect(animations.map((a) => a.el)).toEqual([gone]);
+    await step(0);
+    await step(1);
+    expect(screen.queryByText('問い s1')).toBeNull();
+    expect(screen.getByText('問い s2')).toBeInTheDocument();
+  });
+
+  it('動きが無いとき（reduced motion）は、すぐ外す', () => {
+    restore?.();
+    restore = fakeMotionTokens({ '--dur': '0ms', '--dur-fast': '0ms', '--dur-exit': '0ms' }, { everywhere: true });
+    const m = mount(props({ toasts: [info], waiting: [card('s1')] }));
+    m.rerender(props({ toasts: [], waiting: [] }));
+    expect(document.querySelector('.toasts .notice')).toBeNull();
+    expect(animations).toHaveLength(0);
   });
 });

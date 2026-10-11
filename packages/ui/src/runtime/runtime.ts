@@ -407,7 +407,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 追記が届いた（か、真ん中の頁から開いた本文の後ろを読み足す）。持っている中でいちばん新しい seq の次から前向きに読み、末尾に足す。
           q = { fromSeq: have ? hi + 1 : 0, agentId: view.agentId };
         }
-        setStore(setEventsLoading(store, key, true));
+        // 古い側の印は、利用者が押した遡り（-1）のときだけ立てる。追記の読み込みで目次のボタンを動かさない。
+        setStore(setEventsLoading(store, key, true, e.fromSeq === -1));
         deps.api.events(e.sessionId, q).then((p) => setStore(applyEventsPage(store, key, p, append, older))).catch((err) => { setStore(setEventsLoading(store, key, false)); fail(err); });
         return;
       }

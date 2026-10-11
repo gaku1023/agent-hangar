@@ -59,6 +59,20 @@ describe('presentHome の今日戻る（C1）', () => {
   });
 });
 
+describe('presentHome の要対応の入力待ち', () => {
+  // 問いで待っている最中に Done や Archived にしても、live は waiting のまま残る。区切りを付けたものは要対応から外す。
+  it('Done と Archived のセッションは、live が waiting でも要対応に出さない。Paused は出す', () => {
+    const mark = (status: 'paused' | 'done' | 'archived') => ({ state: st({ status, setBy: 'user', setAt: NOW }) });
+    const store = storeOf([
+      dto('done', 0.5, { live: 'waiting', ...mark('done') }),
+      dto('archived', 0.4, { live: 'waiting', ...mark('archived') }),
+      dto('paused', 0.3, { live: 'waiting', ...mark('paused') }),
+      dto('w', 0.2, { live: 'waiting' }),
+    ]);
+    expect(presentHome(initialState(), store, NOW).attention.map((c) => c.id)).toEqual(['paused', 'w']);
+  });
+});
+
 describe('presentHome の、区切りを付けて休みのまま残っているもの（parked）', () => {
   const runOf = (sessionId: string): RunDto => ({ id: `r-${sessionId}`, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-r-${sessionId}`, pid: null, startedAt: NOW - 2 * H, endedAt: null, endReason: null, heartbeatAt: NOW });
   const withRuns = (store: Store, ids: string[]): Store => ({ ...store, runs: Object.fromEntries(ids.map((id) => [`r-${id}`, runOf(id)])) });

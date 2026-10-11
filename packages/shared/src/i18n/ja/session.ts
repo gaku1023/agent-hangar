@@ -130,7 +130,7 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.toc.subagent': 'サブエージェント {id}',
   'session.toc.backToMain': 'メイン会話に戻る',
   'session.toc.latest': '最新へ移動',
-  'session.toc.loadOlder': '古いターンを読み込む（残り {n} 件）',
+  'session.toc.loadOlder': '古いターンを読み込む',
   'session.toc.loading': '読み込んでいます',
   'session.toc.empty': 'まだ指示がありません',
   'session.toc.jump.notFound': 'ターミナルでは見つかりませんでした',

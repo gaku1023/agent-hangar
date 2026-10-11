@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { translator, type UiAction, type ReadinessDto } from '@agent-hangar/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { presentHomeBand, type AttentionCard, type ConfirmCard, type HomeScreenProps, type ReturnCard, type RunningCard } from '../presenters/home.ts';
 import { presentReadiness } from '../presenters/readiness.ts';
@@ -8,6 +8,7 @@ import { pagerOf } from '../presenters/pager.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
 import type { ListItem } from '../presenters/listItem.ts';
 import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/sessions.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { HomeScreen } from './HomeScreen.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
@@ -41,7 +42,9 @@ describe('HomeScreen の並び（試作 B）', () => {
     const { container } = mount();
     const root = container.querySelector('.home') as HTMLElement;
     expect(root.className).toContain('screen-fill');
-    expect([...root.children].map((c) => c.className.split(' ')[0])).toEqual(['page-head', 'home-band', 'list-head', 'sessions-tabs', 'search-row', 'rows-host']);
+    expect([...root.children].map((c) => c.className.split(' ')[0])).toEqual(['page-head', 'home-top', 'list-head', 'sessions-tabs', 'search-row', 'rows-host']);
+    // 帯と、帯の代わりの 1 行は、高さを補間する外の箱（.home-top）の中に置く。
+    expect(root.querySelector('.home-top > .home-band')).not.toBeNull();
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('ホーム');
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/^セッション1,241 件$/);
     expect(screen.queryByText('最近')).toBeNull();
@@ -105,6 +108,59 @@ describe('HomeScreen の空の日（idle）', () => {
   it('件数のある群があるときは出さない', () => {
     const { container } = mount();
     expect(container.querySelector('.idle-line')).toBeNull();
+  });
+});
+
+describe('HomeScreen の動き', () => {
+  let restore: (() => void) | null = null;
+  let animations: { el: Element; frames: Keyframe[]; opts: KeyframeAnimationOptions }[] = [];
+  const realHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!;
+  beforeEach(() => {
+    restore = fakeMotionTokens(undefined, { everywhere: true });
+    animations = [];
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[], opts: KeyframeAnimationOptions) {
+      animations.push({ el: this, frames, opts });
+      return { finished: new Promise<void>(() => {}), cancel: vi.fn() };
+    };
+    // jsdom は高さを持たないので、帯は 160px、1 行は 44px とする。
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return this.classList.contains('home-top') ? (this.querySelector('.home-band') ? 160 : this.querySelector('.idle-line') ? 44 : 0) : 0; } });
+  });
+  afterEach(() => {
+    restore?.(); restore = null;
+    delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', realHeight);
+  });
+  const ui = (cards: typeof busy, over: Partial<HomeScreenProps> = {}) => <LanguageRoot language="ja"><ActionRoot onAction={vi.fn()}><HomeScreen {...props(over, cards)} /></ActionRoot></LanguageRoot>;
+  const on = (el: Element | null) => animations.filter((a) => a.el === el);
+
+  it('帯と「実行中のセッションはありません」が入れ替わるときは、外の箱の高さを補間し、入る方を --dur-fast で薄れから現す', () => {
+    const { container, rerender } = render(ui(busy));
+    expect(animations).toHaveLength(0);
+    const top = container.querySelector('.home-top')!;
+    act(() => rerender(ui(none)));
+    expect(on(top).map((a) => a.frames)).toEqual([[{ height: '160px' }, { height: '44px' }]]);
+    const line = container.querySelector('.idle-line')!;
+    expect(on(line).map((a) => [a.frames, a.opts.duration])).toEqual([[[{ opacity: 0 }, { opacity: 1 }], 200]]);
+    animations = [];
+    act(() => rerender(ui(busy)));
+    expect(on(top).map((a) => a.frames)).toEqual([[{ height: '44px' }, { height: '160px' }]]);
+    expect(on(container.querySelector('.home-band')).map((a) => a.frames)).toEqual([[{ opacity: 0 }, { opacity: 1 }]]);
+  });
+  it('入れ替わらない描画では、外の箱を動かさない', () => {
+    const { container, rerender } = render(ui(busy));
+    act(() => rerender(ui({ ...busy, attention: [waiting('a')] })));
+    expect(on(container.querySelector('.home-top'))).toHaveLength(0);
+  });
+  it('一覧の見出しの件数は、数字だけを回す（「件」は動かさない）', () => {
+    const { rerender } = render(ui(busy, { allCount: 1241 }));
+    const h = screen.getByRole('heading', { level: 2 });
+    expect(h.querySelector('.roll')).toHaveTextContent(/^1,241$/);
+    act(() => rerender(ui(busy, { allCount: 1242 })));
+    expect(h.querySelector('.roll')).toHaveAttribute('data-rolling', 'true');
+    expect(h.querySelector('.roll .roll-new')).toHaveTextContent(/^1,242$/);
+    expect(h).toHaveTextContent(/件$/);
   });
 });
 

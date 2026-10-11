@@ -369,6 +369,13 @@ describe('次の入力待ち（C5）', () => {
   });
 });
 
+describe('設定の store', () => {
+  it('settings.changed で設定を差し替える', () => {
+    const next = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: '/bin/claude' };
+    expect(applyServerEvent(initialStore(), { type: 'settings.changed', settings: next, keys: ['claudePath'] }).settings).toEqual(next);
+  });
+});
+
 describe('保持期間の store', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   it('bootstrap の retention を入れる', () => {

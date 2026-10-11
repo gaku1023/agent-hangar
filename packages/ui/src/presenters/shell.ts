@@ -1,5 +1,5 @@
 import { asideOf } from '../lib/aside.ts';
-import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, usageAt } from '@agent-hangar/shared';
+import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, quietLive, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
 import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
@@ -177,7 +177,10 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 裏だけ動いているものも作業中として確かめる。止めると裏の作業も消える。
     const aside = asideOf(s.live, s.liveAside);
     const stop = run ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', aside: aside !== null, shellTabs: tabsOf(store, run.id).filter((tab) => tab.kind === 'shell').length } : null;
-    return { id, name: s.name ?? t('common.label.noName'), live: s.live, aside: aside !== null, waited: s.live === 'waiting' ? t('sidebar.live.waited', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : null, current: id === current, stop };
+    // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
+    // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
+    const shown = quietLive(s.live, s.state?.status);
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, waited: shown === 'waiting' ? t('sidebar.live.waited', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : null, current: id === current, stop };
   });
   return { count: ids.length, ids, rows, more: ids.length - rows.length };
 }

@@ -120,13 +120,13 @@ export function SessionScreen(props: SessionProps) {
     </PageHeading>
   );
 
-  // 目次の数。古いターンが残っていれば + を添える。
-  const tocCount = `${props.turnRows.length}${props.hasMore ? '+' : ''}`;
+  // 目次の数。見出しと同じ数（props.turnCount）で、届くまでは数を添えない。
+  const tocCount = props.turnCount ? `${props.turnCount.n}${props.turnCount.plus ? '+' : ''}` : null;
   const toggleToc = () => (narrow ? setDrawer((d) => !d) : emit({ type: 'transcript.toggle' }));
   // 閉じている間は、タブの列（終わった後は切り替えの行）の右端に「目次 N」の札を置く。開いている間は目次の見出しの行の TocToggle を使う。
   const opener = (
     <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} title={t('session.toc.shortcut', { keys: shortcutHint(t, 'transcript.toggle', '⌘J') })} onClick={toggleToc}>
-      <Icon name="paneOpen" /><span>{t('session.toc.opener', { n: tocCount })}</span>{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
+      <Icon name="paneOpen" /><span>{tocCount === null ? t('session.toc.label') : t('session.toc.opener', { n: tocCount })}</span>{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
     </button>
   );
   // 目次だけの右パネル。実行中も終わった後も同じ場所に同じもの（TurnIndex）を置く。
@@ -135,7 +135,7 @@ export function SessionScreen(props: SessionProps) {
       {pane.mounted && (
         <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
           <TocPane>
-            <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} pending={props.turnsPending} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={<TocToggle open onToggle={toggleToc} />} />
+            <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} lead={<TocToggle open onToggle={toggleToc} />} />
           </TocPane>
         </div>
       )}

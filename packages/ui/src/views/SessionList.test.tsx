@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { pagerOf } from '../presenters/pager.ts';
 import type { SessionRowProps } from '../presenters/row.ts';
 import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/sessions.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { LoadMore, panelConditionCount, SessionList, StatusTabs } from './SessionList.tsx';
 
 const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
@@ -116,5 +117,63 @@ describe('StatusTabs（部品としての単独）', () => {
     render(<ActionRoot onAction={onAction}><StatusTabs tabs={TABS} tab="active" /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: /^Paused/ }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'search.filter', patch: { status: 'paused' } });
+  });
+});
+
+describe('SessionList の切替の動き（⑤ と ⑥）', () => {
+  let restore: (() => void) | null = null;
+  beforeEach(() => { restore = fakeMotionTokens(undefined, { everywhere: true }); });
+  afterEach(() => { restore?.(); restore = null; });
+  const real = { left: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetLeft')!, top: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop')!, width: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')!, height: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')! };
+  let frames: FrameRequestCallback[] = [];
+  const ORDER = ['all', 'proposed', 'active', 'paused', 'done', 'archived'];
+  beforeEach(() => {
+    frames = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb));
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    // タブは 100px おきに 1 段で並び、幅 90px、高さ 28px とする。
+    const tabIndex = (el: HTMLElement) => (el.classList.contains('sessions-tab') ? ORDER.findIndex((k) => el.dataset.tab === k) : -1);
+    Object.defineProperty(HTMLElement.prototype, 'offsetLeft', { configurable: true, get(this: HTMLElement) { return Math.max(0, tabIndex(this)) * 100; } });
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', { configurable: true, get() { return 0; } });
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get(this: HTMLElement) { return tabIndex(this) >= 0 ? 90 : 0; } });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return tabIndex(this) >= 0 ? 28 : 0; } });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [k, d] of Object.entries({ offsetLeft: real.left, offsetTop: real.top, offsetWidth: real.width, offsetHeight: real.height })) Object.defineProperty(HTMLElement.prototype, k, d);
+  });
+  const flush = () => act(() => { const now = frames; frames = []; now.forEach((f) => f(0)); });
+  const ui = (over: Partial<SessionListProps>) => <ActionRoot onAction={vi.fn()}><SessionList {...listProps(over)} /></ActionRoot>;
+
+  it('選んだタブの塗りを 1 つ置き、タブを替えると塗りの位置だけが移る', () => {
+    const { container, rerender } = render(ui({ tab: 'all' }));
+    const thumb = container.querySelector<HTMLElement>('.sessions-tabs > .sessions-tab-thumb')!;
+    expect(thumb).toHaveAttribute('aria-hidden', 'true');
+    expect([thumb.style.left, thumb.style.top, thumb.style.width, thumb.style.height]).toEqual(['0px', '0px', '90px', '28px']);
+    flush();
+    expect(container.querySelector('.sessions-tabs')).toHaveAttribute('data-ready', 'true');
+    rerender(ui({ tab: 'done', filter: { status: 'done' } }));
+    expect(container.querySelector('.sessions-tab-thumb')).toBe(thumb);
+    expect(thumb.style.left).toBe('400px');
+  });
+
+  it('タブの件数は回して替える（RollingText）', () => {
+    const { container, rerender } = render(ui({ tab: 'all' }));
+    const n = () => container.querySelector('[data-tab="active"] .sessions-tab-n .roll');
+    expect(n()).toHaveTextContent(/^5$/);
+    rerender(ui({ tab: 'all', tabs: TABS.map((x) => (x.tab === 'active' ? { ...x, count: '6' } : x)) }));
+    expect(n()).toHaveAttribute('data-rolling', 'true');
+  });
+
+  it('一覧の行は滑らせない。同じ条件とページのまま上がった行と新しい行だけに淡い黄の印を付け、タブやページを替えた描画では付けない', () => {
+    const { container, rerender } = render(ui({ tab: 'all', rows: [row('a'), row('b'), row('c')] }));
+    const hits = () => [...container.querySelectorAll('.row[data-hit]')].map((r) => r.getAttribute('data-morph-id')).sort();
+    expect(container.querySelector('.list-scroll')).not.toHaveAttribute('data-glide');
+    rerender(ui({ tab: 'all', rows: [row('n'), row('c'), row('a'), row('b')] }));
+    expect(hits()).toEqual(['c', 'n']);
+    const fresh = render(ui({ tab: 'all', rows: [row('a'), row('b')] }));
+    fresh.rerender(ui({ tab: 'done', filter: { status: 'done' }, rows: [row('b'), row('a'), row('z')] }));
+    fresh.rerender(ui({ tab: 'done', filter: { status: 'done' }, rows: [row('b'), row('a'), row('z')], total: 200, pager: pagerOf(2, 50, 200) }));
+    expect(fresh.container.querySelectorAll('.row[data-hit]')).toHaveLength(0);
   });
 });

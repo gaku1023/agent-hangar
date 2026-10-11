@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isParked, liveFilterOf } from './liveFilter.ts';
+import { isParked, liveFilterOf, quietLive } from './liveFilter.ts';
 
 describe('liveFilterOf', () => {
   it('入力待ちは、hangar の run の有無によらず入力待ちに数える', () => {
@@ -19,6 +19,24 @@ describe('liveFilterOf', () => {
   it('区切りを付けて休みのまま残っているものは、hangar の run が生きていても終了に数える', () => {
     expect(liveFilterOf('idle', true, true)).toBe('ended');
     expect(liveFilterOf('idle', false, true)).toBe('ended');
+  });
+});
+
+describe('quietLive', () => {
+  it('Done と Archived にしたセッションは、問いで待っていても休みとして数える', () => {
+    expect(quietLive('waiting', 'done')).toBe('idle');
+    expect(quietLive('waiting', 'archived')).toBe('idle');
+    expect(liveFilterOf(quietLive('waiting', 'done'), false)).toBe('running');
+  });
+  it('Paused と、状態の無いセッションの入力待ちはそのまま', () => {
+    expect(quietLive('waiting', 'paused')).toBe('waiting');
+    expect(quietLive('waiting', null)).toBe('waiting');
+    expect(quietLive('waiting', undefined)).toBe('waiting');
+  });
+  it('入力待ちでなければ、状態によらず変えない', () => {
+    expect(quietLive('busy', 'done')).toBe('busy');
+    expect(quietLive('idle', 'archived')).toBe('idle');
+    expect(quietLive(null, 'done')).toBeNull();
   });
 });
 

@@ -148,6 +148,40 @@ describe('useMotionList', () => {
     expect(measured).toBe(0);
     expect(animations.map((a) => a.el.textContent)).toEqual(['b']);
   });
+  it('enter が none なら、入る行を動かさない（入りを CSS が持つ右下の知らせ）', () => {
+    const { rerender } = render(<List items={['a']} opts={{ enter: 'none', flip: false }} />);
+    rerender(<List items={['a', 'b']} opts={{ enter: 'none', flip: false }} />);
+    expect(animations).toHaveLength(0);
+  });
+  it('exit を渡すと、消えた行はその形で出て、解決したら外す', async () => {
+    const exit = vi.fn(() => new Promise<void>((r) => finish.push(r)));
+    const { container, rerender } = render(<List items={['a', 'b']} opts={{ exit }} />);
+    rerender(<List items={['a']} opts={{ exit }} />);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect((exit.mock.calls[0] as unknown as [HTMLElement])[0].textContent).toBe('b');
+    expect(animations).toHaveLength(0);
+    expect(texts(container)).toEqual(['a', 'b*']);
+    await act(async () => { finish.forEach((f) => f()); });
+    expect(texts(container)).toEqual(['a']);
+  });
+  it('exitWhenEmpty なら、最後の行が消えて空になる描画でも、その行を出す形で残す', async () => {
+    const { container, rerender } = render(<List items={['a']} opts={{ exitWhenEmpty: true }} />);
+    rerender(<List items={[]} opts={{ exitWhenEmpty: true }} />);
+    expect(texts(container)).toEqual(['a*']);
+    expect(animations.map((a) => a.el.textContent)).toEqual(['a']);
+    await act(async () => { finish.forEach((f) => f()); });
+    expect(texts(container)).toEqual([]);
+    // 空から次の行が来ても、その行の出入りは同じ決まりで動く。
+    rerender(<List items={['b']} opts={{ exitWhenEmpty: true }} />);
+    rerender(<List items={[]} opts={{ exitWhenEmpty: true }} />);
+    expect(texts(container)).toEqual(['b*']);
+  });
+  it('hitRisen なら、並びが替わった描画で上がった行だけに淡い黄の印を付ける（flip: false なら滑らせない）', () => {
+    const { container, rerender } = render(<List items={['a', 'b', 'c']} opts={{ flip: false, hitRisen: true }} />);
+    rerender(<List items={['c', 'a', 'b']} opts={{ flip: false, hitRisen: true }} />);
+    expect([...container.querySelectorAll('li[data-hit]')].map((l) => l.textContent)).toEqual(['c']);
+    expect(animations).toHaveLength(0);
+  });
   it('動きの長さが 0 なら、消えた key をすぐ外す', () => {
     restore?.();
     restore = fakeMotionTokens({ ...tokens, '--dur': '0ms', '--dur-fast': '0ms', '--dur-exit': '0ms' }, { everywhere: true });

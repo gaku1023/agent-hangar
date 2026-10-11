@@ -272,6 +272,16 @@ describe('createReadiness', () => {
       expect(await readNode(home, { major: 22, arch: 'arm64' })).toEqual({ path: home, ok: false, problem: 'notAbsolute', version: null, auto: false });
     });
   });
+  it('設定が書き替わったら、次の呼び出しで新しい設定を読む（結果を持ちっぱなしにしない）', async () => {
+    let settings = baseSettings();
+    const read = createReadiness({ settings: () => settings, claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install' });
+    expect((await read()).tools.claude).toMatchObject({ ok: false, problem: 'unset' });
+    const claude = fakeTool('claude', '2.3.1 (Claude Code)');
+    settings = baseSettings({ claudePath: claude });
+    expect((await read()).tools.claude).toMatchObject({ path: claude, ok: true, version: '2.3.1' });
+    settings = baseSettings({ claudePath: null });
+    expect((await read()).tools.claude).toMatchObject({ ok: false, problem: 'unset' });
+  });
   it('Node の設定が空なら、サーバを動かしている Node を見せる', async () => {
     const read = createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', serverNode: { path: '/opt/node/bin/node', version: 'v22.1.0' } });
     const r = await read();

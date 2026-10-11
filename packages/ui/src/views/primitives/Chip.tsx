@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ComponentPropsWithRef, type ReactNode } from 'react';
 import { Icon, type IconName } from './Icon.tsx';
 import { useT } from './language.tsx';
+import { RollingText } from './RollingText.tsx';
 
 /** 押すと灯るチップ。表示の切り替えに使う。見える文字は短くし、読み上げの名前は label で渡す。 */
 export function ToggleChip(props: { label: string; text: string; icon?: IconName; pressed: boolean; onChange: (next: boolean) => void }) {
@@ -52,15 +53,17 @@ type ButtonProps = ComponentPropsWithRef<'button'>;
  * lead を渡すと、アイコンの代わりに名前の前へ置く（サブエージェントの札の、状態の灯）。
  * 数が 0 なら薄く（data-zero）、tone は件数の色（wait は入力待ちの赤茶、cand は確認待ちの紫、warn は直すものの黄）、size の sm は小さい札である。
  * countText を渡すと、件数の代わりにその文字を出す（始める前の確認の「6 つ中 3 つ」）。薄くするかは count で決める。
+ * rolling を渡すと、件数が替わったときに数字を回す（RollingText。ホームの帯の錠剤）。値が毎秒変わる札（セッション画面の現在の帯）には渡さない。
  * Popover の開く元にもなるので、ボタンの属性と ref をそのまま受ける。
  */
-export function CountChip(props: { label: string; count: number; countText?: string; icon?: IconName; lead?: ReactNode; tone?: 'default' | 'wait' | 'cand' | 'warn'; size?: 'md' | 'sm'; expanded?: boolean } & Omit<ButtonProps, 'children' | 'className'>) {
-  const { label, count, countText, icon, lead, tone = 'default', size = 'md', expanded, onClick, ...rest } = props;
+export function CountChip(props: { label: string; count: number; countText?: string; icon?: IconName; lead?: ReactNode; tone?: 'default' | 'wait' | 'cand' | 'warn'; size?: 'md' | 'sm'; expanded?: boolean; rolling?: boolean } & Omit<ButtonProps, 'children' | 'className'>) {
+  const { label, count, countText, icon, lead, tone = 'default', size = 'md', expanded, rolling, onClick, ...rest } = props;
+  const text = countText ?? String(count);
   const body = (
     <>
       {lead ?? (icon && <Icon name={icon} />)}
       <span>{label}</span>{' '}
-      <b data-count="true">{countText ?? count}</b>
+      <b data-count="true">{rolling ? <RollingText text={text} /> : text}</b>
       {expanded !== undefined && <Icon name={expanded ? 'chevronDown' : 'chevron'} />}
     </>
   );

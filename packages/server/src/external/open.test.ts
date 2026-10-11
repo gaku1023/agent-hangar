@@ -111,12 +111,12 @@ describe('openInTerminalApp', () => {
 // Windows の 2 つの経路。フェイクの exec で、起こすコマンドと引数だけを確かめる。
 describe('openInTerminalApp（Windows）', () => {
   const PSMUX = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links\\psmux.exe';
-  type Seen = { cmd: string; args: string[]; verbatim: boolean | undefined };
+  type Seen = { cmd: string; args: string[]; verbatim: boolean | undefined; untilExit: boolean | undefined };
   let seen: Seen[];
   const winExec =
     (results: Record<string, number> = {}): Exec =>
     async (cmd, args, opts) => {
-      seen.push({ cmd, args, verbatim: opts?.verbatim });
+      seen.push({ cmd, args, verbatim: opts?.verbatim, untilExit: opts?.untilExit });
       return { code: results[cmd] ?? 0, stdout: '', stderr: '' };
     };
   beforeEach(() => { seen = []; });
@@ -125,7 +125,7 @@ describe('openInTerminalApp（Windows）', () => {
     const r = await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-ab12cd34', app: 'windowsTerminal', exec: winExec() });
     expect(r).toEqual({ app: 'windowsTerminal', fellBack: false });
     // 引数は配列のまま渡す。空白や日本語の引用は Node が Windows の規則で付ける。
-    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '--title', 'hangar-ab12cd34', '--suppressApplicationTitle', '--', PSMUX, 'attach', '-t', '=hangar-ab12cd34'], verbatim: undefined }]);
+    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '--title', 'hangar-ab12cd34', '--suppressApplicationTitle', '--', PSMUX, 'attach', '-t', '=hangar-ab12cd34'], verbatim: undefined, untilExit: true }]);
     // 何もファイルを書かない。
     expect(fs.existsSync(path.join(home, 'cmd'))).toBe(false);
   });
@@ -142,6 +142,7 @@ describe('openInTerminalApp（Windows）', () => {
       cmd: 'cmd.exe',
       args: ['/d', '/v:off', '/s', '/c', '"start "日本語 の セッション" "C:\\Program Files\\psmux\\psmux.exe" attach -t "=日本語 の セッション""'],
       verbatim: true,
+      untilExit: true,
     }]);
   });
   it('既定のターミナルでは、cmd.exe が引用符の中でも読む % を引用の外へ出して ^ で消す', async () => {
@@ -192,12 +193,12 @@ describe('openInTerminalApp（Windows）', () => {
   it('フォルダを開くとき、Windows Terminal は -d でそのフォルダの新しいタブを開く', async () => {
     const r = await openDirInTerminalApp({ home, dir: 'D:\\work space\\日本語', app: 'windowsTerminal', exec: winExec() });
     expect(r).toEqual({ app: 'windowsTerminal', fellBack: false });
-    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '--title', '日本語', '--suppressApplicationTitle', '-d', 'D:\\work space\\日本語'], verbatim: undefined }]);
+    expect(seen).toEqual([{ cmd: 'wt.exe', args: ['-w', '0', 'new-tab', '--title', '日本語', '--suppressApplicationTitle', '-d', 'D:\\work space\\日本語'], verbatim: undefined, untilExit: true }]);
   });
   it('フォルダを開くとき、既定のターミナルは start /D でそのフォルダの PowerShell を開く', async () => {
     await openDirInTerminalApp({ home, dir: 'D:\\work space\\日本語\\', app: 'windowsDefault', exec: winExec() });
     // 末尾の \ は取る。"…\" の \" を引用の終わりと読み違える道具がある。
-    expect(seen).toEqual([{ cmd: 'cmd.exe', args: ['/d', '/v:off', '/s', '/c', '"start "日本語" /D "D:\\work space\\日本語" powershell.exe -NoLogo"'], verbatim: true }]);
+    expect(seen).toEqual([{ cmd: 'cmd.exe', args: ['/d', '/v:off', '/s', '/c', '"start "日本語" /D "D:\\work space\\日本語" powershell.exe -NoLogo"'], verbatim: true, untilExit: true }]);
   });
   it('ドライブの直下は末尾の \\ を残す', async () => {
     await openDirInTerminalApp({ home, dir: 'C:\\', app: 'windowsDefault', exec: winExec() });
@@ -237,6 +238,49 @@ describe('execFile', () => {
   });
 });
 
+// 外のターミナルを起こす経路では、起こしたもの（cmd.exe の start が起こした窓、wt.exe が起こした窓）が、
+// 子の出力の管を受け継いで握り続ける。execFile は管が閉じるまで（窓を閉じるか、30 秒のタイムアウトまで）返らない。
+// 返らない間は HTTP の応答も返らず、Windows Terminal が無かった知らせ（fellBack）が画面に出ない（rc.6 の Windows の実機で見つけた）。
+// untilExit は、子が終われば、孫が管を握っていても返す。sh の & は、管を受け継いだ孫を残して子だけを終わらせる、同じ形を作る。
+describe('execFile の untilExit', () => {
+  const grandchild = "sleep 2 & echo o; echo e >&2; exit 0";
+  posixIt('untilExit を付けないと、子が終わっても、管を握る孫が終わるまで返らない（直す前の形）', async () => {
+    const t0 = Date.now();
+    expect((await execFile('sh', ['-c', grandchild])).code).toBe(0);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1500);
+  });
+  posixIt('untilExit を付けると、子が終われば、管を握る孫を待たずに返す', async () => {
+    const t0 = Date.now();
+    const r = await execFile('sh', ['-c', grandchild], { untilExit: true });
+    expect(Date.now() - t0).toBeLessThan(1000);
+    expect(r.code).toBe(0);
+  });
+  it('孫がいなければ、出力も終了コードも untilExit を付けないときと同じに返す', async () => {
+    const script = 'process.stdout.write("o"); process.stderr.write("e"); process.exitCode = 3';
+    expect(await execFile(process.execPath, ['-e', script], { untilExit: true })).toEqual({ code: 3, stdout: 'o', stderr: 'e' });
+  });
+  it('起動できないときとタイムアウトは code 1 にする', async () => {
+    expect((await execFile(path.join(home, 'no-such-command'), [], { untilExit: true })).code).toBe(1);
+    expect((await execFile(process.execPath, ['-e', 'setTimeout(() => {}, 30_000)'], { timeoutMs: 500, untilExit: true })).code).toBe(1);
+  });
+});
+
+// 実物の cmd.exe の start で、窓を開いて残るもの（ping、約 7 秒）を起こす。既定のターミナルで開くときと同じ形である。
+describe.skipIf(process.platform !== 'win32')('cmd.exe の start（実物）', () => {
+  const line = ['/d', '/v:off', '/s', '/c', '"start "hangar-test" ping -n 8 127.0.0.1"'];
+  it('untilExit を付けると、start が起こした窓の終わりを待たずに返す', async () => {
+    const t0 = Date.now();
+    const r = await execFile('cmd.exe', line, { verbatim: true, untilExit: true });
+    expect(r.code).toBe(0);
+    expect(Date.now() - t0).toBeLessThan(4000);
+  });
+  it('untilExit を付けないと、start が起こした窓が終わるまで返らない（直す前の形）', async () => {
+    const t0 = Date.now();
+    expect((await execFile('cmd.exe', line, { verbatim: true })).code).toBe(0);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(5000);
+  });
+});
+
 describe('openInEditor', () => {
   it('code <target> を呼ぶ。codePath が無ければ投げる', async () => {
     await openInEditor({ codePath: '/usr/local/bin/code', target: '/w/alpha', exec: exec() });
@@ -248,18 +292,19 @@ describe('openInEditor', () => {
 
 // Windows の VS Code の code は code.cmd で、Node は .cmd をシェル無しでは起こせない。
 describe('openInEditor（Windows の code.cmd）', () => {
-  it('.cmd はシェル越しに、パスを引用符で包んで起こす', async () => {
-    const seen: { cmd: string; args: string[]; shell: boolean | undefined }[] = [];
-    const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell }); return { code: 0, stdout: '', stderr: '' }; };
+  // Windows では、起こした VS Code の窓が cmd.exe の出力の管を受け継ぐので、子が終わったら返す（untilExit）。
+  it('.cmd はシェル越しに、パスを引用符で包んで起こし、子が終われば返す', async () => {
+    const seen: { cmd: string; args: string[]; shell: boolean | undefined; untilExit: boolean | undefined }[] = [];
+    const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell, untilExit: opts?.untilExit }); return { code: 0, stdout: '', stderr: '' }; };
     await openInEditor({ codePath: 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd', target: 'D:\\work space\\a.md', exec: fake, platform: 'win32' });
-    expect(seen).toEqual([{ cmd: '"C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd"', args: ['"D:\\work space\\a.md"'], shell: true }]);
+    expect(seen).toEqual([{ cmd: '"C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd"', args: ['"D:\\work space\\a.md"'], shell: true, untilExit: true }]);
   });
-  it('.exe と、ほかの OS では、いまのまま直に起こす', async () => {
-    const seen: { cmd: string; args: string[]; shell: boolean | undefined }[] = [];
-    const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell }); return { code: 0, stdout: '', stderr: '' }; };
+  it('.exe とほかの OS では、シェルを通さず直に起こす。子が終われば返すのは Windows だけ', async () => {
+    const seen: { cmd: string; args: string[]; shell: boolean | undefined; untilExit: boolean | undefined }[] = [];
+    const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell, untilExit: opts?.untilExit }); return { code: 0, stdout: '', stderr: '' }; };
     await openInEditor({ codePath: 'C:\\x\\code.exe', target: 'D:\\a.md', exec: fake, platform: 'win32' });
     await openInEditor({ codePath: '/x/code.cmd', target: '/w/a.md', exec: fake, platform: 'darwin' });
-    expect(seen).toEqual([{ cmd: 'C:\\x\\code.exe', args: ['D:\\a.md'], shell: undefined }, { cmd: '/x/code.cmd', args: ['/w/a.md'], shell: undefined }]);
+    expect(seen).toEqual([{ cmd: 'C:\\x\\code.exe', args: ['D:\\a.md'], shell: undefined, untilExit: true }, { cmd: '/x/code.cmd', args: ['/w/a.md'], shell: undefined, untilExit: undefined }]);
   });
   // 引用符の中でも cmd.exe が読む文字。開けるふりをして別のものを起こさないよう、断る。
   it('" を含むパスは起こさずに断る', async () => {
