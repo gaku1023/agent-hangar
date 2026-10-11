@@ -44,8 +44,10 @@
       .fail-toggle svg { flex: none; width: 12px; height: 12px; transition: transform 0.15s; }
       .fail-toggle[aria-expanded='true'] svg { transform: rotate(90deg); }
       #fail-steps li + li { margin-top: 2px; }
-      .fail-cmd { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; padding: 5px 6px 5px 10px; border-radius: 6px; background: rgba(28, 27, 46, 0.06); }
-      .fail-cmd code { min-width: 0; flex: 1; font: 11.5px ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-user-select: text; user-select: text; }
+      /* 命令は切らずに折り返して全文を見せる（長い PowerShell の命令が … で切れていた）。コピーの釦は 1 行目の高さにそろえる。 */
+      .fail-cmd { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; padding: 5px 6px 5px 10px; border-radius: 6px; background: rgba(28, 27, 46, 0.06); }
+      .fail-cmd code { min-width: 0; flex: 1; padding: 4px 0; font: 11.5px/1.5 ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+      .fail-cmd .btn-mini { flex: none; }
       /* 詳細は最初から開いた記録。伸びても札が窓からはみ出さないよう、ここだけが縮んで中で流れる。 */
       .fail-detail { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'head copy' 'body body'; grid-template-rows: auto minmax(0, 1fr); align-items: start; column-gap: 8px; flex: 0 1 auto; min-height: 64px; margin-top: 10px; border-radius: 8px; background: #f3f4f9; overflow: hidden; }
       .fd-head { grid-area: head; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-height: 28px; padding: 6px 10px 0; font-size: 11px; font-weight: 600; color: var(--ink-2); }

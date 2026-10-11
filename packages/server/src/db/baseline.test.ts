@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { translator } from '@agent-hangar/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LEGACY_MIGRATIONS } from '../../test/legacyMigrations.ts';
 import { BASELINE_DB_VERSION, dbVersionOf, LATEST_DB_VERSION, nextMigration, seedDbAt } from '../../test/oldDb.ts';
@@ -119,6 +120,12 @@ describe('起点のマイグレーション', () => {
 });
 
 describe('起点より古い版の DB', () => {
+  it('英語の文も、退避して作り直す手順を言い、以前の版の Hangar を勧めない', () => {
+    const text = translator('en')('db.open.tooOld', { file: '/x/hangar.db', found: 9, baseline: 16 });
+    expect(text).toContain('Move the database aside under another name');
+    expect(text).toContain('rebuilt');
+    expect(text).not.toContain('earlier Hangar');
+  });
   it('書き込み用に開かずに断り、DB の中身を変えず、控えも取らない', () => {
     for (const from of [1, 9, BASELINE_VERSION - 1]) {
       const dir = fs.mkdtempSync(path.join(tmp, 'old-'));
@@ -136,6 +143,10 @@ describe('起点より古い版の DB', () => {
       expect(e.message).toContain(`バージョン ${BASELINE_VERSION}`);
       expect(e.message).toContain(file);
       expect(e.message).toContain('もう一度起動してください');
+      // 起動の札の手順（退避して索引を作り直す）と食い違わない。配布版では以前の版の Hangar は手に入らないので、それを勧めない。
+      expect(e.message).toContain('別の名前に退避');
+      expect(e.message).toContain('再構築します');
+      expect(e.message).not.toContain('以前のバージョン');
       expect(e.message).not.toContain('\n');
       expect(fs.readFileSync(file).equals(before), `from ${from}`).toBe(true);
       expect(dbVersionOf(file)).toBe(from);

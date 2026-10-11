@@ -298,6 +298,16 @@ describe('読み込み画面', () => {
     for (const f of fonts) expect(f).toMatch(/ 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif;$/);
     expect(html.match(/'Hiragino Sans'/g)).toHaveLength(fonts.length);
   });
+  // 命令の欄は、画面で末尾が … で切れていた（Windows の長い PowerShell の命令、2026-10-11）。折り返して全文を見せる。
+  it('失敗の札の命令の欄は、切らずに折り返して全文を見せる', () => {
+    const html = read('loading/index.html');
+    const rule = html.match(/\.fail-cmd code \{[^}]*\}/)?.[0];
+    expect(rule).toBeDefined();
+    expect(rule).not.toContain('nowrap');
+    expect(rule).not.toContain('ellipsis');
+    expect(rule).toContain('white-space: pre-wrap');
+    expect(rule).toContain('overflow-wrap: anywhere');
+  });
   // 札の操作の並びは Tab の順（命令のコピー、詳細を開く、詳細、全文をコピー、ログを開く、もう一度試す）で、DOM もこの順に置く。
   // Node が無いときの札は、もう一度試すを命令のすぐ下の置き場（fail-primary）へ移す（boot.js）。
   it('失敗の札の操作は、DOM を Tab の順に置く', () => {
