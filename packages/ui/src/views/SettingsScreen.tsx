@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { Language, SettingsDto, SettingsSection, TerminalApp } from '@agent-hangar/shared';
+import type { Language, SettingsDto, SettingsField, SettingsSection, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
 import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
@@ -12,6 +12,8 @@ import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
+import { markHit } from './primitives/motionKit.ts';
+import { revealWithin } from './primitives/revealWithin.ts';
 import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
@@ -89,7 +91,7 @@ function PathField(props: { field: keyof SettingsDto; label: string; value: stri
     emit({ type: 'settings.update', patch: { [props.field]: props.nullable && next === '' ? null : next }, field: props.field });
   };
   return (
-    <div className="field path-field">
+    <div className="field path-field" id={`settings-field-${props.field}`}>
       {!props.hideLabel && <span aria-hidden="true">{props.label}</span>}
       <span className="inrow">
         <input className="input mono" aria-label={props.label} value={v} placeholder={props.placeholder} spellCheck={false} autoComplete="off"
@@ -103,6 +105,9 @@ function PathField(props: { field: keyof SettingsDto; label: string; value: stri
     </div>
   );
 }
+
+/** 準備の帯が指す欄と、それを包む要素の id。パスの欄は PathField の外箱、互換は節そのもの。 */
+const FIELD_BOX: Record<SettingsField, string> = { workspace: 'settings-field-workspaceRoot', tmux: 'settings-field-tmuxPath', claude: 'settings-field-claudePath', compat: 'settings-compat' };
 
 /** 札（✓ 登録済み、まだです）。形でも分け、色だけに頼らない。 */
 function Badge(props: { ok: boolean | null; yes: string; no: string }) {
@@ -216,6 +221,19 @@ export function SettingsScreen(props: SettingsProps) {
     const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById('settings-accounts')?.scrollIntoView?.({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
   }, [props.focus, props.section, showAccounts]);
+
+  // ホームの準備の帯の「設定を開く」から来たときは、直す欄が見える所へ移り、淡い黄で一瞬目立たせる（検索から跳んだ行と同じ動き）。
+  // パスの欄は入力欄へフォーカスも置く。互換の節は入力欄が無いので、移って目立たせるだけにする。
+  // 節は目次から切り替えるとここへ入らない（focus が欄の名前でなくなる）。
+  useEffect(() => {
+    if (props.focus === null || props.focus === 'accounts' || props.focus === 'unsent') return;
+    const box = document.getElementById(FIELD_BOX[props.focus]);
+    if (!box) return;
+    const scroller = box.closest<HTMLElement>('.main');
+    if (scroller) revealWithin(scroller, box);
+    markHit(box);
+    box.querySelector<HTMLElement>('input')?.focus({ preventScroll: true });
+  }, [props.focus, props.section]);
 
   const go = (to: SettingsSection) => { if (to !== props.section) emit({ type: 'nav.go', to: { name: 'settings', at: to } }); };
   // 目次は 1 本の道として、上下で行を移る。選ぶのは Enter と Space（押す）で、移るだけでは URL を増やさない。

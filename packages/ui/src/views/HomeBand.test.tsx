@@ -234,7 +234,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
   it('「設定を開く」は設定へ、「コマンドをコピー」は命令を写す', () => {
     const { onAction } = open();
     fireEvent.click(screen.getByRole('button', { name: '設定を開く、プロジェクトの親フォルダ' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'workspace' } });
     fireEvent.click(screen.getByRole('button', { name: 'コマンドをコピー、MCP サーバー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
   });
