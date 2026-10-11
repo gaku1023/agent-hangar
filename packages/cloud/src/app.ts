@@ -3,6 +3,7 @@ import { COMPAT_VERSION } from '@agent-hangar/shared';
 import { authMiddleware } from './auth.ts';
 import { changesApp, rowsApp } from './changes.ts';
 import { compatMiddleware } from './compat.ts';
+import { devicesApp } from './devices.ts';
 import type { AppType, Env, Vars } from './env.ts';
 import { filesApp } from './files.ts';
 import { joinHandler } from './join.ts';
@@ -42,10 +43,13 @@ export function createApp(o: { minDeviceCompat: number }): AppType {
   app.use('/files', authMiddleware());
   app.use('/files/*', authMiddleware());
   app.use('/usage', authMiddleware());
+  app.use('/devices', authMiddleware());
+  app.use('/devices/*', authMiddleware());
 
   app.route('/changes', changesApp);
   app.route('/rows', rowsApp);
   app.route('/files', filesApp);
+  app.route('/devices', devicesApp);
 
   // 使用量と費用。トークンの secret が無ければ外へ出ずに configured: false を返す。D1 には書かない。
   app.get('/usage', async (c) => {

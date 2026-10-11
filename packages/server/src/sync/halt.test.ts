@@ -12,3 +12,11 @@ describe('互換の版', () => {
     expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false, limited: true })).toBe(true);
   });
 });
+
+describe('この PC の解除', () => {
+  it('解除されている間は、頼まれた 1 巡の最中でも止める', () => {
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false, limited: false, revoked: true })).toBe(true);
+    expect(syncHalted({ paused: true, oncePass: true, compatBlocked: false, limited: false, revoked: true })).toBe(true);
+    expect(syncHalted({ paused: false, oncePass: false, compatBlocked: false, limited: false, revoked: false })).toBe(false);
+  });
+});

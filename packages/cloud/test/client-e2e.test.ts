@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COMPAT_HEADER, COMPAT_VERSION } from '@agent-hangar/shared';
-import { CompatError, HttpCloudClient } from '../../server/src/sync/client.ts';
+import { CompatError, HttpCloudClient, RevokedError } from '../../server/src/sync/client.ts';
 import { ensureSchema, resetSchemaCache } from '../src/schema.ts';
 import { sha256Hex } from '../src/util.ts';
 import { startCloud, type CloudHarness } from './harness.ts';
@@ -114,5 +114,21 @@ describe('互換の版（本物の client と本物の Worker）', () => {
     } finally {
       await strictCloud.dispose();
     }
+  });
+});
+
+describe('PC の一覧と解除（HttpCloudClient と Worker）', () => {
+  it('一覧を取り、ほかの PC を解除すると、その PC の client は RevokedError で断られる', async () => {
+    const r = await fetch(`${workerUrl}/join`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [COMPAT_HEADER]: String(COMPAT_VERSION) },
+      body: JSON.stringify({ secret: SECRET, device: { id: 'dev-b', name: 'dev-b', platform: 'win32' } }),
+    });
+    const b = new HttpCloudClient({ url: workerUrl, token: ((await r.json()) as { deviceToken: string }).deviceToken, spoolDir });
+    expect((await client.listDevices()).map((d) => d.id).sort()).toEqual(['dev-a', 'dev-b']);
+    expect((await client.revokeDevice('dev-b')).revokedAt).toBeGreaterThan(0);
+    await expect(b.pullChanges(0, 10)).rejects.toBeInstanceOf(RevokedError);
+    // 解除した側は今までどおり使える。
+    expect((await client.pullChanges(0, 10)).changes).toEqual([]);
   });
 });

@@ -25,7 +25,7 @@ describe('同期の経路', () => {
 
   it('同期の経路も認証の下にある', async () => {
     // 参加トークンは全セッションの読み書き権を持つ。鍵の無い要求と別サイトからの要求は入口で断る。
-    for (const p of ['/api/sync/status', '/api/sync/joinToken', '/api/devices']) {
+    for (const p of ['/api/sync/status', '/api/sync/joinToken', '/api/devices', '/api/sync/cloud-devices']) {
       expect((await get(p, {})).status).toBe(401);
       expect((await get(p, { ...H, origin: 'https://evil.example' })).status).toBe(403);
     }
@@ -107,5 +107,20 @@ describe('同期の経路', () => {
   it('同期が未設定なら参加トークンは null', async () => {
     app = createApp({ ...deps, joinToken: () => null });
     expect((await json(await get('/api/sync/joinToken'))).body).toEqual({ token: null });
+  });
+});
+
+describe('PC の一覧（Worker の devices）', () => {
+  it('GET /api/sync/cloud-devices は依存の答えをそのまま返す', async () => {
+    const dto = { state: 'ok' as const, devices: [{ id: 'd', name: 'mac', platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null, self: true }], creator: true, message: null };
+    app = createApp({ ...deps, cloudDevices: async () => dto });
+    expect(await json(await get('/api/sync/cloud-devices'))).toEqual({ status: 200, body: dto });
+  });
+
+  it('解除と参加と参加の解除の口は HTTP に無い（殻の命令と CLI だけが行う）', async () => {
+    for (const p of ['/api/sync/devices/d/revoke', '/api/sync/join', '/api/sync/leave', '/api/devices/d/revoke']) {
+      const r = await app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: '{}' });
+      expect([p, r.status]).toEqual([p, 404]);
+    }
   });
 });

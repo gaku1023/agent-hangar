@@ -26,6 +26,7 @@ import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import type { Notifier } from './notifier.ts';
 import { createUpdateRunner } from './updater.ts';
+import { createCloudMemberRunner } from './cloudMember.ts';
 import type { TerminalHost } from './terminals.ts';
 import type { WsClient } from './ws.ts';
 import { keyLabel } from '../keys.ts';
@@ -174,6 +175,18 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * アプリの自動更新（runtime/updater.ts）。殻の中でだけ作る。
    * 段階は Store の update に置き、変わったら画面へ出す。
    */
+  /**
+   * クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除（runtime/cloudMember.ts）。
+   * 一覧はブラウザでも取る。参加と解除は殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。
+   */
+  const cloudMember = createCloudMemberRunner({
+    bridge: deps.desktop?.cloud ?? null,
+    load: () => deps.api.cloudDevices(),
+    restart: () => { void deps.desktop?.restart().catch(fail); },
+    setTimeout: deps.setTimeout,
+    get: () => store.cloudMember,
+    set: (c) => { if (c !== store.cloudMember) setStore({ ...store, cloudMember: c }); },
+  });
   const updater = deps.desktop ? createUpdateRunner({
     bridge: deps.desktop.update, storage: deps.storage, setTimeout: deps.setTimeout, now: () => clock(),
     get: () => store.update, set: (u) => { if (u !== store.update) setStore({ ...store, update: u }); },
@@ -607,6 +620,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'badge': notifier?.badge(e.count); return;
       case 'update': updater?.run(e.command); return;
+      case 'cloudMember': cloudMember.run(e.command); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
       case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
@@ -631,6 +645,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         deps.api.accounts().then(accountsUpdated).catch(fail);
         // 一時停止の間はサーバが取りに行かず最後の値を返すので、ここでは状態を見ずに頼んでよい。
         deps.api.syncUsage(true).then((u) => setStore({ ...store, cloudUsage: u })).catch(fail);
+        // Worker の PC の一覧。同期していなければサーバが off を返す。
+        cloudMember.run({ op: 'load' });
         loadReadiness();
         // LM Studio が起動していないのは普通の状態なので、失敗は空の一覧にして黙る。
         deps.api.summarizerModels().then((m) => setStore({ ...store, summarizerModels: m.models })).catch(() => setStore({ ...store, summarizerModels: [] }));

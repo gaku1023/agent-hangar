@@ -17,10 +17,21 @@
  * 版 4（段 4 の PR 18）：旧実装の設定の同期（項目ごとに R2 の config/<端末>/<相対パス> へ置く方式）を消した。
  * 版 3 までの端末は旧実装を積んでいて、同じ Worker の旧い置き場を使い続ける。版 4 の Worker は、旧い置き場を掃除し、版 4 未満の端末を 426 で断る（MIN_DEVICE_COMPAT を 4 に上げた）。
  *
+ * 版 5（0.4.0）：Worker が PC の一覧（GET /devices）と解除（POST /devices/:id/revoke）を持ち、解除した PC の端末トークンを 401 の revoked で断る。
+ * 殻は、参加と解除の命令（cloud_join_plan、cloud_join、cloud_revoke、cloud_leave）を持ち、UI がそれを呼ぶ。
+ * 版 4 の端末は一覧と解除を呼ばないので、混ざっても困らない（MIN_DEVICE_COMPAT は 4 のまま）。端末は、Worker が名乗る版が DEVICE_ADMIN_MIN_WORKER_COMPAT に届くまで、一覧と解除を「Worker の更新が要る」と出す。
+ * 版を上げたのは殻とサーバの合図のためでもある。版 4 の殻が版 5 のサーバを採ると、画面が殻に無い命令を呼ぶ。
+ *
  * 殻は同梱するサーバと同じ版を名乗る写しを持つ（apps/desktop/src-tauri/src/health.rs の COMPAT_VERSION）。apps/desktop/test/config.test.ts がこの値と突き合わせる。
  * 殻は 4177 の既存のサーバと下限ではなく一致で比べるので、この版を上げると、上げた殻は上げる前のサーバを採らず、上げる前の殻は上げた後のサーバを採らない。
  */
-export const COMPAT_VERSION = 4;
+export const COMPAT_VERSION = 5;
+
+/**
+ * PC の一覧と解除の口（GET /devices、POST /devices/:id/revoke）を持つ Worker の版。
+ * 版 4 までの Worker はこの経路を 404 で返す。端末は Worker を入れ替えるよう案内する。
+ */
+export const DEVICE_ADMIN_MIN_WORKER_COMPAT = 5;
 
 /**
  * 設定の同期の束の行（共有テーブル config_snapshots）を受け取れる Worker の版（段 4 の PR 14 で決めた定数）。

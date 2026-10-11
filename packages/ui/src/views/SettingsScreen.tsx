@@ -18,6 +18,7 @@ import { Segmented } from './primitives/Segmented.tsx';
 import { UsageBar } from './UsageBar.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
+import { CloudJoinSteps, CloudLeaveBand, CloudPcTable, CloudRevokedBand } from './CloudMember.tsx';
 import { ConfigSyncSection } from './ConfigSyncSection.tsx';
 import { CompatSection } from './CompatSection.tsx';
 import { UpdateSection } from './UpdateSection.tsx';
@@ -313,23 +314,41 @@ export function SettingsScreen(props: SettingsProps) {
   );
 
   const cloudOff = !props.cloud.configured;
+  const member = props.cloud.member;
   const cloud = (
     <>
       <section aria-label={cur.title}>
         {cloudOff && (
           <>
             <p className="muted-p">{t('settings.cloud.off.lead')}</p>
-            <div className="btns">
-              <button type="button" className="btn btn-primary" aria-pressed={cloudCommand === 'start'} onClick={() => setCloudCommand('start')}><Icon name="cloud" />{t('settings.cloud.off.start')}</button>
-              <button type="button" className="btn" aria-pressed={cloudCommand === 'join'} onClick={() => setCloudCommand('join')}>{t('settings.cloud.off.join')}</button>
-            </div>
-            {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.note')}</div>}
-            {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
-            {cloudCommand === 'join' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runJoin')}</div><CommandLine command={props.commands.join} /></>}
+            {/* 殻の中では、参加トークンで参加を節の中の段で行う（0.4.0）。クラウドの用意はターミナルのまま。 */}
+            {member?.desktop ? (
+              <>
+                <div className="btns">
+                  <button type="button" className="btn btn-primary" aria-pressed={cloudCommand === 'join'} onClick={() => setCloudCommand('join')}>{t('cloudMember.join.button')}</button>
+                  <button type="button" className="btn" aria-pressed={cloudCommand === 'start'} onClick={() => setCloudCommand('start')}><Icon name="cloud" />{t('settings.cloud.off.start')}</button>
+                </div>
+                {cloudCommand === 'join' && <CloudJoinSteps m={member} onClose={() => setCloudCommand(null)} />}
+                {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
+                {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('cloudMember.join.startNote')}</div>}
+              </>
+            ) : (
+              <>
+                <div className="btns">
+                  <button type="button" className="btn btn-primary" aria-pressed={cloudCommand === 'start'} onClick={() => setCloudCommand('start')}><Icon name="cloud" />{t('settings.cloud.off.start')}</button>
+                  <button type="button" className="btn" aria-pressed={cloudCommand === 'join'} onClick={() => setCloudCommand('join')}>{t('settings.cloud.off.join')}</button>
+                </div>
+                {cloudCommand === null && <div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.note')}</div>}
+                {cloudCommand === 'start' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runStart')}</div><CommandLine command={props.commands.setupCloud} /></>}
+                {cloudCommand === 'join' && <><div className="faint" style={{ marginTop: 8 }}>{t('settings.cloud.off.runJoin')}</div><CommandLine command={props.commands.join} /></>}
+              </>
+            )}
           </>
         )}
         {!cloudOff && (
           <>
+            {/* ほかの PC で、この PC の参加が解除されたとき（0.4.0）。 */}
+            {member?.revoked && <CloudRevokedBand m={member} joinCommand={props.commands.join} />}
             <div className="stat">
               <span>{t('settings.cloud.state')} {props.cloud.stateLabel}</span>
               <span>{t('settings.cloud.lastReceived')} {props.cloud.lastPullAt}</span>
@@ -358,16 +377,21 @@ export function SettingsScreen(props: SettingsProps) {
               {props.cloud.joinToken === null && <button className="btn" onClick={() => emit({ type: 'sync.joinToken.show' })}>{t('settings.cloud.showToken')}</button>}
             </div>
             {props.cloud.joinToken !== null && <JoinToken token={props.cloud.joinToken} expiresAt={props.cloud.joinTokenExpiresAt} />}
-            <h4 className="sub-h">{t('settings.cloud.computers')}<span className="n">{props.cloud.devices.length}</span></h4>
-            <div className="list flat">
-              {props.cloud.devices.map((d) => (
-                <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
-                  <span>{d.name}{d.self && <span className="faint"> {t('settings.cloud.thisPc')}</span>}</span>
-                  <span className="faint">{d.platform}</span>
-                  <span className="faint">{d.lastSeen}</span>
+            {/* PC の表（0.4.0）。Worker の一覧から、参加日、最終同期、最後の IP と場所、解除を出す。 */}
+            {member ? <CloudPcTable m={member} heading={t('settings.cloud.computers')} /> : (
+              <>
+                <h4 className="sub-h">{t('settings.cloud.computers')}<span className="n">{props.cloud.devices.length}</span></h4>
+                <div className="list flat">
+                  {props.cloud.devices.map((d) => (
+                    <div key={d.id} className="row" style={{ gridTemplateColumns: '1fr auto auto', cursor: 'default' }}>
+                      <span>{d.name}{d.self && <span className="faint"> {t('settings.cloud.thisPc')}</span>}</span>
+                      <span className="faint">{d.platform}</span>
+                      <span className="faint">{d.lastSeen}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </>
+            )}
           </>
         )}
       </section>
@@ -375,6 +399,8 @@ export function SettingsScreen(props: SettingsProps) {
       <ConfigSyncSection cfg={props.configSync} cloudOff={cloudOff} />
       {/* 使用量と費用。同期している人にだけ出す（試作 usage-merged.html の「置き場所」）。 */}
       {!cloudOff && props.cloud.usage && <CloudUsage {...props.cloud.usage} />}
+      {/* この PC の参加を解除（0.4.0）。節の末尾に、ほかの PC の解除から離して置く。 */}
+      {!cloudOff && member && !member.revoked && <CloudLeaveBand m={member} />}
     </>
   );
 

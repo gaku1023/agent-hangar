@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { inspect } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COMPAT_HEADER, COMPAT_VERSION, decodeHeaderText, isHeaderSafe } from '@agent-hangar/shared';
-import { CloudError, CompatError, goneFloor, HttpCloudClient, isValidFileKey, LimitError, MAX_PUT_BODY_BYTES, MIN_WORKER_COMPAT } from './client.ts';
+import { CloudError, CompatError, goneFloor, HttpCloudClient, isValidFileKey, LimitError, MAX_PUT_BODY_BYTES, MIN_WORKER_COMPAT, RevokedError } from './client.ts';
 
 type Call = { url: string; init: RequestInit };
 
@@ -570,5 +570,43 @@ describe('上限の失敗', () => {
     expect(e).toBeInstanceOf(CloudError);
     expect(e).not.toBeInstanceOf(LimitError);
     expect(e).toMatchObject({ status: 500, message: '{"error":"internal error"}' });
+  });
+});
+
+describe('PC の一覧と解除', () => {
+  const device = { id: 'dev-b', name: 'desk', platform: 'win32', joinedAt: 1, lastSeenAt: 2, revokedAt: null, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null };
+
+  it('listDevices は GET /devices を Bearer 付きで叩いて一覧を返す', async () => {
+    const f = fakeFetch(() => json({ devices: [device] }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect(await c.listDevices()).toEqual([device]);
+    expect(f.calls[0]!.url).toBe('https://w.example/devices');
+    expect(headersOf(f.calls[0]!).authorization).toBe('Bearer ***');
+  });
+
+  it('revokeDevice は POST /devices/<id>/revoke を叩き、ID は URL の断片として符号化する', async () => {
+    const f = fakeFetch(() => json({ device: { ...device, revokedAt: 9 } }));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    expect((await c.revokeDevice('dev-b')).revokedAt).toBe(9);
+    expect(f.calls[0]!.url).toBe('https://w.example/devices/dev-b/revoke');
+    expect(f.calls[0]!.init.method).toBe('POST');
+  });
+
+  it('形の違う ID は送る前に断る', async () => {
+    const f = fakeFetch(() => json({}));
+    const c = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: f.fetch });
+    await expect(c.revokeDevice('../x')).rejects.toBeInstanceOf(CloudError);
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it('401 の { error: revoked } は RevokedError にする。ほかの 401 は今までどおりの CloudError', async () => {
+    const revoked = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'revoked' }, 401)).fetch });
+    const e = await revoked.pullChanges(0, 10).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(RevokedError);
+    expect((e as RevokedError).status).toBe(401);
+    const other = new HttpCloudClient({ url: 'https://w.example', token: 'tok', fetch: fakeFetch(() => json({ error: 'unauthorized' }, 401)).fetch });
+    const e2 = await other.pullChanges(0, 10).catch((x: unknown) => x);
+    expect(e2).toBeInstanceOf(CloudError);
+    expect(e2).not.toBeInstanceOf(RevokedError);
   });
 });

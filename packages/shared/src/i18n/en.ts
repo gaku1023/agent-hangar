@@ -52,6 +52,7 @@ import { paletteEn } from './en/palette.ts';
 import { connEn } from './en/conn.ts';
 import { toastsEn } from './en/toasts.ts';
 import { cloudUsageEn } from './en/cloudUsage.ts';
+import { cloudMemberEn } from './en/cloudMember.ts';
 import { readinessEn } from './en/readiness.ts';
 import { compatEn } from './en/compat.ts';
 import { dbEn } from './en/db.ts';
@@ -112,6 +113,7 @@ export const en: Dictionary = {
   ...connEn,
   ...toastsEn,
   ...cloudUsageEn,
+  ...cloudMemberEn,
   ...readinessEn,
   ...compatEn,
   ...dbEn,

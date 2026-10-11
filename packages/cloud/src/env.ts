@@ -9,6 +9,12 @@ export type DeviceRow = {
   joined_at: number;
   last_seen_at: number | null;
   last_pulled_seq: number;
+  /** 解除した時刻。null でなければ、この端末トークンは 401 の revoked で断る。版 4 までの D1 には列が無いことがあるので省ける形にする。 */
+  revoked_at?: number | null;
+  last_ip?: string | null;
+  last_city?: string | null;
+  last_region?: string | null;
+  last_country?: string | null;
 };
 
 /**

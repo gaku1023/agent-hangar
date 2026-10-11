@@ -1,3 +1,4 @@
+import type { CloudDeviceOut } from './cloud.ts';
 import type { CompatSummaryDto } from './claudeCompat.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { StepKind } from './steps.ts';
@@ -217,7 +218,8 @@ export type SyncStateKind = 'off' | 'idle' | 'pushing' | 'pulling' | 'paused' | 
  * pending は、送り先があって送るのを待っている変更の数である。state が off のあいだは送り先が無いので 0 にする。
  * off のあいだの変更も changes に積んであり、同期を有効にした後に送る。
  */
-export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null };
+/** revoked は、この PC が同期から解除された（Worker が端末トークンを 401 の revoked で断った）印。そのあいだ state は error である。送らない古いサーバは偽とみなす。 */
+export type SyncStatusDto = { state: SyncStateKind; paused: boolean; url: string | null; lastPushAt: number | null; lastPullAt: number | null; pending: number; error: string | null; deviceCount: number; limitedUntil: number | null; revoked?: boolean };
 /**
  * 降ろすのを諦めた本文。key は雲の中の鍵、attempts は試した回数、message は最後の理由。
  * 載るのは降ろす側（RemotePuller）の諦めだけである。
@@ -239,6 +241,15 @@ export type SyncSkippedDto = { key: string; attempts: number; message: string };
 export type SyncDetailDto = { skipped: SyncSkippedDto[]; sweepPending: number | null; oncePass: boolean };
 /** 同期の状態の応答。SyncStatusDto に付録を足したものである。 */
 export type SyncStatusBody = SyncStatusDto & SyncDetailDto;
+/**
+ * 設定のクラウド同期の節の PC の一覧（GET /api/sync/cloud-devices）。Worker の devices をそのまま運び、この PC に self の印を付ける。
+ * state は、ok（一覧が取れた）、off（同期していない）、outdated（Worker が版 5 より古く、一覧と解除の口を持たない）、
+ * unreachable（Worker に繋がらない、または一覧の問い合わせが失敗した）、revoked（この PC が解除されている）である。
+ * creator は、この PC がクラウドを作った PC か（cloud.json に Worker の名前がある）。参加を解除すると teardown できなくなる旨を出すのに使う。
+ * message は ok と off のほかで、画面に出す理由の文（サーバの言語）。
+ */
+export type CloudDeviceDto = CloudDeviceOut & { self: boolean };
+export type CloudDevicesDto = { state: 'ok' | 'off' | 'outdated' | 'unreachable' | 'revoked'; devices: CloudDeviceDto[]; creator: boolean; message: string | null };
 /** shell はその端末の包み方（hangar shell install）の状態。まだ知らせてこない古い版の端末は null になる。 */
 export type DeviceDto = { id: string; name: string; platform: string; lastSeenAt: number | null; self: boolean; shell: ShellHookStateDto | null };
 export type ShellHookStateDto = 'on' | 'off' | 'unsupported';

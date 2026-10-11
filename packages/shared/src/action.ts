@@ -102,6 +102,15 @@ export type UiAction =
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   | { type: 'sync.joinToken.show' }
+  /**
+   * クラウド同期への参加と、PC の解除と、この PC の参加の解除（0.4.0）。殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。
+   * join.plan は貼った参加トークンを殻へ渡して宛先を確かめる。トークンは Runtime だけが持ち、Store にも画面にも残さない。
+   * join.go は確かめた宛先に参加する（overwrite は別のクラウドへの上書きの承諾）。join.cancel は段を閉じてトークンを捨てる。
+   * device.revoke はほかの PC を解除する。leave はこの PC の参加を解除する（revoke はクラウドでもこの PC を解除するか）。
+   */
+  | { type: 'cloud.join.plan'; token: string } | { type: 'cloud.join.go'; overwrite: boolean } | { type: 'cloud.join.cancel' }
+  | { type: 'cloud.device.revoke'; id: string } | { type: 'cloud.revoke.dismiss' }
+  | { type: 'cloud.leave'; revoke: boolean } | { type: 'cloud.leave.dismiss' }
   // 設定の同期。送る一覧を承諾するとスイッチが入り（send.confirm）、適用は選んだ項目を指示書にしてから殻のネイティブの確認へ渡す。
   | { type: 'configSync.open'; part: ConfigSyncPart }
   | { type: 'configSync.send.confirm' }

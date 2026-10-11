@@ -238,6 +238,21 @@ export type JoinOptions = {
   log?: (line: string) => void;
 };
 
+/**
+ * 参加の失敗の種類。殻と画面は、この符号で言い方を選ぶ（CLI の文は日本語のままなので、画面は辞書の文を出す）。
+ * forbidden は参加用の秘密が違う、compat はこの PC の hangar が古い、network は繋がらない、timeout は応答が無い、
+ * failed はそれ以外（待っても 503 のまま、など）である。
+ */
+export type JoinErrorCode = 'forbidden' | 'compat' | 'network' | 'timeout' | 'failed';
+
+/** 参加の失敗。message は CLI の文で、秘密も応答の本文も載せない。 */
+export class JoinError extends Error {
+  constructor(readonly code: JoinErrorCode, message: string) {
+    super(message);
+    this.name = 'JoinError';
+  }
+}
+
 /** 例外から、利用者に見せてよい短い手がかりだけを取り出す。本文も秘密も出さない。 */
 function reasonOf(e: unknown): string {
   const cause = (e as { cause?: { code?: unknown } } | null)?.cause;
@@ -263,8 +278,8 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
       r = await o.fetch(`${url}/join`, { method: 'POST', headers: { 'content-type': 'application/json', ...compatHeaders() }, body: JSON.stringify({ secret, device }), signal: ac.signal });
     } catch (e) {
       // 打ち切りも接続の失敗も、待たずにその場で断る。秘密は文面に載せない。
-      if (timedOut) throw new Error(`${url} が ${timeout} ミリ秒のあいだ応答しませんでした。宛先が正しいか、${url}/health が返るかを確かめてください`);
-      throw new Error(`${url} に繋がりませんでした（${reasonOf(e)}）`);
+      if (timedOut) throw new JoinError('timeout', `${url} が ${timeout} ミリ秒のあいだ応答しませんでした。宛先が正しいか、${url}/health が返るかを確かめてください`);
+      throw new JoinError('network', `${url} に繋がりませんでした（${reasonOf(e)}）`);
     } finally {
       clearTimeout(timer);
     }
@@ -284,7 +299,7 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
       clearTimeout(bodyTimer);
       const need = readCompatRefusal(body);
       const want = need === null ? 'それより新しい版' : `${need} 以上`;
-      throw new Error(`この PC の hangar が古いので、Worker が参加を断りました（この PC の互換の版は ${COMPAT_VERSION}、Worker が求めるのは ${want}）。hangar を新しい版に入れ替えてから、もう一度実行してください`);
+      throw new JoinError('compat', `この PC の hangar が古いので、Worker が参加を断りました（この PC の互換の版は ${COMPAT_VERSION}、Worker が求めるのは ${want}）。hangar を新しい版に入れ替えてから、もう一度実行してください`);
     }
     const waitable = r.status === 503 || (r.status === 403 && o.retryForbidden === true);
     if (waitable && i < retries) {
@@ -293,8 +308,8 @@ export async function joinWorker(url: string, secret: string, device: DeviceLike
       continue;
     }
     // 応答の本文は出さない。秘密が混じる経路を作らない。
-    if (r.status === 403) throw new Error('参加用の秘密が違います。参加トークンを確かめてください');
-    throw new Error(`参加に失敗しました（HTTP ${r.status}）`);
+    if (r.status === 403) throw new JoinError('forbidden', '参加用の秘密が違います。参加トークンを確かめてください');
+    throw new JoinError('failed', `参加に失敗しました（HTTP ${r.status}）`);
   }
 }
 

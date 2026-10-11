@@ -821,6 +821,49 @@ describe('互換の版', () => {
   });
 });
 
+describe('この PC の解除', () => {
+  it('Worker に解除された（401 の revoked）ら同期を止め、revoked の印と理由を出す', async () => {
+    const e = make();
+    await e.start();
+    cloud.revoke('a');
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+    expect(e.revoked()).toBe(true);
+    expect(e.status()).toMatchObject({ state: 'error', revoked: true });
+    expect(e.status().error).toContain('解除');
+    // 止めた後は、書き込みも定期実行も外へ出ない。
+    const calls = cloud.calls.length;
+    project('p2');
+    await timers.advance(5 * 60_000);
+    await e.idle();
+    expect(cloud.calls.length).toBe(calls);
+    e.stop();
+  });
+
+  it('参加し直して（解除が外れて）から今すぐ同期を押せば戻る', async () => {
+    const e = make();
+    await e.start();
+    cloud.revoke('a');
+    project('p1');
+    await timers.advance(1_000);
+    await e.idle();
+    expect(e.revoked()).toBe(true);
+    cloud.unrevoke('a');
+    await e.syncNow();
+    expect(e.revoked()).toBe(false);
+    expect(e.status()).toMatchObject({ state: 'idle', revoked: false, error: null, pending: 0 });
+    e.stop();
+  });
+
+  it('解除されていなければ revoked は偽', async () => {
+    const e = make();
+    await e.start();
+    expect(e.status().revoked).toBe(false);
+    e.stop();
+  });
+});
+
 describe('上限で退く', () => {
   /** UTC の 0 時の 1 分前に時計を合わせる。日をまたぐのを 2 分で試せる。戻る時刻を返す。 */
   const beforeMidnight = (): number => {
