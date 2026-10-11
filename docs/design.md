@@ -289,7 +289,12 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   Node が無いときの札では、新しいバージョンを入れても Node は入らないので、帯に「直っていることがあります」と添えない。
   命令は UI と同じ 4 つで、起動画面にも与える（`capabilities/boot-screen.json`）。文は `boot-fail.js` の `updateView` の日英の表が持ち、語は UI の辞書（`update.*`）にそろえる（試験が突き合わせる）。
   殻も、起動に失敗したとき 1 度だけ自分で確かめる（`lib.rs` の `check_update_after_failure`）。
-  見つけた版は `Ui.update` に置いて `boot_state` の `update` で渡し、その場でも `window.__hangarBootUpdate({ version })` で渡すので、押さなくても札に帯が出る。
+  確かめ始めるのは、起動画面が札を描いた後である。
+  頁は札を描いたコマの後（`requestAnimationFrame` の中から次の番）で命令 `boot_card_shown` を 1 度だけ呼び、殻はそれを受けて確かめる（`Ui::card_shown`。やり直して読み込み直した頁が呼んでも重ねない）。
+  殻が失敗を知った時点（`fail`）では確かめない。札は確かめの結果を待たずに出し、言語も札が持つ `lang` で決めるので、`boot_state` の `lang` も待たない。
+  以前（rc.6）は `fail` の中で確かめ始めていて、目録の取得と証明書の検証が札の最初の描画と重なっていた。
+  窓が隠れていてコマが来なければ、見えるまで確かめない。
+  見つけた版は `Ui.update` に置いて `boot_state` の `update` で渡し、その場でも `window.__hangarBootUpdate({ version })` で渡すので、押さなくても札に後から帯が足される。
   やり直しても `Ui.update` は消さない。確かめに失敗したときはログに残すだけで、札には出さない。
   UI の「更新を通知する」のスイッチ（`localStorage`）は殻から読めないが、起動できない版から抜け出す口なので、この 1 度の確認はスイッチに依らず行う。
 - Node が無いときの札（`node-missing`）は、ほかの札と並びを変え、入れるコマンドを主にする（利用者が選んだ形、2026-10-11）。
@@ -2270,7 +2275,7 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 入力待ちの知らせの 4 つ（`notify_waiting`、`notify_prune`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、札を描いた知らせの `boot_card_shown`（殻はこれを受けてから 1 度だけ更新を確かめる）、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 `desktop.log` には殻の行（`<ミリ秒> [desktop] …`）とサーバの標準出力と標準エラーが入る。
 サーバは子の起動のときに追記で開いたファイルへ書く。

@@ -257,11 +257,23 @@ window.__hangarBootFail = (info) => {
   // Enter で「もう一度試す」を押せるよう、焦点をここに置く。
   retry.focus({ preventScroll: true });
   report();
+  tellCardShown();
 };
+
+// 札を描いたことを殻に知らせる（lib.rs の boot_card_shown）。殻はこれを受けてから、1 度だけ更新を確かめる。
+// 殻が失敗を知った時点で確かめ始めると、目録の取得と証明書の検証が札の最初の描画と重なる。
+// 描いたコマの後（requestAnimationFrame の中から次の番）で知らせる。窓が隠れていてコマが来なければ、見えるまで待つ。
+// 答えは待たない。殻が新しい版を見つけたら、__hangarBootUpdate で帯を足す。
+let cardTold = false;
+function tellCardShown() {
+  if (cardTold) return;
+  cardTold = true;
+  requestAnimationFrame(() => setTimeout(() => { Promise.resolve(invoke('boot_card_shown')).catch(() => {}); }, 0));
+}
 
 // 札の中の更新（lib.rs の update_check、update_download、update_status、update_install。起動画面にも与えてある：capabilities/boot-screen.json）。
 // 起動に失敗する版を入れた人は UI まで届かず、UI の自動の確認では新しいバージョンを受け取れない。なので札の中から確かめ、ダウンロードしてインストールする。
-// インストールが済むと殻が再起動する。殻は起動に失敗したとき 1 度だけ自分でも確かめ、見つけた版を boot_state の update と __hangarBootUpdate で渡す。
+// インストールが済むと殻が再起動する。殻は札を描いた知らせ（boot_card_shown）を受けて 1 度だけ自分でも確かめ、見つけた版を boot_state の update と __hangarBootUpdate で渡す。
 // 文と見せ方は boot-fail.js の updateView が決め、ここは様子（upd）を持って命令を呼ぶだけにする。
 const updateBox = $('fail-update');
 const updateBar = $('fail-update-bar');
