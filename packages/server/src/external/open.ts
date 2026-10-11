@@ -252,14 +252,16 @@ export function openDirInTerminalApp(o: { home: string; dir: string; app: Termin
 export async function openInEditor(o: { codePath: string | null; target: string; exec?: Exec; platform?: NodeJS.Platform }): Promise<void> {
   if (!o.codePath) throw new MessageError(msg('external.editor.codeMissing', { label: msg('settings.label.codePath') }));
   const exec = o.exec ?? execFile;
+  // Windows では、起こした VS Code の窓が子（cmd.exe や code.exe）の出力の管を受け継ぎうるので、子の終わりで返す（execUntilExit）。
+  const win = (o.platform ?? process.platform) === 'win32';
   let r: { code: number; stdout: string; stderr: string };
   if (needsShell(o.codePath, o.platform)) {
     // Windows の VS Code の code は code.cmd で、Node は .cmd をシェル無しでは起こせない。cmd.exe 越しに、パスを引用符で包んで渡す。
     // " は Windows のファイル名に使えない文字で、引用を破る。含むものは開かずに断る。
     if (o.codePath.includes('"') || o.target.includes('"')) throw new MessageError(msg('external.editor.badPath', { target: o.target }));
-    r = await exec(`"${o.codePath}"`, [`"${o.target}"`], { shell: true });
+    r = await exec(`"${o.codePath}"`, [`"${o.target}"`], { shell: true, ...(win ? { untilExit: true } : {}) });
   } else {
-    r = await exec(o.codePath, [o.target]);
+    r = await exec(o.codePath, [o.target], win ? { untilExit: true } : undefined);
   }
   if (r.code !== 0) throw new MessageError(msg('external.editor.launchFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
 }
