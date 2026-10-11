@@ -8,6 +8,7 @@ import { toSearchParams } from '../mediator/screen.ts';
 import { cleanSidebarOrder, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
 import { NOTIFY_KEY } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
+import { readWaitingNotified, WAITING_NOTIFIED_KEY } from '../mediator/live.ts';
 import { noQuestionText } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
@@ -747,6 +748,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
         // 知らせ終えた戻る時点。開き直しても同じ時点を 2 度知らせない。
         returnSeen: readReturnSeen(deps.storage.get(RETURN_SEEN_KEY)),
+        // 開き直す前に残した入力待ちの鍵。同じ入力待ちを、開き直しで知らせ直さない（mediator/live.ts）。
+        waitingCarried: readWaitingNotified(deps.storage.get(WAITING_NOTIFIED_KEY)),
         // ベルの既読の鍵。事実が変われば鍵も変わるので、残っていても古い版の鍵が行を隠すことはない。
         noticesRead: readNoticesRead(deps.storage.get(NOTICES_READ_KEY)),
         // 新しいセッションの書きかけと前回値。形の違う値（手で書き換えられたなど）は捨てる。

@@ -6,7 +6,7 @@ import type { RunDto, SessionDto, TabDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
 import { defaultSessionView, persistedSessionView } from './sessionView.ts';
 import { periodStart, toSearchParams } from './screen.ts';
-import { liveStep } from './live.ts';
+import { liveStep, readWaitingNotified } from './live.ts';
 import { readDraft } from './launch.ts';
 
 /** 入力の並びに挟むと、そこでストアを入れ替えて「ストアが変わった」を流す。Runtime が setStore のたびにすることと同じである。 */
@@ -616,6 +616,8 @@ describe('入力待ちの知らせ', () => {
   const waiting = (...ids: string[]): Feed => ({ store: waitingStore(...ids) });
   // 入力待ちのセッションは動いているセッションでもあるので、初めて現れたときはサイドバーの並びにも書き足される（sidebar.ts の sidebarLiveStep）。
   const seated = (...ids: string[]) => ({ kind: 'storage.save', key: 'sidebar.order', value: ids });
+  // 入力待ちの顔ぶれが変わるたびに、いまの入力待ちの鍵（id|最後の動きの時刻）を localStorage に残す。開き直したときに知らせ直さないためである。
+  const keys = (...k: string[]) => ({ kind: 'storage.save', key: 'waiting.notified', value: k });
   // transition はどの領域の後にも settleWaiting で開いているセッションのカードを下げるので、領域そのものも見る。
   it('live 領域は、開いているセッションをカードにしない。通知の効果は出す', () => {
     const at = { ...initialState(), screen: { name: 'session' as const, id: 's1' } };
@@ -627,20 +629,20 @@ describe('入力待ちの知らせ', () => {
     const a = run([waiting('s1')]);
     expect(a.state.waitingToasts).toEqual(['s1']);
     expect(a.state.waitingSeen).toEqual(['s1']);
-    expect(a.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }, { kind: 'badge', count: 1 }, seated('s1')]);
+    expect(a.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }, { kind: 'badge', count: 1 }, keys('s1|1'), seated('s1')]);
     const b = run([waiting('s1', 's2')], a.state);
     expect(b.state.waitingToasts).toEqual(['s1', 's2']);
-    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }, { kind: 'badge', count: 2 }, seated('s1', 's2')]);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }, { kind: 'badge', count: 2 }, keys('s1|1', 's2|2'), seated('s1', 's2')]);
   });
   it('入力待ちが解けたらカードを消し、同じ数なら数え直さない', () => {
     const a = run([waiting('s1', 's2')]);
     const b = run([waiting('s2', 's3')], a.state);
     expect(b.state.waitingToasts).toEqual(['s2', 's3']);
-    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }, seated('s1', 's2', 's3')]);
+    expect(b.effects).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }, keys('s2|1', 's3|2'), seated('s1', 's2', 's3')]);
     const c = run([waiting()], b.state);
     expect(c.state.waitingToasts).toEqual([]);
     expect(c.state.waitingSeen).toEqual([]);
-    expect(c.effects).toEqual([{ kind: 'badge', count: 0 }]);
+    expect(c.effects).toEqual([{ kind: 'badge', count: 0 }, keys()]);
   });
   // 問いの文は、入力待ちより少し遅れて届くことがある（本文の索引や hook の台本が後になる）。
   const withQuestion = (store: Store, id: string, question: string | null): Store =>
@@ -688,11 +690,12 @@ describe('入力待ちの知らせ', () => {
     expect(a.state.toasts.map((t) => t.message)).toEqual(['x']);
     expect(a.state.waitingToasts).toEqual(['s1']);
   });
-  it('並びの順だけが変わっても、何もしない', () => {
+  it('並びの順だけが変わっても、カードも通知もバッジも動かさない（並びは最後の動きの時刻で決まるので、鍵だけ残し直す）', () => {
     const a = run([waiting('s1', 's2')]);
     const b = run([waiting('s2', 's1')], a.state);
-    expect(b.state).toBe(a.state);
-    expect(b.effects).toEqual([]);
+    expect(b.state.waitingToasts).toBe(a.state.waitingToasts);
+    expect(b.state.waitingSeen).toBe(a.state.waitingSeen);
+    expect(b.effects).toEqual([keys('s2|1', 's1|2')]);
   });
   it('入力待ちがストアに無いうちは、ストアが変わっても何もしない', () => {
     const start = initialState();
@@ -705,6 +708,67 @@ describe('入力待ちの知らせ', () => {
     const a = run([server({ type: 'live.update', live: [live] })]);
     expect(a.state.waitingToasts).toEqual([]);
     expect(a.effects).toEqual([]);
+  });
+
+  // 開き直す前に知らせた入力待ちは、開き直しても知らせ直さない。
+  // 入力待ちの 1 回ごとの鍵（セッションの id と最後の動きの時刻）を localStorage に残し、起動のときに waitingCarried へ読み戻す。
+  describe('開き直す前に知らせた入力待ち', () => {
+    const notifies = (effects: unknown[]) => effects.filter((e) => (e as { kind: string }).kind === 'notify.waiting');
+    const carried = (...keys: string[]): State => ({ ...initialState(), waitingCarried: keys });
+    it('入力待ちの顔ぶれが変わったら、いまの入力待ちの鍵を残す', () => {
+      const a = run([waiting('s1', 's2')]);
+      expect(a.effects).toContainEqual(keys('s1|1', 's2|2'));
+      const b = run([waiting()], a.state);
+      expect(b.effects).toContainEqual(keys());
+    });
+    it('開き直す前に知らせた鍵と同じ入力待ちは、通知しない。カードとバッジは出す', () => {
+      const a = run([waiting('s1', 's2')], carried('s1|1'));
+      expect(notifies(a.effects)).toEqual([{ kind: 'notify.waiting', sessionId: 's2' }]);
+      expect(a.state.waitingToasts).toEqual(['s1', 's2']);
+      expect(a.effects).toContainEqual({ kind: 'badge', count: 2 });
+      // 引き当てた鍵は使い終える。
+      expect(a.state.waitingCarried).toEqual([]);
+      expect(a.effects).toContainEqual(keys('s1|1', 's2|2'));
+    });
+    it('最後の動きの時刻が違えば、別の入力待ちとして通知する（閉じている間に答えて、また待った）', () => {
+      const a = run([waiting('s1')], carried('s1|0'));
+      expect(notifies(a.effects)).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }]);
+    });
+    it('通知しなかった入力待ちには、問いの文が遅れて届いても通知しない', () => {
+      const a = run([waiting('s1')], carried('s1|1'));
+      expect(a.state.waitingBare).toEqual([]);
+      const later = withQuestion(waitingStore('s1'), 's1', '色は？');
+      expect(notifies(run([{ store: later }], a.state).effects)).toEqual([]);
+    });
+    it('開いてから解けて、また入力待ちになれば、鍵が同じでも通知する', () => {
+      const a = run([waiting('s1'), waiting(), waiting('s1')], carried('s1|1'));
+      expect(notifies(a.effects)).toEqual([{ kind: 'notify.waiting', sessionId: 's1' }]);
+    });
+    it('起動の直後のまだ空のストアでは、残してある鍵を消さない', () => {
+      const start = carried('s1|1');
+      const a = run([{ store: initialStore() }], start);
+      expect(a.state).toBe(start);
+      expect(a.effects).toEqual([]);
+    });
+    it('まだ引き当てていない鍵は、いまの入力待ちの鍵と一緒に残し続ける', () => {
+      const a = run([waiting('s2')], carried('s1|1'));
+      expect(a.state.waitingCarried).toEqual(['s1|1']);
+      expect(a.effects).toContainEqual(keys('s1|1', 's2|1'));
+    });
+    it('入力待ちのまま最後の動きの時刻が進んだら、通知はせず、鍵だけ残し直す', () => {
+      const a = run([waiting('s1')]);
+      const base = waitingStore('s1');
+      const moved: Store = { ...base, sessions: { s1: { ...base.sessions.s1!, lastActivityAt: 5 } } };
+      const b = run([{ store: moved }], a.state);
+      expect(notifies(b.effects)).toEqual([]);
+      expect(b.effects).toEqual([keys('s1|5')]);
+    });
+    it('残してある鍵を読み戻す。文字列でないものは捨て、新しい方から 50 個までにする', () => {
+      expect(readWaitingNotified(['a|1', 3, null, 'b|2'])).toEqual(['a|1', 'b|2']);
+      expect(readWaitingNotified('x')).toEqual([]);
+      const many = Array.from({ length: 60 }, (_, i) => `s${i}|1`);
+      expect(readWaitingNotified(many)).toEqual(many.slice(10));
+    });
   });
 });
 
@@ -1655,7 +1719,7 @@ describe('ストアが変わっただけのとき', () => {
   // 入力待ちの顔ぶれも動いているセッションの顔ぶれも変わらない更新（本文が伸びるなど）。
   it('開いたセッションの入力待ちの顔ぶれが同じなら、無関係な更新では触らない', () => {
     const store = waitingStore('s1');
-    const start: State = { ...initialState(), screen: { name: 'session', id: 's1' }, sidebarOrder: ['s1'], waitingSeen: ['s1'] };
+    const start: State = { ...initialState(), screen: { name: 'session', id: 's1' }, sidebarOrder: ['s1'], waitingSeen: ['s1'], waitingKeys: ['s1|1'] };
     const r = transition(start, store, { kind: 'store' });
     expect(r.state).toBe(start);
     expect(r.effects).toEqual([]);
