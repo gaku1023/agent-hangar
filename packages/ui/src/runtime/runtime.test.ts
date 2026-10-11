@@ -1439,17 +1439,18 @@ describe('入力待ちの知らせ', () => {
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
     expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか', kind: 'waiting' });
   });
-  it('問いが取れないときは「入力を待っています」、名前が無ければ「（名前なし）」', async () => {
+  it('問いが取れないときは「入力待ちです」で、問いの文が無い印（bare）を付ける。名前が無ければ「（名前なし）」', async () => {
     const n = fakeNotifier();
     const { wsHandlers } = await started(n, [waitingSession({ name: null })]);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
-    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力待ちです', kind: 'waiting' });
+    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力待ちです', kind: 'waiting', bare: true });
   });
-  it('問いの文が入力待ちより遅れて届いたら、同じセッションの通知を問いの文で出し直す（待つ時計は持たない）', async () => {
+  // 頁は 2 回渡すが、1 回目に問いの文が無い印（bare）を付ける。殻はそれを少し預かり、問いの文が届けば 1 回にまとめて出す（notify::hold）。
+  it('問いの文が入力待ちより遅れて届いたら、印の無い問いの文の通知を同じセッションでもう一度渡す（頁は待つ時計を持たない）', async () => {
     const n = fakeNotifier();
     const { wsHandlers } = await started(n);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
-    expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '入力待ちです', kind: 'waiting' });
+    expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '入力待ちです', kind: 'waiting', bare: true });
     wsHandlers[0]!.onEvent({ type: 'session.upsert', session: waitingSession({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '用紙の向きをどちらにしますか' } }) });
     expect(n.show).toHaveBeenCalledTimes(2);
     expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか', kind: 'waiting' });
@@ -2399,7 +2400,7 @@ describe('ランタイムの文（英語）', () => {
     const notifier = { defaultOn: true, available: () => true, granted: () => true, request: vi.fn(async () => true), prepare: vi.fn(async () => {}), status: vi.fn(async (): Promise<NotifyPermission> => 'granted'), background: () => true, show: vi.fn((n: unknown) => { shown = n; }), prune: vi.fn(), badge: vi.fn(), onOpen: () => () => {} };
     const { wsHandlers } = await startedEnglish({}, { notifier }, [nameless]);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1 }] });
-    expect(shown).toEqual({ sessionId: 's1', title: '(No name)', body: 'Waiting for input', kind: 'waiting' });
+    expect(shown).toEqual({ sessionId: 's1', title: '(No name)', body: 'Waiting for input', kind: 'waiting', bare: true });
     expect(JSON.stringify(shown)).not.toMatch(JAPANESE);
   });
 });

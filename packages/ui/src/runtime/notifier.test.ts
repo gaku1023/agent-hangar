@@ -21,7 +21,10 @@ describe('デスクトップの通知', () => {
     const { e, invoke } = env();
     const n = createDesktopNotifier(e);
     n.show({ sessionId: 's1', title: '名前', body: '問い', kind: 'waiting' });
-    expect(invoke).toHaveBeenCalledWith('notify_waiting', { sessionId: 's1', title: '名前', body: '問い', kind: 'waiting' });
+    expect(invoke).toHaveBeenCalledWith('notify_waiting', { sessionId: 's1', title: '名前', body: '問い', kind: 'waiting', bare: false });
+    // 問いの文の無い入力待ちは、殻が問いの文を少し待てるよう印を付けて渡す。
+    n.show({ sessionId: 's2', title: '名前', body: '入力待ちです', kind: 'waiting', bare: true });
+    expect(invoke).toHaveBeenCalledWith('notify_waiting', { sessionId: 's2', title: '名前', body: '入力待ちです', kind: 'waiting', bare: true });
     n.badge(3);
     expect(invoke).toHaveBeenCalledWith('plugin:window|set_badge_count', { value: 3 });
     n.badge(0);
@@ -31,7 +34,7 @@ describe('デスクトップの通知', () => {
   it('戻る時刻の知らせは、種類を添えて殻へ渡す', () => {
     const { e, invoke } = env();
     createDesktopNotifier(e).show({ sessionId: 's1', title: '名前', body: '13:30 を過ぎました', kind: 'return' });
-    expect(invoke).toHaveBeenCalledWith('notify_waiting', { sessionId: 's1', title: '名前', body: '13:30 を過ぎました', kind: 'return' });
+    expect(invoke).toHaveBeenCalledWith('notify_waiting', { sessionId: 's1', title: '名前', body: '13:30 を過ぎました', kind: 'return', bare: false });
   });
   it('残してよい知らせの顔ぶれを殻へ渡し、ほかを通知センターから外させる', async () => {
     const { e, invoke } = env();

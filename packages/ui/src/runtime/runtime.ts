@@ -553,7 +553,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
-        notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: s.activity?.question ?? noQuestionText(tr()), kind: 'waiting' });
+        // 問いの文が無ければ印（bare）を付ける。殻が問いの文を少し待ち、届けば 1 回にまとめて出す。
+        const question = s.activity?.question;
+        notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: question ?? noQuestionText(tr()), kind: 'waiting', ...(question ? {} : { bare: true }) });
         return;
       }
       case 'notify.return': {

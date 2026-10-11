@@ -61,7 +61,13 @@ export type Notifier = {
    * デスクトップでは頁では決めず、いつも true を返す。殻の notify_waiting が窓の実物の様子を見て決める。
    */
   background(): boolean;
-  show(n: { sessionId: string; title: string; body: string; kind: NotifyKind }): void;
+  /**
+   * 知らせを出す。
+   * bare は、問いの文が取れず代わりの文で出す入力待ちの印である。
+   * デスクトップの殻はこれを少し預かり、問いの文が届いたら 1 回にまとめて出す（notify::hold）。
+   * ブラウザは同じ tag の知らせを黙って置き換える（renotify が既定で false）ので、印を使わない。
+   */
+  show(n: { sessionId: string; title: string; body: string; kind: NotifyKind; bare?: boolean }): void;
   /**
    * 残してよい顔ぶれに無い知らせを、通知センターから外す。
    * 答えた入力待ちや、前の起動の間に出した知らせが残り続けないようにする。
@@ -118,7 +124,7 @@ export function createDesktopNotifier(env: DesktopEnv): Notifier {
     prepare: () => ask().then(() => {}),
     status: () => invoke('notify_status', undefined).then((r) => (typeof r === 'string' && PERMISSIONS.includes(r) ? (r as NotifyPermission) : 'undetermined'), () => 'undetermined' as const),
     background: () => true,
-    show: (n) => { invoke('notify_waiting', { sessionId: n.sessionId, title: n.title, body: n.body, kind: n.kind }).catch(() => {}); },
+    show: (n) => { invoke('notify_waiting', { sessionId: n.sessionId, title: n.title, body: n.body, kind: n.kind, bare: n.bare === true }).catch(() => {}); },
     prune: (keep) => { invoke('notify_prune', { waiting: keep.waiting, returning: keep.returning }).catch(() => {}); },
     badge: (count) => { invoke('plugin:window|set_badge_count', { value: count > 0 ? count : null }).catch(() => {}); },
     onOpen: (cb) => {

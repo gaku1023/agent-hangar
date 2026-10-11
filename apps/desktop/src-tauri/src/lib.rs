@@ -1404,7 +1404,8 @@ fn watch_swipe_phase(_app: &AppHandle) {}
 /// 入力待ちと、戻る時刻を過ぎた知らせの通知を出す。
 /// 頁（UI）は、入力待ちになったときと、その問いの文が後から届いたとき、戻る時刻を過ぎたときに呼ぶ。
 /// 種類（kind）は waiting か return で、種類ごとに通知の枠を分ける（notify::Kind）。渡さなければ入力待ちとみなす。
-/// 窓が前にあるかは、頁ではなくここで窓の実物の様子から決め、前にあれば出さない（notify::window_in_front）。
+/// 問いの文の無い入力待ち（bare）は、問いの文が届くまで少し預かり、1 回にまとめて出す（notify::hold）。
+/// 窓が前にあるかは、頁ではなくここで窓の実物の様子から、出す瞬間に決め、前にあれば出さない（notify::window_in_front）。
 /// 値は頁から来るので、notify::waiting で確かめてから OS に渡す。
 #[tauri::command]
 fn notify_waiting(
@@ -1413,11 +1414,34 @@ fn notify_waiting(
     title: String,
     body: String,
     kind: Option<String>,
+    bare: Option<bool>,
 ) -> Result<(), String> {
     let kind = notify::Kind::parse(kind.as_deref())?;
     // 題や本文が空のときの代わりの文は、殻の頁と同じ言語で書く。
     let lang = bootfail::page_language(&paths::hangar_home());
     let w = notify::waiting(kind, &session_id, &title, &body, lang)?;
+    match notify::hold::offer(w, bare.unwrap_or(false)) {
+        notify::hold::Offer::Show(w) => show_unless_in_front(&app, &w),
+        notify::hold::Offer::Hold(token) => {
+            // 頁の時計は絞られるので、殻のスレッドで待つ。
+            std::thread::spawn(move || {
+                std::thread::sleep(notify::hold::HOLD);
+                if let Some(w) = notify::hold::due(&session_id, token) {
+                    show_unless_in_front(&app, &w);
+                }
+            });
+        }
+        notify::hold::Offer::Wait => {}
+        notify::hold::Offer::Late => {
+            log("notification not shown again: the question came after the hold")
+        }
+    }
+    Ok(())
+}
+
+/// 窓が前になければ通知を出す。
+/// 預かった通知も、出す瞬間の窓の様子で決める。
+fn show_unless_in_front(app: &AppHandle, w: &notify::Waiting) {
     if let Some(win) = app.get_webview_window("main") {
         let visible = win.is_visible().unwrap_or(false);
         let minimized = win.is_minimized().unwrap_or(false);
@@ -1427,11 +1451,10 @@ fn notify_waiting(
         let focused = focused || win.hwnd().is_ok_and(notify::window_owns_foreground);
         if notify::window_in_front(visible, minimized, focused) {
             log("notification skipped: the window is in front");
-            return Ok(());
+            return;
         }
     }
-    notify::show(&w);
-    Ok(())
+    notify::show(w);
 }
 
 /// もう待っていないセッションの知らせを、通知センターから外す。
@@ -1440,7 +1463,10 @@ fn notify_waiting(
 /// 窓が前にあっても外す（答えた入力待ちの知らせを通知センターに残さない）。
 #[tauri::command]
 fn notify_prune(waiting: Vec<String>, returning: Vec<String>) {
-    notify::prune(notify::Keep::new(&waiting, &returning));
+    let keep = notify::Keep::new(&waiting, &returning);
+    // 答えた入力待ちの、まだ出していない預かりも捨てる。
+    notify::hold::prune(&keep);
+    notify::prune(keep);
 }
 
 /// 通知の許可を求め、許されたかを返す。
