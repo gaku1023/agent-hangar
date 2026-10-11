@@ -92,10 +92,13 @@ export function extraPathDirs(userHome: string): string[] {
   return [`${userHome}/.local/bin`, '/opt/homebrew/bin', '/usr/local/bin', `${userHome}/.claude/local`];
 }
 
-/** 殻が受け継いだ PATH に置き場を足した、サーバの PATH。元の並びは変えず、既にあるものは足さない。 */
-export function expectedServerPath(base: string, userHome: string): string {
+/**
+ * 殻が受け継いだ PATH に置き場を足した、サーバの PATH。元の並びは変えず、既にあるものは足さない。
+ * nodeDir は殻が選んだ Node の置き場で、augmented_path の node_dir と同じく最後に足す。
+ */
+export function expectedServerPath(base: string, userHome: string, nodeDir?: string): string {
   const out = base.split(':').filter((s) => s !== '');
-  for (const d of extraPathDirs(userHome)) if (!out.includes(d)) out.push(d);
+  for (const d of [...extraPathDirs(userHome), ...(nodeDir ? [nodeDir] : [])]) if (!out.includes(d)) out.push(d);
   return out.join(':');
 }
 
@@ -246,7 +249,7 @@ async function run(a: Args): Promise<void> {
     HANGAR_PARENT_PID: String(a.shellPid),
     HANGAR_PORT: String(a.port),
     HANGAR_HOME: a.hangarHome,
-    PATH: expectedServerPath(a.pathBase, a.userHome),
+    PATH: expectedServerPath(a.pathBase, a.userHome, path.dirname(a.node)),
   };
   const wrong = envMismatches(ps, want);
   if (wrong.length > 0) throw new Failed(`サーバの環境が殻の渡すものと違う: ${wrong.join('、')}`);

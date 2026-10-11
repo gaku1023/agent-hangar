@@ -1,17 +1,19 @@
 #!/bin/bash
-# 自動更新の更新物（<名前>.app.tar.gz と .sig）を、署名を終えた .app から作り直し、確かめる。手順の全体は docs/signing.md。
+# 自動更新の更新物（<名前>.app.tar.gz と .sig）を、署名を終えた .app から作り、確かめる。手順の全体は docs/signing.md。
 #
 # 使い方:
 #   bash apps/desktop/scripts/repack-updater-macos.sh pack <Hangar.app>
 #   bash apps/desktop/scripts/repack-updater-macos.sh verify <Hangar.app> [--expect-signed]
 #
-# なぜ作り直すのか:
+# なぜ build の後で作るのか:
 #   tauri build の createUpdaterArtifacts は、build の中で、署名の前の .app から更新物を詰める。
 #   そのままだと、更新で配られる .app は自作の証明書の署名を持たず、更新のたびに macOS の許可が外れる。
-#   だから release の署名の段の後で、署名済みの .app から詰め直し、更新の署名（minisign の .sig）も付け直す。
+#   また、build は npm の script（beforeBuildCommand）や依存のコードを走らせるので、そこへ更新の署名鍵を渡したくない。
+#   だから release は鍵も createUpdaterArtifacts も無しで build し、署名の段の後で、署名済みの .app からここで詰めて、
+#   更新の署名（minisign の .sig）を付ける。鍵を受け取るのはこの段だけである。
 #
 # pack:
-#   .app の隣の <名前>.app.tar.gz と .sig を消し、tauri と同じ形（.app をそのまま 1 つ入れた gzip の tar）で詰め直す。
+#   .app の隣の <名前>.app.tar.gz と .sig があれば消し、tauri と同じ形（.app をそのまま 1 つ入れた gzip の tar）で詰める。
 #   macOS の拡張属性（._ のファイル）は入れない。
 #   .sig は、tauri の CLI（npm ci が入れたもの）の signer sign で作る。鍵は環境変数
 #   TAURI_SIGNING_PRIVATE_KEY と TAURI_SIGNING_PRIVATE_KEY_PASSWORD（tauri が読む名前のまま）で受け取る。鍵が無ければ止まる。
@@ -49,7 +51,7 @@ if [ "$MODE" = pack ]; then
   COPYFILE_DISABLE=1 tar --no-mac-metadata -czf "$TARGZ" -C "$DIR" "$NAME"
   "$TAURI" signer sign "$TARGZ" >/dev/null
   [ -s "$TARGZ.sig" ] || { echo "更新の署名（.sig）ができていない: $TARGZ.sig" >&2; exit 1; }
-  echo "更新物を、署名済みの .app から作り直した: ${TARGZ}（と .sig）"
+  echo "更新物を、署名済みの .app から作った: ${TARGZ}（と .sig）"
   exit 0
 fi
 
