@@ -119,6 +119,12 @@ describe('createMcpApp', () => {
     const content = r.body.result!.content as { text: string }[];
     expect(JSON.parse(content[0]!.text).hits.length).toBeGreaterThan(0);
   });
+  it('update_project の add_todos は、文字列と { text, note } の混ざった配列を MCP の層で断らない', async () => {
+    const r = await rpc('/', 'tools/call', { name: 'update_project', arguments: { project_id: 'p1', add_todos: ['a', { text: 'b', note: '理由' }, { text: 'c' }] } }, 10);
+    expect(r.body.result!.isError).toBeUndefined();
+    const todos = JSON.parse((r.body.result!.content as { text: string }[])[0]!.text).todos as { text: string; suggestion: unknown }[];
+    expect(todos.map((t) => [t.text, t.suggestion])).toEqual([['a', { note: null }], ['b', { note: '理由' }], ['c', { note: null }]]);
+  });
 });
 
 describe('言語', () => {

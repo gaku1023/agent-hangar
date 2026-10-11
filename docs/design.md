@@ -606,7 +606,10 @@ create table todos (
   id text primary key, project_id text not null references projects(id),
   text text not null, done integer not null default 0, position integer not null,
   session_id text references sessions(id),
-  updated_at integer not null, deleted_at integer, origin_device text not null
+  updated_at integer not null, deleted_at integer, origin_device text not null,
+  candidate_at integer, candidate_session_id text, candidate_note text,  -- 完了の候補（版 10）
+  rejected_sessions text not null default '[]',                           -- 候補を却下したセッション ID の JSON 配列（版 10）
+  suggested_at integer, suggested_note text                               -- Claude の提案で、まだ受け入れていない（版 20）
 );
 
 create table project_memos (
@@ -1405,7 +1408,7 @@ hangar が起動するセッションには、`--append-system-prompt` で短い
 あなたは agent-hangar から起動されたセッションです。
 プロジェクト：<name>（<path>）
 プロジェクトのメモの要約：<memo の先頭 500 字>
-未完の TODO：<最大 10 件、各行 - [<id>] <本文>>
+未完の TODO：<最大 10 件、各行 - [<id>] <本文>。利用者がまだ受け入れていない Claude の提案は入れない>
 過去のセッションは MCP ツール search_sessions と get_transcript で参照できます。
 依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、
 set_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。
@@ -1704,7 +1707,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 
 - `list_projects()`：プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終活動。
 - `get_project(project_id)`：詳細。TODO、メモ、直近のセッション、アーティファクト。
-- `update_project(project_id, { status?, add_todos?, toggle_todos?, propose_done?, append_memo? })`。
+- `update_project(project_id, { status?, add_todos?, toggle_todos?, propose_done?, append_memo? })`。`add_todos` の項目は文字列か `{ text, note? }` である。
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
@@ -1716,14 +1719,20 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
 - `open_in_hangar({ session_id | project_id })`：UI とディープリンクの URL を返す。
 
 `update_project` は TODO の追加と完了の候補の提出、メモの追記を行い、TODO の書き込みは全部成功か全部失敗のどちらかにする（途中で失敗したものが残らない）。
+MCP から足した TODO は、すべて Claude の提案になる（データモデルの「TODO の提案」）。確定の TODO を足すのは利用者だけである。
+提案は、利用者が受け入れるまで一覧の外に置かれ、未完の数にも、起動時に注入する未完の TODO にも入らない。
+`add_todos` の `note` は提案の理由で、`propose_done` の `note` と同じく空白を除いて 200 字までである。空白だけなら理由なし（null）になる。
+項目が文字列でも `{ text, note? }` でもないか、`note` が 201 字以上なら、呼び出し全体を断り、status も TODO も書かない。
 MCP からは TODO を完了にできない。`propose_done` と未完への `toggle_todos` は完了の候補を出し、結果を `todo_results`（`[{ todo_id, outcome }]`）で返す。
 `propose_done` は `[{ todo_id, note }]` で、`note` は根拠の一文（空白を除いて 1 字以上 200 字以下）である。
 `toggle_todos` は、未完で候補でない TODO を根拠なしの候補にし、完了の TODO は未完に開き直し、候補の TODO には何もしない。
-`outcome` は次の 5 つである。
+`outcome` は次の 6 つである。
 `proposed` は候補にしたこと、`already_candidate` はすでに候補なので何もせず根拠も上書きしなかったこと、`already_done` はすでに完了なので何もしなかったこと（`propose_done` のみ）を指す。
 `rejected_before` はこのセッションの候補は却下済みなので受け付けなかったこと、`reopened` は完了を未完に開き直したこと（`toggle_todos` のみ）を指す。
+`not_accepted` は、利用者がまだ受け入れていない提案なので候補にしなかったことを指す。
 `note` が空か 201 字以上、または見つからない ID が 1 つでも混ざれば、呼び出し全体を断り、どの TODO も書かない。
 `get_project` の TODO には `candidate: { session_id, note } | null` が付き、セッションは自分の候補が残っているかを確かめられる。
+`suggestion: { note } | null` も付き、自分の提案が受け入れられたか（null になる）、見送られたか（一覧から消える）が分かる。
 `get_usage` は 5 時間と 7 日の使用率と最終更新時刻を返し、statusline が一度も届いていなければ値は null になる。
 
 `hangar mcp install` は、Claude Code の user スコープに `hangar` サーバを登録する。
@@ -4295,6 +4304,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   版 17 は、セッションの名前とメモを `session_notes` へ移した（「セッションの名前とメモ」）。
   版 18 は、設定の同期の作り直し用に `config_snapshots`（共有）、`config_base`、`config_unsent`（端末ローカル）を足した（「設定の同期の作り直し」）。
   版 19 は、旧実装の設定の同期が端末に残した記録（`file_sync` の kind が `config` の行と、`sync_state` の `configPullConfirmed`、`configPending`、`skipped:(config)`）を消した（「設定の同期の作り直し」の「旧実装の削除（PR 18）」）。
+  版 20 は、`todos` に Claude の提案の 2 列（`suggested_at`、`suggested_note`）を足した（「TODO の提案」）。
   足した版は今までと同じに扱う。既存の DB には控えを取ってからその版だけを当て、新しい DB には起点から順に当てる。
   畳む前のマイグレーションは、試験の側（`packages/server/test/legacyMigrations.ts`）に残してある。
   `db/baseline.test.ts` が、起点だけを当てた DB と版 1 から順に当てた DB で、`sqlite_master` の全行（表、索引、FTS の仮想表とその影の表）、表ごとの列（順、型、not null、既定値、主キー）、外部キー、索引の列、表の中身が一致することを突き合わせる。
@@ -4338,7 +4348,11 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - アーティファクトの抽出：`Artifact` ツールの呼び出しを `artifact_calls(tool_id, session_id, file_path, description, favicon)` に控え、結果の本文から URL を取り出せたときだけ公開とみなす。記録するのは `action` が無いか `publish` のときだけで、`read` や `list` は公開ではない。`artifacts` は URL で 1 件にまとめ、`first_published_at` は最小、`last_published_at` は最大を保ち、説明と favicon は新しい公開の値で上書きする。
 - アーティファクトの版：`artifact_versions` は（`artifact_id`、`session_id`、`published_at`）が同じ行が既にあれば追加しない。索引の作り直しでは版を消さず、同じ行を書き直すだけにする。消すとサブエージェント由来の版が巻き添えになり、`changes` にも削除が残らないためである。版はアーティファクト単位で引くので、`artifact_versions(artifact_id)` に索引を置く。
 - アーティファクトの題名：表示のたびに計算せず、公開を記録するときに決めて `artifacts.title` に書く。元ファイルがあれば先頭 64KB の `<title>`、無ければ説明文の先頭 60 字を使う。手で足した URL は題名 null で、UI は URL の末尾を出す。
-- TODO の並び：`position` は追加のたびにそのプロジェクトの最大値に 1 を足す。並び替えの操作は持たず、完了した項目も同じ並びに打消し線を引いて残す。削除は論理削除。`todos.session_id` はセッション別 MCP URL の `update_project` から足したときだけ入る。
+- TODO の並び：`position` は追加のたびにそのプロジェクトの最大値（削除した行も含む）に 1 を足し、番号を再利用しない。削除は論理削除。`todos.session_id` はセッション別 MCP URL の `update_project` から足したときだけ入る。
+- TODO の並べ替え：`POST /api/projects/:id/todos/order { ids }` は、そのプロジェクトの未完（提案を除く）の新しい並びを受け、そのプロジェクトの `TodoDto[]` を返す。番号を新しく作らず、渡された行の今の `position` を昇順に並べたものを、新しい並びに配り直す。番号を再利用しない決まりと、最大値をそのまま保つためである。番号の変わった行だけ書く。プロジェクトの外の ID、消した行、見つからない ID、重複、提案の行が混ざれば、何も書かずに 409 を返す（画面の一覧が古いとき）。
+- TODO の文言：`PATCH /api/todos/:id` は `{ done?, text? }` で、どちらか、または両方を受ける。どちらも無ければ 400、`text` が空白だけなら 400（`todo.error.emptyText`）。前後の空白は落とす。提案の行も文言は直せるが、`done` を含む要求は提案の行には 409 で、文言も書かない。
+- TODO の取り消し：`POST /api/todos/restore { todos: TodoDto[] }` は、画面の取り消し（⌘Z）のために、渡した中身へ戻して `TodoDto[]` を返す。保存してある行（消した行も含む）を ID で引き、`text`、`done`、`position`、完了の候補の 3 列、提案の 2 列を渡された値に戻し、`deleted_at` を null にする。`rejected_sessions` と `project_id` は変えない。読むのは `id`、`projectId`、`text`、`done`、`position`、`candidate`、`suggestion` だけである。完了かつ候補、完了かつ提案は完了を正とし、提案かつ候補は提案を正とする。見つからない行か、渡された `projectId` が保存してある行と違う行が 1 つでも混ざれば、何も書かずに 409 を返す。中身の型が崩れていれば 400 である。1 つのトランザクションで書く。並べ替えの取り消しは一覧の全部を戻すので、本文の上限は TODO 1 件の上限（4 KB）の 128 件ぶん（512 KB）にしてある。
+- TODO の提案：`todos` に `suggested_at`、`suggested_note` の 2 列を足した（マイグレーション version 20）。`suggested_at` が null でなければ、Claude が MCP の `update_project` の `add_todos` で足した提案で、利用者はまだ受け入れていない。`suggested_note` は理由で、無ければ null。MCP から足した TODO はすべて提案で、確定の TODO を足すのは利用者（`POST /api/projects/:id/todos`）だけである。提案は `TodoDto.suggestion`（`{ note, at }`）に載り、未完の数（`open_todos`）と起動時に注入する未完の TODO には入らない。受け入れは `POST /api/todos/:id/accept` で、提案の列を消し、`position` を削除した行も含めた最大値の次にして一覧の末尾へ入れる（提案でなければ 409）。見送りは削除（`DELETE /api/todos/:id`、論理削除）である。提案の行は完了の候補にも完了にもならない。`proposeTodoDone` は書かずに `not_accepted` を返し、`confirmTodo` は `not_accepted`（HTTP では 409）、`setTodoDone` は書かずに今の行を返す。`done = 1` かつ `suggested_at` 非 null の行は完了として読み、提案は無いものとする。提案かつ候補の行は、提案として読み、候補は無いものとする。同期は版 10 と同じく行を JSON の payload のまま運ぶので、クラウドにマイグレーションは要らない。列を持たない古い端末は、適用のときに自分の表に無い列を捨てるので、提案を確定の TODO として見せる。
 - TODO の完了の候補：`todos` に `candidate_at`、`candidate_session_id`、`candidate_note`、`rejected_sessions`（却下したセッション ID の JSON 配列、既定は `'[]'`）の 4 列を足した（マイグレーション version 10）。`candidate_at` が null でなければ候補で、候補は必ず未完である。MCP からは完了にできず、完了にするのは `POST /api/todos/:id/confirm` と、利用者のチェック操作である `PATCH /api/todos/:id` の `done` だけである。却下したセッションの ID は `rejected_sessions` に積み、そのセッションからは同じ TODO の候補を出し直せない（別のセッションなら出せる）。セッション別でない URL から出した候補は、却下してもセッション ID が無いので積まれず、出し直せる。`setTodoDone` は完了にも未完にも戻すときにも候補の列を消し、`rejected_sessions` は完了を開き直しても消さない。同期は行を JSON の payload のまま運ぶので D1 にマイグレーションは要らず、列を持たない古い端末は適用のときに自分の表に無い列を捨てる。`done = 1` かつ `candidate_at` 非 null の行が届いたときは、読むときに完了として扱い、候補は無いものとする。
 - メモの正：`project_memos.markdown` とファイル `~/.agent-hangar/projects/<projectId>/memo.md` の両方に書く。読むときはファイルの mtime が DB の `updated_at` より新しく中身が違えばファイルを正として DB を直す。`~/.agent-hangar/projects/` を `fs.watch`（再帰）で見て、300 ミリ秒のデバウンスで取り込む。取り込みは `project_memos` の行を書くので、`memo.update` と `project.upsert` は配る層が配る（「行の変化の知らせと配る層」）。`memoHead` は空行でない最初の行の先頭 80 字で、全文は `GET /api/projects/:id/memo` で読む。DB を正として書き戻すときは、ファイルの中身が DB と違うときだけ、消える本文を `memo.md.bak-<yyyymmddHHMMSS>` として同じディレクトリに残してから書き戻す。同じ秒に 2 度来たら連番を足し、既にある控えは上書きしない。控えは古くなっても消さない。控えを残せなかったときは書き戻さず、ファイルの方を残す。
 - スクラッチの擬似プロジェクト：端末ごとに 1 つで、DB の名前は「スクラッチ」（同期で端末をまたぐ値なので、これは変えない）、この端末の `project_roots.path` は `~/.agent-hangar/scratch`。ディレクトリ名は `<yyyymmdd-HHmmss>`（ローカル時刻、同じ秒に 2 つ作るときは `-2`、`-3`）。Projects 画面の表と、新しいセッションのダイアログのプロジェクトの選びにはこの行を出さず、ホームの絞り込みのプロジェクトの選びには出す。

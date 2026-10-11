@@ -38,7 +38,7 @@ describe('版 19：旧実装の設定の同期の記録', () => {
     });
     expect(dbVersionOf(file)).toBe(BEFORE);
     const db = openDb(file, { backupDir: path.join(tmp, 'backups') });
-    expect(dbVersionOf(file)).toBe(AFTER);
+    expect(dbVersionOf(file)).toBeGreaterThanOrEqual(AFTER);
     expect(db.prepare('select key from file_sync order by key').all()).toEqual([{ key: 'transcripts/dev-b/u.jsonl.gz' }]);
     expect(db.prepare('select key from sync_state order by key').all()).toEqual([{ key: 'filesSeq' }, { key: 'skipped:transcripts/dev-b/u.jsonl.gz' }]);
     db.close();
