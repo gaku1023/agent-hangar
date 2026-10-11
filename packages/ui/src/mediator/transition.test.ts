@@ -669,7 +669,8 @@ describe('入力待ちの知らせ', () => {
   // 問いの文は、入力待ちより少し遅れて届くことがある（本文の索引や hook の台本が後になる）。
   const withQuestion = (store: Store, id: string, question: string | null): Store =>
     ({ ...store, sessions: { ...store.sessions, [id]: { ...store.sessions[id]!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question } } } });
-  it('問いの文なしで知らせた入力待ちに、後から問いの文が届いたら、同じセッションの通知をもう一度出す（OS は同じ識別子で書き換える）', () => {
+  // 2 回目は殻へ渡すだけで、殻が預かった代わりの文を捨てて 1 回にまとめる（預かりの時間を過ぎていれば出し直さない）。
+  it('問いの文なしで知らせた入力待ちに、後から問いの文が届いたら、同じセッションの通知の効果をもう一度出す', () => {
     const a = run([waiting('s1', 's2')]);
     expect(a.state.waitingBare).toEqual(['s1', 's2']);
     const later = withQuestion(waitingStore('s1', 's2'), 's1', '色は？');

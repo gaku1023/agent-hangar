@@ -7,6 +7,8 @@
 
 use std::collections::HashSet;
 
+pub mod hold;
+
 /// 通知の識別子の頭。
 /// 押されたときに、どのセッションの、どの種類の通知かをここから読み戻す。
 /// 入力待ちの頭は前の版と同じにしてある。前の版が出した通知を押しても、同じセッションが開く。
@@ -909,6 +911,8 @@ mod mac {
             );
             UNUserNotificationCenter::currentNotificationCenter()
                 .addNotificationRequest_withCompletionHandler(&req, None);
+            // Windows の「toast handed to Windows」と同じく、出した回数を殻のログで数えられるようにする。
+            crate::log("notification handed to macOS");
         };
         request(deliver);
     }
