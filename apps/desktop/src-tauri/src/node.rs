@@ -165,7 +165,8 @@ pub enum Place {
 }
 
 /// macOS（と Linux）の探索先。この順に調べ、manifest と同じメジャー版とアーキテクチャの最初の Node を採る。
-/// Homebrew の `node@22` は keg-only で `/opt/homebrew/bin` にリンクされないので、keg の場所（`opt/node@N`）も見る。
+/// Homebrew の `node@22` は、今の Homebrew（7.0.9 で確かめた）では `/opt/homebrew/bin` にもリンクされるが、前の版では keg-only でリンクされなかった。
+/// どちらの場合も拾えるよう、`bin/node` に加えて keg の場所（`opt/node@N`）も見る。
 /// 版の管理ツールは、PATH を切り替える仕掛け（fnm の multishells、nvm の current など）ではなく、版ごとの実体の場所を見る。
 /// GUI のアプリの PATH は launchd の最小のものなので、PATH は見ない。
 /// 利用者のログインシェルに PATH を訊く案は採らない（理由は docs/design.md の「プロセスと通信」）。
@@ -173,7 +174,7 @@ pub enum Place {
 pub const UNIX_NODE_PLACES: &[Place] = &[
     Place::Fixed("/opt/homebrew/bin/node"),
     Place::Fixed("/usr/local/bin/node"),
-    // Homebrew の keg-only の node@N。Apple silicon と Intel。
+    // Homebrew の node@N の入れ先。bin にリンクされていなくても、ここで見つける。Apple silicon と Intel。
     Place::Versions {
         parent: "/opt/homebrew/opt",
         leaf: "bin/node",
@@ -496,6 +497,35 @@ pub fn choose_node(
     })
 }
 
+/// 起動の失敗の札（`node-missing`）に渡す数と短い名前。
+/// `major` と `arch` は要る版とアーキテクチャ、`reason` は見つからない理由である。
+/// 要る版が別のアーキテクチャで入っていれば `arch`（`foundArch` にその作り）、別の版だけがあれば `version`（`found` に最初に見つけた版）、
+/// Node として答えた候補が無ければ `missing` にする。
+/// 要る版の別の作りを先に言うのは、入れ直すものがその版の正しい作りだからである。
+pub fn failure_params(e: &NodeError) -> serde_json::Map<String, serde_json::Value> {
+    let NodeError::NotFound { manifest, tried } = e;
+    let mut p = serde_json::Map::new();
+    p.insert("major".into(), manifest.node_major.into());
+    p.insert("arch".into(), manifest.arch.clone().into());
+    let found: Vec<&NodeProbe> = tried
+        .iter()
+        .filter_map(|t| match &t.outcome {
+            ProbeOutcome::Ok(pr) => Some(pr),
+            _ => None,
+        })
+        .collect();
+    if let Some(other_arch) = found.iter().find(|pr| pr.major == manifest.node_major) {
+        p.insert("reason".into(), "arch".into());
+        p.insert("foundArch".into(), other_arch.arch.clone().into());
+    } else if let Some(other) = found.first() {
+        p.insert("reason".into(), "version".into());
+        p.insert("found".into(), other.major.into());
+    } else {
+        p.insert("reason".into(), "missing".into());
+    }
+    p
+}
+
 /// 利用者に見せる文言。読み込み画面の詳細にそのまま出す。
 /// `lang` は頁の言語（`bootfail::page_language` の ja か en）である。
 pub fn describe_error(e: &NodeError, lang: &str) -> String {
@@ -512,7 +542,7 @@ pub fn describe_error_in(e: &NodeError, hangar_home: &Path, lang: &str) -> Strin
 /// 見つからないときに案内する入れ方。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InstallHint {
-    /// macOS。`brew install node@22` で入れれば、keg の場所を探すのでそのまま見つかる。
+    /// macOS。`brew install node@22` で入れれば、`/opt/homebrew/bin` にリンクされてもされなくても（keg の場所も探すので）そのまま見つかる。
     Homebrew,
     /// Windows。`winget install -e --id OpenJS.NodeJS.22` を先に案内し、nvm-windows はほかの入れ方として添える。
     /// winget の Node は公式のインストーラで `%ProgramFiles%\nodejs` に入り、殻はそこを先に探すので、そのまま見つかる。
@@ -1106,6 +1136,66 @@ mod tests {
         assert!(text.contains("/e/node: 5 秒のあいだ応答しません"), "{text}");
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 8, "{text}");
+    }
+
+    fn not_found(tried: Vec<(&str, ProbeOutcome)>) -> NodeError {
+        NodeError::NotFound {
+            manifest: manifest(),
+            tried: tried
+                .into_iter()
+                .map(|(p, outcome)| Tried {
+                    path: PathBuf::from(p),
+                    outcome,
+                })
+                .collect(),
+        }
+    }
+    fn ok(major: u32, arch: &str) -> ProbeOutcome {
+        ProbeOutcome::Ok(NodeProbe {
+            major,
+            arch: arch.into(),
+        })
+    }
+
+    // 頁の札（node-missing）は、要る版とアーキテクチャ、見つからない理由を数と短い名前で受け取り、見出しと本文を選ぶ。
+    #[test]
+    fn failure_params_say_missing_when_no_candidate_answered_as_node() {
+        let p = failure_params(&not_found(vec![
+            ("/a/node", ProbeOutcome::Missing),
+            ("/b/node", ProbeOutcome::Failed),
+        ]));
+        assert_eq!(
+            serde_json::Value::Object(p),
+            serde_json::json!({"major": 22, "arch": "arm64", "reason": "missing"})
+        );
+        let p = failure_params(&not_found(vec![]));
+        assert_eq!(p["reason"], "missing");
+    }
+
+    #[test]
+    fn failure_params_name_the_first_other_version_found() {
+        let p = failure_params(&not_found(vec![
+            ("/a/node", ProbeOutcome::Missing),
+            ("/b/node", ok(24, "arm64")),
+            ("/c/node", ok(20, "arm64")),
+        ]));
+        assert_eq!(
+            serde_json::Value::Object(p),
+            serde_json::json!({"major": 22, "arch": "arm64", "reason": "version", "found": 24})
+        );
+    }
+
+    // 要る版が別のアーキテクチャで入っているなら、版が違う Node より先にそれを言う（入れ直すのは同じ版の別の作りである）。
+    #[test]
+    fn failure_params_prefer_the_right_version_built_for_another_arch() {
+        let p = failure_params(&not_found(vec![
+            ("/a/node", ok(24, "arm64")),
+            ("/b/node", ok(22, "x64")),
+        ]));
+        assert_eq!(
+            serde_json::Value::Object(p),
+            serde_json::json!({"major": 22, "arch": "arm64", "reason": "arch", "foundArch": "x64"})
+        );
     }
 
     // 英語の設定では、見つからない理由も調べた場所も英語で出す（Windows の実機で、ここだけ日本語のまま出ていた）。

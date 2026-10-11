@@ -277,12 +277,13 @@ export type LoadMoreProps = { remaining: number; step: number; loading: boolean 
  * band は上の帯と引き出し、idle は 3 つの群がどれも 0 件のこと（帯の代わりに「実行中のセッションはありません」の 1 行を出す）、
  * searching は語か触ったファイルで探している最中のこと（引き出しを閉じ、帯の件数だけを残す）である。
  * list はステータスのタブ、欄、絞り込み、行を持つ平らな一覧で、loadMore は検索の結果の末尾の「さらに読み込む」（検索でないときは null）。
- * note は帯の右端に添える 1 行で、始める前の確認があるあいだだけ持つ（2.11.4）。
+ * note は帯の右端に添える 1 行で、始める前の確認のうち始めるのに要る道具が足りないあいだだけ持つ（2.11.4）。
+ * setup は始める前の確認の群が帯にあること（一覧の空の札の文を選ぶ）。
  * 始める前の確認は、直すものがあるあいだ、帯の最後の群（錠剤と引き出し）になる。
  * 要対応と実行中と確認待ちがどれも 0 件のときは、その 3 つの薄い錠剤を出さず、確認の群だけを帯に置き、「実行中のセッションはありません」の 1 行は出さない。
  * 4 つ目の錠剤（場所の不明なプロジェクト）は、この PC で場所が消えたものがあるときだけ、3 つの群と確認の群のあいだに足す（presenters/unresolved.ts、2.11.5）。
  */
-export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: boolean; list: SessionListProps; allCount: number; loadMore: LoadMoreProps | null; note: string | null };
+export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: boolean; list: SessionListProps; allCount: number; loadMore: LoadMoreProps | null; note: string | null; setup: boolean };
 
 export function presentHomeScreen(state: State, store: Store, now: number): HomeScreenProps {
   const t = translatorOf(store);
@@ -305,5 +306,6 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
     allCount: list.allCount,
     loadMore: list.mode === 'search' && remaining > 0 ? { remaining, step: SEARCH_STEP, loading: list.loading } : null,
     note: ready?.note ?? null,
+    setup: ready !== null,
   };
 }

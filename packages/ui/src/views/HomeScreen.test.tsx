@@ -31,7 +31,7 @@ const READY: ReadinessDto = {
 
 const props = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy): HomeScreenProps => {
   const band = presentHomeBand(cards, ja);
-  return { band, idle: band.groups.every((g) => g.count === 0), searching: false, list: listProps(), allCount: 1241, loadMore: null, note: null, ...over };
+  return { band, idle: band.groups.every((g) => g.count === 0), searching: false, list: listProps(), allCount: 1241, loadMore: null, note: null, setup: false, ...over };
 };
 const mount = (over: Partial<HomeScreenProps> = {}, cards: typeof busy = busy, onAction = vi.fn<(i: UiAction) => void>()) => ({ ...render(<LanguageRoot language="ja"><ActionRoot onAction={onAction}><HomeScreen {...props(over, cards)} /></ActionRoot></LanguageRoot>), onAction });
 const tabs = () => within(screen.getByRole('group', { name: '状態' }));
@@ -329,12 +329,13 @@ describe('HomeScreen の始める前の確認（帯の最後の群）', () => {
   const ready = presentReadiness(READY, ja)!;
   const withReady = (cards: typeof busy) => {
     const base = presentHomeBand(cards, ja, [ready.group]);
-    return { band: base, idle: false, note: ready.note };
+    return { band: base, idle: false, note: ready.note, setup: true };
   };
   it('確認の群は帯の錠剤になり、帯の右端に 1 行の文を出す。ようこその札と確認リストの区画は無い', () => {
     const { container } = mount(withReady(none), none);
-    expect(screen.getByRole('button', { name: /^セットアップの確認 6 つ中 3 つ$/ })).toBeInTheDocument();
-    expect(container.querySelector('.band-text')).toHaveTextContent('もう始められます。設定の残りは 3 件です');
+    expect(screen.getByRole('button', { name: /^セットアップの確認 準備完了 3 \/ 6$/ })).toBeInTheDocument();
+    // tmux と claude が揃っているので、帯の右端の文は出さない。
+    expect(container.querySelector('.band-text')).toBeNull();
     expect(container.querySelector('.onboarding')).toBeNull();
     expect(screen.queryByRole('heading', { name: 'ようこそ' })).toBeNull();
     // 一覧の空の札の「クイックセッションを開始」は、初めての人に残す。

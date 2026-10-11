@@ -4,12 +4,14 @@
 // 殻は種類と数だけを渡し（lib.rs の fail_js と bootfail.rs）、文はここで作る。殻は札の文を書かない（詳細だけを頁の言語で書く）。
 
 /** 札を出せる失敗の種類。bootfail.rs の KINDS と同じ並びにする（config.test.ts が突き合わせる）。 */
-export const FAIL_KINDS = ['server-exited', 'port-in-use', 'db-too-old', 'db-backup-failed', 'compat-mismatch', 'other'];
+export const FAIL_KINDS = ['server-exited', 'port-in-use', 'db-too-old', 'db-backup-failed', 'compat-mismatch', 'node-missing', 'other'];
 
 /** 札の言語。packages/shared の LANGUAGES と同じ（config.test.ts が突き合わせる）。先頭が既定である。 */
 export const LANGS = ['ja', 'en'];
 
 const DEFAULT_PORT = 4177;
+/** 同梱のサーバが使う Node のメジャー版。殻が渡さなかったときだけ使う（殻は server-dist/manifest.json の nodeMajor を渡す）。 */
+const DEFAULT_NODE_MAJOR = 22;
 
 const text = (v, fallback = '') => (typeof v === 'string' || typeof v === 'number' ? String(v) : fallback);
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : null);
@@ -54,6 +56,35 @@ const POWERSHELL = {
   list: (dir) => `Get-ChildItem -Force -LiteralPath ${psQuote(dir)}`,
 };
 
+// Node を入れるコマンド。macOS は Homebrew で Node と tmux を一度に入れる。
+// Windows は winget で Node だけを入れる（psmux はホームの帯と始める前の案内が別に出す）。node.rs の winget_command と同じ形にする。
+// ほか（Linux）は nvm で入れる。
+const NODE_INSTALL = {
+  mac: (n) => `brew install node@${n} tmux`,
+  windows: (n) => `winget install -e --id OpenJS.NodeJS.${n}`,
+  other: (n) => `nvm install ${n}`,
+};
+
+/** Node が無いときの札の文（日本語）。理由は、入っていない（missing）、版が違う（version）、アーキテクチャが違う（arch）の 3 つ。 */
+function nodeJa(c) {
+  const { major, arch, reason, found, foundArch } = c.node;
+  const lead = c.windows ? 'PowerShell で次を実行してください：' : 'ターミナルで次を実行してください：';
+  const base = { lead, steps: [], command: c.node.install, tryAgain: '入れたのでもう一度試す' };
+  if (reason === 'version') return { ...base, title: `Node.js ${major} が見つかりません`, what: `見つかった Node.js は ${found} です。Hangar の動作には Node.js ${major} が要ります。` };
+  if (reason === 'arch') return { ...base, title: `${arch} 用の Node.js ${major} が見つかりません`, what: `見つかった Node.js ${major} は ${foundArch} 用です。${c.mac ? 'この Mac' : 'この PC'} で Hangar を動かすには ${arch} 用の Node.js ${major} が要ります。` };
+  return { ...base, title: `Node.js ${major} が入っていません`, what: `Hangar の動作には Node.js ${major} が要ります。` };
+}
+
+/** 同上（英語）。 */
+function nodeEn(c) {
+  const { major, arch, reason, found, foundArch } = c.node;
+  const lead = c.windows ? 'Run this in PowerShell:' : 'Run this in Terminal:';
+  const base = { lead, steps: [], command: c.node.install, tryAgain: 'I installed it, try again' };
+  if (reason === 'version') return { ...base, title: `Node.js ${major} was not found`, what: `The Node.js found is version ${found}. Hangar needs Node.js ${major} to run.` };
+  if (reason === 'arch') return { ...base, title: `Node.js ${major} for ${arch} was not found`, what: `The Node.js ${major} found is for ${foundArch}. Hangar on ${c.mac ? 'this Mac' : 'this PC'} needs Node.js ${major} for ${arch}.` };
+  return { ...base, title: `Node.js ${major} is not installed`, what: `Hangar needs Node.js ${major} to run.` };
+}
+
 // 種類ごとの文。c は params から作った値（port、theirs、ours、found、baseline、file、dir）と、置き場の名前（home）と、パスの区切り（sep）と、OS の命令の組（cmd）と、
 // アプリの呼び名（app）と、macOS かどうか（mac）。Hangar.app は macOS の呼び名なので、Windows と Linux では Hangar と呼ぶ。
 const TABLE = {
@@ -97,6 +128,7 @@ const TABLE = {
       steps: ['ディスクの空きを確認します', `backups${c.sep}db に書けるか確認します`, '「もう一度試す」を押します'],
       command: c.cmd.list(c.dir),
     }),
+    'node-missing': nodeJa,
     other: () => ({
       title: 'Hangar を起動できませんでした',
       what: '起動の途中で止まりました。理由は下の詳細にあります。',
@@ -142,6 +174,7 @@ const TABLE = {
       steps: ['Check free disk space', `Check that backups${c.sep}db is writable`, 'Press "Try again"'],
       command: c.cmd.list(c.dir),
     }),
+    'node-missing': nodeEn,
     other: () => ({
       title: 'Hangar could not start',
       what: 'Startup stopped partway. The reason is in the details below.',
@@ -153,9 +186,22 @@ const TABLE = {
 
 // 札の見出しや操作の名前。種類に依らない。
 const LABELS = {
-  ja: { whatNext: '次にすること', details: '詳細', logAt: (log) => `記録はこの PC の ${log} にあります`, copyAll: '全文をコピー', copyCommand: 'コピー', copied: 'コピーしました', tryAgain: 'もう一度試す', openLog: 'ログを開く' },
-  en: { whatNext: 'What to do next', details: 'Details', logAt: (log) => `The log is at ${log} on this computer`, copyAll: 'Copy all', copyCommand: 'Copy', copied: 'Copied', tryAgain: 'Try again', openLog: 'Open log' },
+  ja: { whatNext: '次にすること', details: '詳細', detailsToggle: '詳細（調べた場所、別の入れ方）', logAt: (log) => `記録はこの PC の ${log} にあります`, copyAll: '全文をコピー', copyCommand: 'コピー', copied: 'コピーしました', tryAgain: 'もう一度試す', openLog: 'ログを開く' },
+  en: { whatNext: 'What to do next', details: 'Details', detailsToggle: 'Details (places checked, other ways to install)', logAt: (log) => `The log is at ${log} on this computer`, copyAll: 'Copy all', copyCommand: 'Copy', copied: 'Copied', tryAgain: 'Try again', openLog: 'Open log' },
 };
+
+/**
+ * Node が無いときの札の材料。殻（node.rs の failure_params）が渡す major、arch、reason、found、foundArch を読む。
+ * 版が違うのに見つかった版が無い、アーキテクチャが違うのに見つかったものが無い、知らない理由は、入っていない札に落とす。
+ */
+function nodeOf(p, install) {
+  const major = num(p.major) ?? DEFAULT_NODE_MAJOR;
+  const arch = text(p.arch);
+  const found = num(p.found);
+  const foundArch = text(p.foundArch);
+  const reason = p.reason === 'version' && found !== null ? 'version' : p.reason === 'arch' && foundArch !== '' && arch !== '' ? 'arch' : 'missing';
+  return { major, arch, reason, found, foundArch, install: install(major) };
+}
 
 /**
  * 殻が渡した失敗から、札に並べるものを作る。
@@ -172,13 +218,16 @@ export function failView(info) {
   const p = info?.params && typeof info.params === 'object' ? info.params : {};
   const os = text(info?.os);
   const mac = /^macOS/.test(os);
+  const windows = /^Windows/.test(os);
   const c = {
     home,
     sep,
     mac,
+    windows,
     app: mac ? 'Hangar.app' : 'Hangar',
     // Windows には lsof も mv も無い。PowerShell で動く形の命令を出す。
-    cmd: /^Windows/.test(os) ? POWERSHELL : POSIX,
+    cmd: windows ? POWERSHELL : POSIX,
+    node: nodeOf(p, mac ? NODE_INSTALL.mac : windows ? NODE_INSTALL.windows : NODE_INSTALL.other),
     port: num(p.port) ?? DEFAULT_PORT,
     theirs: num(p.theirs),
     ours: num(p.ours),
@@ -188,22 +237,26 @@ export function failView(info) {
     dir: text(p.dir) || join('backups', 'db'),
   };
   const row = TABLE[lang][kind](c);
+  const L = LABELS[lang];
   const version = text(info?.version);
   const command = row.command;
   const detail = text(info?.detail);
   const footer = [version ? `Hangar ${version}` : '', os].filter(Boolean).join(' · ');
-  const L = LABELS[lang];
   return {
     kind,
     lang,
     title: row.title,
     what: row.what,
     steps: row.steps,
+    // 次にすることの代わりに、命令の前に置く 1 文（Node が無いときの札だけ）。
+    lead: row.lead ?? null,
     command,
     detail,
+    // 詳細を畳んでおくか。Node が無いときの札は、入れるコマンドを主にし、調べた場所は畳む。
+    collapsed: kind === 'node-missing',
     footer,
     // 報告にそのまま貼れる形。版と OS、種類、詳細の順に置く。
     copyText: [...(footer ? [footer] : []), kind, ...(detail ? ['', detail] : [])].join('\n'),
-    labels: { whatNext: L.whatNext, details: L.details, logAt: L.logAt(join('desktop.log')), copyAll: L.copyAll, copyCommand: L.copyCommand, copied: L.copied, tryAgain: L.tryAgain, openLog: L.openLog },
+    labels: { whatNext: L.whatNext, details: L.details, detailsToggle: L.detailsToggle, logAt: L.logAt(join('desktop.log')), copyAll: L.copyAll, copyCommand: L.copyCommand, copied: L.copied, tryAgain: row.tryAgain ?? L.tryAgain, openLog: L.openLog },
   };
 }

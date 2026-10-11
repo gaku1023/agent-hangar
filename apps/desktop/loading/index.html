@@ -25,7 +25,7 @@
       /* macOS の窓の左上には信号の 3 点が重なる（UI の --lights-end と同じ 81px）。ヘッダーの高さ 44px の中にロゴを置く。
          殻は macOS でだけ data-shell の印を付ける。Windows の窓は標準の枠なので、UI の既定の余白（16px）から始める。 */
       body[data-fail] { box-sizing: border-box; padding: 44px 16px 24px; }
-      main[hidden], .fail-card[hidden], .fail-brand[hidden], .fail-cmd[hidden] { display: none; }
+      main[hidden], .fail-card[hidden], .fail-brand[hidden], .fail-cmd[hidden], .fail-detail[hidden], .fc-primary[hidden], .fail-toggle[hidden] { display: none; }
       .fail-brand { position: fixed; left: 16px; top: 8px; display: flex; align-items: center; gap: 8px; height: 28px; color: var(--ink); font-weight: 700; }
       [data-shell='desktop'] .fail-brand { left: 81px; }
       .fail-brand img { width: 28px; height: 28px; }
@@ -36,6 +36,13 @@
       .fail-card p { margin: 0 0 8px; line-height: 1.6; color: var(--ink-2); }
       .f-lbl { margin: 10px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.02em; color: var(--ink-3); }
       #fail-steps { margin: 0; padding-left: 20px; line-height: 1.7; color: var(--ink); }
+      /* Node が無いときの札は、次にすることの列の代わりに、命令の前に 1 文を置き、主の釦を命令のすぐ下に置く。 */
+      #fail-lead { margin: 10px 0 0; color: var(--ink); }
+      .fc-primary { display: flex; margin-top: 12px; }
+      /* 畳んだ詳細を開く 1 行。押すと下の詳細の枠が開き、印が下を向く。 */
+      .fail-toggle { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 2px 4px 2px 0; border: 0; background: none; font: 560 12px 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif; color: var(--ink-2); cursor: pointer; }
+      .fail-toggle svg { flex: none; width: 12px; height: 12px; transition: transform 0.15s; }
+      .fail-toggle[aria-expanded='true'] svg { transform: rotate(90deg); }
       #fail-steps li + li { margin-top: 2px; }
       .fail-cmd { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; padding: 5px 6px 5px 10px; border-radius: 6px; background: rgba(28, 27, 46, 0.06); }
       .fail-cmd code { min-width: 0; flex: 1; font: 11.5px ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-user-select: text; user-select: text; }
@@ -51,7 +58,7 @@
       .fc-foot .spacer { flex: 1; }
       .btn-mini { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 0; border-radius: 999px; font: 560 11px 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif; color: var(--ink-2); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 2px rgba(30, 40, 90, 0.14); cursor: pointer; white-space: nowrap; }
       /* 札の操作は Tab で巡る。焦点は輪で見せる。 */
-      .btn:focus-visible, .btn-mini:focus-visible, #fail-detail:focus-visible { outline: 2px solid #4a63e8; outline-offset: 2px; }
+      .btn:focus-visible, .btn-mini:focus-visible, .fail-toggle:focus-visible, #fail-detail:focus-visible { outline: 2px solid #4a63e8; outline-offset: 2px; }
       .btn { flex: none; display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 0; border-radius: 999px; font: 560 13px 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif; color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; }
       .btn:disabled { opacity: 0.55; cursor: default; }
       .btn-primary { color: #ffffff; background: linear-gradient(180deg, #6b8cff, #4a63e8); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
@@ -75,13 +82,17 @@
         <h2 id="fail-title"></h2>
       </div>
       <p id="fail-what"></p>
+      <p id="fail-lead" hidden></p>
       <h3 id="fail-next" class="f-lbl"></h3>
       <ol id="fail-steps"></ol>
       <div id="fail-command-box" class="fail-cmd" hidden>
         <code id="fail-command"></code>
         <button id="fail-command-copy" class="btn-mini" type="button"></button>
       </div>
-      <div class="fail-detail">
+      <!-- Node が無いときの札だけ、主の釦（boot-retry）をここへ移す（boot.js）。 -->
+      <div id="fail-primary" class="fc-primary" hidden></div>
+      <button id="fail-detail-toggle" class="fail-toggle" type="button" aria-expanded="false" aria-controls="fail-detail-box" hidden><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg><span id="fail-detail-toggle-label"></span></button>
+      <div id="fail-detail-box" class="fail-detail">
         <div class="fd-head"><h3 id="fail-details-label"></h3><span id="fail-log-at" class="faint"></span></div>
         <pre id="fail-detail" tabindex="0" aria-labelledby="fail-details-label"></pre>
         <button id="fail-copy-all" class="btn-mini" type="button"></button>

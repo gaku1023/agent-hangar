@@ -7,7 +7,7 @@
 #   --hide-system-node を付けると、殻が探す場所のうちホームの外のもの（node.rs の UNIX_NODE_PLACES）にある node を、終わるまで脇へ退ける（sudo）。
 #   ランナーには Homebrew の Node が入っていて、そのままでは殻が見つけてしまう。手元の Mac では付けない。
 # 殻には HANGAR_BOOT_PROBE で書き出しの先を渡す。起動画面が描いた様子を殻がそこへ書き（bootprobe.rs）、
-# boot-probe-check.ts が、札が出て種類が other、詳細が「Node <版>」を含む文になるまで待つ（上限 60 秒）。
+# boot-probe-check.ts が、札が出て種類が node-missing（Node が無いときの専用の札）、詳細が「Node <版>」を含む文になるまで待つ（上限 60 秒）。
 # 画面を撮れれば boot-screen.png を、殻の記録（desktop.log）と一緒に成果物の置き場に残す。撮れなくても落とさない。
 set -u
 
@@ -34,7 +34,7 @@ out="$(cd "$out" && pwd)"
 work="$(cd "$(mktemp -d)" && pwd -P)"
 
 # 殻が探す場所のうち、ホームの外にあるもの（node.rs の UNIX_NODE_PLACES の / で始まるもの）。ホームの中のものは一時のホームで外れる。
-# 版ごとの置き場（Homebrew の keg-only の node@N）は glob で広げる。当たらない glob はそのまま残り、下の -e で落ちる。
+# 版ごとの置き場（Homebrew の node@N の入れ先）は glob で広げる。当たらない glob はそのまま残り、下の -e で落ちる。
 places=( /opt/homebrew/bin/node /usr/local/bin/node /opt/homebrew/opt/*/bin/node /usr/local/opt/*/bin/node )
 hidden=()
 pid=""
@@ -83,7 +83,7 @@ echo "殻を起こした（pid ${pid}）"
 
 rc=0
 node --experimental-strip-types --no-warnings "$here/boot-probe-check.ts" wait "$out/probe.json" \
-  --kind other --detail 'Node [0-9]+' --timeout 60 --pid "$pid" || rc=$?
+  --kind node-missing --detail 'Node [0-9]+' --timeout 60 --pid "$pid" || rc=$?
 
 # 札が描き終わるのを少し待ってから撮る。ランナーで画面の収録が許されていなければ撮れない。
 sleep 1

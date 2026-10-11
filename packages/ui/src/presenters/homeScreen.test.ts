@@ -139,8 +139,11 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   it('起動のたびの確かめで直すものがあれば、ふだんの 3 つの後ろ（最後）に確認の群を足す。誰にでも出す', () => {
     const p = presentHomeScreen(initialState(), busy(READY), NOW);
     expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending', 'readiness']);
-    expect(p.band.groups.at(-1)).toMatchObject({ countText: '6 つ中 3 つ', count: 3 });
-    expect(p.note).toBe('もう始められます。設定の残りは 3 件です');
+    expect(p.band.groups.at(-1)).toMatchObject({ countText: '準備完了 3 / 6', count: 3 });
+    // tmux と claude が揃っているので、右端の文は出さない。
+    expect(p.note).toBeNull();
+    const noClaude: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset', version: null } } };
+    expect(presentHomeScreen(initialState(), busy(noClaude), NOW).note).toBe('始めるには claude が必要です');
     expect(p.idle).toBe(false);
     // 朝は要対応が開いたまま。
     expect(p.band.morning).toBe('attention');
@@ -164,8 +167,8 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   it('言語の設定で文が替わる', () => {
     const en = { ...empty(READY), settings: { language: 'en' } as SettingsDto };
     const p = presentHomeScreen(initialState(), en, NOW);
-    expect(p.band.groups[0]).toMatchObject({ label: 'Setup check', countText: '3 of 6' });
-    expect(p.note).toBe('You can start now. 3 items left to set up');
+    expect(p.band.groups[0]).toMatchObject({ label: 'Setup check', countText: 'Ready 3 / 6' });
+    expect(p.note).toBeNull();
   });
 });
 
