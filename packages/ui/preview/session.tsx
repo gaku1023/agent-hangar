@@ -139,12 +139,12 @@ function LiveMock(props: { card: NowCardProps }) {
       <div style={{ display: 'flex', alignItems: 'flex-end', height: 28, marginTop: 8 }}><span style={tab}>Claude</span></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: 8, height: 520 }}>
         <div style={termStyle}>{TERM}</div>
-        <div className="c-side">
+        <div className="toc-slot"><div className="toc-slot-inner">
           <NowCard sessionId="s1" {...props.card} />
           <TocPane>
             <TurnIndex sessionId="s1" runId={null} rows={turnRows} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} lead={<TocToggle open />} />
           </TocPane>
-        </div>
+        </div></div>
       </div>
     </div>
   );

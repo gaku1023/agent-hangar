@@ -34,9 +34,9 @@ const ACTION_ICON: Record<SessionActionId, IconName> = {
  * 上から、見出しの段（点、名前、ロックの札、要約の 1 文、主の操作、「…」、(i)）、実行中ならタブの列、そして残りの高さを全部使う本体を置く。
  * 本体は左に主役（実行中はターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト）、右に 240px の列を置く。
  * 実行中は、右の列の上に現在の札（NowCard）、その下に目次を積む。終わった後は目次だけである。
- * 目次は ⌘J で開閉でき、閉じるとタブの列（終わった後は切り替えの行）の「目次 N」の札になる。
- * 実行中に目次を閉じても、現在の札は右の列に残る（2026-10-11 の試作の E1）。列ごと畳むのは札の無い画面だけである。
- * 窓が狭いとき（useNarrow）は、目次の列を持たず、札を押すと目次が上に重なって開く。現在の札は狭い窓でも右の列に残す。
+ * 右の列は札も目次もひとまとめに、⌘J と目次の見出しの行のボタンで畳める。畳むと列が 0px になり、本文（ターミナル）が右端まで広がる。
+ * 畳むと、タブの列（終わった後は切り替えの行）の「目次 N」の札になる。開閉はセッションごとに覚える（sessionView.transcriptOpen）。
+ * 窓が狭いとき（useNarrow）は、右の列を持たず、札を押すと札と目次が上に重なって開く。
  */
 export function SessionScreen(props: SessionProps) {
   const emit = useEmit();
@@ -47,7 +47,7 @@ export function SessionScreen(props: SessionProps) {
   const narrow = useNarrow();
   const [drawer, setDrawer] = useState(false);
   const tocOpen = narrow ? drawer : props.transcriptOpen;
-  // 現在の札は生きた run があるときだけ。札がある間は右の列を畳まないので、目次の開閉で列の幅を動かさない。
+  // 現在の札は生きた run があるときだけ。札は目次と同じ右の列に入っていて、列ごと畳まれる。
   const hasCard = props.strip !== null && props.run?.alive === true;
   // ⌘J（transcript.toggle）は、狭い窓では上乗せの開閉にする。セッションが替わった描画は切り替えなので、開閉とは見なさない。
   const seen = useRef({ id: props.id, open: props.transcriptOpen });
@@ -57,17 +57,17 @@ export function SessionScreen(props: SessionProps) {
     if (was.id !== props.id) { setDrawer(false); return; }
     if (was.open !== props.transcriptOpen && narrow) setDrawer((d) => !d);
   }, [props.id, props.transcriptOpen, narrow]);
-  // 目次の列の開閉。閉じる動きが終わるまで中身を描き続け、開いたら滑らせて広げる。
+  // 右の列の開閉。閉じる動きが終わるまで中身を描き続け、開いたら滑らせて広げる。
   // 開閉はセッションごとに覚えているので、別のセッションへ替えると開閉も替わることがある。それは切り替えなので動かさず、すぐその形にする。
   // 最後に描き終えたセッションを覚えておき、替わった描画では開く動きも閉じる動きも出さない。
   const boxRef = useRef<HTMLDivElement>(null);
   const paneSession = useRef(props.id);
-  const pane = usePresence<HTMLElement>(tocOpen, (inner) => (!narrow && !hasCard && paneSession.current === props.id && boxRef.current ? playPaneMotion(boxRef.current, PANE_SHAPE.toc.open, inner, false) : null));
+  const pane = usePresence<HTMLElement>(tocOpen, (inner) => (!narrow && paneSession.current === props.id && boxRef.current ? playPaneMotion(boxRef.current, PANE_SHAPE.toc.open, inner, false) : null));
   const paneFirst = useRef(true);
   useLayoutEffect(() => {
     if (paneFirst.current) { paneFirst.current = false; return; }
     if (paneSession.current !== props.id) return;
-    if (!narrow && !hasCard && tocOpen && boxRef.current) void playPaneMotion(boxRef.current, PANE_SHAPE.toc.closed, pane.ref.current, true);
+    if (!narrow && tocOpen && boxRef.current) void playPaneMotion(boxRef.current, PANE_SHAPE.toc.closed, pane.ref.current, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocOpen]);
   // 上の 2 つ（usePresence の中のものも含む）が今の描画を見終えてから、描き終えたセッションを書き換える。
@@ -135,11 +135,13 @@ export function SessionScreen(props: SessionProps) {
       <Icon name="paneOpen" /><span>{tocCount === null ? t('session.toc.label') : t('session.toc.opener', { n: tocCount })}</span>{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
     </button>
   );
-  // 目次だけの右パネル。実行中も終わった後も同じ場所に同じもの（TurnIndex）を置く。
+  // 右の列（畳める器）。実行中は上に現在の札、下に目次（TurnIndex）。終わった後は目次だけを、同じ場所に置く。
   const toc = (
     <div className="toc-slot" data-collapsed={tocOpen ? undefined : 'true'} data-leaving={pane.leaving ? 'true' : undefined} data-drawer={narrow ? 'true' : undefined}>
       {pane.mounted && (
         <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
+          {/* 現在の札はタブにもターミナルにもくっつけず、右の列の上に置く（中身はセッションのもので、タブを替えても変わらない）。 */}
+          {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} />}
           <TocPane>
             <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} lead={<TocToggle open onToggle={toggleToc} />} />
           </TocPane>
@@ -147,8 +149,7 @@ export function SessionScreen(props: SessionProps) {
       )}
     </div>
   );
-  const colOpen = tocOpen || hasCard;
-  const bodyStyle = narrow ? undefined : { gridTemplateColumns: colOpen ? PANE_SHAPE.toc.open.cols : PANE_SHAPE.toc.closed.cols, columnGap: colOpen ? undefined : PANE_SHAPE.toc.closed.gap };
+  const bodyStyle = narrow ? undefined : { gridTemplateColumns: tocOpen ? PANE_SHAPE.toc.open.cols : PANE_SHAPE.toc.closed.cols, columnGap: tocOpen ? undefined : PANE_SHAPE.toc.closed.gap };
 
   // 本文が消えた会話は、会話の欄も目次も持たない。
   // 残っている冒頭の 1 枚（要約、ノートなど）だけを見せる。
@@ -185,10 +186,9 @@ export function SessionScreen(props: SessionProps) {
         {/* 右は会話の全文ではなくターンの目次にする。
             全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
             .c-body は縦の flex で窓の残りの高さを全部受け取る（session.css）。 */}
-        <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} data-card={hasCard ? 'true' : undefined} style={bodyStyle}>
+        <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} style={bodyStyle}>
           <div className="c-main">{terminals}</div>
-          {/* 現在の札はタブにもターミナルにもくっつけず、右の列の上に置く（中身はセッションのもので、タブを替えても変わらない）。 */}
-          {hasCard && props.strip ? <div className="c-side"><NowCard sessionId={id} {...props.strip} />{toc}</div> : toc}
+          {toc}
         </div>
       </div>
     );

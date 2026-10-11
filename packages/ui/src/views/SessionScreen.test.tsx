@@ -333,27 +333,27 @@ describe('SessionScreen（実行中）', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     expect(screen.getByText('hi')).toBeInTheDocument();
   });
-  it('現在の札は右の欄の上（目次の上）に置き、タブの列とターミナルの側には何も挟まない', () => {
+  it('現在の札は右の欄の上（目次の上、同じ畳める器の中）に置き、タブの列とターミナルの側には何も挟まない', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} /></TerminalHostContext.Provider></ActionRoot>);
     const main = container.querySelector('.c-main')!;
     expect([...main.children].map((c) => c.className.split(' ')[0])).toEqual(['term-pane']);
     expect(container.querySelector('.session-info')).toBeNull();
-    const side = container.querySelector('.c-side')!;
-    expect([...side.children].map((c) => c.className.split(' ')[0])).toEqual(['now-card', 'toc-slot']);
+    const side = container.querySelector('.c-body > .toc-slot > .toc-slot-inner')!;
+    expect([...side.children].map((c) => c.className.split(' ')[0])).toEqual(['now-card', 'toc-pane']);
     expect(within(side as HTMLElement).getByRole('region', { name: 'セッションの現在の状態' })).toBeInTheDocument();
   });
   it('札は生きた run があるときだけで、終わった run には出さない', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} strip={null} run={{ ...running.run!, alive: false }} /></TerminalHostContext.Provider></ActionRoot>);
     expect(container.querySelector('.now-card')).toBeNull();
   });
-  it('目次を閉じても、札は右の欄に残る（目次だけを畳む）。札の無い画面では欄ごと畳む', () => {
+  it('右の欄を閉じたら、札も目次も欄ごと消える。開くと両方が戻る（札のある実行中の画面でも）', () => {
     const { container, rerender } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={false} /></TerminalHostContext.Provider></ActionRoot>);
-    expect(container.querySelector('.c-side .now-card')).not.toBeNull();
-    expect(container.querySelector('.toc-pane')).toBeNull();
-    expect(screen.getByRole('button', { name: /^目次/ })).toBeInTheDocument();
-    rerender(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} strip={null} transcriptOpen={false} /></TerminalHostContext.Provider></ActionRoot>);
     expect(container.querySelector('.now-card')).toBeNull();
     expect(container.querySelector('.toc-pane')).toBeNull();
+    expect(screen.getByRole('button', { name: /^目次/ })).toBeInTheDocument();
+    rerender(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen /></TerminalHostContext.Provider></ActionRoot>);
+    expect(container.querySelector('.toc-slot .now-card')).not.toBeNull();
+    expect(container.querySelector('.toc-slot .toc-pane')).not.toBeNull();
   });
   it('実行中は、見出しの行に「ノート」の札を置き、ポップオーバーでノートを書ける', () => {
     const onAction = withHost(<SS {...running} />);
@@ -383,21 +383,23 @@ describe('SessionScreen（実行中）', () => {
   });
   it('実行中も終わった後も、目次は同じ器（toc-slot の toc-pane）にあり、同じ幅の列になる', () => {
     const a = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} /></TerminalHostContext.Provider></ActionRoot>);
-    expect(a.container.querySelector('.c-body > .c-side > .toc-slot .toc-pane')).not.toBeNull();
+    expect(a.container.querySelector('.c-body > .toc-slot .toc-pane')).not.toBeNull();
     expect(tocCols(a.container)).toBe('minmax(0, 1fr) 240px');
     cleanup();
     const b = render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
     expect(b.container.querySelector('.c-body > .toc-slot .toc-pane')).not.toBeNull();
     expect(tocCols(b.container)).toBe('minmax(0, 1fr) 240px');
   });
-  it('実行中に目次を閉じたら、札を残して列の幅は変えず、「目次 N」の札をタブの帯の右端に出す', () => {
+  it('実行中に右の欄を閉じたら、列ごと 0px にし（本体が右端まで広がる）、「目次 N」の札をタブの帯の右端に出す', () => {
     withHost(<SS {...running} transcriptOpen={false} />);
-    expect((document.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns).toBe('minmax(0, 1fr) 240px');
+    expect((document.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
     const open = screen.getByRole('button', { name: /目次 104/ });
     expect(open.closest('.tabs')).not.toBeNull();
     expect(open).toHaveTextContent('⌘J');
     expect(document.querySelector('.toc-pane')).toBeNull();
-    expect(document.querySelector('.c-side .now-card')).not.toBeNull();
+    expect(document.querySelector('.now-card')).toBeNull();
+    // 札の押す先（ノートの札）は見出しに残る。
+    expect(screen.getByRole('button', { name: 'ノート' })).toBeInTheDocument();
   });
   it('札の無い画面（終わった後）で目次を閉じたら、列ごと消す', () => {
     render(<ActionRoot onAction={vi.fn()}><SS {...base} transcriptOpen={false} /></ActionRoot>);
@@ -470,7 +472,6 @@ describe('SessionScreen（実行中）', () => {
       let finish: () => void = () => {};
       const finished = new Promise<void>((r) => { finish = r; });
       (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished, cancel: vi.fn() }; };
-      // 列ごと畳むのは札の無い画面（終わった後）だけ。
       const ui = (open: boolean) => <ActionRoot onAction={vi.fn()}><SS {...base} transcriptOpen={open} /></ActionRoot>;
       const { rerender } = render(ui(true));
       rerender(ui(false));
@@ -499,19 +500,22 @@ describe('SessionScreen（実行中）', () => {
       expect(document.querySelector('.toc-slot')).toHaveAttribute('data-leaving', 'true');
       expect(animate.mock.calls.length).toBeGreaterThan(0);
     });
-    it('札のある画面（実行中）では、目次を開閉しても列を滑らせず、目次だけをすぐ出し入れする', () => {
+    it('札のある画面（実行中）でも、右の欄の開閉は列を滑らせ、閉じる間は札と目次を残して、終わったら外す', async () => {
       restore = fakeMotionTokens(undefined, { everywhere: true });
-      const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
+      let finish: () => void = () => {};
+      const finished = new Promise<void>((r) => { finish = r; });
+      const animate = vi.fn(function () { return { finished, cancel: vi.fn() }; });
       (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
       const ui = (open: boolean) => <ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={open} /></TerminalHostContext.Provider></ActionRoot>;
       const { rerender } = render(ui(true));
       animate.mockClear();
       rerender(ui(false));
+      expect(document.querySelector('.toc-slot')).toHaveAttribute('data-leaving', 'true');
+      expect(document.querySelector('.toc-slot .now-card')).not.toBeNull();
+      expect(animate.mock.calls.length).toBeGreaterThan(0);
+      await act(async () => { finish(); await finished; });
       expect(document.querySelector('.toc-slot-inner')).toBeNull();
-      expect(document.querySelector('[data-leaving]')).toBeNull();
-      rerender(ui(true));
-      expect(document.querySelector('.toc-slot-inner')).not.toBeNull();
-      expect(animate.mock.calls.length).toBe(0);
+      expect(document.querySelector('.now-card')).toBeNull();
     });
   });
   it('要約の一行は、文が替わると作り直す（入る動きをもう一度出す）', () => {
