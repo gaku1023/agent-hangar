@@ -202,7 +202,8 @@
    読むだけの札は span、押せる札は button で、開いている間（aria-expanded）は白い地に細い輪を付ける。 */
 .count-chip { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.75); height: var(--row-h); padding: 0 calc(var(--u) * 3) 0 calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .count-chip > .icon { width: 14px; height: 14px; }
-.count-chip b { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+/* 行の高さは数字の枠（.roll の 1.2em）に揃える。帯の錠剤は件数を回すので、本文の 1.5 のままだと数字が下がり、下端も欠ける（workbench.css の .gauge-num と同じ）。 */
+.count-chip b { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; line-height: 1.2em; }
 button.count-chip { cursor: pointer; }
 button.count-chip:hover { color: var(--ink); background: rgba(255, 255, 255, 0.7); }
 button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

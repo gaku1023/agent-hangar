@@ -2,6 +2,7 @@ import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { LONG_TOAST_MS } from './actionTable.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { accountsFixture } from '../test/accounts.ts';
@@ -786,6 +787,17 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'session.openTerminalApp', runId: 'r1' });
     await flush();
     expect(rt.getState().toasts[0]?.message).toContain('Terminal.app');
+  });
+  it('Windows Terminal が無く既定のターミナルに落ちたら、セッション画面でもプロジェクト画面でも 8 秒の知らせを出す', async () => {
+    const fell = async () => ({ app: 'windowsDefault' as const, fellBack: true });
+    const { rt } = harness({ openTerminalApp: vi.fn(fell), projectOpenTerminal: vi.fn(fell) });
+    rt.start();
+    rt.emit({ type: 'session.openTerminalApp', runId: 'r1' });
+    rt.emit({ type: 'project.openTerminalApp', id: 'p1' });
+    await flush();
+    const shown = rt.getState().toasts.map((t) => [t.level, t.message, t.holdMs]);
+    const line = ['info', 'Windows Terminal が見つからなかったので既定のターミナルで開きました', LONG_TOAST_MS];
+    expect(shown).toEqual([line, line]);
   });
 });
 
@@ -1820,6 +1832,28 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
       expect([sessions.length, readiness.mock.calls.length]).toEqual([sessions.length, 1]);
       expect(rt.getStore().readiness).toEqual(READY);
     }
+  });
+  it('API やほかの窓から claudePath が直されたら（settings.changed）、準備の確かめを取り直して帯を新しい答えにする', async () => {
+    const NOT_FOUND = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset' as const, version: null } } };
+    const answers = [NOT_FOUND, READY];
+    const readiness = vi.fn(async () => answers.shift() as never);
+    const { rt, wsHandlers } = harness({ readiness });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(rt.getStore().readiness?.tools.claude.ok).toBe(false);
+    const settings = { ...rt.getStore().settings!, claudePath: '/bin/claude' };
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['claudePath'] });
+    await flush();
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(2);
+    expect(rt.getStore().readiness?.tools.claude.ok).toBe(true);
+    expect(rt.getStore().settings?.claudePath).toBe('/bin/claude');
+    // 準備の確かめに関わらない欄の変更では読み直さない。
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['summaryFallback'] });
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(2);
   });
   describe('そろったときのトースト（2.11.4）', () => {
     const PENDING = { ...READY, workspace: { ...READY.workspace, projectCount: 0 } };

@@ -55,6 +55,16 @@ describe('外のアプリをジョブの外で起こす（Windows）', () => {
     }
   });
 
+  // Windows では、起こしたブラウザが出力の管を受け継ぐことがあるので、子が終わったら返す（untilExit）。ほかの OS は今のまま。
+  it('URL は、Windows では子が終われば返し、ほかの OS ではいまのまま起こす', async () => {
+    for (const o of [{ launcher, platform: 'win32' as const, want: { untilExit: true } }, { launcher: undefined, platform: 'win32' as const, want: { untilExit: true } }, { launcher: undefined, platform: 'darwin' as const, want: undefined }]) {
+      const seen: unknown[] = [];
+      const exec: Exec = async (_cmd, _args, opts) => { seen.push(opts); return { code: 0, stdout: '', stderr: '' }; };
+      await createExternalApi({ home: '/nope', settings, exec, launcher: o.launcher, platform: o.platform }).openUrl('https://example.com/');
+      expect(seen).toEqual([o.want]);
+    }
+  });
+
   it('URL を開けなければ断る', async () => {
     const exec: Exec = async () => ({ code: 1, stdout: '', stderr: 'no handler' });
     const api = createExternalApi({ home: '/nope', settings, launcher, exec, platform: 'win32' });

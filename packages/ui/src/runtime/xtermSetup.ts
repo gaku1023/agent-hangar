@@ -73,6 +73,18 @@ export function terminalOptions(theme: { background: string; foreground: string 
 }
 
 /**
+ * ターミナルの中の、写すものが無い ⌘C を黙って捨てる。返す関数で外す。
+ * Claude Code（fullscreen）や tmux はドラッグを離した時点で自分で写すので、xterm の選択は空のまま残る。
+ * そこで ⌘C を押すと、WebKit は xterm の隠れた入力欄に対して写す命令を走らせ、写すものが無いので NSBeep を鳴らす。
+ * xterm は自分の選択があれば copy で写して preventDefault するので、それより後に付け、止められていないものだけ止める。
+ */
+export function guardEmptyCopy(el: EventTarget): () => void {
+  const onCopy = (e: Event) => { if (!e.defaultPrevented) e.preventDefault(); };
+  el.addEventListener('copy', onCopy);
+  return () => el.removeEventListener('copy', onCopy);
+}
+
+/**
  * OSC 52 を受けてクリップボードに書く提供者。@xterm/addon-clipboard に渡す。
  * addon の既定の提供者は選択先が c のものしか書かないが、tmux のコピーモードは選択先を空にして送る（`ESC ] 52 ; ; <base64>`）。
  * macOS のクリップボードは 1 つなので、選択先は問わずに書く。

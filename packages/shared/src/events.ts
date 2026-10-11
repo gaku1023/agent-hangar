@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
+import type { AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -31,5 +31,10 @@ export type ServerEvent =
   /** 設定の同期（作り直した実装）の状態。届いた変更、競合、送らなかった項目、適用の指示書が動いたときに配る。 */
   | { type: 'config.update'; configSync: ConfigSyncDto }
   | { type: 'retention.changed'; retention: RetentionDto }
+  /**
+   * 設定が保存された。変えた欄の名前（keys）と、保存後の設定を運ぶ。
+   * API やほかの窓から直されても、開いている画面が準備の確かめ（道具のパスと作業フォルダ）を読み直せるようにする。
+   */
+  | { type: 'settings.changed'; settings: SettingsDto; keys: (keyof SettingsDto)[] }
   /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */
   | { type: 'toast'; level: 'info' | 'error'; message: string; holdMs?: number };

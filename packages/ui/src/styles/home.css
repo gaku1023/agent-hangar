@@ -4,8 +4,11 @@
 /* 一覧の見出し（「セッション N 件」）。帯と一覧のあいだに置く。余白は .home-label の外側の値を使わず、この行で持つ。 */
 .list-head { display: flex; align-items: center; gap: calc(var(--u) * 2.5); margin: calc(var(--u) * 3) 0 calc(var(--u) * 2) var(--u); }
 .list-head .home-label { margin: 0; }
-.home-count { font-weight: 500; color: var(--ink-3); }
+/* 件数の数字は回す（.roll）ので、行の高さを数字の枠の 1.2em に揃える。 */
+.home-count { font-weight: 500; line-height: 1.2em; color: var(--ink-3); }
 
+/* 帯と、帯の代わりの 1 行を入れる外の箱。入れ替わるときは、この箱の高さを JS が補間する（HomeScreen.tsx）。 */
+.home-top { flex: none; }
 /* 3 つの群がどれも 0 件のときの 1 行（F1）。帯の代わりに、場所をほとんど取らずに置く。 */
 .idle-line { display: flex; align-items: center; gap: calc(var(--u) * 2.5); height: 44px; padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 3.5); border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.55); box-shadow: var(--glass-edge); color: var(--ink-2); }
 .idle-line > .icon { flex: none; color: var(--ink-3); }
@@ -55,7 +58,7 @@
 /* 始める前の確認（2.11.4）。進みの棒は錠剤の横、引き出しの行は 36px、済んだものは 1 行に畳む。
    印は色だけでなく形でも分ける（HomeBand.tsx の CHECK_ICON）。任意の札は名前の横に添える。 */
 .home-band .band-prog { flex: none; width: 64px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
-.home-band .band-prog > span { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+.home-band .band-prog > span { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur) var(--ease-out); }
 .drawer[data-group='readiness'] { --compact-row-h: 36px; }
 .ck-mark { flex: none; display: inline-flex; }
 .ck-mark .icon { width: 16px; height: 16px; stroke-width: 2; }

@@ -289,7 +289,12 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   Node が無いときの札では、新しいバージョンを入れても Node は入らないので、帯に「直っていることがあります」と添えない。
   命令は UI と同じ 4 つで、起動画面にも与える（`capabilities/boot-screen.json`）。文は `boot-fail.js` の `updateView` の日英の表が持ち、語は UI の辞書（`update.*`）にそろえる（試験が突き合わせる）。
   殻も、起動に失敗したとき 1 度だけ自分で確かめる（`lib.rs` の `check_update_after_failure`）。
-  見つけた版は `Ui.update` に置いて `boot_state` の `update` で渡し、その場でも `window.__hangarBootUpdate({ version })` で渡すので、押さなくても札に帯が出る。
+  確かめ始めるのは、起動画面が札を描いた後である。
+  頁は札を描いたコマの後（`requestAnimationFrame` の中から次の番）で命令 `boot_card_shown` を 1 度だけ呼び、殻はそれを受けて確かめる（`Ui::card_shown`。やり直して読み込み直した頁が呼んでも重ねない）。
+  殻が失敗を知った時点（`fail`）では確かめない。札は確かめの結果を待たずに出し、言語も札が持つ `lang` で決めるので、`boot_state` の `lang` も待たない。
+  以前（rc.6）は `fail` の中で確かめ始めていて、目録の取得と証明書の検証が札の最初の描画と重なっていた。
+  窓が隠れていてコマが来なければ、見えるまで確かめない。
+  見つけた版は `Ui.update` に置いて `boot_state` の `update` で渡し、その場でも `window.__hangarBootUpdate({ version })` で渡すので、押さなくても札に後から帯が足される。
   やり直しても `Ui.update` は消さない。確かめに失敗したときはログに残すだけで、札には出さない。
   UI の「更新を通知する」のスイッチ（`localStorage`）は殻から読めないが、起動できない版から抜け出す口なので、この 1 度の確認はスイッチに依らず行う。
 - Node が無いときの札（`node-missing`）は、ほかの札と並びを変え、入れるコマンドを主にする（利用者が選んだ形、2026-10-11）。
@@ -801,6 +806,7 @@ MCP の道具は hub を持たない。
 | `sync.status`、`sync.usage` | `sync/statusFeed.ts`（同期の状態）、`boot/sync.ts`（使用量の見張りの結び） |
 | `accounts.update` | `http/accounts.ts`、statusline の受け口 |
 | `retention.changed` | `provider/claude-code/config/retention.ts` |
+| `settings.changed` | `http/routes/settings.ts`（`PATCH /api/settings` が保存できたとき。変えた欄の名前 `keys` と保存後の設定を運ぶ） |
 | `summary.pending`、`summary.updated`、`summary.failed` | `summary/job.ts` |
 | `project.unresolved` | ルートの確かめ（`projects/rootCheck.ts`）。解決済みから未解決への遷移の知らせである。画面はこれでダイアログを開かない（使う側は無い。型は段 4 の中では消さない） |
 
@@ -1361,6 +1367,11 @@ Windows で pty を閉じるとき、node-pty は子のコンソールの一覧�
   tmux が OSC 52 を外へ通すように、サーバは attach の前に `set-clipboard` が on でも off でもなければ `set-option -s set-clipboard on` にする。
   この設定は利用者の既定の tmux サーバ全体に効くが、利用者の決定（2026-10-01）でそのままにした。
   WKWebView ではクリップボードへの書き込みに利用者の操作から 5 秒の枠があり、その外で届いた写しは捨てられる。
+- 写すものが無い ⌘C は黙って捨てる。
+  Claude Code（fullscreen）と tmux はドラッグを離した時点で自分で写し、xterm の選択は空のまま残る。
+  そこで ⌘C を押すと、WebKit は xterm の隠れた入力欄に対して写す命令を走らせ、写すものが無いので macOS の警告音（NSBeep）を鳴らす。
+  xterm の要素で `copy` を受け、xterm が自分の選択を写さなかった（`preventDefault` していない）ものだけ止める。
+  Option を押しながら選んだ範囲は、これまでどおり ⌘C で写る。
 - ⌘+ と ⌘− と ⌘0 はターミナルの文字の大きさを 1px ずつ変える（既定 13、8 から 32）。
   全部のタブに効かせて寸法を合わせ直し、大きさは localStorage に覚える。
   ターミナルが画面に無いときは受けず、ブラウザの拡大に渡す。
@@ -1393,6 +1404,11 @@ cmd.exe は引用符の中でも `%name%` を置き換えるので、`%` だけ�
 題名を付けないと、タブも窓も起こした実行ファイル（psmux）のフルパスが題名になる。
 題名はセッション名（シェルタブは名前の後ろに `(シェル 1)` のようなタブの題名を添える）で、80 字までに切り、`"` は `'` に、改行と制御文字は空白に潰す（名前は利用者が付けるので、断らない）。名前が無ければ tmux の名前にする。
 ディレクトリを開くときは、Windows Terminal は `new-tab --title <題名> --suppressApplicationTitle -d <dir>` で既定のプロファイルを、既定のターミナルは `start "<題名>" /D "<dir>" powershell.exe -NoLogo` で PowerShell を開く（題名はフォルダ名）。
+`wt.exe` と `cmd.exe` は、子が終わった時点で返す（`external/open.ts` の `execFile` の `untilExit`）。
+`start` が開いた窓の中のもの（psmux の attach、PowerShell）は、子の出力の管を受け継いで握り続ける。
+`execFile` は管がどれも閉じるまで返らないので、窓を閉じるか 30 秒のタイムアウトまで HTTP の応答が返らず、落ちた知らせも出なかった（rc.6 の Windows の実機で見つけた）。
+殻の起こし役越しでも同じで、起こし役は子の終わりで降りるが、その管も窓に受け継がれるので、`untilExit` は起こし役の呼び出しへ渡す。
+Windows で VS Code（`code.cmd` か `code.exe`）とブラウザ（`rundll32.exe` の `FileProtocolHandler`）を起こすときも、起こした窓が管を受け継ぎうるので、同じく `untilExit` で子の終わりに返す。
 `.app`（Windows の殻）から起こしたサーバでは、ターミナルもエディタもブラウザも殻の起こし役越しに起こし、Hangar を閉じても開いた窓は残る（「Tauri のシェル」の節）。
 
 ### 指示の注入
@@ -1858,6 +1874,9 @@ Claude Code との互換の要約（確かめた版、手元の claude の版、
 版は `tmux -V` と `--version` を 3 秒の時間切れ付きで起こして読み、同じファイル（パス、更新時刻、大きさ）なら覚えた版を返して起こし直さない。
 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、どちらもこれを読む。
 UI は起動のたび、設定画面に入ったとき、設定を保存した後、「もう一度確かめる」を押したときに取りに行く。
+API やほかの窓から設定が保存されたときは、`settings.changed` が届く。
+変えた欄が `claudePath`、`tmuxPath`、`nodePath`、`codePath`、`workspaceRoot`、`claudeDir` のどれかなら、UI は準備の確かめを取り直し、ホームの帯と欄の下の検証を新しい答えにする（アプリを開き直さなくてよい）。
+サーバは準備の確かめを毎回その時点の設定から作り直し、結果を持ち越さない（覚えるのは版だけである）。
 
 tmux の役の道具（Windows は psmux、ほかは tmux）は、設定の `tmuxPath` を最初の起動で一度だけ埋める（`resolveToolPaths`）。
 あとから psmux や tmux を入れた人のために、「再確認」の経路 `POST /api/readiness/mux` を置く（段 6）。
@@ -2031,6 +2050,15 @@ N は UI の store に届いているセッションで数える。
 | 要約が見立てた仕事の進み | 進捗 | Progress | 進行中、完了、ブロック中、中止（In progress、Completed、Blocked、Abandoned） |
 
 - 実行中（Running）は、作業中とアイドルと起動中のまとめを指し、入力待ちは含めない。入力待ちはどの画面でも別に数え、まとめて見せるときの区画の名前は「要対応」（Needs attention）である。数え方は shared の `liveFilterOf` 1 つにまとめる。
+- 問いで待っている最中に Done や Archived にしたセッションは、Claude が止まらず live が `waiting` のまま残る。
+  利用者はもう答えないと決めているので、入力待ちには数えず、休み（アイドル）として扱う。
+  利用者の注意を求める数や印（件数、要対応、バッジ、「入力待ち」の札や色、待った時間）は、どれも shared の `quietLive` を通した動きから決める。
+  通す場所は、UI の `store.ts` の `awaitsAnswer`、`liveFilterOfSession`、`shownLive` と、サーバの検索の `liveOf` である。
+  `live === 'waiting'` を直に見て入力待ちと数えない。
+  動いている事実は変わらないので、実行中の側（休み）には残り、サイドバーの「動いている」には行も残る。
+  行の点は休みと同じ控えめな色で、「入力待ち」の語も「待ち N 分」も付けない。
+  Paused は戻ってくるものなので、入力待ちのまま数える。
+  セッション画面は本当の動き（`session.live`）を出す。問いは実際に出ているからである。
 - メイン会話はアイドルで、サブエージェントやバックグラウンドの作業だけが進んでいるときは、「バックグラウンドで作業中」（Working in background）と書く。公式の「バックグラウンドセッション」とは別の概念なので、この意味に使わない。
 - 「状態」は動きにだけ使い、札の意味に使わない。「ステータス」は札にだけ使う。
 - セッション画面の言葉：右の列の上の札は「現在」（Now）の札、その下は「目次」（Outline）、見出しの右端の (i) のポップオーバーは「詳細」、終わったセッションの先頭の 1 枚は「冒頭の 1 枚」と呼ぶ。「いま」「情報の行」「現在と目次の境目」は使わない。
@@ -2266,7 +2294,7 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 入力待ちの知らせの 4 つ（`notify_waiting`、`notify_prune`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、札を描いた知らせの `boot_card_shown`（殻はこれを受けてから 1 度だけ更新を確かめる）、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 `desktop.log` には殻の行（`<ミリ秒> [desktop] …`）とサーバの標準出力と標準エラーが入る。
 サーバは子の起動のときに追記で開いたファイルへ書く。
@@ -2485,6 +2513,8 @@ Claude Code の保持期間がユーザー設定に無い（既定の 30 日）�
 この群は朝に開く群にしない。引き出しの行は、フォルダの印、名前、セッションの数、前のパス、「場所を再指定」「Archived にする」「一覧から削除」である。
 始める前の確認の群があるときは、場所の不明なプロジェクトが先、確認が最後に並ぶ。
 要対応は、入力待ち（`waiting`）のセッションと、今日戻る Paused の合計である。
+Done と Archived にしたセッションは、live が `waiting` のままでも要対応に数えない（`store.ts` の `awaitsAnswer`、入力待ちの知らせと同じ数え方）。
+実行中の札には、休みとして入る。
 実行中は作業中、休み、起動中（hangar の run は生きているが Claude の一覧にまだ載っていない）と、裏だけ動いているものを数え、入力待ちは含めない。
 確認待ちは、TODO の完了の候補と、セッションの状態の提案（「Done にする？」「Paused に 10/3（土）？」）の合計である。
 0 件の群は薄い札にして押せない。
@@ -2512,6 +2542,16 @@ Windows のパス（`C:\…`、`\\server\…`、`~\…`）も同じに縮め、�
 TODO の行は半分塗りの印、本文、プロジェクト名と経過時間、根拠の一文（無ければ「根拠は書かれていません」）、「確定」「却下」を置き、本文を押すとそのプロジェクトの画面へ移る。
 セッションの提案の行は枠だけの札（「Done にする？」など）、名前、根拠を置き、「確定」「日付を変更」（Paused のときだけ）「却下」を押せる。
 ボタンの読み上げの名前は見える語と相手の名前を含む（「確定、窓を掴める（alpha）」）。別のプロジェクトに同じ本文の候補があっても、名前は 1 つに決まる。
+
+帯と引き出しの動きは、2026-10-11 に利用者が試作（要素ごとに今と案を並べて再生で比べる頁）から選んだ（`views/HomeBand.tsx`、`views/HomeScreen.tsx`）。
+新しい動きは作らず、「セッション画面の動き」の節の共通の部品とトークンだけを使う。reduced motion ではどれも即座に替わる。
+- 引き出しの開閉：開くと高さと余白を 0 から伸ばし（`growIn`）、下の一覧は押されて滑る。閉じると畳んで出る（`collapseOut`、`usePresence`）。閉じる間は前の中身のまま描き、役も焦点も読み上げも持たせない。
+- 群の切替：引き出しの高さを前の高さから補間し（`resizeFrom`。前の高さは錠剤を押した時点で測る）、中身を `--dur-fast` で薄れから現す。伸びも畳みもしない。
+- 引き出しの行：来た行は伸びて入り、解けた行は畳んで出る（`useMotionList` の grow。群を `scope` にし、群を替えた描画は動かさない）。要対応、今日戻る、実行中、確認待ち、始める前の確認の行に共通である。並びが替わっても滑らせず、上がった行の地だけを淡い黄から薄れさせる（`flip: false` と `hitRisen`。一覧の並び替えと同じ考えで、実行中の並びが数秒おきに替わるため）。
+- 件数：錠剤の数（`CountChip` の `rolling`）、状態のタブの数、一覧の見出しの「セッション N 件」の数字は `RollingText` で回す。見出しは数字だけを回し、「件」は動かさない。数字を入れる箱は行の高さを 1.2em にそろえる（数字が下がらないように）。
+- 帯と「実行中のセッションはありません」の入れ替え：2 つを外の箱（`.home-top`）に入れ、箱の高さを前の高さから補間し、入る方を `--dur-fast` で薄れから現す。
+- 始める前の確認：進みの棒は幅を `--dur` で伸ばし、通った行は引き出しの行として畳んで出る。群が消えたら引き出しが畳んで出る（ほかの群も 0 件なら、帯と 1 行の入れ替えになる）。
+- 検索の最中：引き出しは畳んで閉じ、終われば伸びて戻る。帯の右端の注記は `--dur-fast` で薄く出入りする（`fadeIn`、`fadeOut`）。
 
 引き出しの行の「いま何をしているか」と「待っている問い」は、サーバが索引の追記を読む経路（`indexFile`）で主線の出来事を畳んで取り出す。
 最後の `tool_call` の名前と要約を残し、それが AskUserQuestion なら入力の最初の問いの文も残す。
@@ -2558,6 +2598,12 @@ Home を開いたときにトランスクリプトを読み直すことはしな
 一覧は窓の下端までの残りの高さを受け取り（`.screen-fill`）、下限（200px）より低い窓ではページがスクロールする。
 引き出しが開いている間は一覧に使える高さが減る。1 行は 56px なので、窓の高さ 800 で要対応の引き出しを 3 行開いたとき、一覧は 4 行ほど見える。要対応が 2 件のふつうの朝は 6 行ほど見える（撮って確かめた）。
 行を押すか Enter でセッション画面を開く。行と実行中の行は、開くときに行がセッション画面の上段へ広がる動きの出発点になる（`data-morph-id`）。
+
+一覧の動き（2026-10-11 に利用者が試作から選んだ。プロジェクトの画面の一覧も同じ部品である）。
+- 並び替えと差し込み：同じタブ、条件、ページのまま並びが替わったら、並びはいきなり替え、上がった行と新しく来た行の地だけを淡い黄から薄れさせる（`VirtualList` の `scope`、`markHit`。上がった行は、前と今の両方にある行の互いの順で前へ出た行で、`motionKit.ts` の `risenKeys` が決める）。行は滑らせない。
+  はじめは行を滑らせる案（a）を入れたが、実データでは実行中のセッションの並びが数秒おきに入れ替わり、そのたびに上の数行が動いて目がうるさいので、2026-10-11 に利用者が淡い黄だけの案（c）に替えた。
+- タブ、語、条件、ページ、1 ページの件数を替えた描画は、一覧をいきなり替え、印も付けない（`scope` が替わった描画）。最初の描画、空から埋まった描画、行が全部替わった描画も印を付けない。
+- 選んだタブとページの塗りは 1 つだけ敷き、選び直すと塗りが前の位置から滑る（`views/primitives/useThumb.ts`。設定の切替の `Segmented` と同じ作りで、タブの帯は折り返すので縦も合わせる）。
 
 ### Projects
 
@@ -2920,8 +2966,8 @@ DOM に載る行の数は件数によらず一定で、「追う」と「もっ�
 - reduced motion ではトークンが 0 になり、すべて即座になる。`el.animate` の無い環境（jsdom）では何もせず最後の形にする。
 
 部品は `views/primitives/` に置く。
-- `motionKit.ts`：入る形（`riseIn`、`fadeIn`）、伸びて入る形（`growIn`）、畳んで出る形（`collapseOut`）、滑り（`slideFrom`）、状態の印の膨らみ（`popMark`）、地の淡い黄の薄れ（`markHit`）。
-- `useMotionList.ts`：リストの出入りをまとめるフック。消えた key は `leaving` として畳み終わるまで描き続け、出る途中で戻った key は元へ戻す。FLIP は残った key（前の描画と今の描画の両方にある key）の並びが変わったときだけ走る。足したり消したりしただけの描画では滑らせない。`scope` が替わった描画と、空の一覧からの描画（前が 0 件）は、出る行も入る動きも作らない。先頭への足し（古いものの読み込み）を動かさない `ignorePrepended` も持つ。
+- `motionKit.ts`：入る形（`riseIn`、`fadeIn`。`fadeIn` は長さのトークンを選べる）、薄れて消える形（`fadeOut`）、伸びて入る形（`growIn`）、畳んで出る形（`collapseOut`。`fade: false` で高さだけを畳む）、高さの補間（`resizeFrom`）、横へ抜ける形（`slideAway`）、上がった行の key（`risenKeys`）、滑り（`slideFrom`）、状態の印の膨らみ（`popMark`）、地の淡い黄の薄れ（`markHit`）。
+- `useMotionList.ts`：リストの出入りをまとめるフック。消えた key は `leaving` として畳み終わるまで描き続け、出る途中で戻った key は元へ戻す。FLIP は残った key（前の描画と今の描画の両方にある key）の並びが変わったときだけ走る。足したり消したりしただけの描画では滑らせない。`scope` が替わった描画と、空の一覧からの描画（前が 0 件）は、出る行も入る動きも作らない。先頭への足し（古いものの読み込み）を動かさない `ignorePrepended` も持つ。入りを動かさない `enter: 'none'`、出る形を差し替える `exit`、空になる描画でも出す `exitWhenEmpty` は、右下の知らせが使う。並びが替わった描画で上がった行に `markHit` を付ける `hitRisen` は、ホームの引き出しが使う。
 - `usePresence.ts`：単独の部品の出入り。開き直したときは、出る動きを取り消して戻す。取り消すのは Web Animations だけで、CSS の animation と transition（灯の脈など）は止めない。
 - `layoutMotion.ts`：動いている箱に `data-layout-moving` を付け、`TerminalPane` はその間 fit を見送る。印は要素ごとに数え、`begin` で増やし `end` で減らし、0 になったときだけ印を外して `hangar:layout-settled` を出す。端末はそこで 1 回だけ fit する。重なった動きの片方が先に終わっても印は残る。
 - `paneMotion.ts`：右パネル（目次）の開閉（`PANE_SHAPE.toc`）。列の計算値（px）を前後で測って `gridTemplateColumns` と `columnGap` を滑らせる。動いている間、欄の中身は開いたときの幅に留めて、折り返さずに端で切る（「下へ潜る」）。閉じるときは中身を `--dur-exit`、`--ease-in` で薄れさせてぼかす。開くときはぼかしが 35% で晴れながら現れる。
@@ -3040,7 +3086,10 @@ MCP の登録の有無は `~/.claude.json` の `mcpServers.hangar` を読んで�
 `live.update` は Claude のセッションの id で届くので、hangar のセッションへの引き当てはストアが済ませている。
 ランタイムは、ストアが変わるたびに、変わったことだけを Mediator へ知らせる（入力 `{ kind: 'store' }`、中身は運ばない）。
 Mediator は前に見た顔ぶれと比べ、入力待ちの顔ぶれが変わったときだけ動く。
-数え方は `liveFilterOf` である。
+数え方は `liveFilterOf` で、Done と Archived にしたセッションは外す（`awaitsAnswer`）。
+問いで待っている最中に区切りを付けても、Claude は休みではないので止まらず、一覧の live は `waiting` のまま残る。
+そのままではカード、通知センターの知らせ、ホームの要対応が残り続けるので、区切りを付けた時点で顔ぶれから外す。
+Paused は戻ってくるものなので外さない。
 
 新たに入力待ちになったセッションは、右下に 1 件 1 枚のカードとして積む。
 カードには赤い縦の帯、名前、待っている時間、プロジェクト、問い（2 行まで、取れなければ「入力を待っています」）、「ターミナルで答える」を置く。
@@ -3551,6 +3600,8 @@ reduced motion では長さと移動とぼかしのトークンが 0 になり�
 - ボタンはホバーで 1px 浮き、押すと 97% に縮む（`--dur-fast`）。
 - 折りたたみ、分割の幅、数字の回転、新着への追従は、長さと曲線だけをトークンに揃える。
 - セッション画面の右の欄、目次、タブ、案内の帯の出入りは、共通の部品（`views/primitives/motionKit.ts` ほか）で動かす（「セッション画面の動き」の節）。
+- Home の帯、引き出し、件数、タブとページの塗りも同じ部品で動かす。一覧と引き出しの並び替えは滑らせず、上がった行と新しい行に淡い黄の印を付ける（「Home の帯と引き出し」「Home の一覧」の節）。
+- 右下の知らせ（全画面共通）は、右から滑って入る（CSS の slide）。出るときは右へ 28px（ガラスが横から入る距離と同じ）抜けて薄れ、そのあと高さだけを畳んで外す（`ToastStack.tsx`、`slideAway` と `collapseOut` の `fade: false`、`useMotionList` の `exit`）。最後の 1 枚が消えるときも同じに動かす（`exitWhenEmpty`）。ほかの札は押されて詰まる。札の間は gap ではなく札ごとの上の余白で空け、出る札が余白ごと畳まれるので、外れた瞬間に間が跳ばない。出る間の札は前の中身のまま描き、役も焦点も持たない。
 
 シマー、スケルトン、タイピング風の表示は使わない。
 例外は、セッションを開いた直後の目次の仮の行だけである（「セッション画面の動き」の節）。

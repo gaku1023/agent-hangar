@@ -3,7 +3,7 @@
 import { ClipboardAddon, type IClipboardProvider } from '@xterm/addon-clipboard';
 import type { Terminal } from '@xterm/xterm';
 import { describe, expect, it, vi } from 'vitest';
-import { NEWLINE_SEQ, clipboardProvider, createKeyHandler, terminalOptions } from './xtermSetup.ts';
+import { NEWLINE_SEQ, clipboardProvider, createKeyHandler, guardEmptyCopy, terminalOptions } from './xtermSetup.ts';
 
 type KeyInit = { type?: string; key: string; code?: string; shiftKey?: boolean; altKey?: boolean; ctrlKey?: boolean; metaKey?: boolean; isComposing?: boolean; keyCode?: number };
 function key(init: KeyInit) {
@@ -193,5 +193,38 @@ describe('clipboardProvider', () => {
     await expect(send('c;aGVsbG8=')).resolves.toBeUndefined();
     const sync = withAddon(() => { throw new TypeError('navigator.clipboard is undefined'); });
     await expect(sync.send('c;aGVsbG8=')).resolves.toBeUndefined();
+  });
+});
+
+describe('guardEmptyCopy', () => {
+  const copyEvent = () => new Event('copy', { bubbles: true, cancelable: true });
+
+  it('xterm が写さなかった（選択が空の）コピーは既定の動きを止め、WebKit に警告音を鳴らさせない', () => {
+    const el = document.createElement('div');
+    guardEmptyCopy(el);
+    const e = copyEvent();
+    el.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it('xterm が選択を写したコピーには手を出さない', () => {
+    const el = document.createElement('div');
+    // xterm は自分の選択があれば clipboardData に書いて preventDefault する。その後ろに付く。
+    const xtermCopy = vi.fn((e: Event) => e.preventDefault());
+    el.addEventListener('copy', xtermCopy);
+    guardEmptyCopy(el);
+    const e = copyEvent();
+    const spy = vi.spyOn(e, 'preventDefault');
+    el.dispatchEvent(e);
+    expect(xtermCopy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('返した関数で外せる', () => {
+    const el = document.createElement('div');
+    guardEmptyCopy(el)();
+    const e = copyEvent();
+    el.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
   });
 });

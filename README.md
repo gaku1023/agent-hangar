@@ -122,9 +122,16 @@ echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zshrc
 4. `hangar` コマンドを使えるようにして、初期設定を走らせます。
 
    ```sh
+   sudo mkdir -p /usr/local/bin
    sudo ln -sf /Applications/Hangar.app/Contents/Resources/server/bin/hangar /usr/local/bin/hangar
    hangar setup
    ```
+
+   まっさらな Mac（特に Apple silicon）には `/usr/local/bin` がまだありません。
+   1 行目の `mkdir -p` はそのためで、すでにあれば何も起こりません。
+   これを省くと、`ln` が「No such file or directory」で止まります。
+   `/usr/local/bin` は macOS の初めからの `PATH` に入っているので、作れば `hangar` はそのまま呼べます。
+   `sudo` を使いたくないときは、Homebrew の `/opt/homebrew/bin` に同じリンクを張っても構いません（そこが `PATH` にあることが前提です）。
 
    `bin/hangar` はリンク越しに呼ばれても自分の実体を辿るので、同梱物と Node を見失いません。
    `hangar setup` は `~/.agent-hangar` を用意し、tmux と claude と code の有無を報告します。

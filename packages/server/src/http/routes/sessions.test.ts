@@ -113,6 +113,22 @@ describe('routes', () => {
     expect(await total('waiting')).toBe(1);
     expect(await total('running')).toBe(0);
   });
+  it('検索の is:waiting は、問いの最中に Done や Archived にしたものを入力待ちに数えず、実行中（休み）に数える', async () => {
+    const { body: sessions } = await json(await get('/api/sessions'));
+    const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
+    const waiting: LiveSessionDto = { sessionId: SESSION_ALPHA, status: 'waiting', name: null, nameSource: null, cwd: ws, pid: 1 };
+    app = createApp({ ...deps, live: () => [waiting] });
+    const total = async (live: string) => (await json(await get(`/api/search?q=channels&live=${live}`))).body.total;
+    expect(await total('waiting')).toBe(1);
+    for (const status of ['done', 'archived'] as const) {
+      setSessionState(db, 'd', alpha.id, { status, setBy: 'user' });
+      expect([status, await total('waiting')]).toEqual([status, 0]);
+      expect([status, await total('running')]).toEqual([status, 1]);
+    }
+    // Paused は戻ってくるので、入力待ちのまま数える。
+    setSessionState(db, 'd', alpha.id, { status: 'paused', returnOn: '2027-01-01', setBy: 'user' });
+    expect(await total('waiting')).toBe(1);
+  });
   it('検索は、区切りを付けて休みのまま残っているものを実行中にも Active にも数えない', async () => {
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
@@ -304,6 +320,16 @@ describe('セッションの状態', () => {
     // 論理削除したセッションも見つからない扱いにする。
     softDeleteShared(db, 'sessions', id, 'd');
     expect((await send(`/api/sessions/${id}/state`, { status: 'done' }, 'PUT')).status).toBe(404);
+  });
+  it('PUT で Paused に戻る日を付けないと、400 と理由の一文を返す（本文は空にしない）', async () => {
+    const id = alphaId();
+    for (const body of [{ status: 'paused' }, { status: 'paused', returnOn: '' }, { status: 'paused', note: '明日見る' }]) {
+      const r = await send(`/api/sessions/${id}/state`, body, 'PUT');
+      expect([JSON.stringify(body), r.status]).toEqual([JSON.stringify(body), 400]);
+      expect(r.headers.get('content-type')).toContain('application/json');
+      expect([JSON.stringify(body), await r.json()]).toEqual([JSON.stringify(body), { error: 'Paused にはリマインダーの日付が要ります' }]);
+    }
+    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
   });
   it('confirm は提案を状態にし、日を変えればその日にする。提案が無ければ 409', async () => {
     const id = alphaId();

@@ -1,9 +1,9 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
-import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPastMinutes, type UiAction, type LiveStatus, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, localDate, overdueDays, quietLive, returnDue, returnPastMinutes, type UiAction, type LiveStatus, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
-import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -96,7 +96,8 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
   const alive = runningSessionIds(store);
 
   // 長く待っているものほど先に答えたいので、最後に動いた時刻の古い順に並べる。
-  const waiting = sessions.filter((s) => s.live === 'waiting').sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
+  // Done と Archived にしたものは、live が waiting のままでも出さない（store.ts の awaitsAnswer）。
+  const waiting = sessions.filter(awaitsAnswer).sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
   const attention = waiting.map((s) => ({ id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? noQuestionText(t), answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s) }));
 
   const returning = returningCards(store, now, alive);
@@ -120,15 +121,17 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     // 対象が取れない呼び出し（答えた後の AskUserQuestion など）は summary にツール名が入る。同じ語を 2 度並べないよう空にする。
     // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
     // 裏だけ動いているときは、本体の手も意図も今のものではないので出さず、裏のものと指揮役が空いていることを言う。
-    const aside = asideOf(s.live, s.liveAside);
-    const working = s.live === 'busy' && aside === null;
+    // 動きは、入力待ちの数え方と同じ規則を通す。Done と Archived にした入力待ちは休みとして出す（store.ts の shownLive と同じ quietLive）。
+    const live = quietLive(s.live, s.state?.status);
+    const aside = asideOf(live, s.liveAside);
+    const working = live === 'busy' && aside === null;
     const activity = working && s.activity ? { tool: s.activity.tool, summary: shortenPaths(stripLeadingTool(s.activity.tool, s.activity.summary)) } : null;
-    const note = activity ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : s.live === 'idle' ? t('home.card.idleNote', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : s.live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
+    const note = activity ? null : aside ? t('home.card.asideNote', { head: asideHead(t, aside), free: asideFree(t) }) : live === 'idle' ? t('home.card.idleNote', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : live === 'busy' ? t('home.card.workingNote') : t('home.card.startingNote');
     const meta = [projectName(s) ?? t('common.label.uncategorized'), shortModel(s.stats.model), s.stats.effort ?? ''].filter((x) => x !== '').join(' · ');
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
     const said = store.liveDigests[s.id]?.intent;
     const intent = working && said && said.inThisTurn ? said.text : null;
-    return { id: s.id, name: name(s), live: s.live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent) };
+    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent) };
   });
 
   return { attention, returning, confirm, running };
