@@ -25,7 +25,7 @@
       /* macOS の窓の左上には信号の 3 点が重なる（UI の --lights-end と同じ 81px）。ヘッダーの高さ 44px の中にロゴを置く。
          殻は macOS でだけ data-shell の印を付ける。Windows の窓は標準の枠なので、UI の既定の余白（16px）から始める。 */
       body[data-fail] { box-sizing: border-box; padding: 44px 16px 24px; }
-      main[hidden], .fail-card[hidden], .fail-brand[hidden], .fail-cmd[hidden], .fail-detail[hidden], .fc-primary[hidden], .fail-toggle[hidden] { display: none; }
+      main[hidden], .fail-card[hidden], .fail-brand[hidden], .fail-cmd[hidden], .fail-detail[hidden], .fc-primary[hidden], .fail-toggle[hidden], .fail-update[hidden], .fu-bar[hidden], .fu-note[hidden], .btn[hidden], .btn-mini[hidden] { display: none; }
       .fail-brand { position: fixed; left: 16px; top: 8px; display: flex; align-items: center; gap: 8px; height: 28px; color: var(--ink); font-weight: 700; }
       [data-shell='desktop'] .fail-brand { left: 81px; }
       .fail-brand img { width: 28px; height: 28px; }
@@ -55,14 +55,26 @@
       .faint { font-weight: 400; color: var(--ink-3); }
       #fail-detail { grid-area: body; box-sizing: border-box; min-height: 0; max-height: 100%; margin: 0; padding: 4px 10px 8px; overflow: auto; font: 11px/1.6 ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
       #fail-copy-all { grid-area: copy; margin: 4px 6px 0 0; }
-      .fc-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eceef5; }
+      /* 札の中の更新の帯（boot.js の drawUpdate、boot-fail.js の updateView）。新しいバージョンは青、失敗は赤の細い縁で見せる。 */
+      .fail-update { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(74, 99, 232, 0.07); box-shadow: inset 0 0 0 1px rgba(74, 99, 232, 0.2); }
+      .fail-update[data-tone='error'] { background: rgba(179, 38, 30, 0.05); box-shadow: inset 0 0 0 1px rgba(179, 38, 30, 0.2); }
+      .fu-text { flex: 1; min-width: 0; }
+      .fail-update p.fu-title { margin: 0; font-weight: 600; color: var(--ink); }
+      .fail-update[data-tone='error'] p.fu-title { color: var(--error); }
+      .fail-update p.fu-detail { margin: 2px 0 0; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-wrap: pretty; }
+      .fu-bar { height: 4px; margin-top: 8px; border-radius: 2px; background: rgba(74, 99, 232, 0.16); overflow: hidden; }
+      .fu-bar span { display: block; width: 0; height: 100%; background: #4a63e8; transition: width 0.2s; }
+      /* 新しいバージョンが無いと分かったら、確認の釦の代わりに版の横へ添える。 */
+      .fu-note { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; color: #2b7048; }
+      .fu-note::before { content: '✓'; }
+      .fc-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #eceef5; }
       .fc-foot .faint { font-size: 11px; }
       .fc-foot .spacer { flex: 1; }
       .btn-mini { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 0; border-radius: 999px; font: 560 11px 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif; color: var(--ink-2); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 2px rgba(30, 40, 90, 0.14); cursor: pointer; white-space: nowrap; }
       /* 札の操作は Tab で巡る。焦点は輪で見せる。 */
       .btn:focus-visible, .btn-mini:focus-visible, .fail-toggle:focus-visible, #fail-detail:focus-visible { outline: 2px solid #4a63e8; outline-offset: 2px; }
       .btn { flex: none; display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 0; border-radius: 999px; font: 560 13px 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif; color: var(--ink); background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 0 #ffffff, 0 1px 3px rgba(30, 40, 90, 0.14); cursor: pointer; }
-      .btn:disabled { opacity: 0.55; cursor: default; }
+      .btn:disabled, .btn-mini:disabled { opacity: 0.55; cursor: default; }
       .btn-primary { color: #ffffff; background: linear-gradient(180deg, #6b8cff, #4a63e8); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 12px -4px rgba(70, 90, 230, 0.6); }
     </style>
   </head>
@@ -99,8 +111,19 @@
         <pre id="fail-detail" tabindex="0" aria-labelledby="fail-details-label"></pre>
         <button id="fail-copy-all" class="btn-mini" type="button"></button>
       </div>
+      <!-- 札の中の更新。新しいバージョンがあるとき、ダウンロードとインストールの途中、失敗したときだけ出す（boot.js の drawUpdate）。 -->
+      <div id="fail-update" class="fail-update" role="status" hidden>
+        <div class="fu-text">
+          <p id="fail-update-title" class="fu-title"></p>
+          <p id="fail-update-detail" class="fu-detail"></p>
+          <div id="fail-update-bar" class="fu-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" hidden><span></span></div>
+        </div>
+        <button id="fail-update-go" class="btn btn-primary" type="button" hidden></button>
+      </div>
       <div class="fc-foot">
         <span id="fail-env" class="faint"></span>
+        <span id="fail-update-note" class="fu-note" hidden></span>
+        <button id="boot-update" class="btn-mini" type="button"></button>
         <span class="spacer"></span>
         <button id="boot-log" class="btn" type="button"></button>
         <button id="boot-retry" class="btn btn-primary" type="button"></button>

@@ -1,7 +1,8 @@
 //! 試験のための書き出しの口。
 //! 起動画面が実際に描いた様子（札が出たか、印、種類、見出し、詳細）を、殻がファイルへ書く。
 //! CI の「Node の無い機械で、読み込み画面が失敗の札に切り替わる」段が、それを読んで確かめる。
-//! 殻が `HANGAR_BOOT_PROBE`（書き出す先のファイル）を持って起きたときだけ働き、ふだんの起動では何もしない。
+//! 試験用の feature（`boot-probe`）を立てた build で、殻が `HANGAR_BOOT_PROBE`（書き出す先のファイル）を持って起きたときだけ働き、ふだんの起動では何もしない。
+//! 配布の build は feature を立てないので、環境変数を渡されても書き出さない。
 //! 頁も、殻が `boot_state` で `probe` を真で返したときだけ書き出しを頼む（loading/boot.js の report）。
 use serde_json::Value;
 use std::ffi::OsString;
@@ -13,9 +14,21 @@ pub const ENV: &str = "HANGAR_BOOT_PROBE";
 /// 書き出す様子の大きさの上限（バイト）。頁が渡すのは短い文の 6 つだけなので、これを越えたら書かない。
 pub const LIMIT: usize = 16 * 1024;
 
+/// 書き出しの口が効く build か。CI の起動の試しの段の build だけが `--features boot-probe` で立てる。
+pub const ENABLED: bool = cfg!(feature = "boot-probe");
+
 /// 環境変数の値から、書き出す先を決める。無いか空なら書き出さない。
 pub fn target_from(v: Option<OsString>) -> Option<PathBuf> {
     v.filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
+/// 書き出す先。試験用の feature を立てていない build では、環境変数があっても書き出さない。
+pub fn target(v: Option<OsString>) -> Option<PathBuf> {
+    if ENABLED {
+        target_from(v)
+    } else {
+        None
+    }
 }
 
 /// `boot_state` の答えに、書き出しを頼むかどうか（`probe`）を添える。
@@ -59,6 +72,26 @@ mod tests {
             target_from(Some(OsString::from("/tmp/probe.json"))),
             Some(PathBuf::from("/tmp/probe.json"))
         );
+    }
+
+    // 書き出しの口は、試験用の feature（boot-probe）を立てた build だけで効く。
+    // 配布の build（release.yml）は立てないので、環境変数を渡されても書き出さない。
+    #[cfg(not(feature = "boot-probe"))]
+    #[test]
+    fn a_build_without_the_feature_ignores_the_variable() {
+        assert!(!ENABLED);
+        assert_eq!(target(Some(OsString::from("/tmp/probe.json"))), None);
+    }
+
+    #[cfg(feature = "boot-probe")]
+    #[test]
+    fn a_build_with_the_feature_reads_the_variable() {
+        assert!(ENABLED);
+        assert_eq!(
+            target(Some(OsString::from("/tmp/probe.json"))),
+            Some(PathBuf::from("/tmp/probe.json"))
+        );
+        assert_eq!(target(None), None);
     }
 
     #[test]

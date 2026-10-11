@@ -1011,23 +1011,10 @@ describe('presentSettings の検証と保存の知らせ（設定の B1 と C1�
 });
 
 describe('homePath', () => {
-  it('ホームの下を ~ で始まる形に縮める（macOS と Linux）', () => {
-    expect(homePath('/Users/taro/.claude-univ')).toBe('~/.claude-univ');
-    expect(homePath('/home/taro/.claude')).toBe('~/.claude');
-    expect(homePath('/Users/taro/work/a b')).toBe('~/work/a b');
-  });
-  it('ホームそのものは ~ にする', () => {
-    expect(homePath('/Users/taro')).toBe('~');
-    expect(homePath('/Users/taro/')).toBe('~');
-  });
-  it('ホームの下でなければそのまま返す', () => {
-    expect(homePath('/h/.claude')).toBe('/h/.claude');
-    expect(homePath('/Users')).toBe('/Users');
-    expect(homePath('/srv/Users/taro/x')).toBe('/srv/Users/taro/x');
-    expect(homePath('/homework/x')).toBe('/homework/x');
-  });
-  it('Windows のホームの下も ~ で始まる形に縮める', () => {
-    expect(homePath('C:\\Users\\taro\\.claude-univ')).toBe('~\\.claude-univ');
+  it('サーバが返したホームの下を ~ で始まる形に縮める（presenters/accounts.ts からも使える）', () => {
+    expect(homePath('/Users/taro/.claude-univ', '/Users/taro')).toBe('~/.claude-univ');
+    expect(homePath('/Users/Shared/x', '/Users/taro')).toBe('/Users/Shared/x');
+    expect(homePath('C:\\Users\\taro\\.claude-univ', 'C:\\Users\\taro')).toBe('~\\.claude-univ');
   });
 });
 

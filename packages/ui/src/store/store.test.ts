@@ -4,7 +4,7 @@ import { accountsFixture } from '../test/accounts.ts';
 import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyEventsPage, applyJoinToken, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
 const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null });
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} } };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h' };
 
 describe('索引の段階', () => {
   const progress = (phase: 'idle' | 'scanning' | 'indexing') => ({ type: 'index.progress' as const, progress: { phase, done: 0, total: 0 } });
@@ -46,6 +46,10 @@ describe('作業フォルダ', () => {
 });
 
 describe('store', () => {
+  it('サーバのホーム（bootstrap の home）を持つ。bootstrap の前は null', () => {
+    expect(initialStore().home).toBeNull();
+    expect(applyBootstrap(initialStore(), { ...boot, home: '/Users/taro' }).home).toBe('/Users/taro');
+  });
   it('bootstrap を正規化して入れる', () => {
     const s = applyBootstrap(initialStore(), boot);
     expect(s.bootstrapped).toBe(true);

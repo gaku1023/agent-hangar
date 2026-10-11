@@ -100,19 +100,21 @@ export function withTrailingSep(p: string): string {
 
 /**
  * ホームの下の置き場を、~ で始まる形に縮める。区切りは元の書き方のまま残す。
- * ホームのディレクトリは View が知らないので、`/Users/<名前>/`、`/home/<名前>/`、`<ドライブ>:\Users\<名前>\` の形で見分ける。
- * ホームの下でなければそのまま返す。
+ * ホームは呼び手が渡す（サーバが返した本当のホーム、bootstrap の home）。`/Users/<名前>` のような形から推測しない。
+ * 推測すると、`/Users/Shared` や `C:\Users\Public` のような共有の置き場までホームに見えるからである。
+ * ホームが分からない（古いサーバ、空、根だけ）ときと、ホームの下でないときは、そのまま返す。
+ * Windows の形のホームは、区切りの違いと大文字小文字を同じとみなして比べる（Windows のファイルシステムに合わせる）。
  */
-export function homePath(p: string): string {
-  const posix = /^\/(?:Users|home)\/[^/]+(?:\/(.*))?$/.exec(p);
-  if (posix) {
-    const rest = posix[1] ?? '';
-    return rest === '' ? '~' : `~/${rest}`;
-  }
-  const win = /^[A-Za-z]:([\\/])Users[\\/][^\\/]+(?:([\\/])(.*))?$/i.exec(p);
-  if (!win) return p;
-  const rest = trimEnd(win[3] ?? '');
-  return rest === '' || isRoot(rest) ? '~' : `~${win[2]}${rest}`;
+export function homePath(p: string, home: string | null | undefined): string {
+  if (!home || isRoot(home)) return p;
+  const h = trimEnd(home);
+  const win = isWindowsPath(h);
+  if (!sameHead(comparable(p, win), comparable(h, win), win)) return p;
+  const rest = p.slice(h.length);
+  const isSep = sepTest(win);
+  if (rest === '' || [...rest].every((c) => isSep(c))) return '~';
+  if (!isSep(rest[0])) return p;
+  return `~${trimEnd(rest)}`;
 }
 
 /**

@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { updateEn } from '../../../packages/shared/src/i18n/en/update.ts';
+import { updateJa } from '../../../packages/shared/src/i18n/ja/update.ts';
 
 // 起動の失敗の札の文（loading/boot-fail.js）。頁は UI の辞書を持たないので、この小さい日英の表が札の文を全部持つ。
 // 殻は種類と数だけを渡し、文はここで作る（殻は文を書かない）。
@@ -9,7 +11,17 @@ type View = {
   kind: string; lang: string; title: string; what: string; steps: string[]; lead: string | null; command: string | null; detail: string; collapsed: boolean; footer: string; copyText: string;
   labels: { whatNext: string; details: string; detailsToggle: string; logAt: string; copyAll: string; copyCommand: string; copied: string; tryAgain: string; openLog: string };
 };
-type Mod = { FAIL_KINDS: string[]; failView(info: Info): View; shellQuote(s: string): string; psQuote(s: string): string };
+type Upd =
+  | { phase: 'idle' } | { phase: 'checking' } | { phase: 'latest' } | { phase: 'available'; version: string }
+  | { phase: 'downloading'; version: string; done: number; total: number | null } | { phase: 'installing'; version: string }
+  | { phase: 'failed'; step: string; version: string | null; reason: string };
+type UpdView = {
+  check: { hidden: boolean; disabled: boolean; label: string };
+  note: string | null;
+  band: { tone: 'info' | 'error'; title: string; detail: string; action: string | null; progress: number | null; progressLabel: string } | null;
+  demote: boolean;
+};
+type Mod = { FAIL_KINDS: string[]; failView(info: Info): View & { current: string }; updateView(lang: string, u: Upd, current: string, kind?: string): UpdView; shellQuote(s: string): string; psQuote(s: string): string };
 const loading = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'loading');
 const m = (await import(pathToFileURL(path.join(loading, 'boot-fail.js')).href)) as Mod;
 
@@ -346,5 +358,103 @@ describe('命令の引用（shellQuote）', () => {
   });
   it('空の文字は空の引用', () => {
     expect(m.shellQuote('')).toBe("''");
+  });
+});
+
+// 札の中の更新（起動に失敗する版を入れた人が、UI まで届かなくても新しいバージョンを受け取る口）。
+// 語は UI の辞書（packages/shared の update.*）と同じものを使う。
+describe('札の中の更新', () => {
+  const cur = '0.2.0-rc.5';
+  const ja = (u: Upd) => m.updateView('ja', u, cur);
+  const en = (u: Upd) => m.updateView('en', u, cur);
+  const fill = (s: string, v: Record<string, string>) => s.replace(/\{(\w+)\}/g, (_, k: string) => v[k] ?? '');
+  it('まだ確かめていなければ、下端に「更新を確認」だけを出す', () => {
+    expect(ja({ phase: 'idle' })).toEqual({ check: { hidden: false, disabled: false, label: '更新を確認' }, note: null, band: null, demote: false });
+    expect(en({ phase: 'idle' }).check.label).toBe('Check for updates');
+  });
+  it('確かめている間は、押せない「確認中…」にする', () => {
+    expect(ja({ phase: 'checking' }).check).toEqual({ hidden: false, disabled: true, label: '確認中…' });
+    expect(en({ phase: 'checking' }).check.label).toBe('Checking…');
+  });
+  it('新しいバージョンが無ければ、確認の釦を退けて「最新」と添える', () => {
+    const v = ja({ phase: 'latest' });
+    expect(v.check.hidden).toBe(true);
+    expect(v.note).toBe('最新');
+    expect(v.band).toBeNull();
+    expect(en({ phase: 'latest' }).note).toBe('Up to date');
+  });
+  it('新しいバージョンがあれば、札の中に帯を出し、ダウンロードしてインストールを主の釦にする', () => {
+    const v = ja({ phase: 'available', version: '0.2.1' });
+    expect(v.check.hidden).toBe(true);
+    expect(v.demote).toBe(true);
+    expect(v.band).toMatchObject({ tone: 'info', title: 'Hangar 0.2.1 を利用できます', action: 'ダウンロードしてインストール', progress: null });
+    expect(v.band!.detail).toContain('現在は 0.2.0-rc.5 です。');
+    expect(en({ phase: 'available', version: '0.2.1' }).band).toMatchObject({ title: 'Hangar 0.2.1 is available', action: 'Download and install' });
+  });
+  // Node が無いときは、新しいバージョンを入れても Node は入らない。直ると言わず、今の版だけを言う。
+  it('Node が無いときの札では、新しいバージョンで直るとは言わない', () => {
+    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'node-missing').band!.detail).toBe('現在は 0.2.0-rc.5 です。');
+    expect(m.updateView('en', { phase: 'available', version: '0.2.1' }, cur, 'node-missing').band!.detail).toBe('You have 0.2.0-rc.5.');
+    expect(m.updateView('ja', { phase: 'available', version: '0.2.1' }, cur, 'server-exited').band!.detail).toContain('直っていることがあります');
+  });
+  it('ダウンロード中は進みを出し、大きさが分からなければ文だけにする', () => {
+    const v = ja({ phase: 'downloading', version: '0.2.1', done: 25, total: 100 });
+    expect(v.band).toMatchObject({ tone: 'info', title: 'Hangar 0.2.1', detail: '25%', action: null, progress: 0.25, progressLabel: 'ダウンロードの進み具合' });
+    expect(v.demote).toBe(true);
+    expect(ja({ phase: 'downloading', version: '0.2.1', done: 25, total: null }).band).toMatchObject({ detail: 'ダウンロードしています…', progress: null });
+  });
+  it('インストール中は、終わると再起動することを言う', () => {
+    const v = ja({ phase: 'installing', version: '0.2.1' });
+    expect(v.band).toMatchObject({ title: 'Hangar 0.2.1', action: null });
+    expect(v.band!.detail).toContain('インストールしています…');
+    expect(v.band!.detail).toContain('再起動');
+  });
+  it('確認に失敗したら、理由を帯に出し、もう一度確かめられるよう確認の釦を戻す', () => {
+    const v = ja({ phase: 'failed', step: 'check', version: null, reason: 'network' });
+    expect(v.check).toEqual({ hidden: false, disabled: false, label: '更新を確認' });
+    expect(v.demote).toBe(false);
+    expect(v.band).toMatchObject({ tone: 'error', title: '更新を確認できませんでした', detail: 'ネットワークか配布元に接続できませんでした。', action: null });
+  });
+  it('ダウンロードかインストールに失敗したら、いまのバージョンは変わらないことと理由を出し、やり直せるようにする', () => {
+    const d = ja({ phase: 'failed', step: 'download', version: '0.2.1', reason: 'signature' });
+    expect(d.band).toMatchObject({ tone: 'error', title: 'ダウンロードできませんでした', detail: 'いまのバージョン 0.2.0-rc.5 は変わりません。署名を確認できませんでした。', action: 'ダウンロードしてインストール' });
+    expect(d.check.hidden).toBe(true);
+    expect(d.demote).toBe(true);
+    const i = ja({ phase: 'failed', step: 'install', version: '0.2.1', reason: 'permission' });
+    expect(i.band).toMatchObject({ title: 'インストールできませんでした', detail: 'いまのバージョン 0.2.0-rc.5 は変わりません。インストールの許可が得られませんでした。' });
+    // 知らない理由は other と読む。
+    expect(ja({ phase: 'failed', step: 'install', version: '0.2.1', reason: 'what' }).band!.detail).toContain('詳しくはログを確認してください。');
+  });
+  it('語は UI の辞書（update.*）と同じ', () => {
+    for (const [lang, d] of [['ja', updateJa], ['en', updateEn]] as const) {
+      const u = (x: Upd) => m.updateView(lang, x, cur);
+      expect(u({ phase: 'idle' }).check.label).toBe(d['update.settings.check']);
+      expect(u({ phase: 'checking' }).check.label).toBe(d['update.settings.checking']);
+      expect(u({ phase: 'latest' }).note).toBe(d['update.settings.badgeLatest']);
+      const a = u({ phase: 'available', version: '9.9.9' }).band!;
+      expect(a.title).toBe(fill(d['update.card.availableTitle'], { version: '9.9.9' }));
+      expect(a.detail.startsWith(fill(d['update.card.availableDetail'], { current: cur }))).toBe(true);
+      expect(a.action).toBe(d['update.card.download']);
+      expect(u({ phase: 'downloading', version: '9.9.9', done: 1, total: null }).band!.detail).toBe(d['update.card.downloadingUnknown']);
+      expect(u({ phase: 'downloading', version: '9.9.9', done: 1, total: 4 }).band!.detail).toBe(fill(d['update.card.percent'], { n: '25' }));
+      expect(u({ phase: 'installing', version: '9.9.9' }).band!.detail.startsWith(d['update.card.installingDetail'])).toBe(true);
+      expect(u({ phase: 'failed', step: 'download', version: '9.9.9', reason: 'network' }).band!.title).toBe(d['update.card.failedDownload']);
+      expect(u({ phase: 'failed', step: 'install', version: '9.9.9', reason: 'other' }).band!.detail).toBe(fill(d['update.card.failedDetail'], { current: cur, reason: d['update.reason.other'] }));
+    }
+  });
+  it('英語の帯と釦には日本語が混ざらない', () => {
+    const all: Upd[] = [{ phase: 'idle' }, { phase: 'checking' }, { phase: 'latest' }, { phase: 'available', version: '1' }, { phase: 'downloading', version: '1', done: 1, total: 2 }, { phase: 'installing', version: '1' }, { phase: 'failed', step: 'check', version: null, reason: 'network' }, { phase: 'failed', step: 'download', version: '1', reason: 'signature' }];
+    for (const u of all) {
+      const v = en(u);
+      const text = [v.check.label, v.note ?? '', v.band?.title ?? '', v.band?.detail ?? '', v.band?.action ?? '', v.band?.progressLabel ?? ''].join('\n');
+      expect(text, u.phase).not.toMatch(KANA_KANJI);
+    }
+  });
+  it('知らない言語は日本語で出す', () => {
+    expect(m.updateView('fr', { phase: 'idle' }, cur).check.label).toBe('更新を確認');
+  });
+  it('札の材料は、殻が渡した動いている版をそのまま持つ（帯の文に使う）', () => {
+    expect(view('other', { version: '0.2.0-rc.5' }).current).toBe('0.2.0-rc.5');
+    expect(view('other', { version: undefined }).current).toBe('');
   });
 });

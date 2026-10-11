@@ -87,10 +87,12 @@ jobs:
       # 配布物（NSIS のインストーラ）を作り、入れて、同梱の hangar.cmd が動くところと、殻を起こすとサーバが応えるところまで見る（段 6 の 6-8）。
       # 手順は release の windows ジョブと同じものを、composite action の 1 か所で持つ。
       # 署名はしない（利用者の決定）。Release には上げず、この実行の artifact に 7 日だけ残す。
+      # 下の起動の試しの段が使うので、試験のための書き出しの口（bootprobe.rs）を効かせる feature を立てる。release は立てない。
       - id: installer
         uses: ./.github/actions/windows-installer
         with:
           target: x86_64-pc-windows-msvc
+          features: boot-probe
       - uses: actions/upload-artifact@v7
         with:
           name: Hangar-windows-x64-setup
@@ -149,8 +151,9 @@ jobs:
       # 撮れた画面（boot-screen.png）と殻の記録は、実行の artifact に 7 日だけ残す。
       - name: UI とサーバをビルドする
         run: npm run build
+      # 試験のための書き出しの口（bootprobe.rs）は、試験用の feature を立てた build だけで効く。配布の build（release.yml）は立てない。
       - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
-        run: npm run tauri -- build --bundles app
+        run: npm run tauri -- build --bundles app --features boot-probe
         working-directory: apps/desktop
       - name: Node の無い Mac で、読み込み画面が失敗の札に切り替わる
         timeout-minutes: 3

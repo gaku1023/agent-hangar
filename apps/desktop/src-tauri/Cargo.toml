@@ -9,6 +9,12 @@ rust-version = "1.80"
 name = "hangar_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# 試験のための書き出しの口（src/bootprobe.rs）を効かせる。
+# CI の起動の試しの段の build だけが --features boot-probe で立て、配布の build（release.yml）は立てない。
+# CI の段も配布も release の build なので、debug_assertions では分けられない。
+[features]
+boot-probe = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
