@@ -352,6 +352,7 @@ impl LanguageFrom {
 /// 1. 設定の `language`（ja か en）。
 /// 2. 設定はオブジェクトとして読めるが `language` が無い（知らない値も含む）なら日本語。
 /// 3. 設定が無いか読めなければ、OS の表示言語。読めなければ英語。
+///
 /// OS には、要るときにだけ聞く。
 pub fn decide_language(
     settings: Option<&str>,
