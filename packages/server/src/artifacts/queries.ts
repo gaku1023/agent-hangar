@@ -7,6 +7,8 @@ import { MessageError, msg } from '../i18n/message.ts';
 
 /** 入力の誤り。呼び手はこれだけを 400 にし、ほかの失敗は 500 にする。 */
 export class ArtifactInputError extends MessageError {}
+/** 同じ URL が、今も一覧にある別のプロジェクトに付いている。呼び手は 409 にする。 */
+export class ArtifactConflictError extends MessageError {}
 
 type Row = { id: string; project_id: string | null; url: string; title: string | null; description: string | null; favicon: string | null; first_published_at: number; last_published_at: number };
 type VersionRow = { artifact_id: string; session_id: string; file_path: string | null; published_at: number };
@@ -72,7 +74,11 @@ type StoredRow = Row & { deleted_at: number | null };
 /**
  * 利用者が手で足す URL。
  * 版は作らない。
- * 同じ URL が既にあればそれを返し、消してあったものは足し直しとみなして復活させる。
+ * 同じ URL が既にあるときは、付いているプロジェクトで分ける。
+ * - 同じプロジェクトなら、既存をそのまま返す。
+ * - どのプロジェクトにも付いていない、または外した（論理削除した、行が無い）プロジェクトに付いていたなら、いま渡されたプロジェクトへ付け替える。
+ * - 今も一覧にある別のプロジェクト（アーカイブ済みを含む）に付いているなら、黙って無視せず ArtifactConflictError で断る。
+ * 消してあったものは足し直しとみなして復活させる。
  */
 export function addManualArtifact(db: Db, deviceId: string, projectId: string, url: string, now: number = Date.now()): ArtifactDto {
   let parsed: URL;
@@ -84,11 +90,15 @@ export function addManualArtifact(db: Db, deviceId: string, projectId: string, u
   if (parsed.hostname !== 'claude.ai' || !ARTIFACT_URL_RE.test(url)) throw new ArtifactInputError(msg('artifact.url.notArtifact'));
   const clean = ARTIFACT_URL_RE.exec(url)![0];
   const cur = db.prepare('select * from artifacts where url = ?').get(clean) as StoredRow | undefined;
-  if (cur && cur.deleted_at === null) return getArtifact(db, cur.id)!;
+  if (cur && cur.deleted_at === null && cur.project_id === projectId) return getArtifact(db, cur.id)!;
+  if (cur && cur.deleted_at === null && cur.project_id !== null) {
+    const holder = db.prepare('select name from projects where id = ? and deleted_at is null').get(cur.project_id) as { name: string } | undefined;
+    if (holder) throw new ArtifactConflictError(msg('artifact.error.attachedElsewhere', { project: holder.name }));
+  }
   const id = cur?.id ?? newId();
   upsertShared(db, 'artifacts', {
     id,
-    // 消してあったものを足し直すときも、いま渡されたプロジェクトに付け替える。
+    // 消してあったものを足し直すときも、外したプロジェクトに付いていたものも、いま渡されたプロジェクトに付け替える。
     project_id: projectId,
     url: clean,
     title: cur?.title ?? null,

@@ -60,7 +60,7 @@ export function ProjectScreen(props: ProjectProps) {
           </section>
           <section className="rail-panel">
             <h2 className="rail-h"><span>{t('projectScreen.rail.artifacts')}</span><span className="rail-n num">{props.artifacts.length}</span></h2>
-            <ArtifactCards projectId={props.id} artifacts={props.artifacts} canAdd />
+            <ArtifactCards projectId={props.id} artifacts={props.artifacts} canAdd addError={props.artifactAddError} />
           </section>
         </aside>
       )}

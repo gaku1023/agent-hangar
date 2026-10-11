@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { recordArtifactPublish } from './extract.ts';
-import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from './queries.ts';
+import { addManualArtifact, ArtifactConflictError, ArtifactInputError, getArtifact, listArtifacts } from './queries.ts';
 
 function seed() {
   const db = openDb(':memory:');
@@ -51,7 +51,8 @@ describe('artifacts/queries', () => {
     const { db, a, tmp } = seed();
     const m = addManualArtifact(db, 'd', 'p1', 'https://claude.ai/code/artifact/manual-1', 500);
     expect(m).toMatchObject({ projectId: 'p1', title: null, versionCount: 0, sessionIds: [], firstPublishedAt: 500, lastPublishedAt: 500 });
-    expect(addManualArtifact(db, 'd', 'p2', 'https://claude.ai/code/artifact/a').id).toBe(a);
+    // 同じプロジェクトに同じ URL を足し直しても、既存をそのまま返す。
+    expect(addManualArtifact(db, 'd', 'p1', 'https://claude.ai/code/artifact/a').id).toBe(a);
     // 入力の誤りは ArtifactInputError で返す。呼び手はこれだけを 400 にする。
     expect(() => addManualArtifact(db, 'd', 'p1', 'https://example.com/x')).toThrow(ArtifactInputError);
     expect(() => addManualArtifact(db, 'd', 'p1', 'https://example.com/x')).toThrow(/claude\.ai/);
@@ -83,5 +84,61 @@ describe('artifacts/queries', () => {
     expect(again.projectId).toBe('p2');
     expect(listArtifacts(db).map((x) => x.id)).toContain(a);
     fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  describe('すでにある URL を足すとき', () => {
+    const url = 'https://claude.ai/code/artifact/a';
+
+    it('外したプロジェクト（論理削除）に付いていたら、いま渡したプロジェクトへ付け替える', () => {
+      const { db, a, tmp } = seed();
+      db.prepare("update projects set deleted_at = 1 where id = 'p1'").run();
+      const r = addManualArtifact(db, 'd', 'p2', url, 900);
+      expect(r).toMatchObject({ id: a, projectId: 'p2' });
+      expect(getArtifact(db, a)!.projectId).toBe('p2');
+      expect(listArtifacts(db, { projectId: 'p2' }).map((x) => x.id)).toContain(a);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it('どのプロジェクトにも付いていなければ、付ける', () => {
+      const { db, a, tmp } = seed();
+      db.prepare('update artifacts set project_id = null where id = ?').run(a);
+      expect(addManualArtifact(db, 'd', 'p2', url).projectId).toBe('p2');
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it('行の無いプロジェクトに付いていても、付け替える', () => {
+      const { db, a, tmp } = seed();
+      db.pragma('foreign_keys = off');
+      db.prepare("update artifacts set project_id = 'gone' where id = ?").run(a);
+      expect(addManualArtifact(db, 'd', 'p2', url).projectId).toBe('p2');
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it('今も一覧にある別のプロジェクトに付いていたら、付け替えずに、そのプロジェクトの名前つきで断る', () => {
+      const { db, a, tmp } = seed();
+      const before = db.prepare('select * from artifacts where id = ?').get(a);
+      let err: unknown;
+      try { addManualArtifact(db, 'd', 'p2', url, 900); } catch (e) { err = e; }
+      expect(err).toBeInstanceOf(ArtifactConflictError);
+      expect((err as ArtifactConflictError).message).toContain('alpha');
+      expect(db.prepare('select * from artifacts where id = ?').get(a)).toEqual(before);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it('アーカイブしたプロジェクトも「一覧にある」ので、断る', () => {
+      const { db, tmp } = seed();
+      db.prepare("update projects set status = 'archived' where id = 'p1'").run();
+      expect(() => addManualArtifact(db, 'd', 'p2', url)).toThrow(ArtifactConflictError);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it('付け替えても題名・説明・版は変えない', () => {
+      const { db, a, tmp } = seed();
+      db.prepare("update projects set deleted_at = 1 where id = 'p1'").run();
+      const r = addManualArtifact(db, 'd', 'p2', url, 900);
+      expect(r).toMatchObject({ title: '実在', description: 'A2', versionCount: 2, lastPublishedAt: 300 });
+      expect(r.id).toBe(a);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
   });
 });

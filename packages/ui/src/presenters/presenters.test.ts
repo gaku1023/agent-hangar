@@ -1163,6 +1163,16 @@ describe('presentProject の右レール', () => {
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
     expect(p.isScratch).toBe(false);
   });
+  it('アーティファクトの追加が断られた理由は、そのプロジェクトの画面にだけ出す', () => {
+    const store: Store = {
+      ...initialStore(),
+      projects: { p1: { ...project('p1'), name: 'alpha' }, p2: { ...project('p2'), name: 'beta' } },
+      artifactAddError: { projectId: 'p1', url: 'https://claude.ai/code/artifact/x', message: 'だめ' },
+    };
+    expect(presentProject(initialState(), store, NOW, 'p1').artifactAddError).toEqual({ url: 'https://claude.ai/code/artifact/x', message: 'だめ' });
+    expect(presentProject(initialState(), store, NOW, 'p2').artifactAddError).toBeNull();
+    expect(presentProject(initialState(), store, NOW, 'nope').artifactAddError).toBeNull();
+  });
   it('候補の TODO は根拠とセッションと経過を出し、分からないものは決まりの文にする', () => {
     const store = storeWith();
     store.projects = { p1: { ...project('p1'), name: 'alpha' } };

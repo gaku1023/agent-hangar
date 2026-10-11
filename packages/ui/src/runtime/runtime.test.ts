@@ -904,6 +904,17 @@ describe('フェーズ 3 の効果', () => {
     expect(openArtifactEditor).toHaveBeenCalledWith('a1');
     expect(rt.getStore().artifacts.a1).toEqual(artifact);
   });
+  it('アーティファクトの追加が断られたら、トーストにはせず、理由と URL を Store に残す', async () => {
+    const addArtifact = vi.fn(async () => { throw new Error('すでにプロジェクト「alpha」に付いています'); });
+    const { rt, wsHandlers } = harness({ addArtifact });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'artifact.add', projectId: 'p1', url: 'https://claude.ai/code/artifact/x' });
+    await flush();
+    expect(rt.getStore().artifactAddError).toEqual({ projectId: 'p1', url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「alpha」に付いています' });
+    expect(rt.getState().toasts).toEqual([]);
+  });
   it('変更したファイルを開くときはそのファイルを送り、VS Code で開くときは作業ディレクトリ（file なし）を頼む', async () => {
     const openEditor = vi.fn(async (_sessionId: string, _file?: string) => {});
     const { rt } = harness({ openEditor });

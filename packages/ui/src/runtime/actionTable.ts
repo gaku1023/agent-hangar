@@ -17,17 +17,19 @@ export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast };
 /**
  * API の呼び出し 1 回と、その前後の扱い。
  * before は呼ぶ前に Store に当てる（実行中だと分かるよう、前の結果を消すなど）。
- * 失敗の扱いは行ごとに持たない。どの行も、Runtime がトーストにする。
+ * 失敗は、ふつうは Runtime がトーストにする。
+ * failed を持つ行だけは、トーストにせず failed で Store に書く（画面が入力の欄のそばに理由を出し、入れたものを残せるように）。
  */
-export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone> };
+export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone>; failed?: (store: Store, error: unknown) => Store };
 
-type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null };
+type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null; failed?: (store: Store, error: unknown) => Store };
 
 /** 行の共通の形。API を呼び、応答を Store に当て、知らせがあれば添える。応答の型は、ここで閉じる。 */
 function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): ApiCall {
-  const { before, apply, toast } = after;
+  const { before, apply, toast, failed } = after;
   return {
     ...(before ? { before } : {}),
+    ...(failed ? { failed } : {}),
     run: (api) => run(api).then((r) => {
       const message = toast?.(r) ?? null;
       return { ...(apply ? { apply: (store: Store) => apply(store, r) } : {}), ...(message !== null ? { toast: message } : {}) };
@@ -79,7 +81,14 @@ export const actionTable = {
   'artifact.openEditor': (i) => call((api) => api.openArtifactEditor(i.id)),
   'artifact.add': (i) => {
     const url = i.url.trim();
-    return url ? call((api) => api.addArtifact(i.projectId, url), { apply: (store, a) => ({ ...store, artifacts: { ...store.artifacts, [a.id]: a } }) }) : null;
+    if (!url) return null;
+    return call((api) => api.addArtifact(i.projectId, url), {
+      // 前の断りは、次の追加を始めたときに消す。
+      before: (store) => ({ ...store, artifactAddError: null }),
+      apply: (store, a) => ({ ...store, artifacts: { ...store.artifacts, [a.id]: a }, artifactAddError: null }),
+      // 断られた理由は欄のそばに出す。トーストにはしない。
+      failed: (store, e) => ({ ...store, artifactAddError: { projectId: i.projectId, url, message: e instanceof Error ? e.message : String(e) } }),
+    });
   },
 
   // 前回の結果を先に消して、試している最中だと分かるようにする。

@@ -36,6 +36,8 @@ export type Store = {
   search: { params: SearchParamsDto | null; result: SearchResultDto | null; loading: boolean };
   index: IndexProgressDto;
   todos: Record<string, TodoDto>; memos: Record<string, MemoDto>; artifacts: Record<string, ArtifactDto>;
+  /** 手で足した URL が断られたときの理由と、入れた URL。次の追加を始めるか、成功したら消える。bootstrap は運ばない。 */
+  artifactAddError: { projectId: string; url: string; message: string } | null;
   summaryPending: Record<string, true>;
   /** 事後要約に失敗したセッションと、その理由。次に作り始めるか、作れたら消える。bootstrap は運ばないので、取り直しても残す。 */
   summaryFailed: Record<string, string>;
@@ -78,7 +80,7 @@ export function initialStore(): Store {
   return {
     bootstrapped: false, version: '', device: null, settings: null, projects: {}, sessions: {}, live: [], runs: {}, tabs: {}, events: {}, subagents: {}, liveDigests: {}, sessionFiles: {},
     search: { params: null, result: null, loading: false }, index: { phase: 'idle', done: 0, total: 0 },
-    todos: {}, memos: {}, artifacts: {}, summaryPending: {}, summaryFailed: {},
+    todos: {}, memos: {}, artifacts: {}, artifactAddError: null, summaryPending: {}, summaryFailed: {},
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,

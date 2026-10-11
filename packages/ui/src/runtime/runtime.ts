@@ -669,14 +669,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   /**
    * 表で引いた呼び出しを実行する（runtime/actionTable.ts）。
-   * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、どの行もトーストにする。
+   * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、failed を持つ行だけ Store に書き、ほかの行はトーストにする。
    */
   function runCall(c: ApiCall): void {
     if (c.before) setStore(c.before(store));
     c.run(deps.api).then((done) => {
       if (done.apply) setStore(done.apply(store));
       if (done.toast !== undefined) toast(tr()(done.toast));
-    }).catch(fail);
+    }).catch((e: unknown) => { if (c.failed) setStore(c.failed(store, e)); else fail(e); });
   }
 
   /**

@@ -1,6 +1,6 @@
 import type { Hono } from 'hono';
 import type { ArtifactDto } from '@agent-hangar/shared';
-import { addManualArtifact, ArtifactInputError, getArtifact, listArtifacts } from '../../artifacts/queries.ts';
+import { addManualArtifact, ArtifactConflictError, ArtifactInputError, getArtifact, listArtifacts } from '../../artifacts/queries.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, externalOf, projectOf, readJson, tooLargeResult } from './common.ts';
@@ -26,11 +26,12 @@ export function artifactRoutes(api: Hono, deps: ArtifactRouteDeps): void {
     const body = (b.value ?? {}) as { url?: unknown };
     if (typeof body.url !== 'string') return c.json({ error: tr('common.field.required', { field: 'url' }) }, 400);
     let a: ArtifactDto;
-    // 入力の誤りだけを 400 にする。DB の失敗などは呼び手の直しようが無いので 500 で返す。
+    // 入力の誤りは 400、別のプロジェクトに付いている URL は 409 にする。DB の失敗などは呼び手の直しようが無いので 500 で返す。
     try {
       a = addManualArtifact(db, deviceId, id, body.url);
     } catch (e) {
       if (e instanceof ArtifactInputError) return c.json({ error: errorText(language(), e) }, 400);
+      if (e instanceof ArtifactConflictError) return c.json({ error: errorText(language(), e) }, 409);
       return c.json({ error: tr('artifact.error.addFailed') }, 500);
     }
     return c.json(a, 201);

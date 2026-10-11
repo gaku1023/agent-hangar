@@ -2,6 +2,7 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 export const artifactKeys = {
   'artifact.error.addFailed': [],
+  'artifact.error.attachedElsewhere': ['project'],
   'artifact.error.notFound': [],
   'artifact.url.invalid': [],
   'artifact.url.notArtifact': [],
