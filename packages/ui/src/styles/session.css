@@ -50,13 +50,28 @@ a.chip { color: var(--accent); text-decoration: none; }
 .c-main > .split-h { flex: 1; height: auto; min-height: 0; }
 .toc-slot { min-width: 0; min-height: 0; overflow: hidden; display: flex; }
 .toc-slot-inner { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+/* タブの列のある本体（実行中と、終わった run のタブ）。タブの列を 1 行目に入れ、右の列はその行から下端までを占める（2026-10-12 の試作の A）。
+   行の隙間は持たない（タブの耳と端末の板がつながる）。畳んでいる間はタブの列を全幅にかけ、閉じる動きの間も「目次 N」の札を右端に留める。 */
+.c-body[data-strip] { grid-template-rows: var(--row-h) minmax(0, 1fr); row-gap: 0; }
+.c-body[data-strip] > .tabs { grid-column: 1; grid-row: 1; }
+.c-body[data-strip][data-folded] > .tabs { grid-column: 1 / -1; }
+.c-body[data-strip] > .c-main { grid-column: 1; grid-row: 2; }
+.c-body[data-strip] > .toc-slot { grid-column: 2; grid-row: 1 / -1; }
+/* 右の列の頭の行。タブの列と同じ高さで、右端に畳むボタンを置く（札にも目次にも属さない）。
+   畳むと、同じ右上にタブの列の「目次 N」の札が出る。下の札との隙間は詰め、札と目次の縦の幅を減らさない。 */
+.toc-slot-head { flex: none; height: var(--row-h); display: flex; align-items: center; justify-content: flex-end; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * -2); }
+.toc-slot-head kbd { font-size: var(--fs-xs); color: var(--ink-3); }
+.toc-slot-head .tr-toggle { align-self: center; border-radius: var(--r); }
+.toc-slot-head .tr-toggle:hover { background: rgba(255, 255, 255, 0.7); color: var(--ink); }
 /* 縦に積むので、目次の板は残りの高さを受け取る（幅は 240px のまま。開閉の動きが中身の幅を留める）。 */
 .toc-slot-inner > .toc-pane { flex: 1 1 0; }
 /* 閉じた列は、閉じる動きが終わったら影も見せない。 */
 .toc-slot[data-collapsed='true']:not([data-leaving]) { visibility: hidden; }
 /* 狭い窓では列にせず、札を押すと本体の右に重ねて開く。 */
 .c-body[data-narrow] { grid-template-columns: minmax(0, 1fr); }
-.c-body[data-narrow] .toc-slot { position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; overflow: visible; filter: drop-shadow(0 16px 28px rgba(30, 40, 90, 0.28)); }
+/* 列の行の決まりは外し、本体の上端から重ねる。タブの列のある画面では、上乗せの頭の行が「目次 N」の札の場所を覆う。
+   幅は列と同じ 240px に留める（留めないと、現在の札が長い文の幅まで広がり、目次の板とずれる）。 */
+.c-body[data-narrow] .toc-slot { position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; width: 240px; grid-row: auto; grid-column: auto; overflow: visible; filter: drop-shadow(0 16px 28px rgba(30, 40, 90, 0.28)); }
 .c-body[data-narrow] .toc-slot[data-collapsed='true'] { display: none; }
 .tr-sheet .tr-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* 冒頭の 1 枚はトランスクリプトの先頭にあり、スクロールの箱の中で縮まない。 */
