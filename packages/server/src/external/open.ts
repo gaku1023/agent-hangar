@@ -1,6 +1,6 @@
 // 外部ターミナル（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）と VS Code への受け渡し。
 // macOS は AppleEvent を避けられる経路（.command ファイル）を既定にして、自動化の許可を要らなくする。
-import { execFile as execFileCb } from 'node:child_process';
+import { execFile as execFileCb, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,17 +8,62 @@ import type { TerminalApp } from '@agent-hangar/shared';
 import { needsShell } from '../platform/exec.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 
-/** verbatim は Windows で引数を引用せずそのまま渡す指定で、cmd.exe へ自前で組んだ 1 行を渡すときに使う。 */
-export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number; shell?: boolean; verbatim?: boolean }) => Promise<{ code: number; stdout: string; stderr: string }>;
+/**
+ * verbatim は Windows で引数を引用せずそのまま渡す指定で、cmd.exe へ自前で組んだ 1 行を渡すときに使う。
+ * untilExit は、子が終わったら返す指定である。子が起こして残すもの（start が開いた窓など）が出力の管を握っていても待たない。
+ */
+export type ExecOpts = { timeoutMs?: number; shell?: boolean; verbatim?: boolean; untilExit?: boolean };
+export type Exec = (cmd: string, args: string[], opts?: ExecOpts) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+const EXEC_TIMEOUT_MS = 30_000;
 
 /** child_process.execFile の Promise 版。失敗でも投げず code を返す。 */
-export const execFile: Exec = (cmd, args, opts) =>
-  new Promise((resolve) => {
-    execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? 30_000, encoding: 'utf8', shell: opts?.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts?.verbatim ?? false }, (err, stdout, stderr) => {
+export const execFile: Exec = (cmd, args, opts) => {
+  if (opts?.untilExit) return execUntilExit(cmd, args, opts);
+  return new Promise((resolve) => {
+    execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? EXEC_TIMEOUT_MS, encoding: 'utf8', shell: opts?.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts?.verbatim ?? false }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0;
       resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
     });
   });
+};
+
+/** 子が終わってから、まだ管に残っている出力を読み切るのに待つ長さ。孫が管を握っていれば、ここで打ち切る。 */
+const EXIT_DRAIN_MS = 100;
+
+/**
+ * 子が終わったら返す execFile。
+ * execFile は、子の出力の管がどれも閉じるまで返らない。
+ * Windows の cmd.exe の start は、開いた窓の中のもの（psmux の attach、PowerShell）に子の管を受け継がせるので、
+ * 窓を閉じるか 30 秒のタイムアウトまで返らなかった。その間は HTTP の応答も返らず、落ちた知らせも出なかった。
+ * ここでは子の終わり（exit）を見て返す。出力は、そこまでに読めた分と、短い間（EXIT_DRAIN_MS）に読めた分である。
+ * 管を握る孫がいなければ close が先に来るので、出力は execFile と同じに読み切る。
+ * 返したら管を閉じ、サーバの側に読み口を残さない。
+ */
+function execUntilExit(cmd: string, args: string[], opts: ExecOpts): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let done = false;
+    let drain: ReturnType<typeof setTimeout> | undefined;
+    const child = spawn(cmd, args, { shell: opts.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts.verbatim ?? false, stdio: ['ignore', 'pipe', 'pipe'] });
+    const finish = (code: number) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      clearTimeout(drain);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve({ code, stdout, stderr });
+    };
+    const timer = setTimeout(() => { child.kill(); finish(1); }, opts.timeoutMs ?? EXEC_TIMEOUT_MS);
+    child.stdout?.setEncoding('utf8').on('data', (d: string) => { stdout += d; });
+    child.stderr?.setEncoding('utf8').on('data', (d: string) => { stderr += d; });
+    child.on('error', () => finish(1));
+    child.on('exit', (code) => { drain = setTimeout(() => finish(code ?? 1), EXIT_DRAIN_MS); });
+    child.on('close', (code) => finish(code ?? 1));
+  });
+}
 
 /** シェルの単一引用符で包む。 */
 const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -142,7 +187,8 @@ const cmdArgs = (line: string) => ['/d', '/v:off', '/s', '/c', `"${line}"`];
  * --suppressApplicationTitle は、中のアプリが題名を書き替えるのを止める指定で、付けた題名を保つ。
  */
 async function openWithWindowsTerminal(args: string[], title: string, exec: Exec): Promise<boolean> {
-  const r = await exec('wt.exe', ['-w', '0', 'new-tab', '--title', wtArg(title), '--suppressApplicationTitle', ...args]);
+  // wt.exe が起こした窓も管を受け継ぎうるので、wt.exe の終わりで返す（execUntilExit）。
+  const r = await exec('wt.exe', ['-w', '0', 'new-tab', '--title', wtArg(title), '--suppressApplicationTitle', ...args], { untilExit: true });
   return r.code === 0;
 }
 
@@ -152,7 +198,8 @@ async function openWithWindowsTerminal(args: string[], title: string, exec: Exec
  * 引数は Node に引用させない。Node は " を \" で逃がすが、cmd.exe はそれを知らない。
  */
 async function openWithWindowsDefault(line: string, title: string, exec: Exec): Promise<void> {
-  const r = await exec('cmd.exe', cmdArgs(`start ${cmdQuote(title)} ${line}`), { verbatim: true });
+  // start が開いた窓は cmd.exe の管を受け継いで握り続けるので、cmd.exe の終わりで返す（execUntilExit）。
+  const r = await exec('cmd.exe', cmdArgs(`start ${cmdQuote(title)} ${line}`), { verbatim: true, untilExit: true });
   if (r.code !== 0) throw new MessageError(msg('external.terminal.windowsOpenFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
 }
 
