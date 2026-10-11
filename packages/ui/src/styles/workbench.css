@@ -127,10 +127,10 @@
 .artifact-foot > span { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .artifact-foot .btn { flex: none; }
 
-/* 1 つのプロジェクトの画面（Q3）。左はホームと同じ一覧の部品、右レールは 280px で、隠すと本体が全幅になる。 */
-/* 右の欄は窓が狭いと細くし、左の一覧に幅を残す。 */
-.project-screen { display: grid; grid-template-columns: minmax(0, 1fr) clamp(220px, 30%, 280px); gap: calc(var(--u) * 4); }
-.project-screen[data-rail='closed'] { grid-template-columns: 1fr; }
+/* 1 つのプロジェクトの画面（Q3）。左はホームと同じ一覧の部品、右レールは 280px で、隠すと本体が全幅になる。
+   列の幅は ProjectScreen がインラインで当てる（paneMotion の PANE_SHAPE.rail。窓が狭いと右の欄を細くし、左の一覧に幅を残す）。
+   閉じた右の列は 0px にし、列の数を変えない（列の数が替わると、開閉の動きが補間されない）。 */
+.project-screen { display: grid; gap: calc(var(--u) * 4); }
 .project-main { min-width: 0; }
 /* 場所の行。長いパスは頭を残して省略し、見つからないときの札は押せる形で右に並べる。 */
 .project-path { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; margin-bottom: calc(var(--u) * 3); }
@@ -145,8 +145,11 @@
  * 窓が左の列の下限より低いときだけ、ほかの一覧の画面と同じく .main がスクロールする（base.css の .screen-fill）。
  * 節の白い面の影が下端で切れないよう、下に影の分だけ余白を残す。
  */
-.project-screen.screen-fill > .rail { height: 0; min-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 2px; }
-.project-screen.screen-fill > .rail > .rail-panel { flex: none; }
+.project-screen.screen-fill > .rail-slot { height: 0; min-height: 100%; }
+.project-screen.screen-fill > .rail-slot > .rail > .rail-panel { flex: none; }
+/* 右の列（.rail-slot）は、開閉の動きの間に幅が 0 まで縮む。中身（.rail）は動きの間だけ開いたときの幅に留め、列の端で切る（paneMotion）。 */
+.rail-slot { display: flex; min-width: 0; overflow: hidden; }
+.rail-slot > .rail { flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 2px; }
 /* 右レールの TODO、指示とメモリ、アーティファクトは、白い読む面に載せる。上の余白は見出しが持つ（留まった見出しが面の上端を覆うため）。 */
 .rail-panel { padding: 0 calc(var(--u) * 3) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
 /*

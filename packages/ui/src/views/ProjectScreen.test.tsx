@@ -421,8 +421,45 @@ describe('ProjectScreen の右パネルの動き', () => {
   const ui = (p: Partial<ProjectProps>) => <ActionRoot onAction={vi.fn()}><ProjectScreen {...props(p)} /></ActionRoot>;
 
   it('はじめの描画では動かさない', () => {
-    mount();
+    const { container } = mount();
     expect(animations.filter((a) => (a.el as HTMLElement).classList.contains('rail-body'))).toHaveLength(0);
+    expect(on(container.querySelector('.project-screen'))).toHaveLength(0);
+  });
+  // 右パネル全体の開閉は、セッション画面の右の列の開閉と同じ部品（paneMotion）で動かす。列の数は変えず、右の列の幅を 0 にする。
+  it('右パネルを閉じると、右の列の幅を縮めて左の一覧を広げ、閉じ終わるまで中身を描いてから外す', async () => {
+    const { container } = mount();
+    const grid = container.querySelector<HTMLElement>('.project-screen')!;
+    expect(grid.style.gridTemplateColumns).toBe('minmax(0, 1fr) clamp(220px, 30%, 280px)');
+    const rail = container.querySelector('.rail')!;
+    fireEvent.click(screen.getByLabelText('右パネルを閉じる'));
+    expect(grid.style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
+    expect(grid.style.columnGap).toBe('0px');
+    expect(on(grid).at(-1)!.frames[0]).toHaveProperty('gridTemplateColumns');
+    // 中身は薄れて消える。消え終わるまで外さない。
+    expect(container.querySelector('.rail')).toBe(rail);
+    expect(on(rail).at(-1)!.frames.at(-1)).toMatchObject({ opacity: 0 });
+    await done();
+    expect(container.querySelector('.rail')).toBeNull();
+  });
+  it('右パネルを開くと、右の列の幅を 0 から広げ、中身は薄れから現れる', async () => {
+    const { container } = mount();
+    fireEvent.click(screen.getByLabelText('右パネルを閉じる'));
+    await done();
+    animations = [];
+    fireEvent.click(screen.getByLabelText('右パネルを開く'));
+    const grid = container.querySelector<HTMLElement>('.project-screen')!;
+    expect(grid.style.gridTemplateColumns).toBe('minmax(0, 1fr) clamp(220px, 30%, 280px)');
+    expect(on(grid)[0]!.frames[0]).toHaveProperty('gridTemplateColumns');
+    expect(on(container.querySelector('.rail'))[0]!.frames[0]).toMatchObject({ opacity: 0 });
+  });
+  it('動きを減らす設定（長さ 0）では、右パネルの開閉もすぐ切り替える', () => {
+    motion('0ms');
+    const { container } = mount();
+    fireEvent.click(screen.getByLabelText('右パネルを閉じる'));
+    expect(container.querySelector('.rail')).toBeNull();
+    fireEvent.click(screen.getByLabelText('右パネルを開く'));
+    expect(container.querySelector('.rail')).not.toBeNull();
+    expect(animations).toHaveLength(0);
   });
   it('折りたたむと、中身は collapseOut で薄れながら畳み、終わってから隠す。開くと growIn で 0 から伸びる', async () => {
     const { rerender } = mount();

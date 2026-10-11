@@ -2,7 +2,7 @@ import { beginLayoutMotion, endLayoutMotion } from './layoutMotion.ts';
 import { motionEase, motionMs, motionValue } from './motion.ts';
 
 /**
- * 右の欄の開閉の動き（設計書 ②、案 A「下へ潜る」）。
+ * 右の欄の開閉の動き（設計書 ②、案 A「下へ潜る」）。セッション画面の目次の列と、プロジェクト画面の右パネルが使う。
  * 列の幅は minmax と px の間では補間されないので、前の形と今の形の計算値（px の並び）を測り、Web Animations で埋める。
  * 前の形は、インラインの値を一瞬だけ当てて測り、元に戻す。同じ描画の中なので、戻した形は画面に出ない。
  * 欄の中身（inner）は、動きの間だけ開いたときの幅に留め、列が狭まっても折り返さずに列の端に切られる。
@@ -13,6 +13,8 @@ export type PaneShape = { cols: string; gap: string };
 export const PANE_SHAPE = {
   /** セッション画面の本体（.c-body）。右は目次だけの 240px で、実行中も終わった後も同じである。 */
   toc: { open: { cols: 'minmax(0, 1fr) 240px', gap: 'calc(var(--u) * 2)' }, closed: { cols: 'minmax(0, 1fr) 0px', gap: '0px' } },
+  /** プロジェクト画面（.project-screen）。右パネルは窓が狭いと細くし、左の一覧に幅を残す。閉じても列の数は変えない。 */
+  rail: { open: { cols: 'minmax(0, 1fr) clamp(220px, 30%, 280px)', gap: 'calc(var(--u) * 4)' }, closed: { cols: 'minmax(0, 1fr) 0px', gap: '0px' } },
 } as const satisfies Record<string, { open: PaneShape; closed: PaneShape }>;
 
 const ID = 'pane-motion';
