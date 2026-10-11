@@ -84,6 +84,7 @@ function LegacyNote(props: { projectId: string; text: string }) {
  * 右パネルの「指示とメモリ」（案 D）。Claude Code が起動時に読むファイルのうち、あるものだけを 1 行ずつ並べる。
  * 行を押すとダイアログで本文を描き、そのときに読み直しを頼む（ファイルは外で書き換わる）。行の右の印はエディタで開く。
  * Hangar では書かず、無いファイルを作りもしない。読まれるものの全体は /context で見る、と節の下に添える。
+ * 節の見出しは、ほかの節と同じく ProjectScreen の RailSection が置く（折りたたみの見出し）。ここは中身だけを描く。
  */
 export function InstructionsPanel(props: { projectId: string; instructions: InstructionsProps }) {
   const t = useT();
@@ -97,7 +98,6 @@ export function InstructionsPanel(props: { projectId: string; instructions: Inst
   };
   return (
     <>
-      <h2 className="rail-h"><span>{t('projectScreen.rail.instructions')}</span></h2>
       {state === 'missing' && <p className="instr-empty">{t('projectScreen.instructions.missing')}</p>}
       {state === 'ready' && rows.length === 0 && <p className="instr-empty">{t('projectScreen.instructions.empty')}</p>}
       {rows.length > 0 && (

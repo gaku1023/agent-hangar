@@ -108,6 +108,15 @@
 
 /* アーティファクトのカード。右レールでは 1 列に積む。 */
 .artifacts { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+/* 「すべて表示」で増える分。節の中ではスクロールさせず、右パネル全体のスクロールに任せる。 */
+.artifacts-more { display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.artifacts-more[hidden] { display: none; }
+/* 並びの末尾の「すべて表示（N 件）」と「少なく表示」。印は広げると上向きに回る。 */
+.artifacts-all { display: flex; align-items: center; justify-content: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0; border: 0; border-radius: var(--r); background: none; color: var(--accent); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.artifacts-all:hover { background: var(--surface-2); }
+.artifacts-all:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.artifacts-all > .icon { width: 12px; height: 12px; transform: rotate(90deg); transition: transform var(--dur) var(--ease-out); }
+.artifacts-all[aria-expanded='true'] > .icon { transform: rotate(-90deg); }
 .artifact { cursor: pointer; padding: calc(var(--u) * 2); }
 .artifact-head { display: flex; align-items: center; gap: calc(var(--u) * 1.5); min-width: 0; }
 .artifact-favicon { flex: none; }
@@ -130,11 +139,33 @@
 .project-path-warn:hover { background: color-mix(in srgb, var(--waiting) 16%, var(--surface)); }
 .project-path-warn .icon { width: 12px; height: 12px; }
 .rail { display: flex; flex-direction: column; gap: calc(var(--u) * 4); min-width: 0; }
-/* 右レールの TODO、指示とメモリ、アーティファクトは、白い読む面に載せる。 */
-.rail-panel { padding: calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
-/* 右レールの節の見出し。名前、件数、（TODO は）確認待ちの札を横に並べる。 */
-.rail-h { display: flex; align-items: center; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+/*
+ * プロジェクトの頁は窓の高さに収める（C3）。行の高さは左の列（見出し、タブ、欄、一覧の下限）が決め、一覧は残りの高さを受け取る。
+ * 右パネルは高さ 0 から行の高さまで伸ばすので、中身がいくら長くても行を押し広げず、パネルの中で 1 本でスクロールする。
+ * 窓が左の列の下限より低いときだけ、ほかの一覧の画面と同じく .main がスクロールする（base.css の .screen-fill）。
+ * 節の白い面の影が下端で切れないよう、下に影の分だけ余白を残す。
+ */
+.project-screen.screen-fill > .rail { height: 0; min-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-bottom: 2px; }
+.project-screen.screen-fill > .rail > .rail-panel { flex: none; }
+/* 右レールの TODO、指示とメモリ、アーティファクトは、白い読む面に載せる。上の余白は見出しが持つ（留まった見出しが面の上端を覆うため）。 */
+.rail-panel { padding: 0 calc(var(--u) * 3) calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
+/*
+ * 右レールの節の見出し（A1）。左のシェブロン、名前、件数、（TODO は）確認待ちの札を横に並べ、行全体が開閉のボタンである。
+ * 右パネルをスクロールしても、いま見ている節の見出しはパネルの上端に留まる（sticky は節の面の中だけで効く）。
+ * 折りたたむと見出しだけの札（48px）になる。
+ */
+.rail-h { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; margin: 0; padding-top: calc(var(--u) * 3); border-radius: var(--r-lg) var(--r-lg) 0 0; background: var(--surface); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
+/* シェブロンは TODO の「完了 N」と同じ形で、開いて下向き（90 度）、折りたたんで右向き。--dur で回る。 */
+.rail-toggle { display: flex; align-items: center; gap: calc(var(--u) * 2); flex: 1; min-width: 0; height: 24px; margin: 0 calc(var(--u) * -1.5); padding: 0 calc(var(--u) * 1.5); border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.rail-toggle:hover { color: var(--ink); background: var(--surface-2); }
+.rail-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.rail-toggle > .icon { flex: none; width: 12px; height: 12px; color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+.rail-toggle[aria-expanded='true'] > .icon { transform: rotate(90deg); }
+.rail-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-n { font-weight: 500; color: var(--ink-3); }
+/* 節の中身。開閉の動き（FoldBox の growIn と collapseOut）は、この上の余白も一緒に伸び縮みさせる。 */
+.rail-body { padding-top: calc(var(--u) * 2); }
+.rail-body[hidden] { display: none; }
 /*
  * 指示とメモリ（案 D）。Claude Code が起動時に読むファイルを、淡い地の行で 1 つずつ並べる。
  * 行を押すとダイアログで本文を描き、右の印はエディタで開く。行は入るときだけ浮かぶ（読み直しでは鍵が同じなので動かない）。

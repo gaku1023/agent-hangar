@@ -83,4 +83,6 @@ export const projectScreenEn: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.artifact.openEditor': 'Open in VS Code',
   'projectScreen.artifact.urlLabel': 'Artifact URL',
   'projectScreen.artifact.addButton': 'Add',
+  'projectScreen.artifact.showAll': 'Show all ({n})',
+  'projectScreen.artifact.showLess': 'Show less',
 };

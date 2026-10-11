@@ -41,6 +41,11 @@ describe('presentProject の一覧（ホームと同じ部品に渡す）', () =
     expect(p.list.total).toBe(3);
     expect(p.list.allCount).toBe(3);
   });
+  it('右パネルの折りたたんだ節は、このプロジェクトの分だけを渡す。覚えていなければ空（3 つとも開く）', () => {
+    const state = { ...initialState(), projectRailFolded: { alpha: ['todo' as const, 'artifacts' as const], beta: ['instructions' as const] } };
+    expect(presentProject(state, storeOf(sessions), NOW, 'alpha').railFolded).toEqual(['todo', 'artifacts']);
+    expect(presentProject(initialState(), storeOf(sessions), NOW, 'alpha').railFolded).toEqual([]);
+  });
   it('タブの件数は、このプロジェクトの分だけを数える', () => {
     const p = presentProject(initialState(), storeOf(sessions), NOW, 'alpha');
     expect(p.list.tabs.map((t) => [t.tab, t.count])).toEqual([['all', '3'], ['proposed', '0'], ['active', '2'], ['paused', '0'], ['done', '1'], ['archived', '1']]);
