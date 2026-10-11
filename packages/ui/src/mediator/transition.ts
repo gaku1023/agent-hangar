@@ -31,8 +31,8 @@ export function initialState(): State {
   return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle' };
 }
 
-function pushToast(state: State, level: 'info' | 'error', message: string): State {
-  return { ...state, toasts: [...state.toasts, { id: String(state.nextToastId), level, message }], nextToastId: state.nextToastId + 1 };
+function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
+  return { ...state, toasts: [...state.toasts, { id: String(state.nextToastId), level, message, ...(holdMs !== undefined ? { holdMs } : {}) }], nextToastId: state.nextToastId + 1 };
 }
 
 /**
@@ -64,7 +64,7 @@ export function transition(state: State, store: Store, input: Input): Step {
     if (r) return settled(state, r);
   }
   if (input.kind === 'server') {
-    if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message), effects: [] };
+    if (input.event.type === 'toast') return { state: pushToast(state, input.event.level, input.event.message, input.event.holdMs), effects: [] };
     return { state, effects: [] };
   }
   if (input.kind === 'runtime') {

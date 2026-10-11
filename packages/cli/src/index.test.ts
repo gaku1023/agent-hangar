@@ -31,7 +31,7 @@ beforeEach(() => {
   // ブラウザは開かせない。呼ばれたことだけを控えに残す。
   // macOS は osascript、Linux は xdg-open でブラウザを開く（url.ts）。
   for (const name of ['osascript', 'open', 'xdg-open']) {
-    fs.writeFileSync(path.join(fakeBin, name), `#!/bin/sh\necho "called ${name}" >> "$HANGAR_TEST_MARKER"\ncat >> "$HANGAR_TEST_MARKER" 2>/dev/null\nexit 0\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(fakeBin, name), `#!/bin/sh\necho "called ${name}" >> "$HANGAR_TEST_MARKER"\ncat >> "$HANGAR_TEST_MARKER" 2>/dev/null\nexit "\${HANGAR_TEST_OPEN_EXIT:-0}"\n`, { mode: 0o755 });
   }
 });
 
@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 /** hangar を 1 回走らせる。標準出力と標準エラーはまとめて見る。 */
-function runCli(args: string[], timeoutMs = 60_000): Promise<{ code: number; out: string }> {
+function runCli(args: string[], timeoutMs = 60_000, extraEnv: Record<string, string> = {}): Promise<{ code: number; out: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       env: {
@@ -51,6 +51,7 @@ function runCli(args: string[], timeoutMs = 60_000): Promise<{ code: number; out
         HANGAR_CLAUDE_DIR: claudeDir,
         HANGAR_TEST_MARKER: marker,
         PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+        ...extraEnv,
       },
     });
     let out = '';
@@ -157,12 +158,27 @@ describe('hangar open', () => {
   });
 
   // 偽の開く道具は sh なので、Windows では飛ばす。Windows の開き方は url.test.ts が偽の spawn で確かめる。
-  posixIt('サーバが居れば、鍵付きの URL を印字してから開く', async () => {
+  posixIt('サーバが居れば、鍵付きの URL で開くが、鍵は端末に出さない', async () => {
     const port = await listenHealth();
     const r = await runCli(['open', '--port', String(port)]);
     expect(r.code).toBe(0);
-    expect(r.out).toContain(`http://127.0.0.1:${port}/?t=${readToken()}`);
-    expect(await waitOpened()).toContain('called ');
+    expect(r.out).toContain('ブラウザで開きました');
+    // 端末の表示と履歴に鍵を残さない。鍵はブラウザへだけ渡る。
+    expect(r.out).not.toContain('?t=');
+    expect(r.out).not.toContain(readToken());
+    const got = await waitOpened();
+    expect(got).toContain('called ');
+  });
+
+  posixIt('ブラウザを開けなかったときは、鍵の無い URL と鍵の出し方を案内し、鍵は出さない', async () => {
+    const port = await listenHealth();
+    const r = await runCli(['open', '--port', String(port)], 60_000, { HANGAR_TEST_OPEN_EXIT: '1' });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('開けませんでした');
+    expect(r.out).toContain(`http://127.0.0.1:${port}/`);
+    expect(r.out).toContain('hangar url');
+    expect(r.out).not.toContain('?t=');
+    expect(r.out).not.toContain(readToken());
   });
 });
 

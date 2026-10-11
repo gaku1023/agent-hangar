@@ -522,7 +522,7 @@ winget を使えない PC では、[リリースのページ](https://github.com
    `--ignore-scripts` を付けないと、`better-sqlite3` が C++ のビルドを始めて、ビルドの道具が無い PC では失敗します。ネイティブモジュールは同梱の prebuild で動きます。
 
 止めるときは Ctrl+C です。
-通知（WinRT のトースト）、外のターミナルへの受け渡し（Windows Terminal）、`hangar open`（鍵付きの URL を既定のブラウザで開きます）は Windows でも使えます。
+通知（WinRT のトースト）、外のターミナルへの受け渡し（Windows Terminal）、`hangar open`（鍵付きの URL を既定のブラウザで開きます。鍵は端末には出しません）は Windows でも使えます。
 Windows でまだ無いのは、ターミナルで打った `claude` の包み（`hangar shell install`）です。
 statusline への追記は Windows の実機で確かめていないので、使えるものとして書きません。
 

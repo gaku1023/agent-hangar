@@ -6,8 +6,28 @@ import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { entryUrl, openInBrowser, openLocationScript, redirectPage } from './url.ts';
+import { bareUrl, entryUrl, openedMessage, openFailedMessage, openInBrowser, openLocationScript, redirectPage } from './url.ts';
 import { expectMode, posixIt } from '../../server/test/platform.ts';
+
+describe('bareUrl と hangar open の文面（鍵を端末に出さない）', () => {
+  const token = 'c'.repeat(64);
+  it('鍵の無い URL は、鍵を含まない', () => {
+    expect(bareUrl(4177)).toBe('http://127.0.0.1:4177/');
+  });
+  it('開けたときの文は、鍵を出さない', () => {
+    const m = openedMessage(4177);
+    expect(m).toContain('ブラウザで開きました');
+    expect(m).not.toContain('?t=');
+  });
+  it('開けなかったときの文は、鍵の無い URL と鍵の出し方を案内し、鍵そのものは出さない。hangar url は人に見せないよう添える', () => {
+    const m = openFailedMessage(4177);
+    expect(m).toContain('http://127.0.0.1:4177/');
+    expect(m).toContain('hangar url');
+    expect(m).toContain('人に見せ');
+    expect(m).not.toContain('?t=');
+    expect(m).not.toContain(token);
+  });
+});
 
 describe('entryUrl', () => {
   it('鍵を問い合わせに載せた URL を作る', () => {
@@ -63,6 +83,37 @@ describe('openInBrowser', () => {
       for (const c of children) if (c.pid) try { process.kill(c.pid, 'SIGKILL'); } catch { /* 既に終わっている */ }
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('openInBrowser の結果', () => {
+  /** 終わり方を選べる偽の spawn。 */
+  const child = (end: (c: EventEmitter) => void) => ((_cmd: string, _args: readonly string[]) => {
+    const c = Object.assign(new EventEmitter(), { stdin: { end: () => {} }, unref: () => {} });
+    queueMicrotask(() => end(c));
+    return c;
+  }) as unknown as typeof spawn;
+  const home = () => fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-open-res-'));
+  const url = entryUrl(4177, 'd'.repeat(64));
+
+  it('macOS は osascript が 0 で終われば、開けた', async () => {
+    expect(await openInBrowser(url, { platform: 'darwin', spawnFn: child((c) => c.emit('exit', 0, null)) })).toBe(true);
+  });
+  it('macOS は osascript が 0 以外で終われば、開けなかった', async () => {
+    expect(await openInBrowser(url, { platform: 'darwin', spawnFn: child((c) => c.emit('exit', 1, null)) })).toBe(false);
+  });
+  it('起こせなければ（ENOENT）、開けなかった', async () => {
+    expect(await openInBrowser(url, { platform: 'darwin', spawnFn: child((c) => c.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }))) })).toBe(false);
+  });
+  it('Windows は rundll32 が 0 で終われば開けた、0 以外なら開けなかった', async () => {
+    const h = home();
+    try {
+      expect(await openInBrowser(url, { platform: 'win32', home: h, spawnFn: child((c) => c.emit('exit', 0, null)) })).toBe(true);
+      expect(await openInBrowser(url, { platform: 'win32', home: h, spawnFn: child((c) => c.emit('exit', 2, null)) })).toBe(false);
+    } finally { fs.rmSync(h, { recursive: true, force: true }); }
+  });
+  it('信号で終われば、開けなかった', async () => {
+    expect(await openInBrowser(url, { platform: 'darwin', spawnFn: child((c) => c.emit('exit', null, 'SIGKILL')) })).toBe(false);
   });
 });
 

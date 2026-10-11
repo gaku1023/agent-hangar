@@ -98,6 +98,15 @@ describe('info と error のトースト', () => {
     act(() => { vi.advanceTimersByTime(1); });
     expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
   });
+  it('holdMs を持つ info は、その長さまで残し、持たないものは既定の長さで消す', () => {
+    const { onAction } = mount(props({ toasts: [{ id: '1', level: 'info', message: '長い', holdMs: INFO_TOAST_MS * 2 }, info('2')] }));
+    act(() => { vi.advanceTimersByTime(INFO_TOAST_MS); });
+    expect(onAction.mock.calls).toEqual([[{ type: 'toast.dismiss', id: '2' }]]);
+    act(() => { vi.advanceTimersByTime(INFO_TOAST_MS - 1); });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'toast.dismiss', id: '1' });
+  });
   it('時間切れはトーストごとに数える', () => {
     const { onAction, rerender } = mount(props({ toasts: [info('1')] }));
     act(() => { vi.advanceTimersByTime(INFO_TOAST_MS / 2); });

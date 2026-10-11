@@ -187,7 +187,8 @@ export type SessionViewState = {
   /** 検索の結果から開いたときの跳び先。無ければ null。 */
   jump: JumpState | null;
 };
-export type Toast = { id: string; level: 'info' | 'error'; message: string };
+/** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ（INFO_TOAST_MS）。 */
+export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number };
 /**
  * 欄ごとの保存の知らせ。
  * saved の n は同じ欄を保存するたびに進み、画面は変わるたびに「✓ 保存しました」を出し直す。

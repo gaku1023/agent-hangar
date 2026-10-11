@@ -31,4 +31,5 @@ export type ServerEvent =
   /** 設定の同期（作り直した実装）の状態。届いた変更、競合、送らなかった項目、適用の指示書が動いたときに配る。 */
   | { type: 'config.update'; configSync: ConfigSyncDto }
   | { type: 'retention.changed'; retention: RetentionDto }
-  | { type: 'toast'; level: 'info' | 'error'; message: string };
+  /** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ。読み切るのに時間がかかる知らせだけが付ける。 */
+  | { type: 'toast'; level: 'info' | 'error'; message: string; holdMs?: number };

@@ -28,6 +28,12 @@ const action = (i: Extract<Input, { kind: 'action' }>['action']): Input => ({ ki
 const server = (e: Extract<Input, { kind: 'server' }>['event']): Input => ({ kind: 'server', event: e });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
 const T0 = 1_700_000_000_000;
+describe('トーストの長さ', () => {
+  it('holdMs を添えたトーストはそのまま持ち、添えないものは持たない', () => {
+    const a = run([server({ type: 'toast', level: 'info', message: 'a', holdMs: 8000 }), server({ type: 'toast', level: 'info', message: 'b' })]);
+    expect(a.state.toasts).toEqual([{ id: '1', level: 'info', message: 'a', holdMs: 8000 }, { id: '2', level: 'info', message: 'b' }]);
+  });
+});
 
 describe('起動と接続', () => {
   it('ws が開いたら bootstrap を取り、hash で画面が決まる', () => {

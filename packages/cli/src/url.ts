@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { hangarHome, openTargetCommand } from '@agent-hangar/server/src/cliEntry.ts';
@@ -10,6 +10,28 @@ import { hangarHome, openTargetCommand } from '@agent-hangar/server/src/cliEntry
  */
 export function entryUrl(port: number, token: string): string {
   return `http://127.0.0.1:${port}/?t=${encodeURIComponent(token)}`;
+}
+
+/** 鍵の無い URL。端末に出してよい（鍵が入っていない）。開くと 401 の案内の画面になる。 */
+export function bareUrl(port: number): string {
+  return `http://127.0.0.1:${port}/`;
+}
+
+/** hangar open がブラウザを開けたときの 1 行。鍵はブラウザへだけ渡したので、端末にも履歴にも残らない。 */
+export function openedMessage(port: number): string {
+  return `ブラウザで開きました（${bareUrl(port)}）。`;
+}
+
+/**
+ * hangar open がブラウザを開けなかったときの案内。
+ * 鍵付きの URL をここで出すと、開けなかった場面ほど端末の表示や履歴に鍵が残る。
+ * 鍵の無い URL と、鍵の出し方（hangar url）だけを案内する。hangar url は鍵付きの URL を出すので、人に見せないよう添える。
+ */
+export function openFailedMessage(port: number): string {
+  return [
+    `ブラウザを開けませんでした。${bareUrl(port)} を手で開いてください。`,
+    '鍵が要るときは hangar url で、鍵付きの URL を出せます。その URL には鍵が入っているので、人に見せないでください。',
+  ].join('\n');
 }
 
 /**
@@ -48,17 +70,19 @@ export type OpenInBrowserOptions = {
  * macOS は osascript に標準入力から渡せば、argv は `-` だけで済む。
  * macOS の外には同じ口が無い。既定のブラウザは URL を自分の argv で受け取るので、URL ではなく、URL へ移るページのファイルを開かせる。
  * argv に載るのはファイルのパスだけで、鍵はファイルの中にある。ファイルは鍵のファイルと同じ、本人だけが読める置き場に置く。
- * 開く道具が無い（ENOENT）ときも CLI は落とさない。鍵付きの URL は呼び手が印字している。
+ * 開く道具が無い（ENOENT）ときも CLI は落とさない。
+ * 戻り値は、開けたか。道具が 0 で終われば true、起こせない・0 以外・信号で終われば false。
+ * 呼び手は、開けなかったときも鍵付きの URL を端末へ出さない（openFailedMessage）。
+ * 道具が終わらないときは、待たずに true とする（既定のブラウザが前面で居座る道具もある）。
  */
-export function openInBrowser(url: string, o: OpenInBrowserOptions = {}): void {
+export function openInBrowser(url: string, o: OpenInBrowserOptions = {}): Promise<boolean> {
   const spawnFn = o.spawnFn ?? spawn;
   const platform = o.platform ?? process.platform;
   if (platform === 'darwin') {
     const child = spawnFn('osascript', ['-'], { stdio: ['pipe', 'ignore', 'ignore'], detached: true });
-    child.on('error', () => {});
+    const result = outcome(child);
     child.stdin?.end(openLocationScript(url));
-    child.unref();
-    return;
+    return result;
   }
   const home = o.home ?? hangarHome();
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
@@ -68,6 +92,23 @@ export function openInBrowser(url: string, o: OpenInBrowserOptions = {}): void {
   fs.chmodSync(page, 0o600);
   const c = openTargetCommand(page, platform);
   const child = spawnFn(c.file, c.args, { stdio: 'ignore', detached: true, windowsHide: true });
-  child.on('error', () => {});
-  child.unref();
+  const result = outcome(child);
+  return result;
+}
+
+/** 開く道具が居座る場合に、結果を待つ長さ。 */
+const OPEN_WAIT_MS = 5_000;
+
+/**
+ * 子の終わり方から、開けたかを決める。error の受け手を必ず付けるので、起こせなくても CLI は落ちない。
+ * 結果が出るまでは子を unref しない。先に unref すると、親は子の終わりを待たずに終わってしまい、何も印字されない。
+ * 結果が出たら unref して、子を切り離す。
+ */
+function outcome(child: ChildProcess): Promise<boolean> {
+  return new Promise((resolve) => {
+    const done = (ok: boolean) => { clearTimeout(timer); child.unref(); resolve(ok); };
+    const timer = setTimeout(() => done(true), OPEN_WAIT_MS);
+    child.on('error', () => done(false));
+    child.on('exit', (code) => done(code === 0));
+  });
 }
