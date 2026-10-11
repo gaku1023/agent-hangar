@@ -95,6 +95,16 @@ $n
   esac
   seen="${seen}${n}
 "
+  # HANGAR_NODE と nodePath は、node の実行ファイルの絶対パスだけを受ける。アプリ本体（node.rs）も同じ。
+  # 名前や相対のパスは、打った場所や PATH で指す先が変わり、アプリと hangar コマンドで使う Node が食い違う。
+  case "$n" in
+    /*) ;;
+    *)
+      tried="${tried}  ${n}: 絶対パスではありません（node の実行ファイルのフルパスを指定してください）
+"
+      continue
+      ;;
+  esac
   if [ ! -f "$n" ]; then
     tried="${tried}  ${n}: ありません
 "

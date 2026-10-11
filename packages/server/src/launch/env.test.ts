@@ -6,7 +6,7 @@ import { RUN_DROPPED_ENV, SERVER_DROPPED_ENV, takeServerEnv } from './env.ts';
 const dirty = (): NodeJS.ProcessEnv => ({
   ...Object.fromEntries(CLAUDE_CHILD_ENV.map((n) => [n, 'x'])),
   HANGAR_PORT: '4199', HANGAR_PARENT_PID: '4242', HANGAR_UI_DIST: '/app/ui', HANGAR_STOP_ON_STDIN_END: '1', HANGAR_LAUNCHER: 'C:\\Hangar\\Hangar.exe',
-  HANGAR_RUN_ID: 'r', HANGAR_UNSET_ENV: 'A;B', HANGAR_CLOUD_DIR: '/w/cloud',
+  HANGAR_RUN_ID: 'r', HANGAR_UNSET_ENV: 'A;B', HANGAR_CLOUD_DIR: '/w/cloud', HANGAR_LAUNCHED: '1',
   // 残すもの。利用者の設定と、サーバが動いている間ずっと読む hangar の変数。
   HANGAR_HOME: '/h', HANGAR_CLAUDE_DIR: '/c', HANGAR_CLAUDE_BIN: '/x/claude', HANGAR_DEV: '1',
   CLAUDE_CONFIG_DIR: '/u/.claude-work', CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CODE_EFFORT_LEVEL: 'high', ANTHROPIC_BASE_URL: 'https://gw.example', PATH: '/usr/bin',
@@ -28,9 +28,18 @@ describe('takeServerEnv', () => {
   });
 });
 
+// Windows の CLI の入口（launch-cli.ts）が、合う Node へ渡し直すときに子へ付ける印。
+// サーバ、tmux、ペインまで残ると、ペインの中の hangar が版の確かめを飛ばし、PATH の先頭の Node で cli.mjs を直に読む。
+describe('CLI の入口の印 HANGAR_LAUNCHED', () => {
+  it('サーバの環境からも、claude の run とシェルのタブからも外す', () => {
+    expect(SERVER_DROPPED_ENV).toContain('HANGAR_LAUNCHED');
+    expect(RUN_DROPPED_ENV).toContain('HANGAR_LAUNCHED');
+  });
+});
+
 describe('RUN_DROPPED_ENV', () => {
   it('Claude Code の印と、サーバが読み終えた受け渡しの変数を持つ', () => {
-    for (const n of [...CLAUDE_CHILD_ENV, 'HANGAR_PORT', 'HANGAR_PARENT_PID', 'HANGAR_UI_DIST', 'HANGAR_CLOUD_DIR']) expect(RUN_DROPPED_ENV, n).toContain(n);
+    for (const n of [...CLAUDE_CHILD_ENV, 'HANGAR_PORT', 'HANGAR_PARENT_PID', 'HANGAR_UI_DIST', 'HANGAR_CLOUD_DIR', 'HANGAR_LAUNCHED']) expect(RUN_DROPPED_ENV, n).toContain(n);
     expect(new Set(RUN_DROPPED_ENV).size).toBe(RUN_DROPPED_ENV.length);
   });
   // HANGAR_HOME は statusline の台本と hangar の CLI が claude の中で読む。

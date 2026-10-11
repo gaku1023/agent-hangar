@@ -50,10 +50,30 @@ const _: () = assert!(ServerProcess::STOP_GRACE.as_secs() > SERVER_WATCHDOG_SECS
 ///
 /// 足すのは後ろで、元の並びは変えない。利用者が選んだ優先順を覆さないためである。
 /// これは念のための備えで、claude の場所を決める正本はサーバ側の `which` と Settings の `claudePath` である。
-pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
-    // 足す置き場は POSIX のものである。Windows の PATH は ';' 区切りで、これらの置き場も無いので、そのまま渡す。
+///
+/// `node_dir` は殻が選んだ Node（`node.rs` の `choose_node`）の置き場で、最後に足す。
+/// nvm、fnm、Homebrew の keg のように PATH に無い場所で見つけた Node でサーバを起こしても、
+/// ペインの claude が使う `node` や、npx で起こす MCP が見つからなくならないようにするためである。
+/// 置き場は Windows でも足す。Windows で足すのはこれだけで、ほかの置き場は POSIX のものなので足さない。
+pub fn augmented_path(current: Option<&str>, user_home: &Path, node_dir: Option<&Path>) -> String {
+    let node_dir = node_dir
+        .map(|d| d.to_string_lossy().to_string())
+        .filter(|d| !d.is_empty());
     if cfg!(windows) {
-        return current.unwrap_or("").to_string();
+        let mut out: Vec<String> = current
+            .unwrap_or("")
+            .split(';')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+        // Windows のパスは大文字小文字を区別せず、末尾の区切りがあってもなくても同じ場所である。
+        let key = |s: &str| s.trim_end_matches(['\\', '/']).to_lowercase();
+        if let Some(d) = node_dir {
+            if !out.iter().any(|s| key(s) == key(&d)) {
+                out.push(d);
+            }
+        }
+        return out.join(";");
     }
     let mut out: Vec<String> = current
         .unwrap_or("")
@@ -67,8 +87,11 @@ pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
         PathBuf::from("/usr/local/bin"),
         user_home.join(".claude/local"),
     ];
+    let extra = extra
+        .iter()
+        .map(|d| d.to_string_lossy().to_string())
+        .chain(node_dir);
     for d in extra {
-        let d = d.to_string_lossy().to_string();
         if !out.contains(&d) {
             out.push(d);
         }
@@ -81,7 +104,7 @@ pub fn augmented_path(current: Option<&str>, user_home: &Path) -> String {
 /// 殻を Claude Code のセッションの Bash から起こすと（`open` や osascript の launch）、
 /// 呼び手のセッションの印が殻に入る。そのまま渡すと、サーバが起こす tmux サーバと claude まで届き、
 /// hangar の claude が別のセッションの子として振る舞う（再開の一覧から外れる、別のセッションのソケットへ話しかける）。
-/// 後ろの 8 つは hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
+/// 後ろの 9 つは hangar の部品のあいだの受け渡しの変数で、殻が自分の値を入れ直すか、サーバが読まないものである。
 ///
 /// 正本は `packages/server/src/launch/env.ts` の `SERVER_DROPPED_ENV` で、ここはその写しである。
 /// サーバも起動の最初に同じ名前を自分の環境から消す。
@@ -112,6 +135,7 @@ pub const INHERITED_ENV_DROPPED: &[&str] = &[
     "HANGAR_RUN_ID",
     "HANGAR_UNSET_ENV",
     "HANGAR_CLOUD_DIR",
+    "HANGAR_LAUNCHED",
 ];
 
 /// `node server.mjs` のコマンド。受け継いだ印を外してから、殻が渡す値を入れる。
@@ -122,12 +146,14 @@ pub const INHERITED_ENV_DROPPED: &[&str] = &[
 /// Node 22.20 以降はその形の主スクリプトを読めない。
 fn server_command(node: &Path, dir: &Path, hangar_home: &Path) -> Command {
     use crate::paths::plain;
+    let node = plain(node);
     let path = augmented_path(
         std::env::var("PATH").ok().as_deref(),
         &crate::paths::user_home(),
+        node.parent(),
     );
     let dir = plain(dir);
-    let mut cmd = Command::new(plain(node));
+    let mut cmd = Command::new(&node);
     for name in INHERITED_ENV_DROPPED {
         cmd.env_remove(name);
     }
@@ -625,10 +651,22 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn augmented_path_is_left_alone_on_windows() {
+    fn augmented_path_on_windows_only_adds_the_chosen_node_dir() {
         let home = Path::new("C:\\Users\\me");
-        assert_eq!(augmented_path(Some("C:\\a;C:\\b"), home), "C:\\a;C:\\b");
-        assert_eq!(augmented_path(None, home), "");
+        assert_eq!(augmented_path(Some("C:\\a;C:\\b"), home, None), "C:\\a;C:\\b");
+        assert_eq!(augmented_path(None, home, None), "");
+        // 殻が選んだ Node の置き場は、元の並びを変えずに後ろへ足す。
+        let fnm = Path::new("C:\\Users\\me\\AppData\\Roaming\\fnm\\node-versions\\v22.14.0\\installation");
+        assert_eq!(
+            augmented_path(Some("C:\\a;C:\\b"), home, Some(fnm)),
+            format!("C:\\a;C:\\b;{}", fnm.display())
+        );
+        assert_eq!(augmented_path(None, home, Some(fnm)), fnm.display().to_string());
+        // 既にあれば足さない。Windows のパスは大文字小文字と末尾の区切りを問わない。
+        assert_eq!(
+            augmented_path(Some("C:\\PROGRAM FILES\\NODEJS\\;C:\\b"), home, Some(Path::new("C:\\Program Files\\nodejs"))),
+            "C:\\PROGRAM FILES\\NODEJS\\;C:\\b"
+        );
     }
 
     #[cfg(unix)]
@@ -637,20 +675,64 @@ mod tests {
         let home = Path::new("/Users/me");
         // Finder から起こした .app の PATH。手元の置き場所がどれも入っていない。
         assert_eq!(
-            augmented_path(Some("/usr/bin:/bin:/usr/sbin:/sbin"), home),
+            augmented_path(Some("/usr/bin:/bin:/usr/sbin:/sbin"), home, None),
             "/usr/bin:/bin:/usr/sbin:/sbin:/Users/me/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.claude/local"
         );
         // 既にある項目は増やさない。並びは元のままにする。
         assert_eq!(
-            augmented_path(Some("/opt/homebrew/bin:/usr/bin"), home),
+            augmented_path(Some("/opt/homebrew/bin:/usr/bin"), home, None),
             "/opt/homebrew/bin:/usr/bin:/Users/me/.local/bin:/usr/local/bin:/Users/me/.claude/local"
         );
         // PATH が無い、または空のときも足した分だけは渡す。
         assert_eq!(
-            augmented_path(None, home),
+            augmented_path(None, home, None),
             "/Users/me/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.claude/local"
         );
-        assert_eq!(augmented_path(Some(""), home), augmented_path(None, home));
+        assert_eq!(augmented_path(Some(""), home, None), augmented_path(None, home, None));
+    }
+
+    // 殻が nvm、fnm、keg-only の場所で見つけた Node でサーバを起こしても、ペインの claude が使う node や npx の MCP が引けるよう、
+    // その置き場を後ろに足す。元の並びと、手元の置き場の並びは変えない。
+    #[cfg(unix)]
+    #[test]
+    fn augmented_path_adds_the_chosen_node_dir_last() {
+        let home = Path::new("/Users/me");
+        let nvm = Path::new("/Users/me/.nvm/versions/node/v22.14.0/bin");
+        assert_eq!(
+            augmented_path(Some("/usr/bin:/bin"), home, Some(nvm)),
+            "/usr/bin:/bin:/Users/me/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.claude/local:/Users/me/.nvm/versions/node/v22.14.0/bin"
+        );
+        // 既に入っている置き場（Homebrew の bin など）は足さない。
+        assert_eq!(
+            augmented_path(Some("/usr/bin"), home, Some(Path::new("/opt/homebrew/bin"))),
+            augmented_path(Some("/usr/bin"), home, None)
+        );
+        // 空の置き場（名前だけの node の親）は足さない。
+        assert_eq!(
+            augmented_path(Some("/usr/bin"), home, Some(Path::new(""))),
+            augmented_path(Some("/usr/bin"), home, None)
+        );
+    }
+
+    // サーバへ渡す PATH の最後は、殻が選んだ Node の置き場である。
+    #[test]
+    fn server_command_puts_the_chosen_node_dir_on_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let node_dir = dir.path().join("node-v22").join("bin");
+        let cmd = server_command(&node_dir.join("node"), dir.path(), home.path());
+        let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
+        let path = envs
+            .get(std::ffi::OsStr::new("PATH"))
+            .and_then(|v| v.as_ref())
+            .map(|v| v.to_string_lossy().to_string())
+            .unwrap();
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        assert_eq!(
+            path.rsplit(sep).next().unwrap(),
+            node_dir.to_string_lossy(),
+            "{path}"
+        );
     }
 
     #[test]

@@ -16,12 +16,30 @@ export function hostBundleTarget(platform: string = process.platform, arch: stri
   return BUNDLE_TARGETS.find((t) => t === `${platform}-${arch}`);
 }
 
+/**
+ * 束が要る Node のメジャー版。`manifest.json` の `nodeMajor` に書き、殻（node.rs）、`bin/hangar`、`launch-cli.mjs` は、この版と完全に一致する Node だけを使う。
+ * build した機械の Node から取ると、別の版の Node で作った束が、その版を要ると名乗って配られる。
+ * ネイティブモジュールは npm ci を走らせた Node に合わせて入るので、違う版の Node で作った束は、名乗った版でも動く保証が無い。
+ * そこで版はここに固定し、build している Node のメジャー版が違えば止める。
+ * 版を上げるときは、ここと、CI の setup-node と、起動の失敗の札（loading/boot-fail.js の DEFAULT_NODE_MAJOR）を一緒に上げる。
+ */
+export const BUNDLE_NODE_MAJOR = 22;
+
+/**
+ * Windows の `bin\hangar.cmd` が `launch-cli.mjs` を動かしてよい最も古い Node のメジャー版。
+ * `launch-cli.mjs` はこの版を target に作る。cmd はこれより古い Node を飛ばし、次の候補へ進む（PATH の先頭の古い Node で構文の誤りで落ちないように）。
+ * `launch-cli.mjs` は版とアーキテクチャを確かめて、合う Node（BUNDLE_NODE_MAJOR）へ渡し直すだけなので、古い版でも読めればよい。
+ */
+export const LAUNCHER_MIN_NODE = 16;
+
 export type BundleOptions = {
   repoRoot: string;
   outDir: string;
   uiDist: string;
   /** 省略すると、この機械の target。別の target の束も、どの機械でも作れる（prebuild は npm の包みに全部入っている）。 */
   target?: BundleTarget;
+  /** build している Node のメジャー版。省略すると、いま動いている Node。試験が差し替える。 */
+  buildNodeMajor?: number;
 };
 
 /**
@@ -74,7 +92,7 @@ export async function buildLauncher(outfile: string): Promise<void> {
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node22',
+    target: `node${LAUNCHER_MIN_NODE}`,
     outfile,
     logLevel: 'silent',
   });
@@ -117,6 +135,11 @@ function copyTree(src: string, dest: string, skip: RegExp, extra?: (rel: string)
 }
 
 export async function bundleServer(opts: BundleOptions): Promise<{ files: string[] }> {
+  // 何かを消したり書いたりする前に確かめる。
+  const buildNodeMajor = opts.buildNodeMajor ?? Number(process.versions.node.split('.')[0]);
+  if (buildNodeMajor !== BUNDLE_NODE_MAJOR) {
+    throw new Error(`配布物は Node ${BUNDLE_NODE_MAJOR} で作ります。いまの Node は ${buildNodeMajor} です。Node ${BUNDLE_NODE_MAJOR} に切り替えて、npm ci からやり直してください。`);
+  }
   const target = opts.target ?? hostBundleTarget();
   if (!target) {
     throw new Error(`この機械（${process.platform}-${process.arch}）向けの配布物は作りません。作れるのは ${BUNDLE_TARGETS.join('、')} です。`);
@@ -183,7 +206,7 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
 
   const pkg = JSON.parse(fs.readFileSync(path.join(opts.repoRoot, 'apps/desktop/package.json'), 'utf8')) as { version: string };
   // manifest の arch は、束の相手のもの。別の target の束を作るときに、作る機械のものを書かないためである。
-  const manifest = { version: pkg.version, nodeMajor: Number(process.versions.node.split('.')[0]), arch: target.split('-')[1]!, builtAt: new Date().toISOString() };
+  const manifest = { version: pkg.version, nodeMajor: BUNDLE_NODE_MAJOR, arch: target.split('-')[1]!, builtAt: new Date().toISOString() };
   fs.writeFileSync(path.join(opts.outDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   // git が server-dist を追跡し続けられるように置き直す。
   // ディレクトリごと消すと tauri-build の resources の検査が通らなくなる。
