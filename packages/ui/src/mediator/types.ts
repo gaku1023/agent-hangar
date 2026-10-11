@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, TodoDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, TodoDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
 import type { ConfigDetailPart } from '../store/store.ts';
@@ -275,6 +275,11 @@ export type State = {
    * ここに無いセッション（新しく動き始めたもの）は、並べた行の上に入る（presenters/shell.ts）。
    */
   sidebarOrder: string[];
+  /**
+   * プロジェクト画面の右パネルで折りたたんだ節（プロジェクトの id から節の並びへ）。無いプロジェクトは 3 つとも開く。
+   * 端末ごとに localStorage に残し、起動時に読み戻す（mediator/projectRail.ts）。
+   */
+  projectRailFolded: Record<string, ProjectRailSection[]>;
   /**
    * ベルの一覧で既読にした行の鍵（種類、対象、事実の版）。新しいものが後ろ。端末ごとに localStorage に残し、起動時に読み戻す。
    * 一覧の行は事実から Presenter が組み、ここは既読の鍵だけを持つ（mediator/notices.ts）。

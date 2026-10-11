@@ -83,4 +83,6 @@ export const projectScreenJa: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.artifact.openEditor': 'VS Code で開く',
   'projectScreen.artifact.urlLabel': 'アーティファクトの URL',
   'projectScreen.artifact.addButton': '追加',
+  'projectScreen.artifact.showAll': 'すべて表示（{n} 件）',
+  'projectScreen.artifact.showLess': '少なく表示',
 };

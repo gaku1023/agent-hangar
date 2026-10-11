@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { pagerOf } from '../presenters/pager.ts';
 import type { InstructionRowProps, InstructionsProps, ProjectProps } from '../presenters/project.ts';
@@ -8,6 +8,7 @@ import type { SessionListProps, StatusTab, StatusTabProps } from '../presenters/
 import { CopiedContext } from './primitives/CommandLine.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 import { ProjectScreen } from './ProjectScreen.tsx';
+import { fakeMotionTokens } from '../test/motion.ts';
 
 // 1 つのプロジェクトの画面（Q3）。左はホームと同じ一覧の部品、右パネルは TODO、指示とメモリ、アーティファクトで、見出しの (i) に場所と操作を置く。
 
@@ -20,7 +21,7 @@ const INSTRUCTIONS: InstructionsProps = { state: 'ready', rows: [claudeRow, agen
 const props = (over: Partial<ProjectProps> = {}): ProjectProps => ({
   id: 'alpha', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' } }, path: '/w/alpha', resolved: true, status: 'active', notFound: false, isScratch: false,
   list: list(), loadMore: null, info: { sessionsText: '2 本', lastActivity: '3 時間前' },
-  todos: [{ id: 't1', text: '買う', done: false, position: 1, candidate: null }], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: INSTRUCTIONS, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }], artifactAddError: null,
+  todos: [{ id: 't1', text: '買う', done: false, position: 1, candidate: null }], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: INSTRUCTIONS, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }], artifactAddError: null, railFolded: [],
   ...over,
 });
 const mount = (p: ProjectProps = props(), onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><ProjectScreen {...p} /></ActionRoot>), onAction });
@@ -197,7 +198,7 @@ describe('ProjectScreen の右パネル', () => {
   it('3 つの節は白い面に載り、真ん中の見出しは「指示とメモリ」である', () => {
     const { container } = mount();
     const panels = [...container.querySelectorAll('.rail > .rail-panel')];
-    expect(panels.map((p) => p.querySelector('h2 > span')?.textContent)).toEqual(['TODO', '指示とメモリ', 'アーティファクト']);
+    expect(panels.map((p) => p.querySelector('h2 .rail-title')?.textContent)).toEqual(['TODO', '指示とメモリ', 'アーティファクト']);
   });
   it('TODO の見出しに、確認待ちの数の札を出す。無ければ出さない', () => {
     const { unmount } = mount(props({ pendingTodos: 2 }));
@@ -293,5 +294,173 @@ describe('ProjectScreen の指示とメモリ', () => {
     fireEvent.click(within(confirm).getByRole('button', { name: '削除' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'memo.save', projectId: 'alpha', markdown: '' });
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+// 窓に収めた右パネル（A1 + B + C3 + D1）。節の見出しの左のシェブロンで折りたたみ、アーティファクトは新しい方から 3 件だけ出す。
+const artN = (n: number) => Array.from({ length: n }, (_, i) => ({ id: 'a' + (i + 1), title: '題名 a' + (i + 1), description: null, favicon: '📊', url: 'https://claude.ai/code/artifact/a' + (i + 1), lastPublished: '1 分前', versionCount: 1, canOpenEditor: false }));
+const headOf = (name: RegExp) => screen.getByRole('heading', { name });
+const toggleOf = (name: RegExp) => within(headOf(name)).getByRole('button');
+const bodyOf = (name: RegExp) => document.getElementById(toggleOf(name).getAttribute('aria-controls')!)!;
+
+describe('ProjectScreen の右パネルの節の折りたたみ', () => {
+  it('3 つの節の見出しは押せるシェブロンの見出しで、はじめは開いている。押すと project.railFold を出す', () => {
+    const { onAction } = mount();
+    for (const [name, section] of [[/^TODO/, 'todo'], [/^指示とメモリ/, 'instructions'], [/^アーティファクト/, 'artifacts']] as const) {
+      const tog = toggleOf(name);
+      expect(tog).toHaveAttribute('aria-expanded', 'true');
+      expect(iconOf(tog)).toBe('chevron');
+      expect(bodyOf(name)).not.toHaveAttribute('hidden');
+      fireEvent.click(tog);
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'project.railFold', id: 'alpha', section, open: false });
+    }
+  });
+  it('折りたたんだ節は見出しだけになり、件数と確認待ちの札は残る。押すと開く意図を出す', () => {
+    const { onAction } = mount(props({ pendingTodos: 2, railFolded: ['todo', 'artifacts'] }));
+    expect(toggleOf(/^TODO/)).toHaveAttribute('aria-expanded', 'false');
+    expect(bodyOf(/^TODO/)).toHaveAttribute('hidden');
+    expect(screen.queryByRole('button', { name: 'TODO を足す' })).toBeNull();
+    expect(within(headOf(/^TODO/)).getByText('確認待ち 2')).toBeInTheDocument();
+    expect(within(headOf(/^TODO/)).getByText('1')).toBeInTheDocument();
+    expect(bodyOf(/^アーティファクト/)).toHaveAttribute('hidden');
+    expect(within(headOf(/^アーティファクト/)).getByText('1')).toBeInTheDocument();
+    // 折りたたんでいない節はそのまま。
+    expect(bodyOf(/^指示とメモリ/)).not.toHaveAttribute('hidden');
+    fireEvent.click(toggleOf(/^TODO/));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'project.railFold', id: 'alpha', section: 'todo', open: true });
+  });
+  it('開き直すと中身が戻る（中の TODO の欄は折りたたみの間も残る）', () => {
+    const { rerender } = mount(props({ railFolded: ['todo'] }));
+    rerender(<ActionRoot onAction={vi.fn()}><ProjectScreen {...props({ railFolded: [] })} /></ActionRoot>);
+    expect(bodyOf(/^TODO/)).not.toHaveAttribute('hidden');
+    expect(screen.getByRole('button', { name: 'TODO を足す' })).toBeInTheDocument();
+  });
+});
+
+describe('ProjectScreen のアーティファクトの「すべて表示」', () => {
+  const cards = () => [...document.querySelectorAll('.rail .artifact')].map((c) => c.querySelector('.card-title')!.textContent);
+
+  it('3 件までならすべて出し、「すべて表示」は出さない', () => {
+    mount(props({ artifacts: artN(3) }));
+    expect(cards()).toEqual(['題名 a1', '題名 a2', '題名 a3']);
+    expect(screen.queryByRole('button', { name: /すべて表示/ })).toBeNull();
+  });
+  it('4 件以上なら新しい方から 3 件と、並びの末尾に「すべて表示（N 件）」。広げると全部と「少なく表示」、戻すと 3 件', () => {
+    mount(props({ artifacts: artN(5) }));
+    expect(cards()).toEqual(['題名 a1', '題名 a2', '題名 a3']);
+    const all = screen.getByRole('button', { name: 'すべて表示（5 件）' });
+    expect(all).toHaveAttribute('aria-expanded', 'false');
+    // 末尾の行は、カードの後ろで、追加の欄の前に置く。
+    expect(all.compareDocumentPosition(document.querySelectorAll('.rail .artifact')[2]!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(all.compareDocumentPosition(screen.getByLabelText('アーティファクトの URL')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(all);
+    expect(cards()).toEqual(['題名 a1', '題名 a2', '題名 a3', '題名 a4', '題名 a5']);
+    const less = screen.getByRole('button', { name: '少なく表示' });
+    expect(less).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(less);
+    expect(cards()).toEqual(['題名 a1', '題名 a2', '題名 a3']);
+  });
+  it('広げた状態は覚えない。開き直すと 3 件に戻る。別のプロジェクトへ移っても持ち越さない', () => {
+    const { unmount } = mount(props({ artifacts: artN(5) }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて表示（5 件）' }));
+    unmount();
+    const { rerender } = mount(props({ artifacts: artN(5) }));
+    expect(cards()).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: 'すべて表示（5 件）' }));
+    rerender(<ActionRoot onAction={vi.fn()}><ProjectScreen {...props({ id: 'beta', name: 'beta', artifacts: artN(6) })} /></ActionRoot>);
+    expect(cards()).toHaveLength(3);
+    expect(screen.getByRole('button', { name: 'すべて表示（6 件）' })).toBeInTheDocument();
+  });
+  it('戻したとき、パネルが節の見出しより下までスクロールしていたら、見出しが見える所まで戻す。上なら動かさない', () => {
+    const { container } = mount(props({ artifacts: artN(8) }));
+    const rail = container.querySelector<HTMLElement>('.rail')!;
+    const section = headOf(/^アーティファクト/).closest<HTMLElement>('section')!;
+    // パネルの上端は 100、節の上端はスクロールの分だけ上がる（中身の中では 400 の位置）。
+    rail.getBoundingClientRect = () => ({ top: 100 } as DOMRect);
+    section.getBoundingClientRect = () => ({ top: 100 + 400 - rail.scrollTop } as DOMRect);
+    fireEvent.click(screen.getByRole('button', { name: 'すべて表示（8 件）' }));
+    rail.scrollTop = 900;
+    fireEvent.click(screen.getByRole('button', { name: '少なく表示' }));
+    expect(rail.scrollTop).toBe(400);
+    fireEvent.click(screen.getByRole('button', { name: 'すべて表示（8 件）' }));
+    rail.scrollTop = 150;
+    fireEvent.click(screen.getByRole('button', { name: '少なく表示' }));
+    expect(rail.scrollTop).toBe(150);
+  });
+  it('言語を English にすると、「すべて表示」と「少なく表示」も英語になる', () => {
+    render(<LanguageRoot language="en"><ActionRoot onAction={vi.fn()}><ProjectScreen {...props({ artifacts: artN(4) })} /></ActionRoot></LanguageRoot>);
+    fireEvent.click(screen.getByRole('button', { name: 'Show all (4)' }));
+    expect(screen.getByRole('button', { name: 'Show less' })).toBeInTheDocument();
+  });
+});
+
+describe('ProjectScreen の右パネルの動き', () => {
+  let restore: (() => void) | null = null;
+  let animations: { el: Element; frames: Keyframe[] }[] = [];
+  let finish: (() => void)[] = [];
+  const motion = (dur: string) => {
+    restore?.();
+    restore = fakeMotionTokens({ '--dur-fast': dur === '0ms' ? '0ms' : '200ms', '--dur': dur, '--dur-exit': dur === '0ms' ? '0ms' : '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+  };
+  beforeEach(() => {
+    motion('420ms');
+    animations = []; finish = [];
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
+      animations.push({ el: this, frames });
+      return { finished: new Promise<void>((r) => finish.push(r)), cancel: vi.fn() };
+    };
+  });
+  afterEach(() => {
+    restore?.(); restore = null;
+    delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+  });
+  const on = (el: Element | null) => animations.filter((a) => a.el === el);
+  const done = async () => { await act(async () => { finish.forEach((f) => f()); await Promise.resolve(); }); };
+  const ui = (p: Partial<ProjectProps>) => <ActionRoot onAction={vi.fn()}><ProjectScreen {...props(p)} /></ActionRoot>;
+
+  it('はじめの描画では動かさない', () => {
+    mount();
+    expect(animations.filter((a) => (a.el as HTMLElement).classList.contains('rail-body'))).toHaveLength(0);
+  });
+  it('折りたたむと、中身は collapseOut で薄れながら畳み、終わってから隠す。開くと growIn で 0 から伸びる', async () => {
+    const { rerender } = mount();
+    const body = bodyOf(/^アーティファクト/);
+    rerender(ui({ railFolded: ['artifacts'] }));
+    expect(body).not.toHaveAttribute('hidden');
+    expect(on(body).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+    // シェブロンはすぐ向きを変える（CSS の transition で回る）。
+    expect(toggleOf(/^アーティファクト/)).toHaveAttribute('aria-expanded', 'false');
+    await done();
+    expect(body).toHaveAttribute('hidden');
+    animations = [];
+    rerender(ui({ railFolded: [] }));
+    expect(body).not.toHaveAttribute('hidden');
+    expect(on(body)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+  });
+  it('「すべて表示」は、増えた分の箱を growIn で伸ばし、「少なく表示」で collapseOut で畳んでから外す', async () => {
+    const { container } = mount(props({ artifacts: artN(5) }));
+    fireEvent.click(screen.getByRole('button', { name: 'すべて表示（5 件）' }));
+    const more = container.querySelector('.artifacts-more')!;
+    expect(on(more)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+    fireEvent.click(screen.getByRole('button', { name: '少なく表示' }));
+    expect(container.querySelector('.artifacts-more')).toBe(more);
+    expect(on(more).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+    await done();
+    expect(container.querySelector('.artifacts-more')).toBeNull();
+  });
+  it('動きを減らす設定（長さ 0）では、動かさずにすぐ切り替える', () => {
+    motion('0ms');
+    const { rerender, container } = mount(props({ artifacts: artN(5) }));
+    const body = bodyOf(/^TODO/);
+    rerender(ui({ artifacts: artN(5), railFolded: ['todo'] }));
+    expect(body).toHaveAttribute('hidden');
+    rerender(ui({ artifacts: artN(5), railFolded: [] }));
+    expect(body).not.toHaveAttribute('hidden');
+    fireEvent.click(screen.getByRole('button', { name: 'すべて表示（5 件）' }));
+    fireEvent.click(screen.getByRole('button', { name: '少なく表示' }));
+    expect(container.querySelector('.artifacts-more')).toBeNull();
+    expect(animations).toHaveLength(0);
   });
 });

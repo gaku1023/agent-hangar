@@ -130,6 +130,20 @@ describe('TodoList', () => {
     }
   });
 
+  it('キーで選んだ行は、右パネル（.rail）のスクロールの中で見える位置へ寄せる', () => {
+    const onAction = vi.fn();
+    const { container } = render(<div className="main"><aside className="rail"><ActionRoot onAction={onAction}><TodoList projectId="p1" todos={[item('a', 'あ'), item('b', 'い', { position: 2 })]} done={[]} suggestions={[]} /></ActionRoot></aside></div>);
+    const rail = container.querySelector<HTMLElement>('.rail')!;
+    const main = container.querySelector<HTMLElement>('.main')!;
+    rail.getBoundingClientRect = () => ({ top: 0, bottom: 100, height: 100 } as DOMRect);
+    main.getBoundingClientRect = () => ({ top: 0, bottom: 1000, height: 1000 } as DOMRect);
+    fireEvent.click(row('あ'));
+    row('い').getBoundingClientRect = () => ({ top: 120, bottom: 150, height: 30 } as DOMRect);
+    fireEvent.keyDown(row('あ'), { key: 'ArrowDown' });
+    expect(rail.scrollTop).toBe(50);
+    expect(main.scrollTop).toBe(0);
+  });
+
   it('キーで選んで、完了、直す、消す、動かす、戻すができる', () => {
     const { onAction } = list({ todos: [item('a', 'あ'), item('b', 'い', { position: 2 }), item('c', 'う', { position: 3 })] });
     fireEvent.click(row('あ'));

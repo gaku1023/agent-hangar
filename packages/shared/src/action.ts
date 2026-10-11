@@ -9,6 +9,9 @@ export type RunId = string;
 export type TabId = string;
 export type TodoId = string;
 export type ArtifactId = string;
+/** プロジェクト画面の右パネルの節。並びは画面の上からの順である。 */
+export const PROJECT_RAIL_SECTIONS = ['todo', 'instructions', 'artifacts'] as const;
+export type ProjectRailSection = (typeof PROJECT_RAIL_SECTIONS)[number];
 
 /**
  * 一覧と検索の絞り込み。
@@ -52,6 +55,8 @@ export type UiAction =
   // 一覧から削除（unlink）は同期で他の端末へも広がるので、confirmed が無ければ先に確認を出す。
   | { type: 'project.resolve'; id: ProjectId; action: ResolveAction; confirmed?: boolean }
   | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
+  // プロジェクト画面の右パネルの節を開く・折りたたむ。プロジェクトごとに端末の localStorage に覚える。
+  | { type: 'project.railFold'; id: ProjectId; section: ProjectRailSection; open: boolean }
   | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
   | { type: 'todo.confirm'; id: TodoId } | { type: 'todo.reject'; id: TodoId }
   // 文言を直す。空にして確定したときは View が todo.remove を出す。

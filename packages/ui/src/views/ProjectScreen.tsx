@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
+import type { ProjectRailSection } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { ProjectProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { InstructionsPanel } from './InstructionsPanel.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { ProjectInfo } from './ProjectInfo.tsx';
+import { FoldBox } from './primitives/FoldBox.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { StatusSelect } from './primitives/StatusSelect.tsx';
@@ -15,10 +17,36 @@ import { RollingNumber } from './primitives/RollingNumber.tsx';
 /**
  * 1 つのプロジェクトの画面（Q3、左右に割る）。
  * 左は、ホームと同じ部品（ステータスのタブ、検索の欄、平らな行、ページ送り）で、このプロジェクトのセッションだけを出す。
- * 右パネルは TODO（見出しに確認待ちの数）、指示とメモリ、アーティファクトで、折りたためる。
+ * 右パネルは TODO（見出しに確認待ちの数）、指示とメモリ、アーティファクトで、パネルごと閉じられ、節ごとにも折りたためる。
+ * 画面は窓の高さに収め、左の一覧が残りの高さを受け取り、右パネルは 1 本でスクロールする（workbench.css）。
  * 見出しの (i) に、場所、セッションの数、最後の活動と、場所や名前を直す操作を置く。
  * スクラッチの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
  */
+/** アーティファクトの節で、はじめに出す件数（新しい方から）。残りは「すべて表示」で広げる。 */
+const ARTIFACT_LIMIT = 3;
+
+/**
+ * 右パネルの 1 つの節（A1）。見出しの左のシェブロンを押すと中身を折りたたみ、見出しだけの札になる。件数と確認待ちの札は見出しに残る。
+ * 折りたたんだ節はプロジェクトごとに覚える（project.railFold、mediator/projectRail.ts）。
+ * 中身は FoldBox で growIn と collapseOut で出入りし、折りたたみの間も外さない（TODO の欄の書きかけを残す）。
+ * 見出しは右パネルのスクロールの間も節の上に留まる（workbench.css の .rail-h）。
+ */
+function RailSection(props: { section: ProjectRailSection; title: string; aside?: ReactNode; folded: readonly ProjectRailSection[]; projectId: string; children: ReactNode }) {
+  const emit = useEmit();
+  const bodyId = useId();
+  const open = !props.folded.includes(props.section);
+  return (
+    <section className="rail-panel" data-open={open ? 'true' : undefined}>
+      <h2 className="rail-h">
+        <button type="button" className="rail-toggle" aria-expanded={open} aria-controls={bodyId} onClick={() => emit({ type: 'project.railFold', id: props.projectId, section: props.section, open: !open })}>
+          <Icon name="chevron" /><span className="rail-title">{props.title}</span>{props.aside}
+        </button>
+      </h2>
+      <FoldBox open={open} keep id={bodyId} className="rail-body">{props.children}</FoldBox>
+    </section>
+  );
+}
+
 export function ProjectScreen(props: ProjectProps) {
   const emit = useEmit();
   const t = useT();
@@ -50,17 +78,17 @@ export function ProjectScreen(props: ProjectProps) {
       </div>
       {railOpen && (
         <aside className="rail">
-          <section className="rail-panel">
-            <h2 className="rail-h"><span>{t('projectScreen.rail.todo')}</span><span className="rail-n num"><RollingNumber value={props.todos.length} /></span>{props.pendingTodos > 0 && <span className="sessions-tab-n" data-hot="true">{t('projectScreen.rail.pending', { n: props.pendingTodos })}</span>}</h2>
+          <RailSection section="todo" title={t('projectScreen.rail.todo')} folded={props.railFolded} projectId={props.id}
+            aside={<><span className="rail-n num"><RollingNumber value={props.todos.length} /></span>{props.pendingTodos > 0 && <span className="sessions-tab-n" data-hot="true">{t('projectScreen.rail.pending', { n: props.pendingTodos })}</span>}</>}>
             <TodoList projectId={props.id} todos={props.todos} done={props.doneTodos} suggestions={props.suggestions} />
-          </section>
-          <section className="rail-panel">
+          </RailSection>
+          <RailSection section="instructions" title={t('projectScreen.rail.instructions')} folded={props.railFolded} projectId={props.id}>
             <InstructionsPanel projectId={props.id} instructions={props.instructions} />
-          </section>
-          <section className="rail-panel">
-            <h2 className="rail-h"><span>{t('projectScreen.rail.artifacts')}</span><span className="rail-n num">{props.artifacts.length}</span></h2>
-            <ArtifactCards projectId={props.id} artifacts={props.artifacts} canAdd addError={props.artifactAddError} />
-          </section>
+          </RailSection>
+          <RailSection section="artifacts" title={t('projectScreen.rail.artifacts')} folded={props.railFolded} projectId={props.id} aside={<span className="rail-n num">{props.artifacts.length}</span>}>
+            {/* 広げた「すべて表示」は覚えないので、プロジェクトが替わったら作り直して 3 件に戻す。 */}
+            <ArtifactCards key={props.id} projectId={props.id} artifacts={props.artifacts} canAdd addError={props.artifactAddError} limit={ARTIFACT_LIMIT} />
+          </RailSection>
         </aside>
       )}
     </div>

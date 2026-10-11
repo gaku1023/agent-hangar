@@ -83,4 +83,6 @@ export const projectScreenKeys = {
   'projectScreen.artifact.openEditor': [],
   'projectScreen.artifact.urlLabel': [],
   'projectScreen.artifact.addButton': [],
+  'projectScreen.artifact.showAll': ['n'],
+  'projectScreen.artifact.showLess': [],
 } as const satisfies MessageSpec;

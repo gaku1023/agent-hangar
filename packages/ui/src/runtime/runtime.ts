@@ -6,6 +6,7 @@ import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { cleanSidebarOrder, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
+import { PROJECT_RAIL_KEY, readProjectRailFolded } from '../mediator/projectRail.ts';
 import { NOTIFY_KEY, notifyKeep } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
 import { readWaitingNotified, WAITING_NOTIFIED_KEY } from '../mediator/live.ts';
@@ -780,6 +781,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       state = {
         ...state, sessionView: sv, sidebarCollapsed: deps.storage.get(SIDEBAR_KEY) === true, sidebarOrder: cleanSidebarOrder(deps.storage.get(SIDEBAR_ORDER_KEY)),
         pageSize: readPageSize(deps.storage.get(PAGE_SIZE_KEY)),
+        // プロジェクト画面の右パネルで折りたたんだ節。形の違う値は捨てる。
+        projectRailFolded: readProjectRailFolded(deps.storage.get(PROJECT_RAIL_KEY)),
         // 知らせ終えた戻る時点。開き直しても同じ時点を 2 度知らせない。
         returnSeen: readReturnSeen(deps.storage.get(RETURN_SEEN_KEY)),
         // 開き直す前に残した入力待ちの鍵。同じ入力待ちを、開き直しで知らせ直さない（mediator/live.ts）。

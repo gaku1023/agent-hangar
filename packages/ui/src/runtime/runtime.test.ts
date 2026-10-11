@@ -2099,6 +2099,21 @@ describe('サイドバーの「動いている」の並び（ランタイム）'
   });
 });
 
+describe('プロジェクト画面の右パネルの折りたたみ（ランタイム）', () => {
+  it('起動のときに覚えた節を読み戻し、形の違う値は捨てる', () => {
+    const h = harness();
+    h.store.set('projectRail.folded', { alpha: ['artifacts', 'nope'], beta: 3 });
+    h.rt.start();
+    expect(h.rt.getState().projectRailFolded).toEqual({ alpha: ['artifacts'] });
+  });
+  it('折りたたむと保存する', () => {
+    const h = harness();
+    h.rt.start();
+    h.rt.emit({ type: 'project.railFold', id: 'alpha', section: 'todo', open: false });
+    expect(h.store.get('projectRail.folded')).toEqual({ alpha: ['todo'] });
+  });
+});
+
 describe('アカウント', () => {
   const univ = accountsFixture.accounts[1]!;
   async function started(overrides: Partial<ApiClient> = {}) {

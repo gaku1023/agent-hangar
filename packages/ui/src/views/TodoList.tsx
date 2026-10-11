@@ -168,7 +168,8 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; don
     const el = motion.nodes.current.get(id);
     if (!el) return;
     el.focus({ preventScroll: true });
-    const box = el.closest<HTMLElement>('.main');
+    // 右パネルは自分でスクロールする（プロジェクトの頁は窓に収める）。パネルの外に置かれたときは .main を動かす。
+    const box = el.closest<HTMLElement>('.rail, .main');
     if (box) revealWithin(box, el);
   });
 
