@@ -857,7 +857,18 @@ fn boot_probe(app: AppHandle, drawn: serde_json::Value) -> Result<(), String> {
     }
 }
 
-/// フォルダを 1 つ選ぶ macOS のダイアログを開き、選んだパスを返す。取り消したら None を返す。
+/// フォルダの選択のダイアログに渡す親の窓を決める。渡すのは Windows だけで、窓が取れなければ親なしで開く。
+/// Windows では、ダイアログの持ち主が hangar の窓でないと、入力待ちの知らせの前景の判定（`notify::window_owns_foreground`）が、ダイアログを前にしている利用者を見ているとみなせない。
+/// macOS で親を渡すと、ダイアログが窓に付くシートに変わって見た目が変わるので渡さない。
+fn dialog_parent<W>(windows: bool, window: Option<W>) -> Option<W> {
+    if windows {
+        window
+    } else {
+        None
+    }
+}
+
+/// フォルダを 1 つ選ぶダイアログを開き、選んだパスを返す。取り消したら None を返す。
 /// 新しいセッションのダイアログと、プロジェクトを作るダイアログの「ほかの場所を選ぶ…」が呼ぶ。
 /// 既定の場所はワークスペースのルートで、`~/` で始まればホームに展開する。ディレクトリでなければ渡さない。
 /// ダイアログは選び終えるまで戻らないので、非同期の実行の糸を塞がないよう spawn_blocking で待つ。
@@ -865,6 +876,9 @@ fn boot_probe(app: AppHandle, drawn: serde_json::Value) -> Result<(), String> {
 async fn pick_folder(app: AppHandle, default_path: Option<String>) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
     let mut builder = app.dialog().file();
+    if let Some(parent) = dialog_parent(cfg!(windows), app.get_webview_window("main")) {
+        builder = builder.set_parent(&parent);
+    }
     if let Some(p) = default_path {
         let expanded = match p.strip_prefix("~/") {
             Some(rest) => std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(rest)),
@@ -1575,6 +1589,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // フォルダの選択のダイアログに親の窓を渡すのは Windows だけ。
+    // macOS で渡すと窓に付くシートに変わって見た目が変わる。窓が取れなければ、どちらでも親なしで開く。
+    #[test]
+    fn the_folder_dialog_gets_a_parent_window_only_on_windows() {
+        assert_eq!(dialog_parent(true, Some("w")), Some("w"));
+        assert_eq!(dialog_parent(true, None::<&str>), None);
+        assert_eq!(dialog_parent(false, Some("w")), None);
+        assert_eq!(dialog_parent(false, None::<&str>), None);
+    }
 
     fn boot_at(phase: health::Phase, done: u64, total: u64) -> health::Boot {
         health::Boot {
