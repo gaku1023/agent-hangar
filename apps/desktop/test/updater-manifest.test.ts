@@ -8,7 +8,7 @@ import { buildManifest, platformOf, readEntries } from '../scripts/updater-manif
 
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// release.yml の updater-manifest ジョブが、各 OS の更新物の .sig から updater の目録（latest.json）を作る。
+// release.yml の publish ジョブが、各 OS の更新物の .sig から updater の目録（latest.json）を作る。
 // 形は tauri-plugin-updater の静的な目録（version、notes、pub_date、platforms の url と signature）である。
 describe('updater の目録', () => {
   it('Release の資産の名前から、updater の platform を決める', () => {
@@ -52,7 +52,7 @@ describe('updater の目録', () => {
     ]);
   });
 
-  // CI の updater-manifest ジョブは npm ci をしないので、Node がそのまま型を剥がして動かせる形でなければならない。
+  // CI の publish ジョブは npm ci をしないので、Node がそのまま型を剥がして動かせる形でなければならない。
   it('Node だけで動き、目録を標準出力に書く', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'updater-'));
     fs.writeFileSync(path.join(dir, 'Hangar-v1.5.0-macos-arm64.app.tar.gz.sig'), 'SIG-MAC');
