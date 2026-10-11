@@ -88,20 +88,30 @@ describe('サーバの環境', () => {
   });
 });
 
-// 殻は Finder から起きたときの最小の PATH に、手元のツールの置き場を後ろへ足してサーバへ渡す（server.rs の augmented_path）。
+// 殻は Finder から起きたときの最小の PATH に、手元のツールの置き場と、殻が選んだ Node の置き場を後ろへ足してサーバへ渡す（server.rs の augmented_path）。
 describe('サーバへ渡る PATH', () => {
-  it('server.rs の augmented_path が足す置き場と同じものを、同じ順で足す', () => {
-    const rs = fs.readFileSync(path.join(app, 'src-tauri/src/server.rs'), 'utf8');
-    const body = rs.match(/pub fn augmented_path[\s\S]*?let extra = \[([\s\S]*?)\];/)?.[1];
+  const rs = fs.readFileSync(path.join(app, 'src-tauri/src/server.rs'), 'utf8');
+  it('server.rs の augmented_path が足す置き場と同じものを、同じ順で足し、最後に殻が選んだ Node の置き場を足す', () => {
+    const fn = rs.match(/pub fn augmented_path\(([^)]*)\)[^{]*\{([\s\S]*?)\n\}/);
+    expect(fn, 'augmented_path が見つかりません').not.toBeNull();
+    // 引数は 3 つで、3 つ目が殻の選んだ Node の置き場（server_command が node.parent() を渡す）。
+    expect(fn![1]!.split(',').map((a) => a.trim().split(':')[0])).toEqual(['current', 'user_home', 'node_dir']);
+    expect(rs).toMatch(/augmented_path\(\s*std::env::var\("PATH"\)\.ok\(\)\.as_deref\(\),\s*&crate::paths::user_home\(\),\s*node\.parent\(\),\s*\)/);
+    const body = fn![2]!.match(/let extra = \[([\s\S]*?)\];/)?.[1];
     expect(body, 'augmented_path の extra が見つかりません').toBeDefined();
+    // 決まった置き場の後ろに node_dir をつなぐ（Unix の道）。
+    expect(fn![2]!).toMatch(/\.chain\(node_dir\)/);
     const home = '/h';
     const want = [...body!.matchAll(/user_home\.join\("([^"]+)"\)|PathBuf::from\("([^"]+)"\)/g)].map((m) => (m[1] ? `${home}/${m[1]}` : m[2]!));
     expect(want.length).toBeGreaterThan(0);
-    expect(extraPathDirs(home)).toEqual(want);
+    expect(extraPathDirs(home, '/n/bin')).toEqual([...want, '/n/bin']);
+    expect(extraPathDirs(home, '')).toEqual(want);
   });
   it('元の並びを保ち、既にある置き場は足さない', () => {
-    expect(expectedServerPath('/usr/bin:/bin:/usr/sbin:/sbin', '/h')).toBe('/usr/bin:/bin:/usr/sbin:/sbin:/h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/h/.claude/local');
-    expect(expectedServerPath('/opt/homebrew/bin:/usr/bin', '/h')).toBe('/opt/homebrew/bin:/usr/bin:/h/.local/bin:/usr/local/bin:/h/.claude/local');
+    expect(expectedServerPath('/usr/bin:/bin:/usr/sbin:/sbin', '/h', '/n/bin')).toBe('/usr/bin:/bin:/usr/sbin:/sbin:/h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/h/.claude/local:/n/bin');
+    expect(expectedServerPath('/opt/homebrew/bin:/usr/bin', '/h', '/n/bin')).toBe('/opt/homebrew/bin:/usr/bin:/h/.local/bin:/usr/local/bin:/h/.claude/local:/n/bin');
+    // Node が決まった置き場（Homebrew など）にあれば、2 度は足さない。
+    expect(expectedServerPath('/usr/bin', '/h', '/opt/homebrew/bin')).toBe('/usr/bin:/h/.local/bin:/opt/homebrew/bin:/usr/local/bin:/h/.claude/local');
   });
 });
 
