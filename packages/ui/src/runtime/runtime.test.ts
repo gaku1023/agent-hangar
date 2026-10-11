@@ -1794,6 +1794,28 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
       expect(rt.getStore().readiness).toEqual(READY);
     }
   });
+  it('API やほかの窓から claudePath が直されたら（settings.changed）、準備の確かめを取り直して帯を新しい答えにする', async () => {
+    const NOT_FOUND = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset' as const, version: null } } };
+    const answers = [NOT_FOUND, READY];
+    const readiness = vi.fn(async () => answers.shift() as never);
+    const { rt, wsHandlers } = harness({ readiness });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(rt.getStore().readiness?.tools.claude.ok).toBe(false);
+    const settings = { ...rt.getStore().settings!, claudePath: '/bin/claude' };
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['claudePath'] });
+    await flush();
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(2);
+    expect(rt.getStore().readiness?.tools.claude.ok).toBe(true);
+    expect(rt.getStore().settings?.claudePath).toBe('/bin/claude');
+    // 準備の確かめに関わらない欄の変更では読み直さない。
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['summaryFallback'] });
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(2);
+  });
   describe('そろったときのトースト（2.11.4）', () => {
     const PENDING = { ...READY, workspace: { ...READY.workspace, projectCount: 0 } };
     const OPTIONAL_LEFT = READY;
