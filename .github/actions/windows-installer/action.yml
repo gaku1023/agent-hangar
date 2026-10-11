@@ -23,7 +23,7 @@ inputs:
   signing-key:
     description: >-
       自動更新の署名鍵（minisign の秘密鍵、Tauri の TAURI_SIGNING_PRIVATE_KEY）。
-      渡せば tauri.updater.conf.json を重ねて、インストーラの署名（.sig）も作る。ci からは渡さない。
+      渡せば、build の後でインストーラに tauri signer sign で署名（.sig）を付ける。build には渡さない。ci からは渡さない。
     required: false
     default: ''
   signing-key-password:
@@ -36,7 +36,7 @@ outputs:
     value: ${{ steps.find.outputs.setup }}
   sig:
     description: インストーラの署名（.sig）のパス。署名鍵を渡さなかったときは空。
-    value: ${{ steps.find.outputs.sig }}
+    value: ${{ steps.sign.outputs.sig }}
 runs:
   using: composite
   steps:
@@ -46,21 +46,18 @@ runs:
       shell: pwsh
       run: npm run build
     # 置き場を先に空ける。target はキャッシュから戻るので、前の版のインストーラが残っていると 2 つになる。
+    # 更新の署名鍵は渡さない。build は beforeBuildCommand（npm run bundle-server）や依存のコードを走らせるからである。
     - name: インストーラを作る
       shell: pwsh
       env:
         TARGET: ${{ inputs.target }}
         EXTRA_CONFIG: ${{ inputs.extra-config }}
         FEATURES: ${{ inputs.features }}
-        TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.signing-key }}
-        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.signing-key-password }}
       run: |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "apps/desktop/src-tauri/target/$env:TARGET/release/bundle/nsis"
         $extra = @()
         if ($env:EXTRA_CONFIG) { $extra += @('--config', $env:EXTRA_CONFIG) }
         if ($env:FEATURES) { $extra += @('--features', $env:FEATURES) }
-        if ($env:TAURI_SIGNING_PRIVATE_KEY) { $extra += @('--config', 'src-tauri/tauri.updater.conf.json') }
-        else { Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY, Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue }
         npm run tauri -w apps/desktop -- build --bundles nsis --target $env:TARGET @extra
     - name: インストーラの名前、大きさ、SHA-256
       id: find
@@ -75,7 +72,22 @@ runs:
         $f = $files[0]
         '{0}  {1:N1} MB  {2}' -f $f.Name, ($f.Length / 1MB), (Get-FileHash -Algorithm SHA256 $f.FullName).Hash
         Add-Content -Path $env:GITHUB_OUTPUT -Value "setup=$dir/$($f.Name)"
-        if (Test-Path "$($f.FullName).sig") { Add-Content -Path $env:GITHUB_OUTPUT -Value "sig=$dir/$($f.Name).sig" }
+    # 署名鍵を受け取るのはこの段だけで、できたインストーラに .sig を付ける（tauri build の更新物づくりと同じ minisign の署名）。
+    # 署名はインストーラを書き換えないので、この後の入れて確かめる段は同じものを試す。
+    - name: インストーラに更新の署名を付ける
+      id: sign
+      if: inputs.signing-key != ''
+      shell: pwsh
+      env:
+        SETUP: ${{ steps.find.outputs.setup }}
+        TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.signing-key }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.signing-key-password }}
+      run: |
+        $setup = (Resolve-Path $env:SETUP).Path
+        npm run tauri -w apps/desktop -- signer sign $setup | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "tauri signer sign が終了コード ${LASTEXITCODE} で終わった" }
+        if (-not (Test-Path "$setup.sig")) { throw "インストーラの署名（.sig）ができていない: $setup.sig" }
+        Add-Content -Path $env:GITHUB_OUTPUT -Value "sig=$env:SETUP.sig"
     # 管理者権限なし（ユーザー単位）で静かに入る。入った先の同梱の hangar.cmd が、Node を見つけて cli.mjs を動かす。
     # 入れた先は %LOCALAPPDATA%\Hangar（NSIS のユーザー単位の既定）。レイアウトを決め打ちしすぎないよう、hangar.cmd は探して使う。
     # アプリ本体（殻）も一度起こし、同梱のサーバが /health に応えるところまで見てから止める。
