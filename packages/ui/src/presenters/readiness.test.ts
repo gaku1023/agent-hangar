@@ -110,7 +110,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   });
   it('済んだものは 1 行に畳み、開くと見つかった場所を出す。互換の未確認の版も済んだものに数える', () => {
     const b = presentReadiness(withCompat({ localVersion: '2.1.300' }), ja)!;
-    expect(b.group.fold!.text).toBe('tmux、claude、Claude Code との互換性は準備完了');
+    expect(b.group.fold!.text).toBe('tmux、claude、Claude Code との互換性 は準備完了');
     expect(b.group.fold!.rows.map((r) => [r.name, r.text, r.lead])).toEqual([
       ['tmux', '/opt/homebrew/bin/tmux（3.4）', { kind: 'check', tone: 'ok', label: '準備できています' }],
       ['claude', '/Users/me/.local/bin/claude（2.3.1）', { kind: 'check', tone: 'ok', label: '準備できています' }],
