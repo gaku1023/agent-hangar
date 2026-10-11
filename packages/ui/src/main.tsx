@@ -18,6 +18,7 @@ import './styles/readiness.css';
 import './styles/sync.css';
 import './styles/controls.css';
 import './styles/notices.css';
+import './styles/cloudMember.css';
 import { Root } from './Root.tsx';
 import { createApi } from './runtime/api.ts';
 import { stripEntryToken } from './runtime/entryToken.ts';

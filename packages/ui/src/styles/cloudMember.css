@@ -1,0 +1,68 @@
+/* クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除（0.4.0。試作 settings-040-proto の推す組み合わせ）。
+   参加は節の中の段、PC は表と行の中の確認、この PC の参加の解除は節の末尾に離した帯。 */
+
+/* 帯。情報、済んだ、危険の 3 つの色を持つ。 */
+.cm-strip { display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); margin-top: calc(var(--u) * 2.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r-lg); font-size: var(--fs-sm); line-height: 1.55; color: var(--ink); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
+.cm-strip[data-tone='ok'] { background: var(--st-done-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 30%, transparent); }
+.cm-strip[data-tone='danger'] { background: color-mix(in srgb, var(--error) 6%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 30%, transparent); }
+.cm-strip[data-tone='warn'] { background: var(--st-paused-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 30%, transparent); }
+.cm-strip > .icon { flex: none; margin-top: 2px; }
+.cm-strip[data-tone='ok'] > .icon { color: var(--st-done); }
+.cm-strip[data-tone='danger'] > .icon { color: var(--error); }
+.cm-strip[data-tone='warn'] > .icon { color: var(--st-paused); }
+.cm-strip-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cm-strip-body p { margin: 0; }
+.cm-strip-body p + p { margin-top: var(--u); }
+.cm-strip .btns { margin-top: calc(var(--u) * 2); }
+
+/* 参加トークンを貼る欄と、宛先の確認。 */
+.cm-field { display: flex; flex-direction: column; gap: var(--u); margin-top: calc(var(--u) * 3); font-size: var(--fs-sm); color: var(--ink-2); }
+.cm-field .input { width: 100%; max-width: 520px; font-family: var(--font-mono); color: var(--ink); }
+.cm-read { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 3); font-size: var(--fs-sm); color: var(--ink-3); }
+.cm-dest { margin-top: calc(var(--u) * 2.5); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.cm-dest-label { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.cm-dest-host { margin-top: var(--u); font: 700 18px var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.cm-dest-url { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); overflow-wrap: anywhere; }
+.cm-dest-note { margin: calc(var(--u) * 2) 0 0; font-size: var(--fs-sm); line-height: 1.55; color: var(--ink-2); }
+.cm-check { display: flex; align-items: flex-start; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2.5); font-size: var(--fs-sm); color: var(--ink); cursor: pointer; }
+.cm-check input { flex: none; margin: 2px 0 0; accent-color: var(--accent); }
+.cm-urls { display: grid; grid-template-columns: max-content 1fr; gap: 2px calc(var(--u) * 2.5); margin: var(--u) 0; font-size: var(--fs-xs); }
+.cm-urls dt { color: var(--ink-2); }
+.cm-urls dd { margin: 0; font-family: var(--font-mono); overflow-wrap: anywhere; }
+.cm-wait { margin-top: calc(var(--u) * 2.5); font-size: var(--fs-sm); color: var(--ink-2); }
+
+/* PC の表。行の中で解除を確かめる。 */
+.cm-table { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
+.cm-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px 92px 104px 72px; align-items: center; gap: calc(var(--u) * 3); min-height: var(--row-h); padding: calc(var(--u) * 1.5) calc(var(--u) * 3); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.cm-table > :last-child { border-bottom: 0; }
+.cm-row[data-head] { min-height: 0; padding-top: calc(var(--u) * 1.5); padding-bottom: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
+.cm-row[data-focus] { background: color-mix(in srgb, var(--error) 4%, var(--surface)); }
+.cm-row[data-dim] { color: var(--ink-3); grid-template-columns: minmax(0, 1fr) 92px 140px; }
+.cm-name { display: flex; flex-direction: column; min-width: 0; }
+.cm-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-self { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
+.cm-where { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-faint { color: var(--ink-3); }
+.cm-act { justify-self: end; }
+.cm-act .btn { color: var(--error); }
+.cm-rowx { padding: 0 calc(var(--u) * 2) calc(var(--u) * 2); border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--error) 4%, var(--surface)); }
+.cm-rowx .cm-strip { margin-top: 0; }
+.cm-help { margin-top: calc(var(--u) * 1.5); }
+.cm-help summary { cursor: pointer; color: var(--ink-2); }
+.cm-help p { margin: var(--u) 0 0; color: var(--ink-2); }
+.cm-note { margin-top: calc(var(--u) * 1.5); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-3); }
+
+/* 狭い窓では、参加日と最終同期を名前の下へ回す。 */
+@media (max-width: 760px) {
+  .cm-row { grid-template-columns: minmax(0, 1fr) 72px; }
+  .cm-row > .cm-col { display: none; }
+  .cm-row[data-dim] { grid-template-columns: minmax(0, 1fr) 120px; }
+}
+
+/* この PC の参加の解除。節の末尾に、ほかの PC の解除から離して置く。 */
+.cm-leave { margin-top: calc(var(--u) * 6); padding: calc(var(--u) * 3) calc(var(--u) * 3.5); border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 22%, var(--line)); }
+.cm-leave-head { display: flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 3); }
+.cm-leave-text { flex: 1; min-width: 220px; }
+.cm-leave-title { font-weight: 600; }
+.cm-leave-desc { font-size: var(--fs-sm); color: var(--ink-3); }
+.cm-leave .kv { margin-top: calc(var(--u) * 2); }

@@ -51,6 +51,7 @@ import { paletteJa } from './ja/palette.ts';
 import { connJa } from './ja/conn.ts';
 import { toastsJa } from './ja/toasts.ts';
 import { cloudUsageJa } from './ja/cloudUsage.ts';
+import { cloudMemberJa } from './ja/cloudMember.ts';
 import { readinessJa } from './ja/readiness.ts';
 import { compatJa } from './ja/compat.ts';
 import { dbJa } from './ja/db.ts';
@@ -110,6 +111,7 @@ export const ja: Dictionary = {
   ...connJa,
   ...toastsJa,
   ...cloudUsageJa,
+  ...cloudMemberJa,
   ...readinessJa,
   ...compatJa,
   ...dbJa,

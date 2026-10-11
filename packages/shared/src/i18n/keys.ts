@@ -51,6 +51,7 @@ import { paletteKeys } from './keys/palette.ts';
 import { connKeys } from './keys/conn.ts';
 import { toastsKeys } from './keys/toasts.ts';
 import { cloudUsageKeys } from './keys/cloudUsage.ts';
+import { cloudMemberKeys } from './keys/cloudMember.ts';
 import { readinessKeys } from './keys/readiness.ts';
 import { compatKeys } from './keys/compat.ts';
 import { dbKeys } from './keys/db.ts';
@@ -122,6 +123,7 @@ export const MESSAGES = {
   ...connKeys,
   ...toastsKeys,
   ...cloudUsageKeys,
+  ...cloudMemberKeys,
   ...readinessKeys,
   ...compatKeys,
   ...dbKeys,
