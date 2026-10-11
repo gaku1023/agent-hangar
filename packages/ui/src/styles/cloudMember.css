@@ -14,6 +14,8 @@
 .cm-strip-body p { margin: 0; }
 .cm-strip-body p + p { margin-top: var(--u); }
 .cm-strip .btns { margin-top: calc(var(--u) * 2); }
+/* 節の先頭の帯（この PC が解除された）の下に、状態の行が詰まらないようにする。 */
+.cm-strip + .stat { margin-top: calc(var(--u) * 3); }
 
 /* 参加トークンを貼る欄と、宛先の確認。 */
 .cm-field { display: flex; flex-direction: column; gap: var(--u); margin-top: calc(var(--u) * 3); font-size: var(--fs-sm); color: var(--ink-2); }
@@ -37,7 +39,8 @@
 .cm-table > :last-child { border-bottom: 0; }
 .cm-row[data-head] { min-height: 0; padding-top: calc(var(--u) * 1.5); padding-bottom: calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
 .cm-row[data-focus] { background: color-mix(in srgb, var(--error) 4%, var(--surface)); }
-.cm-row[data-dim] { color: var(--ink-3); grid-template-columns: minmax(0, 1fr) 92px 140px; }
+.cm-row[data-dim] { color: var(--ink-3); }
+.cm-row[data-dim] > .cm-span { grid-column: span 3; }
 .cm-name { display: flex; flex-direction: column; min-width: 0; }
 .cm-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cm-self { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
@@ -56,7 +59,7 @@
 @media (max-width: 760px) {
   .cm-row { grid-template-columns: minmax(0, 1fr) 72px; }
   .cm-row > .cm-col { display: none; }
-  .cm-row[data-dim] { grid-template-columns: minmax(0, 1fr) 120px; }
+  .cm-row[data-dim] > .cm-span { grid-column: span 1; }
 }
 
 /* この PC の参加の解除。節の末尾に、ほかの PC の解除から離して置く。 */

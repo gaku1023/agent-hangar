@@ -220,7 +220,7 @@ export function CloudPcTable(props: { m: CloudMemberProps; heading: string }) {
               <div key={r.id} className="cm-row" data-dim role="row">
                 <span className="cm-name" role="cell"><span>{r.name}</span>{r.where && <span className="cm-where">{r.where}</span>}</span>
                 <span role="cell">{r.os}</span>
-                <span role="cell">{r.removedOn}</span>
+                <span className="cm-span" role="cell">{r.removedOn}</span>
               </div>
             ))}
           </div>
