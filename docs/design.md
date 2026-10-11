@@ -238,6 +238,8 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   殻（Tauri）は実行ファイルのパスにシンボリックリンクが混じるとリソースの場所を決められないので、写す先は実の名前に直してから使う（macOS の `/var` はリンクである）。
 - 札の中は、見出し、何が起きたか、番号つきの次にすること（順序つきの一覧）、コピーできる命令、詳細（最初から開いた記録。「全文をコピー」つき）、下端のアプリの版と OS、「ログを開く」「もう一度試す」の順に並べる。ロゴは左上に小さく退ける（信号の 3 点の右、UI の `--lights-end` と同じ幅から）。命令と詳細だけを等幅にする。
   起動画面は UI の書体（JetBrains Mono）を読み込まないので、等幅は `ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace` の順に OS の書体を使う。日本語の Windows の既定の等幅（MS ゴシックなど）は `\` を `¥` の字形で描くので、パスやコマンドが `¥` に見えないよう、`\` を正しく描く書体を総称の `monospace` より先に置く。
+  本文とボタンも、起動画面は Inter を読み込まないので、欧文は日本語の書体で描かれ、Windows では `\` が `¥` に見えていた（2026-10-11、Windows の実機の確かめで見つけた）。
+  そこで `'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif` と、Windows の UI の書体を日本語の書体より先に置く。Segoe UI は macOS に無いので macOS の見た目は変わらず、日本語の字は Segoe UI に無いので、これまでどおり後ろの書体で描く。
   詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す。
 - 「全文をコピー」は、版と OS、種類、詳細の順の文をクリップボードへ書く。そのまま報告に貼れる形である。クリップボードの口が無い頁では、選択と `copy` の命令で写す。
 - ポートと互換の失敗では、動いているサーバ（利用者が起こしたものかもしれない）を止めないと文で言う。
@@ -246,6 +248,9 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   DB の退避は `mv` と `Move-Item -LiteralPath … -Destination …`、控えの置き場は `ls -la` と `Get-ChildItem -Force -LiteralPath …` である。
   PowerShell のパスは、`~` で始まれば `$HOME` に替えて二重引用符で包み、残りの `$` と `` ` `` と `"` を `` ` `` で逃がす。それ以外で安全でない文字を含めば単引用符で包み、中の単引用符を 2 つにする（`psQuote`）。
   以前は Windows で lsof の命令を添えず、`mv` と `ls -la` はそのまま出していた（2026-10-11、Windows の実機の確かめで見つけた）。
+- アプリの呼び名も OS で出し分ける。OS の名前が `macOS` で始まれば `Hangar.app`、ほか（Windows と Linux）では `Hangar` と呼ぶ（`boot-fail.js` の `c.app`）。
+  互換の別のサーバが新しいときの次にすることは、macOS では「Hangar.app を新しい版に入れ替えます」、ほかでは「Hangar の新しい版をインストールします」にする。
+  以前は Windows の札にも「この Hangar.app」と出ていた。殻が書く詳細のうち `.app` と言うのは App Translocation の案内だけで、これは macOS の写しの場所でしか起きない。
 - 版は殻（`app.package_info()`）、OS の名前と版は殻が失敗のときに読む（macOS は `sw_vers -productVersion`、Linux は `/etc/os-release`、Windows は登録簿の `CurrentBuildNumber` と `DisplayVersion`）。Windows の製品名は Windows 11 でも「Windows 10」のままなので使わず、ビルド番号 22000 からを Windows 11 と呼ぶ（「Windows 11 24H2 (build 26100)」）。
 - 頁の言語は、`<HANGAR_HOME>/settings.json` の `language`（`ja` か `en`）を**殻が読めればそれ**、読めなければ OS の言語で決める（設計書 10 章の未決の点を、こう決めた）。OS の言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、Windows では表示言語の並び（`GetUserPreferredUILanguages`）の先頭、ほかは `LC_ALL`、`LC_MESSAGES`、`LANG` で、日本語なら ja、それ以外は en にする。どちらも決まらなければ日本語（UI の既定）にする。設定ファイルがあっても `language` が無い（利用者がまだ選んでいない）ときも OS の言語に従う。UI は同じ場合に日本語の既定で出るので、英語の OS ではこの頁だけ先に英語になる。設定ファイルが読めれば OS には聞かない（失敗の最中に外のコマンドを呼ばないため）。
 - 頁の文は UI の辞書を使えないので、日英の表を頁に持つ（`boot-fail.js`）。言語の並びは shared の `LANGUAGES` と同じにし、試験が突き合わせる。

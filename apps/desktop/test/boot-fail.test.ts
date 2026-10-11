@@ -144,6 +144,36 @@ describe('種類ごとの文', () => {
     const v = view('db-backup-failed', { os: 'Windows 11', sep: '\\', home: '~\\.agent-hangar' });
     expect(v.command).toBe('Get-ChildItem -Force -LiteralPath "$HOME\\.agent-hangar\\backups\\db"');
   });
+  // Hangar.app は macOS の呼び名である。Windows と Linux の札では、アプリを Hangar と呼ぶ。
+  it('macOS のほかでは、札の文に .app と言わず、アプリを Hangar と呼ぶ', () => {
+    const p = { port: 4177, theirs: 1, ours: 2, found: 3, baseline: 10 };
+    for (const os of ['Windows 11', 'Ubuntu 24.04']) {
+      for (const lang of ['ja', 'en']) {
+        for (const kind of m.FAIL_KINDS) {
+          for (const params of [p, { ...p, theirs: 2, ours: 1 }, { ...p, found: undefined as unknown as number }]) {
+            const v = view(kind, { os, lang, params });
+            expect([v.title, v.what, ...v.steps].join('\n'), `${os}/${lang}/${kind}`).not.toContain('.app');
+          }
+        }
+      }
+    }
+    const ja = view('compat-mismatch', { os: 'Windows 11', params: { port: 4177, theirs: 16, ours: 14 } });
+    expect(ja.title).toBe('この Hangar が、4177 で動いている hangar のサーバより古い版です');
+    expect(ja.what).toBe('動いているサーバは版 16、この Hangar は版 14 です。そのサーバは、この Hangar より新しい hangar が起こしたものです。hangar はそのサーバを止めません。');
+    expect(ja.steps).toEqual(['Hangar の新しい版をインストールします', 'インストールせずに使うときは、そのサーバを止めてから「もう一度試す」を押します']);
+    const en = view('compat-mismatch', { os: 'Windows 11', lang: 'en', params: { port: 4177, theirs: 16, ours: 14 } });
+    expect(en.title).toBe('This Hangar is older than the hangar server running on 4177');
+    expect(en.steps[0]).toBe('Install a newer version of Hangar');
+    expect(view('compat-mismatch', { os: 'Windows 11', params: { port: 4177, theirs: 14, ours: 16 } }).steps[1]).toBe('「もう一度試す」を押します。この Hangar が同梱のサーバを起こします');
+    expect(view('db-too-old', { os: 'Windows 11', lang: 'en', params: { found: 6, baseline: 10 } }).what).toContain('this Hangar can update version 10 or later');
+  });
+  it('macOS の札の文は、Hangar.app と呼ぶまま変えない', () => {
+    const v = view('compat-mismatch', { params: { port: 4177, theirs: 16, ours: 14 } });
+    expect(v.title).toBe('この Hangar.app が、4177 で動いている hangar のサーバより古い版です');
+    expect(v.steps).toEqual(['Hangar.app を新しい版に入れ替えます', '入れ替えずに使うときは、そのサーバを止めてから「もう一度試す」を押します']);
+    expect(view('compat-mismatch', { lang: 'en', params: { port: 4177, theirs: 16, ours: 14 } }).steps[0]).toBe('Replace Hangar.app with a newer version');
+    expect(view('db-too-old', { params: { found: 6, baseline: 10 } }).what).toContain('この Hangar.app が更新できるのは版 10 以降です');
+  });
   it('Windows の命令には、POSIX の命令（mv、ls、lsof）を出さない', () => {
     const p = { port: 4177, theirs: 1, ours: 2, found: 3, baseline: 10 };
     for (const kind of m.FAIL_KINDS) {

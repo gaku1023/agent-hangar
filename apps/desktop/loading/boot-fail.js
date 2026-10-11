@@ -54,7 +54,8 @@ const POWERSHELL = {
   list: (dir) => `Get-ChildItem -Force -LiteralPath ${psQuote(dir)}`,
 };
 
-// 種類ごとの文。c は params から作った値（port、theirs、ours、found、baseline、file、dir）と、置き場の名前（home）と、パスの区切り（sep）と、OS の命令の組（cmd）。
+// 種類ごとの文。c は params から作った値（port、theirs、ours、found、baseline、file、dir）と、置き場の名前（home）と、パスの区切り（sep）と、OS の命令の組（cmd）と、
+// アプリの呼び名（app）と、macOS かどうか（mac）。Hangar.app は macOS の呼び名なので、Windows と Linux では Hangar と呼ぶ。
 const TABLE = {
   ja: {
     'server-exited': (c) => ({
@@ -71,20 +72,22 @@ const TABLE = {
     }),
     'compat-mismatch': (c) => (c.theirs !== null && c.ours !== null && c.theirs > c.ours
       ? {
-          title: `この Hangar.app が、${c.port} で動いている hangar のサーバより古い版です`,
-          what: `動いているサーバは版 ${c.theirs}、この Hangar.app は版 ${c.ours} です。そのサーバは、この Hangar.app より新しい hangar が起こしたものです。hangar はそのサーバを止めません。`,
-          steps: ['Hangar.app を新しい版に入れ替えます', '入れ替えずに使うときは、そのサーバを止めてから「もう一度試す」を押します'],
+          title: `この ${c.app} が、${c.port} で動いている hangar のサーバより古い版です`,
+          what: `動いているサーバは版 ${c.theirs}、この ${c.app} は版 ${c.ours} です。そのサーバは、この ${c.app} より新しい hangar が起こしたものです。hangar はそのサーバを止めません。`,
+          steps: c.mac
+            ? ['Hangar.app を新しい版に入れ替えます', '入れ替えずに使うときは、そのサーバを止めてから「もう一度試す」を押します']
+            : ['Hangar の新しい版をインストールします', 'インストールせずに使うときは、そのサーバを止めてから「もう一度試す」を押します'],
           command: c.cmd.listening(c.port),
         }
       : {
-          title: `${c.port} で動いている hangar のサーバが、この Hangar.app より古い版です`,
-          what: `動いているサーバは版 ${c.theirs ?? '?'}、この Hangar.app は版 ${c.ours ?? '?'} です。hangar start や npm run dev で起こしたサーバが残っています。hangar はそのサーバを止めません。`,
-          steps: ['そのサーバを止めます', '「もう一度試す」を押します。この Hangar.app が同梱のサーバを起こします'],
+          title: `${c.port} で動いている hangar のサーバが、この ${c.app} より古い版です`,
+          what: `動いているサーバは版 ${c.theirs ?? '?'}、この ${c.app} は版 ${c.ours ?? '?'} です。hangar start や npm run dev で起こしたサーバが残っています。hangar はそのサーバを止めません。`,
+          steps: ['そのサーバを止めます', `「もう一度試す」を押します。この ${c.app} が同梱のサーバを起こします`],
           command: c.cmd.listening(c.port),
         }),
     'db-too-old': (c) => ({
       title: 'データベースが古く、自動では更新できません',
-      what: `${c.file} は${c.found !== null ? `版 ${c.found} で作られていて、この Hangar.app が更新できるのは版 ${c.baseline ?? '?'} 以降です` : '、この Hangar.app が更新できる版より古いものです'}。索引は Claude Code のトランスクリプトから作り直せますが、ノートとステータスは残せません。`,
+      what: `${c.file} は${c.found !== null ? `版 ${c.found} で作られていて、この ${c.app} が更新できるのは版 ${c.baseline ?? '?'} 以降です` : `、この ${c.app} が更新できる版より古いものです`}。索引は Claude Code のトランスクリプトから作り直せますが、ノートとステータスは残せません。`,
       steps: ['hangar.db を別の名前に退避します', '「もう一度試す」を押します。索引を作り直します', 'ノートとステータスが要るときは、退避したファイルを添えて報告してください'],
       command: c.cmd.move(c.file, sibling(c.file, c.found !== null ? `hangar-v${c.found}.db` : 'hangar-old.db')),
     }),
@@ -116,20 +119,20 @@ const TABLE = {
     }),
     'compat-mismatch': (c) => (c.theirs !== null && c.ours !== null && c.theirs > c.ours
       ? {
-          title: `This Hangar.app is older than the hangar server running on ${c.port}`,
-          what: `The running server is version ${c.theirs} and this Hangar.app is version ${c.ours}. That server was started by a newer hangar. hangar does not stop it.`,
-          steps: ['Replace Hangar.app with a newer version', 'To keep using this version, stop that server and press "Try again"'],
+          title: `This ${c.app} is older than the hangar server running on ${c.port}`,
+          what: `The running server is version ${c.theirs} and this ${c.app} is version ${c.ours}. That server was started by a newer hangar. hangar does not stop it.`,
+          steps: [c.mac ? 'Replace Hangar.app with a newer version' : 'Install a newer version of Hangar', 'To keep using this version, stop that server and press "Try again"'],
           command: c.cmd.listening(c.port),
         }
       : {
-          title: `The hangar server running on ${c.port} is older than this Hangar.app`,
-          what: `The running server is version ${c.theirs ?? '?'} and this Hangar.app is version ${c.ours ?? '?'}. A server started with hangar start or npm run dev is still running. hangar does not stop it.`,
-          steps: ['Stop that server', 'Press "Try again". This Hangar.app will start its bundled server'],
+          title: `The hangar server running on ${c.port} is older than this ${c.app}`,
+          what: `The running server is version ${c.theirs ?? '?'} and this ${c.app} is version ${c.ours ?? '?'}. A server started with hangar start or npm run dev is still running. hangar does not stop it.`,
+          steps: ['Stop that server', `Press "Try again". This ${c.app} will start its bundled server`],
           command: c.cmd.listening(c.port),
         }),
     'db-too-old': (c) => ({
       title: 'The database is too old to update automatically',
-      what: `${c.file} ${c.found !== null ? `was created at version ${c.found}, and this Hangar.app can update version ${c.baseline ?? '?'} or later` : 'is older than the versions this Hangar.app can update'}. The index can be rebuilt from Claude Code transcripts, but notes and statuses cannot be kept.`,
+      what: `${c.file} ${c.found !== null ? `was created at version ${c.found}, and this ${c.app} can update version ${c.baseline ?? '?'} or later` : `is older than the versions this ${c.app} can update`}. The index can be rebuilt from Claude Code transcripts, but notes and statuses cannot be kept.`,
       steps: ['Move hangar.db aside under another name', 'Press "Try again". The index will be rebuilt', 'If you need the notes and statuses, report it with the file you moved aside'],
       command: c.cmd.move(c.file, sibling(c.file, c.found !== null ? `hangar-v${c.found}.db` : 'hangar-old.db')),
     }),
@@ -168,9 +171,12 @@ export function failView(info) {
   const join = (...names) => [home, ...names].join(sep);
   const p = info?.params && typeof info.params === 'object' ? info.params : {};
   const os = text(info?.os);
+  const mac = /^macOS/.test(os);
   const c = {
     home,
     sep,
+    mac,
+    app: mac ? 'Hangar.app' : 'Hangar',
     // Windows には lsof も mv も無い。PowerShell で動く形の命令を出す。
     cmd: /^Windows/.test(os) ? POWERSHELL : POSIX,
     port: num(p.port) ?? DEFAULT_PORT,

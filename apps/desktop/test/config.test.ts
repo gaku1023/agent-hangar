@@ -288,6 +288,16 @@ describe('読み込み画面', () => {
     for (const f of fonts) expect(f).toMatch(/^font: [\d.]+px(\/[\d.]+)? ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace;$/);
     expect(html).not.toContain('JetBrains Mono');
   });
+  // 起動画面は Inter を読み込まないので、本文とボタンの欧文は、日本語の書体（Windows では既定のゴシック）で描かれていた。
+  // 日本語の書体は \ を ¥ の字形で描くので、Windows の UI の書体（Segoe UI）を日本語の書体より先に置く。
+  // Segoe UI は macOS に無いので、macOS の見た目は変わらない。日本語の字は Segoe UI に無いので、これまでどおり後ろの書体で描く。
+  it('起動画面の本文とボタンの書体は、日本語の書体より先に Segoe UI を置く', () => {
+    const html = read('loading/index.html');
+    const fonts = [...html.matchAll(/font:[^;]*sans-serif;/g)].map((m) => m[0]);
+    expect(fonts.length).toBeGreaterThanOrEqual(3);
+    for (const f of fonts) expect(f).toMatch(/ 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif;$/);
+    expect(html.match(/'Hiragino Sans'/g)).toHaveLength(fonts.length);
+  });
   // 札の操作の並びは Tab の順（命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す）で、DOM もこの順に置く。
   it('失敗の札の操作は、DOM を Tab の順に置く', () => {
     const html = read('loading/index.html');
