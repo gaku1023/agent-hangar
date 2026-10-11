@@ -3,7 +3,7 @@ import { bindingLabel, displayKeys, GROUP_KEY, isMacClient, KEYMAP, terminalKeys
 import { Dialog } from './primitives/Dialog.tsx';
 import { useT } from './primitives/language.tsx';
 
-const GROUPS: KeyGroup[] = ['global', 'session', 'list'];
+const GROUPS: KeyGroup[] = ['global', 'session', 'list', 'todo'];
 
 /**
  * キーボードショートカットの一覧。

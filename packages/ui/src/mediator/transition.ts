@@ -20,6 +20,7 @@ import { sessionViewStep } from './sessionView.ts';
 import { settingsStep } from './settings.ts';
 import { sidebarLiveStep, sidebarOrderStep, sidebarStep } from './sidebar.ts';
 import { syncStep } from './sync.ts';
+import { todosStep } from './todos.ts';
 import { workbenchStep } from './workbench.ts';
 import type { Input, State, Step } from './types.ts';
 import type { Store } from '../store/store.ts';
@@ -28,7 +29,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle' };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', todoUndo: [] };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -51,6 +52,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const screen = (s: State, i: Input) => screenStep(s, store, i);
   const sessionView = (s: State, i: Input) => sessionViewStep(s, store, i);
   const workbench = (s: State, i: Input) => workbenchStep(s, store, i);
+  const todos = (s: State, i: Input) => todosStep(s, store, i);
   const arrived = (s: State, i: Input) => arrivedStep(s, store, i);
   const configSync = (s: State, i: Input) => configSyncStep(s, store, i);
   const connection = (s: State, i: Input) => connectionStep(s, store, i);
@@ -59,7 +61,7 @@ export function transition(state: State, store: Store, input: Input): Step {
   const promote = (s: State, i: Input) => promoteStep(s, store, i);
   const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, launch, promote, projectCreate, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, returnStep, arrived, noticesStep, notifyStep, updateStep, workbench]) {
+  for (const step of [connection, screen, muxGuide, launch, promote, projectCreate, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, returnStep, arrived, noticesStep, notifyStep, updateStep, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }

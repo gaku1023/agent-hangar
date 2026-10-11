@@ -228,7 +228,7 @@
 .pcounts-measure { position: absolute; top: 0; left: 0; display: flex; gap: calc(var(--u) * 3); font-size: var(--fs-xs); visibility: hidden; pointer-events: none; white-space: nowrap; }
 :is(.pcounts, .pcounts-measure) [data-kind='waiting'] { color: var(--waiting); font-weight: 600; }
 :is(.pcounts, .pcounts-measure) [data-kind='running'] { color: var(--busy); font-weight: 600; }
-:is(.pcounts, .pcounts-measure) [data-kind='pending'] { padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
+:is(.pcounts, .pcounts-measure) :is([data-kind='pending'], [data-kind='suggested']) { padding: 0 calc(var(--u) * 1.5); border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
 :is(.pcounts, .pcounts-measure) [data-kind='reminder'] { color: var(--st-paused); font-weight: 600; }
 .prow .pn { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .pmore { display: flex; justify-content: flex-end; }

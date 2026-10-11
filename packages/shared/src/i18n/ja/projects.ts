@@ -26,6 +26,7 @@ export const projectsJa: AreaDictionary<typeof projectsKeys> = {
   'projects.now.reminder': 'リマインダー {date}',
   'projects.now.running': '実行中 {n}',
   'projects.now.separator': '、',
+  'projects.now.suggested': '提案 {n}',
   'projects.now.todo': 'TODO {n}',
   'projects.now.waiting': '入力待ち {n}',
   'projects.place.missing': 'この PC にパスがありません',

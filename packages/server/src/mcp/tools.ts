@@ -121,9 +121,16 @@ function sessionBrief(s: SessionDto) {
   };
 }
 
-/** プロジェクトの TODO を MCP の綴りで返す。セッションは、自分が出した候補が残っているかをここで確かめる。 */
+/**
+ * プロジェクトの TODO を MCP の綴りで返す。セッションは、自分が出した候補が残っているかをここで確かめる。
+ * suggestion は、利用者がまだ受け入れていない提案に付く。受け入れられたか見送られたかも、ここで分かる。
+ */
 function todoBriefs(deps: ToolDeps, projectId: string) {
-  return listTodos(deps.db, projectId).map((t) => ({ id: t.id, text: t.text, done: t.done, session_id: t.sessionId, candidate: t.candidate ? { session_id: t.candidate.sessionId, note: t.candidate.note } : null }));
+  return listTodos(deps.db, projectId).map((t) => ({
+    id: t.id, text: t.text, done: t.done, session_id: t.sessionId,
+    candidate: t.candidate ? { session_id: t.candidate.sessionId, note: t.candidate.note } : null,
+    suggestion: t.suggestion ? { note: t.suggestion.note } : null,
+  }));
 }
 
 type TodoOutcome = ProposeOutcome | 'reopened';
@@ -139,6 +146,24 @@ function proposalsOf(v: unknown): { todoId: string; note: string }[] {
     if (!note) throw new ToolError(msg('mcp.proposeDone.noteEmpty'));
     if ([...note].length > CANDIDATE_NOTE_MAX) throw new ToolError(msg('mcp.proposeDone.noteTooLong', { max: CANDIDATE_NOTE_MAX }));
     return { todoId: o.todo_id, note };
+  });
+}
+
+/**
+ * add_todos の引数を検査して取り出す。項目は文字列か { text, note } で、1 件でも崩れていれば全体を断る（どの TODO も書かない）。
+ * note は提案の理由で、propose_done の根拠と同じ上限を持つ。空白だけなら null にする（理由は省ける）。
+ * 文言が空白だけのときは、addTodo が断る。
+ */
+function addsOf(v: unknown): { text: string; note: string | null }[] {
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) throw new ToolError(msg('mcp.addTodos.notArray'));
+  return v.map((x) => {
+    if (typeof x === 'string') return { text: x, note: null };
+    const o = (typeof x === 'object' && x !== null ? x : {}) as { text?: unknown; note?: unknown };
+    if (typeof o.text !== 'string' || (o.note !== undefined && o.note !== null && typeof o.note !== 'string')) throw new ToolError(msg('mcp.addTodos.badItem'));
+    const note = typeof o.note === 'string' ? o.note.trim() : '';
+    if ([...note].length > CANDIDATE_NOTE_MAX) throw new ToolError(msg('mcp.addTodos.noteTooLong', { max: CANDIDATE_NOTE_MAX }));
+    return { text: o.text, note: note || null };
   });
 }
 
@@ -185,13 +210,13 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
   if (!row) throw new ToolError(msg('mcp.error.projectNotFound', { id }));
   // 検証は書き込みの前に全部済ませる。status だけ書いてから propose_done で断ると、呼び出し側は「何も起きなかった」と読む。
   const proposals = proposalsOf(args.propose_done);
+  const adds = addsOf(args.add_todos);
   // status を「省略」と「型違いの値」で区別する。str() だけでは数値や null が黙って無視される。
   if (args.status !== undefined) {
     const status = args.status;
     if (typeof status !== 'string' || !STATUSES.includes(status as ProjectStatus)) throw new ToolError(msg('mcp.args.oneOf', { values: STATUSES, field: 'status' }));
     upsertShared(deps.db, 'projects', { ...row, status }, deps.deviceId);
   }
-  const adds = strs(args.add_todos) ?? [];
   const toggles = strs(args.toggle_todos) ?? [];
   const results: { todo_id: string; outcome: TodoOutcome }[] = [];
   const todosTouched = adds.length > 0 || toggles.length > 0 || proposals.length > 0;
@@ -199,8 +224,9 @@ export function updateProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record
     // 全部成功か全部失敗にする。
     // 途中で失敗して一部の書き込みだけが残ると、呼び出し側は「何も起きなかった」と読むのに DB だけが進む。
     // MCP からは完了にしない。完了にするのは利用者だけなので、未完の反転は根拠なしの候補にする。
+    // MCP から足した TODO はすべて提案にする。確定の TODO を足すのは利用者だけである。
     deps.db.transaction(() => {
-      for (const t of adds) addTodo(deps.db, deps.deviceId, { projectId: id, text: t, sessionId: ctx.sessionId });
+      for (const t of adds) addTodo(deps.db, deps.deviceId, { projectId: id, text: t.text, sessionId: ctx.sessionId, suggested: true, note: t.note });
       const ofProject = (tid: string) => {
         const cur = deps.db.prepare('select done from todos where id = ? and project_id = ? and deleted_at is null').get(tid, id) as { done: number } | undefined;
         if (!cur) throw new ToolError(msg('mcp.error.todoNotFound', { id: tid }));

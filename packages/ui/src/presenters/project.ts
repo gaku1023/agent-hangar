@@ -10,19 +10,24 @@ import { presentSessionList, type SessionListProps } from './sessions.ts';
 
 /** 候補の TODO の表示。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
 export type TodoCandidateProps = { note: string; sessionId: string | null; sessionName: string; ago: string };
-export type TodoItemProps = { id: string; text: string; done: boolean; candidate: TodoCandidateProps | null };
+/** position は並べ替えと、完了した直後の行を元の場所に少し残すために使う。 */
+export type TodoItemProps = { id: string; text: string; done: boolean; position: number; candidate: TodoCandidateProps | null };
+/** Claude が足して、まだ受け入れていない TODO。sessionId は、そのセッションが手元にあって開けるときだけ入る。 */
+export type TodoSuggestionProps = { id: string; text: string; note: string | null; sessionId: string | null; sessionName: string; ago: string };
 export type ArtifactCardProps = { id: string; title: string; description: string | null; favicon: string; url: string; lastPublished: string; versionCount: number; canOpenEditor: boolean };
 /** 見出しの (i) のポップオーバーに出す値。プロジェクトは作成日を持たないので、出さない。 */
 export type ProjectInfoProps = { sessionsText: string; lastActivity: string };
 /**
  * 1 つのプロジェクトの画面（Q3）。
  * list は、左の一覧（ホームと同じ部品）に渡すもので、このプロジェクトのセッションだけを持つ。loadMore は語で検索しているときの「さらに読み込む」。
+ * TODO は、未完（todos、position の順）、完了（doneTodos、終えた新しい順）、Claude の提案（suggestions、出した古い順）に分ける。
+ * 終えた時刻は持たないので、完了の並びは最後に変わった時刻（updatedAt）で代える。
  * pendingTodos は TODO の見出しに出す、完了の候補が付いた未完の TODO の数。
  */
 export type ProjectProps = {
   id: string; name: string; parent: ParentLink; path: string | null; resolved: boolean; status: ProjectStatus; notFound: boolean; isScratch: boolean;
   list: SessionListProps; loadMore: { remaining: number; step: number; loading: boolean } | null; info: ProjectInfoProps;
-  todos: TodoItemProps[]; pendingTodos: number; note: { text: string; filled: boolean }; artifacts: ArtifactCardProps[];
+  todos: TodoItemProps[]; doneTodos: TodoItemProps[]; suggestions: TodoSuggestionProps[]; pendingTodos: number; note: { text: string; filled: boolean }; artifacts: ArtifactCardProps[];
   /** 手で足した URL が断られたときの理由と、入れた URL。このプロジェクトのものだけ。 */
   artifactAddError: { url: string; message: string } | null;
 };
@@ -36,8 +41,14 @@ export function presentTodoCandidate(t: TodoDto, store: Store, now: number): Tod
   const c = t.candidate;
   if (!c || t.done) return null;
   const tr = translatorOf(store);
-  const s = c.sessionId ? store.sessions[c.sessionId] : undefined;
-  return { note: c.note ?? tr('projectScreen.todo.noNote'), sessionId: s ? s.id : null, sessionName: s ? s.name ?? tr('projectScreen.todo.noName') : tr('projectScreen.todo.unknownSession'), ago: relativeTime(tr, c.at, now) };
+  return { note: c.note ?? tr('projectScreen.todo.noNote'), ...sessionLabel(store, c.sessionId), ago: relativeTime(tr, c.at, now) };
+}
+
+/** 出したセッションの名前。手元に無ければ開けないので、決まりの文にする。 */
+function sessionLabel(store: Store, sessionId: string | null): { sessionId: string | null; sessionName: string } {
+  const tr = translatorOf(store);
+  const s = sessionId ? store.sessions[sessionId] : undefined;
+  return { sessionId: s ? s.id : null, sessionName: s ? s.name ?? tr('projectScreen.todo.noName') : tr('projectScreen.todo.unknownSession') };
 }
 
 /** アーティファクト 1 件分のカード。題名が無い手動追加は URL の末尾を出す。 */
@@ -57,9 +68,14 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const PARENT = parentOf(t);
   // 一覧はホームと同じ部品で、このプロジェクトのセッションだけを出す。見つからないプロジェクトは行が 0 になる。
   const list = presentSessionList(state, store, now, id);
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], pendingTodos: 0, note: { text: '', filled: false }, artifacts: [], artifactAddError: null };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, note: { text: '', filled: false }, artifacts: [], artifactAddError: null };
   const remaining = list.total - list.rows.length;
-  const todos = todosOf(store, id).map((x) => ({ id: x.id, text: x.text, done: x.done, candidate: presentTodoCandidate(x, store, now) }));
+  const all = todosOf(store, id);
+  const item = (x: TodoDto): TodoItemProps => ({ id: x.id, text: x.text, done: x.done, position: x.position, candidate: presentTodoCandidate(x, store, now) });
+  const todos = all.filter((x) => !x.done && !x.suggestion).map(item);
+  const doneTodos = all.filter((x) => x.done && !x.suggestion).sort((a, b) => b.updatedAt - a.updatedAt || a.position - b.position).map(item);
+  const suggestions = all.filter((x) => x.suggestion).sort((a, b) => a.suggestion!.at - b.suggestion!.at || a.position - b.position)
+    .map((x): TodoSuggestionProps => ({ id: x.id, text: x.text, note: x.suggestion!.note, ...sessionLabel(store, x.sessionId), ago: relativeTime(t, x.suggestion!.at, now) }));
   const memo = store.memos[id]?.markdown ?? '';
   return {
     id, name: projectDisplayName(p, translatorOf(store)), parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, notFound: false, isScratch: p.isScratch,
@@ -67,7 +83,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     loadMore: list.mode === 'search' && remaining > 0 ? { remaining, step: SEARCH_STEP, loading: list.loading } : null,
     // セッションの数は、Archived も含めた全部（タブの「すべて」は Archived を除く）。
     info: { sessionsText: t('projects.row.sessions', { n: Object.values(store.sessions).filter((s) => s.projectId === id).length }), lastActivity: relativeTime(t, p.lastActivityAt, now) },
-    todos,
+    todos, doneTodos, suggestions,
     pendingTodos: todos.filter((x) => x.candidate !== null).length,
     note: { text: memo, filled: memo.trim() !== '' },
     artifacts: artifactsOf(store, { projectId: id }).map((a) => presentArtifactCard(t, a, now)),

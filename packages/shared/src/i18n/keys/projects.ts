@@ -25,6 +25,7 @@ export const projectsKeys = {
   'projects.now.reminder': ['date'],
   'projects.now.running': ['n'],
   'projects.now.separator': [],
+  'projects.now.suggested': ['n'],
   'projects.now.todo': ['n'],
   'projects.now.waiting': ['n'],
   'projects.place.missing': [],

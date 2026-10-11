@@ -217,6 +217,8 @@ describe('フェーズ 3 の項目', () => {
     upsertShared(db, 'todos', { id: 't2', project_id: 'p1', text: 'b', done: 1, position: 2, session_id: null }, 'd');
     upsertShared(db, 'todos', { id: 't3', project_id: 'p1', text: 'c', done: 0, position: 3, session_id: null }, 'd');
     db.prepare('update todos set deleted_at = 1 where id = ?').run('t3');
+    // Claude の提案は、利用者が受け入れるまで未完に数えない。
+    upsertShared(db, 'todos', { id: 't4', project_id: 'p1', text: 'd', done: 0, position: 4, session_id: null, suggested_at: 1, suggested_note: null }, 'd');
     upsertShared(db, 'project_memos', { project_id: 'p1', markdown: '\n\n# 見出し\n本文' }, 'd', 'project_id');
     const p = getProject(db, 'd', live, 'p1')!;
     expect(p.openTodoCount).toBe(1);

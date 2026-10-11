@@ -355,6 +355,18 @@ delete from sync_state where key in ('configPullConfirmed', 'configPending', 'sk
 `;
 
 /**
+ * 版 20。todos に Claude の提案の 2 列を足す。
+ * suggested_at が null でなければ、MCP の update_project の add_todos で Claude が足した提案で、利用者はまだ受け入れていない。
+ * suggested_note は提案の理由で、無ければ null。受け入れると両方を null に戻す。既存の行は null のままで、提案ではない。
+ * 同期は行を JSON の payload のまま運ぶので、クラウドにマイグレーションは要らない（版 10 の完了の候補の列と同じ）。
+ * 列を持たない古い端末は、適用のときに自分の表に無い列を捨てるので、提案は確定の TODO として見える。
+ */
+const V20_TODO_SUGGESTION_SQL = `
+alter table todos add column suggested_at integer;
+alter table todos add column suggested_note text;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -364,4 +376,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 17, sql: V17_SESSION_NOTES_SQL },
   { version: 18, sql: V18_CONFIG_SYNC_SQL },
   { version: 19, sql: V19_DROP_LEGACY_CONFIG_SQL },
+  { version: 20, sql: V20_TODO_SUGGESTION_SQL },
 ];

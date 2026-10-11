@@ -17,7 +17,7 @@ import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
-import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
+import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
@@ -86,6 +86,20 @@ const AROUND_BEFORE = 100;
  * 起動の読み込みが済んでいて、この Store がまだ知らない id で、この PC に場所を持ったことが無いもの（elsewhere）である。
  * 同じ id の更新（他の PC での改名など）は、届いたことにしない。
  */
+/** TODO の呼び出しを API に引く。返り値は使わない（画面の正は後から届く todos.update）。 */
+function todoCall(api: ApiClient, c: TodoCall): Promise<unknown> {
+  switch (c.op) {
+    case 'setDone': return api.setTodoDone(c.id, c.done);
+    case 'edit': return api.editTodo(c.id, c.text);
+    case 'remove': return api.removeTodo(c.id);
+    case 'confirm': return api.confirmTodo(c.id);
+    case 'reject': return api.rejectTodo(c.id);
+    case 'accept': return api.acceptTodo(c.id);
+    case 'reorder': return api.reorderTodos(c.projectId, c.ids);
+    case 'restore': return api.restoreTodos(c.rows);
+  }
+}
+
 function arrivedFromSync(store: Store, p: ProjectDto): boolean {
   return store.bootstrapped && store.projects[p.id] === undefined && p.status !== 'archived' && unresolvedKind(p) === 'elsewhere';
 }
@@ -572,6 +586,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'badge': notifier?.badge(e.count); return;
       case 'update': updater?.run(e.command); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
+      case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;

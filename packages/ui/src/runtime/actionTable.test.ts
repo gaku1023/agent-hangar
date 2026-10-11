@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-import type { ArtifactDto, UiAction, SessionDto, TodoDto } from '@agent-hangar/shared';
+import type { ArtifactDto, UiAction, SessionDto } from '@agent-hangar/shared';
 import type { MediatedAction } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
@@ -47,7 +47,6 @@ describe('表の鍵', () => {
       'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
-      'todo.confirm', 'todo.reject', 'todo.remove', 'todo.toggle',
     ]);
   });
 });
@@ -140,41 +139,6 @@ describe('セッション', () => {
 });
 
 describe('作業台', () => {
-  const todo = (over: Partial<TodoDto>): TodoDto => ({ id: 't1', projectId: 'p1', text: 'x', done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, ...over });
-  const withTodo = (t: TodoDto): Store => ({ ...initialStore(), todos: { [t.id]: t } });
-  it('TODO の切り替えは、Store の今の値を反転して送る', async () => {
-    const api = fakeApi();
-    await runRow({ type: 'todo.toggle', id: 't1' }, api, withTodo(todo({ done: false })));
-    await runRow({ type: 'todo.toggle', id: 't1' }, api, withTodo(todo({ done: true })));
-    expect(vi.mocked(api.setTodoDone).mock.calls).toEqual([['t1', true], ['t1', false]]);
-    expect(api.confirmTodo).not.toHaveBeenCalled();
-  });
-  it('Store に無い TODO の切り替えは、何も呼ばない', async () => {
-    const api = fakeApi();
-    const r = await runRow({ type: 'todo.toggle', id: 'nope' }, api);
-    expect(r.called).toBe(false);
-    expect(api.setTodoDone).not.toHaveBeenCalled();
-  });
-  it('候補の欄を押したら、反転ではなく確定を送る。完了した候補は、ふつうに反転する', async () => {
-    const candidate = { sessionId: 's1', reason: 'r', proposedAt: 1 } as unknown as NonNullable<TodoDto['candidate']>;
-    const api = fakeApi();
-    await runRow({ type: 'todo.toggle', id: 't1' }, api, withTodo(todo({ candidate })));
-    expect(vi.mocked(api.confirmTodo).mock.calls).toEqual([['t1']]);
-    expect(api.setTodoDone).not.toHaveBeenCalled();
-    await runRow({ type: 'todo.toggle', id: 't1' }, api, withTodo(todo({ candidate, done: true })));
-    expect(vi.mocked(api.setTodoDone).mock.calls).toEqual([['t1', false]]);
-  });
-  it('TODO の削除、確定、却下は、それぞれの API を呼び、応答は Store に入れない', async () => {
-    const api = fakeApi();
-    const a = await runRow({ type: 'todo.remove', id: 't1' }, api);
-    const b = await runRow({ type: 'todo.confirm', id: 't2' }, api);
-    const c = await runRow({ type: 'todo.reject', id: 't3' }, api);
-    expect(vi.mocked(api.removeTodo).mock.calls).toEqual([['t1']]);
-    expect(vi.mocked(api.confirmTodo).mock.calls).toEqual([['t2']]);
-    expect(vi.mocked(api.rejectTodo).mock.calls).toEqual([['t3']]);
-    // 画面の正は後から届く todo.upsert と todo.removed である。
-    for (const r of [a, b, c]) expect(r.store).toBe(r.during);
-  });
   it('メモの保存は、応答のメモを Store に入れる', async () => {
     const api = fakeApi();
     const r = await runRow({ type: 'memo.save', projectId: 'p1', markdown: '# m' }, api);

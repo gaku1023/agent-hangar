@@ -14,7 +14,7 @@ const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, no
 const dto = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: NOW - H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
 const project = (id: string, over: Partial<ProjectDto> = {}): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3 * H, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1, ...over });
 const doneSt = st({ status: 'done', setBy: 'user', setAt: NOW - 10 * DAY });
-const todo = (id: string, over: Partial<TodoDto> = {}): TodoDto => ({ id, projectId: 'alpha', text: `やる ${id}`, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, ...over });
+const todo = (id: string, over: Partial<TodoDto> = {}): TodoDto => ({ id, projectId: 'alpha', text: `やる ${id}`, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null, ...over });
 
 function storeOf(sessions: SessionDto[], extra: Partial<Store> = {}): Store {
   const s = initialStore();
@@ -108,10 +108,26 @@ describe('presentProject の右パネル', () => {
     const store = storeOf([], { todos: { t1: todo('t1', { candidate: cand }), t2: todo('t2', { candidate: cand, position: 2 }), t3: todo('t3', { position: 3 }), t4: todo('t4', { done: true, position: 4, candidate: cand }) } });
     const p = presentProject(initialState(), store, NOW, 'alpha');
     expect(p.pendingTodos).toBe(2);
-    expect(p.todos.map((t) => t.id)).toEqual(['t1', 't2', 't3', 't4']);
+    expect(p.todos.map((t) => t.id)).toEqual(['t1', 't2', 't3']);
+    expect(p.doneTodos.map((t) => t.id)).toEqual(['t4']);
     // セッションの状態の提案は TODO の数に入れない（そちらは一覧のタブの「確認待ち」が言う）。
     const proposed = dto('a1', { state: st({ candidate: { status: 'done', note: 'n', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW - H } }) });
     expect(presentProject(initialState(), storeOf([proposed]), NOW, 'alpha').pendingTodos).toBe(0);
+  });
+  it('TODO は未完（position の順）、完了（終えた新しい順）、Claude の提案（出した古い順）に分ける', () => {
+    const store = storeOf([dto('s1', { name: '計測' })], { todos: {
+      a: todo('a', { position: 3 }), b: todo('b', { position: 1 }),
+      d1: todo('d1', { done: true, position: 2, updatedAt: 10 }), d2: todo('d2', { done: true, position: 4, updatedAt: 20 }),
+      s2: todo('s2', { position: 6, sessionId: 's1', suggestion: { note: null, at: NOW - 60_000 } }),
+      s1: todo('s1x', { position: 5, sessionId: 'gone', suggestion: { note: '遅いため', at: NOW - H } }),
+    } });
+    const p = presentProject(initialState(), store, NOW, 'alpha');
+    expect(p.todos.map((t) => [t.id, t.position])).toEqual([['b', 1], ['a', 3]]);
+    expect(p.doneTodos.map((t) => t.id)).toEqual(['d2', 'd1']);
+    expect(p.suggestions).toEqual([
+      { id: 's1x', text: 'やる s1x', note: '遅いため', sessionId: null, sessionName: '不明なセッション', ago: '1 時間前' },
+      { id: 's2', text: 'やる s2', note: null, sessionId: 's1', sessionName: '計測', ago: '1 分前' },
+    ]);
   });
   it('ノートは本文と、中身があるかを返す。メモが無いプロジェクトも空のノートとして返す（読む表示の出し分けは中身で決める）', () => {
     expect(presentProject(initialState(), storeOf([]), NOW, 'alpha').note).toEqual({ text: '', filled: false });

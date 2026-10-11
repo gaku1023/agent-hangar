@@ -17,7 +17,7 @@ const list = (over: Partial<SessionListProps> = {}): SessionListProps => ({ text
 const props = (over: Partial<ProjectProps> = {}): ProjectProps => ({
   id: 'alpha', name: 'alpha', parent: { label: 'プロジェクト', route: { name: 'projects' } }, path: '/w/alpha', resolved: true, status: 'active', notFound: false, isScratch: false,
   list: list(), loadMore: null, info: { sessionsText: '2 本', lastActivity: '3 時間前' },
-  todos: [{ id: 't1', text: '買う', done: false, candidate: null }], pendingTodos: 0, note: { text: '決済は Stripe の v3', filled: true }, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }], artifactAddError: null,
+  todos: [{ id: 't1', text: '買う', done: false, position: 1, candidate: null }], doneTodos: [], suggestions: [], pendingTodos: 0, note: { text: '決済は Stripe の v3', filled: true }, artifacts: [{ id: 'a1', title: '題名 a1', description: '説明', favicon: '📊', url: 'https://claude.ai/code/artifact/a1', lastPublished: '1 分前', versionCount: 2, canOpenEditor: false }], artifactAddError: null,
   ...over,
 });
 const mount = (p: ProjectProps = props(), onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><ProjectScreen {...p} /></ActionRoot>), onAction });
@@ -178,13 +178,13 @@ describe('ProjectScreen の (i) の詳細', () => {
 describe('ProjectScreen の右パネル', () => {
   it('TODO、ノート、アーティファクトを並べ、折りたためる', () => {
     mount();
-    expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'TODO を足す' })).toBeTruthy();
     expect(screen.getByText('決済は Stripe の v3')).toBeTruthy();
     expect(screen.getByText('題名 a1')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('右パネルを閉じる'));
-    expect(screen.queryByLabelText('TODO を追加')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'TODO を足す' })).toBeNull();
     fireEvent.click(screen.getByLabelText('右パネルを開く'));
-    expect(screen.getByLabelText('TODO を追加')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'TODO を足す' })).toBeTruthy();
   });
   it('アーティファクトの追加が断られた理由は、右パネルの追加欄の下に出る', () => {
     mount(props({ artifactAddError: { url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「beta」に付いています' } }));

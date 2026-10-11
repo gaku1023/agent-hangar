@@ -9,7 +9,7 @@ const project = (id: string, status: ProjectDto['status'] = 'active', over: Part
 const paused = (returnOn: string | null, returnTime: string | null = null): SessionStateDto => ({ status: 'paused', note: null, returnOn, returnTime, setBy: 'user', setAt: 1, candidate: null });
 const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
 const runDto = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt: null, endReason: null, heartbeatAt: 1 });
-const todo = (id: string, projectId: string, over: Partial<TodoDto> = {}): TodoDto => ({ id, projectId, text: 't', done: false, position: 0, sessionId: null, updatedAt: 1, candidate: null, ...over });
+const todo = (id: string, projectId: string, over: Partial<TodoDto> = {}): TodoDto => ({ id, projectId, text: 't', done: false, position: 0, sessionId: null, updatedAt: 1, candidate: null, suggestion: null, ...over });
 const settings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null, ...over });
 
 function storeWith(): Store {
@@ -120,6 +120,21 @@ describe('presentProjects の「いま」', () => {
     const store = storeWith();
     store.sessions = {};
     expect(nowOf(store)).toEqual([]);
+  });
+  it('受け入れていない Claude の提案は「提案 N」として確認待ちの次に出す（プロジェクト画面を開かなくても気づける）', () => {
+    const store = storeWith();
+    store.sessions = {};
+    const suggestion = { note: null, at: NOW };
+    store.projects.alpha = project('alpha', 'active', { openTodoCount: 1 });
+    store.todos = {
+      s1: todo('s1', 'alpha', { suggestion }), s2: todo('s2', 'alpha', { suggestion }),
+      // ほかのプロジェクトの提案は数えない。済みの提案（版 19 の端末で済みにされたもの）は、プロジェクト画面の提案の節と同じく数える。
+      s3: todo('s3', 'alpha', { suggestion, done: true }), s4: todo('s4', 'beta', { suggestion }),
+      t1: todo('t1', 'alpha', { candidate: { sessionId: null, note: null, at: NOW } }),
+      // suggestion を持たない形の行（列を知らない古いサーバの応答）は提案ではない。
+      t2: todo('t2', 'alpha', { suggestion: undefined as unknown as null }),
+    };
+    expect(nowOf(store).map((n) => [n.kind, n.text])).toEqual([['pending', '確認待ち 1'], ['suggested', '提案 3'], ['todo', 'TODO 1']]);
   });
   it('実行中と入力待ちはホームと同じに、手元のセッションと run から数える', () => {
     const store = storeWith();
