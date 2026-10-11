@@ -33,15 +33,16 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
 - **読み取り専用**：Claude Code の設定とデータを、hangar は原則として読むだけで書き換えない。`~/.claude` の中へ書く例外は次の 4 つだけである。
   - statusline スクリプトへの追記。承諾を求め、追記の前に同じディレクトリへバックアップを取る。
   - 利用者が明示的に押した「この PC で再開」で、他端末のセッション本文を `~/.claude/projects/` に写すこと。手元の本文を上書きするときは `~/.agent-hangar/backups/transcripts/` へ控えを取り、控えが取れなければ写さない。
-  - クラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。Settings で明示的に有効にし、取り込む内容を確認したときだけ書く。上書きの前に `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。作り直した実装では、書くのは殻のネイティブの確認を経た殻の命令と CLI の `hangar config apply` だけで、サーバは書かない（「設定の同期の作り直し」の節の「適用と世代へ戻す」）。
+  - クラウド同期で、他端末から引いた Claude Code のユーザー設定を書き戻すこと。Settings で明示的に有効にし、取り込む内容を確認したときだけ書く。上書きの前に `~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ 1 バイトも書かない。作り直した実装では、書くのは殻の承諾の窓を経た殻の命令と CLI の `hangar config apply` だけで、サーバは書かない（「設定の同期の作り直し」の節の「適用と世代へ戻す」と、「承諾の窓」の節）。
   - 利用者が確認のダイアログで押した「書き込む」で、`~/.claude/settings.json` の `cleanupPeriodDays` の 1 か所だけを書き換えること。書く前に差分を見せ、`~/.agent-hangar/backups/claude-config/<時刻>/` へ控えを取り、控えが取れなければ書かない。ほかのキーと書式には触れない（「会話の保持期間」の節）。
 - 初期プロンプトの欄の候補のために、`~/.claude` から次を読む。どれも読むだけで、書かない（「初期プロンプトの欄」の節）。
   - `skills/*/SKILL.md` と `commands/**/*.md`。選んだプロジェクトの `.claude/skills` と `.claude/commands` も同じに読む。
   - `plugins/installed_plugins.json` と、`settings.json` の `enabledPlugins`。有効なプラグインのスキルとコマンドを見つけるためである。
   - プラグインのスキルとコマンドは、`installed_plugins.json` に記録された `installPath` から読む。ふつうは `~/.claude/plugins/cache` の下だが、記録された場所がどこでも、そこを読む。読むだけで、書かない。
   - `history.jsonl`。セッションの最初の一言になったコマンドの回数を数える。
-- `~/.claude` の外では、`hangar shell install` が `~/.zshrc` の末尾に 1 行を足す。statusline と同じく CLI だけが承諾を求めて行い、足す前に同じディレクトリへ控えを取る。UI とサーバは `GET /api/shell-hook` で有無を読むだけである（「外のターミナルのセッション」の節）。
-  - 加えて、`~/.claude/` の外にある `~/.claude.json` の `mcpServers.hangar` を `hangar mcp install` が書き換える。Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。削除は今までどおり `claude mcp remove` に任せる（こちらはトークンを渡さない）。
+- `~/.claude` の外では、`hangar shell install` が `~/.zshrc` の末尾に 1 行を足す。statusline と同じく書くのは CLI だけで、端末では承諾を求め、画面のボタンからは殻の承諾の窓を経る。足す前に同じディレクトリへバックアップを取る。サーバは `GET /api/shell-hook` で有無を読むだけである（「外のターミナルのセッション」の節）。
+  - 加えて、`~/.claude/` の外にある `~/.claude.json` の `mcpServers.hangar` を `hangar mcp install` が書き換える。Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。解除（`hangar mcp uninstall`）も `claude mcp remove` に任せず、登録と同じ守りで自分で書く。承諾の窓で見せた差分と、書く中身をそろえるためである（0.4.0 から）。
+- **書く承諾は殻の窓で取る**：画面から利用者のファイル（`~/.claude.json`、`~/.zshrc`、ステータスラインのスクリプト、`~/.claude`）を書くときは、殻が自分の承諾の窓（サーバを通らない、殻に同梱した頁）で書く先と差分を見せ、承諾されたときだけ CLI が書く。サーバと HTTP の API は書かない。ブラウザで開いた画面からは書かず、コマンドを案内する（「承諾の窓」の節）。
 - **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動だけである。
 - **サーバが正**：状態はローカルサーバが持ち、UI は描画に必要な値だけを受け取る。ブラウザでも Tauri でも同じ UI が動く。
 - **正規化した形式で描く**：トランスクリプトは正規化した共通形式に変換して描く。表示コードは Claude Code の jsonl 形式を知らない。
@@ -60,7 +61,7 @@ pnpm は手元で壊れているため使わない。
 - `packages/ui`：React と Vite による UI。Root から始まる階層、Passive View、UiAction チェーン、Mediator。
 - `packages/cloud`：Cloudflare Worker。Hono でサーバとコードを共有し、D1 と R2 を扱う。フェーズ 4 で実装した。
 - `apps/desktop`：Tauri v2 のシェル。サーバを子プロセスとして起動し、ウィンドウに UI を表示する。フェーズ 5 で実装した。
-- `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install`、`statusline install`、`shell install`、`shell uninstall`、`shell status`、`cloud status`、`cloud teardown` を提供する。
+- `packages/cli`：`hangar` コマンド。`setup`、`setup cloud`、`join`、`start`、`status`、`open`、`url`、`mcp install`、`mcp uninstall`、`statusline install`、`statusline uninstall`、`shell install`、`shell uninstall`、`shell status`、`config apply`、`config restore`、`cloud status`、`cloud teardown` を提供する。連携の書き込み（mcp、shell、statusline）と config は `--dry-run --json`（config は `--plan --json` も同じ）で書かずに見立てを返し、`--yes --json --expect <指紋>` で見立てどおりに書く（「承諾の窓」の節）。
 
 ### プロセスと通信
 
@@ -1790,6 +1791,16 @@ MCP からは TODO を完了にできない。`propose_done` と未完への `to
 書いた後は、書いたトークンそのもので `GET /api/usage` を 1 回叩いて確かめる。
 `/health` は認証を通さないので、通っても「そのポートで何かが応答する」ことしか分からず、`HANGAR_HOME` がサーバとずれていれば別のトークンを書いたまま成功と言ってしまう。
 認証が通らなかったときは失敗として返し、書いたトークンの置き場と `HANGAR_HOME` の食い違いを印字する（トークンそのものは印字しない）。
+
+`hangar mcp uninstall` は `mcpServers.hangar` だけを消す（0.4.0 から）。
+`claude mcp remove` に任せず、登録と同じ 4 つの守りで書く。承諾の窓で見せた差分と書く中身をそろえ、書く前のバックアップも同じ置き場に取るためである。
+載っていなければ書かず、バックアップも取らない。
+`--dry-run --json` の見立てでは、`~/.claude.json` の全体の差分は出さない。
+ファイルは大きく、ほかの MCP サーバの秘密も入っているので、`mcpServers` の中だけを見せ、ほかのサーバは名前だけにして中身を畳む。
+hangar のトークンは伏せ字（NUL の 1 字）に替えてから出し、承諾の窓は黒い帯で描く。
+書く直前の確かめは、ファイル全体ではなく `mcpServers` の指紋で行う。
+Claude Code は `~/.claude.json` のほかの鍵（起動の回数など）を頻繁に書くので、全体で比べると見せた直後でも食い違うからである。
+ロックを取って読んだ `mcpServers` を、見立ての値ともう一度比べてから書く。
 そのポートで誰も応答しないときだけは、起動前の登録を塞がないために成功のまま起動を促す。
 削除は `claude mcp remove` に任せる。こちらはトークンを渡さないので、argv の問題が無い。
 Claude Code は MCP のツール定義を遅延して読むため、ツールの説明文に「agent-hangar」を含めて検索で当たるようにする。
@@ -1896,7 +1907,19 @@ Home の帯の実行中の行は、使用率が届いていない間は使用率
 既に入っているスニペットが今の形と違うときは、目印の行から `exec <<<` の行までを差し替える。
 目印だけを見て何もしないと、トークンを argv に載せる古い形が入ったまま残るためである。
 追記を行うのは `hangar setup` の手順 4 と `hangar statusline install` の 2 つだけで、どちらも利用者の承諾を求める。
-UI とサーバは追記の有無を `GET /api/statusline` で読むだけで、書き込む経路もボタンも持たない。
+殻の中の画面のボタン（設定の連携の節と、ホームの始める前の確認）は殻に頼むだけで、殻が承諾の窓で見せてから同じ CLI を走らせる（「承諾の窓」の節）。
+サーバは追記の有無を `GET /api/statusline` で読むだけで、書き込む経路を持たない。
+外すのは `hangar statusline uninstall`（0.4.0 から）で、目印の行から終わりの行までを、バックアップを取ってから消す。範囲を読み取れないときは触らない。
+
+Windows でステータスラインのスクリプトが PowerShell（`.ps1`）のときは、同じことをする PowerShell の行を先頭に入れる（0.4.0 から）。
+`statusLine.command` が `pwsh` か `powershell` の `-File <パス>`、または `.ps1` を直に指すときに、そのファイルを書く先にする。
+標準入力を `[Console]::In.ReadToEnd()` で読み、ヘッダのファイルが読めるときだけ `HttpClient` で送る（0.3 秒で打ち切り、失敗は黙る）。
+PowerShell には裏で送る軽い道が無い（`Start-Job` は別のプロセスを起こして 1 秒近くかかる）ので、送るのは待つ。宛先は同じ PC なので短い。
+送り終えたら `[Console]::SetIn` で読んだ内容を標準入力に戻し、元のスクリプトが `[Console]::In` で同じ内容を読めるようにする。
+トークンはどのプロセスの引数にも載せない。
+`param` の塊で始まるスクリプトは、その前に文を置けないので、自動では入れない。
+`$input` で標準入力を読むスクリプトも、戻した内容を読めないことがあるので、自動では入れない。どちらも理由を返し、手で入れる道を案内する。
+改行の形（CRLF）はファイルに合わせる。
 
 準備の確かめは `GET /api/readiness` の 1 つにまとめてある（`packages/server/src/config/readiness.ts`）。
 tmux、claude、code、Node のパスの有無と実行権と版、ワークスペースの有無と、そこから登録したプロジェクトの数、MCP の登録の有無、statusline の追記の有無、画面に出すコマンドを返す。
@@ -2223,7 +2246,7 @@ OS の表示言語は、macOS では `defaults read -g AppleLanguages` の先頭
 設定がある人のファイルには殻は触らない（2 の日本語は、サーバが起動のあとに書き戻す）。
 
 殻が自分で出す文も、同じ言語で出す。
-起動の失敗の札と詳細（上の「起動の失敗の札」）、待っている間の文（`boot_state` の `lang`）、設定の同期のネイティブの確認と結果の文（`configapply.rs` の `words`。CLI が返す失敗の文は CLI の日本語のまま）、入力待ちの通知の題と本文が空のときの代わりの文（`notify::waiting`）である。
+起動の失敗の札と詳細（上の「起動の失敗の札」）、待っている間の文（`boot_state` の `lang`）、設定の同期と連携の書き込みの結果の文（`configapply.rs` と `approve.rs` の `words`。CLI が返す失敗の文は CLI の日本語のまま）、承諾の窓の頁の文（`loading/approve.js`。辞書の `approve.*` の写し）、入力待ちの通知の題と本文が空のときの代わりの文（`notify::waiting`）である。
 
 #### サーバでの引き方
 
@@ -2324,7 +2347,7 @@ Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉
 入力待ちの知らせの 4 つ（`notify_waiting`、`notify_prune`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
-UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、札を描いた知らせの `boot_card_shown`（殻はこれを受けてから 1 度だけ更新を確かめる）、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
+UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻が承諾の窓で見せてから CLI を走らせる。「設定の同期の作り直し」の節）、連携の書き込みの `setup_integration` だけを別に与え（`capabilities/remote-setup.json`）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、札を描いた知らせの `boot_card_shown`（殻はこれを受けてから 1 度だけ更新を確かめる）、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
 `open_log` は決まったファイル `~/.agent-hangar/desktop.log`（無ければ空で作る）を `open`（Windows は `rundll32.exe url.dll,FileProtocolHandler`、サーバが URL を開く形と同じ）に渡すだけで、呼び手からパスは受け取らない。
 `desktop.log` には殻の行（`<ミリ秒> [desktop] …`）とサーバの標準出力と標準エラーが入る。
 サーバは子の起動のときに追記で開いたファイルへ書く。
@@ -2516,6 +2539,8 @@ tmux、claude、node の版は子プロセスで読むが、同じファイル�
 必須の行を先に、任意の行（MCP、ステータスライン）を後ろに並べ、任意の行には「任意」の札を付ける。
 行は、状態の印（✗ と !。読み上げの名前にも状態を入れる）、名前、説明、薄い命令、右端のボタン 1 つである。
 ボタンは、tmux が見つからないときと MCP とステータスラインでは「コマンドをコピー」、そのほかでは「設定を開く」である。
+殻の中では、MCP とステータスラインの行も設定の連携の節と同じボタン（登録…、設定…）にし、書き込む先を添える（0.4.0。殻が承諾の窓で見せてから書く。「承諾の窓」の節）。ステータスラインのスクリプトが無いときは「設定を開く」にする。
+シェル連携は始める前の確認の行に入っていない（無くても始められ、行の数を変えると帯の分母が変わるため）。
 「設定を開く」は、設定の頭ではなく、その行を直す欄を指して開く（`#/settings?at=tmux`、`claude`、`workspace`、`compat`。行と開く先の対応は `READINESS_AT` の 1 か所で、全部の行が節を持つことを試験が縛る）。
 tmux、claude、プロジェクトの親フォルダはツールの節のパスの欄へ、互換性は連携の節の互換性の節へ開く。
 開いたら、頁をスクロールする枠の中でその欄が見える所まで送り（`revealWithin`）、検索から跳んだ行と同じ淡い黄の地を一瞬だけ薄れさせて目立たせる（`markHit`、`prefers-reduced-motion` では動かさない）。
@@ -3147,7 +3172,15 @@ code は無くても動くので弱い色にする。
 Node の欄が空のときは、サーバを動かしている Node を「自動で見つけました」と添えて出す。
 LM Studio の URL、モデル、Claude での要約の 1 時間あたりの上限は 3 項目をまとめて「保存」で保存し、そのボタンの横に同じ「✓ 保存しました」を出す。
 URL の欄の下には、モデルの一覧が取れたかで「接続済み（モデル N 個）」か「LM Studio に接続できません」を出す。接続テストのボタンは `summarizer.test` を出し、結果をその下に出す。
-ターミナルで打つコマンドは、薄い地のコードの行と右端のコピーで出し、どれも同じ hangar の呼び方にそろえる（`hangar mcp install`、`hangar statusline install`、`hangar shell install`。hangar に PATH が通っていなければ同梱の hangar の絶対パス）。
+連携の 3 枚の札（MCP サーバー、ステータスライン、シェル連携）は、殻の中ではボタンで書く（0.4.0、試作の連携 A）。
+札の形と説明文はそのままにし、コマンドの欄をボタンに替える。ボタンの横には「書き込む先：<パス>」と「書く前にバックアップを取ります」を常に出す。
+入っていなければ入れるボタン（登録…、設定…、インストール…）、入っていれば解除のボタン（登録を解除…、設定を解除…、アンインストール…）である。
+ボタンは殻に頼む（`setup.run`）だけで、書く中身は殻の承諾の窓が見せ、承諾されたときだけ CLI が書く（「承諾の窓」の節）。
+返事を待つあいだは押した札を「確認中…」にし、ほかの札のボタンも押せなくする。殻は承諾の窓を 1 つしか出さないからである。
+ステータスラインのスクリプトが無いときは押せない（/statusline で作ってから）。tmux が無い PC のシェル連携にはボタンを出さない。
+コマンドは「ターミナルで行うとき」に畳んで残す。
+ブラウザで開いた画面は書き込まない。ボタンを出さず、その旨と、ターミナルで打つコマンドを出す。
+ターミナルで打つコマンドは、薄い地のコードの行と右端のコピーで出し、どれも同じ hangar の呼び方にそろえる（`hangar mcp install`、`hangar statusline install`、`hangar shell install`。入っていれば `uninstall`。hangar に PATH が通っていなければ同梱の hangar の絶対パス）。
 同梱の hangar は、macOS では `.app` の `Contents/Resources/server/bin/hangar`、Windows では入れた先の `server\bin\hangar.cmd` である（`shellWrap.ts` の `bundledHangarIn`）。
 Windows では貼る先を PowerShell とみなし、英数字と `\ : . _ -` 以外の字を含むパスは `& '<パス>'` の形で書く（`shellHook.ts` の `shellInstallCommand`）。二重引用符で包んだだけでは、PowerShell はコマンドとして動かさない。
 リポジトリから動かしているサーバの PATH の `node_modules/.bin`（Windows では `node_modules\.bin`）の hangar は、利用者のターミナルからは引けないので、`npm run hangar -- …` の形にする。
@@ -3195,13 +3228,60 @@ Workers Paid のときは今日の枠の棒と D1 の札を出さず、札は請
 ヘッダーの同期の一行は、Cloudflare の上限で退いている間「無料枠で停止 · 9:00 にリセット」（赤い点）と言う。
 設定のクラウド同期の節も同じで、見出しの右の札は止まった色で「無料枠で停止」と言い、「状態」はヘッダーと同じ語（戻る時刻つき）で言い、ボタンは「今すぐ同期」だけを出して、一時停止の切り替えは出さない（利用者は止めていないため）。
 手で止めたときは、「同期を一時停止中」と言う。
-ステータスラインの節は追記の有無と追記先のパスを出すだけで、書き込むボタンは持たない（追記は CLI から行う）。
+ステータスラインの節は追記の有無と追記先のパスを出す。書き込むのは上のボタン（殻の中）か CLI である。
 MCP の登録の有無は `~/.claude.json` の `mcpServers.hangar` を読んで決める。読むだけで書かない。
-シェル連携の節は、同期している PC ごとの包み方の状態（インストール済み、未インストール、tmux が無いので使えない）と、入れるために貼るコマンドを出す。書き込むボタンは持たない（`hangar shell install` から行う）。
+シェル連携の節は、同期している PC ごとの包み方の状態（インストール済み、未インストール、tmux が無いので使えない）と、この PC で入れるボタン（殻の中）か、入れるために貼るコマンド（ブラウザ）を出す。
 トランスクリプトの保持は一般の節の行で、Claude Code の保持期間と本文の使用量を出す。書き換えるのはこの行だけで、期間を押すと差分を見せる確認を開き、「書き込む」を押して初めて書く。
 通知は一般の節の行で、「通知を有効にする」のスイッチ 1 つで、入力待ちを窓の外へ知らせるかを決める（「入力待ちの知らせ」の節）。
 無くても動くので、直すものの数には入れない。
 通知を出せない環境（ブラウザで拒んだ後や、Notification の無いブラウザ）では、スイッチを押せなくして理由を添える。
+
+### 承諾の窓
+
+利用者のファイルを画面から書く操作は、どれも殻の承諾の窓を通す（0.4.0、試作は承諾のダイアログの B）。
+対象は、連携の書き込み（`hangar mcp install` と `uninstall`、`hangar shell install` と `uninstall`、`hangar statusline install` と `uninstall`）と、設定の同期の適用と世代へ戻す（`hangar config apply`、`hangar config restore`）である。
+書くのは殻の命令と CLI だけで、サーバと HTTP の API は書かない（全体計画の D9）。
+
+流れは次のとおりである。
+
+1. 頁（サーバの UI）が殻の命令を呼ぶ。連携は `setup_integration(target)`、設定の同期は `apply_config_sync` と `restore_config_sync(name)` である。
+   頁から受け取るのは、決まった対象の名前（`packages/shared/src/setup.ts` の `SETUP_TARGETS`）と世代の名前だけで、殻が形を確かめる。
+2. 殻が CLI に見立てを出させる（連携は `--dry-run --json`、設定の同期は `--plan --json`）。何も書かない。
+   見立てが「済んでいる」（`noop`。登録済み、入っていない）か「書けない」（`blocked`。Windows のシェル連携、zsh でない、tmux が無い、スクリプトが無い、壊れた JSON など）なら、窓を開かずに理由の鍵（`code`）つきで返し、画面が知らせる。
+3. 殻が自分の窓（ラベル `approve`）を開き、殻に同梱した頁 `loading/approve.html` に見立てを見せる。この頁はサーバを通らない。
+4. 利用者がその窓で書き込みのボタンを押したときだけ、殻が CLI の `--yes --json --expect <指紋>`（適用は `--order` も）を走らせる。
+   CLI は書く直前に見立てを作り直し、指紋が見せたときと違えば、何も書かずに `changed` で断る。
+
+窓の頁は、題、3 つのタブ（何をどこに、差分、同じコマンド）、補足の表（バックアップ、書いた後、補足）、キャンセルと主のボタンを持つ。
+何をどこにはファイルごとに、操作（新規、変更、削除、hangar の置き場）と、何をするかの 1 文を出す。
+差分はタブを押して見る。MCP の API トークンは伏せ字にして黒い帯で描き、トークンそのものは見立てにも頁にも載せない。
+同じコマンドは、ターミナルで同じことをするコマンドである。
+解除とアンインストールの主のボタンは赤にする。
+設定の適用で、実行される指示（スキル、コマンド、エージェント）やフックを含むときは、見出しを注意の見た目にし、補足にその件数と名前を書く。
+段は確認、書き込み中、完了、失敗の 4 つである。
+完了はバックアップの置き場を出し、閉じるだけを置く。
+失敗は「書き込めませんでした。何も変えていません。」と理由を出し、閉じると再読み込み（見立てを出させ直して確認へ戻る）を置く。
+書く先が見せた後に変わっていたとき（`changed`）は、別のプログラムが変更したと言い、再読み込みを促す。
+
+殻への結果は、書けたらすぐ返す（画面の札がすぐ変わる）。
+取り消しと失敗は、窓を閉じたときに返す（失敗のあとに再読み込みして書き直せるからである）。
+書いている最中に窓を閉じられたら、書き終わったところで結果を返す。
+窓は同時に 1 つだけで、出ているあいだの別の頼みは `busy` で返し、出ている窓を前に出す。
+
+命令の権限は次のように分ける。
+
+- 承諾の窓の 2 つの命令（`approve_view`、`approve_answer`）は、`approve` の窓の、殻に同梱した頁にだけ与える（`capabilities/approve.json`。`remote` を持たない）。殻の側でも、呼んだ窓の名前を確かめる。
+- サーバの頁（main の窓、`127.0.0.1:4177`）には、頼む命令（`setup_integration`、`apply_config_sync`、`restore_config_sync`）だけを与え、承諾の命令は与えない。
+  画面のダイアログから殻の書く命令を直接呼ぶ形にすると、HTTP の API に穴が開いたとき、押されずに書かれうる。承諾を殻の窓に置けば、その窓のボタンを人が押さない限り書かれない。
+- 承諾の窓は、殻に同梱した頁から移らない（`on_navigation` で、macOS の `tauri://` と Windows の `http://tauri.localhost` だけを通す）。窓に落とされたファイルも受け取らない。
+
+頁の文は、UI の辞書の `approve.*` を頁の中に写して持つ（頁は辞書を読めない）。写しが辞書とずれていないことは `apps/desktop/test/approve.test.ts` が縛る。言語は殻の頁と同じ決め方である。
+CLI の見立ての形は `packages/cli/src/setupPlan.ts`（連携）と `sync/config/apply.ts` の `planApplyFiles`、`planRestoreFiles`（設定の同期）にある。
+見立ては、書く処理と同じ「次の中身を決める関数」（`planShellHook`、`planStatuslineSnippet`、`planStatuslineRemoval` など）から作り、見せた差分と書く中身を食い違わせない。
+
+ブラウザで開いた画面は書き込まない。殻が無いので、ボタンの代わりに、その旨とターミナルで打つコマンドを出す。
+アプリから起こす CLI には `SHELL` が無いことがあるので、シェル連携のログインシェルは `SHELL` が無ければ利用者の記録（`os.userInfo().shell`）から読む。
+Windows では、シェル連携は使えない（W1、2026-10-10 の決定のまま）。MCP の書く先は `%USERPROFILE%\.claude.json` になる。ステータスラインは、スクリプトが `.ps1` のとき PowerShell の行を入れる（「使用量」の節）。
 
 ### 入力待ちの知らせ
 
@@ -3941,7 +4021,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
 承諾した項目は、`PUT /api/config-sync/apply-order`（`{ items: [{ id, take? }] }`）で「適用の指示書」として hangar の置き場（`~/.agent-hangar/claude-config/apply-order.json`、0600）に書く。
 競合は `take` で、相手を採る（`remote`）か、手元を採る（`mine`。手元は書き換えず、基準だけを進める）かを選べる。
 前の指示書は置き換える。`DELETE` で取り消せる。
-サーバは `~/.claude` に書かない（全体計画の D9）。指示書を読んでネイティブの確認を出し、控えを取って書き、基準を更新し、指示書を消すのは、殻の命令と `hangar config apply` の役目である。
+サーバは `~/.claude` に書かない（全体計画の D9）。指示書を読んで承諾の窓で見せ、控えを取って書き、基準を更新し、指示書を消すのは、殻の命令と `hangar config apply` の役目である。
 
 **適用と世代へ戻す（PR 16）。**
 書く処理の本体は `sync/config/apply.ts` にあり、CLI（`packages/cli/src/config.ts`）と殻の命令（`apps/desktop/src-tauri/src/configapply.rs` と `lib.rs`）が同じものを走らせる。
@@ -3953,11 +4033,13 @@ skills、commands、agents は実行される指示なので、他の PC から�
   対話でない端末で `--yes` が無ければ書かない。
 - `hangar config restore [世代]`：世代を省くと一覧を出す。
   世代を指すと戻す先と消す先を見せて承諾を取る（`--plan`、`--yes`、`--json` は同じ）。
-- 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name)`：CLI に `--plan --json` を走らせ、返った件数と種類をネイティブの確認（`tauri-plugin-dialog` のメッセージ）に出し、承諾されたときだけ `--yes --json`（適用は `--order` 付き）を走らせる。
-  実行される内容（skills、commands、agents、フックとコマンド実行とスクリプトの印）を含むときは警告の見た目で出し、その件数と項目の名前（5 件まで）を書く。
-  確認と結果の文は、殻の頁と同じ言語で書く（`configapply::words`。「言語の決め方」の節）。CLI が返した失敗の文は、そのまま出す。
-  結果は `{ status, message, generation }`（`status` は `applied`、`restored`、`cancelled`、`none`、`failed`、`busy`）で頁へ返す。
-  失敗は確認と同じネイティブの窓でも知らせる。
+- 殻の命令 `apply_config_sync`（引数なし）と `restore_config_sync(name)`：CLI に `--plan --json` を走らせ、返った見立てを殻の承諾の窓に見せ、承諾されたときだけ `--yes --json --expect <指紋>`（適用は `--order` 付き）を走らせる（0.4.0 から。それまではネイティブの確認だった。「承諾の窓」の節）。
+  `--plan --json` の見立てには、書く先のファイルごとの操作（新規、変更、削除）と、今の中身から書いた後の中身への差分と、書く先の今の中身の指紋（`fingerprint`）が入る（`planApplyFiles`、`planRestoreFiles`）。
+  `--expect` を渡すと、CLI は書く直前に書く先の指紋を取り直し、違えば何も書かずに `changed` で断る（指示書は残す）。見せた後に手で `~/.claude` を変えたときに、見せていない中身で上書きしないためである。
+  実行される内容（skills、commands、agents、フックとコマンド実行とスクリプトの印）を含むときは、窓の見出しを注意の見た目にし、補足にその件数と項目の名前を書く。
+  結果の文は、殻の頁と同じ言語で書く（`configapply::words`。「言語の決め方」の節）。CLI が返した失敗の文は、そのまま出す。
+  結果は `{ status, message, generation, code }`（`status` は `applied`、`restored`、`cancelled`、`none`、`failed`、`busy`）で頁へ返す。
+  書けなかったときは、承諾の窓が失敗の段で知らせ、窓を閉じたときに `failed` を返す。
   頁から渡せるのは世代の名前だけで、`yyyyMMdd-HHmmss` の形を殻が確かめる。
   権限は `capabilities/remote-config-apply.json` の 2 つだけである。頁の側の呼び出しは PR 17 で足した（`runtime/desktop.ts` の `applyConfigSync()`、`restoreConfigSync(name)`。結果は上の `{ status, message, generation }` で、形の違う返事は失敗として扱う）。
 - 適用の順序は、(1) 指示書を読み、inbox と突き合わせて全項目が書けるかを先に確かめる、(2) 書く先の元の中身を世代に控える、(3) 一時ファイルに書いて rename する、(4) `config_base` を 1 つの transaction で更新する、(5) 指示書を消して、世代を新しい 20 個に保つ、である。
@@ -4002,7 +4084,7 @@ skills、commands、agents は実行される指示なので、他の PC から�
 - `conflicts`（d1）：1 件を 1 枚の札にし、差分（手元から相手へ。赤は手元、緑は相手）を最初から出す。「相手を採用」「自分を採用」を押して選び（もう一度押すと外れる）、選んだ分を `take: 'remote' | 'mine'` つきで適用する。
 
 選んだ項目（チェック、採る側）は View だけが持ち、`configSync.apply { entries }` で 1 度に渡す。
-適用は、サーバに指示書を書かせ（`PUT /api/config-sync/apply-order`）、殻があれば `apply_config_sync` でネイティブの確認へ進む（runtime）。
+適用は、サーバに指示書を書かせ（`PUT /api/config-sync/apply-order`）、殻があれば `apply_config_sync` で承諾の窓へ進む（runtime）。
 確認の返事が来るまで、ダイアログは閉じられず、押せない。
 `applied` と `restored` のときは状態を取り直してダイアログを閉じ、`cancelled`、`none`、`busy`、`failed` のときは書いていないので開いたままにして文を知らせる（`failed` は赤）。
 ブラウザでは殻が無いので、指示書を書いたところで閉じ、設定の「適用の待ち」の行が `hangar config apply` を案内する。

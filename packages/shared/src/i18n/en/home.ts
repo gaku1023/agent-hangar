@@ -69,6 +69,7 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.ready.mcp.ok': 'Registered',
   'home.ready.statusline.text': 'Feeds the usage gauges in the header',
   'home.ready.statusline.noScript': 'Create the script with /statusline in Claude Code, then run this',
+  'home.ready.statusline.noScriptApp': 'Create the script with /statusline in Claude Code, then set it up in Settings',
   'home.ready.statusline.ok': 'Set up',
   'home.ready.compat.drift': '{n} {n|change|changes} detected. Disabled features are listed in Settings',
   'home.ready.compat.unverified': '{local} (verified version is {verified})',

@@ -12,6 +12,7 @@ import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '..
 import { readWaitingNotified, WAITING_NOTIFIED_KEY } from '../mediator/live.ts';
 import { noQuestionText } from '../presenters/home.ts';
 import { daysLabel } from '../presenters/retention.ts';
+import { setupNotice } from '../presenters/setup.ts';
 // 参加トークンをストアに置いておく上限。画面の残りの秒数と同じ値を使う。
 import { JOIN_TOKEN_TTL_MS } from '../presenters/settings.ts';
 import { readinessCompat } from '../presenters/compat.ts';
@@ -497,6 +498,24 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       // 取れなければ空にする。一覧が出ないだけで、作ることもパスで選ぶこともできる。
       case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => setStore(applyWorkspaceDirs(store, dirs))).catch(() => setStore(applyWorkspaceDirs(store, []))); return;
+      case 'desktop.setup': {
+        // ブラウザには殻が無い。画面はその場合ボタンの代わりにコマンドを出すので、ここへは来ないが、来ても何もしない。
+        const shell = deps.desktop;
+        const done = () => dispatch({ kind: 'runtime', event: { type: 'setup.done', target: e.target } });
+        if (!shell) { done(); return; }
+        shell.setupIntegration(e.target).then((r) => {
+          const notice = setupNotice(tr(), r);
+          if (notice) dispatch({ kind: 'server', event: { type: 'toast', level: notice.level, message: notice.message } });
+          // 書いたかどうかはサーバの読み取り（ステータスライン、シェル連携、準備の確かめ）で決まる。済んでいたときも取り直して札を合わせる。
+          if (r.status === 'written' || r.status === 'none') {
+            deps.api.statusline().then((st) => setStore({ ...store, statusline: st })).catch(fail);
+            deps.api.shellHook().then((h) => setStore({ ...store, shellHook: h })).catch(fail);
+            loadReadiness();
+          }
+          done();
+        }).catch((err: unknown) => { failWith(tr()('runtime.setup.failed'), err); done(); });
+        return;
+      }
       case 'desktop.pickFolder':
         if (!deps.desktop) return;
         // 取り消したら何もしない。開く場所はワークスペースのルートにする。

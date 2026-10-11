@@ -2,6 +2,7 @@ import type { ConfigApplyOrderEntryIn, InstructionFileKind, ProjectPlace, Projec
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
+import type { SetupTarget } from './setup.ts';
 
 export type ProjectId = string;
 export type SessionId = string;
@@ -156,6 +157,8 @@ export type UiAction =
   // psmux（Windows）と tmux の再確認。サーバが探し直し、見つかれば設定の tmuxPath を埋める。
   // proceed は、始める前の案内で止めていた操作（新しいセッション、再開）を、見つかったあとに進める。
   | { type: 'mux.recheck' } | { type: 'mux.guide.proceed' }
+  // 連携の書き込み（MCP、シェル連携、ステータスライン）を殻に頼む。殻が承諾の窓で見せ、承諾されたときだけ CLI が書く。ブラウザでは何もしない。
+  | { type: 'setup.run'; target: SetupTarget }
   // Claude Code のアカウント。load は一覧を取り直す。choose は新しいセッションの既定（いまのアカウント）を変える。
   // switchSession はそのセッションを別のアカウントで再開する。working は作業中かで、確認の文に使う。confirmed が無ければ先に確認を出す。
   // add は名前だけで置き場を作り、続けてログインを始める。remove は一覧から外すだけで、置き場の中身は消さない。confirmed が無ければ先に確認を出す。

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ReadinessDto } from '@agent-hangar/shared';
+import type { ReadinessDto, SetupTarget } from '@agent-hangar/shared';
 import { SETTINGS_SECTIONS, settingsSectionOf, translator } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore } from '../store/store.ts';
@@ -270,5 +270,27 @@ describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
   it('MCP とステータスラインは連携の節（命令をコピーする行なので、欄までは指さない）', () => {
     expect(READINESS_AT.mcp).toBe('integrations');
     expect(READINESS_AT.statusline).toBe('integrations');
+  });
+});
+
+describe('始める前の確認の MCP とステータスラインの行（殻の中）', () => {
+  const app: { desktop: boolean; running: SetupTarget | null } = { desktop: true, running: null };
+  const rowOf = (r: ReadinessDto, key: string, setup = app) => presentReadiness(r, ja, 'darwin', 'idle', setup)!.group.rows.find((x) => x.key === key)!;
+  it('設定の連携の節と同じボタンにし、書き込む先を添える', () => {
+    const mcp = rowOf(READY, 'ready:mcp');
+    expect(mcp.detail).toBe('/Users/me/.claude.json');
+    expect(mcp.actions.map((a) => [a.label, a.primary, a.send])).toEqual([['登録…', true, { type: 'setup.run', target: 'mcp-install' }]]);
+    const sl = rowOf(READY, 'ready:statusline');
+    expect(sl.detail).toBe('/Users/me/.claude/statusline.sh');
+    expect(sl.actions[0]!.send).toEqual({ type: 'setup.run', target: 'statusline-install' });
+  });
+  it('返事を待つあいだは「確認中…」、スクリプトが無ければ設定を開く', () => {
+    expect(rowOf(READY, 'ready:mcp', { desktop: true, running: 'mcp-install' as const }).actions[0]!.label).toBe('確認中…');
+    const none = rowOf({ ...READY, statusline: { command: null, scriptPath: null, installed: false } }, 'ready:statusline');
+    expect(none.text).toBe('Claude Code の /statusline でスクリプトを作ってから、設定の連携の節で設定してください');
+    expect(none.actions[0]!.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'integrations' } });
+  });
+  it('ブラウザでは今までどおりコマンドをコピーする', () => {
+    expect(rowOf(READY, 'ready:mcp', { desktop: false, running: null }).actions[0]!.send).toEqual({ type: 'clipboard.copy', text: 'hangar mcp install' });
   });
 });

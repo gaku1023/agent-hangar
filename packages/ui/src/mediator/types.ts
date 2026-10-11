@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, TodoDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
 import type { ConfigDetailPart } from '../store/store.ts';
@@ -40,7 +40,9 @@ export type RuntimeEvent =
   // 設定の同期の適用（指示書を書き、殻のネイティブの確認を待った）の結果。close が真ならダイアログを閉じる。
   | { type: 'configSync.done'; close: boolean }
   // psmux（tmux）の再確認の答え。found は、答えの準備の確かめで tmux の行が動かせるか。答えは Runtime が先に Store へ入れてある。
-  | { type: 'mux.checked'; found: boolean };
+  | { type: 'mux.checked'; found: boolean }
+  // 連携の書き込みを殻に頼んだ返事が来た（書いた、取り消した、失敗した、のどれでも）。
+  | { type: 'setup.done'; target: SetupTarget };
 
 /**
  * Mediator が裁定する UiAction。
@@ -112,6 +114,8 @@ export type Effect =
   | { kind: 'api.createProjectThenLaunch'; place: ProjectPlace; params: LaunchParams }
   | { kind: 'api.workspaceDirs' }
   | { kind: 'desktop.pickFolder' }
+  // 連携の書き込みを殻に頼む（setup_integration）。殻が承諾の窓を出す。ブラウザでは殻が無いので、すぐ setup.done を返す。
+  | { kind: 'desktop.setup'; target: SetupTarget }
   | { kind: 'api.loadSettingsExtras' }
   | { kind: 'api.syncFocus' }
   | { kind: 'api.resumeHere'; sessionId: string; overwrite: boolean }
@@ -307,6 +311,8 @@ export type State = {
   copied: { text: string; n: number } | null;
   /** psmux（tmux）の再確認の進み。帯、案内のダイアログ、設定のツールの行が同じものを読む。 */
   muxCheck: MuxCheck;
+  /** 連携の書き込みで、殻の返事を待っている対象。待っていなければ null。 */
+  setupRunning: SetupTarget | null;
   /**
    * TODO の取り消しの積み（古いものが先、mediator/todos.ts）。操作の前の行の写しを持つ。
    * removed は、その操作で消した TODO の ID（消した場所の帯の「元に戻す」が引く）。端末には残さない。

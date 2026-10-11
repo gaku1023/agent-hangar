@@ -1,4 +1,4 @@
-import { isSettingsField, SETTINGS_SECTIONS, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
+import { isSettingsField, SETTINGS_SECTIONS, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -31,6 +31,16 @@ export type CloudSettingsProps = { configured: boolean; url: string | null; stat
  */
 /** available は、この PC の OS で包みを作るか。Windows のサーバでは偽で、画面は節ごと出さない。 */
 export type ShellSettingsProps = { state: ShellHookStateDto | null; zshrc: string; line: string; command: string; uninstallCommand: string; available: boolean; devices: { id: string; name: string; self: boolean; state: ShellHookStateDto | null; label: string }[] };
+
+/**
+ * 連携の 1 枚の札（MCP サーバー、ステータスライン、シェル連携）の書き込み。
+ * 殻の中では、ボタン（action）と書き込む先（file）を出し、コマンドは「ターミナルで行うとき」に畳む。
+ * ブラウザでは書き込まない（D9）ので、ボタンを出さずにコマンド（command）を出す。
+ * action は押せる操作で、状態が分からないとき（読み込み前、tmux が無いなど）は null。running は殻の返事を待っているもの。
+ */
+export type IntegrationAction = { target: SetupTarget; label: string; primary: boolean; disabled: boolean; running: boolean };
+export type IntegrationCard = { file: string | null; action: IntegrationAction | null; command: string };
+export type IntegrationsProps = { desktop: boolean; mcp: IntegrationCard; statusline: IntegrationCard; shell: IntegrationCard };
 
 /** 参加トークンを画面に置いておく長さ。全セッションの読み書き権を持つ秘密なので、写し終わる頃に消す。 */
 export const JOIN_TOKEN_TTL_MS = 120_000;
@@ -93,6 +103,8 @@ export type SettingsProps = {
   verify: { workspace: VerifyLine | null; tmux: VerifyLine | null; claude: VerifyLine | null; code: VerifyLine | null; node: VerifyLine | null };
   /** hangar の MCP サーバが user スコープに載っているか。届く前は null。 */
   mcpRegistered: boolean | null;
+  /** 連携の 3 枚の札の書き込み（ボタン、書き込む先、ターミナルで行うときのコマンド）。 */
+  integrations: IntegrationsProps;
   /** 欄ごとの保存の知らせ（C1）。欄の名前で引く。 */
   save: Record<string, SaveMark>;
   /**
@@ -117,6 +129,44 @@ export type SettingsProps = {
   /** アプリの更新の節（presenters/update.ts）。 */
   update: UpdateSectionProps;
 };
+
+/**
+ * 連携の 3 枚の札の書き込み。入っていれば解除の操作、入っていなければ入れる操作を出す。
+ * 解除のコマンドは、入れるコマンドの末尾の install を uninstall に替えたもの（同じ hangar の呼び方）。
+ */
+function presentIntegrations(t: Translate, state: State, store: Store, install: { mcp: string; statusline: string; shell: string }): IntegrationsProps {
+  const r = store.readiness;
+  const running = state.setupRunning;
+  const off = (c: string) => c.replace(/ install$/, ' uninstall');
+  const act = (target: SetupTarget, label: string, primary: boolean, disabled = false): IntegrationAction => ({
+    target, primary, running: running === target,
+    label: running === target ? t('settings.integrations.waiting') : label,
+    // 返事を待っているあいだは、ほかの札も押せなくする（殻は承諾の窓を 1 つしか出さない）。
+    disabled: disabled || running !== null,
+  });
+  const mcpOn = r?.mcp.registered ?? null;
+  const sl = store.statusline;
+  const sh = store.shellHook;
+  return {
+    desktop: store.desktop,
+    mcp: {
+      file: r?.mcp.file ?? null,
+      action: mcpOn === null ? null : mcpOn ? act('mcp-uninstall', t('settings.integrations.mcp.unregister'), false) : act('mcp-install', t('settings.integrations.mcp.register'), true),
+      command: mcpOn ? off(install.mcp) : install.mcp,
+    },
+    statusline: {
+      file: sl?.scriptPath ?? null,
+      // スクリプトが無いときは、入れる先が無いので押せない（/statusline で作ってから）。
+      action: sl === null ? null : sl.installed ? act('statusline-uninstall', t('settings.integrations.statusline.remove'), false) : act('statusline-install', t('settings.integrations.statusline.setup'), true, sl.scriptPath === null),
+      command: sl?.installed ? off(install.statusline) : install.statusline,
+    },
+    shell: {
+      file: sh?.zshrc ?? null,
+      action: sh?.state === 'on' ? act('shell-uninstall', t('settings.integrations.shell.uninstall'), false) : sh?.state === 'off' ? act('shell-install', t('settings.integrations.shell.install'), true) : null,
+      command: sh?.state === 'on' ? off(install.shell) : install.shell,
+    },
+  };
+}
 
 /** 選択肢は決まった 4 つに、今の値がそこに無ければそれを足して、短い順に並べる。 */
 function retentionSettings(store: Store): RetentionSettingsProps | null {
@@ -244,8 +294,10 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     must: hard(verify.workspace) + hard(verify.tmux) + hard(verify.claude) + hard(verify.node),
     link: r ? (r.mcp.registered ? 0 : 1) + (r.statusline.installed ? 0 : 1) : 0,
   };
+  const integrations = presentIntegrations(t, state, store, { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', shell: command });
   return {
     cloud,
+    integrations,
     configSync: presentConfigSection(store, now, at === 'unsent'),
     shell,
     verify, todo,

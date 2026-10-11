@@ -1,4 +1,4 @@
-import { compatState, type SettingsAt, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
+import { compatState, type SetupTarget, type SettingsAt, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
 import type { MuxCheck, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { readinessCompat } from './compat.ts';
@@ -173,9 +173,9 @@ const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.too
  * 帯の右端の文は、始めるのに要る道具（tmux の役の道具と claude）のうち足りないものだけを名指しし、揃っていれば出さない。
  * 必須が済んで任意の行だけが残るか、全部そろったときは null で、帯の群を出さない。
  * 互換のずれは、直すものとして残る（任意の札は付けない）。
- * 右端のボタンは 1 つで、いまは「設定を開く」か「コマンドをコピー」である（段 5 で文が替わるだけにする）。
+ * 右端のボタンは 1 つで、「設定を開く」か「コマンドをコピー」である。殻の中では、MCP とステータスラインの行を設定の連携の節と同じボタン（setup.run）にする。
  */
-export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle'): ReadinessBand | null {
+export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: { desktop: boolean; running: SetupTarget | null } = { desktop: false, running: null }): ReadinessBand | null {
   if (!readinessPending(r)) return null;
   const checks = checksOf(r);
   // tmux の行は、Windows では psmux の名で出す（段 6）。
@@ -183,6 +183,8 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
   const action = (label: string, who: string, send: UiAction, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, send });
   const toSettings = (k: ReadinessKey) => action(t('home.ready.openSettings'), name(k), { type: 'nav.go', to: { name: 'settings', at: READINESS_AT[k] } }, true);
   const copy = (k: ReadinessKey, command: string) => action(t('home.ready.copyCommand'), name(k), { type: 'clipboard.copy', text: command }, false);
+  // 殻の中では、MCP とステータスラインの行も設定の連携の節と同じボタンにする（殻が承諾の窓で見せてから書く）。
+  const write = (k: ReadinessKey, target: SetupTarget, label: string) => action(setup.running === target ? t('settings.integrations.waiting') : label, name(k), { type: 'setup.run', target }, true);
   const sl = r.statusline;
   const ws = r.workspace;
   const summary = readinessCompat(r);
@@ -217,13 +219,14 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
         break;
       case 'mcp':
         text = t('home.ready.mcp.text');
-        detail = r.commands.mcp;
-        act = copy('mcp', r.commands.mcp);
+        detail = setup.desktop ? r.mcp.file : r.commands.mcp;
+        act = setup.desktop ? write('mcp', 'mcp-install', t('settings.integrations.mcp.register')) : copy('mcp', r.commands.mcp);
         break;
       case 'statusline':
-        text = sl.scriptPath ? t('home.ready.statusline.text') : t('home.ready.statusline.noScript');
-        detail = r.commands.statusline;
-        act = copy('statusline', r.commands.statusline);
+        text = sl.scriptPath ? t('home.ready.statusline.text') : t(setup.desktop ? 'home.ready.statusline.noScriptApp' : 'home.ready.statusline.noScript');
+        // スクリプトが無ければ書く先が無いので、殻の中でも設定の節へ案内する。
+        detail = setup.desktop ? sl.scriptPath : r.commands.statusline;
+        act = !setup.desktop ? copy('statusline', r.commands.statusline) : sl.scriptPath ? write('statusline', 'statusline-install', t('settings.integrations.statusline.setup')) : toSettings('statusline');
         break;
       case 'compat':
         text = t('home.ready.compat.drift', { n: summary?.driftCount ?? 0 });

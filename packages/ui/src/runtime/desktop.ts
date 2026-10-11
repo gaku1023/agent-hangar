@@ -1,3 +1,4 @@
+import type { SetupTarget } from '@agent-hangar/shared';
 import { UPDATE_FAIL_REASONS, type UpdateFailReason } from '../store/update.ts';
 
 /**
@@ -5,7 +6,7 @@ import { UPDATE_FAIL_REASONS, type UpdateFailReason } from '../store/update.ts';
  * 殻は頁の読み込みの前に `__TAURI_INTERNALS__` を差し込むので、有無は起動の時に決まる。
  * 頼めるのは、ログを開くこと、アプリの再起動、フォルダの選択、設定の同期の適用と世代へ戻すこと、アプリの更新（確認、進み、取得、インストール）だけである。
  * どれも殻の capability（apps/desktop/src-tauri/capabilities/remote-shell.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json）で、この頁の出どころにだけ許してある。
- * 設定の同期の 2 つは、殻がネイティブの確認を出し、承諾されたときだけ `~/.claude` に書く。頁は結果の文を受け取るだけである。
+ * 設定の同期の 2 つと連携の書き込みは、殻が自分の承諾の窓（サーバを通らない頁）で書く中身を見せ、承諾されたときだけ CLI が書く。頁は結果を受け取るだけで、承諾を出すことはできない。
  */
 export type DesktopBridge = {
   openLog(): Promise<void>; restart(): Promise<void>; pickFolder(defaultPath: string | null): Promise<string | null>;
@@ -13,6 +14,8 @@ export type DesktopBridge = {
   applyConfigSync(): Promise<ConfigShellOutcome>;
   /** 控えの世代（yyyyMMdd-HHmmss）へ戻す。 */
   restoreConfigSync(name: string): Promise<ConfigShellOutcome>;
+  /** 連携を書き込む（MCP、シェル連携、ステータスライン）。殻が見立てを承諾の窓に見せ、承諾されたときだけ CLI が書く。 */
+  setupIntegration(target: SetupTarget): Promise<SetupShellOutcome>;
   /** アプリの自動更新（段 5-4）。 */
   update: UpdateBridge;
 };
@@ -49,8 +52,23 @@ function updateFailureOf(e: unknown): UpdateFailure {
  */
 export type ConfigShellOutcome = { status: 'applied' | 'restored' | 'cancelled' | 'none' | 'failed' | 'busy'; message: string | null; generation: string | null };
 
+/**
+ * 連携の書き込みの結果。written は書いた、none はもう済んでいた、cancelled は承諾の窓で取り消した（書けずに閉じたときは failed）。
+ * code は理由の鍵（already、absent、windows、no-script、changed など）で、画面が文を選ぶ。message は殻の文（CLI の文は日本語だけ）。
+ */
+export type SetupShellOutcome = { status: 'written' | 'none' | 'cancelled' | 'failed' | 'busy'; message: string | null; code: string | null };
+
 /** 殻の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧にそろえる。 */
-export const DESKTOP_COMMANDS = { openLog: 'open_log', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync' } as const;
+export const DESKTOP_COMMANDS = { openLog: 'open_log', restart: 'restart_app', pickFolder: 'pick_folder', applyConfigSync: 'apply_config_sync', restoreConfigSync: 'restore_config_sync', setupIntegration: 'setup_integration' } as const;
+
+const SETUP_STATUSES: ReadonlySet<string> = new Set(['written', 'none', 'cancelled', 'failed', 'busy']);
+
+/** 殻の返した値を、決まった形に直す。形が違えば失敗として扱い、書いたとは言わない。 */
+function setupOutcomeOf(r: unknown): SetupShellOutcome {
+  const o = r as { status?: unknown; message?: unknown; code?: unknown } | null;
+  if (!o || typeof o.status !== 'string' || !SETUP_STATUSES.has(o.status)) return { status: 'failed', message: null, code: null };
+  return { status: o.status as SetupShellOutcome['status'], message: typeof o.message === 'string' ? o.message : null, code: typeof o.code === 'string' ? o.code : null };
+}
 /** 更新の命令の名前。lib.rs の #[tauri::command] と build.rs の一覧と capabilities/remote-update.json にそろえる。 */
 export const UPDATE_COMMANDS = { status: 'update_status', check: 'update_check', download: 'update_download', install: 'update_install' } as const;
 
@@ -79,6 +97,7 @@ export function createDesktopBridge(win: unknown): DesktopBridge | null {
     pickFolder: async (defaultPath) => { const r = await invoke(DESKTOP_COMMANDS.pickFolder, { defaultPath }); return typeof r === 'string' ? r : null; },
     applyConfigSync: async () => outcomeOf(await invoke(DESKTOP_COMMANDS.applyConfigSync)),
     restoreConfigSync: async (name) => outcomeOf(await invoke(DESKTOP_COMMANDS.restoreConfigSync, { name })),
+    setupIntegration: async (target) => setupOutcomeOf(await invoke(DESKTOP_COMMANDS.setupIntegration, { target })),
     update: {
       status: async () => {
         const r = await invoke(UPDATE_COMMANDS.status) as { current?: unknown; done?: unknown; total?: unknown } | null;

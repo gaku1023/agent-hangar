@@ -607,7 +607,7 @@ describe('起動とターミナル', () => {
   });
   it('ダイアログを開くと未登録の一覧を取り、Finder の結果を持つ', async () => {
     const pickFolder = vi.fn(async () => '/Users/me/thesis');
-    const { rt } = harness({ workspaceDirs: vi.fn(async () => [{ name: 'a', path: '/w/a' }]) }, { desktop: { openLog: vi.fn(), restart: vi.fn(), pickFolder, applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update: noUpdate() } });
+    const { rt } = harness({ workspaceDirs: vi.fn(async () => [{ name: 'a', path: '/w/a' }]) }, { desktop: { openLog: vi.fn(), restart: vi.fn(), pickFolder, applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(), update: noUpdate() } });
     rt.start();
     rt.emit({ type: 'project.new.open' });
     rt.emit({ type: 'folder.pick' });
@@ -1979,7 +1979,7 @@ const noUpdate = () => ({ status: vi.fn(async () => { throw new Error('not allow
 
 describe('殻の操作（ランタイム）', () => {
   it('殻があれば、ログを開くと再起動を殻に頼む', async () => {
-    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update: noUpdate() };
+    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(), update: noUpdate() };
     const { rt } = harness({}, { desktop });
     rt.start();
     expect(rt.getStore().desktop).toBe(true);
@@ -1991,7 +1991,7 @@ describe('殻の操作（ランタイム）', () => {
   });
   it('殻が updater を持てば、起動したら確認して Store の update に置き、画面の操作を殻に頼む', async () => {
     const update = { status: vi.fn(async () => ({ current: '1.4.2', done: 0, total: null })), check: vi.fn(async () => ({ version: '1.5.0' })), download: vi.fn(async () => {}), install: vi.fn(async () => {}) };
-    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update };
+    const desktop = { openLog: vi.fn(async () => {}), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(), update };
     const { rt } = harness({}, { desktop });
     rt.start();
     await flush();
@@ -2005,7 +2005,7 @@ describe('殻の操作（ランタイム）', () => {
     expect(update.install).toHaveBeenCalledTimes(1);
   });
   it('殻が断ったらトーストで知らせる', async () => {
-    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update: noUpdate() };
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => {}), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(), update: noUpdate() };
     const { rt } = harness({}, { desktop });
     rt.start();
     rt.emit({ type: 'shell.openLog' });
@@ -2218,7 +2218,7 @@ describe('アカウント', () => {
 describe('設定の同期（作り直した実装）', () => {
   const cfg = (over: Partial<NonNullable<BootstrapDto['configSync']>> = {}): NonNullable<BootstrapDto['configSync']> => ({ enabled: true, workerPending: false, approval: 'each', incoming: 0, conflicts: 0, held: 0, unsent: 0, backups: 0, applyOrder: null, lastSentAt: null, ...over });
   const shellOutcome = (status: 'applied' | 'restored' | 'cancelled' | 'none' | 'failed' | 'busy', message = 'm') => ({ status, message, generation: null });
-  const desktopOf = (apply: () => Promise<ReturnType<typeof shellOutcome>>, restore: () => Promise<ReturnType<typeof shellOutcome>> = async () => shellOutcome('restored')) => ({ openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(apply), restoreConfigSync: vi.fn(restore), update: noUpdate() });
+  const desktopOf = (apply: () => Promise<ReturnType<typeof shellOutcome>>, restore: () => Promise<ReturnType<typeof shellOutcome>> = async () => shellOutcome('restored')) => ({ openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(apply), restoreConfigSync: vi.fn(restore), setupIntegration: vi.fn(), update: noUpdate() });
   const withConfig = (c: NonNullable<BootstrapDto['configSync']>, over: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}) =>
     harness({ bootstrap: vi.fn(async () => ({ ...boot, configSync: c })), ...over }, extra);
   const toasts = (rt: ReturnType<typeof harness>['rt']) => rt.getState().toasts.map((t) => [t.level, t.message]);
@@ -2380,7 +2380,7 @@ describe('ランタイムの文（英語）', () => {
     expect(toasts(rt)).toEqual(['Could not open in iTerm2, so opened in Terminal.app instead']);
   });
   it('殻の操作の失敗は、英語の頭に原因を添える', async () => {
-    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => { throw new Error('busy'); }), pickFolder: vi.fn(async () => { throw new Error('gone'); }), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), update: noUpdate() };
+    const desktop = { openLog: vi.fn(async () => { throw new Error('denied'); }), restart: vi.fn(async () => { throw new Error('busy'); }), pickFolder: vi.fn(async () => { throw new Error('gone'); }), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(), update: noUpdate() };
     const { rt } = await startedEnglish({}, { desktop });
     rt.emit({ type: 'shell.openLog' });
     rt.emit({ type: 'shell.restart' });
@@ -2389,7 +2389,7 @@ describe('ランタイムの文（英語）', () => {
     expect(toasts(rt)).toEqual(['Could not open the log: denied', 'Could not restart: busy', 'Could not select the folder: gone']);
   });
   it('殻の返事が読めなかったときは、英語の文を知らせる', async () => {
-    const desktop = { openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(async () => ({ status: 'failed' as const, message: null, generation: null })), update: noUpdate() };
+    const desktop = { openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(async () => ({ status: 'failed' as const, message: null, generation: null })), setupIntegration: vi.fn(), update: noUpdate() };
     const { rt } = await startedEnglish({}, { desktop });
     rt.emit({ type: 'configSync.restore', name: '20261010-120000' });
     await flush();
@@ -2442,5 +2442,48 @@ describe('psmux と tmux の再確認（ランタイム）', () => {
     await flush();
     expect(rt.getState().muxCheck).toBe('missing');
     expect(rt.getState().toasts.map((t) => t.message)).toContain('接続できません');
+  });
+});
+
+describe('連携の書き込み（setup.run）', () => {
+  const desktopWith = (setup: () => Promise<unknown>) => ({ openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(setup), update: noUpdate() });
+  const toasts = (rt: ReturnType<typeof harness>['rt']) => rt.getState().toasts.map((t) => [t.level, t.message]);
+
+  it('殻に対象を頼み、書けたら知らせは出さずに、ステータスライン、シェル連携、準備の確かめを取り直す', async () => {
+    const desktop = desktopWith(async () => ({ status: 'written', message: '書き込みました。', code: null }));
+    const { rt, api } = harness({}, { desktop: desktop as never });
+    rt.start();
+    await flush();
+    const before = { st: vi.mocked(api.statusline).mock.calls.length, sh: vi.mocked(api.shellHook).mock.calls.length, rd: vi.mocked(api.readiness).mock.calls.length };
+    rt.emit({ type: 'setup.run', target: 'statusline-install' });
+    expect(rt.getState().setupRunning).toBe('statusline-install');
+    await flush();
+    expect(desktop.setupIntegration).toHaveBeenCalledWith('statusline-install');
+    expect(rt.getState().setupRunning).toBeNull();
+    expect(toasts(rt)).toEqual([]);
+    expect(vi.mocked(api.statusline).mock.calls.length).toBe(before.st + 1);
+    expect(vi.mocked(api.shellHook).mock.calls.length).toBe(before.sh + 1);
+    expect(vi.mocked(api.readiness).mock.calls.length).toBe(before.rd + 1);
+  });
+
+  it('書けなければ理由を赤で知らせ、ボタンを押せる状態に戻す', async () => {
+    const desktop = desktopWith(async () => ({ status: 'failed', message: 'スクリプトが見つかりません', code: 'no-script' }));
+    const { rt } = harness({}, { desktop: desktop as never });
+    rt.start();
+    await flush();
+    rt.emit({ type: 'setup.run', target: 'statusline-install' });
+    await flush();
+    expect(toasts(rt)[0]![0]).toBe('error');
+    expect(toasts(rt)[0]![1]).toContain('/statusline');
+    expect(rt.getState().setupRunning).toBeNull();
+  });
+
+  it('殻が無ければ（ブラウザ）、何も書かずに押せる状態へ戻す', async () => {
+    const { rt } = harness();
+    rt.start();
+    await flush();
+    rt.emit({ type: 'setup.run', target: 'mcp-install' });
+    await flush();
+    expect(rt.getState().setupRunning).toBeNull();
   });
 });

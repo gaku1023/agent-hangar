@@ -33,6 +33,15 @@ const updateProps = (over: Partial<SettingsProps['update']> = {}): SettingsProps
   ...over,
 });
 
+/** 連携の 3 枚の札の書き込み。既定はブラウザ（殻が無い）の形。 */
+const integrationsProps = (over: Partial<SettingsProps['integrations']> = {}): SettingsProps['integrations'] => ({
+  desktop: false,
+  mcp: { file: '/h/.claude.json', action: { target: 'mcp-install', label: '登録…', primary: true, disabled: false, running: false }, command: 'hangar mcp install' },
+  statusline: { file: '/h/.claude/statusline.sh', action: { target: 'statusline-install', label: '設定…', primary: true, disabled: false, running: false }, command: 'hangar statusline install' },
+  shell: { file: '/Users/me/.zshrc', action: { target: 'shell-install', label: 'インストール…', primary: true, disabled: false, running: false }, command: '/Applications/Hangar.app/Contents/Resources/server/bin/hangar shell install' },
+  ...over,
+});
+
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' },
@@ -49,6 +58,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   notify: { available: true, on: false, blocked: false },
   verify: { workspace: null, tmux: null, claude: null, code: null, node: null },
   mcpRegistered: null,
+  integrations: integrationsProps(),
   save: {},
   todo: { must: 0, link: 0 },
   accounts: { list: presentAccounts({ ...initialStore(), accounts: accountsFixture }, Date.parse('2026-10-06T12:00:00+09:00')), colors: ACCOUNT_COLORS },
@@ -497,7 +507,9 @@ describe('設定の連携', () => {
       expect(screen.getByText('hangar statusline install')).toBeTruthy();
       expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
       // ヘッダーのゲージは使用率で、追記はターミナルで行う。
-      expect(screen.getByText('ヘッダーの使用率のゲージは、この追記からだけ届きます。追記はターミナルで行い、この画面からは書き換えません。')).toBeTruthy();
+      expect(screen.getByText('ヘッダーの使用率のゲージは、ステータスラインのスクリプトに足す数行からだけ届きます。')).toBeTruthy();
+      // ブラウザでは書き込まず、その旨とコマンドを出す（D9）。
+      expect(screen.getAllByText(/ブラウザで開いた画面からは書き込みません/).length).toBeGreaterThan(0);
     });
     it('案内にポートの指定を添える', () => {
       // 4177 以外で動いているサーバに、4177 宛てのスニペットを追記させない。
@@ -543,6 +555,42 @@ describe('設定の連携', () => {
       expect(screen.queryByRole('heading', { name: /^シェル連携/ })).toBeNull();
       expect(screen.queryByText(/shell install/)).toBeNull();
       expect(screen.getByRole('heading', { name: /^ステータスライン/ })).toBeInTheDocument();
+    });
+  });
+  describe('殻の中の連携（ボタンで殻に頼む）', () => {
+    const desktop = (over: Partial<SettingsProps['integrations']> = {}) => at('integrations', { integrations: integrationsProps({ desktop: true, ...over }) });
+    const card = (name: RegExp) => within(screen.getByRole('heading', { name }).closest('section')!);
+    it('書き込む先とバックアップの添え書きをボタンの横に出し、押すと殻に頼む。コマンドは「ターミナルで行うとき」に畳む', () => {
+      const onAction = vi.fn();
+      render(ui(desktop(), onAction));
+      const mcp = card(/^MCP/);
+      expect(mcp.getByText('書き込む先：/h/.claude.json')).toBeInTheDocument();
+      expect(mcp.getByText('書く前にバックアップを取ります')).toBeInTheDocument();
+      fireEvent.click(mcp.getByRole('button', { name: '登録…' }));
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'setup.run', target: 'mcp-install' });
+      expect(mcp.getByText('ターミナルで行うとき').closest('details')).not.toBeNull();
+      expect(mcp.getByText('hangar mcp install').closest('details')).not.toBeNull();
+      expect(mcp.queryByText(/ブラウザで開いた画面/)).toBeNull();
+      fireEvent.click(card(/^ステータスライン/).getByRole('button', { name: '設定…' }));
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'setup.run', target: 'statusline-install' });
+      fireEvent.click(card(/^シェル連携/).getByRole('button', { name: 'インストール…' }));
+      expect(onAction).toHaveBeenLastCalledWith({ type: 'setup.run', target: 'shell-install' });
+    });
+    it('返事を待つあいだは「確認中…」にして押せなくし、スクリプトが無ければ押せない', () => {
+      render(ui(desktop({
+        mcp: { file: '/h/.claude.json', action: { target: 'mcp-install', label: '確認中…', primary: true, disabled: true, running: true }, command: 'hangar mcp install' },
+        statusline: { file: null, action: { target: 'statusline-install', label: '設定…', primary: true, disabled: true, running: false }, command: 'hangar statusline install' },
+      })));
+      expect(card(/^MCP/).getByRole('button', { name: '確認中…' })).toBeDisabled();
+      expect(card(/^ステータスライン/).getByRole('button', { name: '設定…' })).toBeDisabled();
+      expect(card(/^ステータスライン/).queryByText(/書き込む先/)).toBeNull();
+    });
+    it('入っていれば解除のボタンを出し、tmux が無ければボタンを出さない', () => {
+      const { rerender } = render(ui(desktop({ shell: { file: '/Users/me/.zshrc', action: { target: 'shell-uninstall', label: 'アンインストール…', primary: false, disabled: false, running: false }, command: 'x shell uninstall' } })));
+      expect(card(/^シェル連携/).getByRole('button', { name: 'アンインストール…' })).toBeInTheDocument();
+      rerender(ui({ ...desktop(), shell: { ...settingsProps().shell, state: 'unsupported' } }));
+      expect(card(/^シェル連携/).queryByRole('button', { name: /インストール/ })).toBeNull();
+      expect(screen.getByText(/brew install tmux/)).toBeInTheDocument();
     });
   });
   describe('Claude Code との互換（C2）', () => {

@@ -29,6 +29,14 @@ describe('createDesktopBridge', () => {
     expect(await b.restoreConfigSync('20261010-120000')).toEqual({ status: 'cancelled', message: '戻しませんでした。', generation: null });
     expect(invoke.mock.calls).toEqual([['apply_config_sync'], ['restore_config_sync', { name: '20261010-120000' }]]);
   });
+  it('連携の書き込みは、対象の名前だけを渡し、結果を決まった形で返す。知らない形は失敗にする', async () => {
+    const invoke = vi.fn(async (): Promise<unknown> => ({ status: 'none', message: '登録済みです。', generation: null, code: 'already' }));
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    expect(await b.setupIntegration('mcp-install')).toEqual({ status: 'none', message: '登録済みです。', code: 'already' });
+    expect(invoke).toHaveBeenCalledWith('setup_integration', { target: 'mcp-install' });
+    invoke.mockResolvedValueOnce({ status: 'wrote-it' });
+    expect(await b.setupIntegration('shell-install')).toEqual({ status: 'failed', message: null, code: null });
+  });
   it('殻が知らない形を返したら、適用したとは言わず失敗として返す', async () => {
     const invoke = vi.fn(async (): Promise<unknown> => ({ status: 'maybe', message: 5 }));
     const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
