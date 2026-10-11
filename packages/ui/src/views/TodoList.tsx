@@ -26,8 +26,9 @@ type Gone = { id: string; text: string; list: 'open' | 'done'; index: number; se
  * 欄の外がスクロールしても動かないよう、窓ではなく欄からの位置で比べる。
  * ドラッグを離したときと、畳んで出した行を外すときは、snapshot で今見えている位置（transform を含む）を前の位置にする。
  * そうしないと、前の描画の位置へいったん戻ってから滑り直す。
+ * paused が真の間（ドラッグの間）は測りも動かしもしない。
  */
-function useRowMotion(root: RefObject<HTMLElement | null>) {
+function useRowMotion(root: RefObject<HTMLElement | null>, paused: RefObject<boolean>) {
   const nodes = useRef(new Map<string, HTMLElement>());
   const prev = useRef<Map<string, Pos> | null>(null);
   const forced = useRef<Map<string, Pos> | null>(null);
@@ -41,6 +42,8 @@ function useRowMotion(root: RefObject<HTMLElement | null>) {
     return m;
   };
   useLayoutEffect(() => {
+    // ドラッグの間は測らない。行に付けた transform を「動いた」と読んで滑らせると、その動きがドラッグの transform を上書きする。
+    if (paused.current) return;
     const now = measure();
     const before = forced.current ?? prev.current;
     if (before) {
@@ -82,7 +85,8 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; don
   const emit = useEmit();
   const t = useT();
   const root = useRef<HTMLDivElement>(null);
-  const motion = useRowMotion(root);
+  const dragging = useRef(false);
+  const motion = useRowMotion(root, dragging);
   const [sel, setSel] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null);
   const editingRef = useRef<string | null>(null);
@@ -289,7 +293,10 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; don
     const els = ids.map((x) => motion.nodes.current.get(x)).filter((x): x is HTMLElement => !!x);
     const from = ids.indexOf(id);
     if (from < 0 || els.length !== ids.length) return;
+    // 滑っている途中の行は、動きを終わらせてから測る（動きが残ると、ドラッグの transform を上書きする）。
+    for (const el of els) for (const an of el.getAnimations?.() ?? []) an.finish();
     const rects = els.map((el) => el.getBoundingClientRect());
+    dragging.current = true;
     drag.current = { id, ids, els, mids: rects.map((r) => r.top + r.height / 2), h: rects[from]!.height, from, to: from, startY: e.clientY, pointer: e.pointerId };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     els[from]!.setAttribute('data-dragging', 'true');
@@ -318,6 +325,7 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; don
     const d = drag.current;
     if (!d || e.pointerId !== d.pointer) return;
     drag.current = null;
+    dragging.current = false;
     if (!cancel && d.to !== d.from) motion.snapshot();
     for (const el of d.els) { el.style.transition = cancel || d.to === d.from ? 'transform var(--dur-fast) var(--ease-out)' : 'none'; el.style.transform = ''; el.removeAttribute('data-dragging'); }
     if (cancel || d.to === d.from) return;
@@ -334,6 +342,8 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; don
     tabIndex: (sel && navIds.includes(sel) ? sel === id : navIds[0] === id) ? 0 : -1,
     'aria-current': sel === id ? ('true' as const) : undefined,
     onFocus: (e: FocusEvent<HTMLLIElement>) => { if (e.target === e.currentTarget) setSel(id); },
+    // 行の中のどこを押しても（丸や札でも）その行を選ぶ。WebKit はボタンを押してもボタンにフォーカスを移さないので、focus だけでは拾えない。
+    onPointerDown: () => setSel(id),
     onClick: (e: MouseEvent<HTMLLIElement>) => { if (!(e.target as HTMLElement).closest('button, a, textarea, input')) setSel(id); },
   });
   const editor = (id: string, label: string) => (
@@ -452,7 +462,7 @@ export function TodoList(props: { projectId: string; todos: TodoItemProps[]; don
         <div className="todo-add" data-active="true">
           <Icon name="add" />
           {/* 変換中の Enter で足すと、確定と同時に書きかけが消える。 */}
-          <input id="todo-input" className="todo-add-input" autoFocus aria-label={t('projectScreen.todo.addLabel')} value={addText}
+          <input id="todo-input" className="todo-add-input" autoFocus aria-label={t('projectScreen.todo.addLabel')} placeholder={t('projectScreen.todo.addRow')} value={addText}
             onChange={(e) => setAddText(e.target.value)}
             onKeyDown={(e) => {
               if (isComposing(e)) return;

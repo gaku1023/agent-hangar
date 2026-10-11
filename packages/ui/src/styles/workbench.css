@@ -54,6 +54,8 @@
 .todo-del:hover { background: var(--line); color: var(--ink); }
 .todo-row .todo-del { opacity: 0; }
 .todo-row:hover .todo-del, .todo-row[aria-current='true'] .todo-del, .todo-row:focus-within .todo-del { opacity: 1; }
+/* 提案の行の見送りは、受け入れと並べて常に見せる（どちらにするかを決める行なので）。 */
+.todo-row-sugg .todo-del { opacity: 1; }
 /* 「完了？」の札。押すと根拠と確定・却下が行の下に開く。 */
 .todo-chip { height: 18px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: 999px; background: var(--cand-soft); color: var(--cand); font: inherit; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .todo-chip:hover, .todo-chip[aria-expanded='true'] { background: var(--cand); color: #ffffff; }
@@ -90,6 +92,7 @@
 .todo-add:hover { background: var(--surface-2); color: var(--accent); }
 .todo-add[data-active='true'] { background: var(--surface-2); color: var(--accent); }
 .todo-add-input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: none; background: none; color: var(--ink); font: inherit; }
+.todo-add-input::placeholder { color: var(--ink-3); }
 /* 完了の節の見出し。押すと畳んだ一覧が開き、矢印が下を向く。 */
 .todo-done-h { display: inline-flex; align-items: center; gap: var(--u); align-self: flex-start; height: 24px; margin-top: calc(var(--u) * 1.5); padding: 0; border: 0; background: none; color: var(--ink-3); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
 .todo-done-h:hover { color: var(--ink); }
