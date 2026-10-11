@@ -324,13 +324,24 @@ export function liveSessionIds(store: Store): string[] {
 }
 
 /**
+ * 答えを待っているとして知らせるセッションか。
+ * 数え方は liveFilterOf に従う。
+ * Done と Archived にしたものは、live が waiting のままでも外す。
+ * 問いで待っている最中に区切りを付けても Claude は止まらず（休みではないので）、一覧の live は waiting のまま残るが、利用者はもう答えないと決めているからである。
+ * Paused は戻ってくるものなので外さない。
+ */
+export function awaitsAnswer(s: SessionDto): boolean {
+  return liveFilterOf(s.live, false) === 'waiting' && s.state?.status !== 'done' && s.state?.status !== 'archived';
+}
+
+/**
  * 入力待ちのセッションの id。
- * 数え方は liveFilterOf に従い、Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べる。
+ * 数え方は awaitsAnswer に従い、Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べる。
  * 時刻の無いものは後ろに置き、時刻が同じものは id の順にして、並びが揺れないようにする。
  */
 export function waitingSessionIds(store: Store): string[] {
   const at = (s: SessionDto) => s.lastActivityAt ?? Number.POSITIVE_INFINITY;
-  return Object.values(store.sessions).filter((s) => liveFilterOf(s.live, false) === 'waiting')
+  return Object.values(store.sessions).filter(awaitsAnswer)
     .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
     .map((s) => s.id);
 }
