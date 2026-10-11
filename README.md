@@ -51,7 +51,7 @@ nvm、fnm、Volta、mise、asdf、nodenv で入れた Node 22 も、そのまま
 探す順は、Settings で指定したパス、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の `node@` の入れ先、nvm、fnm、Volta、mise、asdf、nodenv（それぞれ新しい版から）です。
 
 これら以外の場所に入れたときは、Settings 画面の「Node のパス」か `~/.agent-hangar/settings.json` の `nodePath` に、その `node` の実行ファイルのフルパスを指定します。
-`node` のような名前だけや相対のパスは使えません。
+`node` のような名前だけや相対のパス、`~` で始まるパスは使えません（`~` は展開しないので、`/Users/名前/...` のように書きます）。
 Settings 画面は保存する前に、その Node が同梱サーバと同じメジャー版とアーキテクチャかを確かめ、合わなければ理由を出して保存しません。
 `hangar` コマンドは、環境変数 `HANGAR_NODE` に `node` のフルパスを入れておけば、それを先に使います。
 アプリは `HANGAR_NODE` を見ません。Finder から開いたアプリには端末の環境変数が届かないので、アプリに指すときは `nodePath` を使います。
@@ -554,6 +554,9 @@ fnm などが別の版を PATH の先頭に置いていても、PATH の後ろ�
 npm run typecheck
 npm test
 ```
+
+配布物は Node 22 で build します（`bundle-server` と `tauri build` は、それ以外の版では止まります）。
+リポジトリの根の `.nvmrc` が 22 なので、`nvm use` で切り替えられます。
 
 デスクトップ版のビルドには Xcode Command Line Tools と Rust が要ります。
 

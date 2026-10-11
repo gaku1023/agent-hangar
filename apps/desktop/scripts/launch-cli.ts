@@ -93,7 +93,7 @@ const TEXT = {
     wrongVersion: (what: string) => `${what}。版が違う`,
     wrongArch: (what: string) => `${what}。アーキテクチャが違う`,
     winget: (w: Want) => `PowerShell で ${WINGET_NODE(w.nodeMajor)} を実行して入れれば、次から見つけます。`,
-    nvm: (w: Want) => `nvm-windows を使うなら、nvm install ${w.nodeMajor} で入れた版も見つけます（PATH にある版も探します）。`,
+    nvm: (w: Want) => `nvm-windows を使うなら、nvm install ${w.nodeMajor} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。`,
     elsewhere: (settings: string) => `ほかの場所に入れたなら、環境変数 HANGAR_NODE か ${settings} の nodePath で場所を指定してください。`,
   },
   en: {
@@ -111,7 +111,7 @@ const TEXT = {
     wrongVersion: (what: string) => `${what}, wrong version`,
     wrongArch: (what: string) => `${what}, wrong architecture`,
     winget: (w: Want) => `Install it with ${WINGET_NODE(w.nodeMajor)} in PowerShell and it is found from then on.`,
-    nvm: (w: Want) => `With nvm-windows, a version installed with nvm install ${w.nodeMajor} is found too (PATH is searched as well).`,
+    nvm: (w: Want) => `With nvm-windows, a version installed with nvm install ${w.nodeMajor} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).`,
     elsewhere: (settings: string) => `If it is installed somewhere else, set the HANGAR_NODE environment variable or nodePath in ${settings} to its location.`,
   },
 } as const;

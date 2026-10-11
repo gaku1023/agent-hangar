@@ -87,7 +87,8 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       const raw = v.trim();
       const name = isCommandName(raw);
       // Node のパスは、殻（node.rs）が次の起動でそのまま起こす。殻は名前を PATH から引かず、相対のパスも読めないので、フルパスだけを受ける。
-      if (key === 'nodePath' && (name || !isFullPath(expandHome(raw)))) return c.json({ error: tr('settings.node.notAbsolute', { label: label(key) }) }, 400);
+      // 殻と CLI は ~ も展開しないので、展開前の値で見る（~/x は、展開すれば保存できても使われない）。
+      if (key === 'nodePath' && (name || !isFullPath(raw))) return c.json({ error: tr('settings.node.notAbsolute', { label: label(key) }) }, 400);
       if (!name && !path.isAbsolute(expandHome(raw))) return c.json({ error: tr('settings.path.badForm', { label: label(key) }) }, 400);
       // 判定は起動の前の確かめ（RunManager の precheck）と同じ toolPathIssue を使う。
       const issue = toolPathIssue(raw);

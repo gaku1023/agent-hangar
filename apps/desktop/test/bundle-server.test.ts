@@ -73,7 +73,7 @@ describe.skipIf(!host)('bundleServer', () => {
     fs.mkdirSync(path.join(claude, 'sessions'));
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir: claude }));
 
-    const r = await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    const r = await bundleServer({ repoRoot, outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR });
     // macOS の同梱物は、Windows の対応を足す前から変わらない。launch-cli.mjs は Windows だけに入る。
     expect(r.files.sort()).toEqual(
       onWindows
@@ -157,7 +157,7 @@ describe.skipIf(!host)('bundleServer', () => {
     const link = tmp('hangar link-');
     dirs.push(out, ui, home, link);
     fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
-    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR });
     const env = { ...process.env, HANGAR_HOME: home, HANGAR_NODE: process.execPath };
 
     const { stdout } = await promisify(execFile)(path.join(out, 'bin/hangar'), ['--help'], { env });
@@ -188,7 +188,7 @@ describe.skipIf(!host)('bundleServer', () => {
     fs.mkdirSync(path.join(claude, 'projects'));
     fs.mkdirSync(path.join(claude, 'sessions'));
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ workspaceRoot: ws, claudeDir: claude }));
-    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR });
     // README が案内する /usr/local/bin/hangar と同じ形のリンク越しに起こす。
     fs.symlinkSync(path.join(out, 'bin/hangar'), path.join(link, 'hangar'));
     const port = await freePort();
@@ -221,7 +221,7 @@ describe.skipIf(!host)('bundleServer', () => {
     const ui = tmp('hangar-ui-');
     dirs.push(out, ui);
     fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
-    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR });
     const cli = fs.readFileSync(path.join(out, 'cli.mjs'), 'utf8');
     const bare = [...new Set([...cli.matchAll(/^import[^\n]* from "([^"]+)";$/gm)].map((m) => m[1]!))].filter((sp) => !sp.startsWith('node:'));
     // CLI が DB を開くのは本文の床（openTranscriptsFloor、readTranscriptsFrom）のためで、端末（node-pty）は使わない。
@@ -239,7 +239,7 @@ describe.skipIf(!host)('bundleServer', () => {
     const ui = tmp('hangar-ui-');
     dirs.push(out, ui);
     fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
-    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR });
     // 源（src、wrangler.jsonc、package.json）も、手元の秘密や記録（.dev.vars、.env、.wrangler、ログ）も置かない。
     // 束は src/index.ts から届くコードだけでできているので、手元の秘密のファイルは入りようがない。
     expect(fs.readdirSync(path.join(out, 'cloud')).sort()).toEqual(['metadata.json', 'worker.mjs']);
@@ -256,7 +256,7 @@ describe.skipIf(!host)('bundleServer', () => {
     const userHome = tmp('hangar-userhome-');
     dirs.push(out, ui, home, userHome);
     fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
-    await bundleServer({ repoRoot, outDir: out, uiDist: ui });
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR });
     // runHangar は PATH と LANG のほかは渡さないので、手元の HANGAR_CLOUD_DIR は届かない。
     const r = await runHangar(path.join(out, 'bin/hangar'), ['setup', 'cloud'], { HANGAR_HOME: home, HANGAR_NODE: process.execPath, HOME: userHome });
     expect(r.code).toBe(1);
@@ -270,7 +270,7 @@ describe.skipIf(!host)('bundleServer', () => {
     const out = tmp('hangar-dist-');
     const ui = tmp('hangar-ui-');
     dirs.push(out, ui);
-    await expect(bundleServer({ repoRoot, outDir: out, uiDist: ui })).rejects.toThrow(/npm run build/);
+    await expect(bundleServer({ repoRoot, outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR })).rejects.toThrow(/npm run build/);
   });
 });
 
@@ -576,7 +576,7 @@ describe('bundleServer が途中で失敗したとき', () => {
     fs.writeFileSync(path.join(out, '.gitkeep'), '');
 
     // entryPoints が見つからず esbuild が投げる。emptyDir の後、最後の書き直しより前である。
-    await expect(bundleServer({ repoRoot: path.join(out, 'no-such-repo'), outDir: out, uiDist: ui })).rejects.toThrow();
+    await expect(bundleServer({ repoRoot: path.join(out, 'no-such-repo'), outDir: out, uiDist: ui, buildNodeMajor: BUNDLE_NODE_MAJOR })).rejects.toThrow();
     expect(fs.existsSync(out)).toBe(true);
     expect(fs.existsSync(path.join(out, '.gitkeep'))).toBe(true);
   });
@@ -600,7 +600,7 @@ describe('bundleServer の target 別の同梱物', () => {
     const ui = tmp('hangar-ui-');
     dirs.push(out, ui);
     fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>bundled-ui</title>');
-    await bundleServer({ repoRoot, outDir: out, uiDist: ui, target });
+    await bundleServer({ repoRoot, outDir: out, uiDist: ui, target, buildNodeMajor: BUNDLE_NODE_MAJOR });
     return out;
   };
 
@@ -910,6 +910,13 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
       expect(nvm).toBeGreaterThan(winget);
       expect(elsewhere).toBeGreaterThan(nvm);
       expect(WINGET_NODE(22)).toBe('winget install -e --id OpenJS.NodeJS.22');
+    });
+    // 探す場所は殻と README に合わせる（fnm、Volta、scoop、PATH）。殻の文（node.rs の not_found_winget_ja と not_found_winget_en）と同じ中身である。
+    it('nvm-windows の行は、fnm、Volta、scoop と PATH も探すと言い、殻の札と同じ文にする', () => {
+      const w = { nodeMajor: 22, arch: 'x64' };
+      const me = { path: 'node', result: 'failed' as const };
+      expect(describeNotFound(w, me, [], 's.json').split('\n')).toContain('nvm-windows を使うなら、nvm install 22 で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。');
+      expect(describeNotFound(w, me, [], 's.json', 'en').split('\n')).toContain('With nvm-windows, a version installed with nvm install 22 is found too (Hangar also looks in fnm, Volta, scoop, and PATH).');
     });
     it('英語でも、同じ並びで、日本語を混ぜずに書く', () => {
       const text = describeNotFound(

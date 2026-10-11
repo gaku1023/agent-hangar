@@ -173,10 +173,11 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
    * 設定した Node を、殻（node.rs）と同じ条件で見る。
    * 殻は nodePath を名前として PATH から引かず、manifest.json と同じメジャー版とアーキの Node だけを使う。
    * それ以外に ✓ を付けると、画面では使えるように見えて、次の起動で殻はほかの Node を探す。
+   * 殻と CLI は ~ を展開しない。展開前の値が絶対パスでなければ、展開すれば実在しても ✗ にする。
    */
   const nodeTool = async (raw: string): Promise<NodeCheckDto> => {
     const p = raw.trim();
-    if (isCommandName(p) || !isFullPath(expandHome(p, homeDir))) return { path: p, ok: false, problem: 'notAbsolute', version: null, auto: false };
+    if (isCommandName(p) || !isFullPath(p)) return { path: p, ok: false, problem: 'notAbsolute', version: null, auto: false };
     const c = await tool(p, ['--version']);
     if (!c.ok || c.path === null) return { ...c, auto: false };
     const bad = await nodeBuildIssue(c.path, nodeCheck);
