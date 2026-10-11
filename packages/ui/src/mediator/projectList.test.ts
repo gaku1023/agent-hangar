@@ -26,7 +26,7 @@ describe('プロジェクトの画面に入る・出る', () => {
     const home = run([go({ name: 'home', q: '動画' }), action({ type: 'search.filter', patch: { status: 'done' } }), action({ type: 'search.page', page: 3 })]);
     const r = run([go({ name: 'project', id: 'p1' })], home.state);
     expect(r.state.search).toEqual({ text: '', filter: {}, page: 1 });
-    expect(r.effects).toEqual([{ kind: 'api.loadMemo', projectId: 'p1' }]);
+    expect(r.effects).toEqual([{ kind: 'api.loadMemo', projectId: 'p1' }, { kind: 'api.loadInstructions', projectId: 'p1' }]);
   });
   it('別のプロジェクトへ移っても、前のプロジェクトの絞り込みを持ち込まない', () => {
     const a = onProject('p1', [action({ type: 'search.filter', patch: { status: 'paused', days: 7 } })]);

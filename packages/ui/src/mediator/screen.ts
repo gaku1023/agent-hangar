@@ -167,7 +167,7 @@ export function screenStep(state: State, store: Store, input: Input): Step | nul
     }
     // 「ターミナルで答える」で開いた画面なら、つないだ端末にそのままフォーカスする。
     if (route.name === 'session' && state.focusOnOpen === route.id) effects.push({ kind: 'focus', target: 'terminal' });
-    if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id });
+    if (route.name === 'project') effects.push({ kind: 'api.loadMemo', projectId: route.id }, { kind: 'api.loadInstructions', projectId: route.id });
     // 設定の中で節を切り替えるだけ（左の目次）のときは、付属の値を取り直さない。
     if (route.name === 'settings' && state.screen.name !== 'settings') {
       effects.push({ kind: 'api.loadSettingsExtras' });

@@ -88,6 +88,9 @@ export const actionTable = {
   'todo.reject': (i) => call((api) => api.rejectTodo(i.id)),
   // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
   'memo.save': (i) => call((api) => api.saveMemo(i.projectId, i.markdown), { apply: (store, m) => ({ ...store, memos: { ...store.memos, [m.projectId]: m } }) }),
+  // 指示とメモリ。ファイルは外で書き換わるので、表示するたびに読み直す。
+  'instructions.load': (i) => call((api) => api.instructions(i.projectId), { apply: (store, d) => ({ ...store, instructions: { ...store.instructions, [d.projectId]: d } }) }),
+  'instructions.openEditor': (i) => call((api) => api.openInstruction(i.projectId, i.kind)),
   'artifact.open': (i) => call((api) => api.openArtifact(i.id)),
   'artifact.openEditor': (i) => call((api) => api.openArtifactEditor(i.id)),
   'artifact.add': (i) => {

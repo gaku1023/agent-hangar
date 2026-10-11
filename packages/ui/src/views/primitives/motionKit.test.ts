@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collapseOut, growIn, markHit, motionOn, riseIn, slideFrom } from './motionKit.ts';
+import { collapseOut, growIn, markHit, motionOn, popOut, riseIn, slideFrom } from './motionKit.ts';
 import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
@@ -48,6 +48,24 @@ describe('motionKit', () => {
     await collapseOut(document.createElement('div'));
     expect(calls[0]!.opts).toMatchObject({ duration: 200, easing: 'ease-in', fill: 'forwards' });
     expect(calls[0]!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+  });
+  it('ダイアログを引っ込める形は、背景を薄れさせ、板を少し縮める。--dur-exit と --ease-in で、最後の形を残す', async () => {
+    tokens('100ms');
+    const calls = fakeAnimate();
+    const overlay = document.createElement('div');
+    overlay.innerHTML = '<div class="dialog"></div>';
+    await popOut(overlay);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.frames).toEqual([{ opacity: 1 }, { opacity: 0 }]);
+    expect(calls[1]!.frames.at(-1)).toMatchObject({ transform: 'translateY(4px) scale(0.96)' });
+    for (const c of calls) expect(c.opts).toMatchObject({ duration: 100, easing: 'ease-in', fill: 'forwards' });
+  });
+  it('ダイアログを引っ込める形は、動かない環境ではすぐ解決し、取り消されても解決する', async () => {
+    tokens('100ms');
+    const overlay = document.createElement('div');
+    await expect(popOut(overlay)).resolves.toBeUndefined();
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = () => ({ finished: Promise.reject(new DOMException('cancelled', 'AbortError')), cancel: vi.fn() });
+    await expect(popOut(overlay)).resolves.toBeUndefined();
   });
   it('畳む途中で取り消されたら、はみ出しの指定を元に戻す。終わったときは隠したままにする', async () => {
     tokens('100ms');

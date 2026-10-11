@@ -7,7 +7,6 @@ import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { authMiddleware } from '../http/auth.ts';
 import { IndexerService } from '../indexer/service.ts';
-import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { issueMcpSecret, mcpSecretFor, revokeMcpSecret } from '../runs/secrets.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
@@ -40,7 +39,7 @@ beforeEach(async () => {
   assignSessions(db, 'd');
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
   app = createMcpApp({ db, deviceId: 'd', port: PORT, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }) });
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) });
   // /api は本体のトークンだけを見る。MCP と同じ入口の検査を通す。
   api = new Hono();
   api.use('*', authMiddleware(TOKEN, PORT));

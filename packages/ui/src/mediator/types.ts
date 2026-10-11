@@ -104,6 +104,7 @@ export type Effect =
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
   | { kind: 'api.loadMemo'; projectId: string }
+  | { kind: 'api.loadInstructions'; projectId: string }
   | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }
   | { kind: 'api.createProject'; place: ProjectPlace; startSession: boolean }
   | { kind: 'api.createProjectThenLaunch'; place: ProjectPlace; params: LaunchParams }

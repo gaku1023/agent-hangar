@@ -78,6 +78,18 @@ export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y'): Promise<voi
   return a.finished.then(() => undefined, () => { el.style.overflow = overflow; });
 }
 
+/**
+ * ダイアログを引っ込める形。背景（.overlay）を薄れさせ、板（.dialog）を少し沈めて縮める。開くときの pop を逆にたどる。
+ * 終わったら解決する。取り消されたとき（引っ込める途中で開き直したとき）と、動かないときも解決する。
+ */
+export function popOut(overlay: HTMLElement): Promise<void> {
+  if (!motionOn(overlay)) return Promise.resolve();
+  const opts: KeyframeAnimationOptions = { duration: motionMs('--dur-exit', overlay), easing: motionEase('--ease-in', overlay), fill: 'forwards' };
+  const a = overlay.animate([{ opacity: 1 }, { opacity: 0 }], opts);
+  overlay.querySelector<HTMLElement>('.dialog')?.animate([{ transform: 'none' }, { transform: 'translateY(4px) scale(0.96)' }], opts);
+  return a.finished.then(() => undefined, () => undefined);
+}
+
 /** 並びの FLIP。前の位置から今の位置へ滑らせる。 */
 export function slideFrom(el: HTMLElement, before: DOMRect, after: DOMRect): Animation | null {
   const dx = before.left - after.left;

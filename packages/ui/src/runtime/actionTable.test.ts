@@ -43,7 +43,7 @@ describe('表の鍵', () => {
   it('表に載っているのは、API を 1 回呼ぶだけの UiAction である', () => {
     expect(Object.keys(actionTable).sort()).toEqual([
       'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
-      'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'memo.save',
+      'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'instructions.load', 'instructions.openEditor', 'memo.save',
       'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
@@ -180,6 +180,15 @@ describe('作業台', () => {
     const r = await runRow({ type: 'memo.save', projectId: 'p1', markdown: '# m' }, api);
     expect(vi.mocked(api.saveMemo).mock.calls).toEqual([['p1', '# m']]);
     expect(r.store.memos).toEqual({ p1: { projectId: 'p1', markdown: '# m', updatedAt: 2 } });
+  });
+  it('指示とメモリを読み直すと Store に入れ、エディタで開くは種類を渡すだけ', async () => {
+    const api = fakeApi();
+    const r = await runRow({ type: 'instructions.load', projectId: 'p1' }, api);
+    expect(vi.mocked(api.instructions).mock.calls).toEqual([['p1']]);
+    expect(r.store.instructions).toEqual({ p1: { projectId: 'p1', available: true, files: [] } });
+    const o = await runRow({ type: 'instructions.openEditor', projectId: 'p1', kind: 'memory' }, api);
+    expect(vi.mocked(api.openInstruction).mock.calls).toEqual([['p1', 'memory']]);
+    expect(o.store).toBe(o.during);
   });
   it('アーティファクトを開く、エディタで開く', async () => {
     const api = fakeApi();

@@ -9,7 +9,6 @@ import { Publisher } from '../events/publisher.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { latestIntent } from '../live/intents.ts';
-import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { rejectSessionState } from '../sessions/states.ts';
 import { AccountStore } from '../config/accounts.ts';
@@ -38,8 +37,7 @@ beforeEach(async () => {
   publisher = new Publisher({ db, deviceId: 'd', live: () => live, hub: { broadcast: (e) => { sent.push(e); } } });
   deps = { db, deviceId: 'd', port: 4177, live: () => live,
     runs: { start: (p) => { started.push(p); return { run: { id: 'r1', sessionId: 'sNew', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sNew', tabs: [] }; } },
-    usage: () => ({ fiveHour: { usedPercent: 47, resetsAt: 1_760_000_000_000 }, sevenDay: null, updatedAt: 5 }),
-    memos: new MemoStore({ db, deviceId: 'd', home }) };
+    usage: () => ({ fiveHour: { usedPercent: 47, resetsAt: 1_760_000_000_000 }, sevenDay: null, updatedAt: 5 }) };
 });
 afterEach(() => { publisher.stop(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(home, { recursive: true, force: true }); });
 
@@ -68,32 +66,30 @@ describe('MCP tools', () => {
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ id: 'p1', name: 'alpha', status: 'active', path: '/Users/me/workspace/alpha', open_todo_count: 0 });
     const p = call('get_project', { project_id: 'p1' });
-    expect(p).toMatchObject({ id: 'p1', memo: null, todos: [], artifacts: [] });
+    expect(p).toMatchObject({ id: 'p1', todos: [], artifacts: [] });
+    // プロジェクトのノートはやめたので返さない。
+    expect(p).not.toHaveProperty('memo');
     expect((p.recent_sessions as { id: string }[]).map((s) => s.id)).toEqual([alphaId]);
     expect(() => call('get_project', { project_id: 'nope' })).toThrow(ToolError);
-    call('update_project', { project_id: 'p1', add_todos: ['a'], append_memo: 'm' });
+    call('update_project', { project_id: 'p1', add_todos: ['a'] });
     recordArtifactPublish(db, 'd', { sessionId: alphaId, projectId: 'p1', url: 'https://claude.ai/code/artifact/z', publishedAt: 7, call: { filePath: null, description: 'Z', favicon: '🧪' } });
     const p2 = call('get_project', { project_id: 'p1' });
-    expect(p2.memo).toBe('m');
     expect((p2.todos as unknown[]).length).toBe(1);
     expect(p2.artifacts).toEqual([{ id: expect.any(String), url: 'https://claude.ai/code/artifact/z', title: 'Z', favicon: '🧪', last_published_at: 7, version_count: 1 }]);
   });
-  it('update_project は status、TODO、メモを書き、イベントを配る', () => {
-    const r = call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['x', 'y'], append_memo: '## 追記' }, { sessionId: alphaId });
+  it('update_project は status と TODO を書き、イベントを配る', () => {
+    const r = call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['x', 'y'] }, { sessionId: alphaId });
     expect((r.project as { status: string }).status).toBe('paused');
     expect((r.todos as { text: string; done: boolean; session_id: string | null }[]).map((t) => [t.text, t.done, t.session_id])).toEqual([['x', false, alphaId], ['y', false, alphaId]]);
-    expect(r.memo).toBe('## 追記');
-    // 状態、TODO、メモを 1 回の呼び出しで変えても、プロジェクトは最後の中身で 1 回だけ届く。
-    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'memo.update', 'project.upsert']);
+    // 状態と TODO を 1 回の呼び出しで変えても、プロジェクトは最後の中身で 1 回だけ届く。
+    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
     expect(sent[0]).toMatchObject({ type: 'todos.update', projectId: 'p1', todos: [{ text: 'x' }, { text: 'y' }] });
-    expect(sent[1]).toMatchObject({ type: 'memo.update', memo: { projectId: 'p1', markdown: '## 追記' } });
-    expect(sent[2]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', status: 'paused', openTodoCount: 2, memoHead: '## 追記' } });
+    expect(sent[1]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', status: 'paused', openTodoCount: 2 } });
     const ids = (r.todos as { id: string }[]).map((t) => t.id);
-    const r2 = call('update_project', { project_id: 'p1', toggle_todos: [ids[0]!], append_memo: '続き' });
+    const r2 = call('update_project', { project_id: 'p1', toggle_todos: [ids[0]!] });
     // toggle_todos は未完を完了にしない。候補にするだけで、未完の数も変わらない。
     expect((r2.todos as { done: boolean; candidate: unknown }[]).map((t) => [t.done, t.candidate])).toEqual([[false, { session_id: null, note: null }], [false, null]]);
     expect(r2.todo_results).toEqual([{ todo_id: ids[0], outcome: 'proposed' }]);
-    expect(r2.memo).toBe('## 追記\n\n続き');
     expect((r2.project as { open_todo_count: number }).open_todo_count).toBe(2);
     expect(() => call('update_project', { project_id: 'p1', status: 'bogus' })).toThrow(ToolError);
     expect(() => call('update_project', { project_id: 'p1', toggle_todos: ['nope'] })).toThrow(/nope/);
@@ -329,14 +325,20 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect((callTool(deps, scoped(), 'list_projects', {}) as { id: string }[]).map((p) => p.id)).toEqual(['p1']);
   });
 
+  it('update_project はノートを書かない（append_memo はやめた）', () => {
+    const r = call('update_project', { project_id: 'p1', append_memo: '書かない' });
+    expect(r).not.toHaveProperty('memo');
+    expect(db.prepare('select markdown from project_memos where project_id = ?').get('p1')).toBeUndefined();
+    expect(fs.existsSync(path.join(home, 'projects', 'p1', 'memo.md'))).toBe(false);
+  });
+
   it('get_project と update_project は別のプロジェクトを断る', () => {
     expect(() => call('get_project', { project_id: 'p2' }, scoped())).toThrow(ToolError);
-    expect(() => call('update_project', { project_id: 'p2', status: 'archived', append_memo: '注入' }, scoped())).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p2', status: 'archived' }, scoped())).toThrow(ToolError);
     expect((db.prepare('select status from projects where id = ?').get('p2') as { status: string }).status).toBe('active');
-    expect(fs.existsSync(path.join(home, 'projects', 'p2', 'memo.md'))).toBe(false);
     // 自分のプロジェクトは触れる。
     expect(call('get_project', { project_id: 'p1' }, scoped()).id).toBe('p1');
-    expect(call('update_project', { project_id: 'p1', append_memo: 'ok' }, scoped()).memo).toBe('ok');
+    expect((call('update_project', { project_id: 'p1', status: 'paused' }, scoped()).project as { status: string }).status).toBe('paused');
   });
 
   it('list_sessions と search_sessions は自分のプロジェクトの外を見せない', () => {

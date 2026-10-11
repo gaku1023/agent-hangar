@@ -185,7 +185,7 @@ describe('ProjectsScreen の空の状態', () => {
     const { container, onAction } = mount(none());
     expect(screen.getByRole('heading', { name: 'プロジェクトはまだありません' })).toBeInTheDocument();
     expect(screen.getByText('フォルダを登録すると、そのフォルダのセッションがここにまとまります。')).toBeInTheDocument();
-    expect(screen.getByText('TODO とノートも、プロジェクトごとに置けるようになります。')).toBeInTheDocument();
+    expect(screen.getByText('TODO も、プロジェクトごとに置けるようになります。')).toBeInTheDocument();
     expect(container.querySelector('.pcols')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
     const buttons = screen.getAllByRole('button', { name: '新しいプロジェクト' });

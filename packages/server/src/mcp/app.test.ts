@@ -6,7 +6,6 @@ import { VERSION } from '../boot/options.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
-import { MemoStore } from '../projects/memo.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
 import { createMcpApp } from './app.ts';
@@ -30,7 +29,7 @@ beforeEach(async () => {
   assignSessions(db, 'd');
   alphaId = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
   app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }) });
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) });
 });
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(home, { recursive: true, force: true }); });
 
@@ -128,7 +127,7 @@ describe('言語', () => {
   beforeEach(() => {
     language = 'en';
     app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-      usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }), language: () => language });
+      usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), language: () => language });
   });
 
   it('英語では、道具の説明と引数の説明がすべて英語になる', async () => {

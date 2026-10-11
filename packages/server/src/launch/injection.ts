@@ -1,9 +1,10 @@
 import { DEFAULT_LANGUAGE, t, type Language } from '@agent-hangar/shared';
 
-export type InjectionInput = { projectName: string; projectPath: string; memo: string | null; todos: { id: string; text: string }[] };
+export type InjectionInput = { projectName: string; projectPath: string; todos: { id: string; text: string }[] };
 
 /**
  * --append-system-prompt で渡す短い指示。ファイルや設定は書かず、要約の更新、片付いた TODO の候補、セッションの状態の問い、ターンの意図、短い手の説明を求める。
+ * プロジェクトのノートは渡さない。Claude Code は CLAUDE.md と自動メモリを自分で読むので、渡すと同じ役が二重になる。
  * TODO は ID を添えて渡す。ID が無いと、候補を出す前に get_project を呼んで引く一手が要るためである。
  * 状態は、依頼を終えた区切りでだけ AskUserQuestion で聞かせる。利用者が選んだものは confirmed: true でそのまま状態になり、答えずに進めたものは候補として画面に残る。
  * attach で開く会話にはこの指示が渡らないので、そちらは事後の要約で拾う。
@@ -14,8 +15,7 @@ export type InjectionInput = { projectName: string; projectPath: string; memo: s
  */
 export function renderInjection(i: InjectionInput, language: Language = DEFAULT_LANGUAGE): string {
   const none = t(language, 'launch.injection.none');
-  const memo = i.memo?.trim() ? [...i.memo.trim()].slice(0, 500).join('') : none;
   const todos = i.todos.slice(0, 10);
   const todoText = todos.length ? '\n' + todos.map((todo) => `- [${todo.id}] ${todo.text}`).join('\n') : none;
-  return t(language, 'launch.injection.body', { projectName: i.projectName, projectPath: i.projectPath, memo, todos: todoText });
+  return t(language, 'launch.injection.body', { projectName: i.projectName, projectPath: i.projectPath, todos: todoText });
 }

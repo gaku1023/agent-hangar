@@ -1,4 +1,4 @@
-import type { ProjectDto, SearchHitDto, SessionDto, SessionStateDto, TodoDto } from '@agent-hangar/shared';
+import type { InstructionFileDto, ProjectDto, SearchHitDto, SessionDto, SessionStateDto, TodoDto } from '@agent-hangar/shared';
 import { describe, expect, it } from 'vitest';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore, type Store } from '../store/store.ts';
@@ -113,11 +113,43 @@ describe('presentProject の右パネル', () => {
     const proposed = dto('a1', { state: st({ candidate: { status: 'done', note: 'n', returnOn: null, returnTime: null, source: 'post_hoc', at: NOW - H } }) });
     expect(presentProject(initialState(), storeOf([proposed]), NOW, 'alpha').pendingTodos).toBe(0);
   });
-  it('ノートは本文と、中身があるかを返す。メモが無いプロジェクトも空のノートとして返す（読む表示の出し分けは中身で決める）', () => {
-    expect(presentProject(initialState(), storeOf([]), NOW, 'alpha').note).toEqual({ text: '', filled: false });
-    const memo = (markdown: string) => ({ memos: { alpha: { projectId: 'alpha', markdown, updatedAt: 5 } } });
-    expect(presentProject(initialState(), storeOf([], memo('決済は v3')), NOW, 'alpha').note).toEqual({ text: '決済は v3', filled: true });
-    expect(presentProject(initialState(), storeOf([], memo('  \n')), NOW, 'alpha').note.filled).toBe(false);
+  describe('指示とメモリ', () => {
+    const file = (o: Partial<InstructionFileDto>): InstructionFileDto => ({ kind: 'project', name: 'CLAUDE.md', size: 2355, updatedAt: NOW - 2 * DAY, read: true, markdown: '# 見本', truncated: false, ...o });
+    const loaded = (files: InstructionFileDto[], available = true) => ({ instructions: { alpha: { projectId: 'alpha', available, files } } });
+    const of = (extra: Partial<Store>, id = 'alpha') => presentProject(initialState(), storeOf([], extra), NOW, id).instructions;
+
+    it('読み込む前は loading、フォルダが無ければ missing', () => {
+      expect(of({})).toEqual({ state: 'loading', rows: [], legacyNote: null });
+      expect(of(loaded([], false))).toEqual({ state: 'missing', rows: [], legacyNote: null });
+    });
+
+    it('行は名前、説明、大きさと更新、本文を持つ', () => {
+      expect(of(loaded([file({})])).rows).toEqual([{ kind: 'project', name: 'CLAUDE.md', desc: 'プロジェクト指示・チームで共有', meta: '2.3 KB · 2 日前', off: false, markdown: '# 見本', truncated: false }]);
+    });
+
+    it('種類ごとの説明。AGENTS.md は読まれるかで替える', () => {
+      const rows = of(loaded([
+        file({ kind: 'projectDotClaude', name: '.claude/CLAUDE.md' }), file({ kind: 'local', name: 'CLAUDE.local.md' }), file({ kind: 'agents', name: 'AGENTS.md', read: false }), file({ kind: 'memory', name: 'MEMORY.md', size: 512 }),
+      ])).rows;
+      expect(rows.map((r) => [r.desc, r.off])).toEqual([
+        ['プロジェクト指示・チームで共有', false], ['ローカル指示・自分だけ', false], ['CLAUDE.md があるため読まれない', true], ['自動メモリ・Claude が書く', false],
+      ]);
+      expect(rows[3]!.meta).toBe('512 B · 2 日前');
+      expect(of(loaded([file({ kind: 'agents', name: 'AGENTS.md' })])).rows[0]!.desc).toBe('CLAUDE.md の代わりに読まれる');
+      // CLAUDE.md の類が並んでいないのに読まれないのは、上のフォルダの CLAUDE.md か設定のせいなので、理由を言い切らない。
+      expect(of(loaded([file({ kind: 'agents', name: 'AGENTS.md', read: false })])).rows[0]!.desc).toBe('起動時には読まれない');
+    });
+
+    it('以前のノートは中身があるときだけ返す', () => {
+      const memo = (markdown: string) => ({ memos: { alpha: { projectId: 'alpha', markdown, updatedAt: 5 } } });
+      expect(of({ ...loaded([]), ...memo('決済は v3') }).legacyNote).toBe('決済は v3');
+      expect(of({ ...loaded([]), ...memo('  \n') }).legacyNote).toBeNull();
+    });
+
+    it('英語では説明も英語', () => {
+      const en = withLanguage(storeOf([], loaded([file({}), file({ kind: 'memory', name: 'MEMORY.md' })])), 'en');
+      expect(presentProject(initialState(), en, NOW, 'alpha').instructions.rows.map((r) => r.desc)).toEqual(['Project instructions · shared with team', 'Auto memory · written by Claude']);
+    });
   });
   it('候補の TODO の、根拠が無いとき、出したセッションが手元に無いときの文は、言語に従う', () => {
     const t = todo('t1', { candidate: { sessionId: 'gone', note: null, at: NOW - 60_000 } });

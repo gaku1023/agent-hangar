@@ -1146,7 +1146,7 @@ describe('presentProject の右レール', () => {
     };
     const p = presentProject(initialState(), store, NOW, 'p1');
     expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false, candidate: null }, { id: 't2', text: 'やる t2', done: true, candidate: null }]);
-    expect(p.note).toEqual({ text: '# alpha\n本文', filled: true });
+    expect(p.instructions.legacyNote).toBe('# alpha\n本文');
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
     expect(p.isScratch).toBe(false);
   });
@@ -1299,7 +1299,7 @@ describe('presentProject の右レール（端）', () => {
   it('スクラッチには印が付く。無いプロジェクトの右レールは空', () => {
     const store: Store = { ...initialStore(), projects: { sc: scratchProject() } };
     expect(presentProject(initialState(), store, NOW, 'sc').isScratch).toBe(true);
-    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], note: { text: '', filled: false }, artifacts: [] });
+    expect(presentProject(initialState(), store, NOW, 'nope')).toMatchObject({ notFound: true, isScratch: false, todos: [], instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [] });
   });
 });
 

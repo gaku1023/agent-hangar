@@ -3,16 +3,12 @@ import type { Translate } from '@agent-hangar/shared';
 import { isComposing } from './ime.ts';
 import { useT } from './primitives/language.tsx';
 
-/** ノートの欄が出す文。セッションとプロジェクトで言い回しが違う（placeholder と、読む表示のボタン）ので、呼び手が辞書から組んで渡す。 */
+/** ノートの欄が出す文。呼び手が辞書から組んで渡す。 */
 export type NoteTexts = { label: string; placeholder: string; save: string; external: string; reload: string; write: string; edit: string };
 
 export const sessionNoteTexts = (t: Translate): NoteTexts => ({
   label: t('session.note.label'), placeholder: t('session.note.placeholder'), save: t('session.note.save'), external: t('session.note.external'),
   reload: t('session.note.reload'), write: t('session.note.write'), edit: t('session.note.edit'),
-});
-export const projectNoteTexts = (t: Translate): NoteTexts => ({
-  label: t('projectScreen.note.label'), placeholder: t('projectScreen.note.placeholder'), save: t('projectScreen.note.save'), external: t('projectScreen.note.external'),
-  reload: t('projectScreen.note.reload'), write: t('projectScreen.note.write'), edit: t('projectScreen.note.edit'),
 });
 
 /**

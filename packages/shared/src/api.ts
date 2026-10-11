@@ -177,6 +177,19 @@ export type TodoCandidateDto = { sessionId: string | null; note: string | null; 
 /** candidate は完了の候補で、候補でなければ null。完了の行では必ず null である（サーバが読むときにそろえる）。 */
 export type TodoDto = { id: string; projectId: string; text: string; done: boolean; position: number; sessionId: string | null; updatedAt: number; candidate: TodoCandidateDto | null };
 export type MemoDto = { projectId: string; markdown: string; updatedAt: number };
+/**
+ * Claude Code が起動時に読む指示とメモリのファイルの種類（右パネルの「指示とメモリ」）。
+ * project はルートの CLAUDE.md、projectDotClaude は .claude/CLAUDE.md、local は CLAUDE.local.md、agents は AGENTS.md、memory は自動メモリの MEMORY.md である。
+ */
+export type InstructionFileKind = 'project' | 'projectDotClaude' | 'local' | 'agents' | 'memory';
+/**
+ * 指示とメモリのファイル 1 つ。あるものだけを返す。
+ * read は Claude Code が起動時に読むか（AGENTS.md は CLAUDE.md の類があると既定では読まれない）。
+ * markdown は本文で、大きすぎるときは先頭だけを入れて truncated を真にする。読めなければ null。
+ */
+export type InstructionFileDto = { kind: InstructionFileKind; name: string; size: number; updatedAt: number; read: boolean; markdown: string | null; truncated: boolean };
+/** プロジェクトの指示とメモリ。available はこの PC にプロジェクトのフォルダがあるか。無ければ files は空である。 */
+export type InstructionsDto = { projectId: string; available: boolean; files: InstructionFileDto[] };
 export type ArtifactDto = { id: string; projectId: string | null; url: string; title: string | null; description: string | null; favicon: string | null; filePath: string | null; fileExists: boolean; firstPublishedAt: number; lastPublishedAt: number; versionCount: number; sessionIds: string[] };
 export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved: boolean; reason: string | null };
 /** プロジェクトを作る場所。newDir はワークスペースの下に新しく作り、dir は既存のディレクトリを登録する。 */

@@ -81,15 +81,47 @@
 .project-path-warn:hover { background: color-mix(in srgb, var(--waiting) 16%, var(--surface)); }
 .project-path-warn .icon { width: 12px; height: 12px; }
 .rail { display: flex; flex-direction: column; gap: calc(var(--u) * 4); min-width: 0; }
-/* 右レールの TODO、メモ、アーティファクトは、白い読む面に載せる。 */
+/* 右レールの TODO、指示とメモリ、アーティファクトは、白い読む面に載せる。 */
 .rail-panel { padding: calc(var(--u) * 3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); }
 /* 右レールの節の見出し。名前、件数、（TODO は）確認待ちの札を横に並べる。 */
 .rail-h { display: flex; align-items: center; gap: calc(var(--u) * 2); margin: 0 0 calc(var(--u) * 2); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
 .rail-n { font-weight: 500; color: var(--ink-3); }
-/* 見出しの右に操作の置ける節（ノート）。ボタンを h2 の外に出し、見出しの名前にボタンの文字が混ざらないようにする。 */
-.rail-head { display: flex; align-items: center; justify-content: space-between; gap: calc(var(--u) * 2); min-height: calc(var(--row-h) - 6px); margin: 0 0 calc(var(--u) * 2); }
-.rail-head .rail-h { margin: 0; }
-.rail-panel .note-text { margin: 0; }
+/*
+ * 指示とメモリ（案 D）。Claude Code が起動時に読むファイルを、淡い地の行で 1 つずつ並べる。
+ * 行を押すとダイアログで本文を描き、右の印はエディタで開く。行は入るときだけ浮かぶ（読み直しでは鍵が同じなので動かない）。
+ * 読まれない行（CLAUDE.md がある AGENTS.md など）は、名前に線を引いて退かせる。
+ */
+.instr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--u); }
+.instr-row { display: flex; align-items: center; gap: var(--u); min-width: 0; border-radius: var(--r); background: var(--surface-2); transition: background-color var(--dur-fast) var(--ease-out); animation: enter var(--dur) var(--ease-out) both; }
+.instr-row:hover { background: color-mix(in srgb, var(--accent) 5%, var(--surface-2)); }
+.instr-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: calc(var(--u) * 1.5) 0 calc(var(--u) * 1.5) calc(var(--u) * 2); border: 0; border-radius: var(--r); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.instr-main:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.instr-name { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); min-width: 0; max-width: 100%; }
+.instr-name .mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
+.instr-meta { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.instr-desc { font-size: var(--fs-xs); color: var(--ink-2); }
+.instr-row[data-off='true'] .instr-name .mono { color: var(--ended); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.instr-row[data-off='true'] .instr-desc { color: var(--ink-3); }
+.btn.instr-open { flex: none; justify-content: center; width: var(--row-h); padding: 0; margin-right: var(--u); color: var(--ink-2); background: none; box-shadow: none; }
+.btn.instr-open:hover { color: var(--accent); background: var(--accent-soft); box-shadow: none; }
+.instr-empty { margin: 0; font-size: var(--fs-sm); color: var(--ink-2); }
+.instr-foot { margin: calc(var(--u) * 2) 2px 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.instr-foot code { font-family: var(--font-mono); font-size: 0.95em; }
+/* 以前のノート。やめた機能の残りなので、Paused の淡い地で「片付けてほしいもの」として置く。 */
+.instr-legacy { margin-top: calc(var(--u) * 2.5); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--st-paused-soft); }
+.instr-legacy-h { margin: 0 0 2px; font-size: var(--fs-xs); font-weight: 700; color: var(--st-paused); }
+.instr-legacy-body { margin: 0 0 calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-2); }
+.instr-legacy-text { margin: 0 0 calc(var(--u) * 1.5); max-height: 96px; overflow: auto; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: 6px; background: rgba(255, 255, 255, 0.7); font: var(--fs-xs) / 1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.instr-legacy-acts { display: flex; justify-content: flex-end; gap: calc(var(--u) * 1.5); }
+/* 本文のダイアログ。外枠は箱を作らず、背景と板は Dialog の殻が組む。引っ込める間は押せないようにする。 */
+.instr-dialog-host { display: contents; }
+.instr-dialog-host[data-leaving='true'] .overlay { pointer-events: none; }
+/* 長い本文を読む面なので、ほかのダイアログのガラス（90%）より濃い不透明の白にし、裏の一覧の文字を透かさない。 */
+.dialog-instr { width: 640px; background: var(--surface); }
+.dialog-instr .dialog-title .mono { font-size: 14px; }
+.instr-dialog-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); }
+.instr-md { font-size: var(--fs); line-height: 1.6; }
+.instr-truncated { margin: 0; font-size: var(--fs-xs); }
 /* (i) の面の下の操作と、名前を変える欄。 */
 .pop-acts { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 3); padding-top: calc(var(--u) * 3); border-top: 1px solid var(--line); }
 .pop-acts .btn[data-copied='true'] { color: var(--st-done); }
