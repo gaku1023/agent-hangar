@@ -206,15 +206,19 @@ pub fn log_tail(file: &Path, max_lines: usize) -> String {
 
 /// 利用者のホームで始まるパスを `~` に縮める。画面と命令に、ユーザー名の入ったパスを出さないためである。
 /// 区切りは `/` と、Windows の `\` の両方を読み、縮めた後もパスの区切りのまま残す（`~\.agent-hangar`）。
+/// Windows の形のホームは、大文字小文字と区切りの違いを同じとみなして比べる（`home_len_at`）。
 pub fn tilde(path: &str, home: &Path) -> String {
     let home = home.to_string_lossy();
     let home = home.trim_end_matches(['/', '\\']);
     if home.is_empty() {
         return path.to_string();
     }
-    match path.strip_prefix(home) {
-        Some("") => "~".to_string(),
-        Some(rest) if rest.starts_with(['/', '\\']) => format!("~{rest}"),
+    let Some(n) = home_len_at(path, home, windows_form(home)) else {
+        return path.to_string();
+    };
+    match &path[n..] {
+        "" => "~".to_string(),
+        rest if rest.starts_with(['/', '\\']) => format!("~{rest}"),
         _ => path.to_string(),
     }
 }
@@ -224,28 +228,64 @@ fn is_path_char(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | '\\' | '~')
 }
 
+/// Windows の形のホームか（`C:` のようなドライブか、`\\server` で始まる）。
+/// 試験がどの OS でも同じに走るよう、OS ではなくホームの形で決める。
+fn windows_form(home: &str) -> bool {
+    let b = home.as_bytes();
+    (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':') || home.starts_with("\\\\")
+}
+
+/// 文の先頭がホームと同じなら、文の中でホームに当たる長さ（バイト）を返す。
+/// loose（Windows の形）では、大文字小文字と区切り（`/` と `\`）の違いを同じとみなす。
+/// Windows のパスは大文字小文字を区別せず、どちらの区切りでも書けるので、書き方が違うだけの同じホームを縮め損ねないためである。
+fn home_len_at(text: &str, home: &str, loose: bool) -> Option<usize> {
+    if !loose {
+        return text.starts_with(home).then_some(home.len());
+    }
+    let is_sep = |c: char| matches!(c, '/' | '\\');
+    let mut chars = text.char_indices();
+    for h in home.chars() {
+        let (_, c) = chars.next()?;
+        let same = if is_sep(h) || is_sep(c) {
+            is_sep(h) && is_sep(c)
+        } else {
+            c == h || c.to_lowercase().eq(h.to_lowercase())
+        };
+        if !same {
+            return None;
+        }
+    }
+    Some(chars.next().map_or(text.len(), |(i, _)| i))
+}
+
 /// 文の中でホームから始まるパスを、すべて `~` に縮める。
 /// Node の「調べた場所」、設定ファイルの場所、サーバが書く `params` の `file` と `dir`、例外の文に、ユーザー名を出さないためである。
 /// ホームの前がパスの文字でなく、後ろが区切り（`/` か `\\`）か、パスの文字でないときだけ縮める。
 /// `/Users/ab` や `/mnt/Users/a` のような、別の人のホームや途中の一致は縮めない。
+/// Windows の形のホームは、大文字小文字と区切りの違いを同じとみなして探す（`home_len_at`）。
 pub fn shorten_home(text: &str, home: &Path) -> String {
     let home = home.to_string_lossy();
     let home = home.trim_end_matches(['/', '\\']);
     if home.is_empty() {
         return text.to_string();
     }
+    let loose = windows_form(home);
     let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(i) = rest.find(home) {
-        let before = rest[..i].chars().next_back();
-        let after = rest[i + home.len()..].chars().next();
-        let starts = before.map_or(true, |c| !is_path_char(c));
-        let ends = after.map_or(true, |c| matches!(c, '/' | '\\') || !is_path_char(c));
-        out.push_str(&rest[..i]);
-        out.push_str(if starts && ends { "~" } else { home });
-        rest = &rest[i + home.len()..];
+    let mut i = 0;
+    while i < text.len() {
+        if let Some(n) = home_len_at(&text[i..], home, loose) {
+            let before = text[..i].chars().next_back();
+            let after = text[i + n..].chars().next();
+            let starts = before.map_or(true, |c| !is_path_char(c));
+            let ends = after.map_or(true, |c| matches!(c, '/' | '\\') || !is_path_char(c));
+            out.push_str(if starts && ends { "~" } else { &text[i..i + n] });
+            i += n;
+            continue;
+        }
+        let c = text[i..].chars().next().unwrap_or_default();
+        out.push(c);
+        i += c.len_utf8();
     }
-    out.push_str(rest);
     out
 }
 
@@ -837,6 +877,49 @@ mod tests {
             "{got}"
         );
         assert!(got.contains(r"C:\Program Files\nodejs\node.exe"), "{got}");
+    }
+
+    // Windows のパスは大文字小文字を区別せず、区切りに / と \ のどちらも使える。
+    // 書き方が違うだけで同じホームなら縮める（縮めずにユーザー名を出していた）。
+    #[test]
+    fn a_windows_home_is_shortened_regardless_of_case_and_separators() {
+        let home = Path::new(r"C:\Users\Taro");
+        assert_eq!(
+            shorten_home(r"open c:\users\taro\.agent-hangar\hangar.db", home),
+            r"open ~\.agent-hangar\hangar.db"
+        );
+        assert_eq!(
+            shorten_home("C:/Users/Taro/AppData/Local/x.exe: not found", home),
+            "~/AppData/Local/x.exe: not found"
+        );
+        assert_eq!(shorten_home(r"C:\USERS\TARO", home), "~");
+        assert_eq!(
+            shorten_home(r"C:\Users\Taro/.nvm\node.exe", home),
+            r"~/.nvm\node.exe"
+        );
+        // 別の人のホームと、途中の一致は、書き方を緩めても縮めない。
+        assert_eq!(shorten_home(r"c:\users\taro2\x", home), r"c:\users\taro2\x");
+        assert_eq!(
+            shorten_home(r"D:\c\users\taro\x", home),
+            r"D:\c\users\taro\x"
+        );
+        // 頁へ渡す置き場の名前も、同じ比べ方で縮める。
+        assert_eq!(
+            tilde(r"c:\users\taro\.agent-hangar", home),
+            r"~\.agent-hangar"
+        );
+        assert_eq!(tilde("C:/Users/Taro", home), "~");
+    }
+
+    // macOS と Linux のパスは大文字小文字を区別したまま比べる（別のディレクトリでありうる）。
+    #[test]
+    fn a_posix_home_is_compared_exactly() {
+        let home = Path::new("/Users/Taro");
+        assert_eq!(shorten_home("/users/taro/x", home), "/users/taro/x");
+        assert_eq!(
+            tilde("/users/taro/.agent-hangar", home),
+            "/users/taro/.agent-hangar"
+        );
     }
 
     // 別の人のホーム（/Users/ab）や、途中に同じ並びがあるだけのパスは縮めない。

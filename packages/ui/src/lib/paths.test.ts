@@ -110,26 +110,47 @@ describe('withTrailingSep', () => {
 });
 
 describe('homePath', () => {
-  it('macOS と Linux のホームの下を ~ で始まる形に縮める（これまでと同じ）', () => {
-    expect(homePath('/Users/taro/.claude-univ')).toBe('~/.claude-univ');
-    expect(homePath('/home/taro/.claude')).toBe('~/.claude');
-    expect(homePath('/Users/taro')).toBe('~');
-    expect(homePath('/Users/taro/')).toBe('~');
-    expect(homePath('/srv/Users/taro/x')).toBe('/srv/Users/taro/x');
+  // ホームはサーバが返す本当のホーム（os.homedir()）で縮める。/Users/<誰か> の形から推測しない。
+  it('サーバが返したホームの下を ~ で始まる形に縮める（macOS と Linux）', () => {
+    expect(homePath('/Users/taro/.claude-univ', '/Users/taro')).toBe('~/.claude-univ');
+    expect(homePath('/home/taro/.claude', '/home/taro')).toBe('~/.claude');
+    expect(homePath('/Users/taro', '/Users/taro')).toBe('~');
+    expect(homePath('/Users/taro/', '/Users/taro')).toBe('~');
+    expect(homePath('/Users/taro/x', '/Users/taro/')).toBe('~/x');
+    expect(homePath('/var/home/taro/x', '/var/home/taro')).toBe('~/x');
   });
-  it('Windows のホーム（C:\\Users\\<名前>）の下を、元の区切りのまま ~ で始まる形に縮める', () => {
-    expect(homePath('C:\\Users\\taro\\.claude')).toBe('~\\.claude');
-    expect(homePath('C:\\Users\\taro\\work\\a b')).toBe('~\\work\\a b');
-    expect(homePath('c:\\users\\taro\\.claude')).toBe('~\\.claude');
-    expect(homePath('D:\\Users\\太郎\\作業')).toBe('~\\作業');
-    expect(homePath('C:/Users/taro/.claude')).toBe('~/.claude');
-    expect(homePath('C:\\Users\\taro')).toBe('~');
-    expect(homePath('C:\\Users\\taro\\')).toBe('~');
+  it('ホームの形に似ていても、ホームでなければ縮めない（共有のフォルダ、別の人、途中の一致）', () => {
+    expect(homePath('/Users/Shared/claude', '/Users/taro')).toBe('/Users/Shared/claude');
+    expect(homePath('/Users/hanako/.claude', '/Users/taro')).toBe('/Users/hanako/.claude');
+    expect(homePath('/Users/taro2/x', '/Users/taro')).toBe('/Users/taro2/x');
+    expect(homePath('/srv/Users/taro/x', '/Users/taro')).toBe('/srv/Users/taro/x');
+    // macOS と Linux のパスは大文字小文字を区別して比べる。
+    expect(homePath('/Users/Taro/x', '/Users/taro')).toBe('/Users/Taro/x');
   });
-  it('Windows でもホームの下でなければそのまま返す', () => {
-    expect(homePath('C:\\Users')).toBe('C:\\Users');
-    expect(homePath('C:\\work\\Users\\taro\\x')).toBe('C:\\work\\Users\\taro\\x');
-    expect(homePath('\\\\server\\Users\\taro\\x')).toBe('\\\\server\\Users\\taro\\x');
+  it('ホームが分からなければ（古いサーバ、空、根）縮めない', () => {
+    expect(homePath('/Users/taro/.claude', null)).toBe('/Users/taro/.claude');
+    expect(homePath('/Users/taro/.claude', undefined)).toBe('/Users/taro/.claude');
+    expect(homePath('/Users/taro/.claude', '')).toBe('/Users/taro/.claude');
+    expect(homePath('/x', '/')).toBe('/x');
+    expect(homePath('C:\\x', 'C:\\')).toBe('C:\\x');
+  });
+  it('Windows のホームの下を、元の区切りのまま縮める。大文字小文字と区切りの違いは同じとみなす', () => {
+    const h = 'C:\\Users\\taro';
+    expect(homePath('C:\\Users\\taro\\.claude', h)).toBe('~\\.claude');
+    expect(homePath('C:\\Users\\taro\\work\\a b', h)).toBe('~\\work\\a b');
+    expect(homePath('c:\\users\\TARO\\.claude', h)).toBe('~\\.claude');
+    expect(homePath('C:/Users/taro/.claude', h)).toBe('~/.claude');
+    expect(homePath('C:\\Users\\taro', h)).toBe('~');
+    expect(homePath('C:\\Users\\taro\\', h)).toBe('~');
+    expect(homePath('D:\\Users\\太郎\\作業', 'D:\\Users\\太郎')).toBe('~\\作業');
+  });
+  it('Windows でも、ホームでなければ縮めない（Public、別の人、UNC、途中の一致）', () => {
+    const h = 'C:\\Users\\taro';
+    expect(homePath('C:\\Users\\Public\\x', h)).toBe('C:\\Users\\Public\\x');
+    expect(homePath('C:\\Users\\taro2\\x', h)).toBe('C:\\Users\\taro2\\x');
+    expect(homePath('C:\\Users', h)).toBe('C:\\Users');
+    expect(homePath('\\\\server\\Users\\taro\\x', h)).toBe('\\\\server\\Users\\taro\\x');
+    expect(homePath('D:\\Users\\taro\\x', h)).toBe('D:\\Users\\taro\\x');
   });
 });
 

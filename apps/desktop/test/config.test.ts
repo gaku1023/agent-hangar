@@ -72,6 +72,17 @@ describe('NSIS のアンインストールの後片付け', () => {
   it('COM の口の CLSID の登録を、書く側の定数と同じ値で消す', () => {
     expect(body()).toContain(`DeleteRegKey HKCU "Software\\Classes\\CLSID\\${clsid()}"`);
   });
+  // 通知センターに残ったトーストは、アプリを消しても残る（Windows の実機で、消して入れ直した後も前の版のトーストが並んでいた）。
+  // 登録を消す前に、同じ名前（identifier）の履歴を PowerShell で消す。
+  it('登録を消す前に、通知センターに残ったトーストを同じ名前（identifier）で消す', () => {
+    const b = body();
+    const clear = b.indexOf('${HANGAR_TOAST_CLEAR_PS}');
+    expect(clear).toBeGreaterThan(-1);
+    expect(clear).toBeLessThan(b.indexOf('DeleteRegKey'));
+    const m = /^!define HANGAR_TOAST_CLEAR_PS "([^"]*)"\r?$/m.exec(read(path.join('src-tauri', hooksPath)));
+    expect(m, 'HANGAR_TOAST_CLEAR_PS が見つかりません').not.toBeNull();
+    expect(m![1]).toContain(`::History.Clear('${conf.identifier}')`);
+  });
   it('トーストの絵だけを消し、利用者のデータ（~\\.agent-hangar の DB など）は消さない', () => {
     const b = body();
     expect(b).toContain('Delete "$PROFILE\\.agent-hangar\\notify-icon.png"');
@@ -339,6 +350,11 @@ describe('読み込み画面', () => {
     expect(read('src-tauri/src/bootfail.rs')).toContain('"window.__hangarBootFail && window.__hangarBootFail({})"');
     expect(read('loading/boot.js')).toContain('window.__hangarBootFail = ');
   });
+  // 殻は起動に失敗したとき 1 度だけ自分で更新を確かめ、見つけた版を決まった式で渡す。口の名前が食い違うと、札に新しい版が出ない。
+  it('殻が見つけた更新を渡す口（__hangarBootUpdate）を、起動画面が持つ', () => {
+    expect(read('src-tauri/src/lib.rs')).toContain('"window.__hangarBootUpdate && window.__hangarBootUpdate({})"');
+    expect(read('loading/boot.js')).toContain('window.__hangarBootUpdate = ');
+  });
   // 札の種類は、殻（bootfail.rs の KINDS）と頁の表（boot-fail.js の FAIL_KINDS）と、サーバが書く 4 種類（bootError.ts）で揃える。
   it('失敗の種類は、殻と頁の表で同じ並びで、サーバが書く種類はその部分になる', async () => {
     const rust = [...(read('src-tauri/src/bootfail.rs').match(/pub const KINDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z-]+)"/g)].map((m) => m[1]);
@@ -386,12 +402,12 @@ describe('capabilities', () => {
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
     expect(c.permissions).toEqual(['core:window:allow-start-dragging', 'core:window:allow-internal-toggle-maximize']);
   });
-  // 入力待ちの知らせのために、通知を出す、通知の許可を求める、通知の許可の状態を読む、Dock のバッジに数を出すの 4 つだけを足す。
-  it('UI の出どころには、入力待ちの通知と Dock のバッジの 4 つだけ与える', () => {
+  // 入力待ちの知らせのために、通知を出す、もう待っていない通知を外す、通知の許可を求める、通知の許可の状態を読む、Dock のバッジに数を出すの 5 つだけを足す。
+  it('UI の出どころには、入力待ちの通知と Dock のバッジの 5 つだけ与える', () => {
     const c = cap('remote-notify.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
-    expect(c.permissions).toEqual(['allow-notify-waiting', 'allow-notify-request', 'allow-notify-status', 'core:window:allow-set-badge-count']);
+    expect(c.permissions).toEqual(['allow-notify-waiting', 'allow-notify-prune', 'allow-notify-request', 'allow-notify-status', 'core:window:allow-set-badge-count']);
   });
   // 権限の出どころのポートと、殻がサーバを立てるポートは別のファイルにある。片方だけ変えると、ヘッダを掴んでも窓が動かなくなる。
   it('権限の出どころのポートは、殻がサーバを立てるポート（server.rs の PORT）と同じ', () => {
@@ -410,7 +426,7 @@ describe('capabilities', () => {
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/notifier.ts'), 'utf8');
     const build = read('src-tauri/build.rs');
     const lib = read('src-tauri/src/lib.rs');
-    for (const cmd of ['notify_waiting', 'notify_request', 'notify_status']) {
+    for (const cmd of ['notify_waiting', 'notify_prune', 'notify_request', 'notify_status']) {
       expect(ui).toContain(`'${cmd}'`);
       expect(build).toContain(`"${cmd}"`);
       expect(lib).toMatch(new RegExp(`generate_handler!\\[[^\\]]*\\b${cmd}\\b`));
@@ -419,12 +435,13 @@ describe('capabilities', () => {
   });
   // 起動画面は殻の中の頁（tauri://localhost）なので、remote を持たない。もう一度試すは起動画面からだけ呼べる。
   // 起動の様子の問い合わせ（boot_state）も起動画面だけが使う。頁の口が出来る前に起きた失敗を引き取るためである。
-  // 試験のための書き出し（boot_probe）も起動画面だけに与える。殻は HANGAR_BOOT_PROBE を持って起きたときだけ書き、ふだんは何もしない。
-  it('起動画面には、起動の様子の問い合わせ、試験のための書き出し、もう一度試す、ログを開くだけを与える', () => {
+  // 試験のための書き出し（boot_probe）も起動画面だけに与える。殻は試験用の build で HANGAR_BOOT_PROBE を持って起きたときだけ書き、ふだんは何もしない。
+  // 更新の 4 つも起動画面に与える。起動に失敗する版を入れた人が、UI まで届かなくても札から新しい版を受け取れるようにするためである。
+  it('起動画面には、起動の様子の問い合わせ、試験のための書き出し、もう一度試す、ログを開く、更新の 4 つだけを与える', () => {
     const c = cap('boot-screen.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toBeUndefined();
-    expect(c.permissions).toEqual(['allow-boot-state', 'allow-boot-probe', 'allow-retry-boot', 'allow-open-log']);
+    expect(c.permissions).toEqual(['allow-boot-state', 'allow-boot-probe', 'allow-retry-boot', 'allow-open-log', 'allow-update-status', 'allow-update-check', 'allow-update-download', 'allow-update-install']);
   });
   // サーバの頁から頼めるのは、ログを開くことと、アプリの再起動だけにする。起動のやり直しは与えない。
   it('UI の出どころには、ログを開くと再起動だけを与える', () => {
@@ -468,10 +485,10 @@ describe('capabilities', () => {
     expect(restore.indexOf('confirm_natively')).toBeLessThan(restore.indexOf('"--yes"'));
   });
   // 命令の名前は、build.rs の一覧、lib.rs の #[tauri::command]、UI と起動画面の呼び出しの 4 か所にある。
-  // 入力待ちの知らせの 3 つは、上の notifier.ts との突き合わせでも確かめる。
+  // 入力待ちの知らせの 4 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['apply_config_sync', 'boot_probe', 'boot_state', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
+    expect(listed).toEqual(['apply_config_sync', 'boot_probe', 'boot_state', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
@@ -484,6 +501,7 @@ describe('capabilities', () => {
     expect(boot).toContain("'open_log'");
     expect(boot).toContain("'boot_state'");
     expect(boot).toContain("'boot_probe'");
+    for (const cmd of ['update_status', 'update_check', 'update_download', 'update_install']) expect(boot).toContain(`'${cmd}'`);
   });
   // invoke_handler を 2 度呼ぶと、後のものだけが残り、先に並べた命令が黙って呼べなくなる。
   it('殻の命令は invoke_handler の 1 か所でまとめて登録する', () => {

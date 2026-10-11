@@ -13,7 +13,7 @@ const NOW = new Date(2026, 9, 6, 12, 0).getTime();
 /** 固定データの 2 件（会社が最初でいま、大学）に、アカウントごとの上書きを重ねて描く形にする。 */
 function props(over: Record<string, Partial<AccountDto>> = {}, currentId = 'primary'): SettingsProps['accounts'] {
   const dto: AccountsDto = { ...accountsFixture, currentId, accounts: accountsFixture.accounts.map((a) => ({ ...a, ...over[a.id] })) };
-  return { list: presentAccounts({ ...initialStore(), accounts: dto }, NOW), colors: ACCOUNT_COLORS };
+  return { list: presentAccounts({ ...initialStore(), home: '/Users/taro', accounts: dto }, NOW), colors: ACCOUNT_COLORS };
 }
 const mount = (p: SettingsProps['accounts'] = props()) => {
   const onAction = vi.fn();
@@ -53,6 +53,10 @@ describe('AccountSettings の一覧', () => {
     mount(props({ primary: { dir: '/Users/taro/.claude' }, a1: { dir: '/srv/claude-univ' } }));
     expect(within(row('会社')).getByText('~/.claude')).toHaveClass('mono');
     expect(within(row('大学')).getByText('/srv/claude-univ')).toHaveClass('mono');
+  });
+  it('縮めるのはサーバが返したホームの下だけで、ホームに似た別の置き場（/Users/Shared）は縮めない', () => {
+    mount(props({ primary: { dir: '/Users/Shared/.claude' } }));
+    expect(within(row('会社')).getByText('/Users/Shared/.claude')).toHaveClass('mono');
   });
   it('1 件だけでも節を出し、追加の入口を持つ（この節だけが追加の入口）', () => {
     mount({ list: props().list.slice(0, 1), colors: ACCOUNT_COLORS });

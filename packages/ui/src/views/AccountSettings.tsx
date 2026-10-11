@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { Translate } from '@agent-hangar/shared';
-import { approveText, homePath, loggedOutText, type AccountView } from '../presenters/accounts.ts';
+import { approveText, loggedOutText, type AccountView } from '../presenters/accounts.ts';
 import type { AccountSettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { useT } from './primitives/language.tsx';
@@ -106,7 +106,7 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
     return () => clearTimeout(timer);
   }, [kind]);
   const state = [main, hint].filter((x) => x !== '').join(' ');
-  const path = homePath(a.dir);
+  const path = a.dirLabel;
   const items: MenuItem[] = [
     { key: 'rename', label: t('account.menu.rename'), onSelect: () => { setColoring(false); setEditing(true); } },
     { key: 'color', label: t('account.menu.color'), onSelect: () => { setEditing(false); setColoring(true); } },

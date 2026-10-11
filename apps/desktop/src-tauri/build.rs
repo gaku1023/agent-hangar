@@ -7,6 +7,7 @@ const COMMANDS: &[&str] = &[
     "apply_config_sync",
     "boot_probe",
     "boot_state",
+    "notify_prune",
     "notify_request",
     "notify_status",
     "notify_waiting",

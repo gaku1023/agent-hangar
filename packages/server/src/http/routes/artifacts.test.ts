@@ -49,6 +49,37 @@ describe('routes', () => {
   });
 });
 
+describe('すでにある URL を足す', () => {
+  const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const url = 'https://claude.ai/code/artifact/relink';
+  const addProject = (id: string, name: string) => db.prepare("insert into projects (id, name, status, is_scratch, updated_at, origin_device) values (?, ?, 'active', 0, 1, 'd')").run(id, name);
+
+  it('外したプロジェクトに付いていた URL は、新しいプロジェクトへ付け替わり、一覧にも出る', async () => {
+    const old = 'p-old';
+    addProject(old, 'old');
+    const first = await json(await post(`/api/projects/${old}/artifacts`, { url }));
+    expect(first.status).toBe(201);
+    db.prepare('update projects set deleted_at = 1 where id = ?').run(old);
+    const pid = list0ProjectId();
+    const r = await json(await post(`/api/projects/${pid}/artifacts`, { url }));
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ id: first.body.id, projectId: pid });
+    expect((await json(await get(`/api/artifacts?projectId=${pid}`))).body.map((a: { id: string }) => a.id)).toEqual([first.body.id]);
+  });
+
+  it('今も一覧にある別のプロジェクトに付いていたら、409 でそのプロジェクトの名前を返し、付け替えない', async () => {
+    const other = 'p-other';
+    addProject(other, 'other');
+    const first = await json(await post(`/api/projects/${other}/artifacts`, { url }));
+    const pid = list0ProjectId();
+    const r = await json(await post(`/api/projects/${pid}/artifacts`, { url }));
+    expect(r.status).toBe(409);
+    expect(r.body.error).toContain('other');
+    expect((await json(await get(`/api/artifacts?projectId=${pid}`))).body).toEqual([]);
+    expect((await json(await get(`/api/artifacts?projectId=${other}`))).body.map((a: { id: string }) => a.id)).toEqual([first.body.id]);
+  });
+});
+
 // 経路は行を書くだけで、画面へのイベントは配る層（events/publisher.ts）が組む。
 // 書いた行のイベントが、1 回だけ、最新の中身で届くことを経路ごとに押さえる。
 describe('書いた行のイベントは配る層から届く', () => {

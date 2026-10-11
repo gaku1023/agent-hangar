@@ -103,6 +103,29 @@ describe('CI の段', () => {
     expect(probe).toBeGreaterThan(installer);
     expect(w.slice(w.lastIndexOf('- name:', probe))).toMatch(/timeout-minutes: [1-5]\n/);
   });
+  // 書き出しの口（bootprobe.rs）は、試験用の feature（boot-probe）を立てた build だけで効く。
+  // CI の段も release も同じ release の build（tauri build）なので、debug_assertions では分けられない。
+  // CI の段の build だけが feature を立て、配布の build（release.yml）は立てない。
+  it('書き出しの口は試験用の feature で、既定では切れている', () => {
+    const cargo = fs.readFileSync(path.join(app, 'src-tauri/Cargo.toml'), 'utf8');
+    const features = cargo.match(/\n\[features\]\n([\s\S]*?)(?:\n\[|$)/)?.[1];
+    expect(features, '[features] が見つかりません').toBeDefined();
+    expect(features).toMatch(/^boot-probe = \[\]$/m);
+    expect(features).not.toMatch(/^default = .*boot-probe/m);
+    expect(fs.readFileSync(path.join(app, 'src-tauri/src/bootprobe.rs'), 'utf8')).toContain('cfg!(feature = "boot-probe")');
+  });
+  it('CI の段の build だけが試験用の feature を立て、配布の build は立てない', () => {
+    expect(job('desktop')).toContain('run: npm run tauri -- build --bundles app --features boot-probe\n');
+    expect(job('windows')).toMatch(/uses: \.\/\.github\/actions\/windows-installer\n\s+with:\n(?:\s+[a-z-]+: .*\n)*?\s+features: boot-probe\n/);
+    const action = fs.readFileSync(path.join(root, '.github/actions/windows-installer/action.yml'), 'utf8');
+    expect(action).toMatch(/\n {2}features:\n/);
+    expect(action).toContain("default: ''");
+    expect(action).toContain('FEATURES: ${{ inputs.features }}');
+    expect(action).toContain("@('--features', $env:FEATURES)");
+    const release = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+    expect(release).not.toContain('boot-probe');
+    expect(release).not.toMatch(/\n\s+features:/);
+  });
   it('macOS の台本は、一時のホームと最小の PATH で、殻に書き出しの先を渡して起こし、判定を通す', () => {
     const sh = fs.readFileSync(path.join(app, 'scripts/ci-boot-probe-macos.sh'), 'utf8');
     expect(sh).toContain('env -i');

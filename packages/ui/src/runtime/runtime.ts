@@ -6,7 +6,7 @@ import { PAGE_SIZE_KEY, readPageSize } from '../mediator/paging.ts';
 import { NOTICES_READ_KEY, readNoticesRead } from '../mediator/notices.ts';
 import { toSearchParams } from '../mediator/screen.ts';
 import { cleanSidebarOrder, SIDEBAR_KEY, SIDEBAR_ORDER_KEY } from '../mediator/sidebar.ts';
-import { NOTIFY_KEY } from '../mediator/notify.ts';
+import { NOTIFY_KEY, notifyKeep } from '../mediator/notify.ts';
 import { dueReturnKeys, nextReturnAt, readReturnSeen, RETURN_SEEN_KEY } from '../mediator/returnDue.ts';
 import { readWaitingNotified, WAITING_NOTIFIED_KEY } from '../mediator/live.ts';
 import { noQuestionText } from '../presenters/home.ts';
@@ -107,7 +107,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
   // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); } };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
@@ -134,7 +134,24 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (next === null) return;
     // 予約が少し早く走っても取りこぼさないよう、走ったら予約を忘れてから見直す（まだ過ぎていなければ入れ直す）。
     // 何日も先の時点は、タイマーの上限（約 24 日）を越えないよう 12 時間ごとに見直す。
-    deps.setTimeout(() => { if (gen !== returnTimerGen) return; returnTimerAt = null; syncReturns(); }, Math.min(next - now, RETURN_RECHECK_MAX_MS));
+    deps.setTimeout(() => { if (gen !== returnTimerGen) return; returnTimerAt = null; syncReturns(); syncPrune(); }, Math.min(next - now, RETURN_RECHECK_MAX_MS));
+  }
+  /**
+   * 通知センターに残してよい知らせの顔ぶれ（mediator/notify.ts の notifyKeep）を、変わったときだけ notifier へ渡す。
+   * 残っていない顔ぶれの知らせは、殻（notify_prune）が通知センターから外す。
+   * bootstrap の前はセッションが空で、何も待っていないように見える。そこで渡すと、まだ待っている知らせまで外してしまう。
+   * bootstrap の後の最初の 1 回は必ず渡す。前の起動の間に出して、もう待っていない知らせを外すためである。
+   * 通知を受け取らない設定でも渡す。外すだけなので、受け取らないにする前に出た知らせが残らない。
+   * 新しい知らせを出す効果（notify.waiting、notify.return）は、この前に走るので、出したものは顔ぶれに入っている。
+   */
+  let pruneKey: string | null = null;
+  function syncPrune(): void {
+    if (!notifier || !store.bootstrapped) return;
+    const keep = notifyKeep(store, clock());
+    const key = JSON.stringify(keep);
+    if (key === pruneKey) return;
+    pruneKey = key;
+    notifier.prune(keep);
   }
   const notifier = deps.notifier;
   /**
@@ -520,7 +537,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
-        notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: s.activity?.question ?? noQuestionText(tr()) });
+        notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: s.activity?.question ?? noQuestionText(tr()), kind: 'waiting' });
         return;
       }
       case 'notify.return': {
@@ -529,7 +546,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         const s = store.sessions[e.sessionId];
         if (!s) return;
         const time = s.state?.returnTime;
-        notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: s.state?.note ? tr()('runtime.notify.returnBodyNote', { time: time ?? '', note: s.state.note }) : tr()('runtime.notify.returnBody', { time: time ?? '' }) });
+        notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: s.state?.note ? tr()('runtime.notify.returnBodyNote', { time: time ?? '', note: s.state.note }) : tr()('runtime.notify.returnBody', { time: time ?? '' }), kind: 'return' });
         return;
       }
       case 'notify.request':
@@ -669,14 +686,14 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   /**
    * 表で引いた呼び出しを実行する（runtime/actionTable.ts）。
-   * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、どの行もトーストにする。
+   * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、failed を持つ行だけ Store に書き、ほかの行はトーストにする。
    */
   function runCall(c: ApiCall): void {
     if (c.before) setStore(c.before(store));
     c.run(deps.api).then((done) => {
       if (done.apply) setStore(done.apply(store));
       if (done.toast !== undefined) toast(tr()(done.toast), done.toastHoldMs);
-    }).catch(fail);
+    }).catch((e: unknown) => { if (c.failed) setStore(c.failed(store, e)); else fail(e); });
   }
 
   /**

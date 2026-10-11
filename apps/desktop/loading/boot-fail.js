@@ -261,6 +261,88 @@ export function failView(info) {
     footer,
     // 報告にそのまま貼れる形。版と OS、種類、詳細の順に置く。
     copyText: [...(footer ? [footer] : []), kind, ...(detail ? ['', detail] : [])].join('\n'),
+    // 動いている版。札の中の更新の文（updateView）に使う。
+    current: version,
     labels: { whatNext: L.whatNext, details: L.details, detailsToggle: L.detailsToggle, logAt: L.logAt(join('desktop.log')), copyAll: L.copyAll, copyCommand: L.copyCommand, copied: L.copied, tryAgain: row.tryAgain ?? L.tryAgain, openLog: L.openLog },
   };
+}
+
+// 札の中の更新の文。起動に失敗する版を入れた人が、UI まで届かなくても新しいバージョンを受け取れるようにする。
+// 語は UI の辞書（packages/shared の update.*）と同じものを使う（boot-fail.test.ts が突き合わせる）。
+const UPDATE = {
+  ja: {
+    check: '更新を確認',
+    checking: '確認中…',
+    latest: '最新',
+    availableTitle: (v) => `Hangar ${v} を利用できます`,
+    availableDetail: (cur) => `現在は ${cur} です。`,
+    mayFix: '新しいバージョンで直っていることがあります。',
+    download: 'ダウンロードしてインストール',
+    downloadingTitle: (v) => `Hangar ${v}`,
+    percent: (n) => `${n}%`,
+    downloadingUnknown: 'ダウンロードしています…',
+    progressLabel: 'ダウンロードの進み具合',
+    installing: 'インストールしています…終わると再起動します。',
+    failedCheck: '更新を確認できませんでした',
+    failedDownload: 'ダウンロードできませんでした',
+    failedInstall: 'インストールできませんでした',
+    failedDetail: (cur, reason) => `いまのバージョン ${cur} は変わりません。${reason}`,
+    reason: { network: 'ネットワークか配布元に接続できませんでした。', signature: '署名を確認できませんでした。', permission: 'インストールの許可が得られませんでした。', other: '詳しくはログを確認してください。' },
+  },
+  en: {
+    check: 'Check for updates',
+    checking: 'Checking…',
+    latest: 'Up to date',
+    availableTitle: (v) => `Hangar ${v} is available`,
+    availableDetail: (cur) => `You have ${cur}.`,
+    mayFix: ' The new version may fix this.',
+    download: 'Download and install',
+    downloadingTitle: (v) => `Hangar ${v}`,
+    percent: (n) => `${n}%`,
+    downloadingUnknown: 'Downloading…',
+    progressLabel: 'Download progress',
+    installing: 'Installing… Hangar restarts when it finishes.',
+    failedCheck: "Couldn't check for updates",
+    failedDownload: "Couldn't download the update",
+    failedInstall: "Couldn't install the update",
+    failedDetail: (cur, reason) => `You're still on ${cur}. ${reason}`,
+    reason: { network: "Couldn't reach the network or the download server.", signature: "The signature couldn't be verified.", permission: 'Permission to install was not granted.', other: 'See the log for details.' },
+  },
+};
+
+/**
+ * 札の中の更新の見せ方。u は頁が持つ更新の様子で、phase は次のどれか。
+ * idle（まだ確かめていない）、checking（確かめている）、latest（新しいバージョンが無い）、available（version がある）、
+ * downloading（version、done、total）、installing（version）、failed（step は check、download、install のどれか。reason は殻の分けた 4 つ）。
+ * 返すのは、下端の「更新を確認」の釦（check）、版の横の添え書き（note）、札の中の帯（band）、「もう一度試す」を主の釦から外すか（demote）。
+ * 帯が主の釦を持つ間（ダウンロードしてインストール）は、主の釦を 2 つにしないよう「もう一度試す」を外す。
+ * kind は札の種類。Node が無いときは新しいバージョンを入れても Node は入らないので、直るとは言わない。
+ */
+export function updateView(lang, u, current, kind) {
+  const L = UPDATE[LANGS.includes(lang) ? lang : LANGS[0]];
+  const cur = text(current, '?') || '?';
+  const reason = (r) => L.reason[Object.hasOwn(L.reason, r) ? r : 'other'];
+  const idle = { hidden: false, disabled: false, label: L.check };
+  const away = { hidden: true, disabled: true, label: L.check };
+  const band = (b) => ({ tone: 'info', detail: '', action: null, progress: null, progressLabel: L.progressLabel, ...b });
+  switch (u?.phase) {
+    case 'checking':
+      return { check: { hidden: false, disabled: true, label: L.checking }, note: null, band: null, demote: false };
+    case 'latest':
+      return { check: away, note: L.latest, band: null, demote: false };
+    case 'available':
+      return { check: away, note: null, band: band({ title: L.availableTitle(u.version), detail: L.availableDetail(cur) + (kind === 'node-missing' ? '' : L.mayFix), action: L.download }), demote: true };
+    case 'downloading': {
+      const known = typeof u.total === 'number' && u.total > 0;
+      const ratio = known ? Math.min(1, Math.max(0, u.done / u.total)) : null;
+      return { check: away, note: null, band: band({ title: L.downloadingTitle(u.version), detail: known ? L.percent(Math.round(ratio * 100)) : L.downloadingUnknown, progress: ratio }), demote: true };
+    }
+    case 'installing':
+      return { check: away, note: null, band: band({ title: L.downloadingTitle(u.version), detail: L.installing }), demote: true };
+    case 'failed':
+      if (u.step === 'check') return { check: idle, note: null, band: band({ tone: 'error', title: L.failedCheck, detail: reason(u.reason) }), demote: false };
+      return { check: away, note: null, band: band({ tone: 'error', title: u.step === 'install' ? L.failedInstall : L.failedDownload, detail: L.failedDetail(cur, reason(u.reason)), action: L.download }), demote: true };
+    default:
+      return { check: idle, note: null, band: null, demote: false };
+  }
 }
