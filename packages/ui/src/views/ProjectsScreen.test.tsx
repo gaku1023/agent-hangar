@@ -58,8 +58,8 @@ describe('ProjectsScreen の表', () => {
     expect(container.querySelector('.card')).toBeNull();
   });
   it('「いま」は種類ごとに色の印を持ち、語に数を付ける', () => {
-    const { container } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [{ kind: 'waiting', text: '入力待ち 1' }, { kind: 'running', text: '実行中 2' }, { kind: 'pending', text: '確認待ち 1' }, { kind: 'todo', text: 'TODO 3' }, { kind: 'reminder', text: 'リマインダー 9/4（金）' }] })] }] }));
-    for (const [text, kind] of [['入力待ち 1', 'waiting'], ['実行中 2', 'running'], ['確認待ち 1', 'pending'], ['TODO 3', 'todo'], ['リマインダー 9/4（金）', 'reminder']]) expect(within(container.querySelector<HTMLElement>('.pcounts')!).getByText(text!)).toHaveAttribute('data-kind', kind);
+    const { container } = mount(props({ sections: [{ status: 'active', label: 'Active', rows: [row('alpha', { now: [{ kind: 'waiting', text: '入力待ち 1' }, { kind: 'running', text: '実行中 2' }, { kind: 'pending', text: '確認待ち 1' }, { kind: 'suggested', text: '提案 2' }, { kind: 'todo', text: 'TODO 3' }, { kind: 'reminder', text: 'リマインダー 9/4（金）' }] })] }] }));
+    for (const [text, kind] of [['入力待ち 1', 'waiting'], ['実行中 2', 'running'], ['確認待ち 1', 'pending'], ['提案 2', 'suggested'], ['TODO 3', 'todo'], ['リマインダー 9/4（金）', 'reminder']]) expect(within(container.querySelector<HTMLElement>('.pcounts')!).getByText(text!)).toHaveAttribute('data-kind', kind);
   });
 });
 

@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { useEmit } from '../action/chain.tsx';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
 import { LeadCard } from './LeadCard.tsx';
-import { NowStrip } from './NowStrip.tsx';
+import { NoteChip, NowCard } from './NowCard.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { SessionBadges } from './SessionBadges.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
@@ -32,9 +32,11 @@ const ACTION_ICON: Record<SessionActionId, IconName> = {
 /**
  * セッション画面（設計は docs/superpowers/specs/2026-10-09-stage4-screens-design.md の 2.3、試作は 2026-10-09-session-screen/options.html の C）。
  * 上から、見出しの段（点、名前、ロックの札、要約の 1 文、主の操作、「…」、(i)）、実行中ならタブの列、そして残りの高さを全部使う本体を置く。
- * 本体は左に主役（実行中は現在の帯とターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト）、右に目次だけの 240px を置く。
- * 実行中も終わった後も、右には同じ目次が同じ場所にある。⌘J で開閉でき、閉じるとタブの列（終わった後は切り替えの行）の「目次 N」の札になる。
- * 窓が狭いとき（useNarrow）は、目次の列を持たず、札を押すと目次が上に重なって開く。
+ * 本体は左に主役（実行中はターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト）、右に 240px の列を置く。
+ * 実行中は、右の列の上に現在の札（NowCard）、その下に目次を積む。終わった後は目次だけである。
+ * 目次は ⌘J で開閉でき、閉じるとタブの列（終わった後は切り替えの行）の「目次 N」の札になる。
+ * 実行中に目次を閉じても、現在の札は右の列に残る（2026-10-11 の試作の E1）。列ごと畳むのは札の無い画面だけである。
+ * 窓が狭いとき（useNarrow）は、目次の列を持たず、札を押すと目次が上に重なって開く。現在の札は狭い窓でも右の列に残す。
  */
 export function SessionScreen(props: SessionProps) {
   const emit = useEmit();
@@ -45,6 +47,8 @@ export function SessionScreen(props: SessionProps) {
   const narrow = useNarrow();
   const [drawer, setDrawer] = useState(false);
   const tocOpen = narrow ? drawer : props.transcriptOpen;
+  // 現在の札は生きた run があるときだけ。札がある間は右の列を畳まないので、目次の開閉で列の幅を動かさない。
+  const hasCard = props.strip !== null && props.run?.alive === true;
   // ⌘J（transcript.toggle）は、狭い窓では上乗せの開閉にする。セッションが替わった描画は切り替えなので、開閉とは見なさない。
   const seen = useRef({ id: props.id, open: props.transcriptOpen });
   useEffect(() => {
@@ -58,12 +62,12 @@ export function SessionScreen(props: SessionProps) {
   // 最後に描き終えたセッションを覚えておき、替わった描画では開く動きも閉じる動きも出さない。
   const boxRef = useRef<HTMLDivElement>(null);
   const paneSession = useRef(props.id);
-  const pane = usePresence<HTMLElement>(tocOpen, (inner) => (!narrow && paneSession.current === props.id && boxRef.current ? playPaneMotion(boxRef.current, PANE_SHAPE.toc.open, inner, false) : null));
+  const pane = usePresence<HTMLElement>(tocOpen, (inner) => (!narrow && !hasCard && paneSession.current === props.id && boxRef.current ? playPaneMotion(boxRef.current, PANE_SHAPE.toc.open, inner, false) : null));
   const paneFirst = useRef(true);
   useLayoutEffect(() => {
     if (paneFirst.current) { paneFirst.current = false; return; }
     if (paneSession.current !== props.id) return;
-    if (!narrow && tocOpen && boxRef.current) void playPaneMotion(boxRef.current, PANE_SHAPE.toc.closed, pane.ref.current, true);
+    if (!narrow && !hasCard && tocOpen && boxRef.current) void playPaneMotion(boxRef.current, PANE_SHAPE.toc.closed, pane.ref.current, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tocOpen]);
   // 上の 2 つ（usePresence の中のものも含む）が今の描画を見終えてから、描き終えたセッションを書き換える。
@@ -109,6 +113,8 @@ export function SessionScreen(props: SessionProps) {
     <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
+      {/* 実行中のノートは見出しの札（終わった後は冒頭の 1 枚の中）。 */}
+      {hasCard && props.strip && <NoteChip sessionId={id} text={props.strip.note.text} filled={props.strip.note.filled} />}
       {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
       <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
         aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>
@@ -120,13 +126,13 @@ export function SessionScreen(props: SessionProps) {
     </PageHeading>
   );
 
-  // 目次の数。古いターンが残っていれば + を添える。
-  const tocCount = `${props.turnRows.length}${props.hasMore ? '+' : ''}`;
+  // 目次の数。見出しと同じ数（props.turnCount）で、届くまでは数を添えない。
+  const tocCount = props.turnCount ? `${props.turnCount.n}${props.turnCount.plus ? '+' : ''}` : null;
   const toggleToc = () => (narrow ? setDrawer((d) => !d) : emit({ type: 'transcript.toggle' }));
   // 閉じている間は、タブの列（終わった後は切り替えの行）の右端に「目次 N」の札を置く。開いている間は目次の見出しの行の TocToggle を使う。
   const opener = (
     <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} title={t('session.toc.shortcut', { keys: shortcutHint(t, 'transcript.toggle', '⌘J') })} onClick={toggleToc}>
-      <Icon name="paneOpen" /><span>{t('session.toc.opener', { n: tocCount })}</span>{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
+      <Icon name="paneOpen" /><span>{tocCount === null ? t('session.toc.label') : t('session.toc.opener', { n: tocCount })}</span>{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
     </button>
   );
   // 目次だけの右パネル。実行中も終わった後も同じ場所に同じもの（TurnIndex）を置く。
@@ -135,13 +141,14 @@ export function SessionScreen(props: SessionProps) {
       {pane.mounted && (
         <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
           <TocPane>
-            <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loading} pending={props.turnsPending} remaining={Math.max(props.total - props.loaded, 0)} agentId={props.agentId} lead={<TocToggle open onToggle={toggleToc} />} />
+            <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} lead={<TocToggle open onToggle={toggleToc} />} />
           </TocPane>
         </div>
       )}
     </div>
   );
-  const bodyStyle = narrow ? undefined : { gridTemplateColumns: tocOpen ? PANE_SHAPE.toc.open.cols : PANE_SHAPE.toc.closed.cols, columnGap: tocOpen ? undefined : PANE_SHAPE.toc.closed.gap };
+  const colOpen = tocOpen || hasCard;
+  const bodyStyle = narrow ? undefined : { gridTemplateColumns: colOpen ? PANE_SHAPE.toc.open.cols : PANE_SHAPE.toc.closed.cols, columnGap: colOpen ? undefined : PANE_SHAPE.toc.closed.gap };
 
   // 本文が消えた会話は、会話の欄も目次も持たない。
   // 残っている冒頭の 1 枚（要約、ノートなど）だけを見せる。
@@ -178,12 +185,10 @@ export function SessionScreen(props: SessionProps) {
         {/* 右は会話の全文ではなくターンの目次にする。
             全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
             .c-body は縦の flex で窓の残りの高さを全部受け取る（session.css）。 */}
-        <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} style={bodyStyle}>
-          <div className="c-main">
-            {props.strip && <NowStrip sessionId={id} {...props.strip} />}
-            {terminals}
-          </div>
-          {toc}
+        <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} data-card={hasCard ? 'true' : undefined} style={bodyStyle}>
+          <div className="c-main">{terminals}</div>
+          {/* 現在の札はタブにもターミナルにもくっつけず、右の列の上に置く（中身はセッションのもので、タブを替えても変わらない）。 */}
+          {hasCard && props.strip ? <div className="c-side"><NowCard sessionId={id} {...props.strip} />{toc}</div> : toc}
         </div>
       </div>
     );

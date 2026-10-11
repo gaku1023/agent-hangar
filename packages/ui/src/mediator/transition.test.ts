@@ -715,6 +715,24 @@ describe('入力待ちの知らせ', () => {
     expect(a.state.waitingToasts).toEqual([]);
     expect(a.effects).toEqual([]);
   });
+  // 問いで待っている最中に Done や Archived にしても、Claude の一覧の live は waiting のまま残る（休みではないので止まらない）。
+  // 区切りを付けたものは入力待ちの知らせの顔ぶれから外す（設計書の「入力待ちの知らせ」と通知の顔ぶれ）。
+  const marked = (store: Store, id: string, status: 'paused' | 'done' | 'archived'): Store =>
+    ({ ...store, sessions: { ...store.sessions, [id]: { ...store.sessions[id]!, state: { status, note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: 9, candidate: null } } } });
+  it('入力待ちのセッションを Done や Archived にしたら、live が waiting のままでもカードを下げ、数え直す', () => {
+    const a = run([waiting('s1', 's2', 's3')]);
+    const done = marked(marked(waitingStore('s1', 's2', 's3'), 's1', 'done'), 's3', 'archived');
+    const b = run([{ store: done }], a.state);
+    expect(b.state.waitingToasts).toEqual(['s2']);
+    expect(b.state.waitingSeen).toEqual(['s2']);
+    expect(b.effects).toContainEqual({ kind: 'badge', count: 1 });
+  });
+  it('Done や Archived のセッションが入力待ちになっても、カードにも通知にもしない。Paused は今までどおり知らせる', () => {
+    const store = marked(marked(waitingStore('s1', 's2', 's3'), 's1', 'done'), 's2', 'archived');
+    const a = run([{ store: marked(store, 's3', 'paused') }]);
+    expect(a.state.waitingToasts).toEqual(['s3']);
+    expect(a.effects.filter((e) => (e as { kind: string }).kind === 'notify.waiting')).toEqual([{ kind: 'notify.waiting', sessionId: 's3' }]);
+  });
 
   // 開き直す前に知らせた入力待ちは、開き直しても知らせ直さない。
   // 入力待ちの 1 回ごとの鍵（セッションの id と最後の動きの時刻）を localStorage に残し、起動のときに waitingCarried へ読み戻す。

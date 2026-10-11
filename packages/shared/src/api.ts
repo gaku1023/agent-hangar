@@ -174,8 +174,13 @@ export type ReadinessDto = {
 export type MuxRecheckDto = { readiness: ReadinessDto; settings: SettingsDto };
 /** 完了の候補。sessionId はセッション別でない MCP の URL から出たとき null、note は根拠が無いとき null。 */
 export type TodoCandidateDto = { sessionId: string | null; note: string | null; at: number };
-/** candidate は完了の候補で、候補でなければ null。完了の行では必ず null である（サーバが読むときにそろえる）。 */
-export type TodoDto = { id: string; projectId: string; text: string; done: boolean; position: number; sessionId: string | null; updatedAt: number; candidate: TodoCandidateDto | null };
+/** Claude が足した TODO の提案。利用者が受け入れるまで一覧の外（「Claude の提案」の節）に置く。出したセッションは TodoDto の sessionId、note は理由が無いとき null。 */
+export type TodoSuggestionDto = { note: string | null; at: number };
+/**
+ * candidate は完了の候補で、候補でなければ null。完了の行では必ず null である（サーバが読むときにそろえる）。
+ * suggestion は Claude が足して、まだ受け入れていない提案で、受け入れた行では null である。提案の行は未完の数に入れない。
+ */
+export type TodoDto = { id: string; projectId: string; text: string; done: boolean; position: number; sessionId: string | null; updatedAt: number; candidate: TodoCandidateDto | null; suggestion: TodoSuggestionDto | null };
 export type MemoDto = { projectId: string; markdown: string; updatedAt: number };
 /**
  * Claude Code が起動時に読む指示とメモリのファイルの種類（右パネルの「指示とメモリ」）。

@@ -5,9 +5,31 @@ import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateCardProps } from '../presenters/update.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { collapseOut, slideAway } from './primitives/motionKit.ts';
+import { useMotionList } from './primitives/useMotionList.ts';
 
 /** info のトーストが出ている時間。 */
 export const INFO_TOAST_MS = 4000;
+
+/** 札が出るときに右へ抜ける距離（px）。ガラスの面が横から入る距離（base.css の glass-arrive-side）と同じ値にする。 */
+const EXIT_DX = 28;
+
+/** 出る形（⑨ の b）。右へ抜けて薄れ、そのあと高さだけを畳む。抜ける途中で戻ったら、畳みは始めない。 */
+async function exitCard(el: HTMLElement): Promise<void> {
+  if (await slideAway(el, EXIT_DX)) await collapseOut(el, 'y', { fade: false });
+}
+
+/** 入りは CSS の slide のまま（JS では動かさない）。最後の 1 枚が消えるのもふつうの出来事なので、空になる描画でも出す形で残す。 */
+const CARD_MOTION = { enter: 'none', flip: false, exit: exitCard, exitWhenEmpty: true } as const;
+
+/** 出る間の札の印。見た目だけを残し、役も、焦点も、読み上げも持たせない。 */
+type CardMotion = { ref: (el: HTMLElement | null) => void; leaving: boolean };
+const motionAttrs = (m: CardMotion) => ({ ref: m.ref, 'aria-hidden': m.leaving ? true : undefined, inert: m.leaving || undefined });
+
+type TopCard = { kind: 'toast'; toast: Toast } | { kind: 'update'; card: UpdateCardProps } | { kind: 'arrived'; count: number };
+type WaitingItem = { kind: 'more'; n: number } | { kind: 'waiting'; card: WaitingCardProps };
+const topKey = (c: TopCard) => (c.kind === 'toast' ? `toast:${c.toast.id}` : c.kind);
+const waitingKey = (c: WaitingItem) => (c.kind === 'more' ? 'more' : `waiting:${c.card.sessionId}`);
 
 /**
  * 画面右下に積む知らせ。
@@ -16,19 +38,39 @@ export const INFO_TOAST_MS = 4000;
  * 入力待ちのカードは新しいものほど下（窓の角に近い側）に来る。
  * どの札も、種類の色を敷いた見出しと、その下の本文の 2 段でできている。
  * 時間で消すのは info だけで、時間切れはトーストごとに持つ。
+ * 札は右から滑って入り（CSS の slide）、出るときは右へ抜けて薄れてから高さを畳む（useMotionList の exit）。ほかの札は押されて詰まる。
+ * 出る間の札は前の中身のまま描き、役も焦点も持たない。
  */
 export function ToastStack(props: ToastsProps) {
   const emit = useEmit();
   const t = useT();
+  const tops: TopCard[] = [
+    ...props.toasts.map((toast) => ({ kind: 'toast' as const, toast })),
+    ...(props.update ? [{ kind: 'update' as const, card: props.update }] : []),
+    ...(props.arrived ? [{ kind: 'arrived' as const, count: props.arrived.count }] : []),
+  ];
+  const waits: WaitingItem[] = [
+    ...(props.more > 0 ? [{ kind: 'more' as const, n: props.more }] : []),
+    ...props.waiting.map((card) => ({ kind: 'waiting' as const, card })),
+  ];
+  const top = useMotionList(tops, topKey, CARD_MOTION);
+  const wait = useMotionList(waits, waitingKey, CARD_MOTION);
   return (
     <div className="toasts">
-      {props.toasts.map((toast) => (toast.level === 'error' ? <ErrorToast key={toast.id} toast={toast} /> : <InfoToast key={toast.id} toast={toast} />))}
-      {props.update && <UpdateCard card={props.update} />}
-      {props.arrived && <ArrivedCard count={props.arrived.count} blocked={props.blocked} />}
+      {top.list.map(({ item, key, leaving }) => {
+        const m = { ref: top.ref(key), leaving };
+        if (item.kind === 'toast') return item.toast.level === 'error' ? <ErrorToast key={key} toast={item.toast} motion={m} /> : <InfoToast key={key} toast={item.toast} motion={m} />;
+        if (item.kind === 'update') return <UpdateCard key={key} card={item.card} motion={m} />;
+        return <ArrivedCard key={key} count={item.count} blocked={props.blocked} motion={m} />;
+      })}
       {/* 新しく積まれたカードを読み上げに届ける。 */}
       <div className="toast-waiting-list" aria-live="polite">
-        {props.more > 0 && <button type="button" className="toast toast-pill toast-more" disabled={props.blocked} onClick={() => emit({ type: 'nav.go', to: { name: 'home' } })}>{t('toasts.more.view', { n: props.more })}</button>}
-        {props.waiting.map((c) => <WaitingCard key={c.sessionId} card={c} blocked={props.blocked} />)}
+        {wait.list.map(({ item, key, leaving }) => {
+          const m = { ref: wait.ref(key), leaving };
+          return item.kind === 'more'
+            ? <button key={key} type="button" className="toast toast-pill toast-more" disabled={props.blocked} {...motionAttrs(m)} onClick={() => emit({ type: 'nav.go', to: { name: 'home' } })}>{t('toasts.more.view', { n: item.n })}</button>
+            : <WaitingCard key={key} card={item.card} blocked={props.blocked} motion={m} />;
+        })}
       </div>
     </div>
   );
@@ -42,13 +84,13 @@ export function ToastStack(props: ToastsProps) {
  * 確認や入力のあるダイアログが開いている間（blocked）は押せない。
  * 押してもダイアログの裏で画面は移らないので、押せるように見せず、理由は乗せたときの説明に出す。
  */
-function WaitingCard(props: { card: WaitingCardProps; blocked: boolean }) {
+function WaitingCard(props: { card: WaitingCardProps; blocked: boolean; motion: CardMotion }) {
   const emit = useEmit();
   const t = useT();
   const c = props.card;
   const label = c.question === null ? t('toasts.waiting.label', { name: c.name }) : t('toasts.waiting.labelQuestion', { name: c.name, question: c.question });
   return (
-    <button type="button" className="toast notice" data-kind="waiting" aria-label={label} disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' })}>
+    <button type="button" className="toast notice" data-kind="waiting" aria-label={label} {...motionAttrs(props.motion)} disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' })}>
       <span className="notice-head">
         <span className="notice-dot" aria-hidden="true" />
         <span className="notice-label">{t('toasts.waiting.head')}</span>
@@ -67,11 +109,11 @@ function WaitingCard(props: { card: WaitingCardProps; blocked: boolean }) {
  * 「プロジェクトで見る」はプロジェクトの一覧へ移る。そこで、各行の「この PC にパスがありません」の札から場所を再指定できる。
  * 確認や入力のあるダイアログが開いている間（blocked）は、画面を移せないので「プロジェクトで見る」を押せない。
  */
-function ArrivedCard(props: { count: number; blocked: boolean }) {
+function ArrivedCard(props: { count: number; blocked: boolean; motion: CardMotion }) {
   const emit = useEmit();
   const t = useT();
   return (
-    <div className="toast notice" data-kind="arrived" role="status">
+    <div className="toast notice" data-kind="arrived" role="status" {...motionAttrs(props.motion)}>
       <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('projects.arrived.label')}</span></div>
       <div className="notice-body">
         <div className="notice-message">{t('projects.arrived.message', { n: props.count })}</div>
@@ -89,12 +131,12 @@ function ArrivedCard(props: { count: number; blocked: boolean }) {
  * 時間では消えず、「あとで」か「閉じる」で下げる（その版の札は 2 度出さない）。取得中とインストール中は操作を持たない。
  * 画面を移さないので、ダイアログが開いていても押せる。
  */
-function UpdateCard(props: { card: UpdateCardProps }) {
+function UpdateCard(props: { card: UpdateCardProps; motion: CardMotion }) {
   const emit = useEmit();
   const t = useT();
   const c = props.card;
   return (
-    <div className="toast notice" data-kind="update" data-tone={c.tone} role="status">
+    <div className="toast notice" data-kind="update" data-tone={c.tone} role="status" {...motionAttrs(props.motion)}>
       <div className="notice-head">
         <Icon name={c.tone === 'err' ? 'alert' : c.tone === 'ok' ? 'check' : 'download'} />
         <span className="notice-label">{c.head}</span>
@@ -144,13 +186,13 @@ function useAutoDismiss(ms: number, onDone: () => void) {
  * info のトースト。
  * 時間で消え、押しても消せる。長さは既定が INFO_TOAST_MS で、holdMs を持つものはその長さである。
  */
-function InfoToast(props: { toast: Toast }) {
+function InfoToast(props: { toast: Toast; motion: CardMotion }) {
   const emit = useEmit();
   const t = useT();
   const dismiss = () => emit({ type: 'toast.dismiss', id: props.toast.id });
   const pause = useAutoDismiss(props.toast.holdMs ?? INFO_TOAST_MS, dismiss);
   return (
-    <div className="toast notice" data-kind="info" role="status" onClick={dismiss} {...pause}>
+    <div className="toast notice" data-kind="info" role="status" {...motionAttrs(props.motion)} onClick={dismiss} {...pause}>
       <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('toasts.info.head')}</span></div>
       <div className="notice-body"><div className="notice-message">{props.toast.message}</div></div>
     </div>
@@ -162,7 +204,7 @@ function InfoToast(props: { toast: Toast }) {
  * 読み落とさないよう時間では消さず、閉じるボタンで消す。
  * 本文は 2 行まで見せ、収まらないときだけ「詳しく」で開く。
  */
-function ErrorToast(props: { toast: Toast }) {
+function ErrorToast(props: { toast: Toast; motion: CardMotion }) {
   const emit = useEmit();
   const t = useT();
   const message = useRef<HTMLDivElement>(null);
@@ -174,7 +216,7 @@ function ErrorToast(props: { toast: Toast }) {
     if (el) setLong(el.scrollHeight > el.clientHeight + 1);
   }, [props.toast.message]);
   return (
-    <div className="toast notice" data-kind="error" role="alert" data-open={open ? 'true' : undefined}>
+    <div className="toast notice" data-kind="error" role="alert" data-open={open ? 'true' : undefined} {...motionAttrs(props.motion)}>
       <div className="notice-head">
         <Icon name="alert" />
         <span className="notice-label">{t('toasts.error.head')}</span>

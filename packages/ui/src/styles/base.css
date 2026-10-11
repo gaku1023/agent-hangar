@@ -351,7 +351,10 @@ a:hover { text-decoration: underline; }
 @keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 /* 右下に積む知らせ。
    上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */
-.toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); z-index: 20; max-width: calc(100vw - var(--u) * 8); }
+/* 札の間は gap ではなく、札ごとの上の余白で空ける。出る札は自分の余白ごと畳むので、外れた瞬間に間が跳ばない（ToastStack.tsx）。
+   いちばん上の札の上にも余白が付くが、窓の下端に寄せた積みなので見えない。 */
+.toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; z-index: 20; max-width: calc(100vw - var(--u) * 8); }
+.toasts > .toast, .toast-waiting-list > .toast { margin-top: calc(var(--u) * 2); }
 .toast { max-width: 420px; background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; text-align: left; }
 /* 知らせの札。種類の色（--k）を薄く敷いた見出しと、その下の本文の 2 段でできている。
    入力待ちは茶、error は赤、info は青で、色が近い入力待ちと error は見出しのラベルと印でも見分ける。 */
@@ -398,7 +401,7 @@ a:hover { text-decoration: underline; }
 .notice-message { font-size: var(--fs); line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .notice[data-open='true'] .notice-message { display: block; }
 .btn-link.notice-more { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 600; color: var(--error); }
-.toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); }
+.toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; }
 .toast-waiting-list:empty { display: none; }
 /* 小さな錠剤。4 件目からの数（ホームの要対応へ案内する）に使う。 */
 .toast.toast-pill { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 3px calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); color: var(--ink-2); }
@@ -514,8 +517,8 @@ a:hover { text-decoration: underline; }
 .term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
 @keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
 @media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
-/* 耳の下の板は、左上だけを角張らせて耳とつなぐ。耳の直下は現在の帯（なければターミナル）で、分割しているときは左の板をつなぐ。 */
-.tabs + .c-body > .c-main > :first-child:is(.term-pane, .now-strip), .tabs + .c-body > .c-main > .split-h:first-child > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
+/* 耳の下の板は、左上だけを角張らせて耳とつなぐ。耳の直下はターミナルで、分割しているときは左の板をつなぐ（現在の札は右の列にあり、耳にはつながない）。 */
+.tabs + .c-body > .c-main > :first-child.term-pane, .tabs + .c-body > .c-main > .split-h:first-child > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
 /* 初めてつなぐときは、最初のデータが届くまで面を透明にし、届いたら --dur で現す（設計書 ⑨）。一度描いたタブは付け替えても透明にしない。 */
 .term-host { flex: 1; min-height: 0; padding: var(--u); transition: opacity var(--dur) var(--ease-out); }
 .term-host[data-painted='false'] { opacity: 0; }

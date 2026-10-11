@@ -3,6 +3,7 @@ import type { PagerProps } from '../presenters/pager.ts';
 import { isComposing } from './ime.ts';
 import { useT } from './primitives/language.tsx';
 import { Listbox } from './primitives/Listbox.tsx';
+import { useThumb } from './primitives/useThumb.ts';
 
 /** 件数は桁を区切る（タブの件数と同じ書き方）。 */
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -27,12 +28,14 @@ export function pageButtons(page: number, count: number): (number | '…')[] {
 /**
  * 一覧の下に貼るページ送りの帯（A4）。左に範囲と全件、中ほどに番号、右にページの番号の入力と 1 ページの件数を置く。
  * label は何のページかを読み上げに添える語（「セッション」「最近」など）。
+ * いまのページの塗りは番号の下に 1 つだけ敷き、ページを移ると塗りが番号の間を滑る（Segmented と同じ useThumb）。一覧の中身はいきなり替える。
  */
 export function Pager(props: { label: string; pager: PagerProps; onPage: (page: number) => void; onSize: (size: number) => void }) {
   const t = useT();
   const { page, pageCount, size, sizes, from, to, total } = props.pager;
   // 打っている途中の番号。ページが変わったら打ち直しは捨てる。
   const [draft, setDraft] = useState<{ page: number; text: string } | null>(null);
+  const { box, thumb, ready } = useThumb<HTMLSpanElement>('[aria-current="page"]', [page, pageCount], { block: true });
   const text = draft && draft.page === page ? draft.text : String(page);
   const go = (n: number) => { if (n >= 1 && n <= pageCount && n !== page) props.onPage(n); };
   const jump = () => {
@@ -48,7 +51,8 @@ export function Pager(props: { label: string; pager: PagerProps; onPage: (page: 
   return (
     <nav className="pager" aria-label={t('pager.nav.label', { label: props.label })}>
       <span className="pager-range num"><b>{`${fmt(from)}–${fmt(to)}`}</b> {t('pager.range.total', { total: fmt(total) })}</span>
-      <span className="pager-nums">
+      <span ref={box} className="pager-nums" data-ready={ready ? 'true' : undefined}>
+        <span ref={thumb} className="pager-thumb" aria-hidden="true" />
         <button type="button" className="pager-btn" aria-label={t('pager.nav.prev')} disabled={page <= 1} onClick={() => go(page - 1)}>‹</button>
         {pageButtons(page, pageCount).map((n, i) => (n === '…'
           ? <span key={`gap${i}`} className="pager-gap" aria-hidden="true">…</span>

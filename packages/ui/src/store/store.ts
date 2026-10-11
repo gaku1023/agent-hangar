@@ -1,4 +1,4 @@
-import { liveFilterOf, type LiveFilter } from '@agent-hangar/shared';
+import { liveFilterOf, quietLive, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, InstructionsDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
@@ -9,7 +9,11 @@ import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDt
  * 検索の結果から真ん中の頁だけを読んで開いたときに、後ろを読み足すのに使う。
  * olderDone は、過去へ遡って空の頁が返った（もう古い行が無い）ことを表す。
  */
-export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean; olderDone?: boolean };
+/**
+ * loading は読んでいる最中の全部（追記も含む）。
+ * loadingOlder は、利用者が「古いターンを読み込む」を押した読み込みだけ。追記の読み込みでは立てない（目次のボタンと数を動かさないため）。
+ */
+export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: number | null; loading: boolean; loadingOlder?: boolean; olderDone?: boolean };
 /**
  * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
  * blocked はデスクトップのシステム設定で切られていること。
@@ -158,6 +162,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'retention.changed': return { ...store, retention: ev.retention };
+    case 'settings.changed': return { ...store, settings: ev.settings };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
     // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。
     case 'summary.updated': {
@@ -198,9 +203,9 @@ export function accountOfSession(store: Store, sessionId: string): AccountDto | 
 /** アカウントが 2 件以上あるか。1 件以下のうちは、画面にアカウントの印を出さない。 */
 export const hasMultipleAccounts = (store: Store): boolean => accountList(store).length >= 2;
 
-export function setEventsLoading(store: Store, key: string, loading: boolean): Store {
+export function setEventsLoading(store: Store, key: string, loading: boolean, older = false): Store {
   const cur = store.events[key] ?? { items: [], total: 0, nextSeq: null, loading: false };
-  return { ...store, events: { ...store.events, [key]: { ...cur, loading } } };
+  return { ...store, events: { ...store.events, [key]: { ...cur, loading, loadingOlder: loading && older } } };
 }
 
 /**
@@ -214,7 +219,7 @@ export function applyEventsPage(store: Store, key: string, page: EventsPageDto, 
   const items = [...base, ...page.events.filter((e) => !seen.has(e.seq))];
   const nextSeq = older && cur ? cur.nextSeq : page.nextSeq;
   const olderDone = older ? page.events.length === 0 || cur?.olderDone === true : append ? cur?.olderDone === true : false;
-  return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq, loading: false, olderDone } } };
+  return { ...store, events: { ...store.events, [key]: { items, total: page.total, nextSeq, loading: false, loadingOlder: false, olderDone } } };
 }
 
 export function applySearch(store: Store, params: SearchParamsDto, result: SearchResultDto | null, loading: boolean): Store {
@@ -272,15 +277,16 @@ export function runningSessionIds(store: Store): Set<string> {
  * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
  */
 export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
-  return liveFilterOf(session.live, alive.has(session.id), session.parked);
+  return liveFilterOf(quietLive(session.live, session.state?.status), alive.has(session.id), session.parked);
 }
 
 /**
  * 一覧で見せる動き。区切りを付けて休みのまま残っているもの（parked）は、終わったものと同じに見せる。
+ * Done と Archived にした入力待ちは、入力待ちの印を付けないよう休みに見せる（shared の quietLive）。
  * セッション画面は本当の動き（session.live）を出すので、これを使わない。
  */
 export function shownLive(session: SessionDto): LiveStatus | null {
-  return session.parked ? null : session.live;
+  return session.parked ? null : quietLive(session.live, session.state?.status);
 }
 
 /** 本体は入力を受け付けていて、裏の作業だけが動いているか（lib/aside.ts の asideOf）。一覧の見せ方は shownLive にそろえる。 */
@@ -322,13 +328,24 @@ export function liveSessionIds(store: Store): string[] {
 }
 
 /**
+ * 答えを待っているとして知らせるセッションか。
+ * 数え方は liveFilterOfSession と同じ（shared の quietLive を通した liveFilterOf）。
+ * Done と Archived にしたものは、live が waiting のままでも外す。
+ * 問いで待っている最中に区切りを付けても Claude は止まらず（休みではないので）、一覧の live は waiting のまま残るが、利用者はもう答えないと決めているからである。
+ * Paused は戻ってくるものなので外さない。
+ */
+export function awaitsAnswer(s: SessionDto): boolean {
+  return liveFilterOf(quietLive(s.live, s.state?.status), false) === 'waiting';
+}
+
+/**
  * 入力待ちのセッションの id。
- * 数え方は liveFilterOf に従い、Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べる。
+ * 数え方は awaitsAnswer に従い、Home の要対応の札と同じ順（最後の活動が古い、つまり長く待っている順）に並べる。
  * 時刻の無いものは後ろに置き、時刻が同じものは id の順にして、並びが揺れないようにする。
  */
 export function waitingSessionIds(store: Store): string[] {
   const at = (s: SessionDto) => s.lastActivityAt ?? Number.POSITIVE_INFINITY;
-  return Object.values(store.sessions).filter((s) => liveFilterOf(s.live, false) === 'waiting')
+  return Object.values(store.sessions).filter(awaitsAnswer)
     .sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? -1 : 1) || a.id.localeCompare(b.id))
     .map((s) => s.id);
 }

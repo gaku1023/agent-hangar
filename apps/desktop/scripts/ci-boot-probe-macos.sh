@@ -74,6 +74,8 @@ ditto "$app" "$work/Hangar.app" || exit 1
 mkdir -p "$work/home" "$work/hangar-home"
 printf '{ "nodePath": "%s" }\n' "$work/no-such-node" >"$work/hangar-home/settings.json"
 
+# 札が出るまでの時間を記録に残す（起こしてから、頁が札を描いて書き出すまで。書き出しは 250ms ごとに読む）。
+started=$(node -e 'console.log(Date.now())')
 /usr/bin/env -i HOME="$work/home" USER="${USER:-runner}" TMPDIR="${TMPDIR:-/tmp}" \
   HANGAR_HOME="$work/hangar-home" HANGAR_BOOT_PROBE="$out/probe.json" \
   PATH=/usr/bin:/bin:/usr/sbin:/sbin \
@@ -84,6 +86,7 @@ echo "殻を起こした（pid ${pid}）"
 rc=0
 node --experimental-strip-types --no-warnings "$here/boot-probe-check.ts" wait "$out/probe.json" \
   --kind node-missing --detail 'Node [0-9]+' --timeout 60 --pid "$pid" || rc=$?
+echo "札が出るまで: $(( $(node -e 'console.log(Date.now())') - started ))ms（殻を起こしてから）"
 
 # 札が描き終わるのを少し待ってから撮る。ランナーで画面の収録が許されていなければ撮れない。
 sleep 1

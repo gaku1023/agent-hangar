@@ -41,7 +41,7 @@ export function buildMcpServer(deps: ToolDeps, ctx: ToolContext): McpServer {
   };
   reg('list_projects', D(tr('mcp.tool.listProjects')), {});
   reg('get_project', D(tr('mcp.tool.getProject')), { project_id: z.string() });
-  reg('update_project', D(tr('mcp.tool.updateProject')), { project_id: z.string(), status: STATUS.optional(), add_todos: z.array(z.string()).optional(), toggle_todos: z.array(z.string()).optional(), propose_done: z.array(z.object({ todo_id: z.string(), note: z.string() })).optional() });
+  reg('update_project', D(tr('mcp.tool.updateProject')), { project_id: z.string(), status: STATUS.optional(), add_todos: z.array(z.union([z.string(), z.object({ text: z.string(), note: z.string().optional() })])).optional(), toggle_todos: z.array(z.string()).optional(), propose_done: z.array(z.object({ todo_id: z.string(), note: z.string() })).optional(), append_memo: z.string().optional() });
   reg('list_sessions', D(tr('mcp.tool.listSessions')), { project_id: z.string().optional(), running: z.boolean().optional(), limit: z.number().int().positive().optional() });
   reg('search_sessions', D(tr('mcp.tool.searchSessions')), { query: z.string(), project_id: z.string().optional(), since: z.number().optional(), until: z.number().optional(), file: z.string().optional(), limit: z.number().int().positive().optional() });
   reg('get_transcript', D(tr('mcp.tool.getTranscript')), { session_id: z.string().optional(), from_seq: z.number().int().optional(), limit: z.number().int().positive().optional(), include_tools: z.boolean().optional() });

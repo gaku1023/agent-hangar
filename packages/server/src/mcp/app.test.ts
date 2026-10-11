@@ -118,6 +118,18 @@ describe('createMcpApp', () => {
     const content = r.body.result!.content as { text: string }[];
     expect(JSON.parse(content[0]!.text).hits.length).toBeGreaterThan(0);
   });
+  it('update_project の add_todos は、文字列と { text, note } の混ざった配列を MCP の層で断らない', async () => {
+    const r = await rpc('/', 'tools/call', { name: 'update_project', arguments: { project_id: 'p1', add_todos: ['a', { text: 'b', note: '理由' }, { text: 'c' }] } }, 10);
+    expect(r.body.result!.isError).toBeUndefined();
+    const todos = JSON.parse((r.body.result!.content as { text: string }[])[0]!.text).todos as { text: string; suggestion: unknown }[];
+    expect(todos.map((t) => [t.text, t.suggestion])).toEqual([['a', { note: null }], ['b', { note: '理由' }], ['c', { note: null }]]);
+  });
+  it('update_project の append_memo は MCP の層で捨てず、道具まで届けて notice を返す（古い指示を覚えた Claude に、やめたことを伝える）', async () => {
+    const r = await rpc('/', 'tools/call', { name: 'update_project', arguments: { project_id: 'p1', append_memo: '追記' } }, 11);
+    expect(r.body.result!.isError).toBeUndefined();
+    const body = JSON.parse((r.body.result!.content as { text: string }[])[0]!.text) as { notice?: string };
+    expect(body.notice).toContain('CLAUDE.md');
+  });
 });
 
 describe('言語', () => {

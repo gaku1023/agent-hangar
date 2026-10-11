@@ -26,6 +26,7 @@ export const projectsEn: AreaDictionary<typeof projectsKeys> = {
   'projects.now.reminder': 'Reminder {date}',
   'projects.now.running': 'Running {n}',
   'projects.now.separator': ', ',
+  'projects.now.suggested': 'Suggestions {n}',
   'projects.now.todo': 'To-dos {n}',
   'projects.now.waiting': 'Needs input {n}',
   'projects.place.missing': 'No path on this computer',

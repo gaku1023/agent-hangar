@@ -22,34 +22,83 @@
 @keyframes roll-up { to { transform: translateY(-1.2em); opacity: 0; } }
 @keyframes roll-in { from { transform: translateY(1.2em); } }
 
-/* TODO。完了は打消し線で同じ並びに残す。 */
-.todos { display: flex; flex-direction: column; gap: var(--u); }
+/* TODO（views/TodoList.tsx）。行は 掴み・丸・本文・右端 の 4 列で、本文は全文を折り返す。
+   選んだ行は淡い青の地と左の線。掴みと × は、行にポインタを載せたときと選んだときだけ出す。 */
+.todos { display: flex; flex-direction: column; }
 .todo-list { list-style: none; margin: 0; padding: 0; }
-.todo { display: flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); }
-.todo-text { position: relative; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color var(--dur) var(--ease-out); }
-/* 済んだ項目は、文字に線が左から引かれて薄くなる。 */
-.todo-text::after { content: ''; position: absolute; left: 0; top: 50%; width: 0; height: 1px; background: var(--ink-3); transition: width var(--dur) var(--ease-out); }
-.todo[data-done='true'] .todo-text { color: var(--ink-3); }
-.todo[data-done='true'] .todo-text::after { width: 100%; }
+.todo-row { position: relative; display: grid; grid-template-columns: 12px 18px minmax(0, 1fr) auto; column-gap: calc(var(--u) * 1.5); align-items: start; min-height: var(--row-h); margin: 0 calc(var(--u) * -1); padding: var(--u) var(--u) var(--u) 0; border-radius: calc(var(--r) - 2px); outline: none; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.todo-row:hover { background: var(--surface-2); }
+.todo-row[aria-current='true'] { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.todo-grip { display: grid; place-items: center; height: 18px; color: var(--ink-3); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.todo-grip[data-handle] { cursor: grab; touch-action: none; }
+.todo-row:hover .todo-grip[data-handle], .todo-row[aria-current='true'] .todo-grip[data-handle] { opacity: 0.7; }
+/* 掴んでいる行は浮かせて影を落とす。ほかの行は transform で道を空ける（TodoList の onDragMove）。 */
+.todo-row[data-dragging='true'] { z-index: 2; background: var(--surface); box-shadow: var(--glass-drop), 0 0 0 1px var(--line-strong); cursor: grabbing; }
+.todo-row[data-dragging='true'] .todo-grip { opacity: 1; cursor: grabbing; }
+.todo-text { min-width: 0; overflow-wrap: anywhere; line-height: 18px; cursor: default; transition: color var(--dur) var(--ease-out); }
+/* 済んだ行は、文字に線が左から引かれて薄くなる。折り返した行でも各行に引くよう、線は背景で描く。 */
+.todo-strike { background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0% 1px; -webkit-box-decoration-break: clone; box-decoration-break: clone; transition: background-size var(--dur) var(--ease-out); }
+.todo-row[data-done='true'] .todo-text { color: var(--ink-3); }
+.todo-row[data-done='true'] .todo-strike { background-size: 100% 1px; }
 .todo-check { display: grid; flex: none; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; color: #ffffff; background: none; box-shadow: inset 0 0 0 1.5px #c3c5d6; transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
 .todo-check svg { width: 12px; height: 12px; stroke-width: 3; stroke-dasharray: 24; stroke-dashoffset: 24; transition: stroke-dashoffset var(--dur) var(--ease-out); }
+.todo-check:hover { box-shadow: inset 0 0 0 1.5px var(--st-done); }
 .todo-check:active { transform: scale(0.88); }
 .todo-check[aria-checked='true'] { background: var(--st-done); box-shadow: none; }
 .todo-check[aria-checked='true'] svg { stroke-dashoffset: 0; }
-.todo-del { margin-left: auto; visibility: hidden; padding: 0 calc(var(--u) * 1.5); }
-.todo:hover .todo-del, .todo:focus-within .todo-del { visibility: visible; }
-/* 完了の候補。行の地を淡い紫にし、欄は半分塗り。根拠と出したセッションと 2 つのボタンを行の下に置く。 */
-.todo-item[data-candidate='true'] { margin: 2px calc(var(--u) * -1); padding: var(--u) var(--u) calc(var(--u) * 2); border-radius: var(--r); background: var(--cand-soft); }
+/* 完了の候補。丸は半分塗り。 */
 .todo-check[data-candidate='true'] { box-shadow: inset 0 0 0 1.5px var(--cand); background: linear-gradient(135deg, var(--cand) 50%, var(--surface) 50%); }
 .todo-check[data-candidate='true']:focus-visible { outline: 2px solid var(--cand); outline-offset: 2px; }
-.todo-cand { margin-left: calc(18px + var(--u) * 1.5); display: flex; flex-direction: column; gap: var(--u); }
-/* 淡い紫の地では --ink-3 が 3:1 を割る（2.97:1）ので、「· 12 分前」の薄字は --ink-2 に上げる。 */
-.todo-cand .faint { color: var(--ink-2); }
+.todo-del, .todo-ok { display: grid; place-items: center; width: 22px; height: 22px; margin: -2px 0; padding: 0; border: 0; border-radius: calc(var(--r) - 2px); background: none; color: var(--ink-3); cursor: pointer; transition: opacity var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.todo-del .icon, .todo-ok .icon { width: 14px; height: 14px; }
+.todo-del:hover { background: var(--line); color: var(--ink); }
+.todo-row .todo-del { opacity: 0; }
+.todo-row:hover .todo-del, .todo-row[aria-current='true'] .todo-del, .todo-row:focus-within .todo-del { opacity: 1; }
+/* 提案の行の見送りは、受け入れと並べて常に見せる（どちらにするかを決める行なので）。 */
+.todo-row-sugg .todo-del { opacity: 1; }
+/* 「完了？」の札。押すと根拠と確定・却下が行の下に開く。 */
+.todo-chip { height: 18px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: 999px; background: var(--cand-soft); color: var(--cand); font: inherit; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.todo-chip:hover, .todo-chip[aria-expanded='true'] { background: var(--cand); color: #ffffff; }
+.todo-prop { grid-column: 3 / 5; display: flex; flex-direction: column; gap: var(--u); padding-top: var(--u); }
 .todo-why { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
 .todo-src { font-size: var(--fs-xs); color: var(--ink-2); }
 .todo-src-link { padding: 0; border: 0; background: none; font: inherit; color: var(--cand); cursor: pointer; }
 .todo-src-link:hover { text-decoration: underline; }
 .todo-acts { display: flex; gap: var(--u); }
+/* その場で直す欄。本文と同じ字の位置に重ね、高さは中身に合わせて伸ばす（TodoList の editor）。 */
+.todo-edit { grid-column: 3 / 5; display: block; width: calc(100% + var(--u) * 2); margin: -2px 0 -2px calc(var(--u) * -1.5); padding: 1px calc(var(--u) * 1.5); border: 1px solid var(--accent); border-radius: calc(var(--r) - 2px); outline: 3px solid var(--accent-soft); background: var(--surface); color: var(--ink); font: inherit; line-height: 18px; resize: none; overflow: hidden; }
+/* Claude の提案。淡い紫の節にまとめ、受け入れるまで一覧に混ぜない。 */
+.todo-sugg { margin: 0 calc(var(--u) * -1) calc(var(--u) * 2); padding: calc(var(--u) * 1.5) var(--u) var(--u) calc(var(--u) * 2); border-radius: var(--r); background: var(--cand-soft); }
+.todo-sugg-h { display: flex; align-items: center; gap: var(--u); padding: 0 var(--u) var(--u) 0; font-size: var(--fs-xs); font-weight: 600; color: var(--cand); }
+.todo-sugg-h > span { display: inline-flex; align-items: center; gap: var(--u); flex: 1; min-width: 0; }
+.todo-sugg-h .icon { width: 12px; height: 12px; }
+.todo-link { padding: 0; border: 0; background: none; font: inherit; color: var(--cand); cursor: pointer; }
+.todo-link:hover { text-decoration: underline; }
+.todo-row-sugg:hover { background: color-mix(in srgb, var(--cand) 7%, transparent); }
+.todo-row-sugg[aria-current='true'] { background: color-mix(in srgb, var(--cand) 12%, transparent); box-shadow: inset 2px 0 0 var(--cand); }
+.todo-spark { display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px dashed var(--cand); border-radius: 50%; color: var(--cand); }
+.todo-spark .icon { width: 10px; height: 10px; }
+.todo-sugg-acts { display: flex; gap: 2px; }
+.todo-ok { color: var(--cand); }
+.todo-ok:hover { background: var(--cand); color: #ffffff; }
+/* 淡い紫の地では --ink-3 が 3:1 を割る（2.97:1）ので、理由と出したセッションの薄字は --ink-2 にする。 */
+.todo-sugg-note { grid-column: 3 / 5; font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.45; }
+/* 消した場所に残す「元に戻す」の帯。 */
+.todo-gone { display: flex; align-items: center; gap: calc(var(--u) * 1.5); min-height: var(--row-h); margin: 0 calc(var(--u) * -1); padding: 2px calc(var(--u) * 2); border-radius: calc(var(--r) - 2px); background: var(--surface-2); font-size: var(--fs-sm); color: var(--ink-2); }
+.todo-gone-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 一覧の最後の「＋ TODO を足す」。押すとその場が入力欄になる。 */
+.todo-add { display: flex; align-items: center; gap: calc(var(--u) * 1.5); width: calc(100% + var(--u) * 2); height: var(--row-h); margin: 2px calc(var(--u) * -1) 0; padding: 0 var(--u) 0 calc(var(--u) * 4.5); border: 0; border-radius: calc(var(--r) - 2px); background: none; color: var(--ink-3); font: inherit; text-align: left; cursor: text; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.todo-add .icon { flex: none; width: 14px; height: 14px; }
+.todo-add:hover { background: var(--surface-2); color: var(--accent); }
+.todo-add[data-active='true'] { background: var(--surface-2); color: var(--accent); }
+.todo-add-input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: none; background: none; color: var(--ink); font: inherit; }
+.todo-add-input::placeholder { color: var(--ink-3); }
+/* 完了の節の見出し。押すと畳んだ一覧が開き、矢印が下を向く。 */
+.todo-done-h { display: inline-flex; align-items: center; gap: var(--u); align-self: flex-start; height: 24px; margin-top: calc(var(--u) * 1.5); padding: 0; border: 0; background: none; color: var(--ink-3); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+.todo-done-h:hover { color: var(--ink); }
+.todo-done-h .icon { width: 12px; height: 12px; transition: transform var(--dur) var(--ease-out); }
+.todo-done-h[aria-expanded='true'] .icon { transform: rotate(90deg); }
+.todo-empty { padding: 2px 0 var(--u); font-size: var(--fs-sm); }
 
 /* 右レールの一行の追加欄。入力が伸び、ボタンは縮まない。 */
 .rail-add { display: flex; gap: var(--u); }

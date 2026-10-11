@@ -2,11 +2,11 @@
 // 値はすべて作り物で、試作の web-shop のセッションに合わせてある。primitives.tsx の ?only=session から使う。
 import type { CSSProperties } from 'react';
 import { translator, type LiveAgentDto, type SessionDto, type StepCell, type TranscriptEvent } from '@agent-hangar/shared';
-import { presentNowStrip, type NowStripProps, type StripInput } from '../src/presenters/live.ts';
+import { presentNowCard, type CardInput, type NowCardProps } from '../src/presenters/live.ts';
 import type { ArtifactCardProps } from '../src/presenters/project.ts';
 import { presentLeadCard, presentSessionBadges, type LeadCardProps, type TurnRowProps } from '../src/presenters/session.ts';
 import { LeadCard } from '../src/views/LeadCard.tsx';
-import { NowStrip } from '../src/views/NowStrip.tsx';
+import { NoteChip, NowCard } from '../src/views/NowCard.tsx';
 import { PageHeading } from '../src/views/PageHeading.tsx';
 import { InfoPopover } from '../src/views/primitives/Popover.tsx';
 import { StatusDot } from '../src/views/primitives/StatusDot.tsx';
@@ -32,7 +32,7 @@ function waitingEvents(): TranscriptEvent[] {
   const r2 = call('Read', { file_path: '/code/web-shop/src/checkout/form.test.ts' });
   return [{ kind: 'user', seq: seq++, text: '決済フォームの入力の検証を、サーバ側にも足して' }, r1, res(r1), r2, res(r2), call('AskUserQuestion', { questions: [] })];
 }
-/** 作業中の例。直近の 4 回を超える呼び出しと、サブエージェント 3 本と、アーティファクト 2 件。 */
+/** 作業中の例。直近の 3 回を超える呼び出しと、サブエージェント 3 本と、アーティファクト 2 件。 */
 function busyEvents(): TranscriptEvent[] {
   seq = 0;
   const out: TranscriptEvent[] = [{ kind: 'user', seq: seq++, text: 'カード番号の検証を Luhn に' }];
@@ -46,19 +46,19 @@ function busyEvents(): TranscriptEvent[] {
   return out;
 }
 
-const base = (p: Partial<StripInput>): StripInput => ({
-  digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] }, events: [], turnFrom: 0, turnNo: 9, live: 'busy', activity: null, now: NOW, viewingAgent: false, clock: () => '10:01', idleFor: '3 分',
-  waited: '4 分', contextPercent: 41, cost: '$0.86', turns: 9, tokens: '31k', artifacts: [], note: null, ...p,
+const base = (p: Partial<CardInput>): CardInput => ({
+  digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] }, events: [], turnFrom: 0, live: 'busy', activity: null, now: NOW, viewingAgent: false, clock: () => '10:01', idleFor: '3 分',
+  waited: '4 分', artifacts: [], note: null, ...p,
 });
 const intent = { text: 'フォームの検証をサーバ側へ寄せる', at: 0, stepsSince: 3, inThisTurn: true };
 
-export const STRIP_CASES: { id: string; title: string; width?: number; strip: NowStripProps }[] = [
-  { id: 'waiting', title: '入力待ち（試作 C の実行中）', strip: presentNowStrip(base({
+export const CARD_CASES: { id: string; title: string; card: NowCardProps }[] = [
+  { id: 'waiting', title: '入力待ち（試作 C の実行中）', card: presentNowCard(base({
     live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: '既存のテストを書き換えてよいですか？' }, events: waitingEvents(), turnFrom: 0,
     digest: { sessionId: 's1', turnStartSeq: 0, intent, agents: [agent({ agentId: 'a1', title: 'テストの一覧を集める', state: 'done', report: 'checkout/ の 12 件を列挙した' })] },
     artifacts: [artifact('a1', '検証の仕様', '12 分前')], note: '決済は Stripe の v3。テストは checkout/ 以下に置く',
   }), ja) },
-  { id: 'busy', title: '作業中（呼び出しが 4 つを超える。サブエージェントが動いている）', strip: presentNowStrip(base({
+  { id: 'busy', title: '作業中（呼び出しが 3 つを超える。サブエージェントが動いている）', card: presentNowCard(base({
     events: busyEvents(), turnFrom: 0,
     digest: { sessionId: 's1', turnStartSeq: 0, intent: { ...intent, text: 'カード番号の検証を Luhn のアルゴリズムにする', stepsSince: 6 }, agents: [
       agent({ agentId: 'a1', title: '型を直す', last: { text: 'form.ts の型を読んだ', mono: false, kind: 'read', isError: false } }),
@@ -67,15 +67,14 @@ export const STRIP_CASES: { id: string; title: string; width?: number; strip: No
     ] },
     artifacts: [artifact('a1', '検証の仕様', '12 分前', true), artifact('a2', '計測の結果', '3 日前')],
   }), ja) },
-  { id: 'aside', title: '裏だけ動いている（メイン会話は入力を受け付けている）', strip: presentNowStrip(base({
+  { id: 'aside', title: '裏だけ動いている（メイン会話は入力を受け付けている）', card: presentNowCard(base({
     aside: { shell: false, agents: 2 }, digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'a1', title: '型を直す' }), agent({ agentId: 'a2', title: 'テストを書く' })] },
     note: '休み明けに続き',
   }), ja) },
-  { id: 'idle', title: 'アイドルで、コンテキスト使用量もコストも届いていない', strip: presentNowStrip(base({ live: 'idle', contextPercent: null, cost: '', events: [], digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] } }), ja) },
-  { id: 'narrow', title: '帯の幅が 640px（いまの値が 3 行目に下がる）', width: 640, strip: presentNowStrip(base({
-    live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: '既存のテストを書き換えてよいですか？' }, events: waitingEvents(), turnFrom: 0,
-    digest: { sessionId: 's1', turnStartSeq: 0, intent, agents: [agent({ agentId: 'a1', title: 'テストの一覧を集める', state: 'done', report: 'checkout/ の 12 件を列挙した' })] },
-    artifacts: [artifact('a1', '検証の仕様', '12 分前')], note: '決済は Stripe の v3',
+  { id: 'idle', title: 'アイドルで、意図もツール呼び出しも無い', card: presentNowCard(base({ live: 'idle', events: [], digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] } }), ja) },
+  { id: 'long', title: '意図が長い（切らずに折り返して全文を出す）', card: presentNowCard(base({
+    events: busyEvents(), turnFrom: 0,
+    digest: { sessionId: 's1', turnStartSeq: 0, intent: { ...intent, text: '決済フォームの入力の検証をサーバ側にも足すため、まずクライアント側の検証の一覧と既存のテストを読み、どの検証を共通の関数へ寄せられるかを確かめる。' }, agents: [] },
   }), ja) },
 ];
 
@@ -117,12 +116,13 @@ const frame: CSSProperties = { width: 1032, padding: 16, borderRadius: 12, backg
 const termStyle: CSSProperties = { flex: 1, minHeight: 0, borderRadius: 'var(--r-lg)', background: 'var(--term-bg)', color: 'var(--term-fg)', padding: '14px 16px', font: '12px/1.6 var(--font-mono)', whiteSpace: 'pre', overflow: 'hidden', boxShadow: 'var(--term-lift)' };
 const tab: CSSProperties = { display: 'inline-flex', alignItems: 'center', height: 28, padding: '0 12px', borderRadius: 'var(--r) var(--r) 0 0', background: 'var(--term-bg)', color: 'var(--term-fg)' };
 
-/** 見出しの行。ロックの札、要約の 1 文、主の操作、(i)。試作 C の見出しに合わせる。 */
-function Heading(props: { badges: ReturnType<typeof presentSessionBadges>; live: 'waiting' | null; name: string; oneLiner: string; primary: string }) {
+/** 見出しの行。ロックの札、要約の 1 文、（実行中は）ノートの札、主の操作、(i)。 */
+function Heading(props: { badges: ReturnType<typeof presentSessionBadges>; live: 'waiting' | null; name: string; oneLiner: string; primary: string; note?: NowCardProps['note'] }) {
   return (
     <PageHeading title={props.name} parent={{ label: 'web-shop', route: { name: 'projects' } }} lead={<StatusDot status={props.live} />} titleClassName="session-name" rowClassName="session-hero">
       <SessionBadges badges={props.badges} />
       <span className="session-oneliner">{props.oneLiner}</span>
+      {props.note && <NoteChip sessionId="s1" text={props.note.text} filled={props.note.filled} />}
       <button type="button" className="btn btn-primary"><Icon name="openEditor" /><span className="btn-label">{props.primary}</span></button>
       <InfoPopover rows={[{ name: 'モデル', value: 'opus', mono: true }, { name: '権限モード', value: 'Accept edits', mono: true }, { name: '開始', value: '今日 08:52', mono: true }]} />
     </PageHeading>
@@ -131,20 +131,20 @@ function Heading(props: { badges: ReturnType<typeof presentSessionBadges>; live:
 
 const TERM = ['> 決済フォームの入力の検証を、サーバ側にも足して', '● サーバ側の検証を追加します。既存のフォームのテストが前提を変えるので、先に確認します。', '● Read(src/checkout/form.ts)', '  ⎿  Read 142 lines', '● AskUserQuestion', '  既存のテストを書き換えてよいですか？', '  ❯ 1. はい、書き換える', '    2. 新しいテストを足す'].join('\n');
 
-/** 試作 C の実行中の画面に近い並び：見出し、タブ、帯、ターミナル、右の目次。 */
-function LiveMock(props: { strip: NowStripProps }) {
+/** 実行中の画面に近い並び：見出し、タブ、ターミナル、右の列（現在の札と目次）。 */
+function LiveMock(props: { card: NowCardProps }) {
   return (
     <div style={frame} id="mock-live">
-      <Heading badges={[]} live="waiting" name="決済フォームの検証を直す" oneLiner="入力の検証をサーバ側へ寄せ、フォームのテストを更新中" primary="VS Code で開く" />
+      <Heading badges={[]} live="waiting" name="決済フォームの検証を直す" oneLiner="入力の検証をサーバ側へ寄せ、フォームのテストを更新中" primary="VS Code で開く" note={props.card.note} />
       <div style={{ display: 'flex', alignItems: 'flex-end', height: 28, marginTop: 8 }}><span style={tab}>Claude</span></div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: 8, height: 440 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0, minHeight: 0 }}>
-          <NowStrip sessionId="s1" {...props.strip} />
-          <div style={termStyle}>{TERM}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: 8, height: 520 }}>
+        <div style={termStyle}>{TERM}</div>
+        <div className="c-side">
+          <NowCard sessionId="s1" {...props.card} />
+          <TocPane>
+            <TurnIndex sessionId="s1" runId={null} rows={turnRows} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} lead={<TocToggle open />} />
+          </TocPane>
         </div>
-        <TocPane>
-          <TurnIndex sessionId="s1" runId={null} rows={turnRows} complete openItems={[]} turnJump={null} hasMore={false} loading={false} remaining={0} agentId={null} lead={<TocToggle open />} />
-        </TocPane>
       </div>
     </div>
   );
@@ -161,7 +161,7 @@ function EndedMock(props: { lead: LeadCardProps }) {
           <LeadCard sessionId="s7" {...props.lead} />
         </section>
         <TocPane>
-          <TurnIndex sessionId="s7" runId={null} rows={turnRows.map((r) => ({ ...r, open: r.seq === 6 }))} complete openItems={[]} turnJump={null} hasMore={false} loading={false} remaining={0} agentId={null} lead={<TocToggle open />} />
+          <TurnIndex sessionId="s7" runId={null} rows={turnRows.map((r) => ({ ...r, open: r.seq === 6 }))} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} lead={<TocToggle open />} />
         </TocPane>
       </div>
     </div>
@@ -177,10 +177,15 @@ export function SessionCases() {
   return (
     <div style={{ width: 1100, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <h1 style={{ margin: 0, fontSize: 'var(--fs-lg)' }}>セッション画面の部品</h1>
-      <section style={box}><h2 style={h2}>実行中の並び（見出し、タブ、帯、ターミナル、目次）</h2><LiveMock strip={STRIP_CASES[0]!.strip} /></section>
-      {STRIP_CASES.map((c) => (
-        <section key={c.id} style={box}><h2 style={h2}>帯：{c.title}</h2><div id={`strip-${c.id}`} style={{ width: c.width ?? 760 }}><NowStrip sessionId="s1" {...c.strip} /></div></section>
-      ))}
+      <section style={box}><h2 style={h2}>実行中の並び（見出し、タブ、ターミナル、右の列の現在の札と目次）</h2><LiveMock card={CARD_CASES[0]!.card} /></section>
+      <section style={box}>
+        <h2 style={h2}>現在の札（右の列の 240px）</h2>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+          {CARD_CASES.map((c) => (
+            <div key={c.id} id={`card-${c.id}`} style={{ width: 240 }}><p style={{ margin: '0 0 6px', fontSize: 'var(--fs-xs)', color: 'var(--ink-3)' }}>{c.title}</p><NowCard sessionId="s1" {...c.card} /></div>
+          ))}
+        </div>
+      </section>
       <section style={box}><h2 style={h2}>終わった後の並び（見出し、冒頭の 1 枚、目次）</h2><EndedMock lead={LEAD_CASES[0]!.lead} /></section>
       {LEAD_CASES.map((c) => (
         <section key={c.id} style={box}><h2 style={h2}>冒頭の 1 枚：{c.title}</h2><div id={`lead-${c.id}`} style={{ width: 760, background: 'var(--surface)' }}><LeadCard sessionId="s7" {...c.lead} /></div></section>

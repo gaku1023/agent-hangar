@@ -310,10 +310,11 @@ type ProjectRow = {
   memo_markdown: string | null;
 };
 
+// open_todos（未完の数）には、利用者がまだ受け入れていない Claude の提案（suggested_at が null でない行）を数えない。
 const PROJECT_SELECT = `
 select p.id, p.name, p.status, p.is_scratch, p.updated_at, r.path, r.resolved,
   (select max(s.last_activity_at) from sessions s where s.project_id = p.id and s.deleted_at is null) last_activity_at,
-  (select count(*) from todos t where t.project_id = p.id and t.done = 0 and t.deleted_at is null) open_todos,
+  (select count(*) from todos t where t.project_id = p.id and t.done = 0 and t.suggested_at is null and t.deleted_at is null) open_todos,
   (select m.markdown from project_memos m where m.project_id = p.id and m.deleted_at is null) memo_markdown
 from projects p
 left join project_roots r on r.project_id = p.id and r.device_id = ? and r.deleted_at is null

@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { TurnJumpStatus } from '../mediator/types.ts';
-import type { TranscriptItem, TurnRowProps } from '../presenters/session.ts';
+import type { TranscriptItem, TurnCount, TurnRowProps } from '../presenters/session.ts';
 import { jumpWindow } from '../presenters/turns.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { motionEase, motionMs } from './primitives/motion.ts';
 import { collapseOut, fadeIn, growIn, motionOn } from './primitives/motionKit.ts';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { RollingText } from './primitives/RollingText.tsx';
@@ -20,7 +21,12 @@ export type TurnIndexProps = {
   complete: boolean;
   openItems: TranscriptItem[];
   turnJump: { seq: number; status: TurnJumpStatus } | null;
-  hasMore: boolean; loading: boolean; remaining: number;
+  /** 古いターンが残っているか（読み込むボタンを出す）。 */
+  hasMore: boolean;
+  /** 利用者が押した「古いターンを読み込む」の最中か。追記の読み込みでは立たない。 */
+  loading: boolean;
+  /** 見出しの数。最初の events が届くまでは null で、数を出さない（仮の 0 を出さない）。 */
+  count?: TurnCount | null;
   /** 最初の events が届く前。仮の行を出す。 */
   pending?: boolean;
   agentId: string | null;
@@ -60,6 +66,28 @@ export function TurnIndex(props: TurnIndexProps) {
     if (wasPending.current && props.rows.length > 0 && listRef.current) fadeIn(listRef.current);
     wasPending.current = !!props.pending && props.rows.length === 0;
   }, [props.rows.length, props.pending]);
+
+  // 見出しの数が届いたとき、一度だけ薄れから現す。以後は数字だけを回す（RollingText）。
+  // 最初から数があった描画は、現し方を付けない。
+  const countRef = useRef<HTMLSpanElement>(null);
+  const hasCount = !!props.count;
+  const hadCount = useRef(hasCount);
+  useLayoutEffect(() => {
+    if (hasCount && !hadCount.current && countRef.current) fadeIn(countRef.current);
+    hadCount.current = hasCount;
+  }, [hasCount]);
+
+  // 読み込みボタンの文字は、利用者が押して印が替わったときだけ 200ms で薄く入れ替える。箱は替えない（CSS で高さと幅を固定している）。
+  const moreLabel = props.loading ? t('session.toc.loading') : t('session.toc.loadOlder');
+  const moreRef = useRef<HTMLSpanElement>(null);
+  const prevMore = useRef({ label: moreLabel, shown: props.hasMore });
+  useLayoutEffect(() => {
+    const prev = prevMore.current;
+    prevMore.current = { label: moreLabel, shown: props.hasMore };
+    const el = moreRef.current;
+    if (!el || !prev.shown || prev.label === moreLabel || !motionOn(el)) return;
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: motionMs('--dur-fast', el), easing: motionEase('--ease-out', el) });
+  }, [moreLabel, props.hasMore]);
 
   // 何も開いていない間は末尾（いちばん新しい指示）を見せ続ける。新しい指示が来たら下へついていく。
   // 初回と動かない環境ではすぐ、そのあとは滑らかに追う。
@@ -161,13 +189,13 @@ export function TurnIndex(props: TurnIndexProps) {
       <div className="turns-head">
         {props.lead}
         <b>{t('session.toc.label')}</b>
-        <span className="faint"><RollingText key={scope} text={t('session.toc.count', { n: `${props.rows.length}${props.hasMore ? '+' : ''}` })} /></span>
+        {props.count && <span ref={countRef} className="faint turns-count"><RollingText key={scope} text={t('session.toc.count', { n: `${props.count.n}${props.count.plus ? '+' : ''}` })} /></span>}
         {props.agentId && <><span className="faint">{t('session.toc.subagent', { id: props.agentId })}</span><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: null })}>{t('session.toc.backToMain')}</button></>}
       </div>
       <div ref={listRef} className="turns-list">
-        {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}>{props.loading ? t('session.toc.loading') : t('session.toc.loadOlder', { n: props.remaining })}</button>}
+        {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}><span ref={moreRef} className="turns-more-label">{moreLabel}</span></button>}
         {props.rows.length === 0 && props.pending && Array.from({ length: 6 }, (_, i) => <div key={`skel${i}`} className="turn-skel" style={{ width: `${70 + ((i * 37) % 30)}%` }} aria-hidden="true" />)}
-        {props.rows.length === 0 && !props.loading && !props.pending && <div className="empty">{t('session.toc.empty')}</div>}
+        {props.rows.length === 0 && !props.pending && <div className="empty">{t('session.toc.empty')}</div>}
         {entries.map(({ item: r, key, leaving }) => {
           const i = props.rows.indexOf(r);
           const isOpen = r.open && !leaving;

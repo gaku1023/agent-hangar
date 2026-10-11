@@ -13,7 +13,7 @@ const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, no
 const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, memo: null, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
 const paused = (id: string, hoursAgo: number, returnOn: string | null, over: Partial<SessionDto> = {}) => dto(id, hoursAgo, { state: st({ status: 'paused', note: `${id} を確かめる`, returnOn, setBy: 'user', setAt: NOW - hoursAgo * H }), ...over });
 const proposed = (id: string, status: 'paused' | 'done', at: number, returnOn: string | null = null, over: Partial<SessionDto> = {}) => dto(id, 3, { state: st({ candidate: { status, note: '直した', returnOn, returnTime: null, source: 'in_session', at } }), ...over });
-const todo = (id: string, at: number, projectId = 'alpha'): TodoDto => ({ id, projectId, text: `やる ${id}`, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: { sessionId: null, note: '片付いた', at } });
+const todo = (id: string, at: number, projectId = 'alpha'): TodoDto => ({ id, projectId, text: `やる ${id}`, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: { sessionId: null, note: '片付いた', at }, suggestion: null });
 function storeOf(list: SessionDto[], todos: TodoDto[] = []): Store {
   const s = initialStore();
   s.bootstrapped = true;
@@ -56,6 +56,20 @@ describe('presentHome の今日戻る（C1）', () => {
     const noNote = dto('n', 7, { projectId: null, state: st({ status: 'paused', returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: NOW }) });
     const h = presentHome(initialState(), storeOf([noNote, paused('g', 6, '2026-10-02', { projectId: 'gone' })]), NOW);
     expect(h.returning.map((r) => [r.id, r.projectName, r.reason])).toEqual([['g', null, 'g を確かめる'], ['n', null, '理由は書かれていません']]);
+  });
+});
+
+describe('presentHome の要対応の入力待ち', () => {
+  // 問いで待っている最中に Done や Archived にしても、live は waiting のまま残る。区切りを付けたものは要対応から外す。
+  it('Done と Archived のセッションは、live が waiting でも要対応に出さない。Paused は出す', () => {
+    const mark = (status: 'paused' | 'done' | 'archived') => ({ state: st({ status, setBy: 'user', setAt: NOW }) });
+    const store = storeOf([
+      dto('done', 0.5, { live: 'waiting', ...mark('done') }),
+      dto('archived', 0.4, { live: 'waiting', ...mark('archived') }),
+      dto('paused', 0.3, { live: 'waiting', ...mark('paused') }),
+      dto('w', 0.2, { live: 'waiting' }),
+    ]);
+    expect(presentHome(initialState(), store, NOW).attention.map((c) => c.id)).toEqual(['paused', 'w']);
   });
 });
 

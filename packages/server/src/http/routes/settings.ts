@@ -11,7 +11,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
 
 /** 設定の経路が使う依存。 */
-export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck'> & LanguageDeps;
+export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck' | 'hub'> & LanguageDeps;
 
 /** 空にできない文字列の設定。 */
 const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
@@ -176,7 +176,9 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       syncProjectsFromWorkspace(db, deviceId, patch.workspaceRoot);
       assignSessions(db, deviceId);
     }
+    // 変えた欄を全部の画面へ知らせる。道具のパスや作業フォルダが変わると、準備の確かめ（ホームの帯、設定の欄の下）の答えも変わるので、画面は読み直す。
     // 保存の知らせは画面が欄の横に出す（設定の C1）。サーバからはトーストを配らない。
+    deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: Object.keys(patch) as (keyof SettingsDto)[] });
     return c.json(toSettingsDto(s));
   });
 }

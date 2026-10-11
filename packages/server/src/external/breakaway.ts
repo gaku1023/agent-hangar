@@ -43,6 +43,7 @@ export function quoteWindowsArg(arg: string): string {
  * - verbatim：cmd.exe へ自前で組んだ 1 行なので、引用せずに並べる（Node の windowsVerbatimArguments と同じ）。
  * - shell：Node と同じく `cmd.exe /d /s /c "<コマンドと引数を空白でつないだもの>"` に組み直す。
  * 起こし役の終了コードは子の終了コードなので、結果はそのまま返す。
+ * 起こし役へは timeoutMs と untilExit だけを渡す（verbatim と shell は 1 行に組み込み済み）。
  */
 export function breakawayExec(inner: Exec, launcher: string, o: { comspec?: string } = {}): Exec {
   return (cmd, args, opts) => {
@@ -56,6 +57,8 @@ export function breakawayExec(inner: Exec, launcher: string, o: { comspec?: stri
     } else {
       line = args.map(quoteWindowsArg).join(' ');
     }
-    return inner(launcher, [BREAKAWAY_FLAG, file, line], opts?.timeoutMs === undefined ? undefined : { timeoutMs: opts.timeoutMs });
+    // 起こし役は子の終わりを待って降りるが、子が起こした窓は起こし役の管も受け継ぐ。untilExit も起こし役の呼び出しへ渡す。
+    const outer = { ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}), ...(opts?.untilExit ? { untilExit: true } : {}) };
+    return inner(launcher, [BREAKAWAY_FLAG, file, line], Object.keys(outer).length === 0 ? undefined : outer);
   };
 }

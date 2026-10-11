@@ -26,6 +26,15 @@ describe('notifyKeep', () => {
     const b = storeOf(session('a', { live: 'waiting', lastActivityAt: 3 }), session('b', { live: 'waiting', lastActivityAt: 2 }));
     expect(notifyKeep(a, at(9))).toEqual(notifyKeep(b, at(9)));
   });
+  it('Done や Archived にしたセッションは、live が waiting のままでも入力待ちの知らせを残さない。Paused は残す', () => {
+    const store = storeOf(
+      session('done', { live: 'waiting', state: st({ status: 'done', setBy: 'user', setAt: 1 }) }),
+      session('archived', { live: 'waiting', state: st({ status: 'archived', setBy: 'user', setAt: 1 }) }),
+      session('paused', { live: 'waiting', state: st({ status: 'paused', setBy: 'user', setAt: 1 }) }),
+      session('w', { live: 'waiting' }),
+    );
+    expect(notifyKeep(store, at(9)).waiting).toEqual(['paused', 'w']);
+  });
   it('何も待っていなければ、どちらも空', () => {
     expect(notifyKeep(storeOf(session('x')), at(9))).toEqual({ waiting: [], returning: [] });
   });

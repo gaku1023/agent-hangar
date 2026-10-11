@@ -54,6 +54,14 @@ export type UiAction =
   | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
   | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
   | { type: 'todo.confirm'; id: TodoId } | { type: 'todo.reject'; id: TodoId }
+  // 文言を直す。空にして確定したときは View が todo.remove を出す。
+  | { type: 'todo.edit'; id: TodoId; text: string }
+  // 並べ替え。ids はそのプロジェクトの未完（提案を除く）の新しい並びの全部である。
+  | { type: 'todo.move'; projectId: ProjectId; ids: TodoId[] }
+  // Claude の提案を受け入れて一覧の末尾へ入れる／見送る（消す）。
+  | { type: 'todo.accept'; id: TodoId } | { type: 'todo.dismiss'; id: TodoId }
+  // 直前の操作を戻す。todoId があれば、その TODO を消した操作を戻す（消した場所の帯の「元に戻す」）。
+  | { type: 'todo.undo'; projectId: ProjectId; todoId?: TodoId }
   | { type: 'memo.save'; projectId: ProjectId; markdown: string }
   // 指示とメモリ。load は読み直し（ダイアログを開いたとき）、openEditor はそのファイルをエディタで開く。
   | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind }

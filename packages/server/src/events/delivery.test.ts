@@ -189,7 +189,8 @@ describe('届くイベントの数と中身', () => {
       const after = t.c.all().slice(from).filter((e) => e.type === 'project.upsert' || e.type === 'todos.update' || e.type === 'memo.update');
       expect(after.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
       const last = after[1] as ProjectUpsert;
-      expect(last.project).toMatchObject({ status: 'paused', openTodoCount: 1 });
+      // MCP から足した TODO は提案なので、未完の数には入らない。
+      expect(last.project).toMatchObject({ status: 'paused', openTodoCount: 0 });
     } finally {
       await t.close();
     }

@@ -803,7 +803,7 @@ describe('newSessionTarget', () => {
   });
 });
 
-describe('presentSession（現在の帯の状態）', () => {
+describe('presentSession（現在の札の状態）', () => {
   // 最新の側から読んだ窓（seq 700 から）。今のターンの頭は窓より新しい 705 で、会話全体は 900 件ある。
   const user = (seq: number): TranscriptEvent => ({ kind: 'user', seq, text: `指示 ${seq}` });
   const callAt = (seq: number): TranscriptEvent => ({ kind: 'tool_call', seq, toolId: `t${seq}`, name: 'Read', input: { file_path: '/w/a.ts' }, summary: 'Read' });
@@ -816,25 +816,16 @@ describe('presentSession（現在の帯の状態）', () => {
     store.liveDigests = { s1: { sessionId: 's1', turnStartSeq, intent: null, agents: [] } };
     return store;
   };
-  it('全部を読み込んでいなければ、ターンの番号は統計から、頭は digest の turnStartSeq から取る', () => {
+  it('全部を読み込んでいなくても、ターンの頭は digest の turnStartSeq から取る', () => {
     const p = presentSession(initialState(), live(900, 7, 705), NOW, 's1');
     expect(p.turnsComplete).toBe(false);
-    // 窓の最初の指示（700）からではなく 705 から数えるので 6 手、ターンは窓の 1 ではなく統計の 7。
-    expect(p.strip).toMatchObject({ tone: 'busy', state: '作業中', sub: 'ターン 7、ツール呼び出し 6 回目' });
-  });
-  it('全部を読み込んでいれば、ターンの番号は目次の数', () => {
-    const p = presentSession(initialState(), live(11, 7, 705), NOW, 's1');
-    expect(p.turnsComplete).toBe(true);
-    expect(p.strip!.sub).toBe('ターン 1、ツール呼び出し 6 回目');
-  });
-  it('統計も無く全部も読めていなければ、ターンの番号は出さず手の数だけ', () => {
-    const p = presentSession(initialState(), live(900, 0, 705), NOW, 's1');
-    expect(p.strip).toMatchObject({ tone: 'busy', state: '作業中', sub: 'ツール呼び出し 6 回目' });
+    // 窓の最初の指示（700）からではなく 705 から数えるので 6 手。行に時刻が無いので経過は添えない。
+    expect(p.strip).toMatchObject({ tone: 'busy', state: '作業中', sub: '6 手目' });
   });
   it('digest がまだ無ければ、窓の最後のターンの頭から数える', () => {
     const store = live(900, 7, 705);
     store.liveDigests = {};
-    expect(presentSession(initialState(), store, NOW, 's1').strip!.sub).toBe('ターン 7、ツール呼び出し 10 回目');
+    expect(presentSession(initialState(), store, NOW, 's1').strip!.sub).toBe('10 手目');
   });
 });
 
@@ -1018,7 +1009,7 @@ describe('homePath', () => {
   });
 });
 
-const todoDto = (id: string, position: number, done = false, candidate: TodoDto['candidate'] = null, projectId = 'p1'): TodoDto => ({ id, projectId, text: `やる ${id}`, done, position, sessionId: null, updatedAt: 1, candidate });
+const todoDto = (id: string, position: number, done = false, candidate: TodoDto['candidate'] = null, projectId = 'p1'): TodoDto => ({ id, projectId, text: `やる ${id}`, done, position, sessionId: null, updatedAt: 1, candidate, suggestion: null });
 const artDto = (id: string, over: Partial<ArtifactDto> = {}): ArtifactDto => ({ id, projectId: 'p1', url: `https://claude.ai/code/artifact/${id}`, title: `題名 ${id}`, description: '説明', favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: NOW - 100_000, lastPublishedAt: NOW - 60_000, versionCount: 2, sessionIds: ['s1'], ...over });
 const scratchProject = (): ProjectDto => ({ ...project('sc'), name: 'スクラッチ', isScratch: true, path: '/h/.agent-hangar/scratch', lastActivityAt: NOW });
 
@@ -1145,7 +1136,8 @@ describe('presentProject の右レール', () => {
       artifacts: { a1: artDto('a1'), a2: artDto('a2', { projectId: 'p2' }) },
     };
     const p = presentProject(initialState(), store, NOW, 'p1');
-    expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false, candidate: null }, { id: 't2', text: 'やる t2', done: true, candidate: null }]);
+    expect(p.todos).toEqual([{ id: 't1', text: 'やる t1', done: false, position: 1, candidate: null }]);
+    expect(p.doneTodos).toEqual([{ id: 't2', text: 'やる t2', done: true, position: 2, candidate: null }]);
     expect(p.instructions.legacyNote).toBe('# alpha\n本文');
     expect(p.artifacts.map((a) => a.id)).toEqual(['a1']);
     expect(p.isScratch).toBe(false);

@@ -10,6 +10,7 @@ import { useT } from './primitives/language.tsx';
 import { StatusSelect } from './primitives/StatusSelect.tsx';
 import { SessionList } from './SessionList.tsx';
 import { TodoList } from './TodoList.tsx';
+import { RollingNumber } from './primitives/RollingNumber.tsx';
 
 /**
  * 1 つのプロジェクトの画面（Q3、左右に割る）。
@@ -50,8 +51,8 @@ export function ProjectScreen(props: ProjectProps) {
       {railOpen && (
         <aside className="rail">
           <section className="rail-panel">
-            <h2 className="rail-h"><span>{t('projectScreen.rail.todo')}</span><span className="rail-n num">{props.todos.length}</span>{props.pendingTodos > 0 && <span className="sessions-tab-n" data-hot="true">{t('projectScreen.rail.pending', { n: props.pendingTodos })}</span>}</h2>
-            <TodoList projectId={props.id} todos={props.todos} />
+            <h2 className="rail-h"><span>{t('projectScreen.rail.todo')}</span><span className="rail-n num"><RollingNumber value={props.todos.length} /></span>{props.pendingTodos > 0 && <span className="sessions-tab-n" data-hot="true">{t('projectScreen.rail.pending', { n: props.pendingTodos })}</span>}</h2>
+            <TodoList projectId={props.id} todos={props.todos} done={props.doneTodos} suggestions={props.suggestions} />
           </section>
           <section className="rail-panel">
             <InstructionsPanel projectId={props.id} instructions={props.instructions} />

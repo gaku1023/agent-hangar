@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, TodoDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
 import type { ConfigDetailPart } from '../store/store.ts';
@@ -100,6 +100,8 @@ export type Effect =
   | { kind: 'badge'; count: number }
   | { kind: 'storage.save'; key: string; value: unknown }
   | { kind: 'api.addTodo'; projectId: string; text: string }
+  // TODO の操作。どれも API を 1 回呼ぶだけで、画面の正は後から届く todos.update である。
+  | { kind: 'api.todo'; call: TodoCall }
   // セッションの状態。本文には渡されたものだけを載せる。
   | { kind: 'api.setSessionState'; id: string; body: { status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string } }
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
@@ -196,6 +198,13 @@ export type Toast = { id: string; level: 'info' | 'error'; message: string; hold
  * error は欄の下に出す理由で、同じ欄をもう一度保存し始めたら消える。
  */
 export type SaveMark = { kind: 'saved'; n: number } | { kind: 'error'; message: string };
+/** TODO の API の呼び出し。restore は取り消しで、写しの行をそのまま書き戻す。 */
+export type TodoCall =
+  | { op: 'setDone'; id: string; done: boolean } | { op: 'edit'; id: string; text: string } | { op: 'remove'; id: string }
+  | { op: 'confirm'; id: string } | { op: 'reject'; id: string } | { op: 'accept'; id: string }
+  | { op: 'reorder'; projectId: string; ids: string[] } | { op: 'restore'; rows: TodoDto[] };
+export type TodoUndoEntry = { projectId: string; rows: TodoDto[]; removed: string | null };
+
 export type State = {
   screen: Screen; overlay: Overlay; connection: 'connecting' | 'connected' | 'disconnected'; reconnectAttempt: number;
   /** 切れた最初の瞬間。画面がそこで止まっていることを言うために持つ。つながっている間は null。 */
@@ -293,5 +302,10 @@ export type State = {
   copied: { text: string; n: number } | null;
   /** psmux（tmux）の再確認の進み。帯、案内のダイアログ、設定のツールの行が同じものを読む。 */
   muxCheck: MuxCheck;
+  /**
+   * TODO の取り消しの積み（古いものが先、mediator/todos.ts）。操作の前の行の写しを持つ。
+   * removed は、その操作で消した TODO の ID（消した場所の帯の「元に戻す」が引く）。端末には残さない。
+   */
+  todoUndo: TodoUndoEntry[];
 };
 export type Step = { state: State; effects: Effect[] };

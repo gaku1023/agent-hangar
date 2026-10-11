@@ -11,6 +11,7 @@ function run(inputs: Input[], start: State = initialState()) {
 }
 const action = (i: Extract<Input, { kind: 'action' }>['action']): Input => ({ kind: 'action', action: i });
 const runtime = (e: Extract<Input, { kind: 'runtime' }>['event']): Input => ({ kind: 'runtime', event: e });
+const server = (e: Extract<Input, { kind: 'server' }>['event']): Input => ({ kind: 'server', event: e });
 
 describe('欄ごとの保存（設定の C1 と B1）', () => {
   it('欄の名前を添えた保存は、その名前を効果に載せ、欄の前の知らせを消す', () => {
@@ -54,5 +55,17 @@ describe('殻の操作', () => {
   it('ログを開く、再起動、コピーは効果にする', () => {
     const { effects } = run([action({ type: 'shell.openLog' }), action({ type: 'shell.restart' }), action({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' })]);
     expect(effects).toEqual([{ kind: 'shell.openLog' }, { kind: 'shell.restart' }, { kind: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' }]);
+  });
+});
+
+describe('ほかから変えられた設定（settings.changed）', () => {
+  const dto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+  it('準備の確かめに効く欄が変わったら、準備の確かめを取り直す', () => {
+    for (const key of ['claudePath', 'tmuxPath', 'nodePath', 'codePath', 'workspaceRoot', 'claudeDir'] as const) {
+      expect(run([server({ type: 'settings.changed', settings: dto, keys: [key] })]).effects, key).toEqual([{ kind: 'api.readiness' }]);
+    }
+  });
+  it('効かない欄だけが変わったときは取り直さない', () => {
+    expect(run([server({ type: 'settings.changed', settings: dto, keys: ['summaryFallback', 'language'] })]).effects).toEqual([]);
   });
 });
