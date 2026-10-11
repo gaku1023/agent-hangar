@@ -341,7 +341,7 @@ mod toast {
     pub fn stale_toasts(history: &[(String, String)], keep: &Keep) -> Vec<(String, String)> {
         history
             .iter()
-            .filter(|(tag, group)| kind_of_group(group).is_none_or(|k| !keep.holds(k, tag)))
+            .filter(|(tag, group)| !matches!(kind_of_group(group), Some(k) if keep.holds(k, tag)))
             .cloned()
             .collect()
     }
