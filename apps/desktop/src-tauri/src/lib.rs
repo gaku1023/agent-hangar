@@ -1271,6 +1271,9 @@ fn notify_waiting(
         let visible = win.is_visible().unwrap_or(false);
         let minimized = win.is_minimized().unwrap_or(false);
         let focused = win.is_focused().unwrap_or(false);
+        // Windows では、フォーカスが WebView2 の子窓にあると is_focused が偽になるので、OS の前景の窓でも見る。
+        #[cfg(windows)]
+        let focused = focused || win.hwnd().is_ok_and(notify::window_owns_foreground);
         if notify::window_in_front(visible, minimized, focused) {
             log("notification skipped: the window is in front");
             return Ok(());

@@ -72,6 +72,31 @@ pub fn window_in_front(visible: bool, minimized: bool, focused: bool) -> bool {
     visible && !minimized && focused
 }
 
+/// Windows で、前景の窓が hangar の窓（`ours`）か、その子孫か。
+/// tao の `is_focused` は、最上位の窓そのものがフォーカスを持つときだけ真になる。
+/// hangar の窓では、フォーカスはふだん中の WebView2 の子窓（Chrome_WidgetWin_1）にあるので、窓が前にあっても偽になる。
+/// そこで Windows では、OS の前景の窓（GetForegroundWindow）とその根（GetAncestor の GA_ROOT）で見て、`window_in_front` の focused に足す。
+/// macOS の `is_focused` は NSWindow の isKeyWindow で、中の WKWebView がフォーカスを持っていても真なので、この穴は無い。
+#[cfg(windows)]
+pub fn window_owns_foreground(ours: windows::Win32::Foundation::HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    owns_foreground_window(unsafe { GetForegroundWindow() }, ours)
+}
+
+/// 前景の窓 `foreground` が、`ours` そのものか、根が `ours` の子孫か。
+/// 前景が無い（ほかのアプリへ移る途中など）ときは偽。
+#[cfg(windows)]
+fn owns_foreground_window(
+    foreground: windows::Win32::Foundation::HWND,
+    ours: windows::Win32::Foundation::HWND,
+) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+    if foreground.is_invalid() || ours.is_invalid() {
+        return false;
+    }
+    foreground == ours || unsafe { GetAncestor(foreground, GA_ROOT) } == ours
+}
+
 /// 通知の識別子。
 /// 同じセッションの通知は同じ識別子になり、新しい方が古い方と置き換わる。
 pub fn identifier(session_id: &str) -> String {
@@ -761,6 +786,78 @@ mod tests {
         assert!(!window_in_front(true, true, true));
         // 隠した（macOS の Cmd+H、閉じるボタン）。
         assert!(!window_in_front(false, false, true));
+    }
+
+    /// Windows では、フォーカスが WebView2 の子窓にあっても、hangar の窓が前景なら前にあるとみなす。
+    /// 実物の窓（最上位の窓とその子）を作って、子にフォーカスを置いた形で確かめる。
+    #[cfg(windows)]
+    #[test]
+    fn a_focused_child_window_still_counts_as_the_window_in_front() {
+        use windows::core::w;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, GetForegroundWindow, SetForegroundWindow,
+            WINDOW_EX_STYLE, WS_CHILD, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+        };
+        unsafe {
+            let top_level = |title: windows::core::PCWSTR| {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    title,
+                    WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                    0,
+                    0,
+                    200,
+                    200,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap()
+            };
+            let ours = top_level(w!("hangar-front-test"));
+            let other = top_level(w!("hangar-front-other"));
+            // WebView2 の子窓（Chrome_WidgetWin_1）の代わり。
+            let child = CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!(""),
+                WS_CHILD | WS_VISIBLE,
+                0,
+                0,
+                50,
+                50,
+                Some(ours),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            // 前景の窓を名指しして見る形は、OS の前景の取り合いに左右されない。
+            assert!(owns_foreground_window(ours, ours));
+            assert!(owns_foreground_window(child, ours));
+            assert!(!owns_foreground_window(other, ours));
+            assert!(!owns_foreground_window(HWND::default(), ours));
+            // 実際に前に出せたときは、子にフォーカスを置いて、OS の前景から見ても前にあると答えることを確かめる。
+            // CI の机では前景を取れないことがあるので、取れなかったときはここを飛ばす。
+            let _ = SetForegroundWindow(ours);
+            if GetForegroundWindow() == ours {
+                let _ = SetFocus(Some(child));
+                // 最上位の窓そのものにはフォーカスが無い（tao の is_focused が偽になる形）。
+                assert_eq!(GetFocus(), child);
+                assert!(window_owns_foreground(ours));
+            } else {
+                eprintln!(
+                    "skipped the live foreground check: the test could not take the foreground"
+                );
+            }
+            let _ = DestroyWindow(child);
+            let _ = DestroyWindow(other);
+            let _ = DestroyWindow(ours);
+        }
     }
 
     #[test]

@@ -1344,6 +1344,23 @@ describe('入力待ちの知らせ', () => {
     expect(rt.getState().waitingToasts).toEqual(['s1']);
     expect(n.badge).toHaveBeenLastCalledWith(1);
   });
+  it('開き直す前に知らせた入力待ちは、開き直しても通知しない（カードとバッジは出す）', async () => {
+    const before = fakeNotifier();
+    const first = await started(before, [waitingSession({ live: 'waiting' })]);
+    expect(before.show).toHaveBeenCalledTimes(1);
+    expect(first.store.get('waiting.notified')).toEqual(['s1|1']);
+    // 開き直す。localStorage は残る。
+    const after = fakeNotifier();
+    const h = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [waitingSession({ live: 'waiting' })] })) }, { notifier: after });
+    h.store.set('waiting.notified', ['s1|1']);
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    expect(after.show).not.toHaveBeenCalled();
+    expect(h.rt.getState().waitingToasts).toEqual(['s1']);
+    expect(after.badge).toHaveBeenLastCalledWith(1);
+    expect(h.store.get('waiting.notified')).toEqual(['s1|1']);
+  });
   it('窓が背面にあり、受け取る設定なら、名前を題に問いを本文にして通知する', async () => {
     const n = fakeNotifier();
     const { wsHandlers } = await started(n, [waitingSession({ activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '用紙の向きをどちらにしますか' } })]);

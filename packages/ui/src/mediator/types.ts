@@ -223,6 +223,17 @@ export type State = {
    */
   waitingBare: string[];
   /**
+   * いまの入力待ちの 1 回ごとの鍵（「セッションの id|最後の動きの時刻」、waitingSeen と同じ並び）。
+   * 変わるたびに、まだ引き当てていない waitingCarried と合わせて localStorage に残す（mediator/live.ts の WAITING_NOTIFIED_KEY）。
+   */
+  waitingKeys: string[];
+  /**
+   * 開き直す前に残した入力待ちの鍵のうち、まだ引き当てていないもの。起動のときに localStorage から読み戻す。
+   * この頁で初めて入力待ちと見たセッションの鍵がここにあれば、開き直す前に知らせ終えているので、通知の効果を出さない。
+   * 引き当てたセッションの鍵は、当たっても外れても外す。この頁で解けてまた入力待ちになったときは、鍵が同じでも知らせる。
+   */
+  waitingCarried: string[];
+  /**
    * 右下に積む入力待ちのカードのセッション。
    * 古いものが先。
    * 入力待ちが解けるか、そのセッションを開くまで残す。
