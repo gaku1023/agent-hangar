@@ -1,5 +1,6 @@
 import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, TodoDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
+import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
 import type { ConfigDetailPart } from '../store/store.ts';
 
@@ -95,6 +96,8 @@ export type Effect =
   | { kind: 'notify.off' }
   // アプリの自動更新の操作。Runtime が殻の updater に頼み、結果を Store の update に置く（runtime/updater.ts）。
   | { kind: 'update'; command: UpdateCommand }
+  // クラウド同期への参加と、PC の解除と、この PC の参加の解除。Runtime が殻の命令に頼み、結果を Store の cloudMember に置く（runtime/cloudMember.ts）。
+  | { kind: 'cloudMember'; command: CloudMemberCommand }
   // Dock（ブラウザならアプリ）のバッジに入力待ちの数を出す。
   // 0 で消す。
   | { kind: 'badge'; count: number }

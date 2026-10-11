@@ -7,6 +7,7 @@ pub mod bootmsg;
 pub mod bootprobe;
 #[cfg(windows)]
 pub mod breakaway;
+pub mod cloudmember;
 pub mod configapply;
 pub mod deeplink;
 pub mod filedrop;
@@ -1158,6 +1159,87 @@ async fn restore_config_sync(app: AppHandle, name: String) -> configapply::Outco
     .unwrap_or_else(|_| configapply::Outcome::simple("failed", w.restore_stopped))
 }
 
+/// クラウド同期の CLI を走らせる。参加トークンは `input` で標準入力へ渡し、引数には載せない（cloudmember.rs）。
+/// 返すのは CLI の最後の 1 行の JSON（`{ ok, ... }`）か、走らせられなかったときの `{ ok: false, code }` である。
+fn run_cloud_cli(app: &AppHandle, args: &[&str], input: Option<&str>) -> serde_json::Value {
+    let (node, dir, home) = match config_runtime(app) {
+        Ok(v) => v,
+        Err(e) => return cloudmember::failure("cannot-start", &e),
+    };
+    let cmd = configapply::cli_command(&node, &dir, &home, args);
+    let reply = match cloudmember::run_with_input(cmd, input, cloudmember::CLI_TIMEOUT) {
+        Ok(out) => cloudmember::parse_reply(&out),
+        Err(f) => f,
+    };
+    // 残すのは命令と結果の符号だけで、参加トークンも宛先も残さない。
+    let code = reply.get("code").and_then(|c| c.as_str()).unwrap_or("ok");
+    log(&format!(
+        "cloud: {} {}",
+        args[..2.min(args.len())].join(" "),
+        code
+    ));
+    reply
+}
+
+/// 参加の見立て。宛先の URL とホストと、いまの参加との違いを返す。設定のクラウド同期の「次へ」が呼ぶ。
+#[tauri::command]
+async fn cloud_join_plan(app: AppHandle, token: String) -> serde_json::Value {
+    if !cloudmember::valid_token(&token) {
+        return cloudmember::failure("invalid-token", "");
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        cloudmember::guarded(|| run_cloud_cli(&app, &cloudmember::plan_args(), Some(&token)))
+    })
+    .await
+    .unwrap_or_else(|_| cloudmember::failure("failed", ""))
+}
+
+/// 参加する。宛先の確認と、別のクラウドへの上書きの承諾（overwrite）は、頁の段で済ませてある。
+/// 参加したあとは、サーバを立て直すまで同期が始まらないので、頁が再起動を頼む。
+#[tauri::command]
+async fn cloud_join(app: AppHandle, token: String, overwrite: bool) -> serde_json::Value {
+    if !cloudmember::valid_token(&token) {
+        return cloudmember::failure("invalid-token", "");
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        cloudmember::guarded(|| {
+            run_cloud_cli(&app, &cloudmember::join_args(overwrite), Some(&token))
+        })
+    })
+    .await
+    .unwrap_or_else(|_| cloudmember::failure("failed", ""))
+}
+
+/// ほかの PC を同期から解除する。受け取るのは端末 ID だけで、形を確かめる。
+#[tauri::command]
+async fn cloud_revoke(app: AppHandle, id: String) -> serde_json::Value {
+    if !cloudmember::valid_device_id(&id) {
+        return cloudmember::failure("invalid-id", "");
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        cloudmember::guarded(|| {
+            run_cloud_cli(
+                &app,
+                &["cloud", "revoke", id.as_str(), "--yes", "--json"],
+                None,
+            )
+        })
+    })
+    .await
+    .unwrap_or_else(|_| cloudmember::failure("failed", ""))
+}
+
+/// この PC の参加を解除する（cloud.json を消す。revoke が真ならクラウドでもこの PC を解除する）。
+/// 解除したあとは、サーバを立て直すまで手元の同期が止まらないので、頁が再起動を頼む。
+#[tauri::command]
+async fn cloud_leave(app: AppHandle, revoke: bool) -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(move || {
+        cloudmember::guarded(|| run_cloud_cli(&app, &cloudmember::leave_args(revoke), None))
+    })
+    .await
+    .unwrap_or_else(|_| cloudmember::failure("failed", ""))
+}
+
 /// `~/.agent-hangar/desktop.log` を開く。起動画面と、UI の切断の帯の「ログを開く」が呼ぶ。
 #[tauri::command]
 async fn open_log() -> Result<(), String> {
@@ -1673,7 +1755,7 @@ pub fn run() {
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
-        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、boot-screen.json で絞る。
+        // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、remote-cloud.json、boot-screen.json で絞る。
         .invoke_handler(tauri::generate_handler![
             boot_state,
             boot_card_shown,
@@ -1688,6 +1770,10 @@ pub fn run() {
             notify_status,
             apply_config_sync,
             restore_config_sync,
+            cloud_join_plan,
+            cloud_join,
+            cloud_revoke,
+            cloud_leave,
             update_status,
             update_check,
             update_download,

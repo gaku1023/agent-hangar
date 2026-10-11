@@ -388,8 +388,8 @@ describe('読み込み画面', () => {
 describe('capabilities', () => {
   const dir = path.join(app, 'src-tauri', 'capabilities');
   const cap = (f: string) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択と、設定の同期の適用と、更新の 8 つだけ', () => {
-    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-config-apply.json', 'remote-drag.json', 'remote-notify.json', 'remote-pick-folder.json', 'remote-shell.json', 'remote-update.json']);
+  it('置くのは既定と、窓を動かすためと、入力待ちを知らせるためと、起動画面の操作と、UI から殻に頼む操作と、フォルダの選択と、設定の同期の適用と、更新と、クラウド同期の参加と解除の 9 つだけ', () => {
+    expect(fs.readdirSync(dir).sort()).toEqual(['boot-screen.json', 'default.json', 'remote-cloud.json', 'remote-config-apply.json', 'remote-drag.json', 'remote-notify.json', 'remote-pick-folder.json', 'remote-shell.json', 'remote-update.json']);
   });
   it('既定の権限は core:default のまま変えない', () => {
     expect(cap('default.json').permissions).toEqual(['core:default']);
@@ -419,6 +419,7 @@ describe('capabilities', () => {
     expect(cap('remote-pick-folder.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-config-apply.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
     expect(cap('remote-update.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
+    expect(cap('remote-cloud.json').remote.urls).toEqual([`http://127.0.0.1:${port}/*`]);
   });
   // 殻のコマンドの名前は、殻（build.rs と lib.rs）と画面（notifier.ts）に分かれている。
   // 片方だけ変えると、通知が黙って出なくなる。
@@ -484,6 +485,20 @@ describe('capabilities', () => {
     expect(c.permissions).toEqual(['allow-update-status', 'allow-update-check', 'allow-update-download', 'allow-update-install']);
     for (const f of fs.readdirSync(dir)) expect(JSON.stringify(cap(f))).not.toContain('updater:');
   });
+  // 参加トークンはサーバの HTTP API に載せず、殻の命令で受け取る（D9）。参加、PC の解除、この PC の参加の解除は、CLI（hangar join、hangar cloud revoke、hangar cloud leave）を走らせる。
+  it('UI の出どころには、クラウド同期の参加の見立て、参加、PC の解除、この PC の参加の解除の 4 つだけを別に与える', () => {
+    const c = cap('remote-cloud.json');
+    expect(c.windows).toEqual(['main']);
+    expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
+    expect(c.permissions).toEqual(['allow-cloud-join-plan', 'allow-cloud-join', 'allow-cloud-revoke', 'allow-cloud-leave']);
+  });
+  it('参加トークンは CLI の引数に載せず、標準入力で渡す', () => {
+    const mod = read('src-tauri/src/cloudmember.rs');
+    expect(mod).toContain('Stdio::piped()');
+    // 引数を組む関数は、参加トークンを受け取らない。
+    expect(mod).toMatch(/pub fn join_args\(overwrite: bool\)/);
+    expect(mod).toMatch(/pub fn plan_args\(\)/);
+  });
   it('設定の同期の命令は、確認を出してから CLI を走らせ、書く操作を殻の中で完結させない', () => {
     const lib = read('src-tauri/src/lib.rs');
     // 確認を出す前に --plan で見立てだけを取り、承諾のあとにだけ --yes を渡す。
@@ -500,7 +515,7 @@ describe('capabilities', () => {
   // 入力待ちの知らせの 4 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['apply_config_sync', 'boot_card_shown', 'boot_probe', 'boot_state', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
+    expect(listed).toEqual(['apply_config_sync', 'boot_card_shown', 'boot_probe', 'boot_state', 'cloud_join', 'cloud_join_plan', 'cloud_leave', 'cloud_revoke', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
@@ -508,6 +523,7 @@ describe('capabilities', () => {
     expect(ui).toContain("restart: 'restart_app'");
     expect(ui).toContain("pickFolder: 'pick_folder'");
     for (const [k, cmd] of [['status', 'update_status'], ['check', 'update_check'], ['download', 'update_download'], ['install', 'update_install']]) expect(ui).toContain(`${k}: '${cmd}'`);
+    for (const [k, cmd] of [['joinPlan', 'cloud_join_plan'], ['join', 'cloud_join'], ['revoke', 'cloud_revoke'], ['leave', 'cloud_leave']]) expect(ui).toContain(`${k}: '${cmd}'`);
     const boot = read('loading/boot.js');
     expect(boot).toContain("'retry_boot'");
     expect(boot).toContain("'open_log'");

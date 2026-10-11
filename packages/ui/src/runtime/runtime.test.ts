@@ -41,6 +41,7 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     syncFocus: vi.fn(async () => {}),
     resumeHere: vi.fn(async () => launchResult),
     joinToken: vi.fn(async () => ({ token: 'tok' })),
+    cloudDevices: vi.fn(async () => ({ state: 'off' as const, devices: [], creator: false, message: null })),
     ...overrides,
   };
   const focusListeners = new Set<() => void>();

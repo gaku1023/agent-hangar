@@ -65,3 +65,35 @@ describe('createDesktopBridge', () => {
     await expect(b.update.check()).rejects.toMatchObject({ reason: 'other' });
   });
 });
+
+describe('クラウド同期の参加と解除の口', () => {
+  const plan = { url: 'https://h.example', host: 'h.example', current: null, change: 'new' };
+  it('決まった 4 つの命令だけを呼び、参加トークンは命令の引数にだけ載せる', async () => {
+    const invoke = vi.fn(async (cmd: string): Promise<unknown> => {
+      if (cmd === 'cloud_join_plan') return { ok: true, plan };
+      if (cmd === 'cloud_join') return { ok: true, result: { url: 'https://h.example', host: 'h.example' } };
+      if (cmd === 'cloud_revoke') return { ok: true, result: { id: 'b', name: 'b', platform: 'darwin', joinedAt: 1, lastSeenAt: 2, revokedAt: 3, lastIp: null, lastCity: null, lastRegion: null, lastCountry: null } };
+      return { ok: true, result: { revoked: true, revokeError: null, creator: false } };
+    });
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    expect(await b.cloud!.joinPlan('tok')).toEqual({ ok: true, value: plan });
+    expect(await b.cloud!.join('tok', true)).toEqual({ ok: true, value: { url: 'https://h.example', host: 'h.example' } });
+    expect((await b.cloud!.revoke('b')).ok).toBe(true);
+    expect(await b.cloud!.leave(false)).toEqual({ ok: true, value: { revoked: true, revokeError: null, creator: false } });
+    expect(invoke.mock.calls).toEqual([
+      ['cloud_join_plan', { token: 'tok' }],
+      ['cloud_join', { token: 'tok', overwrite: true }],
+      ['cloud_revoke', { id: 'b' }],
+      ['cloud_leave', { revoke: false }],
+    ]);
+  });
+  it('失敗は符号と文で返し、知らない形と投げた失敗も失敗として返す', async () => {
+    const invoke = vi.fn(async (): Promise<unknown> => ({ ok: false, code: 'forbidden', message: '違います' }));
+    const b = createDesktopBridge({ __TAURI_INTERNALS__: { invoke } })!;
+    expect(await b.cloud!.join('tok', false)).toEqual({ ok: false, failure: { code: 'forbidden', message: '違います' } });
+    invoke.mockResolvedValueOnce({ ok: true });
+    expect(await b.cloud!.joinPlan('tok')).toEqual({ ok: false, failure: { code: 'unreadable', message: '' } });
+    invoke.mockRejectedValueOnce(new Error('not allowed'));
+    expect(await b.cloud!.leave(true)).toEqual({ ok: false, failure: { code: 'shell', message: 'Error: not allowed' } });
+  });
+});
