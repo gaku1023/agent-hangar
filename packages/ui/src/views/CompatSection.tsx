@@ -62,7 +62,7 @@ export function CompatSection(props: { compat: CompatProps | null }) {
   const c = props.compat;
   const t = useT();
   return (
-    <section className="cp-sec">
+    <section className="cp-sec" id="settings-compat">
       <h3 className="h2">
         {t('compat.section.title')}
         {c && (

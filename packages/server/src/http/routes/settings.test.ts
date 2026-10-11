@@ -152,6 +152,19 @@ describe('routes', () => {
     expect((await r2.json()).claudePath).toBeNull();
     expect((await patch({ claudePath: 7 })).status).toBe(400);
   });
+  it('保存できたら、変えた欄の名前を添えて settings.changed を配る（API から直しても、開いている画面が準備の確かめを読み直せる）', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const claude = exe('claude');
+    expect((await patch({ claudePath: claude })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    const ev = sent.find((e) => e.type === 'settings.changed');
+    expect(ev).toMatchObject({ type: 'settings.changed', keys: ['claudePath'], settings: { claudePath: claude } });
+    // 断った保存は配らない。
+    sent.length = 0;
+    expect((await patch({ claudePath: 7 })).status).toBe(400);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.some((e) => e.type === 'settings.changed')).toBe(false);
+  });
   it('nodePath は保存でき、空なら null に戻る', async () => {
     const node = exe('node');
     const r = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: ` ${node} ` }) });

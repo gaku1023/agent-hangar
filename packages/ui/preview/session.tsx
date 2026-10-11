@@ -143,7 +143,7 @@ function LiveMock(props: { strip: NowStripProps }) {
           <div style={termStyle}>{TERM}</div>
         </div>
         <TocPane>
-          <TurnIndex sessionId="s1" runId={null} rows={turnRows} complete openItems={[]} turnJump={null} hasMore={false} loading={false} remaining={0} agentId={null} lead={<TocToggle open />} />
+          <TurnIndex sessionId="s1" runId={null} rows={turnRows} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} lead={<TocToggle open />} />
         </TocPane>
       </div>
     </div>
@@ -161,7 +161,7 @@ function EndedMock(props: { lead: LeadCardProps }) {
           <LeadCard sessionId="s7" {...props.lead} />
         </section>
         <TocPane>
-          <TurnIndex sessionId="s7" runId={null} rows={turnRows.map((r) => ({ ...r, open: r.seq === 6 }))} complete openItems={[]} turnJump={null} hasMore={false} loading={false} remaining={0} agentId={null} lead={<TocToggle open />} />
+          <TurnIndex sessionId="s7" runId={null} rows={turnRows.map((r) => ({ ...r, open: r.seq === 6 }))} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} lead={<TocToggle open />} />
         </TocPane>
       </div>
     </div>

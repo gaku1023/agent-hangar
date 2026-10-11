@@ -1,4 +1,4 @@
-import { compatState, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
+import { compatState, type SettingsAt, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
 import type { MuxCheck, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { readinessCompat } from './compat.ts';
@@ -101,6 +101,13 @@ export function workspaceLine(t: Translate, w: ReadinessDto['workspace']): Verif
 
 /** 始める前の確認の 6 行の名前。 */
 export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'mcp' | 'statusline' | 'compat';
+/**
+ * 帯の行ごとの、直す場所（設定の開く先）。「設定を開く」はここを指して開く（節の中の欄まで移って目立たせる）。
+ * 全部の行が節を持つ（試験が縛る）。MCP とステータスラインは命令をコピーする行なので、欄までは指さず連携の節にする。
+ */
+export const READINESS_AT: Record<ReadinessKey, SettingsAt> = {
+  tmux: 'tmux', claude: 'claude', workspace: 'workspace', mcp: 'integrations', statusline: 'integrations', compat: 'compat',
+};
 /** 任意の行。無くても始められるので、残りがこれだけになったら帯ごと消す（設計書 2.11.4）。 */
 const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['mcp', 'statusline']);
 /** 行の調子。info は止めていない知らせ（未確認のバージョン）で、済んだものに数える。 */
@@ -173,9 +180,8 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
   const checks = checksOf(r);
   // tmux の行は、Windows では psmux の名で出す（段 6）。
   const name = (k: ReadinessKey) => (k === 'tmux' ? muxName(platform) : t(`home.ready.name.${k}`));
-  const settings: UiAction = { type: 'nav.go', to: { name: 'settings' } };
   const action = (label: string, who: string, send: UiAction, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, send });
-  const toSettings = (k: ReadinessKey) => action(t('home.ready.openSettings'), name(k), settings, true);
+  const toSettings = (k: ReadinessKey) => action(t('home.ready.openSettings'), name(k), { type: 'nav.go', to: { name: 'settings', at: READINESS_AT[k] } }, true);
   const copy = (k: ReadinessKey, command: string) => action(t('home.ready.copyCommand'), name(k), { type: 'clipboard.copy', text: command }, false);
   const sl = r.statusline;
   const ws = r.workspace;

@@ -16,13 +16,13 @@ const rows: TurnRowProps[] = [
 
 function setup(over: Partial<TurnIndexProps> = {}) {
   const onAction = vi.fn();
-  const props: TurnIndexProps = { sessionId: 's1', runId: 'r1', rows, complete: true, openItems: [], turnJump: null, hasMore: false, loading: false, remaining: 0, agentId: null, ...over };
+  const props: TurnIndexProps = { sessionId: 's1', runId: 'r1', rows, complete: true, openItems: [], turnJump: null, hasMore: false, loading: false, agentId: null, ...over };
   const r = render(<ActionRoot onAction={onAction}><TurnIndex {...props} /></ActionRoot>);
   return { ...r, onAction };
 }
 
 const row = (n: number): TurnRowProps => ({ seq: n, when: '10:00', text: `t${n}`, head: `t${n}`, tools: 0, open: false, band: [] });
-const indexUi = (p: Partial<TurnIndexProps> = {}) => <ActionRoot onAction={vi.fn()}><TurnIndex sessionId="s1" runId={null} rows={[]} complete openItems={[]} turnJump={null} hasMore={false} loading={false} remaining={0} agentId={null} {...p} /></ActionRoot>;
+const indexUi = (p: Partial<TurnIndexProps> = {}) => <ActionRoot onAction={vi.fn()}><TurnIndex sessionId="s1" runId={null} rows={[]} complete openItems={[]} turnJump={null} hasMore={false} loading={false} agentId={null} {...p} /></ActionRoot>;
 const renderIndex = (p: Partial<TurnIndexProps> = {}) => render(indexUi(p));
 
 describe('TurnIndex', () => {
@@ -32,7 +32,7 @@ describe('TurnIndex', () => {
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: spy, configurable: true, writable: true });
     try {
       const { rerender, onAction } = setup();
-      const props: TurnIndexProps = { sessionId: 's1', runId: 'r1', rows: rows.map((r) => ({ ...r, open: r.seq === 20 })), complete: true, openItems: [], turnJump: null, hasMore: false, loading: false, remaining: 0, agentId: null };
+      const props: TurnIndexProps = { sessionId: 's1', runId: 'r1', rows: rows.map((r) => ({ ...r, open: r.seq === 20 })), complete: true, openItems: [], turnJump: null, hasMore: false, loading: false, agentId: null };
       rerender(<ActionRoot onAction={onAction}><TurnIndex {...props} /></ActionRoot>);
       expect(spy).not.toHaveBeenCalled();
     } finally {
@@ -41,20 +41,26 @@ describe('TurnIndex', () => {
     }
   });
 
-  it('見出しは「目次」と、ターンの数（数の回転 .roll）を出す', () => {
-    renderIndex({ rows: [row(0), row(1)] });
+  it('見出しは「目次」と、渡された本当のターンの数（数の回転 .roll）を出す。窓の行の数ではない', () => {
+    renderIndex({ rows: [row(0), row(1)], count: { n: 104, plus: false } });
     expect(document.querySelector('.turns-head')).toHaveTextContent('目次');
-    expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2 ターン');
+    expect(document.querySelector('.turns-head .roll')).toHaveTextContent('104 ターン');
   });
-  it('古いターンが残っているときは、ターンの数に + を添える', () => {
-    renderIndex({ rows: [row(0), row(1)], hasMore: true, remaining: 3, complete: false });
+  it('数が届くまでは、見出しに数も「0 ターン」も出さない', () => {
+    renderIndex({ rows: [], pending: true, count: null });
+    expect(document.querySelector('.turns-head')).toHaveTextContent('目次');
+    expect(document.querySelector('.turns-head .roll')).toBeNull();
+    expect(document.querySelector('.turns-head')).not.toHaveTextContent('ターン');
+  });
+  it('サブエージェントの窓のように数が確かでないときは、+ を添えて渡せる', () => {
+    renderIndex({ rows: [row(0), row(1)], count: { n: 2, plus: true } });
     expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2+ ターン');
   });
   it('英語では、見出しも単数形（1 turn）も英語の語で出る', () => {
-    const { rerender } = render(<LanguageRoot language="en">{indexUi({ rows: [row(0), row(1)] })}</LanguageRoot>);
+    const { rerender } = render(<LanguageRoot language="en">{indexUi({ rows: [row(0), row(1)], count: { n: 2, plus: false } })}</LanguageRoot>);
     expect(document.querySelector('.turns-head')).toHaveTextContent('Outline');
     expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2 turns');
-    rerender(<LanguageRoot language="en">{indexUi({ rows: [row(0)] })}</LanguageRoot>);
+    rerender(<LanguageRoot language="en">{indexUi({ rows: [row(0)], count: { n: 1, plus: false } })}</LanguageRoot>);
     expect(document.querySelector('.turns-head .roll')).toHaveTextContent('1 turn');
     expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument();
   });
@@ -134,8 +140,9 @@ describe('TurnIndex', () => {
   });
 
   it('古いターンが残っていれば、読み込むボタンを先頭に出す', () => {
-    const { getByRole, onAction } = setup({ hasMore: true, remaining: 40, complete: false });
-    fireEvent.click(getByRole('button', { name: '古いターンを読み込む（残り 40 件）' }));
+    const { getByRole, onAction } = setup({ hasMore: true, complete: false });
+    // 残りの数は出さない（記録の数をターンの数と取り違えさせない）。
+    fireEvent.click(getByRole('button', { name: '古いターンを読み込む' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'transcript.loadMore', sessionId: 's1' });
   });
 
@@ -234,14 +241,14 @@ describe('TurnIndex の仮の行', () => {
 
 describe('TurnIndex の動き', () => {
   let restore: (() => void) | null = null;
-  let animations: { el: Element; frames: Keyframe[] }[] = [];
+  let animations: { el: Element; frames: Keyframe[]; opts?: KeyframeAnimationOptions }[] = [];
   let finish: (() => void)[] = [];
   beforeEach(() => {
     restore = fakeMotionTokens(undefined, { everywhere: true });
     animations = []; finish = [];
     (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
-    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[]) {
-      animations.push({ el: this, frames });
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[], opts?: KeyframeAnimationOptions) {
+      animations.push({ el: this, frames, opts });
       return { finished: new Promise<void>((r) => finish.push(r)), cancel: vi.fn() };
     };
   });
@@ -252,6 +259,44 @@ describe('TurnIndex の動き', () => {
   });
   const turns = (c: HTMLElement) => [...c.querySelectorAll('.turn')];
 
+  it('数は届いたときに薄れから現し、以後は数字だけを回す（再び現し直さない）', () => {
+    const { container, rerender } = renderIndex({ rows: [], pending: true, count: null });
+    expect(animations).toHaveLength(0);
+    rerender(indexUi({ rows: [row(0)], count: { n: 7, plus: false } }));
+    const first = animations.filter((a) => a.el.classList.contains('turns-count'));
+    expect(first).toHaveLength(1);
+    expect(first[0]!.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+    animations.length = 0;
+    rerender(indexUi({ rows: [row(0)], count: { n: 8, plus: false } }));
+    expect(animations.filter((a) => a.el.classList.contains('turns-count'))).toHaveLength(0);
+    expect(container.querySelector('.turns-head .roll')).toHaveTextContent('8 ターン');
+  });
+  it('最初から数があるときは、現し方を付けない', () => {
+    renderIndex({ rows: [row(0)], count: { n: 7, plus: false } });
+    expect(animations.filter((a) => a.el.classList.contains('turns-count'))).toHaveLength(0);
+  });
+  it('読み込みボタンの文字は、読み込みの印が替わったときだけ 200ms で薄く入れ替える', () => {
+    const { rerender } = renderIndex({ rows: [row(0)], hasMore: true, loading: false });
+    expect(animations).toHaveLength(0);
+    const btn = () => document.querySelector('.turns-more') as HTMLElement;
+    expect(btn()).toHaveTextContent('古いターンを読み込む');
+    rerender(indexUi({ rows: [row(0)], hasMore: true, loading: true }));
+    expect(btn()).toHaveTextContent('読み込んでいます');
+    expect(btn()).toBeDisabled();
+    const swaps = animations.filter((a) => btn().contains(a.el));
+    expect(swaps).toHaveLength(1);
+    expect(swaps[0]!.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+    expect(swaps[0]!.opts?.duration).toBe(200);
+    // 行が増えただけ（追記）では、ボタンの文字は替わらず、動かない。
+    animations.length = 0;
+    rerender(indexUi({ rows: [row(0), row(1)], hasMore: true, loading: true }));
+    expect(animations.filter((a) => btn().contains(a.el))).toHaveLength(0);
+  });
+  it('読み込みボタンは、文字が替わっても同じ高さの箱を保つ（折り返さない）', () => {
+    renderIndex({ rows: [row(0)], hasMore: true });
+    const btn = document.querySelector('.turns-more') as HTMLElement;
+    expect(btn.querySelectorAll('.turns-more-label')).toHaveLength(1);
+  });
   it('新しい指示の行だけが入り、最初に出た行は動かさない', () => {
     const { container, rerender } = renderIndex({ rows: [row(0), row(1)] });
     expect(animations).toHaveLength(0);

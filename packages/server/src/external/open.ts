@@ -53,9 +53,8 @@ export function writeAttachCommand(home: string, tmuxPath: string, tmuxName: str
 }
 
 /**
- * ディレクトリに cd するコマンド行。
- * 既定の shell の決め方は iTerm2 の経路と .command の経路で必ず同じにする。
- * 別々に書くと、同じ操作なのに経路で違う shell が立ち上がる。
+ * ディレクトリに cd するコマンド行。.command の中身にする。
+ * iTerm2 の command は語に割って起こすだけでシェルを通さないので、この行は iTerm2 へ直には渡さず、.command を実行させる。
  * $SHELL が無い環境（launchd から起きた GUI など）では /bin/zsh に落とし、
  * パスに空白があっても割れないように引用符で包む。
  */
@@ -72,7 +71,11 @@ async function openWithTerminalApp(file: string, exec: Exec): Promise<void> {
   if (r.code !== 0) throw new MessageError(msg('external.terminal.openFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
 }
 
-/** iTerm2 は AppleScript でしか新規ウィンドウを開けない。初回は macOS の自動化の許可ダイアログが出る。 */
+/**
+ * iTerm2 は AppleScript でしか新規ウィンドウを開けない。初回は macOS の自動化の許可ダイアログが出る。
+ * command は iTerm2 が語に割って起こす（シェルを通さない）ので、&& や cd のようなシェルの構文は渡せない。
+ * 渡すと窓が作れず、osascript は終了コード 0 のまま「missing value」を返す。成功は「window id N」。
+ */
 async function openWithIterm(command: string, exec: Exec): Promise<boolean> {
   const script = [
     'with timeout of 10 seconds',
@@ -83,7 +86,7 @@ async function openWithIterm(command: string, exec: Exec): Promise<boolean> {
     'end timeout',
   ].join('\n');
   const r = await exec('osascript', ['-e', script], { timeoutMs: 12_000 });
-  return r.code === 0;
+  return r.code === 0 && !r.stdout.includes('missing value');
 }
 
 async function openCommand(o: { app: TerminalApp; command: string; file: () => string; exec: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
@@ -194,12 +197,9 @@ export function openInTerminalApp(o: { home: string; tmuxPath: string; tmuxName:
 export function openDirInTerminalApp(o: { home: string; dir: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
   const exec = o.exec ?? execFile;
   if (isWindowsApp(o.app)) return Promise.resolve().then(() => openWindows({ app: o.app, target: windowsDir(o.dir), exec }));
-  return openCommand({
-    app: o.app,
-    command: cdLine(o.dir),
-    file: () => writeCdCommand(o.home, o.dir),
-    exec,
-  });
+  // cd は .command の中でする。iTerm2 にもその .command を実行させ、Terminal.app と同じ経路にそろえる。
+  const file = writeCdCommand(o.home, o.dir);
+  return openCommand({ app: o.app, command: sq(file), file: () => file, exec });
 }
 
 export async function openInEditor(o: { codePath: string | null; target: string; exec?: Exec; platform?: NodeJS.Platform }): Promise<void> {
