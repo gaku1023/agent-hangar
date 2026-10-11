@@ -80,8 +80,9 @@ Var HangarServerOwned
 
 ; Runs before the files are removed, while $INSTDIR still names the installed folder.
 ; Whether $INSTDIR\server is Hangar's is decided here, while the files are still there.
+; This runs before Tauri's check for a running app (CheckIfAppIsRunning), where the uninstall can still be cancelled,
+; so nothing is changed here: the PATH is edited in NSIS_HOOK_POSTUNINSTALL.
 !macro NSIS_HOOK_PREUNINSTALL
-  !insertmacro HANGAR_EDIT_USER_PATH "remove"
   !insertmacro HANGAR_CHECK_SERVER_OWNED
 !macroend
 
@@ -95,7 +96,10 @@ Var HangarServerOwned
 ; Remove them on uninstall so nothing is left behind.
 ; The values must match notify.rs (APP_ID and ACTIVATOR_CLSID); apps/desktop/test/config.test.ts checks that.
 ; User data under .agent-hangar (the database and the rest) is never touched here.
+; The PATH entry goes first. This runs after Tauri's check for a running app, so a cancelled uninstall keeps it.
+; $INSTDIR still names the installed folder here.
 !macro NSIS_HOOK_POSTUNINSTALL
+  !insertmacro HANGAR_EDIT_USER_PATH "remove"
   Push $0
   nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "${HANGAR_TOAST_CLEAR_PS}"`
   Pop $0

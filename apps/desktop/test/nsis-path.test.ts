@@ -60,8 +60,12 @@ describe('NSIS のフックで PATH を足し、外す', () => {
     expect(macro('NSIS_HOOK_POSTINSTALL').trim()).toBe('!insertmacro HANGAR_EDIT_USER_PATH "add"');
   });
 
-  it('消す前（PREUNINSTALL）に外す。ファイルを消す前なので $INSTDIR がまだ入れた場所を指す', () => {
-    expect(macro('NSIS_HOOK_PREUNINSTALL').trim().split(/\r?\n/)[0]).toBe('!insertmacro HANGAR_EDIT_USER_PATH "remove"');
+  // Tauri の雛形では、PREUNINSTALL は動いている殻を止める確認（CheckIfAppIsRunning）より前に走る。
+  // そこで外すと、Hangar を開いたまま消そうとして確認で取り消したとき、入ったままの版の hangar が PATH から消えたまま残る。
+  // 取り消せる確認の後（POSTUNINSTALL）に外す。$INSTDIR は消したあとも入れた場所を指したままである。
+  it('消したあと（POSTUNINSTALL）に外し、消す前（PREUNINSTALL）には外さない', () => {
+    expect(macro('NSIS_HOOK_POSTUNINSTALL').trim().split(/\r?\n/)[0]).toBe('!insertmacro HANGAR_EDIT_USER_PATH "remove"');
+    expect(macro('NSIS_HOOK_PREUNINSTALL')).not.toContain('HANGAR_EDIT_USER_PATH');
   });
 
   it('PowerShell の 1 行は、NSIS の文字列の上限（1024 字）に収まる', () => {
@@ -72,6 +76,19 @@ describe('NSIS のフックで PATH を足し、外す', () => {
     expect(expanded.length).toBeLessThan(1000);
     // -Command の引数は二重引用符で包むので、中に二重引用符を置かない。
     expect(psScript()).not.toContain('"');
+  });
+
+  // 配布物の段（windows-installer の action）は、入れたあと PATH に置き場があり、消したあと外れていることを実物で見る。
+  it('配布物の段は、入れたあと PATH に置き場があり、静かに消したあと外れていることを見る', () => {
+    const action = fs.readFileSync(path.resolve(app, '../../.github/actions/windows-installer/action.yml'), 'utf8');
+    const install = action.indexOf("-ArgumentList '/S' -Wait -PassThru");
+    const onPath = action.indexOf('入れても PATH に');
+    const uninstall = action.indexOf("'uninstall.exe') -ArgumentList");
+    const offPath = action.indexOf('消したのに PATH に');
+    expect(install).toBeGreaterThan(-1);
+    expect(onPath).toBeGreaterThan(install);
+    expect(uninstall).toBeGreaterThan(onPath);
+    expect(offPath).toBeGreaterThan(uninstall);
   });
 
   it('ASCII だけで書く（NSIS はインストーラのコードページで読む）', () => {

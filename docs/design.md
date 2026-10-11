@@ -4461,7 +4461,8 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   バッチが終わっているので、Ctrl+C で node が止まったあとに cmd が「バッチ ジョブを終了しますか (Y/N)?」と問わず、node の終了コードがそのまま cmd の終了コードになる。
   npm は `||` の後に `title` を置くが、端末のタブの名前を変えてしまうので、何もしない `ver >nul` にした。
   `apps/desktop/test/hangar-cmd.test.ts` が、Windows の CI で、隠したコンソールに Ctrl+C を送って、古い作りでは問いで止まり、いまの作りでは止まらないことを確かめる。
-  インストーラは、`server\bin` を利用者単位の PATH（`HKCU\Environment` の `Path`）の末尾に足し、アンインストールの前に外す（`hooks.nsh` の `NSIS_HOOK_POSTINSTALL` と `NSIS_HOOK_PREUNINSTALL`）。
+  インストーラは、`server\bin` を利用者単位の PATH（`HKCU\Environment` の `Path`）の末尾に足し、アンインストールでファイルを消したあとに外す（`hooks.nsh` の `NSIS_HOOK_POSTINSTALL` と `NSIS_HOOK_POSTUNINSTALL`）。
+  Tauri の雛形では、消す前のフック（`NSIS_HOOK_PREUNINSTALL`）は、動いている殻を止めるかの確認（`CheckIfAppIsRunning`）より前に走る。そこで外していたときは、Hangar を開いたまま消そうとして確認で取り消すと、入ったままの版の `hangar` が PATH から消えたまま残った。外すのは取り消せる確認の後にし、消す前のフックでは何も書き換えない。
   書き換えは PowerShell が値の種類（`REG_EXPAND_SZ`）と展開前の項目をそのまま保って行い、NSIS の文字列（1024 字で切れる）を通さない。もう入っていれば足さず（更新でも増えない）、外すときは書き方の違う重複もまとめて外す。
   そのあと `WM_SETTINGCHANGE` を流すので、新しく開いたターミナルから `hangar` で呼べる。開いていたターミナルには届かない。
   流すのは System プラグインから呼ぶ `SendMessageTimeout` で、`SMTO_ABORTIFHUNG` を付けて固まった窓を待たない。NSIS の `SendMessage /TIMEOUT` は応答しない窓 1 つごとに上限まで待つので、実機（0.2.0-rc.4）では応答しない窓 10 個で、入れるのも消すのも約 50 秒止まっていた。
@@ -4475,6 +4476,10 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   版と読む名前は `v<数>.<数>.<数>` と `<数>.<数>.<数>` だけで、scoop の `current` のような別名は実体と重なるので見ない。
 - Windows（x64）の配布物は NSIS のインストーラ 1 本で、管理者権限を要らないユーザー単位のインストール（`%LOCALAPPDATA%\Hangar`）にする。`tauri.windows.conf.json` が Windows のビルドのときだけ `tauri.conf.json` に重なる（重ねるのは配布物と窓の装飾だけ）。署名はしない（2026-10-10 の決定）。作る手順は composite action（`.github/actions/windows-installer`）の 1 か所にあり、`tauri build --bundles nsis --target x86_64-pc-windows-msvc` を回し、静かに入れて同梱の `hangar.cmd` を動かし、入れた殻を起こして同梱のサーバが `127.0.0.1:4177` の `/health` に応えるまで待ってから止め、前の版の残りに見立てた古い名前の偽のファイル（`server\ui\assets\index-*.js` など）を置いて入れ直すとそれが消えていることを見て、もう一度置いてから静かに消し、`$INSTDIR` に何も残らない（`_?=` で動かした `uninstall.exe` 自身のほかは）ところまでを行う。殻が resource_dir から作ったパスで Node を起こす経路は、`hangar.cmd` では通らないので、殻そのものを起こして確かめる。殻は Node を公式の入れ先から PATH より先に探すので、このときは一時のホーム（`HANGAR_HOME`）の `settings.json` の `nodePath` で setup-node の Node を指し、殻が使った Node の版を desktop.log から読んで 22.20 以上であることを確かめる（22.20 から verbatim の主スクリプトで落ちるので、それより古い Node では回帰を捕まえられない）。
   CI の windows ジョブはこれを呼んで、インストーラを実行の artifact に 7 日だけ残す。
+  入れたあと PATH に `server\bin` があり、静かに消したあと外れていることも、この段で見る。
+  CI では続けて、本当の更新の経路を 1 回通す（`apps/desktop/scripts/ci-update-windows.ps1`、macOS は desktop ジョブの `ci-update-macos.sh`）。CI の中で `tauri signer generate` で使い捨ての鍵を作り、ローカルの目録（127.0.0.1 の `latest.json`）と一緒に `apps/desktop/scripts/update-rehearsal.ts` の作る設定を重ねて、版 A（今の版）と版 B（`set-version` で patch を 1 つ上げた版、build の後で戻す）を build する。本物の secret と GitHub の Release は使わない。http の目録を許す `dangerousInsecureTransportProtocol` はこの稽古の build にだけ重ね、ふだんの設定には書かない。
+  入れた版 A の UI に、確認、取得、インストールを頁と同じ口で殻の命令（`update_check`、`update_download`、`update_install`）に頼む台本を差し込んで殻を起こし（配る版には入らない）、Windows は殻がインストーラを `/P /UPDATE /R /ARGS` で起こすこと、その直前（`on_before_exit`）にサーバを止めること、入れるときのフックが置き場を空にすること、macOS は `.app.tar.gz` で `.app` が入れ替わることを確かめ、起き直した殻のサーバが `/health` で版 B を名乗るまでを見る。
+  Windows では、版 B が開いている間にアンインストーラを起こして動いている殻の問いで取り消し、PATH と入れた先が残ることも見る。
   タグの `release.yml` では、windows ジョブが同じ手順で作って `Hangar-<タグ>-windows-x64-setup.exe` と `.sha256` を artifact に置き、`windows-upload` ジョブが macos ジョブの後でそれを macos ジョブの作った下書きの Release に `gh release upload` で添える。Release を作るのは macos ジョブだけである。
   署名鍵があれば、build の後でインストーラに `tauri signer sign` で署名（`.sig`）を付け、`publish` ジョブが更新の目録に載せる（次の「アプリの自動更新」）。鍵は build に渡さない。
 - アプリの自動更新（段 5-4、2026-10-10 の決定）：更新は「知らせて、押して入れる」で、勝手には入れない。Tauri 2 の updater（`tauri-plugin-updater`）を macOS と Windows（NSIS）の両方で使う。
