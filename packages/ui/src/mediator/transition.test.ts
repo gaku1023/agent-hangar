@@ -271,31 +271,47 @@ const runDto = (id: string, sessionId: string, endedAt: number | null = null) =>
 const tabDto = (id: string, runId: string, closedAt: number | null = null) => ({ id, runId, sessionId: 's1', kind: 'shell' as const, title: 'シェル 1', tmuxName: `hangar-${runId}-t1`, createdAt: 2, closedAt });
 const onSession = (id = 's1') => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })]).state;
 
-describe('終わったセッションの開き方（冒頭の 1 枚が見える先頭から）', () => {
+describe('セッション画面の開き方（本文は最新の末尾から）', () => {
   const stored = (id: string, over: Partial<SessionDto> = {}): Store => ({ ...initialStore(), sessions: { [id]: { id, live: null, parked: false, ...over } as SessionDto } });
-  const open = (store: Store, id = 's1') => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })], initialState(), store).state;
-  it('動いていないセッションは、末尾を追わず先頭から開く（冒頭の 1 枚はトランスクリプトの先頭にある）', () => {
-    expect(open(stored('s1')).sessionView.s1?.follow).toBe(false);
+  const open = (store: Store, id = 's1', start: State = initialState()) => run([runtime({ type: 'hash.changed', route: { name: 'session', id } })], start, store).state;
+  it('動いていないセッションも、末尾を追う形で開く（いちばん新しい会話が見える位置から）', () => {
+    expect(open(stored('s1')).sessionView.s1?.follow ?? true).toBe(true);
   });
-  it('動いているセッション（作業中、入力待ち、休み）は、これまでどおり末尾を追う', () => {
+  it('動いているセッションと、生きた run があるセッションも、末尾を追う', () => {
     for (const live of ['busy', 'waiting', 'idle'] as const) expect(open(stored('s1', { live })).sessionView.s1?.follow ?? true).toBe(true);
-  });
-  it('生きた run があるセッションは、これまでどおり末尾を追う', () => {
     const store = { ...stored('s1'), runs: { r1: runDto('r1', 's1') } };
     expect(open(store).sessionView.s1?.follow ?? true).toBe(true);
   });
-  it('まだストアに無いセッションは、決めつけず既定のままにする', () => {
+  it('まだストアに無いセッションも、既定のまま末尾を追う', () => {
     expect(open(initialStore()).sessionView.s1?.follow ?? true).toBe(true);
   });
+  it('前に上へ遡って追うのをやめたセッションも、開き直したら末尾から始める', () => {
+    const away = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), follow: false } } };
+    expect(open(stored('s1'), 's1', away).sessionView.s1?.follow).toBe(true);
+  });
+  it('開き直すときに follow を保存へ書かない（その場のものなので残さない）', () => {
+    const away = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), follow: false } } };
+    const r = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], away, stored('s1'));
+    expect(r.effects.filter((e) => (e as { kind: string }).kind === 'storage.save')).toEqual([]);
+  });
   it('「最新へ」で末尾を追う形に戻せる', () => {
-    const a = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } }), action({ type: 'turn.latest', sessionId: 's1', runId: null })], initialState(), stored('s1'));
+    const a = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } }), action({ type: 'transcript.follow', sessionId: 's1', follow: false }), action({ type: 'turn.latest', sessionId: 's1', runId: null })], initialState(), stored('s1'));
     expect(a.state.sessionView.s1?.follow).toBe(true);
   });
-  it('検索の結果から開いたときの跳び先は、これまでどおり追わない', () => {
+  it('検索の結果から開いたときの跳び先は、跳び先を優先して追わない', () => {
     const s = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), jump: { seq: 5, query: 'a', n: 1 }, follow: false } } };
     const r = run([runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], s, stored('s1'));
     expect(r.effects).toContainEqual({ kind: 'api.loadEvents', sessionId: 's1', fromSeq: 0, aroundSeq: 5 });
     expect(r.state.sessionView.s1?.follow).toBe(false);
+  });
+  it('検索の結果から開く操作は跳び先を持ち、末尾を追わない', () => {
+    const r = run([action({ type: 'session.open', id: 's1', seq: 9, q: 'x' }), runtime({ type: 'hash.changed', route: { name: 'session', id: 's1' } })], initialState(), stored('s1'));
+    expect(r.state.sessionView.s1).toMatchObject({ jump: { seq: 9, query: 'x', n: 1 }, follow: false });
+  });
+  it('サブエージェントの窓へ切り替えたときも、その窓の末尾から始める', () => {
+    const away = { ...initialState(), sessionView: { s1: { ...defaultSessionView(), follow: false } } };
+    const r = run([action({ type: 'transcript.selectAgent', sessionId: 's1', agentId: 'abc' })], away);
+    expect(r.state.sessionView.s1).toMatchObject({ agentId: 'abc', follow: true });
   });
 });
 
