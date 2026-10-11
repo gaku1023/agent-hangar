@@ -4,7 +4,6 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const rowEn: AreaDictionary<typeof rowKeys> = {
   'row.mark.pr': 'PR #{n}',
   'row.mark.prPlain': 'PR',
-  'row.mark.note': 'Has a note',
   'row.return.noDate': 'No date',
   'row.return.now': 'Now',
   'row.return.minOver': '{n} min overdue',
@@ -49,7 +48,6 @@ export const rowEn: AreaDictionary<typeof rowKeys> = {
   'row.conversation.note': 'Approved in conversation',
   'row.soon.delete': 'Deleting soon',
   'row.empty.default': 'No sessions yet',
-  'row.note.label': 'Note for {name}',
   'row.return.titleTime': 'Reminder time {date}',
   'row.return.titleDate': 'Reminder date',
   'row.return.titleLast': '{title} · Last activity {when}',

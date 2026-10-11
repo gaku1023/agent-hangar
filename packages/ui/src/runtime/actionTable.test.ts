@@ -45,7 +45,7 @@ describe('表の鍵', () => {
       'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'instructions.load', 'instructions.openEditor', 'memo.save',
       'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
-      'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.setMemo', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
+      'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
     ]);
   });
@@ -121,14 +121,6 @@ describe('セッション', () => {
     expect(vi.mocked(api.rejectSessionState).mock.calls).toEqual([['s1']]);
     // 画面の正は後から届く session.upsert である。
     expect(r.store).toBe(r.during);
-  });
-  it('メモの保存は、応答のセッションを Store に入れる', async () => {
-    const saved = { id: 's1', memo: '一行' } as SessionDto;
-    const setSessionMemo = vi.fn(async () => saved);
-    const other = { id: 's2' } as SessionDto;
-    const r = await runRow({ type: 'session.setMemo', id: 's1', text: '一行' }, fakeApi({ setSessionMemo }), { ...initialStore(), sessions: { s2: other } });
-    expect(setSessionMemo.mock.calls).toEqual([['s1', '一行']]);
-    expect(r.store.sessions).toEqual({ s1: saved, s2: other });
   });
   it('要約の作り直しは regenerateSummary を呼ぶだけで、結果は待たない', async () => {
     const api = fakeApi();

@@ -211,12 +211,12 @@ describe('routes', () => {
   });
   const post = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const alphaId = async () => { const { body } = await json(await get('/api/sessions')); return body.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA).id as string; };
-  it('セッションのメモ、昇格、要約', async () => {
+  it('セッションのノートを書く口は無い（PATCH は 404 で、何も書かない）。昇格、要約', async () => {
     const id = await alphaId();
     const r = await post(`/api/sessions/${id}`, { memo: '一行' }, 'PATCH');
-    expect((await r.json()).memo).toBe('一行');
-    expect(sent.at(-1)).toMatchObject({ type: 'session.upsert', session: { id, memo: '一行' } });
-    expect((await post('/api/sessions/nope', { memo: 'x' }, 'PATCH')).status).toBe(404);
+    expect(r.status).toBe(404);
+    expect(sent.filter((e) => e.type === 'session.upsert')).toEqual([]);
+    expect((await json(await get(`/api/sessions/${id}`))).body).not.toHaveProperty('memo');
     const p = await post(`/api/sessions/${id}/promote`, { name: 'newp', gitInit: false, moveFiles: true });
     expect(p.status).toBe(201);
     expect(await p.json()).toMatchObject({ moved: true, reason: null, project: { id: list0ProjectId() }, session: { id } });
@@ -377,12 +377,6 @@ describe('書いた行のイベントは配る層から届く', () => {
 
   describe('セッション', () => {
     const alpha = async () => (await sessionsOf()).find((s) => s.providerSessionId === SESSION_ALPHA)!;
-
-    it('1 行メモを書くと、その session.upsert が 1 回だけ届く', async () => {
-      const { id } = await alpha();
-      await send(`/api/sessions/${id}`, { memo: '一行' }, 'PATCH');
-      expect(sent).toEqual([{ type: 'session.upsert', session: expect.objectContaining({ id, memo: '一行' }) }]);
-    });
 
     it('状態を付ける、提案を確定する、却下する、のどれでも session.upsert が 1 回だけ届く', async () => {
       const { id } = await alpha();

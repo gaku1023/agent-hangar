@@ -73,7 +73,7 @@ export type UiAction =
   | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind }
   | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
-  | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string } | { type: 'session.setMemo'; id: SessionId; text: string }
+  | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string }
   // セッションの状態（Paused・Done・Archived）。status の null は Active に戻す。画面の正は後から届く session.upsert である。
   | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。

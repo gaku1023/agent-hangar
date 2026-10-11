@@ -71,8 +71,9 @@ const SAFE_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const safeId = (id: string): string => (SAFE_ID_RE.test(id) ? id : `id-${crypto.createHash('sha256').update(id, 'utf8').digest('hex').slice(0, 16)}`);
 
 /**
- * セッションの名前とメモの控えを残したあとの知らせ。ファイルはもう書けているので、トーストに使うだけである。
- * markdown は控えに書いた本文である（負けたメモ。名前も負けたときは、先頭に「名前：」の 1 行が付く）。
+ * セッションの名前の控えを残したあとの知らせ。ファイルはもう書けているので、トーストに使うだけである。
+ * markdown は控えに書いた本文である（「名前：<負けた名前>」の 1 行）。
+ * 名前が Memo なのは、ノート（memo）の控えも取っていた頃の名残である。ノートは 0.4.0 で外した。
  */
 export type SessionMemoBackup = { sessionId: string; markdown: string; deviceName: string; backupFile: string };
 
@@ -93,7 +94,7 @@ export type ApplyOptions = {
    */
   onFailed?: (c: ChangeOut, e: unknown) => void;
   /**
-   * 古い形の sessions の payload が名前かメモを持っていたときに呼ばれる。
+   * 古い形の sessions の payload が名前を持っていたときに呼ばれる。
    * 渡すと、その場では session_notes の行を作らず、呼び手へ任せる。
    * 同期エンジンは、1 巡を読み切ってから `adoptNoteFromOldSession` を呼ぶ。
    * 写しでは session_notes の行が sessions より後に当たるので、その場で作ると、すぐ後に届く本物の行がそれを上書きして、要らない控えが残る。
@@ -152,28 +153,27 @@ function noteMemoConflict(db: Db, c: ChangeOut, row: Record<string, unknown>, o:
 const filled = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 
 /**
- * セッションの名前とメモ（session_notes）が他端末の新しい版に負けるとき、負けた中身を控えの入れ物に残す。
+ * セッションの名前（session_notes）が他端末の新しい版に負けるとき、負けた名前を控えの入れ物に残す。
  * 残せたら true、残せなかったら false（呼び手は上書きを見送る）。
  *
- * 控えを取るのは、手元の名前かメモに中身があり、降りてきた行でそれが別の中身になる（または消える）ときだけである。
+ * 控えを取るのは、手元の名前に中身があり、降りてきた行でそれが別の中身になる（または消える）ときだけである。
  * 中身が同じ、手元が空、手元の行が無い（または消してある）ときは取らない。
- * 名前とメモを sessions から分けたので、索引の書き直しが原因の上書きはもう無い。
+ * 降りてきた行が古い版の PC のもので memo を持っていても、見るのは名前だけである（ノートは 0.4.0 で外した）。
+ * 名前を sessions から分けたので、索引の書き直しが原因の上書きはもう無い。
  * ここへ来るのは、2 台が本当に別々に書いたときである（2 台が同期の収束する前に版 17 へ上がり、写しの中身が違ったときを含む）。
  *
- * 置き場と形は、名前とメモが sessions の列だった頃と同じである。
+ * 置き場と形は、名前とノートが sessions の列だった頃と同じである。
  * `<home>/backups/memos/session-<セッション ID>-<時刻>.md` に残し、他端末の会話の断片が入るので、入れ物は 0700、控えは 0600 にする。
- * 本文は負けたメモである。名前も負けたときは、先頭に「名前：<名前>」の 1 行を足す。
+ * 本文は「名前：<名前>」の 1 行である。
  */
 function backupSessionNote(db: Db, c: ChangeOut, row: Record<string, unknown>, o: ApplyOptions): boolean {
   if (c.tableName !== 'session_notes') return true;
-  const local = db.prepare('select name, memo, origin_device, deleted_at from session_notes where session_id = ?').get(c.rowId) as { name?: unknown; memo?: unknown; origin_device?: unknown; deleted_at?: unknown } | undefined;
+  const local = db.prepare('select name, origin_device, deleted_at from session_notes where session_id = ?').get(c.rowId) as { name?: unknown; origin_device?: unknown; deleted_at?: unknown } | undefined;
   if (!local || local.deleted_at != null) return true;
   // payload に列が無ければ、その列は上書きされない（do update set に載らない）。消す変更は、行ごと見えなくなる。
-  const loses = (k: 'name' | 'memo'): boolean => filled(local[k]) && (c.op === 'delete' || (Object.prototype.hasOwnProperty.call(row, k) && row[k] !== local[k]));
-  const name = loses('name') ? (local.name as string) : null;
-  const memo = loses('memo') ? (local.memo as string) : null;
-  if (name === null && memo === null) return true;
-  const body = name === null ? memo! : memo === null ? `名前：${name}\n` : `名前：${name}\n\n${memo}`;
+  const loses = filled(local.name) && (c.op === 'delete' || (Object.prototype.hasOwnProperty.call(row, 'name') && row.name !== local.name));
+  if (!loses) return true;
+  const body = `名前：${local.name as string}\n`;
   const author = typeof local.origin_device === 'string' && local.origin_device.length > 0 ? local.origin_device : o.ownDeviceId;
   let file: string;
   try {
@@ -182,20 +182,21 @@ function backupSessionNote(db: Db, c: ChangeOut, row: Record<string, unknown>, o
     fs.chmodSync(dir, 0o700);
     file = writeWithoutClobbering(dir, `session-${safeId(c.rowId)}-${timestampLabel(Date.now())}`, body, 0o600);
   } catch (e) {
-    console.error('[sync] セッションの名前とメモの控えを残せなかったので上書きを見送りました', safeId(c.rowId), e instanceof Error ? e.message : e);
+    console.error('[sync] セッションの名前の控えを残せなかったので上書きを見送りました', safeId(c.rowId), e instanceof Error ? e.message : e);
     return false;
   }
   // 控えはもうファイルになっている。知らせが失敗しても上書きは止めない。
   try {
     o.onSessionMemoBackup?.({ sessionId: c.rowId, markdown: body, deviceName: deviceName(db, author), backupFile: file });
   } catch (e) {
-    console.error('[sync] セッションの名前とメモの控えを知らせられませんでした', safeId(c.rowId), e instanceof Error ? e.message : e);
+    console.error('[sync] セッションの名前の控えを知らせられませんでした', safeId(c.rowId), e instanceof Error ? e.message : e);
   }
   return true;
 }
 
 /**
- * 写し同士がぶつかったか。手元の行も降りてきた行も、版 17 が sessions から写した名前とメモ（時刻が MIGRATED_NOTE_AT）で、中身が違うとき。
+ * 写し同士がぶつかったか。手元の行も降りてきた行も、版 17 が sessions から写した名前（時刻が MIGRATED_NOTE_AT）で、中身が違うとき。
+ * 古い版の PC の写しが持つ memo は見ない（ノートは 0.4.0 で外した）。
  *
  * このときだけは、同じ時刻でも降りてきた側を採る。「同じ時刻なら手元を残す」だと、2 台が別々の中身を持ったまま食い違う。
  * 降りてきた側を採れば、どの PC も同じ結果に収束する。
@@ -206,19 +207,19 @@ function backupSessionNote(db: Db, c: ChangeOut, row: Record<string, unknown>, o
  */
 function copiesCollide(db: Db, c: ChangeOut, localUpdatedAt: number): boolean {
   if (c.tableName !== 'session_notes' || c.updatedAt !== MIGRATED_NOTE_AT || localUpdatedAt !== MIGRATED_NOTE_AT) return false;
-  const local = db.prepare('select name, memo, deleted_at from session_notes where session_id = ?').get(c.rowId) as { name: unknown; memo: unknown; deleted_at: unknown };
+  const local = db.prepare('select name, deleted_at from session_notes where session_id = ?').get(c.rowId) as { name: unknown; deleted_at: unknown };
   if ((c.op === 'delete') !== (local.deleted_at != null)) return true;
-  const differs = (k: 'name' | 'memo'): boolean => Object.prototype.hasOwnProperty.call(c.payload, k) && (c.payload[k] ?? null) !== (local[k] ?? null);
-  return differs('name') || differs('memo');
+  return Object.prototype.hasOwnProperty.call(c.payload, 'name') && (c.payload.name ?? null) !== (local.name ?? null);
 }
 
 /**
- * クラウドに残る古い形の sessions の payload（版 16 までの端末が上げたもの）から、名前とメモを拾う。
+ * クラウドに残る古い形の sessions の payload（版 16 までの端末が上げたもの）から、名前を拾う。
  *
  * 古い形の payload は `name` と `memo` を列として持つ。手元の sessions にその列はもう無いので、行としては捨てる。
- * ただ、書いた PC がまだ上がっていなければ、その名前とメモはクラウドのどこにも session_notes の行として無い。
- * 捨てるだけだと、新しく参加した PC には、書いた PC が上がるまで名前もメモも見えない。
- * そこで、手元にそのセッションの session_notes の行が無いときに限り、その中身で行を作る。
+ * ただ、書いた PC がまだ上がっていなければ、その名前はクラウドのどこにも session_notes の行として無い。
+ * 捨てるだけだと、新しく参加した PC には、書いた PC が上がるまで名前が見えない。
+ * そこで、手元にそのセッションの session_notes の行が無いときに限り、その名前で行を作る。
+ * `memo`（ノート）は拾わない。ノートは 0.4.0 で外した。
  *
  * - 時刻は写しの定数（MIGRATED_NOTE_AT）、書き手は payload の書き手にする。本物の書き込みが届けば、必ずそちらが勝つ。
  * - 手元に行があれば（消した行も含めて）何もしない。手元の方が、古い形の payload より確かである。
@@ -226,24 +227,23 @@ function copiesCollide(db: Db, c: ChangeOut, localUpdatedAt: number): boolean {
  * 作ったら true を返す。
  * - changes には積まない（こちらからは上げ直さない）。
  *   上げると、書いた PC より先にクラウドへ着き、写し同士の決着（先に上がった側が勝つ）で、書いた PC の写しに勝ってしまう。
- *   書いた PC は、クラウドへまだ上げていなかった新しい名前やメモを持っていることがある。それを、クラウドに残っていた古い中身で負かさない。
+ *   書いた PC は、クラウドへまだ上げていなかった新しい名前を持っていることがある。それを、クラウドに残っていた古い中身で負かさない。
  *   書いた PC が上がれば、その写しが届いて、ここで作った行を置き換える。
  */
 export function adoptNoteFromOldSession(db: Db, c: ChangeOut): boolean {
   if (!carriesOldNote(c)) return false;
-  const name = filled(c.payload.name) ? c.payload.name : null;
-  const memo = filled(c.payload.memo) ? c.payload.memo : null;
+  const name = c.payload.name as string;
   if (db.prepare('select 1 from session_notes where session_id = ?').get(c.rowId)) return false;
   // セッションの行が、その後に消えていることがある（持ち越している間に）。親が無ければ作らない。
   if (!db.prepare('select 1 from sessions where id = ?').get(c.rowId)) return false;
   const origin = typeof c.payload.origin_device === 'string' && c.payload.origin_device.length > 0 ? c.payload.origin_device : c.deviceId;
-  db.prepare('insert into session_notes (session_id, name, memo, updated_at, deleted_at, origin_device) values (?,?,?,?,?,?)').run(c.rowId, name, memo, MIGRATED_NOTE_AT, null, origin);
+  db.prepare('insert into session_notes (session_id, name, updated_at, deleted_at, origin_device) values (?,?,?,?,?)').run(c.rowId, name, MIGRATED_NOTE_AT, null, origin);
   return true;
 }
 
-/** 古い形の sessions の payload で、名前かメモに中身があるか。 */
+/** 古い形の sessions の payload で、名前に中身があるか。 */
 function carriesOldNote(c: ChangeOut): boolean {
-  return c.tableName === 'sessions' && c.op === 'upsert' && (filled(c.payload.name) || filled(c.payload.memo));
+  return c.tableName === 'sessions' && c.op === 'upsert' && filled(c.payload.name);
 }
 
 /**
@@ -251,8 +251,8 @@ function carriesOldNote(c: ChangeOut): boolean {
  * ただし session_notes の写し同士（copiesCollide）だけは、同じ時刻でも降りてきた側を採る。
  * payload はローカルの列だけに絞るので、相手の版が新しくて列が多くても壊れない。
  * クラウドに残る古い形の sessions の payload（name と memo を含む）も、列としてはここで捨てる。
- * 名前とメモは session_notes の行として別に運ばれるので、sessions の行が降りても上書きされない。
- * 古い形の payload の名前とメモは、手元に session_notes の行が無いときだけ拾う（adoptNoteFromOldSession）。
+ * 名前は session_notes の行として別に運ばれるので、sessions の行が降りても上書きされない。
+ * 古い形の payload の名前は、手元に session_notes の行が無いときだけ拾う（adoptNoteFromOldSession）。memo は拾わない。
  */
 export function applyRemoteChange(db: Db, c: ChangeOut, o: ApplyOptions): 'applied' | 'skipped' {
   if (!ORDER.has(c.tableName)) return 'skipped';

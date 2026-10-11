@@ -12,7 +12,7 @@ const ja = translator('ja');
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const stats = { turns: 11, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: 41, costUsd: 0.42 };
 const session = (over: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 3_600_000, lastActivityAt: NOW - 60_000, memo: null,
+  id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 3_600_000, lastActivityAt: NOW - 60_000, 
   hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over,
 });
 const run = (over: Partial<RunDto> = {}): RunDto => ({ id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: NOW - 3_600_000, endedAt: null, endReason: null, heartbeatAt: NOW, ...over });
@@ -42,10 +42,9 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
       const p = present(store(session(), run({ endedAt: NOW - 1000, endReason: 'exited' })));
       expect(p.strip).toBeNull();
     });
-    it('帯のノートの札と冒頭の 1 枚は、同じノートの本文を持つ', () => {
-      const alive = present(store(session({ live: 'idle', memo: '明日 PR を出す' }), run()));
-      expect(alive.strip?.note).toEqual({ text: '明日 PR を出す', filled: true });
-      expect(present(store(session({ memo: '明日 PR を出す' }))).lead?.note).toEqual({ text: '明日 PR を出す', filled: true });
+    it('帯にも冒頭の 1 枚にもノートは無い（ノートは 0.4.0 で外した）', () => {
+      expect(present(store(session({ live: 'idle' }), run())).strip).not.toHaveProperty('note');
+      expect(present(store(session())).lead).not.toHaveProperty('note');
     });
     it('冒頭の 1 枚の変更したファイルは、サーバから取った一覧を使う', () => {
       const st = store();

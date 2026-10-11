@@ -14,7 +14,7 @@ import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 import { syncFixture } from '../test/syncProps.ts';
 import type { CloudUsageProps } from '../presenters/cloudUsage.ts';
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null });
 // 一覧の部品（SessionList）。ホームとプロジェクトの画面が使う。タブとチップ以外を見る節なので、タブは空にして平らな一覧を描かせる。
 const extra: Pick<SessionListProps, 'tabs' | 'tab' | 'tokens' | 'hints' | 'pager' | 'statusColumn' | 'allCount'> = { tabs: [], tab: 'all', tokens: [], hints: [], pager: null, statusColumn: true, allCount: 0 };
 const List = (props: Omit<SessionListProps, keyof typeof extra> & Partial<typeof extra>) => <SessionList {...extra} {...props} />;

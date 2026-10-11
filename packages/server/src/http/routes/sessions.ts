@@ -10,7 +10,6 @@ import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
-import { setSessionMemo } from '../../sessions/notes.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
@@ -25,7 +24,7 @@ const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
 
 /**
  * セッションの経路。
- * 一覧と 1 件、本文、サブエージェント、変更したファイル、実行中の要約、検索、エディタで開く、1 行メモ、状態、昇格、事後要約を持つ。
+ * 一覧と 1 件、本文、サブエージェント、変更したファイル、実行中の要約、検索、エディタで開く、状態、昇格、事後要約を持つ。
  * 起動（resume、fork など）は run を作るので runs.ts にある。
  */
 export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
@@ -118,17 +117,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     return external(c, () => deps.external.openEditor({ target: file }), true);
   });
 
-  // セッションの 1 行メモ、昇格、事後要約。
-  api.patch('/sessions/:id', async (c) => {
-    const id = c.req.param('id');
-    if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
-    const b = await readJson(c, BODY_LIMITS.todo);
-    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.todo, tr);
-    const body = (b.value ?? {}) as { memo?: unknown };
-    if (typeof body.memo !== 'string') return c.json({ error: tr('common.field.mustBeString', { field: 'memo' }) }, 400);
-    setSessionMemo(db, deviceId, id, body.memo.trim() || null);
-    return c.json(session(id)!);
-  });
+  // セッションのノート（PATCH /sessions/:id の memo）は 0.4.0 で外した。書く口は無い。
   // セッションの状態（Paused・Done・Archived）と Claude の提案の確定・却下。どれも利用者の操作で、MCP からは呼べない。
   // run に配る MCP の秘密は /api を開けない（authMiddleware は本体のトークンしか見ない）。
   // 成功したら、書いた行（session_states）から配る層が session.upsert を配る。画面の正はその配信である。

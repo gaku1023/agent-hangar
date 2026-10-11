@@ -802,7 +802,7 @@ describe('起動とターミナル', () => {
 });
 
 const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
+const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
 const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null });
 const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
 const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
@@ -896,17 +896,6 @@ describe('フェーズ 3 の効果', () => {
     await flush();
     expect(saveMemo).toHaveBeenCalledWith('p1', '# 書いた');
     expect(rt.getStore().memos.p1).toEqual({ projectId: 'p1', markdown: '# 書いた', updatedAt: 6 });
-  });
-  it('セッションのメモはストアのセッションを差し替える', async () => {
-    const setSessionMemo = vi.fn(async (sessionId: string, text: string): Promise<SessionDto> => ({ ...p3Session, id: sessionId, memo: text }));
-    const { rt, wsHandlers } = harness({ setSessionMemo });
-    rt.start();
-    wsHandlers[0]!.onOpen();
-    await flush();
-    rt.emit({ type: 'session.setMemo', id: 's1', text: '覚え書き' });
-    await flush();
-    expect(setSessionMemo).toHaveBeenCalledWith('s1', '覚え書き');
-    expect(rt.getStore().sessions.s1?.memo).toBe('覚え書き');
   });
   it('昇格は成功でストアを更新して promote.done、失敗で promote.failed になる', async () => {
     const promote = vi.fn(async () => ({ project: p3Project('p9'), session: p3Session, moved: true, reason: null }));
@@ -1291,7 +1280,7 @@ describe('保持期間（ランタイム）', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   const preview = { days: 365, path: '/c/settings.json', lines: [], baseSha256: 'abc', backupDir: '/h/backups/claude-config', projectedBytes: null };
   it('本文の無い会話を開いても、本文を読みに行かない', async () => {
-    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
     const { rt, api, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [s1] })) });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -1353,7 +1342,7 @@ describe('保持期間（ランタイム）', () => {
 
 describe('入力待ちの知らせ', () => {
   const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
-  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
+  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
   const live = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
   function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean; status?: NotifyPermission } = {}) {
     let open: ((id: string) => void) | null = null;
@@ -1398,7 +1387,7 @@ describe('入力待ちの知らせ', () => {
     const { wsHandlers } = await started(n, [waitingSession({ live: 'waiting' })]);
     expect(n.prune).toHaveBeenCalledTimes(1);
     expect(n.prune).toHaveBeenLastCalledWith({ waiting: ['s1'], returning: [] });
-    wsHandlers[0]!.onEvent({ type: 'session.upsert', session: waitingSession({ live: 'waiting', memo: '別の中身' }) });
+    wsHandlers[0]!.onEvent({ type: 'session.upsert', session: waitingSession({ live: 'waiting', name: '別の中身' }) });
     expect(n.prune).toHaveBeenCalledTimes(1);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'busy')] });
     expect(n.prune).toHaveBeenCalledTimes(2);
@@ -1824,7 +1813,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(readiness).toHaveBeenCalledTimes(2);
   });
   it('起動のたびに、ホームの帯の確認のために準備の確かめを取る（セッションが 1 つも無いときに限らない）', async () => {
-    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, memo: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
     for (const sessions of [[], [s1]]) {
       const readiness = vi.fn(async () => READY);
       const { rt, wsHandlers } = harness({ readiness, bootstrap: vi.fn(async () => ({ ...boot, sessions })) });
@@ -2357,7 +2346,7 @@ describe('ランタイムの文（英語）', () => {
   const JAPANESE = /[぀-ヿ㐀-鿿]/;
   const english = { ...boot, settings: { ...boot.settings, language: 'en' as const } };
   const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
-  const nameless: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
+  const nameless: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
   async function startedEnglish(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}, sessions: SessionDto[] = []) {
     const h = harness({ bootstrap: vi.fn(async () => ({ ...english, sessions })), ...overrides }, extra);
     h.rt.start();

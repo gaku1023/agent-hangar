@@ -41,7 +41,6 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.setSessionSummary': 'このセッションの要約を更新する。依頼の完了、方針の変更、中断のときに呼ぶ。',
   'mcp.tool.setTurnIntent': 'このターンで何のために何をするかを 1〜2 文（200 字まで）で書く。ターンを始めたときと方針を変えたときに呼ぶ。hangar の右ペインに出る。',
   'mcp.tool.proposeSessionStatus': 'このセッションのステータス（Done か Paused）を提案する。利用者が会話の中で選んだときだけ confirmed を true にする。利用者に聞かずに true にしてはいけない。',
-  'mcp.tool.setSessionMemo': 'セッションの人間向け 1 行ノートを書く。',
   'mcp.tool.getUsage': 'Claude の 5 時間と 7 日のレート制限の使用率と最終更新時刻。ステータスラインから届いた最新の値。上の 3 項目はメインアカウントの値で、accounts にアカウントごとの値（名前、いま使っているか、同じ 3 項目）が並ぶ。',
   'mcp.tool.openInHangar': 'セッションかプロジェクトを hangar の UI で開く URL とディープリンクを返す。',
 };

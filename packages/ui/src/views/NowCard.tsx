@@ -2,7 +2,6 @@ import { useLayoutEffect, useRef } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { CardLane, CardStep, NowCardProps } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
-import { NoteEditor } from './NoteEditor.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -103,23 +102,6 @@ function AllSteps(props: { steps: CardStep[]; hidden: number }) {
       face={(p) => <CountChip size="sm" label={t('session.strip.stepsMore')} count={props.hidden} {...p} />}>
       <h4 className="pop-title">{t('session.strip.steps.label')}</h4>
       <ul className="nc-steps-all">{props.steps.map((s) => <StepItem key={s.key} step={s} />)}</ul>
-    </Popover>
-  );
-}
-
-/** 見出しの行の「ノート」の札。中身があれば印を付け、押すとポップオーバーでノートを読み書きする。実行中だけ置く（終わった後は冒頭の 1 枚の中）。 */
-export function NoteChip(props: { sessionId: string; text: string; filled: boolean }) {
-  const t = useT();
-  const emit = useEmit();
-  return (
-    <Popover label={t('session.note.label')} width={340} align="end"
-      face={(p) => (
-        <button type="button" className="nc-note" data-filled={props.filled ? 'true' : undefined} aria-label={props.filled ? t('session.note.labelFilled') : t('session.note.label')} {...p}>
-          <Icon name="edit" />{t('session.note.label')}{props.filled && <span className="nc-note-dot" aria-hidden="true" />}
-        </button>
-      )}>
-      <h4 className="pop-title">{t('session.note.label')}</h4>
-      <NoteEditor text={props.text} onSave={(text) => emit({ type: 'session.setMemo', id: props.sessionId, text })} />
     </Popover>
   );
 }

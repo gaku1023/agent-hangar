@@ -4,7 +4,7 @@ import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { setSessionMemo } from '../sessions/notes.ts';
+import { setSessionName } from '../sessions/notes.ts';
 import { setSessionState } from '../sessions/states.ts';
 import type { CloudClient } from './client.ts';
 import { ORPHAN_KEEP_DAYS, SyncEngine } from './engine.ts';
@@ -57,13 +57,13 @@ async function seedA(child: (sessionId: string, i: number) => void): Promise<voi
 
 describe('最初の写しで、親より先に降りた子の行', () => {
   it(`${N} 本のセッションの名前とメモを、空の PC が全部受け取る`, async () => {
-    await seedA((s, i) => setSessionMemo(dbA, 'a', s, `メモ ${i}`));
+    await seedA((s, i) => setSessionName(dbA, 'a', s, `メモ ${i}`));
     const b = engine(dbB, 'b');
     await b.start();
     await b.pullNow();
     expect(count(dbB, 'sessions')).toBe(N);
     expect(count(dbB, 'session_notes')).toBe(N);
-    expect((dbB.prepare('select memo from session_notes where session_id = ?').get(id(N - 1)) as { memo: string }).memo).toBe(`メモ ${N - 1}`);
+    expect((dbB.prepare('select name from session_notes where session_id = ?').get(id(N - 1)) as { name: string }).name).toBe(`メモ ${N - 1}`);
     expect(b.status().error).toBeNull();
   });
 
@@ -84,7 +84,7 @@ describe('最初の写しで、親より先に降りた子の行', () => {
   });
 
   it('当てた行は、持ち越した分も含めて applied として知らせる', async () => {
-    await seedA((s, i) => setSessionMemo(dbA, 'a', s, `メモ ${i}`));
+    await seedA((s, i) => setSessionName(dbA, 'a', s, `メモ ${i}`));
     const b = engine(dbB, 'b');
     const applied: string[] = [];
     b.on({ applied: (c) => applied.push(`${c.tableName}:${c.rowId}`) });
@@ -100,7 +100,7 @@ describe('差分の頁をまたぐ親子', () => {
     await b.start();
     await b.pullNow();
     // 子を先に、親を頁の外に積む（親を書き直すと、親の方が後ろの連番になる）。
-    const note = (s: string): ChangeIn => ({ tableName: 'session_notes', rowId: s, op: 'upsert', updatedAt: 100, payload: { session_id: s, name: null, memo: 'メモ', updated_at: 100, deleted_at: null, origin_device: 'a' } });
+    const note = (s: string): ChangeIn => ({ tableName: 'session_notes', rowId: s, op: 'upsert', updatedAt: 100, payload: { session_id: s, name: 'メモ', updated_at: 100, deleted_at: null, origin_device: 'a' } });
     const session = (s: string): ChangeIn => ({ tableName: 'sessions', rowId: s, op: 'upsert', updatedAt: 100, payload: { id: s, provider: 'claude-code', provider_session_id: `u-${s}`, cwd: '/w', home_device: 'a', updated_at: 100, deleted_at: null, origin_device: 'a' } });
     const all = [...Array.from({ length: N }, (_, i) => note(id(i))), ...Array.from({ length: N }, (_, i) => session(id(i)))];
     for (let i = 0; i < all.length; i += 40) await cloud.pushChanges(all.slice(i, i + 40));
@@ -111,7 +111,7 @@ describe('差分の頁をまたぐ親子', () => {
 });
 
 describe('最後まで親が現れなかった行', () => {
-  const orphan: ChangeIn = { tableName: 'session_notes', rowId: 'ghost', op: 'upsert', updatedAt: 100, payload: { session_id: 'ghost', name: null, memo: '親のいないメモ', updated_at: 100, deleted_at: null, origin_device: 'a' } };
+  const orphan: ChangeIn = { tableName: 'session_notes', rowId: 'ghost', op: 'upsert', updatedAt: 100, payload: { session_id: 'ghost', name: '親のいないメモ', updated_at: 100, deleted_at: null, origin_device: 'a' } };
   const parent: ChangeIn = { tableName: 'sessions', rowId: 'ghost', op: 'upsert', updatedAt: 100, payload: { id: 'ghost', provider: 'claude-code', provider_session_id: 'u-ghost', cwd: '/w', home_device: 'a', updated_at: 100, deleted_at: null, origin_device: 'a' } };
 
   it('黙って捨てず、数を記録に出し、同期は止めない。区切りは進める', async () => {
@@ -140,7 +140,7 @@ describe('最後まで親が現れなかった行', () => {
       // 親は後から、別の pull で届く。子はもう差分には載らない。
       await cloud.pushChanges([parent]);
       await b.pullNow();
-      expect(dbB.prepare('select memo from session_notes where session_id = ?').get('ghost')).toEqual({ memo: '親のいないメモ' });
+      expect(dbB.prepare('select name from session_notes where session_id = ?').get('ghost')).toEqual({ name: '親のいないメモ' });
       // 当たったら、覚えを消す。
       expect(dbB.prepare("select 1 from sync_state where key = 'orphans'").get()).toBeUndefined();
     } finally { err.mockRestore(); }
@@ -163,7 +163,7 @@ describe('最後まで親が現れなかった行', () => {
   });
 });
 
-const note = (s: string, updatedAt = 100, memo = 'メモ'): ChangeIn => ({ tableName: 'session_notes', rowId: s, op: 'upsert', updatedAt, payload: { session_id: s, name: null, memo, updated_at: updatedAt, deleted_at: null, origin_device: 'a' } });
+const note = (s: string, updatedAt = 100, name = 'メモ'): ChangeIn => ({ tableName: 'session_notes', rowId: s, op: 'upsert', updatedAt, payload: { session_id: s, name, updated_at: updatedAt, deleted_at: null, origin_device: 'a' } });
 const session = (s: string): ChangeIn => ({ tableName: 'sessions', rowId: s, op: 'upsert', updatedAt: 100, payload: { id: s, provider: 'claude-code', provider_session_id: `u-${s}`, cwd: '/w', home_device: 'a', updated_at: 100, deleted_at: null, origin_device: 'a' } });
 const pushAll = async (all: ChangeIn[]) => { for (let i = 0; i < all.length; i += 40) await cloud.pushChanges(all.slice(i, i + 40)); };
 const quiet = async (fn: (lines: () => string[]) => Promise<void>) => {
@@ -240,9 +240,9 @@ describe('持ち越した行と、新しい版', () => {
       expect(dbB.prepare("select 1 from sync_state where key = 'orphans'").get()).toBeDefined();
       // 親と新しい版は、この PC が自分で書いた（降りてくる道を通らない）。
       upsertShared(dbB, 'sessions', { id: 'ghost', provider: 'claude-code', provider_session_id: 'u-ghost', cwd: '/w', home_device: 'b' }, 'b');
-      setSessionMemo(dbB, 'b', 'ghost', '新しい版');
+      setSessionName(dbB, 'b', 'ghost', '新しい版');
       await b.pullNow();
-      expect(dbB.prepare('select memo from session_notes where session_id = ?').get('ghost')).toEqual({ memo: '新しい版' });
+      expect(dbB.prepare('select name from session_notes where session_id = ?').get('ghost')).toEqual({ name: '新しい版' });
       expect(dbB.prepare("select 1 from sync_state where key = 'orphans'").get()).toBeUndefined();
     });
   });

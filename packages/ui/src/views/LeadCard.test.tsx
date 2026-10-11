@@ -13,7 +13,7 @@ const NOW = Date.UTC(2026, 9, 9, 3, 0, 0);
 const DAY = 86_400_000;
 
 const session = (p: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, memo: null,
+  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 4 * DAY, lastActivityAt: NOW - 3 * DAY, 
   hasTranscript: true, live: null,
   summary: { title: 't', oneLiner: 'o', body: '商品一覧の画像を遅延読み込みにした。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: null, sourceModel: null, basedOnTurns: 11, updatedAt: NOW - 3 * DAY },
   stats: { turns: 11, model: null, effort: null, filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
@@ -147,36 +147,11 @@ describe('LeadCard の札', () => {
 });
 
 describe('LeadCard のノート', () => {
-  it('ノートが空なら「ノートを書く」。押すとこの 1 枚の中で編集欄が開き、保存で session.setMemo を出す', () => {
-    const m = mount();
+  it('ノートの欄も「ノートを書く」のボタンも無い（ノートは 0.4.0 で外した）', () => {
+    mount();
     expect(within(card()).queryByRole('textbox')).toBeNull();
-    fireEvent.click(within(card()).getByRole('button', { name: 'ノートを書く' }));
-    const area = within(card()).getByRole('textbox', { name: 'ノート' });
-    expect(area).toHaveFocus();
-    fireEvent.change(area, { target: { value: '詳細の頁は別のセッションで' } });
-    fireEvent.click(within(card()).getByRole('button', { name: '保存' }));
-    expect(m.onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '詳細の頁は別のセッションで' });
-  });
-
-  it('ノートに中身があれば本文を出し、「ノートを編集」で編集欄を開く（今の本文が入っている）', () => {
-    mount({ session: session({ memo: '詳細の頁は別のセッションで' }) });
-    expect(within(card()).getByText('詳細の頁は別のセッションで')).toBeInTheDocument();
-    fireEvent.click(within(card()).getByRole('button', { name: 'ノートを編集' }));
-    expect(within(card()).getByRole('textbox', { name: 'ノート' })).toHaveValue('詳細の頁は別のセッションで');
-    expect(within(card()).queryByRole('button', { name: 'ノートを編集' })).toBeNull();
-  });
-  it('⌘Enter で保存すると session.setMemo を出して読む表示に戻り、Esc では保存せずに戻る', () => {
-    const { onAction } = mount({ session: session({ memo: '元' }) });
-    fireEvent.click(within(card()).getByRole('button', { name: 'ノートを編集' }));
-    fireEvent.change(within(card()).getByRole('textbox', { name: 'ノート' }), { target: { value: '新' } });
-    fireEvent.keyDown(within(card()).getByRole('textbox', { name: 'ノート' }), { key: 'Enter', metaKey: true });
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '新' });
-    expect(within(card()).queryByRole('textbox')).toBeNull();
-    onAction.mockClear();
-    fireEvent.click(within(card()).getByRole('button', { name: 'ノートを編集' }));
-    fireEvent.keyDown(within(card()).getByRole('textbox', { name: 'ノート' }), { key: 'Escape' });
-    expect(onAction).not.toHaveBeenCalled();
-    expect(within(card()).queryByRole('textbox')).toBeNull();
+    expect(within(card()).queryByRole('button', { name: /ノート/ })).toBeNull();
+    expect(card().querySelector('.lead-note')).toBeNull();
   });
 });
 
@@ -187,6 +162,6 @@ describe('LeadCard の英語', () => {
     expect(c.getByRole('button', { name: 'Regenerate summary' })).toBeInTheDocument();
     expect(c.getByText('Next steps')).toBeInTheDocument();
     expect(c.getByRole('button', { name: 'Changed files 3' })).toBeInTheDocument();
-    expect(c.getByRole('button', { name: 'Write a note' })).toBeInTheDocument();
+    expect(c.queryByRole('button', { name: 'Write a note' })).toBeNull();
   });
 });

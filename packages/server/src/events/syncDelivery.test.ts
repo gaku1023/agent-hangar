@@ -1,4 +1,4 @@
-import { setSessionMemo } from '../sessions/notes.ts';
+import { setSessionName } from '../sessions/notes.ts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
@@ -45,7 +45,7 @@ describe('同期で降りた行の配り', () => {
     upsertShared(dbA, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'a');
     upsertShared(dbA, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'a', path: '/a/alpha', resolved: 1 }, 'a');
     upsertShared(dbA, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', project_id: 'p1', cwd: '/a/alpha', home_device: 'a' }, 'a');
-    setSessionMemo(dbA, 'a', 's1', '向こうのメモ');
+    setSessionName(dbA, 'a', 's1', '向こうの名前');
     upsertShared(dbA, 'runs', { id: 'run1', session_id: 's1', device_id: 'a', kind: 'start', tmux_name: 'hangar-run1', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: Date.now() }, 'a');
     setSessionState(dbA, 'a', 's1', { status: 'paused', note: '明日', returnOn: '2099-01-01', setBy: 'user' });
     await a.pushNow();
@@ -57,7 +57,7 @@ describe('同期で降りた行の配り', () => {
     expect(types()).toEqual(['devices.update', 'project.upsert', 'session.upsert']);
     const s = sent.find((e): e is Extract<ServerEvent, { type: 'session.upsert' }> => e.type === 'session.upsert')!.session;
     expect(s).toEqual(getSession(dbB, [], 's1', { deviceId: 'b' }));
-    expect(s).toMatchObject({ memo: '向こうのメモ', projectId: 'p1', state: { status: 'paused' }, lock: { deviceId: 'a', deviceName: '端末 A', runId: 'run1' } });
+    expect(s).toMatchObject({ name: '向こうの名前', projectId: 'p1', state: { status: 'paused' }, lock: { deviceId: 'a', deviceName: '端末 A', runId: 'run1' } });
     expect(sent.find((e) => e.type === 'project.upsert')).toEqual({ type: 'project.upsert', project: getProject(dbB, 'b', [], 'p1') });
     expect(sent.find((e) => e.type === 'devices.update')).toEqual({ type: 'devices.update', devices: listDevices(dbB, 'b') });
     // 降りた行は changes に積まれない。受けた側が push し返すものは無い。
@@ -74,12 +74,12 @@ describe('同期で降りた行の配り', () => {
     publisher.flush();
     sent.length = 0;
     await new Promise<void>((r) => { setTimeout(r, 5); });
-    // メモは session_notes の行だけで降りる。sessions の行は動かないが、当のセッションが届く。
-    setSessionMemo(dbA, 'a', 's2', '後から');
+    // 名前は session_notes の行だけで降りる。sessions の行は動かないが、当のセッションが届く。
+    setSessionName(dbA, 'a', 's2', '後から');
     await a.pushNow();
     await b.pullNow();
     publisher.flush();
     expect(sent).toEqual([{ type: 'session.upsert', session: getSession(dbB, [], 's2', { deviceId: 'b' }) }]);
-    expect(getSession(dbB, [], 's2', { deviceId: 'b' })!.memo).toBe('後から');
+    expect(getSession(dbB, [], 's2', { deviceId: 'b' })!.name).toBe('後から');
   });
 });

@@ -293,7 +293,6 @@ export type LeadCardProps = {
   files: { label: string; count: number; rows: LeadFileRow[]; note: string | null };
   artifacts: { label: string; count: number; items: ArtifactCardProps[] };
   pr: { label: string; url: string } | null;
-  note: { text: string; filled: boolean };
 };
 export type LeadInput = {
   session: SessionDto;
@@ -371,7 +370,6 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
     files: leadFiles(i, t),
     artifacts: { label: t('session.lead.artifacts'), count: i.artifacts.length, items: i.artifacts },
     pr: stats.prUrl ? { label: prLabel(stats.prUrl, t), url: stats.prUrl } : null,
-    note: { text: s.memo ?? '', filled: (s.memo ?? '').trim() !== '' },
   };
 }
 
@@ -494,7 +492,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0,
     live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
     idleFor: durationLabel(t, now - (s.lastActivityAt ?? now)), results,
-    waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards, note: s.memo,
+    waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
   const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;

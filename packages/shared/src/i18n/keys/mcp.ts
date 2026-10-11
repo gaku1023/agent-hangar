@@ -40,7 +40,6 @@ export const mcpKeys = {
   'mcp.tool.setSessionSummary': [],
   'mcp.tool.setTurnIntent': [],
   'mcp.tool.proposeSessionStatus': [],
-  'mcp.tool.setSessionMemo': [],
   'mcp.tool.getUsage': [],
   'mcp.tool.openInHangar': [],
 } as const satisfies MessageSpec;

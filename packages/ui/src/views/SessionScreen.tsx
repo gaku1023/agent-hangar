@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { useEmit } from '../action/chain.tsx';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
 import { LeadCard } from './LeadCard.tsx';
-import { NoteChip, NowCard } from './NowCard.tsx';
+import { NowCard } from './NowCard.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { SessionBadges } from './SessionBadges.tsx';
 import { StatusDot } from './primitives/StatusDot.tsx';
@@ -114,8 +114,6 @@ export function SessionScreen(props: SessionProps) {
     <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
-      {/* 実行中のノートは見出しの札（終わった後は冒頭の 1 枚の中）。 */}
-      {hasCard && props.strip && <NoteChip sessionId={id} text={props.strip.note.text} filled={props.strip.note.filled} />}
       {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
       <button type="button" className="btn btn-primary" aria-disabled={primary.disabled ? 'true' : undefined} title={primary.disabled ?? primary.note ?? undefined}
         aria-describedby={primary.disabled ? reasonId : undefined} onClick={() => { if (!primary.disabled) act(primary.id); }}>

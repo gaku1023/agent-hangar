@@ -3,7 +3,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const syncEn: AreaDictionary<typeof syncKeys> = {
   'sync.error.notConfigured': 'Cloud sync is not set up',
-  'sync.note.sessionReplaced': 'The session note was replaced with the newer content from {deviceName}. Your local content is kept in {backupFile}',
+  'sync.note.sessionReplaced': 'The session name was replaced with the newer one from {deviceName}. Your local name is kept in {backupFile}',
   'sync.note.conflict': 'The note had a conflict. Your local content is kept in {file}',
   'sync.once.done': 'Synced once. Sync is still paused',
   'sync.once.leftBoth': 'Synced once, but {pending} unsent changes and {transcripts} unsent transcripts remain. Sync is still paused',

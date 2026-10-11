@@ -255,7 +255,7 @@ function refreshFilesChanged(db: Db, sessionId: string): void {
 
 /**
  * 主線から得た事実を sessions と session_stats に重ねる。sessions は全列を読んでから差分を乗せて upsertShared に渡す。他端末の写しではこの関数を呼ばない。
- * 本文の題名（Claude Code の側で付けた名前）は sessions.custom_title に書く。hangar で付けた名前とメモ（session_notes）には触らない。
+ * 本文の題名（Claude Code の側で付けた名前）は sessions.custom_title に書く。hangar で付けた名前（session_notes）には触らない。
  */
 function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, deviceId: string): void {
   const cur = db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;

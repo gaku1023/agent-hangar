@@ -1,8 +1,6 @@
 import { useId, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { LeadCardProps } from '../presenters/session.ts';
-import { EditableNote } from './EditableNote.tsx';
-import { sessionNoteTexts } from './NoteEditor.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -101,10 +99,6 @@ export function LeadCard(props: LeadCardProps & { sessionId: string }) {
           </ul>
         </div>
       )}
-      <div className="lead-note">
-        <EditableNote text={props.note.text} onSave={(text) => emit({ type: 'session.setMemo', id: props.sessionId, text })} texts={sessionNoteTexts(t)}
-          head={(button) => <div className="lead-note-h"><span className="lead-sub">{t('session.note.label')}</span>{button}</div>} />
-      </div>
     </section>
   );
 }

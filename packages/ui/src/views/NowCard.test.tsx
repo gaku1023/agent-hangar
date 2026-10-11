@@ -1,10 +1,11 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { translator, type UiAction, type LiveAgentDto, type TranscriptEvent } from '@agent-hangar/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { presentNowCard, type CardInput } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
-import { NoteChip, NowCard } from './NowCard.tsx';
+import * as nowCardModule from './NowCard.tsx';
+import { NowCard } from './NowCard.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
 const ja = translator('ja');
@@ -18,7 +19,7 @@ const art = (id: string, p: Partial<ArtifactCardProps> = {}): ArtifactCardProps 
 const input = (p: Partial<CardInput> = {}): CardInput => ({
   digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] }, events: [], turnFrom: 0, live: 'waiting',
   activity: { tool: 'AskUserQuestion', summary: 'q', question: '既存のテストを書き換えてよいですか？' }, now: 120_000, viewingAgent: false, clock: () => '10:01', idleFor: '3 分',
-  waited: '4 分', artifacts: [], note: null, ...p,
+  waited: '4 分', artifacts: [], ...p,
 });
 
 function mount(p: Partial<CardInput> = {}, language: 'ja' | 'en' = 'ja') {
@@ -178,78 +179,9 @@ describe('NowCard のツール呼び出し', () => {
   });
 });
 
-describe('NoteChip（見出しの「ノート」の札）', () => {
-  function mountNote(text: string, language: 'ja' | 'en' = 'ja') {
-    const onAction = vi.fn<(i: UiAction) => void>();
-    const ui = (x: string) => <LanguageRoot language={language}><ActionRoot onAction={onAction}><NoteChip sessionId="s1" text={x} filled={x.trim() !== ''} /></ActionRoot></LanguageRoot>;
-    const view = render(ui(text));
-    return { onAction, rerender: (x: string) => view.rerender(ui(x)) };
-  }
-  const open = () => fireEvent.click(screen.getByRole('button', { name: /^ノート/ }));
-
-  it('ノートが空なら「ノート」、中身があれば「ノート、記入あり」の名前で、印を付ける', () => {
-    const m = mountNote('');
-    const chip = screen.getByRole('button', { name: 'ノート' });
-    expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
-    expect(chip).not.toHaveAttribute('data-filled');
-    m.rerender('決済は v3');
-    expect(screen.getByRole('button', { name: 'ノート、記入あり' })).toHaveAttribute('data-filled', 'true');
-  });
-
-  it('押すとポップオーバーが開き、そこでノートを読み書きできる。保存で session.setMemo を出す', () => {
-    const m = mountNote('決済は v3');
-    open();
-    const dialog = screen.getByRole('dialog', { name: 'ノート' });
-    const area = within(dialog).getByRole('textbox', { name: 'ノート' });
-    expect(area).toHaveValue('決済は v3');
-    expect(area).toHaveFocus();
-    const save = within(dialog).getByRole('button', { name: '保存' });
-    expect(save).toBeDisabled();
-    fireEvent.change(area, { target: { value: '決済は v3。テストは checkout/ 以下' } });
-    expect(save).toBeEnabled();
-    fireEvent.click(save);
-    expect(m.onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '決済は v3。テストは checkout/ 以下' });
-    // 保存が通って本文が戻ってきたら、書き換えのない状態に戻る（通らなかったときは、書いたものが残って押せるまま）。
-    m.rerender('決済は v3。テストは checkout/ 以下');
-    expect(save).toBeDisabled();
-  });
-
-  it('⌘Enter でも保存できる。日本語入力の変換を確定する Enter では保存しない', () => {
-    const m = mountNote('');
-    open();
-    const area = screen.getByRole('textbox', { name: 'ノート' });
-    fireEvent.change(area, { target: { value: '書いた' } });
-    fireEvent.keyDown(area, { key: 'Enter', metaKey: true, isComposing: true, keyCode: 229 });
-    expect(m.onAction).not.toHaveBeenCalled();
-    fireEvent.keyDown(area, { key: 'Enter', metaKey: true });
-    expect(m.onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '書いた' });
-  });
-
-  it('外で書き換えられたとき、書きかけが無ければ追い、あれば黙って捨てずに知らせる', () => {
-    const m = mountNote('もと');
-    open();
-    const area = screen.getByRole('textbox', { name: 'ノート' });
-    act(() => m.rerender('外で更新'));
-    expect(area).toHaveValue('外で更新');
-    fireEvent.change(area, { target: { value: '書きかけ' } });
-    act(() => m.rerender('さらに外で更新'));
-    expect(area).toHaveValue('書きかけ');
-    expect(screen.getByText('ほかで更新されました')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '読み込む' }));
-    expect(area).toHaveValue('さらに外で更新');
-    expect(screen.queryByText('ほかで更新されました')).toBeNull();
-  });
-
-  it('Esc で閉じて、焦点は札へ戻る', () => {
-    mountNote('');
-    open();
-    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.getByRole('button', { name: 'ノート' })).toHaveFocus();
-  });
-
-  it('英語では Note', () => {
-    mountNote('', 'en');
-    expect(screen.getByRole('button', { name: 'Note' })).toBeInTheDocument();
+describe('ノートの札', () => {
+  it('見出しの「ノート」の札（NoteChip）は無い（ノートは 0.4.0 で外した）', () => {
+    expect(nowCardModule).not.toHaveProperty('NoteChip');
+    expect(presentNowCard(input(), ja)).not.toHaveProperty('note');
   });
 });

@@ -18,7 +18,7 @@ import { TerminalHostContext } from './TerminalPane.tsx';
 const ja = translator('ja');
 const NOW = Date.UTC(2026, 9, 9, 3, 0, 0);
 const dto = (over: Partial<SessionDto> = {}): SessionDto => ({
-  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null,
+  id: 's1', provider: 'claude-code', providerSessionId: 'u', projectId: 'p1', name: 'name', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, 
   hasTranscript: true, live: null, stats: { turns: 2, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 1_000_000, outputTokens: 200_000, contextPercent: null, costUsd: null },
   summary: { title: 'T', oneLiner: 'ONE', body: 'BODY', state: 'in_progress', nextSteps: ['next1'], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
   fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over,
@@ -27,7 +27,7 @@ const leadOf = (over: Partial<SessionDto> = {}, extra: { summaryPending?: boolea
   presentLeadCard({ session: dto(over), now: NOW, gone: extra.gone ?? false, summaryPending: extra.summaryPending ?? false, summaryError: extra.summaryError ?? null, artifacts: [], files: null, windowFiles: [] }, ja);
 const stripOf = (over: Partial<Parameters<typeof presentNowCard>[0]> = {}) => presentNowCard({
   digest: null, events: [], turnFrom: 0, live: 'busy', activity: null, now: NOW, viewingAgent: false, clock: () => '10:00', idleFor: '1 分', waited: '1 分',
-  artifacts: [], note: null, ...over,
+  artifacts: [], ...over,
 }, ja);
 
 const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', route: { name: 'project', id: 'p1' } }, live: null, aside: false, oneLiner: 'ONE', hasTranscript: true,
@@ -261,13 +261,11 @@ describe('冒頭の 1 枚と目次（終わった画面）', () => {
     expect(container.querySelector('.rail-panel')).toBeNull();
     expect(screen.queryByText('TODO')).toBeNull();
   });
-  it('ノートは冒頭の 1 枚の中で書く', () => {
-    const onAction = vi.fn();
-    render(<ActionRoot onAction={onAction}><SS {...base} /></ActionRoot>);
-    fireEvent.click(screen.getByRole('button', { name: 'ノートを書く' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: '明日 PR を出す' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '明日 PR を出す' });
+  it('終わったセッションの冒頭の 1 枚に、ノートの欄もボタンも無い（ノートは 0.4.0 で外した）', () => {
+    const { container } = render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
+    expect(screen.queryByRole('button', { name: /ノート/ })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'ノート' })).toBeNull();
+    expect(container.querySelector('.lead-note')).toBeNull();
   });
   it('要約の再生成は冒頭の 1 枚にあり、作成中と失敗を言う', () => {
     const onAction = vi.fn();
@@ -359,13 +357,10 @@ describe('SessionScreen（実行中）', () => {
     expect(container.querySelector('.toc-slot .now-card')).not.toBeNull();
     expect(container.querySelector('.toc-slot .toc-pane')).not.toBeNull();
   });
-  it('実行中は、見出しの行に「ノート」の札を置き、ポップオーバーでノートを書ける', () => {
-    const onAction = withHost(<SS {...running} />);
-    expect(document.querySelector('.session-hero')!.contains(screen.getByRole('button', { name: 'ノート' }))).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'ノート' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: 'メモ' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: 'メモ' });
+  it('実行中の見出しの行に「ノート」の札は無い（ノートは 0.4.0 で外した）', () => {
+    withHost(<SS {...running} />);
+    expect(screen.queryByRole('button', { name: /^ノート/ })).toBeNull();
+    expect(document.querySelector('.session-hero .nc-note')).toBeNull();
   });
   it('右は会話の全文ではなくターンの目次にする', () => {
     withHost(<SS {...running} />);
@@ -402,8 +397,6 @@ describe('SessionScreen（実行中）', () => {
     expect(open).toHaveTextContent('⌘J');
     expect(document.querySelector('.toc-pane')).toBeNull();
     expect(document.querySelector('.now-card')).toBeNull();
-    // 札の押す先（ノートの札）は見出しに残る。
-    expect(screen.getByRole('button', { name: 'ノート' })).toBeInTheDocument();
   });
   it('札の無い画面（終わった後）で目次を閉じたら、列ごと消す', () => {
     render(<ActionRoot onAction={vi.fn()}><SS {...base} transcriptOpen={false} /></ActionRoot>);

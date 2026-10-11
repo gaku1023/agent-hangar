@@ -37,7 +37,6 @@ export const shortcutsEn: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.listOpen': 'Open',
   'shortcuts.key.listTerminal': 'Open in terminal',
   'shortcuts.key.listEditor': 'Open in editor',
-  'shortcuts.key.listNote': 'Edit note',
   'shortcuts.key.listStatus': 'Change status (⋯)',
   'shortcuts.key.todoMove': 'Down / Up',
   'shortcuts.key.todoToggle': 'Done / not done (confirms a proposal)',

@@ -367,6 +367,25 @@ alter table todos add column suggested_note text;
 `;
 
 /**
+ * 版 21。セッションのノート（session_notes.memo）を落とす（0.4.0）。名前（session_notes.name）は残す。
+ *
+ * ノートは使われておらず、要約（set_session_summary）と Paused の戻る日がその役を担うので、画面からも MCP からも外した。
+ * 列を残さずに落とすのは、読み書きする口が無いのに列だけがあると、後から誰かが読んで、もう書かれない値を正と取り違えるからである。
+ * - 中身は、当てる前に取る DB の控え（backups/db、db/backup.ts）に残る。ほかの表へは写さない。
+ * - 行は消さない。名前が空でノートだけがあった行も、名前が null の行として残す。
+ *   消すと、同じセッションの古い形の sessions の payload が降りたときに、手元に行が無いと見て作り直す（sync/apply.ts の adoptNoteFromOldSession）など、
+ *   名前の同期の決着が変わる。名前が null の行は、画面にも MCP にも何も出さない。
+ * - changes には積まない。表の形をこの PC で変えるだけで、他の PC の行には触らない。
+ * - 古い版の PC と同期で混ざっても壊れない。
+ *   古い版が送ってくる payload の memo は、適用（sync/apply.ts の applyRemoteChange）が手元の表に無い列として捨てる。
+ *   この版が送る payload は行の全列なので memo の項目を持たず、古い版の適用は payload に無い列を上書きしないので、古い版の手元のノートは消えない。
+ *   クラウド（Worker）は行を JSON の payload のまま運ぶので、マイグレーションは要らない。
+ */
+const V21_DROP_SESSION_MEMO_SQL = `
+alter table session_notes drop column memo;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -377,4 +396,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 18, sql: V18_CONFIG_SYNC_SQL },
   { version: 19, sql: V19_DROP_LEGACY_CONFIG_SQL },
   { version: 20, sql: V20_TODO_SUGGESTION_SQL },
+  { version: 21, sql: V21_DROP_SESSION_MEMO_SQL },
 ];

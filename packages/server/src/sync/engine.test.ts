@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { getSessionNote, setSessionMemo, setSessionName } from '../sessions/notes.ts';
+import { getSessionNote, setSessionName } from '../sessions/notes.ts';
 import { FakeCloudClient, MAX_ROW_BYTES } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { COMPAT_VERSION } from '@agent-hangar/shared';
@@ -449,7 +449,7 @@ describe('SyncEngine の pull', () => {
   });
 
   it('別の PC で付けた名前とメモは、本文を持つ PC が sessions の行を書き直しても消えない', async () => {
-    // a は本文を持つ PC で、索引が sessions の行を書き直す。b は名前とメモを付ける PC である。
+    // a は本文を持つ PC で、索引が sessions の行を書き直す。b は名前を付ける PC である。
     const a = make();
     await a.start();
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd: '/x', home_device: 'a' }, 'a');
@@ -458,7 +458,6 @@ describe('SyncEngine の pull', () => {
     await b.start();
     await b.pullNow();
     setSessionName(dbB, 'b', 's1', 'b で付けた名前');
-    setSessionMemo(dbB, 'b', 's1', 'b で書いたメモ');
     await b.pushNow();
 
     // a は b の行を受ける前に、手元の古い行に本文の伸びを重ねて書く（索引がしていること）。
@@ -469,12 +468,12 @@ describe('SyncEngine の pull', () => {
     await a.pullNow();
     await b.pullNow();
 
-    // どちらの PC でも、名前とメモは残り、本文の伸びも届いている。
+    // どちらの PC でも、名前は残り、本文の伸びも届いている。
     for (const d of [db, dbB]) {
-      expect(getSessionNote(d, 's1')).toEqual({ name: 'b で付けた名前', memo: 'b で書いたメモ' });
+      expect(getSessionNote(d, 's1')).toEqual({ name: 'b で付けた名前' });
       expect((d.prepare('select last_activity_at l from sessions where id = ?').get('s1') as { l: number }).l).toBe(999);
     }
-    // sessions の payload は、名前とメモを運ばない。
+    // sessions の payload は、名前もノートも運ばない。
     for (const c of cloud.changes.filter((x) => x.tableName === 'sessions')) {
       expect(Object.keys(c.payload)).not.toContain('name');
       expect(Object.keys(c.payload)).not.toContain('memo');

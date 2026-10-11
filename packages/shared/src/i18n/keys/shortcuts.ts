@@ -36,7 +36,6 @@ export const shortcutsKeys = {
   'shortcuts.key.listOpen': [],
   'shortcuts.key.listTerminal': [],
   'shortcuts.key.listEditor': [],
-  'shortcuts.key.listNote': [],
   'shortcuts.key.listStatus': [],
   'shortcuts.key.todoMove': [],
   'shortcuts.key.todoToggle': [],

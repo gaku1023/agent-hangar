@@ -4,7 +4,6 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const rowJa: AreaDictionary<typeof rowKeys> = {
   'row.mark.pr': 'PR #{n}',
   'row.mark.prPlain': 'PR',
-  'row.mark.note': 'ノートあり',
   'row.return.noDate': '日付なし',
   'row.return.now': 'いま',
   'row.return.minOver': '{n} 分過ぎ',
@@ -49,7 +48,6 @@ export const rowJa: AreaDictionary<typeof rowKeys> = {
   'row.conversation.note': '会話で承認',
   'row.soon.delete': 'まもなく削除',
   'row.empty.default': 'セッションはまだありません',
-  'row.note.label': '{name} のノート',
   'row.return.titleTime': 'リマインダーの時刻 {date}',
   'row.return.titleDate': 'リマインダーの日付',
   'row.return.titleLast': '{title} · 最後の活動 {when}',

@@ -15,7 +15,7 @@ const agent = (p: Partial<LiveAgentDto>): LiveAgentDto => ({ agentId: 'a', title
 const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, favicon: '📄', url: 'https://x', lastPublished: '12 分前', versionCount: 1, canOpenEditor: false });
 const input = (p: Partial<CardInput> = {}): CardInput => ({
   digest: digest(), events: [], turnFrom: 0, live: 'busy', activity: null, now: 180_000, viewingAgent: false, clock: (ts) => `t${ts}`, idleFor: '3 分',
-  waited: '4 分', artifacts: [], note: null, ...p,
+  waited: '4 分', artifacts: [], ...p,
 });
 const present = (p: Partial<CardInput> = {}, t = ja) => presentNowCard(input(p), t);
 
@@ -174,10 +174,8 @@ describe('現在の札のサブエージェントとアーティファクト', (
   });
 });
 
-describe('ノート（見出しの札に出す）', () => {
-  it('ノートに中身があるかを、札の印にする（空白だけは無いものとして扱う）', () => {
-    expect(present({ note: '決済は v3' }).note).toEqual({ text: '決済は v3', filled: true });
-    expect(present({ note: '  \n ' }).note).toEqual({ text: '  \n ', filled: false });
-    expect(present({ note: null }).note).toEqual({ text: '', filled: false });
+describe('ノート', () => {
+  it('札はノートを持たない（ノートは 0.4.0 で外した）', () => {
+    expect(present()).not.toHaveProperty('note');
   });
 });

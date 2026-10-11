@@ -3,12 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dbVersionOf, seedDbAt } from '../../test/oldDb.ts';
-import { MIGRATED_NOTE_AT } from './migrations.ts';
+import { MIGRATED_NOTE_AT, MIGRATIONS } from './migrations.ts';
 import { openDb, type Db } from './open.ts';
 
-/** 版 17 は、セッションの名前とメモを sessions から session_notes へ移す。 */
+/**
+ * 版 17 は、セッションの名前とメモを sessions から session_notes へ移す。
+ * メモ（ノート）の列は版 21 が落とすので、ここでは版 17 までだけを当てて、版 17 そのものの振る舞いを見る。
+ */
 const BEFORE = 16;
 const AFTER = 17;
+const UP_TO_17 = MIGRATIONS.filter((m) => m.version <= AFTER);
 
 let tmp: string;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-notes-migration-')); });
@@ -28,12 +32,12 @@ const notes = (db: Db) => db.prepare('select session_id, name, memo, updated_at,
 function migrate(rows: Old[]): Db {
   const file = path.join(tmp, 'hangar.db');
   seedDbAt(file, BEFORE, (db) => seedOld(db, rows));
-  return openDb(file, { backupDir: path.join(tmp, 'backups') });
+  return openDb(file, { backupDir: path.join(tmp, 'backups'), migrations: UP_TO_17 });
 }
 
 describe('版 17：名前とメモを session_notes へ移す', () => {
   it('新しい DB には session_notes があり、sessions に name と memo が無い', () => {
-    const db = openDb(':memory:');
+    const db = openDb(':memory:', { migrations: UP_TO_17 });
     expect(columns(db, 'session_notes')).toEqual(['session_id', 'name', 'memo', 'updated_at', 'deleted_at', 'origin_device']);
     expect(columns(db, 'sessions')).not.toContain('name');
     expect(columns(db, 'sessions')).not.toContain('memo');
@@ -112,7 +116,7 @@ describe('版 17：名前とメモを session_notes へ移す', () => {
   it('もう一度開いても、写しも差分も増えない', () => {
     const db = migrate([{ id: 's1', name: 'N', updatedAt: 100 }]);
     db.close();
-    const again = openDb(path.join(tmp, 'hangar.db'), { backupDir: path.join(tmp, 'backups') });
+    const again = openDb(path.join(tmp, 'hangar.db'), { backupDir: path.join(tmp, 'backups'), migrations: UP_TO_17 });
     expect(notes(again)).toHaveLength(1);
     expect((again.prepare("select count(*) c from changes where table_name = 'session_notes'").get() as { c: number }).c).toBe(1);
     expect(fs.readdirSync(path.join(tmp, 'backups'))).toHaveLength(1);

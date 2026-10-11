@@ -4,5 +4,5 @@ import type { AreaDictionary } from '../messageSpec.ts';
 export const dbEn: AreaDictionary<typeof dbKeys> = {
   'db.backup.failed': 'Could not save a database backup to {file}, so startup stopped without applying migrations ({cause}). Check that the folder is writable and has free space',
   'db.backup.symlink': 'backups/db is a symbolic link, so no backup was made',
-  'db.open.tooOld': 'The database ({file}) is at version {found}, but this app can only open version {baseline} or later. There is no upgrade path from older versions, so the database was left untouched and no migrations were applied. Move the database aside under another name, then start this app again. The index will be rebuilt from Claude Code transcripts (notes and statuses cannot be kept)',
+  'db.open.tooOld': 'The database ({file}) is at version {found}, but this app can only open version {baseline} or later. There is no upgrade path from older versions, so the database was left untouched and no migrations were applied. Move the database aside under another name, then start this app again. The index will be rebuilt from Claude Code transcripts (names and statuses cannot be kept)',
 };
