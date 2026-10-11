@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken } from '@agent-hangar/server/src/cliEntry.ts';
+import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken, zshrcPath } from '@agent-hangar/server/src/cliEntry.ts';
 import { runConfigApply, runConfigRestore } from './config.ts';
 import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
@@ -7,7 +7,8 @@ import { oneLineError, probeHealth, serverDownMessage } from './probe.ts';
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { runStart } from './start.ts';
-import { runStatuslineInstall } from './statusline.ts';
+import { promptYesNo, runStatuslineInstall } from './statusline.ts';
+import { runSetupCommand, setupEnvFor, type SetupCommandFlags, type SetupTarget } from './setupPlan.ts';
 import { entryUrl, openedMessage, openFailedMessage, openInBrowser } from './url.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
@@ -176,9 +177,14 @@ const mcp = program.command('mcp').description('Claude Code への MCP 登録');
 
 mcp
   .command('install')
-  .description('user スコープに hangar を登録する')
+  .description('user スコープに hangar を登録する（~/.claude.json の mcpServers.hangar を書く。書く前にバックアップを取る）')
   .option('--port <n>', 'ポート', '4177')
-  .action(async (o: { port: string }) => {
+  .option('--dry-run', '書かずに、書く先と差分だけを出す')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）。書くときは --yes が要る')
+  .option('--yes', '問わずに書く（--json のとき）')
+  .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら書かない（殻の命令が使う）')
+  .action(async (o: { port: string } & SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('mcp-install', Number(o.port), o); return; }
     const r = await runMcpInstall({ home: hangarHome(), port: Number(o.port), claudeJson: claudeJsonPath() });
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
@@ -186,9 +192,14 @@ mcp
 
 mcp
   .command('uninstall')
-  .description('user スコープの hangar を削除する')
-  .action(async () => {
-    const r = await runMcpUninstall();
+  .description('user スコープの hangar を削除する（書く前にバックアップを取る）')
+  .option('--dry-run', '書かずに、書く先と差分だけを出す')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）。書くときは --yes が要る')
+  .option('--yes', '問わずに書く（--json のとき）')
+  .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら書かない（殻の命令が使う）')
+  .action(async (o: SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('mcp-uninstall', 4177, o); return; }
+    const r = await runMcpUninstall({ home: hangarHome(), claudeJson: claudeJsonPath() });
     console.log(r.message);
     if (!r.ok) process.exitCode = 1;
   });
@@ -198,21 +209,41 @@ function tmuxPathFor(home: string): string | null {
   return loadSettings(home).tmuxPath ?? whichMuxCmd();
 }
 
+/** 連携の書き込みの、--dry-run と --json と --expect の道（setupPlan.ts）。殻の承諾の窓が使う。 */
+function setupCommand(target: SetupTarget, port: number, flags: SetupCommandFlags): Promise<number> {
+  const home = hangarHome();
+  const env = setupEnvFor({ home, claudeDir: loadSettings(home).claudeDir || defaultClaudeDir(), claudeJson: claudeJsonPath(), zshrc: zshrcPath(), port, tmuxPath: tmuxPathFor(home) });
+  return runSetupCommand(target, env, flags, { ask: promptYesNo });
+}
+
+/** 連携の書き込みの旗。殻の承諾の窓が使う。 */
+function setupFlags(c: Command): Command {
+  return c
+    .option('--dry-run', '書かずに、書く先と差分だけを出す')
+    .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）。書くときは --yes が要る')
+    .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら書かない（殻の命令が使う）');
+}
+
 const shell = program.command('shell').description('外のターミナル（VS Code など）で起動した claude を hangar で開けるようにする');
 
-shell
+setupFlags(shell
   .command('install')
   .description('~/.zshrc に 1 行を足し、claude を hangar の tmux の中で起こしてつなぐ形に包む（承諾を求め、控えを取る）')
-  .option('--yes', '問わずに足す')
-  .action(async (o: { yes?: boolean }) => {
+  .option('--yes', '問わずに足す'))
+  .action(async (o: SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('shell-install', 4177, o); return; }
     const r = await runShellInstall({ tmuxPath: tmuxPathFor(hangarHome()), yes: o.yes ?? false });
     if (!r.installed) process.exitCode = 1;
   });
 
-shell
+setupFlags(shell
   .command('uninstall')
   .description('~/.zshrc から hangar の足した行を外す（控えを取る）')
-  .action(() => { runShellUninstall(); });
+  .option('--yes', '問わずに外す（--json のとき）'))
+  .action(async (o: SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('shell-uninstall', 4177, o); return; }
+    runShellUninstall();
+  });
 
 shell
   .command('status')
@@ -246,15 +277,24 @@ config
 
 const statusline = program.command('statusline').description('statusline スクリプトへの追記');
 
-statusline
+setupFlags(statusline
   .command('install')
   .description('使用量をサーバへ渡すスニペットを statusline スクリプトに追記する（承諾を求め、バックアップを取る）')
   .option('--port <n>', 'ポート', '4177')
-  .option('--yes', '問わずに追記する')
-  .action(async (o: { port: string; yes?: boolean }) => {
+  .option('--yes', '問わずに追記する'))
+  .action(async (o: { port: string } & SetupCommandFlags) => {
+    if (o.dryRun || o.json || o.expect) { process.exitCode = await setupCommand('statusline-install', Number(o.port), o); return; }
     const claudeDir = loadSettings(hangarHome()).claudeDir || defaultClaudeDir();
     const r = await runStatuslineInstall({ claudeDir, port: Number(o.port), yes: o.yes ?? false });
     if (!r.installed) process.exitCode = 1;
+  });
+
+setupFlags(statusline
+  .command('uninstall')
+  .description('statusline スクリプトから hangar の足した行を外す（承諾を求め、バックアップを取る）')
+  .option('--yes', '問わずに外す'))
+  .action(async (o: SetupCommandFlags) => {
+    process.exitCode = await setupCommand('statusline-uninstall', 4177, o);
   });
 
 // どのコマンドの失敗でも、端末には 1 行だけ出す。生のスタックは読み手の役に立たない。

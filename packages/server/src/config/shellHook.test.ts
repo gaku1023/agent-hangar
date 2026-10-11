@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ensureShellScript, installShellHook, SHELL_MARKER, shellHookInstalled, shellHookLine, shellHookState, shellInstallCommand, shellScriptPath, shellWrapSupported, uninstallShellHook, zshrcPath } from './shellHook.ts';
+import { ensureShellScript, installShellHook, planShellHook, planShellUnhook, SHELL_MARKER, shellHookInstalled, shellHookLine, shellHookState, shellInstallCommand, shellScriptPath, shellWrapSupported, uninstallShellHook, zshrcPath } from './shellHook.ts';
 import { posixDescribe } from '../../test/platform.ts';
 
 let dir: string;
@@ -225,5 +225,20 @@ describe('包み方の本体のサブコマンドの一覧', () => {
     expect(caseLine(home)).toBe('    b-c|a) command claude "$@"; return ;;');
     ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile: path.join(dir, 'token'), tmuxPath: null, subcommands: ['$(x)'] });
     expect(caseLine(home)).toContain('    agents|attach|');
+  });
+});
+
+describe('planShellHook と planShellUnhook（書く中身だけを決め、書かない）', () => {
+  const line = `[ -f "$HOME/.agent-hangar/shell/claude.zsh" ] && source "$HOME/.agent-hangar/shell/claude.zsh"  ${SHELL_MARKER}`;
+  it('末尾に 1 行を足し、古い行は置き換え、今の形なら null', () => {
+    expect(planShellHook('export A=1\n', line)).toBe(`export A=1\n${line}\n`);
+    expect(planShellHook(null, line)).toBe(`${line}\n`);
+    expect(planShellHook(`export A=1\nold ${SHELL_MARKER}\nexport B=2\n`, line)).toBe(`export A=1\nexport B=2\n${line}\n`);
+    expect(planShellHook(`export A=1\n${line}\n`, line)).toBeNull();
+  });
+  it('外すのは目印の行だけで、入っていなければ null', () => {
+    expect(planShellUnhook(`export A=1\n${line}\n`)).toBe('export A=1\n');
+    expect(planShellUnhook('export A=1\n')).toBeNull();
+    expect(planShellUnhook(null)).toBeNull();
   });
 });

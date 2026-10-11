@@ -2,14 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execCli, mcpRemoveArgs, runMcpInstall, runMcpUninstall, type CliExec } from './mcp.ts';
+import { execCli, runMcpInstall, runMcpUninstall, type CliExec } from './mcp.ts';
 import { expectMode, isWindows, posixIt } from '../../server/test/platform.ts';
-
-describe('mcpRemoveArgs', () => {
-  it('user スコープの hangar を外す', () => {
-    expect(mcpRemoveArgs()).toEqual(['mcp', 'remove', '--scope', 'user', 'hangar']);
-  });
-});
 
 describe('runMcpInstall', () => {
   let home: string;
@@ -63,15 +57,25 @@ describe('runMcpInstall', () => {
     expect(r.message).toContain('PATH');
     expect(r.message).not.toContain('ENOENT');
     expect(fs.existsSync(claudeJson)).toBe(false);
-    const u = await runMcpUninstall({ exec: missing });
-    expect(u.ok).toBe(false);
-    expect(u.message).toContain('Claude Code が見つかりません');
   });
 
-  it('claude mcp remove の失敗はそのまま返す', async () => {
-    const ng = await runMcpUninstall({ exec: () => ({ status: 1, stdout: '', stderr: 'usage: claude mcp remove' }) });
-    expect(ng).toEqual({ ok: false, message: 'claude mcp remove に失敗しました: usage: claude mcp remove' });
-    expect((await runMcpUninstall({ exec: () => ({ status: 0, stdout: '', stderr: '' }) })).ok).toBe(true);
+  // 解除は claude mcp remove に任せず、登録と同じ守りで自分で書く（承諾の窓で見せた差分と同じ中身を書くため）。
+  it('解除は hangar だけを消し、控えを取る。claude が無くても消せる', async () => {
+    fs.writeFileSync(claudeJson, JSON.stringify({ userID: 'u1', mcpServers: { other: { type: 'stdio' }, hangar: { type: 'http' } } }), { mode: 0o600 });
+    const u = await runMcpUninstall({ home, claudeJson });
+    expect(u.ok).toBe(true);
+    expect(u.message).toContain('削除しました');
+    expect(u.message).toContain(path.join(home, 'backups'));
+    expect(JSON.parse(fs.readFileSync(claudeJson, 'utf8'))).toEqual({ userID: 'u1', mcpServers: { other: { type: 'stdio' } } });
+    const again = await runMcpUninstall({ home, claudeJson });
+    expect(again).toEqual({ ok: true, message: 'user スコープに MCP サーバ hangar は登録されていません。' });
+  });
+
+  it('解除で設定ファイルが壊れていれば、書かずに失敗として返す', async () => {
+    fs.writeFileSync(claudeJson, '{ x', { mode: 0o600 });
+    const u = await runMcpUninstall({ home, claudeJson });
+    expect(u.ok).toBe(false);
+    expect(fs.readFileSync(claudeJson, 'utf8')).toBe('{ x');
   });
 
   it('登録するポートで hangar が応答しなければ、登録は済ませたうえで起動を促す', async () => {

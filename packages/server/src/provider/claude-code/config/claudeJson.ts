@@ -42,6 +42,11 @@ export type UpsertOptions = {
   staleLockMs?: number;
   /** 書く直前に呼ぶ。テストが割り込みの書き込みを差すための穴である。 */
   onBeforeWrite?: () => void;
+  /**
+   * ロックを取って読んだ中身を渡す。投げたら書かず、控えも取らない。
+   * 承諾の窓で見せた中身から変わっていないかを、書く直前に確かめるために使う（CLI の --expect）。
+   */
+  check?: (cur: JsonObject) => void;
 };
 
 export type UpsertResult = {
@@ -104,7 +109,7 @@ export function upsertUserMcpServer(file: string, name: string, server: unknown,
   const release = acquireFileLock(realFile, o.lockWaitMs ?? 2000, o.staleLockMs ?? 10_000);
   try {
     // 壊れた JSON は、控えを取る前に弾く。
-    readJsonObject(realFile);
+    o.check?.(readJsonObject(realFile));
     const backup = takeBackup(realFile, o.backupDir, o.now ?? new Date());
     o.onBeforeWrite?.();
     // 読んでから書くまでの間に Claude Code が書いたかもしれないので、書く直前にもう一度読む。
@@ -112,6 +117,39 @@ export function upsertUserMcpServer(file: string, name: string, server: unknown,
     const servers = cur.mcpServers && typeof cur.mcpServers === 'object' && !Array.isArray(cur.mcpServers) ? (cur.mcpServers as JsonObject) : {};
     const { tightened } = writeJsonObject(realFile, { ...cur, mcpServers: { ...servers, [name]: server } });
     return { file: realFile, backup, tightened };
+  } finally {
+    release();
+  }
+}
+
+/** mcpServers を読む。無いファイルと、鍵の無いときは null。壊れた JSON は投げる（読むだけで書かない）。 */
+export function readUserMcpServers(file: string): JsonObject | null {
+  const cur = readJsonObject(resolveRealFile(file));
+  const s = cur.mcpServers;
+  return s && typeof s === 'object' && !Array.isArray(s) ? (s as JsonObject) : null;
+}
+
+/**
+ * mcpServers.<name> だけを消す。登録と同じ 4 つの守り（ロック、リンクの実体、権限、控え）で書く。
+ * 載っていなければ、書かずに控えも取らない。
+ * 以前は claude mcp remove に任せていたが、承諾の窓で見せた差分と書く中身を同じにするため、自分で書く。
+ */
+export function removeUserMcpServer(file: string, name: string, o: UpsertOptions): { file: string; changed: boolean; backup: string | null } {
+  const realFile = resolveRealFile(file);
+  if (!fs.existsSync(realFile)) return { file: realFile, changed: false, backup: null };
+  const release = acquireFileLock(realFile, o.lockWaitMs ?? 2000, o.staleLockMs ?? 10_000);
+  try {
+    const first = readJsonObject(realFile);
+    o.check?.(first);
+    const has = (cur: JsonObject) => !!cur.mcpServers && typeof cur.mcpServers === 'object' && !Array.isArray(cur.mcpServers) && Object.hasOwn(cur.mcpServers as JsonObject, name);
+    if (!has(first)) return { file: realFile, changed: false, backup: null };
+    const backup = takeBackup(realFile, o.backupDir, o.now ?? new Date());
+    o.onBeforeWrite?.();
+    const cur = readJsonObject(realFile);
+    if (!has(cur)) return { file: realFile, changed: false, backup };
+    const { [name]: _gone, ...rest } = cur.mcpServers as JsonObject;
+    writeJsonObject(realFile, { ...cur, mcpServers: rest });
+    return { file: realFile, changed: true, backup };
   } finally {
     release();
   }
