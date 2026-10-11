@@ -72,10 +72,11 @@ pub fn window_in_front(visible: bool, minimized: bool, focused: bool) -> bool {
     visible && !minimized && focused
 }
 
-/// Windows で、前景の窓が hangar の窓（`ours`）か、その子孫か。
+/// Windows で、前景の窓が hangar の窓（`ours`）か、その子孫か、hangar の窓が持ち主の窓（ダイアログなど）か。
 /// tao の `is_focused` は、最上位の窓そのものがフォーカスを持つときだけ真になる。
 /// hangar の窓では、フォーカスはふだん中の WebView2 の子窓（Chrome_WidgetWin_1）にあるので、窓が前にあっても偽になる。
-/// そこで Windows では、OS の前景の窓（GetForegroundWindow）とその根（GetAncestor の GA_ROOT）で見て、`window_in_front` の focused に足す。
+/// そこで Windows では、OS の前景の窓（GetForegroundWindow）とその根（GetAncestor の GA_ROOTOWNER）で見て、`window_in_front` の focused に足す。
+/// GA_ROOTOWNER は親と持ち主をたどるので、hangar の窓が持ち主のダイアログ（ファイルの選択など）が前にあるときも、利用者は hangar を見ているとみなせる。
 /// macOS の `is_focused` は NSWindow の isKeyWindow で、中の WKWebView がフォーカスを持っていても真なので、この穴は無い。
 #[cfg(windows)]
 pub fn window_owns_foreground(ours: windows::Win32::Foundation::HWND) -> bool {
@@ -83,18 +84,18 @@ pub fn window_owns_foreground(ours: windows::Win32::Foundation::HWND) -> bool {
     owns_foreground_window(unsafe { GetForegroundWindow() }, ours)
 }
 
-/// 前景の窓 `foreground` が、`ours` そのものか、根が `ours` の子孫か。
+/// 前景の窓 `foreground` が、`ours` そのものか、親と持ち主をたどった根が `ours` か。
 /// 前景が無い（ほかのアプリへ移る途中など）ときは偽。
 #[cfg(windows)]
 fn owns_foreground_window(
     foreground: windows::Win32::Foundation::HWND,
     ours: windows::Win32::Foundation::HWND,
 ) -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOTOWNER};
     if foreground.is_invalid() || ours.is_invalid() {
         return false;
     }
-    foreground == ours || unsafe { GetAncestor(foreground, GA_ROOT) } == ours
+    foreground == ours || unsafe { GetAncestor(foreground, GA_ROOTOWNER) } == ours
 }
 
 /// 通知の識別子。
@@ -857,6 +858,63 @@ mod tests {
             let _ = DestroyWindow(child);
             let _ = DestroyWindow(other);
             let _ = DestroyWindow(ours);
+        }
+    }
+
+    /// Windows では、hangar の窓が持ち主のダイアログ（ファイルの選択など）が前景にあるときも、利用者は hangar を見ているので前にあるとみなす。
+    /// 持ち主のある最上位の窓（owned window）とその中の子を、実物で作って確かめる。
+    #[cfg(windows)]
+    #[test]
+    fn a_dialog_owned_by_the_window_counts_as_the_window_in_front() {
+        use windows::core::w;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, GetForegroundWindow, SetForegroundWindow,
+            WINDOW_EX_STYLE, WINDOW_STYLE, WS_CHILD, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+        };
+        unsafe {
+            // owner に Some を渡し WS_CHILD を付けなければ、親ではなく持ち主になる。
+            let window = |style: WINDOW_STYLE, owner: Option<HWND>| {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    w!("hangar-owner-test"),
+                    style | WS_VISIBLE,
+                    0,
+                    0,
+                    200,
+                    200,
+                    owner,
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap()
+            };
+            let ours = window(WS_OVERLAPPEDWINDOW, None);
+            let other = window(WS_OVERLAPPEDWINDOW, None);
+            // hangar の窓が持ち主のダイアログと、その中のボタンなどの子。
+            let dialog = window(WS_POPUP, Some(ours));
+            let in_dialog = window(WS_CHILD, Some(dialog));
+            // ほかのアプリの窓が持ち主のダイアログ。
+            let foreign = window(WS_POPUP, Some(other));
+            assert!(owns_foreground_window(dialog, ours));
+            assert!(owns_foreground_window(in_dialog, ours));
+            assert!(!owns_foreground_window(foreign, ours));
+            assert!(!owns_foreground_window(other, ours));
+            // 実際にダイアログを前に出せたときは、OS の前景から見ても前にあると答えることを確かめる。
+            // CI の机では前景を取れないことがあるので、取れなかったときはここを飛ばす。
+            let _ = SetForegroundWindow(dialog);
+            if GetForegroundWindow() == dialog {
+                assert!(window_owns_foreground(ours));
+            } else {
+                eprintln!(
+                    "skipped the live foreground check: the test could not take the foreground"
+                );
+            }
+            for h in [in_dialog, dialog, foreign, other, ours] {
+                let _ = DestroyWindow(h);
+            }
         }
     }
 
