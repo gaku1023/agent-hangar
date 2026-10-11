@@ -31,6 +31,7 @@ export const headerKeys = {
   'header.gauge.noneLink': [],
   'header.gauge.noneTitle': [],
   'header.search.label': [],
+  'header.search.hint': [],
   'header.search.title': ['keys'],
   'header.new.session': [],
 } as const satisfies MessageSpec;

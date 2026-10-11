@@ -22,7 +22,7 @@ a.chip { color: var(--accent); text-decoration: none; }
 
 /* 幅（案 b）。
    セッション画面だけ本文の幅の上限を外す。
-   --box-l と検索の錠剤の式（--gutter-head）は base.css のままで、上限が無いので本文も錠剤も左へ寄る。 */
+   上限が無いので本文は左へ寄る。ヘッダの「移動・操作」のバーは --main-w に頼らないので、ほかの画面と同じ位置のままである（base.css）。 */
 .shell[data-wide] { --main-w: 100vw; }
 /* 高さ。
    本文の列を縦の flex にし、ヘッダと帯（切断、保持期間）の分を引いた残りを画面に渡す。

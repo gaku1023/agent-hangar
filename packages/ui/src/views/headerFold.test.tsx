@@ -73,6 +73,7 @@ const ORDER: [string, number][] = [
   ['.gauge-bar', 5],
   ['.search-pill-label', 6],
   ['.search-kbd', 6],
+  ['.search-pill-hint', 6],
   ['.sync-label-text', 7],
   ['.new-session .btn-label', 8],
   ['.gauges', 9],

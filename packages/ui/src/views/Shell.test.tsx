@@ -274,6 +274,15 @@ describe('Shell', () => {
     expect(kbd).toHaveAttribute('aria-hidden', 'true');
     expect(container.querySelector('header.header .search-icon')).toBeNull();
   });
+  // 行が広いときの長い欄は、「移動・操作」の代わりに何を探せるかの文を見せる（どの段を見せるかは base.css の container）。
+  // 文は見た目の案内なので読み上げから外し、ボタンの名前は「移動・操作」のまま変えない。
+  it('入口は長い欄のための案内の文を持ち、読み上げの名前は「移動・操作」のまま', () => {
+    render(<ActionRoot onAction={() => {}}><Shell {...props} overlays={null}><div /></Shell></ActionRoot>);
+    const pill = screen.getByRole('button', { name: '移動・操作' });
+    const hint = pill.querySelector('.search-pill-hint')!;
+    expect(hint).toHaveTextContent('セッションと操作を検索');
+    expect(hint).toHaveAttribute('aria-hidden', 'true');
+  });
 
   it('Windows では、入口のキー帽と吹き出しとサイドバーの吹き出しを Ctrl で見せる', () => {
     setClientUserAgent(WINDOWS_UA);

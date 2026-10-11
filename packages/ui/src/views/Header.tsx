@@ -45,9 +45,12 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; ac
       <div ref={row} className="header-row" data-tauri-drag-region="">
         {/* 探す入口は打つ欄ではなく、押す錠剤である（A1）。押すか / か ⌘K でパレットを開く。パレットは移動と操作の入口で、探すのはホームの欄である（パレットの最後の行から、語を持ってホームへ渡せる）。
             パレットはこの錠剤から広がって開き、閉じると錠剤へ戻る（CommandPalette.tsx と runtime/present.ts が id で探す）。
-            狭いときは文字とキー帽を畳み、虫眼鏡だけを残す。文字は読み上げに残る。 */}
+            大きさは行の幅で 3 段に変わる（base.css）。狭い行では虫眼鏡だけ、中くらいは「移動・操作」とキー帽、広い行では何を探せるかの文とキー帽の長い欄になる。
+            読み上げの名前は、どの段でも「移動・操作」である（.sr-only の文）。見える文字と案内の文は見た目のためのもので、読み上げから外す。
+            aria-label にしないのは、パレットの入力欄も同じ名前を持ち、名前で探すと 2 つが重なるからである。
+            右の塊が入り切らないときは、さらに文字とキー帽を畳み、虫眼鏡だけを残す。 */}
         <button id="global-search" type="button" className="search-pill" aria-keyshortcuts={ariaKeyShortcuts('palette.open')} title={t('header.search.title', { keys: keyLabel('⌘K') })} onClick={() => emit({ type: 'palette.open' })}>
-          <Icon name="search" /><span className="search-pill-label" data-fold-at={foldAt('search-label')}>{t('header.search.label')}</span><kbd className="search-kbd" aria-hidden="true" data-fold-at={foldAt('search-label')}>{keyLabel('⌘K')}</kbd>
+          <Icon name="search" /><span className="sr-only">{t('header.search.label')}</span><span className="search-pill-label" aria-hidden="true" data-fold-at={foldAt('search-label')}>{t('header.search.label')}</span><span className="search-pill-hint" aria-hidden="true" data-fold-at={foldAt('search-label')}>{t('header.search.hint')}</span><kbd className="search-kbd" aria-hidden="true" data-fold-at={foldAt('search-label')}>{keyLabel('⌘K')}</kbd>
         </button>
         <span className="spacer" data-tauri-drag-region="" />
         <div className="header-end" data-tauri-drag-region="">
