@@ -6,6 +6,8 @@ export const projectJa: AreaDictionary<typeof projectKeys> = {
   'project.status.invalid': 'ステータスは active、paused、done、archived のいずれかです',
   'project.resolve.badKind': '操作の種類が正しくありません。repoint、archive、unlink のいずれかを指定してください',
   'project.resolve.dirMissing': '指定したディレクトリが見つかりません。存在するディレクトリを選び直してください',
+  'project.instructions.badKind': 'kind は project、projectDotClaude、local、agents、memory のいずれかです',
+  'project.instructions.fileMissing': 'ファイルが見つかりません。プロジェクトの画面を開き直してください',
   'project.create.pathNotDir': 'path が存在するディレクトリではありません',
   'project.create.badKind': 'kind は newDir か dir です',
   'project.create.nameRule': '名前はディレクトリ名として使える 1 字以上で、/ と \\ を含められません',

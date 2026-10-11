@@ -1,6 +1,6 @@
 // 外部ターミナル（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）と VS Code への受け渡し。
 // macOS は AppleEvent を避けられる経路（.command ファイル）を既定にして、自動化の許可を要らなくする。
-import { execFile as execFileCb } from 'node:child_process';
+import { execFile as execFileCb, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,17 +8,62 @@ import type { TerminalApp } from '@agent-hangar/shared';
 import { needsShell } from '../platform/exec.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 
-/** verbatim は Windows で引数を引用せずそのまま渡す指定で、cmd.exe へ自前で組んだ 1 行を渡すときに使う。 */
-export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number; shell?: boolean; verbatim?: boolean }) => Promise<{ code: number; stdout: string; stderr: string }>;
+/**
+ * verbatim は Windows で引数を引用せずそのまま渡す指定で、cmd.exe へ自前で組んだ 1 行を渡すときに使う。
+ * untilExit は、子が終わったら返す指定である。子が起こして残すもの（start が開いた窓など）が出力の管を握っていても待たない。
+ */
+export type ExecOpts = { timeoutMs?: number; shell?: boolean; verbatim?: boolean; untilExit?: boolean };
+export type Exec = (cmd: string, args: string[], opts?: ExecOpts) => Promise<{ code: number; stdout: string; stderr: string }>;
+
+const EXEC_TIMEOUT_MS = 30_000;
 
 /** child_process.execFile の Promise 版。失敗でも投げず code を返す。 */
-export const execFile: Exec = (cmd, args, opts) =>
-  new Promise((resolve) => {
-    execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? 30_000, encoding: 'utf8', shell: opts?.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts?.verbatim ?? false }, (err, stdout, stderr) => {
+export const execFile: Exec = (cmd, args, opts) => {
+  if (opts?.untilExit) return execUntilExit(cmd, args, opts);
+  return new Promise((resolve) => {
+    execFileCb(cmd, args, { timeout: opts?.timeoutMs ?? EXEC_TIMEOUT_MS, encoding: 'utf8', shell: opts?.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts?.verbatim ?? false }, (err, stdout, stderr) => {
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0;
       resolve({ code, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
     });
   });
+};
+
+/** 子が終わってから、まだ管に残っている出力を読み切るのに待つ長さ。孫が管を握っていれば、ここで打ち切る。 */
+const EXIT_DRAIN_MS = 100;
+
+/**
+ * 子が終わったら返す execFile。
+ * execFile は、子の出力の管がどれも閉じるまで返らない。
+ * Windows の cmd.exe の start は、開いた窓の中のもの（psmux の attach、PowerShell）に子の管を受け継がせるので、
+ * 窓を閉じるか 30 秒のタイムアウトまで返らなかった。その間は HTTP の応答も返らず、落ちた知らせも出なかった。
+ * ここでは子の終わり（exit）を見て返す。出力は、そこまでに読めた分と、短い間（EXIT_DRAIN_MS）に読めた分である。
+ * 管を握る孫がいなければ close が先に来るので、出力は execFile と同じに読み切る。
+ * 返したら管を閉じ、サーバの側に読み口を残さない。
+ */
+function execUntilExit(cmd: string, args: string[], opts: ExecOpts): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let done = false;
+    let drain: ReturnType<typeof setTimeout> | undefined;
+    const child = spawn(cmd, args, { shell: opts.shell ?? false, windowsHide: true, windowsVerbatimArguments: opts.verbatim ?? false, stdio: ['ignore', 'pipe', 'pipe'] });
+    const finish = (code: number) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      clearTimeout(drain);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve({ code, stdout, stderr });
+    };
+    const timer = setTimeout(() => { child.kill(); finish(1); }, opts.timeoutMs ?? EXEC_TIMEOUT_MS);
+    child.stdout?.setEncoding('utf8').on('data', (d: string) => { stdout += d; });
+    child.stderr?.setEncoding('utf8').on('data', (d: string) => { stderr += d; });
+    child.on('error', () => finish(1));
+    child.on('exit', (code) => { drain = setTimeout(() => finish(code ?? 1), EXIT_DRAIN_MS); });
+    child.on('close', (code) => finish(code ?? 1));
+  });
+}
 
 /** シェルの単一引用符で包む。 */
 const sq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -53,9 +98,8 @@ export function writeAttachCommand(home: string, tmuxPath: string, tmuxName: str
 }
 
 /**
- * ディレクトリに cd するコマンド行。
- * 既定の shell の決め方は iTerm2 の経路と .command の経路で必ず同じにする。
- * 別々に書くと、同じ操作なのに経路で違う shell が立ち上がる。
+ * ディレクトリに cd するコマンド行。.command の中身にする。
+ * iTerm2 の command は語に割って起こすだけでシェルを通さないので、この行は iTerm2 へ直には渡さず、.command を実行させる。
  * $SHELL が無い環境（launchd から起きた GUI など）では /bin/zsh に落とし、
  * パスに空白があっても割れないように引用符で包む。
  */
@@ -72,7 +116,11 @@ async function openWithTerminalApp(file: string, exec: Exec): Promise<void> {
   if (r.code !== 0) throw new MessageError(msg('external.terminal.openFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
 }
 
-/** iTerm2 は AppleScript でしか新規ウィンドウを開けない。初回は macOS の自動化の許可ダイアログが出る。 */
+/**
+ * iTerm2 は AppleScript でしか新規ウィンドウを開けない。初回は macOS の自動化の許可ダイアログが出る。
+ * command は iTerm2 が語に割って起こす（シェルを通さない）ので、&& や cd のようなシェルの構文は渡せない。
+ * 渡すと窓が作れず、osascript は終了コード 0 のまま「missing value」を返す。成功は「window id N」。
+ */
 async function openWithIterm(command: string, exec: Exec): Promise<boolean> {
   const script = [
     'with timeout of 10 seconds',
@@ -83,7 +131,7 @@ async function openWithIterm(command: string, exec: Exec): Promise<boolean> {
     'end timeout',
   ].join('\n');
   const r = await exec('osascript', ['-e', script], { timeoutMs: 12_000 });
-  return r.code === 0;
+  return r.code === 0 && !r.stdout.includes('missing value');
 }
 
 async function openCommand(o: { app: TerminalApp; command: string; file: () => string; exec: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
@@ -139,7 +187,8 @@ const cmdArgs = (line: string) => ['/d', '/v:off', '/s', '/c', `"${line}"`];
  * --suppressApplicationTitle は、中のアプリが題名を書き替えるのを止める指定で、付けた題名を保つ。
  */
 async function openWithWindowsTerminal(args: string[], title: string, exec: Exec): Promise<boolean> {
-  const r = await exec('wt.exe', ['-w', '0', 'new-tab', '--title', wtArg(title), '--suppressApplicationTitle', ...args]);
+  // wt.exe が起こした窓も管を受け継ぎうるので、wt.exe の終わりで返す（execUntilExit）。
+  const r = await exec('wt.exe', ['-w', '0', 'new-tab', '--title', wtArg(title), '--suppressApplicationTitle', ...args], { untilExit: true });
   return r.code === 0;
 }
 
@@ -149,7 +198,8 @@ async function openWithWindowsTerminal(args: string[], title: string, exec: Exec
  * 引数は Node に引用させない。Node は " を \" で逃がすが、cmd.exe はそれを知らない。
  */
 async function openWithWindowsDefault(line: string, title: string, exec: Exec): Promise<void> {
-  const r = await exec('cmd.exe', cmdArgs(`start ${cmdQuote(title)} ${line}`), { verbatim: true });
+  // start が開いた窓は cmd.exe の管を受け継いで握り続けるので、cmd.exe の終わりで返す（execUntilExit）。
+  const r = await exec('cmd.exe', cmdArgs(`start ${cmdQuote(title)} ${line}`), { verbatim: true, untilExit: true });
   if (r.code !== 0) throw new MessageError(msg('external.terminal.windowsOpenFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
 }
 
@@ -194,25 +244,24 @@ export function openInTerminalApp(o: { home: string; tmuxPath: string; tmuxName:
 export function openDirInTerminalApp(o: { home: string; dir: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
   const exec = o.exec ?? execFile;
   if (isWindowsApp(o.app)) return Promise.resolve().then(() => openWindows({ app: o.app, target: windowsDir(o.dir), exec }));
-  return openCommand({
-    app: o.app,
-    command: cdLine(o.dir),
-    file: () => writeCdCommand(o.home, o.dir),
-    exec,
-  });
+  // cd は .command の中でする。iTerm2 にもその .command を実行させ、Terminal.app と同じ経路にそろえる。
+  const file = writeCdCommand(o.home, o.dir);
+  return openCommand({ app: o.app, command: sq(file), file: () => file, exec });
 }
 
 export async function openInEditor(o: { codePath: string | null; target: string; exec?: Exec; platform?: NodeJS.Platform }): Promise<void> {
   if (!o.codePath) throw new MessageError(msg('external.editor.codeMissing', { label: msg('settings.label.codePath') }));
   const exec = o.exec ?? execFile;
+  // Windows では、起こした VS Code の窓が子（cmd.exe や code.exe）の出力の管を受け継ぎうるので、子の終わりで返す（execUntilExit）。
+  const win = (o.platform ?? process.platform) === 'win32';
   let r: { code: number; stdout: string; stderr: string };
   if (needsShell(o.codePath, o.platform)) {
     // Windows の VS Code の code は code.cmd で、Node は .cmd をシェル無しでは起こせない。cmd.exe 越しに、パスを引用符で包んで渡す。
     // " は Windows のファイル名に使えない文字で、引用を破る。含むものは開かずに断る。
     if (o.codePath.includes('"') || o.target.includes('"')) throw new MessageError(msg('external.editor.badPath', { target: o.target }));
-    r = await exec(`"${o.codePath}"`, [`"${o.target}"`], { shell: true });
+    r = await exec(`"${o.codePath}"`, [`"${o.target}"`], { shell: true, ...(win ? { untilExit: true } : {}) });
   } else {
-    r = await exec(o.codePath, [o.target]);
+    r = await exec(o.codePath, [o.target], win ? { untilExit: true } : undefined);
   }
   if (r.code !== 0) throw new MessageError(msg('external.editor.launchFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
 }

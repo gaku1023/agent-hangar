@@ -3,7 +3,7 @@ import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { translator, type SessionDto } from '@agent-hangar/shared';
 import { ActionRoot } from '../action/chain.tsx';
-import { presentNowStrip } from '../presenters/live.ts';
+import { presentNowCard } from '../presenters/live.ts';
 import { presentTool } from '../presenters/tools.ts';
 import { presentDetails, presentLeadCard, presentSessionBadges, sessionActions, type SessionProps } from '../presenters/session.ts';
 import type { TerminalHost } from '../runtime/terminals.ts';
@@ -25,9 +25,9 @@ const dto = (over: Partial<SessionDto> = {}): SessionDto => ({
 });
 const leadOf = (over: Partial<SessionDto> = {}, extra: { summaryPending?: boolean; summaryError?: string | null; gone?: boolean } = {}) =>
   presentLeadCard({ session: dto(over), now: NOW, gone: extra.gone ?? false, summaryPending: extra.summaryPending ?? false, summaryError: extra.summaryError ?? null, artifacts: [], files: null, windowFiles: [] }, ja);
-const stripOf = (over: Partial<Parameters<typeof presentNowStrip>[0]> = {}) => presentNowStrip({
-  digest: null, events: [], turnFrom: 0, turnNo: 2, live: 'busy', activity: null, now: NOW, viewingAgent: false, clock: () => '10:00', idleFor: '1 分', waited: '1 分',
-  contextPercent: 62, cost: '$1.20', turns: 2, tokens: '1.2M', artifacts: [], note: null, ...over,
+const stripOf = (over: Partial<Parameters<typeof presentNowCard>[0]> = {}) => presentNowCard({
+  digest: null, events: [], turnFrom: 0, live: 'busy', activity: null, now: NOW, viewingAgent: false, clock: () => '10:00', idleFor: '1 分', waited: '1 分',
+  artifacts: [], note: null, ...over,
 }, ja);
 
 const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', route: { name: 'project', id: 'p1' } }, live: null, aside: false, oneLiner: 'ONE', hasTranscript: true,
@@ -38,7 +38,7 @@ const base: SessionProps = { id: 's1', name: 'name', parent: { label: 'alpha', r
     { kind: 'assistant', seq: 3, text: 'bye', when: '10:03' },
   ], total: 10, loaded: 4, loading: false, hasMore: true, showThinking: false, showRaw: false, follow: true, agentId: null, subagents: ['abc'], notFound: false, loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: true, trustHint: false, canResume: true, canFork: true,
   summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null,
-  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, openTurnItems: [], turnJump: null, strip: null, lead: leadOf(), badges: [], details: [], gone: null, jump: null, hasNewer: false,
+  turnRows: [{ seq: 0, when: '10:00', text: 'hi', head: 'hi', tools: 2, open: false, band: [] }], turnsComplete: false, turnsPending: false, turnCount: { n: 104, plus: false }, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: leadOf(), badges: [], details: [], gone: null, jump: null, hasNewer: false,
   actions: { primary: { id: 'resume', label: '再開', disabled: null, note: null }, menu: [] }, transcriptBand: null, account: null };
 
 /**
@@ -282,7 +282,7 @@ describe('冒頭の 1 枚と目次（終わった画面）', () => {
   it('目次の見出しは「目次」と、ターンの数', () => {
     const { container } = render(<ActionRoot onAction={() => {}}><SS {...base} /></ActionRoot>);
     expect(container.querySelector('.turns-head')).toHaveTextContent('目次');
-    expect(container.querySelector('.turns-head')).toHaveTextContent('1+ ターン');
+    expect(container.querySelector('.turns-head')).toHaveTextContent('104 ターン');
   });
   it('目次は ⌘J と同じ開閉のボタンを持ち、閉じると列が 0px になって、切り替えの行に「目次 N」の札が出る', () => {
     const onAction = vi.fn();
@@ -293,10 +293,16 @@ describe('冒頭の 1 枚と目次（終わった画面）', () => {
     rerender(<ActionRoot onAction={onAction}><SS {...base} transcriptOpen={false} /></ActionRoot>);
     expect(tocCols(container)).toBe('minmax(0, 1fr) 0px');
     expect(container.querySelector('.toc-pane')).toBeNull();
-    const opener = screen.getByRole('button', { name: /目次 1\+/ });
+    const opener = screen.getByRole('button', { name: /目次 104/ });
     expect(opener.closest('.transcript-toggles')).not.toBeNull();
     fireEvent.click(opener);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'transcript.toggle' });
+  });
+  it('数が届くまでは、見出しにも閉じた札にも数を出さない', () => {
+    const { container, rerender } = render(<ActionRoot onAction={() => {}}><SS {...base} turnCount={null} turnsPending turnRows={[]} /></ActionRoot>);
+    expect(container.querySelector('.turns-head')).not.toHaveTextContent('ターン');
+    rerender(<ActionRoot onAction={() => {}}><SS {...base} turnCount={null} turnsPending turnRows={[]} transcriptOpen={false} /></ActionRoot>);
+    expect(screen.getByRole('button', { name: /目次/ })).not.toHaveTextContent(/\d/);
   });
   it('トランスクリプトの無いセッションは、目次を持たず、冒頭の 1 枚だけを出す', () => {
     const lead = leadOf({ hasTranscript: false });
@@ -327,19 +333,31 @@ describe('SessionScreen（実行中）', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     expect(screen.getByText('hi')).toBeInTheDocument();
   });
-  it('ターミナルの真上に現在の帯を置き、見出しの下には何も挟まない', () => {
+  it('現在の札は右の欄の上（目次の上）に置き、タブの列とターミナルの側には何も挟まない', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} /></TerminalHostContext.Provider></ActionRoot>);
     const main = container.querySelector('.c-main')!;
-    expect([...main.children].map((c) => c.className.split(' ')[0])).toEqual(['now-strip', 'term-pane']);
+    expect([...main.children].map((c) => c.className.split(' ')[0])).toEqual(['term-pane']);
     expect(container.querySelector('.session-info')).toBeNull();
-    expect(within(main as HTMLElement).getByRole('region', { name: 'セッションの現在の状態' })).toBeInTheDocument();
+    const side = container.querySelector('.c-side')!;
+    expect([...side.children].map((c) => c.className.split(' ')[0])).toEqual(['now-card', 'toc-slot']);
+    expect(within(side as HTMLElement).getByRole('region', { name: 'セッションの現在の状態' })).toBeInTheDocument();
   });
-  it('帯は生きた run があるときだけで、終わった run のターミナルには出さない', () => {
+  it('札は生きた run があるときだけで、終わった run には出さない', () => {
     const { container } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} strip={null} run={{ ...running.run!, alive: false }} /></TerminalHostContext.Provider></ActionRoot>);
-    expect(container.querySelector('.now-strip')).toBeNull();
+    expect(container.querySelector('.now-card')).toBeNull();
   });
-  it('帯のノートの札から、ポップオーバーでノートを書ける', () => {
+  it('目次を閉じても、札は右の欄に残る（目次だけを畳む）。札の無い画面では欄ごと畳む', () => {
+    const { container, rerender } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={false} /></TerminalHostContext.Provider></ActionRoot>);
+    expect(container.querySelector('.c-side .now-card')).not.toBeNull();
+    expect(container.querySelector('.toc-pane')).toBeNull();
+    expect(screen.getByRole('button', { name: /^目次/ })).toBeInTheDocument();
+    rerender(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} strip={null} transcriptOpen={false} /></TerminalHostContext.Provider></ActionRoot>);
+    expect(container.querySelector('.now-card')).toBeNull();
+    expect(container.querySelector('.toc-pane')).toBeNull();
+  });
+  it('実行中は、見出しの行に「ノート」の札を置き、ポップオーバーでノートを書ける', () => {
     const onAction = withHost(<SS {...running} />);
+    expect(document.querySelector('.session-hero')!.contains(screen.getByRole('button', { name: 'ノート' }))).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'ノート' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'ノート' }), { target: { value: 'メモ' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
@@ -365,19 +383,25 @@ describe('SessionScreen（実行中）', () => {
   });
   it('実行中も終わった後も、目次は同じ器（toc-slot の toc-pane）にあり、同じ幅の列になる', () => {
     const a = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} /></TerminalHostContext.Provider></ActionRoot>);
-    expect(a.container.querySelector('.c-body > .toc-slot .toc-pane')).not.toBeNull();
+    expect(a.container.querySelector('.c-body > .c-side > .toc-slot .toc-pane')).not.toBeNull();
     expect(tocCols(a.container)).toBe('minmax(0, 1fr) 240px');
     cleanup();
     const b = render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
     expect(b.container.querySelector('.c-body > .toc-slot .toc-pane')).not.toBeNull();
     expect(tocCols(b.container)).toBe('minmax(0, 1fr) 240px');
   });
-  it('目次を閉じたら、列ごと消し、「目次 N」の札をタブの帯の右端に出す', () => {
+  it('実行中に目次を閉じたら、札を残して列の幅は変えず、「目次 N」の札をタブの帯の右端に出す', () => {
     withHost(<SS {...running} transcriptOpen={false} />);
-    expect((document.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
-    const open = screen.getByRole('button', { name: /目次 1\+/ });
+    expect((document.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns).toBe('minmax(0, 1fr) 240px');
+    const open = screen.getByRole('button', { name: /目次 104/ });
     expect(open.closest('.tabs')).not.toBeNull();
     expect(open).toHaveTextContent('⌘J');
+    expect(document.querySelector('.toc-pane')).toBeNull();
+    expect(document.querySelector('.c-side .now-card')).not.toBeNull();
+  });
+  it('札の無い画面（終わった後）で目次を閉じたら、列ごと消す', () => {
+    render(<ActionRoot onAction={vi.fn()}><SS {...base} transcriptOpen={false} /></ActionRoot>);
+    expect((document.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
     expect(document.querySelector('.toc-pane')).toBeNull();
   });
   it('開いている間は、開閉のボタンを目次の見出しの行に置き、タブの帯には出さない', () => {
@@ -403,7 +427,7 @@ describe('SessionScreen（実行中）', () => {
       expect(c).toHaveAttribute('data-narrow', 'true');
       expect(c.style.gridTemplateColumns).toBe('');
       expect(document.querySelector('.toc-pane')).toBeNull();
-      const opener = screen.getByRole('button', { name: /目次 1\+/ });
+      const opener = screen.getByRole('button', { name: /目次 104/ });
       expect(opener.closest('.tabs')).not.toBeNull();
       expect(opener).not.toHaveTextContent('⌘J');
       fireEvent.click(opener);
@@ -427,14 +451,14 @@ describe('SessionScreen（実行中）', () => {
     it('別のセッションへ替えたときは、開閉の違いを開閉の操作とは見なさず、閉じる', () => {
       const ui = (id: string, open: boolean) => <ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} id={id} transcriptOpen={open} /></TerminalHostContext.Provider></ActionRoot>;
       const { rerender } = render(ui('s1', true));
-      fireEvent.click(screen.getByRole('button', { name: /目次 1\+/ }));
+      fireEvent.click(screen.getByRole('button', { name: /目次 104/ }));
       expect(document.querySelector('.toc-pane')).not.toBeNull();
       rerender(ui('s2', false));
       expect(document.querySelector('.toc-pane')).toBeNull();
     });
     it('終わった画面でも、札は切り替えの行にある', () => {
       render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
-      expect(screen.getByRole('button', { name: /目次 1\+/ }).closest('.transcript-toggles')).not.toBeNull();
+      expect(screen.getByRole('button', { name: /目次 104/ }).closest('.transcript-toggles')).not.toBeNull();
       expect(document.querySelector('.toc-pane')).toBeNull();
     });
   });
@@ -446,7 +470,8 @@ describe('SessionScreen（実行中）', () => {
       let finish: () => void = () => {};
       const finished = new Promise<void>((r) => { finish = r; });
       (HTMLElement.prototype as unknown as { animate: unknown }).animate = function () { return { finished, cancel: vi.fn() }; };
-      const ui = (open: boolean) => <ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={open} /></TerminalHostContext.Provider></ActionRoot>;
+      // 列ごと畳むのは札の無い画面（終わった後）だけ。
+      const ui = (open: boolean) => <ActionRoot onAction={vi.fn()}><SS {...base} transcriptOpen={open} /></ActionRoot>;
       const { rerender } = render(ui(true));
       rerender(ui(false));
       expect(document.querySelector('.toc-slot')).toHaveAttribute('data-leaving', 'true');
@@ -459,7 +484,7 @@ describe('SessionScreen（実行中）', () => {
       restore = fakeMotionTokens(undefined, { everywhere: true });
       const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
       (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
-      const ui = (id: string, open: boolean) => <ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} id={id} transcriptOpen={open} /></TerminalHostContext.Provider></ActionRoot>;
+      const ui = (id: string, open: boolean) => <ActionRoot onAction={vi.fn()}><SS {...base} id={id} transcriptOpen={open} /></ActionRoot>;
       const { rerender } = render(ui('s1', true));
       animate.mockClear();
       rerender(ui('s2', false));
@@ -473,6 +498,20 @@ describe('SessionScreen（実行中）', () => {
       rerender(ui('s1', false));
       expect(document.querySelector('.toc-slot')).toHaveAttribute('data-leaving', 'true');
       expect(animate.mock.calls.length).toBeGreaterThan(0);
+    });
+    it('札のある画面（実行中）では、目次を開閉しても列を滑らせず、目次だけをすぐ出し入れする', () => {
+      restore = fakeMotionTokens(undefined, { everywhere: true });
+      const animate = vi.fn(function () { return { finished: new Promise<void>(() => {}), cancel: vi.fn() }; });
+      (HTMLElement.prototype as unknown as { animate: unknown }).animate = animate;
+      const ui = (open: boolean) => <ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={open} /></TerminalHostContext.Provider></ActionRoot>;
+      const { rerender } = render(ui(true));
+      animate.mockClear();
+      rerender(ui(false));
+      expect(document.querySelector('.toc-slot-inner')).toBeNull();
+      expect(document.querySelector('[data-leaving]')).toBeNull();
+      rerender(ui(true));
+      expect(document.querySelector('.toc-slot-inner')).not.toBeNull();
+      expect(animate.mock.calls.length).toBe(0);
     });
   });
   it('要約の一行は、文が替わると作り直す（入る動きをもう一度出す）', () => {
@@ -497,7 +536,7 @@ describe('SessionScreen（実行中）', () => {
     expect(screen.getByTestId('split')).toBeInTheDocument();
     expect(screen.getAllByTestId(/^term-/)).toHaveLength(2);
     expect(host.mount).toHaveBeenCalledWith('t1', expect.anything());
-    expect(document.querySelectorAll('.now-strip')).toHaveLength(1);
+    expect(document.querySelectorAll('.now-card')).toHaveLength(1);
   });
   it('分割していなければターミナルは 1 つ', () => {
     withHost(<SS {...running} canSplit />);
@@ -569,7 +608,7 @@ describe('SessionScreen のアイコン', () => {
     expect(iconOf(screen.getByRole('button', { name: '右パネルを閉じる' }))).toBe('paneClose');
     cleanup();
     withHost(<SS {...running} transcriptOpen={false} />);
-    expect(iconOf(screen.getByRole('button', { name: /目次 1\+/ }))).toBe('paneOpen');
+    expect(iconOf(screen.getByRole('button', { name: /目次 104/ }))).toBe('paneOpen');
   });
   it('ツール呼び出しとサブエージェントと折りたたみの矢印', () => {
     render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);

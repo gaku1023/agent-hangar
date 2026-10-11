@@ -792,3 +792,76 @@ describe('札の中の更新', () => {
     expect(btn('fail-update-go').textContent).toBe('Download and install');
   });
 });
+
+// 起動に失敗したら、札はその場で出す。殻が更新を確かめるのは、札を描いたと知らせてから（lib.rs の boot_card_shown）である。
+// 札を描く前に確かめ始めると、目録の取得と証明書の検証が札の最初の描画と重なる。確かめの結果は待たず、見つかったら後から帯を足す（__hangarBootUpdate）。
+describe('札は更新の確認を待たずに出し、描いた後に確かめを頼む', () => {
+  type Invoke = (cmd: string, args?: unknown) => Promise<unknown>;
+  const tauri = window as unknown as { __TAURI_INTERNALS__?: { invoke: Invoke } };
+  const w = win as unknown as { __hangarBootFail?: (info: unknown) => void; __hangarBootUpdate?: (u: unknown) => void };
+  const failure = { kind: 'node-missing', params: { arch: 'arm64', os: 'macos' }, detail: 'Node 22（arm64）が見つかりません。', lang: 'ja', version: '0.2.0-rc.6', os: 'macOS 15.5', home: '~/.agent-hangar', sep: '/' };
+  let state: unknown;
+  const invoke = vi.fn<Invoke>();
+  const calls = () => invoke.mock.calls.map(([cmd]) => cmd);
+  beforeEach(() => {
+    state = { failure, progress: null, finishing: false, update: null, lang: 'ja' };
+    invoke.mockReset();
+    // 殻の答えは、boot_state のほかは返さない（確かめが終わらないまま）。
+    invoke.mockImplementation((cmd: string) => (cmd === 'boot_state' ? Promise.resolve(state) : new Promise(() => {})));
+    tauri.__TAURI_INTERNALS__ = { invoke };
+    delete document.body.dataset.fail;
+  });
+  afterEach(() => { delete tauri.__TAURI_INTERNALS__; delete w.__hangarBootFail; delete w.__hangarBootUpdate; document.documentElement.lang = ''; });
+
+  it('boot_state が失敗を返したら、その場で札を出し、確かめはまだ頼まない', async () => {
+    await boot();
+    await flush();
+    expect($('fail').hidden).toBe(false);
+    expect($('status').dataset.level).toBe('error');
+    expect($('fail-title').textContent).toBe('Node.js 22 が入っていません');
+    expect(calls()).toEqual(['boot_state']);
+  });
+  it('札を描いたコマの後で、殻に札を描いたと 1 度だけ知らせる。知らせの答えは待たない', async () => {
+    await boot();
+    await flush();
+    step(16);
+    await flush();
+    expect(calls()).toEqual(['boot_state', 'boot_card_shown']);
+    // 答えが返らなくても、札はそのまま押せる。
+    expect(($('boot-retry') as HTMLButtonElement).disabled).toBe(false);
+    expect(document.activeElement).toBe($('boot-retry'));
+    // 別の種類の失敗が続けて届いても、知らせは重ねない。
+    w.__hangarBootFail!({ ...failure, kind: 'server-exited', params: {}, detail: 'exit 1' });
+    step(32);
+    await flush();
+    expect(calls().filter((c) => c === 'boot_card_shown')).toHaveLength(1);
+  });
+  it('札の言語は札が持つ言語で、boot_state の言語を待たずに決まる', async () => {
+    state = new Promise(() => {});
+    invoke.mockImplementation((cmd: string) => (cmd === 'boot_state' ? new Promise(() => {}) : new Promise(() => {})));
+    await boot();
+    w.__hangarBootFail!({ ...failure, lang: 'en', detail: 'Node 22 (arm64) was not found.' });
+    expect($('fail').hidden).toBe(false);
+    expect(document.documentElement.lang).toBe('en');
+    expect($('fail-title').textContent).toBe('Node.js 22 is not installed');
+  });
+  it('札が出た後に殻が見つけた版は、後から帯に足す', async () => {
+    await boot();
+    await flush();
+    step(16);
+    await flush();
+    expect($('fail-update').hidden).toBe(true);
+    w.__hangarBootUpdate!({ version: '0.2.1' });
+    expect($('fail-update').hidden).toBe(false);
+    expect($('fail-update-title').textContent).toBe('Hangar 0.2.1 を利用できます');
+  });
+  it('待っている間（失敗が無い）は、コマが進んでも知らせない', async () => {
+    state = { failure: null, progress: null, finishing: false, update: null, lang: 'ja' };
+    await boot();
+    await flush();
+    step(16);
+    step(32);
+    await flush();
+    expect(calls()).toEqual(['boot_state']);
+  });
+});

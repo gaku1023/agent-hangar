@@ -4,7 +4,6 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
-import { MemoStore } from '../projects/memo.ts';
 import { issueMcpSecret } from '../runs/secrets.ts';
 import { createMcpApp } from './app.ts';
 
@@ -26,7 +25,7 @@ beforeEach(() => {
   db = openDb(':memory:');
   sid = ensureSession(db, 'u1', '/w', 'd');
   app = createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }) });
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) });
 });
 afterEach(() => { db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 

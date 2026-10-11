@@ -5,7 +5,6 @@ import { ActionRoot } from '../action/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { Header } from './Header.tsx';
-import { TodoList } from './TodoList.tsx';
 import { fakeMotionTokens } from '../test/motion.ts';
 import { syncFixture } from '../test/syncProps.ts';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
@@ -96,72 +95,6 @@ describe('Header', () => {
     expect(screen.queryByRole('meter')).toBeNull();
     fireEvent.click(screen.getByRole('link', { name: '使用率 未取得' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
-  });
-});
-
-describe('TodoList', () => {
-  it('追加、反転、削除の UiAction を出す', () => {
-    const onAction = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false, candidate: null }, { id: 't2', text: '済んだ', done: true, candidate: null }]} />);
-    const input = screen.getByLabelText('TODO を追加');
-    fireEvent.change(input, { target: { value: '書く' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onAction).toHaveBeenCalledWith({ type: 'todo.add', projectId: 'p1', text: '書く' });
-    fireEvent.click(screen.getByLabelText('買う（1 件目）'));
-    expect(onAction).toHaveBeenCalledWith({ type: 'todo.toggle', id: 't1' });
-    fireEvent.click(screen.getByLabelText('済んだ（2 件目）を削除'));
-    expect(onAction).toHaveBeenCalledWith({ type: 'todo.remove', id: 't2' });
-    expect(input.getAttribute('id')).toBe('todo-input');
-  });
-  it('候補の行は根拠とセッションと確定と却下を出し、欄を押すと反転の UiAction を出す', () => {
-    const cand = { note: '直して確かめた', sessionId: 's1', sessionName: '起動画面の作り直し', ago: '12 分前' };
-    const onAction = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '窓を掴める', done: false, candidate: cand }, { id: 't2', text: '影の値', done: false, candidate: { ...cand, sessionId: null, sessionName: '不明なセッション' } }]} />);
-    expect(screen.getByText('直して確かめた', { selector: '#todo-why-t1' })).toBeTruthy();
-    fireEvent.click(screen.getByLabelText('窓を掴める（1 件目、完了の候補）'));
-    expect(onAction).toHaveBeenCalledWith({ type: 'todo.toggle', id: 't1' });
-    fireEvent.click(screen.getByRole('button', { name: '起動画面の作り直し' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 's1' });
-    fireEvent.click(screen.getByLabelText('窓を掴める（1 件目）を確定'));
-    expect(onAction).toHaveBeenCalledWith({ type: 'todo.confirm', id: 't1' });
-    fireEvent.click(screen.getByLabelText('窓を掴める（1 件目）を却下'));
-    expect(onAction).toHaveBeenCalledWith({ type: 'todo.reject', id: 't1' });
-    // 開けないセッションは押せる形にしない。
-    expect(screen.queryByRole('button', { name: '不明なセッション' })).toBeNull();
-    expect(screen.getByText('不明なセッション')).toBeTruthy();
-    // 候補でない行には確定も根拠も出さない。
-    const plain = wrap(<TodoList projectId="p1" todos={[{ id: 't3', text: '普通', done: false, candidate: null }]} />);
-    expect(plain).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('普通（1 件目）を確定')).toBeNull();
-  });
-  it('済みの印は checkbox の役割で、状態を aria-checked に出す', () => {
-    wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false, candidate: null }, { id: 't2', text: '済んだ', done: true, candidate: null }]} />);
-    expect(screen.getByRole('checkbox', { name: '買う（1 件目）' })).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByRole('checkbox', { name: '済んだ（2 件目）' })).toHaveAttribute('aria-checked', 'true');
-  });
-  it('空の入力では何も出さない', () => {
-    const onAction = wrap(<TodoList projectId="p1" todos={[]} />);
-    fireEvent.keyDown(screen.getByLabelText('TODO を追加'), { key: 'Enter' });
-    expect(onAction).not.toHaveBeenCalled();
-    // 足す欄があるときは、空であることを欄の薄い字が言う。別の行では言わない。
-    expect(screen.getByPlaceholderText('TODO はまだありません')).toBeTruthy();
-    expect(screen.queryByText('TODO はまだありません')).toBeNull();
-  });
-  it('足す欄の無い場所では、空であることを行で書く', () => {
-    wrap(<TodoList projectId="p1" todos={[]} canAdd={false} />);
-    expect(screen.getByText('TODO はまだありません')).toBeTruthy();
-  });
-  it('同じ文言の TODO が並んでもラベルが重ならない', () => {
-    const onAction = wrap(<TodoList projectId="p1" todos={[{ id: 't1', text: '買う', done: false, candidate: null }, { id: 't2', text: '買う', done: true, candidate: null }]} />);
-    fireEvent.click(screen.getByLabelText('買う（2 件目）'));
-    expect(onAction).toHaveBeenCalledWith({ type: 'todo.toggle', id: 't2' });
-    fireEvent.click(screen.getByLabelText('買う（1 件目）を削除'));
-    expect(onAction).toHaveBeenCalledWith({ type: 'todo.remove', id: 't1' });
-  });
-  it('日本語の変換中の Enter では追加しない', () => {
-    const onAction = wrap(<TodoList projectId="p1" todos={[]} />);
-    const input = screen.getByLabelText('TODO を追加');
-    fireEvent.change(input, { target: { value: 'かう' } });
-    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
-    expect(onAction).not.toHaveBeenCalled();
   });
 });
 

@@ -5,7 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalLike } from './terminals.ts';
-import { clipboardProvider, createKeyHandler, terminalOptions } from './xtermSetup.ts';
+import { clipboardProvider, createKeyHandler, guardEmptyCopy, terminalOptions } from './xtermSetup.ts';
 
 /** 本物の xterm.js。テストでは TerminalLike の偽物を使うので、このファイルは main.tsx だけが読む。 */
 export function createXterm(): TerminalLike {
@@ -28,7 +28,11 @@ export function createXterm(): TerminalLike {
     get cols() { return term.cols; },
     get rows() { return term.rows; },
     get element() { return term.element ?? null; },
-    open: (el) => term.open(el),
+    open(el) {
+      term.open(el);
+      // xterm が copy の処理を付けるのは open の中なので、その後ろに付ける。要素ごと捨てられるので外さない。
+      if (term.element) guardEmptyCopy(term.element);
+    },
     write: (d) => term.write(d),
     onData: (cb) => term.onData(cb),
     onResize: (cb) => term.onResize(cb),

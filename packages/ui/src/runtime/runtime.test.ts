@@ -2,6 +2,7 @@ import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { LONG_TOAST_MS } from './actionTable.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { accountsFixture } from '../test/accounts.ts';
@@ -169,6 +170,33 @@ describe('createRuntime', () => {
     // 持っている中でいちばん古い seq より前を求める。
     expect(api.events).toHaveBeenLastCalledWith('s1', { beforeSeq: 2, agentId: null });
     expect([...rt.getStore().events['s1:']!.items.map((e) => e.seq)].sort()).toEqual([1, 2]);
+  });
+  it('追記を読み足す間は、古い側の読み込みの印を立てない（目次の読み込みボタンを動かさない）', async () => {
+    let release: (() => void) | null = null;
+    let hold = false;
+    const events = vi.fn(async (_s: string, q: { latest?: boolean; beforeSeq?: number; fromSeq?: number }) => {
+      if (hold) await new Promise<void>((r) => { release = r; });
+      return q.latest ? page([2], 3) : q.beforeSeq !== undefined ? page([q.beforeSeq - 1], 3) : page([q.fromSeq!], 4);
+    });
+    const { rt, setHash } = harness({ events });
+    rt.start();
+    setHash('#/session/s1');
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: false, loadingOlder: false });
+    hold = true;
+    rt.dispatch({ kind: 'server', event: { type: 'transcript.appended', sessionId: 's1', count: 1 } });
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: true, loadingOlder: false });
+    release!();
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: false, loadingOlder: false });
+    // 利用者が「古いターンを読み込む」を押したときだけ、古い側の印が立つ。
+    rt.emit({ type: 'transcript.loadMore', sessionId: 's1' });
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: true, loadingOlder: true });
+    release!();
+    await flush();
+    expect(rt.getStore().events['s1:']).toMatchObject({ loading: false, loadingOlder: false });
   });
   it('検索の結果から開いたら、跳び先の少し前から前向きに読む。ターミナルが出るセッションでは最新の側から読む', async () => {
     const { rt, api, wsHandlers } = harness();
@@ -760,17 +788,28 @@ describe('起動とターミナル', () => {
     await flush();
     expect(rt.getState().toasts[0]?.message).toContain('Terminal.app');
   });
+  it('Windows Terminal が無く既定のターミナルに落ちたら、セッション画面でもプロジェクト画面でも 8 秒の知らせを出す', async () => {
+    const fell = async () => ({ app: 'windowsDefault' as const, fellBack: true });
+    const { rt } = harness({ openTerminalApp: vi.fn(fell), projectOpenTerminal: vi.fn(fell) });
+    rt.start();
+    rt.emit({ type: 'session.openTerminalApp', runId: 'r1' });
+    rt.emit({ type: 'project.openTerminalApp', id: 'p1' });
+    await flush();
+    const shown = rt.getState().toasts.map((t) => [t.level, t.message, t.holdMs]);
+    const line = ['info', 'Windows Terminal が見つからなかったので既定のターミナルで開きました', LONG_TOAST_MS];
+    expect(shown).toEqual([line, line]);
+  });
 });
 
 const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, memo: null, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null };
-const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null });
+const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null });
 const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
 const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
 
 describe('フェーズ 3 の効果', () => {
   it('TODO の追加は前後の空白を落として渡し、削除は id をそのまま渡す', async () => {
-    const addTodo = vi.fn(async (projectId: string, text: string) => ({ id: 't9', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null }));
+    const addTodo = vi.fn(async (projectId: string, text: string) => ({ id: 't9', projectId, text, done: false, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null }));
     const removeTodo = vi.fn(async (id: string) => p3Todo(id, false));
     const { rt, wsHandlers } = harness({ addTodo, removeTodo });
     rt.start();
@@ -783,6 +822,8 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'todo.add', projectId: 'p1', text: '   ' });
     await flush();
     expect(addTodo).toHaveBeenCalledTimes(1);
+    // 消すのは Store にある TODO だけ（取り消しのために前の形を Store から写す）。
+    wsHandlers[0]!.onEvent({ type: 'todos.update', projectId: 'p1', todos: [p3Todo('t9', false)] });
     rt.emit({ type: 'todo.remove', id: 't9' });
     await flush();
     expect(removeTodo).toHaveBeenCalledWith('t9');
@@ -1793,6 +1834,28 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
       expect([sessions.length, readiness.mock.calls.length]).toEqual([sessions.length, 1]);
       expect(rt.getStore().readiness).toEqual(READY);
     }
+  });
+  it('API やほかの窓から claudePath が直されたら（settings.changed）、準備の確かめを取り直して帯を新しい答えにする', async () => {
+    const NOT_FOUND = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset' as const, version: null } } };
+    const answers = [NOT_FOUND, READY];
+    const readiness = vi.fn(async () => answers.shift() as never);
+    const { rt, wsHandlers } = harness({ readiness });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    await flush();
+    expect(rt.getStore().readiness?.tools.claude.ok).toBe(false);
+    const settings = { ...rt.getStore().settings!, claudePath: '/bin/claude' };
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['claudePath'] });
+    await flush();
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(2);
+    expect(rt.getStore().readiness?.tools.claude.ok).toBe(true);
+    expect(rt.getStore().settings?.claudePath).toBe('/bin/claude');
+    // 準備の確かめに関わらない欄の変更では読み直さない。
+    wsHandlers[0]!.onEvent({ type: 'settings.changed', settings, keys: ['summaryFallback'] });
+    await flush();
+    expect(readiness).toHaveBeenCalledTimes(2);
   });
   describe('そろったときのトースト（2.11.4）', () => {
     const PENDING = { ...READY, workspace: { ...READY.workspace, projectCount: 0 } };

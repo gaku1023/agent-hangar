@@ -1,4 +1,4 @@
-import { motionEase, motionMs, motionValue } from './motion.ts';
+import { motionEase, motionMs, motionValue, type DurationToken } from './motion.ts';
 
 /**
  * 出入りの形（設計書「共通の約束」）。長さと曲線はトークンから読み、数値を直書きしない。
@@ -21,10 +21,31 @@ export function riseIn(el: HTMLElement, delay = 0): Animation | null {
   return el.animate(enterFrames(el), { duration: motionMs('--dur', el), delay, easing: motionEase('--ease-out', el), fill: 'backwards' });
 }
 
-/** 薄れから現すだけ（一覧を一度に入れたとき、端末の最初の描画）。 */
-export function fadeIn(el: HTMLElement): Animation | null {
+/** 薄れから現すだけ（一覧を一度に入れたとき、端末の最初の描画）。中身を入れ替えるとき（ホームの引き出しの群、帯の注記）は --dur-fast で短く現す。 */
+export function fadeIn(el: HTMLElement, token: DurationToken = '--dur'): Animation | null {
   if (!motionOn(el)) return null;
-  return el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+  return el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: motionMs(token, el), easing: motionEase('--ease-out', el) });
+}
+
+/** 薄れて消えるだけ（ホームの帯の注記）。最後の形を残し、終わったら解決する。動かないときはすぐ解決する。 */
+export function fadeOut(el: HTMLElement, token: DurationToken = '--dur-fast'): Promise<void> {
+  if (!motionOn(el)) return Promise.resolve();
+  return el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: motionMs(token, el), easing: motionEase('--ease-in', el), fill: 'forwards' }).finished.then(() => undefined, () => undefined);
+}
+
+/**
+ * 高さの補間。中身を入れ替えた箱を、前の高さ（from、px）から今の高さへ --dur で動かし、下の要素を押して滑らせる（ホームの引き出しの群の切替、帯と 1 行の入れ替え）。
+ * 前の高さは入れ替える前に呼び手が測って渡す。高さが同じなら動かさない。動く間は中身をはみ出させない。
+ */
+export function resizeFrom(el: HTMLElement, from: number): Animation | null {
+  const to = el.offsetHeight;
+  if (Math.abs(to - from) < 0.5 || !motionOn(el)) return null;
+  const overflow = el.style.overflow;
+  el.style.overflow = 'hidden';
+  const a = el.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+  const restore = () => { el.style.overflow = overflow; };
+  a.finished.then(restore, restore);
+  return a;
 }
 
 const sizeOf = (el: HTMLElement, axis: 'y' | 'x') => (axis === 'y' ? el.offsetHeight : el.offsetWidth);
@@ -61,25 +82,49 @@ export function growIn(el: HTMLElement, axis: 'y' | 'x' = 'y'): Animation | null
   return a;
 }
 
-/** 畳んで出る形。薄れながら高さ（横なら幅）を 0 にする。終わったら解決する。動かないときはすぐ解決する。 */
-export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y'): Promise<void> {
+/**
+ * 畳んで出る形。薄れながら高さ（横なら幅）を 0 にする。終わったら解決する。動かないときはすぐ解決する。
+ * fade が偽なら不透明度に触れず、高さだけを畳む（先に別の形で薄れ切った札の後始末。右下の知らせ）。
+ */
+export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y', opts: { fade?: boolean } = {}): Promise<void> {
   if (!motionOn(el)) return Promise.resolve();
   const size = sizeOf(el, axis);
   const p = prop(axis);
   const edge = edgesZero(axis);
   const overflow = el.style.overflow;
   el.style.overflow = 'hidden';
-  const a = el.animate([
-    { [p]: `${size}px`, opacity: 1 },
-    { opacity: 0, offset: 0.6 },
-    { [p]: '0px', opacity: 0, ...edge },
-  ], { duration: motionMs('--dur-exit', el) + motionMs('--dur-fast', el), easing: motionEase('--ease-in', el), fill: 'forwards' });
+  const frames: Keyframe[] = opts.fade === false
+    ? [{ [p]: `${size}px` }, { [p]: '0px', ...edge }]
+    : [{ [p]: `${size}px`, opacity: 1 }, { opacity: 0, offset: 0.6 }, { [p]: '0px', opacity: 0, ...edge }];
+  const a = el.animate(frames, { duration: motionMs('--dur-exit', el) + motionMs('--dur-fast', el), easing: motionEase('--ease-in', el), fill: 'forwards' });
   // 終わったら要素は外されるので隠したままにする。取り消された（出る途中で戻った）ときだけ、元の指定に戻す。
   return a.finished.then(() => undefined, () => { el.style.overflow = overflow; });
 }
 
+/**
+ * ダイアログを引っ込める形。背景（.overlay）を薄れさせ、板（.dialog）を少し沈めて縮める。開くときの pop を逆にたどる。
+ * 終わったら解決する。取り消されたとき（引っ込める途中で開き直したとき）と、動かないときも解決する。
+ */
+export function popOut(overlay: HTMLElement): Promise<void> {
+  if (!motionOn(overlay)) return Promise.resolve();
+  const opts: KeyframeAnimationOptions = { duration: motionMs('--dur-exit', overlay), easing: motionEase('--ease-in', overlay), fill: 'forwards' };
+  const a = overlay.animate([{ opacity: 1 }, { opacity: 0 }], opts);
+  overlay.querySelector<HTMLElement>('.dialog')?.animate([{ transform: 'none' }, { transform: 'translateY(4px) scale(0.96)' }], opts);
+  return a.finished.then(() => undefined, () => undefined);
+}
+
+/**
+ * 横へ抜ける形。薄れながら dx（px）だけ横へ動き、最後の形を残す。--dur-exit、--ease-in で動かす。
+ * 右下の知らせが出るときに使い、そのあと collapseOut の fade: false で高さを畳む。
+ * 抜け切ったら真で、途中で取り消された（出る途中で戻った）ら偽で解決する。呼び手は偽なら続きの畳みを始めない。動かないときはすぐ真で解決する。
+ */
+export function slideAway(el: HTMLElement, dx: number): Promise<boolean> {
+  if (!motionOn(el)) return Promise.resolve(true);
+  return el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${dx}px)` }], { duration: motionMs('--dur-exit', el), easing: motionEase('--ease-in', el), fill: 'forwards' }).finished.then(() => true, () => false);
+}
+
 /** 並びの FLIP。前の位置から今の位置へ滑らせる。 */
-export function slideFrom(el: HTMLElement, before: DOMRect, after: DOMRect): Animation | null {
+export function slideFrom(el: HTMLElement, before: Pick<DOMRect, 'left' | 'top'>, after: Pick<DOMRect, 'left' | 'top'>): Animation | null {
   const dx = before.left - after.left;
   const dy = before.top - after.top;
   if ((dx === 0 && dy === 0) || !motionOn(el)) return null;
@@ -96,4 +141,18 @@ export function popMark(el: HTMLElement): Animation | null {
 export function markHit(el: HTMLElement): void {
   el.setAttribute('data-hit', '');
   el.addEventListener('animationend', () => el.removeAttribute('data-hit'), { once: true });
+}
+
+/**
+ * 並びが替わった描画で「上がった」行の key。前と今の両方にある行だけで互いの順を比べ、前より前へ出た行を返す。
+ * 足した行と消えた行は数えない（消えた行の下が詰まっただけの描画では、どれも上がっていない）。
+ * ホームの一覧と引き出しは、並びを滑らせず、上がった行と新しい行に markHit だけを付ける（設計書「Home の一覧」）。
+ */
+export function risenKeys(before: readonly string[], after: readonly string[]): Set<string> {
+  const inAfter = new Set(after);
+  const inBefore = new Set(before);
+  const was = new Map(before.filter((k) => inAfter.has(k)).map((k, i) => [k, i]));
+  const out = new Set<string>();
+  after.filter((k) => inBefore.has(k)).forEach((k, i) => { if (i < was.get(k)!) out.add(k); });
+  return out;
 }

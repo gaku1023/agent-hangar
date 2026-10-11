@@ -1,4 +1,4 @@
-import { SETTINGS_SECTIONS, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
+import { isSettingsField, SETTINGS_SECTIONS, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -109,8 +109,11 @@ export type SettingsProps = {
   toc: SettingsTocRow[];
   /** 一般の先頭の言語の行。visible が false の間は描かない。 */
   language: { value: Language };
-  /** 連携の節を開いたとき、アカウントの位置へ移る印。ヘッダーのアカウントの設定から来たときだけ入る。 */
-  focus: 'accounts' | 'unsent' | null;
+  /**
+   * 開いたとき、節の中の位置へ移る印。
+   * accounts はヘッダーのアカウントの設定から、unsent はベルの行から、欄の名前はホームの準備の帯の「設定を開く」から来たときだけ入る。
+   */
+  focus: 'accounts' | 'unsent' | SettingsField | null;
   /** アプリの更新の節（presenters/update.ts）。 */
   update: UpdateSectionProps;
 };
@@ -271,7 +274,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now, update, desktop: store.desktop }),
     update,
     language: { value: storeLanguage(store) },
-    focus: at === 'accounts' || at === 'unsent' ? at : null,
+    focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },
   };
 }

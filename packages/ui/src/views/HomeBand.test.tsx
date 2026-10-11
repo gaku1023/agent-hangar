@@ -1,11 +1,12 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { translator, type UiAction, type ProjectDto, type ReadinessDto, type SessionDto } from '@agent-hangar/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { presentHomeBand, type AttentionCard, type BandGroup, type ConfirmCard, type ReturnCard, type RunningCard } from '../presenters/home.ts';
 import { presentReadiness } from '../presenters/readiness.ts';
 import { presentUnresolved } from '../presenters/unresolved.ts';
 import { initialStore } from '../store/store.ts';
+import { fakeMotionTokens } from '../test/motion.ts';
 import { HomeBand } from './HomeBand.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
@@ -234,7 +235,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
   it('「設定を開く」は設定へ、「コマンドをコピー」は命令を写す', () => {
     const { onAction } = open();
     fireEvent.click(screen.getByRole('button', { name: '設定を開く、プロジェクトの親フォルダ' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
+    expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'workspace' } });
     fireEvent.click(screen.getByRole('button', { name: 'コマンドをコピー、MCP サーバー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });
   });
@@ -311,5 +312,150 @@ describe('HomeBand の場所の不明なプロジェクト（2.11.5）', () => {
     mount(busy, { extra: [group([lost('alpha')])] });
     expect(screen.queryByRole('region', { name: '場所の不明なプロジェクト' })).toBeNull();
     expect(screen.getByRole('region', { name: '要対応' })).toBeInTheDocument();
+  });
+});
+
+describe('HomeBand の動き', () => {
+  let restore: (() => void) | null = null;
+  let animations: { el: Element; frames: Keyframe[]; opts: KeyframeAnimationOptions }[] = [];
+  let finish: (() => void)[] = [];
+  const realHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight')!;
+  const motion = (dur = '420ms') => {
+    restore = fakeMotionTokens({ '--dur-fast': dur === '0ms' ? '0ms' : '200ms', '--dur': dur, '--dur-exit': dur === '0ms' ? '0ms' : '250ms', '--ease-out': 'ease-out', '--ease-in': 'ease-in', '--rise': '6px', '--blur-in': '6px' }, { everywhere: true });
+  };
+  beforeEach(() => {
+    motion();
+    animations = []; finish = [];
+    (HTMLElement.prototype as unknown as { getAnimations: unknown }).getAnimations = () => [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, frames: Keyframe[], opts: KeyframeAnimationOptions) {
+      animations.push({ el: this, frames, opts });
+      return { finished: new Promise<void>((r) => finish.push(r)), cancel: vi.fn() };
+    };
+    // jsdom は高さを持たないので、引き出しの高さは行の数で決める。
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return this.classList.contains('drawer') ? 30 + this.querySelectorAll('li').length * 40 : 0; } });
+  });
+  afterEach(() => {
+    restore?.(); restore = null;
+    delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
+    delete (HTMLElement.prototype as unknown as { getAnimations?: unknown }).getAnimations;
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', realHeight);
+  });
+  const drawerEl = (c: HTMLElement) => c.querySelector<HTMLElement>('.drawer');
+  const on = (el: Element | null) => animations.filter((a) => a.el === el);
+  const done = async () => { await act(async () => { finish.forEach((f) => f()); await Promise.resolve(); }); };
+
+  it('はじめの描画では動かさない', () => {
+    mount(busy);
+    expect(animations).toHaveLength(0);
+  });
+
+  it('閉じると、引き出しは畳み終わるまで前の中身のまま残り、終わったら外れる', async () => {
+    const { container } = mount(busy);
+    const d = drawerEl(container);
+    fireEvent.click(pill('要対応 3'));
+    expect(drawerEl(container)).toBe(d);
+    expect(d).toHaveTextContent('待ち a');
+    // 出ている間は役も焦点も持たない。
+    expect(d).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByRole('region', { name: '要対応' })).toBeNull();
+    expect(on(d).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px', opacity: 0 });
+    await done();
+    expect(drawerEl(container)).toBeNull();
+  });
+
+  it('開くと、引き出しは高さを 0 から伸ばして入る', async () => {
+    const { container } = mount(busy);
+    fireEvent.click(pill('要対応 3'));
+    await done();
+    animations = [];
+    fireEvent.click(pill('実行中 1'));
+    const d = drawerEl(container)!;
+    expect(on(d)).toHaveLength(1);
+    expect(on(d)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+    // 行は引き出しと一緒に入るので、行ごとには動かさない。
+    expect(animations.filter((a) => a.el.tagName === 'LI')).toHaveLength(0);
+  });
+
+  it('群を替えると、引き出しの高さを補間し、中身を --dur-fast で薄く入れ替える。伸びも畳みもしない', () => {
+    const { container } = mount(busy);
+    const d = drawerEl(container)!;
+    fireEvent.click(pill('実行中 1'));
+    expect(drawerEl(container)).toBe(d);
+    expect(on(d).map((a) => a.frames)).toEqual([[{ height: '150px' }, { height: '70px' }]]);
+    const body = d.querySelector('.drawer-body');
+    expect(on(body).map((a) => [a.frames, a.opts.duration])).toEqual([[[{ opacity: 0 }, { opacity: 1 }], 200]]);
+    expect(animations.filter((a) => a.el.tagName === 'LI')).toHaveLength(0);
+  });
+
+  it('引き出しの行は、来たら伸びて入り、解けたら畳んで出る', async () => {
+    const m = mount(busy);
+    act(() => m.rerender({ ...busy, attention: [waiting('c'), waiting('a'), waiting('b')] }));
+    const c = screen.getByText('待ち c').closest('li')!;
+    expect(on(c)).toHaveLength(1);
+    expect(on(c)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
+    animations = [];
+    act(() => m.rerender({ ...busy, attention: [waiting('c'), waiting('b')] }));
+    const a = screen.getByText('待ち a').closest('li')!;
+    expect(on(a).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px' });
+    await done();
+    expect(screen.queryByText('待ち a')).toBeNull();
+  });
+
+  it('引き出しの行の並びが替わっても滑らせず、上がった行だけに淡い黄の印を付ける', () => {
+    const m = mount({ ...none, running: [running('x'), running('y'), running('z')] });
+    act(() => m.rerender({ ...none, running: [running('z'), running('x'), running('y')] }));
+    const li = (n: string) => screen.getByText(`動く ${n}`).closest('li')!;
+    expect(animations.filter((a) => a.el.tagName === 'LI')).toHaveLength(0);
+    expect(li('z')).toHaveAttribute('data-hit');
+    expect(li('x')).not.toHaveAttribute('data-hit');
+    expect(li('y')).not.toHaveAttribute('data-hit');
+  });
+
+  it('件数は回して替える（RollingText）', () => {
+    const m = mount(busy);
+    const count = pill('要対応 3').querySelector('[data-count]')!;
+    expect(count.querySelector('.roll')).not.toBeNull();
+    act(() => m.rerender({ ...busy, attention: [waiting('a')] }));
+    expect(pill('要対応 2').querySelector('.roll')).toHaveAttribute('data-rolling', 'true');
+  });
+
+  it('開いている群が 0 件になったら、引き出しは畳んで出る', async () => {
+    const m = mount(busy);
+    const d = drawerEl(m.container)!;
+    act(() => m.rerender({ ...busy, attention: [], returning: [] }));
+    expect(drawerEl(m.container)).toBe(d);
+    expect(on(d).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px' });
+    await done();
+    expect(drawerEl(m.container)).toBeNull();
+  });
+
+  it('検索に入ると注記は薄れから現れ、引き出しは畳んで出る。抜けると注記は薄れて消え、引き出しは伸びて戻る', async () => {
+    const m = mount(busy);
+    const d = drawerEl(m.container)!;
+    act(() => m.rerender(busy, true));
+    const note = m.container.querySelector('.band-text')!;
+    expect(on(note).map((a) => [a.frames, a.opts.duration])).toEqual([[[{ opacity: 0 }, { opacity: 1 }], 200]]);
+    expect(on(d).at(-1)!.frames.at(-1)).toMatchObject({ height: '0px' });
+    await done();
+    animations = [];
+    act(() => m.rerender(busy, false));
+    expect(m.container.querySelector('.band-text')).toBe(note);
+    expect(on(note).map((a) => a.frames)).toEqual([[{ opacity: 1 }, { opacity: 0 }]]);
+    expect(on(drawerEl(m.container)).at(-1)!.frames[0]).toMatchObject({ height: '0px' });
+    await done();
+    expect(m.container.querySelector('.band-text')).toBeNull();
+  });
+
+  it('動きが無いとき（reduced motion）は、閉じた描画で引き出しも注記も外し、何も動かさない', () => {
+    restore?.();
+    motion('0ms');
+    const m = mount(busy);
+    fireEvent.click(pill('要対応 3'));
+    expect(drawerEl(m.container)).toBeNull();
+    fireEvent.click(pill('実行中 1'));
+    act(() => m.rerender(busy, true));
+    act(() => m.rerender(busy, false));
+    expect(m.container.querySelector('.band-text')).toBeNull();
+    expect(animations).toHaveLength(0);
   });
 });

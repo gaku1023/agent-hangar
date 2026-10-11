@@ -9,7 +9,7 @@ import { Publisher } from '../events/publisher.ts';
 import { upsertShared } from '../db/shared.ts';
 import { IndexerService } from '../indexer/service.ts';
 import { latestIntent } from '../live/intents.ts';
-import { MemoStore } from '../projects/memo.ts';
+import { addTodo } from '../projects/todos.ts';
 import { assignSessions } from '../projects/registry.ts';
 import { rejectSessionState } from '../sessions/states.ts';
 import { AccountStore } from '../config/accounts.ts';
@@ -38,8 +38,7 @@ beforeEach(async () => {
   publisher = new Publisher({ db, deviceId: 'd', live: () => live, hub: { broadcast: (e) => { sent.push(e); } } });
   deps = { db, deviceId: 'd', port: 4177, live: () => live,
     runs: { start: (p) => { started.push(p); return { run: { id: 'r1', sessionId: 'sNew', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 'sNew', tabs: [] }; } },
-    usage: () => ({ fiveHour: { usedPercent: 47, resetsAt: 1_760_000_000_000 }, sevenDay: null, updatedAt: 5 }),
-    memos: new MemoStore({ db, deviceId: 'd', home }) };
+    usage: () => ({ fiveHour: { usedPercent: 47, resetsAt: 1_760_000_000_000 }, sevenDay: null, updatedAt: 5 }) };
 });
 afterEach(() => { publisher.stop(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(home, { recursive: true, force: true }); });
 
@@ -50,6 +49,16 @@ const call = (name: string, args: Record<string, unknown> = {}, ctx = { sessionI
   } finally {
     publisher.flush();
   }
+};
+
+/**
+ * 利用者が足した確定の TODO の ID。MCP の add_todos で足したものは提案になり、完了の候補にできないので、候補の試験はこれで足す。
+ * 書いたイベントは、ここで配り終えておく。
+ */
+const userTodos = (...texts: string[]): string[] => {
+  const ids = texts.map((text) => addTodo(db, 'd', { projectId: 'p1', text }).id);
+  publisher.flush();
+  return ids;
 };
 
 /** session_id を取るツールと、それ以外の必須引数。存在の検査をまとめて確かめる。 */
@@ -68,39 +77,37 @@ describe('MCP tools', () => {
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ id: 'p1', name: 'alpha', status: 'active', path: '/Users/me/workspace/alpha', open_todo_count: 0 });
     const p = call('get_project', { project_id: 'p1' });
-    expect(p).toMatchObject({ id: 'p1', memo: null, todos: [], artifacts: [] });
+    expect(p).toMatchObject({ id: 'p1', todos: [], artifacts: [] });
+    // プロジェクトのノートはやめたので返さない。
+    expect(p).not.toHaveProperty('memo');
     expect((p.recent_sessions as { id: string }[]).map((s) => s.id)).toEqual([alphaId]);
     expect(() => call('get_project', { project_id: 'nope' })).toThrow(ToolError);
-    call('update_project', { project_id: 'p1', add_todos: ['a'], append_memo: 'm' });
+    call('update_project', { project_id: 'p1', add_todos: ['a'] });
     recordArtifactPublish(db, 'd', { sessionId: alphaId, projectId: 'p1', url: 'https://claude.ai/code/artifact/z', publishedAt: 7, call: { filePath: null, description: 'Z', favicon: '🧪' } });
     const p2 = call('get_project', { project_id: 'p1' });
-    expect(p2.memo).toBe('m');
     expect((p2.todos as unknown[]).length).toBe(1);
     expect(p2.artifacts).toEqual([{ id: expect.any(String), url: 'https://claude.ai/code/artifact/z', title: 'Z', favicon: '🧪', last_published_at: 7, version_count: 1 }]);
   });
-  it('update_project は status、TODO、メモを書き、イベントを配る', () => {
-    const r = call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['x', 'y'], append_memo: '## 追記' }, { sessionId: alphaId });
+  it('update_project は status と TODO を書き、イベントを配る', () => {
+    const r = call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['x', 'y'] }, { sessionId: alphaId });
     expect((r.project as { status: string }).status).toBe('paused');
-    expect((r.todos as { text: string; done: boolean; session_id: string | null }[]).map((t) => [t.text, t.done, t.session_id])).toEqual([['x', false, alphaId], ['y', false, alphaId]]);
-    expect(r.memo).toBe('## 追記');
-    // 状態、TODO、メモを 1 回の呼び出しで変えても、プロジェクトは最後の中身で 1 回だけ届く。
-    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'memo.update', 'project.upsert']);
-    expect(sent[0]).toMatchObject({ type: 'todos.update', projectId: 'p1', todos: [{ text: 'x' }, { text: 'y' }] });
-    expect(sent[1]).toMatchObject({ type: 'memo.update', memo: { projectId: 'p1', markdown: '## 追記' } });
-    expect(sent[2]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', status: 'paused', openTodoCount: 2, memoHead: '## 追記' } });
-    const ids = (r.todos as { id: string }[]).map((t) => t.id);
-    const r2 = call('update_project', { project_id: 'p1', toggle_todos: [ids[0]!], append_memo: '続き' });
+    // MCP から足した TODO は、利用者が受け入れるまで提案として置かれ、未完の数に入らない。
+    expect((r.todos as { text: string; done: boolean; session_id: string | null; suggestion: unknown }[]).map((t) => [t.text, t.done, t.session_id, t.suggestion])).toEqual([['x', false, alphaId, { note: null }], ['y', false, alphaId, { note: null }]]);
+    // 状態と TODO を 1 回の呼び出しで変えても、プロジェクトは最後の中身で 1 回だけ届く。
+    expect(sent.map((e) => e.type)).toEqual(['todos.update', 'project.upsert']);
+    expect(sent[0]).toMatchObject({ type: 'todos.update', projectId: 'p1', todos: [{ text: 'x', suggestion: { note: null } }, { text: 'y' }] });
+    expect(sent[1]).toMatchObject({ type: 'project.upsert', project: { id: 'p1', status: 'paused', openTodoCount: 0 } });
+    const [u] = userTodos('u');
+    const r2 = call('update_project', { project_id: 'p1', toggle_todos: [u!] });
     // toggle_todos は未完を完了にしない。候補にするだけで、未完の数も変わらない。
-    expect((r2.todos as { done: boolean; candidate: unknown }[]).map((t) => [t.done, t.candidate])).toEqual([[false, { session_id: null, note: null }], [false, null]]);
-    expect(r2.todo_results).toEqual([{ todo_id: ids[0], outcome: 'proposed' }]);
-    expect(r2.memo).toBe('## 追記\n\n続き');
-    expect((r2.project as { open_todo_count: number }).open_todo_count).toBe(2);
+    expect((r2.todos as { id: string; done: boolean; candidate: unknown }[]).find((t) => t.id === u)).toMatchObject({ done: false, candidate: { session_id: null, note: null } });
+    expect(r2.todo_results).toEqual([{ todo_id: u, outcome: 'proposed' }]);
+    expect((r2.project as { open_todo_count: number }).open_todo_count).toBe(1);
     expect(() => call('update_project', { project_id: 'p1', status: 'bogus' })).toThrow(ToolError);
     expect(() => call('update_project', { project_id: 'p1', toggle_todos: ['nope'] })).toThrow(/nope/);
   });
   it('propose_done は根拠つきの候補を出し、TODO ごとの結果を返す', () => {
-    const r = call('update_project', { project_id: 'p1', add_todos: ['a', 'b', 'c'] });
-    const [a, b, c] = (r.todos as { id: string }[]).map((t) => t.id);
+    const [a, b, c] = userTodos('a', 'b', 'c');
     call('update_project', { project_id: 'p1', toggle_todos: [c!] });
     // c は候補になった。完了にするには利用者の操作が要るので、ここでは DB を直接完了にして already_done を作る。
     db.prepare('update todos set done = 1, candidate_at = null where id = ?').run(c);
@@ -118,8 +125,7 @@ describe('MCP tools', () => {
   });
   it('却下されたセッションは同じ TODO の候補を出し直せない（propose_done でも toggle_todos でも）', async () => {
     const { rejectTodo } = await import('../projects/todos.ts');
-    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
-    const a = (r.todos as { id: string }[])[0]!.id;
+    const [a] = userTodos('a') as [string];
     call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: 'n' }] }, { sessionId: alphaId });
     rejectTodo(db, 'd', a);
     expect(call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: 'もう一度' }] }, { sessionId: alphaId }).todo_results).toEqual([{ todo_id: a, outcome: 'rejected_before' }]);
@@ -127,8 +133,7 @@ describe('MCP tools', () => {
   });
   it('toggle_todos は完了を開き直し、候補には何もしない', async () => {
     const { setTodoDone } = await import('../projects/todos.ts');
-    const r = call('update_project', { project_id: 'p1', add_todos: ['a', 'b'] });
-    const [a, b] = (r.todos as { id: string }[]).map((t) => t.id);
+    const [a, b] = userTodos('a', 'b');
     setTodoDone(db, 'd', a!, true);
     call('update_project', { project_id: 'p1', toggle_todos: [b!] });
     const r2 = call('update_project', { project_id: 'p1', toggle_todos: [a!, b!] });
@@ -136,23 +141,20 @@ describe('MCP tools', () => {
     expect((r2.todos as { done: boolean }[]).map((t) => t.done)).toEqual([false, false]);
   });
   it('propose_done の検証に落ちる呼び出しは、status も書かず何も配らない', () => {
-    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
-    const a = (r.todos as { id: string }[])[0]!.id;
+    const [a] = userTodos('a') as [string];
     sent.length = 0;
     expect(() => call('update_project', { project_id: 'p1', status: 'paused', propose_done: [{ todo_id: a, note: '' }] })).toThrow(ToolError);
     expect((db.prepare('select status from projects where id = ?').get('p1') as { status: string }).status).toBe('active');
     expect(sent).toEqual([]);
   });
   it('同じ TODO が propose_done と toggle_todos の両方にあれば、根拠つきの提案が勝つ', () => {
-    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
-    const a = (r.todos as { id: string }[])[0]!.id;
+    const [a] = userTodos('a') as [string];
     const r2 = call('update_project', { project_id: 'p1', toggle_todos: [a], propose_done: [{ todo_id: a, note: '試験で確かめた' }] }, { sessionId: alphaId });
     expect(r2.todo_results).toEqual([{ todo_id: a, outcome: 'proposed' }, { todo_id: a, outcome: 'already_candidate' }]);
     expect((r2.todos as { id: string; candidate: { note: string } | null }[]).find((t) => t.id === a)!.candidate!.note).toBe('試験で確かめた');
   });
   it('propose_done の根拠が空白だけか 200 字を超えるか、見つからない ID があれば、どの TODO も書かない', () => {
-    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
-    const a = (r.todos as { id: string }[])[0]!.id;
+    const [a] = userTodos('a') as [string];
     sent.length = 0;
     expect(() => call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: '   ' }] })).toThrow(ToolError);
     expect(() => call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: 'あ'.repeat(201) }] })).toThrow(/200/);
@@ -165,15 +167,48 @@ describe('MCP tools', () => {
     expect(call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: 'あ'.repeat(200) }] }).todo_results).toEqual([{ todo_id: a, outcome: 'proposed' }]);
   });
   it('update_project の TODO の書き込みは全部成功か全部失敗', () => {
-    const r = call('update_project', { project_id: 'p1', add_todos: ['x'] });
-    const id = (r.todos as { id: string }[])[0]!.id;
+    const [id] = userTodos('x') as [string];
     sent.length = 0;
     expect(() => call('update_project', { project_id: 'p1', add_todos: ['y'], toggle_todos: [id, 'nope'] })).toThrow(/nope/);
     // 途中まで書いた分を残さない。イベントを配らずに DB だけ進むと、UI と食い違ったまま気付けない。
     expect(sent).toEqual([]);
     const p = call('get_project', { project_id: 'p1' });
-    expect((p.todos as { text: string; done: boolean }[]).map((t) => [t.text, t.done])).toEqual([['x', false]]);
+    expect((p.todos as { text: string; done: boolean; candidate: unknown }[]).map((t) => [t.text, t.done, t.candidate])).toEqual([['x', false, null]]);
     expect(p.open_todo_count).toBe(1);
+  });
+  it('add_todos は文字列と { text, note } を受け、どれも提案として置く。理由の空白は null にする', () => {
+    const r = call('update_project', { project_id: 'p1', add_todos: ['a', { text: 'b', note: ' 試験が無い ' }, { text: 'c', note: '  ' }, { text: 'd' }] }, { sessionId: alphaId });
+    expect((r.todos as { text: string; session_id: string | null; suggestion: unknown; candidate: unknown }[]).map((t) => [t.text, t.session_id, t.suggestion, t.candidate])).toEqual([
+      ['a', alphaId, { note: null }, null],
+      ['b', alphaId, { note: '試験が無い' }, null],
+      ['c', alphaId, { note: null }, null],
+      ['d', alphaId, { note: null }, null],
+    ]);
+    expect((r.project as { open_todo_count: number }).open_todo_count).toBe(0);
+    // 画面の DTO にも、時刻つきの提案として載る。
+    expect(sent[0]).toMatchObject({ type: 'todos.update', todos: [{ text: 'a', suggestion: { note: null, at: expect.any(Number) } }, {}, {}, {}] });
+  });
+  it('add_todos の項目が崩れているか、理由が 200 字を超えれば、status も TODO も書かない', () => {
+    sent.length = 0;
+    expect(() => call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['a', { note: 'n' }] })).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p1', status: 'paused', add_todos: ['a', 3] })).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p1', status: 'paused', add_todos: [{ text: 'a', note: 3 }] })).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p1', status: 'paused', add_todos: 'a' })).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p1', status: 'paused', add_todos: [{ text: 'a', note: 'あ'.repeat(201) }] })).toThrow(/200/);
+    expect(sent).toEqual([]);
+    expect((db.prepare('select status from projects where id = ?').get('p1') as { status: string }).status).toBe('active');
+    expect(call('get_project', { project_id: 'p1' }).todos).toEqual([]);
+    // ちょうど 200 字は通る。
+    expect((call('update_project', { project_id: 'p1', add_todos: [{ text: 'a', note: 'あ'.repeat(200) }] }).todos as unknown[]).length).toBe(1);
+  });
+  it('提案の TODO には、propose_done も toggle_todos も not_accepted を返し、何も書かない', () => {
+    const r = call('update_project', { project_id: 'p1', add_todos: ['a'] });
+    const a = (r.todos as { id: string }[])[0]!.id;
+    sent.length = 0;
+    const r2 = call('update_project', { project_id: 'p1', propose_done: [{ todo_id: a, note: '済んだ' }], toggle_todos: [a] }, { sessionId: alphaId });
+    expect(r2.todo_results).toEqual([{ todo_id: a, outcome: 'not_accepted' }, { todo_id: a, outcome: 'not_accepted' }]);
+    expect((r2.todos as { candidate: unknown; suggestion: unknown }[])[0]).toMatchObject({ candidate: null, suggestion: { note: null } });
+    expect(sent).toEqual([]);
   });
   it('update_project は文字列でない status を黙って無視しない', () => {
     expect(() => call('update_project', { project_id: 'p1', status: 12345 })).toThrow(ToolError);
@@ -329,14 +364,30 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     expect((callTool(deps, scoped(), 'list_projects', {}) as { id: string }[]).map((p) => p.id)).toEqual(['p1']);
   });
 
+  it('update_project はノートを書かない（append_memo はやめた）。渡されたら、やめたことと書く場所を notice で返し、エラーにはしない', () => {
+    const r = call('update_project', { project_id: 'p1', append_memo: '書かない' });
+    expect(r).not.toHaveProperty('memo');
+    expect(r.notice).toBe('プロジェクトのノートは廃止したので、append_memo は書きませんでした。残したいことは、CLAUDE.md などの指示ファイルに書いてください。');
+    expect(db.prepare('select markdown from project_memos where project_id = ?').get('p1')).toBeUndefined();
+    expect(fs.existsSync(path.join(home, 'projects', 'p1', 'memo.md'))).toBe(false);
+    // ほかの項目は、いっしょに渡されても今までどおり書く。
+    const r2 = call('update_project', { project_id: 'p1', status: 'paused', append_memo: '書かない' });
+    expect((r2.project as { status: string }).status).toBe('paused');
+    expect(r2.notice).toEqual(expect.any(String));
+    // 渡さなければ notice は付けない。
+    expect(call('update_project', { project_id: 'p1', status: 'active' })).not.toHaveProperty('notice');
+    // 言語は道具の言語に従う。
+    deps.language = () => 'en';
+    expect(call('update_project', { project_id: 'p1', append_memo: 'x' }).notice).toBe('Project notes have been retired, so append_memo was not written. Write anything you want to keep in an instruction file such as CLAUDE.md.');
+  });
+
   it('get_project と update_project は別のプロジェクトを断る', () => {
     expect(() => call('get_project', { project_id: 'p2' }, scoped())).toThrow(ToolError);
-    expect(() => call('update_project', { project_id: 'p2', status: 'archived', append_memo: '注入' }, scoped())).toThrow(ToolError);
+    expect(() => call('update_project', { project_id: 'p2', status: 'archived' }, scoped())).toThrow(ToolError);
     expect((db.prepare('select status from projects where id = ?').get('p2') as { status: string }).status).toBe('active');
-    expect(fs.existsSync(path.join(home, 'projects', 'p2', 'memo.md'))).toBe(false);
     // 自分のプロジェクトは触れる。
     expect(call('get_project', { project_id: 'p1' }, scoped()).id).toBe('p1');
-    expect(call('update_project', { project_id: 'p1', append_memo: 'ok' }, scoped()).memo).toBe('ok');
+    expect((call('update_project', { project_id: 'p1', status: 'paused' }, scoped()).project as { status: string }).status).toBe('paused');
   });
 
   it('list_sessions と search_sessions は自分のプロジェクトの外を見せない', () => {

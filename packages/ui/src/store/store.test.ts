@@ -187,7 +187,7 @@ describe('runs と tabs', () => {
   });
 });
 
-const todo = (id: string, projectId: string, position: number, done = false): TodoDto => ({ id, projectId, text: id, done, position, sessionId: null, updatedAt: 1, candidate: null });
+const todo = (id: string, projectId: string, position: number, done = false): TodoDto => ({ id, projectId, text: id, done, position, sessionId: null, updatedAt: 1, candidate: null, suggestion: null });
 const art = (id: string, projectId: string | null, last: number, sessionIds: string[] = ['s1']): ArtifactDto => ({ id, projectId, url: `https://claude.ai/code/artifact/${id}`, title: id, description: null, favicon: '📊', filePath: null, fileExists: false, firstPublishedAt: 1, lastPublishedAt: last, versionCount: 1, sessionIds });
 
 describe('tabAlive', () => {
@@ -366,6 +366,13 @@ describe('次の入力待ち（C5）', () => {
     expect(nextWaitingSession(s, null)).toBe('z');
     expect(nextWaitingSession(s, 'z')).toBe('x');
     expect(nextWaitingSession(s, 'x')).toBe('y');
+  });
+});
+
+describe('設定の store', () => {
+  it('settings.changed で設定を差し替える', () => {
+    const next = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: '/bin/claude' };
+    expect(applyServerEvent(initialStore(), { type: 'settings.changed', settings: next, keys: ['claudePath'] }).settings).toEqual(next);
   });
 });
 

@@ -110,6 +110,16 @@ describe('設定の節の選び方', () => {
     expect(at('integrations').focus).toBeNull();
     expect(at(undefined).focus).toBeNull();
   });
+  it('帯の「設定を開く」が指す欄（at=workspace、tmux、claude、compat）は、その節を開いて、欄へ移る印を立てる', () => {
+    for (const f of ['workspace', 'tmux', 'claude'] as const) {
+      expect(at(f).section).toBe('tools');
+      expect(at(f).focus).toBe(f);
+    }
+    expect(at('compat').section).toBe('integrations');
+    expect(at('compat').focus).toBe('compat');
+    // 節だけを指したとき（目次から選んだとき）は、欄へは移らない。
+    expect(at('tools').focus).toBeNull();
+  });
   it('設定の画面でなければ「一般」で、印も立たない', () => {
     const p = present(store(), { name: 'home' });
     expect(p.section).toBe('general');

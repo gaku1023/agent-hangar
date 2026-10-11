@@ -21,7 +21,6 @@ import { Tmux } from '../tmux/tmux.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
 import { createMcpApp } from '../mcp/app.ts';
-import { MemoStore } from '../projects/memo.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { RunAccounts } from './accounts.ts';
@@ -191,6 +190,9 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     const rm = make();
     const started: unknown[] = [];
     rm.on({ runStarted: (r) => started.push(r) });
+    // 注入する未完の TODO には、利用者がまだ受け入れていない Claude の提案を入れない。
+    upsertShared(db, 'todos', { id: 'todo-open', project_id: 'p1', text: '確定の TODO', done: 0, position: 1 }, 'd');
+    upsertShared(db, 'todos', { id: 'todo-suggested', project_id: 'p1', text: '提案の TODO', done: 0, position: 2, suggested_at: 1 }, 'd');
     const r = rm.start({ projectId: 'p1', name: 'first', prompt: 'やって', model: 'opus' });
     expect(r.run).toMatchObject({ kind: 'start', sessionId: r.sessionId, deviceId: 'd', endedAt: null, endReason: null, pid: null });
     expect(r.run.tmuxName).toBe(`hangar-${runTmuxId(r.run.id)}`);
@@ -227,6 +229,8 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(typeof s.started_at).toBe('number');
     const sys = args[args.indexOf('--append-system-prompt') + 1]!;
     expect(sys).toContain('プロジェクト：alpha（' + cwd + '）');
+    expect(sys).toContain('- [todo-open] 確定の TODO');
+    expect(sys).not.toContain('提案の TODO');
     expect(fs.existsSync(path.join(home, 'bin', 'hangar-run.sh'))).toBe(true);
     expect(rm.listAlive().runs.map((x) => x.id)).toEqual([r.run.id]);
     expect(rm.getRun(r.run.id)?.tmuxName).toBe(r.run.tmuxName);
@@ -1357,7 +1361,7 @@ describe.skipIf(!TMUX)('run に配る秘密は、その run の入口しか開�
   const rpcBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } } });
   const hdr = (secret: string) => ({ authorization: `Bearer ${secret}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' });
   const mcp = () => createMcpApp({ db, deviceId: 'd', port: 4177, token: TOKEN, live: () => [], runs: { start: () => { throw new Error('not in this test'); } },
-    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }), memos: new MemoStore({ db, deviceId: 'd', home }) });
+    usage: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) });
 
   /** --mcp-config に書かれた鍵。閉じ込められた claude が自分で読める唯一の鍵である。 */
   const credential = (cfgPath: string): string => (JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { mcpServers: { hangar: { headers: { Authorization: string } } } }).mcpServers.hangar.headers.Authorization.replace('Bearer ', '');

@@ -76,18 +76,12 @@ export const actionTable = {
   // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
   'summary.regenerate': (i) => call((api) => api.regenerateSummary(i.sessionId)),
 
-  // 反転の基準は Store の今の値にする。View は done の値を持たない。
-  // 候補の欄を押したときは確定と同じに扱う。候補は未完なので、素直に反転すると done: false を送って何も起きない。
-  'todo.toggle': (i, store) => {
-    const t = store.todos[i.id];
-    if (!t) return null;
-    return t.candidate && !t.done ? call((api) => api.confirmTodo(i.id)) : call((api) => api.setTodoDone(i.id, !t.done));
-  },
-  'todo.remove': (i) => call((api) => api.removeTodo(i.id)),
-  'todo.confirm': (i) => call((api) => api.confirmTodo(i.id)),
-  'todo.reject': (i) => call((api) => api.rejectTodo(i.id)),
+  // TODO の操作は取り消し（⌘Z）のために State を変えるので、表に置かず Mediator（mediator/todos.ts）に置く。
   // 保存した結果はサーバの memo.update より先に入れる。書いた本人の画面が一瞬古い本文に戻らないようにする。
   'memo.save': (i) => call((api) => api.saveMemo(i.projectId, i.markdown), { apply: (store, m) => ({ ...store, memos: { ...store.memos, [m.projectId]: m } }) }),
+  // 指示とメモリ。ファイルは外で書き換わるので、表示するたびに読み直す。
+  'instructions.load': (i) => call((api) => api.instructions(i.projectId), { apply: (store, d) => ({ ...store, instructions: { ...store.instructions, [d.projectId]: d } }) }),
+  'instructions.openEditor': (i) => call((api) => api.openInstruction(i.projectId, i.kind)),
   'artifact.open': (i) => call((api) => api.openArtifact(i.id)),
   'artifact.openEditor': (i) => call((api) => api.openArtifactEditor(i.id)),
   'artifact.add': (i) => {

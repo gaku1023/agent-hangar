@@ -17,7 +17,7 @@ import { readinessCompat } from '../presenters/compat.ts';
 import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
-import type { FocusTarget, SessionViewState, TurnJumpStatus } from '../mediator/types.ts';
+import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
@@ -86,6 +86,20 @@ const AROUND_BEFORE = 100;
  * 起動の読み込みが済んでいて、この Store がまだ知らない id で、この PC に場所を持ったことが無いもの（elsewhere）である。
  * 同じ id の更新（他の PC での改名など）は、届いたことにしない。
  */
+/** TODO の呼び出しを API に引く。返り値は使わない（画面の正は後から届く todos.update）。 */
+function todoCall(api: ApiClient, c: TodoCall): Promise<unknown> {
+  switch (c.op) {
+    case 'setDone': return api.setTodoDone(c.id, c.done);
+    case 'edit': return api.editTodo(c.id, c.text);
+    case 'remove': return api.removeTodo(c.id);
+    case 'confirm': return api.confirmTodo(c.id);
+    case 'reject': return api.rejectTodo(c.id);
+    case 'accept': return api.acceptTodo(c.id);
+    case 'reorder': return api.reorderTodos(c.projectId, c.ids);
+    case 'restore': return api.restoreTodos(c.rows);
+  }
+}
+
 function arrivedFromSync(store: Store, p: ProjectDto): boolean {
   return store.bootstrapped && store.projects[p.id] === undefined && p.status !== 'archived' && unresolvedKind(p) === 'elsewhere';
 }
@@ -393,7 +407,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           // 追記が届いた（か、真ん中の頁から開いた本文の後ろを読み足す）。持っている中でいちばん新しい seq の次から前向きに読み、末尾に足す。
           q = { fromSeq: have ? hi + 1 : 0, agentId: view.agentId };
         }
-        setStore(setEventsLoading(store, key, true));
+        // 古い側の印は、利用者が押した遡り（-1）のときだけ立てる。追記の読み込みで目次のボタンを動かさない。
+        setStore(setEventsLoading(store, key, true, e.fromSeq === -1));
         deps.api.events(e.sessionId, q).then((p) => setStore(applyEventsPage(store, key, p, append, older))).catch((err) => { setStore(setEventsLoading(store, key, false)); fail(err); });
         return;
       }
@@ -571,10 +586,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'badge': notifier?.badge(e.count); return;
       case 'update': updater?.run(e.command); return;
       case 'api.addTodo': deps.api.addTodo(e.projectId, e.text).catch(fail); return;
+      case 'api.todo': todoCall(deps.api, e.call).catch(fail); return;
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
+      case 'api.loadInstructions': deps.api.instructions(e.projectId).then((d) => setStore({ ...store, instructions: { ...store.instructions, [d.projectId]: d } })).catch(fail); return;
       case 'api.promote':
         deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles })
           .then((r) => {
