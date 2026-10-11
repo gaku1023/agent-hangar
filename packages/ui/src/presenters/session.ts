@@ -6,7 +6,7 @@ import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
 import { DEFAULT_DAYS, EXTEND_TO, transcriptMark } from './retention.ts';
 import { periodLabel } from './retentionDialog.ts';
-import { absoluteTime, costLabel, durationLabel, relativeTime, shortModel, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
+import { absoluteTime, costLabel, durationLabel, percentLabel, relativeTime, shortModel, STATUS_LABEL, SUMMARIZER_LABEL, tokensLabel } from './format.ts';
 import type { ParentLink } from './heading.ts';
 import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 import { presentTool, relPath, type ToolView } from './tools.ts';
@@ -14,7 +14,7 @@ import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { permissionLabel } from '../views/primitives/permissionModel.ts';
-import { bandsOf, presentNowStrip, resultsOf, type NowStripProps } from './live.ts';
+import { bandsOf, presentNowCard, resultsOf, type NowCardProps } from './live.ts';
 import { buildTurns } from './turns.ts';
 import type { JumpState, TurnJumpStatus } from '../mediator/types.ts';
 
@@ -68,8 +68,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
    * when は跳ばしたターンの時刻。
    */
   transcriptBand: { when: string } | null;
-  /** 現在の帯（セッション画面 C）。生きた run があるときだけ。 */
-  strip: NowStripProps | null;
+  /** 現在の札（右の欄の上）。生きた run があるときだけ。 */
+  strip: NowCardProps | null;
   /** 終わったセッションの、トランスクリプトの冒頭の 1 枚。run が無いときだけ。 */
   lead: LeadCardProps | null;
   /** 見出しの名前の横の札（ロック、トランスクリプトの在りか）。 */
@@ -399,7 +399,7 @@ export type DetailRow = { name: string; value: string; mono?: boolean; dot?: str
 const LAUNCH_KEY = { start: 'session.launch.start', resume: 'session.launch.resume', fork: 'session.launch.fork' } as const;
 
 /**
- * 見出しの (i) のポップオーバーの行（設計書 2.3 の表）。毎回は見ない属性と、帯や冒頭の 1 枚に置かない数をここに集める。
+ * 見出しの (i) のポップオーバーの行（設計書 2.3 の表）。毎回は見ない属性と、現在の札や冒頭の 1 枚に置かない数（コンテキスト使用量、コストを含む）をここに集める。
  * 値の無い行は出さない（効果レベルを選んでいない、権限モードを選ばなかった起動、変更も PR も無い、など）。
  * 権限モードは、起動のときに選んだ値で、起動のあとに Claude の中で切り替えた値は分からない（`RunDto.permissionMode`）。
  */
@@ -414,6 +414,9 @@ export function presentDetails(s: SessionDto, run: RunDto | null, account: { nam
   if (account) rows.push({ name: t('session.details.account'), value: account.name, dot: account.color });
   if (run) rows.push({ name: t('session.details.launch'), value: t('session.details.launchValue', { kind: t(LAUNCH_KEY[run.kind]), when: when(run.startedAt) }) });
   rows.push({ name: t('session.details.usage'), value: t('session.details.usageValue', { turns: turnsText(s.stats.turns, t), tokens: t('session.stats.tokens', { n: tokensLabel(s.stats.inputTokens + s.stats.outputTokens) }) }) });
+  // 実行中の札に置かなくなった数（2026-10-11）。届いているときだけ出す。
+  if (s.stats.contextPercent !== null) rows.push({ name: t('session.stats.context'), value: percentLabel(t, s.stats.contextPercent) });
+  if (s.stats.costUsd !== null) rows.push({ name: t('session.stats.cost'), value: costLabel(s.stats.costUsd) });
   if (s.stats.filesChanged > 0) rows.push({ name: t('session.details.files'), value: t('session.details.filesValue', { n: s.stats.filesChanged }) });
   if (s.stats.prUrl) rows.push({ name: t('session.details.pr'), value: prLabel(s.stats.prUrl, t) });
   if (s.fromScratch) rows.push({ name: t('session.details.quick'), value: t('session.details.quickValue') });
@@ -453,12 +456,10 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   // サブエージェントには統計が無いので、その窓の行の数にする（古い行が残るなら + を添える）。
   const olderLeft = slice ? slice.total > slice.items.length && !slice.olderDone : false;
   const turnCount: TurnCount | null = turnsPending ? null : view.agentId !== null ? { n: turnList.length, plus: olderLeft } : { n: s.stats.turns, plus: false };
-  // 現在の帯は実行中だけ。サブエージェントの transcript を開いている間は、events が主線ではない。
+  // 現在の札は実行中だけ。サブエージェントの transcript を開いている間は、events が主線ではない。
   // events は最新の 500 件の窓かもしれないので、ターンの頭は digest（サーバが全体から決めた seq）を先に使う。
-  // ターンの番号も、全部を読み込んでいるときだけ目次の数にし、そうでなければ統計の数にする。どちらも当てにならなければ出さない。
   const lastTurn = turnList[turnList.length - 1] ?? null;
   const complete = slice ? slice.total <= slice.items.length : true;
-  const turnNo = complete && turnList.length > 0 ? turnList.length : s.stats.turns > 0 ? s.stats.turns : null;
   const open = run ? tabsOf(store, run.id) : [];
   const selectedTab = run ? (view.selectedTab && open.some((x) => x.id === view.selectedTab) ? view.selectedTab : run.id) : null;
   const tabs: TabItemProps[] = open.map((x) => ({ id: x.id, title: x.title, kind: x.kind, selected: x.id === selectedTab, closable: x.kind === 'shell' }));
@@ -489,11 +490,11 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const artifactCards = artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(t, a, now));
   const account = sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null;
   // 現在の帯は生きた run があるときだけ。右パネルの「いま」の段が持っていた中身がここへ移る。
-  const strip = alive ? presentNowStrip({
-    digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0, turnNo,
+  const strip = alive ? presentNowCard({
+    digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0,
     live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
     idleFor: durationLabel(t, now - (s.lastActivityAt ?? now)), results,
-    waited: durationLabel(t, now - (s.lastActivityAt ?? now)), contextPercent: s.stats.contextPercent, cost: costLabel(s.stats.costUsd), turns: s.stats.turns, tokens: tokensLabel(s.stats.inputTokens + s.stats.outputTokens), artifacts: artifactCards, note: s.memo,
+    waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards, note: s.memo,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
   const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;

@@ -1,57 +1,57 @@
 import { describe, expect, it } from 'vitest';
 import { translator, type LiveAgentDto, type LiveDigestDto, type TranscriptEvent } from '@agent-hangar/shared';
-import { presentNowStrip, type StripInput } from './live.ts';
+import { presentNowCard, type CardInput } from './live.ts';
 import type { ArtifactCardProps } from './project.ts';
 
 const ja = translator('ja');
 const en = translator('en');
 
 let seq = 0;
-const call = (name: string, input: unknown, ts = 0): TranscriptEvent => ({ kind: 'tool_call', seq: seq++, ts, toolId: `t${seq}`, name, input, summary: name });
+const call = (name: string, input: unknown, ts?: number): TranscriptEvent => ({ kind: 'tool_call', seq: seq++, ...(ts === undefined ? {} : { ts }), toolId: `t${seq}`, name, input, summary: name });
 const res = (c: TranscriptEvent, isError = false): TranscriptEvent => ({ kind: 'tool_result', seq: seq++, toolId: (c as { toolId: string }).toolId, text: '', isError });
-const prompt = (text: string): TranscriptEvent => ({ kind: 'user', seq: seq++, text });
+const prompt = (text: string, ts?: number): TranscriptEvent => ({ kind: 'user', seq: seq++, ...(ts === undefined ? {} : { ts }), text });
 const digest = (p: Partial<LiveDigestDto> = {}): LiveDigestDto => ({ sessionId: 's1', turnStartSeq: 0, intent: null, agents: [], ...p });
 const agent = (p: Partial<LiveAgentDto>): LiveAgentDto => ({ agentId: 'a', title: '担当', state: 'running', startedAt: 0, lastAt: 60_000, last: null, report: null, endNote: null, linked: true, ...p });
 const artifact = (id: string): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, favicon: '📄', url: 'https://x', lastPublished: '12 分前', versionCount: 1, canOpenEditor: false });
-const input = (p: Partial<StripInput> = {}): StripInput => ({
-  digest: digest(), events: [], turnFrom: 0, turnNo: 1, live: 'busy', activity: null, now: 120_000, viewingAgent: false, clock: (ts) => `t${ts}`, idleFor: '3 分',
-  waited: '4 分', contextPercent: 41, cost: '$0.86', turns: 9, tokens: '31k', artifacts: [], note: null, ...p,
+const input = (p: Partial<CardInput> = {}): CardInput => ({
+  digest: digest(), events: [], turnFrom: 0, live: 'busy', activity: null, now: 180_000, viewingAgent: false, clock: (ts) => `t${ts}`, idleFor: '3 分',
+  waited: '4 分', artifacts: [], note: null, ...p,
 });
-const present = (p: Partial<StripInput> = {}, t = ja) => presentNowStrip(input(p), t);
+const present = (p: Partial<CardInput> = {}, t = ja) => presentNowCard(input(p), t);
 
-describe('現在の帯の状態（1 行目の左）', () => {
-  it('入力待ちは、状態の語と待機の経過と、問いを出す', () => {
+describe('現在の札の状態の行', () => {
+  it('入力待ちは、状態の語と待機の経過と、問いを出す（経過に「入力待ち」を重ねない）', () => {
     const s = present({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: '既存のテストを書き換えてよいですか？' } });
-    expect(s).toMatchObject({ tone: 'wait', state: '入力待ち', sub: '入力待ち 4 分', detail: '既存のテストを書き換えてよいですか？' });
+    expect(s).toMatchObject({ tone: 'wait', state: '入力待ち', sub: '4 分', detail: '既存のテストを書き換えてよいですか？', question: true });
   });
   it('質問の文が無い入力待ちは、活動の要約を出す。それも無ければ何も出さない', () => {
-    expect(present({ live: 'waiting', activity: { tool: 'ExitPlanMode', summary: '計画の承認', question: null } }).detail).toBe('計画の承認');
-    expect(present({ live: 'waiting' }).detail).toBeNull();
+    expect(present({ live: 'waiting', activity: { tool: 'ExitPlanMode', summary: '計画の承認', question: null } })).toMatchObject({ detail: '計画の承認', question: true });
+    expect(present({ live: 'waiting' })).toMatchObject({ detail: null, question: false });
   });
   it('入力待ちは、動いているサブエージェントや裏の印があっても入力待ちのまま', () => {
     expect(present({ live: 'waiting', aside: { shell: true, agents: 0 }, digest: digest({ agents: [agent({})] }) }).tone).toBe('wait');
   });
-  it('裏だけ動いているときは、バックグラウンドで作業中と、メイン会話が空いていることを言う', () => {
-    expect(present({ aside: { shell: true, agents: 0 } })).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'シェルが実行中、メイン会話は入力を受け付けている' });
+  it('裏だけ動いているときは、バックグラウンドで作業中と、メイン会話が空いていることを言う（問いではない）', () => {
+    expect(present({ aside: { shell: true, agents: 0 } })).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'シェルが実行中、メイン会話は入力を受け付けている', question: false });
     const two = present({ aside: { shell: false, agents: 2 }, digest: digest({ agents: [agent({ agentId: 'a' }), agent({ agentId: 'b' })] }) });
     expect(two).toMatchObject({ tone: 'aside', state: 'バックグラウンドで作業中', detail: 'サブエージェント 2 件が実行中、メイン会話は入力を受け付けている' });
   });
   it('裏の担当が数えられないとき（workflow など）は、何が動いているかを言わず、メイン会話が空いていることだけを言う', () => {
     expect(present({ aside: { shell: false, agents: 0 } }).detail).toBe('メイン会話は入力を受け付けている');
   });
-  it('作業中は、ターンとツール呼び出しの回数を添える（hangar 自身の MCP は数えず、Agent の起こしは数える）', () => {
+  it('作業中は、手の数とターンの経過を添える（hangar 自身の MCP は数えず、Agent の起こしは数える）', () => {
     seq = 0;
     const c1 = call('Read', { file_path: '/w/a.ts' });
     const m1 = call('mcp__hangar__set_turn_intent', { text: 'x' });
     const a1 = call('Agent', { description: '担当' });
-    const s = present({ events: [prompt('x'), c1, res(c1), m1, res(m1), a1, res(a1), call('Bash', { command: 'npm test', description: 'テスト' })], turnNo: 3 });
-    expect(s).toMatchObject({ tone: 'busy', state: '作業中', sub: 'ターン 3、ツール呼び出し 3 回目', detail: null });
+    const s = present({ events: [prompt('x', 0), c1, res(c1), m1, res(m1), a1, res(a1), call('Bash', { command: 'npm test', description: 'テスト' })] });
+    expect(s).toMatchObject({ tone: 'busy', state: '作業中', sub: '3 手目 · 3 分', detail: null });
   });
-  it('ターンの番号が信用できなければ回数だけ、サブエージェントの transcript を開いている間は何も添えない', () => {
+  it('ターンの始まりの時刻が分からなければ手の数だけ、サブエージェントの transcript を開いている間は何も添えない', () => {
     seq = 0;
     const c1 = call('Read', { file_path: '/w/a.ts' });
     const events = [prompt('x'), c1, res(c1), call('Bash', { command: 'ls' })];
-    expect(present({ events, turnNo: null }).sub).toBe('ツール呼び出し 2 回目');
+    expect(present({ events }).sub).toBe('2 手目');
     expect(present({ events, viewingAgent: true }).sub).toBe('');
   });
   it('サブエージェントが動いている作業中は、その件数と、メイン会話も手を動かしているかを言う', () => {
@@ -66,49 +66,28 @@ describe('現在の帯の状態（1 行目の左）', () => {
     expect(present({ live: 'idle' })).toMatchObject({ tone: 'idle', state: 'アイドル', sub: '3 分', detail: null });
   });
   it('英語では、辞書の英語の文が出る', () => {
-    expect(present({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: 'Overwrite?' } }, en)).toMatchObject({ state: 'Needs input', sub: 'Waiting 4 分', detail: 'Overwrite?' });
+    expect(present({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: 'Overwrite?' } }, en)).toMatchObject({ state: 'Needs input', sub: 'for 4 分', detail: 'Overwrite?' });
     expect(present({ live: 'idle' }, en)).toMatchObject({ state: 'Idle', sub: 'for 3 分' });
     expect(present({ aside: { shell: true, agents: 0 } }, en)).toMatchObject({ state: 'Working in background', detail: 'A shell is running, Main conversation is accepting input' });
+    seq = 0;
+    expect(present({ events: [prompt('x'), call('Read', { file_path: '/w/a.ts' })] }, en).sub).toBe('Step 1');
   });
 });
 
-describe('現在の帯のいまの値（1 行目の右）', () => {
-  it('コンテキスト使用量とコストとターンとトークンを、ゲージの値と文にして出す', () => {
-    const v = present().values;
-    expect(v).toEqual({ noUsage: null, context: { label: 'コンテキスト使用量', percent: 41, missing: null }, cost: { label: 'コスト', value: '$0.86', missing: null }, turns: '9 ターン', tokens: '31k トークン' });
-  });
-  it('片方だけ届いていなければ、その片方に「未取得」を言う', () => {
-    expect(present({ contextPercent: null }).values).toMatchObject({ noUsage: null, context: { percent: null, missing: 'コンテキスト使用量 未取得' }, cost: { value: '$0.86', missing: null } });
-    expect(present({ cost: '' }).values).toMatchObject({ noUsage: null, context: { percent: 41 }, cost: { value: null, missing: 'コスト 未取得' } });
-  });
-  it('どちらも届いていなければ、1 つにまとめて言う', () => {
-    expect(present({ contextPercent: null, cost: '' }).values.noUsage).toBe('コンテキスト使用量とコストは未取得');
-    expect(present({ contextPercent: null, cost: '' }, en).values.noUsage).toBe('Context usage and cost are not available');
-  });
-  it('ターンとトークンは英語では複数形の語になる', () => {
-    expect(present({}, en).values).toMatchObject({ turns: '9 turns', tokens: '31k tokens' });
-  });
-  it('1 ターンは英語でも単数形（1 turn）', () => {
-    expect(present({ turns: 1 }, en).values.turns).toBe('1 turn');
-    expect(present({ turns: 1 }).values.turns).toBe('1 ターン');
-  });
-});
-
-describe('現在の帯の意図（2 行目の左）', () => {
-  it('今のターンの意図は引用して時刻を添え、30 回を超えたら薄くする', () => {
-    const at = 0;
-    const said = present({ digest: digest({ intent: { text: '検証をサーバ側へ寄せる', at, stepsSince: 3, inThisTurn: true } }) }).intent;
-    expect(said).toEqual({ kind: 'said', text: '「検証をサーバ側へ寄せる」', time: 't0', title: 'Claude が記入、t0、以降のツール呼び出し 3 回', stale: false });
-    expect(present({ digest: digest({ intent: { text: 'x', at, stepsSince: 31, inThisTurn: true } }) }).intent).toMatchObject({ kind: 'said', stale: true });
+describe('現在の札の意図', () => {
+  it('今のターンの意図は、引用符で囲まずに出し、「Claude の意図 · 時刻」の小見出しを添え、30 回を超えたら薄くする', () => {
+    const said = present({ digest: digest({ intent: { text: '検証をサーバ側へ寄せる', at: 0, stepsSince: 3, inThisTurn: true } }) }).intent;
+    expect(said).toEqual({ kind: 'said', text: '検証をサーバ側へ寄せる', label: 'Claude の意図 · t0', title: 'Claude が記入、t0、以降のツール呼び出し 3 回', stale: false });
+    expect(present({ digest: digest({ intent: { text: 'x', at: 0, stepsSince: 31, inThisTurn: true } }) }).intent).toMatchObject({ kind: 'said', stale: true });
   });
   it('意図が無い、前のターンのものしか無い、を言い分ける', () => {
-    expect(present().intent).toEqual({ kind: 'none', text: '意図は未記入' });
-    expect(present({ digest: digest({ intent: { text: '前の', at: 0, stepsSince: 1, inThisTurn: false } }) }).intent).toEqual({ kind: 'none', text: 'このターンの意図は未記入' });
+    expect(present().intent).toEqual({ kind: 'none', text: 'まだ意図が届いていません' });
+    expect(present({ digest: digest({ intent: { text: '前の', at: 0, stepsSince: 1, inThisTurn: false } }) }).intent).toEqual({ kind: 'none', text: 'このターンの意図はまだ届いていません' });
   });
 });
 
-describe('現在の帯のツール呼び出し（2 行目の中）', () => {
-  it('今のターンの、メイン会話の呼び出しを、道具の名前と引数の短い形で出す。hangar の MCP と Agent は出さない', () => {
+describe('現在の札のツール呼び出し', () => {
+  it('今のターンの、メイン会話の呼び出しを、道具の名前と引数の短い形で出す。札には直近 3 つ。hangar の MCP と Agent は出さない', () => {
     seq = 0;
     const events: TranscriptEvent[] = [];
     const step = (name: string, input: unknown) => { const c = call(name, input); events.push(c, res(c)); };
@@ -123,10 +102,10 @@ describe('現在の帯のツール呼び出し（2 行目の中）', () => {
     step('mcp__hangar__set_turn_intent', { text: 'x' });
     step('Agent', { description: '担当' });
     const s = present({ events, turnFrom: turn.seq, live: 'idle' });
-    // 前のターンの old は含めない。直近 4 つだけが帯に並び、全部は stepsAll に入る。
+    // 前のターンの old は含めない。直近 3 つだけが札に並び、全部は stepsAll に入る。
     expect(s.stepsTotal).toBe(5);
     expect(s.steps.map((x) => [x.name, x.arg, x.mark])).toEqual([
-      ['Edit', 'form.test.ts', 'done'], ['Grep', 'validate', 'done'], ['Bash', 'フォームのテストを走らせる', 'done'], ['Bash', 'git status', 'done'],
+      ['Grep', 'validate', 'done'], ['Bash', 'フォームのテストを走らせる', 'done'], ['Bash', 'git status', 'done'],
     ]);
     expect(s.stepsAll.map((x) => x.name)).toEqual(['Read', 'Edit', 'Grep', 'Bash', 'Bash']);
   });
@@ -163,7 +142,7 @@ describe('現在の帯のツール呼び出し（2 行目の中）', () => {
   });
 });
 
-describe('現在の帯のサブエージェントとアーティファクト（2 行目の右）', () => {
+describe('現在の札のサブエージェントとアーティファクト', () => {
   it('サブエージェントは、失敗、実行中、完了の順に並べ、件数と、いちばん強い状態を札の色にする', () => {
     const lanes = present({ digest: digest({ agents: [agent({ agentId: 'd', title: '済み', state: 'done', report: '12 件を列挙した' }), agent({ agentId: 'r', title: '動いている', last: { text: 'a.ts を読んだ', mono: false, kind: 'read', isError: false } }), agent({ agentId: 'e', title: '失敗', state: 'error', report: null })] }) }).lanes;
     expect(lanes.count).toBe(3);
@@ -195,7 +174,7 @@ describe('現在の帯のサブエージェントとアーティファクト（2
   });
 });
 
-describe('現在の帯のノート', () => {
+describe('ノート（見出しの札に出す）', () => {
   it('ノートに中身があるかを、札の印にする（空白だけは無いものとして扱う）', () => {
     expect(present({ note: '決済は v3' }).note).toEqual({ text: '決済は v3', filled: true });
     expect(present({ note: '  \n ' }).note).toEqual({ text: '  \n ', filled: false });

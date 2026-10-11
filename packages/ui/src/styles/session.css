@@ -40,22 +40,27 @@ a.chip { color: var(--accent); text-decoration: none; }
 .session-hero .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 .session-hero .btn[aria-disabled='true']:hover { transform: none; filter: none; }
 
-/* 本体（実行中も終わった後も同じ）。左に主役（実行中は現在の帯とターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト）、右に目次だけの 240px を置く。
-   目次の開閉（⌘J）で本文が全幅になる。閉じた目次は 0px の列にし、列の数を変えない（列の数が替わると、開閉の動きが補間されない）。 */
+/* 本体（実行中も終わった後も同じ）。左に主役（実行中はターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト）、右に 240px の列を置く。
+   右の列は、実行中は現在の札と目次を縦に積み（.c-side）、終わった後は目次だけである。
+   目次の開閉（⌘J）で、札の無い画面は本文が全幅になる。閉じた目次は 0px の列にし、列の数を変えない（列の数が替わると、開閉の動きが補間されない）。
+   札のある画面は、目次を閉じても札が列に残るので、列の幅は変えない。 */
 .c-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: calc(var(--u) * 2); }
 .c-body[data-toc='none'] { grid-template-columns: minmax(0, 1fr); }
 .c-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: calc(var(--u) * 2); }
 .c-main > .term-pane, .c-main > .tr-sheet { flex: 1; min-height: 0; }
 .c-main > .split-h { flex: 1; height: auto; min-height: 0; }
-.c-main > .now-strip { flex: none; }
+.c-side { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.c-side > .toc-slot { flex: 1; }
 .toc-slot { min-width: 0; min-height: 0; overflow: hidden; display: flex; }
 .toc-slot-inner { flex: 1; min-width: 0; min-height: 0; display: flex; }
 /* 閉じた列は、閉じる動きが終わったら影も見せない。 */
 .toc-slot[data-collapsed='true']:not([data-leaving]) { visibility: hidden; }
 /* 狭い窓では列にせず、札を押すと本体の右に重ねて開く。 */
 .c-body[data-narrow] { grid-template-columns: minmax(0, 1fr); }
-.c-body[data-narrow] > .toc-slot { position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; overflow: visible; filter: drop-shadow(0 16px 28px rgba(30, 40, 90, 0.28)); }
-.c-body[data-narrow] > .toc-slot[data-collapsed='true'] { display: none; }
+/* 現在の札は、狭い窓でも右の列に残す（目次は今までどおり上に重ねる）。 */
+.c-body[data-narrow][data-card] { grid-template-columns: minmax(0, 1fr) 240px; }
+.c-body[data-narrow] .toc-slot { position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; overflow: visible; filter: drop-shadow(0 16px 28px rgba(30, 40, 90, 0.28)); }
+.c-body[data-narrow] .toc-slot[data-collapsed='true'] { display: none; }
 .tr-sheet .tr-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* 冒頭の 1 枚はトランスクリプトの先頭にあり、スクロールの箱の中で縮まない。 */
 .tr > .lead-card { flex: none; }

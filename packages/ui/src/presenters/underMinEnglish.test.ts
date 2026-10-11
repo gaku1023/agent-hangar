@@ -47,9 +47,9 @@ describe('英語の 1 分未満の表示は <1 min', () => {
     expect(JSON.stringify(p)).toContain('Waiting <1 min');
   });
 
-  it('セッションの帯', () => {
+  it('セッションの現在の札', () => {
     const p = presentSession({ ...initialState(), screen: { name: 'session', id: 'w1' } }, store('en'), NOW, 'w1');
-    expect(p.strip?.sub).toBe('Waiting <1 min');
+    expect(p.strip?.sub).toBe('for <1 min');
   });
 
   it('トーストの入力待ちの札', () => {
