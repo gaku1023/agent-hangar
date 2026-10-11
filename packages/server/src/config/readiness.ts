@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ReadinessDto, ToolCheckDto } from '@agent-hangar/shared';
+import type { NodeCheckDto, ReadinessDto, ToolCheckDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { workspaceProjectCount } from '../projects/registry.ts';
@@ -10,6 +10,7 @@ import type { Settings } from './paths.ts';
 import { statuslineStatus } from '../provider/claude-code/config/statusline.ts';
 import { isCommandName, isExecutableFile, needsShell } from '../platform/exec.ts';
 import { findOnPath } from './tools.ts';
+import { createNodeCheck, isFullPath, nodeBuildIssue, type NodeCheck } from './node.ts';
 
 // 準備の確かめ。
 // 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、同じこの読み取りを使う。
@@ -145,6 +146,8 @@ export type ReadinessOptions = {
   shellCommand: () => string;
   /** Node の設定が空のときに見せる Node。既定はサーバを動かしている Node である。 */
   serverNode?: { path: string; version: string };
+  /** Node の設定の確かめ（同梱のサーバと同じメジャー版とアーキか）。既定は同梱の manifest.json を読むもの。 */
+  nodeCheck?: NodeCheck;
   /** 版を読む子プロセスの時間の上限。 */
   timeoutMs?: number;
   /** 記録した Claude Code との互換のずれの件数。渡さなければ 0 とする。 */
@@ -165,6 +168,22 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
     const c = checkToolPath(p, homeDir);
     return { ...c, version: c.ok && c.path ? await versions.get(c.path, args) : null };
   };
+  const nodeCheck = o.nodeCheck ?? createNodeCheck();
+  /**
+   * 設定した Node を、殻（node.rs）と同じ条件で見る。
+   * 殻は nodePath を名前として PATH から引かず、manifest.json と同じメジャー版とアーキの Node だけを使う。
+   * それ以外に ✓ を付けると、画面では使えるように見えて、次の起動で殻はほかの Node を探す。
+   */
+  const nodeTool = async (raw: string): Promise<NodeCheckDto> => {
+    const p = raw.trim();
+    if (isCommandName(p) || !isFullPath(expandHome(p, homeDir))) return { path: p, ok: false, problem: 'notAbsolute', version: null, auto: false };
+    const c = await tool(p, ['--version']);
+    if (!c.ok || c.path === null) return { ...c, auto: false };
+    const bad = await nodeBuildIssue(c.path, nodeCheck);
+    if (bad?.kind === 'notNode') return { ...c, ok: false, problem: 'notNode', auto: false };
+    if (bad?.kind === 'mismatch') return { ...c, ok: false, problem: 'wrongNode', auto: false, found: bad.found, need: bad.need };
+    return { ...c, auto: false };
+  };
   return async () => {
     const s = o.settings();
     const nodeSet = s.nodePath !== null && s.nodePath !== undefined && s.nodePath.trim() !== '';
@@ -172,7 +191,7 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
       tool(s.tmuxPath, ['-V']),
       tool(s.claudePath ?? null, ['--version']),
       tool(s.codePath, ['--version']),
-      nodeSet ? tool(s.nodePath ?? null, ['--version']) : Promise.resolve<ToolCheckDto>({ path: serverNode.path, ok: true, problem: null, version: serverNode.version }),
+      nodeSet ? nodeTool(s.nodePath ?? '') : Promise.resolve<NodeCheckDto>({ path: serverNode.path, ok: true, problem: null, version: serverNode.version, auto: true }),
       o.compatLocalVersion ? o.compatLocalVersion() : Promise.resolve(undefined),
     ]);
     const root = expandHome(s.workspaceRoot, homeDir);
@@ -180,7 +199,7 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
     const shell = o.shellCommand();
     const prefix = hangarCommandPrefix(shell);
     return {
-      tools: { tmux, claude, code, node: { ...node, auto: !nodeSet } },
+      tools: { tmux, claude, code, node },
       workspace: { path: s.workspaceRoot, exists, projectCount: exists ? workspaceProjectCount(o.db, o.deviceId, root) : 0 },
       mcp: { registered: readMcpRegistration(o.claudeJson), file: o.claudeJson },
       statusline: statuslineStatus(o.claudeDir, homeDir),

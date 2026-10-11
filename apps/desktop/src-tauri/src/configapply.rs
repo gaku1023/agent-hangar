@@ -342,11 +342,13 @@ pub fn valid_generation_name(name: &str) -> bool {
 /// パスはサーバの子と同じに、Windows の verbatim の接頭辞を外してから渡す（`paths::plain`）。
 pub fn cli_command(node: &Path, server_dir: &Path, hangar_home: &Path, args: &[&str]) -> Command {
     use crate::paths::plain;
+    let node = plain(node);
     let path = crate::server::augmented_path(
         std::env::var("PATH").ok().as_deref(),
         &crate::paths::user_home(),
+        node.parent(),
     );
-    let mut cmd = Command::new(plain(node));
+    let mut cmd = Command::new(node);
     for name in crate::server::INHERITED_ENV_DROPPED {
         cmd.env_remove(name);
     }

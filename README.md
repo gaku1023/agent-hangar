@@ -33,7 +33,7 @@ Apple の Developer ID では署名せず、公証もしません。
 
 Hangar を動かすには、次の 3 つが先に要ります。
 
-- Node 22。同梱サーバは Node 22 で動きます。アプリは Node を同梱していません。
+- Node 22。同梱サーバは Node 22 で動きます。23 以降の版では代わりになりません。アプリは Node を同梱していません。
 - tmux。セッションは tmux の中で起こします。
 - `claude`（Claude Code 本体）。セッションを起こすのは Claude Code です。
 
@@ -50,7 +50,11 @@ brew install node@22 tmux
 nvm、fnm、Volta、mise、asdf、nodenv で入れた Node 22 も、そのまま見つけます。
 探す順は、Settings で指定したパス、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の `node@` の入れ先、nvm、fnm、Volta、mise、asdf、nodenv（それぞれ新しい版から）です。
 
-これら以外の場所に入れたときは、Settings 画面の「Node のパス」か `~/.agent-hangar/settings.json` の `nodePath` にその `node` のパスを指定します。
+これら以外の場所に入れたときは、Settings 画面の「Node のパス」か `~/.agent-hangar/settings.json` の `nodePath` に、その `node` の実行ファイルのフルパスを指定します。
+`node` のような名前だけや相対のパスは使えません。
+Settings 画面は保存する前に、その Node が同梱サーバと同じメジャー版とアーキテクチャかを確かめ、合わなければ理由を出して保存しません。
+`hangar` コマンドは、環境変数 `HANGAR_NODE` に `node` のフルパスを入れておけば、それを先に使います。
+アプリは `HANGAR_NODE` を見ません。Finder から開いたアプリには端末の環境変数が届かないので、アプリに指すときは `nodePath` を使います。
 `/opt/homebrew/bin/node` へリンクして見つけさせる手もあります（`brew link --overwrite --force node@22`。別の `node` を入れていれば置き換わります）。
 
 Homebrew の版によっては `node@22` が keg-only（Homebrew が既定の場所へリンクしない入れ方）になり、端末で `node` が見つかりません。
@@ -484,7 +488,7 @@ Windows では、ターミナルで打った `claude` を hangar に載せる包
    管理者権限は要らず、`%LOCALAPPDATA%\Hangar` に入ります。
 4. Node 22 を入れます。
    PowerShell で `winget install -e --id OpenJS.NodeJS.22` を打つのがいちばん手早い入れ方です（公式のインストーラが入ります）。
-   nvm-windows を使うなら、`nvm install 22` で入れた版も見つけます。
+   nvm-windows を使うなら、`nvm install 22` で入れた版も見つけます。fnm、Volta、scoop で入れた Node 22 も見つけます。
    Node は同梱していません。
 
 ### psmux を入れる
@@ -537,8 +541,11 @@ npm run tauri -w apps/desktop -- build --bundles nsis
 `server\bin\hangar.cmd` が同梱の `hangar` コマンドです。
 インストーラがこの置き場を利用者の PATH に足すので、入れたあとに新しく開いたターミナルで `hangar start` のように打てます（アンインストールで外します）。
 入れる前から開いていたターミナルでは、開き直すか、`%LOCALAPPDATA%\Hangar\server\bin\hangar.cmd` をフルパスで打ちます。
-Node は同梱していないので、`HANGAR_NODE`、`~\.agent-hangar\settings.json` の `nodePath`、公式のインストーラの入れ先、nvm-windows、PATH にあるすべての `node.exe` の順に、同梱の `manifest.json` と同じメジャー版とアーキテクチャの Node を探します。
-fnm などが別の版を PATH の先頭に置いていても、PATH の後ろに Node 22 があればそれを使います。
+Node は同梱していないので、同梱の `manifest.json` と同じメジャー版とアーキテクチャの Node を探します。
+アプリは、`~\.agent-hangar\settings.json` の `nodePath`、公式のインストーラの入れ先、nvm-windows、fnm、Volta、scoop、PATH にあるすべての `node.exe` の順に探します。
+`hangar` コマンドは、その前に環境変数 `HANGAR_NODE` を見ます（アプリは `HANGAR_NODE` を見ません）。
+`nodePath` と `HANGAR_NODE` は `node.exe` のフルパスで指します。
+fnm などが別の版を PATH の先頭に置いていても、PATH の後ろや版の管理ツールの置き場に Node 22 があればそれを使います。
 見つからないときは、調べた場所と、それぞれが合わなかった理由を順に出します。
 
 ## 開発

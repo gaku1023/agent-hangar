@@ -166,6 +166,35 @@ describe('routes', () => {
     const r3 = await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: 7 }) });
     expect(r3.status).toBe(400);
   });
+  // 殻（node.rs）は nodePath を絶対パスとして読み、manifest.json と同じメジャー版とアーキの Node だけを使う。
+  // 保存のときに同じ条件で確かめ、殻が使わない Node を保存しない。
+  it('nodePath は node の実行ファイルの絶対パスだけを受け、同梱のサーバと同じメジャー版とアーキの Node だけを保存する', async () => {
+    const node = exe('node');
+    const withNode = (found: { major: number; arch: string } | null) => createApp({ ...t.deps, nodeCheck: { need: () => ({ major: 22, arch: 'arm64' }), probe: async () => found } });
+    const error = async (a: ReturnType<typeof createApp>, nodePath: string) => {
+      const r = await a.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath }) });
+      expect(r.status).toBe(400);
+      return ((await r.json()) as { error: string }).error;
+    };
+    const right = withNode({ major: 22, arch: 'arm64' });
+    for (const p of ['node', './node', 'bin/node']) expect(await error(right, p), p).toBe('「Node のパス」は node の実行ファイルのフルパスにしてください');
+    expect(await error(withNode({ major: 24, arch: 'arm64' }), node)).toBe(`「Node のパス」の ${node} は Node 24（arm64）です。同梱のサーバには Node 22（arm64）が要ります`);
+    expect(await error(withNode({ major: 22, arch: 'x64' }), node)).toBe(`「Node のパス」の ${node} は Node 22（x64）です。同梱のサーバには Node 22（arm64）が要ります`);
+    expect(await error(withNode(null), node)).toBe(`「Node のパス」の ${node} は Node として答えません`);
+    expect((await json(await get('/api/settings'))).body.nodePath).toBeNull();
+    const ok = await right.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).nodePath).toBe(node);
+  });
+  it('nodePath の誤りは、言語が英語なら英語で言う', async () => {
+    const node = exe('node');
+    const a = createApp({ ...t.deps, nodeCheck: { need: () => ({ major: 22, arch: 'arm64' }), probe: async () => ({ major: 24, arch: 'arm64' }) } });
+    const patch = (body: unknown) => a.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await patch({ language: 'en' })).status).toBe(200);
+    expect(((await (await patch({ nodePath: node })).json()) as { error: string }).error).toBe(`"Node path": ${node} is Node 24 (arm64). The bundled server needs Node 22 (arm64)`);
+    expect(((await (await patch({ nodePath: 'node' })).json()) as { error: string }).error).toBe('"Node path" must be the full path to the node executable');
+    expect(((await (await createApp({ ...t.deps, nodeCheck: { need: () => ({ major: 22, arch: 'arm64' }), probe: async () => null } }).request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ nodePath: node }) })).json()) as { error: string }).error).toBe(`"Node path": ${node} does not answer as Node`);
+  });
   it('ワークスペースのルートを変えるとプロジェクトを登録し直して配信する', async () => {
     const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-app2-'));
     try {

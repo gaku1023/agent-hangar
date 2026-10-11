@@ -1,3 +1,4 @@
+import type { NodeCheck } from '../config/node.ts';
 import type { CloudUsageDto, CompatDto, DeviceDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
@@ -110,6 +111,11 @@ export type AppDeps = {
    * 準備の確かめ（ツールのパスと版、ワークスペース、MCP の登録、statusline の追記）。
    * 設定画面の検証と、空のホームの確認リストが同じものを読む。読むだけで、何も書き換えない。
    */
+  /**
+   * 設定の「Node のパス」を保存する前の確かめ（同梱のサーバと同じメジャー版とアーキか）。
+   * 渡さなければ、同梱の manifest.json を読む既定のもの（config/node.ts の createNodeCheck）を使う。
+   */
+  nodeCheck?: NodeCheck;
   readiness: () => Promise<ReadinessDto>;
   /**
    * tmux の役の道具（Windows は psmux）を PATH と既知の置き場から探す。「再確認」（POST /api/readiness/mux）が使う。

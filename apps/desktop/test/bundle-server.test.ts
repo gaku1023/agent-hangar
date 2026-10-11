@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BUNDLE_TARGETS, buildLauncher, bundleServer, hostBundleTarget, NATIVE_MODULES, type BundleTarget } from '../scripts/bundle-server.ts';
+import { BUNDLE_NODE_MAJOR, BUNDLE_TARGETS, buildLauncher, bundleServer, hostBundleTarget, LAUNCHER_MIN_NODE, NATIVE_MODULES, type BundleTarget } from '../scripts/bundle-server.ts';
 import { chooseNode, cliLanguage, describeNotFound, type ProbeResult, WINGET_NODE, windowsNodeCandidates } from '../scripts/launch-cli.ts';
 import { bundleWorker, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
 
@@ -125,7 +125,7 @@ describe.skipIf(!host)('bundleServer', () => {
     const m = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
     // 版は apps/desktop/package.json のもの。版を上げるたびにここを直さなくて済むよう、決め打ちしない。
     const desktopVersion = JSON.parse(fs.readFileSync(path.join(repoRoot, 'apps/desktop/package.json'), 'utf8')).version;
-    expect(m).toMatchObject({ version: desktopVersion, nodeMajor: Number(process.versions.node.split('.')[0]), arch: process.arch });
+    expect(m).toMatchObject({ version: desktopVersion, nodeMajor: BUNDLE_NODE_MAJOR, arch: process.arch });
     expect(host).toBe(`${process.platform}-${process.arch}`);
     expect(typeof m.builtAt).toBe('string');
     const js = fs.readFileSync(path.join(out, 'server.mjs'), 'utf8');
@@ -324,9 +324,9 @@ type Ran = { stdout: string; stderr: string; code: number };
  * bash 3.2 は UTF-8 のロケールのときだけ、`$変数` の直後の多バイト文字を変数名の一部として食う。
  * C ロケールで走らせると、その壊れ方を見逃す。
  */
-async function runHangar(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<Ran> {
+async function runHangar(bin: string, args: string[], env: NodeJS.ProcessEnv, cwd?: string): Promise<Ran> {
   try {
-    const r = await promisify(execFile)(bin, args, { env: { PATH: process.env.PATH ?? '', LANG: 'ja_JP.UTF-8', ...env } });
+    const r = await promisify(execFile)(bin, args, { env: { PATH: process.env.PATH ?? '', LANG: 'ja_JP.UTF-8', ...env }, cwd });
     return { stdout: r.stdout, stderr: r.stderr, code: 0 };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; code?: number };
@@ -482,6 +482,18 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     expect(r.stderr).toContain('入れ直してください');
   });
 
+  // 殻（node.rs）は nodePath を絶対パスとしてしか読まない。相対のまま読むと、打った場所にある node を掴み、アプリと CLI で使う Node が食い違う。
+  it('nodePath が絶対パスでなければ、打った場所の node を掴まず、そう述べる', async () => {
+    const dist = fakeDist();
+    const here = emptyDirFor('hangar cwd-');
+    fakeNode(path.join(here, 'node'));
+    const home = emptyDirFor('hangar home-');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: 'node' }));
+    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: home, HOME: emptyDirFor('hangar userhome-') }, here);
+    expect(r.code, r.stdout).toBe(1);
+    expect(r.stderr).toContain('  node: 絶対パスではありません');
+  });
+
   it('アーキテクチャが合わない Node は掴まない。版だけが合う Rosetta の x64 を先に見つけても飛ばす', async () => {
     // 同梱のネイティブモジュールは ABI に縛られるので、版が合っても別のアーキでは読めない。
     // アプリ本体（node.rs）は版とアーキの両方を見る。
@@ -592,6 +604,33 @@ describe('bundleServer の target 別の同梱物', () => {
     return out;
   };
 
+  // manifest の nodeMajor は、殻、hangar.sh、launch-cli.mjs が完全一致で比べる値である。build した機械の Node から取ると、
+  // 別の版の Node で build した束が、その版を要ると名乗って配られる。版は 22 に固定し、違う Node での build は止める。
+  it('manifest の nodeMajor は 22 に固定し、別のメジャー版の Node で作ろうとしたら、何も書かずに止まる', async () => {
+    expect(BUNDLE_NODE_MAJOR).toBe(22);
+    const out = tmp('hangar-dist-');
+    dirs.push(out);
+    fs.writeFileSync(path.join(out, 'keep.txt'), 'x');
+    await expect(bundleServer({ repoRoot, outDir: out, uiDist: tmp('hangar-ui-'), target: 'darwin-arm64', buildNodeMajor: 24 })).rejects.toThrow(/Node 22.*24|24.*Node 22/s);
+    expect(fs.readdirSync(out)).toEqual(['keep.txt']);
+  });
+
+  // 起動の失敗の札は、殻が版を渡さなかったときに同じ版を書く。
+  it('起動の失敗の札（boot-fail.js）が既定に使う版は、束の版と同じ', async () => {
+    const bootFail = (await import(pathToFileURL(path.join(repoRoot, 'apps/desktop/loading/boot-fail.js')).href)) as { DEFAULT_NODE_MAJOR: number };
+    expect(bootFail.DEFAULT_NODE_MAJOR).toBe(BUNDLE_NODE_MAJOR);
+  });
+
+  // hangar.cmd は、launch-cli.mjs を読めない古い Node を飛ばす。飛ばす境目は、launch-cli.mjs を作るときの target と同じ版である。
+  it('hangar.cmd が飛ばす古い Node の境目は、launch-cli.mjs の target の版と同じ', () => {
+    const cmd = fs.readFileSync(path.join(repoRoot, 'apps/desktop/scripts/hangar.cmd'), 'utf8');
+    const floors = [...cmd.matchAll(/GEQ (\d+)/g)].map((x) => Number(x[1]));
+    expect(floors.length).toBeGreaterThan(0);
+    for (const f of floors) expect(f).toBe(LAUNCHER_MIN_NODE);
+    const src = fs.readFileSync(path.join(repoRoot, 'apps/desktop/scripts/bundle-server.ts'), 'utf8');
+    expect(src).toContain('target: `node${LAUNCHER_MIN_NODE}`');
+  });
+
   it('対応する target は darwin-arm64 と win32-x64 だけである', () => {
     expect([...BUNDLE_TARGETS]).toEqual(['darwin-arm64', 'win32-x64']);
     expect(hostBundleTarget('darwin', 'arm64')).toBe('darwin-arm64');
@@ -651,7 +690,7 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     await buildLauncher(path.join(dist, 'launch-cli.mjs'));
     fs.writeFileSync(
       path.join(dist, 'cli.mjs'),
-      'console.log(JSON.stringify({ ui: process.env.HANGAR_UI_DIST, args: process.argv.slice(2), node: process.execPath }));\n',
+      'console.log(JSON.stringify({ ui: process.env.HANGAR_UI_DIST, args: process.argv.slice(2), node: process.execPath, launched: process.env.HANGAR_LAUNCHED ?? null }));\n',
     );
     if (manifest) fs.writeFileSync(path.join(dist, 'manifest.json'), JSON.stringify(manifest) + '\n');
     // 入口は自分の置き場を実体のパスで知る（macOS の /var は /private/var、Windows の短い名前）。比べる側も実体にそろえるため、実在させておく。
@@ -738,6 +777,25 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     const out = JSON.parse(r.stdout) as { ui?: string; args: string[] };
     expect(sameUi(out.ui, dist)).toBe(true);
     expect(out.args).toEqual(['url', '--port', '4231']);
+  });
+
+  // 渡し直しの印は、渡された側が読んだらすぐ消す。cli.mjs と、hangar start が起こすサーバ、tmux、ペインへ持ち込まない。
+  it('渡し直しの印 HANGAR_LAUNCHED は、cli.mjs を読む前に環境から消す', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: major, arch: process.arch });
+    const r = run(dist, ['url'], { HANGAR_LAUNCHED: '1' });
+    expect(r.code, r.stderr).toBe(0);
+    expect((JSON.parse(r.stdout) as { launched: string | null }).launched).toBeNull();
+  });
+
+  // 殻（node.rs）は nodePath を絶対パスとしてしか読まない。名前だけの nodePath を PATH から引くと、アプリと CLI で使う Node が食い違う。
+  it('設定の nodePath が絶対パスでなければ、PATH から引かずに「ファイルが無い」と扱う', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const home = emptyDirFor('hangar home-');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: 'node', language: 'ja' }));
+    const r = run(dist, [], { HANGAR_HOME: home });
+    expect(r.code).toBe(1);
+    const line = r.stderr.split(/\r?\n/).find((l) => /^\s+\d+\. node：/.test(l));
+    expect(line, r.stderr).toContain('ファイルが無い');
   });
 
   it('どの候補も合わなければ、調べた場所を探した順に挙げ、それぞれが合わなかった理由を述べる', async () => {
@@ -929,6 +987,60 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
         ['C:\\Users\\me\\AppData\\Local\\Programs\\nodejs\\node.exe', 'missing'],
         [`${fnm}\\node.exe`, { major: 24, arch: 'x64' }],
         [`${winget}\\node.exe`, { major: 22, arch: 'x64' }],
+      ]);
+    });
+    // 殻の node.rs の windows_node_paths と同じ並び。fnm、Volta、scoop は版ごとの実体の場所を、新しい版から並べる。
+    it('nvm-windows のあと PATH の前に、fnm、Volta、scoop の版ごとの Node を新しい版から並べる', () => {
+      const env = {
+        LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local',
+        APPDATA: 'C:\\Users\\me\\AppData\\Roaming',
+        USERPROFILE: 'C:\\Users\\me',
+        Path: 'C:\\tools',
+      };
+      const dirs: Record<string, string[]> = {
+        'C:\\Users\\me\\AppData\\Roaming\\fnm\\node-versions': ['v20.5.0', 'v22.14.0', '.downloads'],
+        'C:\\Users\\me\\AppData\\Local\\Volta\\tools\\image\\node': ['22.9.0', '24.1.0'],
+        'C:\\Users\\me\\scoop\\apps': ['python', 'nodejs-lts', 'nodejs'],
+        'C:\\Users\\me\\scoop\\apps\\nodejs-lts': ['22.11.0', 'current'],
+        'C:\\Users\\me\\scoop\\apps\\nodejs': ['24.0.0'],
+        'C:\\Users\\me\\scoop\\apps\\python': ['3.12.0'],
+      };
+      const files = [
+        'C:\\Users\\me\\AppData\\Roaming\\fnm\\node-versions\\v20.5.0\\installation\\node.exe',
+        'C:\\Users\\me\\AppData\\Roaming\\fnm\\node-versions\\v22.14.0\\installation\\node.exe',
+        'C:\\Users\\me\\AppData\\Local\\Volta\\tools\\image\\node\\22.9.0\\node.exe',
+        'C:\\Users\\me\\AppData\\Local\\Volta\\tools\\image\\node\\24.1.0\\node.exe',
+        'C:\\Users\\me\\scoop\\apps\\nodejs-lts\\22.11.0\\node.exe',
+        'C:\\Users\\me\\scoop\\apps\\nodejs-lts\\current\\node.exe',
+        'C:\\Users\\me\\scoop\\apps\\nodejs\\24.0.0\\node.exe',
+        'C:\\Users\\me\\scoop\\apps\\python\\3.12.0\\node.exe',
+        'C:\\tools\\node.exe',
+      ];
+      expect(windowsNodeCandidates(env, undefined, (d) => dirs[d] ?? [], exists(files))).toEqual([
+        'C:\\Users\\me\\AppData\\Local\\Programs\\nodejs\\node.exe',
+        'C:\\Users\\me\\AppData\\Roaming\\fnm\\node-versions\\v22.14.0\\installation\\node.exe',
+        'C:\\Users\\me\\AppData\\Roaming\\fnm\\node-versions\\v20.5.0\\installation\\node.exe',
+        'C:\\Users\\me\\AppData\\Local\\Volta\\tools\\image\\node\\24.1.0\\node.exe',
+        'C:\\Users\\me\\AppData\\Local\\Volta\\tools\\image\\node\\22.9.0\\node.exe',
+        'C:\\Users\\me\\scoop\\apps\\nodejs\\24.0.0\\node.exe',
+        'C:\\Users\\me\\scoop\\apps\\nodejs-lts\\22.11.0\\node.exe',
+        'C:\\tools\\node.exe',
+      ]);
+    });
+    it('FNM_DIR、VOLTA_HOME、SCOOP があれば、既定の場所の代わりにそちらを見る', () => {
+      const env = { APPDATA: 'C:\\R', LOCALAPPDATA: 'C:\\L', USERPROFILE: 'C:\\U', FNM_DIR: 'D:\\fnm', VOLTA_HOME: 'D:\\volta', SCOOP: 'D:\\scoop' };
+      const dirs: Record<string, string[]> = {
+        'D:\\fnm\\node-versions': ['v22.2.0'],
+        'D:\\volta\\tools\\image\\node': ['22.3.0'],
+        'D:\\scoop\\apps': ['nodejs22'],
+        'D:\\scoop\\apps\\nodejs22': ['22.4.0'],
+        'C:\\R\\fnm\\node-versions': ['v22.9.9'],
+      };
+      expect(windowsNodeCandidates(env, undefined, (d) => dirs[d] ?? [], () => true)).toEqual([
+        'C:\\L\\Programs\\nodejs\\node.exe',
+        'D:\\fnm\\node-versions\\v22.2.0\\installation\\node.exe',
+        'D:\\volta\\tools\\image\\node\\22.3.0\\node.exe',
+        'D:\\scoop\\apps\\nodejs22\\22.4.0\\node.exe',
       ]);
     });
     it('同じ場所は大文字小文字を問わず 1 度だけ並べる', () => {
