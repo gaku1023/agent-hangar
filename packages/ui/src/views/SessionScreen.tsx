@@ -34,9 +34,10 @@ const ACTION_ICON: Record<SessionActionId, IconName> = {
  * 上から、見出しの段（点、名前、ロックの札、要約の 1 文、主の操作、「…」、(i)）、実行中ならタブの列、そして残りの高さを全部使う本体を置く。
  * 本体は左に主役（実行中はターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト）、右に 240px の列を置く。
  * 実行中は、右の列の上に現在の札（NowCard）、その下に目次を積む。終わった後は目次だけである。
- * 右の列は札も目次もひとまとめに、⌘J と目次の見出しの行のボタンで畳める。畳むと列が 0px になり、本文（ターミナル）が右端まで広がる。
- * 畳むと、タブの列（終わった後は切り替えの行）の「目次 N」の札になる。開閉はセッションごとに覚える（sessionView.transcriptOpen）。
- * 窓が狭いとき（useNarrow）は、右の列を持たず、札を押すと札と目次が上に重なって開く。
+ * 右の列は札も目次もひとまとめに、⌘J と列の右上のボタンで畳める。畳むと列が 0px になり、本文（ターミナル）が右端まで広がる。
+ * 畳むボタンは、タブの列のある画面では右の列の頭の行（タブの列と同じ高さ、2026-10-12 の試作の A）の右端に、タブの列の無い画面では目次の見出しの行の右端に置く。
+ * 畳むと、同じ右上の場所に、タブの列（終わった後は切り替えの行）の「目次 N」の札が出る。開閉はセッションごとに覚える（sessionView.transcriptOpen）。
+ * 窓が狭いとき（useNarrow）は、右の列を持たず、札を押すと札と目次が上に重なって開く（上乗せの頭の行が札の場所を覆う）。
  */
 export function SessionScreen(props: SessionProps) {
   const emit = useEmit();
@@ -129,21 +130,28 @@ export function SessionScreen(props: SessionProps) {
   // 目次の数。見出しと同じ数（props.turnCount）で、届くまでは数を添えない。
   const tocCount = props.turnCount ? `${props.turnCount.n}${props.turnCount.plus ? '+' : ''}` : null;
   const toggleToc = () => (narrow ? setDrawer((d) => !d) : emit({ type: 'transcript.toggle' }));
-  // 閉じている間は、タブの列（終わった後は切り替えの行）の右端に「目次 N」の札を置く。開いている間は目次の見出しの行の TocToggle を使う。
+  // タブの列があるか（生きた run か、終わった run のタブを見ている）。あれば本体の 1 行目に入れ、右の列はその行から始める。
+  const withStrip = Boolean(run && props.selectedTab);
+  // 閉じている間は、タブの列（終わった後は切り替えの行）の右端に「目次 N」の札を置く。開いている間は、同じ右上の TocToggle を使う。
+  // 現在の札も中に畳まれているので、札のある間はその状態の点を添える。
   const opener = (
     <button type="button" className="btn btn-sm tab-pane-open" aria-expanded="false" aria-keyshortcuts={ariaKeyShortcuts('transcript.toggle')} title={t('session.toc.shortcut', { keys: shortcutHint(t, 'transcript.toggle', '⌘J') })} onClick={toggleToc}>
+      {hasCard && props.strip && <span className="live-dot" data-tone={props.strip.tone} aria-hidden="true" />}
       <Icon name="paneOpen" /><span>{tocCount === null ? t('session.toc.label') : t('session.toc.opener', { n: tocCount })}</span>{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}
     </button>
   );
   // 右の列（畳める器）。実行中は上に現在の札、下に目次（TurnIndex）。終わった後は目次だけを、同じ場所に置く。
+  // タブの列のある画面では、列の上端にタブの列と同じ高さの頭の行を置き、右端に畳むボタンを置く（札にも目次にも属さない）。
+  const toggle = <TocToggle open onToggle={toggleToc} />;
   const toc = (
     <div className="toc-slot" data-collapsed={tocOpen ? undefined : 'true'} data-leaving={pane.leaving ? 'true' : undefined} data-drawer={narrow ? 'true' : undefined}>
       {pane.mounted && (
         <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
+          {withStrip && <div className="toc-slot-head">{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}{toggle}</div>}
           {/* 現在の札はタブにもターミナルにもくっつけず、右の列の上に置く（中身はセッションのもので、タブを替えても変わらない）。 */}
           {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} />}
           <TocPane>
-            <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} lead={<TocToggle open onToggle={toggleToc} />} />
+            <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} trail={withStrip ? undefined : toggle} />
           </TocPane>
         </div>
       )}
@@ -182,11 +190,12 @@ export function SessionScreen(props: SessionProps) {
     return (
       <div className="screen session-screen">
         {header}
-        <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} trailing={tocOpen ? null : opener} />
         {/* 右は会話の全文ではなくターンの目次にする。
             全文は左のターミナルと重なるので、押したターンだけを開き、左もそこへ跳ばす。
-            .c-body は縦の flex で窓の残りの高さを全部受け取る（session.css）。 */}
-        <div ref={boxRef} className="c-body" data-narrow={narrow ? 'true' : undefined} style={bodyStyle}>
+            .c-body は縦の flex で窓の残りの高さを全部受け取る（session.css）。
+            タブの列は本体の 1 行目に入れ、右の列はその行から下端までを占める。列の頭の畳むボタンと、畳んだ後の「目次 N」が同じ右上に来る。 */}
+        <div ref={boxRef} className="c-body" data-strip="true" data-folded={tocOpen ? undefined : 'true'} data-narrow={narrow ? 'true' : undefined} style={bodyStyle}>
+          <TabStrip sessionId={id} tabs={props.tabs} canAdd={run.alive} canSplit={props.canSplit} split={props.split !== null} trailing={tocOpen ? null : opener} />
           <div className="c-main">{terminals}</div>
           {toc}
         </div>

@@ -30,8 +30,8 @@ export type TurnIndexProps = {
   /** 最初の events が届く前。仮の行を出す。 */
   pending?: boolean;
   agentId: string | null;
-  /** 見出しの行の先頭に置くもの。右欄を畳むボタンが入る。 */
-  lead?: ReactNode;
+  /** 見出しの行の右端に置くもの。タブの列の無い画面（終わった後）で、右の列を畳むボタンが入る。 */
+  trail?: ReactNode;
 };
 
 /** 跳ばした結果の言い方の鍵。着いたときと待っている間は何も言わない。 */
@@ -187,10 +187,10 @@ export function TurnIndex(props: TurnIndexProps) {
   return (
     <div className="turns">
       <div className="turns-head">
-        {props.lead}
         <b>{t('session.toc.label')}</b>
         {props.count && <span ref={countRef} className="faint turns-count"><RollingText key={scope} text={t('session.toc.count', { n: `${props.count.n}${props.count.plus ? '+' : ''}` })} /></span>}
         {props.agentId && <><span className="faint">{t('session.toc.subagent', { id: props.agentId })}</span><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: null })}>{t('session.toc.backToMain')}</button></>}
+        {props.trail && <><span className="spacer" />{props.trail}</>}
       </div>
       <div ref={listRef} className="turns-list">
         {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}><span ref={moreRef} className="turns-more-label">{moreLabel}</span></button>}

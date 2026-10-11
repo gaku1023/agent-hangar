@@ -136,13 +136,15 @@ function LiveMock(props: { card: NowCardProps }) {
   return (
     <div style={frame} id="mock-live">
       <Heading badges={[]} live="waiting" name="決済フォームの検証を直す" oneLiner="入力の検証をサーバ側へ寄せ、フォームのテストを更新中" primary="VS Code で開く" note={props.card.note} />
-      <div style={{ display: 'flex', alignItems: 'flex-end', height: 28, marginTop: 8 }}><span style={tab}>Claude</span></div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: 8, height: 520 }}>
-        <div style={termStyle}>{TERM}</div>
-        <div className="toc-slot"><div className="toc-slot-inner">
+      {/* 実物と同じく、タブの列を本体の 1 行目に入れ、右の列はその行から始める（頭の行の右端に畳むボタン）。 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 240px', gridTemplateRows: '28px minmax(0, 1fr)', columnGap: 8, height: 548, marginTop: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gridColumn: 1, gridRow: 1 }}><span style={tab}>Claude</span></div>
+        <div style={{ ...termStyle, gridColumn: 1, gridRow: 2 }}>{TERM}</div>
+        <div className="toc-slot" style={{ gridColumn: 2, gridRow: '1 / -1' }}><div className="toc-slot-inner">
+          <div className="toc-slot-head"><kbd className="mono">⌘J</kbd><TocToggle open /></div>
           <NowCard sessionId="s1" {...props.card} />
           <TocPane>
-            <TurnIndex sessionId="s1" runId={null} rows={turnRows} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} lead={<TocToggle open />} />
+            <TurnIndex sessionId="s1" runId={null} rows={turnRows} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} />
           </TocPane>
         </div></div>
       </div>
@@ -161,7 +163,7 @@ function EndedMock(props: { lead: LeadCardProps }) {
           <LeadCard sessionId="s7" {...props.lead} />
         </section>
         <TocPane>
-          <TurnIndex sessionId="s7" runId={null} rows={turnRows.map((r) => ({ ...r, open: r.seq === 6 }))} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} lead={<TocToggle open />} />
+          <TurnIndex sessionId="s7" runId={null} rows={turnRows.map((r) => ({ ...r, open: r.seq === 6 }))} complete openItems={[]} turnJump={null} hasMore={false} loading={false} count={{ n: turnRows.length, plus: false }} agentId={null} trail={<TocToggle open />} />
         </TocPane>
       </div>
     </div>

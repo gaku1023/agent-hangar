@@ -288,7 +288,11 @@ describe('冒頭の 1 枚と目次（終わった画面）', () => {
     const onAction = vi.fn();
     const { container, rerender } = render(<ActionRoot onAction={onAction}><SS {...base} /></ActionRoot>);
     expect(tocCols(container)).toBe('minmax(0, 1fr) 240px');
-    fireEvent.click(screen.getByRole('button', { name: '右パネルを閉じる' }));
+    // タブの列が無いので、畳むボタンは目次の見出しの行の右端（閉じた後の札と同じ高さ）に置く。
+    const close = screen.getByRole('button', { name: '右パネルを閉じる' });
+    expect(container.querySelector('.turns-head > :last-child')).toBe(close);
+    expect(container.querySelector('.toc-slot-head')).toBeNull();
+    fireEvent.click(close);
     expect(onAction).toHaveBeenCalledWith({ type: 'transcript.toggle' });
     rerender(<ActionRoot onAction={onAction}><SS {...base} transcriptOpen={false} /></ActionRoot>);
     expect(tocCols(container)).toBe('minmax(0, 1fr) 0px');
@@ -339,7 +343,7 @@ describe('SessionScreen（実行中）', () => {
     expect([...main.children].map((c) => c.className.split(' ')[0])).toEqual(['term-pane']);
     expect(container.querySelector('.session-info')).toBeNull();
     const side = container.querySelector('.c-body > .toc-slot > .toc-slot-inner')!;
-    expect([...side.children].map((c) => c.className.split(' ')[0])).toEqual(['now-card', 'toc-pane']);
+    expect([...side.children].map((c) => c.className.split(' ')[0])).toEqual(['toc-slot-head', 'now-card', 'toc-pane']);
     expect(within(side as HTMLElement).getByRole('region', { name: 'セッションの現在の状態' })).toBeInTheDocument();
   });
   it('札は生きた run があるときだけで、終わった run には出さない', () => {
@@ -406,10 +410,44 @@ describe('SessionScreen（実行中）', () => {
     expect((document.querySelector('.c-body') as HTMLElement).style.gridTemplateColumns).toBe('minmax(0, 1fr) 0px');
     expect(document.querySelector('.toc-pane')).toBeNull();
   });
-  it('開いている間は、開閉のボタンを目次の見出しの行に置き、タブの帯には出さない', () => {
+  it('開いている間は、畳むボタンを右の列の頭の行（タブの列と同じ高さ）の右端に置き、札にも目次の見出しにもタブの帯にも出さない', () => {
     withHost(<SS {...running} />);
-    expect(screen.getByRole('button', { name: '右パネルを閉じる' }).closest('.toc-pane')).not.toBeNull();
+    const close = screen.getByRole('button', { name: '右パネルを閉じる' });
+    const head = close.closest('.toc-slot-head')!;
+    expect(head).not.toBeNull();
+    expect(head.lastElementChild).toBe(close);
+    expect(head).toHaveTextContent('⌘J');
+    expect(close).toHaveAttribute('aria-keyshortcuts', 'Meta+J');
+    expect(close).toHaveAttribute('title', '右パネルの開閉（⌘J）');
+    expect(close.closest('.toc-pane')).toBeNull();
+    expect(close.closest('.now-card')).toBeNull();
+    expect(document.querySelector('.turns-head .tr-toggle')).toBeNull();
     expect(document.querySelector('.tabs .tab-pane-open')).toBeNull();
+  });
+  it('タブの列は本体（.c-body）の 1 行目に入り、右の列はその行から下端までを占める（畳むボタンと「目次 N」が同じ右上に来る）', () => {
+    const { container, rerender } = render(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} /></TerminalHostContext.Provider></ActionRoot>);
+    const body = container.querySelector('.c-body')!;
+    expect(body).toHaveAttribute('data-strip', 'true');
+    expect([...body.children].map((c) => c.className.split(' ')[0])).toEqual(['tabs', 'c-main', 'toc-slot']);
+    expect(body).not.toHaveAttribute('data-folded');
+    rerender(<ActionRoot onAction={vi.fn()}><TerminalHostContext.Provider value={host}><SS {...running} transcriptOpen={false} /></TerminalHostContext.Provider></ActionRoot>);
+    expect(body).toHaveAttribute('data-folded', 'true');
+    cleanup();
+    const ended = render(<ActionRoot onAction={vi.fn()}><SS {...base} /></ActionRoot>);
+    expect(ended.container.querySelector('.c-body')).not.toHaveAttribute('data-strip');
+  });
+  it('札のある画面で畳んだ「目次 N」には、札の状態の点を添える（札が中に畳まれている手がかり）', () => {
+    withHost(<SS {...running} transcriptOpen={false} />);
+    const dot = screen.getByRole('button', { name: /目次 104/ }).querySelector('.live-dot');
+    expect(dot).not.toBeNull();
+    expect(dot).toHaveAttribute('data-tone', 'busy');
+    expect(dot).toHaveAttribute('aria-hidden', 'true');
+    cleanup();
+    withHost(<SS {...running} strip={null} run={{ ...running.run!, alive: false }} transcriptOpen={false} />);
+    expect(screen.getByRole('button', { name: /目次 104/ }).querySelector('.live-dot')).toBeNull();
+    cleanup();
+    render(<ActionRoot onAction={vi.fn()}><SS {...base} transcriptOpen={false} /></ActionRoot>);
+    expect(screen.getByRole('button', { name: /目次 104/ }).querySelector('.live-dot')).toBeNull();
   });
   it('折りたたむとトランスクリプトを描かない', () => {
     withHost(<SS {...running} transcriptOpen={false} />);
@@ -436,8 +474,11 @@ describe('SessionScreen（実行中）', () => {
       expect(document.querySelector('.toc-slot')).toHaveAttribute('data-drawer', 'true');
       expect(document.querySelector('.toc-pane .turn-row')).not.toBeNull();
       expect(onAction).not.toHaveBeenCalled();
-      // 見出しの行のボタンで閉じる。
-      fireEvent.click(screen.getByRole('button', { name: '右パネルを閉じる' }));
+      // 上乗せの頭の行（「目次 N」の札があった場所）のボタンで閉じる。狭い窓ではキーの表示を添えない。
+      const close = screen.getByRole('button', { name: '右パネルを閉じる' });
+      expect(close.closest('.toc-slot-head')).not.toBeNull();
+      expect(close.closest('.toc-slot-head')).not.toHaveTextContent('⌘J');
+      fireEvent.click(close);
       expect(document.querySelector('.toc-pane')).toBeNull();
       expect(onAction).not.toHaveBeenCalled();
     });

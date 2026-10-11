@@ -538,8 +538,8 @@ a:hover { text-decoration: underline; }
 .term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
 @keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
 @media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
-/* 耳の下の板は、左上だけを角張らせて耳とつなぐ。耳の直下はターミナルで、分割しているときは左の板をつなぐ（現在の札は右の列にあり、耳にはつながない）。 */
-.tabs + .c-body > .c-main > :first-child.term-pane, .tabs + .c-body > .c-main > .split-h:first-child > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
+/* 耳の下の板は、左上だけを角張らせて耳とつなぐ。タブの列は本体（.c-body）の 1 行目にあり、耳の直下はターミナルで、分割しているときは左の板をつなぐ（現在の札は右の列にあり、耳にはつながない）。 */
+.c-body > .tabs + .c-main > :first-child.term-pane, .c-body > .tabs + .c-main > .split-h:first-child > .split-pane:first-child > .term-pane { border-top-left-radius: 0; }
 /* 初めてつなぐときは、最初のデータが届くまで面を透明にし、届いたら --dur で現す（設計書 ⑨）。一度描いたタブは付け替えても透明にしない。 */
 .term-host { flex: 1; min-height: 0; padding: var(--u); transition: opacity var(--dur) var(--ease-out); }
 .term-host[data-painted='false'] { opacity: 0; }

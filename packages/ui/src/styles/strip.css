@@ -121,7 +121,8 @@
 /* ---- 目次だけの右パネル（240px）。畳む動きは、外の枠（overflow: hidden の列）が受け持つので、幅は固定にする。 ---- */
 .toc-pane { flex: none; width: 240px; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .toc-pane > .turns { flex: 1; }
-.toc-pane .turns .tr-toggle { margin-left: calc(var(--u) * -2); }
+/* タブの列の無い画面の畳むボタン（見出しの行の右端）。右端を、畳んだ後の切り替えの行の「目次 N」の札の右端にそろえる。 */
+.toc-pane .turns-head > .tr-toggle:last-child { margin-right: calc(var(--u) * 0.5); }
 /* 240px の細い列では、手の数は出さない（色帯が手の種類を言う）。
    古いターンを読み込むボタンは、欄の幅と 1 行の高さに固定する。文字が替わっても折り返さず、高さも幅も変わらない。 */
 .toc-pane .turn-tools { display: none; }
