@@ -150,6 +150,7 @@ jobs:
       - name: UI とサーバをビルドする
         run: npm run build
       - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
+        id: app
         run: npm run tauri -- build --bundles app
         working-directory: apps/desktop
       - name: Node の無い Mac で、読み込み画面が失敗の札に切り替わる
@@ -160,5 +161,23 @@ jobs:
         with:
           name: boot-probe-macos
           path: ${{ runner.temp }}/boot-probe-macos
+          if-no-files-found: warn
+          retention-days: 7
+      # Node のある Mac で、殻が同梱のサーバを起こし、本当の画面へ移ることを確かめる（正常な道）。
+      # 上の段は Node を隠して失敗の札を見るだけで、殻の server_command（nodePath の Node、HANGAR_UI_DIST、HANGAR_PARENT_PID、PATH の足し方）は通らない。
+      # bundle-server.test.ts の bin/hangar start の経路も、殻のこの経路とは別である。
+      # build した .app を一時の場所へ写し、一時のホームの settings.json の nodePath で setup-node の Node を指し、最小の PATH で起こす（apps/desktop/scripts/ci-boot-normal-macos.sh）。
+      # /health が ok と ready を返すこと、殻がその Node を選んだこと、サーバの環境、UI の配信、起動画面の合図（HANGAR_BOOT_PROBE）、
+      # WebKit がサーバへつないだこと、殻を止めるとサーバも降りることを見る（判定は boot-normal-check.ts、待ちの上限は 150 秒）。
+      # 上の段が落ちても走らせ、どちらの道が壊れたかを 1 回で見分ける。release の macos ジョブは、署名した .app で同じ台本を回す。
+      - name: Node のある Mac で、殻が同梱のサーバを起こし、本当の画面へ移る
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        timeout-minutes: 4
+        run: bash apps/desktop/scripts/ci-boot-normal-macos.sh --node "$(command -v node)" --require-probe apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app "$RUNNER_TEMP/boot-normal-macos"
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        with:
+          name: boot-normal-macos
+          path: ${{ runner.temp }}/boot-normal-macos
           if-no-files-found: warn
           retention-days: 7
