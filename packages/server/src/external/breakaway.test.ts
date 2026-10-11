@@ -37,6 +37,14 @@ describe('breakawayExec', () => {
     expect(seen).toEqual([{ cmd: launcher, args: [BREAKAWAY_FLAG, 'wt.exe', '-w 0 new-tab -d "D:\\work space"'], opts: { timeoutMs: 5000 } }]);
   });
 
+  // 起こし役は子（cmd.exe や wt.exe）の終わりを待って降りるが、孫の窓は起こし役の出力の管も受け継ぐ。untilExit は起こし役にも要る。
+  it('untilExit は起こし役の呼び出しへ渡す', async () => {
+    await breakawayExec(inner, launcher)('cmd.exe', ['/c', 'start'], { verbatim: true, untilExit: true });
+    expect(seen[0]!.opts).toEqual({ untilExit: true });
+    await breakawayExec(inner, launcher)('wt.exe', ['-w', '0'], { timeoutMs: 5000, untilExit: true });
+    expect(seen[1]!.opts).toEqual({ timeoutMs: 5000, untilExit: true });
+  });
+
   it('verbatim の引数は引用せずに並べる（cmd.exe へ自前で組んだ 1 行）', async () => {
     await breakawayExec(inner, launcher)('cmd.exe', ['/d', '/v:off', '/s', '/c', '"start "" "C:\\p s\\psmux.exe" attach"'], { verbatim: true });
     expect(seen[0]!.args).toEqual([BREAKAWAY_FLAG, 'cmd.exe', '/d /v:off /s /c "start "" "C:\\p s\\psmux.exe" attach"']);

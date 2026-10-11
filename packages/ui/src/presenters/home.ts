@@ -3,7 +3,7 @@ import { isReturnOn, isReturnTime, localDate, overdueDays, returnDue, returnPast
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
-import { aliveRunOf, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -96,7 +96,8 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
   const alive = runningSessionIds(store);
 
   // 長く待っているものほど先に答えたいので、最後に動いた時刻の古い順に並べる。
-  const waiting = sessions.filter((s) => s.live === 'waiting').sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
+  // Done と Archived にしたものは、live が waiting のままでも出さない（store.ts の awaitsAnswer）。
+  const waiting = sessions.filter(awaitsAnswer).sort((a, b) => (a.lastActivityAt ?? now) - (b.lastActivityAt ?? now));
   const attention = waiting.map((s) => ({ id: s.id, name: name(s), projectName: projectName(s), waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? noQuestionText(t), answer: aliveRunOf(store, s.id) ? 'terminal' as const : outsideOpenOf(store, s) }));
 
   const returning = returningCards(store, now, alive);

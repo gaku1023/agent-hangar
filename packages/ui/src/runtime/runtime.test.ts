@@ -2,6 +2,7 @@ import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { LONG_TOAST_MS } from './actionTable.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { accountsFixture } from '../test/accounts.ts';
@@ -786,6 +787,17 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'session.openTerminalApp', runId: 'r1' });
     await flush();
     expect(rt.getState().toasts[0]?.message).toContain('Terminal.app');
+  });
+  it('Windows Terminal が無く既定のターミナルに落ちたら、セッション画面でもプロジェクト画面でも 8 秒の知らせを出す', async () => {
+    const fell = async () => ({ app: 'windowsDefault' as const, fellBack: true });
+    const { rt } = harness({ openTerminalApp: vi.fn(fell), projectOpenTerminal: vi.fn(fell) });
+    rt.start();
+    rt.emit({ type: 'session.openTerminalApp', runId: 'r1' });
+    rt.emit({ type: 'project.openTerminalApp', id: 'p1' });
+    await flush();
+    const shown = rt.getState().toasts.map((t) => [t.level, t.message, t.holdMs]);
+    const line = ['info', 'Windows Terminal が見つからなかったので既定のターミナルで開きました', LONG_TOAST_MS];
+    expect(shown).toEqual([line, line]);
   });
 });
 

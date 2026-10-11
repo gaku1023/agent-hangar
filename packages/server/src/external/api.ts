@@ -36,7 +36,8 @@ export function createExternalApi(o: {
     openEditor: ({ target }) => openInEditor({ codePath: o.settings().codePath, target, exec, platform }),
     openUrl: async (url) => {
       const c = openTargetCommand(url, platform);
-      const r = await exec(c.file, c.args);
+      // Windows では、起こしたブラウザが rundll32 の出力の管を受け継ぎうるので、子の終わりで返す（open.ts の execUntilExit）。
+      const r = await exec(c.file, c.args, platform === 'win32' ? { untilExit: true } : undefined);
       if (r.code !== 0) throw new Error(r.stderr.trim() || `${c.file} exit ${r.code}`);
     },
   };
