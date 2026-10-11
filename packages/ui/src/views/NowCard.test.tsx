@@ -7,6 +7,15 @@ import type { ArtifactCardProps } from '../presenters/project.ts';
 import * as nowCardModule from './NowCard.tsx';
 import { NowCard } from './NowCard.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
+import { useCardHeight } from './useCardHeight.ts';
+
+// 札の背の決め方そのものは useCardHeight.test で見る。ここでは、札が何を節目の鍵として渡すかだけを見る。
+vi.mock('./useCardHeight.ts', async (original) => {
+  const m = await original<typeof import('./useCardHeight.ts')>();
+  return { ...m, useCardHeight: vi.fn(m.useCardHeight) };
+});
+/** 直近の描画で札が useCardHeight に渡した（セッション、節目の鍵）。 */
+const heightArgs = () => vi.mocked(useCardHeight).mock.calls.at(-1)!;
 
 const ja = translator('ja');
 const en = translator('en');
@@ -75,6 +84,74 @@ describe('NowCard の状態の行', () => {
     expect(screen.getByRole('region', { name: 'Current state of this session' })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Needs input');
     expect(screen.getByText('Claude asks')).toBeInTheDocument();
+  });
+});
+
+describe('NowCard の背の節目', () => {
+  it('中身は .nc-body に包み、札の背はセッションと節目の鍵で決めさせる', () => {
+    mount();
+    expect(card().firstElementChild).toHaveClass('nc-body');
+    expect(card().querySelector('.nc-body > .nc-head')).not.toBeNull();
+    expect(heightArgs()[0]).toBe('s1');
+  });
+
+  it('状態の色が替わったときと、問いが出入りしたときに鍵を替える', () => {
+    seq = 0;
+    const r = call('Read', { file_path: '/w/a.ts' });
+    const m = mount({ live: 'busy', activity: null, events: [r] });
+    const busy = heightArgs()[1];
+    m.rerender({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: '進めてよいですか？' }, events: [r, res(r)] });
+    expect(card().querySelector('.nc-question')).not.toBeNull();
+    const asked = heightArgs()[1];
+    expect(asked).not.toBe(busy);
+    m.rerender({ live: 'waiting', activity: null, events: [r, res(r)] });
+    const waiting = heightArgs()[1];
+    expect(waiting).not.toBe(asked);
+    m.rerender({ live: 'busy', activity: null, aside: { shell: true, agents: 0 }, events: [r, res(r)] });
+    expect(heightArgs()[1]).not.toBe(waiting);
+  });
+
+  it('サブエージェントの 1 行が出入りしたときに鍵を替える', () => {
+    seq = 0;
+    const r = call('Read', { file_path: '/w/a.ts' });
+    const digest = { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'a' })] };
+    const m = mount({ live: 'busy', activity: null, digest, events: [r] });
+    expect(card().querySelector('.nc-detail')).not.toBeNull();
+    const withLine = heightArgs()[1];
+    m.rerender({ live: 'busy', activity: null, digest, events: [r, res(r)] });
+    expect(card().querySelector('.nc-detail')).toBeNull();
+    expect(heightArgs()[1]).not.toBe(withLine);
+  });
+
+  it('中身だけが替わる間（手が増える、意図が替わる）は鍵を替えない', () => {
+    seq = 0;
+    const a = call('Read', { file_path: '/w/a.ts' });
+    const b = call('Read', { file_path: '/w/b.ts' });
+    const m = mount({ live: 'busy', activity: null, events: [a] });
+    const key = heightArgs()[1];
+    m.rerender({ live: 'busy', activity: null, events: [a, res(a), b] });
+    m.rerender({ live: 'busy', activity: null, events: [a, res(a), b], digest: { sessionId: 's1', turnStartSeq: 0, intent: { text: '直す', at: 0, stepsSince: 0, inThisTurn: true }, agents: [] } });
+    expect(heightArgs()[1]).toBe(key);
+  });
+
+  it('新しいターンの始まり（作業中で手がまだ無い）は節目にせず、手が埋まっても鍵を保つ', () => {
+    seq = 0;
+    const m = mount({ live: 'waiting', activity: null });
+    const ended = heightArgs()[1];
+    m.rerender({ live: 'busy', activity: null, events: [] });
+    expect(heightArgs()[1]).toBe(ended);
+    const r = call('Read', { file_path: '/w/a.ts' });
+    m.rerender({ live: 'busy', activity: null, events: [r] });
+    expect(heightArgs()[1]).toBe(ended);
+    // 次の節目（ターンの終わり）では替わる。
+    m.rerender({ live: 'waiting', activity: null, events: [r, res(r)] });
+    expect(heightArgs()[1]).not.toBe(ended);
+  });
+
+  it('セッションが替わったら、そのセッションを渡す', () => {
+    const m = mount();
+    m.rerender({}, 's2');
+    expect(heightArgs()[0]).toBe('s2');
   });
 });
 
