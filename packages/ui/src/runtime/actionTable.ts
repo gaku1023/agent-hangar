@@ -19,8 +19,8 @@ export const LONG_TOAST_MS = 8000;
 /** 外部ターミナルで開いた応答の知らせ。落ちたときだけ、落ちた先で文を選ぶ。 */
 const fellBackToast = (r: { app: TerminalApp; fellBack: boolean }): CallToast | null => (r.fellBack ? (r.app === 'windowsDefault' ? FELL_BACK_WINDOWS : FELL_BACK) : null);
 
-/** 長く出す知らせ。Windows Terminal が無かったという文は長く、何をしたかと次にどうなるかを読む間が要る。 */
-const holdOf = (toast: CallToast): number | undefined => (toast === FELL_BACK_WINDOWS ? LONG_TOAST_MS : undefined);
+/** 長く出す知らせ。外部ターミナルが開けず別のもので開いたという文は長く、何が起きたかを読む間が要る（Windows Terminal が無いとき、iTerm2 で開けなかったとき）。 */
+const holdOf = (toast: CallToast): number | undefined => (toast === FELL_BACK_WINDOWS || toast === FELL_BACK ? LONG_TOAST_MS : undefined);
 
 /** 応答を受けた後にすること。apply は応答が着いた時点の Store に当てる。toast は情報の知らせで、toastHoldMs は出しておく長さ（省くと既定）である。 */
 export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast; toastHoldMs?: number };

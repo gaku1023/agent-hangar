@@ -93,12 +93,12 @@ describe('セッション', () => {
     const d = await runRow({ type: 'project.openTerminalApp', id: 'p1' }, fakeApi({ projectOpenTerminal: vi.fn(async () => ({ app: 'windowsDefault' as const, fellBack: true })) }));
     expect(d.toast).toBe(FELL_BACK_WINDOWS);
   });
-  it('Windows の知らせは読み切れるよう長く出す。ほかの知らせの長さは変えない', async () => {
+  it('外部ターミナルが開けず別のもので開いた知らせは、読み切れるよう長く出す。ほかの知らせの長さは変えない', async () => {
     const win = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'windowsDefault' as const, fellBack: true })) }));
     expect(win.toastHoldMs).toBe(LONG_TOAST_MS);
     expect(LONG_TOAST_MS).toBeGreaterThanOrEqual(8000);
     const mac = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) }));
-    expect(mac.toastHoldMs).toBeNull();
+    expect(mac.toastHoldMs).toBe(LONG_TOAST_MS);
     const none = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'windowsTerminal' as const, fellBack: false })) }));
     expect(none.toastHoldMs).toBeNull();
   });
