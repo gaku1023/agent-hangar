@@ -183,7 +183,9 @@ describe('hangar config restore', () => {
     await runConfigApply({ ...opts(), yes: true });
     out = [];
     expect(await runConfigRestore({ ...opts(), name: '20261010-120000', plan: true, json: true })).toBe(0);
-    expect(JSON.parse(out.join(''))).toEqual({ ok: true, plan: { name: '20261010-120000', restore: ['commands/hello.md'], remove: ['skills/demo/SKILL.md', 'settings.json'] } });
+    // 殻の承諾の窓のために、書く先ごとの差分（files）と指紋（fingerprint）も添える。
+    expect(JSON.parse(out.join(''))).toMatchObject({ ok: true, plan: { name: '20261010-120000', restore: ['commands/hello.md'], remove: ['skills/demo/SKILL.md', 'settings.json'], fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) } });
+    expect((JSON.parse(out.join('')) as { plan: { files: { rel: string; op: string }[] } }).plan.files.map((f) => [f.rel, f.op])).toEqual([['commands/hello.md', 'modify'], ['skills/demo/SKILL.md', 'remove'], ['settings.json', 'remove']]);
     expect(read('commands/hello.md')).toBe('say hello');
     out = [];
     expect(await runConfigRestore({ ...opts(), name: '20261010-120000', plan: true })).toBe(0);
@@ -205,5 +207,20 @@ describe('hangar config restore', () => {
     out = [];
     expect(await runConfigRestore({ ...opts(), name: '19990101-000000', yes: true })).toBe(1);
     expect(text()).toContain('その世代がありません');
+  });
+});
+
+describe('承諾の窓のための差分と、書く直前の確かめ（--expect）', () => {
+  it('apply の --plan --json は書く先ごとの差分と指紋を添え、--expect が合わなければ書かない', async () => {
+    arrive();
+    expect(await runConfigApply({ ...opts(), plan: true, json: true })).toBe(0);
+    const j = JSON.parse(out.join('')) as { plan: { files: { rel: string; op: string; lines: { kind: string; text: string }[] }[]; fingerprint: string } };
+    expect(j.plan.files.map((f) => [f.rel, f.op])).toEqual([['skills/demo/SKILL.md', 'create'], ['commands/hello.md', 'modify'], ['settings.json', 'create']]);
+    expect(j.plan.files[1]!.lines).toEqual([{ kind: 'del', text: 'old hello' }, { kind: 'add', text: 'say hello' }]);
+    fs.writeFileSync(path.join(claudeDir, 'commands/hello.md'), 'changed by hand');
+    out = [];
+    expect(await runConfigApply({ ...opts(), yes: true, json: true, expect: j.plan.fingerprint })).toBe(1);
+    expect(JSON.parse(out.join(''))).toMatchObject({ ok: false, code: 'changed' });
+    expect(read('commands/hello.md')).toBe('changed by hand');
   });
 });

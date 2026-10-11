@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { isSafeRelPath, type ConfigApplyOrderItemDto, type ConfigExecMark, type ConfigInboxOp, type ConfigItemKind } from '@agent-hangar/shared';
+import { isSafeRelPath, type RetentionPreviewLine, type ConfigApplyOrderItemDto, type ConfigExecMark, type ConfigInboxOp, type ConfigItemKind } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
+import { diffLines } from '../../config/jsonTextEdit.ts';
 import { deleteApplyOrder, readApplyOrder } from './applyOrder.ts';
 import { GENERATION_META, STAMP_RE, stampLabel } from './backups.ts';
 import { ConfigBase } from './base.ts';
@@ -29,7 +30,7 @@ import { isAbsolutePathRule, valueFits } from './settingsSort.ts';
 
 export type ApplyErrorCode =
   | 'no-order' | 'broken-order' | 'stale' | 'unsafe' | 'bad-content' | 'settings-unreadable' | 'write-failed'
-  | 'bad-name' | 'no-generation';
+  | 'bad-name' | 'no-generation' | 'changed';
 
 /** 利用者に見せる失敗。message は日本語の 1 文で、そのまま端末や殻のダイアログに出す。 */
 export class ApplyError extends Error {
@@ -374,7 +375,73 @@ type ApplyOptions = {
   now?: () => number;
   /** 試験が書き込みの途中の失敗を起こすための口。ファイルへ触る前に、何番目の操作かを渡す。 */
   onWrite?: (rel: string, index: number) => void;
+  /** 承諾の窓で見せたときの、書く先の指紋（planApplyFiles の fingerprint）。違えば何も書かずに changed で断る。 */
+  expect?: string;
 };
+
+/** 指示書の項目から、ファイルごとの書き込みを作る。settings.json の鍵はまとめて 1 つの書き込みにする。書き込み先の安全もここで確かめる。 */
+function buildOps(claudeDir: string, items: Prepared[]): FileOp[] {
+  const ops: FileOp[] = [];
+  const settings: SettingsEdit[] = [];
+  for (const p of items) {
+    if (p.plan.act === 'keep') continue;
+    if (p.ref.type === 'settings') { settings.push({ key: p.ref.key, value: p.value, remove: p.plan.act === 'remove' }); continue; }
+    ops.push({ rel: p.item.target, remove: p.plan.act === 'remove', data: p.content });
+  }
+  for (const op of ops) assertSafeTarget(claudeDir, op.rel);
+  if (settings.length > 0) {
+    assertSafeTarget(claudeDir, 'settings.json');
+    let text: string | null = null;
+    try { text = fs.readFileSync(fileOf(claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません。'); }
+    ops.push({ rel: 'settings.json', remove: false, data: editSettings(text, settings) });
+  }
+  return ops;
+}
+
+// ---- 承諾の窓に見せる中身と、書く直前の確かめ ----
+
+/** 承諾の窓に見せる 1 つの書く先。op は、create（無いので作る）、modify（書き換える）、remove（消す）。binary は文字でないので差分を出さないもの。 */
+export type PlannedFile = { rel: string; path: string; op: 'create' | 'modify' | 'remove'; lines: RetentionPreviewLine[]; binary: boolean };
+/** fingerprint は、書く先の今の中身の指紋。書く直前に比べ、違えば書かない（hangar config apply と restore の --expect）。 */
+export type PlannedFiles = { files: PlannedFile[]; fingerprint: string };
+
+/** 差分に出す行の上限。 */
+const MAX_PLAN_LINES = 200;
+
+function readBuf(file: string): Buffer | null {
+  try { return fs.readFileSync(file); } catch { return null; }
+}
+
+/** 書く先の今の中身の指紋。無いものは null として数える。 */
+function localFingerprint(claudeDir: string, rels: string[]): string {
+  const parts = [...new Set(rels)].sort().map((rel) => {
+    const b = readBuf(fileOf(claudeDir, rel));
+    return [rel, b === null ? null : crypto.createHash('sha256').update(b).digest('hex')];
+  });
+  return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+}
+
+const changedError = () => new ApplyError('changed', '確認した後に、書く先のファイルが変わりました。何も書いていません。もう一度、書く中身を確かめてください。');
+
+/** 1 つの書く先の見せ方。before は今の中身（無ければ null）、after は書いた後の中身（消すなら null）。 */
+function plannedFile(claudeDir: string, rel: string, before: Buffer | null, after: Buffer | string | null): PlannedFile {
+  const op = after === null ? 'remove' : before === null ? 'create' : 'modify';
+  const a = after === null ? null : Buffer.isBuffer(after) ? after : Buffer.from(after);
+  const binary = (before?.includes(0) ?? false) || (a?.includes(0) ?? false);
+  const lines = binary ? [] : diffLines(before?.toString('utf8') ?? '', a?.toString('utf8') ?? '').slice(0, MAX_PLAN_LINES);
+  return { rel, path: fileOf(claudeDir, rel), op, lines, binary };
+}
+
+/** 適用の見立てを、書く先のファイルごとに作る。何も書かない。指示書が適用できる状態でなければ ApplyError。 */
+export function planApplyFiles(o: { home: string; claudeDir: string }): PlannedFiles {
+  const { items } = prepare(o.home);
+  const ops = buildOps(o.claudeDir, items);
+  return {
+    files: ops.map((op) => plannedFile(o.claudeDir, op.rel, readBuf(fileOf(o.claudeDir, op.rel)), op.remove ? null : op.data)),
+    fingerprint: localFingerprint(o.claudeDir, ops.map((op) => op.rel)),
+  };
+}
+
 
 function updateBase(db: Db, items: Prepared[], now: number): void {
   const base = new ConfigBase(db);
@@ -392,20 +459,8 @@ function updateBase(db: Db, items: Prepared[], now: number): void {
 export function runApply(o: ApplyOptions): ApplyResult {
   const now = o.now ? o.now() : Date.now();
   const { items } = prepare(o.home);
-  const ops: FileOp[] = [];
-  const settings: SettingsEdit[] = [];
-  for (const p of items) {
-    if (p.plan.act === 'keep') continue;
-    if (p.ref.type === 'settings') { settings.push({ key: p.ref.key, value: p.value, remove: p.plan.act === 'remove' }); continue; }
-    ops.push({ rel: p.item.target, remove: p.plan.act === 'remove', data: p.content });
-  }
-  for (const op of ops) assertSafeTarget(o.claudeDir, op.rel);
-  if (settings.length > 0) {
-    assertSafeTarget(o.claudeDir, 'settings.json');
-    let text: string | null = null;
-    try { text = fs.readFileSync(fileOf(o.claudeDir, 'settings.json'), 'utf8'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new ApplyError('settings-unreadable', 'settings.json を読めないので、設定の鍵は書きません。'); }
-    ops.push({ rel: 'settings.json', remove: false, data: editSettings(text, settings) });
-  }
+  const ops = buildOps(o.claudeDir, items);
+  if (o.expect !== undefined && localFingerprint(o.claudeDir, ops.map((op) => op.rel)) !== o.expect) throw changedError();
   const keptMine = items.filter((p) => p.plan.act === 'keep').length;
   const done = (generation: string | null): ApplyResult => ({
     generation, keptMine,
@@ -466,6 +521,17 @@ export function planRestore(o: { home: string; claudeDir: string; name: string }
   return { name: o.name, restore: g.files, remove };
 }
 
+/** 世代へ戻す見立てを、書く先のファイルごとに作る。何も書かない。 */
+export function planRestoreFiles(o: { home: string; claudeDir: string; name: string }): PlannedFiles {
+  const plan = planRestore(o);
+  const g = openGeneration(o.home, o.name);
+  const files = [
+    ...plan.restore.map((rel) => plannedFile(o.claudeDir, rel, readBuf(fileOf(o.claudeDir, rel)), readBuf(fileOf(g.dir, rel)) ?? Buffer.alloc(0))),
+    ...plan.remove.map((rel) => plannedFile(o.claudeDir, rel, readBuf(fileOf(o.claudeDir, rel)), null)),
+  ];
+  return { files, fingerprint: localFingerprint(o.claudeDir, [...plan.restore, ...plan.remove]) };
+}
+
 export type RestoreResult = {
   restored: string[];
   removed: string[];
@@ -476,9 +542,10 @@ export type RestoreResult = {
 };
 
 /** 世代の中身へ戻す。戻す前の状態を、新しい世代として控える。 */
-export function runRestore(o: { home: string; claudeDir: string; name: string; db?: Db; now?: () => number }): RestoreResult {
+export function runRestore(o: { home: string; claudeDir: string; name: string; db?: Db; now?: () => number; expect?: string }): RestoreResult {
   const now = o.now ? o.now() : Date.now();
   const plan = planRestore(o);
+  if (o.expect !== undefined && localFingerprint(o.claudeDir, [...plan.restore, ...plan.remove]) !== o.expect) throw changedError();
   const g = openGeneration(o.home, o.name);
   const baseIds = g.meta ? Object.keys(g.meta.base) : [];
   const safety = takeGeneration({ home: o.home, claudeDir: o.claudeDir, rels: [...plan.restore, ...(g.meta?.created ?? [])], baseIds, base: o.db ? new ConfigBase(o.db) : null, now, kind: 'restore' });

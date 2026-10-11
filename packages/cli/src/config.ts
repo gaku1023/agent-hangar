@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import type { ConfigExecMark, ConfigItemKind } from '@agent-hangar/shared';
 import {
-  ApplyError, dbPath, defaultClaudeDir, hangarHome, listBackups, loadSettings, openDb, planApply, planRestore, runApply, runRestore,
+  ApplyError, dbPath, defaultClaudeDir, hangarHome, listBackups, loadSettings, openDb, planApply, planApplyFiles, planRestore, planRestoreFiles, runApply, runRestore,
   type ApplyPlan, type ApplyPlanItem, type Db,
 } from '@agent-hangar/server/src/cliEntry.ts';
 import { promptYesNo, type Ask } from './statusline.ts';
@@ -34,6 +34,8 @@ export type ConfigApplyOpts = Common & {
   plan?: boolean;
   /** 確認した指示書の作成時刻（見立ての createdAt）。違う指示書に替わっていたら書かない。殻が使う。 */
   order?: number;
+  /** 承諾の窓で見せた書く先の指紋（見立ての fingerprint）。見せた後に手元が変わっていたら書かない。殻が使う。 */
+  expect?: string;
 };
 
 export type ConfigRestoreOpts = Common & {
@@ -41,6 +43,8 @@ export type ConfigRestoreOpts = Common & {
   name?: string;
   /** 戻す先と消す先を出すだけで、何も戻さない。 */
   plan?: boolean;
+  /** 承諾の窓で見せた書く先の指紋。見せた後に手元が変わっていたら戻さない。殻が使う。 */
+  expect?: string;
 };
 
 const KIND_LABEL: Record<ConfigItemKind, string> = {
@@ -108,7 +112,12 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
     if (o.order !== undefined && o.order !== plan.createdAt) throw new ApplyError('stale', '確認したあとに、適用の指示書が選び直されました。何も書いていません。もう一度、適用する項目を確かめてください。');
   } catch (e) { return fail(o, e, log); }
   if (o.plan) {
-    if (o.json) log(JSON.stringify({ ok: true, plan })); else for (const l of formatPlan(plan)) log(l);
+    // 機械向けには、書く先ごとの差分と指紋も添える（殻の承諾の窓が「何をどこに」と「差分」に出す）。
+    if (o.json) {
+      let files: ReturnType<typeof planApplyFiles>;
+      try { files = planApplyFiles({ home, claudeDir: claudeDirOf(o, home) }); } catch (e) { return fail(o, e, log); }
+      log(JSON.stringify({ ok: true, plan: { ...plan, files: files.files, fingerprint: files.fingerprint } }));
+    } else for (const l of formatPlan(plan)) log(l);
     return 0;
   }
   if (!o.yes) {
@@ -126,7 +135,7 @@ export async function runConfigApply(o: ConfigApplyOpts = {}): Promise<number> {
   let db: Db | null = null;
   try {
     db = openDbFor(home);
-    const r = runApply({ home, claudeDir: claudeDirOf(o, home), db, now: o.now });
+    const r = runApply({ home, claudeDir: claudeDirOf(o, home), db, now: o.now, expect: o.expect });
     if (o.json) log(JSON.stringify({ ok: true, result: r }));
     else {
       log(`適用しました（書き込み ${r.written} 件、削除 ${r.removed} 件、手元を残す ${r.keptMine} 件）`);
@@ -167,7 +176,11 @@ export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<numbe
     if (plan.remove.length > 0) { log('その時点で無かったので消すファイル:'); for (const f of plan.remove.slice(0, MAX_LISTED)) log(`  ${f}`); }
   };
   if (o.plan) {
-    if (o.json) log(JSON.stringify({ ok: true, plan })); else { log(`世代 ${plan.name} の時点へ戻すと、次のようになります。`); listPlan(); }
+    if (o.json) {
+      let files: ReturnType<typeof planRestoreFiles>;
+      try { files = planRestoreFiles({ home, claudeDir, name: o.name }); } catch (e) { return fail(o, e, log); }
+      log(JSON.stringify({ ok: true, plan: { ...plan, files: files.files, fingerprint: files.fingerprint } }));
+    } else { log(`世代 ${plan.name} の時点へ戻すと、次のようになります。`); listPlan(); }
     return 0;
   }
   if (!o.yes) {
@@ -188,7 +201,7 @@ export async function runConfigRestore(o: ConfigRestoreOpts = {}): Promise<numbe
   let db: Db | null = null;
   try {
     if (fs.existsSync(dbPath(home))) db = openDbFor(home);
-    const r = runRestore({ home, claudeDir, name: o.name, db: db ?? undefined, now: o.now });
+    const r = runRestore({ home, claudeDir, name: o.name, db: db ?? undefined, now: o.now, expect: o.expect });
     if (o.json) log(JSON.stringify({ ok: true, result: r }));
     else {
       log(`戻しました（書き戻し ${r.restored.length} 件、消去 ${r.removed.length} 件）`);

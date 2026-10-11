@@ -259,10 +259,12 @@ config
   .option('--plan', '書かずに、何をどれだけ書くかだけを出す')
   .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
   .option('--order <createdAt>', '確認した指示書の作成時刻。違う指示書に替わっていたら書かない（殻の命令が使う）')
-  .action(async (o: { yes?: boolean; plan?: boolean; json?: boolean; order?: string }) => {
+  .option('--dry-run', '--plan と同じ（書かずに、書く先と差分だけを出す）')
+  .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら書かない（殻の命令が使う）')
+  .action(async (o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; order?: string; expect?: string }) => {
     const order = o.order === undefined ? undefined : Number(o.order);
     if (order !== undefined && !Number.isFinite(order)) throw new Error('--order には指示書の作成時刻（数）を渡してください');
-    process.exitCode = await runConfigApply({ yes: o.yes, plan: o.plan, json: o.json, order });
+    process.exitCode = await runConfigApply({ yes: o.yes, plan: o.plan || o.dryRun, json: o.json, order, expect: o.expect });
   });
 
 config
@@ -271,8 +273,10 @@ config
   .option('--yes', '問わずに戻す')
   .option('--plan', '戻さずに、戻す先と消す先だけを出す')
   .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
-  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; json?: boolean }) => {
-    process.exitCode = await runConfigRestore({ name: generation, yes: o.yes, plan: o.plan, json: o.json });
+  .option('--dry-run', '--plan と同じ（戻さずに、書く先と差分だけを出す）')
+  .option('--expect <fingerprint>', '見立ての指紋。見せた後に書く先が変わっていたら戻さない（殻の命令が使う）')
+  .action(async (generation: string | undefined, o: { yes?: boolean; plan?: boolean; dryRun?: boolean; json?: boolean; expect?: string }) => {
+    process.exitCode = await runConfigRestore({ name: generation, yes: o.yes, plan: o.plan || o.dryRun, json: o.json, expect: o.expect });
   });
 
 const statusline = program.command('statusline').description('statusline スクリプトへの追記');

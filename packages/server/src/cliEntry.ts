@@ -24,7 +24,7 @@ export { CHUNK_SIZE, decryptBuffer, decryptStream, deriveFileKey, encryptBuffer,
 export { remoteTranscriptPath } from './sync/puller.ts';
 // 設定の同期の適用と世代へ戻す。CLI の hangar config apply と hangar config restore、および殻の命令が呼ぶ（サーバは `~/.claude` に書かない。全体計画の D9）。
 // 読むのは hangar の置き場の指示書と inbox、書くのは設定の入れ物と、基準の表（DB）だけで、サーバ本体は引かない。
-export { ApplyError, planApply, planRestore, runApply, runRestore, type ApplyErrorCode, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type RestorePlan, type RestoreResult } from './sync/config/apply.ts';
+export { ApplyError, planApply, planApplyFiles, planRestore, planRestoreFiles, runApply, runRestore, type PlannedFile, type PlannedFiles, type ApplyErrorCode, type ApplyPlan, type ApplyPlanItem, type ApplyResult, type RestorePlan, type RestoreResult } from './sync/config/apply.ts';
 export { listBackups } from './sync/config/backups.ts';
 // 承諾の窓に見せる差分（hangar mcp、shell、statusline の --dry-run）。設定の同期の競合と同じ行の形で作る。
 export { diffLines } from './config/jsonTextEdit.ts';
