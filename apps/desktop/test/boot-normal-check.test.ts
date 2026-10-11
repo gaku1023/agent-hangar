@@ -134,6 +134,8 @@ describe('確かめる口（run）', () => {
   it('使い方が違えば、2 で終わる', () => {
     expect(run([]).status).toBe(2);
     expect(run(['--port', '9']).status).toBe(2);
+    // 合図の書き出しは必須にしない（サーバが先に用意できると、起動画面は合図を描く前に移る）。
+    expect(run([...base(process.pid, '/tmp'), '--require-probe']).status).toBe(2);
   });
   it('殻が先に終わったら、上限を待たずに落とす', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'boot-normal-'));
@@ -173,8 +175,6 @@ describe('CI の段', () => {
     expect(probe).toBeGreaterThan(build);
     const step = stepOf(d, probe);
     expect(step).toContain('--node "$(command -v node)"');
-    // CI の build は書き出しの口を持つので、合図が書かれなければ落とす。
-    expect(step).toContain('--require-probe');
     expect(step).toMatch(/timeout-minutes: [1-5]\n/);
     // 失敗の札の段が落ちても、正常な道の段は走らせる（どちらが壊れたかを 1 回で見分ける）。
     expect(step).toMatch(/if: \$\{\{ !cancelled\(\) && steps\.app\.outcome == 'success' \}\}/);

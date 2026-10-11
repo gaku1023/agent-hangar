@@ -246,10 +246,14 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   `desktop.log` の `node … server …` の行で、殻が `nodePath` の Node と `.app` の中のサーバを選んだ（ランナーには Homebrew の Node もある）。
   サーバが殻の子で、`ps -E` で読んだ環境が `HANGAR_UI_DIST`、`HANGAR_PARENT_PID`、`HANGAR_PORT`、`HANGAR_HOME` と、最小の `PATH` の後ろに `augmented_path` の置き場を足したものである。
   鍵付きの `GET /` が同梱の `ui/index.html` をそのまま返し、そこから読む資産も返る。
-  起動画面が読み込みの合図を描き（`HANGAR_BOOT_PROBE` の書き出しの印が `ready`）、殻が画面を移し（`navigating to the server`）、WebKit の通信のプロセスがサーバへつなぐ（UI は起動の時に WebSocket を張る）。
+  殻が画面を移し（`navigating to the server`）、WebKit の通信のプロセスがサーバへつなぐ（UI は起動の時に WebSocket を張る）。
+  起動画面は tauri の中の頁でサーバへはつながないので、このつなぎはサーバの頁のものである。
+  起動画面の書き出し（`HANGAR_BOOT_PROBE`）は、失敗の札が出ていれば落とし、読み込みの合図（印が `ready`）を描いていれば記録に書く。
+  合図は必須にしない。サーバが起動画面の読み込みより先に用意できると、殻は合図を打たずに画面を移す。
+  CI の空のホームでは索引が 0.1 秒で済み、起動画面は何も書かないうちに移った（2026-10-11）。
   殻を止めると、サーバも `HANGAR_PARENT_PID` の見張りで降りる（20 秒まで待つ）。
   release の macos ジョブも、署名した後、dmg を作る前に、署名した `.app` で同じ台本を回す。
-  配布の build から書き出しの口を外しても落ちないよう、release では合図の書き出しが無いときは警告だけにする（ci は `--require-probe` で落とす）。
+  書き出しを必須にしないので、配布の build から書き出しの口を外しても、この段は落ちない。
 - 札の中は、見出し、何が起きたか、番号つきの次にすること（順序つきの一覧）、コピーできる命令、詳細（最初から開いた記録。「全文をコピー」つき）、下端のアプリの版と OS、「ログを開く」「もう一度試す」の順に並べる。ロゴは左上に小さく退ける（信号の 3 点の右、UI の `--lights-end` と同じ幅から）。命令と詳細だけを等幅にする。
   命令の欄は切らずに折り返して全文を見せる（以前は 1 行に収めて末尾を … で切っていて、Windows の長い PowerShell の命令が画面で読めなかった。2026-10-11）。
   起動画面は UI の書体（JetBrains Mono）を読み込まないので、等幅は `ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace` の順に OS の書体を使う。日本語の Windows の既定の等幅（MS ゴシックなど）は `\` を `¥` の字形で描くので、パスやコマンドが `¥` に見えないよう、`\` を正しく描く書体を総称の `monospace` より先に置く。

@@ -4,15 +4,17 @@
 //   2. 殻が settings.json の nodePath の Node を選び、.app の中の同梱サーバを起こした（desktop.log の node … server … の行）。
 //   3. サーバは殻の子で、殻の server_command が渡す環境（HANGAR_UI_DIST、HANGAR_PARENT_PID、HANGAR_PORT、HANGAR_HOME、足した PATH）を持つ。
 //   4. 鍵付きの GET / が、HANGAR_UI_DIST の index.html をそのまま返し、そこから読む資産も返る。
-//   5. 起動画面が読み込みの合図を描き（HANGAR_BOOT_PROBE の書き出しの印が ready）、殻が画面をサーバへ移し、
-//      WebKit の通信のプロセスがサーバへつないだ（UI は起動の時に WebSocket を張る）。
+//   5. 殻が画面をサーバへ移し（navigating to the server）、WebKit の通信のプロセスがサーバへつないだ（UI は起動の時に WebSocket を張る）。
+//      起動画面の頁は tauri の中の頁で、サーバへはつながない。なので、サーバへのつなぎはサーバの頁のものである。
+//      起動画面の書き出し（HANGAR_BOOT_PROBE）は、失敗の札が出ていれば落とし、読み込みの合図を描いていれば記録に書く。
+//      合図は必須にしない。サーバが起動画面の読み込みより先に用意できると、殻は合図を打たずに画面を移す（lib.rs の boot の drawing）。
+//      CI の空のホームでは索引が 0.1 秒で済み、起動画面は何も書かないうちに移った（2026-10-11）。
 //   6. 殻が消えると、サーバも自分で降りる（HANGAR_PARENT_PID の見張り）。
 // 使い方:
 //   node --experimental-strip-types scripts/boot-normal-check.ts run --port <n> --hangar-home <dir> --server-dir <dir> --node <path>
-//     --shell-pid <pid> --user-home <dir> --path-base <PATH> --probe <file> --timeout <秒> [--require-probe] [--shot <png>]
+//     --shell-pid <pid> --user-home <dir> --path-base <PATH> --probe <file> --timeout <秒> [--shot <png>]
 //     通れば 0、落ちれば 1、使い方が違えば 2 で終わる。
-// --require-probe を付けないとき（release の署名した .app）は、書き出しの印が無くても警告だけにする。
-// 配布の build から書き出しの口を外しても、この段が落ちないようにするためである。
+// 書き出しを必須にしないので、配布の build から書き出しの口を外しても、この段は落ちない。
 // CI の段は npm ci の後でなくても動くよう、Node が型を剥がすだけで動く書き方（import は node: だけ）にしておく。
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -162,7 +164,6 @@ type Args = {
   pathBase: string;
   probe: string;
   timeoutS: number;
-  requireProbe: boolean;
   shot: string | null;
 };
 
@@ -170,17 +171,11 @@ function parseArgs(argv: string[]): Args | null {
   const [cmd, ...rest] = argv;
   if (cmd !== 'run') return null;
   const opt: Record<string, string> = {};
-  let requireProbe = false;
-  for (let i = 0; i < rest.length; i++) {
+  for (let i = 0; i < rest.length; i += 2) {
     const k = rest[i]!;
-    if (k === '--require-probe') {
-      requireProbe = true;
-      continue;
-    }
     const v = rest[i + 1];
     if (!k.startsWith('--') || v === undefined) return null;
     opt[k.slice(2)] = v;
-    i++;
   }
   const num = (s: string | undefined) => (s === undefined ? NaN : Number(s));
   const a = {
@@ -193,7 +188,6 @@ function parseArgs(argv: string[]): Args | null {
     pathBase: opt['path-base'] ?? '',
     probe: opt.probe ?? '',
     timeoutS: num(opt.timeout),
-    requireProbe,
     shot: opt.shot ?? null,
   };
   if (!Number.isInteger(a.port) || !Number.isInteger(a.shellPid) || !(a.timeoutS > 0)) return null;
@@ -271,7 +265,7 @@ async function run(a: Args): Promise<void> {
   if (!got || got.status !== 200) throw new Failed(`資産 ${asset} が ${got ? got.status : '応えない'}`);
   say(`UI: GET / は同梱の index.html、${asset} も 200`);
 
-  // 5. 起動画面が合図を描き、殻が画面をサーバへ移し、WebKit がサーバへつないだ。
+  // 5. 殻が画面をサーバへ移し、WebKit がサーバへつないだ。起動画面が失敗の札を出していれば落とす。
   let ready: Verdict = judgeReady(null);
   let clients: { pid: number; command: string }[] = [];
   await until('画面がサーバへ移らない', async () => {
@@ -280,11 +274,9 @@ async function run(a: Args): Promise<void> {
     if (!desktop().navigated) return '殻が画面をまだ移していない';
     clients = webkitClients(output('lsof', ['-nP', `-iTCP@127.0.0.1:${a.port}`, '-sTCP:ESTABLISHED', '-F', 'pc']), serverPid);
     if (clients.length === 0) return '殻は画面を移したが、WebKit がサーバへつないでいない';
-    if (a.requireProbe && !ready.ok) return `起動画面の書き出し: ${ready.message}`;
     return null;
   });
-  if (ready.ok) say(ready.message);
-  else say(`::warning::起動画面の書き出しが読めない（${ready.message}）。書き出しの口の無い build なら正しい`);
+  say(ready.ok ? ready.message : `起動画面は読み込みの合図を描く前に移った（書き出し: ${ready.message}）`);
   say(`画面がサーバへ移った（${clients.map((c) => `${c.command} pid ${c.pid}`).join('、')} がつないでいる）`);
 
   // 画面を撮る。描き終わるのを少し待つ。ランナーで画面の収録が許されていなければ撮れない。撮れなくても落とさない。
@@ -310,7 +302,7 @@ async function main(argv: string[]): Promise<number> {
   const a = parseArgs(argv);
   if (!a) {
     process.stderr.write(
-      '使い方: boot-normal-check.ts run --port <n> --hangar-home <dir> --server-dir <dir> --node <path> --shell-pid <pid> --user-home <dir> --path-base <PATH> --probe <file> --timeout <秒> [--require-probe] [--shot <png>]\n',
+      '使い方: boot-normal-check.ts run --port <n> --hangar-home <dir> --server-dir <dir> --node <path> --shell-pid <pid> --user-home <dir> --path-base <PATH> --probe <file> --timeout <秒> [--shot <png>]\n',
     );
     return 2;
   }
