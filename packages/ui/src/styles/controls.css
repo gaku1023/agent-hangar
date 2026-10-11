@@ -300,15 +300,19 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .account-card-tag[data-kind='shown'] { font-weight: 700; color: var(--accent); }
 .account-card .account-meters-head { padding-right: 96px; }
 
-/* 札の中身（views/primitives/AccountMeters.tsx）。切り替えの開いた先と、新規セッションのダイアログの札で使い回す。 */
-.account-meters { display: flex; flex-direction: column; gap: calc(var(--u) * 1.5); min-width: 0; }
+/* 札の中身（views/primitives/AccountMeters.tsx）。切り替えの開いた先と、新規セッションのダイアログの札で使い回す。
+   5 時間と週の行は、札の中身の 4 列の格子（名前、棒、%、戻る時刻）を subgrid で受け継ぎ、2 本の行の列をそろえる。
+   戻る時刻の文は「04:10 にリセット」から「10/17 04:00 にリセット」まで長さが変わるので、列は中身の幅で取り、縮むのは棒の列だけにする。
+   棒は 48px を下限にする。吹き出しは 380px で、いちばん長い文でも下限まで縮めずに収まる。 */
+.account-meters { display: grid; grid-template-columns: 40px minmax(48px, 1fr) 36px auto; column-gap: calc(var(--u) * 2); row-gap: calc(var(--u) * 1.5); min-width: 0; }
+.account-meters > * { grid-column: 1 / -1; }
 .account-meters-head { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
 .account-meters-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .account-plan { flex: none; padding: 0 6px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; }
 .account-mail { min-height: 1.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); font-size: var(--fs-xs); }
 .account-mail[data-auth='out'] { color: var(--error); }
 .account-approve { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: var(--fs-xs); }
-.account-row { display: grid; grid-template-columns: 40px minmax(0, 1fr) 36px 92px; align-items: center; gap: calc(var(--u) * 2); color: var(--ink-2); font-size: var(--fs-xs); }
+.account-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; color: var(--ink-2); font-size: var(--fs-xs); }
 .account-row .gauge-bar { width: 100%; }
 .account-row-num { text-align: right; color: var(--ink-3); }
 .account-row-num[data-high='true'] { color: var(--waiting); font-weight: 700; }
