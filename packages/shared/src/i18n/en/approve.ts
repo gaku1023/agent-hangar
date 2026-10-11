@@ -54,7 +54,7 @@ export const approveEn: AreaDictionary<typeof approveKeys> = {
   'approve.after.restore': 'The current contents are also kept as a new backup generation.',
   'approve.note.secret': "The blacked-out value is Hangar's API token (used only on this computer).",
   'approve.note.check': 'Right before writing, Hangar checks that the files have not changed since they were shown. If they have, nothing is written.',
-  'approve.note.instructions': 'This writes {n} instructions that Claude reads and runs (skills, commands and agents).',
+  'approve.note.instructions': 'Instructions that Claude reads and runs (skills, commands and agents) to write: {n}.',
   'approve.note.exec': 'With hooks or commands that run: {names}',
   'approve.command.lead': 'This does the same as running the following in a terminal.',
   'approve.button.cancel': 'Cancel',
