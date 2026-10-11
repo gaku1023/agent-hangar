@@ -116,15 +116,19 @@
    一覧は残りの高さを受け取る（.screen-fill）ので、段の高さは一覧の高さに掛からない。 */
 .sessions-count { font-weight: 400; }
 /* 状態のタブ（★）。件数つきで、入り切らなければ次の行へ送る（900px の窓では 7 つが 1 行に並ばない）。 */
-.sessions-tabs { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 3); }
-.sessions-tab { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
+.sessions-tabs { position: relative; display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); margin-bottom: calc(var(--u) * 3); }
+/* 選んだタブの塗りは 1 つだけ敷き、タブを替えると滑る（useThumb。設定の切替の .seg-thumb と同じ作り）。帯は折り返すので、縦の位置と高さも JS が合わせる。 */
+.sessions-tab-thumb { position: absolute; z-index: 0; top: 0; left: 0; width: 0; height: 0; border-radius: var(--r-pill); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.sessions-tabs[data-ready='true'] .sessions-tab-thumb { transition: left var(--dur) var(--ease-out), top var(--dur) var(--ease-out), width var(--dur) var(--ease-out), height var(--dur) var(--ease-out); }
+.sessions-tab { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); height: var(--row-h); padding: 0 calc(var(--u) * 3); border: 0; border-radius: var(--r-pill); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); white-space: nowrap; cursor: pointer; transition: background var(--dur-fast) var(--ease-out); }
 .sessions-tab:hover { background: var(--surface-2); }
 /* 0 件のタブは淡くする。押せるままにし、選んでいる間は淡くしない。 */
 .sessions-tab[data-empty='true']:not([aria-pressed='true']) { font-weight: 500; color: var(--ink-3); }
-.sessions-tab[aria-pressed='true'] { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-strong); }
-.sessions-tab-n { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.sessions-tab[aria-pressed='true'] { background: transparent; color: var(--ink); }
+/* 件数は回す（.roll）ので、行の高さを数字の枠の 1.2em に揃える。灯したときの地の高さは、上下の余白で元の 1.5em に保つ。 */
+.sessions-tab-n { font-size: var(--fs-xs); font-weight: 500; line-height: 1.2em; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 /* 確かめるが 1 件以上なら、数字を候補の色で灯す。淡い地の上の --cand は 4.5 : 1 を超える（tokens.test.ts）。 */
-.sessions-tab-n[data-hot='true'] { padding: 0 6px; border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
+.sessions-tab-n[data-hot='true'] { padding: 0.15em 6px; border-radius: var(--r-pill); color: var(--cand); background: var(--cand-soft); font-weight: 600; }
 /* 上の欄は検索の本体（D1）。探す絵と、探す先の札（名前、要約、トランスクリプト）を添え、打った語は × で消せる。
    欄の枠は箱の側に持たせ、中の入力欄は素の文字にする。 */
 .sessions-keyword { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 1.5) 0 calc(var(--u) * 3); flex: 1; min-width: 0; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-3); transition: box-shadow var(--dur-fast) var(--ease-out); }
@@ -164,11 +168,15 @@
 .pager-range { white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
 .pager-range b { color: var(--ink); font-weight: 600; }
 /* 番号の列と跳び先の欄は、帯の中ほどに並べて置く。どちらも「どのページへ行くか」の部品である。 */
-.pager-nums { display: flex; align-items: center; gap: 2px; margin-left: auto; }
-.pager-btn { min-width: 28px; height: 26px; padding: 0 6px; border: 0; border-radius: 6px; background: none; font: inherit; font-variant-numeric: tabular-nums; color: var(--ink-2); cursor: pointer; }
+.pager-nums { position: relative; display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.pager-btn { position: relative; z-index: 1; min-width: 28px; height: 26px; padding: 0 6px; border: 0; border-radius: 6px; background: none; font: inherit; font-variant-numeric: tabular-nums; color: var(--ink-2); cursor: pointer; }
 .pager-btn:hover:not(:disabled) { background: var(--surface-2); }
-/* いまのページは淡い地と色の文字で示す。塗りつぶすと、ヘッダーの主ボタンと同じ強さになって競る。 */
-.pager-btn[aria-current='page'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+/* いまのページは淡い地と色の文字で示す。塗りつぶすと、ヘッダーの主ボタンと同じ強さになって競る。
+   淡い地は番号の下に 1 つだけ敷き、ページを移ると番号の間を滑る（useThumb。設定の切替の .seg-thumb と同じ作り）。 */
+.pager-btn[aria-current='page'] { color: var(--accent); font-weight: 600; }
+.pager-btn[aria-current='page']:hover:not(:disabled) { background: none; }
+.pager-thumb { position: absolute; z-index: 0; top: 0; left: 0; width: 0; height: 0; border-radius: 6px; background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+.pager-nums[data-ready='true'] .pager-thumb { transition: left var(--dur) var(--ease-out), top var(--dur) var(--ease-out), width var(--dur) var(--ease-out), height var(--dur) var(--ease-out); }
 .pager-btn:disabled { color: var(--line-strong); cursor: default; }
 .pager-gap { padding: 0 var(--u); color: var(--ink-3); }
 .pager-jump { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); margin-right: auto; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }

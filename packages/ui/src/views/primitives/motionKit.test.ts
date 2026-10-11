@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collapseOut, growIn, markHit, motionOn, riseIn, slideFrom } from './motionKit.ts';
+import { collapseOut, fadeIn, fadeOut, growIn, markHit, motionOn, resizeFrom, riseIn, slideAway, slideFrom } from './motionKit.ts';
 import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
@@ -87,6 +87,61 @@ describe('motionKit', () => {
     expect(slideFrom(document.createElement('div'), r, r)).toBeNull();
     slideFrom(document.createElement('div'), new DOMRect(0, 30, 10, 10), r);
     expect(calls[0]!.frames[0]).toEqual({ transform: 'translate(0px, 20px)' });
+  });
+  it('薄れから現す形は、長さのトークンを選べる（既定は --dur）', () => {
+    tokens('420ms');
+    values = { ...values, '--dur-fast': '200ms' };
+    const calls = fakeAnimate();
+    fadeIn(document.createElement('div'));
+    fadeIn(document.createElement('div'), '--dur-fast');
+    expect(calls[0]!.frames).toEqual([{ opacity: 0 }, { opacity: 1 }]);
+    expect(calls.map((c) => c.opts.duration)).toEqual([420, 200]);
+  });
+  it('薄れて消える形は --dur-fast と --ease-in で、最後の形を残す。動かないときはすぐ解決する', async () => {
+    tokens('0ms');
+    const none = fakeAnimate();
+    await expect(fadeOut(document.createElement('div'))).resolves.toBeUndefined();
+    expect(none).toHaveLength(0);
+    tokens('420ms');
+    values = { ...values, '--dur-fast': '200ms' };
+    const calls = fakeAnimate();
+    await fadeOut(document.createElement('div'));
+    expect(calls[0]!.frames).toEqual([{ opacity: 1 }, { opacity: 0 }]);
+    expect(calls[0]!.opts).toMatchObject({ duration: 200, easing: 'ease-in', fill: 'forwards' });
+  });
+  it('高さの補間は、前の高さから今の高さへ --dur で動かし、同じ高さなら動かさない', () => {
+    tokens('420ms');
+    const calls = fakeAnimate();
+    const el = document.createElement('div');
+    Object.defineProperty(el, 'offsetHeight', { value: 44, configurable: true });
+    expect(resizeFrom(el, 44)).toBeNull();
+    resizeFrom(el, 120);
+    expect(calls[0]!.frames).toEqual([{ height: '120px' }, { height: '44px' }]);
+    expect(calls[0]!.opts).toMatchObject({ duration: 420, easing: 'ease-out' });
+    tokens('0ms');
+    expect(resizeFrom(el, 120)).toBeNull();
+  });
+  it('高さだけを畳む形は、不透明度に触れない（先に薄れた札を、もう一度見せない）', async () => {
+    tokens('100ms');
+    const calls = fakeAnimate();
+    await collapseOut(document.createElement('div'), 'y', { fade: false });
+    for (const f of calls[0]!.frames) expect(f).not.toHaveProperty('opacity');
+    expect(calls[0]!.frames.at(-1)).toMatchObject({ height: '0px' });
+  });
+  it('横へ抜ける形は、--dur-exit と --ease-in で、薄れながら dx だけ動き、最後の形を残す', async () => {
+    tokens('100ms');
+    values = { ...values, '--dur-exit': '250ms' };
+    const calls = fakeAnimate();
+    await slideAway(document.createElement('div'), 28);
+    expect(calls[0]!.frames).toEqual([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(28px)' }]);
+    expect(calls[0]!.opts).toMatchObject({ duration: 250, easing: 'ease-in', fill: 'forwards' });
+    tokens('0ms');
+    await expect(slideAway(document.createElement('div'), 28)).resolves.toBe(true);
+    expect(calls).toHaveLength(1);
+    // 取り消されたら偽で解決し、呼び手に続きの畳みを始めさせない。
+    tokens('100ms');
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = () => ({ finished: Promise.reject(new DOMException('cancelled', 'AbortError')), cancel: vi.fn() });
+    await expect(slideAway(document.createElement('div'), 28)).resolves.toBe(false);
   });
   it('光らせる印は、地の動きが終わったら外す', () => {
     const el = document.createElement('div');

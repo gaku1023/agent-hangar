@@ -219,6 +219,9 @@ a:hover { text-decoration: underline; }
 /* 一覧 */
 .list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .list-scroll { overflow: auto; }
+/* 並びが替わった行は、前の位置から滑る（VirtualList の glide）。行の箱は位置を transform に持つので、transition を付けるだけでよい。
+   タブ、条件、ページを替えた描画では data-glide を外し、いきなり替える。 */
+.list-scroll[data-glide] .vrow { transition: transform var(--dur) var(--ease-out); }
 /* 一覧の画面では、一覧が窓の下端までの残りを受け取る（.screen-fill、プロジェクトの頁は .project-main）。下限より低い窓では .main がスクロールする。 */
 .screen-fill > .rows-host, .project-main > .rows-host { display: flex; flex-direction: column; flex: 1 1 0; min-height: 200px; }
 .rows-host > .list { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -351,7 +354,10 @@ a:hover { text-decoration: underline; }
 @keyframes pop { from { opacity: 0; transform: scale(0.96); filter: blur(var(--blur-in)); } 20% { filter: none; } }
 /* 右下に積む知らせ。
    上から error と info のトースト、並べきれない入力待ちの数、入力待ちのカードの順に、右端をそろえて積む。 */
-.toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); z-index: 20; max-width: calc(100vw - var(--u) * 8); }
+/* 札の間は gap ではなく、札ごとの上の余白で空ける。出る札は自分の余白ごと畳むので、外れた瞬間に間が跳ばない（ToastStack.tsx）。
+   いちばん上の札の上にも余白が付くが、窓の下端に寄せた積みなので見えない。 */
+.toasts { position: fixed; right: calc(var(--u) * 4); bottom: calc(var(--u) * 4); display: flex; flex-direction: column; align-items: flex-end; z-index: 20; max-width: calc(100vw - var(--u) * 8); }
+.toasts > .toast, .toast-waiting-list > .toast { margin-top: calc(var(--u) * 2); }
 .toast { max-width: 420px; background: var(--glass-bg-toast); color: var(--ink); padding: calc(var(--u) * 2.5) calc(var(--u) * 3.5); border-radius: var(--r-lg); -webkit-backdrop-filter: var(--glass-blur-toast); backdrop-filter: var(--glass-blur-toast); box-shadow: var(--glass-edge), var(--glass-drop); animation: slide var(--dur) var(--ease-out); cursor: pointer; text-align: left; }
 /* 知らせの札。種類の色（--k）を薄く敷いた見出しと、その下の本文の 2 段でできている。
    入力待ちは茶、error は赤、info は青で、色が近い入力待ちと error は見出しのラベルと印でも見分ける。 */
@@ -398,7 +404,7 @@ a:hover { text-decoration: underline; }
 .notice-message { font-size: var(--fs); line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .notice[data-open='true'] .notice-message { display: block; }
 .btn-link.notice-more { margin-top: calc(var(--u) * 1); font-size: var(--fs-sm); font-weight: 600; color: var(--error); }
-.toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 2); }
+.toast-waiting-list { display: flex; flex-direction: column; align-items: flex-end; }
 .toast-waiting-list:empty { display: none; }
 /* 小さな錠剤。4 件目からの数（ホームの要対応へ案内する）に使う。 */
 .toast.toast-pill { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: 3px calc(var(--u) * 2.5); border: 0; border-radius: var(--r-pill); font: inherit; font-size: var(--fs-xs); color: var(--ink-2); }

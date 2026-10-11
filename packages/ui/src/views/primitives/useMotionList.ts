@@ -2,8 +2,8 @@ import { useLayoutEffect, useReducer, useRef } from 'react';
 import { collapseOut, growIn, markHit, motionOn, riseIn, slideFrom } from './motionKit.ts';
 
 export type MotionListOpts = {
-  /** 入る形。rise は浮かぶだけ、grow は高さ（横なら幅）も伸ばして下の行を押す。 */
-  enter: 'rise' | 'grow';
+  /** 入る形。rise は浮かぶだけ、grow は高さ（横なら幅）も伸ばして下の行を押す。none は動かさない（入りを CSS の animation が持つ右下の知らせ）。 */
+  enter: 'rise' | 'grow' | 'none';
   axis?: 'y' | 'x';
   /** 入った行の地を淡い黄から薄れさせる。 */
   hit?: boolean;
@@ -13,6 +13,10 @@ export type MotionListOpts = {
   ignorePrepended?: boolean;
   /** 同じ key が別のものを指す範囲（セッション、サブエージェントなど）。替わった描画は、新しい出来事ではなく切り替えとして動かさない。 */
   scope?: string;
+  /** 出る形。既定は collapseOut（畳んで出る）。返す Promise が解決したら行を落とす。取り消されたとき（出る途中で戻ったとき）も解決させる。 */
+  exit?: (el: HTMLElement) => Promise<unknown>;
+  /** 最後の行が消えて空になる描画も、切り替えではなく出来事として出す（右下の知らせ。1 枚だけの札が消えるのがふつうの形である）。 */
+  exitWhenEmpty?: boolean;
 };
 export type MotionEntry<T> = { item: T; key: string; leaving: boolean };
 
@@ -22,7 +26,7 @@ type Ghost<T> = { item: T; after: string | null };
  * リストの出入り（設計書「共通の部品」）。
  * 新しい key は入る形で入れ、消えた key は leaving のまま元の位置に残して、畳んで出る形が終わってから落とす。
  * 最初の描画、前の描画が空だった描画、key が全部入れ替わった描画では動かさない（一度に入れ替わったものは、新しい出来事ではない）。
- * 空になる描画と scope が替わった描画も、同じく切り替えとして扱う（消えた行を畳まず、次の描画の入りも動かさない）。
+ * 空になる描画と scope が替わった描画も、同じく切り替えとして扱う（消えた行を畳まず、次の描画の入りも動かさない）。ただし exitWhenEmpty なら、空になる描画でも消えた行を出す。
  * 動かない環境（jsdom、reduced motion）では、消えた key をすぐ落とす。
  * 出る途中で戻った key は、動きを取り消して元の姿に戻す。並べ替えの滑りは、残った行の並びが替わった描画だけで出す（スクロールや resize で位置が替わっただけの描画では出さない）。
  * 描画の中で ref を書き換えるので、StrictMode や、捨てられる並行描画のもとでは安全ではない（この画面では使っていない）。
@@ -44,7 +48,7 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
   // key が全部入れ替わったら、前の行は残さず、入る動きも出さない。
   const scopeChanged = lastScope.current !== opts.scope;
   lastScope.current = opts.scope;
-  reset.current = scopeChanged || cur.length === 0 || (prev.current.length > 0 && !cur.some((c) => prevKeys.has(c.key)));
+  reset.current = scopeChanged || (cur.length === 0 && !opts.exitWhenEmpty) || (cur.length > 0 && prev.current.length > 0 && !cur.some((c) => prevKeys.has(c.key)));
   if (reset.current) { ghosts.current.clear(); leavingStarted.current.clear(); }
   else if (motionOn()) {
     prev.current.forEach((p, i) => {
@@ -84,12 +88,13 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
           const mine = {};
           leavingStarted.current.set(k, mine);
           // 取り消されても解決するので、まだ自分の出る動きのときだけ落とす（戻って、また消えた行を巻き込まない）。
-          void collapseOut(el, opts.axis).then(() => { if (leavingStarted.current.get(k) !== mine) return; ghosts.current.delete(k); leavingStarted.current.delete(k); tick(); });
+          const leave = opts.exit ? opts.exit(el) : collapseOut(el, opts.axis);
+          void leave.then(() => { if (leavingStarted.current.get(k) !== mine) return; ghosts.current.delete(k); leavingStarted.current.delete(k); tick(); });
           continue;
         }
         if (!rects.current.has(k)) {
           if (prepended.has(k)) continue;
-          if (opts.enter === 'grow') growIn(el, opts.axis); else riseIn(el);
+          if (opts.enter === 'grow') growIn(el, opts.axis); else if (opts.enter === 'rise') riseIn(el);
           if (opts.hit) markHit(el);
           continue;
         }
