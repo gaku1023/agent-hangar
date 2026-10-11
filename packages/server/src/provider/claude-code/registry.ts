@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { LiveStatus } from '@agent-hangar/shared';
 import { isAlive } from '../../platform/proc.ts';
 import type { LiveSession } from './types.ts';
-import { RegistryMissGate, registryDrifts, registryKey } from './compat/registry.ts';
+import { RegistryMissGate, registryDrifts, registryKey, registryStartedAt } from './compat/registry.ts';
 import { isRec, NO_COMPAT, type CompatSink, type Drift } from './compat/types.ts';
 
 const STATUSES = new Set<LiveStatus>(['busy', 'idle', 'waiting']);
@@ -57,11 +57,11 @@ function readEntry(file: string, name: string, carry: RegistryCarry | undefined)
 /**
  * ~/.claude/sessions/<pid>.json を読む。ファイルの出現と消失が起動と終了に対応する。
  * isGone が真を返す pid の項目は、消えたプロセスの残りとして読まない。hangar は ~/.claude のファイルを消さないので、読まないことで扱う。
- * onDrift を渡すと、形が契約と違う登録を、登録の見分け（compat/registry.ts の registryKey）と組で知らせる。読み方はいまのまま変えない。
+ * onDrift を渡すと、形が契約と違う登録を、登録の見分け（compat/registry.ts の registryKey）と書かれた時刻（registryStartedAt）と組で知らせる。読み方はいまのまま変えない。
  * オブジェクトでない登録（配列や null）は読まない。1 件の形が崩れても、ほかのセッションの状態は出し続ける。
  * carry を渡すと、書きかけで読めなかった登録を、前に読めた中身のまま続ける（RegistryCarry）。
  */
-export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean = () => false, onDrift?: (d: Drift, key: string) => void, carry?: RegistryCarry): LiveSession[] {
+export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean = () => false, onDrift?: (d: Drift, key: string, startedAt: number | null) => void, carry?: RegistryCarry): LiveSession[] {
   const dir = path.join(claudeDir, 'sessions');
   if (!fs.existsSync(dir)) { carry?.clear(); return []; }
   const out: LiveSession[] = [];
@@ -74,7 +74,7 @@ export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean
     // 書きかけの登録は JSON として読めない。これはずれではないので、黙って次の周期に回す。
     // 前に読めた中身があれば readEntry がそれを返すので、ここで飛ばすのは覚えの無いものと、読めないままが続いたものだけである。
     if (raw === UNREADABLE) continue;
-    if (onDrift) { const key = registryKey(f, raw); for (const d of registryDrifts(raw)) onDrift(d, key); }
+    if (onDrift) { const key = registryKey(f, raw); const at = registryStartedAt(raw); for (const d of registryDrifts(raw)) onDrift(d, key, at); }
     if (!isRec(raw)) continue;
     const rec = raw;
     if (typeof rec.sessionId !== 'string') continue;
@@ -129,17 +129,17 @@ export class RegistryWatcher {
    * ずれは、足し付け（enrich）の前の登録の読み取りと、ずれの一覧が変わったときだけ数える。
    * 500 ミリ秒ごとに同じ登録を読み直すたびに数えると、回数が意味を失う。
    * 足し付けの後の形では見ない。読み飛ばした登録は live に載らず、印だけが変わるときは登録は変わっていないからである。
-   * status の欠けは、同じ登録で続けて 2 回の読み取りで欠けていたときに初めてずれの一覧に入る（compat/registry.ts の RegistryMissGate）。
-   * Claude Code が登録を書き始めてから status を足すまでの間に 1 度読んだだけのものを数えないためである。
+   * status の欠けは、登録が書かれてから猶予（5 秒）を過ぎても欠けているときに初めてずれの一覧に入る（compat/registry.ts の RegistryMissGate）。
+   * Claude Code が登録を書き始めてから status を足すまでの間に読んだものを、読み取りが何回重なっても数えないためである。
    */
   private poll(notify: boolean): void {
     let live: LiveSession[];
     let drifts: Drift[];
     let regKey: string;
     try {
-      const found: { key: string; drift: Drift }[] = [];
-      const raw = readRegistry(this.claudeDir, this.isGone, (drift, key) => found.push({ key, drift }), this.carry);
-      drifts = this.missGate.pass(found);
+      const found: { key: string; drift: Drift; startedAt: number | null }[] = [];
+      const raw = readRegistry(this.claudeDir, this.isGone, (drift, key, startedAt) => found.push({ key, drift, startedAt }), this.carry);
+      drifts = this.missGate.pass(found, Date.now());
       regKey = JSON.stringify(raw) + JSON.stringify(drifts);
       live = this.enrich(raw);
     } catch { return; }
