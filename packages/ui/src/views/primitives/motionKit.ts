@@ -63,21 +63,55 @@ const edgesNow = (el: HTMLElement, axis: 'y' | 'x'): Keyframe => {
   return Object.fromEntries(Object.entries(EDGES[axis]).map(([k, css]) => [k, cs.getPropertyValue(css) || '0px']));
 };
 
-/** 伸びて入る形。高さ（横なら幅）と、その向きの余白を 0 から伸ばし、下（右）の要素を押して滑らせる。伸びる間は中身をはみ出させない。 */
-export function growIn(el: HTMLElement, axis: 'y' | 'x' = 'y'): Animation | null {
-  if (!motionOn(el)) return null;
+/**
+ * 伸び縮みの間だけ、はみ出しを隠す（overflow: hidden）。元の指定は要素ごとに 1 つだけ控え、外すのはいちばん新しい動きの後始末だけにする。
+ * 畳み終えた箱は隠したまま置かれる（外される要素ではそのまま消え、FoldBox の keep やホームの引き出しでは次に伸ばすまで残る）。
+ * そのときも控えは残し、次に伸ばした動きが終わったら畳む前の指定へ戻す。
+ * 畳む途中で開き直すと、取り消した畳みの後始末は非同期に遅れて届く。世代を比べ、伸びている最中の hidden を外させない。
+ */
+const clipped = new WeakMap<HTMLElement, { overflow: string; gen: number }>();
+function clip(el: HTMLElement): number {
+  const prev = clipped.get(el);
+  const gen = (prev?.gen ?? 0) + 1;
+  clipped.set(el, { overflow: prev ? prev.overflow : el.style.overflow, gen });
+  el.style.overflow = 'hidden';
+  return gen;
+}
+/** gen の動きがまだいちばん新しければ、控えた指定へ戻す。gen を省くと世代を問わず戻す。 */
+function unclip(el: HTMLElement, gen?: number): void {
+  const c = clipped.get(el);
+  if (!c || (gen !== undefined && c.gen !== gen)) return;
+  el.style.overflow = c.overflow;
+  clipped.delete(el);
+}
+
+/**
+ * いまの形。高さ（横なら幅）、不透明度、その向きの余白の計算済みの値で、動きの途中なら途中の値を読む。
+ * 畳む途中で開き直すとき、畳む動きを取り消す前に読んで growIn に渡すと、0 へ跳ばずにその形から伸び直す。
+ */
+export function shapeNow(el: HTMLElement, axis: 'y' | 'x' = 'y'): Keyframe {
+  const r = el.getBoundingClientRect();
+  const opacity = getComputedStyle(el).getPropertyValue('opacity') || '1';
+  return { [prop(axis)]: `${axis === 'y' ? r.height : r.width}px`, opacity, ...edgesNow(el, axis) };
+}
+
+/**
+ * 伸びて入る形。高さ（横なら幅）と、その向きの余白を 0 から伸ばし、下（右）の要素を押して滑らせる。伸びる間は中身をはみ出させない。
+ * from（shapeNow で読んだ形）を渡すと、0 からでなくその形から伸ばす。途中からなので、ぼかしは掛けない。
+ */
+export function growIn(el: HTMLElement, axis: 'y' | 'x' = 'y', from?: Keyframe): Animation | null {
+  if (!motionOn(el)) { unclip(el); return null; }
   const size = sizeOf(el, axis);
   const p = prop(axis);
   // 余白は動かし始める前に読む（動きの最初の形は 0 なので、あとから読むと 0 になる）。
   const edges = edgesNow(el, axis);
-  const overflow = el.style.overflow;
-  el.style.overflow = 'hidden';
-  const a = el.animate([
+  const gen = clip(el);
+  const start: Keyframe[] = from ? [from] : [
     { [p]: '0px', opacity: 0, filter: `blur(${motionValue('--blur-in', el)})`, ...edgesZero(axis) },
     { offset: 0.2, filter: 'none' },
-    { [p]: `${size}px`, opacity: 1, filter: 'none', ...edges },
-  ], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
-  const restore = () => { el.style.overflow = overflow; };
+  ];
+  const a = el.animate([...start, { [p]: `${size}px`, opacity: 1, filter: 'none', ...edges }], { duration: motionMs('--dur', el), easing: motionEase('--ease-out', el) });
+  const restore = () => unclip(el, gen);
   a.finished.then(restore, restore);
   return a;
 }
@@ -91,14 +125,13 @@ export function collapseOut(el: HTMLElement, axis: 'y' | 'x' = 'y', opts: { fade
   const size = sizeOf(el, axis);
   const p = prop(axis);
   const edge = edgesZero(axis);
-  const overflow = el.style.overflow;
-  el.style.overflow = 'hidden';
+  const gen = clip(el);
   const frames: Keyframe[] = opts.fade === false
     ? [{ [p]: `${size}px` }, { [p]: '0px', ...edge }]
     : [{ [p]: `${size}px`, opacity: 1 }, { opacity: 0, offset: 0.6 }, { [p]: '0px', opacity: 0, ...edge }];
   const a = el.animate(frames, { duration: motionMs('--dur-exit', el) + motionMs('--dur-fast', el), easing: motionEase('--ease-in', el), fill: 'forwards' });
-  // 終わったら要素は外されるので隠したままにする。取り消された（出る途中で戻った）ときだけ、元の指定に戻す。
-  return a.finished.then(() => undefined, () => { el.style.overflow = overflow; });
+  // 終わったら隠したままにする（外されるか、次に伸ばすまで隠れている）。取り消された（出る途中で戻った）ときだけ、元の指定に戻す。
+  return a.finished.then(() => undefined, () => unclip(el, gen));
 }
 
 /**

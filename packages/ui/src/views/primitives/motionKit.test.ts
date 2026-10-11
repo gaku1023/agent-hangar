@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collapseOut, fadeIn, fadeOut, growIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, slideAway, slideFrom } from './motionKit.ts';
+import { collapseOut, fadeIn, fadeOut, growIn, markHit, motionOn, popOut, resizeFrom, riseIn, risenKeys, shapeNow, slideAway, slideFrom } from './motionKit.ts';
 import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
@@ -16,6 +16,19 @@ const fakeAnimate = () => {
   (HTMLElement.prototype as unknown as { animate: unknown }).animate = fn;
   return calls;
 };
+/** 終わりと取り消しを試験から決められる animate。呼ばれた順に並ぶ。 */
+const controlledAnimate = () => {
+  const made: { frames: Keyframe[]; resolve: () => void; reject: () => void }[] = [];
+  (HTMLElement.prototype as unknown as { animate: unknown }).animate = (frames: Keyframe[]) => {
+    let resolve!: () => void; let reject!: () => void;
+    const finished = new Promise<void>((res, rej) => { resolve = res; reject = () => rej(new DOMException('cancelled', 'AbortError')); });
+    made.push({ frames, resolve, reject });
+    return { finished, cancel: vi.fn() };
+  };
+  return made;
+};
+/** 終わりや取り消しを起こし、その後始末（Promise の続き）が走り終えるのを待つ。 */
+const settle = async (fn: () => void) => { fn(); for (let i = 0; i < 5; i++) await Promise.resolve(); };
 beforeEach(() => {
   values = {};
   vi.spyOn(window, 'getComputedStyle').mockImplementation(() => ({ getPropertyValue: (n: string) => values[n] ?? '' }) as CSSStyleDeclaration);
@@ -77,6 +90,78 @@ describe('motionKit', () => {
     fakeAnimate();
     await collapseOut(el);
     expect(el.style.overflow).toBe('hidden');
+  });
+  it('伸びるだけの箱は、伸びる間だけはみ出しを隠し、終わったら元の指定に戻す', async () => {
+    tokens('100ms');
+    const ctl = controlledAnimate();
+    const el = document.createElement('div');
+    el.style.overflow = 'auto';
+    growIn(el);
+    expect(el.style.overflow).toBe('hidden');
+    await settle(() => ctl[0]!.resolve());
+    expect(el.style.overflow).toBe('auto');
+  });
+  // 畳み終えて隠したまま置いた箱（FoldBox の keep、ホームの引き出し）を開き直したとき。畳んだときの hidden を元の指定と取り違えない。
+  it('畳み終えた箱を伸ばすと、伸び終わりで畳む前の指定に戻す', async () => {
+    tokens('100ms');
+    const ctl = controlledAnimate();
+    const el = document.createElement('div');
+    el.style.overflow = 'auto';
+    const closed = collapseOut(el);
+    await settle(() => ctl[0]!.resolve());
+    await closed;
+    expect(el.style.overflow).toBe('hidden');
+    growIn(el);
+    expect(el.style.overflow).toBe('hidden');
+    await settle(() => ctl[1]!.resolve());
+    expect(el.style.overflow).toBe('auto');
+  });
+  // 畳む途中で開き直したとき。取り消した畳みの後始末は非同期に遅れて届くので、伸びている最中の hidden を外さない。
+  it('畳む途中で取り消した後始末が伸びる途中に届いても、伸び終わるまで hidden のまま。終わったら元の指定に戻す', async () => {
+    tokens('100ms');
+    const ctl = controlledAnimate();
+    const el = document.createElement('div');
+    el.style.overflow = 'auto';
+    void collapseOut(el);
+    growIn(el);
+    await settle(() => ctl[0]!.reject());
+    expect(el.style.overflow).toBe('hidden');
+    await settle(() => ctl[1]!.resolve());
+    expect(el.style.overflow).toBe('auto');
+  });
+  it('伸びる途中で畳み始めたら、伸びの後始末は畳みの hidden を外さない', async () => {
+    tokens('100ms');
+    const ctl = controlledAnimate();
+    const el = document.createElement('div');
+    growIn(el);
+    void collapseOut(el);
+    await settle(() => ctl[0]!.resolve());
+    expect(el.style.overflow).toBe('hidden');
+  });
+  it('動かない環境で伸ばすときは、畳んで残した hidden を元の指定に戻す', async () => {
+    tokens('100ms');
+    const ctl = controlledAnimate();
+    const el = document.createElement('div');
+    el.style.overflow = 'auto';
+    const closed = collapseOut(el);
+    await settle(() => ctl[0]!.resolve());
+    await closed;
+    tokens('0ms');
+    expect(growIn(el)).toBeNull();
+    expect(el.style.overflow).toBe('auto');
+  });
+  it('伸びる形に今の形（shapeNow）を渡すと、0 からでなくその形から伸ばす。途中からなのでぼかしは掛けない', () => {
+    tokens('100ms');
+    values = { ...values, opacity: '0.5', 'padding-top': '3px', 'padding-bottom': '0px', 'margin-top': '0px', 'margin-bottom': '0px' };
+    const calls = fakeAnimate();
+    const el = document.createElement('div');
+    el.getBoundingClientRect = () => ({ width: 200, height: 30 }) as DOMRect;
+    const now = shapeNow(el);
+    expect(now).toEqual({ height: '30px', opacity: '0.5', paddingTop: '3px', paddingBottom: '0px', marginTop: '0px', marginBottom: '0px' });
+    growIn(el, 'y', now);
+    expect(calls[0]!.frames[0]).toEqual(now);
+    for (const f of calls[0]!.frames) expect(String(f.filter ?? 'none')).toBe('none');
+    expect(calls[0]!.frames.at(-1)).toMatchObject({ opacity: 1 });
   });
   it('伸びて入る形は、その向きの余白（padding と margin）も 0 から今の値へ伸ばす', () => {
     tokens('100ms');

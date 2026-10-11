@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ProjectRailSection } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { ProjectProps } from '../presenters/project.ts';
@@ -7,6 +7,8 @@ import { InstructionsPanel } from './InstructionsPanel.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { ProjectInfo } from './ProjectInfo.tsx';
 import { FoldBox } from './primitives/FoldBox.tsx';
+import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
+import { usePresence } from './primitives/usePresence.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { StatusSelect } from './primitives/StatusSelect.tsx';
@@ -44,6 +46,8 @@ function RailSection(props: { section: ProjectRailSection; title: string; aside?
  * 左は、ホームと同じ部品（ステータスのタブ、検索の欄、平らな行、ページ送り）で、このプロジェクトのセッションだけを出す。
  * 右パネルは TODO（見出しに確認待ちの数）、指示とメモリ、アーティファクトで、パネルごと閉じられ、節ごとにも折りたためる。
  * 画面は窓の高さに収め、左の一覧が残りの高さを受け取り、右パネルは 1 本でスクロールする（workbench.css）。
+ * 右パネルの開閉は、セッション画面の右の列と同じ動き（paneMotion）で、右の列の幅を縮め（広げ）て左の一覧を滑らかに広げる（戻す）。
+ * 閉じる間は中身を描き続け、薄れてから外す。開閉の形は画面の中だけで持ち、覚えない。
  * 見出しの (i) に、場所、セッションの数、最後の活動と、場所や名前を直す操作を置く。
  * スクラッチの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
  */
@@ -51,10 +55,20 @@ export function ProjectScreen(props: ProjectProps) {
   const emit = useEmit();
   const t = useT();
   const [railOpen, setRailOpen] = useState(true);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const pane = usePresence<HTMLElement>(railOpen, (inner) => (boxRef.current ? playPaneMotion(boxRef.current, PANE_SHAPE.rail.open, inner, false) : null));
+  const paneFirst = useRef(true);
+  useLayoutEffect(() => {
+    if (paneFirst.current) { paneFirst.current = false; return; }
+    if (railOpen && boxRef.current) void playPaneMotion(boxRef.current, PANE_SHAPE.rail.closed, pane.ref.current, true);
+    // 開閉が替わったときだけ動かす。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [railOpen]);
   if (props.notFound) return <div className="screen"><div className="empty">{t('projectScreen.page.notFound')}</div></div>;
   const loadMore = props.loadMore ? { ...props.loadMore, onLoad: () => emit({ type: 'search.more' }) } : undefined;
   return (
-    <div className="screen project-screen screen-fill" data-rail={railOpen ? 'open' : 'closed'}>
+    <div ref={boxRef} className="screen project-screen screen-fill" data-rail={railOpen ? 'open' : 'closed'}
+      style={{ gridTemplateColumns: railOpen ? PANE_SHAPE.rail.open.cols : PANE_SHAPE.rail.closed.cols, columnGap: railOpen ? undefined : PANE_SHAPE.rail.closed.gap }}>
       <div className="project-main">
         <PageHeading title={props.name} parent={props.parent}>
           {!props.isScratch && <StatusSelect label={t('projectScreen.status.label')} value={props.status} onChange={(status) => emit({ type: 'project.setStatus', id: props.id, status })} />}
@@ -76,9 +90,11 @@ export function ProjectScreen(props: ProjectProps) {
         </div>
         <SessionList {...props.list} projectFixed loadMore={loadMore} empty={props.list.allCount === 0 && props.list.total === 0 && props.list.mode === 'all' ? <div className="empty">{t('projectScreen.list.empty')}</div> : undefined} />
       </div>
-      {railOpen && (
+      {/* 右の列。閉じると幅 0 になり、中身（.rail）は閉じる動きが終わってから外す。 */}
+      <div className="rail-slot" data-leaving={pane.leaving ? 'true' : undefined}>
+      {pane.mounted && (
         // プロジェクトが替わったら作り直す。覚えた折りたたみの形でそのまま出し（開閉の動きを出さない）、スクロールも先頭から始める。
-        <aside key={props.id} className="rail">
+        <aside key={props.id} ref={(el) => { pane.ref.current = el; }} className="rail">
           <RailSection section="todo" title={t('projectScreen.rail.todo')} folded={props.railFolded} projectId={props.id}
             aside={<><span className="rail-n num"><RollingNumber value={props.todos.length} /></span>{props.pendingTodos > 0 && <span className="sessions-tab-n" data-hot="true">{t('projectScreen.rail.pending', { n: props.pendingTodos })}</span>}</>}>
             <TodoList projectId={props.id} todos={props.todos} done={props.doneTodos} suggestions={props.suggestions} />
@@ -92,6 +108,7 @@ export function ProjectScreen(props: ProjectProps) {
           </RailSection>
         </aside>
       )}
+      </div>
     </div>
   );
 }
