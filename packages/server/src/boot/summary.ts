@@ -1,5 +1,7 @@
 import type { SummaryApi } from '../http/deps.ts';
 import { runAnnouncer } from '../runs/announce.ts';
+import { AUTO_DONE_POLL_MS, AutoDoneWatch, autoDoneCandidates, summaryCandidates } from '../sessions/autoDone.ts';
+import { markAutoDone } from '../sessions/states.ts';
 import { SummaryJob } from '../summary/job.ts';
 import { RUN_ENDED_SUMMARY_OPTS, SummarizerSet } from '../summary/summarizers.ts';
 import { flushOnRunEnded } from '../sync/flushOnRunEnd.ts';
@@ -19,6 +21,10 @@ export type SummaryParts = {
    * 新しい受け付けは HTTP も run の終了も止まった後なので、待ち行列はもう増えない。
    */
   stop(ms: number): Promise<void>;
+  /** 止まったセッションを自動で Done にする見回りを始める。実行中の一覧と run の後始末が済んでから呼ぶ。 */
+  startAutoDone(): void;
+  /** 自動の Done の見回りを止める。 */
+  stopAutoDone(): void;
 };
 
 /**
@@ -38,6 +44,17 @@ export function bootSummary(
   runs.runs.on(runAnnouncer({ db, hub: delivery.hub, onEnded: (run) => { summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); } }));
   // RunManager.on は listener を足せるので、上の登録はそのまま残して 2 つ目として足す。
   runs.runs.on({ runEnded: flushOnRunEnded({ db, uploader: sync.uploader }) });
+  // 止まったセッションを自動で Done にする（sessions/autoDone.ts）。
+  // 外で起こした長いものの事後要約は、このサーバが起きてから止まったものだけに回す。
+  const bootedAt = Date.now();
+  const liveProviderIds = () => new Set(delivery.registry.current().map((l) => l.sessionId));
+  const autoDone = new AutoDoneWatch({
+    candidates: () => autoDoneCandidates(db, home.device.id, { liveProviderIds: liveProviderIds(), pending: new Set(summary.pending()), now: Date.now() }),
+    mark: (id) => markAutoDone(db, home.device.id, id),
+    toSummarize: () => summaryCandidates(db, home.device.id, { liveProviderIds: liveProviderIds(), since: bootedAt }),
+    enqueue: (id) => { summary.enqueue(id); },
+  });
+  let autoDoneTimer: ReturnType<typeof setInterval> | null = null;
   return {
     api: {
       enqueue: (id, opts) => summary.enqueue(id, opts),
@@ -46,6 +63,18 @@ export function bootSummary(
       listModels: summarizers.listModels,
     },
     rebuildClaude: () => summarizers.rebuildClaude(),
+    startAutoDone() {
+      autoDoneTimer = setInterval(() => {
+        try {
+          const marked = autoDone.tick();
+          if (marked.length) console.log(`[auto-done] 止まったセッションを ${marked.length} 件 Done にしました`);
+        } catch (e) {
+          console.error('[auto-done]', e instanceof Error ? e.message : e);
+        }
+      }, AUTO_DONE_POLL_MS);
+      autoDoneTimer.unref();
+    },
+    stopAutoDone() { if (autoDoneTimer) clearInterval(autoDoneTimer); },
     async stop(ms) {
       if (!(await waitForSummaryIdle(summary, ms))) {
         console.warn(`[summary] 要約の終了を ${ms} ミリ秒待ちましたが終わらないので、待たずに閉じます`);
