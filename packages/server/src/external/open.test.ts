@@ -76,14 +76,35 @@ describe('openInTerminalApp', () => {
     expect(r.app).toBe('terminal');
     expect(fs.readFileSync(calls[0]!.args[3]!, 'utf8')).toContain("cd '/w/alpha'");
   });
-  it('ディレクトリを開くとき、iterm と .command は同じ shell の決め方を使う', async () => {
-    // 同じ操作なのに経路で違う shell が立ち上がらないようにする。
-    // $SHELL を見て、無ければ同じ既定に落ちる。引用符で包んでパスの空白でも割れないようにする。
-    await openDirInTerminalApp({ home, dir: '/w/alpha', app: 'iterm', exec: exec() });
+  it('ディレクトリを開くとき、iterm は cd を書いた .command を実行させる（シェルの構文を直に渡さない）', async () => {
+    // iTerm2 は command を語に割って起こすだけで、シェルを通さない。
+    // 「cd … && exec …」を直に渡すと cd が実行ファイルとして起こされ、窓ごと開かない。
+    await openDirInTerminalApp({ home, dir: "/w/al pha/it's", app: 'iterm', exec: exec() });
     const script = calls[0]!.args[1]!;
     const command = JSON.parse(script.split('create window with default profile command ')[1]!.split('\n')[0]!) as string;
-    expect(command).toBe(`cd '/w/alpha' && exec "\${SHELL:-/bin/zsh}" -l`);
-    expect(fs.readFileSync(writeCdCommand(home, '/w/alpha'), 'utf8')).toBe(`#!/usr/bin/env bash\n${command}\nexit\n`);
+    const file = writeCdCommand(home, "/w/al pha/it's");
+    expect(command).toBe(`'${file}'`);
+    expect(command).not.toContain('&&');
+    // .command は Terminal.app の経路と同じもので、shell の決め方も同じ。
+    expect(fs.readFileSync(file, 'utf8')).toBe(`#!/usr/bin/env bash\ncd '/w/al pha/it'\\''s' && exec "\${SHELL:-/bin/zsh}" -l\nexit\n`);
+  });
+  it('iterm が窓を作れなかったとき（osascript が missing value を返す）も Terminal.app に落とす', async () => {
+    const failing: Exec = async (cmd, args) => {
+      calls.push({ cmd, args });
+      return { code: 0, stdout: cmd === 'osascript' ? 'missing value\n' : '', stderr: '' };
+    };
+    const r = await openDirInTerminalApp({ home, dir: '/w/alpha', app: 'iterm', exec: failing });
+    expect(r).toEqual({ app: 'terminal', fellBack: true });
+    expect(calls.map((c) => c.cmd)).toEqual(['osascript', 'open']);
+  });
+  it('iterm の窓が作れたとき（window id を返す）は落とさない', async () => {
+    const ok: Exec = async (cmd, args) => {
+      calls.push({ cmd, args });
+      return { code: 0, stdout: 'window id 20104\n', stderr: '' };
+    };
+    const r = await openDirInTerminalApp({ home, dir: '/w/alpha', app: 'iterm', exec: ok });
+    expect(r).toEqual({ app: 'iterm', fellBack: false });
+    expect(calls.map((c) => c.cmd)).toEqual(['osascript']);
   });
 });
 
