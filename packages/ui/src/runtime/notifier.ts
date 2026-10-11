@@ -6,6 +6,19 @@ export type NotifyPermission = 'granted' | 'denied' | 'undetermined' | 'unsuppor
 const PERMISSIONS: readonly string[] = ['granted', 'denied', 'undetermined', 'unsupported'];
 
 /**
+ * 知らせの種類。入力待ちと、Paused の戻る時刻を過ぎた知らせである。
+ * 種類ごとに通知の枠（macOS の識別子、Windows のタグと組、ブラウザの tag）を分ける。
+ * 同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである。
+ */
+export type NotifyKind = 'waiting' | 'return';
+
+/**
+ * 通知センターに残してよい知らせの顔ぶれ（mediator/notify.ts の notifyKeep）。
+ * waiting はいま入力待ちのセッション、returning は今日の戻る時刻を過ぎてまだ Paused のセッションである。
+ */
+export type NotifyKeep = { waiting: string[]; returning: string[] };
+
+/**
  * 窓の外へ入力待ちを知らせる口。
  * デスクトップの殻（Tauri）では macOS の通知と Dock のバッジ、ブラウザでは Web Notification とアプリのバッジを使う。
  * どちらも無い環境では、ランタイムは通知を出さず、右下のカードとサイドバーの数だけで知らせる。
@@ -48,7 +61,12 @@ export type Notifier = {
    * デスクトップでは頁では決めず、いつも true を返す。殻の notify_waiting が窓の実物の様子を見て決める。
    */
   background(): boolean;
-  show(n: { sessionId: string; title: string; body: string }): void;
+  show(n: { sessionId: string; title: string; body: string; kind: NotifyKind }): void;
+  /**
+   * 残してよい顔ぶれに無い知らせを、通知センターから外す。
+   * 答えた入力待ちや、前の起動の間に出した知らせが残り続けないようにする。
+   */
+  prune(keep: NotifyKeep): void;
   /**
    * 入力待ちの数をバッジに出す。
    * 0 で消す。
@@ -100,7 +118,8 @@ export function createDesktopNotifier(env: DesktopEnv): Notifier {
     prepare: () => ask().then(() => {}),
     status: () => invoke('notify_status', undefined).then((r) => (typeof r === 'string' && PERMISSIONS.includes(r) ? (r as NotifyPermission) : 'undetermined'), () => 'undetermined' as const),
     background: () => true,
-    show: (n) => { invoke('notify_waiting', { sessionId: n.sessionId, title: n.title, body: n.body }).catch(() => {}); },
+    show: (n) => { invoke('notify_waiting', { sessionId: n.sessionId, title: n.title, body: n.body, kind: n.kind }).catch(() => {}); },
+    prune: (keep) => { invoke('notify_prune', { waiting: keep.waiting, returning: keep.returning }).catch(() => {}); },
     badge: (count) => { invoke('plugin:window|set_badge_count', { value: count > 0 ? count : null }).catch(() => {}); },
     onOpen: (cb) => {
       env.__hangarOpenWaiting = cb;
@@ -129,6 +148,8 @@ export type BrowserEnv = {
 export function createBrowserNotifier(env: BrowserEnv): Notifier {
   let open: ((sessionId: string) => void) | null = null;
   const N = env.Notification;
+  /** 出した知らせ。tag ごとに最後の 1 つを持ち、残してよい顔ぶれから外れたら閉じる。 */
+  const shown = new Map<string, { kind: NotifyKind; sessionId: string; note: WebNotification }>();
   return {
     defaultOn: false,
     available: () => !!N && N.permission !== 'denied',
@@ -143,9 +164,19 @@ export function createBrowserNotifier(env: BrowserEnv): Notifier {
     background: () => inBackground(env.document),
     show: (n) => {
       if (!N || N.permission !== 'granted') return;
-      // 同じセッションの知らせは tag で 1 つにまとめる。
-      const note = new N(n.title, { body: n.body, tag: `hangar-waiting-${n.sessionId}` });
-      note.onclick = () => { env.focus(); open?.(n.sessionId); note.close(); };
+      // 同じセッションの同じ種類の知らせは tag で 1 つにまとめる。種類が違えば別の tag にする。
+      const tag = `hangar-${n.kind}-${n.sessionId}`;
+      const note = new N(n.title, { body: n.body, tag });
+      shown.set(tag, { kind: n.kind, sessionId: n.sessionId, note });
+      note.onclick = () => { env.focus(); open?.(n.sessionId); note.close(); shown.delete(tag); };
+    },
+    prune: (keep) => {
+      const kept = { waiting: new Set(keep.waiting), return: new Set(keep.returning) };
+      for (const [tag, s] of shown) {
+        if (kept[s.kind].has(s.sessionId)) continue;
+        s.note.close();
+        shown.delete(tag);
+      }
     },
     badge: (count) => {
       const nav = env.navigator;

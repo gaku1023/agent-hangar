@@ -834,7 +834,7 @@ fn spawn_boot(app: AppHandle) -> bool {
     true
 }
 
-// ここから下の 5 つと、入力待ちの知らせの 3 つ（notify_waiting、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
+// ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
 // pick_folder と boot_probe のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 
@@ -1285,8 +1285,9 @@ fn watch_swipe_phase(app: &AppHandle) {
 #[cfg(not(target_os = "macos"))]
 fn watch_swipe_phase(_app: &AppHandle) {}
 
-/// 入力待ちの通知を出す。
-/// 頁（UI）は、入力待ちになったときと、その問いの文が後から届いたときに呼ぶ。
+/// 入力待ちと、戻る時刻を過ぎた知らせの通知を出す。
+/// 頁（UI）は、入力待ちになったときと、その問いの文が後から届いたとき、戻る時刻を過ぎたときに呼ぶ。
+/// 種類（kind）は waiting か return で、種類ごとに通知の枠を分ける（notify::Kind）。渡さなければ入力待ちとみなす。
 /// 窓が前にあるかは、頁ではなくここで窓の実物の様子から決め、前にあれば出さない（notify::window_in_front）。
 /// 値は頁から来るので、notify::waiting で確かめてから OS に渡す。
 #[tauri::command]
@@ -1295,10 +1296,12 @@ fn notify_waiting(
     session_id: String,
     title: String,
     body: String,
+    kind: Option<String>,
 ) -> Result<(), String> {
+    let kind = notify::Kind::parse(kind.as_deref())?;
     // 題や本文が空のときの代わりの文は、殻の頁と同じ言語で書く。
     let lang = bootfail::page_language(&paths::hangar_home());
-    let w = notify::waiting(&session_id, &title, &body, lang)?;
+    let w = notify::waiting(kind, &session_id, &title, &body, lang)?;
     if let Some(win) = app.get_webview_window("main") {
         let visible = win.is_visible().unwrap_or(false);
         let minimized = win.is_minimized().unwrap_or(false);
@@ -1313,6 +1316,15 @@ fn notify_waiting(
     }
     notify::show(&w);
     Ok(())
+}
+
+/// もう待っていないセッションの知らせを、通知センターから外す。
+/// 頁は、いま入力待ちのセッション（waiting）と、今日の戻る時刻を過ぎてまだ Paused のセッション（returning）を渡す。
+/// 頁が呼ぶのは、その顔ぶれが変わったときと、起動して一覧を読み終えたときである。
+/// 窓が前にあっても外す（答えた入力待ちの知らせを通知センターに残さない）。
+#[tauri::command]
+fn notify_prune(waiting: Vec<String>, returning: Vec<String>) {
+    notify::prune(notify::Keep::new(&waiting, &returning));
 }
 
 /// 通知の許可を求め、許されたかを返す。
@@ -1528,6 +1540,7 @@ pub fn run() {
             restart_app,
             retry_boot,
             notify_waiting,
+            notify_prune,
             notify_request,
             notify_status,
             apply_config_sync,

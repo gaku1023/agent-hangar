@@ -5,9 +5,13 @@
 //! 頁の値はここで確かめてから OS に渡す。
 //! 頁は remote の頁なので、中身をそのまま信じない。
 
+use std::collections::HashSet;
+
 /// 通知の識別子の頭。
-/// 押されたときに、どのセッションの通知かをここから読み戻す。
-const ID_PREFIX: &str = "hangar-waiting:";
+/// 押されたときに、どのセッションの、どの種類の通知かをここから読み戻す。
+/// 入力待ちの頭は前の版と同じにしてある。前の版が出した通知を押しても、同じセッションが開く。
+const WAITING_PREFIX: &str = "hangar-waiting:";
+const RETURN_PREFIX: &str = "hangar-return:";
 /// 題と本文の長さの上限（文字数）。
 /// 通知は 2 行ほどしか見せないので、長い問いは切る。
 const TITLE_MAX: usize = 120;
@@ -16,12 +20,97 @@ const BODY_MAX: usize = 240;
 /// hangar の id は UUID（36 文字）である。
 const ID_MAX: usize = 64;
 
+/// 知らせの種類。
+/// 入力待ちと、Paused の戻る時刻を過ぎた知らせである。
+/// 種類ごとに通知の枠（macOS の識別子、Windows のタグと組）を分ける。
+/// 同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Waiting,
+    Return,
+}
+
+impl Kind {
+    /// 頁が渡す種類の名前を読む。
+    /// 名前の無いもの（種類を渡さない前の版の頁）は入力待ちとみなす。
+    pub fn parse(name: Option<&str>) -> Result<Kind, String> {
+        match name {
+            None | Some("waiting") => Ok(Kind::Waiting),
+            Some("return") => Ok(Kind::Return),
+            Some(_) => Err("invalid notification kind".to_string()),
+        }
+    }
+
+    fn prefix(self) -> &'static str {
+        match self {
+            Kind::Waiting => WAITING_PREFIX,
+            Kind::Return => RETURN_PREFIX,
+        }
+    }
+}
+
 /// 確かめ終えた通知の中身。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Waiting {
+    pub kind: Kind,
     pub session_id: String,
     pub title: String,
     pub body: String,
+}
+
+/// 通知センターに残してよい知らせ。
+/// 頁が、いま入力待ちのセッションと、今日の戻る時刻を過ぎてまだ Paused のセッションを渡す。
+/// ここに無いセッションの知らせは、通知センターから外す（`prune`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Keep {
+    waiting: HashSet<String>,
+    returning: HashSet<String>,
+}
+
+impl Keep {
+    /// 頁から届いた id の並びから作る。
+    /// 頁の値なので、id の形でないものは捨てる（そういう id の通知は出していない）。
+    pub fn new(waiting: &[String], returning: &[String]) -> Keep {
+        let plain = |ids: &[String]| -> HashSet<String> {
+            ids.iter().filter(|id| valid_id(id)).cloned().collect()
+        };
+        Keep {
+            waiting: plain(waiting),
+            returning: plain(returning),
+        }
+    }
+
+    fn set(&self, kind: Kind) -> &HashSet<String> {
+        match kind {
+            Kind::Waiting => &self.waiting,
+            Kind::Return => &self.returning,
+        }
+    }
+
+    /// その種類の、そのセッションの知らせを残すか。
+    pub fn holds(&self, kind: Kind, session_id: &str) -> bool {
+        self.set(kind).contains(session_id)
+    }
+
+    /// 出したばかりの知らせを、次の一覧が届くまで残すものに足す。
+    pub fn insert(&mut self, kind: Kind, session_id: &str) {
+        let set = match kind {
+            Kind::Waiting => &mut self.waiting,
+            Kind::Return => &mut self.returning,
+        };
+        set.insert(session_id.to_string());
+    }
+}
+
+/// macOS の通知センターに届いている通知の識別子から、外すものを選ぶ。
+/// hangar の識別子で、残すものに無いものだけを返す。
+/// hangar の識別子でないものには触らない。
+pub fn stale_identifiers(delivered: &[String], keep: &Keep) -> Vec<String> {
+    delivered
+        .iter()
+        .filter(|id| parse_identifier(id).is_some_and(|(kind, s)| !keep.holds(kind, s)))
+        .cloned()
+        .collect()
 }
 
 /// セッションの id として受け取れるか。
@@ -64,12 +153,20 @@ fn fallbacks(lang: &str) -> (&'static str, &'static str) {
 /// id が変なら断る。
 /// 題が空なら名前の無いセッションとして、本文が空なら問いの取れなかった入力待ちとして出す。
 /// 代わりの文の言語は殻の頁と同じ（`bootfail::page_language` の ja か en）。en のほかは日本語にする。
-pub fn waiting(session_id: &str, title: &str, body: &str, lang: &str) -> Result<Waiting, String> {
+/// 戻る時刻の知らせは、頁がいつも本文（時刻とメモ）を入れて渡す。
+pub fn waiting(
+    kind: Kind,
+    session_id: &str,
+    title: &str,
+    body: &str,
+    lang: &str,
+) -> Result<Waiting, String> {
     if !valid_id(session_id) {
         return Err("invalid session id".to_string());
     }
     let (no_title, no_body) = fallbacks(lang);
     Ok(Waiting {
+        kind,
         session_id: session_id.to_string(),
         title: tidy(title, TITLE_MAX, no_title),
         body: tidy(body, BODY_MAX, no_body),
@@ -111,15 +208,28 @@ fn owns_foreground_window(
 }
 
 /// 通知の識別子。
-/// 同じセッションの通知は同じ識別子になり、新しい方が古い方と置き換わる。
-pub fn identifier(session_id: &str) -> String {
-    format!("{ID_PREFIX}{session_id}")
+/// 同じセッションの同じ種類の通知は同じ識別子になり、新しい方が古い方と置き換わる。
+/// 種類が違えば識別子も違うので、戻る時刻の知らせが入力待ちの知らせを消さない。
+pub fn identifier(kind: Kind, session_id: &str) -> String {
+    format!("{}{session_id}", kind.prefix())
+}
+
+/// 通知の識別子から、種類とセッションの id を読み戻す。
+/// hangar の通知でなければ `None`。
+pub fn parse_identifier(identifier: &str) -> Option<(Kind, &str)> {
+    [Kind::Waiting, Kind::Return].into_iter().find_map(|kind| {
+        identifier
+            .strip_prefix(kind.prefix())
+            .filter(|id| valid_id(id))
+            .map(|id| (kind, id))
+    })
 }
 
 /// 押された通知の識別子から、セッションの id を読み戻す。
+/// どちらの種類の通知でも、そのセッションを開く。
 /// hangar の通知でなければ `None`。
 pub fn session_of(identifier: &str) -> Option<&str> {
-    identifier.strip_prefix(ID_PREFIX).filter(|id| valid_id(id))
+    parse_identifier(identifier).map(|(_, id)| id)
 }
 
 /// 押された通知のセッションを頁で開く JavaScript。
@@ -152,7 +262,7 @@ pub fn status_name(raw: Option<isize>) -> &'static str {
 mod toast {
     #![cfg_attr(not(windows), allow(dead_code))]
 
-    use super::{identifier, Waiting};
+    use super::{identifier, Keep, Kind, Waiting};
     use std::time::{Duration, Instant};
 
     /// トーストを出す相手のアプリの名前（AppUserModelID）。
@@ -160,8 +270,10 @@ mod toast {
     pub const APP_ID: &str = "dev.agent-hangar.hangar";
     /// トーストの頭に出るアプリの名前（tauri.conf.json の productName）。
     pub const DISPLAY_NAME: &str = "Hangar";
-    /// hangar のトーストをまとめる組の名前。
-    pub const TOAST_GROUP: &str = "hangar-waiting";
+    /// hangar のトーストをまとめる組の名前。種類ごとに分ける。
+    /// 入力待ちの組は前の版と同じ名前で、前の版は戻る時刻の知らせもこの組に入れていた。
+    const WAITING_GROUP: &str = "hangar-waiting";
+    const RETURN_GROUP: &str = "hangar-return";
     /// アプリが閉じている間に押されたトーストを受け取る COM の口の CLSID。
     /// 値は一度だけ作って固定した。
     /// 変えると、前の版が出したトーストを押しても、この版へ届かなくなる。
@@ -195,17 +307,43 @@ mod toast {
             "<toast launch=\"{}\" activationType=\"foreground\">\
              <visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual>\
              </toast>",
-            xml_escape(&identifier(&w.session_id)),
+            xml_escape(&identifier(w.kind, &w.session_id)),
             xml_escape(&w.title),
             xml_escape(&w.body)
         )
     }
 
     /// トーストのタグ。
-    /// 同じセッションのトーストは同じタグになり、新しい方が古い方と置き換わる（macOS の識別子と同じ扱い）。
+    /// Windows はタグと組の対が同じトーストを置き換える。
+    /// 同じセッションの同じ種類のトーストは同じ対になり、新しい方が古い方と置き換わる（macOS の識別子と同じ扱い）。
     /// Windows のタグは 64 文字までで、セッションの id は `ID_MAX`（64 文字）までなので、id をそのまま使う。
     pub fn toast_tag(session_id: &str) -> String {
         session_id.to_string()
+    }
+
+    /// トーストの組。
+    /// 種類ごとに組を分け、戻る時刻のトーストが同じセッションの入力待ちのトーストを置き換えないようにする。
+    pub fn toast_group(kind: Kind) -> &'static str {
+        match kind {
+            Kind::Waiting => WAITING_GROUP,
+            Kind::Return => RETURN_GROUP,
+        }
+    }
+
+    fn kind_of_group(group: &str) -> Option<Kind> {
+        [Kind::Waiting, Kind::Return]
+            .into_iter()
+            .find(|k| toast_group(*k) == group)
+    }
+
+    /// 通知センターの履歴（タグと組の対）から、外すトーストを選ぶ。
+    /// 履歴は hangar の AppUserModelID のものだけなので、知らない組のトーストも hangar の古い版が出したものとして外す。
+    pub fn stale_toasts(history: &[(String, String)], keep: &Keep) -> Vec<(String, String)> {
+        history
+            .iter()
+            .filter(|(tag, group)| kind_of_group(group).is_none_or(|k| !keep.holds(k, tag)))
+            .cloned()
+            .collect()
     }
 
     /// アプリの名前と、押されたトーストを受け取る COM の口を Windows に知らせる登録の場所（HKEY_CURRENT_USER の下）。
@@ -282,10 +420,10 @@ mod toast {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{install, request, show, status};
+pub use mac::{install, prune, request, show, status};
 
 #[cfg(windows)]
-pub use win::{install, request, show, status};
+pub use win::{install, prune, request, show, status};
 
 /// macOS と Windows の外では通知を出さない。
 /// 殻はこの 2 つの OS 向けにしか作らないが、型を揃えておく。
@@ -301,6 +439,8 @@ pub fn status(done: impl FnOnce(Option<isize>) + Send + 'static) {
 }
 #[cfg(not(any(target_os = "macos", windows)))]
 pub fn show(_w: &Waiting) {}
+#[cfg(not(any(target_os = "macos", windows)))]
+pub fn prune(_keep: Keep) {}
 
 /// Windows のトーストを WinRT（Windows.UI.Notifications）で出し、押されたものを受け取る。
 /// tauri-plugin-notification は Windows でも押されたトーストを返さない（出した後の受け口を捨てる）ので、ここで直に呼ぶ。
@@ -314,9 +454,10 @@ pub fn show(_w: &Waiting) {}
 mod win {
     use super::toast::{
         activator_clsid, app_id_key, first_open, installed_exe, server_command, server_key,
-        setting_status, toast_tag, toast_xml, ACTIVATOR_CLSID, APP_ID, DISPLAY_NAME, TOAST_GROUP,
+        setting_status, stale_toasts, toast_group, toast_tag, toast_xml, ACTIVATOR_CLSID, APP_ID,
+        DISPLAY_NAME,
     };
-    use super::{session_of, Waiting};
+    use super::{identifier, parse_identifier, session_of, Keep, Waiting};
     use std::collections::HashMap;
     use std::ffi::c_void;
     use std::sync::{LazyLock, Mutex, OnceLock};
@@ -351,7 +492,7 @@ mod win {
     /// 最後に開いたセッションと時刻（同じ押下を 2 度開かないため）。
     static LAST_OPEN: Mutex<Option<(String, Instant)>> = Mutex::new(None);
     /// 出したトースト。
-    /// Activated の受け口が生きているよう、セッションごとに最後の 1 つを持っておく。
+    /// Activated の受け口が生きているよう、セッションと種類ごと（識別子ごと）に最後の 1 つを持っておく。
     static TOASTS: LazyLock<Mutex<HashMap<String, ToastNotification>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
     /// 通知センターの頭に出す絵。
@@ -555,7 +696,7 @@ mod win {
         doc.LoadXml(&HSTRING::from(toast_xml(w)))?;
         let toast = ToastNotification::CreateToastNotification(&doc)?;
         toast.SetTag(&HSTRING::from(toast_tag(&w.session_id)))?;
-        toast.SetGroup(&HSTRING::from(TOAST_GROUP))?;
+        toast.SetGroup(&HSTRING::from(toast_group(w.kind)))?;
         toast.Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(
             |_sender, args: Ref<'_, IInspectable>| {
                 if let Some(args) = args.as_ref() {
@@ -567,7 +708,7 @@ mod win {
         ))?;
         notifier()?.Show(&toast)?;
         if let Ok(mut toasts) = TOASTS.lock() {
-            toasts.insert(w.session_id.clone(), toast);
+            toasts.insert(identifier(w.kind, &w.session_id), toast);
         }
         Ok(())
     }
@@ -586,30 +727,68 @@ mod win {
             Err(e) => crate::log(&format!("toast not shown: {e}")),
         }
     }
+
+    /// 通知センターの履歴から、残すものに無いトーストを外す。
+    /// 履歴は hangar の AppUserModelID のものだけを読む。
+    /// 外した数を 1 行残す。
+    fn remove_stale(keep: &Keep) -> Result<usize> {
+        let app = HSTRING::from(APP_ID);
+        let history = ToastNotificationManager::History()?;
+        let mut shown = Vec::new();
+        for toast in &history.GetHistoryWithId(&app)? {
+            shown.push((toast.Tag()?.to_string(), toast.Group()?.to_string()));
+        }
+        let stale = stale_toasts(&shown, keep);
+        for (tag, group) in &stale {
+            history.RemoveGroupedTagWithId(&HSTRING::from(tag), &HSTRING::from(group), &app)?;
+        }
+        Ok(stale.len())
+    }
+
+    /// もう待っていないセッションのトーストを、通知センターから外す。
+    /// 頁は、入力待ちの顔ぶれか今日の戻る時刻を過ぎた顔ぶれが変わるたびと、起動して一覧を読み終えたときに呼ぶ。
+    /// 起動のときは前の起動の間に出したトーストが残っているので、ここで外す。今も待っているものは残し、出し直しはしない。
+    pub fn prune(keep: Keep) {
+        if !installed() {
+            return;
+        }
+        if let Ok(mut toasts) = TOASTS.lock() {
+            toasts.retain(|id, _| parse_identifier(id).is_some_and(|(k, s)| keep.holds(k, s)));
+        }
+        match remove_stale(&keep) {
+            Ok(0) => {}
+            Ok(n) => crate::log(&format!("toasts removed: {n}")),
+            Err(e) => crate::log(&format!("toasts not removed: {e}")),
+        }
+    }
 }
 
 /// UNUserNotificationCenter で通知を出し、押されたものを受け取る。
 /// tauri-plugin-notification はデスクトップでは押された通知を知らせてくれないので、ここで直に呼ぶ。
 #[cfg(target_os = "macos")]
 mod mac {
-    use super::{identifier, session_of, Waiting};
+    use super::{identifier, session_of, stale_identifiers, Keep, Waiting};
     use block2::{DynBlock, RcBlock};
     use objc2::rc::Retained;
     use objc2::runtime::{Bool, NSObject, NSObjectProtocol, ProtocolObject};
     use objc2::{define_class, msg_send, AnyThread};
-    use objc2_foundation::{NSBundle, NSError, NSString};
+    use objc2_foundation::{NSArray, NSBundle, NSError, NSString};
     use objc2_user_notifications::{
-        UNAuthorizationOptions, UNMutableNotificationContent, UNNotificationRequest,
-        UNNotificationResponse, UNNotificationSettings, UNNotificationSound,
+        UNAuthorizationOptions, UNMutableNotificationContent, UNNotification,
+        UNNotificationRequest, UNNotificationResponse, UNNotificationSettings, UNNotificationSound,
         UNUserNotificationCenter, UNUserNotificationCenterDelegate,
     };
     use std::ptr::NonNull;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{LazyLock, Mutex, OnceLock};
 
     type OnOpen = Box<dyn Fn(String) + Send + Sync>;
     /// 押された通知のセッションを渡す先。
     /// install で一度だけ決まる。
     static ON_OPEN: OnceLock<OnOpen> = OnceLock::new();
+    /// 通知センターに残してよい知らせ。
+    /// 頁が最後に渡した一覧に、その後に出した知らせを足したもの。
+    /// 届いている通知の一覧は OS が後から答えるので、その間に出した知らせを、古い一覧で外さないためである。
+    static KEEP: LazyLock<Mutex<Keep>> = LazyLock::new(|| Mutex::new(Keep::default()));
 
     define_class!(
         // SAFETY: NSObject には派生の決まりが無く、この型は Drop を持たない。
@@ -712,6 +891,9 @@ mod mac {
             return;
         }
         let w = w.clone();
+        if let Ok(mut keep) = KEEP.lock() {
+            keep.insert(w.kind, &w.session_id);
+        }
         let deliver = move |granted: bool| {
             if !granted {
                 return;
@@ -721,7 +903,7 @@ mod mac {
             content.setBody(&NSString::from_str(&w.body));
             content.setSound(Some(&UNNotificationSound::defaultSound()));
             let req = UNNotificationRequest::requestWithIdentifier_content_trigger(
-                &NSString::from_str(&identifier(&w.session_id)),
+                &NSString::from_str(&identifier(w.kind, &w.session_id)),
                 &content,
                 None,
             );
@@ -729,6 +911,43 @@ mod mac {
                 .addNotificationRequest_withCompletionHandler(&req, None);
         };
         request(deliver);
+    }
+
+    /// もう待っていないセッションの知らせを、通知センターから外す。
+    /// 頁は、入力待ちの顔ぶれか今日の戻る時刻を過ぎた顔ぶれが変わるたびと、起動して一覧を読み終えたときに呼ぶ。
+    /// 外すのは hangar の識別子の通知だけである。
+    pub fn prune(keep: Keep) {
+        if !bundled() {
+            return;
+        }
+        if let Ok(mut k) = KEEP.lock() {
+            *k = keep;
+        }
+        let block = RcBlock::new(|delivered: NonNull<NSArray<UNNotification>>| {
+            // SAFETY: OS が渡す一覧は、この呼び出しの間は生きている。
+            let delivered = unsafe { delivered.as_ref() };
+            let ids: Vec<String> = (0..delivered.count())
+                .map(|i| {
+                    delivered
+                        .objectAtIndex(i)
+                        .request()
+                        .identifier()
+                        .to_string()
+                })
+                .collect();
+            let stale = match KEEP.lock() {
+                Ok(keep) => stale_identifiers(&ids, &keep),
+                Err(_) => return,
+            };
+            if stale.is_empty() {
+                return;
+            }
+            let stale: Vec<_> = stale.iter().map(|id| NSString::from_str(id)).collect();
+            UNUserNotificationCenter::currentNotificationCenter()
+                .removeDeliveredNotificationsWithIdentifiers(&NSArray::from_retained_slice(&stale));
+        });
+        UNUserNotificationCenter::currentNotificationCenter()
+            .getDeliveredNotificationsWithCompletionHandler(&block);
     }
 }
 
@@ -740,6 +959,7 @@ mod tests {
     #[test]
     fn a_waiting_notification_keeps_the_name_and_question() {
         let w = waiting(
+            Kind::Waiting,
             "0192f0a1-7c3e-7b2d-9f00-aa11bb22cc33",
             "請求書の書き出し",
             "向きはどちらにしますか",
@@ -761,21 +981,24 @@ mod tests {
             "s1\n",
             &"a".repeat(65),
         ] {
-            assert!(waiting(bad, "t", "b", "ja").is_err(), "{bad:?}");
+            assert!(
+                waiting(Kind::Waiting, bad, "t", "b", "ja").is_err(),
+                "{bad:?}"
+            );
         }
-        assert!(waiting("s_1-A", "t", "b", "ja").is_ok());
+        assert!(waiting(Kind::Waiting, "s_1-A", "t", "b", "ja").is_ok());
     }
 
     #[test]
     fn empty_texts_fall_back_to_the_words_the_ui_uses() {
-        let w = waiting("s1", "  ", "", "ja").unwrap();
+        let w = waiting(Kind::Waiting, "s1", "  ", "", "ja").unwrap();
         assert_eq!(w.title, "（名前なし）");
         assert_eq!(w.body, "入力を待っています");
     }
 
     #[test]
     fn empty_texts_fall_back_to_english_in_english() {
-        let w = waiting("s1", "  ", "", "en").unwrap();
+        let w = waiting(Kind::Waiting, "s1", "  ", "", "en").unwrap();
         assert_eq!(w.title, "(No name)");
         assert_eq!(w.body, "Waiting for input");
     }
@@ -783,7 +1006,7 @@ mod tests {
     #[test]
     fn long_texts_are_cut_by_characters_with_an_ellipsis() {
         let long = "あ".repeat(300);
-        let w = waiting("s1", &long, &long, "ja").unwrap();
+        let w = waiting(Kind::Waiting, "s1", &long, &long, "ja").unwrap();
         assert_eq!(w.title.chars().count(), TITLE_MAX);
         assert!(w.title.ends_with('…'));
         assert_eq!(w.body.chars().count(), BODY_MAX);
@@ -792,7 +1015,7 @@ mod tests {
 
     #[test]
     fn the_identifier_round_trips_to_the_session() {
-        assert_eq!(session_of(&identifier("s1")), Some("s1"));
+        assert_eq!(session_of(&identifier(Kind::Waiting, "s1")), Some("s1"));
         assert_eq!(session_of("other:s1"), None);
         assert_eq!(session_of("hangar-waiting:x\"y"), None);
     }
@@ -956,7 +1179,7 @@ mod tests {
     fn the_toast_carries_the_name_the_question_and_where_to_go() {
         let name = "請求書の書き出し";
         let question = "向きはどちらにしますか";
-        let w = waiting("s1", name, question, "ja").unwrap();
+        let w = waiting(Kind::Waiting, "s1", name, question, "ja").unwrap();
         let xml = toast_xml(&w);
         assert!(
             xml.starts_with("<toast launch=\"hangar-waiting:s1\" activationType=\"foreground\">"),
@@ -969,7 +1192,7 @@ mod tests {
 
     #[test]
     fn the_toast_escapes_the_texts_so_the_page_cannot_change_its_shape() {
-        let w = waiting("s1", "a<b>&\"c'", "</text><text>x", "ja").unwrap();
+        let w = waiting(Kind::Waiting, "s1", "a<b>&\"c'", "</text><text>x", "ja").unwrap();
         let xml = toast_xml(&w);
         assert!(
             xml.contains("<text>a&lt;b&gt;&amp;&quot;c&apos;</text>"),
@@ -985,7 +1208,7 @@ mod tests {
     #[test]
     fn a_click_on_the_toast_reads_back_the_same_session_as_on_macos() {
         // Windows は押されたトーストの launch の値を、そのまま殻へ返す。
-        let w = waiting("s_1-A", "t", "b", "ja").unwrap();
+        let w = waiting(Kind::Waiting, "s_1-A", "t", "b", "ja").unwrap();
         let xml = toast_xml(&w);
         let launch = xml.split('"').nth(1).unwrap();
         assert_eq!(session_of(launch), Some("s_1-A"));
@@ -997,7 +1220,7 @@ mod tests {
         assert_ne!(toast_tag("s1"), toast_tag("s2"));
         // Windows のタグは 64 文字まで。
         let longest = "a".repeat(ID_MAX);
-        assert!(waiting(&longest, "t", "b", "ja").is_ok());
+        assert!(waiting(Kind::Waiting, &longest, "t", "b", "ja").is_ok());
         assert!(toast_tag(&longest).chars().count() <= 64);
     }
 
@@ -1066,6 +1289,141 @@ mod tests {
         ));
         assert!(first_open(&mut last, "s2", t0 + Duration::from_millis(600)));
         assert!(first_open(&mut last, "s2", t0 + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn the_page_names_the_kind_and_an_old_page_that_names_none_means_waiting() {
+        assert_eq!(Kind::parse(None), Ok(Kind::Waiting));
+        assert_eq!(Kind::parse(Some("waiting")), Ok(Kind::Waiting));
+        assert_eq!(Kind::parse(Some("return")), Ok(Kind::Return));
+        assert!(Kind::parse(Some("other")).is_err());
+        assert!(Kind::parse(Some("")).is_err());
+    }
+
+    /// 戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消さないこと。
+    /// macOS は識別子、Windows はタグと組の対で置き換わる。
+    #[test]
+    fn a_return_notice_does_not_replace_the_waiting_notice_of_the_same_session() {
+        assert_ne!(
+            identifier(Kind::Waiting, "s1"),
+            identifier(Kind::Return, "s1")
+        );
+        let waiting_slot = (toast_tag("s1"), toast_group(Kind::Waiting));
+        let return_slot = (toast_tag("s1"), toast_group(Kind::Return));
+        assert_ne!(waiting_slot, return_slot);
+        // 同じ種類の 2 度目は、今までどおり同じ枠で置き換わる。
+        assert_eq!(
+            identifier(Kind::Waiting, "s1"),
+            identifier(Kind::Waiting, "s1")
+        );
+        assert_eq!(waiting_slot, (toast_tag("s1"), toast_group(Kind::Waiting)));
+        // 組の名前も、Windows の上限（64 文字）に収まる。
+        assert!(toast_group(Kind::Return).len() <= 64);
+    }
+
+    #[test]
+    fn the_waiting_identifier_stays_as_before_so_older_toasts_still_open() {
+        // 前の版が出した入力待ちのトーストも、押せば同じセッションを開く。
+        assert_eq!(identifier(Kind::Waiting, "s1"), "hangar-waiting:s1");
+        assert_eq!(toast_group(Kind::Waiting), "hangar-waiting");
+    }
+
+    #[test]
+    fn a_click_on_either_kind_reads_back_the_session() {
+        assert_eq!(session_of(&identifier(Kind::Return, "s1")), Some("s1"));
+        assert_eq!(
+            parse_identifier(&identifier(Kind::Return, "s_1-A")),
+            Some((Kind::Return, "s_1-A"))
+        );
+        assert_eq!(
+            parse_identifier("hangar-waiting:s1"),
+            Some((Kind::Waiting, "s1"))
+        );
+        assert_eq!(parse_identifier("hangar-return:x\"y"), None);
+        assert_eq!(parse_identifier("hangar-other:s1"), None);
+        let w = waiting(Kind::Return, "s1", "t", "b", "ja").unwrap();
+        let launch = toast_xml(&w);
+        let launch = launch.split('"').nth(1).unwrap();
+        assert_eq!(launch, "hangar-return:s1");
+        assert_eq!(session_of(launch), Some("s1"));
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_keep_list_drops_ids_that_are_not_plain() {
+        let keep = Keep::new(&ids(&["s1", "x\"y", ""]), &ids(&["s2", "../etc"]));
+        assert!(keep.holds(Kind::Waiting, "s1"));
+        assert!(!keep.holds(Kind::Waiting, "x\"y"));
+        assert!(!keep.holds(Kind::Waiting, "s2"));
+        assert!(keep.holds(Kind::Return, "s2"));
+        assert!(!keep.holds(Kind::Return, "s1"));
+    }
+
+    #[test]
+    fn a_notice_shown_after_the_list_was_sent_is_kept_until_the_next_list() {
+        // macOS は届いた通知の一覧を後から答えるので、その間に出した通知を古い一覧で消さない。
+        let mut keep = Keep::new(&[], &[]);
+        keep.insert(Kind::Waiting, "s1");
+        assert!(keep.holds(Kind::Waiting, "s1"));
+        assert!(!keep.holds(Kind::Return, "s1"));
+    }
+
+    /// Windows の通知センターの履歴（タグと組の対）から、外すトーストを選ぶ。
+    #[test]
+    fn the_toasts_of_sessions_that_no_longer_wait_are_removed() {
+        let history: Vec<(String, String)> = [
+            ("s1", "hangar-waiting"),
+            ("s2", "hangar-waiting"),
+            ("s1", "hangar-return"),
+            ("s3", "hangar-return"),
+            ("x", "something-else"),
+        ]
+        .iter()
+        .map(|(t, g)| (t.to_string(), g.to_string()))
+        .collect();
+        let keep = Keep::new(&ids(&["s1"]), &ids(&["s3"]));
+        let stale = stale_toasts(&history, &keep);
+        let want: Vec<(String, String)> = [
+            ("s2", "hangar-waiting"),
+            ("s1", "hangar-return"),
+            ("x", "something-else"),
+        ]
+        .iter()
+        .map(|(t, g)| (t.to_string(), g.to_string()))
+        .collect();
+        assert_eq!(stale, want);
+        // 何も待っていなければ（起動したときに古いトーストだけが残っていたら）、全部外す。
+        assert_eq!(stale_toasts(&history, &Keep::new(&[], &[])), history);
+    }
+
+    /// macOS の通知センターに届いている通知の識別子から、外すものを選ぶ。
+    /// hangar の識別子でないものには触らない。
+    #[test]
+    fn the_delivered_notifications_of_sessions_that_no_longer_wait_are_removed() {
+        let delivered = ids(&[
+            "hangar-waiting:s1",
+            "hangar-waiting:s2",
+            "hangar-return:s1",
+            "hangar-return:s3",
+            "something-else",
+        ]);
+        let keep = Keep::new(&ids(&["s1"]), &ids(&["s3"]));
+        assert_eq!(
+            stale_identifiers(&delivered, &keep),
+            ids(&["hangar-waiting:s2", "hangar-return:s1"])
+        );
+        assert_eq!(
+            stale_identifiers(&delivered, &Keep::new(&[], &[])),
+            ids(&[
+                "hangar-waiting:s1",
+                "hangar-waiting:s2",
+                "hangar-return:s1",
+                "hangar-return:s3"
+            ])
+        );
     }
 
     #[test]

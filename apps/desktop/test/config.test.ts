@@ -72,6 +72,17 @@ describe('NSIS のアンインストールの後片付け', () => {
   it('COM の口の CLSID の登録を、書く側の定数と同じ値で消す', () => {
     expect(body()).toContain(`DeleteRegKey HKCU "Software\\Classes\\CLSID\\${clsid()}"`);
   });
+  // 通知センターに残ったトーストは、アプリを消しても残る（Windows の実機で、消して入れ直した後も前の版のトーストが並んでいた）。
+  // 登録を消す前に、同じ名前（identifier）の履歴を PowerShell で消す。
+  it('登録を消す前に、通知センターに残ったトーストを同じ名前（identifier）で消す', () => {
+    const b = body();
+    const clear = b.indexOf('${HANGAR_TOAST_CLEAR_PS}');
+    expect(clear).toBeGreaterThan(-1);
+    expect(clear).toBeLessThan(b.indexOf('DeleteRegKey'));
+    const m = /^!define HANGAR_TOAST_CLEAR_PS "([^"]*)"\r?$/m.exec(read(path.join('src-tauri', hooksPath)));
+    expect(m, 'HANGAR_TOAST_CLEAR_PS が見つかりません').not.toBeNull();
+    expect(m![1]).toContain(`::History.Clear('${conf.identifier}')`);
+  });
   it('トーストの絵だけを消し、利用者のデータ（~\\.agent-hangar の DB など）は消さない', () => {
     const b = body();
     expect(b).toContain('Delete "$PROFILE\\.agent-hangar\\notify-icon.png"');
@@ -381,12 +392,12 @@ describe('capabilities', () => {
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
     expect(c.permissions).toEqual(['core:window:allow-start-dragging', 'core:window:allow-internal-toggle-maximize']);
   });
-  // 入力待ちの知らせのために、通知を出す、通知の許可を求める、通知の許可の状態を読む、Dock のバッジに数を出すの 4 つだけを足す。
-  it('UI の出どころには、入力待ちの通知と Dock のバッジの 4 つだけ与える', () => {
+  // 入力待ちの知らせのために、通知を出す、もう待っていない通知を外す、通知の許可を求める、通知の許可の状態を読む、Dock のバッジに数を出すの 5 つだけを足す。
+  it('UI の出どころには、入力待ちの通知と Dock のバッジの 5 つだけ与える', () => {
     const c = cap('remote-notify.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toEqual({ urls: ['http://127.0.0.1:4177/*'] });
-    expect(c.permissions).toEqual(['allow-notify-waiting', 'allow-notify-request', 'allow-notify-status', 'core:window:allow-set-badge-count']);
+    expect(c.permissions).toEqual(['allow-notify-waiting', 'allow-notify-prune', 'allow-notify-request', 'allow-notify-status', 'core:window:allow-set-badge-count']);
   });
   // 権限の出どころのポートと、殻がサーバを立てるポートは別のファイルにある。片方だけ変えると、ヘッダを掴んでも窓が動かなくなる。
   it('権限の出どころのポートは、殻がサーバを立てるポート（server.rs の PORT）と同じ', () => {
@@ -405,7 +416,7 @@ describe('capabilities', () => {
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/notifier.ts'), 'utf8');
     const build = read('src-tauri/build.rs');
     const lib = read('src-tauri/src/lib.rs');
-    for (const cmd of ['notify_waiting', 'notify_request', 'notify_status']) {
+    for (const cmd of ['notify_waiting', 'notify_prune', 'notify_request', 'notify_status']) {
       expect(ui).toContain(`'${cmd}'`);
       expect(build).toContain(`"${cmd}"`);
       expect(lib).toMatch(new RegExp(`generate_handler!\\[[^\\]]*\\b${cmd}\\b`));
@@ -463,10 +474,10 @@ describe('capabilities', () => {
     expect(restore.indexOf('confirm_natively')).toBeLessThan(restore.indexOf('"--yes"'));
   });
   // 命令の名前は、build.rs の一覧、lib.rs の #[tauri::command]、UI と起動画面の呼び出しの 4 か所にある。
-  // 入力待ちの知らせの 3 つは、上の notifier.ts との突き合わせでも確かめる。
+  // 入力待ちの知らせの 4 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['apply_config_sync', 'boot_probe', 'boot_state', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
+    expect(listed).toEqual(['apply_config_sync', 'boot_probe', 'boot_state', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'update_check', 'update_download', 'update_install', 'update_status']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
