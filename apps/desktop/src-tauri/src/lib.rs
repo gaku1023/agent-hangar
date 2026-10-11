@@ -47,8 +47,6 @@ struct AppState {
     /// 試験のための書き出しの先（`HANGAR_BOOT_PROBE`、`bootprobe`）。起動のときに一度だけ読む。ふだんは無い。
     /// 試験用の feature（`boot-probe`）を立てていない build では、変数があっても無い。
     boot_probe: Option<std::path::PathBuf>,
-    /// 起動に失敗したとき、殻が自分で更新を確かめたか（`check_update_after_failure`）。確かめるのは 1 度だけである。
-    boot_update_checked: AtomicBool,
 }
 
 /// ウィンドウが今どの段にいるか。
@@ -77,6 +75,8 @@ struct Ui {
     finishing: bool,
     /// 起動に失敗した後に殻が見つけた、新しい版。起動画面の札に出す。やり直しても消さない（新しい版があることは変わらない）。
     update: Option<String>,
+    /// 起動に失敗した後に、殻が自分で更新を確かめ始めたか（`card_shown`）。確かめるのはアプリが動いている間に 1 度だけで、やり直しても戻さない。
+    update_checked: bool,
 }
 
 impl Ui {
@@ -94,6 +94,17 @@ impl Ui {
             "finishing": self.finishing,
             "update": self.update.as_ref().map(|v| serde_json::json!({ "version": v })),
         })
+    }
+
+    /// 起動画面が失敗の札を描いた（`boot_card_shown`）。殻が今、更新を確かめ始めてよければ真を返す。
+    /// 札を出す前には確かめない。札の最初の描画と、目録の取得や証明書の検証を重ねないためである。
+    /// 確かめるのは 1 度だけで、やり直して読み込み直した頁が知らせても重ねない。サーバの頁へ移った後も確かめない（UI が自分で確かめる）。
+    fn card_shown(&mut self) -> bool {
+        if self.ready || self.failure.is_none() || self.update_checked {
+            return false;
+        }
+        self.update_checked = true;
+        true
     }
 
     /// 起動に失敗した後に、殻が新しい版を見つけた。起動画面へ渡してよければ真を返す。
@@ -459,17 +470,11 @@ fn boot_update_js(version: &str) -> String {
     )
 }
 
-/// 起動に失敗したとき、1 度だけ殻が自分で更新を確かめ、新しい版があれば起動画面の札に出す。
+/// 起動に失敗したとき、殻が自分で更新を確かめ、新しい版があれば起動画面の札に出す。
 /// 起動に失敗する版を入れた人は UI まで届かないので、UI の自動の確認では新しい版を受け取れない。
+/// 呼ぶのは、起動画面が札を描いたと知らせたとき（`boot_card_shown`）の 1 度だけである（`Ui::card_shown`）。
 /// 見つけた版は状態に置き（`Ui::update_found`）、その場の評価でも渡す。失敗はログに残すだけで、札には出さない。
 fn check_update_after_failure(app: &AppHandle) {
-    if app
-        .state::<AppState>()
-        .boot_update_checked
-        .swap(true, Ordering::SeqCst)
-    {
-        return;
-    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let Ok(updater::Found {
@@ -495,6 +500,7 @@ fn check_update_after_failure(app: &AppHandle) {
 /// 口が出来る前の評価は捨てられるからである（`Ui` の説明）。
 /// 口が出来た後の失敗のために、その場の評価も続ける。状態に置くのを先にするので、どちらかで必ず届く。
 /// 詳細に入場の鍵が混じっていたら、頁へ渡す前に伏せ、利用者のホームを `~` に縮める（`for_page`）。
+/// 更新はここでは確かめない。札を描いたと起動画面が知らせてから確かめる（`boot_card_shown`）。
 fn fail(app: &AppHandle, failure: bootfail::BootFailure) {
     let home = paths::hangar_home();
     let token = server::read_token(&home);
@@ -504,7 +510,6 @@ fn fail(app: &AppHandle, failure: bootfail::BootFailure) {
     app.state::<AppState>().ui.lock().unwrap().failure =
         Some(bootfail::payload_value(&failure, &env));
     eval_main(app, &bootfail::fail_js(&failure, &env));
-    check_update_after_failure(app);
 }
 
 /// ディープリンクをハッシュとして適用する。
@@ -901,6 +906,17 @@ fn boot_state(app: AppHandle) -> serde_json::Value {
     // 待っている間の文（読み込み中、ようこそ）の言語。失敗の札と同じ決め方で、起動の頭で書いた設定を読む。
     now["lang"] = bootfail::page_language(&paths::hangar_home()).into();
     bootprobe::mark(now, state.boot_probe.is_some())
+}
+
+/// 起動画面が失敗の札を描いた知らせ。描いたコマの後で、頁（loading/boot.js）が 1 度だけ呼ぶ。
+/// 殻はこれを受けてから、1 度だけ更新を確かめる（`Ui::card_shown`、`check_update_after_failure`）。答えは待たせない。
+/// 引数は受け取らない。
+#[tauri::command]
+fn boot_card_shown(app: AppHandle) {
+    let now = app.state::<AppState>().ui.lock().unwrap().card_shown();
+    if now {
+        check_update_after_failure(&app);
+    }
 }
 
 /// 試験のための書き出し（`bootprobe`）。起動画面が描いた様子を、`HANGAR_BOOT_PROBE` のファイルへ書く。
@@ -1628,13 +1644,13 @@ pub fn run() {
             child_started: Mutex::new(None),
             config_busy: AtomicBool::new(false),
             boot_probe: bootprobe::target(std::env::var_os(bootprobe::ENV)),
-            boot_update_checked: AtomicBool::new(false),
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
         // invoke_handler を 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなる。
         // 頁ごとに許す命令は capabilities/ の remote-shell.json、remote-notify.json、remote-pick-folder.json、remote-config-apply.json、remote-update.json、boot-screen.json で絞る。
         .invoke_handler(tauri::generate_handler![
             boot_state,
+            boot_card_shown,
             boot_probe,
             open_log,
             pick_folder,
@@ -1800,6 +1816,34 @@ mod tests {
     }
 
     // サーバの頁へ移った後に見つかった版は、起動画面へ渡さない（UI が自分で知らせる）。
+    // 起動に失敗しても、殻はその場では更新を確かめない。札の最初の描画と、目録の取得や証明書の検証を重ねないためである。
+    // 起動画面が札を描いたと知らせてから（boot_card_shown）、1 度だけ確かめる。やり直して読み込み直した頁が知らせても、重ねない。
+    #[test]
+    fn the_update_check_waits_for_the_card_and_runs_once() {
+        let mut ui = Ui::default();
+        ui.page_loaded(false);
+        // 失敗の前（待っている間）に知らせが来ても確かめない。
+        assert!(!ui.card_shown());
+        ui.failure = Some(serde_json::json!({ "kind": "node-missing" }));
+        assert!(ui.card_shown());
+        assert!(!ui.card_shown());
+        assert!(ui.retry());
+        ui.page_loaded(false);
+        ui.failure = Some(serde_json::json!({ "kind": "node-missing" }));
+        assert!(!ui.card_shown());
+    }
+
+    // サーバの頁へ移った後は、札を描いた知らせが来ても確かめない（UI が自分で確かめる）。
+    #[test]
+    fn the_card_signal_after_the_server_page_does_not_check() {
+        let mut ui = Ui {
+            failure: Some(serde_json::json!({ "kind": "other" })),
+            ..Default::default()
+        };
+        ui.navigating();
+        assert!(!ui.card_shown());
+    }
+
     #[test]
     fn an_update_found_after_the_server_page_is_not_passed_to_the_boot_screen() {
         let mut ui = Ui::default();
