@@ -131,7 +131,9 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 
 台本は次を行う。
 
-1. secret が 2 つとも無ければ、警告を出して未署名のまま続ける（fork や、まだ入れていないとき）。片方だけなら、設定の誤りとして止まる。
+1. secret が 2 つとも無いとき、本家のリポジトリなら止まり、fork なら警告を出して未署名のまま続ける。片方だけなら、設定の誤りとして止まる。
+   本家かどうかは release.yml の plan ジョブが決め、`HANGAR_SIGN_REQUIRED=true` で台本に渡す（plan 自身も、本家で secret が無ければ先に止まる）。
+   本家では、正式な版だけでなく試しの版（rc）も止める。試しの版は正式な版の通し稽古で、試す人の許可も同じ証明書で保たれなければならないからである。
 2. p12 の証明書の指紋が `apps/desktop/signing/certificate-sha1.txt` と一致するかを確かめる。違えば、署名せずに止まる。secret があるのに指紋の置き場が空なら、それも止まる。
 3. その場で決めたパスワードで、使い捨てのキーチェーンを作って p12 を入れる。
 4. GitHub Actions のランナーの中でだけ、`prepare-signing-keychain.sh` で証明書をコード署名用に信頼し、キーチェーンを検索リストへ足す（上の「署名する機械の前提」）。利用者の手元ではこの道を通らない。
@@ -143,16 +145,18 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 試験は `make-signing-cert.sh` で試しの証明書をその場で作り、`HANGAR_SIGN_FINGERPRINT_FILE` でその指紋を期待の値として渡して、同じ台本で署名する。
 本物の secret は使わない。
 
-## 自動更新の更新物を作り直す
+## 自動更新の更新物を作る
 
-署名鍵（`TAURI_SIGNING_PRIVATE_KEY`）があると、tauri build は更新物（`Hangar.app.tar.gz` と `.sig`）も作る。
-ただし、これは build の中で、署名の前の .app から詰められる。
-そのまま配ると、更新で入る .app は自作の証明書の署名を持たず、更新のたびに許可が外れる。
+tauri build の更新物づくり（`createUpdaterArtifacts`）は使わない。
+それは build の中で、署名の前の .app から詰めるので、そのまま配ると、更新で入る .app は自作の証明書の署名を持たず、更新のたびに許可が外れる。
+また、build は npm の script（`beforeBuildCommand`）や依存のコードを走らせるので、そこへ更新の署名鍵（`TAURI_SIGNING_PRIVATE_KEY`）を渡したくない。
 
-そこで release の macOS のジョブは、「署名する」の段の後で `apps/desktop/scripts/repack-updater-macos.sh` を 2 回呼ぶ。
+そこで release の macOS のジョブは、鍵なしで build し、「署名する」の段の後で `apps/desktop/scripts/repack-updater-macos.sh` を 2 回呼ぶ。
+鍵を受け取るのは `pack` の段だけである。
+Windows も同じく鍵なしで build し、できたインストーラに、鍵を受け取る別の段で `tauri signer sign` の `.sig` を付ける（`.github/actions/windows-installer`）。
 
-1. `pack`：署名済みの .app を、tauri と同じ形（.app をそのまま 1 つ入れた gzip の tar、拡張属性の `._` は入れない）で、同じ名前と場所に詰め直し、`tauri signer sign` で `.sig` も付け直す。
-2. `verify`：詰め直した tar.gz を展開し、識別子と DR が署名済みの .app と同じで、`codesign --verify --deep --strict` が通ることを確かめる。証明書の secret があれば `--expect-signed` を付け、識別子が `dev.agent-hangar.hangar` で DR が `certificate-sha1.txt` の指紋で縛られていることも確かめる。
+1. `pack`：署名済みの .app を、tauri と同じ形（.app をそのまま 1 つ入れた gzip の tar、拡張属性の `._` は入れない）で、.app の隣に `Hangar.app.tar.gz` として詰め、`tauri signer sign` で `.sig` を付ける。
+2. `verify`：詰めた tar.gz を展開し、識別子と DR が署名済みの .app と同じで、`codesign --verify --deep --strict` が通ることを確かめる。証明書の secret があれば `--expect-signed` を付け、識別子が `dev.agent-hangar.hangar` で DR が `certificate-sha1.txt` の指紋で縛られていることも確かめる。
 
 dmg と zip も、署名済みの .app から作る。
 試験は `apps/desktop/test/repack-updater-macos.test.ts` で、試しの更新の署名鍵と試しの証明書をその場で作る。

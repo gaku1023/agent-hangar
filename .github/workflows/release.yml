@@ -3,9 +3,14 @@ on:
   push:
     tags: ['v*']
 # 既定の権限に頼らず、何も渡さない。
-# 書き込みが要るのは、Release を作る macos ジョブと、そこへ Windows のインストーラを添える windows-upload ジョブだけなので、権限はその 2 つに置く。
+# 書き込みが要るのは、下書きの Release を作る macos ジョブ、そこへ Windows のインストーラを添える windows-upload ジョブ、
+# 更新物と目録を添えて公開する publish ジョブ、試しの道の目録を置き換える channel ジョブだけなので、権限はその 4 つに置く。
 # Release を作るのは macos ジョブだけにする。
 # windows ジョブは書き込みなしでインストーラを作って artifact に置き、windows-upload が macos の後でそれを同じ Release に添える。
+#
+# Release は下書きで作り、最新にもしない。
+# 資産と目録（latest.json）がそろったことを publish ジョブの最後の段で確かめてから、公開し、正式な版なら最新に上げる。
+# 途中のジョブが落ちたら、Release は下書きのまま残り、利用者には見えない（最新が目録の無い Release になる穴を作らない）。
 permissions: {}
 # 同じタグを二重に走らせない。
 # 走っている途中で止めると資産が半端なまま Release に載りかねないので、先に走っているほうを優先する。
@@ -13,9 +18,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 # 自動更新（段 5-4）の署名鍵（minisign）が secret にあるか。
-# あれば macos と windows のジョブが更新物とその署名（.sig）も作り、updater-manifest ジョブが目録（latest.json）を Release に添える。
-# 無ければ更新物と目録だけを飛ばし、Release そのものは今までどおり作る（失敗にしない）。
-# macOS の署名（段 5-2）の証明書が secret にあるか。あれば、作り直した更新物の .app が証明書で署名されていることまで確かめる。
+# あれば macos と windows のジョブが build の後で更新物の署名（.sig）を作り、publish ジョブが目録（latest.json）を Release に添える。
+# macOS の署名（段 5-2）の証明書が secret にあるか。あれば、作った更新物の .app が証明書で署名されていることまで確かめる。
+# 本家（release-plan.ts の UPSTREAM_REPO）では、どちらかが無ければ plan ジョブで止まる。
+# fork では、無いものを飛ばして（更新物と目録を作らず、未署名のまま）Release を作る。
 env:
   HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
   HAS_MACOS_SIGN: ${{ secrets.HANGAR_SIGN_P12_BASE64 != '' }}
@@ -23,25 +29,47 @@ jobs:
   # タグと版の在りかのファイル（tauri.conf.json ほか、apps/desktop/scripts/release-plan.ts の VERSION_FILES）を照らす。
   # 1 つでも違えば、何も作らずに止まる（食い違ったまま配らない）。版はリポジトリで上げてからタグを打つ（docs/release.md）。
   # タグに - が入っていれば（v0.2.0-rc.1 など）試しの版で、Release を prerelease にし、updater の endpoint を試しの道に替えて焼き込む。
+  # 本家で署名の secret が無ければ止まる（正式な版も試しの版も）。
+  # タグのコミットが origin/main の祖先で、そのコミットへの main の push で走った ci.yml が成功していなければ止まる。
+  # ci がまだ走っていれば止まるので、終わってから、この release を Re-run する。
   plan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
     timeout-minutes: 5
     outputs:
       version: ${{ steps.plan.outputs.version }}
       prerelease: ${{ steps.plan.outputs.prerelease }}
       tauri-config: ${{ steps.plan.outputs.tauri-config }}
       channel-tag: ${{ steps.plan.outputs.channel-tag }}
+      signing-required: ${{ steps.plan.outputs.signing-required }}
     steps:
+      # main の祖先かを git で見るので、履歴を全部取る。
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 22
       - id: plan
-        name: タグと版を照らし、release の計画を決める
+        name: タグと版と署名の secret を照らし、タグのコミットの関門を通し、release の計画を決める
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           node --experimental-strip-types --no-warnings apps/desktop/scripts/release-plan.ts plan "$GITHUB_REF_NAME" > "$RUNNER_TEMP/plan.txt"
+          sha="$(git rev-parse HEAD)"
+          rc=0
+          git merge-base --is-ancestor "$sha" origin/main || rc=$?
+          case "$rc" in
+            0) on_main=true ;;
+            1) on_main=false ;;
+            *) echo "git merge-base failed (exit ${rc})" >&2; exit 1 ;;
+          esac
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${sha}&event=push&branch=main&per_page=100" > "$RUNNER_TEMP/ci-runs.json"
+          node --experimental-strip-types --no-warnings apps/desktop/scripts/release-plan.ts gate "$sha" "$on_main" "$RUNNER_TEMP/ci-runs.json"
           cat "$RUNNER_TEMP/plan.txt"
           cat "$RUNNER_TEMP/plan.txt" >> "$GITHUB_OUTPUT"
   macos:
@@ -56,22 +84,26 @@ jobs:
       matrix:
         include:
           # Apple silicon のみ。
-          # Intel を足すときは runs-on が x86_64 のランナーである行を加える。
+          # Intel を足すときは runs-on が x86_64 のランナーである行を加え、release-plan.ts の RELEASE_PLATFORMS にも足す。
           - target: aarch64-apple-darwin
             arch: arm64
     steps:
+      # 書き込みの token を .git/config に残さない（npm の script や依存のコードから読めないようにする）。
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
-      # dtolnay/rust-toolchain@stable は --profile minimal で入るため rustfmt と clippy を含まない。
+      # dtolnay/rust-toolchain は --profile minimal で入るため rustfmt と clippy を含まない。
       # このワークフローは cargo fmt も cargo clippy も使わないので components は指定しない。
       # どちらも ci の desktop ジョブが見ている。
-      - uses: dtolnay/rust-toolchain@stable
+      # 第三者の action は、書き込みの権限と secret のあるジョブで動くので、版の SHA で固定する（コメントは元の版）。
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable (2026-10-09)
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/desktop/src-tauri
       - run: npm ci
@@ -80,45 +112,37 @@ jobs:
       - run: npm run build
       # npx は入っていなければ取りに行くので、ここで動く版が package-lock.json の外から来うる。
       # workspace の script を通せば、動くのは npm ci が入れた @tauri-apps/cli だけになる。
-      # 署名鍵があれば、tauri.updater.conf.json を重ねて更新物（Hangar.app.tar.gz）とその署名も作る。
-      # 鍵は Tauri が読む環境変数の名前のまま、このステップにだけ渡す。
-      # 試しの版は、plan が決めた設定（updater の endpoint を試しの道に替える）も重ねる。
+      # 更新の署名鍵は渡さない。build は beforeBuildCommand（npm run bundle-server）や依存のコードを走らせるからである。
+      # 更新物（Hangar.app.tar.gz と .sig）は build では作らず、署名の段の後で、署名済みの .app から作る。
+      # 試しの版は、plan が決めた設定（updater の endpoint を試しの道に替える）を重ねる。
       - name: .app をビルドする（beforeBuildCommand が server-dist を作る）
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           EXTRA_CONFIG: ${{ needs.plan.outputs.tauri-config }}
         run: |
           set --
           if [ -n "$EXTRA_CONFIG" ]; then set -- --config "$EXTRA_CONFIG"; fi
-          if [ "$HAS_UPDATER_KEY" = true ]; then
-            set -- "$@" --config src-tauri/tauri.updater.conf.json
-          else
-            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-            echo "::notice::TAURI_SIGNING_PRIVATE_KEY が無いので、更新物（createUpdaterArtifacts）を作らない"
-          fi
           npm run tauri -- build --target ${{ matrix.target }} "$@"
         working-directory: apps/desktop
       # 自作の証明書で署名し、識別子と DR を固定する（docs/signing.md）。
       # dmg と zip の両方に署名済みの .app が入るように、tauri build と dmg のあいだに置く。
-      # secret が無いとき（fork や、まだ入れていないとき）は、警告を出して未署名のまま続ける。
+      # secret が無いとき、本家（plan の signing-required が true）なら止まり、fork なら警告を出して未署名のまま続ける。
       # secret があれば、署名に入った証明書の指紋が signing/certificate-sha1.txt と違うときに止まる。
       # 一時のキーチェーンは台本が終わりに消す。公証はしない。
       - name: 署名する
         env:
           HANGAR_SIGN_P12_BASE64: ${{ secrets.HANGAR_SIGN_P12_BASE64 }}
           HANGAR_SIGN_P12_PASSWORD: ${{ secrets.HANGAR_SIGN_P12_PASSWORD }}
+          HANGAR_SIGN_REQUIRED: ${{ needs.plan.outputs.signing-required }}
         run: bash apps/desktop/scripts/ci-sign-macos.sh apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app
-      # tauri build の中で作られた更新物（Hangar.app.tar.gz と .sig）は、署名の前の .app から詰められている。
-      # そのままでは、更新で配られる .app が未署名になり、更新のたびに許可が外れる。
-      # 署名済みの .app から同じ名前と場所に詰め直し、.sig も付け直す（後の「更新物と署名に名前を付ける」がそれを拾う）。
-      - name: 更新物を署名済みの .app から作り直す
+      # 署名済みの .app を tauri と同じ形の tar.gz に詰め、更新の署名（.sig）を付ける（後の「更新物と署名に名前を付ける」がそれを拾う）。
+      # 更新の署名鍵を受け取るのは、このワークフローでこの段だけである。
+      - name: 更新物を署名済みの .app から作る
         if: env.HAS_UPDATER_KEY == 'true'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bash apps/desktop/scripts/repack-updater-macos.sh pack apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Hangar.app
-      # 作り直した tar.gz を展開し、識別子と DR が署名済みの .app と同じで、verify が通ることを確かめる。
+      # 作った tar.gz を展開し、識別子と DR が署名済みの .app と同じで、verify が通ることを確かめる。
       # 証明書の secret があれば、識別子が dev.agent-hangar.hangar で、DR が certificate-sha1.txt の指紋で縛られていることも確かめる。
       - name: 更新物の .app の署名を確かめる
         if: env.HAS_UPDATER_KEY == 'true'
@@ -140,21 +164,22 @@ jobs:
           shasum -a 256 "$name.zip" > "$name.zip.sha256"
           cat "$name.zip.sha256"
           echo "ASSET_DIR=$PWD" >> "$GITHUB_ENV"
-      - uses: softprops/action-gh-release@v3
+      # Release は下書きで作る。公開と、正式な版を最新にするのは publish ジョブの最後の段である。
+      # 試しの版は prerelease にする。安定版の利用者が引く目録（Release の最新の latest.json）に、試しの版が入らないようにするためである。
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             ${{ env.ASSET_DIR }}/*.dmg
             ${{ env.ASSET_DIR }}/*.dmg.sha256
             ${{ env.ASSET_DIR }}/*.zip
             ${{ env.ASSET_DIR }}/*.zip.sha256
-          # 資産が 1 つも付かない Release が黙って公開されるのを防ぐ。
+          # 資産が 1 つも付かない Release を作らない。
           fail_on_unmatched_files: true
           generate_release_notes: true
-          # 試しの版は prerelease にして、Release の最新にしない。
-          # 安定版の利用者が引く目録（Release の最新の latest.json）に、試しの版が入らないようにするためである。
+          draft: true
           prerelease: ${{ needs.plan.outputs.prerelease == 'true' }}
-          make_latest: ${{ needs.plan.outputs.prerelease == 'true' && 'false' || 'true' }}
-      # 更新物とその署名に Release の資産の名前を付けて artifact に置く。Release へ添えるのは updater-manifest ジョブである。
+          make_latest: 'false'
+      # 更新物とその署名に Release の資産の名前を付けて artifact に置く。Release へ添えるのは publish ジョブである。
       - name: 更新物と署名に名前を付ける
         if: env.HAS_UPDATER_KEY == 'true'
         run: |
@@ -174,7 +199,7 @@ jobs:
           retention-days: 1
   # Windows 11 の x64 だけ。署名はしない（利用者の決定）。
   # 作る手順は ci の windows ジョブと同じ composite action（.github/actions/windows-installer）で、静かに入れて同梱の hangar.cmd が動くところと、殻を起こすとサーバが応えるところまで見る。
-  # npm test は回さない。psmux を相手にする試験は ci の windows ジョブが main の同じコミットで回している。
+  # npm test は回さない。psmux を相手にする試験は ci の windows ジョブが main の同じコミットで回していて、それが成功したことを plan が確かめている。
   # タグと版の照合は plan ジョブが行い、合わなければここまで来ない。
   windows:
     needs: plan
@@ -186,10 +211,13 @@ jobs:
     strategy:
       matrix:
         include:
+          # 足すときは release-plan.ts の RELEASE_PLATFORMS にも足す。
           - target: x86_64-pc-windows-msvc
             arch: x64
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -197,13 +225,14 @@ jobs:
       # ネイティブモジュールは Windows 向けの prebuild を同梱しているので、スクリプト無しで入れる（ci の windows ジョブと同じ）。
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable (2026-10-09)
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: apps/desktop/src-tauri
       # 署名鍵があれば、インストーラと同じ名前の署名（.sig）も作る。Windows の更新物はインストーラそのものである。
+      # 鍵は action の中で、build の後の署名の段だけに渡る。
       - id: installer
         uses: ./.github/actions/windows-installer
         with:
@@ -252,9 +281,9 @@ jobs:
           path: ${{ env.UPDATER_DIR }}
           if-no-files-found: error
           retention-days: 1
-  # macos ジョブが作った Release に、windows ジョブのインストーラを添える。
+  # macos ジョブが作った下書きの Release に、windows ジョブのインストーラを添える。
   # needs で macos の後に回すので、Release を作る側は macos ジョブ 1 つに決まり、二重に作ることも競うこともない。
-  # gh release upload は Release が無ければ失敗するので、ここで新しく作ることもない。
+  # gh release upload は Release（下書きを含む）が無ければ失敗するので、ここで新しく作ることもない。
   # --clobber は、このジョブだけを再実行したときに同じ名前の資産を上書きするためである。
   windows-upload:
     needs: [macos, windows]
@@ -280,26 +309,23 @@ jobs:
             exit 1
           fi
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-  # 自動更新の目録（latest.json）を作り、macOS の更新物と各 OS の署名と一緒に Release に添える。
-  # 安定版のアプリは tauri.conf.json の endpoints（Release の最新の latest.json）を引くので、正式な版の目録が付いた時点で新しい版が知らされる。
-  # 試しの版のアプリは tauri.prerelease.conf.json の endpoints（固定のタグ updater-prerelease の Release の latest.json）を引く。
-  # その目録は、試しの版でも正式な版でも、今より新しいか同じ版のときだけ置き換える（試しの版の利用者は、次の rc もその後の正式な版も受け取る）。
+  # 自動更新の目録（latest.json）を作って、macOS の更新物と各 OS の署名と一緒に下書きの Release に添え、最後に公開する。
+  # 安定版のアプリは tauri.conf.json の endpoints（Release の最新の latest.json）を引くので、正式な版が公開されて最新になった時点で新しい版が知らされる。
+  # 公開は、資産と目録がそろったことを確かめた後の、このジョブの最後の段だけで行う。
+  # だから、どこかのジョブが落ちても、最新が目録の無い Release になることはない（下書きのまま残る）。
   # Windows の更新物はインストーラそのもので、windows-upload が添えたものを指す。だから windows-upload の後に回す。
-  # 署名鍵が無ければ何も作らない（Release は macos と windows-upload が作ったままにする）。
-  updater-manifest:
+  # 署名鍵が無ければ（fork）、更新物と目録は作らず、配布物がそろったことだけを確かめて公開する。
+  publish:
     needs: [plan, macos, windows-upload]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     timeout-minutes: 10
     steps:
-      - name: 署名鍵が無ければ飛ばす
-        if: env.HAS_UPDATER_KEY != 'true'
-        run: echo "::notice::TAURI_SIGNING_PRIVATE_KEY が無いので、更新の目録（latest.json）を作らない"
       - uses: actions/checkout@v7
-        if: env.HAS_UPDATER_KEY == 'true'
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
-        if: env.HAS_UPDATER_KEY == 'true'
         with:
           node-version: 22
       - uses: actions/download-artifact@v7
@@ -309,19 +335,65 @@ jobs:
           path: updater
           merge-multiple: true
       # 目録の形と platform の決め方は apps/desktop/scripts/updater-manifest.ts（試験は apps/desktop/test/updater-manifest.test.ts）。
-      # 目録を最後に添える。先に添えると、更新物がまだ無い版をアプリが知ってしまう。
-      - name: 目録を作り、更新物と署名と目録を Release に添える
+      # 目録は更新物の後に添える。先に添えると、更新物がまだ無い版をアプリが知ってしまう。
+      - name: 目録を作り、更新物と署名と目録を下書きの Release に添える
         if: env.HAS_UPDATER_KEY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           ls -la updater
           node --experimental-strip-types --no-warnings apps/desktop/scripts/updater-manifest.ts updater "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/latest.json"
           cat "$RUNNER_TEMP/latest.json"
           gh release upload "$GITHUB_REF_NAME" updater/* --clobber --repo "$GITHUB_REPOSITORY"
           gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/latest.json" --clobber --repo "$GITHUB_REPOSITORY"
+      # 資産の名前は release-plan.ts の expectedAssets。そろっていなければ公開しない。
+      # 正式な版は公開と同時に最新にする。試しの版は prerelease のまま、最新にしない。
+      - name: 資産がそろったことを確かめ、Release を公開する
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' > "$RUNNER_TEMP/assets.txt"
+          node --experimental-strip-types --no-warnings apps/desktop/scripts/release-plan.ts assets "$GITHUB_REF_NAME" "$HAS_UPDATER_KEY" "$RUNNER_TEMP/assets.txt"
+          if [ "$PRERELEASE" = true ]; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          fi
+  # 試しの版のアプリは tauri.prerelease.conf.json の endpoints（固定のタグ updater-prerelease の Release の latest.json）を引く。
+  # その目録を、試しの版でも正式な版でも、今より新しいか同じ版のときだけ置き換える（試しの版の利用者は、次の rc もその後の正式な版も受け取る）。
+  # 目録が指す資産は公開の後でなければ落とせないので、publish の後に回す。
+  # 置き換えは、読んで比べて書くので、タグが重なって走ると古いほうが勝ちうる。concurrency で、どのタグの run からでも 1 本ずつにする。
+  # GitHub の concurrency は待ちを 1 本しか持たないので、3 本以上重なると、待っていた古いほうは取り消される。
+  # Release の公開は済んでいるので、そのときはこのジョブだけを Re-run する。
+  # 署名鍵が無ければ何もしない。
+  channel:
+    needs: [plan, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    concurrency:
+      group: release-channel-${{ needs.plan.outputs.channel-tag }}
+      cancel-in-progress: false
+    steps:
+      - name: 署名鍵が無ければ飛ばす
+        if: env.HAS_UPDATER_KEY != 'true'
+        run: echo "::notice::TAURI_SIGNING_PRIVATE_KEY が無いので、試しの道の目録を置き換えない"
+      - uses: actions/checkout@v7
+        if: env.HAS_UPDATER_KEY == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        if: env.HAS_UPDATER_KEY == 'true'
+        with:
+          node-version: 22
       # 試しの道の Release は prerelease で作る。prerelease でないと Release の最新になり、安定版の利用者の目録を奪う。
       # 無ければここで作る（タグは v で始まらないので release.yml は走らない）。
+      # 今の目録が無いとみなすのは、その Release の資産の一覧に latest.json が無いときだけである。
+      # 一覧や取得の失敗を「目録が無い」と取り違えると、古い版で置き換えて試しの道を巻き戻すので、失敗は止める。
       - name: 試しの道の目録を置き換える
         if: env.HAS_UPDATER_KEY == 'true'
         env:
@@ -329,6 +401,9 @@ jobs:
           CHANNEL: ${{ needs.plan.outputs.channel-tag }}
           VERSION: ${{ needs.plan.outputs.version }}
         run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release" "$RUNNER_TEMP/channel"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir "$RUNNER_TEMP/release"
           if ! gh release view "$CHANNEL" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$CHANNEL" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
               --title "$CHANNEL" --notes "Update manifest for prerelease builds. Not a release; do not download."
@@ -337,11 +412,13 @@ jobs:
             echo "$CHANNEL is not a prerelease; it could become the latest release" >&2
             exit 1
           fi
-          mkdir -p "$RUNNER_TEMP/channel"
-          gh release download "$CHANNEL" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir "$RUNNER_TEMP/channel" || true
+          assets="$(gh release view "$CHANNEL" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')"
+          if grep -qx 'latest.json' <<<"$assets"; then
+            gh release download "$CHANNEL" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir "$RUNNER_TEMP/channel"
+          fi
           replace="$(node --experimental-strip-types --no-warnings apps/desktop/scripts/release-plan.ts channel "$RUNNER_TEMP/channel/latest.json" "$VERSION")"
           if [ "$replace" = true ]; then
-            gh release upload "$CHANNEL" "$RUNNER_TEMP/latest.json" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$CHANNEL" "$RUNNER_TEMP/release/latest.json" --clobber --repo "$GITHUB_REPOSITORY"
             echo "::notice::$CHANNEL の目録を $VERSION にした"
           else
             echo "::notice::$CHANNEL の目録はより新しい版なので、$VERSION では置き換えない"

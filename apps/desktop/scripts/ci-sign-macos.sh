@@ -8,9 +8,11 @@
 #   HANGAR_SIGN_P12_BASE64     p12（秘密鍵と証明書）の base64。
 #   HANGAR_SIGN_P12_PASSWORD   p12 のパスワード。
 #   HANGAR_SIGN_FINGERPRINT_FILE  期待する指紋の置き場。既定は apps/desktop/signing/certificate-sha1.txt。
-#                                 ci.yml の試しの署名だけが、その場で作った証明書の指紋を指すのに使う。
+#                                 試験（apps/desktop/test/ci-sign-macos.test.ts）が、その場で作った証明書の指紋を指すのに使う。
+#   HANGAR_SIGN_REQUIRED       true なら署名を必須にする。release.yml の plan が、本家のリポジトリのときに true を渡す。
 #
 # 振る舞い:
+#   - secret が 2 つとも無く、HANGAR_SIGN_REQUIRED が true：未署名のまま配らないよう止まる。
 #   - secret が 2 つとも無い（fork や、まだ入れていないとき）：警告を出し、未署名のまま 0 で終わる。
 #   - 片方だけある：設定の誤りとして止まる。
 #   - 2 つともある：p12 の葉の証明書の指紋がリポジトリの値と一致するかを先に確かめ、一時のキーチェーンに入れて
@@ -32,6 +34,10 @@ P12_B64="${HANGAR_SIGN_P12_BASE64:-}"
 P12_PW="${HANGAR_SIGN_P12_PASSWORD:-}"
 on_actions() { [ "${GITHUB_ACTIONS:-}" = "true" ]; }
 
+if [ -z "$P12_B64" ] && [ -z "$P12_PW" ] && [ "${HANGAR_SIGN_REQUIRED:-}" = "true" ]; then
+  echo "署名が必須なのに、署名の secret（HANGAR_SIGN_P12_BASE64 と HANGAR_SIGN_P12_PASSWORD）が無い。未署名のまま配らない。手順は docs/signing.md" >&2
+  exit 1
+fi
 if [ -z "$P12_B64" ] && [ -z "$P12_PW" ]; then
   msg="署名の secret（HANGAR_SIGN_P12_BASE64 と HANGAR_SIGN_P12_PASSWORD）が無いので、未署名のまま続ける。手順は docs/signing.md"
   if on_actions; then echo "::warning title=未署名::$msg"; else echo "::warning:: $msg"; fi
