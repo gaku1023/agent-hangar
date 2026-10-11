@@ -4045,7 +4045,7 @@ Worker を配備した時点で、まだ上げていない端末（版 1）は 4
 サーバが古いときは、そのサーバを止めてから「もう一度試す」を押すことを言う（止めれば、殻が同梱のサーバを起こす）。
 殻が古いときは、Hangar.app を入れ替えるか、そのサーバを止めてから「もう一度試す」を押すことを言う。
 札に、そのポートで待ち受けているプロセスを調べる命令（`lsof -nP -iTCP:4177 -sTCP:LISTEN`）を添える。
-lsof の無い Windows では添えない（Windows のデスクトップのアプリはまだ無い）。
+lsof の無い Windows では添えない。
 殻はポートと 2 つの版の数だけを渡し（`BootFailure::compat_mismatch`）、文は頁の表（`loading/boot-fail.js`）が作る。
 殻はそのサーバを止めない。
 利用者が自分で起こしたもの（`hangar start` や `npm run dev`）かもしれず、ポートの番号だけを頼りに止めないためである。
@@ -4121,7 +4121,7 @@ wrangler を同梱していないので、リポジトリを clone した場所�
 - **フェーズ 2**：tmux での起動、ターミナルの埋め込み、セッション内タブ、MCP、指示の注入、iTerm2 と VS Code の連携、セッション自身による要約。計画は `docs/plans/phase2-launch.md`。
 - **フェーズ 3**：使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブと分割、事後要約、パレットとショートカット。併せて、鍵付きの入口と入口の 3 つの検査（Origin、`Sec-Fetch-Site`、`Content-Type`）を入れた。計画は `docs/plans/phase3-workbench.md`。
 - **フェーズ 4**：クラウド同期。Worker と D1 と R2 の setup、メタデータと本文と Claude Code 設定の同期、無料枠の見張り（段 1 で消し、上限で退く形に替えた）、他端末のロックと「この PC で再開」まで実装した。引き継ぎの握手は作らなかった（段 1 で作らないと決めた）。計画は `docs/plans/phase4-sync.md`、実物での確認は `docs/plans/phase4-real-run.md`。
-- **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。署名と公証は行わない。計画は `docs/plans/phase5-desktop.md`。
+- **フェーズ 5**：デスクトップ配布。Tauri v2 のシェル、サーバの同梱と子プロセスとしての起動、Node の探索、`hangar://` のディープリンク、タグから `.app` を作る Releases のワークフローまで実装した。公証は行わず、自作の証明書で署名する（段 5 で加えた。「署名の身元」と「Gatekeeper」の項）。計画は `docs/plans/phase5-desktop.md`。
 
 ## 会話の保持期間
 
@@ -4348,7 +4348,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   右下の札（`presenters/update.ts` の `presentUpdateCard`、試作は案 A2）は、新しい版あり（「ダウンロードしてインストール」「あとで」）、取得中（進みの棒）、準備完了（「実行中のセッション N 件は止まりません。再起動のあと、続きから表示します。」に「再起動して更新」「あとで」）、失敗（いまの版は変わらないことと理由に「もう一度試す」「閉じる」）を同じ 1 枚の中で移す。
   札を閉じた版は `localStorage` の `update.dismissed` に覚え、同じ版の札は 2 度出さない。次の版が出たら出す。閉じた版を設定から取得し直したら、その版の札をまた出す。確認の失敗は札にせず、設定の節にだけ出す。
   設定の更新の節（試作の「共通」）は、版と最終確認の時刻と「更新を確認」、見つけた版の行（閉じた版も出す）、「更新を通知する」のスイッチ（`localStorage` の `update.notify`、既定は入）を置き、見出しに最新、確認中、通知オフ、新しいバージョンあり、ダウンロード中、再起動待ち、失敗の札を出す。スイッチを切ると自動の確認も止まり、新しい版の札は手動で確認したときだけ出す。
-  署名鍵（minisign）の秘密鍵は GitHub の secret の `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Tauri が読む環境変数と同じ名前）にだけ置き、1Password の「Hangar updater signing key (minisign)」に控えてある。リポジトリには公開鍵だけを置く。
+  署名鍵（minisign）の秘密鍵は GitHub の secret の `TAURI_SIGNING_PRIVATE_KEY` と `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（Tauri が読む環境変数と同じ名前）にだけ置き、保守者のパスワード管理に控えてある。リポジトリには公開鍵だけを置く。
   更新物づくり（`createUpdaterArtifacts`）は `tauri.conf.json` に書かず、`release.yml` が鍵のあるときだけ `--config src-tauri/tauri.updater.conf.json` を重ねて入れる。手元と ci の build は鍵を持たないので、更新物を作らずに通る。
   `release.yml` は、macos ジョブが `.app.tar.gz` と `.sig` を、windows ジョブがインストーラの `.sig` を artifact に置き、`updater-manifest` ジョブが `windows-upload` の後で目録を作って（`apps/desktop/scripts/updater-manifest.ts`）、更新物と署名と目録を Release に添える。目録は最後に添える（先に添えると、更新物がまだ無い版をアプリが知ってしまう）。secret が無ければ、更新物と目録だけを飛ばし、失敗にしない。
 - 版と試しの版（2026-10-10）：版はリポジトリのファイルで上げてからタグを打ち、タグから版を決めて build に渡すことはしない。手順は `docs/release.md` にある。
@@ -4359,7 +4359,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   試しの版の目録の取り先は、固定のタグ `updater-prerelease` の Release（prerelease）に 1 つだけ置く `latest.json` にした。`updater-manifest` ジョブが、試しの版でも正式な版でも、その版が今の目録より新しいか同じときだけ置き換える。試しの版の利用者は次の rc も正式な版も受け取り、古い版の再実行で巻き戻らない。
   取り先を版ごとの Release にせず固定のタグに置くのは、rc.1 に焼き込んだ取り先から rc.2 を見つけるためである。安定版の道（Release の最新）を固定のタグに移さないのは、すでに配った版の取り先を変えないためである。
   プレリリースの付いた版は Tauri と NSIS がそのまま受ける。NSIS の `VIProductVersion` は数字の 4 つ組なのでプレリリースの部分が落ちて `0.2.0.0` になるが、入れ替えの比べ方（`nsis_tauri_utils::SemverCompare`）と updater の比べ方は semver のままである。macOS の `Info.plist` の版は `0.2.0-rc.1` のまま入る（2026-10-10 に手元の build で確かめた）。
-- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知はまだ無い。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
+- Windows（x64）は、サーバと UI をソースから動かせる（`docs/superpowers/specs/2026-10-05-windows-port-m1-design.md`）。tmux の役は psmux が担う。通知は WinRT のトーストで出す（「通知」の節）。ターミナルで打った `claude` の包み（`hangar shell install`）は Windows では作らず、セッションは Hangar の画面から始める（利用者の決定）。
 - macOS にしか無いコマンドは、OS で分けて呼ぶ。URL とファイルを既定のアプリで開くのは `platform/browser.ts`（macOS は `open`、Windows はシェルを通さない `rundll32.exe url.dll,FileProtocolHandler`、Linux は `xdg-open`）。
   CLI の `hangar open` は、macOS の外では鍵付きの URL へ移るページ（`<HANGAR_HOME>/open.html`、0600）を書き、そのファイルを開かせる。既定のブラウザは開く対象を自分の argv で受け取るので、URL を直に渡すと鍵が argv に載るからである。
   CLI の道具の探索は `which` を起こさず、サーバと同じ `platform/exec.ts` で PATH と既知の置き場を見る（Windows では PATHEXT を補い、tmux の役は psmux を先に見る）。
@@ -4371,8 +4371,9 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   ファイルなどほかの許可は DR で引かれるので、DR は葉の証明書の指紋（`certificate leaf = H"<SHA-1>"`）で固定する。
   `apps/desktop/scripts/sign-macos.ts` が、内側の Mach-O から外側へ署名し（ハードンドランタイムなし、`--deep` に頼らない）、識別子、DR、`codesign --verify --deep --strict` を確かめて、違えば落とす。
   証明書が無い開発者の手元では `--adhoc` で識別子だけ固定できる（DR は build ごとに変わるので、ローカルネットワーク以外の許可は保たれない見込み）。
-  証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は 1Password と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
+  証明書は 10 年以上の自己署名で、`make-signing-cert.sh` で利用者が一度だけ作る。秘密鍵は保守者のパスワード管理と CI の secret の 2 か所だけに置き、リポジトリには公開の証明書と指紋（`apps/desktop/signing/certificate-sha1.txt`）だけを置く。
   本番の証明書は作って CI の secret に入れてあり、指紋と公開の証明書は `apps/desktop/signing/` に置いてある。
+  手元で署名する開発者は、既存の p12 を `import-signing-cert.sh` で専用のキーチェーンへ取り込む。指紋がリポジトリの値と違えば取り込まない。`make-signing-cert.sh` で作り直すと別の証明書になり、DR が変わって全員の許可が外れるためである。
   CI の署名（段 5 の 5-2）：`release.yml` の macOS のジョブが、tauri build のあとに `apps/desktop/scripts/ci-sign-macos.sh` で署名する。
   台本は secret（`HANGAR_SIGN_P12_BASE64` と `HANGAR_SIGN_P12_PASSWORD`）の p12 を使い捨てのキーチェーンに入れ、`sign-macos.ts` で署名し、終わりにキーチェーンを消す。
   p12 の証明書と、署名に入った証明書の指紋を、署名の前と後で `certificate-sha1.txt` と比べ、違えば止まる。
@@ -4380,14 +4381,18 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   macOS 26 のランナーでは自作の証明書が信頼されていないと codesign が身元を見つけないので、使い捨てのランナーの中でだけ `prepare-signing-keychain.sh` で信頼と検索リストを整え、終わりに外す。
   この台本の回帰は、ci の desktop ジョブの試験（`apps/desktop/test/ci-sign-macos.test.ts`）が、その場で作った試しの証明書で拾う。
   自動更新の更新物（`Hangar.app.tar.gz` と `.sig`）は tauri build の中で署名の前の .app から詰められるので、署名の段の後で `repack-updater-macos.sh` が署名済みの .app から詰め直して `.sig` も付け直し、展開した .app の識別子と DR が保たれていることを確かめる。dmg と zip も署名済みの .app から作る。
-- Gatekeeper：公証はせず、dmg（主）と zip（予備）に SHA-256 の checksum を添えて配る（2026-09-20 の決定、dmg は段 5 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る。以下は署名しない build の記述で、署名した build でも警告の出方は変わらない前提で読む。
+- Gatekeeper：公証はせず、dmg（主）と zip（予備）に SHA-256 の checksum を添えて配る（2026-09-20 の決定、dmg は段 5 の決定）。自作の証明書は Gatekeeper の信頼の鎖に入らないので、署名があっても初回の警告は出る。以下の初回の警告の記述は、自作の証明書で署名した `v0.2.0-rc.4` と `v0.2.0-rc.5` の dmg を実機で見たものである。
   初回の警告は、2026-10-11 に、もう 1 台の Mac へ `v0.2.0-rc.4` の dmg をブラウザで落として入れた実機で見た。
   「"Hangar" は開いていません」と出て、ボタンは「ゴミ箱に入れる」と「完了」だけである。
   Finder の右クリックの「開く」でも同じ画面で、開く道は出なかった（macOS の版は控えていない。版によって違う可能性があるので、主の手順からは外し、効かなかったことだけを README に書いた）。
   システム設定の「プライバシーとセキュリティ」に出る「このまま開く」を押すと、管理者の名前とパスワードを求められ、入れると開けた。
   README はこの順で書いてある。
-  Tauri が行うのはバイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
-  署名しないという決めのもとでは、これが既定の姿である。
+  2026-10-11 に、macOS 27.0（Gatekeeper の設定は「App Store と既知のデベロッパ」）の仮想マシンで `v0.2.0-rc.5` の dmg を撮り直した。
+  警告の題、本文、ボタンと、右クリックの「開く」が効かないことは上のとおりだった。
+  システム設定の「セキュリティ」の欄（見出しは「アプリケーションの実行許可」）の行は「お使いのMacを保護するために"Hangar"がブロックされました。」で、右に「このまま開く」があった。
+  行の文言は macOS の版で違いうるので、README は「…がブロックされました」の行、と探しやすい書き方にした。
+  署名しない Tauri の build（開発者の手元や、署名の secret の無い fork の build）は、バイナリを ad-hoc（linker-signed）にするところまでで、バンドルの封はしないので、`.app` に `_CodeSignature` は無く、`spctl -a -vv` は `code has no resources but signature indicates they must be present` で弾く。
+  署名した配布版は、`sign-macos.ts` が封まで行うので、この状態にはならない。
   利用者の手順は、`.app` を `/Applications` へ移してから、初回の警告を越えることである（越え方は上の実機の流れ。`xattr` で検疫属性を外す道は最後の手段）。
   移動を先に置くのは順序の実測による。
   検疫属性が付いたまま開くと、App Translocation の案内より先に Gatekeeper のダイアログが出る。

@@ -19,7 +19,7 @@ designated => certificate leaf = H"<葉の証明書の SHA-1（小文字 40 桁�
 ```
 
 証明書を作り直すと身元が変わり、利用者の許可は一度だけ外れる。
-だから証明書は 10 年以上の有効期間で作り、秘密鍵は 2 か所（1Password と CI の secret）にだけ置く。
+だから証明書は 10 年以上の有効期間で作り、秘密鍵は 2 か所（保守者のパスワード管理と CI の secret）にだけ置く。
 
 ## 2 つの道
 
@@ -111,10 +111,32 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 
 1. 上の台本で証明書を作る。
 2. 指紋を `apps/desktop/signing/certificate-sha1.txt` に 1 行で書き、公開の証明書（`hangar-signing.cer`）と一緒に PR に入れる。
-3. p12 とそのパスワードを、1Password に保管する（p12 は添付、パスワードは別の項目）。
+3. p12 とそのパスワードを、保守者のパスワード管理に保管する（p12 は添付、パスワードは別の項目）。
 4. 同じ p12 の base64 とパスワードを、GitHub のリポジトリの secret（`HANGAR_SIGN_P12_BASE64` と `HANGAR_SIGN_P12_PASSWORD`）に置く。入れ方は下の「CI の secret を入れる」にある。
-5. 作業用のディレクトリから p12 を消す。鍵は 1Password と CI の 2 か所だけが持つ。
-6. 手元で署名する開発者は、1Password から p12 を取り出して専用のキーチェーンへ入れる。
+5. 作業用のディレクトリから p12 を消す。鍵は保守者のパスワード管理と CI の 2 か所だけが持つ。
+6. 手元で署名する開発者は、保守者のパスワード管理から p12 とパスワードを取り出して、専用のキーチェーンへ取り込む（下の「既存の p12 を手元へ取り込む」）。
+
+## 既存の p12 を手元へ取り込む
+
+手順 6 は、すでにある p12 を使う。
+**`make-signing-cert.sh` で代用してはいけない。**
+あれは新しい証明書を作る台本で、指紋が変わり、DR が変わるので、利用者の許可（ローカルネットワークなど）が全員分外れる。
+
+取り込みは `apps/desktop/scripts/import-signing-cert.sh` が行う。
+
+```bash
+# 1. パスワード管理から p12 を、リポジトリの外の作業ディレクトリへ取り出す（台本は、リポジトリの中の p12 を断る）
+# 2. 取り込む。パスワードは環境変数 HANGAR_SIGN_P12_PASSWORD か、端末での入力で渡す
+bash apps/desktop/scripts/import-signing-cert.sh --p12 <取り出した p12> --keychain <新しいキーチェーンのパス>
+# 3. 作業ディレクトリから p12 を消す
+```
+
+台本は、p12 の葉の証明書の指紋が `apps/desktop/signing/certificate-sha1.txt` と一致するときだけ、新しいキーチェーンを作って取り込む。
+違えば何も作らずに止まる（別の p12 を取り出したか、作り直した証明書が混ざっている）。
+検索リストには足さず、ログインのキーチェーンには触らない。
+取り込んだあとは、上の「証明書で署名する」の `HANGAR_SIGN_KEYCHAIN` にそのパスを渡す。
+macOS 26 では、署名の前に `prepare-signing-keychain.sh` が要る（上の「署名する機械の前提」）。
+試験は `apps/desktop/test/import-signing-cert.test.ts` にある。
 
 公開リポジトリに入れてよいのは、公開の証明書と指紋だけである。
 秘密鍵、p12、パスワードは、どのファイルにも、コミットにも、ログにも書かない。
@@ -157,11 +179,11 @@ bash apps/desktop/scripts/make-signing-cert.sh --out <リポジトリの外の�
 dmg と zip も、署名済みの .app から作る。
 試験は `apps/desktop/test/repack-updater-macos.test.ts` で、試しの更新の署名鍵と試しの証明書をその場で作る。
 
-## CI の secret を入れる（利用者が、1Password から）
+## CI の secret を入れる（保守者が、パスワード管理から）
 
-秘密を画面、ファイル、シェルの履歴に残さないように、1Password から直接 `gh` へ流す。
-1Password の CLI（`op`）と GitHub の CLI（`gh`）にサインインしたうえで、リポジトリの checkout の中で次を打つ。
-`<保管庫>` と `<項目>` は、手順 3 で p12 を保管した 1Password の場所に置き換える。
+秘密を画面、ファイル、シェルの履歴に残さないように、パスワード管理から直接 `gh` へ流す。
+パスワード管理の CLI（ここでは 1Password の `op` を例にする）と GitHub の CLI（`gh`）にサインインしたうえで、リポジトリの checkout の中で次を打つ。
+`<保管庫>` と `<項目>` は、手順 3 で p12 を保管した場所に置き換える（名前はこの文書に書かない）。
 
 ```bash
 # p12 の添付を base64 にして、そのまま secret へ（ファイルにも画面にも出さない）
@@ -172,7 +194,7 @@ op read -n "op://<保管庫>/<項目>/password" | gh secret set HANGAR_SIGN_P12_
 ```
 
 `gh secret set` は標準入力から値を読むので、値が引数やシェルの履歴に載らない。
-`op` を使わないときは、1Password の画面から p12 を一時の場所へ保存し、`base64 -i <p12> | gh secret set HANGAR_SIGN_P12_BASE64` で入れてから、その p12 を消す。
+`op` を使わないときは、パスワード管理の画面から p12 を一時の場所へ保存し、`base64 -i <p12> | gh secret set HANGAR_SIGN_P12_BASE64` で入れてから、その p12 を消す。
 パスワードは `gh secret set HANGAR_SIGN_P12_PASSWORD` を打ち、尋ねられたところへ貼る。
 GitHub の画面（Settings の Secrets and variables の Actions）から入れてもよい。
 
@@ -192,12 +214,12 @@ GitHub の画面（Settings の Secrets and variables の Actions）から入れ
 
 秘密鍵（p12）は 2 か所だけにある。
 
-- 1Password の項目「Hangar macOS signing certificate」（p12 は添付、パスワードは別の欄）。
+- 保守者のパスワード管理（p12 は添付、パスワードは別の欄）。
 - GitHub のリポジトリの secret `HANGAR_SIGN_P12_BASE64`（p12 の base64）と `HANGAR_SIGN_P12_PASSWORD`（そのパスワード）。
 
 タグの release は、上の「CI で署名する」のとおり、この証明書で .app と更新物の .app に署名する。
 
 ## 鍵を失ったとき
 
-秘密鍵を 1Password と CI の両方で失ったら、新しい証明書を作り直す。
+秘密鍵を保守者のパスワード管理と CI の両方で失ったら、新しい証明書を作り直す。
 身元（DR）が変わるので、利用者は許可を一度だけ付け直す。
