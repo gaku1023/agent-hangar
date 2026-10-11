@@ -142,13 +142,13 @@ function useAutoDismiss(ms: number, onDone: () => void) {
 
 /**
  * info のトースト。
- * 時間で消え、押しても消せる。
+ * 時間で消え、押しても消せる。長さは既定が INFO_TOAST_MS で、holdMs を持つものはその長さである。
  */
 function InfoToast(props: { toast: Toast }) {
   const emit = useEmit();
   const t = useT();
   const dismiss = () => emit({ type: 'toast.dismiss', id: props.toast.id });
-  const pause = useAutoDismiss(INFO_TOAST_MS, dismiss);
+  const pause = useAutoDismiss(props.toast.holdMs ?? INFO_TOAST_MS, dismiss);
   return (
     <div className="toast notice" data-kind="info" role="status" onClick={dismiss} {...pause}>
       <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('toasts.info.head')}</span></div>

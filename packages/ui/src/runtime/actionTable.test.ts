@@ -5,7 +5,7 @@ import { initialStore, type Store } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { ApiClient } from './api.ts';
-import { FELL_BACK, FELL_BACK_WINDOWS, actionCall, actionTable, isTableAction, type TableAction } from './actionTable.ts';
+import { FELL_BACK, FELL_BACK_WINDOWS, LONG_TOAST_MS, actionCall, actionTable, isTableAction, type TableAction } from './actionTable.ts';
 
 /** 表が使う API だけの偽物。表に無い API を呼べば、型が合わなくなるか、無い関数を呼んで落ちる。 */
 function fakeApi(over: Partial<ApiClient> = {}): ApiClient {
@@ -15,15 +15,15 @@ function fakeApi(over: Partial<ApiClient> = {}): ApiClient {
 /** 表の 1 行を引いて呼び、応答の扱い（Store の更新と知らせ）まで行う。Runtime の runCall と同じ順である。 */
 async function runRow(action: TableAction, api: ApiClient, store: Store = initialStore()) {
   const call = actionCall(action, store);
-  if (!call) return { called: false as const, store, during: store, toast: null };
+  if (!call) return { called: false as const, store, during: store, toast: null, toastHoldMs: null };
   const during = call.before ? call.before(store) : store;
   try {
     const done = await call.run(api);
-    return { called: true as const, during, store: done.apply ? done.apply(during) : during, toast: done.toast ?? null };
+    return { called: true as const, during, store: done.apply ? done.apply(during) : during, toast: done.toast ?? null, toastHoldMs: done.toastHoldMs ?? null };
   } catch (e) {
     // 失敗の行き先を持つ行は Store に書く。持たない行は Runtime がトーストにするので、ここでは投げ直す。
     if (!call.failed) throw e;
-    return { called: true as const, during, store: call.failed(during, e), toast: null };
+    return { called: true as const, during, store: call.failed(during, e), toast: null, toastHoldMs: null };
   }
 }
 
@@ -98,6 +98,15 @@ describe('セッション', () => {
     expect(c.toast).toBe(FELL_BACK_WINDOWS);
     const d = await runRow({ type: 'project.openTerminalApp', id: 'p1' }, fakeApi({ projectOpenTerminal: vi.fn(async () => ({ app: 'windowsDefault' as const, fellBack: true })) }));
     expect(d.toast).toBe(FELL_BACK_WINDOWS);
+  });
+  it('外部ターミナルが開けず別のもので開いた知らせは、読み切れるよう長く出す。ほかの知らせの長さは変えない', async () => {
+    const win = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'windowsDefault' as const, fellBack: true })) }));
+    expect(win.toastHoldMs).toBe(LONG_TOAST_MS);
+    expect(LONG_TOAST_MS).toBeGreaterThanOrEqual(8000);
+    const mac = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) }));
+    expect(mac.toastHoldMs).toBe(LONG_TOAST_MS);
+    const none = await runRow({ type: 'session.openTerminalApp', runId: 'r1' }, fakeApi({ openTerminalApp: vi.fn(async () => ({ app: 'windowsTerminal' as const, fellBack: false })) }));
+    expect(none.toastHoldMs).toBeNull();
   });
   it('エディタで開く。変更したファイルを押したときだけ、そのファイルを添える', async () => {
     const openEditor = vi.fn(async (_sessionId: string, _file?: string) => {});
