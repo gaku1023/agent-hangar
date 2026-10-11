@@ -186,8 +186,38 @@ export const dots = (ms) => '.'.repeat(1 + (Math.floor(ms / (CYCLE_MS / 3)) % 3)
 
 /** 起動を待ち始めてから、秒数を添えるまでの長さ。 */
 export const SLOW_AFTER_MS = 3000;
+
+/**
+ * 待っている間の文の日英の表。言語は殻が起動の頭で決めて boot_state で渡す（lib.rs）。
+ * 頁は UI の辞書を使えないので、ここに持つ。知らない言語は日本語（UI の既定）で出す。
+ */
+const WAIT = {
+  ja: {
+    loading: '読み込み中',
+    welcome: 'ようこそ',
+    slow: (s) => `（${s} 秒）`,
+    starting: 'サーバを起動中',
+    indexing: (done, total) => `セッションを索引中 ${done} / ${total} 件`,
+    rebuilding: (done, total) => `索引を作り直し中 ${done} / ${total} 件`,
+    checking: 'セッションを確認中',
+  },
+  en: {
+    loading: 'Loading',
+    welcome: 'Welcome',
+    slow: (s) => ` (${s} s)`,
+    starting: 'Starting the server',
+    indexing: (done, total) => `Indexing sessions ${done} / ${total}`,
+    rebuilding: (done, total) => `Rebuilding the index ${done} / ${total}`,
+    checking: 'Checking sessions',
+  },
+};
+const wait = (lang) => WAIT[lang] ?? WAIT.ja;
+
+/** 待っている間の見出しの文（読み込み中）と、合図の文（ようこそ）。 */
+export const waitText = (lang) => ({ loading: wait(lang).loading, welcome: wait(lang).welcome });
+
 /** 待ちが長いときに添える秒数。SLOW_AFTER_MS より前は空。 */
-export const slowSuffix = (ms) => (ms < SLOW_AFTER_MS ? '' : `（${Math.floor(ms / 1000)} 秒）`);
+export const slowSuffix = (ms, lang = 'ja') => (ms < SLOW_AFTER_MS ? '' : wait(lang).slow(Math.floor(ms / 1000)));
 
 const count = (n) => n.toLocaleString('en-US');
 /**
@@ -195,10 +225,11 @@ const count = (n) => n.toLocaleString('en-US');
  * ふだんは 0.2 秒で済むので、最初の周の境目（CYCLE_MS）までは出さない。一瞬だけ出て消える文は読めない。
  * 進み具合がまだ届いていなければ、サーバの起動を待っているところである。
  */
-export function detailText(p, ms) {
+export function detailText(p, ms, lang = 'ja') {
+  const w = wait(lang);
   if (ms < CYCLE_MS) return '';
-  if (!p) return 'サーバを起動中';
-  if (p.phase === 'indexing') return `セッションを索引中 ${count(p.done)} / ${count(p.total)} 件`;
-  if (p.phase === 'rebuilding') return `索引を作り直し中 ${count(p.done)} / ${count(p.total)} 件`;
-  return 'セッションを確認中';
+  if (!p) return w.starting;
+  if (p.phase === 'indexing') return w.indexing(count(p.done), count(p.total));
+  if (p.phase === 'rebuilding') return w.rebuilding(count(p.done), count(p.total));
+  return w.checking;
 }

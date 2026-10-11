@@ -745,6 +745,9 @@ fn server_died(app: &AppHandle, home: &std::path::Path) -> bootfail::BootFailure
 fn boot(app: AppHandle) {
     let hangar_home = paths::hangar_home();
     ensure_hangar_home(&hangar_home);
+    // 初めての起動なら、OS の表示言語を設定の language に書く。サーバ、UI、札、CLI がこの値を読む。
+    let lang = bootfail::ensure_language(&hangar_home);
+    log(&format!("language {lang}"));
     let addr: SocketAddr = ([127, 0, 0, 1], server::PORT).into();
 
     if let Err(failure) = start_server(&app, &hangar_home, addr) {
@@ -842,7 +845,9 @@ fn spawn_boot(app: AppHandle) -> bool {
 #[tauri::command]
 fn boot_state(app: AppHandle) -> serde_json::Value {
     let state = app.state::<AppState>();
-    let now = state.ui.lock().unwrap().boot_state();
+    let mut now = state.ui.lock().unwrap().boot_state();
+    // 待っている間の文（読み込み中、ようこそ）の言語。失敗の札と同じ決め方で、起動の頭で書いた設定を読む。
+    now["lang"] = bootfail::page_language(&paths::hangar_home()).into();
     bootprobe::mark(now, state.boot_probe.is_some())
 }
 
@@ -957,98 +962,105 @@ fn config_runtime_failure(app: &AppHandle, title: &str, message: String) -> conf
 /// 確認が重ならないよう、走っている間は印を立てる。
 fn with_config_guard(
     app: &AppHandle,
+    w: &configapply::Words,
     run: impl FnOnce() -> configapply::Outcome,
 ) -> configapply::Outcome {
     let state = app.state::<AppState>();
     if state.config_busy.swap(true, Ordering::SeqCst) {
-        return configapply::Outcome::simple("busy", "設定の確認がすでに出ています。");
+        return configapply::Outcome::simple("busy", w.busy);
     }
     let outcome = run();
     state.config_busy.store(false, Ordering::SeqCst);
     outcome
 }
 
-fn apply_config_flow(app: &AppHandle) -> configapply::Outcome {
-    const TITLE: &str = "設定の適用";
+/// 設定の同期の文の言語。殻の頁と同じく、置き場の設定ファイルか OS から決める（`bootfail::page_language`）。
+fn config_language() -> &'static str {
+    bootfail::page_language(&paths::hangar_home())
+}
+
+fn apply_config_flow(app: &AppHandle, lang: &str) -> configapply::Outcome {
+    let title = configapply::words(lang).apply_flow_title;
     let (node, dir, home) = match config_runtime(app) {
         Ok(v) => v,
-        Err(e) => return config_runtime_failure(app, TITLE, e),
+        Err(e) => return config_runtime_failure(app, title, e),
     };
     let run = |args: &[&str]| {
         configapply::run_cli(
             configapply::cli_command(&node, &dir, &home, args),
             configapply::CLI_TIMEOUT,
+            lang,
         )
     };
     // 見立ては CLI に出させる。書くものの数と種類を、殻が自分では数えない。
     let plan_out = match run(&["config", "apply", "--plan", "--json"]) {
         Ok(o) => o,
-        Err(e) => return config_runtime_failure(app, TITLE, e),
+        Err(e) => return config_runtime_failure(app, title, e),
     };
-    let plan = match configapply::parse_reply::<configapply::ApplyPlan>(&plan_out, "plan") {
+    let plan = match configapply::parse_reply::<configapply::ApplyPlan>(&plan_out, "plan", lang) {
         Ok(p) => p,
-        Err(f) => return config_failure(app, TITLE, &f),
+        Err(f) => return config_failure(app, title, &f),
     };
-    if !confirm_natively(app, &configapply::apply_confirm(&plan)) {
+    if !confirm_natively(app, &configapply::apply_confirm(&plan, lang)) {
         log("config sync: apply declined");
-        return configapply::Outcome::simple(
-            "cancelled",
-            "適用しませんでした。指示書はそのまま残しています。",
-        );
+        let cancelled = configapply::words(lang).apply_cancelled;
+        return configapply::Outcome::simple("cancelled", cancelled);
     }
     // 確認したのと同じ指示書にだけ適用する。確認のあとに選び直されていたら、CLI が断る。
     let order = plan.created_at.to_string();
     let applied = match run(&["config", "apply", "--yes", "--json", "--order", &order]) {
         Ok(o) => o,
-        Err(e) => return config_runtime_failure(app, TITLE, e),
+        Err(e) => return config_runtime_failure(app, title, e),
     };
-    match configapply::parse_reply::<configapply::ApplyResult>(&applied, "result") {
+    match configapply::parse_reply::<configapply::ApplyResult>(&applied, "result", lang) {
         Ok(r) => {
             log(&format!("config sync: applied ({:?})", r.generation));
-            configapply::Outcome::applied(&r)
+            configapply::Outcome::applied(&r, lang)
         }
-        Err(f) => config_failure(app, TITLE, &f),
+        Err(f) => config_failure(app, title, &f),
     }
 }
 
-fn restore_config_flow(app: &AppHandle, name: &str) -> configapply::Outcome {
-    const TITLE: &str = "設定を世代へ戻す";
+fn restore_config_flow(app: &AppHandle, name: &str, lang: &str) -> configapply::Outcome {
+    let w = configapply::words(lang);
+    let title = w.restore_flow_title;
     // 頁から来る値は、世代の名前の形だけを受け取る。
     if !configapply::valid_generation_name(name) {
-        return configapply::Outcome::simple("failed", "世代の名前が正しくありません。");
+        return configapply::Outcome::simple("failed", w.bad_generation);
     }
     let (node, dir, home) = match config_runtime(app) {
         Ok(v) => v,
-        Err(e) => return config_runtime_failure(app, TITLE, e),
+        Err(e) => return config_runtime_failure(app, title, e),
     };
     let run = |args: &[&str]| {
         configapply::run_cli(
             configapply::cli_command(&node, &dir, &home, args),
             configapply::CLI_TIMEOUT,
+            lang,
         )
     };
     let plan_out = match run(&["config", "restore", name, "--plan", "--json"]) {
         Ok(o) => o,
-        Err(e) => return config_runtime_failure(app, TITLE, e),
+        Err(e) => return config_runtime_failure(app, title, e),
     };
-    let plan = match configapply::parse_reply::<configapply::RestorePlan>(&plan_out, "plan") {
+    let plan = match configapply::parse_reply::<configapply::RestorePlan>(&plan_out, "plan", lang) {
         Ok(p) => p,
-        Err(f) => return config_failure(app, TITLE, &f),
+        Err(f) => return config_failure(app, title, &f),
     };
-    if !confirm_natively(app, &configapply::restore_confirm(&plan)) {
+    if !confirm_natively(app, &configapply::restore_confirm(&plan, lang)) {
         log("config sync: restore declined");
-        return configapply::Outcome::simple("cancelled", "戻しませんでした。");
+        return configapply::Outcome::simple("cancelled", w.restore_cancelled);
     }
     let restored = match run(&["config", "restore", name, "--yes", "--json"]) {
         Ok(o) => o,
-        Err(e) => return config_runtime_failure(app, TITLE, e),
+        Err(e) => return config_runtime_failure(app, title, e),
     };
-    match configapply::parse_reply::<configapply::RestoreResult>(&restored, "result") {
+    match configapply::parse_reply::<configapply::RestoreResult>(&restored, "result", lang) {
         Ok(r) => {
             log(&format!("config sync: restored ({:?})", r.safety));
-            configapply::Outcome::restored(&r)
+            configapply::Outcome::restored(&r, lang)
         }
-        Err(f) => config_failure(app, TITLE, &f),
+        Err(f) => config_failure(app, title, &f),
     }
 }
 
@@ -1057,21 +1069,25 @@ fn restore_config_flow(app: &AppHandle, name: &str) -> configapply::Outcome {
 /// 件数と種類をネイティブの確認に見せ、承諾されたときだけ、控えを取って書く。サーバは `~/.claude` に書かない。
 #[tauri::command]
 async fn apply_config_sync(app: AppHandle) -> configapply::Outcome {
+    let lang = config_language();
+    let w = configapply::words(lang);
     tauri::async_runtime::spawn_blocking(move || {
-        with_config_guard(&app, || apply_config_flow(&app))
+        with_config_guard(&app, w, || apply_config_flow(&app, lang))
     })
     .await
-    .unwrap_or_else(|_| configapply::Outcome::simple("failed", "設定の適用の処理が止まりました。"))
+    .unwrap_or_else(|_| configapply::Outcome::simple("failed", w.apply_stopped))
 }
 
 /// 控えの世代へ戻す。UI の設定の「この世代に戻す」が呼ぶ。受け取るのは世代の名前（yyyyMMdd-HHmmss）だけで、形を確かめる。
 #[tauri::command]
 async fn restore_config_sync(app: AppHandle, name: String) -> configapply::Outcome {
+    let lang = config_language();
+    let w = configapply::words(lang);
     tauri::async_runtime::spawn_blocking(move || {
-        with_config_guard(&app, || restore_config_flow(&app, &name))
+        with_config_guard(&app, w, || restore_config_flow(&app, &name, lang))
     })
     .await
-    .unwrap_or_else(|_| configapply::Outcome::simple("failed", "設定を戻す処理が止まりました。"))
+    .unwrap_or_else(|_| configapply::Outcome::simple("failed", w.restore_stopped))
 }
 
 /// `~/.agent-hangar/desktop.log` を開く。起動画面と、UI の切断の帯の「ログを開く」が呼ぶ。
@@ -1280,7 +1296,9 @@ fn notify_waiting(
     title: String,
     body: String,
 ) -> Result<(), String> {
-    let w = notify::waiting(&session_id, &title, &body)?;
+    // 題や本文が空のときの代わりの文は、殻の頁と同じ言語で書く。
+    let lang = bootfail::page_language(&paths::hangar_home());
+    let w = notify::waiting(&session_id, &title, &body, lang)?;
     if let Some(win) = app.get_webview_window("main") {
         let visible = win.is_visible().unwrap_or(false);
         let minimized = win.is_minimized().unwrap_or(false);

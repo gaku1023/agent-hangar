@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { decideLanguage, osDisplayLanguage } from '../../../packages/server/src/i18n/osLanguage.ts';
 
 export type Want = { nodeMajor: number; arch: string };
 export type Probed = { major: number; arch: string };
@@ -65,21 +66,12 @@ export function chooseNode(candidates: string[], want: Want, probe: (node: strin
 export type Lang = 'ja' | 'en';
 
 /**
- * 見つからないときの文の言語を決める。殻の札（src-tauri の bootfail.rs の choose_language）と同じ決め方にする。
- * 設定（settings.json）の language が ja か en ならそれ、無ければ OS の言語（日本語なら ja、ほかは en）、それも分からなければ日本語（UI の既定）。
+ * 見つからないときの文の言語を決める。サーバの設定の読み込みと殻の札（src-tauri の bootfail.rs）と同じ決め方で、読み口も同じ関数である（decideLanguage）。
+ * 設定（settings.json）の language、設定はあるが言語が無ければ日本語、設定が無いか読めなければ OS の表示言語。
+ * この入口は設定を書かない。初めての起動の言語を書くのは、殻かサーバである。
  */
-export function cliLanguage(settingsText: string | undefined, osLocale: string | undefined): Lang {
-  if (settingsText !== undefined) {
-    try {
-      const l = (JSON.parse(settingsText) as { language?: unknown }).language;
-      if (l === 'ja' || l === 'en') return l;
-    } catch {
-      // 読めない設定は無いものとして、OS の言語へ進む。
-    }
-  }
-  const tag = (osLocale ?? '').trim();
-  if (tag === '') return 'ja';
-  return tag.toLowerCase().startsWith('ja') ? 'ja' : 'en';
+export function cliLanguage(settingsText: string | undefined, os: () => Lang | undefined = osDisplayLanguage): Lang {
+  return decideLanguage(settingsText, os).language;
 }
 
 /** Windows で Node を入れる命令。README の Windows の前提と、殻の札（node.rs の winget_command）と同じ形にする。 */
@@ -329,8 +321,8 @@ export async function run(dist: string, argv: string[] = process.argv.slice(2), 
     process.exitCode = r.status ?? 1;
     return;
   }
-  // OS の言語は、Node が OS から受け取った地域の設定で読む（Windows では利用者の地域の言語）。
-  const lang = cliLanguage(settingsText, Intl.DateTimeFormat().resolvedOptions().locale);
+  // OS の言語は、地域の書式（Intl の既定の locale）ではなく表示言語で読む。
+  const lang = cliLanguage(settingsText);
   process.stderr.write(describeNotFound(want, { path: process.execPath, result: mine }, tried, path.join(home, 'settings.json'), lang));
   process.exitCode = 1;
 }

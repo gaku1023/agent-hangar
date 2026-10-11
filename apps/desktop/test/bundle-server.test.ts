@@ -745,6 +745,26 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     expect(r.stderr).not.toContain('見つかりません');
   });
 
+  // 英語の OS で入れたばかりの状態（設定が無い）。殻の札、サーバ、UI と同じく、OS の表示言語で英語になる。
+  it('設定が無ければ OS の表示言語で述べ、設定は書かない（書くのは殻かサーバ）', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const home = emptyDirFor('hangar home-');
+    const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath, HANGAR_OS_LANGUAGE: 'en' });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(`Node 99 (${process.arch}) was not found.`);
+    expect(r.stderr).not.toContain('見つかりません');
+    expect(fs.existsSync(path.join(home, 'settings.json'))).toBe(false);
+  });
+
+  it('設定はあるが言語が無い（OS に合わせる前からの利用者）なら、英語の OS でも日本語で述べる', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const home = emptyDirFor('hangar home-');
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: null }));
+    const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath, HANGAR_OS_LANGUAGE: 'en' });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(`Node 99（${process.arch}）が見つかりません`);
+  });
+
   it('manifest.json が無ければ、何が起きたかを述べて止まる', async () => {
     const dist = await fakeLaunchDist(null);
     const r = run(dist, []);
@@ -926,15 +946,16 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
   // 見つからないときの文の言語は、殻の札と同じ決め方にする（bootfail.rs の choose_language）。
   // 設定の language が ja か en ならそれ、無ければ OS の言語（日本語なら ja、ほかは en）、それも分からなければ日本語。
   describe('cliLanguage', () => {
-    it('設定の language を先に見て、無ければ OS の言語、それも無ければ日本語', () => {
-      expect(cliLanguage('{"language":"en"}', 'ja-JP')).toBe('en');
-      expect(cliLanguage('{"language":"ja"}', 'en-US')).toBe('ja');
-      expect(cliLanguage('{"nodePath":"x"}', 'en-US')).toBe('en');
-      expect(cliLanguage('{"language":"fr"}', 'ja-JP')).toBe('ja');
-      expect(cliLanguage(undefined, 'de-DE')).toBe('en');
-      expect(cliLanguage('not json', 'ja')).toBe('ja');
-      expect(cliLanguage(undefined, undefined)).toBe('ja');
-      expect(cliLanguage(undefined, '')).toBe('ja');
+    // 決め方はサーバの設定の読み込みと殻の札と同じ（packages/server/src/i18n/osLanguage.ts の decideLanguage）。
+    it('設定の language、設定はあるが言語が無ければ日本語、設定が無いか読めなければ OS の表示言語（読めなければ英語）', () => {
+      expect(cliLanguage('{"language":"en"}', () => 'ja')).toBe('en');
+      expect(cliLanguage('{"language":"ja"}', () => 'en')).toBe('ja');
+      expect(cliLanguage('{"nodePath":"x"}', () => 'en')).toBe('ja');
+      expect(cliLanguage('{"language":"fr"}', () => 'en')).toBe('ja');
+      expect(cliLanguage(undefined, () => 'en')).toBe('en');
+      expect(cliLanguage(undefined, () => 'ja')).toBe('ja');
+      expect(cliLanguage('not json', () => 'en')).toBe('en');
+      expect(cliLanguage(undefined, () => undefined)).toBe('en');
     });
   });
 

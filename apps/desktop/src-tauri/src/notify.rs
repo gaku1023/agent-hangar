@@ -50,17 +50,29 @@ fn tidy(text: &str, max: usize, fallback: &str) -> String {
     cut
 }
 
+/// 題と本文が空のときの代わりの文。UI の辞書の言い方に合わせる（common.label.noName と home.card.noQuestion）。
+/// 並びは（題、本文）。
+fn fallbacks(lang: &str) -> (&'static str, &'static str) {
+    if lang == "en" {
+        ("(No name)", "Waiting for input")
+    } else {
+        ("（名前なし）", "入力を待っています")
+    }
+}
+
 /// 頁から届いた値を、通知に出せる形に整える。
 /// id が変なら断る。
-/// 題が空なら名前の無いセッションとして、本文が空なら問いの取れなかった入力待ちとして出す（UI の言い方に合わせる）。
-pub fn waiting(session_id: &str, title: &str, body: &str) -> Result<Waiting, String> {
+/// 題が空なら名前の無いセッションとして、本文が空なら問いの取れなかった入力待ちとして出す。
+/// 代わりの文の言語は殻の頁と同じ（`bootfail::page_language` の ja か en）。en のほかは日本語にする。
+pub fn waiting(session_id: &str, title: &str, body: &str, lang: &str) -> Result<Waiting, String> {
     if !valid_id(session_id) {
         return Err("invalid session id".to_string());
     }
+    let (no_title, no_body) = fallbacks(lang);
     Ok(Waiting {
         session_id: session_id.to_string(),
-        title: tidy(title, TITLE_MAX, "（名前なし）"),
-        body: tidy(body, BODY_MAX, "入力を待っています"),
+        title: tidy(title, TITLE_MAX, no_title),
+        body: tidy(body, BODY_MAX, no_body),
     })
 }
 
@@ -731,6 +743,7 @@ mod tests {
             "0192f0a1-7c3e-7b2d-9f00-aa11bb22cc33",
             "請求書の書き出し",
             "向きはどちらにしますか",
+            "ja",
         )
         .unwrap();
         assert_eq!(w.session_id, "0192f0a1-7c3e-7b2d-9f00-aa11bb22cc33");
@@ -748,22 +761,29 @@ mod tests {
             "s1\n",
             &"a".repeat(65),
         ] {
-            assert!(waiting(bad, "t", "b").is_err(), "{bad:?}");
+            assert!(waiting(bad, "t", "b", "ja").is_err(), "{bad:?}");
         }
-        assert!(waiting("s_1-A", "t", "b").is_ok());
+        assert!(waiting("s_1-A", "t", "b", "ja").is_ok());
     }
 
     #[test]
     fn empty_texts_fall_back_to_the_words_the_ui_uses() {
-        let w = waiting("s1", "  ", "").unwrap();
+        let w = waiting("s1", "  ", "", "ja").unwrap();
         assert_eq!(w.title, "（名前なし）");
         assert_eq!(w.body, "入力を待っています");
     }
 
     #[test]
+    fn empty_texts_fall_back_to_english_in_english() {
+        let w = waiting("s1", "  ", "", "en").unwrap();
+        assert_eq!(w.title, "(No name)");
+        assert_eq!(w.body, "Waiting for input");
+    }
+
+    #[test]
     fn long_texts_are_cut_by_characters_with_an_ellipsis() {
         let long = "あ".repeat(300);
-        let w = waiting("s1", &long, &long).unwrap();
+        let w = waiting("s1", &long, &long, "ja").unwrap();
         assert_eq!(w.title.chars().count(), TITLE_MAX);
         assert!(w.title.ends_with('…'));
         assert_eq!(w.body.chars().count(), BODY_MAX);
@@ -936,7 +956,7 @@ mod tests {
     fn the_toast_carries_the_name_the_question_and_where_to_go() {
         let name = "請求書の書き出し";
         let question = "向きはどちらにしますか";
-        let w = waiting("s1", name, question).unwrap();
+        let w = waiting("s1", name, question, "ja").unwrap();
         let xml = toast_xml(&w);
         assert!(
             xml.starts_with("<toast launch=\"hangar-waiting:s1\" activationType=\"foreground\">"),
@@ -949,7 +969,7 @@ mod tests {
 
     #[test]
     fn the_toast_escapes_the_texts_so_the_page_cannot_change_its_shape() {
-        let w = waiting("s1", "a<b>&\"c'", "</text><text>x").unwrap();
+        let w = waiting("s1", "a<b>&\"c'", "</text><text>x", "ja").unwrap();
         let xml = toast_xml(&w);
         assert!(
             xml.contains("<text>a&lt;b&gt;&amp;&quot;c&apos;</text>"),
@@ -965,7 +985,7 @@ mod tests {
     #[test]
     fn a_click_on_the_toast_reads_back_the_same_session_as_on_macos() {
         // Windows は押されたトーストの launch の値を、そのまま殻へ返す。
-        let w = waiting("s_1-A", "t", "b").unwrap();
+        let w = waiting("s_1-A", "t", "b", "ja").unwrap();
         let xml = toast_xml(&w);
         let launch = xml.split('"').nth(1).unwrap();
         assert_eq!(session_of(launch), Some("s_1-A"));
@@ -977,7 +997,7 @@ mod tests {
         assert_ne!(toast_tag("s1"), toast_tag("s2"));
         // Windows のタグは 64 文字まで。
         let longest = "a".repeat(ID_MAX);
-        assert!(waiting(&longest, "t", "b").is_ok());
+        assert!(waiting(&longest, "t", "b", "ja").is_ok());
         assert!(toast_tag(&longest).chars().count() <= 64);
     }
 
