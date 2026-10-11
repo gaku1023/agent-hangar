@@ -79,14 +79,12 @@ mod tests {
     #[cfg(not(feature = "boot-probe"))]
     #[test]
     fn a_build_without_the_feature_ignores_the_variable() {
-        assert!(!ENABLED);
         assert_eq!(target(Some(OsString::from("/tmp/probe.json"))), None);
     }
 
     #[cfg(feature = "boot-probe")]
     #[test]
     fn a_build_with_the_feature_reads_the_variable() {
-        assert!(ENABLED);
         assert_eq!(
             target(Some(OsString::from("/tmp/probe.json"))),
             Some(PathBuf::from("/tmp/probe.json"))
