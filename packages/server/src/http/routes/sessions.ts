@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Context, Hono } from 'hono';
-import { liveFilterOf, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
+import { liveFilterOf, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
 import { getProject, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/indexFile.ts';
@@ -92,7 +92,9 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const alive = new Set(deps.runs.listAlive().runs.filter((r) => r.endedAt === null).map((r) => r.sessionId));
     // 区切りを付けて休みのまま残っているものは、画面と同じく終了に数える。
     const parked = new Set(parkedSessionIds(db, deps.live(), deviceId));
-    const liveOf = (sid: string, psid: string) => liveFilterOf(liveStatus.get(psid) ?? null, alive.has(sid), parked.has(sid));
+    // 問いで待っている最中に Done や Archived にしたものは、入力待ちに数えない（shared の quietLive。UI の数え方と同じ）。
+    const settled = new Map((db.prepare("select session_id id, status from session_states where status in ('done', 'archived') and deleted_at is null").all() as { id: string; status: SessionStatus }[]).map((r) => [r.id, r.status]));
+    const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveStatus.get(psid) ?? null, settled.get(sid)), alive.has(sid), parked.has(sid));
     return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf));
   });
 
