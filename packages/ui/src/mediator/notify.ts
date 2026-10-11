@@ -1,3 +1,5 @@
+import { waitingSessionIds, type Store } from '../store/store.ts';
+import { dueReturnKeys, sessionIdOfReturnKey } from './returnDue.ts';
 import type { Input, State, Step } from './types.ts';
 
 /**
@@ -17,4 +19,19 @@ export const NOTIFY_KEY = 'notify.waiting';
 export function notifyStep(state: State, input: Input): Step | null {
   if (input.kind !== 'action' || input.action.type !== 'notify.set') return null;
   return { state, effects: [{ kind: input.action.on ? 'notify.request' : 'notify.off' }] };
+}
+
+/**
+ * 通知センターに残してよい知らせの顔ぶれ。
+ * 入力待ちの知らせは、いま入力待ちのセッションのものだけを残す（答えた、止めた、Archived や Done にしたものは外す）。
+ * 戻る時刻の知らせは、今日その時刻を過ぎてまだ Paused のセッションのものだけを残す（resume した、時点を付け直した、日が変わったものは外す）。
+ * Runtime は、これが変わるたびと、起動して一覧を読み終えたときに、殻（notify_prune）とブラウザの通知へ渡す。
+ * 同じ顔ぶれなら同じ答えになるよう、id の順に並べる。入力待ちの並び（最後の動きの順）が変わるたびに殻を呼ばないためである。
+ */
+export function notifyKeep(store: Store, now: number): { waiting: string[]; returning: string[] } {
+  const sorted = (ids: string[]) => [...new Set(ids)].sort();
+  return {
+    waiting: sorted(waitingSessionIds(store)),
+    returning: sorted(dueReturnKeys(store.sessions, now).map(sessionIdOfReturnKey)),
+  };
 }

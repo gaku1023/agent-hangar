@@ -1325,6 +1325,7 @@ describe('入力待ちの知らせ', () => {
       status: vi.fn(async (): Promise<NotifyPermission> => o.status ?? 'granted'),
       background: () => o.background ?? true,
       show: vi.fn(),
+      prune: vi.fn(),
       badge: vi.fn(),
       onOpen: (cb: (id: string) => void) => { open = cb; return () => { open = null; }; },
       fireOpen: (id: string) => open?.(id),
@@ -1348,6 +1349,25 @@ describe('入力待ちの知らせ', () => {
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'busy')] });
     expect(rt.getState().waitingToasts).toEqual([]);
     expect(n.badge).toHaveBeenLastCalledWith(0);
+  });
+  // 答えた入力待ちの通知が通知センターに残らないよう、顔ぶれが変わるたびに残してよいものを殻へ渡す。
+  // 起動のときは、前の起動の間に出した通知を外すために、一覧を読み終えたら 1 回渡す。
+  it('一覧を読み終えたら残してよい顔ぶれを殻へ渡し、入力待ちが解けたら渡し直す。顔ぶれが同じなら呼ばない', async () => {
+    const n = fakeNotifier();
+    const { wsHandlers } = await started(n, [waitingSession({ live: 'waiting' })]);
+    expect(n.prune).toHaveBeenCalledTimes(1);
+    expect(n.prune).toHaveBeenLastCalledWith({ waiting: ['s1'], returning: [] });
+    wsHandlers[0]!.onEvent({ type: 'session.upsert', session: waitingSession({ live: 'waiting', memo: '別の中身' }) });
+    expect(n.prune).toHaveBeenCalledTimes(1);
+    wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'busy')] });
+    expect(n.prune).toHaveBeenCalledTimes(2);
+    expect(n.prune).toHaveBeenLastCalledWith({ waiting: [], returning: [] });
+  });
+  it('通知を受け取らない設定でも、残った通知は外す', async () => {
+    const n = fakeNotifier();
+    await started(n, [waitingSession()], false);
+    expect(n.show).not.toHaveBeenCalled();
+    expect(n.prune).toHaveBeenLastCalledWith({ waiting: [], returning: [] });
   });
   it('起動したときにもう入力待ちのセッションも、カードにする', async () => {
     const n = fakeNotifier();
@@ -1376,22 +1396,22 @@ describe('入力待ちの知らせ', () => {
     const n = fakeNotifier();
     const { wsHandlers } = await started(n, [waitingSession({ activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '用紙の向きをどちらにしますか' } })]);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
-    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか' });
+    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか', kind: 'waiting' });
   });
   it('問いが取れないときは「入力を待っています」、名前が無ければ「（名前なし）」', async () => {
     const n = fakeNotifier();
     const { wsHandlers } = await started(n, [waitingSession({ name: null })]);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
-    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力待ちです' });
+    expect(n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '（名前なし）', body: '入力待ちです', kind: 'waiting' });
   });
   it('問いの文が入力待ちより遅れて届いたら、同じセッションの通知を問いの文で出し直す（待つ時計は持たない）', async () => {
     const n = fakeNotifier();
     const { wsHandlers } = await started(n);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [live('u1', 'waiting')] });
-    expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '入力待ちです' });
+    expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '入力待ちです', kind: 'waiting' });
     wsHandlers[0]!.onEvent({ type: 'session.upsert', session: waitingSession({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '用紙の向きをどちらにしますか' } }) });
     expect(n.show).toHaveBeenCalledTimes(2);
-    expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか' });
+    expect(n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '請求書の書き出し', body: '用紙の向きをどちらにしますか', kind: 'waiting' });
   });
   it('窓が前にあるときと、受け取らない設定のときは通知しない', async () => {
     const front = fakeNotifier({ background: false });
@@ -1513,12 +1533,22 @@ describe('入力待ちの知らせ', () => {
       timer!.fn();
       expect(h.rt.getState().returnSeen).toEqual(['s1|2026-10-05 13:30']);
       expect(h.n.show).toHaveBeenCalledTimes(1);
-      expect(h.n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 13:30 を過ぎました · timer の初回を見る' });
+      expect(h.n.show).toHaveBeenCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 13:30 を過ぎました · timer の初回を見る', kind: 'return' });
       expect(h.store.get('return.notified')).toEqual(['s1|2026-10-05 13:30']);
       // 同じ予約がもう一度走っても、ストアが変わっても、2 度は出さない。
       timer!.fn();
       h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: timed('s2', null, '別の理由') });
       expect(h.n.show).toHaveBeenCalledTimes(1);
+    });
+    it('時刻を過ぎたら戻る時刻の知らせを残してよいものに入れ、Paused が外れたら外させる', async () => {
+      const clock = { now: at(13, 0) };
+      const h = await startedAt(clock, [timed('s1', '13:30')]);
+      expect(h.n.prune).toHaveBeenLastCalledWith({ waiting: [], returning: [] });
+      clock.now = at(13, 30);
+      h.timers.find((t) => t.ms === 30 * 60_000)!.fn();
+      expect(h.n.prune).toHaveBeenLastCalledWith({ waiting: [], returning: ['s1'] });
+      h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: { ...timed('s1', '13:30'), state: null } });
+      expect(h.n.prune).toHaveBeenLastCalledWith({ waiting: [], returning: [] });
     });
     it('ストアが変わるたびに予約を積まない（次の時点が同じなら予約は 1 つ）', async () => {
       const clock = { now: at(13, 0) };
@@ -1559,7 +1589,7 @@ describe('入力待ちの知らせ', () => {
       h.timers.at(-1)!.fn();
       expect(h.rt.getState().returnSeen).toEqual(['s1|2026-10-05 21:50']);
       expect(h.n.show).toHaveBeenCalledTimes(2);
-      expect(h.n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 21:50 を過ぎました · timer の初回を見る' });
+      expect(h.n.show).toHaveBeenLastCalledWith({ sessionId: 's1', title: '会話 s1', body: 'リマインダーの時刻 21:50 を過ぎました · timer の初回を見る', kind: 'return' });
     });
   });
   // OS やブラウザの許可は、hangar の外（システム設定、ブラウザの設定）で変わる。
@@ -2288,10 +2318,10 @@ describe('ランタイムの文（英語）', () => {
   });
   it('デスクトップ通知：名前の無いセッションの題と、問いの取れない本文が英語になる', async () => {
     let shown: unknown = null;
-    const notifier = { defaultOn: true, available: () => true, granted: () => true, request: vi.fn(async () => true), prepare: vi.fn(async () => {}), status: vi.fn(async (): Promise<NotifyPermission> => 'granted'), background: () => true, show: vi.fn((n: unknown) => { shown = n; }), badge: vi.fn(), onOpen: () => () => {} };
+    const notifier = { defaultOn: true, available: () => true, granted: () => true, request: vi.fn(async () => true), prepare: vi.fn(async () => {}), status: vi.fn(async (): Promise<NotifyPermission> => 'granted'), background: () => true, show: vi.fn((n: unknown) => { shown = n; }), prune: vi.fn(), badge: vi.fn(), onOpen: () => () => {} };
     const { wsHandlers } = await startedEnglish({}, { notifier }, [nameless]);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1 }] });
-    expect(shown).toEqual({ sessionId: 's1', title: '(No name)', body: 'Waiting for input' });
+    expect(shown).toEqual({ sessionId: 's1', title: '(No name)', body: 'Waiting for input', kind: 'waiting' });
     expect(JSON.stringify(shown)).not.toMatch(JAPANESE);
   });
 });
