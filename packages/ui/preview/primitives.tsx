@@ -3,7 +3,7 @@
 // ?open=info|perm で、その部品のポップオーバーを開いた形で出す。例の値は作り物である。
 // 札の列（LaunchChips）は ?state=first|regular|bypass|extras と ?w=（列の幅 px。起動ダイアログの本文は 520）で出す。
 // ?only=band で、ホームの帯と引き出しの 4 つの形だけを出す（撮るとき用）。
-// ?only=session で、セッション画面 C の部品（現在の帯、冒頭の 1 枚、見出しの札、目次だけの右パネル）を出す（preview/session.tsx）。
+// ?only=session で、セッション画面 C の部品（現在の札、冒頭の 1 枚、見出しの札、目次だけの右パネル）を出す（preview/session.tsx）。
 // ?only=bell で、ヘッダーのベルと知らせの一覧を出す（撮るとき用）。?case=open（既定）|closed|read|empty|en|narrow。例の値は作り物である。
 import { useState, type CSSProperties } from 'react';
 import { createRoot } from 'react-dom/client';

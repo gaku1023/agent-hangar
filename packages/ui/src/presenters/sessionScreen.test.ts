@@ -80,7 +80,7 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
     const names = (p: ReturnType<typeof present>) => p.details.map((d) => d.name);
     it('モデル、effort レベル、権限モード、開始、作業ディレクトリ、起動、ターンとトークンを順に並べる', () => {
       const p = present(store(session({ live: 'busy' }), { ...run(), permissionMode: 'acceptEdits' }));
-      expect(names(p)).toEqual(['モデル', 'effort レベル', '権限モード', '開始', '作業ディレクトリ', '起動', 'ターンとトークン', '変更したファイル', 'PR']);
+      expect(names(p)).toEqual(['モデル', 'effort レベル', '権限モード', '開始', '作業ディレクトリ', '起動', 'ターンとトークン', 'コンテキスト使用量', 'コスト', '変更したファイル', 'PR']);
       const row = (name: string) => p.details.find((d) => d.name === name)!;
       expect(row('モデル').value).toBe('sonnet 4.5');
       expect(row('effort レベル').value).toBe('high');
@@ -92,12 +92,22 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
       expect(row('変更したファイル').value).toBe('3 件');
       expect(row('PR').value).toBe('PR #88');
     });
+    it('コンテキスト使用量とコストは、届いていればターンとトークンの後に並べる（実行中の札には置かない）', () => {
+      const p = present(store(session({ live: 'busy', stats: { ...session().stats, contextPercent: 41.6, costUsd: 0.86 } }), run()));
+      const at = names(p).indexOf('ターンとトークン');
+      expect(names(p).slice(at, at + 3)).toEqual(['ターンとトークン', 'コンテキスト使用量', 'コスト']);
+      expect(p.details.find((d) => d.name === 'コンテキスト使用量')!.value).toBe('42%');
+      expect(p.details.find((d) => d.name === 'コスト')!.value).toBe('$0.86');
+      const none = names(present(store(session({ live: 'busy', stats: { ...stats, contextPercent: null, costUsd: null } }), run())));
+      expect(none).not.toContain('コンテキスト使用量');
+      expect(none).not.toContain('コスト');
+    });
     it('起動の種類は、再開とフォークを言い分ける', () => {
       expect(present(store(session(), run({ kind: 'resume' }))).details.find((d) => d.name === '起動')!.value).toMatch(/^再開 /);
       expect(present(store(session(), run({ kind: 'fork' }))).details.find((d) => d.name === '起動')!.value).toMatch(/^フォーク /);
     });
-    it('値が無い行は出さない（権限モード、effort、起動の run、変更、PR）', () => {
-      const bare = session({ stats: { ...stats, effort: null, filesChanged: 0, prUrl: null } });
+    it('値が無い行は出さない（権限モード、effort、起動の run、コンテキスト使用量、コスト、変更、PR）', () => {
+      const bare = session({ stats: { ...stats, effort: null, filesChanged: 0, prUrl: null, contextPercent: null, costUsd: null } });
       expect(names(present(store(bare)))).toEqual(['モデル', '開始', '作業ディレクトリ', 'ターンとトークン']);
     });
     it('アカウントが 2 件以上あるときだけアカウントの行を出す。色の点を添える', () => {
@@ -133,16 +143,17 @@ describe('セッション画面の C の構成（帯、冒頭の 1 枚、見出�
         const loading = { ...live(), events: { [key]: { items: [], total: 0, nextSeq: null, loading: true } } };
         expect(present(loading).turnCount).toBeNull();
       });
-      it('届いたら、帯と同じ統計の数を出す。窓に入っている行の数ではない', () => {
+      it('届いたら、(i) の「ターンとトークン」と同じ統計の数を出す。窓に入っている行の数ではない', () => {
         const filled = applyEventsPage(live(), key, { sessionId: 's1', events: [user(1, 'a'), user(2, 'b')], total: 90, nextSeq: null }, false, false);
         const p = present(filled);
         expect(p.turnRows).toHaveLength(2);
         expect(p.turnCount).toEqual({ n: 11, plus: false });
-        // 帯の「N ターン」と同じ出所である。
-        expect(p.strip?.values.turns).toBe('11 ターン');
+        // (i) の「N ターン」と同じ出所である。
+        const usage = (q: ReturnType<typeof present>) => q.details.find((d) => d.name === 'ターンとトークン')?.value;
+        expect(usage(p)).toMatch(/^11 ターン、/);
         const st2 = { ...filled, sessions: { s1: session({ live: 'idle', stats: { ...stats, turns: 104 } }) } };
         expect(present(st2).turnCount?.n).toBe(104);
-        expect(present(st2).strip?.values.turns).toBe('104 ターン');
+        expect(usage(present(st2))).toMatch(/^104 ターン、/);
       });
       it('追記を読み足している間（loading だけ立つ）も、数と読み込みの印は動かない', () => {
         const filled = applyEventsPage(live(), key, { sessionId: 's1', events: [user(1, 'a')], total: 1, nextSeq: null }, false, false);
