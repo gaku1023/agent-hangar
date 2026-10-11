@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { ArtifactCardProps } from '../presenters/project.ts';
 import { isComposing } from './ime.ts';
@@ -6,10 +6,13 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 
 /** アーティファクトのカード。クリックはサーバ側の `open <url>` で既定のブラウザに開く。 */
-export function ArtifactCards(props: { projectId: string | null; artifacts: ArtifactCardProps[]; canAdd: boolean }) {
+export function ArtifactCards(props: { projectId: string | null; artifacts: ArtifactCardProps[]; canAdd: boolean; addError?: { url: string; message: string } | null }) {
   const emit = useEmit();
   const t = useT();
   const [url, setUrl] = useState('');
+  // 送った直後に欄は空にする。断られたら、入れた URL を欄へ戻す（消えたままにしない）。そのあいだに別の URL を打っていたら、それを残す。
+  const { addError } = props;
+  useEffect(() => { if (addError) setUrl((cur) => (cur === '' ? addError.url : cur)); }, [addError]);
   const add = () => { if (!url.trim() || !props.projectId) return; emit({ type: 'artifact.add', projectId: props.projectId, url }); setUrl(''); };
   return (
     <div className="artifacts">
@@ -31,10 +34,13 @@ export function ArtifactCards(props: { projectId: string | null; artifacts: Arti
         </div>
       ))}
       {props.canAdd && props.projectId && (
-        <div className="rail-add">
-          <input className="input mono" aria-label={t('projectScreen.artifact.urlLabel')} placeholder="https://claude.ai/code/artifact/..." value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) add(); }} />
-          <button className="btn" onClick={add}><Icon name="add" />{t('projectScreen.artifact.addButton')}</button>
-        </div>
+        <>
+          <div className="rail-add">
+            <input className="input mono" aria-label={t('projectScreen.artifact.urlLabel')} placeholder="https://claude.ai/code/artifact/..." value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) add(); }} />
+            <button className="btn" onClick={add}><Icon name="add" />{t('projectScreen.artifact.addButton')}</button>
+          </div>
+          {addError && <div className="error" role="alert">{addError.message}</div>}
+        </>
       )}
     </div>
   );

@@ -17,8 +17,14 @@ async function runRow(action: TableAction, api: ApiClient, store: Store = initia
   const call = actionCall(action, store);
   if (!call) return { called: false as const, store, during: store, toast: null };
   const during = call.before ? call.before(store) : store;
-  const done = await call.run(api);
-  return { called: true as const, during, store: done.apply ? done.apply(during) : during, toast: done.toast ?? null };
+  try {
+    const done = await call.run(api);
+    return { called: true as const, during, store: done.apply ? done.apply(during) : during, toast: done.toast ?? null };
+  } catch (e) {
+    // 失敗の行き先を持つ行は Store に書く。持たない行は Runtime がトーストにするので、ここでは投げ直す。
+    if (!call.failed) throw e;
+    return { called: true as const, during, store: call.failed(during, e), toast: null };
+  }
 }
 
 describe('表の鍵', () => {
@@ -179,6 +185,14 @@ describe('作業台', () => {
     const r = await runRow({ type: 'artifact.add', projectId: 'p1', url: '  https://example.test/x ' }, fakeApi({ addArtifact }));
     expect(addArtifact.mock.calls).toEqual([['p1', 'https://example.test/x']]);
     expect(r.store.artifacts).toEqual({ a1: added });
+  });
+  it('追加が断られたら、理由と入れた URL を Store に残す。次の追加を始めるときと、成功したときに消す', async () => {
+    const addArtifact = vi.fn(async () => { throw new Error('すでにプロジェクト「alpha」に付いています'); });
+    const r = await runRow({ type: 'artifact.add', projectId: 'p1', url: ' https://claude.ai/code/artifact/x ' }, fakeApi({ addArtifact }));
+    expect(r.store.artifactAddError).toEqual({ projectId: 'p1', url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「alpha」に付いています' });
+    const again = await runRow({ type: 'artifact.add', projectId: 'p1', url: 'https://claude.ai/code/artifact/y' }, fakeApi({ addArtifact: vi.fn(async () => ({ id: 'a2', projectId: 'p1' }) as ArtifactDto) }), r.store);
+    expect(again.during.artifactAddError).toBeNull();
+    expect(again.store.artifactAddError).toBeNull();
   });
   it('空の URL は、何も呼ばない', async () => {
     const addArtifact = vi.fn(async () => ({}) as ArtifactDto);
