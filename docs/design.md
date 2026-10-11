@@ -1423,7 +1423,7 @@ Paused の戻る時点は、日付（`return_on`、YYYY-MM-DD）と、任意の�
 過去を断るのは MCP の入口だけで、画面からの確定と同期では断らない（時刻を過ぎた提案を確定でき、届いた行を弾かないため）。
 持つ時点は 1 つだけである。同じ日に 2 回確かめたいときは、戻って resume したときに状態が外れ、区切りの問いで次の時点を入れる。
 時刻つきの Paused は、当日は朝から「今日戻る」に出し、時刻を過ぎてから札を塗る。同じ日の中は時刻の早い順で、時刻なしはその日の最後に並べる。
-時刻を過ぎたら、通知を受け取る設定で窓が背面なら OS の通知を 1 回出す。右下の札は出さない。ベルの一覧には、今日戻るの行が朝から事実として出る（「ベルと知らせの出し分け」の節）。OS の通知で知らせ終えた時点は localStorage に覚える（画面の時計で見るので、hangar を開いていない間は出ない。開いたときに、その日に過ぎた分を 1 回知らせる）。
+時刻を過ぎたら、通知を受け取る設定で窓が背面なら OS の通知を 1 回出す。この通知は、同じセッションの入力待ちの通知とは別の枠に入れる（「入力待ちの知らせ」の節）。右下の札は出さない。ベルの一覧には、今日戻るの行が朝から事実として出る（「ベルと知らせの出し分け」の節）。OS の通知で知らせ終えた時点は localStorage に覚える（画面の時計で見るので、hangar を開いていない間は出ない。開いたときに、その日に過ぎた分を 1 回知らせる）。
 日付だけの Paused は知らせない。
 
 状態の問いは、依頼を終えた区切りでだけ AskUserQuestion で聞かせる。利用者が選んだものは `propose_session_status` の `confirmed: true` でそのまま状態になり、答えずに進めたものは候補として残る。
@@ -2251,10 +2251,10 @@ Home でも同じ行を同じ並びで出す。帯の「要対応」「実行中
 Windows の窓は標準の枠（タイトルバーと最小化、最大化、閉じるのボタン）にする。
 `titleBarStyle`、`hiddenTitle`、`trafficLightPosition` は macOS の装飾なので、`tauri.windows.conf.json` が窓の定義を、それらを外して `decorations: true` にしたもので置き換える（配列は丸ごと置き換わるので、窓の名前と大きさは `tauri.conf.json` の写しで、一致は試験で縛る）。
 殻は Windows では `data-shell` の印を付けないので、ヘッダーのロゴと失敗の札のロゴは既定の余白（16px）から始まる。
-入力待ちを窓の外へ知らせるために、同じ出どころには通知を出す権限（`allow-notify-waiting`）、通知の許可を求める権限（`allow-notify-request`）、通知の許可の状態を読む権限（`allow-notify-status`）、Dock のバッジに数を出す権限（`core:window:allow-set-badge-count`）の 4 つだけを別に与える（`capabilities/remote-notify.json`）。
-前の 3 つは殻が自分で持つコマンドで、`build.rs` の AppManifest に並べたものだけが権限になる。
+入力待ちを窓の外へ知らせるために、同じ出どころには通知を出す権限（`allow-notify-waiting`）、もう待っていない通知を外す権限（`allow-notify-prune`）、通知の許可を求める権限（`allow-notify-request`）、通知の許可の状態を読む権限（`allow-notify-status`）、Dock のバッジに数を出す権限（`core:window:allow-set-badge-count`）の 5 つだけを別に与える（`capabilities/remote-notify.json`）。
+前の 4 つは殻が自分で持つコマンドで、`build.rs` の AppManifest に並べたものだけが権限になる。
 殻の命令は 7 つだけ持つ（`src-tauri/build.rs` の一覧と `lib.rs` の `#[tauri::command]`）。
-入力待ちの知らせの 3 つ（`notify_waiting`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
+入力待ちの知らせの 4 つ（`notify_waiting`、`notify_prune`、`notify_request`、`notify_status`）は上に書いたとおりで、フォルダ選択の `pick_folder` は新しいプロジェクトのために頁へ許し、残りの 3 つは障害のときの操作である。
 殻は命令を `invoke_handler` の 1 か所でまとめて登録する。
 2 度呼ぶと後のものだけが残り、先に並べた命令が呼べなくなるからである。
 UI の出どころには、設定の同期の適用の `apply_config_sync` と世代へ戻す `restore_config_sync` だけを別に与え（`capabilities/remote-config-apply.json`。どちらも殻がネイティブの確認を出してから CLI を走らせる。「設定の同期の作り直し」の節）、フォルダ選択の `pick_folder` だけを別に与え（`allow-pick-folder`、`capabilities/remote-pick-folder.json`）、ログを開く `open_log` とアプリを再起動する `restart_app` だけを与え（`capabilities/remote-shell.json`）、起動画面（殻の中の頁）には、起動の様子を引き取る `boot_state`、試験のための書き出しの `boot_probe`（殻が `HANGAR_BOOT_PROBE` を持って起きたときだけ書く）、起動をやり直す `retry_boot`、`open_log`、札の中の更新の `update_status`、`update_check`、`update_download`、`update_install` だけを与える（`capabilities/boot-screen.json`）。
@@ -3067,6 +3067,26 @@ Windows では、tao の `is_focused` は最上位の窓そのものがフォー
 確認や入力のあるダイアログが開いていれば、窓が前に出るだけで、画面は移さない（カードと同じ扱い）。
 Dock（ブラウザならインストールしたアプリ）のバッジには入力待ちの数を出し、0 で消す。
 
+入力待ちの知らせと戻る時刻の知らせは、種類ごとに別の枠に入れる（macOS は識別子、Windows はタグと組の対、ブラウザは tag）。
+同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである（Windows の実機で見つけた）。
+同じ種類の 2 度目は、今までどおり同じ枠で置き換わる。
+頁は `notify_waiting` に種類（`kind` の `waiting` か `return`）を添え、殻は種類の無いもの（前の版の頁）を入力待ちとみなす。
+
+もう待っていない知らせは、通知センターから外す。
+通知センターの知らせは、答えた後も、アプリを閉じても消して入れ直しても残るためである（Windows の実機で、前の版の試しのセッションのトーストが残っていた）。
+残してよいのは、いま入力待ちのセッションの入力待ちの知らせと、今日の戻る時刻を過ぎてまだ Paused のセッションの戻る時刻の知らせだけである（`mediator/notify.ts` の `notifyKeep`）。
+頁はこの顔ぶれが変わるたびに、殻の `notify_prune` へ渡す（`runtime.ts` の `syncPrune`）。
+答えた、止めた、Archived や Done にしたセッションは入力待ちでなくなり、resume して Paused が外れたものと日が変わったものは戻る時刻の顔ぶれから外れるので、その知らせが外れる。
+起動したときは、bootstrap で一覧を読み終えてから 1 回必ず渡す。前の起動の間に出して、もう待っていない知らせはここで外れる。今も待っているものは残し、出し直しはしない。
+bootstrap の前は渡さない。セッションが空で何も待っていないように見え、まだ待っている知らせまで外してしまうからである。
+通知を受け取らない設定でも渡す（外すだけである）。
+殻は、macOS では通知センターに届いている通知の識別子を読み、hangar の識別子で顔ぶれに無いものを外す（`removeDeliveredNotificationsWithIdentifiers`、hangar の識別子でないものには触らない）。
+届いている通知の一覧は OS が後から答えるので、その間に出した知らせは、次の顔ぶれが届くまで残すものに足しておく。
+Windows では、hangar の AppUserModelID のトーストの履歴（`ToastNotificationHistory` の `GetHistoryWithId`）を読み、顔ぶれに無いタグと組の対を外す（`RemoveGroupedTagWithId`）。
+履歴は hangar の名前のものだけなので、知らない組のトーストも hangar の古い版が出したものとして外す。
+外すものを選ぶのは純関数である（`notify.rs` の `stale_identifiers` と `toast::stale_toasts`）。
+ブラウザでは、頁が出した知らせのうち、顔ぶれに無いものを閉じる。
+
 デスクトップの殻では、通知を macOS は UNUserNotificationCenter で、Windows は WinRT のトースト（`Windows.UI.Notifications`）で出す（`src-tauri/src/notify.rs`）。
 頁は `notify_waiting` を呼び、殻は id と文を確かめてから OS に渡す。
 押された通知は識別子からセッションを読み戻し、頁の `__hangarOpenWaiting` で開く。
@@ -3074,8 +3094,9 @@ Dock（ブラウザならインストールしたアプリ）のバッジには�
 `tauri-plugin-notification` は、デスクトップでは押された通知を知らせないので使わない（Windows でも、出した後の受け口を捨てる）。
 `.app` の外（`tauri dev`）と、Windows で組み上げたままの実行ファイル（`target` の下の `debug` や `release`）では通知を出さない。
 
-Windows のトーストは、題と本文を XML の文字として入れ、launch に macOS の識別子と同じ値（`hangar-waiting:<id>`）を入れる。
-タグはセッションの id で、同じセッションのトーストは新しい方に置き換わる。
+Windows のトーストは、題と本文を XML の文字として入れ、launch に macOS の識別子と同じ値（入力待ちは `hangar-waiting:<id>`、戻る時刻は `hangar-return:<id>`）を入れる。
+入力待ちの識別子と組は前の版と同じにしてあるので、前の版が出したトーストを押しても同じセッションが開く。
+タグはセッションの id、組は種類ごとの名前（`hangar-waiting` か `hangar-return`）で、同じセッションの同じ種類のトーストは新しい方に置き換わる。
 アプリの名前（AppUserModelID）は `tauri.conf.json` の identifier で、NSIS のインストーラがスタートメニューの近道に付けるものと同じである。
 押されたトーストは 2 つの道で届き、どちらも launch の値からセッションを読み戻して、macOS と同じ受け口へ渡す。
 アプリが動いている間は、出したトーストの Activated で届く。
@@ -3083,6 +3104,7 @@ Windows のトーストは、題と本文を XML の文字として入れ、laun
 そのために殻は起動のたびに、利用者の登録（HKEY_CURRENT_USER）の `Software\Classes\AppUserModelId\<identifier>` へ名前、絵、COM の口の CLSID を書き、`Software\Classes\CLSID\<CLSID>\LocalServer32` へ自分の実行ファイルを書き、COM の口を開く。
 1 回の押下が両方の道で届いても、2 秒の間に同じセッションは 1 回だけ開く。
 アンインストールでは、NSIS のフック（`src-tauri/windows/hooks.nsh` の `NSIS_HOOK_POSTUNINSTALL`、`tauri.windows.conf.json` の `installerHooks`）が、利用者の領域からは、この 2 つの登録と `~/.agent-hangar/notify-icon.png` だけを消す。
+登録を消す前に、通知センターに残った hangar のトーストの履歴も消す。NSIS は WinRT を呼べないので、Windows PowerShell の 1 行で `ToastNotificationManager` の `History.Clear` を名前を指して呼ぶ（失敗しても消すのは止めない）。
 `.agent-hangar` の中のほかのもの（DB など）は消さない。
 フックの値は notify.rs の定数と同じで、`apps/desktop/test/config.test.ts` が食い違いを見る。
 Windows には通知の許可を尋ねるダイアログが無いので、`notify_request` と `notify_status` は通知の設定（`NotificationSetting`）を読むだけで、切られていれば denied になる。
