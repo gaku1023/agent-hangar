@@ -130,3 +130,17 @@ export function markHit(el: HTMLElement): void {
   el.setAttribute('data-hit', '');
   el.addEventListener('animationend', () => el.removeAttribute('data-hit'), { once: true });
 }
+
+/**
+ * 並びが替わった描画で「上がった」行の key。前と今の両方にある行だけで互いの順を比べ、前より前へ出た行を返す。
+ * 足した行と消えた行は数えない（消えた行の下が詰まっただけの描画では、どれも上がっていない）。
+ * ホームの一覧と引き出しは、並びを滑らせず、上がった行と新しい行に markHit だけを付ける（設計書「Home の一覧」）。
+ */
+export function risenKeys(before: readonly string[], after: readonly string[]): Set<string> {
+  const inAfter = new Set(after);
+  const inBefore = new Set(before);
+  const was = new Map(before.filter((k) => inAfter.has(k)).map((k, i) => [k, i]));
+  const out = new Set<string>();
+  after.filter((k) => inBefore.has(k)).forEach((k, i) => { if (i < was.get(k)!) out.add(k); });
+  return out;
+}

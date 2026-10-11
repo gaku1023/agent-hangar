@@ -1,5 +1,5 @@
 import { useLayoutEffect, useReducer, useRef } from 'react';
-import { collapseOut, growIn, markHit, motionOn, riseIn, slideFrom } from './motionKit.ts';
+import { collapseOut, growIn, markHit, motionOn, riseIn, risenKeys, slideFrom } from './motionKit.ts';
 
 export type MotionListOpts = {
   /** 入る形。rise は浮かぶだけ、grow は高さ（横なら幅）も伸ばして下の行を押す。none は動かさない（入りを CSS の animation が持つ右下の知らせ）。 */
@@ -15,6 +15,8 @@ export type MotionListOpts = {
   scope?: string;
   /** 出る形。既定は collapseOut（畳んで出る）。返す Promise が解決したら行を落とす。取り消されたとき（出る途中で戻ったとき）も解決させる。 */
   exit?: (el: HTMLElement) => Promise<unknown>;
+  /** 並びが替わった描画で、上がった行の地を淡い黄から薄れさせる（ホームの引き出し。flip: false と組み、滑らせずに知らせる）。 */
+  hitRisen?: boolean;
   /** 最後の行が消えて空になる描画も、切り替えではなく出来事として出す（右下の知らせ。1 枚だけの札が消えるのがふつうの形である）。 */
   exitWhenEmpty?: boolean;
 };
@@ -82,7 +84,9 @@ export function useMotionList<T>(items: T[], keyOf: (t: T) => string, opts: Moti
       const firstOld = before.find((b) => curKeys.has(b.key))?.key;
       const prepended = new Set<string>();
       if (opts.ignorePrepended && firstOld !== undefined) for (const c of cur) { if (c.key === firstOld) break; prepended.add(c.key); }
+      const risen = reordered && opts.hitRisen ? risenKeys(keptBefore, kept) : null;
       for (const [k, el] of nodes.current) {
+        if (risen?.has(k)) markHit(el);
         if (ghosts.current.has(k)) {
           if (leavingStarted.current.has(k)) continue;
           const mine = {};

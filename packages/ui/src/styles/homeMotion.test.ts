@@ -10,10 +10,10 @@ describe('ホームの動きの CSS', () => {
   it('始める前の確認の進みの棒は、幅を --dur で伸ばす', () => {
     expect(block(read('./home.css'), '.home-band .band-prog > span')).toMatch(/transition: width var\(--dur\) var\(--ease-out\)/);
   });
-  it('一覧の行の箱は、data-glide のあいだだけ transform を --dur で滑らせる', () => {
+  it('一覧の行は並び替えで滑らせない（⑤ の c。並びはいきなり替え、印は markHit の [data-hit] が持つ）', () => {
     const base = read('./base.css');
-    expect(block(base, '.list-scroll[data-glide] .vrow')).toMatch(/transition: transform var\(--dur\) var\(--ease-out\)/);
-    expect(block(base, '.vrow')).toBe('');
+    expect(base).not.toContain('data-glide');
+    expect(block(base, '[data-hit]')).toMatch(/animation: hit var\(--dur-flash\)/);
   });
   it('選んだタブとページの塗りは、1 コマ置いてから位置と大きさを --dur で滑らせる', () => {
     const rows = read('./rows.css');

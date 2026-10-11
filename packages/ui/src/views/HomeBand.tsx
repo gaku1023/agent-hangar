@@ -20,7 +20,7 @@ import { usePresence } from './primitives/usePresence.ts';
  * note は帯の右端に添える 1 行の注記で、画面が渡す（始める前の確認の要約など）。
  * 群が progress を持てば錠剤の横に進みの棒を、fold を持てば引き出しの末尾に畳んだ 1 行を出す（始める前の確認）。畳んだ行を押すと、済んだものの行が開く。
  * 動き（設計書「Home の帯と引き出し」）：引き出しは伸びて開き、畳んで閉じる（閉じる間は前の中身のまま、役も焦点も持たない）。
- * 群を替えたら、引き出しの高さを補間し、中身を --dur-fast で薄れから現す。引き出しの行は伸びて入り、畳んで出る。件数は回す。注記は薄く出入りする。
+ * 群を替えたら、引き出しの高さを補間し、中身を --dur-fast で薄れから現す。引き出しの行は伸びて入り、畳んで出る。並びが替わったら滑らせず、上がった行に淡い黄の印を付ける。件数は回す。注記は薄く出入りする。
  */
 export function HomeBand(props: HomeBandProps & { searching?: boolean; note?: string | null }) {
   const t = useT();
@@ -127,10 +127,11 @@ function BandNote(props: { text: string | null }) {
 
 /**
  * 引き出しの行の並び。来た行は伸びて入り、解けた行は畳んで出る（useMotionList の grow）。
+ * 並びが替わっても滑らせず、上がった行の地だけを淡い黄から薄れさせる（一覧の ⑤ の c と同じ。実行中の並びは数秒おきに替わるので、滑らせると目がうるさい）。
  * scope は群で、群を替えた描画は出入りに見せない。畳んで出る行は、役も焦点も持たない見た目だけにする。
  */
 function BandRows(props: { rows: BandRow[]; scope: string; folded?: boolean; id?: string }) {
-  const { list, ref } = useMotionList(props.rows, (r) => r.key, { enter: 'grow', scope: props.scope });
+  const { list, ref } = useMotionList(props.rows, (r) => r.key, { enter: 'grow', flip: false, hitRisen: true, scope: props.scope });
   return (
     <ul className={props.folded ? 'drawer-list drawer-folded' : 'drawer-list'} id={props.id}>
       {list.map((e) => <BandRowView key={e.key} row={e.item} leaving={e.leaving} rowRef={ref(e.key)} />)}

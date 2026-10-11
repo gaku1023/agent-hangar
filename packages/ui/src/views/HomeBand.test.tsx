@@ -401,6 +401,16 @@ describe('HomeBand の動き', () => {
     expect(screen.queryByText('待ち a')).toBeNull();
   });
 
+  it('引き出しの行の並びが替わっても滑らせず、上がった行だけに淡い黄の印を付ける', () => {
+    const m = mount({ ...none, running: [running('x'), running('y'), running('z')] });
+    act(() => m.rerender({ ...none, running: [running('z'), running('x'), running('y')] }));
+    const li = (n: string) => screen.getByText(`動く ${n}`).closest('li')!;
+    expect(animations.filter((a) => a.el.tagName === 'LI')).toHaveLength(0);
+    expect(li('z')).toHaveAttribute('data-hit');
+    expect(li('x')).not.toHaveAttribute('data-hit');
+    expect(li('y')).not.toHaveAttribute('data-hit');
+  });
+
   it('件数は回して替える（RollingText）', () => {
     const m = mount(busy);
     const count = pill('要対応 3').querySelector('[data-count]')!;

@@ -104,7 +104,7 @@ function holdsFocus(el: Element | null, host: HTMLElement | null): boolean {
  * badgeAction を渡すと、行の状態の札がそのタブへ移るボタンになる（Home の ★）。
  * statusColumn が偽なら、点の右の状態の列（F1）を畳む。状態がどれも同じ一覧（Done のタブなど）で使う。
  */
-export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeAction?: (status: StatusFilter) => UiAction; /** 並び替えで行を滑らせる範囲（VirtualList の glide）。タブ、条件、ページが替わったら替える。 */ glide?: string }) {
+export function SessionRows(props: RowsSource & { /** 一覧の高さ。省くと器（.screen-fill など）から受け取る。 */ height?: number | string; variant: RowVariant; emptyText?: string; /** 行が無いときの札。あれば emptyText の代わりに出す。 */ emptyNode?: ReactNode; autoFocus?: boolean; id?: string; page?: number; statusColumn?: boolean; badgeAction?: (status: StatusFilter) => UiAction; /** 並びの替わりを知らせる範囲（VirtualList の scope）。タブ、条件、ページが替わったら替える。 */ scope?: string }) {
   const emit = useEmit();
   const t = useT();
   const statusColumn = props.statusColumn ?? true;
@@ -353,7 +353,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   return (
     <div className="rows-host" id={props.id} data-testid="session-rows" data-status-col={String(statusColumn)} ref={hostRef} tabIndex={-1} onKeyDown={onKeyDown} onFocus={onHostFocus} onBlur={onHostBlur}>
       <VirtualList items={items} rowHeight={(it) => (it.kind === 'head' ? SECTION_HEAD_H : SESSION_ROW_H)} height={props.height} keyOf={(it) => (it.kind === 'head' ? `head:${it.id}` : it.row.id)}
-        glide={props.glide} render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
+        scope={props.scope} render={(it) => (it.kind === 'head' ? head(it) : rowEl(it.row))} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { collapseOut, fadeIn, fadeOut, growIn, markHit, motionOn, resizeFrom, riseIn, slideAway, slideFrom } from './motionKit.ts';
+import { collapseOut, fadeIn, fadeOut, growIn, markHit, motionOn, resizeFrom, riseIn, risenKeys, slideAway, slideFrom } from './motionKit.ts';
 import { beginLayoutMotion, endLayoutMotion, LAYOUT_MOVING_ATTR, LAYOUT_SETTLED } from './layoutMotion.ts';
 
 /**
@@ -142,6 +142,11 @@ describe('motionKit', () => {
     tokens('100ms');
     (HTMLElement.prototype as unknown as { animate: unknown }).animate = () => ({ finished: Promise.reject(new DOMException('cancelled', 'AbortError')), cancel: vi.fn() });
     await expect(slideAway(document.createElement('div'), 28)).resolves.toBe(false);
+  });
+  it('上がった行は、前と今の両方にある行の互いの順で前へ出た行だけ。足した行、消えた行、押し下げられた行は数えない', () => {
+    expect([...risenKeys(['a', 'b', 'c', 'd'], ['n', 'c', 'a', 'b', 'd'])]).toEqual(['c']);
+    expect([...risenKeys(['a', 'b', 'c'], ['a', 'c'])]).toEqual([]);
+    expect([...risenKeys(['a', 'b'], ['b', 'a'])]).toEqual(['b']);
   });
   it('光らせる印は、地の動きが終わったら外す', () => {
     const el = document.createElement('div');

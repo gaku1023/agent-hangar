@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeMotionTokens } from '../../test/motion.ts';
 
@@ -30,62 +30,52 @@ describe('VirtualList', () => {
   });
 });
 
-describe('VirtualList の並び替えの滑り（glide）', () => {
+describe('VirtualList の並び替えの知らせ（⑤ の c）', () => {
   let restore: (() => void) | null = null;
-  let animations: { el: Element; frames: Keyframe[] }[] = [];
-  let frames: FrameRequestCallback[] = [];
+  let animations: Element[] = [];
   beforeEach(() => {
     restore = fakeMotionTokens(undefined, { everywhere: true });
-    animations = []; frames = [];
-    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element, f: Keyframe[]) {
-      animations.push({ el: this, frames: f });
+    animations = [];
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: Element) {
+      animations.push(this);
       return { finished: new Promise<void>(() => {}), cancel: vi.fn() };
     };
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => frames.push(cb));
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
   });
   afterEach(() => {
     restore?.(); restore = null;
-    vi.restoreAllMocks();
     delete (HTMLElement.prototype as unknown as { animate?: unknown }).animate;
   });
-  const flush = () => act(() => { const now = frames; frames = []; now.forEach((f) => f(0)); });
-  const ui = (keys: string[], glide?: string) => <VirtualList items={keys} rowHeight={56} height={400} keyOf={(k) => k} glide={glide} render={(k) => <span>{k}</span>} />;
-  const scroller = (c: HTMLElement) => c.querySelector('.list-scroll')!;
+  const ui = (keys: string[], scope?: string) => <VirtualList items={keys} rowHeight={56} height={400} keyOf={(k) => k} scope={scope} render={(k) => <span>{k}</span>} />;
+  const hit = (c: HTMLElement) => [...c.querySelectorAll('span[data-hit]')].map((e) => e.textContent);
 
-  it('glide を渡すと、一覧の器に data-glide を付ける。glide が替わった描画（タブやページの切替）では、2 コマのあいだ外す', () => {
-    const { container, rerender } = render(ui(['a', 'b'], 'all|1'));
-    expect(scroller(container)).toHaveAttribute('data-glide');
-    rerender(ui(['b', 'c'], 'done|1'));
-    expect(scroller(container)).not.toHaveAttribute('data-glide');
-    flush();
-    expect(scroller(container)).not.toHaveAttribute('data-glide');
-    flush();
-    expect(scroller(container)).toHaveAttribute('data-glide');
-  });
-
-  it('同じ glide のまま新しい key が来たら、その行の中身だけを浮かべて入れる', () => {
-    const { rerender } = render(ui(['a', 'b'], 's'));
+  it('同じ範囲のまま並びが替わったら、並びはいきなり替え、上がった行と新しい行の中身だけに淡い黄の印を付ける', () => {
+    const { container, rerender } = render(ui(['a', 'b', 'c', 'd'], 's'));
+    expect(hit(container)).toEqual([]);
+    rerender(ui(['n', 'c', 'a', 'b', 'd'], 's'));
+    expect(hit(container).sort()).toEqual(['c', 'n']);
+    // 滑らせも浮かべもしない。
     expect(animations).toHaveLength(0);
-    rerender(ui(['n', 'a', 'b'], 's'));
-    expect(animations.map((x) => x.el.textContent)).toEqual(['n']);
-    expect(animations[0]!.el.tagName).toBe('SPAN');
-    expect(animations[0]!.frames[0]).toMatchObject({ opacity: 0, transform: 'translateY(6px)' });
+    expect(container.querySelector('.list-scroll')).not.toHaveAttribute('data-glide');
   });
 
-  it('glide が替わった描画、key が全部替わった描画、空から埋まった描画では、行を浮かべない', () => {
-    const { rerender } = render(ui(['a', 'b'], 's'));
-    rerender(ui(['c', 'a'], 't'));
+  it('行が消えて詰まっただけの描画では、印を付けない', () => {
+    const { container, rerender } = render(ui(['a', 'b', 'c'], 's'));
+    rerender(ui(['a', 'c'], 's'));
+    expect(hit(container)).toEqual([]);
+  });
+
+  it('範囲が替わった描画、key が全部替わった描画、空から埋まった描画では、印を付けない', () => {
+    const { container, rerender } = render(ui(['a', 'b'], 's'));
+    rerender(ui(['c', 'b', 'a'], 't'));
     rerender(ui(['x', 'y'], 't'));
     rerender(ui([], 't'));
     rerender(ui(['p', 'q'], 't'));
-    expect(animations).toHaveLength(0);
+    expect(hit(container)).toEqual([]);
   });
 
-  it('glide を渡さなければ、印も動きも持たない', () => {
-    const { container, rerender } = render(ui(['a']));
-    rerender(ui(['n', 'a']));
-    expect(scroller(container)).not.toHaveAttribute('data-glide');
-    expect(animations).toHaveLength(0);
+  it('scope を渡さなければ、印を付けない', () => {
+    const { container, rerender } = render(ui(['a', 'b']));
+    rerender(ui(['n', 'b', 'a']));
+    expect(hit(container)).toEqual([]);
   });
 });

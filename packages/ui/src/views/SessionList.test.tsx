@@ -165,17 +165,15 @@ describe('SessionList の切替の動き（⑤ と ⑥）', () => {
     expect(n()).toHaveAttribute('data-rolling', 'true');
   });
 
-  it('一覧の行は、同じ条件とページのあいだだけ並び替えで滑る。タブやページを替えた描画では滑らせない', () => {
-    const { container, rerender } = render(ui({ tab: 'all' }));
-    const scroller = container.querySelector('.list-scroll')!;
-    expect(scroller).toHaveAttribute('data-glide');
-    rerender(ui({ tab: 'all', rows: [row('b'), row('a')] }));
-    expect(scroller).toHaveAttribute('data-glide');
-    rerender(ui({ tab: 'done', filter: { status: 'done' }, rows: [row('a')] }));
-    expect(scroller).not.toHaveAttribute('data-glide');
-    flush(); flush();
-    expect(scroller).toHaveAttribute('data-glide');
-    rerender(ui({ tab: 'done', filter: { status: 'done' }, rows: [row('a')], total: 200, pager: pagerOf(2, 50, 200) }));
-    expect(scroller).not.toHaveAttribute('data-glide');
+  it('一覧の行は滑らせない。同じ条件とページのまま上がった行と新しい行だけに淡い黄の印を付け、タブやページを替えた描画では付けない', () => {
+    const { container, rerender } = render(ui({ tab: 'all', rows: [row('a'), row('b'), row('c')] }));
+    const hits = () => [...container.querySelectorAll('.row[data-hit]')].map((r) => r.getAttribute('data-morph-id')).sort();
+    expect(container.querySelector('.list-scroll')).not.toHaveAttribute('data-glide');
+    rerender(ui({ tab: 'all', rows: [row('n'), row('c'), row('a'), row('b')] }));
+    expect(hits()).toEqual(['c', 'n']);
+    const fresh = render(ui({ tab: 'all', rows: [row('a'), row('b')] }));
+    fresh.rerender(ui({ tab: 'done', filter: { status: 'done' }, rows: [row('b'), row('a'), row('z')] }));
+    fresh.rerender(ui({ tab: 'done', filter: { status: 'done' }, rows: [row('b'), row('a'), row('z')], total: 200, pager: pagerOf(2, 50, 200) }));
+    expect(fresh.container.querySelectorAll('.row[data-hit]')).toHaveLength(0);
   });
 });

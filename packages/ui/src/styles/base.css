@@ -219,9 +219,6 @@ a:hover { text-decoration: underline; }
 /* 一覧 */
 .list { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--surface-shadow); overflow: hidden; }
 .list-scroll { overflow: auto; }
-/* 並びが替わった行は、前の位置から滑る（VirtualList の glide）。行の箱は位置を transform に持つので、transition を付けるだけでよい。
-   タブ、条件、ページを替えた描画では data-glide を外し、いきなり替える。 */
-.list-scroll[data-glide] .vrow { transition: transform var(--dur) var(--ease-out); }
 /* 一覧の画面では、一覧が窓の下端までの残りを受け取る（.screen-fill、プロジェクトの頁は .project-main）。下限より低い窓では .main がスクロールする。 */
 .screen-fill > .rows-host, .project-main > .rows-host { display: flex; flex-direction: column; flex: 1 1 0; min-height: 200px; }
 .rows-host > .list { display: flex; flex-direction: column; flex: 1; min-height: 0; }

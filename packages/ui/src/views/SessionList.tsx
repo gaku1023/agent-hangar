@@ -207,8 +207,9 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
   // 行の状態の札を押すと、そのタブへ移る（★ の E）。
   const badgeAction = (status: StatusFilter): UiAction => ({ type: 'search.filter', patch: { status } });
   const id = props.id ?? 'session-results';
-  // 並び替えで行を滑らせる範囲。タブ、語、条件、ページ、1 ページの件数が替わったら、一覧はいきなり替える（⑥）。同じ範囲のまま並びが替わったときだけ滑らせる（⑤）。
-  const glide = JSON.stringify([props.tab, props.mode, props.text, props.filter, props.pager?.page ?? null, props.pager?.size ?? null]);
+  // 並びの替わりを知らせる範囲。タブ、語、条件、ページ、1 ページの件数が替わったら、一覧はいきなり替えて何も知らせない（⑥）。
+  // 同じ範囲のまま並びが替わったときは、並びはいきなり替え、上がった行と新しい行に淡い黄の印を付ける（⑤ の c）。
+  const listScope = JSON.stringify([props.tab, props.mode, props.text, props.filter, props.pager?.page ?? null, props.pager?.size ?? null]);
   const autoFocus = props.autoFocus ?? true;
   return (
     <>
@@ -221,7 +222,7 @@ export function SessionList(props: SessionListProps & SessionListOptions) {
       {filtersOpen && <Filters id={filtersId} filter={props.filter} projects={props.projects} projectFixed={props.projectFixed} />}
       <Hints hints={props.hints} />
       <ConditionRow conditions={props.conditions} tab={props.tab} filter={props.filter} loading={props.loading} total={props.total} />
-      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeAction={badgeAction} glide={glide} />
+      <SessionRows id={id} {...(props.items ? { items: props.items } : { rows: props.rows })} variant={props.projectFixed ? 'project' : 'search'} autoFocus={autoFocus} page={props.pager?.page} statusColumn={props.statusColumn} emptyText={props.mode === 'search' && !props.loading ? t('list.empty.noMatch') : undefined} emptyNode={props.empty} badgeAction={badgeAction} scope={listScope} />
       {props.loadMore
         ? <LoadMore {...props.loadMore} />
         : props.pager && <Pager label={t('list.pager.label')} pager={props.pager} onPage={(page) => emit({ type: 'search.page', page })} onSize={(size) => emit({ type: 'list.pageSize', size })} />}

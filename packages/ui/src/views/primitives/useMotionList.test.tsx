@@ -176,6 +176,12 @@ describe('useMotionList', () => {
     rerender(<List items={[]} opts={{ exitWhenEmpty: true }} />);
     expect(texts(container)).toEqual(['b*']);
   });
+  it('hitRisen なら、並びが替わった描画で上がった行だけに淡い黄の印を付ける（flip: false なら滑らせない）', () => {
+    const { container, rerender } = render(<List items={['a', 'b', 'c']} opts={{ flip: false, hitRisen: true }} />);
+    rerender(<List items={['c', 'a', 'b']} opts={{ flip: false, hitRisen: true }} />);
+    expect([...container.querySelectorAll('li[data-hit]')].map((l) => l.textContent)).toEqual(['c']);
+    expect(animations).toHaveLength(0);
+  });
   it('動きの長さが 0 なら、消えた key をすぐ外す', () => {
     restore?.();
     restore = fakeMotionTokens({ ...tokens, '--dur': '0ms', '--dur-fast': '0ms', '--dur-exit': '0ms' }, { everywhere: true });
