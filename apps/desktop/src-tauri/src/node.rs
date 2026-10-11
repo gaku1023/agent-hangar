@@ -131,7 +131,8 @@ pub fn parse_dir_version(name: &str) -> Option<(u32, u32, u32)> {
 /// `parent` の下の版ごとのディレクトリから、`leaf` にある Node を新しい版から順に並べる。
 /// 実在するものだけを返す。
 /// 実在しないパスを候補に混ぜると、`describe_error` の「調べた場所」が読みにくくなる。
-fn versioned_node_paths(parent: &Path, leaf: &str) -> Vec<PathBuf> {
+fn versioned_node_paths(parent: &Path, leaf: impl AsRef<Path>) -> Vec<PathBuf> {
+    let leaf = leaf.as_ref();
     let Ok(rd) = std::fs::read_dir(parent) else {
         return Vec::new();
     };
@@ -244,24 +245,43 @@ pub fn unix_node_paths(root: &Path, user_home: &Path) -> Vec<PathBuf> {
 pub struct WindowsEnv {
     /// `ProgramFiles`。公式のインストーラの入れ先（`nodejs\node.exe`）の親。
     pub program_files: Option<PathBuf>,
-    /// `LOCALAPPDATA`。ユーザー単位のインストーラの入れ先（`Programs\nodejs\node.exe`）の親。
+    /// `LOCALAPPDATA`。ユーザー単位のインストーラの入れ先（`Programs\nodejs\node.exe`）と、Volta の既定の置き場（`Volta`）の親。
     pub local_app_data: Option<PathBuf>,
+    /// `APPDATA`。fnm の既定の置き場（`fnm`）の親。
+    pub app_data: Option<PathBuf>,
+    /// `USERPROFILE`。scoop の既定の置き場（`scoop`）の親。
+    pub user_profile: Option<PathBuf>,
     /// `NVM_SYMLINK`。nvm-windows が選んだ版を指すリンクの場所。
     pub nvm_symlink: Option<PathBuf>,
     /// `NVM_HOME`。nvm-windows が版ごとの Node を置く場所。
     pub nvm_home: Option<PathBuf>,
+    /// `FNM_DIR`。fnm の置き場を移したときの場所。
+    pub fnm_dir: Option<PathBuf>,
+    /// `VOLTA_HOME`。Volta の置き場を移したときの場所。
+    pub volta_home: Option<PathBuf>,
+    /// `SCOOP`。scoop の置き場を移したときの場所。
+    pub scoop: Option<PathBuf>,
     /// `PATH` の各項目。
     pub path_dirs: Vec<PathBuf>,
 }
 
 impl WindowsEnv {
     pub fn from_process_env() -> Self {
-        let var = |k: &str| std::env::var_os(k).map(PathBuf::from);
+        let var = |k: &str| {
+            std::env::var_os(k)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        };
         Self {
             program_files: var("ProgramFiles"),
             local_app_data: var("LOCALAPPDATA"),
+            app_data: var("APPDATA"),
+            user_profile: var("USERPROFILE"),
             nvm_symlink: var("NVM_SYMLINK"),
             nvm_home: var("NVM_HOME"),
+            fnm_dir: var("FNM_DIR"),
+            volta_home: var("VOLTA_HOME"),
+            scoop: var("SCOOP"),
             path_dirs: std::env::var_os("PATH")
                 .map(|p| std::env::split_paths(&p).collect())
                 .unwrap_or_default(),
@@ -269,7 +289,18 @@ impl WindowsEnv {
     }
 }
 
-/// Windows の探索先。公式のインストーラの入れ先、nvm-windows（新しい版が先）、PATH の順。
+/// scoop で Node を入れるアプリの名前か。`nodejs`、`nodejs-lts`、versions の桶の `nodejs22` などを採る。
+fn is_scoop_node_app(name: &str) -> bool {
+    match name.strip_prefix("nodejs") {
+        Some("") | Some("-lts") => true,
+        Some(rest) => rest.bytes().all(|b| b.is_ascii_digit()),
+        None => false,
+    }
+}
+
+/// Windows の探索先。公式のインストーラの入れ先、nvm-windows（新しい版が先）、fnm、Volta、scoop（それぞれ新しい版が先）、PATH の順。
+/// fnm、Volta、scoop は、PATH を切り替える仕掛け（fnm の multishells、Volta と scoop の shim）ではなく、版ごとの実体の場所を見る。
+/// 置き場は、環境変数（`FNM_DIR`、`VOLTA_HOME`、`SCOOP`）があればそれ、無ければ既定の場所である。
 /// サーバ側の同梱 CLI の入口（`scripts/launch-cli.ts`）と同じ並びにそろえてある。
 /// PATH は実在する `node.exe` だけを足す。実在しない項目を候補に混ぜると、`describe_error` の「調べた場所」が読みにくくなる。
 pub fn windows_node_paths(env: &WindowsEnv) -> Vec<PathBuf> {
@@ -295,6 +326,44 @@ pub fn windows_node_paths(env: &WindowsEnv) -> Vec<PathBuf> {
                 .collect();
             found.sort_by_key(|a| std::cmp::Reverse(a.0));
             all.extend(found.into_iter().map(|(_, p)| p));
+        }
+    }
+    let fnm = env
+        .fnm_dir
+        .clone()
+        .or_else(|| env.app_data.as_ref().map(|d| d.join("fnm")));
+    if let Some(fnm) = fnm {
+        all.extend(versioned_node_paths(
+            &fnm.join("node-versions"),
+            Path::new("installation").join("node.exe"),
+        ));
+    }
+    let volta = env
+        .volta_home
+        .clone()
+        .or_else(|| env.local_app_data.as_ref().map(|d| d.join("Volta")));
+    if let Some(volta) = volta {
+        all.extend(versioned_node_paths(
+            &volta.join("tools").join("image").join("node"),
+            "node.exe",
+        ));
+    }
+    let scoop = env
+        .scoop
+        .clone()
+        .or_else(|| env.user_profile.as_ref().map(|d| d.join("scoop")));
+    if let Some(apps) = scoop.map(|d| d.join("apps")) {
+        let mut names: Vec<String> = std::fs::read_dir(&apps)
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.file_name().to_string_lossy().to_string())
+                    .filter(|n| is_scoop_node_app(n))
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        for n in names {
+            all.extend(versioned_node_paths(&apps.join(n), "node.exe"));
         }
     }
     all.extend(
@@ -399,7 +468,9 @@ pub fn probe_node(path: &Path) -> ProbeOutcome {
 /// 標準出力は別のスレッドで上限つきに読む。
 /// 読み手を本体に置くと、出し続ける相手で本体が戻らなくなるためである。
 pub fn probe_node_within(path: &Path, timeout: Duration) -> ProbeOutcome {
-    if !path.is_file() {
+    // 名前や相対のパスは、殻の作業ディレクトリしだいで指す先が変わる（Command は名前を PATH からも引く）。
+    // `nodePath` は絶対パスだけを受けるので、そうでない値は無いものとして扱う。
+    if !path.is_absolute() || !path.is_file() {
         return ProbeOutcome::Missing;
     }
     let mut cmd = Command::new(path);
@@ -636,7 +707,7 @@ fn not_found_winget_ja(m: &Manifest, settings: &str) -> Vec<String> {
     vec![
         format!("Node {}（{}）が見つかりません。", m.node_major, m.arch),
         format!("PowerShell で {} を実行して入れれば、次に開いたときに見つけます。", winget_command(m.node_major)),
-        format!("nvm-windows を使うなら、nvm install {} で入れた版も見つけます（PATH にある版も探します）。", m.node_major),
+        format!("nvm-windows を使うなら、nvm install {} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。", m.node_major),
         format!("ほかの場所に入れたなら、{} の nodePath で場所を指定してください。", settings),
         "調べた場所:".to_string(),
     ]
@@ -647,7 +718,7 @@ fn not_found_winget_en(m: &Manifest, settings: &str) -> Vec<String> {
     vec![
         format!("Node {} ({}) was not found.", m.node_major, m.arch),
         format!("Install it with {} in PowerShell and Hangar finds it the next time it opens.", winget_command(m.node_major)),
-        format!("With nvm-windows, a version installed with nvm install {} is found too (Hangar also looks on PATH).", m.node_major),
+        format!("With nvm-windows, a version installed with nvm install {} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).", m.node_major),
         format!("If it is installed somewhere else, set nodePath in {} to its location.", settings),
         "Places checked:".to_string(),
     ]
@@ -943,6 +1014,7 @@ mod tests {
             nvm_symlink: Some(symlink.clone()),
             nvm_home: Some(nvm.clone()),
             path_dirs: vec![empty_dir, on_path.clone()],
+            ..WindowsEnv::default()
         });
         assert_eq!(
             got,
@@ -955,6 +1027,116 @@ mod tests {
                 nvm.join("v20.1.0").join("node.exe"),
                 // PATH は、実在する node.exe だけを後ろに足す。
                 on_path.join("node.exe"),
+            ]
+        );
+    }
+
+    /// fnm、Volta、scoop が版ごとに置く Node も、nvm-windows のあと PATH の前に探す（新しい版から）。
+    /// 置き場は、環境変数（FNM_DIR、VOLTA_HOME、SCOOP）があればそれ、無ければ既定の場所（%APPDATA%\fnm、%LOCALAPPDATA%\Volta、%USERPROFILE%\scoop）。
+    #[test]
+    fn windows_candidates_include_fnm_volta_and_scoop_versions() {
+        let root = tempfile::tempdir().unwrap();
+        let roaming = root.path().join("Roaming");
+        let local = root.path().join("Local");
+        let profile = root.path().join("me");
+        let nvm = root.path().join("nvm");
+        touch(&nvm.join("v22.1.0").join("node.exe"));
+        let fnm = roaming.join("fnm").join("node-versions");
+        for v in ["v20.5.0", "v22.14.0"] {
+            touch(&fnm.join(v).join("installation").join("node.exe"));
+        }
+        let volta = local.join("Volta").join("tools").join("image").join("node");
+        for v in ["22.9.0", "24.1.0"] {
+            touch(&volta.join(v).join("node.exe"));
+        }
+        let scoop = profile.join("scoop").join("apps");
+        touch(&scoop.join("nodejs-lts").join("22.11.0").join("node.exe"));
+        // current は版の実体へのリンクなので、版と読まない。
+        touch(&scoop.join("nodejs-lts").join("current").join("node.exe"));
+        touch(&scoop.join("nodejs").join("24.0.0").join("node.exe"));
+        // Node 以外のアプリは見ない。
+        touch(&scoop.join("python").join("3.12.0").join("node.exe"));
+        let on_path = root.path().join("tools");
+        touch(&on_path.join("node.exe"));
+
+        let got = windows_node_paths(&WindowsEnv {
+            local_app_data: Some(local.clone()),
+            app_data: Some(roaming.clone()),
+            user_profile: Some(profile.clone()),
+            nvm_home: Some(nvm.clone()),
+            path_dirs: vec![on_path.clone()],
+            ..WindowsEnv::default()
+        });
+        assert_eq!(
+            got,
+            vec![
+                local.join("Programs").join("nodejs").join("node.exe"),
+                nvm.join("v22.1.0").join("node.exe"),
+                fnm.join("v22.14.0").join("installation").join("node.exe"),
+                fnm.join("v20.5.0").join("installation").join("node.exe"),
+                volta.join("24.1.0").join("node.exe"),
+                volta.join("22.9.0").join("node.exe"),
+                scoop.join("nodejs").join("24.0.0").join("node.exe"),
+                scoop.join("nodejs-lts").join("22.11.0").join("node.exe"),
+                on_path.join("node.exe"),
+            ]
+        );
+
+        // 環境変数で置き場を移していれば、そちらを見る。
+        let fnm_dir = root.path().join("my-fnm");
+        touch(
+            &fnm_dir
+                .join("node-versions")
+                .join("v22.2.0")
+                .join("installation")
+                .join("node.exe"),
+        );
+        let volta_home = root.path().join("my-volta");
+        touch(
+            &volta_home
+                .join("tools")
+                .join("image")
+                .join("node")
+                .join("22.3.0")
+                .join("node.exe"),
+        );
+        let scoop_root = root.path().join("my-scoop");
+        touch(
+            &scoop_root
+                .join("apps")
+                .join("nodejs22")
+                .join("22.4.0")
+                .join("node.exe"),
+        );
+        let got = windows_node_paths(&WindowsEnv {
+            app_data: Some(roaming.clone()),
+            local_app_data: Some(local.clone()),
+            user_profile: Some(profile.clone()),
+            fnm_dir: Some(fnm_dir.clone()),
+            volta_home: Some(volta_home.clone()),
+            scoop: Some(scoop_root.clone()),
+            ..WindowsEnv::default()
+        });
+        assert_eq!(
+            got,
+            vec![
+                local.join("Programs").join("nodejs").join("node.exe"),
+                fnm_dir
+                    .join("node-versions")
+                    .join("v22.2.0")
+                    .join("installation")
+                    .join("node.exe"),
+                volta_home
+                    .join("tools")
+                    .join("image")
+                    .join("node")
+                    .join("22.3.0")
+                    .join("node.exe"),
+                scoop_root
+                    .join("apps")
+                    .join("nodejs22")
+                    .join("22.4.0")
+                    .join("node.exe"),
             ]
         );
     }
@@ -1356,6 +1538,16 @@ mod tests {
             ProbeOutcome::Missing
         );
         assert_eq!(probe_node(dir.path()), ProbeOutcome::Missing);
+    }
+
+    // nodePath は絶対パスだけを受ける（設定の画面も保存のときに断る）。
+    // 名前や相対のパスは、殻の作業ディレクトリしだいで指す先が変わるので、そこにファイルがあっても起こさない。
+    #[test]
+    fn probe_node_is_missing_for_a_relative_path_even_if_it_exists_here() {
+        let cwd = std::env::current_dir().unwrap();
+        let name = "Cargo.toml";
+        assert!(cwd.join(name).is_file());
+        assert_eq!(probe_node(Path::new(name)), ProbeOutcome::Missing);
     }
 
     #[cfg(unix)]

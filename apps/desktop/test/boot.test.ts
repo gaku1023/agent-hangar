@@ -8,7 +8,7 @@ type Progress = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: 
 type BootFrames = {
   CYCLE_MS: number; SLOW_AFTER_MS: number; BEAT_S: number; BLOOM_S: number; FINISH_MS: number;
   frameOf(T: number): Card[]; frameSvg(T: number): string; nearestBoundary(ms: number): number;
-  dots(ms: number): string; slowSuffix(ms: number): string; detailText(p: Progress | null, ms: number): string;
+  dots(ms: number): string; slowSuffix(ms: number, lang?: string): string; detailText(p: Progress | null, ms: number, lang?: string): string; waitText(lang: string): { loading: string; welcome: string };
   finishOf(Tb: number, tb: number): Finish; finishSvg(Tb: number, tb: number): string;
 };
 // 読み込み画面は依存を持たない素の JS なので、型は試験の側で書く。
@@ -143,6 +143,18 @@ describe('待っている間の文', () => {
     expect(m.slowSuffix(2999)).toBe('');
     expect(m.slowSuffix(3000)).toBe('（3 秒）');
     expect(m.slowSuffix(12_500)).toBe('（12 秒）');
+  });
+  it('英語では、秒数を「 (N s)」で添え、段と件数を英語で出す', () => {
+    expect(m.slowSuffix(3000, 'en')).toBe(' (3 s)');
+    const late = m.CYCLE_MS;
+    expect(m.detailText(null, late, 'en')).toBe('Starting the server');
+    expect(m.detailText({ phase: 'scanning', done: 0, total: 0 }, late, 'en')).toBe('Checking sessions');
+    expect(m.detailText({ phase: 'indexing', done: 412, total: 1201 }, late, 'en')).toBe('Indexing sessions 412 / 1,201');
+    expect(m.detailText({ phase: 'rebuilding', done: 20, total: 987 }, late, 'en')).toBe('Rebuilding the index 20 / 987');
+    expect(m.waitText('en')).toEqual({ loading: 'Loading', welcome: 'Welcome' });
+    expect(m.waitText('ja')).toEqual({ loading: '読み込み中', welcome: 'ようこそ' });
+    // 知らない言語は日本語（UI の既定）。
+    expect(m.waitText('fr')).toEqual(m.waitText('ja'));
   });
   it('最初の周の境目までは、何をしているかを出さない', () => {
     expect(m.detailText(null, m.CYCLE_MS - 1)).toBe('');

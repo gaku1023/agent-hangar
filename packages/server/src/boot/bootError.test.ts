@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DbBackupError } from '../db/backup.ts';
 import { DbTooOldError } from '../db/open.ts';
 import { BOOT_ERROR_FILE, bootErrorPath, classifyBootError, clearBootError, writeBootError } from './bootError.ts';
@@ -61,7 +61,8 @@ describe('boot-error.json を書く（writeBootError）', () => {
     expect(read(home)).toEqual({ kind: 'db-too-old', params: { file: '/x/hangar.db', found: 3, baseline: 16 }, detail: expect.stringContaining('バージョン 3') });
   });
 
-  it('置き場の設定の言語で detail を書く。設定が無い、壊れている、知らない言語なら日本語', () => {
+  it('置き場の設定の言語で detail を書く。設定が無いか壊れていれば OS の表示言語、言語の無い設定と知らない言語は日本語', () => {
+    vi.stubEnv('HANGAR_OS_LANGUAGE', 'en');
     const e = new DbTooOldError('/x/hangar.db', 3, 16);
     const detailIn = (home: string): unknown => { writeBootError(home, e); return (read(home) as { detail: string }).detail; };
     const withSettings = (name: string, text: string): string => {
@@ -72,9 +73,11 @@ describe('boot-error.json を書く（writeBootError）', () => {
     };
     expect(detailIn(withSettings('en', '{"language":"en"}'))).toContain('is at version 3');
     expect(detailIn(withSettings('ja', '{"language":"ja"}'))).toContain('バージョン 3');
-    expect(detailIn(withSettings('broken', '{ not json'))).toContain('バージョン 3');
+    expect(detailIn(withSettings('broken', '{ not json'))).toContain('is at version 3');
     expect(detailIn(withSettings('unknown', '{"language":"fr"}'))).toContain('バージョン 3');
-    expect(detailIn(path.join(root, 'none'))).toContain('バージョン 3');
+    expect(detailIn(withSettings('before', '{"nodePath":"x"}'))).toContain('バージョン 3');
+    expect(detailIn(path.join(root, 'none'))).toContain('is at version 3');
+    vi.unstubAllEnvs();
   });
 
   it('前の失敗は新しい失敗で置き換わり、書きかけの一時ファイルは残らない', () => {

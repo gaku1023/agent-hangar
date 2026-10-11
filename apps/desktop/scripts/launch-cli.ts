@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { decideLanguage, osDisplayLanguage } from '../../../packages/server/src/i18n/osLanguage.ts';
 
 export type Want = { nodeMajor: number; arch: string };
 export type Probed = { major: number; arch: string };
@@ -65,21 +66,12 @@ export function chooseNode(candidates: string[], want: Want, probe: (node: strin
 export type Lang = 'ja' | 'en';
 
 /**
- * 見つからないときの文の言語を決める。殻の札（src-tauri の bootfail.rs の choose_language）と同じ決め方にする。
- * 設定（settings.json）の language が ja か en ならそれ、無ければ OS の言語（日本語なら ja、ほかは en）、それも分からなければ日本語（UI の既定）。
+ * 見つからないときの文の言語を決める。サーバの設定の読み込みと殻の札（src-tauri の bootfail.rs）と同じ決め方で、読み口も同じ関数である（decideLanguage）。
+ * 設定（settings.json）の language、設定はあるが言語が無ければ日本語、設定が無いか読めなければ OS の表示言語。
+ * この入口は設定を書かない。初めての起動の言語を書くのは、殻かサーバである。
  */
-export function cliLanguage(settingsText: string | undefined, osLocale: string | undefined): Lang {
-  if (settingsText !== undefined) {
-    try {
-      const l = (JSON.parse(settingsText) as { language?: unknown }).language;
-      if (l === 'ja' || l === 'en') return l;
-    } catch {
-      // 読めない設定は無いものとして、OS の言語へ進む。
-    }
-  }
-  const tag = (osLocale ?? '').trim();
-  if (tag === '') return 'ja';
-  return tag.toLowerCase().startsWith('ja') ? 'ja' : 'en';
+export function cliLanguage(settingsText: string | undefined, os: () => Lang | undefined = osDisplayLanguage): Lang {
+  return decideLanguage(settingsText, os).language;
 }
 
 /** Windows で Node を入れる命令。README の Windows の前提と、殻の札（node.rs の winget_command）と同じ形にする。 */
@@ -158,6 +150,21 @@ const versionKey = (name: string): [number, number, number] | undefined => {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined;
 };
 
+/**
+ * fnm、Volta、scoop の版ごとのディレクトリの名前から版を読む。`v22.14.0` と `22.14.0` の 3 つ組だけを採る。
+ * 殻（node.rs の parse_dir_version）と同じく、`current` のような別名は版と読まない。
+ */
+const dirVersionKey = (name: string): [number, number, number] | undefined => {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(name);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined;
+};
+
+/** 版の新しい順に並べる。 */
+const newestFirst = (a: { k: [number, number, number] }, b: { k: [number, number, number] }) => b.k[0] - a.k[0] || b.k[1] - a.k[1] || b.k[2] - a.k[2];
+
+/** scoop で Node を入れるアプリの名前か。`nodejs`、`nodejs-lts`、versions の桶の `nodejs22` などを採る（殻の is_scoop_node_app と同じ）。 */
+const isScoopNodeApp = (name: string): boolean => /^nodejs(-lts|\d+)?$/.test(name);
+
 /** 環境変数の値を、名前の大文字小文字を問わず引く。Windows の PATH は Path と書かれることが多い。 */
 const envValue = (env: NodeJS.ProcessEnv, name: string): string | undefined => {
   if (env[name] !== undefined) return env[name];
@@ -167,11 +174,12 @@ const envValue = (env: NodeJS.ProcessEnv, name: string): string | undefined => {
 
 /**
  * Windows で Node がありそうな場所。
- * 順は、HANGAR_NODE、settings.json の nodePath、公式のインストーラの入れ先、nvm-windows（新しい版が先）、PATH の順。
+ * 順は、HANGAR_NODE、settings.json の nodePath、公式のインストーラの入れ先、nvm-windows（新しい版が先）、fnm、Volta、scoop（それぞれ新しい版が先）、PATH の順。
  * HANGAR_NODE のあとは、殻（src-tauri の node.rs の windows_node_paths）の探索と同じ並びにそろえてある。
+ * fnm、Volta、scoop の置き場は、環境変数（FNM_DIR、VOLTA_HOME、SCOOP）があればそれ、無ければ既定の場所（%APPDATA%\fnm、%LOCALAPPDATA%\Volta、%USERPROFILE%\scoop）である。
  * PATH は、項目ごとの node.exe のうち実在するものを、PATH の順にすべて並べる。
- * winget の Packages や Links、fnm、volta など、PATH に入っていればどの入れ方の Node でも候補になる。
- * nvm-windows と PATH は、実在しないものを並べない。見つからないときの文が読みにくくなるためである（殻と同じ）。
+ * winget の Packages や Links など、PATH に入っていればどの入れ方の Node でも候補になる。
+ * nvm-windows、版の管理ツール、PATH は、実在しないものを並べない。見つからないときの文が読みにくくなるためである（殻と同じ）。
  * パスは常に Windows の書式で組むので、どの OS 上でも同じ答えになる。
  */
 export function windowsNodeCandidates(env: NodeJS.ProcessEnv, settingsNodePath: string | undefined, listDir: (dir: string) => string[], isFile: (p: string) => boolean): string[] {
@@ -181,6 +189,8 @@ export function windowsNodeCandidates(env: NodeJS.ProcessEnv, settingsNodePath: 
   if (settingsNodePath) all.push(settingsNodePath);
   const programFiles = envValue(env, 'ProgramFiles');
   const localAppData = envValue(env, 'LOCALAPPDATA');
+  const appData = envValue(env, 'APPDATA');
+  const userProfile = envValue(env, 'USERPROFILE');
   const nvmSymlink = envValue(env, 'NVM_SYMLINK');
   const nvmHome = envValue(env, 'NVM_HOME');
   if (programFiles) all.push(w.join(programFiles, 'nodejs', 'node.exe'));
@@ -190,16 +200,33 @@ export function windowsNodeCandidates(env: NodeJS.ProcessEnv, settingsNodePath: 
     const versions = listDir(nvmHome)
       .map((n) => ({ n, k: versionKey(n) }))
       .filter((x): x is { n: string; k: [number, number, number] } => x.k !== undefined)
-      .sort((a, b) => b.k[0] - a.k[0] || b.k[1] - a.k[1] || b.k[2] - a.k[2]);
+      .sort(newestFirst);
     for (const v of versions) {
       const p = w.join(nvmHome, v.n, 'node.exe');
       if (isFile(p)) all.push(p);
     }
   }
+  /** parent の下の版ごとのディレクトリの leaf にある Node を、実在するものだけ新しい版から並べる。 */
+  const versioned = (parent: string, ...leaf: string[]): string[] =>
+    listDir(parent)
+      .map((n) => ({ n, k: dirVersionKey(n) }))
+      .filter((x): x is { n: string; k: [number, number, number] } => x.k !== undefined)
+      .sort(newestFirst)
+      .map((v) => w.join(parent, v.n, ...leaf))
+      .filter(isFile);
+  const fnm = envValue(env, 'FNM_DIR') || (appData ? w.join(appData, 'fnm') : undefined);
+  if (fnm) all.push(...versioned(w.join(fnm, 'node-versions'), 'installation', 'node.exe'));
+  const volta = envValue(env, 'VOLTA_HOME') || (localAppData ? w.join(localAppData, 'Volta') : undefined);
+  if (volta) all.push(...versioned(w.join(volta, 'tools', 'image', 'node'), 'node.exe'));
+  const scoop = envValue(env, 'SCOOP') || (userProfile ? w.join(userProfile, 'scoop') : undefined);
+  if (scoop) {
+    const apps = w.join(scoop, 'apps');
+    for (const app of listDir(apps).filter(isScoopNodeApp).sort()) all.push(...versioned(w.join(apps, app), 'node.exe'));
+  }
   for (const raw of (envValue(env, 'PATH') ?? '').split(';')) {
     const dir = raw.trim().replace(/^"(.*)"$/, '$1');
     // 相対の項目（. など）は、どこから打ったかで指す先が変わるので見ない。
-    if (dir === '' || !/^([a-zA-Z]:[\\/]|[\\/]{2})/.test(dir)) continue;
+    if (dir === '' || !isFullWindowsPath(dir)) continue;
     const p = w.join(dir, 'node.exe');
     if (isFile(p)) all.push(p);
   }
@@ -207,6 +234,9 @@ export function windowsNodeCandidates(env: NodeJS.ProcessEnv, settingsNodePath: 
   const seen = new Set<string>();
   return all.filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
 }
+
+/** ドライブから始まるか、UNC のパスか。相対のパスと、ドライブの無い \x は、どこから打ったかで指す先が変わる。 */
+export const isFullWindowsPath = (p: string): boolean => /^([a-zA-Z]:[\\/]|[\\/]{2})/.test(p);
 
 function readSettingsText(hangarHome: string): string | undefined {
   try {
@@ -257,7 +287,12 @@ export async function run(dist: string, argv: string[] = process.argv.slice(2), 
   }
   const mine: Probed = { major: Number(process.versions.node.split('.')[0]), arch: process.arch };
   // 渡し直された側は、探した側が確かめた Node なので、もう一度は確かめない。輪になるのを避けるためでもある。
-  if (env.HANGAR_LAUNCHED === '1' || (mine.major === want.nodeMajor && mine.arch === want.arch)) {
+  // 印は読んだらすぐ消す。残すと cli.mjs から、hangar start が起こすサーバ、tmux、ペインの中の hangar まで届き、
+  // ペインの中の hangar が版の確かめを飛ばして、PATH の先頭の Node で cli.mjs を直に読む。
+  const launched = env.HANGAR_LAUNCHED === '1';
+  delete env.HANGAR_LAUNCHED;
+  delete process.env.HANGAR_LAUNCHED;
+  if (launched || (mine.major === want.nodeMajor && mine.arch === want.arch)) {
     // 同梱した UI の場所を、束の中から渡す。hangar start が子として起こす server.mjs もこの値を継ぐ。
     process.env.HANGAR_UI_DIST = path.join(dist, 'ui');
     await import(pathToFileURL(path.join(dist, 'cli.mjs')).href);
@@ -279,14 +314,15 @@ export async function run(dist: string, argv: string[] = process.argv.slice(2), 
   );
   // いま動いている Node は、もう答えが分かっているので起こし直さない。
   const self = process.execPath.toLowerCase();
-  const { node: found, tried } = chooseNode(candidates, want, (c) => (c.toLowerCase() === self ? mine : probeNode(c)));
+  // 絶対パスでない候補（名前だけの nodePath など）は起こさない。起こすと PATH から引かれ、殻（node.rs）が使う Node と食い違う。
+  const { node: found, tried } = chooseNode(candidates, want, (c) => (!isFullWindowsPath(c) && !path.isAbsolute(c) ? 'missing' : c.toLowerCase() === self ? mine : probeNode(c)));
   if (found) {
     const r = spawnSync(found, [path.join(dist, 'launch-cli.mjs'), ...argv], { stdio: 'inherit', env: { ...env, HANGAR_LAUNCHED: '1' }, windowsHide: true });
     process.exitCode = r.status ?? 1;
     return;
   }
-  // OS の言語は、Node が OS から受け取った地域の設定で読む（Windows では利用者の地域の言語）。
-  const lang = cliLanguage(settingsText, Intl.DateTimeFormat().resolvedOptions().locale);
+  // OS の言語は、地域の書式（Intl の既定の locale）ではなく表示言語で読む。
+  const lang = cliLanguage(settingsText);
   process.stderr.write(describeNotFound(want, { path: process.execPath, result: mine }, tried, path.join(home, 'settings.json'), lang));
   process.exitCode = 1;
 }

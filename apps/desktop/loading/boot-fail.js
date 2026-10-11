@@ -10,8 +10,11 @@ export const FAIL_KINDS = ['server-exited', 'port-in-use', 'db-too-old', 'db-bac
 export const LANGS = ['ja', 'en'];
 
 const DEFAULT_PORT = 4177;
-/** 同梱のサーバが使う Node のメジャー版。殻が渡さなかったときだけ使う（殻は server-dist/manifest.json の nodeMajor を渡す）。 */
-const DEFAULT_NODE_MAJOR = 22;
+/**
+ * 同梱のサーバが使う Node のメジャー版。殻が渡さなかったときだけ使う（殻は server-dist/manifest.json の nodeMajor を渡す）。
+ * 束の版（bundle-server.ts の BUNDLE_NODE_MAJOR）と同じ値にする（bundle-server.test.ts が突き合わせる）。
+ */
+export const DEFAULT_NODE_MAJOR = 22;
 
 const text = (v, fallback = '') => (typeof v === 'string' || typeof v === 'number' ? String(v) : fallback);
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : null);
@@ -92,7 +95,8 @@ const TABLE = {
     'server-exited': (c) => ({
       title: 'サーバを起動できませんでした',
       what: `同梱のサーバが起動の途中で終了しました。Node が見つからないか、${c.home} に書けないときに多く起きます。`,
-      steps: ['「もう一度試す」を押します', '直らなければ、ログを開いて最後の数行を読みます', 'Node 22 以上が入っているか確認します', '直らないときは、ログの全文を添えて報告してください'],
+      // 殻と hangar コマンドは、同梱のサーバと同じメジャー版の Node だけを使う。新しい版では代わりにならないので「以上」とは書かない。
+      steps: ['「もう一度試す」を押します', '直らなければ、ログを開いて最後の数行を読みます', `Node ${c.node.major} が入っているか確認します`, '直らないときは、ログの全文を添えて報告してください'],
       command: 'node --version',
     }),
     'port-in-use': (c) => ({
@@ -140,7 +144,7 @@ const TABLE = {
     'server-exited': (c) => ({
       title: 'The server could not start',
       what: `The bundled server exited during startup. This usually happens when Node is missing or ${c.home} is not writable.`,
-      steps: ['Press "Try again"', 'If that does not help, open the log and read the last lines', 'Check that Node 22 or later is installed', 'If it still fails, report it with the full log'],
+      steps: ['Press "Try again"', 'If that does not help, open the log and read the last lines', `Check that Node ${c.node.major} is installed`, 'If it still fails, report it with the full log'],
       command: 'node --version',
     }),
     'port-in-use': (c) => ({

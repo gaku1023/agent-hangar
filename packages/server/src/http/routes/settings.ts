@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Hono } from 'hono';
 import { isLanguage, languageOf, LANGUAGES, terminalAppsFor, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
+import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../../projects/registry.ts';
 import { translatorOf } from '../../i18n/message.ts';
@@ -10,7 +11,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
 
 /** 設定の経路が使う依存。 */
-export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings'> & LanguageDeps;
+export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck'> & LanguageDeps;
 
 /** 空にできない文字列の設定。 */
 const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
@@ -48,6 +49,7 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
   const tr = translatorOf(deps.language);
   const label = (key: LabeledSetting) => tr(SETTING_LABEL[key]);
   const { db, deviceId } = deps;
+  const nodeCheck = deps.nodeCheck ?? createNodeCheck();
 
   api.get('/settings', (c) => c.json(toSettingsDto(deps.settings())));
   api.patch('/settings', async (c) => {
@@ -84,11 +86,20 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       // ./x や bin/x のような相対パスは、サーバの作業ディレクトリで読むとどこを指すかが分からないので弾く。
       const raw = v.trim();
       const name = isCommandName(raw);
+      // Node のパスは、殻（node.rs）が次の起動でそのまま起こす。殻は名前を PATH から引かず、相対のパスも読めないので、フルパスだけを受ける。
+      if (key === 'nodePath' && (name || !isFullPath(expandHome(raw)))) return c.json({ error: tr('settings.node.notAbsolute', { label: label(key) }) }, 400);
       if (!name && !path.isAbsolute(expandHome(raw))) return c.json({ error: tr('settings.path.badForm', { label: label(key) }) }, 400);
       // 判定は起動の前の確かめ（RunManager の precheck）と同じ toolPathIssue を使う。
       const issue = toolPathIssue(raw);
       if (issue) return c.json({ error: issue.key === 'settings.path.notOnPath' ? tr(issue.key, { label: label(key), name: issue.name }) : tr(issue.key, { label: label(key), path: issue.path }) }, 400);
       const t = checkToolPath(raw);
+      // Node は、殻と同じ条件（manifest.json と同じメジャー版とアーキテクチャ）で確かめる。
+      // 合わない Node を保存すると、画面では ✓ に見えても、次の起動で殻はその Node を使わず、ほかの場所を探す。
+      if (key === 'nodePath' && t.path !== null) {
+        const bad = await nodeBuildIssue(t.path, nodeCheck);
+        if (bad?.kind === 'notNode') return c.json({ error: tr('settings.node.notNode', { label: label(key), path: t.path }) }, 400);
+        if (bad?.kind === 'mismatch') return c.json({ error: tr('settings.node.mismatch', { label: label(key), path: t.path, found: bad.found.major, foundArch: bad.found.arch, major: bad.need.major, arch: bad.need.arch }) }, 400);
+      }
       // パスは ~ を直した値で保存する（起動するときに ~ は直されない）。名前は打たれたまま残す。
       patch[key] = name ? raw : t.path;
     }

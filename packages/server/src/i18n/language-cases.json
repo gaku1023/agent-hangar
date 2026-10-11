@@ -1,0 +1,49 @@
+{
+  "about": "言語の決め方の表。Node（packages/server/src/i18n/osLanguage.ts）と殻（apps/desktop/src-tauri/src/bootfail.rs）の試験が同じ表を読み、同じ答えを出すことを確かめる。",
+  "tags": [
+    ["ja-JP", "ja"],
+    ["ja", "ja"],
+    ["JA_jp.UTF-8", "ja"],
+    ["en-US", "en"],
+    ["en-JP", "en"],
+    ["fr-FR", "en"],
+    ["zh-Hans-CN", "en"]
+  ],
+  "appleLanguages": [
+    ["(\n    \"ja-JP\",\n    \"en-US\"\n)\n", "ja"],
+    ["(\n    \"en-JP\",\n    \"ja-JP\"\n)\n", "en"],
+    ["(\n    \"fr-FR\"\n)\n", "en"],
+    ["(\n    ja,\n    en\n)\n", "ja"],
+    ["()\n", null],
+    ["", null]
+  ],
+  "locale": [
+    ["ja_JP.UTF-8", "ja"],
+    ["en_US.UTF-8", "en"],
+    ["de_DE.UTF-8", "en"],
+    ["C.UTF-8", "en"],
+    ["C", null],
+    ["POSIX", null],
+    ["", null]
+  ],
+  "override": [
+    ["ja", "ja"],
+    ["en", "en"],
+    ["fr", null],
+    ["", null]
+  ],
+  "decide": [
+    { "settings": null, "os": "en", "language": "en", "from": "os" },
+    { "settings": null, "os": "ja", "language": "ja", "from": "os" },
+    { "settings": null, "os": null, "language": "en", "from": "os" },
+    { "settings": "{\"language\":\"en\"}", "os": "ja", "language": "en", "from": "settings" },
+    { "settings": "{\"language\":\"ja\"}", "os": "en", "language": "ja", "from": "settings" },
+    { "settings": "{\"nodePath\":\"x\"}", "os": "en", "language": "ja", "from": "before-os" },
+    { "settings": "{}", "os": "en", "language": "ja", "from": "before-os" },
+    { "settings": "{\"language\":\"fr\"}", "os": "en", "language": "ja", "from": "before-os" },
+    { "settings": "{\"language\":3}", "os": "en", "language": "ja", "from": "before-os" },
+    { "settings": "not json", "os": "en", "language": "en", "from": "os" },
+    { "settings": "[]", "os": "ja", "language": "ja", "from": "os" },
+    { "settings": "", "os": "en", "language": "en", "from": "os" }
+  ]
+}

@@ -241,7 +241,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
 
   it('済んだものは 1 行に畳む。押すと見つかった場所の行が開き、もう一度押すと閉じる', () => {
     open();
-    const fold = screen.getByRole('button', { name: 'tmux、claude、Claude Code との互換性は準備完了' });
+    const fold = screen.getByRole('button', { name: 'tmux、claude、Claude Code との互換性 は準備完了' });
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('/opt/homebrew/bin/tmux（3.4）')).toBeNull();
     fireEvent.click(fold);

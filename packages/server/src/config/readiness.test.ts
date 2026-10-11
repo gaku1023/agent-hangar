@@ -8,6 +8,7 @@ import { writeFakeTool } from '../../test/fake-bin.ts';
 import { isWindows } from '../../test/platform.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { STATUSLINE_MARKER } from '../provider/claude-code/config/statusline.ts';
+import type { NodeCheck } from './node.ts';
 import type { Settings } from './paths.ts';
 import { checkToolPath, createReadiness, expandHome, hangarCommandPrefix, readMcpRegistration, recheckMuxPath, toolPathIssue, ToolVersions } from './readiness.ts';
 
@@ -27,6 +28,9 @@ afterEach(() => {
 function fakeTool(name: string, line: string, mode = 0o755): string {
   return writeFakeTool(path.join(tmp, 'bin'), name, { sh: `echo '${line}'`, cmd: `echo ${line}` }, mode);
 }
+
+/** 要る Node を 22（arm64）とし、どの候補にも found と答える確かめ。 */
+const nodeCheckAnswering = (found: { major: number; arch: string } | null): NodeCheck => ({ need: () => ({ major: 22, arch: 'arm64' }), probe: async () => found });
 
 const baseSettings = (over: Partial<Settings> = {}): Settings => ({
   workspaceRoot: path.join(tmp, 'ws'), claudeDir: path.join(tmp, 'claude'), tmuxPath: null, terminalApp: 'terminal', codePath: null,
@@ -222,7 +226,7 @@ describe('createReadiness', () => {
     upsertShared(db, 'projects', { id: 'p3', name: 'scratch', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'r3', project_id: 'p3', device_id: 'd', path: path.join(ws, 'scratch'), resolved: 1 }, 'd');
     const settings = baseSettings({ tmuxPath: tmux, claudePath: claude, codePath: null, nodePath: node, workspaceRoot: ws, claudeDir });
-    const read = createReadiness({ settings: () => settings, claudeDir, claudeJson, homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', timeoutMs: 3000 });
+    const read = createReadiness({ settings: () => settings, claudeDir, claudeJson, homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', timeoutMs: 3000, nodeCheck: nodeCheckAnswering({ major: 22, arch: 'arm64' }) });
     const r = await read();
     expect(r.tools.tmux).toEqual({ path: tmux, ok: true, problem: null, version: '3.4' });
     expect(r.tools.claude).toEqual({ path: claude, ok: true, problem: null, version: '2.3.1' });
@@ -242,6 +246,24 @@ describe('createReadiness', () => {
       statusline: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' statusline install",
       shell,
       join: "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' join <token>",
+    });
+  });
+  // 殻は manifest.json と同じメジャー版とアーキの Node だけを使う。設定の画面も同じ条件で見て、使われない Node に ✓ を付けない。
+  describe('Node の設定', () => {
+    const readNode = async (nodePath: string, found: { major: number; arch: string } | null) =>
+      (await createReadiness({ settings: () => baseSettings({ nodePath }), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', nodeCheck: nodeCheckAnswering(found) })()).tools.node;
+    it('同梱のサーバと違うメジャー版かアーキの Node は、新しい版でも ✗ にし、見つけたものと要るものを添える', async () => {
+      const node = fakeTool('node', 'v24.1.0');
+      expect(await readNode(node, { major: 24, arch: 'arm64' })).toEqual({ path: node, ok: false, problem: 'wrongNode', version: 'v24.1.0', auto: false, found: { major: 24, arch: 'arm64' }, need: { major: 22, arch: 'arm64' } });
+      expect(await readNode(node, { major: 22, arch: 'x64' })).toMatchObject({ ok: false, problem: 'wrongNode', found: { major: 22, arch: 'x64' } });
+    });
+    it('Node として答えないファイルは ✗ にする', async () => {
+      const node = fakeTool('node', 'v22.9.0');
+      expect(await readNode(node, null)).toMatchObject({ path: node, ok: false, problem: 'notNode', auto: false });
+    });
+    it('名前だけや相対のパスは、殻が使えないので ✗ にする（PATH からは探さない）', async () => {
+      expect(await readNode('node', { major: 22, arch: 'arm64' })).toEqual({ path: 'node', ok: false, problem: 'notAbsolute', version: null, auto: false });
+      expect(await readNode('./node', { major: 22, arch: 'arm64' })).toMatchObject({ ok: false, problem: 'notAbsolute' });
     });
   });
   it('Node の設定が空なら、サーバを動かしている Node を見せる', async () => {

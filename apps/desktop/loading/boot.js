@@ -1,4 +1,4 @@
-import { BEAT_S, FINISH_MS, detailText, dots, finishOf, finishSvg, frameSvg, nearestBoundary, slowSuffix } from './boot-frames.js';
+import { BEAT_S, FINISH_MS, detailText, dots, finishOf, finishSvg, frameSvg, nearestBoundary, slowSuffix, waitText } from './boot-frames.js';
 import { failView, updateView } from './boot-fail.js';
 
 // 起動画面の描画。動きの時計は頁の load から数える。
@@ -17,6 +17,14 @@ const begin = () => { t0 = performance.now(); };
 if (document.readyState === 'complete') begin();
 else addEventListener('load', begin, { once: true });
 const since = () => (t0 === null ? 0 : performance.now() - t0);
+
+// 待っている間の文の言語。殻が起動の頭で決め（初めての起動なら OS の表示言語を設定に書き）、boot_state で渡す。
+// 届くまでは文を出さない。英語の OS で日本語を一瞬出さないためである。殻に聞けなければ日本語（UI の既定）にする。
+let lang = null;
+const setLang = (l) => {
+  lang = l === 'en' ? 'en' : 'ja';
+  document.documentElement.lang = lang;
+};
 
 const clamp = (t) => Math.max(0, Math.min(1, t));
 const eOut = (t) => 1 - Math.pow(1 - t, 3);
@@ -70,7 +78,7 @@ function finish() {
   const T = since() / 1000;
   stop();
   status.dataset.level = 'ready';
-  status.textContent = 'ようこそ';
+  status.textContent = waitText(lang ?? 'ja').welcome;
   detail.textContent = '';
   // 輪と光はロゴの真ん中から広げる。窓の大きさは 1400×900 を基準に、大きい窓ほど遠くまで届かせる。
   const box = (svg || document.getElementById('logo')).getBoundingClientRect();
@@ -127,12 +135,12 @@ window.__hangarBootProgress = (p) => { progress = p; };
 const tick = setInterval(() => {
   if (status.dataset.level === 'error') { detail.textContent = ''; clearInterval(tick); return; }
   if (status.dataset.level === 'ready') { clearInterval(tick); return; }
-  if (t0 === null) return;
+  if (t0 === null || lang === null) return;
   const ms = performance.now() - t0;
   // 点の数が変わっても語が左右に揺れないよう、点の置き場の幅を取り、左にも同じ幅の空きを置く。
-  const html = `<span class="dots-pad"></span>読み込み中<span class="dots">${still ? '...' : dots(ms)}</span>${slowSuffix(ms)}`;
+  const html = `<span class="dots-pad"></span>${waitText(lang).loading}<span class="dots">${still ? '...' : dots(ms)}</span>${slowSuffix(ms, lang)}`;
   if (status.dataset.html !== html) { status.innerHTML = html; status.dataset.html = html; }
-  const d = detailText(progress, ms);
+  const d = detailText(progress, ms, lang);
   if (detail.textContent !== d) detail.textContent = d;
 }, 100);
 
@@ -366,6 +374,7 @@ copyAll.addEventListener('click', () => { if (view) copy(view.copyText, copyAll,
 // 問い合わせが断られても、待っている間の画面のまま続ける。
 // 試験のための書き出しが求められていれば（probe）、引き取った後の様子を一度渡す。札と合図は描いた時にも渡す。
 Promise.resolve(invoke('boot_state')).then((s) => {
+  setLang(s?.lang);
   if (!s) return;
   probing = s.probe === true;
   if (s.progress) progress = s.progress;
@@ -374,4 +383,4 @@ Promise.resolve(invoke('boot_state')).then((s) => {
   if (s.failure) window.__hangarBootFail(s.failure);
   else if (s.finishing) finish();
   else report();
-}).catch(() => {});
+}).catch(() => { setLang(null); });

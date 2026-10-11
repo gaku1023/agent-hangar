@@ -21,7 +21,7 @@ type UpdView = {
   band: { tone: 'info' | 'error'; title: string; detail: string; action: string | null; progress: number | null; progressLabel: string } | null;
   demote: boolean;
 };
-type Mod = { FAIL_KINDS: string[]; failView(info: Info): View & { current: string }; updateView(lang: string, u: Upd, current: string, kind?: string): UpdView; shellQuote(s: string): string; psQuote(s: string): string };
+type Mod = { FAIL_KINDS: string[]; DEFAULT_NODE_MAJOR: number; failView(info: Info): View & { current: string }; updateView(lang: string, u: Upd, current: string, kind?: string): UpdView; shellQuote(s: string): string; psQuote(s: string): string };
 const loading = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'loading');
 const m = (await import(pathToFileURL(path.join(loading, 'boot-fail.js')).href)) as Mod;
 
@@ -72,6 +72,17 @@ describe('種類ごとの文', () => {
     expect(v.what).toContain('~/h');
     expect(v.command).toBe('node --version');
     expect(v.steps[0]).toContain('もう一度試す');
+  });
+  // 殻と CLI は manifest の nodeMajor と同じメジャー版だけを採る。「22 以上」と書くと、24 を入れた人が直らないまま戻ってくる。
+  it('サーバが起きない：確かめる Node は同梱のサーバと同じ版だけで、「以上」とは書かない', () => {
+    const ja = view('server-exited');
+    expect(ja.steps).toContain(`Node ${m.DEFAULT_NODE_MAJOR} が入っているか確認します`);
+    expect(ja.steps.join('\n')).not.toContain('以上');
+    const en = view('server-exited', { lang: 'en' });
+    expect(en.steps).toContain(`Check that Node ${m.DEFAULT_NODE_MAJOR} is installed`);
+    expect(en.steps.join('\n')).not.toMatch(/or later|or newer/);
+    // 殻が要る版を渡せば、それを書く。
+    expect(view('server-exited', { params: { major: 24 } }).steps).toContain('Node 24 が入っているか確認します');
   });
   it('ポートが使われている：ポートを文と命令に入れ、動いているプロセスを止めないと言う', () => {
     const v = view('port-in-use', { params: { port: 4390 } });
