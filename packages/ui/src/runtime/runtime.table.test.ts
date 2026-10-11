@@ -3,7 +3,7 @@ import type { BootstrapDto } from '@agent-hangar/shared';
 import * as mediator from '../mediator/transition.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
 import type { ApiClient } from './api.ts';
-import { actionTable } from './actionTable.ts';
+import { LONG_TOAST_MS, actionTable } from './actionTable.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 
 // transition を見張る。中身は本物のままにして、何が渡ったかだけを数える。
@@ -68,6 +68,16 @@ describe('表にある UiAction', () => {
     await flush();
     expect(rt.getState().toasts.map((t) => t.level)).toEqual(['info']);
     expect(rt.getState().toasts[0]?.message).toContain('Terminal.app');
+  });
+  it('Windows Terminal が無かった知らせは、長く出すトーストになる', async () => {
+    const { rt } = harness({ projectOpenTerminal: vi.fn(async () => ({ app: 'windowsDefault' as const, fellBack: true })) });
+    rt.emit({ type: 'project.openTerminalApp', id: 'p1' });
+    await flush();
+    expect(rt.getState().toasts[0]?.holdMs).toBe(LONG_TOAST_MS);
+    const other = harness({ projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
+    other.rt.emit({ type: 'project.openTerminalApp', id: 'p1' });
+    await flush();
+    expect(other.rt.getState().toasts[0]).not.toHaveProperty('holdMs');
   });
   it('同期の応答と bootstrap の同期の状態は Store に直に当て、サーバのイベントに見せかけて transition へ流さない', async () => {
     const sync = { state: 'idle', pending: 4, skipped: [] } as unknown as NonNullable<ReturnType<ReturnType<typeof createRuntime>['getStore']>['sync']>;

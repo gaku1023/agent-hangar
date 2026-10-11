@@ -8,7 +8,7 @@ import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { runStart } from './start.ts';
 import { runStatuslineInstall } from './statusline.ts';
-import { entryUrl, openInBrowser } from './url.ts';
+import { entryUrl, openedMessage, openFailedMessage, openInBrowser } from './url.ts';
 
 const program = new Command().name('hangar').description('agent-hangar のコマンド');
 
@@ -165,11 +165,11 @@ program
       return;
     }
     // 鍵付きで開く。クッキーを持っているブラウザなら鍵は使われず、そのまま開く。
-    // 印字もする。別のブラウザで開きたいときの手掛かりになり、401 の案内ともかみ合う。
-    // 鍵は argv に載せない。openInBrowser が標準入力から渡す。
+    // 鍵は端末に出さない。出すと、画面の表示とシェルの履歴に残る。ブラウザへだけ渡す。
+    // 鍵は argv にも載せない。openInBrowser が標準入力（または本人だけが読めるファイル）から渡す。
+    // 開けなかったときも鍵は出さず、鍵の無い URL と hangar url の案内だけを出す。
     const url = entryUrl(port, readOrCreateToken(hangarHome()));
-    console.log(url);
-    openInBrowser(url);
+    console.log((await openInBrowser(url)) ? openedMessage(port) : openFailedMessage(port));
   });
 
 const mcp = program.command('mcp').description('Claude Code への MCP 登録');

@@ -9,11 +9,21 @@ export const FELL_BACK_WINDOWS = 'runtime.openTerminal.fellBackWindows' as const
 /** 応答のあとに知らせられる文の鍵（引数の無いもの）。 */
 export type CallToast = typeof FELL_BACK | typeof FELL_BACK_WINDOWS;
 
+/**
+ * 読み切るのに時間がかかる知らせを出しておく長さ（ミリ秒）。
+ * 既定の info は 4 秒で消える（views/ToastStack.tsx の INFO_TOAST_MS）。
+ * 長い文を 4 秒では読めないので、その知らせだけ、これを添えて長くする。ほかの知らせの長さは変えない。
+ */
+export const LONG_TOAST_MS = 8000;
+
 /** 外部ターミナルで開いた応答の知らせ。落ちたときだけ、落ちた先で文を選ぶ。 */
 const fellBackToast = (r: { app: TerminalApp; fellBack: boolean }): CallToast | null => (r.fellBack ? (r.app === 'windowsDefault' ? FELL_BACK_WINDOWS : FELL_BACK) : null);
 
-/** 応答を受けた後にすること。apply は応答が着いた時点の Store に当てる。toast は情報の知らせである。 */
-export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast };
+/** 長く出す知らせ。Windows Terminal が無かったという文は長く、何をしたかと次にどうなるかを読む間が要る。 */
+const holdOf = (toast: CallToast): number | undefined => (toast === FELL_BACK_WINDOWS ? LONG_TOAST_MS : undefined);
+
+/** 応答を受けた後にすること。apply は応答が着いた時点の Store に当てる。toast は情報の知らせで、toastHoldMs は出しておく長さ（省くと既定）である。 */
+export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast; toastHoldMs?: number };
 /**
  * API の呼び出し 1 回と、その前後の扱い。
  * before は呼ぶ前に Store に当てる（実行中だと分かるよう、前の結果を消すなど）。
@@ -30,7 +40,8 @@ function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): Api
     ...(before ? { before } : {}),
     run: (api) => run(api).then((r) => {
       const message = toast?.(r) ?? null;
-      return { ...(apply ? { apply: (store: Store) => apply(store, r) } : {}), ...(message !== null ? { toast: message } : {}) };
+      const hold = message !== null ? holdOf(message) : undefined;
+      return { ...(apply ? { apply: (store: Store) => apply(store, r) } : {}), ...(message !== null ? { toast: message } : {}), ...(hold !== undefined ? { toastHoldMs: hold } : {}) };
     }),
   };
 }

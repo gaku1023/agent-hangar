@@ -188,7 +188,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       deps.api.compat().then((c) => { if (seq === readinessSeq) setStore({ ...store, compat: c }); }).catch(fail);
     } else setStore({ ...store, readiness: r, compat: null });
   };
-  const toast = (message: string) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message } });
+  const toast = (message: string, holdMs?: number) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message, ...(holdMs !== undefined ? { holdMs } : {}) } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
   /**
@@ -675,7 +675,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (c.before) setStore(c.before(store));
     c.run(deps.api).then((done) => {
       if (done.apply) setStore(done.apply(store));
-      if (done.toast !== undefined) toast(tr()(done.toast));
+      if (done.toast !== undefined) toast(tr()(done.toast), done.toastHoldMs);
     }).catch(fail);
   }
 
