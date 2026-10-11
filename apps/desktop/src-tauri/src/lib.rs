@@ -2,6 +2,7 @@
 //! 起動時に同梱サーバを子プロセスとして立て、`/health` が通ったらウィンドウをサーバの URL へ移す。
 //! `hangar://` のディープリンクは UI のハッシュ経路に変換して webview に流す。
 
+pub mod approve;
 pub mod bootfail;
 pub mod bootmsg;
 pub mod bootprobe;
@@ -42,8 +43,10 @@ struct AppState {
     /// 今の子を起こす直前の時刻。子が死んだとき、`boot-error.json` がこの子のものかを更新の時刻で見分ける。
     /// 子を起こさずに既存のサーバを採ったときは、前の値のまま使わない（その経路では子の死を見ない）。
     child_started: Mutex<Option<SystemTime>>,
-    /// 設定の同期の確認（適用、世代へ戻す）が出ているか。頁から続けて呼ばれても、確認を重ねて出さない。
+    /// 設定の同期の確認（適用、世代へ戻す）と、連携の書き込みの確認が出ているか。頁から続けて呼ばれても、確認を重ねて出さない。
     config_busy: AtomicBool,
+    /// 開いている承諾の窓（`approve`）の状態。窓は同時に 1 つだけである。
+    approve: Mutex<Option<approve::Session>>,
     /// 試験のための書き出しの先（`HANGAR_BOOT_PROBE`、`bootprobe`）。起動のときに一度だけ読む。ふだんは無い。
     /// 試験用の feature（`boot-probe`）を立てていない build では、変数があっても無い。
     boot_probe: Option<std::path::PathBuf>,
@@ -891,9 +894,9 @@ fn spawn_boot(app: AppHandle) -> bool {
     true
 }
 
-// ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）が、頁から呼べる殻の命令である。
+// ここから下の 5 つと、入力待ちの知らせの 4 つ（notify_waiting、notify_prune、notify_request、notify_status）と、設定の同期の 2 つ（apply_config_sync、restore_config_sync）と、連携の書き込み（setup_integration）と、承諾の窓の 2 つ（approve_view、approve_answer。承諾の窓の頁だけ）が、頁から呼べる殻の命令である。
 // 名前は build.rs の一覧、capabilities、UI（packages/ui/src/runtime/desktop.ts）、起動画面（loading/boot.js）とそろえる。
-// pick_folder と boot_probe のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
+// pick_folder、boot_probe、restore_config_sync、setup_integration、approve_answer のほかは引数を受け取らない。開くファイルも、やり直す手順も、殻の側で決まっている。
 
 /// 起動画面が口を作り終えた時点で引き取る、起動の今の様子（`Ui::boot_state`）。
 /// 口が出来る前に殻が評価で渡した失敗、進み具合、合図は捨てられるので、頁の側から取りに来る。
@@ -982,25 +985,6 @@ fn config_runtime(
     Ok((node, dir, home))
 }
 
-/// ネイティブの確認を出し、承諾されたかを返す。選ぶまで戻らないので、呼び手は別のスレッドで待つ。
-/// 実行される内容を含むときは、警告の見た目で出す。
-fn confirm_natively(app: &AppHandle, c: &configapply::Confirm) -> bool {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-    app.dialog()
-        .message(c.body.clone())
-        .title(c.title.clone())
-        .kind(if c.warn {
-            MessageDialogKind::Warning
-        } else {
-            MessageDialogKind::Info
-        })
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            c.ok.to_string(),
-            c.cancel.to_string(),
-        ))
-        .blocking_show()
-}
-
 /// 失敗を、画面を見ていなくても気付けるよう、ネイティブの確認で知らせる。
 fn show_failure(app: &AppHandle, title: &str, message: &str) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -1047,7 +1031,7 @@ fn config_language() -> &'static str {
     bootfail::page_language(&paths::hangar_home())
 }
 
-fn apply_config_flow(app: &AppHandle, lang: &str) -> configapply::Outcome {
+fn apply_config_flow(app: &AppHandle, lang: &'static str) -> configapply::Outcome {
     let title = configapply::words(lang).apply_flow_title;
     let (node, dir, home) = match config_runtime(app) {
         Ok(v) => v,
@@ -1065,31 +1049,17 @@ fn apply_config_flow(app: &AppHandle, lang: &str) -> configapply::Outcome {
         Ok(o) => o,
         Err(e) => return config_runtime_failure(app, title, e),
     };
-    let plan = match configapply::parse_reply::<configapply::ApplyPlan>(&plan_out, "plan", lang) {
+    let plan = match configapply::parse_reply::<serde_json::Value>(&plan_out, "plan", lang) {
         Ok(p) => p,
         Err(f) => return config_failure(app, title, &f),
     };
-    if !confirm_natively(app, &configapply::apply_confirm(&plan, lang)) {
-        log("config sync: apply declined");
-        let cancelled = configapply::words(lang).apply_cancelled;
-        return configapply::Outcome::simple("cancelled", cancelled);
-    }
-    // 確認したのと同じ指示書にだけ適用する。確認のあとに選び直されていたら、CLI が断る。
-    let order = plan.created_at.to_string();
-    let applied = match run(&["config", "apply", "--yes", "--json", "--order", &order]) {
-        Ok(o) => o,
-        Err(e) => return config_runtime_failure(app, title, e),
-    };
-    match configapply::parse_reply::<configapply::ApplyResult>(&applied, "result", lang) {
-        Ok(r) => {
-            log(&format!("config sync: applied ({:?})", r.generation));
-            configapply::Outcome::applied(&r, lang)
-        }
-        Err(f) => config_failure(app, title, &f),
-    }
+    // 確認は殻の承諾の窓で行い、承諾されたら、確認したのと同じ指示書（--order）と同じ手元（--expect）にだけ適用する。
+    let outcome = approval_flow(app, approve::Job::Apply, plan, lang);
+    log(&format!("config sync: apply {}", outcome.status));
+    outcome
 }
 
-fn restore_config_flow(app: &AppHandle, name: &str, lang: &str) -> configapply::Outcome {
+fn restore_config_flow(app: &AppHandle, name: &str, lang: &'static str) -> configapply::Outcome {
     let w = configapply::words(lang);
     let title = w.restore_flow_title;
     // 頁から来る値は、世代の名前の形だけを受け取る。
@@ -1111,30 +1081,18 @@ fn restore_config_flow(app: &AppHandle, name: &str, lang: &str) -> configapply::
         Ok(o) => o,
         Err(e) => return config_runtime_failure(app, title, e),
     };
-    let plan = match configapply::parse_reply::<configapply::RestorePlan>(&plan_out, "plan", lang) {
+    let plan = match configapply::parse_reply::<serde_json::Value>(&plan_out, "plan", lang) {
         Ok(p) => p,
         Err(f) => return config_failure(app, title, &f),
     };
-    if !confirm_natively(app, &configapply::restore_confirm(&plan, lang)) {
-        log("config sync: restore declined");
-        return configapply::Outcome::simple("cancelled", w.restore_cancelled);
-    }
-    let restored = match run(&["config", "restore", name, "--yes", "--json"]) {
-        Ok(o) => o,
-        Err(e) => return config_runtime_failure(app, title, e),
-    };
-    match configapply::parse_reply::<configapply::RestoreResult>(&restored, "result", lang) {
-        Ok(r) => {
-            log(&format!("config sync: restored ({:?})", r.safety));
-            configapply::Outcome::restored(&r, lang)
-        }
-        Err(f) => config_failure(app, title, &f),
-    }
+    let outcome = approval_flow(app, approve::Job::Restore(name.to_string()), plan, lang);
+    log(&format!("config sync: restore {}", outcome.status));
+    outcome
 }
 
 /// 他の PC から届いて、承諾した設定を適用する。UI の設定の「適用…」が呼ぶ。引数は受け取らない。
 /// 適用の指示書（hangar の置き場の claude-config/apply-order.json）を CLI が読み、
-/// 件数と種類をネイティブの確認に見せ、承諾されたときだけ、控えを取って書く。サーバは `~/.claude` に書かない。
+/// 書く先ごとの差分を承諾の窓に見せ、承諾されたときだけ、控えを取って書く。サーバは `~/.claude` に書かない。
 #[tauri::command]
 async fn apply_config_sync(app: AppHandle) -> configapply::Outcome {
     let lang = config_language();
@@ -1156,6 +1114,249 @@ async fn restore_config_sync(app: AppHandle, name: String) -> configapply::Outco
     })
     .await
     .unwrap_or_else(|_| configapply::Outcome::simple("failed", w.restore_stopped))
+}
+
+// ---- 承諾の窓（approve.rs） ----
+
+/// 承諾の窓を開く。もう開いていれば前に出す。窓は main の窓の子にし、閉じたら結果を返す（`approve_closed`）。
+/// 頁は殻に同梱した approve.html で、サーバの頁へは移らせない（`approve::allowed_navigation`）。
+fn open_approve_window(app: &AppHandle, lang: &str) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(approve::LABEL) {
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let words = approve::words(lang);
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        app,
+        approve::LABEL,
+        tauri::WebviewUrl::App(approve::PAGE.into()),
+    )
+    .title(words.window_title)
+    .inner_size(680.0, 640.0)
+    .min_inner_size(480.0, 420.0)
+    .center()
+    .focused(true)
+    .on_navigation(approve::allowed_navigation);
+    if let Some(main) = app.get_webview_window("main") {
+        builder = builder.parent(&main).map_err(|e| e.to_string())?;
+    }
+    let window = builder.build().map_err(|e| e.to_string())?;
+    let handle = app.clone();
+    window.on_window_event(move |e| {
+        if let tauri::WindowEvent::Destroyed = e {
+            approve_closed(&handle);
+        }
+    });
+    Ok(())
+}
+
+/// 承諾の窓が閉じた。結果をまだ返していなければ、取り消し（書けなかった理由があればその失敗）を返す。
+/// 書いている最中に閉じられたときは、書き終わったところで結果を返す（`approve_answer`）。
+fn approve_closed(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let mut slot = state.approve.lock().unwrap();
+    if let Some(s) = slot.as_mut() {
+        if s.stage == approve::Stage::Writing {
+            s.closed = true;
+            return;
+        }
+    }
+    if let Some(mut s) = slot.take() {
+        if s.waiting() {
+            let o = s.closed_outcome();
+            s.finish(o);
+        }
+    }
+}
+
+/// 承諾の窓を開き、利用者が書くか閉じるまで待って、結果を返す。呼び手は別のスレッドで待つ。
+fn approval_flow(
+    app: &AppHandle,
+    job: approve::Job,
+    plan: serde_json::Value,
+    lang: &'static str,
+) -> configapply::Outcome {
+    let words = approve::words(lang);
+    let (tx, rx) = std::sync::mpsc::channel();
+    *app.state::<AppState>().approve.lock().unwrap() =
+        Some(approve::Session::new(job, plan, lang, tx));
+    if let Err(e) = open_approve_window(app, lang) {
+        log(&format!("approve: cannot open the window: {e}"));
+        app.state::<AppState>().approve.lock().unwrap().take();
+        return configapply::Outcome::simple("failed", words.cannot_open);
+    }
+    rx.recv()
+        .unwrap_or_else(|_| configapply::Outcome::simple("cancelled", words.cancelled))
+}
+
+/// CLI を走らせる。殻の同梱の Node と cli.mjs と、hangar の置き場を使う。
+fn run_hangar_cli(app: &AppHandle, args: &[String], lang: &str) -> Result<String, String> {
+    let (node, dir, home) = config_runtime(app)?;
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    configapply::run_cli(
+        configapply::cli_command(&node, &dir, &home, &args),
+        configapply::CLI_TIMEOUT,
+        lang,
+    )
+}
+
+/// 連携の書き込みの流れ。見立てを出させ、済んでいれば知らせだけ、書けなければ理由を返し、書けるなら承諾の窓を開く。
+fn setup_flow(app: &AppHandle, target: &'static str, lang: &'static str) -> configapply::Outcome {
+    let job = approve::Job::Setup(target);
+    let out = match run_hangar_cli(app, &approve::plan_args(&job, server::PORT), lang) {
+        Ok(o) => o,
+        Err(e) => {
+            log(&format!("setup {target}: {e}"));
+            return configapply::Outcome::simple("failed", e);
+        }
+    };
+    let plan = match configapply::parse_reply::<serde_json::Value>(&out, "plan", lang) {
+        Ok(p) => p,
+        Err(f) => return configapply::Outcome::failure(&f),
+    };
+    match approve::plan_state(&plan) {
+        approve::PlanState::Noop { code, message } => configapply::Outcome {
+            code: Some(code),
+            ..configapply::Outcome::simple("none", message)
+        },
+        approve::PlanState::Blocked { code, message } => configapply::Outcome {
+            code: Some(code),
+            ..configapply::Outcome::simple("failed", message)
+        },
+        approve::PlanState::Ready => {
+            let outcome = approval_flow(app, job, plan, lang);
+            log(&format!("setup {target}: {}", outcome.status));
+            outcome
+        }
+    }
+}
+
+/// 連携を書き込む（MCP の登録と解除、シェル連携のインストールとアンインストール、ステータスラインの設定と解除）。
+/// UI の設定の連携の節と、ホームの始める前の確認のボタンが呼ぶ。受け取るのは決まった対象の名前（`approve::SETUP_TARGETS`）だけである。
+/// 見立てを殻の承諾の窓に見せ、承諾されたときだけ CLI が書く。サーバは書かない。
+#[tauri::command]
+async fn setup_integration(app: AppHandle, target: String) -> configapply::Outcome {
+    let lang = config_language();
+    let words = approve::words(lang);
+    let Some(target) = approve::setup_target(&target) else {
+        return configapply::Outcome::simple("failed", words.stopped);
+    };
+    let busy = configapply::words(lang);
+    if app.state::<AppState>().config_busy.load(Ordering::SeqCst) {
+        if let Some(w) = app.get_webview_window(approve::LABEL) {
+            let _ = w.set_focus();
+        }
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        with_config_guard(&app, busy, || setup_flow(&app, target, lang))
+    })
+    .await
+    .unwrap_or_else(|_| configapply::Outcome::simple("failed", words.stopped))
+}
+
+/// 承諾の窓の頁に出す材料。承諾の窓（approve）の頁だけが呼べる。
+fn approve_view_of(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let state = app.state::<AppState>();
+    let slot = state.approve.lock().unwrap();
+    let s = slot.as_ref().ok_or_else(|| "no approval".to_string())?;
+    Ok(s.view(
+        &paths::user_home().to_string_lossy(),
+        &paths::hangar_home().to_string_lossy(),
+        cfg!(windows),
+    ))
+}
+
+#[tauri::command]
+fn approve_view(window: tauri::Window, app: AppHandle) -> Result<serde_json::Value, String> {
+    if window.label() != approve::LABEL {
+        return Err("not allowed".into());
+    }
+    approve_view_of(&app)
+}
+
+/// 承諾の窓の答え。write は書く、reload は見立てを出させ直す、cancel と close は窓を閉じる。
+/// 承諾の窓（approve）の頁だけが呼べる（capabilities/approve.json。殻の側でも窓の名前を確かめる）。
+/// 返すのは、答えたあとの頁の材料である。
+#[tauri::command]
+async fn approve_answer(
+    window: tauri::Window,
+    app: AppHandle,
+    choice: String,
+) -> Result<serde_json::Value, String> {
+    if window.label() != approve::LABEL {
+        return Err("not allowed".into());
+    }
+    let state = app.state::<AppState>();
+    let (args, lang, reading) = {
+        let mut slot = state.approve.lock().unwrap();
+        let s = slot.as_mut().ok_or_else(|| "no approval".to_string())?;
+        match (choice.as_str(), s.stage) {
+            ("cancel" | "close", _) => {
+                drop(slot);
+                let _ = window.close();
+                return Ok(serde_json::Value::Null);
+            }
+            ("write", approve::Stage::Confirm) => {
+                match approve::write_args(&s.job, &s.plan, server::PORT) {
+                    Some(a) => {
+                        s.stage = approve::Stage::Writing;
+                        (a, s.lang, false)
+                    }
+                    None => {
+                        s.fail(configapply::Failure {
+                            code: "unreadable".into(),
+                            message: approve::words(s.lang).unreadable.to_string(),
+                        });
+                        drop(slot);
+                        return approve_view_of(&app);
+                    }
+                }
+            }
+            ("reload", approve::Stage::Confirm | approve::Stage::Fail) => {
+                s.stage = approve::Stage::Writing;
+                (approve::plan_args(&s.job, server::PORT), s.lang, true)
+            }
+            ("write" | "reload", _) => {
+                drop(slot);
+                return approve_view_of(&app);
+            }
+            _ => return Err("unknown answer".into()),
+        }
+    };
+    let handle = app.clone();
+    let reply = tauri::async_runtime::spawn_blocking(move || run_hangar_cli(&handle, &args, lang))
+        .await
+        .unwrap_or_else(|_| Err(approve::words(lang).stopped.to_string()));
+    let key = if reading { "plan" } else { "result" };
+    let parsed = reply
+        .map_err(|message| configapply::Failure {
+            code: "failed".into(),
+            message,
+        })
+        .and_then(|out| configapply::parse_reply::<serde_json::Value>(&out, key, lang));
+    {
+        let mut slot = state.approve.lock().unwrap();
+        let Some(s) = slot.as_mut() else {
+            return Ok(serde_json::Value::Null);
+        };
+        if reading {
+            s.replan(parsed);
+        } else {
+            s.written(parsed);
+            log(&format!("approve: {} {:?}", s.job.target(), s.stage));
+        }
+        // 書いている最中に窓が閉じられていたら、結果を返したところで片付ける。
+        if s.closed {
+            if let Some(mut s) = slot.take() {
+                if s.waiting() {
+                    let o = s.closed_outcome();
+                    s.finish(o);
+                }
+            }
+            return Ok(serde_json::Value::Null);
+        }
+    }
+    approve_view_of(&app)
 }
 
 /// `~/.agent-hangar/desktop.log` を開く。起動画面と、UI の切断の帯の「ログを開く」が呼ぶ。
@@ -1669,6 +1870,7 @@ pub fn run() {
             booting: AtomicBool::new(false),
             child_started: Mutex::new(None),
             config_busy: AtomicBool::new(false),
+            approve: Mutex::new(None),
             boot_probe: bootprobe::target(std::env::var_os(bootprobe::ENV)),
         })
         // 頁から呼べる殻の命令は、この 1 か所でまとめて登録する。
@@ -1688,6 +1890,9 @@ pub fn run() {
             notify_status,
             apply_config_sync,
             restore_config_sync,
+            setup_integration,
+            approve_view,
+            approve_answer,
             update_status,
             update_check,
             update_download,
@@ -1696,6 +1901,10 @@ pub fn run() {
         // 頁の読み込みが終わる前の評価は捨てられることがある。
         // 出しそこねた文言と、navigate の最中に届いたリンクをここで流す。
         .on_page_load(|webview, payload| {
+            // 承諾の窓（approve）の読み込みは、main の窓の段の数え方に混ぜない。
+            if webview.label() != "main" {
+                return;
+            }
             if matches!(payload.event(), PageLoadEvent::Finished) {
                 page_loaded(webview.app_handle(), is_server_page(payload.url()));
             }
@@ -1731,22 +1940,27 @@ pub fn run() {
                 event: tauri::WindowEvent::CloseRequested { .. },
                 ..
             } => log(&format!("window {label} close requested")),
+            // ファイルを落とせるのは main の窓だけである。承諾の窓に落とされたものは捨てる。
             RunEvent::WindowEvent {
+                label,
                 event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { position, .. }),
                 ..
-            } => file_dragged(app, Some(position)),
+            } if label == "main" => file_dragged(app, Some(position)),
             RunEvent::WindowEvent {
+                label,
                 event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Over { position }),
                 ..
-            } => file_dragged(app, Some(position)),
+            } if label == "main" => file_dragged(app, Some(position)),
             RunEvent::WindowEvent {
+                label,
                 event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Leave),
                 ..
-            } => file_dragged(app, None),
+            } if label == "main" => file_dragged(app, None),
             RunEvent::WindowEvent {
+                label,
                 event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }),
                 ..
-            } => {
+            } if label == "main" => {
                 // 写している間も色は戻す。落とし先への添付は、写し終わってから hangar:drop で届く。
                 file_dragged(app, None);
                 file_dropped(app, paths, position)

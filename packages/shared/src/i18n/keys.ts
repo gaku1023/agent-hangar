@@ -18,6 +18,7 @@ import { newProjectKeys } from './keys/newProject.ts';
 import { newSessionKeys } from './keys/newSession.ts';
 import { noticesKeys } from './keys/notices.ts';
 import { muxKeys } from './keys/mux.ts';
+import { approveKeys } from './keys/approve.ts';
 import { pauseKeys } from './keys/pause.ts';
 import { platformKeys } from './keys/platform.ts';
 import { projectKeys } from './keys/project.ts';
@@ -89,6 +90,7 @@ export const MESSAGES = {
   ...newSessionKeys,
   ...noticesKeys,
   ...muxKeys,
+  ...approveKeys,
   ...pauseKeys,
   ...platformKeys,
   ...projectKeys,

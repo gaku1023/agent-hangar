@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-setup",
+  "description": "サーバの UI（127.0.0.1:4177）から、連携の書き込み（MCP の登録と解除、シェル連携、ステータスライン）を殻に頼むためだけの権限。頼めるのは決まった対象の名前だけで、殻が見立てを承諾の窓に見せ、そこで承諾されたときだけ CLI が書く。書くかどうかを、この頁から決めることはできない。",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:4177/*"] },
+  "permissions": ["allow-setup-integration"]
+}

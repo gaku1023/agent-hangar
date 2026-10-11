@@ -23,12 +23,9 @@ import { execCli, runMcpInstall, runMcpUninstall, type CliExec, type PortProbe }
  * 見せた差分と、実際に書く中身が食い違わないようにするためである。
  */
 
-export const SETUP_TARGETS = ['mcp-install', 'mcp-uninstall', 'shell-install', 'shell-uninstall', 'statusline-install', 'statusline-uninstall'] as const;
-export type SetupTarget = (typeof SETUP_TARGETS)[number];
-
-export function isSetupTarget(v: string): v is SetupTarget {
-  return (SETUP_TARGETS as readonly string[]).includes(v);
-}
+// 対象の並びは shared にある（画面のボタンと殻の命令も同じものを使う）。
+export { SETUP_TARGETS, isSetupTarget, type SetupTarget } from '@agent-hangar/shared';
+import type { SetupTarget } from '@agent-hangar/shared';
 
 /** 伏せた値の置き場。承諾の窓は、この文字を黒い帯にして出す。トークンそのものは見立てに載せない。 */
 export const SECRET_MASK = '\u0000';

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "approve",
+  "description": "殻の承諾の窓（approve。殻に同梱した approve.html で、サーバを通らない）から、書く中身を読み、書くか閉じるかを答えるためだけの権限。利用者のファイル（~/.claude.json、~/.zshrc、ステータスラインのスクリプト、~/.claude）を書く承諾は、この窓の頁だけが出せる。サーバの頁（main の窓）には与えない。remote を持たないので、殻に同梱した頁にだけ効く。",
+  "windows": ["approve"],
+  "permissions": ["allow-approve-view", "allow-approve-answer"]
+}
