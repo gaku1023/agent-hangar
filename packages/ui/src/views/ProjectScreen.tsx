@@ -14,14 +14,6 @@ import { SessionList } from './SessionList.tsx';
 import { TodoList } from './TodoList.tsx';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
 
-/**
- * 1 つのプロジェクトの画面（Q3、左右に割る）。
- * 左は、ホームと同じ部品（ステータスのタブ、検索の欄、平らな行、ページ送り）で、このプロジェクトのセッションだけを出す。
- * 右パネルは TODO（見出しに確認待ちの数）、指示とメモリ、アーティファクトで、パネルごと閉じられ、節ごとにも折りたためる。
- * 画面は窓の高さに収め、左の一覧が残りの高さを受け取り、右パネルは 1 本でスクロールする（workbench.css）。
- * 見出しの (i) に、場所、セッションの数、最後の活動と、場所や名前を直す操作を置く。
- * スクラッチの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
- */
 /** アーティファクトの節で、はじめに出す件数（新しい方から）。残りは「すべて表示」で広げる。 */
 const ARTIFACT_LIMIT = 3;
 
@@ -47,6 +39,14 @@ function RailSection(props: { section: ProjectRailSection; title: string; aside?
   );
 }
 
+/**
+ * 1 つのプロジェクトの画面（Q3、左右に割る）。
+ * 左は、ホームと同じ部品（ステータスのタブ、検索の欄、平らな行、ページ送り）で、このプロジェクトのセッションだけを出す。
+ * 右パネルは TODO（見出しに確認待ちの数）、指示とメモリ、アーティファクトで、パネルごと閉じられ、節ごとにも折りたためる。
+ * 画面は窓の高さに収め、左の一覧が残りの高さを受け取り、右パネルは 1 本でスクロールする（workbench.css）。
+ * 見出しの (i) に、場所、セッションの数、最後の活動と、場所や名前を直す操作を置く。
+ * スクラッチの擬似プロジェクトは実体のパスを持たないので、状態と外部で開く操作を出さない。
+ */
 export function ProjectScreen(props: ProjectProps) {
   const emit = useEmit();
   const t = useT();
@@ -77,7 +77,8 @@ export function ProjectScreen(props: ProjectProps) {
         <SessionList {...props.list} projectFixed loadMore={loadMore} empty={props.list.allCount === 0 && props.list.total === 0 && props.list.mode === 'all' ? <div className="empty">{t('projectScreen.list.empty')}</div> : undefined} />
       </div>
       {railOpen && (
-        <aside className="rail">
+        // プロジェクトが替わったら作り直す。覚えた折りたたみの形でそのまま出し（開閉の動きを出さない）、スクロールも先頭から始める。
+        <aside key={props.id} className="rail">
           <RailSection section="todo" title={t('projectScreen.rail.todo')} folded={props.railFolded} projectId={props.id}
             aside={<><span className="rail-n num"><RollingNumber value={props.todos.length} /></span>{props.pendingTodos > 0 && <span className="sessions-tab-n" data-hot="true">{t('projectScreen.rail.pending', { n: props.pendingTodos })}</span>}</>}>
             <TodoList projectId={props.id} todos={props.todos} done={props.doneTodos} suggestions={props.suggestions} />
@@ -86,8 +87,8 @@ export function ProjectScreen(props: ProjectProps) {
             <InstructionsPanel projectId={props.id} instructions={props.instructions} />
           </RailSection>
           <RailSection section="artifacts" title={t('projectScreen.rail.artifacts')} folded={props.railFolded} projectId={props.id} aside={<span className="rail-n num">{props.artifacts.length}</span>}>
-            {/* 広げた「すべて表示」は覚えないので、プロジェクトが替わったら作り直して 3 件に戻す。 */}
-            <ArtifactCards key={props.id} projectId={props.id} artifacts={props.artifacts} canAdd addError={props.artifactAddError} limit={ARTIFACT_LIMIT} />
+            {/* 広げた「すべて表示」は覚えないので、プロジェクトが替わると（パネルごと作り直して）3 件に戻る。 */}
+            <ArtifactCards projectId={props.id} artifacts={props.artifacts} canAdd addError={props.artifactAddError} limit={ARTIFACT_LIMIT} />
           </RailSection>
         </aside>
       )}

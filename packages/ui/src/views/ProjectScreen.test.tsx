@@ -439,6 +439,12 @@ describe('ProjectScreen の右パネルの動き', () => {
     expect(body).not.toHaveAttribute('hidden');
     expect(on(body)[0]!.frames[0]).toMatchObject({ height: '0px', opacity: 0 });
   });
+  it('別のプロジェクトへ移ったときは、覚えた形で作り直し、開閉の動きは出さない', () => {
+    const { rerender } = mount();
+    rerender(ui({ id: 'beta', name: 'beta', railFolded: ['todo'] }));
+    expect(bodyOf(/^TODO/)).toHaveAttribute('hidden');
+    expect(animations.filter((a) => (a.el as HTMLElement).classList.contains('rail-body'))).toHaveLength(0);
+  });
   it('「すべて表示」は、増えた分の箱を growIn で伸ばし、「少なく表示」で collapseOut で畳んでから外す', async () => {
     const { container } = mount(props({ artifacts: artN(5) }));
     fireEvent.click(screen.getByRole('button', { name: 'すべて表示（5 件）' }));

@@ -11,7 +11,8 @@ import { usePresence } from './usePresence.ts';
  */
 export function FoldBox(props: { open: boolean; keep?: boolean; id?: string; className: string; onClosed?: () => void; children: ReactNode }) {
   const { open, keep = false } = props;
-  const { mounted, leaving, ref } = usePresence<HTMLDivElement>(open, (el) => (motionOn(el) ? collapseOut(el) : null));
+  // 閉じた形で描き始めた箱（keep で隠したまま置くもの）は、もう隠れているので畳まない。
+  const { mounted, leaving, ref } = usePresence<HTMLDivElement>(open, (el) => (!el.hidden && motionOn(el) ? collapseOut(el) : null));
   const wasOpen = useRef(open);
   // 開いたとき。閉じる動き（最後の形を残す）が箱に残っていれば取り消してから伸ばす。usePresence の取り消しは出る途中のものだけなので、隠し終えた箱の残りはここで消す。
   useLayoutEffect(() => {
