@@ -60,7 +60,7 @@ build() {
   (cd "$desktop" && TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$password" npm run tauri -- build --bundles app --config "$work/rehearsal.conf.json")
   local got
   got="$(plist_version "$bundle/Hangar.app")"
-  if [ "$got" != "$version" ]; then echo "build した .app の版が $got（期待は $version）" >&2; exit 1; fi
+  if [ "$got" != "$version" ]; then echo "build した .app の版が ${got}（期待は ${version}）" >&2; exit 1; fi
   mkdir -p "$dest"
   ditto "$bundle/Hangar.app" "$dest/Hangar.app"
   cp "$bundle/Hangar.app.tar.gz" "$bundle/Hangar.app.tar.gz.sig" "$dest/"
@@ -69,7 +69,7 @@ build() {
 # --- 1. 使い捨ての鍵と、重ねる設定 ---
 version_a="$(node -p "require('$desktop/src-tauri/tauri.conf.json').version")"
 version_b="$(h next-version "$version_a")"
-echo "版 A: $version_a、版 B: $version_b"
+echo "版 A: ${version_a}、版 B: $version_b"
 case "$(uname -m)" in
   arm64) platform=darwin-aarch64 ;;
   x86_64) platform=darwin-x86_64 ;;
@@ -137,10 +137,10 @@ fail() { echo "$1" >&2; exit 1; }
 [ "$saw_a" = 1 ] || fail "版 A のサーバが応えなかった"
 [ "$got" = "$version_b" ] || fail "更新のあと $health が版 $version_b を名乗らなかった（最後の答え: ${got:-なし}）"
 echo "起き直した殻のサーバが版 $version_b を名乗った"
-[ "$(plist_version "$app")" = "$version_b" ] || fail "入れ替えた .app の版が $(plist_version "$app")（期待は $version_b）"
+[ "$(plist_version "$app")" = "$version_b" ] || fail "入れ替えた .app の版が $(plist_version "$app")（期待は ${version_b}）"
 [ ! -e "$injected" ] || fail "版 A に差し込んだ台本が残っている（.app が入れ替わっていない）"
 for mark in "update: checked, found $version_b" "update: downloaded $version_b" "update: installed, restarting"; do
-  grep -qF "$mark" "$log" || fail "desktop.log に「$mark」が無い"
+  grep -qF "$mark" "$log" || fail "desktop.log に「${mark}」が無い"
 done
 grep -q 'GET /latest.json 200' "$out/serve.log" || fail "殻が目録を取りに来ていない"
 grep -q 'GET /Hangar.app.tar.gz 200' "$out/serve.log" || fail "殻が版 B の .app.tar.gz を取りに来ていない"

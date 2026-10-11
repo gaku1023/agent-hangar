@@ -89,13 +89,13 @@ try {
   # --- 1. 使い捨ての鍵と、重ねる設定 ---
   $versionA = (Get-Content (Join-Path $desktop 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json).version
   $versionB = (Invoke-Helper next-version $versionA | Out-String).Trim()
-  "版 A: $versionA、版 B: $versionB"
+  "版 A: ${versionA}、版 B: $versionB"
   $keyFile = Join-Path $work 'updater.key'
   $password = 'ci-update-rehearsal'
   Push-Location $root
   try {
     npm run tauri -w apps/desktop -- signer generate --ci -p $password -w $keyFile | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "鍵を作れなかった（終了コード $LASTEXITCODE）" }
+    if ($LASTEXITCODE -ne 0) { throw "鍵を作れなかった（終了コード ${LASTEXITCODE}）" }
   } finally { Pop-Location }
   $conf = Join-Path $work 'rehearsal.conf.json'
   Invoke-Helper config "$keyFile.pub" $port $conf
@@ -163,7 +163,7 @@ try {
       if ($h -and $h.version -eq $versionA -and -not $sawA) {
         $sawA = $true
         $serverA = (Get-NetTCPConnection -LocalPort 4177 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
-        "版 A のサーバが応えた（pid $serverA）"
+        "版 A のサーバが応えた（pid ${serverA}）"
       }
       if ($h -and $h.version -eq $versionB) { break }
       if ((Test-Path $desktopLog) -and (Get-Content $desktopLog -Raw) -match 'update: (check|download|install) failed[^\r\n]*') { throw "殻の更新が失敗した: $($Matches[0])" }
@@ -188,15 +188,15 @@ try {
   # 殻は、インストーラへ渡す直前（on_before_exit）に子のサーバを止めてから抜けた。
   $log = Get-Content $desktopLog -Raw
   foreach ($mark in @("update: checked, found $versionB", "update: downloaded $versionB", 'update: handing over to the installer')) {
-    if (-not $log.Contains($mark)) { throw "desktop.log に「$mark」が無い" }
+    if (-not $log.Contains($mark)) { throw "desktop.log に「${mark}」が無い" }
   }
   $handOver = $log.IndexOf('update: handing over to the installer')
   if ($log.IndexOf('server stopped', $handOver) -lt 0) { throw 'インストーラへ渡すときに、殻がサーバを止めていない（desktop.log に server stopped が無い）' }
-  if ($serverA -and (Get-Process -Id $serverA -ErrorAction SilentlyContinue)) { throw "版 A のサーバ（pid $serverA）が残っている" }
+  if ($serverA -and (Get-Process -Id $serverA -ErrorAction SilentlyContinue)) { throw "版 A のサーバ（pid ${serverA}）が残っている" }
   # 入れるときのフック（NSIS_HOOK_PREINSTALL）は、殻が抜けてから同梱サーバの置き場を空にした。差し込んだ台本は版 B に無い。
   if (Test-Path $injected) { throw '版 A に差し込んだ台本が残っている（入れるときのフックが置き場を空にしていない）' }
   $display = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Hangar' -ErrorAction SilentlyContinue).DisplayVersion
-  if ($display -ne $versionB) { throw "アンインストールの登録の版が $display（期待は $versionB）" }
+  if ($display -ne $versionB) { throw "アンインストールの登録の版が ${display}（期待は ${versionB}）" }
   $served = Get-Content $serveLog -Raw
   if ($served -notmatch 'GET /latest\.json 200') { throw '殻が目録を取りに来ていない' }
   if ($served -notmatch "GET /[^ ]*$([regex]::Escape([uri]::EscapeDataString((Split-Path $setupB -Leaf)))) 200") { throw '殻が版 B のインストーラを取りに来ていない' }
