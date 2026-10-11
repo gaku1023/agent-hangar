@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { claudeJsonPath, defaultClaudeDir, hangarHome, loadSettings, readOrCreateDevice, readOrCreateToken } from '@agent-hangar/server/src/cliEntry.ts';
 import { runConfigApply, runConfigRestore } from './config.ts';
 import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
+import { devicesCommand, joinCommand, leaveCommand, revokeCommand } from './membership.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
 import { oneLineError, probeHealth, serverDownMessage } from './probe.ts';
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
@@ -60,16 +61,26 @@ program
   .command('join [token]')
   .description('参加トークンでクラウド同期に参加する（トークンは引数を省くと標準入力から受け取る）')
   .option('--force', '確認を省いて参加する（既存の cloud.json も上書きする）')
-  .action(async (token: string | undefined, o: { force?: boolean }) => {
+  .option('--plan', '参加せずに、宛先といまの参加との違いだけを出す（殻の命令が読む）')
+  .option('--yes', '宛先の確認を省いて参加する（確認を画面で済ませたとき。殻の命令が使う）。別のクラウドへの上書きは --overwrite が無ければ断る')
+  .option('--overwrite', '--yes と一緒に使い、別のクラウドに参加済みでも上書きして参加する')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
+  .action(async (token: string | undefined, o: { force?: boolean; plan?: boolean; yes?: boolean; overwrite?: boolean; json?: boolean }) => {
     // 秘密は argv に載せない。引数で渡されたときは、残ることを伝える。
-    if (token !== undefined) {
+    if (token !== undefined && !o.json) {
       console.log('注意: 参加トークンを引数で渡しました。ps とシェルの履歴に残ります。次からは引数なしの hangar join を使ってください。');
+    }
+    const home = hangarHome();
+    // 殻の命令は、参加トークンを標準入力で渡し、宛先の確認は画面で済ませてある。
+    if (o.plan || o.yes || o.json) {
+      const t = token ?? (await readJoinToken());
+      process.exitCode = await joinCommand({ home, token: t, device: readOrCreateDevice(home), plan: o.plan ?? false, yes: o.yes ?? false, overwrite: o.overwrite ?? false, json: o.json ?? false });
+      return;
     }
     // 確認は標準入力で取る。トークンを流し込んだ後の標準入力ではもう聞けないので、先に断る。
     if (!process.stdin.isTTY && !o.force) {
       throw new Error('標準入力が対話ではないので確認を取れません。端末から実行するか、--force を付けてください');
     }
-    const home = hangarHome();
     const t = token ?? (await readJoinToken());
     await runJoin({ home, token: t, device: readOrCreateDevice(home), force: o.force, confirm: promptWord });
   });
@@ -89,6 +100,36 @@ cloud
   .description('参加より前の本文もクラウドへ上げ直す（既定では、参加より後に動いた本文だけを上げる）')
   .action(() => {
     console.log(cloudBackfill({ home: hangarHome() }));
+  });
+
+cloud
+  .command('devices')
+  .description('同期に参加している PC と、解除した PC を一覧する（参加日、最後に同期した時刻と IP とおおよその場所）')
+  .option('--json', '結果を JSON で 1 行出す')
+  .action(async (o: { json?: boolean }) => {
+    const home = hangarHome();
+    process.exitCode = await devicesCommand({ home, deviceId: readOrCreateDevice(home).id, json: o.json ?? false });
+  });
+
+cloud
+  .command('revoke <id>')
+  .description('ほかの PC を同期から解除する（その PC の端末トークンを無効にする。ID は hangar cloud devices で調べる）')
+  .option('--yes', '問わずに解除する')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
+  .action(async (id: string, o: { yes?: boolean; json?: boolean }) => {
+    const home = hangarHome();
+    process.exitCode = await revokeCommand({ home, deviceId: readOrCreateDevice(home).id, id, yes: o.yes ?? false, json: o.json ?? false, confirm: promptWord });
+  });
+
+cloud
+  .command('leave')
+  .description('この PC の参加を解除する（cloud.json を削除し、既定でクラウドの一覧でもこの PC を解除する）')
+  .option('--keep-device', 'クラウドの一覧ではこの PC を解除しない（端末トークンを無効にしない）')
+  .option('--yes', '問わずに解除する')
+  .option('--json', '結果を JSON で 1 行出す（殻の命令が読む）')
+  .action(async (o: { keepDevice?: boolean; yes?: boolean; json?: boolean }) => {
+    const home = hangarHome();
+    process.exitCode = await leaveCommand({ home, deviceId: readOrCreateDevice(home).id, revoke: !o.keepDevice, yes: o.yes ?? false, json: o.json ?? false, confirm: promptWord });
   });
 
 cloud
