@@ -6,7 +6,7 @@ import { presentSessionList } from './sessions.ts';
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const session = (id: string, name: string): SessionDto => ({
-  id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, memo: null, hasTranscript: true, live: null,
+  id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: null, name, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null,
   summary: { title: 't', oneLiner: '要約の 1 文', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 },
   stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null },
   fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null,

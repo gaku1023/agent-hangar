@@ -17,7 +17,7 @@ export type KeyId =
   | 'nav.back' | 'nav.forward' | 'overlay.close'
   | 'tab.select' | 'tab.close' | 'split.toggle' | 'transcript.toggle' | 'transcript.find' | 'tab.move' | 'turn.move'
   | 'terminal.fontBigger' | 'terminal.fontSmaller' | 'terminal.fontReset'
-  | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.memo' | 'list.state'
+  | 'list.move' | 'list.open' | 'list.terminal' | 'list.editor' | 'list.state'
   | 'todo.move' | 'todo.toggle' | 'todo.edit' | 'todo.remove' | 'todo.reorder' | 'todo.reject' | 'todo.add' | 'todo.undo';
 
 export type KeyGroup = 'global' | 'session' | 'list' | 'todo';
@@ -81,7 +81,6 @@ export const KEYMAP: KeyBinding[] = [
   { id: 'list.open', group: 'list', keys: 'Enter', labelKey: 'shortcuts.key.listOpen', chords: [] },
   { id: 'list.terminal', group: 'list', keys: 'o', labelKey: 'shortcuts.key.listTerminal', chords: [] },
   { id: 'list.editor', group: 'list', keys: 'e', labelKey: 'shortcuts.key.listEditor', chords: [] },
-  { id: 'list.memo', group: 'list', keys: 'm', labelKey: 'shortcuts.key.listNote', chords: [] },
   { id: 'list.state', group: 'list', keys: '.', labelKey: 'shortcuts.key.listStatus', chords: [] },
   // TODO の欄（プロジェクトの画面の右の欄）は、欄の行にフォーカスがある間だけ自分で受ける（views/TodoList.tsx）。
   { id: 'todo.move', group: 'todo', keys: 'j / k / ↑ / ↓', labelKey: 'shortcuts.key.todoMove', chords: [] },

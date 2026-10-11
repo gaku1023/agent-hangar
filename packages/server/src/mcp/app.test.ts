@@ -90,10 +90,16 @@ describe('createMcpApp', () => {
     expect((await rpc('/', 'initialize', INIT)).status).toBe(200);
   });
   it('セッション別 URL では session_id を省ける。無いセッションは 404', async () => {
-    const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_session_memo', arguments: { text: 'from mcp' } }, 5);
-    expect(JSON.parse((r.body.result!.content as { text: string }[])[0]!.text)).toEqual({ ok: true, session_id: alphaId });
-    expect((db.prepare('select memo from session_notes where session_id = ?').get(alphaId) as { memo: string }).memo).toBe('from mcp');
+    const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_turn_intent', arguments: { text: 'from mcp' } }, 5);
+    expect(JSON.parse((r.body.result!.content as { text: string }[])[0]!.text)).toMatchObject({ ok: true, session_id: alphaId });
     expect((await app.request('/s/nope', { method: 'POST', headers: H, body: '{}' })).status).toBe(404);
+  });
+  it('セッションのノート（set_session_memo）は道具ごと無い。古い一覧を持つ Claude が呼んでも、書かずに isError で返る', async () => {
+    const list = await rpc('/', 'tools/list', {}, 12);
+    expect((list.body.result!.tools as { name: string }[]).map((t) => t.name)).not.toContain('set_session_memo');
+    const r = await rpc(`/s/${alphaId}`, 'tools/call', { name: 'set_session_memo', arguments: { text: 'from mcp' } }, 13);
+    expect(r.body.result!.isError).toBe(true);
+    expect(db.prepare('select count(*) n from session_notes').get()).toEqual({ n: 0 });
   });
   it('propose_session_status の説明文は、聞かずに confirmed を立てないよう求める', async () => {
     const list = await rpc('/', 'tools/list', {}, 6);

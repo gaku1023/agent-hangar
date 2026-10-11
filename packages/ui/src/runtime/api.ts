@@ -88,7 +88,6 @@ export type ApiClient = {
   instructions(projectId: string): Promise<InstructionsDto>;
   /** 指示とメモリのファイルをエディタで開く。無いファイルは作らず、404 の一文で投げる。 */
   openInstruction(projectId: string, kind: InstructionFileKind): Promise<void>;
-  setSessionMemo(sessionId: string, memo: string): Promise<SessionDto>;
   addArtifact(projectId: string, url: string): Promise<ArtifactDto>;
   openArtifact(id: string): Promise<void>;
   openArtifactEditor(id: string): Promise<void>;
@@ -214,7 +213,6 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
     instructions: (projectId) => call(`/api/projects/${projectId}/instructions`),
     openInstruction: (projectId, kind) => post(`/api/projects/${projectId}/instructions/open`, { kind }),
-    setSessionMemo: (sessionId, memo) => call(`/api/sessions/${sessionId}`, { method: 'PATCH', body: JSON.stringify({ memo }) }),
     addArtifact: (projectId, url) => post(`/api/projects/${projectId}/artifacts`, { url }),
     openArtifact: (id) => post(`/api/artifacts/${id}/open`),
     openArtifactEditor: (id) => post(`/api/artifacts/${id}/open-editor`),

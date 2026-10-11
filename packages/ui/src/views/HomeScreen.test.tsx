@@ -13,7 +13,7 @@ import { HomeScreen } from './HomeScreen.tsx';
 import { LanguageRoot } from './primitives/language.tsx';
 
 const ja = translator('ja');
-const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+const row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const TABS: StatusTabProps[] = ([['all', 'すべて', '1,236'], ['proposed', '確認待ち', '3'], ['active', 'Active', '5'], ['paused', 'Paused', '4'], ['done', 'Done', '1,221'], ['archived', 'Archived', '5']] as [StatusTab, string, string][]).map(([tab, label, count]) => ({ tab, label, count, hot: tab === 'proposed' }));
 const listProps = (over: Partial<SessionListProps> = {}): SessionListProps => ({ text: '', filter: {}, projects: [{ id: 'p1', name: 'agent-hangar' }, { id: 'p4', name: 'my app' }], rows: [row('a'), row('b')], total: 2, loading: false, mode: 'all', conditions: [], tabs: TABS, tab: 'all', pager: null, statusColumn: true, tokens: [], hints: [], allCount: 1241, ...over });
 
@@ -364,15 +364,14 @@ describe('HomeScreen の続きの読み方', () => {
 });
 
 describe('HomeScreen の行（2 段）', () => {
-  it('2 段目の右端に、PR の番号とノートの印を出す。どちらも無い行には出さない', () => {
-    mount({ list: listProps({ rows: [row('a', { prUrl: 'https://github.com/o/r/pull/88', memo: '覚え書き' }), row('b', { prUrl: 'https://example.com/x' }), row('c')], total: 3 }) });
+  it('2 段目の右端に、PR の番号を出す。無い行には出さない。ノートの印は無い（ノートは 0.4.0 で外した）', () => {
+    mount({ list: listProps({ rows: [row('a', { prUrl: 'https://github.com/o/r/pull/88' }), row('b', { prUrl: 'https://example.com/x' }), row('c')], total: 3 }) });
     const rows = screen.getAllByRole('row');
     expect(within(rows[0]!).getByRole('link', { name: 'PR #88' })).toHaveAttribute('href', 'https://github.com/o/r/pull/88');
-    expect(within(rows[0]!).getByRole('img', { name: 'ノートあり' })).toBeInTheDocument();
     // 番号が URL から取れなければ「PR」とだけ出す。
     expect(within(rows[1]!).getByRole('link', { name: 'PR' })).toBeInTheDocument();
-    expect(within(rows[1]!).queryByRole('img', { name: 'ノートあり' })).toBeNull();
     expect(rows[2]!.querySelector('.row-marks')).toBeNull();
+    expect(document.querySelector('.row-note')).toBeNull();
   });
   it('PR の番号を押しても、行は開かない', () => {
     const { onAction } = mount({ list: listProps({ rows: [row('a', { prUrl: 'https://github.com/o/r/pull/88' })], total: 1 }) });

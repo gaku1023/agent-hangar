@@ -5,7 +5,7 @@ import { noteApplied, touchRow } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { getProject, getSession, listDevices } from '../db/queries.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
-import { setSessionMemo, setSessionName } from '../sessions/notes.ts';
+import { setSessionName } from '../sessions/notes.ts';
 import { applyRemoteBatch } from '../sync/apply.ts';
 import { Publisher, type NoticeEvent } from './publisher.ts';
 
@@ -101,20 +101,20 @@ describe('表から DTO とイベントへ', () => {
     expect(upserts(t.sent).map((e) => e.session.id)).toEqual(['s1']);
   });
 
-  it('session_notes の行（名前とメモ）は、この端末の書き込みでも、同期で降りても、そのセッションの session.upsert になる', () => {
+  it('session_notes の行（名前）は、この端末の書き込みでも、同期で降りても、そのセッションの session.upsert になる', () => {
     const t = setup();
     seedSession(t.db);
     t.reset();
+    setSessionName(t.db, ME, 's1', '仮の名前');
     setSessionName(t.db, ME, 's1', '名前');
-    setSessionMemo(t.db, ME, 's1', 'メモ');
     t.publisher.flush();
     // 同じ tick の 2 回の書き込みは 1 つにまとまる。sessions の行は書いていない。
-    expect(upserts(t.sent).map((e) => [e.session.id, e.session.name, e.session.memo])).toEqual([['s1', '名前', 'メモ']]);
+    expect(upserts(t.sent).map((e) => [e.session.id, e.session.name])).toEqual([['s1', '名前']]);
     t.reset();
     const at = Date.now() + 60_000;
-    expect(applyRemoteBatch(t.db, [{ seq: 1, tableName: 'session_notes', rowId: 's1', op: 'upsert', deviceId: OTHER, updatedAt: at, payload: { session_id: 's1', name: '向こうの名前', memo: null, updated_at: at, deleted_at: null, origin_device: OTHER } }], { ownDeviceId: ME, skipOwn: true })).toHaveLength(1);
+    expect(applyRemoteBatch(t.db, [{ seq: 1, tableName: 'session_notes', rowId: 's1', op: 'upsert', deviceId: OTHER, updatedAt: at, payload: { session_id: 's1', name: '向こうの名前', updated_at: at, deleted_at: null, origin_device: OTHER } }], { ownDeviceId: ME, skipOwn: true })).toHaveLength(1);
     t.publisher.flush();
-    expect(upserts(t.sent).map((e) => [e.session.id, e.session.name, e.session.memo])).toEqual([['s1', '向こうの名前', null]]);
+    expect(upserts(t.sent).map((e) => [e.session.id, e.session.name])).toEqual([['s1', '向こうの名前']]);
   });
 
   it('runs の行は、同期で降りたときだけ持ち主のセッションを配る。手元の run の変化は run.* の明示のイベントが運ぶ', () => {
@@ -394,14 +394,13 @@ describe('同期で降りた行', () => {
       change(3, 'sessions', 's1', { provider: 'claude-code', provider_session_id: 'uuid-s1', project_id: 'p1', cwd: '/work/p1', home_device: ME }),
       change(4, 'runs', 'r9', { session_id: 's1', device_id: OTHER, kind: 'resume', tmux_name: 't', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: Date.now() }),
       change(5, 'session_states', 's1', { status: 'paused', note: '明日', return_on: '2099-01-01', set_by: 'user', set_at: 1 }),
-      change(6, 'session_notes', 's1', { name: '向こうの名前', memo: '向こうで書いた' }),
+      change(6, 'session_notes', 's1', { name: '向こうの名前' }),
     ], { ownDeviceId: ME, skipOwn: true });
     expect(applied).toHaveLength(6);
     t.publisher.flush();
     expect(t.types().sort()).toEqual(['devices.update', 'project.upsert', 'session.upsert']);
     const s = upserts(t.sent)[0]!.session;
     expect(s).toEqual(getSession(t.db, [], 's1', { deviceId: ME }));
-    expect(s.memo).toBe('向こうで書いた');
     expect(s.name).toBe('向こうの名前');
     expect(s.state?.status).toBe('paused');
     expect(s.lock).toMatchObject({ deviceId: OTHER, runId: 'r9' });

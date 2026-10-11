@@ -225,7 +225,7 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     const s = db.prepare('select * from sessions where id = ?').get(r.sessionId) as Record<string, unknown>;
     expect(s).toMatchObject({ provider_session_id: uuid, project_id: 'p1', cwd });
     // 起動のときの名前は session_notes に入る。sessions の行には載らない。
-    expect(getSessionNote(db, r.sessionId)).toEqual({ name: 'first', memo: null });
+    expect(getSessionNote(db, r.sessionId)).toEqual({ name: 'first' });
     expect(typeof s.started_at).toBe('number');
     const sys = args[args.indexOf('--append-system-prompt') + 1]!;
     expect(sys).toContain('プロジェクト：alpha（' + cwd + '）');

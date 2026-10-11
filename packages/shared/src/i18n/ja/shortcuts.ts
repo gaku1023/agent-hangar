@@ -37,7 +37,6 @@ export const shortcutsJa: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.listOpen': '開く',
   'shortcuts.key.listTerminal': 'ターミナルで開く',
   'shortcuts.key.listEditor': 'エディタで開く',
-  'shortcuts.key.listNote': 'ノートを編集',
   'shortcuts.key.listStatus': 'ステータスを変更（⋯）',
   'shortcuts.key.todoMove': '下へ / 上へ',
   'shortcuts.key.todoToggle': '完了 / 未完に戻す（提案の行は確定）',

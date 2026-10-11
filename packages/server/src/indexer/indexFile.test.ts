@@ -9,7 +9,7 @@ import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { ensureSession, findSession, forgetTranscriptFile, indexFile, INDEXER_VERSION } from './indexFile.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import { localDay } from '../usage/aggregate.ts';
-import { setSessionMemo, setSessionName } from '../sessions/notes.ts';
+import { setSessionName } from '../sessions/notes.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
 
 let dir: string;
@@ -114,10 +114,9 @@ describe('indexFile', () => {
     expect((db.prepare('select turns from session_stats where session_id = ?').get(r.sessionId) as { turns: number }).turns).toBe(1);
   });
 
-  it('索引は名前とメモ（session_notes）に触らない。何度走らせても、作り直しても変わらない', () => {
+  it('索引は名前（session_notes）に触らない。何度走らせても、作り直しても変わらない', () => {
     const r = indexFile(db, alphaMain(), { deviceId: DEV });
     setSessionName(db, 'other-pc', r.sessionId, 'hangar で付けた名前');
-    setSessionMemo(db, 'other-pc', r.sessionId, '一行メモ');
     const note = () => db.prepare('select * from session_notes where session_id = ?').get(r.sessionId);
     const noteSeq = () => (db.prepare("select max(seq) s from changes where table_name = 'session_notes'").get() as { s: number }).s;
     const before = note();

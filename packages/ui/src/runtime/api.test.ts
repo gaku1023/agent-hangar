@@ -74,7 +74,6 @@ describe('フェーズ 3 の経路', () => {
     await api.rejectTodo('t1');
     await api.memo('p1');
     await api.saveMemo('p1', '# m');
-    await api.setSessionMemo('s1', '一行');
     await api.addArtifact('p1', 'https://claude.ai/code/artifact/x');
     await api.promote('s1', { name: 'n', gitInit: true, moveFiles: false });
     await api.summarizerModels();
@@ -82,16 +81,17 @@ describe('フェーズ 3 の経路', () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'GET /api/usage/aggregate?days=30', 'GET /api/statusline',
       'POST /api/projects/p1/todos', 'PATCH /api/todos/t1', 'DELETE /api/todos/t1', 'POST /api/todos/t1/confirm', 'POST /api/todos/t1/reject',
-      'GET /api/projects/p1/memo', 'PUT /api/projects/p1/memo', 'PATCH /api/sessions/s1',
+      'GET /api/projects/p1/memo', 'PUT /api/projects/p1/memo',
       'POST /api/projects/p1/artifacts', 'POST /api/sessions/s1/promote',
       'GET /api/summarizer/models', 'POST /api/summarizer/test',
     ]);
     expect(JSON.parse(String(calls[2]!.body))).toEqual({ text: '買う' });
     expect(JSON.parse(String(calls[3]!.body))).toEqual({ done: true });
     expect(JSON.parse(String(calls[8]!.body))).toEqual({ markdown: '# m' });
-    expect(JSON.parse(String(calls[9]!.body))).toEqual({ memo: '一行' });
-    expect(JSON.parse(String(calls[10]!.body))).toEqual({ url: 'https://claude.ai/code/artifact/x' });
-    expect(JSON.parse(String(calls[11]!.body))).toEqual({ name: 'n', gitInit: true, moveFiles: false });
+    expect(JSON.parse(String(calls[9]!.body))).toEqual({ url: 'https://claude.ai/code/artifact/x' });
+    expect(JSON.parse(String(calls[10]!.body))).toEqual({ name: 'n', gitInit: true, moveFiles: false });
+    // セッションのノートを書く口（PATCH /api/sessions/:id）は 0.4.0 で外した。
+    expect(api).not.toHaveProperty('setSessionMemo');
   });
   it('本文を返さない経路は undefined を返す', async () => {
     const no = harness(204);

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { setSessionMemo } from '../sessions/notes.ts';
+import { setSessionName } from '../sessions/notes.ts';
 import { FakeCloudClient } from '../../test/fake-cloud.ts';
 import { FakeTimers } from '../../test/fake-timers.ts';
 import { SyncEngine } from './engine.ts';
@@ -187,14 +187,14 @@ describe('メモの控えを日数で刈る', () => {
       for (const id of ids) upsertShared(dbA, 'sessions', { id, provider: 'claude-code', provider_session_id: `u-${id}`, cwd: '/w', home_device: 'a' }, 'a');
       await a.pushNow();
       await b.pullNow();
-      for (const id of ids) setSessionMemo(dbB, 'b', id, `2 台目のメモ ${id}`);
+      for (const id of ids) setSessionName(dbB, 'b', id, `2 台目の名前 ${id}`);
       await new Promise<void>((r) => { setTimeout(r, 5); });
-      for (const id of ids) setSessionMemo(dbA, 'a', id, `1 台目のメモ ${id}`);
+      for (const id of ids) setSessionName(dbA, 'a', id, `1 台目の名前 ${id}`);
       await a.pushNow();
       await b.pullNow();
       const dir = path.join(home, 'backups', 'memos');
       const bodies = fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).sort();
-      expect(bodies).toEqual(ids.map((id) => `2 台目のメモ ${id}`).sort());
+      expect(bodies).toEqual(ids.map((id) => `名前：2 台目の名前 ${id}\n`).sort());
     } finally {
       a.stop(); b.stop(); dbA.close(); dbB.close();
     }

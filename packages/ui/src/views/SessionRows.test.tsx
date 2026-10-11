@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 const rowsCssPath = ['packages/ui/src/styles/rows.css', 'src/styles/rows.css'].map((r) => `${process.cwd()}/${r}`).find(existsSync);
 const rowsCss = readFileSync(rowsCssPath!, 'utf8');
 
-const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, aside: false, stateLabel: '完了', summaryState: null, model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', memo: null, hasTranscript: true, cost: '', runId: null, transcript: 'present', state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null });
+const row = (id: string): SessionRowProps => ({ id, name: 'n' + id, oneLiner: 'one', projectName: 'alpha', live: id === 'a' ? 'busy' : null, aside: false, stateLabel: '完了', summaryState: null, model: 'fable 5.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 2, prUrl: 'https://x/pull/1', hasTranscript: true, cost: '', runId: null, transcript: 'present', state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null });
 
 describe('SessionRows', () => {
   it('行のクリックと Enter で session.open', () => {
@@ -47,16 +47,14 @@ describe('SessionRows', () => {
 
 const p3Row = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({
   id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high',
-  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over,
+  when: '1 時間前', whenAbs: '2026-09-18 11:00', filesChanged: 2, prUrl: null, hasTranscript: true, transcript: 'present', cost: '$0.50', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over,
 });
 
 describe('SessionRows のフェーズ 3', () => {
-  it('プロジェクトの画面の行は、コストとメモの本文を出さない（ノートは印だけ。編集は帯とセッションの冒頭にある）', () => {
-    render(<ActionRoot onAction={() => {}}><SessionRows rows={[p3Row('s1', { memo: '覚書' })]} height={400} variant="project" /></ActionRoot>);
+  it('プロジェクトの画面の行は、コストを出さない。ノートの印も無い（ノートは 0.4.0 で外した）', () => {
+    render(<ActionRoot onAction={() => {}}><SessionRows rows={[p3Row('s1')]} height={400} variant="project" /></ActionRoot>);
     expect(screen.queryByText('$0.50')).toBeNull();
-    expect(screen.queryByText('✎ 覚書')).toBeNull();
-    expect(screen.queryByLabelText('名前 s1 のノートを編集')).toBeNull();
-    expect(document.querySelector('.row-note')).not.toBeNull();
+    expect(document.querySelector('.row-note')).toBeNull();
   });
   it('j と k で選び、Enter で開く', () => {
     const onAction = vi.fn();
@@ -99,54 +97,16 @@ describe('SessionRows のフェーズ 3', () => {
     fireEvent.keyDown(list, { key: 'o' });
     fireEvent.keyDown(list, { key: 'e' });
     expect(onAction).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('名前 s1 のノート')).toBeNull();
   });
-  it('m でメモの入力欄に変わり、Enter で保存、Esc で捨てる', () => {
+  it('m では何も起きない（ノートの入力欄は 0.4.0 で外した）', () => {
     const onAction = vi.fn();
-    render(<ActionRoot onAction={onAction}><SessionRows rows={[p3Row('s1', { memo: '前' })]} height={400} variant="project" /></ActionRoot>);
+    render(<ActionRoot onAction={onAction}><SessionRows rows={[p3Row('s1')]} height={400} variant="project" /></ActionRoot>);
     const list = screen.getByTestId('session-rows');
     fireEvent.keyDown(list, { key: 'j' });
     fireEvent.keyDown(list, { key: 'm' });
-    const input = screen.getByLabelText('名前 s1 のノート') as HTMLInputElement;
-    expect(input.value).toBe('前');
-    fireEvent.change(input, { target: { value: '後' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: '後' });
-    expect(onAction).toHaveBeenCalledTimes(1);
-    expect(screen.queryByLabelText('名前 s1 のノート')).toBeNull();
-    onAction.mockClear();
-    fireEvent.keyDown(list, { key: 'm' });
-    fireEvent.change(screen.getByLabelText('名前 s1 のノート'), { target: { value: '捨てる' } });
-    fireEvent.keyDown(screen.getByLabelText('名前 s1 のノート'), { key: 'Escape' });
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(document.querySelector('.memo-input')).toBeNull();
     expect(onAction).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('名前 s1 のノート')).toBeNull();
-  });
-  it('編集中の入力欄では j と k を横取りしない', () => {
-    const onAction = vi.fn();
-    render(<ActionRoot onAction={onAction}><SessionRows rows={[p3Row('s1'), p3Row('s2')]} height={400} variant="project" /></ActionRoot>);
-    const list = screen.getByTestId('session-rows');
-    fireEvent.keyDown(list, { key: 'j' });
-    fireEvent.keyDown(list, { key: 'm' });
-    const input = screen.getByLabelText('名前 s1 のノート') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'jk' } });
-    fireEvent.keyDown(input, { key: 'j' });
-    fireEvent.keyDown(input, { key: 'k' });
-    // カーソルは動かず、入力欄も開いたまま。
-    expect(screen.getByLabelText('名前 s1 のノート')).toBe(input);
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 's1', text: 'jk' });
-  });
-  it('入力欄から焦点が外れたら編集を閉じ、何も出さない', () => {
-    const onAction = vi.fn();
-    render(<ActionRoot onAction={onAction}><SessionRows rows={[p3Row('s1', { memo: '前' })]} height={400} variant="project" /></ActionRoot>);
-    const list = screen.getByTestId('session-rows');
-    fireEvent.keyDown(list, { key: 'j' });
-    fireEvent.keyDown(list, { key: 'm' });
-    const input = screen.getByLabelText('名前 s1 のノート');
-    fireEvent.change(input, { target: { value: '書きかけ' } });
-    fireEvent.blur(input);
-    expect(onAction).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText('名前 s1 のノート')).toBeNull();
   });
 });
 
@@ -210,7 +170,7 @@ describe('カーソルの行を見える位置へ運ぶ', () => {
 });
 
 describe('SessionRows（2 段の行）', () => {
-  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', memo: 'スワイプは実機で', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+  const r = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '完了', summaryState: null, model: 'opus 4.1', effort: 'high', when: '3 分前', whenAbs: '2026-09-01 10:00', filesChanged: 6, prUrl: 'https://github.com/x/y/pull/1', hasTranscript: true, transcript: 'present', cost: '$1.82', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
   const rowOf = (name: string) => screen.getByText(name).closest('[role="row"]') as HTMLElement;
 
   it('最近は 1 段目の名前の右にプロジェクト名、2 段目に要約、右は時刻だけ', () => {
@@ -236,7 +196,7 @@ describe('SessionRows（2 段の行）', () => {
       unmount();
     }
   });
-  it('プロジェクトの画面の行は、右に時刻、2 段目に要約と PR の番号とノートの印だけを出す。モデル、変更の数、コストは出さない', () => {
+  it('プロジェクトの画面の行は、右に時刻、2 段目に要約と PR の番号だけを出す。モデル、変更の数、コストは出さない', () => {
     render(<ActionRoot onAction={() => {}}><SessionRows rows={[r('a')]} height={400} variant="project" /></ActionRoot>);
     const row = rowOf('名前 a');
     for (const t of ['3 分前', '要約 a']) expect(row).toHaveTextContent(t);
@@ -258,17 +218,6 @@ describe('SessionRows（2 段の行）', () => {
     const row = rowOf('名前 a');
     expect(row).toHaveTextContent('要約 a');
     expect(row).toHaveTextContent('未分類');
-  });
-  it('m のメモの編集は、プロジェクト詳細でなくても 2 段目で開く', () => {
-    const onAction = vi.fn();
-    render(<ActionRoot onAction={onAction}><SessionRows rows={[r('a')]} height={400} variant="recent" /></ActionRoot>);
-    const host = screen.getByTestId('session-rows');
-    fireEvent.keyDown(host, { key: 'j' });
-    fireEvent.keyDown(host, { key: 'm' });
-    const input = screen.getByLabelText('名前 a のノート');
-    fireEvent.change(input, { target: { value: '新' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.setMemo', id: 'a', text: '新' });
   });
 });
 
@@ -336,15 +285,6 @@ describe('一覧のキー操作（C1）', () => {
     fireEvent.keyDown(list, { key: 'j', metaKey: true });
     fireEvent.keyDown(list, { key: 'k', ctrlKey: true });
     expect(list.querySelectorAll('[data-cursor="true"]')).toHaveLength(0);
-  });
-
-  it('メモを Enter で保存したら、フォーカスは行に戻る', () => {
-    mount();
-    const list = screen.getByTestId('session-rows');
-    fireEvent.keyDown(list, { key: 'j' });
-    fireEvent.keyDown(list, { key: 'm' });
-    fireEvent.keyDown(screen.getByLabelText('名前 s1 のノート'), { key: 'Enter' });
-    expect(document.activeElement).toBe(rowsOf()[0]);
   });
 
   it('autoFocus なら、描いた時点で一覧にフォーカスする。行はまだ選ばない', () => {
@@ -425,7 +365,7 @@ describe('SessionRows の本文の期限', () => {
 });
 
 /** 状態の試験の行。Task 13 の提案の試験も使う。 */
-const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, memo: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
+const sr = (id: string, over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id, name: '名前 ' + id, oneLiner: '要約 ' + id, projectName: 'alpha', live: null, aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 分前', whenAbs: '2026-10-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, transcript: 'present', cost: '', runId: null, state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
 const mount = (rows: SessionRowProps[], onAction = vi.fn()) => {
   render(<ActionRoot onAction={onAction}><SessionRows rows={rows} height={400} variant="project" /></ActionRoot>);
   return onAction;
@@ -525,14 +465,6 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'session.pause.open', id: 'b', from: 'menu' });
     expect(screen.queryByRole('menu')).toBeNull();
     expect(opened(onAction)).toEqual([]);
-  });
-  it('メモを書いている欄の . は文字で、メニューを開かない', () => {
-    mount([sr('a')]);
-    const ra = screen.getByText('名前 a').closest('[role="row"]') as HTMLElement;
-    act(() => ra.focus());
-    fireEvent.keyDown(ra, { key: 'm' });
-    fireEvent.keyDown(screen.getByLabelText('名前 a のノート'), { key: '.' });
-    expect(screen.queryByRole('menu')).toBeNull();
   });
   it('「⋯」はポインタを乗せた行、カーソルの行、焦点のある行、開いている間だけ見せる', () => {
     expect(rowsCss).toMatch(/\.row-more \{[^}]*visibility: hidden;/);

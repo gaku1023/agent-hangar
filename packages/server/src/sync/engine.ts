@@ -24,7 +24,7 @@ export type SyncEngineDeps = {
    */
   onMemoConflict?: (o: MemoConflict) => void;
   /**
-   * セッションの名前かメモ（session_notes）を他端末の新しい版で上書きしたときに呼ばれる。
+   * セッションの名前（session_notes）を他端末の新しい版で上書きしたときに呼ばれる。
    * 控えのファイルはもう書かれている（apply.ts が backups/memos に残す）ので、
    * ここでやることは利用者に置き場を知らせることだけである。投げても適用は止まらない。
    */
@@ -595,7 +595,7 @@ export class SyncEngine {
     return applied.length;
   }
 
-  /** 古い形の sessions の行が持っていた名前とメモを、本物の行が届かなかったものだけ拾う。 */
+  /** 古い形の sessions の行が持っていた名前を、本物の行が届かなかったものだけ拾う（メモは拾わない）。 */
   private adoptOldNotes(): void {
     if (this.oldNotes.size === 0) return;
     const rows = [...this.oldNotes.values()];
@@ -628,7 +628,7 @@ export class SyncEngine {
       for (const [k, c] of before) if (!failed.has(k) && this.carried.get(k) === c) this.uncarry(k);
     }
     if (endOfPass) {
-      // 古い形の行の名前とメモは、写しの後の差分まで読み切ってから拾う。差分で本物の行が届くことがある。
+      // 古い形の行の名前は、写しの後の差分まで読み切ってから拾う。差分で本物の行が届くことがある。
       this.adoptOldNotes();
       this.expireCarried();
     }

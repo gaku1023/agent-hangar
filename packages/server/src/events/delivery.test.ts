@@ -134,19 +134,16 @@ describe('届くイベントの数と中身', () => {
     }
   }, 20000);
 
-  it('HTTP の書き込み：状態、メモ、プロジェクトのステータスは、それぞれのイベントが 1 つずつ', async () => {
+  it('HTTP の書き込み：状態、プロジェクトのメモ、プロジェクトのステータスは、それぞれのイベントが 1 つずつ', async () => {
     const t = await boot();
     try {
       const put = await t.api(`/api/sessions/${t.first.id}/state`, { method: 'PUT', body: JSON.stringify({ status: 'paused', note: '明日見る', returnOn: '2099-01-01' }) });
       expect(put.status).toBe(200);
-      const memo = await t.api(`/api/sessions/${t.first.id}`, { method: 'PATCH', body: JSON.stringify({ memo: '一言' }) });
-      expect(memo.status).toBe(200);
-      const patched = (await memo.json()) as SessionDto;
-      await t.c.waitFor((e): e is Upsert => e.type === 'session.upsert' && e.session.id === t.first.id && e.session.memo === '一言');
+      await t.c.waitFor((e): e is Upsert => e.type === 'session.upsert' && e.session.id === t.first.id && e.session.state?.status === 'paused');
       await settle();
       const ups = sessionUpserts(t.since(), t.first.id);
-      expect(ups.map((e) => [e.session.state?.status ?? null, e.session.memo])).toEqual([['paused', null], ['paused', '一言']]);
-      expect(ups[1]!.session).toEqual(patched);
+      expect(ups.map((e) => e.session.state?.status ?? null)).toEqual(['paused']);
+      expect(ups[0]!.session).toEqual((await t.sessions()).find((x) => x.id === t.first.id));
       expect(projectUpserts(t.since(), t.alpha.id)).toHaveLength(0);
 
       const from = t.c.all().length;
@@ -170,14 +167,14 @@ describe('届くイベントの数と中身', () => {
     }
   }, 30000);
 
-  it('MCP の書き込み：セッションのメモは session.upsert が 1 つ、update_project は書いた表ごとに 1 つずつ', async () => {
+  it('MCP の書き込み：セッションの要約は session.upsert が 1 つ、update_project は書いた表ごとに 1 つずつ', async () => {
     const t = await boot();
     try {
-      await t.tool('set_session_memo', { session_id: t.first.id, text: 'MCP から' });
+      await t.tool('set_session_summary', { session_id: t.first.id, title: 'MCP から', one_liner: '一言', body: '本文', state: 'in_progress', next_steps: [] });
       await t.c.waitFor((e): e is Upsert => e.type === 'session.upsert' && e.session.id === t.first.id);
       await settle();
       const ups = sessionUpserts(t.since(), t.first.id);
-      expect(ups.map((e) => e.session.memo)).toEqual(['MCP から']);
+      expect(ups.map((e) => e.session.summary?.title)).toEqual(['MCP から']);
       expect(ups[0]!.session).toEqual((await t.sessions()).find((x) => x.id === t.first.id));
 
       // status と TODO を 1 回で変えても、project.upsert は最後の中身で 1 つである。

@@ -13,7 +13,7 @@ import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.t
 export type SummaryStateTag = { label: string; tone: 'blocked' | 'abandoned' | null };
 
 /** summaryState は 2 段目の頭に置く見立ての札。要約が無いときと、土台の要約のときは null。 */
-export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; aside: boolean; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; memo: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
+export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; aside: boolean; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
   /** 検索の結果の行を開いたときの跳び先（抜粋の seq と検索語）。 */
   jump?: { seq: number; q: string };
   /** 検索で名前に当たった行の、名前の中の一致箇所（印を付ける塊）。名前に当たった行だけが持ち、名前の中に語が見つからないときも持たない。 */
@@ -61,7 +61,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     id: s.id, name: s.name ?? t('common.label.noName'), oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : null,
     live: shownLive(s), aside: shownAside(s) !== null, stateLabel: s.summary ? stateLabel(t, s.summary.state) : '', summaryState: summaryStateTag(t, s.summary), model: shortModel(s.stats.model), effort: s.stats.effort ?? '',
-    when: relativeTime(t, s.lastActivityAt, now), whenAbs: absoluteTime(t, s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, memo: s.memo, hasTranscript: s.hasTranscript,
+    when: relativeTime(t, s.lastActivityAt, now), whenAbs: absoluteTime(t, s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, hasTranscript: s.hasTranscript,
     transcript: transcriptMark(s, store.retention?.days ?? DEFAULT_DAYS, now),
     // 区切りを付けて休みのまま残っているもの（parked）は、終わった行と同じに作る。灯も run も持たせず、状態の節に入れる。
     cost: costLabel(s.stats.costUsd), runId: s.parked ? null : aliveRunOf(store, s.id)?.id ?? null,

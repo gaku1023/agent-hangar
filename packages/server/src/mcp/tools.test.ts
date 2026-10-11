@@ -65,7 +65,6 @@ const userTodos = (...texts: string[]): string[] => {
 const SESSION_TOOL_CALLS: [string, Record<string, unknown>][] = [
   ['get_transcript', {}],
   ['set_session_summary', { title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: [] }],
-  ['set_session_memo', { text: 'メモ' }],
   ['set_turn_intent', { text: '意図' }],
   ['open_in_hangar', {}],
   ['propose_session_status', { status: 'done', note: '済んだ' }],
@@ -221,6 +220,8 @@ describe('MCP tools', () => {
     expect(running).toEqual([expect.objectContaining({ id: alphaId, live: 'busy' })]);
     expect((call('list_sessions', { running: false, limit: 1 }) as unknown as unknown[]).length).toBe(1);
     expect((call('list_sessions', { project_id: 'p1' }) as unknown as unknown[]).length).toBe(1);
+    // セッションのノートは外した。要点に memo の項目は無い。
+    for (const s of call('list_sessions') as unknown as Record<string, unknown>[]) expect(s).not.toHaveProperty('memo');
   });
   it('list_sessions は負数の limit を 0 件として扱う', () => {
     expect((call('list_sessions', { limit: -1 }) as unknown as unknown[]).length).toBe(0);
@@ -263,7 +264,7 @@ describe('MCP tools', () => {
     // 他端末で生きている run を入れる。listSessions と getSession に deviceId を渡さないと lock は必ず null になる。
     db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, launch_params, pid, started_at, ended_at, end_reason, heartbeat_at, updated_at, origin_device) values ('rX', ?, 'other', 'start', 'hangar-rX', '{}', null, 1, null, null, ?, 1, 'other')").run(alphaId, Date.now());
     db.prepare("insert into devices (id, name, platform, last_seen_at, updated_at, origin_device) values ('other', 'mini', 'darwin', ?, 1, 'other')").run(Date.now());
-    call('set_session_memo', { session_id: alphaId, text: 'メモ' });
+    call('set_session_summary', { session_id: alphaId, title: 'T', one_liner: 'O', body: 'B', state: 'done', next_steps: [] });
     const ev = sent.find((e) => e.type === 'session.upsert');
     expect(ev && ev.type === 'session.upsert' ? ev.session.lock?.deviceName : null).toBe('mini');
   });
@@ -282,15 +283,15 @@ describe('MCP tools', () => {
     expect(JSON.stringify(out)).not.toContain('@');
     fs.rmSync(userHome, { recursive: true, force: true });
   });
-  it('set_session_memo、get_usage、open_in_hangar', () => {
-    expect(call('set_session_memo', { session_id: alphaId, text: 'メモ' })).toEqual({ ok: true, session_id: alphaId });
-    expect((db.prepare('select memo from session_notes where session_id = ?').get(alphaId) as { memo: string }).memo).toBe('メモ');
+  it('get_usage、open_in_hangar。セッションのノート（set_session_memo）は道具ごと無い', () => {
+    expect(TOOL_NAMES).not.toContain('set_session_memo');
+    expect(() => call('set_session_memo', { session_id: alphaId, text: 'メモ' })).toThrow(ToolError);
     expect(call('get_usage')).toEqual({ five_hour: { used_percentage: 47, resets_at: 1_760_000_000_000 }, seven_day: null, updated_at: 5 });
     expect(call('open_in_hangar', { session_id: alphaId })).toEqual({ url: `http://127.0.0.1:4177/#/session/${alphaId}`, deep_link: `hangar://session/${alphaId}` });
     expect(call('open_in_hangar', { project_id: 'p1' })).toEqual({ url: 'http://127.0.0.1:4177/#/project/p1', deep_link: 'hangar://project/p1' });
     expect(call('open_in_hangar', {}, { sessionId: alphaId }).url).toContain(alphaId);
     expect(() => call('nope')).toThrow(ToolError);
-    expect(TOOL_NAMES).toHaveLength(13);
+    expect(TOOL_NAMES).toHaveLength(12);
   });
   it('set_turn_intent は意図を積み、最新を返せるようにする', () => {
     const r = call('set_turn_intent', { text: '  抜けたあと、答え終えた会話だけ止める  ' }, { sessionId: alphaId });
@@ -354,8 +355,7 @@ describe('セッション別 URL は、そのセッションとそのプロジ�
     for (const [name, args] of SESSION_TOOL_CALLS) {
       expect(() => call(name, { ...args, session_id: otherId }, scoped())).toThrow(ToolError);
     }
-    // 別のセッションのメモも要約も書かれていない。
-    expect(db.prepare('select memo from session_notes where session_id = ?').get(otherId)).toBeUndefined();
+    // 別のセッションの要約は書かれていない。
     expect((db.prepare('select title from session_summaries where session_id = ?').get(otherId) as { title: string } | undefined)?.title).not.toBe('T');
   });
 

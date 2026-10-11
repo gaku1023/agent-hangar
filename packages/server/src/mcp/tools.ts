@@ -10,7 +10,6 @@ import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
 import { MessageError, msg, render, type Message } from '../i18n/message.ts';
 import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
-import { setSessionMemo } from '../sessions/notes.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
 
@@ -37,9 +36,16 @@ export class ToolError extends MessageError {
   }
 }
 
+/**
+ * 道具の名前。
+ * セッションのノートを書く set_session_memo は 0.4.0 で道具ごと外した（要約の set_session_summary と Paused の戻る日が役を担う）。
+ * update_project の append_memo のように notice で答える形にしないのは、あちらは同じ呼び出しのほかの項目を書くためにエラーにしなかったのに対し、
+ * こちらは道具が 1 つの仕事しか持たず、外した後の一覧に無い道具を呼ばれても、MCP の層が書かずに isError（道具が無い）で返すからである。
+ * モデルにこの道具を使うよう指示したことも無いので、古い指示を覚えた Claude が呼び続けることもない。
+ */
 export const TOOL_NAMES = [
   'list_projects', 'get_project', 'update_project', 'list_sessions', 'search_sessions', 'get_transcript',
-  'create_session', 'set_session_summary', 'set_turn_intent', 'set_session_memo', 'get_usage', 'open_in_hangar',
+  'create_session', 'set_session_summary', 'set_turn_intent', 'get_usage', 'open_in_hangar',
   'propose_session_status',
 ] as const;
 
@@ -113,7 +119,6 @@ function sessionBrief(s: SessionDto) {
     live: s.live,
     started_at: s.startedAt,
     last_activity_at: s.lastActivityAt,
-    memo: s.memo,
     summary: s.summary ? { title: s.summary.title, one_liner: s.summary.oneLiner, state: s.summary.state, source: s.summary.source } : null,
     resume_command: `claude -r ${s.providerSessionId}`,
   };
@@ -401,13 +406,6 @@ export function proposeSessionStatusTool(deps: ToolDeps, ctx: ToolContext, args:
   }
 }
 
-export function setSessionMemoTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
-  const id = sessionIdOf(ctx, args);
-  requireSession(deps, id);
-  setSessionMemo(deps.db, deps.deviceId, id, typeof args.text === 'string' ? args.text : '');
-  return { ok: true, session_id: id };
-}
-
 /** UsageDto を MCP の応答の形にする。まだ届いていない窓は null になる。 */
 function usageBody(u: UsageDto) {
   const w = (x: { usedPercent: number; resetsAt: number | null } | null) => (x ? { used_percentage: x.usedPercent, resets_at: x.resetsAt } : null);
@@ -449,7 +447,6 @@ export function callTool(deps: ToolDeps, ctx: ToolContext, name: string, args: R
     case 'create_session': return createSessionTool(deps, ctx, args);
     case 'set_session_summary': return setSessionSummaryTool(deps, ctx, args);
     case 'set_turn_intent': return setTurnIntentTool(deps, ctx, args);
-    case 'set_session_memo': return setSessionMemoTool(deps, ctx, args);
     case 'get_usage': return getUsageTool(deps);
     case 'open_in_hangar': return openInHangarTool(deps, ctx, args);
     case 'propose_session_status': return proposeSessionStatusTool(deps, ctx, args);

@@ -3,7 +3,6 @@ import type { MessageSpec } from '../messageSpec.ts';
 export const rowKeys = {
   'row.mark.pr': ['n'],
   'row.mark.prPlain': [],
-  'row.mark.note': [],
   'row.return.noDate': [],
   'row.return.now': [],
   'row.return.minOver': ['n'],
@@ -48,7 +47,6 @@ export const rowKeys = {
   'row.conversation.note': [],
   'row.soon.delete': [],
   'row.empty.default': [],
-  'row.note.label': ['name'],
   'row.return.titleTime': ['date'],
   'row.return.titleDate': [],
   'row.return.titleLast': ['title', 'when'],

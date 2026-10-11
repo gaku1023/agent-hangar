@@ -27,12 +27,6 @@
   background: transparent;
 }
 
-.memo-input {
-  height: 22px;
-  width: 100%;
-  padding: 0 4px;
-}
-
 /* 2 段の行（UI 刷新 2 回目）。1 段目に名前、2 段目に要約か抜粋。右端は画面の役目で変える（SessionRows の variant）。
    高さは --session-row-h で持ち、SessionRows の SESSION_ROW_H と揃える（rows.test.ts）。
    1 段の部品の --row-h（28px）とは別の値である。 */
@@ -53,13 +47,10 @@
 .row-state[data-tone] { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: var(--r-pill); font-weight: 600; line-height: 1.4; }
 .row-state[data-tone='blocked'] { color: var(--waiting); background: color-mix(in srgb, var(--waiting) 10%, var(--surface)); }
 .row-state[data-tone='abandoned'] { color: var(--st-paused); background: var(--st-paused-soft); }
-/* 2 段目の右端の印（設計書 2.2）。PR の番号とノートの印を、要約の右に寄せて小さく置く。 */
+/* 2 段目の右端の印（設計書 2.2）。PR の番号を、要約の右に寄せて小さく置く。 */
 .row-marks { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); }
 .row-pr { color: var(--accent); font-weight: 600; white-space: nowrap; }
 .row-pr:hover { text-decoration: underline; }
-.row-note { display: inline-flex; }
-.row-note .icon { width: 13px; height: 13px; }
-.row-sub .memo-input { height: calc(var(--u) * 5); flex: 1; }
 .row-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: var(--u); font-size: var(--fs-xs); color: var(--ink-3); }
 /* 時刻と本文の期限の印を横に並べる。印は行の高さを変えないよう、時刻と同じ行に小さく置く。 */
 .row-when { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
