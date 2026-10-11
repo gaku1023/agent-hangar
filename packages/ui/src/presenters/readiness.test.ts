@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ReadinessDto } from '@agent-hangar/shared';
-import { translator } from '@agent-hangar/shared';
+import { SETTINGS_SECTIONS, settingsSectionOf, translator } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { initialStore } from '../store/store.ts';
 import { presentSettings } from './settings.ts';
-import { clientPlatform, muxInstallCommand, muxName, notifyBlockedKey, presentMux, presentMuxGuide, presentReadiness, readinessPending, toolLine, workspaceLine } from './readiness.ts';
+import { clientPlatform, muxInstallCommand, muxName, notifyBlockedKey, presentMux, presentMuxGuide, presentReadiness, READINESS_AT, readinessPending, toolLine, workspaceLine, type ReadinessKey } from './readiness.ts';
 
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -110,7 +110,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   it('右端のボタンは 1 つ。親フォルダは設定を開き、MCP と statusline は命令をコピーする', () => {
     const rows = presentReadiness(READY, ja)!.group.rows;
     expect(rows.map((r) => r.actions.map((a) => [a.label, a.primary, a.send]))).toEqual([
-      [['設定を開く', true, { type: 'nav.go', to: { name: 'settings' } }]],
+      [['設定を開く', true, { type: 'nav.go', to: { name: 'settings', at: 'workspace' } }]],
       [['コマンドをコピー', false, { type: 'clipboard.copy', text: 'hangar mcp install' }]],
       [['コマンドをコピー', false, { type: 'clipboard.copy', text: 'hangar statusline install' }]],
     ]);
@@ -153,7 +153,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     const broken: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: '/x/tmux', ok: false, problem: 'notExecutable', version: null } } };
     const r2 = presentReadiness(broken, ja)!.group.rows[0]!;
     expect(r2).toMatchObject({ text: '/x/tmux には実行権限がありません', detail: null });
-    expect(r2.actions[0]).toMatchObject({ label: '設定を開く', send: { type: 'nav.go', to: { name: 'settings' } } });
+    expect(r2.actions[0]).toMatchObject({ label: '設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'tmux' } } });
   });
   it('必須が済んで任意の行だけが残ったときは、帯ごと出さない（分母は任意を含めて数える）', () => {
     const optionalOnly: ReadinessDto = { ...READY, workspace: { ...READY.workspace, projectCount: 12 } };
@@ -170,8 +170,13 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     expect(readinessPending({ ...ALL_OK, compat: drifting.compat })).toBe(true);
     const b = presentReadiness({ ...ALL_OK, compat: drifting.compat }, ja)!;
     expect(b.group.rows.map((r) => [r.key, r.badge ?? null, r.text])).toEqual([['ready:compat', null, '変更点が 2 件あります。無効にした機能は設定で確認できます']]);
-    expect(b.group.rows[0]!.actions[0]).toMatchObject({ label: '設定を開く' });
+    expect(b.group.rows[0]!.actions[0]).toMatchObject({ label: '設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'compat' } } });
     expect(b.group.countText).toBe('準備完了 5 / 6');
+  });
+  it('claude が使えないときの「設定を開く」は、claude のパスの欄を指す', () => {
+    const broken: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: '/x/claude', ok: false, problem: 'notFile', version: null } } };
+    const row = presentReadiness(broken, ja)!.group.rows.find((r) => r.key === 'ready:claude')!;
+    expect(row.actions[0]).toMatchObject({ label: '設定を開く', send: { type: 'nav.go', to: { name: 'settings', at: 'claude' } } });
   });
   it('compat の無い古いサーバの答えでは、互換の行を出さずに 5 つで数える', () => {
     const { compat: _drop, ...older } = READY;
@@ -248,5 +253,22 @@ describe('案内を画面へ渡す', () => {
     const open = { ...initialState(), overlay: { kind: 'muxGuide' as const, pending: { type: 'session.resume' as const, id: 's1' }, back: null } };
     expect(presentMuxGuide(open, store(noTmux))).toMatchObject({ mux: { installed: false } });
     expect(presentMuxGuide(open, store(READY))).toMatchObject({ mux: { installed: true, version: '3.4' } });
+  });
+});
+
+describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
+  const KEYS: ReadinessKey[] = ['tmux', 'claude', 'workspace', 'mcp', 'statusline', 'compat'];
+  it('帯の 6 行のすべてが、設定の節を持つ', () => {
+    expect(Object.keys(READINESS_AT).sort()).toEqual([...KEYS].sort());
+    for (const k of KEYS) expect(SETTINGS_SECTIONS).toContain(settingsSectionOf(READINESS_AT[k]));
+  });
+  it('直すのに設定を開く行は、節だけでなく欄まで指す', () => {
+    expect(READINESS_AT).toMatchObject({ tmux: 'tmux', claude: 'claude', workspace: 'workspace', compat: 'compat' });
+    expect(settingsSectionOf(READINESS_AT.tmux)).toBe('tools');
+    expect(settingsSectionOf(READINESS_AT.compat)).toBe('integrations');
+  });
+  it('MCP とステータスラインは連携の節（命令をコピーする行なので、欄までは指さない）', () => {
+    expect(READINESS_AT.mcp).toBe('integrations');
+    expect(READINESS_AT.statusline).toBe('integrations');
   });
 });

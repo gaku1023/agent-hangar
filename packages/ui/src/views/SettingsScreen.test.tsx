@@ -445,6 +445,25 @@ describe('設定の連携', () => {
       Element.prototype.scrollIntoView = orig;
     }
   });
+  it('帯から来たとき（focus が tmux など）、その欄を淡い黄で目立たせて、入力欄へフォーカスを置く', () => {
+    for (const [focus, label] of [['tmux', 'tmux のパス'], ['claude', 'claude のパス'], ['workspace', 'プロジェクトの親フォルダ']] as const) {
+      const { unmount } = render(ui(at('tools', { focus })));
+      const input = screen.getByLabelText(label);
+      expect(input.closest('.field')).toHaveAttribute('data-hit');
+      expect(input).toHaveFocus();
+      expect(document.querySelectorAll('[data-hit]')).toHaveLength(1);
+      unmount();
+    }
+  });
+  it('互換の節を指して来たとき（focus が compat）は、その節を目立たせる（入力欄が無いのでフォーカスは動かさない）', () => {
+    render(ui(at('integrations', { focus: 'compat' })));
+    expect(document.getElementById('settings-compat')).toHaveAttribute('data-hit');
+    expect(document.body).toHaveFocus();
+  });
+  it('欄を指さずに開いたツールの節は、どの欄も目立たせない', () => {
+    render(ui(at('tools')));
+    expect(document.querySelector('[data-hit]')).toBeNull();
+  });
   it('focus が無ければ、開いても滑らない', () => {
     const scrolled: string[] = [];
     const orig = Element.prototype.scrollIntoView;

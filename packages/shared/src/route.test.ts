@@ -15,6 +15,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/settings?at=accounts')).toEqual({ name: 'settings', at: 'accounts' });
     expect(parseRoute('#/settings?at=sync')).toEqual({ name: 'settings', at: 'sync' });
     expect(parseRoute('#/settings?at=unsent')).toEqual({ name: 'settings', at: 'unsent' });
+    // 帯の「設定を開く」が指す欄。
+    for (const at of ['workspace', 'tmux', 'claude', 'compat'] as const) expect(parseRoute(`#/settings?at=${at}`)).toEqual({ name: 'settings', at });
     for (const at of ['general', 'cloud', 'integrations', 'summary', 'tools', 'info'] as const) expect(parseRoute(`#/settings?at=${at}`)).toEqual({ name: 'settings', at });
     // 知らない行き先は印なしの設定として読む。
     expect(parseRoute('#/settings?at=nope')).toEqual({ name: 'settings' });
@@ -33,7 +35,7 @@ describe('formatRoute', () => {
   it('parseRoute と往復する', () => {
     const routes = [
       { name: 'home' }, { name: 'projects' }, { name: 'project', id: 'p1' },
-      { name: 'session', id: 's1' }, { name: 'home', q: '動画 x' }, { name: 'settings' }, { name: 'settings', at: 'accounts' }, { name: 'settings', at: 'sync' }, { name: 'settings', at: 'unsent' },
+      { name: 'session', id: 's1' }, { name: 'home', q: '動画 x' }, { name: 'settings' }, { name: 'settings', at: 'accounts' }, { name: 'settings', at: 'sync' }, { name: 'settings', at: 'unsent' }, { name: 'settings', at: 'workspace' }, { name: 'settings', at: 'tmux' }, { name: 'settings', at: 'claude' }, { name: 'settings', at: 'compat' },
       { name: 'settings', at: 'general' }, { name: 'settings', at: 'cloud' }, { name: 'settings', at: 'integrations' }, { name: 'settings', at: 'summary' }, { name: 'settings', at: 'tools' }, { name: 'settings', at: 'info' },
     ] as const;
     for (const r of routes) expect(parseRoute(formatRoute(r))).toEqual(r);
@@ -53,5 +55,9 @@ describe('settingsSectionOf', () => {
     expect(settingsSectionOf('sync')).toBe('cloud');
     expect(settingsSectionOf('unsent')).toBe('cloud');
     expect(settingsSectionOf('accounts')).toBe('integrations');
+  });
+  it('親フォルダ、tmux、claude の欄はツール、互換は連携の節にある', () => {
+    for (const at of ['workspace', 'tmux', 'claude'] as const) expect(settingsSectionOf(at)).toBe('tools');
+    expect(settingsSectionOf('compat')).toBe('integrations');
   });
 });
