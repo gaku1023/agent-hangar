@@ -14,8 +14,8 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'boot-probe-'));
 // CI の「Node の無い機械で、読み込み画面が失敗の札に切り替わる」段は、殻が書き出した頁の様子（lib.rs の boot_probe）を読んで判定する。
 // 判定は macOS と Windows で同じものを使う。
 describe('頁が描いた様子の判定', () => {
-  const want = { kind: 'other', detail: /Node \d+/ };
-  const card = { level: 'error', card: true, kind: 'other', lang: 'ja', title: '起動できませんでした', detail: 'Node 22（arm64）が見つかりません。' };
+  const want = { kind: 'node-missing', detail: /Node \d+/ };
+  const card = { level: 'error', card: true, kind: 'node-missing', lang: 'ja', title: '起動できませんでした', detail: 'Node 22（arm64）が見つかりません。' };
   const text = (o: unknown) => JSON.stringify(o);
 
   it('頁がまだ何も書いていなければ、待ち続ける', () => {
@@ -47,15 +47,15 @@ describe('待つ口（wait）', () => {
   it('札が書かれていれば、すぐに通す', () => {
     const d = tmp();
     const f = path.join(d, 'probe.json');
-    fs.writeFileSync(f, JSON.stringify({ level: 'error', card: true, kind: 'other', lang: 'ja', title: 't', detail: 'Node 22' }));
-    const r = run([f, '--kind', 'other', '--detail', 'Node \\d+', '--timeout', '5']);
+    fs.writeFileSync(f, JSON.stringify({ level: 'error', card: true, kind: 'node-missing', lang: 'ja', title: 't', detail: 'Node 22' }));
+    const r = run([f, '--kind', 'node-missing', '--detail', 'Node \\d+', '--timeout', '5']);
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain('"level":"error"');
   });
   it('上限まで何も書かれなければ、落とす', () => {
     const d = tmp();
     const started = Date.now();
-    const r = run([path.join(d, 'probe.json'), '--kind', 'other', '--detail', 'Node', '--timeout', '1']);
+    const r = run([path.join(d, 'probe.json'), '--kind', 'node-missing', '--detail', 'Node', '--timeout', '1']);
     expect(r.status).toBe(1);
     expect(Date.now() - started).toBeLessThan(10_000);
     expect(r.stderr).toContain('1 秒');
@@ -66,7 +66,7 @@ describe('待つ口（wait）', () => {
     const child = spawn(process.execPath, ['-e', '']);
     await new Promise((r) => child.on('exit', r));
     const started = Date.now();
-    const r = run([path.join(d, 'probe.json'), '--kind', 'other', '--detail', 'Node', '--timeout', '30', '--pid', String(child.pid)]);
+    const r = run([path.join(d, 'probe.json'), '--kind', 'node-missing', '--detail', 'Node', '--timeout', '30', '--pid', String(child.pid)]);
     expect(r.status).toBe(1);
     expect(Date.now() - started).toBeLessThan(15_000);
     expect(r.stderr).toContain('終わった');
@@ -111,6 +111,9 @@ describe('CI の段', () => {
     expect(sh).toContain('PATH=/usr/bin:/bin:/usr/sbin:/sbin');
     expect(sh).toContain('nodePath');
     expect(sh).toContain('boot-probe-check.ts');
+    // Node が見つからないときの札は、専用の種類（node-missing）で出る（bootfail.rs の node_missing）。
+    expect(sh).toContain('--kind node-missing');
+    expect(sh).not.toContain('--kind other');
   });
   // 殻が探す場所のうちホームの外にあるもの（node.rs の UNIX_NODE_PLACES の / で始まるもの）は、一時のホームでは外れない。
   // ランナーの Homebrew の Node がそこにあると殻が見つけてしまうので、台本はその全部を脇へ退ける。
@@ -136,5 +139,7 @@ describe('CI の段', () => {
     expect(ps).toContain('boot-probe-check.ts');
     // Windows の札は、winget の命令（node.rs の winget_command）を案内していることまで見る。
     expect(ps).toMatch(/--detail '[^']*winget install -e --id OpenJS\\\.NodeJS\\\.\[0-9\]\+'/);
+    expect(ps).toContain('--kind node-missing');
+    expect(ps).not.toContain('--kind other');
   });
 });

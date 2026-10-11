@@ -64,7 +64,8 @@ candidates="$(
   # node-places: begin
   # この印の間は、殻（src-tauri の node.rs の UNIX_NODE_PLACES）と同じ並びにする。
   # 並びの一致は、node.rs の試験がこの間の行を読んで縛る。
-  # Homebrew の node@22 は keg-only で /opt/homebrew/bin にリンクされないので、keg の場所（opt/node@N）も見る。
+  # Homebrew の node@22 は、今の Homebrew では /opt/homebrew/bin にもリンクされるが、前の版では keg-only でリンクされなかった。
+  # どちらの場合も拾えるよう、bin/node に加えて keg の場所（opt/node@N）も見る。
   # 版の管理ツールは、PATH を切り替える仕掛けではなく、版ごとの実体の場所を見る。
   printf '%s\n' /opt/homebrew/bin/node
   printf '%s\n' /usr/local/bin/node

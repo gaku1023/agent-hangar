@@ -14,7 +14,7 @@ describe('DB の起動の失敗の文', () => {
     const e = new DbTooOldError('/x/hangar.db', 3, 16);
     expect(e).toBeInstanceOf(MessageError);
     expect(e.message).toContain('DB（/x/hangar.db）はバージョン 3 で、このアプリが開けるのはバージョン 16 以降です');
-    expect(errorText('en', e)).toBe('The database (/x/hangar.db) is at version 3, but this app can only open version 16 or later. There is no longer an upgrade path from older versions, so the database was left untouched and no migrations were applied. Launch an earlier Hangar that can upgrade it to version 16 once, then start this app again');
+    expect(errorText('en', e)).toBe('The database (/x/hangar.db) is at version 3, but this app can only open version 16 or later. There is no upgrade path from older versions, so the database was left untouched and no migrations were applied. Move the database aside under another name, then start this app again. The index will be rebuilt from Claude Code transcripts (notes and statuses cannot be kept)');
   });
 
   it('控えが取れなかった失敗は、控えの置き場と理由を言語ごとに言い、理由も同じ言語で出す', () => {

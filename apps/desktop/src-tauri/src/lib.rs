@@ -565,10 +565,11 @@ fn accept_server_dir(
 
 /// 同梱のサーバの置き場と、それを走らせる Node を決める。
 /// サーバを起こすときと、設定の同期の命令（CLI の cli.mjs は同じ置き場にある）が使う。
+/// Node が見つからないときは専用の種類（`node-missing`）で返し、頁が入れるコマンドを主にした札を出す。
 fn bundled_node_and_dir(
     app: &AppHandle,
     hangar_home: &std::path::Path,
-) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+) -> Result<(std::path::PathBuf, std::path::PathBuf), bootfail::BootFailure> {
     // Windows の resource_dir は `\\?\C:\…`（verbatim）の形で来る。子へ渡す前に普通の形へ直す。
     // Node 22.20 以降はその形の主スクリプトを読めず、起動の直後に落ちる。
     // 文は失敗したときだけ頁の言語で作る（言語を決めるのに OS へ聞くことがあるので、成功の道では聞かない）。
@@ -595,8 +596,12 @@ fn bundled_node_and_dir(
     server::strip_quarantine(&dir);
     let manifest = node::read_manifest(&dir).map_err(|m| say(hangar_home, m))?;
     let candidates = node::candidate_paths(&paths::user_home(), hangar_home);
-    let node_path = node::choose_node(&candidates, &manifest, node::probe_node)
-        .map_err(|e| node::describe_error(&e, bootfail::page_language(hangar_home)))?;
+    let node_path = node::choose_node(&candidates, &manifest, node::probe_node).map_err(|e| {
+        bootfail::BootFailure::node_missing(
+            node::failure_params(&e),
+            node::describe_error(&e, bootfail::page_language(hangar_home)),
+        )
+    })?;
     Ok((node_path, dir))
 }
 
@@ -885,7 +890,8 @@ fn config_runtime(
     app: &AppHandle,
 ) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf), String> {
     let home = paths::hangar_home();
-    let (node, dir) = bundled_node_and_dir(app, &home)?;
+    // 設定の同期は札を出さないので、詳細の文だけを使う。
+    let (node, dir) = bundled_node_and_dir(app, &home).map_err(|f| f.detail)?;
     Ok((node, dir, home))
 }
 

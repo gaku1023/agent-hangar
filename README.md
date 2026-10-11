@@ -52,7 +52,8 @@ nvm、fnm、Volta、mise、asdf、nodenv で入れた Node 22 も、そのまま
 これら以外の場所に入れたときは、Settings 画面の「Node のパス」か `~/.agent-hangar/settings.json` の `nodePath` にその `node` のパスを指定します。
 `/opt/homebrew/bin/node` へリンクして見つけさせる手もあります（`brew link --overwrite --force node@22`。別の `node` を入れていれば置き換わります）。
 
-`node@22` は keg-only（Homebrew が既定の場所へリンクしない入れ方）なので、端末で `node` を使うには PATH に通します（zsh の例です）。
+Homebrew の版によっては `node@22` が keg-only（Homebrew が既定の場所へリンクしない入れ方）になり、端末で `node` が見つかりません。
+そのときは PATH に通します（zsh の例です）。
 アプリの探索には関わりません。
 
 ```sh

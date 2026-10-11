@@ -298,10 +298,22 @@ describe('読み込み画面', () => {
     for (const f of fonts) expect(f).toMatch(/ 'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif;$/);
     expect(html.match(/'Hiragino Sans'/g)).toHaveLength(fonts.length);
   });
-  // 札の操作の並びは Tab の順（命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す）で、DOM もこの順に置く。
+  // 命令の欄は、画面で末尾が … で切れていた（Windows の長い PowerShell の命令、2026-10-11）。折り返して全文を見せる。
+  it('失敗の札の命令の欄は、切らずに折り返して全文を見せる', () => {
+    const html = read('loading/index.html');
+    const rule = html.match(/\.fail-cmd code \{[^}]*\}/)?.[0];
+    expect(rule).toBeDefined();
+    expect(rule).not.toContain('nowrap');
+    expect(rule).not.toContain('ellipsis');
+    expect(rule).toContain('white-space: pre-wrap');
+    expect(rule).toContain('overflow-wrap: anywhere');
+  });
+  // 札の操作の並びは Tab の順（命令のコピー、詳細を開く、詳細、全文をコピー、ログを開く、もう一度試す）で、DOM もこの順に置く。
+  // Node が無いときの札は、もう一度試すを命令のすぐ下の置き場（fail-primary）へ移す（boot.js）。
   it('失敗の札の操作は、DOM を Tab の順に置く', () => {
     const html = read('loading/index.html');
-    const at = ['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry'].map((id) => html.indexOf(`<${id.startsWith('fail-detail') ? 'pre' : 'button'} id="${id}"`));
+    const tag = (id: string) => (id === 'fail-detail' ? 'pre' : id === 'fail-primary' ? 'div' : 'button');
+    const at = ['fail-command-copy', 'fail-primary', 'fail-detail-toggle', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry'].map((id) => html.indexOf(`<${tag(id)} id="${id}"`));
     expect(at.every((i) => i > 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
@@ -332,8 +344,8 @@ describe('読み込み画面', () => {
     const written = [...(serverSource.match(/export type BootErrorKind = ([^;]+);/)?.[1] ?? '').matchAll(/'([a-z-]+)'/g)].map((m) => m[1]!);
     expect(written).toHaveLength(4);
     for (const k of written) expect(page.FAIL_KINDS).toContain(k);
-    // サーバが書かない 2 種類は、殻が決める。
-    expect(page.FAIL_KINDS.filter((k) => !written.includes(k)).sort()).toEqual(['compat-mismatch', 'other']);
+    // サーバが書かない 3 種類は、殻が決める。
+    expect(page.FAIL_KINDS.filter((k) => !written.includes(k)).sort()).toEqual(['compat-mismatch', 'node-missing', 'other']);
     // 殻が読むファイルの名前は、サーバが書く名前と同じ。
     const file = serverSource.match(/export const BOOT_ERROR_FILE = '([^']+)'/)?.[1];
     expect(file).toBeDefined();

@@ -104,7 +104,8 @@ Node は PATH に頼らず、Settings の `nodePath` のあと、`node.rs` の `
 並びは `/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の keg（`/opt/homebrew/opt/node@N/bin/node`、`/usr/local/opt/node@N/bin/node`）、nvm（`~/.nvm/versions/node/*/bin/node`）、fnm（`~/Library/Application Support/fnm`、`~/.local/share/fnm`、`~/.fnm` の `node-versions/*/installation/bin/node`）、Volta（`~/.volta/tools/image/node/*/bin/node`）、mise（`~/.local/share/mise/installs/node/*/bin/node`）、asdf（`~/.asdf/installs/nodejs/*/bin/node`）、nodenv（`~/.nodenv/versions/*/bin/node`）である。
 版ごとに並ぶ場所は、実在する `node` だけを新しい版から並べ、manifest と同じメジャー版とアーキテクチャの最初の 1 つを採る。
 版と読む名前は `node@<数>` と `v<数>.<数>.<数>`、`<数>.<数>.<数>` だけで、mise の別名（`22`、`lts`）は実体と重なるので見ない。
-Homebrew の `node@22` は keg-only で `/opt/homebrew/bin` にリンクされないので、keg の場所を見ないと `brew install node@22` だけでは見つからなかった。
+Homebrew の `node@22` は、前の版の Homebrew では keg-only で `/opt/homebrew/bin` にリンクされず、keg の場所を見ないと `brew install node@22` だけでは見つからなかった。
+今の Homebrew（7.0.9 で確かめた）は `/opt/homebrew/bin` にもリンクするので、どちらの場合も拾えるよう `bin/node` と keg の場所の両方を見る。
 版の管理ツールは、PATH を切り替える仕掛け（fnm の `fnm_multishells`、nvm の `current` など）ではなく、版ごとの実体の場所を見る。
 GUI のアプリの PATH は launchd の最小のものなので、PATH は見ない。
 利用者のログインシェルに訊く案（`$SHELL -lic 'command -v node'`）は採らない。
@@ -199,11 +200,11 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 
 #### 起動の失敗の札
 
-殻は起動の失敗を 6 種類の札のどれかに分け、読み込みの頁が 1 枚の札で出す（試作は `docs/superpowers/specs/2026-10-09-small-screens/options.html` の起動の失敗の B 案）。
+殻は起動の失敗を 7 種類の札のどれかに分け、読み込みの頁が 1 枚の札で出す（試作は `docs/superpowers/specs/2026-10-09-small-screens/options.html` の起動の失敗の B 案）。
 殻の側は `src-tauri/src/bootfail.rs`、頁の側は `loading/boot-fail.js`（文の表）と `loading/boot.js`（描画）である。
 
-- 種類は 6 つである。サーバが書く 4 つ（上の `kind`）に、殻が自分で決める 2 つを足す。`compat-mismatch`（互換の版の合わない別のサーバ。ポートと 2 つの版を `params` に持つ）と、`other`（殻のそれ以外の失敗：App Translocation、Node が見つからない、頁を移せない、応答が途切れた、など。理由は `detail` に殻の文で載せる）である。種類の並びは Rust の `KINDS` と頁の `FAIL_KINDS` で同じにし、`config.test.ts` が突き合わせる。
-- 殻が `boot-error.json` を読むのは、**自分の子が死んだとき**だけである（`wait_for_server` と `wait_for_ready` の死の枝）。読むときは、子を起こす直前の時刻（`AppState.child_started`）より更新の時刻が古いファイルを捨てる。読めない、古い、無い、のときは `server-exited` にし、詳細に `desktop.log` の終わりの 20 行を載せる（Node のネイティブモジュールが読めない、などは標準エラーにしか出ない）。ファイルが `compat-mismatch` や `other` を名乗っても採らず、知らない種類と同じく `server-exited` に落とす。
+- 種類は 7 つである。サーバが書く 4 つ（上の `kind`）に、殻が自分で決める 3 つを足す。`compat-mismatch`（互換の版の合わない別のサーバ。ポートと 2 つの版を `params` に持つ）と、`node-missing`（Node が見つからない。下の「Node が無いときの札」）と、`other`（殻のそれ以外の失敗：App Translocation、頁を移せない、応答が途切れた、など。理由は `detail` に殻の文で載せる）である。種類の並びは Rust の `KINDS` と頁の `FAIL_KINDS` で同じにし、`config.test.ts` が突き合わせる。
+- 殻が `boot-error.json` を読むのは、**自分の子が死んだとき**だけである（`wait_for_server` と `wait_for_ready` の死の枝）。読むときは、子を起こす直前の時刻（`AppState.child_started`）より更新の時刻が古いファイルを捨てる。読めない、古い、無い、のときは `server-exited` にし、詳細に `desktop.log` の終わりの 20 行を載せる（Node のネイティブモジュールが読めない、などは標準エラーにしか出ない）。ファイルが `compat-mismatch`、`node-missing`、`other` を名乗っても採らず、知らない種類と同じく `server-exited` に落とす。
 - 殻は札の文を書かない。頁へは、決まった式 `window.__hangarBootFail(<JSON>)` で `{ kind, params, detail, lang, version, os, home, sep }` だけを渡す。`home` は置き場の名前（利用者のホームを `~` に縮めたもの。`HANGAR_HOME` に従う）で、札の文と命令に入れる。
   `sep` は OS のパスの区切り（Windows は `\`）で、頁は置き場とファイルの名前（`desktop.log`、`hangar.db`、`backups` と `db`）をこれでつなぐ。
   `~` に縮めるときも、ホームの後ろの区切りはそのまま残す（Windows なら `~\.agent-hangar`）。
@@ -229,18 +230,31 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
   殻はそれを JSON にして、そのファイルへ書く（16 KiB まで、一時のファイルから名前を替える）。
   変数が無いときは、`probe` は偽で、頁は `boot_probe` を呼ばず、呼ばれても殻は何も書かない。
   CI の desktop ジョブ（macOS）は `.app` を build し、`apps/desktop/scripts/ci-boot-probe-macos.sh` で一時の場所へ写して、一時のホーム、無いパスを指す `nodePath`、最小の `PATH` だけを渡して起こす（`env -i`）。
-  殻が探す場所のうちホームの外のもの（Homebrew の `bin/node` と keg-only の `node@N`、`node.rs` の `UNIX_NODE_PLACES` の `/` で始まるもの）は一時のホームでは外れないので、その段の間だけ脇へ退ける（ランナーには Homebrew の Node がある）。
+  殻が探す場所のうちホームの外のもの（Homebrew の `bin/node` と `node@N` の入れ先、`node.rs` の `UNIX_NODE_PLACES` の `/` で始まるもの）は一時のホームでは外れないので、その段の間だけ脇へ退ける（ランナーには Homebrew の Node がある）。
   windows ジョブは、作ったインストーラで入れ直し、`apps/desktop/scripts/ci-boot-probe-windows.ps1` で殻に渡す環境だけを差し替えて Node を見えなくする（`ProgramFiles` と `LOCALAPPDATA` を空の場所へ、`NVM_*` を外し、`PATH` から `node.exe` のある項目を外す）。
   Windows は 64 ビットの子を起こすとき `ProgramFiles` を `ProgramW6432` の値で書き直すので、`ProgramW6432` も同じ空の場所へ向ける（向けないと、殻は `C:\Program Files\nodejs` の Node を見つけた）。
-  どちらも `apps/desktop/scripts/boot-probe-check.ts` が書き出しを読み、札が見えて種類が `other`、詳細に「Node <版>」が入るまで待つ（上限 60 秒）。
+  どちらも `apps/desktop/scripts/boot-probe-check.ts` が書き出しを読み、札が見えて種類が `node-missing`、詳細に「Node <版>」が入るまで待つ（上限 60 秒）。
   殻が Node を見つけてサーバを起こしたら（desktop.log の `node … server` の行）、探す場所が増えたとみて落とす。
   撮れた画面と殻の記録は、実行の artifact に 7 日だけ残す。
   殻（Tauri）は実行ファイルのパスにシンボリックリンクが混じるとリソースの場所を決められないので、写す先は実の名前に直してから使う（macOS の `/var` はリンクである）。
 - 札の中は、見出し、何が起きたか、番号つきの次にすること（順序つきの一覧）、コピーできる命令、詳細（最初から開いた記録。「全文をコピー」つき）、下端のアプリの版と OS、「ログを開く」「もう一度試す」の順に並べる。ロゴは左上に小さく退ける（信号の 3 点の右、UI の `--lights-end` と同じ幅から）。命令と詳細だけを等幅にする。
+  命令の欄は切らずに折り返して全文を見せる（以前は 1 行に収めて末尾を … で切っていて、Windows の長い PowerShell の命令が画面で読めなかった。2026-10-11）。
   起動画面は UI の書体（JetBrains Mono）を読み込まないので、等幅は `ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace` の順に OS の書体を使う。日本語の Windows の既定の等幅（MS ゴシックなど）は `\` を `¥` の字形で描くので、パスやコマンドが `¥` に見えないよう、`\` を正しく描く書体を総称の `monospace` より先に置く。
   本文とボタンも、起動画面は Inter を読み込まないので、欧文は日本語の書体で描かれ、Windows では `\` が `¥` に見えていた（2026-10-11、Windows の実機の確かめで見つけた）。
   そこで `'Inter Variable', 'Segoe UI', 'Hiragino Sans', sans-serif` と、Windows の UI の書体を日本語の書体より先に置く。Segoe UI は macOS に無いので macOS の見た目は変わらず、日本語の字は Segoe UI に無いので、これまでどおり後ろの書体で描く。
   詳細が伸びても札が窓（最小 900×600）に収まるよう、詳細の枠だけが縮んで中で流れ、操作は見えたままである。焦点は札が出たとき「もう一度試す」に置く（Enter で押せる）。Tab の順は、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す。
+- Node が無いときの札（`node-missing`）は、ほかの札と並びを変え、入れるコマンドを主にする（利用者が選んだ形、2026-10-11）。
+  以前は種類が `other` で、見出しは「Hangar を起動できませんでした」、本文は「起動の途中で止まりました。理由は下の詳細にあります」の汎用の文で、入れ方は詳細の枠の中にしか無かった。
+  殻は `node.rs` の `failure_params` で、要る版（`major`）とアーキテクチャ（`arch`）と理由（`reason`）を `params` に入れる。
+  理由は、Node として答えた候補が無ければ `missing`、要る版が別のアーキテクチャで入っていれば `arch`（`foundArch` にその作り）、別の版だけがあれば `version`（`found` に最初に見つけた版）である。
+  要る版の別の作りを先に言うのは、入れ直すものがその版の正しい作りだからである。
+  見出しと本文は理由に合わせる（「Node.js 22 が入っていません」と「Hangar の動作には Node.js 22 が要ります。」、版が違えば見つかった版を、アーキテクチャが違えば見つかった作りを言う）。
+  次にすることの列の代わりに「ターミナルで次を実行してください：」（Windows は「PowerShell で次を実行してください：」）の 1 文とコマンドを置く。
+  コマンドは、macOS は `brew install node@22 tmux`、Windows は `winget install -e --id OpenJS.NodeJS.22`（psmux はホームの帯と始める前の案内が別に出すので Node だけ）、ほかは `nvm install 22` である。
+  主の釦は「入れたのでもう一度試す」で、コマンドのすぐ下へ移す（`boot.js` が `boot-retry` を `fail-primary` へ移す。動きは「もう一度試す」と同じ `retry_boot`）。
+  詳細の枠（調べた場所と、nvm などの別の入れ方と `nodePath`）は畳み、「詳細（調べた場所、別の入れ方）」の 1 行で開く。
+  詳細の文は `describe_error` のままで、CI の Windows の段が見る winget の命令も含む。
+  ほかの種類の札は、前置きの文を持たず、詳細を開いたまま、主の釦は下端の「もう一度試す」のままである。
 - 「全文をコピー」は、版と OS、種類、詳細の順の文をクリップボードへ書く。そのまま報告に貼れる形である。クリップボードの口が無い頁では、選択と `copy` の命令で写す。
 - ポートと互換の失敗では、動いているサーバ（利用者が起こしたものかもしれない）を止めないと文で言う。
 - 命令は OS で出し分ける（`boot-fail.js` の `POSIX` と `POWERSHELL`）。OS の名前が `Windows` で始まれば PowerShell の形にする。
@@ -254,7 +268,7 @@ CLI（`cli.mjs`）は、サーバの入口 `index.ts` ではなく、サーバ�
 - 版は殻（`app.package_info()`）、OS の名前と版は殻が失敗のときに読む（macOS は `sw_vers -productVersion`、Linux は `/etc/os-release`、Windows は登録簿の `CurrentBuildNumber` と `DisplayVersion`）。Windows の製品名は Windows 11 でも「Windows 10」のままなので使わず、ビルド番号 22000 からを Windows 11 と呼ぶ（「Windows 11 24H2 (build 26100)」）。
 - 頁の言語は、`<HANGAR_HOME>/settings.json` の `language`（`ja` か `en`）を**殻が読めればそれ**、読めなければ OS の言語で決める（設計書 10 章の未決の点を、こう決めた）。OS の言語は、macOS では `defaults read -g AppleLanguages` の先頭（`.app` は `LANG` を持たない）、Windows では表示言語の並び（`GetUserPreferredUILanguages`）の先頭、ほかは `LC_ALL`、`LC_MESSAGES`、`LANG` で、日本語なら ja、それ以外は en にする。どちらも決まらなければ日本語（UI の既定）にする。設定ファイルがあっても `language` が無い（利用者がまだ選んでいない）ときも OS の言語に従う。UI は同じ場合に日本語の既定で出るので、英語の OS ではこの頁だけ先に英語になる。設定ファイルが読めれば OS には聞かない（失敗の最中に外のコマンドを呼ばないため）。
 - 頁の文は UI の辞書を使えないので、日英の表を頁に持つ（`boot-fail.js`）。言語の並びは shared の `LANGUAGES` と同じにし、試験が突き合わせる。
-- 殻が自分で書く `detail`（`other` の理由と、時間切れの案内）は、頁と同じ言語で書く。
+- 殻が自分で書く `detail`（`other` と `node-missing` の理由と、時間切れの案内）は、頁と同じ言語で書く。
   英語の設定でも「Node 22（x64）が見つかりません」「調べた場所」が日本語のまま出ていた（2026-10-11、Windows の実機の確かめで見つけた）ためである。
   文の日英の表は殻に持つ（`src-tauri/src/bootmsg.rs` の `Msg`、Node が見つからないときは調べた場所を並べるので `node.rs` の `describe_error_in`）。
   言語は札と同じく `page_language` で決め、決めるのは失敗したときだけにする（成功の道で OS に聞かない）。
@@ -2318,9 +2332,13 @@ UI は起動のたびに `GET /api/readiness` を取る。
 tmux、claude、node の版は子プロセスで読むが、同じファイルなら覚えた版を返すので、起こすのは起動後の最初の 1 回だけである。
 手元の実測では、その最初の 1 回が 20 ms 以下、2 回目からは 1 ms 未満だった。
 画面は取れるのを待たずに描き、取れたら帯に群を足す。
-錠剤は「セットアップの確認 6 つ中 3 つ」の形で、済んだ割合の細い棒を添え、帯の右端に「もう始められます。設定の残りは 3 件です」を出す（tmux か claude が欠けているときは「始めるには tmux と claude が必要です。設定の残りは 3 件です」。Windows では tmux を psmux と言う）。
-錠剤の要約は「設定の残り 3 件」である。
-英語では「You can start now. 3 items left to set up」「You need tmux and claude to start. 3 items left to set up」「3 items left to set up」で、1 件のときは「1 item」と単数にする。
+錠剤は「セットアップの確認 準備完了 3 / 6」の形で、済んだ割合の細い棒を添える。
+帯の右端の文は、始めるのに要る道具（tmux と claude）のうち足りないものだけを名指しする。
+足りないのが 1 つなら「始めるには claude が必要です」、2 つなら「始めるには tmux と claude が必要です」で、Windows では tmux を psmux と言う（`muxName`）。
+両方が揃っていれば、ほかに直すものが残っていても右端の文は出さない。
+残りの件数は言わない（2026-10-11 まで「6 つ中 2 つ」と「設定の残り 4 件」を並べていたが、読み取りにくかった）。
+引き出しの見出しにも、残りの件数の要約は添えない。
+英語では「Ready 3 / 6」「You need claude to start」「You need tmux and claude to start」である。
 分母は任意の行も含めて数える（`compat` の無い古いサーバの答えでは互換の行が無く 5 になる）。
 行は、tmux、claude、プロジェクトの親フォルダ、MCP サーバー、ステータスライン、Claude Code との互換性の 6 つである。
 判定は設定画面の欄の下の検証と同じもの（`toolLine`、`workspaceLine`、`compatState`）を使う。
@@ -4063,7 +4081,7 @@ GitHub Actions で型検査とテストを回し、タグを打つと macOS 用�
 利用者はそれをダウンロードして `/Applications` へ移し、初めて開いて出る警告の後で、システム設定の「プライバシーとセキュリティ」の「このまま開く」で許可してから（管理者のパスワードを求められる）、`hangar setup` を走らせる。
 検疫属性を `xattr -rd com.apple.quarantine` で外す道は、最後の手段として残す。
 前提として Node 22 と tmux と `claude` が要り、Homebrew なら `brew install node@22 tmux` で足りる。
-`node@22` は keg-only だが、アプリも同梱の CLI も keg の場所（`/opt/homebrew/opt/node@22`）を探すので、`brew link` は要らない。
+`node@22` は Homebrew の版によって `/opt/homebrew/bin` にリンクされる場合とされない場合（keg-only）があるが、アプリも同梱の CLI も両方の場所（`/opt/homebrew/bin/node` と `/opt/homebrew/opt/node@22`）を探すので、`brew link` は要らない。
 探す場所に無い入れ方をした人には、README で `nodePath` の指定か `brew link --overwrite --force node@22` を補足として案内する。
 移動を先に置くのは、検疫属性が付いたまま開くとアプリの案内より先に Gatekeeper のダイアログが出るからである（2026-09-20 の実測）。
 配布物は dmg が主で、zip は従（自動更新と予備）である（段 5 の決定）。
@@ -4122,7 +4140,8 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   読み取り専用でも変わるものが 2 つ残る。WAL の DB では SQLite が `-shm`（`-wal` の索引で、DB の内容は持たない）を作るか書き直し、`-wal` が無ければ空の `-wal` を作る（実測）。
   排他のロックは I/O の失敗になり、better-sqlite3 の SQLite は URI の名前を受けないので immutable も使えず、これは避けられなかった。
   なので断る文は「何も書かない」ではなく「DB の中身は変えない」と言う。
-  文は、DB の版、起点の版、畳む前の版の Hangar で一度起動して上げてから起動し直すことを言い、サーバも CLI もそれを出して起動を止める。
+  文は、DB の版と起点の版を言い、DB を別の名前に退避してから起動し直せば索引をトランスクリプトから再構築すること（ノートとステータスは引き継げない）を言う。サーバも CLI もそれを出して起動を止める。
+  以前は「畳む前の版の Hangar で一度起動して上げてから」と言っていたが、配布版ではその版が手に入らず、起動の失敗の札の手順（退避して作り直す）とも食い違っていた（2026-10-11、Windows の実機の確かめで見つけた）。
   使っているのは利用者 1 人で、その DB はすでに版 16 にあるので、古い版から上げる道は要らないと決めた。
   スキーマを変えるときは、起点を書き換えずに、次の版（17 から）を一覧の末尾に足す。
   版 17 は、セッションの名前とメモを `session_notes` へ移した（「セッションの名前とメモ」）。

@@ -79,11 +79,13 @@ const en = translator('en');
 const withCompat = (over: Partial<ReadinessDto['compat']>): ReadinessDto => ({ ...READY, compat: { ...READY.compat, ...over } });
 const ALL_OK: ReadinessDto = { ...READY, workspace: { ...READY.workspace, projectCount: 12 }, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } };
 const noTmux: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: null, ok: false, problem: 'unset', version: null } } };
+const noClaude: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset', version: null } } };
+const noBoth: ReadinessDto = { ...READY, tools: { ...noTmux.tools, claude: noClaude.tools.claude } };
 
 describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
-  it('6 つ中の済んだ数を錠剤に、直すものの数を件数に、済んだ割合を進みに持つ', () => {
+  it('済んだ数を「準備完了 N / M」で錠剤に、直すものの数を件数に、済んだ割合を進みに持つ。残りの件数の要約は持たない', () => {
     const b = presentReadiness(READY, ja)!;
-    expect(b.group).toMatchObject({ id: 'readiness', label: 'セットアップの確認', countText: '6 つ中 3 つ', count: 3, progress: 50, tone: 'warn', morning: true, summary: '設定の残り 3 件' });
+    expect(b.group).toMatchObject({ id: 'readiness', label: 'セットアップの確認', countText: '準備完了 3 / 6', count: 3, progress: 50, tone: 'warn', morning: true, summary: '' });
     // 直すものが残っているので、済んだように読める ✓ ではなく、注意の印にする。
     expect(b.group.icon).toBe('alert');
   });
@@ -114,22 +116,26 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
       ['claude', '/Users/me/.local/bin/claude（2.3.1）', { kind: 'check', tone: 'ok', label: '準備できています' }],
       ['Claude Code との互換性', '2.1.300（確認済みのバージョンは 2.1.292）', { kind: 'check', tone: 'info', label: '未確認のバージョン' }],
     ]);
-    expect(b.group.countText).toBe('6 つ中 3 つ');
+    expect(b.group.countText).toBe('準備完了 3 / 6');
   });
-  it('帯の文は、tmux と claude がそろっていれば始められると言い、欠けていればあればと言う', () => {
-    expect(presentReadiness(READY, ja)!.note).toBe('もう始められます。設定の残りは 3 件です');
-    expect(presentReadiness(noTmux, ja)!.note).toBe('始めるには tmux と claude が必要です。設定の残りは 4 件です');
+  // 帯の右端の文は、始めるのに要る道具（tmux と claude）のうち足りないものだけを名指しする。揃っていれば出さない。
+  it('帯の文は、足りない道具だけを名指しし、揃っていれば出さない', () => {
+    expect(presentReadiness(READY, ja)!.note).toBeNull();
+    expect(presentReadiness(noTmux, ja)!.note).toBe('始めるには tmux が必要です');
+    expect(presentReadiness(noClaude, ja)!.note).toBe('始めるには claude が必要です');
+    expect(presentReadiness(noBoth, ja)!.note).toBe('始めるには tmux と claude が必要です');
   });
-  it('英語の帯の文は、残りが 1 件なら単数、2 件以上なら複数で言う', () => {
-    const one: ReadinessDto = { ...READY, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } };
-    const two: ReadinessDto = { ...READY, statusline: { ...READY.statusline, installed: true } };
-    const b1 = presentReadiness(one, en)!;
-    expect(b1.group.summary).toBe('1 item left to set up');
-    expect(b1.note).toBe('You can start now. 1 item left to set up');
-    const b2 = presentReadiness(two, en)!;
-    expect(b2.group.summary).toBe('2 items left to set up');
-    expect(b2.note).toBe('You can start now. 2 items left to set up');
-    expect(presentReadiness({ ...noTmux, mcp: { ...READY.mcp, registered: true }, statusline: { ...READY.statusline, installed: true } }, en)!.note).toBe('You need tmux and claude to start. 2 items left to set up');
+  it('英語の帯の文も、足りない道具だけを名指しする', () => {
+    expect(presentReadiness(READY, en)!.note).toBeNull();
+    expect(presentReadiness(noTmux, en)!.note).toBe('You need tmux to start');
+    expect(presentReadiness(noClaude, en)!.note).toBe('You need claude to start');
+    expect(presentReadiness(noBoth, en)!.note).toBe('You need tmux and claude to start');
+    expect(presentReadiness(noBoth, en)!.group.countText).toBe('Ready 1 / 6');
+  });
+  it('親フォルダが無いだけなら、帯は出すが右端の文は出さない', () => {
+    const b = presentReadiness({ ...READY, workspace: { ...READY.workspace, exists: false } }, ja)!;
+    expect(b.group.rows[0]!.key).toBe('ready:workspace');
+    expect(b.note).toBeNull();
   });
   it('tmux が無ければ入れる命令をコピーさせる。パスはあるのに使えないなら設定を開く', () => {
     const row = presentReadiness(noTmux, ja, 'darwin')!.group.rows[0]!;
@@ -157,12 +163,12 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
     const b = presentReadiness({ ...ALL_OK, compat: drifting.compat }, ja)!;
     expect(b.group.rows.map((r) => [r.key, r.badge ?? null, r.text])).toEqual([['ready:compat', null, '変更点が 2 件あります。無効にした機能は設定で確認できます']]);
     expect(b.group.rows[0]!.actions[0]).toMatchObject({ label: '設定を開く' });
-    expect(b.group.countText).toBe('6 つ中 5 つ');
+    expect(b.group.countText).toBe('準備完了 5 / 6');
   });
   it('compat の無い古いサーバの答えでは、互換の行を出さずに 5 つで数える', () => {
     const { compat: _drop, ...older } = READY;
     const b = presentReadiness(older as ReadinessDto, ja)!;
-    expect(b.group.countText).toBe('5 つ中 2 つ');
+    expect(b.group.countText).toBe('準備完了 2 / 5');
     expect(b.group.rows.map((r) => r.key)).not.toContain('ready:compat');
   });
   it('statusline のスクリプトが無ければ、先に作るよう言う', () => {
@@ -171,10 +177,10 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   });
   it('文は辞書の言語で引く', () => {
     const b = presentReadiness(READY, en)!;
-    expect(b.group).toMatchObject({ label: 'Setup check', countText: '3 of 6', summary: '3 items left to set up' });
+    expect(b.group).toMatchObject({ label: 'Setup check', countText: 'Ready 3 / 6', summary: '' });
     expect(b.group.rows.map((r) => r.badge ?? null)).toEqual([null, 'Optional', 'Optional']);
     expect(b.group.fold!.text).toBe('tmux, claude, Claude Code compatibility: ready');
-    expect(b.note).toBe('You can start now. 3 items left to set up');
+    expect(b.note).toBeNull();
   });
 });
 
@@ -212,8 +218,10 @@ describe('psmux と tmux の案内', () => {
     expect(rows).not.toContain('ready:tmux');
   });
   it('帯の右端の文も、Windows では psmux の名で言う', () => {
-    expect(presentReadiness(noTmux, ja, 'win32')!.note).toBe('始めるには psmux と claude が必要です。設定の残りは 4 件です');
-    expect(presentReadiness(noTmux, en, 'win32')!.note).toBe('You need psmux and claude to start. 4 items left to set up');
+    expect(presentReadiness(noTmux, ja, 'win32')!.note).toBe('始めるには psmux が必要です');
+    expect(presentReadiness(noTmux, en, 'win32')!.note).toBe('You need psmux to start');
+    expect(presentReadiness(noBoth, ja, 'win32')!.note).toBe('始めるには psmux と claude が必要です');
+    expect(presentReadiness(noBoth, en, 'win32')!.note).toBe('You need psmux and claude to start');
   });
   it('パスはあるのに実行できないものは、再確認では直らないので設定へ案内するだけにする', () => {
     const broken: ReadinessDto = { ...READY, tools: { ...READY.tools, tmux: { path: '/x/tmux', ok: false, problem: 'notExecutable', version: null } } };

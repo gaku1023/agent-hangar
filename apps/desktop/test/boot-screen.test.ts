@@ -238,6 +238,8 @@ describe('起動の失敗の札', () => {
   const info = (extra: Record<string, unknown> = {}) => ({ kind: 'port-in-use', params: { port: 4177 }, detail: 'listen EADDRINUSE: address already in use 127.0.0.1:4177', lang: 'ja', version: '0.1.0', os: 'macOS 15.1', home: '~/.agent-hangar', ...extra });
   const fail = async (extra: Record<string, unknown> = {}) => { failWith.__hangarBootFail!(info(extra)); await flush(); };
   const click = (id: string) => ($(id) as HTMLButtonElement).click();
+  // 見えている操作だけを、DOM の順（Tab の順）に並べる。
+  const tabOrder = () => [...$('fail').querySelectorAll<HTMLElement>('button, [tabindex="0"]')].filter((el) => !el.closest('[hidden]')).map((el) => el.id);
   afterEach(() => { delete tauri.__TAURI_INTERNALS__; delete failWith.__hangarBootFail; document.documentElement.lang = ''; });
 
   it('殻が呼ぶ失敗の口（__hangarBootFail）を持つ。待っている間は札を出さない', async () => {
@@ -332,8 +334,7 @@ describe('起動の失敗の札', () => {
   it('操作は Tab の順に、命令のコピー、詳細、全文をコピー、ログを開く、もう一度試す', async () => {
     await boot();
     await fail();
-    const order = [...$('fail').querySelectorAll<HTMLElement>('button, [tabindex="0"]')].map((el) => el.id);
-    expect(order).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry']);
+    expect(tabOrder()).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry']);
   });
   it('命令のコピーと全文のコピーは、それぞれの文をクリップボードへ書き、押した印を出して戻す', async () => {
     const writeText = vi.fn(async () => undefined);
@@ -355,6 +356,94 @@ describe('起動の失敗の札', () => {
     expect(later).toHaveLength(2);
     later.forEach((fn) => fn());
     expect($('fail-copy-all').textContent).toBe('全文をコピー');
+  });
+  // Node が無いときの札（利用者が選んだ形）。入れるコマンドを主にし、主の釦をその下に、調べた場所は畳んだ詳細に置く。
+  describe('Node が無いときの札', () => {
+    const nodeFail = (extra: Record<string, unknown> = {}) => fail({ kind: 'node-missing', params: { major: 22, arch: 'arm64', reason: 'missing' }, detail: 'Node 22（arm64）が見つかりません。\n調べた場所:\n  /opt/homebrew/bin/node: ありません', ...extra });
+    it('見出し、本文、前置きの文、入れるコマンドを出し、次にすることの列は出さない', async () => {
+      await boot();
+      await nodeFail();
+      expect(document.body.dataset.fail).toBe('node-missing');
+      expect($('fail-title').textContent).toBe('Node.js 22 が入っていません');
+      expect($('fail-what').textContent).toBe('Hangar の動作には Node.js 22 が要ります。');
+      expect($('fail-lead').hidden).toBe(false);
+      expect($('fail-lead').textContent).toBe('ターミナルで次を実行してください：');
+      expect($('fail-next').hidden).toBe(true);
+      expect($('fail-steps').hidden).toBe(true);
+      expect($('fail-command-box').hidden).toBe(false);
+      expect($('fail-command').textContent).toBe('brew install node@22 tmux');
+    });
+    it('主の釦は「入れたのでもう一度試す」で、コマンドのすぐ下に置き、焦点もそこに置く', async () => {
+      await boot();
+      await nodeFail();
+      expect($('boot-retry').textContent).toBe('入れたのでもう一度試す');
+      expect($('boot-retry').parentElement).toBe($('fail-primary'));
+      expect($('fail-primary').hidden).toBe(false);
+      expect(document.activeElement).toBe($('boot-retry'));
+    });
+    it('詳細は畳んで出し、押すと開き、もう一度押すと畳む', async () => {
+      await boot();
+      await nodeFail();
+      const toggle = $('fail-detail-toggle');
+      expect(toggle.hidden).toBe(false);
+      expect(toggle.textContent).toBe('詳細（調べた場所、別の入れ方）');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect($('fail-detail-box').hidden).toBe(true);
+      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'fail-detail-toggle', 'boot-log']);
+      click('fail-detail-toggle');
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect($('fail-detail-box').hidden).toBe(false);
+      expect($('fail-detail').textContent).toContain('調べた場所');
+      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'fail-detail-toggle', 'fail-detail', 'fail-copy-all', 'boot-log']);
+      click('fail-detail-toggle');
+      expect($('fail-detail-box').hidden).toBe(true);
+    });
+    it('Windows では PowerShell で winget のコマンドを、英語ではその文を出す', async () => {
+      await boot();
+      await nodeFail({ os: 'Windows 11 24H2 (build 26100)', lang: 'en', sep: '\\', home: '~\\.agent-hangar' });
+      expect($('fail-title').textContent).toBe('Node.js 22 is not installed');
+      expect($('fail-lead').textContent).toBe('Run this in PowerShell:');
+      expect($('fail-command').textContent).toBe('winget install -e --id OpenJS.NodeJS.22');
+      expect($('boot-retry').textContent).toBe('I installed it, try again');
+      expect($('fail-detail-toggle').textContent).toBe('Details (places checked, other ways to install)');
+    });
+    it('コマンドのコピーは、入れるコマンドを写す', async () => {
+      const writeText = vi.fn(async () => undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      await boot();
+      await nodeFail();
+      click('fail-command-copy');
+      expect(writeText).toHaveBeenCalledWith('brew install node@22 tmux');
+    });
+    it('主の釦は、ほかの札と同じく起動のやり直しを頼む', async () => {
+      const invoke = vi.fn(async () => null);
+      tauri.__TAURI_INTERNALS__ = { invoke };
+      await boot();
+      await nodeFail();
+      click('boot-retry');
+      expect(invoke.mock.calls).toEqual([['boot_state'], ['retry_boot']]);
+    });
+    it('続けて別の種類が届いたら、元の並び（次にすること、開いた詳細、下端の釦）に戻す', async () => {
+      await boot();
+      await nodeFail();
+      await fail();
+      expect($('fail-lead').hidden).toBe(true);
+      expect($('fail-next').hidden).toBe(false);
+      expect($('fail-steps').hidden).toBe(false);
+      expect($('fail-primary').hidden).toBe(true);
+      expect($('fail-detail-toggle').hidden).toBe(true);
+      expect($('fail-detail-box').hidden).toBe(false);
+      expect($('boot-retry').textContent).toBe('もう一度試す');
+      expect(tabOrder()).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-log', 'boot-retry']);
+    });
+    it('二度目の Node の札は、開いていた詳細を畳み直す', async () => {
+      await boot();
+      await nodeFail();
+      click('fail-detail-toggle');
+      await nodeFail();
+      expect($('fail-detail-box').hidden).toBe(true);
+      expect($('fail-detail-toggle').getAttribute('aria-expanded')).toBe('false');
+    });
   });
   it('クリップボードの口が無い頁でも、選択と copy の命令で写す', async () => {
     vi.stubGlobal('navigator', {});

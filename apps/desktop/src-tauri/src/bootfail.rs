@@ -1,6 +1,6 @@
 //! 起動の失敗を、頁に出す札の種類と数に直す。
 //! サーバが書いた `boot-error.json`（packages/server/src/boot/bootError.ts）を読み、殻が自分で決める失敗
-//! （互換の版が合わない別のサーバ、殻のそれ以外の失敗）と合わせて、6 種類のどれかにする。
+//! （互換の版が合わない別のサーバ、Node が見つからない、殻のそれ以外の失敗）と合わせて、7 種類のどれかにする。
 //! 殻は札の文を書かない。札の文は読み込みの頁の表（loading/boot-fail.js）が種類と数から作る。
 //! 殻が書くのは詳細（`detail`）だけで、殻が自分で書く詳細は頁の言語で作る（bootmsg.rs）。
 
@@ -15,10 +15,11 @@ pub const KINDS: &[&str] = &[
     "db-too-old",
     "db-backup-failed",
     "compat-mismatch",
+    "node-missing",
     "other",
 ];
 
-/// サーバが `boot-error.json` に書いてよい種類。互換の別のサーバと殻のそれ以外は、サーバが起きる前に殻が決めるので入れない。
+/// サーバが `boot-error.json` に書いてよい種類。互換の別のサーバ、Node が見つからない、殻のそれ以外は、サーバが起きる前に殻が決めるので入れない。
 const SERVER_KINDS: &[&str] = &[
     "server-exited",
     "port-in-use",
@@ -59,7 +60,13 @@ impl BootFailure {
         }
     }
 
-    /// 殻のそれ以外の失敗（App Translocation、Node が見つからない、頁を移せない、応答が途切れた、など）。
+    /// Node が見つからない（入っていない、版が違う、アーキテクチャが違う）。
+    /// 頁は params（node.rs の `failure_params`）から見出しと入れるコマンドを作り、詳細（調べた場所と別の入れ方）は畳んで出す。
+    pub fn node_missing(params: Map<String, Value>, detail: impl Into<String>) -> Self {
+        Self::new("node-missing", params, detail.into())
+    }
+
+    /// 殻のそれ以外の失敗（App Translocation、頁を移せない、応答が途切れた、など）。
     pub fn other(detail: impl Into<String>) -> Self {
         Self::new("other", Map::new(), detail.into())
     }
@@ -513,12 +520,14 @@ mod tests {
     const GOOD: &str = r#"{"kind":"port-in-use","params":{"port":4177,"host":"127.0.0.1"},"detail":"listen EADDRINUSE"}"#;
 
     #[test]
-    fn the_six_kinds_are_the_four_the_server_writes_plus_the_two_the_shell_decides() {
-        assert_eq!(KINDS.len(), 6);
+    fn the_seven_kinds_are_the_four_the_server_writes_plus_the_three_the_shell_decides() {
+        assert_eq!(KINDS.len(), 7);
         for k in SERVER_KINDS {
             assert!(KINDS.contains(k));
         }
-        assert!(KINDS.contains(&"compat-mismatch") && KINDS.contains(&"other"));
+        for k in ["compat-mismatch", "node-missing", "other"] {
+            assert!(KINDS.contains(&k) && !SERVER_KINDS.contains(&k), "{k}");
+        }
     }
 
     #[test]
@@ -544,7 +553,7 @@ mod tests {
     // サーバは、互換の別のサーバと殻のそれ以外の失敗を決めない。ファイルがそう名乗っても、殻は採らない。
     #[test]
     fn a_kind_only_the_shell_may_decide_or_an_unknown_kind_falls_to_server_exited() {
-        for k in ["compat-mismatch", "other", "weird", ""] {
+        for k in ["compat-mismatch", "node-missing", "other", "weird", ""] {
             let f = parse_boot_error(&format!(
                 r#"{{"kind":"{k}","params":{{"port":1}},"detail":"d"}}"#
             ))
@@ -805,6 +814,19 @@ mod tests {
             ("other", "細かい理由", true)
         );
         assert_eq!(BootFailure::server_exited("x").kind, "server-exited");
+    }
+
+    // Node が見つからないときは専用の種類にし、要る版などの数と、調べた場所の詳細を頁へ渡す。
+    #[test]
+    fn a_missing_node_is_its_own_kind_with_its_params_and_detail() {
+        let params = obj(serde_json::json!({"major": 22, "arch": "arm64", "reason": "missing"}));
+        let f = BootFailure::node_missing(params.clone(), "Node 22 (arm64) was not found.");
+        assert_eq!(f.kind, "node-missing");
+        assert_eq!(f.params, params);
+        assert_eq!(f.detail, "Node 22 (arm64) was not found.");
+        let v: Value = serde_json::from_str(&payload(&f, &env())).unwrap();
+        assert_eq!(v["kind"], "node-missing");
+        assert_eq!(v["params"]["major"], 22);
     }
 
     #[test]

@@ -147,6 +147,15 @@ const retry = $('boot-retry');
 const openLog = $('boot-log');
 const copyCommand = $('fail-command-copy');
 const copyAll = $('fail-copy-all');
+const foot = retry.parentElement;
+const primary = $('fail-primary');
+const toggle = $('fail-detail-toggle');
+const detailBox = $('fail-detail-box');
+// 畳んだ詳細の開閉。開いているときだけ、詳細の枠を見せる。
+const expand = (open) => {
+  detailBox.hidden = !open;
+  toggle.setAttribute('aria-expanded', String(open));
+};
 const invoke = (...a) => window.__TAURI_INTERNALS__?.invoke?.(...a);
 
 // 試験のための書き出し（lib.rs の boot_probe）。殻が HANGAR_BOOT_PROBE を持って起きたときだけ、boot_state が probe を真で返す。
@@ -203,6 +212,11 @@ window.__hangarBootFail = (info) => {
   document.documentElement.lang = v.lang;
   $('fail-title').textContent = v.title;
   $('fail-what').textContent = v.what;
+  // Node が無いときの札は、次にすることの列の代わりに、命令の前の 1 文を出す。
+  $('fail-lead').hidden = v.lead === null;
+  $('fail-lead').textContent = v.lead ?? '';
+  $('fail-next').hidden = v.steps.length === 0;
+  $('fail-steps').hidden = v.steps.length === 0;
   $('fail-next').textContent = v.labels.whatNext;
   $('fail-steps').replaceChildren(...v.steps.map((step) => Object.assign(document.createElement('li'), { textContent: step })));
   $('fail-command-box').hidden = v.command === null;
@@ -216,6 +230,13 @@ window.__hangarBootFail = (info) => {
   openLog.textContent = v.labels.openLog;
   retry.textContent = v.labels.tryAgain;
   retry.disabled = false;
+  // 前置きの文のある札（Node が無いとき）は、主の釦を命令のすぐ下へ移す。ほかの札では下端に戻す。
+  (v.lead !== null ? primary : foot).append(retry);
+  primary.hidden = v.lead === null;
+  // 詳細を畳む札は、開く 1 行を出して畳んだ状態から始める。ほかの札は開いたまま。
+  $('fail-detail-toggle-label').textContent = v.labels.detailsToggle;
+  toggle.hidden = !v.collapsed;
+  expand(!v.collapsed);
   // 待っている間の絵はもう進まない。印を立てると、流れと待ちの文が止まり、合図の途中だったなら元へ戻す（上の観察）。
   status.dataset.level = 'error';
   main.hidden = true;
@@ -235,6 +256,7 @@ retry.addEventListener('click', () => {
 });
 openLog.addEventListener('click', () => { Promise.resolve(invoke('open_log')).catch(() => {}); });
 copyCommand.addEventListener('click', () => { if (view?.command) copy(view.command, copyCommand, () => view.labels.copyCommand); });
+toggle.addEventListener('click', () => expand(detailBox.hidden));
 copyAll.addEventListener('click', () => { if (view) copy(view.copyText, copyAll, () => view.labels.copyAll); });
 
 // 口を作り終えたので、殻に今の様子を問い合わせ、先に起きたことを引き取る（lib.rs の boot_state）。

@@ -26,7 +26,7 @@ export function HomeScreen(props: HomeScreenProps) {
   const firstCard = (
     <div className="empty-card">
       <h2>{t('home.empty.title')}</h2>
-      <p>{props.note !== null ? t('home.empty.textSetup') : t('home.empty.text')}</p>
+      <p>{props.setup ? t('home.empty.textSetup') : t('home.empty.text')}</p>
       <div className="empty-acts">
         <button type="button" className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="scratch" />{t('home.idle.quick')}</button>
         <button type="button" className="btn" onClick={() => emit({ type: 'session.new.open' })}><Icon name="add" />{t('home.idle.new')}</button>

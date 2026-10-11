@@ -132,8 +132,14 @@ export function readinessComplete(r: ReadinessDto): boolean {
   return checksOf(r).every((c) => c.ok);
 }
 
-/** 帯の群 1 つと、帯の右端の注記。 */
-export type ReadinessBand = { group: BandGroup; note: string };
+/** 帯の群 1 つと、帯の右端の注記。注記は始めるのに要る道具が足りないときだけ持つ。 */
+export type ReadinessBand = { group: BandGroup; note: string | null };
+
+/** 名前を並べる。最後の 2 つは「と」でつなぎ、それより前は読点でつなぐ。 */
+function joinNames(t: Translate, names: string[]): string {
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(t('home.ready.separator'))}${t('home.ready.and')}${names.at(-1)}`;
+}
 
 /** 動かせないツールの理由の文。パスがあればパスを主語にする。 */
 function toolProblem(t: Translate, c: ToolCheckDto): string {
@@ -148,7 +154,9 @@ const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.too
 /**
  * 始める前の確認を、ホームの帯の群にする（設計書 2.11.4、試作の始める前の確認の B）。
  * 引き出しには直すものだけを 1 行ずつ出し（必須を先、任意を後ろ）、済んだものは 1 行に畳む（fold）。
- * 錠剤は「6 つ中 3 つ」（分母は任意の行も含めて数え、互換の未確認の版は済んだものに数える）で、件数は直すものの数である。
+ * 錠剤は「準備完了 3 / 6」（分母は任意の行も含めて数え、互換の未確認の版は済んだものに数える）で、件数は直すものの数である。
+ * 残りの件数の要約は持たない（錠剤の数と並ぶと読み取りにくかった）。
+ * 帯の右端の文は、始めるのに要る道具（tmux の役の道具と claude）のうち足りないものだけを名指しし、揃っていれば出さない。
  * 必須が済んで任意の行だけが残るか、全部そろったときは null で、帯の群を出さない。
  * 互換のずれは、直すものとして残る（任意の札は付けない）。
  * 右端のボタンは 1 つで、いまは「設定を開く」か「コマンドをコピー」である（段 5 で文が替わるだけにする）。
@@ -230,12 +238,12 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
   const todo = checks.filter((c) => !c.ok).sort((a, b) => Number(OPTIONAL.has(a.key)) - Number(OPTIONAL.has(b.key)));
   const done = checks.filter((c) => c.ok);
   const total = checks.length;
-  const basics = checks.filter((c) => c.key === 'tmux' || c.key === 'claude').every((c) => c.ok);
+  // 始めるのに要る道具のうち、足りないもの。tmux の役の道具は OS の名で言う（Windows は psmux）。
+  const lacking = checks.filter((c) => (c.key === 'tmux' || c.key === 'claude') && !c.ok).map((c) => name(c.key));
   const group: BandGroup = {
     id: 'readiness', label: t('home.ready.label'), icon: 'alert', tone: 'warn', count: todo.length, countText: t('home.ready.progress', { done: done.length, total }),
-    progress: Math.round((done.length / total) * 100), summary: t('home.ready.summary', { n: todo.length }), morning: true, rows: todo.map(fixRow),
+    progress: Math.round((done.length / total) * 100), summary: '', morning: true, rows: todo.map(fixRow),
     fold: done.length > 0 ? { text: t('home.ready.fold', { names: done.map((c) => name(c.key)).join(t('home.ready.separator')) }), rows: done.map(doneRow) } : undefined,
   };
-  // 欠けているときの文は、tmux の役の道具を OS の名で言う（Windows は psmux）。
-  return { group, note: basics ? t('home.ready.noteStart', { n: todo.length }) : t('home.ready.noteNeed', { mux: muxName(platform), n: todo.length }) };
+  return { group, note: lacking.length === 0 ? null : t('home.ready.noteNeed', { names: joinNames(t, lacking) }) };
 }
