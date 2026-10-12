@@ -252,6 +252,14 @@ describe('run とアカウントと使用量', () => {
     expect(b.r.runs.listAlive()).toEqual({ runs: [], tabs: [] });
   });
 
+  it('同じファイルの編集の見張りを組む。実行中が 2 本に満たなければ写しは空のまま', () => {
+    const b = boot();
+    b.d.registry.start();
+    b.r.primeLive();
+    b.r.overlaps.tick();
+    expect(b.h.db.prepare('select count(*) n from session_overlaps').get()).toEqual({ n: 0 });
+  });
+
   it('アカウントは最初の 1 つだけがあり、分からない payload の使用量は最初のアカウントに数える', () => {
     const b = boot();
     expect(b.r.accounts.store.list().length).toBe(1);

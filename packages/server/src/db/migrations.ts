@@ -386,6 +386,46 @@ alter table session_notes drop column memo;
 `;
 
 /**
+ * 版 22。中断の再開と、同じファイルの編集の警告に使う端末ローカルの表を足す（0.5.0）。どれも同期しない。
+ *
+ * - interrupted_runs は、中断の群（ホームの帯の「前回実行中」）の行である。
+ *   起動の見回りで tmux のセッションが無かった run（cause が restart）と、hangar が動いている間に tmux のサーバごと消えた run（mux）を、1 つの束として持つ。
+ *   at は束を記録した時刻、last_live は止まる前の最後の状態（busy、waiting、idle。分からなければ null）、dismissed_at は「再開しない」と決めた時刻である。
+ *   新しい束を記録すると、前の束の行は消す（runs/interrupted.ts）。
+ * - run_last_live は、生きた run ごとの最後の状態（Claude の登録の status）である。中断の群の並びと行の文に使う。
+ * - session_overlaps は、同じファイルを別のセッションと編集していることの写しで、payload は SessionOverlapDto の JSON である。
+ *   見張り（sessions/overlap.ts）が書き直し、セッションの行に左結合して配る。
+ * - overlap_dismissals は「このファイルでは表示しない」の印である。2 つのセッションの id は小さい方を session_a に置く。
+ */
+const V22_RESUME_CONFLICT_SQL = `
+create table interrupted_runs (
+  run_id text primary key,
+  session_id text not null,
+  at integer not null,
+  cause text not null check (cause in ('restart','mux')),
+  last_live text,
+  dismissed_at integer
+);
+create table run_last_live (
+  run_id text primary key,
+  status text not null,
+  at integer not null
+);
+create table session_overlaps (
+  session_id text primary key,
+  payload text not null,
+  updated_at integer not null
+);
+create table overlap_dismissals (
+  session_a text not null,
+  session_b text not null,
+  path text not null,
+  at integer not null,
+  primary key (session_a, session_b, path)
+);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -397,4 +437,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 19, sql: V19_DROP_LEGACY_CONFIG_SQL },
   { version: 20, sql: V20_TODO_SUGGESTION_SQL },
   { version: 21, sql: V21_DROP_SESSION_MEMO_SQL },
+  { version: 22, sql: V22_RESUME_CONFLICT_SQL },
 ];

@@ -15,6 +15,7 @@ import { readRegistry } from '../provider/claude-code/registry.ts';
 import { RunAccounts } from '../runs/accounts.ts';
 import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
+import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
 import { ParkWatch, parkedSessionIds } from '../sessions/park.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
@@ -57,7 +58,9 @@ export type RunsParts = {
   start(): void;
   /** 自端末の生存を devices に刻み、周期で刻み続ける。 */
   startPresence(): void;
-  /** 休みの見張りの周期を止める。 */
+  /** 同じファイルの編集の見張り。「このファイルでは表示しない」の後に、すぐ読み直させる。 */
+  overlaps: OverlapWatch;
+  /** 休みの見張りと、同じファイルの編集の見張りの周期を止める。 */
   stopParkTimer(): void;
   /** 生存の刻みの周期を止める。 */
   stopPresence(): void;
@@ -133,11 +136,15 @@ export function bootRuns(
   announceAccountsOnRunStarted(runs, accounts);
   const liveChange = createLiveChangeHandler({ db, deviceId: device.id, hub, resetPark: (id) => parkWatch.reset(id), linkRegistry: (live) => runs.linkRegistry(live) });
   registry.onChange(liveChange.onChange);
+  // 同じファイルの編集の見張り。作業中だったかを、登録の状態の移り変わりから覚える。
+  const overlaps = new OverlapWatch({ db, live: () => registry.current() });
+  registry.onChange((live) => overlaps.noteLive(live));
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;
+  let overlapTimer: ReturnType<typeof setInterval> | null = null;
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
   return {
-    runs, usage, accounts, claudeBin, localClaude,
+    runs, usage, accounts, claudeBin, localClaude, overlaps,
     writeShellScript: shell.write,
     shellHook: () => measureShellHook({ db, deviceId: device.id, shellHook: shell.hook, touch }),
     // 設定は書き替わるので、外部連携は呼ばれた時点の settings を読む。
@@ -152,7 +159,12 @@ export function bootRuns(
       compatLocalVersion: localClaude.refreshVersion,
     }),
     compat: localClaude.compat,
-    primeLive: () => liveChange.prime(registry.current()),
+    primeLive: () => {
+      liveChange.prime(registry.current());
+      // 最初の読み取りは onChange を通らないので、生きた run の最後の状態と、状態の移り変わりもここで覚える。
+      runs.noteLastLive(registry.current());
+      overlaps.noteLive(registry.current());
+    },
     start() {
       // 前回の終了時に生きていた run のうち、tmux セッションが残っていないものを lost で閉じる。
       const lost = runs.recoverAtStartup();
@@ -167,13 +179,24 @@ export function bootRuns(
         }
       }, RUN_POLL_MS);
       parkTimer.unref();
+      overlapTimer = setInterval(() => {
+        try {
+          overlaps.tick();
+        } catch (e) {
+          console.error('[overlap]', e instanceof Error ? e.message : e);
+        }
+      }, OVERLAP_TICK_MS);
+      overlapTimer.unref();
     },
     startPresence() {
       touch();
       deviceTimer = setInterval(touch, DEVICE_TOUCH_MS);
       deviceTimer.unref();
     },
-    stopParkTimer() { if (parkTimer) clearInterval(parkTimer); },
+    stopParkTimer() {
+      if (parkTimer) clearInterval(parkTimer);
+      if (overlapTimer) clearInterval(overlapTimer);
+    },
     stopPresence() { if (deviceTimer) clearInterval(deviceTimer); },
   };
 }

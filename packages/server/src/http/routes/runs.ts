@@ -3,12 +3,13 @@ import { MAX_JUMP_HEADS, PROMPT_HEAD_LEN as HEAD_LEN, type LaunchParams } from '
 import { RunError } from '../../runs/manager.ts';
 import type { JumpFrom } from '../../provider/claude-code/screen/promptJump.ts';
 import { decodeTerminalRequest } from '../../runs/terminal.ts';
+import { interruptedGroup, setInterruptedDismissed } from '../../runs/interrupted.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { beforeLaunchOf, BODY_LIMITS, externalOf, readJson, runResult, runResultAsync, sessionOf, tooLargeResult } from './common.ts';
 
 /** run の経路が使う依存。 */
-export type RunRouteDeps = Pick<AppDeps, 'runs' | 'sync' | 'resumeHere' | 'external' | 'token' | 'db' | 'deviceId' | 'live'> & LanguageDeps;
+export type RunRouteDeps = Pick<AppDeps, 'runs' | 'sync' | 'resumeHere' | 'external' | 'token' | 'db' | 'deviceId' | 'live' | 'hub'> & LanguageDeps;
 
 /**
  * run の経路。
@@ -33,6 +34,19 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
       if (e instanceof RunError) return c.json({ error: errorText(language(), e) }, e.status);
       throw e;
     }
+  });
+
+  // 中断の群の「再開しない」（dismissed が真）と、その取り消し（偽）。新しい群を返し、画面へも配る。
+  api.post('/interrupted/dismiss', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const body = (b.value ?? {}) as { runIds?: unknown; dismissed?: unknown };
+    const ids = body.runIds;
+    if (!Array.isArray(ids) || !ids.every((x): x is string => typeof x === 'string') || typeof body.dismissed !== 'boolean') return c.json({ error: tr('http.request.badShape') }, 400);
+    setInterruptedDismissed(deps.db, ids, body.dismissed, Date.now());
+    const interrupted = interruptedGroup(deps.db);
+    deps.hub.broadcast({ type: 'interrupted.update', interrupted });
+    return c.json({ interrupted });
   });
 
   api.get('/runs', (c) => c.json(deps.runs.listAlive()));

@@ -8,6 +8,7 @@ import { EDIT_TOOLS } from '../../indexer/indexFile.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
+import { dismissOverlap } from '../../sessions/overlap.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
@@ -17,7 +18,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -160,6 +161,19 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const id = c.req.param('id');
     if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     return stateResult(c, () => rejectSessionState(db, deviceId, id));
+  });
+  // 同じファイルの編集の警告の「このファイルでは表示しない」。相手（with）とパスの組で覚え、向きによらず効く。
+  api.post('/sessions/:id/overlap/dismiss', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const body = (b.value ?? {}) as { with?: unknown; paths?: unknown };
+    const paths = body.paths;
+    if (typeof body.with !== 'string' || body.with === '' || !Array.isArray(paths) || paths.length === 0 || !paths.every((x): x is string => typeof x === 'string')) {
+      return c.json({ error: tr('http.request.badShape') }, 400);
+    }
+    dismissOverlap(db, c.req.param('id'), body.with, paths, Date.now());
+    deps.overlapRefresh?.();
+    return c.body(null, 204);
   });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');

@@ -49,6 +49,21 @@ describe('run の出来事を画面へ配る', () => {
     expect(sent.map((e) => e.type)).toEqual(['run.ended']);
     expect(ended).toEqual([s1]);
   });
+
+  it('lost で終わった run は、中断の印が変わるのでセッションも配り直す', () => {
+    const l = runAnnouncer({ db, hub: publisher, onEnded: () => {} });
+    l.runEnded({ ...run(), endedAt: 9, endReason: 'lost' });
+    publisher.flush();
+    expect(sent.map((e) => e.type)).toEqual(['run.ended', 'session.upsert']);
+  });
+
+  it('中断の群が変わったら、群ごと配る', () => {
+    const l = runAnnouncer({ db, hub: publisher, onEnded: () => {} });
+    l.interrupted({ at: 5, cause: 'mux', items: [] });
+    l.interrupted(null);
+    publisher.flush();
+    expect(sent).toEqual([{ type: 'interrupted.update', interrupted: { at: 5, cause: 'mux', items: [] } }, { type: 'interrupted.update', interrupted: null }]);
+  });
 });
 
 describe('セッションがいま動いているか', () => {
