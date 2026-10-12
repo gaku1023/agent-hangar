@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { checkDirName, exists, makeProjectDir, ProjectCreateError } from './create.ts';
+import { checkDirName, exists, makeProjectDir, parentDirOf, ProjectCreateError } from './create.ts';
 import { insertProject } from './registry.ts';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { isUnderScratch, scratchRoot } from './scratch.ts';
@@ -151,7 +151,7 @@ function undoneReason(from: string, to: string, done: Done[], name: string, caus
  */
 export function promoteSession(
   deps: PromoteDeps,
-  o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean },
+  o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string | null },
 ): PromoteResult {
   const s = deps.db.prepare('select id, cwd from sessions where id = ? and deleted_at is null').get(o.sessionId) as { id: string; cwd: string } | undefined;
   if (!s) throw new PromoteError(404, msg('session.error.notFound'));
@@ -159,7 +159,8 @@ export function promoteSession(
   if (!isUnderScratch(deps.home, s.cwd)) throw new PromoteError(400, msg('project.promote.notScratch'));
 
   // 1. ディレクトリを作り、必要なら git init。失敗したら作ったものを片付けて終える（create.ts）。
-  const dir = makeProjectDir(deps.workspaceRoot, name, o.gitInit, deps.gitInit);
+  // 作る場所は、呼び手が選んだ parent か、設定の作成場所である。どちらも無ければ断る（parentDirOf）。
+  const dir = makeProjectDir(parentDirOf(deps.workspaceRoot, o.parent), name, o.gitInit, deps.gitInit);
 
   // 2. プロジェクトとこの端末のルート。3. セッションの紐づけ。
   let projectId = '';

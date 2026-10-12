@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { InstructionFileDto, InstructionFileKind } from '@agent-hangar/shared';
+import { repoRoot } from '../git/repoRoot.ts';
 
 /**
  * 指示とメモリのファイルを探す手がかり。
@@ -68,31 +69,6 @@ function agentsRead(projectPath: string, env: InstructionsEnv): boolean {
   if (mode === 'claude-md-and-agents-md') return true;
   if (mode === 'claude-md' || mode === 'managed-only') return false;
   return !hasClaudeFile(projectPath, env);
-}
-
-/**
- * 自動メモリの場所を決める git のリポジトリの根。
- * worktree（.git がファイル）は gitdir の commondir をたどり、元のリポジトリの根にする。git の外ならプロジェクトのフォルダである。
- */
-function repoRoot(projectPath: string): string {
-  for (let dir = projectPath; ; dir = path.dirname(dir)) {
-    const dotGit = path.join(dir, '.git');
-    let st: fs.Stats | null = null;
-    try { st = fs.statSync(dotGit); } catch { st = null; }
-    if (st?.isDirectory()) return dir;
-    if (st?.isFile()) {
-      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
-      if (!m) return dir;
-      const gitdir = path.resolve(dir, m[1]!.trim());
-      try {
-        const common = path.resolve(gitdir, fs.readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim());
-        return path.basename(common) === '.git' ? path.dirname(common) : dir;
-      } catch {
-        return dir;
-      }
-    }
-    if (path.dirname(dir) === dir) return projectPath;
-  }
 }
 
 /** autoMemoryDirectory の値を絶対パスにする。絶対パスか ~/ で始まるものだけを受け、ほかは null。 */

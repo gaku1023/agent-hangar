@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionDto, SessionStateDto } from '@agent-hangar/shared';
 import { initialStore, type Store } from '../store/store.ts';
-import { dueOn, matchesStatus, presentSessionRow, returnKey, sortForList, type SessionRowProps } from './row.ts';
+import { returnHasCome, matchesStatus, presentSessionRow, returnKey, sortForList, type SessionRowProps } from './row.ts';
 
 /** 2026-10-02（金）の朝 9 時。 */
 const NOW = new Date(2026, 9, 2, 9, 0).getTime();
@@ -41,10 +41,14 @@ describe('区切りを付けて休みのまま残っているもの（parked）�
 });
 
 describe('戻る日が壊れた Paused', () => {
-  it('dueOn は、欠けた日と暦に無い日と形の違う日を、戻る日が来たものに数える', () => {
-    expect(dueOn('2026-10-02', '2026-10-02')).toBe(true);
-    expect(dueOn('2026-10-03', '2026-10-02')).toBe(false);
-    for (const bad of [null, '2026-02-30', 'いつか']) expect(dueOn(bad, '2026-10-02')).toBe(true);
+  it('returnHasCome は、暦に無い日と形の違う日を来たものに数え、日付なし（null と空）は数えない。時刻つきは時刻から', () => {
+    const now = new Date(2026, 9, 2, 9, 0).getTime();
+    expect(returnHasCome('2026-10-02', null, now)).toBe(true);
+    expect(returnHasCome('2026-10-03', null, now)).toBe(false);
+    expect(returnHasCome('2026-10-02', '10:00', now)).toBe(false);
+    expect(returnHasCome('2026-10-02', '09:00', now)).toBe(true);
+    for (const bad of ['2026-02-30', 'いつか']) expect(returnHasCome(bad, null, now)).toBe(true);
+    for (const none of [null, '']) expect(returnHasCome(none, null, now)).toBe(false);
   });
   it('returnKey は正しい戻る日に時刻（無ければその日の最後）を添え、欠けた日と壊れた日を空にする（Home が使い回す）', () => {
     expect(returnKey(paused('a', '2026-10-05'))).toBe('2026-10-05 24:00');

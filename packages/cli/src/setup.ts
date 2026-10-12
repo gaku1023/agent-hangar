@@ -63,7 +63,7 @@ export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir
     deviceId: device.id,
     tools,
     workspaceRoot: settings.workspaceRoot,
-    workspaceExists: fs.existsSync(settings.workspaceRoot),
+    workspaceExists: settings.workspaceRoot !== '' && fs.existsSync(settings.workspaceRoot),
     statusline: statuslineStatus(opts.claudeDir ?? settings.claudeDir ?? defaultClaudeDir()),
   };
 }
@@ -71,8 +71,10 @@ export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir
 export function formatSetupReport(r: SetupReport): string {
   const lines = [`データディレクトリ: ${r.home}`, `端末 ID: ${r.deviceId}`];
   for (const t of r.tools) lines.push(`${t.name}: ${t.found ? t.path : '見つかりません'}`);
-  lines.push(`ワークスペース: ${r.workspaceRoot}${r.workspaceExists ? '' : '（存在しません。hangar setup --workspace <dir> で変えられます）'}`);
+  // 作成場所は任意（2026-10-13）。空なら決めていないと言い、プロジェクトはアプリのホームで選べることを添える。
+  if (r.workspaceRoot === '') lines.push('新しいフォルダの作成場所: 未設定（任意。hangar setup --workspace <dir> で決められます）');
+  else lines.push(`新しいフォルダの作成場所: ${r.workspaceRoot}${r.workspaceExists ? '' : '（存在しません。hangar setup --workspace <dir> で変えられます）'}`);
   lines.push(r.statusline.installed ? 'statusline: 追記済み' : r.statusline.scriptPath ? 'statusline: 未追記（hangar statusline install で追記できます）' : 'statusline: スクリプトが見つかりません');
-  lines.push('プロジェクトの自動登録は hangar start の起動時に行います。');
+  lines.push(r.workspaceRoot === '' ? 'プロジェクトは、アプリのホームで、Claude Code と会話したフォルダから選べます。' : 'プロジェクトの自動登録は hangar start の起動時に行います。');
   return lines.join('\n');
 }

@@ -11,6 +11,7 @@ import { useT } from './primitives/language.tsx';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { CheckCard } from './primitives/OptionCard.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
+import { ParentField, parentReady } from './ParentField.tsx';
 
 type Mode = 'newDir' | 'dir';
 /** 選んだフォルダの名前。根だけのパス（`/`、`C:\`）は名前を持たないので空にする。 */
@@ -29,6 +30,9 @@ export function NewProjectDialog(props: NewProjectProps) {
   const [name, setName] = useState('');
   const [gitInit, setGitInit] = useState(true);
   const [path, setPath] = useState('');
+  // 作成場所（設定）が空のときに選ぶ、新しいフォルダを作る場所。
+  const [parent, setParent] = useState('');
+  const rootless = props.workspaceRoot === '';
   const [query, setQuery] = useState('');
   // 一覧の中でキーが指している行。Listbox と同じく、フォーカスは検索欄に置いたまま aria-activedescendant で示す。
   const [active, setActive] = useState(0);
@@ -46,19 +50,22 @@ export function NewProjectDialog(props: NewProjectProps) {
     const p = props.picked;
     if (!p || p.n <= pickedAtOpen.current) return;
     pickedAtOpen.current = p.n;
+    // 作成場所が空で新しいフォルダを作っているときの Finder は、作る場所を選ぶもの（ParentField が受ける）。
+    if (rootless && mode === 'newDir') return;
     setMode('dir');
     choosePath(p.path);
   }, [props.picked?.n]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = (startSession: boolean) => {
     if (props.submitting) return;
-    const place: ProjectPlace = mode === 'newDir' ? { kind: 'newDir', name, gitInit } : { kind: 'dir', path, name: name.trim() || undefined };
+    const place: ProjectPlace = mode === 'newDir' ? { kind: 'newDir', name, gitInit, ...(rootless ? { parent: parent.trim() } : {}) } : { kind: 'dir', path, name: name.trim() || undefined };
     emit({ type: 'project.new.submit', place, startSession });
   };
   // Enter は「作成して始める」。変換中の Enter は確定のための打鍵なので、送信に使わない。
   const onEnter = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter' || isComposing(e)) return;
     e.preventDefault();
+    if (blocked) return;
     submit(true);
   };
 
@@ -82,8 +89,10 @@ export function NewProjectDialog(props: NewProjectProps) {
     // Enter は行を選ぶだけで、送信はしない。
     else if (e.key === 'Enter') { e.preventDefault(); if (current >= 0) choosePath(shown[current]!.path); }
   };
-  // 親フォルダが届く前の仮の場所。区切りは画面の OS に合わせる。
-  const root = props.workspaceRoot ?? joinPath('~', 'workspace');
+  // 作る場所。作成場所が空なら選んだ場所で、設定が届く前は仮の場所にする。区切りは画面の OS に合わせる。
+  const root = rootless ? parent.trim() : props.workspaceRoot ?? joinPath('~', 'workspace');
+  // 作成場所が空で、作る場所をまだ選んでいなければ送れない。
+  const blocked = mode === 'newDir' && !parentReady(props.workspaceRoot, parent);
   const close = () => emit({ type: 'overlay.close' });
   // 名前を打ちかけたまま背景を押し違えても失わないよう、背景では閉じない。
   return (
@@ -96,8 +105,8 @@ export function NewProjectDialog(props: NewProjectProps) {
       footer={<>
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <span className="spacer" />
-        <button type="button" className="btn" disabled={props.submitting} onClick={() => submit(false)}>{t('newProject.footer.create')}</button>
-        <button type="button" className="btn btn-primary" disabled={props.submitting} onClick={() => submit(true)}>{t('newProject.footer.createAndStart')}</button>
+        <button type="button" className="btn" disabled={props.submitting || blocked} onClick={() => submit(false)}>{t('newProject.footer.create')}</button>
+        <button type="button" className="btn btn-primary" disabled={props.submitting || blocked} onClick={() => submit(true)}>{t('newProject.footer.createAndStart')}</button>
       </>}
     >
       <div><Segmented label={t('newProject.mode.aria')} value={mode} options={modes} onChange={(v) => setMode(v as Mode)} /></div>
@@ -106,7 +115,8 @@ export function NewProjectDialog(props: NewProjectProps) {
           <label className="field" htmlFor="new-project-name">{t('newProject.field.name')}
             <input id="new-project-name" className="input mono" data-autofocus value={name} placeholder={t('newProject.field.namePlaceholder')} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} onKeyDown={onEnter} />
           </label>
-          <div className="faint">{t('newProject.name.willCreate', { path: joinPath(root, name.trim()) })}</div>
+          {rootless && <ParentField value={parent} onChange={setParent} desktop={props.desktop} picked={props.picked} />}
+          {root !== '' && <div className="faint">{t('newProject.name.willCreate', { path: joinPath(root, name.trim()) })}</div>}
           <CheckCard label={t('newProject.gitInit.label')} description={t('newProject.gitInit.description')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
         </>
       ) : (

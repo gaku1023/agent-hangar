@@ -14,6 +14,5 @@ export const readinessKeys = {
   'readiness.problem.wrongNode': ['path', 'found', 'foundArch', 'major', 'arch'],
   'readiness.tool.autoFound': [],
   'readiness.tool.optional': [],
-  'readiness.workspace.empty': [],
   'readiness.workspace.projects': ['n'],
 } as const satisfies MessageSpec;

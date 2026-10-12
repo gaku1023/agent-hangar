@@ -5,7 +5,7 @@ export const readinessJa: AreaDictionary<typeof readinessKeys> = {
   'readiness.fix.claude': 'claude コマンドの絶対パスを入力してください',
   'readiness.fix.git': 'git をインストールしてください。無くても動きますが、ブランチと未コミットの件数は出ません',
   'readiness.fix.node': '同梱のサーバと同じメジャー版とアーキテクチャの Node を、node の実行ファイルのフルパスで入力してください',
-  'readiness.fix.workspace': 'セッションのあるディレクトリをまとめた場所を入力してください',
+  'readiness.fix.workspace': 'フォルダを作る場所を入力するか、欄を空にしてください',
   'readiness.problem.unset': '見つかりません',
   'readiness.problem.notFile': '{path} はファイルではありません',
   'readiness.problem.notExecutable': '{path} には実行権がありません',
@@ -15,6 +15,5 @@ export const readinessJa: AreaDictionary<typeof readinessKeys> = {
   'readiness.problem.wrongNode': '{path} は Node {found}（{foundArch}）です。Node {major}（{arch}）が要ります',
   'readiness.tool.autoFound': '自動で見つけました',
   'readiness.tool.optional': '無くても動きます',
-  'readiness.workspace.empty': '直下に、Claude のセッションがあるディレクトリがありません',
   'readiness.workspace.projects': 'プロジェクト {n} 件',
 };

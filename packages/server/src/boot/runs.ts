@@ -7,6 +7,7 @@ import type { Settings } from '../config/paths.ts';
 import { createReadiness } from '../config/readiness.ts';
 import { bundledHangarIn, createShellWrap } from '../config/shellWrap.ts';
 import { createExternalApi } from '../external/api.ts';
+import { folderCandidates } from '../projects/candidates.ts';
 import { currentEditor, defaultEditorHost } from '../external/editors.ts';
 import { announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from '../http/accounts.ts';
 import type { ExternalApi } from '../http/deps.ts';
@@ -187,6 +188,8 @@ export function bootRuns(
       compatLocalVersion: localClaude.refreshVersion,
       // 選んだエディタで開けるか（始める前の確認のエディタの行）。版は読まない。
       editor: async () => currentEditor(settings.current.editor, defaultEditorHost()),
+      // 始める前の確認の「プロジェクト」の行。プロジェクトが 1 件も無いときだけ、会話したフォルダの候補を数える。
+      candidateCount: () => folderCandidates(db, device.id, { hangarHome: home.home, workspaceRoot: settings.current.workspaceRoot }).candidates.length,
     }),
     compat: localClaude.compat,
     primeLive: () => {

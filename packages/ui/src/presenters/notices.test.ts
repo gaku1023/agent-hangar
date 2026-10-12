@@ -61,9 +61,10 @@ describe('presentNotices：事実から行を組む', () => {
     const store = storeOf(withSessions([paused('pay', '2026-10-02', '13:30', '夜間の再計測を見る'), paused('slow', '2026-10-02', '08:35'), paused('stale', '2026-09-29'), paused('plain', '2026-10-02')]));
     const rows = presentNotices(initialState(), store, NOW).rows;
     const by = Object.fromEntries(rows.map((r) => [r.key.split('|')[1]!, r]));
-    expect(by.pay).toMatchObject({ key: 'reminder|pay|2026-10-02 13:30', kind: 'reminder', tone: 'warn', kindLabel: 'リマインダー', title: 'pay', detail: '夜間の再計測を見る', when: '今日 13:30', unread: true });
-    expect(by.pay!.action).toEqual({ label: 'セッションを開く', send: { type: 'session.open', id: 'pay' } });
-    expect(by.slow!.when).toBe('25 分過ぎ');
+    // 時刻つきは、時刻を過ぎてから行にする（2026-10-13）。
+    expect(by.pay).toBeUndefined();
+    expect(by.slow).toMatchObject({ key: 'reminder|slow|2026-10-02 08:35', kind: 'reminder', tone: 'warn', kindLabel: 'リマインダー', title: 'slow', when: '25 分過ぎ', unread: true });
+    expect(by.slow!.action).toEqual({ label: 'セッションを開く', send: { type: 'session.open', id: 'slow' } });
     expect(by.stale).toMatchObject({ key: 'reminder|stale|2026-09-29', when: '3 日過ぎ' });
     expect(by.plain!.when).toBe('今日');
   });
@@ -76,9 +77,10 @@ describe('presentNotices：事実から行を組む', () => {
     expect(rows[0]!.detail).toBeNull();
   });
 
-  it('戻る日が壊れた Paused は「日付なし」の行にする', () => {
-    const [row] = presentNotices(initialState(), storeOf(withSessions([paused('x', null)])), NOW).rows;
+  it('戻る日が壊れた Paused は「日付なし」の行にする。利用者が選んだ日付なしは行にしない', () => {
+    const [row] = presentNotices(initialState(), storeOf(withSessions([paused('x', '2026-02-30')])), NOW).rows;
     expect(row).toMatchObject({ key: 'reminder|x|none', when: '日付なし' });
+    expect(presentNotices(initialState(), storeOf(withSessions([paused('y', null)])), NOW).rows).toEqual([]);
   });
 
   it('互換は、変更点があるときだけ行にする。未検証の版と変更点なしは行にしない', () => {

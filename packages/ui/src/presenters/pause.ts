@@ -3,14 +3,17 @@ import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { translatorOf } from './i18n.ts';
 
-/** 戻る日の札（B1）。pick（日付を選ぶ…）だけは日を持たず、選んだときに暦の欄を出す。 */
-export type PauseChoice = { key: 'today' | 'tomorrow' | 'monday' | 'nextWeek' | 'pick'; label: string; returnOn: string | null };
+/**
+ * 戻る日の札（B1）。pick（日付を選ぶ…）だけは日を持たず、選んだときに暦の欄を出す。
+ * none（日付なし。2026-10-13）は札の並びの頭に置く枠だけの札で、日を持たない。選ぶと時刻の欄は押せなくなる。
+ */
+export type PauseChoice = { key: 'none' | 'today' | 'tomorrow' | 'monday' | 'nextWeek' | 'pick'; label: string; returnOn: string | null };
 /**
  * Paused の入力。draft は理由の欄の下書き、candidateNote は提案から開いたときの Claude の根拠（変えたかを見るのに使う）。
- * today は暦の欄の下限で、initialReturnOn は開いたときに選んでおく日である。
+ * today は暦の欄の下限で、initialReturnOn は開いたときに選んでおく日である（null は日付なし）。
  * initialReturnTime は時刻の欄に入れておく時刻（HH:MM）で、無ければ空（その日のうち）。candidateReturnTime は提案の時刻で、変えたかを見るのに使う。
  */
-export type PauseProps = { sessionId: string; sessionName: string; from: 'menu' | 'candidate'; draft: string; candidateNote: string | null; initialReturnOn: string; initialReturnTime: string; candidateReturnTime: string | null; today: string; choices: PauseChoice[] };
+export type PauseProps = { sessionId: string; sessionName: string; from: 'menu' | 'candidate'; draft: string; candidateNote: string | null; initialReturnOn: string | null; initialReturnTime: string; candidateReturnTime: string | null; today: string; choices: PauseChoice[] };
 
 /**
  * 戻る日の札を今の手元の暦から作る。
@@ -21,6 +24,7 @@ export function pauseChoices(now: number, t: Translate): PauseChoice[] {
   const today = localDate(now);
   const toMonday = ((8 - new Date(now).getDay()) % 7) || 7;
   return [
+    { key: 'none', label: t('pause.choice.none'), returnOn: null },
     { key: 'today', label: t('pause.choice.today'), returnOn: today },
     { key: 'tomorrow', label: t('pause.choice.tomorrow'), returnOn: addDays(today, 1) },
     { key: 'monday', label: t('pause.choice.monday'), returnOn: addDays(today, toMonday) },
@@ -32,6 +36,7 @@ export function pauseChoices(now: number, t: Translate): PauseChoice[] {
 /**
  * Paused の入力。overlay が pause のときだけ props を作る。
  * 提案から開いたときは根拠を下書きに入れ、提案の日を選んでおく。「⋯」から開いたときは、Paused なら今の理由と日を、ほかは空と明日を入れておく。
+ * 提案や今の Paused が日付なしなら、日付なしを選んでおく。
  */
 export function presentPause(state: State, store: Store, now: number): PauseProps | null {
   if (state.overlay.kind !== 'pause') return null;
@@ -47,10 +52,10 @@ export function presentPause(state: State, store: Store, now: number): PauseProp
     sessionId, sessionName: s.name ?? t('pause.session.unnamed'), from,
     draft: cand ? cand.note ?? '' : own?.note ?? '',
     candidateNote: cand?.note ?? null,
-    initialReturnOn: cand?.returnOn ?? own?.returnOn ?? choices[1]!.returnOn!,
+    initialReturnOn: cand ? cand.returnOn : own ? own.returnOn : choices.find((c) => c.key === 'tomorrow')!.returnOn,
     initialReturnTime: (cand ? cand.returnTime : own?.returnTime) ?? '',
     candidateReturnTime: cand?.returnTime ?? null,
-    today: choices[0]!.returnOn!,
+    today: choices.find((c) => c.key === 'today')!.returnOn!,
     choices,
   };
 }
