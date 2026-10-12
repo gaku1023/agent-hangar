@@ -205,7 +205,7 @@ function aliveRunStarts(db: Db, deviceId: string | undefined): Map<string, numbe
  */
 function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): SessionLimitDto | null {
   if (!live || r.lim_kind === null || r.lim_resets_at === null) return null;
-  return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now) };
+  return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
 function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number): SessionDto {

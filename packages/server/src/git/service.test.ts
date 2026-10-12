@@ -69,6 +69,16 @@ describe.skipIf(!hasGit)('GitService', () => {
     expect(g.trees[repo]).toMatchObject({ root: repo, branch: 'main', dirty: 1, slow: false });
   });
 
+  it('本文に gitBranch が無ければ branch は null（作業ツリーの今のブランチを本文のブランチとして返さない）', async () => {
+    // git でなかった頃に作業したセッションは、本文に gitBranch を持たない。今のブランチはそのときのブランチではない。
+    const repo = makeRepo(path.join(tmp, 'alpha'), { 'a.txt': 'one\n' });
+    const id = writeSession({ cwd: repo, branch: '' });
+    const g = await make().sessions([id]);
+    expect(g.sessions[id]).toEqual({ state: 'ok', root: repo, branch: null, worktree: null });
+    // 今のブランチは作業ツリーの側（trees）にある。実行中のセッションの画面はそちらを使う。
+    expect(g.trees[repo]).toMatchObject({ root: repo, branch: 'main' });
+  });
+
   it('git でないフォルダは nogit、消えた worktree は gone', async () => {
     const plain = path.join(tmp, 'plain');
     fs.mkdirSync(plain);

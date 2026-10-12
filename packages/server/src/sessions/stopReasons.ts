@@ -12,7 +12,7 @@ export function stopReasonsOf(db: Db, live: readonly LiveSessionDto[], now: numb
   const lims = new Map((db.prepare('select s.provider_session_id psid, l.kind, l.resets_at, l.auto from session_limits l join sessions s on s.id = l.session_id').all() as { psid: string; kind: LimitKind; resets_at: number; auto: number }[]).map((r) => [r.psid, r]));
   const limit = (psid: string): SessionLimitDto | null => {
     const r = lims.get(psid);
-    return r && liveOf.has(psid) ? { kind: r.kind, resetsAt: r.resets_at, auto: r.auto === 1, reset: limitReset(r.resets_at, now) } : null;
+    return r && liveOf.has(psid) ? { kind: r.kind, resetsAt: r.resets_at, auto: r.auto === 1, reset: limitReset(r.resets_at, now, r.auto === 1) } : null;
   };
   return {
     limit,

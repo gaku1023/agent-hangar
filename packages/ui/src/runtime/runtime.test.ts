@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
+import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
 import type { TerminalHost } from './terminals.ts';
 import { accountsFixture } from '../test/accounts.ts';
@@ -2533,6 +2534,35 @@ describe('中断の群（ランタイム）', () => {
 });
 
 describe('git の表示（ランタイム）', () => {
+  it('開いたままのプロジェクト画面のブランチと worktree は、周期と、窓が前に戻ったときに読み直す', async () => {
+    const projectGit = vi.fn(async () => ({ root: null, worktrees: [] }));
+    const visible = new Set<() => void>();
+    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    const { rt, wsHandlers, setHash, timers } = harness({ projectGit, bootstrap: vi.fn(async () => ({ ...boot, projects: [p1] })) }, { visible: () => true, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    setHash('#/project/p1');
+    await flush();
+    // 画面が開いたときに読む（ProjectScreen の project.git.load）。
+    rt.emit({ type: 'project.git.load', projectId: 'p1' });
+    await flush();
+    expect(projectGit).toHaveBeenCalledTimes(1);
+    const poll = () => timers.filter((t) => t.ms === GIT_POLL_MS).at(-1)!.fn();
+    poll();
+    await flush();
+    expect(projectGit).toHaveBeenCalledTimes(2);
+    for (const cb of visible) cb();
+    await flush();
+    expect(projectGit).toHaveBeenCalledTimes(3);
+    expect(projectGit).toHaveBeenLastCalledWith('p1');
+    // ほかの画面へ移ったら読まない。
+    setHash('#/');
+    await flush();
+    poll();
+    await flush();
+    expect(projectGit).toHaveBeenCalledTimes(3);
+  });
   it('git.watch はまとめて 1 回で取り、答えを Store に重ねる。Mediator へは渡さない', async () => {
     const gitSessions = vi.fn(async () => ({ sessions: { s1: { state: 'nogit' as const, root: null, branch: null, worktree: null } }, trees: {} }));
     const { rt, timers } = harness({ gitSessions }, { visible: () => true });

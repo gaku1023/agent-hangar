@@ -11,10 +11,15 @@ import { localDate, localTime } from './sessionState.ts';
 export type StopReason = 'permission' | 'limit' | 'reset';
 
 /**
- * リセットの時刻から、自動の続きが始まるのを待つ長さ。
+ * リセットの時刻から、続きが始まるのを待つ長さ。
  * これを過ぎても休みのままなら、自動では続かなかったとみなし、リセット済みとして要対応に上げる。
  */
 export const LIMIT_RESET_GRACE_MS = 90_000;
+/**
+ * 自動で続く予約のある（auto）ものを待つ長さ。
+ * Claude Code の自動の続きは、リセットから 70 秒から 90 秒ほど遅れて始まる（2.1.296 の実測）ので、ふだんの猶予では自動で続くものまでリセット済みにしてしまう。
+ */
+export const LIMIT_RESET_AUTO_GRACE_MS = 150_000;
 
 /**
  * Claude Code の登録の waitingFor の値と、その読み方。
@@ -41,9 +46,14 @@ export function limitKindOf(raw: unknown): LimitKind {
   return 'other';
 }
 
-/** リセットの時刻から猶予を過ぎたか（SessionLimitDto の reset）。 */
-export function limitReset(resetsAt: number, now: number): boolean {
-  return now >= resetsAt + LIMIT_RESET_GRACE_MS;
+/** 猶予の長さ。自動で続く予約のあるものは長めに待つ。 */
+export function limitResetGrace(auto: boolean): number {
+  return auto ? LIMIT_RESET_AUTO_GRACE_MS : LIMIT_RESET_GRACE_MS;
+}
+
+/** リセットの時刻から猶予を過ぎたか（SessionLimitDto の reset）。auto は自動で続く予約があること。 */
+export function limitReset(resetsAt: number, now: number, auto = false): boolean {
+  return now >= resetsAt + limitResetGrace(auto);
 }
 
 /**

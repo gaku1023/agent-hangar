@@ -65,6 +65,25 @@ describe('現在の札の状態の行', () => {
     const plan = call('ExitPlanMode', {});
     expect(present({ live: 'waiting', waitingFor: 'other', events: [plan], activity: { tool: 'ExitPlanMode', summary: '計画の承認', question: null } })).toMatchObject({ detail: '計画の承認', question: true });
   });
+  it('初めの発言の行が呼び出しの行より後に書かれても（時刻は発言が前）、その呼び出しを今のターンに数える', () => {
+    // API がすぐ返すと、Claude Code は Bash の呼び出しを、時刻の早い初めの発言より先に本文へ書くことがある。
+    seq = 0;
+    const old = call('Read', { file_path: '/w/old.ts' }, 1_000);
+    const oldR = res(old);
+    const bash = call('Bash', { command: 'echo perm5 > perm-5.txt' }, 100_055);
+    const turn = prompt('x', 100_000);
+    const activity = { tool: 'Bash', summary: 'Bash echo perm5 > perm-5.txt', question: null };
+    // 許可待ちの間は、手の行に「入力待ち」で出す（前のターンの Read は出さない）。
+    const waiting = present({ live: 'waiting', reason: 'permission', waitingFor: 'permission', events: [old, oldR, bash, turn], turnFrom: turn.seq, activity });
+    expect(waiting.steps.map((x) => [x.name, x.mark])).toEqual([['Bash', 'wait']]);
+    expect(waiting.stepsTotal).toBe(1);
+    // 許可した直後のダイアログでは、答えの出た Bash を問いとして出さず、手の行に済みで出す。
+    const after = present({ live: 'waiting', waitingFor: 'other', events: [old, oldR, bash, turn, res(bash)], turnFrom: turn.seq, activity });
+    expect(after).toMatchObject({ state: '入力待ち', detail: null, question: false });
+    expect(after.steps.map((x) => [x.name, x.mark])).toEqual([['Bash', 'done']]);
+    // 作業中の手の数にも入れる。
+    expect(present({ live: 'busy', events: [old, oldR, bash, turn], turnFrom: turn.seq, now: 160_000 }).sub).toBe('1 手目 · 1 分');
+  });
   it('入力待ちは、動いているサブエージェントや裏の印があっても入力待ちのまま', () => {
     expect(present({ live: 'waiting', aside: { shell: true, agents: 0 }, digest: digest({ agents: [agent({})] }) }).tone).toBe('wait');
   });

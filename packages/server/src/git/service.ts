@@ -147,7 +147,9 @@ export class GitService {
     // 持ち主の違いで git が断った。git でないとはせず、断った場所を持たせる（画面が訳と許し方を言う）。
     if ('unsafe' in loc) return { session: { state: 'unsafe', root: loc.unsafe, branch: hint.branch, worktree: null }, tree: null };
     const tree = await this.tree(loc, exec, maxAge ?? (this.isLive(row) ? LIVE_MAX_AGE_MS : IDLE_MAX_AGE_MS));
-    return { session: { state: 'ok', root: tree.tree.root, branch: hint.branch ?? tree.tree.branch, worktree: loc.worktree }, tree };
+    // branch は本文の gitBranch だけにする。今のブランチ（tree.branch）で埋めると、git でなかった頃の終わったセッションに、そのときではないブランチが出る。
+    // 実行中のセッションの画面は、本文に無ければ作業ツリーの今のブランチ（trees）を使う。
+    return { session: { state: 'ok', root: tree.tree.root, branch: hint.branch, worktree: loc.worktree }, tree };
   }
 
   /** 一覧と (i) の git。見えている行の分だけ呼ばれる。 */

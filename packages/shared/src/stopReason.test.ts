@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isParked, liveFilterOf, quietLive } from './liveFilter.ts';
 import { translator } from './i18n/t.ts';
-import { LIMIT_RESET_GRACE_MS, limitKindOf, limitKindText, limitReset, liveWithLimit, resetAtText, stopReasonOf, waitKindOf } from './stopReason.ts';
+import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, limitKindOf, limitKindText, limitReset, liveWithLimit, resetAtText, stopReasonOf, waitKindOf } from './stopReason.ts';
 
 describe('waitKindOf', () => {
   it('Claude Code が許可として数える値は permission にする', () => {
@@ -38,6 +38,13 @@ describe('limitReset', () => {
   it('リセットの時刻から猶予を過ぎたら真', () => {
     expect(limitReset(1000, 1000 + LIMIT_RESET_GRACE_MS - 1)).toBe(false);
     expect(limitReset(1000, 1000 + LIMIT_RESET_GRACE_MS)).toBe(true);
+  });
+  it('自動で続く予約のあるものは、長めの猶予（LIMIT_RESET_AUTO_GRACE_MS）を待つ', () => {
+    expect(LIMIT_RESET_AUTO_GRACE_MS).toBeGreaterThan(LIMIT_RESET_GRACE_MS);
+    expect(limitReset(1000, 1000 + LIMIT_RESET_GRACE_MS, true)).toBe(false);
+    expect(limitReset(1000, 1000 + LIMIT_RESET_AUTO_GRACE_MS - 1, true)).toBe(false);
+    expect(limitReset(1000, 1000 + LIMIT_RESET_AUTO_GRACE_MS, true)).toBe(true);
+    expect(limitReset(1000, 1000 + LIMIT_RESET_GRACE_MS, false)).toBe(true);
   });
 });
 

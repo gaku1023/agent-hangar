@@ -60,6 +60,21 @@ describe('git の取得', () => {
     await c.advance(GIT_BATCH_MS);
     expect(fetch).toHaveBeenCalledTimes(3);
   });
+  it('行のほかに取り直すもの（開いているプロジェクト画面）は、窓が前にある間の周期と、前に戻ったときに呼ぶ', async () => {
+    const c = clock();
+    const also = vi.fn();
+    let visible = true;
+    const w = createGitWatch({ fetch: vi.fn(async () => empty), apply: () => {}, live: () => [], visible: () => visible, setTimeout: c.setTimeout, now: c.now, also });
+    w.start();
+    await c.advance(GIT_POLL_MS);
+    expect(also).toHaveBeenCalledTimes(1);
+    visible = false;
+    await c.advance(GIT_POLL_MS * 2);
+    expect(also).toHaveBeenCalledTimes(1);
+    visible = true;
+    w.wake();
+    expect(also).toHaveBeenCalledTimes(2);
+  });
   it('取り下げた場所の行は、次から取らない。直前に取った行は同じ並びで取り直さない', async () => {
     const c = clock();
     const fetch = vi.fn(async () => empty);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LIMIT_RESET_GRACE_MS, type LiveSessionDto, type OsNoticeDto } from '@agent-hangar/shared';
+import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, type LiveSessionDto, type OsNoticeDto } from '@agent-hangar/shared';
 import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
@@ -187,6 +187,25 @@ describe('StopNoticeWatch：使用制限', () => {
     w.tick();
     expect(pushed).toEqual([{ kind: 'waiting', sessionId: s1, title: '請求書の書き出し', body: '使用制限がリセットされました。続きを指示してください', bare: false }]);
     expect(touched.sort()).toEqual([s1, s2].sort());
+  });
+
+  it('自動で続く予約のあるものは、自動の続きの遅れを見込んで長めに待ってから、リセット済みとして知らせる', () => {
+    live = [entry('u1', 'idle')];
+    const w = watch();
+    w.tick();
+    const resetsAt = now + 60_000;
+    limitRow(s1, resetsAt, 1);
+    w.tick();
+    pushed = [];
+    touched = [];
+    // Claude Code の自動の続きは、リセットから 70 秒から 90 秒ほど遅れて始まる。ふだんの猶予では知らせない。
+    now = resetsAt + LIMIT_RESET_GRACE_MS;
+    w.tick();
+    expect(pushed).toEqual([]);
+    expect(touched).toEqual([]);
+    now = resetsAt + LIMIT_RESET_AUTO_GRACE_MS;
+    w.tick();
+    expect(pushed).toEqual([{ kind: 'waiting', sessionId: s1, title: '請求書の書き出し', body: '使用制限がリセットされました。続きを指示してください', bare: false }]);
   });
 
   it('索引を作り直したときなどに後から見つかった古い使用制限とリセットは、知らせない', () => {

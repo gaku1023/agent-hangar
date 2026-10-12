@@ -423,7 +423,11 @@ describe('止まっている理由（waitingFor、permission、limit）', () => 
   it('使用制限の行は実行中のときだけ載せ、猶予を過ぎたら reset にする', () => {
     putLimit();
     expect(getSession(db, one({}), alphaId(), { now: () => RESETS - 1000 })!.limit).toEqual({ kind: 'five_hour', resetsAt: RESETS, auto: true, reset: false });
-    expect(getSession(db, one({}), alphaId(), { now: () => RESETS + 90_000 })!.limit).toMatchObject({ reset: true });
+    // 自動で続く予約のあるものは、自動の続きの遅れ（実測で 70 秒から 90 秒）を見込んで長めに待つ。
+    expect(getSession(db, one({}), alphaId(), { now: () => RESETS + 90_000 })!.limit).toMatchObject({ reset: false });
+    expect(getSession(db, one({}), alphaId(), { now: () => RESETS + 150_000 })!.limit).toMatchObject({ reset: true });
+    putLimit(0);
+    expect(getSession(db, one({}), alphaId(), { now: () => RESETS + 90_000 })!.limit).toMatchObject({ auto: false, reset: true });
     expect(getSession(db, [], alphaId())!.limit).toBeNull();
     expect(listSessions(db, one({}), { now: () => RESETS - 1000 }).find((s) => s.id === alphaId())!.limit).toMatchObject({ kind: 'five_hour' });
   });

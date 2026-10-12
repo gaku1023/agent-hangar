@@ -18,12 +18,18 @@ export type GitWatchDeps = {
   visible: () => boolean;
   setTimeout: (fn: () => void, ms: number) => unknown;
   now: () => number;
+  /**
+   * 行のほかに、周期と窓が前に戻ったときに取り直すもの（開いているプロジェクト画面のブランチと worktree）。
+   * 開いたままの画面で、ブランチを替えたり持ち主を直したりしても古いまま残らないようにする。
+   */
+  also?: () => void;
 };
 
 /**
  * git の表示の取り方（0.5.0）。
  * 画面（一覧、セッション画面）は見えている行のセッションを git.watch で知らせ、ここが場所ごとに覚える。
  * 替わったら少し待ってまとめて POST /api/git/sessions を呼び、窓が前にある間は 30 秒ごとに全部を取り直す。
+ * 周期と窓が前に戻ったときには、開いているプロジェクト画面のブランチと worktree（also）も取り直す。
  * 実行中のセッションの書き込みは、サーバが git.upsert で配るので、周期はその取りこぼしを拾う役である。
  * 終わったセッションの値はサーバが 60 秒覚えるので、何度呼んでも git は走らない。
  */
@@ -64,7 +70,7 @@ export function createGitWatch(d: GitWatchDeps) {
 
   function loop(): void {
     d.setTimeout(() => {
-      if (d.visible()) void pull(union());
+      if (d.visible()) { void pull(union()); d.also?.(); }
       loop();
     }, GIT_POLL_MS);
   }
@@ -91,6 +97,7 @@ export function createGitWatch(d: GitWatchDeps) {
     wake(): void {
       fetchedAt.clear();
       soon();
+      d.also?.();
     },
   };
 }

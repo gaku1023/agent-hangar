@@ -135,9 +135,26 @@ function argOf(c: Call): string {
   return (textOf(i.pattern) ?? textOf(i.url) ?? textOf(i.path) ?? '').slice(0, SHORT);
 }
 
+/**
+ * 今のターンの行か。ターンの頭（turnFrom）から後の行のほか、頭より前に並んでいても時刻が頭の時刻より後の行を含める。
+ * API がすぐ返すと、Claude Code は呼び出しの行を、時刻の早い初めの発言の行より先に本文へ書くことがある（使用制限の行の foldLimit と同じ並びの入れ替わり）。
+ * 頭の行が読めていないか時刻が無ければ、seq だけで切る。
+ */
+function turnFilter(i: LiveInput): (e: TranscriptEvent) => boolean {
+  const headTs = i.events.find((e) => e.seq === i.turnFrom)?.ts;
+  if (typeof headTs !== 'number') return (e) => e.seq >= i.turnFrom;
+  return (e) => e.seq >= i.turnFrom || (typeof e.ts === 'number' && e.ts >= headTs);
+}
+
+/** 今のターンの、メイン会話の手（サブエージェントの起こしと hangar 自身の MCP を除く）。 */
+function turnCalls(i: LiveInput, opts: { agents: boolean } = { agents: false }): Call[] {
+  const inTurn = turnFilter(i);
+  return i.events.filter((e): e is Call => isCall(e) && inTurn(e) && (opts.agents || !AGENT_TOOLS.has(e.name)) && !OWN_MCP.test(e.name));
+}
+
 function stripSteps(i: LiveInput, results: ResultMap): { steps: CardStep[]; all: CardStep[]; total: number } {
   if (i.viewingAgent) return { steps: [], all: [], total: 0 };
-  const calls = i.events.filter((e): e is Call => isCall(e) && e.seq >= i.turnFrom && !AGENT_TOOLS.has(e.name) && !OWN_MCP.test(e.name));
+  const calls = turnCalls(i);
   const rows = calls.map((c, n): CardStep => {
     const r = results.get(c.toolId);
     const last = n === calls.length - 1;
@@ -189,7 +206,7 @@ function stripState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCar
  */
 function staleWait(i: CardInput, results: ResultMap): boolean {
   if (i.waitingFor !== 'other' || i.viewingAgent) return false;
-  const last = i.events.filter((e): e is Call => isCall(e) && e.seq >= i.turnFrom && !AGENT_TOOLS.has(e.name) && !OWN_MCP.test(e.name)).at(-1);
+  const last = turnCalls(i).at(-1);
   return last !== undefined && results.has(last.toolId);
 }
 
@@ -206,13 +223,13 @@ function plainState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCar
   }
   const running = (i.digest?.agents ?? []).filter((a) => a.state === 'running').length;
   if (running > 0) {
-    const mainBusy = !i.viewingAgent && i.events.some((e) => isCall(e) && e.seq >= i.turnFrom && !AGENT_TOOLS.has(e.name) && !OWN_MCP.test(e.name) && !results.has(e.toolId));
+    const mainBusy = !i.viewingAgent && turnCalls(i).some((e) => !results.has(e.toolId));
     return { tone: 'busy', state: t('session.strip.state.working'), sub: t('session.strip.subagentsRunning', { n: running }), detail: mainBusy ? t('session.strip.mainWorking') : null, question: false };
   }
   if (i.live === 'busy') {
     // サブエージェントの transcript を開いている間は、手の数も経過もメイン会話のものではないので出さない。
     // 「n 手目」はメイン会話の呼び出しの数。Agent の起こしは数え、hangar 自身の MCP は数えない。経過は今のターンの頭から。
-    const n = i.events.filter((e) => isCall(e) && e.seq >= i.turnFrom && !OWN_MCP.test(e.name)).length;
+    const n = turnCalls(i, { agents: true }).length;
     const time = turnElapsed(i, t);
     const sub = i.viewingAgent ? '' : time === null ? t('session.strip.progressNoTime', { n }) : t('session.strip.progress', { n, time });
     return { tone: 'busy', state: t('session.strip.state.working'), sub, detail: null, question: false };
