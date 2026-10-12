@@ -107,7 +107,7 @@ export type InterruptedDto = { at: number; cause: InterruptCause; items: Interru
  */
 export type OverlapFileDto = { path: string; with: string; mineAt: number; theirsAt: number; alternating: boolean };
 export type SessionOverlapDto = { with: string[]; files: OverlapFileDto[] };
-export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; /** エディタの選択（editor.ts）。0.4.0 までの codePath は、サーバが読むときに editor へ読み替える。 */ editor: import('./editor.ts').EditorSetting; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; /** hangar が起動する claude に、区切りで Done か Paused を聞く段を足すか（既定は入り）。この項目を知らない古いサーバは返さないので、読む側は入りとして読む。 */ askStatusAtEnd?: boolean; /** 同じく、ターンの意図と短い手の説明を求める段を足すか（既定は入り）。読み方は askStatusAtEnd と同じ。 */ liveHints?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
+export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; /** エディタの選択（editor.ts）。0.4.0 までの codePath は、サーバが読むときに editor へ読み替える。 */ editor: import('./editor.ts').EditorSetting; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; /** hangar が起動する claude に、区切りで Done か Paused を聞く段を足すか（既定は入り）。この項目を知らない古いサーバは返さないので、読む側は入りとして読む。 */ askStatusAtEnd?: boolean; /** 同じく、ターンの意図と短い手の説明を求める段を足すか（既定は入り）。読み方は askStatusAtEnd と同じ。 */ liveHints?: boolean; /** hangar が止まった会話を自動で Done にするか（既定は入り）。読み方は askStatusAtEnd と同じ。 */ autoDone?: boolean; /** hangar が Done か Archived にした会話の Claude を、休みが続いたら止めるか（既定は入り）。読み方は askStatusAtEnd と同じ。 */ autoPark?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
 /**
  * Claude Code の会話の保持期間。
  * source は値がどこで決まったかで、default はユーザー設定にキーが無い（既定の 30 日）ことを表す。
@@ -190,6 +190,22 @@ export type AccountDto = { id: string; name: string; dir: string; color: string;
 export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string> };
 /** 最初のアカウント（既定の置き場）の id。 */
 export const PRIMARY_ACCOUNT_ID = 'primary';
+/**
+ * アカウントを足す前の確かめ（GET /api/accounts/preview）の答え。name と input は問いの写しで、画面は今の欄と合う答えだけを使う。
+ * dir は使う場所の絶対パスで、input が空ならサーバが名前から作った候補（suggested が真）。
+ * exists は場所が既にあるか、conflicts はリンクを張る名前に実ファイルや実フォルダがあるもの（触らずに残す）、registeredAs はその場所を使っている登録済みのアカウントの名前。
+ */
+export type AccountDirPreviewDto = { name: string; input: string; dir: string; suggested: boolean; exists: boolean; conflicts: string[]; registeredAs: string | null };
+/**
+ * 2 つ目以降のアカウントの場所で、最初の場所へのリンクにする項目を、画面に見せる組に分けたもの。
+ * 組の中身を合わせると、サーバのリンクの一覧（accountLinks.ts の LINKED_ENTRIES）とちょうど同じになる（試験で見る）。
+ */
+export const ACCOUNT_LINK_GROUPS = [
+  { key: 'config', entries: ['settings.json', 'CLAUDE.md', 'statusline-command.sh'] },
+  { key: 'tools', entries: ['skills', 'commands', 'plugins'] },
+  { key: 'memory', entries: ['memory', 'plans', 'tasks'] },
+  { key: 'history', entries: ['projects', 'history.jsonl', 'file-history', 'paste-cache', 'session-env', 'shell-snapshots', 'sessions', 'jobs'] },
+] as const satisfies readonly { key: string; entries: readonly string[] }[];
 export type UsageDayDto = { day: string; inputTokens: number; outputTokens: number; sessions: number };
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };

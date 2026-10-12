@@ -55,6 +55,17 @@ export type Settings = {
   /** 同じく、ターンの意図（set_turn_intent）と短い手の説明（Bash と Agent の description）を求める段を足すか。既定は入り。 */
   liveHints?: boolean;
   /**
+   * hangar が自分で行うことのうち、止まった会話を自動で Done にするか（sessions/autoDone.ts）。既定は入り。
+   * 切ると、Done にすることも、そのための事後要約（外で起こした長い会話の要約）を入れることもしない。
+   * 読み方は askStatusAtEnd と同じで、false のときだけ切りとして読む。
+   */
+  autoDone?: boolean;
+  /**
+   * 同じく、Done か Archived にした会話の Claude を、休みが 10 秒続いたら止めるか（sessions/park.ts）。既定は入り。
+   * 切ると止めず、一覧でも実行中として見せる（db/queries.ts の setParkingSwitch）。
+   */
+  autoPark?: boolean;
+  /**
    * 同梱サーバを起こすときに使う Node の場所。
    * null と空文字は「指定なし」で、起動側が既定の探索に戻る。
    */
@@ -119,7 +130,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(platform: NodeJS.Platform = process.platform): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, nodePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, nodePath: null };
 }
 
 /**
@@ -147,6 +158,9 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 足す段のスイッチは真偽値だけを受ける。手で書き換えた値は既定（入り）に寄せる。
   if (typeof s.askStatusAtEnd !== 'boolean') s.askStatusAtEnd = true;
   if (typeof s.liveHints !== 'boolean') s.liveHints = true;
+  // hangar が自分で行うことのスイッチも同じ。
+  if (typeof s.autoDone !== 'boolean') s.autoDone = true;
+  if (typeof s.autoPark !== 'boolean') s.autoPark = true;
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;

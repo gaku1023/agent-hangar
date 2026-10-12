@@ -61,7 +61,7 @@ describe('AccountSettings の一覧', () => {
   it('1 件だけでも節を出し、追加の入口を持つ（この節だけが追加の入口）', () => {
     mount({ list: props().list.slice(0, 1), colors: ACCOUNT_COLORS });
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: '追加してログイン' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'アカウントを足す…' })).toBeInTheDocument();
   });
   it('説明の 1 行を出す', () => {
     mount();
@@ -270,40 +270,12 @@ describe('AccountSettings の一覧から外す', () => {
 });
 
 describe('AccountSettings の追加', () => {
-  const field = () => screen.getByRole('textbox', { name: 'アカウントの名前' });
-  const add = () => screen.getByRole('button', { name: '追加してログイン' });
-  it('名前の欄は placeholder「名前（例：大学）」を持ち、下に案内の 1 行を出す', () => {
-    mount();
-    expect(field()).toHaveAttribute('placeholder', '名前（例：大学）');
-    expect(screen.getByText('ブラウザが開くので、足したいアカウントで承認してください。終わると、ここにメールアドレスが出ます。')).toBeInTheDocument();
-  });
-  it('空では押せない（空白だけでも押せない）', () => {
-    mount();
-    expect(add()).toBeDisabled();
-    fireEvent.change(field(), { target: { value: '  ' } });
-    expect(add()).toBeDisabled();
-    fireEvent.change(field(), { target: { value: '大学' } });
-    expect(add()).toBeEnabled();
-  });
-  it('名前を入れて Enter で account.add { name } を出し、欄を空にする', () => {
+  it('一覧の下に「アカウントを足す…」を置き、押すとダイアログを開く', () => {
     const onAction = mount();
-    fireEvent.change(field(), { target: { value: '大学' } });
-    fireEvent.keyDown(field(), { key: 'Enter' });
-    expect(onAction.mock.calls).toEqual([[{ type: 'account.add', name: '大学' }]]);
-    expect(field()).toHaveValue('');
-  });
-  it('「追加してログイン」を押しても同じで、前後の空白は落とす', () => {
-    const onAction = mount();
-    fireEvent.change(field(), { target: { value: ' 大学 ' } });
-    fireEvent.click(add());
-    expect(onAction.mock.calls).toEqual([[{ type: 'account.add', name: '大学' }]]);
-    expect(field()).toHaveValue('');
-  });
-  it('空のまま Enter では何も出さない。変換中の Enter でも出さない', () => {
-    const onAction = mount();
-    fireEvent.keyDown(field(), { key: 'Enter' });
-    fireEvent.change(field(), { target: { value: 'だいがく' } });
-    fireEvent.keyDown(field(), { key: 'Enter', keyCode: 229 });
-    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントを足す…' }));
+    expect(onAction.mock.calls).toEqual([[{ type: 'account.add.open' }]]);
+    // 名前だけの欄は、ダイアログに移した。
+    expect(screen.queryByRole('textbox', { name: 'アカウントの名前' })).toBeNull();
   });
 });
+

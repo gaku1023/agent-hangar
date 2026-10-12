@@ -208,7 +208,7 @@ function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): 
   return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
-function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number): SessionDto {
+function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const limit = limitOf(r, live, now);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -270,7 +270,8 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
       candidate_status: r.ss_c_status, candidate_note: r.ss_c_note, candidate_return_on: r.ss_c_return_on, candidate_return_time: r.ss_c_return_time, candidate_source: r.ss_c_source, candidate_at: r.ss_c_at,
     }),
     // 使用制限でリセットを待っている間は、区切りを付けていても止めない（自動の続きの予約が消える）。
-    parked: isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live?.status ?? null, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset }),
+    // 自動の停止を切っている間は偽（setParkingSwitch）。
+    parked: parking && isParked({ status: r.ss_status, setBy: r.ss_set_by, setAt: r.ss_set_at, live: live?.status ?? null, processStartedAt: processStartedAt(live, runStarts.get(r.id) ?? null), limited: limit !== null && !limit.reset }),
     // 止めた後に起こした run があれば、last_end_reason はその run のもの（動いている間は null）になるので偽に戻る。
     // 止めた後に付け直した印でも偽にする。その印のために止めたのではない。
     stoppedByStatus: r.ss_status !== null && r.last_end_reason === 'parked' && r.last_ended_at !== null && r.ss_set_at !== null && r.last_ended_at >= r.ss_set_at,
@@ -300,6 +301,15 @@ function overlapOf(payload: string | null): SessionOverlapDto | null {
 const liveMapOf = (live: LiveSessionDto[]) => new Map(live.map((l) => [l.sessionId, l]));
 
 /**
+ * 自動の停止の入り切り（設定の autoPark）を、DB ごとに持つ。起動の組み立て（boot/runs.ts）が設定を読む関数を渡す。
+ * 切っている間は parked を偽にする。止めないので、休みのまま残る Done と Archived を実行中として見せるためである。
+ * 呼び手ごとに引数で渡すと、セッションを組む全ての経路（一覧、配信、MCP）に通す必要があるので、DB に結ぶ。渡していない DB は常に入り。
+ */
+const parkingSwitches = new WeakMap<Db, () => boolean>();
+export function setParkingSwitch(db: Db, on: () => boolean): void { parkingSwitches.set(db, on); }
+const parkingOn = (db: Db): boolean => parkingSwitches.get(db)?.() ?? true;
+
+/**
  * セッション一覧。
  * last_activity_at の降順で、null は末尾に置く。
  */
@@ -321,14 +331,15 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
   const now = opts.now ? opts.now() : Date.now();
   const locks = lockMap(db, opts.deviceId, now);
   const runStarts = aliveRunStarts(db, opts.deviceId);
-  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now));
+  const parking = parkingOn(db);
+  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now, parking));
 }
 
 export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
   if (!r) return null;
   const now = opts.now ? opts.now() : Date.now();
-  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now);
+  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db));
 }
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */

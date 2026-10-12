@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { expectMode, posixIt } from '../../../../test/platform.ts';
-import { LINKED_ENTRIES, ensureAccountLinks, linkProblem } from './accountLinks.ts';
+import { ACCOUNT_LINK_GROUPS } from '@agent-hangar/shared';
+import { LINKED_ENTRIES, ensureAccountLinks, inspectAccountLinks, linkProblem } from './accountLinks.ts';
 
 let root: string;
 let primary: string;
@@ -63,5 +64,33 @@ describe('ensureAccountLinks', () => {
   it('conflicts を文にする', () => {
     expect(linkProblem([])).toBeNull();
     expect(linkProblem(['settings.json', 'skills'])).toBe('置き場の settings.json、skills が共有のリンクではありません。中身を確認して、要らなければ削除してください');
+  });
+});
+
+describe('inspectAccountLinks', () => {
+  it('画面に見せる組（ACCOUNT_LINK_GROUPS）は、リンクにする 17 個をちょうど 1 回ずつ持つ', () => {
+    const all = ACCOUNT_LINK_GROUPS.flatMap((g) => g.entries);
+    expect([...all].sort()).toEqual([...LINKED_ENTRIES].sort());
+    expect(new Set(all).size).toBe(all.length);
+  });
+  it('まだ無い場所は、無いと答え、何も作らない', () => {
+    expect(inspectAccountLinks(primary, dir)).toEqual({ exists: false, conflicts: [] });
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+  it('既にある場所に、同じ名前の実ファイルや実フォルダがあれば挙げる。触らない', () => {
+    fs.mkdirSync(path.join(dir, 'skills'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'settings.json'), '{}');
+    // 最初の場所に無い項目は、リンクを張らないので挙げない。
+    fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'x');
+    expect(inspectAccountLinks(primary, dir)).toEqual({ exists: true, conflicts: ['settings.json', 'skills'] });
+    expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe('{}');
+    expect(fs.existsSync(path.join(dir, 'projects'))).toBe(false);
+  });
+  posixIt('正しい先を指すリンクは挙げない', () => {
+    ensureAccountLinks(primary, dir);
+    expect(inspectAccountLinks(primary, dir)).toEqual({ exists: true, conflicts: [] });
+  });
+  it('最初の場所そのものは、問題なしとする', () => {
+    expect(inspectAccountLinks(primary, primary)).toEqual({ exists: true, conflicts: [] });
   });
 });

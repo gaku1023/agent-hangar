@@ -1664,11 +1664,43 @@ describe('セッションの状態', () => {
 describe('アカウント', () => {
   const effectsOf = (i: Extract<Input, { kind: 'action' }>['action'], start: State = initialState()) => run([action(i)], start).effects;
   // 読み込み、選択、更新、ログイン、ログインの取り消し、取り直しは Mediator を通らない（runtime/actionTable.test.ts）。
-  it('追加は名前の前後の空白を落とし、空白だけなら何も出さない', () => {
-    expect(effectsOf({ type: 'account.add', name: '  大学 ' })).toEqual([{ kind: 'api.accounts.add', name: '大学' }]);
-    const blank = run([action({ type: 'account.add', name: '   ' })]);
+  it('「アカウントを足す…」でダイアログを開く。入力のあるダイアログの上には開かない', () => {
+    const r = run([action({ type: 'account.add.open' })]);
+    expect(r.state.overlay).toEqual({ kind: 'addAccount' });
+    expect(r.state.accountAdd).toEqual({ kind: 'idle' });
+    expect(r.effects).toEqual([]);
+    const busy: State = { ...initialState(), overlay: { kind: 'promote', sessionId: 's9' } };
+    expect(run([action({ type: 'account.add.open' })], busy).state.overlay).toEqual({ kind: 'promote', sessionId: 's9' });
+  });
+  it('追加は名前の前後の空白を落とし、場所を添えて 1 回だけ送る。空白だけなら何も出さない', () => {
+    const opened = run([action({ type: 'account.add.open' })]).state;
+    const r = run([action({ type: 'account.add', name: '  大学 ', dir: ' ~/.claude-univ ' })], opened);
+    expect(r.effects).toEqual([{ kind: 'api.accounts.add', name: '大学', dir: '~/.claude-univ' }]);
+    expect(r.state.accountAdd).toEqual({ kind: 'submitting' });
+    expect(run([action({ type: 'account.add', name: '大学', dir: '~/x' })], r.state).effects).toEqual([]);
+    // 場所が空なら、サーバが名前から決める。
+    expect(effectsOf({ type: 'account.add', name: '大学', dir: '' }, opened)).toEqual([{ kind: 'api.accounts.add', name: '大学', dir: null }]);
+    const blank = run([action({ type: 'account.add', name: '   ', dir: '' })], opened);
     expect(blank.effects).toEqual([]);
-    expect(blank.state).toEqual(initialState());
+    expect(blank.state).toEqual(opened);
+  });
+  it('追加が通ったらダイアログを閉じ、断られたら理由をダイアログに残す', () => {
+    const sent = run([action({ type: 'account.add.open' }), action({ type: 'account.add', name: '大学', dir: '' })]).state;
+    const done = run([runtime({ type: 'account.add.done' })], sent);
+    expect(done.state.overlay).toEqual({ kind: 'none' });
+    expect(done.state.accountAdd).toEqual({ kind: 'idle' });
+    const failed = run([runtime({ type: 'account.add.failed', message: 'この場所はもう登録されています' })], sent);
+    expect(failed.state.overlay).toEqual({ kind: 'addAccount' });
+    expect(failed.state.accountAdd).toEqual({ kind: 'failed', message: 'この場所はもう登録されています' });
+    // 閉じたあとに届いた失敗は、トーストで知らせる。
+    const closed = run([action({ type: 'overlay.close' })], sent).state;
+    expect(closed.overlay).toEqual({ kind: 'none' });
+    expect(closed.accountAdd).toEqual({ kind: 'idle' });
+    const late = run([runtime({ type: 'account.add.failed', message: 'x' })], closed);
+    expect(late.effects).toEqual([{ kind: 'toast', level: 'error', message: 'x' }]);
+  });
+  it('「選ぶ…」は、開く場所を添えて Finder を開く', () => {
+    expect(effectsOf({ type: 'account.add.pick', defaultPath: '/Users/me' })).toEqual([{ kind: 'desktop.pickFolder', defaultPath: '/Users/me' }]);
   });
   it('切り替えは confirmed が無ければ確認（作業中の印を運ぶ）で止まり、Effect を出さない', () => {
     const a = run([action({ type: 'account.switchSession', sessionId: 's1', accountId: 'a1', working: true })]);

@@ -98,7 +98,9 @@ const shellLabel = (t: Translate, s: ShellHookStateDto | null): string => {
  * tone の warn は、直すものがあるか、止まっているときの注意の色である。
  * label は読み上げの名前で、節の名前と状態をつなげる（要修正は数を言う）。
  */
-export type SettingsTocRow = { id: SettingsSection; title: string; state: string; tone: 'default' | 'warn'; label: string };
+export type SettingsTocRow = { id: SettingsSection; title: string; state: string; tone: 'default' | 'warn'; label: string;
+  /** 上級者向けのベータの節（クラウド同期）。名前の横に「ベータ」の小札を添える。 */
+  beta?: boolean };
 
 /** 会話の保持の節。押しても保存せず、確認（retention.edit）を開く。 */
 export type RetentionSettingsProps = { days: number; options: { value: string; label: string }[]; writable: boolean; reason: string | null; valueLabel: string; bar: UsageBarProps | null; syncNote: boolean };
@@ -168,6 +170,8 @@ export type SettingsProps = {
   focus: 'accounts' | 'unsent' | SettingsField | null;
   /** アプリの更新の節（presenters/update.ts）。 */
   update: UpdateSectionProps;
+  /** 一般の「hangar が自分で行うこと」の 2 つのスイッチ。設定の値が無ければ入り（サーバの読み方と同じ）。 */
+  self: { autoDone: boolean; autoPark: boolean };
 };
 
 /**
@@ -256,7 +260,10 @@ function presentToc(a: {
   // 更新は殻の中でだけ意味があるので、ブラウザの目次には出さない（URL で開けば、節は 1 文だけを出す）。
   return SETTINGS_SECTIONS.filter((id) => id !== 'update' || a.desktop).map((id) => {
     const title = t(`settings.section.${id}`);
-    return { id, title, ...state[id], label: t('settings.toc.row', { name: title, state: state[id].state }) };
+    // クラウド同期は上級者向けのベータ。小札は状態の段を潰さないよう、名前の横に添える（試作の 5 節の案 A）。
+    const beta = id === 'cloud';
+    const name = beta ? `${title} ${t('settings.toc.beta')}` : title;
+    return { id, title, ...state[id], label: t('settings.toc.row', { name, state: state[id].state }), ...(beta ? { beta } : {}) };
   });
 }
 
@@ -370,5 +377,6 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,
     notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },
+    self: { autoDone: s?.autoDone !== false, autoPark: s?.autoPark !== false },
   };
 }

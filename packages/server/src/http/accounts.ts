@@ -1,7 +1,7 @@
 import type { Context, Hono } from 'hono';
-import type { AccountsDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto } from '@agent-hangar/shared';
 import type { AccountAuth } from '../provider/claude-code/config/accountAuth.ts';
-import { ensureAccountLinks, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
+import { ensureAccountLinks, inspectAccountLinks, linkProblemMessage } from '../provider/claude-code/config/accountLinks.ts';
 import { AccountError, PRIMARY_ACCOUNT_ID, type Account, type AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { defaultLanguage, type GetLanguage } from '../i18n/language.ts';
@@ -93,10 +93,22 @@ export function accountsRoutes(api: Hono, deps: AccountsDeps): void {
     return c.json(buildAccountsDto(deps, { checkLinks: true }));
   });
 
+  // 足す前の確かめ。画面の「アカウントを足す」が、名前と場所を打つたびに読む。何も作らず、何も書かない。
+  api.get('/accounts/preview', (c) => guard(c, () => {
+    const name = c.req.query('name') ?? '';
+    const input = c.req.query('dir') ?? '';
+    const suggested = input.trim() === '';
+    const dir = suggested ? deps.store.suggestDir(name) : deps.store.resolveDir(input);
+    const { exists, conflicts } = inspectAccountLinks(deps.primaryDir, dir);
+    const body: AccountDirPreviewDto = { name, input, dir, suggested, exists, conflicts, registeredAs: deps.store.byDir(dir)?.name ?? null };
+    return c.json(body);
+  }));
+
   api.post('/accounts', (c) => guard(c, async () => {
     const b = await bodyOf(c);
     if (typeof b.name !== 'string' || (b.dir !== undefined && typeof b.dir !== 'string')) throw new AccountError(400, msg('account.request.nameAndDir'));
-    const a = deps.store.add({ name: b.name, dir: b.dir as string | undefined });
+    // 場所は画面で打ったままの形（~/.claude-x）でも受ける。
+    const a = deps.store.add({ name: b.name, dir: typeof b.dir === 'string' ? deps.store.resolveDir(b.dir) : undefined });
     // 置き場とリンクはここで作る（点検と同じ）。リンクの場所に別のものがあっても、作れなくても、登録は通し、linkProblem として見せる。
     checkLinks(deps);
     await deps.auth.refresh(a);

@@ -67,10 +67,25 @@ describe('parkedSessionIds', () => {
 
 describe('ParkWatch', () => {
   const setup = (o: { stoppable?: boolean } = {}) => {
-    const s = { now: 0, parked: [] as string[], stopped: [] as string[] };
-    const watch = new ParkWatch({ parkedIds: () => s.parked, stop: (id) => { s.stopped.push(id); return o.stoppable ?? true; }, now: () => s.now, settleMs: 10_000 });
+    const s = { now: 0, parked: [] as string[], stopped: [] as string[], on: true, read: 0 };
+    const watch = new ParkWatch({ parkedIds: () => { s.read++; return s.parked; }, stop: (id) => { s.stopped.push(id); return o.stoppable ?? true; }, now: () => s.now, settleMs: 10_000, enabled: () => s.on });
     return { s, watch };
   };
+
+  it('設定で切っている間は止めない。休みの一覧も読まず、入れ直したら休みを数え直す', () => {
+    const { s, watch } = setup();
+    s.parked = ['s1'];
+    s.on = false;
+    watch.tick();
+    s.now = 60_000;
+    expect(watch.tick()).toEqual([]);
+    expect(s.stopped).toEqual([]);
+    expect(s.read).toBe(0);
+    s.on = true;
+    expect(watch.tick()).toEqual([]);
+    s.now = 70_000;
+    expect(watch.tick()).toEqual(['s1']);
+  });
 
   it('休みが settleMs 続いたら止める。それより前は止めない', () => {
     const { s, watch } = setup();
