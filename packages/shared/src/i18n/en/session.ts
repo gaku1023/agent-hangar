@@ -159,6 +159,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.action.otherComputer': 'Another computer',
   'session.gone.note': 'The transcript appears to have been deleted because it passed the Claude Code retention period ({period}). Only the summary remains.',
   'session.lead.summarizerUnknown': 'Unknown / {model}',
+  'session.lead.summarizerOpenai': 'OpenAI-compatible',
   'session.transcript.skillLoaded': 'Loaded skill {name}',
   'session.screen.trustHint': 'Waiting for Claude to start. If a trust dialog appears, answer it in the terminal.',
   'session.screen.endedHint': 'Claude has ended. Shell tabs remain.',

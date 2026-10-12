@@ -42,7 +42,8 @@ export type TurnRowProps = { seq: number; when: string; text: string; head: stri
  */
 export function summarizerLabel(sourceId: string | null, sourceModel: string | null, t: Translate): string | null {
   if (!sourceId) return sourceModel ? t('session.lead.summarizerUnknown', { model: sourceModel }) : null;
-  const kind = SUMMARIZER_LABEL[sourceId] ?? sourceId;
+  // lmstudio は LM Studio だけだった頃の id のまま残した OpenAI 互換の要約器なので、画面の言語で「OpenAI 互換」と言う（0.6.0）。
+  const kind = sourceId === 'lmstudio' ? t('session.lead.summarizerOpenai') : SUMMARIZER_LABEL[sourceId] ?? sourceId;
   return sourceModel && sourceModel !== kind ? `${kind} / ${sourceModel}` : kind;
 }
 

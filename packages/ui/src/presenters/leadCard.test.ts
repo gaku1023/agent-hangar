@@ -63,7 +63,7 @@ describe('冒頭の 1 枚の要約', () => {
     expect(s.nextSteps).toEqual(['詳細の頁の画像にも同じ部品を使う']);
     expect(s.nextStepsLabel).toBe('次のステップ');
     expect(s.progress).toBe('進捗 完了、11 ターン時点');
-    expect(s.sourceLine).toBe(`作成元 事後、LM Studio / qwen3-8b、2026-10-06 ${new Date(Date.UTC(2026, 9, 6, 9, 40)).getHours().toString().padStart(2, '0')}:40 生成`);
+    expect(s.sourceLine).toBe(`作成元 事後、OpenAI 互換 / qwen3-8b、2026-10-06 ${new Date(Date.UTC(2026, 9, 6, 9, 40)).getHours().toString().padStart(2, '0')}:40 生成`);
   });
   it('進捗の 4 つの見立てを、用語集の語で言う', () => {
     const word = (state: SessionSummaryDto['state']) => present({ session: session({ summary: summary({ state }) }) }).summary!.progress;

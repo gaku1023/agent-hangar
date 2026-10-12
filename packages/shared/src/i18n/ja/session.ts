@@ -159,6 +159,7 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.action.otherComputer': '他の PC',
   'session.gone.note': 'トランスクリプトは、Claude Code の保持期間（{period}）を過ぎたため削除されたとみられます。残っているのは要約だけです。',
   'session.lead.summarizerUnknown': '不明 / {model}',
+  'session.lead.summarizerOpenai': 'OpenAI 互換',
   'session.transcript.skillLoaded': 'スキル {name} を読み込みました',
   'session.screen.trustHint': 'Claude の起動を待っています。信頼確認のダイアログが出ていればターミナルで答えてください。',
   'session.screen.endedHint': 'Claude は終了しました。シェルタブは残っています。',

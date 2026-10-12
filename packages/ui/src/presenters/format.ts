@@ -66,8 +66,8 @@ export function tokensLabel(n: number): string {
  */
 const STATE_KEY = { in_progress: 'common.summaryState.inProgress', done: 'common.summaryState.done', blocked: 'common.summaryState.blocked', abandoned: 'common.summaryState.abandoned' } as const;
 export const stateLabel = (t: Translate, state: SummaryState): string => t(STATE_KEY[state]);
-/** 要約器の id を短い名前にする。表に無い id はそのまま出す。 */
-export const SUMMARIZER_LABEL: Record<string, string> = { lmstudio: 'LM Studio', 'claude-headless': 'claude' };
+/** 要約器の id を短い名前にする。表に無い id はそのまま出す。lmstudio（OpenAI 互換）は言語で変わるので、session.ts の summarizerLabel が辞書から引く。 */
+export const SUMMARIZER_LABEL: Record<string, string> = { 'claude-headless': 'claude' };
 export const STATUS_LABEL = { active: 'Active', paused: 'Paused', done: 'Done', archived: 'Archived' } as const;
 
 /**

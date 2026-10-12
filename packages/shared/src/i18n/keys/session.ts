@@ -158,6 +158,7 @@ export const sessionKeys = {
   'session.action.otherComputer': [],
   'session.gone.note': ['period'],
   'session.lead.summarizerUnknown': ['model'],
+  'session.lead.summarizerOpenai': [],
   'session.transcript.skillLoaded': ['name'],
   'session.screen.trustHint': [],
   'session.screen.endedHint': [],
