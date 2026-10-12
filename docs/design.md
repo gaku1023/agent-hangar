@@ -5000,6 +5000,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   版 19 は、旧実装の設定の同期が端末に残した記録（`file_sync` の kind が `config` の行と、`sync_state` の `configPullConfirmed`、`configPending`、`skipped:(config)`）を消した（「設定の同期の作り直し」の「旧実装の削除（PR 18）」）。
   版 20 は、`todos` に Claude の提案の 2 列（`suggested_at`、`suggested_note`）を足した（「TODO の提案」）。
   版 22 は、中断の再開と同じファイルの編集の警告に使う端末ローカルの表（`interrupted_runs`、`run_last_live`、`session_overlaps`、`overlap_dismissals`）を足した（「中断と再開」「同じファイルの編集の警告」、0.5.0）。
+  版 23 は、使用制限で止まっているセッションを持つ端末ローカルの表（`session_limits`）を足した（「止まっている理由」、0.5.0）。
   足した版は今までと同じに扱う。既存の DB には控えを取ってからその版だけを当て、新しい DB には起点から順に当てる。
   畳む前のマイグレーションは、試験の側（`packages/server/test/legacyMigrations.ts`）に残してある。
   `db/baseline.test.ts` が、起点だけを当てた DB と版 1 から順に当てた DB で、`sqlite_master` の全行（表、索引、FTS の仮想表とその影の表）、表ごとの列（順、型、not null、既定値、主キー）、外部キー、索引の列、表の中身が一致することを突き合わせる。
