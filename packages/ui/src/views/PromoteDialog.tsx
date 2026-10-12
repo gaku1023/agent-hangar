@@ -5,6 +5,7 @@ import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { useT } from './primitives/language.tsx';
 import { CheckCard } from './primitives/OptionCard.tsx';
+import { ParentField, parentReady } from './ParentField.tsx';
 
 /**
  * クイックセッションをプロジェクトの親フォルダのプロジェクトへ昇格するダイアログ。
@@ -19,10 +20,14 @@ export function PromoteDialog(props: PromoteProps) {
   const [moveFiles, setMoveFiles] = useState(true);
   // 実行中は移動しないので、選択の見た目と送る値の両方を偽に倒す。
   const willMove = moveFiles && !props.runAlive;
+  // 作成場所（設定）が空なら、プロジェクトのフォルダを作る場所を選ぶ（2026-10-13）。
+  const [parent, setParent] = useState('');
+  const rootless = props.place?.workspaceRoot === '';
+  const blocked = rootless && !parentReady(props.place?.workspaceRoot ?? null, parent);
 
   const submit = () => {
-    if (props.submitting) return;
-    emit({ type: 'session.promote.submit', id: props.sessionId, name, gitInit, moveFiles: willMove });
+    if (props.submitting || blocked) return;
+    emit({ type: 'session.promote.submit', id: props.sessionId, name, gitInit, moveFiles: willMove, ...(rootless ? { parent: parent.trim() } : {}) });
   };
 
   // Enter で送る。Esc は殻が受けて閉じる。
@@ -42,12 +47,13 @@ export function PromoteDialog(props: PromoteProps) {
       className="dialog-promote"
       onClose={close}
       closeOnBackdrop={false}
-      footer={<><button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button><span className="spacer" /><button type="button" className="btn btn-primary" disabled={props.submitting} onClick={submit}>{t('promote.dialog.action')}</button></>}
+      footer={<><button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button><span className="spacer" /><button type="button" className="btn btn-primary" disabled={props.submitting || blocked} onClick={submit}>{t('promote.dialog.action')}</button></>}
     >
       <div className="faint">{t('promote.dialog.lead', { name: props.sessionName })}</div>
       <label className="field" htmlFor="promote-name">{t('promote.field.name')}
         <input id="promote-name" className="input mono" aria-label={t('promote.field.name')} value={name} placeholder={t('promote.field.namePlaceholder')} onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} />
       </label>
+      {rootless && props.place && <ParentField value={parent} onChange={setParent} desktop={props.place.desktop} picked={props.place.picked} />}
       <CheckCard label={t('promote.gitInit.label')} description={t('promote.gitInit.description')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
       <CheckCard label={t('promote.move.label')} description={t('promote.move.description')} icon="moveFiles" checked={willMove} disabled={props.runAlive} onChange={setMoveFiles} />
       {props.runAlive && <div className="faint">{t('promote.move.blocked')}</div>}

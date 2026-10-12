@@ -6,9 +6,9 @@ import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 
 /** 小さなチェック。行の頭と、作成場所の行に置く。 */
-function Check(props: { label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
+function Check(props: { label: string; title?: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }) {
   return (
-    <button type="button" role="checkbox" aria-label={props.label} aria-checked={props.checked} disabled={props.disabled} className="cand-check" onClick={() => props.onChange(!props.checked)}>
+    <button type="button" role="checkbox" aria-label={props.label} title={props.title} aria-checked={props.checked} disabled={props.disabled} className="cand-check" onClick={() => props.onChange(!props.checked)}>
       <Icon name="check" />
     </button>
   );
@@ -18,7 +18,7 @@ function Check(props: { label: string; checked: boolean; disabled?: boolean; onC
  * Claude Code と会話したフォルダの候補のダイアログ（初日のプロジェクト。2026-10-13、試作の 4 節 3b の案 B）。
  * 会話の多いフォルダ（よく使うフォルダ）は開いてチェックしておき、そのほかは畳んで件数だけを見せる。
  * 過半が同じ親にあるときは、その親を新しいフォルダの作成場所にするチェックを出す（既定で入れる）。
- * 作成場所にすると、その直下にある会話したフォルダはサーバが自動で登録するので、該当する行は外せないチェックにする。
+ * 作成場所にすると、その直下にある会話したフォルダはサーバが自動で登録するので、該当する行は外せないチェックにする（理由は乗せたときの説明で言う）。
  * 選んだものは、送るまで外へ出ないので、Mediator ではなくここに持つ。
  */
 export function ProjectCandidatesDialog(props: ProjectCandidatesProps) {
@@ -56,10 +56,10 @@ export function ProjectCandidatesDialog(props: ProjectCandidatesProps) {
 
   const line = (r: CandidateRow) => (
     <div key={r.path} className="cand-row" data-locked={locked(r) ? 'true' : undefined}>
-      <Check label={r.label} checked={checked.has(r.path) || locked(r)} disabled={locked(r)} onChange={(v) => toggle(r.path, v)} />
+      <Check label={r.label} title={locked(r) ? t('newProject.candidates.auto') : undefined} checked={checked.has(r.path) || locked(r)} disabled={locked(r)} onChange={(v) => toggle(r.path, v)} />
       <span className="cand-path">
         <span className="mono" title={r.path}>{r.label}</span>
-        {(r.worktrees || locked(r)) && <small>{[r.worktrees, locked(r) ? t('newProject.candidates.auto') : null].filter(Boolean).join(t('common.list.separator'))}</small>}
+        {r.worktrees && <small>{r.worktrees}</small>}
       </span>
       <span className="cand-count" aria-label={r.countLabel}>{r.count}</span>
       <span className="cand-when">{r.when}</span>

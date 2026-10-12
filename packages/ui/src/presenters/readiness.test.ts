@@ -102,7 +102,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   it('直すものだけを 1 行ずつ。必須を先に、任意は「任意」の札を付けて後ろに置く', () => {
     const b = presentReadiness(READY, ja)!;
     expect(b.group.rows.map((r) => [r.key, r.name, r.badge ?? null])).toEqual([
-      ['ready:workspace', 'プロジェクトの親フォルダ', null],
+      ['ready:workspace', '新しいフォルダの作成場所', null],
       ['ready:mcp', 'MCP サーバー', '任意'],
       ['ready:statusline', 'ステータスライン', '任意'],
     ]);

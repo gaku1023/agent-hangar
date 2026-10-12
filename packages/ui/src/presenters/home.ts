@@ -5,7 +5,7 @@ import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
-import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
@@ -85,6 +85,18 @@ function stripLeadingTool(tool: string, summary: string): string {
  * 今日戻るの札の並び。ホームの帯とベルの一覧（presenters/notices.ts）が、同じこの並びを読む。
  * alive は hangar の run が生きているセッションで、生きているものは出さない。
  */
+/**
+ * 今日戻るに出すか。Paused で戻る時点が来ていて、終わっているもの（区切りを付けて休みのまま残っているものを含む）と、
+ * Claude Code が休みのまま生きているもの（Paused は自動で止めないため。#206）。
+ * 作業中のもの（裏の作業だけが動いているものを含む）は実行中に、入力待ちは要対応の入力待ちに出るので、ここには重ねない。
+ */
+export function returnsNow(store: Store, s: SessionDto, now: number, alive: Set<string> = runningSessionIds(store)): boolean {
+  if (s.state?.status !== 'paused' || !returnHasCome(s.state.returnOn, s.state.returnTime, now)) return false;
+  const filter = liveFilterOfSession(store, s, alive);
+  if (filter === 'ended') return true;
+  return filter === 'running' && quietLive(liveWithLimit(s.live, s.limit), s.state.status) !== 'busy' && shownAside(s) === null;
+}
+
 export function returningCards(store: Store, now: number, alive: Set<string> = runningSessionIds(store)): ReturnCard[] {
   const tr = translatorOf(store);
   const name = (s: SessionDto) => s.name ?? tr('common.label.noName');
@@ -93,7 +105,7 @@ export function returningCards(store: Store, now: number, alive: Set<string> = r
   // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
   const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
   return Object.values(store.sessions)
-    .filter((s) => s.state?.status === 'paused' && returnHasCome(s.state.returnOn, s.state.returnTime, now) && liveFilterOfSession(store, s, alive) === 'ended')
+    .filter((s) => returnsNow(store, s, now, alive))
     .sort((a, b) => keyOf(a).localeCompare(keyOf(b)) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
     .map((s): ReturnCard => {
       const on = s.state?.returnOn ?? null;
@@ -141,7 +153,9 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     }),
   ].sort((a, b) => (a.at - b.at) || a.card.id.localeCompare(b.card.id)).map((x) => x.card);
 
-  const running = sortSessions(sessions.filter((s) => liveFilterOfSession(store, s, alive) === 'running')).map((s): RunningCard => {
+  // 今日戻るに寄せたもの（戻る時点が来た、休みのまま生きている Paused）は、実行中に重ねない。
+  const back = new Set(returning.map((r) => r.id));
+  const running = sortSessions(sessions.filter((s) => liveFilterOfSession(store, s, alive) === 'running' && !back.has(s.id))).map((s): RunningCard => {
     // 対象が取れない呼び出し（答えた後の AskUserQuestion など）は summary にツール名が入る。同じ語を 2 度並べないよう空にする。
     // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
     // 裏だけ動いているときは、本体の手も意図も今のものではないので出さず、裏のものと指揮役が空いていることを言う。

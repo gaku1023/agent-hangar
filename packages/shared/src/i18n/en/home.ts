@@ -47,7 +47,7 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.ready.separator': ', ',
   'home.ready.name.tmux': 'tmux',
   'home.ready.name.claude': 'claude',
-  'home.ready.name.workspace': 'Projects folder',
+  'home.ready.name.workspace': 'Location for new folders',
   'home.ready.name.mcp': 'MCP server',
   'home.ready.name.statusline': 'Status line',
   'home.ready.name.compat': 'Claude Code compatibility',

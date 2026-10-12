@@ -47,7 +47,7 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.separator': '、',
   'home.ready.name.tmux': 'tmux',
   'home.ready.name.claude': 'claude',
-  'home.ready.name.workspace': 'プロジェクトの親フォルダ',
+  'home.ready.name.workspace': '新しいフォルダの作成場所',
   'home.ready.name.mcp': 'MCP サーバー',
   'home.ready.name.statusline': 'ステータスライン',
   'home.ready.name.compat': 'Claude Code との互換性',

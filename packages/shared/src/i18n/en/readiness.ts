@@ -5,7 +5,7 @@ export const readinessEn: AreaDictionary<typeof readinessKeys> = {
   'readiness.fix.claude': 'Enter the absolute path of the claude command',
   'readiness.fix.git': 'Install git. hangar works without it, but branches and uncommitted counts are not shown',
   'readiness.fix.node': 'Enter the full path to the node executable of a Node with the same major version and architecture as the bundled server',
-  'readiness.fix.workspace': 'Enter the folder that holds the directories with your sessions',
+  'readiness.fix.workspace': 'Enter where to create folders, or leave the field empty',
   'readiness.problem.unset': 'Not found',
   'readiness.problem.notFile': '{path} is not a file',
   'readiness.problem.notExecutable': '{path} is not executable',
@@ -15,6 +15,5 @@ export const readinessEn: AreaDictionary<typeof readinessKeys> = {
   'readiness.problem.wrongNode': '{path} is Node {found} ({foundArch}). Node {major} ({arch}) is needed',
   'readiness.tool.autoFound': 'Found automatically',
   'readiness.tool.optional': 'Works without it',
-  'readiness.workspace.empty': 'No directory with Claude sessions directly inside it',
   'readiness.workspace.projects': '{n} {n|project|projects}',
 };

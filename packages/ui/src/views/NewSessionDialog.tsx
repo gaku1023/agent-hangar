@@ -16,6 +16,7 @@ import { CheckCard } from './primitives/OptionCard.tsx';
 import { PERMISSION_BYPASS } from './primitives/permissionModel.ts';
 import { PromptComposer } from './primitives/PromptComposer.tsx';
 import { composePrompt, type Attachment } from './primitives/promptComposerModel.ts';
+import { ParentField, parentReady } from './ParentField.tsx';
 
 /** プロジェクトの一覧の先頭に置くクイックセッションの行。値はプロジェクトの id と重ならず、クイックセッションの前回値の鍵と同じ綴りである。 */
 const SCRATCH = SCRATCH_CHOICE;
@@ -66,8 +67,13 @@ export function NewSessionDialog(props: NewSessionProps) {
   const dirPath = isDir(choice) ? choice.slice(DIR.length) : null;
   // 未登録の一覧に載っているのはプロジェクトの親フォルダ直下のフォルダだけなので、載っていなければ外か深い階層である。
   const outside = dirPath !== null && !props.dirs.some((d) => d.path === dirPath);
-  // 親フォルダが届く前の仮の場所。区切りは画面の OS に合わせる。
-  const root = props.workspaceRoot ?? joinPath('~', 'workspace');
+  // 作成場所（設定）が空のときに選ぶ、新しいフォルダを作る場所（2026-10-13）。
+  const [parent, setParent] = useState('');
+  const rootless = props.workspaceRoot === '';
+  // 作る場所。作成場所が空なら選んだ場所で、設定が届く前は仮の場所にする。区切りは画面の OS に合わせる。
+  const root = rootless ? parent.trim() : props.workspaceRoot ?? joinPath('~', 'workspace');
+  // 作成場所が空で、新しいフォルダを作る場所をまだ選んでいなければ起動できない。
+  const blocked = newDir && !parentReady(props.workspaceRoot, parent);
   const title = newDir ? t('newSession.title.newDir') : dirPath ? t('newSession.title.dir') : t('newSession.title.default');
   // 新しいフォルダの名前と git init。名前は「『語』を新しいフォルダとして作る」で選んだときの語を入れる。
   const [newName, setNewName] = useState('');
@@ -103,6 +109,8 @@ export function NewSessionDialog(props: NewSessionProps) {
     const p = props.picked;
     if (!p || p.n <= pickedAtOpen.current) return;
     pickedAtOpen.current = p.n;
+    // 作成場所が空で新しいフォルダを作っているときの Finder は、作る場所を選ぶもの（ParentField が受ける）。
+    if (rootless && newDir) return;
     const known = props.projects.find((x) => x.path === p.path);
     if (known) { choose(known.id); return; }
     if (!props.dirs.some((d) => d.path === p.path)) setExtraDir(p.path);
@@ -158,14 +166,14 @@ export function NewSessionDialog(props: NewSessionProps) {
   };
 
   const submit = () => {
-    if (props.submitting || uploading > 0) return;
+    if (props.submitting || uploading > 0 || blocked) return;
     setStaleError(null);
     const params: LaunchParams = {};
     let place: ProjectPlace | undefined;
     // クイックセッションはプロジェクトを持たず、サーバが使い捨てのディレクトリを作る。
     if (scratch) params.scratch = true;
     // 新しいフォルダと未登録のフォルダは、Mediator がプロジェクトを作ってから起動する。
-    else if (newDir) place = { kind: 'newDir', name: newName.trim(), gitInit };
+    else if (newDir) place = { kind: 'newDir', name: newName.trim(), gitInit, ...(rootless ? { parent: parent.trim() } : {}) };
     else if (dirPath) place = { kind: 'dir', path: dirPath };
     else if (choice) params.projectId = choice;
     // 開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こすため、いまのアカウントと同じでも入れる。
@@ -212,7 +220,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const actions = (q: string): ListboxAction[] => {
     const word = q.trim();
     const first: ListboxAction = word && !taken(word)
-      ? { value: 'new', label: t('newSession.project.newFolderNamed', { name: word }), sub: joinPath(root, word), icon: 'folderPlus' }
+      ? { value: 'new', label: t('newSession.project.newFolderNamed', { name: word }), ...(root !== '' ? { sub: joinPath(root, word) } : {}), icon: 'folderPlus' }
       : { value: 'new', label: t('newSession.project.newFolder'), icon: 'folderPlus' };
     return props.desktop ? [first, { value: 'finder', label: t('newSession.project.other'), sub: t(isMacClient() ? 'newSession.project.otherPickerMac' : 'newSession.project.otherPickerWindows'), icon: 'folderOpen' }] : [first];
   };
@@ -260,7 +268,7 @@ export function NewSessionDialog(props: NewSessionProps) {
         <button type="button" className="btn" onClick={close}>{t('common.button.cancel')}</button>
         <span className="spacer" />
         {scratch && <span className="dialog-hint">{t('newSession.hint.quick', { keys: keyLabel('⌘↵') })}</span>}
-        <button type="button" className={`btn ${bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || uploading > 0} aria-keyshortcuts={isMacClient() ? 'Meta+Enter' : 'Control+Enter'} onClick={submit}>
+        <button type="button" className={`btn ${bypass ? 'btn-danger-fill' : 'btn-primary'}`} disabled={props.submitting || uploading > 0 || blocked} aria-keyshortcuts={isMacClient() ? 'Meta+Enter' : 'Control+Enter'} onClick={submit}>
           {props.submitting ? t('newSession.button.starting') : uploading > 0 ? t('newSession.button.uploading') : <>{bypass ? t('newSession.button.startBypass') : t('newSession.button.start')}<span className="kc" aria-hidden="true">{keyLabel('⌘↵')}</span></>}
         </button>
       </>}
@@ -290,7 +298,8 @@ export function NewSessionDialog(props: NewSessionProps) {
           <label className="field" htmlFor="new-session-dir-name">{t('newSession.newDir.nameLabel')}
             <input id="new-session-dir-name" className="input mono" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder={t('newSession.newDir.namePlaceholder')} />
           </label>
-          <div className="faint">{t('newSession.newDir.note', { path: joinPath(root, newName.trim()) })}</div>
+          {rootless && <ParentField value={parent} onChange={setParent} desktop={props.desktop} picked={props.picked} />}
+          {root !== '' && <div className="faint">{t('newSession.newDir.note', { path: joinPath(root, newName.trim()) })}</div>}
           <CheckCard label={t('newSession.newDir.gitInit')} description={t('newSession.newDir.gitInitNote')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
         </>
       )}

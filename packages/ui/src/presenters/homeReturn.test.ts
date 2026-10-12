@@ -90,6 +90,22 @@ describe('presentHome の、区切りを付けて休みのまま残っている�
     expect(h.returning.map((r) => r.id)).toEqual(['sync']);
     expect(h.running).toEqual([]);
   });
+  // Paused は自動で止めない（#206）。戻る時点が来た Paused は、Claude Code が休みのまま生きていても今日戻るに出し、実行中には出さない（二重にしない）。
+  it('戻る時点が来た Paused は、プロセスが休みのまま生きていても今日戻るに寄せ、実行中から外す。来る前は実行中のまま', () => {
+    const store = withRuns(storeOf([paused('due', 24, '2026-10-02', { live: 'idle' }), paused('later', 1, '2026-10-05', { live: 'idle' }), paused('none', 1, null, { live: 'idle' })]), ['due', 'later', 'none']);
+    const h = presentHome(initialState(), store, NOW);
+    expect(h.returning.map((r) => r.id)).toEqual(['due']);
+    expect(h.running.map((r) => r.id).sort()).toEqual(['later', 'none']);
+    const screen = presentHomeScreen(initialState(), store, NOW);
+    expect(screen.band.groups[0]).toMatchObject({ id: 'attention', count: 1 });
+    expect(screen.band.groups[1]).toMatchObject({ id: 'running', count: 2 });
+  });
+  it('戻る時点が来ても、作業中なら実行中、入力待ちなら要対応の入力待ちのまま（今日戻るには重ねない）', () => {
+    const h = presentHome(initialState(), storeOf([paused('b', 1, '2026-10-02', { live: 'busy' }), paused('w', 1, '2026-10-02', { live: 'waiting' })]), NOW);
+    expect(h.returning).toEqual([]);
+    expect(h.running.map((r) => r.id)).toEqual(['b']);
+    expect(h.attention.map((a) => a.id)).toEqual(['w']);
+  });
   it('ほかに動いているものが無ければ idle にする', () => {
     const screen = presentHomeScreen(initialState(), withRuns(storeOf([paused('later', 1, '2026-10-05', { live: 'idle', parked: true })]), ['later']), NOW);
     expect(screen.idle).toBe(true);
