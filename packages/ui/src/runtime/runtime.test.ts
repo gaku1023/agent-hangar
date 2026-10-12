@@ -1,7 +1,7 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { ApiConflictError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
@@ -2562,6 +2562,61 @@ describe('git の表示（ランタイム）', () => {
     poll();
     await flush();
     expect(projectGit).toHaveBeenCalledTimes(3);
+  });
+  /** プロジェクト画面を開いた状態まで進める。読み直しの周期と、窓が前に戻ったときの合図も返す。 */
+  async function projectOpen(projectGit: ApiClient['projectGit']) {
+    const visible = new Set<() => void>();
+    const p1: ProjectDto = { id: 'p1', name: 'p1', status: 'active', isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    const h = harness({ projectGit, bootstrap: vi.fn(async () => ({ ...boot, projects: [p1] })) }, { visible: () => true, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    h.setHash('#/project/p1');
+    await flush();
+    const poll = () => h.timers.filter((t) => t.ms === GIT_POLL_MS).at(-1)!.fn();
+    const front = () => { for (const cb of visible) cb(); };
+    return { ...h, poll, front };
+  }
+  it('開いたときの読み込みの失敗は札にする。周期と窓が前に戻ったときの読み直しの失敗は札にしない（積もらない）', async () => {
+    const projectGit = vi.fn(async (): Promise<never> => { throw new Error('500 /api/projects/p1/git'); });
+    const { rt, poll, front } = await projectOpen(projectGit);
+    rt.emit({ type: 'project.git.load', projectId: 'p1' });
+    await flush();
+    expect(rt.getState().toasts).toHaveLength(1);
+    expect(rt.getState().toasts[0]).toMatchObject({ level: 'error', message: '500 /api/projects/p1/git' });
+    for (let i = 0; i < 5; i += 1) { poll(); await flush(); }
+    front();
+    await flush();
+    expect(projectGit).toHaveBeenCalledTimes(7);
+    expect(rt.getState().toasts).toHaveLength(1);
+    // 裏の読み直しは失敗してもプロジェクトを外さない（404 でないものは、無いとは限らない）。
+    expect(rt.getStore().projects.p1).toBeDefined();
+  });
+  it('読み直しでプロジェクトが無い（404）と分かったら、Store から外し、札は出さず、それ以後は読まない', async () => {
+    let gone = false;
+    const projectGit = vi.fn(async () => {
+      if (gone) throw new ApiNotFoundError('プロジェクトが見つかりません');
+      return { root: null, worktrees: [] };
+    });
+    const { rt, poll, front } = await projectOpen(projectGit);
+    rt.emit({ type: 'project.git.load', projectId: 'p1' });
+    await flush();
+    expect(rt.getStore().projectGit.p1).toBeDefined();
+    // 画面の外（別の窓、CLI、同期）で一覧から削除された。
+    gone = true;
+    poll();
+    await flush();
+    expect(rt.getStore().projects.p1).toBeUndefined();
+    expect(rt.getStore().projectGit.p1).toBeUndefined();
+    expect(rt.getState().toasts).toEqual([]);
+    // 画面はそのまま残り、プロジェクト画面は「プロジェクトが見つかりません」の面になる（presenters/project.ts の notFound）。
+    expect(rt.getState().screen).toMatchObject({ name: 'project', id: 'p1' });
+    poll();
+    await flush();
+    front();
+    await flush();
+    expect(projectGit).toHaveBeenCalledTimes(2);
+    expect(rt.getState().toasts).toEqual([]);
   });
   it('git.watch はまとめて 1 回で取り、答えを Store に重ねる。Mediator へは渡さない', async () => {
     const gitSessions = vi.fn(async () => ({ sessions: { s1: { state: 'nogit' as const, root: null, branch: null, worktree: null } }, trees: {} }));

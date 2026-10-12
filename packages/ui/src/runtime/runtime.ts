@@ -20,8 +20,8 @@ import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
-import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
-import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
+import { ApiConflictError, ApiNotFoundError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import { createGitWatch } from './gitWatch.ts';
@@ -789,13 +789,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * 開いているプロジェクト画面のブランチと worktree を読み直す（git の表示の周期と、窓が前に戻ったとき）。
    * 画面が開いたときに読むのは ProjectScreen で、ここは開いたままの画面が古くならないようにする役である。
    * この PC にパスの無いプロジェクトとスクラッチは読まない（ProjectScreen と同じ）。
+   * 裏の読み直しなので、失敗は札にしない（30 秒ごとに同じ札が積もる）。開いたときの読み込みの失敗は、今までどおり札にする。
+   * プロジェクトが無い（404）と分かったら、画面の外（別の窓、CLI、同期）で一覧から削除されたので、Store から外す。
+   * 外すと一覧から消え、開いている画面は「プロジェクトが見つかりません」の面になり、それ以後は読まない。
    */
   function reloadProjectGit(): void {
     if (state.screen.name !== 'project') return;
     const p = store.projects[state.screen.id];
     if (!p || p.isScratch || p.path === null) return;
     const c = actionCall({ type: 'project.git.load', projectId: p.id }, store);
-    if (c) runCall(c);
+    if (c) runCall({ ...c, failed: (s, e) => (e instanceof ApiNotFoundError ? withoutProject(s, p.id) : s) });
   }
 
   /**
