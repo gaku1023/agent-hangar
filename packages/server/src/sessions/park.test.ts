@@ -42,6 +42,17 @@ describe('parkedSessionIds', () => {
     expect(parkedSessionIds(db, [live('u1', 'busy'), live('u1')])).toEqual([]);
     expect(parkedSessionIds(db, [live('u1'), live('u1')])).toEqual([]);
   });
+  it('使用制限でリセットを待っている会話は返さない。止めると Claude Code が予約した自動の続きごと消える', () => {
+    const db = seed();
+    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: SET_AT });
+    setSessionState(db, 'd', 's2', { status: 'done', setBy: 'user', now: SET_AT });
+    const resetsAt = Date.now() + 3_600_000;
+    for (const id of ['s1', 's2']) db.prepare('insert into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)').run(id, 'five_hour', resetsAt, 1, SET_AT);
+    expect(parkedSessionIds(db, [live('u1'), live('u2')])).toEqual([]);
+    // リセットから猶予を過ぎても続きが始まらなければ、ふつうに止める。
+    db.prepare('update session_limits set resets_at = ?').run(Date.now() - 600_000);
+    expect(parkedSessionIds(db, [live('u1'), live('u2')])).toEqual(['s1', 's2']);
+  });
   it('動いているものが無ければ空', () => {
     expect(parkedSessionIds(seed(), [])).toEqual([]);
   });

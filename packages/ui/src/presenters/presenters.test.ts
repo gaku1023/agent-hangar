@@ -25,7 +25,7 @@ const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, interrupted: null, overlap: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -237,8 +237,8 @@ describe('presentHome', () => {
     const store = homeStore();
     store.runs = { rw1: runDto('rw1', 'w1') };
     expect(presentHome(initialState(), store, NOW).attention).toEqual([
-      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？', answer: 'terminal' },
-      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力待ちです', answer: null },
+      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？', answer: 'terminal', reason: null, permission: null },
+      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力待ちです', answer: null, reason: null, permission: null },
     ]);
   });
   it('外のターミナルで動く入力待ちは引き取りを、バックグラウンドのものは attach を出す', () => {
@@ -275,7 +275,7 @@ describe('presentHome', () => {
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
-    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
+    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%', limit: null });
     expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: 'アイドル。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
   });
   it('意図は、作業中のセッションがこのターンに書いたものだけを出す', () => {
@@ -1243,6 +1243,45 @@ describe('presentSettings のフェーズ 3 の項目', () => {
   });
 });
 
+describe('ヘッダーの使用制限（試作の H2）', () => {
+  it('使用制限で止まっているセッションがあれば、その枠のゲージに時刻を出し、「停止 N」の札から会話へ移れる', () => {
+    const store = storeWith();
+    const resetsAt = new Date(NOW).setHours(new Date(NOW).getHours() + 1, 50, 0, 0);
+    const hm = `${String(new Date(resetsAt).getHours()).padStart(2, '0')}:50`;
+    store.sessions.s1 = { ...store.sessions.s1!, live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } };
+    store.sessions.s2 = { ...store.sessions.s2!, live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: false, reset: false } };
+    const p = presentShell(initialState(), store, NOW);
+    expect(p.usage.fiveHourLimit).toBe(hm);
+    expect(p.usage.sevenDayLimit ?? null).toBeNull();
+    expect(p.stopped?.count).toBe(2);
+    expect(p.stopped?.head).toBe(`5 時間の使用制限で止まっています · ${hm} にリセット`);
+    expect(p.stopped?.rows.map((r) => [r.id, r.auto])).toEqual([['s1', '自動で続きます'], ['s2', '自動では続きません']]);
+  });
+  it('止まっているものが無ければ札は出さない（リセット済みは数えない）', () => {
+    const store = storeWith();
+    store.sessions.s1 = { ...store.sessions.s1!, live: 'idle', limit: { kind: 'five_hour', resetsAt: NOW - 200_000, auto: false, reset: true } };
+    const p = presentShell(initialState(), store, NOW);
+    expect(p.stopped ?? null).toBeNull();
+    expect(p.usage.fiveHourLimit ?? null).toBeNull();
+  });
+});
+
+describe('presentSessionRow の止まっている理由（試作の L1）', () => {
+  it('右端の語を「許可待ち」「使用制限 · 16:50」「リセット済み」にする。2 段目の要約は変えない', () => {
+    const store = storeWith();
+    const resetsAt = new Date(NOW).setHours(new Date(NOW).getHours() + 1, 50, 0, 0);
+    const hm = `${String(new Date(resetsAt).getHours()).padStart(2, '0')}:50`;
+    const p = presentSessionRow(session('s1', { live: 'waiting', waitingFor: 'permission' }), store, NOW);
+    expect([p.reason, p.reasonWord]).toEqual(['permission', '許可待ち']);
+    const l = presentSessionRow(session('s1', { live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } }), store, NOW);
+    expect([l.reason, l.reasonWord, l.live]).toEqual(['limit', `使用制限 · ${hm}`, 'idle']);
+    const r = presentSessionRow(session('s1', { live: 'idle', limit: { kind: 'five_hour', resetsAt: NOW - 1, auto: false, reset: true } }), store, NOW);
+    expect([r.reason, r.reasonWord, r.live]).toEqual(['reset', 'リセット済み', 'waiting']);
+    expect(presentSessionRow(session('s1', { live: 'waiting' }), store, NOW).reason).toBeNull();
+    expect(l.oneLiner).toBe(presentSessionRow(session('s1'), store, NOW).oneLiner);
+  });
+});
+
 describe('presentSessionRow のコストと run', () => {
   it('コストは通貨の記号と小数 2 桁。値が無ければ空文字で桁を崩さない', () => {
     const store = storeWith();
@@ -1718,9 +1757,18 @@ describe('presentToasts（入力待ちのカード）', () => {
     const store = waitingStore(['w1']);
     store.sessions.w1 = { ...store.sessions.w1!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '向きはどちらにしますか' } };
     const state = { ...initialState(), waitingToasts: ['w1'] };
-    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', waited: '2 分', question: '向きはどちらにしますか' }]);
+    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', waited: '2 分', question: '向きはどちらにしますか', reason: null, ask: null }]);
     store.sessions.w1 = { ...store.sessions.w1!, activity: null };
     expect(presentToasts(state, store, NOW).waiting[0]?.question).toBeNull();
+  });
+  it('許可待ちは見出しを替え、問いの場所に道具と命令を出す。リセット済みは続きを指示するよう言う（試作の K1）', () => {
+    const store = waitingStore(['p1', 'r1']);
+    store.sessions.p1 = { ...store.sessions.p1!, waitingFor: 'permission', permission: { tool: 'Bash', input: 'rm -rf ./build/cache', description: null } };
+    store.sessions.r1 = { ...store.sessions.r1!, live: 'idle', limit: { kind: 'five_hour', resetsAt: NOW - 60_000, auto: false, reset: true } };
+    const state = { ...initialState(), waitingToasts: ['p1', 'r1'] };
+    const [p, r] = presentToasts(state, store, NOW).waiting;
+    expect(p).toMatchObject({ reason: 'permission', ask: { tool: 'Bash', input: 'rm -rf ./build/cache' }, question: null });
+    expect(r).toMatchObject({ reason: 'reset', question: '使用制限がリセットされました。続きを指示してください', ask: null });
   });
   it('ホームを見ている間は出さない（要対応の札が言っている）', () => {
     const state = { ...initialState(), screen: { name: 'home' as const }, waitingToasts: ['w1', 'w2'] };

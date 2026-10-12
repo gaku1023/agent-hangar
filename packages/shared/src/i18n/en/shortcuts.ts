@@ -16,7 +16,7 @@ export const shortcutsEn: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.paletteOpen': 'Command palette (search and navigate)',
   'shortcuts.key.sessionNew': 'New session',
   'shortcuts.key.sessionNewQuick': 'Start a quick session',
-  'shortcuts.key.sessionNextWaiting': 'Go to next Needs input',
+  'shortcuts.key.sessionNextWaiting': 'Go to next Needs attention',
   'shortcuts.key.settingsOpen': 'Settings',
   'shortcuts.key.navBack': 'Back',
   'shortcuts.key.navForward': 'Forward',

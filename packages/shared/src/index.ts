@@ -8,6 +8,7 @@ export * from './route.ts';
 export * from './fts.ts';
 export * from './steps.ts';
 export * from './liveFilter.ts';
+export * from './stopReason.ts';
 export * from './sessionState.ts';
 export * from './usage.ts';
 export * from './compat.ts';

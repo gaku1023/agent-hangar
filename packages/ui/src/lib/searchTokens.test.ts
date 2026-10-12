@@ -17,6 +17,11 @@ describe('parseQuery', () => {
     expect(parseQuery('is:waiting').filter).toEqual({ live: 'waiting' });
     expect(parseQuery('IS:Paused').filter).toEqual({ status: 'paused' });
   });
+  it('is:permission と is:limited は止まっている理由の絞り込みで、is:waiting とは別の項目', () => {
+    expect(parseQuery('is:permission').filter).toEqual({ stop: 'permission' });
+    expect(parseQuery('is:Limited 動画').filter).toEqual({ stop: 'limited' });
+    expect(parseQuery('is:waiting is:permission').filter).toEqual({ live: 'waiting', stop: 'permission' });
+  });
   // 状態が無いものは Active と呼ぶので none は無い。習慣で打った is:none は黙って捨てず、読めないトークンとして知らせる。
   it('is:none は条件として読まず、語に残して badTokens が拾う', () => {
     expect(parseQuery('is:none 動画')).toEqual({ text: 'is:none 動画', filter: {} });
@@ -63,6 +68,10 @@ describe('formatQuery と queryTokens', () => {
     expect(formatQuery('動画', { status: 'paused', live: 'waiting', days: 7, projectId: 'p4', file: 'a b.md' }, projects)).toBe('is:paused is:waiting since:7d project:"my app" file:"a b.md" 動画');
     expect(formatQuery('', {})).toBe('');
     expect(formatQuery('動画', {})).toBe('動画');
+  });
+  it('止まっている理由は動きの後ろに書き、読み直すと同じ条件に戻る', () => {
+    expect(queryTokens({ live: 'waiting', stop: 'limited' })).toEqual([{ key: 'live', token: 'is:waiting' }, { key: 'stop', token: 'is:limited' }]);
+    expect(parseQuery(formatQuery('x', { stop: 'permission' }))).toEqual({ text: 'x', filter: { stop: 'permission' } });
   });
   it('終了（ended）と until はトークンを持たない', () => {
     expect(queryTokens({ live: 'ended', until: 5 })).toEqual([]);

@@ -878,6 +878,8 @@ fn boot(app: AppHandle) {
         fail(&app, bootfail::BootFailure::other(say(&hangar_home, msg)));
         return;
     }
+    // 入力待ちと使用制限の通知は、サーバが決めて並べる。頁が背面で止まっていても出るよう、殻のスレッドが読みに行く。
+    watch_notices(app.clone(), addr, token);
     watch_server(app);
 }
 
@@ -1700,10 +1702,31 @@ fn notify_waiting(
     bare: Option<bool>,
 ) -> Result<(), String> {
     let kind = notify::Kind::parse(kind.as_deref())?;
+    deliver_notice(
+        &app,
+        kind,
+        &session_id,
+        &title,
+        &body,
+        bare.unwrap_or(false),
+    )
+}
+
+/// 確かめてから、預かり（notify::hold）を通して出す。頁の `notify_waiting` と、サーバの並び（notify::feed）の両方が通る。
+fn deliver_notice(
+    app: &AppHandle,
+    kind: notify::Kind,
+    session_id: &str,
+    title: &str,
+    body: &str,
+    bare: bool,
+) -> Result<(), String> {
     // 題や本文が空のときの代わりの文は、殻の頁と同じ言語で書く。
     let lang = bootfail::page_language(&paths::hangar_home());
-    let w = notify::waiting(kind, &session_id, &title, &body, lang)?;
-    match notify::hold::offer(w, bare.unwrap_or(false)) {
+    let w = notify::waiting(kind, session_id, title, body, lang)?;
+    let app = app.clone();
+    let session_id = session_id.to_string();
+    match notify::hold::offer(w, bare) {
         notify::hold::Offer::Show(w) => show_unless_in_front(&app, &w),
         notify::hold::Offer::Hold(token) => {
             // 頁の時計は絞られるので、殻のスレッドで待つ。
@@ -1741,15 +1764,63 @@ fn show_unless_in_front(app: &AppHandle, w: &notify::Waiting) {
 }
 
 /// もう待っていないセッションの知らせを、通知センターから外す。
-/// 頁は、いま入力待ちのセッション（waiting）と、今日の戻る時刻を過ぎてまだ Paused のセッション（returning）を渡す。
+/// 頁は、いま入力待ちのセッション（waiting）と、今日の戻る時刻を過ぎてまだ Paused のセッション（returning）と、使用制限でリセットを待っているセッション（limited）を渡す。
+/// limited を渡さない前の版の頁では、使用制限の知らせは残さない。
 /// 頁が呼ぶのは、その顔ぶれが変わったときと、起動して一覧を読み終えたときである。
 /// 窓が前にあっても外す（答えた入力待ちの知らせを通知センターに残さない）。
 #[tauri::command]
-fn notify_prune(waiting: Vec<String>, returning: Vec<String>) {
-    let keep = notify::Keep::new(&waiting, &returning);
+fn notify_prune(waiting: Vec<String>, returning: Vec<String>, limited: Option<Vec<String>>) {
+    let keep = notify::Keep::new(&waiting, &returning).with_limited(&limited.unwrap_or_default());
     // 答えた入力待ちの、まだ出していない預かりも捨てる。
     notify::hold::prune(&keep);
     notify::prune(keep);
+}
+
+/// 利用者が通知を受け取ると選んでいるかを、頁が殻に伝える（設定のスイッチ、localStorage の `notify.waiting`）。
+/// 頁は起動したときと、スイッチを変えたときに呼ぶ。サーバの並び（notify::feed）の通知は、これが真のときだけ出す。
+#[tauri::command]
+fn notify_feed(on: bool) {
+    notify::feed::set_enabled(on);
+}
+
+/// サーバが組んだ通知（`GET /api/notify/feed`）を読み続け、窓が前になければ OS へ渡す（notify::feed）。
+/// 長いポーリングで読むので、通知が無い間はサーバが応答を待たせ、殻は 25 秒に 1 回だけ聞き直す。
+/// 読めなかったら（サーバが起き直している、止まっている）2 秒おいて読み直す。
+/// 起動のやり直しで 2 本目を起こさない。
+fn watch_notices(app: AppHandle, addr: SocketAddr, token: String) {
+    if !notify::feed::start_once() {
+        return;
+    }
+    std::thread::spawn(move || {
+        let mut cursor = notify::feed::Cursor::default();
+        let auth = format!("Bearer {token}");
+        loop {
+            let got = health::http_get_with(
+                addr,
+                &cursor.path(),
+                &[("Authorization", auth.as_str())],
+                notify::feed::READ_TIMEOUT,
+            );
+            let items = match got {
+                Some((200, body)) => cursor.take(&body),
+                _ => None,
+            };
+            let Some(items) = items else {
+                std::thread::sleep(notify::feed::RETRY_AFTER);
+                continue;
+            };
+            for i in items {
+                if !notify::feed::enabled() {
+                    continue;
+                }
+                if let Err(e) =
+                    deliver_notice(&app, i.kind, &i.session_id, &i.title, &i.body, i.bare)
+                {
+                    log(&format!("notification from the server refused: {e}"));
+                }
+            }
+        }
+    });
 }
 
 /// 通知の許可を求め、許されたかを返す。
@@ -1968,6 +2039,7 @@ pub fn run() {
             retry_boot,
             notify_waiting,
             notify_prune,
+            notify_feed,
             notify_request,
             notify_status,
             apply_config_sync,

@@ -15,7 +15,7 @@ import { awaitsAnswer, initialStore, liveFilterOfSession, nextWaitingSession, sh
  */
 const NOW = 1_800_000_000_000;
 const stateOf = (status: SessionStatus | null): SessionStateDto | null => (status === null ? null : { status, note: null, returnOn: status === 'paused' ? '2027-01-01' : null, returnTime: null, setBy: 'user', setAt: NOW - 1000, candidate: null });
-const session = (id: string, live: SessionDto['live'], status: SessionStatus | null = null, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: 'alpha', name: `name-${id}`, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, live, lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: stateOf(status), parked: false, stoppedByStatus: false, liveAside: null, interrupted: null, overlap: null, ...over });
+const session = (id: string, live: SessionDto['live'], status: SessionStatus | null = null, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: 'alpha', name: `name-${id}`, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, live, lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: stateOf(status), parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over });
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const storeWith = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, projects: { alpha: project('alpha') }, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 
@@ -64,7 +64,7 @@ describe('Done と Archived で live が waiting のセッションは、入力�
   });
   it('コマンドパレットは、入力待ちの群にも「入力待ち」の語にも入れない', () => {
     const p = presentPalette({ ...initialState(), overlay: { kind: 'palette' } }, store, 'name', NOW)!;
-    const waitingGroup = p.sections.find((g) => g.title === '入力待ち')!;
+    const waitingGroup = p.sections.find((g) => g.title === '要対応')!;
     expect(waitingGroup.items.map((i) => i.id).sort()).toEqual(['session:p', 'session:w']);
     const rows = p.sections.flatMap((g) => g.items).filter((i) => i.kind === 'session');
     const meta = Object.fromEntries(rows.map((i) => [i.id, i.meta]));

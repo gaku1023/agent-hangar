@@ -17,6 +17,7 @@ import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
 import { ParkWatch, parkedSessionIds } from '../sessions/park.ts';
+import { StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
@@ -26,6 +27,11 @@ import type { HomeParts } from './home.ts';
 
 /** tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
+/**
+ * デスクトップ通知の見張りの間隔。登録の読み直し（500 ミリ秒）と同じにする。
+ * 登録が変わったときにも見るので、この周期が拾うのは、問いの文や許可の中身が後から届いたときと、リセットの時刻を過ぎたときである。
+ */
+const NOTICE_POLL_MS = 500;
 
 /** 設定の tmux のパスから、tmux の口を作る。パスが無ければ null で、起動は使えない。 */
 export function tmuxOf(s: Pick<Settings, 'tmuxPath'>): Tmux | null {
@@ -52,7 +58,7 @@ export type RunsParts = {
   external: ExternalApi;
   readiness(): Promise<ReadinessDto>;
   compat(): Promise<CompatDto>;
-  /** 実行中の一覧の最初の読み取りを覚える。最初の読み取りは onChange を通らない。 */
+  /** 実行中の一覧の最初の読み取りを覚える。最初の読み取りは onChange を通らない。通知の見張りも、このときの入力待ちと使用制限を知らせ終えたものとして覚える。 */
   primeLive(): void;
   /** 前回の終了時に生きていた run の回復と、run の終了の見張り、休みの見張りを始める。 */
   start(): void;
@@ -60,7 +66,7 @@ export type RunsParts = {
   startPresence(): void;
   /** 同じファイルの編集の見張り。「このファイルでは表示しない」の後に、すぐ読み直させる。 */
   overlaps: OverlapWatch;
-  /** 休みの見張りと、同じファイルの編集の見張りの周期を止める。 */
+  /** 休みの見張り、デスクトップ通知の見張り、同じファイルの編集の見張りの周期を止める。 */
   stopParkTimer(): void;
   /** 生存の刻みの周期を止める。 */
   stopPresence(): void;
@@ -75,7 +81,7 @@ export type RunsParts = {
  */
 export function bootRuns(
   home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
   listening: { host: string; port: number },
   o: { serverDir: string; launcher?: string },
 ): RunsParts {
@@ -139,9 +145,19 @@ export function bootRuns(
   // 同じファイルの編集の見張り。作業中だったかを、登録の状態の移り変わりから覚える。
   const overlaps = new OverlapWatch({ db, live: () => registry.current() });
   registry.onChange((live) => overlaps.noteLive(live));
+  // デスクトップ通知のきっかけ（入力待ち、許可待ち、使用制限、リセット済み）。殻が GET /api/notify/feed で読む。
+  const stopNotices = new StopNoticeWatch({
+    db, deviceId: device.id, live: () => registry.current(), language: home.language, feed: delivery.osNotices,
+    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id) }, providerSessionId),
+  });
+  const noticeTick = (): void => {
+    try { stopNotices.tick(); } catch (e) { console.error('[notify]', e instanceof Error ? e.message : e); }
+  };
+  registry.onChange(noticeTick);
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;
   let overlapTimer: ReturnType<typeof setInterval> | null = null;
+  let noticeTimer: ReturnType<typeof setInterval> | null = null;
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
   return {
     runs, usage, accounts, claudeBin, localClaude, overlaps,
@@ -164,6 +180,7 @@ export function bootRuns(
       // 最初の読み取りは onChange を通らないので、生きた run の最後の状態と、状態の移り変わりもここで覚える。
       runs.noteLastLive(registry.current());
       overlaps.noteLive(registry.current());
+      noticeTick();
     },
     start() {
       // 前回の終了時に生きていた run のうち、tmux セッションが残っていないものを lost で閉じる。
@@ -187,6 +204,8 @@ export function bootRuns(
         }
       }, OVERLAP_TICK_MS);
       overlapTimer.unref();
+      noticeTimer = setInterval(noticeTick, NOTICE_POLL_MS);
+      noticeTimer.unref();
     },
     startPresence() {
       touch();
@@ -196,6 +215,7 @@ export function bootRuns(
     stopParkTimer() {
       if (parkTimer) clearInterval(parkTimer);
       if (overlapTimer) clearInterval(overlapTimer);
+      if (noticeTimer) clearInterval(noticeTimer);
     },
     stopPresence() { if (deviceTimer) clearInterval(deviceTimer); },
   };

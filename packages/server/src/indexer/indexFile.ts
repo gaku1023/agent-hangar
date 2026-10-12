@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import { newId } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
+import { touchRow } from '../db/notify.ts';
 import { upsertShared } from '../db/shared.ts';
 import { readNewLines } from '../provider/claude-code/transcript/lines.ts';
 import { artifactCallOf, isArtifactPublish, parsePublishedUrl, recordArtifactPublish } from '../artifacts/extract.ts';
 import { indexTexts, isTypedPrompt, normalizeRecord, recordFacts } from '../provider/claude-code/transcript/normalize.ts';
 import { clearOnNewPrompt } from '../sessions/states.ts';
 import { foldActivity, type Activity } from '../provider/claude-code/transcript/activity.ts';
+import { foldLimit, type Limit } from '../provider/claude-code/transcript/limit.ts';
 import { transcriptWatcher, type TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
 import { localDay } from '../usage/aggregate.ts';
 import type { DiscoveredFile } from '../provider/claude-code/types.ts';
@@ -86,6 +88,8 @@ export function forgetTranscriptFile(db: Db, filePath: string): void {
     // 残すと後で息を吹き返したセッションに、答え済みの問いなど古い「いま」を見せてしまう。
     // サブエージェントのファイルを手放すだけなら、主線の行はそのまま正しいので触らない。
     if (row.agent_id === null) db.prepare('delete from session_activity where session_id = ?').run(row.session_id);
+    // 使用制限の行も主線のものである。
+    if (row.agent_id === null) db.prepare('delete from session_limits where session_id = ?').run(row.session_id);
     db.prepare('delete from transcript_files where path = ?').run(filePath);
   });
   run();
@@ -173,11 +177,16 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     const saved = mainLocal && !reset ? (loadActivity.get(sessionId) as { tool: string; summary: string; tool_id: string; question: string | null } | undefined) : undefined;
     const startActivity: Activity | null = saved ? { tool: saved.tool, summary: saved.summary, toolId: saved.tool_id, question: saved.question } : null;
     let activity = startActivity;
+    // 使用制限で止まっているか。手元の主線だけが持つ。作り直しでは先頭から畳み直す。
+    const savedLimit = mainLocal && !reset ? (db.prepare('select kind, resets_at, auto, hit_at from session_limits where session_id = ?').get(sessionId) as { kind: Limit['kind']; resets_at: number; auto: number; hit_at: number } | undefined) : undefined;
+    const startLimit: Limit | null = savedLimit ? { kind: savedLimit.kind, resetsAt: savedLimit.resets_at, auto: savedLimit.auto === 1, hitAt: savedLimit.hit_at } : null;
+    let limit = startLimit;
     parsed.forEach((p, i) => {
       // 受け口が投げても、見張りのせいで索引の取引を巻き戻さない。
       try { watch?.(p.rec); } catch { /* 見張りは振る舞いを変えない */ }
       const events = normalizeRecord(p.rec, seq, file.agentId);
       if (mainLocal) activity = foldActivity(activity, events);
+      if (mainLocal) limit = foldLimit(limit, p.rec, events);
       for (const ev of events) {
         const toolName = ev.kind === 'tool_call' ? ev.name : null;
         const filePath = ev.kind === 'tool_call' ? ev.filePath ?? null : null;
@@ -223,6 +232,14 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       else db.prepare(`insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)
         on conflict(session_id) do update set tool = excluded.tool, summary = excluded.summary, tool_id = excluded.tool_id, question = excluded.question, updated_at = excluded.updated_at`)
         .run(sessionId, activity.tool, activity.summary, activity.toolId, activity.question, Date.now());
+    }
+    if (mainLocal && (reset || limit !== startLimit)) {
+      if (limit === null) db.prepare('delete from session_limits where session_id = ?').run(sessionId);
+      else db.prepare(`insert into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)
+        on conflict(session_id) do update set kind = excluded.kind, resets_at = excluded.resets_at, auto = excluded.auto, hit_at = excluded.hit_at`)
+        .run(sessionId, limit.kind, limit.resetsAt, limit.auto ? 1 : 0, limit.hitAt);
+      // 行は手元だけの表なので、SessionDto（limit）を配り直してもらう。
+      touchRow(db, 'sessions', sessionId);
     }
     db.prepare(`insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,?,null)
       on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, device_id = excluded.device_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)

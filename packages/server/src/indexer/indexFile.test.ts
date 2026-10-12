@@ -373,6 +373,44 @@ describe('最後のツール呼び出し（session_activity）', () => {
   });
 });
 
+describe('使用制限（session_limits）', () => {
+  const limitHit = (ts = '2026-09-01T12:20:00.000Z') => ({ type: 'assistant', error: 'rate_limit', isApiErrorMessage: true, message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: "You've hit your session limit" }] }, quotaLimits: { status: 'rejected', resetsAt: 1_788_300_000, rateLimitType: 'five_hour' }, uuid: `l-${ts}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+  const info = (text: string) => ({ type: 'system', subtype: 'informational', content: text, uuid: 'i1', timestamp: '2026-09-01T12:20:01.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+  const prompt = (text: string) => ({ type: 'user', message: { role: 'user', content: text }, uuid: 'p1', timestamp: '2026-09-01T13:00:00.000Z', cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+  const limit = (sessionId: string) => db.prepare('select kind, resets_at, auto, hit_at from session_limits where session_id = ?').get(sessionId);
+
+  it('合成の行で行を作り、自動の続きの知らせで auto を立て、次の指示で消す', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    appendJson(alphaMain().path, limitHit());
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(limit(r.sessionId)).toEqual({ kind: 'five_hour', resets_at: 1_788_300_000_000, auto: 0, hit_at: Date.parse('2026-09-01T12:20:00.000Z') });
+    appendJson(alphaMain().path, info('Usage limit reached · continuing automatically at 1:00pm · esc to cancel'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(limit(r.sessionId)).toMatchObject({ auto: 1 });
+    appendJson(alphaMain().path, prompt('続けて'));
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    expect(limit(r.sessionId)).toBeUndefined();
+  });
+
+  it('作り直しでは先頭から積み直し、主線を忘れると行も消える', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    appendJson(alphaMain().path, limitHit());
+    indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaMain(), { deviceId: DEV, indexerVersion: INDEXER_VERSION + 1 });
+    expect(limit(r.sessionId)).toMatchObject({ kind: 'five_hour' });
+    forgetTranscriptFile(db, alphaMain().path);
+    expect(limit(r.sessionId)).toBeUndefined();
+  });
+
+  it('サブエージェントの本文の使用制限は、主線の行にしない', () => {
+    const r = indexFile(db, alphaMain(), { deviceId: DEV });
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    appendJson(alphaSub().path, limitHit());
+    indexFile(db, alphaSub(), { deviceId: DEV });
+    expect(limit(r.sessionId)).toBeUndefined();
+  });
+});
+
 describe('他端末の写しの索引化', () => {
   const u = '11111111-1111-4111-8111-111111111111';
   const remoteFile = (root: string, text: string): string => {

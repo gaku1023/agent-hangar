@@ -112,7 +112,7 @@ describe('キーマップ', () => {
     expect(matchKey({ key: 'I', metaKey: true, shiftKey: true })).toBeNull();
     expect(matchKey({ key: 'i' })).toBeNull();
     expect(KEYMAP.find((b) => b.id === 'session.nextWaiting')).toMatchObject({ group: 'global', keys: '⌘I' });
-    expect(labelOf('session.nextWaiting')).toBe('次の入力待ちへ');
+    expect(labelOf('session.nextWaiting')).toBe('次の要対応へ');
   });
 
   it('どの行にも表示するキーと説明がある', () => {

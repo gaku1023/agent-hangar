@@ -67,6 +67,16 @@ describe('実行中の一覧の変化', () => {
     expect(sent[0]).toEqual({ type: 'live.update', live: [] });
   });
 
+  it('実行中の登録が消えたら、使用制限の行を消す。再開した直後に前の run の使用制限を出さない', () => {
+    db.prepare('insert into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)').run(alpha, 'five_hour', 2, 1, 1);
+    const limitOf = () => db.prepare('select kind from session_limits where session_id = ?').get(alpha);
+    const h = handler();
+    change(h, [entry('idle')]);
+    expect(limitOf()).toEqual({ kind: 'five_hour' });
+    change(h, []);
+    expect(limitOf()).toBeUndefined();
+  });
+
   it('実行中の登録が消えたら、答えを待っていた問いを消す。再開した直後に前の問いが出ない', () => {
     db.prepare('insert or replace into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)').run(alpha, 'AskUserQuestion', 'AskUserQuestion', 'toolu_1', 'どちらにしますか？', 1);
     const questionOf = () => (db.prepare('select question from session_activity where session_id = ?').get(alpha) as { question: string | null } | undefined)?.question;

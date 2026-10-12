@@ -16,7 +16,7 @@ export const shortcutsJa: AreaDictionary<typeof shortcutsKeys> = {
   'shortcuts.key.paletteOpen': 'コマンドパレット（検索と移動）',
   'shortcuts.key.sessionNew': '新しいセッション',
   'shortcuts.key.sessionNewQuick': 'クイックセッションを開始',
-  'shortcuts.key.sessionNextWaiting': '次の入力待ちへ',
+  'shortcuts.key.sessionNextWaiting': '次の要対応へ',
   'shortcuts.key.settingsOpen': '設定',
   'shortcuts.key.navBack': '戻る',
   'shortcuts.key.navForward': '進む',

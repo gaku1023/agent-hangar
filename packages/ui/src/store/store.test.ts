@@ -3,7 +3,7 @@ import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, Session
 import { accountsFixture } from '../test/accounts.ts';
 import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyEventsPage, applyJoinToken, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
-const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, interrupted: null, overlap: null });
+const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
 
 describe('索引の段階', () => {
@@ -71,9 +71,23 @@ describe('store', () => {
     s = applyServerEvent(s, { type: 'live.update', live: [{ ...base, aside: { shell: true, agents: 0 } }] });
     expect(s.sessions.s1).toMatchObject({ live: 'busy', liveAside: { shell: true, agents: 0 } });
     s = applyServerEvent(s, { type: 'live.update', live: [base] });
-    expect(s.sessions.s1).toMatchObject({ live: 'busy', liveAside: null });
+    expect(s.sessions.s1).toMatchObject({ live: 'busy', liveAside: null, waitingFor: null, permission: null, limit: null });
     s = applyServerEvent(s, { type: 'live.update', live: [] });
-    expect(s.sessions.s1).toMatchObject({ live: null, liveAside: null });
+    expect(s.sessions.s1).toMatchObject({ live: null, liveAside: null, waitingFor: null, permission: null, limit: null });
+  });
+  it('live.update は何を待っているかと、求めている許可の中身も引き直す。終われば使用制限も外す', () => {
+    let s = applyBootstrap(initialStore(), boot);
+    const base = { sessionId: 'u1', status: 'waiting' as const, name: null, nameSource: null, cwd: '/x', pid: 1 };
+    const ask = { tool: 'Bash', input: 'npm test', description: null };
+    s = applyServerEvent(s, { type: 'live.update', live: [{ ...base, waitingFor: 'permission', permission: ask }] });
+    expect(s.sessions.s1).toMatchObject({ live: 'waiting', waitingFor: 'permission', permission: ask });
+    s = applyServerEvent(s, { type: 'live.update', live: [{ ...base, status: 'busy' }] });
+    expect(s.sessions.s1).toMatchObject({ live: 'busy', waitingFor: null, permission: null });
+    s = applyServerEvent(s, { type: 'session.upsert', session: { ...s.sessions.s1!, live: 'idle', limit: { kind: 'five_hour', resetsAt: 9, auto: true, reset: false } } });
+    s = applyServerEvent(s, { type: 'live.update', live: [{ ...base, status: 'idle' }] });
+    expect(s.sessions.s1?.limit).toMatchObject({ kind: 'five_hour' });
+    s = applyServerEvent(s, { type: 'live.update', live: [] });
+    expect(s.sessions.s1).toMatchObject({ live: null, limit: null });
   });
   it('session.upsert は state も丸ごと差し替える（状態の操作の画面の正）', () => {
     let s = applyBootstrap(initialStore(), boot);

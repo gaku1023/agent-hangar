@@ -9,7 +9,7 @@ const NOW = new Date(2026, 9, 2, 9, 0).getTime();
 const H = 3_600_000;
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
-const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, interrupted: null, overlap: null, ...over });
+const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over });
 function storeOf(list: SessionDto[]): Store {
   const s = initialStore();
   s.bootstrapped = true;
@@ -30,6 +30,25 @@ const busyMorning = () => storeOf([
   dto('d2', 30, { state: st({ status: 'done', setBy: 'user', setAt: NOW - 30 * H }) }),
   dto('a1', 40, { state: st({ status: 'archived', setBy: 'user', setAt: NOW - 40 * H }) }),
 ]);
+
+describe('presentHomeScreen の止まっている理由', () => {
+  it('許可待ちは要対応、使用制限は実行中、自動で続かずリセットを過ぎたものは要対応に入る', () => {
+    const resetsAt = NOW + 50 * 60_000;
+    const p = presentHomeScreen(initialState(), storeOf([
+      dto('p1', 0.02, { live: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'npm test', description: null } }),
+      dto('l1', 0.5, { live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } }),
+      dto('x1', 0.5, { live: 'idle', limit: { kind: 'weekly', resetsAt: NOW - 5 * 60_000, auto: false, reset: true } }),
+    ]), NOW);
+    const attention = p.band.groups.find((g) => g.id === 'attention')!;
+    const running = p.band.groups.find((g) => g.id === 'running')!;
+    expect(attention.rows.map((r) => [r.key, r.lead.kind === 'dot' ? r.lead.reason : null])).toEqual([['wait:x1', 'reset'], ['wait:p1', 'permission']]);
+    expect(attention.rows[1]!.ask).toEqual({ tool: 'Bash', input: 'npm test' });
+    expect(attention.rows[0]!.trail[0]!.text).toBe('リセットから 5 分');
+    expect(running.rows.map((r) => r.key)).toEqual(['run:l1']);
+    expect(running.rows[0]!.text).toBe('使用制限（5 時間）· 09:50 にリセット · 自動で続きます');
+    expect(running.rows[0]!.trail).toEqual([{ text: 'あと 50 分', tone: 'limit' }]);
+  });
+});
 
 describe('presentHomeScreen の帯', () => {
   it('要対応、実行中、確認待ちの 3 つの群を、件数つきで並べる（4 つ目の錠剤は PR 33 で足す）', () => {

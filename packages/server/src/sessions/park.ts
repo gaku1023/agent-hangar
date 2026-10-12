@@ -6,6 +6,8 @@ import type { LiveSession } from '../provider/claude-code/types.ts';
 /**
  * 区切り（Paused・Done・Archived）を付けたのに、休みのまま残っているセッションの id。
  * 判定は一覧に載せる parked と同じもの（shared の isParked）を使う。画面が実行中から外すものと、ここで止めるものを揃えるためである。
+ * 使用制限でリセットを待っている会話（session_limits の行があり、リセットから猶予の内）は返さない。
+ * 止めると、Claude Code が予約した自動の続きごと消えるからである。休みに見えても、リセットを待っている。
  * 同じ会話に登録が 2 つ以上あるときは返さない。hangar の run と外のターミナルの両方で開いていると、
  * 休みなのがどちらのプロセスか決められず、作業中の run を落としかねない。
  * deviceId は、起動時刻の代わりに使う run をこの端末のものに限るために渡す。

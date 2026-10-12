@@ -112,7 +112,7 @@ function LiveSection(props: { live: SideLiveProps }) {
               onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
               onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
               onDragOver={(e) => onDragOver(e, r)} onDragLeave={() => { if (over?.id === r.id) setOver(null); }} onDrop={(e) => onDrop(e, r)} onDragEnd={end}>
-              <StatusDot status={r.live} aside={r.aside} /><span className="side-live-name">{r.name}</span>{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num">{r.waited}</span>}
+              <StatusDot status={r.live} aside={r.aside} reason={r.reason} /><span className="side-live-name">{r.name}</span>{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
             </a>
           </li>
         ))}

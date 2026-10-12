@@ -9,6 +9,24 @@
 .gauge-bar { display: inline-block; width: 48px; height: 6px; border-radius: 3px; background: rgba(30, 40, 90, 0.1); overflow: hidden; }
 .gauge-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); transition: width var(--dur) var(--ease-out), background var(--dur) var(--ease-out); }
 .gauge-fill[data-high='true'] { background: var(--waiting); }
+/* 使用制限で止まっている枠（試作 stop-reason-proto の H2）。砂時計を添え、棒と数字を使用制限の色にして、% の代わりに時刻を出す。 */
+.gauge[data-limit='true'] .gauge-key { color: var(--limit); font-weight: 600; }
+.gauge[data-limit='true'] .gauge-fill { background: var(--limit); }
+.gauge[data-limit='true'] .gauge-num { color: var(--limit); font-weight: 700; }
+.gauge > .reason-glyph { width: 12px; height: 12px; }
+.gauge > .reason-glyph > svg { width: 12px; height: 12px; }
+/* 「停止 N」の札と、押すと開く一覧。 */
+.stopped-chip { flex: none; display: inline-flex; align-items: center; gap: var(--u); height: 22px; padding: 0 calc(var(--u) * 2.25); border: 0; border-radius: var(--r-pill); background: var(--limit-soft); color: var(--limit); font: inherit; font-size: var(--fs-xs); font-weight: 700; white-space: nowrap; cursor: pointer; }
+.stopped-chip:hover { background: color-mix(in srgb, var(--limit) 16%, var(--surface)); }
+.stopped-chip > .reason-glyph, .stopped-row > .reason-glyph { width: 12px; height: 12px; }
+.stopped-chip > .reason-glyph > svg, .stopped-row > .reason-glyph > svg { width: 12px; height: 12px; }
+.stopped-list { display: flex; flex-direction: column; gap: 2px; padding: calc(var(--u) * 2); }
+.stopped-head { margin: 0 0 calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 1); font-size: var(--fs-xs); color: var(--ink-3); }
+.stopped-row { display: flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; padding: calc(var(--u) * 1.25) calc(var(--u) * 1); border: 0; border-radius: var(--r); background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.stopped-row:hover, .stopped-row:focus-visible { background: var(--surface-2); }
+.stopped-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.stopped-proj { flex: none; font-size: var(--fs-xs); color: var(--ink-3); }
+.stopped-auto { flex: none; margin-left: auto; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
 /* 行の高さを数字の枠（.roll の 1.2em）に揃える。本文の 1.5 のままだと、枠が行の下端に寄って数字が 3px ほど下がり、下端も欠ける。 */
 .gauge-num { font-size: var(--fs-xs); line-height: 1.2em; color: var(--ink-3); min-width: 32px; }
 .gauge-updated { font-size: var(--fs-xs); white-space: nowrap; }

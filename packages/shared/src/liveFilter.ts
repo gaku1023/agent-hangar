@@ -42,8 +42,10 @@ const START_PRECISION_MS = 1000;
  * 印より後に起動したプロセスは偽にする。再開して開いたものは、最初の発言で印が外れるまで動いているものとして扱う。
  * 起動時刻は秒に切り捨てて届くので、印の 1 秒以上前に起動したものだけを「前」と言う。
  * 起動時刻が取れないときも偽にする。印を外す側（サーバの stateClears）と同じく、分からないときは今のままにする。
+ * 使用制限で止まっている間（limited、リセットの猶予の内）も偽にする。
+ * 止めると、Claude Code が予約した自動の続きごと消えるからである。休みに見えても、リセットを待っている。
  */
-export function isParked(o: { status: SessionStatus | null; setBy: StateSetBy | null; setAt: number | null; live: LiveStatus | null; processStartedAt: number | null }): boolean {
-  if (o.status === null || o.setBy === 'import' || o.setAt === null || o.live !== 'idle') return false;
+export function isParked(o: { status: SessionStatus | null; setBy: StateSetBy | null; setAt: number | null; live: LiveStatus | null; processStartedAt: number | null; limited?: boolean }): boolean {
+  if (o.status === null || o.setBy === 'import' || o.setAt === null || o.live !== 'idle' || o.limited) return false;
   return o.processStartedAt !== null && o.processStartedAt + START_PRECISION_MS <= o.setAt;
 }

@@ -13,7 +13,7 @@ const NOW = Date.parse('2026-09-02T12:00:00Z');
 const stats = { turns: 11, model: 'claude-sonnet-4-5', effort: 'high', filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: 41, costUsd: 0.42 };
 const session = (over: Partial<SessionDto> = {}): SessionDto => ({
   id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '画像の遅延読み込み', cwd: '/w/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOW - 3_600_000, lastActivityAt: NOW - 60_000, 
-  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, interrupted: null, overlap: null, ...over,
+  hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over,
 });
 const run = (over: Partial<RunDto> = {}): RunDto => ({ id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start', tmuxName: 'hangar-r1', pid: null, startedAt: NOW - 3_600_000, endedAt: null, endReason: null, heartbeatAt: NOW, ...over });
 function store(s: SessionDto = session(), r: RunDto | null = null): Store {

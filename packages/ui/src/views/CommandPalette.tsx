@@ -24,7 +24,7 @@ function highlight(label: string, query: string): ReactNode {
 
 function Lead(props: { item: PaletteItem }) {
   const l = props.item.lead;
-  if (l.kind === 'dot') return <StatusDot status={l.live} aside={l.aside} />;
+  if (l.kind === 'dot') return <StatusDot status={l.live} aside={l.aside} reason={l.reason ?? null} />;
   return <Icon name={ICON[l.icon]} />;
 }
 

@@ -39,7 +39,7 @@ describe('Shell のホームの入力待ちの数', () => {
 
 describe('Shell のサイドバーの並び', () => {
   const side = () => screen.getByRole('navigation', { name: '主ナビゲーション' });
-  const live = { count: 2, ids: ['a', 'b'], rows: [{ id: 'a', name: 'name-a', live: 'busy' as const, aside: false, waited: null, current: false, stop: null }, { id: 'b', name: 'name-b', live: 'idle' as const, aside: false, waited: null, current: false, stop: null }], more: 0 };
+  const live = { count: 2, ids: ['a', 'b'], rows: [{ id: 'a', name: 'name-a', live: 'busy' as const, aside: false, reason: null, waited: null, current: false, stop: null }, { id: 'b', name: 'name-b', live: 'idle' as const, aside: false, reason: null, waited: null, current: false, stop: null }], more: 0 };
   it('項目は「ホーム」「プロジェクト」の 2 つと「実行中」の節で、設定は下端に置く。「セッション」の項目は無い', () => {
     render(<ActionRoot onAction={vi.fn()}><Shell {...props} live={live} overlays={null}><div>body</div></Shell></ActionRoot>);
     const order = [...side().querySelectorAll('.nav-item, .side-live')].map((e) => (e.classList.contains('side-live') ? '実行中の節' : e.textContent));

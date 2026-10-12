@@ -6,17 +6,17 @@ export type NotifyPermission = 'granted' | 'denied' | 'undetermined' | 'unsuppor
 const PERMISSIONS: readonly string[] = ['granted', 'denied', 'undetermined', 'unsupported'];
 
 /**
- * 知らせの種類。入力待ちと、Paused の戻る時刻を過ぎた知らせである。
+ * 知らせの種類。入力待ちと、Paused の戻る時刻を過ぎた知らせと、使用制限の知らせである（使用制限はデスクトップの殻だけが出す）。
  * 種類ごとに通知の枠（macOS の識別子、Windows のタグと組、ブラウザの tag）を分ける。
  * 同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである。
  */
-export type NotifyKind = 'waiting' | 'return';
+export type NotifyKind = 'waiting' | 'return' | 'limit';
 
 /**
  * 通知センターに残してよい知らせの顔ぶれ（mediator/notify.ts の notifyKeep）。
- * waiting はいま入力待ちのセッション、returning は今日の戻る時刻を過ぎてまだ Paused のセッションである。
+ * waiting はいま入力待ちのセッション、returning は今日の戻る時刻を過ぎてまだ Paused のセッション、limited は使用制限でリセットを待っているセッションである。
  */
-export type NotifyKeep = { waiting: string[]; returning: string[] };
+export type NotifyKeep = { waiting: string[]; returning: string[]; limited?: string[] };
 
 /**
  * 窓の外へ入力待ちを知らせる口。
@@ -69,6 +69,16 @@ export type Notifier = {
    */
   show(n: { sessionId: string; title: string; body: string; kind: NotifyKind; bare?: boolean }): void;
   /**
+   * 入力待ちと使用制限の通知を、頁ではなくサーバが決めて殻が出すか（デスクトップ）。
+   * 真なら、頁は入力待ちの通知を呼ばない（呼ぶと 2 回出る）。背面で頁の JS が止まっても通知が出るよう、きっかけをサーバに置いた（0.5.0）。
+   */
+  serverFed?: boolean;
+  /**
+   * 利用者が通知を受け取ると選んでいるかを殻へ伝える（serverFed のときだけ意味を持つ）。
+   * 殻はサーバから届いた通知を、これが真のときだけ出す。
+   */
+  feed?(on: boolean): void;
+  /**
    * 残してよい顔ぶれに無い知らせを、通知センターから外す。
    * 答えた入力待ちや、前の起動の間に出した知らせが残り続けないようにする。
    */
@@ -103,7 +113,9 @@ export type DesktopEnv = {
 };
 
 /**
- * macOS と Windows の通知（殻の notify_waiting）と Dock のバッジ（Tauri の set_badge_count）。
+ * macOS と Windows の通知と Dock のバッジ（Tauri の set_badge_count）。
+ * 入力待ちと使用制限の通知は、サーバが決めて殻が読みに行く（serverFed）。頁は受け取るかどうかを notify_feed で伝えるだけである。
+ * 戻る時刻の知らせは、今までどおり頁が殻の notify_waiting を呼ぶ。
  * 許可は OS が持つ。
  * 尋ねる前も出せるとみなし、起動したときに notify_request で一度だけ尋ねておく（決まった後は OS が黙って答える）。
  * システム設定で切られているかは notify_status で読む。
@@ -124,8 +136,10 @@ export function createDesktopNotifier(env: DesktopEnv): Notifier {
     prepare: () => ask().then(() => {}),
     status: () => invoke('notify_status', undefined).then((r) => (typeof r === 'string' && PERMISSIONS.includes(r) ? (r as NotifyPermission) : 'undetermined'), () => 'undetermined' as const),
     background: () => true,
+    serverFed: true,
+    feed: (on) => { invoke('notify_feed', { on }).catch(() => {}); },
     show: (n) => { invoke('notify_waiting', { sessionId: n.sessionId, title: n.title, body: n.body, kind: n.kind, bare: n.bare === true }).catch(() => {}); },
-    prune: (keep) => { invoke('notify_prune', { waiting: keep.waiting, returning: keep.returning }).catch(() => {}); },
+    prune: (keep) => { invoke('notify_prune', { waiting: keep.waiting, returning: keep.returning, limited: keep.limited ?? [] }).catch(() => {}); },
     badge: (count) => { invoke('plugin:window|set_badge_count', { value: count > 0 ? count : null }).catch(() => {}); },
     onOpen: (cb) => {
       env.__hangarOpenWaiting = cb;
@@ -177,7 +191,7 @@ export function createBrowserNotifier(env: BrowserEnv): Notifier {
       note.onclick = () => { env.focus(); open?.(n.sessionId); note.close(); shown.delete(tag); };
     },
     prune: (keep) => {
-      const kept = { waiting: new Set(keep.waiting), return: new Set(keep.returning) };
+      const kept = { waiting: new Set(keep.waiting), return: new Set(keep.returning), limit: new Set(keep.limited ?? []) };
       for (const [tag, s] of shown) {
         if (kept[s.kind].has(s.sessionId)) continue;
         s.note.close();

@@ -1,6 +1,6 @@
 import { asideOf } from '../lib/aside.ts';
 import { baseName, splitLast } from '../lib/paths.ts';
-import { type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type StepCell, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
+import { stopReasonOf, type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type StepCell, type StopReason, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
@@ -44,6 +44,8 @@ export function summarizerLabel(sourceId: string | null, sourceModel: string | n
 }
 
 export type SessionProps = { id: string; name: string; parent: ParentLink | null; live: LiveStatus | null; aside: boolean;
+  /** 止まっている理由（shared の stopReasonOf）。見出しの点と端末の縁を替える。無ければ null。 */
+  reason?: StopReason | null;
   /** 見出しの名前の横に出す、要約の 1 文。無ければ null。 */
   oneLiner: string | null;
   hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
@@ -496,16 +498,19 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const artifactCards = artifactsOf(store, { sessionId: id }).map((a) => presentArtifactCard(t, a, now));
   const account = sessionAccount ? { name: sessionAccount.name, color: sessionAccount.color } : null;
   // 現在の帯は生きた run があるときだけ。右パネルの「いま」の段が持っていた中身がここへ移る。
+  // 止まっている理由（許可待ち、使用制限、リセット済み）。現在の札の欄、見出しの点、端末の縁が使う。
+  const reason = stopReasonOf(s);
   const strip = alive ? presentNowCard({
     digest: store.liveDigests[id] ?? null, events, turnFrom: store.liveDigests[id]?.turnStartSeq ?? lastTurn?.from ?? 0,
     live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
     idleFor: durationLabel(t, now - (s.lastActivityAt ?? now)), results,
     waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards,
+    reason, permission: s.permission, limit: s.limit,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
   const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
   const props: SessionProps = {
-    ...base, account, name: s.name ?? t('common.label.noName'), live: s.live, aside: asideOf(s.live, s.liveAside) !== null,
+    ...base, account, name: s.name ?? t('common.label.noName'), live: s.live, aside: asideOf(s.live, s.liveAside) !== null, reason,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
     parent: project ? { label: projectDisplayName(project, t), route: { name: 'project', id: project.id } } : null,
     oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,

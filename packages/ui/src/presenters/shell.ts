@@ -1,13 +1,14 @@
 import { asideOf } from '../lib/aside.ts';
-import { type IndexProgressDto, type LiveStatus, type Route, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, quietLive, usageAt } from '@agent-hangar/shared';
+import { type IndexProgressDto, type LiveStatus, type Route, type SessionDto, type StopReason, type SyncStateKind, type SyncStatusDto, type Translate, type UsageDto, limitKindText, liveWithLimit, quietLive, resetAtText, stopReasonOf, usageAt } from '@agent-hangar/shared';
 import type { State } from '../mediator/types.ts';
-import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
+import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleAccounts, liveSessionIds, shownReason, tabsOf, waitingSessionIds, type Store } from '../store/store.ts';
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
 import { presentOverlap } from './overlap.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { presentNotices, type NoticesProps } from './notices.ts';
+import { projectDisplayName } from './projectName.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
 
 /**
@@ -15,8 +16,18 @@ import { limitedWord, syncStateWord } from './syncLabel.ts';
  * 0 なら添えない。
  */
 export type NavItem = { route: Route; label: string; current: boolean; count: number };
-/** fiveHourResets と sevenDayResets は、Claude の利用上限の枠が戻る時刻の文で、届いていなければ null である。 */
-export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null };
+/**
+ * fiveHourResets と sevenDayResets は、Claude の利用上限の枠が戻る時刻の文で、届いていなければ null である。
+ * fiveHourLimit と sevenDayLimit は、その枠の使用制限でセッションが止まっているときのリセットの時刻の文（試作 stop-reason-proto の H2）。
+ * 止まっていなければ持たない。ゲージは砂時計の色にして、% の代わりにこの時刻を出す。
+ */
+export type UsageProps = { fiveHour: number | null; sevenDay: number | null; fiveHourResets: string | null; sevenDayResets: string | null; updatedLabel: string | null; fiveHourLimit?: string; sevenDayLimit?: string };
+/**
+ * ヘッダーの「停止 N」の札（試作の H2）。使用制限でリセットを待っているセッションの数と、押すと開く一覧。
+ * head は一覧の見出し（枠とリセットの時刻）、rows は行で、押すとその会話へ移る。auto は自動で続くかの語である。
+ */
+export type StoppedRow = { id: string; name: string; project: string; auto: string };
+export type StoppedProps = { count: number; head: string; rows: StoppedRow[] };
 /**
  * ヘッダのアカウントの切り替え。アカウントが 1 件以下なら null で、ヘッダは今までのまま。
  * shown は計器を出すアカウントで、セッション画面ではそのセッションのアカウント、ほかではいまのアカウントである。
@@ -57,10 +68,11 @@ export const HARD_AFTER_FAILURES = 3;
 export type SideLiveStop = { runId: string; working: boolean; aside: boolean; shellTabs: number };
 /**
  * サイドバーの「実行中」の 1 行。waited は入力待ちのときだけ（「待ち 4 分」）。current はいま見ているセッション。
+ * reason は止まっている理由で、点を盾（許可待ち）か砂時計（使用制限）に替える。waited も「許可待ち 4 分」、リセットの時刻（16:50）、「リセット済み」に替える。
  * aside は裏だけ動いていること。丸を薄いオレンジにするだけで、名前の横に語は添えない（利用者の決定）。
  * stop は hangar の run が生きているときだけ持つ。hangar の外で動いているもの（VS Code の中の claude など）は hangar から止められないので null にする。
  */
-export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; waited: string | null; current: boolean; stop: SideLiveStop | null;
+export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; reason: StopReason | null; waited: string | null; current: boolean; stop: SideLiveStop | null;
   /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
   overlap?: string | null };
 /**
@@ -68,7 +80,7 @@ export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; a
  * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
  */
 export type SideLiveProps = { count: number; ids: string[]; rows: SideLiveRow[]; more: number };
-export type ShellProps = { live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
+export type ShellProps = { stopped?: StoppedProps | null; live: SideLiveProps; sidebarCollapsed: boolean; wide: boolean; nav: NavItem[]; foot: NavItem[]; conn: ConnProps; index: IndexProgressDto; indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: NoticesProps; newSession: NewSessionTarget };
 
 /**
  * 切れているあいだの帯。
@@ -182,10 +194,49 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     const stop = run ? { runId: run.id, working: s.live === 'busy' || s.live === 'waiting', aside: aside !== null, shellTabs: tabsOf(store, run.id).filter((tab) => tab.kind === 'shell').length } : null;
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
-    const shown = quietLive(s.live, s.state?.status);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, waited: shown === 'waiting' ? t('sidebar.live.waited', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : null, current: id === current, stop, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null };
+    const shown = quietLive(liveWithLimit(s.live, s.limit), s.state?.status);
+    const reason = shownReason(s, shown);
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, reason, waited: sideWaited(t, s, shown, reason, now), current: id === current, stop, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null };
   });
   return { count: ids.length, ids, rows, more: ids.length - rows.length };
+}
+
+/** サイドバーの行の右端の語。入力待ちと許可待ちは待った時間、使用制限はリセットの時刻、リセット済みはその語。 */
+function sideWaited(t: Translate, s: SessionDto, shown: LiveStatus | null, reason: StopReason | null, now: number): string | null {
+  if (reason === 'limit' && s.limit) return resetAtText(t, s.limit.resetsAt, now);
+  if (reason === 'reset') return t('stop.state.reset');
+  if (shown !== 'waiting') return null;
+  const time = durationLabel(t, now - (s.lastActivityAt ?? now));
+  return reason === 'permission' ? t('stop.waited.permission', { time }) : t('sidebar.live.waited', { time });
+}
+
+/**
+ * 使用制限でリセットを待っているセッション（shared の stopReasonOf が limit のもの）。
+ * accountId を渡せば、そのアカウントのものだけにする（アカウントが 2 つ以上あるとき、計器は 1 つのアカウントのものだから）。
+ */
+function limitedSessions(store: Store, accountId: string | null): SessionDto[] {
+  return Object.values(store.sessions).filter((s) => stopReasonOf(s) === 'limit' && (accountId === null || accountOfSession(store, s.id)?.id === accountId));
+}
+
+/** 止まっている枠ごとの、いちばん早いリセットの時刻の文。止まっていない枠は持たない。 */
+function limitTimes(t: Translate, list: SessionDto[], now: number): Pick<UsageProps, 'fiveHourLimit' | 'sevenDayLimit'> {
+  const earliest = (kind: 'five_hour' | 'weekly') => {
+    const at = list.filter((s) => s.limit?.kind === kind).map((s) => s.limit!.resetsAt);
+    return at.length ? resetAtText(t, Math.min(...at), now) : null;
+  };
+  const five = earliest('five_hour');
+  const week = earliest('weekly');
+  return { ...(five ? { fiveHourLimit: five } : {}), ...(week ? { sevenDayLimit: week } : {}) };
+}
+
+/** 「停止 N」の札。止まっているものが無ければ null。見出しは、いちばん早くリセットされる枠で言う。 */
+function stoppedProps(t: Translate, store: Store, list: SessionDto[], now: number): StoppedProps | null {
+  if (list.length === 0) return null;
+  const first = [...list].sort((a, b) => a.limit!.resetsAt - b.limit!.resetsAt)[0]!.limit!;
+  const time = resetAtText(t, first.resetsAt, now);
+  const head = first.kind === 'other' ? t('stop.header.headOther', { time }) : t('stop.header.head', { kind: limitKindText(t, first.kind), time });
+  const project = (s: SessionDto) => (s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : t('common.label.uncategorized'));
+  return { count: list.length, head, rows: list.map((s) => ({ id: s.id, name: s.name ?? t('common.label.noName'), project: project(s), auto: t(s.limit!.auto ? 'stop.limit.auto' : 'stop.limit.noAuto') })) };
 }
 
 const gaugePercent = (g: AccountGauge | null): number | null => g?.percent ?? null;
@@ -198,19 +249,21 @@ const NO_USAGE: UsageDto = { fiveHour: null, sevenDay: null, updatedAt: null };
  * アカウントが 2 件以上あるときだけ切り替えを出し、計器は shown の値から作る。
  * 1 件以下のときは、いまのアカウント（最初のアカウント）の値から作る。使用率は accounts.update だけで届く。
  */
-function headerAccount(state: State, store: Store, now: number): { account: HeaderAccountProps; usage: UsageProps } {
+function headerAccount(state: State, store: Store, now: number): { account: HeaderAccountProps; usage: UsageProps; stopped: StoppedProps | null } {
   const t = translatorOf(store);
   if (!hasMultipleAccounts(store)) {
     const u = usageAt(currentAccount(store)?.usage ?? NO_USAGE, now);
-    return { account: null, usage: { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now) } };
+    const limited = limitedSessions(store, null);
+    return { account: null, usage: { fiveHour: u.fiveHour?.usedPercent ?? null, sevenDay: u.sevenDay?.usedPercent ?? null, fiveHourResets: resetsLabel(u.fiveHour?.resetsAt ?? null, now), sevenDayResets: resetsLabel(u.sevenDay?.resetsAt ?? null, now), updatedLabel: u.updatedAt === null ? null : relativeTime(t, u.updatedAt, now), ...limitTimes(t, limited, now) }, stopped: stoppedProps(t, store, limited, now) };
   }
   const sessionId = state.screen.name === 'session' ? state.screen.id : null;
   const raw = (sessionId === null ? currentAccount(store) : accountOfSession(store, sessionId)) ?? accountList(store)[0]!;
   const list = presentAccounts(store, now);
   const shown = list.find((a) => a.id === raw.id) ?? list[0]!;
   const live = sessionId === null ? null : store.sessions[sessionId]?.live ?? null;
-  const usage: UsageProps = { fiveHour: gaugePercent(shown.fiveHour), sevenDay: gaugePercent(shown.sevenDay), fiveHourResets: shown.fiveHour?.resets ?? null, sevenDayResets: shown.sevenDay?.resets ?? null, updatedLabel: shown.updatedLabel };
-  return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting' }, usage };
+  const limited = limitedSessions(store, shown.id);
+  const usage: UsageProps = { fiveHour: gaugePercent(shown.fiveHour), sevenDay: gaugePercent(shown.sevenDay), fiveHourResets: shown.fiveHour?.resets ?? null, sevenDayResets: shown.sevenDay?.resets ?? null, updatedLabel: shown.updatedLabel, ...limitTimes(t, limited, now) };
+  return { account: { shown, list, sessionId, working: live === 'busy' || live === 'waiting' }, usage, stopped: stoppedProps(t, store, limited, now) };
 }
 
 /** tz は日付と時刻を言うときの時差で、省略すると端末の時差になる。 */
@@ -220,10 +273,10 @@ export function presentShell(state: State, store: Store, now: number, tz?: strin
   const t = translatorOf(store);
   const indexLabel = indexProgressLabel(t, idx);
   // 使用率は Claude が動いている間だけ届くので、最終更新を添えて古さを見せる。
-  const { account, usage } = headerAccount(state, store, now);
+  const { account, usage, stopped } = headerAccount(state, store, now);
   // ホームに入力待ちの数を添える。
   // 数え方は shared の liveFilterOf に従う（waitingSessionIds）。
   const waiting = waitingSessionIds(store).length;
   const item = (n: NavDef): NavItem => ({ route: n.route, label: n.label, current: n.matches.includes(s.name), count: n.route.name === 'home' ? waiting : 0 });
-  return { sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
+  return { stopped, sidebarCollapsed: state.sidebarCollapsed, wide: s.name === 'session', nav: navDefs(t).map(item), foot: footDefs(t).map(item), conn: connProps(state, store, now), index: idx, indexLabel, usage, account, sync: syncProps(store, now, tz), notices: presentNotices(state, store, now, tz), newSession: newSessionTarget(state, store), live: sideLive(state, store, now) };
 }

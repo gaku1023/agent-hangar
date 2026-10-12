@@ -82,6 +82,21 @@ describe('Header', () => {
     fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
+  it('使用制限で止まっている枠は、砂時計の色にして % の代わりにリセットの時刻を出し、「停止 N」から会話へ移れる（試作の H2）', () => {
+    const onAction = vi.fn();
+    const stopped = { count: 1, head: '5 時間の使用制限で止まっています · 16:50 にリセット', rows: [{ id: 's9', name: '依存の更新', project: 'notes-app', auto: '自動で続きます' }] };
+    render(<ActionRoot onAction={onAction}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: 100, sevenDay: 41, fiveHourResets: '16:50', sevenDayResets: null, updatedLabel: null, fiveHourLimit: '16:50' }} sync={noSync} stopped={stopped} /></ActionRoot>);
+    const five = screen.getByText('5 時間').closest('.gauge')!;
+    expect(five).toHaveAttribute('data-limit', 'true');
+    expect(five.querySelector('.reason-glyph')).not.toBeNull();
+    expect(five.querySelector('.gauge-num')).toHaveTextContent('16:50');
+    expect(five).toHaveAttribute('title', '5 時間の使用率：使用制限 · 16:50 にリセット');
+    expect(screen.getByText('週').closest('.gauge')).not.toHaveAttribute('data-limit');
+    fireEvent.click(screen.getByRole('button', { name: '使用制限で止まっているセッション 1 件' }));
+    expect(screen.getByText('5 時間の使用制限で止まっています · 16:50 にリセット')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /依存の更新/ }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 's9' });
+  });
   it('最終更新が無ければ添えない', () => {
     render(<ActionRoot onAction={() => {}}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></ActionRoot>);
     expect(screen.queryByText(/最終更新/)).toBeNull();

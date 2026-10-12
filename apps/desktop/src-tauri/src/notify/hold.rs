@@ -1,13 +1,15 @@
 //! 問いの文の無い入力待ちの通知を、問いの文が届くまで少し預かる。
 //!
 //! 入力待ちの合図（Claude の登録の `waiting`）は、問いの文（hook の台本や本文の索引）より先に届くことがある。
-//! 頁はそのとき、問いの文の無い通知（bare）を呼び、問いの文が届いたら同じセッションの通知をもう一度呼ぶ。
+//! サーバ（`feed`）と頁はそのとき、問いの文の無い通知（bare）を渡し、問いの文が届いたら同じセッションの通知をもう一度渡す。
 //! OS は同じ識別子（macOS）や同じタグと組（Windows）の通知を置き換えるが、置き換えのたびにバナーと音を出し直す。
 //! そこで殻は、問いの文の無い通知をセッションごとに `HOLD` だけ預かる。
 //! 預かっている間に問いの文の入った通知が来たら、預かった分を捨てて、問いの文の通知を 1 回だけ出す。
 //! 来なければ、預かった分（代わりの文）を出す。
 //! 預かりの時間を過ぎてから届いた問いの文は、出し直さない（右下の札とホームに出る）。
-//! 戻る時刻の知らせは預からない。
+//! 戻る時刻と使用制限の知らせは預からない。
+//! 許可待ちとわかる入力待ち（登録の waitingFor が許可）も預からない。問いの文は来ないので、待つだけ遅れる。
+//! サーバは許可待ちを bare を付けずに渡すので、ここではすぐ出す。
 //! 時計は殻（Rust のスレッド）が持つ。頁の時計は窓を最小化すると絞られるからである。
 
 use super::{Keep, Kind, Waiting};
@@ -18,7 +20,8 @@ use std::time::Duration;
 /// 問いの文の無い入力待ちの通知を預かる時間。
 /// 2026-10-12 に macOS の通知の記録と殻のログで、問いの文の無い呼び出しから問いの文の入った呼び出しまでの間を測った。
 /// 19 回のうち 18 回は 0.07〜1.2 秒で、1 回だけ 2.5 秒だった。
-/// 2 秒あればほとんどを 1 回にまとめられ、問いの文が来ない入力待ち（権限の確認など）の通知の遅れも 2 秒で済む。
+/// 2 秒あればほとんどを 1 回にまとめられる。
+/// 許可待ちは、サーバが登録の waitingFor で見分けて bare を付けずに渡すので、この遅れを受けない（0.5.0）。
 pub const HOLD: Duration = Duration::from_secs(2);
 
 /// 頁から届いた通知をどうするか。
@@ -237,6 +240,28 @@ mod tests {
         h.prune(&Keep::default());
         let q = w(Kind::Waiting, "s1", ASKED);
         assert_eq!(h.offer(q.clone(), false), Offer::Show(q));
+    }
+
+    /// サーバは許可待ちを bare を付けずに渡す。問いの文を待たずに、すぐ出す。
+    #[test]
+    fn a_waiting_known_to_be_a_permission_is_shown_at_once() {
+        let mut h = Holds::default();
+        let p = w(Kind::Waiting, "s1", "許可待ち：Bash npm test");
+        assert_eq!(h.offer(p.clone(), false), Offer::Show(p));
+        // 前の入力待ちの代わりの文を預かっていても、許可待ちはそれを捨ててすぐ出す。
+        let Offer::Hold(t) = h.offer(w(Kind::Waiting, "s2", BARE), true) else {
+            panic!("not held")
+        };
+        let p2 = w(Kind::Waiting, "s2", "許可待ち：Write a.ts");
+        assert_eq!(h.offer(p2.clone(), false), Offer::Show(p2));
+        assert_eq!(h.due("s2", t), None);
+    }
+
+    #[test]
+    fn a_limit_notice_is_never_held() {
+        let mut h = Holds::default();
+        let l = w(Kind::Limit, "s1", "16:50 にリセットされます");
+        assert_eq!(h.offer(l.clone(), true), Offer::Show(l));
     }
 
     #[test]

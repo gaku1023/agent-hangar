@@ -1,4 +1,4 @@
-import type { SearchFilter, StatusFilter } from '@agent-hangar/shared';
+import type { SearchFilter, StatusFilter, StopFilter } from '@agent-hangar/shared';
 
 /**
  * Home の検索欄のトークン（★）。
@@ -8,7 +8,7 @@ import type { SearchFilter, StatusFilter } from '@agent-hangar/shared';
  */
 
 /** チップ 1 つが受け持つ絞り込みの項目。 */
-export type QueryKey = 'status' | 'live' | 'days' | 'projectId' | 'file';
+export type QueryKey = 'status' | 'live' | 'stop' | 'days' | 'projectId' | 'file';
 /** 欄の中のチップ。token は欄に書く綴りそのもの。 */
 export type QueryToken = { key: QueryKey; token: string };
 /** project: を名前で引くための、プロジェクトの id と名前。 */
@@ -16,6 +16,8 @@ export type QueryProject = { id: string; name: string };
 
 const STATUS_WORDS: readonly string[] = ['paused', 'done', 'archived', 'active', 'proposed'];
 const LIVE_WORDS: readonly string[] = ['running', 'waiting'];
+/** 止まっている理由（許可待ち、使用制限とリセット済み）。is:waiting は許可待ちとリセット済みも含んだまま、別の項目として足す（試作の Q1）。 */
+const STOP_WORDS: readonly string[] = ['permission', 'limited'];
 /** since: で受ける日数の上限。打ち間違いの桁あふれを通さない。 */
 const MAX_DAYS = 3650;
 /** key:"空白を含む値"、key:値、ただの語の 3 つ。 */
@@ -46,6 +48,7 @@ function readToken(key: string, value: string, filter: Partial<SearchFilter>, pr
       const v = value.toLowerCase();
       if (STATUS_WORDS.includes(v)) { filter.status = v as StatusFilter; return true; }
       if (LIVE_WORDS.includes(v)) { filter.live = v as 'running' | 'waiting'; return true; }
+      if (STOP_WORDS.includes(v)) { filter.stop = v as StopFilter; return true; }
       return false;
     }
     case 'since': {
@@ -107,7 +110,7 @@ export function badTokens(text: string, projects: readonly QueryProject[] = []):
 const quote = (v: string) => (/[\s"]/.test(v) ? `"${v.replace(/"/g, '')}"` : v);
 
 /**
- * 絞り込みをチップの並びにする。並びは状態、動き、期間、プロジェクト、ファイルの順。
+ * 絞り込みをチップの並びにする。並びは状態、動き、止まっている理由、期間、プロジェクト、ファイルの順。
  * 動きの終了（ended）と期間の終わり（until）はトークンを持たないので出さない。条件の行と「条件をクリア」で外せる。
  * 見つからないプロジェクトは名前の代わりに id を書く。読み直しても当たらないので、欄の下に知らせが出る。
  */
@@ -115,6 +118,7 @@ export function queryTokens(filter: Partial<SearchFilter>, projects: readonly Qu
   const out: QueryToken[] = [];
   if (filter.status) out.push({ key: 'status', token: `is:${filter.status}` });
   if (filter.live === 'running' || filter.live === 'waiting') out.push({ key: 'live', token: `is:${filter.live}` });
+  if (filter.stop) out.push({ key: 'stop', token: `is:${filter.stop}` });
   if (filter.days) out.push({ key: 'days', token: `since:${filter.days}d` });
   if (filter.projectId) out.push({ key: 'projectId', token: `project:${quote(projects.find((p) => p.id === filter.projectId)?.name ?? filter.projectId)}` });
   if (filter.file) out.push({ key: 'file', token: `file:${quote(filter.file)}` });

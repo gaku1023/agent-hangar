@@ -28,7 +28,37 @@ export type SessionSummaryDto = { title: string; oneLiner: string; body: string;
  * aside は、本体は入力を受け付けていて、裏の作業だけが動いていることの印（LiveAsideDto）。無ければ付かない。
  * statusAt は動きが最後に変わった時刻（登録の statusUpdatedAt、ミリ秒）。裏だけかを決めるのに使う（server の live/aside.ts）。古い Claude は書かない。
  */
-export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number };
+export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number; waitingFor?: WaitKind; permission?: PermissionAskDto };
+/**
+ * 入力待ちが何を待っているか（登録の waitingFor を shared の waitKindOf で読み替えたもの）。
+ * permission はツールの許可（Bash の確認など）、question は入力（MCP の入力など）、other はダイアログや知らない値である。
+ * 入力待ちの間だけ付く。古い Claude は書かないので、無いこともある。
+ */
+export type WaitKind = 'permission' | 'question' | 'other';
+/**
+ * Claude が求めている許可の中身。hangar が起こした claude の PermissionRequest の hook から届く（server の hooks/permission.ts）。
+ * tool は道具の名前、input は命令やファイルなどの短い形（Bash は命令の全文）、description は Claude が書いた説明（Bash の description）である。
+ * hook を持たない run（外のターミナル）では届かない。
+ */
+export type PermissionAskDto = { tool: string; input: string; description: string | null };
+/**
+ * 使用制限で止まっていること（本文の合成の assistant 行、error が rate_limit）。
+ * kind は枠（5 時間、週、そのほか）、resetsAt はリセットの時刻（ミリ秒）。
+ * auto は、Claude Code が自動の続きを予約したと本文に書いたこと。
+ * reset は、リセットの時刻から猶予（LIMIT_RESET_GRACE_MS）を過ぎても続きが始まっていないこと。真なら要対応に数える。
+ */
+export type LimitKind = 'five_hour' | 'weekly' | 'other';
+export type SessionLimitDto = { kind: LimitKind; resetsAt: number; auto: boolean; reset: boolean };
+/**
+ * サーバが組むデスクトップ通知 1 件（`GET /api/notify/feed`、server の sessions/stopNotices.ts）。
+ * 殻（デスクトップ）が読み、窓が背面にあるときだけ OS に渡す。頁の JS が背面で止まっていても通知が出るように、きっかけをサーバに置く。
+ * kind は通知の枠で、waiting は入力待ち（許可待ちとリセット済みも含む）、limit は使用制限（アカウントごとに 1 通）である。
+ * sessionId は押したときに開くセッション（hangar の id）。bare は、問いの文がまだ無い入力待ちで、殻が問いの文を少し待つ印である。
+ */
+export type OsNoticeKind = 'waiting' | 'limit';
+export type OsNoticeDto = { seq: number; kind: OsNoticeKind; sessionId: string; title: string; body: string; bare: boolean };
+/** boot はサーバの起動ごとに変わる値。殻はこれが変わったら、seq を今の値に合わせ直し、前の分は出さない。 */
+export type OsNoticeFeedDto = { boot: string; seq: number; items: OsNoticeDto[] };
 /**
  * 本体（指揮役）は入力を受け付けていて、裏の作業だけが動いていること。
  * status は busy のままにする。Claude も、裏でサブエージェントが動く間は本体が空いていても busy と書く。
@@ -45,8 +75,10 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * stoppedByStatus は、区切りを付けたので hangar が Claude を止め、その印がまだ残っていること。
  * liveAside は登録の aside を写したもの（LiveSessionDto）で、無ければ null である。
  * activity は実行中のときだけ値を持ち、実行中でなければ null である。
+ * waitingFor と permission は登録の同じ欄を写したもので、入力待ちの間だけ付く（LiveSessionDto）。
+ * limit は使用制限で止まっていることで、実行中のときだけ値を持つ（SessionLimitDto）。
  */
-export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null;
+export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null; waitingFor: WaitKind | null; permission: PermissionAskDto | null; limit: SessionLimitDto | null;
   /** 中断（SessionInterruptDto）。ステータスの無いセッションで、最後の run が lost で終わったときだけ値を持つ。 */
   interrupted: SessionInterruptDto | null;
   /** 同じファイルを別のセッションと編集していること（SessionOverlapDto）。実行中のときだけ値を持つ。 */
@@ -105,7 +137,7 @@ export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; in
  * status はセッションの状態で絞る（session_states を見る）。hideArchived は「すべて」のタブで条件を入れたときに Archived を除く印である。
  * どちらも Home の一覧だけが送り、MCP の search_sessions は送らない。
  */
-export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'active' | 'proposed'; hideArchived?: boolean };
+export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; stop?: import('./action.ts').StopFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'active' | 'proposed'; hideArchived?: boolean };
 /**
  * 検索の 1 件。
  * 抜粋の seq は主線とサブエージェントで別々に振るので、agentId でどの線の行かを表す（主線は null）。

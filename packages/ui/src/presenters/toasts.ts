@@ -1,5 +1,6 @@
 import { overlayReplaceable } from '../mediator/overlay.ts';
 import type { State, Toast } from '../mediator/types.ts';
+import { stopReasonOf } from '@agent-hangar/shared';
 import type { Store } from '../store/store.ts';
 import { durationLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -10,8 +11,10 @@ import { presentUpdateCard, type UpdateCardProps } from './update.ts';
  * 入力待ちのカード 1 枚。
  * 押すとそのセッションを開いてターミナルにフォーカスする。
  * question は、問いが取れない入力待ち（許可待ちなど）では null である。
+ * reason は止まっている理由（試作 stop-reason-proto の K1）。許可待ちは見出しを「許可待ち」にし、ask（道具と命令）を問いの場所に出す。
+ * リセット済みは見出しを「リセット済み」にし、question に続きを指示するよう言う文を入れる。使用制限そのものは手を出せないので札にしない。
  */
-export type WaitingCardProps = { sessionId: string; name: string; waited: string; question: string | null };
+export type WaitingCardProps = { sessionId: string; name: string; waited: string; question: string | null; reason: 'permission' | 'reset' | null; ask: { tool: string; input: string } | null };
 /**
  * 右下に積む知らせ。
  * waiting は入力待ちのカードで、古いものが上、新しいものが下（窓の角に近い側）に来る。
@@ -46,7 +49,11 @@ export function presentToasts(state: State, store: Store, now: number): ToastsPr
   const cards = state.waitingToasts.flatMap((id): WaitingCardProps[] => {
     const s = store.sessions[id];
     if (!s || shownOnScreen(state, id)) return [];
-    return [{ sessionId: s.id, name: s.name ?? t('common.label.noName'), waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? null }];
+    const reason = stopReasonOf(s);
+    const name = s.name ?? t('common.label.noName');
+    if (reason === 'permission') return [{ sessionId: s.id, name, waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: null, reason, ask: s.permission ? { tool: s.permission.tool, input: s.permission.input } : null }];
+    if (reason === 'reset') return [{ sessionId: s.id, name, waited: durationLabel(t, Math.max(0, now - (s.limit?.resetsAt ?? now))), question: t('stop.notify.reset'), reason, ask: null }];
+    return [{ sessionId: s.id, name, waited: durationLabel(t, now - (s.lastActivityAt ?? now)), question: s.activity?.question ?? null, reason: null, ask: null }];
   });
   const waiting = cards.slice(-SHOWN);
   const arrived = arrivedCount(store, state.arrivedProjects);
