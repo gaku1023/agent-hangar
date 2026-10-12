@@ -129,7 +129,7 @@ export class SummaryJob {
   private async trySummarizers(input: SummaryInput): Promise<Picked | { tried: Attempt[] }> {
     const tried: Attempt[] = [];
     for (const s of this.deps.summarizers()) {
-      if (!(await s.available())) { tried.push({ id: s.id, message: render(this.language(), UNAVAILABLE) }); continue; }
+      if (!(await s.available(input))) { tried.push({ id: s.id, message: render(this.language(), UNAVAILABLE) }); continue; }
       const t = this.now();
       try {
         const out = await s.summarize(input);

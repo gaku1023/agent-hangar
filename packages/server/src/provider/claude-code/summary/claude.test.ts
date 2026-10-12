@@ -58,6 +58,41 @@ describe('ClaudeHeadlessSummarizer', () => {
     expect(out.proposal).toEqual({ status: 'done', note: '直して main に入れた', returnInDays: null });
     expect(JSON.parse(spawn.mock.calls[0]![1][6]!).required).toEqual(expect.arrayContaining(['proposed_status', 'proposed_note', 'proposed_return_in_days']));
   });
+  it('会話を最後に動かしたアカウントの置き場（CLAUDE_CONFIG_DIR）で claude -p を走らせる', async () => {
+    const spawn = vi.fn(spawnOk);
+    const accountOf = vi.fn((sessionId: string) => (sessionId === CANNED_INPUT.sessionId ? { id: 'acc-2', configDir: '/accounts/second' } : { id: 'primary', configDir: null }));
+    const s = new ClaudeHeadlessSummarizer({ claudeBin: '/c', hourlyCap: 20, usage: () => usage(null), spawn, accountOf });
+    await s.summarize(CANNED_INPUT);
+    expect(accountOf).toHaveBeenCalledWith(CANNED_INPUT.sessionId);
+    const env = spawn.mock.calls[0]![4]!;
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/accounts/second');
+    // サーバの環境のほかの変数は、そのまま渡す。
+    expect(env.PATH).toBe(process.env.PATH);
+  });
+  it('最初のアカウントの会話は CLAUDE_CONFIG_DIR を付けずに走らせる。サーバが別の置き場の値を継いでいても外す', async () => {
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '/inherited/elsewhere');
+    try {
+      const spawn = vi.fn(spawnOk);
+      const s = new ClaudeHeadlessSummarizer({ claudeBin: '/c', hourlyCap: 20, usage: () => usage(null), spawn, accountOf: () => ({ id: 'primary', configDir: null }) });
+      await s.summarize(CANNED_INPUT);
+      const env = spawn.mock.calls[0]![4]!;
+      expect(env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('7 日の使用率は、その会話のアカウントのもので見る', async () => {
+    const byAccount: Record<string, UsageDto> = { primary: usage(10), 'acc-2': usage(95) };
+    const s = new ClaudeHeadlessSummarizer({
+      claudeBin: '/c', hourlyCap: 20, spawn: spawnOk,
+      usage: (accountId) => byAccount[accountId]!,
+      accountOf: (sessionId) => (sessionId === 'busy-account' ? { id: 'acc-2', configDir: '/accounts/second' } : { id: 'primary', configDir: null }),
+    });
+    expect(await s.available({ ...CANNED_INPUT, sessionId: 'busy-account' })).toBe(false);
+    expect(await s.available({ ...CANNED_INPUT, sessionId: 'other' })).toBe(true);
+    // セッションを渡さない問い（設定の「要約エンジンを試す」の前など）は、最初のアカウントで見る。
+    expect(await s.available()).toBe(true);
+  });
   it('-p の JSON に structured_output が無ければ、ずれとして知らせる。読めたときは知らせない', async () => {
     const seen: Drift[] = [];
     const compat = { note: (d: Drift) => seen.push(d) };

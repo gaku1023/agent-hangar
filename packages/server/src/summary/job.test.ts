@@ -58,6 +58,14 @@ describe('isSummaryStale', () => {
 });
 
 describe('SummaryJob', () => {
+  it('要約エンジンに使えるかを聞くときも、要約するセッションの入力を渡す（Claude はそのアカウントの使用率で見る）', async () => {
+    const asked: (SummaryInput | undefined)[] = [];
+    const s: Summarizer = { id: 'claude-headless', available: async (input) => { asked.push(input); return true; }, summarize: async () => out };
+    const job = make([s]);
+    expect(job.enqueue(alphaId)).toBe(true);
+    await job.idle();
+    expect(asked.map((i) => i?.sessionId)).toEqual([alphaId]);
+  });
   it('会話の中で書いた要約は、事後の要約で上書きしない。手動の作り直し（force）は受け付けて上書きする', async () => {
     upsertShared(db, 'session_summaries', { session_id: alphaId, title: '会話の題', one_liner: 'o', body: 'b', state: 'in_progress', next_steps: '[]', source: 'in_session', source_model: null, based_on_turns: 1 }, 'd', 'session_id');
     db.prepare('update session_stats set turns = 40 where session_id = ?').run(alphaId);
