@@ -85,6 +85,15 @@ describe('Tmux.listSessions（偽の実行）', () => {
   it('何も出さずに成功したら空配列を返す', () => {
     expect(tmuxWith({ status: 0 }).listSessions()).toEqual([]);
   });
+  // OS を再起動するとソケットの置き場ごと消えるので、tmux は「no server running」ではなく、つなぐ先が無いと言う（2026-10-12 実測、tmux 3.6a）。
+  // これを「観測できない」と読むと、起動の見回りも周期の見回りも run を閉じず、実行中のまま残る。
+  it('ソケットが無い、つなぎ先が応えないときも、サーバが無いとして空配列を返す', () => {
+    expect(tmuxWith({ status: 1, stderr: 'error connecting to /private/tmp/tmux-501/default (No such file or directory)\n' }).listSessions()).toEqual([]);
+    expect(tmuxWith({ status: 1, stderr: 'error connecting to /tmp/tmux-501/default (Connection refused)\n' }).listSessions()).toEqual([]);
+  });
+  it('つなぎ先の失敗でも、権限などほかの理由は null を返す', () => {
+    expect(tmuxWith({ status: 1, stderr: 'error connecting to /tmp/tmux-501/default (Permission denied)\n' }).listSessions()).toBeNull();
+  });
   it('それ以外の失敗は null を返す。観測できないことと動いていないことは違う', () => {
     expect(tmuxWith({ status: 1, stderr: 'lost server\n' }).listSessions()).toBeNull();
   });
@@ -355,5 +364,14 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
   it('存在しない cwd では tmux を呼ばずに投げる', () => {
     expect(() => tmux!.newSession({ name: 'hangar-test-e', cwd: '/nonexistent/dir', command: ['sh'] })).toThrow(/cwd not found/);
     expect(tmux!.hasSession('hangar-test-e')).toBe(false);
+  });
+});
+
+describe.skipIf(!TMUX)('Tmux.listSessions（ソケットの無い tmux）', () => {
+  it('再起動の後のようにソケットの置き場が無ければ、空配列を返す', () => {
+    // UNIX ソケットのパスは 104 バイトまでなので、短い置き場を使う。作らないので片付けも要らない。
+    const gone = path.join('/tmp', `hangar-nosock-${process.pid}`, 'default');
+    expect(fs.existsSync(gone)).toBe(false);
+    expect(new Tmux({ tmuxPath: TMUX!, socketPath: gone }).listSessions()).toEqual([]);
   });
 });

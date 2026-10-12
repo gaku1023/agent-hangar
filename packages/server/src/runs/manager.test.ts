@@ -508,6 +508,15 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
     expect(rm.listAlive().runs).toEqual([]);
   });
 
+  it('OS を再起動した後（tmux のソケットの置き場が無い）、起動の見回りは run を lost で閉じて中断の群にする', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'resume', tmux_name: 'hangar-gone', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    const gone = path.join('/tmp', `hangar-nosock-${process.pid}`, 'default');
+    const rm = make({ tmux: new Tmux({ tmuxPath: TMUX!, socketPath: gone }) });
+    expect(rm.recoverAtStartup().map((r) => [r.id, r.endReason])).toEqual([['r1', 'lost']]);
+    expect(interruptedGroup(db)?.items.map((i) => i.runId)).toEqual(['r1']);
+  });
+
   it('recoverAtStartup は tmux が生きている run を残す', () => {
     const rm = make();
     const r = rm.start({ projectId: 'p1' });
