@@ -41,11 +41,15 @@ describe('quietLive', () => {
 });
 
 describe('isParked', () => {
-  const base = { status: 'paused' as const, setBy: 'conversation' as const, setAt: 10_000, live: 'idle' as const, processStartedAt: 5_000 };
-  it('状態が付いていて、休みで、プロセスの起動が印より前なら真', () => {
+  const base = { status: 'done' as const, setBy: 'conversation' as const, setAt: 10_000, live: 'idle' as const, processStartedAt: 5_000 };
+  it('Done か Archived が付いていて、休みで、プロセスの起動が印より前なら真', () => {
     expect(isParked(base)).toBe(true);
     expect(isParked({ ...base, status: 'done', setBy: 'user' })).toBe(true);
     expect(isParked({ ...base, status: 'archived', setBy: 'user' })).toBe(true);
+  });
+  it('Paused は偽。戻ってくる会話なので止めず、実行中のまま出す', () => {
+    expect(isParked({ ...base, status: 'paused' })).toBe(false);
+    expect(isParked({ ...base, status: 'paused', setBy: 'user' })).toBe(false);
   });
   it('印なしは偽', () => {
     expect(isParked({ ...base, status: null, setBy: null, setAt: null })).toBe(false);

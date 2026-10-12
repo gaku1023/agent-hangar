@@ -1405,7 +1405,10 @@ busy のままにするのは、Claude 自身も裏でサブエージェント�
 `-n` や `/rename` で付けた名前は本文にも記録として残り（`agent-name`、`custom-title`）、再開やフォークの先にも引き継がれる。
 hangar は名前を本文の記録から読み（索引が `sessions.custom_title` に拾う）、レジストリの値で上書きする。
 tmux セッションが消えたら run を終了とみなし、`end_reason` を記録する。
-ふつうは `exited` で、区切りを付けて止めたものは `parked`、利用者が止めたものは `killed` である。
+ふつうは `exited` で、区切り（Done、Archived）を付けて止めたものは `parked`、利用者が止めたものは `killed` である。
+自動の停止（`sessions/park.ts` の `ParkWatch`）は、Done か Archived を付けたセッションの休みが 10 秒続いたら Claude を止める。
+Paused は止めない（2026-10-13 の決定。それまでは Paused も止めていた）。
+戻ってくる会話なので Claude を残し、一覧でも実行中のまま数える（shared の `isParked` が Done と Archived だけを真にする）。
 hangar が動いている間に tmux のサーバごと消えたとき（一覧が空になり、止めにいっていない生きた run が 2 件以上まとめて消えた）は、利用者が終わらせたのではないので `lost` と書き、中断として拾う（「中断と再開」）。
 1 件だけ消えたときは、最後の 1 本が終わって tmux のサーバも終わったのと見分けられないので `exited` のままにする。
 一覧が読めないこと（tmux を呼べない、権限が無い）と、サーバが無いことは分ける。
@@ -1494,7 +1497,7 @@ Claude Code の自動の続きはリセットから 70 秒から 90 秒ほど遅
 自動で続くはずのものも、150 秒たって続いていなければリセット済みに移す。続かなかった事実の方を信じる。
 
 **自動の停止との関係。**
-区切りを付けたセッション（Paused、Done）でも、使用制限でリセットを待っている間（`reset` が偽の間）は止めない（shared の `isParked` の `limited`）。
+区切りを付けたセッション（Done、Archived）でも、使用制限でリセットを待っている間（`reset` が偽の間）は止めない（shared の `isParked` の `limited`）。
 止めると、Claude Code が予約した自動の続きごと消えるからである。
 リセット済みになったら、ふだんどおり止める。
 
@@ -1553,22 +1556,47 @@ hangar が起動するセッションには、`--append-system-prompt` で短い
 指示の内容は次の要素からテンプレートで生成する。
 プロジェクトのメモは渡さない。Claude Code は CLAUDE.md と自動メモリを自分で読むので、渡すと同じ役が二重になる（2026-10-11 にやめた）。
 
+指示は 3 つの段に分け、辞書の 3 つの鍵に置く（`launch/injection.ts`、2026-10-13 の決定）。
+常に足す段（`launch.injection.body`）、区切りの問いの段（`launch.injection.status`）、ターンの意図と短い手の説明の段（`launch.injection.live`）である。
+後の 2 つは設定の `askStatusAtEnd` と `liveHints` で入り切りし、どちらも既定は入りである（鍵の無い古い設定も入りとして読む）。
+`askStatusAtEnd` を切ると問いの段を足さず、状態は事後の要約の提案と自動の Done だけで付く。
+`liveHints` を切るとターンの意図と手の説明を求めない。
+`RunManager` は起動のたびに今の設定を読むので、切り替えは次に起こす claude から効き、動いている会話の指示は変わらない。
+設定の画面にこの 2 つのスイッチを置くのは別の変更で、それまでは `PATCH /api/settings` だけで変えられる。
+
+常に足す段：
+
 ```
 あなたは agent-hangar から起動されたセッションです。
 プロジェクト：<name>（<path>）
 未完の TODO：<最大 10 件、各行 - [<id>] <本文>。利用者がまだ受け入れていない Claude の提案は入れない>
 過去のセッションは MCP ツール search_sessions と get_transcript で参照できます。
 依頼を完了したとき、方針が大きく変わったとき、作業を中断するときは、
-set_session_summary で題名、2〜3 文の要約、状態、次の一手を更新してください。
+set_session_summary で題名、2〜3 文の要約、進捗、次のステップを更新してください。
 TODO を片付けたと判断したら、update_project の propose_done に TODO の ID と根拠の一文を渡してください。
-完了にするのは利用者です。確かめられていないものは出さないでください。
-頼まれたことを終えたと判断したターンの終わりに、AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <戻る日。時刻に意味があれば時刻も>（何を確かめに戻るか）」「まだ続ける」です。
-利用者が Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。
-Paused の戻る日は return_on（YYYY-MM-DD）に、確かめる時刻が決まっているときは return_time（HH:MM、手元の時刻）にも渡してください。時刻を note の文だけに書かないでください。
-途中のターンでは聞かないでください。
-ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。
-Bash と Agent の description は日本語で 20 字以内にしてください。
+完了にするのは利用者です。確認できていないものは出さないでください。
 ```
+
+区切りの問いの段（`askStatusAtEnd`）：
+
+```
+頼まれたことが明確に終わったときだけ、そのターンの終わりに AskUserQuestion で「このセッションをどうしますか」と聞いてください。選択肢は「Done にする」「Paused · <リマインダーの日付。時刻に意味があれば時刻も>（理由。何を確認しに戻るか）」「まだ続ける」です。
+明確に終わったときとは、利用者が終わりを告げたとき（「ありがとう」「ここまで」「マージした」「今日はここまで」など）、頼まれたことが全部済んで次のステップが残っていないとき、利用者が外の出来事（CI、レビュー、明日の確認など）を待つと言ったときです。
+一手が済んだだけのとき、質問に答えただけのとき、直しのやりとりの途中、利用者が次の指示を続けているとき、次のステップが残っているときは聞かないでください。迷ったら聞かないでください。
+聞かないときは、set_session_summary の進捗を正直に書いてください。待ちが明らかなら、propose_session_status に confirmed なしで提案だけ出してください。
+利用者が Done か Paused を選んだら、propose_session_status に confirmed: true で渡してください。答えずに次の指示へ進んだら、confirmed なしで提案だけ出してください。
+Paused のリマインダーの日付は return_on（YYYY-MM-DD）に、確認する時刻が決まっているときは return_time（HH:MM、手元の時刻）にも渡してください。時刻を note の文だけに書かないでください。
+```
+
+ターンの意図と短い手の説明の段（`liveHints`）：
+
+```
+ターンを始めたときと方針を変えたときは、set_turn_intent に、このターンで何のために何をするかを 1〜2 文で書いてください。
+Bash と Agent の description は日本語で短く（20 字程度）書いてください。
+```
+
+手の説明は、字数の上限（以前は「20 字以内」）ではなく目安で言う（英語は about 40 characters）。
+2026-10-13 に緩めた。
 
 MCP の URL はセッション別（`/mcp/s/<sessionId>`）なので、ツールは呼び出し元のセッションをサーバ側で確定できる。
 モデルにセッション ID を扱わせる必要はない。
@@ -1583,7 +1611,10 @@ Paused の戻る時点は、日付（`return_on`、YYYY-MM-DD）と、任意の�
 時刻を過ぎたら、通知を受け取る設定で窓が背面なら OS の通知を 1 回出す。この通知は、同じセッションの入力待ちの通知とは別の枠に入れる（「入力待ちの知らせ」の節）。右下の札は出さない。ヘッダーの注意には入れない。今日戻るの行はホームの帯（要対応）にある（「注意と知らせの出し分け」の節）。OS の通知で知らせ終えた時点は localStorage に覚える（画面の時計で見るので、hangar を開いていない間は出ない。開いたときに、その日に過ぎた分を 1 回知らせる）。
 日付だけの Paused は知らせない。
 
-状態の問いは、依頼を終えた区切りでだけ AskUserQuestion で聞かせる。利用者が選んだものは `propose_session_status` の `confirmed: true` でそのまま状態になり、答えずに進めたものは候補として残る。
+状態の問いは、頼まれたことが明確に終わったときだけ AskUserQuestion で聞かせる。利用者が選んだものは `propose_session_status` の `confirmed: true` でそのまま状態になり、答えずに進めたものは候補として残る。
+以前は「頼まれたことを終えたと判断したターン」で聞かせていたが、聞く場面を明確に終わったときに絞った（2026-10-13 の決定）。
+聞くのは、利用者が終わりを告げたとき、頼まれたことが全部済んで次のステップが残っていないとき、利用者が外の出来事を待つと言ったときの 3 つだけで、迷ったら聞かない。
+聞かないときは要約の進捗を正直に書かせ、待ちが明らかなら確定なしの提案だけを出させる。
 この指示は hangar が `--append-system-prompt` で起こす会話に渡る。ターミナルで claude.zsh から起動した claude も hangar の run になるので、同じ指示を受け取る。
 `claude attach` で開く会話（attach、バックグラウンドのセッションの再開）には渡らないので、そちらは事後の要約で拾う。
 
@@ -1685,7 +1716,10 @@ cwd の実体がスクラッチの外を指すシンボリックリンクのと�
 
 - **土台**：インデクサが `ai-title`、最初と最後のプロンプト、触ったファイル、ターン数、期間から機械的に作る。全セッションに即時にあり、`source = 'baseline'` で保存する。
 - **セッション自身**：hangar が起動したセッションは、注入した指示に従って節目に `set_session_summary` を呼ぶ。文脈を持っているので最も正確で、追加コストがない。`source = 'in_session'`。
-- **事後生成**：run 終了時に要約が土台のままか、最後の更新から 5 ターン以上進んでいれば、要約器で作り直す。セッションを開いたときも同じ条件で作る。`source = 'post_hoc'`。
+- **事後生成**：run 終了時に要約が土台のままか、事後の要約の最後の更新から 5 ターン以上進んでいれば、要約器で作り直す。セッションを開いたときも同じ条件で作る。`source = 'post_hoc'`。
+  会話の中で書いた要約（`in_session`）は、何ターン進んでも事後の要約で上書きしない（`isSummaryStale`、2026-10-13 の決定）。
+  文脈を持つセッション自身が書いたもののほうが確かだからである。
+  手動の作り直し（`force`）だけは、この判定を通らないので上書きできる。
 
 事後生成のスキーマは、要約に加えてセッションの状態の提案（`proposed_status` が done・paused・none、`proposed_note`、`proposed_return_in_days` が paused のとき 1〜14）を返させる。
 提案は、要約を書いた直後に、状態も提案も無く、却下もされておらず、セッションが止まっているときだけ `source = 'post_hoc'` の候補として書く。戻る日は書いたときの手元の暦から数える。
@@ -1709,7 +1743,7 @@ run の終了からの契機だけは、レジストリの生存判定を飛ば�
 ```ts
 interface Summarizer {
   readonly id: 'lmstudio' | 'claude-headless';
-  available(): Promise<boolean>;
+  available(input?: SummaryInput): Promise<boolean>; // input は要約するセッション。Claude はそのアカウントの使用率で見る
   summarize(input: SummaryInput): Promise<SessionSummary>;
 }
 ```
@@ -1738,6 +1772,9 @@ OpenAI 互換の `http://127.0.0.1:1234/v1/chat/completions` に、JSON スキ�
 
 LM Studio に繋がらないときは `claude -p --model haiku --output-format json --json-schema <schema>` に切り替える。
 こちらはサブスクリプションのレート制限を消費するので、1 時間 20 件までとし、週の枠の使用率が 80% を超えたら止める。
+`claude -p` は、要約するセッションを最後に動かした run のアカウントの置き場（`CLAUDE_CONFIG_DIR`）で走らせ、週の枠の使用率もそのアカウントのもので見る（`boot/summary.ts` の `summaryAccountOf`、2026-10-13）。
+サーバの環境のまま走らせると、複数のアカウントを使っているときに、会話のアカウントでなく最初のアカウントの枠を使うためである。
+run の記録が無いもの（hangar の外で起こしたもの）と、消したアカウントのものは最初のアカウントで走らせ、run の起動と同じく、サーバが継いだ `CLAUDE_CONFIG_DIR` は外す。
 結果は出力 JSON の `structured_output` から読む。入力はパイプで渡し、渡すものが無いときは `< /dev/null` を付けて標準入力の待ちを避ける。
 Haiku でも思考が走り 20〜40 秒かかるため、事後生成は背景ジョブにして UI には「要約を作成中」を出す。
 
@@ -2596,7 +2633,8 @@ OS の表示言語は、macOS では `defaults read -g AppleLanguages` の先頭
 前半と後半を別々に引いてつなぐと、言語で語順を変えられない。
 場合が分かれるときは、場合ごとに 1 つの鍵にする（例：`project.promote.failedNothingMoved`、`project.promote.failedRolledBack`、`project.promote.failedLeftBoth`）。
 何行かにわたる指示も 1 つの鍵にする。
-Claude に渡す指示（`launch.injection.body`）と、要約器への指示（`summary.prompt.system`）がそうである。
+Claude に渡す指示の段（`launch.injection.body`、`status`、`live`）と、要約器への指示（`summary.prompt.system`）がそうである。
+指示の段はどれも行の終わりで切れていて、段ごとにつなぐだけなので、つないでも文の語順は崩れない。
 英語の指示は、日本語の指示の意味（何をいつ呼ぶか、条件、してはいけないこと）を落とさずに訳し、行の数をそろえる。
 行の数は試験（`t.test.ts`）で見る。
 
@@ -2611,7 +2649,9 @@ Claude に渡す指示（`launch.injection.body`）と、要約器への指示�
 | `common.field.required` | `field` | 本文の項目の検査（経路をまたぐ） |
 | `mcp.sessionStatus.pastReturnAt` | `returnOn`、`returnTime`、`now` | MCP の `propose_session_status` |
 | `mcp.tool.setTurnIntent` | なし | MCP の道具の説明 |
-| `launch.injection.body` | `projectName`、`projectPath`、`memo`、`todos` | `--append-system-prompt` |
+| `launch.injection.body` | `projectName`、`projectPath`、`todos` | `--append-system-prompt`（常に足す段） |
+| `launch.injection.status` | なし | `--append-system-prompt`（区切りの問いの段、`askStatusAtEnd`） |
+| `launch.injection.live` | なし | `--append-system-prompt`（ターンの意図と手の説明の段、`liveHints`） |
 
 英語の文は、用語集の英語の語と、Claude Code の公式の語（transcript、session、resume、permission mode、usage limit など）を使う。
 日本語の文は、移す前の文のままである。
@@ -5029,7 +5069,7 @@ dmg の中身は `.app` と `/Applications` へのリンクの 2 つだけで、
 tauri の dmg ターゲットは使わない。
 tauri の dmg は build の途中の `.app` を詰め、`tauri bundle --bundles dmg` も `.app` を作り直してから詰めるので、build の後で署名した `.app` が入らないからである（2026-10-10 に手元で確かめた）。
 Finder を AppleScript で動かさないので、窓の並びは決めず、窓の無い CI でも同じに作れる。
-利用者の手順（dmg から `/Applications` へドラッグし、初回の警告を「完了」で閉じ、システム設定の「プライバシーとセキュリティ」の「このまま開く」と管理者のパスワードで越える）は README の「インストール（配布版）」にある。
+利用者の手順（dmg から `/Applications` へドラッグし、初回の警告を「完了」で閉じ、システム設定の「プライバシーとセキュリティ」の「このまま開く」と管理者のパスワードで越える）は README の「入れる（macOS）」にある。
 クラウド同期の設定は `.app` の同梱 CLI からは行えない。
 wrangler を同梱していないので、リポジトリを clone した場所から `setup cloud` を走らせる。
 
@@ -5144,6 +5184,9 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。
 - 昇格：`POST /api/sessions/:id/promote { name, gitInit, moveFiles }`。`name` は `/` を含まない 1 字以上で、`<workspaceRoot>/<name>` が既にあれば 409。移動は先に全件の衝突を調べてから `fs.renameSync` で行い、途中で失敗したら逆順に戻す。`moveFiles` が真でも run が生きていれば移動せず、`moved: false` と理由を返す。
 - プロジェクトの作成：`POST /api/projects` は本文を 2 つの形で受ける。`{ kind: 'newDir', name, gitInit }` は `<workspaceRoot>/<name>` を作り（`git init` は選ばれたときだけ）、プロジェクト行とこの端末の `project_roots` を作って 201 を返す。名前の検証、既にあれば 409、`git init` に失敗したら作ったものを片付けることは、昇格と同じ `createProjectDir` を通る。`{ kind: 'dir', path, name? }` は既存のディレクトリを登録し（`registerProjectDir`）、新しければ 201、登録済みなら 200 で既存を返す。名前を省くと basename になり、アーカイブされたプロジェクトなら Active に戻す。先頭の `~/` はホームに直し、相対パスと、ワークスペースのルートやその上のフォルダ（`/` を含む）は 400 で断る。ルートを登録すると最も長い一致でワークスペースの下のセッションをすべて取り込み、直下のフォルダの自動の登録も止まるためである（Finder で何も選ばずに「開く」を押すとルートが返る）。`kind` の無い本文は 400 で断る。
+  `kind: 'dir'` で登録したら、その下で動いた未分類のセッションをその場で紐づける（`assignSessions`、2026-10-13）。
+  以前は呼んでおらず、次の起動まで未分類のまま残っていた。
+  すでにほかのプロジェクトに入っているセッションは動かさない。
 - 未登録のフォルダの一覧：`GET /api/workspace/dirs` は、ワークスペース直下の隠しでなく、この端末で登録済みのルートに当たらないディレクトリを、名前順に `{ name, path }[]` で返す。比較は `normalizeDir`（NFC）でそろえる。一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
 - その場の登録：サーバの `sessionChanged` で、未分類のセッションを紐づけられなかったとき、cwd がワークスペース直下のディレクトリ（またはその下）で、実在し、隠しでなく、まだ登録されていなければ、起動時の `syncProjectsFromWorkspace` と同じ規則でプロジェクトにし（`registry.ts` の `registerWorkspaceChildOf`）、紐づけ直して `project.upsert` と `session.upsert` を配る。同じセッションで何度も試さない。起動の途中は行わない（起動時の全走査は `syncProjectsFromWorkspace` が受け持つ）。当たらなかった cwd だけが、これまでどおりトーストで知らされる。
 - フォルダ選択の殻の命令：`pick_folder(default_path)` は `blocking_pick_folder` で macOS のフォルダ選択を開き、選んだパスか、取り消しなら null を返す。頁に与える権限は `allow-pick-folder` の 1 つだけで（`capabilities/remote-pick-folder.json`）、プラグインの JS の権限は与えない。UI の `DesktopBridge.pickFolder` は殻の外では口が無く、Finder の操作を出さない。
@@ -5151,6 +5194,10 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - 分割の持ち方：`SessionViewState` に `split: boolean` と `splitTab: string | null` を持つ。左は選択中のタブ、右は `splitTab` で、幅は `SplitPane` の中の状態にして保存しない（0.5 に戻る）。分割の右に置いたタブが閉じたら `splitTab` を null にし、`split` も偽に戻す。
 - 分割にタブが 2 つ要ることの判定は、Mediator がストアのタブの並びを読んで行う。右に置けるタブがあれば状態を変え、無ければトースト「横に並べるにはタブが 2 つ必要です」を出す。
 - パレットの項目の ID：セッション（`session:<id>`）、移動（`go:home`、`go:projects`）、設定の節（`settings:<節>`。節は `general`、`cloud`、`integrations`、`summary`、`tools`、`info`、保持は `retention` で一般の節へ移る）、コマンド（`cmd:next-waiting`、`cmd:sidebar`、`cmd:shortcuts`、`cmd:new-session`、`cmd:new-project`、`cmd:new-scratch`、`cmd:rebuild-index`）、ホームへ渡す行（`search:<語>`）。新しいセッションは、Mediator がストアを見ないので、presenter が最初に選ぶものを ID の後ろに載せる（`cmd:new-session:project:<id>` か `cmd:new-session:scratch`）。照合は部分列一致で、一致位置が前で連続しているほど高い点を付け、群の中は点の高い順（同点は最後の活動の新しい順）に並べる。群の分け方と上限は「骨格」の節に書いた。入力欄の文字は Root の `useState` が持ち、Mediator には入れない。
+- 起動する claude に足す指示の設定：`SettingsDto` に `askStatusAtEnd`（区切りで Done か Paused を聞く段、既定 true）と `liveHints`（ターンの意図と短い手の説明の段、既定 true）を持つ。
+  `PATCH /api/settings` は真偽値だけを受け、ほかは 400 で断る。
+  鍵の無い設定ファイルと、手で書いた真偽値でない値は true として読む。
+  設定の画面にはまだ出さない（「指示の注入」の節）。
 - 要約器の設定：`SettingsDto` に `lmStudioUrl`（既定 `http://127.0.0.1:1234`）、`lmStudioModel`（既定 null で、null なら `/v1/models` の最初のモデル）、`summaryFallback`（既定 true）、`summaryHourlyCap`（既定 20）、`allowExternalSummarizer`（既定 false）を持つ。
 - 要約の入力：主線の全イベントを読み（サブエージェントは含めない）、`user` は 2,000 字、`assistant` は 600 字、`tool_call` は 1 行に切り、`thinking`、`tool_result`、`system`、`meta` は捨てる。全体が 12,000 字を超えたら先頭 30% と末尾 30% を残し、中盤を「[... N 件を省略 ...]」に置き換える。
 - 要約ジョブの契機：run の終了と、セッション画面を開いたときの先頭ページの読み込みの 2 つで `enqueue` する。受け付けるのは要約が土台のままか最後の更新から 5 ターン以上進んだときだけで、実行中のセッションは受け付けない（セッション自身の `set_session_summary` に任せる）。run の終了からの `enqueue` は `ignoreLive` で生存判定だけを飛ばし、残る 2 つの判定は通す。「要約を作り直す」は条件を無視する。ジョブは 1 セッション 1 件で、直列に走る。

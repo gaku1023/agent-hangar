@@ -204,6 +204,8 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.info.thisPc.title': 'This computer',
   'settings.label.configApproval': 'How to approve incoming settings',
   'settings.label.configBundleSync': 'Syncing Claude Code settings',
+  'settings.label.askStatusAtEnd': 'Ask Done or Paused at a stopping point',
+  'settings.label.liveHints': 'Send turn intents and short step descriptions',
   'settings.editor.title': 'Editor',
   'settings.editor.desc': 'The app used by "Open in <name>" and when opening a changed file at a line. Supported editors are listed, each marked with whether it was found on this computer.',
   'settings.editor.found': 'Found',

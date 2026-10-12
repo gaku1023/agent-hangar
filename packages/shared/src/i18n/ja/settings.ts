@@ -204,6 +204,8 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.info.thisPc.title': 'この PC',
   'settings.label.configApproval': '届いた設定の承諾の仕方',
   'settings.label.configBundleSync': 'Claude Code の設定の同期',
+  'settings.label.askStatusAtEnd': '区切りで Done／Paused を聞く',
+  'settings.label.liveHints': 'ターンの意図と短い手の説明を送る',
   'settings.editor.title': 'エディタ',
   'settings.editor.desc': '「<名前> で開く」と、変更したファイルの行から開くときに使うアプリです。対応しているエディタを並べ、この PC で見つかったかを添えています。',
   'settings.editor.found': '見つかりました',

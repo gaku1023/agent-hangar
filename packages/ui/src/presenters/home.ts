@@ -43,7 +43,7 @@ export type RunningCard = { id: string; name: string; live: LiveStatus | null; a
  * 今日戻るの札（C1）。要対応の札の並びに、入力待ちの札の後ろで置く。
  * 戻る日が今日か過ぎた Paused 1 件につき 1 枚。戻る日が欠けたり壊れたりしたものも、利用者が決めるまで出す（returnOn と overdueDays は null）。
  * 動いているセッションは入力待ちか実行中の札に出るので、ここには重ねない。
- * 区切りを付けて休みのまま残っているもの（parked）は実行中に数えないので、戻る日が来ていればここに出る。
+ * Paused は休みになっても止めない（parked にならない）ので、Claude が残っている間は実行中の札に出て、ここには出ない。
  */
 export type ReturnCard = { id: string; name: string; projectName: string | null; reason: string; returnOn: string | null; returnTime: string | null; overdueDays: number | null; due: boolean; pastMin: number | null };
 /** 確かめるの行のうち、TODO の完了の候補。押すとそのプロジェクトへ移る。 */
