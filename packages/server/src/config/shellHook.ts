@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BUILTIN_SUBCOMMANDS, SUBCOMMAND_NAME } from '../provider/claude-code/compat/cli.ts';
+import { HANGAR_SOCKET } from '../tmux/servers.ts';
 import { readUtf8Text } from './textEncoding.ts';
 
 /** ~/.zshrc に足す行の目印。外すときはこの目印の付いた行だけを消す。 */
@@ -65,11 +66,13 @@ export function shellScript(o: ShellScriptOptions): string {
 # ターミナルで起動した claude を、hangar の tmux の中で起こし、すぐこのターミナルからつなぎます。
 # そうしておくと、hangar からも同じセッションを開けます。利用上限に当たっても、上限が戻れば Claude Code が自分で続けます。
 # 抜けるときは claude を終えるか、Ctrl+B の後に D で tmux から切り離します。切り離したものは hangar から開けます。
+# hangar の tmux は利用者の tmux と別のサーバです。\`tmux -L ${HANGAR_SOCKET} ls\` で hangar のセッションが見えます。
 # 1 回だけ包まずに起動するときは \`command claude\`、ずっとやめるときは \`hangar shell uninstall\` です。
 
 __agent_hangar_url=${zshQuote(o.url)}
 __agent_hangar_token_file=${zshQuote(o.tokenFile)}
 __agent_hangar_tmux=${zshQuote(o.tmuxPath ?? '')}
+__agent_hangar_socket=${zshQuote(HANGAR_SOCKET)}
 
 # 標準入力を、改行の無い base64 にする。
 __agent_hangar_b64() { command base64 | command tr -d '\\n'; }
@@ -116,16 +119,20 @@ claude() {
   done
   # id を付けない -r と、検索の語を付けた -r は選ぶ画面を出すので、そのまま渡す。
   if [[ -n "$resume" && ! "$resume" =~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ]]; then command claude "$@"; return; fi
-  # すでに tmux の中なら入れ子にしない。hangar の tmux サーバ（既定のソケット）の中なら switch-client で移り、ほかの tmux の中なら素の claude にする。
+  # すでに tmux の中なら入れ子にしない。hangar の専用のサーバ（-L hangar）の中なら switch-client で移り、ほかの tmux の中なら素の claude にする。
+  # 既定のサーバの中は別に扱う。前の版の hangar はそこにセッションを作っていたので、更新の前から開いている hangar のシェルタブはそこに居る。
+  # そこからは switch-client で専用のサーバへ移れないので、$TMUX を外して入れ子でつなぐ。
   local inside=0
   if [[ -n "$TMUX" ]]; then
-    local mine="\${TMUX_TMPDIR:-/tmp}/tmux-$UID/default"
-    if [[ "\${\${TMUX%%,*}:A}" == "\${mine:A}" ]]; then inside=1; else command claude "$@"; return; fi
+    local here="\${\${TMUX%%,*}:A}" own="\${TMUX_TMPDIR:-/tmp}/tmux-$UID/$__agent_hangar_socket" old="\${TMUX_TMPDIR:-/tmp}/tmux-$UID/default"
+    if [[ "$here" == "\${own:A}" ]]; then inside=1
+    elif [[ "$here" == "\${old:A}" ]]; then inside=2
+    else command claude "$@"; return; fi
   fi
   local name
   if ! name=$(__agent_hangar_launch "$@"); then command claude "$@"; return; fi
-  if (( inside )); then command "$__agent_hangar_tmux" switch-client -t "=$name"; return; fi
-  command "$__agent_hangar_tmux" attach -t "=$name"
+  if (( inside == 1 )); then command "$__agent_hangar_tmux" -L "$__agent_hangar_socket" switch-client -t "=$name"; return; fi
+  TMUX= command "$__agent_hangar_tmux" -L "$__agent_hangar_socket" attach -t "=$name"
 }
 `;
 }

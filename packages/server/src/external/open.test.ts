@@ -220,6 +220,28 @@ describe.skipIf(process.platform !== 'win32')('cmd.exe の引用（実物）', (
   });
 });
 
+describe('hangar の専用の tmux サーバへつなぐ', () => {
+  const PSMUX = 'C:\\Program Files\\psmux\\psmux.exe';
+  it('macOS の .command と iTerm2 のコマンドは、サーバの指定（-L hangar）を attach の前に置く', async () => {
+    const a = writeAttachCommand(home, '/opt/homebrew/bin/tmux', 'hangar-ab12cd34', ['-L', 'hangar']);
+    expect(fs.readFileSync(a, 'utf8')).toBe("#!/usr/bin/env bash\n'/opt/homebrew/bin/tmux' '-L' 'hangar' attach -t '=hangar-ab12cd34'\nexit\n");
+    await openInTerminalApp({ home, tmuxPath: '/t/tmux', tmuxName: 'hangar-x', socketArgs: ['-L', 'hangar'], app: 'iterm', exec: exec() });
+    expect(calls[0]!.args[1]).toContain(`create window with default profile command "'/t/tmux' '-L' 'hangar' attach -t '=hangar-x'"`);
+  });
+  it('Windows Terminal と既定のターミナルも、psmux の -L hangar へつなぐ', async () => {
+    const seen: string[][] = [];
+    const winExec: Exec = async (cmd, args) => { seen.push([cmd, ...args]); return { code: 0, stdout: '', stderr: '' }; };
+    await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', socketArgs: ['-L', 'hangar'], app: 'windowsTerminal', exec: winExec });
+    expect(seen[0]!.slice(-7)).toEqual(['--', PSMUX, '-L', 'hangar', 'attach', '-t', '=hangar-x']);
+    await openInTerminalApp({ home, tmuxPath: PSMUX, tmuxName: 'hangar-x', socketArgs: ['-L', 'hangar'], app: 'windowsDefault', exec: winExec });
+    expect(seen[1]![5]).toBe(`"start "hangar-x" "${PSMUX}" "-L" "hangar" attach -t "=hangar-x""`);
+  });
+  it('前の版が既定のサーバに作ったセッションは、サーバの指定なしでつなぐ', async () => {
+    await openInTerminalApp({ home, tmuxPath: '/t/tmux', tmuxName: 'hangar-x', socketArgs: [], app: 'iterm', exec: exec() });
+    expect(calls[0]!.args[1]).toContain(`create window with default profile command "'/t/tmux' attach -t '=hangar-x'"`);
+  });
+});
+
 describe('writeAttachCommand のファイル名', () => {
   it('ファイル名に使えない名前はハッシュにして cmd/ の外に出さない', () => {
     const f = writeAttachCommand(home, '/t/tmux', '../../evil');

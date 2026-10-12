@@ -108,7 +108,7 @@ type Hangar = 'ok' | 'refused' | 'down';
  * 包み方の本体を、本物の zsh で疑似端末の上に動かす。
  * 偽の claude、curl、tmux は、呼ばれた引数を 1 行ずつ記録する。curl は受け取った本文も残す。
  */
-function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'none' | 'set'; insideTmux?: 'hangar' | 'other'; noWrap?: boolean; subcommands?: string[] } = {}): { calls: string[]; body: { cwd: string; args: string[]; env: Record<string, string> } | null; stderr: string } {
+function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'none' | 'set'; insideTmux?: 'hangar' | 'default' | 'other'; noWrap?: boolean; subcommands?: string[] } = {}): { calls: string[]; body: { cwd: string; args: string[]; env: Record<string, string> } | null; stderr: string; tmuxSawTmux: string | null } {
   const home = path.join(dir, 'home');
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -126,11 +126,15 @@ function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'n
     reply === 'ok' ? `echo '{"run":{"id":"r1","tmuxName":"hangar-0123abcd"},"sessionId":"s1","tabs":[],"attached":false}'` :
       reply === 'refused' ? `echo '{"error":"--agent を付けた起動は hangar では開けません"}'; exit 22` : 'echo "curl: (7) Failed to connect" >&2; exit 7',
   ]);
-  const tmuxBin = fake('tmux', []);
+  // tmux が受け取った $TMUX も残す。入れ子でつなぐときは空にして呼ぶ。
+  const tmuxEnvFile = path.join(dir, 'tmux-env');
+  fs.rmSync(tmuxEnvFile, { force: true });
+  const tmuxBin = fake('tmux', [`printf '%s' "$TMUX" > "${tmuxEnvFile}"`]);
   ensureShellScript(home, { url: 'http://127.0.0.1:4177', tokenFile, tmuxPath: o.tmux === 'none' ? null : tmuxBin, subcommands: o.subcommands });
   const tmpdir = path.join(dir, 'tmux-tmp');
   fs.mkdirSync(path.join(tmpdir, `tmux-${process.getuid!()}`), { recursive: true });
-  const tmuxEnv = o.insideTmux === 'hangar' ? `${tmpdir}/tmux-${process.getuid!()}/default,1,0` : o.insideTmux === 'other' ? `${tmpdir}/tmux-${process.getuid!()}/mine,1,0` : '';
+  const sockets = { hangar: 'hangar', default: 'default', other: 'mine' } as const;
+  const tmuxEnv = o.insideTmux ? `${tmpdir}/tmux-${process.getuid!()}/${sockets[o.insideTmux]},1,0` : '';
   const inner = `source ${JSON.stringify(shellScriptPath(home))}; cd ${JSON.stringify(dir)}; claude ${args}`;
   const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin`, HANGAR_NO_WRAP: o.noWrap ? '1' : '', TMUX: tmuxEnv, TMUX_TMPDIR: tmpdir, AGENT_TEST_FROM_SHELL: 'a b' };
   // script(1) が疑似端末を用意するので、包み方は端末の上で動いていると見る。
@@ -142,7 +146,7 @@ function runWrapped(args: string, o: { hangar?: Hangar; tty?: boolean; tmux?: 'n
   const text = (b: string) => Buffer.from(b, 'base64').toString('utf8');
   const body = raw ? { cwd: text(raw.cwd), args: raw.args === '' ? [] : text(raw.args).split('\0'), env: Object.fromEntries(text(raw.env).replace(/\0$/, '').split('\0').map((kv) => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)])) } : null;
   const calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => l.replace(` ${tmuxBin}`, ' tmux').trimEnd());
-  return { calls, body, stderr: (r.stdout ?? '') + (r.stderr ?? '') };
+  return { calls, body, stderr: (r.stdout ?? '') + (r.stderr ?? ''), tmuxSawTmux: fs.existsSync(tmuxEnvFile) ? fs.readFileSync(tmuxEnvFile, 'utf8') : null };
 }
 
 const UUID = '480a20da-0b1b-4e20-b8f5-2b5c82124ecb';
@@ -161,7 +165,8 @@ describe.skipIf(!ZSH)('包み方の本体（zsh 上）', () => {
     expect(r.calls[0]).toContain('--data-binary @-');
     expect(r.calls[0]).toContain('http://127.0.0.1:4177/api/runs/terminal');
     expect(r.calls[0]).toContain('Authorization: Bearer TOKEN-1');
-    expect(r.calls[1]).toBe('tmux attach -t =hangar-0123abcd');
+    // hangar の専用のサーバ（-L hangar）へつなぐ。
+    expect(r.calls[1]).toBe('tmux -L hangar attach -t =hangar-0123abcd');
     expect(r.body!.cwd).toBe(fs.realpathSync(dir));
     expect(r.body!.args).toEqual(['--model', 'opus', '直して ください', '']);
     expect(r.body!.env.AGENT_TEST_FROM_SHELL).toBe('a b');
@@ -202,9 +207,15 @@ describe.skipIf(!ZSH)('包み方の本体（zsh 上）', () => {
     expect(r.body!.args).toEqual(['-r', UUID]);
     expect(runWrapped(`--resume=${UUID}`).body!.args).toEqual([`--resume=${UUID}`]);
   });
-  it('hangar の tmux の中では入れ子にせず switch-client で移り、ほかの tmux の中では素の claude にする', () => {
-    expect(runWrapped('', { insideTmux: 'hangar' }).calls.at(-1)).toBe('tmux switch-client -t =hangar-0123abcd');
+  it('hangar の専用の tmux サーバの中では入れ子にせず switch-client で移り、ほかの tmux の中では素の claude にする', () => {
+    expect(runWrapped('', { insideTmux: 'hangar' }).calls.at(-1)).toBe('tmux -L hangar switch-client -t =hangar-0123abcd');
     expect(runWrapped('x', { insideTmux: 'other' }).calls).toEqual(['claude x']);
+  });
+  it('既定の tmux サーバ（前の版の hangar のセッションが残る所）の中では、$TMUX を外して専用のサーバへ入れ子でつなぐ', () => {
+    const r = runWrapped('', { insideTmux: 'default' });
+    expect(r.calls.map((c) => c.split(' ')[0])).toEqual(['curl', 'tmux']);
+    expect(r.calls.at(-1)).toBe('tmux -L hangar attach -t =hangar-0123abcd');
+    expect(r.tmuxSawTmux).toBe('');
   });
   it('渡したサブコマンドの一覧だけを素通しにする', () => {
     expect(runWrapped('newcmd x', { subcommands: ['newcmd'] }).calls).toEqual(['claude newcmd x']);

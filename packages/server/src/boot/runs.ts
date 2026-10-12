@@ -20,7 +20,7 @@ import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
 import { ParkWatch, parkedSessionIds } from '../sessions/park.ts';
 import { StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
-import { Tmux } from '../tmux/tmux.ts';
+import { HANGAR_SOCKET, hangarMux, type MuxServers } from '../tmux/servers.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
 import { UsageTracker } from '../usage/statusline.ts';
 import type { DeliveryParts } from './delivery.ts';
@@ -34,12 +34,15 @@ const RUN_POLL_MS = 2000;
  */
 const NOTICE_POLL_MS = 500;
 
-/** 設定の tmux のパスから、tmux の口を作る。パスが無ければ null で、起動は使えない。 */
-export function tmuxOf(s: Pick<Settings, 'tmuxPath'>): Tmux | null {
-  return s.tmuxPath ? new Tmux({ tmuxPath: s.tmuxPath }) : null;
+/**
+ * 設定の tmux のパスから、tmux の口を作る。パスが無ければ null で、起動は使えない。
+ * 新しい画面は hangar の専用のサーバ（-L hangar）に作り、前の版が既定のサーバに作った画面は終わるまでそこで扱う（tmux/servers.ts）。
+ */
+export function tmuxOf(s: Pick<Settings, 'tmuxPath'>): MuxServers | null {
+  return s.tmuxPath ? hangarMux(s.tmuxPath) : null;
 }
 /** RunManager が画面に触る口。裏は macOS と Linux では tmux、Windows では psmux である。 */
-export function panesOf(t: Tmux | null): PaneOps | null {
+export function panesOf(t: MuxServers | null): PaneOps | null {
   return t ? paneOpsFor(t) : null;
 }
 
@@ -54,6 +57,10 @@ export type RunsParts = {
   localClaude: LocalClaude;
   /** 包みの本体を書き直す。tmux のパスが変わったときに呼ぶ。 */
   writeShellScript(): void;
+  /** いまの tmux の口。run の起動と見張り、外のターミナル、端末の中継が同じものを使う。 */
+  mux(): MuxServers | null;
+  /** 設定の tmux のパスが変わったときに、口を作り直して RunManager に渡す。作り直した口を返す（端末の中継にも渡す）。 */
+  applyTmux(s: Pick<Settings, 'tmuxPath'>): MuxServers | null;
   /** 包み方のこの PC の状態を測る。前に刻んだ値と違えば devices を刻み直す。 */
   shellHook(): ShellHookDto;
   external: ExternalApi;
@@ -108,8 +115,10 @@ export function bootRuns(
   // 2 つ目以降のアカウントの置き場に、Claude Code が新しい項目を足していないかを見る。起動のときと、準備の確かめ（GET /api/readiness）か GET /api/compat を読むたびに見る。
   const claudeDirWatch = new ClaudeDirWatch({ dirs: () => accountStore.list().filter((a) => a.id !== PRIMARY_ACCOUNT_ID).map((a) => a.dir), sink: compatLog });
   claudeDirWatch.check();
+  // どの画面が前の版の既定のサーバに居るかを、この口が覚える。起動の見張り、外のターミナル、端末の中継で同じ口を使う。
+  let mux = tmuxOf(settings.current);
   const runs = new RunManager({
-    db, deviceId: device.id, home: home.home, panes: panesOf(tmuxOf(settings.current)), muxPath: () => settings.current.tmuxPath, port: listening.port, token: home.token,
+    db, deviceId: device.id, home: home.home, panes: panesOf(mux), muxPath: () => settings.current.tmuxPath, port: listening.port, token: home.token,
     claudeBin: claudeBin(),
     // 起動に失敗した run の後始末で、本文の jsonl があるかを実体で確かめるために要る。
     claudeDir,
@@ -163,10 +172,18 @@ export function bootRuns(
   return {
     runs, usage, accounts, claudeBin, localClaude, overlaps,
     writeShellScript: shell.write,
+    mux: () => mux,
+    applyTmux: (s) => {
+      mux = tmuxOf(s);
+      runs.setPanes(panesOf(mux));
+      return mux;
+    },
     shellHook: () => measureShellHook({ db, deviceId: device.id, shellHook: shell.hook, touch }),
     // 設定は書き替わるので、外部連携は呼ばれた時点の settings を読む。
     external: createExternalApi({
       home: home.home, settings: () => settings.current, launcher: o.launcher, language: home.language,
+      // 外のターミナルも、そのセッションが居るサーバへつなぐ。
+      socketArgs: (tmuxName) => mux?.serverOf(tmuxName).args() ?? ['-L', HANGAR_SOCKET],
       // ターミナルの中のエディタは、そのセッションの実行中の run のシェルタブで開く。run が無ければ外部ターミナルで開く。
       openShellTab: ({ sessionId, argv, title }) => {
         const run = runs.listAlive().runs.find((r) => r.sessionId === sessionId && r.endedAt === null && r.deviceId === device.id);

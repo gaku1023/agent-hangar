@@ -49,7 +49,10 @@ function isDirectory(p: string): boolean {
   try { return fs.statSync(p).isDirectory(); } catch { return false; }
 }
 
-/** tmux を絶対パスで呼ぶ薄い層。socketName か socketPath を付けるとテスト専用のサーバで動く。 */
+/**
+ * tmux を絶対パスで呼ぶ薄い層。socketName（-L）か socketPath（-S）を付けると、そのサーバだけを相手にする。
+ * hangar は socketName に `hangar` を付けた専用のサーバを使う（servers.ts）。試験は一時の socketPath を使う。
+ */
 export class Tmux {
   readonly tmuxPath: string;
   private readonly socketName: string | undefined;
@@ -141,7 +144,7 @@ export class Tmux {
   /**
    * 中のアプリが OSC 52 で写したものを、attach している端末（UI の xterm）へ通す。
    * 既定の external では tmux のコピーモードの写しだけが外へ出て、アプリの OSC 52 は捨てられる。
-   * set-clipboard はサーバ全体の設定なので、同じサーバにある利用者自身のセッションにも効く。
+   * set-clipboard はサーバ全体の設定なので、hangar の専用のサーバにだけ呼ぶ（呼び手が選ぶ。servers.ts）。
    * 利用者が off にしているときは覆さない。
    * サーバが動いていなければ show-options が失敗するので、何もしない。set-option だけではサーバを起こさない。
    */

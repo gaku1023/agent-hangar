@@ -237,6 +237,9 @@ npm run dev                 # サーバ（4177）と UI の開発サーバ（517
 ```
 
 セッションを起動するには tmux が要ります（`brew install tmux`）。
+hangar のセッションは、利用者がふだん使う tmux とは別の、hangar 専用の tmux サーバで動きます。
+`tmux ls` には出ず、`tmux -L hangar ls` で見えます。ターミナルから直につなぐときは `tmux -L hangar attach -t =<名前>` です。
+利用者の tmux の設定（`~/.tmux.conf`）は、この専用のサーバでも読まれます。
 Claude Code から hangar のツールを使うには、一度だけ登録します。
 デスクトップアプリでは、設定の「連携」の節の「登録…」を押します（下の「アプリのボタンで書くとき」）。
 ターミナルでは次を実行します。
@@ -622,6 +625,7 @@ psmux -V
 ```
 
 `psmux`、`pmux`、`tmux` の 3 つの名前で入ります。hangar は `psmux` を先に探します。
+hangar のセッションは psmux の専用の名前空間で動くので、`psmux -L hangar ls` で見えます。
 
 winget の id は `marlocarlo.psmux` です。
 リポジトリは `psmux/psmux` に移りましたが、winget の id は移っていません（2026-10-10 に winget-pkgs の `manifests/m/marlocarlo/psmux` で 3.3.8 を確かめました。`psmux/psmux` という id はありません）。

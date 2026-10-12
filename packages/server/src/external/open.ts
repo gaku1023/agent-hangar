@@ -90,12 +90,14 @@ const fileSafe = (name: string) => (/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(nam
  * tmux attach のコマンド行。
  * target は `=` を付けた完全一致にする。素の名前だと tmux が前方一致に落ちて、
  * 終了した run の `hangar-abc12` がそのシェルタブ `hangar-abc12-t1` に繋がってしまう。
+ * socketArgs はつなぐサーバの指定で、hangar の専用のサーバなら `-L hangar` である（tmux/servers.ts）。
+ * 前の版が既定のサーバに作ったセッションには、空で渡す。
  */
-const attachLine = (tmuxPath: string, tmuxName: string) => `${sq(tmuxPath)} attach -t ${sq(`=${tmuxName}`)}`;
+const attachLine = (tmuxPath: string, tmuxName: string, socketArgs: readonly string[]) => [tmuxPath, ...socketArgs].map(sq).join(' ') + ` attach -t ${sq(`=${tmuxName}`)}`;
 
 /** tmux attach を書いた .command。AppleEvent を使わないので macOS の自動化の許可が要らない。 */
-export function writeAttachCommand(home: string, tmuxPath: string, tmuxName: string): string {
-  return writeCommand(path.join(cmdDir(home), `attach-${fileSafe(tmuxName)}.command`), attachLine(tmuxPath, tmuxName));
+export function writeAttachCommand(home: string, tmuxPath: string, tmuxName: string, socketArgs: readonly string[] = []): string {
+  return writeCommand(path.join(cmdDir(home), `attach-${fileSafe(tmuxName)}.command`), attachLine(tmuxPath, tmuxName, socketArgs));
 }
 
 /**
@@ -212,11 +214,12 @@ async function openWindows(o: { app: TerminalApp; target: WindowsTarget; exec: E
 
 const isWindowsApp = (app: TerminalApp) => app === 'windowsTerminal' || app === 'windowsDefault';
 
-/** Windows の tmux（psmux）の attach。target は macOS と同じく = を付けた完全一致にする。 */
-function windowsAttach(tmuxPath: string, tmuxName: string, title: string | undefined): WindowsTarget {
-  assertWindowsSafe(tmuxPath, tmuxName);
+/** Windows の tmux（psmux）の attach。target は macOS と同じく = を付けた完全一致にする。socketArgs も macOS と同じ。 */
+function windowsAttach(tmuxPath: string, tmuxName: string, socketArgs: readonly string[], title: string | undefined): WindowsTarget {
+  assertWindowsSafe(tmuxPath, tmuxName, ...socketArgs);
   const target = `=${tmuxName}`;
-  return { wt: ['--', wtArg(tmuxPath), 'attach', '-t', wtArg(target)], start: `${cmdQuote(tmuxPath)} attach -t ${cmdQuote(target)}`, title: windowsTitle(title ?? '', tmuxName) };
+  const head = [tmuxPath, ...socketArgs];
+  return { wt: ['--', ...head.map(wtArg), 'attach', '-t', wtArg(target)], start: `${head.map(cmdQuote).join(' ')} attach -t ${cmdQuote(target)}`, title: windowsTitle(title ?? '', tmuxName) };
 }
 
 /**
@@ -230,14 +233,18 @@ function windowsDir(dir: string): WindowsTarget {
   return { wt: ['-d', wtArg(d)], start: `/D ${cmdQuote(d)} powershell.exe -NoLogo`, title: windowsTitle(d.split(/[\\/]/).pop() ?? '', d) };
 }
 
-/** title は Windows のタブや窓の題名で、省くと tmux の名前になる。macOS では使わない。 */
-export function openInTerminalApp(o: { home: string; tmuxPath: string; tmuxName: string; title?: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
+/**
+ * title は Windows のタブや窓の題名で、省くと tmux の名前になる。macOS では使わない。
+ * socketArgs はつなぐサーバの指定（attachLine）。省くと既定のサーバへつなぐので、hangar の run には呼び手（api.ts）が必ず渡す。
+ */
+export function openInTerminalApp(o: { home: string; tmuxPath: string; tmuxName: string; socketArgs?: readonly string[]; title?: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
   const exec = o.exec ?? execFile;
-  if (isWindowsApp(o.app)) return Promise.resolve().then(() => openWindows({ app: o.app, target: windowsAttach(o.tmuxPath, o.tmuxName, o.title), exec }));
+  const socketArgs = o.socketArgs ?? [];
+  if (isWindowsApp(o.app)) return Promise.resolve().then(() => openWindows({ app: o.app, target: windowsAttach(o.tmuxPath, o.tmuxName, socketArgs, o.title), exec }));
   return openCommand({
     app: o.app,
-    command: attachLine(o.tmuxPath, o.tmuxName),
-    file: () => writeAttachCommand(o.home, o.tmuxPath, o.tmuxName),
+    command: attachLine(o.tmuxPath, o.tmuxName, socketArgs),
+    file: () => writeAttachCommand(o.home, o.tmuxPath, o.tmuxName, socketArgs),
     exec,
   });
 }
