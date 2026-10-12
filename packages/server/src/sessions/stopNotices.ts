@@ -1,4 +1,4 @@
-import { limitKindText, limitReset, newId, quietLive, resetAtText, stopReasonOf, type LimitKind, type LiveSessionDto, type OsNoticeDto, type OsNoticeFeedDto, type PermissionAskDto, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { limitKindText, limitReset, newId, permissionNoticeText, quietLive, resetAtText, stopReasonOf, type LimitKind, type LiveSessionDto, type OsNoticeDto, type OsNoticeFeedDto, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
@@ -141,11 +141,6 @@ export class StopNoticeWatch {
     return s.name ?? this.tr('common.label.noName');
   }
 
-  private permissionBody(p: PermissionAskDto | null | undefined): string {
-    if (!p) return this.tr('stop.notify.permissionBare');
-    return p.input ? this.tr('stop.notify.permission', { tool: p.tool, input: p.input }) : this.tr('stop.notify.permissionTool', { tool: p.tool });
-  }
-
   private watchWaiting(live: LiveSessionDto[], now: number, primed: boolean): void {
     const waiting = new Set<string>();
     const permissionWait = this.deps.permissionWaitMs ?? PERMISSION_WAIT_MS;
@@ -170,7 +165,7 @@ export class StopNoticeWatch {
       }
       if (stopReasonOf(s) === 'permission') {
         if (!s.permission && now - ep.since < permissionWait) continue;
-        push(this.permissionBody(s.permission), false);
+        push(permissionNoticeText(this.tr, s.permission ?? null), false);
         ep.phase = 'done';
         continue;
       }

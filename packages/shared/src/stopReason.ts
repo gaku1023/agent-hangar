@@ -90,3 +90,9 @@ export function resetAtText(t: Translate, resetsAt: number, now: number): string
 export function matchesStopFilter(reason: StopReason | null, f: 'permission' | 'limited'): boolean {
   return f === 'permission' ? reason === 'permission' : reason === 'limit' || reason === 'reset';
 }
+
+/** 許可待ちの通知の本文。道具と命令（無ければ道具だけ）。中身が届いていなければ「許可待ちです」。 */
+export function permissionNoticeText(t: Translate, p: PermissionAskDto | null): string {
+  if (!p) return t('stop.notify.permissionBare');
+  return p.input ? t('stop.notify.permission', { tool: p.tool, input: p.input }) : t('stop.notify.permissionTool', { tool: p.tool });
+}

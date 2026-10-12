@@ -1,4 +1,4 @@
-import { liveFilterOf, quietLive, type LiveFilter } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, type LiveFilter, type PermissionAskDto } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
@@ -121,6 +121,9 @@ function without<T>(map: Record<string, T>, key: string): Record<string, T> {
 
 const sameAside = (a: LiveAsideDto | null, b: LiveAsideDto | null): boolean => a === b || (a !== null && b !== null && a.shell === b.shell && a.agents === b.agents);
 
+const samePermission = (a: PermissionAskDto | null, b: PermissionAskDto | null): boolean =>
+  a === b || (a !== null && b !== null && a.tool === b.tool && a.input === b.input && a.description === b.description);
+
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
   const map = new Map(live.map((l) => [l.sessionId, l]));
   const out: Record<string, SessionDto> = {};
@@ -129,7 +132,12 @@ function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): R
     const status = l?.status ?? null;
     const name = l?.nameSource === 'user' && l.name ? l.name : s.name;
     const aside = l?.aside ?? null;
-    out[id] = status === s.live && name === s.name && sameAside(aside, s.liveAside) ? s : { ...s, live: status, name, liveAside: aside };
+    // 何を待っているかと許可の中身も、登録の写しなので引き直す。使用制限は実行中のときだけ意味を持つので、終わったら外す。
+    const waitingFor = l?.waitingFor ?? null;
+    const permission = l?.permission ?? null;
+    const limit = status === null ? null : s.limit ?? null;
+    const same = status === s.live && name === s.name && sameAside(aside, s.liveAside) && waitingFor === (s.waitingFor ?? null) && samePermission(permission, s.permission ?? null) && limit === (s.limit ?? null);
+    out[id] = same ? s : { ...s, live: status, name, liveAside: aside, waitingFor, permission, limit };
   }
   return out;
 }
@@ -281,7 +289,7 @@ export function runningSessionIds(store: Store): Set<string> {
  * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
  */
 export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
-  return liveFilterOf(quietLive(session.live, session.state?.status), alive.has(session.id), session.parked);
+  return liveFilterOf(quietLive(liveWithLimit(session.live, session.limit), session.state?.status), alive.has(session.id), session.parked);
 }
 
 /**
@@ -290,7 +298,7 @@ export function liveFilterOfSession(store: Store, session: SessionDto, alive: Se
  * セッション画面は本当の動き（session.live）を出すので、これを使わない。
  */
 export function shownLive(session: SessionDto): LiveStatus | null {
-  return session.parked ? null : quietLive(session.live, session.state?.status);
+  return session.parked ? null : quietLive(liveWithLimit(session.live, session.limit), session.state?.status);
 }
 
 /** 本体は入力を受け付けていて、裏の作業だけが動いているか（lib/aside.ts の asideOf）。一覧の見せ方は shownLive にそろえる。 */
@@ -339,7 +347,7 @@ export function liveSessionIds(store: Store): string[] {
  * Paused は戻ってくるものなので外さない。
  */
 export function awaitsAnswer(s: SessionDto): boolean {
-  return liveFilterOf(quietLive(s.live, s.state?.status), false) === 'waiting';
+  return liveFilterOf(quietLive(liveWithLimit(s.live, s.limit), s.state?.status), false) === 'waiting';
 }
 
 /**

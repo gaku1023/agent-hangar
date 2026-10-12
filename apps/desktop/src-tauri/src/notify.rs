@@ -1,5 +1,6 @@
-//! 入力待ちと戻る時刻の OS の通知（macOS は UNUserNotificationCenter、Windows はトースト）。
-//! UI（サーバの頁）が窓の背面で入力待ちを見つけたら `notify_waiting` を呼び、殻が通知を出す。
+//! 入力待ち、戻る時刻、使用制限の OS の通知（macOS は UNUserNotificationCenter、Windows はトースト）。
+//! 入力待ち（許可待ちとリセット済みも含む）と使用制限は、サーバが決めて並べ、殻が読みに行って出す（`feed`）。
+//! 戻る時刻と、ブラウザの頁の通知は、今までどおり頁が `notify_waiting` を呼ぶ。
 //! 通知を押されたら、窓を前に出し、頁の `__hangarOpenWaiting` でそのセッションを開く。
 //! 押された通知からセッションを読み戻す入口（`session_of` と `install` に渡す受け口）は、どちらの OS でも同じである。
 //! 頁の値はここで確かめてから OS に渡す。
@@ -7,6 +8,7 @@
 
 use std::collections::HashSet;
 
+pub mod feed;
 pub mod hold;
 
 /// 通知の識別子の頭。
@@ -14,6 +16,7 @@ pub mod hold;
 /// 入力待ちの頭は前の版と同じにしてある。前の版が出した通知を押しても、同じセッションが開く。
 const WAITING_PREFIX: &str = "hangar-waiting:";
 const RETURN_PREFIX: &str = "hangar-return:";
+const LIMIT_PREFIX: &str = "hangar-limit:";
 /// 題と本文の長さの上限（文字数）。
 /// 通知は 2 行ほどしか見せないので、長い問いは切る。
 const TITLE_MAX: usize = 120;
@@ -23,13 +26,15 @@ const BODY_MAX: usize = 240;
 const ID_MAX: usize = 64;
 
 /// 知らせの種類。
-/// 入力待ちと、Paused の戻る時刻を過ぎた知らせである。
+/// 入力待ち（許可待ちとリセット済みも含む）と、Paused の戻る時刻を過ぎた知らせと、使用制限の知らせである。
+/// 使用制限はアカウントごとに 1 通で、先に止まったセッションの id を枠の名前にする（押すとそのセッションを開く）。
 /// 種類ごとに通知の枠（macOS の識別子、Windows のタグと組）を分ける。
 /// 同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Waiting,
     Return,
+    Limit,
 }
 
 impl Kind {
@@ -39,6 +44,7 @@ impl Kind {
         match name {
             None | Some("waiting") => Ok(Kind::Waiting),
             Some("return") => Ok(Kind::Return),
+            Some("limit") => Ok(Kind::Limit),
             Some(_) => Err("invalid notification kind".to_string()),
         }
     }
@@ -47,6 +53,7 @@ impl Kind {
         match self {
             Kind::Waiting => WAITING_PREFIX,
             Kind::Return => RETURN_PREFIX,
+            Kind::Limit => LIMIT_PREFIX,
         }
     }
 }
@@ -61,31 +68,43 @@ pub struct Waiting {
 }
 
 /// 通知センターに残してよい知らせ。
-/// 頁が、いま入力待ちのセッションと、今日の戻る時刻を過ぎてまだ Paused のセッションを渡す。
+/// 頁が、いま入力待ちのセッションと、今日の戻る時刻を過ぎてまだ Paused のセッションと、使用制限でリセットを待っているセッションを渡す。
 /// ここに無いセッションの知らせは、通知センターから外す（`prune`）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Keep {
     waiting: HashSet<String>,
     returning: HashSet<String>,
+    limited: HashSet<String>,
+}
+
+/// id の並びから、id の形のものだけを集める。頁の値なので、形でないものは捨てる（そういう id の通知は出していない）。
+fn plain_ids(ids: &[String]) -> HashSet<String> {
+    ids.iter().filter(|id| valid_id(id)).cloned().collect()
 }
 
 impl Keep {
     /// 頁から届いた id の並びから作る。
     /// 頁の値なので、id の形でないものは捨てる（そういう id の通知は出していない）。
     pub fn new(waiting: &[String], returning: &[String]) -> Keep {
-        let plain = |ids: &[String]| -> HashSet<String> {
-            ids.iter().filter(|id| valid_id(id)).cloned().collect()
-        };
         Keep {
-            waiting: plain(waiting),
-            returning: plain(returning),
+            waiting: plain_ids(waiting),
+            returning: plain_ids(returning),
+            limited: HashSet::new(),
         }
+    }
+
+    /// 使用制限でリセットを待っているセッション（その知らせを残す）を足す。
+    /// 渡さない前の版の頁では空のままで、使用制限の知らせは次の顔ぶれで外れる。
+    pub fn with_limited(mut self, limited: &[String]) -> Keep {
+        self.limited = plain_ids(limited);
+        self
     }
 
     fn set(&self, kind: Kind) -> &HashSet<String> {
         match kind {
             Kind::Waiting => &self.waiting,
             Kind::Return => &self.returning,
+            Kind::Limit => &self.limited,
         }
     }
 
@@ -99,6 +118,7 @@ impl Keep {
         let set = match kind {
             Kind::Waiting => &mut self.waiting,
             Kind::Return => &mut self.returning,
+            Kind::Limit => &mut self.limited,
         };
         set.insert(session_id.to_string());
     }
@@ -219,12 +239,14 @@ pub fn identifier(kind: Kind, session_id: &str) -> String {
 /// 通知の識別子から、種類とセッションの id を読み戻す。
 /// hangar の通知でなければ `None`。
 pub fn parse_identifier(identifier: &str) -> Option<(Kind, &str)> {
-    [Kind::Waiting, Kind::Return].into_iter().find_map(|kind| {
-        identifier
-            .strip_prefix(kind.prefix())
-            .filter(|id| valid_id(id))
-            .map(|id| (kind, id))
-    })
+    [Kind::Waiting, Kind::Return, Kind::Limit]
+        .into_iter()
+        .find_map(|kind| {
+            identifier
+                .strip_prefix(kind.prefix())
+                .filter(|id| valid_id(id))
+                .map(|id| (kind, id))
+        })
 }
 
 /// 押された通知の識別子から、セッションの id を読み戻す。
@@ -276,6 +298,7 @@ mod toast {
     /// 入力待ちの組は前の版と同じ名前で、前の版は戻る時刻の知らせもこの組に入れていた。
     const WAITING_GROUP: &str = "hangar-waiting";
     const RETURN_GROUP: &str = "hangar-return";
+    const LIMIT_GROUP: &str = "hangar-limit";
     /// アプリが閉じている間に押されたトーストを受け取る COM の口の CLSID。
     /// 値は一度だけ作って固定した。
     /// 変えると、前の版が出したトーストを押しても、この版へ届かなくなる。
@@ -329,11 +352,12 @@ mod toast {
         match kind {
             Kind::Waiting => WAITING_GROUP,
             Kind::Return => RETURN_GROUP,
+            Kind::Limit => LIMIT_GROUP,
         }
     }
 
     fn kind_of_group(group: &str) -> Option<Kind> {
-        [Kind::Waiting, Kind::Return]
+        [Kind::Waiting, Kind::Return, Kind::Limit]
             .into_iter()
             .find(|k| toast_group(*k) == group)
     }
@@ -1333,6 +1357,7 @@ mod tests {
         assert_eq!(Kind::parse(None), Ok(Kind::Waiting));
         assert_eq!(Kind::parse(Some("waiting")), Ok(Kind::Waiting));
         assert_eq!(Kind::parse(Some("return")), Ok(Kind::Return));
+        assert_eq!(Kind::parse(Some("limit")), Ok(Kind::Limit));
         assert!(Kind::parse(Some("other")).is_err());
         assert!(Kind::parse(Some("")).is_err());
     }
@@ -1385,8 +1410,37 @@ mod tests {
         assert_eq!(session_of(launch), Some("s1"));
     }
 
+    /// 使用制限の知らせは、アカウントごとの 1 通で、同じセッションの入力待ちや戻る時刻の知らせとは別の枠に入る。
+    #[test]
+    fn a_limit_notice_has_its_own_slot_and_reads_back_the_session() {
+        assert_eq!(identifier(Kind::Limit, "s1"), "hangar-limit:s1");
+        assert_ne!(
+            identifier(Kind::Limit, "s1"),
+            identifier(Kind::Waiting, "s1")
+        );
+        assert_eq!(
+            parse_identifier("hangar-limit:s1"),
+            Some((Kind::Limit, "s1"))
+        );
+        assert_eq!(session_of("hangar-limit:s1"), Some("s1"));
+        assert_eq!(toast_group(Kind::Limit), "hangar-limit");
+        assert_ne!(toast_group(Kind::Limit), toast_group(Kind::Waiting));
+    }
+
     fn ids(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_keep_list_holds_the_limited_sessions_apart() {
+        let keep = Keep::new(&ids(&["s1"]), &[]).with_limited(&ids(&["s2", "x\"y"]));
+        assert!(keep.holds(Kind::Limit, "s2"));
+        assert!(!keep.holds(Kind::Limit, "x\"y"));
+        assert!(!keep.holds(Kind::Limit, "s1"));
+        assert!(!keep.holds(Kind::Waiting, "s2"));
+        let mut empty = Keep::default();
+        empty.insert(Kind::Limit, "s3");
+        assert!(empty.holds(Kind::Limit, "s3"));
     }
 
     #[test]

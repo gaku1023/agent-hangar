@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isParked, liveFilterOf, quietLive } from './liveFilter.ts';
-import { t } from './i18n/t.ts';
+import { translator } from './i18n/t.ts';
 import { LIMIT_RESET_GRACE_MS, limitKindOf, limitKindText, limitReset, liveWithLimit, resetAtText, stopReasonOf, waitKindOf } from './stopReason.ts';
 
 describe('waitKindOf', () => {
@@ -90,7 +90,7 @@ describe('isParked と使用制限', () => {
 });
 
 describe('resetAtText と limitKindText', () => {
-  const ja = ((k: string, p?: Record<string, string | number>) => t('ja', k as never, p as never)) as never;
+  const ja = translator('ja');
   it('今日なら時刻だけ、ほかの日なら日付を添える', () => {
     const now = new Date(2026, 9, 12, 14, 0).getTime();
     expect(resetAtText(ja, new Date(2026, 9, 12, 16, 50).getTime(), now)).toBe('16:50');

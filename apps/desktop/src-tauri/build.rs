@@ -14,6 +14,7 @@ const COMMANDS: &[&str] = &[
     "cloud_join_plan",
     "cloud_leave",
     "cloud_revoke",
+    "notify_feed",
     "notify_prune",
     "notify_request",
     "notify_status",

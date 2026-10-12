@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -124,7 +124,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
   // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); syncFeed(); } };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
@@ -169,6 +169,19 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (key === pruneKey) return;
     pruneKey = key;
     notifier.prune(keep);
+  }
+  /**
+   * 通知を受け取るか（store.notify.on）を、変わったときだけ殻へ伝える（notifier.feed）。
+   * デスクトップでは入力待ちと使用制限の通知をサーバが決めて殻が出すので、殻はこの値で出すかを決める（runtime/notifier.ts の serverFed）。
+   * 頁が伝えるまで殻は出さない。受け取ると決まった時点で伝わる。
+   */
+  let feedOn: boolean | null = null;
+  function syncFeed(): void {
+    if (!notifier?.feed) return;
+    const on = store.notify.on;
+    if (on === feedOn) return;
+    feedOn = on;
+    notifier.feed(on);
   }
   const notifier = deps.notifier;
   /**
@@ -581,10 +594,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'toast': dispatch({ kind: 'server', event: { type: 'toast', level: e.level, message: e.message } }); return;
       case 'notify.waiting': {
+        // デスクトップでは、入力待ちの通知はサーバが決めて殻が出す。頁が呼ぶと 2 回出る（runtime/notifier.ts の serverFed）。
         // 窓が前にあるときは右下のカードで足りる。
-        if (!notifier || !store.notify.on || !notifier.background()) return;
+        if (!notifier || notifier.serverFed || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
+        // 許可待ちは、何の許可かを本文にする。問いの文を待たない。
+        if (stopReasonOf(s) === 'permission') {
+          notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: permissionNoticeText(tr(), s.permission ?? null), kind: 'waiting' });
+          return;
+        }
         // 問いの文が無ければ印（bare）を付ける。殻が問いの文を少し待ち、届けば 1 回にまとめて出す。
         const question = s.activity?.question;
         notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: question ?? noQuestionText(tr()), kind: 'waiting', ...(question ? {} : { bare: true }) });
