@@ -231,7 +231,7 @@ export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto;
  * 準備の確かめ（GET /api/readiness）。
  * 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、同じこの 1 つを読む。
  * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
- * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
+ * workspace は設定の作成場所（任意。空は決めていない）で、projectCount はその直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
  * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。join は参加のコマンドで、トークンの所は `<token>` と書く。
  * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
@@ -241,6 +241,11 @@ export type ReadinessDto = {
   /** 選んだエディタで開けるか。この項目を知らない古いサーバは返さない。 */
   editor?: { id: import('./editor.ts').EditorId; name: string | null; state: import('./editor.ts').EditorDetectState; path: string | null };
   workspace: { path: string; exists: boolean; projectCount: number };
+  /**
+   * 始める前の確認の「プロジェクト」の行（2026-10-13）。resolved はこの PC で場所の分かっているプロジェクトの数、
+   * candidates は Claude Code と会話したフォルダの候補の数で、resolved が 0 のときだけ数える（ほかは 0）。この項目を知らない古いサーバは返さない。
+   */
+  projects?: { resolved: number; candidates: number };
   mcp: { registered: boolean; file: string };
   statusline: StatuslineStatusDto;
   commands: { mcp: string; statusline: string; shell: string; join: string };
@@ -276,8 +281,21 @@ export type InstructionFileDto = { kind: InstructionFileKind; name: string; size
 export type InstructionsDto = { projectId: string; available: boolean; files: InstructionFileDto[] };
 export type ArtifactDto = { id: string; projectId: string | null; url: string; title: string | null; description: string | null; favicon: string | null; filePath: string | null; fileExists: boolean; firstPublishedAt: number; lastPublishedAt: number; versionCount: number; sessionIds: string[] };
 export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved: boolean; reason: string | null };
-/** プロジェクトを作る場所。newDir はワークスペースの下に新しく作り、dir は既存のディレクトリを登録する。 */
-export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean } | { kind: 'dir'; path: string; name?: string };
+/**
+ * プロジェクトを作る場所。newDir は新しいフォルダを作り、dir は既存のディレクトリを登録する。
+ * newDir の parent は作る場所で、省けば設定の作成場所（workspaceRoot）の下に作る。作成場所は任意なので、空のときは画面が Finder で選ばせて parent に入れる。
+ */
+export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean; parent?: string } | { kind: 'dir'; path: string; name?: string };
+/**
+ * Claude Code と会話したフォルダの候補の 1 件（GET /api/workspace/candidates）。
+ * path は git のリポジトリの根（worktree は元のリポジトリ）で、sessionCount はその下のまだプロジェクトに入っていない会話の数、
+ * lastActivityAt はその中の最後の活動、worktreeCount はまとめた worktree の数である。
+ */
+export type FolderCandidateDto = { path: string; sessionCount: number; lastActivityAt: number | null; worktreeCount: number };
+/** 候補の一覧。suggestedRoot は、作成場所が空で、過半の候補が同じ親フォルダにあるときの、その親（無ければ null）。 */
+export type FolderCandidatesDto = { candidates: FolderCandidateDto[]; suggestedRoot: string | null };
+/** 候補からまとめて登録した結果（POST /api/workspace/register）。failed は登録できなかったパスと理由である。 */
+export type FolderRegisterResultDto = { projects: ProjectDto[]; failed: { path: string; error: string }[] };
 /** ワークスペース直下の、まだプロジェクトになっていないディレクトリ。 */
 export type WorkspaceDirDto = { name: string; path: string };
 export type SummarizerId = 'lmstudio' | 'claude-headless';

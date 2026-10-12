@@ -16,7 +16,7 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.status.noteEmpty': '根拠の一文が空です',
   'session.status.noteTooLong': '理由は {max} 字までです',
   'session.status.returnOnInvalid': 'リマインダーの日付は YYYY-MM-DD の形の、暦にある日付です',
-  'session.status.returnOnRequired': 'Paused にはリマインダーの日付が要ります',
+  'session.status.returnTimeNeedsDate': 'リマインダーの時刻は、日付と一緒に渡してください',
   'session.status.returnTimeInvalid': 'リマインダーの時刻は HH:MM の形で、00:00〜23:59 です（{value}）',
   'session.stats.turns': '{n} ターン',
   'session.stats.tokens': '{n} トークン',

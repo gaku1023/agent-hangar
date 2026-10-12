@@ -81,12 +81,25 @@ function VerifyRow(props: { line: VerifyLine | null; mark?: SaveMark | undefined
  * nullable の欄は、空を「指定なし」の null として送る。
  * 存在と実行権はサーバが保存の前に確かめ、断られたら理由が欄の下に出る。
  */
-function PathField(props: { field: keyof SettingsDto; label: string; value: string | null; nullable: boolean; placeholder?: string; line: VerifyLine | null; mark: SaveMark | undefined; hideLabel?: boolean; children?: ReactNode }) {
+function PathField(props: { field: keyof SettingsDto; label: string; value: string | null; nullable: boolean; placeholder?: string; line: VerifyLine | null; mark: SaveMark | undefined; hideLabel?: boolean; quiet?: boolean; pick?: { desktop: boolean; picked: { path: string; n: number } | null }; children?: ReactNode }) {
   const emit = useEmit();
+  const t = useT();
   const saved = props.value ?? '';
   const [v, setV] = useState(saved);
   // サーバが整えた値（~ を直したパスなど）を欄に映す。
   useEffect(() => { setV(saved); }, [saved]);
+  // 「選ぶ…」（Finder）。押した後に殻が返した選択だけを、この欄の値として保存する（ほかのダイアログで選んだものは当てない）。
+  const pickedSeen = useRef(props.pick?.picked?.n ?? 0);
+  const waiting = useRef(false);
+  const picked = props.pick?.picked;
+  useEffect(() => {
+    if (!picked || picked.n <= pickedSeen.current) return;
+    pickedSeen.current = picked.n;
+    if (!waiting.current) return;
+    waiting.current = false;
+    setV(picked.path);
+    emit({ type: 'settings.update', patch: { [props.field]: picked.path }, field: props.field });
+  }, [picked?.n]);   // eslint-disable-line react-hooks/exhaustive-deps
   const save = () => {
     const next = v.trim();
     if (next === saved.trim()) { if (v !== saved) setV(saved); return; }
@@ -100,9 +113,11 @@ function PathField(props: { field: keyof SettingsDto; label: string; value: stri
           onChange={(e) => setV(e.target.value)}
           onBlur={save}
           onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); save(); } }} />
+        {props.pick?.desktop && <button type="button" className="btn" aria-label={t('home.band.actionFor', { action: t('settings.tools.parent.pick'), name: props.label })} onClick={() => { waiting.current = true; emit({ type: 'folder.pick' }); }}>{t('settings.tools.parent.pick')}</button>}
         <SavedTick mark={props.mark} />
       </span>
-      <VerifyRow line={props.line} mark={props.mark} />
+      {/* quiet は、空にできる欄が空のとき（作成場所）。確かめる中身が無いので行を出さない。保存の失敗だけは出す。 */}
+      {(!props.quiet || props.mark?.kind === 'error') && <VerifyRow line={props.line} mark={props.mark} />}
       {props.children}
     </div>
   );
@@ -544,8 +559,11 @@ export function SettingsScreen(props: SettingsProps) {
       {props.mux && <MuxSection mux={props.mux} />}
       <section>
         <h3 className="h2">{t('settings.tools.parent.title')}</h3>
-        <PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} line={props.verify.workspace} mark={props.save.workspaceRoot} />
+        {/* 作成場所は任意（2026-10-13、試作の 4 節 3a の案 A）。空を許し、デスクトップでは Finder でも選べる。 */}
+        <PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} placeholder={t('settings.tools.parent.placeholder')} quiet={props.workspaceRoot === ''} pick={props.workspacePick} line={props.verify.workspace} mark={props.save.workspaceRoot} />
         <div className="faint" style={{ marginTop: 4 }}>{t('settings.tools.parent.desc')}</div>
+        <SetRow title={t('settings.tools.register.title')} desc={t('settings.tools.register.desc')}
+          control={<button type="button" className="btn" aria-label={t('home.band.actionFor', { action: t('settings.tools.register.action'), name: t('settings.tools.register.title') })} onClick={() => emit({ type: 'project.candidates.open' })}>{t('settings.tools.register.action')}</button>} />
       </section>
       <section>
         <h3 className="h2">{t('settings.tools.paths.title')}</h3>

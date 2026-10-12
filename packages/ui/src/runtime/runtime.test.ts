@@ -1,6 +1,6 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { ApiConflictError, ApiNotFoundError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
@@ -635,6 +635,42 @@ describe('起動とターミナル', () => {
     await flush();
     expect(rt.getStore().workspaceDirs).toEqual([]);
     expect(rt.getState().toasts).toEqual([]);
+  });
+  // 初日のプロジェクト（2026-10-13）。候補のダイアログは、開くと候補を取り、送ると作成場所を決めてから、まとめて登録する。
+  it('候補のダイアログを開くと候補を取り、送ると作成場所を保存してから登録し、閉じて知らせ、準備の確かめを取り直す', async () => {
+    const order: string[] = [];
+    const cands = { candidates: [{ path: '/Users/me/src/a', sessionCount: 4, lastActivityAt: 1, worktreeCount: 0 }], suggestedRoot: '/Users/me/src' };
+    const folderCandidates = vi.fn(async () => cands);
+    const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const updateSettings = vi.fn(async (patch: Partial<SettingsDto>) => { order.push(`settings:${patch.workspaceRoot}`); return { ...base, ...patch }; });
+    const registerFolders = vi.fn(async (paths: string[]) => { order.push(`register:${paths.join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path が存在するディレクトリではありません' }] }; });
+    const { rt, api } = harness({ folderCandidates, updateSettings, registerFolders });
+    rt.start();
+    await flush();
+    const readinessCalls = (api.readiness as ReturnType<typeof vi.fn>).mock.calls.length;
+    rt.emit({ type: 'project.candidates.open' });
+    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: null });
+    await flush();
+    expect(rt.getStore().folderCandidates).toEqual({ status: 'ready', data: cands });
+    rt.emit({ type: 'project.candidates.submit', paths: ['/Users/me/src/a', '/gone'], workspaceRoot: '/Users/me/src' });
+    expect(rt.getState().overlay).toMatchObject({ kind: 'projectCandidates', submitting: true });
+    await flush();
+    expect(order).toEqual(['settings:/Users/me/src', 'register:/Users/me/src/a,/gone']);
+    expect(rt.getStore().projects['p-a']).toMatchObject({ path: '/Users/me/src/a' });
+    expect(rt.getStore().settings?.workspaceRoot).toBe('/Users/me/src');
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(rt.getState().toasts.map((t) => [t.level, t.message])).toEqual([['info', 'プロジェクトを 1 件登録しました'], ['error', '1 件を登録できませんでした（path が存在するディレクトリではありません）']]);
+    expect((api.readiness as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(readinessCalls);
+  });
+  it('候補が取れなければ、読めなかったことを面に出す。登録に失敗したら面を開いたまま理由を出す', async () => {
+    const { rt } = harness({ folderCandidates: vi.fn(async () => { throw new Error('500'); }), registerFolders: vi.fn(async () => { throw new Error('つながりません'); }) });
+    rt.start();
+    rt.emit({ type: 'project.candidates.open' });
+    await flush();
+    expect(rt.getStore().folderCandidates).toEqual({ status: 'failed' });
+    rt.emit({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null });
+    await flush();
+    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: 'つながりません' });
   });
   it('作成のダイアログの送信は、作ってから done を返す', async () => {
     const { rt } = harness({ createProject: vi.fn(async () => created) });

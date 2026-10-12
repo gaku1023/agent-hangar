@@ -141,7 +141,12 @@ export type SettingsProps = {
   notify: { available: boolean; on: boolean; blocked: boolean };
   /** ツールの節の先頭の psmux（tmux）の状態の行（段 6 の B3）。準備の確かめが届く前は null。 */
   mux?: MuxStatus | null;
-  /** 欄の下の 1 行の検証（B1）。準備の確かめが届く前は null。 */
+  /**
+   * 新しいフォルダの作成場所の「選ぶ…」（Finder）。desktop は殻の中か（ブラウザでは出さない）、picked は殻が返した最後の選択である。
+   * 省けば出さない。
+   */
+  workspacePick?: { desktop: boolean; picked: { path: string; n: number } | null };
+  /** 欄の下の 1 行の検証（B1）。準備の確かめが届く前は null。作成場所は空のとき null（行を出さない）。 */
   verify: { workspace: VerifyLine | null; tmux: VerifyLine | null; claude: VerifyLine | null; node: VerifyLine | null; git: VerifyLine | null };
   /** hangar の MCP サーバが user スコープに載っているか。届く前は null。 */
   mcpRegistered: boolean | null;
@@ -356,6 +361,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。
     commands: { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', join: r?.commands.join ?? 'hangar join <token>', setupCloud: SETUP_CLOUD_COMMAND },
+    workspacePick: { desktop: store.desktop, picked: store.pickedFolder },
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
     // 進んでいる間はヘッダーと同じ文にし、終わっていれば数を出す。
     indexLabel: indexProgressLabel(t, store.index) ?? t('settings.info.index.counts', { sessions: Object.keys(store.sessions).length, projects: Object.keys(store.projects).length }),

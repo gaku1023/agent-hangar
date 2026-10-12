@@ -90,4 +90,10 @@ export const homeKeys = {
   'home.ready.editor.customMissing': ['command'],
   'home.ready.editor.ok': ['name', 'path'],
   'home.ready.editor.appOnly': ['name', 'path'],
+  'home.ready.name.projects': [],
+  'home.ready.projects.found': ['n'],
+  'home.ready.projects.none': [],
+  'home.ready.projects.choose': [],
+  'home.ready.projects.create': [],
+  'home.ready.projects.ok': ['n'],
 } as const satisfies MessageSpec;

@@ -6,7 +6,9 @@ import { isComposing } from './ime.ts';
 import { Dialog } from './primitives/Dialog.tsx';
 import { useT } from './primitives/language.tsx';
 
+/** 日のある札の打鍵。日付なしの札は 0 で、日のある札は今までどおり 1 から数える。 */
 const DIGITS = ['1', '2', '3', '4', '5'];
+const NONE_DIGIT = '0';
 /** 改行は 1 つの空白にたたみ、前後の空白を落とす。サーバ（sessions/states.ts）の整え方と同じにする。 */
 const tidy = (s: string) => s.replace(/\s*[\r\n]+\s*/g, ' ').trim();
 
@@ -16,27 +18,39 @@ const tidy = (s: string) => s.replace(/\s*[\r\n]+\s*/g, ' ').trim();
  * 入力は送るまで外へ出ないので、Mediator ではなくここに持つ（PromoteDialog と同じ）。
  * 提案から開いて理由を変えずに送れば、提案の確定に日を添える。変えたら手で選んだことにする（set_by は user）。
  * 時刻の欄は任意で、空なら「その日のうち」になる。入れたときだけ戻る時刻として送る。
+ * 「日付なし」（2026-10-13）は札の並びの頭の枠だけの札で、打鍵は 0。選ぶと時刻の欄は押せなくなり、日も時刻も送らない。
  */
 export function PauseDialog(props: PauseProps) {
   const emit = useEmit();
   const t = useT();
-  const initial: PauseChoice['key'] = props.choices.find((c) => c.returnOn === props.initialReturnOn)?.key ?? 'pick';
+  const initial: PauseChoice['key'] = props.initialReturnOn === null ? 'none' : props.choices.find((c) => c.key !== 'none' && c.returnOn === props.initialReturnOn)?.key ?? 'pick';
   const [choice, setChoice] = useState<PauseChoice['key']>(initial);
-  const [picked, setPicked] = useState(initial === 'pick' ? props.initialReturnOn : '');
+  const [picked, setPicked] = useState(initial === 'pick' ? props.initialReturnOn ?? '' : '');
+  const none = choice === 'none';
+  // 日のある札だけに 1 から打鍵を割り当てる（日付なしは 0）。
+  const dated = props.choices.filter((c) => c.key !== 'none');
   const [note, setNote] = useState(props.draft);
   const [time, setTime] = useState(props.initialReturnTime);
   // 空と、打ちかけで形になっていない時刻は、時刻なしとして送る。
-  const returnTime = isReturnTime(time) ? { returnTime: time } : {};
+  const returnTime = !none && isReturnTime(time) ? { returnTime: time } : {};
   const returnOn = choice === 'pick' ? (isReturnOn(picked) ? picked : null) : props.choices.find((c) => c.key === choice)?.returnOn ?? null;
   // 字数は文字単位で数える。サーバと同じ数え方にしないと、通るはずの理由が 400 で返る。
   const text = tidy(note);
   const length = Array.from(text).length;
-  const canSubmit = returnOn !== null && length <= STATE_NOTE_MAX;
+  const canSubmit = (none || returnOn !== null) && length <= STATE_NOTE_MAX;
 
   const close = () => emit({ type: 'session.pause.close' });
   const submit = () => {
-    if (!canSubmit || returnOn === null) return;
-    if (props.from === 'candidate' && text === tidy(props.candidateNote ?? '')) {
+    if (!canSubmit) return;
+    const unchanged = props.from === 'candidate' && text === tidy(props.candidateNote ?? '');
+    if (none) {
+      // 日付なしの提案を変えずに送れば確定にする。日のある提案を日付なしにしたときは、確定では日を外せないので、手で選んだことにする。
+      if (unchanged && props.initialReturnOn === null) { emit({ type: 'session.state.confirm', id: props.sessionId }); return; }
+      emit({ type: 'session.state.set', id: props.sessionId, status: 'paused', ...(text ? { note: text } : {}) });
+      return;
+    }
+    if (returnOn === null) return;
+    if (unchanged) {
       emit({ type: 'session.state.confirm', id: props.sessionId, returnOn, ...returnTime });
       return;
     }
@@ -47,7 +61,7 @@ export function PauseDialog(props: PauseProps) {
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
-    const c = props.choices[DIGITS.indexOf(e.key)];
+    const c = e.key === NONE_DIGIT ? props.choices.find((x) => x.key === 'none') : dated[DIGITS.indexOf(e.key)];
     if (!c) return;
     e.preventDefault();
     setChoice(c.key);
@@ -72,9 +86,9 @@ export function PauseDialog(props: PauseProps) {
     >
       <div className="faint">{props.sessionName}</div>
       <div className="pause-chips" role="radiogroup" aria-label={t('pause.choices.aria')}>
-        {props.choices.map((c, i) => (
-          <button key={c.key} type="button" role="radio" aria-checked={choice === c.key} className="pause-chip" data-autofocus={c.key === initial ? 'true' : undefined} onClick={() => setChoice(c.key)}>
-            {c.label}<kbd>{i + 1}</kbd>
+        {props.choices.map((c) => (
+          <button key={c.key} type="button" role="radio" aria-checked={choice === c.key} className="pause-chip" data-none={c.key === 'none' ? 'true' : undefined} data-autofocus={c.key === initial ? 'true' : undefined} onClick={() => setChoice(c.key)}>
+            {c.label}<kbd>{c.key === 'none' ? NONE_DIGIT : dated.indexOf(c) + 1}</kbd>
           </button>
         ))}
       </div>
@@ -84,8 +98,8 @@ export function PauseDialog(props: PauseProps) {
         </label>
       )}
       <label className="field pause-time">{t('pause.field.time')}
-        <input type="time" className="input" aria-label={t('pause.field.time')} value={time} onChange={(e) => setTime(e.target.value)} onKeyDown={onFieldKey} />
-        <span className="faint">{t('pause.field.timeHint')}</span>
+        <input type="time" className="input" aria-label={t('pause.field.time')} value={time} disabled={none} onChange={(e) => setTime(e.target.value)} onKeyDown={onFieldKey} />
+        <span className="faint">{t(none ? 'pause.field.timeHintNone' : 'pause.field.timeHint')}</span>
       </label>
       <label className="field">{t('pause.field.reason')}
         <input className="input" aria-label={t('pause.field.reason')} value={note} placeholder={t('pause.field.reasonPlaceholder')} onChange={(e) => setNote(e.target.value)} onKeyDown={onFieldKey} />

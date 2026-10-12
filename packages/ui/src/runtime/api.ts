@@ -1,6 +1,6 @@
 import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -91,6 +91,10 @@ export type ApiClient = {
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
   createProject(place: ProjectPlace): Promise<ProjectDto>;
   workspaceDirs(): Promise<WorkspaceDirDto[]>;
+  /** Claude Code と会話したフォルダの候補（初日のプロジェクト）。 */
+  folderCandidates(): Promise<FolderCandidatesDto>;
+  /** 候補からまとめて登録する。登録できなかったものは failed に理由が入る。 */
+  registerFolders(paths: string[]): Promise<FolderRegisterResultDto>;
   usageAggregate(days: number): Promise<UsageAggregateDto>;
   statusline(): Promise<StatuslineStatusDto>;
   shellHook(): Promise<ShellHookDto>;
@@ -127,7 +131,7 @@ export type ApiClient = {
   addArtifact(projectId: string, url: string): Promise<ArtifactDto>;
   openArtifact(id: string): Promise<void>;
   openArtifactEditor(id: string, once?: KnownEditorId): Promise<void>;
-  promote(sessionId: string, body: { name: string; gitInit: boolean; moveFiles: boolean }): Promise<PromoteResultDto>;
+  promote(sessionId: string, body: { name: string; gitInit: boolean; moveFiles: boolean; parent?: string }): Promise<PromoteResultDto>;
   /** 202 と { accepted } が返るが、本文は使わない。結果は summary.pending と summary.updated で届く。 */
   regenerateSummary(sessionId: string): Promise<void>;
   summarizerModels(): Promise<{ models: string[] }>;
@@ -242,6 +246,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     projectOpenTerminal: (projectId) => post(`/api/projects/${projectId}/open-terminal`),
     createProject: (place) => post('/api/projects', place),
     workspaceDirs: () => call('/api/workspace/dirs'),
+    folderCandidates: () => call('/api/workspace/candidates'),
+    registerFolders: (paths) => post('/api/workspace/register', { paths }),
     usageAggregate: (days) => call(`/api/usage/aggregate${qs({ days })}`),
     statusline: () => call('/api/statusline'),
     shellHook: () => call('/api/shell-hook'),

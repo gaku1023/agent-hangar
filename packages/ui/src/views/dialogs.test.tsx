@@ -269,6 +269,24 @@ describe('NewProjectDialog', () => {
       { type: 'project.new.submit', place: { kind: 'newDir', name: 'price-watcher', gitInit: false }, startSession: true },
     ]);
   });
+  // 作成場所は任意（2026-10-13）。空のときは、新しいフォルダを作る場所を Finder（か打ったパス）で選んでから送る。
+  it('作成場所が空なら「作成場所」の欄を出し、選ぶまで送れず、選んだ場所を添えて送る', () => {
+    const { out, view } = collect({ workspaceRoot: '', dirs: [] });
+    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'price-watcher' } });
+    expect(screen.getByRole('button', { name: '作成' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、作成場所' }));
+    expect(out.at(-1)).toEqual({ type: 'folder.pick' });
+    view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewProjectDialog {...base} workspaceRoot="" dirs={[]} picked={{ path: '/Users/me/src', n: 1 }} /></ActionRoot>);
+    // Finder の結果は作成場所に入り、既存のフォルダの登録へは切り替えない。
+    expect(screen.getByLabelText('作成場所')).toHaveValue('/Users/me/src');
+    expect(screen.getByText('/Users/me/src/price-watcher を作成します')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '作成' }));
+    expect(out.find((i) => i.type === 'project.new.submit')).toEqual({ type: 'project.new.submit', place: { kind: 'newDir', name: 'price-watcher', gitInit: true, parent: '/Users/me/src' }, startSession: false });
+  });
+  it('作成場所があれば「作成場所」の欄は出さない', () => {
+    collect();
+    expect(screen.queryByLabelText('作成場所')).toBeNull();
+  });
   it('既存のフォルダを登録：一覧から選ぶと名前に basename が入り、直した名前で送る', () => {
     const { out } = collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
@@ -281,7 +299,7 @@ describe('NewProjectDialog', () => {
   it('既存のフォルダを登録：一覧は名前で絞れ、パスを打っても選べる', () => {
     const { out } = collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
-    fireEvent.change(screen.getByLabelText('プロジェクトの親フォルダの未登録のフォルダを検索'), { target: { value: 'puz' } });
+    fireEvent.change(screen.getByLabelText('作成場所の未登録のフォルダを検索'), { target: { value: 'puz' } });
     expect(screen.queryByRole('option', { name: 'design-notes' })).toBeNull();
     fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: '/Users/me/thesis' } });
     expect(screen.getByLabelText('プロジェクト名')).toHaveValue('thesis');
@@ -291,7 +309,7 @@ describe('NewProjectDialog', () => {
   it('既存のフォルダを登録：検索欄から ↓ と Enter で一覧の行を選べ、Enter では送信しない', () => {
     const { out } = collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
-    const search = screen.getByRole('combobox', { name: 'プロジェクトの親フォルダの未登録のフォルダを検索' });
+    const search = screen.getByRole('combobox', { name: '作成場所の未登録のフォルダを検索' });
     search.focus();
     expect(search).toHaveAttribute('aria-activedescendant', screen.getByRole('option', { name: 'design-notes' }).id);
     fireEvent.keyDown(search, { key: 'ArrowDown' });
@@ -307,9 +325,9 @@ describe('NewProjectDialog', () => {
     collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
     vi.mocked(revealWithin).mockClear();
-    const search = screen.getByRole('combobox', { name: 'プロジェクトの親フォルダの未登録のフォルダを検索' });
+    const search = screen.getByRole('combobox', { name: '作成場所の未登録のフォルダを検索' });
     fireEvent.keyDown(search, { key: 'ArrowDown' });
-    const rows = screen.getByRole('listbox', { name: 'プロジェクトの親フォルダの未登録のフォルダ' });
+    const rows = screen.getByRole('listbox', { name: '作成場所の未登録のフォルダ' });
     expect(revealWithin).toHaveBeenLastCalledWith(rows, screen.getByRole('option', { name: 'Puzzle2' }));
     fireEvent.keyDown(search, { key: 'ArrowUp' });
     expect(revealWithin).toHaveBeenLastCalledWith(rows, screen.getByRole('option', { name: 'design-notes' }));

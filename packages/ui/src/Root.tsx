@@ -9,6 +9,7 @@ import { presentHomeScreen } from './presenters/home.ts';
 import { storeLanguage, translatorOf } from './presenters/i18n.ts';
 import { presentNewProject } from './presenters/newProject.ts';
 import { presentAddAccount } from './presenters/addAccount.ts';
+import { presentProjectCandidates } from './presenters/projectCandidates.ts';
 import { newSessionTarget, presentNewSession } from './presenters/newSession.ts';
 import { presentPalette } from './presenters/palette.ts';
 import { presentPause } from './presenters/pause.ts';
@@ -38,6 +39,7 @@ import { ConfirmDialog } from './views/ConfirmDialog.tsx';
 import { HomeScreen } from './views/HomeScreen.tsx';
 import { NewProjectDialog } from './views/NewProjectDialog.tsx';
 import { AddAccountDialog } from './views/AddAccountDialog.tsx';
+import { ProjectCandidatesDialog } from './views/ProjectCandidatesDialog.tsx';
 import { NewSessionDialog } from './views/NewSessionDialog.tsx';
 import { PauseDialog } from './views/PauseDialog.tsx';
 import { MuxGuideDialog } from './views/MuxGuideDialog.tsx';
@@ -389,6 +391,7 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'palette' && <CommandPalette {...presentPalette(state, store, paletteQuery, now, paletteFound)!} onQuery={setPaletteQuery} />}
       {overlay.kind === 'newProject' && <NewProjectDialog {...presentNewProject(state, store)!} />}
       {overlay.kind === 'addAccount' && <AddAccountDialog {...presentAddAccount(state, store)!} />}
+      {overlay.kind === 'projectCandidates' && <ProjectCandidatesDialog {...presentProjectCandidates(state, store, now)!} />}
       {overlay.kind === 'promote' && <PromoteDialog {...presentPromote(state, store)!} />}
       {overlay.kind === 'promoted' && <PromotedDialog {...presentPromoted(state, store)!} />}
       {overlay.kind === 'confirm' && <ConfirmDialog {...presentConfirm(state, store)!} />}

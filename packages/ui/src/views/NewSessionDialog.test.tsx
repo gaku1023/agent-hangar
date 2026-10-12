@@ -672,6 +672,20 @@ describe('NewSessionDialog から作って始める', () => {
     start();
     expect(out.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: 'price', gitInit: true } }]);
   });
+  // 作成場所は任意（2026-10-13）。空なら、新しいフォルダを作る場所を選んでから起動する。
+  it('作成場所が空なら、作る場所を選ぶまで起動できず、選んだ場所を添えて送る', () => {
+    const { out, view } = collect({ workspaceRoot: '', dirs: [] });
+    openList();
+    typeQuery('price');
+    fireEvent.click(screen.getByRole('option', { name: '「price」を新しいフォルダとして作る' }));
+    expect(screen.getByRole('button', { name: /^(Bypass permissions で)?起動$/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、作成場所' }));
+    view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewSessionDialog {...base} workspaceRoot="" dirs={[]} picked={{ path: '/Users/me/src', n: 1 }} /></ActionRoot>);
+    expect(screen.getByLabelText('作成場所')).toHaveValue('/Users/me/src');
+    expect(screen.getByText('/Users/me/src/price を作り、プロジェクトに登録して起動します')).toBeInTheDocument();
+    start();
+    expect(out.filter((i) => i.type === 'session.new.submit')).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'newDir', name: 'price', gitInit: true, parent: '/Users/me/src' } }]);
+  });
   it('フォルダの名前の欄では、変換中の Enter で起動せず、Enter で起動する', () => {
     const { out } = collect();
     openList();
@@ -739,7 +753,7 @@ describe('NewSessionDialog から作って始める', () => {
     view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewSessionDialog {...base} picked={{ path: '/Users/me/thesis', n: 1 }} /></ActionRoot>);
     expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
     expect(chip('プロジェクト')).toHaveTextContent('thesis');
-    expect(screen.getByText(/プロジェクトの親フォルダの外のフォルダです。この PC でのパスだけを覚えます/)).toBeInTheDocument();
+    expect(screen.getByText(/新しいフォルダの作成場所の外のフォルダです。この PC でのパスだけを覚えます/)).toBeInTheDocument();
     start();
     expect(out.find((i) => i.type === 'session.new.submit')).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/Users/me/thesis' } });
   });

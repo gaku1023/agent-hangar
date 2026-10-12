@@ -525,6 +525,30 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           })
           .catch((err) => dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }));
         return;
+      // 候補のダイアログ（初日のプロジェクト）。取っている間と取れなかったことは、面が Store の folderCandidates から読む。
+      case 'api.folderCandidates':
+        setStore({ ...store, folderCandidates: { status: 'loading' } });
+        deps.api.folderCandidates()
+          .then((data) => setStore({ ...store, folderCandidates: { status: 'ready', data } }))
+          .catch(() => setStore({ ...store, folderCandidates: { status: 'failed' } }));
+        return;
+      // 作成場所を決めてから登録する。先に決めると、その直下は保存のときにサーバが登録するので、登録の側は既にあるものとして返す。
+      // 作成場所の保存に失敗したら、登録はせずに面へ理由を返す。
+      case 'api.registerFolders': {
+        const save = e.workspaceRoot !== null
+          ? deps.api.updateSettings({ workspaceRoot: e.workspaceRoot }).then((s) => setStore({ ...store, settings: s }))
+          : Promise.resolve();
+        save
+          .then(() => (e.paths.length ? deps.api.registerFolders(e.paths) : { projects: [], failed: [] }))
+          .then((r) => {
+            const projects = { ...store.projects };
+            for (const p of r.projects) projects[p.id] = p;
+            setStore({ ...store, projects });
+            dispatch({ kind: 'runtime', event: { type: 'project.candidates.done', registered: r.projects.length, failed: r.failed.map((f) => f.error) } });
+          })
+          .catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'project.candidates.failed', message: errMsg(err) } }));
+        return;
+      }
       // 取れなければ空にする。一覧が出ないだけで、作ることもパスで選ぶこともできる。
       case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => setStore(applyWorkspaceDirs(store, dirs))).catch(() => setStore(applyWorkspaceDirs(store, []))); return;
       case 'desktop.setup': {
@@ -548,7 +572,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'desktop.pickFolder':
         if (!deps.desktop) return;
         // 取り消したら何もしない。開く場所は渡されたもの（アカウントの場所）か、ワークスペースのルートにする。
-        deps.desktop.pickFolder(e.defaultPath !== undefined ? e.defaultPath : store.settings?.workspaceRoot ?? null)
+        // 作成場所は任意で、空なら OS の既定の場所から開く。
+        deps.desktop.pickFolder(e.defaultPath !== undefined ? e.defaultPath : store.settings?.workspaceRoot || null)
           .then((path) => { if (path) setStore(applyPickedFolder(store, path)); })
           .catch((err: unknown) => failWith(tr()('runtime.shell.pickFolderFailed'), err));
         return;
@@ -662,7 +687,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
       case 'api.loadInstructions': deps.api.instructions(e.projectId).then((d) => setStore({ ...store, instructions: { ...store.instructions, [d.projectId]: d } })).catch(fail); return;
       case 'api.promote':
-        deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles })
+        deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles, ...(e.parent ? { parent: e.parent } : {}) })
           .then((r) => {
             setStore({ ...store, projects: { ...store.projects, [r.project.id]: r.project }, sessions: { ...store.sessions, [r.session.id]: r.session } });
             dispatch({ kind: 'runtime', event: { type: 'promote.done', projectId: r.project.id, moved: r.moved, reason: r.reason } });

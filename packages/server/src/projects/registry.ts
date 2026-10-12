@@ -18,8 +18,18 @@ export function normalizeDir(p: string): string {
 
 type RootRow = { id: string; project_id: string; device_id: string; path: string; resolved: number; deleted_at: number | null };
 
-/** ルート直下の、隠しでないディレクトリを名前順に返す。 */
+/**
+ * 作成場所（設定の workspaceRoot）が決まっているか。
+ * 作成場所は任意で、空は「決めていない」である（2026-10-13）。
+ * path.resolve('') はサーバの作業ディレクトリになるので、空のまま下の関数へ渡さない。
+ */
+export function hasWorkspaceRoot(workspaceRoot: string | null | undefined): workspaceRoot is string {
+  return typeof workspaceRoot === 'string' && workspaceRoot.trim() !== '';
+}
+
+/** ルート直下の、隠しでないディレクトリを名前順に返す。ルートが空なら子は無い。 */
 function childDirs(root: string): string[] {
+  if (!hasWorkspaceRoot(root)) return [];
   // 無いパスも、ディレクトリでないパスも「子は無い」として扱う。
   // 設定でワークスペースのルートにファイルを指されたときに 500 にしないため。
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
@@ -75,6 +85,7 @@ export function listWorkspaceDirs(db: Db, deviceId: string, workspaceRoot: strin
  * ワークスペースの外とワークスペースそのものは null（未分類に残し、利用者に知らせる）。
  */
 export function registerWorkspaceChildOf(db: Db, deviceId: string, workspaceRoot: string, cwd: string): string | null {
+  if (!hasWorkspaceRoot(workspaceRoot)) return null;
   const root = normalizeDir(workspaceRoot);
   const c = normalizeDir(cwd);
   if (!isStrictlyUnder(c, root)) return null;
@@ -93,10 +104,20 @@ export function registerWorkspaceChildOf(db: Db, deviceId: string, workspaceRoot
  * この PC で解決済みのルートのうち、親がワークスペースのものを数える。スクラッチと消したものは入れない。
  */
 export function workspaceProjectCount(db: Db, deviceId: string, workspaceRoot: string): number {
+  if (!hasWorkspaceRoot(workspaceRoot)) return 0;
   const rows = db.prepare(`select r.path from project_roots r join projects p on p.id = r.project_id
     where r.device_id = ? and r.resolved = 1 and r.deleted_at is null and p.deleted_at is null and p.is_scratch = 0`).all(deviceId) as { path: string }[];
   const root = path.resolve(workspaceRoot);
   return rows.filter((r) => samePath(path.dirname(r.path), root)).length;
+}
+
+/**
+ * この PC で場所の分かっているプロジェクトの数（始める前の確認の「プロジェクト」の行）。
+ * アーカイブしたものも数える。スクラッチ、消したもの、ほかの PC だけのもの、場所の分からないものは数えない。
+ */
+export function resolvedProjectCount(db: Db, deviceId: string): number {
+  return (db.prepare(`select count(distinct p.id) c from project_roots r join projects p on p.id = r.project_id
+    where r.device_id = ? and r.resolved = 1 and r.deleted_at is null and p.deleted_at is null and p.is_scratch = 0`).get(deviceId) as { c: number }).c;
 }
 
 /** この端末の解決済みルートを返す。 */

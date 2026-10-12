@@ -14,8 +14,10 @@ export const pauseJa: AreaDictionary<typeof pauseKeys> = {
   'pause.choice.pick': '日付を選択…',
   'pause.field.date': 'リマインダーの日付',
   'pause.field.time': 'リマインダーの時刻（任意）',
-  'pause.field.timeHint': '空なら、その日のうち',
+  'pause.field.timeHint': '空なら、その日になったらホームに出ます',
   'pause.field.reason': '理由',
   'pause.field.reasonPlaceholder': '明日の朝、本番の CPU の数字を見る',
   'pause.field.count': '{n} / {max} 字',
+  'pause.choice.none': '日付なし',
+  'pause.field.timeHintNone': '日付なしは、ホームの「今日」には出ず、一覧の Paused で見られます',
 };

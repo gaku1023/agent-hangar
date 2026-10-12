@@ -1,20 +1,20 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
 import { presentGitChip, type GitChipProps } from './git.ts';
-import { isReturnOn, isReturnTime, limitKindText, liveWithLimit, localDate, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type UiAction, type LiveStatus, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
+import { isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type UiAction, type LiveStatus, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import type { OverlapProps } from './overlap.ts';
-import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
+import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, shownAside, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
-import { presentReadiness } from './readiness.ts';
+import { liveReadiness, presentReadiness } from './readiness.ts';
 import { presentInterrupted } from './interrupted.ts';
 import { withOverlaps } from './overlap.ts';
 import { presentUnresolved } from './unresolved.ts';
-import { candidateLabel, dueOn, returnKey, returnOnLabel, sortSessions } from './row.ts';
+import { candidateLabel, returnHasCome, returnKey, returnOnLabel, sortSessions } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
 
 /**
@@ -41,7 +41,8 @@ export type RunningCard = { id: string; name: string; live: LiveStatus | null; a
   git?: GitChipProps | null };
 /**
  * 今日戻るの札（C1）。要対応の札の並びに、入力待ちの札の後ろで置く。
- * 戻る日が今日か過ぎた Paused 1 件につき 1 枚。戻る日が欠けたり壊れたりしたものも、利用者が決めるまで出す（returnOn と overdueDays は null）。
+ * 戻る時点が来た Paused 1 件につき 1 枚。日付だけのものはその日の朝から、時刻つきのものは時刻を過ぎてから出す（returnHasCome）。
+ * 日付なしは出さない（利用者が選んだもの。一覧の Paused で見る）。暦に無い日のものは、利用者が決めるまで出す（returnOn と overdueDays は null）。
  * 動いているセッションは入力待ちか実行中の札に出るので、ここには重ねない。
  * Paused は休みになっても止めない（parked にならない）ので、Claude が残っている間は実行中の札に出て、ここには出ない。
  */
@@ -84,22 +85,33 @@ function stripLeadingTool(tool: string, summary: string): string {
  * 今日戻るの札の並び。ホームの帯とベルの一覧（presenters/notices.ts）が、同じこの並びを読む。
  * alive は hangar の run が生きているセッションで、生きているものは出さない。
  */
+/**
+ * 今日戻るに出すか。Paused で戻る時点が来ていて、終わっているもの（区切りを付けて休みのまま残っているものを含む）と、
+ * Claude Code が休みのまま生きているもの（Paused は自動で止めないため。#206）。
+ * 作業中のもの（裏の作業だけが動いているものを含む）は実行中に、入力待ちは要対応の入力待ちに出るので、ここには重ねない。
+ */
+export function returnsNow(store: Store, s: SessionDto, now: number, alive: Set<string> = runningSessionIds(store)): boolean {
+  if (s.state?.status !== 'paused' || !returnHasCome(s.state.returnOn, s.state.returnTime, now)) return false;
+  const filter = liveFilterOfSession(store, s, alive);
+  if (filter === 'ended') return true;
+  return filter === 'running' && quietLive(liveWithLimit(s.live, s.limit), s.state.status) !== 'busy' && shownAside(s) === null;
+}
+
 export function returningCards(store: Store, now: number, alive: Set<string> = runningSessionIds(store)): ReturnCard[] {
   const tr = translatorOf(store);
   const name = (s: SessionDto) => s.name ?? tr('common.label.noName');
   const projectName = (s: SessionDto) => (s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, tr) : null);
-  // 今日戻る（C1）。戻る日の古い順で、欠けた日と壊れた日を先頭に、同じ日の中は新しい順にする。
+  // 今日戻る（C1）。戻る日の古い順で、壊れた日を先頭に、同じ日の中は時刻の早い順（時刻なしは最後）、同じ時点は新しい順にする。
   // 「今日」は手元の暦で、期間の「今日」（mediator/screen.ts の periodStart(1, now)）と同じ境にする。
-  const today = localDate(now);
-    const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
+  const keyOf = (s: SessionDto) => returnKey({ returnOn: s.state?.returnOn ?? null, returnTime: s.state?.returnTime ?? null });
   return Object.values(store.sessions)
-    .filter((s) => s.state?.status === 'paused' && dueOn(s.state.returnOn, today) && liveFilterOfSession(store, s, alive) === 'ended')
+    .filter((s) => returnsNow(store, s, now, alive))
     .sort((a, b) => keyOf(a).localeCompare(keyOf(b)) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0))
     .map((s): ReturnCard => {
       const on = s.state?.returnOn ?? null;
       const r = on !== null && isReturnOn(on) ? on : null;
       const t = r !== null && typeof s.state?.returnTime === 'string' && isReturnTime(s.state.returnTime) ? s.state.returnTime : null;
-      // 当日の時刻つきは、時刻の前から札に出す（朝のうちに今日の予定として見える）。塗るのは時刻を過ぎてからにする。
+      // 当日の時刻つきは、時刻を過ぎてから札に出す（2026-10-13。時刻の前は一覧の行に枠だけの札が出る）。
       return { id: s.id, name: name(s), projectName: projectName(s), reason: s.state?.note || tr('home.card.noReason'), returnOn: r, returnTime: t, overdueDays: r ? overdueDays(r, now) : null, due: r === null || returnDue(r, t, now), pastMin: r ? returnPastMinutes(r, t, now) : null };
     });
 }
@@ -141,7 +153,9 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     }),
   ].sort((a, b) => (a.at - b.at) || a.card.id.localeCompare(b.card.id)).map((x) => x.card);
 
-  const running = sortSessions(sessions.filter((s) => liveFilterOfSession(store, s, alive) === 'running')).map((s): RunningCard => {
+  // 今日戻るに寄せたもの（戻る時点が来た、休みのまま生きている Paused）は、実行中に重ねない。
+  const back = new Set(returning.map((r) => r.id));
+  const running = sortSessions(sessions.filter((s) => liveFilterOfSession(store, s, alive) === 'running' && !back.has(s.id))).map((s): RunningCard => {
     // 対象が取れない呼び出し（答えた後の AskUserQuestion など）は summary にツール名が入る。同じ語を 2 度並べないよう空にする。
     // summary の先頭に「ツール名+半角空白」が付くこともある（サーバの toolSummary が付けた分）。カードはツール名を <i> で先に出すので、その重なりを削る。
     // 裏だけ動いているときは、本体の手も意図も今のものではないので出さず、裏のものと指揮役が空いていることを言う。
@@ -365,7 +379,8 @@ export type HomeScreenProps = { band: HomeBandProps; idle: boolean; searching: b
 export function presentHomeScreen(state: State, store: Store, now: number): HomeScreenProps {
   const t = translatorOf(store);
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
-  const ready = store.readiness ? presentReadiness(store.readiness, t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning }) : null;
+  // プロジェクトの行は、画面が持っているプロジェクトの数で決める（登録した直後に、準備の確かめを取り直す前でも行を消す）。
+  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning }) : null;
   const band0 = presentHomeBand(presentHome(state, store, now), t);
   // 実行中の行に、同じファイルの編集の札を重ねる（presenters/overlap.ts）。
   const base = { ...band0, groups: band0.groups.map((g) => withOverlaps(g, store, now)) };

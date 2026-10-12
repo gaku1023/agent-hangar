@@ -246,7 +246,7 @@ describe('パレットの止まっている理由（試作の P1）', () => {
 describe('presentPromote と presentPromoted', () => {
   it('昇格ダイアログはセッション名と run の生死と送信の状態を出す', () => {
     const s = { ...withPalette(), overlay: { kind: 'promote' as const, sessionId: 's1' }, promote: { kind: 'failed' as const, message: '同じ名前があります' } };
-    expect(presentPromote(s, store())).toEqual({ sessionId: 's1', sessionName: '動画の変換', runAlive: false, submitting: false, error: '同じ名前があります' });
+    expect(presentPromote(s, store())).toMatchObject({ sessionId: 's1', sessionName: '動画の変換', runAlive: false, submitting: false, error: '同じ名前があります', place: { desktop: false, picked: null } });
     expect(presentPromote(initialState(), store())).toBeNull();
     const alive = { ...initialStore(), ...store(), runs: { r1: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'start' as const, tmuxName: 'x', pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 } } };
     expect(presentPromote({ ...s, promote: { kind: 'submitting' as const } }, alive)).toMatchObject({ runAlive: true, submitting: true, error: null });

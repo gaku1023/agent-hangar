@@ -17,4 +17,6 @@ export const pauseKeys = {
   'pause.field.reason': [],
   'pause.field.reasonPlaceholder': [],
   'pause.field.count': ['n', 'max'],
+  'pause.choice.none': [],
+  'pause.field.timeHintNone': [],
 } as const satisfies MessageSpec;

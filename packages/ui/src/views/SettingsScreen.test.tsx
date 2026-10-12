@@ -494,7 +494,7 @@ describe('設定の連携', () => {
     }
   });
   it('帯から来たとき（focus が tmux など）、その欄を淡い黄で目立たせて、入力欄へフォーカスを置く', () => {
-    for (const [focus, label] of [['tmux', 'tmux のパス'], ['claude', 'claude のパス'], ['workspace', 'プロジェクトの親フォルダ']] as const) {
+    for (const [focus, label] of [['tmux', 'tmux のパス'], ['claude', 'claude のパス'], ['workspace', '新しいフォルダの作成場所（任意）']] as const) {
       const { unmount } = render(ui(at('tools', { focus })));
       const input = screen.getByLabelText(label);
       expect(input.closest('.field')).toHaveAttribute('data-hit');
@@ -852,12 +852,44 @@ describe('設定の要約エンジン', () => {
 });
 
 describe('設定のツール', () => {
-  it('プロジェクトの親フォルダは欄を出たら保存し、欄の名前を添える', () => {
+  it('新しいフォルダの作成場所は欄を出たら保存し、欄の名前を添える', () => {
     const onAction = vi.fn();
     render(ui(at('tools'), onAction));
-    expect(screen.getByRole('heading', { level: 3, name: 'プロジェクトの親フォルダ' })).toBeInTheDocument();
-    typeAndLeave('プロジェクトの親フォルダ', '/w2');
+    expect(screen.getByRole('heading', { level: 3, name: '新しいフォルダの作成場所（任意）' })).toBeInTheDocument();
+    typeAndLeave('新しいフォルダの作成場所（任意）', '/w2');
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/w2' }, field: 'workspaceRoot' });
+  });
+  // 作成場所は任意（2026-10-13、試作の 4 節 3a の案 A）。空なら検証の行を出さず、欄の中の薄い文で振る舞いを言う。
+  it('作成場所は空にでき、空なら検証の行を出さず、作るたびに場所を選ぶと欄の中で言う', () => {
+    const onAction = vi.fn();
+    render(ui(at('tools', { workspaceRoot: '', verify: { workspace: null, tmux: null, claude: null, node: null, git: null } }), onAction));
+    const field = screen.getByLabelText('新しいフォルダの作成場所（任意）');
+    expect(field).toHaveAttribute('placeholder', '空のときは、作るたびに場所を選びます');
+    expect(field.closest('.path-field')!.querySelector('.verify')).toBeNull();
+    expect(screen.getByText('「新しいプロジェクト」でフォルダを作る場所です。直下にある、Claude Code と会話したフォルダは、プロジェクトに自動で登録します。')).toBeInTheDocument();
+  });
+  it('作成場所を空にすると、空の文字を送る', () => {
+    const onAction = vi.fn();
+    render(ui(at('tools'), onAction));
+    typeAndLeave('新しいフォルダの作成場所（任意）', '');
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '' }, field: 'workspaceRoot' });
+  });
+  it('「Claude Code と会話したフォルダから登録」の「選ぶ…」で候補のダイアログを開く', () => {
+    const onAction = vi.fn();
+    render(ui(at('tools'), onAction));
+    expect(screen.getByText('Claude Code と会話したフォルダから登録')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、Claude Code と会話したフォルダから登録' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'project.candidates.open' });
+  });
+  it('デスクトップでは作成場所の「選ぶ…」で Finder を開き、選んだ場所を保存する。ブラウザでは出さない', () => {
+    const onAction = vi.fn();
+    const { rerender } = render(ui(at('tools', { workspacePick: { desktop: true, picked: { path: '/old', n: 3 } } }), onAction));
+    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、新しいフォルダの作成場所（任意）' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'folder.pick' });
+    rerender(ui(at('tools', { workspacePick: { desktop: true, picked: { path: '/Users/me/src', n: 4 } } }), onAction));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/Users/me/src' }, field: 'workspaceRoot' });
+    rerender(ui(at('tools', { workspacePick: { desktop: false, picked: null } }), onAction));
+    expect(screen.queryByRole('button', { name: '選ぶ…、新しいフォルダの作成場所（任意）' })).toBeNull();
   });
   it('パスの欄には保存のボタンが無い', () => {
     render(ui(at('tools')));
@@ -865,7 +897,7 @@ describe('設定のツール', () => {
   });
   it('ツールには、親フォルダと 3 つのパスと git の読むだけの行を置く（ターミナルアプリとエディタは一般にある）', () => {
     render(ui(at('tools')));
-    expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'Node のパス']);
+    expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['新しいフォルダの作成場所（任意）', 'tmux のパス', 'claude のパス', 'Node のパス']);
     expect(document.getElementById('settings-field-git')).not.toBeNull();
     expect(screen.queryByRole('radio', { name: 'iTerm2' })).toBeNull();
   });
@@ -893,7 +925,7 @@ describe('設定のツール', () => {
     // 同じ値でも送ると、workspaceRoot ではプロジェクトの登録し直しが走る。
     const onAction = vi.fn();
     render(ui(at('tools', { nodePath: '/opt/homebrew/bin/node', claudePath: '/usr/local/bin/claude' }), onAction));
-    for (const label of ['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'Node のパス']) {
+    for (const label of ['新しいフォルダの作成場所（任意）', 'tmux のパス', 'claude のパス', 'Node のパス']) {
       const field = screen.getByLabelText(label) as HTMLInputElement;
       fireEvent.blur(field);
       typeAndLeave(label, ` ${field.value} `);
@@ -947,7 +979,7 @@ describe('設定のツール', () => {
     const onAction = vi.fn();
     render(ui(at('tools', { verify }), onAction));
     const under = (label: string) => screen.getByLabelText(label).closest('.path-field')!.querySelector('.verify')!;
-    expect(under('プロジェクトの親フォルダ')).toHaveTextContent('/w（プロジェクト 12 件）');
+    expect(under('新しいフォルダの作成場所（任意）')).toHaveTextContent('/w（プロジェクト 12 件）');
     expect(under('claude のパス')).toHaveTextContent('/Users/me/.local/bin/claude（2.3.1）');
     expect(under('tmux のパス')).toHaveTextContent('見つかりません');
     expect(under('tmux のパス')).toHaveAttribute('data-tone', 'ng');
@@ -965,7 +997,7 @@ describe('設定のツール', () => {
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('tmux');
     rerender(ui(at('tools', { workspaceRoot: '/w2', claudePath: '/Users/x/.local/bin/claude', nodePath: '/opt/homebrew/bin/node' })));
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('/opt/homebrew/bin/tmux');
-    expect(screen.getByLabelText('プロジェクトの親フォルダ')).toHaveValue('/w2');
+    expect(screen.getByLabelText('新しいフォルダの作成場所（任意）')).toHaveValue('/w2');
     expect(screen.getByLabelText('claude のパス')).toHaveValue('/Users/x/.local/bin/claude');
     expect(screen.getByLabelText('Node のパス')).toHaveValue('/opt/homebrew/bin/node');
   });
