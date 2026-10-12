@@ -13,8 +13,8 @@ import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
 /** 設定の経路が使う依存。 */
 export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck' | 'hub'> & LanguageDeps;
 
-/** 空にできない文字列の設定。 */
-const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
+/** 空にできない文字列の設定。作成場所（workspaceRoot）は任意なので、ここに入れず別に見る。 */
+const TEXT_SETTING_KEYS = ['claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
 const PATH_SETTING_KEYS = ['tmuxPath', 'nodePath', 'claudePath'] as const;
 /** 外部ターミナルは、動いている OS で開けるものだけを受ける。別の OS の値を保存させない。 */
@@ -30,7 +30,7 @@ const SUMMARY_HOURLY_CAP_MAX = 200;
  * エラー文は画面のトーストに出るので、内部のキー名ではなくこの見出しで言う。
  * 見出しそのものは辞書（settings.label.*）にあり、ここには鍵を置く。
  */
-type LabeledSetting = (typeof TEXT_SETTING_KEYS)[number] | (typeof PATH_SETTING_KEYS)[number];
+type LabeledSetting = 'workspaceRoot' | (typeof TEXT_SETTING_KEYS)[number] | (typeof PATH_SETTING_KEYS)[number];
 const SETTING_LABEL = {
   workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
 } as const satisfies Record<LabeledSetting, MessageKey>;
@@ -64,10 +64,16 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'string' || v.trim() === '') return c.json({ error: tr('settings.error.empty', { label: label(key) }) }, 400);
       patch[key] = v;
     }
-    // ワークスペースは、保存する前にディレクトリがあることを確かめる。
+    // 新しいフォルダの作成場所（workspaceRoot）は任意で、空（null と空白だけも）は「決めていない」として保存する（2026-10-13）。
+    // 決めるときは、保存する前にディレクトリがあることを確かめる。
     // 無いところを保存すると、プロジェクトが 1 つも登録されないまま、何が悪いのかが画面から読めない。
-    if (patch.workspaceRoot !== undefined) {
-      const root = expandHome(patch.workspaceRoot.trim());
+    if ('workspaceRoot' in body) {
+      const v = body.workspaceRoot;
+      if (v !== null && typeof v !== 'string') return c.json({ error: tr('settings.error.badValue', { label: label('workspaceRoot') }) }, 400);
+      patch.workspaceRoot = typeof v === 'string' ? v.trim() : '';
+    }
+    if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== '') {
+      const root = expandHome(patch.workspaceRoot);
       const st = fs.statSync(root, { throwIfNoEntry: false });
       if (!st) return c.json({ error: tr('settings.path.missing', { label: label('workspaceRoot'), path: root }) }, 400);
       if (!st.isDirectory()) return c.json({ error: tr('settings.path.notDirectory', { label: label('workspaceRoot'), path: root }) }, 400);
@@ -204,7 +210,7 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
     // ワークスペースが変わったら、その場でプロジェクトを登録し直す。
     // 登録したプロジェクトと、そこへ入ったセッションは、書いた行から配る層が配る。
     // claudeDir の変更は索引の読み取り元なので、次の起動で反映する。
-    if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== before.workspaceRoot) {
+    if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== '' && patch.workspaceRoot !== before.workspaceRoot) {
       syncProjectsFromWorkspace(db, deviceId, patch.workspaceRoot);
       assignSessions(db, deviceId);
     }

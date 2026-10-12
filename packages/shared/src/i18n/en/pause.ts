@@ -14,8 +14,10 @@ export const pauseEn: AreaDictionary<typeof pauseKeys> = {
   'pause.choice.pick': 'Pick a date…',
   'pause.field.date': 'Reminder date',
   'pause.field.time': 'Reminder time (optional)',
-  'pause.field.timeHint': 'If empty, any time that day',
+  'pause.field.timeHint': 'If empty, it shows on Home from that day',
   'pause.field.reason': 'Reason',
   'pause.field.reasonPlaceholder': 'Check the production CPU numbers tomorrow morning',
   'pause.field.count': '{n} / {max} characters',
+  'pause.choice.none': 'No date',
+  'pause.field.timeHintNone': 'Without a date it does not show under Today on Home. Find it under Paused in the list',
 };

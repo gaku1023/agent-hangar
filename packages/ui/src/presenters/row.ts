@@ -85,7 +85,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     // 区切りを付けて休みのまま残っているもの（parked）は、終わった行と同じに作る。灯も run も持たせず、状態の節に入れる。
     cost: costLabel(s.stats.costUsd), runId: s.parked ? null : aliveRunOf(store, s.id)?.id ?? null,
     state: status, returnOn, returnTime, overdueDays: returnOn ? overdueDays(returnOn, now) : null,
-    returnDue: status === 'paused' && (returnOn === null || returnDue(returnOn, returnTime, now)),
+    returnDue: status === 'paused' && returnHasCome(st!.returnOn, returnTime, now),
     returnPastMin: returnOn !== null ? returnPastMinutes(returnOn, returnTime, now) : null,
     candidate: st?.candidate ? { status: st.candidate.status, note: st.candidate.note, returnOn: st.candidate.returnOn, returnTime: st.candidate.returnTime ?? null, source: st.candidate.source, ago: relativeTime(t, st.candidate.at, now) } : null,
     setBy: status ? st!.setBy : null,
@@ -130,12 +130,15 @@ export function sortForList(list: SessionDto[]): SessionDto[] {
 }
 
 /**
- * 戻る日が来ているか。today は手元の暦の今日（localDate）。
- * 戻る日が欠けたり、暦に無い日だったりする Paused（同期や古い端末から届いた行）も、来ているとみなす。
- * 黙って埋もれると、しおりとして挟んだものを見失うからである。
+ * 戻る時点が来たか（ホームの今日戻るに出すか）。
+ * 日付だけのものはその日の朝から、時刻つきのものはその時刻を過ぎてから来たものとする（2026-10-13。時刻の前は一覧の行に枠だけの札が出る）。
+ * 日付なし（null と空）は利用者が選んだもので、来ることはない（ホームには出さず、一覧の Paused で見る）。
+ * 暦に無い日や形の違う日の Paused（同期や古い端末から届いた行）は、来ているとみなす。黙って埋もれると、しおりとして挟んだものを見失うからである。
  */
-export function dueOn(returnOn: string | null, today: string): boolean {
-  return returnOn === null || !isReturnOn(returnOn) || returnOn <= today;
+export function returnHasCome(returnOn: string | null | undefined, returnTime: string | null | undefined, now: number): boolean {
+  if (returnOn === null || returnOn === undefined || returnOn === '') return false;
+  if (!isReturnOn(returnOn)) return true;
+  return returnDue(returnOn, typeof returnTime === 'string' && isReturnTime(returnTime) ? returnTime : null, now);
 }
 
 /** タブの絞り込み。行の持ち物だけで決める。Active は状態が無いもので、動いているかも提案の有無も問わない（確認待ちと重なる）。 */

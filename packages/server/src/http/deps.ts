@@ -6,6 +6,7 @@ import type { GetLanguage } from '../i18n/language.ts';
 import type { Message } from '../i18n/message.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { LiveDigester } from '../live/digest.ts';
+import type { CandidateEnv } from '../projects/candidates.ts';
 import type { MemoStore } from '../projects/memo.ts';
 import type { PermissionAsks } from '../sessions/permissionAsks.ts';
 import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
@@ -94,7 +95,12 @@ export type AppDeps = {
   usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   memos: MemoStore;
   summary: SummaryApi;
-  promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }) => { projectId: string; moved: boolean; reason: string | null; /** reason と同じ理由の、言語を決めていない文。あれば経路がこちらを応答の言語で出す。 */ reasonMessage?: Message | null };
+  promote: (o: { sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string }) => { projectId: string; moved: boolean; reason: string | null; /** reason と同じ理由の、言語を決めていない文。あれば経路がこちらを応答の言語で出す。 */ reasonMessage?: Message | null };
+  /**
+   * Claude Code と会話したフォルダの候補を探すときの、ホームと一時フォルダの差し替え（projects/candidates.ts）。
+   * 試験だけが渡す。省けば、利用者のホームと OS の一時フォルダを使う。
+   */
+  candidateEnv?: Partial<Pick<CandidateEnv, 'homeDir' | 'tmpDirs'>>;
   /** 新しいフォルダの git init。試験では差し替えて git を呼ばない。省けば git init を実行する（boot/http.ts は渡さない）。 */
   gitInit?: (dir: string) => void;
   sync: SyncApi;

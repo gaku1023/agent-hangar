@@ -73,13 +73,14 @@ function noteOf(v: string | null | undefined, required: boolean): string | null 
   return s;
 }
 
-/** 戻る日。Paused だけが持ち、ほかの状態では渡されても捨てる（捨てる前に形は検査する）。 */
+/**
+ * 戻る日。Paused だけが持ち、ほかの状態では渡されても捨てる（捨てる前に形は検査する）。
+ * Paused でも任意で、省けば null（日付なし。ホームの「今日」には出ず、一覧の Paused で見る）である（2026-10-13）。
+ */
 function returnOnOf(status: SessionStatus, v: string | null | undefined): string | null {
   const given = v !== null && v !== undefined && v !== '';
   if (given && !isReturnOn(v)) throw new StateInputError(msg('session.status.returnOnInvalid'));
-  if (status !== 'paused') return null;
-  if (!given) throw new StateInputError(msg('session.status.returnOnRequired'));
-  return v;
+  return status === 'paused' && given ? v : null;
 }
 
 /**
@@ -100,7 +101,10 @@ export function validateStateInput(status: SessionStatus, o: { note?: string | n
   const note = noteOf(o.note, o.requireNote);
   // 時刻の形を先に見る。時刻だけが誤っているときに、日の誤りとして返さない。
   const returnTime = returnTimeOf(status, o.returnTime);
-  return { note, returnOn: returnOnOf(status, o.returnOn), returnTime };
+  const returnOn = returnOnOf(status, o.returnOn);
+  // 時刻だけでは戻る時点にならない。日付なしの Paused に時刻を黙って捨てると、渡した側は時刻に知らせが来ると思ったままになる。
+  if (returnTime !== null && returnOn === null) throw new StateInputError(msg('session.status.returnTimeNeedsDate'));
+  return { note, returnOn, returnTime };
 }
 
 /** 今の状態。行が無いか論理削除されていれば null（Active）。 */

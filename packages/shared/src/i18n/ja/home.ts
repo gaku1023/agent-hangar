@@ -91,4 +91,10 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.editor.customMissing': 'エディタのコマンド {command} が見つかりません',
   'home.ready.editor.ok': '{name}（{path}）',
   'home.ready.editor.appOnly': '{name}（{path}、アプリだけ）',
+  'home.ready.name.projects': 'プロジェクト',
+  'home.ready.projects.found': 'Claude Code と会話したフォルダが {n} 件見つかりました。プロジェクトにするものを選んでください',
+  'home.ready.projects.none': 'まだありません。新しいプロジェクトを作るか、フォルダを登録してください',
+  'home.ready.projects.choose': '選ぶ…',
+  'home.ready.projects.create': '新しいプロジェクト…',
+  'home.ready.projects.ok': 'プロジェクト {n} 件',
 };

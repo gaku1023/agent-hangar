@@ -860,6 +860,27 @@ describe('設定', () => {
   });
 });
 
+describe('会話したフォルダの候補（初日のプロジェクト）', () => {
+  it('開くと候補を取り、送ると登録を頼み、二重には送らない。閉じる手で閉じる', () => {
+    const a = run([action({ type: 'project.candidates.open' })]);
+    expect(a.state.overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: null });
+    expect(a.effects).toEqual([{ kind: 'api.folderCandidates' }]);
+    const b = run([action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'projectCandidates', submitting: true, error: null });
+    expect(b.effects).toEqual([{ kind: 'api.registerFolders', paths: ['/a'], workspaceRoot: null }]);
+    expect(run([action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })], b.state).effects).toEqual([]);
+    expect(run([action({ type: 'overlay.close' })], a.state).state.overlay).toEqual({ kind: 'none' });
+  });
+  it('登録が済めば閉じ、件数を知らせて準備の確かめを取り直す。ダイアログの上では開かない', () => {
+    const open = run([action({ type: 'project.candidates.open' }), action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })]).state;
+    const done = run([runtime({ type: 'project.candidates.done', registered: 2, failed: [] })], open);
+    expect(done.state.overlay).toEqual({ kind: 'none' });
+    expect(done.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトを 2 件登録しました' }, { kind: 'api.readiness' }]);
+    const promote = run([action({ type: 'session.promote.open', id: 's1' })]).state;
+    expect(run([action({ type: 'project.candidates.open' })], promote).state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+  });
+});
+
 describe('昇格', () => {
   it('ダイアログを開き、送信して完了ダイアログに移る', () => {
     const a = run([action({ type: 'session.promote.open', id: 's1' })]);
@@ -875,6 +896,12 @@ describe('昇格', () => {
     expect(c.state.promote).toEqual({ kind: 'idle' });
     const d = run([action({ type: 'overlay.close' })], c.state);
     expect(d.state.overlay).toEqual({ kind: 'none' });
+  });
+  // 作成場所が空のときは、ダイアログで選んだ作る場所を添えて送る（2026-10-13）。
+  it('作る場所を選んで送れば、そのまま昇格へ渡す', () => {
+    const a = run([action({ type: 'session.promote.open', id: 's1' })]);
+    const b = run([action({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: false, parent: '/Users/me/src' })], a.state);
+    expect(b.effects).toEqual([{ kind: 'api.promote', sessionId: 's1', name: 'newp', gitInit: false, moveFiles: false, parent: '/Users/me/src' }]);
   });
   it('完了ダイアログは画面を移ると閉じる', () => {
     const done = run([

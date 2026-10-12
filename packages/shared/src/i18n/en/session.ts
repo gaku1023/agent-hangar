@@ -16,7 +16,7 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.status.noteEmpty': 'The one-sentence reason is empty',
   'session.status.noteTooLong': 'Reason must be {max} characters or fewer',
   'session.status.returnOnInvalid': 'Reminder date must be a real calendar date in YYYY-MM-DD format',
-  'session.status.returnOnRequired': 'Paused needs a reminder date',
+  'session.status.returnTimeNeedsDate': 'Give the reminder time together with a date',
   'session.status.returnTimeInvalid': 'Reminder time must be in HH:MM format, from 00:00 to 23:59 ({value})',
   'session.stats.turns': '{n} {n|turn|turns}',
   'session.stats.tokens': '{n} {n|token|tokens}',

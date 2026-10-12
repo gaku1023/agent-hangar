@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { assignSession, assignSessions, candidateDirs, checkProjectRoots, listWorkspaceDirs, registerWorkspaceChildOf, resolveProject, syncProjectsFromWorkspace, workspaceProjectCount } from './registry.ts';
+import { assignSession, assignSessions, candidateDirs, checkProjectRoots, listWorkspaceDirs, registerWorkspaceChildOf, resolvedProjectCount, resolveProject, syncProjectsFromWorkspace, workspaceProjectCount } from './registry.ts';
 
 let ws: string;
 let db: Db;
@@ -234,3 +234,40 @@ describe('workspaceProjectCount', () => {
   });
 });
 
+
+// 作成場所（workspaceRoot）は任意で、空は「決めていない」である（2026-10-13）。
+// path.resolve('') はサーバの作業ディレクトリになるので、空のまま渡すとそこを親として扱ってしまう。
+describe('作成場所が空のとき', () => {
+  it('どの関数も、サーバの作業ディレクトリを作成場所として扱わない', () => {
+    const here = process.cwd();
+    const child = fs.readdirSync(here, { withFileTypes: true }).find((d) => d.isDirectory() && !d.name.startsWith('.'))!.name;
+    addSession('s-here', path.join(here, child, 'deep'));
+    expect(syncProjectsFromWorkspace(db, DEV, '').created).toEqual([]);
+    expect(registerWorkspaceChildOf(db, DEV, '', path.join(here, child, 'deep'))).toBeNull();
+    expect(listWorkspaceDirs(db, DEV, '')).toEqual([]);
+    expect(candidateDirs('', child)).toEqual([]);
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
+  });
+  it('作成場所から数えるプロジェクトは 0 件', () => {
+    upsertShared(db, 'projects', { id: 'p-1', name: 'x', status: 'active', is_scratch: 0 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-1', project_id: 'p-1', device_id: DEV, path: path.join(process.cwd(), 'x'), resolved: 1 }, DEV);
+    expect(workspaceProjectCount(db, DEV, '')).toBe(0);
+  });
+});
+
+describe('resolvedProjectCount', () => {
+  it('この PC で場所の分かっているプロジェクトを数え、スクラッチ、消したもの、ほかの PC のもの、場所の分からないものは数えない', () => {
+    expect(resolvedProjectCount(db, DEV)).toBe(0);
+    syncProjectsFromWorkspace(db, DEV, ws);
+    expect(resolvedProjectCount(db, DEV)).toBe(1);
+    upsertShared(db, 'projects', { id: 'p-s', name: 'scratch', status: 'active', is_scratch: 1 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-s', project_id: 'p-s', device_id: DEV, path: path.join(ws, 's'), resolved: 1 }, DEV);
+    upsertShared(db, 'projects', { id: 'p-o', name: 'other', status: 'active', is_scratch: 0 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-o', project_id: 'p-o', device_id: 'dev-2', path: path.join(ws, 'o'), resolved: 1 }, DEV);
+    upsertShared(db, 'projects', { id: 'p-u', name: 'gone', status: 'active', is_scratch: 0 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-u', project_id: 'p-u', device_id: DEV, path: path.join(ws, 'u'), resolved: 0 }, DEV);
+    upsertShared(db, 'projects', { id: 'p-a', name: 'archived', status: 'archived', is_scratch: 0 }, DEV);
+    upsertShared(db, 'project_roots', { id: 'r-a', project_id: 'p-a', device_id: DEV, path: path.join(ws, 'beta'), resolved: 1 }, DEV);
+    expect(resolvedProjectCount(db, DEV)).toBe(2);
+  });
+});

@@ -48,9 +48,10 @@ describe('presentHome の今日戻る（C1）', () => {
     expect(presentHome(initialState(), store, midnight).returning.map((r) => r.id)).toEqual(['p']);
     expect(presentHome(initialState(), store, midnight - 1).returning).toEqual([]);
   });
-  it('戻る日が欠けた Paused と暦に無い日の Paused は、日付なし（null）として先頭に出す', () => {
+  // 日付なしの Paused は、利用者が選んだもの（2026-10-13）。ホームの今日には出さず、一覧の Paused で見る。
+  it('日付なしの Paused は出さない。暦に無い日の Paused は、利用者が決めるまで先頭に出す', () => {
     const h = presentHome(initialState(), storeOf([paused('ok', 30, '2026-10-01'), paused('none', 40, null), paused('broken', 50, '2026-02-30')]), NOW);
-    expect(h.returning.map((r) => [r.id, r.returnOn, r.overdueDays])).toEqual([['none', null, null], ['broken', null, null], ['ok', '2026-10-01', 1]]);
+    expect(h.returning.map((r) => [r.id, r.returnOn, r.overdueDays])).toEqual([['broken', null, null], ['ok', '2026-10-01', 1]]);
   });
   it('プロジェクトの無いセッションと消えたプロジェクトを指すセッションは、プロジェクト名を null にし、理由が無ければ決まりの文を出す', () => {
     const noNote = dto('n', 7, { projectId: null, state: st({ status: 'paused', returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: NOW }) });

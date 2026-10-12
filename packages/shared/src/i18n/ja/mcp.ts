@@ -28,7 +28,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.sessionStatus.returnOnMustBeString': 'return_on は YYYY-MM-DD の形の文字列です',
   'mcp.sessionStatus.returnTimeMustBeString': 'return_time は HH:MM の形の文字列です',
   'mcp.sessionStatus.noteParam': '根拠の一文。必須（1〜200 字）',
-  'mcp.sessionStatus.returnOnParam': 'リマインダーの日付。YYYY-MM-DD（手元の暦。過去の日は不可）。paused では必須',
+  'mcp.sessionStatus.returnOnParam': 'リマインダーの日付。YYYY-MM-DD（手元の暦。過去の日は不可）。paused でも任意で、省くと日付なし（ホームの「今日」には出ない）',
   'mcp.sessionStatus.returnTimeParam': 'リマインダーの時刻。HH:MM（24 時間、00:00〜23:59、手元の時刻）。確認する時刻に意味があるときだけ渡す。省くと「その日のうち」になる。return_on と合わせて過去になる時点は不可',
   'mcp.sessionStatus.confirmedParam': '利用者が会話の中で選んだときだけ true',
   'mcp.tool.listProjects': 'プロジェクトの一覧。ステータス、パス、未完 TODO 数、最終活動を返す。',

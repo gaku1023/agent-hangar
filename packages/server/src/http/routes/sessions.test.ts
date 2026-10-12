@@ -222,6 +222,13 @@ describe('routes', () => {
     expect(await p.json()).toMatchObject({ moved: true, reason: null, project: { id: list0ProjectId() }, session: { id } });
     expect((await post(`/api/sessions/${id}/promote`, { name: 'taken', gitInit: false, moveFiles: false })).status).toBe(409);
     expect((await post(`/api/sessions/${id}/promote`, { gitInit: false })).status).toBe(400);
+    // 作る場所（作成場所が空のときに画面が Finder で選ばせたもの）は、そのまま昇格へ渡す。
+    const seen: unknown[] = [];
+    app = createApp({ ...deps, promote: (o) => { seen.push(o.parent); return { projectId: list0ProjectId(), moved: false, reason: null }; } });
+    await post(`/api/sessions/${id}/promote`, { name: 'p2', gitInit: false, moveFiles: false, parent: '/picked' });
+    await post(`/api/sessions/${id}/promote`, { name: 'p3', gitInit: false, moveFiles: false, parent: 3 });
+    expect(seen).toEqual(['/picked', undefined]);
+    app = createApp(deps);
     const s = await post(`/api/sessions/${id}/summarize`);
     expect(s.status).toBe(202);
     // 手動の作り直しは土台かどうかもレジストリも問わない。
@@ -305,9 +312,6 @@ describe('セッションの状態', () => {
   });
   it('PUT の誤りは 400 と 404。本文はトーストに出せる日本語の一文', async () => {
     const id = alphaId();
-    const paused = await send(`/api/sessions/${id}/state`, { status: 'paused' }, 'PUT');
-    expect(paused.status).toBe(400);
-    expect(await err(paused)).toBe('Paused にはリマインダーの日付が要ります');
     for (const body of [{}, { status: 'active' }, { status: 'done', note: 5 }, { status: 'paused', returnOn: 20261002 }, { status: 'paused', returnOn: '2026-02-30' }, { status: 'done', note: 'あ'.repeat(201) }]) {
       const r = await send(`/api/sessions/${id}/state`, body, 'PUT');
       expect([JSON.stringify(body), r.status]).toEqual([JSON.stringify(body), 400]);
@@ -321,15 +325,17 @@ describe('セッションの状態', () => {
     softDeleteShared(db, 'sessions', id, 'd');
     expect((await send(`/api/sessions/${id}/state`, { status: 'done' }, 'PUT')).status).toBe(404);
   });
-  it('PUT で Paused に戻る日を付けないと、400 と理由の一文を返す（本文は空にしない）', async () => {
+  // Paused の戻る日は任意（2026-10-13）。空の日付は日付なしとして受ける。時刻だけは断る。
+  it('PUT で Paused に戻る日を付けなければ、日付なしの Paused にする。時刻だけなら 400', async () => {
     const id = alphaId();
     for (const body of [{ status: 'paused' }, { status: 'paused', returnOn: '' }, { status: 'paused', note: '明日見る' }]) {
       const r = await send(`/api/sessions/${id}/state`, body, 'PUT');
-      expect([JSON.stringify(body), r.status]).toEqual([JSON.stringify(body), 400]);
-      expect(r.headers.get('content-type')).toContain('application/json');
-      expect([JSON.stringify(body), await r.json()]).toEqual([JSON.stringify(body), { error: 'Paused にはリマインダーの日付が要ります' }]);
+      expect([JSON.stringify(body), r.status]).toEqual([JSON.stringify(body), 200]);
+      expect((await r.json()).state).toMatchObject({ status: 'paused', returnOn: null, returnTime: null });
     }
-    expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
+    const timeOnly = await send(`/api/sessions/${id}/state`, { status: 'paused', returnTime: '10:00' }, 'PUT');
+    expect(timeOnly.status).toBe(400);
+    expect(await err(timeOnly)).toBe('リマインダーの時刻は、日付と一緒に渡してください');
   });
   it('confirm は提案を状態にし、日を変えればその日にする。提案が無ければ 409', async () => {
     const id = alphaId();

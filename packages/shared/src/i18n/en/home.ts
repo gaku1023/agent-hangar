@@ -91,4 +91,10 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.ready.editor.customMissing': 'The editor command {command} was not found',
   'home.ready.editor.ok': '{name} ({path})',
   'home.ready.editor.appOnly': '{name} ({path}, app only)',
+  'home.ready.name.projects': 'Projects',
+  'home.ready.projects.found': 'Found {n} {n|folder|folders} where you have talked with Claude Code. Choose which ones become projects',
+  'home.ready.projects.none': 'None yet. Create a new project or register a folder',
+  'home.ready.projects.choose': 'Choose…',
+  'home.ready.projects.create': 'New project…',
+  'home.ready.projects.ok': '{n} {n|project|projects}',
 };

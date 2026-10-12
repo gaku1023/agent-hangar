@@ -13,8 +13,9 @@ const open = (from: 'menu' | 'candidate'): State => ({ ...initialState(), overla
 const storeOf = (s: SessionDto): Store => ({ ...initialStore(), sessions: { [s.id]: s } });
 
 describe('pauseChoices', () => {
-  it('今日の夕方・明日・月曜・来週・日付を選択… の 5 つ', () => {
+  it('日付なし（2026-10-13）を頭に、今日の夕方・明日・月曜・来週・日付を選択… の 6 つ', () => {
     expect(pauseChoices(THU, translator('ja'))).toEqual([
+      { key: 'none', label: '日付なし', returnOn: null },
       { key: 'today', label: '今日の夕方', returnOn: '2026-10-01' },
       { key: 'tomorrow', label: '明日', returnOn: '2026-10-02' },
       { key: 'monday', label: '月曜', returnOn: '2026-10-05' },
@@ -24,7 +25,7 @@ describe('pauseChoices', () => {
   });
   it('札の言葉は言語で引き、日付は言語によらない', () => {
     const en = pauseChoices(THU, translator('en'));
-    expect(en.map((c) => c.label)).toEqual(['This evening', 'Tomorrow', 'Monday', 'Next week', 'Pick a date…']);
+    expect(en.map((c) => c.label)).toEqual(['No date', 'This evening', 'Tomorrow', 'Monday', 'Next week', 'Pick a date…']);
     expect(en.map((c) => c.returnOn)).toEqual(pauseChoices(THU, translator('ja')).map((c) => c.returnOn));
   });
   it('月曜は次の月曜で、今日が月曜なら 7 日後。日曜なら翌日', () => {
@@ -32,7 +33,7 @@ describe('pauseChoices', () => {
     expect(pauseChoices(at(2026, 10, 4), translator('ja')).find((c) => c.key === 'monday')!.returnOn).toBe('2026-10-05');
   });
   it('夜中の 0 時の手前は、まだ今日', () => {
-    expect(pauseChoices(at(2026, 10, 1, 23, 59), translator('ja'))[0]!.returnOn).toBe('2026-10-01');
+    expect(pauseChoices(at(2026, 10, 1, 23, 59), translator('ja')).find((c) => c.key === 'today')!.returnOn).toBe('2026-10-01');
   });
 });
 
