@@ -120,19 +120,16 @@ claude() {
   # id を付けない -r と、検索の語を付けた -r は選ぶ画面を出すので、そのまま渡す。
   if [[ -n "$resume" && ! "$resume" =~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' ]]; then command claude "$@"; return; fi
   # すでに tmux の中なら入れ子にしない。hangar の専用のサーバ（-L hangar）の中なら switch-client で移り、ほかの tmux の中なら素の claude にする。
-  # 既定のサーバの中は別に扱う。前の版の hangar はそこにセッションを作っていたので、更新の前から開いている hangar のシェルタブはそこに居る。
-  # そこからは switch-client で専用のサーバへ移れないので、$TMUX を外して入れ子でつなぐ。
+  # 利用者の既定のサーバも「ほかの tmux」である。
   local inside=0
   if [[ -n "$TMUX" ]]; then
-    local here="\${\${TMUX%%,*}:A}" own="\${TMUX_TMPDIR:-/tmp}/tmux-$UID/$__agent_hangar_socket" old="\${TMUX_TMPDIR:-/tmp}/tmux-$UID/default"
-    if [[ "$here" == "\${own:A}" ]]; then inside=1
-    elif [[ "$here" == "\${old:A}" ]]; then inside=2
-    else command claude "$@"; return; fi
+    local mine="\${TMUX_TMPDIR:-/tmp}/tmux-$UID/$__agent_hangar_socket"
+    if [[ "\${\${TMUX%%,*}:A}" == "\${mine:A}" ]]; then inside=1; else command claude "$@"; return; fi
   fi
   local name
   if ! name=$(__agent_hangar_launch "$@"); then command claude "$@"; return; fi
-  if (( inside == 1 )); then command "$__agent_hangar_tmux" -L "$__agent_hangar_socket" switch-client -t "=$name"; return; fi
-  TMUX= command "$__agent_hangar_tmux" -L "$__agent_hangar_socket" attach -t "=$name"
+  if (( inside )); then command "$__agent_hangar_tmux" -L "$__agent_hangar_socket" switch-client -t "=$name"; return; fi
+  command "$__agent_hangar_tmux" -L "$__agent_hangar_socket" attach -t "=$name"
 }
 `;
 }
