@@ -6,7 +6,7 @@ Claude Code のセッションをプロジェクト単位で束ね、起動、�
 ## 現状
 
 フェーズ 5（デスクトップ配布）まで実装済みです。
-macOS の `.app` を入れると、サーバの起動をアプリに任せて使えます（配布の状況は次の節にあります）。
+macOS の `.app` か Windows のインストーラを入れると、サーバの起動をアプリに任せて使えます（入れ方は次の節にあります）。
 フェーズ 4 のクラウド同期では、自分の Cloudflare アカウントに Worker と D1 と R2 を置き、自分の端末の間でセッションのメタデータと本文と Claude Code の設定を同期できます。
 フェーズ 3 までで入った、使用量、アーティファクト、TODO とメモ、スクラッチと昇格、タブの分割、事後要約、コマンドパレットと、フェーズ 2 までで入った tmux でのセッション起動、ブラウザに埋め込んだターミナル、セッション内のシェルタブ、MCP、外部アプリとの連携もそのまま使えます。
 実行中のセッションを他端末から奪う「引き継ぎ」は作りません。
@@ -16,14 +16,17 @@ macOS の `.app` を入れると、サーバの起動をアプリに任せて使
 
 ## インストール（配布版）
 
-対象は macOS 13 以降の Apple silicon です。
-配布物は GitHub Releases に置いています（最初の版は `v0.1.0` で、macOS だけでした）。
+対象は macOS 13 以降の Apple silicon と、Windows 11（x64）です。
+配布物は GitHub Releases に置いています（最初の版は `v0.1.0` で、macOS だけでした。Windows のインストーラは `v0.2.0-rc.1` から添えています）。
 v0.1.0 から入れ替える人は、先に「v0.1.0 からの移行」を読んでください。
 ふだんは Latest の印の付いた版を使ってください。
 Pre-release の印の付いた版（`v0.2.0-rc.1` など）は試しの版で、確かめが済むまでの間だけ置きます。
 試しの版を入れると、自動更新は次の試しの版と、その後の正式な版を知らせます（手順は [docs/release.md](docs/release.md)）。
 
-配布物は dmg が主で、zip は予備です。
+この節の残りは macOS の手順です。
+Windows では「[Windows で使う](#windows-で使う)」の節へ進んでください。
+
+macOS の配布物は dmg が主で、zip は予備です。
 Apple の Developer ID では署名せず、公証もしません。
 代わりに自作の証明書で署名します（仕組みは [docs/signing.md](docs/signing.md) にあります）。
 自作の証明書は macOS に信頼されていないので、初めて開くときに「"Hangar" は開いていません」という警告が出ます。
@@ -560,28 +563,48 @@ npm run hangar -- cloud teardown       # Worker と D1 と R2 を消す（2 段�
     上げたければ、そのセッションを再開するか `hangar cloud backfill` を実行してください。
 13. **マイグレーションの版 8 が走ります。** `transcript_files` に `device_id` の列が増え、R2 との同期の台帳である `file_sync` が出来ます。索引の作り直しは起きません。
 
-## Windows で動かす（開発中）
+## Windows で使う
 
 対象は Windows 11（x64）だけです。
-タグを打つと、macOS の dmg や zip と同じ Release に Windows のインストーラも添えます（`v0.2.0-rc.1` から添えています）。
+タグを打つと、macOS の dmg や zip と同じ Release に Windows のインストーラも添えます。
 インストーラを使わずに、下の「ソースから動かす」か「インストーラを作る」の手順で使うこともできます。
 
 Windows では、ターミナルで打った `claude` を hangar に載せる包み（macOS の `hangar shell install`）を作りません。
 セッションは Hangar の画面から始めます。
 
+### Windows の前提
+
+Hangar を動かすには、次の 3 つが先に要ります。
+
+- Node 22。同梱サーバは Node 22 で動きます。アプリは Node を同梱していません。
+  PowerShell で `winget install -e --id OpenJS.NodeJS.22` を打つのがいちばん手早い入れ方です（公式のインストーラが入ります）。
+  nvm-windows の `nvm install 22` で入れた版も、fnm、Volta、scoop で入れた Node 22 も見つけます。
+- psmux。セッションは tmux の代わりに psmux の中で起こします。入れ方は下の「psmux を入れる」にあります。
+- `claude`（Claude Code 本体）。入れ方は Claude Code の案内に従ってください。
+
+git とエディタは、macOS と同じく無くても動きます（使いみちは「前提」の節にあります）。
+git は Git for Windows（`winget install --id Git.Git -e`）で入ります。
+
+winget で入れたものは、入れたあとに新しく開いた PowerShell から PATH に載ります。
+
 ### インストーラで入れる
 
-1. 下の手順で psmux を先に入れます。
+1. 「Windows の前提」の 3 つを入れます。
 2. Releases から `Hangar-vX.Y.Z-windows-x64-setup.exe` を落とします。
    checksum を確かめるには、同じ場所の `.sha256` も落とし、PowerShell の `Get-FileHash Hangar-vX.Y.Z-windows-x64-setup.exe` が出す値と比べます（大文字と小文字の違いは無視します）。
 3. インストーラを開きます。
    署名していないので、SmartScreen が「Windows によって PC が保護されました」と出します。
    そのときは「詳細情報」を押して「実行」を選びます。
    管理者権限は要らず、`%LOCALAPPDATA%\Hangar` に入ります。
-4. Node 22 を入れます。
-   PowerShell で `winget install -e --id OpenJS.NodeJS.22` を打つのがいちばん手早い入れ方です（公式のインストーラが入ります）。
-   nvm-windows を使うなら、`nvm install 22` で入れた版も見つけます。fnm、Volta、scoop で入れた Node 22 も見つけます。
-   Node は同梱していません。
+4. スタートメニューの Hangar から開きます。
+   Node 22 が見つからないときは、起動の画面がそう告げます。入れてから開き直してください。
+   psmux や `claude` が欠けているときは、ホームの「セットアップの確認」に出ます。入れたあとに「再確認」を押すと、開き直さずに見つけます。
+
+インストーラは同梱の `hangar` コマンドの置き場を利用者の PATH に足すので、入れたあとに新しく開いたターミナルで `hangar url` のように打てます。
+
+入れたあとは、新しい版が出ると設定の更新の節と札が知らせます。
+「ダウンロードしてインストール」のあと「再起動して更新」を押すと入れ替わります。
+動いているセッションは止まらず、開き直したアプリからつなぎ直せます。
 
 ### psmux を入れる
 
