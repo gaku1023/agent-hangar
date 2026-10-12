@@ -27,6 +27,8 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
     expect(rows.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
     expect(rows[0]).toHaveTextContent('VS Code1.105.1/usr/local/bin/code見つかりました');
     expect(rows[1]).toHaveTextContent('アプリだけ');
+    // 見つからないものも並ぶので、「見つけたものを並べています」とは言わない。
+    expect(screen.getByText(/対応しているエディタを並べ、この PC で見つかったかを添えています/)).toBeInTheDocument();
   });
   it('選んだ時点で保存し、前のエディタのパスは持ち越さない。テストは選んだ行にだけある', () => {
     const onAction = vi.fn();

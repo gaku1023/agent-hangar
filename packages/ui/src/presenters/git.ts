@@ -55,16 +55,24 @@ export function presentGitChip(t: Translate, git: GitDto, sessionId: string, ses
   if (!g || g.state === 'nogit' || g.state === 'unsafe') return null;
   const chip = (p: Omit<GitChipProps, 'label' | 'shared' | 'sharedTitle'> & { shared?: number | null }): GitChipProps => {
     const shared = p.shared ?? null;
-    return { ...p, shared, sharedTitle: shared ? t('gitUi.chip.sharedTitle', { n: shared - 1 }) : null, label: t('gitUi.chip.label', { branch: p.title || p.name, value: p.value }) };
+    const branch = p.title || p.name;
+    return { ...p, shared, sharedTitle: shared ? t('gitUi.chip.sharedTitle', { n: shared - 1 }) : null, label: p.value === '' ? t('gitUi.chip.labelBranch', { branch }) : t('gitUi.chip.label', { branch, value: p.value }) };
   };
   if (g.state === 'remote') return chip({ kind: 'remote', worktree: false, name: g.branch ?? '', title: g.branch ? `${g.branch}\n${t('gitUi.chip.otherPcTitle')}` : t('gitUi.chip.otherPcTitle'), value: t('gitUi.chip.otherPc'), count: null, dirty: false });
   if (g.state === 'gone') return chip({ kind: 'gone', worktree: true, name: g.worktree ?? g.branch ?? '', title: g.branch ?? g.worktree ?? '', value: t('gitUi.chip.removed'), count: null, dirty: false });
+  const s = sessions[sessionId];
+  // 終わったセッションの行には、今の作業ツリーの件数を出さない。そのセッションの状態のように読めてしまう。
+  // ブランチは本文の gitBranch（そのセッションのときのもの）を出す。
+  if (s && shownLive(s) === null) {
+    if (!g.branch) return null;
+    const wtName = g.worktree;
+    return chip({ kind: 'ok', worktree: wtName !== null, name: wtName ?? g.branch, title: g.branch, value: '', count: null, dirty: false });
+  }
   const tr = g.root ? git.trees[g.root] : undefined;
   if (!tr) return null;
   const branch = g.branch ?? tr.branch ?? tr.head ?? 'HEAD';
   const wt = g.worktree ?? tr.worktree;
   const c = countValue(t, tr);
-  const s = sessions[sessionId];
   const n = s && shownLive(s) !== null ? runningOn(git, tr.root, sessions) : 0;
   const slowNote = tr.slow ? `\n${t('gitUi.chip.noCountTitle')}` : '';
   return chip({ kind: 'ok', worktree: wt !== null, name: wt ?? branch, title: `${branch}${slowNote}`, ...c, shared: n >= 2 ? n : null });

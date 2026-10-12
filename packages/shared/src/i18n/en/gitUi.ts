@@ -14,6 +14,7 @@ export const gitUiEn: AreaDictionary<typeof gitUiKeys> = {
   'gitUi.chip.shared': 'Shared {n}',
   'gitUi.chip.sharedTitle': '{n} other running {n|session uses|sessions use} the same working tree',
   'gitUi.chip.label': 'Branch {branch}, {value}',
+  'gitUi.chip.labelBranch': 'Branch {branch}',
   'gitUi.details.branch': 'Branch',
   'gitUi.details.ahead': '{n} ahead of origin',
   'gitUi.details.behind': '{n} behind',

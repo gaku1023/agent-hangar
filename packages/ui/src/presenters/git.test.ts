@@ -13,8 +13,13 @@ const git = (p: Partial<GitDto> = {}): GitDto => ({ sessions: { s1: { state: 'ok
 
 describe('presentGitChip', () => {
   it('ブランチと未コミットの件数。全文は title', () => {
-    expect(presentGitChip(ja, git(), 's1', { s1: session('s1') })).toEqual({ kind: 'ok', worktree: false, name: 'fix-login', title: 'fix-login', value: '未コミット 7', count: 7, dirty: true, shared: null, sharedTitle: null, label: 'ブランチ fix-login、未コミット 7' });
-    expect(presentGitChip(en, git(), 's1', { s1: session('s1') })).toMatchObject({ value: '7 uncommitted', label: 'Branch fix-login, 7 uncommitted' });
+    expect(presentGitChip(ja, git(), 's1', { s1: session('s1', { live: 'busy' }) })).toEqual({ kind: 'ok', worktree: false, name: 'fix-login', title: 'fix-login', value: '未コミット 7', count: 7, dirty: true, shared: null, sharedTitle: null, label: 'ブランチ fix-login、未コミット 7' });
+    expect(presentGitChip(en, git(), 's1', { s1: session('s1', { live: 'busy' }) })).toMatchObject({ value: '7 uncommitted', label: 'Branch fix-login, 7 uncommitted' });
+  });
+  it('終わったセッションには今の未コミットの件数を出さず、そのセッションのときのブランチ（本文の gitBranch）だけを出す', () => {
+    const g = git({ sessions: { s1: { state: 'ok', root: '/w/alpha', branch: 'feature/old', worktree: null } }, trees: { '/w/alpha': tree({ branch: 'main', dirty: 2 }) } });
+    expect(presentGitChip(ja, g, 's1', { s1: session('s1') })).toEqual({ kind: 'ok', worktree: false, name: 'feature/old', title: 'feature/old', value: '', count: null, dirty: false, shared: null, sharedTitle: null, label: 'ブランチ feature/old' });
+    expect(presentGitChip(en, g, 's1', { s1: session('s1') })?.label).toBe('Branch feature/old');
   });
   it('変更なし、件数なし（時間切れ）、1,000+', () => {
     expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: 0 }) } }), 's1', {})).toMatchObject({ value: '変更なし', dirty: false, count: 0 });

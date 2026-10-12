@@ -14,6 +14,7 @@ export const gitUiKeys = {
   'gitUi.chip.shared': ['n'],
   'gitUi.chip.sharedTitle': ['n'],
   'gitUi.chip.label': ['branch', 'value'],
+  'gitUi.chip.labelBranch': ['branch'],
   'gitUi.details.branch': [],
   'gitUi.details.ahead': ['n'],
   'gitUi.details.behind': ['n'],

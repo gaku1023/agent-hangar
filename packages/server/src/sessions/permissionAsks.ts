@@ -14,6 +14,9 @@ export const PERMISSION_ASK_TTL_MS = 30_000;
  * 手元だけの一時の事実なので、DB にも同期にも載せない。サーバを起こし直したら忘れる（札は「内容はターミナルに出ています」に戻る）。
  * 登録の読み直し（RegistryWatcher の enrich）のたびに apply を通し、入力待ちの登録に permission を足す。
  * 待ちに入ったのを見た後、待ちを抜けたら忘れる（許可した、断った）。
+ * 許可でない待ち（waitingFor が other、たとえば許可した直後に Claude Code が出すダイアログ）には足さず、
+ * 許可の待ちを見た後にそこへ移ったら忘れる。status は waiting のまま続くので、待ちを抜けるのを待つと前の命令が残る。
+ * 問いの待ち（question）は AskUserQuestion の確認だけを足す（Claude Code が問いにどの waitingFor を書くかは版で変わる）。
  */
 export class PermissionAsks {
   private asks = new Map<string, { ask: PermissionAskDto; at: number; seen: boolean }>();
@@ -30,6 +33,10 @@ export class PermissionAsks {
       const a = this.asks.get(l.sessionId);
       if (!a) return l;
       if (l.status === 'waiting') {
+        if (!forThisWait(a.ask, l)) {
+          if (a.seen) this.asks.delete(l.sessionId);
+          return l;
+        }
         a.seen = true;
         return { ...l, permission: a.ask };
       }
@@ -37,6 +44,12 @@ export class PermissionAsks {
       return l;
     });
   }
+}
+
+/** 預かった確認が、その入力待ちの中身か。waitingFor の無い登録（古い Claude Code）は今までどおり足す。 */
+function forThisWait(ask: PermissionAskDto, l: LiveSessionDto): boolean {
+  if (l.waitingFor === undefined || l.waitingFor === 'permission') return true;
+  return l.waitingFor === 'question' && ask.tool === 'AskUserQuestion';
 }
 
 /**

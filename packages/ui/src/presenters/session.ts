@@ -520,7 +520,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
     idleFor: durationLabel(t, now - (s.lastActivityAt ?? now)), results,
     waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards,
-    reason, permission: s.permission, limit: s.limit,
+    reason, permission: s.permission, limit: s.limit, waitingFor: s.waitingFor,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
   const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, editor: store.settings, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;

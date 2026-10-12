@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InterruptedDto, ProjectDto, RunDto, SessionDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
+import { interruptedStep } from '../mediator/interrupted.ts';
 import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
@@ -50,6 +51,17 @@ describe('presentInterrupted（帯の「前回実行中」の群）', () => {
     ]);
     // アカウントが 1 件の人には小見出しを出さない。
     expect(g.rows.every((r) => r.section === undefined)).toBe(true);
+  });
+
+  it('「すべて再開」を押した直後、同時に頼む 2 本だけが回り、残りは「順番待ち」の見た目（回らない）にする', () => {
+    const store = storeOf();
+    const g0 = presentInterrupted(initialState(), store, NOW)!;
+    const send = g0.headActions!.find((a) => a.id === 'resumeAll')!.send;
+    const step = interruptedStep(initialState(), store, { kind: 'action', action: send as never })!;
+    const g = presentInterrupted(step.state, store, NOW)!;
+    expect(g.rows.map((r) => [r.key, r.textHead?.text, r.lead.kind === 'ring' ? r.lead.spin : null])).toEqual([
+      ['int:r-busy2', '再開中', true], ['int:r-busy1', '再開中', true], ['int:r-wait1', '順番待ち', false], ['int:r-idle1', '順番待ち', false],
+    ]);
   });
 
   it('ステータスを付けたもの、再開したもの、中断の印が消えたものは出さない。全部消えたら null', () => {

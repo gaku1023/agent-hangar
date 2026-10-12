@@ -1467,6 +1467,10 @@ Claude Code が AskUserQuestion にどの値を書くかは版で変わりうる
 hook はサーバの手元に預け（`sessions/permissionAsks.ts`、DB にも同期にも載せない）、登録の読み直しのたびに入力待ちの登録へ `permission`（`{ tool, input, description }`）として足す。
 `input` は命令、ファイルのパス、URL などの短い形で、Bash は命令の全文（2000 字まで）、`description` は Claude が書いた説明である。
 待ちに入ったのを見た後に待ちを抜けたら忘れる。hook が登録より先に届いたときは、待ちに入るまで 30 秒まで残す。
+許可でない待ち（`waitingFor` が `other`）には足さず、許可の待ちを見た後にそこへ移ったら忘れる。
+許可した直後に Claude Code が別のダイアログ（既定の許可モードを尋ねるものなど）を出すと、登録は `waiting` のまま `waitingFor` だけが替わるので、待ちを抜けるのを待つと前の命令が残るためである。
+問いの待ち（`question`）には AskUserQuestion の確認だけを足す。
+現在の札も、許可でない待ちで最後の呼び出しにもう答えが出ていれば、その呼び出し（前の許可の命令）を「Claude の問い」として出さない。
 hook を持たない run（外部ターミナル）では中身が届かないので、「許可を待っています（内容はターミナルに出ています）」と言う。
 Notification の hook は約 6 秒遅れて決まった文言しか運ばないので使わない。
 
@@ -1476,7 +1480,9 @@ Claude Code は使用制限に当たると、本文に合成の assistant 行を
 `rateLimitType` は `five_hour` を 5 時間、`seven_day` で始まるものを週と言い、ほかは枠の名前を出さない。
 同じ `rate_limit` でも `quotaLimits` を持たないもの（一時の混雑、組織の方針）は、待っても戻らないので使用制限としない。
 Claude Code が自動の続きを予約すると、続けて system の informational の行（「Usage limit reached · continuing automatically at …」）を書くので、これを見て `auto` を立てる。
+Esc で取り消すと「Automatic continue cancelled · /rate-limit-options to re-arm」（背面へ移したときなどは「Automatic continue cancelled · …」「Automatic continue was turned off · …」）を書くので、これを見て `auto` を下ろす（2.1.296 の実物の文）。
 次の指示（自動の続きの指示も含む）、返答、ツールの呼び出しが載ったら行を消す。ターンの終わりや裏のタスクの知らせ（正規化では system）では消さない。
+使用制限の行より時刻の前の行では消さない。初めの発言ですぐ 429 が返ると、Claude Code は使用制限の行を先に書き、時刻の早い発言の行を後から書くことがあるためである。
 セッションが実行中から外れたときも消す（`sessions/liveChange.ts`）。再開した直後に前の run の使用制限を出さないためである。
 `SessionDto.limit`（`{ kind, resetsAt, auto, reset }`）は実行中のときだけ値を持つ。
 `reset` は、リセットの時刻から 90 秒（`LIMIT_RESET_GRACE_MS`）を過ぎても続きが始まっていないことで、読むたびに時刻で決める。
@@ -2058,6 +2064,7 @@ hangar は git に書かない。どの呼び出しも `--no-optional-locks` を
 割ると、Bash での書き換えが抜けて少なく見え、git の数とも合わなくなるからである。
 同じ作業ツリーで実行中のセッションが 2 本以上あれば、行に「共有 N」（N は自分を含めた本数）を添える。衝突の手がかりになる。
 一覧の 2 段目が狭いときは、要約が先に縮み、札（ブランチの名前と件数）は要約が縮みきるまで縮めない。
+終わったセッションの札は、そのときのブランチ（本文の `gitBranch`）だけを出し、今の作業ツリーの件数は出さない。そのセッションの状態のように読めてしまうためである。件数は (i) の「作業ツリーの未コミット」で読める。
 このセッションが変えたうちの未コミットは、(i) と差分のダイアログでだけ言う。
 1,000 件を超えたら数えるのをやめて「未コミット 1,000+」にする。3 秒で答えなければ「件数なし」にし（理由は title）、その根は 60 秒呼ばず、以後は `--untracked-files=no` で試す。
 同じ根への同時の呼び出しは 1 つにまとめ、git は同時に 2 本までにする（`git/service.ts`）。

@@ -392,6 +392,25 @@ describe('使用制限（session_limits）', () => {
     expect(limit(r.sessionId)).toBeUndefined();
   });
 
+  it('初めの発言ですぐ 429 が返り、使用制限の行が発言の行より先に書かれても拾う。取り消しの知らせで auto を下ろす', () => {
+    const u = '22222222-2222-4222-8222-222222222222';
+    const file = path.join(dir, 'projects', '-Users-me-workspace-alpha', `${u}.jsonl`);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const at = (o: Record<string, unknown>, ts: string, uuid: string) => ({ ...o, sessionId: u, uuid, timestamp: ts });
+    // 0.5.0-rc.1 の macOS の VM で見た並び：使用制限の行と知らせが先、時刻の早い初めの発言の行が後。
+    const lines = [
+      at(limitHit('2026-09-01T12:20:00.500Z'), '2026-09-01T12:20:00.500Z', 'l1'),
+      at(info('Usage limit reached · continuing automatically at 1:00pm · esc to cancel'), '2026-09-01T12:20:00.600Z', 'i1'),
+      at(prompt('はじめ'), '2026-09-01T12:20:00.000Z', 'p0'),
+    ];
+    fs.writeFileSync(file, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const r = indexFile(db, { path: file, sessionId: u, agentId: null, deviceId: null }, { deviceId: DEV });
+    expect(limit(r.sessionId)).toMatchObject({ kind: 'five_hour', auto: 1 });
+    appendJson(file, at(info('Automatic continue cancelled · /rate-limit-options to re-arm'), '2026-09-01T12:20:05.000Z', 'i2'));
+    indexFile(db, { path: file, sessionId: u, agentId: null, deviceId: null }, { deviceId: DEV });
+    expect(limit(r.sessionId)).toMatchObject({ kind: 'five_hour', auto: 0 });
+  });
+
   it('作り直しでは先頭から積み直し、主線を忘れると行も消える', () => {
     const r = indexFile(db, alphaMain(), { deviceId: DEV });
     appendJson(alphaMain().path, limitHit());

@@ -14,6 +14,7 @@ export const gitUiJa: AreaDictionary<typeof gitUiKeys> = {
   'gitUi.chip.shared': '共有 {n}',
   'gitUi.chip.sharedTitle': '同じ作業ツリーで実行中のセッションがほかに {n} 本あります',
   'gitUi.chip.label': 'ブランチ {branch}、{value}',
+  'gitUi.chip.labelBranch': 'ブランチ {branch}',
   'gitUi.details.branch': 'ブランチ',
   'gitUi.details.ahead': 'origin より {n} 件先',
   'gitUi.details.behind': '{n} 件遅れ',

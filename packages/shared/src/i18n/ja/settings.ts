@@ -204,7 +204,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.label.configApproval': '届いた設定の承諾の仕方',
   'settings.label.configBundleSync': 'Claude Code の設定の同期',
   'settings.editor.title': 'エディタ',
-  'settings.editor.desc': '「<名前> で開く」と、変更したファイルの行から開くときに使うアプリです。この PC で見つけたものを並べています。',
+  'settings.editor.desc': '「<名前> で開く」と、変更したファイルの行から開くときに使うアプリです。対応しているエディタを並べ、この PC で見つかったかを添えています。',
   'settings.editor.found': '見つかりました',
   'settings.editor.appOnly': 'アプリだけ',
   'settings.editor.notFound': '見つかりません',
