@@ -47,9 +47,5 @@ export const stopKeys = {
   'stop.toast.permissionLabel': ['name', 'what'],
   'stop.toast.permissionLabelBare': ['name'],
   'stop.toast.resetLabel': ['name'],
-  'stop.header.chip': ['n'],
-  'stop.header.chipLabel': ['n'],
-  'stop.header.head': ['kind', 'time'],
-  'stop.header.headOther': ['time'],
   'stop.header.gaugeTitle': ['label', 'time'],
 } as const satisfies MessageSpec;

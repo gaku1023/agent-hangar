@@ -2,7 +2,7 @@ import { SETTINGS_SECTIONS, type PaletteCommand, type SessionStatus, type Settin
 import { overlayReplaceable } from './overlay.ts';
 import { canMoveBehind, nextWaitingStep, searchQueryStep } from './screen.ts';
 import { sidebarStep } from './sidebar.ts';
-import type { Input, State, Step } from './types.ts';
+import type { Effect, Input, State, Step } from './types.ts';
 import type { Store } from '../store/store.ts';
 
 /** Paused の入力をそのセッションへ送ったら閉じる。別のセッションへの操作では閉じない。 */
@@ -65,6 +65,14 @@ export function workbenchStep(state: State, store: Store, input: Input): Step | 
     case 'todo.add': return i.text.trim() ? { state, effects: [{ kind: 'api.addTodo', projectId: i.projectId, text: i.text.trim() }, { kind: 'focus', target: 'todoInput' }] } : { state, effects: [] };
     case 'session.state.set': return { state: closePause(state, i.id), effects: [{ kind: 'api.setSessionState', id: i.id, body: stateBody(i) }] };
     case 'session.state.confirm': return { state: closePause(state, i.id), effects: [{ kind: 'api.confirmSessionState', id: i.id, body: i.returnOn !== undefined ? { returnOn: i.returnOn, ...(i.returnTime !== undefined ? { returnTime: i.returnTime } : {}) } : {} }] };
+    // 確認待ちをまとめて片付ける。TODO の取り消し（⌘Z）の積みは作らない（1 件ずつの操作だけが積む）。
+    case 'pending.resolve': return {
+      state,
+      effects: [
+        ...i.sessionIds.map((id): Effect => (i.accept ? { kind: 'api.confirmSessionState', id, body: {} } : { kind: 'api.rejectSessionState', id })),
+        ...i.todoIds.map((id): Effect => ({ kind: 'api.todo', call: { op: i.accept ? 'confirm' : 'reject', id } })),
+      ],
+    };
     // 幅の変更は SplitPane の ActionBoundary が処理する。ここへ来るのは境界の外で発行されたときだけで、無視してよい。
     case 'split.resize': return { state, effects: [] };
     case 'palette.run': return paletteRun(state, store, i.command);

@@ -227,8 +227,8 @@ function plainState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCar
     return { tone: 'busy', state: t('session.strip.state.working'), sub: t('session.strip.subagentsRunning', { n: running }), detail: mainBusy ? t('session.strip.mainWorking') : null, question: false };
   }
   if (i.live === 'busy') {
-    // サブエージェントの transcript を開いている間は、手の数も経過もメイン会話のものではないので出さない。
-    // 「n 手目」はメイン会話の呼び出しの数。Agent の起こしは数え、hangar 自身の MCP は数えない。経過は今のターンの頭から。
+    // サブエージェントの transcript を開いている間は、呼び出しの数も経過もメイン会話のものではないので出さない。
+    // 「ツール呼び出し n 回」はメイン会話の呼び出しの数。Agent の起こしは数え、hangar 自身の MCP は数えない。経過は今のターンの頭から。
     const n = turnCalls(i, { agents: true }).length;
     const time = turnElapsed(i, t);
     const sub = i.viewingAgent ? '' : time === null ? t('session.strip.progressNoTime', { n }) : t('session.strip.progress', { n, time });

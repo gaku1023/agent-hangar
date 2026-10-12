@@ -208,8 +208,9 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
   return (
     <li ref={props.rowRef} className="crow" data-k={r.tone ?? (r.lead.kind === 'check' ? 'check' : r.lead.kind === 'place' ? 'place' : undefined)} aria-hidden={props.leaving ? true : undefined} inert={props.leaving || undefined}>
       <Lead lead={r.lead} />
+      {/* 小札（「任意」、提案の出どころ）は名前の後ろに置く。名前がボタンの行では、ボタンの外に置いて読み上げの名前に混ぜない。 */}
       {open
-        ? <button type="button" className="c-name c-link" onClick={() => emit(open)}>{r.name}</button>
+        ? <><button type="button" className="c-name c-link" onClick={() => emit(open)}>{r.name}</button>{r.badge && <span className="c-badge c-src">{r.badge}</span>}</>
         : <span className="c-name">{r.name}{r.badge && <span className="c-badge">{r.badge}</span>}</span>}
       {r.context !== null && <span className="c-proj">{r.context}</span>}
       {r.textHead && <span className="c-head" data-tone={r.textHead.tone}>{r.textHead.text}</span>}

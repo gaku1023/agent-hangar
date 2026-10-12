@@ -44,9 +44,5 @@ export const stopEn: AreaDictionary<typeof stopKeys> = {
   'stop.toast.permissionLabel': '{name} needs permission: {what}',
   'stop.toast.permissionLabelBare': '{name} needs permission',
   'stop.toast.resetLabel': '{name}: your usage limit has reset. Tell Claude to continue',
-  'stop.header.chip': '{n} stopped',
-  'stop.header.chipLabel': '{n} sessions stopped by the usage limit',
-  'stop.header.head': 'Stopped by the {kind} usage limit · Resets at {time}',
-  'stop.header.headOther': 'Stopped by the usage limit · Resets at {time}',
   'stop.header.gaugeTitle': '{label}: usage limit · Resets at {time}',
 };

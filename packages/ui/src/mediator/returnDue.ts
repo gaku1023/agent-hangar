@@ -5,7 +5,7 @@ import type { Effect, Input, State, Step } from './types.ts';
  * returnDue 領域：時刻つきの Paused が、その時刻を過ぎたことの知らせ。
  * 過ぎたものの一覧は、ストアと時計を持つランタイムが届ける（return.due）。
  * 新しく過ぎたものに通知の効果（OS の通知）を出す。知らせるのは戻る時点ごとに 1 回だけである。
- * 右下の札は入力待ちだけなので、画面の知らせはここでは持たない。ベルの一覧の行は、事実から Presenter が組む（presenters/notices.ts）。
+ * 右下の札は入力待ちだけなので、画面の知らせはここでは持たない。リマインダーの行は、ホームの帯が事実から組む（presenters/home.ts）。
  * 日付だけの Paused は知らせない（Home の「今日戻る」に朝から出ている）。
  */
 

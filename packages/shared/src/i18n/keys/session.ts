@@ -12,6 +12,7 @@ export const sessionKeys = {
   'session.status.reasonMustBeString': [],
   'session.status.returnOnMustBeString': [],
   'session.status.returnTimeMustBeString': [],
+  'session.status.autoConfirmed': ['n', 'days'],
   'session.status.noteEmpty': [],
   'session.status.noteTooLong': ['max'],
   'session.status.returnOnInvalid': [],

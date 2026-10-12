@@ -1,4 +1,4 @@
-import { isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy } from '@agent-hangar/shared';
+import { candidateExpired, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, STATE_NOTE_MAX, type CandidateSource, type SessionCandidateDto, type SessionStateDto, type SessionStatus, type StateSetBy } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { MessageError, msg, type Message } from '../i18n/message.ts';
@@ -135,6 +135,36 @@ export function markAutoDone(db: Db, deviceId: string, sessionId: string, now = 
   if (cur && (cur.status !== null || cur.rejected_at !== null || visibleCandidate(cur)?.status === 'paused')) return false;
   write(db, deviceId, sessionId, { status: 'done', note: null, return_on: null, return_time: null, set_by: 'import', set_at: now, ...NO_CANDIDATE });
   return true;
+}
+
+/**
+ * 放っておかれた提案を片付ける（2026-10-13 の決定、知らせの 9d）。
+ * 提案から CANDIDATE_EXPIRE_DAYS 日たった Done の提案は、提案の理由のまま Done にする。利用者が決めたものではないので set_by は import にする（自動の Done と同じ印）。
+ * 同じだけたった Paused の提案は、戻る日の当てが外れているので消し、却下と同じく rejected_at を刻む（新しい発言までは出し直さない）。
+ * 対象は、この端末が持つ（home_device）セッションだけである。他の端末のものは、その端末に任せる（自動の Done と同じ）。
+ * 状態が付いていて見えない提案は触らない。
+ */
+export function expireCandidates(db: Db, deviceId: string, now = Date.now()): { confirmed: string[]; dropped: string[] } {
+  const rows = db.prepare(`
+    select st.* from session_states st
+    join sessions s on s.id = st.session_id and s.deleted_at is null and s.home_device = ?
+    where st.deleted_at is null and st.status is null and st.candidate_at is not null and st.candidate_at <= ?
+    order by st.candidate_at, st.session_id
+  `).all(deviceId, now - CANDIDATE_EXPIRE_DAYS * 86_400_000) as StateRow[];
+  const confirmed: string[] = [];
+  const dropped: string[] = [];
+  for (const r of rows) {
+    const cand = visibleCandidate(r);
+    if (!cand || !candidateExpired(cand.at, now)) continue;
+    if (cand.status === 'done') {
+      write(db, deviceId, r.session_id, { status: 'done', note: cand.note, return_on: null, return_time: null, set_by: 'import', set_at: now, ...NO_CANDIDATE });
+      confirmed.push(r.session_id);
+    } else {
+      write(db, deviceId, r.session_id, { ...NO_CANDIDATE, rejected_at: now });
+      dropped.push(r.session_id);
+    }
+  }
+  return { confirmed, dropped };
 }
 
 export type ProposeStateOutcome = 'proposed' | 'set' | 'rejected_before' | 'already_set';

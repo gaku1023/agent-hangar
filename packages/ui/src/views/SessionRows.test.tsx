@@ -381,7 +381,7 @@ describe('セッションの状態の札と「⋯」', () => {
     mount([
       sr('a', { live: 'waiting' }),
       sr('b', { live: 'idle' }),
-      sr('c', { state: 'done', setBy: 'conversation' }),
+      sr('c', { state: 'done', setBy: 'conversation', statusTitle: '完了したもの · 会話で承認' }),
       sr('d', { state: 'archived', setBy: 'user' }),
       sr('e', { state: 'paused', returnOn: '2026-09-29', overdueDays: 2, returnDue: true, summaryState: { label: '済んだ', tone: null } }),
       sr('f', { state: 'paused', returnOn: '2026-10-02', overdueDays: null }),
@@ -390,7 +390,8 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(screen.getByText('実行中')).toHaveAttribute('data-live', 'busy');
     const status = (name: string) => rowOf(name).querySelector('.row-status')!;
     expect(status('名前 c')).toHaveTextContent('Done');
-    expect(screen.getByText('Done')).toHaveAttribute('title', '会話で承認');
+    // 札の説明（と会話で承認したこと）はツールチップで添える。説明は Presenter が決める（statusMark）。
+    expect(screen.getByText('Done')).toHaveAttribute('title', '完了したもの · 会話で承認');
     expect(status('名前 d')).toHaveTextContent('Archived');
     expect(screen.getByText('Archived')).not.toHaveAttribute('title');
     expect(status('名前 e')).toHaveTextContent('Paused');
@@ -407,6 +408,19 @@ describe('セッションの状態の札と「⋯」', () => {
     expect(when('名前 c')).toHaveTextContent('3 分前');
     // Paused の行も 2 段目の頭は要約の見立てになる。
     expect(rowOf('名前 e').querySelector('.row-sub > .row-state')).toHaveTextContent('済んだ');
+  });
+  // 自動で付いた Done は、札の頭に ✦ を置き、枠を点線にし、理由はツールチップで言う（2026-10-13 の決定、4a、試作の A）。
+  it('自動で付いた Done の札は印と点線の枠で見分け、手で付けた Done には付けない', () => {
+    mount([sr('a', { state: 'done', setBy: 'import', autoDone: true, statusTitle: 'hangar が自動で Done にしました（3 ターン以下で止まった会話）' }), sr('b', { state: 'done', setBy: 'user', statusTitle: '完了したもの' })]);
+    const auto = rowOf('名前 a').querySelector('.row-sq')!;
+    expect(auto).toHaveAttribute('data-auto', 'true');
+    expect(auto).toHaveTextContent('Done');
+    expect(auto.querySelector('.icon')).toHaveAttribute('data-icon', 'autoMark');
+    expect(auto).toHaveAttribute('title', 'hangar が自動で Done にしました（3 ターン以下で止まった会話）');
+    const manual = rowOf('名前 b').querySelector('.row-sq')!;
+    expect(manual).not.toHaveAttribute('data-auto');
+    expect(manual.querySelector('.icon')).toBeNull();
+    expect(rowsCss).toMatch(/\.row-sq\[data-auto\] \{[^}]*dashed/);
   });
   it('戻る日が無い Paused の行は、時刻の列に塗りの「日付なし」を出す', () => {
     mount([sr('a', { state: 'paused', returnOn: null, overdueDays: null, returnDue: true })]);

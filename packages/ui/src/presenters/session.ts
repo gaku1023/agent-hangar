@@ -17,6 +17,7 @@ import { translatorOf } from './i18n.ts';
 import { interruptMark } from './interrupted.ts';
 import { presentOverlap, type OverlapProps } from './overlap.ts';
 import { projectDisplayName } from './projectName.ts';
+import { statusMark } from './row.ts';
 import { permissionLabel } from '../views/primitives/permissionModel.ts';
 import { bandsOf, presentNowCard, resultsOf, type NowCardProps } from './live.ts';
 import { buildTurns } from './turns.ts';
@@ -295,7 +296,8 @@ function changedFilesOf(events: TranscriptEvent[], results: Map<string, ToolResu
 export type LeadFileRow = { path: string; dir: string; base: string; created: boolean; added: number | null; removed: number | null; edits: string; byAgent: string | null; openLabel: string };
 export type LeadCardProps = {
   label: string;
-  status: { value: 'active' | 'paused' | 'done' | 'archived'; label: string; since: string | null };
+  /** title は札のツールチップ（日本語の説明、自動の Done はその理由）、auto は hangar が自動で付けた Done（札に ✦ と点線の枠）。 */
+  status: { value: 'active' | 'paused' | 'done' | 'archived'; label: string; since: string | null; title: string; auto: boolean };
   /** 終了の文。区切りを付けたので止めたときは stopped を、中断したときは interrupted を出すので null。 */
   ended: string | null;
   /** 中断の文（「PC の再起動で中断 · 10/12 03:12」）。ステータスの無いセッションで、最後の run が中断で終わったときだけ。 */
@@ -376,7 +378,7 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
   const sourceParts = sum ? [t(SUMMARY_SOURCE_KEY[sum.source]), summarizerLabel(sum.sourceId, sum.sourceModel, t)].filter((x): x is string => !!x) : [];
   return {
     label: t('session.lead.label'),
-    status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null },
+    status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null, ...statusMark(t, s.state, s.stats, s.summary) },
     ended: stopped || interrupted ? null : t('session.lead.ended', { when: relativeTime(t, s.lastActivityAt, i.now) }),
     stopped,
     interrupted,

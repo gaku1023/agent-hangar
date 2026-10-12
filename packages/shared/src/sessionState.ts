@@ -13,6 +13,23 @@ export type SessionCandidateDto = { status: 'paused' | 'done'; note: string | nu
 export type SessionStateDto = { status: SessionStatus | null; note: string | null; returnOn: string | null; returnTime: string | null; setBy: StateSetBy | null; setAt: number | null; candidate: SessionCandidateDto | null };
 /** 理由と根拠の上限。字数は文字単位（Array.from）で数える。 */
 export const STATE_NOTE_MAX = 200;
+/**
+ * 提案を放っておける日数（2026-10-13 の決定、知らせの 9d）。
+ * これを過ぎた Done の提案はサーバが自動で確定し（set_by は import）、Paused の提案は消す（却下として扱う）。
+ * 画面は、Done の提案の行に残りの日数（「あと N 日で確定」）を出す。
+ */
+export const CANDIDATE_EXPIRE_DAYS = 7;
+const CANDIDATE_EXPIRE_MS = CANDIDATE_EXPIRE_DAYS * 86_400_000;
+
+/** 提案が放っておかれて期限を過ぎたか。at は提案の時刻。 */
+export function candidateExpired(at: number, now: number): boolean {
+  return now - at >= CANDIDATE_EXPIRE_MS;
+}
+
+/** Done の提案が自動で確定するまでの残りの日数（切り上げ、0 以上）。 */
+export function candidateDaysLeft(at: number, now: number): number {
+  return Math.max(0, Math.ceil((at + CANDIDATE_EXPIRE_MS - now) / 86_400_000));
+}
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const DAY_MS = 86_400_000;
