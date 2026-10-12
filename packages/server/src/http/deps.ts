@@ -7,6 +7,8 @@ import type { Message } from '../i18n/message.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import type { MemoStore } from '../projects/memo.ts';
+import type { PermissionAsks } from '../sessions/permissionAsks.ts';
+import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
@@ -68,6 +70,10 @@ export type AppDeps = {
    * 渡さなければ、ここで作る。
    */
   digester?: Pick<LiveDigester, 'digest'>;
+  /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。登録の読み直しが許可待ちの札の中身として足す。無ければ預けない。 */
+  permissionAsks?: Pick<PermissionAsks, 'put'>;
+  /** デスクトップ通知の並び（sessions/stopNotices.ts）。殻が `GET /api/notify/feed` で読む。無ければ経路を持たない。 */
+  osNotices?: Pick<OsNoticeFeed, 'wait'>;
   /** 表の変化に対応しない知らせ（トースト）を渡す先。行のイベントは渡さない。行を書けば、配る層（events/publisher.ts）が配る。 */
   hub: { broadcast(ev: NoticeEvent): void };
   runs: RunsApi;

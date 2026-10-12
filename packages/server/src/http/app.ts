@@ -7,6 +7,7 @@ import { accountsRoutes, type AccountsDeps } from './accounts.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 import type { AppDeps } from './deps.ts';
 import { artifactRoutes } from './routes/artifacts.ts';
+import { notifyRoutes } from './routes/notify.ts';
 import { bootstrapRoutes } from './routes/bootstrap.ts';
 import { beforeLaunchOf } from './routes/common.ts';
 import { instructionRoutes } from './routes/instructions.ts';
@@ -133,10 +134,11 @@ export function createApp(deps: AppDeps): Hono {
   memoRoutes(api, deps);
   instructionRoutes(api, deps);
   artifactRoutes(api, deps);
+  notifyRoutes(api, deps);
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, language }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, language, ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}) }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);

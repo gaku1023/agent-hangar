@@ -1,4 +1,4 @@
-import { splitFtsTokens, toFtsQuery, type LiveFilter, type SearchHitDto, type SearchParamsDto, type SearchResultDto } from '@agent-hangar/shared';
+import { matchesStopFilter, splitFtsTokens, toFtsQuery, type LiveFilter, type StopReason, type SearchHitDto, type SearchParamsDto, type SearchResultDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 
 const DEFAULT_LIMIT = 50;
@@ -44,7 +44,7 @@ export function likeSnippet(text: string, token: string): string {
  * 動き（実行中、入力待ち、終了）の判定は DB に無いので、hangar の id と provider_session_id から状態を返す関数を第三引数で受ける。
  * 渡されなければ、どのセッションも終了とみなす。
  */
-export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (sessionId: string, providerSessionId: string) => LiveFilter = () => 'ended'): SearchResultDto {
+export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (sessionId: string, providerSessionId: string) => LiveFilter = () => 'ended', stopOf: (sessionId: string, providerSessionId: string) => StopReason | null = () => null): SearchResultDto {
   const { long, short } = splitFtsTokens(params.q);
   const match = long.length > 0 ? toFtsQuery(params.q) : null;
   const hasText = match !== null || short.length > 0;
@@ -77,7 +77,9 @@ export function searchSessions(db: Db, params: SearchParamsDto, liveOf: (session
   // 「すべて」のタブで条件を入れたときは、Archived（試し・失敗）を除く。
   if (params.hideArchived && params.status === undefined) where.push(`not ${stateIs("st.status = 'archived'")}`);
   // 動きの絞り込みは、呼ぶ側の liveOf で決める。無ければ liveOf を呼ばない。
-  const keep = (r: { sid: string; psid: string }) => params.live === undefined || liveOf(r.sid, r.psid) === params.live;
+  // 止まっている理由（許可待ち、使用制限）も同じく、呼ぶ側の stopOf で決める。
+  const keep = (r: { sid: string; psid: string }) => (params.live === undefined || liveOf(r.sid, r.psid) === params.live)
+    && (params.stop === undefined || matchesStopFilter(stopOf(r.sid, r.psid), params.stop));
   if (!hasText) {
     // 本文の条件が無いので、セッションを直接並べる。件数はそのファイルに触れたイベントの数にする。
     const sql = `select s.id sid, s.provider_session_id psid, (select count(*) from event_index e where e.session_id = s.id and e.file_path like ? escape '\\') n from sessions s where ${where.join(' and ')} order by s.last_activity_at desc`;

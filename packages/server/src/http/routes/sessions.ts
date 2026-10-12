@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Context, Hono } from 'hono';
-import { liveFilterOf, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
 import { getProject, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/indexFile.ts';
@@ -9,6 +9,7 @@ import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
+import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
@@ -83,6 +84,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   api.get('/search', (c) => {
     const q = c.req.query();
     const live = q.live === 'running' || q.live === 'waiting' || q.live === 'ended' ? q.live : undefined;
+    const stop = q.stop === 'permission' || q.stop === 'limited' ? q.stop : undefined;
     const status = q.status && STATUS_FILTERS.has(q.status) ? (q.status as NonNullable<SearchParamsDto['status']>) : undefined;
     const hideArchived = q.hideArchived === 'true' || q.hideArchived === '1';
     // 数え方は UI と同じ liveFilterOf に任せる。
@@ -93,8 +95,10 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const parked = new Set(parkedSessionIds(db, deps.live(), deviceId));
     // 問いで待っている最中に Done や Archived にしたものは、入力待ちに数えない（shared の quietLive。UI の数え方と同じ）。
     const settled = new Map((db.prepare("select session_id id, status from session_states where status in ('done', 'archived') and deleted_at is null").all() as { id: string; status: SessionStatus }[]).map((r) => [r.id, r.status]));
-    const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveStatus.get(psid) ?? null, settled.get(sid)), alive.has(sid), parked.has(sid));
-    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf));
+    // 自動で続かずにリセットを過ぎたもの（リセット済み）は、入力待ちに数える（shared の liveWithLimit。UI の数え方と同じ）。
+    const stops = stopReasonsOf(db, deps.live(), Date.now());
+    const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveWithLimit(liveStatus.get(psid) ?? null, stops.limit(psid)), settled.get(sid)), alive.has(sid), parked.has(sid));
+    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, stop, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf, (_sid, psid) => stops.reason(psid)));
   });
 
   // 本文を送らなければ作業ディレクトリを開く。

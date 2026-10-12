@@ -29,6 +29,25 @@ export const KNOWN_ASSISTANT_BLOCKS: ReadonlySet<string> = new Set(['text', 'thi
  * そこで、知らない種類は、queued_command と同じく文字の prompt を持つときだけずれにする。queued_command の改名を捕まえるためである。
  */
 export const READ_ATTACHMENT_TYPE = 'queued_command';
+/**
+ * 使用制限の合成の行（error が rate_limit）の quotaLimits.rateLimitType として知っている値。
+ * 読む側（transcript/limit.ts）は five_hour を 5 時間、seven_day で始まるものを週として言い分け、ほかは枠の名前を出さない。
+ */
+export const KNOWN_RATE_LIMIT_TYPES: ReadonlySet<string> = new Set(['five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet']);
+
+/**
+ * 使用制限の行の形。quotaLimits を持つ rate_limit の行だけを見る。
+ * quotaLimits を持たない rate_limit（一時の混雑、組織の方針）は使用制限ではないので見ない。
+ */
+function rateLimitDrifts(raw: Record<string, unknown>): Drift[] {
+  if (raw.error !== 'rate_limit' || !isRec(raw.quotaLimits)) return [];
+  const q = raw.quotaLimits;
+  const out: Drift[] = [];
+  if (typeof q.resetsAt !== 'number') out.push(d('rate_limit.resetsAt=(missing)'));
+  if (typeof q.rateLimitType !== 'string') out.push(d('rate_limit.rateLimitType=(missing)'));
+  else if (!KNOWN_RATE_LIMIT_TYPES.has(q.rateLimitType)) out.push(d(`rate_limit.rateLimitType=${q.rateLimitType}`));
+  return out;
+}
 
 const d = (value: string): Drift => ({ contract: 'transcript', value, version: null });
 
@@ -53,10 +72,11 @@ export function transcriptDrifts(raw: unknown): Drift[] {
     if (a.type === READ_ATTACHMENT_TYPE) return [];
     return typeof a.prompt === 'string' ? [d(`attachment.type=${a.type}`)] : [];
   }
+  const limit = type === 'assistant' ? rateLimitDrifts(raw) : [];
   const content = isRec(raw.message) ? raw.message.content : undefined;
-  if (!Array.isArray(content)) return [];
+  if (!Array.isArray(content)) return limit;
   const known = type === 'user' ? KNOWN_USER_BLOCKS : KNOWN_ASSISTANT_BLOCKS;
-  const out: Drift[] = [];
+  const out: Drift[] = [...limit];
   const seen = new Set<string>();
   for (const b of content) {
     const bt = isRec(b) && typeof b.type === 'string' ? b.type : '(missing)';
@@ -82,6 +102,7 @@ export function isTranscriptDrift(value: string): boolean {
     case 'attachment.type': return got !== READ_ATTACHMENT_TYPE;
     case 'user.content': return !KNOWN_USER_BLOCKS.has(got);
     case 'assistant.content': return !KNOWN_ASSISTANT_BLOCKS.has(got);
+    case 'rate_limit.rateLimitType': return !KNOWN_RATE_LIMIT_TYPES.has(got);
     default: return true;
   }
 }

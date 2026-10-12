@@ -46,6 +46,21 @@ describe('readRegistry', () => {
       ]);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
+  it('入力待ちの waitingFor を、許可・問い・そのほかに読み替えて写す。入力待ちでなければ写さない', () => {
+    const dir = copyFixtureClaudeDir();
+    try {
+      const sessions = path.join(dir, 'sessions');
+      fs.rmSync(path.join(sessions, '12345.json'));
+      fs.writeFileSync(path.join(sessions, '1.json'), JSON.stringify({ pid: 1, sessionId: 'u-p', cwd: '/a', status: 'waiting', waitingFor: 'permission prompt' }));
+      fs.writeFileSync(path.join(sessions, '2.json'), JSON.stringify({ pid: 2, sessionId: 'u-q', cwd: '/b', status: 'waiting', waitingFor: 'input needed' }));
+      fs.writeFileSync(path.join(sessions, '3.json'), JSON.stringify({ pid: 3, sessionId: 'u-d', cwd: '/c', status: 'waiting', waitingFor: 'dialog open' }));
+      // 抜けた後に値が残っていても、入力待ちでなければ写さない。
+      fs.writeFileSync(path.join(sessions, '4.json'), JSON.stringify({ pid: 4, sessionId: 'u-i', cwd: '/d', status: 'idle', waitingFor: 'permission prompt' }));
+      expect(readRegistry(dir).map((l) => [l.sessionId, l.waitingFor])).toEqual([['u-d', 'other'], ['u-i', undefined], ['u-p', 'permission'], ['u-q', 'question']]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it('動きが変わった時刻（statusUpdatedAt）があれば statusAt に写す', () => {
     const dir = copyFixtureClaudeDir();
     try {

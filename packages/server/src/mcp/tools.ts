@@ -1,4 +1,4 @@
-import { localDate, localTime, returnAtIso, returnAtMs, type LaunchParams, type LiveSessionDto, type ProjectDto, type ProjectStatus, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
+import { localDate, localTime, returnAtIso, returnAtMs, type LaunchParams, type LiveSessionDto, type PermissionAskDto, type ProjectDto, type ProjectStatus, type SessionDto, type SessionStateDto, type SummaryState, type TranscriptEvent, type UsageDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../artifacts/queries.ts';
 import type { AccountStore } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
@@ -24,6 +24,8 @@ export type ToolDeps = {
   accounts?: { store: Pick<AccountStore, 'list' | 'current'>; usage: { of(accountId: string): UsageDto } };
   /** 道具の説明と結果の文の言語。渡さなければ日本語で出す。 */
   language?: GetLanguage;
+  /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。無ければ許可の確認は読まない。 */
+  permissionAsks?: { put(providerSessionId: string, ask: PermissionAskDto, now: number): void };
 };
 /** セッション別 URL では、そのセッションに固定される。共通 URL では null。 */
 export type ToolContext = { sessionId: string | null };

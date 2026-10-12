@@ -409,6 +409,33 @@ describe('セッションの状態', () => {
   });
 });
 
+describe('止まっている理由（waitingFor、permission、limit）', () => {
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  const one = (o: Partial<LiveSessionDto>): LiveSessionDto[] => [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/Users/me/workspace/alpha', pid: 1, ...o }];
+  const RESETS = 1_800_000_000_000;
+  const putLimit = (auto = 1) => db.prepare('insert or replace into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)').run(alphaId(), 'five_hour', RESETS, auto, RESETS - 3_600_000);
+
+  it('登録の waitingFor と許可の中身を写す。無ければ null', () => {
+    const ask = { tool: 'Bash', input: 'npm test', description: null };
+    expect(getSession(db, one({ status: 'waiting', waitingFor: 'permission', permission: ask }), alphaId())).toMatchObject({ waitingFor: 'permission', permission: ask });
+    expect(getSession(db, one({ status: 'busy' }), alphaId())).toMatchObject({ waitingFor: null, permission: null });
+  });
+  it('使用制限の行は実行中のときだけ載せ、猶予を過ぎたら reset にする', () => {
+    putLimit();
+    expect(getSession(db, one({}), alphaId(), { now: () => RESETS - 1000 })!.limit).toEqual({ kind: 'five_hour', resetsAt: RESETS, auto: true, reset: false });
+    expect(getSession(db, one({}), alphaId(), { now: () => RESETS + 90_000 })!.limit).toMatchObject({ reset: true });
+    expect(getSession(db, [], alphaId())!.limit).toBeNull();
+    expect(listSessions(db, one({}), { now: () => RESETS - 1000 }).find((s) => s.id === alphaId())!.limit).toMatchObject({ kind: 'five_hour' });
+  });
+  it('使用制限で止まっている間は、区切りを付けていても parked にしない。猶予を過ぎたら parked に戻る', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
+    db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, pid, launch_params, started_at, heartbeat_at, updated_at, origin_device) values ('r1', ?, 'd', 'start', 'h', null, '{}', 1000, 1000, 1000, 'd')").run(alphaId());
+    putLimit(0);
+    expect(getSession(db, one({}), alphaId(), { deviceId: 'd', now: () => RESETS - 1000 })!.parked).toBe(false);
+    expect(getSession(db, one({}), alphaId(), { deviceId: 'd', now: () => RESETS + 90_000 })!.parked).toBe(true);
+  });
+});
+
 describe('区切りを付けて休みのまま残っているセッション（parked）', () => {
   const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
   // 登録の procStart は UTC の ps の lstart で、秒までしか持たない。

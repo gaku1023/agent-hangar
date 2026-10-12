@@ -57,6 +57,7 @@ import { readinessKeys } from './keys/readiness.ts';
 import { compatKeys } from './keys/compat.ts';
 import { dbKeys } from './keys/db.ts';
 import { updateKeys } from './keys/update.ts';
+import { stopKeys } from './keys/stop.ts';
 
 /**
  * 文言の鍵の一覧。鍵ごとに、その文が受け取る引数の名前を並べる。
@@ -130,6 +131,7 @@ export const MESSAGES = {
   ...compatKeys,
   ...dbKeys,
   ...updateKeys,
+  ...stopKeys,
 } as const satisfies MessageSpec;
 
 export type MessageKey = keyof typeof MESSAGES;

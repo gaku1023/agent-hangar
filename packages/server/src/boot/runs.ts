@@ -16,6 +16,7 @@ import { RunAccounts } from '../runs/accounts.ts';
 import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { ParkWatch, parkedSessionIds } from '../sessions/park.ts';
+import { StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
@@ -25,6 +26,11 @@ import type { HomeParts } from './home.ts';
 
 /** tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
+/**
+ * デスクトップ通知の見張りの間隔。登録の読み直し（500 ミリ秒）と同じにする。
+ * 登録が変わったときにも見るので、この周期が拾うのは、問いの文や許可の中身が後から届いたときと、リセットの時刻を過ぎたときである。
+ */
+const NOTICE_POLL_MS = 500;
 
 /** 設定の tmux のパスから、tmux の口を作る。パスが無ければ null で、起動は使えない。 */
 export function tmuxOf(s: Pick<Settings, 'tmuxPath'>): Tmux | null {
@@ -51,13 +57,13 @@ export type RunsParts = {
   external: ExternalApi;
   readiness(): Promise<ReadinessDto>;
   compat(): Promise<CompatDto>;
-  /** 実行中の一覧の最初の読み取りを覚える。最初の読み取りは onChange を通らない。 */
+  /** 実行中の一覧の最初の読み取りを覚える。最初の読み取りは onChange を通らない。通知の見張りも、このときの入力待ちと使用制限を知らせ終えたものとして覚える。 */
   primeLive(): void;
   /** 前回の終了時に生きていた run の回復と、run の終了の見張り、休みの見張りを始める。 */
   start(): void;
   /** 自端末の生存を devices に刻み、周期で刻み続ける。 */
   startPresence(): void;
-  /** 休みの見張りの周期を止める。 */
+  /** 休みの見張りと、デスクトップ通知の見張りの周期を止める。 */
   stopParkTimer(): void;
   /** 生存の刻みの周期を止める。 */
   stopPresence(): void;
@@ -72,7 +78,7 @@ export type RunsParts = {
  */
 export function bootRuns(
   home: Pick<HomeParts, 'home' | 'token' | 'db' | 'device' | 'claudeDir' | 'settings' | 'language' | 'life'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog' | 'claudeVersion' | 'osNotices'>,
   listening: { host: string; port: number },
   o: { serverDir: string; launcher?: string },
 ): RunsParts {
@@ -133,8 +139,18 @@ export function bootRuns(
   announceAccountsOnRunStarted(runs, accounts);
   const liveChange = createLiveChangeHandler({ db, deviceId: device.id, hub, resetPark: (id) => parkWatch.reset(id), linkRegistry: (live) => runs.linkRegistry(live) });
   registry.onChange(liveChange.onChange);
+  // デスクトップ通知のきっかけ（入力待ち、許可待ち、使用制限、リセット済み）。殻が GET /api/notify/feed で読む。
+  const stopNotices = new StopNoticeWatch({
+    db, deviceId: device.id, live: () => registry.current(), language: home.language, feed: delivery.osNotices,
+    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id) }, providerSessionId),
+  });
+  const noticeTick = (): void => {
+    try { stopNotices.tick(); } catch (e) { console.error('[notify]', e instanceof Error ? e.message : e); }
+  };
+  registry.onChange(noticeTick);
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;
+  let noticeTimer: ReturnType<typeof setInterval> | null = null;
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
   return {
     runs, usage, accounts, claudeBin, localClaude,
@@ -152,7 +168,7 @@ export function bootRuns(
       compatLocalVersion: localClaude.refreshVersion,
     }),
     compat: localClaude.compat,
-    primeLive: () => liveChange.prime(registry.current()),
+    primeLive: () => { liveChange.prime(registry.current()); noticeTick(); },
     start() {
       // 前回の終了時に生きていた run のうち、tmux セッションが残っていないものを lost で閉じる。
       const lost = runs.recoverAtStartup();
@@ -167,13 +183,15 @@ export function bootRuns(
         }
       }, RUN_POLL_MS);
       parkTimer.unref();
+      noticeTimer = setInterval(noticeTick, NOTICE_POLL_MS);
+      noticeTimer.unref();
     },
     startPresence() {
       touch();
       deviceTimer = setInterval(touch, DEVICE_TOUCH_MS);
       deviceTimer.unref();
     },
-    stopParkTimer() { if (parkTimer) clearInterval(parkTimer); },
+    stopParkTimer() { if (parkTimer) clearInterval(parkTimer); if (noticeTimer) clearInterval(noticeTimer); },
     stopPresence() { if (deviceTimer) clearInterval(deviceTimer); },
   };
 }

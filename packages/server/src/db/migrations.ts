@@ -386,6 +386,25 @@ alter table session_notes drop column memo;
 `;
 
 /**
+ * 版 22。使用制限で止まっているセッション（session_limits）。端末ローカルで、同期しない。
+ *
+ * 索引が主線の本文の合成の行（error が rate_limit）から書き、次の指示か返答が載ったら消す（provider/claude-code/transcript/limit.ts）。
+ * セッションが実行中から外れたときも消す（sessions/liveChange.ts）。再開した後に、前の run の使用制限を出さないためである。
+ * - kind は枠（five_hour、weekly、other）、resets_at はリセットの時刻（ミリ秒）、hit_at は当たった時刻（ミリ秒）。
+ * - auto は、Claude Code が自動の続きを予約したと本文に書いたこと（1 か 0）。
+ * session_activity とは分ける。activity はツールの呼び出しが無いと行を持たないが、使用制限は呼び出しの前にも当たる。
+ */
+const V22_SESSION_LIMITS_SQL = `
+create table session_limits (
+  session_id text primary key,
+  kind text not null,
+  resets_at integer not null,
+  auto integer not null default 0,
+  hit_at integer not null
+);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -397,4 +416,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 19, sql: V19_DROP_LEGACY_CONFIG_SQL },
   { version: 20, sql: V20_TODO_SUGGESTION_SQL },
   { version: 21, sql: V21_DROP_SESSION_MEMO_SQL },
+  { version: 22, sql: V22_SESSION_LIMITS_SQL },
 ];

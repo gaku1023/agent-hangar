@@ -77,6 +77,14 @@ describe('searchSessions', () => {
     expect(searchSessions(db, { q: 'ls', until: Date.parse('2026-09-02T00:00:00Z') }).total).toBe(1);
     expect(searchSessions(db, { q: '%' }).total).toBe(0);
   });
+  it('止まっている理由で絞る（is:permission、is:limited）', () => {
+    const stopOf = (_sid: string, psid: string) => (psid === SESSION_ALPHA ? 'permission' as const : null);
+    expect(searchSessions(db, { q: 'channels', stop: 'permission' }, undefined, stopOf).total).toBe(1);
+    expect(searchSessions(db, { q: 'channels', stop: 'limited' }, undefined, stopOf).total).toBe(0);
+    const reset = () => 'reset' as const;
+    expect(searchSessions(db, { q: 'channels', stop: 'limited' }, undefined, reset).total).toBe(1);
+  });
+
   it('プロジェクト、期間、実行中、ファイルで絞る', () => {
     upsertShared(db, 'projects', { id: 'p1', name: 'alpha', status: 'active', is_scratch: 0 }, 'd');
     const alpha = db.prepare('select * from sessions where id = ?').get(idOf(SESSION_ALPHA)) as Record<string, unknown>;

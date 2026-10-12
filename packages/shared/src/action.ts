@@ -21,7 +21,9 @@ export type ProjectRailSection = (typeof PROJECT_RAIL_SECTIONS)[number];
  * status はセッションの状態のタブ（★）。active は状態が無いもの（動いているかは問わない）、proposed は Claude の提案が残っているもの。
  * 無ければ「すべて」で、条件を入れたときだけ Archived を除く（presenters/sessions.ts と、サーバの検索の hideArchived）。
  */
-export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
+/** 止まっている理由の絞り込み（is:permission、is:limited）。limited は使用制限とリセット済みの両方である（shared の matchesStopFilter）。 */
+export type StopFilter = 'permission' | 'limited';
+export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; stop?: StopFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string };
