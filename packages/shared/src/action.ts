@@ -101,6 +101,17 @@ export type UiAction =
   | { type: 'session.openFile'; sessionId: SessionId; path: string }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
+  /**
+   * 中断の群（ホームの帯の「前回実行中」）。resume は渡したセッションを順番待ちに足し、同時に 2 本まで再開する（画面は移さない）。
+   * cancel は順番待ちのものだけを外す（再開しかけたものは止めない）。dismiss は「再開しない」（dismissed が偽なら元に戻す）。
+   */
+  | { type: 'interrupted.resume'; ids: SessionId[] } | { type: 'interrupted.cancel' }
+  | { type: 'interrupted.dismiss'; runIds: RunId[]; dismissed: boolean; name?: string }
+  /**
+   * 同じファイルの編集の警告。dismiss は相手（with）とパスの組で「このファイルでは表示しない」にする。
+   * worktree は、そのセッションのプロジェクトで、worktree の札に名前を入れた新しいセッションのダイアログを開く。
+   */
+  | { type: 'overlap.dismiss'; sessionId: SessionId; with: SessionId; paths: string[] } | { type: 'overlap.worktree'; sessionId: SessionId }
   | { type: 'sync.joinToken.show' }
   /**
    * クラウド同期への参加と、PC の解除と、この PC の参加の解除（0.4.0）。殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。

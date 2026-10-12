@@ -538,6 +538,17 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
+      // まとめて再開の 1 本。画面は移さない。起きた run は Store に入れ、順番待ちを進めるのは Mediator である。
+      case 'api.resumeQueued': {
+        const id = e.sessionId;
+        deps.api.resume(id)
+          .then((r) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'resumeQueue.done', sessionId: id } }); })
+          .catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'resumeQueue.failed', sessionId: id, message: errMsg(err) } }));
+        return;
+      }
+      case 'api.dismissInterrupted':
+        deps.api.dismissInterrupted(e.runIds, e.dismissed).then((r) => setStore(applyServerEvent(store, { type: 'interrupted.update', interrupted: r.interrupted }))).catch(fail);
+        return;
       case 'api.attach': deps.api.attach(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.adopt': deps.api.adopt(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.killRun': deps.api.killRun(e.runId).then((run) => setStore(applyServerEvent(store, { type: 'run.ended', run }))).catch(fail); return;

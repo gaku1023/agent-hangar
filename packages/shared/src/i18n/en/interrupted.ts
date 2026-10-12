@@ -1,0 +1,30 @@
+import type { interruptedKeys } from '../keys/interrupted.ts';
+import type { AreaDictionary } from '../messageSpec.ts';
+
+export const interruptedEn: AreaDictionary<typeof interruptedKeys> = {
+  'interrupted.band.label': 'Running before restart',
+  'interrupted.band.summary.restart': 'Interrupted by a PC restart ({time})',
+  'interrupted.band.summary.mux': 'Interrupted when {mux} stopped ({time})',
+  'interrupted.band.resumeAll': 'Resume all',
+  'interrupted.band.close': 'Close',
+  'interrupted.band.cancelRest': 'Cancel the rest',
+  'interrupted.row.was.busy': 'Was working',
+  'interrupted.row.was.waiting': 'Was waiting for input',
+  'interrupted.row.was.idle': 'Was idle',
+  'interrupted.row.queued': 'Queued',
+  'interrupted.row.resuming': 'Resuming',
+  'interrupted.row.failed': 'Failed',
+  'interrupted.row.resume': 'Resume',
+  'interrupted.row.retry': 'Retry',
+  'interrupted.row.skip': 'Don\'t resume',
+  'interrupted.account.loggedOut': 'Not logged in',
+  'interrupted.account.login': 'Log in',
+  'interrupted.account.nearLimit': 'You may hit the usage limit',
+  'interrupted.toast.skipped': '“{name}” won’t be resumed',
+  'interrupted.toast.closed': 'Closed {n} sessions from before the restart',
+  'interrupted.toast.undo': 'Undo',
+  'interrupted.mark.label': 'Interrupted',
+  'interrupted.mark.restart': 'Interrupted by a PC restart · {time}',
+  'interrupted.mark.mux': 'Interrupted when {mux} stopped · {time}',
+  'interrupted.mark.unknown': 'Interrupted · {time}',
+};

@@ -44,10 +44,19 @@ describe('表の鍵', () => {
     expect(Object.keys(actionTable).sort()).toEqual([
       'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
       'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'instructions.load', 'instructions.openEditor', 'memo.save',
-      'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
+      'overlap.dismiss', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
     ]);
+  });
+});
+
+describe('同じファイルの編集', () => {
+  it('「このファイルでは表示しない」は相手とパスを渡し、応答は Store に入れない（写しは session.upsert で消える）', async () => {
+    const dismissOverlap = vi.fn(async () => {});
+    const r = await runRow({ type: 'overlap.dismiss', sessionId: 's1', with: 's2', paths: ['/w/a.ts'] }, fakeApi({ dismissOverlap }));
+    expect(dismissOverlap.mock.calls).toEqual([['s1', 's2', ['/w/a.ts']]]);
+    expect(r.store).toBe(r.during);
   });
 });
 

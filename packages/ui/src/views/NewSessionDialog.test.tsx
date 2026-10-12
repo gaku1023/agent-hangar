@@ -47,6 +47,13 @@ const setName = (value: string) => {
 const prompt = () => screen.getByLabelText('初期プロンプト（任意）');
 
 describe('NewSessionDialog（N2）', () => {
+  it('同じファイルの編集の警告から開いたときは、worktree の札に新しい名前が入り、そのまま起動に載る', () => {
+    const params = collectParams({ projectId: 'p1', worktree: true });
+    expect(chip(/^worktree、parallel-[0-9a-z]+$/)).toBeInTheDocument();
+    start();
+    expect(params[0]?.worktree).toMatch(/^parallel-[0-9a-z]+$/);
+    expect(params[0]?.projectId).toBe('p1');
+  });
   it('選んで起動すると、画面で決めた値が全部 params に載る', () => {
     const params = collectParams();
     pick('プロジェクト', 'alpha');

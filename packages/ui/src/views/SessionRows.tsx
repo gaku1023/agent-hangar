@@ -256,6 +256,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       <span className="row-when">
         {r.transcript === 'expiring' && <span className="row-soon">{t('row.soon.delete')}</span>}
         {r.transcript === 'gone' && <span className="row-gone" title={goneLabel}><Icon name="transcriptGone" label={goneLabel} /></span>}
+        {r.interrupted && <span className="row-interrupted" title={r.interrupted.title}>{r.interrupted.label}<span className="sr-only">{` ${r.interrupted.title}`}</span></span>}
         {r.live && <span className="row-live" data-live={r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{t(LIVE_WORD_KEY[r.live])}</span>}
         <span className="row-act row-more" onClick={stopClick}>
           <MenuButton label={t('row.menu.stateLabel', { name: r.name })} items={stateItems(t, r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />

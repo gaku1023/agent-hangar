@@ -2477,3 +2477,37 @@ describe('連携の書き込み（setup.run）', () => {
     expect(rt.getState().setupRunning).toBeNull();
   });
 });
+
+describe('中断の群（ランタイム）', () => {
+  it('まとめて再開は画面を移さず、起きた run を Store に入れ、断られたら理由を残して次へ進む', async () => {
+    const resume = vi.fn(async (id: string) => {
+      if (id === 's2') throw new Error('作業ディレクトリが見つかりません');
+      return { ...launchResult, run: { ...launchResult.run, id: `r-${id}`, sessionId: id }, sessionId: id };
+    });
+    const { rt, wsHandlers } = harness({ resume });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    const before = rt.getState().screen;
+    rt.emit({ type: 'interrupted.resume', ids: ['s1', 's2', 's3'] });
+    await flush();
+    await flush();
+    expect(resume.mock.calls.map((c) => c[0])).toEqual(['s1', 's2', 's3']);
+    expect(rt.getState().resumeQueue).toEqual({ queued: [], active: [], failed: { s2: '作業ディレクトリが見つかりません' } });
+    expect(rt.getStore().runs['r-s1']).toMatchObject({ sessionId: 's1' });
+    expect(rt.getState().screen).toEqual(before);
+  });
+
+  it('「再開しない」は API へ渡し、返った群を Store に入れる', async () => {
+    const group = { at: 5, cause: 'restart' as const, items: [] };
+    const dismissInterrupted = vi.fn(async () => ({ interrupted: group }));
+    const { rt, wsHandlers } = harness({ dismissInterrupted });
+    rt.start();
+    wsHandlers[0]!.onOpen();
+    await flush();
+    rt.emit({ type: 'interrupted.dismiss', runIds: ['r1'], dismissed: true, name: 'x' });
+    await flush();
+    expect(dismissInterrupted).toHaveBeenCalledWith(['r1'], true);
+    expect(rt.getStore().interrupted).toEqual(group);
+  });
+});

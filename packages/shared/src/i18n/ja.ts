@@ -10,6 +10,8 @@ import { confirmJa } from './ja/confirm.ts';
 import { externalJa } from './ja/external.ts';
 import { headerJa } from './ja/header.ts';
 import { homeJa } from './ja/home.ts';
+import { interruptedJa } from './ja/interrupted.ts';
+import { overlapJa } from './ja/overlap.ts';
 import { httpJa } from './ja/http.ts';
 import { launchJa } from './ja/launch.ts';
 import { listJa } from './ja/list.ts';
@@ -71,6 +73,8 @@ export const ja: Dictionary = {
   ...externalJa,
   ...headerJa,
   ...homeJa,
+  ...interruptedJa,
+  ...overlapJa,
   ...httpJa,
   ...launchJa,
   ...listJa,

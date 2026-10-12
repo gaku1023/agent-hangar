@@ -2,6 +2,7 @@ import { isReturnOn, isReturnTime, overdueDays, returnDue, returnPastMinutes, ty
 import { aliveRunOf, shownAside, shownLive, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
+import { interruptMark } from './interrupted.ts';
 import { projectDisplayName } from './projectName.ts';
 import type { Segment } from './highlight.ts';
 import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.ts';
@@ -35,7 +36,9 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   /** Claude の提案。状態が付いていれば null（サーバの toStateDto が状態を正にしている）。 */
   candidate: { status: 'paused' | 'done'; note: string | null; returnOn: string | null; returnTime: string | null; source: CandidateSource; ago: string } | null;
   /** 状態を誰が付けたか。conversation は会話で利用者が選んだもので、札に「会話で承認」と添える。Active は null。 */
-  setBy: StateSetBy | null };
+  setBy: StateSetBy | null;
+  /** 中断の印（右端の「中断」）。ステータスの無いセッションで、最後の run が中断で終わり、いま終わっているものだけが持つ。title は原因と時刻。 */
+  interrupted?: { label: string; title: string } };
 
 /**
  * 見立ての札を作る。
@@ -72,6 +75,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     setBy: status ? st!.setBy : null,
   };
   if (excerpt) row.excerpt = excerpt;
+  if (s.interrupted && row.live === null && row.runId === null && !status) row.interrupted = interruptMark(t, s.interrupted, now);
   return row;
 }
 

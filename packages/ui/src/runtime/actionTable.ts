@@ -72,6 +72,8 @@ export const actionTable = {
   'session.openFile': (i) => call((api) => api.openEditor(i.sessionId, i.path)),
   // 画面の正は後から届く session.upsert なので、返り値は Store に入れない。
   'session.state.reject': (i) => call((api) => api.rejectSessionState(i.id)),
+  // 同じファイルの編集の「このファイルでは表示しない」。写しは見張りが書き直し、session.upsert で消える。
+  'overlap.dismiss': (i) => call((api) => api.dismissOverlap(i.sessionId, i.with, i.paths)),
   // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
   'summary.regenerate': (i) => call((api) => api.regenerateSummary(i.sessionId)),
 

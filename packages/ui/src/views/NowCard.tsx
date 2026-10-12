@@ -1,7 +1,9 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { CardLane, CardStep, NowCardProps } from '../presenters/live.ts';
+import type { OverlapProps } from '../presenters/overlap.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
+import { OverlapBlock } from './OverlapPopover.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -21,7 +23,7 @@ const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const
  * 背は中身に合わせ、伸びるのはすぐ、縮むのは節目だけにする（useCardHeight と usePhaseKey）。
  * 中身（意図の折り返し、手の数、問い）のたびに縮めると、下の目次が押されて跳ねるためである。
  */
-export function NowCard(props: NowCardProps & { sessionId: string }) {
+export function NowCard(props: NowCardProps & { sessionId: string; overlap?: OverlapProps | null }) {
   const t = useT();
   const dot = props.tone === 'wait' ? 'wait' : props.tone === 'busy' ? 'busy' : props.tone === 'aside' ? 'aside' : 'idle';
   const fresh = useFreshKeys(props.sessionId, props.steps.map((s) => s.key));
@@ -54,6 +56,8 @@ export function NowCard(props: NowCardProps & { sessionId: string }) {
             {props.steps.map((s) => <StepItem key={s.key} step={s} fresh={fresh.has(s.key)} />)}
           </ul>
         )}
+        {/* 同じファイルの編集の 1 節。状態の行は止まっている理由の札に譲り、意図とツール呼び出しの下、数の札の上に置く。 */}
+        {props.overlap && <OverlapBlock overlap={props.overlap} />}
         {(hidden > 0 || props.lanes.count > 0 || props.artifacts.count > 0) && (
           <div className="nc-chips">
             {hidden > 0 && <AllSteps steps={props.stepsAll} hidden={hidden} />}

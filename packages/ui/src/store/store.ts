@@ -2,7 +2,7 @@ import { liveFilterOf, quietLive, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
-import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, InstructionsDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -83,6 +83,8 @@ export type Store = {
   update: UpdateState;
   /** クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除（store/cloudMember.ts）。Runtime が入れる（runtime/cloudMember.ts）。 */
   cloudMember: CloudMemberState;
+  /** 中断の群（ホームの帯の「前回実行中」）。bootstrap と interrupted.update で入る。無ければ null。 */
+  interrupted: InterruptedDto | null;
 };
 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
@@ -98,6 +100,7 @@ export function initialStore(): Store {
     readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
+    interrupted: null,
   };
 }
 
@@ -109,7 +112,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -166,6 +169,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'retention.changed': return { ...store, retention: ev.retention };
+    case 'interrupted.update': return { ...store, interrupted: ev.interrupted };
     case 'settings.changed': return { ...store, settings: ev.settings };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
     // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。

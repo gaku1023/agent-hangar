@@ -10,6 +10,8 @@ import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
 import { headerKeys } from './keys/header.ts';
 import { homeKeys } from './keys/home.ts';
+import { interruptedKeys } from './keys/interrupted.ts';
+import { overlapKeys } from './keys/overlap.ts';
 import { httpKeys } from './keys/http.ts';
 import { launchKeys } from './keys/launch.ts';
 import { listKeys } from './keys/list.ts';
@@ -83,6 +85,8 @@ export const MESSAGES = {
   ...externalKeys,
   ...headerKeys,
   ...homeKeys,
+  ...interruptedKeys,
+  ...overlapKeys,
   ...httpKeys,
   ...launchKeys,
   ...listKeys,

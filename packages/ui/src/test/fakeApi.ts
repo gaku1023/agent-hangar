@@ -12,6 +12,7 @@ type Extras = Pick<
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'renameProject' | 'live' | 'sessionFiles' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
+  | 'dismissInterrupted' | 'dismissOverlap'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -68,6 +69,8 @@ export function fakeApiExtras(): Extras {
     setSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
     confirmSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
     rejectSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
+    dismissInterrupted: vi.fn(async () => ({ interrupted: null })),
+    dismissOverlap: vi.fn(async () => {}),
     memo: vi.fn(async (projectId: string) => ({ projectId, markdown: '', updatedAt: 0 })),
     saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     instructions: vi.fn(async (projectId: string) => ({ projectId, available: true, files: [] })),
