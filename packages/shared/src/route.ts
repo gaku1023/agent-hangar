@@ -1,10 +1,11 @@
 /**
  * 設定の画面で開く先。
- * 節の名前（general、cloud、integrations、summary、tools、update、info）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
+ * 節の名前（general、tools、integrations、summary、update、cloud、info）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
+ * 並びは目次の並びで、上級者向けのベータのクラウド同期は後ろへ下げる（2026-10-13 の決定）。
  * `sync` は、ヘッダーの同期の語が使うクラウド同期の節の別名、`unsent` はその節の「送らなかった項目」の行（ベルの一覧から開く）、`accounts` は連携の節のアカウントの位置である。
  * `workspace`、`tmux`、`claude` はツールの節のパスの欄、`compat` は連携の節の互換性の節、`editor` は一般の節のエディタの欄で、ホームの準備の帯の「設定を開く」が、直す欄を指して開くのに使う。
  */
-export const SETTINGS_SECTIONS = ['general', 'cloud', 'integrations', 'summary', 'tools', 'update', 'info'] as const;
+export const SETTINGS_SECTIONS = ['general', 'tools', 'integrations', 'summary', 'update', 'cloud', 'info'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** 節の中の、1 つの欄（か小さな節）を指す開く先。開いたら、その欄が見える所へ移って目立たせる。 */
 export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor'] as const;

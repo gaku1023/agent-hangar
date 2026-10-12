@@ -266,7 +266,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * 通知を出せるか、受け取るかを Store に入れる。Runtime しか知らない事実なので、Mediator を通さない。
    * blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
    */
-  const setNotify = (available: boolean, on: boolean, blocked = false) => setStore(applyNotify(store, { available, on, blocked }));
+  const setNotify = (available: boolean, on: boolean, blocked = false, ask = false) => setStore(applyNotify(store, { available, on, blocked, ...(ask ? { ask: true as const } : {}) }));
   /** アカウントの応答は、accounts.update の経路に載せる。 */
   const accountsUpdated = (accounts: AccountsDto) => dispatch({ kind: 'server', event: { type: 'accounts.update', accounts } });
 
@@ -536,6 +536,30 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           })
           .catch((err) => dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }));
         return;
+      // 候補のダイアログ（初日のプロジェクト）。取っている間と取れなかったことは、面が Store の folderCandidates から読む。
+      case 'api.folderCandidates':
+        setStore({ ...store, folderCandidates: { status: 'loading' } });
+        deps.api.folderCandidates()
+          .then((data) => setStore({ ...store, folderCandidates: { status: 'ready', data } }))
+          .catch(() => setStore({ ...store, folderCandidates: { status: 'failed' } }));
+        return;
+      // 作成場所を決めてから登録する。先に決めると、その直下は保存のときにサーバが登録するので、登録の側は既にあるものとして返す。
+      // 作成場所の保存に失敗したら、登録はせずに面へ理由を返す。
+      case 'api.registerFolders': {
+        const save = e.workspaceRoot !== null
+          ? deps.api.updateSettings({ workspaceRoot: e.workspaceRoot }).then((s) => setStore({ ...store, settings: s }))
+          : Promise.resolve();
+        save
+          .then(() => (e.paths.length ? deps.api.registerFolders(e.paths) : { projects: [], failed: [] }))
+          .then((r) => {
+            const projects = { ...store.projects };
+            for (const p of r.projects) projects[p.id] = p;
+            setStore({ ...store, projects });
+            dispatch({ kind: 'runtime', event: { type: 'project.candidates.done', registered: r.projects.length, failed: r.failed.map((f) => f.error) } });
+          })
+          .catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'project.candidates.failed', message: errMsg(err) } }));
+        return;
+      }
       // 取れなければ空にする。一覧が出ないだけで、作ることもパスで選ぶこともできる。
       case 'api.workspaceDirs': deps.api.workspaceDirs().then((dirs) => setStore(applyWorkspaceDirs(store, dirs))).catch(() => setStore(applyWorkspaceDirs(store, []))); return;
       case 'desktop.setup': {
@@ -558,8 +582,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'desktop.pickFolder':
         if (!deps.desktop) return;
-        // 取り消したら何もしない。開く場所はワークスペースのルートにする。
-        deps.desktop.pickFolder(store.settings?.workspaceRoot ?? null)
+        // 取り消したら何もしない。開く場所は渡されたもの（アカウントの場所）か、ワークスペースのルートにする。
+        // 作成場所は任意で、空なら OS の既定の場所から開く。
+        deps.desktop.pickFolder(e.defaultPath !== undefined ? e.defaultPath : store.settings?.workspaceRoot || null)
           .then((path) => { if (path) setStore(applyPickedFolder(store, path)); })
           .catch((err: unknown) => failWith(tr()('runtime.shell.pickFolderFailed'), err));
         return;
@@ -635,7 +660,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       }
       case 'notify.return': {
-        // 窓が前にあるときは OS の通知は出さない（ベルの一覧に行がある）。
+        // 窓が前にあるときは OS の通知は出さない（ホームの帯の要対応に行がある）。
         if (!notifier || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
@@ -652,15 +677,17 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
             return;
           }
           // 断られたら、OS で切られているのかを読む。切られていれば、許可の仕方を知らせる。
-          const blocked = (await notifier.status()) === 'denied' && notifier.available();
-          setNotify(notifier.available(), false, blocked);
+          // 答えずに閉じられて、まだ決まっていなければ、始める前の確認の「通知」の行は残す。
+          const s = await notifier.status();
+          const blocked = s === 'denied' && notifier.available();
+          setNotify(notifier.available(), false, blocked, s === 'undetermined' && notifier.available());
           toast(tr()(blocked ? notifyBlockedKey(clientPlatform(), 'toast') : 'runtime.notify.denied'));
         }).catch(fail);
         return;
       case 'notify.off':
-        // その場で切り替えて覚える。許可は求めない。
+        // その場で切り替えて覚える。許可は求めない。受け取らないと決めたので、尋ねる印（ask）も下ろす（始める前の確認の「要らない」）。
         deps.storage.set(NOTIFY_KEY, false);
-        setStore(applyNotify(store, { ...store.notify, on: false }));
+        setStore(applyNotify(store, { available: store.notify.available, on: false, blocked: store.notify.blocked }));
         return;
       case 'badge': notifier?.badge(e.count); return;
       case 'update': updater?.run(e.command); return;
@@ -670,10 +697,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // セッションの状態。画面の正は後から届く session.upsert なので、返り値はストアに入れない。失敗の一文はトーストに出す。
       case 'api.setSessionState': deps.api.setSessionState(e.id, e.body).catch(fail); return;
       case 'api.confirmSessionState': deps.api.confirmSessionState(e.id, e.body).catch(fail); return;
+      case 'api.rejectSessionState': deps.api.rejectSessionState(e.id).catch(fail); return;
       case 'api.loadMemo': deps.api.memo(e.projectId).then((m) => setStore({ ...store, memos: { ...store.memos, [m.projectId]: m } })).catch(fail); return;
       case 'api.loadInstructions': deps.api.instructions(e.projectId).then((d) => setStore({ ...store, instructions: { ...store.instructions, [d.projectId]: d } })).catch(fail); return;
       case 'api.promote':
-        deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles })
+        deps.api.promote(e.sessionId, { name: e.name, gitInit: e.gitInit, moveFiles: e.moveFiles, ...(e.parent ? { parent: e.parent } : {}) })
           .then((r) => {
             setStore({ ...store, projects: { ...store.projects, [r.project.id]: r.project }, sessions: { ...store.sessions, [r.session.id]: r.session } });
             dispatch({ kind: 'runtime', event: { type: 'promote.done', projectId: r.project.id, moved: r.moved, reason: r.reason } });
@@ -741,11 +769,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.accounts.switchSession': deps.api.switchAccount(e.sessionId, e.accountId).then(launched).catch(launchFailed); return;
       case 'api.accounts.add':
         // 追加の直後にログインを始める。新しいアカウントは応答の末尾の 1 件である。
-        deps.api.addAccount(e.name).then((accounts) => {
+        // 断られた理由はダイアログに残す（account.add.failed）。トーストにはしない。
+        deps.api.addAccount(e.name, e.dir).then((accounts) => {
           accountsUpdated(accounts);
+          dispatch({ kind: 'runtime', event: { type: 'account.add.done' } });
           const added = accounts.accounts.at(-1);
           if (added) deps.api.loginAccount(added.id).catch(fail);
-        }).catch(fail);
+        }).catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'account.add.failed', message: errMsg(err) } }));
         return;
       case 'api.accounts.remove': deps.api.removeAccount(e.accountId).then(accountsUpdated).catch(fail); return;
       default: {
@@ -777,7 +807,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       const blocked = s === 'denied' && available;
       const on = wanted && available && notifier.granted() && !blocked;
       const was = store.notify;
-      setNotify(available, on, blocked);
+      setNotify(available, on, blocked, wanted && available && s === 'undetermined');
       if (was.on && blocked) toast(tr()(notifyBlockedKey(clientPlatform(), 'toast')));
     }, () => {});
   }
@@ -915,14 +945,17 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       // 選んでいなければ環境の既定に従い、ブラウザでは許可が外れていれば受け取らない。
       if (notifier) {
         const pref = deps.storage.get(NOTIFY_KEY);
-        const on = (typeof pref === 'boolean' ? pref : notifier.defaultOn) && notifier.available() && notifier.granted();
+        const wanted = (typeof pref === 'boolean' ? pref : notifier.defaultOn) && notifier.available();
+        const on = wanted && notifier.granted();
         setNotify(notifier.available(), on);
-        // 受け取るなら、OS の許可をあらかじめ尋ねておき（決まっていれば OS が黙って答える）、尋ね終えたら許可の状態を読む。
+        // 受け取ると選んでいれば、許可の状態だけを読む。起動しただけでは OS に尋ねない（2026-10-13 の決定、9c）。
+        // まだ尋ねていなければ ask を立て、始める前の確認に任意の行「通知」と［許可する］を出す。尋ねるのは、その行か設定のスイッチを押したときだけである（notify.request）。
         // デスクトップの許可は OS が持つので、システム設定で切られていれば受け取るのままにしない。
         // 利用者の選んだ値（NOTIFY_KEY）は書き換えない。OS で許可し直したら、スイッチを入れ直すだけで戻る。
-        if (on) {
-          notifier.prepare().then(() => notifier.status()).then((s) => {
+        if (wanted) {
+          notifier.status().then((s) => {
             if (s === 'denied' && notifier.available()) setNotify(true, false, true);
+            else if (s === 'undetermined') setNotify(notifier.available(), store.notify.on, false, true);
           }, () => {});
         }
         // 通知を押したら、そのセッションを開いてターミナルにフォーカスする。

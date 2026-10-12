@@ -3,7 +3,7 @@ import { asideOf } from '../lib/aside.ts';
 import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { EditorMissingDto, EditorsDto, EditorTestDto, UiAction, SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, UiAction, SessionFilesDto, AccountDirPreviewDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, FolderCandidatesDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -20,8 +20,11 @@ export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: nu
  * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
  * blocked はデスクトップのシステム設定で切られていること。
  * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
+ * ask は、受け取ると選んでいる（選んでいなければ環境の既定）のに、OS にまだ尋ねていないこと（許可の状態が undetermined）。
+ * 立っている間だけ、始める前の確認に任意の行「通知」と［許可する］を出す（presenters/readiness.ts、2026-10-13 の決定、9c）。
+ * 立っていないときは持たない（false を書かない）。
  */
-export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
+export type NotifyState = { available: boolean; on: boolean; blocked: boolean; ask?: true };
 /**
  * 設定の同期（作り直した実装）の中身。節とダイアログを開いたときに取りに行く値で、未取得は null である。
  * 件数と状態は configSync（bootstrap と config.update）が正で、ここは件数が 0 でないときに、その中身を見せるために持つ。
@@ -78,8 +81,15 @@ export type Store = {
   notify: NotifyState;
   /** ワークスペース直下の未登録のフォルダ。新しいセッションか作成のダイアログを開くたびに取り直す。未取得は null。 */
   workspaceDirs: WorkspaceDirDto[] | null;
+  /**
+   * Claude Code と会話したフォルダの候補（初日のプロジェクト）。候補のダイアログを開くたびに取り直す。
+   * 開く前は null、取っている間は loading、取れなければ failed である。
+   */
+  folderCandidates: { status: 'loading' } | { status: 'ready'; data: FolderCandidatesDto } | { status: 'failed' } | null;
   /** Finder で選んだフォルダ。殻が返した値である。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
   pickedFolder: { path: string; n: number } | null;
+  /** アカウントを足す前の確かめの、最後に届いた答え（runtime/actionTable.ts の account.add.preview）。 */
+  accountPreview: AccountDirPreviewDto | null;
   /** アプリの自動更新（store/update.ts）。殻が updater を持つかと、確認と取得の段階を、Runtime が入れる（runtime/updater.ts）。 */
   update: UpdateState;
   /** クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除（store/cloudMember.ts）。Runtime が入れる（runtime/cloudMember.ts）。 */
@@ -120,7 +130,7 @@ export function initialStore(): Store {
     usageAggregate: null, statusline: null, shellHook: null, summarizerModels: null, summarizerTest: null,
     cloudUsage: null, sync: null, devices: [], joinToken: null, configSync: null, configDetail: EMPTY_CONFIG_DETAIL,
     retention: null, retentionPreview: null,
-    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
+    readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, folderCandidates: null, pickedFolder: null, accountPreview: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
     interrupted: null,
@@ -553,7 +563,7 @@ export function applyJoinToken(store: Store, token: string | null, expiresAt: nu
 /** 通知の受け取りを入れる。変わっていなければ同じ Store を返す。 */
 export function applyNotify(store: Store, next: NotifyState): Store {
   const was = store.notify;
-  return was.available === next.available && was.on === next.on && was.blocked === next.blocked ? store : { ...store, notify: next };
+  return was.available === next.available && was.on === next.on && was.blocked === next.blocked && was.ask === next.ask ? store : { ...store, notify: next };
 }
 
 /** 未登録のフォルダの一覧を入れる。 */

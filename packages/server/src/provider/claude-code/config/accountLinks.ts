@@ -36,6 +36,27 @@ export function ensureAccountLinks(primaryDir: string, dir: string): { created: 
   return { created, conflicts };
 }
 
+/**
+ * 足す前の確かめ。場所が既にあるかと、リンクを張る名前に別のもの（実ファイル、実フォルダ、別の先を指すリンク）があるかを答える。
+ * 何も作らず、何も書かない。挙げる名前と順は ensureAccountLinks の conflicts と同じである。
+ */
+export function inspectAccountLinks(primaryDir: string, dir: string): { exists: boolean; conflicts: string[] } {
+  const exists = fs.existsSync(dir);
+  const conflicts: string[] = [];
+  if (!exists || path.resolve(primaryDir) === path.resolve(dir)) return { exists, conflicts };
+  for (const name of LINKED_ENTRIES) {
+    const target = path.join(primaryDir, name);
+    if (!fs.existsSync(target)) continue;
+    const link = path.join(dir, name);
+    let st: fs.Stats | null = null;
+    try { st = fs.lstatSync(link); } catch { st = null; }
+    if (st === null) continue;
+    if (st.isSymbolicLink() && path.resolve(dir, fs.readlinkSync(link)) === path.resolve(target)) continue;
+    conflicts.push(name);
+  }
+  return { exists, conflicts };
+}
+
 /** リンクの場所に別のものが置かれているときの文。言語は、出す側（経路、起動）が選ぶ。 */
 export function linkProblemMessage(conflicts: string[]): Message | null {
   if (conflicts.length === 0) return null;

@@ -213,7 +213,8 @@ describe('NowCard のツール呼び出し', () => {
     mount({ events: [r, res(r), q] });
     const list = within(card()).getByRole('list', { name: 'ツール呼び出し' });
     const items = within(list).getAllByRole('listitem');
-    expect(items.map((i) => i.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['✓完了 form.ts Read', '●入力待ち AskUserQuestion']);
+    // 済んだ呼び出しの読み上げの語は「済」。要約の進捗の「完了」と分ける（2026-10-13 の決定）。
+    expect(items.map((i) => i.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['✓済 form.ts Read', '●入力待ち AskUserQuestion']);
     expect(items[1]).toHaveAttribute('data-mark', 'wait');
   });
 

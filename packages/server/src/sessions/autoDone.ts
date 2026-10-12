@@ -83,6 +83,12 @@ export type AutoDoneWatchDeps = {
   now?: () => number;
   settleMs?: number;
   log?: (message: string) => void;
+  /**
+   * 設定のスイッチ（settings の autoDone）。偽の間は候補も引かず、Done にせず、事後要約も入れない。
+   * 事後要約はここでは Done にする材料として回しているので、切っている間に使用量を食わないよう一緒に止める。
+   * 省けば常に入り。
+   */
+  enabled?: () => boolean;
 };
 
 /**
@@ -98,6 +104,8 @@ export class AutoDoneWatch {
 
   /** 1 回見回る。Done にしたセッションの id を返す。 */
   tick(): string[] {
+    // 切っている間は数えを捨てる。入れ直したときに、切る前から対象だったものをすぐ Done にしない。
+    if (this.deps.enabled && !this.deps.enabled()) { this.seen.clear(); return []; }
     const now = this.deps.now?.() ?? Date.now();
     const settle = this.deps.settleMs ?? AUTO_DONE_SETTLE_MS;
     for (const id of this.deps.toSummarize()) {

@@ -185,12 +185,14 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const id = c.req.param('id');
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
-    const body = (b.value ?? {}) as { name?: unknown; gitInit?: unknown; moveFiles?: unknown };
+    const body = (b.value ?? {}) as { name?: unknown; gitInit?: unknown; moveFiles?: unknown; parent?: unknown };
     if (typeof body.name !== 'string') return c.json({ error: tr('common.field.required', { field: 'name' }) }, 400);
+    // parent は作る場所。作成場所（設定）が空のとき、画面が Finder で選ばせて渡す。
+    const parent = typeof body.parent === 'string' ? { parent: body.parent } : {};
     const before = session(id);
     if (!before) return c.json({ error: tr('session.error.notFound') }, 404);
     try {
-      const r = deps.promote({ sessionId: id, name: body.name, gitInit: body.gitInit === true, moveFiles: body.moveFiles === true });
+      const r = deps.promote({ sessionId: id, name: body.name, gitInit: body.gitInit === true, moveFiles: body.moveFiles === true, ...parent });
       const project = getProject(db, deviceId, deps.live(), r.projectId)!;
       const updated = session(id)!;
       // 新しいプロジェクトとセッションは、書いた行から配る層が配る。

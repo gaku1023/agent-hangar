@@ -1,23 +1,28 @@
 import fs from 'node:fs';
 import type { Hono } from 'hono';
-import type { ResolveAction } from '@agent-hangar/shared';
+import type { FolderRegisterResultDto, ProjectDto, ResolveAction } from '@agent-hangar/shared';
 import { getProject, listProjects } from '../../db/queries.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { createProjectDir, ProjectCreateError, registerProjectDir } from '../../projects/create.ts';
+import { folderCandidates } from '../../projects/candidates.ts';
 import { assignSessions, candidateDirs, listWorkspaceDirs, normalizeDir, resolveProject } from '../../projects/registry.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, readJson, tooLargeResult } from './common.ts';
 
 /** プロジェクトの経路が使う依存。 */
-export type ProjectRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'settings' | 'gitInit' | 'external' | 'token'> & LanguageDeps;
+export type ProjectRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'home' | 'live' | 'settings' | 'gitInit' | 'external' | 'token' | 'candidateEnv'> & LanguageDeps;
+
+/** まとめて登録できるフォルダの数の上限。候補のダイアログで全部を選んでも収まる数にする。 */
+const REGISTER_MAX = 500;
 
 const STATUSES = new Set(['active', 'paused', 'done', 'archived']);
 const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
 
 /**
  * プロジェクトの経路。
- * 一覧と 1 件、状態と名前の変更、置き場の候補と選び直し、作成と登録、未登録のフォルダの一覧、エディタとターミナルで開く、を持つ。
+ * 一覧と 1 件、状態と名前の変更、置き場の候補と選び直し、作成と登録、未登録のフォルダの一覧、
+ * Claude Code と会話したフォルダの候補とまとめての登録、エディタとターミナルで開く、を持つ。
  */
 export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
   const language = deps.language;
@@ -67,13 +72,15 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
   api.post('/projects', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
-    const body = (b.value ?? {}) as { kind?: unknown; name?: unknown; path?: unknown; gitInit?: unknown };
+    const body = (b.value ?? {}) as { kind?: unknown; name?: unknown; path?: unknown; gitInit?: unknown; parent?: unknown };
     try {
       let projectId: string;
       let created = true;
       if (body.kind === 'newDir') {
         if (typeof body.name !== 'string') return c.json({ error: tr('common.field.required', { field: 'name' }) }, 400);
-        ({ projectId } = createProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot, gitInit: deps.gitInit }, { name: body.name, gitInit: body.gitInit === true }));
+        // parent は作る場所。作成場所（設定）が空のとき、画面が Finder で選ばせて渡す。
+        const parent = typeof body.parent === 'string' ? body.parent : undefined;
+        ({ projectId } = createProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot, gitInit: deps.gitInit }, { name: body.name, gitInit: body.gitInit === true, parent }));
       } else if (body.kind === 'dir') {
         if (typeof body.path !== 'string') return c.json({ error: tr('project.create.pathNotDir') }, 400);
         ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
@@ -91,6 +98,30 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
     }
   });
   api.get('/workspace/dirs', (c) => c.json(listWorkspaceDirs(db, deviceId, deps.settings().workspaceRoot)));
+  // Claude Code と会話したフォルダの候補（初日のプロジェクト）。git の根でまとめ、会話の多い順に返す（projects/candidates.ts）。
+  api.get('/workspace/candidates', (c) => c.json(folderCandidates(db, deviceId, { hangarHome: deps.home, workspaceRoot: deps.settings().workspaceRoot, ...deps.candidateEnv })));
+  // 候補からまとめて登録する。1 件ずつ POST /api/projects の dir と同じ規則で登録し、最後に未分類の会話をまとめて紐づけ直す。
+  // 登録できなかったものは、断らずに理由を添えて返す（ほかの登録は残す）。プロジェクトと紐づけ直した会話は、書いた行から配る層が配る。
+  api.post('/workspace/register', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const paths = (b.value as { paths?: unknown } | null)?.paths;
+    if (!Array.isArray(paths) || paths.length > REGISTER_MAX || !paths.every((p): p is string => typeof p === 'string')) return c.json({ error: tr('common.field.required', { field: 'paths' }) }, 400);
+    const ids: string[] = [];
+    const failed: FolderRegisterResultDto['failed'] = [];
+    for (const p of paths) {
+      try {
+        ids.push(registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: p }).projectId);
+      } catch (e) {
+        if (!(e instanceof ProjectCreateError)) throw e;
+        failed.push({ path: p, error: errorText(language(), e) });
+      }
+    }
+    if (ids.length) assignSessions(db, deviceId);
+    const projects = [...new Set(ids)].map((id) => getProject(db, deviceId, deps.live(), id)).filter((p): p is ProjectDto => p !== null && p !== undefined);
+    const out: FolderRegisterResultDto = { projects, failed };
+    return c.json(out);
+  });
   api.post('/projects/:id/open-editor', async (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
     if (!p?.path) return c.json({ error: tr('project.error.notFound') }, 404);

@@ -98,4 +98,28 @@ describe('AccountStore', () => {
     expect(make().primary().name).toBe('会社');
     expect(() => s.update(PRIMARY_ACCOUNT_ID, { color: 'red' })).toThrow(AccountError);
   });
+
+  it('名前から場所の候補を作る。英数字は ~/.claude-<名前>、使えない文字は - に寄せ、英数字が無ければ空いている連番', () => {
+    const s = make();
+    expect(s.suggestDir('univ')).toBe(path.join(homeDir, '.claude-univ'));
+    expect(s.suggestDir(' Work Account ')).toBe(path.join(homeDir, '.claude-work-account'));
+    expect(s.suggestDir('Ｌａｂ／2')).toBe(path.join(homeDir, '.claude-lab-2'));
+    expect(s.suggestDir('大学')).toBe(path.join(homeDir, '.claude-2'));
+    expect(s.suggestDir('')).toBe(path.join(homeDir, '.claude-2'));
+  });
+  it('候補の場所が登録済みなら、後ろに連番を付ける。登録していない既存のフォルダはそのまま候補にする（中身は確かめる画面で見せる）', () => {
+    const s = make();
+    s.add({ name: 'univ', dir: path.join(homeDir, '.claude-univ') });
+    expect(s.suggestDir('univ')).toBe(path.join(homeDir, '.claude-univ-2'));
+    fs.mkdirSync(path.join(homeDir, '.claude-lab'));
+    expect(s.suggestDir('lab')).toBe(path.join(homeDir, '.claude-lab'));
+  });
+  it('打った場所を絶対パスに直す。~ と ~/ はホームから読み、相対パスは断る', () => {
+    const s = make();
+    expect(s.resolveDir('~/.claude-univ')).toBe(path.join(homeDir, '.claude-univ'));
+    expect(s.resolveDir(' ~/.claude-univ/ ')).toBe(path.join(homeDir, '.claude-univ'));
+    expect(s.resolveDir(path.join(homeDir, '.claude-x'))).toBe(path.join(homeDir, '.claude-x'));
+    expect(() => s.resolveDir('.claude-x')).toThrow(AccountError);
+    expect(() => s.resolveDir('')).toThrow(AccountError);
+  });
 });

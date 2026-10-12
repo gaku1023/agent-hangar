@@ -62,8 +62,9 @@ describe('presentSessionRow の戻る時刻', () => {
     expect(rowOf(s, at(13, 30))).toMatchObject({ returnDue: true });
     expect(rowOf(s, at(9, 0, 6))).toMatchObject({ overdueDays: 1, returnDue: true });
   });
-  it('戻る日が欠けたものは過ぎた扱い。形の違う時刻は無いものとして読む', () => {
-    expect(rowOf(paused('a', null, '13:30'))).toEqual({ returnOn: null, returnTime: null, overdueDays: null, returnDue: true });
+  it('日付なしは過ぎた扱いにしない。暦に無い日は過ぎた扱い。形の違う時刻は無いものとして読む', () => {
+    expect(rowOf(paused('a', null, '13:30'))).toEqual({ returnOn: null, returnTime: null, overdueDays: null, returnDue: false });
+    expect(rowOf(paused('a', '2026-02-30', null))).toEqual({ returnOn: null, returnTime: null, overdueDays: null, returnDue: true });
     expect(rowOf(paused('a', '2026-10-05', '25:00'))).toEqual({ returnOn: '2026-10-05', returnTime: null, overdueDays: 0, returnDue: true });
   });
   it('Paused 以外は戻る時刻を持たず、過ぎた扱いにもしない', () => {
@@ -92,15 +93,17 @@ describe('並びの鍵', () => {
 });
 
 describe('presentHome の今日戻る', () => {
-  it('当日のものは時刻の前から出し、時刻の早い順に並べ、過ぎたかどうかを札へ渡す', () => {
+  // 時刻つきは、その時刻を過ぎてから出す（2026-10-13）。それまでは一覧の行に枠だけの「今日 21:50」が出る。日付だけは今までどおりその日の朝から。
+  it('当日の時刻つきは時刻を過ぎてから出し、時刻の早い順に並べる。日付だけはその日の朝から出す', () => {
     const store = storeOf([paused('night', '2026-10-05', '21:50'), paused('allday', '2026-10-05', null), paused('timer', '2026-10-05', '11:30'), paused('old', '2026-10-03', '09:00'), paused('later', '2026-10-06', '09:00')]);
     const h = presentHome(initialState(), store, NOW);
     expect(h.returning.map((r) => [r.id, r.returnTime, r.due])).toEqual([
       ['old', '09:00', true],
       ['timer', '11:30', true],
-      ['night', '21:50', false],
       ['allday', null, true],
     ]);
+    expect(presentHome(initialState(), store, at(21, 50)).returning.map((r) => r.id)).toEqual(['old', 'timer', 'night', 'allday']);
+    expect(presentHome(initialState(), store, at(0, 1)).returning.map((r) => r.id)).toEqual(['old', 'allday']);
   });
 });
 
@@ -109,6 +112,13 @@ describe('presentPause の時刻', () => {
   it('Paused のセッションを開き直すと、今の時刻を入れておく。無ければ空', () => {
     expect(presentPause(open('menu'), storeOf([paused('s', '2026-10-06', '13:30')]), NOW)).toMatchObject({ initialReturnOn: '2026-10-06', initialReturnTime: '13:30' });
     expect(presentPause(open('menu'), storeOf([paused('s', '2026-10-06', null)]), NOW)).toMatchObject({ initialReturnTime: '' });
+  });
+  // 日付なし（2026-10-13）。開き直すと「日付なし」を選んでおく。
+  it('日付なしの Paused と、日付なしの提案から開くと、日付なしを選んでおく。ほかは明日', () => {
+    expect(presentPause(open('menu'), storeOf([paused('s', null, null)]), NOW)).toMatchObject({ initialReturnOn: null, initialReturnTime: '' });
+    const c = dto('s', 1, st({ candidate: { status: 'paused', note: 'n', returnOn: null, returnTime: null, source: 'in_session', at: 1 } }));
+    expect(presentPause(open('candidate'), storeOf([c]), NOW)).toMatchObject({ initialReturnOn: null });
+    expect(presentPause(open('menu'), storeOf([dto('s', 1, st({}))]), NOW)).toMatchObject({ initialReturnOn: '2026-10-06' });
   });
   it('提案から開くと、提案の時刻を入れておく', () => {
     const s = dto('s', 1, st({ candidate: { status: 'paused', note: 'n', returnOn: '2026-10-06', returnTime: '09:00', source: 'in_session', at: 1 } }));
@@ -152,6 +162,6 @@ describe('時刻を過ぎた当日の札は、過ぎた長さを言う', () => {
   });
   it('Home の今日戻るの札にも渡す', () => {
     const h = presentHome(initialState(), storeOf([paused('timer', '2026-10-05', '11:30'), paused('night', '2026-10-05', '21:50')]), NOW);
-    expect(h.returning.map((r) => [r.id, r.pastMin])).toEqual([['timer', 30], ['night', null]]);
+    expect(h.returning.map((r) => [r.id, r.pastMin])).toEqual([['timer', 30]]);
   });
 });

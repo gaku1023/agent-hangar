@@ -13,11 +13,11 @@ import { pick } from '../test/pick.ts';
 import { SettingsScreen } from './SettingsScreen.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const TITLES: Record<SettingsSection, string> = { general: '一般', cloud: 'クラウド同期', integrations: '連携', summary: '要約エンジン', tools: 'ツール', update: '更新', info: '情報' };
+const TITLES: Record<SettingsSection, string> = { general: '一般', tools: 'ツール', integrations: '連携', summary: '要約エンジン', update: '更新', cloud: 'クラウド同期', info: '情報' };
 const IDS = Object.keys(TITLES) as SettingsSection[];
 
 /** 目次の 7 行（殻の中の形）。状態の文は presenter の試験（settingsToc.test.ts）が見るので、ここでは決まった文を置く。 */
-const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[id], state: id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中', tone: id === 'integrations' ? 'warn' : 'default', label: `${TITLES[id]}、${id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中'}` }));
+const tocOf = (): SettingsProps['toc'] => IDS.map((id) => ({ id, title: TITLES[id], state: id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中', tone: id === 'integrations' ? 'warn' : 'default', label: `${TITLES[id]}、${id === 'cloud' ? '同期オフ' : id === 'integrations' ? '要修正 2' : '確認中'}`, ...(id === 'cloud' ? { beta: true } : {}) }));
 
 /** 設定の同期（作り直した実装）の節の既定。クラウドに参加していない形で、使う試験が必要な分だけ上書きする。節の中身の試験は ConfigSyncSection.test.tsx が見る。 */
 const configSyncProps = (over: Partial<SettingsProps['configSync']> = {}): SettingsProps['configSync'] => ({
@@ -82,6 +82,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   focus: null,
   compat: null,
   update: updateProps(),
+  self: { autoDone: true, autoPark: true },
   ...over,
 });
 
@@ -108,8 +109,10 @@ const typeAndLeave = (label: string, value: string) => {
 describe('設定の目次（S1）', () => {
   it('左の目次に節を並べ（殻の中は更新を含む 7 つ）、各行に今の状態を 1 行添える', () => {
     render(ui(settingsProps()));
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-t')!.textContent)).toEqual(['一般', 'クラウド同期', '連携', '要約エンジン', 'ツール', '更新', '情報']);
-    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-s')!.textContent)).toEqual(['確認中', '同期オフ', '要修正 2', '確認中', '確認中', '確認中', '確認中']);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-t')!.textContent)).toEqual(['一般', 'ツール', '連携', '要約エンジン', '更新', 'クラウド同期ベータ', '情報']);
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.settings-toc-s')!.textContent)).toEqual(['確認中', '確認中', '要修正 2', '確認中', '確認中', '同期オフ', '確認中']);
+    // ベータの小札はクラウド同期の名前の横だけで、状態の段は潰さない。
+    expect(toc().getAllByRole('button').map((b) => b.querySelector('.tag-beta')?.textContent ?? null)).toEqual([null, null, null, null, null, 'ベータ', null]);
     // 要修正は注意の色で言う。
     expect(toc().getByRole('button', { name: '連携、要修正 2' }).querySelector('.settings-toc-s')).toHaveAttribute('data-tone', 'warn');
   });
@@ -157,7 +160,7 @@ describe('設定の目次（S1）', () => {
     expect(toc().getByRole('button', { name: /^クラウド同期/ })).toHaveAttribute('aria-current', 'page');
   });
   it('目次は上下の矢印で行を移り、開いている行だけが Tab の道に入る', () => {
-    render(ui(at('cloud')));
+    render(ui(at('tools')));
     const rows = toc().getAllByRole('button');
     expect(rows.map((b) => b.getAttribute('tabindex'))).toEqual(['-1', '0', '-1', '-1', '-1', '-1', '-1']);
     rows[1]!.focus();
@@ -207,9 +210,25 @@ describe('設定の一般', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'English' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { language: 'en' } });
   });
-  it('一般には、通知、ターミナルアプリ、エディタ、トランスクリプトの保持を置く', () => {
+  it('一般には、通知、ターミナルアプリ、エディタ、トランスクリプトの保持、hangar が自分で行うことを置く', () => {
     render(ui(at('general', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
-    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'エディタ', 'トランスクリプトの保持']);
+    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'エディタ', 'トランスクリプトの保持', '止まった会話を自動で Done にする', 'Done と Archived にした会話を停止する']);
+  });
+  it('一般の末尾に「hangar が自分で行うこと」の 1 枚を置き、自動の Done と自動の停止をスイッチで切り替える', () => {
+    const onAction = vi.fn();
+    render(ui(at('general', { self: { autoDone: true, autoPark: false } }), onAction));
+    const card = screen.getByRole('heading', { level: 3, name: 'hangar が自分で行うこと' }).closest('section')!;
+    expect([...card.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['止まった会話を自動で Done にする', 'Done と Archived にした会話を停止する']);
+    expect(within(card).getByText('止まって 1 分たった会話のうち、3 ターン以下のものと、要約が「完了」か「中止」のものを、自動で Done にします。一覧では ✦ の札で見分けられます。再開して話しかければ外れます。')).toBeInTheDocument();
+    expect(within(card).getByText('区切りを付けてアイドルになった Claude Code を、10 秒後に停止します。Paused は停止しません。停止した会話は「再開」で続けられます。')).toBeInTheDocument();
+    const done = screen.getByRole('switch', { name: '止まった会話を自動で Done にする' });
+    const park = screen.getByRole('switch', { name: 'Done と Archived にした会話を停止する' });
+    expect(done).toHaveAttribute('aria-checked', 'true');
+    expect(park).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(done);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { autoDone: false } });
+    fireEvent.click(park);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { autoPark: true } });
   });
   it('「通知を有効にする」のスイッチで切り替える', () => {
     const onAction = vi.fn();
@@ -220,6 +239,19 @@ describe('設定の一般', () => {
     render(ui(at('general', { notify: { available: true, on: true, blocked: false } }), onAction));
     fireEvent.click(screen.getByRole('switch', { name: '通知を有効にする' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'notify.set', on: false });
+  });
+  // まだ OS に尋ねていない間は、その旨と［許可する］を添える。押せば始める前の確認の行と同じ道で尋ねる（2026-10-13、9c）。
+  it('まだ OS に許可を尋ねていなければ「まだ許可していません」と添え、［許可する］で尋ねる', () => {
+    const onAction = vi.fn();
+    render(ui(at('general', { notify: { available: true, on: true, blocked: false, ask: true } }), onAction));
+    expect(screen.getByText(/まだ許可していません/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '許可する' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'notify.set', on: true });
+  });
+  it('尋ね終えていれば、その添え書きは出さない', () => {
+    render(ui(at('general', { notify: { available: true, on: true, blocked: false } })));
+    expect(screen.queryByText(/まだ許可していません/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '許可する' })).toBeNull();
   });
   it('OS で通知が切られていれば、システム設定で許可するよう添える。スイッチは入れ直せる', () => {
     render(ui(at('general', { notify: { available: true, on: false, blocked: true } })));
@@ -282,6 +314,14 @@ describe('設定の一般', () => {
 });
 
 describe('設定のクラウド同期', () => {
+  it('節の頭に、上級者向けのベータであることと、始めるのに要るものを 1 文で置く（同期していてもいなくても）', () => {
+    const lead = '上級者向けのベータです。始めるには、リポジトリの clone、ターミナルでの CLI、自分の Cloudflare アカウントが要ります。';
+    const { unmount } = render(ui(at('cloud', { cloud: cloudProps() })));
+    expect(screen.getByText(lead)).toBeInTheDocument();
+    unmount();
+    render(ui(at('cloud')));
+    expect(screen.getByText(lead)).toBeInTheDocument();
+  });
   it('同期している人には、状態の札と、状態、操作、PC の一覧、設定の同期、使用量を上から並べる', () => {
     render(ui(at('cloud', { cloud: cloudProps() })));
     expect(screen.getByRole('heading', { level: 2, name: /^クラウド同期/ })).toHaveTextContent('同期済み');
@@ -311,7 +351,7 @@ describe('設定のクラウド同期', () => {
     // 参加は入れた版の CLI でできる。
     expect(screen.getByText('/A/hangar join <token>')).toBeInTheDocument();
     expect(screen.queryByText('npm run hangar -- setup cloud')).toBeNull();
-    expect(screen.queryByText(/clone/)).toBeNull();
+    expect(screen.queryByText(/clone して npm install した場所で/)).toBeNull();
   });
   it('クラウドの節: 参加トークンと、設定の同期のスイッチ（入れるときは送るものの一覧を開く）', () => {
     const onAction = vi.fn();
@@ -470,7 +510,7 @@ describe('設定の連携', () => {
     }
   });
   it('帯から来たとき（focus が tmux など）、その欄を淡い黄で目立たせて、入力欄へフォーカスを置く', () => {
-    for (const [focus, label] of [['tmux', 'tmux のパス'], ['claude', 'claude のパス'], ['workspace', 'プロジェクトの親フォルダ']] as const) {
+    for (const [focus, label] of [['tmux', 'tmux のパス'], ['claude', 'claude のパス'], ['workspace', '新しいフォルダの作成場所（任意）']] as const) {
       const { unmount } = render(ui(at('tools', { focus })));
       const input = screen.getByLabelText(label);
       expect(input.closest('.field')).toHaveAttribute('data-hit');
@@ -941,12 +981,44 @@ describe('設定の要約エンジン', () => {
 });
 
 describe('設定のツール', () => {
-  it('プロジェクトの親フォルダは欄を出たら保存し、欄の名前を添える', () => {
+  it('新しいフォルダの作成場所は欄を出たら保存し、欄の名前を添える', () => {
     const onAction = vi.fn();
     render(ui(at('tools'), onAction));
-    expect(screen.getByRole('heading', { level: 3, name: 'プロジェクトの親フォルダ' })).toBeInTheDocument();
-    typeAndLeave('プロジェクトの親フォルダ', '/w2');
+    expect(screen.getByRole('heading', { level: 3, name: '新しいフォルダの作成場所（任意）' })).toBeInTheDocument();
+    typeAndLeave('新しいフォルダの作成場所（任意）', '/w2');
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/w2' }, field: 'workspaceRoot' });
+  });
+  // 作成場所は任意（2026-10-13、試作の 4 節 3a の案 A）。空なら検証の行を出さず、欄の中の薄い文で振る舞いを言う。
+  it('作成場所は空にでき、空なら検証の行を出さず、作るたびに場所を選ぶと欄の中で言う', () => {
+    const onAction = vi.fn();
+    render(ui(at('tools', { workspaceRoot: '', verify: { workspace: null, tmux: null, claude: null, node: null, git: null } }), onAction));
+    const field = screen.getByLabelText('新しいフォルダの作成場所（任意）');
+    expect(field).toHaveAttribute('placeholder', '空のときは、作るたびに場所を選びます');
+    expect(field.closest('.path-field')!.querySelector('.verify')).toBeNull();
+    expect(screen.getByText('「新しいプロジェクト」でフォルダを作る場所です。直下にある、Claude Code と会話したフォルダは、プロジェクトに自動で登録します。')).toBeInTheDocument();
+  });
+  it('作成場所を空にすると、空の文字を送る', () => {
+    const onAction = vi.fn();
+    render(ui(at('tools'), onAction));
+    typeAndLeave('新しいフォルダの作成場所（任意）', '');
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '' }, field: 'workspaceRoot' });
+  });
+  it('「Claude Code と会話したフォルダから登録」の「選ぶ…」で候補のダイアログを開く', () => {
+    const onAction = vi.fn();
+    render(ui(at('tools'), onAction));
+    expect(screen.getByText('Claude Code と会話したフォルダから登録')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、Claude Code と会話したフォルダから登録' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'project.candidates.open' });
+  });
+  it('デスクトップでは作成場所の「選ぶ…」で Finder を開き、選んだ場所を保存する。ブラウザでは出さない', () => {
+    const onAction = vi.fn();
+    const { rerender } = render(ui(at('tools', { workspacePick: { desktop: true, picked: { path: '/old', n: 3 } } }), onAction));
+    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、新しいフォルダの作成場所（任意）' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'folder.pick' });
+    rerender(ui(at('tools', { workspacePick: { desktop: true, picked: { path: '/Users/me/src', n: 4 } } }), onAction));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { workspaceRoot: '/Users/me/src' }, field: 'workspaceRoot' });
+    rerender(ui(at('tools', { workspacePick: { desktop: false, picked: null } }), onAction));
+    expect(screen.queryByRole('button', { name: '選ぶ…、新しいフォルダの作成場所（任意）' })).toBeNull();
   });
   it('パスの欄には保存のボタンが無い', () => {
     render(ui(at('tools')));
@@ -954,7 +1026,7 @@ describe('設定のツール', () => {
   });
   it('ツールには、親フォルダと 3 つのパスと git の読むだけの行を置く（ターミナルアプリとエディタは一般にある）', () => {
     render(ui(at('tools')));
-    expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'Node のパス']);
+    expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['新しいフォルダの作成場所（任意）', 'tmux のパス', 'claude のパス', 'Node のパス']);
     expect(document.getElementById('settings-field-git')).not.toBeNull();
     expect(screen.queryByRole('radio', { name: 'iTerm2' })).toBeNull();
   });
@@ -982,7 +1054,7 @@ describe('設定のツール', () => {
     // 同じ値でも送ると、workspaceRoot ではプロジェクトの登録し直しが走る。
     const onAction = vi.fn();
     render(ui(at('tools', { nodePath: '/opt/homebrew/bin/node', claudePath: '/usr/local/bin/claude' }), onAction));
-    for (const label of ['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'Node のパス']) {
+    for (const label of ['新しいフォルダの作成場所（任意）', 'tmux のパス', 'claude のパス', 'Node のパス']) {
       const field = screen.getByLabelText(label) as HTMLInputElement;
       fireEvent.blur(field);
       typeAndLeave(label, ` ${field.value} `);
@@ -1036,7 +1108,7 @@ describe('設定のツール', () => {
     const onAction = vi.fn();
     render(ui(at('tools', { verify }), onAction));
     const under = (label: string) => screen.getByLabelText(label).closest('.path-field')!.querySelector('.verify')!;
-    expect(under('プロジェクトの親フォルダ')).toHaveTextContent('/w（プロジェクト 12 件）');
+    expect(under('新しいフォルダの作成場所（任意）')).toHaveTextContent('/w（プロジェクト 12 件）');
     expect(under('claude のパス')).toHaveTextContent('/Users/me/.local/bin/claude（2.3.1）');
     expect(under('tmux のパス')).toHaveTextContent('見つかりません');
     expect(under('tmux のパス')).toHaveAttribute('data-tone', 'ng');
@@ -1054,7 +1126,7 @@ describe('設定のツール', () => {
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('tmux');
     rerender(ui(at('tools', { workspaceRoot: '/w2', claudePath: '/Users/x/.local/bin/claude', nodePath: '/opt/homebrew/bin/node' })));
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('/opt/homebrew/bin/tmux');
-    expect(screen.getByLabelText('プロジェクトの親フォルダ')).toHaveValue('/w2');
+    expect(screen.getByLabelText('新しいフォルダの作成場所（任意）')).toHaveValue('/w2');
     expect(screen.getByLabelText('claude のパス')).toHaveValue('/Users/x/.local/bin/claude');
     expect(screen.getByLabelText('Node のパス')).toHaveValue('/opt/homebrew/bin/node');
   });

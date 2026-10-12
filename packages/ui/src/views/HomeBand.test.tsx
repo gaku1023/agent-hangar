@@ -182,6 +182,25 @@ describe('HomeBand の行', () => {
   });
 });
 
+// 確認待ちの出どころの小札と、見出しのまとめて片付けるボタン（2026-10-13 の決定、知らせの 9d）。
+describe('HomeBand の確認待ち（9d）', () => {
+  const proposal = (id: string): ConfirmCard => ({ kind: 'session', id, name: `提案 ${id}`, projectName: 'alpha', status: 'done', label: 'Done にする？', note: '直した', ago: '2 時間前', source: 'post_hoc', daysLeft: 3 });
+  it('名前を押せる行でも、名前の後ろに出どころの小札を出し、右に自動で確定するまでの日数を出す', () => {
+    // 確認待ちだけに件数があるので、朝に開く群として初めから開いている。
+    mount({ ...none, confirm: [proposal('s1')] });
+    const row = screen.getByRole('button', { name: '提案 s1' }).closest('li')!;
+    expect(row.querySelector('.c-badge')).toHaveTextContent('要約から');
+    expect(row.querySelector('.c-end')).toHaveTextContent('あと 3 日で確定');
+  });
+  it('見出しの「すべて確定」「すべて却下」は、いまある提案を全部渡す', () => {
+    const { onAction } = mount({ ...none, confirm: [proposal('s1'), todo('t1')] });
+    fireEvent.click(screen.getByRole('button', { name: 'すべて確定、確認待ち' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'pending.resolve', accept: true, sessionIds: ['s1'], todoIds: ['t1'] });
+    fireEvent.click(screen.getByRole('button', { name: 'すべて却下、確認待ち' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'pending.resolve', accept: false, sessionIds: ['s1'], todoIds: ['t1'] });
+  });
+});
+
 describe('HomeBand の始める前の確認（2.11.4）', () => {
   const READY: ReadinessDto = {
     tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -216,7 +235,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     open();
     const rows = drawer().getAllByRole('listitem');
     expect(rows).toHaveLength(3);
-    expect(within(rows[0]!).getByText('プロジェクトの親フォルダ')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('新しいフォルダの作成場所')).toBeInTheDocument();
     expect(within(rows[0]!).queryByText('任意')).toBeNull();
     expect(within(rows[1]!).getByText('MCP サーバー')).toBeInTheDocument();
     expect(within(rows[1]!).getByText('任意')).toBeInTheDocument();
@@ -234,7 +253,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
 
   it('「設定を開く」は設定へ、「コマンドをコピー」は命令を写す', () => {
     const { onAction } = open();
-    fireEvent.click(screen.getByRole('button', { name: '設定を開く、プロジェクトの親フォルダ' }));
+    fireEvent.click(screen.getByRole('button', { name: '設定を開く、新しいフォルダの作成場所' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'workspace' } });
     fireEvent.click(screen.getByRole('button', { name: 'コマンドをコピー、MCP サーバー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });

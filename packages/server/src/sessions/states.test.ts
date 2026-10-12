@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { clearOnNewPrompt, confirmSessionState, getSessionState, NO_STATE, proposeSessionState, rejectSessionState, setSessionState, StateInputError } from './states.ts';
+import { CANDIDATE_EXPIRE_DAYS } from '@agent-hangar/shared';
+import { clearOnNewPrompt, confirmSessionState, expireCandidates, getSessionState, NO_STATE, proposeSessionState, rejectSessionState, setSessionState, StateInputError } from './states.ts';
 
 function seed() {
   const db = openDb(':memory:');
@@ -60,12 +61,14 @@ describe('会話で選ぶ・手で選ぶ', () => {
     const s = setSessionState(db, 'd', 's1', { status: 'done', note: '直した', setBy: 'conversation', now: 150 });
     expect(s).toEqual({ status: 'done', note: '直した', returnOn: null, returnTime: null, setBy: 'conversation', setAt: 150, candidate: null });
   });
-  it('手で選ぶ：Done と Archived は戻る日を持たず、Paused は戻る日が要る', () => {
+  it('手で選ぶ：Done と Archived は戻る日を持たず、Paused の戻る日は任意（2026-10-13）', () => {
     const db = seed();
     expect(setSessionState(db, 'd', 's1', { status: 'done', returnOn: '2026-10-02', setBy: 'user', now: 1 })).toMatchObject({ status: 'done', returnOn: null, setBy: 'user' });
     expect(setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'user', now: 2 })).toMatchObject({ status: 'archived', returnOn: null });
     expect(setSessionState(db, 'd', 's1', { status: 'paused', note: '', returnOn: '2026-10-02', setBy: 'user', now: 3 })).toEqual({ status: 'paused', note: null, returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: 3, candidate: null });
-    expect(() => setSessionState(db, 'd', 's1', { status: 'paused', setBy: 'user' })).toThrow(new StateInputError('Paused にはリマインダーの日付が要ります'));
+    expect(setSessionState(db, 'd', 's1', { status: 'paused', setBy: 'user', now: 4 })).toEqual({ status: 'paused', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: 4, candidate: null });
+    // 時刻だけでは戻る時点にならない。
+    expect(() => setSessionState(db, 'd', 's1', { status: 'paused', returnTime: '13:30', setBy: 'user' })).toThrow(new StateInputError('リマインダーの時刻は、日付と一緒に渡してください'));
   });
   it('Active に戻す：状態・理由・戻る日・提案を消し、rejected_at は残す', () => {
     const db = seed();
@@ -220,9 +223,13 @@ describe('検査と読み方', () => {
   it('提案の根拠は 1 字以上が要る。戻る日は暦にある日だけ。どれも何も書かない', () => {
     const db = seed();
     expect(() => proposeSessionState(db, 'd', 's1', { ...paused, note: '   ' })).toThrow(new StateInputError('根拠の一文が空です'));
-    expect(() => proposeSessionState(db, 'd', 's1', { ...paused, returnOn: null })).toThrow(new StateInputError('Paused にはリマインダーの日付が要ります'));
     expect(() => proposeSessionState(db, 'd', 's1', { ...paused, returnOn: '2026-02-30' })).toThrow(new StateInputError('リマインダーの日付は YYYY-MM-DD の形の、暦にある日付です'));
     expect(lastSeq(db)).toBeNull();
+  });
+  it('日付なしの Paused も提案でき、確定すると日付なしの Paused になる', () => {
+    const db = seed();
+    expect(proposeSessionState(db, 'd', 's1', { ...paused, returnOn: null, now: 10 }).state.candidate).toMatchObject({ status: 'paused', returnOn: null, returnTime: null });
+    expect(confirmSessionState(db, 'd', 's1', { now: 20 }).state).toMatchObject({ status: 'paused', returnOn: null, returnTime: null });
   });
   it('同期で状態と提案の両方を持つ行は、状態を正として提案を出さない（書き直しはしない）', () => {
     const db = seed();
@@ -290,5 +297,38 @@ describe('戻る時刻', () => {
     const db = seed();
     proposeSessionState(db, 'd', 's1', { ...paused, returnOn: '2020-01-01', returnTime: '00:00', now: 100 });
     expect(confirmSessionState(db, 'd', 's1').result).toBe('confirmed');
+  });
+});
+
+// 放っておかれた提案（2026-10-13 の決定、知らせの 9d）。Done の提案は 7 日で自動で確定し、Paused の提案は消す（却下として扱う）。
+describe('放っておかれた提案', () => {
+  const DAY = 86_400_000;
+  const T0 = 1_000_000_000;
+  const done = { status: 'done' as const, note: '頼まれた 2 ファイルを直した', returnOn: null, source: 'post_hoc' as const };
+  it('7 日たった Done の提案は、提案の理由のまま Done にし、自動の印（set_by は import）を付ける', () => {
+    const db = seed();
+    expect(CANDIDATE_EXPIRE_DAYS).toBe(7);
+    proposeSessionState(db, 'd', 's1', { ...done, now: T0 });
+    expect(expireCandidates(db, 'd', T0 + 7 * DAY - 1)).toEqual({ confirmed: [], dropped: [] });
+    expect(getSessionState(db, 's1')!.candidate).not.toBeNull();
+    expect(expireCandidates(db, 'd', T0 + 7 * DAY)).toEqual({ confirmed: ['s1'], dropped: [] });
+    expect(getSessionState(db, 's1')).toEqual({ status: 'done', note: '頼まれた 2 ファイルを直した', returnOn: null, returnTime: null, setBy: 'import', setAt: T0 + 7 * DAY, candidate: null });
+  });
+  it('7 日たった Paused の提案は消し、却下と同じく rejected_at を刻む', () => {
+    const db = seed();
+    proposeSessionState(db, 'd', 's1', { ...paused, now: T0 });
+    expect(expireCandidates(db, 'd', T0 + 8 * DAY)).toEqual({ confirmed: [], dropped: ['s1'] });
+    expect(row(db)).toMatchObject({ status: null, candidate_at: null, candidate_status: null, rejected_at: T0 + 8 * DAY });
+  });
+  it('他の端末のセッション、状態が付いたもの、消したセッションは触らない。何も無ければ書かない', () => {
+    const db = seed();
+    upsertShared(db, 'sessions', { id: 's2', provider: 'claude-code', provider_session_id: 'u2', cwd: '/w', home_device: 'other' }, 'other');
+    proposeSessionState(db, 'd', 's2', { ...done, now: T0 });
+    proposeSessionState(db, 'd', 's1', { ...done, now: T0 });
+    setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'user', now: T0 + 1 });
+    const before = lastSeq(db);
+    expect(expireCandidates(db, 'd', T0 + 30 * DAY)).toEqual({ confirmed: [], dropped: [] });
+    expect(lastSeq(db)).toBe(before);
+    expect(getSessionState(db, 's2')!.candidate).not.toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
+import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
 import { ApiConflictError, ApiNotFoundError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
@@ -619,6 +619,15 @@ describe('起動とターミナル', () => {
     // 画面は Store から読む。
     expect(presentNewProject(rt.getState(), rt.getStore())).toMatchObject({ dirs: [{ name: 'a', path: '/w/a' }], picked: { path: '/Users/me/thesis', n: 1 } });
   });
+  it('アカウントの「選ぶ…」は、渡した場所から Finder を開き、結果を同じ pickedFolder に持つ', async () => {
+    const pickFolder = vi.fn(async () => '/Users/me/.claude-univ');
+    const { rt } = harness({}, { desktop: { openLog: vi.fn(), restart: vi.fn(), pickFolder, applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(), update: noUpdate() } });
+    rt.start();
+    rt.emit({ type: 'account.add.pick', defaultPath: '/Users/me' });
+    await flush();
+    expect(pickFolder).toHaveBeenCalledWith('/Users/me');
+    expect(rt.getStore().pickedFolder).toEqual({ path: '/Users/me/.claude-univ', n: 1 });
+  });
   it('未登録の一覧が取れなければ、空の一覧にする', async () => {
     const { rt } = harness({ workspaceDirs: vi.fn(async () => { throw new Error('500'); }) });
     rt.start();
@@ -626,6 +635,42 @@ describe('起動とターミナル', () => {
     await flush();
     expect(rt.getStore().workspaceDirs).toEqual([]);
     expect(rt.getState().toasts).toEqual([]);
+  });
+  // 初日のプロジェクト（2026-10-13）。候補のダイアログは、開くと候補を取り、送ると作成場所を決めてから、まとめて登録する。
+  it('候補のダイアログを開くと候補を取り、送ると作成場所を保存してから登録し、閉じて知らせ、準備の確かめを取り直す', async () => {
+    const order: string[] = [];
+    const cands = { candidates: [{ path: '/Users/me/src/a', sessionCount: 4, lastActivityAt: 1, worktreeCount: 0 }], suggestedRoot: '/Users/me/src' };
+    const folderCandidates = vi.fn(async () => cands);
+    const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    const updateSettings = vi.fn(async (patch: Partial<SettingsDto>) => { order.push(`settings:${patch.workspaceRoot}`); return { ...base, ...patch }; });
+    const registerFolders = vi.fn(async (paths: string[]) => { order.push(`register:${paths.join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path が存在するディレクトリではありません' }] }; });
+    const { rt, api } = harness({ folderCandidates, updateSettings, registerFolders });
+    rt.start();
+    await flush();
+    const readinessCalls = (api.readiness as ReturnType<typeof vi.fn>).mock.calls.length;
+    rt.emit({ type: 'project.candidates.open' });
+    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: null });
+    await flush();
+    expect(rt.getStore().folderCandidates).toEqual({ status: 'ready', data: cands });
+    rt.emit({ type: 'project.candidates.submit', paths: ['/Users/me/src/a', '/gone'], workspaceRoot: '/Users/me/src' });
+    expect(rt.getState().overlay).toMatchObject({ kind: 'projectCandidates', submitting: true });
+    await flush();
+    expect(order).toEqual(['settings:/Users/me/src', 'register:/Users/me/src/a,/gone']);
+    expect(rt.getStore().projects['p-a']).toMatchObject({ path: '/Users/me/src/a' });
+    expect(rt.getStore().settings?.workspaceRoot).toBe('/Users/me/src');
+    expect(rt.getState().overlay).toEqual({ kind: 'none' });
+    expect(rt.getState().toasts.map((t) => [t.level, t.message])).toEqual([['info', 'プロジェクトを 1 件登録しました'], ['error', '1 件を登録できませんでした（path が存在するディレクトリではありません）']]);
+    expect((api.readiness as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(readinessCalls);
+  });
+  it('候補が取れなければ、読めなかったことを面に出す。登録に失敗したら面を開いたまま理由を出す', async () => {
+    const { rt } = harness({ folderCandidates: vi.fn(async () => { throw new Error('500'); }), registerFolders: vi.fn(async () => { throw new Error('つながりません'); }) });
+    rt.start();
+    rt.emit({ type: 'project.candidates.open' });
+    await flush();
+    expect(rt.getStore().folderCandidates).toEqual({ status: 'failed' });
+    rt.emit({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null });
+    await flush();
+    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: 'つながりません' });
   });
   it('作成のダイアログの送信は、作ってから done を返す', async () => {
     const { rt } = harness({ createProject: vi.fn(async () => created) });
@@ -1353,7 +1398,6 @@ describe('入力待ちの知らせ', () => {
       available: () => o.available ?? true,
       granted: () => o.granted ?? true,
       request: vi.fn(async () => o.grant ?? true),
-      prepare: vi.fn(async () => {}),
       status: vi.fn(async (): Promise<NotifyPermission> => o.status ?? 'granted'),
       background: () => o.background ?? true,
       show: vi.fn(),
@@ -1480,13 +1524,14 @@ describe('入力待ちの知らせ', () => {
     n.fireOpen('s1');
     expect(rt.getState().screen).toEqual({ name: 'session', id: 's1' });
   });
-  it('選んでいなければ環境の既定に従い、既定で受け取る環境ではあらかじめ許可を尋ねておく', async () => {
+  // 起動しただけでは OS に尋ねない。尋ねるのは、始める前の確認の「許可する」か設定のスイッチを押したときだけである（2026-10-13 の決定、9c）。
+  it('選んでいなければ環境の既定に従い、起動しただけでは OS に許可を尋ねない', async () => {
     const desk = fakeNotifier({ defaultOn: true });
     expect((await started(desk)).rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
-    expect(desk.prepare).toHaveBeenCalledTimes(1);
+    expect(desk.request).not.toHaveBeenCalled();
     const web = fakeNotifier({ defaultOn: false, granted: false });
     expect((await started(web)).rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
-    expect(web.prepare).not.toHaveBeenCalled();
+    expect(web.request).not.toHaveBeenCalled();
     // 受け取ると選んでいても、ブラウザの許可が外れていれば受け取らない。
     const revoked = fakeNotifier({ defaultOn: false, granted: false });
     expect((await started(revoked, undefined, true)).rt.getStore().notify.on).toBe(false);
@@ -1538,13 +1583,41 @@ describe('入力待ちの知らせ', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('起動したときに尋ねて断られたときも、受け取らないにする', async () => {
-    let answer: NotifyPermission = 'undetermined';
-    const n = { ...fakeNotifier({ defaultOn: true }), prepare: vi.fn(async () => { answer = 'denied'; }), status: vi.fn(async () => answer) };
+  it('まだ尋ねていなければ、尋ねずに「尋ねる」の印（ask）を立てる。受け取らないと選んでいれば立てない', async () => {
+    const n = fakeNotifier({ defaultOn: true, status: 'undetermined' });
     const { rt } = await started(n);
     await flush();
-    expect(n.prepare).toHaveBeenCalledTimes(1);
+    expect(n.request).not.toHaveBeenCalled();
+    expect(rt.getStore().notify).toEqual({ available: true, on: true, blocked: false, ask: true });
+    const off = fakeNotifier({ defaultOn: true, status: 'undetermined' });
+    expect((await started(off, undefined, false)).rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
+  });
+  it('「要らない」（notify.set の off）は OS に尋ねず、受け取らないにして覚え、印を下ろす', async () => {
+    const n = fakeNotifier({ defaultOn: true, status: 'undetermined' });
+    const { rt, store } = await started(n);
+    await flush();
+    expect(rt.getStore().notify.ask).toBe(true);
+    rt.emit({ type: 'notify.set', on: false });
+    expect(n.request).not.toHaveBeenCalled();
+    expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
+    expect(store.get('notify.waiting')).toBe(false);
+  });
+  it('「許可する」（notify.set の on）を押したときだけ OS に尋ね、答えが出たら印を下ろす', async () => {
+    let answer: NotifyPermission = 'undetermined';
+    const n = { ...fakeNotifier({ defaultOn: true }), status: vi.fn(async () => answer), request: vi.fn(async () => { answer = 'denied'; return false; }) };
+    const { rt } = await started(n);
+    await flush();
+    expect(rt.getStore().notify.ask).toBe(true);
+    rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(n.request).toHaveBeenCalledTimes(1);
     expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
+    const yes = fakeNotifier({ defaultOn: true, status: 'undetermined' });
+    const h = await started(yes);
+    await flush();
+    h.rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
   });
   it('許されていれば、受け取るのまま', async () => {
     const { rt } = await started(fakeNotifier({ defaultOn: true, status: 'granted' }));
@@ -1671,6 +1744,16 @@ describe('入力待ちの知らせ', () => {
       return { ...h, fireVisible: () => { for (const l of visible) l(); }, advance: (ms: number) => { clock += ms; } };
     }
 
+    it('まだ尋ねていない間は印（ask）を立て、OS で決まって戻ったら下ろす', async () => {
+      const n = mutableNotifier('desktop', 'undetermined');
+      const h = await boot2(n);
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false, ask: true });
+      n.set('granted');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
+    });
     it('OS で切られていたのを許可して戻ったら、受け取るに戻す', async () => {
       const n = mutableNotifier('desktop', 'denied');
       const h = await boot2(n, true);
@@ -2170,23 +2253,37 @@ describe('アカウント', () => {
     expect(h.api.accounts).toHaveBeenCalledTimes(1);
     expect(h.rt.getStore().accounts).toEqual(accountsFixture);
   });
-  it('account.add は addAccount のあと、応答の末尾のアカウントの id で loginAccount を呼ぶ', async () => {
+  it('account.add は場所を添えて addAccount を呼び、応答の末尾のアカウントの id で loginAccount を呼んで、ダイアログを閉じる', async () => {
     const added = { ...univ, id: 'a2', name: '研究室', color: '#1f7a5a', auth: null, loginRunning: false };
     const next = { ...accountsFixture, accounts: [...accountsFixture.accounts, added] };
     const h = await started({ addAccount: vi.fn(async () => next) });
-    h.rt.emit({ type: 'account.add', name: ' 研究室 ' });
+    h.rt.emit({ type: 'account.add.open' });
+    h.rt.emit({ type: 'account.add', name: ' 研究室 ', dir: '~/.claude-lab' });
     await flush();
-    expect(h.api.addAccount).toHaveBeenCalledWith('研究室');
+    expect(h.api.addAccount).toHaveBeenCalledWith('研究室', '~/.claude-lab');
     expect(h.api.loginAccount).toHaveBeenCalledTimes(1);
     expect(h.api.loginAccount).toHaveBeenCalledWith('a2');
     expect(h.rt.getStore().accounts).toEqual(next);
+    expect(h.rt.getState().overlay).toEqual({ kind: 'none' });
   });
-  it('account.add の追加に失敗したら、ログインは始めず、サーバの文をトーストに出す', async () => {
+  it('account.add の追加に失敗したら、ログインは始めず、サーバの文をダイアログに残す', async () => {
     const h = await started({ addAccount: vi.fn(async () => { throw new Error('その名前はもう使われています'); }) });
-    h.rt.emit({ type: 'account.add', name: '大学' });
+    h.rt.emit({ type: 'account.add.open' });
+    h.rt.emit({ type: 'account.add', name: '大学', dir: '' });
     await flush();
+    expect(h.api.addAccount).toHaveBeenCalledWith('大学', null);
     expect(h.api.loginAccount).not.toHaveBeenCalled();
-    expect(h.rt.getState().toasts.map((t) => t.message)).toEqual(['その名前はもう使われています']);
+    expect(h.rt.getState().overlay).toEqual({ kind: 'addAccount' });
+    expect(h.rt.getState().accountAdd).toEqual({ kind: 'failed', message: 'その名前はもう使われています' });
+    expect(h.rt.getState().toasts).toEqual([]);
+  });
+  it('account.add.preview は足す前の確かめを読み、Store に入れる', async () => {
+    const preview = { name: 'univ', input: '', dir: '/Users/me/.claude-univ', suggested: true, exists: false, conflicts: [], registeredAs: null };
+    const h = await started({ previewAccountDir: vi.fn(async () => preview) });
+    h.rt.emit({ type: 'account.add.preview', name: 'univ', dir: '' });
+    await flush();
+    expect(h.api.previewAccountDir).toHaveBeenCalledWith('univ', '');
+    expect(h.rt.getStore().accountPreview).toEqual(preview);
   });
   it('account.switchSession（承諾）は switchAccount を呼び、成功で run が入ってそのセッションの画面へ移る', async () => {
     const h = await started({ switchAccount: vi.fn(async () => launched) });
@@ -2424,7 +2521,7 @@ describe('ランタイムの文（英語）', () => {
   });
   it('デスクトップ通知：名前の無いセッションの題と、問いの取れない本文が英語になる', async () => {
     let shown: unknown = null;
-    const notifier = { defaultOn: true, available: () => true, granted: () => true, request: vi.fn(async () => true), prepare: vi.fn(async () => {}), status: vi.fn(async (): Promise<NotifyPermission> => 'granted'), background: () => true, show: vi.fn((n: unknown) => { shown = n; }), prune: vi.fn(), badge: vi.fn(), onOpen: () => () => {} };
+    const notifier = { defaultOn: true, available: () => true, granted: () => true, request: vi.fn(async () => true), status: vi.fn(async (): Promise<NotifyPermission> => 'granted'), background: () => true, show: vi.fn((n: unknown) => { shown = n; }), prune: vi.fn(), badge: vi.fn(), onOpen: () => () => {} };
     const { wsHandlers } = await startedEnglish({}, { notifier }, [nameless]);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1 }] });
     expect(shown).toEqual({ sessionId: 's1', title: '(No name)', body: 'Waiting for input', kind: 'waiting', bare: true });

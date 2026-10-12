@@ -5,6 +5,7 @@ import { approveText, loggedOutText, type AccountView } from '../presenters/acco
 import type { AccountSettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { useT } from './primitives/language.tsx';
+import { Icon } from './primitives/Icon.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 
 /**
@@ -145,21 +146,15 @@ function AccountRow(props: { account: AccountView; colors: string[] }) {
 
 /**
  * 設定の「アカウント」の節。
- * アカウントの一覧と、行ごとの操作（名前、色、ログイン、読み直し、外す）、末尾の追加の欄を持つ。
+ * アカウントの一覧と、行ごとの操作（名前、色、ログイン、読み直し、外す）、末尾の「アカウントを足す…」を持つ。
+ * 足すのはダイアログ（AddAccountDialog）で、名前と場所を決め、共有するものと分けるものを見せてから登録する。
  * 切り替えは別の画面（ヘッダ、新規セッション）のもので、ここは登録の入口である。
  * hangar はログインの中身を読まず、ログインは account.login を出すだけ。
- * 保持する状態は、名前を直している行、色の帯を開いている行、追加の欄の入力だけ。
+ * 保持する状態は、名前を直している行と、色の帯を開いている行だけ。
  */
 export function AccountSettings(props: AccountSettingsProps) {
   const emit = useEmit();
   const t = useT();
-  const [name, setName] = useState('');
-  const next = name.trim();
-  const add = () => {
-    if (next === '') return;
-    emit({ type: 'account.add', name: next });
-    setName('');
-  };
   return (
     <section id="settings-accounts" className="account-set-section" aria-labelledby="settings-accounts-h">
       <h3 className="h2" id="settings-accounts-h">{t('account.settings.heading')}</h3>
@@ -168,12 +163,8 @@ export function AccountSettings(props: AccountSettingsProps) {
         {props.list.map((a) => <AccountRow key={a.id} account={a} colors={props.colors} />)}
       </ul>
       <div className="account-set-add">
-        <input className="input" aria-label={t('account.settings.nameAria')} placeholder={t('account.settings.namePlaceholder')} value={name} spellCheck={false} autoComplete="off"
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); add(); } }} />
-        <button type="button" className="btn btn-primary" disabled={next === ''} onClick={add}>{t('account.settings.add')}</button>
+        <button type="button" className="btn" onClick={() => emit({ type: 'account.add.open' })}><Icon name="add" />{t('account.settings.addButton')}</button>
       </div>
-      <div className="faint account-set-help">{t('account.settings.help')}</div>
     </section>
   );
 }

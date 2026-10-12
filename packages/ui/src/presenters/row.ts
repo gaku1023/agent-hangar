@@ -1,4 +1,4 @@
-import { isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
+import { CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
 import { aliveRunOf, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
@@ -38,6 +38,10 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   candidate: { status: 'paused' | 'done'; note: string | null; returnOn: string | null; returnTime: string | null; source: CandidateSource; ago: string } | null;
   /** 状態を誰が付けたか。conversation は会話で利用者が選んだもので、札に「会話で承認」と添える。Active は null。 */
   setBy: StateSetBy | null;
+  /** 状態の札のツールチップ（札の日本語の説明、自動の Done はその理由）。省けば出さない（statusMark）。 */
+  statusTitle?: string;
+  /** hangar が自動で付けた Done（set_by が import）。札の頭に ✦ を置き、枠を点線にする（4a、試作の A）。 */
+  autoDone?: boolean;
   /** 中断の印（右端の「中断」）。ステータスの無いセッションで、最後の run が中断で終わり、いま終わっているものだけが持つ。title は原因と時刻。 */
   interrupted?: { label: string; title: string };
 
@@ -67,6 +71,28 @@ function reasonOf(t: Translate, s: SessionDto, now: number): { reason: StopReaso
   return { reason: null, reasonWord: null };
 }
 
+/** 札の説明の鍵。札の語は英語のまま、意味を日本語で添える（用語集の「札の説明」）。 */
+const STATUS_TIP = { active: 'row.status.tip.active', paused: 'row.status.tip.paused', done: 'row.status.tip.done', archived: 'row.status.tip.archived' } as const;
+
+/**
+ * 状態の札のツールチップと自動の印（2026-10-13 の決定、4a）。一覧の行とセッション画面の冒頭の札が使う。
+ * 自動の Done は set_by が import の Done で、理由を言う。理由は残していないので、手元の事実から読み直す。
+ * 提案の理由（note）を持つものは、放っておかれた Done の提案を確定したもの（sessions/states.ts の expireCandidates）である。
+ * ターンが 3 以下なら使い捨て、会話の中か事後の要約が「完了」か「中止」なら要約で決めたもの（sessions/autoDone.ts）。
+ * どれにも当たらないもの（導入時の一括 Done など）は、自動で付いたことだけを言う。
+ */
+export function statusMark(t: Translate, state: SessionStateDto | null, stats: { turns: number }, summary: SessionSummaryDto | null): { title: string; auto: boolean } {
+  const status = state?.status ?? null;
+  if (status === 'done' && state!.setBy === 'import') {
+    if (state!.note) return { title: t('row.status.auto.expired', { days: CANDIDATE_EXPIRE_DAYS }), auto: true };
+    if (stats.turns <= 3) return { title: t('row.status.auto.disposable'), auto: true };
+    if (summary && summary.source !== 'baseline' && (summary.state === 'done' || summary.state === 'abandoned')) return { title: t('row.status.auto.summary'), auto: true };
+    return { title: t('row.status.auto.plain'), auto: true };
+  }
+  const tip = t(STATUS_TIP[status ?? 'active']);
+  return { title: state?.status && state.setBy === 'conversation' ? `${tip} · ${t('row.conversation.note')}` : tip, auto: false };
+}
+
 export function presentSessionRow(s: SessionDto, store: Store, now: number, excerpt?: Segment[]): SessionRowProps {
   const t = translatorOf(store);
   // state が null なら Active として読む。
@@ -76,6 +102,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   const returnOn = status === 'paused' && typeof st!.returnOn === 'string' && isReturnOn(st!.returnOn) ? st!.returnOn : null;
   // 時刻は日があってはじめて意味を持つ。古いサーバは returnTime を送らないので、欠けたものと形の違うものは時刻なしとして読む。
   const returnTime = returnOn !== null && typeof st!.returnTime === 'string' && isReturnTime(st!.returnTime) ? st!.returnTime : null;
+  const mark = statusMark(t, st, s.stats, s.summary);
   const row: SessionRowProps = {
     id: s.id, name: s.name ?? t('common.label.noName'), oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : null,
@@ -85,10 +112,11 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     // 区切りを付けて休みのまま残っているもの（parked）は、終わった行と同じに作る。灯も run も持たせず、状態の節に入れる。
     cost: costLabel(s.stats.costUsd), runId: s.parked ? null : aliveRunOf(store, s.id)?.id ?? null,
     state: status, returnOn, returnTime, overdueDays: returnOn ? overdueDays(returnOn, now) : null,
-    returnDue: status === 'paused' && (returnOn === null || returnDue(returnOn, returnTime, now)),
+    returnDue: status === 'paused' && returnHasCome(st!.returnOn, returnTime, now),
     returnPastMin: returnOn !== null ? returnPastMinutes(returnOn, returnTime, now) : null,
     candidate: st?.candidate ? { status: st.candidate.status, note: st.candidate.note, returnOn: st.candidate.returnOn, returnTime: st.candidate.returnTime ?? null, source: st.candidate.source, ago: relativeTime(t, st.candidate.at, now) } : null,
     setBy: status ? st!.setBy : null,
+    statusTitle: mark.title, autoDone: mark.auto,
     git: presentGitChip(t, store.git, s.id, store.sessions),
   };
   if (excerpt) row.excerpt = excerpt;
@@ -130,12 +158,15 @@ export function sortForList(list: SessionDto[]): SessionDto[] {
 }
 
 /**
- * 戻る日が来ているか。today は手元の暦の今日（localDate）。
- * 戻る日が欠けたり、暦に無い日だったりする Paused（同期や古い端末から届いた行）も、来ているとみなす。
- * 黙って埋もれると、しおりとして挟んだものを見失うからである。
+ * 戻る時点が来たか（ホームの今日戻るに出すか）。
+ * 日付だけのものはその日の朝から、時刻つきのものはその時刻を過ぎてから来たものとする（2026-10-13。時刻の前は一覧の行に枠だけの札が出る）。
+ * 日付なし（null と空）は利用者が選んだもので、来ることはない（ホームには出さず、一覧の Paused で見る）。
+ * 暦に無い日や形の違う日の Paused（同期や古い端末から届いた行）は、来ているとみなす。黙って埋もれると、しおりとして挟んだものを見失うからである。
  */
-export function dueOn(returnOn: string | null, today: string): boolean {
-  return returnOn === null || !isReturnOn(returnOn) || returnOn <= today;
+export function returnHasCome(returnOn: string | null | undefined, returnTime: string | null | undefined, now: number): boolean {
+  if (returnOn === null || returnOn === undefined || returnOn === '') return false;
+  if (!isReturnOn(returnOn)) return true;
+  return returnDue(returnOn, typeof returnTime === 'string' && isReturnTime(returnTime) ? returnTime : null, now);
 }
 
 /** タブの絞り込み。行の持ち物だけで決める。Active は状態が無いもので、動いているかも提案の有無も問わない（確認待ちと重なる）。 */

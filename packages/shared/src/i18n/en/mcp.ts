@@ -28,7 +28,7 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.sessionStatus.returnOnMustBeString': 'return_on must be a string in YYYY-MM-DD format',
   'mcp.sessionStatus.returnTimeMustBeString': 'return_time must be a string in HH:MM format',
   'mcp.sessionStatus.noteParam': 'One-sentence reason. Required (1 to 200 characters)',
-  'mcp.sessionStatus.returnOnParam': 'Reminder date. YYYY-MM-DD (local calendar; past dates are not allowed). Required for paused',
+  'mcp.sessionStatus.returnOnParam': 'Reminder date. YYYY-MM-DD (local calendar; past dates are not allowed). Optional even for paused; leave it out for no date (it then does not show under Today on Home)',
   'mcp.sessionStatus.returnTimeParam': 'Reminder time. HH:MM (24-hour, 00:00 to 23:59, local time). Pass it only when the time of the check matters. If omitted, it means "sometime that day". A time that, together with return_on, is already in the past is not allowed',
   'mcp.sessionStatus.confirmedParam': 'true only when the user chose it in the conversation',
   'mcp.tool.listProjects': 'Lists projects. Returns status, path, number of open to-dos, and last activity.',

@@ -58,9 +58,10 @@ describe('デスクトップの通知', () => {
     const { e, invoke } = env();
     const n = createDesktopNotifier(e);
     await expect(n.request()).resolves.toBe(true);
-    n.prepare();
-    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke).toHaveBeenLastCalledWith('notify_request', undefined);
+    // 起動したときに前もって尋ねる口（prepare）は持たない。尋ねるのは、利用者が「許可する」を押したときだけである（9c）。
+    expect('prepare' in n).toBe(false);
   });
   // 許可は OS が持つ。システム設定で切られていれば、殻が UNUserNotificationCenter の状態を読んで返す。
   it('許可の状態は殻が OS から読んで返す。読めなければまだ決まっていないとみなす', async () => {

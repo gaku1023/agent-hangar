@@ -82,20 +82,27 @@ describe('Header', () => {
     fireEvent.click(screen.getByRole('button', { name: '新しいセッション' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.new.open' });
   });
-  it('使用制限で止まっている枠は、砂時計の色にして % の代わりにリセットの時刻を出し、「停止 N」から会話へ移れる（試作の H2）', () => {
-    const onAction = vi.fn();
-    const stopped = { count: 1, head: '5 時間の使用制限で止まっています · 16:50 にリセット', rows: [{ id: 's9', name: '依存の更新', project: 'notes-app', auto: '自動で続きます' }] };
-    render(<ActionRoot onAction={onAction}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: 100, sevenDay: 41, fiveHourResets: '16:50', sevenDayResets: null, updatedLabel: null, fiveHourLimit: '16:50' }} sync={noSync} stopped={stopped} /></ActionRoot>);
+  // 注意（もとのベル）は、中身があるときだけ区切りの線ごと描く（2026-10-13 の決定、9a）。
+  it('注意は、中身が無ければ区切りごと描かず、あれば使用率の後ろに置く', () => {
+    const usage = { fiveHour: 10, sevenDay: 5, fiveHourResets: null, sevenDayResets: null, updatedLabel: null };
+    const { unmount } = render(<ActionRoot onAction={vi.fn()}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '注意' }} newSession={{}} indexLabel={null} usage={usage} sync={noSync} /></ActionRoot>);
+    expect(document.querySelector('.header-bell')).toBeNull();
+    unmount();
+    const row = { key: 'sync|error|x', kind: 'sync' as const, tone: 'err' as const, icon: 'sync' as const, kindLabel: '同期', title: '同期エラー', detail: null, when: null, unread: true, action: { label: '同期の設定を開く', send: { type: 'nav.go' as const, to: { name: 'settings' as const, at: 'sync' as const } } } };
+    render(<ActionRoot onAction={vi.fn()}><Header account={null} notices={{ rows: [row], unread: 1, keys: [row.key], label: '注意、未読 1 件' }} newSession={{}} indexLabel={null} usage={usage} sync={noSync} /></ActionRoot>);
+    expect(document.querySelector('.header-bell .bell')).not.toBeNull();
+    expect(screen.getByRole('button', { name: '注意、未読 1 件' })).toBeTruthy();
+  });
+  // 「停止 N」の錠剤は外した（2026-10-13 の決定、9b）。止まっている会話はホームの帯の実行中の行で見る。
+  it('使用制限で止まっている枠は、砂時計の色にして % の代わりにリセットの時刻を出す。「停止 N」の錠剤は置かない', () => {
+    render(<ActionRoot onAction={vi.fn()}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '注意' }} newSession={{}} indexLabel={null} usage={{ fiveHour: 100, sevenDay: 41, fiveHourResets: '16:50', sevenDayResets: null, updatedLabel: null, fiveHourLimit: '16:50' }} sync={noSync} /></ActionRoot>);
     const five = screen.getByText('5 時間').closest('.gauge')!;
     expect(five).toHaveAttribute('data-limit', 'true');
     expect(five.querySelector('.reason-glyph')).not.toBeNull();
     expect(five.querySelector('.gauge-num')).toHaveTextContent('16:50');
     expect(five).toHaveAttribute('title', '5 時間の使用率：使用制限 · 16:50 にリセット');
     expect(screen.getByText('週').closest('.gauge')).not.toHaveAttribute('data-limit');
-    fireEvent.click(screen.getByRole('button', { name: '使用制限で止まっているセッション 1 件' }));
-    expect(screen.getByText('5 時間の使用制限で止まっています · 16:50 にリセット')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /依存の更新/ }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 's9' });
+    expect(document.querySelector('.stopped-chip')).toBeNull();
   });
   it('最終更新が無ければ添えない', () => {
     render(<ActionRoot onAction={() => {}}><Header account={null} notices={{ rows: [], unread: 0, keys: [], label: '通知' }} newSession={{}} indexLabel={null} usage={{ fiveHour: null, sevenDay: 18, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }} sync={noSync} /></ActionRoot>);

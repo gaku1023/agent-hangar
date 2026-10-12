@@ -6,7 +6,7 @@ import { editorNameOf, type EditorDetectState, type EditorId, type NodeCheckDto,
 import { findGit as defaultFindGit } from '../git/find.ts';
 import type { Db } from '../db/open.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
-import { workspaceProjectCount } from '../projects/registry.ts';
+import { hasWorkspaceRoot, resolvedProjectCount, workspaceProjectCount } from '../projects/registry.ts';
 import type { Settings } from './paths.ts';
 import { statuslineStatus } from '../provider/claude-code/config/statusline.ts';
 import { isCommandName, isExecutableFile, needsShell } from '../platform/exec.ts';
@@ -162,6 +162,11 @@ export type ReadinessOptions = {
   findGit?: () => string | null;
   /** 選んだエディタで開けるか（external/api.ts の editors の current）。渡さなければエディタの行を持たない。 */
   editor?: () => Promise<{ id: EditorId; state: EditorDetectState; path: string | null }>;
+  /**
+   * Claude Code と会話したフォルダの候補の数（projects/candidates.ts）。プロジェクトが 1 件も無いときだけ呼ぶ。
+   * 渡さなければ 0 とする。
+   */
+  candidateCount?: () => number;
 };
 
 /** 準備の確かめを返す関数を作る。版の覚えは、この関数が生きている間だけ持つ。 */
@@ -202,14 +207,18 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
       o.compatLocalVersion ? o.compatLocalVersion() : Promise.resolve(undefined),
       o.editor ? o.editor().catch(() => null) : Promise.resolve(null),
     ]);
-    const root = expandHome(s.workspaceRoot, homeDir);
-    const exists = fs.statSync(root, { throwIfNoEntry: false })?.isDirectory() ?? false;
+    // 作成場所は任意で、空は「決めていない」である。空のまま stat すると作業ディレクトリを見てしまうので、見ない。
+    const set = hasWorkspaceRoot(s.workspaceRoot);
+    const root = set ? expandHome(s.workspaceRoot, homeDir) : '';
+    const exists = set && (fs.statSync(root, { throwIfNoEntry: false })?.isDirectory() ?? false);
+    const resolved = resolvedProjectCount(o.db, o.deviceId);
     const shell = o.shellCommand();
     const prefix = hangarCommandPrefix(shell);
     return {
       tools: { tmux, claude, node, git },
       ...(editor ? { editor: { ...editor, name: editorNameOf(editor.id) } } : {}),
       workspace: { path: s.workspaceRoot, exists, projectCount: exists ? workspaceProjectCount(o.db, o.deviceId, root) : 0 },
+      projects: { resolved, candidates: resolved === 0 ? o.candidateCount?.() ?? 0 : 0 },
       mcp: { registered: readMcpRegistration(o.claudeJson), file: o.claudeJson },
       statusline: statuslineStatus(o.claudeDir, homeDir),
       commands: { mcp: `${prefix} mcp install`, statusline: `${prefix} statusline install`, shell, join: `${prefix} join <token>` },

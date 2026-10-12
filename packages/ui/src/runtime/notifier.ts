@@ -45,11 +45,6 @@ export type Notifier = {
    */
   request(): Promise<boolean>;
   /**
-   * 既定で受け取る環境で、起動したときに OS の許可をあらかじめ尋ねておく。
-   * 尋ね終えたら解ける。
-   */
-  prepare(): Promise<void>;
-  /**
    * いまの許可の状態を読む。
    * 尋ねはしないので、ダイアログは出ない。
    * デスクトップでは殻が UNUserNotificationCenter から読む。
@@ -117,7 +112,7 @@ export type DesktopEnv = {
  * 入力待ちと使用制限の通知は、サーバが決めて殻が読みに行く（serverFed）。頁は受け取るかどうかを notify_feed で伝えるだけである。
  * 戻る時刻の知らせは、今までどおり頁が殻の notify_waiting を呼ぶ。
  * 許可は OS が持つ。
- * 尋ねる前も出せるとみなし、起動したときに notify_request で一度だけ尋ねておく（決まった後は OS が黙って答える）。
+ * 尋ねる前も出せるとみなす。尋ねる（notify_request）のは、利用者が「許可する」かスイッチを押したときだけである（2026-10-13 の決定、9c）。
  * システム設定で切られているかは notify_status で読む。
  * 殻の命令が失敗したとき（権限で断られた、殻が答えない）と知らない答えのときは、まだ決まっていないとみなし、これまでどおり出せるものとして扱う。
  * 殻の失敗は画面に出さない。
@@ -133,7 +128,6 @@ export function createDesktopNotifier(env: DesktopEnv): Notifier {
     available: () => true,
     granted: () => true,
     request: ask,
-    prepare: () => ask().then(() => {}),
     status: () => invoke('notify_status', undefined).then((r) => (typeof r === 'string' && PERMISSIONS.includes(r) ? (r as NotifyPermission) : 'undetermined'), () => 'undetermined' as const),
     background: () => true,
     serverFed: true,
@@ -179,7 +173,6 @@ export function createBrowserNotifier(env: BrowserEnv): Notifier {
       if (N.permission === 'granted') return true;
       return (await N.requestPermission()) === 'granted';
     },
-    prepare: async () => {},
     status: async () => (!N ? 'unsupported' : N.permission === 'granted' ? 'granted' : N.permission === 'denied' ? 'denied' : 'undetermined'),
     background: () => inBackground(env.document),
     show: (n) => {

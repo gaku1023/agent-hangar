@@ -99,7 +99,9 @@ const shellLabel = (t: Translate, s: ShellHookStateDto | null): string => {
  * tone の warn は、直すものがあるか、止まっているときの注意の色である。
  * label は読み上げの名前で、節の名前と状態をつなげる（要修正は数を言う）。
  */
-export type SettingsTocRow = { id: SettingsSection; title: string; state: string; tone: 'default' | 'warn'; label: string };
+export type SettingsTocRow = { id: SettingsSection; title: string; state: string; tone: 'default' | 'warn'; label: string;
+  /** 上級者向けのベータの節（クラウド同期）。名前の横に「ベータ」の小札を添える。 */
+  beta?: boolean };
 
 /** 会話の保持の節。押しても保存せず、確認（retention.edit）を開く。 */
 export type RetentionSettingsProps = { days: number; options: { value: string; label: string }[]; writable: boolean; reason: string | null; valueLabel: string; bar: UsageBarProps | null; syncNote: boolean };
@@ -151,10 +153,16 @@ export type SettingsProps = {
    * 入力待ちの通知。
    * 出せる環境か（available）と、受け取るか（on）。
    */
-  notify: { available: boolean; on: boolean; blocked: boolean };
+  /** ask は OS にまだ尋ねていないこと（「まだ許可していません」と［許可する］を添える）。 */
+  notify: { available: boolean; on: boolean; blocked: boolean; ask?: boolean };
   /** ツールの節の先頭の psmux（tmux）の状態の行（段 6 の B3）。準備の確かめが届く前は null。 */
   mux?: MuxStatus | null;
-  /** 欄の下の 1 行の検証（B1）。準備の確かめが届く前は null。 */
+  /**
+   * 新しいフォルダの作成場所の「選ぶ…」（Finder）。desktop は殻の中か（ブラウザでは出さない）、picked は殻が返した最後の選択である。
+   * 省けば出さない。
+   */
+  workspacePick?: { desktop: boolean; picked: { path: string; n: number } | null };
+  /** 欄の下の 1 行の検証（B1）。準備の確かめが届く前は null。作成場所は空のとき null（行を出さない）。 */
   verify: { workspace: VerifyLine | null; tmux: VerifyLine | null; claude: VerifyLine | null; node: VerifyLine | null; git: VerifyLine | null };
   /** hangar の MCP サーバが user スコープに載っているか。届く前は null。 */
   mcpRegistered: boolean | null;
@@ -183,6 +191,8 @@ export type SettingsProps = {
   focus: 'accounts' | 'unsent' | SettingsField | null;
   /** アプリの更新の節（presenters/update.ts）。 */
   update: UpdateSectionProps;
+  /** 一般の「hangar が自分で行うこと」の 2 つのスイッチ。設定の値が無ければ入り（サーバの読み方と同じ）。 */
+  self: { autoDone: boolean; autoPark: boolean };
 };
 
 /**
@@ -245,7 +255,7 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
 /** 目次の各行の状態。連携とツールは、準備の確かめが届くまで分からないので「確認中」と言う。 */
 function presentToc(a: {
   t: Translate; language: Language; todo: { must: number; link: number }; cloud: CloudSettingsProps; cloudWord: string; cloudTone: string;
-  sync: Store['sync']; notify: Store['notify']; readiness: boolean; summaryEngine: SummaryEngine; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; now: number;
+  sync: Store['sync']; notify: Store['notify']; readiness: boolean; summaryEngine: SummaryEngine; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; retentionDays: number | null; now: number;
   update: UpdateSectionProps; desktop: boolean;
 }): SettingsTocRow[] {
   const { t } = a;
@@ -269,12 +279,16 @@ function presentToc(a: {
     tools: a.readiness ? fix(a.todo.must, t('settings.toc.allFound')) : checking,
     // 失敗と再起動待ちは注意の色にする（見出しの札の stop と warn）。
     update: { state: a.update.tocState, tone: a.update.badge?.tone === 'stop' || a.update.badge?.tone === 'warn' ? 'warn' : 'default' },
-    info: { state: t('settings.toc.sessions', { n: a.sessionCount.toLocaleString('en-US') }), tone: 'default' },
+    // 保持期間の日数は、注意の一覧から外してここに残す（2026-10-13 の決定、9a）。
+    info: { state: a.retentionDays === null ? t('settings.toc.sessions', { n: a.sessionCount.toLocaleString('en-US') }) : t('settings.toc.sessionsRetention', { n: a.sessionCount.toLocaleString('en-US'), days: daysLabel(t, a.retentionDays) }), tone: 'default' },
   };
   // 更新は殻の中でだけ意味があるので、ブラウザの目次には出さない（URL で開けば、節は 1 文だけを出す）。
   return SETTINGS_SECTIONS.filter((id) => id !== 'update' || a.desktop).map((id) => {
     const title = t(`settings.section.${id}`);
-    return { id, title, ...state[id], label: t('settings.toc.row', { name: title, state: state[id].state }) };
+    // クラウド同期は上級者向けのベータ。小札は状態の段を潰さないよう、名前の横に添える（試作の 5 節の案 A）。
+    const beta = id === 'cloud';
+    const name = beta ? `${title} ${t('settings.toc.beta')}` : title;
+    return { id, title, ...state[id], label: t('settings.toc.row', { name, state: state[id].state }), ...(beta ? { beta } : {}) };
   });
 }
 
@@ -369,6 +383,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     save: state.settingsSave,
     // 準備の確かめが届く前も、同じ hangar の呼び方で見せる。
     commands: { mcp: r?.commands.mcp ?? 'hangar mcp install', statusline: r?.commands.statusline ?? 'hangar statusline install', join: r?.commands.join ?? 'hangar join <token>', setupCloud: SETUP_CLOUD_COMMAND },
+    workspacePick: { desktop: store.desktop, picked: store.pickedFolder },
     workspaceRoot: s?.workspaceRoot ?? '', claudeDir: s?.claudeDir ?? '', device: store.device, version: store.version, index: store.index,
     // 進んでいる間はヘッダーと同じ文にし、終わっていれば数を出す。
     indexLabel: indexProgressLabel(t, store.index) ?? t('settings.info.index.counts', { sessions: Object.keys(store.sessions).length, projects: Object.keys(store.projects).length }),
@@ -387,10 +402,11 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     retention: retentionSettings(store),
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
-    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now, update, desktop: store.desktop }),
+    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop }),
     update,
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,
-    notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },
+    notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked, ...(store.notify.ask ? { ask: true } : {}) },
+    self: { autoDone: s?.autoDone !== false, autoPark: s?.autoPark !== false },
   };
 }

@@ -82,7 +82,7 @@ describe('現在の札の状態の行', () => {
     expect(after).toMatchObject({ state: '入力待ち', detail: null, question: false });
     expect(after.steps.map((x) => [x.name, x.mark])).toEqual([['Bash', 'done']]);
     // 作業中の手の数にも入れる。
-    expect(present({ live: 'busy', events: [old, oldR, bash, turn], turnFrom: turn.seq, now: 160_000 }).sub).toBe('1 手目 · 1 分');
+    expect(present({ live: 'busy', events: [old, oldR, bash, turn], turnFrom: turn.seq, now: 160_000 }).sub).toBe('ツール呼び出し 1 回 · 1 分');
   });
   it('入力待ちは、動いているサブエージェントや裏の印があっても入力待ちのまま', () => {
     expect(present({ live: 'waiting', aside: { shell: true, agents: 0 }, digest: digest({ agents: [agent({})] }) }).tone).toBe('wait');
@@ -101,13 +101,13 @@ describe('現在の札の状態の行', () => {
     const m1 = call('mcp__hangar__set_turn_intent', { text: 'x' });
     const a1 = call('Agent', { description: '担当' });
     const s = present({ events: [prompt('x', 0), c1, res(c1), m1, res(m1), a1, res(a1), call('Bash', { command: 'npm test', description: 'テスト' })] });
-    expect(s).toMatchObject({ tone: 'busy', state: '作業中', sub: '3 手目 · 3 分', detail: null });
+    expect(s).toMatchObject({ tone: 'busy', state: '作業中', sub: 'ツール呼び出し 3 回 · 3 分', detail: null });
   });
   it('ターンの始まりの時刻が分からなければ手の数だけ、サブエージェントの transcript を開いている間は何も添えない', () => {
     seq = 0;
     const c1 = call('Read', { file_path: '/w/a.ts' });
     const events = [prompt('x'), c1, res(c1), call('Bash', { command: 'ls' })];
-    expect(present({ events }).sub).toBe('2 手目');
+    expect(present({ events }).sub).toBe('ツール呼び出し 2 回');
     expect(present({ events, viewingAgent: true }).sub).toBe('');
   });
   it('サブエージェントが動いている作業中は、その件数と、メイン会話も手を動かしているかを言う', () => {
@@ -126,7 +126,7 @@ describe('現在の札の状態の行', () => {
     expect(present({ live: 'idle' }, en)).toMatchObject({ state: 'Idle', sub: 'for 3 分' });
     expect(present({ aside: { shell: true, agents: 0 } }, en)).toMatchObject({ state: 'Working in background', detail: 'A shell is running, Main conversation is accepting input' });
     seq = 0;
-    expect(present({ events: [prompt('x'), call('Read', { file_path: '/w/a.ts' })] }, en).sub).toBe('Step 1');
+    expect(present({ events: [prompt('x'), call('Read', { file_path: '/w/a.ts' })] }, en).sub).toBe('1 tool call');
   });
 });
 

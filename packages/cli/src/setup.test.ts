@@ -27,6 +27,18 @@ describe('runSetup', () => {
   });
 });
 
+// 作成場所は任意（2026-10-13）。新しい利用者は空から始まり、報告でも任意と言う。
+describe('runSetup の作成場所', () => {
+  it('--workspace を渡さない新しい利用者は空のままにし、任意であることと決め方を言う', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cli-'));
+    const r = runSetup({ home, claudeDir: path.join(home, 'claude-empty'), which: () => null });
+    expect(r.workspaceRoot).toBe('');
+    expect(r.workspaceExists).toBe(false);
+    expect(formatSetupReport(r)).toContain('新しいフォルダの作成場所: 未設定（任意。hangar setup --workspace <dir> で決められます）');
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+});
+
 describe('runSetup（Windows）', () => {
   it('tmux の役は psmux を先に探す', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-cli-'));

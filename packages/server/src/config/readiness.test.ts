@@ -291,6 +291,18 @@ describe('createReadiness', () => {
     settings = baseSettings({ claudePath: null });
     expect((await read()).tools.claude).toMatchObject({ ok: false, problem: 'unset' });
   });
+  // 始める前の確認の「プロジェクト」の行（2026-10-13）。候補は、プロジェクトが 1 件も無いときだけ数える（数えるのにファイルを見て回るため）。
+  it('この PC の解決済みのプロジェクトを数え、0 件のときだけ会話したフォルダの候補を数える', async () => {
+    let asked = 0;
+    const read = createReadiness({ settings: () => baseSettings({ workspaceRoot: '' }), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', candidateCount: () => { asked++; return 9; } });
+    const r = await read();
+    expect(r.projects).toEqual({ resolved: 0, candidates: 9 });
+    expect(r.workspace).toEqual({ path: '', exists: false, projectCount: 0 });
+    upsertShared(db, 'projects', { id: 'p1', name: 'x', status: 'active', is_scratch: 0 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'r1', project_id: 'p1', device_id: 'd', path: path.join(tmp, 'x'), resolved: 1 }, 'd');
+    expect((await read()).projects).toEqual({ resolved: 1, candidates: 0 });
+    expect(asked).toBe(1);
+  });
   it('Node の設定が空なら、サーバを動かしている Node を見せる', async () => {
     const read = createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', serverNode: { path: '/opt/node/bin/node', version: 'v22.1.0' } });
     const r = await read();

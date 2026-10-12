@@ -9,6 +9,7 @@ import { ACCOUNT_COLORS } from '../presenters/settings.ts';
 import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { AccountSettings } from './AccountSettings.tsx';
+import { AddAccountDialog } from './AddAccountDialog.tsx';
 import { CloudUsage } from './CloudUsage.tsx';
 import { CompatSection } from './CompatSection.tsx';
 import { AccountMeters } from './primitives/AccountMeters.tsx';
@@ -71,13 +72,25 @@ describe('設定（英語）', () => {
     inEnglish(<AccountSettings list={list} colors={ACCOUNT_COLORS} />);
     expect(screen.getByRole('heading', { level: 3, name: 'Accounts' })).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Account list' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Account name' })).toHaveAttribute('placeholder', 'Name (e.g. University)');
-    expect(screen.getByRole('button', { name: 'Add and log in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add account…' })).toBeInTheDocument();
     expect(screen.getByText('Current')).toBeInTheDocument();
     expect(screen.getByText('Not logged in')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Log in' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: `Actions for ${list[0]!.name}` }));
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual(['Rename', 'Change color', 'Log in again', 'Reload status', 'Remove accountThe primary account cannot be removed']);
+    noJapanese();
+  });
+  it('アカウントを足すダイアログ：欄、2 列、知らせ、ボタン', () => {
+    inEnglish(<AddAccountDialog home="/Users/taro" primaryDirLabel="~/.claude" desktop picked={null} submitting={false} error={null}
+      preview={{ name: '', input: '', dir: '/Users/taro/.claude-2', suggested: true, exists: true, conflicts: ['settings.json'], registeredAs: null }} />);
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveAttribute('placeholder', 'e.g. University');
+    expect(screen.getByRole('textbox', { name: 'Location' })).toHaveValue('~/.claude-2');
+    expect(screen.getByRole('list', { name: 'Shared with ~/.claude (links)' })).toBeInTheDocument();
+    expect(screen.getByText('projects, history.jsonl, and 6 more')).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Kept separate (not shared)' })).toBeInTheDocument();
+    expect(screen.getByText(/~\/\.claude-2 already has settings\.json as real files/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose…' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Register and log in' })).toBeInTheDocument();
     noJapanese();
   });
   it('アカウント：使用率の棒と、上限間近と古い値の注記', () => {

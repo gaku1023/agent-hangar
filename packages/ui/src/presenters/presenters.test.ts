@@ -228,6 +228,14 @@ describe('presentHome', () => {
       { kind: 'todo', id: 'a', text: 'やる a', projectId: 'alpha', projectName: 'alpha', sessionName: 'name-s1', ago: '1 分前', note: '新しい' },
     ]);
   });
+  // 出どころと自動で確定するまでの日数（2026-10-13 の決定、知らせの 9d）。
+  it('セッションの提案は、出どころと、Done なら自動で確定するまでの残りの日数を持つ', () => {
+    const store = homeStore();
+    const cand = (status: 'done' | 'paused', source: 'in_session' | 'post_hoc', at: number) => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: { status, note: '済んだ', returnOn: status === 'paused' ? '2026-10-05' : null, returnTime: null, source, at } });
+    store.sessions = { ...store.sessions, p1: session('p1', { state: cand('done', 'in_session', NOW - 36 * 3_600_000) }), p2: session('p2', { state: cand('paused', 'post_hoc', NOW - 3_600_000) }) };
+    const h = presentHome(initialState(), store, NOW);
+    expect(h.confirm.map((c) => (c.kind === 'session' ? [c.id, c.source, c.daysLeft] : null))).toEqual([['p1', 'in_session', 6], ['p2', 'post_hoc', null]]);
+  });
   it('候補が無ければ確かめるは空で、件数にも出さない', () => {
     const h = presentHome(initialState(), homeStore(), NOW);
     expect(h.confirm).toEqual([]);
@@ -820,12 +828,12 @@ describe('presentSession（現在の札の状態）', () => {
     const p = presentSession(initialState(), live(900, 7, 705), NOW, 's1');
     expect(p.turnsComplete).toBe(false);
     // 窓の最初の指示（700）からではなく 705 から数えるので 6 手。行に時刻が無いので経過は添えない。
-    expect(p.strip).toMatchObject({ tone: 'busy', state: '作業中', sub: '6 手目' });
+    expect(p.strip).toMatchObject({ tone: 'busy', state: '作業中', sub: 'ツール呼び出し 6 回' });
   });
   it('digest がまだ無ければ、窓の最後のターンの頭から数える', () => {
     const store = live(900, 7, 705);
     store.liveDigests = {};
-    expect(presentSession(initialState(), store, NOW, 's1').strip!.sub).toBe('10 手目');
+    expect(presentSession(initialState(), store, NOW, 's1').strip!.sub).toBe('ツール呼び出し 10 回');
   });
 });
 
@@ -1250,7 +1258,8 @@ describe('presentSettings のフェーズ 3 の項目', () => {
 });
 
 describe('ヘッダーの使用制限（試作の H2）', () => {
-  it('使用制限で止まっているセッションがあれば、その枠のゲージに時刻を出し、「停止 N」の札から会話へ移れる', () => {
+  // 「停止 N」の錠剤は外した（ホームの帯の実行中の行と重なる。2026-10-13 の決定、9b）。ゲージの時刻は残す。
+  it('使用制限で止まっているセッションがあれば、その枠のゲージに時刻を出す。「停止 N」の札は作らない', () => {
     const store = storeWith();
     const resetsAt = new Date(NOW).setHours(new Date(NOW).getHours() + 1, 50, 0, 0);
     const hm = `${String(new Date(resetsAt).getHours()).padStart(2, '0')}:50`;
@@ -1259,15 +1268,12 @@ describe('ヘッダーの使用制限（試作の H2）', () => {
     const p = presentShell(initialState(), store, NOW);
     expect(p.usage.fiveHourLimit).toBe(hm);
     expect(p.usage.sevenDayLimit ?? null).toBeNull();
-    expect(p.stopped?.count).toBe(2);
-    expect(p.stopped?.head).toBe(`5 時間の使用制限で止まっています · ${hm} にリセット`);
-    expect(p.stopped?.rows.map((r) => [r.id, r.auto])).toEqual([['s1', '自動で続きます'], ['s2', '自動では続きません']]);
+    expect('stopped' in p).toBe(false);
   });
-  it('止まっているものが無ければ札は出さない（リセット済みは数えない）', () => {
+  it('止まっているものが無ければゲージに時刻を出さない（リセット済みは数えない）', () => {
     const store = storeWith();
     store.sessions.s1 = { ...store.sessions.s1!, live: 'idle', limit: { kind: 'five_hour', resetsAt: NOW - 200_000, auto: false, reset: true } };
     const p = presentShell(initialState(), store, NOW);
-    expect(p.stopped ?? null).toBeNull();
     expect(p.usage.fiveHourLimit ?? null).toBeNull();
   });
 });
@@ -1632,7 +1638,7 @@ describe('presentShell のベル', () => {
   // 保持期間の帯はヘッダーの下から無くなり、ベルの一覧の行になった（PR 29）。行の組み方は notices.test.ts が試す。
   it('ベルの props を渡し、保持期間の帯の props は持たない', () => {
     const p = presentShell(initialState(), { ...initialStore(), bootstrapped: true }, NOW);
-    expect(p.notices).toMatchObject({ rows: [], unread: 0, label: '通知' });
+    expect(p.notices).toMatchObject({ rows: [], unread: 0, label: '注意' });
     expect('retention' in p).toBe(false);
   });
   it('既読の鍵は State から読み、未読の数をベルの名前に添える', () => {

@@ -111,7 +111,7 @@ describe('createMcpApp', () => {
     const tools = list.body.result!.tools as { name: string; inputSchema: { properties: Record<string, { description?: string }> } }[];
     const props = tools.find((t) => t.name === 'propose_session_status')!.inputSchema.properties;
     expect(props.note!.description).toBe('根拠の一文。必須（1〜200 字）');
-    expect(props.return_on!.description).toBe('リマインダーの日付。YYYY-MM-DD（手元の暦。過去の日は不可）。paused では必須');
+    expect(props.return_on!.description).toBe('リマインダーの日付。YYYY-MM-DD（手元の暦。過去の日は不可）。paused でも任意で、省くと日付なし（ホームの「今日」には出ない）');
     expect(props.return_time!.description).toBe('リマインダーの時刻。HH:MM（24 時間、00:00〜23:59、手元の時刻）。確認する時刻に意味があるときだけ渡す。省くと「その日のうち」になる。return_on と合わせて過去になる時点は不可');
     expect(props.confirmed!.description).toBe('利用者が会話の中で選んだときだけ true');
   });
@@ -158,7 +158,7 @@ describe('言語', () => {
     }
     const propose = tools.find((t) => t.name === 'propose_session_status')!;
     expect(propose.description).toBe('agent-hangar: Suggests a status for this session (Done or Paused). Set confirmed to true only when the user chose it in the conversation. Never set it to true without asking the user.');
-    expect(propose.inputSchema.properties.return_on!.description).toBe('Reminder date. YYYY-MM-DD (local calendar; past dates are not allowed). Required for paused');
+    expect(propose.inputSchema.properties.return_on!.description).toBe('Reminder date. YYYY-MM-DD (local calendar; past dates are not allowed). Optional even for paused; leave it out for no date (it then does not show under Today on Home)');
   });
 
   it('英語では、道具の失敗が英語で返り、下の層の検査の文も同じ言語で出る', async () => {
@@ -166,7 +166,7 @@ describe('言語', () => {
     expect(missing.body.result!.isError).toBe(true);
     expect(textOf(missing)).toBe('Project not found: nope');
     expect(textOf(await rpc('/', 'tools/call', { name: 'update_project', arguments: { project_id: 'p1', propose_done: [{ todo_id: 'x', note: ' ' }] } }, 4))).toBe('The note (one-sentence reason) in propose_done is empty');
-    expect(textOf(await rpc(`/s/${alphaId}`, 'tools/call', { name: 'propose_session_status', arguments: { status: 'paused', note: 'x' } }, 5))).toBe('Paused needs a reminder date');
+    expect(textOf(await rpc(`/s/${alphaId}`, 'tools/call', { name: 'propose_session_status', arguments: { status: 'paused', note: 'x', return_time: '10:00' } }, 5))).toBe('Give the reminder time together with a date');
     expect(textOf(await rpc(`/s/${alphaId}`, 'tools/call', { name: 'get_transcript', arguments: { session_id: 'other' } }, 6))).toBe(`This MCP URL is for session ${alphaId} only. You cannot specify another session_id`);
   });
 

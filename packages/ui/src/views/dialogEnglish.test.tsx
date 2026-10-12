@@ -63,7 +63,7 @@ describe('ダイアログ類（英語）', () => {
 
   it('Paused の入力：札、欄、字数', () => {
     const choices = pauseChoices(NOW, en);
-    expect(choices.map((c) => c.label)).toEqual(['This evening', 'Tomorrow', 'Monday', 'Next week', 'Pick a date…']);
+    expect(choices.map((c) => c.label)).toEqual(['No date', 'This evening', 'Tomorrow', 'Monday', 'Next week', 'Pick a date…']);
     inEnglish(<PauseDialog sessionId="s1" sessionName="Demo" from="candidate" draft="" candidateNote={null} initialReturnOn="2026-10-07" initialReturnTime="" candidateReturnTime={null} today="2026-10-06" choices={choices} />);
     expect(screen.getByRole('dialog', { name: 'Mark as Paused' })).toBeInTheDocument();
     expect(screen.getByText('Suggestion')).toBeInTheDocument();
@@ -132,7 +132,7 @@ describe('ダイアログ類（英語）', () => {
     const { unmount } = inEnglish(<ResolveProjectDialog projectId="p1" name="demo" previousPath="/w/demo" candidates={['/w/demo2']} onQueryCandidates={() => {}} />);
     expect(screen.getByRole('dialog', { name: 'demo: folder not found' })).toBeInTheDocument();
     expect(screen.getByText('Previous path')).toBeInTheDocument();
-    expect(screen.getByText('Candidates in the projects folder')).toBeInTheDocument();
+    expect(screen.getByText('Candidates in the location for new folders')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'New path' })).toBeInTheDocument();
     for (const name of ['Use this location', 'Mark as Archived', 'Remove from list', 'Later']) expect(screen.getByRole('button', { name })).toBeInTheDocument();
     noJapanese();
