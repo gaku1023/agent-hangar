@@ -6,7 +6,8 @@ import { writeFakeTool } from '../../../test/fake-bin.ts';
 import type { ServerEvent, SettingsDto } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
 import { upsertShared } from '../../db/shared.ts';
-import { SESSION_OTHER } from '../../../test/fixtures.ts';
+import { SESSION_ALPHA, SESSION_OTHER } from '../../../test/fixtures.ts';
+import { setSessionState } from '../../sessions/states.ts';
 import { createApp, type RunsApi } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 import { isWindows } from '../../../test/platform.ts';
@@ -146,7 +147,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, nodePath: null, claudePath: null, language: 'ja' });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -351,6 +352,8 @@ describe('設定の往復', () => {
         ['configBundleSync', true],
         ['askStatusAtEnd', false],
         ['liveHints', false],
+        ['autoDone', false],
+        ['autoPark', false],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -400,6 +403,36 @@ describe('設定の往復', () => {
       for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
       expect((await json(await get('/api/settings'))).body[key]).toBe(false);
     }
+  });
+  it('hangar が自分で行うこと（自動の Done と自動の停止）のスイッチは、既定が入りで、切りを保存でき、真偽値でない値は断る', async () => {
+    for (const key of ['autoDone', 'autoPark'] as const) {
+      expect((await json(await get('/api/settings'))).body[key]).toBe(true);
+      expect((await json(await get('/api/bootstrap'))).body.settings[key]).toBe(true);
+      expect((await (await patch({ [key]: false })).json())[key]).toBe(false);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+      for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+    }
+    expect((await (await patch({ autoDone: 'no' })).json()).error).toBe('「止まった会話を自動で Done にする」の値の形が違います');
+    expect((await (await patch({ autoPark: 'no' })).json()).error).toBe('「Done と Archived にした会話を停止する」の値の形が違います');
+  });
+  it('自動の停止を切り替えたら、動いている Done と Archived の行を配り直す（実行中に数えるかが変わる）', async () => {
+    t.dispose();
+    t = await testDeps({ live: () => [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/w', pid: 1 }] });
+    ({ db } = t); sent = t.events;
+    app = createApp(t.deps);
+    const alpha = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    setSessionState(db, 'd', alpha, { status: 'done', setBy: 'user' });
+    await new Promise((r) => setTimeout(r, 0));
+    sent.length = 0;
+    expect((await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ autoPark: false }) })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.some((e) => e.type === 'session.upsert' && e.session.id === alpha)).toBe(true);
+    // 自動の Done だけを替えたときは配り直さない。
+    sent.length = 0;
+    await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ autoDone: false }) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.some((e) => e.type === 'session.upsert')).toBe(false);
   });
   it('言語の既定は日本語で、英語を保存して読める', async () => {
     expect((await json(await get('/api/settings'))).body.language).toBe('ja');

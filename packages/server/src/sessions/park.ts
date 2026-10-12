@@ -41,6 +41,8 @@ export type ParkWatchDeps = {
   now?: () => number;
   settleMs?: number;
   log?: (message: string) => void;
+  /** 設定のスイッチ（settings の autoPark）。偽の間は休みの一覧も読まず、何も止めない。省けば常に入り。 */
+  enabled?: () => boolean;
 };
 
 /**
@@ -61,6 +63,8 @@ export class ParkWatch {
 
   /** 1 回見回る。止めたセッションの id を返す。 */
   tick(): string[] {
+    // 切っている間は数えを捨てる。入れ直したら、休みを最初から数える。
+    if (this.deps.enabled && !this.deps.enabled()) { this.seen.clear(); return []; }
     const now = this.deps.now?.() ?? Date.now();
     const settle = this.deps.settleMs ?? PARK_SETTLE_MS;
     const parked = new Set(this.deps.parkedIds());

@@ -571,9 +571,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       }
       case 'desktop.pickFolder':
         if (!deps.desktop) return;
-        // 取り消したら何もしない。開く場所はワークスペースのルートにする。
+        // 取り消したら何もしない。開く場所は渡されたもの（アカウントの場所）か、ワークスペースのルートにする。
         // 作成場所は任意で、空なら OS の既定の場所から開く。
-        deps.desktop.pickFolder(store.settings?.workspaceRoot || null)
+        deps.desktop.pickFolder(e.defaultPath !== undefined ? e.defaultPath : store.settings?.workspaceRoot || null)
           .then((path) => { if (path) setStore(applyPickedFolder(store, path)); })
           .catch((err: unknown) => failWith(tr()('runtime.shell.pickFolderFailed'), err));
         return;
@@ -759,11 +759,13 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
       case 'api.accounts.switchSession': deps.api.switchAccount(e.sessionId, e.accountId).then(launched).catch(launchFailed); return;
       case 'api.accounts.add':
         // 追加の直後にログインを始める。新しいアカウントは応答の末尾の 1 件である。
-        deps.api.addAccount(e.name).then((accounts) => {
+        // 断られた理由はダイアログに残す（account.add.failed）。トーストにはしない。
+        deps.api.addAccount(e.name, e.dir).then((accounts) => {
           accountsUpdated(accounts);
+          dispatch({ kind: 'runtime', event: { type: 'account.add.done' } });
           const added = accounts.accounts.at(-1);
           if (added) deps.api.loginAccount(added.id).catch(fail);
-        }).catch(fail);
+        }).catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'account.add.failed', message: errMsg(err) } }));
         return;
       case 'api.accounts.remove': deps.api.removeAccount(e.accountId).then(accountsUpdated).catch(fail); return;
       default: {

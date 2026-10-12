@@ -1,6 +1,6 @@
 import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -169,7 +169,10 @@ export type ApiClient = {
   setCurrentAccount(id: string): Promise<AccountsDto>;
   /** セッションを別のアカウントで再開する。サーバがいまのアカウントも変える。断る理由は 409 と 400 の一文で投げる。 */
   switchAccount(sessionId: string, accountId: string): Promise<LaunchResultDto>;
-  addAccount(name: string): Promise<AccountsDto>;
+  /** dir は画面で打ったままの場所（~/ も可）。null ならサーバが名前から決める。 */
+  addAccount(name: string, dir: string | null): Promise<AccountsDto>;
+  /** アカウントを足す前の確かめ。何も作らない。 */
+  previewAccountDir(name: string, dir: string): Promise<AccountDirPreviewDto>;
   updateAccount(id: string, patch: { name?: string; color?: string }): Promise<AccountsDto>;
   removeAccount(id: string): Promise<AccountsDto>;
   /** 202 が返るが、本文は使わない。ログインの進みは accounts.update で届く。 */
@@ -298,7 +301,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     accounts: () => call('/api/accounts'),
     setCurrentAccount: (id) => call('/api/accounts/current', { method: 'PUT', body: JSON.stringify({ id }) }),
     switchAccount: (sessionId, accountId) => post(`/api/sessions/${sessionId}/switch-account`, { account: accountId }),
-    addAccount: (name) => post('/api/accounts', { name }),
+    addAccount: (name, dir) => post('/api/accounts', dir === null ? { name } : { name, dir }),
+    previewAccountDir: (name, dir) => call(`/api/accounts/preview?${new URLSearchParams({ name, dir }).toString()}`),
     updateAccount: (id, patch) => call(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
     removeAccount: (id) => call(`/api/accounts/${id}`, { method: 'DELETE' }),
     loginAccount: (id) => post(`/api/accounts/${id}/login`),

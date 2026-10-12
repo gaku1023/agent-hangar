@@ -337,12 +337,24 @@ export function SettingsScreen(props: SettingsProps) {
       )}
     </section>
   );
+  // hangar が claude への指示ではなく自分で行うこと（試作の 5 節の案 A）。押した時点で保存する。次の見回りから効く。
+  const self = (
+    <section>
+      <h3 className="h2">{t('settings.general.self.title')}</h3>
+      <SetRow title={t('settings.general.autoDone.title')} desc={t('settings.general.autoDone.desc')}
+        control={<Switch label={t('settings.general.autoDone.title')} checked={props.self.autoDone} onChange={(next) => setNow({ autoDone: next })} />} />
+      <SetRow title={t('settings.general.autoPark.title')} desc={t('settings.general.autoPark.desc')}
+        control={<Switch label={t('settings.general.autoPark.title')} checked={props.self.autoPark} onChange={(next) => setNow({ autoPark: next })} />} />
+    </section>
+  );
 
   const cloudOff = !props.cloud.configured;
   const member = props.cloud.member;
   const cloud = (
     <>
       <section aria-label={cur.title}>
+        {/* 上級者向けのベータ。始めるのに要るものを、同期していてもいなくても頭で言う（試作の 5 節の案 A）。 */}
+        <p className="muted-p cloud-beta-lead">{t('settings.cloud.betaLead')}</p>
         {cloudOff && (
           <>
             <p className="muted-p">{t('settings.cloud.off.lead')}</p>
@@ -617,7 +629,7 @@ export function SettingsScreen(props: SettingsProps) {
     </>
   );
 
-  const body: Record<SettingsSection, ReactNode> = { general, cloud, integrations, summary, tools, update: <UpdateSection update={props.update} />, info };
+  const body: Record<SettingsSection, ReactNode> = { general: <>{general}{self}</>, cloud, integrations, summary, tools, update: <UpdateSection update={props.update} />, info };
 
   return (
     <div ref={root} className="screen settings-screen">
@@ -628,7 +640,7 @@ export function SettingsScreen(props: SettingsProps) {
             <button key={r.id} type="button" className="settings-toc-item" aria-current={props.section === r.id ? 'page' : undefined} aria-label={r.label} tabIndex={props.section === r.id ? 0 : -1} onClick={() => go(r.id)}>
               <Icon name={SECTION_ICON[r.id]} />
               <span className="settings-toc-text">
-                <span className="settings-toc-t">{r.title}</span>
+                <span className="settings-toc-t">{r.title}{r.beta && <span className="tag-beta">{t('settings.toc.beta')}</span>}</span>
                 <span className="settings-toc-s" data-tone={r.tone}>{r.state}</span>
               </span>
             </button>

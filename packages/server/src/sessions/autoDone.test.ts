@@ -145,11 +145,11 @@ describe('summaryCandidates', () => {
 });
 
 describe('AutoDoneWatch', () => {
-  function watch(o: { cands: () => { id: string; reason: 'disposable' | 'summary' }[]; toSummarize?: () => string[] }) {
+  function watch(o: { cands: () => { id: string; reason: 'disposable' | 'summary' }[]; toSummarize?: () => string[]; enabled?: () => boolean }) {
     let now = NOW;
     const marked: string[] = [];
     const enqueued: string[] = [];
-    const w = new AutoDoneWatch({ candidates: o.cands, mark: (id) => { marked.push(id); return true; }, toSummarize: o.toSummarize ?? (() => []), enqueue: (id) => { enqueued.push(id); }, now: () => now });
+    const w = new AutoDoneWatch({ candidates: o.cands, mark: (id) => { marked.push(id); return true; }, toSummarize: o.toSummarize ?? (() => []), enqueue: (id) => { enqueued.push(id); }, now: () => now, ...(o.enabled ? { enabled: o.enabled } : {}) });
     return { w, marked, enqueued, advance: (ms: number) => { now += ms; } };
   }
   it('続けて対象だったものを、60 秒たってから 1 回だけ Done にする', () => {
@@ -179,5 +179,33 @@ describe('AutoDoneWatch', () => {
     t.w.tick();
     t.w.tick();
     expect(t.enqueued).toEqual(['e1']);
+  });
+  it('設定で切っている間は、Done にせず、事後要約も入れない。入れ直したら数え始めからやり直す', () => {
+    let on = false;
+    let cands = 0;
+    const t = watch({ cands: () => { cands++; return [{ id: 's1', reason: 'disposable' }]; }, toSummarize: () => ['e1'], enabled: () => on });
+    t.w.tick();
+    t.advance(AUTO_DONE_SETTLE_MS * 3);
+    expect(t.w.tick()).toEqual([]);
+    expect(t.marked).toEqual([]);
+    expect(t.enqueued).toEqual([]);
+    // 切っている間は、候補を引きにも行かない。
+    expect(cands).toBe(0);
+    on = true;
+    expect(t.w.tick()).toEqual([]);
+    t.advance(AUTO_DONE_SETTLE_MS);
+    expect(t.w.tick()).toEqual(['s1']);
+    expect(t.enqueued).toEqual(['e1']);
+  });
+  it('入りから切りへ替えたら、それまでの数えを捨てる', () => {
+    let on = true;
+    const t = watch({ cands: () => [{ id: 's1', reason: 'disposable' }], enabled: () => on });
+    t.w.tick();
+    t.advance(AUTO_DONE_SETTLE_MS - 1);
+    on = false;
+    t.w.tick();
+    on = true;
+    t.advance(1);
+    expect(t.w.tick()).toEqual([]);
   });
 });

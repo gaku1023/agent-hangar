@@ -92,6 +92,31 @@ export class AccountStore {
     }
   }
 
+  /**
+   * 名前から、足すアカウントの場所の候補を作る。~/.claude-<名前> で、名前は英小文字と数字だけにし、ほかの文字の並びは - に寄せる。
+   * 英数字が残らない名前（日本語の名前など）は、空いている連番（~/.claude-2 から）にする。
+   * 登録済みの場所なら後ろに -2、-3 と付ける。登録していない既存のフォルダはそのまま返す（中身は足す前の確かめで見せる）。
+   * 場所そのものは作らない。
+   */
+  suggestDir(name: string): string {
+    const slug = name.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, NAME_MAX);
+    if (slug === '') return this.nextDir();
+    const base = path.join(this.homeDir, `.claude-${slug}`);
+    if (!this.byDir(base)) return base;
+    for (let n = 2; ; n++) {
+      const dir = `${base}-${n}`;
+      if (!this.byDir(dir)) return dir;
+    }
+  }
+
+  /** 画面で打った場所を絶対パスにする。前後の空白を落とし、~ と ~/（Windows は ~\ も）はホームから読む。相対パスと空は断る。 */
+  resolveDir(input: string): string {
+    const v = input.trim();
+    const abs = v === '~' ? this.homeDir : /^~[\\/]/.test(v) ? path.join(this.homeDir, v.slice(2)) : v;
+    if (!path.isAbsolute(abs)) throw new AccountError(400, msg('account.dir.mustBeAbsolute'));
+    return path.resolve(abs);
+  }
+
   byDir(dir: string): Account | null {
     const want = path.resolve(dir);
     return this.list().find((a) => path.resolve(a.dir) === want) ?? null;
