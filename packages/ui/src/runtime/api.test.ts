@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, createApi, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, createApi, RetentionConflictApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -154,6 +154,15 @@ describe('保持期間の API', () => {
   it('409 の retention_conflict は RetentionConflictApiError にする', async () => {
     const { api } = harness(409, { error: 'retention_conflict' });
     await expect(api.writeRetention(365, 'abc')).rejects.toBeInstanceOf(RetentionConflictApiError);
+  });
+  it('404 は ApiNotFoundError にする。文はサーバの理由のまま', async () => {
+    const { api } = harness(404, { error: 'プロジェクトが見つかりません' });
+    const e = await api.projectGit('gone').catch((err: unknown) => err);
+    expect(e).toBeInstanceOf(ApiNotFoundError);
+    expect((e as Error).message).toBe('プロジェクトが見つかりません');
+    // ほかの失敗は型を付けない。
+    const other = await harness(500, { error: 'boom' }).api.projectGit('p1').catch((err: unknown) => err);
+    expect(other).not.toBeInstanceOf(ApiNotFoundError);
   });
 });
 

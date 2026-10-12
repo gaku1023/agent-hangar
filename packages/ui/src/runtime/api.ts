@@ -18,6 +18,14 @@ export class RetentionConflictApiError extends Error {
 }
 
 /**
+ * 相手が無い（404）。文はサーバの理由のままで、ふつうの失敗と同じく札にできる。
+ * 裏の読み直し（開いたままのプロジェクト画面の git）は、これで「画面の外で消えた」と見分ける。
+ */
+export class ApiNotFoundError extends Error {
+  constructor(message: string) { super(message); this.name = 'ApiNotFoundError'; }
+}
+
+/**
  * 本文の読み出しの向き。
  * latest は末尾から（画面を開いたとき）、beforeSeq はその手前へ（過去へ遡るとき）、
  * fromSeq はそこから前向きへ（追記を取り込むとき）。
@@ -180,7 +188,9 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       if (r.status === 409 && body?.error === 'local_smaller') throw new ApiConflictError(body as ResumeHereConflictDto);
       if (r.status === 409 && body?.error === 'retention_conflict') throw new RetentionConflictApiError();
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'editor_missing') throw new EditorMissingApiError(body as unknown as EditorMissingDto);
-      throw new Error(body?.error ?? `${r.status} ${path}`);
+      const message = body?.error ?? `${r.status} ${path}`;
+      if (r.status === 404) throw new ApiNotFoundError(message);
+      throw new Error(message);
     }
     if (r.status === 202 || r.status === 204) return undefined as T;
     return (await r.json()) as T;
