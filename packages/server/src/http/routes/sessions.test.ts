@@ -129,7 +129,7 @@ describe('routes', () => {
     setSessionState(db, 'd', alpha.id, { status: 'paused', returnOn: '2027-01-01', setBy: 'user' });
     expect(await total('waiting')).toBe(1);
   });
-  it('検索は、区切りを付けて休みのまま残っているものを実行中にも Active にも数えない', async () => {
+  it('検索は、Done か Archived を付けて休みのまま残っているものを実行中にも Active にも数えない', async () => {
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
     const total = async (qs: string) => (await json(await get(`/api/search?q=channels&${qs}`))).body.total;
@@ -137,16 +137,19 @@ describe('routes', () => {
     vi.mocked(runs.listAlive).mockReturnValue({ runs: [{ ...run, sessionId: alpha.id }], tabs: [] });
     app = createApp({ ...deps, live: () => [idle] });
     expect(await total('live=running')).toBe(1);
+    // Paused は止めないので、休みのままでも実行中に数える。
     setSessionState(db, 'd', alpha.id, { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: Date.UTC(2026, 9, 2, 3, 0, 0) });
+    expect(await total('live=running')).toBe(1);
+    setSessionState(db, 'd', alpha.id, { status: 'done', setBy: 'conversation', now: Date.UTC(2026, 9, 2, 3, 0, 0) });
     expect(await total('live=running')).toBe(0);
     expect(await total('live=ended')).toBe(1);
     expect(await total('status=active')).toBe(0);
     // 作業中に戻れば、印が付いていても実行中に数える。
     app = createApp({ ...deps, live: () => [{ ...idle, status: 'busy' }] });
     expect(await total('live=running')).toBe(1);
-    // Active は状態の無いものなので、印の付いたものは作業中でも Paused に数える。
+    // Active は状態の無いものなので、印の付いたものは作業中でも Done に数える。
     expect(await total('status=active')).toBe(0);
-    expect(await total('status=paused')).toBe(1);
+    expect(await total('status=done')).toBe(1);
   });
   it('検索はセッションの状態（status）と、Archived を除く印（hideArchived）を受け、知らない値は無視する', async () => {
     const id = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;

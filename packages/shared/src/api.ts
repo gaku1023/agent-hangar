@@ -107,7 +107,7 @@ export type InterruptedDto = { at: number; cause: InterruptCause; items: Interru
  */
 export type OverlapFileDto = { path: string; with: string; mineAt: number; theirsAt: number; alternating: boolean };
 export type SessionOverlapDto = { with: string[]; files: OverlapFileDto[] };
-export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; /** エディタの選択（editor.ts）。0.4.0 までの codePath は、サーバが読むときに editor へ読み替える。 */ editor: import('./editor.ts').EditorSetting; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
+export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; /** エディタの選択（editor.ts）。0.4.0 までの codePath は、サーバが読むときに editor へ読み替える。 */ editor: import('./editor.ts').EditorSetting; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; /** hangar が起動する claude に、区切りで Done か Paused を聞く段を足すか（既定は入り）。この項目を知らない古いサーバは返さないので、読む側は入りとして読む。 */ askStatusAtEnd?: boolean; /** 同じく、ターンの意図と短い手の説明を求める段を足すか（既定は入り）。読み方は askStatusAtEnd と同じ。 */ liveHints?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
 /**
  * Claude Code の会話の保持期間。
  * source は値がどこで決まったかで、default はユーザー設定にキーが無い（既定の 30 日）ことを表す。
@@ -150,7 +150,7 @@ export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { 
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
-/** parked は、区切り（Paused・Done・Archived）を付けたセッションが休みになったので hangar が止めたもの。 */
+/** parked は、区切り（Done・Archived。0.5.0 までは Paused も）を付けたセッションが休みになったので hangar が止めたもの。 */
 export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
 /** 「ターミナルで開く」で使う外部ターミナル。macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル（terminal.ts）。 */
 export type TerminalApp = 'terminal' | 'iterm' | 'windowsTerminal' | 'windowsDefault';

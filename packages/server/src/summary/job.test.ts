@@ -42,7 +42,7 @@ const make = (summarizers: Summarizer[], live: LiveSessionDto[] = []) => new Sum
 describe('isSummaryStale', () => {
   it('土台のままか 5 ターン以上進んでいれば真', () => {
     expect(isSummaryStale(db, alphaId)).toBe(true);
-    upsertShared(db, 'session_summaries', { session_id: alphaId, title: 't', one_liner: 'o', body: 'b', state: 'done', next_steps: '[]', source: 'in_session', source_model: null, based_on_turns: 2 }, 'd', 'session_id');
+    upsertShared(db, 'session_summaries', { session_id: alphaId, title: 't', one_liner: 'o', body: 'b', state: 'done', next_steps: '[]', source: 'post_hoc', source_model: null, based_on_turns: 2 }, 'd', 'session_id');
     expect(isSummaryStale(db, alphaId)).toBe(false);
     db.prepare('update session_stats set turns = 7 where session_id = ?').run(alphaId);
     expect(isSummaryStale(db, alphaId)).toBe(true);
@@ -50,9 +50,34 @@ describe('isSummaryStale', () => {
     expect(isSummaryStale(db, alphaId)).toBe(false);
     expect(isSummaryStale(db, 'nope')).toBe(false);
   });
+  it('会話の中で書いた要約（in_session）は、何ターン進んでも作り直さない', () => {
+    upsertShared(db, 'session_summaries', { session_id: alphaId, title: 't', one_liner: 'o', body: 'b', state: 'in_progress', next_steps: '[]', source: 'in_session', source_model: null, based_on_turns: 2 }, 'd', 'session_id');
+    db.prepare('update session_stats set turns = 40 where session_id = ?').run(alphaId);
+    expect(isSummaryStale(db, alphaId)).toBe(false);
+  });
 });
 
 describe('SummaryJob', () => {
+  it('要約エンジンに使えるかを聞くときも、要約するセッションの入力を渡す（Claude はそのアカウントの使用率で見る）', async () => {
+    const asked: (SummaryInput | undefined)[] = [];
+    const s: Summarizer = { id: 'claude-headless', available: async (input) => { asked.push(input); return true; }, summarize: async () => out };
+    const job = make([s]);
+    expect(job.enqueue(alphaId)).toBe(true);
+    await job.idle();
+    expect(asked.map((i) => i?.sessionId)).toEqual([alphaId]);
+  });
+  it('会話の中で書いた要約は、事後の要約で上書きしない。手動の作り直し（force）は受け付けて上書きする', async () => {
+    upsertShared(db, 'session_summaries', { session_id: alphaId, title: '会話の題', one_liner: 'o', body: 'b', state: 'in_progress', next_steps: '[]', source: 'in_session', source_model: null, based_on_turns: 1 }, 'd', 'session_id');
+    db.prepare('update session_stats set turns = 40 where session_id = ?').run(alphaId);
+    const job = make([fake('lmstudio')]);
+    expect(job.enqueue(alphaId)).toBe(false);
+    expect(job.enqueue(alphaId, { ignoreLive: true })).toBe(false);
+    await job.idle();
+    expect(db.prepare('select source, title from session_summaries where session_id = ?').get(alphaId)).toEqual({ source: 'in_session', title: '会話の題' });
+    expect(job.enqueue(alphaId, { force: true })).toBe(true);
+    await job.idle();
+    expect(db.prepare('select source, title from session_summaries where session_id = ?').get(alphaId)).toEqual({ source: 'post_hoc', title: 'T' });
+  });
   it('受け付けて pending を配り、要約を post_hoc で書いて配る', async () => {
     const seen: SummaryInput[] = [];
     const job = make([fake('lmstudio', { seen, model: 'qwen3-27b' })]);

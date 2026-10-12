@@ -14,7 +14,8 @@ export type SummaryOutput = { title: string; oneLiner: string; body: string; sta
 /** 要約器は差し替え可能な部品。available が偽か summarize が失敗したら次の要約器へ回す。 */
 export interface Summarizer {
   readonly id: SummarizerId;
-  available(): Promise<boolean>;
+  /** input は要約する入力で、渡さない問いもある。Claude の要約エンジンは、そのセッションのアカウントの使用率で見る。 */
+  available(input?: SummaryInput): Promise<boolean>;
   summarize(input: SummaryInput): Promise<SummaryOutput>;
 }
 

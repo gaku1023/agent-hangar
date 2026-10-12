@@ -4,7 +4,7 @@ import type { ResolveAction } from '@agent-hangar/shared';
 import { getProject, listProjects } from '../../db/queries.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { createProjectDir, ProjectCreateError, registerProjectDir } from '../../projects/create.ts';
-import { candidateDirs, listWorkspaceDirs, normalizeDir, resolveProject } from '../../projects/registry.ts';
+import { assignSessions, candidateDirs, listWorkspaceDirs, normalizeDir, resolveProject } from '../../projects/registry.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, editorOptsOf, externalOf, readJson, tooLargeResult } from './common.ts';
@@ -77,6 +77,9 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
       } else if (body.kind === 'dir') {
         if (typeof body.path !== 'string') return c.json({ error: tr('project.create.pathNotDir') }, 400);
         ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
+        // その下で動いた未分類のセッションを、その場で紐づける。呼ばないと、次の起動まで未分類のまま残る。
+        // 紐づけが変わったセッションと入った先のプロジェクトは、書いた行から配る層が配る。
+        assignSessions(db, deviceId);
       } else {
         return c.json({ error: tr('project.create.badKind') }, 400);
       }
