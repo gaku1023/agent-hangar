@@ -12,6 +12,8 @@ import { presentArtifactCard, type ArtifactCardProps } from './project.ts';
 import { presentTool, relPath, type ToolView } from './tools.ts';
 import { turnsText } from './stats.ts';
 import { translatorOf } from './i18n.ts';
+import { interruptMark } from './interrupted.ts';
+import { presentOverlap, type OverlapProps } from './overlap.ts';
 import { projectDisplayName } from './projectName.ts';
 import { permissionLabel } from '../views/primitives/permissionModel.ts';
 import { bandsOf, presentNowCard, resultsOf, type NowCardProps } from './live.ts';
@@ -70,6 +72,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   transcriptBand: { when: string } | null;
   /** 現在の札（右の欄の上）。生きた run があるときだけ。 */
   strip: NowCardProps | null;
+  /** 現在の札の「同じファイルを編集中」の 1 節（presenters/overlap.ts）。重なりが無ければ null。 */
+  overlap?: OverlapProps | null;
   /** 終わったセッションの、トランスクリプトの冒頭の 1 枚。run が無いときだけ。 */
   lead: LeadCardProps | null;
   /** 見出しの名前の横の札（ロック、トランスクリプトの在りか）。 */
@@ -278,8 +282,10 @@ export type LeadFileRow = { path: string; dir: string; base: string; created: bo
 export type LeadCardProps = {
   label: string;
   status: { value: 'active' | 'paused' | 'done' | 'archived'; label: string; since: string | null };
-  /** 終了の文。区切りを付けたので止めたときは stopped を出すので null。 */
+  /** 終了の文。区切りを付けたので止めたときは stopped を、中断したときは interrupted を出すので null。 */
   ended: string | null;
+  /** 中断の文（「PC の再起動で中断 · 10/12 03:12」）。ステータスの無いセッションで、最後の run が中断で終わったときだけ。 */
+  interrupted?: string | null;
   stopped: string | null;
   turns: string; tokens: string; cost: string | null;
   /** 「要約のみ」「トランスクリプトがありません」。 */
@@ -349,13 +355,15 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
   const stats = s.stats;
   const sum = s.summary;
   const stopped = s.stoppedByStatus && s.state?.status && s.live === null ? t('session.lead.stopped', { status: STATUS_LABEL[s.state.status] }) : null;
+  const interrupted = !stopped && s.interrupted && !s.state?.status ? interruptMark(t, s.interrupted, i.now).title : null;
   const flags = [...(i.gone ? [t('session.lead.summaryOnly')] : []), ...(!s.hasTranscript && !i.gone ? [t('session.lead.noTranscript')] : [])];
   const sourceParts = sum ? [t(SUMMARY_SOURCE_KEY[sum.source]), summarizerLabel(sum.sourceId, sum.sourceModel, t)].filter((x): x is string => !!x) : [];
   return {
     label: t('session.lead.label'),
     status: { value: status, label: STATUS_LABEL[status], since: s.state?.setAt != null && s.state.status ? t('session.lead.statusSince', { date: monthDay(s.state.setAt) }) : null },
-    ended: stopped ? null : t('session.lead.ended', { when: relativeTime(t, s.lastActivityAt, i.now) }),
+    ended: stopped || interrupted ? null : t('session.lead.ended', { when: relativeTime(t, s.lastActivityAt, i.now) }),
     stopped,
+    interrupted,
     turns: turnsText(stats.turns, t), tokens: t('session.stats.tokens', { n: tokensLabel(stats.inputTokens + stats.outputTokens) }), cost: stats.costUsd === null ? null : costLabel(stats.costUsd),
     flags,
     summary: sum ? {
@@ -502,7 +510,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     parent: project ? { label: projectDisplayName(project, t), route: { name: 'project', id: project.id } } : null,
     oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: olderLeft, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
-    strip, lead, badges: presentSessionBadges(s, now, t), details: presentDetails(s, run, account, t),
+    strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t), details: presentDetails(s, run, account, t),
     turnRows, turnsComplete: complete, turnsPending, turnCount, loadingOlder: slice?.loadingOlder === true, openTurnItems, turnJump: view.turnJump,
     jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(t, run.startedAt, now) } : null,

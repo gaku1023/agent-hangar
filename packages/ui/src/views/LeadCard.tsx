@@ -28,7 +28,7 @@ export function LeadCard(props: LeadCardProps & { sessionId: string }) {
         <span className="lead-status" data-s={props.status.value}>{props.status.label}</span>
         {props.status.since && <span className="faint">{props.status.since}</span>}
         <span className="lead-facts">
-          {props.stopped ? <span>{props.stopped}</span> : props.ended && <span>{props.ended}</span>}
+          {props.stopped ? <span>{props.stopped}</span> : props.interrupted ? <span className="lead-interrupted"><span className="int-ring" aria-hidden="true" />{props.interrupted}</span> : props.ended && <span>{props.ended}</span>}
           {props.flags.map((f) => <span key={f}>{f}</span>)}
           <span>{props.turns}</span>
           <span>{props.tokens}</span>

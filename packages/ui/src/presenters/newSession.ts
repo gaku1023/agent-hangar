@@ -31,6 +31,8 @@ export type NewSessionProps = {
   createdProjectId: string | null;
   /** どのアカウントで起こすかの札。アカウントが 1 件以下なら null で、段ごと出さず、起動の params にも account を入れない。 */
   accounts: NewSessionAccounts | null;
+  /** worktree の札をオンにして開くか（同じファイルの編集の警告の「worktree で新しいセッション」から開いたとき）。名前はダイアログが付ける。 */
+  worktree?: boolean;
 };
 export type NewSessionAccounts = { list: AccountView[]; currentId: string };
 
@@ -108,6 +110,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
   return {
     projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
     dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now),
+    ...(state.overlay.worktree ? { worktree: true } : {}),
   };
 }
 

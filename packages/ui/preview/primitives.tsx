@@ -191,7 +191,7 @@ const NOTICE_NOW = new Date(2026, 9, 9, 13, 25).getTime();
 const noticeSession = (): SessionDto => ({
   id: 's-bench', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '検索の速度の計測', cwd: '/work/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOTICE_NOW - 6 * 3_600_000, lastActivityAt: NOTICE_NOW - 3_600_000, hasTranscript: true, live: null, summary: null,
   stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: NOTICE_NOW - 27 * 86_400_000, activity: null,
-  state: { status: 'paused', note: '夜間の再計測の結果を確かめる', returnOn: '2026-10-09', returnTime: '13:00', setBy: 'user', setAt: 1, candidate: null }, parked: false, stoppedByStatus: false, liveAside: null,
+  state: { status: 'paused', note: '夜間の再計測の結果を確かめる', returnOn: '2026-10-09', returnTime: '13:00', setBy: 'user', setAt: 1, candidate: null }, parked: false, stoppedByStatus: false, liveAside: null, interrupted: null, overlap: null,
 });
 function noticeStore(lang: 'ja' | 'en', empty: boolean): Store {
   const base = { ...initialStore(), bootstrapped: true, settings: { language: lang } as unknown as SettingsDto };

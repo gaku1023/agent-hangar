@@ -4,6 +4,7 @@ import type { BootstrapDto } from '@agent-hangar/shared';
 import { listArtifacts } from '../../artifacts/queries.ts';
 import { listProjects, listSessions } from '../../db/queries.ts';
 import { listTodos } from '../../projects/todos.ts';
+import { interruptedGroup } from '../../runs/interrupted.ts';
 import { buildAccountsDto } from '../accounts.ts';
 import type { AppDeps } from '../deps.ts';
 import { syncStatusOf } from './common.ts';
@@ -41,6 +42,8 @@ export function bootstrapRoutes(api: Hono, deps: BootstrapRouteDeps): void {
       accounts: buildAccountsDto(accountsDeps, { checkLinks: true }),
       // 画面は置き場をホームの下なら ~ に縮めて出す。/Users/<誰か> の形から推測しないよう、本当のホームを渡す。
       home: os.homedir(),
+      // ホームの帯の「前回実行中」の群。
+      interrupted: interruptedGroup(db),
       // 作り直した設定の同期は、クラウドに参加している端末だけが持つ。持たない端末には項目ごと送らない。
       ...(deps.configBundle ? { configSync: deps.configBundle.dto() } : {}),
     };

@@ -131,6 +131,11 @@ export type AppDeps = {
    * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。準備の確かめでずれがあるとき、画面が続けて読む。
    */
   compat: () => Promise<CompatDto>;
+  /**
+   * 同じファイルの編集の見張り（sessions/overlap.ts）に、すぐ読み直させる。「このファイルでは表示しない」の後に呼ぶ。
+   * 渡さなければ、次の周期（数秒）で消える。
+   */
+  overlapRefresh?: () => void;
   /** UI の dist。null なら UI を配らない（試験と、dist を持たない組み立て）。 */
   uiDist: string | null;
 };

@@ -1,5 +1,5 @@
 import { isParked, PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
-import type { CandidateSource, DeviceDto, LiveSessionDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
+import type { CandidateSource, DeviceDto, InterruptCause, LiveSessionDto, SessionOverlapDto, ProjectDto, SessionDto, SessionLockDto, SessionStatsDto, SessionStatus, SessionSummaryDto, StateSetBy } from '@agent-hangar/shared';
 import { isStrictlyUnder } from '../platform/paths.ts';
 import { parseStartTime as parseProcStart } from '../platform/proc.ts';
 import { toStateDto } from '../sessions/states.ts';
@@ -67,6 +67,10 @@ type SessionRow = {
   // 最後に起こした run の終わり方と終わった時刻。run が無いか、まだ動いていれば null。
   last_end_reason: string | null;
   last_ended_at: number | null;
+  // 最後の run をこの PC が中断として記録していれば、その原因（interrupted_runs の cause）。
+  last_interrupt_cause: InterruptCause | null;
+  // 同じファイルの編集の写し（session_overlaps の payload）。無ければ null。
+  overlap_payload: string | null;
 };
 
 const SESSION_SELECT = `
@@ -82,7 +86,9 @@ select s.*, exists(select 1 from transcript_files t where t.session_id = s.id an
   ss.session_id ss_id, ss.status ss_status, ss.note ss_note, ss.return_on ss_return_on, ss.return_time ss_return_time, ss.set_by ss_set_by, ss.set_at ss_set_at,
   ss.candidate_status ss_c_status, ss.candidate_note ss_c_note, ss.candidate_return_on ss_c_return_on, ss.candidate_return_time ss_c_return_time, ss.candidate_source ss_c_source, ss.candidate_at ss_c_at,
   (select r.end_reason from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_end_reason,
-  (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at
+  (select r.ended_at from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1) last_ended_at,
+  (select i.cause from interrupted_runs i where i.run_id = (select r.id from runs r where r.session_id = s.id and r.deleted_at is null order by r.started_at desc limit 1)) last_interrupt_cause,
+  ov.payload overlap_payload
 from sessions s
 left join projects p on p.id = s.project_id
 left join session_summaries m on m.session_id = s.id and m.deleted_at is null
@@ -91,6 +97,7 @@ left join session_live_stats ls on ls.provider_session_id = s.provider_session_i
 left join session_activity a on a.session_id = s.id
 left join session_states ss on ss.session_id = s.id and ss.deleted_at is null
 left join session_notes sn on sn.session_id = s.id and sn.deleted_at is null
+left join session_overlaps ov on ov.session_id = s.id
 where s.deleted_at is null`;
 
 /**
@@ -251,7 +258,20 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     stoppedByStatus: r.ss_status !== null && r.last_end_reason === 'parked' && r.last_ended_at !== null && r.ss_set_at !== null && r.last_ended_at >= r.ss_set_at,
     // 最後に呼んだツールと待っている問いは、実行中のときだけ載せる。終わったセッションの古い呼び出しは出さず、null にする。
     activity: live && r.a_tool !== null ? { tool: r.a_tool, summary: r.a_summary ?? '', question: r.a_question } : null,
+    // 中断の印。利用者がステータスを付けたら出さない（過去のセッションに散らばらないように）。後から起こした run があれば、最後の run はそちらなので出ない。
+    interrupted: r.ss_status === null && r.last_end_reason === 'lost' && r.last_ended_at !== null ? { at: r.last_ended_at, cause: r.last_interrupt_cause } : null,
+    // 同じファイルの編集は、実行中の間だけの警告である。終わった後に古い写しが残っていても出さない。
+    overlap: live ? overlapOf(r.overlap_payload) : null,
   };
+}
+
+/** session_overlaps の payload を読む。壊れていれば null。 */
+function overlapOf(payload: string | null): SessionOverlapDto | null {
+  if (!payload) return null;
+  try {
+    const v = JSON.parse(payload) as SessionOverlapDto | null;
+    return v && Array.isArray(v.with) && Array.isArray(v.files) && v.files.length > 0 ? v : null;
+  } catch { return null; }
 }
 
 /** live レジストリを provider のセッション UUID で引けるようにする。 */

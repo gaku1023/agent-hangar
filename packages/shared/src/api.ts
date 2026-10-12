@@ -46,7 +46,35 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * liveAside は登録の aside を写したもの（LiveSessionDto）で、無ければ null である。
  * activity は実行中のときだけ値を持ち、実行中でなければ null である。
  */
-export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null };
+export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null;
+  /** 中断（SessionInterruptDto）。ステータスの無いセッションで、最後の run が lost で終わったときだけ値を持つ。 */
+  interrupted: SessionInterruptDto | null;
+  /** 同じファイルを別のセッションと編集していること（SessionOverlapDto）。実行中のときだけ値を持つ。 */
+  overlap: SessionOverlapDto | null };
+/**
+ * 中断の原因。
+ * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。
+ * mux は、hangar が動いている間に tmux のサーバごと消えて、生きた run がまとめて終わったものである。
+ */
+export type InterruptCause = 'restart' | 'mux';
+/** セッションの中断。at は run が閉じた時刻、cause はこの PC で中断を記録していれば原因で、分からなければ null（他の PC の run など）。 */
+export type SessionInterruptDto = { at: number; cause: InterruptCause | null };
+/**
+ * 中断の群の 1 件。lastLive は止まる前の最後の状態で、分からなければ null。endedAt は run が閉じた時刻、account は run を起こしたアカウント（記録が無ければ null）。
+ */
+export type InterruptedItemDto = { sessionId: string; runId: string; lastLive: LiveStatus | null; endedAt: number; account: string | null };
+/**
+ * ホームの帯の「前回実行中」の群。この PC で最後に記録した中断の束で、再開しないと決めた行（dismissed）と、その後に起こし直した行は含まない。
+ * 群が無ければ null である。
+ */
+export type InterruptedDto = { at: number; cause: InterruptCause; items: InterruptedItemDto[] };
+/**
+ * 同じファイルを別のセッションが編集していること（止めない警告）。
+ * files の 1 件は、相手（with）と重なったパス、このセッションと相手が最後にそのパスを編集した時刻である。
+ * alternating は、交互に書いたこと（このセッション、相手、このセッションの順など）。偽なら、後から書いた側の編集の時点で先の側が作業中だった。
+ */
+export type OverlapFileDto = { path: string; with: string; mineAt: number; theirsAt: number; alternating: boolean };
+export type SessionOverlapDto = { with: string[]; files: OverlapFileDto[] };
 export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
 /**
  * Claude Code の会話の保持期間。
@@ -62,7 +90,7 @@ export type RetentionPreviewDto = { days: number; path: string; lines: Retention
 /** 確認をどこから開いたか。帯から開いたときだけ「ほかの期間…」を出す。 */
 export type RetentionFrom = 'banner' | 'session' | 'settings';
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。

@@ -107,12 +107,12 @@ function LiveSection(props: { live: SideLiveProps }) {
           <li key={r.id}>
             <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={menu?.id === r.id ? 'true' : undefined}
               data-live={r.live ?? undefined} data-dragging={drag === r.id ? 'true' : undefined} data-over={over?.id === r.id ? (over.before ? 'before' : 'after') : undefined}
-              title={r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name}
+              title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
               onClick={(e) => { e.preventDefault(); emit({ type: 'session.open', id: r.id }); }} onKeyDown={(e) => onKeyDown(e, r)}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
               onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
               onDragOver={(e) => onDragOver(e, r)} onDragLeave={() => { if (over?.id === r.id) setOver(null); }} onDrop={(e) => onDrop(e, r)} onDragEnd={end}>
-              <StatusDot status={r.live} aside={r.aside} /><span className="side-live-name">{r.name}</span>{r.waited && <span className="side-live-wait num">{r.waited}</span>}
+              <StatusDot status={r.live} aside={r.aside} /><span className="side-live-name">{r.name}</span>{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num">{r.waited}</span>}
             </a>
           </li>
         ))}

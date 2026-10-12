@@ -27,6 +27,7 @@ import { RunAccounts } from './accounts.ts';
 import { RunManager } from './manager.ts';
 import { realProcOps, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
+import { interruptedGroup } from './interrupted.ts';
 import { expectMode } from '../../test/platform.ts';
 
 let db: Db;
@@ -365,6 +366,54 @@ describe('RunManager の回復と結びつけ（tmux 不要）', () => {
     expect(rm.getTab('t1')).toBeNull();
   });
 
+  it('recoverAtStartup は lost で閉じた run を、止まる前の状態と一緒に中断の群として記録する', () => {
+    // 本文の無い新規の run は閉じるときにセッションごと片付くので、再開の run で試す。
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'resume', tmux_name: 'hangar-nope', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    const rm = make({ tmux: null, now: () => 500 });
+    rm.noteLastLive([{ sessionId: 'u1', status: 'busy', name: null, nameSource: null, cwd, pid: 1 }]);
+    const groups: unknown[] = [];
+    rm.on({ interrupted: (g) => groups.push(g) });
+    rm.recoverAtStartup();
+    expect(interruptedGroup(db)).toEqual({ at: 500, cause: 'restart', items: [{ sessionId: 's1', runId: 'r1', lastLive: 'busy', endedAt: 500, account: null }] });
+    expect(groups).toHaveLength(1);
+    // 止まる前の状態は、生きた run のものだけを残す。
+    expect(db.prepare('select count(*) n from run_last_live').get()).toEqual({ n: 0 });
+  });
+
+  it('tick は tmux の一覧が空になって生きた run が 2 件以上まとめて消えたら、lost で閉じて中断の群にする', () => {
+    for (const id of ['1', '2']) {
+      upsertShared(db, 'sessions', { id: `s${id}`, provider: 'claude-code', provider_session_id: `u${id}`, cwd, home_device: 'd' }, 'd');
+      upsertShared(db, 'runs', { id: `r${id}`, session_id: `s${id}`, device_id: 'd', kind: 'resume', tmux_name: `hangar-${id}`, pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    }
+    const panes: PaneOps = { open: () => {}, close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+    const rm = make({ panes, now: () => 900 });
+    const groups: unknown[] = [];
+    rm.on({ interrupted: (g) => groups.push(g) });
+    expect(rm.tick().ended.map((r) => r.endReason)).toEqual(['lost', 'lost']);
+    expect(interruptedGroup(db)).toMatchObject({ at: 900, cause: 'mux', items: [{ runId: 'r1' }, { runId: 'r2' }] });
+    expect(groups).toHaveLength(1);
+  });
+
+  it('tick は 1 件だけ消えたなら、一覧が空でも exited で閉じる（最後の 1 本が終わると tmux のサーバも終わる）', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-1', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    const panes: PaneOps = { open: () => {}, close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+    const rm = make({ panes });
+    expect(rm.tick().ended.map((r) => r.endReason)).toEqual(['exited']);
+    expect(interruptedGroup(db)).toBeNull();
+  });
+
+  it('noteLastLive は生きた run の最後の状態を覚える', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    const rm = make({ tmux: null, now: () => 7 });
+    const live = (status: 'busy' | 'idle') => [{ sessionId: 'u1', status, name: null, nameSource: null, cwd, pid: 1 }];
+    rm.linkRegistry(live('busy'));
+    rm.linkRegistry(live('idle'));
+    expect(db.prepare('select run_id, status from run_last_live').all()).toEqual([{ run_id: 'r1', status: 'idle' }]);
+  });
+
   it('linkRegistry は Claude の UUID で run を引いて pid を書く', () => {
     upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
     upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'start', tmux_name: 'hangar-x', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
@@ -457,6 +506,15 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
     expect(k).toMatchObject({ id: r.run.id, endReason: 'killed' });
     await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
     expect(rm.listAlive().runs).toEqual([]);
+  });
+
+  it('OS を再起動した後（tmux のソケットの置き場が無い）、起動の見回りは run を lost で閉じて中断の群にする', () => {
+    upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: 'u1', cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id: 'r1', session_id: 's1', device_id: 'd', kind: 'resume', tmux_name: 'hangar-gone', pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: 1 }, 'd');
+    const gone = path.join('/tmp', `hangar-nosock-${process.pid}`, 'default');
+    const rm = make({ tmux: new Tmux({ tmuxPath: TMUX!, socketPath: gone }) });
+    expect(rm.recoverAtStartup().map((r) => [r.id, r.endReason])).toEqual([['r1', 'lost']]);
+    expect(interruptedGroup(db)?.items.map((i) => i.runId)).toEqual(['r1']);
   });
 
   it('recoverAtStartup は tmux が生きている run を残す', () => {

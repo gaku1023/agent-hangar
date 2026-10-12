@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -82,6 +82,10 @@ export type ApiClient = {
   /** 提案を確定する。日を変えたときだけ returnOn を渡す。提案が無ければ 409 の一文で投げる。 */
   confirmSessionState(id: string, body: { returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
   rejectSessionState(id: string): Promise<{ state: SessionStateDto }>;
+  /** 中断の群の「再開しない」（dismissed が真）と、その取り消し。新しい群を返す。 */
+  dismissInterrupted(runIds: string[], dismissed: boolean): Promise<{ interrupted: InterruptedDto | null }>;
+  /** 同じファイルの編集の「このファイルでは表示しない」。 */
+  dismissOverlap(sessionId: string, other: string, paths: string[]): Promise<void>;
   memo(projectId: string): Promise<MemoDto>;
   saveMemo(projectId: string, markdown: string): Promise<MemoDto>;
   /** プロジェクトの指示とメモリ。あるファイルだけが来る。 */
@@ -211,6 +215,8 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     setSessionState: (id, body) => call(`/api/sessions/${id}/state`, { method: 'PUT', body: JSON.stringify(body) }),
     confirmSessionState: (id, body) => post(`/api/sessions/${id}/state/confirm`, body),
     rejectSessionState: (id) => post(`/api/sessions/${id}/state/reject`),
+    dismissInterrupted: (runIds, dismissed) => post('/api/interrupted/dismiss', { runIds, dismissed }),
+    dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     memo: (projectId) => call(`/api/projects/${projectId}/memo`),
     saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
     instructions: (projectId) => call(`/api/projects/${projectId}/instructions`),

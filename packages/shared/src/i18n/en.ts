@@ -10,6 +10,8 @@ import { confirmEn } from './en/confirm.ts';
 import { externalEn } from './en/external.ts';
 import { headerEn } from './en/header.ts';
 import { homeEn } from './en/home.ts';
+import { interruptedEn } from './en/interrupted.ts';
+import { overlapEn } from './en/overlap.ts';
 import { httpEn } from './en/http.ts';
 import { launchEn } from './en/launch.ts';
 import { listEn } from './en/list.ts';
@@ -71,6 +73,8 @@ export const en: Dictionary = {
   ...externalEn,
   ...headerEn,
   ...homeEn,
+  ...interruptedEn,
+  ...overlapEn,
   ...httpEn,
   ...launchEn,
   ...listEn,

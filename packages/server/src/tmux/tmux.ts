@@ -36,8 +36,14 @@ const COPY_COMMAND = 'LC_CTYPE=UTF-8 pbcopy';
 /** hangar の run のセッション名（hangar-<id>）に当たる書式。シェルタブ（hangar-<id>-t<n>）は外れる。 */
 const RUN_SESSION_FORMAT = '#{m/r:^hangar-[0-9a-f]+$,#{session_name}}';
 
-/** tmux サーバがまだ起きていないときの list-sessions の言い分。これは「動いていない」であって失敗ではない。 */
-const NO_SERVER = /no server running/i;
+/**
+ * tmux サーバが無いときの list-sessions の言い分。これは「動いていない」であって失敗ではない。
+ * ソケットのファイルはあるがサーバが居ないときは「no server running」と言う。
+ * OS を再起動した後はソケットの置き場（/tmp/tmux-<uid>/）ごと消えているので、「error connecting to <パス> (No such file or directory)」と言う（2026-10-12 実測、tmux 3.6a）。
+ * つなぎ先が応えない（Connection refused）のも、サーバが居ないことである。権限など、ほかの理由のつなぎ損ないは観測できないとして扱う。
+ * psmux は、サーバが無いときに何も出さず exit 0 で終わるので、ここには当たらない。
+ */
+const NO_SERVER = /no server running|error connecting to .*\((?:No such file or directory|Connection refused)\)/i;
 
 function isDirectory(p: string): boolean {
   try { return fs.statSync(p).isDirectory(); } catch { return false; }

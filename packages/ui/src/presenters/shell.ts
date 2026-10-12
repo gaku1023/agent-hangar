@@ -5,6 +5,7 @@ import { accountList, accountOfSession, aliveRunOf, currentAccount, hasMultipleA
 import { presentAccounts, type AccountGauge, type AccountView } from './accounts.ts';
 import { durationLabel, indexProgressLabel, relativeTime, resetsLabel } from './format.ts';
 import { translatorOf, storeLanguage } from './i18n.ts';
+import { presentOverlap } from './overlap.ts';
 import { newSessionTarget, type NewSessionTarget } from './newSession.ts';
 import { presentNotices, type NoticesProps } from './notices.ts';
 import { limitedWord, syncStateWord } from './syncLabel.ts';
@@ -59,7 +60,9 @@ export type SideLiveStop = { runId: string; working: boolean; aside: boolean; sh
  * aside は裏だけ動いていること。丸を薄いオレンジにするだけで、名前の横に語は添えない（利用者の決定）。
  * stop は hangar の run が生きているときだけ持つ。hangar の外で動いているもの（VS Code の中の claude など）は hangar から止められないので null にする。
  */
-export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; waited: string | null; current: boolean; stop: SideLiveStop | null };
+export type SideLiveRow = { id: string; name: string; live: LiveStatus | null; aside: boolean; waited: string | null; current: boolean; stop: SideLiveStop | null;
+  /** 同じファイルを別のセッションと編集していること。行末の印に乗せたときの文（相手の名前）。無ければ null か無し。 */
+  overlap?: string | null };
 /**
  * サイドバーの「実行中」。
  * count は動いているセッションの全数、ids はその全部の並び（並べ替えの計算に使う）、rows は並べる行、more は並べきれなかった数である。
@@ -180,7 +183,7 @@ function sideLive(state: State, store: Store, now: number): SideLiveProps {
     // 点と「待ち N 分」は、入力待ちの数え方と同じ規則（shownLive）で決める。Done と Archived にした入力待ちは、行は残すが休みとして出す。
     // 停止の確認（stop.working）は本当の動きで決める。答えを待つ会話は、止めると問いが消える。
     const shown = quietLive(s.live, s.state?.status);
-    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, waited: shown === 'waiting' ? t('sidebar.live.waited', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : null, current: id === current, stop };
+    return { id, name: s.name ?? t('common.label.noName'), live: shown, aside: aside !== null, waited: shown === 'waiting' ? t('sidebar.live.waited', { time: durationLabel(t, now - (s.lastActivityAt ?? now)) }) : null, current: id === current, stop, overlap: presentOverlap(store, id, now)?.sidebarTitle ?? null };
   });
   return { count: ids.length, ids, rows, more: ids.length - rows.length };
 }

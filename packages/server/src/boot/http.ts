@@ -132,6 +132,7 @@ export function bootHttp(p: {
     readiness: runs.readiness,
     findMux: () => whichMux(),
     compat: runs.compat,
+    overlapRefresh: () => runs.overlaps.tick(),
     uiDist,
   });
   listening.serve(app.fetch);

@@ -147,7 +147,7 @@ export function SessionScreen(props: SessionProps) {
         <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
           {withStrip && <div className="toc-slot-head">{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}{toggle}</div>}
           {/* 現在の札はタブにもターミナルにもくっつけず、右の列の上に置く（中身はセッションのもので、タブを替えても変わらない）。 */}
-          {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} />}
+          {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} overlap={props.overlap ?? null} />}
           <TocPane>
             <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} trail={withStrip ? undefined : toggle} />
           </TocPane>

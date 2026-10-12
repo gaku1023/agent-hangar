@@ -1,0 +1,30 @@
+import type { interruptedKeys } from '../keys/interrupted.ts';
+import type { AreaDictionary } from '../messageSpec.ts';
+
+export const interruptedJa: AreaDictionary<typeof interruptedKeys> = {
+  'interrupted.band.label': '前回実行中',
+  'interrupted.band.summary.restart': 'PC の再起動で中断（{time}）',
+  'interrupted.band.summary.mux': '{mux} の停止で中断（{time}）',
+  'interrupted.band.resumeAll': 'すべて再開',
+  'interrupted.band.close': '閉じる',
+  'interrupted.band.cancelRest': '残りをキャンセル',
+  'interrupted.row.was.busy': '作業中だった',
+  'interrupted.row.was.waiting': '入力待ちだった',
+  'interrupted.row.was.idle': 'アイドルだった',
+  'interrupted.row.queued': '順番待ち',
+  'interrupted.row.resuming': '再開中',
+  'interrupted.row.failed': '失敗',
+  'interrupted.row.resume': '再開',
+  'interrupted.row.retry': '再試行',
+  'interrupted.row.skip': '再開しない',
+  'interrupted.account.loggedOut': '未ログイン',
+  'interrupted.account.login': 'ログイン',
+  'interrupted.account.nearLimit': '使用制限に達するかもしれません',
+  'interrupted.toast.skipped': '「{name}」は再開しません',
+  'interrupted.toast.closed': '前回実行中の {n} 件を閉じました',
+  'interrupted.toast.undo': '元に戻す',
+  'interrupted.mark.label': '中断',
+  'interrupted.mark.restart': 'PC の再起動で中断 · {time}',
+  'interrupted.mark.mux': '{mux} の停止で中断 · {time}',
+  'interrupted.mark.unknown': '中断 · {time}',
+};

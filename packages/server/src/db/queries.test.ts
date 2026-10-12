@@ -500,3 +500,35 @@ describe('区切りを付けたので止めたセッション（stoppedByStatus�
     expect(getSession(db, [], alphaId())!.stoppedByStatus).toBe(false);
   });
 });
+
+describe('中断（interrupted）と同じファイルの編集（overlap）', () => {
+  const alphaId = () => (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+  const addRun = (o: { id: string; started: number; ended?: number; reason?: string }) =>
+    upsertShared(db, 'runs', { id: o.id, session_id: alphaId(), device_id: 'd', kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: o.started, ended_at: o.ended ?? null, end_reason: o.reason ?? null, heartbeat_at: o.started }, 'd');
+
+  it('ステータスの無いセッションの最後の run が lost なら、閉じた時刻と記録した原因を持つ', () => {
+    addRun({ id: 'r1', started: 1000, ended: 2000, reason: 'lost' });
+    expect(getSession(db, [], alphaId())!.interrupted).toEqual({ at: 2000, cause: null });
+    db.prepare("insert into interrupted_runs (run_id, session_id, at, cause, last_live, dismissed_at) values ('r1', ?, 2100, 'restart', null, null)").run(alphaId());
+    expect(getSession(db, [], alphaId())!.interrupted).toEqual({ at: 2000, cause: 'restart' });
+  });
+
+  it('ステータスを付けたもの、後から起こした run、ほかの終わり方では null', () => {
+    addRun({ id: 'r1', started: 1000, ended: 2000, reason: 'exited' });
+    expect(getSession(db, [], alphaId())!.interrupted).toBeNull();
+    addRun({ id: 'r2', started: 3000, ended: 4000, reason: 'lost' });
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: 5000 });
+    expect(getSession(db, [], alphaId())!.interrupted).toBeNull();
+    setSessionState(db, 'd', alphaId(), { status: null, setBy: 'user', now: 6000 });
+    expect(getSession(db, [], alphaId())!.interrupted).toEqual({ at: 4000, cause: null });
+    addRun({ id: 'r3', started: 7000 });
+    expect(getSession(db, [], alphaId())!.interrupted).toBeNull();
+  });
+
+  it('同じファイルの編集は、実行中のときだけ写しを載せる', () => {
+    const overlap = { with: ['s9'], files: [{ path: '/w/a.ts', with: 's9', mineAt: 1, theirsAt: 2, alternating: true }] };
+    db.prepare('insert into session_overlaps (session_id, payload, updated_at) values (?, ?, 1)').run(alphaId(), JSON.stringify(overlap));
+    expect(getSession(db, live, alphaId())!.overlap).toEqual(overlap);
+    expect(getSession(db, [], alphaId())!.overlap).toBeNull();
+  });
+});

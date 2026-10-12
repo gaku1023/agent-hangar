@@ -3,12 +3,15 @@ import { isReturnOn, isReturnTime, localDate, overdueDays, quietLive, returnDue,
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
+import type { OverlapProps } from './overlap.ts';
 import { aliveRunOf, awaitsAnswer, liveFilterOfSession, outsideOpenOf, runningSessionIds, type Store } from '../store/store.ts';
 import { durationLabel, percentLabel, relativeTime, shortenPaths, shortModel } from './format.ts';
 import { presentTodoCandidate } from './project.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import { presentReadiness } from './readiness.ts';
+import { presentInterrupted } from './interrupted.ts';
+import { withOverlaps } from './overlap.ts';
 import { presentUnresolved } from './unresolved.ts';
 import { candidateLabel, dueOn, returnKey, returnOnLabel, sortSessions } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
@@ -142,7 +145,11 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
  * ariaLabel は読み上げの名前で、見える語（label）と相手の名前を含める。
  * primary は青いボタン、ghost は地の無いボタンで、どちらでもなければ枠のボタンである。
  */
-export type BandAction = { id: string; label: string; ariaLabel: string; primary: boolean; ghost: boolean; send: UiAction };
+export type BandAction = { id: string; label: string; ariaLabel: string; primary: boolean; ghost: boolean; send: UiAction;
+  /** 押せない形にする（未ログインのアカウントの「再開」など）。 */
+  disabled?: boolean;
+  /** 文字の代わりに出す絵（行の「再開しない」の ×）。読み上げの名前は ariaLabel のまま。 */
+  icon?: IconName };
 /**
  * 行頭の印。dot は状態の点、tag は戻る日や提案の札（tone の due は戻る時点を過ぎて塗る、soon は時刻の前で文字だけ、cand は提案）、todo は TODO の完了の提案の印である。
  * check は始める前の確認の印で、色だけでなく形（✓、ⓘ、!、✗）でも分ける。label は読み上げの名前に添える状態の語である。
@@ -153,7 +160,9 @@ export type BandLead =
   | { kind: 'tag'; text: string; tone: 'due' | 'soon' | 'cand'; title?: string }
   | { kind: 'todo' }
   | { kind: 'place' }
-  | { kind: 'check'; tone: 'ok' | 'info' | 'soft' | 'ng'; label: string };
+  | { kind: 'check'; tone: 'ok' | 'info' | 'soft' | 'ng'; label: string }
+  // 中断の印（中身の無い輪）。spin は再開を頼んで返事を待っている間で、輪が回る。label は読み上げの名前に添える語。
+  | { kind: 'ring'; spin: boolean; label: string };
 /** 行の右端に並べる文字。tone の wait は入力待ちの色、busy は作業中の色である。 */
 export type BandTrail = { text: string; tone?: 'wait' | 'busy' };
 /**
@@ -163,7 +172,17 @@ export type BandTrail = { text: string; tone?: 'wait' | 'busy' };
  * badge は名前の横に添える小さな札で、始める前の確認の「任意」に使う。
  * どの群の行もこの形にするので、群を足すときに View を触らずに済む。
  */
-export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[] };
+export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[];
+  /** 本文の頭に添える色の語（中断の行の「作業中だった」「再開中」「失敗」）。 */
+  textHead?: { text: string; tone: 'busy' | 'wait' | 'faint' | 'error' };
+  /** 行の上に小見出しを置く区切り。key が前の行と替わったところで見出しを出す（中断の群のアカウントごとの小見出し）。 */
+  section?: BandSection;
+  /** 同じファイルの編集の警告。行の右端に琥珀の札を置き、押すと中身が開く（presenters/overlap.ts）。 */
+  overlap?: OverlapProps | null };
+/**
+ * 引き出しの中の小見出し（アカウント）。color は色の点、meter は 5 時間の使用率、note は添える一言（未ログイン、制限に近い）、action は見出しのボタン（ログイン）。
+ */
+export type BandSection = { key: string; name: string; color: string; meter: { percent: number; label: string; high: boolean } | null; note: { text: string; tone: 'warn' | 'faint' } | null; action: BandAction | null };
 /**
  * 帯の群 1 つ。錠剤 1 つとその引き出しにあたる。
  * count は錠剤の数で、0 なら薄く出して押せない。summary は引き出しの見出しに添える内訳である。
@@ -175,6 +194,10 @@ export type BandRow = { key: string; lead: BandLead; name: string; badge?: strin
 export type BandGroup = {
   id: string; label: string; icon: IconName; tone: 'default' | 'wait' | 'cand' | 'warn'; count: number; summary: string; morning: boolean; rows: BandRow[];
   countText?: string; progress?: number; fold?: { text: string; rows: BandRow[] };
+  /** 引き出しの見出しの右に置くボタン（中断の群の「すべて再開」「閉じる」）。 */
+  headActions?: BandAction[];
+  /** 錠剤に添える琥珀の点（同じファイルを編集中のセッションがあること）。件数には入れない。文字は読み上げの名前に添える。 */
+  mark?: string | null;
 };
 /**
  * 帯が受け取るもの。groups は錠剤の並びで、morning は開いたときに最初から開いている群の id（無ければ null）。
@@ -292,9 +315,11 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
   const t = translatorOf(store);
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
   const ready = store.readiness ? presentReadiness(store.readiness, t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning }) : null;
-  const base = presentHomeBand(presentHome(state, store, now), t);
-  // 3 つの群の後ろに足す群は、場所の不明なプロジェクト、始める前の確認の順に並べる。0 件の群は足さない。
-  const extra = [presentUnresolved(store, t), ready?.group ?? null].filter((g): g is BandGroup => g !== null);
+  const band0 = presentHomeBand(presentHome(state, store, now), t);
+  // 実行中の行に、同じファイルの編集の札を重ねる（presenters/overlap.ts）。
+  const base = { ...band0, groups: band0.groups.map((g) => withOverlaps(g, store, now)) };
+  // 3 つの群の後ろに足す群は、前回実行中（中断の群）、場所の不明なプロジェクト、始める前の確認の順に並べる。0 件の群は足さない。
+  const extra = [presentInterrupted(state, store, now), presentUnresolved(store, t), ready?.group ?? null].filter((g): g is BandGroup => g !== null);
   // 静かな日は、3 つの群がどれも 0 件のこと。足す群があれば、薄い 3 つの錠剤は出さず、足す群だけを帯に置く。
   const quiet = base.groups.every((g) => g.count === 0);
   const groups = quiet ? extra : [...base.groups, ...extra];

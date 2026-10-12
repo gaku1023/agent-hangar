@@ -1,4 +1,4 @@
-import type { AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
+import type { AccountsDto, ArtifactDto, CloudUsageDto, ConfigSyncDto, DeviceDto, IndexProgressDto, InterruptedDto, LiveSessionDto, MemoDto, ProjectDto, RetentionDto, RunDto, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from './api.ts';
 
 export type ServerEvent =
   | { type: 'ready'; version: string }
@@ -31,6 +31,8 @@ export type ServerEvent =
   /** 設定の同期（作り直した実装）の状態。届いた変更、競合、送らなかった項目、適用の指示書が動いたときに配る。 */
   | { type: 'config.update'; configSync: ConfigSyncDto }
   | { type: 'retention.changed'; retention: RetentionDto }
+  /** 中断の群が変わった（tmux のサーバが消えた、再開しないと決めた、元に戻した）。群が無くなれば null。 */
+  | { type: 'interrupted.update'; interrupted: InterruptedDto | null }
   /**
    * 設定が保存された。変えた欄の名前（keys）と、保存後の設定を運ぶ。
    * API やほかの窓から直されても、開いている画面が準備の確かめ（道具のパスと作業フォルダ）を読み直せるようにする。

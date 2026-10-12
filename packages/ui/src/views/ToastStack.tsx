@@ -194,7 +194,12 @@ function InfoToast(props: { toast: Toast; motion: CardMotion }) {
   return (
     <div className="toast notice" data-kind="info" role="status" {...motionAttrs(props.motion)} onClick={dismiss} {...pause}>
       <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('toasts.info.head')}</span></div>
-      <div className="notice-body"><div className="notice-message">{props.toast.message}</div></div>
+      <div className="notice-body">
+        <div className="notice-message">{props.toast.message}</div>
+        {props.toast.action && (
+          <button type="button" className="btn btn-sm notice-action" onClick={(e) => { e.stopPropagation(); emit(props.toast.action!.send); dismiss(); }}>{props.toast.action.label}</button>
+        )}
+      </div>
     </div>
   );
 }
