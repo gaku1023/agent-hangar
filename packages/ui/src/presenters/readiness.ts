@@ -93,25 +93,40 @@ export function toolLine(t: Translate, key: ToolKey, c: ToolCheckDto & Partial<N
   return { ok: false, soft: f.soft, text: problemText(t, c), note: f.soft ? t('readiness.tool.optional') : null, fix: f.fix === null ? null : t(f.fix), fixCommand: key === 'tmux' ? muxInstallCommand(platform) : key === 'git' ? gitInstallCommand(platform) : f.fixCommand };
 }
 
-/** ワークスペースの検証。登録したプロジェクトが 1 つも無いのも ✗ にする。何も始められないからである。 */
-export function workspaceLine(t: Translate, w: ReadinessDto['workspace']): VerifyLine {
+/**
+ * 新しいフォルダの作成場所の検証。作成場所は任意なので（2026-10-13）、空なら行を出さない（null）。
+ * 決めた場所が無ければ直し方を言い、あればその直下から登録したプロジェクトの数を添える（0 件でも ✓）。
+ */
+export function workspaceLine(t: Translate, w: ReadinessDto['workspace']): VerifyLine | null {
+  if (w.path === '') return null;
   if (!w.exists) return { ok: false, soft: false, text: t('readiness.problem.missing', { path: w.path }), note: null, fix: t('readiness.fix.workspace'), fixCommand: null };
-  if (w.projectCount === 0) return { ok: false, soft: false, text: t('readiness.workspace.empty'), note: null, fix: null, fixCommand: null };
   return { ok: true, soft: false, text: w.path, note: t('readiness.workspace.projects', { n: w.projectCount }), fix: null, fixCommand: null };
 }
 
+/**
+ * 準備の確かめの「プロジェクト」の数を、画面が持っているプロジェクトの数で置き換える。
+ * 準備の確かめは取り直すまで古いままなので、登録した直後やプロジェクトを外した直後でも、行が今の数で決まるようにする。
+ * 数えるのは、この PC で場所の分かっている、スクラッチでないものである（サーバの resolvedProjectCount と同じ）。
+ * projects を持たない古いサーバの答えは、そのまま返す。
+ */
+export function liveReadiness(r: ReadinessDto, projects: readonly { isScratch: boolean; resolved: boolean }[]): ReadinessDto {
+  if (!r.projects) return r;
+  const resolved = projects.filter((p) => !p.isScratch && p.resolved).length;
+  return resolved === r.projects.resolved ? r : { ...r, projects: { ...r.projects, resolved } };
+}
+
 /** 始める前の確認の行の名前。git とエディタは 0.5.0 で足した任意の行で、古いサーバの答えには無い。 */
-export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'git' | 'mcp' | 'statusline' | 'editor' | 'compat';
+export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'projects' | 'git' | 'mcp' | 'statusline' | 'editor' | 'compat';
 /**
  * 帯の行ごとの、直す場所（設定の開く先）。「設定を開く」はここを指して開く（節の中の欄まで移って目立たせる）。
  * 全部の行が節を持つ（試験が縛る）。MCP とステータスラインは命令をコピーする行なので、欄までは指さず連携の節にする。
  */
 export const READINESS_AT: Record<ReadinessKey, SettingsAt> = {
-  tmux: 'tmux', claude: 'claude', workspace: 'workspace', git: 'tools', mcp: 'integrations', statusline: 'integrations', editor: 'editor', compat: 'compat',
+  tmux: 'tmux', claude: 'claude', workspace: 'workspace', projects: 'workspace', git: 'tools', mcp: 'integrations', statusline: 'integrations', editor: 'editor', compat: 'compat',
 };
 /** 任意の行。無くても始められるので、残りがこれだけになったら帯ごと消す（設計書 2.11.4）。 */
 const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['git', 'mcp', 'statusline', 'editor']);
-/** 行の調子。info は止めていない知らせ（未確認のバージョン）で、済んだものに数える。 */
+/** 行の調子。info は止めていない知らせ（未確認のバージョン）で、済んだものに数える。soft は弱い印で、任意の行と、プロジェクトが 0 件の行に使う。 */
 type Tone = 'ok' | 'info' | 'soft' | 'ng';
 /** 確認の 1 行の事実。文は、帯の行にするときに辞書から引く。 */
 type Check = { key: ReadinessKey; ok: boolean; tone: Tone };
@@ -122,7 +137,11 @@ function checksOf(r: ReadinessDto): Check[] {
   const rows: Check[] = [
     { key: 'tmux', ok: r.tools.tmux.ok, tone: r.tools.tmux.ok ? 'ok' : 'ng' },
     { key: 'claude', ok: r.tools.claude.ok, tone: r.tools.claude.ok ? 'ok' : 'ng' },
-    { key: 'workspace', ok: ws.exists && ws.projectCount > 0, tone: ws.exists && ws.projectCount > 0 ? 'ok' : 'ng' },
+    // プロジェクトの行（2026-10-13）。この PC に場所の分かっているプロジェクトが 1 件以上で済み、0 件は注意（任意の札は付けない）。
+    // projects を持たない古いサーバの答えは、今までの「プロジェクトの親フォルダ」の行で見る。
+    r.projects
+      ? { key: 'projects', ok: r.projects.resolved > 0, tone: r.projects.resolved > 0 ? 'ok' : 'soft' }
+      : { key: 'workspace', ok: ws.exists && ws.projectCount > 0, tone: ws.exists && ws.projectCount > 0 ? 'ok' : 'ng' },
     // git は無くても始められる（git の表示が出ないだけ）。古いサーバの答えには無い。
     ...(r.tools.git ? [{ key: 'git' as const, ok: r.tools.git.ok, tone: r.tools.git.ok ? 'ok' as const : 'soft' as const }] : []),
     { key: 'mcp', ok: r.mcp.registered, tone: r.mcp.registered ? 'ok' : 'soft' },
@@ -222,6 +241,13 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
         text = ws.path === '' ? t('home.ready.workspace.unset') : !ws.exists ? t('home.ready.workspace.missing', { path: ws.path }) : t('home.ready.workspace.empty', { path: ws.path });
         act = toSettings('workspace');
         break;
+      case 'projects': {
+        // 候補があれば候補のダイアログを開き、無ければ新しいプロジェクトの作成へ案内する。
+        const n = r.projects?.candidates ?? 0;
+        text = n > 0 ? t('home.ready.projects.found', { n }) : t('home.ready.projects.none');
+        act = n > 0 ? action(t('home.ready.projects.choose'), name('projects'), { type: 'project.candidates.open' }, true) : action(t('home.ready.projects.create'), name('projects'), { type: 'project.new.open' }, true);
+        break;
+      }
       case 'mcp':
         text = t('home.ready.mcp.text');
         detail = setup.desktop ? r.mcp.file : r.commands.mcp;
@@ -262,6 +288,7 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
       case 'tmux':
       case 'claude': text = toolOk(t, r.tools[c.key]); break;
       case 'workspace': text = t('home.ready.workspace.ok', { path: ws.path, n: ws.projectCount }); break;
+      case 'projects': text = t('home.ready.projects.ok', { n: r.projects?.resolved ?? 0 }); break;
       case 'mcp': text = t('home.ready.mcp.ok'); break;
       case 'statusline': text = t('home.ready.statusline.ok'); break;
       case 'git': text = toolOk(t, r.tools.git!); break;

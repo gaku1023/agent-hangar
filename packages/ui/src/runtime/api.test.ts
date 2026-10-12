@@ -189,12 +189,14 @@ describe('createApi（セッションの状態）', () => {
 });
 
 describe('createApi（アカウント）', () => {
-  it('9 つの呼び出しの経路とメソッドと本文', async () => {
+  it('10 の呼び出しの経路とメソッドと本文', async () => {
     const { api, calls } = harness(200, accountsFixture);
     expect(await api.accounts()).toEqual(accountsFixture);
     await api.setCurrentAccount('a1');
     await api.switchAccount('s1', 'a1');
-    await api.addAccount('大学');
+    await api.addAccount('大学', null);
+    await api.addAccount('大学', '~/.claude-univ');
+    await api.previewAccountDir('univ', '~/x y');
     await api.updateAccount('a1', { name: '研究室', color: '#7a4a9e' });
     await api.removeAccount('a1');
     await api.loginAccount('a1');
@@ -205,6 +207,8 @@ describe('createApi（アカウント）', () => {
       'PUT /api/accounts/current {"id":"a1"}',
       'POST /api/sessions/s1/switch-account {"account":"a1"}',
       'POST /api/accounts {"name":"大学"}',
+      'POST /api/accounts {"name":"大学","dir":"~/.claude-univ"}',
+      'GET /api/accounts/preview?name=univ&dir=%7E%2Fx+y',
       'PATCH /api/accounts/a1 {"name":"研究室","color":"#7a4a9e"}',
       'DELETE /api/accounts/a1',
       'POST /api/accounts/a1/login',

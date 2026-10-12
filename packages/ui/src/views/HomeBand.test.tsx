@@ -216,7 +216,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     open();
     const rows = drawer().getAllByRole('listitem');
     expect(rows).toHaveLength(3);
-    expect(within(rows[0]!).getByText('プロジェクトの親フォルダ')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('新しいフォルダの作成場所')).toBeInTheDocument();
     expect(within(rows[0]!).queryByText('任意')).toBeNull();
     expect(within(rows[1]!).getByText('MCP サーバー')).toBeInTheDocument();
     expect(within(rows[1]!).getByText('任意')).toBeInTheDocument();
@@ -234,7 +234,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
 
   it('「設定を開く」は設定へ、「コマンドをコピー」は命令を写す', () => {
     const { onAction } = open();
-    fireEvent.click(screen.getByRole('button', { name: '設定を開く、プロジェクトの親フォルダ' }));
+    fireEvent.click(screen.getByRole('button', { name: '設定を開く、新しいフォルダの作成場所' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'workspace' } });
     fireEvent.click(screen.getByRole('button', { name: 'コマンドをコピー、MCP サーバー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'hangar mcp install' });

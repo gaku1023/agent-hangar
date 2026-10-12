@@ -4,7 +4,7 @@ import { getSession } from '../db/queries.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 
 /**
- * 区切り（Paused・Done・Archived）を付けたのに、休みのまま残っているセッションの id。
+ * 区切り（Done・Archived）を付けたのに、休みのまま残っているセッションの id。Paused は戻ってくる会話なので含めない。
  * 判定は一覧に載せる parked と同じもの（shared の isParked）を使う。画面が実行中から外すものと、ここで止めるものを揃えるためである。
  * 使用制限でリセットを待っている会話（session_limits の行があり、リセットから猶予の内）は返さない。
  * 止めると、Claude Code が予約した自動の続きごと消えるからである。休みに見えても、リセットを待っている。
@@ -41,11 +41,13 @@ export type ParkWatchDeps = {
   now?: () => number;
   settleMs?: number;
   log?: (message: string) => void;
+  /** 設定のスイッチ（settings の autoPark）。偽の間は休みの一覧も読まず、何も止めない。省けば常に入り。 */
+  enabled?: () => boolean;
 };
 
 /**
  * 区切りを付けたセッションが休みになったら、Claude を止める見張り。
- * 会話の中で Paused を選んだ時点では Claude はまだ最後の返答を書いているので、休みになるのを待つ。
+ * 会話の中で Done を選んだ時点では Claude はまだ最後の返答を書いているので、休みになるのを待つ。
  * 止めにいくのは、休みが続く間に 1 回だけである。外のターミナルの会話のように止められないものを、周期のたびに触らない。
  */
 export class ParkWatch {
@@ -61,6 +63,8 @@ export class ParkWatch {
 
   /** 1 回見回る。止めたセッションの id を返す。 */
   tick(): string[] {
+    // 切っている間は数えを捨てる。入れ直したら、休みを最初から数える。
+    if (this.deps.enabled && !this.deps.enabled()) { this.seen.clear(); return []; }
     const now = this.deps.now?.() ?? Date.now();
     const settle = this.deps.settleMs ?? PARK_SETTLE_MS;
     const parked = new Set(this.deps.parkedIds());

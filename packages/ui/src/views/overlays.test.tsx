@@ -218,6 +218,18 @@ describe('PromoteDialog', () => {
     expect(onAction).toHaveBeenCalledWith({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: false, moveFiles: true });
   });
 
+  // 作成場所は任意（2026-10-13）。空なら、プロジェクトのフォルダを作る場所を選んでから昇格する。
+  it('作成場所が空なら作る場所を選ぶまで送れず、選んだ場所を添えて送る', () => {
+    const onAction = vi.fn();
+    const p = { sessionId: 's1', sessionName: 'x', runAlive: false, submitting: false, error: null };
+    const { rerender } = render(<ActionRoot onAction={onAction}><PromoteDialog {...p} place={{ workspaceRoot: '', desktop: true, picked: null }} /></ActionRoot>);
+    fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'newp' } });
+    expect(screen.getByRole('button', { name: '昇格' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、作成場所' }));
+    rerender(<ActionRoot onAction={onAction}><PromoteDialog {...p} place={{ workspaceRoot: '', desktop: true, picked: { path: '/Users/me/src', n: 1 } }} /></ActionRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '昇格' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.promote.submit', id: 's1', name: 'newp', gitInit: true, moveFiles: true, parent: '/Users/me/src' });
+  });
   it('run が生きているとファイルを移動できない', () => {
     render(<ActionRoot onAction={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive submitting={false} error={null} /></ActionRoot>);
     expect(screen.getByLabelText('ファイルを移動')).toBeDisabled();
@@ -250,7 +262,7 @@ describe('PromoteDialog', () => {
   it('2 つの選択は、何が起きるかを添えたカードで並ぶ', () => {
     render(<ActionRoot onAction={() => {}}><PromoteDialog sessionId="s1" sessionName="x" runAlive={false} submitting={false} error={null} /></ActionRoot>);
     expect(screen.getByRole('checkbox', { name: 'git init を実行' })).toHaveAccessibleDescription('空のリポジトリを作成してから移します');
-    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).toHaveAccessibleDescription('クイックセッションのファイルをプロジェクトの親フォルダへ移します');
+    expect(screen.getByRole('checkbox', { name: 'ファイルを移動' })).toHaveAccessibleDescription('クイックセッションのファイルを新しいプロジェクトのフォルダへ移します');
     expect(screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true']);
   });
   it('run が生きているとき、ファイルを移動するのカードは印を外して押せない', () => {

@@ -46,9 +46,15 @@ describe('paths', () => {
   it('設定は既定値を持ち、保存すると読める', () => {
     ensureHome(tmp);
     const s = loadSettings(tmp);
-    expect(s.workspaceRoot).toBe(path.join(os.homedir(), 'workspace'));
+    // 新しい利用者の作成場所は空（決めていない）である。初日はホームの帯から、会話したフォルダを選んでもらう（2026-10-13）。
+    expect(s.workspaceRoot).toBe('');
     saveSettings(tmp, { ...s, workspaceRoot: '/tmp/ws' });
     expect(loadSettings(tmp).workspaceRoot).toBe('/tmp/ws');
+  });
+  it('作成場所の項目が無い古い settings.json は、今までどおり ~/workspace として読む', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ claudeDir: '/c' }));
+    expect(loadSettings(tmp).workspaceRoot).toBe(path.join(os.homedir(), 'workspace'));
   });
   it('設定は 0600 で保存し、緩い権限のまま残さない', () => {
     // claudeDir や workspaceRoot は端末の中身を明かすので、token や device.json と同じ扱いにする。
@@ -62,7 +68,7 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp, 'darwin');
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, language: 'ja' });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, nodePath: null, language: 'ja' });
   });
   it('0.4.0 までの codePath は、VS Code とその場所のエディタに読み替え、古い鍵は持たない', () => {
     ensureHome(tmp);
@@ -125,6 +131,23 @@ describe('paths', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+  it('起動する claude に足す段のスイッチは、鍵が無ければ入り（今までと同じ）で、保存した切りを読める', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    expect(loadSettings(tmp)).toMatchObject({ askStatusAtEnd: true, liveHints: true });
+    saveSettings(tmp, { ...loadSettings(tmp), askStatusAtEnd: false, liveHints: false });
+    expect(loadSettings(tmp)).toMatchObject({ askStatusAtEnd: false, liveHints: false });
+  });
+  it('hangar が自分で行うこと（自動の Done と自動の停止）のスイッチは、鍵が無ければ入り（今までと同じ）で、保存した切りを読める', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    expect(loadSettings(tmp)).toMatchObject({ autoDone: true, autoPark: true });
+    saveSettings(tmp, { ...loadSettings(tmp), autoDone: false, autoPark: false });
+    expect(loadSettings(tmp)).toMatchObject({ autoDone: false, autoPark: false });
+    // 手で書き換えた真偽値でない値は、既定（入り）に寄せる。
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', autoDone: 'no', autoPark: 0 }));
+    expect(loadSettings(tmp)).toMatchObject({ autoDone: true, autoPark: true });
   });
   it('要約器の設定は既定値で埋まる', () => {
     ensureHome(tmp);

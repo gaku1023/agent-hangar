@@ -53,7 +53,10 @@ export type UiAction =
   // プロジェクトの名前を変える。見出しの (i) のポップオーバーから出す。
   | { type: 'project.rename'; id: ProjectId; name: string }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
-  // 起動と作成のダイアログの「ほかの場所を選ぶ…」。殻の中だけで出す。
+  // Claude Code と会話したフォルダの候補のダイアログ（初日のプロジェクト。2026-10-13）。
+  // submit は選んだフォルダをまとめて登録し、workspaceRoot があれば先に新しいフォルダの作成場所にする。
+  | { type: 'project.candidates.open' } | { type: 'project.candidates.submit'; paths: string[]; workspaceRoot: string | null }
+  // 起動と作成のダイアログの「ほかの場所を選ぶ…」と、作成場所が空のときの「作成場所」の「選ぶ…」。殻の中だけで出す。
   | { type: 'folder.pick' }
   | { type: 'project.resolve.open'; id: ProjectId }
   // 一覧から削除（unlink）は同期で他の端末へも広がるので、confirmed が無ければ先に確認を出す。
@@ -111,7 +114,7 @@ export type UiAction =
   | { type: 'project.git.load'; projectId: ProjectId }
   // 差分のダイアログ。open は file を渡すとそのファイルを選んで開く。source は「作業ツリーとの差（git）」か「このセッションの編集」。
   | { type: 'diff.open'; sessionId: SessionId; file?: string } | { type: 'diff.select'; file: string } | { type: 'diff.source'; source: 'git' | 'session' }
-  | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
+  | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean; /** 作る場所。作成場所（設定）が空のときだけ渡す。 */ parent?: string }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
   /**
    * 中断の群（ホームの帯の「前回実行中」）。resume は渡したセッションを順番待ちに足し、同時に 2 本まで再開する（画面は移さない）。
@@ -199,7 +202,12 @@ export type UiAction =
   | { type: 'accounts.load' }
   | { type: 'account.choose'; accountId: string }
   | { type: 'account.switchSession'; sessionId: SessionId; accountId: string; working: boolean; confirmed?: boolean }
-  | { type: 'account.add'; name: string }
+  // 設定の「アカウントを足す…」のダイアログ。add は名前と場所（打ったまま。空ならサーバが名前から決める）で登録してログインを始める。
+  // pick は「選ぶ…」で、開く場所を添える。preview は打つたびに足す前の確かめを読む（Store の accountPreview に入る）。
+  | { type: 'account.add.open' }
+  | { type: 'account.add'; name: string; dir: string }
+  | { type: 'account.add.pick'; defaultPath: string | null }
+  | { type: 'account.add.preview'; name: string; dir: string }
   | { type: 'account.update'; accountId: string; name?: string; color?: string }
   | { type: 'account.remove'; accountId: string; confirmed?: boolean }
   | { type: 'account.login'; accountId: string } | { type: 'account.login.cancel'; accountId: string }

@@ -7,6 +7,7 @@ import type { Settings } from '../config/paths.ts';
 import { createReadiness } from '../config/readiness.ts';
 import { bundledHangarIn, createShellWrap } from '../config/shellWrap.ts';
 import { createExternalApi } from '../external/api.ts';
+import { folderCandidates } from '../projects/candidates.ts';
 import { currentEditor, defaultEditorHost } from '../external/editors.ts';
 import { announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from '../http/accounts.ts';
 import type { ExternalApi } from '../http/deps.ts';
@@ -18,6 +19,7 @@ import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
 import { ParkWatch, parkedSessionIds } from '../sessions/park.ts';
+import { setParkingSwitch } from '../db/queries.ts';
 import { StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { HANGAR_SOCKET, hangarMux, type MuxServers } from '../tmux/servers.ts';
@@ -130,14 +132,19 @@ export function bootRuns(
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
     language: home.language,
+    // 足す段の入り切り（設定の askStatusAtEnd と liveHints）。起動のたびに今の設定を読む。
+    injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false }),
   });
-  // 区切り（Paused、Done、Archived）を付けたセッションが休みになったら、Claude を止める。
+  // 区切り（Done、Archived）を付けたセッションが休みになったら、Claude を止める。Paused は戻ってくる会話なので止めない。
   // 登録は 500 ミリ秒ごとの写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
   // 読めなかったときは、何も止めない。
   const parkWatch = new ParkWatch({
     parkedIds: () => { try { return parkedSessionIds(db, readRegistry(claudeDir), device.id); } catch { return []; } },
     stop: (id) => runs.park(id),
+    // 設定の「Done と Archived にした会話を止める」。切っている間は止めず、一覧でも実行中として見せる（setParkingSwitch）。
+    enabled: () => settings.current.autoPark !== false,
   });
+  setParkingSwitch(db, () => settings.current.autoPark !== false);
   const usage = new UsageTracker(db, {
     accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id) }, providerSessionId),
     compat: compatLog,
@@ -202,6 +209,8 @@ export function bootRuns(
       compatLocalVersion: localClaude.refreshVersion,
       // 選んだエディタで開けるか（始める前の確認のエディタの行）。版は読まない。
       editor: async () => currentEditor(settings.current.editor, defaultEditorHost()),
+      // 始める前の確認の「プロジェクト」の行。プロジェクトが 1 件も無いときだけ、会話したフォルダの候補を数える。
+      candidateCount: () => folderCandidates(db, device.id, { hangarHome: home.home, workspaceRoot: settings.current.workspaceRoot }).candidates.length,
     }),
     compat: localClaude.compat,
     primeLive: () => {

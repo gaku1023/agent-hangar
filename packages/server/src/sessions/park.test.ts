@@ -20,31 +20,31 @@ const live = (sessionId: string, status: LiveSession['status'] = 'idle', procSta
 describe('parkedSessionIds', () => {
   it('印が付いていて休みのまま残っている会話の、hangar のセッションの id を返す', () => {
     const db = seed();
-    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: SET_AT });
+    setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'conversation', now: SET_AT });
     setSessionState(db, 'd', 's2', { status: 'done', setBy: 'user', now: SET_AT });
     // s1 は休み、s2 は作業中、s3 は印なし。
     expect(parkedSessionIds(db, [live('u1'), live('u2', 'busy'), live('u3')])).toEqual(['s1']);
   });
   it('裏だけ動いている会話（本体は空いていて、裏で Bash が動いている）は返さない。止めると裏の作業も消える', () => {
     const db = seed();
-    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: SET_AT });
+    setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'conversation', now: SET_AT });
     expect(parkedSessionIds(db, [{ ...live('u1', 'busy'), aside: { shell: true, agents: 0 } }])).toEqual([]);
   });
   it('再開して開いたもの（印より後に起動）と、hangar が知らない会話は返さない', () => {
     const db = seed();
-    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: T('2026-10-02T02:00:00.000Z') });
+    setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'user', now: T('2026-10-02T02:00:00.000Z') });
     expect(parkedSessionIds(db, [live('u1'), live('u-unknown')])).toEqual([]);
   });
   it('同じ会話に登録が 2 つあるとき（hangar の run と外のターミナルなど）は返さない。どのプロセスが休みなのか決められない', () => {
     const db = seed();
-    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: SET_AT });
+    setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'conversation', now: SET_AT });
     expect(parkedSessionIds(db, [live('u1'), live('u1', 'busy')])).toEqual([]);
     expect(parkedSessionIds(db, [live('u1', 'busy'), live('u1')])).toEqual([]);
     expect(parkedSessionIds(db, [live('u1'), live('u1')])).toEqual([]);
   });
   it('使用制限でリセットを待っている会話は返さない。止めると Claude Code が予約した自動の続きごと消える', () => {
     const db = seed();
-    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: SET_AT });
+    setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'conversation', now: SET_AT });
     setSessionState(db, 'd', 's2', { status: 'done', setBy: 'user', now: SET_AT });
     const resetsAt = Date.now() + 3_600_000;
     for (const id of ['s1', 's2']) db.prepare('insert into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)').run(id, 'five_hour', resetsAt, 1, SET_AT);
@@ -53,6 +53,13 @@ describe('parkedSessionIds', () => {
     db.prepare('update session_limits set resets_at = ?').run(Date.now() - 600_000);
     expect(parkedSessionIds(db, [live('u1'), live('u2')])).toEqual(['s1', 's2']);
   });
+  it('Paused の会話は、休みのまま残っていても返さない。戻ってくる会話なので止めない', () => {
+    const db = seed();
+    setSessionState(db, 'd', 's1', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: SET_AT });
+    setSessionState(db, 'd', 's2', { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: SET_AT });
+    setSessionState(db, 'd', 's3', { status: 'done', setBy: 'user', now: SET_AT });
+    expect(parkedSessionIds(db, [live('u1'), live('u2'), live('u3')])).toEqual(['s3']);
+  });
   it('動いているものが無ければ空', () => {
     expect(parkedSessionIds(seed(), [])).toEqual([]);
   });
@@ -60,10 +67,25 @@ describe('parkedSessionIds', () => {
 
 describe('ParkWatch', () => {
   const setup = (o: { stoppable?: boolean } = {}) => {
-    const s = { now: 0, parked: [] as string[], stopped: [] as string[] };
-    const watch = new ParkWatch({ parkedIds: () => s.parked, stop: (id) => { s.stopped.push(id); return o.stoppable ?? true; }, now: () => s.now, settleMs: 10_000 });
+    const s = { now: 0, parked: [] as string[], stopped: [] as string[], on: true, read: 0 };
+    const watch = new ParkWatch({ parkedIds: () => { s.read++; return s.parked; }, stop: (id) => { s.stopped.push(id); return o.stoppable ?? true; }, now: () => s.now, settleMs: 10_000, enabled: () => s.on });
     return { s, watch };
   };
+
+  it('設定で切っている間は止めない。休みの一覧も読まず、入れ直したら休みを数え直す', () => {
+    const { s, watch } = setup();
+    s.parked = ['s1'];
+    s.on = false;
+    watch.tick();
+    s.now = 60_000;
+    expect(watch.tick()).toEqual([]);
+    expect(s.stopped).toEqual([]);
+    expect(s.read).toBe(0);
+    s.on = true;
+    expect(watch.tick()).toEqual([]);
+    s.now = 70_000;
+    expect(watch.tick()).toEqual(['s1']);
+  });
 
   it('休みが settleMs 続いたら止める。それより前は止めない', () => {
     const { s, watch } = setup();

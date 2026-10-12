@@ -280,13 +280,14 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   );
 
   // 時刻の列（F1）。幅を決めて右に寄せ、行ごとに位置がずれないようにする。
-  // Paused の行は戻る日を出す（その行にとって意味のある日だから）。今日と過ぎたものと、戻る日が無いもの（日付なし）は塗る。
+  // Paused の行は戻る日を出す（その行にとって意味のある日だから）。今日と過ぎたものと、暦に無い日のものは塗る。
   // 時刻つきは時刻も出し、当日でも時刻の前は塗らない（塗るかどうかは presenters/row.ts の returnDue が決める）。
+  // 日付なし（利用者が選んだもの）は塗らず、淡く「日付なし」と出す。
   // 最後の活動はポインタを乗せると読める。
   const time = (r: SessionRowProps) => (
     <span className="row-time">
       {r.state === 'paused'
-        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} title={t('row.return.titleLast', { title: r.returnTime ? t('row.return.titleTime', { date: returnOnLabel(t, r.returnOn, r.overdueDays, r.returnTime) }) : t('row.return.titleDate'), when: r.when })}>{returnOnRowLabel(t, r.returnOn, r.overdueDays, r.returnTime, r.returnPastMin)}</span>
+        ? <span className="row-return" data-due={r.returnDue ? 'true' : undefined} data-none={r.returnOn === null && !r.returnDue ? 'true' : undefined} title={t('row.return.titleLast', { title: r.returnTime ? t('row.return.titleTime', { date: returnOnLabel(t, r.returnOn, r.overdueDays, r.returnTime) }) : t('row.return.titleDate'), when: r.when })}>{returnOnRowLabel(t, r.returnOn, r.overdueDays, r.returnTime, r.returnPastMin)}</span>
         : <RelativeTime label={r.when} abs={r.whenAbs} />}
     </span>
   );

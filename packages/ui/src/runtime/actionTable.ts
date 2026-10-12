@@ -142,6 +142,8 @@ export const actionTable = {
 
   // Claude Code のアカウント。一覧を返すものは、応答をそのまま Store に入れる（サーバの accounts.update と同じ形）。
   'accounts.load': () => call((api) => api.accounts(), { apply: withAccounts }),
+  // アカウントを足す前の確かめ。打つたびに読み、答えは問いの写しごと Store に置く（画面は今の欄と合う答えだけを使う）。読めない場所（相対パスなど）はトーストにせず答えを消し、理由は登録を押したときにダイアログで言う。
+  'account.add.preview': (i) => call((api) => api.previewAccountDir(i.name, i.dir), { apply: (store, accountPreview) => ({ ...store, accountPreview }), failed: (store) => ({ ...store, accountPreview: null }) }),
   'account.choose': (i) => call((api) => api.setCurrentAccount(i.accountId), { apply: withAccounts }),
   'account.update': (i) => {
     // 名前は前後の空白を落とす。空になった名前は送らず、送るものが無ければ何も呼ばない。

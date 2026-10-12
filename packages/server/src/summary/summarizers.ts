@@ -1,7 +1,7 @@
 import type { UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { CompatSink } from '../provider/claude-code/compat/types.ts';
-import { ClaudeHeadlessSummarizer } from '../provider/claude-code/summary/claude.ts';
+import { ClaudeHeadlessSummarizer, type SummaryAccount } from '../provider/claude-code/summary/claude.ts';
 import { LmStudioSummarizer } from './lmstudio.ts';
 import type { Summarizer } from './types.ts';
 
@@ -18,7 +18,10 @@ export const RUN_ENDED_SUMMARY_OPTS = { ignoreLive: true } as const;
 export type SummarizerSetDeps = {
   settings: () => Pick<Settings, 'lmStudioUrl' | 'lmStudioModel' | 'summaryFallback' | 'summaryHourlyCap'>;
   claudeBin: () => string | null;
-  usage: () => UsageDto;
+  /** アカウントごとの使用率。Claude の要約エンジンが、要約するセッションのアカウントの 7 日の使用率で止めるのに使う。 */
+  usage: (accountId: string) => UsageDto;
+  /** 要約するセッションを最後に動かしたアカウント。Claude の要約エンジンは、その置き場（CLAUDE_CONFIG_DIR）で走る。 */
+  accountOf?: (sessionId: string) => SummaryAccount;
   compat: CompatSink;
 };
 
@@ -36,7 +39,7 @@ export class SummarizerSet {
   }
 
   private build(): ClaudeHeadlessSummarizer {
-    return new ClaudeHeadlessSummarizer({ claudeBin: this.deps.claudeBin(), hourlyCap: this.deps.settings().summaryHourlyCap, usage: this.deps.usage, compat: this.deps.compat });
+    return new ClaudeHeadlessSummarizer({ claudeBin: this.deps.claudeBin(), hourlyCap: this.deps.settings().summaryHourlyCap, usage: this.deps.usage, accountOf: this.deps.accountOf, compat: this.deps.compat });
   }
 
   rebuildClaude(): void {

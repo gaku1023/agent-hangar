@@ -21,6 +21,10 @@ export type RuntimeEvent =
   | { type: 'project.created'; projectId: string; params: LaunchParams }
   // プロジェクト画面の作成のダイアログの結果。
   | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
+  // アカウントを足すダイアログの結果（登録が通ったか）。ログインは続けて裏で始まる。
+  | { type: 'account.add.done' } | { type: 'account.add.failed'; message: string }
+  // 候補からまとめて登録した結果（初日のプロジェクト）。registered は登録できた数、failed は登録できなかったものの理由である。
+  | { type: 'project.candidates.done'; registered: number; failed: string[] } | { type: 'project.candidates.failed'; message: string }
   // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
   | { type: 'return.due'; keys: string[] }
   // 同期で、この PC に場所を持ったことが無いプロジェクトが降りてきた（Runtime が project.upsert から見分ける）。ids は降りたプロジェクト。起動の読み込みで入るものは届けない。
@@ -120,11 +124,16 @@ export type Effect =
   | { kind: 'api.confirmSessionState'; id: string; body: { returnOn?: string; returnTime?: string } }
   | { kind: 'api.loadMemo'; projectId: string }
   | { kind: 'api.loadInstructions'; projectId: string }
-  | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean }
+  | { kind: 'api.promote'; sessionId: string; name: string; gitInit: boolean; moveFiles: boolean; parent?: string }
   | { kind: 'api.createProject'; place: ProjectPlace; startSession: boolean }
   | { kind: 'api.createProjectThenLaunch'; place: ProjectPlace; params: LaunchParams }
   | { kind: 'api.workspaceDirs' }
-  | { kind: 'desktop.pickFolder' }
+  // Claude Code と会話したフォルダの候補を取る。答えは Store の folderCandidates に入る。
+  | { kind: 'api.folderCandidates' }
+  // 候補からまとめて登録する。workspaceRoot があれば、先に新しいフォルダの作成場所として保存する。
+  | { kind: 'api.registerFolders'; paths: string[]; workspaceRoot: string | null }
+  // Finder でフォルダを選ぶ。defaultPath を省けば、ワークスペースのルートから開く（プロジェクトの作成）。
+  | { kind: 'desktop.pickFolder'; defaultPath?: string | null }
   // 連携の書き込みを殻に頼む（setup_integration）。殻が承諾の窓を出す。ブラウザでは殻が無いので、すぐ setup.done を返す。
   | { kind: 'desktop.setup'; target: SetupTarget }
   | { kind: 'api.loadSettingsExtras' }
@@ -138,7 +147,7 @@ export type Effect =
   | { kind: 'api.retentionPreview'; days: number } | { kind: 'api.writeRetention'; days: number }
   // Claude Code のアカウント。
   | { kind: 'api.accounts.switchSession'; sessionId: string; accountId: string }
-  | { kind: 'api.accounts.add'; name: string }
+  | { kind: 'api.accounts.add'; name: string; dir: string | null }
   | { kind: 'api.accounts.remove'; accountId: string };
 
 export type Screen = { name: 'booting' } | Route;
@@ -165,6 +174,10 @@ export type Overlay =
   | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean }
   | { kind: 'promote'; sessionId: string }
   | { kind: 'newProject' }
+  // 設定の「アカウントを足す…」。入力はダイアログが持ち、送信の進みは accountAdd が持つ。
+  | { kind: 'addAccount' }
+  // Claude Code と会話したフォルダの候補のダイアログ（初日のプロジェクト）。submitting は登録の返事を待っているあいだ、error は登録の失敗の理由。
+  | { kind: 'projectCandidates'; submitting: boolean; error: string | null }
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
   // 設定の同期（作り直した実装）。part が顔を決める。working は、適用の返事（指示書を書き、ネイティブの確認を経る）を待っているあいだ。
@@ -290,6 +303,8 @@ export type State = {
   promote: LaunchState;
   /** プロジェクト画面の作成のダイアログの送信。 */
   projectCreate: LaunchState;
+  /** アカウントを足すダイアログの送信。 */
+  accountAdd: LaunchState;
   toasts: Toast[]; nextToastId: number;
   /** サイドバーを図とアイコンだけの帯に縮めているか。開閉のたびに保存し、起動時に読み戻す。 */
   sidebarCollapsed: boolean;

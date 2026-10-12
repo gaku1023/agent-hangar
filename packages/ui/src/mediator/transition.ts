@@ -13,6 +13,7 @@ import { notifyStep } from './notify.ts';
 import { updateStep } from './update.ts';
 import { cloudMemberStep } from './cloudMember.ts';
 import { overlayStep } from './overlay.ts';
+import { projectCandidatesStep } from './projectCandidates.ts';
 import { projectCreateStep } from './projectCreate.ts';
 import { PAGE_SIZE_DEFAULT } from './paging.ts';
 import { promoteStep } from './promote.ts';
@@ -33,7 +34,7 @@ export type { State, Input, Effect, Step } from './types.ts';
 export { defaultSessionView } from './sessionView.ts';
 
 export function initialState(): State {
-  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], projectRailFolded: {}, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
+  return { screen: { name: 'booting' }, overlay: { kind: 'none' }, connection: 'connecting', reconnectAttempt: 0, staleSince: null, nextRetryAt: null, sessionView: {}, search: { text: '', filter: {}, page: 1 }, pageSize: PAGE_SIZE_DEFAULT, launch: { kind: 'idle' }, waitingSeen: [], waitingBare: [], waitingKeys: [], waitingCarried: [], returnSeen: [], focusOnOpen: null, promote: { kind: 'idle' }, projectCreate: { kind: 'idle' }, accountAdd: { kind: 'idle' }, toasts: [], arrivedProjects: [], sidebarCollapsed: false, sidebarOrder: [], projectRailFolded: {}, noticesRead: [], newSessionDraft: null, newSessionSent: false, launchPrefs: {}, waitingToasts: [], nextToastId: 1, settingsSave: {}, copied: null, muxCheck: 'idle', setupRunning: null, todoUndo: [], resumeQueue: { queued: [], active: [], failed: {} } };
 }
 
 function pushToast(state: State, level: 'info' | 'error', message: string, holdMs?: number): State {
@@ -65,8 +66,9 @@ export function transition(state: State, store: Store, input: Input): Step {
   const muxGuide = (s: State, i: Input) => muxGuideStep(s, store, i);
   const promote = (s: State, i: Input) => promoteStep(s, store, i);
   const projectCreate = (s: State, i: Input) => projectCreateStep(s, store, i);
+  const projectCandidates = (s: State, i: Input) => projectCandidatesStep(s, store, i);
   const settings = (s: State, i: Input) => settingsStep(s, store, i);
-  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, projectRailStep, returnStep, arrived, noticesStep, notifyStep, updateStep, cloudMemberStep, todos, workbench]) {
+  for (const step of [connection, screen, muxGuide, setupStep, launch, interrupted, promote, projectCreate, projectCandidates, retentionStep, accountsStep, configSync, overlayStep, syncStep, resumeHereStep, settings, sessionView, sidebarStep, sidebarOrderStep, projectRailStep, returnStep, arrived, noticesStep, notifyStep, updateStep, cloudMemberStep, todos, workbench]) {
     const r = step(state, input);
     if (r) return settled(state, r);
   }

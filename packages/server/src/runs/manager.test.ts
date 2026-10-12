@@ -598,6 +598,21 @@ describe.skipIf(!TMUX)('シェルタブ（tmux 上）', () => {
     expect(rm.openTab(r.run.id).title).toBe('Shell 1');
     rm.kill(r.run.id);
   });
+  it('設定の 2 つのスイッチで、区切りの問いの段とターンの意図の段を足すかを決める（既定はどちらも足す）', async () => {
+    const plain = make();
+    const r1 = plain.start({ projectId: 'p1' });
+    const sys1 = (await launchedArgs(r1.run.id)).find((_, i, a) => a[i - 1] === '--append-system-prompt')!;
+    expect(sys1).toContain('AskUserQuestion');
+    expect(sys1).toContain('set_turn_intent');
+    plain.kill(r1.run.id);
+    const off = make({ injection: () => ({ askStatusAtEnd: false, liveHints: false }) });
+    const r2 = off.start({ projectId: 'p1' });
+    const sys2 = (await launchedArgs(r2.run.id)).find((_, i, a) => a[i - 1] === '--append-system-prompt')!;
+    expect(sys2).toContain('プロジェクト：alpha（' + cwd + '）');
+    expect(sys2).not.toContain('AskUserQuestion');
+    expect(sys2).not.toContain('set_turn_intent');
+    off.kill(r2.run.id);
+  });
   it('openTab は連番の tmux セッションを作り、closeTab は閉じ、番号は再利用しない', async () => {
     const rm = make();
     const tabs: TabDto[] = [];

@@ -6,7 +6,8 @@ import { writeFakeTool } from '../../../test/fake-bin.ts';
 import type { ServerEvent, SettingsDto } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
 import { upsertShared } from '../../db/shared.ts';
-import { SESSION_OTHER } from '../../../test/fixtures.ts';
+import { SESSION_ALPHA, SESSION_OTHER } from '../../../test/fixtures.ts';
+import { setSessionState } from '../../sessions/states.ts';
 import { createApp, type RunsApi } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 import { isWindows } from '../../../test/platform.ts';
@@ -55,10 +56,10 @@ describe('routes', () => {
     };
     // 実在しないルートと、ファイルを指したルートは弾く。どちらも 500 にはしない。
     const missing = path.join(ws, 'no-such-root');
-    expect(await error({ workspaceRoot: missing })).toBe(`「プロジェクトの親フォルダ」に ${missing} が見つかりません`);
+    expect(await error({ workspaceRoot: missing })).toBe(`「新しいフォルダの作成場所」に ${missing} が見つかりません`);
     const asFile = path.join(ws, 'root-is-a-file');
     fs.writeFileSync(asFile, 'x');
-    expect(await error({ workspaceRoot: asFile })).toBe(`「プロジェクトの親フォルダ」の ${asFile} はディレクトリではありません`);
+    expect(await error({ workspaceRoot: asFile })).toBe(`「新しいフォルダの作成場所」の ${asFile} はディレクトリではありません`);
     // ツールは、無い、ファイルでない、実行できないを分けて言う。
     expect(await error({ tmuxPath: path.join(ws, 'no-tmux') })).toBe(`「tmux のパス」に ${path.join(ws, 'no-tmux')} が見つかりません`);
     expect(await error({ claudePath: ws })).toBe(`「claude のパス」の ${ws} はファイルではありません`);
@@ -113,7 +114,7 @@ describe('routes', () => {
       expect(r.status).toBe(400);
       return ((await r.json()) as { error: string }).error;
     };
-    expect(await error({ workspaceRoot: '' })).toBe('「プロジェクトの親フォルダ」は空にできません');
+    expect(await error({ workspaceRoot: 3 })).toBe('「新しいフォルダの作成場所」の値の形が違います');
     expect(await error({ claudeDir: ' ' })).toBe('「読み取り元」は空にできません');
     expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形が違います');
     expect(await error({ editor: 3 })).toBe('「エディタ」の値の形が違います');
@@ -136,16 +137,32 @@ describe('routes', () => {
     // 画面の入力と同じく 200 までにする。
     expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
     expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約エンジンを許可」の値の形が違います');
+    expect(await error({ askStatusAtEnd: 'no' })).toBe('「区切りで Done／Paused を聞く」の値の形が違います');
+    expect(await error({ liveHints: 0 })).toBe('「ターンの意図と短い手の説明を送る」の値の形が違います');
     expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの宛先は 127.0.0.1 か localhost だけです。トランスクリプトが送られるため、ほかの宛先は、設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    expect((await patch({ workspaceRoot: '' })).status).toBe(400);
     expect((await patch({ workspaceRoot: 123 })).status).toBe(400);
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, nodePath: null, claudePath: null, language: 'ja' });
+  });
+  // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
+  it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const before = db.prepare('select count(*) c from projects where deleted_at is null').get();
+    for (const v of ['', '  ', null]) {
+      const r = await patch({ workspaceRoot: v });
+      expect(r.status).toBe(200);
+      expect((await r.json()).workspaceRoot).toBe('');
+    }
+    expect(db.prepare('select count(*) c from projects where deleted_at is null').get()).toEqual(before);
+    // 空から決め直せば、今までどおり直下を登録する。
+    fs.mkdirSync(path.join(ws, 'later'));
+    expect((await patch({ workspaceRoot: ws })).status).toBe(200);
+    expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -333,6 +350,10 @@ describe('設定の往復', () => {
         ['allowExternalSummarizer', true],
         ['configApproval', 'auto'],
         ['configBundleSync', true],
+        ['askStatusAtEnd', false],
+        ['liveHints', false],
+        ['autoDone', false],
+        ['autoPark', false],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -372,6 +393,46 @@ describe('設定の往復', () => {
       const r = await patch({ configBundleSync: v });
       expect([v, r.status]).toEqual([v, 400]);
     }
+  });
+  it('起動する claude に足す段のスイッチは、既定が入りで、切りを保存でき、真偽値でない値は断る', async () => {
+    for (const key of ['askStatusAtEnd', 'liveHints'] as const) {
+      expect((await json(await get('/api/settings'))).body[key]).toBe(true);
+      expect((await json(await get('/api/bootstrap'))).body.settings[key]).toBe(true);
+      expect((await (await patch({ [key]: false })).json())[key]).toBe(false);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+      for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+    }
+  });
+  it('hangar が自分で行うこと（自動の Done と自動の停止）のスイッチは、既定が入りで、切りを保存でき、真偽値でない値は断る', async () => {
+    for (const key of ['autoDone', 'autoPark'] as const) {
+      expect((await json(await get('/api/settings'))).body[key]).toBe(true);
+      expect((await json(await get('/api/bootstrap'))).body.settings[key]).toBe(true);
+      expect((await (await patch({ [key]: false })).json())[key]).toBe(false);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+      for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+    }
+    expect((await (await patch({ autoDone: 'no' })).json()).error).toBe('「止まった会話を自動で Done にする」の値の形が違います');
+    expect((await (await patch({ autoPark: 'no' })).json()).error).toBe('「Done と Archived にした会話を停止する」の値の形が違います');
+  });
+  it('自動の停止を切り替えたら、動いている Done と Archived の行を配り直す（実行中に数えるかが変わる）', async () => {
+    t.dispose();
+    t = await testDeps({ live: () => [{ sessionId: SESSION_ALPHA, status: 'idle', name: null, nameSource: null, cwd: '/w', pid: 1 }] });
+    ({ db } = t); sent = t.events;
+    app = createApp(t.deps);
+    const alpha = (db.prepare('select id from sessions where provider_session_id = ?').get(SESSION_ALPHA) as { id: string }).id;
+    setSessionState(db, 'd', alpha, { status: 'done', setBy: 'user' });
+    await new Promise((r) => setTimeout(r, 0));
+    sent.length = 0;
+    expect((await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ autoPark: false }) })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.some((e) => e.type === 'session.upsert' && e.session.id === alpha)).toBe(true);
+    // 自動の Done だけを替えたときは配り直さない。
+    sent.length = 0;
+    await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ autoDone: false }) });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.some((e) => e.type === 'session.upsert')).toBe(false);
   });
   it('言語の既定は日本語で、英語を保存して読める', async () => {
     expect((await json(await get('/api/settings'))).body.language).toBe('ja');

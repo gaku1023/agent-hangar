@@ -107,7 +107,7 @@ export type InterruptedDto = { at: number; cause: InterruptCause; items: Interru
  */
 export type OverlapFileDto = { path: string; with: string; mineAt: number; theirsAt: number; alternating: boolean };
 export type SessionOverlapDto = { with: string[]; files: OverlapFileDto[] };
-export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; /** エディタの選択（editor.ts）。0.4.0 までの codePath は、サーバが読むときに editor へ読み替える。 */ editor: import('./editor.ts').EditorSetting; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
+export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; /** エディタの選択（editor.ts）。0.4.0 までの codePath は、サーバが読むときに editor へ読み替える。 */ editor: import('./editor.ts').EditorSetting; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; /** hangar が起動する claude に、区切りで Done か Paused を聞く段を足すか（既定は入り）。この項目を知らない古いサーバは返さないので、読む側は入りとして読む。 */ askStatusAtEnd?: boolean; /** 同じく、ターンの意図と短い手の説明を求める段を足すか（既定は入り）。読み方は askStatusAtEnd と同じ。 */ liveHints?: boolean; /** hangar が止まった会話を自動で Done にするか（既定は入り）。読み方は askStatusAtEnd と同じ。 */ autoDone?: boolean; /** hangar が Done か Archived にした会話の Claude を、休みが続いたら止めるか（既定は入り）。読み方は askStatusAtEnd と同じ。 */ autoPark?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
 /**
  * Claude Code の会話の保持期間。
  * source は値がどこで決まったかで、default はユーザー設定にキーが無い（既定の 30 日）ことを表す。
@@ -150,7 +150,7 @@ export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { 
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
-/** parked は、区切り（Paused・Done・Archived）を付けたセッションが休みになったので hangar が止めたもの。 */
+/** parked は、区切り（Done・Archived。0.5.0 までは Paused も）を付けたセッションが休みになったので hangar が止めたもの。 */
 export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
 /** 「ターミナルで開く」で使う外部ターミナル。macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル（terminal.ts）。 */
 export type TerminalApp = 'terminal' | 'iterm' | 'windowsTerminal' | 'windowsDefault';
@@ -190,6 +190,22 @@ export type AccountDto = { id: string; name: string; dir: string; color: string;
 export type AccountsDto = { currentId: string; accounts: AccountDto[]; sessions: Record<string, string> };
 /** 最初のアカウント（既定の置き場）の id。 */
 export const PRIMARY_ACCOUNT_ID = 'primary';
+/**
+ * アカウントを足す前の確かめ（GET /api/accounts/preview）の答え。name と input は問いの写しで、画面は今の欄と合う答えだけを使う。
+ * dir は使う場所の絶対パスで、input が空ならサーバが名前から作った候補（suggested が真）。
+ * exists は場所が既にあるか、conflicts はリンクを張る名前に実ファイルや実フォルダがあるもの（触らずに残す）、registeredAs はその場所を使っている登録済みのアカウントの名前。
+ */
+export type AccountDirPreviewDto = { name: string; input: string; dir: string; suggested: boolean; exists: boolean; conflicts: string[]; registeredAs: string | null };
+/**
+ * 2 つ目以降のアカウントの場所で、最初の場所へのリンクにする項目を、画面に見せる組に分けたもの。
+ * 組の中身を合わせると、サーバのリンクの一覧（accountLinks.ts の LINKED_ENTRIES）とちょうど同じになる（試験で見る）。
+ */
+export const ACCOUNT_LINK_GROUPS = [
+  { key: 'config', entries: ['settings.json', 'CLAUDE.md', 'statusline-command.sh'] },
+  { key: 'tools', entries: ['skills', 'commands', 'plugins'] },
+  { key: 'memory', entries: ['memory', 'plans', 'tasks'] },
+  { key: 'history', entries: ['projects', 'history.jsonl', 'file-history', 'paste-cache', 'session-env', 'shell-snapshots', 'sessions', 'jobs'] },
+] as const satisfies readonly { key: string; entries: readonly string[] }[];
 export type UsageDayDto = { day: string; inputTokens: number; outputTokens: number; sessions: number };
 export type UsageProjectDto = { projectId: string | null; name: string; inputTokens: number; outputTokens: number; costUsd: number | null; sessions: number };
 export type UsageAggregateDto = { days: UsageDayDto[]; projects: UsageProjectDto[] };
@@ -215,7 +231,7 @@ export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto;
  * 準備の確かめ（GET /api/readiness）。
  * 設定画面の欄の下の検証と、ホームの帯の始める前の確認が、同じこの 1 つを読む。
  * node の auto は、設定が空で、サーバを動かしている Node をそのまま見せていることを表す。
- * workspace の projectCount は、ワークスペースの直下から登録したプロジェクトの数である。
+ * workspace は設定の作成場所（任意。空は決めていない）で、projectCount はその直下から登録したプロジェクトの数である。
  * mcp は Claude Code の user スコープ（~/.claude.json）に hangar の MCP サーバが載っているか。読むだけで書かない。
  * commands は画面に出すコマンドで、どれも同じ hangar の呼び方にそろえてある。join は参加のコマンドで、トークンの所は `<token>` と書く。
  * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
@@ -225,6 +241,11 @@ export type ReadinessDto = {
   /** 選んだエディタで開けるか。この項目を知らない古いサーバは返さない。 */
   editor?: { id: import('./editor.ts').EditorId; name: string | null; state: import('./editor.ts').EditorDetectState; path: string | null };
   workspace: { path: string; exists: boolean; projectCount: number };
+  /**
+   * 始める前の確認の「プロジェクト」の行（2026-10-13）。resolved はこの PC で場所の分かっているプロジェクトの数、
+   * candidates は Claude Code と会話したフォルダの候補の数で、resolved が 0 のときだけ数える（ほかは 0）。この項目を知らない古いサーバは返さない。
+   */
+  projects?: { resolved: number; candidates: number };
   mcp: { registered: boolean; file: string };
   statusline: StatuslineStatusDto;
   commands: { mcp: string; statusline: string; shell: string; join: string };
@@ -260,8 +281,21 @@ export type InstructionFileDto = { kind: InstructionFileKind; name: string; size
 export type InstructionsDto = { projectId: string; available: boolean; files: InstructionFileDto[] };
 export type ArtifactDto = { id: string; projectId: string | null; url: string; title: string | null; description: string | null; favicon: string | null; filePath: string | null; fileExists: boolean; firstPublishedAt: number; lastPublishedAt: number; versionCount: number; sessionIds: string[] };
 export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved: boolean; reason: string | null };
-/** プロジェクトを作る場所。newDir はワークスペースの下に新しく作り、dir は既存のディレクトリを登録する。 */
-export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean } | { kind: 'dir'; path: string; name?: string };
+/**
+ * プロジェクトを作る場所。newDir は新しいフォルダを作り、dir は既存のディレクトリを登録する。
+ * newDir の parent は作る場所で、省けば設定の作成場所（workspaceRoot）の下に作る。作成場所は任意なので、空のときは画面が Finder で選ばせて parent に入れる。
+ */
+export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean; parent?: string } | { kind: 'dir'; path: string; name?: string };
+/**
+ * Claude Code と会話したフォルダの候補の 1 件（GET /api/workspace/candidates）。
+ * path は git のリポジトリの根（worktree は元のリポジトリ）で、sessionCount はその下のまだプロジェクトに入っていない会話の数、
+ * lastActivityAt はその中の最後の活動、worktreeCount はまとめた worktree の数である。
+ */
+export type FolderCandidateDto = { path: string; sessionCount: number; lastActivityAt: number | null; worktreeCount: number };
+/** 候補の一覧。suggestedRoot は、作成場所が空で、過半の候補が同じ親フォルダにあるときの、その親（無ければ null）。 */
+export type FolderCandidatesDto = { candidates: FolderCandidateDto[]; suggestedRoot: string | null };
+/** 候補からまとめて登録した結果（POST /api/workspace/register）。failed は登録できなかったパスと理由である。 */
+export type FolderRegisterResultDto = { projects: ProjectDto[]; failed: { path: string; error: string }[] };
 /** ワークスペース直下の、まだプロジェクトになっていないディレクトリ。 */
 export type WorkspaceDirDto = { name: string; path: string };
 export type SummarizerId = 'lmstudio' | 'claude-headless';

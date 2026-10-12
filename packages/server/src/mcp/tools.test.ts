@@ -456,7 +456,7 @@ describe('propose_session_status', () => {
   it('誤りの入力は ToolError で、何も書かず、何も配らない（note と return_on の検査は states.ts に任せる）', () => {
     const bad: Record<string, unknown>[] = [
       { status: 'done', note: '' }, { status: 'done', note: '   ' }, { status: 'done', note: 'あ'.repeat(201) }, { status: 'done' },
-      { status: 'paused', note: 'n' }, { status: 'paused', note: 'n', return_on: '2026/10/02' }, { status: 'paused', note: 'n', return_on: '2026-02-30' },
+      { status: 'paused', note: 'n', return_time: '10:00' }, { status: 'paused', note: 'n', return_on: '2026/10/02' }, { status: 'paused', note: 'n', return_on: '2026-02-30' },
       { status: 'paused', note: 'n', return_on: 20261002 }, { status: 'paused', note: 'n', return_on: '2026/10/02', confirmed: true },
       { status: 'done', note: '', confirmed: true }, { status: 'done', note: '   ', confirmed: true }, { status: 'done', confirmed: true },
       { status: 'done', note: 'あ'.repeat(201), confirmed: true }, { status: 'done', note: 'n', return_on: 'garbage' }, { status: 'done', note: 'n', return_on: 'garbage', confirmed: true },
@@ -501,11 +501,17 @@ describe('propose_session_status', () => {
     expect((r.state as { candidate: unknown }).candidate).toMatchObject({ returnOn: '2026-10-02', returnTime: '09:00' });
     expect((r.state as { candidate: { returnAt: string } }).candidate.returnAt).toMatch(/^2026-10-02T09:00[+-]\d{2}:\d{2}$/);
   });
+  // Paused の戻る日は任意（2026-10-13）。省けば日付なしの提案になり、戻る時点（returnAt）は持たない。
+  it('return_on を省いた paused は、日付なしの提案になる', () => {
+    const r = call('propose_session_status', { status: 'paused', note: 'レビューの返事を待つ' }, scoped());
+    expect(r.outcome).toBe('proposed');
+    expect((r.state as { candidate: unknown }).candidate).toMatchObject({ status: 'paused', returnOn: null, returnTime: null, returnAt: null });
+  });
   it('不正な時刻は、何が悪いかを言って何も書かない', () => {
     expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: '25:00', confirmed: true }, scoped())).toThrow(new ToolError('リマインダーの時刻は HH:MM の形で、00:00〜23:59 です（25:00）'));
     expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_on: '2026-10-02', return_time: 1330 }, scoped())).toThrow(new ToolError('return_time は HH:MM の形の文字列です'));
     // 時刻だけでは戻る時点にならない。
-    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_time: '13:30' }, scoped())).toThrow(new ToolError('Paused にはリマインダーの日付が要ります'));
+    expect(() => call('propose_session_status', { status: 'paused', note: 'n', return_time: '13:30' }, scoped())).toThrow(new ToolError('リマインダーの時刻は、日付と一緒に渡してください'));
     expect(sent).toEqual([]);
     expect(db.prepare('select count(*) c from session_states').get()).toEqual({ c: 0 });
   });

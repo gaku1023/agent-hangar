@@ -4,14 +4,14 @@ import { accountsFixture } from './accounts.ts';
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs'
+  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'registerFolders'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'cloudDevices'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
   | 'retention' | 'retentionPreview' | 'writeRetention'
   | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
-  | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
+  | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'previewAccountDir' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
   | 'dismissInterrupted' | 'dismissOverlap'
 >;
 
@@ -48,6 +48,8 @@ export function fakeApiExtras(): Extras {
     createProject: vi.fn(async () => unused()),
     // 未登録の一覧は、新しいセッションのダイアログを開くたびに取りに行くので、どのテストでも空を返す。
     workspaceDirs: vi.fn(async () => []),
+    folderCandidates: vi.fn(async () => ({ candidates: [], suggestedRoot: null })),
+    registerFolders: vi.fn(async () => ({ projects: [], failed: [] })),
     promptCommands: vi.fn(async () => []),
     promptFiles: vi.fn(async () => []),
     uploadDrop: vi.fn(async (_file: Blob, name: string) => ({ path: `/h/.agent-hangar/drops/1-0-${name}`, name, size: 0 })),
@@ -120,6 +122,7 @@ export function fakeApiExtras(): Extras {
     setCurrentAccount: vi.fn(async () => accountsFixture),
     switchAccount: vi.fn(async (sessionId: string) => ({ run: { id: 'r-switch', sessionId, deviceId: 'd', kind: 'resume' as const, tmuxName: 'hangar-r-switch', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId, tabs: [{ id: 'r-switch', runId: 'r-switch', sessionId, kind: 'agent' as const, title: 'Claude', tmuxName: 'hangar-r-switch', createdAt: 1, closedAt: null }] })),
     addAccount: vi.fn(async () => accountsFixture),
+    previewAccountDir: vi.fn(async (name: string, dir: string) => ({ name, input: dir, dir: dir || `/Users/me/.claude-${name}`, suggested: dir === '', exists: false, conflicts: [], registeredAs: null })),
     updateAccount: vi.fn(async () => accountsFixture),
     removeAccount: vi.fn(async () => accountsFixture),
     loginAccount: vi.fn(async () => undefined),

@@ -8,6 +8,10 @@ import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
 export type Settings = {
+  /**
+   * 新しいフォルダの作成場所（任意）。役割は、新しいプロジェクトのフォルダを作る場所と、直下の自動の登録だけである。
+   * 空は「決めていない」で、作るたびに場所を選ぶ。新しい利用者は空から始まる（loadSettings）。
+   */
   workspaceRoot: string;
   claudeDir: string;
   tmuxPath: string | null;
@@ -46,6 +50,25 @@ export type Settings = {
    * 設定の画面の「この PC で有効にする」がこのスイッチを入れる（PATCH /api/settings）。
    */
   configBundleSync?: boolean;
+  /**
+   * hangar が起動する claude に足す指示（launch/injection.ts）のうち、区切りで Done か Paused を聞く段を足すか。既定は入り。
+   * 切ると問いの段を足さず、状態は事後の要約の提案と自動の Done だけで付く。
+   * `loadSettings` が埋めるが、試験や古い呼び手が組んだ設定には無いことがあるので、読む側は false のときだけ切りとして読む。
+   */
+  askStatusAtEnd?: boolean;
+  /** 同じく、ターンの意図（set_turn_intent）と短い手の説明（Bash と Agent の description）を求める段を足すか。既定は入り。 */
+  liveHints?: boolean;
+  /**
+   * hangar が自分で行うことのうち、止まった会話を自動で Done にするか（sessions/autoDone.ts）。既定は入り。
+   * 切ると、Done にすることも、そのための事後要約（外で起こした長い会話の要約）を入れることもしない。
+   * 読み方は askStatusAtEnd と同じで、false のときだけ切りとして読む。
+   */
+  autoDone?: boolean;
+  /**
+   * 同じく、Done か Archived にした会話の Claude を、休みが 10 秒続いたら止めるか（sessions/park.ts）。既定は入り。
+   * 切ると止めず、一覧でも実行中として見せる（db/queries.ts の setParkingSwitch）。
+   */
+  autoPark?: boolean;
   /**
    * 同梱サーバを起こすときに使う Node の場所。
    * null と空文字は「指定なし」で、起動側が既定の探索に戻る。
@@ -111,7 +134,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(platform: NodeJS.Platform = process.platform): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, nodePath: null };
 }
 
 /**
@@ -121,7 +144,9 @@ function defaultSettings(platform: NodeJS.Platform = process.platform): Settings
  */
 export function loadSettings(home: string, platform: NodeJS.Platform = process.platform, osLanguage: () => Language | undefined = osDisplayLanguage): Settings {
   const file = path.join(home, 'settings.json');
-  if (!fs.existsSync(file)) return { ...defaultSettings(platform), language: decideLanguage(undefined, osLanguage).language };
+  // 新しい利用者の作成場所は空（決めていない）にする。初日はホームの帯から、Claude Code と会話したフォルダを選んでもらう（2026-10-13）。
+  // 項目の無い古い settings.json は、今までどおり ~/workspace として読む（既存の利用者の振る舞いを変えない）。
+  if (!fs.existsSync(file)) return { ...defaultSettings(platform), workspaceRoot: '', language: decideLanguage(undefined, osLanguage).language };
   const text = fs.readFileSync(file, 'utf8');
   const s = { ...defaultSettings(platform), ...(JSON.parse(text) as Partial<Settings>) };
   // 別の OS で保存した外部ターミナル（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定に読み替える。
@@ -136,6 +161,12 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 許しの無い外部の宛先は、読み込みのときに既定へ戻す。
   // 手で書き換えた settings.json や、この制限より前に保存された設定から、会話の本文が外へ出ていかないようにする。
   if (!s.allowExternalSummarizer && !isLoopbackSummarizerUrl(s.lmStudioUrl)) s.lmStudioUrl = defaultSettings().lmStudioUrl;
+  // 足す段のスイッチは真偽値だけを受ける。手で書き換えた値は既定（入り）に寄せる。
+  if (typeof s.askStatusAtEnd !== 'boolean') s.askStatusAtEnd = true;
+  if (typeof s.liveHints !== 'boolean') s.liveHints = true;
+  // hangar が自分で行うことのスイッチも同じ。
+  if (typeof s.autoDone !== 'boolean') s.autoDone = true;
+  if (typeof s.autoPark !== 'boolean') s.autoPark = true;
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;

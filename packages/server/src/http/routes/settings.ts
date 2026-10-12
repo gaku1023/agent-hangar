@@ -5,16 +5,17 @@ import { EDITOR_TERMINALS, isEditorId, isLanguage, languageOf, LANGUAGES, termin
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
+import { touchRow } from '../../db/notify.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../../projects/registry.ts';
 import { translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
 
 /** 設定の経路が使う依存。 */
-export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck' | 'hub'> & LanguageDeps;
+export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck' | 'hub' | 'live'> & LanguageDeps;
 
-/** 空にできない文字列の設定。 */
-const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
+/** 空にできない文字列の設定。作成場所（workspaceRoot）は任意なので、ここに入れず別に見る。 */
+const TEXT_SETTING_KEYS = ['claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
 const PATH_SETTING_KEYS = ['tmuxPath', 'nodePath', 'claudePath'] as const;
 /** 外部ターミナルは、動いている OS で開けるものだけを受ける。別の OS の値を保存させない。 */
@@ -30,12 +31,12 @@ const SUMMARY_HOURLY_CAP_MAX = 200;
  * エラー文は画面のトーストに出るので、内部のキー名ではなくこの見出しで言う。
  * 見出しそのものは辞書（settings.label.*）にあり、ここには鍵を置く。
  */
-type LabeledSetting = (typeof TEXT_SETTING_KEYS)[number] | (typeof PATH_SETTING_KEYS)[number];
+type LabeledSetting = 'workspaceRoot' | (typeof TEXT_SETTING_KEYS)[number] | (typeof PATH_SETTING_KEYS)[number];
 const SETTING_LABEL = {
   workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
 } as const satisfies Record<LabeledSetting, MessageKey>;
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoPark: s.autoPark !== false, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -64,10 +65,16 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'string' || v.trim() === '') return c.json({ error: tr('settings.error.empty', { label: label(key) }) }, 400);
       patch[key] = v;
     }
-    // ワークスペースは、保存する前にディレクトリがあることを確かめる。
+    // 新しいフォルダの作成場所（workspaceRoot）は任意で、空（null と空白だけも）は「決めていない」として保存する（2026-10-13）。
+    // 決めるときは、保存する前にディレクトリがあることを確かめる。
     // 無いところを保存すると、プロジェクトが 1 つも登録されないまま、何が悪いのかが画面から読めない。
-    if (patch.workspaceRoot !== undefined) {
-      const root = expandHome(patch.workspaceRoot.trim());
+    if ('workspaceRoot' in body) {
+      const v = body.workspaceRoot;
+      if (v !== null && typeof v !== 'string') return c.json({ error: tr('settings.error.badValue', { label: label('workspaceRoot') }) }, 400);
+      patch.workspaceRoot = typeof v === 'string' ? v.trim() : '';
+    }
+    if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== '') {
+      const root = expandHome(patch.workspaceRoot);
       const st = fs.statSync(root, { throwIfNoEntry: false });
       if (!st) return c.json({ error: tr('settings.path.missing', { label: label('workspaceRoot'), path: root }) }, 400);
       if (!st.isDirectory()) return c.json({ error: tr('settings.path.notDirectory', { label: label('workspaceRoot'), path: root }) }, 400);
@@ -184,6 +191,20 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configBundleSync') }) }, 400);
       patch.configBundleSync = v;
     }
+    // hangar が起動する claude に足す段の入り切り（launch/injection.ts）。次に起こす claude から効く。
+    for (const key of ['askStatusAtEnd', 'liveHints'] as const) {
+      if (!(key in body)) continue;
+      const v = body[key];
+      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr(key === 'askStatusAtEnd' ? 'settings.label.askStatusAtEnd' : 'settings.label.liveHints') }) }, 400);
+      patch[key] = v;
+    }
+    // hangar が自分で行うこと（自動の Done、Done と Archived の自動の停止）の入り切り。次の見回りから効く。
+    for (const key of ['autoDone', 'autoPark'] as const) {
+      if (!(key in body)) continue;
+      const v = body[key];
+      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr(key === 'autoDone' ? 'settings.label.autoDone' : 'settings.label.autoPark') }) }, 400);
+      patch[key] = v;
+    }
     // 言語はこの PC の設定で、画面の文とサーバの文の両方が読む。辞書にある言語だけを受ける。
     if ('language' in body) {
       const v = body.language;
@@ -204,13 +225,26 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
     // ワークスペースが変わったら、その場でプロジェクトを登録し直す。
     // 登録したプロジェクトと、そこへ入ったセッションは、書いた行から配る層が配る。
     // claudeDir の変更は索引の読み取り元なので、次の起動で反映する。
-    if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== before.workspaceRoot) {
+    if (patch.workspaceRoot !== undefined && patch.workspaceRoot !== '' && patch.workspaceRoot !== before.workspaceRoot) {
       syncProjectsFromWorkspace(db, deviceId, patch.workspaceRoot);
       assignSessions(db, deviceId);
     }
+    // 自動の停止を替えると、休みのまま残る Done と Archived を実行中に数えるか（parked）が変わる。
+    // 行は変わらないので、動いているもののうち印の付いたものを名指しして配り直してもらう。
+    if (patch.autoPark !== undefined && patch.autoPark !== (before.autoPark !== false)) touchParkable(db, deps.live().map((l) => l.sessionId));
     // 変えた欄を全部の画面へ知らせる。道具のパスや作業フォルダが変わると、準備の確かめ（ホームの帯、設定の欄の下）の答えも変わるので、画面は読み直す。
     // 保存の知らせは画面が欄の横に出す（設定の C1）。サーバからはトーストを配らない。
     deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: Object.keys(patch) as (keyof SettingsDto)[] });
     return c.json(toSettingsDto(s));
   });
+}
+
+/** 動いている会話（Claude の UUID）のうち、Done か Archived の印が付いたものの行を配り直してもらう。 */
+function touchParkable(db: SettingsRouteDeps['db'], providerSessionIds: string[]): void {
+  if (providerSessionIds.length === 0) return;
+  const rows = db.prepare(`
+    select s.id from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
+    where s.deleted_at is null and st.status in ('done', 'archived') and s.provider_session_id in (${providerSessionIds.map(() => '?').join(',')})
+  `).all(...providerSessionIds) as { id: string }[];
+  for (const r of rows) touchRow(db, 'sessions', r.id);
 }

@@ -7,6 +7,7 @@ import { PauseDialog } from './PauseDialog.tsx';
 const props = (over: Partial<PauseProps> = {}): PauseProps => ({
   sessionId: 's1', sessionName: 'Worker の CPU 超過', from: 'menu', draft: '', candidateNote: null, initialReturnOn: '2026-10-02', initialReturnTime: '', candidateReturnTime: null, today: '2026-10-01',
   choices: [
+    { key: 'none', label: '日付なし', returnOn: null },
     { key: 'today', label: '今日の夕方', returnOn: '2026-10-01' }, { key: 'tomorrow', label: '明日', returnOn: '2026-10-02' },
     { key: 'monday', label: '月曜', returnOn: '2026-10-05' }, { key: 'nextWeek', label: '来週', returnOn: '2026-10-08' },
     { key: 'pick', label: '日付を選択…', returnOn: null },
@@ -84,6 +85,30 @@ describe('PauseDialog（B1）', () => {
     expect(submit()).toBeEnabled();
     fireEvent.change(screen.getByLabelText('理由'), { target: { value: '😀'.repeat(201) } });
     expect(submit()).toBeDisabled();
+  });
+  // 日付なし（2026-10-13）。札の並びの頭の枠だけの札で、打鍵は 0。選ぶと時刻の欄は押せなくなり、日も時刻も送らない。
+  it('「日付なし」は 0 でも選べ、時刻の欄を押せなくして、日と時刻を付けずに送る。ほかの札の打鍵は変わらない', () => {
+    const { onAction } = mount(props({ initialReturnTime: '10:00' }));
+    fireEvent.keyDown(document.activeElement!, { key: '1' });
+    expect(radio(/^今日の夕方/)).toHaveAttribute('aria-checked', 'true');
+    fireEvent.keyDown(document.activeElement!, { key: '0' });
+    expect(radio(/^日付なし/)).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByLabelText('リマインダーの時刻（任意）')).toBeDisabled();
+    expect(screen.getByText('日付なしは、ホームの「今日」には出ず、一覧の Paused で見られます')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('理由'), { target: { value: 'レビューの返事を待つ' } });
+    fireEvent.click(submit());
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', note: 'レビューの返事を待つ' });
+  });
+  it('日付なしで開けば「日付なし」を選んでおき、日付なしの提案は変えずに送れば確定にする。日のある提案を日付なしにしたら手で選んだことにする', () => {
+    const none = mount(props({ from: 'candidate', initialReturnOn: null, draft: '返事を待つ', candidateNote: '返事を待つ' }));
+    expect(radio(/^日付なし/)).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(submit());
+    expect(none.onAction).toHaveBeenLastCalledWith({ type: 'session.state.confirm', id: 's1' });
+    none.unmount();
+    const dated = mount(props({ from: 'candidate', draft: '返事を待つ', candidateNote: '返事を待つ' }));
+    fireEvent.click(radio(/^日付なし/));
+    fireEvent.click(submit());
+    expect(dated.onAction).toHaveBeenLastCalledWith({ type: 'session.state.set', id: 's1', status: 'paused', note: '返事を待つ' });
   });
   it('Esc と「キャンセル」で閉じる', () => {
     const { onAction } = mount();
