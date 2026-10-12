@@ -94,6 +94,7 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.ready.name.notify': 'Notifications',
   'home.ready.notify.text': 'Get an OS notification when a session needs input while Hangar is in the background',
   'home.ready.notify.allow': 'Allow',
+  'home.ready.notify.decline': 'No thanks',
   'home.ready.git.text': 'git was not found. You can start without it, but branches and uncommitted counts are not shown',
   'home.ready.editor.missing': '{name} was not found',
   'home.ready.editor.customMissing': 'The editor command {command} was not found',

@@ -203,8 +203,9 @@ const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.too
  * 右端のボタンは 1 つで、「設定を開く」か「コマンドをコピー」である。殻の中では、MCP とステータスラインの行を設定の連携の節と同じボタン（setup.run）にする。
  */
 export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: { desktop: boolean; running: SetupTarget | null; notifyAsk?: boolean } = { desktop: false, running: null }): ReadinessBand | null {
-  if (!readinessPending(r)) return null;
   // OS の通知の許可をまだ尋ねていなければ、任意の行「通知」を足す。押したときだけ OS に尋ねる（notify.set の on）。
+  // この行だけは、答える（許可するか要らないを押す）まで群を残す。ほかの任意の行と違い、放っておくと通知が届かないまま気付けないからである。
+  if (!readinessPending(r) && !setup.notifyAsk) return null;
   const checks: Check[] = [...checksOf(r), ...(setup.notifyAsk ? [{ key: 'notify' as const, ok: false, tone: 'soft' as const }] : [])];
   // tmux の行は、Windows では psmux の名で出す（段 6）。
   const name = (k: ReadinessKey) => (k === 'tmux' ? muxName(platform) : t(`home.ready.name.${k}`));
@@ -284,6 +285,8 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
       case 'notify':
         text = t('home.ready.notify.text');
         act = action(t('home.ready.notify.allow'), name('notify'), { type: 'notify.set', on: true }, true);
+        // 要らない人は、通知をオフにして行を消せる（オフにすると ask も下りる。runtime.ts の notify.off）。
+        extra = [{ id: 'decline', label: t('home.ready.notify.decline'), ariaLabel: t('home.band.actionFor', { action: t('home.ready.notify.decline'), name: name('notify') }), primary: false, ghost: true, send: { type: 'notify.set', on: false } }];
         break;
     }
     return { key: `ready:${c.key}`, lead: { kind: 'check', tone: c.tone === 'ng' ? 'ng' : 'soft', label: t(c.key === 'compat' ? 'home.ready.state.drift' : c.tone === 'ng' ? 'home.ready.state.ng' : 'home.ready.state.soft') }, name: name(c.key), badge: OPTIONAL.has(c.key) ? t('home.ready.optional') : null, context: null, text, detail, tone: null, trail: [], open: null, actions: [act, ...extra] };

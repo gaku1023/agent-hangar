@@ -1583,6 +1583,16 @@ describe('入力待ちの知らせ', () => {
     const off = fakeNotifier({ defaultOn: true, status: 'undetermined' });
     expect((await started(off, undefined, false)).rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
   });
+  it('「要らない」（notify.set の off）は OS に尋ねず、受け取らないにして覚え、印を下ろす', async () => {
+    const n = fakeNotifier({ defaultOn: true, status: 'undetermined' });
+    const { rt, store } = await started(n);
+    await flush();
+    expect(rt.getStore().notify.ask).toBe(true);
+    rt.emit({ type: 'notify.set', on: false });
+    expect(n.request).not.toHaveBeenCalled();
+    expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
+    expect(store.get('notify.waiting')).toBe(false);
+  });
   it('「許可する」（notify.set の on）を押したときだけ OS に尋ね、答えが出たら印を下ろす', async () => {
     let answer: NotifyPermission = 'undetermined';
     const n = { ...fakeNotifier({ defaultOn: true }), status: vi.fn(async () => answer), request: vi.fn(async () => { answer = 'denied'; return false; }) };

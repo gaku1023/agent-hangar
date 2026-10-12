@@ -94,6 +94,7 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.ready.name.notify': '通知',
   'home.ready.notify.text': '背面のとき、入力待ちを OS の通知で知らせます',
   'home.ready.notify.allow': '許可する',
+  'home.ready.notify.decline': '要らない',
   'home.ready.git.text': 'git が見つかりません。無くても始められますが、ブランチと未コミットの件数は出ません',
   'home.ready.editor.missing': '{name} が見つかりません',
   'home.ready.editor.customMissing': 'エディタのコマンド {command} が見つかりません',

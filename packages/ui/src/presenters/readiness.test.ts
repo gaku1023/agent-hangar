@@ -266,7 +266,11 @@ describe('始める前の確認の通知の行（9c）', () => {
     const rows = presentReadiness(READY, ja, 'darwin', 'idle', setup(true))!.group.rows;
     const row = rows.find((r) => r.key === 'ready:notify')!;
     expect(row).toMatchObject({ name: '通知', badge: '任意', text: '背面のとき、入力待ちを OS の通知で知らせます', detail: null, lead: { kind: 'check', tone: 'soft' } });
-    expect(row.actions.map((a) => [a.label, a.primary, a.send])).toEqual([['許可する', true, { type: 'notify.set', on: true }]]);
+    expect(row.actions.map((a) => [a.label, a.primary, a.ghost, a.send])).toEqual([
+      ['許可する', true, false, { type: 'notify.set', on: true }],
+      // 要らない人は、通知をオフにして行を消せる（オフにすると ask も下りる）。
+      ['要らない', false, true, { type: 'notify.set', on: false }],
+    ]);
     // 任意の行なので、必須の行より後ろ。
     expect(rows.at(-1)!.key).toBe('ready:notify');
   });
@@ -274,13 +278,18 @@ describe('始める前の確認の通知の行（9c）', () => {
     expect(presentReadiness(READY, ja, 'darwin', 'idle', setup(false))!.group.rows.some((r) => r.key === 'ready:notify')).toBe(false);
     expect(presentReadiness(READY, ja)!.group.rows.some((r) => r.key === 'ready:notify')).toBe(false);
   });
-  it('任意の行なので、残りがこれだけなら帯は出さない', () => {
-    expect(presentReadiness(ALL_OK, ja, 'darwin', 'idle', setup(true))).toBeNull();
+  // 通知の行だけは、答える（許可するか要らないを押す）まで確認の群を残す（2026-10-13 の決定）。
+  it('ほかの行が全部済んでも、通知の行が残っている間は確認の群を出す', () => {
+    const b = presentReadiness(ALL_OK, ja, 'darwin', 'idle', setup(true))!;
+    expect(b).not.toBeNull();
+    expect(b.group.rows.map((r) => r.key)).toEqual(['ready:notify']);
+    expect(b.note).toBeNull();
+    expect(presentReadiness(ALL_OK, ja, 'darwin', 'idle', setup(false))).toBeNull();
   });
   it('English でも同じ意味で出す', () => {
     const row = presentReadiness(READY, en, 'darwin', 'idle', setup(true))!.group.rows.find((r) => r.key === 'ready:notify')!;
     expect(row).toMatchObject({ name: 'Notifications', badge: 'Optional', text: 'Get an OS notification when a session needs input while Hangar is in the background' });
-    expect(row.actions[0]!.label).toBe('Allow');
+    expect(row.actions.map((a) => a.label)).toEqual(['Allow', 'No thanks']);
   });
   it('設定の一般の節を指す', () => {
     expect(READINESS_AT.notify).toBe('general');

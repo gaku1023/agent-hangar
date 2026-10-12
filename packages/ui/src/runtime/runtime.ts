@@ -674,9 +674,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         }).catch(fail);
         return;
       case 'notify.off':
-        // その場で切り替えて覚える。許可は求めない。
+        // その場で切り替えて覚える。許可は求めない。受け取らないと決めたので、尋ねる印（ask）も下ろす（始める前の確認の「要らない」）。
         deps.storage.set(NOTIFY_KEY, false);
-        setStore(applyNotify(store, { ...store.notify, on: false }));
+        setStore(applyNotify(store, { available: store.notify.available, on: false, blocked: store.notify.blocked }));
         return;
       case 'badge': notifier?.badge(e.count); return;
       case 'update': updater?.run(e.command); return;

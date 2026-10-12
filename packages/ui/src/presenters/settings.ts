@@ -136,7 +136,8 @@ export type SettingsProps = {
    * 入力待ちの通知。
    * 出せる環境か（available）と、受け取るか（on）。
    */
-  notify: { available: boolean; on: boolean; blocked: boolean };
+  /** ask は OS にまだ尋ねていないこと（「まだ許可していません」と［許可する］を添える）。 */
+  notify: { available: boolean; on: boolean; blocked: boolean; ask?: boolean };
   /** ツールの節の先頭の psmux（tmux）の状態の行（段 6 の B3）。準備の確かめが届く前は null。 */
   mux?: MuxStatus | null;
   /**
@@ -376,6 +377,6 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     update,
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,
-    notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked },
+    notify: { available: store.notify.available, on: store.notify.on, blocked: store.notify.blocked, ...(store.notify.ask ? { ask: true } : {}) },
   };
 }

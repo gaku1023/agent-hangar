@@ -218,6 +218,19 @@ describe('設定の一般', () => {
     fireEvent.click(screen.getByRole('switch', { name: '通知を有効にする' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'notify.set', on: false });
   });
+  // まだ OS に尋ねていない間は、その旨と［許可する］を添える。押せば始める前の確認の行と同じ道で尋ねる（2026-10-13、9c）。
+  it('まだ OS に許可を尋ねていなければ「まだ許可していません」と添え、［許可する］で尋ねる', () => {
+    const onAction = vi.fn();
+    render(ui(at('general', { notify: { available: true, on: true, blocked: false, ask: true } }), onAction));
+    expect(screen.getByText(/まだ許可していません/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '許可する' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'notify.set', on: true });
+  });
+  it('尋ね終えていれば、その添え書きは出さない', () => {
+    render(ui(at('general', { notify: { available: true, on: true, blocked: false } })));
+    expect(screen.queryByText(/まだ許可していません/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '許可する' })).toBeNull();
+  });
   it('OS で通知が切られていれば、システム設定で許可するよう添える。スイッチは入れ直せる', () => {
     render(ui(at('general', { notify: { available: true, on: false, blocked: true } })));
     expect(screen.getByRole('switch', { name: '通知を有効にする' })).not.toBeDisabled();

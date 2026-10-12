@@ -71,6 +71,7 @@ export const settingsKeys = {
   'settings.general.notify.title': [],
   'settings.general.notify.desc': [],
   'settings.general.notify.unavailable': [],
+  'settings.general.notify.notAsked': [],
   'settings.general.notify.blocked': [],
   'settings.general.notify.blockedWindows': [],
   'settings.general.terminal.title': [],

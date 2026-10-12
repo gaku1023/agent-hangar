@@ -93,6 +93,7 @@ export const homeKeys = {
   'home.ready.name.notify': [],
   'home.ready.notify.text': [],
   'home.ready.notify.allow': [],
+  'home.ready.notify.decline': [],
   'home.ready.git.text': [],
   'home.ready.editor.missing': ['name'],
   'home.ready.editor.customMissing': ['command'],
