@@ -217,6 +217,8 @@ a:hover { text-decoration: underline; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .input { height: var(--row-h); padding: 0 calc(var(--u) * 2.5); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); outline: none; }
+/* WebView2（Windows）が password の欄に足す「表示」の目と、消去の × を出さない。参加トークンを画面に出さないためである。 */
+.input::-ms-reveal, .input::-ms-clear { display: none; }
 .select { height: var(--row-h); border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); padding: 0 var(--u); }
 
 /* 一覧 */

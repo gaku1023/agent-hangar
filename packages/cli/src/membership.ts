@@ -107,7 +107,13 @@ export async function listCloudDevices(o: { home: string; fetch?: typeof fetch }
   }
 }
 
-const day = (ms: number | null): string => (ms === null ? '-' : new Date(ms).toISOString().slice(0, 10));
+const pad2 = (n: number): string => String(n).padStart(2, '0');
+/** 手元の時刻の日付（YYYY-MM-DD）。画面の参加日と同じく、UTC ではなくこの PC の時間帯で数える。 */
+const day = (ms: number | null): string => {
+  if (ms === null) return '-';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
 const place = (d: CloudDeviceOut): string => [d.lastCity, d.lastRegion, d.lastCountry].filter((v): v is string => v !== null).join(', ') || '-';
 
 /** hangar cloud devices の表。場所は Cloudflare の推定で、英語の表記のまま出す。 */

@@ -49,6 +49,7 @@ export const WORDS = {
     'approve.kv.note': '補足',
     'approve.backup.none': '元のファイルが無いので、取るものはありません。',
     'approve.backup.generation': '{path}（新しい世代）',
+    'approve.backup.stamped': '{path}（{stamp} は書き込んだ日時）',
     'approve.after.mcpInstall': '新しく起動した Claude Code のセッションから使えます。',
     'approve.after.mcpUninstall': '実行中のセッションでは、再起動するまで使えるままです。',
     'approve.after.shellInstall': '新しく開いたターミナルから有効です。開いているターミナルでは exec zsh で再読み込みできます。1 回だけ包まずに起動するときは command claude です。',
@@ -127,6 +128,7 @@ export const WORDS = {
     'approve.kv.note': 'Note',
     'approve.backup.none': 'There is no file yet, so there is nothing to back up.',
     'approve.backup.generation': '{path} (a new generation)',
+    'approve.backup.stamped': '{path} ({stamp} is the date and time of writing)',
     'approve.after.mcpInstall': 'Available in Claude Code sessions started from now on.',
     'approve.after.mcpUninstall': 'Running sessions keep it until they restart.',
     'approve.after.shellInstall': 'Takes effect in newly opened terminals. In an open terminal, run exec zsh to reload. To start once without wrapping, run command claude.',
@@ -166,6 +168,9 @@ export const WORDS = {
 
 /** 伏せた値の印。CLI の setupPlan.ts の SECRET_MASK と同じ（NUL の 1 字）。 */
 export const SECRET_MASK = '\u0000';
+
+/** バックアップの名前の日時の置き場。CLI の setupPlan.ts の BACKUP_STAMP と同じ。 */
+export const BACKUP_STAMP = 'YYYYMMDDhhmmss';
 
 /** 対象ごとの、題と主の釦と完了の文と書いた後の文の鍵の頭。危ない（消す）操作は赤い釦にする。 */
 const TARGETS = {
@@ -224,7 +229,11 @@ export function model(view, tab = 'what') {
   const command = view.job === 'setup' ? `hangar ${view.target.replace('-', ' ')}` : view.job === 'apply' ? 'hangar config apply' : `hangar config restore ${view.name ?? ''}`;
   const generations = `${shortPath(view.hangarHome, view.home)}${sep}backups${sep}claude-config${sep}`;
   let backup;
-  if (view.job === 'setup') backup = plan.backup ? shortPath(plan.backup, view.home) : t('approve.backup.none');
+  // 連携の書き込みのバックアップの名前は、末尾の日時が書いたときに決まる。CLI の見立ては日時の形（BACKUP_STAMP）のまま渡すので、何の日時かを添える。
+  if (view.job === 'setup') {
+    const shown = plan.backup ? shortPath(plan.backup, view.home) : null;
+    backup = shown === null ? t('approve.backup.none') : shown.endsWith(BACKUP_STAMP) ? t('approve.backup.stamped', { path: shown, stamp: BACKUP_STAMP }) : shown;
+  }
   else backup = t('approve.backup.generation', { path: generations });
   const notes = [];
   if (plan.secret) notes.push(t('approve.note.secret'));

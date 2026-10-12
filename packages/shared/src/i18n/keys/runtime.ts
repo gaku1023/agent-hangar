@@ -29,6 +29,7 @@ export const runtimeKeys = {
   'runtime.setup.reason.brokenJson': [],
   'runtime.setup.reason.unreadable': [],
   'runtime.setup.reason.psParam': [],
+  'runtime.setup.reason.notUtf8': [],
   'runtime.setup.reason.psInput': [],
   'runtime.setup.reason.changed': [],
 } as const satisfies MessageSpec;

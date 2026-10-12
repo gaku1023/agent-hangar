@@ -7,6 +7,7 @@ const REASONS = {
   'not-zsh': 'runtime.setup.reason.notZsh', 'no-tmux': 'runtime.setup.reason.noTmux', 'no-script': 'runtime.setup.reason.noScript',
   'no-claude': 'runtime.setup.reason.noClaude', 'broken-json': 'runtime.setup.reason.brokenJson', unreadable: 'runtime.setup.reason.unreadable',
   'ps-param': 'runtime.setup.reason.psParam', 'ps-input': 'runtime.setup.reason.psInput', changed: 'runtime.setup.reason.changed',
+  'not-utf8': 'runtime.setup.reason.notUtf8',
 } as const;
 const reasonKey = (code: string | null) => (code !== null && Object.hasOwn(REASONS, code) ? REASONS[code as keyof typeof REASONS] : null);
 

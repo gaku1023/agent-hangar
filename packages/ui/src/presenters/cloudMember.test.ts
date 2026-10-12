@@ -21,11 +21,20 @@ describe('presentCloudMember', () => {
     expect(p.pcs.removed.map((r) => [r.id, r.removedOn])).toEqual([['c', '10-10 に解除']]);
   });
 
-  it('最後の IP と、Cloudflare の英語のままの場所を 1 行にする', () => {
-    const devices = [dev('a', { lastIp: '192.0.2.10', lastCity: 'Chiba', lastRegion: 'Chiba', lastCountry: 'JP' }), dev('b')];
+  it('最後の IP と、Cloudflare の英語のままの場所を分けて持つ（IPv6 の長い IP でも場所を先に見せるため）', () => {
+    const devices = [
+      dev('a', { lastIp: '192.0.2.10', lastCity: 'Chiba', lastRegion: 'Chiba', lastCountry: 'JP' }),
+      dev('b'),
+      dev('c', { lastIp: '2001:db8:1234:5678:9abc:def0:1234:5678', lastCity: 'Urayasu', lastRegion: 'Chiba', lastCountry: 'JP' }),
+      dev('d', { lastIp: '198.51.100.7' }),
+    ];
     const p = presentCloudMember(store({ cloudMember: member({ devices: { state: 'ok', devices, creator: false, message: null } }) }), NOW);
-    expect(p.pcs.rows[0]!.where).toBe('192.0.2.10 · Chiba, Chiba, JP');
-    expect(p.pcs.rows[1]!.where).toBeNull();
+    expect(p.pcs.rows.map((r) => [r.place, r.ip])).toEqual([
+      ['Chiba, Chiba, JP', '192.0.2.10'],
+      [null, null],
+      ['Urayasu, Chiba, JP', '2001:db8:1234:5678:9abc:def0:1234:5678'],
+      [null, '198.51.100.7'],
+    ]);
   });
 
   it('Worker が古いか繋がらないときは、同期の表の一覧に戻して理由を添える', () => {
@@ -36,7 +45,7 @@ describe('presentCloudMember', () => {
     const p = presentCloudMember(s, NOW);
     expect(p.pcs.state).toBe('fallback');
     expect(p.pcs.note).toBe('Worker が古い');
-    expect(p.pcs.rows.map((r) => [r.id, r.joined, r.where])).toEqual([['a', null, null]]);
+    expect(p.pcs.rows.map((r) => [r.id, r.joined, r.ip, r.place])).toEqual([['a', null, null, null]]);
   });
 
   it('この PC が解除されていれば revoked で、名前を添える', () => {

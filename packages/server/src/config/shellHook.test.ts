@@ -242,3 +242,26 @@ describe('planShellHook と planShellUnhook（書く中身だけを決め、書�
     expect(planShellUnhook(null)).toBeNull();
   });
 });
+
+describe('UTF-8 でない ~/.zshrc', () => {
+  it('UTF-16 の ~/.zshrc には足さず、外すときも触らない', () => {
+    const zshrc = path.join(dir, '.zshrc');
+    const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`export A=1\n${SHELL_MARKER} x\n`, 'utf16le')]);
+    fs.writeFileSync(zshrc, bytes);
+    expect(installShellHook(zshrc, `source x ${SHELL_MARKER}`)).toEqual({ changed: false, backup: null });
+    expect(uninstallShellHook(zshrc)).toEqual({ changed: false, backup: null });
+    expect(fs.readFileSync(zshrc).equals(bytes)).toBe(true);
+    expect(fs.readdirSync(dir).filter((f) => f.includes('.bak-'))).toEqual([]);
+  });
+
+  it('UTF-8 の BOM 付きは、BOM を先頭に保ったまま末尾に足し、外すと元に戻る', () => {
+    const zshrc = path.join(dir, '.zshrc');
+    const src = '﻿export A=1\n';
+    fs.writeFileSync(zshrc, src);
+    const line = `source x ${SHELL_MARKER}`;
+    expect(installShellHook(zshrc, line).changed).toBe(true);
+    expect(fs.readFileSync(zshrc, 'utf8')).toBe(`${src}${line}\n`);
+    expect(uninstallShellHook(zshrc).changed).toBe(true);
+    expect(fs.readFileSync(zshrc, 'utf8')).toBe(src);
+  });
+});

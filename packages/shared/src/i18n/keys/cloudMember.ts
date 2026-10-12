@@ -66,7 +66,7 @@ export const cloudMemberKeys = {
   'cloudMember.pcs.removedNote': [],
   'cloudMember.pcs.placeNote': [],
   'cloudMember.pcs.web': [],
-  'cloudMember.pcs.lastIp': [],
+  'cloudMember.pcs.lastIpTitle': ['ip'],
   'cloudMember.leave.title': [],
   'cloudMember.leave.desc': [],
   'cloudMember.leave.button': [],

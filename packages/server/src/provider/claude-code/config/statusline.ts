@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { StatuslineStatusDto } from '@agent-hangar/shared';
+import { readUtf8Text } from '../../../config/textEncoding.ts';
 import { hasMode } from '../../../platform/secure.ts';
 
 // statusline スクリプトへの追記は、hangar が ~/.claude 配下に書く唯一の操作である。
@@ -90,28 +91,79 @@ export function statuslineSnippet(port: number): string {
   ].join('\n');
 }
 
-const expandHome = (p: string, homeDir: string) => (p === '~' ? homeDir : p.startsWith('~/') || p.startsWith('~\\') ? path.join(homeDir, p.slice(2)) : p);
+/**
+ * command を語に分ける。空白で区切り、二重引用符と一重引用符の中の空白では区切らない。引用符は外す。
+ * 逆斜線は Windows のパスの区切りなので、そのまま残す（エスケープとしては読まない）。
+ */
+function splitWords(command: string): string[] {
+  const words: string[] = [];
+  let cur = '';
+  let quote: '"' | "'" | null = null;
+  let inWord = false;
+  for (const ch of command) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; inWord = true; continue; }
+    if (/\s/.test(ch)) {
+      if (inWord) { words.push(cur); cur = ''; inWord = false; }
+      continue;
+    }
+    cur += ch;
+    inWord = true;
+  }
+  if (inWord) words.push(cur);
+  return words;
+}
 
-/** 引用符で包まれた語の外側の引用符を外す（Windows の "C:\\…\\statusline.ps1" など）。 */
-const unquote = (w: string) => (w.length >= 2 && ((w.startsWith('"') && w.endsWith('"')) || (w.startsWith("'") && w.endsWith("'"))) ? w.slice(1, -1) : w);
+/** 実行するものの名前。区切り（/ と \）の後ろを取り、小文字にして .exe を外す（"C:\…\pwsh.exe" → pwsh）。 */
+const programName = (w: string) => (w.split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.exe$/, '');
 
 /**
  * command の中でスクリプトを指す語。
  * bash、sh、zsh の後ろの語、pwsh や powershell の -File の後ろの語、それ以外は先頭の語である。
+ * 実行するものは、絶対パスや引用符つきで書かれていても名前で見分ける（/bin/bash、"C:\Program Files\…\pwsh.exe"）。
  */
 function scriptWord(command: string): string | undefined {
-  const words = command.split(/\s+/);
-  const head = (words[0] ?? '').toLowerCase();
+  const words = splitWords(command);
+  const head = programName(words[0] ?? '');
   if (['bash', 'sh', 'zsh'].includes(head)) return words[1];
-  if (/^(pwsh|powershell)(\.exe)?$/.test(head)) {
+  if (head === 'pwsh' || head === 'powershell') {
     const i = words.findIndex((w, n) => n > 0 && /^-(f|file)$/i.test(w));
     return i === -1 ? undefined : words[i + 1];
   }
   return words[0];
 }
 
-/** ~/.claude/settings.json の statusLine.command を読み、スクリプトを指す語がファイルならその絶対パスを返す。 */
-export function resolveStatuslineScript(claudeDir: string, homeDir: string = os.homedir()): { command: string | null; scriptPath: string | null } {
+/**
+ * パスの語の、~、$HOME、${HOME}、$NAME、${NAME}、%NAME% を展開する。
+ * ~ と HOME は homeDir、ほかは env から引く（Windows の env は名前の大文字小文字を区別しない）。
+ * 展開できない変数が 1 つでもあれば null を返し、呼び手は読めない扱いにする（推して別のファイルを指さないため）。
+ */
+function expandPath(word: string, homeDir: string, env: NodeJS.ProcessEnv): string | null {
+  let missing = false;
+  const look = (name: string): string => {
+    if (name === 'HOME') return homeDir;
+    const key = process.platform === 'win32' ? Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase()) : name;
+    const v = key === undefined ? undefined : env[key];
+    if (v === undefined || v === '') { missing = true; return ''; }
+    return v;
+  };
+  let out = word === '~' ? homeDir : word.startsWith('~/') || word.startsWith('~\\') ? path.join(homeDir, word.slice(2)) : word;
+  out = out
+    .replace(/%([A-Za-z_][A-Za-z0-9_()]*)%/g, (_m, n: string) => look(n))
+    .replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, n: string) => look(n))
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, n: string) => look(n));
+  return missing ? null : out;
+}
+
+/**
+ * ~/.claude/settings.json の statusLine.command を読み、スクリプトを指す語がファイルならその絶対パスを返す。
+ * env は %NAME% と $NAME の展開に使う（試験は差し替える）。
+ */
+export function resolveStatuslineScript(claudeDir: string, homeDir: string = os.homedir(), env: NodeJS.ProcessEnv = process.env): { command: string | null; scriptPath: string | null } {
   const file = path.join(claudeDir, 'settings.json');
   if (!fs.existsSync(file)) return { command: null, scriptPath: null };
   let command: string | null = null;
@@ -124,7 +176,9 @@ export function resolveStatuslineScript(claudeDir: string, homeDir: string = os.
   if (!command) return { command: null, scriptPath: null };
   const first = scriptWord(command);
   if (!first) return { command, scriptPath: null };
-  const candidate = path.resolve(expandHome(unquote(first), homeDir));
+  const expanded = expandPath(first, homeDir, env);
+  if (expanded === null) return { command, scriptPath: null };
+  const candidate = path.resolve(expanded);
   const ok = fs.existsSync(candidate) && fs.statSync(candidate).isFile();
   return { command, scriptPath: ok ? candidate : null };
 }
@@ -180,6 +234,9 @@ export function statuslineSnippetFor(scriptPath: string, port: number): string {
   return isPowerShellScript(scriptPath) ? powershellStatuslineSnippet(port) : statuslineSnippet(port);
 }
 
+/** UTF-8 の BOM。 */
+const BOM = '\uFEFF';
+
 /** 行に分ける。改行の形（CRLF か LF）は eol に覚え、行の中に \r を残さない。 */
 function splitLines(src: string): { lines: string[]; eol: string } {
   const eol = src.includes('\r\n') ? '\r\n' : '\n';
@@ -227,7 +284,15 @@ function powershellBlock(src: string): 'ps-param' | 'ps-input' | null {
  * bash の形は shebang の直後（無ければ先頭）、PowerShell の形は先頭に入れる。改行の形はファイルに合わせる。
  */
 export type StatuslineEdit = { kind: 'add' | 'replace'; next: string } | { kind: 'same' | 'unreadable' | 'ps-param' | 'ps-input' };
-export function planStatuslineSnippet(src: string, scriptPath: string, port: number): StatuslineEdit {
+export function planStatuslineSnippet(full: string, scriptPath: string, port: number): StatuslineEdit {
+  // UTF-8 の BOM は先頭に保つ。外してから決め、足した中身の先頭に戻す（BOM の付いた行では目印も shebang も見つからない）。
+  const bom = full.startsWith(BOM) ? BOM : '';
+  const src = full.slice(bom.length);
+  const r = planWithoutBom(src, scriptPath, port);
+  return r.kind === 'add' || r.kind === 'replace' ? { kind: r.kind, next: `${bom}${r.next}` } : r;
+}
+
+function planWithoutBom(src: string, scriptPath: string, port: number): StatuslineEdit {
   const { lines, eol } = splitLines(src);
   const want = snippetLines(scriptPath, port);
   if (lines.includes(STATUSLINE_MARKER)) {
@@ -240,8 +305,7 @@ export function planStatuslineSnippet(src: string, scriptPath: string, port: num
   if (isPowerShellScript(scriptPath)) {
     const block = powershellBlock(src);
     if (block) return { kind: block };
-    const bom = src.startsWith('﻿') ? '﻿' : '';
-    return { kind: 'add', next: `${bom}${want.join(eol)}${eol}${src.slice(bom.length)}` };
+    return { kind: 'add', next: `${want.join(eol)}${eol}${src}` };
   }
   const snippet = want.join(eol) + eol;
   const nl = src.indexOf('\n');
@@ -254,12 +318,13 @@ export function planStatuslineSnippet(src: string, scriptPath: string, port: num
 
 /** 外す中身だけを決める。remove は目印から終わりの行までを除いたもの、absent は入っていない、unreadable は範囲を読み取れない。 */
 export type StatuslineRemoval = { kind: 'remove'; next: string } | { kind: 'absent' | 'unreadable' };
-export function planStatuslineRemoval(src: string): StatuslineRemoval {
-  const { lines, eol } = splitLines(src);
+export function planStatuslineRemoval(full: string): StatuslineRemoval {
+  const bom = full.startsWith(BOM) ? BOM : '';
+  const { lines, eol } = splitLines(full.slice(bom.length));
   if (!lines.includes(STATUSLINE_MARKER)) return { kind: 'absent' };
   const range = snippetRange(lines);
   if (!range) return { kind: 'unreadable' };
-  return { kind: 'remove', next: [...lines.slice(0, range.from), ...lines.slice(range.to + 1)].join(eol) };
+  return { kind: 'remove', next: bom + [...lines.slice(0, range.from), ...lines.slice(range.to + 1)].join(eol) };
 }
 
 /** バックアップを取ってから、決めた中身を書く。実行権限は保つ。 */
@@ -278,14 +343,19 @@ function writeWithBackup(scriptPath: string, next: string, now: Date): string {
  * 書く中身は planStatuslineSnippet が決める（承諾の窓で見せる差分と同じもの）。
  */
 export function appendStatuslineSnippet(scriptPath: string, port: number, now: Date = new Date()): { changed: boolean; backup: string | null } {
-  const plan = planStatuslineSnippet(fs.readFileSync(scriptPath, 'utf8'), scriptPath, port);
+  // UTF-8 でないスクリプト（UTF-16 など）は、UTF-8 で書き戻すと壊れるので触らない（config/textEncoding.ts）。
+  const read = readUtf8Text(scriptPath);
+  if (read === null || 'problem' in read) return { changed: false, backup: null };
+  const plan = planStatuslineSnippet(read.text, scriptPath, port);
   if (plan.kind !== 'add' && plan.kind !== 'replace') return { changed: false, backup: null };
   return { changed: true, backup: writeWithBackup(scriptPath, plan.next, now) };
 }
 
 /** 入っているスニペットを外す。バックアップを取ってから書く。入っていないか、範囲を読み取れなければ触らない。 */
 export function removeStatuslineSnippet(scriptPath: string, now: Date = new Date()): { changed: boolean; backup: string | null } {
-  const plan = planStatuslineRemoval(fs.readFileSync(scriptPath, 'utf8'));
+  const read = readUtf8Text(scriptPath);
+  if (read === null || 'problem' in read) return { changed: false, backup: null };
+  const plan = planStatuslineRemoval(read.text);
   if (plan.kind !== 'remove') return { changed: false, backup: null };
   return { changed: true, backup: writeWithBackup(scriptPath, plan.next, now) };
 }

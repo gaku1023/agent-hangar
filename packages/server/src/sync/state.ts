@@ -6,6 +6,7 @@ import type { Db } from '../db/open.ts';
  * skipped:<R2 の鍵> は RemotePuller が降ろすのを諦めた項目の控えである。
  * transcriptsFrom は本文をどこから上げるかの床である（sync/transcriptsFrom.ts）。
  * orphans は、親の行がまだ届かず当てられなかった行の持ち越しである（JSON の配列。sync/engine.ts）。
+ * revokedLogged は、この PC が解除されて止まったことをログに残した印である（戻った旨を 1 度だけ残すため。止める印ではない。sync/engine.ts）。
  */
 export type SyncStateKey =
   | 'lastSeq'
@@ -18,6 +19,7 @@ export type SyncStateKey =
   | 'transcriptsFrom'
   | 'limitedUntil'
   | 'orphans'
+  | 'revokedLogged'
   | `skipped:${string}`;
 
 /**

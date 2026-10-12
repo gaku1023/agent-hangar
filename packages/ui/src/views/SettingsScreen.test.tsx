@@ -514,7 +514,9 @@ describe('設定の連携', () => {
   describe('ステータスライン', () => {
     it('状態と設定のコマンドを出す', () => {
       render(ui(at('integrations')));
-      expect(screen.getByText('まだ設定されていません')).toBeTruthy();
+      // スクリプトはあるが hangar の数行が無い、と言う。「設定されていません」だけだと、ステータスライン自体が無いと読める（0.4.0-rc.1 の Windows の実機）。
+      expect(screen.getByText('ステータスラインのスクリプトはあります。hangar へ値を渡す数行は、まだ入っていません。')).toBeTruthy();
+      expect(screen.queryByText('まだ設定されていません')).toBeNull();
       expect(screen.getByText('hangar statusline install')).toBeTruthy();
       expect(screen.getByText('/h/.claude/statusline.sh')).toBeTruthy();
       // ヘッダーのゲージは使用率で、追記はターミナルで行う。

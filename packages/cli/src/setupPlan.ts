@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   diffLines, ensureHome, ensureShellScript, installShellHook, planShellHook, planShellUnhook, planStatuslineRemoval, planStatuslineSnippet,
-  readOrCreateToken, readUserMcpServers, removeStatuslineSnippet, appendStatuslineSnippet, resolveStatuslineScript, SHELL_MARKER,
+  readOrCreateToken, readUserMcpServers, readUtf8Text, removeStatuslineSnippet, appendStatuslineSnippet, resolveStatuslineScript, SHELL_MARKER,
   shellHookLine, shellScriptPath, shellWrapOsSupported, shellWrapSupported, statuslineHeaderPath, statuslineSnippetFor, uninstallShellHook,
   writeStatuslineHeaderFile,
 } from '@agent-hangar/server/src/cliEntry.ts';
@@ -46,6 +46,8 @@ export type PlanFile = { path: string; op: 'create' | 'modify' | 'remove' | 'own
  * 見立て。state は、ready（書ける）、noop（もう済んでいる）、blocked（この PC では書けない）。
  * reason は noop と blocked の理由で、code は承諾の窓や画面が文を選ぶ鍵、message は端末に出す日本語の 1 文である。
  * backup は、書く前に取るバックアップの置き場（もとのファイルが無ければ null）。secret は、差分に伏せた値があるか。
+ * backup の名前の末尾の日時は、書いたときに決まる。見立てでは BACKUP_STAMP（YYYYMMDDhhmmss）の形のまま見せる。
+ * 見立てを作った時刻で名前を決めると、承諾の窓を開いた時刻の名前を見せて、押した時刻の名前で書くことになり、食い違う。
  */
 export type SetupPlan = {
   target: SetupTarget;
@@ -80,16 +82,8 @@ const MAX_LINES = 120;
 
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
-const stamp = (d: Date) =>
-  `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
-
-function readText(file: string): string | null {
-  try {
-    return fs.readFileSync(file, 'utf8');
-  } catch {
-    return null;
-  }
-}
+/** 見立てで見せるバックアップの名前の、日時の置き場。書いたときに、その時刻の 14 桁（年月日時分秒）になる。 */
+export const BACKUP_STAMP = 'YYYYMMDDhhmmss';
 
 function cap(lines: PlanLine[]): PlanLine[] {
   return lines.length <= MAX_LINES ? lines : [...lines.slice(0, MAX_LINES), { k: 'gap', t: String(lines.length - MAX_LINES) }];
@@ -168,7 +162,7 @@ function planMcp(target: 'mcp-install' | 'mcp-uninstall', env: SetupEnv): SetupP
   const servers = read.servers;
   const cur = servers && Object.hasOwn(servers, 'hangar') ? servers.hangar : undefined;
   const exists = fs.existsSync(env.claudeJson);
-  const backup = exists ? path.join(env.home, 'backups', `claude.json-${stamp((env.now ?? (() => new Date()))())}`) : null;
+  const backup = exists ? path.join(env.home, 'backups', `claude.json-${BACKUP_STAMP}`) : null;
   if (target === 'mcp-uninstall') {
     if (cur === undefined) return stop(target, 'noop', 'absent', 'user スコープに MCP サーバ hangar は登録されていません。');
     return plan(target, { state: 'ready', reason: null, backup, secret: true, files: [{ path: env.claudeJson, op: 'remove', what: 'mcp.remove', where: 'json', lines: mcpLines(servers, 'hangar', cur, undefined), watch: mcpWatch(servers) }] });
@@ -193,9 +187,15 @@ function shellBlock(env: SetupEnv): { code: string; message: string } | null {
   return null;
 }
 
+/** UTF-8 でないファイルを断る理由。承諾の窓は開かず、画面は鍵（not-utf8）から文を引く。 */
+const NOT_UTF8 = (file: string) => `${file} が UTF-8 で保存されていない（UTF-16 など）ので、書き換えません。UTF-8 で保存し直すか、手で追記してください。`;
+
 function planShell(target: 'shell-install' | 'shell-uninstall', env: SetupEnv): SetupPlan {
-  const cur = readText(env.zshrc);
-  const backupOf = () => (cur === null ? null : `${env.zshrc}.bak-${stamp((env.now ?? (() => new Date()))())}`);
+  const read = readUtf8Text(env.zshrc);
+  // UTF-8 で書き戻すと壊れるので、入れるのも外すのも断る（server の config/textEncoding.ts）。
+  if (read !== null && 'problem' in read) return stop(target, 'blocked', 'not-utf8', NOT_UTF8(env.zshrc));
+  const cur = read === null ? null : read.text;
+  const backupOf = () => (cur === null ? null : `${env.zshrc}.bak-${BACKUP_STAMP}`);
   if (target === 'shell-uninstall') {
     const next = planShellUnhook(cur);
     if (next === null || cur === null) return stop(target, 'noop', 'absent', 'シェル連携は入っていません。');
@@ -226,12 +226,14 @@ const STATUSLINE_REASON: Record<string, string> = {
 
 function planStatusline(target: 'statusline-install' | 'statusline-uninstall', env: SetupEnv): SetupPlan {
   const script = resolveStatuslineScript(env.claudeDir, env.homeDir).scriptPath;
-  const src = script ? readText(script) : null;
+  const read = script ? readUtf8Text(script) : null;
+  if (script && read !== null && 'problem' in read) return stop(target, 'blocked', 'not-utf8', NOT_UTF8(script));
+  const src = read !== null && 'text' in read ? read.text : null;
   if (!script || src === null) {
     if (target === 'statusline-uninstall') return stop(target, 'noop', 'absent', 'ステータスラインに hangar の行は入っていません。');
     return stop(target, 'blocked', 'no-script', STATUSLINE_REASON['no-script']!);
   }
-  const backup = `${script}.bak-${stamp((env.now ?? (() => new Date()))())}`;
+  const backup = `${script}.bak-${BACKUP_STAMP}`;
   if (target === 'statusline-uninstall') {
     const r = planStatuslineRemoval(src);
     if (r.kind !== 'remove') return r.kind === 'absent' ? stop(target, 'noop', 'absent', 'ステータスラインに hangar の行は入っていません。') : stop(target, 'blocked', 'unreadable', STATUSLINE_REASON.unreadable!);
@@ -344,7 +346,7 @@ export function formatSetupPlan(p: SetupPlan): string[] {
       out.push(l.k === 'gap' ? `  …（ほか ${l.t} 行）` : `${l.k === 'add' ? '+' : l.k === 'del' ? '-' : ' '} ${t}`);
     }
   }
-  if (p.backup) out.push('', `書く前に、バックアップを取ります: ${p.backup}`);
+  if (p.backup) out.push('', `書く前に、バックアップを取ります: ${p.backup}（${BACKUP_STAMP} は書いた日時）`);
   return out;
 }
 

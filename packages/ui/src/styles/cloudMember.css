@@ -44,7 +44,11 @@
 .cm-name { display: flex; flex-direction: column; min-width: 0; }
 .cm-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cm-self { margin-left: calc(var(--u) * 1.5); font-size: var(--fs-xs); color: var(--ink-3); }
-.cm-where { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 名前の下の場所と最後の IP。場所を先に置いて縮めず、縮んで省略記号になるのは IP だけにする（IPv6 の IP は長い）。 */
+.cm-where { display: flex; gap: calc(var(--u) * 1.5); min-width: 0; overflow: hidden; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.cm-place { flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.cm-sep { flex-shrink: 0; }
+.cm-ip { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .cm-faint { color: var(--ink-3); }
 .cm-act { justify-self: end; }
 .cm-act .btn { color: var(--error); }
