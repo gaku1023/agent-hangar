@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cmdQuote, execFile, openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
+import type { EditorSetting } from '@agent-hangar/shared';
+import { cmdQuote, EditorMissingError, execFile, openDirInTerminalApp, openInEditor, openInTerminalApp, writeAttachCommand, writeCdCommand, type Exec } from './open.ts';
+import type { EditorHost } from './editors.ts';
 import { expectMode, posixIt } from '../../test/platform.ts';
 
 let home: string;
@@ -281,12 +283,33 @@ describe.skipIf(process.platform !== 'win32')('cmd.exe の start（実物）', (
   });
 });
 
+const vscodeAt = (p: string): EditorSetting => ({ id: 'vscode', path: p, fileCmd: '', dirCmd: '', terminal: 'none' });
+/** 設定のパスがそのまま動く見せかけの PC。 */
+const hostWith = (platform: NodeJS.Platform, files: string[] = []): EditorHost => ({
+  platform, env: {}, home: platform === 'win32' ? 'C:\\Users\\u' : '/Users/u',
+  exists: (f) => files.includes(f), isExec: (f) => files.includes(f), which: () => null, readdir: () => [],
+});
+
 describe('openInEditor', () => {
-  it('code <target> を呼ぶ。codePath が無ければ投げる', async () => {
-    await openInEditor({ codePath: '/usr/local/bin/code', target: '/w/alpha', exec: exec() });
-    expect(calls).toEqual([{ cmd: '/usr/local/bin/code', args: ['/w/alpha'] }]);
-    await expect(openInEditor({ codePath: null, target: '/w', exec: exec() })).rejects.toThrow('VS Code の code コマンドが見つかりません。設定の「code のパス」を入力してください');
-    await expect(openInEditor({ codePath: '/x/code', target: '/w', exec: exec({ '/x/code': 2 }) })).rejects.toThrow(/VS Code/);
+  it('設定のエディタの CLI を、行があれば行の引数で起こす', async () => {
+    const h = hostWith('darwin', ['/usr/local/bin/code']);
+    expect(await openInEditor({ editor: vscodeAt('/usr/local/bin/code'), target: { path: '/w/alpha', line: null, dir: true }, host: h, exec: exec() })).toBe('cli');
+    await openInEditor({ editor: vscodeAt('/usr/local/bin/code'), target: { path: '/w/a.ts', line: 3, dir: false }, host: h, exec: exec() });
+    expect(calls).toEqual([{ cmd: '/usr/local/bin/code', args: ['/w/alpha'] }, { cmd: '/usr/local/bin/code', args: ['-g', '/w/a.ts:3'] }]);
+  });
+  it('見つからなければ EditorMissingError で、名前と最後の場所を持つ', async () => {
+    const e = await openInEditor({ editor: vscodeAt('/gone/code'), target: { path: '/w', line: null, dir: true }, host: hostWith('darwin'), exec: exec() }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(EditorMissingError);
+    expect((e as EditorMissingError).message).toBe('VS Code が見つかりません');
+    expect((e as EditorMissingError).detail).toEqual({ editor: 'vscode', name: 'VS Code', lastPath: '/gone/code' });
+  });
+  it('起こして失敗すれば、エディタの名前で言う', async () => {
+    const h = hostWith('darwin', ['/x/code']);
+    await expect(openInEditor({ editor: vscodeAt('/x/code'), target: { path: '/w', line: null, dir: true }, host: h, exec: exec({ '/x/code': 2 }) })).rejects.toThrow('VS Code を起動できませんでした: exit 2');
+  });
+  it('{path} の無い任意のコマンドは起こさずに断る', async () => {
+    const custom: EditorSetting = { id: 'custom', path: null, fileCmd: 'subl', dirCmd: '', terminal: 'none' };
+    await expect(openInEditor({ editor: custom, target: { path: '/w', line: null, dir: true }, host: hostWith('darwin'), exec: exec() })).rejects.toThrow(/\{path\}/);
   });
 });
 
@@ -296,19 +319,25 @@ describe('openInEditor（Windows の code.cmd）', () => {
   it('.cmd はシェル越しに、パスを引用符で包んで起こし、子が終われば返す', async () => {
     const seen: { cmd: string; args: string[]; shell: boolean | undefined; untilExit: boolean | undefined }[] = [];
     const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell, untilExit: opts?.untilExit }); return { code: 0, stdout: '', stderr: '' }; };
-    await openInEditor({ codePath: 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd', target: 'D:\\work space\\a.md', exec: fake, platform: 'win32' });
-    expect(seen).toEqual([{ cmd: '"C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd"', args: ['"D:\\work space\\a.md"'], shell: true, untilExit: true }]);
+    const code = 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd';
+    await openInEditor({ editor: vscodeAt(code), target: { path: 'D:\\work space\\a.md', line: null, dir: false }, host: hostWith('win32', [code]), exec: fake });
+    await openInEditor({ editor: vscodeAt(code), target: { path: 'D:\\w\\100%.md', line: 2, dir: false }, host: hostWith('win32', [code]), exec: fake });
+    expect(seen).toEqual([
+      { cmd: `"${code}"`, args: ['"D:\\work space\\a.md"'], shell: true, untilExit: true },
+      { cmd: `"${code}"`, args: ['"-g"', '"D:\\w\\100"^%".md:2"'], shell: true, untilExit: true },
+    ]);
   });
   it('.exe とほかの OS では、シェルを通さず直に起こす。子が終われば返すのは Windows だけ', async () => {
     const seen: { cmd: string; args: string[]; shell: boolean | undefined; untilExit: boolean | undefined }[] = [];
     const fake: Exec = async (cmd, args, opts) => { seen.push({ cmd, args, shell: opts?.shell, untilExit: opts?.untilExit }); return { code: 0, stdout: '', stderr: '' }; };
-    await openInEditor({ codePath: 'C:\\x\\code.exe', target: 'D:\\a.md', exec: fake, platform: 'win32' });
-    await openInEditor({ codePath: '/x/code.cmd', target: '/w/a.md', exec: fake, platform: 'darwin' });
+    await openInEditor({ editor: vscodeAt('C:\\x\\code.exe'), target: { path: 'D:\\a.md', line: null, dir: false }, host: hostWith('win32', ['C:\\x\\code.exe']), exec: fake });
+    await openInEditor({ editor: vscodeAt('/x/code.cmd'), target: { path: '/w/a.md', line: null, dir: false }, host: hostWith('darwin', ['/x/code.cmd']), exec: fake });
     expect(seen).toEqual([{ cmd: 'C:\\x\\code.exe', args: ['D:\\a.md'], shell: undefined, untilExit: true }, { cmd: '/x/code.cmd', args: ['/w/a.md'], shell: undefined, untilExit: undefined }]);
   });
   // 引用符の中でも cmd.exe が読む文字。開けるふりをして別のものを起こさないよう、断る。
   it('" を含むパスは起こさずに断る', async () => {
     const fake: Exec = async () => ({ code: 0, stdout: '', stderr: '' });
-    await expect(openInEditor({ codePath: 'C:\\x\\code.cmd', target: 'D:\\a" & calc & ".md', exec: fake, platform: 'win32' })).rejects.toThrow(/開けません/);
+    await expect(openInEditor({ editor: vscodeAt('C:\\x\\code.cmd'), target: { path: 'D:\\a" & calc & ".md', line: null, dir: false }, host: hostWith('win32', ['C:\\x\\code.cmd']), exec: fake })).rejects.toThrow(/開けません/);
   });
 });
+

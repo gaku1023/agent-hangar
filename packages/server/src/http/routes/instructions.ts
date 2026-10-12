@@ -5,7 +5,7 @@ import type { InstructionFileKind, InstructionsDto, ProjectDto } from '@agent-ha
 import { instructionFilePath, readInstructions, type InstructionsEnv } from '../../projects/instructions.ts';
 import { translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
-import { BODY_LIMITS, externalOf, projectOf, readJson, tooLargeResult } from './common.ts';
+import { BODY_LIMITS, editorOptsOf, externalOf, projectOf, readJson, tooLargeResult } from './common.ts';
 
 /** 指示とメモリの経路が使う依存。 */
 export type InstructionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'external' | 'token' | 'accounts'> & LanguageDeps;
@@ -48,6 +48,8 @@ export function instructionRoutes(api: Hono, deps: InstructionRouteDeps): void {
     const dir = folderOf(p);
     const file = dir ? instructionFilePath(dir, kind as InstructionFileKind, envOf()) : null;
     if (!file) return c.json({ error: tr('project.instructions.fileMissing') }, 404);
-    return external(c, () => deps.external.openEditor({ target: file }), true);
+    const opts = editorOptsOf(b.value, false);
+    if (opts === null) return c.json({ error: tr('session.file.badOptions') }, 400);
+    return external(c, () => deps.external.openEditor({ target: file, ...opts }), true);
   });
 }

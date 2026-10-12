@@ -270,6 +270,13 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(fs.readFileSync(fake.envFile, 'utf8')).toContain('LC_CTYPE=ja_JP.UTF-8\n');
   });
 
+  it('シェルタブは、名前と先に起こすコマンドを受ける（ターミナルの中のエディタ）', async () => {
+    const r = make().start({ projectId: 'p1' });
+    const tab = make().openTab(r.run.id, { then: ['true'], title: 'a.ts' });
+    expect(tab.title).toBe('a.ts');
+    expect(tmux!.hasSession(tab.tmuxName)).toBe(true);
+  });
+
   it('シェルタブにも UTF-8 のロケールを渡す', async () => {
     const r = make().start({ projectId: 'p1' });
     const tab = make().openTab(r.run.id);

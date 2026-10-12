@@ -20,10 +20,11 @@ import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
+import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
+import { createGitWatch } from './gitWatch.ts';
 import type { Notifier } from './notifier.ts';
 import { createUpdateRunner } from './updater.ts';
 import { createCloudMemberRunner } from './cloudMember.ts';
@@ -65,6 +66,8 @@ export type RuntimeDeps = {
    * 画面はこの有無で、「ログを開く」「再起動」を出すか、ログの場所のコピーと文の案内に落とすかを決める。
    */
   desktop?: DesktopBridge | null;
+  /** 窓が前にあるか。git の表示の周期が見る。無ければ document.visibilityState を読む。テストが差し替える口である。 */
+  visible?: () => boolean;
   /** クリップボードに書く。無ければ navigator.clipboard を使う。テストが差し替える口である。 */
   clipboard?: (text: string) => Promise<void>;
 };
@@ -740,6 +743,18 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   }
 
   /**
+   * git の表示の取り方（runtime/gitWatch.ts）。見えている行と実行中のセッションを、まとめて取り、窓が前にある間は周期で取り直す。
+   */
+  const gitWatch = createGitWatch({
+    fetch: (ids) => deps.api.gitSessions(ids),
+    apply: (g) => setStore(applyGit(store, g)),
+    live: () => Object.values(store.sessions).filter((s) => shownLive(s) !== null).map((s) => s.id),
+    visible: deps.visible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+    setTimeout: (fn, ms) => deps.setTimeout(fn, ms),
+    now: deps.now ?? Date.now,
+  });
+
+  /**
    * 表で引いた呼び出しを実行する（runtime/actionTable.ts）。
    * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、failed を持つ行だけ Store に書き、ほかの行はトーストにする。
    */
@@ -748,7 +763,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     c.run(deps.api).then((done) => {
       if (done.apply) setStore(done.apply(store));
       if (done.toast !== undefined) toast(tr()(done.toast), done.toastHoldMs);
-    }).catch((e: unknown) => { if (c.failed) setStore(c.failed(store, e)); else fail(e); });
+    }).catch((e: unknown) => { const next = c.failed?.(store, e) ?? null; if (next) setStore(next); else fail(e); });
   }
 
   /**
@@ -756,6 +771,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * 表にあれば、Mediator を通さずに API を呼ぶ。無ければ、今までどおり Mediator へ渡す。
    */
   function emit(action: UiAction): void {
+    // 見えている行の git（0.5.0）。場所ごとに覚え、まとめて取る。
+    if (action.type === 'git.watch') { gitWatch.watch(action.key, action.sessionIds); return; }
     if (!isTableAction(action)) { dispatch({ kind: 'action', action }); return; }
     const c = actionCall(action, store);
     if (c) runCall(c);
@@ -763,7 +780,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   function dispatch(input: Input): void {
     // 型では表の UiAction を渡せないが、型を外して渡されても Mediator へは入れない。
-    if (input.kind === 'action' && isTableAction(input.action)) { emit(input.action); return; }
+    if (input.kind === 'action' && (isTableAction(input.action) || (input.action as UiAction).type === 'git.watch')) { emit(input.action); return; }
     // 索引の走査がこの知らせで終わるかは、当てる前の Store でしか分からない。
     const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
     // 同期で降りた、この PC に場所を持ったことが無いプロジェクトか。これも、当てる前の Store でしか分からない（初めて見る id かどうか）。
@@ -867,7 +884,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
       unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
-      unsubVisible = deps.onWindowVisible?.(recheckNotify) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { recheckNotify(); gitWatch.wake(); }) ?? null;
       ws.connect();
     },
     stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },

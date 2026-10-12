@@ -2,7 +2,8 @@ import { liveFilterOf, quietLive, type LiveFilter } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
-import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, InstructionsDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, UiAction, SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, InstructionsDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -83,7 +84,29 @@ export type Store = {
   update: UpdateState;
   /** クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除（store/cloudMember.ts）。Runtime が入れる（runtime/cloudMember.ts）。 */
   cloudMember: CloudMemberState;
+  /**
+   * git の表示（0.5.0）。git は一覧と (i) の札の値で、取得の答えとサーバの git.upsert を重ねる（セッションごと、作業ツリーの根ごと）。
+   * gitChanges は「変更したファイル」の差分の一覧、gitDiffs と gitEdits は差分のダイアログで選んだファイルの中身（鍵は gitFileKey）。
+   * 読めなかった差分と編集は error を持つ。projectGit はプロジェクト画面の「ブランチと worktree」。どれも端末ローカルで、同期しない。
+   */
+  git: GitDto;
+  gitChanges: Record<string, SessionChangesDto>;
+  gitDiffs: Record<string, GitDiffDto | { error: string }>;
+  gitEdits: Record<string, SessionEditsDto | { error: string }>;
+  projectGit: Record<string, ProjectGitDto>;
+  /** 設定のエディタの欄の候補（GET /api/editors）。設定の一般の節を開いたときと「再確認」で取り直す。未取得は null。 */
+  editors: EditorsDto | null;
+  /** エディタの「テスト」の答え。押してから答えが届くまでは running。 */
+  editorTest: EditorTestDto | 'running' | null;
+  /**
+   * エディタが見つからなくて断られた開く操作（409）。「<名前> が見つかりません」の面を出す。
+   * retry は同じ操作で、once を添えて「今回は <名前> で開く」に使う。n は同じ断りをもう一度受けたことに気付くための回数。閉じたら null。
+   */
+  editorMissing: (EditorMissingDto & { retry: EditorOpenAction; n: number }) | null;
 };
+
+/** エディタで開く操作。見つからないときの面から、once を添えて同じものを送り直す。 */
+export type EditorOpenAction = Extract<UiAction, { type: 'project.openEditor' | 'session.openEditor' | 'session.openFile' | 'artifact.openEditor' | 'instructions.openEditor' }>;
 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
 
@@ -98,6 +121,8 @@ export function initialStore(): Store {
     readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
+    editors: null, editorTest: null, editorMissing: null,
+    git: { sessions: {}, trees: {} }, gitChanges: {}, gitDiffs: {}, gitEdits: {}, projectGit: {},
   };
 }
 
@@ -166,6 +191,7 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'retention.changed': return { ...store, retention: ev.retention };
+    case 'git.upsert': return applyGit(store, ev.git);
     case 'settings.changed': return { ...store, settings: ev.settings };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
     // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。
@@ -244,6 +270,14 @@ export function appendSearchResult(prev: SearchResultDto | null, next: SearchRes
 export function applySubagents(store: Store, sessionId: string, ids: string[]): Store {
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
 }
+
+/** git の値を重ねる。届いたセッションと作業ツリーだけを置き換え、ほかは残す。 */
+export function applyGit(store: Store, g: GitDto): Store {
+  return { ...store, git: { sessions: { ...store.git.sessions, ...g.sessions }, trees: { ...store.git.trees, ...g.trees } } };
+}
+
+/** 差分と編集の覚えの鍵。セッションとファイルの組。 */
+export const gitFileKey = (sessionId: string, file: string): string => `${sessionId}\n${file}`;
 
 export function applySessionFiles(store: Store, sessionId: string, files: SessionFilesDto['files']): Store {
   return { ...store, sessionFiles: { ...store.sessionFiles, [sessionId]: files } };

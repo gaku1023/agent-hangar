@@ -5,6 +5,7 @@ import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
 import type { Segment } from './highlight.ts';
 import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.ts';
+import { presentGitChip, type GitChipProps } from './git.ts';
 
 /**
  * 要約の見立ての札（試作 home-lists の B1）。
@@ -35,7 +36,9 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   /** Claude の提案。状態が付いていれば null（サーバの toStateDto が状態を正にしている）。 */
   candidate: { status: 'paused' | 'done'; note: string | null; returnOn: string | null; returnTime: string | null; source: CandidateSource; ago: string } | null;
   /** 状態を誰が付けたか。conversation は会話で利用者が選んだもので、札に「会話で承認」と添える。Active は null。 */
-  setBy: StateSetBy | null };
+  setBy: StateSetBy | null;
+  /** git の札（2 段目の右端、試作の 2-1 の A）。まだ届いていないものと git でないものは null。 */
+  git?: GitChipProps | null };
 
 /**
  * 見立ての札を作る。
@@ -70,6 +73,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     returnPastMin: returnOn !== null ? returnPastMinutes(returnOn, returnTime, now) : null,
     candidate: st?.candidate ? { status: st.candidate.status, note: st.candidate.note, returnOn: st.candidate.returnOn, returnTime: st.candidate.returnTime ?? null, source: st.candidate.source, ago: relativeTime(t, st.candidate.at, now) } : null,
     setBy: status ? st!.setBy : null,
+    git: presentGitChip(t, store.git, s.id, store.sessions),
   };
   if (excerpt) row.excerpt = excerpt;
   return row;

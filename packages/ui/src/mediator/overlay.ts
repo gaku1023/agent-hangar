@@ -2,14 +2,14 @@ import type { Input, Overlay, State, Step } from './types.ts';
 
 /**
  * 黙って別のものに差し替えてよいオーバーレイか。
- * 何も出ていないとき、パレット、読むだけのダイアログ（キーの一覧、昇格の完了）である。
+ * 何も出ていないとき、パレット、読むだけのダイアログ（キーの一覧、昇格の完了、差分）である。
  * 確認、未解決のプロジェクト、入力のあるダイアログ（新しいセッション、昇格、保持期間、設定の同期）は、決めるか閉じるまで差し替えない。
  * 確認の最初のフォーカスは「やめる」なので、修飾の無い / や ? も Root に届く。
  * 差し替えると、一覧から削除の確認から戻る先の未解決のダイアログが消えるからである。
  * Root のキーだけでなく、どの経路から来た開く操作もここで止める。
  */
 export function overlayReplaceable(o: Overlay): boolean {
-  return o.kind === 'none' || o.kind === 'palette' || o.kind === 'shortcuts' || o.kind === 'promoted';
+  return o.kind === 'none' || o.kind === 'palette' || o.kind === 'shortcuts' || o.kind === 'promoted' || o.kind === 'diff';
 }
 
 /**
@@ -55,6 +55,10 @@ export function overlayStep(state: State, input: Input): Step | null {
     case 'palette.close': return { state: { ...state, overlay: { kind: 'none' } }, effects: [] };
     // Paused の入力（B1）。確認や入力のあるダイアログの上には重ねない。閉じるのは overlay.close（Esc）でもよい。
     case 'session.pause.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'pause', sessionId: i.id, from: i.from } }, effects: [] } : { state, effects: [] };
+    // 差分のダイアログ。読むだけなので、パレットなどの上には重ねてよいが、決めるまで閉じないダイアログの上には重ねない。
+    case 'diff.open': return overlayReplaceable(state.overlay) ? { state: { ...state, overlay: { kind: 'diff', sessionId: i.sessionId, file: i.file ?? null, source: null } }, effects: [] } : { state, effects: [] };
+    case 'diff.select': return { state: state.overlay.kind === 'diff' ? { ...state, overlay: { ...state.overlay, file: i.file } } : state, effects: [] };
+    case 'diff.source': return { state: state.overlay.kind === 'diff' ? { ...state, overlay: { ...state.overlay, source: i.source } } : state, effects: [] };
     case 'session.pause.close': return { state: state.overlay.kind === 'pause' ? { ...state, overlay: { kind: 'none' } } : state, effects: [] };
     default: return null;
   }

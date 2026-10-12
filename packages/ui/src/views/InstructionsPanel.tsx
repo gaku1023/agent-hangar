@@ -6,6 +6,7 @@ import { CopyButton } from './primitives/CopyButton.tsx';
 import { Dialog } from './primitives/Dialog.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { useEditorLabels } from './primitives/editorName.tsx';
 import { Markdown } from './primitives/Markdown.tsx';
 import { fadeIn, motionOn, popOut } from './primitives/motionKit.ts';
 import { usePresence } from './primitives/usePresence.ts';
@@ -17,6 +18,7 @@ import { usePresence } from './primitives/usePresence.ts';
  */
 function FileDialog(props: { projectId: string; row: InstructionRowProps | null; onClose: () => void }) {
   const t = useT();
+  const editorLabels = useEditorLabels();
   const emit = useEmit();
   const last = useRef<InstructionRowProps | null>(props.row);
   if (props.row) last.current = props.row;
@@ -41,7 +43,7 @@ function FileDialog(props: { projectId: string; row: InstructionRowProps | null;
         titleAside={<span className="instr-dialog-sub faint">{row.desc} · {row.meta}</span>}
         className="dialog-instr"
         onClose={props.onClose}
-        footer={<><span className="spacer" /><button type="button" className="btn" onClick={() => open(row.kind)}><Icon name="openEditor" />{t('projectScreen.instructions.openEditor')}</button></>}
+        footer={<><span className="spacer" /><button type="button" className="btn" onClick={() => open(row.kind)}><Icon name="openEditor" />{editorLabels.open}</button></>}
       >
         {row.markdown === null
           ? <p className="muted">{t('projectScreen.instructions.unreadable')}</p>
@@ -88,6 +90,7 @@ function LegacyNote(props: { projectId: string; text: string }) {
  */
 export function InstructionsPanel(props: { projectId: string; instructions: InstructionsProps }) {
   const t = useT();
+  const editorLabels = useEditorLabels();
   const emit = useEmit();
   const { state, rows, legacyNote } = props.instructions;
   const [selected, setSelected] = useState<InstructionFileKind | null>(null);
@@ -108,7 +111,7 @@ export function InstructionsPanel(props: { projectId: string; instructions: Inst
                 <span className="instr-name"><span className="mono">{r.name}</span><span className="instr-meta">{r.meta}</span></span>
                 <span className="instr-desc">{r.desc}</span>
               </button>
-              <button type="button" className="btn instr-open" aria-label={t('projectScreen.instructions.openEditorLabel', { name: r.name })} title={t('projectScreen.instructions.openEditor')}
+              <button type="button" className="btn instr-open" aria-label={editorLabels.openFor(r.name)} title={editorLabels.open}
                 onClick={() => emit({ type: 'instructions.openEditor', projectId: props.projectId, kind: r.kind })}><Icon name="openEditor" /></button>
             </li>
           ))}

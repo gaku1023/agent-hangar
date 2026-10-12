@@ -43,5 +43,6 @@ export function whichMux(whichFn: (cmd: string) => string | null = which): strin
 export function resolveToolPaths(s: Settings, whichFn: (cmd: string) => string | null = which): Settings {
   const claudePath = s.claudePath === undefined ? whichFn('claude') : s.claudePath;
   if (s.toolsResolved) return s.claudePath === undefined ? { ...s, claudePath } : s;
-  return { ...s, tmuxPath: s.tmuxPath ?? whichMux(whichFn), codePath: s.codePath ?? whichFn('code'), claudePath, toolsResolved: true };
+  // エディタは設定に場所を埋めない。開くたびに表の場所から探す（external/editors.ts）。
+  return { ...s, tmuxPath: s.tmuxPath ?? whichMux(whichFn), claudePath, toolsResolved: true };
 }

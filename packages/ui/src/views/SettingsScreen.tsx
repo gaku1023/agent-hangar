@@ -7,6 +7,7 @@ import { clientPlatform, muxInstallCommand, notifyBlockedKey, type VerifyLine } 
 import { JOIN_TOKEN_TTL_MS, type IntegrationCard, type SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { MuxSection } from './MuxSection.tsx';
+import { EditorSettings } from './EditorSettings.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -108,7 +109,7 @@ function PathField(props: { field: keyof SettingsDto; label: string; value: stri
 }
 
 /** 準備の帯が指す欄と、それを包む要素の id。パスの欄は PathField の外箱、互換は節そのもの。 */
-const FIELD_BOX: Record<SettingsField, string> = { workspace: 'settings-field-workspaceRoot', tmux: 'settings-field-tmuxPath', claude: 'settings-field-claudePath', compat: 'settings-compat' };
+const FIELD_BOX: Record<SettingsField, string> = { workspace: 'settings-field-workspaceRoot', tmux: 'settings-field-tmuxPath', claude: 'settings-field-claudePath', compat: 'settings-compat', editor: 'settings-field-editor' };
 
 /** 札（✓ 登録済み、まだです）。形でも分け、色だけに頼らない。 */
 function Badge(props: { ok: boolean | null; yes: string; no: string }) {
@@ -301,6 +302,8 @@ export function SettingsScreen(props: SettingsProps) {
       {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。選択肢は画面を開いている OS のものだけ。 */}
       <SetRow title={t('settings.general.terminal.title')} desc={props.terminalDesc}
         control={<Segmented label={t('settings.general.terminal.title')} value={props.terminalApp} options={props.terminalOptions.map((o) => ({ ...o, lead: <Icon name={TERMINAL_ICON[o.value]} /> }))} onChange={(v) => setNow({ terminalApp: v as TerminalApp })} />} />
+      {/* エディタ。ターミナルアプリと同じく好みで選ぶものなので、その下に置く（試作の 1-1 の A）。 */}
+      <EditorSettings editor={props.editor} mark={props.save.editor} />
       {/* Claude Code の保持期間。押しても保存せず、差分を見せる確認を開く。hangar が Claude Code の設定を書くのはここだけである。 */}
       {props.retention && (
         <SetRow title={t('settings.general.retention.title')}
@@ -537,8 +540,13 @@ export function SettingsScreen(props: SettingsProps) {
         <div className="grid2">
           <PathField field="tmuxPath" label={t('settings.tools.tmux')} value={props.tmuxPath} nullable placeholder={t('settings.tools.tmuxPlaceholder', { install: muxInstallCommand(clientPlatform()) })} line={props.verify.tmux} mark={props.save.tmuxPath} />
           <PathField field="claudePath" label={t('settings.tools.claude')} value={props.claudePath} nullable placeholder={t('settings.tools.claudePlaceholder')} line={props.verify.claude} mark={props.save.claudePath} />
-          <PathField field="codePath" label={t('settings.tools.code')} value={props.codePath} nullable placeholder={t('settings.tools.codePlaceholder')} line={props.verify.code} mark={props.save.codePath} />
           <PathField field="nodePath" label={t('settings.tools.node')} value={props.nodePath} nullable placeholder={t(win ? 'settings.tools.nodePlaceholderWindows' : 'settings.tools.nodePlaceholder')} line={props.verify.node} mark={props.save.nodePath} />
+          {/* git は設定の欄が無いので、見つけた場所と版だけを読むだけの行で出す。 */}
+          <div className="field path-field" id="settings-field-git">
+            <span>{t('settings.tools.git')}</span>
+            <VerifyRow line={props.verify.git} />
+            <span className="faint">{t('settings.tools.gitDesc')}</span>
+          </div>
         </div>
         <div className="faint" style={{ marginTop: 4 }}>{t(win ? 'settings.tools.nodeNoteWindows' : 'settings.tools.nodeNote')}</div>
       </section>

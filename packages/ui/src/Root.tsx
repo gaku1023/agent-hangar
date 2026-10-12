@@ -17,6 +17,7 @@ import { presentProject } from './presenters/project.ts';
 import { presentProjects } from './presenters/projects.ts';
 import { presentPromote, presentPromoted } from './presenters/promote.ts';
 import { presentRetentionDialog } from './presenters/retentionDialog.ts';
+import { presentDiffDialog } from './presenters/git.ts';
 import { presentSession } from './presenters/session.ts';
 import { presentSettings } from './presenters/settings.ts';
 import { presentShell } from './presenters/shell.ts';
@@ -45,6 +46,7 @@ import { ResolveProjectDialog } from './views/ResolveProjectDialog.tsx';
 import { SessionScreen } from './views/SessionScreen.tsx';
 import { SettingsScreen } from './views/SettingsScreen.tsx';
 import { ShortcutsDialog } from './views/ShortcutsDialog.tsx';
+import { DiffDialog } from './views/DiffDialog.tsx';
 import { Shell } from './views/Shell.tsx';
 import { SwipeHint } from './views/SwipeHint.tsx';
 import { blocksSwipe } from './views/swipeTarget.ts';
@@ -52,6 +54,9 @@ import { motionMs } from './views/primitives/motion.ts';
 import { TerminalHostContext } from './views/TerminalPane.tsx';
 import { CopiedContext } from './views/primitives/CommandLine.tsx';
 import { LanguageRoot } from './views/primitives/language.tsx';
+import { EditorNameRoot } from './views/primitives/editorName.tsx';
+import { editorName, presentEditorMissing } from './presenters/editor.ts';
+import { EditorMissing } from './views/EditorMissing.tsx';
 import { PromptAssistContext, type PromptAssist } from './views/primitives/promptAssist.ts';
 import { ToastStack } from './views/ToastStack.tsx';
 
@@ -371,6 +376,10 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   const configDialog = presentConfigDialog(state, store);
   // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
   const muxGuide = presentMuxGuide(state, store);
+  // 差分のダイアログ（git の表示）。中身は Store の gitChanges、gitDiffs、gitEdits から組む。
+  const diffDialog = presentDiffDialog(state, store);
+  // エディタが見つからなくて断られた開く操作（試作の 1-3 の B）。
+  const editorMissing = presentEditorMissing(store, translatorOf(store));
   const overlays = (
     <>
       {unresolvedId && <ResolveProjectDialog {...presentResolveDialog(store, unresolvedId)} candidates={candidates} onQueryCandidates={queryCandidates} />}
@@ -385,18 +394,22 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       {overlay.kind === 'retention' && <RetentionDialog {...presentRetentionDialog(state, store, now)!} />}
       {overlay.kind === 'shortcuts' && <ShortcutsDialog />}
       {muxGuide && <MuxGuideDialog {...muxGuide} />}
+      {diffDialog && <DiffDialog key={diffDialog.sessionId} {...diffDialog} />}
+      {editorMissing && <EditorMissing {...editorMissing} />}
       <ToastStack {...presentToasts(state, store, now)} />
       <SwipeHint ref={swipeHintRef} />
     </>
   );
 
   return (
-    <ActionRoot onAction={rt.emit}>
+    <ActionRoot onAction={rt.emit} background={rt.emit}>
       <TerminalHostContext.Provider value={props.terminals}>
         <CopiedContext.Provider value={state.copied}>
           <PromptAssistContext.Provider value={promptAssist}>
             <LanguageRoot language={storeLanguage(store)}>
-              <FindRoot store={finds}><Shell {...shell} overlays={overlays}>{body}</Shell></FindRoot>
+              <EditorNameRoot name={editorName(store.settings)}>
+                <FindRoot store={finds}><Shell {...shell} overlays={overlays}>{body}</Shell></FindRoot>
+              </EditorNameRoot>
             </LanguageRoot>
           </PromptAssistContext.Provider>
         </CopiedContext.Provider>

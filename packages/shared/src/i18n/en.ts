@@ -8,6 +8,9 @@ import { configSyncEn } from './en/configSync.ts';
 import { configSyncUiEn } from './en/configSyncUi.ts';
 import { confirmEn } from './en/confirm.ts';
 import { externalEn } from './en/external.ts';
+import { gitEn } from './en/git.ts';
+import { gitUiEn } from './en/gitUi.ts';
+import { editorEn } from './en/editor.ts';
 import { headerEn } from './en/header.ts';
 import { homeEn } from './en/home.ts';
 import { httpEn } from './en/http.ts';
@@ -68,6 +71,9 @@ export const en: Dictionary = {
   ...configSyncEn,
   ...configSyncUiEn,
   ...confirmEn,
+  ...gitEn,
+  ...gitUiEn,
+  ...editorEn,
   ...externalEn,
   ...headerEn,
   ...homeEn,

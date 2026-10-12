@@ -5,12 +5,14 @@ import { isComposing } from './ime.ts';
 import { FoldBox } from './primitives/FoldBox.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { useEditorLabels } from './primitives/editorName.tsx';
 import { motionOn } from './primitives/motionKit.ts';
 
 /** 1 枚のカード。クリックはサーバ側の `open <url>` で既定のブラウザに開く。 */
 function ArtifactCard(props: { a: ArtifactCardProps }) {
   const emit = useEmit();
   const t = useT();
+  const editorLabels = useEditorLabels();
   const { a } = props;
   return (
     <div className="card artifact" role="link" tabIndex={0} onClick={() => emit({ type: 'artifact.open', id: a.id })} onKeyDown={(e) => { if (e.key === 'Enter') emit({ type: 'artifact.open', id: a.id }); }}>
@@ -23,7 +25,7 @@ function ArtifactCard(props: { a: ArtifactCardProps }) {
         <span>{a.lastPublished}</span>
         <span>{t('projectScreen.artifact.versions', { n: a.versionCount })}</span>
         <span className="spacer" />
-        {a.canOpenEditor && <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'artifact.openEditor', id: a.id }); }} onKeyDown={(e) => e.stopPropagation()}><Icon name="openEditor" />{t('projectScreen.artifact.openEditor')}</button>}
+        {a.canOpenEditor && <button className="btn" onClick={(e) => { e.stopPropagation(); emit({ type: 'artifact.openEditor', id: a.id }); }} onKeyDown={(e) => e.stopPropagation()}><Icon name="openEditor" />{editorLabels.open}</button>}
       </div>
     </div>
   );

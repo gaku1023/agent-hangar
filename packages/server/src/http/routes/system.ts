@@ -7,7 +7,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { toSettingsDto } from './settings.ts';
 
 /** 索引、準備の確かめ、互換、要約器の経路が使う依存。 */
-export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'summary'> & LanguageDeps;
+export type SystemRouteDeps = Pick<AppDeps, 'indexer' | 'hub' | 'settings' | 'shellHook' | 'readiness' | 'findMux' | 'updateSettings' | 'compat' | 'summary' | 'external'> & LanguageDeps;
 
 /**
  * この PC の道具立ての経路。
@@ -33,6 +33,10 @@ export function systemRoutes(api: Hono, deps: SystemRouteDeps): void {
     const body: MuxRecheckDto = { readiness: await deps.readiness(), settings: toSettingsDto(deps.settings()) };
     return c.json(body);
   });
+  // エディタの選択。見つけ方はファイルの有無と PATH だけで、版を読む子プロセスは 3 秒で切る（同じファイルなら覚えた版）。
+  api.get('/editors', async (c) => c.json(await deps.external.editors()));
+  // 「テスト」。見本のファイルを書いて 3 行目を開く。開けなかった理由は答えの中に入れ、200 で返す（画面は欄の下に出す）。
+  api.post('/editor/test', async (c) => c.json(await deps.external.testEditor()));
   api.get('/compat', async (c) => c.json(await deps.compat()));
   api.get('/summarizer/models', async (c) => c.json({ models: await deps.summary.listModels() }));
   api.post('/summarizer/test', async (c) => c.json(await deps.summary.test()));

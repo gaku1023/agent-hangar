@@ -1,4 +1,5 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
+import { presentGitChip, type GitChipProps } from './git.ts';
 import { isReturnOn, isReturnTime, localDate, overdueDays, quietLive, returnDue, returnPastMinutes, type UiAction, type LiveStatus, type ProjectStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
@@ -29,7 +30,9 @@ export type AttentionCard = { id: string; name: string; projectName: string | nu
  * activity があれば墨の帯にツールと対象を、無ければ note の一言を出す。
  * aside は裏だけ動いていること。そのときは activity も intent も出さず、note で裏のものと指揮役が空いていることを言う。
  */
-export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string };
+export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string;
+  /** git の札（試作の 2-2 の A）。右端の、経過とコンテキストの左に置く。まだ届いていないものと git でないものは null。省けば出さない。 */
+  git?: GitChipProps | null };
 /**
  * 今日戻るの札（C1）。要対応の札の並びに、入力待ちの札の後ろで置く。
  * 戻る日が今日か過ぎた Paused 1 件につき 1 枚。戻る日が欠けたり壊れたりしたものも、利用者が決めるまで出す（returnOn と overdueDays は null）。
@@ -131,7 +134,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
     const said = store.liveDigests[s.id]?.intent;
     const intent = working && said && said.inThisTurn ? said.text : null;
-    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent) };
+    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent), git: presentGitChip(t, store.git, s.id, store.sessions) };
   });
 
   return { attention, returning, confirm, running };
@@ -163,7 +166,9 @@ export type BandTrail = { text: string; tone?: 'wait' | 'busy' };
  * badge は名前の横に添える小さな札で、始める前の確認の「任意」に使う。
  * どの群の行もこの形にするので、群を足すときに View を触らずに済む。
  */
-export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[] };
+export type BandRow = { key: string; lead: BandLead; name: string; badge?: string | null; context: string | null; text: string; detail: string | null; tone: 'wait' | null; trail: BandTrail[]; open: UiAction | null; actions: BandAction[];
+  /** 右端の git の札（実行中の行だけ）。trail の左に置く。 */
+  git?: { id: string; chip: GitChipProps } | null };
 /**
  * 帯の群 1 つ。錠剤 1 つとその引き出しにあたる。
  * count は錠剤の数で、0 なら薄く出して押せない。summary は引き出しの見出しに添える内訳である。
@@ -229,7 +234,7 @@ function runningRow(t: Translate, r: RunningCard): BandRow {
   const trail: BandTrail[] = [];
   if (working) trail.push({ text: t('home.band.working', { time: r.elapsed }), tone: 'busy' });
   if (r.contextPercent !== null) trail.push({ text: r.contextLabel });
-  return { key: `run:${r.id}`, lead: { kind: 'dot', live: r.live, aside: r.aside }, name: r.name, context: r.meta, text, detail, tone: null, trail, open: { type: 'session.open', id: r.id }, actions: [] };
+  return { key: `run:${r.id}`, lead: { kind: 'dot', live: r.live, aside: r.aside }, name: r.name, context: r.meta, text, detail, tone: null, trail, open: { type: 'session.open', id: r.id }, actions: [], git: r.git ? { id: r.id, chip: r.git } : null };
 }
 
 function confirmRow(t: Translate, c: ConfirmCard): BandRow {

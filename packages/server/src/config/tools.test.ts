@@ -50,11 +50,12 @@ describe('whichMux', () => {
 });
 
 describe('resolveToolPaths', () => {
-  const base: Settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
+  const base: Settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false };
   it('null の項目だけを埋める', () => {
-    const r = resolveToolPaths({ ...base, codePath: '/keep/code' }, (c) => (c === 'tmux' || c === 'psmux' ? '/opt/homebrew/bin/tmux' : '/found/' + c));
+    const r = resolveToolPaths({ ...base, tmuxPath: null }, (c) => (c === 'tmux' || c === 'psmux' ? '/opt/homebrew/bin/tmux' : '/found/' + c));
     expect(r.tmuxPath).toBe('/opt/homebrew/bin/tmux');
-    expect(r.codePath).toBe('/keep/code');
+    // エディタの場所は埋めない（開くたびに表の場所から探す）。
+    expect(r.editor).toEqual(base.editor);
   });
   it('見つからなければ null のまま', () => {
     expect(resolveToolPaths(base, () => null)).toEqual({ ...base, claudePath: null, toolsResolved: true });

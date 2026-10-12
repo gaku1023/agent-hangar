@@ -84,6 +84,15 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
     expect(sent.filter((e) => e.type === 'transcript.appended')).toEqual([{ type: 'transcript.appended', sessionId: s, count: 1 }]);
   });
 
+  it('本文が伸びたときだけ、git の表示に読み直しを頼む', () => {
+    const s = ensureSession(db, '11111111-1111-4111-8111-111111111113', outside, 'd');
+    const appended: string[] = [];
+    const h = createSessionChangeHandler({ db, deviceId: 'd', hub: publisher, started: () => started, workspaceRoot: () => ws, onAppended: (id) => appended.push(id) });
+    h(changed(s));
+    h(changed(s, { appended: 2 }));
+    expect(appended).toEqual([s]);
+  });
+
   it('起動後にワークスペース直下の新しいフォルダのセッションが現れたら、その場でプロジェクトにする', () => {
     // 起動の後で作ったフォルダ。起動時の全走査には載っていない。
     const fresh = path.join(ws, 'fresh');

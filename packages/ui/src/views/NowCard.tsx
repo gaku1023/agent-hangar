@@ -2,9 +2,12 @@ import { useLayoutEffect, useRef } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { CardLane, CardStep, NowCardProps } from '../presenters/live.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
+import type { SessionGitView } from '../presenters/session.ts';
+import { GitFilesPop } from './GitFiles.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { useEditorLabels } from './primitives/editorName.tsx';
 import { Popover } from './primitives/Popover.tsx';
 import { useCardHeight } from './useCardHeight.ts';
 
@@ -21,7 +24,7 @@ const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const
  * 背は中身に合わせ、伸びるのはすぐ、縮むのは節目だけにする（useCardHeight と usePhaseKey）。
  * 中身（意図の折り返し、手の数、問い）のたびに縮めると、下の目次が押されて跳ねるためである。
  */
-export function NowCard(props: NowCardProps & { sessionId: string }) {
+export function NowCard(props: NowCardProps & { sessionId: string; /** git の札（試作の 2-3 の A）。押すと変更したファイルの一覧が開く。 */ git?: SessionGitView | null }) {
   const t = useT();
   const dot = props.tone === 'wait' ? 'wait' : props.tone === 'busy' ? 'busy' : props.tone === 'aside' ? 'aside' : 'idle';
   const fresh = useFreshKeys(props.sessionId, props.steps.map((s) => s.key));
@@ -54,11 +57,12 @@ export function NowCard(props: NowCardProps & { sessionId: string }) {
             {props.steps.map((s) => <StepItem key={s.key} step={s} fresh={fresh.has(s.key)} />)}
           </ul>
         )}
-        {(hidden > 0 || props.lanes.count > 0 || props.artifacts.count > 0) && (
+        {(hidden > 0 || props.lanes.count > 0 || props.artifacts.count > 0 || props.git?.chip) && (
           <div className="nc-chips">
             {hidden > 0 && <AllSteps steps={props.stepsAll} hidden={hidden} />}
             {props.lanes.count > 0 && <Lanes sessionId={props.sessionId} lanes={props.lanes} />}
             {props.artifacts.count > 0 && <Artifacts items={props.artifacts.items} />}
+            {props.git?.chip && <GitFilesPop sessionId={props.sessionId} chip={props.git.chip} files={props.git.files} />}
           </div>
         )}
       </div>
@@ -159,6 +163,7 @@ function Lanes(props: { sessionId: string; lanes: NowCardProps['lanes'] }) {
 /** アーティファクトの札。押すと一覧が開き、題名を押すと既定のブラウザで、鉛筆を押すと VS Code で開く。 */
 function Artifacts(props: { items: ArtifactCardProps[] }) {
   const t = useT();
+  const editorLabels = useEditorLabels();
   const emit = useEmit();
   const label = t('session.strip.artifacts.label');
   return (
@@ -176,7 +181,7 @@ function Artifacts(props: { items: ArtifactCardProps[] }) {
                   <span className="nc-art-when faint">{t('session.artifact.lastPublished', { when: a.lastPublished })}</span>
                 </button>
                 {a.canOpenEditor && (
-                  <button type="button" className="btn btn-sm btn-icon btn-ghost" aria-label={t('session.artifact.openEditor', { title: a.title })} title={t('session.artifact.openEditor', { title: a.title })} onClick={() => { emit({ type: 'artifact.openEditor', id: a.id }); close(); }}>
+                  <button type="button" className="btn btn-sm btn-icon btn-ghost" aria-label={editorLabels.openFor(a.title)} title={editorLabels.openFor(a.title)} onClick={() => { emit({ type: 'artifact.openEditor', id: a.id }); close(); }}>
                     <Icon name="openEditor" />
                   </button>
                 )}

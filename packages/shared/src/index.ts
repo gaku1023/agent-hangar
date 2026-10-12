@@ -14,6 +14,8 @@ export * from './compat.ts';
 export * from './claudeCompat.ts';
 export * from './cloudLimit.ts';
 export * from './terminal.ts';
+export * from './editor.ts';
+export * from './git.ts';
 export * from './setup.ts';
 export * from './i18n/language.ts';
 export * from './i18n/keys.ts';

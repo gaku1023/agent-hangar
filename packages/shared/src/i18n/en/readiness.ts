@@ -3,7 +3,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const readinessEn: AreaDictionary<typeof readinessKeys> = {
   'readiness.fix.claude': 'Enter the absolute path of the claude command',
-  'readiness.fix.code': 'Install the code command from VS Code',
+  'readiness.fix.git': 'Install git. hangar works without it, but branches and uncommitted counts are not shown',
   'readiness.fix.node': 'Enter the full path to the node executable of a Node with the same major version and architecture as the bundled server',
   'readiness.fix.workspace': 'Enter the folder that holds the directories with your sessions',
   'readiness.problem.unset': 'Not found',

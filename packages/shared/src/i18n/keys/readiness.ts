@@ -2,7 +2,7 @@ import type { MessageSpec } from '../messageSpec.ts';
 
 export const readinessKeys = {
   'readiness.fix.claude': [],
-  'readiness.fix.code': [],
+  'readiness.fix.git': [],
   'readiness.fix.node': [],
   'readiness.fix.workspace': [],
   'readiness.problem.unset': [],

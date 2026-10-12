@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffHunk, diffOps, snippetStart } from './diff.ts';
+import { diffHunk, diffOps, firstChangedLine, parseUnifiedDiff, snippetStart } from './diff.ts';
 
 describe('diffOps', () => {
   it('行ごとに、変わらない行と消えた行と足した行を並べる', () => {
@@ -72,5 +72,31 @@ describe('snippetStart', () => {
   it('抜粋に見つからなければ null', () => {
     expect(snippetStart(result, 'nothing like this')).toBeNull();
     expect(snippetStart('The file /w/a has been updated successfully.', 'x')).toBeNull();
+  });
+});
+
+describe('parseUnifiedDiff', () => {
+  it('統合形式の本文を、見出しと行番号の付いた行に直す', () => {
+    const text = '@@ -38,4 +38,5 @@ export function validate(value: string) {\n export function validate(value: string) {\n-  if (value === \'\') return 1;\n+  if (value.trim() === \'\') return 1;\n+  if (value.length > 254) return 2;\n   return 0;\n\\ No newline at end of file\n@@ -80,2 +81,2 @@\n-a\n+b\n';
+    expect(parseUnifiedDiff(text)).toEqual([
+      { header: '@@ -38,4 +38,5 @@ export function validate(value: string) {', lines: [
+        { t: 'ctx', old: 38, new: 38, text: 'export function validate(value: string) {' },
+        { t: 'del', old: 39, new: null, text: "  if (value === '') return 1;" },
+        { t: 'add', old: null, new: 39, text: "  if (value.trim() === '') return 1;" },
+        { t: 'add', old: null, new: 40, text: '  if (value.length > 254) return 2;' },
+        { t: 'ctx', old: 40, new: 41, text: '  return 0;' },
+      ] },
+      { header: '@@ -80,2 +81,2 @@', lines: [{ t: 'del', old: 80, new: null, text: 'a' }, { t: 'add', old: null, new: 81, text: 'b' }] },
+    ]);
+  });
+  it('空の本文は空の並び、見出しの無い行は捨てる', () => {
+    expect(parseUnifiedDiff('')).toEqual([]);
+    expect(parseUnifiedDiff('diff --git a/x b/x\n+x\n')).toEqual([]);
+  });
+  it('最初に変わった行（新しい側）を返す。無ければ見出しの始まり、それも無ければ 1', () => {
+    const h = parseUnifiedDiff('@@ -10,3 +10,3 @@\n a\n-b\n+B\n c\n');
+    expect(firstChangedLine(h)).toBe(11);
+    expect(firstChangedLine(parseUnifiedDiff('@@ -10,2 +9,1 @@\n a\n-b\n'))).toBe(9);
+    expect(firstChangedLine([])).toBe(1);
   });
 });

@@ -1,6 +1,6 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ProjectRailSection } from '@agent-hangar/shared';
-import { useEmit } from '../action/chain.tsx';
+import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { ProjectProps } from '../presenters/project.ts';
 import { ArtifactCards } from './ArtifactCards.tsx';
 import { InstructionsPanel } from './InstructionsPanel.tsx';
@@ -11,10 +11,13 @@ import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
 import { usePresence } from './primitives/usePresence.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { useEditorLabels } from './primitives/editorName.tsx';
 import { StatusSelect } from './primitives/StatusSelect.tsx';
 import { SessionList } from './SessionList.tsx';
 import { TodoList } from './TodoList.tsx';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
+import { GitChip } from './GitChip.tsx';
+import type { ProjectGitProps } from '../presenters/git.ts';
 
 /** アーティファクトの節で、はじめに出す件数（新しい方から）。残りは「すべて表示」で広げる。 */
 const ARTIFACT_LIMIT = 3;
@@ -42,6 +45,30 @@ function RailSection(props: { section: ProjectRailSection; title: string; aside?
 }
 
 /**
+ * 右パネルの「ブランチと worktree」（試作の 2-4 の B）。元の作業ツリーと、git worktree で足した作業ツリーを 1 行ずつ並べ、
+ * 未コミットの件数、ブランチ、そこで実行中のセッションの数を出す。消すのは hangar ではしない。
+ */
+function GitRail(props: { git: ProjectGitProps }) {
+  const t = useT();
+  const g = props.git;
+  if (g.state === 'loading') return <div className="faint">{t('gitUi.rail.loading')}</div>;
+  if (g.state === 'nogit') return <div className="faint">{t('gitUi.rail.noGit')}</div>;
+  return (
+    <div className="git-rail">
+      <ul className="git-rail-list">
+        {g.rows.map((r) => (
+          <li key={r.key} className="git-rail-row" title={r.path}>
+            <span className="git-rail-1"><Icon name={r.worktree ? 'worktree' : 'branch'} /><span className="mono git-rail-name">{r.name}</span><span className="spacer" />{r.value !== '' && <span className={r.dirty ? 'gitchip-val num' : 'gitchip-val gitchip-quiet num'}>{r.value}</span>}</span>
+            <span className="git-rail-2 faint"><span className="mono">{r.branch}</span> · {r.sessions}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="faint git-rail-note"><Icon name="info" />{t('gitUi.rail.note')}</div>
+    </div>
+  );
+}
+
+/**
  * 1 つのプロジェクトの画面（Q3、左右に割る）。
  * 左は、ホームと同じ部品（ステータスのタブ、検索の欄、平らな行、ページ送り）で、このプロジェクトのセッションだけを出す。
  * 右パネルは TODO（見出しに確認待ちの数）、指示とメモリ、アーティファクトで、パネルごと閉じられ、節ごとにも折りたためる。
@@ -54,7 +81,11 @@ function RailSection(props: { section: ProjectRailSection; title: string; aside?
 export function ProjectScreen(props: ProjectProps) {
   const emit = useEmit();
   const t = useT();
+  const editorLabels = useEditorLabels();
   const [railOpen, setRailOpen] = useState(true);
+  // ブランチと worktree は、画面を開いたときとプロジェクトを替えたときに読む（git の表示）。
+  const bg = useBackgroundEmit();
+  useEffect(() => { if (!props.isScratch && !props.notFound) bg({ type: 'project.git.load', projectId: props.id }); }, [bg, props.id, props.isScratch, props.notFound]);
   const boxRef = useRef<HTMLDivElement>(null);
   const pane = usePresence<HTMLElement>(railOpen, (inner) => (boxRef.current ? playPaneMotion(boxRef.current, PANE_SHAPE.rail.open, inner, false) : null));
   const paneFirst = useRef(true);
@@ -76,13 +107,15 @@ export function ProjectScreen(props: ProjectProps) {
           {/* 新しいセッションの主ボタンはヘッダーにあり、この画面ではこのプロジェクトを最初から選ぶ（presenters/newSession.ts）。同じ主ボタンを見出しの行にも並べない。
               スクラッチは別の入口なので残す。 */}
           {props.isScratch && <button className="btn btn-primary" onClick={() => emit({ type: 'session.new.open', scratch: true })}><Icon name="add" /><span className="btn-label">{t('projectScreen.quick.start')}</span></button>}
-          {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openEditor', id: props.id })}><Icon name="openEditor" /><span className="btn-label">{t('projectScreen.open.editor')}</span></button>}
+          {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openEditor', id: props.id })}><Icon name="openEditor" /><span className="btn-label">{editorLabels.open}</span></button>}
           {!props.isScratch && <button className="btn" onClick={() => emit({ type: 'project.openTerminalApp', id: props.id })}><Icon name="openTerminal" /><span className="btn-label">{t('projectScreen.open.terminal')}</span></button>}
           <ProjectInfo id={props.id} name={props.name} path={props.path} isScratch={props.isScratch} info={props.info} />
           <button className="btn" aria-label={railOpen ? t('projectScreen.rail.close') : t('projectScreen.rail.open')} onClick={() => setRailOpen(!railOpen)}><Icon name={railOpen ? 'paneClose' : 'paneOpen'} /></button>
         </PageHeading>
         <div className="project-path">
           <span className="mono faint">{props.path ?? t('projectScreen.path.none')}</span>
+          {/* ルートのブランチと件数（試作の 2-4 の A）。場所の情報の隣に置き、見出しの行は増やさない。 */}
+          {props.git?.root && <GitChip id={`proj:${props.id}`} chip={props.git.root} />}
           {/* パスはあるが、この PC で見つからない。押すと場所の再指定へ進む（プロジェクトの一覧の赤い札と同じ入口）。 */}
           {!props.resolved && props.path !== null && (
             <button type="button" className="project-path-warn" onClick={() => emit({ type: 'project.resolve.open', id: props.id })}><Icon name="warning" />{t('projectScreen.path.missing')}</button>
@@ -106,6 +139,11 @@ export function ProjectScreen(props: ProjectProps) {
             {/* 広げた「すべて表示」は覚えないので、プロジェクトが替わると（パネルごと作り直して）3 件に戻る。 */}
             <ArtifactCards projectId={props.id} artifacts={props.artifacts} canAdd addError={props.artifactAddError} limit={ARTIFACT_LIMIT} />
           </RailSection>
+          {!props.isScratch && props.git && (
+            <RailSection section="git" title={t('gitUi.rail.title')} folded={props.railFolded} projectId={props.id}>
+              <GitRail git={props.git} />
+            </RailSection>
+          )}
         </aside>
       )}
       </div>

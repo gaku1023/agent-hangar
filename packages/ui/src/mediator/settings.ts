@@ -9,7 +9,7 @@ function mark(state: State, field: string, next: SaveMark | undefined): State {
 }
 
 /** 変わると準備の確かめ（道具のパス、作業フォルダ、claude の置き場）の答えが変わる欄。 */
-const READINESS_KEYS: ReadonlySet<string> = new Set(['claudePath', 'tmuxPath', 'nodePath', 'codePath', 'workspaceRoot', 'claudeDir']);
+const READINESS_KEYS: ReadonlySet<string> = new Set(['claudePath', 'tmuxPath', 'nodePath', 'editor', 'workspaceRoot', 'claudeDir']);
 
 /**
  * settings 領域：設定の保存と、準備の確かめと、殻に頼む操作。

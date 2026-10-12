@@ -20,7 +20,21 @@ export function ActionBoundary(props: { handle: ActionHandler; children: ReactNo
   return <ActionContext.Provider value={dispatch}>{props.children}</ActionContext.Provider>;
 }
 
-/** 木の頂点。届いた UiAction をすべて Mediator へ渡す。 */
-export function ActionRoot(props: { onAction: Emit; children: ReactNode }) {
-  return <ActionContext.Provider value={props.onAction}>{props.children}</ActionContext.Provider>;
+const noop: Emit = () => {};
+/**
+ * 画面が出すだけの裏の読み込み（git の表示の取得：見えている行の git.watch、開いた画面の差分の一覧とプロジェクトの git）。
+ * 利用者の操作ではないので、操作の道（useEmit と ActionBoundary）とは分け、Root だけが Runtime へつなぐ。無ければ何もしない。
+ */
+const BackgroundContext = createContext<Emit>(noop);
+export function useBackgroundEmit(): Emit {
+  return useContext(BackgroundContext);
+}
+
+/** 木の頂点。届いた UiAction をすべて Mediator へ渡す。background は裏の読み込みの行き先（useBackgroundEmit）。 */
+export function ActionRoot(props: { onAction: Emit; background?: Emit; children: ReactNode }) {
+  return (
+    <BackgroundContext.Provider value={props.background ?? noop}>
+      <ActionContext.Provider value={props.onAction}>{props.children}</ActionContext.Provider>
+    </BackgroundContext.Provider>
+  );
 }

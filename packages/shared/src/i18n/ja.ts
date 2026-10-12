@@ -8,6 +8,9 @@ import { configSyncJa } from './ja/configSync.ts';
 import { configSyncUiJa } from './ja/configSyncUi.ts';
 import { confirmJa } from './ja/confirm.ts';
 import { externalJa } from './ja/external.ts';
+import { gitJa } from './ja/git.ts';
+import { gitUiJa } from './ja/gitUi.ts';
+import { editorJa } from './ja/editor.ts';
 import { headerJa } from './ja/header.ts';
 import { homeJa } from './ja/home.ts';
 import { httpJa } from './ja/http.ts';
@@ -68,6 +71,9 @@ export const ja: Dictionary = {
   ...configSyncJa,
   ...configSyncUiJa,
   ...confirmJa,
+  ...gitJa,
+  ...gitUiJa,
+  ...editorJa,
   ...externalJa,
   ...headerJa,
   ...homeJa,

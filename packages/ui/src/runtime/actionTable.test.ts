@@ -4,7 +4,7 @@ import type { MediatedAction } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
 import { fakeApiExtras } from '../test/fakeApi.ts';
-import type { ApiClient } from './api.ts';
+import { EditorMissingApiError, type ApiClient } from './api.ts';
 import { FELL_BACK, FELL_BACK_WINDOWS, LONG_TOAST_MS, actionCall, actionTable, isTableAction, type TableAction } from './actionTable.ts';
 
 /** 表が使う API だけの偽物。表に無い API を呼べば、型が合わなくなるか、無い関数を呼んで落ちる。 */
@@ -22,8 +22,10 @@ async function runRow(action: TableAction, api: ApiClient, store: Store = initia
     return { called: true as const, during, store: done.apply ? done.apply(during) : during, toast: done.toast ?? null, toastHoldMs: done.toastHoldMs ?? null };
   } catch (e) {
     // 失敗の行き先を持つ行は Store に書く。持たない行は Runtime がトーストにするので、ここでは投げ直す。
-    if (!call.failed) throw e;
-    return { called: true as const, during, store: call.failed(during, e), toast: null, toastHoldMs: null };
+    // failed が null を返した失敗も、Runtime がトーストにする。
+    const next = call.failed?.(during, e) ?? null;
+    if (!next) throw e;
+    return { called: true as const, during, store: next, toast: null, toastHoldMs: null };
   }
 }
 
@@ -43,8 +45,8 @@ describe('表の鍵', () => {
   it('表に載っているのは、API を 1 回呼ぶだけの UiAction である', () => {
     expect(Object.keys(actionTable).sort()).toEqual([
       'account.choose', 'account.login', 'account.login.cancel', 'account.refresh', 'account.update', 'accounts.load',
-      'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'instructions.load', 'instructions.openEditor', 'memo.save',
-      'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
+      'artifact.add', 'artifact.open', 'artifact.openEditor', 'configSync.order.cancel', 'configSync.unsent.send', 'editor.test', 'editors.load', 'git.changes.load', 'git.diff.load', 'git.edits.load', 'instructions.load', 'instructions.openEditor', 'memo.save',
+      'project.git.load', 'project.openEditor', 'project.openTerminalApp', 'project.rename', 'project.setStatus',
       'session.openEditor', 'session.openFile', 'session.openTerminalApp', 'session.state.reject', 'summarizer.test', 'summary.regenerate',
       'sync.now', 'sync.pause',
     ]);
@@ -70,7 +72,7 @@ describe('プロジェクト', () => {
   it('エディタで開く', async () => {
     const api = fakeApi();
     await runRow({ type: 'project.openEditor', id: 'p1' }, api);
-    expect(vi.mocked(api.projectOpenEditor).mock.calls).toEqual([['p1']]);
+    expect(vi.mocked(api.projectOpenEditor).mock.calls).toEqual([['p1', undefined]]);
   });
   it('ターミナルで開く。iTerm2 から Terminal.app に落ちたときだけ知らせる', async () => {
     const api = fakeApi();
@@ -112,8 +114,8 @@ describe('セッション', () => {
     const api = fakeApi({ openEditor });
     await runRow({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts' }, api);
     await runRow({ type: 'session.openEditor', sessionId: 's1' }, api);
-    // ファイルの無いほうは、引数を 1 つだけで呼ぶ。
-    expect(openEditor.mock.calls).toEqual([['s1', '/w/a.ts'], ['s1']]);
+    // ファイルの無いほうは、ファイルを渡さない。行と今回だけのエディタは、あれば添える。
+    expect(openEditor.mock.calls).toEqual([['s1', '/w/a.ts', { line: undefined, once: undefined }], ['s1', undefined, { once: undefined }]]);
   });
   it('提案の却下は rejectSessionState を呼び、応答は Store に入れない', async () => {
     const api = fakeApi();
@@ -143,7 +145,7 @@ describe('作業台', () => {
     expect(vi.mocked(api.instructions).mock.calls).toEqual([['p1']]);
     expect(r.store.instructions).toEqual({ p1: { projectId: 'p1', available: true, files: [] } });
     const o = await runRow({ type: 'instructions.openEditor', projectId: 'p1', kind: 'memory' }, api);
-    expect(vi.mocked(api.openInstruction).mock.calls).toEqual([['p1', 'memory']]);
+    expect(vi.mocked(api.openInstruction).mock.calls).toEqual([['p1', 'memory', undefined]]);
     expect(o.store).toBe(o.during);
   });
   it('アーティファクトを開く、エディタで開く', async () => {
@@ -151,7 +153,18 @@ describe('作業台', () => {
     await runRow({ type: 'artifact.open', id: 'a1' }, api);
     await runRow({ type: 'artifact.openEditor', id: 'a2' }, api);
     expect(vi.mocked(api.openArtifact).mock.calls).toEqual([['a1']]);
-    expect(vi.mocked(api.openArtifactEditor).mock.calls).toEqual([['a2']]);
+    expect(vi.mocked(api.openArtifactEditor).mock.calls).toEqual([['a2', undefined]]);
+  });
+  it('エディタが見つからなければ、トーストにせず面を出し、今回だけのエディタで送り直せる。開けたら面を閉じる', async () => {
+    const missing = { code: 'editor_missing' as const, error: 'Cursor が見つかりません', editor: 'cursor' as const, name: 'Cursor', lastPath: '/usr/local/bin/cursor', others: ['vscode' as const] };
+    const projectOpenEditor = vi.fn(async (_id: string, once?: string) => { if (!once) throw new EditorMissingApiError(missing); });
+    const r = await runRow({ type: 'project.openEditor', id: 'p1' }, fakeApi({ projectOpenEditor }));
+    expect(r.store.editorMissing).toEqual({ ...missing, retry: { type: 'project.openEditor', id: 'p1' }, n: 1 });
+    const again = await runRow({ type: 'project.openEditor', id: 'p1', once: 'vscode' }, fakeApi({ projectOpenEditor }), r.store);
+    expect(projectOpenEditor.mock.calls).toEqual([['p1', undefined], ['p1', 'vscode']]);
+    expect(again.store.editorMissing).toBeNull();
+    // ほかの失敗は、ふつうどおりトーストにする（投げ直す）。
+    await expect(runRow({ type: 'session.openFile', sessionId: 's1', path: '/w/a.ts', line: 3 }, fakeApi({ openEditor: vi.fn(async () => { throw new Error('boom'); }) }))).rejects.toThrow('boom');
   });
   it('アーティファクトの追加は、URL の前後の空白を落として送り、応答を Store に入れる', async () => {
     const added = { id: 'a1', projectId: 'p1' } as ArtifactDto;
@@ -263,5 +276,21 @@ describe('設定の同期（作り直した実装）', () => {
     const r = await runRow({ type: 'configSync.unsent.send', id: 'u' }, fakeApi({ configSendUnsent }));
     expect(configSendUnsent.mock.calls).toEqual([['u']]);
     expect(r.store.configDetail.unsent).toEqual(list);
+  });
+});
+
+describe('git の表示', () => {
+  it('差分の一覧、プロジェクトの git は、答えを Store に入れる', async () => {
+    const changes = { state: 'nogit' as const, root: null, tree: null, files: [], others: [], othersCapped: false };
+    const api = fakeApi({ sessionChanges: vi.fn(async () => changes), projectGit: vi.fn(async () => ({ root: null, worktrees: [] })) });
+    expect((await runRow({ type: 'git.changes.load', sessionId: 's1' }, api)).store.gitChanges).toEqual({ s1: changes });
+    expect((await runRow({ type: 'project.git.load', projectId: 'p1' }, api)).store.projectGit).toEqual({ p1: { root: null, worktrees: [] } });
+  });
+  it('差分と編集は、ファイルの組で入れる。読めなければ理由を入れ、トーストにしない', async () => {
+    const diff = { file: '/w/a.ts', rel: 'a.ts', status: 'M' as const, text: '', truncated: false, binary: false };
+    const ok = await runRow({ type: 'git.diff.load', sessionId: 's1', file: '/w/a.ts' }, fakeApi({ sessionDiff: vi.fn(async () => diff) }));
+    expect(ok.store.gitDiffs).toEqual({ 's1\n/w/a.ts': diff });
+    const bad = await runRow({ type: 'git.edits.load', sessionId: 's1', file: '/w/a.ts' }, fakeApi({ sessionEdits: vi.fn(async () => { throw new Error('ありません'); }) }));
+    expect(bad.store.gitEdits).toEqual({ 's1\n/w/a.ts': { error: 'ありません' } });
   });
 });

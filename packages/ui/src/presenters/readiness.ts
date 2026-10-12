@@ -1,4 +1,4 @@
-import { compatState, type SetupTarget, type SettingsAt, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
+import { compatState, gitInstallCommand, type SetupTarget, type SettingsAt, type UiAction, type NodeCheckDto, type ReadinessDto, type ToolCheckDto, type Translate } from '@agent-hangar/shared';
 import type { MuxCheck, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { readinessCompat } from './compat.ts';
@@ -12,7 +12,7 @@ import { clientPlatform } from '../keys.ts';
  */
 export type VerifyLine = { ok: boolean; soft: boolean; text: string; note: string | null; fix: string | null; fixCommand: string | null };
 
-export type ToolKey = 'tmux' | 'claude' | 'code' | 'node';
+export type ToolKey = 'tmux' | 'claude' | 'node' | 'git';
 
 /** tmux の役を担う道具の入れ方。Windows は psmux を入れる。 */
 export function muxInstallCommand(platform: string): string {
@@ -63,9 +63,10 @@ export function notifyBlockedKey(platform: string, where: 'settings' | 'toast'):
 const FIX = {
   tmux: { fix: null, fixCommand: 'brew install tmux', soft: false },
   claude: { fix: 'readiness.fix.claude', fixCommand: null, soft: false },
-  code: { fix: 'readiness.fix.code', fixCommand: null, soft: true },
   node: { fix: 'readiness.fix.node', fixCommand: null, soft: false },
-} as const satisfies Record<ToolKey, { fix: 'readiness.fix.claude' | 'readiness.fix.code' | 'readiness.fix.node' | null; fixCommand: string | null; soft: boolean }>;
+  // git は無くても動く（git の表示が出ないだけ）。入れ方は OS で変わるので、toolLine で差し替える。
+  git: { fix: 'readiness.fix.git', fixCommand: null, soft: true },
+} as const satisfies Record<ToolKey, { fix: 'readiness.fix.claude' | 'readiness.fix.node' | 'readiness.fix.git' | null; fixCommand: string | null; soft: boolean }>;
 
 /**
  * 動かせない理由の文。パスがあればパスを主語にする。
@@ -89,7 +90,7 @@ export function toolLine(t: Translate, key: ToolKey, c: ToolCheckDto & Partial<N
     const note = [c.version, auto].filter((x): x is string => x !== null).join(t('common.list.separator'));
     return { ok: true, soft: false, text: c.path ?? '', note: note === '' ? null : note, fix: null, fixCommand: null };
   }
-  return { ok: false, soft: f.soft, text: problemText(t, c), note: f.soft ? t('readiness.tool.optional') : null, fix: f.fix === null ? null : t(f.fix), fixCommand: key === 'tmux' ? muxInstallCommand(platform) : f.fixCommand };
+  return { ok: false, soft: f.soft, text: problemText(t, c), note: f.soft ? t('readiness.tool.optional') : null, fix: f.fix === null ? null : t(f.fix), fixCommand: key === 'tmux' ? muxInstallCommand(platform) : key === 'git' ? gitInstallCommand(platform) : f.fixCommand };
 }
 
 /** ワークスペースの検証。登録したプロジェクトが 1 つも無いのも ✗ にする。何も始められないからである。 */
@@ -99,17 +100,17 @@ export function workspaceLine(t: Translate, w: ReadinessDto['workspace']): Verif
   return { ok: true, soft: false, text: w.path, note: t('readiness.workspace.projects', { n: w.projectCount }), fix: null, fixCommand: null };
 }
 
-/** 始める前の確認の 6 行の名前。 */
-export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'mcp' | 'statusline' | 'compat';
+/** 始める前の確認の行の名前。git とエディタは 0.5.0 で足した任意の行で、古いサーバの答えには無い。 */
+export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'git' | 'mcp' | 'statusline' | 'editor' | 'compat';
 /**
  * 帯の行ごとの、直す場所（設定の開く先）。「設定を開く」はここを指して開く（節の中の欄まで移って目立たせる）。
  * 全部の行が節を持つ（試験が縛る）。MCP とステータスラインは命令をコピーする行なので、欄までは指さず連携の節にする。
  */
 export const READINESS_AT: Record<ReadinessKey, SettingsAt> = {
-  tmux: 'tmux', claude: 'claude', workspace: 'workspace', mcp: 'integrations', statusline: 'integrations', compat: 'compat',
+  tmux: 'tmux', claude: 'claude', workspace: 'workspace', git: 'tools', mcp: 'integrations', statusline: 'integrations', editor: 'editor', compat: 'compat',
 };
 /** 任意の行。無くても始められるので、残りがこれだけになったら帯ごと消す（設計書 2.11.4）。 */
-const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['mcp', 'statusline']);
+const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['git', 'mcp', 'statusline', 'editor']);
 /** 行の調子。info は止めていない知らせ（未確認のバージョン）で、済んだものに数える。 */
 type Tone = 'ok' | 'info' | 'soft' | 'ng';
 /** 確認の 1 行の事実。文は、帯の行にするときに辞書から引く。 */
@@ -122,8 +123,12 @@ function checksOf(r: ReadinessDto): Check[] {
     { key: 'tmux', ok: r.tools.tmux.ok, tone: r.tools.tmux.ok ? 'ok' : 'ng' },
     { key: 'claude', ok: r.tools.claude.ok, tone: r.tools.claude.ok ? 'ok' : 'ng' },
     { key: 'workspace', ok: ws.exists && ws.projectCount > 0, tone: ws.exists && ws.projectCount > 0 ? 'ok' : 'ng' },
+    // git は無くても始められる（git の表示が出ないだけ）。古いサーバの答えには無い。
+    ...(r.tools.git ? [{ key: 'git' as const, ok: r.tools.git.ok, tone: r.tools.git.ok ? 'ok' as const : 'soft' as const }] : []),
     { key: 'mcp', ok: r.mcp.registered, tone: r.mcp.registered ? 'ok' : 'soft' },
     { key: 'statusline', ok: r.statusline.installed, tone: r.statusline.installed ? 'ok' : 'soft' },
+    // エディタは「アプリだけ」でも開けるので済んだものに数える。見つからないときだけ直すもの（任意）にする。
+    ...(r.editor ? [{ key: 'editor' as const, ok: r.editor.state !== 'none', tone: r.editor.state !== 'none' ? 'ok' as const : 'soft' as const }] : []),
   ];
   const summary = readinessCompat(r);
   if (summary) {
@@ -232,6 +237,20 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
         text = t('home.ready.compat.drift', { n: summary?.driftCount ?? 0 });
         act = toSettings('compat');
         break;
+      case 'git': {
+        // 入れ方のコマンドがある OS（macOS と Windows）はコピーさせ、無い OS は設定のツールの節を開く。
+        const command = gitInstallCommand(platform);
+        text = t('home.ready.git.text');
+        detail = command;
+        act = command ? copy('git', command) : toSettings('git');
+        break;
+      }
+      case 'editor': {
+        const e = r.editor!;
+        text = e.name === null ? t('home.ready.editor.customMissing', { command: e.path ?? '' }) : t('home.ready.editor.missing', { name: e.name });
+        act = toSettings('editor');
+        break;
+      }
     }
     return { key: `ready:${c.key}`, lead: { kind: 'check', tone: c.tone === 'ng' ? 'ng' : 'soft', label: t(c.key === 'compat' ? 'home.ready.state.drift' : c.tone === 'ng' ? 'home.ready.state.ng' : 'home.ready.state.soft') }, name: name(c.key), badge: OPTIONAL.has(c.key) ? t('home.ready.optional') : null, context: null, text, detail, tone: null, trail: [], open: null, actions: [act, ...extra] };
   };
@@ -245,6 +264,13 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
       case 'workspace': text = t('home.ready.workspace.ok', { path: ws.path, n: ws.projectCount }); break;
       case 'mcp': text = t('home.ready.mcp.ok'); break;
       case 'statusline': text = t('home.ready.statusline.ok'); break;
+      case 'git': text = toolOk(t, r.tools.git!); break;
+      case 'editor': {
+        const e = r.editor!;
+        const name = e.name ?? t('home.ready.name.editor');
+        text = e.state === 'app' ? t('home.ready.editor.appOnly', { name, path: e.path ?? '' }) : t('home.ready.editor.ok', { name, path: e.path ?? '' });
+        break;
+      }
       case 'compat': text = c.tone === 'info' ? t('home.ready.compat.unverified', { local: summary?.localVersion ?? '', verified: summary?.verifiedVersion ?? '' }) : t('home.ready.compat.ok', { version: summary?.verifiedVersion ?? '' }); break;
     }
     const tone = c.tone === 'info' ? 'info' : 'ok';

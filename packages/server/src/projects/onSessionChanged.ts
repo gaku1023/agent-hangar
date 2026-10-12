@@ -18,6 +18,8 @@ export type SessionChangeDeps = {
   workspaceRoot: () => string;
   /** 手元の本文が動いたときに呼ぶ。同期の上げ手へ渡す。 */
   onLocalTranscript?: (f: { path: string; sessionId: string; agentId: string | null }) => void;
+  /** 本文が伸びたときに呼ぶ。git の表示が、実行中のセッションの作業ツリーを読み直す。 */
+  onAppended?: (sessionId: string) => void;
 };
 
 /**
@@ -51,7 +53,10 @@ export function createSessionChangeHandler(deps: SessionChangeDeps): (e: Session
     }
     // 紐づいたプロジェクトは、行は書いていないが中身（セッションの数と最終活動）が変わったので、配り直しを頼む。
     if (assigned) touchRow(db, 'projects', assigned);
-    if (e.appended > 0) hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
+    if (e.appended > 0) {
+      hub.broadcast({ type: 'transcript.appended', sessionId: e.sessionId, count: e.appended });
+      deps.onAppended?.(e.sessionId);
+    }
     // 索引化が拾ったアーティファクト。書いたときにも知らせてあるが、本文の伸びの後に並ぶよう、ここでもう一度名指しする。
     for (const id of e.artifactIds) touchRow(db, 'artifacts', id);
   };

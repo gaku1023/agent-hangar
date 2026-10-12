@@ -8,6 +8,9 @@ import { configSyncKeys } from './keys/configSync.ts';
 import { configSyncUiKeys } from './keys/configSyncUi.ts';
 import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
+import { gitKeys } from './keys/git.ts';
+import { gitUiKeys } from './keys/gitUi.ts';
+import { editorKeys } from './keys/editor.ts';
 import { headerKeys } from './keys/header.ts';
 import { homeKeys } from './keys/home.ts';
 import { httpKeys } from './keys/http.ts';
@@ -80,6 +83,9 @@ export const MESSAGES = {
   ...configSyncKeys,
   ...configSyncUiKeys,
   ...confirmKeys,
+  ...gitKeys,
+  ...gitUiKeys,
+  ...editorKeys,
   ...externalKeys,
   ...headerKeys,
   ...homeKeys,

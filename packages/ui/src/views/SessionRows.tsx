@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { UiAction, SessionStatus, StatusFilter, Translate } from '@agent-hangar/shared';
-import { useEmit, type Emit } from '../action/chain.tsx';
+import { useBackgroundEmit, useEmit, type Emit } from '../action/chain.tsx';
 import { ACTIVE_LABEL, candidateLabel, candidateSourceLabel, candidateShortLabel, prNumberOf, returnOnLabel, returnOnRowLabel, STATUS_LABEL, type SessionRowProps } from '../presenters/row.ts';
 import type { ListItem } from '../presenters/listItem.ts';
+import { GitChip } from './GitChip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { MenuButton, type MenuCloseHow, type MenuItem } from './primitives/MenuButton.tsx';
@@ -224,6 +225,15 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
     e.preventDefault();
   };
 
+  // 見えている行の git を取ってもらう（git の表示）。並びが替わったら知らせ直し、外れたら取り下げる。
+  const bg = useBackgroundEmit();
+  const gitKey = `rows:${props.id ?? props.variant}`;
+  const gitIds = props.variant === 'recent' ? '' : rows.map((r) => r.id).join(',');
+  useEffect(() => {
+    bg({ type: 'git.watch', key: gitKey, sessionIds: gitIds === '' ? [] : gitIds.split(',') });
+  }, [bg, gitKey, gitIds]);
+  useEffect(() => () => bg({ type: 'git.watch', key: gitKey, sessionIds: [] }), [bg, gitKey]);
+
   if (items.length === 0) return <div className="list">{props.emptyNode ?? <div className="empty">{props.emptyText ?? t('row.empty.default')}</div>}</div>;
 
   // 2 段目。頭に要約の見立ての札を置き（B1）、検索は一致箇所の抜粋を、ほかは要約の 1 文を出す。右端に PR の番号を置く。
@@ -237,6 +247,8 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         <span className={excerpt ? 'row-text mono' : 'row-text'}>{excerpt ? excerpt.map((s, i) => (s.hit ? <mark key={i} className="hit">{s.text}</mark> : <span key={i}>{s.text}</span>)) : r.oneLiner}</span>
         {/* 要約に当たった行の札（検索の結果）。一致した語そのものは要約の本文にあるので、ここは札だけにする。 */}
         {r.summaryMatch && <span className="row-tag">{t('list.match.summary')}</span>}
+        {/* git の札（試作の 2-1 の A）。要約が先に縮み、札は右端に残る。 */}
+        {flat && r.git && <GitChip id={r.id} chip={r.git} className="row-git" />}
         {flat && r.prUrl && (
           // 2 段目の右端。PR の番号（設計書 2.2）。PR は外のブラウザで開くリンクで、行は開かない。
           <span className="row-marks">

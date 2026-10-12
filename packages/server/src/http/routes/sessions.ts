@@ -14,7 +14,7 @@ import { confirmSessionState, rejectSessionState, setSessionState, StateInputErr
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
-import { BODY_LIMITS, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
+import { BODY_LIMITS, editorOptsOf, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 
 /** セッションの経路が使う依存。 */
 export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester'> & LanguageDeps;
@@ -106,7 +106,9 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const file = (b.value as { file?: unknown } | undefined)?.file;
-    if (file === undefined) return external(c, () => deps.external.openEditor({ target: s.cwd }), true);
+    const opts = editorOptsOf(b.value, file !== undefined);
+    if (opts === null) return c.json({ error: tr('session.file.badOptions') }, 400);
+    if (file === undefined) return external(c, () => deps.external.openEditor({ target: s.cwd, sessionId: s.id, ...opts }), true);
     if (typeof file !== 'string' || !path.isAbsolute(file)) return c.json({ error: tr('session.file.mustBeAbsolute') }, 400);
     const marks = EDIT_TOOLS.map(() => '?').join(',');
     const known = db.prepare(`select 1 from event_index where session_id = ? and tool_name in (${marks}) and file_path = ? limit 1`).get(s.id, ...EDIT_TOOLS, file);
@@ -114,7 +116,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     // 変えた後に消えたり、ディレクトリに替わったりしていたら開かない。
     // ディレクトリを渡すと、code はファイルではなくその中身を開いてしまう。
     if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return c.json({ error: tr('common.file.sourceMissing') }, 404);
-    return external(c, () => deps.external.openEditor({ target: file }), true);
+    return external(c, () => deps.external.openEditor({ target: file, sessionId: s.id, ...opts }), true);
   });
 
   // セッションのノート（PATCH /sessions/:id の memo）は 0.4.0 で外した。書く口は無い。

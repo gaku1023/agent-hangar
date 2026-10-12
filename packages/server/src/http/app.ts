@@ -19,6 +19,10 @@ import { sessionRoutes } from './routes/sessions.ts';
 import { settingsRoutes } from './routes/settings.ts';
 import { syncRoutes } from './routes/sync.ts';
 import { systemRoutes } from './routes/system.ts';
+import { gitRoutes } from './routes/git.ts';
+import { GitService } from '../git/service.ts';
+import { gitPath } from '../git/find.ts';
+import { spawnGit } from '../git/status.ts';
 import { todoRoutes } from './routes/todos.ts';
 import { usageRoutes } from './routes/usage.ts';
 
@@ -133,6 +137,7 @@ export function createApp(deps: AppDeps): Hono {
   memoRoutes(api, deps);
   instructionRoutes(api, deps);
   artifactRoutes(api, deps);
+  gitRoutes(api, { ...deps, git: deps.git ?? new GitService({ db, deviceId, live: deps.live, broadcast: (git) => deps.hub.broadcast({ type: 'git.upsert', git }), exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; } }) });
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。

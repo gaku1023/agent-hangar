@@ -1,4 +1,4 @@
-import { isSettingsField, SETTINGS_SECTIONS, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
+import { EDITOR_NAMES, KNOWN_EDITORS, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -43,6 +43,43 @@ export type IntegrationAction = { target: SetupTarget; label: string; primary: b
 export type IntegrationCard = { file: string | null; action: IntegrationAction | null; command: string };
 export type IntegrationsProps = { desktop: boolean; mcp: IntegrationCard; statusline: IntegrationCard; shell: IntegrationCard };
 
+/**
+ * エディタの欄の 1 行（試作の 1-1 の A）。tile は名前の頭の 2 文字の札（商標のアイコンは持たない決まり）。
+ * state は見つかり方で、一覧が届く前と任意のコマンドは null。path は CLI かアプリの場所で、任意のコマンドはファイルのコマンド。
+ */
+export type EditorChoice = { id: EditorId; name: string; tile: string; state: EditorDetectState | null; path: string | null; version: string | null; selected: boolean; badge: { text: string; tone: 'ok' | 'warn' | 'mute' } | null };
+/**
+ * エディタの欄。name は選んでいるエディタの名前で、任意のコマンドは null。
+ * test は「テスト」の進みと答え。loading は候補の一覧がまだ届いていないこと。
+ */
+export type EditorSettingsProps = { setting: EditorSetting; name: string | null; choices: EditorChoice[]; loading: boolean; test: { running: boolean; result: { tone: 'ok' | 'warn' | 'ng'; text: string } | null } };
+
+const EDITOR_TILES: Record<KnownEditorId, string> = { vscode: 'VS', cursor: 'Cu', windsurf: 'Wi', zed: 'Ze', idea: 'IJ', webstorm: 'WS' };
+
+/** テストの答えを、通り道ごとの文にする。URL と open -a は行の指定が効かないことがあるので、注意の色にする。 */
+function editorTestResult(t: Translate, name: string, r: EditorTestDto): { tone: 'ok' | 'warn' | 'ng'; text: string } {
+  if (!r.ok) return { tone: 'ng', text: r.missing ? t('settings.editor.test.missing', { message: r.message ?? '' }) : r.message ?? '' };
+  if (r.via === 'openA') return { tone: 'warn', text: t('settings.editor.test.openA', { name }) };
+  if (r.via === 'url') return { tone: 'ok', text: t('settings.editor.test.url', { name }) };
+  return { tone: 'ok', text: t('settings.editor.test.ok', { name }) };
+}
+
+/** エディタの欄を組む。 */
+function presentEditor(t: Translate, store: Store): EditorSettingsProps {
+  const setting = store.settings?.editor ?? { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' };
+  const list = store.editors?.candidates ?? null;
+  const badge = (s: EditorDetectState): EditorChoice['badge'] => (s === 'found' ? { text: t('settings.editor.found'), tone: 'ok' } : s === 'app' ? { text: t('settings.editor.appOnly'), tone: 'warn' } : { text: t('settings.editor.notFound'), tone: 'mute' });
+  const choices: EditorChoice[] = KNOWN_EDITORS.map((id) => {
+    const c = list?.find((x) => x.id === id) ?? null;
+    return { id, name: EDITOR_NAMES[id], tile: EDITOR_TILES[id], state: c?.state ?? null, path: c?.path ?? null, version: c?.version ?? null, selected: setting.id === id, badge: c ? badge(c.state) : null };
+  });
+  choices.push({ id: 'custom', name: t('settings.editor.custom'), tile: '{ }', state: null, path: setting.fileCmd || null, version: null, selected: setting.id === 'custom', badge: null });
+  const name = setting.id === 'custom' ? null : EDITOR_NAMES[setting.id];
+  const label = name ?? t('external.editor.generic');
+  const r = store.editorTest;
+  return { setting, name, choices, loading: list === null, test: { running: r === 'running', result: r && r !== 'running' ? editorTestResult(t, label, r) : null } };
+}
+
 /** 参加トークンを画面に置いておく長さ。全セッションの読み書き権を持つ秘密なので、写し終わる頃に消す。 */
 export const JOIN_TOKEN_TTL_MS = 120_000;
 
@@ -74,7 +111,9 @@ export type AccountSettingsProps = { list: AccountView[]; colors: string[] };
 
 export type SettingsProps = {
   workspaceRoot: string; claudeDir: string; device: { id: string; name: string } | null; version: string; index: IndexProgressDto; indexLabel: string; sessionCount: number; projectCount: number;
-  tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null;
+  tmuxPath: string | null; terminalApp: TerminalApp;
+  /** エディタの欄（一般の節）。 */
+  editor: EditorSettingsProps;
   /** 外部ターミナルの選択肢と説明。画面を開いている OS のものだけを出す（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）。 */
   terminalOptions: { value: TerminalApp; label: string }[]; terminalDesc: string;
   /** ターミナルで打つコマンド。どれも同じ hangar の呼び方にそろえる。 */
@@ -101,7 +140,7 @@ export type SettingsProps = {
   /** ツールの節の先頭の psmux（tmux）の状態の行（段 6 の B3）。準備の確かめが届く前は null。 */
   mux?: MuxStatus | null;
   /** 欄の下の 1 行の検証（B1）。準備の確かめが届く前は null。 */
-  verify: { workspace: VerifyLine | null; tmux: VerifyLine | null; claude: VerifyLine | null; code: VerifyLine | null; node: VerifyLine | null };
+  verify: { workspace: VerifyLine | null; tmux: VerifyLine | null; claude: VerifyLine | null; node: VerifyLine | null; git: VerifyLine | null };
   /** hangar の MCP サーバが user スコープに載っているか。届く前は null。 */
   mcpRegistered: boolean | null;
   /** 連携の 3 枚の札の書き込み（ボタン、書き込む先、ターミナルで行うときのコマンド）。 */
@@ -285,8 +324,9 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     workspace: r ? workspaceLine(t, r.workspace) : null,
     tmux: r ? toolLine(t, 'tmux', r.tools.tmux) : null,
     claude: r ? toolLine(t, 'claude', r.tools.claude) : null,
-    code: r ? toolLine(t, 'code', r.tools.code) : null,
     node: r ? toolLine(t, 'node', r.tools.node) : null,
+    // git は設定の欄が無いので、ツールの節に読むだけの行で出す。古いサーバは返さない。
+    git: r?.tools.git ? toolLine(t, 'git', r.tools.git) : null,
   };
   // compat の無い古いサーバの答えでは、互換の節を「確かめています」のままにする。
   const compatSummary = r ? readinessCompat(r) : undefined;
@@ -314,7 +354,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     indexLabel: indexProgressLabel(t, store.index) ?? t('settings.info.index.counts', { sessions: Object.keys(store.sessions).length, projects: Object.keys(store.projects).length }),
     sessionCount: Object.keys(store.sessions).length, projectCount: Object.keys(store.projects).length,
     // 別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定として見せる。
-    tmuxPath: s?.tmuxPath ?? null, terminalApp: terminalAppFor(s?.terminalApp, platform), codePath: s?.codePath ?? null,
+    tmuxPath: s?.tmuxPath ?? null, terminalApp: terminalAppFor(s?.terminalApp, platform), editor: presentEditor(t, store),
     terminalOptions: terminalAppsFor(platform).map((value) => ({ value, label: terminalLabel(t, value) })),
     terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'),
     lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,

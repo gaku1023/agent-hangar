@@ -2,12 +2,12 @@
  * 設定の画面で開く先。
  * 節の名前（general、cloud、integrations、summary、tools、update、info）は、左の目次で選んだ節をそのまま URL に持つ（戻ると進むで節も戻る）。
  * `sync` は、ヘッダーの同期の語が使うクラウド同期の節の別名、`unsent` はその節の「送らなかった項目」の行（ベルの一覧から開く）、`accounts` は連携の節のアカウントの位置である。
- * `workspace`、`tmux`、`claude` はツールの節のパスの欄、`compat` は連携の節の互換性の節で、ホームの準備の帯の「設定を開く」が、直す欄を指して開くのに使う。
+ * `workspace`、`tmux`、`claude` はツールの節のパスの欄、`compat` は連携の節の互換性の節、`editor` は一般の節のエディタの欄で、ホームの準備の帯の「設定を開く」が、直す欄を指して開くのに使う。
  */
 export const SETTINGS_SECTIONS = ['general', 'cloud', 'integrations', 'summary', 'tools', 'update', 'info'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** 節の中の、1 つの欄（か小さな節）を指す開く先。開いたら、その欄が見える所へ移って目立たせる。 */
-export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat'] as const;
+export const SETTINGS_FIELDS = ['workspace', 'tmux', 'claude', 'compat', 'editor'] as const;
 export type SettingsField = (typeof SETTINGS_FIELDS)[number];
 export type SettingsAt = SettingsSection | SettingsField | 'accounts' | 'sync' | 'unsent';
 const SETTINGS_AT: readonly string[] = [...SETTINGS_SECTIONS, ...SETTINGS_FIELDS, 'accounts', 'sync', 'unsent'];
@@ -22,6 +22,7 @@ export function settingsSectionOf(at: SettingsAt | undefined): SettingsSection {
   if (at === 'sync' || at === 'unsent') return 'cloud';
   if (at === 'accounts' || at === 'compat') return 'integrations';
   if (at === 'workspace' || at === 'tmux' || at === 'claude') return 'tools';
+  if (at === 'editor') return 'general';
   return at ?? 'general';
 }
 

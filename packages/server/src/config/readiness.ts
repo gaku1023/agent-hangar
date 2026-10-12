@@ -2,7 +2,8 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { NodeCheckDto, ReadinessDto, ToolCheckDto } from '@agent-hangar/shared';
+import { editorNameOf, type EditorDetectState, type EditorId, type NodeCheckDto, type ReadinessDto, type ToolCheckDto } from '@agent-hangar/shared';
+import { findGit as defaultFindGit } from '../git/find.ts';
 import type { Db } from '../db/open.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
 import { workspaceProjectCount } from '../projects/registry.ts';
@@ -157,6 +158,10 @@ export type ReadinessOptions = {
    * 渡さなければ、道具の行で読んだ設定の claude の版を使う。
    */
   compatLocalVersion?: () => Promise<string | null>;
+  /** git を探す（git/find.ts）。既定は PATH と既知の置き場（Windows は Git for Windows の場所）を見る。 */
+  findGit?: () => string | null;
+  /** 選んだエディタで開けるか（external/api.ts の editors の current）。渡さなければエディタの行を持たない。 */
+  editor?: () => Promise<{ id: EditorId; state: EditorDetectState; path: string | null }>;
 };
 
 /** 準備の確かめを返す関数を作る。版の覚えは、この関数が生きている間だけ持つ。 */
@@ -188,19 +193,22 @@ export function createReadiness(o: ReadinessOptions): () => Promise<ReadinessDto
   return async () => {
     const s = o.settings();
     const nodeSet = s.nodePath !== null && s.nodePath !== undefined && s.nodePath.trim() !== '';
-    const [tmux, claude, code, node, compatLocal] = await Promise.all([
+    const gitFile = (o.findGit ?? (() => defaultFindGit()))();
+    const [tmux, claude, git, node, compatLocal, editor] = await Promise.all([
       tool(s.tmuxPath, ['-V']),
       tool(s.claudePath ?? null, ['--version']),
-      tool(s.codePath, ['--version']),
+      tool(gitFile, ['--version']),
       nodeSet ? nodeTool(s.nodePath ?? '') : Promise.resolve<NodeCheckDto>({ path: serverNode.path, ok: true, problem: null, version: serverNode.version, auto: true }),
       o.compatLocalVersion ? o.compatLocalVersion() : Promise.resolve(undefined),
+      o.editor ? o.editor().catch(() => null) : Promise.resolve(null),
     ]);
     const root = expandHome(s.workspaceRoot, homeDir);
     const exists = fs.statSync(root, { throwIfNoEntry: false })?.isDirectory() ?? false;
     const shell = o.shellCommand();
     const prefix = hangarCommandPrefix(shell);
     return {
-      tools: { tmux, claude, code, node },
+      tools: { tmux, claude, node, git },
+      ...(editor ? { editor: { ...editor, name: editorNameOf(editor.id) } } : {}),
       workspace: { path: s.workspaceRoot, exists, projectCount: exists ? workspaceProjectCount(o.db, o.deviceId, root) : 0 },
       mcp: { registered: readMcpRegistration(o.claudeJson), file: o.claudeJson },
       statusline: statuslineStatus(o.claudeDir, homeDir),

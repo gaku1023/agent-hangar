@@ -41,7 +41,7 @@ export const deadShellTab: TabDto = { ...shellTab, id: 'dead-t1', runId: 'dead',
 export const testResult: SummarizerTestDto = { ok: true, id: 'lmstudio', ms: 5, summary: { title: 'T', oneLiner: 'O', body: 'B', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: null, basedOnTurns: 3 } };
 export const syncStatus: SyncStatusDto = { state: 'idle', url: 'https://h', lastPushAt: 100, lastPullAt: 200, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false };
 export const READY: ReadinessDto = {
-  tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+  tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
   workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
   commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
   compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
@@ -78,6 +78,8 @@ export function fakeExternal(): ExternalApi {
     openTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
     openDirTerminal: vi.fn(async () => ({ app: 'iterm' as const, fellBack: true })),
     openEditor: vi.fn(async () => {}),
+    editors: vi.fn(async () => ({ candidates: [], current: { id: 'vscode' as const, state: 'found' as const, path: '/usr/local/bin/code' } })),
+    testEditor: vi.fn(async () => ({ ok: true, via: 'cli' as const, file: '/h/hangar-editor-test.md', message: null })),
     openUrl: vi.fn(async () => {}),
   };
 }
@@ -159,7 +161,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
   // 行の変化を配る層。経路は行を書くだけで、画面へのイベントはこの層が組んで events へ渡す（tick の終わりに出る）。
   const publisher = new Publisher({ db, deviceId: 'd', live: () => [], hub: { broadcast: (e) => { events.push(e); } } });
   const sync: SyncFakeState = { calls: [], skipped: [], sweepPending: null, oncePass: false, resumeHereResult: launched };
-  let settings: SettingsDto = { workspaceRoot: ws, claudeDir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+  let settings: SettingsDto = { workspaceRoot: ws, claudeDir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
   const runs = fakeRuns();
   const external = fakeExternal();
   const usage = new UsageTracker(db);

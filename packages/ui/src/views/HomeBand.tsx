@@ -1,4 +1,5 @@
 import { Fragment, useId, useLayoutEffect, useRef, useState } from 'react';
+import { GitChip } from './GitChip.tsx';
 import { useEmit } from '../action/chain.tsx';
 import type { BandGroup, BandLead, BandRow, HomeBandProps } from '../presenters/home.ts';
 import { CountChip } from './primitives/Chip.tsx';
@@ -173,6 +174,7 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
         ? <span className="c-text"><span className="c-desc">{r.text}</span>{r.detail !== null && <i>{r.detail}</i>}</span>
         : <span className="c-text">{r.text}{r.text !== '' && r.detail !== null && '　'}{r.detail !== null && <i>{r.detail}</i>}</span>}
       <span className="c-end">
+        {r.git && <GitChip id={r.git.id} chip={r.git.chip} />}
         {r.trail.map((x, i) => <span key={i} data-tone={x.tone}>{x.text}</span>)}
         {r.actions.map((a) => (
           <button key={a.id} type="button" className={`btn btn-sm${a.primary ? ' btn-primary' : ''}${a.ghost ? ' btn-ghost' : ''}`} aria-label={a.ariaLabel} onClick={() => emit(a.send)}>{a.label}</button>
