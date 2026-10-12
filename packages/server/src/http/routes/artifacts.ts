@@ -3,7 +3,7 @@ import type { ArtifactDto } from '@agent-hangar/shared';
 import { addManualArtifact, ArtifactConflictError, ArtifactInputError, getArtifact, listArtifacts } from '../../artifacts/queries.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
-import { BODY_LIMITS, externalOf, projectOf, readJson, tooLargeResult } from './common.ts';
+import { BODY_LIMITS, editorOptsOf, externalOf, projectOf, readJson, tooLargeResult } from './common.ts';
 
 /** アーティファクトの経路が使う依存。 */
 export type ArtifactRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'external' | 'token'> & LanguageDeps;
@@ -41,10 +41,14 @@ export function artifactRoutes(api: Hono, deps: ArtifactRouteDeps): void {
     if (!a) return c.json({ error: tr('artifact.error.notFound') }, 404);
     return external(c, () => deps.external.openUrl(a.url), true);
   });
-  api.post('/artifacts/:id/open-editor', (c) => {
+  api.post('/artifacts/:id/open-editor', async (c) => {
     const a = getArtifact(db, c.req.param('id'));
     if (!a) return c.json({ error: tr('artifact.error.notFound') }, 404);
     if (!a.filePath || !a.fileExists) return c.json({ error: tr('common.file.sourceMissing') }, 404);
-    return external(c, () => deps.external.openEditor({ target: a.filePath! }), true);
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const opts = editorOptsOf(b.value, false);
+    if (opts === null) return c.json({ error: tr('session.file.badOptions') }, 400);
+    return external(c, () => deps.external.openEditor({ target: a.filePath!, ...opts }), true);
   });
 }

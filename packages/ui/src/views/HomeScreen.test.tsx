@@ -24,7 +24,7 @@ const todo = (id: string): ConfirmCard => ({ kind: 'todo', id, text: `やる ${i
 const busy = { attention: [waiting('a'), waiting('b')], returning: [reminder('r')], running: [running('x')], confirm: [todo('t1')] };
 const none = { attention: [], returning: [], running: [], confirm: [] };
 const READY: ReadinessDto = {
-  tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+  tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
   workspace: { path: '/Users/me/workspace', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: 'bash x', scriptPath: '/Users/me/.claude/statusline.sh', installed: false },
   commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
   compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
@@ -388,7 +388,7 @@ describe('HomeScreen の始める前の確認（帯の最後の群）', () => {
   };
   it('確認の群は帯の錠剤になり、帯の右端に 1 行の文を出す。ようこその札と確認リストの区画は無い', () => {
     const { container } = mount(withReady(none), none);
-    expect(screen.getByRole('button', { name: /^セットアップの確認 準備完了 3 \/ 6$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^セットアップの確認 準備完了 4 \/ 7$/ })).toBeInTheDocument();
     // tmux と claude が揃っているので、帯の右端の文は出さない。
     expect(container.querySelector('.band-text')).toBeNull();
     expect(container.querySelector('.onboarding')).toBeNull();

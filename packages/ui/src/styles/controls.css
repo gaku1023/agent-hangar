@@ -325,3 +325,7 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 
 .account-settings { padding: var(--u) calc(var(--u) * 2); border: 0; border-radius: 8px; background: none; color: var(--accent); font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
 .account-settings:hover { background: rgba(255, 255, 255, 0.92); }
+/* エディタが見つからないときの面（試作の 1-3 の B）。押したボタンの下に出す操作のメニューと同じ見た目。 */
+.editor-missing { transform-origin: top left; }
+.editor-missing-title { color: var(--ink); font-weight: 600; }
+.editor-missing .menu-head span { overflow-wrap: anywhere; }

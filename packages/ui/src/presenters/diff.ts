@@ -105,3 +105,41 @@ export function snippetStart(result: string, after: string): number | null {
   const at = numbered.get(lines[k]!);
   return at === undefined ? null : at - k;
 }
+
+/**
+ * `git diff` の統合形式の本文（@@ から始まる）を、ハンクの並びに直す。
+ * 見出しの外の行（diff --git、index、---、+++）は捨てる。「\ No newline at end of file」の行も捨てる。
+ * 変わらない行は畳まない（git が前後 3 行に絞って返すので）。
+ */
+export function parseUnifiedDiff(text: string): DiffHunk[] {
+  const hunks: DiffHunk[] = [];
+  let cur: DiffHunk | null = null;
+  let o = 0;
+  let n = 0;
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  for (const line of lines) {
+    const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (m) {
+      cur = { header: line, lines: [] };
+      hunks.push(cur);
+      o = Number(m[1]);
+      n = Number(m[2]);
+      continue;
+    }
+    if (!cur || line.startsWith('\\')) continue;
+    const mark = line[0];
+    const body = line.slice(1);
+    if (mark === '+') cur.lines.push({ t: 'add', old: null, new: n++, text: body });
+    else if (mark === '-') cur.lines.push({ t: 'del', old: o++, new: null, text: body });
+    else cur.lines.push({ t: 'ctx', old: o++, new: n++, text: body });
+  }
+  return hunks;
+}
+
+/** エディタで開く行。最初に足した行（新しい側）、無ければ最初のハンクの新しい側の始まり、それも無ければ 1。 */
+export function firstChangedLine(hunks: DiffHunk[]): number {
+  for (const h of hunks) for (const l of h.lines) if (l.t === 'add' && l.new !== null) return l.new;
+  const head = hunks[0]?.header ? /\+(\d+)/.exec(hunks[0].header) : null;
+  return head ? Math.max(1, Number(head[1])) : 1;
+}

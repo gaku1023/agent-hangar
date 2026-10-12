@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Db } from '../../db/open.ts';
 import { RunError } from '../../runs/manager.ts';
 import { SESSION_ALPHA } from '../../../test/fixtures.ts';
+import { EditorMissingError } from '../../external/open.ts';
 import { createApp, type AppDeps, type ExternalApi, type RunsApi } from '../app.ts';
 import { H, launched, run, testDeps, type TestWorld } from '../testing.ts';
 
@@ -101,7 +102,7 @@ describe('routes', () => {
     await post('/api/runs/r1/open-terminal', { tabId: 't1' });
     expect(external.openTerminal).toHaveBeenLastCalledWith({ tmuxName: 'hangar-r1-t1', title: '日本語の 作業 (シェル 1)' });
   });
-  it('ターミナルで開く、VS Code で開く', async () => {
+  it('ターミナルで開く、エディタで開く', async () => {
     const post = (p: string, body?: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     expect(await (await post('/api/runs/r1/open-terminal', { tabId: 't1' })).json()).toEqual({ app: 'terminal', fellBack: false });
     expect(external.openTerminal).toHaveBeenCalledWith({ tmuxName: 'hangar-r1-t1' });
@@ -118,7 +119,7 @@ describe('routes', () => {
     const { body: sessions } = await json(await get('/api/sessions'));
     const alpha = sessions.find((s: { providerSessionId: string }) => s.providerSessionId === SESSION_ALPHA);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`)).status).toBe(204);
-    expect(external.openEditor).toHaveBeenCalledWith({ target: path.join(ws, 'alpha') });
+    expect(external.openEditor).toHaveBeenCalledWith({ target: path.join(ws, 'alpha'), sessionId: alpha.id });
     expect((await post('/api/sessions/nope/open-editor')).status).toBe(404);
     const { body: list } = await json(await get('/api/projects'));
     expect((await post(`/api/projects/${list[0].id}/open-editor`)).status).toBe(204);
@@ -131,7 +132,12 @@ describe('routes', () => {
     fs.writeFileSync(`${ws}/alpha/other.md`, 'z');
     (external.openEditor as ReturnType<typeof vi.fn>).mockClear();
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/a.md` })).status).toBe(204);
-    expect(external.openEditor).toHaveBeenLastCalledWith({ target: `${ws}/alpha/a.md` });
+    expect(external.openEditor).toHaveBeenLastCalledWith({ target: `${ws}/alpha/a.md`, sessionId: alpha.id });
+    // 行（差分から）と、今回だけのエディタ（見つからないときの面から）も渡す。
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/a.md`, line: 42, once: 'zed' })).status).toBe(204);
+    expect(external.openEditor).toHaveBeenLastCalledWith({ target: `${ws}/alpha/a.md`, sessionId: alpha.id, line: 42, once: 'zed' });
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/a.md`, line: 0 })).status).toBe(400);
+    expect((await post(`/api/sessions/${alpha.id}/open-editor`, { once: 'emacs' })).status).toBe(400);
     // あるファイルでも、そのセッションが変えていなければ開かない。
     // 綴りを変えて枠の外へ出るパスも同じ。
     const other = await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/other.md` });
@@ -150,11 +156,18 @@ describe('routes', () => {
     fs.mkdirSync(`${ws}/alpha/became-dir`);
     indexRow.run(alpha.id, 900_003, 'Write', `${ws}/alpha/became-dir`);
     expect((await post(`/api/sessions/${alpha.id}/open-editor`, { file: `${ws}/alpha/became-dir` })).status).toBe(404);
-    expect(external.openEditor).toHaveBeenCalledTimes(1);
+    expect(external.openEditor).toHaveBeenCalledTimes(2);
     (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('code が無い'));
     const bad = await post(`/api/sessions/${alpha.id}/open-editor`);
     expect(bad.status).toBe(500);
     expect((await bad.json()).error).toBe('code が無い');
+    // エディタが見つからないときは 409 で、画面が「見つかりません」の面を出せるよう、名前とほかの候補を返す。
+    const missing = new EditorMissingError({ editor: 'cursor', name: 'Cursor', lastPath: null });
+    missing.others = ['vscode'];
+    (external.openEditor as ReturnType<typeof vi.fn>).mockRejectedValueOnce(missing);
+    const m = await post(`/api/projects/${list[0].id}/open-editor`);
+    expect(m.status).toBe(409);
+    expect(await m.json()).toEqual({ code: 'editor_missing', error: 'Cursor が見つかりません', editor: 'cursor', name: 'Cursor', lastPath: null, others: ['vscode'] });
   });
   const post = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
 });

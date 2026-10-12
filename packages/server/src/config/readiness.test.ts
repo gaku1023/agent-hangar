@@ -33,7 +33,7 @@ function fakeTool(name: string, line: string, mode = 0o755): string {
 const nodeCheckAnswering = (found: { major: number; arch: string } | null): NodeCheck => ({ need: () => ({ major: 22, arch: 'arm64' }), probe: async () => found });
 
 const baseSettings = (over: Partial<Settings> = {}): Settings => ({
-  workspaceRoot: path.join(tmp, 'ws'), claudeDir: path.join(tmp, 'claude'), tmuxPath: null, terminalApp: 'terminal', codePath: null,
+  workspaceRoot: path.join(tmp, 'ws'), claudeDir: path.join(tmp, 'claude'), tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' },
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null,
   ...over,
 });
@@ -225,17 +225,26 @@ describe('createReadiness', () => {
     upsertShared(db, 'project_roots', { id: 'r2', project_id: 'p2', device_id: 'd', path: '/elsewhere/far', resolved: 1 }, 'd');
     upsertShared(db, 'projects', { id: 'p3', name: 'scratch', status: 'active', is_scratch: 1 }, 'd');
     upsertShared(db, 'project_roots', { id: 'r3', project_id: 'p3', device_id: 'd', path: path.join(ws, 'scratch'), resolved: 1 }, 'd');
-    const settings = baseSettings({ tmuxPath: tmux, claudePath: claude, codePath: null, nodePath: node, workspaceRoot: ws, claudeDir });
-    const read = createReadiness({ settings: () => settings, claudeDir, claudeJson, homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', timeoutMs: 3000, nodeCheck: nodeCheckAnswering({ major: 22, arch: 'arm64' }) });
+    const settings = baseSettings({ tmuxPath: tmux, claudePath: claude, nodePath: node, workspaceRoot: ws, claudeDir });
+    const git = fakeTool('git', 'git version 2.51.0');
+    const editor = async () => ({ id: 'cursor' as const, state: 'app' as const, path: '/Applications/Cursor.app' });
+    const read = createReadiness({ settings: () => settings, claudeDir, claudeJson, homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', timeoutMs: 3000, nodeCheck: nodeCheckAnswering({ major: 22, arch: 'arm64' }), findGit: () => git, editor });
     const r = await read();
     expect(r.tools.tmux).toEqual({ path: tmux, ok: true, problem: null, version: '3.4' });
     expect(r.tools.claude).toEqual({ path: claude, ok: true, problem: null, version: '2.3.1' });
-    expect(r.tools.code).toEqual({ path: null, ok: false, problem: 'unset', version: null });
+    expect(r.tools.git).toEqual({ path: git, ok: true, problem: null, version: '2.51.0' });
+    expect(r.editor).toEqual({ id: 'cursor', name: 'Cursor', state: 'app', path: '/Applications/Cursor.app' });
     expect(r.tools.node).toEqual({ path: node, ok: true, problem: null, version: 'v22.9.0', auto: false });
     expect(r.workspace).toEqual({ path: ws, exists: true, projectCount: 1 });
     expect(r.mcp).toEqual({ registered: true, file: claudeJson });
     expect(r.statusline).toEqual({ command: script, scriptPath: script, installed: true });
     expect(r.commands).toEqual({ mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' });
+  });
+  it('git が見つからなければ unset、エディタの口が無ければエディタの行を持たない', async () => {
+    const read = createReadiness({ settings: () => baseSettings(), claudeDir: path.join(tmp, 'claude'), claudeJson: path.join(tmp, '.claude.json'), homeDir: tmp, db, deviceId: 'd', shellCommand: () => 'hangar shell install', findGit: () => null });
+    const r = await read();
+    expect(r.tools.git).toEqual({ path: null, ok: false, problem: 'unset', version: null });
+    expect(r.editor).toBeUndefined();
   });
   it('MCP、ステータスライン、参加のコマンドは、外のターミナルのコマンドと同じ呼び方（入れた版の CLI）にそろえる', async () => {
     const shell = "& 'C:\\Users\\Taro Yamada\\AppData\\Local\\Hangar\\server\\bin\\hangar.cmd' shell install";

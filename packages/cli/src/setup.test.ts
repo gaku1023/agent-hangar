@@ -15,7 +15,7 @@ describe('runSetup', () => {
     expect(r.tools).toEqual([
       { name: 'tmux', found: true, path: '/opt/homebrew/bin/tmux' },
       { name: 'claude', found: false, path: null },
-      { name: 'code', found: false, path: null },
+      { name: 'git', found: false, path: null },
     ]);
     expect(r.workspaceExists).toBe(true);
     const text = formatSetupReport(r);

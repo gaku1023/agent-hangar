@@ -34,6 +34,11 @@ export type ServerEvent =
   /** 中断の群が変わった（tmux のサーバが消えた、再開しないと決めた、元に戻した）。群が無くなれば null。 */
   | { type: 'interrupted.update'; interrupted: InterruptedDto | null }
   /**
+   * git の状態が変わった（git.ts）。実行中のセッションが書いたあと、サーバが読み直して値が変わったときだけ配る。
+   * 部分なので、受け取る側は前の値に重ねる。
+   */
+  | { type: 'git.upsert'; git: import('./git.ts').GitDto }
+  /**
    * 設定が保存された。変えた欄の名前（keys）と、保存後の設定を運ぶ。
    * API やほかの窓から直されても、開いている画面が準備の確かめ（道具のパスと作業フォルダ）を読み直せるようにする。
    */

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaultTerminalApp, isLanguage, newId, terminalAppFor, type ConfigApproval, type Language, type TerminalApp } from '@agent-hangar/shared';
+import { DEFAULT_EDITOR, defaultTerminalApp, editorSettingOf, isLanguage, newId, terminalAppFor, type ConfigApproval, type EditorSetting, type Language, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
@@ -12,7 +12,11 @@ export type Settings = {
   claudeDir: string;
   tmuxPath: string | null;
   terminalApp: TerminalApp;
-  codePath: string | null;
+  /**
+   * 「<名前> で開く」に使うエディタ（0.5.0）。
+   * 0.4.0 までの settings.json は codePath（VS Code の code の場所）だけを持つので、読むときに `{ id: 'vscode', path: codePath }` へ読み替える（loadSettings）。
+   */
+  editor: EditorSetting;
   /**
    * ツールのパスを一度探したかどうか。二度目からは、利用者が空にした null をそのまま尊重する。
    * この項目が無い古い settings.json は、まだ探していないものとして扱う。
@@ -107,7 +111,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(platform: NodeJS.Platform = process.platform): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null };
 }
 
 /**
@@ -122,6 +126,10 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   const s = { ...defaultSettings(platform), ...(JSON.parse(text) as Partial<Settings>) };
   // 別の OS で保存した外部ターミナル（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定に読み替える。
   s.terminalApp = terminalAppFor(s.terminalApp, platform);
+  // 0.4.0 までの codePath は、エディタの設定（VS Code、その場所）に読み替える。読み替えたら古い鍵は持たない（保存し直すと消える）。
+  const raw = JSON.parse(text) as Record<string, unknown>;
+  s.editor = editorSettingOf(raw.editor, typeof raw.codePath === 'string' ? raw.codePath : null);
+  delete (s as Record<string, unknown>).codePath;
   // 旧実装の設定の同期のスイッチ（syncClaudeConfig）は、設定の同期を作り直したときに消した。
   // 入れていた人の settings.json にはまだ残っているので、未知の鍵として読み捨てる（保存し直すと消える）。
   delete (s as Record<string, unknown>).syncClaudeConfig;

@@ -282,11 +282,11 @@ describe('ProjectScreen の指示とメモリ', () => {
 
   it('エディタで開くは、行の印からもダイアログからも種類を渡す。行の印はダイアログを開かない', () => {
     const { onAction } = mount();
-    fireEvent.click(screen.getByRole('button', { name: 'AGENTS.md をエディタで開く' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AGENTS.md を VS Code で開く' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'instructions.openEditor', projectId: 'alpha', kind: 'agents' });
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'CLAUDE.md を表示' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'エディタで開く' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'VS Code で開く' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'instructions.openEditor', projectId: 'alpha', kind: 'project' });
   });
 

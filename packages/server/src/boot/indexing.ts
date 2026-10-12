@@ -1,5 +1,8 @@
 import { remoteRoot } from '../config/cloud.ts';
 import { IndexerService } from '../indexer/service.ts';
+import { gitPath } from '../git/find.ts';
+import { GitService } from '../git/service.ts';
+import { spawnGit } from '../git/status.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { createSessionChangeHandler } from '../projects/onSessionChanged.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
@@ -16,6 +19,8 @@ const ROOT_CHECK_MS = 30_000;
 export type IndexingParts = {
   indexer: IndexerService;
   memos: MemoStore;
+  /** git の表示。実行中のセッションの本文が伸びたら、ここが作業ツリーを読み直して配る。 */
+  git: GitService;
   /**
    * 最初の索引づけと、プロジェクトへの紐づけを済ませる。
    * 全走査、ワークスペースからのプロジェクトの登録、紐づけ、スクラッチの用意、メモの突き合わせと監視、ルートの確かめ、の順である。
@@ -52,6 +57,12 @@ export function bootIndexing(
     // 手元の本文の行を見張る。手元の claude の版より古い行は昔の形として見ない。版が読めるまでは確かめた版を床にする。
     compat: { sink: delivery.compatLog, since: () => delivery.claudeVersion.current ?? VERIFIED_CLAUDE_VERSION },
   });
+  // git の表示。値は端末ローカルで、変わったときだけ git.upsert を配る。
+  const git = new GitService({
+    db, deviceId, live: () => registry.current(),
+    broadcast: (g) => hub.broadcast({ type: 'git.upsert', git: g }),
+    exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; },
+  });
   indexer.on({
     progress: (p) => hub.broadcast({ type: 'index.progress', progress: p }),
     // 本文が消えて hasTranscript が偽に変わったとき（transcriptGone）は、索引が行の変化の口へ知らせるので、ここでは受けない。
@@ -60,6 +71,7 @@ export function bootIndexing(
       started: () => life.started,
       workspaceRoot: () => settings.current.workspaceRoot,
       onLocalTranscript: (f) => sync.uploader?.noteChanged(f),
+      onAppended: (id) => { void git.noteAppended(id); },
     }),
     error: (e) => console.error('[indexer]', e.path, e.message),
   });
@@ -67,7 +79,7 @@ export function bootIndexing(
   let stopMemoWatch: () => void = () => undefined;
   let rootTimer: ReturnType<typeof setInterval> | null = null;
   return {
-    indexer, memos,
+    indexer, memos, git,
     async start() {
       await indexer.start();
       syncProjectsFromWorkspace(db, deviceId, settings.current.workspaceRoot);

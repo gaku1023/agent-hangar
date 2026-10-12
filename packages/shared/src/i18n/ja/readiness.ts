@@ -3,7 +3,7 @@ import type { AreaDictionary } from '../messageSpec.ts';
 
 export const readinessJa: AreaDictionary<typeof readinessKeys> = {
   'readiness.fix.claude': 'claude コマンドの絶対パスを入力してください',
-  'readiness.fix.code': 'VS Code から code コマンドをインストールしてください',
+  'readiness.fix.git': 'git をインストールしてください。無くても動きますが、ブランチと未コミットの件数は出ません',
   'readiness.fix.node': '同梱のサーバと同じメジャー版とアーキテクチャの Node を、node の実行ファイルのフルパスで入力してください',
   'readiness.fix.workspace': 'セッションのあるディレクトリをまとめた場所を入力してください',
   'readiness.problem.unset': '見つかりません',

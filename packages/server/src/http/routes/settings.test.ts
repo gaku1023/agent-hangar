@@ -62,10 +62,10 @@ describe('routes', () => {
     // ツールは、無い、ファイルでない、実行できないを分けて言う。
     expect(await error({ tmuxPath: path.join(ws, 'no-tmux') })).toBe(`「tmux のパス」に ${path.join(ws, 'no-tmux')} が見つかりません`);
     expect(await error({ claudePath: ws })).toBe(`「claude のパス」の ${ws} はファイルではありません`);
-    expect(await error({ codePath: asFile })).toBe(`「code のパス」の ${asFile} には実行権がありません`);
+    expect(await error({ editor: { id: 'vscode', path: asFile } })).toBe(`「エディタのパス」の ${asFile} には実行権がありません`);
     expect(await error({ nodePath: path.join(ws, 'no-node') })).toBe(`「Node のパス」に ${path.join(ws, 'no-node')} が見つかりません`);
     // 弾いた値は保存していない。
-    expect((await json(await get('/api/settings'))).body).toMatchObject({ workspaceRoot: ws, tmuxPath: null, claudePath: null, codePath: null, nodePath: null });
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ workspaceRoot: ws, tmuxPath: null, claudePath: null, editor: { id: 'vscode', path: null }, nodePath: null });
   });
   // 名前だけ（tmux など）は PATH から探して確かめ、打たれたまま保存する。起動のときも PATH から探すからである。
   it('パスの欄は名前だけでも受け、PATH から探して確かめ、打たれたまま保存する', async () => {
@@ -99,10 +99,10 @@ describe('routes', () => {
     vi.stubEnv('USERPROFILE', ws);
     try {
       // Windows の偽の道具は hometool.cmd になる。拡張子まで書いたパスで指す。
-      const r = await patch({ codePath: `~/bin/${path.basename(tool)}` });
+      const r = await patch({ editor: { id: 'zed', path: `~/bin/${path.basename(tool)}` } });
       expect(r.status).toBe(200);
-      expect((await r.json()).codePath).toBe(tool);
-      expect((await json(await get('/api/settings'))).body.codePath).toBe(tool);
+      expect((await r.json()).editor).toEqual({ id: 'zed', path: tool, fileCmd: '', dirCmd: '', terminal: 'none' });
+      expect((await json(await get('/api/settings'))).body.editor.path).toBe(tool);
     } finally {
       vi.unstubAllEnvs();
     }
@@ -116,7 +116,14 @@ describe('routes', () => {
     expect(await error({ workspaceRoot: '' })).toBe('「プロジェクトの親フォルダ」は空にできません');
     expect(await error({ claudeDir: ' ' })).toBe('「読み取り元」は空にできません');
     expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形が違います');
-    expect(await error({ codePath: 3 })).toBe('「code のパス」の値の形が違います');
+    expect(await error({ editor: 3 })).toBe('「エディタ」の値の形が違います');
+    expect(await error({ editor: { id: 'emacs' } })).toBe('「エディタ」の値の形が違います');
+    expect(await error({ editor: { id: 'vscode', path: 3 } })).toBe('「エディタのパス」の値の形が違います');
+    // 任意のコマンドは、どのファイルを開くかを渡す {path} が要る。
+    expect(await error({ editor: { id: 'custom', fileCmd: 'subl' } })).toBe('「ファイルを開くコマンド」に {path} を含めてください');
+    // 選んだばかりの空のコマンドは保存できる（欄を出してから書く）。
+    expect((await app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ editor: { id: 'custom', fileCmd: '' } }) })).status).toBe(200);
+    expect(await error({ editor: { id: 'custom', fileCmd: 'subl {path}', dirCmd: 'subl .' } })).toBe('「フォルダを開くコマンド」に {path} を含めてください');
     expect(await error({ nodePath: 3 })).toBe('「Node のパス」の値の形が違います');
     expect(await error({ claudePath: 3 })).toBe('「claude のパス」の値の形が違います');
     // 選択肢は動いている OS のものだけで、文も OS で変わる。
@@ -138,7 +145,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, nodePath: null, claudePath: null, language: 'ja' });
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -235,7 +242,10 @@ describe('routes', () => {
     expect(await (await patch({ terminalApp: OTHER_TERMINAL, tmuxPath: tmuxBin })).json()).toMatchObject({ terminalApp: OTHER_TERMINAL, tmuxPath: tmuxBin });
     expect((await patch({ terminalApp: 'kitty' })).status).toBe(400);
     expect((await patch({ tmuxPath: 3 })).status).toBe(400);
-    expect((await (await patch({ codePath: null })).json()).codePath).toBeNull();
+    // エディタは足りない項目を今の値で埋め、任意のコマンドの欄は前後の空白を落とす。
+    expect((await (await patch({ editor: { id: 'custom', fileCmd: ' nvim +{line} {path} ', terminal: 'shell' } })).json()).editor).toEqual({ id: 'custom', path: null, fileCmd: 'nvim +{line} {path}', dirCmd: '', terminal: 'shell' });
+    expect((await (await patch({ editor: { id: 'cursor' } })).json()).editor).toEqual({ id: 'cursor', path: null, fileCmd: 'nvim +{line} {path}', dirCmd: '', terminal: 'shell' });
+    expect((await (await patch({ editor: { path: '' } })).json()).editor.path).toBeNull();
   });
   const post = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   it('要約エンジンの設定を検査する', async () => {
@@ -315,7 +325,7 @@ describe('設定の往復', () => {
         ['claudeDir', dir2],
         ['tmuxPath', exe('tmux')],
         ['terminalApp', OTHER_TERMINAL],
-        ['codePath', exe('code')],
+        ['editor', { id: 'zed', path: exe('zed'), fileCmd: '', dirCmd: '', terminal: 'none' }],
         ['lmStudioUrl', 'http://127.0.0.1:9999'],
         ['lmStudioModel', 'gemma-3'],
         ['summaryFallback', false],
@@ -445,5 +455,14 @@ describe('書いた行のイベントは配る層から届く', () => {
         fs.rmSync(ws2, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe('エディタの経路', () => {
+  it('見つけたエディタの一覧と、テストの答えを返す', async () => {
+    expect((await json(await get('/api/editors'))).body).toEqual({ candidates: [], current: { id: 'vscode', state: 'found', path: '/usr/local/bin/code' } });
+    const r = await app.request('/api/editor/test', { method: 'POST', headers: H });
+    expect(await r.json()).toEqual({ ok: true, via: 'cli', file: '/h/hangar-editor-test.md', message: null });
+    expect(t.deps.external.testEditor).toHaveBeenCalledTimes(1);
   });
 });

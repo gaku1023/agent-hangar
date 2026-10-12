@@ -1,10 +1,11 @@
-// 外部ターミナル（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）と VS Code への受け渡し。
+// 外部ターミナル（macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル）とエディタへの受け渡し。
 // macOS は AppleEvent を避けられる経路（.command ファイル）を既定にして、自動化の許可を要らなくする。
 import { execFile as execFileCb, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { TerminalApp } from '@agent-hangar/shared';
+import { editorNameOf, type EditorId, type EditorSetting, type EditorVia, type KnownEditorId, type TerminalApp } from '@agent-hangar/shared';
+import { customHead, defaultEditorHost, planEditorLaunch, type EditorHost, type EditorTarget } from './editors.ts';
 import { needsShell } from '../platform/exec.ts';
 import { MessageError, msg } from '../i18n/message.ts';
 
@@ -249,19 +250,57 @@ export function openDirInTerminalApp(o: { home: string; dir: string; app: Termin
   return openCommand({ app: o.app, command: sq(file), file: () => file, exec });
 }
 
-export async function openInEditor(o: { codePath: string | null; target: string; exec?: Exec; platform?: NodeJS.Platform }): Promise<void> {
-  if (!o.codePath) throw new MessageError(msg('external.editor.codeMissing', { label: msg('settings.label.codePath') }));
-  const exec = o.exec ?? execFile;
-  // Windows では、起こした VS Code の窓が子（cmd.exe や code.exe）の出力の管を受け継ぎうるので、子の終わりで返す（execUntilExit）。
-  const win = (o.platform ?? process.platform) === 'win32';
-  let r: { code: number; stdout: string; stderr: string };
-  if (needsShell(o.codePath, o.platform)) {
-    // Windows の VS Code の code は code.cmd で、Node は .cmd をシェル無しでは起こせない。cmd.exe 越しに、パスを引用符で包んで渡す。
-    // " は Windows のファイル名に使えない文字で、引用を破る。含むものは開かずに断る。
-    if (o.codePath.includes('"') || o.target.includes('"')) throw new MessageError(msg('external.editor.badPath', { target: o.target }));
-    r = await exec(`"${o.codePath}"`, [`"${o.target}"`], { shell: true, ...(win ? { untilExit: true } : {}) });
-  } else {
-    r = await exec(o.codePath, [o.target], win ? { untilExit: true } : undefined);
+/** エディタが見つからない。画面は「<名前> が見つかりません」の面を出すので、名前と最後の場所を持たせる。 */
+export class EditorMissingError extends MessageError {
+  /** ほかに見つかっているエディタ。呼び手（api.ts）が埋める。 */
+  others: KnownEditorId[] = [];
+  constructor(readonly detail: { editor: EditorId; name: string | null; lastPath: string | null }) {
+    super(detail.name === null ? msg('external.editor.customMissing', { command: detail.lastPath ?? '' }) : msg('external.editor.missing', { name: detail.name }));
+    this.name = 'EditorMissingError';
   }
-  if (r.code !== 0) throw new MessageError(msg('external.editor.launchFailed', { reason: r.stderr.trim() || `exit ${r.code}` }));
+}
+
+/** エディタの名前。任意のコマンドはコマンドの先頭の語で言う。 */
+const editorLabel = (e: EditorSetting) => editorNameOf(e.id) ?? customHead(e) ?? msg('external.editor.generic');
+
+/**
+ * 設定のエディタでファイルかフォルダを開く。起こした経路を返す（テストの答えに使う）。
+ * 見つからなければ EditorMissingError、任意のコマンドに {path} が無ければ断る。
+ * Windows の .cmd と .bat は cmd.exe 越しに、語を cmdQuote で包んで渡す。" を含む語は引用を破るので、開かずに断る。
+ * Windows では、起こしたエディタの窓が子（cmd.exe や code.exe）の出力の管を受け継ぎうるので、子の終わりで返す（execUntilExit）。
+ */
+export async function openInEditor(o: { editor: EditorSetting; target: EditorTarget; host?: EditorHost; exec?: Exec }): Promise<EditorVia> {
+  const host = o.host ?? defaultEditorHost();
+  const exec = o.exec ?? execFile;
+  const plan = planEditorLaunch(o.editor, o.target, host);
+  if (plan.kind === 'badCommand') throw new MessageError(msg('external.editor.badCommand', { token: '{path}' }));
+  if (plan.kind === 'missing') throw new EditorMissingError({ editor: o.editor.id, name: editorNameOf(o.editor.id), lastPath: plan.lastPath });
+  const win = host.platform === 'win32';
+  let r: { code: number; stdout: string; stderr: string };
+  if (needsShell(plan.file, host.platform)) {
+    if ([plan.file, ...plan.args].some((a) => a.includes('"'))) throw new MessageError(msg('external.editor.badPath', { name: editorLabel(o.editor), target: o.target.path }));
+    r = await exec(`"${plan.file}"`, plan.args.map(cmdQuote), { shell: true, ...(win ? { untilExit: true } : {}) });
+  } else {
+    r = await exec(plan.file, plan.args, win ? { untilExit: true } : undefined);
+  }
+  if (r.code !== 0) throw new MessageError(msg('external.editor.launchFailed', { name: editorLabel(o.editor), reason: r.stderr.trim() || `exit ${r.code}` }));
+  return plan.via;
+}
+
+/**
+ * 任意のコマンドを、ターミナルの中で動くエディタとして外部ターミナルの新しい窓で起こす（設定の「外部ターミナルで開く」）。
+ * macOS は .command に書いて開き、Windows は Windows Terminal の新しいタブか既定のターミナルで起こす。
+ */
+export function openArgvInTerminalApp(o: { home: string; argv: string[]; title: string; app: TerminalApp; exec?: Exec }): Promise<{ app: TerminalApp; fellBack: boolean }> {
+  const exec = o.exec ?? execFile;
+  if (isWindowsApp(o.app)) {
+    return Promise.resolve().then(() => {
+      assertWindowsSafe(...o.argv);
+      const target: WindowsTarget = { wt: ['--', ...o.argv.map(wtArg)], start: o.argv.map(cmdQuote).join(' '), title: windowsTitle(o.title, o.argv[0] ?? '') };
+      return openWindows({ app: o.app, target, exec });
+    });
+  }
+  const line = o.argv.map(sq).join(' ');
+  const file = writeCommand(path.join(cmdDir(o.home), `edit-${hash8(line)}.command`), line);
+  return openCommand({ app: o.app, command: sq(file), file: () => file, exec });
 }

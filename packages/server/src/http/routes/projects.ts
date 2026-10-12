@@ -7,7 +7,7 @@ import { createProjectDir, ProjectCreateError, registerProjectDir } from '../../
 import { candidateDirs, listWorkspaceDirs, normalizeDir, resolveProject } from '../../projects/registry.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
-import { BODY_LIMITS, externalOf, readJson, tooLargeResult } from './common.ts';
+import { BODY_LIMITS, editorOptsOf, externalOf, readJson, tooLargeResult } from './common.ts';
 
 /** プロジェクトの経路が使う依存。 */
 export type ProjectRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'settings' | 'gitInit' | 'external' | 'token'> & LanguageDeps;
@@ -88,10 +88,14 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
     }
   });
   api.get('/workspace/dirs', (c) => c.json(listWorkspaceDirs(db, deviceId, deps.settings().workspaceRoot)));
-  api.post('/projects/:id/open-editor', (c) => {
+  api.post('/projects/:id/open-editor', async (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));
     if (!p?.path) return c.json({ error: tr('project.error.notFound') }, 404);
-    return external(c, () => deps.external.openEditor({ target: p.path! }), true);
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const opts = editorOptsOf(b.value, false);
+    if (opts === null) return c.json({ error: tr('session.file.badOptions') }, 400);
+    return external(c, () => deps.external.openEditor({ target: p.path!, ...opts }), true);
   });
   api.post('/projects/:id/open-terminal', (c) => {
     const p = getProject(db, deviceId, deps.live(), c.req.param('id'));

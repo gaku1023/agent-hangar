@@ -52,7 +52,9 @@ export type RuntimeEvent =
  * API を 1 回呼ぶだけの UiAction は Runtime が表で引いて実行する（runtime/actionTable.ts）ので、ここには入らない。
  * 表にある kind を領域の switch に書くと、型が合わなくなる（二重に扱わない）。
  */
-export type MediatedAction = Exclude<UiAction, TableAction>;
+/** Runtime が自分で受ける UiAction。git.watch は取り直しの周期を持つので、表にも Mediator にも置かない（runtime/gitWatch.ts）。 */
+export type RuntimeAction = Extract<UiAction, { type: 'git.watch' }>;
+export type MediatedAction = Exclude<UiAction, TableAction | RuntimeAction>;
 
 export type Input =
   | { kind: 'action'; action: MediatedAction }
@@ -170,6 +172,8 @@ export type Overlay =
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
   // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
   | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' }
+  // 差分のダイアログ（git の表示）。file は選んだファイルで、null なら画面が最初の未コミットを選ぶ。source は差分の出どころで、null なら画面が決める（git でなければこのセッションの編集）。
+  | { kind: 'diff'; sessionId: string; file: string | null; source: 'git' | 'session' | null }
   // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
   // pending は止めた操作で、見つかったあとの「開始」でそのまま進める。back は止めたときに開いていた新しいセッションのダイアログで、閉じたらそこへ戻る。
   | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | null };

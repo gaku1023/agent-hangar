@@ -84,4 +84,11 @@ export const homeEn: AreaDictionary<typeof homeKeys> = {
   'home.card.idleNote': 'Idle. Time since last reply: {time}',
   'home.card.workingNote': 'Working',
   'home.card.startingNote': 'Starting',
+  'home.ready.name.git': 'git',
+  'home.ready.name.editor': 'Editor',
+  'home.ready.git.text': 'git was not found. You can start without it, but branches and uncommitted counts are not shown',
+  'home.ready.editor.missing': '{name} was not found',
+  'home.ready.editor.customMissing': 'The editor command {command} was not found',
+  'home.ready.editor.ok': '{name} ({path})',
+  'home.ready.editor.appOnly': '{name} ({path}, app only)',
 };

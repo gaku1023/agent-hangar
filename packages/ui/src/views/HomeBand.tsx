@@ -1,4 +1,5 @@
 import { Fragment, useId, useLayoutEffect, useRef, useState } from 'react';
+import { GitChip } from './GitChip.tsx';
 import { useEmit } from '../action/chain.tsx';
 import type { BandAction, BandGroup, BandLead, BandRow, BandSection, HomeBandProps } from '../presenters/home.ts';
 import { OverlapChip } from './OverlapPopover.tsx';
@@ -221,6 +222,7 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
           : <span className="c-text">{r.text}{r.text !== '' && r.detail !== null && '　'}{r.detail !== null && <i>{r.detail}</i>}</span>}
       <span className="c-end">
         {r.overlap && <OverlapChip overlap={r.overlap} name={r.name} />}
+        {r.git && <GitChip id={r.git.id} chip={r.git.chip} />}
         {r.trail.map((x, i) => <span key={i} data-tone={x.tone}>{x.text}</span>)}
         {r.actions.map((a) => <BandButton key={a.id} action={a} />)}
       </span>

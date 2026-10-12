@@ -68,10 +68,14 @@ describe('設定のファイルと外部の道具', () => {
     expect(readRetention({ ...o, language: () => 'en' }).unwritableReason).toBe('The settings directory was not found, so it will not be changed');
   });
 
-  it('エディタを開けない理由は、設定の欄の名前ごと英語になる', async () => {
-    const e = await openInEditor({ codePath: null, target: '/x' }).catch((x: unknown) => x);
-    expect(errorText('ja', e)).toBe('VS Code の code コマンドが見つかりません。設定の「code のパス」を入力してください');
-    expect(errorText('en', e)).toBe('The code command of VS Code was not found. Enter the "code path" in Settings');
+  it('エディタを開けない理由は、エディタの名前ごと英語になる', async () => {
+    const host = { platform: 'darwin' as const, env: {}, home: '/u', exists: () => false, isExec: () => false, which: () => null, readdir: () => [] };
+    const e = await openInEditor({ editor: { id: 'zed', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, target: { path: '/x', line: null, dir: true }, host }).catch((x: unknown) => x);
+    expect(errorText('ja', e)).toBe('Zed が見つかりません');
+    expect(errorText('en', e)).toBe('Zed was not found');
+    const custom = await openInEditor({ editor: { id: 'custom', path: null, fileCmd: 'nope {path}', dirCmd: '', terminal: 'none' }, target: { path: '/x', line: null, dir: true }, host }).catch((x: unknown) => x);
+    expect(errorText('ja', custom)).toBe('エディタのコマンド nope が見つかりません');
+    expect(errorText('en', custom)).toBe('The editor command nope was not found');
   });
 
   it('アーティファクトの URL の検査', () => {

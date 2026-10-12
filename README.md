@@ -68,6 +68,13 @@ echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zshrc
 `claude` の入れ方は Claude Code の案内に従ってください。
 どれが入っているかは、4 段目の `hangar setup` が報告します。
 
+次の 2 つは無くても動きます。
+
+- git。一覧と (i) のブランチと未コミットの件数、変更したファイルの差分に使います。macOS はコマンドライン・デベロッパツール（`xcode-select --install`）、Windows は Git for Windows（`winget install --id Git.Git -e`）で入ります。
+- エディタ。「<名前> で開く」で使います。VS Code、Cursor、Windsurf、Zed、IntelliJ IDEA、WebStorm を自動で見つけ、Settings の「一般」の「エディタ」で選べます。ほかのエディタは「任意のコマンド」に `subl {path}:{line}` のように書きます。
+
+どちらも、ホームの「セットアップの確認」に任意の行として出ます。
+
 ### 手順
 
 1. Releases から `Hangar-vX.Y.Z-macos-arm64.dmg` を落とします。
@@ -134,7 +141,7 @@ echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zshrc
    `sudo` を使いたくないときは、Homebrew の `/opt/homebrew/bin` に同じリンクを張っても構いません（そこが `PATH` にあることが前提です）。
 
    `bin/hangar` はリンク越しに呼ばれても自分の実体を辿るので、同梱物と Node を見失いません。
-   `hangar setup` は `~/.agent-hangar` を用意し、tmux と claude と code の有無を報告します。
+   `hangar setup` は `~/.agent-hangar` を用意し、tmux と claude と git の有無を報告します。
 
 5. `Hangar.app` を開きます。
 
@@ -222,7 +229,7 @@ dmg から入れる今の手順と、初めて開くときの警告の出方は�
 
 ```sh
 npm install
-npm run hangar -- setup     # ~/.agent-hangar を作り、tmux と claude と code の有無を報告する
+npm run hangar -- setup     # ~/.agent-hangar を作り、tmux と claude と git の有無を報告する
 npm run dev                 # サーバ（4177）と UI の開発サーバ（5173）を起動する
 ```
 
@@ -307,6 +314,24 @@ hangar は Claude Code の設定とデータを原則として読むだけで、
 サーバはどのファイルも書きません。書くのは CLI と、承諾の窓を経たアプリだけです。
 `~/.claude/settings.json` は、設定の同期を入れていない限り書き換えません。
 索引は `~/.agent-hangar/hangar.db` に置きます。
+
+### エディタと git
+
+「<名前> で開く」のボタンは、Settings の「一般」の「エディタ」で選んだエディタで開きます。
+候補には、この PC で見つけた VS Code、Cursor、Windsurf、Zed、IntelliJ IDEA、WebStorm が、見つかったかどうかと一緒に並びます。
+コマンドが PATH に無くアプリだけがあるときも開けます（macOS はアプリの中の CLI、無ければ URL か `open -a`）。
+「テスト」は `~/.agent-hangar/hangar-editor-test.md` を書いて 3 行目を開き、行の指定が効くかまで確かめます。
+一覧に無いエディタは「任意のコマンド」に書きます。`{path}` が開くファイルかフォルダ、`{line}` が行で、シェルを通さずに起こします。
+vim や hx のようなターミナルの中のエディタは、そのセッションのシェルタブか外部ターミナルで開けます。
+選んだエディタが見つからないときは、押したボタンの下に、設定を開く、今回だけほかのエディタで開く、再確認の手を出します。
+0.4.0 までの「code のパス」は、VS Code とその場所に読み替えます。
+
+一覧の行、ホームの実行中、セッションの現在の札と (i) に、作業ツリーのブランチと未コミットの件数が出ます。
+件数は `git status` と同じ数え方で、同じ作業ツリーで動いているセッションがほかにあれば「共有 N」を添えます。
+セッションの「変更したファイル」からは、そのセッションが Edit や Write で変えたファイルの差分を、作業ツリーとの差かこのセッションの編集で読めます。
+Bash などのコマンドで書き換えたファイルは見分けられないので、「ほかに作業ツリーで変わったファイル」として分けて出します。
+他の PC で動いているセッションは、トランスクリプトに残るブランチの名前だけを出します。
+hangar は git に書きません（`--no-optional-locks` で読むだけ）。値はこの PC だけのもので、同期しません。
 
 ## 使い方（フェーズ 3）
 

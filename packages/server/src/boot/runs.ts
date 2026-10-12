@@ -7,6 +7,7 @@ import type { Settings } from '../config/paths.ts';
 import { createReadiness } from '../config/readiness.ts';
 import { bundledHangarIn, createShellWrap } from '../config/shellWrap.ts';
 import { createExternalApi } from '../external/api.ts';
+import { currentEditor, defaultEditorHost } from '../external/editors.ts';
 import { announceAccountsOnRunStarted, buildAccountsDto, type AccountsDeps } from '../http/accounts.ts';
 import type { ExternalApi } from '../http/deps.ts';
 import { ClaudeDirWatch } from '../provider/claude-code/compat/claudeDir.ts';
@@ -164,7 +165,16 @@ export function bootRuns(
     writeShellScript: shell.write,
     shellHook: () => measureShellHook({ db, deviceId: device.id, shellHook: shell.hook, touch }),
     // 設定は書き替わるので、外部連携は呼ばれた時点の settings を読む。
-    external: createExternalApi({ home: home.home, settings: () => settings.current, launcher: o.launcher }),
+    external: createExternalApi({
+      home: home.home, settings: () => settings.current, launcher: o.launcher, language: home.language,
+      // ターミナルの中のエディタは、そのセッションの実行中の run のシェルタブで開く。run が無ければ外部ターミナルで開く。
+      openShellTab: ({ sessionId, argv, title }) => {
+        const run = runs.listAlive().runs.find((r) => r.sessionId === sessionId && r.endedAt === null && r.deviceId === device.id);
+        if (!run) return false;
+        runs.openTab(run.id, { then: argv, title });
+        return true;
+      },
+    }),
     // 準備の確かめ。設定画面とホームの帯の始める前の確認が読む。版を読む子プロセスは 3 秒で切る。
     readiness: createReadiness({
       settings: () => settings.current, claudeDir, claudeJson: claudeJsonPath(), db, deviceId: device.id,
@@ -173,6 +183,8 @@ export function bootRuns(
       // /api/compat と同じ引き方で読み、同じ版の覚えを使う。
       // 道具の claude の行は準備の確かめが自分の覚えで読むので、同じ claude でもそれぞれ 1 度は起こす。
       compatLocalVersion: localClaude.refreshVersion,
+      // 選んだエディタで開けるか（始める前の確認のエディタの行）。版は読まない。
+      editor: async () => currentEditor(settings.current.editor, defaultEditorHost()),
     }),
     compat: localClaude.compat,
     primeLive: () => {

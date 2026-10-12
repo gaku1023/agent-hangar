@@ -778,8 +778,11 @@ export class RunManager {
     return tab;
   }
 
-  /** 同じ cwd で利用者のログインシェルを起こした独立の tmux セッションをタブとして足す。 */
-  openTab(runId: string): TabDto {
+  /**
+   * 同じ cwd で利用者のログインシェルを起こした独立の tmux セッションをタブとして足す。
+   * opts.then はシェルより先に起こすコマンドで、ターミナルの中で動くエディタ（任意のコマンドの「シェルタブで開く」）に使う。title はそのタブの名前。
+   */
+  openTab(runId: string, opts: { then?: string[]; title?: string } = {}): TabDto {
     const run = getRun(this.db, runId);
     if (!run) throw new RunError(404, msg('run.error.notFound'));
     const s = this.session(run.sessionId);
@@ -788,14 +791,14 @@ export class RunManager {
     const n = (this.db.prepare('select count(*) c from run_tabs where run_id = ?').get(runId) as { c: number }).c + 1;
     const tmuxName = `${run.tmuxName}-t${n}`;
     // タブも tmux サーバの全体の環境を継ぐ。別のセッションの印を持ったシェルで claude を打たせない。
-    const command = shellTabCommand({ shell: this.deps.shell, unset: RUN_DROPPED_ENV });
+    const command = shellTabCommand({ shell: this.deps.shell, unset: RUN_DROPPED_ENV, then: opts.then });
     try {
       panes.open({ name: tmuxName, cwd: s.cwd, command, env: withUtf8Locale() });
     } catch (e) {
       throw new RunError(400, msg('run.tab.shellFailed', { reason: this.safeError(e) }));
     }
     const id = newId();
-    upsertShared(this.db, 'run_tabs', { id, run_id: runId, tmux_name: tmuxName, title: this.tr('run.tab.shellTitle', { n }), created_at: this.now(), closed_at: null }, this.deviceId);
+    upsertShared(this.db, 'run_tabs', { id, run_id: runId, tmux_name: tmuxName, title: opts.title ?? this.tr('run.tab.shellTitle', { n }), created_at: this.now(), closed_at: null }, this.deviceId);
     const tab = getTab(this.db, id)!;
     this.emit('tabChanged', tab);
     return tab;

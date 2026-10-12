@@ -12,7 +12,7 @@ import { presentNewProject } from '../presenters/newProject.ts';
 import { presentShell } from '../presenters/shell.ts';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
+const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '1', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
 const syncStatus: SyncStatusBody = { state: 'idle', url: 'https://h', lastPushAt: 1, lastPullAt: 2, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false };
 const launchResult: LaunchResultDto = { run: { id: 'r1', sessionId: 's1', deviceId: 'd', kind: 'resume', tmuxName: 'hangar-r1', pid: null, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 }, sessionId: 's1', tabs: [] };
 const page = (seqs: number[], total: number): EventsPageDto => ({ sessionId: 's1', events: seqs.map((seq) => ({ kind: 'user', seq, text: 'x' })), total, nextSeq: null });
@@ -33,7 +33,7 @@ function harness(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps>
     setProjectStatus: vi.fn(async () => { throw new Error('500 /api/projects/p1'); }),
     resolveProject: vi.fn(async () => ({})),
     candidates: vi.fn(async () => []),
-    updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, ...p })),
+    updateSettings: vi.fn(async (p) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, ...p })),
     rebuildIndex: vi.fn(async () => {}),
     ...fakeApiExtras(),
     syncNow: vi.fn(async () => syncStatus),
@@ -932,7 +932,7 @@ describe('フェーズ 3 の効果', () => {
     await flush();
     expect(addArtifact).toHaveBeenCalledWith('p1', 'https://x/1');
     expect(openArtifact).toHaveBeenCalledWith('a1');
-    expect(openArtifactEditor).toHaveBeenCalledWith('a1');
+    expect(openArtifactEditor).toHaveBeenCalledWith('a1', undefined);
     expect(rt.getStore().artifacts.a1).toEqual(artifact);
   });
   it('アーティファクトの追加が断られたら、トーストにはせず、理由と URL を Store に残す', async () => {
@@ -946,7 +946,7 @@ describe('フェーズ 3 の効果', () => {
     expect(rt.getStore().artifactAddError).toEqual({ projectId: 'p1', url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「alpha」に付いています' });
     expect(rt.getState().toasts).toEqual([]);
   });
-  it('変更したファイルを開くときはそのファイルを送り、VS Code で開くときは作業ディレクトリ（file なし）を頼む', async () => {
+  it('変更したファイルを開くときはそのファイルを送り、エディタで開くときは作業ディレクトリ（file なし）を頼む', async () => {
     const openEditor = vi.fn(async (_sessionId: string, _file?: string) => {});
     const { rt } = harness({ openEditor });
     rt.start();
@@ -954,7 +954,7 @@ describe('フェーズ 3 の効果', () => {
     rt.emit({ type: 'session.openEditor', sessionId: 's1' });
     await flush();
     // file を落とすと、ファイルではなく作業ディレクトリが開く。
-    expect(openEditor.mock.calls).toEqual([['s1', '/w/alpha/src/a.ts'], ['s1']]);
+    expect(openEditor.mock.calls).toEqual([['s1', '/w/alpha/src/a.ts', { line: undefined, once: undefined }], ['s1', undefined, { once: undefined }]]);
   });
   it('設定画面に入ると statusline と集計とモデル一覧を読む', async () => {
     const statusline = vi.fn(async () => ({ command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true }));
@@ -1796,7 +1796,7 @@ describe('入力待ちの知らせ', () => {
 
 describe('設定の欄ごとの保存と準備の確かめ（ランタイム）', () => {
   const READY = {
-    tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset' as const, version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    tools: { tmux: { path: '/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
     workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
     commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
     compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
@@ -2417,7 +2417,7 @@ describe('ランタイムの文（英語）', () => {
 
 // 段 6 の psmux（tmux）の再確認。答えの準備の確かめと設定を Store に入れ、見つかったかを mediator に知らせる。
 describe('psmux と tmux の再確認（ランタイム）', () => {
-  const tools = { claude: { path: '/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset' as const, version: null }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } };
+  const tools = { claude: { path: '/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } };
   const base = {
     workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: true, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: true },
     commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
@@ -2425,7 +2425,7 @@ describe('psmux と tmux の再確認（ランタイム）', () => {
   };
   const MISSING = { ...base, tools: { ...tools, tmux: { path: null, ok: false, problem: 'unset' as const, version: null } } };
   const FOUND = { ...base, tools: { ...tools, tmux: { path: 'C:\\x\\psmux.exe', ok: true, problem: null, version: '3.3.1' } } };
-  const settings = (tmuxPath: string | null) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath, terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null });
+  const settings = (tmuxPath: string | null) => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath, terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null });
   it('見つかれば、準備の確かめと埋めた設定を Store に入れ、印を外す', async () => {
     const recheckMux = vi.fn(async () => ({ readiness: FOUND, settings: settings('C:\\x\\psmux.exe') }));
     const { rt } = harness({ readiness: vi.fn(async () => MISSING), recheckMux });
@@ -2529,5 +2529,23 @@ describe('中断の群（ランタイム）', () => {
     await flush();
     expect(dismissInterrupted).toHaveBeenCalledWith(['r1'], true);
     expect(rt.getStore().interrupted).toEqual(group);
+  });
+});
+
+describe('git の表示（ランタイム）', () => {
+  it('git.watch はまとめて 1 回で取り、答えを Store に重ねる。Mediator へは渡さない', async () => {
+    const gitSessions = vi.fn(async () => ({ sessions: { s1: { state: 'nogit' as const, root: null, branch: null, worktree: null } }, trees: {} }));
+    const { rt, timers } = harness({ gitSessions }, { visible: () => true });
+    rt.start();
+    await flush();
+    const before = rt.getState();
+    rt.emit({ type: 'git.watch', key: 'rows:home', sessionIds: ['s1', 's2'] });
+    rt.emit({ type: 'git.watch', key: 'session', sessionIds: ['s2'] });
+    expect(rt.getState()).toBe(before);
+    timers.find((t) => t.ms === 150)!.fn();
+    await flush();
+    expect(gitSessions).toHaveBeenCalledTimes(1);
+    expect((gitSessions.mock.calls[0] as unknown[])[0]).toEqual(expect.arrayContaining(['s1', 's2']));
+    expect(rt.getStore().git.sessions.s1).toEqual({ state: 'nogit', root: null, branch: null, worktree: null });
   });
 });

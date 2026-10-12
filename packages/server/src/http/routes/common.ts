@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
-import { DEFAULT_LANGUAGE, type Language, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
+import { DEFAULT_LANGUAGE, KNOWN_EDITORS, type EditorMissingDto, type KnownEditorId, type Language, type SyncStatusBody, type Translate } from '@agent-hangar/shared';
+import { EditorMissingError } from '../../external/open.ts';
 import { getProject, getSession } from '../../db/queries.ts';
 import type { GetLanguage } from '../../i18n/language.ts';
 import { errorText } from '../../i18n/message.ts';
@@ -100,8 +101,31 @@ export async function externalResult(c: Context, token: string, fn: () => Promis
     const r = await fn();
     return empty ? c.body(null, 204) : c.json(r as object);
   } catch (e) {
+    // エディタが見つからないときは、画面が「見つかりません」の面を出せるよう、名前とほかの候補を返す。
+    if (e instanceof EditorMissingError) {
+      const body: EditorMissingDto = { code: 'editor_missing', error: safeExternalMessage(e, token, language), editor: e.detail.editor, name: e.detail.name, lastPath: e.detail.lastPath, others: e.others };
+      return c.json(body, 409);
+    }
     return c.json({ error: safeExternalMessage(e, token, language) }, 500);
   }
+}
+
+/**
+ * エディタで開く要求の本文の読み方。line は 1 からの行（ファイルを開くときだけ）、once は「今回は <名前> で開く」のエディタ。
+ * 形の違う値は null（呼び手は 400 にする）。
+ */
+export function editorOptsOf(body: unknown, allowLine: boolean): { line?: number; once?: KnownEditorId } | null {
+  const b = (body ?? {}) as { line?: unknown; once?: unknown };
+  const out: { line?: number; once?: KnownEditorId } = {};
+  if (b.line !== undefined && b.line !== null) {
+    if (!allowLine || typeof b.line !== 'number' || !Number.isInteger(b.line) || b.line < 1) return null;
+    out.line = b.line;
+  }
+  if (b.once !== undefined && b.once !== null) {
+    if (!(KNOWN_EDITORS as readonly unknown[]).includes(b.once)) return null;
+    out.once = b.once as KnownEditorId;
+  }
+  return out;
 }
 
 /**

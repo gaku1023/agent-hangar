@@ -1,4 +1,5 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
+import { presentGitChip, type GitChipProps } from './git.ts';
 import { isReturnOn, isReturnTime, limitKindText, liveWithLimit, localDate, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type UiAction, type LiveStatus, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
@@ -35,7 +36,9 @@ export type AttentionCard = { id: string; name: string; projectName: string | nu
  * aside は裏だけ動いていること。そのときは activity も intent も出さず、note で裏のものと指揮役が空いていることを言う。
  * limit は使用制限でリセットを待っていること。text は枠とリセットの時刻と自動で続くか、left はリセットまでの残り（過ぎていれば空）である。
  */
-export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string; limit?: { text: string; left: string } | null };
+export type RunningCard = { id: string; name: string; live: LiveStatus | null; aside: boolean; elapsed: string; meta: string; intent: string | null; activity: { tool: string; summary: string } | null; note: string | null; contextPercent: number | null; contextLabel: string; limit?: { text: string; left: string } | null;
+  /** git の札（試作の 2-2 の A）。右端の、経過とコンテキストの左に置く。まだ届いていないものと git でないものは null。省けば出さない。 */
+  git?: GitChipProps | null };
 /**
  * 今日戻るの札（C1）。要対応の札の並びに、入力待ちの札の後ろで置く。
  * 戻る日が今日か過ぎた Paused 1 件につき 1 枚。戻る日が欠けたり壊れたりしたものも、利用者が決めるまで出す（returnOn と overdueDays は null）。
@@ -154,7 +157,7 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     // 意図は作業中の間だけ出す。前のターンの意図は、いまの作業を言っていないので出さない。
     const said = store.liveDigests[s.id]?.intent;
     const intent = working && said && said.inThisTurn ? said.text : null;
-    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent), limit };
+    return { id: s.id, name: name(s), live, aside: aside !== null, elapsed: durationLabel(t, now - (s.startedAt ?? now)), meta, intent, activity, note, contextPercent: s.stats.contextPercent, contextLabel: percentLabel(t, s.stats.contextPercent), limit, git: presentGitChip(t, store.git, s.id, store.sessions) };
   });
 
   return { attention, returning, confirm, running };
@@ -199,7 +202,9 @@ export type BandRow = { key: string; lead: BandLead; name: string; badge?: strin
   /** 行の上に小見出しを置く区切り。key が前の行と替わったところで見出しを出す（中断の群のアカウントごとの小見出し）。 */
   section?: BandSection;
   /** 同じファイルの編集の警告。行の右端に琥珀の札を置き、押すと中身が開く（presenters/overlap.ts）。 */
-  overlap?: OverlapProps | null };
+  overlap?: OverlapProps | null;
+  /** 右端の git の札（実行中の行だけ）。trail の左に置く。 */
+  git?: { id: string; chip: GitChipProps } | null };
 /**
  * 引き出しの中の小見出し（アカウント）。color は色の点、meter は 5 時間の使用率、note は添える一言（未ログイン、制限に近い）、action は見出しのボタン（ログイン）。
  */
@@ -289,7 +294,7 @@ function runningRow(t: Translate, r: RunningCard): BandRow {
   const trail: BandTrail[] = [];
   if (working) trail.push({ text: t('home.band.working', { time: r.elapsed }), tone: 'busy' });
   if (r.contextPercent !== null) trail.push({ text: r.contextLabel });
-  return { key: `run:${r.id}`, lead: { kind: 'dot', live: r.live, aside: r.aside }, name: r.name, context: r.meta, text, detail, tone: null, trail, open: { type: 'session.open', id: r.id }, actions: [] };
+  return { key: `run:${r.id}`, lead: { kind: 'dot', live: r.live, aside: r.aside }, name: r.name, context: r.meta, text, detail, tone: null, trail, open: { type: 'session.open', id: r.id }, actions: [], git: r.git ? { id: r.id, chip: r.git } : null };
 }
 
 function confirmRow(t: Translate, c: ConfirmCard): BandRow {

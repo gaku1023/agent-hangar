@@ -172,3 +172,40 @@
 .integ-dest > span + span::before { content: '\00b7'; margin-right: calc(var(--u) * 2); }
 .integ-write .btn { margin-left: auto; }
 .integ-terminal { margin-top: calc(var(--u) * 2); }
+
+/* エディタの欄（試作の 1-1 の A）。候補の一覧はラジオの行で、選んだ行だけ「テスト」を持つ。 */
+.editor-settings { display: grid; gap: calc(var(--u) * 2); }
+.editor-choices { display: grid; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.editor-choice { display: grid; grid-template-columns: 18px 30px minmax(0, 1fr) auto auto; gap: calc(var(--u) * 2.5); align-items: center; padding: calc(var(--u) * 2) calc(var(--u) * 2.5); cursor: pointer; transition: background var(--dur-fast); }
+.editor-choice + .editor-choice { border-top: 1px solid var(--line); }
+.editor-choice:hover { background: var(--surface-2); }
+.editor-choice[aria-checked='true'] { background: var(--accent-soft); }
+.editor-radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line-strong); background: var(--surface); position: relative; }
+.editor-choice[aria-checked='true'] .editor-radio { border-color: var(--accent); }
+.editor-choice[aria-checked='true'] .editor-radio::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+.editor-tile { width: 30px; height: 30px; border-radius: var(--r); background: var(--surface-2); border: 1px solid var(--line-strong); display: grid; place-items: center; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); }
+.editor-choice-main { display: grid; min-width: 0; }
+.editor-choice-name { font-weight: 600; display: inline-flex; gap: calc(var(--u) * 1.5); align-items: baseline; }
+.editor-choice-ver { font-size: var(--fs-xs); font-weight: 400; }
+.editor-choice-path { font-size: var(--fs-xs); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-choice-wait { font-size: var(--fs-xs); }
+.editor-path { display: grid; gap: var(--u); justify-items: start; font-size: var(--fs-sm); }
+.editor-path .field { width: 100%; }
+.editor-path-hint { font-size: var(--fs-xs); }
+.editor-result { display: flex; gap: calc(var(--u) * 1.5); align-items: flex-start; font-size: var(--fs-sm); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--surface-2); color: var(--ink-2); }
+.editor-result .icon { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.editor-result[data-tone='ok'] { background: var(--st-done-soft); color: var(--st-done); }
+.editor-result[data-tone='warn'] { background: var(--st-paused-soft); color: var(--st-paused); }
+.editor-result[data-tone='ng'] { background: color-mix(in srgb, var(--error) 10%, var(--surface)); color: var(--error); }
+/* 任意のコマンド（試作の 1-4 の A）。2 つの欄と、打つそばから変わる見本。 */
+.editor-custom { display: grid; gap: calc(var(--u) * 2); font-size: var(--fs-sm); }
+.editor-custom-desc { margin: 0; font-size: var(--fs-xs); }
+.editor-tokens { display: flex; flex-wrap: wrap; gap: calc(var(--u) * 1.5); align-items: center; font-size: var(--fs-xs); }
+.editor-token { font-size: 11px; border: 1px dashed var(--accent); color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; cursor: pointer; }
+.editor-example { font-size: 11px; }
+.editor-preview { margin: 0; font-size: 11.5px; line-height: 1.55; background: var(--term-bg); color: var(--term-fg); border-radius: var(--r); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); white-space: pre-wrap; word-break: break-all; }
+.editor-preview-c { color: color-mix(in srgb, var(--term-fg) 55%, var(--term-bg)); }
+@media (max-width: 760px) {
+  .editor-choice { grid-template-columns: 18px 30px minmax(0, 1fr) auto; }
+  .editor-choice > :last-child { grid-column: 3 / -1; justify-self: start; }
+}

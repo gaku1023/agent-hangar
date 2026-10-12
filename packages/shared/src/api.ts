@@ -107,7 +107,7 @@ export type InterruptedDto = { at: number; cause: InterruptCause; items: Interru
  */
 export type OverlapFileDto = { path: string; with: string; mineAt: number; theirsAt: number; alternating: boolean };
 export type SessionOverlapDto = { with: string[]; files: OverlapFileDto[] };
-export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
+export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; /** エディタの選択（editor.ts）。0.4.0 までの codePath は、サーバが読むときに editor へ読み替える。 */ editor: import('./editor.ts').EditorSetting; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
 /**
  * Claude Code の会話の保持期間。
  * source は値がどこで決まったかで、default はユーザー設定にキーが無い（既定の 30 日）ことを表す。
@@ -221,7 +221,9 @@ export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto;
  * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
-  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: NodeCheckDto };
+  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; node: NodeCheckDto; /** git。設定の欄は無く、PATH と既知の置き場（Windows は Git for Windows の場所）から探す。この項目を知らない古いサーバは返さない。 */ git?: ToolCheckDto };
+  /** 選んだエディタで開けるか。この項目を知らない古いサーバは返さない。 */
+  editor?: { id: import('./editor.ts').EditorId; name: string | null; state: import('./editor.ts').EditorDetectState; path: string | null };
   workspace: { path: string; exists: boolean; projectCount: number };
   mcp: { registered: boolean; file: string };
   statusline: StatuslineStatusDto;

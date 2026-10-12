@@ -1,6 +1,8 @@
 import { asideOf } from '../lib/aside.ts';
+import { gitDetailRows, presentGitChip, presentGitFiles, type GitChipProps, type GitFilesView } from './git.ts';
+import { openForLabel, openLabel } from './editor.ts';
 import { baseName, splitLast } from '../lib/paths.ts';
-import { stopReasonOf, type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type StepCell, type StopReason, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
+import { stopReasonOf, type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import type { State } from '../mediator/types.ts';
 import { accountOfSession, aliveRunOf, artifactsOf, currentRunOf, eventsKey, hasMultipleAccounts, hasRunOf, outsideOpenOf, tabsOf, type Store } from '../store/store.ts';
@@ -81,7 +83,14 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   /** 見出しの名前の横の札（ロック、トランスクリプトの在りか）。 */
   badges: BadgeProps[];
   /** 見出しの (i) のポップオーバーの行。 */
-  details: DetailRow[] };
+  details: DetailRow[];
+  /**
+   * git の表示（0.5.0）。chip は現在の札と冒頭の 1 枚に置く札（まだ届いていないものと git でないものは null）、files は「変更したファイル」の差分の一覧。
+   * まだ git を読んでいないセッションは null。
+   */
+  git?: SessionGitView | null };
+/** セッション画面の git。 */
+export type SessionGitView = { chip: GitChipProps | null; files: GitFilesView };
 
 export type SessionActionId = 'openEditor' | 'resume' | 'resumeHere' | 'fork' | 'openTerminal' | 'attach' | 'adopt' | 'regenerate' | 'promote' | 'stop';
 /**
@@ -205,7 +214,8 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
   return items;
 }
 
-const openEditor = (t: Translate): SessionAction => ({ id: 'openEditor', label: t('session.action.openEditor'), disabled: null, note: null });
+/** 「<名前> で開く」。名前は設定のエディタ（presenters/editor.ts）。 */
+const openEditor = (label: string): SessionAction => ({ id: 'openEditor', label, disabled: null, note: null });
 
 /** 見出しの行の操作を決めるのに要る事実。 */
 export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch'>;
@@ -218,7 +228,7 @@ export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOn
  * 理由は再開とフォークを閉じている事実（実行中、ロック、本文の在りか）から言う。
  * 生きているロックの「この PC で再開」は Ruling 14 のとおり閉じたままにし、主の操作のまま理由を添える。
  */
-export function sessionActions(f: ActionFacts, t: Translate): SessionActions {
+export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string = t('editor.open.named', { name: 'VS Code' })): SessionActions {
   const running = f.run?.alive === true || (f.live !== null && f.lock === null && !f.remoteOnly);
   const dev = f.lock?.deviceName ?? null;
   const why = (kind: 'resume' | 'fork'): string => {
@@ -232,7 +242,7 @@ export function sessionActions(f: ActionFacts, t: Translate): SessionActions {
   const fork: SessionAction = { id: 'fork', label: t('session.action.fork'), disabled: f.canFork ? null : why('fork'), note: f.canFork ? t('session.action.forkNote') : null };
   const regenerate: SessionAction[] = f.gone ? [] : [{ id: 'regenerate', label: t('session.action.regenerate'), disabled: null, note: f.summaryPending ? t('session.action.regenerateBusy') : f.summaryError ? t('session.action.regenerateFailed') : null }];
   const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: t('session.action.promote'), disabled: null, note: null }] : [];
-  const editor = openEditor(t);
+  const editor = openEditor(editorLabel);
   if (running) {
     const alive = f.run?.alive === true;
     const outside: SessionAction[] = f.outsideOpen === 'attach' ? [{ id: 'attach', label: t('session.action.attach'), disabled: null, note: t('session.action.attachNote') }]
@@ -307,6 +317,8 @@ export type LeadInput = {
   now: number;
   /** 保持期間で本文が消えたとみられる会話。 */
   gone: boolean;
+  /** 選んでいるエディタ（変更したファイルの「<名前> で開く」）。省くと VS Code として言う。 */
+  editor?: Pick<SettingsDto, 'editor'> | null;
   summaryPending: boolean;
   summaryError: string | null;
   artifacts: ArtifactCardProps[];
@@ -339,7 +351,7 @@ function leadFiles(i: LeadInput, t: Translate): LeadCardProps['files'] {
   const split = (path: string) => splitLast(relPath(path, cwd));
   const row = (path: string, edits: number | null, agentId: string | null): LeadFileRow => {
     const w = byPath.get(path);
-    return { path, ...split(path), created: w?.created ?? false, added: w ? w.added : null, removed: w ? w.removed : null, edits: edits === null ? '' : t('session.files.edits', { n: edits }), byAgent: agentId === null ? null : t('session.files.byAgent', { id: agentId }), openLabel: t('session.files.open', { path }) };
+    return { path, ...split(path), created: w?.created ?? false, added: w ? w.added : null, removed: w ? w.removed : null, edits: edits === null ? '' : t('session.files.edits', { n: edits }), byAgent: agentId === null ? null : t('session.files.byAgent', { id: agentId }), openLabel: openForLabel(t, i.editor ?? null, path) };
   };
   const rows = i.files ? i.files.map((f) => row(f.path, f.edits, f.agentId)) : i.windowFiles.map((f) => row(f.path, null, null));
   const count = i.files ? i.files.length : Math.max(i.session.stats.filesChanged, rows.length);
@@ -401,7 +413,8 @@ export function presentSessionBadges(s: SessionDto, now: number, t: Translate): 
 }
 
 /** (i) のポップオーバーの 1 行。mono は値を等幅で描く（パス、時刻）、dot は値の前に置く色の点（アカウント）。 */
-export type DetailRow = { name: string; value: string; mono?: boolean; dot?: string };
+/** note は値の後ろに薄く添える語、link は値の後ろのボタン（git の「一覧」）。 */
+export type DetailRow = { name: string; value: string; mono?: boolean; dot?: string; note?: string; link?: { label: string; send: UiAction } };
 
 /** 起動の種類を、辞書の語に引く。 */
 const LAUNCH_KEY = { start: 'session.launch.start', resume: 'session.launch.resume', fork: 'session.launch.fork' } as const;
@@ -435,7 +448,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
   const s = store.sessions[id];
   const t = translatorOf(store);
   const view = state.sessionView[id] ?? defaultSessionView();
-  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: null, badges: [], details: [], account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(t), menu: [] }, transcriptBand: null };
+  const base = { id, parent: null, live: null, aside: false, oneLiner: null, hasTranscript: false, items: [], total: 0, loaded: 0, loading: false, hasMore: false, showThinking: view.showThinking, showRaw: view.showRaw, follow: view.follow, agentId: view.agentId, subagents: store.subagents[id] ?? [], loadingSession: false, run: null, tabs: [], selectedTab: null, transcriptOpen: view.transcriptOpen, trustHint: false, canResume: false, canFork: false, summaryPending: false, summaryError: null, fromScratch: false, canPromote: false, split: null, canSplit: false, lock: null, remoteOnly: false, canResumeHere: false, outsideOpen: null, turnRows: [], turnsComplete: true, turnsPending: false, turnCount: null, loadingOlder: false, openTurnItems: [], turnJump: null, strip: null, lead: null, badges: [], details: [], git: null, account: null, gone: null, jump: null, hasNewer: false, actions: { primary: openEditor(openLabel(t, store.settings)), menu: [] }, transcriptBand: null };
   // 起動の応答は HTTP で先に返り、session.upsert は WebSocket で遅れて届く。
   // run だけ知っている間は「見つかりません」ではなく読み込み中にする。
   if (!s) { const loading = hasRunOf(store, id); return { ...base, name: id, notFound: !loading, loadingSession: loading }; }
@@ -508,14 +521,17 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     reason, permission: s.permission, limit: s.limit,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
-  const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
+  const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, editor: store.settings, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
   const props: SessionProps = {
     ...base, account, name: s.name ?? t('common.label.noName'), live: s.live, aside: asideOf(s.live, s.liveAside) !== null, reason,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。
     parent: project ? { label: projectDisplayName(project, t), route: { name: 'project', id: project.id } } : null,
     oneLiner: s.summary?.oneLiner ? s.summary.oneLiner : null, hasTranscript: s.hasTranscript,
     items, total: slice?.total ?? 0, loaded: slice?.items.length ?? 0, loading: slice?.loading ?? false, hasMore: olderLeft, hasNewer: slice ? slice.nextSeq !== null : false, notFound: false,
-    strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t), details: presentDetails(s, run, account, t),
+    strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t),
+    // git の行は (i) の終わりに足す（ブランチ、worktree、作業ツリーの未コミット、このセッションの変更）。
+    details: [...presentDetails(s, run, account, t), ...gitDetailRows(t, store.git, id, store.sessions, store.gitChanges[id])],
+    git: store.git.sessions[id] ? { chip: presentGitChip(t, store.git, id, store.sessions), files: presentGitFiles(t, store.gitChanges[id]) } : null,
     turnRows, turnsComplete: complete, turnsPending, turnCount, loadingOlder: slice?.loadingOlder === true, openTurnItems, turnJump: view.turnJump,
     jump: view.jump,
     run: run ? { id: run.id, kind: run.kind, alive: run.endedAt === null, started: relativeTime(t, run.startedAt, now) } : null,
@@ -533,5 +549,5 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     split: right && selectedTab ? { left: selectedTab, right: right.id } : null, canSplit,
     gone, transcriptBand,
   };
-  return { ...props, actions: sessionActions(props, t) };
+  return { ...props, actions: sessionActions(props, t, openLabel(t, store.settings)) };
 }

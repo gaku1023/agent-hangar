@@ -140,7 +140,7 @@ describe('presentHomeScreen の一覧', () => {
 
 describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   const READY: ReadinessDto = {
-    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
     workspace: { path: '/Users/me/workspace', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: 'bash x', scriptPath: '/Users/me/.claude/statusline.sh', installed: false },
     commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
     compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
@@ -158,7 +158,7 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   it('起動のたびの確かめで直すものがあれば、ふだんの 3 つの後ろ（最後）に確認の群を足す。誰にでも出す', () => {
     const p = presentHomeScreen(initialState(), busy(READY), NOW);
     expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending', 'readiness']);
-    expect(p.band.groups.at(-1)).toMatchObject({ countText: '準備完了 3 / 6', count: 3 });
+    expect(p.band.groups.at(-1)).toMatchObject({ countText: '準備完了 4 / 7', count: 3 });
     // tmux と claude が揃っているので、右端の文は出さない。
     expect(p.note).toBeNull();
     const noClaude: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset', version: null } } };
@@ -186,7 +186,7 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   it('言語の設定で文が替わる', () => {
     const en = { ...empty(READY), settings: { language: 'en' } as SettingsDto };
     const p = presentHomeScreen(initialState(), en, NOW);
-    expect(p.band.groups[0]).toMatchObject({ label: 'Setup check', countText: 'Ready 3 / 6' });
+    expect(p.band.groups[0]).toMatchObject({ label: 'Setup check', countText: 'Ready 4 / 7' });
     expect(p.note).toBeNull();
   });
 });
@@ -218,7 +218,7 @@ describe('presentHomeScreen の場所の不明なプロジェクト（2.11.5）'
 
   it('確認の群と並ぶときは、場所の不明なプロジェクトが先、確認が最後', () => {
     const READY: ReadinessDto = {
-      tools: { tmux: { path: null, ok: false, problem: 'unset', version: null }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/n', ok: true, problem: null, version: 'v22', auto: true } },
+      tools: { tmux: { path: null, ok: false, problem: 'unset', version: null }, claude: { path: null, ok: false, problem: 'unset', version: null }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/n', ok: true, problem: null, version: 'v22', auto: true } },
       workspace: { path: '/w', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/c' }, statusline: { command: 'x', scriptPath: '/s', installed: false },
       commands: { mcp: 'a', statusline: 'b', shell: 'c', join: 'd' }, compat: { verifiedVersion: '1', localVersion: '1', driftCount: 0 },
     };
