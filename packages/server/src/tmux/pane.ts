@@ -1,3 +1,4 @@
+import { muxServersOf, type MuxServers } from './servers.ts';
 import type { Tmux } from './tmux.ts';
 
 /** 名前で送るキー。文字として送れないものだけを挙げる。 */
@@ -39,28 +40,36 @@ export interface PaneOps {
 /** tmux と psmux のキーの名前。 */
 const MUX_KEYS: Record<PaneKey, string> = { 'ctrl+o': 'C-o' };
 
-/** tmux と psmux に共通の口。画面 1 つを、切り離したセッション 1 つにする。 */
-function muxPaneOps(tmux: Tmux): Omit<PaneOps, 'prepareForOutsideTerminals'> {
+/**
+ * tmux と psmux に共通の口。画面 1 つを、切り離したセッション 1 つにする。
+ * 新しい画面は hangar の専用のサーバに作り、既存の画面にはそれが居るサーバで触る（servers.ts）。
+ */
+function muxPaneOps(mux: MuxServers): Omit<PaneOps, 'prepareForOutsideTerminals'> {
+  const at = (name: string) => mux.serverOf(name);
   return {
     open(opts) {
-      tmux.newSession(opts);
+      mux.own.newSession(opts);
       // hangar の画面は UI の端末に埋めるので、状態の行は出さない。
-      tmux.setOption(opts.name, 'status', 'off');
+      mux.own.setOption(opts.name, 'status', 'off');
     },
     // サーバごとは落とさない。名指しの kill-session だけである。
     // psmux の kill-server は別の名前空間のセッションまで落とすので、どちらの裏でもここでは使わない。
-    close: (name) => tmux.killSession(name),
-    list: () => tmux.listSessions(),
-    capture: (name) => tmux.capturePane(name),
+    close: (name) => at(name).killSession(name),
+    list: () => mux.list(),
+    capture: (name) => at(name).capturePane(name),
     // -l を付けて 1 文字として送る。{ や q をキー名として読ませない。
-    sendText: (name, text) => tmux.sendKeys(name, '-l', text),
-    sendKey: (name, key) => tmux.sendKeys(name, MUX_KEYS[key]),
+    sendText: (name, text) => at(name).sendKeys(name, '-l', text),
+    sendKey: (name, key) => at(name).sendKeys(name, MUX_KEYS[key]),
   };
 }
 
-/** tmux を裏にした PaneOps。外の端末（iTerm2 など）から attach する人のための設定も確かめる。 */
-export function tmuxPaneOps(tmux: Tmux): PaneOps {
-  return { ...muxPaneOps(tmux), prepareForOutsideTerminals: () => tmux.ensureTerminalOptions() };
+/**
+ * tmux を裏にした PaneOps。外の端末（iTerm2 など）から attach する人のための設定も確かめる。
+ * その設定はサーバ全体に効くので、hangar の専用のサーバにだけ入れる。利用者の既定のサーバには入れない。
+ */
+export function tmuxPaneOps(tmux: Tmux | MuxServers): PaneOps {
+  const mux = muxServersOf(tmux);
+  return { ...muxPaneOps(mux), prepareForOutsideTerminals: () => mux.own.ensureTerminalOptions() };
 }
 
 /**
@@ -69,11 +78,11 @@ export function tmuxPaneOps(tmux: Tmux): PaneOps {
  * 違うのは、外の端末のための設定を何も入れないことである。
  * copy-command の pbcopy は Windows に無く、Shift+Enter は Windows Terminal からそのまま通る。
  */
-export function psmuxPaneOps(tmux: Tmux): PaneOps {
-  return { ...muxPaneOps(tmux), prepareForOutsideTerminals: () => {} };
+export function psmuxPaneOps(tmux: Tmux | MuxServers): PaneOps {
+  return { ...muxPaneOps(muxServersOf(tmux)), prepareForOutsideTerminals: () => {} };
 }
 
 /** 動いている OS に合う PaneOps。Windows は psmux、それ以外は tmux。 */
-export function paneOpsFor(tmux: Tmux, platform: NodeJS.Platform = process.platform): PaneOps {
+export function paneOpsFor(tmux: Tmux | MuxServers, platform: NodeJS.Platform = process.platform): PaneOps {
   return platform === 'win32' ? psmuxPaneOps(tmux) : tmuxPaneOps(tmux);
 }

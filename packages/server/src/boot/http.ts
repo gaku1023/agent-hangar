@@ -15,7 +15,7 @@ import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 import type { IndexingParts } from './indexing.ts';
 import { VERSION, type StartOptions } from './options.ts';
-import { panesOf, tmuxOf, type RunsParts } from './runs.ts';
+import type { RunsParts } from './runs.ts';
 import type { SummaryParts } from './summary.ts';
 import type { SyncParts } from './sync.ts';
 
@@ -79,7 +79,7 @@ export function bootHttp(p: {
   const { db, settings, device } = home;
   const { server, port } = listening;
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
-  const relay = new PtyRelay({ token: home.token, port, tmux: tmuxOf(settings.current), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
+  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
   // 配布版（Tauri のバンドル）では UI の置き場所を環境変数 HANGAR_UI_DIST で受ける。
   // 入口（main.ts）が読んで消してから opts.uiDist で渡す。無ければリポジトリ内の packages/ui/dist を使う。
   const uiDist = p.opts.uiDist ?? path.resolve(p.serverDir, '../../ui/dist');
@@ -94,7 +94,7 @@ export function bootHttp(p: {
     language: home.language,
     updateSettings: (patch) => applySettingsPatch({
       home: home.home, box: settings,
-      applyTmux: (s) => { const t = tmuxOf(s); runs.runs.setPanes(panesOf(t)); relay.setTmux(t); },
+      applyTmux: (s) => { relay.setTmux(runs.applyTmux(s)); },
       onTmuxPath: runs.writeShellScript,
       onClaudePath: () => {
         runs.runs.setClaudeBin(runs.claudeBin());

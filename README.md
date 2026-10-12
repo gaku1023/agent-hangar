@@ -262,6 +262,7 @@ psmux -V
 ```
 
 `psmux`、`pmux`、`tmux` の 3 つの名前で入ります。hangar は `psmux` を先に探します。
+hangar のセッションは psmux の専用の名前空間で動くので、`psmux -L hangar ls` で見えます。
 
 winget の id は `marlocarlo.psmux` です。
 リポジトリは `psmux/psmux` に移りましたが、winget の id は移っていません（2026-10-10 に winget-pkgs の `manifests/m/marlocarlo/psmux` で 3.3.8 を確かめました。`psmux/psmux` という id はありません）。
@@ -681,9 +682,19 @@ Claude Code が子に立てる印（`CLAUDECODE`、`CLAUDE_CODE_SESSION_ID` な�
 
 ### tmux に足すもの
 
-セッションは、利用者の tmux サーバの中に置きます。
-hangar 専用のソケットや専用のサーバは立てません（`tmux -L` や `-S` を付けません）。
-そのため、次のサーバ全体の設定は、同じサーバにある自分のセッションにも効きます。
+セッションは、利用者がふだん使う tmux とは別の、hangar 専用の tmux サーバ（`tmux -L hangar`）に置きます。
+Windows の psmux も、同じく `-L hangar` の名前空間を使います。
+
+- hangar のセッションは `tmux ls` には出ず、`tmux -L hangar ls`（Windows は `psmux -L hangar ls`）で見えます。
+  ターミナルから直につなぐときは `tmux -L hangar attach -t =<名前>` です。
+- 利用者の tmux の設定（`~/.tmux.conf`）は、この専用のサーバが起きるときにも読まれます。
+- 次のサーバ全体の設定は専用のサーバにだけ入れ、利用者自身の tmux のサーバには入れません。
+- 0.6.0 に上げた時点で、前の版が利用者の既定のサーバで動かしていたセッションは、終わるまでそのサーバで扱います。新しく起動するセッションから、専用のサーバに入ります。
+- シェル連携（`hangar shell install`）を使っているなら、上げる前から開いていたターミナルは開き直してください。
+  古い包みを読み込んだままなので、そこで打った `claude` は起動しても、そのターミナルからはつながりません（セッションは hangar から開けます）。
+- 利用者自身の tmux の中で `claude` を打つと、hangar に包まず素の claude を起動します（hangar のシェルタブの中なら、そのまま hangar のセッションへ移ります）。
+
+hangar が入れるものは次のとおりです。
 
 - セッションの名前。
   会話は `hangar-<id>`、会話の中のシェルタブは `hangar-<id>-t<n>` です。

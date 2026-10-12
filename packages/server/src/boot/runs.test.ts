@@ -281,6 +281,12 @@ describe('run とアカウントと使用量', () => {
     expect(panesOf(tmuxOf({ tmuxPath: '/opt/tmux' }))).not.toBeNull();
   });
 
+  it('tmux の口は hangar の専用のサーバ（-L hangar）に画面を作り、前の版の画面は既定のサーバで探す', () => {
+    const m = tmuxOf({ tmuxPath: '/opt/tmux' })!;
+    expect(m.own.args('ls')).toEqual(['-L', 'hangar', 'ls']);
+    expect(m.legacy?.args('ls')).toEqual(['ls']);
+  });
+
   it('外のターミナルは、いまの設定の tmux のパスを読む', () => {
     const b = boot();
     b.h.settings.current = { ...b.h.settings.current, tmuxPath: null };

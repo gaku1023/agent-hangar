@@ -19,6 +19,17 @@ describe('ターミナルとエディタへの受け渡し', () => {
     expect(() => api.openTerminal({ tmuxName: 'hangar-r1' })).toThrow('tmux が見つかりません。設定の「tmux のパス」を入力してください');
   });
 
+  it('外のターミナルは hangar の専用の tmux サーバへつなぎ、前の版のセッションは居るサーバへつなぐ', async () => {
+    const calls: string[][] = [];
+    const exec: Exec = async (cmd, args) => { calls.push([cmd, ...args]); return { code: 0, stdout: '', stderr: '' }; };
+    const settings = () => ({ tmuxPath: 'C:\\psmux\\psmux.exe', terminalApp: 'windowsTerminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const } });
+    await createExternalApi({ home: '/nope', settings, exec, platform: 'win32' }).openTerminal({ tmuxName: 'hangar-r1' });
+    expect(calls[0]!.slice(-7)).toEqual(['--', 'C:\\psmux\\psmux.exe', '-L', 'hangar', 'attach', '-t', '=hangar-r1']);
+    const socketArgs = (name: string) => (name === 'hangar-old' ? [] : ['-L', 'hangar']);
+    await createExternalApi({ home: '/nope', settings, exec, platform: 'win32', socketArgs }).openTerminal({ tmuxName: 'hangar-old' });
+    expect(calls[1]!.slice(-5)).toEqual(['--', 'C:\\psmux\\psmux.exe', 'attach', '-t', '=hangar-old']);
+  });
+
   it('設定は呼ばれた時点の値を読む。作ったときの値を覚えない', () => {
     let reads = 0;
     const api = createExternalApi({ home: '/nope', settings: () => { reads++; return { tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const } }; } });

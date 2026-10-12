@@ -8,6 +8,7 @@ import { runCommand } from '../launch/command.ts';
 import { ensureWrapperScript, runLogPath } from '../launch/wrapper.ts';
 import { nodePtySpawn } from '../pty/nodePty.ts';
 import { psmuxPaneOps } from './pane.ts';
+import { MuxServers } from './servers.ts';
 import { Tmux } from './tmux.ts';
 
 // Windows の psmux を相手にした確かめ。macOS と Linux、psmux の無い Windows では丸ごと飛ぶ。
@@ -39,6 +40,24 @@ describe.skipIf(!PSMUX)('Tmux（実物の psmux）', () => {
     tmux.killSession('hangar-iso');
     made.pop();
     await waitFor(() => !fs.readdirSync(env.PSMUX_DATA_DIR!).some((f) => f.includes('hangar-iso')), 10_000);
+  });
+
+  // 前の版は psmux の既定の名前空間にセッションを作っていた。ここでは別の試験用の名前空間で模す。利用者の psmux には触れない。
+  it('前の版の名前空間に残ったセッションは、専用の名前空間へ移った後もそこで扱い、新しい画面は専用の名前空間に作る', async () => {
+    const legacy = new Tmux({ tmuxPath: PSMUX!, socketName: `${psmuxNamespace()}-old`, env });
+    legacy.newSession({ name: 'hangar-0a0a', cwd, command: ['cmd.exe'] });
+    try {
+      const panes = psmuxPaneOps(new MuxServers(tmux, legacy));
+      expect(panes.list()).toContain('hangar-0a0a');
+      made.push('hangar-1b1b');
+      panes.open({ name: 'hangar-1b1b', cwd, command: ['cmd.exe'] });
+      expect(tmux.hasSession('hangar-1b1b')).toBe(true);
+      expect(legacy.hasSession('hangar-1b1b')).toBe(false);
+      panes.close('hangar-0a0a');
+      await waitFor(() => !legacy.hasSession('hangar-0a0a'), 10_000);
+    } finally {
+      legacy.killSession('hangar-0a0a');
+    }
   });
 
   it('切り離して作り、完全一致で見つけ、名指しで止める', async () => {

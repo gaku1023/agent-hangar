@@ -9,6 +9,7 @@ import { breakawayExec } from './breakaway.ts';
 import { currentEditor, defaultEditorHost, detectEditors, planEditorLaunch, type EditorHost, type EditorTarget } from './editors.ts';
 import { EditorMissingError, execFile, openArgvInTerminalApp, openDirInTerminalApp, openInEditor, openInTerminalApp, type Exec } from './open.ts';
 import { errorText, MessageError, msg, render } from '../i18n/message.ts';
+import { HANGAR_SOCKET } from '../tmux/servers.ts';
 
 /** 「テスト」で開く見本のファイルの名前。hangar の置き場に書き、3 行目を開く。 */
 export const EDITOR_TEST_FILE = 'hangar-editor-test.md';
@@ -33,6 +34,11 @@ export function createExternalApi(o: {
   settings: () => Pick<Settings, 'tmuxPath' | 'terminalApp' | 'editor'>;
   launcher?: string;
   openShellTab?: (o: { sessionId: string; argv: string[]; title: string }) => boolean;
+  /**
+   * その tmux のセッションが居るサーバの指定（attach の前に置く引数）。
+   * 既定は hangar の専用のサーバ（-L hangar）で、前の版が既定のサーバに作ったセッションには起動の組み立てが空を返す（tmux/servers.ts）。
+   */
+  socketArgs?: (tmuxName: string) => string[];
   /** テストの答えの文の言語。 */
   language?: () => Language;
   /** 以下は試験が差し替える。 */
@@ -82,7 +88,8 @@ export function createExternalApi(o: {
     openTerminal: ({ tmuxName, title }) => {
       const s = o.settings();
       if (!s.tmuxPath) throw new MessageError(msg('run.launch.tmuxMissing', { label: msg('settings.label.tmuxPath') }));
-      return openInTerminalApp({ home: o.home, tmuxPath: s.tmuxPath, tmuxName, title, app: terminalAppFor(s.terminalApp, platform), exec });
+      const socketArgs = o.socketArgs?.(tmuxName) ?? ['-L', HANGAR_SOCKET];
+      return openInTerminalApp({ home: o.home, tmuxPath: s.tmuxPath, tmuxName, socketArgs, title, app: terminalAppFor(s.terminalApp, platform), exec });
     },
     openDirTerminal: ({ dir }) => openDirInTerminalApp({ home: o.home, dir, app: terminalAppFor(o.settings().terminalApp, platform), exec }),
     openEditor: async (a) => { await openEditor(a); },
