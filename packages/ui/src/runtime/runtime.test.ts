@@ -1353,7 +1353,6 @@ describe('入力待ちの知らせ', () => {
       available: () => o.available ?? true,
       granted: () => o.granted ?? true,
       request: vi.fn(async () => o.grant ?? true),
-      prepare: vi.fn(async () => {}),
       status: vi.fn(async (): Promise<NotifyPermission> => o.status ?? 'granted'),
       background: () => o.background ?? true,
       show: vi.fn(),
@@ -1480,13 +1479,14 @@ describe('入力待ちの知らせ', () => {
     n.fireOpen('s1');
     expect(rt.getState().screen).toEqual({ name: 'session', id: 's1' });
   });
-  it('選んでいなければ環境の既定に従い、既定で受け取る環境ではあらかじめ許可を尋ねておく', async () => {
+  // 起動しただけでは OS に尋ねない。尋ねるのは、始める前の確認の「許可する」か設定のスイッチを押したときだけである（2026-10-13 の決定、9c）。
+  it('選んでいなければ環境の既定に従い、起動しただけでは OS に許可を尋ねない', async () => {
     const desk = fakeNotifier({ defaultOn: true });
     expect((await started(desk)).rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
-    expect(desk.prepare).toHaveBeenCalledTimes(1);
+    expect(desk.request).not.toHaveBeenCalled();
     const web = fakeNotifier({ defaultOn: false, granted: false });
     expect((await started(web)).rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
-    expect(web.prepare).not.toHaveBeenCalled();
+    expect(web.request).not.toHaveBeenCalled();
     // 受け取ると選んでいても、ブラウザの許可が外れていれば受け取らない。
     const revoked = fakeNotifier({ defaultOn: false, granted: false });
     expect((await started(revoked, undefined, true)).rt.getStore().notify.on).toBe(false);
@@ -1538,13 +1538,31 @@ describe('入力待ちの知らせ', () => {
       vi.unstubAllGlobals();
     }
   });
-  it('起動したときに尋ねて断られたときも、受け取らないにする', async () => {
-    let answer: NotifyPermission = 'undetermined';
-    const n = { ...fakeNotifier({ defaultOn: true }), prepare: vi.fn(async () => { answer = 'denied'; }), status: vi.fn(async () => answer) };
+  it('まだ尋ねていなければ、尋ねずに「尋ねる」の印（ask）を立てる。受け取らないと選んでいれば立てない', async () => {
+    const n = fakeNotifier({ defaultOn: true, status: 'undetermined' });
     const { rt } = await started(n);
     await flush();
-    expect(n.prepare).toHaveBeenCalledTimes(1);
+    expect(n.request).not.toHaveBeenCalled();
+    expect(rt.getStore().notify).toEqual({ available: true, on: true, blocked: false, ask: true });
+    const off = fakeNotifier({ defaultOn: true, status: 'undetermined' });
+    expect((await started(off, undefined, false)).rt.getStore().notify).toEqual({ available: true, on: false, blocked: false });
+  });
+  it('「許可する」（notify.set の on）を押したときだけ OS に尋ね、答えが出たら印を下ろす', async () => {
+    let answer: NotifyPermission = 'undetermined';
+    const n = { ...fakeNotifier({ defaultOn: true }), status: vi.fn(async () => answer), request: vi.fn(async () => { answer = 'denied'; return false; }) };
+    const { rt } = await started(n);
+    await flush();
+    expect(rt.getStore().notify.ask).toBe(true);
+    rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(n.request).toHaveBeenCalledTimes(1);
     expect(rt.getStore().notify).toEqual({ available: true, on: false, blocked: true });
+    const yes = fakeNotifier({ defaultOn: true, status: 'undetermined' });
+    const h = await started(yes);
+    await flush();
+    h.rt.emit({ type: 'notify.set', on: true });
+    await flush();
+    expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
   });
   it('許されていれば、受け取るのまま', async () => {
     const { rt } = await started(fakeNotifier({ defaultOn: true, status: 'granted' }));
@@ -1671,6 +1689,16 @@ describe('入力待ちの知らせ', () => {
       return { ...h, fireVisible: () => { for (const l of visible) l(); }, advance: (ms: number) => { clock += ms; } };
     }
 
+    it('まだ尋ねていない間は印（ask）を立て、OS で決まって戻ったら下ろす', async () => {
+      const n = mutableNotifier('desktop', 'undetermined');
+      const h = await boot2(n);
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false, ask: true });
+      n.set('granted');
+      h.advance(5000);
+      h.fireFocus();
+      await flush();
+      expect(h.rt.getStore().notify).toEqual({ available: true, on: true, blocked: false });
+    });
     it('OS で切られていたのを許可して戻ったら、受け取るに戻す', async () => {
       const n = mutableNotifier('desktop', 'denied');
       const h = await boot2(n, true);
@@ -2408,7 +2436,7 @@ describe('ランタイムの文（英語）', () => {
   });
   it('デスクトップ通知：名前の無いセッションの題と、問いの取れない本文が英語になる', async () => {
     let shown: unknown = null;
-    const notifier = { defaultOn: true, available: () => true, granted: () => true, request: vi.fn(async () => true), prepare: vi.fn(async () => {}), status: vi.fn(async (): Promise<NotifyPermission> => 'granted'), background: () => true, show: vi.fn((n: unknown) => { shown = n; }), prune: vi.fn(), badge: vi.fn(), onOpen: () => () => {} };
+    const notifier = { defaultOn: true, available: () => true, granted: () => true, request: vi.fn(async () => true), status: vi.fn(async (): Promise<NotifyPermission> => 'granted'), background: () => true, show: vi.fn((n: unknown) => { shown = n; }), prune: vi.fn(), badge: vi.fn(), onOpen: () => () => {} };
     const { wsHandlers } = await startedEnglish({}, { notifier }, [nameless]);
     wsHandlers[0]!.onEvent({ type: 'live.update', live: [{ sessionId: 'u1', status: 'waiting', name: null, nameSource: null, cwd: '/w', pid: 1 }] });
     expect(shown).toEqual({ sessionId: 's1', title: '(No name)', body: 'Waiting for input', kind: 'waiting', bare: true });

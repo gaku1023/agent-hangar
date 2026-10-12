@@ -106,7 +106,8 @@ describe('presentHome の確かめる', () => {
     const store = storeOf([proposed('nfd', 'done', NOW - 2 * H), proposed('cpu', 'paused', NOW - 0.5 * H, '2026-10-03')], [todo('a', NOW - 60_000), todo('b', NOW - 3 * H)]);
     const h = presentHome(initialState(), store, NOW);
     expect(h.confirm.map((c) => [c.kind, c.id])).toEqual([['todo', 'b'], ['session', 'nfd'], ['session', 'cpu'], ['todo', 'a']]);
-    expect(h.confirm[1]).toEqual({ kind: 'session', id: 'nfd', name: 'nfd', projectName: 'alpha', status: 'done', label: 'Done にする？', note: '直した', ago: '2 時間前' });
+    // Done の提案は 7 日で自動で確定するので、残りの日数を切り上げて持つ（2 時間前の提案は、あと 7 日）。
+    expect(h.confirm[1]).toEqual({ kind: 'session', id: 'nfd', name: 'nfd', projectName: 'alpha', status: 'done', label: 'Done にする？', note: '直した', ago: '2 時間前', source: 'in_session', daysLeft: 7 });
   });
   // 文言は行の提案の札（第 1 段の candidateLabel）と同じにする。Home と一覧で言い方が食い違わないように。
   it('提案の札は行の提案の札と同じ文言で、Paused は戻る日を言う', () => {

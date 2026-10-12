@@ -45,7 +45,7 @@ describe('HomeScreen の今日戻る（C1）', () => {
 });
 
 describe('HomeScreen の確認待ち（セッションの提案）', () => {
-  const session = (id: string, status: 'paused' | 'done'): ConfirmCard => ({ kind: 'session', id, name: `会話 ${id}`, projectName: null, status, label: status === 'done' ? 'Done にする？' : 'Paused · 10/3（土）？', note: '直して push した', ago: '2 時間前' });
+  const session = (id: string, status: 'paused' | 'done'): ConfirmCard => ({ kind: 'session', id, name: `会話 ${id}`, projectName: null, status, label: status === 'done' ? 'Done にする？' : 'Paused · 10/3（土）？', note: '直して push した', ago: '2 時間前', source: 'in_session', daysLeft: status === 'done' ? 6 : null });
   const todo: ConfirmCard = { kind: 'todo', id: 't1', text: '窓を掴める', projectId: 'p1', projectName: 'agent-hangar', sessionName: 's', ago: '1 分前', note: 'n' };
   it('提案の札を行の頭に出し、確定・日付を変更（Paused のみ）・却下を押せる', () => {
     const { onAction } = mount({ confirm: [session('s1', 'paused'), session('s2', 'done')] });

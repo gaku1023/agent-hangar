@@ -53,6 +53,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.toc.summaryOffline': 'Cannot reach LM Studio',
   'settings.toc.summaryTestFailed': 'Connection test failed',
   'settings.toc.sessions': '{n} {n|session|sessions}',
+  'settings.toc.sessionsRetention': '{n} {n|session|sessions} · Retention {days}',
   'settings.section.general': 'General',
   'settings.section.cloud': 'Cloud sync',
   'settings.section.integrations': 'Integrations',

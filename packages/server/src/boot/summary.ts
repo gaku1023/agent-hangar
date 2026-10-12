@@ -1,7 +1,10 @@
 import type { SummaryApi } from '../http/deps.ts';
 import { runAnnouncer } from '../runs/announce.ts';
 import { AUTO_DONE_POLL_MS, AutoDoneWatch, autoDoneCandidates, summaryCandidates } from '../sessions/autoDone.ts';
-import { markAutoDone } from '../sessions/states.ts';
+import { CANDIDATE_EXPIRE_DAYS } from '@agent-hangar/shared';
+import { translatorOf } from '../i18n/message.ts';
+import { CandidateExpiryWatch, expiryAnnounced, markExpiryAnnounced } from '../sessions/candidateExpiry.ts';
+import { expireCandidates, markAutoDone } from '../sessions/states.ts';
 import { SummaryJob } from '../summary/job.ts';
 import { RUN_ENDED_SUMMARY_OPTS, SummarizerSet } from '../summary/summarizers.ts';
 import { flushOnRunEnded } from '../sync/flushOnRunEnd.ts';
@@ -34,7 +37,7 @@ export type SummaryParts = {
  */
 export function bootSummary(
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'language'>,
-  delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog'>,
+  delivery: Pick<DeliveryParts, 'hub' | 'sockets' | 'registry' | 'compatLog'>,
   runs: Pick<RunsParts, 'runs' | 'usage' | 'claudeBin'>,
   sync: Pick<SyncParts, 'uploader'>,
 ): SummaryParts {
@@ -54,6 +57,15 @@ export function bootSummary(
     toSummarize: () => summaryCandidates(db, home.device.id, { liveProviderIds: liveProviderIds(), since: bootedAt }),
     enqueue: (id) => { summary.enqueue(id); },
   });
+  // 放っておかれた提案の片付け（sessions/candidateExpiry.ts）。自動の Done と同じ見回りで回す。
+  const tr = translatorOf(home.language);
+  const expiry = new CandidateExpiryWatch({
+    expire: (now) => expireCandidates(db, home.device.id, now),
+    announced: () => expiryAnnounced(db),
+    markAnnounced: () => markExpiryAnnounced(db),
+    clients: () => delivery.sockets.clientCount(),
+    announce: (n) => delivery.hub.broadcast({ type: 'toast', level: 'info', message: tr('session.status.autoConfirmed', { n, days: CANDIDATE_EXPIRE_DAYS }) }),
+  });
   let autoDoneTimer: ReturnType<typeof setInterval> | null = null;
   return {
     api: {
@@ -71,6 +83,7 @@ export function bootSummary(
         } catch (e) {
           console.error('[auto-done]', e instanceof Error ? e.message : e);
         }
+        expiry.tick();
       }, AUTO_DONE_POLL_MS);
       autoDoneTimer.unref();
     },

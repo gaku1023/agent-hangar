@@ -297,10 +297,12 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const status = (r: SessionRowProps) => (
     <span className="row-status">
       {r.state
-        ? badge(r.state, STATUS_LABEL[r.state], <span className="row-sq" data-s={r.state} title={r.setBy === 'conversation' ? t('row.conversation.note') : undefined}>{STATUS_LABEL[r.state]}</span>)
+        // 札の語は英語のまま、日本語の説明（自動で付いた Done はその理由）をツールチップで添える（statusMark）。
+        // 自動で付いた Done は、札の頭に ✦ を置き、枠を点線にする（4a、試作の A）。
+        ? badge(r.state, STATUS_LABEL[r.state], <span className="row-sq" data-s={r.state} data-auto={r.autoDone ? 'true' : undefined} title={r.statusTitle}>{r.autoDone && <Icon name="autoMark" />}{STATUS_LABEL[r.state]}</span>)
         : r.candidate
           ? <span className="row-act" onClick={stopClick}>{candidatePop(t, r, emit, (how) => candidateClosed(r.id, how))}</span>
-          : badge('active', ACTIVE_LABEL, <span className="row-sq" data-s="active">{ACTIVE_LABEL}</span>)}
+          : badge('active', ACTIVE_LABEL, <span className="row-sq" data-s="active" title={r.statusTitle}>{ACTIVE_LABEL}</span>)}
     </span>
   );
 

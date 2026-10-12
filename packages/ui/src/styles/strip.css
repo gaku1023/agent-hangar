@@ -84,6 +84,9 @@
 .lead-status[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .lead-status[data-s='done'] { color: var(--st-done); background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
 .lead-status[data-s='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
+/* 自動で付けた Done（一覧の行の .row-sq[data-auto] と同じ見た目）。 */
+.lead-status[data-auto] { gap: 3px; box-shadow: none; outline: 1px dashed color-mix(in srgb, var(--st-done) 55%, transparent); outline-offset: -1px; }
+.lead-status[data-auto] .icon { flex: none; width: 10px; height: 10px; }
 .lead-facts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: calc(var(--u) * 2); min-width: 0; }
 .lead-facts b { font-weight: 600; color: var(--ink); }
 .lead-end { margin-left: auto; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }

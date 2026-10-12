@@ -230,7 +230,7 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
 /** 目次の各行の状態。連携とツールは、準備の確かめが届くまで分からないので「確認中」と言う。 */
 function presentToc(a: {
   t: Translate; language: Language; todo: { must: number; link: number }; cloud: CloudSettingsProps; cloudWord: string; cloudTone: string;
-  sync: Store['sync']; notify: Store['notify']; readiness: boolean; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; now: number;
+  sync: Store['sync']; notify: Store['notify']; readiness: boolean; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; retentionDays: number | null; now: number;
   update: UpdateSectionProps; desktop: boolean;
 }): SettingsTocRow[] {
   const { t } = a;
@@ -251,7 +251,8 @@ function presentToc(a: {
     tools: a.readiness ? fix(a.todo.must, t('settings.toc.allFound')) : checking,
     // 失敗と再起動待ちは注意の色にする（見出しの札の stop と warn）。
     update: { state: a.update.tocState, tone: a.update.badge?.tone === 'stop' || a.update.badge?.tone === 'warn' ? 'warn' : 'default' },
-    info: { state: t('settings.toc.sessions', { n: a.sessionCount.toLocaleString('en-US') }), tone: 'default' },
+    // 保持期間の日数は、注意の一覧から外してここに残す（2026-10-13 の決定、9a）。
+    info: { state: a.retentionDays === null ? t('settings.toc.sessions', { n: a.sessionCount.toLocaleString('en-US') }) : t('settings.toc.sessionsRetention', { n: a.sessionCount.toLocaleString('en-US'), days: daysLabel(t, a.retentionDays) }), tone: 'default' },
   };
   // 更新は殻の中でだけ意味があるので、ブラウザの目次には出さない（URL で開けば、節は 1 文だけを出す）。
   return SETTINGS_SECTIONS.filter((id) => id !== 'update' || a.desktop).map((id) => {
@@ -365,7 +366,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     retention: retentionSettings(store),
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
-    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now, update, desktop: store.desktop }),
+    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, retentionDays: store.retention?.days ?? null, now, update, desktop: store.desktop }),
     update,
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,

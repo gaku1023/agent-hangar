@@ -82,6 +82,8 @@ export type UiAction =
   | { type: 'session.state.set'; id: SessionId; status: SessionStatus | null; note?: string; returnOn?: string; returnTime?: string }
   // 提案の確定と却下。確定で日を変えたときだけ returnOn を添える。returnTime はその日の時刻（HH:MM）で、returnOn と一緒のときだけ効く。
   | { type: 'session.state.confirm'; id: SessionId; returnOn?: string; returnTime?: string } | { type: 'session.state.reject'; id: SessionId }
+  // 確認待ちの群の見出しの「すべて確定」「すべて却下」（2026-10-13 の決定、知らせの 9d）。いまある提案を、セッションの提案と TODO の完了の提案に分けて渡す。
+  | { type: 'pending.resolve'; accept: boolean; sessionIds: SessionId[]; todoIds: TodoId[] }
   // Paused の入力（B1）。from は開いた入口で、提案の「日を変える」から開いたときは根拠を下書きに入れる。
   | { type: 'session.pause.open'; id: SessionId; from: 'menu' | 'candidate' } | { type: 'session.pause.close' }
   // 入力待ちのセッションを順に開き、端末にフォーカスする。どれへ移るかはストアを見たランタイムが決める。

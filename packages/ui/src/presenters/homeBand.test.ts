@@ -9,7 +9,7 @@ const waiting = (id: string, over: Partial<AttentionCard> = {}): AttentionCard =
 const reminder = (id: string, over: Partial<ReturnCard> = {}): ReturnCard => ({ id, name: `戻る ${id}`, projectName: 'alpha', reason: '結果を確かめる', returnOn: '2026-10-02', returnTime: null, overdueDays: 0, due: true, pastMin: null, ...over });
 const running = (id: string, over: Partial<RunningCard> = {}): RunningCard => ({ id, name: `動く ${id}`, live: 'busy', aside: false, elapsed: '5分', meta: 'alpha · opus', intent: null, activity: null, note: '作業中', contextPercent: 40, contextLabel: '40%', ...over });
 const todoCard = (id: string): ConfirmCard => ({ kind: 'todo', id, text: `やる ${id}`, projectId: 'alpha', projectName: 'alpha', sessionName: 'one', ago: '1 時間前', note: '片付いた' });
-const sessionCard = (id: string, status: 'paused' | 'done'): ConfirmCard => ({ kind: 'session', id, name: `提案 ${id}`, projectName: null, status, label: status === 'done' ? 'Done にする？' : 'Paused · 10/3（土）？', note: '直した', ago: '2 時間前' });
+const sessionCard = (id: string, status: 'paused' | 'done', over: Partial<Extract<ConfirmCard, { kind: 'session' }>> = {}): ConfirmCard => ({ kind: 'session', id, name: `提案 ${id}`, projectName: null, status, label: status === 'done' ? 'Done にする？' : 'Paused · 10/3（土）？', note: '直した', ago: '2 時間前', source: 'in_session', daysLeft: status === 'done' ? 6 : null, ...over });
 const none = { attention: [], returning: [], running: [], confirm: [] };
 
 const ids = (gs: BandGroup[]) => gs.map((g) => g.id);
@@ -226,5 +226,30 @@ describe('行（確認待ち）', () => {
     ]);
     expect(rows[1]!.actions.map((a) => a.id)).toEqual(['confirm', 'dismiss']);
     expect(rows[1]!.open).toEqual({ type: 'session.open', id: 's2' });
+  });
+
+  // 出どころと自動で確定するまでの日数（2026-10-13 の決定、知らせの 9d、試作の A）。
+  it('名前の後ろに出どころの小札を添え、Done の提案には右に「あと N 日で確定」を出す', () => {
+    const rows = presentHomeBand({ ...none, confirm: [sessionCard('s1', 'done'), sessionCard('s2', 'done', { source: 'post_hoc', daysLeft: 1 }), sessionCard('s3', 'paused', { source: 'post_hoc' })] }, ja).groups[2]!.rows;
+    expect(rows.map((r) => [r.badge, r.trail])).toEqual([
+      ['会話の中で', [{ text: 'あと 6 日で確定' }]],
+      ['要約から', [{ text: 'あと 1 日で確定' }]],
+      ['要約から', []],
+    ]);
+    const enRows = presentHomeBand({ ...none, confirm: [sessionCard('s1', 'done'), sessionCard('s2', 'paused', { source: 'post_hoc' })] }, en).groups[2]!.rows;
+    expect(enRows.map((r) => [r.badge, r.trail])).toEqual([['In conversation', [{ text: 'Confirms in 6 days' }]], ['From summary', []]]);
+    // 取りやめた出どころ（exit）には小札を付けない。TODO の提案にも付けない。
+    const old = presentHomeBand({ ...none, confirm: [sessionCard('s4', 'done', { source: 'exit' }), todoCard('t1')] }, ja).groups[2]!.rows;
+    expect(old.map((r) => r.badge ?? null)).toEqual([null, null]);
+  });
+
+  it('群の見出しに「すべて確定」「すべて却下」を置き、いまある提案を全部渡す。0 件なら置かない', () => {
+    const g = presentHomeBand({ ...none, confirm: [todoCard('t1'), sessionCard('s1', 'done'), sessionCard('s2', 'paused')] }, ja).groups[2]!;
+    expect(g.headActions!.map((a) => [a.id, a.label, a.primary, a.ghost, a.send])).toEqual([
+      ['confirmAll', 'すべて確定', false, false, { type: 'pending.resolve', accept: true, sessionIds: ['s1', 's2'], todoIds: ['t1'] }],
+      ['dismissAll', 'すべて却下', false, true, { type: 'pending.resolve', accept: false, sessionIds: ['s1', 's2'], todoIds: ['t1'] }],
+    ]);
+    expect(g.headActions![0]!.ariaLabel).toBe('すべて確定、確認待ち');
+    expect(presentHomeBand(none, ja).groups[2]!.headActions ?? []).toEqual([]);
   });
 });

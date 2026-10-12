@@ -83,6 +83,14 @@ describe('設定の目次（S1）', () => {
     s.sessions = { a: { id: 'a' } as never, b: { id: 'b' } as never };
     expect(row(present(s).toc, 'info').state).toBe('2 セッション');
   });
+  // 保持期間の日数は、注意の一覧から外し、情報の目次の状態に残した（2026-10-13 の決定、9a）。
+  it('情報は、保持期間が分かっていれば、その日数も言う', () => {
+    const s = store({ retention: { days: 30, source: 'default', userValue: null, writable: true, unwritableReason: null, usage: null } });
+    s.sessions = { a: { id: 'a' } as never, b: { id: 'b' } as never };
+    expect(row(present(s).toc, 'info').state).toBe('2 セッション · 保持期間 30 日');
+    const year = store({ settings: { ...SETTINGS, language: 'en' }, retention: { days: 365, source: 'user', userValue: 365, writable: true, unwritableReason: null, usage: null } });
+    expect(row(present(year).toc, 'info').state).toBe('0 sessions · Retention 1 year');
+  });
   it('言語が English なら、節の名前と状態も English で言う', () => {
     const p = present(store({ settings: { ...SETTINGS, language: 'en' } }));
     expect(p.toc.map((r) => r.title)).toEqual(['General', 'Cloud sync', 'Integrations', 'Summary engine', 'Tools', 'Info']);

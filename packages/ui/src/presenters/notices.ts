@@ -3,18 +3,18 @@ import type { State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
 import { readinessCompat } from './compat.ts';
-import { returningCards, type ReturnCard } from './home.ts';
 import { storeLanguage, translatorOf } from './i18n.ts';
 import { countExpiring } from './retention.ts';
 import { limitedWord } from './syncLabel.ts';
 
 /**
- * ベルの一覧の種類。並びは 2.11.2 の決めたとおり、リマインダー、同期、互換、保持期間、設定の同期で送らなかった項目で、最後に通知の誘いを置く。
- * 通知の誘い（notify）は、右下の積みの上に添えていたものを、ここへ移した（PR 29）。
- * 更新の案内は、事実の出どころがまだ無いので、いまは行を作らない。
+ * ヘッダーの「注意」（もとのベル）の一覧の種類。並びは、同期、互換、保持期間、設定の同期で送らなかった項目である。
+ * 注意に入れるのは、画面のほかの場所に出ていない事実だけである（2026-10-13 の決定、知らせの 9a）。
+ * リマインダーはホームの帯（要対応）に、通知の誘いは始める前の確認の任意の行（presenters/readiness.ts）にあるので、ここには入れない。
+ * 保持期間は、消えかけのトランスクリプトがあるときだけ入れる。日数そのものは設定の「情報」の目次の状態に出す。
  * 足すときは、種類をここに足し、BUILDERS に事実から行を組む関数を 1 つ足すだけで済む。
  */
-export type NoticeKind = 'reminder' | 'sync' | 'compat' | 'retention' | 'config' | 'notify';
+export type NoticeKind = 'sync' | 'compat' | 'retention' | 'config';
 /** 行の色の意味。err は赤（失敗）、warn は黄（気づいてほしい）、info は青（案内）。 */
 export type NoticeTone = 'err' | 'warn' | 'info';
 
@@ -30,8 +30,8 @@ export type NoticeRow = {
   action: { label: string; send: UiAction };
 };
 /**
- * ベルの props。rows は事実から組んだ行（既読も含む。閉じても残る）、keys はその鍵の全部で、「すべて既読にする」が送る。
- * label はベルの名前で、未読があれば数を添える。
+ * 注意の props。rows は事実から組んだ行（既読も含む。閉じても残る）、keys はその鍵の全部で、「すべて既読にする」が送る。
+ * label は注意の名前で、未読があれば数を添える。rows が空なら、注意そのものを描かない（views/Bell.tsx）。
  */
 export type NoticesProps = { rows: NoticeRow[]; unread: number; keys: string[]; label: string };
 
@@ -52,27 +52,6 @@ function agoWord(t: Translate, ts: number, now: number): string {
   if (hours < 24) return t('notices.ago.hour', { n: hours });
   const days = Math.floor(hours / 24);
   return days < 2 ? t('notices.ago.yesterday') : t('notices.ago.day', { n: days });
-}
-
-function reminderWhen(t: Translate, c: ReturnCard): string {
-  if (c.returnOn === null) return t('notices.reminder.whenNoDate');
-  if (c.overdueDays !== null && c.overdueDays > 0) return t('notices.reminder.whenDaysPast', { n: c.overdueDays });
-  if (c.pastMin !== null) {
-    if (c.pastMin < 1) return t('notices.reminder.whenPastNow');
-    return c.pastMin < 60 ? t('notices.reminder.whenPastMin', { n: c.pastMin }) : t('notices.reminder.whenPastHour', { n: Math.floor(c.pastMin / 60) });
-  }
-  return c.returnTime ? t('notices.reminder.whenTodayAt', { time: c.returnTime }) : t('notices.reminder.whenToday');
-}
-
-/** 今日のリマインダー。戻る日が今日か過ぎた Paused 1 件につき 1 行で、並びはホームの「今日戻る」と同じである。 */
-function reminders({ store, now, t }: Ctx): Draft[] {
-  return returningCards(store, now).map((c) => ({
-    // 時刻を付け直したり、日を変えたりしたら別の鍵になり、また未読になる。
-    key: `reminder|${c.id}|${c.returnOn === null ? 'none' : c.returnTime ? `${c.returnOn} ${c.returnTime}` : c.returnOn}`,
-    kind: 'reminder', tone: 'warn', icon: 'reminder', kindLabel: t('notices.kind.reminder'),
-    title: c.name, detail: store.sessions[c.id]?.state?.note || null, when: reminderWhen(t, c),
-    action: { label: t('notices.reminder.open'), send: { type: 'session.open', id: c.id } },
-  }));
 }
 
 /**
@@ -134,18 +113,20 @@ function compat({ store, now, t }: Ctx): Draft[] {
 }
 
 /**
- * 保持期間。値を自分で入れた人と、組織の設定で決まっている人、書き換えられない人には出さない（ヘッダーの下の帯と同じ条件）。
- * 消えかけのトランスクリプトがあれば件数を、無ければ「消える」という決まりそのものを言う。
- * 鍵に件数は入れない。件数は日ごとに動くので、入れると毎日未読に戻る。「消えかけがある」と「決まりだけ」の切り替わりで未読に戻す。
+ * 保持期間。値を自分で入れた人と、組織の設定で決まっている人、書き換えられない人には出さない。
+ * 消えかけのトランスクリプトがあるときだけ、その件数を言う。「消える」という決まりそのものは行にしない（日数は設定の「情報」の目次にある）。
+ * 鍵に件数は入れない。件数は日ごとに動くので、入れると毎日未読に戻る。消えかけが無くなって、また現れたときに未読に戻る。
  */
 function retention({ store, now, t }: Ctx): Draft[] {
   const r = store.retention;
   if (!store.bootstrapped || !r || r.source !== 'default' || !r.writable) return [];
   const soon = countExpiring(Object.values(store.sessions), r.days, now);
-  const base = { kind: 'retention', tone: 'warn', icon: 'retention', kindLabel: t('notices.kind.retention'), when: null, action: { label: t('notices.retention.open'), send: { type: 'nav.go', to: { name: 'settings' } } } } as const;
-  return [soon > 0
-    ? { ...base, key: `retention|${r.days}|soon`, title: t('notices.retention.soon', { n: soon }), detail: t('notices.retention.soonDetail', { days: r.days }) }
-    : { ...base, key: `retention|${r.days}|rule`, title: t('notices.retention.rule', { days: r.days }), detail: t('notices.retention.ruleDetail') }];
+  if (soon === 0) return [];
+  return [{
+    key: `retention|${r.days}|soon`, kind: 'retention', tone: 'warn', icon: 'retention', kindLabel: t('notices.kind.retention'), when: null,
+    title: t('notices.retention.soon', { n: soon }), detail: t('notices.retention.soonDetail', { days: r.days }),
+    action: { label: t('notices.retention.open'), send: { type: 'nav.go', to: { name: 'settings' } } },
+  }];
 }
 
 /**
@@ -165,26 +146,11 @@ function configUnsent({ store, t }: Ctx): Draft[] {
   }];
 }
 
-/**
- * 通知の誘い。通知を出せる環境なのに受け取っていないときだけ行にする。
- * OS で切られているときは勧めない（直し方は設定の通知の節に出す）。
- * 受け取りを入れると事実が無くなり、行も消える。
- */
-function notifyOffer({ store, t }: Ctx): Draft[] {
-  const n = store.notify;
-  if (!n.available || n.on || n.blocked) return [];
-  return [{
-    key: 'notify|offer', kind: 'notify', tone: 'info', icon: 'bell', kindLabel: t('notices.kind.notify'),
-    title: t('notices.notify.title'), detail: t('notices.notify.detail'), when: null,
-    action: { label: t('notices.notify.open'), send: { type: 'notify.set', on: true } },
-  }];
-}
-
 /** 種類の並び。この順に行を並べる。 */
-const BUILDERS: readonly ((c: Ctx) => Draft[])[] = [reminders, syncFacts, compat, retention, configUnsent, notifyOffer];
+const BUILDERS: readonly ((c: Ctx) => Draft[])[] = [syncFacts, compat, retention, configUnsent];
 
 /**
- * ベルの一覧。行は事実から毎回組み、一覧そのものは保存しない。事実が無くなれば行も消える（閉じても残るのは、事実が残る間のことである）。
+ * 注意の一覧。行は事実から毎回組み、一覧そのものは保存しない。事実が無くなれば行も消える（閉じても残るのは、事実が残る間のことである）。
  * 既読は State の noticesRead（鍵の集合）だけで決まる。
  * tz は端末の時差で、試験でだけ決めて渡す。
  */

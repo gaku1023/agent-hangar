@@ -39,10 +39,19 @@ function mount(p: Partial<LeadInput> = {}, language: 'ja' | 'en' = 'ja') {
 const card = () => screen.getByRole('region', { name: 'このセッションのまとめ' });
 
 describe('LeadCard の 1 行目', () => {
+  it('自動で付いた Done の札は、頭に ✦ を置き、理由をツールチップで言う', () => {
+    mount({ session: session({ state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'import', setAt: NOW - DAY, candidate: null }, stats: { ...session().stats, turns: 2 } }) });
+    const tag = card().querySelector('.lead-status')!;
+    expect(tag).toHaveAttribute('data-auto', 'true');
+    expect(tag.querySelector('.icon')).toHaveAttribute('data-icon', 'autoMark');
+    expect(tag).toHaveAttribute('title', 'hangar が自動で Done にしました（3 ターン以下で止まった会話）');
+  });
   it('ステータスの札、設定した日、終了、ターンとトークンとコスト、要約の進捗を出す', () => {
     mount();
     const c = within(card());
     expect(c.getByText('Done')).toHaveAttribute('data-s', 'done');
+    // 札の語は英語のまま、日本語の説明をツールチップで添える。
+    expect(c.getByText('Done')).toHaveAttribute('title', '完了したもの');
     expect(c.getByText(/に設定$/)).toBeInTheDocument();
     expect(c.getByText('終了 3 日前')).toBeInTheDocument();
     expect(c.getByText('11 ターン')).toBeInTheDocument();

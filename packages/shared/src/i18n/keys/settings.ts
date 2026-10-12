@@ -52,6 +52,7 @@ export const settingsKeys = {
   'settings.toc.summaryOffline': [],
   'settings.toc.summaryTestFailed': [],
   'settings.toc.sessions': ['n'],
+  'settings.toc.sessionsRetention': ['n', 'days'],
   'settings.section.general': [],
   'settings.section.cloud': [],
   'settings.section.integrations': [],

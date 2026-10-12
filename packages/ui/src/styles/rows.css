@@ -71,6 +71,9 @@
 .row-sq[data-s='done'] { color: var(--st-done); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-done) 35%, transparent); }
 .row-sq[data-s='paused'] { color: var(--st-paused); background: var(--st-paused-soft); }
 .row-sq[data-s='archived'] { color: var(--st-archived); background: var(--st-archived-soft); }
+/* hangar が自動で付けた Done（4a、試作の A）。手で付けた Done と並べて見分けられるよう、枠を点線にして頭に小さな ✦ を置く。理由はツールチップで言う。 */
+.row-sq[data-auto] { gap: 3px; box-shadow: none; outline: 1px dashed color-mix(in srgb, var(--st-done) 55%, transparent); outline-offset: -1px; }
+.row-sq[data-auto] .icon { flex: none; width: 10px; height: 10px; }
 /* 時刻の列（F1）。幅を決めて右に寄せ、「4 時間前」と「15 時間前」で左の部品がずれないようにする。 */
 .row-time { flex: none; display: inline-flex; justify-content: flex-end; width: 72px; }
 /* 戻る日。先の日は黄土の文字だけ、当日と過ぎたもの（と日付なし）は塗る（地が --st-paused、文字が白。tokens.test.ts が 4.5 : 1 を見張る）。 */

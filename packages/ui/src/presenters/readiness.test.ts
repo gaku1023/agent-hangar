@@ -261,8 +261,36 @@ describe('案内を画面へ渡す', () => {
   });
 });
 
+// 起動しただけでは OS に通知の許可を尋ねず、確認の群に任意の行を足す（2026-10-13 の決定、9c、試作の A）。
+describe('始める前の確認の通知の行（9c）', () => {
+  const setup = (notifyAsk: boolean) => ({ desktop: true, running: null, notifyAsk });
+  it('まだ OS に尋ねていなければ、任意の行「通知」と主ボタン「許可する」を出し、押すと受け取りを入れる（OS に尋ねる）', () => {
+    const rows = presentReadiness(READY, ja, 'darwin', 'idle', setup(true))!.group.rows;
+    const row = rows.find((r) => r.key === 'ready:notify')!;
+    expect(row).toMatchObject({ name: '通知', badge: '任意', text: '背面のとき、入力待ちを OS の通知で知らせます', detail: null, lead: { kind: 'check', tone: 'soft' } });
+    expect(row.actions.map((a) => [a.label, a.primary, a.send])).toEqual([['許可する', true, { type: 'notify.set', on: true }]]);
+    // 任意の行なので、必須の行より後ろ。
+    expect(rows.at(-1)!.key).toBe('ready:notify');
+  });
+  it('許可済み、切られている、受け取らないと選んだとき（ask が立たない）は行を出さない', () => {
+    expect(presentReadiness(READY, ja, 'darwin', 'idle', setup(false))!.group.rows.some((r) => r.key === 'ready:notify')).toBe(false);
+    expect(presentReadiness(READY, ja)!.group.rows.some((r) => r.key === 'ready:notify')).toBe(false);
+  });
+  it('任意の行なので、残りがこれだけなら帯は出さない', () => {
+    expect(presentReadiness(ALL_OK, ja, 'darwin', 'idle', setup(true))).toBeNull();
+  });
+  it('English でも同じ意味で出す', () => {
+    const row = presentReadiness(READY, en, 'darwin', 'idle', setup(true))!.group.rows.find((r) => r.key === 'ready:notify')!;
+    expect(row).toMatchObject({ name: 'Notifications', badge: 'Optional', text: 'Get an OS notification when a session needs input while Hangar is in the background' });
+    expect(row.actions[0]!.label).toBe('Allow');
+  });
+  it('設定の一般の節を指す', () => {
+    expect(READINESS_AT.notify).toBe('general');
+  });
+});
+
 describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
-  const KEYS: ReadinessKey[] = ['tmux', 'claude', 'workspace', 'git', 'mcp', 'statusline', 'editor', 'compat'];
+  const KEYS: ReadinessKey[] = ['tmux', 'claude', 'workspace', 'git', 'mcp', 'statusline', 'editor', 'compat', 'notify'];
   it('帯の行のすべてが、設定の節を持つ', () => {
     expect(Object.keys(READINESS_AT).sort()).toEqual([...KEYS].sort());
     for (const k of KEYS) expect(SETTINGS_SECTIONS).toContain(settingsSectionOf(READINESS_AT[k]));

@@ -53,6 +53,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.toc.summaryOffline': 'LM Studio に接続できません',
   'settings.toc.summaryTestFailed': '接続テストに失敗',
   'settings.toc.sessions': '{n} セッション',
+  'settings.toc.sessionsRetention': '{n} セッション · 保持期間 {days}',
   'settings.section.general': '一般',
   'settings.section.cloud': 'クラウド同期',
   'settings.section.integrations': '連携',
