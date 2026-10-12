@@ -856,6 +856,85 @@ describe('この PC の解除', () => {
     e.stop();
   });
 
+  describe('ログ', () => {
+    const ID = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+    let warn: ReturnType<typeof vi.spyOn>;
+    let info: ReturnType<typeof vi.spyOn>;
+    const lines = () => [...warn.mock.calls, ...info.mock.calls].map((c) => c.map(String).join(' ')).filter((l) => l.startsWith('[sync]'));
+    beforeEach(() => {
+      cloud = new FakeCloudClient({ deviceId: ID });
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    });
+    afterEach(() => { warn.mockRestore(); info.mockRestore(); });
+
+    it('解除されて止まったら 1 行だけ残す。端末 ID は頭の 8 字だけにする', async () => {
+      const e = make({ deviceId: ID });
+      await e.start();
+      cloud.revoke(ID);
+      project('p1');
+      await timers.advance(1_000);
+      await e.idle();
+      expect(e.revoked()).toBe(true);
+      // 同じ止まりで何度も重ねない。
+      await e.pullNow();
+      await e.idle();
+      expect(lines()).toHaveLength(1);
+      expect(lines()[0]).toContain('解除');
+      expect(lines()[0]).toContain('1a2b3c4d');
+      expect(lines()[0]).not.toContain(ID);
+      e.stop();
+    });
+
+    it('参加し直して同期が通ったら、戻った旨を 1 行残す。立て直した後でも残す', async () => {
+      const first = make({ deviceId: ID });
+      await first.start();
+      cloud.revoke(ID);
+      project('p1');
+      await timers.advance(1_000);
+      await first.idle();
+      first.stop();
+      expect(lines()).toHaveLength(1);
+      // 参加し直すと、殻は Hangar を再起動する。新しいエンジンが最初に通った同期で、戻った旨を残す。
+      cloud.unrevoke(ID);
+      const second = make({ deviceId: ID });
+      await second.start();
+      await second.idle();
+      expect(lines()).toHaveLength(2);
+      expect(lines()[1]).toContain('戻');
+      expect(lines()[1]).toContain('1a2b3c4d');
+      expect(lines()[1]).not.toContain(ID);
+      // 戻った後の同期では重ねない。
+      await second.syncNow();
+      expect(lines()).toHaveLength(2);
+      second.stop();
+    });
+
+    it('今すぐ同期で戻ったときも残す', async () => {
+      const e = make({ deviceId: ID });
+      await e.start();
+      cloud.revoke(ID);
+      project('p1');
+      await timers.advance(1_000);
+      await e.idle();
+      cloud.unrevoke(ID);
+      await e.syncNow();
+      expect(lines()).toHaveLength(2);
+      expect(lines()[1]).toContain('戻');
+      e.stop();
+    });
+
+    it('解除されていなければ何も残さない', async () => {
+      const e = make({ deviceId: ID });
+      await e.start();
+      project('p1');
+      await timers.advance(1_000);
+      await e.idle();
+      expect(lines()).toEqual([]);
+      e.stop();
+    });
+  });
+
   it('解除されていなければ revoked は偽', async () => {
     const e = make();
     await e.start();

@@ -66,7 +66,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.pcs.removedNote': '解除した PC は送受信できません。参加し直すには、その PC で参加トークンを貼ります。',
   'cloudMember.pcs.placeNote': '最後の IP と場所は、最後に同期したときのものです。場所は Cloudflare が IP から推定したもので、市区はよく外れます。表記は Cloudflare の英語のままです。',
   'cloudMember.pcs.web': 'PC の解除はデスクトップアプリで行います。ターミナルでは、hangar cloud devices で ID を表示して、次を実行してください。',
-  'cloudMember.pcs.lastIp': '最後の IP',
+  'cloudMember.pcs.lastIpTitle': '最後の IP：{ip}',
   'cloudMember.leave.title': 'この PC の参加を解除',
   'cloudMember.leave.desc': 'この PC で同期をやめます。クラウドのトランスクリプトは削除しません。',
   'cloudMember.leave.button': '参加を解除…',

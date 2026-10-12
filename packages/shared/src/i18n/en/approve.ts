@@ -44,6 +44,7 @@ export const approveEn: AreaDictionary<typeof approveKeys> = {
   'approve.kv.note': 'Note',
   'approve.backup.none': 'There is no file yet, so there is nothing to back up.',
   'approve.backup.generation': '{path} (a new generation)',
+  'approve.backup.stamped': '{path} ({stamp} is the date and time of writing)',
   'approve.after.mcpInstall': 'Available in Claude Code sessions started from now on.',
   'approve.after.mcpUninstall': 'Running sessions keep it until they restart.',
   'approve.after.shellInstall': 'Takes effect in newly opened terminals. In an open terminal, run exec zsh to reload. To start once without wrapping, run command claude.',

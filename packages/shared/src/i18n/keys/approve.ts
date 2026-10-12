@@ -48,6 +48,7 @@ export const approveKeys = {
   'approve.kv.note': [],
   'approve.backup.none': [],
   'approve.backup.generation': ['path'],
+  'approve.backup.stamped': ['path', 'stamp'],
   'approve.after.mcpInstall': [],
   'approve.after.mcpUninstall': [],
   'approve.after.shellInstall': [],

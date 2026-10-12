@@ -250,6 +250,96 @@ describe('resolveStatuslineScript', () => {
   });
 });
 
+describe('command の読み方（引用符、空白、環境変数）', () => {
+  it('引用符で包んだ空白入りのパスを読む。実行するものが引用符つきの絶対パスでも読む', () => {
+    const sub = path.join(dir, 'a b');
+    fs.mkdirSync(sub);
+    const ps = path.join(sub, 'x.ps1');
+    fs.writeFileSync(ps, '$j = [Console]::In.ReadToEnd()\n');
+    settings(`powershell -NoProfile -File "${ps}"`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(ps);
+    settings(`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoProfile -ExecutionPolicy Bypass -File "${ps}"`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(ps);
+    settings(`'/usr/local/bin/pwsh' -File '${ps}'`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(ps);
+    settings(`"${ps}"`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(ps);
+    const sh = path.join(sub, 's.sh');
+    fs.writeFileSync(sh, '#!/bin/bash\necho x\n');
+    settings(`bash "${sh}" --compact`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(sh);
+    settings(`"C:\\Program Files\\Git\\bin\\bash.exe" "${sh}"`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(sh);
+  });
+
+  it('絶対パスで書いた bash の後ろの語を読む（bash そのものを指さない）', () => {
+    const sh = path.join(dir, 'statusline-command.sh');
+    fs.writeFileSync(sh, '#!/bin/bash\necho x\n');
+    settings(`/bin/bash ${sh}`);
+    expect(resolveStatuslineScript(dir, home).scriptPath).toBe(sh);
+  });
+
+  it('%NAME%、$NAME、${NAME}、~、$HOME を展開する。展開できない変数があれば読めない扱いにする', () => {
+    const ps = path.join(dir, 'x.ps1');
+    fs.writeFileSync(ps, '$j = 1\n');
+    const env = { USERPROFILE: home, CLAUDE_DIR_T: dir };
+    settings('powershell -File "%USERPROFILE%/.claude/x.ps1"');
+    expect(resolveStatuslineScript(dir, home, env).scriptPath).toBe(ps);
+    settings('pwsh -File $USERPROFILE/.claude/x.ps1');
+    expect(resolveStatuslineScript(dir, home, env).scriptPath).toBe(ps);
+    settings('pwsh -File "${CLAUDE_DIR_T}/x.ps1"');
+    expect(resolveStatuslineScript(dir, home, env).scriptPath).toBe(ps);
+    settings('$HOME/.claude/x.ps1');
+    expect(resolveStatuslineScript(dir, home, {}).scriptPath).toBe(ps);
+    settings('${HOME}/.claude/x.ps1');
+    expect(resolveStatuslineScript(dir, home, {}).scriptPath).toBe(ps);
+    settings('~/.claude/x.ps1');
+    expect(resolveStatuslineScript(dir, home, {}).scriptPath).toBe(ps);
+    settings('powershell -File "%NO_SUCH_VAR_T%/x.ps1"');
+    expect(resolveStatuslineScript(dir, home, env)).toEqual({ command: 'powershell -File "%NO_SUCH_VAR_T%/x.ps1"', scriptPath: null });
+    settings('pwsh -File $NO_SUCH_VAR_T/x.ps1');
+    expect(resolveStatuslineScript(dir, home, env).scriptPath).toBeNull();
+  });
+});
+
+describe('UTF-8 でないスクリプト', () => {
+  const utf16le = (s: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(s, 'utf16le')]);
+
+  it('UTF-16 のスクリプトには入れず、外すときも触らない', () => {
+    const ps = path.join(dir, 'u.ps1');
+    const bytes = utf16le('$j = [Console]::In.ReadToEnd()\r\n');
+    fs.writeFileSync(ps, bytes);
+    expect(appendStatuslineSnippet(ps, 4177)).toEqual({ changed: false, backup: null });
+    expect(removeStatuslineSnippet(ps)).toEqual({ changed: false, backup: null });
+    expect(fs.readFileSync(ps).equals(bytes)).toBe(true);
+    expect(fs.readdirSync(dir).filter((f) => f.includes('.bak-'))).toEqual([]);
+  });
+
+  it('UTF-8 の BOM 付きは、BOM を先頭に保ったまま入れ、入れたものを読み、外すと元に戻る', () => {
+    const bom = '\uFEFF';
+    const ps = path.join(dir, 'b.ps1');
+    const psSrc = `${bom}$j = [Console]::In.ReadToEnd()\r\nWrite-Output x\r\n`;
+    fs.writeFileSync(ps, psSrc);
+    expect(appendStatuslineSnippet(ps, 4177).changed).toBe(true);
+    const psNext = fs.readFileSync(ps, 'utf8');
+    expect(psNext.startsWith(`${bom}${STATUSLINE_MARKER}\r\n`)).toBe(true);
+    expect(psNext.slice(1)).not.toContain(bom);
+    expect(planStatuslineSnippet(psNext, ps, 4177)).toEqual({ kind: 'same' });
+    expect(removeStatuslineSnippet(ps).changed).toBe(true);
+    expect(fs.readFileSync(ps, 'utf8')).toBe(psSrc);
+
+    const sh = path.join(dir, 'b.sh');
+    const shSrc = `${bom}#!/bin/bash\necho x\n`;
+    fs.writeFileSync(sh, shSrc);
+    expect(appendStatuslineSnippet(sh, 4177).changed).toBe(true);
+    const shNext = fs.readFileSync(sh, 'utf8');
+    expect(shNext.startsWith(`${bom}#!/bin/bash\n${STATUSLINE_MARKER}\n`)).toBe(true);
+    expect(planStatuslineSnippet(shNext, sh, 4177)).toEqual({ kind: 'same' });
+    expect(removeStatuslineSnippet(sh).changed).toBe(true);
+    expect(fs.readFileSync(sh, 'utf8')).toBe(shSrc);
+  });
+});
+
 describe('appendStatuslineSnippet', () => {
   it('shebang の直後に入れ、バックアップを取り、二重に入れない', () => {
     const file = path.join(dir, 's.sh');

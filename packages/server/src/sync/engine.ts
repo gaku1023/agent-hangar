@@ -265,7 +265,29 @@ export class SyncEngine {
   /** 版が合わないと分かったら止める。理由の文は CompatError が持っている（どちらを上げればよいか）。 */
   private noteCompat(e: unknown): void {
     if (e instanceof CompatError) this.compatBlock = this.errorText(e);
-    if (e instanceof RevokedError) this.revokedBlock = true;
+    if (e instanceof RevokedError) this.noteRevoked();
+  }
+
+  /** 端末 ID の頭 8 字。ログで PC を見分けるには足り、ID の全文は残さない。 */
+  private shortDeviceId(): string { return this.deps.deviceId.slice(0, 8); }
+
+  /**
+   * 解除されて止まったことを、サーバのログ（殻の desktop.log）に 1 行残す。止まっている間は重ねない。
+   * 画面の帯のほかに、記録でも同期が止まったと確かめられるようにする（0.4.0-rc.1 の Windows の実機では 1 行も出なかった）。
+   * 止めた印（revokedBlock）は残さないが、ログに残したことは sync_state の revokedLogged に残す。
+   * 参加し直すと殻が Hangar を再起動するので、立て直した後の最初の同期でも、戻った旨を残せるようにするためである。
+   */
+  private noteRevoked(): void {
+    if (!this.revokedBlock) console.warn(`[sync] この PC（端末 ${this.shortDeviceId()}…）は、ほかの PC から同期を解除されました。同期を止めます。参加トークンで参加し直すまで送受信しません`);
+    this.revokedBlock = true;
+    this.state.set('revokedLogged', true);
+  }
+
+  /** 解除で止まった後に、Worker との同期が通った。戻った旨を 1 行残す。 */
+  private noteBack(): void {
+    if (this.state.get('revokedLogged') === null) return;
+    this.state.set('revokedLogged', null);
+    console.info(`[sync] この PC（端末 ${this.shortDeviceId()}…）の同期が戻りました（解除の後に参加し直しました）`);
   }
   protected clearPushError(): void { if (this.pushError === null) return; this.pushError = null; this.persistError(); }
   protected clearPullError(): void { if (this.pullError === null) return; this.pullError = null; this.persistError(); }
@@ -441,6 +463,7 @@ export class SyncEngine {
       db.prepare(`update changes set pushed_at = ? where seq in (${rows.map(() => '?').join(',')})`).run(now, ...rows.map((r) => r.seq));
       this.state.set('lastPushAt', now);
       this.clearPushError();
+      this.noteBack();
       pushed += rows.length;
     }
     // 未送信が 1 行も残っていないのだから、push は通っている。
@@ -731,6 +754,7 @@ export class SyncEngine {
       }
       this.state.set('lastPullAt', this.now());
       this.clearPullError();
+      this.noteBack();
       this.emit('pulled');
     } catch (e) {
       this.failPull(e);

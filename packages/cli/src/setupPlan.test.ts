@@ -53,7 +53,8 @@ describe('planSetup（書かずに、書く先と差分を返す）', () => {
     expect(JSON.stringify(p)).not.toContain('secret-gh');
     expect(JSON.stringify(p)).not.toContain(token());
     expect(p.secret).toBe(true);
-    expect(p.backup).toBe(path.join(env.home, 'backups', 'claude.json-20261012103105'));
+    // バックアップの名前の日時は書いたときに決まるので、見立てでは日時の形だけを見せる。
+    expect(p.backup).toBe(path.join(env.home, 'backups', 'claude.json-YYYYMMDDhhmmss'));
     // 何も書かない。
     expect(fs.readFileSync(env.claudeJson, 'utf8')).toBe(before);
     expect(p.fingerprint).toMatch(/^[0-9a-f]{64}$/);
@@ -87,7 +88,7 @@ describe('planSetup（書かずに、書く先と差分を返す）', () => {
     expect(p.files.map((f) => [f.op, f.what])).toEqual([['modify', 'shell.add'], ['own', 'shell.script']]);
     expect(p.files[0]!.lines).toEqual([{ k: 'ctx', t: 'export B=2' }, { k: 'add', t: expect.stringContaining(SHELL_MARKER) }]);
     expect(p.files[0]!.where).toBe('tail');
-    expect(p.backup).toBe(`${env.zshrc}.bak-20261012103105`);
+    expect(p.backup).toBe(`${env.zshrc}.bak-YYYYMMDDhhmmss`);
     expect(p.secret).toBe(false);
     expect(fs.readFileSync(env.zshrc, 'utf8')).toBe('export A=1\nexport B=2\n');
     expect(planSetup('shell-install', { ...env, platform: 'win32' }).reason?.code).toBe('windows');
@@ -107,8 +108,30 @@ describe('planSetup（書かずに、書く先と差分を返す）', () => {
     expect(p.files[0]!.n).toBe(11);
     expect(p.files[0]!.lines[0]).toEqual({ k: 'ctx', t: '#!/bin/bash' });
     expect(p.files[0]!.lines[1]).toEqual({ k: 'add', t: STATUSLINE_MARKER });
-    expect(p.backup).toBe(`${script}.bak-20261012103105`);
+    expect(p.backup).toBe(`${script}.bak-YYYYMMDDhhmmss`);
     expect(planSetup('statusline-uninstall', env)).toMatchObject({ state: 'noop' });
+  });
+
+  it('UTF-8 でないスクリプトと ~/.zshrc は、入れるのも外すのも not-utf8 で断り、理由を読める', async () => {
+    const utf16le = (t: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(t, 'utf16le')]);
+    const script = path.join(env.claudeDir, 'sl.ps1');
+    const bytes = utf16le(`${STATUSLINE_MARKER}\r\n$j = 1\r\n`);
+    fs.writeFileSync(script, bytes);
+    fs.writeFileSync(path.join(env.claudeDir, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: `powershell -File "${script}"` } }));
+    for (const target of ['statusline-install', 'statusline-uninstall'] as const) {
+      const p = planSetup(target, env);
+      expect(p, target).toMatchObject({ state: 'blocked', reason: { code: 'not-utf8' } });
+      expect(p.reason!.message).toContain('UTF-8');
+      expect(formatSetupPlan(p)).toEqual([p.reason!.message]);
+      expect(await runSetupWrite(target, env, null)).toMatchObject({ ok: false, code: 'not-utf8' });
+    }
+    expect(fs.readFileSync(script).equals(bytes)).toBe(true);
+    const zbytes = utf16le(`export A=1\n${SHELL_MARKER}\n`);
+    fs.writeFileSync(env.zshrc, zbytes);
+    for (const target of ['shell-install', 'shell-uninstall'] as const) {
+      expect(planSetup(target, env), target).toMatchObject({ state: 'blocked', reason: { code: 'not-utf8' } });
+    }
+    expect(fs.readFileSync(env.zshrc).equals(zbytes)).toBe(true);
   });
 
   it('指紋は、見せた中身が変わると変わる。hangar の置き場は数えない', () => {
@@ -144,6 +167,27 @@ describe('runSetupWrite（見せた中身から変わっていなければ書く
     if (!r.ok) throw new Error('unreachable');
     expect(r.result.backups).toEqual([path.join(env.home, 'backups', 'claude.json-20261012103105')]);
     expect(JSON.parse(fs.readFileSync(env.claudeJson, 'utf8')).mcpServers.hangar.url).toBe('http://127.0.0.1:4177/mcp');
+  });
+
+  it('見立てで見せたバックアップの名前の形と、書いたときの実際の名前が食い違わない', async () => {
+    // 承諾の窓を開いた時刻と、書き込みを押した時刻はずれる（0.4.0-rc.1 の Windows の実機で 12 秒と 25 秒）。
+    const shownAt = (p: string | null) => new RegExp(`^${p!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('YYYYMMDDhhmmss', '\\d{14}')}$`);
+    fs.writeFileSync(env.claudeJson, JSON.stringify({ mcpServers: {} }), { mode: 0o600 });
+    const script = path.join(env.claudeDir, 'sl.sh');
+    fs.writeFileSync(script, '#!/bin/bash\necho x\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(env.claudeDir, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: script } }));
+    fs.writeFileSync(env.zshrc, 'export A=1\n');
+    const later = { ...env, now: () => new Date(2026, 9, 12, 10, 31, 30) };
+    // シェル連携とステータスラインの書き込みは、ほかの試験と同じく POSIX でだけ通す。
+    const targets = process.platform === 'win32' ? (['mcp-install'] as const) : (['mcp-install', 'statusline-install', 'shell-install'] as const);
+    for (const target of targets) {
+      const p = planSetup(target, env);
+      const r = await runSetupWrite(target, later, p.fingerprint);
+      if (!r.ok) throw new Error(`${target}: ${r.message}`);
+      expect(r.result.backups, target).toHaveLength(1);
+      expect(r.result.backups[0], target).toMatch(shownAt(p.backup));
+      expect(r.result.backups[0], target).toContain('20261012103130');
+    }
   });
 
   it('見せた後に変わっていたら、何も書かずに changed で断る', async () => {

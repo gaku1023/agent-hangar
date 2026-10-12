@@ -44,6 +44,7 @@ export const approveJa: AreaDictionary<typeof approveKeys> = {
   'approve.kv.note': '補足',
   'approve.backup.none': '元のファイルが無いので、取るものはありません。',
   'approve.backup.generation': '{path}（新しい世代）',
+  'approve.backup.stamped': '{path}（{stamp} は書き込んだ日時）',
   'approve.after.mcpInstall': '新しく起動した Claude Code のセッションから使えます。',
   'approve.after.mcpUninstall': '実行中のセッションでは、再起動するまで使えるままです。',
   'approve.after.shellInstall': '新しく開いたターミナルから有効です。開いているターミナルでは exec zsh で再読み込みできます。1 回だけ包まずに起動するときは command claude です。',

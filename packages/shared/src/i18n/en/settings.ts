@@ -115,7 +115,7 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.statusline.missing': 'No status line is configured',
   'settings.integrations.statusline.missingHint': 'Run /statusline in Claude Code to create the script first.',
   'settings.integrations.statusline.installed': 'Set up',
-  'settings.integrations.statusline.notInstalled': 'Not set up yet',
+  'settings.integrations.statusline.notInstalled': 'Your status line script is in place, but the lines that pass its values to hangar are not in it yet.',
   'settings.integrations.statusline.note': 'The usage gauges in the header only arrive through a few lines added to the status line script.',
   'settings.integrations.statusline.port': 'If the server runs on a port other than 4177, add --port <number>.',
   'settings.integrations.shell.title': 'Shell integration',

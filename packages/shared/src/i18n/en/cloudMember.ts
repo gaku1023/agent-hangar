@@ -66,7 +66,7 @@ export const cloudMemberEn: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.pcs.removedNote': 'Removed computers cannot send or receive. To join again, paste a join token on that computer.',
   'cloudMember.pcs.placeNote': 'The last IP and location are from the last sync. The location is estimated by Cloudflare from the IP, and the city is often wrong. It is shown in English as Cloudflare gives it.',
   'cloudMember.pcs.web': 'Removing a computer is done in the desktop app. In a terminal, show the IDs with hangar cloud devices, then run the following.',
-  'cloudMember.pcs.lastIp': 'Last IP',
+  'cloudMember.pcs.lastIpTitle': 'Last IP: {ip}',
   'cloudMember.leave.title': 'Leave sync on this computer',
   'cloudMember.leave.desc': 'Stops syncing on this computer. Transcripts in the cloud are not deleted.',
   'cloudMember.leave.button': 'Leave…',

@@ -8,6 +8,7 @@
 export { hangarHome, defaultClaudeDir, dbPath, ensureHome, readOrCreateToken, readOrCreateDevice, loadSettings, saveSettings } from './config/paths.ts';
 export { STATUSLINE_MARKER, appendStatuslineSnippet, isPowerShellScript, planStatuslineRemoval, planStatuslineSnippet, removeStatuslineSnippet, statuslineSnippetFor, type StatuslineEdit, type StatuslineRemoval, ensureStatuslineHeaderFile, resolveStatuslineScript, statuslineHeaderPath, statuslineSnippet, statuslineSnippetUpToDate, statuslineStatus, writeStatuslineHeaderFile } from './provider/claude-code/config/statusline.ts';
 export { claudeJsonPath, readUserMcpServers, removeUserMcpServer, upsertUserMcpServer } from './provider/claude-code/config/claudeJson.ts';
+export { readUtf8Text, utf8Problem } from './config/textEncoding.ts';
 export { SHELL_MARKER, ensureShellScript, installShellHook, planShellHook, planShellUnhook, shellHookInstalled, shellHookLine, shellHookState, shellHookUpToDate, shellScriptPath, shellWrapOsSupported, shellWrapSupported, uninstallShellHook, zshrcPath, type ShellHookState, type ShellScriptOptions } from './config/shellHook.ts';
 export { backupsRoot, cloudConfigPath, loadCloudConfig, readCloudConfig, remoteRoot, saveCloudConfig, type CloudConfig, type CloudConfigRead } from './config/cloud.ts';
 export { SyncStateStore, type SyncStateKey } from './sync/state.ts';

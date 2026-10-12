@@ -1,10 +1,10 @@
-import fs from 'node:fs';
 import readline from 'node:readline';
 import {
   appendStatuslineSnippet,
   ensureHome,
   hangarHome,
   readOrCreateToken,
+  readUtf8Text,
   resolveStatuslineScript,
   STATUSLINE_MARKER,
   statuslineSnippet,
@@ -55,8 +55,14 @@ export async function runStatuslineInstall(o: {
     log(statuslineSnippet(o.port));
     return { installed: false, message: 'スクリプトが見つかりません' };
   }
+  // UTF-8 でないスクリプト（UTF-16 など）は、UTF-8 で書き戻すと壊れるので触らない。
+  const read = readUtf8Text(r.scriptPath);
+  if (read === null || 'problem' in read) {
+    log(`${r.scriptPath} が UTF-8 で保存されていない（UTF-16 など）ので、書き換えません。UTF-8 で保存し直すか、手で追記してください。`);
+    return { installed: false, message: 'UTF-8 でないので書き換えませんでした' };
+  }
   // 目印だけを見て終わると、トークンを argv に載せる古い形が入ったまま残る。中身まで見て差し替える。
-  const has = fs.readFileSync(r.scriptPath, 'utf8').includes(STATUSLINE_MARKER);
+  const has = read.text.includes(STATUSLINE_MARKER);
   if (has && statuslineSnippetUpToDate(r.scriptPath, o.port)) { log('既に追記されています'); return { installed: true, message: '既に追記されています' }; }
   log(`${has ? '差し替え先' : '追記先'}: ${r.scriptPath}`);
   if (has) log('古い形のスニペットが入っています。トークンを curl の引数に載せない形に差し替えます。');

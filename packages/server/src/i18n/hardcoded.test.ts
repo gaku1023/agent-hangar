@@ -63,7 +63,7 @@ const ALLOWED: Record<string, { lines: number; why: string }> = {
   'sync/config/inbox.ts': { lines: 1, why: INTERNAL },
   'sync/config/service.ts': { lines: 4, why: LOG },
   'sync/crypto.ts': { lines: 1, why: INTERNAL },
-  'sync/engine.ts': { lines: 5, why: LOG },
+  'sync/engine.ts': { lines: 7, why: LOG },
   'sync/pruneBackups.ts': { lines: 3, why: LOG },
   'sync/puller.ts': { lines: 1, why: LOG },
   'sync/uploader.ts': { lines: 2, why: LOG },
