@@ -239,4 +239,9 @@ export const settingsKeys = {
   'settings.editor.preview.empty': [],
   'settings.tools.git': [],
   'settings.tools.gitDesc': [],
+  'settings.tools.parent.placeholder': [],
+  'settings.tools.parent.pick': [],
+  'settings.tools.register.title': [],
+  'settings.tools.register.desc': [],
+  'settings.tools.register.action': [],
 } as const satisfies MessageSpec;

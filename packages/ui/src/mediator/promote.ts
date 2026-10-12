@@ -36,7 +36,7 @@ export function promoteStep(state: State, store: Store, input: Input): Step | nu
     if (state.promote.kind === 'submitting') return { state, effects: [] };
     const err = nameError(i.name, translatorOf(store));
     if (err) return { state: { ...state, promote: { kind: 'failed', message: err } }, effects: [] };
-    return { state: { ...state, promote: { kind: 'submitting' } }, effects: [{ kind: 'api.promote', sessionId: i.id, name: i.name.trim(), gitInit: i.gitInit, moveFiles: i.moveFiles }] };
+    return { state: { ...state, promote: { kind: 'submitting' } }, effects: [{ kind: 'api.promote', sessionId: i.id, name: i.name.trim(), gitInit: i.gitInit, moveFiles: i.moveFiles, ...(i.parent ? { parent: i.parent } : {}) }] };
   }
   // overlayStep のキュー処理より先に横取りして、昇格の状態も idle に戻す。
   if (i.type === 'overlay.close' && (state.overlay.kind === 'promote' || state.overlay.kind === 'promoted')) {

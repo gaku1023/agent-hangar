@@ -1,7 +1,11 @@
 import type { State } from '../mediator/types.ts';
 import { aliveRunOf, type Store } from '../store/store.ts';
 
-export type PromoteProps = { sessionId: string; sessionName: string; runAlive: boolean; submitting: boolean; error: string | null };
+/**
+ * place は作る場所の手がかり（2026-10-13）。作成場所（設定）が空なら、ダイアログが作る場所を選ばせる。
+ * desktop は Finder で選べるか、picked は殻が返した最後の選択である。省けば作成場所があるものとして扱う。
+ */
+export type PromoteProps = { sessionId: string; sessionName: string; runAlive: boolean; submitting: boolean; error: string | null; place?: { workspaceRoot: string | null; desktop: boolean; picked: { path: string; n: number } | null } };
 export type PromotedProps = { projectId: string; projectName: string; moved: boolean; reason: string | null };
 
 /** 昇格ダイアログ。run が生きているときはファイルを移動できないので、View が注意書きを出せるように渡す。 */
@@ -14,6 +18,7 @@ export function presentPromote(state: State, store: Store): PromoteProps | null 
     runAlive: aliveRunOf(store, id) !== null,
     submitting: state.promote.kind === 'submitting',
     error: state.promote.kind === 'failed' ? state.promote.message : null,
+    place: { workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder },
   };
 }
 

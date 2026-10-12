@@ -61,12 +61,14 @@ describe('会話で選ぶ・手で選ぶ', () => {
     const s = setSessionState(db, 'd', 's1', { status: 'done', note: '直した', setBy: 'conversation', now: 150 });
     expect(s).toEqual({ status: 'done', note: '直した', returnOn: null, returnTime: null, setBy: 'conversation', setAt: 150, candidate: null });
   });
-  it('手で選ぶ：Done と Archived は戻る日を持たず、Paused は戻る日が要る', () => {
+  it('手で選ぶ：Done と Archived は戻る日を持たず、Paused の戻る日は任意（2026-10-13）', () => {
     const db = seed();
     expect(setSessionState(db, 'd', 's1', { status: 'done', returnOn: '2026-10-02', setBy: 'user', now: 1 })).toMatchObject({ status: 'done', returnOn: null, setBy: 'user' });
     expect(setSessionState(db, 'd', 's1', { status: 'archived', setBy: 'user', now: 2 })).toMatchObject({ status: 'archived', returnOn: null });
     expect(setSessionState(db, 'd', 's1', { status: 'paused', note: '', returnOn: '2026-10-02', setBy: 'user', now: 3 })).toEqual({ status: 'paused', note: null, returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: 3, candidate: null });
-    expect(() => setSessionState(db, 'd', 's1', { status: 'paused', setBy: 'user' })).toThrow(new StateInputError('Paused にはリマインダーの日付が要ります'));
+    expect(setSessionState(db, 'd', 's1', { status: 'paused', setBy: 'user', now: 4 })).toEqual({ status: 'paused', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: 4, candidate: null });
+    // 時刻だけでは戻る時点にならない。
+    expect(() => setSessionState(db, 'd', 's1', { status: 'paused', returnTime: '13:30', setBy: 'user' })).toThrow(new StateInputError('リマインダーの時刻は、日付と一緒に渡してください'));
   });
   it('Active に戻す：状態・理由・戻る日・提案を消し、rejected_at は残す', () => {
     const db = seed();
@@ -221,9 +223,13 @@ describe('検査と読み方', () => {
   it('提案の根拠は 1 字以上が要る。戻る日は暦にある日だけ。どれも何も書かない', () => {
     const db = seed();
     expect(() => proposeSessionState(db, 'd', 's1', { ...paused, note: '   ' })).toThrow(new StateInputError('根拠の一文が空です'));
-    expect(() => proposeSessionState(db, 'd', 's1', { ...paused, returnOn: null })).toThrow(new StateInputError('Paused にはリマインダーの日付が要ります'));
     expect(() => proposeSessionState(db, 'd', 's1', { ...paused, returnOn: '2026-02-30' })).toThrow(new StateInputError('リマインダーの日付は YYYY-MM-DD の形の、暦にある日付です'));
     expect(lastSeq(db)).toBeNull();
+  });
+  it('日付なしの Paused も提案でき、確定すると日付なしの Paused になる', () => {
+    const db = seed();
+    expect(proposeSessionState(db, 'd', 's1', { ...paused, returnOn: null, now: 10 }).state.candidate).toMatchObject({ status: 'paused', returnOn: null, returnTime: null });
+    expect(confirmSessionState(db, 'd', 's1', { now: 20 }).state).toMatchObject({ status: 'paused', returnOn: null, returnTime: null });
   });
   it('同期で状態と提案の両方を持つ行は、状態を正として提案を出さない（書き直しはしない）', () => {
     const db = seed();

@@ -8,6 +8,10 @@ import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
 export type DeviceInfo = { id: string; name: string; platform: string };
 export type Settings = {
+  /**
+   * 新しいフォルダの作成場所（任意）。役割は、新しいプロジェクトのフォルダを作る場所と、直下の自動の登録だけである。
+   * 空は「決めていない」で、作るたびに場所を選ぶ。新しい利用者は空から始まる（loadSettings）。
+   */
   workspaceRoot: string;
   claudeDir: string;
   tmuxPath: string | null;
@@ -129,7 +133,9 @@ function defaultSettings(platform: NodeJS.Platform = process.platform): Settings
  */
 export function loadSettings(home: string, platform: NodeJS.Platform = process.platform, osLanguage: () => Language | undefined = osDisplayLanguage): Settings {
   const file = path.join(home, 'settings.json');
-  if (!fs.existsSync(file)) return { ...defaultSettings(platform), language: decideLanguage(undefined, osLanguage).language };
+  // 新しい利用者の作成場所は空（決めていない）にする。初日はホームの帯から、Claude Code と会話したフォルダを選んでもらう（2026-10-13）。
+  // 項目の無い古い settings.json は、今までどおり ~/workspace として読む（既存の利用者の振る舞いを変えない）。
+  if (!fs.existsSync(file)) return { ...defaultSettings(platform), workspaceRoot: '', language: decideLanguage(undefined, osLanguage).language };
   const text = fs.readFileSync(file, 'utf8');
   const s = { ...defaultSettings(platform), ...(JSON.parse(text) as Partial<Settings>) };
   // 別の OS で保存した外部ターミナル（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定に読み替える。

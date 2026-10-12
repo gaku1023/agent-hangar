@@ -46,9 +46,15 @@ describe('paths', () => {
   it('設定は既定値を持ち、保存すると読める', () => {
     ensureHome(tmp);
     const s = loadSettings(tmp);
-    expect(s.workspaceRoot).toBe(path.join(os.homedir(), 'workspace'));
+    // 新しい利用者の作成場所は空（決めていない）である。初日はホームの帯から、会話したフォルダを選んでもらう（2026-10-13）。
+    expect(s.workspaceRoot).toBe('');
     saveSettings(tmp, { ...s, workspaceRoot: '/tmp/ws' });
     expect(loadSettings(tmp).workspaceRoot).toBe('/tmp/ws');
+  });
+  it('作成場所の項目が無い古い settings.json は、今までどおり ~/workspace として読む', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ claudeDir: '/c' }));
+    expect(loadSettings(tmp).workspaceRoot).toBe(path.join(os.homedir(), 'workspace'));
   });
   it('設定は 0600 で保存し、緩い権限のまま残さない', () => {
     // claudeDir や workspaceRoot は端末の中身を明かすので、token や device.json と同じ扱いにする。

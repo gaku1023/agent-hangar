@@ -4,7 +4,7 @@ import { SETTINGS_SECTIONS, settingsSectionOf, translator } from '@agent-hangar/
 import { initialState } from '../mediator/transition.ts';
 import { initialStore } from '../store/store.ts';
 import { presentSettings } from './settings.ts';
-import { clientPlatform, muxInstallCommand, muxName, notifyBlockedKey, presentMux, presentMuxGuide, presentReadiness, READINESS_AT, readinessPending, toolLine, workspaceLine, type ReadinessKey } from './readiness.ts';
+import { clientPlatform, liveReadiness, muxInstallCommand, muxName, notifyBlockedKey, presentMux, presentMuxGuide, presentReadiness, READINESS_AT, readinessPending, toolLine, workspaceLine, type ReadinessKey } from './readiness.ts';
 
 const READY: ReadinessDto = {
   tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
@@ -43,7 +43,6 @@ describe('欄の下の検証（設定の B1）', () => {
   });
   it('ワークスペースは、登録したプロジェクトの数を出し、0 件なら理由を言う', () => {
     expect(workspaceLine(ja, { ...READY.workspace, projectCount: 12 })).toEqual({ ok: true, soft: false, text: '/Users/me/workspace', note: 'プロジェクト 12 件', fix: null, fixCommand: null });
-    expect(workspaceLine(ja, READY.workspace)).toMatchObject({ ok: false, text: '直下に、Claude のセッションがあるディレクトリがありません' });
     expect(workspaceLine(ja, { ...READY.workspace, exists: false })).toMatchObject({ ok: false, text: '/Users/me/workspace が見つかりません' });
   });
 });
@@ -80,9 +79,8 @@ describe('tmux の役を担う道具の入れ方', () => {
     expect(toolLine(en, 'node', READY.tools.node)).toMatchObject({ note: 'v22.9.0, Found automatically' });
     expect(toolLine(en, 'git', { path: null, ok: false, problem: 'unset', version: null }, 'darwin')).toEqual({ ok: false, soft: true, text: 'Not found', note: 'Works without it', fix: 'Install git. hangar works without it, but branches and uncommitted counts are not shown', fixCommand: 'xcode-select --install' });
     expect(toolLine(en, 'claude', { path: '/x/claude', ok: false, problem: 'notExecutable', version: null }).text).toBe('/x/claude is not executable');
-    expect(workspaceLine(en, { ...READY.workspace, projectCount: 1 }).note).toBe('1 project');
-    expect(workspaceLine(en, { ...READY.workspace, projectCount: 12 }).note).toBe('12 projects');
-    expect(workspaceLine(en, READY.workspace).text).toBe('No directory with Claude sessions directly inside it');
+    expect(workspaceLine(en, { ...READY.workspace, projectCount: 1 })!.note).toBe('1 project');
+    expect(workspaceLine(en, { ...READY.workspace, projectCount: 12 })!.note).toBe('12 projects');
   });
 });
 
@@ -104,7 +102,7 @@ describe('始める前の確認の帯の群（設計書 2.11.4）', () => {
   it('直すものだけを 1 行ずつ。必須を先に、任意は「任意」の札を付けて後ろに置く', () => {
     const b = presentReadiness(READY, ja)!;
     expect(b.group.rows.map((r) => [r.key, r.name, r.badge ?? null])).toEqual([
-      ['ready:workspace', 'プロジェクトの親フォルダ', null],
+      ['ready:workspace', '新しいフォルダの作成場所', null],
       ['ready:mcp', 'MCP サーバー', '任意'],
       ['ready:statusline', 'ステータスライン', '任意'],
     ]);
@@ -290,7 +288,7 @@ describe('始める前の確認の通知の行（9c）', () => {
 });
 
 describe('帯の行から設定の欄への対応（READINESS_AT）', () => {
-  const KEYS: ReadinessKey[] = ['tmux', 'claude', 'workspace', 'git', 'mcp', 'statusline', 'editor', 'compat', 'notify'];
+  const KEYS: ReadinessKey[] = ['tmux', 'claude', 'workspace', 'projects', 'git', 'mcp', 'statusline', 'editor', 'compat', 'notify'];
   it('帯の行のすべてが、設定の節を持つ', () => {
     expect(Object.keys(READINESS_AT).sort()).toEqual([...KEYS].sort());
     for (const k of KEYS) expect(SETTINGS_SECTIONS).toContain(settingsSectionOf(READINESS_AT[k]));
@@ -344,5 +342,54 @@ describe('始める前の確認の MCP とステータスラインの行（殻�
   });
   it('ブラウザでは今までどおりコマンドをコピーする', () => {
     expect(rowOf(READY, 'ready:mcp', { desktop: false, running: null }).actions[0]!.send).toEqual({ type: 'clipboard.copy', text: 'hangar mcp install' });
+  });
+});
+
+// 初日のプロジェクト（2026-10-13）。行の名前は「プロジェクト」で、この PC に解決済みのプロジェクトが 1 件以上で済み、0 件は注意（soft）。
+describe('始める前の確認の「プロジェクト」の行', () => {
+  const day1 = (candidates: number): ReadinessDto => ({ ...ALL_OK, workspace: { path: '', exists: false, projectCount: 0 }, projects: { resolved: 0, candidates } });
+  it('プロジェクトが 0 件なら、注意の印で件数と「選ぶ…」を出し、押すと候補のダイアログを開く', () => {
+    const b = presentReadiness(day1(9), ja)!;
+    expect(b.group.rows.map((r) => r.key)).toEqual(['ready:projects']);
+    expect(b.group.rows[0]).toMatchObject({ name: 'プロジェクト', badge: null, lead: { kind: 'check', tone: 'soft', label: '未設定' }, text: 'Claude Code と会話したフォルダが 9 件見つかりました。プロジェクトにするものを選んでください' });
+    expect(b.group.rows[0]!.actions.map((a) => [a.label, a.primary, a.send])).toEqual([['選ぶ…', true, { type: 'project.candidates.open' }]]);
+    expect(b.group.countText).toBe('準備完了 6 / 7');
+    expect(b.note).toBeNull();
+    expect(presentReadiness(day1(9), en)!.group.rows[0]!.text).toBe('Found 9 folders where you have talked with Claude Code. Choose which ones become projects');
+  });
+  it('候補が 0 件なら、新しいプロジェクトの作成へ案内する', () => {
+    const row = presentReadiness(day1(0), ja)!.group.rows[0]!;
+    expect(row.text).toBe('まだありません。新しいプロジェクトを作るか、フォルダを登録してください');
+    expect(row.actions.map((a) => [a.label, a.send])).toEqual([['新しいプロジェクト…', { type: 'project.new.open' }]]);
+  });
+  it('1 件以上なら済みに数え、畳んだ行に件数を出す。作成場所は問わない', () => {
+    const ok: ReadinessDto = { ...READY, workspace: { path: '', exists: false, projectCount: 0 }, projects: { resolved: 3, candidates: 0 } };
+    // 任意の行だけが残るので、帯は出さない。済んだ行を見るため、tmux が無いときで見る。
+    expect(presentReadiness(ok, ja)).toBeNull();
+    const b = presentReadiness({ ...ok, tools: noTmux.tools }, ja)!;
+    expect(b.group.rows.map((r) => r.key)).toEqual(['ready:tmux', 'ready:mcp', 'ready:statusline']);
+    expect(b.group.fold!.text).toBe('claude、プロジェクト、git、Claude Code との互換性 は準備完了');
+    expect(b.group.fold!.rows.find((r) => r.key === 'ready:projects')).toMatchObject({ name: 'プロジェクト', text: 'プロジェクト 3 件' });
+    expect(readinessPending(ok)).toBe(false);
+    expect(readinessPending(day1(2))).toBe(true);
+  });
+  // 既存の利用者（~/workspace にプロジェクトがある）は、見た目も振る舞いも変わらない（3e）。帯は出ない。
+  it('作成場所にプロジェクトがある今の利用者は、帯を出さない', () => {
+    expect(presentReadiness({ ...ALL_OK, projects: { resolved: 12, candidates: 0 } }, ja)).toBeNull();
+  });
+  it('サーバの数より、画面が持っているプロジェクトの数を優先する（登録した直後に行を消す）', () => {
+    const r = day1(4);
+    expect(liveReadiness(r, [{ isScratch: false, resolved: true }])!.projects).toEqual({ resolved: 1, candidates: 4 });
+    expect(liveReadiness(r, [{ isScratch: true, resolved: true }, { isScratch: false, resolved: false }])!.projects).toEqual({ resolved: 0, candidates: 4 });
+    // 古いサーバの答え（projects が無い）は、そのまま返す。
+    expect(liveReadiness(READY, [{ isScratch: false, resolved: true }])).toBe(READY);
+  });
+});
+
+describe('作成場所の欄の下の検証', () => {
+  it('空なら行を出さず、無い場所は直し方、ある場所はプロジェクトの数（0 件でも ✓）', () => {
+    expect(workspaceLine(ja, { path: '', exists: false, projectCount: 0 })).toBeNull();
+    expect(workspaceLine(ja, { path: '/Users/me/src', exists: true, projectCount: 0 })).toEqual({ ok: true, soft: false, text: '/Users/me/src', note: 'プロジェクト 0 件', fix: null, fixCommand: null });
+    expect(workspaceLine(ja, { path: '/x', exists: false, projectCount: 0 })).toMatchObject({ ok: false, soft: false, text: '/x が見つかりません' });
   });
 });

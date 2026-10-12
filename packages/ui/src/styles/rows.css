@@ -79,6 +79,8 @@
 /* 戻る日。先の日は黄土の文字だけ、当日と過ぎたもの（と日付なし）は塗る（地が --st-paused、文字が白。tokens.test.ts が 4.5 : 1 を見張る）。 */
 .row-return { flex: none; display: inline-flex; align-items: center; font-size: var(--fs-xs); font-weight: 600; line-height: 1.4; color: var(--st-paused); white-space: nowrap; }
 .row-return[data-due='true'] { color: #ffffff; background: var(--st-paused); padding: 1px 7px; border-radius: var(--r-pill); }
+/* 日付なしの Paused（2026-10-13）。来る日を持たないので、Paused の色にせず淡く出す。 */
+.row-return[data-none='true'] { color: var(--ink-3); font-weight: 500; }
 /* 提案の札（Q3）。枠だけの紫の丸い札で、押すと根拠のポップ（Q1）が開く。状態の列では短い語（Done？・Paused？）で置く。 */
 .row-cand { flex: none; display: inline-flex; align-items: center; justify-content: center; height: 18px; padding: 0 7px; border: 0; border-radius: var(--r-pill); background: none; box-shadow: inset 0 0 0 1px var(--cand); color: var(--cand); font: inherit; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; cursor: pointer; }
 .row-status .row-cand { width: 62px; padding: 0; }
@@ -186,6 +188,10 @@
 .pause-chip[aria-checked='true'] { color: var(--st-paused); background: var(--st-paused-soft); box-shadow: inset 0 0 0 1px var(--st-paused); font-weight: 600; }
 .pause-chip kbd { font: inherit; font-size: var(--fs-xs); color: var(--ink-2); }
 .pause-chip[aria-checked='true'] kbd { color: var(--st-paused); }
+/* 日付なし（2026-10-13）。日を持たない札なので、枠だけで描き、選んでも Paused の色に塗らない。 */
+.pause-chip[data-none] { background: none; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.pause-chip[data-none][aria-checked='true'] { background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.pause-chip[data-none][aria-checked='true'] kbd { color: var(--ink-2); }
 .pause-draft { font-size: var(--fs-xs); font-weight: 600; color: var(--cand); }
 
 /* プロジェクトの一覧（P1、行の表）。列の幅は --pcols に 1 つだけ持ち、列の見出し（.pcols）と行（.prow）が同じものを引く。

@@ -55,10 +55,10 @@ describe('routes', () => {
     };
     // 実在しないルートと、ファイルを指したルートは弾く。どちらも 500 にはしない。
     const missing = path.join(ws, 'no-such-root');
-    expect(await error({ workspaceRoot: missing })).toBe(`「プロジェクトの親フォルダ」に ${missing} が見つかりません`);
+    expect(await error({ workspaceRoot: missing })).toBe(`「新しいフォルダの作成場所」に ${missing} が見つかりません`);
     const asFile = path.join(ws, 'root-is-a-file');
     fs.writeFileSync(asFile, 'x');
-    expect(await error({ workspaceRoot: asFile })).toBe(`「プロジェクトの親フォルダ」の ${asFile} はディレクトリではありません`);
+    expect(await error({ workspaceRoot: asFile })).toBe(`「新しいフォルダの作成場所」の ${asFile} はディレクトリではありません`);
     // ツールは、無い、ファイルでない、実行できないを分けて言う。
     expect(await error({ tmuxPath: path.join(ws, 'no-tmux') })).toBe(`「tmux のパス」に ${path.join(ws, 'no-tmux')} が見つかりません`);
     expect(await error({ claudePath: ws })).toBe(`「claude のパス」の ${ws} はファイルではありません`);
@@ -113,7 +113,7 @@ describe('routes', () => {
       expect(r.status).toBe(400);
       return ((await r.json()) as { error: string }).error;
     };
-    expect(await error({ workspaceRoot: '' })).toBe('「プロジェクトの親フォルダ」は空にできません');
+    expect(await error({ workspaceRoot: 3 })).toBe('「新しいフォルダの作成場所」の値の形が違います');
     expect(await error({ claudeDir: ' ' })).toBe('「読み取り元」は空にできません');
     expect(await error({ tmuxPath: 3 })).toBe('「tmux のパス」の値の形が違います');
     expect(await error({ editor: 3 })).toBe('「エディタ」の値の形が違います');
@@ -142,12 +142,26 @@ describe('routes', () => {
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    expect((await patch({ workspaceRoot: '' })).status).toBe(400);
     expect((await patch({ workspaceRoot: 123 })).status).toBe(400);
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
     expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, nodePath: null, claudePath: null, language: 'ja' });
+  });
+  // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
+  it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
+    const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const before = db.prepare('select count(*) c from projects where deleted_at is null').get();
+    for (const v of ['', '  ', null]) {
+      const r = await patch({ workspaceRoot: v });
+      expect(r.status).toBe(200);
+      expect((await r.json()).workspaceRoot).toBe('');
+    }
+    expect(db.prepare('select count(*) c from projects where deleted_at is null').get()).toEqual(before);
+    // 空から決め直せば、今までどおり直下を登録する。
+    fs.mkdirSync(path.join(ws, 'later'));
+    expect((await patch({ workspaceRoot: ws })).status).toBe(200);
+    expect((await json(await get('/api/settings'))).body.workspaceRoot).toBe(ws);
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });

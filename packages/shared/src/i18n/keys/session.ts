@@ -16,7 +16,7 @@ export const sessionKeys = {
   'session.status.noteEmpty': [],
   'session.status.noteTooLong': ['max'],
   'session.status.returnOnInvalid': [],
-  'session.status.returnOnRequired': [],
+  'session.status.returnTimeNeedsDate': [],
   'session.status.returnTimeInvalid': ['value'],
   'session.stats.turns': ['n'],
   'session.stats.tokens': ['n'],

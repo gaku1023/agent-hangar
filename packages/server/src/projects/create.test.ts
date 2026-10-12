@@ -16,6 +16,7 @@ afterEach(() => { db.close(); fs.rmSync(ws, { recursive: true, force: true }); }
 
 const deps = (over: { gitInit?: (dir: string) => void } = {}) => ({ db, deviceId: 'd', workspaceRoot: ws, gitInit: vi.fn(), ...over });
 const rootOf = (id: string) => db.prepare('select path, resolved from project_roots where project_id = ? and device_id = ?').get(id, 'd');
+const ROOT_NOT_ALLOWED = '新しいフォルダの作成場所と、その上のフォルダ、ホームフォルダはプロジェクトにできません';
 const projectOf = (id: string) => db.prepare('select name, status, is_scratch from projects where id = ?').get(id);
 
 describe('createProjectDir', () => {
@@ -74,7 +75,52 @@ describe('createProjectDir', () => {
   });
 });
 
+// 作成場所は任意で、空は「決めていない」である（2026-10-13）。空のときは、作る場所を呼び手が parent で渡す（画面は Finder で選ばせる）。
+describe('createProjectDir の作る場所', () => {
+  it('作成場所が空で parent も無ければ 400 で断り、何も作らない', () => {
+    try {
+      createProjectDir({ db, deviceId: 'd', workspaceRoot: '', gitInit: vi.fn() }, { name: 'p', gitInit: false });
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(ProjectCreateError);
+      expect((e as ProjectCreateError).status).toBe(400);
+      expect((e as Error).message).toBe('新しいフォルダを作る場所が決まっていません。場所を選んでください');
+    }
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });
+  });
+  it('parent を渡せば、作成場所より parent を使う', () => {
+    const parent = path.join(ws, 'picked');
+    fs.mkdirSync(parent);
+    const a = createProjectDir({ db, deviceId: 'd', workspaceRoot: '', gitInit: vi.fn() }, { name: 'p', gitInit: false, parent });
+    expect(a.dir).toBe(path.join(parent, 'p'));
+    const b = createProjectDir({ db, deviceId: 'd', workspaceRoot: path.join(ws, 'root'), gitInit: vi.fn() }, { name: 'q', gitInit: false, parent });
+    expect(b.dir).toBe(path.join(parent, 'q'));
+  });
+  it('parent の先頭の ~/ はホームに直し、相対パスは 400 で断る', () => {
+    const home = path.join(ws, 'home');
+    fs.mkdirSync(home);
+    vi.spyOn(os, 'homedir').mockReturnValue(home);
+    try {
+      expect(createProjectDir({ db, deviceId: 'd', workspaceRoot: '', gitInit: vi.fn() }, { name: 'p', gitInit: false, parent: '~/' }).dir).toBe(path.join(home, 'p'));
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(() => createProjectDir({ db, deviceId: 'd', workspaceRoot: '', gitInit: vi.fn() }, { name: 'r', gitInit: false, parent: 'rel' })).toThrow('path は / か ~ で始まる絶対パスにしてください');
+  });
+});
+
 describe('registerProjectDir', () => {
+  it('作成場所が空でも登録でき、ファイルシステムの根とホームフォルダは 400 で断る', () => {
+    fs.mkdirSync(path.join(ws, 'free'));
+    const r = registerProjectDir({ db, deviceId: 'd', workspaceRoot: '' }, { path: path.join(ws, 'free') });
+    expect(rootOf(r.projectId)).toEqual({ path: path.join(ws, 'free'), resolved: 1 });
+    vi.spyOn(os, 'homedir').mockReturnValue(ws);
+    try {
+      for (const p of ['/', ws, '~']) expect(() => registerProjectDir({ db, deviceId: 'd', workspaceRoot: '' }, { path: p })).toThrow(ROOT_NOT_ALLOWED);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
   it('既存のディレクトリを登録する。名前を省けば basename にする', () => {
     fs.mkdirSync(path.join(ws, 'old-kadai'));
     const r = registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: `${ws}/old-kadai/` });
@@ -110,7 +156,7 @@ describe('registerProjectDir', () => {
       } catch (e) {
         expect(e).toBeInstanceOf(ProjectCreateError);
         expect((e as ProjectCreateError).status).toBe(400);
-        expect((e as Error).message).toBe('プロジェクトの親フォルダやその上のフォルダはプロジェクトにできません');
+        expect((e as Error).message).toBe(ROOT_NOT_ALLOWED);
       }
     }
     expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 0 });

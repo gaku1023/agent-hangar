@@ -329,3 +329,28 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .editor-missing { transform-origin: top left; }
 .editor-missing-title { color: var(--ink); font-weight: 600; }
 .editor-missing .menu-head span { overflow-wrap: anywhere; }
+/* Claude Code と会話したフォルダの候補のダイアログ（初日のプロジェクト。試作の 4 節 3b の案 B）。 */
+.cand-list { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.cand-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) 40px 72px; gap: calc(var(--u) * 3); align-items: center; min-height: 40px; padding: 4px calc(var(--u) * 3); border-top: 1px solid var(--line); }
+.cand-sec + .cand-row, .cand-list > .cand-row:first-child { border-top: 0; }
+.cand-path { min-width: 0; display: flex; flex-direction: column; }
+.cand-path .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.cand-path small { font-size: var(--fs-xs); color: var(--ink-3); }
+.cand-count { text-align: right; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--ink); }
+.cand-when { text-align: right; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.cand-sec { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 30px; padding: 0 calc(var(--u) * 3); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.cand-sec-note { font-weight: 500; }
+.cand-fold { display: flex; width: 100%; align-items: center; gap: calc(var(--u) * 2); height: 34px; padding: 0 calc(var(--u) * 3); border: 0; border-top: 1px solid var(--line); background: none; font: inherit; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); text-align: left; cursor: pointer; }
+.cand-fold .icon { width: 14px; height: 14px; color: var(--ink-3); }
+.cand-fold .faint { font-weight: 500; font-size: var(--fs-xs); }
+.cand-fold[aria-expanded='true'] { border-bottom: 1px solid var(--line); }
+.cand-fold[aria-expanded='true'] + .cand-row { border-top: 0; }
+.cand-check { display: grid; flex: none; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 5px; color: #ffffff; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--line-strong); cursor: pointer; }
+.cand-check .icon { width: 13px; height: 13px; stroke-width: 3; opacity: 0; }
+.cand-check[aria-checked='true'] { background: var(--accent); box-shadow: none; }
+.cand-check[aria-checked='true'] .icon { opacity: 1; }
+.cand-check:disabled { opacity: 0.55; cursor: default; }
+.cand-root { display: flex; align-items: flex-start; gap: calc(var(--u) * 2); font-size: var(--fs-sm); }
+.cand-root .cand-check { margin-top: 1px; }
+.cand-root small { display: block; font-size: var(--fs-xs); color: var(--ink-3); }
+.cand-excl { font-size: var(--fs-xs); color: var(--ink-3); }

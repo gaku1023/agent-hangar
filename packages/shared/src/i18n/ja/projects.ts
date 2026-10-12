@@ -41,7 +41,7 @@ export const projectsJa: AreaDictionary<typeof projectsKeys> = {
   'projects.resolve.noPath': '（パスなし）',
   'projects.resolve.hint': '移動や改名をしたなら、新しい場所を選択してください。この PC に無いなら、あとで決めても構いません',
   'projects.resolve.hintElsewhere': '他の PC のプロジェクトです。この PC に同じフォルダがあれば、その場所を選択してください。この PC で使わないなら、あとで決めても構いません',
-  'projects.resolve.candidates': 'プロジェクトの親フォルダの中の候補',
+  'projects.resolve.candidates': '新しいフォルダの作成場所の中の候補',
   'projects.resolve.newPath': '新しいパス',
   'projects.resolve.newPathPlaceholder': '/Users/you/…',
   'projects.resolve.newPathPlaceholderWindows': 'C:\\Users\\you\\…',

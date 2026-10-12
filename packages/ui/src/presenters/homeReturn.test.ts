@@ -48,9 +48,10 @@ describe('presentHome の今日戻る（C1）', () => {
     expect(presentHome(initialState(), store, midnight).returning.map((r) => r.id)).toEqual(['p']);
     expect(presentHome(initialState(), store, midnight - 1).returning).toEqual([]);
   });
-  it('戻る日が欠けた Paused と暦に無い日の Paused は、日付なし（null）として先頭に出す', () => {
+  // 日付なしの Paused は、利用者が選んだもの（2026-10-13）。ホームの今日には出さず、一覧の Paused で見る。
+  it('日付なしの Paused は出さない。暦に無い日の Paused は、利用者が決めるまで先頭に出す', () => {
     const h = presentHome(initialState(), storeOf([paused('ok', 30, '2026-10-01'), paused('none', 40, null), paused('broken', 50, '2026-02-30')]), NOW);
-    expect(h.returning.map((r) => [r.id, r.returnOn, r.overdueDays])).toEqual([['none', null, null], ['broken', null, null], ['ok', '2026-10-01', 1]]);
+    expect(h.returning.map((r) => [r.id, r.returnOn, r.overdueDays])).toEqual([['broken', null, null], ['ok', '2026-10-01', 1]]);
   });
   it('プロジェクトの無いセッションと消えたプロジェクトを指すセッションは、プロジェクト名を null にし、理由が無ければ決まりの文を出す', () => {
     const noNote = dto('n', 7, { projectId: null, state: st({ status: 'paused', returnOn: '2026-10-02', returnTime: null, setBy: 'user', setAt: NOW }) });
@@ -88,6 +89,22 @@ describe('presentHome の、区切りを付けて休みのまま残っている�
     const h = presentHome(initialState(), storeOf([paused('sync', 24, '2026-10-02', { live: 'idle', parked: true })]), NOW);
     expect(h.returning.map((r) => r.id)).toEqual(['sync']);
     expect(h.running).toEqual([]);
+  });
+  // Paused は自動で止めない（#206）。戻る時点が来た Paused は、Claude Code が休みのまま生きていても今日戻るに出し、実行中には出さない（二重にしない）。
+  it('戻る時点が来た Paused は、プロセスが休みのまま生きていても今日戻るに寄せ、実行中から外す。来る前は実行中のまま', () => {
+    const store = withRuns(storeOf([paused('due', 24, '2026-10-02', { live: 'idle' }), paused('later', 1, '2026-10-05', { live: 'idle' }), paused('none', 1, null, { live: 'idle' })]), ['due', 'later', 'none']);
+    const h = presentHome(initialState(), store, NOW);
+    expect(h.returning.map((r) => r.id)).toEqual(['due']);
+    expect(h.running.map((r) => r.id).sort()).toEqual(['later', 'none']);
+    const screen = presentHomeScreen(initialState(), store, NOW);
+    expect(screen.band.groups[0]).toMatchObject({ id: 'attention', count: 1 });
+    expect(screen.band.groups[1]).toMatchObject({ id: 'running', count: 2 });
+  });
+  it('戻る時点が来ても、作業中なら実行中、入力待ちなら要対応の入力待ちのまま（今日戻るには重ねない）', () => {
+    const h = presentHome(initialState(), storeOf([paused('b', 1, '2026-10-02', { live: 'busy' }), paused('w', 1, '2026-10-02', { live: 'waiting' })]), NOW);
+    expect(h.returning).toEqual([]);
+    expect(h.running.map((r) => r.id)).toEqual(['b']);
+    expect(h.attention.map((a) => a.id)).toEqual(['w']);
   });
   it('ほかに動いているものが無ければ idle にする', () => {
     const screen = presentHomeScreen(initialState(), withRuns(storeOf([paused('later', 1, '2026-10-05', { live: 'idle', parked: true })]), ['later']), NOW);

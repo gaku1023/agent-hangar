@@ -4,7 +4,7 @@ import { accountsFixture } from './accounts.ts';
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs'
+  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'registerFolders'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'cloudDevices'
@@ -48,6 +48,8 @@ export function fakeApiExtras(): Extras {
     createProject: vi.fn(async () => unused()),
     // 未登録の一覧は、新しいセッションのダイアログを開くたびに取りに行くので、どのテストでも空を返す。
     workspaceDirs: vi.fn(async () => []),
+    folderCandidates: vi.fn(async () => ({ candidates: [], suggestedRoot: null })),
+    registerFolders: vi.fn(async () => ({ projects: [], failed: [] })),
     promptCommands: vi.fn(async () => []),
     promptFiles: vi.fn(async () => []),
     uploadDrop: vi.fn(async (_file: Blob, name: string) => ({ path: `/h/.agent-hangar/drops/1-0-${name}`, name, size: 0 })),

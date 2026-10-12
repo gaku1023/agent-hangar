@@ -19,7 +19,7 @@ const program = new Command().name('hangar').description('agent-hangar のコマ
 const setup = program
   .command('setup')
   .description('データディレクトリを用意し、ツールとワークスペースを確認し、statusline への追記を提案する')
-  .option('--workspace <dir>', 'ワークスペースのルート')
+  .option('--workspace <dir>', '新しいフォルダの作成場所（任意）')
   .option('--yes', '問いかけをすべて承諾する')
   .option('--skip-statusline', 'statusline への追記を提案しない')
   .option('--skip-shell', '外のターミナルの claude を hangar で開けるようにする 1 行を提案しない')

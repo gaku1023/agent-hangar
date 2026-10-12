@@ -16,6 +16,7 @@ export const projectKeys = {
   'project.create.nameEmpty': [],
   'project.create.pathMustBeAbsolute': [],
   'project.create.rootNotAllowed': [],
+  'project.create.noParent': [],
   'project.name.uncategorized': [],
   'project.name.quick': [],
   'project.promote.scratchUnverified': ['reason'],

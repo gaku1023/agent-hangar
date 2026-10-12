@@ -35,6 +35,16 @@ afterEach(() => {
 
 const deps = (over: Partial<PromoteDeps> = {}): PromoteDeps => ({ db, deviceId: 'd', home, workspaceRoot: ws, runAlive: () => false, gitInit: vi.fn(), ...over });
 
+describe('promoteSession の作る場所', () => {
+  it('作成場所が空なら parent の下に作り、parent も無ければ 400 で断る', () => {
+    const parent = path.join(ws, 'picked');
+    fs.mkdirSync(parent);
+    expect(() => promoteSession(deps({ workspaceRoot: '' }), { sessionId: 's1', name: 'p', gitInit: false, moveFiles: false })).toThrow(PromoteError);
+    const r = promoteSession(deps({ workspaceRoot: '' }), { sessionId: 's1', name: 'p', gitInit: false, moveFiles: false, parent });
+    expect(db.prepare('select path from project_roots where project_id = ?').get(r.projectId)).toEqual({ path: path.join(parent, 'p') });
+  });
+});
+
 describe('promoteSession', () => {
   it('ディレクトリとプロジェクトを作り、セッションを移し、ファイルを移動する', () => {
     const gitInit = vi.fn();

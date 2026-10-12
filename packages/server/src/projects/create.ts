@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { expandHome } from '../config/readiness.ts';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { isStrictlyUnder, samePath } from '../platform/paths.ts';
-import { insertProject, normalizeDir } from './registry.ts';
+import { hasWorkspaceRoot, insertProject, normalizeDir } from './registry.ts';
 import { causeOf, MessageError, msg, type Message } from '../i18n/message.ts';
 
 /** 作れなかった理由。status はそのまま HTTP の状態にする。 */
@@ -65,6 +66,20 @@ function removeFreshDir(dir: string): void {
   }
 }
 
+/**
+ * 新しいフォルダを作る場所を決める。
+ * 呼び手が parent を渡せばそれを使い、無ければ設定の作成場所（workspaceRoot）を使う。
+ * 作成場所は任意なので、どちらも無ければ 400 で断る（画面は Finder で場所を選ばせる）。
+ * 先頭の ~ はホームに直し、相対パスはサーバの作業ディレクトリから解決されてしまうので断る。
+ */
+export function parentDirOf(workspaceRoot: string, parent?: string | null): string {
+  const raw = typeof parent === 'string' && parent.trim() !== '' ? parent.trim() : hasWorkspaceRoot(workspaceRoot) ? workspaceRoot.trim() : null;
+  if (raw === null) throw new ProjectCreateError(400, msg('project.create.noParent'));
+  const full = expandHome(raw);
+  if (!path.isAbsolute(full)) throw new ProjectCreateError(400, msg('project.create.pathMustBeAbsolute'));
+  return full;
+}
+
 /** `<root>/<name>` を作り、選ばれていれば git init する。失敗したら作ったものを片付けて断る。 */
 export function makeProjectDir(workspaceRoot: string, name: string, gitInit: boolean, run: (dir: string) => void = defaultGitInit): string {
   const dir = normalizeDir(path.join(workspaceRoot, name));
@@ -92,10 +107,10 @@ export function makeProjectDir(workspaceRoot: string, name: string, gitInit: boo
   return dir;
 }
 
-/** ワークスペースの下に新しいフォルダを作り、プロジェクトにする。 */
-export function createProjectDir(deps: CreateDeps, o: { name: string; gitInit: boolean }): { projectId: string; dir: string } {
+/** 作成場所（または呼び手が選んだ parent）の下に新しいフォルダを作り、プロジェクトにする。 */
+export function createProjectDir(deps: CreateDeps, o: { name: string; gitInit: boolean; parent?: string | null }): { projectId: string; dir: string } {
   const name = checkDirName(o.name);
-  const dir = makeProjectDir(deps.workspaceRoot, name, o.gitInit, deps.gitInit);
+  const dir = makeProjectDir(parentDirOf(deps.workspaceRoot, o.parent), name, o.gitInit, deps.gitInit);
   const projectId = deps.db.transaction(() => insertProject(deps.db, deps.deviceId, name, dir))();
   return { projectId, dir };
 }
@@ -116,8 +131,10 @@ export function registerProjectDir(deps: { db: Db; deviceId: string; workspaceRo
   const dir = normalizeDir(raw);
   // ルートやその上を登録すると、最も長い一致でワークスペースの下のセッションをすべて取り込み、
   // 直下のフォルダの自動の登録も止まる。Finder で何も選ばずに開くを押すとルートが返るので、ここで断る。
-  const root = normalizeDir(expandHome(deps.workspaceRoot));
-  if (dir === path.parse(dir).root || samePath(root, dir) || isStrictlyUnder(root, dir)) throw new ProjectCreateError(400, msg('project.create.rootNotAllowed'));
+  // ファイルシステムの根とホームフォルダも、ほぼすべての会話を取り込むので断る（作成場所が空でも断れるように、作成場所とは別に見る）。
+  const home = normalizeDir(os.homedir());
+  const root = hasWorkspaceRoot(deps.workspaceRoot) ? normalizeDir(expandHome(deps.workspaceRoot)) : null;
+  if (dir === path.parse(dir).root || samePath(home, dir) || (root !== null && (samePath(root, dir) || isStrictlyUnder(root, dir)))) throw new ProjectCreateError(400, msg('project.create.rootNotAllowed'));
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new ProjectCreateError(400, msg('project.create.pathNotDir'));
   // SQL の文字列比較は大文字小文字と NFC・NFD を区別する。Windows では綴り違いも同じフォルダなので、JS で比べる。
   const known = (deps.db.prepare(`select r.project_id id, r.path from project_roots r join projects p on p.id = r.project_id

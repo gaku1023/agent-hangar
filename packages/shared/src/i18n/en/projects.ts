@@ -41,7 +41,7 @@ export const projectsEn: AreaDictionary<typeof projectsKeys> = {
   'projects.resolve.noPath': '(no path)',
   'projects.resolve.hint': 'If you moved or renamed it, choose the new location. If it is not on this computer, you can decide later',
   'projects.resolve.hintElsewhere': 'This project came from another computer. If the same folder is on this computer, choose its location. If you will not use it here, you can decide later',
-  'projects.resolve.candidates': 'Candidates in the projects folder',
+  'projects.resolve.candidates': 'Candidates in the location for new folders',
   'projects.resolve.newPath': 'New path',
   'projects.resolve.newPathPlaceholder': '/Users/you/…',
   'projects.resolve.newPathPlaceholderWindows': 'C:\\Users\\you\\…',

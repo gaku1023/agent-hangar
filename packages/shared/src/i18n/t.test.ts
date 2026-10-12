@@ -51,7 +51,7 @@ describe('辞書', () => {
     const retired: [RegExp, string][] = [
       [/\bscratch\b/i, 'quick session'],
       [/\bmemo\b/i, 'note'],
-      [/\bworkspace\b/i, 'projects folder'],
+      [/\bworkspace\b/i, 'location for new folders'],
       [/\bsummari[sz]er\b/i, 'summary engine'],
       [/\bstatusline\b/i, 'status line'],
       [/\badopt/i, 'move to Hangar'],
@@ -65,7 +65,7 @@ describe('辞書', () => {
     }
     // 設定の項目名は、用語集の英語の列と同じ。サーバの文が項目を指すときに、画面と同じ名前になる。
     expect(en['settings.label.summaryHourlyCap']).toBe('Hourly limit for Claude summaries');
-    expect(en['settings.label.workspaceRoot']).toBe('Projects folder');
+    expect(en['settings.label.workspaceRoot']).toBe('Location for new folders');
     expect(en['settings.label.claudeDir']).toBe('Source directory');
     expect(en['settings.label.allowExternalSummarizer']).toBe('Allow external summary engines');
     expect(en['settings.label.summaryFallback']).toBe('Fall back to Claude when LM Studio is unavailable');
