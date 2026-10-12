@@ -73,7 +73,7 @@ describe('LmStudioSummarizer', () => {
     }) as unknown as typeof fetch;
     const s = new LmStudioSummarizer({ baseUrl: 'http://127.0.0.1:1234', model: 'gemma-4-26b', fetch: fetchFn });
     await expect(s.summarize(CANNED_INPUT)).rejects.toThrow(SummarizerError);
-    await expect(s.summarize(CANNED_INPUT)).rejects.toThrow('要約エンジンの宛先がリダイレクトを返しました。飛ばし先へは送りません。設定の「LM Studio の URL」を確認してください');
+    await expect(s.summarize(CANNED_INPUT)).rejects.toThrow('要約エンジンの宛先がリダイレクトを返しました。飛ばし先へは送りません。設定の「OpenAI 互換の URL」を確認してください');
     expect(seen.length).toBeGreaterThan(0);
     expect(seen.every((r) => r === 'manual')).toBe(true);
   });
@@ -114,5 +114,64 @@ describe('LmStudioSummarizer', () => {
     const out = await new LmStudioSummarizer({ baseUrl: 'http://x', model: 'gemma-4-26b', fetch: fetchFn }).summarize(CANNED_INPUT);
     expect(out.proposal).toEqual({ status: 'paused', note: '本番で確かめる', returnInDays: 2 });
     expect(Object.keys(schema!.properties)).toEqual(expect.arrayContaining(['proposed_status', 'proposed_note', 'proposed_return_in_days']));
+  });
+  it('API キーがあれば、モデルの一覧と要約の両方に Authorization: Bearer で添える。無ければ添えない', async () => {
+    const auth: (string | null)[] = [];
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      auth.push(new Headers(init?.headers).get('authorization'));
+      return String(url).endsWith('/v1/models') ? ok(models) : ok(completion(good));
+    }) as unknown as typeof fetch;
+    const keyed = new LmStudioSummarizer({ baseUrl: 'http://x', model: null, apiKey: 'sk-test', fetch: fetchFn });
+    expect(await keyed.listModels()).toEqual(['gemma-4-26b', 'qwen3-27b']);
+    await keyed.summarize(CANNED_INPUT);
+    expect(auth.length).toBeGreaterThanOrEqual(2);
+    expect(auth.every((a) => a === 'Bearer sk-test')).toBe(true);
+    auth.length = 0;
+    await new LmStudioSummarizer({ baseUrl: 'http://x', model: null, apiKey: null, fetch: fetchFn }).summarize(CANNED_INPUT);
+    expect(auth.every((a) => a === null)).toBe(true);
+  });
+  it('json_schema を受けない口（400、422）には、json_object で投げ直し、スキーマを指示文に書く', async () => {
+    const bodies: { response_format: { type: string }; messages: { role: string; content: string }[] }[] = [];
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith('/v1/models')) return ok(models);
+      const b = JSON.parse(String(init!.body));
+      bodies.push(b);
+      return b.response_format.type === 'json_schema' ? ok({ error: { message: "response_format type 'json_schema' is not supported" } }, 400) : ok(completion(good));
+    }) as unknown as typeof fetch;
+    const out = await new LmStudioSummarizer({ baseUrl: 'http://x', model: 'gemma-4-26b', fetch: fetchFn }).summarize(CANNED_INPUT);
+    expect(out.title).toBe('README の更新');
+    expect(bodies.map((b) => b.response_format.type)).toEqual(['json_schema', 'json_object']);
+    const system = bodies[1]!.messages[0]!.content;
+    expect(system).toContain('JSON オブジェクトだけを返してください');
+    expect(system).toContain('"proposed_status"');
+    // 422 も同じ。
+    bodies.length = 0;
+    const f422 = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith('/v1/models')) return ok(models);
+      const b = JSON.parse(String(init!.body));
+      bodies.push(b);
+      return b.response_format.type === 'json_schema' ? ok({ error: 'unprocessable' }, 422) : ok(completion(good));
+    }) as unknown as typeof fetch;
+    expect((await new LmStudioSummarizer({ baseUrl: 'http://x', model: 'm', fetch: f422 }).summarize(CANNED_INPUT)).title).toBe('README の更新');
+    expect(bodies.map((b) => b.response_format.type)).toEqual(['json_schema', 'json_object']);
+  });
+  it('json_schema を黙って無視して JSON でない本文を返す口にも、json_object で投げ直す。認証の失敗（401）は投げ直さない', async () => {
+    const types: string[] = [];
+    const fetchFn = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith('/v1/models')) return ok(models);
+      const b = JSON.parse(String(init!.body));
+      types.push(b.response_format.type);
+      return ok(completion(b.response_format.type === 'json_schema' ? 'Here is the summary: ...' : good));
+    }) as unknown as typeof fetch;
+    expect((await new LmStudioSummarizer({ baseUrl: 'http://x', model: 'm', fetch: fetchFn }).summarize(CANNED_INPUT)).oneLiner).toBe('Node 22 前提に導入手順を直した');
+    expect(types).toEqual(['json_schema', 'json_object']);
+    types.length = 0;
+    const f401 = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith('/v1/models')) return ok(models);
+      types.push(JSON.parse(String(init!.body)).response_format.type);
+      return ok({ error: 'unauthorized' }, 401);
+    }) as unknown as typeof fetch;
+    await expect(new LmStudioSummarizer({ baseUrl: 'http://x', model: 'm', fetch: f401 }).summarize(CANNED_INPUT)).rejects.toThrow(/401/);
+    expect(types).toEqual(['json_schema']);
   });
 });

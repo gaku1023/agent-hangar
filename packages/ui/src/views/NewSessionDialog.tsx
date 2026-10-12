@@ -29,8 +29,10 @@ const PROMPT_ID = 'new-session-prompt';
 
 /** 札で決める値（名前を除く）。追加ディレクトリは欄のまま 1 行 1 つの文字で持つ。 */
 type Options = { model: string; effort: string; permissionMode: string; worktree: string; addDirs: string };
-const DEFAULT_OPTIONS: Options = { model: '', effort: '', permissionMode: '', worktree: '', addDirs: '' };
-const optionsOf = (p: LaunchPrefs | undefined): Options => ({ model: p?.model ?? '', effort: p?.effort ?? '', permissionMode: p?.permissionMode ?? '', worktree: p?.worktree ?? '', addDirs: p?.addDirs?.join('\n') ?? '' });
+/** 既定の札の値。モデルは設定の既定のモデル（空は Claude Code の既定）。 */
+const defaultOptions = (model: string): Options => ({ model, effort: '', permissionMode: '', worktree: '', addDirs: '' });
+/** 前回値から札の値を作る。前回値にモデルが無ければ、設定の既定のモデルを入れる（前回値が先）。 */
+const optionsOf = (p: LaunchPrefs | undefined, defaultModel: string): Options => ({ model: p?.model ?? defaultModel, effort: p?.effort ?? '', permissionMode: p?.permissionMode ?? '', worktree: p?.worktree ?? '', addDirs: p?.addDirs?.join('\n') ?? '' });
 const dirsOf = (text: string): string[] => text.split('\n').map((d) => d.trim()).filter(Boolean);
 const sameOptions = (a: Options, b: Options): boolean => a.model.trim() === b.model.trim() && a.effort === b.effort && a.permissionMode === b.permissionMode && a.worktree.trim() === b.worktree.trim() && dirsOf(a.addDirs).join('\n') === dirsOf(b.addDirs).join('\n');
 /** 既定でない値が 1 つでもあるか。「前回と同じ」は、既定だけの前回値には出さない。 */
@@ -45,6 +47,7 @@ const hasNonDefault = (o: Options): boolean => !!(o.model.trim() || o.effort || 
  * 欄と札の値はすべてここの状態で持つ。値を札に常に見せ、下書きを戻して消せるようにするためである。
  * プロジェクトを選ばなければクイックセッション（scratch）で始まり、何も選ばずに ⌘↵ で起動できる。props.scratch は開いたときにその行を選んでおくかどうかである。
  * 札の値の初期値は、選んだプロジェクトの前回値（props.prefs）にする（D1）。前回値のままなら札の下に「前回と同じ」と「既定に戻す」を出す。
+ * 前回値にモデルが無ければ、設定の既定のモデル（props.defaultModel）をモデルの札の初めの値にする。「既定に戻す」もモデルはそこへ戻す。
  * 名前と初期プロンプトと添付の書きかけは、閉じるときに下書きとして送り、次に開いたときに props.draft から戻す（C1）。
  * 添付があるときの追加ディレクトリ（置き場）は、サーバが claude に渡す引数へ足す。ここでは params.addDirs に混ぜない。
  * アカウントが 2 件以上あるときだけ、プロジェクトの次に「どのアカウントで起こすか」の札を出し、送るときに選んだ id を params.account に必ず入れる。
@@ -88,7 +91,9 @@ export function NewSessionDialog(props: NewSessionProps) {
   // 札の値の初期値は、選んだプロジェクトの前回値にする（D1）。
   // 利用者が札に触れる前にプロジェクトを選び直したら、そのプロジェクトの前回値に入れ替える。触れた後は、自分で選んだ値を残す。
   // 同じファイルの編集の警告から開いたときは、worktree の札に新しい名前を入れておく。前の worktree の中で起動しないよう、開くたびに名前を替える。
-  const [detail, setDetail] = useState(() => (props.worktree ? { ...optionsOf(props.prefs[choice]), worktree: freshWorktreeName() } : optionsOf(props.prefs[choice])));
+  // 前回値が無いときのモデルは、設定の既定のモデル（1d）。
+  const defaultModel = props.defaultModel ?? '';
+  const [detail, setDetail] = useState(() => (props.worktree ? { ...optionsOf(props.prefs[choice], defaultModel), worktree: freshWorktreeName() } : optionsOf(props.prefs[choice], defaultModel)));
   const [touched, setTouched] = useState(props.worktree === true);
   // 失敗の文言は、その送信の結果である。プロジェクトを選び直したら古い文言は出さず、送り直したらまた出す。
   // 同じ文言が続けて返ることがあるので、文言ではなく「選び直した時点の文言」を覚えて比べる。
@@ -97,7 +102,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     setChoice(value);
     setStaleError(props.error);
     if (touched) return;
-    setDetail(optionsOf(props.prefs[value]));
+    setDetail(optionsOf(props.prefs[value], defaultModel));
   };
   useEffect(() => {
     const p = props.picked;
@@ -112,7 +117,7 @@ export function NewSessionDialog(props: NewSessionProps) {
     // 作れた後に起動だけが失敗した。押し直しで二重に作らないよう、作ったプロジェクトを選び直す。
     if (props.createdProjectId) setChoice(props.createdProjectId);
   }, [props.createdProjectId]);
-  const resetDetail = () => { setTouched(true); setDetail(DEFAULT_OPTIONS); };
+  const resetDetail = () => { setTouched(true); setDetail(defaultOptions(defaultModel)); };
   const { model, effort, permissionMode, worktree, addDirs } = detail;
   // アカウントは、利用者が選んだ id だけを覚える。選んでいなければ、いまのアカウント（選べなければ選べる最初の 1 件）。
   // 選んだ id が一覧から消えたとき、選べなくなったときも、同じ規則でいまのアカウントへ戻る。
@@ -227,7 +232,7 @@ export function NewSessionDialog(props: NewSessionProps) {
 
   // 前回値のままなら、札の下に「前回と同じ」と出どころを言い、「既定に戻す」を添える（D1）。
   const prev = props.prefs[choice];
-  const sameAsPrev = !!prev && hasNonDefault(detail) && sameOptions(detail, optionsOf(prev));
+  const sameAsPrev = !!prev && hasNonDefault(detail) && sameOptions(detail, optionsOf(prev, defaultModel));
   const bypass = permissionMode === PERMISSION_BYPASS;
 
   const onChips = (patch: Partial<LaunchChipValues>) => {

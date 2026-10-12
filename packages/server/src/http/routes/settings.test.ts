@@ -129,15 +129,20 @@ describe('routes', () => {
     // 選択肢は動いている OS のものだけで、文も OS で変わる。
     expect(await error({ terminalApp: 'kitty' })).toBe(isWindows ? '「ターミナルアプリ」は Windows Terminal か既定のターミナルから選んでください' : '「ターミナルアプリ」は Terminal.app か iTerm2 から選んでください');
     expect(await error({ terminalApp: isWindows ? 'iterm' : 'windowsTerminal' })).toMatch(/^「ターミナルアプリ」は/);
-    expect(await error({ lmStudioUrl: 'ftp://x' })).toBe('「LM Studio の URL」は http か https で始まる URL にしてください');
+    expect(await error({ lmStudioUrl: 'ftp://x' })).toBe('「OpenAI 互換の URL」は http か https で始まる URL にしてください');
     expect(await error({ lmStudioModel: 3 })).toBe('「モデル」の値の形が違います');
-    expect(await error({ summaryFallback: 'yes' })).toBe('「LM Studio が使えないとき Claude へ切り替える」の値の形が違います');
+    expect(await error({ summaryFallback: 'yes' })).toBe('「接続できないときは Claude を使う」の値の形が違います');
+    expect(await error({ summaryEngine: 'lmstudio' })).toBe('「要約エンジン」の値の形が違います');
+    expect(await error({ summaryClaudeModel: '' })).toBe('「要約に使う Claude のモデル」の値の形が違います');
+    expect(await error({ summaryClaudeModel: '--tools' })).toBe('「要約に使う Claude のモデル」の値の形が違います');
+    expect(await error({ summaryApiKey: 3 })).toBe('「API キー」の値の形が違います');
+    expect(await error({ defaultModel: 'opus sonnet' })).toBe('「既定のモデル」の値の形が違います');
     expect(await error({ summaryHourlyCap: 0 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
     // 画面の入力と同じく 200 までにする。
     expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
     expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約エンジンを許可」の値の形が違います');
     expect(await error({ askStatusAtEnd: 'no' })).toBe('「区切りで Done／Paused を聞く」の値の形が違います');
-    expect(await error({ liveHints: 0 })).toBe('「ターンの意図と短い手の説明を送る」の値の形が違います');
+    expect(await error({ liveHints: 0 })).toBe('「ターンの意図と操作の短い説明を送る」の値の形が違います');
     expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの宛先は 127.0.0.1 か localhost だけです。トランスクリプトが送られるため、ほかの宛先は、設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
@@ -147,7 +152,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKeySet: false, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, defaultModel: null, nodePath: null, claudePath: null, language: 'ja' });
   });
   it('claudePath は保存でき、空なら null に戻る', async () => {
     const patch = (body: unknown) => app.request('/api/settings', { method: 'PATCH', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -328,15 +333,18 @@ describe('設定の往復', () => {
         ['tmuxPath', exe('tmux')],
         ['terminalApp', OTHER_TERMINAL],
         ['editor', { id: 'zed', path: exe('zed'), fileCmd: '', dirCmd: '', terminal: 'none' }],
+        ['summaryEngine', 'claude'],
+        ['summaryClaudeModel', 'sonnet'],
         ['lmStudioUrl', 'http://127.0.0.1:9999'],
         ['lmStudioModel', 'gemma-3'],
-        ['summaryFallback', false],
+        ['summaryFallback', true],
         ['summaryHourlyCap', 7],
         ['allowExternalSummarizer', true],
         ['configApproval', 'auto'],
         ['configBundleSync', true],
         ['askStatusAtEnd', false],
         ['liveHints', false],
+        ['defaultModel', 'opus'],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -347,9 +355,15 @@ describe('設定の往復', () => {
         expect([key, (await r.json())[key]]).toEqual([key, value]);
         expect([key, (await json(await get('/api/settings'))).body[key]]).toEqual([key, value]);
       }
+      // API キーは書くだけで、DTO には有無（summaryApiKeySet）だけが載る。
+      const keyed = await patch({ summaryApiKey: ' sk-test ' });
+      expect(keyed.status).toBe(200);
+      const keyedBody = await keyed.json();
+      expect(keyedBody.summaryApiKeySet).toBe(true);
+      expect('summaryApiKey' in keyedBody).toBe(false);
       // 受け口の項目が DTO の項目とそろっていることを、抜けが出たら落ちる形で見る。
       const dto = (await json(await get('/api/settings'))).body as SettingsDto;
-      expect(cases.map(([k]) => k).sort()).toEqual(Object.keys(dto).sort());
+      expect([...cases.map(([k]) => k), 'summaryApiKeySet'].sort()).toEqual(Object.keys(dto).sort());
     } finally {
       fs.rmSync(ws2, { recursive: true, force: true });
       fs.rmSync(dir2, { recursive: true, force: true });
@@ -386,6 +400,22 @@ describe('設定の往復', () => {
       for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
       expect((await json(await get('/api/settings'))).body[key]).toBe(false);
     }
+  });
+  it('要約エンジンは既定が「使わない」で、選び直せ、API キーは保存しても返さず、空で消せる', async () => {
+    expect((await json(await get('/api/settings'))).body).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryApiKeySet: false, defaultModel: null });
+    expect((await (await patch({ summaryEngine: 'openai' })).json()).summaryEngine).toBe('openai');
+    const r = await patch({ summaryApiKey: 'sk-secret' });
+    const body = JSON.stringify(await r.json());
+    expect(body).not.toContain('sk-secret');
+    expect(JSON.stringify((await json(await get('/api/bootstrap'))).body)).not.toContain('sk-secret');
+    expect((await json(await get('/api/settings'))).body.summaryApiKeySet).toBe(true);
+    expect((await (await patch({ summaryApiKey: '' })).json()).summaryApiKeySet).toBe(false);
+    expect((await (await patch({ summaryApiKey: 'sk-2' })).json()).summaryApiKeySet).toBe(true);
+    expect((await (await patch({ summaryApiKey: null })).json()).summaryApiKeySet).toBe(false);
+    // 既定のモデルは空で Claude Code の既定（null）に戻る。
+    expect((await (await patch({ defaultModel: 'sonnet' })).json()).defaultModel).toBe('sonnet');
+    expect((await (await patch({ defaultModel: '' })).json()).defaultModel).toBe(null);
+    expect((await (await patch({ summaryClaudeModel: ' sonnet ' })).json()).summaryClaudeModel).toBe('sonnet');
   });
   it('言語の既定は日本語で、英語を保存して読める', async () => {
     expect((await json(await get('/api/settings'))).body.language).toBe('ja');

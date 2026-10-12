@@ -1,4 +1,4 @@
-import type { UsageDto } from '@agent-hangar/shared';
+import { DEFAULT_SUMMARY_CLAUDE_MODEL, type UsageDto } from '@agent-hangar/shared';
 import { captureOutput } from '../../../platform/capture.ts';
 import { printJsonDrifts } from '../compat/cli.ts';
 import { NO_COMPAT, type CompatSink } from '../compat/types.ts';
@@ -42,7 +42,8 @@ const HOUR_MS = 3_600_000;
 const SEVEN_DAY_STOP = 80;
 
 /**
- * claude -p --model haiku のフォールバック。
+ * claude -p の要約器。設定の要約エンジンで Claude を選んだときと、OpenAI 互換の URL が使えないときの切り替えに使う。
+ * モデルは設定の summaryClaudeModel（既定 haiku）で、呼ぶたびに読む。
  * サブスクリプションのレート制限を消費するので、1 時間の件数と 7 日の使用率で止める。
  * 走らせるのは、要約するセッションのアカウントの置き場である（accountOf）。枠を使うのは会話のアカウントで、既定のアカウントではない。
  * 7 日の使用率も、そのアカウントのもので見る。accountOf を渡さなければ、最初のアカウントで走らせる。
@@ -53,7 +54,7 @@ export class ClaudeHeadlessSummarizer implements Summarizer {
   private readonly spawnFn: SpawnText;
   private readonly now: () => number;
 
-  constructor(private readonly o: { claudeBin: string | null; hourlyCap: number; usage: (accountId: string) => UsageDto; accountOf?: (sessionId: string) => SummaryAccount; spawn?: SpawnText; now?: () => number; compat?: CompatSink }) {
+  constructor(private readonly o: { claudeBin: string | null; hourlyCap: number; /** --model に渡す名前。無ければ haiku。 */ model?: () => string | undefined; usage: (accountId: string) => UsageDto; accountOf?: (sessionId: string) => SummaryAccount; spawn?: SpawnText; now?: () => number; compat?: CompatSink }) {
     this.spawnFn = o.spawn ?? spawnText;
     this.now = o.now ?? (() => Date.now());
   }
@@ -80,7 +81,8 @@ export class ClaudeHeadlessSummarizer implements Summarizer {
   async summarize(input: SummaryInput): Promise<SummaryOutput> {
     if (!this.o.claudeBin) throw new SummarizerError(this.id, msg('summary.claude.missing'));
     this.calls.push(this.now());
-    const args = ['-p', '--model', 'haiku', '--output-format', 'json', '--json-schema', JSON.stringify(SUMMARY_SCHEMA), '--append-system-prompt', summarySystemPrompt(input.language), '--no-session-persistence', '--tools', ''];
+    const model = this.o.model?.() ?? DEFAULT_SUMMARY_CLAUDE_MODEL;
+    const args = ['-p', '--model', model, '--output-format', 'json', '--json-schema', JSON.stringify(SUMMARY_SCHEMA), '--append-system-prompt', summarySystemPrompt(input.language), '--no-session-persistence', '--tools', ''];
     let r: { code: number; stdout: string; stderr: string };
     try {
       r = await this.spawnFn(this.o.claudeBin, args, input.text, 120_000, summaryEnv(this.accountOf(input.sessionId)));
@@ -100,6 +102,6 @@ export class ClaudeHeadlessSummarizer implements Summarizer {
     if (so === undefined) throw new SummarizerError(this.id, msg('summary.claude.noStructuredOutput'));
     const out = parseSummaryOutput(so);
     if (!out) throw new SummarizerError(this.id, msg('summary.claude.badStructuredOutput'));
-    return { ...out, model: 'haiku' };
+    return { ...out, model };
   }
 }

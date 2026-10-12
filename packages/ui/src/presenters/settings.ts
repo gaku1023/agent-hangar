@@ -1,4 +1,4 @@
-import { EDITOR_NAMES, KNOWN_EDITORS, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
+import { DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_NAMES, KNOWN_EDITORS, type SummaryEngine, isSettingsField, SETTINGS_SECTIONS, type EditorDetectState, type EditorId, type EditorSetting, type EditorTestDto, type KnownEditorId, settingsSectionOf, terminalAppFor, terminalAppsFor, type IndexProgressDto, type Language, type SetupTarget, type SettingsField, type SettingsSection, type ShellHookStateDto, type StatuslineStatusDto, type SummarizerTestDto, type SyncSkippedDto, type SyncStateKind, type TerminalApp, type Translate, type UsageAggregateDto } from '@agent-hangar/shared';
 import type { SaveMark, State } from '../mediator/types.ts';
 import type { Store } from '../store/store.ts';
 import { indexProgressLabel, relativeTime } from './format.ts';
@@ -14,6 +14,7 @@ import { presentCompat, readinessCompat, type CompatProps } from './compat.ts';
 import { clientPlatform, presentMux, toolLine, workspaceLine, type MuxStatus, type VerifyLine } from './readiness.ts';
 import { usageBar, type UsageBarProps } from './retentionDialog.ts';
 import { presentUpdateSection, type UpdateSectionProps } from './update.ts';
+import { presentInjection, type InjectionPart } from './injection.ts';
 
 // id は一覧の React の key に使う。1 台の Mac で 2 端末を模すと名前も最終確認も揃うので、一意なのは id だけである。
 export type CloudDeviceProps = { id: string; name: string; platform: string; lastSeen: string; self: boolean };
@@ -103,6 +104,12 @@ export type SettingsTocRow = { id: SettingsSection; title: string; state: string
 /** 会話の保持の節。押しても保存せず、確認（retention.edit）を開く。 */
 export type RetentionSettingsProps = { days: number; options: { value: string; label: string }[]; writable: boolean; reason: string | null; valueLabel: string; bar: UsageBarProps | null; syncNote: boolean };
 
+/**
+ * 連携の「hangar が起動する Claude Code に足すもの」（試作 1 節の推す案 B）。
+ * 2 つのスイッチ（askStatusAtEnd、liveHints）と既定のモデル（null は Claude Code の既定）と、足す指示の全文。
+ */
+export type InjectionSettingsProps = { askStatusAtEnd: boolean; liveHints: boolean; defaultModel: string | null; full: InjectionPart[] };
+
 /** アカウントに付けられる 5 色（#rrggbb）。サーバは何色でも受けるが、画面からはここから選ぶ。 */
 export const ACCOUNT_COLORS = ['#2a57b8', '#7a4a9e', '#2b7048', '#c77a1a', '#a2452f'];
 
@@ -119,7 +126,15 @@ export type SettingsProps = {
   /** ターミナルで打つコマンド。どれも同じ hangar の呼び方にそろえる。 */
   /** join は入れた版の CLI でも打てる。setupCloud は wrangler が要るので、リポジトリを clone した場所での呼び方である。 */
   commands: { mcp: string; statusline: string; join: string; setupCloud: string };
+  /** 要約エンジン（使わない、Claude、OpenAI 互換）。古いサーバの設定は「使わない」に寄せてある。 */
+  summaryEngine: SummaryEngine;
+  /** 要約に使う Claude のモデル。 */
+  summaryClaudeModel: string;
+  /** OpenAI 互換の要約器の API キーを保存しているか（キーそのものは画面に来ない）。 */
+  summaryApiKeySet: boolean;
   lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean;
+  /** 連携の「hangar が起動する Claude Code に足すもの」。 */
+  injection: InjectionSettingsProps;
   summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null;
   statusline: StatuslineStatusDto | null; usageAggregate: UsageAggregateDto | null;
   cloud: CloudSettingsProps;
@@ -230,7 +245,7 @@ function retentionSettings(store: Store): RetentionSettingsProps | null {
 /** 目次の各行の状態。連携とツールは、準備の確かめが届くまで分からないので「確認中」と言う。 */
 function presentToc(a: {
   t: Translate; language: Language; todo: { must: number; link: number }; cloud: CloudSettingsProps; cloudWord: string; cloudTone: string;
-  sync: Store['sync']; notify: Store['notify']; readiness: boolean; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; now: number;
+  sync: Store['sync']; notify: Store['notify']; readiness: boolean; summaryEngine: SummaryEngine; summarizerModels: string[] | null; summarizerTest: SummarizerTestDto | null; sessionCount: number; now: number;
   update: UpdateSectionProps; desktop: boolean;
 }): SettingsTocRow[] {
   const { t } = a;
@@ -244,10 +259,13 @@ function presentToc(a: {
       tone: a.cloudTone === 'warn' || a.cloudTone === 'stop' ? 'warn' : 'default',
     },
     integrations: a.readiness ? fix(a.todo.link, t('settings.toc.noIssues')) : checking,
-    summary: a.summarizerTest?.ok === false ? { state: t('settings.toc.summaryTestFailed'), tone: 'warn' }
-      : a.summarizerModels === null ? checking
-        : a.summarizerModels.length === 0 ? { state: t('settings.toc.summaryOffline'), tone: 'warn' }
-          : { state: t('settings.toc.summaryConnected'), tone: 'default' },
+    // 使わないときは淡く「オフ」とだけ言う（試作 3 節の 2b の案 A）。繋がらない警告は、OpenAI 互換を選んだときだけ出す。
+    summary: a.summaryEngine === 'off' ? { state: t('settings.toc.summaryOff'), tone: 'default' }
+      : a.summarizerTest?.ok === false ? { state: t('settings.toc.summaryTestFailed'), tone: 'warn' }
+        : a.summaryEngine === 'claude' ? { state: t('settings.toc.summaryClaude'), tone: 'default' }
+          : a.summarizerModels === null ? checking
+            : a.summarizerModels.length === 0 ? { state: t('settings.toc.summaryOffline'), tone: 'warn' }
+              : { state: t('settings.toc.summaryConnected'), tone: 'default' },
     tools: a.readiness ? fix(a.todo.must, t('settings.toc.allFound')) : checking,
     // 失敗と再起動待ちは注意の色にする（見出しの札の stop と warn）。
     update: { state: a.update.tocState, tone: a.update.badge?.tone === 'stop' || a.update.badge?.tone === 'warn' ? 'warn' : 'default' },
@@ -320,6 +338,8 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     devices: store.devices.map((d) => { const state = d.self && h ? h.state : d.shell; return { id: d.id, name: d.name, self: d.self, state, label: d.platform === 'win32' ? t('settings.integrations.shell.unsupportedOs') : shellLabel(t, state) }; }),
   };
   const r = store.readiness;
+  // 鍵を知らない古いサーバの設定は「使わない」として読む。
+  const summaryEngine: SummaryEngine = s?.summaryEngine ?? 'off';
   const verify = {
     workspace: r ? workspaceLine(t, r.workspace) : null,
     tmux: r ? toolLine(t, 'tmux', r.tools.tmux) : null,
@@ -357,7 +377,9 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     tmuxPath: s?.tmuxPath ?? null, terminalApp: terminalAppFor(s?.terminalApp, platform), editor: presentEditor(t, store),
     terminalOptions: terminalAppsFor(platform).map((value) => ({ value, label: terminalLabel(t, value) })),
     terminalDesc: t(platform === 'win32' ? 'settings.general.terminal.descWindows' : 'settings.general.terminal.desc'),
-    lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? true, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
+    summaryEngine, summaryClaudeModel: s?.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, summaryApiKeySet: s?.summaryApiKeySet === true,
+    injection: { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false, defaultModel: s?.defaultModel ?? null, full: presentInjection(t, { askStatusAtEnd: s?.askStatusAtEnd !== false, liveHints: s?.liveHints !== false }) },
+    lmStudioUrl: s?.lmStudioUrl ?? '', lmStudioModel: s?.lmStudioModel ?? null, summaryFallback: s?.summaryFallback ?? false, summaryHourlyCap: s?.summaryHourlyCap ?? 20, allowExternalSummarizer: s?.allowExternalSummarizer ?? false,
     summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest,
     statusline: store.statusline, usageAggregate: store.usageAggregate && { ...store.usageAggregate, projects: store.usageAggregate.projects.map((u) => { const p = u.projectId ? store.projects[u.projectId] : undefined; return p ? { ...u, name: projectDisplayName(p, t) } : u; }) },
     nodePath: s?.nodePath ?? '',
@@ -365,7 +387,7 @@ export function presentSettings(state: State, store: Store, now: number = Date.n
     retention: retentionSettings(store),
     accounts: { list: presentAccounts(store, now), colors: ACCOUNT_COLORS },
     section: settingsSectionOf(at),
-    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now, update, desktop: store.desktop }),
+    toc: presentToc({ t, language: storeLanguage(store), todo, cloud, cloudWord, cloudTone, sync, notify: store.notify, readiness: r !== null, summaryEngine, summarizerModels: store.summarizerModels, summarizerTest: store.summarizerTest, sessionCount: Object.keys(store.sessions).length, now, update, desktop: store.desktop }),
     update,
     language: { value: storeLanguage(store) },
     focus: at === 'accounts' || at === 'unsent' || isSettingsField(at) ? at : null,

@@ -847,6 +847,12 @@ describe('presentNewSession', () => {
     expect(p).toMatchObject({ projectId: 'beta', submitting: false, error: 'x' });
     expect(presentNewSession({ ...state, launch: { kind: 'submitting' } }, store, NOW)!.submitting).toBe(true);
   });
+  it('設定の既定のモデルを渡す。届く前と未設定は null', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    expect(presentNewSession(state, storeWith(), NOW)!.defaultModel).toBeNull();
+    const store = { ...storeWith(), settings: fullSettings({ defaultModel: 'sonnet' }) };
+    expect(presentNewSession(state, store, NOW)!.defaultModel).toBe('sonnet');
+  });
   it('ステータスと最後に使った時期を添え、最近は最後に使った順の上位 5 件', () => {
     const store = storeWith();
     for (const [id, ago] of [['p1', 1], ['p2', 5], ['p3', 3], ['p4', 9], ['p5', 2], ['p6', 7], ['p7', null]] as const) {
@@ -1337,7 +1343,8 @@ describe('presentProject の右レール（端）', () => {
 describe('presentSettings の既定値', () => {
   it('設定がまだ届いていないときの要約器の既定と null の項目', () => {
     const p = presentSettings(initialState(), initialStore());
-    expect(p).toMatchObject({ lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect(p).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryApiKeySet: false, lmStudioUrl: '', lmStudioModel: null, summaryFallback: false, summaryHourlyCap: 20 });
+    expect(p.injection).toMatchObject({ askStatusAtEnd: true, liveHints: true, defaultModel: null });
     expect(p.statusline).toBeNull();
     expect(p.summarizerModels).toBeNull();
     expect(p.usageAggregate).toBeNull();

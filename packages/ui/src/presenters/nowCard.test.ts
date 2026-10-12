@@ -142,6 +142,41 @@ describe('現在の札の意図', () => {
   });
 });
 
+describe('現在の札の依頼（意図を送らないとき、1f）', () => {
+  it('意図を送らない設定では、「まだ意図が届いていません」の代わりに、このターンの利用者の発言の冒頭を「依頼 · 時刻」で出す', () => {
+    const head = prompt('README の導入手順が古いので、Node 22 前提に書き直して。', 1_000);
+    const s = present({ liveHints: false, events: [head, call('Read', { file_path: '/r/README.md' })], turnFrom: head.seq, digest: digest({ turnStartSeq: head.seq }) });
+    expect(s.intent).toEqual({ kind: 'request', text: 'README の導入手順が古いので、Node 22 前提に書き直して。', label: '依頼 · t1000' });
+    expect(present({ liveHints: false, events: [head], turnFrom: head.seq }, en).intent).toMatchObject({ label: 'Request · t1000' });
+  });
+  it('前のターンの意図しか無いときも、依頼を出す。このターンの意図が届いていれば、意図を先に出す', () => {
+    const head = prompt('直して', 5);
+    const old = { text: '前の', at: 0, stepsSince: 1, inThisTurn: false };
+    expect(present({ liveHints: false, events: [head], turnFrom: head.seq, digest: digest({ intent: old }) }).intent).toMatchObject({ kind: 'request', text: '直して' });
+    const now = { text: 'いまの意図', at: 6, stepsSince: 0, inThisTurn: true };
+    expect(present({ liveHints: false, events: [head], turnFrom: head.seq, digest: digest({ intent: now }) }).intent).toMatchObject({ kind: 'said', text: 'いまの意図' });
+  });
+  it('長い依頼は切り、スラッシュコマンドはコマンド名を、画像だけの依頼は「（画像）」を出す', () => {
+    const long = prompt('あ'.repeat(500), 1);
+    expect((present({ liveHints: false, events: [long], turnFrom: long.seq }).intent as { text: string }).text.length).toBeLessThanOrEqual(301);
+    const cmd: TranscriptEvent = { kind: 'system', seq: seq++, ts: 2, text: '<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>12</command-args>' };
+    expect(present({ liveHints: false, events: [cmd], turnFrom: cmd.seq }).intent).toMatchObject({ kind: 'request', text: '/review 12' });
+    const image: TranscriptEvent = { kind: 'user', seq: seq++, ts: 3, text: '', attachments: [{ kind: 'image' }] };
+    expect(present({ liveHints: false, events: [image], turnFrom: image.seq }).intent).toMatchObject({ kind: 'request', text: '（画像）' });
+  });
+  it('ターンの頭が読み込めていなければ、何も出さない（「まだ意図が届いていません」も出さない）', () => {
+    expect(present({ liveHints: false, events: [], turnFrom: 99 }).intent).toEqual({ kind: 'none', text: '' });
+    // 時刻の無い発言は、見出しを「依頼」だけにする。
+    const noTs = prompt('直して');
+    expect(present({ liveHints: false, events: [noTs], turnFrom: noTs.seq }).intent).toEqual({ kind: 'request', text: '直して', label: '依頼' });
+  });
+  it('意図を送る設定（既定）では、今までどおり「まだ意図が届いていません」と言う', () => {
+    const head = prompt('直して', 5);
+    expect(present({ events: [head], turnFrom: head.seq }).intent).toEqual({ kind: 'none', text: 'まだ意図が届いていません' });
+    expect(present({ liveHints: true, events: [head], turnFrom: head.seq }).intent).toEqual({ kind: 'none', text: 'まだ意図が届いていません' });
+  });
+});
+
 describe('現在の札のツール呼び出し', () => {
   it('今のターンの、メイン会話の呼び出しを、道具の名前と引数の短い形で出す。札には直近 3 つ。hangar の MCP と Agent は出さない', () => {
     seq = 0;

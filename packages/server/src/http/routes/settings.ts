@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { EDITOR_TERMINALS, isEditorId, isLanguage, languageOf, LANGUAGES, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
+import { DEFAULT_SUMMARY_CLAUDE_MODEL, EDITOR_TERMINALS, isEditorId, isLanguage, isModelName, isSummaryEngine, languageOf, LANGUAGES, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
@@ -35,7 +35,11 @@ const SETTING_LABEL = {
   workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
 } as const satisfies Record<LabeledSetting, MessageKey>;
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
+/**
+ * 設定を画面へ返す形にする。
+ * API キーは返さず、保存しているかだけを返す。設定の変更は全部の画面へ配る（settings.changed）ので、秘密を載せない。
+ */
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, summaryEngine: s.summaryEngine ?? 'off', summaryClaudeModel: s.summaryClaudeModel ?? DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryApiKeySet: typeof s.summaryApiKey === 'string' && s.summaryApiKey !== '', summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, defaultModel: s.defaultModel ?? null, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -156,6 +160,32 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       // 空文字と空白だけの文字列は「未設定」と同じ意味なので null に寄せる。
       // 前後の空白は落とす。パス系の設定と同じ扱いにそろえる。
       patch.lmStudioModel = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+    }
+    // 要約エンジン（使わない、Claude、OpenAI 互換）。
+    if ('summaryEngine' in body) {
+      const v = body.summaryEngine;
+      if (!isSummaryEngine(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.summaryEngine') }) }, 400);
+      patch.summaryEngine = v;
+    }
+    // モデルの名前は claude の --model へそのまま渡るので、形を確かめる（引数として読まれる先頭のハイフンを断る）。
+    if ('summaryClaudeModel' in body) {
+      const v = typeof body.summaryClaudeModel === 'string' ? body.summaryClaudeModel.trim() : body.summaryClaudeModel;
+      if (!isModelName(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.summaryClaudeModel') }) }, 400);
+      patch.summaryClaudeModel = v;
+    }
+    // 既定のモデル。空は Claude Code の既定（null）である。
+    if ('defaultModel' in body) {
+      const raw = body.defaultModel;
+      const v = typeof raw === 'string' ? raw.trim() : raw;
+      if (v === null || v === '') patch.defaultModel = null;
+      else if (!isModelName(v)) return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.defaultModel') }) }, 400);
+      else patch.defaultModel = v;
+    }
+    // API キーは書くだけで、返さない。空文字と null は消す。
+    if ('summaryApiKey' in body) {
+      const v = body.summaryApiKey;
+      if (v !== null && typeof v !== 'string') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.summaryApiKey') }) }, 400);
+      patch.summaryApiKey = typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
     }
     if ('summaryFallback' in body) {
       const v = body.summaryFallback;

@@ -212,3 +212,36 @@
   .editor-choice { grid-template-columns: 18px 30px minmax(0, 1fr) auto; }
   .editor-choice > :last-child { grid-column: 3 / -1; justify-self: start; }
 }
+
+/* 要約エンジンの選択（試作 3 節の推す案 A）。エディタと同じラジオの行で、選んだ行のすぐ下にその行の欄を開く。 */
+.sum-lead { margin-bottom: calc(var(--u) * 2.5); }
+.sum-choice { grid-template-columns: 18px 30px minmax(0, 1fr) auto; }
+.sum-choice .editor-tile .icon { width: 15px; height: 15px; }
+.sum-choice-desc { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.5; }
+.sum-detail { display: grid; gap: calc(var(--u) * 2.5); padding: calc(var(--u) * 3) calc(var(--u) * 3) calc(var(--u) * 3) calc(var(--u) * 7.5 + 48px); border-top: 1px solid var(--line); background: var(--surface); }
+.sum-detail + .editor-choice { border-top: 1px solid var(--line); }
+.sum-detail .set-row { padding: 0; border-top: 0; min-height: 0; }
+.sum-detail .grid2 { margin: 0; }
+.sum-key .inrow { display: flex; gap: calc(var(--u) * 2); align-items: center; }
+.sum-key .input { max-width: 280px; }
+@media (max-width: 760px) {
+  .sum-detail { padding-left: calc(var(--u) * 3); }
+}
+
+/* 連携の「hangar が起動する Claude Code に足すもの」（試作 1 節の推す案 B）。 */
+.inject-lead { margin-bottom: calc(var(--u) * 2.5); }
+.add-list { list-style: none; margin: 0; padding: 0; }
+.add-item { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 4px calc(var(--u) * 2.5); align-items: start; padding: calc(var(--u) * 2) 0; border-top: 1px solid var(--line); }
+.add-item:first-child { border-top: 0; padding-top: 0; }
+.add-item > .icon { margin-top: 2px; color: var(--ink-3); }
+.add-t { font-weight: 600; }
+.add-d { font-size: var(--fs-xs); color: var(--ink-3); line-height: 1.5; }
+.add-nest { grid-column: 2 / -1; margin-top: calc(var(--u) * 1.5); padding-left: calc(var(--u) * 3); border-left: 2px solid var(--line-strong); }
+.add-nest .set-row:first-child { border-top: 0; padding-top: 0; }
+.always { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 99px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); background: var(--surface-2); white-space: nowrap; }
+.inject-full { margin-top: calc(var(--u) * 1.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); font: 11.5px/1.65 var(--font-mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.inject-part-k { display: block; margin: 8px 0 2px; font-family: var(--font-sans); font-size: 10.5px; font-weight: 700; color: var(--ink-3); white-space: normal; }
+.inject-part:first-child .inject-part-k { margin-top: 0; }
+.inject-off { color: var(--ink-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink-3) 60%, transparent); }
+.inject-token { padding: 0 4px; border-radius: 4px; color: var(--accent); background: var(--accent-soft); border: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); }
+.inject-note { margin-top: calc(var(--u) * 2); }

@@ -187,6 +187,18 @@ describe('NowCard の意図', () => {
     expect(within(card()).getByText('まだ意図が届いていません')).toBeInTheDocument();
   });
 
+  it('意図を送らない設定では、同じ場所に灰色の「依頼 · 時刻」と依頼の冒頭を出す（試作 2 節の推す案 A）', () => {
+    const head: TranscriptEvent = { kind: 'user', seq: seq++, ts: 0, text: 'README の導入手順を直して' };
+    const m = mount({ liveHints: false, events: [head], turnFrom: head.seq, live: 'busy', activity: null });
+    const req = card().querySelector('.nc-intent[data-kind="request"]')!;
+    expect(req.querySelector('.nc-request-label')).toHaveTextContent('依頼 · 10:01');
+    expect(req.querySelector('.nc-request-text')).toHaveTextContent('README の導入手順を直して');
+    expect(within(card()).queryByText('まだ意図が届いていません')).toBeNull();
+    // 頭が読み込めていなければ、何も出さない。
+    m.rerender({ events: [], turnFrom: 999 });
+    expect(card().querySelector('.nc-intent-none')).toBeNull();
+    expect(card().querySelector('.nc-intent')).toBeNull();
+  });
   it('30 回を超えた意図は、薄くする印を付ける', () => {
     mount({ digest: { sessionId: 's1', turnStartSeq: 0, intent: { text: 'x', at: 0, stepsSince: 31, inThisTurn: true }, agents: [] } });
     expect(card().querySelector('.nc-intent')).toHaveAttribute('data-stale', 'true');

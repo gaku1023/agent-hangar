@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { Language, SettingsDto, SettingsField, SettingsSection, TerminalApp } from '@agent-hangar/shared';
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import type { Language, SettingsDto, SettingsField, SettingsSection, SummaryEngine, TerminalApp } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
-import { costLabel, SUMMARIZER_LABEL, tokensLabel } from '../presenters/format.ts';
+import { costLabel, tokensLabel } from '../presenters/format.ts';
 import { clientPlatform, muxInstallCommand, notifyBlockedKey, type VerifyLine } from '../presenters/readiness.ts';
 import { JOIN_TOKEN_TTL_MS, type IntegrationCard, type SettingsProps } from '../presenters/settings.ts';
 import { isComposing } from './ime.ts';
 import { MuxSection } from './MuxSection.tsx';
 import { EditorSettings } from './EditorSettings.tsx';
+import { InjectionSettings } from './InjectionSettings.tsx';
+import { ModelPicker } from './ModelPicker.tsx';
 import { PageHeading } from './PageHeading.tsx';
 import { CommandLine, CopyButton } from './primitives/CommandLine.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -189,6 +191,9 @@ export function SettingsScreen(props: SettingsProps) {
   const root = useRef<HTMLDivElement>(null);
   const [lmUrl, setLmUrl] = useState(props.lmStudioUrl);
   const [lmModel, setLmModel] = useState(props.lmStudioModel ?? '');
+  const [claudeModel, setClaudeModel] = useState(props.summaryClaudeModel);
+  // API キーは書いたときだけ送る。保存済みのキーは画面に来ないので、欄はいつも空から始める。
+  const [apiKey, setApiKey] = useState('');
   const [cap, setCap] = useState(String(props.summaryHourlyCap));
   const [capError, setCapError] = useState(false);
   // 同期していない人が押した方の、ターミナルで打つコマンド。
@@ -196,6 +201,7 @@ export function SettingsScreen(props: SettingsProps) {
   // サーバが正規化した値を入力欄に反映する。
   useEffect(() => { setLmUrl(props.lmStudioUrl); }, [props.lmStudioUrl]);
   useEffect(() => { setLmModel(props.lmStudioModel ?? ''); }, [props.lmStudioModel]);
+  useEffect(() => { setClaudeModel(props.summaryClaudeModel); }, [props.summaryClaudeModel]);
   useEffect(() => { setCap(String(props.summaryHourlyCap)); }, [props.summaryHourlyCap]);
   useEffect(() => { setCapError(false); }, [props.summaryHourlyCap]);
   // 外部の要約エンジンを許可する前の確かめの帯。許可するまでは、スイッチもオフのままにする。
@@ -210,8 +216,11 @@ export function SettingsScreen(props: SettingsProps) {
     externalRow.current?.querySelector<HTMLElement>('[role="switch"]')?.focus();
   };
   const setNow = (patch: Partial<SettingsDto>) => emit({ type: 'settings.update', patch });
+  const engine = props.summaryEngine;
+  // 1 時間の上限の欄は、Claude を使うとき（Claude を選んだか、OpenAI 互換で切り替えを入れているとき）だけ出す。
+  const usesClaude = engine === 'claude' || (engine === 'openai' && props.summaryFallback);
   // 1 時間の上限は 1 以上 200 以下の整数だけを受け付ける。
-  // 空のまま送ると 0 になって、Claude への切り替えが黙って止まってしまう。
+  // 空のまま送ると 0 になって、Claude での要約が黙って止まってしまう。
   // 数字でない文字は NaN になるので、これも送らない。
   const capNumber = cap.trim() === '' ? Number.NaN : Number(cap);
   const capValid = Number.isInteger(capNumber) && capNumber >= 1 && capNumber <= 200;
@@ -221,26 +230,35 @@ export function SettingsScreen(props: SettingsProps) {
   // すると欄には整える前の文字列が残り、保存ボタンも押せたままになる。
   const lmUrlValue = lmUrl.trim().replace(/\/+$/, '');
   const lmModelValue = lmModel.trim() || null;
+  const apiKeyValue = apiKey.trim();
   const saveSummarizer = () => {
     if (!capValid) { setCapError(true); return; }
     setCapError(false);
-    // 欄も整えた形に直す。押せない理由が欄から読めるようにする。
+    if (engine === 'claude') {
+      emit({ type: 'settings.update', patch: { summaryClaudeModel: claudeModel, summaryHourlyCap: capNumber }, field: 'summarizer' });
+      return;
+    }
+    // 欄も整えた形に直す。押せない理由が欄から読めるようにする。書いたキーは欄に残さない。
     setLmUrl(lmUrlValue);
     setLmModel(lmModelValue ?? '');
-    emit({ type: 'settings.update', patch: { lmStudioUrl: lmUrlValue, lmStudioModel: lmModelValue, summaryHourlyCap: capNumber }, field: 'summarizer' });
+    setApiKey('');
+    emit({ type: 'settings.update', patch: { lmStudioUrl: lmUrlValue, lmStudioModel: lmModelValue, summaryHourlyCap: capNumber, ...(apiKeyValue ? { summaryApiKey: apiKeyValue } : {}) }, field: 'summarizer' });
   };
-  // 要約エンジンは 3 項目をまとめて送るので、1 つでも変わっていれば押せる。
+  // 選んだエンジンの欄をまとめて送るので、1 つでも変わっていれば押せる。
   // 読めない上限（空や小数）は capNumber が NaN になるため、ここでは必ず「変わっている」側に入る。
   // 押せないと、1 から 200 までの整数を入れてくださいという案内を出す道が無くなってしまう。
-  const summarizerDirty = lmUrlValue !== props.lmStudioUrl || lmModelValue !== props.lmStudioModel || capNumber !== props.summaryHourlyCap;
-  // 保存済みのモデルが一覧に無くても（LM Studio が落ちているときなど）、顔から名前を消さない。
+  const summarizerDirty = engine === 'claude'
+    ? claudeModel !== props.summaryClaudeModel || capNumber !== props.summaryHourlyCap
+    : lmUrlValue !== props.lmStudioUrl || lmModelValue !== props.lmStudioModel || apiKeyValue !== '' || (props.summaryFallback && capNumber !== props.summaryHourlyCap);
+  // 保存済みのモデルが一覧に無くても（宛先が落ちているときなど）、顔から名前を消さない。
   const models = props.summarizerModels ?? [];
   const modelNames = lmModel && !models.includes(lmModel) ? [lmModel, ...models] : models;
   const modelOptions = [{ value: '', label: t('settings.summary.modelAuto') }, ...modelNames.map((m) => ({ value: m, label: m }))];
-  // LM Studio の URL の欄の下の 1 行。モデルの一覧が取れたかで、つながったかを言う。
+  // OpenAI 互換の URL の欄の下の 1 行。モデルの一覧が取れたかで、つながったかを言う。
   const lmLine: VerifyLine | null = props.summarizerModels === null ? null
     : props.summarizerModels.length === 0 ? { ok: false, soft: false, text: t('settings.summary.offline'), note: null, fix: null, fixCommand: null }
       : { ok: true, soft: false, text: t('settings.summary.connected'), note: t('settings.summary.models', { n: props.summarizerModels.length }), fix: null, fixCommand: null };
+  const engineName = (id: string) => (id === 'claude-headless' ? t('settings.summary.engine.claude.name') : id === 'lmstudio' ? t('settings.summary.engine.openai.name') : id);
 
   // 節を切り替えたら、頁をスクロールする枠の先頭へ戻す。前の節の途中の位置から始めない。
   const first = useRef(true);
@@ -411,6 +429,8 @@ export function SettingsScreen(props: SettingsProps) {
     <>
       {/* 互換のずれは利用者が直せるものではないので、todo には数えない（目次の状態も要修正にしない）。 */}
       <CompatSection compat={props.compat} />
+      {/* 起動する Claude Code に足すもの（試作 1 節の推す案 B）。互換の 1 枚のすぐ下に置く。 */}
+      <InjectionSettings injection={props.injection} />
       <section>
         <h3 className="h2">{t('settings.integrations.mcp.title')}<Badge ok={props.mcpRegistered} yes={t('settings.integrations.mcp.yes')} no={t('settings.integrations.mcp.no')} /></h3>
         <div className="muted">{t('settings.integrations.mcp.desc')}</div>
@@ -475,8 +495,23 @@ export function SettingsScreen(props: SettingsProps) {
     </>
   );
 
-  const summary = (
-    <section aria-label={cur.title}>
+  // 1 時間の上限の欄。Claude を選んだときと、OpenAI 互換で切り替えを入れているときに出す。
+  const capRow = (
+    <>
+      <SetRow title={t('settings.summary.cap.title')} desc={t('settings.summary.cap.desc')}
+        control={<><Stepper label={t('settings.summary.cap.title')} value={cap} min={1} max={200} onChange={(v) => { setCap(v); setCapError(false); }} /><span className="faint">{t('settings.summary.cap.unit')}</span></>} />
+      {capError && <div className="error" role="alert" style={{ marginTop: 4 }}>{t('settings.summary.cap.error')}</div>}
+    </>
+  );
+  const claudeDetail = (
+    <div className="sum-detail">
+      <SetRow title={t('settings.label.summaryClaudeModel')} desc={t('settings.summary.claudeAccount')}
+        control={<ModelPicker label={t('settings.label.summaryClaudeModel')} value={claudeModel} onChange={(m) => { if (m) setClaudeModel(m); }} />} />
+      {capRow}
+    </div>
+  );
+  const openaiDetail = (
+    <div className="sum-detail">
       <div className="grid2">
         <div className="field"><span aria-hidden="true">{t('settings.summary.url')}</span>
           <input className="input mono" aria-label={t('settings.summary.url')} value={lmUrl} onChange={(e) => setLmUrl(e.target.value)} />
@@ -485,6 +520,13 @@ export function SettingsScreen(props: SettingsProps) {
         <div className="field"><span aria-hidden="true">{t('settings.summary.model')}</span>
           <Listbox label={t('settings.summary.model')} value={lmModel} options={modelOptions} onChange={setLmModel} searchPlaceholder={t('settings.summary.modelSearch')} />
         </div>
+      </div>
+      <div className="field sum-key"><span aria-hidden="true">{t('settings.summary.apiKey')}</span>
+        <span className="inrow">
+          <input className="input mono" type="password" aria-label={t('settings.summary.apiKey')} value={apiKey} autoComplete="off" spellCheck={false}
+            placeholder={props.summaryApiKeySet ? t('settings.summary.apiKeySaved') : t('settings.summary.apiKeyPlaceholder')} onChange={(e) => setApiKey(e.target.value)} />
+          {props.summaryApiKeySet && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNow({ summaryApiKey: null })}>{t('settings.summary.apiKeyClear')}</button>}
+        </span>
       </div>
       <div ref={externalRow}>
         <SetRow title={t('settings.summary.external.title')} desc={t('settings.summary.external.desc')}
@@ -499,28 +541,62 @@ export function SettingsScreen(props: SettingsProps) {
           <button className="btn btn-primary" onClick={() => { closeConfirm(); setNow({ allowExternalSummarizer: true }); }}>{t('settings.summary.external.allow')}</button>
         </div>
       )}
-      {props.allowExternalSummarizer && <div className="error" role="alert" style={{ marginTop: 4 }}>{t('settings.summary.external.warn', { url: props.lmStudioUrl || t('settings.summary.external.thisDestination') })}</div>}
-      <SetRow title={t('settings.summary.fallback')}
+      {props.allowExternalSummarizer && <div className="error" role="alert">{t('settings.summary.external.warn', { url: props.lmStudioUrl || t('settings.summary.external.thisDestination') })}</div>}
+      <SetRow title={t('settings.summary.fallback')} desc={t('settings.summary.fallbackDesc')}
         control={<Switch label={t('settings.summary.fallback')} checked={props.summaryFallback} onChange={(next) => setNow({ summaryFallback: next })} />} />
-      <SetRow title={t('settings.summary.cap.title')} desc={t('settings.summary.cap.desc')}
-        control={<><Stepper label={t('settings.summary.cap.title')} value={cap} min={1} max={200} onChange={(v) => { setCap(v); setCapError(false); }} /><span className="faint">{t('settings.summary.cap.unit')}</span></>} />
-      {capError && <div className="error" role="alert" style={{ marginTop: 4 }}>{t('settings.summary.cap.error')}</div>}
-      <div className="btns">
-        <button className="btn btn-primary" disabled={!summarizerDirty} onClick={saveSummarizer}>{t('settings.common.save')}</button>
-        <SavedTick mark={props.save.summarizer} />
-        <button className="btn" onClick={() => emit({ type: 'summarizer.test' })}>{t('settings.summary.test')}</button>
+      {props.summaryFallback && capRow}
+    </div>
+  );
+  // 要約エンジンの選択肢（試作 3 節の推す案 A）。エディタと同じラジオの行で、選んだ行のすぐ下にその行の欄だけを開く。
+  const engines: { id: SummaryEngine; icon: IconName; detail: ReactNode }[] = [
+    { id: 'off', icon: 'minus', detail: null },
+    { id: 'claude', icon: 'agent', detail: claudeDetail },
+    { id: 'openai', icon: 'link', detail: openaiDetail },
+  ];
+  const pickEngine = (id: SummaryEngine) => { if (id !== engine) setNow({ summaryEngine: id }); };
+  const summary = (
+    <section aria-label={cur.title}>
+      <div className="muted sum-lead">{t('settings.summary.lead')}</div>
+      <div className="editor-choices" role="radiogroup" aria-label={t('settings.label.summaryEngine')}>
+        {engines.map((e) => (
+          <Fragment key={e.id}>
+            <div className="editor-choice sum-choice" role="radio" aria-checked={engine === e.id} tabIndex={engine === e.id ? 0 : -1}
+              onClick={() => pickEngine(e.id)}
+              onKeyDown={(ev) => { if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); pickEngine(e.id); } }}>
+              <span className="editor-radio" aria-hidden="true" />
+              <span className="editor-tile" aria-hidden="true"><Icon name={e.icon} /></span>
+              <span className="editor-choice-main">
+                <span className="editor-choice-name">{t(`settings.summary.engine.${e.id}.name`)}</span>
+                <span className="sum-choice-desc">{t(`settings.summary.engine.${e.id}.desc`)}</span>
+              </span>
+              {e.id === 'openai' && engine === 'openai' && props.summarizerModels !== null
+                ? <span className="badge" data-tone={props.summarizerModels.length > 0 ? 'ok' : 'warn'}><Icon name={props.summarizerModels.length > 0 ? 'check' : 'alert'} />{props.summarizerModels.length > 0 ? t('settings.summary.connected') : t('settings.summary.offline')}</span>
+                : <span />}
+            </div>
+            {engine === e.id && e.detail}
+          </Fragment>
+        ))}
       </div>
-      {props.save.summarizer?.kind === 'error' && <div className="error" role="alert" style={{ marginTop: 4 }}>{props.save.summarizer.message}</div>}
-      {props.summarizerTest?.ok === true && (
-        <div style={{ marginTop: 4 }}>
-          <div className="muted">{t('settings.summary.testOk', { engine: SUMMARIZER_LABEL[props.summarizerTest.id] ?? props.summarizerTest.id, ms: props.summarizerTest.ms })}</div>
-          <div className="faint">{props.summarizerTest.summary.oneLiner}</div>
-        </div>
-      )}
-      {props.summarizerTest?.ok === false && (
-        <ul className="faint" style={{ margin: '4px 0 0', paddingLeft: 16 }}>
-          {props.summarizerTest.tried.map((x) => <li key={x.id}>{SUMMARIZER_LABEL[x.id] ?? x.id}: {x.message}</li>)}
-        </ul>
+      {engine !== 'off' && (
+        <>
+          <div className="btns">
+            <button className="btn btn-primary" disabled={!summarizerDirty} onClick={saveSummarizer}>{t('settings.common.save')}</button>
+            <SavedTick mark={props.save.summarizer} />
+            <button className="btn" onClick={() => emit({ type: 'summarizer.test' })}>{t('settings.summary.test')}</button>
+          </div>
+          {props.save.summarizer?.kind === 'error' && <div className="error" role="alert" style={{ marginTop: 4 }}>{props.save.summarizer.message}</div>}
+          {props.summarizerTest?.ok === true && (
+            <div style={{ marginTop: 4 }}>
+              <div className="muted">{t('settings.summary.testOk', { engine: engineName(props.summarizerTest.id), ms: props.summarizerTest.ms })}</div>
+              <div className="faint">{props.summarizerTest.summary.oneLiner}</div>
+            </div>
+          )}
+          {props.summarizerTest?.ok === false && (
+            <ul className="faint" style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+              {props.summarizerTest.tried.map((x) => <li key={x.id}>{engineName(x.id)}: {x.message}</li>)}
+            </ul>
+          )}
+        </>
       )}
     </section>
   );

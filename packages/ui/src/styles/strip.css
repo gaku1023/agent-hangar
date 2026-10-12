@@ -40,6 +40,9 @@
 .nc-intent-label { display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--cand); }
 .nc-intent-text { margin: 1px 0 0; line-height: 1.55; color: var(--ink); overflow-wrap: anywhere; }
 .nc-intent-none { margin: 0; color: var(--ink-3); }
+/* 意図を送らない設定の「依頼」。意図と同じ位置で、見出しは灰色（書き手が利用者であること）、本文は 3 行で切る。 */
+.nc-request-label { display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.nc-request-text { margin: 1px 0 0; line-height: 1.55; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 /* ツール呼び出し。説明を先に、道具の名前を後ろに小さく。1 行に収め、はみ出す説明だけを省く。 */
 .nc-steps, .nc-steps-all { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .nc-step { display: flex; align-items: baseline; gap: calc(var(--u) * 1.5); min-width: 0; color: var(--ink-2); white-space: nowrap; border-radius: 4px; }

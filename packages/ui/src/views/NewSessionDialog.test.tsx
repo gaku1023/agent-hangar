@@ -622,6 +622,25 @@ describe('NewSessionDialog の前回値（D1）', () => {
     start();
     expect(params).toEqual([{ scratch: true, effort: 'max' }]);
   });
+  it('設定の既定のモデルを、前回値の無いときのモデルの札の初めの値にする。前回値のモデルが先', () => {
+    const params = collectParams({ projectId: 'p1', prefs: { p2: { worktree: 'wt' } }, defaultModel: 'sonnet' });
+    expect(chip('モデル、sonnet')).toBeInTheDocument();
+    start();
+    expect(params).toEqual([{ projectId: 'p1', model: 'sonnet' }]);
+  });
+  it('前回値にモデルがあれば、既定のモデルより先に使う。モデルの無い前回値には既定のモデルを入れる', () => {
+    collectParams({ projectId: 'p1', prefs, defaultModel: 'sonnet' });
+    expect(chip('モデル、opus')).toBeInTheDocument();
+    pick('プロジェクト', 'beta');
+    expect(chip('モデル、claude-x')).toBeInTheDocument();
+  });
+  it('「既定に戻す」は、モデルを設定の既定のモデルに戻す', () => {
+    const params = collectParams({ projectId: 'p1', prefs, defaultModel: 'haiku' });
+    fireEvent.click(screen.getByRole('button', { name: '既定に戻す' }));
+    expect(chip('モデル、haiku')).toBeInTheDocument();
+    start();
+    expect(params).toEqual([{ projectId: 'p1', model: 'haiku' }]);
+  });
   it('初期プロンプトで / の候補から選ぶと、その文で起動する', async () => {
     const out: LaunchParams[] = [];
     const assist = { ...NO_ASSIST, commands: () => Promise.resolve([{ name: 'goal', description: '長く走る', argumentHint: null, source: 'user' as const, uses: 3 }]) };

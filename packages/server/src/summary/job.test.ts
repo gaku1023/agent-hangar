@@ -131,6 +131,15 @@ describe('SummaryJob', () => {
     const beta = (db.prepare("select id from sessions where provider_session_id = 'aaaaaaaa-0000-4000-8000-000000000002'").get() as { id: string }).id;
     expect(job.enqueue(beta, { force: true })).toBe(false);
   });
+  it('要約エンジンを使わない設定（要約器が 1 つも無い）では、手動の作り直しも受け付けず、失敗も配らない', async () => {
+    const job = make([]);
+    expect(job.enqueue(alphaId)).toBe(false);
+    expect(job.enqueue(alphaId, { force: true })).toBe(false);
+    expect(job.enqueue(alphaId, { ignoreLive: true })).toBe(false);
+    await job.idle();
+    expect(job.pending()).toEqual([]);
+    expect(sent.filter((e) => e.type.startsWith('summary.'))).toEqual([]);
+  });
   it('配信が失敗しても待ち行列は進む', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     const boom = { broadcast: (e: ServerEvent) => { sent.push(e); throw new Error('socket closed'); } };

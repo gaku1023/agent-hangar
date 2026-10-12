@@ -5,6 +5,7 @@ import { ActionRoot } from '../action/chain.tsx';
 import { initialState } from '../mediator/transition.ts';
 import { presentAccounts } from '../presenters/accounts.ts';
 import { presentCompat } from '../presenters/compat.ts';
+import { presentInjection } from '../presenters/injection.ts';
 import { ACCOUNT_COLORS, presentSettings, type CloudSettingsProps, type SettingsProps } from '../presenters/settings.ts';
 import { initialStore } from '../store/store.ts';
 import { accountsFixture } from '../test/accounts.ts';
@@ -56,7 +57,9 @@ const editorProps = (over: Partial<SettingsProps['editor']> = {}): SettingsProps
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
   tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' },
+  summaryEngine: 'openai', summaryClaudeModel: 'haiku', summaryApiKeySet: false,
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
+  injection: { askStatusAtEnd: true, liveHints: true, defaultModel: null, full: presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: true }) },
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
   usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 1200, outputTokens: 340, sessions: 2 }], projects: [{ projectId: 'p1', name: 'alpha', inputTokens: 1200, outputTokens: 340, costUsd: 1.5, sessions: 2 }] },
@@ -440,7 +443,7 @@ describe('設定のクラウド同期', () => {
 describe('設定の連携', () => {
   it('互換、MCP サーバー、ステータスライン、シェル連携、アカウントの順に並べ、通知は置かない', () => {
     render(ui(at('integrations')));
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認しています|問題なし)$/, ''))).toEqual(['Claude Code との互換性', 'MCP サーバー', 'ステータスライン', 'シェル連携', 'アカウント']);
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent?.replace(/(登録済み|未登録|設定済み|未設定|インストール済み|この PC は.*|確認しています|問題なし)$/, ''))).toEqual(['Claude Code との互換性', 'hangar が起動する Claude Code に足すもの', 'MCP サーバー', 'ステータスライン', 'シェル連携', 'アカウント']);
     expect(screen.queryByRole('switch', { name: '通知を有効にする' })).toBeNull();
   });
   it('アカウントの節は「連携」の中に出し、1 件でも出す', () => {
@@ -448,7 +451,7 @@ describe('設定の連携', () => {
     render(ui(at('integrations', { accounts: { list: one, colors: ACCOUNT_COLORS } })));
     const link = screen.getByRole('group', { name: /^連携/ });
     expect(within(link).getByRole('heading', { level: 3, name: 'アカウント' })).toBeInTheDocument();
-    expect(within(link).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(document.getElementById('settings-accounts')!).getAllByRole('listitem')).toHaveLength(1);
   });
   it('アカウントがまだ届いていなければ、節を出さない', () => {
     render(ui(at('integrations', { accounts: { list: [], colors: ACCOUNT_COLORS } })));
@@ -671,11 +674,123 @@ describe('設定の連携', () => {
   });
 });
 
+describe('設定の連携の「足すもの」（1e）', () => {
+  it('3 つを行にし、切れない 2 つに「常に」を添え、2 つのスイッチは追記の行の中に置く', () => {
+    render(ui(at('integrations')));
+    const box = screen.getByRole('region', { name: 'hangar が起動する Claude Code に足すもの' });
+    expect(within(box).getByText('hangar から起動・再開した Claude Code にだけ足します。ターミナルから直接 Claude Code を起動したときは足しません。')).toBeInTheDocument();
+    const items = within(box).getAllByRole('listitem');
+    expect(items.map((li) => li.querySelector('.add-t')?.textContent)).toEqual(['MCP の設定', '入力待ちと許可を受け取る hook', 'システムプロンプトの追記']);
+    expect(within(items[0]!).getByText('常に')).toBeInTheDocument();
+    expect(within(items[1]!).getByText('常に')).toBeInTheDocument();
+    expect(within(items[2]!).queryByText('常に')).toBeNull();
+    expect(within(items[2]!).getByRole('switch', { name: '区切りで Done／Paused を聞く' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(items[2]!).getByRole('switch', { name: 'ターンの意図と操作の短い説明を送る' })).toHaveAttribute('aria-checked', 'true');
+    expect(within(box).getByText('変えた設定は、次に起動・再開したセッションから効きます。')).toBeInTheDocument();
+  });
+  it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
+    const onAction = vi.fn();
+    render(ui(at('integrations'), onAction));
+    fireEvent.click(screen.getByRole('switch', { name: '区切りで Done／Paused を聞く' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { askStatusAtEnd: false } });
+    fireEvent.click(screen.getByRole('switch', { name: 'ターンの意図と操作の短い説明を送る' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { liveHints: false } });
+  });
+  it('既定のモデルは一覧から選んで保存し、「Claude Code の既定」は null を送る。一覧に無い名前も打って使える', () => {
+    const onAction = vi.fn();
+    const { rerender } = render(ui(at('integrations'), onAction));
+    expect(screen.getByRole('button', { name: '既定のモデル' })).toHaveTextContent('Claude Code の既定');
+    pick('既定のモデル', 'sonnet');
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { defaultModel: 'sonnet' } });
+    rerender(ui(at('integrations', { injection: { ...settingsProps().injection, defaultModel: 'sonnet' } }), onAction));
+    expect(screen.getByRole('button', { name: '既定のモデル' })).toHaveTextContent('sonnet');
+    pick('既定のモデル', 'Claude Code の既定');
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { defaultModel: null } });
+    fireEvent.click(screen.getByRole('button', { name: '既定のモデル' }));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'claude-opus-4-1' } });
+    fireEvent.click(screen.getByRole('option', { name: '「claude-opus-4-1」を使う' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { defaultModel: 'claude-opus-4-1' } });
+  });
+  it('全文の畳みは、段落の名前を添え、切った段落は打ち消し線で残し、差し込む値は印にする', () => {
+    const full = presentInjection(translator('ja'), { askStatusAtEnd: true, liveHints: false });
+    render(ui(at('integrations', { injection: { askStatusAtEnd: true, liveHints: false, defaultModel: null, full } })));
+    const details = screen.getByText('足す指示の全文を見る').closest('details')!;
+    expect(details.open).toBe(false);
+    fireEvent.click(screen.getByText('足す指示の全文を見る'));
+    expect(within(details).getByText('基本（常に）')).toBeInTheDocument();
+    expect(within(details).getByText('区切りで Done／Paused を聞く（オン）')).toBeInTheDocument();
+    expect(within(details).getByText('ターンの意図と操作の短い説明を送る（オフ・足しません）')).toBeInTheDocument();
+    expect(details.querySelectorAll('.inject-off')).toHaveLength(1);
+    expect(details.querySelector('.inject-off')).toHaveTextContent('set_turn_intent');
+    expect([...details.querySelectorAll('.inject-token')].map((e) => e.textContent)).toEqual(['プロジェクト名', 'パス', 'TODO の一覧']);
+  });
+});
+
+describe('設定の要約エンジンの選択（2a）', () => {
+  it('使わない、Claude、OpenAI 互換の URL の 3 つのラジオを並べ、選んだ時点で保存する', () => {
+    const onAction = vi.fn();
+    render(ui(at('summary', { summaryEngine: 'off' }), onAction));
+    const group = screen.getByRole('radiogroup', { name: '要約エンジン' });
+    const radios = within(group).getAllByRole('radio');
+    expect(radios.map((r) => r.querySelector('.editor-choice-name')?.textContent)).toEqual(['使わない', 'Claude', 'OpenAI 互換の URL']);
+    expect(radios[0]).toHaveAttribute('aria-checked', 'true');
+    // 大事な違い（使用枠を使う、宛先へ送る）は、選ぶ前に各行の説明で読める。
+    expect(radios[1]).toHaveTextContent('あなたの Claude の使用枠を使います。');
+    expect(radios[2]).toHaveTextContent('トランスクリプトをこの宛先へ送ります。');
+    fireEvent.click(radios[1]!);
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryEngine: 'claude' } });
+  });
+  it('使わないときは、欄も保存も接続テストも出さない', () => {
+    render(ui(at('summary', { summaryEngine: 'off' })));
+    expect(screen.queryByLabelText('URL')).toBeNull();
+    expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '接続テスト' })).toBeNull();
+    expect(screen.getByText('終わったセッションの要約を作るものです。会話の中で Claude が書く要約は、どれを選んでも出ます。')).toBeInTheDocument();
+  });
+  it('Claude を選んだら、モデルと 1 時間の上限を出し、保存はその 2 つを送る。URL の欄は出さない', () => {
+    const onAction = vi.fn();
+    render(ui(at('summary', { summaryEngine: 'claude' }), onAction));
+    expect(screen.queryByLabelText('URL')).toBeNull();
+    expect(screen.getByRole('button', { name: '要約に使う Claude のモデル' })).toHaveTextContent('haiku');
+    expect(screen.getByText('動かすのは、その会話のアカウントです。')).toBeInTheDocument();
+    pick('要約に使う Claude のモデル', 'sonnet');
+    fireEvent.change(screen.getByLabelText('Claude での要約の 1 時間あたりの上限'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryClaudeModel: 'sonnet', summaryHourlyCap: 5 }, field: 'summarizer' });
+  });
+  it('OpenAI 互換は、選んだ行に接続の札を出し、API キーは書いたときだけ送る', () => {
+    const onAction = vi.fn();
+    render(ui(at('summary', { summarizerModels: ['gemma'] }), onAction));
+    const openai = screen.getAllByRole('radio')[2]!;
+    expect(openai).toHaveTextContent('接続済み');
+    const key = screen.getByLabelText('API キー（任意）') as HTMLInputElement;
+    expect(key.type).toBe('password');
+    expect(key.placeholder).toBe('要るサーバだけ');
+    fireEvent.change(key, { target: { value: ' sk-local ' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryHourlyCap: 20, summaryApiKey: 'sk-local' }, field: 'summarizer' });
+    // 書いたキーは欄に残さない。
+    expect(key).toHaveValue('');
+  });
+  it('保存済みの API キーは中身を出さず、消すボタンで null を送る', () => {
+    const onAction = vi.fn();
+    render(ui(at('summary', { summaryApiKeySet: true }), onAction));
+    expect((screen.getByLabelText('API キー（任意）') as HTMLInputElement).placeholder).toBe('保存済み。変えるときだけ入力します');
+    fireEvent.click(screen.getByRole('button', { name: 'キーを消す' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryApiKey: null } });
+  });
+  it('OpenAI 互換で切り替えを切っているときは、1 時間の上限を出さない', () => {
+    render(ui(at('summary', { summaryFallback: false })));
+    expect(screen.queryByLabelText('Claude での要約の 1 時間あたりの上限')).toBeNull();
+    expect(screen.getByRole('switch', { name: '接続できないときは Claude を使う' })).toHaveAttribute('aria-checked', 'false');
+  });
+});
+
 describe('設定の要約エンジン', () => {
   it('要約エンジンの URL とモデルと上限を保存する', () => {
     const onAction = vi.fn();
     render(ui(at('summary', { summarizerModels: ['qwen', 'gemma'] }), onAction));
-    fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'http://127.0.0.1:2345' } });
+    fireEvent.change(screen.getByLabelText('URL'), { target: { value: 'http://127.0.0.1:2345' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:2345', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
     pick('モデル', 'qwen');
@@ -689,7 +804,7 @@ describe('設定の要約エンジン', () => {
     // 欄には整える前の文字列が残り、ボタンは押せたままになる（実測で何度でも押せた）。
     const onAction = vi.fn();
     render(ui(at('summary'), onAction));
-    const url = screen.getByLabelText('LM Studio の URL');
+    const url = screen.getByLabelText('URL');
     const save = screen.getByRole('button', { name: '保存' });
     for (const same of ['http://127.0.0.1:1234/', 'http://127.0.0.1:1234///', '  http://127.0.0.1:1234  ']) {
       fireEvent.change(url, { target: { value: same } });
@@ -707,7 +822,7 @@ describe('設定の要約エンジン', () => {
     render(ui(at('summary')));
     const save = screen.getByRole('button', { name: '保存' });
     expect(save).toBeDisabled();
-    fireEvent.click(screen.getByRole('switch', { name: 'LM Studio が使えないときは Claude を使う' }));
+    fireEvent.click(screen.getByRole('switch', { name: '接続できないときは Claude を使う' }));
     expect(save).toBeDisabled();
     // 読めない上限も「変えた」に入れる。押せないと案内を出す道が無くなる。
     fireEvent.change(screen.getByLabelText('Claude での要約の 1 時間あたりの上限'), { target: { value: '' } });
@@ -716,7 +831,7 @@ describe('設定の要約エンジン', () => {
   it('スイッチは切り替えた時点で、その 1 項目だけを保存する', () => {
     const onAction = vi.fn();
     render(ui(at('summary'), onAction));
-    fireEvent.click(screen.getByRole('switch', { name: 'LM Studio が使えないときは Claude を使う' }));
+    fireEvent.click(screen.getByRole('switch', { name: '接続できないときは Claude を使う' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { summaryFallback: false } });
   });
   it('1 時間あたりの上限は − と ＋ でも変えられる', () => {
@@ -763,7 +878,7 @@ describe('設定の要約エンジン', () => {
   });
   it('確かめの宛先は、書きかけの URL ではなく保存済みの URL', () => {
     render(ui(at('summary', { lmStudioUrl: 'http://127.0.0.1:1234' })));
-    fireEvent.change(screen.getByLabelText('LM Studio の URL'), { target: { value: 'https://other.example.com' } });
+    fireEvent.change(screen.getByLabelText('URL'), { target: { value: 'https://other.example.com' } });
     fireEvent.click(screen.getByRole('switch', { name: '外部の要約エンジンを許可' }));
     expect(screen.getByText(/http:\/\/127\.0\.0\.1:1234 へ送られます/)).toBeInTheDocument();
   });
@@ -788,7 +903,7 @@ describe('設定の要約エンジン', () => {
     render(ui(at('summary'), onAction));
     const cap = screen.getByLabelText('Claude での要約の 1 時間あたりの上限');
     // 上限の案内は、ヘッダーのゲージの見出しと同じ「週」で言う。
-    expect(screen.getByText('1 から 200 まで。週の使用率が 80% を超えたら切り替えません。')).toBeTruthy();
+    expect(screen.getByText('1 から 200 まで。週の使用率が 80% を超えたら作りません。')).toBeTruthy();
     // 空は 0 に、文字は NaN になってしまうので、送る前に弾く。
     for (const bad of ['', '0', '-3', '1.5', '201']) {
       fireEvent.change(cap, { target: { value: bad } });
@@ -805,9 +920,10 @@ describe('設定の要約エンジン', () => {
     const { rerender } = render(ui(at('summary', { summarizerModels: null })));
     expect(screen.getByText('読み込んでいます')).toBeTruthy();
     rerender(ui(at('summary', { summarizerModels: [] })));
-    expect(screen.getByText('LM Studio に接続できません')).toBeTruthy();
+    // 欄の下の 1 行と、選んだ行の札の両方で言う。
+    expect(screen.getAllByText('接続できません')).toHaveLength(2);
     rerender(ui(at('summary', { summarizerModels: ['a', 'b'] })));
-    expect(screen.getByText('接続済み')).toBeTruthy();
+    expect(screen.getAllByText('接続済み')).toHaveLength(2);
     expect(screen.getByText('（モデル 2 個）')).toBeTruthy();
   });
   it('接続テストをすると summarizer.test を出し、結果を出す', () => {
@@ -816,11 +932,11 @@ describe('設定の要約エンジン', () => {
     fireEvent.click(screen.getByRole('button', { name: '接続テスト' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'summarizer.test' });
     rerender(ui(at('summary', { summarizerTest: { ok: true, id: 'lmstudio', ms: 820, summary: { title: '題', oneLiner: '1 文', body: '本文', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 3 } } }), onAction));
-    expect(screen.getByText('LM Studio で成功しました（820 ミリ秒）')).toBeTruthy();
+    expect(screen.getByText('OpenAI 互換の URL で成功しました（820 ミリ秒）')).toBeTruthy();
     expect(screen.getByText('1 文')).toBeTruthy();
     rerender(ui(at('summary', { summarizerTest: { ok: false, tried: [{ id: 'lmstudio', message: 'ECONNREFUSED' }, { id: 'claude-headless', message: '上限に達しています' }] } }), onAction));
-    expect(screen.getByText('LM Studio: ECONNREFUSED')).toBeTruthy();
-    expect(screen.getByText('claude: 上限に達しています')).toBeTruthy();
+    expect(screen.getByText('OpenAI 互換の URL: ECONNREFUSED')).toBeTruthy();
+    expect(screen.getByText('Claude: 上限に達しています')).toBeTruthy();
   });
 });
 

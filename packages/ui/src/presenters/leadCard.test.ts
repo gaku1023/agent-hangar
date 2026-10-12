@@ -79,6 +79,19 @@ describe('冒頭の 1 枚の要約', () => {
     expect(none.empty).toBe('要約はありません');
     expect(present().empty).toBeNull();
   });
+  it('要約エンジンを使わないときは、空の文を「要約は設定で有効にできます」にし、作り直しを出さない（2c）', () => {
+    const off = present({ session: session({ summary: null }), summaryOff: true });
+    expect(off.empty).toBeNull();
+    expect(off.enable).toEqual({ before: '要約は', link: '設定', after: 'で有効にできます' });
+    expect(off.canRegenerate).toBe(false);
+    // 会話の中で書いた要約は今どおり出す。作り直しは出さない。
+    const inSession = present({ session: session({ summary: summary({ source: 'in_session' }) }), summaryOff: true });
+    expect(inSession.summary).not.toBeNull();
+    expect(inSession.enable).toBeNull();
+    expect(inSession.canRegenerate).toBe(false);
+    expect(present({ session: session({ summary: null }) }).enable).toBeNull();
+    expect(present({ session: session({ summary: null }), summaryOff: true }, en).enable).toEqual({ before: 'Turn on summaries in ', link: 'Settings', after: '.' });
+  });
   it('作成中と失敗は、要約の上の注記にする。失敗の理由は title で読める', () => {
     expect(present({ summaryPending: true }).notice).toEqual({ kind: 'pending', text: '要約を作成しています', title: null });
     expect(present({ summaryError: 'LM Studio に届かない' }).notice).toEqual({ kind: 'failed', text: '要約を作成できませんでした', title: 'LM Studio に届かない' });

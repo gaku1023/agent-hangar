@@ -68,7 +68,7 @@ describe('辞書', () => {
     expect(en['settings.label.workspaceRoot']).toBe('Projects folder');
     expect(en['settings.label.claudeDir']).toBe('Source directory');
     expect(en['settings.label.allowExternalSummarizer']).toBe('Allow external summary engines');
-    expect(en['settings.label.summaryFallback']).toBe('Fall back to Claude when LM Studio is unavailable');
+    expect(en['settings.label.summaryFallback']).toBe('Use Claude when the URL cannot be reached');
   });
   it('日本語と英語で、行の数が同じである', () => {
     // 何行かにわたる文（Claude に渡す指示、要約器への指示）は、1 行が 1 つの求めに当たる。行が減っていれば、求めを落としている。

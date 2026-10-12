@@ -457,6 +457,13 @@ describe('新しいセッションの下書きと前回値', () => {
     const b = run([action({ type: 'session.new.submit', params: { projectId: 'p1', model: 'opus' } })], start);
     expect(b.effects).toEqual([{ kind: 'api.launch', params: { projectId: 'p1', model: 'opus' } }]);
   });
+  it('設定の既定のモデルと同じモデルは前回値に残さない（既定のモデルを変えたら、そのまま新しい既定に従う）', () => {
+    const store = { ...initialStore(), settings: { ...initialStore().settings!, defaultModel: 'sonnet' } as Store['settings'] };
+    const a = run([action({ type: 'session.new.submit', params: { projectId: 'p1', model: 'sonnet', effort: 'high' } })], initialState(), store);
+    expect(a.state.launchPrefs).toEqual({ p1: { effort: 'high' } });
+    const b = run([action({ type: 'session.new.submit', params: { projectId: 'p1', model: 'opus' } })], initialState(), store);
+    expect(b.state.launchPrefs).toEqual({ p1: { model: 'opus' } });
+  });
   it('プロジェクトを選ばずに送った失敗では前回値を残さない', () => {
     const a = run([action({ type: 'session.new.submit', params: { model: 'opus' } })]);
     expect(a.state.launchPrefs).toEqual({});
