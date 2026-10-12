@@ -62,7 +62,7 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp, 'darwin');
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, language: 'ja' });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, nodePath: null, language: 'ja' });
   });
   it('0.4.0 までの codePath は、VS Code とその場所のエディタに読み替え、古い鍵は持たない', () => {
     ensureHome(tmp);
@@ -125,6 +125,13 @@ describe('paths', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+  it('起動する claude に足す段のスイッチは、鍵が無ければ入り（今までと同じ）で、保存した切りを読める', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
+    expect(loadSettings(tmp)).toMatchObject({ askStatusAtEnd: true, liveHints: true });
+    saveSettings(tmp, { ...loadSettings(tmp), askStatusAtEnd: false, liveHints: false });
+    expect(loadSettings(tmp)).toMatchObject({ askStatusAtEnd: false, liveHints: false });
   });
   it('要約器の設定は既定値で埋まる', () => {
     ensureHome(tmp);
