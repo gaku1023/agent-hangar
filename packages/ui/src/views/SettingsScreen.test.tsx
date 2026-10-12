@@ -216,7 +216,7 @@ describe('設定の一般', () => {
     render(ui(at('general', { self: { autoDone: true, autoPark: false } }), onAction));
     const card = screen.getByRole('heading', { level: 3, name: 'hangar が自分で行うこと' }).closest('section')!;
     expect([...card.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['止まった会話を自動で Done にする', 'Done と Archived にした会話を停止する']);
-    expect(within(card).getByText('止まって 1 分たった会話のうち、3 ターン以下のものと、要約が「完了」か「中止」のものを、自動で Done にします。再開して話しかければ外れます。')).toBeInTheDocument();
+    expect(within(card).getByText('止まって 1 分たった会話のうち、3 ターン以下のものと、要約が「完了」か「中止」のものを、自動で Done にします。一覧では ✦ の札で見分けられます。再開して話しかければ外れます。')).toBeInTheDocument();
     expect(within(card).getByText('区切りを付けてアイドルになった Claude Code を、10 秒後に停止します。Paused は停止しません。停止した会話は「再開」で続けられます。')).toBeInTheDocument();
     const done = screen.getByRole('switch', { name: '止まった会話を自動で Done にする' });
     const park = screen.getByRole('switch', { name: 'Done と Archived にした会話を停止する' });
@@ -236,6 +236,19 @@ describe('設定の一般', () => {
     render(ui(at('general', { notify: { available: true, on: true, blocked: false } }), onAction));
     fireEvent.click(screen.getByRole('switch', { name: '通知を有効にする' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'notify.set', on: false });
+  });
+  // まだ OS に尋ねていない間は、その旨と［許可する］を添える。押せば始める前の確認の行と同じ道で尋ねる（2026-10-13、9c）。
+  it('まだ OS に許可を尋ねていなければ「まだ許可していません」と添え、［許可する］で尋ねる', () => {
+    const onAction = vi.fn();
+    render(ui(at('general', { notify: { available: true, on: true, blocked: false, ask: true } }), onAction));
+    expect(screen.getByText(/まだ許可していません/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '許可する' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'notify.set', on: true });
+  });
+  it('尋ね終えていれば、その添え書きは出さない', () => {
+    render(ui(at('general', { notify: { available: true, on: true, blocked: false } })));
+    expect(screen.queryByText(/まだ許可していません/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '許可する' })).toBeNull();
   });
   it('OS で通知が切られていれば、システム設定で許可するよう添える。スイッチは入れ直せる', () => {
     render(ui(at('general', { notify: { available: true, on: false, blocked: true } })));

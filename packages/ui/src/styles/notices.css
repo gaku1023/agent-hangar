@@ -1,13 +1,15 @@
-/* ベルと知らせの一覧（段 4 の PR 28。試作 small-screens の「知らせ」B の .bell と .pop）。
+/* ヘッダーの「注意」（もとのベル）と一覧（段 4 の PR 28。2026-10-13 に注意へ改めた。利用者の決定、9a）。
    面は .menu-pop と .popover（controls.css）をそのまま使い、ここでは余白、行の並び、ベルの形だけを決める。 */
 
-/* ヘッダーのベル。押せる 28px の透明なボタンで、未読があれば右上に数の札を重ねる。
-   区切りの線はヘッダーの .header-bell が持つ（base.css）。 */
+/* ヘッダーの注意。押せる 28px の透明なボタンで、未読があれば右上に数の札を重ねる。
+   印は注意の三角で、印と数の札は Paused と同じ黄土にする（赤茶は入力待ちの色なので使わない）。
+   区切りの線はヘッダーの .header-bell が持つ（base.css）。中身が無いときは注意も区切りも描かない。 */
 .bell { position: relative; flex: none; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-pill); background: none; color: var(--ink-2); cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .bell:hover, .bell[aria-expanded='true'] { background: var(--surface-2); color: var(--ink); }
 .bell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bell .icon { width: 17px; height: 17px; }
-.bell-n { position: absolute; top: -2px; right: -6px; display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill); background: var(--waiting); color: #fff; font-size: 10px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; pointer-events: none; }
+.bell[data-tone='warn'] { color: var(--st-paused); }
+.bell-n { position: absolute; top: -2px; right: -6px; display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-pill); background: var(--st-paused); color: #fff; font-size: 10px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; pointer-events: none; }
 
 /* 知らせの一覧の面。行が増えても窓に収まるよう、中で縦に送る。 */
 .notices-pop { width: 400px; max-width: calc(100vw - 24px); padding: calc(var(--u) * 1.5); max-height: min(72vh, 560px); overflow-y: auto; overscroll-behavior: contain; color: var(--ink); }
@@ -16,7 +18,8 @@
 .pop-h .end { margin-left: auto; color: var(--accent); font-weight: 600; }
 .pop-h .end:disabled { color: var(--ink-3); }
 .notices { margin: 0; padding: 0; list-style: none; }
-.notices-empty { margin: 0; padding: calc(var(--u) * 4) calc(var(--u) * 2); font-size: var(--fs-sm); }
+/* 見出しの添え書き（何が入るか）。狭い面では切り詰める。 */
+.pop-h .notices-lead { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 行。左に種類、真ん中に題と説明と操作、右に時。未読は左端の点で見せる。 */
 .nrow { position: relative; display: flex; align-items: flex-start; gap: calc(var(--u) * 2.5); min-width: 0; padding: calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 2) calc(var(--u) * 3.5); border-top: 1px solid var(--line); }

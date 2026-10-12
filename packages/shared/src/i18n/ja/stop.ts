@@ -44,9 +44,5 @@ export const stopJa: AreaDictionary<typeof stopKeys> = {
   'stop.toast.permissionLabel': '{name} が許可待ちです：{what}',
   'stop.toast.permissionLabelBare': '{name} が許可待ちです',
   'stop.toast.resetLabel': '{name}：使用制限がリセットされました。続きを指示してください',
-  'stop.header.chip': '停止 {n}',
-  'stop.header.chipLabel': '使用制限で止まっているセッション {n} 件',
-  'stop.header.head': '{kind}の使用制限で止まっています · {time} にリセット',
-  'stop.header.headOther': '使用制限で止まっています · {time} にリセット',
   'stop.header.gaugeTitle': '{label}：使用制限 · {time} にリセット',
 };

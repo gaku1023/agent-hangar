@@ -95,3 +95,24 @@ describe('TODO の操作と取り消し', () => {
     expect(run(storeWith(t), inputs).state.todoUndo).toHaveLength(TODO_UNDO_MAX);
   });
 });
+
+// 確認待ちの群の見出しの「すべて確定」「すべて却下」（2026-10-13 の決定、知らせの 9d）。
+describe('確認待ちをまとめて片付ける', () => {
+  it('すべて確定は、セッションの提案を確定し、TODO の完了の提案を確定する', () => {
+    const r = run(initialStore(), [action({ type: 'pending.resolve', accept: true, sessionIds: ['s1', 's2'], todoIds: ['t1'] })]);
+    expect(r.effects).toEqual([
+      { kind: 'api.confirmSessionState', id: 's1', body: {} },
+      { kind: 'api.confirmSessionState', id: 's2', body: {} },
+      { kind: 'api.todo', call: { op: 'confirm', id: 't1' } },
+    ]);
+  });
+  it('すべて却下は、セッションの提案を却下し、TODO の完了の提案を却下する。取り消しの積みは作らない', () => {
+    const r = run(initialStore(), [action({ type: 'pending.resolve', accept: false, sessionIds: ['s1'], todoIds: ['t1', 't2'] })]);
+    expect(r.effects).toEqual([
+      { kind: 'api.rejectSessionState', id: 's1' },
+      { kind: 'api.todo', call: { op: 'reject', id: 't1' } },
+      { kind: 'api.todo', call: { op: 'reject', id: 't2' } },
+    ]);
+    expect(r.state.todoUndo).toEqual([]);
+  });
+});

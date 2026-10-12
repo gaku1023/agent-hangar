@@ -2,12 +2,10 @@ import { formatRoute } from '@agent-hangar/shared';
 import { useRef } from 'react';
 import markUrl from '../brand/logo-mark.svg';
 import { useEmit } from '../action/chain.tsx';
-import type { HeaderAccountProps, ShellProps, StoppedProps, SyncProps, UsageProps } from '../presenters/shell.ts';
+import type { HeaderAccountProps, ShellProps, SyncProps, UsageProps } from '../presenters/shell.ts';
 import { AccountSwitcher } from './AccountSwitcher.tsx';
 import { Bell } from './Bell.tsx';
 import { Icon } from './primitives/Icon.tsx';
-import { Popover } from './primitives/Popover.tsx';
-import { ReasonGlyph } from './primitives/StatusDot.tsx';
 import { useT } from './primitives/language.tsx';
 import { ariaKeyShortcuts, keyLabel } from '../keys.ts';
 import { UsageGauge } from './primitives/UsageGauge.tsx';
@@ -24,7 +22,7 @@ const SETTINGS = { name: 'settings' } as const;
  * ヘッダ。左の列（サイドバーの列）にロゴ、右の列（本文の列）に「移動・操作」の錠剤と右の塊を置く（base.css の .header）。
  * 今いる場所はヘッダではなく、各頁の見出し（PageHeading）で示す。頁ごとに幅の変わる文字をここに置くと、錠剤が頁ごとに横へずれるからである。
  */
-export function Header(props: { indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: ShellProps['notices']; newSession: ShellProps['newSession']; stopped?: StoppedProps | null }) {
+export function Header(props: { indexLabel: string | null; usage: UsageProps; account: HeaderAccountProps; sync: SyncProps; notices: ShellProps['notices']; newSession: ShellProps['newSession'] }) {
   const emit = useEmit();
   const t = useT();
   // 右の列は、収まるまで優先度の低い部品から畳む（headerFold.ts）。部品の data-fold-at が、何段目で畳むかを示す。
@@ -69,39 +67,15 @@ export function Header(props: { indexLabel: string | null; usage: UsageProps; ac
             // 値が一度も届いていない間は、空の棒を 2 本並べない。1 語にまとめ、押すと設定へ行く。
             <a className="gauges gauges-none" data-fold-at={foldAt('gauges')} href={formatRoute(SETTINGS)} title={t('header.gauge.noneTitle')} onClick={(e) => { e.preventDefault(); emit({ type: 'nav.go', to: SETTINGS }); }}>{t('header.gauge.noneLink')}</a>
           ) : gauges}
-          {props.stopped && <StoppedChip stopped={props.stopped} />}
-          {/* ベルは使用率の後ろに置く。畳まない（未読の数が読めなくなるため）。区切りの線は .header-bell が持つ。 */}
-          <span className="header-bell"><Bell {...props.notices} /></span>
+          {/* 使用制限で止まっているセッションの数（「停止 N」の錠剤）は置かない。ホームの帯の実行中の行と重なるからである（2026-10-13 の決定、9b）。
+              注意（もとのベル）は使用率の後ろに置く。畳まない（未読の数が読めなくなるため）。区切りの線は .header-bell が持つ。
+              中身が無いときは、区切りの線ごと描かない。 */}
+          {props.notices.rows.length > 0 && <span className="header-bell"><Bell {...props.notices} /></span>}
           {/* 狭いときは「＋」だけになる。名前は aria-label に残す。 */}
           <button className="btn btn-primary new-session" aria-label={t('header.new.session')} onClick={() => emit({ type: 'session.new.open', ...props.newSession })}><Icon name="add" /><span className="btn-label" data-fold-at={foldAt('new-session-label')}>{t('header.new.session')}</span></button>
           {props.indexLabel && <span className="progress" data-fold-at={foldAt('progress')}>{props.indexLabel}</span>}
         </div>
       </div>
     </header>
-  );
-}
-
-/**
- * 「停止 N」の札（試作 stop-reason-proto の H2）。使用制限でリセットを待っているセッションの数で、押すと一覧が開く。
- * 行を押すとその会話へ移る。自動で続くかを行ごとに添える。リセットを過ぎたら札は消える（リセット済みは要対応へ移る）。
- */
-function StoppedChip(props: { stopped: StoppedProps }) {
-  const emit = useEmit();
-  const t = useT();
-  const s = props.stopped;
-  return (
-    <Popover label={s.head} width={340} align="end" className="stopped-pop"
-      face={(p) => <button type="button" className="stopped-chip" aria-label={t('stop.header.chipLabel', { n: s.count })} {...p}><ReasonGlyph reason="limit" />{t('stop.header.chip', { n: s.count })}</button>}>
-      {({ close }) => (
-        <div className="stopped-list">
-          <p className="stopped-head">{s.head}</p>
-          {s.rows.map((r) => (
-            <button key={r.id} type="button" className="stopped-row" onClick={() => { close(); emit({ type: 'session.open', id: r.id }); }}>
-              <ReasonGlyph reason="limit" /><span className="stopped-name">{r.name}</span><span className="stopped-proj">{r.project}</span><span className="stopped-auto">{r.auto}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </Popover>
   );
 }

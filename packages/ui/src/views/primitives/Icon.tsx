@@ -47,6 +47,8 @@ const ICONS = {
   permissionAcceptEdits: FilePenLine,
   permissionPlan: MapIcon,
   permissionAuto: Sparkles,
+  // hangar が自動で付けた Done の印（4a、試作の A の ✦）。
+  autoMark: Sparkles,
   permissionDontAsk: Ban,
   permissionBypass: ShieldAlert,
   gitInit: GitBranch,

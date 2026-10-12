@@ -157,8 +157,8 @@ const busyMorning = presentHomeBand({
   ],
   confirm: [
     { kind: 'todo', id: 't1', text: 'メール送信の再試行を足す', projectId: 'p1', projectName: 'web-shop', sessionName: '通知の見直し', ago: '2 時間前', note: '再試行の実装と試験が入った' },
-    { kind: 'session', id: 's1', name: '古い管理画面の調査', projectName: 'legacy-admin', status: 'done', label: 'Done にする？', note: '移行の計画が取り下げられた', ago: '5 時間前' },
-    { kind: 'session', id: 's2', name: 'CI の高速化', projectName: 'infra', status: 'paused', label: 'Paused · 10/12（月）？', note: '結果は週明けに確かめる', ago: '1 日前' },
+    { kind: 'session', id: 's1', name: '古い管理画面の調査', projectName: 'legacy-admin', status: 'done', label: 'Done にする？', note: '移行の計画が取り下げられた', ago: '5 時間前', source: 'post_hoc', daysLeft: 6 },
+    { kind: 'session', id: 's2', name: 'CI の高速化', projectName: 'infra', status: 'paused', label: 'Paused · 10/12（月）？', note: '結果は週明けに確かめる', ago: '1 日前', source: 'in_session', daysLeft: null },
   ],
 }, T);
 const quiet = presentHomeBand({
@@ -186,7 +186,7 @@ function BandCases() {
   );
 }
 
-/* ---- ベルと知らせの一覧（試作 small-screens の知らせ B）。事実は作り物で、Presenter が行を組む。 ---- */
+/* ---- ヘッダーの注意（もとのベル）と一覧（2026-10-13 の利用者の決定、9a）。事実は作り物で、Presenter が行を組む。 ---- */
 const NOTICE_NOW = new Date(2026, 9, 9, 13, 25).getTime();
 const noticeSession = (): SessionDto => ({
   id: 's-bench', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '検索の速度の計測', cwd: '/work/web-shop', firstPrompt: null, aiTitle: null, startedAt: NOTICE_NOW - 6 * 3_600_000, lastActivityAt: NOTICE_NOW - 3_600_000, hasTranscript: true, live: null, summary: null,

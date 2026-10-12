@@ -23,7 +23,9 @@ const present = (p: Partial<LeadInput> = {}, t = ja) => presentLeadCard(input(p)
 describe('冒頭の 1 枚の 1 行目', () => {
   it('ステータスの札と設定した日、終了、ターンとトークンとコストを出す', () => {
     const c = present();
-    expect(c.status).toMatchObject({ value: 'done', label: 'Done' });
+    expect(c.status).toMatchObject({ value: 'done', label: 'Done', title: '完了したもの', auto: false });
+    // 自動で付いた Done は印を立て、理由をツールチップにする（2026-10-13 の決定、4a）。
+    expect(present({ session: session({ state: state({ setBy: 'import' }), stats: { ...session().stats, turns: 2 } }) }).status).toMatchObject({ value: 'done', auto: true, title: 'hangar が自動で Done にしました（3 ターン以下で止まった会話）' });
     // 設定した日は端末の時刻で月と日にする。
     expect(c.status.since).toBe(`${new Date(Date.UTC(2026, 9, 6, 3, 0)).getMonth() + 1}/${new Date(Date.UTC(2026, 9, 6, 3, 0)).getDate()} に設定`);
     expect(c.ended).toBe('終了 3 日前');
@@ -35,7 +37,7 @@ describe('冒頭の 1 枚の 1 行目', () => {
   });
   it('印の無いセッションは Active。設定した日は出さない', () => {
     const c = present({ session: session({ state: null }) });
-    expect(c.status).toEqual({ value: 'active', label: 'Active', since: null });
+    expect(c.status).toEqual({ value: 'active', label: 'Active', since: null, title: '進行中のもの', auto: false });
     expect(present({ session: session({ state: state({ status: 'paused', setAt: null }) }) }).status).toMatchObject({ value: 'paused', label: 'Paused', since: null });
   });
   it('コストが届いていなければ null（行の桁を崩さない）', () => {

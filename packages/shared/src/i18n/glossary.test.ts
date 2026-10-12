@@ -43,6 +43,8 @@ const FORBIDDEN_JA: Array<{ pattern: RegExp; use: string }> = [
   { pattern: /日を変える|名前を変える|色を変える/, use: '日付を変更、名前を変更、色を変更' },
   { pattern: /やり終え|いま進めている|一覧の奥/, use: '札の説明（完了したもの、進行中のもの、一覧に表示しないもの）' },
   { pattern: /(?:を|で)探す/, use: '検索' },
+  { pattern: /手目/, use: 'ツール呼び出し' },
+  { pattern: /降ろせ/, use: '取得できなかった' },
   { pattern: /入れてください|入れ直/, use: '入力、インストール、オンにする' },
 ];
 

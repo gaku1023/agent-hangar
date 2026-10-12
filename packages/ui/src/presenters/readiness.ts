@@ -115,17 +115,20 @@ export function liveReadiness(r: ReadinessDto, projects: readonly { isScratch: b
   return resolved === r.projects.resolved ? r : { ...r, projects: { ...r.projects, resolved } };
 }
 
-/** 始める前の確認の行の名前。git とエディタは 0.5.0 で足した任意の行で、古いサーバの答えには無い。 */
-export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'projects' | 'git' | 'mcp' | 'statusline' | 'editor' | 'compat';
+/**
+ * 始める前の確認の行の名前。git とエディタは 0.5.0 で足した任意の行で、古いサーバの答えには無い。
+ * notify は OS の通知の許可をまだ尋ねていないときだけの任意の行で、サーバの答えではなく画面の Store（notify.ask）から足す（2026-10-13 の決定、9c）。
+ */
+export type ReadinessKey = 'tmux' | 'claude' | 'workspace' | 'projects' | 'git' | 'mcp' | 'statusline' | 'editor' | 'compat' | 'notify';
 /**
  * 帯の行ごとの、直す場所（設定の開く先）。「設定を開く」はここを指して開く（節の中の欄まで移って目立たせる）。
  * 全部の行が節を持つ（試験が縛る）。MCP とステータスラインは命令をコピーする行なので、欄までは指さず連携の節にする。
  */
 export const READINESS_AT: Record<ReadinessKey, SettingsAt> = {
-  tmux: 'tmux', claude: 'claude', workspace: 'workspace', projects: 'workspace', git: 'tools', mcp: 'integrations', statusline: 'integrations', editor: 'editor', compat: 'compat',
+  tmux: 'tmux', claude: 'claude', workspace: 'workspace', projects: 'workspace', git: 'tools', mcp: 'integrations', statusline: 'integrations', editor: 'editor', compat: 'compat', notify: 'general',
 };
-/** 任意の行。無くても始められるので、残りがこれだけになったら帯ごと消す（設計書 2.11.4）。 */
-const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['git', 'mcp', 'statusline', 'editor']);
+/** 任意の行。無くても始められるので、残りがこれだけになったら帯ごと消す（設計書 2.11.4）。通知の行だけは例外で、答えるまで群を残す（presentReadiness）。 */
+const OPTIONAL: ReadonlySet<ReadinessKey> = new Set(['git', 'mcp', 'statusline', 'editor', 'notify']);
 /** 行の調子。info は止めていない知らせ（未確認のバージョン）で、済んだものに数える。soft は弱い印で、任意の行と、プロジェクトが 0 件の行に使う。 */
 type Tone = 'ok' | 'info' | 'soft' | 'ng';
 /** 確認の 1 行の事実。文は、帯の行にするときに辞書から引く。 */
@@ -199,9 +202,11 @@ const toolOk = (t: Translate, c: ToolCheckDto) => (c.version ? t('home.ready.too
  * 互換のずれは、直すものとして残る（任意の札は付けない）。
  * 右端のボタンは 1 つで、「設定を開く」か「コマンドをコピー」である。殻の中では、MCP とステータスラインの行を設定の連携の節と同じボタン（setup.run）にする。
  */
-export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: { desktop: boolean; running: SetupTarget | null } = { desktop: false, running: null }): ReadinessBand | null {
-  if (!readinessPending(r)) return null;
-  const checks = checksOf(r);
+export function presentReadiness(r: ReadinessDto, t: Translate, platform: string = clientPlatform(), check: MuxCheck = 'idle', setup: { desktop: boolean; running: SetupTarget | null; notifyAsk?: boolean } = { desktop: false, running: null }): ReadinessBand | null {
+  // OS の通知の許可をまだ尋ねていなければ、任意の行「通知」を足す。押したときだけ OS に尋ねる（notify.set の on）。
+  // この行だけは、答える（許可するか要らないを押す）まで群を残す。ほかの任意の行と違い、放っておくと通知が届かないまま気付けないからである。
+  if (!readinessPending(r) && !setup.notifyAsk) return null;
+  const checks: Check[] = [...checksOf(r), ...(setup.notifyAsk ? [{ key: 'notify' as const, ok: false, tone: 'soft' as const }] : [])];
   // tmux の行は、Windows では psmux の名で出す（段 6）。
   const name = (k: ReadinessKey) => (k === 'tmux' ? muxName(platform) : t(`home.ready.name.${k}`));
   const action = (label: string, who: string, send: UiAction, primary: boolean): BandAction => ({ id: 'fix', label, ariaLabel: t('home.band.actionFor', { action: label, name: who }), primary, ghost: false, send });
@@ -277,6 +282,12 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
         act = toSettings('editor');
         break;
       }
+      case 'notify':
+        text = t('home.ready.notify.text');
+        act = action(t('home.ready.notify.allow'), name('notify'), { type: 'notify.set', on: true }, true);
+        // 要らない人は、通知をオフにして行を消せる（オフにすると ask も下りる。runtime.ts の notify.off）。
+        extra = [{ id: 'decline', label: t('home.ready.notify.decline'), ariaLabel: t('home.band.actionFor', { action: t('home.ready.notify.decline'), name: name('notify') }), primary: false, ghost: true, send: { type: 'notify.set', on: false } }];
+        break;
     }
     return { key: `ready:${c.key}`, lead: { kind: 'check', tone: c.tone === 'ng' ? 'ng' : 'soft', label: t(c.key === 'compat' ? 'home.ready.state.drift' : c.tone === 'ng' ? 'home.ready.state.ng' : 'home.ready.state.soft') }, name: name(c.key), badge: OPTIONAL.has(c.key) ? t('home.ready.optional') : null, context: null, text, detail, tone: null, trail: [], open: null, actions: [act, ...extra] };
   };
@@ -298,6 +309,8 @@ export function presentReadiness(r: ReadinessDto, t: Translate, platform: string
         text = e.state === 'app' ? t('home.ready.editor.appOnly', { name, path: e.path ?? '' }) : t('home.ready.editor.ok', { name, path: e.path ?? '' });
         break;
       }
+      // 通知の行は尋ね終えたら消えるので、済んだ行にはならない。
+      case 'notify': break;
       case 'compat': text = c.tone === 'info' ? t('home.ready.compat.unverified', { local: summary?.localVersion ?? '', verified: summary?.verifiedVersion ?? '' }) : t('home.ready.compat.ok', { version: summary?.verifiedVersion ?? '' }); break;
     }
     const tone = c.tone === 'info' ? 'info' : 'ok';

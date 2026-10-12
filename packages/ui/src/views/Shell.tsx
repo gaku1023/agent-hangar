@@ -17,7 +17,7 @@ export function Shell(props: ShellProps & { children: ReactNode; overlays: React
   return (
     <div ref={ref} className="shell" data-sidebar={props.sidebarCollapsed ? 'collapsed' : undefined} data-wide={props.wide ? 'true' : undefined}>
       <Sidebar nav={props.nav} foot={props.foot} collapsed={props.sidebarCollapsed} live={props.live} />
-      <Header indexLabel={props.indexLabel} usage={props.usage} account={props.account} sync={props.sync} notices={props.notices} newSession={props.newSession} stopped={props.stopped ?? null} />
+      <Header indexLabel={props.indexLabel} usage={props.usage} account={props.account} sync={props.sync} notices={props.notices} newSession={props.newSession} />
       {/* 帯は 2 行目に置く。切断の帯だけで、無いときは箱が空になり、:empty で潰れる。保持期間は帯でなくベルの一覧の行になった。 */}
       <div className="banners"><ConnectionBanner {...props.conn} /></div>
       <main className="main"><div className="main-inner">{props.children}</div></main>

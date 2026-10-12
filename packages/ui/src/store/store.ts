@@ -20,8 +20,11 @@ export type EventsSlice = { items: TranscriptEvent[]; total: number; nextSeq: nu
  * available は通知を出せる環境か（ブラウザで拒まれた後は false）、on は利用者が受け取ると決めて許可も得ているか。
  * blocked はデスクトップのシステム設定で切られていること。
  * 受け取るにしても OS が捨てるので on にせず、設定に許可の仕方を出す。
+ * ask は、受け取ると選んでいる（選んでいなければ環境の既定）のに、OS にまだ尋ねていないこと（許可の状態が undetermined）。
+ * 立っている間だけ、始める前の確認に任意の行「通知」と［許可する］を出す（presenters/readiness.ts、2026-10-13 の決定、9c）。
+ * 立っていないときは持たない（false を書かない）。
  */
-export type NotifyState = { available: boolean; on: boolean; blocked: boolean };
+export type NotifyState = { available: boolean; on: boolean; blocked: boolean; ask?: true };
 /**
  * 設定の同期（作り直した実装）の中身。節とダイアログを開いたときに取りに行く値で、未取得は null である。
  * 件数と状態は configSync（bootstrap と config.update）が正で、ここは件数が 0 でないときに、その中身を見せるために持つ。
@@ -560,7 +563,7 @@ export function applyJoinToken(store: Store, token: string | null, expiresAt: nu
 /** 通知の受け取りを入れる。変わっていなければ同じ Store を返す。 */
 export function applyNotify(store: Store, next: NotifyState): Store {
   const was = store.notify;
-  return was.available === next.available && was.on === next.on && was.blocked === next.blocked ? store : { ...store, notify: next };
+  return was.available === next.available && was.on === next.on && was.blocked === next.blocked && was.ask === next.ask ? store : { ...store, notify: next };
 }
 
 /** 未登録のフォルダの一覧を入れる。 */

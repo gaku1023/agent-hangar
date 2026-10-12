@@ -5,7 +5,7 @@ import { syncFixture } from '../test/syncProps.ts';
 import { Shell } from './Shell.tsx';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
-const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '通知' }, account: null, newSession: {} };
+const props = { live: { count: 0, ids: [], rows: [], more: 0 }, sidebarCollapsed: false, wide: false, nav: [{ route: { name: 'home' as const }, label: 'ホーム', current: true, count: 0 }, { route: { name: 'projects' as const }, label: 'プロジェクト', current: false, count: 0 }], foot: [{ route: { name: 'settings' as const }, label: '設定', current: false, count: 0 }], conn: { visible: false, staleLabel: '', retryLabel: '', hard: false, desktop: false }, index: { phase: 'idle' as const, done: 0, total: 0 }, indexLabel: null, usage: { fiveHour: null, sevenDay: null, fiveHourResets: null, sevenDayResets: null, updatedLabel: null }, sync: syncFixture({ visible: false, state: 'off', label: '' }), notices: { rows: [], unread: 0, keys: [], label: '注意' }, account: null, newSession: {} };
 
 describe('Shell の本文の幅', () => {
   // セッション画面だけ幅の上限を外す（案 b）。
@@ -159,25 +159,27 @@ describe('Shell', () => {
     fireEvent.click(banner.getByRole('button', { name: 'ログの場所 をコピー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: '~/.agent-hangar/desktop.log' });
   });
-  it('ヘッダーにベルを置く。未読の数を札に出し、押すと知らせの一覧が開いて、行の操作を送れる', () => {
+  it('ヘッダーに注意を置く。未読の数を札に出し、押すと一覧が開いて、行の操作を送れる', () => {
     const onAction = vi.fn();
-    const row = { key: 'retention|30|rule', kind: 'retention' as const, tone: 'warn' as const, icon: 'retention' as const, kindLabel: '保持期間', title: '会話は 30 日で削除されます', detail: 'hangar の履歴からも削除されます', when: null, unread: true, action: { label: '設定を開く', send: { type: 'nav.go' as const, to: { name: 'settings' as const } } } };
-    const notices = { rows: [row], unread: 1, keys: [row.key], label: '通知（未読 1 件）' };
+    const row = { key: 'retention|30|soon', kind: 'retention' as const, tone: 'warn' as const, icon: 'retention' as const, kindLabel: '保持期間', title: 'セッションのトランスクリプト 2 件が、まもなく削除されます', detail: 'Claude Code は 30 日でトランスクリプトを削除します', when: null, unread: true, action: { label: '保持期間を延長…', send: { type: 'nav.go' as const, to: { name: 'settings' as const } } } };
+    const notices = { rows: [row], unread: 1, keys: [row.key], label: '注意、未読 1 件' };
     render(<ActionRoot onAction={onAction}><Shell {...props} notices={notices} overlays={null}><div /></Shell></ActionRoot>);
-    const bell = screen.getByRole('button', { name: '通知（未読 1 件）' });
+    const bell = screen.getByRole('button', { name: '注意、未読 1 件' });
     expect(within(bell).getByText('1')).toBeInTheDocument();
     // 保持期間の帯はヘッダーの下に出ない。
     expect(screen.queryByRole('status', { name: '会話の保持期間' })).toBeNull();
     fireEvent.click(bell);
-    const list = within(screen.getByRole('dialog', { name: '通知' }));
-    expect(list.getByText('会話は 30 日で削除されます')).toBeInTheDocument();
-    fireEvent.click(list.getByRole('button', { name: '設定を開く' }));
+    const list = within(screen.getByRole('dialog', { name: '注意' }));
+    expect(list.getByText('セッションのトランスクリプト 2 件が、まもなく削除されます')).toBeInTheDocument();
+    fireEvent.click(list.getByRole('button', { name: '保持期間を延長…' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'notices.read', keys: [row.key] });
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings' } });
   });
-  it('ベルは未読が無くても出す（数の札だけを隠す）', () => {
+  // 中身が無いときは、注意そのものを描かない（2026-10-13 の決定、9a）。
+  it('注意は、中身が無ければ描かない', () => {
     render(<ActionRoot onAction={() => {}}><Shell {...props} overlays={null}><div /></Shell></ActionRoot>);
-    expect(within(screen.getByRole('button', { name: '通知' })).queryByText('0')).toBeNull();
+    expect(screen.queryByRole('button', { name: '注意' })).toBeNull();
+    expect(document.querySelector('.header-bell')).toBeNull();
   });
   it('つながっている間は帯を出さない', () => {
     render(<ActionRoot onAction={() => {}}><Shell {...props} overlays={null}><div /></Shell></ActionRoot>);

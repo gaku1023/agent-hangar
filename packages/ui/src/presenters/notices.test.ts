@@ -57,30 +57,10 @@ describe('presentNotices：事実から行を組む', () => {
     expect(quota).toMatchObject({ key: `sync|paused|quota|${until}`, tone: 'warn', title: '無料枠で停止 · 9:00 にリセット' });
   });
 
-  it('今日戻るの Paused は、時刻つきなら時刻、過ぎていれば過ぎた長さを言い、そのセッションを開く', () => {
-    const store = storeOf(withSessions([paused('pay', '2026-10-02', '13:30', '夜間の再計測を見る'), paused('slow', '2026-10-02', '08:35'), paused('stale', '2026-09-29'), paused('plain', '2026-10-02')]));
-    const rows = presentNotices(initialState(), store, NOW).rows;
-    const by = Object.fromEntries(rows.map((r) => [r.key.split('|')[1]!, r]));
-    // 時刻つきは、時刻を過ぎてから行にする（2026-10-13）。
-    expect(by.pay).toBeUndefined();
-    expect(by.slow).toMatchObject({ key: 'reminder|slow|2026-10-02 08:35', kind: 'reminder', tone: 'warn', kindLabel: 'リマインダー', title: 'slow', when: '25 分過ぎ', unread: true });
-    expect(by.slow!.action).toEqual({ label: 'セッションを開く', send: { type: 'session.open', id: 'slow' } });
-    expect(by.stale).toMatchObject({ key: 'reminder|stale|2026-09-29', when: '3 日過ぎ' });
-    expect(by.plain!.when).toBe('今日');
-  });
-
-  it('先の日の Paused、状態の無いセッション、生きているセッションは行にしない。理由が無ければ detail は null', () => {
-    const live = { ...paused('busy', '2026-10-01'), live: 'busy' as const };
-    const store = storeOf(withSessions([paused('later', '2026-10-05'), dto('plain'), live, paused('bare', '2026-10-02', null, '')]));
-    const rows = presentNotices(initialState(), store, NOW).rows;
-    expect(rows.map((r) => r.key)).toEqual(['reminder|bare|2026-10-02']);
-    expect(rows[0]!.detail).toBeNull();
-  });
-
-  it('戻る日が壊れた Paused は「日付なし」の行にする。利用者が選んだ日付なしは行にしない', () => {
-    const [row] = presentNotices(initialState(), storeOf(withSessions([paused('x', '2026-02-30')])), NOW).rows;
-    expect(row).toMatchObject({ key: 'reminder|x|none', when: '日付なし' });
-    expect(presentNotices(initialState(), storeOf(withSessions([paused('y', null)])), NOW).rows).toEqual([]);
+  // リマインダーはホームの帯（要対応）にあるので、注意には入れない（2026-10-13 の決定、9a）。
+  it('Paused のリマインダーは、今日でも過ぎていても行にしない', () => {
+    const store = storeOf(withSessions([paused('pay', '2026-10-02', '08:35'), paused('stale', '2026-09-29'), paused('x', null)]));
+    expect(presentNotices(initialState(), store, NOW).rows).toEqual([]);
   });
 
   it('互換は、変更点があるときだけ行にする。未検証の版と変更点なしは行にしない', () => {
@@ -106,20 +86,23 @@ describe('presentNotices：事実から行を組む', () => {
     expect(presentNotices(initialState(), storeOf({ readiness: {} as ReadinessDto }), NOW).rows).toEqual([]);
   });
 
-  it('保持期間は、既定のままで書き換えられるときだけ行にする', () => {
-    for (const r of [null, retention({ source: 'user', userValue: 365, days: 365 }), retention({ source: 'managed', writable: false }), retention({ writable: false })]) {
+  // 保持期間の日数（決まり）は設定の「情報」の目次に残し、注意には消えかけがあるときだけ出す（9a）。
+  it('保持期間は、消えかけのトランスクリプトが無ければ行にしない', () => {
+    for (const r of [null, retention(), retention({ source: 'user', userValue: 365, days: 365 }), retention({ source: 'managed', writable: false }), retention({ writable: false })]) {
       expect(presentNotices(initialState(), storeOf({ retention: r }), NOW).rows).toEqual([]);
     }
-    const [row] = presentNotices(initialState(), storeOf({ retention: retention() }), NOW).rows;
-    expect(row).toMatchObject({ key: 'retention|30|rule', kind: 'retention', tone: 'warn', kindLabel: '保持期間', title: 'トランスクリプトは 30 日で削除されます', detail: 'hangar の履歴からも削除されます', when: null });
-    expect(row!.action).toEqual({ label: '保持期間を延長…', send: { type: 'nav.go', to: { name: 'settings' } } });
   });
 
   it('消えかけのトランスクリプトがあれば、その件数を言う', () => {
     const old = (id: string, days: number) => dto(id, { hasTranscript: true, transcriptMtime: NOW - days * 86_400_000 });
     const store = storeOf({ retention: retention(), ...withSessions([old('a', 27), old('b', 25), old('c', 1)]) });
     const [row] = presentNotices(initialState(), store, NOW).rows;
-    expect(row).toMatchObject({ key: 'retention|30|soon', title: 'セッションのトランスクリプト 2 件が、まもなく削除されます', detail: 'Claude Code は 30 日でトランスクリプトを削除します' });
+    expect(row).toMatchObject({ key: 'retention|30|soon', kind: 'retention', tone: 'warn', kindLabel: '保持期間', title: 'セッションのトランスクリプト 2 件が、まもなく削除されます', detail: 'Claude Code は 30 日でトランスクリプトを削除します' });
+    expect(row!.action).toEqual({ label: '保持期間を延長…', send: { type: 'nav.go', to: { name: 'settings' } } });
+    // 自分で値を入れた人、書き換えられない人には、消えかけがあっても出さない。
+    for (const r of [retention({ source: 'user', userValue: 30 }), retention({ writable: false })]) {
+      expect(presentNotices(initialState(), { ...store, retention: r }, NOW).rows).toEqual([]);
+    }
   });
 
   // 本文を降ろせなかったときの error のトーストは、サーバから外した（PR 29）。事実は同期の状態の skipped に残るので、ベルの行にする。
@@ -127,7 +110,7 @@ describe('presentNotices：事実から行を組む', () => {
     const skipped = [{ key: 'transcripts/mini/u1.jsonl.gz', attempts: 3, message: '復号できません' }, { key: 'transcripts/mini/u2.jsonl.gz', attempts: 3, message: '壊れています' }];
     const rows = presentNotices(initialState(), storeOf({ sync: sync({ skipped }) }), NOW).rows;
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ key: 'sync|skipped|2', kind: 'sync', tone: 'err', kindLabel: '同期', title: '降ろせなかったトランスクリプト 2 件', detail: '復号できません', unread: true });
+    expect(rows[0]).toMatchObject({ key: 'sync|skipped|2', kind: 'sync', tone: 'err', kindLabel: '同期', title: '取得できなかったトランスクリプト 2 件', detail: '復号できません', unread: true });
     expect(rows[0]!.action.send).toEqual({ type: 'nav.go', to: { name: 'settings', at: 'sync' } });
     // 状態の行（エラー）と並べても、別の行になる。状態の行が先。
     const both = presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'x', skipped }) }), NOW).rows;
@@ -138,16 +121,11 @@ describe('presentNotices：事実から行を組む', () => {
     expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'off', url: null, skipped }) }), NOW).rows).toEqual([]);
   });
 
-  // 通知の誘いは右下の積みの上から外し、ベルの一覧の行にした（PR 29）。
-  it('通知を出せるのに受け取っていないときだけ、「通知を受け取る」の行を出し、押すと受け取りを入れる', () => {
-    const rows = (notify: { available: boolean; on: boolean; blocked: boolean }) => presentNotices(initialState(), storeOf({ notify }), NOW).rows;
-    const [row] = rows({ available: true, on: false, blocked: false });
-    expect(row).toMatchObject({ key: 'notify|offer', kind: 'notify', tone: 'info', kindLabel: '通知', title: '離れていても気づけます', unread: true });
-    expect(row!.action).toEqual({ label: '通知を受け取る', send: { type: 'notify.set', on: true } });
-    expect(rows({ available: true, on: true, blocked: false })).toEqual([]);
-    expect(rows({ available: false, on: false, blocked: false })).toEqual([]);
-    // OS で切られているときは勧めない。直し方は設定の通知の節に出す。
-    expect(rows({ available: true, on: false, blocked: true })).toEqual([]);
+  // 通知の誘いは注意から外し、始める前の確認の任意の行にした（9c）。
+  it('通知を受け取っていなくても、行にしない', () => {
+    for (const notify of [{ available: true, on: false, blocked: false }, { available: true, on: true, blocked: false, ask: true as const }]) {
+      expect(presentNotices(initialState(), storeOf({ notify }), NOW).rows).toEqual([]);
+    }
   });
 
   // 設定の同期で送らなかった項目（段 4 の PR 19）。事実は ConfigSyncDto.unsent の件数で、件数が 0 に戻れば行も消える。
@@ -176,18 +154,19 @@ describe('presentNotices：事実から行を組む', () => {
     expect(presentNotices(read(['config|unsent|1']), storeOf({ configSync: cfgSync({ unsent: 2 }) }), NOW).unread).toBe(1);
   });
 
-  it('種類の並びは、リマインダー、同期、互換、保持期間、設定の同期、通知', () => {
-    const store = storeOf({ ...withSessions([paused('p', '2026-10-02')]), sync: sync({ state: 'error', error: 'x' }), readiness: compatSummary(1), retention: retention(), configSync: cfgSync({ unsent: 1 }), notify: { available: true, on: false, blocked: false } });
-    expect(presentNotices(initialState(), store, NOW).rows.map((r) => r.kind)).toEqual(['reminder', 'sync', 'compat', 'retention', 'config', 'notify']);
+  it('種類の並びは、同期、互換、保持期間、設定の同期', () => {
+    const old = dto('old', { hasTranscript: true, transcriptMtime: NOW - 27 * 86_400_000 });
+    const store = storeOf({ ...withSessions([paused('p', '2026-10-02'), old]), sync: sync({ state: 'error', error: 'x' }), readiness: compatSummary(1), retention: retention(), configSync: cfgSync({ unsent: 1 }), notify: { available: true, on: false, blocked: false } });
+    expect(presentNotices(initialState(), store, NOW).rows.map((r) => r.kind)).toEqual(['sync', 'compat', 'retention', 'config']);
   });
 
   it('既読の鍵の行は未読でなくなり、未読の数と鍵の一覧に反映する', () => {
-    const store = storeOf({ ...withSessions([paused('p', '2026-10-02')]), sync: sync({ state: 'error', error: 'x' }), readiness: compatSummary(1) });
+    const store = storeOf({ sync: sync({ state: 'error', error: 'x' }), readiness: compatSummary(1), configSync: cfgSync({ unsent: 1 }) });
     const all = presentNotices(initialState(), store, NOW);
-    expect(all.keys).toEqual(['reminder|p|2026-10-02', 'sync|error|x', 'compat|2.4.2|1 change']);
+    expect(all.keys).toEqual(['sync|error|x', 'compat|2.4.2|1 change', 'config|unsent|1']);
     expect(all.unread).toBe(3);
     const some = presentNotices(read(['sync|error|x']), store, NOW);
-    expect(some.rows.map((r) => r.unread)).toEqual([true, false, true]);
+    expect(some.rows.map((r) => r.unread)).toEqual([false, true, true]);
     expect(some.unread).toBe(2);
     // 行は残る（閉じても残る）。
     expect(some.rows).toHaveLength(3);
@@ -211,18 +190,18 @@ describe('presentNotices：事実から行を組む', () => {
     expect(presentNotices(state, storeOf({ sync: sync({ state: 'error', error: 'x' }) }), NOW).unread).toBe(1);
   });
 
-  it('ベルの名前は、未読があれば数を添える', () => {
-    expect(presentNotices(initialState(), storeOf(), NOW).label).toBe('通知');
-    expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'x' }) }), NOW).label).toBe('通知、未読 1 件');
+  it('注意の名前は、未読があれば数を添える', () => {
+    expect(presentNotices(initialState(), storeOf(), NOW).label).toBe('注意');
+    expect(presentNotices(initialState(), storeOf({ sync: sync({ state: 'error', error: 'x' }) }), NOW).label).toBe('注意、未読 1 件');
   });
 
   it('English では、同じ事実から英語の文を引く', () => {
-    const store = storeOf({ settings: en, ...withSessions([paused('p', '2026-10-02', '08:35')]), sync: sync({ state: 'error', error: 'HTTP 503' }), readiness: compatSummary(1), retention: retention(), configSync: cfgSync({ unsent: 2 }) });
+    const old = dto('old', { hasTranscript: true, transcriptMtime: NOW - 27 * 86_400_000 });
+    const store = storeOf({ settings: en, ...withSessions([paused('p', '2026-10-02', '08:35'), old]), sync: sync({ state: 'error', error: 'HTTP 503' }), readiness: compatSummary(1), retention: retention(), configSync: cfgSync({ unsent: 2 }) });
     const p = presentNotices(initialState(), store, NOW);
-    expect(p.label).toBe('Notifications, 5 unread');
-    expect(p.rows.map((r) => [r.kindLabel, r.title])).toEqual([['Reminder', 'p'], ['Sync', 'Sync error'], ['Compatibility', 'Changes detected'], ['Retention', 'Transcripts are deleted after 30 days'], ['Config sync', '2 items not sent']]);
-    expect(p.rows[0]!.when).toBe('25 min overdue');
-    expect(p.rows[2]!.detail).toBe('Claude Code 2.4.2: 1 change');
-    expect(p.rows.map((r) => r.action.label)).toEqual(['Open session', 'Open sync settings', 'Open details', 'Extend retention…', 'Show unsent items']);
+    expect(p.label).toBe('Attention, 4 unread');
+    expect(p.rows.map((r) => [r.kindLabel, r.title])).toEqual([['Sync', 'Sync error'], ['Compatibility', 'Changes detected'], ['Retention', '1 session transcript will be deleted soon'], ['Config sync', '2 items not sent']]);
+    expect(p.rows[1]!.detail).toBe('Claude Code 2.4.2: 1 change');
+    expect(p.rows.map((r) => r.action.label)).toEqual(['Open sync settings', 'Open details', 'Extend retention…', 'Show unsent items']);
   });
 });

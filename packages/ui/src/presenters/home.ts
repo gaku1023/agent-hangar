@@ -1,6 +1,6 @@
 import { asideFree, asideHead, asideOf } from '../lib/aside.ts';
 import { presentGitChip, type GitChipProps } from './git.ts';
-import { isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type UiAction, type LiveStatus, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
+import { candidateDaysLeft, isReturnOn, isReturnTime, limitKindText, liveWithLimit, overdueDays, quietLive, resetAtText, returnDue, returnPastMinutes, stopReasonOf, type CandidateSource, type UiAction, type LiveStatus, type PermissionAskDto, type ProjectStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
 import { SEARCH_STEP, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import type { IconName } from '../views/primitives/Icon.tsx';
@@ -52,8 +52,9 @@ export type TodoConfirmCard = { kind: 'todo'; id: string; text: string; projectI
 /**
  * 確かめるの行のうち、セッションの状態の提案（Q3）。label は行の頭の札の文言（「Done にする？」「Paused · 10/3（土）？」）。
  * 確定、日を変える（Paused のときだけ）、却下を行から押せる。名前を押すとそのセッションを開く。
+ * source は提案の出どころ（会話の中か、事後の要約か）、daysLeft は Done の提案が自動で確定するまでの残りの日数で、Paused の提案では null（2026-10-13 の決定、知らせの 9d）。
  */
-export type SessionConfirmCard = { kind: 'session'; id: string; name: string; projectName: string | null; status: 'paused' | 'done'; label: string; note: string; ago: string };
+export type SessionConfirmCard = { kind: 'session'; id: string; name: string; projectName: string | null; status: 'paused' | 'done'; label: string; note: string; ago: string; source: CandidateSource; daysLeft: number | null };
 /** 確かめるの行。TODO の候補とセッションの提案を、候補になった時刻の古い順に混ぜる。 */
 export type ConfirmCard = TodoConfirmCard | SessionConfirmCard;
 /**
@@ -82,10 +83,6 @@ function stripLeadingTool(tool: string, summary: string): string {
 }
 
 /**
- * 今日戻るの札の並び。ホームの帯とベルの一覧（presenters/notices.ts）が、同じこの並びを読む。
- * alive は hangar の run が生きているセッションで、生きているものは出さない。
- */
-/**
  * 今日戻るに出すか。Paused で戻る時点が来ていて、終わっているもの（区切りを付けて休みのまま残っているものを含む）と、
  * Claude Code が休みのまま生きているもの（Paused は自動で止めないため。#206）。
  * 作業中のもの（裏の作業だけが動いているものを含む）は実行中に、入力待ちは要対応の入力待ちに出るので、ここには重ねない。
@@ -97,6 +94,10 @@ export function returnsNow(store: Store, s: SessionDto, now: number, alive: Set<
   return filter === 'running' && quietLive(liveWithLimit(s.live, s.limit), s.state.status) !== 'busy' && shownAside(s) === null;
 }
 
+/**
+ * 今日戻るの札の並び。ホームの帯が読む。ヘッダーの注意（presenters/notices.ts）には入れない（2026-10-13 の決定、9a）。
+ * alive は hangar の run が生きているセッションで、生きているものは出さない。
+ */
 export function returningCards(store: Store, now: number, alive: Set<string> = runningSessionIds(store)): ReturnCard[] {
   const tr = translatorOf(store);
   const name = (s: SessionDto) => s.name ?? tr('common.label.noName');
@@ -149,7 +150,9 @@ export function presentHome(_state: State, store: Store, now: number): HomeCards
     ...proposed.map((s): { at: number; card: ConfirmCard } => {
       const c = s.state!.candidate!;
       // 札の文言は行の提案の札（第 1 段の candidateLabel）と同じにする。
-      return { at: c.at, card: { kind: 'session', id: s.id, name: name(s), projectName: projectName(s), status: c.status, label: candidateLabel(t, c), note: c.note || t('projectScreen.todo.noNote'), ago: relativeTime(t, c.at, now) } };
+      // Done の提案は放っておくと自動で確定するので、残りの日数を添える。見回りの合間に 0 日になっても「あと 1 日」と言う。
+      const daysLeft = c.status === 'done' ? Math.max(1, candidateDaysLeft(c.at, now)) : null;
+      return { at: c.at, card: { kind: 'session', id: s.id, name: name(s), projectName: projectName(s), status: c.status, label: candidateLabel(t, c), note: c.note || t('projectScreen.todo.noNote'), ago: relativeTime(t, c.at, now), source: c.source, daysLeft } };
     }),
   ].sort((a, b) => (a.at - b.at) || a.card.id.localeCompare(b.card.id)).map((x) => x.card);
 
@@ -323,14 +326,33 @@ function confirmRow(t: Translate, c: ConfirmCard): BandRow {
       ],
     };
   }
+  // 名前の後ろに出どころの小札（会話の中で／要約から）を添え、Done の提案には右に自動で確定するまでの日数を出す（試作の 9d の A）。
+  // 取りやめた出どころ（exit）は書き手がいないので、小札を付けない。
+  const badge = c.source === 'in_session' ? t('home.band.source.inSession') : c.source === 'post_hoc' ? t('home.band.source.postHoc') : null;
   return {
-    key: `session:${c.id}`, lead: { kind: 'tag', text: c.label, tone: 'cand' }, name: c.name, context: `${c.projectName ?? t('common.label.uncategorized')} · ${c.ago}`, text: c.note, detail: null, tone: null, trail: [], open: { type: 'session.open', id: c.id },
+    key: `session:${c.id}`, lead: { kind: 'tag', text: c.label, tone: 'cand' }, name: c.name, badge, context: `${c.projectName ?? t('common.label.uncategorized')} · ${c.ago}`, text: c.note, detail: null, tone: null,
+    trail: c.daysLeft === null ? [] : [{ text: t('home.band.autoConfirmIn', { n: c.daysLeft }) }], open: { type: 'session.open', id: c.id },
     actions: [
       action(t, 'confirm', t('home.band.confirm'), c.name, { type: 'session.state.confirm', id: c.id }, 'primary'),
       ...(c.status === 'paused' ? [action(t, 'changeDate', t('home.band.changeDate'), c.name, { type: 'session.pause.open', id: c.id, from: 'candidate' })] : []),
       action(t, 'dismiss', t('home.band.dismiss'), c.name, { type: 'session.state.reject', id: c.id }),
     ],
   };
+}
+
+/**
+ * 確認待ちの群の見出しのボタン（2026-10-13 の決定、知らせの 9d）。中断の群と同じ並びで、確定が先、却下は控えめ（ghost）にする。
+ * いまある提案を全部渡す。提案が無ければ置かない。
+ */
+function pendingHeadActions(t: Translate, confirm: ConfirmCard[]): BandAction[] {
+  if (confirm.length === 0) return [];
+  const sessionIds = confirm.filter((c) => c.kind === 'session').map((c) => c.id);
+  const todoIds = confirm.filter((c) => c.kind === 'todo').map((c) => c.id);
+  const group = t('home.band.pending');
+  return [
+    action(t, 'confirmAll', t('home.band.confirmAll'), group, { type: 'pending.resolve', accept: true, sessionIds, todoIds }),
+    action(t, 'dismissAll', t('home.band.dismissAll'), group, { type: 'pending.resolve', accept: false, sessionIds, todoIds }, 'ghost'),
+  ];
 }
 
 /**
@@ -354,7 +376,7 @@ export function presentHomeBand(home: BandInput, t: Translate, extra: BandGroup[
   const groups: BandGroup[] = [
     { id: 'attention', label: t('home.band.attention'), icon: 'alert', tone: 'wait', count: home.attention.length + home.returning.length, summary: attentionSummary, morning: true, rows: [...home.attention.map((a) => attentionRow(t, a)), ...home.returning.map((r) => returnRow(t, r))] },
     { id: 'running', label: t('home.band.running'), icon: 'tool', tone: 'default', count: home.running.length, summary: limited > 0 ? t('stop.band.runningSummary', { busy, idle, limit: limited }) : t('home.band.runningSummary', { busy, idle }), morning: true, rows: home.running.map((r) => runningRow(t, r)) },
-    { id: 'pending', label: t('home.band.pending'), icon: 'check', tone: 'cand', count: home.confirm.length, summary: t('home.band.pendingSummary', { n: home.confirm.length }), morning: true, rows: home.confirm.map((c) => confirmRow(t, c)) },
+    { id: 'pending', label: t('home.band.pending'), icon: 'check', tone: 'cand', count: home.confirm.length, summary: t('home.band.pendingSummary', { n: home.confirm.length }), morning: true, rows: home.confirm.map((c) => confirmRow(t, c)), headActions: pendingHeadActions(t, home.confirm) },
     ...extra,
   ];
   return { groups, morning: morningGroup(groups) };
@@ -380,7 +402,7 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
   const t = translatorOf(store);
   // 準備の確かめは起動のたびに取る。届くまで、また届いても直すものが無ければ、確認の群は出さない。
   // プロジェクトの行は、画面が持っているプロジェクトの数で決める（登録した直後に、準備の確かめを取り直す前でも行を消す）。
-  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning }) : null;
+  const ready = store.readiness ? presentReadiness(liveReadiness(store.readiness, Object.values(store.projects)), t, undefined, state.muxCheck, { desktop: store.desktop, running: state.setupRunning, notifyAsk: store.notify.ask === true }) : null;
   const band0 = presentHomeBand(presentHome(state, store, now), t);
   // 実行中の行に、同じファイルの編集の札を重ねる（presenters/overlap.ts）。
   const base = { ...band0, groups: band0.groups.map((g) => withOverlaps(g, store, now)) };

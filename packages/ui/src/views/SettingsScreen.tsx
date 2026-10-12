@@ -312,6 +312,13 @@ export function SettingsScreen(props: SettingsProps) {
           {t('settings.general.notify.desc')}
           {!props.notify.available && <div style={{ marginTop: 4 }}>{t('settings.general.notify.unavailable')}</div>}
           {props.notify.available && props.notify.blocked && <div style={{ marginTop: 4 }}>{t(notifyBlockedKey(clientPlatform(), 'settings'))}</div>}
+          {/* まだ OS に尋ねていない間は、その旨と［許可する］を添える。押すと始める前の確認の行と同じ道（notify.set の on）で尋ねる。 */}
+          {props.notify.available && props.notify.ask && (
+            <div className="notify-ask" style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span>{t('settings.general.notify.notAsked')}</span>
+              <button type="button" className="btn btn-sm" onClick={() => emit({ type: 'notify.set', on: true })}>{t('home.ready.notify.allow')}</button>
+            </div>
+          )}
         </>}
         control={<Switch label={t('settings.general.notify.title')} checked={props.notify.on} disabled={!props.notify.available} onChange={(next) => emit({ type: 'notify.set', on: next })} />} />
       {/* 切り替えた時点で保存する。iTerm2 は初回に macOS の自動化の許可ダイアログが出る。選択肢は画面を開いている OS のものだけ。 */}
