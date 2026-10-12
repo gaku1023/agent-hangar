@@ -40,13 +40,13 @@ export function spawnGit(gitFile: string): GitExec {
       bytes += d.length;
       if (o.maxEntries !== undefined) for (const b of d) if (b === 0) nul++;
       if ((o.maxEntries !== undefined && nul > o.maxEntries) || (o.maxBytes !== undefined && bytes > o.maxBytes)) {
+        // 止めた子が終わってから返す（close で finish）。Windows では、終わる前の子がフォルダを掴んだままになる。
         capped = true;
         child.kill();
-        finish(0);
       }
     });
     child.on('error', () => finish(127));
-    child.on('close', (code) => finish(code ?? 1));
+    child.on('close', (code) => finish(capped ? 0 : code ?? 1));
   });
 }
 

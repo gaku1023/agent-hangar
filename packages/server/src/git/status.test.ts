@@ -41,7 +41,8 @@ describe.skipIf(!hasGit)('実物の git', () => {
     tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-git-')));
     exec = spawnGit('git');
   });
-  afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+  // Windows では、止めた git が掴んだフォルダが少し遅れて放されるので、消すのを何度か試す。
+  afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
 
   it('作業ツリーの根と、worktree の名前と元の根を見つける', async () => {
     const repo = makeRepo(path.join(tmp, 'alpha'));

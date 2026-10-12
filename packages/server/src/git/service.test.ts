@@ -56,7 +56,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   db.close();
-  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 describe.skipIf(!hasGit)('GitService', () => {
