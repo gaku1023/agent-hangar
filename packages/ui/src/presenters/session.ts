@@ -1,5 +1,5 @@
 import { asideOf } from '../lib/aside.ts';
-import { gitDetailRows, presentGitChip, presentGitFiles, type GitChipProps, type GitFilesView } from './git.ts';
+import { gitDetailRows, gitUnsafeFix, presentGitChip, presentGitFiles, type GitChipProps, type GitFilesView } from './git.ts';
 import { openForLabel, openLabel } from './editor.ts';
 import { baseName, splitLast } from '../lib/paths.ts';
 import { stopReasonOf, type LiveStatus, type RunDto, type RunKind, type SessionDto, type SessionFilesDto, type SettingsDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type UiAction } from '@agent-hangar/shared';
@@ -84,6 +84,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   badges: BadgeProps[];
   /** 見出しの (i) のポップオーバーの行。 */
   details: DetailRow[];
+  /** 持ち主の違いで git が断ったときの、許すコマンド。(i) の行の下に、訳と一緒に写せる形で出す。断っていなければ null か無し。 */
+  gitFix?: string | null;
   /**
    * git の表示（0.5.0）。chip は現在の札と冒頭の 1 枚に置く札（まだ届いていないものと git でないものは null）、files は「変更したファイル」の差分の一覧。
    * まだ git を読んでいないセッションは null。
@@ -518,7 +520,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     live: s.live, aside: asideOf(s.live, s.liveAside), activity: s.activity, now, viewingAgent: view.agentId !== null, clock: (ts) => when(ts).slice(0, 5),
     idleFor: durationLabel(t, now - (s.lastActivityAt ?? now)), results,
     waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards,
-    reason, permission: s.permission, limit: s.limit,
+    reason, permission: s.permission, limit: s.limit, waitingFor: s.waitingFor,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
   const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, editor: store.settings, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
@@ -531,6 +533,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     strip, overlap: alive ? presentOverlap(store, id, now) : null, lead, badges: presentSessionBadges(s, now, t),
     // git の行は (i) の終わりに足す（ブランチ、worktree、作業ツリーの未コミット、このセッションの変更）。
     details: [...presentDetails(s, run, account, t), ...gitDetailRows(t, store.git, id, store.sessions, store.gitChanges[id])],
+    gitFix: gitUnsafeFix(store.git, id),
     git: store.git.sessions[id] ? { chip: presentGitChip(t, store.git, id, store.sessions), files: presentGitFiles(t, store.gitChanges[id]) } : null,
     turnRows, turnsComplete: complete, turnsPending, turnCount, loadingOlder: slice?.loadingOlder === true, openTurnItems, turnJump: view.turnJump,
     jump: view.jump,

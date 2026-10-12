@@ -27,6 +27,8 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
     expect(rows.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
     expect(rows[0]).toHaveTextContent('VS Code1.105.1/usr/local/bin/code見つかりました');
     expect(rows[1]).toHaveTextContent('アプリだけ');
+    // 見つからないものも並ぶので、「見つけたものを並べています」とは言わない。
+    expect(screen.getByText(/対応しているエディタを並べ、この PC で見つかったかを添えています/)).toBeInTheDocument();
   });
   it('選んだ時点で保存し、前のエディタのパスは持ち越さない。テストは選んだ行にだけある', () => {
     const onAction = vi.fn();
@@ -49,9 +51,14 @@ describe('エディタの欄（試作の 1-1 の A）', () => {
     fireEvent.blur(field);
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { editor: { id: 'vscode', path: '/opt/code', fileCmd: '', dirCmd: '', terminal: 'none' } }, field: 'editor' });
   });
-  it('テストの答えを欄の下に出す', () => {
+  it('テストの答えは、選んだ行（テストのボタン）のすぐ下に出す。欄の下端に出すと右下の札に隠れるため', () => {
     ui(props({ test: { running: false, result: { tone: 'ng', text: 'Cursor が見つかりません。インストールしたあと「再確認」を押すか、パスを指定してください。' } } }));
     expect(screen.getByRole('status')).toHaveTextContent('Cursor が見つかりません');
+    expect(screen.getByRole('radio', { name: /VS Code/ }).nextElementSibling).toBe(screen.getByRole('status'));
+  });
+  it('テストの最中の文も、選んだ行のすぐ下に出す', () => {
+    ui(props({ setting: { id: 'zed', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'Zed', test: { running: true, result: null }, choices: props().choices.map((c) => ({ ...c, selected: c.id === 'zed' })) }));
+    expect(screen.getByRole('radio', { name: /Zed/ }).nextElementSibling).toBe(screen.getByRole('status'));
   });
 });
 

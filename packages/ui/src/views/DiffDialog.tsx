@@ -113,7 +113,7 @@ export function DiffDialog(props: DiffDialogProps) {
               <div className="diff-note faint"><Icon name="info" />{t('gitUi.diff.editsNote')}</div>
             </>
           )}
-          {!props.canGit && props.files.state !== 'loading' && <div className="diff-note faint">{t('gitUi.diff.noGit')}</div>}
+          {!props.canGit && props.files.state !== 'loading' && <div className="diff-note faint">{t(props.files.state === 'unsafe' ? 'gitUi.diff.unsafe' : 'gitUi.diff.noGit')}</div>}
         </div>
       </div>
     </Dialog>

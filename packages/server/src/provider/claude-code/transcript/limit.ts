@@ -26,21 +26,35 @@ export function rateLimitOf(rec: unknown): { kind: LimitKind; resetsAt: number }
 
 /** Claude Code が自動の続きを予約した、または続きを始めたと書く知らせ（system の informational）。英語の文で、版によって後ろが変わる。 */
 const AUTO_CONTINUE = /continuing automatically/i;
+/**
+ * 自動の続きを取り消した、または切ったと書く知らせ。2.1.296 の実物の文は「Automatic continue cancelled · /rate-limit-options to re-arm」
+ * （Esc）と、背面や別のアプリへ移したときの「Automatic continue cancelled · this session moved to …」、「Automatic continue was turned off · …」である。
+ */
+const AUTO_CANCELLED = /^Automatic continue (cancelled|was turned off)/i;
+
+/** 行の時刻（ミリ秒）。無ければ NaN。 */
+const tsOf = (rec: unknown): number => (isRec(rec) && typeof rec.timestamp === 'string' ? Date.parse(rec.timestamp) : NaN);
 
 /**
  * 本文の 1 行を畳んで、使用制限の状態を進める。
- * 当たった行で入り、自動の続きの知らせで auto を立て、次の指示（自動の続きの指示も含む）、返答、ツールの呼び出しで抜ける。
+ * 当たった行で入り、自動の続きの知らせで auto を立て、取り消しの知らせで下ろし、次の指示（自動の続きの指示も含む）、返答、ツールの呼び出しで抜ける。
  * ターンの終わりや、裏のタスクの知らせ（正規化では system）では抜けない。止まっている間にも書かれるからである。
+ * 当たった行より時刻の前の行でも抜けない。初めの発言ですぐ 429 が返ると、Claude Code は使用制限の行を先に書き、時刻の早い発言の行を後から書くことがある。
  * 抜けた後にまた当たれば、新しい行で入り直す。
  */
 export function foldLimit(prev: Limit | null, rec: unknown, events: TranscriptEvent[]): Limit | null {
   const hit = rateLimitOf(rec);
   if (hit) {
-    const ts = isRec(rec) && typeof rec.timestamp === 'string' ? Date.parse(rec.timestamp) : NaN;
+    const ts = tsOf(rec);
     return { ...hit, auto: false, hitAt: Number.isFinite(ts) ? ts : Date.now() };
   }
   if (prev === null) return null;
-  if (events.some((e) => e.kind === 'system' && e.subtype === 'informational' && AUTO_CONTINUE.test(e.text))) return prev.auto ? prev : { ...prev, auto: true };
-  if (events.some((e) => e.kind === 'user' || e.kind === 'assistant' || e.kind === 'tool_call')) return null;
+  const notes = events.filter((e) => e.kind === 'system' && e.subtype === 'informational').map((e) => (e as { text: string }).text);
+  if (notes.some((n) => AUTO_CANCELLED.test(n))) return prev.auto ? { ...prev, auto: false } : prev;
+  if (notes.some((n) => AUTO_CONTINUE.test(n))) return prev.auto ? prev : { ...prev, auto: true };
+  if (events.some((e) => e.kind === 'user' || e.kind === 'assistant' || e.kind === 'tool_call')) {
+    const ts = tsOf(rec);
+    return Number.isFinite(ts) && ts < prev.hitAt ? prev : null;
+  }
   return prev;
 }

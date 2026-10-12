@@ -197,6 +197,9 @@
 .editor-result[data-tone='ok'] { background: var(--st-done-soft); color: var(--st-done); }
 .editor-result[data-tone='warn'] { background: var(--st-paused-soft); color: var(--st-paused); }
 .editor-result[data-tone='ng'] { background: color-mix(in srgb, var(--error) 10%, var(--surface)); color: var(--error); }
+/* テストの答えは選んだ行のすぐ下に、行の続きとして出す（右下の知らせの札に隠れないため）。文は名前の列にそろえる。 */
+.editor-choices > .editor-result { border-radius: 0; border-top: 1px solid var(--line); padding-left: calc(var(--u) * 7.5 + 48px); }
+.editor-choices > .editor-result + .editor-choice { border-top: 1px solid var(--line); }
 /* 任意のコマンド（試作の 1-4 の A）。2 つの欄と、打つそばから変わる見本。 */
 .editor-custom { display: grid; gap: calc(var(--u) * 2); font-size: var(--fs-sm); }
 .editor-custom-desc { margin: 0; font-size: var(--fs-xs); }

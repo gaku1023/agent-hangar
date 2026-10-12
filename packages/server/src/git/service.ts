@@ -6,7 +6,7 @@ import { EDIT_TOOLS } from '../indexer/indexFile.ts';
 import { changedFilesOf } from '../sessions/files.ts';
 import { readEvents } from '../transcript/read.ts';
 import { readGitHint } from './hint.ts';
-import { diffFile, locateTree, numstatOf, readTreeStatus, type GitExec, type StatusEntry } from './status.ts';
+import { diffFile, locateTree, numstatOf, readTreeStatus, type GitExec, type StatusEntry, type TreeLocation } from './status.ts';
 
 // git の表示の受け持ち（0.5.0）。一覧と (i) の件数、変更したファイルの差分、プロジェクトの worktree。
 // 値は端末ローカルで、クラウドへは同期しない。git には書かない。
@@ -25,7 +25,8 @@ const DEBOUNCE_MS = 2_000;
 /** 1 つのファイルの編集として返す呼び出しの上限。 */
 const MAX_EDITS = 50;
 
-type Located = { root: string; worktree: string | null; mainRoot: string | null } | null;
+/** 根の見つけ方の覚え。unsafe は持ち主の違いで git が断った場所、null は git のリポジトリではない。 */
+type Located = TreeLocation | { unsafe: string } | null;
 type TreeEntry = { tree: GitTreeDto; entries: StatusEntry[]; at: number };
 type SessionRow = { id: string; cwd: string; provider_session_id: string; has_local: number; has_transcript: number; main_path: string | null; locked: number };
 
@@ -108,7 +109,7 @@ export class GitService {
   }
 
   /** 根の状態。maxAge より新しい覚えがあればそれを返す。同じ根への同時の呼び出しは 1 つにまとめる。 */
-  private async tree(loc: NonNullable<Located>, exec: GitExec, maxAge: number): Promise<TreeEntry> {
+  private async tree(loc: TreeLocation, exec: GitExec, maxAge: number): Promise<TreeEntry> {
     const key = norm(loc.root);
     const hit = this.trees.get(key);
     const failed = this.failedAt.get(key);
@@ -143,6 +144,8 @@ export class GitService {
     }
     const loc = exec ? await this.locate(cwd, exec) : null;
     if (!loc || !exec) return { session: { state: 'nogit', root: null, branch: null, worktree: null }, tree: null };
+    // 持ち主の違いで git が断った。git でないとはせず、断った場所を持たせる（画面が訳と許し方を言う）。
+    if ('unsafe' in loc) return { session: { state: 'unsafe', root: loc.unsafe, branch: hint.branch, worktree: null }, tree: null };
     const tree = await this.tree(loc, exec, maxAge ?? (this.isLive(row) ? LIVE_MAX_AGE_MS : IDLE_MAX_AGE_MS));
     return { session: { state: 'ok', root: tree.tree.root, branch: hint.branch ?? tree.tree.branch, worktree: loc.worktree }, tree };
   }
@@ -259,12 +262,17 @@ export class GitService {
     return { file, edits, truncated: rows.length > MAX_EDITS };
   }
 
-  /** プロジェクトの作業ツリーと、git worktree で足した作業ツリー。 */
+  /**
+   * プロジェクトの作業ツリーと、git worktree で足した作業ツリー。
+   * フォルダがこの PC に無ければ missing、持ち主の違いで git が断れば unsafe を blocked に持たせる。
+   */
   async project(dir: string): Promise<ProjectGitDto> {
+    if (!fs.existsSync(dir)) return { root: null, worktrees: [], blocked: { kind: 'missing' } };
     const exec = this.deps.exec();
     if (!exec) return { root: null, worktrees: [] };
     const loc = await this.locate(dir, exec);
     if (!loc) return { root: null, worktrees: [] };
+    if ('unsafe' in loc) return { root: null, worktrees: [], blocked: { kind: 'unsafe', path: loc.unsafe } };
     const main = loc.mainRoot ? { root: loc.mainRoot, worktree: null, mainRoot: null } : loc;
     const root = (await this.tree(main, exec, IDLE_MAX_AGE_MS)).tree;
     const list = await this.gate.run(() => exec(['worktree', 'list', '--porcelain', '-z'], { cwd: main.root, timeoutMs: 3000 }));

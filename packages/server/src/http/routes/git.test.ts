@@ -67,3 +67,14 @@ describe.skipIf(!hasGit)('git の経路', () => {
     expect((await get('/api/projects/nope/git')).status).toBe(404);
   });
 });
+
+describe('プロジェクトの git の経路', () => {
+  it('この PC にパスの無いプロジェクトは 404 にせず、パスが無いことを返す', async () => {
+    const id = t.alphaProjectId();
+    t.db.prepare('update project_roots set deleted_at = ? where project_id = ?').run(Date.now(), id);
+    const r = await get(`/api/projects/${id}/git`);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ root: null, worktrees: [], blocked: { kind: 'noPath' } });
+    expect((await get('/api/projects/nope/git')).status).toBe(404);
+  });
+});

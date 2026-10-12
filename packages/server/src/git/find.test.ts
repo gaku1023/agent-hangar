@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { safeDirectoryCommand } from '@agent-hangar/shared';
 import { findGit, gitInstallCommand } from './find.ts';
 
 const host = (o: { platform: NodeJS.Platform; onPath?: string | null; files?: string[]; env?: NodeJS.ProcessEnv }) => ({
@@ -30,5 +31,12 @@ describe('findGit', () => {
     expect(gitInstallCommand('darwin')).toBe('xcode-select --install');
     expect(gitInstallCommand('win32')).toBe('winget install --id Git.Git -e');
     expect(gitInstallCommand('linux')).toBeNull();
+  });
+  it('持ち主の違うリポジトリを許すコマンド。空白や引用符は OS のシェルの形で囲む', () => {
+    expect(safeDirectoryCommand('/Users/you/work/alpha', 'darwin')).toBe('git config --global --add safe.directory /Users/you/work/alpha');
+    expect(safeDirectoryCommand('C:/Users/you/work/alpha', 'win32')).toBe('git config --global --add safe.directory C:/Users/you/work/alpha');
+    expect(safeDirectoryCommand('/Users/you/my work', 'darwin')).toBe("git config --global --add safe.directory '/Users/you/my work'");
+    expect(safeDirectoryCommand("/w/it's", 'darwin')).toBe("git config --global --add safe.directory '/w/it'\\''s'");
+    expect(safeDirectoryCommand("C:/w/it's", 'win32')).toBe("git config --global --add safe.directory 'C:/w/it''s'");
   });
 });

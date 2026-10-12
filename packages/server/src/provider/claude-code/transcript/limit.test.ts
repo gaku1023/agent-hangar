@@ -44,6 +44,24 @@ describe('foldLimit', () => {
     expect(foldLimit(l, {}, [{ kind: 'assistant', seq: 1, text: 'はい' }])).toBeNull();
     expect(foldLimit(l, {}, [{ kind: 'tool_call', seq: 1, toolId: 't', name: 'Bash', input: {}, summary: 'Bash' }])).toBeNull();
   });
+  it('Esc で自動の続きを取り消した知らせで、予約なしに戻す（2.1.296 の実物の文）。予約し直せばまた立てる', () => {
+    const l = foldLimit(foldLimit(null, hit(), []), {}, [sys('Usage limit reached · continuing automatically at 11:17am · esc to cancel')]);
+    expect(l?.auto).toBe(true);
+    const cancelled = foldLimit(l, {}, [sys('Automatic continue cancelled · /rate-limit-options to re-arm')]);
+    expect(cancelled).toMatchObject({ kind: 'five_hour', auto: false });
+    // 背面へ移したときなどの文も同じ頭で始まる。切った知らせは使用制限から抜けない（リセットを待っているのは同じ）。
+    expect(foldLimit(l, {}, [sys('Automatic continue cancelled · this session moved to the background, so the task will not resume on its own when the usage limit resets')])?.auto).toBe(false);
+    expect(foldLimit(l, {}, [sys('Automatic continue was turned off · this task will not resume on its own')])?.auto).toBe(false);
+    expect(foldLimit(cancelled, {}, [sys('Usage limit reached again · continuing automatically at 11:17am · esc to cancel')])?.auto).toBe(true);
+  });
+  it('使用制限の行より時刻の前の指示は、後から書かれても抜けない（初めの発言ですぐ 429 が返ったとき）', () => {
+    const l = foldLimit(null, hit(), []);
+    // Claude Code は使用制限の行を先に書き、時刻の早い初めの発言の行を後から書くことがある。
+    expect(foldLimit(l, { type: 'user', timestamp: '2026-10-07T07:04:33.100Z' }, [{ kind: 'user', seq: 1, text: 'はじめ' }])).toBe(l);
+    // 時刻の後の指示では、今までどおり抜ける。時刻の無い行も抜ける。
+    expect(foldLimit(l, { type: 'user', timestamp: '2026-10-07T07:05:00.000Z' }, [{ kind: 'user', seq: 2, text: '続けて' }])).toBeNull();
+    expect(foldLimit(l, { type: 'user' }, [{ kind: 'user', seq: 2, text: '続けて' }])).toBeNull();
+  });
   it('入っていなければ何もしない', () => {
     expect(foldLimit(null, {}, [{ kind: 'user', seq: 1, text: 'x' }])).toBeNull();
   });

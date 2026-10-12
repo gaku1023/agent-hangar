@@ -1,4 +1,4 @@
-import type { ArtifactDto, InstructionFileDto, InstructionFileKind, ProjectRailSection, ProjectStatus, TodoDto, Translate } from '@agent-hangar/shared';
+import type { ArtifactDto, InstructionFileDto, InstructionFileKind, ProjectGitDto, ProjectRailSection, ProjectStatus, TodoDto, Translate } from '@agent-hangar/shared';
 import { presentProjectGit, type ProjectGitProps } from './git.ts';
 import { SEARCH_STEP } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
@@ -110,6 +110,9 @@ export function presentInstructions(t: Translate, store: Store, id: string, now:
   return { state: 'ready', rows, legacyNote };
 }
 
+/** この PC にパスの無いプロジェクトの git（サーバの GET /api/projects/:id/git も同じものを返す）。 */
+const NO_PATH_GIT: ProjectGitDto = { root: null, worktrees: [], blocked: { kind: 'noPath' } };
+
 /** プロジェクト詳細の見出しの上には、一覧へ戻るリンクを出す。 */
 const parentOf = (t: Translate): ParentLink => ({ label: t('projects.heading.title'), route: { name: 'projects' } });
 
@@ -119,7 +122,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const PARENT = parentOf(t);
   // 一覧はホームと同じ部品で、このプロジェクトのセッションだけを出す。見つからないプロジェクトは行が 0 になる。
   const list = presentSessionList(state, store, now, id);
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [], artifactAddError: null, railFolded: [], git: { state: 'nogit', root: null, rows: [] } };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [], artifactAddError: null, railFolded: [], git: { state: 'nogit', root: null, rows: [], fix: null } };
   const remaining = list.total - list.rows.length;
   const all = todosOf(store, id);
   const item = (x: TodoDto): TodoItemProps => ({ id: x.id, text: x.text, done: x.done, position: x.position, candidate: presentTodoCandidate(x, store, now) });
@@ -139,6 +142,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     artifacts: artifactsOf(store, { projectId: id }).map((a) => presentArtifactCard(t, a, now)),
     artifactAddError: store.artifactAddError?.projectId === id ? { url: store.artifactAddError.url, message: store.artifactAddError.message } : null,
     railFolded: state.projectRailFolded[id] ?? [],
-    git: presentProjectGit(t, store.projectGit[id], Object.values(store.sessions).filter((s) => s.projectId === id), store.git),
+    // この PC にパスが無いものは読まない（ProjectScreen も送らない）ので、届くのを待たずに noPath にする。
+    git: presentProjectGit(t, p.path === null ? NO_PATH_GIT : store.projectGit[id], Object.values(store.sessions).filter((s) => s.projectId === id), store.git),
   };
 }

@@ -57,6 +57,14 @@ describe('現在の札の状態の行', () => {
     expect(present({ live: 'waiting', activity: { tool: 'ExitPlanMode', summary: '計画の承認', question: null } })).toMatchObject({ detail: '計画の承認', question: true });
     expect(present({ live: 'waiting' })).toMatchObject({ detail: null, question: false });
   });
+  it('許可でない待ち（許可した直後のダイアログ）では、もう答えの出た呼び出し（前の許可の命令）を問いとして出さない', () => {
+    const bash = call('Bash', { command: 'echo perm4 > perm-4.txt' });
+    const activity = { tool: 'Bash', summary: 'Bash echo perm4 > perm-4.txt', question: null };
+    expect(present({ live: 'waiting', waitingFor: 'other', events: [bash, res(bash)], activity })).toMatchObject({ state: '入力待ち', detail: null, question: false });
+    // 答えの出ていない呼び出しを待っている（計画の承認など）なら、今までどおり出す。
+    const plan = call('ExitPlanMode', {});
+    expect(present({ live: 'waiting', waitingFor: 'other', events: [plan], activity: { tool: 'ExitPlanMode', summary: '計画の承認', question: null } })).toMatchObject({ detail: '計画の承認', question: true });
+  });
   it('入力待ちは、動いているサブエージェントや裏の印があっても入力待ちのまま', () => {
     expect(present({ live: 'waiting', aside: { shell: true, agents: 0 }, digest: digest({ agents: [agent({})] }) }).tone).toBe('wait');
   });

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { Hono } from 'hono';
+import type { ProjectGitDto } from '@agent-hangar/shared';
 import { getProject } from '../../db/queries.ts';
 import { translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, GitApi, LanguageDeps } from '../deps.ts';
@@ -58,9 +59,11 @@ export function gitRoutes(api: Hono, deps: GitRouteDeps): void {
     return c.json(e);
   });
 
+  /** プロジェクトの git。この PC にパスの無いプロジェクト（他の PC から同期したもの）は、断らずに noPath を返す（画面がその旨を出す）。 */
   api.get('/projects/:id/git', async (c) => {
     const p = getProject(deps.db, deps.deviceId, deps.live(), c.req.param('id'));
-    if (!p?.path) return c.json({ error: tr('project.error.notFound') }, 404);
+    if (!p) return c.json({ error: tr('project.error.notFound') }, 404);
+    if (!p.path) return c.json({ root: null, worktrees: [], blocked: { kind: 'noPath' } } satisfies ProjectGitDto);
     return c.json(await deps.git.project(p.path));
   });
 }

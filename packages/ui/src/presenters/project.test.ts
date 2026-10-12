@@ -46,6 +46,11 @@ describe('presentProject の一覧（ホームと同じ部品に渡す）', () =
     expect(presentProject(state, storeOf(sessions), NOW, 'alpha').railFolded).toEqual(['todo', 'artifacts']);
     expect(presentProject(initialState(), storeOf(sessions), NOW, 'alpha').railFolded).toEqual([]);
   });
+  it('この PC にパスが無いプロジェクトは、git を読まずに「この PC にパスが無い」とする（取得中のまま止めない）', () => {
+    const store = storeOf(sessions, { projects: { alpha: project('alpha', { path: null, resolved: false }) } });
+    expect(presentProject(initialState(), store, NOW, 'alpha').git).toMatchObject({ state: 'noPath', rows: [] });
+    expect(presentProject(initialState(), storeOf(sessions), NOW, 'alpha').git?.state).toBe('loading');
+  });
   it('タブの件数は、このプロジェクトの分だけを数える', () => {
     const p = presentProject(initialState(), storeOf(sessions), NOW, 'alpha');
     expect(p.list.tabs.map((t) => [t.tab, t.count])).toEqual([['all', '3'], ['proposed', '0'], ['active', '2'], ['paused', '0'], ['done', '1'], ['archived', '1']]);

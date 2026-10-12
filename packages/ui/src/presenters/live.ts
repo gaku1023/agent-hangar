@@ -1,4 +1,4 @@
-import { limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
+import { limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate, type WaitKind } from '@agent-hangar/shared';
 import { baseName } from '../lib/paths.ts';
 import { durationLabel } from './format.ts';
 import type { ArtifactCardProps } from './project.ts';
@@ -113,6 +113,8 @@ export type CardInput = LiveInput & {
   reason?: StopReason | null;
   permission?: PermissionAskDto | null;
   limit?: SessionLimitDto | null;
+  /** 入力待ちが何を待っているか（登録の waitingFor）。無ければ省ける。 */
+  waitingFor?: WaitKind | null;
 };
 
 /** 使用制限の枠の長さ。残りの棒は、この長さのうち過ぎた割合で描く。 */
@@ -181,10 +183,20 @@ function stripState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCar
   return { ...plainState(i, t, results), stop: null };
 }
 
-function plainState(i: LiveInput & { waited: string }, t: Translate, results: ResultMap): Pick<NowCardProps, 'tone' | 'state' | 'sub' | 'detail' | 'question'> {
+/**
+ * 許可でない待ち（waitingFor が other。許可した直後に Claude Code が出すダイアログなど）で、最後の呼び出しにもう答えが出ているか。
+ * そのときの活動は済んだ呼び出し（前の許可の命令）なので、問いとして出さない。
+ */
+function staleWait(i: CardInput, results: ResultMap): boolean {
+  if (i.waitingFor !== 'other' || i.viewingAgent) return false;
+  const last = i.events.filter((e): e is Call => isCall(e) && e.seq >= i.turnFrom && !AGENT_TOOLS.has(e.name) && !OWN_MCP.test(e.name)).at(-1);
+  return last !== undefined && results.has(last.toolId);
+}
+
+function plainState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCardProps, 'tone' | 'state' | 'sub' | 'detail' | 'question'> {
   const sep = t('common.list.separator');
   if (i.live === 'waiting') {
-    const detail = i.activity?.question || i.activity?.summary || null;
+    const detail = staleWait(i, results) ? null : i.activity?.question || i.activity?.summary || null;
     return { tone: 'wait', state: t('session.strip.state.waiting'), sub: t('session.strip.waited', { time: i.waited }), detail, question: detail !== null };
   }
   // 本体は入力を受け付けていて、裏だけが動いている。作業中の色にせず、メイン会話が空いていることを言う。

@@ -8,6 +8,7 @@ const shown = new Set<string>();
 
 /**
  * git の札（試作の 2-1 の A）。ブランチの印とブランチの名前（150px で切り、全文は title）、「・」、未コミットの件数か変更なし。
+ * 終わったセッションの札は、そのときのブランチだけで、「・」と件数を出さない。
  * worktree は分かれ道の印と worktree の名前と小札「worktree」、他の PC は画面の印と本文の gitBranch。
  * 同じ作業ツリーで実行中のセッションがほかにあれば「共有 N」を添える。件数が変わったら、その語だけを回す（RollingText）。
  * 取得中は札を出さない。届いたら --dur-fast で薄れから現す（シマーやスケルトンは使わない）。
@@ -26,8 +27,9 @@ export function GitChip(props: { id: string; chip: GitChipProps; className?: str
         <Icon name={icon} />
         {c.name !== '' && <span className="gitchip-br mono">{c.name}</span>}
         {c.worktree && c.kind === 'ok' && <span className="gitchip-wt">{t('gitUi.chip.worktree')}</span>}
-        {c.name !== '' && <span className="gitchip-sep">·</span>}
-        <RollingText text={c.value} className={c.dirty ? 'gitchip-val num' : 'gitchip-val gitchip-quiet num'} />
+        {/* 終わったセッションの札はブランチだけで、件数（値）を持たない。 */}
+        {c.name !== '' && c.value !== '' && <span className="gitchip-sep">·</span>}
+        {c.value !== '' && <RollingText text={c.value} className={c.dirty ? 'gitchip-val num' : 'gitchip-val gitchip-quiet num'} />}
         {c.shared !== null && <span className="gitchip-share" title={c.sharedTitle ?? undefined}>{t('gitUi.chip.shared', { n: c.shared })}</span>}
       </span>
     </span>

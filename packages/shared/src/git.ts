@@ -20,10 +20,11 @@ export type GitTreeDto = {
  * セッション 1 件の git の手がかり。
  * state の ok はこの PC の作業ツリー（root）がある、nogit は git のリポジトリではない、remote は他の PC で動いている（またはこの PC に場所が無い）、
  * gone は作業していた worktree が消えた（ブランチは残っていることがある）。
+ * unsafe は、フォルダの持ち主が今のユーザーと違うので git が読むのを断った（dubious ownership）。root は git が名指した場所で、safe.directory に足すものである。
  * branch はトランスクリプトの最後の gitBranch で、セッションがどのブランチで作業したかを言う。読めなければ作業ツリーの今のブランチを使う。
  * worktree はトランスクリプトの worktree-state の名前で、セッションが worktree に入っていたときだけ持つ。
  */
-export type GitSessionState = 'ok' | 'nogit' | 'remote' | 'gone';
+export type GitSessionState = 'ok' | 'nogit' | 'unsafe' | 'remote' | 'gone';
 export type GitSessionDto = { state: GitSessionState; root: string | null; branch: string | null; worktree: string | null };
 
 /** 一覧と (i) の git（POST /api/git/sessions と、配る git.upsert）。どちらも部分で、受け取る側は重ねる。 */
@@ -62,12 +63,26 @@ export type SessionEditsDto = { file: string; edits: SessionEditDto[]; truncated
 /**
  * プロジェクトのブランチと worktree（GET /api/projects/:id/git）。
  * root はプロジェクトの場所の作業ツリーで、git でなければ null。worktrees は `git worktree list` の元以外の作業ツリーで、tree はその状態（読めなければ null）。
+ * blocked は root を読めなかった訳で、git のリポジトリでないだけのときは持たない。
+ * noPath はこの PC にプロジェクトのパスが無い（他の PC から同期したもの）、missing はパスのフォルダがこの PC に無い、
+ * unsafe はフォルダの持ち主が違うので git が断った（path は git が名指した場所）。
  */
 export type ProjectWorktreeDto = { path: string; name: string; branch: string | null; tree: GitTreeDto | null };
-export type ProjectGitDto = { root: GitTreeDto | null; worktrees: ProjectWorktreeDto[] };
+export type ProjectGitBlocked = { kind: 'noPath' } | { kind: 'missing' } | { kind: 'unsafe'; path: string };
+export type ProjectGitDto = { root: GitTreeDto | null; worktrees: ProjectWorktreeDto[]; blocked?: ProjectGitBlocked };
 
 /** 未コミットの件数の上限。これを超えたら数えるのをやめて「1,000+」と言う。 */
 export const GIT_DIRTY_CAP = 1000;
+
+/**
+ * 持ち主の違うリポジトリを git に許させるコマンド。hangar は git の設定を書かないので、案内にだけ使う。
+ * 空白や引用符を含む場所は単引用符で囲む。中の単引用符は、Windows（PowerShell）は 2 つ重ね、ほかは sh の形で閉じて開き直す。
+ */
+export function safeDirectoryCommand(dir: string, platform: string): string {
+  const quote = platform === 'win32' ? dir.replace(/'/g, "''") : dir.replace(/'/g, "'\\''");
+  const arg = /^[\w@%+=:,./\\-]+$/.test(dir) ? dir : `'${quote}'`;
+  return `git config --global --add safe.directory ${arg}`;
+}
 
 /** git の入れ方のコマンド。macOS はコマンドライン・デベロッパツール、Windows は Git for Windows。Linux は配布ごとに違うので出さない。 */
 export function gitInstallCommand(platform: string): string | null {

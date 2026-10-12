@@ -31,6 +31,30 @@ describe('PermissionAsks', () => {
     expect(a.apply([live('waiting')], 300)[0]?.permission).toBeUndefined();
   });
 
+  it('許可の待ちから、許可でない待ち（ダイアログ）へ移ったら忘れる。待ちのまま続いても前の命令を出さない', () => {
+    const a = new PermissionAsks();
+    a.put('u1', ask, 0);
+    expect(a.apply([live('waiting', { waitingFor: 'permission' })], 100)[0]?.permission).toEqual(ask);
+    // 許可した直後に Claude Code が別のダイアログを出す（status は waiting のまま、waitingFor が dialog open → other）。
+    expect(a.apply([live('waiting', { waitingFor: 'other' })], 200)[0]?.permission).toBeUndefined();
+    expect(a.apply([live('waiting', { waitingFor: 'permission' })], 300)[0]?.permission).toBeUndefined();
+  });
+
+  it('許可でない待ちには、預かった中身を足さない', () => {
+    const a = new PermissionAsks();
+    a.put('u1', ask, 0);
+    expect(a.apply([live('waiting', { waitingFor: 'other' })], 100)[0]?.permission).toBeUndefined();
+    // 後から許可の待ちに入れば足す（hook が先に届いていた）。
+    expect(a.apply([live('waiting', { waitingFor: 'permission' })], 200)[0]?.permission).toEqual(ask);
+  });
+
+  it('AskUserQuestion の確認は、問いの待ち（input needed）でも足す', () => {
+    const a = new PermissionAsks();
+    const q = { tool: 'AskUserQuestion', input: '続けますか', description: null };
+    a.put('u1', q, 0);
+    expect(a.apply([live('waiting', { waitingFor: 'question' })], 100)[0]?.permission).toEqual(q);
+  });
+
   it('待ちに入らないまま古くなった中身は捨てる', () => {
     const a = new PermissionAsks();
     a.put('u1', ask, 0);

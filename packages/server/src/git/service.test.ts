@@ -6,7 +6,7 @@ import type { GitDto, LiveSessionDto } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { indexFile } from '../indexer/indexFile.ts';
-import { git, hasGit, makeRepo } from '../../test/git.ts';
+import { asDifferentOwner, git, hasGit, makeRepo } from '../../test/git.ts';
 import { GitService } from './service.ts';
 import { spawnGit, type GitExec } from './status.ts';
 
@@ -204,6 +204,24 @@ describe.skipIf(!hasGit)('GitService', () => {
     const p = await make().project(repo);
     expect(p.root).toMatchObject({ root: repo, branch: 'main' });
     expect(p.worktrees).toEqual([{ path: path.join(repo, '.claude', 'worktrees', 'fix'), name: 'fix', branch: 'worktree-fix', tree: expect.objectContaining({ branch: 'worktree-fix', dirty: 0 }) }]);
-    expect(await make().project(path.join(tmp, 'nope'))).toEqual({ root: null, worktrees: [] });
+    expect(await make().project(path.join(tmp, 'nope'))).toEqual({ root: null, worktrees: [], blocked: { kind: 'missing' } });
+    const plain = path.join(tmp, 'plain');
+    fs.mkdirSync(plain);
+    expect(await make().project(plain)).toEqual({ root: null, worktrees: [] });
+  });
+
+  it('持ち主の違いで git が断ったリポジトリは unsafe にし、断った場所を持つ', async () => {
+    const repo = makeRepo(path.join(tmp, 'alpha'));
+    const id = writeSession({ cwd: repo, branch: 'main' });
+    const same = (p: string | null | undefined) => (p && process.platform === 'win32' ? path.resolve(p).toLowerCase() : p && path.resolve(p));
+    const g = await asDifferentOwner(tmp, () => make().sessions([id]));
+    expect(g.sessions[id]).toMatchObject({ state: 'unsafe', branch: 'main', worktree: null });
+    expect(same(g.sessions[id]!.root)).toBe(same(repo));
+    expect(g.trees).toEqual({});
+    const p = await asDifferentOwner(tmp, () => make().project(repo));
+    expect(p).toMatchObject({ root: null, worktrees: [], blocked: { kind: 'unsafe' } });
+    expect(same(p.blocked?.kind === 'unsafe' ? p.blocked.path : null)).toBe(same(repo));
+    const ch = await asDifferentOwner(tmp, () => make().changes(id));
+    expect(ch.state).toBe('unsafe');
   });
 });

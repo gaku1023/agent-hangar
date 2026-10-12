@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { translator, type GitDto, type GitTreeDto, type SessionChangesDto, type SessionDto, type SessionEditsDto } from '@agent-hangar/shared';
 import { initialState } from '../mediator/transition.ts';
 import { gitFileKey, initialStore } from '../store/store.ts';
-import { gitDetailRows, presentDiffBody, presentDiffDialog, presentGitChip, presentGitFiles, presentProjectGit } from './git.ts';
+import { gitDetailRows, gitUnsafeFix, presentDiffBody, presentDiffDialog, presentGitChip, presentGitFiles, presentProjectGit } from './git.ts';
 
 const ja = translator('ja');
 const en = translator('en');
@@ -13,8 +13,13 @@ const git = (p: Partial<GitDto> = {}): GitDto => ({ sessions: { s1: { state: 'ok
 
 describe('presentGitChip', () => {
   it('ブランチと未コミットの件数。全文は title', () => {
-    expect(presentGitChip(ja, git(), 's1', { s1: session('s1') })).toEqual({ kind: 'ok', worktree: false, name: 'fix-login', title: 'fix-login', value: '未コミット 7', count: 7, dirty: true, shared: null, sharedTitle: null, label: 'ブランチ fix-login、未コミット 7' });
-    expect(presentGitChip(en, git(), 's1', { s1: session('s1') })).toMatchObject({ value: '7 uncommitted', label: 'Branch fix-login, 7 uncommitted' });
+    expect(presentGitChip(ja, git(), 's1', { s1: session('s1', { live: 'busy' }) })).toEqual({ kind: 'ok', worktree: false, name: 'fix-login', title: 'fix-login', value: '未コミット 7', count: 7, dirty: true, shared: null, sharedTitle: null, label: 'ブランチ fix-login、未コミット 7' });
+    expect(presentGitChip(en, git(), 's1', { s1: session('s1', { live: 'busy' }) })).toMatchObject({ value: '7 uncommitted', label: 'Branch fix-login, 7 uncommitted' });
+  });
+  it('終わったセッションには今の未コミットの件数を出さず、そのセッションのときのブランチ（本文の gitBranch）だけを出す', () => {
+    const g = git({ sessions: { s1: { state: 'ok', root: '/w/alpha', branch: 'feature/old', worktree: null } }, trees: { '/w/alpha': tree({ branch: 'main', dirty: 2 }) } });
+    expect(presentGitChip(ja, g, 's1', { s1: session('s1') })).toEqual({ kind: 'ok', worktree: false, name: 'feature/old', title: 'feature/old', value: '', count: null, dirty: false, shared: null, sharedTitle: null, label: 'ブランチ feature/old' });
+    expect(presentGitChip(en, g, 's1', { s1: session('s1') })?.label).toBe('Branch feature/old');
   });
   it('変更なし、件数なし（時間切れ）、1,000+', () => {
     expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: 0 }) } }), 's1', {})).toMatchObject({ value: '変更なし', dirty: false, count: 0 });
@@ -68,6 +73,16 @@ describe('gitDetailRows', () => {
     expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'gone', root: null, branch: 'worktree-old', worktree: 'old' } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['old', '削除済み（ブランチ worktree-old は残っていることがあります）']);
     expect(gitDetailRows(ja, git(), 'nope', {}, undefined)).toEqual([]);
   });
+  it('持ち主の違いで git が断ったものは、札を出さず、(i) に訳と許すコマンドを出す（git の設定は書かない）', () => {
+    const g = git({ sessions: { s1: { state: 'unsafe', root: 'C:/Users/you/work/alpha', branch: 'main', worktree: null } }, trees: {} });
+    expect(presentGitChip(ja, g, 's1', {})).toBeNull();
+    expect(gitDetailRows(ja, g, 's1', {}, undefined).map((r) => [r.name, r.value])).toEqual([['ブランチ', 'main'], ['git', '持ち主が違うので、読むのを断りました']]);
+    expect(gitDetailRows(en, g, 's1', {}, undefined).at(-1)!.value).toBe('Refused: owned by another user');
+    expect(gitUnsafeFix(g, 's1', 'win32')).toBe('git config --global --add safe.directory C:/Users/you/work/alpha');
+    expect(gitUnsafeFix(git({ sessions: { s1: { state: 'unsafe', root: '/Users/you/my work', branch: null, worktree: null } } }), 's1', 'darwin')).toBe("git config --global --add safe.directory '/Users/you/my work'");
+    expect(gitUnsafeFix(git(), 's1', 'darwin')).toBeNull();
+    expect(gitUnsafeFix(git(), 'nope', 'darwin')).toBeNull();
+  });
 });
 
 describe('presentGitFiles', () => {
@@ -84,6 +99,7 @@ describe('presentGitFiles', () => {
     expect(presentGitFiles(ja, changes({ state: 'nogit', root: null, tree: null, others: [] })).note).toBe('Bash などのコマンドで書き換えたファイルは、この一覧に載りません。');
     expect(presentGitFiles(ja, changes({ state: 'remote', others: [] })).note).toBe('他の PC で実行中です。この PC の作業ツリーは読みません。');
     expect(presentGitFiles(ja, changes({ state: 'slow', others: [] })).note).toBe('git が 3 秒で応答しませんでした。');
+    expect(presentGitFiles(ja, changes({ state: 'unsafe', root: null, tree: null, others: [] })).note).toBe('フォルダの持ち主が違うので、git が読むのを断りました。このセッションの編集だけを表示します。');
     expect(presentGitFiles(ja, changes({ othersCapped: true })).othersLabel).toBe('ほかに作業ツリーで変わったファイル 1 件以上');
   });
 });
@@ -123,6 +139,11 @@ describe('presentProjectGit', () => {
     ]);
     expect(presentProjectGit(ja, undefined, [], git()).state).toBe('loading');
     expect(presentProjectGit(ja, { root: null, worktrees: [] }, [], git()).state).toBe('nogit');
+  });
+  it('この PC にパスが無い、フォルダが無い、持ち主の違いで git が断ったものは、読めない訳を出す', () => {
+    expect(presentProjectGit(ja, { root: null, worktrees: [], blocked: { kind: 'noPath' } }, [], git())).toEqual({ state: 'noPath', root: null, rows: [], fix: null });
+    expect(presentProjectGit(ja, { root: null, worktrees: [], blocked: { kind: 'missing' } }, [], git()).state).toBe('missing');
+    expect(presentProjectGit(ja, { root: null, worktrees: [], blocked: { kind: 'unsafe', path: '/w/alpha' } }, [], git(), 'darwin')).toEqual({ state: 'unsafe', root: null, rows: [], fix: 'git config --global --add safe.directory /w/alpha' });
   });
 });
 
