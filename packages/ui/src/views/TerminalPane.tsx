@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { LiveStatus } from '@agent-hangar/shared';
+import type { LiveStatus, StopReason } from '@agent-hangar/shared';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -25,6 +25,17 @@ function useSecondsUntil(at: number | null): number | null {
 }
 
 /**
+ * 端末の縁の灯（base.css の .term-pane[data-live]）。
+ * 裏だけ動いているものは薄いオレンジ、リセット済みは入力待ちの赤、使用制限は灰の輪で静かに（試作 stop-reason-proto の N1）。
+ * 許可待ちは入力待ちと同じ赤である。
+ */
+export function liveEdge(live: LiveStatus | null, aside: boolean, reason: StopReason | null): string {
+  if (reason === 'limit') return 'limit';
+  if (reason === 'reset') return 'waiting';
+  return aside && live === 'busy' ? 'aside' : live ?? 'ended';
+}
+
+/**
  * xterm を直接は持たない。
  * マウント先の要素を TerminalHost に渡すだけで、接続と描画は Host が行う。
  * 接続の様子も枠ごとに Host から読む。
@@ -32,7 +43,7 @@ function useSecondsUntil(at: number | null): number | null {
  * agent は Claude のタブか。
  * transcript は、目次から跳ばした Claude が transcript を見せている間の帯（Claude の枠にだけ渡す）。
  */
-export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null }) {
+export function TerminalPane(props: { tabId: string; hint: string | null; live: LiveStatus | null; aside?: boolean; reason?: StopReason | null; agent?: boolean; transcript?: { when: string; onLatest: () => void } | null }) {
   const host = useContext(TerminalHostContext);
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -103,7 +114,7 @@ export function TerminalPane(props: { tabId: string; hint: string | null; live: 
   // 縁はそのセッションの状態で灯る（base.css の .term-pane[data-live]）。
   // 終わったセッションと切れている間は灯さない。
   return (
-    <div ref={paneRef} className="term-pane" data-testid={`term-${props.tabId}`} data-live={props.aside === true && props.live === 'busy' ? 'aside' : props.live ?? 'ended'} data-off={off ? 'true' : undefined}>
+    <div ref={paneRef} className="term-pane" data-testid={`term-${props.tabId}`} data-live={liveEdge(props.live, props.aside === true, props.reason ?? null)} data-off={off ? 'true' : undefined}>
       {band.mounted && lastBand.current && (
         <div ref={band.ref} className="term-band" aria-hidden={band.leaving ? 'true' : undefined}>
           <Icon name="transcriptView" />

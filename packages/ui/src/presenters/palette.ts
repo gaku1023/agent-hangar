@@ -1,8 +1,8 @@
-import { type LiveStatus, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { resetAtText, type LiveStatus, type SessionDto, type StopReason, type Translate } from '@agent-hangar/shared';
 import { asideWord } from '../lib/aside.ts';
 import { displayKeys, keyLabel, KEYMAP, type KeyId } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
-import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownAside, shownLive, type Store } from '../store/store.ts';
+import { liveFilterOfSession, nextWaitingSession, runningSessionIds, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { durationLabel, relativeTime } from './format.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
@@ -21,7 +21,7 @@ function keysOf(id: KeyId): string {
 /** 行頭の印に使う絵の名前。View が Icon の名前へ写す。 */
 export type PaletteIcon = 'home' | 'projects' | 'settings' | 'next' | 'sidebar' | 'keys' | 'add' | 'scratch' | 'rebuild' | 'fulltext' | 'general' | 'cloud' | 'integrations' | 'summary' | 'tools' | 'info' | 'retention';
 /** 行頭の印。セッションは状態の点、コマンドは絵である。 */
-export type PaletteLead = { kind: 'dot'; live: LiveStatus | null; aside: boolean } | { kind: 'icon'; icon: PaletteIcon };
+export type PaletteLead = { kind: 'dot'; live: LiveStatus | null; aside: boolean; reason?: StopReason | null } | { kind: 'icon'; icon: PaletteIcon };
 /**
  * パレットの 1 行。
  * sub は名前の右に淡く添える語（セッションならプロジェクト名、設定の節なら「設定」）、meta は右端の淡い語（経った時間や件数）、keys は右端のキー帽である。
@@ -70,6 +70,11 @@ export function fuzzyScore(query: string, text: string): number {
 function sessionMeta(t: Translate, s: SessionDto, running: boolean, now: number): string {
   const since = (ts: number | null) => durationLabel(t, now - (ts ?? now));
   const live = shownLive(s);
+  // 止まっている理由があれば、右端の語をそれに替える（試作の P1）。
+  const reason = shownReason(s, live);
+  if (reason === 'permission') return t('stop.waited.permission', { time: since(s.lastActivityAt) });
+  if (reason === 'reset') return t('stop.state.reset');
+  if (reason === 'limit' && s.limit) return t('stop.limit.at', { time: resetAtText(t, s.limit.resetsAt, now) });
   if (live === 'waiting') return t('palette.meta.waiting', { time: since(s.lastActivityAt) });
   if (shownAside(s)) return t('palette.meta.aside', { word: asideWord(t), time: since(s.lastActivityAt) });
   if (live === 'busy') return t('palette.meta.working', { time: since(s.startedAt) });
@@ -114,7 +119,7 @@ export function presentPalette(state: State, store: Store, query: string, now: n
   // セッションは状態で 3 つに分ける。入力待ちは実行中に含めない（用語の D1）。
   // 引くのは名前だけである。要約と本文は、ホームの欄が引く。
   const sessions = byRecency(Object.values(store.sessions));
-  const sessionItem = (s: SessionDto, running: boolean): PaletteItem => ({ id: `session:${s.id}`, label: s.name ?? t('common.label.noName'), kind: 'session', lead: { kind: 'dot', live: shownLive(s), aside: shownAside(s) !== null }, sub: projectName(s), meta: sessionMeta(t, s, running, now), keys: '' });
+  const sessionItem = (s: SessionDto, running: boolean): PaletteItem => ({ id: `session:${s.id}`, label: s.name ?? t('common.label.noName'), kind: 'session', lead: { kind: 'dot', live: shownLive(s), aside: shownAside(s) !== null, reason: shownReason(s, shownLive(s)) }, sub: projectName(s), meta: sessionMeta(t, s, running, now), keys: '' });
   const byState = { waiting: [] as Scored[], running: [] as Scored[], ended: [] as Scored[] };
   for (const s of sessions) {
     const f = liveFilterOfSession(store, s, alive);

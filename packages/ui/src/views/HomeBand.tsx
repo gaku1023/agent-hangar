@@ -146,7 +146,7 @@ const CHECK_ICON: Record<'ok' | 'info' | 'soft' | 'ng', IconName> = { ok: 'ok', 
 function Lead(props: { lead: BandLead }) {
   const l = props.lead;
   switch (l.kind) {
-    case 'dot': return <StatusDot status={l.live} aside={l.aside} />;
+    case 'dot': return <StatusDot status={l.live} aside={l.aside} reason={l.reason ?? null} />;
     case 'tag': return l.tone === 'cand'
       ? <span className="home-cand">{l.text}</span>
       : <span className="return-when" data-due={l.tone === 'due' ? 'true' : undefined} title={l.title}>{l.text}</span>;
@@ -171,7 +171,10 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
       {r.lead.kind === 'check'
         // 確認の行は、説明を先に切り、命令（コピーする文）を残す。
         ? <span className="c-text"><span className="c-desc">{r.text}</span>{r.detail !== null && <i>{r.detail}</i>}</span>
-        : <span className="c-text">{r.text}{r.text !== '' && r.detail !== null && '　'}{r.detail !== null && <i>{r.detail}</i>}</span>}
+        : r.ask
+          // 許可待ちは、道具の札と命令（等幅）を先に、Claude の説明を後ろに置く（試作の B1）。
+          ? <span className="c-text"><span className="c-tool">{r.ask.tool}</span>{r.ask.input !== '' && <code className="c-cmd">{r.ask.input}</code>}{r.text !== '' && <span className="c-why">{r.text}</span>}</span>
+          : <span className="c-text">{r.text}{r.text !== '' && r.detail !== null && '　'}{r.detail !== null && <i>{r.detail}</i>}</span>}
       <span className="c-end">
         {r.trail.map((x, i) => <span key={i} data-tone={x.tone}>{x.text}</span>)}
         {r.actions.map((a) => (

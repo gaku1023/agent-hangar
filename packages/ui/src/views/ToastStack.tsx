@@ -3,6 +3,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
 import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateCardProps } from '../presenters/update.ts';
+import { ReasonGlyph } from './primitives/StatusDot.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { collapseOut, slideAway } from './primitives/motionKit.ts';
@@ -88,16 +89,27 @@ function WaitingCard(props: { card: WaitingCardProps; blocked: boolean; motion: 
   const emit = useEmit();
   const t = useT();
   const c = props.card;
-  const label = c.question === null ? t('toasts.waiting.label', { name: c.name }) : t('toasts.waiting.labelQuestion', { name: c.name, question: c.question });
+  // 許可待ちは、問いの代わりに道具と命令を出す（試作 stop-reason-proto の K1）。リセット済みは、続きを指示するよう言う。
+  const ask = c.reason === 'permission' ? c.ask : null;
+  const label = c.reason === 'permission'
+    ? (ask ? t('stop.toast.permissionLabel', { name: c.name, what: `${ask.tool} ${ask.input}`.trim() }) : t('stop.toast.permissionLabelBare', { name: c.name }))
+    : c.reason === 'reset' ? t('stop.toast.resetLabel', { name: c.name })
+      : c.question === null ? t('toasts.waiting.label', { name: c.name }) : t('toasts.waiting.labelQuestion', { name: c.name, question: c.question });
+  const head = c.reason === 'permission' ? t('stop.state.permission') : c.reason === 'reset' ? t('stop.state.reset') : t('toasts.waiting.head');
+  const named = ask !== null || c.question !== null;
   return (
-    <button type="button" className="toast notice" data-kind="waiting" aria-label={label} {...motionAttrs(props.motion)} disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' })}>
+    <button type="button" className="toast notice" data-kind="waiting" data-reason={c.reason ?? undefined} aria-label={label} {...motionAttrs(props.motion)} disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' })}>
       <span className="notice-head">
-        <span className="notice-dot" aria-hidden="true" />
-        <span className="notice-label">{t('toasts.waiting.head')}</span>
-        {c.question !== null && <><span className="notice-sep" aria-hidden="true">·</span><span className="notice-who">{c.name}</span></>}
+        {c.reason === 'permission' ? <ReasonGlyph reason="permission" /> : <span className="notice-dot" aria-hidden="true" />}
+        <span className="notice-label">{head}</span>
+        {named && <><span className="notice-sep" aria-hidden="true">·</span><span className="notice-who">{c.name}</span></>}
         <span className="notice-end">{c.waited}</span>
       </span>
-      <span className="notice-body"><span className="notice-title">{c.question ?? c.name}</span></span>
+      <span className="notice-body">
+        {ask
+          ? <span className="notice-title"><span className="notice-tool">{ask.tool}</span>{ask.input !== '' && <code className="notice-cmd">{ask.input}</code>}</span>
+          : <span className="notice-title">{c.question ?? c.name}</span>}
+      </span>
     </button>
   );
 }

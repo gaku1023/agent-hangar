@@ -64,7 +64,7 @@ describe('Done と Archived で live が waiting のセッションは、入力�
   });
   it('コマンドパレットは、入力待ちの群にも「入力待ち」の語にも入れない', () => {
     const p = presentPalette({ ...initialState(), overlay: { kind: 'palette' } }, store, 'name', NOW)!;
-    const waitingGroup = p.sections.find((g) => g.title === '入力待ち')!;
+    const waitingGroup = p.sections.find((g) => g.title === '要対応')!;
     expect(waitingGroup.items.map((i) => i.id).sort()).toEqual(['session:p', 'session:w']);
     const rows = p.sections.flatMap((g) => g.items).filter((i) => i.kind === 'session');
     const meta = Object.fromEntries(rows.map((i) => [i.id, i.meta]));

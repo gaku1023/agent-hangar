@@ -1170,7 +1170,7 @@ describe('次の入力待ちへ（C5）', () => {
     key({ key: '?', shiftKey: true });
     await flush();
     const dialog = screen.getByRole('dialog', { name: 'キーボードショートカット' });
-    expect(within(dialog).getByText('次の入力待ちへ')).toBeInTheDocument();
+    expect(within(dialog).getByText('次の要対応へ')).toBeInTheDocument();
     expect(within(dialog).getByText('⌘I')).toBeInTheDocument();
   });
 });

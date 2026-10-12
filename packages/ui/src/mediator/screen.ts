@@ -64,6 +64,7 @@ export function searchParams(state: State): SearchQuery {
   if (f.days) p.days = f.days;
   if (f.until !== undefined) p.until = f.until;
   if (f.live !== undefined) p.live = f.live;
+  if (f.stop !== undefined) p.stop = f.stop;
   if (f.file) p.file = f.file;
   // 状態のタブ。「すべて」のまま条件を入れたときは Archived を除く（presenters/sessions.ts の手元の絞り込みと同じ）。
   // サーバに問い合わせるのはキーワードか触ったファイルがあるとき（usesServerSearch）なので、ここに来るときはいつも条件がある。

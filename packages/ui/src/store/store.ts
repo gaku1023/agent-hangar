@@ -1,4 +1,4 @@
-import { liveFilterOf, liveWithLimit, quietLive, type LiveFilter, type PermissionAskDto } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
@@ -299,6 +299,17 @@ export function liveFilterOfSession(store: Store, session: SessionDto, alive: Se
  */
 export function shownLive(session: SessionDto): LiveStatus | null {
   return session.parked ? null : quietLive(liveWithLimit(session.live, session.limit), session.state?.status);
+}
+
+/**
+ * 一覧で見せる止まっている理由（shared の stopReasonOf）。shown は一覧で見せる動き（shownLive など）である。
+ * Done と Archived にした入力待ち（quietLive で休みに見せるもの）には付けない。
+ * 許可待ちとリセット済みは入力待ちに、使用制限は休みに見えているときだけ付ける。
+ */
+export function shownReason(s: SessionDto, shown: LiveStatus | null): StopReason | null {
+  const reason = stopReasonOf(s);
+  if (reason === 'permission' || reason === 'reset') return shown === 'waiting' ? reason : null;
+  return reason === 'limit' && shown === 'idle' ? reason : null;
 }
 
 /** 本体は入力を受け付けていて、裏の作業だけが動いているか（lib/aside.ts の asideOf）。一覧の見せ方は shownLive にそろえる。 */

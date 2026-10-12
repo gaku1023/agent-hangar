@@ -78,6 +78,21 @@ describe('presentSessionList のタブと平らな一覧（★）', () => {
     expect(ids({ status: 'active' })).toEqual(['newui', 'status', 'nfd', 'video', 'backspace', 'orphan']);
     expect(ids({ status: 'proposed' })).toEqual(['nfd', 'video']);
   });
+  it('is:permission は許可待ちだけ、is:limited は使用制限とリセット済みを並べ、条件の行に語を出す', () => {
+    const limit = { kind: 'five_hour' as const, resetsAt: NOW + H, auto: true, reset: false };
+    const store = storeOf([
+      dto('perm', 0.1, { live: 'waiting', waitingFor: 'permission' }),
+      dto('ask', 0.2, { live: 'waiting', waitingFor: 'question' }),
+      dto('lim', 0.3, { live: 'idle', limit }),
+      dto('rst', 0.4, { live: 'idle', limit: { ...limit, resetsAt: NOW - H, reset: true } }),
+      dto('idle', 0.5, { live: 'idle' }),
+    ]);
+    expect(ids({ stop: 'permission' }, store)).toEqual(['perm']);
+    expect(ids({ stop: 'limited' }, store).sort()).toEqual(['lim', 'rst']);
+    // is:waiting は今までどおり、許可待ちとリセット済みも含む。
+    expect(ids({ live: 'waiting' }, store).sort()).toEqual(['ask', 'perm', 'rst']);
+    expect(presentSessionList(withSearch({ text: '', filter: { stop: 'limited' } }), store, NOW).conditions).toEqual(['使用制限']);
+  });
   it('「すべて」のまま条件を入れたら Archived を除き、Archived のタブなら出す', () => {
     expect(ids({ days: 7 })).not.toContain('trash');
     expect(ids({ days: 7 })).toContain('sync');

@@ -69,9 +69,9 @@ describe('ホーム、一覧、ヘッダー、サイドバー（英語）', () =
   it('パレット：群の名前、操作、右端の語、ホームへ渡す行', () => {
     const store = storeIn([session('w', { live: 'waiting', name: 'fix login' }), session('e', { live: null, name: 'old run', lastActivityAt: NOW - 3 * 3_600_000 })]);
     const closed = presentPalette({ ...initialState(), overlay: { kind: 'palette' } }, store, '', NOW)!;
-    expect(closed.sections.map((s) => s.title)).toEqual(['Needs input', 'Recent', 'Actions', 'Settings']);
+    expect(closed.sections.map((s) => s.title)).toEqual(['Needs attention', 'Recent', 'Actions', 'Settings']);
     expect(closed.sections[0]!.items[0]!.meta).toBe('Waiting 5 min');
-    expect(closed.sections[2]!.items.map((i) => i.label)).toContain('Go to next session needing input');
+    expect(closed.sections[2]!.items.map((i) => i.label)).toContain('Go to next session needing attention');
     noJapanese(jsonOf(closed));
     const typed = presentPalette({ ...initialState(), overlay: { kind: 'palette' } }, store, 'log', NOW, { q: 'log', total: 1 })!;
     expect(typed.sections.at(-1)).toMatchObject({ title: 'Home', items: [{ label: 'Search transcripts for “log” in Home', meta: '1 result' }] });

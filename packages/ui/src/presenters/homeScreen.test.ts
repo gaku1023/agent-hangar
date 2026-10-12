@@ -31,6 +31,25 @@ const busyMorning = () => storeOf([
   dto('a1', 40, { state: st({ status: 'archived', setBy: 'user', setAt: NOW - 40 * H }) }),
 ]);
 
+describe('presentHomeScreen の止まっている理由', () => {
+  it('許可待ちは要対応、使用制限は実行中、自動で続かずリセットを過ぎたものは要対応に入る', () => {
+    const resetsAt = NOW + 50 * 60_000;
+    const p = presentHomeScreen(initialState(), storeOf([
+      dto('p1', 0.02, { live: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'npm test', description: null } }),
+      dto('l1', 0.5, { live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } }),
+      dto('x1', 0.5, { live: 'idle', limit: { kind: 'weekly', resetsAt: NOW - 5 * 60_000, auto: false, reset: true } }),
+    ]), NOW);
+    const attention = p.band.groups.find((g) => g.id === 'attention')!;
+    const running = p.band.groups.find((g) => g.id === 'running')!;
+    expect(attention.rows.map((r) => [r.key, r.lead.kind === 'dot' ? r.lead.reason : null])).toEqual([['wait:x1', 'reset'], ['wait:p1', 'permission']]);
+    expect(attention.rows[1]!.ask).toEqual({ tool: 'Bash', input: 'npm test' });
+    expect(attention.rows[0]!.trail[0]!.text).toBe('リセットから 5 分');
+    expect(running.rows.map((r) => r.key)).toEqual(['run:l1']);
+    expect(running.rows[0]!.text).toBe('使用制限（5 時間）· 09:50 にリセット · 自動で続きます');
+    expect(running.rows[0]!.trail).toEqual([{ text: 'あと 50 分', tone: 'limit' }]);
+  });
+});
+
 describe('presentHomeScreen の帯', () => {
   it('要対応、実行中、確認待ちの 3 つの群を、件数つきで並べる（4 つ目の錠剤は PR 33 で足す）', () => {
     const p = presentHomeScreen(initialState(), busyMorning(), NOW);

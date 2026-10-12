@@ -10,12 +10,25 @@
 .now-card[data-tone='wait'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--waiting); }
 .now-card[data-tone='busy'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--busy); }
 .now-card[data-tone='aside'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--aside); }
+.now-card[data-tone='limit'] { box-shadow: var(--surface-shadow), inset 3px 0 0 var(--limit); }
 /* 札の灯は静止させる（D3）。動いていることは、手が増えることで分かる。 */
 .now-card .live-dot { animation: none; }
 .nc-head { display: flex; flex-wrap: wrap; align-items: center; column-gap: calc(var(--u) * 1.5); row-gap: 2px; min-width: 0; }
 .nc-state { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); font-weight: 600; }
 .nc-state[data-tone='wait'] { color: var(--waiting); }
 .nc-state[data-tone='busy'] { color: color-mix(in srgb, var(--busy) 60%, var(--ink)); }
+.nc-state[data-tone='limit'] { color: var(--limit); }
+/* 止まっている理由の欄（試作 stop-reason-proto の N1）。問いと同じ場所に、許可待ちは入力待ちの淡い地、使用制限は灰の淡い地で置く。 */
+.nc-stop { display: flex; flex-direction: column; gap: 3px; padding: calc(var(--u) * 1.5) calc(var(--u) * 2); border-radius: var(--r); background: color-mix(in srgb, var(--waiting) 7%, var(--surface)); min-width: 0; }
+.nc-stop[data-kind='limit'] { background: var(--limit-soft); }
+.nc-stop-head { font-size: var(--fs-xs); font-weight: 700; color: var(--waiting); }
+.nc-stop[data-kind='limit'] .nc-stop-head { color: var(--limit); }
+.nc-stop-cmd { font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.nc-stop-why { margin: 0; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
+.nc-stop-at { margin: 0; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.nc-stop-hint { margin: 2px 0 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-3); }
+.nc-stop-meter { display: block; height: 4px; margin-top: 2px; border-radius: 4px; background: color-mix(in srgb, var(--limit) 22%, var(--surface)); overflow: hidden; }
+.nc-stop-meter > i { display: block; height: 100%; background: var(--limit); }
 .nc-sub { color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .nc-detail { margin: 0; line-height: 1.55; color: var(--ink-2); }
 /* 入力待ちの問い。札の中で一番目立たせる。 */

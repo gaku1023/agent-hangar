@@ -62,6 +62,7 @@
 /* セッションの状態（試作 model-v3）。動きは日本語と丸い点、状態は英語と四角の札、提案は紫の枠だけの丸い札、戻る日は黄土の丸い札で描き分ける。 */
 .row-live { flex: none; font-size: var(--fs-xs); font-weight: 600; }
 .row-live[data-live='waiting'] { color: var(--waiting); }
+.row-live[data-live='limit'] { color: var(--limit); }
 .row-live[data-live='busy'] { color: var(--busy); }
 /* 状態の札（F1）。列の幅いっぱいの同じ幅の四角い札にし、語の長さで位置がずれないようにする。
    Done は全体のほとんどを占めるので線だけにして静かにし、ほかの 3 つを地で塗る。Active はプロジェクトの Active と同じ青にする。 */

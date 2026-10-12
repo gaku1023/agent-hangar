@@ -7,7 +7,7 @@ import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateCardProps } from '../presenters/update.ts';
 import { INFO_TOAST_MS, ToastStack } from './ToastStack.tsx';
 
-const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, ...over });
+const card = (id: string, over: Partial<WaitingCardProps> = {}): WaitingCardProps => ({ sessionId: id, name: `名前 ${id}`, waited: '2 分', question: `問い ${id}`, reason: null, ask: null, ...over });
 const props = (over: Partial<ToastsProps> = {}): ToastsProps => ({ toasts: [], waiting: [], more: 0, blocked: false, arrived: null, update: null, ...over });
 function mount(p: ToastsProps) {
   const onAction = vi.fn();
@@ -39,6 +39,26 @@ describe('入力待ちのカード', () => {
     expect(within(c).getAllByText('名前 s1')).toHaveLength(1);
     expect(c.querySelector('.notice-title')).toHaveTextContent('名前 s1');
     expect(within(c.querySelector<HTMLElement>('.notice-head')!).getByText('2 分')).toBeInTheDocument();
+  });
+  it('許可待ちは見出しを「許可待ち」と盾にし、問いの場所に道具と命令を出す（試作の K1）', () => {
+    mount(props({ waiting: [card('s1', { question: null, reason: 'permission', ask: { tool: 'Bash', input: 'rm -rf ./build/cache' } })] }));
+    const c = screen.getByRole('button', { name: '名前 s1 が許可待ちです：Bash rm -rf ./build/cache' });
+    const head = within(c.querySelector<HTMLElement>('.notice-head')!);
+    expect(head.getByText('許可待ち')).toBeInTheDocument();
+    expect(head.getByText('名前 s1')).toBeInTheDocument();
+    expect(c.querySelector('.notice-head .reason-glyph')).not.toBeNull();
+    expect(c.querySelector('.notice-tool')).toHaveTextContent('Bash');
+    expect(c.querySelector('.notice-cmd')).toHaveTextContent('rm -rf ./build/cache');
+  });
+  it('許可の中身が無ければ、名前を問いの段に出す', () => {
+    mount(props({ waiting: [card('s1', { question: null, reason: 'permission' })] }));
+    const c = screen.getByRole('button', { name: '名前 s1 が許可待ちです' });
+    expect(c.querySelector('.notice-title')).toHaveTextContent('名前 s1');
+  });
+  it('リセット済みは見出しを替え、続きを指示するよう言う', () => {
+    mount(props({ waiting: [card('s1', { question: '使用制限がリセットされました。続きを指示してください', reason: 'reset' })] }));
+    const c = screen.getByRole('button', { name: '名前 s1：使用制限がリセットされました。続きを指示してください' });
+    expect(within(c.querySelector<HTMLElement>('.notice-head')!).getByText('リセット済み')).toBeInTheDocument();
   });
   it('ボタンの段と「答えるまで残ります」の注記は持たない', () => {
     mount(props({ waiting: [card('s1')] }));

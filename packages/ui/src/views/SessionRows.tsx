@@ -256,7 +256,8 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
       <span className="row-when">
         {r.transcript === 'expiring' && <span className="row-soon">{t('row.soon.delete')}</span>}
         {r.transcript === 'gone' && <span className="row-gone" title={goneLabel}><Icon name="transcriptGone" label={goneLabel} /></span>}
-        {r.live && <span className="row-live" data-live={r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{t(LIVE_WORD_KEY[r.live])}</span>}
+        {/* 止まっている理由があれば、右端の語をそれに替える（「許可待ち」「使用制限 · 16:50」「リセット済み」、試作の L1）。 */}
+        {r.live && <span className="row-live" data-live={r.reason === 'limit' ? 'limit' : r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{r.reasonWord ?? t(LIVE_WORD_KEY[r.live])}</span>}
         <span className="row-act row-more" onClick={stopClick}>
           <MenuButton label={t('row.menu.stateLabel', { name: r.name })} items={stateItems(t, r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />
         </span>
@@ -309,7 +310,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
   const rowEl = (r: SessionRowProps) => (
     <div className="row row-2" role="row" tabIndex={r.id === tabStopId ? 0 : -1} data-cursor={r.id === cursorRowId ? 'true' : undefined} data-archived={r.state === 'archived' ? 'true' : undefined} data-morph-id={r.id}
       onClick={() => emit(openAction(r))} onFocus={() => setCursorId(r.id)}>
-      <StatusDot status={r.live} aside={r.aside} />
+      <StatusDot status={r.live} aside={r.aside} reason={r.reason ?? null} />
       {statusColumn && status(r)}
       <span className="row-main">
         <span className="row-name">{r.nameMarks ? r.nameMarks.map((m, i) => (m.hit ? <mark key={i} className="hit">{m.text}</mark> : <span key={i}>{m.text}</span>)) : r.name}{props.variant !== 'project' && <span className="row-proj">{r.projectName ?? t('common.label.uncategorized')}</span>}</span>

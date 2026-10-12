@@ -1,5 +1,5 @@
-import { isReturnOn, isReturnTime, overdueDays, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
-import { aliveRunOf, shownAside, shownLive, type Store } from '../store/store.ts';
+import { isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
+import { aliveRunOf, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
 import { translatorOf } from './i18n.ts';
 import { projectDisplayName } from './projectName.ts';
@@ -13,7 +13,7 @@ import { DEFAULT_DAYS, transcriptMark, type TranscriptMark } from './retention.t
 export type SummaryStateTag = { label: string; tone: 'blocked' | 'abandoned' | null };
 
 /** summaryState は 2 段目の頭に置く見立ての札。要約が無いときと、土台の要約のときは null。 */
-export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; aside: boolean; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
+export type SessionRowProps = { id: string; name: string; oneLiner: string; projectName: string | null; live: LiveStatus | null; aside: boolean; reason?: StopReason | null; reasonWord?: string | null; stateLabel: string; summaryState: SummaryStateTag | null; model: string; effort: string; when: string; whenAbs: string; filesChanged: number; prUrl: string | null; hasTranscript: boolean; transcript: TranscriptMark; cost: string; runId: string | null; excerpt?: Segment[];
   /** 検索の結果の行を開いたときの跳び先（抜粋の seq と検索語）。 */
   jump?: { seq: number; q: string };
   /** 検索で名前に当たった行の、名前の中の一致箇所（印を付ける塊）。名前に当たった行だけが持ち、名前の中に語が見つからないときも持たない。 */
@@ -48,6 +48,18 @@ function summaryStateTag(t: Translate, summary: SessionSummaryDto | null): Summa
   return { label: stateLabel(t, summary.state), tone };
 }
 
+/**
+ * 一覧の行の止まっている理由と、右端の語（試作の L1）。語は「許可待ち」「使用制限 · 16:50」「リセット済み」で、2 段目の要約は変えない。
+ * 理由の中身（命令、自動で続くか）はホームとセッション画面に任せる。一覧は探す場所だからである。
+ */
+function reasonOf(t: Translate, s: SessionDto, now: number): { reason: StopReason | null; reasonWord: string | null } {
+  const reason = shownReason(s, shownLive(s));
+  if (reason === 'permission') return { reason, reasonWord: t('stop.state.permission') };
+  if (reason === 'limit' && s.limit) return { reason, reasonWord: t('stop.limit.short', { time: resetAtText(t, s.limit.resetsAt, now) }) };
+  if (reason === 'reset') return { reason, reasonWord: t('stop.state.reset') };
+  return { reason: null, reasonWord: null };
+}
+
 export function presentSessionRow(s: SessionDto, store: Store, now: number, excerpt?: Segment[]): SessionRowProps {
   const t = translatorOf(store);
   // state が null なら Active として読む。
@@ -60,7 +72,7 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
   const row: SessionRowProps = {
     id: s.id, name: s.name ?? t('common.label.noName'), oneLiner: s.summary?.oneLiner ?? s.firstPrompt ?? '',
     projectName: s.projectId && store.projects[s.projectId] ? projectDisplayName(store.projects[s.projectId]!, t) : null,
-    live: shownLive(s), aside: shownAside(s) !== null, stateLabel: s.summary ? stateLabel(t, s.summary.state) : '', summaryState: summaryStateTag(t, s.summary), model: shortModel(s.stats.model), effort: s.stats.effort ?? '',
+    live: shownLive(s), aside: shownAside(s) !== null, ...reasonOf(t, s, now), stateLabel: s.summary ? stateLabel(t, s.summary.state) : '', summaryState: summaryStateTag(t, s.summary), model: shortModel(s.stats.model), effort: s.stats.effort ?? '',
     when: relativeTime(t, s.lastActivityAt, now), whenAbs: absoluteTime(t, s.lastActivityAt), filesChanged: s.stats.filesChanged, prUrl: s.stats.prUrl, hasTranscript: s.hasTranscript,
     transcript: transcriptMark(s, store.retention?.days ?? DEFAULT_DAYS, now),
     // 区切りを付けて休みのまま残っているもの（parked）は、終わった行と同じに作る。灯も run も持たせず、状態の節に入れる。
