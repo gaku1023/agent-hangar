@@ -147,7 +147,17 @@ function without<T>(map: Record<string, T>, key: string): Record<string, T> {
   return rest;
 }
 
-const sameAside = (a: LiveAsideDto | null, b: LiveAsideDto | null): boolean => a === b || (a !== null && b !== null && a.shell === b.shell && a.agents === b.agents);
+/**
+ * 消えたプロジェクトを外す（一覧から削除されたと、読み直しの 404 で分かったとき）。
+ * サーバはプロジェクトの論理削除を知らせない（配る層は行が無いと何も配らない）ので、画面の側で外す。
+ * 外すのはプロジェクトとブランチと worktree の写しだけで、セッションの紐づけは後から届く session.upsert が直す。
+ */
+export function withoutProject(store: Store, id: string): Store {
+  if (!(id in store.projects) && !(id in store.projectGit)) return store;
+  return { ...store, projects: without(store.projects, id), projectGit: without(store.projectGit, id) };
+}
+
+const sameAside =(a: LiveAsideDto | null, b: LiveAsideDto | null): boolean => a === b || (a !== null && b !== null && a.shell === b.shell && a.agents === b.agents);
 
 const samePermission = (a: PermissionAskDto | null, b: PermissionAskDto | null): boolean =>
   a === b || (a !== null && b !== null && a.tool === b.tool && a.input === b.input && a.description === b.description);
