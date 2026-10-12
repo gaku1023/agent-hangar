@@ -432,7 +432,7 @@ describe('止まっている理由（waitingFor、permission、limit）', () => 
     expect(listSessions(db, one({}), { now: () => RESETS - 1000 }).find((s) => s.id === alphaId())!.limit).toMatchObject({ kind: 'five_hour' });
   });
   it('使用制限で止まっている間は、区切りを付けていても parked にしない。猶予を過ぎたら parked に戻る', () => {
-    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: 5000 });
     db.prepare("insert into runs (id, session_id, device_id, kind, tmux_name, pid, launch_params, started_at, heartbeat_at, updated_at, origin_device) values ('r1', ?, 'd', 'start', 'h', null, '{}', 1000, 1000, 1000, 'd')").run(alphaId());
     putLimit(0);
     expect(getSession(db, one({}), alphaId(), { deviceId: 'd', now: () => RESETS - 1000 })!.parked).toBe(false);
@@ -450,7 +450,7 @@ describe('区切りを付けて休みのまま残っているセッション（p
     upsertShared(db, 'runs', { id: o.id, session_id: alphaId(), device_id: 'd', kind: 'start', tmux_name: `hangar-${o.id}`, pid: null, launch_params: '{}', started_at: o.started, ended_at: o.ended ?? null, end_reason: o.reason ?? null, heartbeat_at: o.started }, 'd');
 
   it('印が付いていて、休みで、プロセスの起動が印より前なら真', () => {
-    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'conversation', now: STARTED + 60_000 });
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'conversation', now: STARTED + 60_000 });
     expect(getSession(db, idle(), alphaId())!.parked).toBe(true);
     expect(listSessions(db, idle()).find((s) => s.id === alphaId())!.parked).toBe(true);
   });
@@ -462,11 +462,11 @@ describe('区切りを付けて休みのまま残っているセッション（p
     expect(getSession(db, [], alphaId())!.parked).toBe(false);
   });
   it('印より後に起動したプロセス（再開したもの）は偽', () => {
-    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: STARTED - 60_000 });
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: STARTED - 60_000 });
     expect(getSession(db, idle(), alphaId())!.parked).toBe(false);
   });
   it('登録に起動時刻が無ければ、生きた run の始まりで比べる', () => {
-    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: 5000 });
     const noStart = idle();
     delete noStart[0]!.procStart;
     // run も無ければ分からないので偽。
@@ -477,7 +477,7 @@ describe('区切りを付けて休みのまま残っているセッション（p
     expect(getSession(db, noStart, alphaId())!.parked).toBe(true);
   });
   it('生きた run の始まりは、この端末の run だけを見る。他の端末に残った行で止めない', () => {
-    setSessionState(db, 'd', alphaId(), { status: 'paused', note: '明日見る', returnOn: '2026-10-03', setBy: 'user', now: 5000 });
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'user', now: 5000 });
     const noStart = idle();
     delete noStart[0]!.procStart;
     upsertShared(db, 'runs', { id: 'r-other', session_id: alphaId(), device_id: 'other', kind: 'start', tmux_name: 'hangar-r-other', pid: null, launch_params: '{}', started_at: 3000, ended_at: null, end_reason: null, heartbeat_at: 3000 }, 'other');

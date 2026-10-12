@@ -124,7 +124,7 @@ export function bootRuns(
     // 足す段の入り切り（設定の askStatusAtEnd と liveHints）。起動のたびに今の設定を読む。
     injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false }),
   });
-  // 区切り（Paused、Done、Archived）を付けたセッションが休みになったら、Claude を止める。
+  // 区切り（Done、Archived）を付けたセッションが休みになったら、Claude を止める。Paused は戻ってくる会話なので止めない。
   // 登録は 500 ミリ秒ごとの写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
   // 読めなかったときは、何も止めない。
   const parkWatch = new ParkWatch({

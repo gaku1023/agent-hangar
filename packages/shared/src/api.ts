@@ -150,7 +150,7 @@ export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { 
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
 export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
-/** parked は、区切り（Paused・Done・Archived）を付けたセッションが休みになったので hangar が止めたもの。 */
+/** parked は、区切り（Done・Archived。0.5.0 までは Paused も）を付けたセッションが休みになったので hangar が止めたもの。 */
 export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
 /** 「ターミナルで開く」で使う外部ターミナル。macOS は Terminal.app と iTerm2、Windows は Windows Terminal と既定のターミナル（terminal.ts）。 */
 export type TerminalApp = 'terminal' | 'iterm' | 'windowsTerminal' | 'windowsDefault';
