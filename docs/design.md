@@ -915,7 +915,7 @@ create table session_live_stats (
   updated_at integer not null
 );
 
--- 使用制限で止まっているセッション（版 22、0.5.0）。主線の本文の合成の行（error が rate_limit）から索引が書き、
+-- 使用制限で止まっているセッション（版 23、0.5.0）。主線の本文の合成の行（error が rate_limit）から索引が書き、
 -- 次の指示か返答で消す。セッションが実行中から外れたときも消す（「止まっている理由」の節）。
 create table session_limits (
   session_id text primary key,
