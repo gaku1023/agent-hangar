@@ -73,7 +73,7 @@ export function transition(state: State, store: Store, input: Input): Step {
     return { state, effects: [] };
   }
   if (input.kind === 'runtime') {
-    if (input.event.type === 'api.failed') return { state: pushToast(state, 'error', input.event.message), effects: [] };
+    if (input.event.type === 'api.failed') return { state: pushToast(state, 'error', input.event.message, input.event.holdMs), effects: [] };
     return { state, effects: [] };
   }
   const i = input.action;

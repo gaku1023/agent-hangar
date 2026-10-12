@@ -13,7 +13,7 @@ export type SearchQuery = Omit<SearchParamsDto, 'since'> & { days?: number };
 export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
   | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number }
-  | { type: 'api.failed'; message: string } | { type: 'search.done'; params: SearchParamsDto }
+  | { type: 'api.failed'; message: string; holdMs?: number } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
   | { type: 'promote.failed'; message: string }

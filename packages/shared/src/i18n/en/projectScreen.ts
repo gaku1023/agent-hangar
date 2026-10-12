@@ -11,6 +11,7 @@ export const projectScreenEn: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.quick.start': 'Start a quick session',
   'projectScreen.open.editor': 'Open in VS Code',
   'projectScreen.open.terminal': 'Open in terminal',
+  'projectScreen.open.noPath': 'Can\'t open: no path on this computer',
   'projectScreen.rail.close': 'Close right panel',
   'projectScreen.rail.open': 'Open right panel',
   'projectScreen.path.none': 'No path on this computer',

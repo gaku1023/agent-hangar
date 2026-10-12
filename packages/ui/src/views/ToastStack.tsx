@@ -163,19 +163,19 @@ function UpdateCard(props: { card: UpdateCardProps; motion: CardMotion }) {
 }
 
 /**
- * ms が経ったら onDone を呼ぶ。
+ * ms が経ったら onDone を呼ぶ。ms が null なら時間では呼ばない。
  * マウスを乗せている間とフォーカスが中にある間は止め、離れたら残りの時間から数え直す。
  */
-function useAutoDismiss(ms: number, onDone: () => void) {
+function useAutoDismiss(ms: number | null, onDone: () => void) {
   const [paused, setPaused] = useState(false);
   const left = useRef(ms);
   const done = useRef(onDone);
   done.current = onDone;
   useEffect(() => {
-    if (paused) return;
+    if (paused || left.current === null) return;
     const started = Date.now();
     const t = setTimeout(() => done.current(), left.current);
-    return () => { clearTimeout(t); left.current = Math.max(0, left.current - (Date.now() - started)); };
+    return () => { clearTimeout(t); left.current = Math.max(0, (left.current ?? 0) - (Date.now() - started)); };
   }, [paused]);
   const hold = () => setPaused(true);
   const release = () => setPaused(false);
@@ -202,6 +202,7 @@ function InfoToast(props: { toast: Toast; motion: CardMotion }) {
 /**
  * error のトースト。
  * 読み落とさないよう時間では消さず、閉じるボタンで消す。
+ * holdMs を持つもの（プロジェクトを外で開けなかったときなど、押した直後に読めば足りる失敗）だけは、その長さで消える。乗せている間は止める。
  * 本文は 2 行まで見せ、収まらないときだけ「詳しく」で開く。
  */
 function ErrorToast(props: { toast: Toast; motion: CardMotion }) {
@@ -210,13 +211,14 @@ function ErrorToast(props: { toast: Toast; motion: CardMotion }) {
   const message = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   const [open, setOpen] = useState(false);
+  const pause = useAutoDismiss(props.toast.holdMs ?? null, () => emit({ type: 'toast.dismiss', id: props.toast.id }));
   // 2 行で切れているかは、描いてから測るしかない。
   useLayoutEffect(() => {
     const el = message.current;
     if (el) setLong(el.scrollHeight > el.clientHeight + 1);
   }, [props.toast.message]);
   return (
-    <div className="toast notice" data-kind="error" role="alert" data-open={open ? 'true' : undefined} {...motionAttrs(props.motion)}>
+    <div className="toast notice" data-kind="error" role="alert" data-open={open ? 'true' : undefined} {...motionAttrs(props.motion)} {...pause}>
       <div className="notice-head">
         <Icon name="alert" />
         <span className="notice-label">{t('toasts.error.head')}</span>

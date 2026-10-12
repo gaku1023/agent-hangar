@@ -102,6 +102,17 @@ impl Keep {
         };
         set.insert(session_id.to_string());
     }
+
+    /// 出してあるトーストの識別子を、残すものに足す。
+    /// 外すのは別の糸で、頁が一覧を渡した後に出したトーストを、前の一覧で外さないためである。
+    /// hangar の識別子でないものは足さない。
+    pub fn extend_shown<'a>(&mut self, shown: impl IntoIterator<Item = &'a str>) {
+        for id in shown {
+            if let Some((kind, session_id)) = parse_identifier(id) {
+                self.insert(kind, session_id);
+            }
+        }
+    }
 }
 
 /// macOS の通知センターに届いている通知の識別子から、外すものを選ぶ。
@@ -283,6 +294,20 @@ mod toast {
     /// 1 回の押下を Windows が 2 つの道（COM の口と、トーストの Activated）で知らせても、1 回だけ開くための間合い。
     const OPEN_AGAIN_AFTER: Duration = Duration::from_secs(2);
 
+    /// Windows の呼び出しの失敗を、ログの 1 行の形にする。
+    /// 文は、コード（HRESULT）から OS が引いた文だけを使い、コードを 16 進で添える。
+    /// windows の Error の表示は、糸に残った前の失敗の説明（IErrorInfo）を拾うことがある。
+    /// そのため、コードと合わない文（0x8001010D に「クラスが登録されていません」）や、化けた文が出た。
+    pub fn hresult_line(code: i32, message: &str) -> String {
+        let code = format!("0x{:08X}", code as u32);
+        let message = message.trim();
+        if message.is_empty() {
+            code
+        } else {
+            format!("{message} ({code})")
+        }
+    }
+
     /// XML の本文と属性に入れられるよう、特別な 5 文字を置き換える。
     fn xml_escape(text: &str) -> String {
         let mut out = String::with_capacity(text.len());
@@ -455,17 +480,19 @@ pub fn prune(_keep: Keep) {}
 #[cfg(windows)]
 mod win {
     use super::toast::{
-        activator_clsid, app_id_key, first_open, installed_exe, server_command, server_key,
-        setting_status, stale_toasts, toast_group, toast_tag, toast_xml, ACTIVATOR_CLSID, APP_ID,
-        DISPLAY_NAME,
+        activator_clsid, app_id_key, first_open, hresult_line, installed_exe, server_command,
+        server_key, setting_status, stale_toasts, toast_group, toast_tag, toast_xml,
+        ACTIVATOR_CLSID, APP_ID, DISPLAY_NAME,
     };
     use super::{identifier, parse_identifier, session_of, Keep, Waiting};
     use std::collections::HashMap;
     use std::ffi::c_void;
+    use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::{LazyLock, Mutex, OnceLock};
     use std::time::Instant;
     use windows::core::{
-        implement, IInspectable, IUnknown, Interface, Ref, Result, BOOL, GUID, HSTRING, PCWSTR,
+        implement, Error, IInspectable, IUnknown, Interface, Ref, Result, BOOL, GUID, HSTRING,
+        PCWSTR,
     };
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::Foundation::TypedEventHandler;
@@ -497,6 +524,8 @@ mod win {
     /// Activated の受け口が生きているよう、セッションと種類ごと（識別子ごと）に最後の 1 つを持っておく。
     static TOASTS: LazyLock<Mutex<HashMap<String, ToastNotification>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
+    /// 通知センターから外す糸へ、残すものの一覧を渡す口（`prune`）。
+    static PRUNER: OnceLock<Mutex<Sender<Keep>>> = OnceLock::new();
     /// 通知センターの頭に出す絵。
     /// 登録の IconUri は画像のファイルを指す決まりなので、hangar の置き場に書き出して指す。
     static ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
@@ -643,7 +672,7 @@ mod win {
         match registered {
             Ok(_) => crate::log("toast activator registered"),
             Err(e) => {
-                crate::log(&format!("toast activator not registered: {e}"));
+                crate::log(&format!("toast activator not registered: {}", describe(&e)));
                 return;
             }
         }
@@ -726,7 +755,7 @@ mod win {
         }
         match deliver(w) {
             Ok(()) => crate::log("toast handed to Windows"),
-            Err(e) => crate::log(&format!("toast not shown: {e}")),
+            Err(e) => crate::log(&format!("toast not shown: {}", describe(&e))),
         }
     }
 
@@ -747,9 +776,18 @@ mod win {
         Ok(stale.len())
     }
 
+    /// 失敗をログの 1 行の文にする。
+    /// Error の表示は糸に残った前の失敗の説明を拾うことがあるので、コードとコードから引いた文だけを使う（`hresult_line`）。
+    fn describe(e: &Error) -> String {
+        hresult_line(e.code().0, &e.code().message())
+    }
+
     /// もう待っていないセッションのトーストを、通知センターから外す。
     /// 頁は、入力待ちの顔ぶれか今日の戻る時刻を過ぎた顔ぶれが変わるたびと、起動して一覧を読み終えたときに呼ぶ。
     /// 起動のときは前の起動の間に出したトーストが残っているので、ここで外す。今も待っているものは残し、出し直しはしない。
+    /// 通知センターの履歴は別のプロセスにあり、読むと外への呼び出しになる。
+    /// 頁の命令は窓の糸で、WebView2 の知らせを配っている途中に呼ばれるので、そこから外へ呼ぶと Windows が断る（0x8001010D、RPC_E_CANTCALLOUT_ININPUTSYNCCALL）。
+    /// なので、外すのは COM を自分で始めた別の糸（`prune_loop`）に任せ、ここは覚えておくトーストを絞って一覧を渡すだけにする。
     pub fn prune(keep: Keep) {
         if !installed() {
             return;
@@ -757,10 +795,43 @@ mod win {
         if let Ok(mut toasts) = TOASTS.lock() {
             toasts.retain(|id, _| parse_identifier(id).is_some_and(|(k, s)| keep.holds(k, s)));
         }
-        match remove_stale(&keep) {
-            Ok(0) => {}
-            Ok(n) => crate::log(&format!("toasts removed: {n}")),
-            Err(e) => crate::log(&format!("toasts not removed: {e}")),
+        let sent = PRUNER
+            .get_or_init(|| {
+                let (tx, rx) = channel();
+                let _ = std::thread::Builder::new()
+                    .name("toast-prune".into())
+                    .spawn(move || prune_loop(rx));
+                Mutex::new(tx)
+            })
+            .lock()
+            .map(|tx| tx.send(keep).is_ok())
+            .unwrap_or(false);
+        if !sent {
+            crate::log("toasts not removed: the removing thread is not running");
+        }
+    }
+
+    /// 通知センターから外す糸。
+    /// 一覧は届いた順に扱い、溜まっていれば、いちばん新しいものだけを使う。
+    /// 頁が一覧を渡した後に出したトーストは、出したもの（TOASTS）に入っているので、残すものに足してから外す。
+    fn prune_loop(rx: Receiver<Keep>) {
+        // SAFETY: この糸で COM を一度だけ始め、終わりまで抜けない。
+        if unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_err() {
+            crate::log("toasts not removed: COM did not start");
+            return;
+        }
+        while let Ok(mut keep) = rx.recv() {
+            while let Ok(newer) = rx.try_recv() {
+                keep = newer;
+            }
+            if let Ok(toasts) = TOASTS.lock() {
+                keep.extend_shown(toasts.keys().map(String::as_str));
+            }
+            match remove_stale(&keep) {
+                Ok(0) => {}
+                Ok(n) => crate::log(&format!("toasts removed: {n}")),
+                Err(e) => crate::log(&format!("toasts not removed: {}", describe(&e))),
+            }
         }
     }
 }
@@ -1469,5 +1540,29 @@ mod tests {
         assert!(js.contains("var id=\"s1\""));
         assert!(js.contains("window.__hangarOpenWaiting(id)"));
         assert!(js.contains("location.hash=\"#/session/\"+id"));
+    }
+
+    /// 外す前に出したトーストは、外す時点の一覧になくても残す（外すのは別の糸で、出すのより後になることがある）。
+    #[test]
+    fn toasts_shown_before_the_removal_runs_are_kept() {
+        let mut keep = Keep::new(&ids(&["s1"]), &[]);
+        keep.extend_shown(["hangar-waiting:s2", "hangar-return:s3", "something-else"]);
+        assert!(keep.holds(Kind::Waiting, "s1"));
+        assert!(keep.holds(Kind::Waiting, "s2"));
+        assert!(keep.holds(Kind::Return, "s3"));
+        assert!(!keep.holds(Kind::Return, "s2"));
+    }
+
+    /// 失敗の 1 行は、コードと、コードから OS が引いた文だけで書く。
+    /// 糸に残った前の失敗の説明は使わない（コードと合わない文や、化けた文が出た）。
+    #[test]
+    fn a_failure_line_names_the_code_in_hex_with_its_own_message() {
+        let msg = "the call cannot be made now";
+        assert_eq!(
+            hresult_line(0x8001_010Du32 as i32, msg),
+            "the call cannot be made now (0x8001010D)"
+        );
+        assert_eq!(hresult_line(0x8001_010Du32 as i32, "  \r\n"), "0x8001010D");
+        assert_eq!(hresult_line(5, "x\r\n"), "x (0x00000005)");
     }
 }

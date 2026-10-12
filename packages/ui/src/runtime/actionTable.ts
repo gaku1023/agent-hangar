@@ -29,17 +29,19 @@ export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast; toa
  * before は呼ぶ前に Store に当てる（実行中だと分かるよう、前の結果を消すなど）。
  * 失敗は、ふつうは Runtime がトーストにする。
  * failed を持つ行だけは、トーストにせず failed で Store に書く（画面が入力の欄のそばに理由を出し、入れたものを残せるように）。
+ * failHoldMs を持つ行の失敗は、その長さで消える error のトーストにする（押した直後に読めば足りる失敗。ほかの error は閉じるまで残る）。
  */
-export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone>; failed?: (store: Store, error: unknown) => Store };
+export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone>; failed?: (store: Store, error: unknown) => Store; failHoldMs?: number };
 
-type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null; failed?: (store: Store, error: unknown) => Store };
+type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null; failed?: (store: Store, error: unknown) => Store; failHoldMs?: number };
 
 /** 行の共通の形。API を呼び、応答を Store に当て、知らせがあれば添える。応答の型は、ここで閉じる。 */
 function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): ApiCall {
-  const { before, apply, toast, failed } = after;
+  const { before, apply, toast, failed, failHoldMs } = after;
   return {
     ...(before ? { before } : {}),
     ...(failed ? { failed } : {}),
+    ...(failHoldMs !== undefined ? { failHoldMs } : {}),
     run: (api) => run(api).then((r) => {
       const message = toast?.(r) ?? null;
       const hold = message !== null ? holdOf(message) : undefined;
@@ -63,8 +65,9 @@ export const actionTable = {
   // 画面の正は後から届く project.upsert なので、返り値は Store に入れない。
   'project.setStatus': (i) => call((api) => api.setProjectStatus(i.id, i.status)),
   'project.rename': (i) => call((api) => api.renameProject(i.id, i.name)),
-  'project.openEditor': (i) => call((api) => api.projectOpenEditor(i.id)),
-  'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: fellBackToast }),
+  // 外で開けなかった（この PC にパスが無い、プロジェクトが消えた）知らせは、押した直後に読めば足りるので、長く出してから消す。
+  'project.openEditor': (i) => call((api) => api.projectOpenEditor(i.id), { failHoldMs: LONG_TOAST_MS }),
+  'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: fellBackToast, failHoldMs: LONG_TOAST_MS }),
 
   'session.openTerminalApp': (i) => call((api) => api.openTerminalApp(i.runId, i.tabId ?? null), { toast: fellBackToast }),
   'session.openEditor': (i) => call((api) => api.openEditor(i.sessionId)),

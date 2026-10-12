@@ -11,6 +11,7 @@ export const projectScreenKeys = {
   'projectScreen.quick.start': [],
   'projectScreen.open.editor': [],
   'projectScreen.open.terminal': [],
+  'projectScreen.open.noPath': [],
   'projectScreen.rail.close': [],
   'projectScreen.rail.open': [],
   'projectScreen.path.none': [],

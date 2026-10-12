@@ -748,7 +748,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     c.run(deps.api).then((done) => {
       if (done.apply) setStore(done.apply(store));
       if (done.toast !== undefined) toast(tr()(done.toast), done.toastHoldMs);
-    }).catch((e: unknown) => { if (c.failed) setStore(c.failed(store, e)); else fail(e); });
+    }).catch((e: unknown) => {
+      if (c.failed) setStore(c.failed(store, e));
+      else if (c.failHoldMs !== undefined) dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e), holdMs: c.failHoldMs } });
+      else fail(e);
+    });
   }
 
   /**

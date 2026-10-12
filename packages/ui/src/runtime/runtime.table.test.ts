@@ -62,6 +62,23 @@ describe('表にある UiAction', () => {
     await flush();
     expect(rt.getState().toasts.map((t) => [t.level, t.message])).toEqual([['error', '500 /api/projects/p1']]);
   });
+  it('プロジェクトを外で開く操作の失敗は、error のトーストのまま、長く出す時間で消える（閉じなくても残り続けない）', async () => {
+    const gone = () => vi.fn(async () => { throw new Error('プロジェクトが見つかりません'); });
+    const { rt } = harness({ projectOpenEditor: gone(), projectOpenTerminal: gone() });
+    rt.emit({ type: 'project.openEditor', id: 'p1' });
+    rt.emit({ type: 'project.openTerminalApp', id: 'p1' });
+    await flush();
+    expect(rt.getState().toasts.map((t) => [t.level, t.message, t.holdMs])).toEqual([
+      ['error', 'プロジェクトが見つかりません', LONG_TOAST_MS],
+      ['error', 'プロジェクトが見つかりません', LONG_TOAST_MS],
+    ]);
+  });
+  it('ほかの行の失敗は、時間を持たない error のトーストのまま', async () => {
+    const { rt } = harness({ setProjectStatus: vi.fn(async () => { throw new Error('500'); }) });
+    rt.emit({ type: 'project.setStatus', id: 'p1', status: 'paused' });
+    await flush();
+    expect(rt.getState().toasts[0]?.holdMs).toBeUndefined();
+  });
   it('応答の知らせはトーストになる', async () => {
     const { rt } = harness({ projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: true })) });
     rt.emit({ type: 'project.openTerminalApp', id: 'p1' });

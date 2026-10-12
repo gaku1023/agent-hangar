@@ -144,6 +144,16 @@ describe('info と error のトースト', () => {
     fireEvent.click(within(alert).getByRole('button', { name: '閉じる' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
   });
+  it('holdMs を持つ error は、その長さで消える。乗せている間は止める', () => {
+    const { onAction } = mount(props({ toasts: [{ id: '1', level: 'error', message: '見つかりません', holdMs: 8000 }] }));
+    act(() => { vi.advanceTimersByTime(7000); });
+    fireEvent.mouseEnter(screen.getByRole('alert'));
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.mouseLeave(screen.getByRole('alert'));
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(onAction).toHaveBeenCalledWith({ type: 'toast.dismiss', id: '1' });
+  });
   it('error の本文が 2 行に収まらないときは「詳しく」で開く', () => {
     const tall = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(80);
     const box = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40);

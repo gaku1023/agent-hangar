@@ -791,6 +791,52 @@ describe('札の中の更新', () => {
     expect($('fail-update-title').textContent).toBe('Hangar 0.2.1 is available');
     expect(btn('fail-update-go').textContent).toBe('Download and install');
   });
+
+  // 札は出したときの高さで窓の縦の真ん中に置き、その上端を留める。後から帯が足されても上へ動かさず、下へ伸ばす。
+  // jsdom は配置を計算しないので、札の高さと窓の高さを試験が決める（窓は 768px、札の上下の余白は 44px と 24px）。
+  describe('札の上端を留める', () => {
+    let height = 300;
+    beforeEach(() => {
+      height = 300;
+      Object.defineProperty($('fail'), 'offsetHeight', { configurable: true, get: () => height });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 768 });
+    });
+    const top = () => $('fail').style.marginTop;
+    it('はじめは窓の縦の真ん中に置き、帯が足されて高くなっても上端は動かない', async () => {
+      await boot();
+      await flush();
+      // 44 + (768 - 68 - 300) / 2 = 244 が上端で、余白の 44 を引いた 200 を上へ足す。
+      expect(document.body.dataset.failPinned).toBe('true');
+      expect(top()).toBe('200px');
+      height = 370;
+      w.__hangarBootUpdate!({ version: '0.2.1' });
+      expect($('fail-update').hidden).toBe(false);
+      expect(top()).toBe('200px');
+    });
+    it('詳細を開いて高くなっても上端は動かない。窓の下端からはみ出すときだけ、収まる分だけ上げる', async () => {
+      state = { failure: { ...failure, kind: 'node-missing' }, progress: null, finishing: false };
+      await boot();
+      await flush();
+      expect(top()).toBe('200px');
+      height = 420;
+      btn('fail-detail-toggle').click();
+      expect(top()).toBe('200px');
+      // 768 - 24 - 600 = 144 が下端に収まる上端で、余白の 44 を引いて 100 になる。
+      height = 600;
+      btn('fail-detail-toggle').click();
+      expect(top()).toBe('100px');
+    });
+    it('窓の大きさが変わったら、そのときの高さで真ん中に置き直す', async () => {
+      await boot();
+      await flush();
+      height = 370;
+      w.__hangarBootUpdate!({ version: '0.2.1' });
+      window.innerHeight = 900;
+      window.dispatchEvent(new Event('resize'));
+      // 44 + (900 - 68 - 370) / 2 = 275 が上端で、余白の 44 を引いて 231 になる。
+      expect(top()).toBe('231px');
+    });
+  });
 });
 
 // 起動に失敗したら、札はその場で出す。殻が更新を確かめるのは、札を描いたと知らせてから（lib.rs の boot_card_shown）である。

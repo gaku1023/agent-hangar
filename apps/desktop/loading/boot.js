@@ -163,7 +163,29 @@ const detailBox = $('fail-detail-box');
 const expand = (open) => {
   detailBox.hidden = !open;
   toggle.setAttribute('aria-expanded', String(open));
+  placeCard();
 };
+
+// 札の上端を留める。
+// 札は出したときの高さで窓の縦の真ん中に置き、その上端を覚える。後から更新の帯が足されたり詳細を開いたりして高くなっても、上端は動かさずに下へ伸ばす。
+// 真ん中寄せのままだと、殻が札を描いた後に見つけた版の帯が足されたとき、札が帯の高さの半分だけ上へ跳ねた（約 37px）。
+// 窓の下端からはみ出すときだけ、収まる分だけ上げる。窓の大きさが変わったら、そのときの高さで真ん中に置き直す。
+// 余白は index.html の body[data-fail] と同じ（上はヘッダーの高さ 44px、下は 24px）。札の高さの上限（max-height）も同じ余白から決まる。
+const CARD_TOP = 44;
+const CARD_BOTTOM = 24;
+let pinnedTop = null;
+function placeCard() {
+  if (card.hidden) return;
+  const h = card.offsetHeight;
+  const vh = window.innerHeight;
+  if (pinnedTop === null) pinnedTop = CARD_TOP + Math.max(0, Math.round((vh - CARD_TOP - CARD_BOTTOM - h) / 2));
+  const top = Math.max(CARD_TOP, Math.min(pinnedTop, vh - CARD_BOTTOM - h));
+  card.style.marginTop = `${top - CARD_TOP}px`;
+  document.body.dataset.failPinned = 'true';
+}
+addEventListener('resize', () => { pinnedTop = null; placeCard(); });
+// 中身が後から変わる（言葉の折り返し、記録の追記）ときも、上端を保ったまま置き直す。
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => placeCard()).observe(card);
 const invoke = (...a) => window.__TAURI_INTERNALS__?.invoke?.(...a);
 
 // 試験のための書き出し（lib.rs の boot_probe）。殻が HANGAR_BOOT_PROBE を持って起きたときだけ、boot_state が probe を真で返す。
@@ -216,6 +238,8 @@ async function copy(text, button, idle) {
 
 window.__hangarBootFail = (info) => {
   view = failView(info);
+  // 出し直した札は、その高さで真ん中に置き直す。
+  pinnedTop = null;
   const v = view;
   document.documentElement.lang = v.lang;
   $('fail-title').textContent = v.title;
@@ -303,7 +327,7 @@ function drawUpdate() {
   else if (retryHeld) retry.disabled = false;
   retryHeld = busy;
   updateBox.hidden = u.band === null;
-  if (u.band === null) return;
+  if (u.band === null) { placeCard(); return; }
   updateBox.dataset.tone = u.band.tone;
   $('fail-update-title').textContent = u.band.title;
   $('fail-update-detail').textContent = u.band.detail;
@@ -316,6 +340,7 @@ function drawUpdate() {
   }
   updateGo.hidden = u.band.action === null;
   updateGo.textContent = u.band.action ?? '';
+  placeCard();
 }
 const setUpdate = (next) => { upd = next; drawUpdate(); };
 // 殻が返した失敗の分類（updater.rs の failure_kind）。知らない形は other と読む（文は updateView が選ぶ）。

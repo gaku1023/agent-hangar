@@ -11,6 +11,7 @@ export const projectScreenJa: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.quick.start': 'クイックセッションを開始',
   'projectScreen.open.editor': 'VS Code で開く',
   'projectScreen.open.terminal': 'ターミナルで開く',
+  'projectScreen.open.noPath': 'この PC にパスが無いので開けません',
   'projectScreen.rail.close': '右パネルを閉じる',
   'projectScreen.rail.open': '右パネルを開く',
   'projectScreen.path.none': 'この PC にパスがありません',
