@@ -51,6 +51,14 @@ export type Settings = {
    */
   configBundleSync?: boolean;
   /**
+   * hangar が起動する claude に足す指示（launch/injection.ts）のうち、区切りで Done か Paused を聞く段を足すか。既定は入り。
+   * 切ると問いの段を足さず、状態は事後の要約の提案と自動の Done だけで付く。
+   * `loadSettings` が埋めるが、試験や古い呼び手が組んだ設定には無いことがあるので、読む側は false のときだけ切りとして読む。
+   */
+  askStatusAtEnd?: boolean;
+  /** 同じく、ターンの意図（set_turn_intent）と短い手の説明（Bash と Agent の description）を求める段を足すか。既定は入り。 */
+  liveHints?: boolean;
+  /**
    * 同梱サーバを起こすときに使う Node の場所。
    * null と空文字は「指定なし」で、起動側が既定の探索に戻る。
    */
@@ -115,7 +123,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(platform: NodeJS.Platform = process.platform): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, nodePath: null };
 }
 
 /**
@@ -142,6 +150,9 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 許しの無い外部の宛先は、読み込みのときに既定へ戻す。
   // 手で書き換えた settings.json や、この制限より前に保存された設定から、会話の本文が外へ出ていかないようにする。
   if (!s.allowExternalSummarizer && !isLoopbackSummarizerUrl(s.lmStudioUrl)) s.lmStudioUrl = defaultSettings().lmStudioUrl;
+  // 足す段のスイッチは真偽値だけを受ける。手で書き換えた値は既定（入り）に寄せる。
+  if (typeof s.askStatusAtEnd !== 'boolean') s.askStatusAtEnd = true;
+  if (typeof s.liveHints !== 'boolean') s.liveHints = true;
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;

@@ -35,7 +35,7 @@ const SETTING_LABEL = {
   workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
 } as const satisfies Record<LabeledSetting, MessageKey>;
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -189,6 +189,13 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       const v = body.configBundleSync;
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.configBundleSync') }) }, 400);
       patch.configBundleSync = v;
+    }
+    // hangar が起動する claude に足す段の入り切り（launch/injection.ts）。次に起こす claude から効く。
+    for (const key of ['askStatusAtEnd', 'liveHints'] as const) {
+      if (!(key in body)) continue;
+      const v = body[key];
+      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr(key === 'askStatusAtEnd' ? 'settings.label.askStatusAtEnd' : 'settings.label.liveHints') }) }, 400);
+      patch[key] = v;
     }
     // 言語はこの PC の設定で、画面の文とサーバの文の両方が読む。辞書にある言語だけを受ける。
     if ('language' in body) {

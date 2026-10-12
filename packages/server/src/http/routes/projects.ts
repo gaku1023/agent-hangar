@@ -84,6 +84,9 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
       } else if (body.kind === 'dir') {
         if (typeof body.path !== 'string') return c.json({ error: tr('project.create.pathNotDir') }, 400);
         ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
+        // その下で動いた未分類のセッションを、その場で紐づける。呼ばないと、次の起動まで未分類のまま残る。
+        // 紐づけが変わったセッションと入った先のプロジェクトは、書いた行から配る層が配る。
+        assignSessions(db, deviceId);
       } else {
         return c.json({ error: tr('project.create.badKind') }, 400);
       }

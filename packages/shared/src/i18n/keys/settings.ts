@@ -202,6 +202,8 @@ export const settingsKeys = {
   'settings.info.thisPc.title': [],
   'settings.label.configApproval': [],
   'settings.label.configBundleSync': [],
+  'settings.label.askStatusAtEnd': [],
+  'settings.label.liveHints': [],
   'settings.editor.title': [],
   'settings.editor.desc': [],
   'settings.editor.found': [],

@@ -90,7 +90,7 @@ describe('liveWithLimit', () => {
 
 describe('isParked と使用制限', () => {
   it('使用制限で止まっている間は、区切りを付けていても止めない', () => {
-    const base = { status: 'paused' as const, setBy: 'user' as const, setAt: 10_000, live: 'idle' as const, processStartedAt: 1000 };
+    const base = { status: 'done' as const, setBy: 'user' as const, setAt: 10_000, live: 'idle' as const, processStartedAt: 1000 };
     expect(isParked(base)).toBe(true);
     expect(isParked({ ...base, limited: true })).toBe(false);
   });

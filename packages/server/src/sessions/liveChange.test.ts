@@ -92,7 +92,7 @@ describe('実行中の一覧の変化', () => {
 
   it('印を付けたセッションは、動きが変わるたびに行ごと配り直す。休みになれば parked が立ち、作業中に戻れば外れる', () => {
     // UI は live.update から動きしか直せない。行を配り直さないと、休みになっても実行中の札に残る。
-    setSessionState(db, 'd', alpha, { status: 'paused', note: '明日見る', returnOn: '2099-01-01', setBy: 'user' });
+    setSessionState(db, 'd', alpha, { status: 'done', setBy: 'user' });
     publisher.flush();
     const h = handler();
     // 印より前に起動したプロセスが、休みになった。

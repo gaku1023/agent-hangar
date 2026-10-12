@@ -136,6 +136,8 @@ describe('routes', () => {
     // 画面の入力と同じく 200 までにする。
     expect(await error({ summaryHourlyCap: 201 })).toBe('「1 時間の上限」は 1 から 200 までの整数にしてください');
     expect(await error({ allowExternalSummarizer: 'yes' })).toBe('「外部の要約エンジンを許可」の値の形が違います');
+    expect(await error({ askStatusAtEnd: 'no' })).toBe('「区切りで Done／Paused を聞く」の値の形が違います');
+    expect(await error({ liveHints: 0 })).toBe('「ターンの意図と短い手の説明を送る」の値の形が違います');
     expect(await error({ lmStudioUrl: 'https://attacker.example.com' })).toBe('要約エンジンの宛先は 127.0.0.1 か localhost だけです。トランスクリプトが送られるため、ほかの宛先は、設定の「外部の要約エンジンを許可」を有効にしてから指定してください');
   });
   it('設定の更新は既知の項目だけを受け、値が空なら 400', async () => {
@@ -144,7 +146,7 @@ describe('routes', () => {
     expect((await patch({ claudeDir: '  ' })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
     expect((await patch({ token: 'stolen' })).status).toBe(400);
-    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, nodePath: null, claudePath: null, language: 'ja' });
+    expect((await json(await get('/api/settings'))).body).toEqual({ workspaceRoot: ws, claudeDir: dir, tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, configApproval: 'each', configBundleSync: false, askStatusAtEnd: true, liveHints: true, nodePath: null, claudePath: null, language: 'ja' });
   });
   // 作成場所は任意（2026-10-13）。空（と null と空白だけ）は「決めていない」として保存し、プロジェクトは消さない。
   it('作成場所は空にでき、空のときは直下の自動の登録をしない', async () => {
@@ -347,6 +349,8 @@ describe('設定の往復', () => {
         ['allowExternalSummarizer', true],
         ['configApproval', 'auto'],
         ['configBundleSync', true],
+        ['askStatusAtEnd', false],
+        ['liveHints', false],
         ['nodePath', exe('node')],
         ['claudePath', exe('claude')],
         ['language', 'en'],
@@ -385,6 +389,16 @@ describe('設定の往復', () => {
     for (const v of ['true', 1, null, []]) {
       const r = await patch({ configBundleSync: v });
       expect([v, r.status]).toEqual([v, 400]);
+    }
+  });
+  it('起動する claude に足す段のスイッチは、既定が入りで、切りを保存でき、真偽値でない値は断る', async () => {
+    for (const key of ['askStatusAtEnd', 'liveHints'] as const) {
+      expect((await json(await get('/api/settings'))).body[key]).toBe(true);
+      expect((await json(await get('/api/bootstrap'))).body.settings[key]).toBe(true);
+      expect((await (await patch({ [key]: false })).json())[key]).toBe(false);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
+      for (const v of ['false', 0, null, []]) expect([key, v, (await patch({ [key]: v })).status]).toEqual([key, v, 400]);
+      expect((await json(await get('/api/settings'))).body[key]).toBe(false);
     }
   });
   it('言語の既定は日本語で、英語を保存して読める', async () => {

@@ -9,7 +9,7 @@ import { setSessionName } from '../sessions/notes.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { errorText, msg, translatorOf } from '../i18n/message.ts';
 import { ensureSession, findSession } from '../indexer/indexFile.ts';
-import { renderInjection } from '../launch/injection.ts';
+import { DEFAULT_INJECTION_PARTS, renderInjection, type InjectionParts } from '../launch/injection.ts';
 import { writeHookSettings } from '../provider/claude-code/launch/hookSettings.ts';
 import { pruneMcpConfigs, removeMcpConfig, writeMcpConfig } from '../provider/claude-code/launch/mcpConfig.ts';
 import { runCommand, shellTabCommand } from '../launch/command.ts';
@@ -68,9 +68,10 @@ export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run:
  * panes は run とシェルタブの画面に触る口（tmux/pane.ts）。無ければ起動を断り、見張りは何も閉じない。
  * accounts はアカウントの解決（runs/accounts.ts）。渡さなければ、アカウントを使わない構成として動く。
  * language は、Claude に渡す指示とシェルタブの名前の言語。組み立てる側が、設定を読む関数を渡す。
+ * injection は、Claude に渡す指示のうち、区切りの問いの段とターンの意図の段を足すか。起動のたびに読むので、設定の変更は次の起動から効く。渡さなければ両方を足す。
  * 失敗（RunError）の文は鍵のまま投げ、経路と MCP の道具が出すときに言語を選ぶので、ここでは決めない。
  */
-export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string };
+export type RunManagerDeps = { db: Db; deviceId: string; home: string; panes: PaneOps | null; /** 設定の tmux のパス（Windows は psmux）。起動の前に実物を確かめる。渡さなければ確かめない。 */ muxPath?: () => string | null; claudeBin: string | null; claudeDir: string; port: number; token: string; shell?: string; /** 動いている OS。試験で差し替える。 */ platform?: NodeJS.Platform; isLive?: (providerSessionId: string) => boolean; live?: () => LiveSession[]; procs?: ProcOps; now?: () => number; sleep?: (ms: number) => Promise<void>; accounts?: RunAccounts; /** Claude Code の形式のずれを受け取る口（provider/claude-code/compat/）。 */ compat?: CompatSink; language: GetLanguage; injection?: () => InjectionParts; /** hook の台本を走らせる node。渡さなければサーバ自身の node。 */ nodeBin?: string };
 
 type ProjectInfo = { id: string; name: string; path: string | null; resolved: boolean };
 type SessionRow = { id: string; provider_session_id: string; project_id: string | null; cwd: string };
@@ -223,7 +224,7 @@ export class RunManager {
   private injectionFor(projectId: string | null, cwd: string): string {
     const p = projectId ? this.project(projectId) : null;
     const todos = projectId ? (this.db.prepare('select id, text from todos where project_id = ? and done = 0 and suggested_at is null and deleted_at is null order by position limit 10').all(projectId) as { id: string; text: string }[]) : [];
-    return renderInjection({ projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos }, this.language());
+    return renderInjection({ projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos }, this.language(), this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS);
   }
 
   /**
@@ -707,7 +708,7 @@ export class RunManager {
   }
 
   /**
-   * 区切り（Paused・Done・Archived）を付けたセッションの Claude を止める。止めるものがあれば true を返す。
+   * 区切り（Done・Archived）を付けたセッションの Claude を止める。止めるものがあれば true を返す。
    * kill と違い、シェルのタブは残す。利用者がそこで動かしているサーバなどを、印を付けただけで落とさないためである。
    * この端末の生きた run は、tmux から消えたのを確かめてから parked で終わらせる。hangar の run が無いバックグラウンドのセッションは、本体だけを止める。
    * 外のターミナルや VS Code で動く claude には触らない（run もバックグラウンドの id も無いので、ここでは何も起きない）。

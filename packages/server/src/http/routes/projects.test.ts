@@ -6,6 +6,7 @@ import type { ServerEvent } from '@agent-hangar/shared';
 import type { Db } from '../../db/open.ts';
 import { upsertShared } from '../../db/shared.ts';
 import { SESSION_OTHER } from '../../../test/fixtures.ts';
+import { ensureSession } from '../../indexer/indexFile.ts';
 import { createApp, type AppDeps } from '../app.ts';
 import { H, testDeps, type TestWorld } from '../testing.ts';
 
@@ -112,6 +113,20 @@ describe('routes', () => {
     expect(r.status).toBe(201);
     expect(await r.json()).toMatchObject({ name: 'gamma', path: path.join(ws, 'gamma') });
     expect((await postProject({ kind: 'other', path: ws })).status).toBe(400);
+  });
+  it('フォルダを登録すると、その下の未分類のセッションをその場で紐づけ、ほかのものは動かさない', async () => {
+    fs.mkdirSync(path.join(ws, 'gamma', 'sub'), { recursive: true });
+    fs.mkdirSync(path.join(ws, 'gammaX'));
+    const under = ensureSession(db, '22222222-2222-4222-8222-222222222222', path.join(ws, 'gamma', 'sub'), 'd');
+    const beside = ensureSession(db, '33333333-3333-4333-8333-333333333333', path.join(ws, 'gammaX'), 'd');
+    const projectOf = (id: string) => (db.prepare('select project_id from sessions where id = ?').get(id) as { project_id: string | null }).project_id;
+    expect(projectOf(under)).toBeNull();
+    const r = await postProject({ kind: 'dir', path: path.join(ws, 'gamma') });
+    expect(r.status).toBe(201);
+    const p = await r.json();
+    expect(projectOf(under)).toBe(p.id);
+    // 名前の前方一致だけで、隣のフォルダを取り込まない。
+    expect(projectOf(beside)).toBeNull();
   });
   it('kind の無い本文は断る', async () => {
     fs.mkdirSync(`${ws}/gamma`);

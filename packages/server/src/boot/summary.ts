@@ -1,4 +1,7 @@
+import { PRIMARY_ACCOUNT_ID } from '@agent-hangar/shared';
 import type { SummaryApi } from '../http/deps.ts';
+import { RunAccounts } from '../runs/accounts.ts';
+import type { SummaryAccount } from '../provider/claude-code/summary/claude.ts';
 import { runAnnouncer } from '../runs/announce.ts';
 import { AUTO_DONE_POLL_MS, AutoDoneWatch, autoDoneCandidates, summaryCandidates } from '../sessions/autoDone.ts';
 import { markAutoDone } from '../sessions/states.ts';
@@ -28,6 +31,18 @@ export type SummaryParts = {
 };
 
 /**
+ * claude -p の要約を走らせるアカウント。そのセッションを最後に動かした run のアカウントで、その置き場の枠と使用率で数える。
+ * 本文は置き場の間で共有なので、どの置き場で読んでも同じである。
+ * run の記録が無いもの（hangar の外で起こしたもの）と、消したアカウントのものは、最初のアカウントで走らせる（RunAccounts.accountFor）。
+ */
+export function summaryAccountOf(accounts: Pick<RunAccounts, 'lastUsed'>): (sessionId: string) => SummaryAccount {
+  return (sessionId) => {
+    const a = accounts.lastUsed(sessionId);
+    return a && a.id !== PRIMARY_ACCOUNT_ID ? { id: a.id, configDir: a.dir } : { id: PRIMARY_ACCOUNT_ID, configDir: null };
+  };
+}
+
+/**
  * 要約の job と、run の出来事の受け手を組む。
  * run の出来事は画面へ配り、終わった run は事後要約の契機にし、そのセッションの本文を待たずに上げる。
  * 受け手は足した順に呼ばれる。アカウントの配り（boot/runs.ts）、ここの配りと要約、本文の上げ、の順である。
@@ -35,11 +50,12 @@ export type SummaryParts = {
 export function bootSummary(
   home: Pick<HomeParts, 'db' | 'device' | 'settings' | 'language'>,
   delivery: Pick<DeliveryParts, 'hub' | 'registry' | 'compatLog'>,
-  runs: Pick<RunsParts, 'runs' | 'usage' | 'claudeBin'>,
+  runs: Pick<RunsParts, 'runs' | 'usage' | 'claudeBin' | 'accounts'>,
   sync: Pick<SyncParts, 'uploader'>,
 ): SummaryParts {
   const { db } = home;
-  const summarizers = new SummarizerSet({ settings: () => home.settings.current, claudeBin: runs.claudeBin, usage: () => runs.usage.current(), compat: delivery.compatLog });
+  const accountOf = summaryAccountOf(new RunAccounts({ db, claudeDir: runs.accounts.primaryDir, store: runs.accounts.store }));
+  const summarizers = new SummarizerSet({ settings: () => home.settings.current, claudeBin: runs.claudeBin, usage: (accountId) => runs.usage.of(accountId), accountOf, compat: delivery.compatLog });
   const summary = new SummaryJob({ db, deviceId: home.device.id, summarizers: summarizers.list, live: () => delivery.registry.current(), hub: delivery.hub, language: home.language });
   runs.runs.on(runAnnouncer({ db, hub: delivery.hub, onEnded: (run) => { summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); } }));
   // RunManager.on は listener を足せるので、上の登録はそのまま残して 2 つ目として足す。

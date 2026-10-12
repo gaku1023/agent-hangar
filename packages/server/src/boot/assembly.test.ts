@@ -14,7 +14,7 @@ import { bootHome, type HomeParts } from './home.ts';
 import { bootListen } from './http.ts';
 import { bootIndexing } from './indexing.ts';
 import type { RunsParts } from './runs.ts';
-import { bootSummary } from './summary.ts';
+import { bootSummary, summaryAccountOf } from './summary.ts';
 import { bootSync } from './sync.ts';
 
 /**
@@ -130,6 +130,17 @@ describe('索引とプロジェクトの組み立て', () => {
 });
 
 describe('要約と、run の出来事の受け手の組み立て', () => {
+  it('claude -p の要約は、そのセッションを最後に動かしたアカウントの置き場で走らせる。最初のアカウントは置き場を渡さない', () => {
+    const last: Record<string, { id: string; name: string; dir: string; color: string } | null> = {
+      s2: { id: 'acc-2', name: 'second', dir: '/accounts/second', color: 'blue' },
+      s1: { id: 'primary', name: 'main', dir: '/accounts/main', color: 'gray' },
+      none: null,
+    };
+    const accountOf = summaryAccountOf({ lastUsed: (id) => last[id] ?? null });
+    expect(accountOf('s2')).toEqual({ id: 'acc-2', configDir: '/accounts/second' });
+    expect(accountOf('s1')).toEqual({ id: 'primary', configDir: null });
+    expect(accountOf('none')).toEqual({ id: 'primary', configDir: null });
+  });
   it('run の出来事を配り、終わった run を要約の契機にして、そのセッションの本文を上げる', () => {
     const h = homeParts();
     const d = bootDelivery(h);
@@ -143,7 +154,8 @@ describe('要約と、run の出来事の受け手の組み立て', () => {
       runs: { on: (l: RunListener) => { listeners.push(l); return () => {}; } },
       usage: { current: () => ({}) },
       claudeBin: () => null,
-    } as unknown as Pick<RunsParts, 'runs' | 'usage' | 'claudeBin'>;
+      accounts: { primaryDir: '/c', store: { get: () => null } },
+    } as unknown as Pick<RunsParts, 'runs' | 'usage' | 'claudeBin' | 'accounts'>;
     const summary = bootSummary(h, { ...d, hub: { broadcast: (ev) => { sent.push(ev); } } }, runs, { uploader: { flushSession: async (u: string) => { flushed.push(u); } } as never });
     // 受け手は 2 つ。配りと要約が先で、本文の上げが後である。
     expect(listeners.length).toBe(2);
@@ -163,7 +175,7 @@ describe('要約と、run の出来事の受け手の組み立て', () => {
     h.settings.current = { ...h.settings.current, language: 'en', lmStudioUrl: 'http://127.0.0.1:9' };
     const d = bootDelivery(h);
     cleanups.push(async () => { await d.stopPublishing(); d.compatLog.stop(); });
-    const runs = { runs: { on: () => () => {} }, usage: { current: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) }, claudeBin: () => null } as unknown as Pick<RunsParts, 'runs' | 'usage' | 'claudeBin'>;
+    const runs = { runs: { on: () => () => {} }, usage: { current: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) }, claudeBin: () => null, accounts: { primaryDir: '/c', store: { get: () => null } } } as unknown as Pick<RunsParts, 'runs' | 'usage' | 'claudeBin' | 'accounts'>;
     const summary = bootSummary(h, d, runs, { uploader: null });
     const r = await summary.api.test();
     expect(r.ok).toBe(false);
@@ -178,7 +190,7 @@ describe('要約と、run の出来事の受け手の組み立て', () => {
     const h = homeParts();
     const d = bootDelivery(h);
     cleanups.push(async () => { await d.stopPublishing(); d.compatLog.stop(); });
-    const runs = { runs: { on: () => () => {} }, usage: { current: () => ({}) }, claudeBin: () => null } as unknown as Pick<RunsParts, 'runs' | 'usage' | 'claudeBin'>;
+    const runs = { runs: { on: () => () => {} }, usage: { current: () => ({}) }, claudeBin: () => null, accounts: { primaryDir: '/c', store: { get: () => null } } } as unknown as Pick<RunsParts, 'runs' | 'usage' | 'claudeBin' | 'accounts'>;
     const summary = bootSummary(h, d, runs, { uploader: null });
     const t = Date.now();
     await summary.stop(2000);

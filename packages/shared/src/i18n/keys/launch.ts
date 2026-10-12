@@ -3,6 +3,8 @@ import type { MessageSpec } from '../messageSpec.ts';
 export const launchKeys = {
   'launch.injection.none': [],
   'launch.injection.body': ['projectName', 'projectPath', 'todos'],
+  'launch.injection.status': [],
+  'launch.injection.live': [],
   'launch.mcpConfig.badId': [],
   'launch.add.label': [],
   'launch.chip.account': [],
