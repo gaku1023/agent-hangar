@@ -202,7 +202,12 @@ export type UiAction =
   | { type: 'accounts.load' }
   | { type: 'account.choose'; accountId: string }
   | { type: 'account.switchSession'; sessionId: SessionId; accountId: string; working: boolean; confirmed?: boolean }
-  | { type: 'account.add'; name: string }
+  // 設定の「アカウントを足す…」のダイアログ。add は名前と場所（打ったまま。空ならサーバが名前から決める）で登録してログインを始める。
+  // pick は「選ぶ…」で、開く場所を添える。preview は打つたびに足す前の確かめを読む（Store の accountPreview に入る）。
+  | { type: 'account.add.open' }
+  | { type: 'account.add'; name: string; dir: string }
+  | { type: 'account.add.pick'; defaultPath: string | null }
+  | { type: 'account.add.preview'; name: string; dir: string }
   | { type: 'account.update'; accountId: string; name?: string; color?: string }
   | { type: 'account.remove'; accountId: string; confirmed?: boolean }
   | { type: 'account.login'; accountId: string } | { type: 'account.login.cancel'; accountId: string }

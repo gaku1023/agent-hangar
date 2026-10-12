@@ -9,6 +9,8 @@
 .settings-toc-item .icon { flex: none; width: 18px; height: 18px; }
 .settings-toc-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .settings-toc-t { font-weight: 600; white-space: nowrap; }
+/* 上級者向けのベータの小札（クラウド同期）。状態の段は潰さず、名前の横に添える。色は注意の琥珀で、警告ほど強くしない。 */
+.tag-beta { display: inline-flex; align-items: center; height: 16px; margin-left: calc(var(--u) * 1.5); padding: 0 6px; border-radius: 4px; vertical-align: 1px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; color: var(--st-paused); background: var(--st-paused-soft); }
 .settings-toc-s { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
 .settings-toc-s[data-tone='warn'] { color: var(--st-paused); font-weight: 600; }
 /* 目次を縦に置く幅が無い窓では、頁の上に 3 列 2 段で並べる。目次は消さない（節を切り替える道は目次だけである）。
@@ -47,6 +49,8 @@
 .sub-h { display: flex; align-items: center; gap: calc(var(--u) * 2); margin: calc(var(--u) * 3) 0 calc(var(--u) * 1.5); font-size: var(--fs-sm); font-weight: 600; color: var(--ink-2); }
 .sub-h .n { font-weight: 500; color: var(--ink-3); }
 .muted-p { margin: 0; font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.5; }
+/* クラウド同期の頭のベータの 1 文。下の状態や説明と段を分ける。 */
+.cloud-beta-lead { margin-bottom: calc(var(--u) * 2.5); }
 
 /* 札（✓ 登録済み、まだです）。 */
 .badge { display: inline-flex; align-items: center; gap: var(--u); height: 20px; padding: 0 calc(var(--u) * 2); border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
@@ -148,8 +152,23 @@
 /* 置き場のリンクの不整合など、注意の 1 行。 */
 .account-set-problem { padding: 0 calc(var(--u) * 3) calc(var(--u) * 2) calc(var(--u) * 3 + 8px + var(--u) * 3); font-size: var(--fs-xs); font-weight: 600; color: var(--st-paused); }
 .account-set-add { display: flex; align-items: center; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 3); }
-.account-set-add .input { flex: 1; min-width: 0; max-width: 280px; color: var(--ink); }
-.account-set-help { margin-top: var(--u); font-size: var(--fs-xs); }
+/* アカウントを足すダイアログ（試作の 7 節の案 A）。名前と場所の 2 つの欄、共有するものと分けるものの 2 列、場所の中身の知らせ。 */
+.add-account-fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: calc(var(--u) * 3); }
+.add-account-dir { display: flex; align-items: center; gap: calc(var(--u) * 2); }
+.add-account-dir > .input { flex: 1; min-width: 0; color: var(--ink); }
+.add-account-cols { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--u) * 2.5); }
+.add-account-col { min-width: 0; padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); }
+.add-account-col[data-kind='separate'] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.add-account-col-h { display: flex; align-items: center; gap: calc(var(--u) * 1.5); margin: 0 0 calc(var(--u) * 1.5); font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); }
+.add-account-col ul { display: grid; gap: calc(var(--u) * 0.75); margin: 0; padding: 0; list-style: none; font-size: var(--fs-sm); color: var(--ink); }
+.add-account-col li small { display: block; overflow-wrap: anywhere; font-size: var(--fs-xs); color: var(--ink-3); }
+.add-account-note { font-size: var(--fs-xs); color: var(--ink-2); }
+.add-account-note[data-tone='warn'] { font-weight: 600; color: var(--st-paused); }
+.add-account-note[data-tone='stop'] { font-weight: 600; color: var(--error); }
+.add-account-foot { min-width: 0; font-size: var(--fs-xs); }
+@media (max-width: 700px) {
+  .add-account-fields, .add-account-cols { grid-template-columns: minmax(0, 1fr); }
+}
 /* 狭い窓では、置き場と状態を 2 行目へ回す。 */
 @media (max-width: 700px) {
   .account-set-list { grid-template-columns: calc(8px + var(--u) * 3) minmax(0, 1fr) auto; }

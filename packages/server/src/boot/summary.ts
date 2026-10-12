@@ -69,6 +69,8 @@ export function bootSummary(
     mark: (id) => markAutoDone(db, home.device.id, id),
     toSummarize: () => summaryCandidates(db, home.device.id, { liveProviderIds: liveProviderIds(), since: bootedAt }),
     enqueue: (id) => { summary.enqueue(id); },
+    // 設定の「止まった会話を自動で Done にする」。
+    enabled: () => home.settings.current.autoDone !== false,
   });
   let autoDoneTimer: ReturnType<typeof setInterval> | null = null;
   return {

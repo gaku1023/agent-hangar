@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AccountsDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto } from '@agent-hangar/shared';
 import { AccountAuth, type RunClaude } from '../provider/claude-code/config/accountAuth.ts';
 import { AccountStore } from '../config/accounts.ts';
 import { openDb, type Db } from '../db/open.ts';
@@ -269,5 +269,40 @@ describe('アカウントの HTTP', () => {
     listeners[0]!.runStarted!({ sessionId: s } as Parameters<NonNullable<RunListener['runStarted']>>[0]);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.sessions).toEqual({ [s]: id });
+  });
+
+  describe('足す前の確かめ（GET /accounts/preview）', () => {
+    const preview = async (q: Record<string, string>) => {
+      const res = await app.request(`/accounts/preview?${new URLSearchParams(q).toString()}`);
+      return { status: res.status, json: (await res.json()) as AccountDirPreviewDto & { error?: string } };
+    };
+    it('場所を打っていなければ、名前から候補を作って答える。何も作らない', async () => {
+      const r = await preview({ name: 'univ' });
+      expect(r.status).toBe(200);
+      expect(r.json).toEqual({ name: 'univ', input: '', dir: path.join(userHome, '.claude-univ'), suggested: true, exists: false, conflicts: [], registeredAs: null });
+      expect(fs.existsSync(path.join(userHome, '.claude-univ'))).toBe(false);
+    });
+    it('打った場所は ~ を読み、既にある場所の実ファイルを挙げる', async () => {
+      fs.mkdirSync(path.join(userHome, '.claude-lab'));
+      fs.writeFileSync(path.join(userHome, '.claude-lab', 'projects'), 'x');
+      const r = await preview({ name: 'lab', dir: '~/.claude-lab' });
+      expect(r.json).toEqual({ name: 'lab', input: '~/.claude-lab', dir: path.join(userHome, '.claude-lab'), suggested: false, exists: true, conflicts: ['projects'], registeredAs: null });
+      expect(fs.readFileSync(path.join(userHome, '.claude-lab', 'projects'), 'utf8')).toBe('x');
+    });
+    it('登録済みの場所は、そのアカウントの名前を返す', async () => {
+      const r = await preview({ name: 'x', dir: primaryDir });
+      expect(r.json.registeredAs).toBe(store.primary().name);
+    });
+    it('相対パスは 400', async () => {
+      const r = await preview({ name: 'x', dir: 'claude-x' });
+      expect(r.status).toBe(400);
+      expect(r.json.error).toBeTruthy();
+    });
+  });
+
+  it('追加の場所は ~ から書ける', async () => {
+    const r = await call('POST', '/accounts', { name: 'univ', dir: '~/.claude-univ' });
+    expect(r.status).toBe(201);
+    expect(r.json.accounts[1]!.dir).toBe(path.join(userHome, '.claude-univ'));
   });
 });

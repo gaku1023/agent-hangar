@@ -10,7 +10,7 @@ import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA, SESSION_OTHER } from '../../test/fixtures.ts';
 import { setSessionName } from '../sessions/notes.ts';
 import { proposeSessionState, rejectSessionState, setSessionState } from '../sessions/states.ts';
-import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions } from './queries.ts';
+import { LOCK_STALE_MS, displayName, getProject, getSession, listDevices, listProjects, listSessions, setParkingSwitch } from './queries.ts';
 
 let dir: string;
 let db: Db;
@@ -453,6 +453,15 @@ describe('区切りを付けて休みのまま残っているセッション（p
     setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'conversation', now: STARTED + 60_000 });
     expect(getSession(db, idle(), alphaId())!.parked).toBe(true);
     expect(listSessions(db, idle()).find((s) => s.id === alphaId())!.parked).toBe(true);
+  });
+  it('自動の停止を設定で切っている間は偽。止めないので、動いているものとして見せる', () => {
+    setSessionState(db, 'd', alphaId(), { status: 'done', setBy: 'conversation', now: STARTED + 60_000 });
+    let on = false;
+    setParkingSwitch(db, () => on);
+    expect(getSession(db, idle(), alphaId())!.parked).toBe(false);
+    expect(listSessions(db, idle()).find((s) => s.id === alphaId())!.parked).toBe(false);
+    on = true;
+    expect(getSession(db, idle(), alphaId())!.parked).toBe(true);
   });
   it('印なし、作業中、入力待ち、動いていないものは偽', () => {
     expect(getSession(db, idle(), alphaId())!.parked).toBe(false);

@@ -19,6 +19,7 @@ import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
 import { ParkWatch, parkedSessionIds } from '../sessions/park.ts';
+import { setParkingSwitch } from '../db/queries.ts';
 import { StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { Tmux } from '../tmux/tmux.ts';
@@ -131,7 +132,10 @@ export function bootRuns(
   const parkWatch = new ParkWatch({
     parkedIds: () => { try { return parkedSessionIds(db, readRegistry(claudeDir), device.id); } catch { return []; } },
     stop: (id) => runs.park(id),
+    // 設定の「Done と Archived にした会話を止める」。切っている間は止めず、一覧でも実行中として見せる（setParkingSwitch）。
+    enabled: () => settings.current.autoPark !== false,
   });
+  setParkingSwitch(db, () => settings.current.autoPark !== false);
   const usage = new UsageTracker(db, {
     accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id) }, providerSessionId),
     compat: compatLog,

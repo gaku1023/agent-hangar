@@ -5,13 +5,14 @@ import { EDITOR_TERMINALS, isEditorId, isLanguage, languageOf, LANGUAGES, termin
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
+import { touchRow } from '../../db/notify.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../../projects/registry.ts';
 import { translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { BODY_LIMITS, readJson, tooLargeResult } from './common.ts';
 
 /** 設定の経路が使う依存。 */
-export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck' | 'hub'> & LanguageDeps;
+export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | 'updateSettings' | 'nodeCheck' | 'hub' | 'live'> & LanguageDeps;
 
 /** 空にできない文字列の設定。作成場所（workspaceRoot）は任意なので、ここに入れず別に見る。 */
 const TEXT_SETTING_KEYS = ['claudeDir'] as const;
@@ -35,7 +36,7 @@ const SETTING_LABEL = {
   workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
 } as const satisfies Record<LabeledSetting, MessageKey>;
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, askStatusAtEnd: s.askStatusAtEnd !== false, liveHints: s.liveHints !== false, autoDone: s.autoDone !== false, autoPark: s.autoPark !== false, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -197,6 +198,13 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr(key === 'askStatusAtEnd' ? 'settings.label.askStatusAtEnd' : 'settings.label.liveHints') }) }, 400);
       patch[key] = v;
     }
+    // hangar が自分で行うこと（自動の Done、Done と Archived の自動の停止）の入り切り。次の見回りから効く。
+    for (const key of ['autoDone', 'autoPark'] as const) {
+      if (!(key in body)) continue;
+      const v = body[key];
+      if (typeof v !== 'boolean') return c.json({ error: tr('settings.error.badValue', { label: tr(key === 'autoDone' ? 'settings.label.autoDone' : 'settings.label.autoPark') }) }, 400);
+      patch[key] = v;
+    }
     // 言語はこの PC の設定で、画面の文とサーバの文の両方が読む。辞書にある言語だけを受ける。
     if ('language' in body) {
       const v = body.language;
@@ -221,9 +229,22 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       syncProjectsFromWorkspace(db, deviceId, patch.workspaceRoot);
       assignSessions(db, deviceId);
     }
+    // 自動の停止を替えると、休みのまま残る Done と Archived を実行中に数えるか（parked）が変わる。
+    // 行は変わらないので、動いているもののうち印の付いたものを名指しして配り直してもらう。
+    if (patch.autoPark !== undefined && patch.autoPark !== (before.autoPark !== false)) touchParkable(db, deps.live().map((l) => l.sessionId));
     // 変えた欄を全部の画面へ知らせる。道具のパスや作業フォルダが変わると、準備の確かめ（ホームの帯、設定の欄の下）の答えも変わるので、画面は読み直す。
     // 保存の知らせは画面が欄の横に出す（設定の C1）。サーバからはトーストを配らない。
     deps.hub.broadcast({ type: 'settings.changed', settings: toSettingsDto(s), keys: Object.keys(patch) as (keyof SettingsDto)[] });
     return c.json(toSettingsDto(s));
   });
+}
+
+/** 動いている会話（Claude の UUID）のうち、Done か Archived の印が付いたものの行を配り直してもらう。 */
+function touchParkable(db: SettingsRouteDeps['db'], providerSessionIds: string[]): void {
+  if (providerSessionIds.length === 0) return;
+  const rows = db.prepare(`
+    select s.id from sessions s join session_states st on st.session_id = s.id and st.deleted_at is null
+    where s.deleted_at is null and st.status in ('done', 'archived') and s.provider_session_id in (${providerSessionIds.map(() => '?').join(',')})
+  `).all(...providerSessionIds) as { id: string }[];
+  for (const r of rows) touchRow(db, 'sessions', r.id);
 }

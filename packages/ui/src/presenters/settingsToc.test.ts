@@ -21,15 +21,17 @@ const present = (s: Store, screen: State['screen'] = { name: 'settings' }) => pr
 const row = (rows: SettingsTocRow[], id: string) => rows.find((r) => r.id === id)!;
 
 describe('設定の目次（S1）', () => {
-  it('節は 6 つで、一般、クラウド同期、連携、要約エンジン、ツール、情報の順', () => {
+  it('節は 6 つで、一般、ツール、連携、要約エンジン、クラウド同期、情報の順。クラウド同期だけにベータの印', () => {
     const p = present(store());
-    expect(p.toc.map((r) => r.id)).toEqual(['general', 'cloud', 'integrations', 'summary', 'tools', 'info']);
-    expect(p.toc.map((r) => r.title)).toEqual(['一般', 'クラウド同期', '連携', '要約エンジン', 'ツール', '情報']);
+    expect(p.toc.map((r) => r.id)).toEqual(['general', 'tools', 'integrations', 'summary', 'cloud', 'info']);
+    expect(p.toc.map((r) => r.title)).toEqual(['一般', 'ツール', '連携', '要約エンジン', 'クラウド同期', '情報']);
+    expect(p.toc.filter((r) => r.beta).map((r) => r.id)).toEqual(['cloud']);
+    expect(row(p.toc, 'cloud').label).toBe('クラウド同期 ベータ、同期オフ');
   });
-  it('殻の中では、ツールと情報のあいだに「更新」が入り、更新の状態を言う', () => {
+  it('殻の中では、要約エンジンとクラウド同期のあいだに「更新」が入り、更新の状態を言う', () => {
     const update = { ...initialUpdate(), supported: true, current: '1.4.2', phase: { kind: 'latest' as const }, checkedAt: NOW };
     const p = present(store({ desktop: true, update }));
-    expect(p.toc.map((r) => r.id)).toEqual(['general', 'cloud', 'integrations', 'summary', 'tools', 'update', 'info']);
+    expect(p.toc.map((r) => r.id)).toEqual(['general', 'tools', 'integrations', 'summary', 'update', 'cloud', 'info']);
     expect(row(p.toc, 'update')).toMatchObject({ title: '更新', state: '最新', tone: 'default', label: '更新、最新' });
     expect(row(present(store({ desktop: true, update: { ...update, phase: { kind: 'ready', version: '1.5.0' } } })).toc, 'update')).toMatchObject({ state: '再起動待ち', tone: 'warn' });
     expect(row(present(store({ desktop: true, update: { ...update, phase: { kind: 'failed', step: 'download', version: '1.5.0', reason: 'network' } } })).toc, 'update')).toMatchObject({ state: '失敗', tone: 'warn' });
@@ -37,7 +39,7 @@ describe('設定の目次（S1）', () => {
     expect(p.update.badge).toEqual({ text: '最新', tone: 'ok' });
   });
   it('どの行も、読み上げの名前に節の名前と今の状態を含む', () => {
-    expect(row(present(store()).toc, 'cloud').label).toBe('クラウド同期、同期オフ');
+    expect(row(present(store()).toc, 'cloud').label).toBe('クラウド同期 ベータ、同期オフ');
   });
   it('準備の確かめが届く前、連携とツールは「確認中」と言う', () => {
     const p = present(store());
@@ -85,8 +87,8 @@ describe('設定の目次（S1）', () => {
   });
   it('言語が English なら、節の名前と状態も English で言う', () => {
     const p = present(store({ settings: { ...SETTINGS, language: 'en' } }));
-    expect(p.toc.map((r) => r.title)).toEqual(['General', 'Cloud sync', 'Integrations', 'Summary engine', 'Tools', 'Info']);
-    expect(row(p.toc, 'cloud').label).toBe('Cloud sync: Sync off');
+    expect(p.toc.map((r) => r.title)).toEqual(['General', 'Tools', 'Integrations', 'Summary engine', 'Cloud sync', 'Info']);
+    expect(row(p.toc, 'cloud').label).toBe('Cloud sync Beta: Sync off');
     expect(row(p.toc, 'integrations').state).toBe('Checking');
   });
 });
@@ -134,5 +136,13 @@ describe('言語の行', () => {
   it('いまの言語を値として渡す', () => {
     expect(present(store({ settings: { ...SETTINGS, language: 'en' } })).language.value).toBe('en');
     expect(present(store()).language.value).toBe('ja');
+  });
+});
+
+describe('設定の一般：hangar が自分で行うこと', () => {
+  it('自動の Done と自動の停止は、設定の値をそのまま出し、値が無ければ入り', () => {
+    expect(present(store()).self).toEqual({ autoDone: true, autoPark: true });
+    expect(present(store({ settings: { ...SETTINGS, autoDone: false, autoPark: true } })).self).toEqual({ autoDone: false, autoPark: true });
+    expect(present(store({ settings: { ...SETTINGS, autoPark: false } })).self).toEqual({ autoDone: true, autoPark: false });
   });
 });
