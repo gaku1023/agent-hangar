@@ -138,7 +138,14 @@ function entryLines(name: string, value: unknown): string[] {
  */
 function mcpLines(servers: Record<string, unknown> | null, name: string, before: unknown, after: unknown): PlanLine[] {
   const out: PlanLine[] = [{ k: 'ctx', t: '"mcpServers": {' }];
-  for (const other of Object.keys(servers ?? {}).filter((k) => k !== name)) out.push({ k: 'ctx', t: `  ${JSON.stringify(other)}: { … },` });
+  const others = Object.keys(servers ?? {}).filter((k) => k !== name);
+  for (const other of others) out.push({ k: 'ctx', t: `  ${JSON.stringify(other)}: { … },` });
+  // 解除で後ろに続く行が無くなるときは、最後に残るサーバの行の , も外れるので、その行も差分に出す（見せる差分と書く中身をそろえる）。
+  // 最後の 1 つを消したときは、空の "mcpServers": {} が残る（removeUserMcpServer）。
+  if (after === undefined && others.length > 0) {
+    const last = out.pop()!;
+    out.push({ k: 'del', t: last.t }, { k: 'add', t: last.t.slice(0, -1) });
+  }
   if (before !== undefined) for (const t of entryLines(name, before)) out.push({ k: 'del', t });
   if (after !== undefined) for (const t of entryLines(name, after)) out.push({ k: 'add', t });
   out.push({ k: 'ctx', t: '}' });
