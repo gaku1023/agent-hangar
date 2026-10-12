@@ -102,6 +102,28 @@ describe('ProjectScreen の見出し', () => {
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.openEditor' }));
     expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.openTerminalApp' }));
   });
+  it('この PC にパスが無いときは、プロジェクトの git を読まず、右パネルにその旨を出す（取得中のまま止めない）', () => {
+    const onAction = vi.fn();
+    const background = vi.fn();
+    render(<ActionRoot onAction={onAction} background={background}><ProjectScreen {...props({ path: null, resolved: false, git: { state: 'noPath', root: null, rows: [], fix: null } })} /></ActionRoot>);
+    expect(background).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.git.load' }));
+    const rail = screen.getByText('ブランチと worktree').closest('section')!;
+    expect(within(rail).getByText('この PC にパスが無いので、git を読みません')).toBeInTheDocument();
+    expect(within(rail).queryByText('取得中…')).toBeNull();
+  });
+  it('パスがあれば、プロジェクトの git を読む。持ち主の違いで git が断ったら、訳と許すコマンドを出す', () => {
+    const background = vi.fn();
+    render(<ActionRoot onAction={vi.fn()} background={background}><ProjectScreen {...props({ git: { state: 'unsafe', root: null, rows: [], fix: 'git config --global --add safe.directory /w/alpha' } })} /></ActionRoot>);
+    expect(background).toHaveBeenCalledWith({ type: 'project.git.load', projectId: 'alpha' });
+    const rail = screen.getByText('ブランチと worktree').closest('section')!;
+    expect(within(rail).getByText(/持ち主が今のユーザーと違うので/)).toBeInTheDocument();
+    expect(within(rail).getByText('git config --global --add safe.directory /w/alpha')).toBeInTheDocument();
+  });
+  it('パスのフォルダがこの PC に無いときは、git でないとは言わず、見つからない旨を出す', () => {
+    mount(props({ resolved: false, git: { state: 'missing', root: null, rows: [], fix: null } }));
+    const rail = screen.getByText('ブランチと worktree').closest('section')!;
+    expect(within(rail).getByText('フォルダがこの PC で見つからないので、git を読みません')).toBeInTheDocument();
+  });
   it('パスがあれば、外で開く操作は押せる形のまま', () => {
     mount();
     expect(screen.getByRole('button', { name: 'VS Code で開く' })).not.toHaveAttribute('aria-disabled');

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { customArgv, dirCommandOf, previewCommand, type EditorId, type EditorTerminal } from '@agent-hangar/shared';
 import { useEmit } from '../action/chain.tsx';
 import type { SaveMark } from '../mediator/types.ts';
@@ -128,13 +128,23 @@ export function EditorSettings(props: { editor: EditorSettingsProps; mark: SaveM
   };
   const error = props.mark?.kind === 'error' ? props.mark.message : null;
   const testText = e.test.running ? t('settings.editor.test.running', { name: e.name ?? t('external.editor.generic') }) : null;
+  const r = e.test.result;
+  const testResult = testText
+    ? <div className="editor-result" role="status">{testText}</div>
+    : r ? <div className="editor-result" data-tone={r.tone} role="status"><Icon name={r.tone === 'ng' ? 'close' : r.tone === 'warn' ? 'alert' : 'check'} />{r.text}</div> : null;
   return (
     <SetRow id="settings-field-editor" title={t('settings.editor.title')} desc={t('settings.editor.desc')}
       control={<button type="button" className="btn btn-sm btn-ghost" onClick={() => emit({ type: 'editors.load' })}><Icon name="recheck" />{t('settings.editor.recheck')}</button>}
       below={(
         <div className="editor-settings">
+          {/* テストの答えは、選んだ行（テストのボタン）のすぐ下に出す。欄の下端に出すと、右下の知らせの札に隠れることがあるためである。 */}
           <div className="editor-choices" role="radiogroup" aria-label={t('settings.editor.title')}>
-            {e.choices.map((c) => <Choice key={c.id} c={c} loading={e.loading} testing={e.test.running} onPick={pick} onTest={() => emit({ type: 'editor.test' })} />)}
+            {e.choices.map((c) => (
+              <Fragment key={c.id}>
+                <Choice c={c} loading={e.loading} testing={e.test.running} onPick={pick} onTest={() => emit({ type: 'editor.test' })} />
+                {c.selected && testResult}
+              </Fragment>
+            ))}
           </div>
           {e.setting.id === 'custom'
             ? <CustomCommand fileCmd={e.setting.fileCmd} dirCmd={e.setting.dirCmd} terminal={e.setting.terminal} save={(p) => save(p)} />
@@ -152,8 +162,6 @@ export function EditorSettings(props: { editor: EditorSettingsProps; mark: SaveM
               </div>
             )}
           {error && <span className="verify" data-tone="ng" role="alert"><Icon name="close" />{error}</span>}
-          {testText && <div className="editor-result" role="status">{testText}</div>}
-          {!e.test.running && e.test.result && <div className="editor-result" data-tone={e.test.result.tone} role="status"><Icon name={e.test.result.tone === 'ng' ? 'close' : e.test.result.tone === 'warn' ? 'alert' : 'check'} />{e.test.result.text}</div>}
         </div>
       )} />
   );

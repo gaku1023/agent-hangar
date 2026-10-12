@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { git, hasGit, makeRepo } from '../../test/git.ts';
-import { diffFile, locateTree, numstatOf, parsePorcelainV2, readTreeStatus, spawnGit, type GitExec } from './status.ts';
+import { asDifferentOwner, git, hasGit, makeRepo } from '../../test/git.ts';
+import { diffFile, locateTree, numstatOf, parsePorcelainV2, readTreeStatus, spawnGit, unsafeDirOf, type GitExec } from './status.ts';
 
 describe('parsePorcelainV2', () => {
   it('ブランチ、上流との差、行の種類を読む', () => {
@@ -34,6 +34,30 @@ describe('parsePorcelainV2', () => {
   });
 });
 
+describe('unsafeDirOf', () => {
+  it('git が勧める safe.directory の場所を読む（macOS と Windows の形）', () => {
+    const mac = "fatal: detected dubious ownership in repository at '/Users/you/work/a b'\nTo add an exception for this directory, call:\n\n\tgit config --global --add safe.directory '/Users/you/work/a b'\n";
+    expect(unsafeDirOf(mac)).toBe('/Users/you/work/a b');
+    const win = [
+      "fatal: detected dubious ownership in repository at 'C:/Users/you/work/alpha'",
+      "'C:/Users/you/work/alpha' is owned by:",
+      '\tBUILTIN/Administrators (S-1-5-32-544)',
+      'but the current user is:',
+      '\tPC/you (S-1-5-21-1)',
+      'To add an exception for this directory, call:',
+      '',
+      '\tgit config --global --add safe.directory C:/Users/you/work/alpha',
+      '',
+    ].join('\r\n');
+    expect(unsafeDirOf(win)).toBe('C:/Users/you/work/alpha');
+  });
+  it('safe.directory の行が無ければ、断った場所を読む。持ち主の話でなければ null', () => {
+    expect(unsafeDirOf("fatal: detected dubious ownership in repository at '/w/alpha'\n")).toBe('/w/alpha');
+    expect(unsafeDirOf('fatal: not a git repository (or any of the parent directories): .git\n')).toBeNull();
+    expect(unsafeDirOf('')).toBeNull();
+  });
+});
+
 describe.skipIf(!hasGit)('実物の git', () => {
   let tmp: string;
   let exec: GitExec;
@@ -52,6 +76,14 @@ describe.skipIf(!hasGit)('実物の git', () => {
     git(repo, 'worktree', 'add', '-q', '-b', 'worktree-fix-a', wt);
     expect(await locateTree(wt, exec)).toEqual({ root: wt, worktree: 'fix-a', mainRoot: repo });
     expect(await locateTree(tmp, exec)).toBeNull();
+  });
+
+  it('持ち主の違いで git が断ったら、git でないとせず、断った場所を返す', async () => {
+    const repo = makeRepo(path.join(tmp, 'alpha'));
+    const r = await asDifferentOwner(tmp, () => locateTree(repo, exec));
+    expect(r).toEqual({ unsafe: expect.any(String) });
+    const same = (p: string) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+    expect(same((r as { unsafe: string }).unsafe)).toBe(same(repo));
   });
 
   it('未コミットの件数とブランチを読む。数えるのは git status の行の数', async () => {

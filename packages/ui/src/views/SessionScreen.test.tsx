@@ -237,6 +237,24 @@ describe('見出しの名前の横の札と (i)（設計書 2.3）', () => {
     expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
     expect(document.activeElement).toBe(i);
   });
+  it('(i) の行の操作（差分の一覧）を押すと、吹き出しを閉じてからダイアログを開く（ダイアログの上に吹き出しを残さない）', () => {
+    const onAction = vi.fn();
+    const rows = [{ name: 'このセッションの変更', value: '1 件が未コミット', link: { label: '一覧', send: { type: 'diff.open' as const, sessionId: 's1' } } }];
+    render(<ActionRoot onAction={onAction}><SS {...base} details={rows} /></ActionRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '詳細' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '詳細' })).getByRole('button', { name: '一覧' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'diff.open', sessionId: 's1' });
+    expect(screen.queryByRole('dialog', { name: '詳細' })).toBeNull();
+  });
+  it('持ち主の違いで git が断ったときは、(i) に訳と許すコマンド（写せる）を出す', () => {
+    const rows = [{ name: 'git', value: '持ち主が違うので、読むのを断りました' }];
+    render(<ActionRoot onAction={() => {}}><SS {...base} details={rows} gitFix="git config --global --add safe.directory /w/alpha" /></ActionRoot>);
+    fireEvent.click(screen.getByRole('button', { name: '詳細' }));
+    const dialog = screen.getByRole('dialog', { name: '詳細' });
+    expect(within(dialog).getByText('git config --global --add safe.directory /w/alpha')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Hangar は git の設定を変えません/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /コピー/ })).toBeInTheDocument();
+  });
   it('バッジの文は presenter が組む（ロックの札と見出しの札の種類）', () => {
     const badges = presentSessionBadges(dto({ lock: { deviceId: 'd', deviceName: 'mini', runId: 'r', heartbeatAt: NOW - 60_000, stale: false } }), NOW, ja);
     render(<ActionRoot onAction={() => {}}><SS {...base} badges={badges} /></ActionRoot>);

@@ -27,3 +27,21 @@ export function makeRepo(dir: string, files: Record<string, string> = { 'a.txt':
   git(dir, 'commit', '-q', '-m', 'init');
   return dir;
 }
+
+/**
+ * 持ち主の違うリポジトリ（git の dubious ownership）を装って fn を走らせる。
+ * git の試験用の GIT_TEST_ASSUME_DIFFERENT_OWNER を立て、safe.directory が入っていない設定で読ませる（CI の機械の全体の設定に左右されないため）。
+ * 空の設定のファイルは dir に置く。
+ */
+export async function asDifferentOwner<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+  const keys = ['GIT_TEST_ASSUME_DIFFERENT_OWNER', 'GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_GLOBAL'] as const;
+  const before = keys.map((k) => process.env[k]);
+  const empty = path.join(dir, 'empty.gitconfig');
+  fs.writeFileSync(empty, '');
+  process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = '1';
+  process.env.GIT_CONFIG_NOSYSTEM = '1';
+  process.env.GIT_CONFIG_GLOBAL = empty;
+  try { return await fn(); } finally {
+    keys.forEach((k, i) => { if (before[i] === undefined) delete process.env[k]; else process.env[k] = before[i]; });
+  }
+}

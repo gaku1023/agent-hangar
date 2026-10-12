@@ -17,6 +17,7 @@ import { SessionList } from './SessionList.tsx';
 import { TodoList } from './TodoList.tsx';
 import { RollingNumber } from './primitives/RollingNumber.tsx';
 import { GitChip } from './GitChip.tsx';
+import { GitUnsafeNote } from './GitUnsafeNote.tsx';
 import type { ProjectGitProps } from '../presenters/git.ts';
 
 /** アーティファクトの節で、はじめに出す件数（新しい方から）。残りは「すべて表示」で広げる。 */
@@ -53,6 +54,9 @@ function GitRail(props: { git: ProjectGitProps }) {
   const g = props.git;
   if (g.state === 'loading') return <div className="faint">{t('gitUi.rail.loading')}</div>;
   if (g.state === 'nogit') return <div className="faint">{t('gitUi.rail.noGit')}</div>;
+  if (g.state === 'noPath') return <div className="faint">{t('gitUi.rail.noPath')}</div>;
+  if (g.state === 'missing') return <div className="faint">{t('gitUi.rail.missing')}</div>;
+  if (g.state === 'unsafe') return g.fix ? <GitUnsafeNote command={g.fix} /> : <div className="faint">{t('gitUi.details.unsafe')}</div>;
   return (
     <div className="git-rail">
       <ul className="git-rail-list">
@@ -84,8 +88,10 @@ export function ProjectScreen(props: ProjectProps) {
   const editorLabels = useEditorLabels();
   const [railOpen, setRailOpen] = useState(true);
   // ブランチと worktree は、画面を開いたときとプロジェクトを替えたときに読む（git の表示）。
+  // この PC にパスの無いプロジェクト（他の PC から同期したもの）は読まない。読む先が無く、右パネルは presenter が「この PC にパスが無い」にする。
   const bg = useBackgroundEmit();
-  useEffect(() => { if (!props.isScratch && !props.notFound) bg({ type: 'project.git.load', projectId: props.id }); }, [bg, props.id, props.isScratch, props.notFound]);
+  const hasPath = props.path !== null;
+  useEffect(() => { if (!props.isScratch && !props.notFound && hasPath) bg({ type: 'project.git.load', projectId: props.id }); }, [bg, props.id, props.isScratch, props.notFound, hasPath]);
   const boxRef = useRef<HTMLDivElement>(null);
   const pane = usePresence<HTMLElement>(railOpen, (inner) => (boxRef.current ? playPaneMotion(boxRef.current, PANE_SHAPE.rail.open, inner, false) : null));
   const paneFirst = useRef(true);

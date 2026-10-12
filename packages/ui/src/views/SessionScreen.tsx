@@ -14,6 +14,7 @@ import { Listbox } from './primitives/Listbox.tsx';
 import { MenuButton, type MenuItem } from './primitives/MenuButton.tsx';
 import { PANE_SHAPE, playPaneMotion } from './primitives/paneMotion.ts';
 import { InfoPopover, type PopoverRow } from './primitives/Popover.tsx';
+import { GitUnsafeNote } from './GitUnsafeNote.tsx';
 import { Segmented } from './primitives/Segmented.tsx';
 import { usePresence } from './primitives/usePresence.ts';
 import { SplitPane } from './SplitPane.tsx';
@@ -109,13 +110,14 @@ export function SessionScreen(props: SessionProps) {
   };
   const item = (a: SessionAction): MenuItem => ({ key: a.id, label: a.label, icon: ACTION_ICON[a.id], note: a.note, disabled: a.disabled, danger: a.danger, onSelect: () => act(a.id) });
   const primary = props.actions.primary;
-  const detailRows: PopoverRow[] = props.details.map((d) => ({
+  // 行の操作（差分の一覧など）はダイアログを開くので、先に (i) の面を閉じる（ダイアログの上に面を残さない）。
+  const detailRows = (api: { close: () => void }): PopoverRow[] => props.details.map((d) => ({
     name: d.name,
     value: (
       <>
         {d.dot && <span className="st-dot" style={{ color: d.dot }} aria-hidden="true" />}{d.value}
         {d.note && <span className="faint detail-note"> {d.note}</span>}
-        {d.link && <> <button type="button" className="btn-link" onClick={() => emit(d.link!.send)}>{d.link.label}</button></>}
+        {d.link && <> <button type="button" className="btn-link" onClick={() => { api.close(); emit(d.link!.send); }}>{d.link.label}</button></>}
       </>
     ),
     mono: d.mono,
@@ -137,7 +139,7 @@ export function SessionScreen(props: SessionProps) {
       </button>
       {primary.disabled && <span id={reasonId} className="sr-only">{primary.disabled}</span>}
       <MenuButton label={t('session.screen.moreActions')} items={props.actions.menu.map(item)} />
-      <InfoPopover rows={detailRows} width={360} />
+      <InfoPopover rows={detailRows} width={360}>{props.gitFix ? <GitUnsafeNote command={props.gitFix} /> : null}</InfoPopover>
     </PageHeading>
   );
 

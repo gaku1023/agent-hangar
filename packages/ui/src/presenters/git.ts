@@ -1,4 +1,5 @@
-import type { GitDiffDto, GitDto, GitFileDto, GitFileStatus, GitTreeDto, ProjectGitDto, SessionChangesDto, SessionDto, SessionEditsDto, Translate, UiAction } from '@agent-hangar/shared';
+import { safeDirectoryCommand, type GitDiffDto, type GitDto, type GitFileDto, type GitFileStatus, type GitTreeDto, type ProjectGitDto, type SessionChangesDto, type SessionDto, type SessionEditsDto, type Translate, type UiAction } from '@agent-hangar/shared';
+import { clientPlatform } from '../keys.ts';
 import type { State } from '../mediator/types.ts';
 import { gitFileKey, shownLive, type Store } from '../store/store.ts';
 import { openLabel } from './editor.ts';
@@ -50,7 +51,8 @@ function runningOn(git: GitDto, root: string, sessions: Record<string, SessionDt
  */
 export function presentGitChip(t: Translate, git: GitDto, sessionId: string, sessions: Record<string, SessionDto>): GitChipProps | null {
   const g = git.sessions[sessionId];
-  if (!g || g.state === 'nogit') return null;
+  // 持ち主の違いで git が断ったものも札は出さない（訳と許し方は (i) で言う）。
+  if (!g || g.state === 'nogit' || g.state === 'unsafe') return null;
   const chip = (p: Omit<GitChipProps, 'label' | 'shared' | 'sharedTitle'> & { shared?: number | null }): GitChipProps => {
     const shared = p.shared ?? null;
     return { ...p, shared, sharedTitle: shared ? t('gitUi.chip.sharedTitle', { n: shared - 1 }) : null, label: t('gitUi.chip.label', { branch: p.title || p.name, value: p.value }) };
@@ -80,6 +82,7 @@ export function gitDetailRows(t: Translate, git: GitDto, sessionId: string, sess
   if (!g) return [];
   const gitRow = (value: string): GitDetailRow => ({ name: t('gitUi.details.git'), value });
   if (g.state === 'nogit') return [gitRow(t('gitUi.details.noGit'))];
+  if (g.state === 'unsafe') return [...(g.branch ? [{ name: t('gitUi.details.branch'), value: g.branch, mono: true }] : []), gitRow(t('gitUi.details.unsafe'))];
   if (g.state === 'remote') return [...(g.branch ? [{ name: t('gitUi.details.branch'), value: g.branch, mono: true }] : []), gitRow(t('gitUi.details.remote'))];
   if (g.state === 'gone') return [{ name: t('gitUi.details.worktree'), value: g.worktree ?? '', mono: true }, gitRow(t('gitUi.details.worktreeRemoved', { branch: g.branch ?? '' }))];
   const tr = g.root ? git.trees[g.root] : undefined;
@@ -97,6 +100,15 @@ export function gitDetailRows(t: Translate, git: GitDto, sessionId: string, sess
   const mine = changes && changes.state === 'ok' ? changes.files.filter((f) => f.status !== 'C').length : null;
   rows.push({ name: t('gitUi.details.mine'), value: mine === null ? t('gitUi.details.mineLoading') : t('gitUi.details.mineValue', { n: mine }), link: { label: t('gitUi.details.list'), send: { type: 'diff.open', sessionId } } });
   return rows;
+}
+
+/**
+ * 持ち主の違いで git が断ったセッションの、許すコマンド（(i) の行の下に写せる形で出す）。断っていなければ null。
+ * hangar は git の設定を書かないので、案内にだけ使う。platform はコマンドの引用の形を決める（試験では差し込む）。
+ */
+export function gitUnsafeFix(git: GitDto, sessionId: string, platform: string = clientPlatform()): string | null {
+  const g = git.sessions[sessionId];
+  return g?.state === 'unsafe' && g.root ? safeDirectoryCommand(g.root, platform) : null;
 }
 
 /** 差分の一覧の 1 行。mark は状態の印（未追跡は A、コミット済みは ✓）、counts は「+20 −2」かバイナリかコミット済み。 */
@@ -119,7 +131,9 @@ function fileRow(t: Translate, f: GitFileDto, git: boolean): GitFileRow {
 export function presentGitFiles(t: Translate, changes: SessionChangesDto | undefined): GitFilesView {
   if (!changes) return { state: 'loading', files: [], others: [], othersLabel: null, note: null, uncommitted: 0 };
   const git = changes.state === 'ok';
-  const note = changes.state === 'nogit' ? t('gitUi.files.bashNote') : changes.state === 'remote' ? t('gitUi.files.remoteNote') : changes.state === 'gone' ? t('gitUi.files.goneNote') : changes.state === 'slow' ? t('gitUi.files.slowNote') : null;
+  const NOTE = { nogit: 'gitUi.files.bashNote', unsafe: 'gitUi.files.unsafeNote', remote: 'gitUi.files.remoteNote', gone: 'gitUi.files.goneNote', slow: 'gitUi.files.slowNote', ok: null } as const;
+  const key = NOTE[changes.state];
+  const note = key ? t(key) : null;
   const n = changes.others.length;
   return {
     state: changes.state, note,
@@ -180,16 +194,21 @@ export function presentDiffBody(t: Translate, o: { source: 'git' | 'session'; fi
 /**
  * プロジェクト画面の git。root はパスの行の札、rows は右パネルの「ブランチと worktree」の行（元の作業ツリーが先頭）。
  * 行の sessions は、その作業ツリーで実行中（入力待ちを先）のセッションの数の語で、無ければ「セッションなし」。
+ * state の noPath はこの PC にパスが無い、missing はフォルダが無い、unsafe は持ち主の違いで git が断ったもので、どれも行を持たない。
+ * fix は unsafe のときの許すコマンドで、ほかは null。
  */
 export type ProjectGitRow = { key: string; path: string; name: string; worktree: boolean; branch: string; value: string; dirty: boolean; sessions: string };
-export type ProjectGitProps = { state: 'loading' | 'nogit' | 'ok'; root: GitChipProps | null; rows: ProjectGitRow[] };
+export type ProjectGitProps = { state: 'loading' | 'nogit' | 'noPath' | 'missing' | 'unsafe' | 'ok'; root: GitChipProps | null; rows: ProjectGitRow[]; fix: string | null };
 
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 const under = (cwd: string, root: string) => cwd === root || cwd.startsWith(`${root}/`) || cwd.startsWith(`${root}\\`);
 
-export function presentProjectGit(t: Translate, pg: ProjectGitDto | undefined, sessions: SessionDto[], git: GitDto): ProjectGitProps {
-  if (!pg) return { state: 'loading', root: null, rows: [] };
-  if (!pg.root) return { state: 'nogit', root: null, rows: [] };
+export function presentProjectGit(t: Translate, pg: ProjectGitDto | undefined, sessions: SessionDto[], git: GitDto, platform: string = clientPlatform()): ProjectGitProps {
+  const none = (state: ProjectGitProps['state'], fix: string | null = null): ProjectGitProps => ({ state, root: null, rows: [], fix });
+  if (!pg) return none('loading');
+  if (pg.blocked?.kind === 'unsafe') return none('unsafe', safeDirectoryCommand(pg.blocked.path, platform));
+  if (pg.blocked) return none(pg.blocked.kind);
+  if (!pg.root) return none('nogit');
   const trees = [{ tree: pg.root, path: pg.root.root, name: baseName(pg.root.root), worktree: false, branch: pg.root.branch }, ...pg.worktrees.map((w) => ({ tree: w.tree, path: w.path, name: w.name, worktree: true, branch: w.branch }))];
   // セッションが乗っている作業ツリー。git の手がかりがあればその根で、無ければ cwd の前方一致で、いちばん深い根に寄せる。
   const rootOf = (s: SessionDto): string | null => {
@@ -210,7 +229,7 @@ export function presentProjectGit(t: Translate, pg: ProjectGitDto | undefined, s
   const rc = countValue(t, pg.root);
   const branch = pg.root.branch ?? pg.root.head ?? 'HEAD';
   const root: GitChipProps = { kind: 'ok', worktree: false, name: branch, title: branch, ...rc, shared: null, sharedTitle: null, label: t('gitUi.chip.label', { branch, value: rc.value }) };
-  return { state: 'ok', root, rows };
+  return { state: 'ok', root, rows, fix: null };
 }
 
 /**

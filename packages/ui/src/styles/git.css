@@ -16,7 +16,10 @@
 .gitchip[data-kind='remote'], .gitchip[data-kind='gone'] { color: var(--ink-3); }
 
 /* 一覧の行の 2 段目の右端。要約が先に縮み、札は右に残る。PR の番号はその右に続ける。 */
+/* 要約が先に縮み、札は右端に残る。要約は札の残りの幅だけを受け取り（基準 0）、要約が縮みきるまで札を縮めない。
+   縮む量の重みで分けると札も少しは縮み、ブランチの名前が「r…」や空になる。 */
 .row-sub > .row-git { flex: 0 1 auto; margin-left: auto; }
+.row-sub:has(> .row-git) > .row-text { flex: 1 1 0; }
 .row-sub > .row-git + .row-marks { margin-left: 0; }
 
 /* 現在の札の git の札（押すと変更したファイルの一覧）。数の札と同じ器に載せる。 */
@@ -85,3 +88,10 @@ button.gitf-row:hover { background: var(--surface-2); }
 .git-rail-2 { font-size: var(--fs-xs); margin-left: calc(14px + var(--u) * 1.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .git-rail-note { display: flex; align-items: flex-start; gap: var(--u); font-size: var(--fs-xs); line-height: 1.5; }
 .git-rail-note > .icon { flex: none; width: 13px; height: 13px; margin-top: 2px; }
+/* 持ち主の違いで git が断ったときの案内（セッションの (i) と、プロジェクトの「ブランチと worktree」）。 */
+.git-unsafe { display: grid; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 2); }
+.rail-body .git-unsafe { margin-top: 0; }
+.git-unsafe-note { margin: 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-2); white-space: normal; }
+/* 場所まで読めるよう、コマンドは折り返す（狭い右パネルでも省略しない）。 */
+.git-unsafe .cmd-line { height: auto; min-height: 32px; margin-top: 0; padding-top: var(--u); padding-bottom: var(--u); }
+.git-unsafe .cmd-line > code { white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }

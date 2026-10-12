@@ -9,8 +9,12 @@ import { GIT_DIRTY_CAP, type GitDiffDto, type GitFileStatus, type GitTreeDto } f
 /**
  * git を 1 回起こす口。stdout は文字列で返す。
  * timedOut は時間切れで止めたこと、capped は maxEntries（NUL で区切った項目の数）を超えたので止めたこと。
+ * stderr は git が断った訳を読むためのもので、先頭の STDERR_MAX_BYTES までである（偽の口は持たなくてよい）。
  */
-export type GitExec = (args: string[], o: { cwd: string; timeoutMs: number; maxEntries?: number; maxBytes?: number }) => Promise<{ code: number; stdout: string; timedOut: boolean; capped: boolean }>;
+export type GitExec = (args: string[], o: { cwd: string; timeoutMs: number; maxEntries?: number; maxBytes?: number }) => Promise<{ code: number; stdout: string; stderr?: string; timedOut: boolean; capped: boolean }>;
+
+/** stderr を覚える上限。断った訳の数行が読めればよい。 */
+const STDERR_MAX_BYTES = 8 * 1024;
 
 /** 一覧から何本も呼ぶので短く切る（入力欄の候補の git は 5 秒）。 */
 export const GIT_STATUS_TIMEOUT_MS = 3000;
@@ -20,8 +24,10 @@ export const GIT_DIFF_MAX_BYTES = 256 * 1024;
 /** 実物の git を起こす。出力を数えながら読み、上限を超えたら止める。 */
 export function spawnGit(gitFile: string): GitExec {
   return (args, o) => new Promise((resolve) => {
-    const child = spawn(gitFile, ['--no-optional-locks', ...args], { cwd: o.cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' } });
+    const child = spawn(gitFile, ['--no-optional-locks', ...args], { cwd: o.cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' } });
     const chunks: Buffer[] = [];
+    const errChunks: Buffer[] = [];
+    let errBytes = 0;
     let bytes = 0;
     let nul = 0;
     let done = false;
@@ -31,7 +37,7 @@ export function spawnGit(gitFile: string): GitExec {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      resolve({ code, stdout: Buffer.concat(chunks).toString('utf8'), timedOut, capped });
+      resolve({ code, stdout: Buffer.concat(chunks).toString('utf8'), stderr: Buffer.concat(errChunks).toString('utf8'), timedOut, capped });
     };
     const timer = setTimeout(() => { timedOut = true; child.kill(); finish(1); }, o.timeoutMs);
     child.stdout.on('data', (d: Buffer) => {
@@ -44,6 +50,12 @@ export function spawnGit(gitFile: string): GitExec {
         capped = true;
         child.kill();
       }
+    });
+    // stderr は読み続ける（読まないと、たくさん書く git がパイプで詰まる）。覚えるのは先頭だけ。
+    child.stderr.on('data', (d: Buffer) => {
+      if (errBytes >= STDERR_MAX_BYTES) return;
+      errChunks.push(d.subarray(0, STDERR_MAX_BYTES - errBytes));
+      errBytes += d.length;
     });
     child.on('error', () => finish(127));
     child.on('close', (code) => finish(capped ? 0 : code ?? 1));
@@ -94,14 +106,35 @@ export function parsePorcelainV2(out: string, cap: number = Number.POSITIVE_INFI
 const nativePath = (cwd: string, p: string) => path.resolve(cwd, p);
 
 /**
+ * git が持ち主の違い（dubious ownership）で断ったときの、許す場所。git の訳の文から読み、持ち主の話でなければ null。
+ * git が勧める `safe.directory <場所>` の行を先に読み、無ければ「repository at '<場所>'」を読む。
+ * 訳の文は英語で読む（spawnGit は LC_ALL=C で起こす）。
+ */
+export function unsafeDirOf(stderr: string): string | null {
+  if (!/dubious ownership/i.test(stderr)) return null;
+  const add = /safe\.directory[ \t]+(.+?)[ \t]*\r?$/m.exec(stderr);
+  // git は空白や引用符を含む場所を sh の形で囲む（' は '\''）。囲みを外して元の場所に戻す。
+  if (add) return /^'.*'$/.test(add[1]!) ? add[1]!.slice(1, -1).replace(/'\\''/g, "'") : add[1]!;
+  const at = /dubious ownership in repository at '([^'\r\n]+)'/i.exec(stderr);
+  return at ? at[1]! : null;
+}
+
+/** 作業ツリーの場所。worktree は git worktree で足した作業ツリーのときの名前、mainRoot はその元の作業ツリーの根である。 */
+export type TreeLocation = { root: string; worktree: string | null; mainRoot: string | null };
+
+/**
  * 作業ツリーの根を見つける。git のリポジトリでなければ null。
+ * 持ち主の違いで git が断ったら、git でないとはせず、断った場所を unsafe で返す（画面で訳と許し方を言うため）。
  * worktree は git worktree で足した作業ツリーのときの名前（根のフォルダ名）、mainRoot はその元の作業ツリーの根である。
  * 見分けは --git-dir と --git-common-dir の違いで、元の作業ツリーでは同じになる。
  */
-export async function locateTree(cwd: string, exec: GitExec, timeoutMs: number = GIT_STATUS_TIMEOUT_MS): Promise<{ root: string; worktree: string | null; mainRoot: string | null } | null> {
+export async function locateTree(cwd: string, exec: GitExec, timeoutMs: number = GIT_STATUS_TIMEOUT_MS): Promise<TreeLocation | { unsafe: string } | null> {
   if (!fs.existsSync(cwd)) return null;
   const r = await exec(['rev-parse', '--show-toplevel', '--git-dir', '--git-common-dir'], { cwd, timeoutMs });
-  if (r.code !== 0) return null;
+  if (r.code !== 0) {
+    const unsafe = r.timedOut ? null : unsafeDirOf(r.stderr ?? '');
+    return unsafe ? { unsafe } : null;
+  }
   const [top, gitDir, commonDir] = r.stdout.split(/\r?\n/);
   if (!top || !gitDir || !commonDir) return null;
   const root = nativePath(cwd, top);
