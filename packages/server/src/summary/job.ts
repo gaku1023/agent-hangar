@@ -10,12 +10,17 @@ import { errorText, MessageError, msg, render } from '../i18n/message.ts';
 
 const STALE_TURNS = 5;
 
-/** 要約が土台のままか、最後の更新から 5 ターン以上進んでいれば作り直す。セッションが無ければ偽。 */
+/**
+ * 要約が土台のままか、事後の要約の最後の更新から 5 ターン以上進んでいれば作り直す。セッションが無ければ偽。
+ * 会話の中で書いた要約（in_session）は、何ターン進んでも作り直さない。文脈を持つ Claude 自身が書いたもののほうが確かで、事後の要約で上書きすると質が下がるためである。
+ * 手動の作り直し（enqueue の force）は、この判定を通らないので上書きできる。
+ */
 export function isSummaryStale(db: Db, sessionId: string): boolean {
   const s = db.prepare('select 1 from sessions where id = ? and deleted_at is null').get(sessionId);
   if (!s) return false;
   const sum = db.prepare('select source, based_on_turns from session_summaries where session_id = ? and deleted_at is null').get(sessionId) as { source: string; based_on_turns: number } | undefined;
   if (!sum || sum.source === 'baseline') return true;
+  if (sum.source === 'in_session') return false;
   const turns = (db.prepare('select turns from session_stats where session_id = ?').get(sessionId) as { turns: number } | undefined)?.turns ?? 0;
   return turns - sum.based_on_turns >= STALE_TURNS;
 }
