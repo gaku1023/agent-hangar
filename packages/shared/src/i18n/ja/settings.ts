@@ -115,7 +115,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.integrations.statusline.missing': 'ステータスラインの設定が見つかりません',
   'settings.integrations.statusline.missingHint': 'Claude Code で /statusline を実行して、先にスクリプトを作成してください。',
   'settings.integrations.statusline.installed': '設定済みです',
-  'settings.integrations.statusline.notInstalled': 'まだ設定されていません',
+  'settings.integrations.statusline.notInstalled': 'ステータスラインのスクリプトはあります。hangar へ値を渡す数行は、まだ入っていません。',
   'settings.integrations.statusline.note': 'ヘッダーの使用率のゲージは、ステータスラインのスクリプトに足す数行からだけ届きます。',
   'settings.integrations.statusline.port': 'サーバが 4177 以外で動いているときは --port <番号> を付けてください。',
   'settings.integrations.shell.title': 'シェル連携',

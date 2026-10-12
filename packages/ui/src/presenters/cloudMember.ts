@@ -10,8 +10,11 @@ import { translatorOf } from './i18n.ts';
  * 参加と解除は殻の中でだけ行い、ブラウザではターミナルのコマンドを案内する（desktop が偽）。
  */
 
-/** PC の 1 行。joined と where は Worker の一覧があるときだけで、同期の表に戻したときは null。 */
-export type CloudPcRow = { id: string; name: string; self: boolean; os: string; joined: string | null; lastSeen: string; where: string | null; removedOn: string | null };
+/**
+ * PC の 1 行。joined と ip と place は Worker の一覧があるときだけで、同期の表に戻したときは null。
+ * ip（最後の IP）と place（場所）を分けて持つ。IPv6 の IP は長く、1 本の文字列にすると後ろの場所が切られて見えなくなるからである。
+ */
+export type CloudPcRow = { id: string; name: string; self: boolean; os: string; joined: string | null; lastSeen: string; ip: string | null; place: string | null; removedOn: string | null };
 
 /**
  * PC の一覧。state の ok は Worker の一覧、fallback は Worker が古いか繋がらないので同期の表（共有テーブルの devices）に戻したもの、
@@ -53,11 +56,10 @@ const pad = (n: number): string => String(n).padStart(2, '0');
 const ymd = (ms: number): string => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const md = (ms: number): string => { const d = new Date(ms); return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
-/** 最後の IP と場所の 1 行。場所は Cloudflare の英語のまま、市区、地域、国の順に並べる。 */
-function whereOf(d: CloudDeviceDto): string | null {
+/** 場所。Cloudflare の英語のまま、市区、地域、国の順に並べる。最後の IP が無ければ出さない。 */
+function placeOf(d: CloudDeviceDto): string | null {
   if (d.lastIp === null) return null;
-  const place = [d.lastCity, d.lastRegion, d.lastCountry].filter((v): v is string => v !== null && v !== '').join(', ');
-  return place ? `${d.lastIp} · ${place}` : d.lastIp;
+  return [d.lastCity, d.lastRegion, d.lastCountry].filter((v): v is string => v !== null && v !== '').join(', ') || null;
 }
 
 /** 殻と CLI の失敗の符号を、画面の文にする（参加の段のほかで使う短い文）。 */
@@ -111,11 +113,11 @@ export function presentCloudMember(store: Store, now: number = Date.now()): Clou
   const cloud = m.devices;
   const row = (d: CloudDeviceDto): CloudPcRow => ({
     id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform,
-    joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now), where: whereOf(d),
+    joined: ymd(d.joinedAt), lastSeen: relativeTime(t, d.lastSeenAt, now), ip: d.lastIp, place: placeOf(d),
     removedOn: d.revokedAt === null ? null : t('cloudMember.pcs.removedOn', { date: md(d.revokedAt) }),
   });
   // Worker の一覧が無いときは、同期の表の一覧を出しておく（参加日と場所は無い）。
-  const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), where: null, removedOn: null }));
+  const shared = (): CloudPcRow[] => store.devices.map((d) => ({ id: d.id, name: d.name, self: d.self, os: OS[d.platform] ?? d.platform, joined: null, lastSeen: relativeTime(t, d.lastSeenAt, now), ip: null, place: null, removedOn: null }));
   const pcs: CloudPcsProps = cloud?.state === 'ok'
     ? { state: 'ok', rows: cloud.devices.filter((d) => d.revokedAt === null).map(row), removed: cloud.devices.filter((d) => d.revokedAt !== null).map(row), note: null }
     : cloud && cloud.state !== 'off'

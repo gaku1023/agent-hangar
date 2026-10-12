@@ -3,7 +3,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { approveEn } from '../../../packages/shared/src/i18n/en/approve.ts';
 import { approveJa } from '../../../packages/shared/src/i18n/ja/approve.ts';
-import { SECRET_MASK as CLI_MASK } from '../../../packages/cli/src/setupPlan.ts';
+import { BACKUP_STAMP as CLI_STAMP, SECRET_MASK as CLI_MASK } from '../../../packages/cli/src/setupPlan.ts';
 
 // 承諾の窓（loading/approve.js）。殻が自分の窓で開く、殻に同梱した頁で、サーバを通らない。
 // 頁は UI の辞書を持たないので、承諾の窓の文の写しを持つ。写しが辞書とずれていないことと、見立てからの出し方をここで見る。
@@ -16,7 +16,7 @@ type Model = {
   done: { title: string; after: string; backups: string[]; note: string | null }; fail: { title: string; detail: string } | null;
 };
 type Mod = {
-  WORDS: Record<'ja' | 'en', Record<string, string>>; SECRET_MASK: string;
+  WORDS: Record<'ja' | 'en', Record<string, string>>; SECRET_MASK: string; BACKUP_STAMP: string;
   model(v: View, tab?: string): Model; render(m: Model): string; diffHtml(m: Model): string;
   shortPath(p: string, home: string): string; generationLabel(n: string): string;
 };
@@ -27,7 +27,7 @@ const KANA_KANJI = /[぀-ヿ㐀-鿿]/;
 const FP = '0'.repeat(64);
 const mcpPlan = {
   target: 'mcp-install', state: 'ready', reason: null, secret: true, fingerprint: FP,
-  backup: '/Users/u/.agent-hangar/backups/claude.json-20261012103105',
+  backup: '/Users/u/.agent-hangar/backups/claude.json-YYYYMMDDhhmmss',
   files: [{ path: '/Users/u/.claude.json', op: 'modify', what: 'mcp.add', where: 'json', watch: 'x', lines: [
     { k: 'ctx', t: '"mcpServers": {' }, { k: 'ctx', t: '  "github": { … },' }, { k: 'add', t: '  "hangar": {' },
     { k: 'add', t: `      "Authorization": "Bearer ${CLI_MASK}"` }, { k: 'add', t: '  }' }, { k: 'ctx', t: '}' },
@@ -53,6 +53,9 @@ describe('承諾の窓の文', () => {
   it('伏せ字の印は CLI と同じ', () => {
     expect(m.SECRET_MASK).toBe(CLI_MASK);
   });
+  it('バックアップの名前の日時の置き場は CLI と同じ', () => {
+    expect(m.BACKUP_STAMP).toBe(CLI_STAMP);
+  });
 });
 
 describe('承諾の窓の出し方', () => {
@@ -60,7 +63,11 @@ describe('承諾の窓の出し方', () => {
     const v = m.model(setupView('ja'));
     expect(v.title).toBe('MCP サーバーを登録');
     expect(v.files[0]).toMatchObject({ path: '~/.claude.json', opLabel: '変更', what: approveJa['approve.what.mcpAdd'] });
-    expect(v.kv[0]).toEqual(['バックアップ', '~/.agent-hangar/backups/claude.json-20261012103105']);
+    // 名前の日時は書き込みを押したときに決まるので、窓では日時の形のまま見せ、何の日時かを添える。
+    expect(v.kv[0]).toEqual(['バックアップ', '~/.agent-hangar/backups/claude.json-YYYYMMDDhhmmss（YYYYMMDDhhmmss は書き込んだ日時）']);
+    expect(m.model(setupView('en')).kv[0]![1]).toBe('~/.agent-hangar/backups/claude.json-YYYYMMDDhhmmss (YYYYMMDDhhmmss is the date and time of writing)');
+    // 日時の形を持たない名前（古い CLI の見立て）は、そのまま出す。
+    expect(m.model(setupView('ja', { plan: { ...mcpPlan, backup: '/Users/u/.agent-hangar/backups/claude.json-20261012103105' } })).kv[0]![1]).toBe('~/.agent-hangar/backups/claude.json-20261012103105');
     expect(v.kv[2]![1]).toContain(approveJa['approve.note.secret']);
     expect(v.kv[2]![1]).toContain(approveJa['approve.note.check']);
     expect(v.command).toBe('hangar mcp install');

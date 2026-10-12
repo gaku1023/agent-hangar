@@ -125,6 +125,20 @@ describe('PC の一覧と解除', () => {
     expect(text).toContain('解除');
   });
 
+  it('日付は手元の時刻の日付で出す（画面の参加日とそろえる）', async () => {
+    const h = home();
+    saveCloudConfig(h, conf());
+    // 手元の 0 時 30 分と 23 時 30 分。UTC の日付で出すと、東の時間帯では前の日、西の時間帯では次の日にずれる。
+    const early = new Date(2026, 9, 12, 0, 30).getTime();
+    const late = new Date(2026, 9, 12, 23, 30).getTime();
+    const f = (async () => new Response(JSON.stringify({ devices: [row('dev-a', { joinedAt: early, lastSeenAt: late }), row('dev-b', { joinedAt: late, revokedAt: early })] }), { status: 200, headers: { 'x-hangar-compat': '5' } })) as typeof fetch;
+    const lines = (await cloudDevicesText({ home: h, deviceId: 'dev-a', fetch: f })).split('\n');
+    expect(lines[0]).toContain('参加 2026-10-12');
+    expect(lines[0]).toContain('最終同期 2026-10-12');
+    expect(lines[1]).toContain('参加 2026-10-12');
+    expect(lines[1]).toContain('2026-10-12 に解除');
+  });
+
   it('ほかの PC を解除する。自分自身は leave へ案内して断る', async () => {
     const h = home();
     saveCloudConfig(h, conf());
