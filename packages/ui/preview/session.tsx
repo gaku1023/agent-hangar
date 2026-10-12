@@ -71,6 +71,16 @@ export const CARD_CASES: { id: string; title: string; card: NowCardProps }[] = [
     aside: { shell: false, agents: 2 }, digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'a1', title: '型を直す' }), agent({ agentId: 'a2', title: 'テストを書く' })] },
   }), ja) },
   { id: 'idle', title: 'アイドルで、意図もツール呼び出しも無い', card: presentNowCard(base({ live: 'idle', events: [], digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] } }), ja) },
+  { id: 'permission', title: '許可待ち（試作 stop-reason-proto の N1）', card: presentNowCard(base({
+    live: 'waiting', activity: null, events: waitingEvents(), turnFrom: 0, reason: 'permission',
+    permission: { tool: 'Bash', input: 'rm -rf ./build/cache && npm run build -- --filter checkout', description: '古いキャッシュを消してから書き出し直す' },
+  }), ja) },
+  { id: 'limit', title: '使用制限（自動で続く）', card: presentNowCard(base({
+    live: 'idle', events: [], reason: 'limit', limit: { kind: 'five_hour', resetsAt: NOW + 8 * 60_000, auto: true, reset: false },
+  }), ja) },
+  { id: 'reset', title: 'リセット済み（自動で続かなかった）', card: presentNowCard(base({
+    live: 'idle', events: [], reason: 'reset', limit: { kind: 'five_hour', resetsAt: NOW - 5 * 60_000, auto: false, reset: true },
+  }), ja) },
   { id: 'long', title: '意図が長い（切らずに折り返して全文を出す）', card: presentNowCard(base({
     events: busyEvents(), turnFrom: 0,
     digest: { sessionId: 's1', turnStartSeq: 0, intent: { ...intent, text: '決済フォームの入力の検証をサーバ側にも足すため、まずクライアント側の検証の一覧と既存のテストを読み、どの検証を共通の関数へ寄せられるかを確かめる。' }, agents: [] },

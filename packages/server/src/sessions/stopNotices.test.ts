@@ -21,7 +21,7 @@ const watch = (o: { account?: (id: string) => string } = {}) => new StopNoticeWa
   accountOf: o.account ?? (() => 'primary'), now: () => now, permissionWaitMs: 800,
 });
 const ask = (q: string | null, sid = s1) => db.prepare('insert or replace into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)').run(sid, 'AskUserQuestion', 'AskUserQuestion', 't1', q, 1);
-const limitRow = (sid: string, resetsAt: number, auto = 0) => db.prepare('insert or replace into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)').run(sid, 'five_hour', resetsAt, auto, now);
+const limitRow = (sid: string, resetsAt: number, auto = 0, hitAt = now) => db.prepare('insert or replace into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)').run(sid, 'five_hour', resetsAt, auto, hitAt);
 
 beforeEach(() => {
   db = openDb(':memory:');
@@ -189,6 +189,19 @@ describe('StopNoticeWatch：使用制限', () => {
     expect(touched.sort()).toEqual([s1, s2].sort());
   });
 
+  it('索引を作り直したときなどに後から見つかった古い使用制限とリセットは、知らせない', () => {
+    live = [entry('u1', 'idle'), entry('u2', 'idle')];
+    const w = watch();
+    w.tick();
+    // 1 時間前に当たり、まだリセット前のもの。
+    limitRow(s1, now + 3_600_000, 1, now - 3_600_000);
+    // 1 日前に当たり、とうにリセットを過ぎたもの。
+    limitRow(s2, now - 86_000_000, 0, now - 86_400_000);
+    w.tick();
+    expect(pushed).toEqual([]);
+    // 行は配り直す（リセット済みとして要対応に上がる）。
+    expect(touched).toContain(s2);
+  });
   it('リセットの後に作業中なら（自動で続いた）、知らせない', () => {
     live = [entry('u1', 'idle')];
     const w = watch();
