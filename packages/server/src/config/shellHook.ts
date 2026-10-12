@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BUILTIN_SUBCOMMANDS, SUBCOMMAND_NAME } from '../provider/claude-code/compat/cli.ts';
+import { readUtf8Text } from './textEncoding.ts';
 
 /** ~/.zshrc に足す行の目印。外すときはこの目印の付いた行だけを消す。 */
 export const SHELL_MARKER = '# agent-hangar';
@@ -237,7 +238,10 @@ export function planShellUnhook(cur: string | null): string | null {
  * 書く中身は planShellHook が決める（承諾の窓で見せる差分と同じもの）。
  */
 export function installShellHook(zshrc: string, line: string, now: Date = new Date()): { changed: boolean; backup: string | null } {
-  const cur = readText(zshrc);
+  const read = readUtf8Text(zshrc);
+  // UTF-8 でない ~/.zshrc（UTF-16 など）は、UTF-8 で書き戻すと壊れるので触らない（config/textEncoding.ts）。
+  if (read !== null && 'problem' in read) return { changed: false, backup: null };
+  const cur = read === null ? null : read.text;
   const next = planShellHook(cur, line);
   if (next === null) return { changed: false, backup: null };
   const backup = cur === null ? null : `${zshrc}.bak-${stamp(now)}`;
@@ -248,7 +252,9 @@ export function installShellHook(zshrc: string, line: string, now: Date = new Da
 
 /** 目印の付いた行だけを消す。控えを取ってから書く。 */
 export function uninstallShellHook(zshrc: string, now: Date = new Date()): { changed: boolean; backup: string | null } {
-  const next = planShellUnhook(readText(zshrc));
+  const read = readUtf8Text(zshrc);
+  if (read === null || 'problem' in read) return { changed: false, backup: null };
+  const next = planShellUnhook(read.text);
   if (next === null) return { changed: false, backup: null };
   const backup = `${zshrc}.bak-${stamp(now)}`;
   fs.copyFileSync(zshrc, backup);

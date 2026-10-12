@@ -112,6 +112,28 @@ describe('planSetup（書かずに、書く先と差分を返す）', () => {
     expect(planSetup('statusline-uninstall', env)).toMatchObject({ state: 'noop' });
   });
 
+  it('UTF-8 でないスクリプトと ~/.zshrc は、入れるのも外すのも not-utf8 で断り、理由を読める', async () => {
+    const utf16le = (t: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(t, 'utf16le')]);
+    const script = path.join(env.claudeDir, 'sl.ps1');
+    const bytes = utf16le(`${STATUSLINE_MARKER}\r\n$j = 1\r\n`);
+    fs.writeFileSync(script, bytes);
+    fs.writeFileSync(path.join(env.claudeDir, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: `powershell -File "${script}"` } }));
+    for (const target of ['statusline-install', 'statusline-uninstall'] as const) {
+      const p = planSetup(target, env);
+      expect(p, target).toMatchObject({ state: 'blocked', reason: { code: 'not-utf8' } });
+      expect(p.reason!.message).toContain('UTF-8');
+      expect(formatSetupPlan(p)).toEqual([p.reason!.message]);
+      expect(await runSetupWrite(target, env, null)).toMatchObject({ ok: false, code: 'not-utf8' });
+    }
+    expect(fs.readFileSync(script).equals(bytes)).toBe(true);
+    const zbytes = utf16le(`export A=1\n${SHELL_MARKER}\n`);
+    fs.writeFileSync(env.zshrc, zbytes);
+    for (const target of ['shell-install', 'shell-uninstall'] as const) {
+      expect(planSetup(target, env), target).toMatchObject({ state: 'blocked', reason: { code: 'not-utf8' } });
+    }
+    expect(fs.readFileSync(env.zshrc).equals(zbytes)).toBe(true);
+  });
+
   it('指紋は、見せた中身が変わると変わる。hangar の置き場は数えない', () => {
     fs.writeFileSync(env.zshrc, 'export A=1\n');
     const a = planSetup('shell-install', env).fingerprint;

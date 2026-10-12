@@ -40,7 +40,7 @@ Claude Code そのものの代替や、チャット UI の再実装はしない�
   - `plugins/installed_plugins.json` と、`settings.json` の `enabledPlugins`。有効なプラグインのスキルとコマンドを見つけるためである。
   - プラグインのスキルとコマンドは、`installed_plugins.json` に記録された `installPath` から読む。ふつうは `~/.claude/plugins/cache` の下だが、記録された場所がどこでも、そこを読む。読むだけで、書かない。
   - `history.jsonl`。セッションの最初の一言になったコマンドの回数を数える。
-- `~/.claude` の外では、`hangar shell install` が `~/.zshrc` の末尾に 1 行を足す。statusline と同じく書くのは CLI だけで、端末では承諾を求め、画面のボタンからは殻の承諾の窓を経る。足す前に同じディレクトリへバックアップを取る。サーバは `GET /api/shell-hook` で有無を読むだけである（「外のターミナルのセッション」の節）。
+- `~/.claude` の外では、`hangar shell install` が `~/.zshrc` の末尾に 1 行を足す。statusline と同じく書くのは CLI だけで、端末では承諾を求め、画面のボタンからは殻の承諾の窓を経る。足す前に同じディレクトリへバックアップを取る。UTF-8 でない `~/.zshrc` は、ステータスラインのスクリプトと同じく書かずに断る。サーバは `GET /api/shell-hook` で有無を読むだけである（「外のターミナルのセッション」の節）。
   - 加えて、`~/.claude/` の外にある `~/.claude.json` の `mcpServers.hangar` を `hangar mcp install` が書き換える。Claude Code の設定である点は同じなので例外に数える。`claude mcp add` に任せないのは、`--header` の値が argv に載り、64 桁のトークンが同じ機械の誰からでも `ps` で読めるためである。解除（`hangar mcp uninstall`）も `claude mcp remove` に任せず、登録と同じ守りで自分で書く。承諾の窓で見せた差分と、書く中身をそろえるためである（0.4.0 から）。
 - **書く承諾は殻の窓で取る**：画面から利用者のファイル（`~/.claude.json`、`~/.zshrc`、ステータスラインのスクリプト、`~/.claude`）を書くときは、殻が自分の承諾の窓（サーバを通らない、殻に同梱した頁）で書く先と差分を見せ、承諾されたときだけ CLI が書く。サーバと HTTP の API は書かない。ブラウザで開いた画面からは書かず、コマンドを案内する（「承諾の窓」の節）。
 - **ファイルを消さない**：hangar は利用者のファイルを削除しない。プロジェクトの削除は紐づけの解除であり、ディレクトリには触れない。例外はスクラッチを昇格するときの移動だけである。
@@ -1926,8 +1926,15 @@ Home の帯の実行中の行は、使用率が届いていない間は使用率
 サーバは追記の有無を `GET /api/statusline` で読むだけで、書き込む経路を持たない。
 外すのは `hangar statusline uninstall`（0.4.0 から）で、目印の行から終わりの行までを、バックアップを取ってから消す。範囲を読み取れないときは触らない。
 
+書く先を決めるときは、`statusLine.command` を空白で語に分け、二重引用符と一重引用符の中の空白では区切らない（`powershell -File "C:\Users\a b\x.ps1"`）。逆斜線はパスの区切りとしてそのまま残す。
+実行するものは、絶対パスや引用符つきで書かれていても名前で見分ける（`/bin/bash`、`"C:\Program Files\PowerShell\7\pwsh.exe"`）。以前は絶対パスの `bash` を書く先と取り違えた。
+スクリプトの語は、`~`、`$HOME`、`${HOME}` を手元のホームに、`%NAME%`、`$NAME`、`${NAME}` を環境変数に展開して読む（Windows では名前の大文字小文字を区別しない）。展開できない変数が 1 つでもあれば、推して別のファイルを指さないよう、読めない扱い（書く先なし）にする。
+スクリプトと `~/.zshrc` は UTF-8 で読み書きするので、UTF-8 でないもの（UTF-16 の BOM、NUL の字、UTF-8 として正しくない並び。Windows PowerShell 5.1 の `Out-File` の既定は UTF-16）は、入れるのも外すのも書かずに断る（`config/textEncoding.ts`、見立ての理由の鍵は `not-utf8`）。
+見立てで止まるので承諾の窓は開かず、画面は鍵から文を引いて知らせ、CLI は同じ理由を端末に出す。
+UTF-8 の BOM 付きは書き換えてよく、BOM を外してから目印と shebang を探し、書く中身の先頭に BOM を戻す（BOM の付いた行では目印が見つからず、入れ直すたびに 2 つ目を足していた）。
+
 Windows でステータスラインのスクリプトが PowerShell（`.ps1`）のときは、同じことをする PowerShell の行を先頭に入れる（0.4.0 から）。
-`statusLine.command` が `pwsh` か `powershell` の `-File <パス>`、または `.ps1` を直に指すときに、そのファイルを書く先にする。
+`statusLine.command` が `pwsh` か `powershell` の `-File <パス>`、または `.ps1` を直に指すときに、そのファイルを書く先にする（引用符と環境変数の読み方は上と同じ）。
 標準入力を `[Console]::In.ReadToEnd()` で読み、ヘッダのファイルが読めるときだけ `HttpClient` で送る（0.3 秒で打ち切り、失敗は黙る）。
 PowerShell には裏で送る軽い道が無い（`Start-Job` は別のプロセスを起こして 1 秒近くかかる）ので、送るのは待つ。宛先は同じ PC なので短い。
 送り終えたら `[Console]::SetIn` で読んだ内容を標準入力に戻し、元のスクリプトが `[Console]::In` で同じ内容を読めるようにする。
@@ -4729,7 +4736,7 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 
 - 使用量の保存：statusline の payload は `usage_snapshots(at, payload)` に生の JSON で積み、直近 500 件だけ残す。5 時間と 7 日の値は `UsageTracker` がメモリに持ち、サーバ起動時に新しい順へ走査して両方の窓が埋まるまで読む。`rate_limits` の無い payload では直前の値を保ち、`updatedAt` も更新しない（ゲージの「最終更新」は使用率が届いた時刻を指す）。
 - セッションごとの付帯情報：payload の `model`、`effort`、`context_window`、`cost` は端末ローカルの `session_live_stats` に Claude の UUID（`provider_session_id`）を鍵として置く。`SessionDto.stats` の `model` と `effort` はこの表を `session_stats` より優先し、この表に無ければ索引から導いた `session_stats` の値を使う。`contextPercent` と `costUsd` は `session_live_stats` にしか供給源が無く、statusline の追記を入れていないセッションでは常に null になる（UI は「未取得」と出す）。`contextPercent` は `current_usage` の入力とキャッシュのトークンの和を `context_window_size` で割った百分率で、`current_usage` が無い 1 回目は書かない。`costUsd` は `cost.total_cost_usd`。
-- statusline の追記先：`~/.claude/settings.json` の `statusLine.command` から先頭の `bash `、`sh `、`zsh ` を除いた最初の語を `~` 展開し、ファイルとして存在すればそこへ追記する。存在しなければ追記せず、スニペットと手順を印字する。追記位置は 1 行目が `#!` で始まればその直後、そうでなければ先頭で、目印の行があって中身も今の形と同じなら何もしない。バックアップは同じディレクトリの `<name>.bak-<yyyymmddHHMMSS>`。
+- statusline の追記先：`~/.claude/settings.json` の `statusLine.command` を引用符を考えて語に分け、先頭の `bash`、`sh`、`zsh`（絶対パスでもよい）を除いた最初の語（`pwsh` と `powershell` は `-File` の後ろの語）を、`~` と環境変数を展開して読み、ファイルとして存在すればそこへ追記する。UTF-8 でないファイルには追記しない。存在しなければ追記せず、スニペットと手順を印字する。追記位置は 1 行目が `#!` で始まればその直後、そうでなければ先頭で、目印の行があって中身も今の形と同じなら何もしない。バックアップは同じディレクトリの `<name>.bak-<yyyymmddHHMMSS>`。
 - statusline のスニペットは、`${HANGAR_HOME:-$HOME/.agent-hangar}/statusline-header` を `curl -H @<ファイル>` で読む。ファイルには `Authorization: Bearer <トークン>` の 1 行が入り、権限は 0600 である。読めないときは何も送らずに素通しする（`if [ -r ... ]` で包む）。ポートは追記時の値を埋め込む（`hangar statusline install --port <n>`）。`exec <<<` を使うので、追記先のスクリプトは bash か zsh である必要がある。
 - ヘッダのファイルを用意する場所：`hangar statusline install` と、サーバの起動時の両方で用意する。起動時はトークンを読むのと同じところで、無ければ作り、トークンと食い違えば書き直し、他人に読める権限なら 0600 へ狭める。中身も権限も揃っているときは触らない（毎回書き直すと mtime だけが動く）。install のときにしか置かないと、`~/.agent-hangar` を消した利用者の使用量が、何のエラーも出ないまま止まる。
 - 入っているスニペットの差し替え：目印の行があるだけでは何もしないとせず、目印から `exec <<<"$__hangar_input"` までの範囲を読み取り、今の形と違えばその範囲だけを差し替える。トークンを argv に載せる古い形が残り続けないようにするためである。目印はあるのに終わりの行が見つからないときは、手で書き換えられているとみなして何もしない。

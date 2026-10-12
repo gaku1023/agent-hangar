@@ -18,4 +18,8 @@ describe('setupNotice', () => {
     expect(setupNotice(ja, { status: 'failed', message: 'ロックを取れません', code: 'write-failed' })).toEqual({ level: 'error', message: 'ロックを取れません' });
     expect(setupNotice(en, { status: 'busy', message: null, code: null })!.message).toContain('already open');
   });
+  it('UTF-8 でないファイルは、書き換えない理由と直し方を言う', () => {
+    expect(setupNotice(ja, { status: 'failed', message: '日本語の文', code: 'not-utf8' })).toEqual({ level: 'error', message: 'ファイルが UTF-8 で保存されていない（UTF-16 など）ので、書き換えません。UTF-8 で保存し直すか、手で追記してください。' });
+    expect(setupNotice(en, { status: 'failed', message: '日本語の文', code: 'not-utf8' })!.message).toContain('UTF-8');
+  });
 });

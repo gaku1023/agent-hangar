@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   diffLines, ensureHome, ensureShellScript, installShellHook, planShellHook, planShellUnhook, planStatuslineRemoval, planStatuslineSnippet,
-  readOrCreateToken, readUserMcpServers, removeStatuslineSnippet, appendStatuslineSnippet, resolveStatuslineScript, SHELL_MARKER,
+  readOrCreateToken, readUserMcpServers, readUtf8Text, removeStatuslineSnippet, appendStatuslineSnippet, resolveStatuslineScript, SHELL_MARKER,
   shellHookLine, shellScriptPath, shellWrapOsSupported, shellWrapSupported, statuslineHeaderPath, statuslineSnippetFor, uninstallShellHook,
   writeStatuslineHeaderFile,
 } from '@agent-hangar/server/src/cliEntry.ts';
@@ -84,14 +84,6 @@ const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
 /** 見立てで見せるバックアップの名前の、日時の置き場。書いたときに、その時刻の 14 桁（年月日時分秒）になる。 */
 export const BACKUP_STAMP = 'YYYYMMDDhhmmss';
-
-function readText(file: string): string | null {
-  try {
-    return fs.readFileSync(file, 'utf8');
-  } catch {
-    return null;
-  }
-}
 
 function cap(lines: PlanLine[]): PlanLine[] {
   return lines.length <= MAX_LINES ? lines : [...lines.slice(0, MAX_LINES), { k: 'gap', t: String(lines.length - MAX_LINES) }];
@@ -188,8 +180,14 @@ function shellBlock(env: SetupEnv): { code: string; message: string } | null {
   return null;
 }
 
+/** UTF-8 でないファイルを断る理由。承諾の窓は開かず、画面は鍵（not-utf8）から文を引く。 */
+const NOT_UTF8 = (file: string) => `${file} が UTF-8 で保存されていない（UTF-16 など）ので、書き換えません。UTF-8 で保存し直すか、手で追記してください。`;
+
 function planShell(target: 'shell-install' | 'shell-uninstall', env: SetupEnv): SetupPlan {
-  const cur = readText(env.zshrc);
+  const read = readUtf8Text(env.zshrc);
+  // UTF-8 で書き戻すと壊れるので、入れるのも外すのも断る（server の config/textEncoding.ts）。
+  if (read !== null && 'problem' in read) return stop(target, 'blocked', 'not-utf8', NOT_UTF8(env.zshrc));
+  const cur = read === null ? null : read.text;
   const backupOf = () => (cur === null ? null : `${env.zshrc}.bak-${BACKUP_STAMP}`);
   if (target === 'shell-uninstall') {
     const next = planShellUnhook(cur);
@@ -221,7 +219,9 @@ const STATUSLINE_REASON: Record<string, string> = {
 
 function planStatusline(target: 'statusline-install' | 'statusline-uninstall', env: SetupEnv): SetupPlan {
   const script = resolveStatuslineScript(env.claudeDir, env.homeDir).scriptPath;
-  const src = script ? readText(script) : null;
+  const read = script ? readUtf8Text(script) : null;
+  if (script && read !== null && 'problem' in read) return stop(target, 'blocked', 'not-utf8', NOT_UTF8(script));
+  const src = read !== null && 'text' in read ? read.text : null;
   if (!script || src === null) {
     if (target === 'statusline-uninstall') return stop(target, 'noop', 'absent', 'ステータスラインに hangar の行は入っていません。');
     return stop(target, 'blocked', 'no-script', STATUSLINE_REASON['no-script']!);
