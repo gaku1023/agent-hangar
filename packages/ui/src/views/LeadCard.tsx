@@ -1,9 +1,11 @@
 import { useId, useState } from 'react';
 import { useEmit } from '../action/chain.tsx';
-import type { LeadCardProps } from '../presenters/session.ts';
+import type { LeadCardProps, SessionGitView } from '../presenters/session.ts';
+import { GitChip } from './GitChip.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { useEditorLabels } from './primitives/editorName.tsx';
 
 type Open = 'files' | 'artifacts' | null;
 
@@ -14,8 +16,9 @@ type Open = 'files' | 'artifacts' | null;
  * 変更したファイルとアーティファクトの札は、押すとこの 1 枚の中へ一覧が開く（同時には 1 つ）。
  * ノートはここで読み書きする（実行中は帯の札のポップオーバー）。
  */
-export function LeadCard(props: LeadCardProps & { sessionId: string }) {
+export function LeadCard(props: LeadCardProps & { sessionId: string; /** git の札（読むだけ）。変更したファイルの一覧の下に、差分のダイアログの入口を置く。 */ git?: SessionGitView | null }) {
   const t = useT();
+  const editorLabels = useEditorLabels();
   const emit = useEmit();
   const uid = useId();
   const [open, setOpen] = useState<Open>(null);
@@ -28,7 +31,7 @@ export function LeadCard(props: LeadCardProps & { sessionId: string }) {
         <span className="lead-status" data-s={props.status.value}>{props.status.label}</span>
         {props.status.since && <span className="faint">{props.status.since}</span>}
         <span className="lead-facts">
-          {props.stopped ? <span>{props.stopped}</span> : props.ended && <span>{props.ended}</span>}
+          {props.stopped ? <span>{props.stopped}</span> : props.interrupted ? <span className="lead-interrupted"><span className="int-ring" aria-hidden="true" />{props.interrupted}</span> : props.ended && <span>{props.ended}</span>}
           {props.flags.map((f) => <span key={f}>{f}</span>)}
           <span>{props.turns}</span>
           <span>{props.tokens}</span>
@@ -58,6 +61,7 @@ export function LeadCard(props: LeadCardProps & { sessionId: string }) {
         {files.count > 0 && <CountChip size="sm" label={files.label} count={files.count} icon="fileEdited" expanded={open === 'files'} aria-controls={open === 'files' ? panelId('files') : undefined} onClick={() => toggle('files')} />}
         {artifacts.count > 0 && <CountChip size="sm" label={artifacts.label} count={artifacts.count} icon="artifacts" expanded={open === 'artifacts'} aria-controls={open === 'artifacts' ? panelId('artifacts') : undefined} onClick={() => toggle('artifacts')} />}
         {props.pr && <a className="chip lead-pr" href={props.pr.url} target="_blank" rel="noreferrer"><Icon name="externalLink" />{props.pr.label}</a>}
+        {props.git?.chip && <span className="chip lead-git"><GitChip id={`lead:${props.sessionId}`} chip={props.git.chip} /></span>}
       </div>
       {open === 'files' && (
         <div id={panelId('files')} className="lead-panel" role="region" aria-label={files.label}>
@@ -77,6 +81,8 @@ export function LeadCard(props: LeadCardProps & { sessionId: string }) {
             ))}
           </ul>
           {files.note && <div className="lead-panel-note faint">{files.note}</div>}
+          {/* 差分のダイアログの入口（git の表示、試作の 2-3 の共通の 1 枚）。git でないフォルダでも、このセッションの編集を読める。 */}
+          <div className="lead-panel-foot"><button type="button" className="btn btn-sm" onClick={() => emit({ type: 'diff.open', sessionId: props.sessionId })}><Icon name="diff" />{t('gitUi.files.showDiff')}</button></div>
         </div>
       )}
       {open === 'artifacts' && (
@@ -90,7 +96,7 @@ export function LeadCard(props: LeadCardProps & { sessionId: string }) {
                   <span className="ns-art-when faint">{t('session.artifact.lastPublished', { when: a.lastPublished })}</span>
                 </button>
                 {a.canOpenEditor && (
-                  <button type="button" className="btn btn-sm btn-icon btn-ghost" aria-label={t('session.artifact.openEditor', { title: a.title })} title={t('session.artifact.openEditor', { title: a.title })} onClick={() => emit({ type: 'artifact.openEditor', id: a.id })}>
+                  <button type="button" className="btn btn-sm btn-icon btn-ghost" aria-label={editorLabels.openFor(a.title)} title={editorLabels.openFor(a.title)} onClick={() => emit({ type: 'artifact.openEditor', id: a.id })}>
                     <Icon name="openEditor" />
                   </button>
                 )}

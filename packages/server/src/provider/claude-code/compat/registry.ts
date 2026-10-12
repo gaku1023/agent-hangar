@@ -1,7 +1,14 @@
+import { KNOWN_WAITING_FOR } from '@agent-hangar/shared';
 import { isRec, splitDriftValue, versionOfRecord, type Drift } from './types.ts';
 
 /** ~/.claude/sessions/<pid>.json の status として知っている値。shell は本体が休みで裏の Bash だけが動いていること。 */
 export const KNOWN_REGISTRY_STATUSES: ReadonlySet<string> = new Set(['busy', 'idle', 'waiting', 'shell']);
+/**
+ * 入力待ちの登録の waitingFor として知っている値（shared の KNOWN_WAITING_FOR）。
+ * 知らない値は、読む側（readRegistry）が other（ダイアログと同じ、許可待ちでない入力待ち）として扱う。
+ * 古い Claude は書かないので、欠けはずれにしない。
+ */
+export const KNOWN_WAITING_FOR_VALUES: ReadonlySet<string> = new Set(KNOWN_WAITING_FOR);
 
 /**
  * 1 件の登録が、hangar の読む形かを見る。
@@ -16,16 +23,20 @@ export function registryDrifts(rec: unknown): Drift[] {
   if (typeof rec.pid !== 'number') d('pid=(missing)');
   if (typeof rec.status !== 'string') d('status=(missing)');
   else if (!KNOWN_REGISTRY_STATUSES.has(rec.status)) d(`status=${rec.status}`);
+  if (rec.status === 'waiting' && typeof rec.waitingFor === 'string' && !KNOWN_WAITING_FOR_VALUES.has(rec.waitingFor)) d(`waitingFor=${rec.waitingFor}`);
   return out;
 }
 
 /**
  * 記録に残ったレジストリの値が、今の集合でもずれかを返す。
- * status は、今の集合に入っていればずれでない。欠けと、オブジェクトでない登録と、知らない形の値はずれのままにする。
+ * status と waitingFor は、今の集合に入っていればずれでない。欠けと、オブジェクトでない登録と、知らない形の値はずれのままにする。
  */
 export function isRegistryDrift(value: string): boolean {
   const kv = splitDriftValue(value);
-  return kv === null || kv[0] !== 'status' || !KNOWN_REGISTRY_STATUSES.has(kv[1]);
+  if (kv === null) return true;
+  if (kv[0] === 'status') return !KNOWN_REGISTRY_STATUSES.has(kv[1]);
+  if (kv[0] === 'waitingFor') return !KNOWN_WAITING_FOR_VALUES.has(kv[1]);
+  return true;
 }
 
 /**

@@ -1,10 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { transcriptDrifts, transcriptWatcher } from './transcript.ts';
+import { isTranscriptDrift, transcriptDrifts, transcriptWatcher } from './transcript.ts';
 import type { Drift } from './types.ts';
 
 const t = (value: string): Drift => ({ contract: 'transcript', value, version: null });
 
 describe('transcriptDrifts', () => {
+  it('使用制限の合成の行は、枠の名前とリセットの時刻（数）を見る', () => {
+    const base = { type: 'assistant', error: 'rate_limit', message: { role: 'assistant', content: [{ type: 'text', text: 'x' }] } };
+    expect(transcriptDrifts({ ...base, quotaLimits: { resetsAt: 1, rateLimitType: 'five_hour' } })).toEqual([]);
+    expect(transcriptDrifts({ ...base, quotaLimits: { resetsAt: 1, rateLimitType: 'seven_day_opus' } })).toEqual([]);
+    // 制限の情報を持たない rate_limit（一時の混雑など）は、使用制限ではないのでずれにしない。
+    expect(transcriptDrifts(base)).toEqual([]);
+    expect(transcriptDrifts({ ...base, quotaLimits: { resetsAt: '1', rateLimitType: 'five_hour' } })).toEqual([t('rate_limit.resetsAt=(missing)')]);
+    expect(transcriptDrifts({ ...base, quotaLimits: { resetsAt: 1, rateLimitType: 'hourly' } })).toEqual([t('rate_limit.rateLimitType=hourly')]);
+  });
+  it('記録に残った使用制限の値は、今も知らない値と欠けのときだけずれ', () => {
+    expect(isTranscriptDrift('rate_limit.rateLimitType=hourly')).toBe(true);
+    expect(isTranscriptDrift('rate_limit.rateLimitType=five_hour')).toBe(false);
+    expect(isTranscriptDrift('rate_limit.resetsAt=(missing)')).toBe(true);
+  });
   it('知っている行はずれを出さない', () => {
     for (const r of [
       { type: 'user', message: { role: 'user', content: 'こんにちは' } },

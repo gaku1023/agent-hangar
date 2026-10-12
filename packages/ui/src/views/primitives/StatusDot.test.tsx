@@ -21,4 +21,21 @@ describe('StatusDot', () => {
     rerender(<StatusDot status={null} />);
     expect(animate).toHaveBeenCalledTimes(2);
   });
+
+  it('許可待ちは盾、使用制限は砂時計の印にし、読み上げの名前も理由の語にする。リセット済みは入力待ちの点', () => {
+    const { container, rerender } = render(<StatusDot status="waiting" reason="permission" />);
+    const dot = () => container.querySelector('.dot')!;
+    expect(dot().getAttribute('data-reason')).toBe('permission');
+    expect(dot().querySelector('svg')).not.toBeNull();
+    expect(dot().getAttribute('aria-label')).toBe('許可待ち');
+    rerender(<StatusDot status="idle" reason="limit" />);
+    expect(dot().getAttribute('data-reason')).toBe('limit');
+    expect(dot().querySelector('svg')).not.toBeNull();
+    expect(dot().getAttribute('aria-label')).toBe('使用制限');
+    rerender(<StatusDot status="waiting" reason="reset" />);
+    expect(dot().querySelector('svg')).toBeNull();
+    expect(dot().getAttribute('aria-label')).toBe('リセット済み');
+    // 印が変わる瞬間も 1 度だけ膨らむ。
+    expect(animate).toHaveBeenCalled();
+  });
 });

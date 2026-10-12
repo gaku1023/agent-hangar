@@ -3,6 +3,7 @@ import { useEmit } from '../action/chain.tsx';
 import type { Toast } from '../mediator/types.ts';
 import type { ToastsProps, WaitingCardProps } from '../presenters/toasts.ts';
 import type { UpdateCardProps } from '../presenters/update.ts';
+import { ReasonGlyph } from './primitives/StatusDot.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
 import { collapseOut, slideAway } from './primitives/motionKit.ts';
@@ -88,16 +89,27 @@ function WaitingCard(props: { card: WaitingCardProps; blocked: boolean; motion: 
   const emit = useEmit();
   const t = useT();
   const c = props.card;
-  const label = c.question === null ? t('toasts.waiting.label', { name: c.name }) : t('toasts.waiting.labelQuestion', { name: c.name, question: c.question });
+  // 許可待ちは、問いの代わりに道具と命令を出す（試作 stop-reason-proto の K1）。リセット済みは、続きを指示するよう言う。
+  const ask = c.reason === 'permission' ? c.ask : null;
+  const label = c.reason === 'permission'
+    ? (ask ? t('stop.toast.permissionLabel', { name: c.name, what: `${ask.tool} ${ask.input}`.trim() }) : t('stop.toast.permissionLabelBare', { name: c.name }))
+    : c.reason === 'reset' ? t('stop.toast.resetLabel', { name: c.name })
+      : c.question === null ? t('toasts.waiting.label', { name: c.name }) : t('toasts.waiting.labelQuestion', { name: c.name, question: c.question });
+  const head = c.reason === 'permission' ? t('stop.state.permission') : c.reason === 'reset' ? t('stop.state.reset') : t('toasts.waiting.head');
+  const named = ask !== null || c.question !== null;
   return (
-    <button type="button" className="toast notice" data-kind="waiting" aria-label={label} {...motionAttrs(props.motion)} disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' })}>
+    <button type="button" className="toast notice" data-kind="waiting" data-reason={c.reason ?? undefined} aria-label={label} {...motionAttrs(props.motion)} disabled={props.blocked} title={props.blocked ? t('toasts.blocked.title') : undefined} onClick={() => emit({ type: 'session.open', id: c.sessionId, focus: 'terminal' })}>
       <span className="notice-head">
-        <span className="notice-dot" aria-hidden="true" />
-        <span className="notice-label">{t('toasts.waiting.head')}</span>
-        {c.question !== null && <><span className="notice-sep" aria-hidden="true">·</span><span className="notice-who">{c.name}</span></>}
+        {c.reason === 'permission' ? <ReasonGlyph reason="permission" /> : <span className="notice-dot" aria-hidden="true" />}
+        <span className="notice-label">{head}</span>
+        {named && <><span className="notice-sep" aria-hidden="true">·</span><span className="notice-who">{c.name}</span></>}
         <span className="notice-end">{c.waited}</span>
       </span>
-      <span className="notice-body"><span className="notice-title">{c.question ?? c.name}</span></span>
+      <span className="notice-body">
+        {ask
+          ? <span className="notice-title"><span className="notice-tool">{ask.tool}</span>{ask.input !== '' && <code className="notice-cmd">{ask.input}</code>}</span>
+          : <span className="notice-title">{c.question ?? c.name}</span>}
+      </span>
     </button>
   );
 }
@@ -163,19 +175,19 @@ function UpdateCard(props: { card: UpdateCardProps; motion: CardMotion }) {
 }
 
 /**
- * ms が経ったら onDone を呼ぶ。
+ * ms が経ったら onDone を呼ぶ。ms が null なら時間では呼ばない。
  * マウスを乗せている間とフォーカスが中にある間は止め、離れたら残りの時間から数え直す。
  */
-function useAutoDismiss(ms: number, onDone: () => void) {
+function useAutoDismiss(ms: number | null, onDone: () => void) {
   const [paused, setPaused] = useState(false);
   const left = useRef(ms);
   const done = useRef(onDone);
   done.current = onDone;
   useEffect(() => {
-    if (paused) return;
+    if (paused || left.current === null) return;
     const started = Date.now();
     const t = setTimeout(() => done.current(), left.current);
-    return () => { clearTimeout(t); left.current = Math.max(0, left.current - (Date.now() - started)); };
+    return () => { clearTimeout(t); left.current = Math.max(0, (left.current ?? 0) - (Date.now() - started)); };
   }, [paused]);
   const hold = () => setPaused(true);
   const release = () => setPaused(false);
@@ -194,7 +206,12 @@ function InfoToast(props: { toast: Toast; motion: CardMotion }) {
   return (
     <div className="toast notice" data-kind="info" role="status" {...motionAttrs(props.motion)} onClick={dismiss} {...pause}>
       <div className="notice-head"><span className="notice-dot" aria-hidden="true" /><span className="notice-label">{t('toasts.info.head')}</span></div>
-      <div className="notice-body"><div className="notice-message">{props.toast.message}</div></div>
+      <div className="notice-body">
+        <div className="notice-message">{props.toast.message}</div>
+        {props.toast.action && (
+          <button type="button" className="btn btn-sm notice-action" onClick={(e) => { e.stopPropagation(); emit(props.toast.action!.send); dismiss(); }}>{props.toast.action.label}</button>
+        )}
+      </div>
     </div>
   );
 }
@@ -202,6 +219,7 @@ function InfoToast(props: { toast: Toast; motion: CardMotion }) {
 /**
  * error のトースト。
  * 読み落とさないよう時間では消さず、閉じるボタンで消す。
+ * holdMs を持つもの（プロジェクトを外で開けなかったときなど、押した直後に読めば足りる失敗）だけは、その長さで消える。乗せている間は止める。
  * 本文は 2 行まで見せ、収まらないときだけ「詳しく」で開く。
  */
 function ErrorToast(props: { toast: Toast; motion: CardMotion }) {
@@ -210,13 +228,14 @@ function ErrorToast(props: { toast: Toast; motion: CardMotion }) {
   const message = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   const [open, setOpen] = useState(false);
+  const pause = useAutoDismiss(props.toast.holdMs ?? null, () => emit({ type: 'toast.dismiss', id: props.toast.id }));
   // 2 行で切れているかは、描いてから測るしかない。
   useLayoutEffect(() => {
     const el = message.current;
     if (el) setLong(el.scrollHeight > el.clientHeight + 1);
   }, [props.toast.message]);
   return (
-    <div className="toast notice" data-kind="error" role="alert" data-open={open ? 'true' : undefined} {...motionAttrs(props.motion)}>
+    <div className="toast notice" data-kind="error" role="alert" data-open={open ? 'true' : undefined} {...motionAttrs(props.motion)} {...pause}>
       <div className="notice-head">
         <Icon name="alert" />
         <span className="notice-label">{t('toasts.error.head')}</span>

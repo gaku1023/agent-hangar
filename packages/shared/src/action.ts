@@ -3,6 +3,7 @@ import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
 import type { SetupTarget } from './setup.ts';
+import type { KnownEditorId } from './editor.ts';
 
 export type ProjectId = string;
 export type SessionId = string;
@@ -11,7 +12,7 @@ export type TabId = string;
 export type TodoId = string;
 export type ArtifactId = string;
 /** プロジェクト画面の右パネルの節。並びは画面の上からの順である。 */
-export const PROJECT_RAIL_SECTIONS = ['todo', 'instructions', 'artifacts'] as const;
+export const PROJECT_RAIL_SECTIONS = ['todo', 'instructions', 'artifacts', 'git'] as const;
 export type ProjectRailSection = (typeof PROJECT_RAIL_SECTIONS)[number];
 
 /**
@@ -21,7 +22,9 @@ export type ProjectRailSection = (typeof PROJECT_RAIL_SECTIONS)[number];
  * status はセッションの状態のタブ（★）。active は状態が無いもの（動いているかは問わない）、proposed は Claude の提案が残っているもの。
  * 無ければ「すべて」で、条件を入れたときだけ Archived を除く（presenters/sessions.ts と、サーバの検索の hideArchived）。
  */
-export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
+/** 止まっている理由の絞り込み（is:permission、is:limited）。limited は使用制限とリセット済みの両方である（shared の matchesStopFilter）。 */
+export type StopFilter = 'permission' | 'limited';
+export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; stop?: StopFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string };
@@ -55,7 +58,8 @@ export type UiAction =
   | { type: 'project.resolve.open'; id: ProjectId }
   // 一覧から削除（unlink）は同期で他の端末へも広がるので、confirmed が無ければ先に確認を出す。
   | { type: 'project.resolve'; id: ProjectId; action: ResolveAction; confirmed?: boolean }
-  | { type: 'project.openEditor'; id: ProjectId } | { type: 'project.openTerminalApp'; id: ProjectId }
+  // once は「今回は <名前> で開く」のエディタ（エディタが見つからないときの面から）。設定は変えない。
+  | { type: 'project.openEditor'; id: ProjectId; once?: KnownEditorId } | { type: 'project.openTerminalApp'; id: ProjectId }
   // プロジェクト画面の右パネルの節を開く・折りたたむ。プロジェクトごとに端末の localStorage に覚える。
   | { type: 'project.railFold'; id: ProjectId; section: ProjectRailSection; open: boolean }
   | { type: 'todo.add'; projectId: ProjectId; text: string } | { type: 'todo.toggle'; id: TodoId } | { type: 'todo.remove'; id: TodoId }
@@ -70,8 +74,8 @@ export type UiAction =
   | { type: 'todo.undo'; projectId: ProjectId; todoId?: TodoId }
   | { type: 'memo.save'; projectId: ProjectId; markdown: string }
   // 指示とメモリ。load は読み直し（ダイアログを開いたとき）、openEditor はそのファイルをエディタで開く。
-  | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind }
-  | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId }
+  | { type: 'instructions.load'; projectId: ProjectId } | { type: 'instructions.openEditor'; projectId: ProjectId; kind: InstructionFileKind; once?: KnownEditorId }
+  | { type: 'artifact.open'; id: ArtifactId } | { type: 'artifact.add'; projectId: ProjectId; url: string } | { type: 'artifact.openEditor'; id: ArtifactId; once?: KnownEditorId }
   // seq と q は検索の結果から開くときの跳び先（抜粋の seq と検索語）。
   | { type: 'session.open'; id: SessionId; focus?: 'terminal'; seq?: number; q?: string }
   // セッションの状態（Paused・Done・Archived）。status の null は Active に戻す。画面の正は後から届く session.upsert である。
@@ -93,14 +97,33 @@ export type UiAction =
   | { type: 'session.kill'; runId: RunId; working: boolean; aside?: boolean; shellTabs: number; confirmed?: boolean }
   // attach はバックグラウンドのサービスが持つセッションに hangar からつなぐ。adopt は外のターミナルの claude を引き取る。confirmed が無ければ先に確認を出す。
   | { type: 'session.attach'; id: SessionId } | { type: 'session.adopt'; id: SessionId; confirmed?: boolean }
-  | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId }
+  | { type: 'session.openTerminalApp'; runId: RunId; tabId?: TabId } | { type: 'session.openEditor'; sessionId: SessionId; once?: KnownEditorId }
   /**
    * そのセッションが変えたファイルを VS Code で開く（終わった画面の右欄）。
    * path は本文に出てきた綴りのまま。
    */
-  | { type: 'session.openFile'; sessionId: SessionId; path: string }
+  // line は差分から開くときの行。
+  | { type: 'session.openFile'; sessionId: SessionId; path: string; line?: number; once?: KnownEditorId }
+  // git の表示（0.5.0）。watch は、見えている行のセッションの git を取ってほしいという知らせで、key は出した場所（一覧、セッション画面）。空の並びで取り下げる。
+  // load は差分の一覧、1 つのファイルの差、そのファイルへの編集、プロジェクトのブランチと worktree を読む。
+  | { type: 'git.watch'; key: string; sessionIds: SessionId[] }
+  | { type: 'git.changes.load'; sessionId: SessionId } | { type: 'git.diff.load'; sessionId: SessionId; file: string } | { type: 'git.edits.load'; sessionId: SessionId; file: string }
+  | { type: 'project.git.load'; projectId: ProjectId }
+  // 差分のダイアログ。open は file を渡すとそのファイルを選んで開く。source は「作業ツリーとの差（git）」か「このセッションの編集」。
+  | { type: 'diff.open'; sessionId: SessionId; file?: string } | { type: 'diff.select'; file: string } | { type: 'diff.source'; source: 'git' | 'session' }
   | { type: 'session.promote.open'; id: SessionId } | { type: 'session.promote.submit'; id: SessionId; name: string; gitInit: boolean; moveFiles: boolean }
   | { type: 'session.resumeHere'; id: SessionId; overwrite?: boolean }
+  /**
+   * 中断の群（ホームの帯の「前回実行中」）。resume は渡したセッションを順番待ちに足し、同時に 2 本まで再開する（画面は移さない）。
+   * cancel は順番待ちのものだけを外す（再開しかけたものは止めない）。dismiss は「再開しない」（dismissed が偽なら元に戻す）。
+   */
+  | { type: 'interrupted.resume'; ids: SessionId[] } | { type: 'interrupted.cancel' }
+  | { type: 'interrupted.dismiss'; runIds: RunId[]; dismissed: boolean; name?: string }
+  /**
+   * 同じファイルの編集の警告。dismiss は相手（with）とパスの組で「このファイルでは表示しない」にする。
+   * worktree は、そのセッションのプロジェクトで、worktree の札に名前を入れた新しいセッションのダイアログを開く。
+   */
+  | { type: 'overlap.dismiss'; sessionId: SessionId; with: SessionId; paths: string[] } | { type: 'overlap.worktree'; sessionId: SessionId }
   | { type: 'sync.joinToken.show' }
   /**
    * クラウド同期への参加と、PC の解除と、この PC の参加の解除（0.4.0）。殻の中でだけ働く（ブラウザでは画面がコマンドを案内する）。
@@ -161,6 +184,8 @@ export type UiAction =
   | { type: 'retention.settings' }
   // field は欄ごとの保存で、結果（✓ 保存しました、または欄の下の理由）をその欄に返すための名前である。
   | { type: 'settings.update'; patch: Partial<Settings>; field?: string }
+  // エディタの欄。load は候補の一覧を読み直す（一般の節を開いたときと「再確認」）。test は見本のファイルを 3 行目で開く。
+  | { type: 'editors.load' } | { type: 'editor.test' }
   // 準備の確かめ（設定画面の検証と、ホームの帯の始める前の確認）を取り直す。
   | { type: 'readiness.check' }
   // psmux（Windows）と tmux の再確認。サーバが探し直し、見つかれば設定の tmuxPath を埋める。

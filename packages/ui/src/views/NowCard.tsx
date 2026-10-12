@@ -1,11 +1,17 @@
 import { useLayoutEffect, useRef } from 'react';
 import { useEmit } from '../action/chain.tsx';
-import type { CardLane, CardStep, NowCardProps } from '../presenters/live.ts';
+import type { CardLane, CardStep, NowCardProps, NowStop } from '../presenters/live.ts';
+import type { OverlapProps } from '../presenters/overlap.ts';
 import type { ArtifactCardProps } from '../presenters/project.ts';
+import { OverlapBlock } from './OverlapPopover.tsx';
+import type { SessionGitView } from '../presenters/session.ts';
+import { GitFilesPop } from './GitFiles.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
+import { useEditorLabels } from './primitives/editorName.tsx';
 import { Popover } from './primitives/Popover.tsx';
+import { ReasonGlyph } from './primitives/StatusDot.tsx';
 import { useCardHeight } from './useCardHeight.ts';
 
 /** ツール呼び出しの印。色だけに頼らないよう、形も変える（完了は ✓、いまと入力待ちは ●、失敗は ✕）。読み上げには語で言う。 */
@@ -21,19 +27,21 @@ const STEP_MARK = { done: '✓', now: '●', wait: '●', fail: '✕' } as const
  * 背は中身に合わせ、伸びるのはすぐ、縮むのは節目だけにする（useCardHeight と usePhaseKey）。
  * 中身（意図の折り返し、手の数、問い）のたびに縮めると、下の目次が押されて跳ねるためである。
  */
-export function NowCard(props: NowCardProps & { sessionId: string }) {
+export function NowCard(props: NowCardProps & { sessionId: string; overlap?: OverlapProps | null; /** git の札（試作の 2-3 の A）。押すと変更したファイルの一覧が開く。 */ git?: SessionGitView | null }) {
   const t = useT();
-  const dot = props.tone === 'wait' ? 'wait' : props.tone === 'busy' ? 'busy' : props.tone === 'aside' ? 'aside' : 'idle';
+  const dot = props.tone === 'wait' ? 'wait' : props.tone === 'busy' ? 'busy' : props.tone === 'aside' ? 'aside' : props.tone === 'limit' ? 'limit' : 'idle';
+  // 許可待ちと使用制限は、点の代わりに盾と砂時計を置く（試作の N1）。
+  const glyph = props.stop?.kind === 'permission' || props.stop?.kind === 'limit' ? props.stop.kind : null;
   const fresh = useFreshKeys(props.sessionId, props.steps.map((s) => s.key));
   const hidden = props.stepsTotal - props.steps.length;
-  const phase = usePhaseKey(props.sessionId, props.tone, props.detail !== null, props.stepsTotal);
+  const phase = usePhaseKey(props.sessionId, props.tone, props.detail !== null || props.stop !== null, props.stepsTotal);
   const { card, body } = useCardHeight<HTMLElement, HTMLDivElement>(props.sessionId, phase);
   return (
     <section ref={card} className="now-card" data-tone={props.tone} aria-label={t('session.strip.label')}>
       <div ref={body} className="nc-body">
         <div className="nc-head">
           <span className="nc-state" data-tone={props.tone}>
-            <span className="live-dot" data-tone={dot} aria-hidden="true" />
+            {glyph ? <ReasonGlyph reason={glyph} /> : <span className="live-dot" data-tone={dot} aria-hidden="true" />}
             <span role="status">{props.state}</span>
           </span>
           {props.sub && <span className="nc-sub">{props.sub}</span>}
@@ -41,6 +49,7 @@ export function NowCard(props: NowCardProps & { sessionId: string }) {
         {props.detail !== null && (props.question
           ? <p className="nc-question" key={props.detail}><span className="nc-question-label">{t('session.strip.questionLabel')}</span><span className="nc-question-text">{props.detail}</span></p>
           : <p className="nc-detail">{props.detail}</p>)}
+        {props.stop && <StopBlock stop={props.stop} />}
         {props.intent.kind === 'said'
           ? (
             <div className="nc-intent" key={props.intent.text} data-stale={props.intent.stale ? 'true' : undefined} title={props.intent.title}>
@@ -54,15 +63,46 @@ export function NowCard(props: NowCardProps & { sessionId: string }) {
             {props.steps.map((s) => <StepItem key={s.key} step={s} fresh={fresh.has(s.key)} />)}
           </ul>
         )}
-        {(hidden > 0 || props.lanes.count > 0 || props.artifacts.count > 0) && (
+        {/* 同じファイルの編集の 1 節。状態の行は止まっている理由の札に譲り、意図とツール呼び出しの下、数の札の上に置く。 */}
+        {props.overlap && <OverlapBlock overlap={props.overlap} />}
+        {(hidden > 0 || props.lanes.count > 0 || props.artifacts.count > 0 || props.git?.chip) && (
           <div className="nc-chips">
             {hidden > 0 && <AllSteps steps={props.stepsAll} hidden={hidden} />}
             {props.lanes.count > 0 && <Lanes sessionId={props.sessionId} lanes={props.lanes} />}
             {props.artifacts.count > 0 && <Artifacts items={props.artifacts.items} />}
+            {props.git?.chip && <GitFilesPop sessionId={props.sessionId} chip={props.git.chip} files={props.git.files} />}
           </div>
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * 止まっている理由の欄（試作の N1）。問いと同じ場所に置く。
+ * 許可待ちは命令の全文を等幅で折り返し、使用制限はリセットの時刻を太字にして残りの棒を添える。
+ */
+function StopBlock(props: { stop: NowStop }) {
+  const s = props.stop;
+  return (
+    <div className="nc-stop" data-kind={s.kind}>
+      <span className="nc-stop-head">{s.head}</span>
+      {s.kind === 'permission' && (
+        <>
+          {s.command !== null && <code className="nc-stop-cmd">{s.command}</code>}
+          {s.why !== null && <p className="nc-stop-why">{s.why}</p>}
+          <p className="nc-stop-hint">{s.hint}</p>
+        </>
+      )}
+      {s.kind === 'limit' && (
+        <>
+          <p className="nc-stop-at">{s.at}</p>
+          {s.meter !== null && <span className="nc-stop-meter" aria-hidden="true"><i style={{ width: `${s.meter}%` }} /></span>}
+          <p className="nc-stop-hint">{s.hint}</p>
+        </>
+      )}
+      {s.kind === 'reset' && <p className="nc-stop-why">{s.body}</p>}
+    </div>
   );
 }
 
@@ -159,6 +199,7 @@ function Lanes(props: { sessionId: string; lanes: NowCardProps['lanes'] }) {
 /** アーティファクトの札。押すと一覧が開き、題名を押すと既定のブラウザで、鉛筆を押すと VS Code で開く。 */
 function Artifacts(props: { items: ArtifactCardProps[] }) {
   const t = useT();
+  const editorLabels = useEditorLabels();
   const emit = useEmit();
   const label = t('session.strip.artifacts.label');
   return (
@@ -176,7 +217,7 @@ function Artifacts(props: { items: ArtifactCardProps[] }) {
                   <span className="nc-art-when faint">{t('session.artifact.lastPublished', { when: a.lastPublished })}</span>
                 </button>
                 {a.canOpenEditor && (
-                  <button type="button" className="btn btn-sm btn-icon btn-ghost" aria-label={t('session.artifact.openEditor', { title: a.title })} title={t('session.artifact.openEditor', { title: a.title })} onClick={() => { emit({ type: 'artifact.openEditor', id: a.id }); close(); }}>
+                  <button type="button" className="btn btn-sm btn-icon btn-ghost" aria-label={editorLabels.openFor(a.title)} title={editorLabels.openFor(a.title)} onClick={() => { emit({ type: 'artifact.openEditor', id: a.id }); close(); }}>
                     <Icon name="openEditor" />
                   </button>
                 )}

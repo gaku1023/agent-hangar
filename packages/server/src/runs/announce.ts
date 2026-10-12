@@ -17,8 +17,14 @@ export function runAnnouncer(o: { db: Db; hub: { broadcast(ev: NoticeEvent): voi
       touchRow(o.db, 'sessions', r.sessionId);
     },
     runUpdated: (run) => o.hub.broadcast({ type: 'run.upsert', run }),
-    runEnded: (run) => { o.hub.broadcast({ type: 'run.ended', run }); o.onEnded(run); },
+    runEnded: (run) => {
+      o.hub.broadcast({ type: 'run.ended', run });
+      // lost で終わったセッションは、中断の印（SessionDto.interrupted）が付く。行は変わらないので名指しする。
+      if (run.endReason === 'lost') touchRow(o.db, 'sessions', run.sessionId);
+      o.onEnded(run);
+    },
     tabChanged: (tab) => o.hub.broadcast({ type: 'tab.upsert', tab }),
+    interrupted: (group) => o.hub.broadcast({ type: 'interrupted.update', interrupted: group }),
   };
 }
 

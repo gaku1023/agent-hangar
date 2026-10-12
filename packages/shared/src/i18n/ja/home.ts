@@ -84,4 +84,11 @@ export const homeJa: AreaDictionary<typeof homeKeys> = {
   'home.card.idleNote': 'アイドル。最後の返答から {time}',
   'home.card.workingNote': '作業中',
   'home.card.startingNote': '起動しています',
+  'home.ready.name.git': 'git',
+  'home.ready.name.editor': 'エディタ',
+  'home.ready.git.text': 'git が見つかりません。無くても始められますが、ブランチと未コミットの件数は出ません',
+  'home.ready.editor.missing': '{name} が見つかりません',
+  'home.ready.editor.customMissing': 'エディタのコマンド {command} が見つかりません',
+  'home.ready.editor.ok': '{name}（{path}）',
+  'home.ready.editor.appOnly': '{name}（{path}、アプリだけ）',
 };

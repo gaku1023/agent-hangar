@@ -12,7 +12,7 @@ import { initialStore, liveSessionIds, type Store } from '../store/store.ts';
 import { moveId, nudgeId, Sidebar } from './Sidebar.tsx';
 
 const NOW = 1_800_000_000_000;
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over } as unknown as SessionDto);
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 60_000, startedAt: NOW - 600_000, hasTranscript: true, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, cost: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
 const storeWith = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 const liveOf = (store: Store, state = initialState()) => presentShell(state, store, NOW).live;
 const at = (name: 'home' | 'projects') => ({ ...initialState(), screen: { name } });
@@ -25,6 +25,17 @@ describe('サイドバーの「動いている」の並び（presentShell）', (
     expect(live.count).toBe(3);
     expect(live.rows[2]).toMatchObject({ live: 'waiting', waited: '入力待ち 4 分', current: false });
     expect(live.rows[1]).toMatchObject({ live: 'busy', waited: null });
+  });
+  it('許可待ちと使用制限は印と右端の語を替える（許可待ち N 分、リセットの時刻、リセット済み）。行の位置は変えない', () => {
+    const resetsAt = new Date(NOW).setHours(new Date(NOW).getHours() + 1, 50, 0, 0);
+    const s = storeWith([
+      session('p', { live: 'waiting', waitingFor: 'permission', lastActivityAt: NOW - 60_000 }),
+      session('l', { live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } }),
+      session('r', { live: 'idle', limit: { kind: 'five_hour', resetsAt: NOW - 200_000, auto: false, reset: true } }),
+    ]);
+    const rows = liveOf(s, at('projects')).rows;
+    const hm = (t: number) => `${String(new Date(t).getHours()).padStart(2, '0')}:${String(new Date(t).getMinutes()).padStart(2, '0')}`;
+    expect(rows.map((r) => [r.id, r.reason, r.waited])).toEqual([['l', 'limit', hm(resetsAt)], ['p', 'permission', '許可待ち 1 分'], ['r', 'reset', 'リセット済み']]);
   });
   it('置いていないセッションは、始めた時刻の古い順に並べる。時刻の無いものは後ろ、同じ時刻は id の順', () => {
     const s = storeWith([session('n', { startedAt: null }), session('y', { startedAt: NOW - 100 }), session('x', { startedAt: NOW - 100 }), session('o', { startedAt: NOW - 900 })]);
@@ -165,7 +176,7 @@ describe('行の移し方', () => {
   });
 });
 
-const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
+const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id, name: `name-${id}`, live: 'busy', aside: false, reason: null, waited: null, current: false, stop: { runId: `r-${id}`, working: true, aside: false, shellTabs: 0 }, ...over });
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 

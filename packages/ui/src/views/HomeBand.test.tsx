@@ -184,7 +184,7 @@ describe('HomeBand の行', () => {
 
 describe('HomeBand の始める前の確認（2.11.4）', () => {
   const READY: ReadinessDto = {
-    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
     workspace: { path: '/Users/me/workspace', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: 'bash x', scriptPath: '/Users/me/.claude/statusline.sh', installed: false },
     commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
     compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
@@ -193,12 +193,12 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
   const open = () => mount(none, { extra: [band.group], note: band.note });
   const drawer = () => within(screen.getByRole('region', { name: 'セットアップの確認' }));
 
-  it('錠剤は「準備完了 3 / 6」で、進みの棒を添える。確認の群だけのときは引き出しが開いている', () => {
+  it('錠剤は「準備完了 4 / 7」で、進みの棒を添える。確認の群だけのときは引き出しが開いている', () => {
     const { container } = open();
-    const chip = pill(/^セットアップの確認 準備完了 3 \/ 6$/);
+    const chip = pill(/^セットアップの確認 準備完了 4 \/ 7$/);
     expect(chip).toHaveAttribute('aria-expanded', 'true');
     expect(chip.closest('.count-chip')).toHaveAttribute('data-tone', 'warn');
-    expect(container.querySelector('.band-prog > span')).toHaveStyle({ width: '50%' });
+    expect(container.querySelector('.band-prog > span')).toHaveStyle({ width: '57%' });
     // tmux と claude が揃っているので、帯の右端の文は出さない。引き出しの見出しに残りの件数も添えない。
     expect(container.querySelector('.band-text')).toBeNull();
     expect(container.querySelector('.drawer-h')).toHaveTextContent(/^セットアップの確認折りたたむ$/);
@@ -208,7 +208,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
     const noClaude: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset', version: null } } };
     const b = presentReadiness(noClaude, ja)!;
     const { container } = mount(none, { extra: [b.group], note: b.note });
-    expect(pill(/^セットアップの確認 準備完了 2 \/ 6$/)).toBeInTheDocument();
+    expect(pill(/^セットアップの確認 準備完了 3 \/ 7$/)).toBeInTheDocument();
     expect(container.querySelector('.band-text')).toHaveTextContent(/^始めるには claude が必要です$/);
   });
 
@@ -242,7 +242,7 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
 
   it('済んだものは 1 行に畳む。押すと見つかった場所の行が開き、もう一度押すと閉じる', () => {
     open();
-    const fold = screen.getByRole('button', { name: 'tmux、claude、Claude Code との互換性 は準備完了' });
+    const fold = screen.getByRole('button', { name: 'tmux、claude、git、Claude Code との互換性 は準備完了' });
     expect(fold).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('/opt/homebrew/bin/tmux（3.4）')).toBeNull();
     fireEvent.click(fold);
@@ -256,15 +256,15 @@ describe('HomeBand の始める前の確認（2.11.4）', () => {
   it('検索の最中は、引き出しを閉じて錠剤を件数だけの札にする', () => {
     mount(none, { extra: [band.group], note: band.note, searching: true });
     expect(screen.queryByRole('region', { name: 'セットアップの確認' })).toBeNull();
-    expect(screen.getByText('セットアップの確認').closest('.count-chip')).toHaveTextContent('準備完了 3 / 6');
+    expect(screen.getByText('セットアップの確認').closest('.count-chip')).toHaveTextContent('準備完了 4 / 7');
   });
 
   it('English では語が替わる', () => {
     const en = translator('en');
     const b = presentReadiness(READY, en)!;
     render(<LanguageRoot language="en"><ActionRoot onAction={() => {}}><HomeBand {...presentHomeBand(none, en, [b.group])} note={b.note} /></ActionRoot></LanguageRoot>);
-    expect(screen.getByRole('button', { name: /^Setup check Ready 3 \/ 6$/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'tmux, claude, Claude Code compatibility: ready' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Setup check Ready 4 \/ 7$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'tmux, claude, git, Claude Code compatibility: ready' })).toBeInTheDocument();
   });
 });
 

@@ -386,6 +386,65 @@ alter table session_notes drop column memo;
 `;
 
 /**
+ * 版 22。中断の再開と、同じファイルの編集の警告に使う端末ローカルの表を足す（0.5.0）。どれも同期しない。
+ *
+ * - interrupted_runs は、中断の群（ホームの帯の「前回実行中」）の行である。
+ *   起動の見回りで tmux のセッションが無かった run（cause が restart）と、hangar が動いている間に tmux のサーバごと消えた run（mux）を、1 つの束として持つ。
+ *   at は束を記録した時刻、last_live は止まる前の最後の状態（busy、waiting、idle。分からなければ null）、dismissed_at は「再開しない」と決めた時刻である。
+ *   新しい束を記録すると、前の束の行は消す（runs/interrupted.ts）。
+ * - run_last_live は、生きた run ごとの最後の状態（Claude の登録の status）である。中断の群の並びと行の文に使う。
+ * - session_overlaps は、同じファイルを別のセッションと編集していることの写しで、payload は SessionOverlapDto の JSON である。
+ *   見張り（sessions/overlap.ts）が書き直し、セッションの行に左結合して配る。
+ * - overlap_dismissals は「このファイルでは表示しない」の印である。2 つのセッションの id は小さい方を session_a に置く。
+ */
+const V22_RESUME_CONFLICT_SQL = `
+create table interrupted_runs (
+  run_id text primary key,
+  session_id text not null,
+  at integer not null,
+  cause text not null check (cause in ('restart','mux')),
+  last_live text,
+  dismissed_at integer
+);
+create table run_last_live (
+  run_id text primary key,
+  status text not null,
+  at integer not null
+);
+create table session_overlaps (
+  session_id text primary key,
+  payload text not null,
+  updated_at integer not null
+);
+create table overlap_dismissals (
+  session_a text not null,
+  session_b text not null,
+  path text not null,
+  at integer not null,
+  primary key (session_a, session_b, path)
+);
+`;
+
+/**
+ * 版 23。使用制限で止まっているセッション（session_limits）。端末ローカルで、同期しない。
+ *
+ * 索引が主線の本文の合成の行（error が rate_limit）から書き、次の指示か返答が載ったら消す（provider/claude-code/transcript/limit.ts）。
+ * セッションが実行中から外れたときも消す（sessions/liveChange.ts）。再開した後に、前の run の使用制限を出さないためである。
+ * - kind は枠（five_hour、weekly、other）、resets_at はリセットの時刻（ミリ秒）、hit_at は当たった時刻（ミリ秒）。
+ * - auto は、Claude Code が自動の続きを予約したと本文に書いたこと（1 か 0）。
+ * session_activity とは分ける。activity はツールの呼び出しが無いと行を持たないが、使用制限は呼び出しの前にも当たる。
+ */
+const V23_SESSION_LIMITS_SQL = `
+create table session_limits (
+  session_id text primary key,
+  kind text not null,
+  resets_at integer not null,
+  auto integer not null default 0,
+  hit_at integer not null
+);
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -397,4 +456,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 19, sql: V19_DROP_LEGACY_CONFIG_SQL },
   { version: 20, sql: V20_TODO_SUGGESTION_SQL },
   { version: 21, sql: V21_DROP_SESSION_MEMO_SQL },
+  { version: 22, sql: V22_RESUME_CONFLICT_SQL },
+  { version: 23, sql: V23_SESSION_LIMITS_SQL },
 ];

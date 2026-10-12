@@ -62,6 +62,8 @@ describe('TurnIndex', () => {
     expect(document.querySelector('.turns-head .roll')).toHaveTextContent('2 turns');
     rerender(<LanguageRoot language="en">{indexUi({ rows: [row(0)], count: { n: 1, plus: false } })}</LanguageRoot>);
     expect(document.querySelector('.turns-head .roll')).toHaveTextContent('1 turn');
+    // 「最新へ移動」は、末尾にいないか、ターミナルを跳ばしている間だけ出る。
+    rerender(<LanguageRoot language="en">{indexUi({ rows: [row(0)], count: { n: 1, plus: false }, turnJump: { seq: 0, status: 'found' } })}</LanguageRoot>);
     expect(screen.getByRole('button', { name: 'Jump to latest' })).toBeInTheDocument();
   });
   it('動かない環境では、新しい行が来たら末尾へすぐ追従する', () => {
@@ -133,10 +135,55 @@ describe('TurnIndex', () => {
     expect(container.querySelector('.turn-note')?.textContent).toBe('ターミナルの表示を切り替えられませんでした');
   });
 
+  // 一覧の高さを決めて、scrollTop の位置までスクロールしたことにする。
+  const scrollList = (top: number) => {
+    const list = document.querySelector<HTMLElement>('.turns-list')!;
+    Object.defineProperty(list, 'scrollHeight', { value: 500, configurable: true });
+    Object.defineProperty(list, 'clientHeight', { value: 200, configurable: true });
+    list.scrollTop = top;
+    fireEvent.scroll(list);
+  };
   it('最新へで transcript を抜けて末尾に戻る', () => {
     const { getByRole, onAction } = setup();
+    scrollList(100);
     fireEvent.click(getByRole('button', { name: '最新へ移動' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'turn.latest', sessionId: 's1', runId: 'r1' });
+  });
+  it('目次が末尾にあり、何も開いていなければ「最新へ移動」を出さない', () => {
+    const { queryByRole } = setup();
+    expect(queryByRole('button', { name: '最新へ移動' })).toBeNull();
+    scrollList(300);
+    expect(queryByRole('button', { name: '最新へ移動' })).toBeNull();
+  });
+  it('上へスクロールすると「最新へ移動」を出し、末尾へ戻ると引っ込める', () => {
+    const { queryByRole } = setup();
+    scrollList(120);
+    expect(queryByRole('button', { name: '最新へ移動' })).not.toBeNull();
+    scrollList(300);
+    expect(queryByRole('button', { name: '最新へ移動' })).toBeNull();
+  });
+  it('末尾にいる間に一覧が低くなっても（上の札が伸びた）、末尾に留め、「最新へ移動」を出さない', () => {
+    const observers: Array<() => void> = [];
+    vi.stubGlobal('ResizeObserver', class { constructor(cb: () => void) { observers.push(cb); } observe() {} disconnect() {} });
+    try {
+      const { queryByRole } = setup();
+      scrollList(300);
+      const list = document.querySelector<HTMLElement>('.turns-list')!;
+      Object.defineProperty(list, 'clientHeight', { value: 150, configurable: true });
+      act(() => { for (const cb of observers) cb(); });
+      expect(list.scrollTop).toBe(500);
+      expect(queryByRole('button', { name: '最新へ移動' })).toBeNull();
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('ターンを開いている間は、末尾にいても「最新へ移動」を出す（開いたターンを閉じ、左も最新へ戻すため）', () => {
+    const { queryByRole } = setup({ rows: rows.map((r) => ({ ...r, open: r.seq === 20 })) });
+    scrollList(300);
+    expect(queryByRole('button', { name: '最新へ移動' })).not.toBeNull();
+  });
+  it('左のターミナルを跳ばしている間は、末尾にいても「最新へ移動」を出す', () => {
+    const { queryByRole } = setup({ turnJump: { seq: 20, status: 'found' } });
+    scrollList(300);
+    expect(queryByRole('button', { name: '最新へ移動' })).not.toBeNull();
   });
 
   it('古いターンが残っていれば、読み込むボタンを先頭に出す', () => {

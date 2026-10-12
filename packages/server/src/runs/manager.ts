@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { newId, runTmuxId, type EndReason, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
+import { newId, runTmuxId, type EndReason, type InterruptCause, type InterruptedDto, type Language, type LaunchParams, type LaunchResultDto, type LiveSessionDto, type RunDto, type RunKind, type TabDto, type Translate } from '@agent-hangar/shared';
 import type { Account } from '../config/accounts.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
@@ -33,6 +33,7 @@ import { ScreenMissGate, screenDrift, type ScreenMark } from '../provider/claude
 import { NO_COMPAT, type CompatSink } from '../provider/claude-code/compat/types.ts';
 import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type PaneIo } from '../provider/claude-code/screen/promptJump.ts';
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
+import { interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
 import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
@@ -59,7 +60,8 @@ const GONE_WAIT_MS = 5_000;
 export { RunError };
 
 export type LaunchResult = LaunchResultDto;
-export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run: RunDto): void; runEnded?(run: RunDto): void; tabChanged?(tab: TabDto): void };
+/** interrupted は、中断の群を記録し直したとき（起動の見回りと、tmux のサーバが消えたとき）に、新しい群を渡す。 */
+export type RunListener = { runStarted?(r: LaunchResult): void; runUpdated?(run: RunDto): void; runEnded?(run: RunDto): void; tabChanged?(tab: TabDto): void; interrupted?(group: InterruptedDto | null): void };
 /**
  * live は Claude のレジストリの今の中身である。引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引くのに使う。
  * procs は外のプロセスに触る口で、テストでは差し替える。
@@ -588,10 +590,17 @@ export class RunManager {
         if (c) closedTabs.push(c);
       }
     }
-    for (const run of listAliveRuns(this.db, this.deviceId)) {
+    const alive = listAliveRuns(this.db, this.deviceId);
+    // tmux のサーバごと消えた（一覧が空になり、止めにいっていない生きた run が 2 件以上まとめて消えた）なら、利用者が終わらせたのではなく中断である。
+    // 1 件だけなら、最後の 1 本が終わって tmux のサーバも終わったのと見分けられないので、これまでどおり exited にする。
+    const vanished = alive.filter((r) => !names.has(r.tmuxName) && !this.parking.has(r.id));
+    const muxGone = listed.length === 0 && vanished.length >= 2;
+    const lost: RunDto[] = [];
+    for (const run of alive) {
       if (!names.has(run.tmuxName)) {
-        const e = this.end(run.id, this.parking.has(run.id) ? 'parked' : 'exited');
+        const e = this.end(run.id, this.parking.has(run.id) ? 'parked' : muxGone ? 'lost' : 'exited');
         if (e) ended.push(e);
+        if (e && muxGone && e.endReason === 'lost') lost.push(e);
         continue;
       }
       // 落としにいったのに残っているなら、落とせていない。後で自分で終わったときに parked と書かないよう、印を外す。
@@ -602,7 +611,29 @@ export class RunManager {
         this.emit('runUpdated', getRun(this.db, run.id)!);
       }
     }
+    if (lost.length) this.interrupted(lost, 'mux', now);
+    if (ended.length) pruneLastLive(this.db, listAliveRuns(this.db, this.deviceId).map((r) => r.id));
     return { ended, closedTabs };
+  }
+
+  /** 中断の束を記録し、新しい群を知らせる。 */
+  private interrupted(runs: RunDto[], cause: InterruptCause, at: number): void {
+    recordInterruption(this.db, runs, cause, at);
+    this.emit('interrupted', interruptedGroup(this.db));
+  }
+
+  /**
+   * Claude の登録から、生きた run ごとの最後の状態を覚える（中断の群の並びと行の文に使う）。
+   * linkRegistry が登録の変化のたびに呼ぶ。最初の読み取りは onChange を通らないので、起動の組み立ても一度呼ぶ。
+   */
+  noteLastLive(live: LiveSessionDto[]): void {
+    const byUuid = new Map(live.map((l) => [l.sessionId, l]));
+    const now = this.now();
+    for (const run of listAliveRuns(this.db, this.deviceId)) {
+      const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
+      const l = s ? byUuid.get(s.provider_session_id) : undefined;
+      if (l) noteLastLive(this.db, run.id, l.status, now);
+    }
   }
 
   /**
@@ -623,6 +654,9 @@ export class RunManager {
         if (e) out.push(e);
       }
     }
+    // lost で閉じた run は、ホームの帯の「前回実行中」の群になる。無ければ前の群を残す。
+    if (out.length) this.interrupted(out, 'restart', this.now());
+    pruneLastLive(this.db, listAliveRuns(this.db, this.deviceId).map((r) => r.id));
     // 前回サーバが落ちた拍子に残った設定と秘密も、ここで落とす。
     // tmux の上で生き残った run の分は残る。その claude は再起動後も同じ秘密で繋ぎに来る。
     this.pruneMcpConfigs(listAliveRuns(this.db, this.deviceId).map((r) => r.sessionId));
@@ -649,6 +683,7 @@ export class RunManager {
 
   /** レジストリ（~/.claude/sessions）の項目を Claude の UUID で run に結びつけ、pid を書く。 */
   linkRegistry(live: LiveSessionDto[]): void {
+    this.noteLastLive(live);
     const byUuid = new Map(live.map((l) => [l.sessionId, l]));
     for (const run of listAliveRuns(this.db, this.deviceId)) {
       const s = this.db.prepare('select provider_session_id from sessions where id = ?').get(run.sessionId) as { provider_session_id: string } | undefined;
@@ -743,8 +778,11 @@ export class RunManager {
     return tab;
   }
 
-  /** 同じ cwd で利用者のログインシェルを起こした独立の tmux セッションをタブとして足す。 */
-  openTab(runId: string): TabDto {
+  /**
+   * 同じ cwd で利用者のログインシェルを起こした独立の tmux セッションをタブとして足す。
+   * opts.then はシェルより先に起こすコマンドで、ターミナルの中で動くエディタ（任意のコマンドの「シェルタブで開く」）に使う。title はそのタブの名前。
+   */
+  openTab(runId: string, opts: { then?: string[]; title?: string } = {}): TabDto {
     const run = getRun(this.db, runId);
     if (!run) throw new RunError(404, msg('run.error.notFound'));
     const s = this.session(run.sessionId);
@@ -753,14 +791,14 @@ export class RunManager {
     const n = (this.db.prepare('select count(*) c from run_tabs where run_id = ?').get(runId) as { c: number }).c + 1;
     const tmuxName = `${run.tmuxName}-t${n}`;
     // タブも tmux サーバの全体の環境を継ぐ。別のセッションの印を持ったシェルで claude を打たせない。
-    const command = shellTabCommand({ shell: this.deps.shell, unset: RUN_DROPPED_ENV });
+    const command = shellTabCommand({ shell: this.deps.shell, unset: RUN_DROPPED_ENV, then: opts.then });
     try {
       panes.open({ name: tmuxName, cwd: s.cwd, command, env: withUtf8Locale() });
     } catch (e) {
       throw new RunError(400, msg('run.tab.shellFailed', { reason: this.safeError(e) }));
     }
     const id = newId();
-    upsertShared(this.db, 'run_tabs', { id, run_id: runId, tmux_name: tmuxName, title: this.tr('run.tab.shellTitle', { n }), created_at: this.now(), closed_at: null }, this.deviceId);
+    upsertShared(this.db, 'run_tabs', { id, run_id: runId, tmux_name: tmuxName, title: opts.title ?? this.tr('run.tab.shellTitle', { n }), created_at: this.now(), closed_at: null }, this.deviceId);
     const tab = getTab(this.db, id)!;
     this.emit('tabChanged', tab);
     return tab;

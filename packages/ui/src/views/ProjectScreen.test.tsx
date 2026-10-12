@@ -90,6 +90,23 @@ describe('ProjectScreen の見出し', () => {
     mount(props({ path: null, resolved: false }));
     expect(screen.getByText('この PC にパスがありません')).toBeInTheDocument();
   });
+  it('この PC にパスが無いときは、外で開く 2 つの操作を押せない形で出し、理由を title に添える。押しても何も出さない', () => {
+    const onAction = vi.fn();
+    mount(props({ path: null, resolved: false }), onAction);
+    for (const name of ['VS Code で開く', 'ターミナルで開く']) {
+      const btn = screen.getByRole('button', { name });
+      expect(btn).toHaveAttribute('aria-disabled', 'true');
+      expect(btn).toHaveAttribute('title', 'この PC にパスが無いので開けません');
+      fireEvent.click(btn);
+    }
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.openEditor' }));
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'project.openTerminalApp' }));
+  });
+  it('パスがあれば、外で開く操作は押せる形のまま', () => {
+    mount();
+    expect(screen.getByRole('button', { name: 'VS Code で開く' })).not.toHaveAttribute('aria-disabled');
+    expect(screen.getByRole('button', { name: 'ターミナルで開く' })).not.toHaveAttribute('aria-disabled');
+  });
   it('パスがこの PC で見つからないときは押せる札を出し、場所の再指定へ進む', () => {
     const onAction = vi.fn();
     mount(props({ resolved: false }), onAction);
@@ -190,6 +207,20 @@ describe('ProjectScreen の右パネル', () => {
     fireEvent.click(screen.getByLabelText('右パネルを開く'));
     expect(screen.getByRole('button', { name: 'TODO を足す' })).toBeTruthy();
   });
+  it('開閉のボタンは、左の列の外で両方の列にかかる見出しの行の右端にあり、閉じても同じ場所で開き直せる', () => {
+    const { container } = mount();
+    const at = (label: string) => {
+      const btn = screen.getByLabelText(label);
+      // 見出しは左の列（.project-main）に入れず、画面の 1 段目に置く。左の列の幅が変わっても、ボタンは動かない。
+      expect(btn.closest('.project-main')).toBeNull();
+      expect(btn.closest('.page-head')?.parentElement).toBe(container.querySelector('.project-screen'));
+      expect(btn.parentElement?.lastElementChild).toBe(btn);
+      return btn.parentElement;
+    };
+    const open = at('右パネルを閉じる');
+    fireEvent.click(screen.getByLabelText('右パネルを閉じる'));
+    expect(at('右パネルを開く')).toBe(open);
+  });
   it('アーティファクトの追加が断られた理由は、右パネルの追加欄の下に出る', () => {
     mount(props({ artifactAddError: { url: 'https://claude.ai/code/artifact/x', message: 'すでにプロジェクト「beta」に付いています' } }));
     expect(screen.getByRole('alert')).toHaveTextContent('すでにプロジェクト「beta」に付いています');
@@ -251,11 +282,11 @@ describe('ProjectScreen の指示とメモリ', () => {
 
   it('エディタで開くは、行の印からもダイアログからも種類を渡す。行の印はダイアログを開かない', () => {
     const { onAction } = mount();
-    fireEvent.click(screen.getByRole('button', { name: 'AGENTS.md をエディタで開く' }));
+    fireEvent.click(screen.getByRole('button', { name: 'AGENTS.md を VS Code で開く' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'instructions.openEditor', projectId: 'alpha', kind: 'agents' });
     expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'CLAUDE.md を表示' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'エディタで開く' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'VS Code で開く' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'instructions.openEditor', projectId: 'alpha', kind: 'project' });
   });
 

@@ -1,6 +1,6 @@
 import type { AccountsDto, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
-import { applyConfigDetail, type Store } from '../store/store.ts';
-import type { ApiClient } from './api.ts';
+import { applyConfigDetail, gitFileKey, type EditorOpenAction, type Store } from '../store/store.ts';
+import { EditorMissingApiError, type ApiClient } from './api.ts';
 
 /** iTerm2 で開けず、Terminal.app に落ちたときの知らせ。文そのものではなく辞書の鍵で、Runtime が現在の言語で引いて出す。 */
 export const FELL_BACK = 'runtime.openTerminal.fellBack' as const;
@@ -29,17 +29,20 @@ export type CallDone = { apply?: (store: Store) => Store; toast?: CallToast; toa
  * before は呼ぶ前に Store に当てる（実行中だと分かるよう、前の結果を消すなど）。
  * 失敗は、ふつうは Runtime がトーストにする。
  * failed を持つ行だけは、トーストにせず failed で Store に書く（画面が入力の欄のそばに理由を出し、入れたものを残せるように）。
+ * failed が null を返した失敗は、ふつうどおりトーストにする。
+ * failHoldMs を持つ行の失敗は、その長さで消える error のトーストにする（押した直後に読めば足りる失敗。ほかの error は閉じるまで残る）。
  */
-export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone>; failed?: (store: Store, error: unknown) => Store };
+export type ApiCall = { before?: (store: Store) => Store; run: (api: ApiClient) => Promise<CallDone>; failed?: (store: Store, error: unknown) => Store | null; failHoldMs?: number };
 
-type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null; failed?: (store: Store, error: unknown) => Store };
+type After<T> = { before?: (store: Store) => Store; apply?: (store: Store, r: T) => Store; toast?: (r: T) => CallToast | null; failed?: (store: Store, error: unknown) => Store | null; failHoldMs?: number };
 
 /** 行の共通の形。API を呼び、応答を Store に当て、知らせがあれば添える。応答の型は、ここで閉じる。 */
 function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): ApiCall {
-  const { before, apply, toast, failed } = after;
+  const { before, apply, toast, failed, failHoldMs } = after;
   return {
     ...(before ? { before } : {}),
     ...(failed ? { failed } : {}),
+    ...(failHoldMs !== undefined ? { failHoldMs } : {}),
     run: (api) => run(api).then((r) => {
       const message = toast?.(r) ?? null;
       const hold = message !== null ? holdOf(message) : undefined;
@@ -49,6 +52,16 @@ function call<T>(run: (api: ApiClient) => Promise<T>, after: After<T> = {}): Api
 }
 
 const withSync = (store: Store, sync: SyncStatusBody): Store => ({ ...store, sync });
+
+/**
+ * エディタで開く行の失敗。エディタが見つからない（409）ときは、トーストにせず「<名前> が見つかりません」の面を出す（試作の 1-3 の B）。
+ * ほかの失敗は、ふつうどおりトーストにする（failHoldMs を渡せば、その長さで消える）。開けたら面を閉じる。
+ */
+const editorOpen = (action: EditorOpenAction, run: (api: ApiClient) => Promise<void>, failHoldMs?: number): ApiCall => call(run, {
+  apply: (store) => (store.editorMissing ? { ...store, editorMissing: null } : store),
+  failed: (store, e) => (e instanceof EditorMissingApiError ? { ...store, editorMissing: { ...e.body, retry: action, n: (store.editorMissing?.n ?? 0) + 1 } } : null),
+  ...(failHoldMs !== undefined ? { failHoldMs } : {}),
+});
 const withAccounts = (store: Store, accounts: AccountsDto): Store => ({ ...store, accounts });
 
 type Rows = { [K in UiAction['type']]?: (action: Extract<UiAction, { type: K }>, store: Store) => ApiCall | null };
@@ -63,15 +76,18 @@ export const actionTable = {
   // 画面の正は後から届く project.upsert なので、返り値は Store に入れない。
   'project.setStatus': (i) => call((api) => api.setProjectStatus(i.id, i.status)),
   'project.rename': (i) => call((api) => api.renameProject(i.id, i.name)),
-  'project.openEditor': (i) => call((api) => api.projectOpenEditor(i.id)),
-  'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: fellBackToast }),
+  // 外で開けなかった（この PC にパスが無い、プロジェクトが消えた）知らせは、押した直後に読めば足りるので、長く出してから消す。
+  'project.openEditor': (i) => editorOpen(i, (api) => api.projectOpenEditor(i.id, i.once), LONG_TOAST_MS),
+  'project.openTerminalApp': (i) => call((api) => api.projectOpenTerminal(i.id), { toast: fellBackToast, failHoldMs: LONG_TOAST_MS }),
 
   'session.openTerminalApp': (i) => call((api) => api.openTerminalApp(i.runId, i.tabId ?? null), { toast: fellBackToast }),
-  'session.openEditor': (i) => call((api) => api.openEditor(i.sessionId)),
-  // 変更したファイルを押したとき。path は本文に出てきた綴りのまま渡す。
-  'session.openFile': (i) => call((api) => api.openEditor(i.sessionId, i.path)),
+  'session.openEditor': (i) => editorOpen(i, (api) => api.openEditor(i.sessionId, undefined, { once: i.once })),
+  // 変更したファイルを押したとき。path は本文に出てきた綴りのまま渡す。line は差分から開くときの行。
+  'session.openFile': (i) => editorOpen(i, (api) => api.openEditor(i.sessionId, i.path, { line: i.line, once: i.once })),
   // 画面の正は後から届く session.upsert なので、返り値は Store に入れない。
   'session.state.reject': (i) => call((api) => api.rejectSessionState(i.id)),
+  // 同じファイルの編集の「このファイルでは表示しない」。写しは見張りが書き直し、session.upsert で消える。
+  'overlap.dismiss': (i) => call((api) => api.dismissOverlap(i.sessionId, i.with, i.paths)),
   // 進みと結果は summary.pending と summary.updated で届くので、ここでは待たない。
   'summary.regenerate': (i) => call((api) => api.regenerateSummary(i.sessionId)),
 
@@ -80,9 +96,23 @@ export const actionTable = {
   'memo.save': (i) => call((api) => api.saveMemo(i.projectId, i.markdown), { apply: (store, m) => ({ ...store, memos: { ...store.memos, [m.projectId]: m } }) }),
   // 指示とメモリ。ファイルは外で書き換わるので、表示するたびに読み直す。
   'instructions.load': (i) => call((api) => api.instructions(i.projectId), { apply: (store, d) => ({ ...store, instructions: { ...store.instructions, [d.projectId]: d } }) }),
-  'instructions.openEditor': (i) => call((api) => api.openInstruction(i.projectId, i.kind)),
+  'instructions.openEditor': (i) => editorOpen(i, (api) => api.openInstruction(i.projectId, i.kind, i.once)),
   'artifact.open': (i) => call((api) => api.openArtifact(i.id)),
-  'artifact.openEditor': (i) => call((api) => api.openArtifactEditor(i.id)),
+
+  // git の表示（0.5.0）。見えている行の git（git.watch）は取り直しの周期を持つので表に置かず、Runtime が受ける。
+  // 差分の一覧、差、編集、プロジェクトの git は、開いた面が出すたびに読み直す（ファイルは外で変わる）。
+  'git.changes.load': (i) => call((api) => api.sessionChanges(i.sessionId), { apply: (store, d) => ({ ...store, gitChanges: { ...store.gitChanges, [i.sessionId]: d } }) }),
+  // 差と編集が読めないときは、ダイアログの右に理由を出す（トーストにしない）。
+  'git.diff.load': (i) => call((api) => api.sessionDiff(i.sessionId, i.file), {
+    apply: (store, d) => ({ ...store, gitDiffs: { ...store.gitDiffs, [gitFileKey(i.sessionId, i.file)]: d } }),
+    failed: (store, e) => ({ ...store, gitDiffs: { ...store.gitDiffs, [gitFileKey(i.sessionId, i.file)]: { error: e instanceof Error ? e.message : String(e) } } }),
+  }),
+  'git.edits.load': (i) => call((api) => api.sessionEdits(i.sessionId, i.file), {
+    apply: (store, d) => ({ ...store, gitEdits: { ...store.gitEdits, [gitFileKey(i.sessionId, i.file)]: d } }),
+    failed: (store, e) => ({ ...store, gitEdits: { ...store.gitEdits, [gitFileKey(i.sessionId, i.file)]: { error: e instanceof Error ? e.message : String(e) } } }),
+  }),
+  'project.git.load': (i) => call((api) => api.projectGit(i.projectId), { apply: (store, d) => ({ ...store, projectGit: { ...store.projectGit, [i.projectId]: d } }) }),
+  'artifact.openEditor': (i) => editorOpen(i, (api) => api.openArtifactEditor(i.id, i.once)),
   'artifact.add': (i) => {
     const url = i.url.trim();
     if (!url) return null;
@@ -95,6 +125,10 @@ export const actionTable = {
     });
   },
 
+  // エディタの欄。候補の一覧はファイルの有無と PATH から読むだけなので、開くたびに取り直す。
+  'editors.load': () => call((api) => api.editors(), { apply: (store, editors) => ({ ...store, editors, editorTest: null }) }),
+  // テストは、答えが届くまで「起こしています」を出す。答えは開けなかった理由も含めて欄の下に出す（トーストにしない）。
+  'editor.test': () => call((api) => api.testEditor(), { before: (store) => ({ ...store, editorTest: 'running' }), apply: (store, editorTest) => ({ ...store, editorTest }), failed: (store) => ({ ...store, editorTest: null }) }),
   // 前回の結果を先に消して、試している最中だと分かるようにする。
   'summarizer.test': () => call((api) => api.testSummarizer(), { before: (store) => ({ ...store, summarizerTest: null }), apply: (store, r) => ({ ...store, summarizerTest: r }) }),
 

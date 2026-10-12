@@ -49,6 +49,8 @@ export function createLiveChangeHandler(deps: LiveChangeDeps): { prime(live: rea
         // 終わったセッションの問いにはもう答えられない。
         // 行を残すと、再開した直後の要対応の札に前の run の問いが出てしまうので、問いだけを消す。
         if (!now.has(providerSessionId)) db.prepare('update session_activity set question = null where session_id = ?').run(sessionId);
+        // 使用制限も、終わった run のものである。残すと、再開した直後に前の run のリセットの時刻（過ぎていればリセット済み）が出てしまう。
+        if (!now.has(providerSessionId)) db.prepare('delete from session_limits where session_id = ?').run(sessionId);
         writeBaselineIfNeeded(db, sessionId, deviceId, now.has(providerSessionId));
         // 実行中かどうかは行に無い。行は変わらなくても中身が変わるので、名指しして配り直してもらう。
         touchRow(db, 'sessions', sessionId);

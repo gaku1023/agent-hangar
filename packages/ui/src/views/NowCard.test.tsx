@@ -42,6 +42,26 @@ function mount(p: Partial<CardInput> = {}, language: 'ja' | 'en' = 'ja') {
 }
 const card = () => screen.getByRole('region', { name: 'セッションの現在の状態' });
 
+describe('現在の札の止まっている理由の欄', () => {
+  it('許可待ちは盾と、命令の全文と答え方を出す', () => {
+    const view = mount({ activity: null, reason: 'permission', permission: { tool: 'Bash', input: 'rm -rf ./build/cache', description: '古いキャッシュを消す' } });
+    const card = view.container.querySelector('.now-card')!;
+    expect(card.querySelector('.reason-glyph[data-reason="permission"]')).not.toBeNull();
+    expect(within(card as HTMLElement).getByRole('status').textContent).toBe('許可待ち');
+    expect(card.querySelector('.nc-stop-cmd')?.textContent).toBe('rm -rf ./build/cache');
+    expect(card.textContent).toContain('ターミナルで許可するか拒否してください');
+  });
+  it('使用制限は砂時計と、リセットの時刻と残りの棒を出す', () => {
+    const now = new Date(2026, 9, 12, 16, 42).getTime();
+    const view = mount({ activity: null, live: 'idle', now, reason: 'limit', limit: { kind: 'five_hour', resetsAt: new Date(2026, 9, 12, 16, 50).getTime(), auto: false, reset: false } });
+    const card = view.container.querySelector('.now-card')!;
+    expect(card.getAttribute('data-tone')).toBe('limit');
+    expect(card.querySelector('.reason-glyph[data-reason="limit"]')).not.toBeNull();
+    expect(card.querySelector('.nc-stop-at')?.textContent).toBe('16:50 にリセット（あと 8 分）');
+    expect(card.querySelector('.nc-stop-meter > i')).not.toBeNull();
+  });
+});
+
 describe('NowCard の状態の行', () => {
   it('札は region で、状態の語だけを知らせの領域（role="status"）にする', () => {
     mount();

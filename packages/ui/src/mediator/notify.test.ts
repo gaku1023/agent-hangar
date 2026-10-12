@@ -19,7 +19,7 @@ describe('notifyKeep', () => {
       session('later', { state: st({ status: 'paused', returnOn: '2026-10-05', returnTime: '21:50' }) }),
       session('resumed', { state: st({ status: 'done', returnOn: '2026-10-05', returnTime: '09:00' }) }),
     );
-    expect(notifyKeep(store, at(14))).toEqual({ waiting: ['w1', 'w2'], returning: ['due'] });
+    expect(notifyKeep(store, at(14))).toEqual({ waiting: ['w1', 'w2'], returning: ['due'], limited: [] });
   });
   it('入力待ちの並びが変わっても、同じ顔ぶれなら同じ答えにする（殻を呼び直さない）', () => {
     const a = storeOf(session('a', { live: 'waiting', lastActivityAt: 1 }), session('b', { live: 'waiting', lastActivityAt: 2 }));
@@ -35,7 +35,16 @@ describe('notifyKeep', () => {
     );
     expect(notifyKeep(store, at(9)).waiting).toEqual(['paused', 'w']);
   });
+  it('使用制限でリセットを待っているセッションの知らせを残す。リセット済みは入力待ちとして残す', () => {
+    const limit = { kind: 'five_hour' as const, resetsAt: 1, auto: true, reset: false };
+    const store = storeOf(
+      session('lim', { live: 'idle', limit }),
+      session('reset', { live: 'idle', limit: { ...limit, reset: true } }),
+      session('busy', { live: 'busy', limit }),
+    );
+    expect(notifyKeep(store, at(9))).toEqual({ waiting: ['reset'], returning: [], limited: ['lim'] });
+  });
   it('何も待っていなければ、どちらも空', () => {
-    expect(notifyKeep(storeOf(session('x')), at(9))).toEqual({ waiting: [], returning: [] });
+    expect(notifyKeep(storeOf(session('x')), at(9))).toEqual({ waiting: [], returning: [], limited: [] });
   });
 });

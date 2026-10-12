@@ -11,7 +11,7 @@ const IMPORT_AT = new Date(2026, 9, 1, 8, 0).getTime();
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
 const cand = (status: 'paused' | 'done', at: number) => ({ status, note: '直した', returnOn: status === 'paused' ? '2026-10-03' : null, returnTime: null, source: 'in_session' as const, at });
-const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
+const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over });
 function storeOf(list: SessionDto[]): Store {
   const s = initialStore();
   s.bootstrapped = true;
@@ -77,6 +77,21 @@ describe('presentSessionList のタブと平らな一覧（★）', () => {
     expect(p.conditions).toEqual(['Paused']);
     expect(ids({ status: 'active' })).toEqual(['newui', 'status', 'nfd', 'video', 'backspace', 'orphan']);
     expect(ids({ status: 'proposed' })).toEqual(['nfd', 'video']);
+  });
+  it('is:permission は許可待ちだけ、is:limited は使用制限とリセット済みを並べ、条件の行に語を出す', () => {
+    const limit = { kind: 'five_hour' as const, resetsAt: NOW + H, auto: true, reset: false };
+    const store = storeOf([
+      dto('perm', 0.1, { live: 'waiting', waitingFor: 'permission' }),
+      dto('ask', 0.2, { live: 'waiting', waitingFor: 'question' }),
+      dto('lim', 0.3, { live: 'idle', limit }),
+      dto('rst', 0.4, { live: 'idle', limit: { ...limit, resetsAt: NOW - H, reset: true } }),
+      dto('idle', 0.5, { live: 'idle' }),
+    ]);
+    expect(ids({ stop: 'permission' }, store)).toEqual(['perm']);
+    expect(ids({ stop: 'limited' }, store).sort()).toEqual(['lim', 'rst']);
+    // is:waiting は今までどおり、許可待ちとリセット済みも含む。
+    expect(ids({ live: 'waiting' }, store).sort()).toEqual(['ask', 'perm', 'rst']);
+    expect(presentSessionList(withSearch({ text: '', filter: { stop: 'limited' } }), store, NOW).conditions).toEqual(['使用制限']);
   });
   it('「すべて」のまま条件を入れたら Archived を除き、Archived のタブなら出す', () => {
     expect(ids({ days: 7 })).not.toContain('trash');

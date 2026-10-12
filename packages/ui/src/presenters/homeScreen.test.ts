@@ -9,7 +9,7 @@ const NOW = new Date(2026, 9, 2, 9, 0).getTime();
 const H = 3_600_000;
 const project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
 const st = (o: Partial<SessionStateDto>): SessionStateDto => ({ status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null, ...o });
-const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
+const dto = (id: string, hoursAgo: number, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - (hoursAgo + 1) * H, lastActivityAt: NOW - hoursAgo * H, hasTranscript: true, live: null, summary: null, stats: { turns: 2, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over });
 function storeOf(list: SessionDto[]): Store {
   const s = initialStore();
   s.bootstrapped = true;
@@ -30,6 +30,25 @@ const busyMorning = () => storeOf([
   dto('d2', 30, { state: st({ status: 'done', setBy: 'user', setAt: NOW - 30 * H }) }),
   dto('a1', 40, { state: st({ status: 'archived', setBy: 'user', setAt: NOW - 40 * H }) }),
 ]);
+
+describe('presentHomeScreen の止まっている理由', () => {
+  it('許可待ちは要対応、使用制限は実行中、自動で続かずリセットを過ぎたものは要対応に入る', () => {
+    const resetsAt = NOW + 50 * 60_000;
+    const p = presentHomeScreen(initialState(), storeOf([
+      dto('p1', 0.02, { live: 'waiting', waitingFor: 'permission', permission: { tool: 'Bash', input: 'npm test', description: null } }),
+      dto('l1', 0.5, { live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } }),
+      dto('x1', 0.5, { live: 'idle', limit: { kind: 'weekly', resetsAt: NOW - 5 * 60_000, auto: false, reset: true } }),
+    ]), NOW);
+    const attention = p.band.groups.find((g) => g.id === 'attention')!;
+    const running = p.band.groups.find((g) => g.id === 'running')!;
+    expect(attention.rows.map((r) => [r.key, r.lead.kind === 'dot' ? r.lead.reason : null])).toEqual([['wait:x1', 'reset'], ['wait:p1', 'permission']]);
+    expect(attention.rows[1]!.ask).toEqual({ tool: 'Bash', input: 'npm test' });
+    expect(attention.rows[0]!.trail[0]!.text).toBe('リセットから 5 分');
+    expect(running.rows.map((r) => r.key)).toEqual(['run:l1']);
+    expect(running.rows[0]!.text).toBe('使用制限（5 時間）· 09:50 にリセット · 自動で続きます');
+    expect(running.rows[0]!.trail).toEqual([{ text: 'あと 50 分', tone: 'limit' }]);
+  });
+});
 
 describe('presentHomeScreen の帯', () => {
   it('要対応、実行中、確認待ちの 3 つの群を、件数つきで並べる（4 つ目の錠剤は PR 33 で足す）', () => {
@@ -121,7 +140,7 @@ describe('presentHomeScreen の一覧', () => {
 
 describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   const READY: ReadinessDto = {
-    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
     workspace: { path: '/Users/me/workspace', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: 'bash x', scriptPath: '/Users/me/.claude/statusline.sh', installed: false },
     commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
     compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
@@ -139,7 +158,7 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   it('起動のたびの確かめで直すものがあれば、ふだんの 3 つの後ろ（最後）に確認の群を足す。誰にでも出す', () => {
     const p = presentHomeScreen(initialState(), busy(READY), NOW);
     expect(p.band.groups.map((g) => g.id)).toEqual(['attention', 'running', 'pending', 'readiness']);
-    expect(p.band.groups.at(-1)).toMatchObject({ countText: '準備完了 3 / 6', count: 3 });
+    expect(p.band.groups.at(-1)).toMatchObject({ countText: '準備完了 4 / 7', count: 3 });
     // tmux と claude が揃っているので、右端の文は出さない。
     expect(p.note).toBeNull();
     const noClaude: ReadinessDto = { ...READY, tools: { ...READY.tools, claude: { path: null, ok: false, problem: 'unset', version: null } } };
@@ -167,7 +186,7 @@ describe('presentHomeScreen の始める前の確認（2.11.4）', () => {
   it('言語の設定で文が替わる', () => {
     const en = { ...empty(READY), settings: { language: 'en' } as SettingsDto };
     const p = presentHomeScreen(initialState(), en, NOW);
-    expect(p.band.groups[0]).toMatchObject({ label: 'Setup check', countText: 'Ready 3 / 6' });
+    expect(p.band.groups[0]).toMatchObject({ label: 'Setup check', countText: 'Ready 4 / 7' });
     expect(p.note).toBeNull();
   });
 });
@@ -199,7 +218,7 @@ describe('presentHomeScreen の場所の不明なプロジェクト（2.11.5）'
 
   it('確認の群と並ぶときは、場所の不明なプロジェクトが先、確認が最後', () => {
     const READY: ReadinessDto = {
-      tools: { tmux: { path: null, ok: false, problem: 'unset', version: null }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/n', ok: true, problem: null, version: 'v22', auto: true } },
+      tools: { tmux: { path: null, ok: false, problem: 'unset', version: null }, claude: { path: null, ok: false, problem: 'unset', version: null }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/n', ok: true, problem: null, version: 'v22', auto: true } },
       workspace: { path: '/w', exists: true, projectCount: 0 }, mcp: { registered: false, file: '/c' }, statusline: { command: 'x', scriptPath: '/s', installed: false },
       commands: { mcp: 'a', statusline: 'b', shell: 'c', join: 'd' }, compat: { verifiedVersion: '1', localVersion: '1', driftCount: 0 },
     };

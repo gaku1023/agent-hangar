@@ -5,9 +5,9 @@ import { initialStore, type Store } from '../store/store.ts';
 import { presentSettings } from './settings.ts';
 
 // 連携の 3 枚の札の書き込み（試作の連携 A）。殻の中はボタン、ブラウザはコマンドを出す（D9）。
-const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+const SETTINGS: SettingsDto = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
 const READY: ReadinessDto = {
-  tools: { tmux: { path: '/t', ok: true, problem: null, version: '3.4' }, claude: { path: '/c', ok: true, problem: null, version: '2.1.0' }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/n', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+  tools: { tmux: { path: '/t', ok: true, problem: null, version: '3.4' }, claude: { path: '/c', ok: true, problem: null, version: '2.1.0' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/n', ok: true, problem: null, version: 'v22.9.0', auto: true } },
   workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/h/.claude.json' }, statusline: { command: 'bash /h/s.sh', scriptPath: '/h/s.sh', installed: false },
   commands: { mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', shell: '/A/hangar shell install', join: '/A/hangar join <token>' },
   compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },

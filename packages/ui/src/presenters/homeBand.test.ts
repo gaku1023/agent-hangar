@@ -57,6 +57,48 @@ describe('presentHomeBand の群', () => {
   });
 });
 
+describe('presentHomeBand の止まっている理由（試作 stop-reason-proto の B1）', () => {
+  it('許可待ちは要対応に、道具と命令を添えて出し、「ターミナルで許可」で答える', () => {
+    const band = presentHomeBand({ ...none, attention: [waiting('p', { reason: 'permission', permission: { tool: 'Bash', input: 'rm -rf ./build/cache', description: '古いキャッシュを消す' } }), waiting('q')] }, ja);
+    const g = band.groups[0]!;
+    expect(g.summary).toBe('入力待ち 1、許可待ち 1、今日のリマインダー 0');
+    const row = g.rows[0]!;
+    expect(row.lead).toEqual({ kind: 'dot', live: 'waiting', aside: false, reason: 'permission' });
+    expect(row.ask).toEqual({ tool: 'Bash', input: 'rm -rf ./build/cache' });
+    expect(row.text).toBe('古いキャッシュを消す');
+    expect(row.trail).toEqual([{ text: '許可待ち 12分', tone: 'wait' }]);
+    expect(row.actions.map((a) => a.label)).toEqual(['ターミナルで許可']);
+  });
+
+  it('許可の中身が届いていなければ、ターミナルに出ていると言う', () => {
+    const row = presentHomeBand({ ...none, attention: [waiting('p', { reason: 'permission', permission: null })] }, ja).groups[0]!.rows[0]!;
+    expect(row.ask ?? null).toBeNull();
+    expect(row.text).toBe('許可を待っています（内容はターミナルに出ています）');
+  });
+
+  it('自動で続かずにリセットを過ぎたものは、要対応に「続きを指示して」と出す', () => {
+    const band = presentHomeBand({ ...none, attention: [waiting('r', { reason: 'reset', waited: '2分' })] }, ja);
+    const g = band.groups[0]!;
+    expect(g.summary).toBe('入力待ち 0、許可待ち 0、リセット済み 1、今日のリマインダー 0');
+    const row = g.rows[0]!;
+    expect(row.lead).toMatchObject({ reason: 'reset' });
+    expect(row.text).toBe('使用制限がリセットされました。続きを指示してください');
+    expect(row.trail).toEqual([{ text: 'リセットから 2分', tone: 'wait' }]);
+    expect(row.actions.map((a) => a.label)).toEqual(['ターミナルで続ける']);
+  });
+
+  it('使用制限は実行中に砂時計で置き、リセットの時刻と自動で続くかを言う。アイドルには数えない', () => {
+    const band = presentHomeBand({ ...none, running: [running('a'), running('l', { live: 'idle', limit: { text: '使用制限（5 時間）· 16:50 にリセット · 自動で続きます', left: 'あと 8 分' } }), running('i', { live: 'idle' })] }, ja);
+    const g = band.groups[1]!;
+    expect(g.summary).toBe('作業中 1、アイドル 1、使用制限 1');
+    const row = g.rows[1]!;
+    expect(row.lead).toEqual({ kind: 'dot', live: 'idle', aside: false, reason: 'limit' });
+    expect(row.text).toBe('使用制限（5 時間）· 16:50 にリセット · 自動で続きます');
+    expect(row.trail).toEqual([{ text: 'あと 8 分', tone: 'limit' }]);
+    expect(row.actions.map((a) => a.label)).toEqual(['開く']);
+  });
+});
+
 describe('presentHomeBand の追加の群（4 つ目の錠剤）', () => {
   const unresolved: BandGroup = { id: 'unresolved', label: '場所の不明なプロジェクト', icon: 'alert', tone: 'default', count: 2, summary: '', morning: false, rows: [] };
 

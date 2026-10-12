@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { LiveStatus } from '@agent-hangar/shared';
+import { waitKindOf, type LiveStatus } from '@agent-hangar/shared';
 import { isAlive } from '../../platform/proc.ts';
 import type { LiveSession } from './types.ts';
 import { RegistryMissGate, registryDrifts, registryKey, registryStartedAt } from './compat/registry.ts';
@@ -84,6 +84,9 @@ export function readRegistry(claudeDir: string, isGone: (pid: number) => boolean
     const status = STATUSES.has(rec.status as LiveStatus) ? (rec.status as LiveStatus) : 'busy';
     const l: LiveSession = { sessionId: rec.sessionId, status, name: typeof rec.name === 'string' ? rec.name : null, nameSource: typeof rec.nameSource === 'string' ? rec.nameSource : null, cwd: typeof rec.cwd === 'string' ? rec.cwd : '', pid: typeof rec.pid === 'number' ? rec.pid : 0 };
     if (rec.status === 'shell') l.aside = { shell: true, agents: 0 };
+    // 何を待っているか（許可、問い、そのほか）。入力待ちの間だけ写す。Claude は抜けた後も値を残すことがある。
+    const waitingFor = status === 'waiting' ? waitKindOf(rec.waitingFor) : null;
+    if (waitingFor) l.waitingFor = waitingFor;
     if (typeof rec.statusUpdatedAt === 'number' && Number.isFinite(rec.statusUpdatedAt)) l.statusAt = rec.statusUpdatedAt;
     // jobId が無いと `claude attach` に渡すものが無いので、bg と書いてあってもバックグラウンドとは扱わない。
     if (rec.kind === 'bg' && typeof rec.jobId === 'string' && rec.jobId !== '') l.background = { jobId: rec.jobId };

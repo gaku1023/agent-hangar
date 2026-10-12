@@ -1,4 +1,5 @@
 import type { Store } from '../store/store.ts';
+import { interruptedStep } from './interrupted.ts';
 import { launchStep } from './launch.ts';
 import { resumeHereStep } from './resumeHere.ts';
 import type { Input, MuxPending, State, Step } from './types.ts';
@@ -16,7 +17,7 @@ const muxMissing = (store: Store): boolean => store.readiness !== null && !store
  */
 function pendingOf(a: Extract<Input, { kind: 'action' }>['action']): MuxPending | null {
   switch (a.type) {
-    case 'session.new.submit': case 'session.resume': case 'session.fork': case 'session.resumeHere': case 'session.adopt': case 'session.attach': return a;
+    case 'session.new.submit': case 'session.resume': case 'session.fork': case 'session.resumeHere': case 'session.adopt': case 'session.attach': case 'interrupted.resume': return a;
     default: return null;
   }
 }
@@ -24,7 +25,8 @@ function pendingOf(a: Extract<Input, { kind: 'action' }>['action']): MuxPending 
 /** 止めていた操作を、受け持つ領域へそのまま渡す。 */
 function forward(state: State, store: Store, pending: MuxPending): Step {
   const input: Input = { kind: 'action', action: pending };
-  return (pending.type === 'session.resumeHere' ? resumeHereStep(state, input) : launchStep(state, store, input)) ?? { state, effects: [] };
+  const step = pending.type === 'session.resumeHere' ? resumeHereStep(state, input) : pending.type === 'interrupted.resume' ? interruptedStep(state, store, input) : launchStep(state, store, input);
+  return step ?? { state, effects: [] };
 }
 
 /**

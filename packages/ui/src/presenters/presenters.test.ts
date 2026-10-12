@@ -25,7 +25,7 @@ const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -237,8 +237,8 @@ describe('presentHome', () => {
     const store = homeStore();
     store.runs = { rw1: runDto('rw1', 'w1') };
     expect(presentHome(initialState(), store, NOW).attention).toEqual([
-      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？', answer: 'terminal' },
-      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力待ちです', answer: null },
+      { id: 'w1', name: 'name-w1', projectName: 'alpha', waited: '12 分', question: 'どちらにしますか？', answer: 'terminal', reason: null, permission: null },
+      { id: 'w2', name: 'name-w2', projectName: 'alpha', waited: '3 分', question: '入力待ちです', answer: null, reason: null, permission: null },
     ]);
   });
   it('外のターミナルで動く入力待ちは引き取りを、バックグラウンドのものは attach を出す', () => {
@@ -275,7 +275,7 @@ describe('presentHome', () => {
   it('実行中は作業中と休みを拾い、入力待ちは要対応だけに出す', () => {
     const p = presentHome(initialState(), homeStore(), NOW);
     expect(p.running.map((r) => r.id)).toEqual(['s1', 'i1']);
-    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%' });
+    expect(p.running[0]).toEqual({ id: 's1', name: 'name-s1', live: 'busy', aside: false, elapsed: '2 時間', meta: 'alpha · fable 5.1 · high', intent: null, activity: { tool: 'Edit', summary: 'packages/ui/src/keys.ts' }, note: null, contextPercent: 38.4, contextLabel: '38%', limit: null, git: null });
     expect(p.running[1]).toMatchObject({ live: 'idle', activity: null, note: 'アイドル。最後の返答から 8 分', contextPercent: 22, contextLabel: '22%' });
   });
   it('意図は、作業中のセッションがこのターンに書いたものだけを出す', () => {
@@ -905,7 +905,7 @@ describe('presentNewSession', () => {
 describe('presentSettings（フェーズ 2）', () => {
   it('外部ターミナルの選択肢は動いている OS のものだけで、別の OS の値はその OS の既定として見せる', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
     const mac = presentSettings(initialState(), store, Date.now(), 'darwin');
     expect(mac.terminalOptions).toEqual([{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }]);
     expect(mac.terminalApp).toBe('iterm');
@@ -920,24 +920,24 @@ describe('presentSettings（フェーズ 2）', () => {
   });
   it('ツールのパスと MCP のコマンド', () => {
     const store = storeWith();
-    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
+    store.settings = { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
     // コマンドは hangar の呼び方にそろえる。準備の確かめが届く前は hangar と書く。
-    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: 'hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' } });
+    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'iterm', editor: { setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'VS Code' }, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: 'hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' } });
     store.settings = null;
-    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', codePath: null });
+    expect(presentSettings(initialState(), store)).toMatchObject({ tmuxPath: null, terminalApp: 'terminal', editor: { setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' } } });
   });
 });
 
 describe('presentSettings の検証と保存の知らせ（設定の B1 と C1）', () => {
   const READY: ReadinessDto = {
-    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, code: { path: null, ok: false, problem: 'unset', version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+    tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: null, ok: false, problem: 'unset', version: null }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
     workspace: { path: '/w', exists: true, projectCount: 12 }, mcp: { registered: true, file: '/h/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
     commands: { mcp: '/A/hangar mcp install', statusline: '/A/hangar statusline install', shell: '/A/hangar shell install', join: '/A/hangar join <token>' },
     compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
   };
   it('準備の確かめが届く前は、欄の下を空にしておく', () => {
     const p = presentSettings(initialState(), initialStore());
-    expect(p.verify).toEqual({ workspace: null, tmux: null, claude: null, code: null, node: null });
+    expect(p.verify).toEqual({ workspace: null, tmux: null, claude: null, node: null, git: null });
     expect(p.mcpRegistered).toBeNull();
     expect(p.todo).toEqual({ must: 0, link: 0 });
   });
@@ -1229,7 +1229,7 @@ describe('presentSettings のフェーズ 3 の項目', () => {
   it('要約器と statusline と使用量の集計を渡す', () => {
     const store: Store = {
       ...initialStore(),
-      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, codePath: null, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, nodePath: null, claudePath: null },
+      settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal' as const, editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: 'gemma', summaryFallback: false, summaryHourlyCap: 5, allowExternalSummarizer: false, nodePath: null, claudePath: null },
       statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: true },
       summarizerModels: ['gemma', 'qwen'],
       usageAggregate: { days: [{ day: '2026-09-18', inputTokens: 10, outputTokens: 2, sessions: 1 }], projects: [] },
@@ -1240,6 +1240,45 @@ describe('presentSettings のフェーズ 3 の項目', () => {
     expect(p.statusline?.installed).toBe(true);
     expect(p.usageAggregate?.days).toHaveLength(1);
     expect(p.summarizerTest).toBeNull();
+  });
+});
+
+describe('ヘッダーの使用制限（試作の H2）', () => {
+  it('使用制限で止まっているセッションがあれば、その枠のゲージに時刻を出し、「停止 N」の札から会話へ移れる', () => {
+    const store = storeWith();
+    const resetsAt = new Date(NOW).setHours(new Date(NOW).getHours() + 1, 50, 0, 0);
+    const hm = `${String(new Date(resetsAt).getHours()).padStart(2, '0')}:50`;
+    store.sessions.s1 = { ...store.sessions.s1!, live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } };
+    store.sessions.s2 = { ...store.sessions.s2!, live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: false, reset: false } };
+    const p = presentShell(initialState(), store, NOW);
+    expect(p.usage.fiveHourLimit).toBe(hm);
+    expect(p.usage.sevenDayLimit ?? null).toBeNull();
+    expect(p.stopped?.count).toBe(2);
+    expect(p.stopped?.head).toBe(`5 時間の使用制限で止まっています · ${hm} にリセット`);
+    expect(p.stopped?.rows.map((r) => [r.id, r.auto])).toEqual([['s1', '自動で続きます'], ['s2', '自動では続きません']]);
+  });
+  it('止まっているものが無ければ札は出さない（リセット済みは数えない）', () => {
+    const store = storeWith();
+    store.sessions.s1 = { ...store.sessions.s1!, live: 'idle', limit: { kind: 'five_hour', resetsAt: NOW - 200_000, auto: false, reset: true } };
+    const p = presentShell(initialState(), store, NOW);
+    expect(p.stopped ?? null).toBeNull();
+    expect(p.usage.fiveHourLimit ?? null).toBeNull();
+  });
+});
+
+describe('presentSessionRow の止まっている理由（試作の L1）', () => {
+  it('右端の語を「許可待ち」「使用制限 · 16:50」「リセット済み」にする。2 段目の要約は変えない', () => {
+    const store = storeWith();
+    const resetsAt = new Date(NOW).setHours(new Date(NOW).getHours() + 1, 50, 0, 0);
+    const hm = `${String(new Date(resetsAt).getHours()).padStart(2, '0')}:50`;
+    const p = presentSessionRow(session('s1', { live: 'waiting', waitingFor: 'permission' }), store, NOW);
+    expect([p.reason, p.reasonWord]).toEqual(['permission', '許可待ち']);
+    const l = presentSessionRow(session('s1', { live: 'idle', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } }), store, NOW);
+    expect([l.reason, l.reasonWord, l.live]).toEqual(['limit', `使用制限 · ${hm}`, 'idle']);
+    const r = presentSessionRow(session('s1', { live: 'idle', limit: { kind: 'five_hour', resetsAt: NOW - 1, auto: false, reset: true } }), store, NOW);
+    expect([r.reason, r.reasonWord, r.live]).toEqual(['reset', 'リセット済み', 'waiting']);
+    expect(presentSessionRow(session('s1', { live: 'waiting' }), store, NOW).reason).toBeNull();
+    expect(l.oneLiner).toBe(presentSessionRow(session('s1'), store, NOW).oneLiner);
   });
 });
 
@@ -1313,7 +1352,7 @@ describe('presentSettings の既定値', () => {
   });
 });
 
-const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null, ...over });
+const fullSettings = (over: Partial<SettingsDto> = {}): SettingsDto => ({ workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null, ...over });
 const syncStatus = (over: Partial<SyncStatusBody> = {}): SyncStatusBody => ({ state: 'idle', url: 'https://h', lastPushAt: NOW - 1000, lastPullAt: NOW - 60_000, pending: 0, error: null, deviceCount: 2, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false, ...over });
 const lockDto = (over: Partial<SessionLockDto> = {}): SessionLockDto => ({ deviceId: 'dev-b', deviceName: 'mini', runId: 'r1', heartbeatAt: NOW - 60_000, stale: false, ...over });
 
@@ -1718,9 +1757,18 @@ describe('presentToasts（入力待ちのカード）', () => {
     const store = waitingStore(['w1']);
     store.sessions.w1 = { ...store.sessions.w1!, activity: { tool: 'AskUserQuestion', summary: 'AskUserQuestion', question: '向きはどちらにしますか' } };
     const state = { ...initialState(), waitingToasts: ['w1'] };
-    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', waited: '2 分', question: '向きはどちらにしますか' }]);
+    expect(presentToasts(state, store, NOW).waiting).toEqual([{ sessionId: 'w1', name: 'name-w1', waited: '2 分', question: '向きはどちらにしますか', reason: null, ask: null }]);
     store.sessions.w1 = { ...store.sessions.w1!, activity: null };
     expect(presentToasts(state, store, NOW).waiting[0]?.question).toBeNull();
+  });
+  it('許可待ちは見出しを替え、問いの場所に道具と命令を出す。リセット済みは続きを指示するよう言う（試作の K1）', () => {
+    const store = waitingStore(['p1', 'r1']);
+    store.sessions.p1 = { ...store.sessions.p1!, waitingFor: 'permission', permission: { tool: 'Bash', input: 'rm -rf ./build/cache', description: null } };
+    store.sessions.r1 = { ...store.sessions.r1!, live: 'idle', limit: { kind: 'five_hour', resetsAt: NOW - 60_000, auto: false, reset: true } };
+    const state = { ...initialState(), waitingToasts: ['p1', 'r1'] };
+    const [p, r] = presentToasts(state, store, NOW).waiting;
+    expect(p).toMatchObject({ reason: 'permission', ask: { tool: 'Bash', input: 'rm -rf ./build/cache' }, question: null });
+    expect(r).toMatchObject({ reason: 'reset', question: '使用制限がリセットされました。続きを指示してください', ask: null });
   });
   it('ホームを見ている間は出さない（要対応の札が言っている）', () => {
     const state = { ...initialState(), screen: { name: 'home' as const }, waitingToasts: ['w1', 'w2'] };

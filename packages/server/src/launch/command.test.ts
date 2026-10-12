@@ -25,6 +25,13 @@ describe('runCommand', () => {
 });
 
 describe('shellTabCommand', () => {
+  // 任意のコマンドの「シェルタブで開く」。エディタを閉じたら、そのままシェルに戻す。
+  it('先に起こすコマンドを渡すと、それを起こしてからシェルに戻す', () => {
+    expect(shellTabCommand({ env: { SHELL: '/bin/zsh' }, platform: 'darwin', then: ['/usr/local/bin/nvim', '+3', "/w/it's a.ts"] }))
+      .toEqual(['/bin/zsh', '-l', '-c', "'/usr/local/bin/nvim' '+3' '/w/it'\\''s a.ts'; exec '/bin/zsh' -l"]);
+    expect(shellTabCommand({ env: {}, platform: 'win32', then: ['C:\\x\\hx.exe', "D:\\w\\it's.ts:3"] }))
+      .toEqual(['powershell.exe', '-NoLogo', '-NoExit', '-Command', "& 'C:\\x\\hx.exe' 'D:\\w\\it''s.ts:3'"]);
+  });
   it('macOS と Linux は利用者のログインシェル。無ければ zsh', () => {
     expect(shellTabCommand({ env: { SHELL: '/bin/bash' }, platform: 'darwin' })).toEqual(['/bin/bash', '-l']);
     expect(shellTabCommand({ env: {}, platform: 'darwin' })).toEqual(['/bin/zsh', '-l']);

@@ -10,7 +10,7 @@ const project = (id: string, name: string, isScratch = false): ProjectDto => ({ 
 const session = (id: string, name: string, oneLiner: string | null): SessionDto => ({
   id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'p1', name, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null,
   summary: oneLiner ? { title: name, oneLiner, body: '', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 1, updatedAt: 1 } : null,
-  fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null,
+  fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null,
 });
 
 const withPalette = () => ({ ...initialState(), overlay: { kind: 'palette' as const } });
@@ -55,8 +55,8 @@ describe('presentPalette（何も打っていないとき）', () => {
     const p = presentPalette(withPalette(), busy(), '', NOW)!;
     expect(p.query).toBe('');
     expect(p.noMatch).toBe(false);
-    expect(titles(p)).toEqual(['入力待ち', '最近', '操作', '設定']);
-    expect(ids(p, '入力待ち')).toEqual(['session:w1']);
+    expect(titles(p)).toEqual(['要対応', '最近', '操作', '設定']);
+    expect(ids(p, '要対応')).toEqual(['session:w1']);
     // 作業中とアイドルの名前はサイドバーの「実行中」にあるので、ここには出さない。
     const all = p.sections.flatMap((x) => x.items.map((i) => i.id));
     expect(all).not.toContain('session:b1');
@@ -71,7 +71,7 @@ describe('presentPalette（何も打っていないとき）', () => {
     for (const id of ['w2', 'w3', 'w4']) st.sessions[id] = at(session(id, `待ち ${id}`, null), { live: 'waiting', lastActivityAt: NOW - 9 * MIN });
     const p = presentPalette(withPalette(), st, '', NOW)!;
     const rows = p.sections.reduce((n, x) => n + x.items.length, 0);
-    expect(ids(p, '入力待ち')).toHaveLength(4);
+    expect(ids(p, '要対応')).toHaveLength(4);
     expect(rows).toBe(16);
   });
   it('セッションの行には状態の点とプロジェクト名、右に待った長さや経った時間を添える', () => {
@@ -93,7 +93,7 @@ describe('presentPalette（何も打っていないとき）', () => {
     expect(recent.count).toBeNull();
     expect(recent.limit).toBe('上位 3');
     // 切っていない群には上限の印を付けない。
-    const waiting = p.sections.find((x) => x.title === '入力待ち')!;
+    const waiting = p.sections.find((x) => x.title === '要対応')!;
     expect(waiting).toMatchObject({ count: 1, limit: null });
   });
   it('操作の群は、新しいセッション、スクラッチ、次の入力待ち、新しいプロジェクト、キーの一覧で、打鍵はキーの表から引く', () => {
@@ -168,7 +168,7 @@ describe('presentPalette（打ち始めた後）', () => {
   });
   it('入力待ちと実行中は群を分けたまま、名前で絞る', () => {
     const p = presentPalette(withPalette(), busy(), '直す', NOW)!;
-    expect(ids(p, '入力待ち')).toEqual(['session:w1']);
+    expect(ids(p, '要対応')).toEqual(['session:w1']);
     expect(ids(p, '実行中')).toEqual(['session:i1']);
   });
   it('操作と設定の節にも当たる。実行は打ったときだけ出る行を含む', () => {
@@ -221,9 +221,25 @@ describe('presentPalette（打ち始めた後）', () => {
     expect(p.sections.find((x) => x.title === 'セッション')).toMatchObject({ count: 20, limit: '上位 8' });
     expect(ids(p, 'セッション')).toHaveLength(8);
   });
-  it('次の入力待ちへのコマンドがあり、ヒントはキーの表から引く（C5）', () => {
-    const p = presentPalette(withPalette(), store(), '入力待ち', NOW)!;
-    expect(item(p, 'cmd:next-waiting')).toMatchObject({ label: '次の入力待ちへ', keys: '⌘I', kind: 'command' });
+  it('次の要対応へのコマンドがあり、ヒントはキーの表から引く（C5）', () => {
+    const p = presentPalette(withPalette(), store(), '要対応', NOW)!;
+    expect(item(p, 'cmd:next-waiting')).toMatchObject({ label: '次の要対応へ', keys: '⌘I', kind: 'command' });
+  });
+});
+
+describe('パレットの止まっている理由（試作の P1）', () => {
+  it('要対応の群に許可待ちとリセット済みを入れ、印と右端の語で分ける。使用制限は要対応に入れない', () => {
+    const base = store();
+    const waitingAt = NOW - 60_000;
+    const sessions = {
+      ...base.sessions,
+      p: { ...session('p', '請求書の PDF 出力', null), live: 'waiting' as const, waitingFor: 'permission' as const, lastActivityAt: waitingAt },
+      r: { ...session('r', '依存の更新', null), live: 'idle' as const, limit: { kind: 'five_hour' as const, resetsAt: NOW - 120_000, auto: false, reset: true } },
+      l: { ...session('l', 'ログの圧縮', null), live: 'idle' as const, limit: { kind: 'five_hour' as const, resetsAt: NOW + 600_000, auto: true, reset: false } },
+    };
+    const p = presentPalette(withPalette(), { ...base, sessions }, '', NOW)!;
+    const group = p.sections.find((x) => x.title === '要対応')!;
+    expect(group.items.map((i) => [i.id, i.lead.kind === 'dot' ? i.lead.reason : null, i.meta])).toEqual([['session:p', 'permission', '許可待ち 1 分'], ['session:r', 'reset', 'リセット済み']]);
   });
 });
 

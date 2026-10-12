@@ -53,7 +53,8 @@ export function runSetup(opts: { home: string; workspaceRoot?: string; claudeDir
   const settings = loadSettings(opts.home);
   if (opts.workspaceRoot) settings.workspaceRoot = path.resolve(expandTilde(opts.workspaceRoot, platform));
   saveSettings(opts.home, settings);
-  const tools = ['tmux', 'claude', 'code'].map((name) => {
+  // code（VS Code）は 0.5.0 でエディタの選択に替えたので見ない。git は無くても動くが、ブランチと未コミットの件数に使う。
+  const tools = ['tmux', 'claude', 'git'].map((name) => {
     const p = name === 'tmux' ? whichMuxCmd(which, platform) : which(name);
     return { name, found: p !== null, path: p };
   });

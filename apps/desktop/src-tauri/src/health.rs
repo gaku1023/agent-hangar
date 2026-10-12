@@ -88,10 +88,32 @@ fn left(start: Instant, timeout: Duration) -> Option<Duration> {
 /// 少しずつ永遠に垂れ流す相手に対しても、この時間で諦める。
 /// `Connection: close` を送るので、相手が閉じるまでを応答として読む。
 pub fn http_get(addr: SocketAddr, path: &str, timeout: Duration) -> Option<(u16, String)> {
+    http_get_with(addr, path, &[], timeout)
+}
+
+/// 見出しを足して GET する（`http_get` と同じ読み方）。
+/// 鍵の要る経路（通知の並び）を読むのに使う。見出しの名前と値は殻が決めたものだけを渡し、改行を含めない。
+pub fn http_get_with(
+    addr: SocketAddr,
+    path: &str,
+    headers: &[(&str, &str)],
+    timeout: Duration,
+) -> Option<(u16, String)> {
     let start = Instant::now();
+    if headers
+        .iter()
+        .any(|(k, v)| k.contains(['\r', '\n']) || v.contains(['\r', '\n']))
+    {
+        return None;
+    }
     let mut s = TcpStream::connect_timeout(&addr, left(start, timeout)?).ok()?;
 
-    let request = format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    let extra: String = headers
+        .iter()
+        .map(|(k, v)| format!("{k}: {v}\r\n"))
+        .collect();
+    let request =
+        format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\n{extra}Connection: close\r\n\r\n");
     s.set_write_timeout(Some(left(start, timeout)?)).ok()?;
     // 1 回の write_all で送る。
     // 断片に分けると、要求を 1 回だけ read して閉じる相手から RST を受けうる。
@@ -389,6 +411,37 @@ mod tests {
         let (status, body) = http_get(addr, "/health", Duration::from_secs(2)).unwrap();
         assert_eq!(status, 200);
         assert_eq!(body, "{\"ok\":true,\"version\":\"1.2.3\"}");
+    }
+
+    #[test]
+    fn http_get_with_sends_the_extra_headers_and_refuses_line_breaks() {
+        let (tx, rx) = mpsc::channel();
+        let addr = serve_with(move |mut s| {
+            let mut got = Vec::new();
+            let mut chunk = [0u8; 512];
+            let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
+            while !got.windows(4).any(|w| w == b"\r\n\r\n") {
+                match s.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => got.extend_from_slice(&chunk[..n]),
+                }
+            }
+            let _ = tx.send(String::from_utf8_lossy(&got).to_string());
+            let _ =
+                s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}");
+        });
+        let (status, body) = http_get_with(
+            addr,
+            "/api/notify/feed",
+            &[("Authorization", "Bearer t")],
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!((status, body.as_str()), (200, "{}"));
+        let request = rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(request.starts_with("GET /api/notify/feed HTTP/1.1\r\n"));
+        assert!(request.contains("\r\nAuthorization: Bearer t\r\n"));
+        assert_eq!(http_get_with(addr, "/", &[("X", "a\r\nY: b")], T), None);
     }
 
     #[test]

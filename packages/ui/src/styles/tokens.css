@@ -20,6 +20,10 @@
   --aside: color-mix(in srgb, var(--busy) 42%, #ffffff);
   --idle: #3a8f5c;
   --waiting: #a2452f;
+  /* 使用制限（時間が来れば戻る止まり方）。利用者にできることが無いので、急かさない青みの灰にする（試作 stop-reason-proto の C1）。
+     白地で 6.2 : 1、淡い地（--limit-soft）の上でも 5.3 : 1。 */
+  --limit: #4f6185;
+  --limit-soft: #e9edf5;
   --ended: #9a968e;
   --error: #b3261e;
   --st-active: #2a57b8;

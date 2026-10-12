@@ -42,9 +42,20 @@ const integrationsProps = (over: Partial<SettingsProps['integrations']> = {}): S
   ...over,
 });
 
+/** エディタの欄。VS Code を選び、候補はまだ届いていない。 */
+const editorProps = (over: Partial<SettingsProps['editor']> = {}): SettingsProps['editor'] => ({
+  setting: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, name: 'VS Code', loading: false, test: { running: false, result: null },
+  choices: [
+    { id: 'vscode', name: 'VS Code', tile: 'VS', state: 'found', path: '/usr/local/bin/code', version: '1.105.1', selected: true, badge: { text: '見つかりました', tone: 'ok' } },
+    { id: 'cursor', name: 'Cursor', tile: 'Cu', state: 'none', path: null, version: null, selected: false, badge: { text: '見つかりません', tone: 'mute' } },
+    { id: 'custom', name: '任意のコマンド', tile: '{ }', state: null, path: null, version: null, selected: false, badge: null },
+  ],
+  ...over,
+});
+
 const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   workspaceRoot: '/w', claudeDir: '/c', device: { id: 'd', name: 'mac' }, version: '0.3.0', index: { phase: 'idle', done: 0, total: 0 }, indexLabel: '3 セッション、2 プロジェクト', sessionCount: 3, projectCount: 2,
-  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', codePath: null, commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' },
+  tmuxPath: '/opt/homebrew/bin/tmux', terminalApp: 'terminal', terminalOptions: [{ value: 'terminal', label: 'Terminal.app' }, { value: 'iterm', label: 'iTerm2' }], terminalDesc: '「ターミナルで開く」で使うアプリ。', editor: editorProps(), commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', join: '/A/hangar join <token>', setupCloud: 'npm run hangar -- setup cloud' },
   lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false,
   summarizerModels: ['gemma', 'qwen'], summarizerTest: null,
   statusline: { command: 'bash ~/.claude/statusline.sh', scriptPath: '/h/.claude/statusline.sh', installed: false },
@@ -56,7 +67,7 @@ const settingsProps = (over: Partial<SettingsProps> = {}): SettingsProps => ({
   claudePath: null,
   retention: null,
   notify: { available: true, on: false, blocked: false },
-  verify: { workspace: null, tmux: null, claude: null, code: null, node: null },
+  verify: { workspace: null, tmux: null, claude: null, node: null, git: null },
   mcpRegistered: null,
   integrations: integrationsProps(),
   save: {},
@@ -193,9 +204,9 @@ describe('設定の一般', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'English' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'settings.update', patch: { language: 'en' } });
   });
-  it('一般には、通知、ターミナルアプリ、トランスクリプトの保持を置く', () => {
+  it('一般には、通知、ターミナルアプリ、エディタ、トランスクリプトの保持を置く', () => {
     render(ui(at('general', { retention: { days: 365, options: [{ value: '365', label: '1 年' }], writable: true, reason: null, valueLabel: '1 年', bar: null, syncNote: false } })));
-    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'トランスクリプトの保持']);
+    expect([...document.querySelectorAll('.set-row-t')].map((e) => e.textContent)).toEqual(['言語', '通知を有効にする', 'ターミナルアプリ', 'エディタ', 'トランスクリプトの保持']);
   });
   it('「通知を有効にする」のスイッチで切り替える', () => {
     const onAction = vi.fn();
@@ -825,9 +836,10 @@ describe('設定のツール', () => {
     render(ui(at('tools')));
     for (const name of ['保存', 'ツールの設定を保存', 'Node のパスを保存']) expect(screen.queryByRole('button', { name })).toBeNull();
   });
-  it('ツールには、親フォルダと 4 つのパスだけを置く（ターミナルアプリは一般にある）', () => {
+  it('ツールには、親フォルダと 3 つのパスと git の読むだけの行を置く（ターミナルアプリとエディタは一般にある）', () => {
     render(ui(at('tools')));
-    expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'code のパス', 'Node のパス']);
+    expect(screen.getAllByRole('textbox').map((e) => e.getAttribute('aria-label'))).toEqual(['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'Node のパス']);
+    expect(document.getElementById('settings-field-git')).not.toBeNull();
     expect(screen.queryByRole('radio', { name: 'iTerm2' })).toBeNull();
   });
   it('Node のパスの例と探す順の説明は、画面の OS の形で出す', () => {
@@ -853,25 +865,25 @@ describe('設定のツール', () => {
   it('変えずに欄を出ても送らない。前後の空白だけの違いも変更にしない', () => {
     // 同じ値でも送ると、workspaceRoot ではプロジェクトの登録し直しが走る。
     const onAction = vi.fn();
-    render(ui(at('tools', { nodePath: '/opt/homebrew/bin/node', codePath: '/usr/local/bin/code' }), onAction));
-    for (const label of ['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'code のパス', 'Node のパス']) {
+    render(ui(at('tools', { nodePath: '/opt/homebrew/bin/node', claudePath: '/usr/local/bin/claude' }), onAction));
+    for (const label of ['プロジェクトの親フォルダ', 'tmux のパス', 'claude のパス', 'Node のパス']) {
       const field = screen.getByLabelText(label) as HTMLInputElement;
       fireEvent.blur(field);
       typeAndLeave(label, ` ${field.value} `);
     }
     expect(onAction).not.toHaveBeenCalled();
     // 空白を足しただけの欄は、保存済みの値に戻す。
-    expect(screen.getByLabelText('code のパス')).toHaveValue('/usr/local/bin/code');
+    expect(screen.getByLabelText('claude のパス')).toHaveValue('/usr/local/bin/claude');
   });
   it('Enter でも保存し、日本語入力の確定の Enter では保存しない', () => {
     const onAction = vi.fn();
     render(ui(at('tools'), onAction));
-    const field = screen.getByLabelText('code のパス');
-    fireEvent.change(field, { target: { value: '/usr/local/bin/code' } });
+    const field = screen.getByLabelText('claude のパス');
+    fireEvent.change(field, { target: { value: '/usr/local/bin/claude' } });
     fireEvent.keyDown(field, { key: 'Enter', keyCode: 229 });
     expect(onAction).not.toHaveBeenCalled();
     fireEvent.keyDown(field, { key: 'Enter' });
-    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { codePath: '/usr/local/bin/code' }, field: 'codePath' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { claudePath: '/usr/local/bin/claude' }, field: 'claudePath' });
   });
   it('保存できたら欄の横に「✓ 保存しました」を 2 秒出し、保存し直すたびに出し直す', () => {
     vi.useFakeTimers();
@@ -902,8 +914,8 @@ describe('設定のツール', () => {
       workspace: { ok: true, soft: false, text: '/w', note: 'プロジェクト 12 件', fix: null, fixCommand: null },
       tmux: { ok: false, soft: false, text: '見つかりません', note: null, fix: null, fixCommand: 'brew install tmux' },
       claude: { ok: true, soft: false, text: '/Users/me/.local/bin/claude', note: '2.3.1', fix: null, fixCommand: null },
-      code: { ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'VS Code から code コマンドをインストールしてください', fixCommand: null },
       node: null,
+      git: { ok: false, soft: true, text: '見つかりません', note: '無くても動きます', fix: 'git をインストールしてください。無くても動きますが、ブランチと未コミットの件数は出ません', fixCommand: 'xcode-select --install' },
     };
     const onAction = vi.fn();
     render(ui(at('tools', { verify }), onAction));
@@ -912,8 +924,11 @@ describe('設定のツール', () => {
     expect(under('claude のパス')).toHaveTextContent('/Users/me/.local/bin/claude（2.3.1）');
     expect(under('tmux のパス')).toHaveTextContent('見つかりません');
     expect(under('tmux のパス')).toHaveAttribute('data-tone', 'ng');
-    expect(under('code のパス')).toHaveAttribute('data-tone', 'soft');
-    expect(under('code のパス')).toHaveTextContent('無くても動きます');
+    // git は設定の欄が無いので、読むだけの行に出す。
+    const git = document.getElementById('settings-field-git')!.querySelector('.verify')!;
+    expect(git).toHaveAttribute('data-tone', 'soft');
+    expect(git).toHaveTextContent('無くても動きます');
+    expect(git).toHaveTextContent('xcode-select --install');
     expect(under('Node のパス')).toHaveTextContent('確認しています');
     fireEvent.click(screen.getByRole('button', { name: 'brew install tmux をコピー' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'clipboard.copy', text: 'brew install tmux' });
@@ -921,10 +936,9 @@ describe('設定のツール', () => {
   it('サーバが正規化した値に入力欄が追従する', () => {
     const { rerender } = render(ui(at('tools', { tmuxPath: 'tmux', claudePath: null, nodePath: '' })));
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('tmux');
-    rerender(ui(at('tools', { workspaceRoot: '/w2', codePath: '/usr/local/bin/code', claudePath: '/Users/x/.local/bin/claude', nodePath: '/opt/homebrew/bin/node' })));
+    rerender(ui(at('tools', { workspaceRoot: '/w2', claudePath: '/Users/x/.local/bin/claude', nodePath: '/opt/homebrew/bin/node' })));
     expect(screen.getByLabelText('tmux のパス')).toHaveValue('/opt/homebrew/bin/tmux');
     expect(screen.getByLabelText('プロジェクトの親フォルダ')).toHaveValue('/w2');
-    expect(screen.getByLabelText('code のパス')).toHaveValue('/usr/local/bin/code');
     expect(screen.getByLabelText('claude のパス')).toHaveValue('/Users/x/.local/bin/claude');
     expect(screen.getByLabelText('Node のパス')).toHaveValue('/opt/homebrew/bin/node');
   });

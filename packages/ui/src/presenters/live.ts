@@ -1,4 +1,4 @@
-import { stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type SessionActivityDto, type StepCell, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
+import { limitKindText, resetAtText, stepKind, type LiveAsideDto, type LiveDigestDto, type LiveStatus, type PermissionAskDto, type SessionActivityDto, type SessionLimitDto, type StepCell, type StopReason, type TranscriptEvent, type Translate } from '@agent-hangar/shared';
 import { baseName } from '../lib/paths.ts';
 import { durationLabel } from './format.ts';
 import type { ArtifactCardProps } from './project.ts';
@@ -73,9 +73,19 @@ export type CardStep = { key: string; name: string; arg: string; mark: 'done' | 
 export type CardLane = LaneProps & { stateLabel: string };
 /** 意図。said は Claude がこのターンに書いたもので、label は「Claude の意図 · 時刻」の小見出し。 */
 export type CardIntent = { kind: 'said'; text: string; label: string; title: string; stale: boolean } | { kind: 'none'; text: string };
+/**
+ * 止まっている理由の欄（試作 stop-reason-proto の N1）。問いと同じ場所に置く。
+ * permission は許可待ちで、command は命令の全文（折り返す）、why は Claude の説明、hint は答え方。中身が届いていなければ command と why は null で、hint がその旨を言う。
+ * limit は使用制限で、at はリセットの時刻と残り、meter は枠の時間のうち過ぎた割合（0 から 100、枠の長さが分からなければ null）、hint は自動で続くか。
+ * reset はリセット済みで、続きを指示するよう言う。
+ */
+export type NowStop =
+  | { kind: 'permission'; head: string; command: string | null; why: string | null; hint: string }
+  | { kind: 'limit'; head: string; at: string; meter: number | null; hint: string }
+  | { kind: 'reset'; head: string; body: string };
 export type NowCardProps = {
-  /** 札の左の縁と灯の色。 */
-  tone: 'busy' | 'aside' | 'wait' | 'idle';
+  /** 札の左の縁と灯の色。limit は使用制限の青みの灰である。 */
+  tone: 'busy' | 'aside' | 'wait' | 'idle' | 'limit';
   /** 状態の語。画面はこれだけを知らせの領域（role="status"）にする。札の全体は追記のたびに読み上げない。 */
   state: string;
   /** 状態の語の隣に添える経過や進み具合。無ければ空。 */
@@ -84,6 +94,8 @@ export type NowCardProps = {
   detail: string | null;
   /** detail が Claude の問いか。真なら「Claude の問い」の見出しを付けて目立たせる。 */
   question: boolean;
+  /** 止まっている理由の欄。理由が無ければ null。 */
+  stop: NowStop | null;
   intent: CardIntent;
   /** 札に縦に並べる直近のツール呼び出し（3 つまで）。全部は stepsAll（直近 30 回まで）で、「ほか N」の札のポップオーバーが使う。 */
   steps: CardStep[];
@@ -97,7 +109,14 @@ export type CardInput = LiveInput & {
   /** 入力待ちになってからの経過の文（「4 分」）。 */
   waited: string;
   artifacts: ArtifactCardProps[];
+  /** 止まっている理由（shared の stopReasonOf）と、その中身。無ければ省ける。 */
+  reason?: StopReason | null;
+  permission?: PermissionAskDto | null;
+  limit?: SessionLimitDto | null;
 };
+
+/** 使用制限の枠の長さ。残りの棒は、この長さのうち過ぎた割合で描く。 */
+const LIMIT_WINDOW_MS = { five_hour: 5 * 3_600_000, weekly: 7 * 86_400_000 } as const;
 
 const STRIP_STEPS = 3;
 const STRIP_STEPS_ALL = 30;
@@ -132,7 +151,37 @@ function turnElapsed(i: LiveInput, t: Translate): string | null {
   return first?.ts === undefined ? null : durationLabel(t, Math.max(0, i.now - first.ts));
 }
 
-function stripState(i: LiveInput & { waited: string }, t: Translate, results: ResultMap): Pick<NowCardProps, 'tone' | 'state' | 'sub' | 'detail' | 'question'> {
+/** 止まっている理由があれば、状態の行と理由の欄を組む。無ければ null（ふだんの状態の行にする）。 */
+function stopState(i: CardInput, t: Translate): Pick<NowCardProps, 'tone' | 'state' | 'sub' | 'detail' | 'question' | 'stop'> | null {
+  if (i.reason === 'permission') {
+    const p = i.permission ?? null;
+    const stop: NowStop = p
+      ? { kind: 'permission', head: t('stop.card.permissionHeadTool', { tool: p.tool }), command: p.input || null, why: p.description, hint: t('stop.card.permissionHint') }
+      : { kind: 'permission', head: t('stop.card.permissionHead'), command: null, why: null, hint: t('stop.card.permissionUnknown') };
+    return { tone: 'wait', state: t('stop.state.permission'), sub: t('session.strip.waited', { time: i.waited }), detail: null, question: false, stop };
+  }
+  if (i.reason === 'limit' && i.limit) {
+    const l = i.limit;
+    const time = resetAtText(t, l.resetsAt, i.now);
+    const leftMs = Math.max(0, l.resetsAt - i.now);
+    const left = t('stop.limit.left', { time: durationLabel(t, leftMs) });
+    const window = l.kind === 'other' ? null : LIMIT_WINDOW_MS[l.kind];
+    const meter = window === null ? null : Math.round(Math.min(1, Math.max(0, 1 - leftMs / window)) * 100);
+    const head = l.kind === 'other' ? t('stop.state.limit') : t('stop.card.limitHead', { kind: limitKindText(t, l.kind) });
+    const at = leftMs > 0 ? t('stop.card.limitAt', { time, left }) : t('stop.limit.at', { time });
+    return { tone: 'limit', state: t('stop.state.limit'), sub: leftMs > 0 ? left : '', detail: null, question: false, stop: { kind: 'limit', head, at, meter, hint: t(l.auto ? 'stop.card.limitAuto' : 'stop.card.limitNoAuto') } };
+  }
+  if (i.reason === 'reset') return { tone: 'wait', state: t('stop.state.reset'), sub: '', detail: null, question: false, stop: { kind: 'reset', head: t('stop.card.resetHead'), body: t('stop.card.resetBody') } };
+  return null;
+}
+
+function stripState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCardProps, 'tone' | 'state' | 'sub' | 'detail' | 'question' | 'stop'> {
+  const stopped = stopState(i, t);
+  if (stopped) return stopped;
+  return { ...plainState(i, t, results), stop: null };
+}
+
+function plainState(i: LiveInput & { waited: string }, t: Translate, results: ResultMap): Pick<NowCardProps, 'tone' | 'state' | 'sub' | 'detail' | 'question'> {
   const sep = t('common.list.separator');
   if (i.live === 'waiting') {
     const detail = i.activity?.question || i.activity?.summary || null;

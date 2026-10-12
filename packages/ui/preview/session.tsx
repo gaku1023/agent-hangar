@@ -71,6 +71,16 @@ export const CARD_CASES: { id: string; title: string; card: NowCardProps }[] = [
     aside: { shell: false, agents: 2 }, digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [agent({ agentId: 'a1', title: '型を直す' }), agent({ agentId: 'a2', title: 'テストを書く' })] },
   }), ja) },
   { id: 'idle', title: 'アイドルで、意図もツール呼び出しも無い', card: presentNowCard(base({ live: 'idle', events: [], digest: { sessionId: 's1', turnStartSeq: 0, intent: null, agents: [] } }), ja) },
+  { id: 'permission', title: '許可待ち（試作 stop-reason-proto の N1）', card: presentNowCard(base({
+    live: 'waiting', activity: null, events: waitingEvents(), turnFrom: 0, reason: 'permission',
+    permission: { tool: 'Bash', input: 'rm -rf ./build/cache && npm run build -- --filter checkout', description: '古いキャッシュを消してから書き出し直す' },
+  }), ja) },
+  { id: 'limit', title: '使用制限（自動で続く）', card: presentNowCard(base({
+    live: 'idle', events: [], reason: 'limit', limit: { kind: 'five_hour', resetsAt: NOW + 8 * 60_000, auto: true, reset: false },
+  }), ja) },
+  { id: 'reset', title: 'リセット済み（自動で続かなかった）', card: presentNowCard(base({
+    live: 'idle', events: [], reason: 'reset', limit: { kind: 'five_hour', resetsAt: NOW - 5 * 60_000, auto: false, reset: true },
+  }), ja) },
   { id: 'long', title: '意図が長い（切らずに折り返して全文を出す）', card: presentNowCard(base({
     events: busyEvents(), turnFrom: 0,
     digest: { sessionId: 's1', turnStartSeq: 0, intent: { ...intent, text: '決済フォームの入力の検証をサーバ側にも足すため、まずクライアント側の検証の一覧と既存のテストを読み、どの検証を共通の関数へ寄せられるかを確かめる。' }, agents: [] },
@@ -83,7 +93,7 @@ const session = (p: Partial<SessionDto> = {}): SessionDto => ({
   summary: { title: 't', oneLiner: 'o', body: '商品一覧の画像を IntersectionObserver で遅延読み込みにし、LCP を 3.1 秒から 1.8 秒に縮めて PR #88 をマージした。先頭の 4 枚は即時に読む。枠の高さは固定にすると決めた（ターン 6）。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'qwen3-8b', basedOnTurns: 11, updatedAt: NOW - 2 * DAY - 6 * 3_600_000 },
   stats: { turns: 11, model: 'claude-sonnet-4-5', effort: null, filesChanged: 5, prUrl: 'https://example.invalid/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
   fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null,
-  state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 3 * DAY, candidate: null }, parked: false, stoppedByStatus: false, liveAside: null, ...p,
+  state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 3 * DAY, candidate: null }, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...p,
 });
 const leadInput = (p: Partial<Parameters<typeof presentLeadCard>[0]> = {}) => ({
   session: session(), now: NOW, gone: false, summaryPending: false, summaryError: null, artifacts: [artifact('a1', '計測の結果', '3 日前')],

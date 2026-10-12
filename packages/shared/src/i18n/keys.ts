@@ -8,8 +8,13 @@ import { configSyncKeys } from './keys/configSync.ts';
 import { configSyncUiKeys } from './keys/configSyncUi.ts';
 import { confirmKeys } from './keys/confirm.ts';
 import { externalKeys } from './keys/external.ts';
+import { gitKeys } from './keys/git.ts';
+import { gitUiKeys } from './keys/gitUi.ts';
+import { editorKeys } from './keys/editor.ts';
 import { headerKeys } from './keys/header.ts';
 import { homeKeys } from './keys/home.ts';
+import { interruptedKeys } from './keys/interrupted.ts';
+import { overlapKeys } from './keys/overlap.ts';
 import { httpKeys } from './keys/http.ts';
 import { launchKeys } from './keys/launch.ts';
 import { listKeys } from './keys/list.ts';
@@ -57,6 +62,7 @@ import { readinessKeys } from './keys/readiness.ts';
 import { compatKeys } from './keys/compat.ts';
 import { dbKeys } from './keys/db.ts';
 import { updateKeys } from './keys/update.ts';
+import { stopKeys } from './keys/stop.ts';
 
 /**
  * 文言の鍵の一覧。鍵ごとに、その文が受け取る引数の名前を並べる。
@@ -80,9 +86,14 @@ export const MESSAGES = {
   ...configSyncKeys,
   ...configSyncUiKeys,
   ...confirmKeys,
+  ...gitKeys,
+  ...gitUiKeys,
+  ...editorKeys,
   ...externalKeys,
   ...headerKeys,
   ...homeKeys,
+  ...interruptedKeys,
+  ...overlapKeys,
   ...httpKeys,
   ...launchKeys,
   ...listKeys,
@@ -130,6 +141,7 @@ export const MESSAGES = {
   ...compatKeys,
   ...dbKeys,
   ...updateKeys,
+  ...stopKeys,
 } as const satisfies MessageSpec;
 
 export type MessageKey = keyof typeof MESSAGES;

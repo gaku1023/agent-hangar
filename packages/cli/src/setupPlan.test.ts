@@ -74,6 +74,24 @@ describe('planSetup（書かずに、書く先と差分を返す）', () => {
     expect(JSON.stringify(u)).not.toContain(token());
   });
 
+  it('MCP の解除：見せる差分の後の形（消す行を除いた行）が、書いた mcpServers と同じ形になる', async () => {
+    const server = { type: 'http', url: 'http://127.0.0.1:4177/mcp' };
+    const after = (lines: { k: string; t: string }[]) => lines.filter((l) => l.k !== 'del').map((l) => l.t);
+    // hangar だけのときは、空の mcpServers が残る（Claude Code の claude mcp remove -s user と同じ形）。
+    fs.writeFileSync(env.claudeJson, JSON.stringify({ userID: 'u1', mcpServers: { hangar: server } }), { mode: 0o600 });
+    const only = planSetup('mcp-uninstall', env);
+    expect(after(only.files[0]!.lines)).toEqual(['"mcpServers": {', '}']);
+    expect(await runSetupWrite('mcp-uninstall', env, only.fingerprint)).toMatchObject({ ok: true, result: { changed: true } });
+    expect(JSON.parse(fs.readFileSync(env.claudeJson, 'utf8'))).toEqual({ userID: 'u1', mcpServers: {} });
+    // ほかのサーバが残るときは、最後に残るサーバの行の , も外れる。
+    fs.writeFileSync(env.claudeJson, JSON.stringify({ mcpServers: { a: { type: 'stdio' }, b: { type: 'stdio' }, hangar: server } }), { mode: 0o600 });
+    const rest = planSetup('mcp-uninstall', env);
+    expect(after(rest.files[0]!.lines)).toEqual(['"mcpServers": {', '  "a": { … },', '  "b": { … }', '}']);
+    expect(rest.files[0]!.lines.filter((l) => l.k === 'del').map((l) => l.t)).toContain('  "b": { … },');
+    expect(await runSetupWrite('mcp-uninstall', env, rest.fingerprint)).toMatchObject({ ok: true, result: { changed: true } });
+    expect(Object.keys(JSON.parse(fs.readFileSync(env.claudeJson, 'utf8')).mcpServers)).toEqual(['a', 'b']);
+  });
+
   it('MCP：壊れた JSON と claude の無い PC は blocked', () => {
     fs.writeFileSync(env.claudeJson, '{ x');
     expect(planSetup('mcp-install', env)).toMatchObject({ state: 'blocked', reason: { code: 'broken-json' } });

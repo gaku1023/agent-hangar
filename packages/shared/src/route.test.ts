@@ -60,4 +60,8 @@ describe('settingsSectionOf', () => {
     for (const at of ['workspace', 'tmux', 'claude'] as const) expect(settingsSectionOf(at)).toBe('tools');
     expect(settingsSectionOf('compat')).toBe('integrations');
   });
+  it('エディタの欄は一般の節にある', () => {
+    expect(settingsSectionOf('editor')).toBe('general');
+    expect(parseRoute('#/settings?at=editor')).toEqual({ name: 'settings', at: 'editor' });
+  });
 });

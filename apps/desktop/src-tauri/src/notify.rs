@@ -1,5 +1,6 @@
-//! 入力待ちと戻る時刻の OS の通知（macOS は UNUserNotificationCenter、Windows はトースト）。
-//! UI（サーバの頁）が窓の背面で入力待ちを見つけたら `notify_waiting` を呼び、殻が通知を出す。
+//! 入力待ち、戻る時刻、使用制限の OS の通知（macOS は UNUserNotificationCenter、Windows はトースト）。
+//! 入力待ち（許可待ちとリセット済みも含む）と使用制限は、サーバが決めて並べ、殻が読みに行って出す（`feed`）。
+//! 戻る時刻と、ブラウザの頁の通知は、今までどおり頁が `notify_waiting` を呼ぶ。
 //! 通知を押されたら、窓を前に出し、頁の `__hangarOpenWaiting` でそのセッションを開く。
 //! 押された通知からセッションを読み戻す入口（`session_of` と `install` に渡す受け口）は、どちらの OS でも同じである。
 //! 頁の値はここで確かめてから OS に渡す。
@@ -7,6 +8,7 @@
 
 use std::collections::HashSet;
 
+pub mod feed;
 pub mod hold;
 
 /// 通知の識別子の頭。
@@ -14,6 +16,7 @@ pub mod hold;
 /// 入力待ちの頭は前の版と同じにしてある。前の版が出した通知を押しても、同じセッションが開く。
 const WAITING_PREFIX: &str = "hangar-waiting:";
 const RETURN_PREFIX: &str = "hangar-return:";
+const LIMIT_PREFIX: &str = "hangar-limit:";
 /// 題と本文の長さの上限（文字数）。
 /// 通知は 2 行ほどしか見せないので、長い問いは切る。
 const TITLE_MAX: usize = 120;
@@ -23,13 +26,15 @@ const BODY_MAX: usize = 240;
 const ID_MAX: usize = 64;
 
 /// 知らせの種類。
-/// 入力待ちと、Paused の戻る時刻を過ぎた知らせである。
+/// 入力待ち（許可待ちとリセット済みも含む）と、Paused の戻る時刻を過ぎた知らせと、使用制限の知らせである。
+/// 使用制限はアカウントごとに 1 通で、先に止まったセッションの id を枠の名前にする（押すとそのセッションを開く）。
 /// 種類ごとに通知の枠（macOS の識別子、Windows のタグと組）を分ける。
 /// 同じ枠に入れると、後から来た戻る時刻の知らせが、同じセッションの入力待ちの知らせを置き換えて問いの文を消すからである。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     Waiting,
     Return,
+    Limit,
 }
 
 impl Kind {
@@ -39,6 +44,7 @@ impl Kind {
         match name {
             None | Some("waiting") => Ok(Kind::Waiting),
             Some("return") => Ok(Kind::Return),
+            Some("limit") => Ok(Kind::Limit),
             Some(_) => Err("invalid notification kind".to_string()),
         }
     }
@@ -47,6 +53,7 @@ impl Kind {
         match self {
             Kind::Waiting => WAITING_PREFIX,
             Kind::Return => RETURN_PREFIX,
+            Kind::Limit => LIMIT_PREFIX,
         }
     }
 }
@@ -61,31 +68,43 @@ pub struct Waiting {
 }
 
 /// 通知センターに残してよい知らせ。
-/// 頁が、いま入力待ちのセッションと、今日の戻る時刻を過ぎてまだ Paused のセッションを渡す。
+/// 頁が、いま入力待ちのセッションと、今日の戻る時刻を過ぎてまだ Paused のセッションと、使用制限でリセットを待っているセッションを渡す。
 /// ここに無いセッションの知らせは、通知センターから外す（`prune`）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Keep {
     waiting: HashSet<String>,
     returning: HashSet<String>,
+    limited: HashSet<String>,
+}
+
+/// id の並びから、id の形のものだけを集める。頁の値なので、形でないものは捨てる（そういう id の通知は出していない）。
+fn plain_ids(ids: &[String]) -> HashSet<String> {
+    ids.iter().filter(|id| valid_id(id)).cloned().collect()
 }
 
 impl Keep {
     /// 頁から届いた id の並びから作る。
     /// 頁の値なので、id の形でないものは捨てる（そういう id の通知は出していない）。
     pub fn new(waiting: &[String], returning: &[String]) -> Keep {
-        let plain = |ids: &[String]| -> HashSet<String> {
-            ids.iter().filter(|id| valid_id(id)).cloned().collect()
-        };
         Keep {
-            waiting: plain(waiting),
-            returning: plain(returning),
+            waiting: plain_ids(waiting),
+            returning: plain_ids(returning),
+            limited: HashSet::new(),
         }
+    }
+
+    /// 使用制限でリセットを待っているセッション（その知らせを残す）を足す。
+    /// 渡さない前の版の頁では空のままで、使用制限の知らせは次の顔ぶれで外れる。
+    pub fn with_limited(mut self, limited: &[String]) -> Keep {
+        self.limited = plain_ids(limited);
+        self
     }
 
     fn set(&self, kind: Kind) -> &HashSet<String> {
         match kind {
             Kind::Waiting => &self.waiting,
             Kind::Return => &self.returning,
+            Kind::Limit => &self.limited,
         }
     }
 
@@ -99,8 +118,20 @@ impl Keep {
         let set = match kind {
             Kind::Waiting => &mut self.waiting,
             Kind::Return => &mut self.returning,
+            Kind::Limit => &mut self.limited,
         };
         set.insert(session_id.to_string());
+    }
+
+    /// 出してあるトーストの識別子を、残すものに足す。
+    /// 外すのは別の糸で、頁が一覧を渡した後に出したトーストを、前の一覧で外さないためである。
+    /// hangar の識別子でないものは足さない。
+    pub fn extend_shown<'a>(&mut self, shown: impl IntoIterator<Item = &'a str>) {
+        for id in shown {
+            if let Some((kind, session_id)) = parse_identifier(id) {
+                self.insert(kind, session_id);
+            }
+        }
     }
 }
 
@@ -219,12 +250,14 @@ pub fn identifier(kind: Kind, session_id: &str) -> String {
 /// 通知の識別子から、種類とセッションの id を読み戻す。
 /// hangar の通知でなければ `None`。
 pub fn parse_identifier(identifier: &str) -> Option<(Kind, &str)> {
-    [Kind::Waiting, Kind::Return].into_iter().find_map(|kind| {
-        identifier
-            .strip_prefix(kind.prefix())
-            .filter(|id| valid_id(id))
-            .map(|id| (kind, id))
-    })
+    [Kind::Waiting, Kind::Return, Kind::Limit]
+        .into_iter()
+        .find_map(|kind| {
+            identifier
+                .strip_prefix(kind.prefix())
+                .filter(|id| valid_id(id))
+                .map(|id| (kind, id))
+        })
 }
 
 /// 押された通知の識別子から、セッションの id を読み戻す。
@@ -276,12 +309,27 @@ mod toast {
     /// 入力待ちの組は前の版と同じ名前で、前の版は戻る時刻の知らせもこの組に入れていた。
     const WAITING_GROUP: &str = "hangar-waiting";
     const RETURN_GROUP: &str = "hangar-return";
+    const LIMIT_GROUP: &str = "hangar-limit";
     /// アプリが閉じている間に押されたトーストを受け取る COM の口の CLSID。
     /// 値は一度だけ作って固定した。
     /// 変えると、前の版が出したトーストを押しても、この版へ届かなくなる。
     pub const ACTIVATOR_CLSID: u128 = 0x1ce6ab2a_d79d_49f4_88b0_5a9e624a75e4;
     /// 1 回の押下を Windows が 2 つの道（COM の口と、トーストの Activated）で知らせても、1 回だけ開くための間合い。
     const OPEN_AGAIN_AFTER: Duration = Duration::from_secs(2);
+
+    /// Windows の呼び出しの失敗を、ログの 1 行の形にする。
+    /// 文は、コード（HRESULT）から OS が引いた文だけを使い、コードを 16 進で添える。
+    /// windows の Error の表示は、糸に残った前の失敗の説明（IErrorInfo）を拾うことがある。
+    /// そのため、コードと合わない文（0x8001010D に「クラスが登録されていません」）や、化けた文が出た。
+    pub fn hresult_line(code: i32, message: &str) -> String {
+        let code = format!("0x{:08X}", code as u32);
+        let message = message.trim();
+        if message.is_empty() {
+            code
+        } else {
+            format!("{message} ({code})")
+        }
+    }
 
     /// XML の本文と属性に入れられるよう、特別な 5 文字を置き換える。
     fn xml_escape(text: &str) -> String {
@@ -329,11 +377,12 @@ mod toast {
         match kind {
             Kind::Waiting => WAITING_GROUP,
             Kind::Return => RETURN_GROUP,
+            Kind::Limit => LIMIT_GROUP,
         }
     }
 
     fn kind_of_group(group: &str) -> Option<Kind> {
-        [Kind::Waiting, Kind::Return]
+        [Kind::Waiting, Kind::Return, Kind::Limit]
             .into_iter()
             .find(|k| toast_group(*k) == group)
     }
@@ -455,17 +504,19 @@ pub fn prune(_keep: Keep) {}
 #[cfg(windows)]
 mod win {
     use super::toast::{
-        activator_clsid, app_id_key, first_open, installed_exe, server_command, server_key,
-        setting_status, stale_toasts, toast_group, toast_tag, toast_xml, ACTIVATOR_CLSID, APP_ID,
-        DISPLAY_NAME,
+        activator_clsid, app_id_key, first_open, hresult_line, installed_exe, server_command,
+        server_key, setting_status, stale_toasts, toast_group, toast_tag, toast_xml,
+        ACTIVATOR_CLSID, APP_ID, DISPLAY_NAME,
     };
     use super::{identifier, parse_identifier, session_of, Keep, Waiting};
     use std::collections::HashMap;
     use std::ffi::c_void;
+    use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::{LazyLock, Mutex, OnceLock};
     use std::time::Instant;
     use windows::core::{
-        implement, IInspectable, IUnknown, Interface, Ref, Result, BOOL, GUID, HSTRING, PCWSTR,
+        implement, Error, IInspectable, IUnknown, Interface, Ref, Result, BOOL, GUID, HSTRING,
+        PCWSTR,
     };
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::Foundation::TypedEventHandler;
@@ -497,6 +548,8 @@ mod win {
     /// Activated の受け口が生きているよう、セッションと種類ごと（識別子ごと）に最後の 1 つを持っておく。
     static TOASTS: LazyLock<Mutex<HashMap<String, ToastNotification>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
+    /// 通知センターから外す糸へ、残すものの一覧を渡す口（`prune`）。
+    static PRUNER: OnceLock<Mutex<Sender<Keep>>> = OnceLock::new();
     /// 通知センターの頭に出す絵。
     /// 登録の IconUri は画像のファイルを指す決まりなので、hangar の置き場に書き出して指す。
     static ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
@@ -643,7 +696,7 @@ mod win {
         match registered {
             Ok(_) => crate::log("toast activator registered"),
             Err(e) => {
-                crate::log(&format!("toast activator not registered: {e}"));
+                crate::log(&format!("toast activator not registered: {}", describe(&e)));
                 return;
             }
         }
@@ -726,7 +779,7 @@ mod win {
         }
         match deliver(w) {
             Ok(()) => crate::log("toast handed to Windows"),
-            Err(e) => crate::log(&format!("toast not shown: {e}")),
+            Err(e) => crate::log(&format!("toast not shown: {}", describe(&e))),
         }
     }
 
@@ -747,9 +800,18 @@ mod win {
         Ok(stale.len())
     }
 
+    /// 失敗をログの 1 行の文にする。
+    /// Error の表示は糸に残った前の失敗の説明を拾うことがあるので、コードとコードから引いた文だけを使う（`hresult_line`）。
+    fn describe(e: &Error) -> String {
+        hresult_line(e.code().0, &e.code().message())
+    }
+
     /// もう待っていないセッションのトーストを、通知センターから外す。
     /// 頁は、入力待ちの顔ぶれか今日の戻る時刻を過ぎた顔ぶれが変わるたびと、起動して一覧を読み終えたときに呼ぶ。
     /// 起動のときは前の起動の間に出したトーストが残っているので、ここで外す。今も待っているものは残し、出し直しはしない。
+    /// 通知センターの履歴は別のプロセスにあり、読むと外への呼び出しになる。
+    /// 頁の命令は窓の糸で、WebView2 の知らせを配っている途中に呼ばれるので、そこから外へ呼ぶと Windows が断る（0x8001010D、RPC_E_CANTCALLOUT_ININPUTSYNCCALL）。
+    /// なので、外すのは COM を自分で始めた別の糸（`prune_loop`）に任せ、ここは覚えておくトーストを絞って一覧を渡すだけにする。
     pub fn prune(keep: Keep) {
         if !installed() {
             return;
@@ -757,10 +819,43 @@ mod win {
         if let Ok(mut toasts) = TOASTS.lock() {
             toasts.retain(|id, _| parse_identifier(id).is_some_and(|(k, s)| keep.holds(k, s)));
         }
-        match remove_stale(&keep) {
-            Ok(0) => {}
-            Ok(n) => crate::log(&format!("toasts removed: {n}")),
-            Err(e) => crate::log(&format!("toasts not removed: {e}")),
+        let sent = PRUNER
+            .get_or_init(|| {
+                let (tx, rx) = channel();
+                let _ = std::thread::Builder::new()
+                    .name("toast-prune".into())
+                    .spawn(move || prune_loop(rx));
+                Mutex::new(tx)
+            })
+            .lock()
+            .map(|tx| tx.send(keep).is_ok())
+            .unwrap_or(false);
+        if !sent {
+            crate::log("toasts not removed: the removing thread is not running");
+        }
+    }
+
+    /// 通知センターから外す糸。
+    /// 一覧は届いた順に扱い、溜まっていれば、いちばん新しいものだけを使う。
+    /// 頁が一覧を渡した後に出したトーストは、出したもの（TOASTS）に入っているので、残すものに足してから外す。
+    fn prune_loop(rx: Receiver<Keep>) {
+        // SAFETY: この糸で COM を一度だけ始め、終わりまで抜けない。
+        if unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_err() {
+            crate::log("toasts not removed: COM did not start");
+            return;
+        }
+        while let Ok(mut keep) = rx.recv() {
+            while let Ok(newer) = rx.try_recv() {
+                keep = newer;
+            }
+            if let Ok(toasts) = TOASTS.lock() {
+                keep.extend_shown(toasts.keys().map(String::as_str));
+            }
+            match remove_stale(&keep) {
+                Ok(0) => {}
+                Ok(n) => crate::log(&format!("toasts removed: {n}")),
+                Err(e) => crate::log(&format!("toasts not removed: {}", describe(&e))),
+            }
         }
     }
 }
@@ -1333,6 +1428,7 @@ mod tests {
         assert_eq!(Kind::parse(None), Ok(Kind::Waiting));
         assert_eq!(Kind::parse(Some("waiting")), Ok(Kind::Waiting));
         assert_eq!(Kind::parse(Some("return")), Ok(Kind::Return));
+        assert_eq!(Kind::parse(Some("limit")), Ok(Kind::Limit));
         assert!(Kind::parse(Some("other")).is_err());
         assert!(Kind::parse(Some("")).is_err());
     }
@@ -1385,8 +1481,37 @@ mod tests {
         assert_eq!(session_of(launch), Some("s1"));
     }
 
+    /// 使用制限の知らせは、アカウントごとの 1 通で、同じセッションの入力待ちや戻る時刻の知らせとは別の枠に入る。
+    #[test]
+    fn a_limit_notice_has_its_own_slot_and_reads_back_the_session() {
+        assert_eq!(identifier(Kind::Limit, "s1"), "hangar-limit:s1");
+        assert_ne!(
+            identifier(Kind::Limit, "s1"),
+            identifier(Kind::Waiting, "s1")
+        );
+        assert_eq!(
+            parse_identifier("hangar-limit:s1"),
+            Some((Kind::Limit, "s1"))
+        );
+        assert_eq!(session_of("hangar-limit:s1"), Some("s1"));
+        assert_eq!(toast_group(Kind::Limit), "hangar-limit");
+        assert_ne!(toast_group(Kind::Limit), toast_group(Kind::Waiting));
+    }
+
     fn ids(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_keep_list_holds_the_limited_sessions_apart() {
+        let keep = Keep::new(&ids(&["s1"]), &[]).with_limited(&ids(&["s2", "x\"y"]));
+        assert!(keep.holds(Kind::Limit, "s2"));
+        assert!(!keep.holds(Kind::Limit, "x\"y"));
+        assert!(!keep.holds(Kind::Limit, "s1"));
+        assert!(!keep.holds(Kind::Waiting, "s2"));
+        let mut empty = Keep::default();
+        empty.insert(Kind::Limit, "s3");
+        assert!(empty.holds(Kind::Limit, "s3"));
     }
 
     #[test]
@@ -1469,5 +1594,29 @@ mod tests {
         assert!(js.contains("var id=\"s1\""));
         assert!(js.contains("window.__hangarOpenWaiting(id)"));
         assert!(js.contains("location.hash=\"#/session/\"+id"));
+    }
+
+    /// 外す前に出したトーストは、外す時点の一覧になくても残す（外すのは別の糸で、出すのより後になることがある）。
+    #[test]
+    fn toasts_shown_before_the_removal_runs_are_kept() {
+        let mut keep = Keep::new(&ids(&["s1"]), &[]);
+        keep.extend_shown(["hangar-waiting:s2", "hangar-return:s3", "something-else"]);
+        assert!(keep.holds(Kind::Waiting, "s1"));
+        assert!(keep.holds(Kind::Waiting, "s2"));
+        assert!(keep.holds(Kind::Return, "s3"));
+        assert!(!keep.holds(Kind::Return, "s2"));
+    }
+
+    /// 失敗の 1 行は、コードと、コードから OS が引いた文だけで書く。
+    /// 糸に残った前の失敗の説明は使わない（コードと合わない文や、化けた文が出た）。
+    #[test]
+    fn a_failure_line_names_the_code_in_hex_with_its_own_message() {
+        let msg = "the call cannot be made now";
+        assert_eq!(
+            hresult_line(0x8001_010Du32 as i32, msg),
+            "the call cannot be made now (0x8001010D)"
+        );
+        assert_eq!(hresult_line(0x8001_010Du32 as i32, "  \r\n"), "0x8001010D");
+        assert_eq!(hresult_line(5, "x\r\n"), "x (0x00000005)");
     }
 }

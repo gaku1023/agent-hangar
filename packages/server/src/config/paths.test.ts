@@ -62,7 +62,17 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp, 'darwin');
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', codePath: null, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, language: 'ja' });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, language: 'ja' });
+  });
+  it('0.4.0 までの codePath は、VS Code とその場所のエディタに読み替え、古い鍵は持たない', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c', codePath: '/usr/local/bin/code' }));
+    const s = loadSettings(tmp, 'darwin');
+    expect(s.editor).toEqual({ id: 'vscode', path: '/usr/local/bin/code', fileCmd: '', dirCmd: '', terminal: 'none' });
+    expect('codePath' in s).toBe(false);
+    // editor を持つ設定は、それをそのまま使う。
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c', codePath: '/x/code', editor: { id: 'zed', path: null, fileCmd: '', dirCmd: '', terminal: 'none' } }));
+    expect(loadSettings(tmp, 'darwin').editor.id).toBe('zed');
   });
   it('外部ターミナルの既定は OS で決め、別の OS で保存した値はその OS の既定に読み替える', () => {
     ensureHome(tmp);

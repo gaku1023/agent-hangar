@@ -7,6 +7,7 @@ import { accountsRoutes, type AccountsDeps } from './accounts.ts';
 import { authMiddleware, tokenEquals, tokenFromRequest } from './auth.ts';
 import type { AppDeps } from './deps.ts';
 import { artifactRoutes } from './routes/artifacts.ts';
+import { notifyRoutes } from './routes/notify.ts';
 import { bootstrapRoutes } from './routes/bootstrap.ts';
 import { beforeLaunchOf } from './routes/common.ts';
 import { instructionRoutes } from './routes/instructions.ts';
@@ -19,6 +20,10 @@ import { sessionRoutes } from './routes/sessions.ts';
 import { settingsRoutes } from './routes/settings.ts';
 import { syncRoutes } from './routes/sync.ts';
 import { systemRoutes } from './routes/system.ts';
+import { gitRoutes } from './routes/git.ts';
+import { GitService } from '../git/service.ts';
+import { gitPath } from '../git/find.ts';
+import { spawnGit } from '../git/status.ts';
 import { todoRoutes } from './routes/todos.ts';
 import { usageRoutes } from './routes/usage.ts';
 
@@ -133,10 +138,12 @@ export function createApp(deps: AppDeps): Hono {
   memoRoutes(api, deps);
   instructionRoutes(api, deps);
   artifactRoutes(api, deps);
+  notifyRoutes(api, deps);
+  gitRoutes(api, { ...deps, git: deps.git ?? new GitService({ db, deviceId, live: deps.live, broadcast: (git) => deps.hub.broadcast({ type: 'git.upsert', git }), exec: () => { const f = gitPath(); return f ? spawnGit(f) : null; } }) });
 
   app.route('/api', api);
   // MCP は自前の認証と Origin の検査を持つので、/api の認証を通さずに直接 mount する。
-  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, language }));
+  app.route('/mcp', createMcpApp({ db, deviceId, port: deps.port, token: deps.token, live: deps.live, runs: deps.runs, usage: () => deps.usage.current(), accounts: deps.accounts, language, ...(deps.permissionAsks ? { permissionAsks: deps.permissionAsks } : {}) }));
 
   if (deps.uiDist) {
     const dist = path.resolve(deps.uiDist);

@@ -22,9 +22,21 @@ export function runCommand(o: { runId: string; wrapper: string; log: string; com
  * unset はシェルに渡さない変数の名前。タブも tmux サーバの環境を継ぐので、macOS と Linux は env -u で外してからシェルを起こす。
  * Windows は PowerShell の前に置ける env コマンドが無いので外さない（claude の run は包みが外す）。
  */
-export function shellTabCommand(o: { shell?: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; unset?: readonly string[] } = {}): string[] {
+export function shellTabCommand(o: { shell?: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; unset?: readonly string[]; then?: readonly string[] } = {}): string[] {
   const env = o.env ?? process.env;
-  if ((o.platform ?? process.platform) === 'win32') return [o.shell ?? 'powershell.exe', '-NoLogo'];
+  // then は、シェルより先に起こすコマンド（任意のエディタの「シェルタブで開く」）。閉じたらそのシェルに戻す。
+  const then = o.then ?? [];
+  if ((o.platform ?? process.platform) === 'win32') {
+    const ps = o.shell ?? 'powershell.exe';
+    return then.length > 0 ? [ps, '-NoLogo', '-NoExit', '-Command', `& ${then.map(psQuote).join(' ')}`] : [ps, '-NoLogo'];
+  }
   const unset = o.unset ?? [];
-  return [...(unset.length > 0 ? ['env', ...unset.flatMap((n) => ['-u', n])] : []), o.shell ?? env.SHELL ?? '/bin/zsh', '-l'];
+  const shell = o.shell ?? env.SHELL ?? '/bin/zsh';
+  const head = [...(unset.length > 0 ? ['env', ...unset.flatMap((n) => ['-u', n])] : []), shell, '-l'];
+  return then.length > 0 ? [...head, '-c', `${then.map(shQuote).join(' ')}; exec ${shQuote(shell)} -l`] : head;
 }
+
+/** sh の単一引用。 */
+const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+/** PowerShell の単一引用。中の ' は 2 つ重ねる。 */
+const psQuote = (s: string) => `'${s.replace(/'/g, "''")}'`;

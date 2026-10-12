@@ -83,4 +83,11 @@ export const homeKeys = {
   'home.card.idleNote': ['time'],
   'home.card.workingNote': [],
   'home.card.startingNote': [],
+  'home.ready.name.git': [],
+  'home.ready.name.editor': [],
+  'home.ready.git.text': [],
+  'home.ready.editor.missing': ['name'],
+  'home.ready.editor.customMissing': ['command'],
+  'home.ready.editor.ok': ['name', 'path'],
+  'home.ready.editor.appOnly': ['name', 'path'],
 } as const satisfies MessageSpec;

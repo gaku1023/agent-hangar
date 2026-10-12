@@ -1,6 +1,8 @@
 import { Fragment, useId, useLayoutEffect, useRef, useState } from 'react';
+import { GitChip } from './GitChip.tsx';
 import { useEmit } from '../action/chain.tsx';
-import type { BandGroup, BandLead, BandRow, HomeBandProps } from '../presenters/home.ts';
+import type { BandAction, BandGroup, BandLead, BandRow, BandSection, HomeBandProps } from '../presenters/home.ts';
+import { OverlapChip } from './OverlapPopover.tsx';
 import { CountChip } from './primitives/Chip.tsx';
 import { Icon, type IconName } from './primitives/Icon.tsx';
 import { useT } from './primitives/language.tsx';
@@ -64,7 +66,7 @@ export function HomeBand(props: HomeBandProps & { searching?: boolean; note?: st
     <section className="home-band" aria-label={t('home.band.label')}>
       <div className="band">
         {props.groups.map((g) => {
-          const chip = { label: g.label, count: g.count, countText: g.countText, icon: g.icon, tone: g.tone, rolling: true } as const;
+          const chip = { label: g.label, count: g.count, countText: g.countText, icon: g.icon, tone: g.tone, rolling: true, mark: g.mark ?? null } as const;
           // 検索の間と 0 件は、onClick を渡さず、読むだけの札にする。
           const bar = g.progress !== undefined ? <span className="band-prog" aria-hidden="true"><span style={{ width: `${g.progress}%` }} /></span> : null;
           if (searching || g.count === 0) return <Fragment key={g.id}><CountChip {...chip} />{bar}</Fragment>;
@@ -87,6 +89,11 @@ export function HomeBand(props: HomeBandProps & { searching?: boolean; note?: st
             <div className="drawer-h">
               <b>{d.label}</b>
               {d.summary !== '' && <span className="faint">{d.summary}</span>}
+              {d.headActions && d.headActions.length > 0 && (
+                <span className="drawer-acts">
+                  {d.headActions.map((a) => <BandButton key={a.id} action={a} />)}
+                </span>
+              )}
               <button type="button" className="drawer-close" onClick={() => { setOpen(null); pills.current.get(d.id)?.focus(); }}>
                 {t('home.band.collapse')}<Icon name="chevronUp" />
               </button>
@@ -134,7 +141,12 @@ function BandRows(props: { rows: BandRow[]; scope: string; folded?: boolean; id?
   const { list, ref } = useMotionList(props.rows, (r) => r.key, { enter: 'grow', flip: false, hitRisen: true, scope: props.scope });
   return (
     <ul className={props.folded ? 'drawer-list drawer-folded' : 'drawer-list'} id={props.id}>
-      {list.map((e) => <BandRowView key={e.key} row={e.item} leaving={e.leaving} rowRef={ref(e.key)} />)}
+      {list.map((e, i) => {
+        // 小見出し（アカウント）は、区切りが前の行と替わったところに置く。
+        const sec = e.item.section;
+        const head = sec && (i === 0 || list[i - 1]!.item.section?.key !== sec.key) ? <BandSectionHead key={`sec:${sec.key}`} section={sec} /> : null;
+        return <Fragment key={e.key}>{head}<BandRowView row={e.item} leaving={e.leaving} rowRef={ref(e.key)} /></Fragment>;
+      })}
     </ul>
   );
 }
@@ -146,14 +158,46 @@ const CHECK_ICON: Record<'ok' | 'info' | 'soft' | 'ng', IconName> = { ok: 'ok', 
 function Lead(props: { lead: BandLead }) {
   const l = props.lead;
   switch (l.kind) {
-    case 'dot': return <StatusDot status={l.live} aside={l.aside} />;
+    case 'dot': return <StatusDot status={l.live} aside={l.aside} reason={l.reason ?? null} />;
     case 'tag': return l.tone === 'cand'
       ? <span className="home-cand">{l.text}</span>
       : <span className="return-when" data-due={l.tone === 'due' ? 'true' : undefined} title={l.title}>{l.text}</span>;
     case 'todo': return <span className="cand-mark" aria-hidden="true" />;
     case 'place': return <span className="place-mark" aria-hidden="true"><Icon name="folder" /></span>;
     case 'check': return <span className="ck-mark" data-tone={l.tone} role="img" aria-label={l.label}><Icon name={CHECK_ICON[l.tone]} /></span>;
+    case 'ring': return <span className="int-ring" data-spin={l.spin ? 'true' : undefined} role="img" aria-label={l.label} />;
   }
+}
+
+/** 行と見出しのボタン。icon があれば絵だけを出し、読み上げの名前は ariaLabel のままにする。 */
+function BandButton(props: { action: BandAction }) {
+  const emit = useEmit();
+  const a = props.action;
+  const cls = `btn btn-sm${a.primary ? ' btn-primary' : ''}${a.ghost ? ' btn-ghost' : ''}${a.icon ? ' btn-icon' : ''}`;
+  return (
+    <button type="button" className={cls} aria-label={a.ariaLabel} title={a.icon ? a.label : undefined} disabled={a.disabled} onClick={() => emit(a.send)}>
+      {a.icon ? <Icon name={a.icon} /> : a.label}
+    </button>
+  );
+}
+
+/** 引き出しの中の小見出し（中断の群のアカウント）。色の点、名前、5 時間の使用率、添える一言、ボタン（ログイン）。 */
+function BandSectionHead(props: { section: BandSection }) {
+  const s = props.section;
+  return (
+    <li className="crow-sec">
+      <span className="sec-dot" style={{ background: s.color }} aria-hidden="true" />
+      <b>{s.name}</b>
+      {s.meter && (
+        <span className="sec-meter" data-high={s.meter.high ? 'true' : undefined}>
+          <span>{s.meter.label}</span>
+          <span className="sec-bar" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, s.meter.percent))}%` }} /></span>
+        </span>
+      )}
+      {s.note && <span className="sec-note" data-tone={s.note.tone}>{s.note.text}</span>}
+      {s.action && <BandButton action={s.action} />}
+    </li>
+  );
 }
 
 /** 引き出しの 1 行。1 件を 1 行で読み、ボタンは右端に置く。 */
@@ -168,15 +212,19 @@ function BandRowView(props: { row: BandRow; leaving?: boolean; rowRef?: (el: HTM
         ? <button type="button" className="c-name c-link" onClick={() => emit(open)}>{r.name}</button>
         : <span className="c-name">{r.name}{r.badge && <span className="c-badge">{r.badge}</span>}</span>}
       {r.context !== null && <span className="c-proj">{r.context}</span>}
+      {r.textHead && <span className="c-head" data-tone={r.textHead.tone}>{r.textHead.text}</span>}
       {r.lead.kind === 'check'
         // 確認の行は、説明を先に切り、命令（コピーする文）を残す。
         ? <span className="c-text"><span className="c-desc">{r.text}</span>{r.detail !== null && <i>{r.detail}</i>}</span>
-        : <span className="c-text">{r.text}{r.text !== '' && r.detail !== null && '　'}{r.detail !== null && <i>{r.detail}</i>}</span>}
+        : r.ask
+          // 許可待ちは、道具の札と命令（等幅）を先に、Claude の説明を後ろに置く（試作の B1）。
+          ? <span className="c-text"><span className="c-tool">{r.ask.tool}</span>{r.ask.input !== '' && <code className="c-cmd">{r.ask.input}</code>}{r.text !== '' && <span className="c-why">{r.text}</span>}</span>
+          : <span className="c-text">{r.text}{r.text !== '' && r.detail !== null && '　'}{r.detail !== null && <i>{r.detail}</i>}</span>}
       <span className="c-end">
+        {r.overlap && <OverlapChip overlap={r.overlap} name={r.name} />}
+        {r.git && <GitChip id={r.git.id} chip={r.git.chip} />}
         {r.trail.map((x, i) => <span key={i} data-tone={x.tone}>{x.text}</span>)}
-        {r.actions.map((a) => (
-          <button key={a.id} type="button" className={`btn btn-sm${a.primary ? ' btn-primary' : ''}${a.ghost ? ' btn-ghost' : ''}`} aria-label={a.ariaLabel} onClick={() => emit(a.send)}>{a.label}</button>
-        ))}
+        {r.actions.map((a) => <BandButton key={a.id} action={a} />)}
       </span>
     </li>
   );

@@ -1,8 +1,9 @@
-import { liveFilterOf, quietLive, type LiveFilter } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
 import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
-import type { SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, InstructionsDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, UiAction, SessionFilesDto, AccountDto, AccountsDto, ArtifactDto, BootstrapDto, CloudUsageDto, CompatDto, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, ConfigSyncDto, ConfigUnsentDto, RetentionDto, RetentionPreviewDto, DeviceDto, EventsPageDto, IndexProgressDto, InstructionsDto, InterruptedDto, LaunchResultDto, LiveDigestDto, LiveAsideDto, LiveSessionDto, LiveStatus, MemoDto, ProjectDto, RunDto, SearchParamsDto, SearchResultDto, ServerEvent, ReadinessDto, SessionDto, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TodoDto, TranscriptEvent, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /**
  * 本文の読み込んだ分。
@@ -83,7 +84,31 @@ export type Store = {
   update: UpdateState;
   /** クラウド同期への参加と、PC の一覧と解除と、この PC の参加の解除（store/cloudMember.ts）。Runtime が入れる（runtime/cloudMember.ts）。 */
   cloudMember: CloudMemberState;
+  /** 中断の群（ホームの帯の「前回実行中」）。bootstrap と interrupted.update で入る。無ければ null。 */
+  interrupted: InterruptedDto | null;
+  /**
+   * git の表示（0.5.0）。git は一覧と (i) の札の値で、取得の答えとサーバの git.upsert を重ねる（セッションごと、作業ツリーの根ごと）。
+   * gitChanges は「変更したファイル」の差分の一覧、gitDiffs と gitEdits は差分のダイアログで選んだファイルの中身（鍵は gitFileKey）。
+   * 読めなかった差分と編集は error を持つ。projectGit はプロジェクト画面の「ブランチと worktree」。どれも端末ローカルで、同期しない。
+   */
+  git: GitDto;
+  gitChanges: Record<string, SessionChangesDto>;
+  gitDiffs: Record<string, GitDiffDto | { error: string }>;
+  gitEdits: Record<string, SessionEditsDto | { error: string }>;
+  projectGit: Record<string, ProjectGitDto>;
+  /** 設定のエディタの欄の候補（GET /api/editors）。設定の一般の節を開いたときと「再確認」で取り直す。未取得は null。 */
+  editors: EditorsDto | null;
+  /** エディタの「テスト」の答え。押してから答えが届くまでは running。 */
+  editorTest: EditorTestDto | 'running' | null;
+  /**
+   * エディタが見つからなくて断られた開く操作（409）。「<名前> が見つかりません」の面を出す。
+   * retry は同じ操作で、once を添えて「今回は <名前> で開く」に使う。n は同じ断りをもう一度受けたことに気付くための回数。閉じたら null。
+   */
+  editorMissing: (EditorMissingDto & { retry: EditorOpenAction; n: number }) | null;
 };
+
+/** エディタで開く操作。見つからないときの面から、once を添えて同じものを送り直す。 */
+export type EditorOpenAction = Extract<UiAction, { type: 'project.openEditor' | 'session.openEditor' | 'session.openFile' | 'artifact.openEditor' | 'instructions.openEditor' }>;
 
 export const eventsKey = (sessionId: string, agentId: string | null): string => `${sessionId}:${agentId ?? ''}`;
 
@@ -98,6 +123,9 @@ export function initialStore(): Store {
     readiness: null, compat: null, joinTokenExpiresAt: null, desktop: false, accounts: null, notify: { available: false, on: false, blocked: false }, workspaceDirs: null, pickedFolder: null,
     update: initialUpdate(),
     cloudMember: initialCloudMember(),
+    interrupted: null,
+    editors: null, editorTest: null, editorMissing: null,
+    git: { sessions: {}, trees: {} }, gitChanges: {}, gitDiffs: {}, gitEdits: {}, projectGit: {},
   };
 }
 
@@ -109,7 +137,7 @@ const byId = <T extends { id: string }>(items: T[]): Record<string, T> => Object
  * 差し替えると、終了した run のスクロールバックを見ている最中に画面が変わってしまう。
  */
 export function applyBootstrap(store: Store, b: BootstrapDto): Store {
-  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home };
+  return { ...store, bootstrapped: true, version: b.version, device: b.device, settings: b.settings, projects: byId(b.projects), sessions: byId(b.sessions), live: b.live, runs: { ...store.runs, ...byId(b.runs) }, tabs: { ...store.tabs, ...byId(b.tabs) }, index: b.index, todos: byId(b.todos), artifacts: byId(b.artifacts), summaryPending: Object.fromEntries(b.summaryPending.map((id) => [id, true as const])), sync: b.sync, devices: b.devices, retention: b.retention, cloudUsage: b.cloudUsage, accounts: b.accounts, configSync: b.configSync ?? null, home: b.home, interrupted: b.interrupted };
 }
 
 /** 鍵を 1 つ外す。無ければ同じ物を返す。 */
@@ -121,6 +149,9 @@ function without<T>(map: Record<string, T>, key: string): Record<string, T> {
 
 const sameAside = (a: LiveAsideDto | null, b: LiveAsideDto | null): boolean => a === b || (a !== null && b !== null && a.shell === b.shell && a.agents === b.agents);
 
+const samePermission = (a: PermissionAskDto | null, b: PermissionAskDto | null): boolean =>
+  a === b || (a !== null && b !== null && a.tool === b.tool && a.input === b.input && a.description === b.description);
+
 function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): Record<string, SessionDto> {
   const map = new Map(live.map((l) => [l.sessionId, l]));
   const out: Record<string, SessionDto> = {};
@@ -129,7 +160,12 @@ function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): R
     const status = l?.status ?? null;
     const name = l?.nameSource === 'user' && l.name ? l.name : s.name;
     const aside = l?.aside ?? null;
-    out[id] = status === s.live && name === s.name && sameAside(aside, s.liveAside) ? s : { ...s, live: status, name, liveAside: aside };
+    // 何を待っているかと許可の中身も、登録の写しなので引き直す。使用制限は実行中のときだけ意味を持つので、終わったら外す。
+    const waitingFor = l?.waitingFor ?? null;
+    const permission = l?.permission ?? null;
+    const limit = status === null ? null : s.limit ?? null;
+    const same = status === s.live && name === s.name && sameAside(aside, s.liveAside) && waitingFor === (s.waitingFor ?? null) && samePermission(permission, s.permission ?? null) && limit === (s.limit ?? null);
+    out[id] = same ? s : { ...s, live: status, name, liveAside: aside, waitingFor, permission, limit };
   }
   return out;
 }
@@ -166,6 +202,8 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
     case 'sync.usage': return { ...store, cloudUsage: ev.usage };
     case 'devices.update': return { ...store, devices: ev.devices };
     case 'retention.changed': return { ...store, retention: ev.retention };
+    case 'interrupted.update': return { ...store, interrupted: ev.interrupted };
+    case 'git.upsert': return applyGit(store, ev.git);
     case 'settings.changed': return { ...store, settings: ev.settings };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
     // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。
@@ -245,6 +283,14 @@ export function applySubagents(store: Store, sessionId: string, ids: string[]): 
   return { ...store, subagents: { ...store.subagents, [sessionId]: ids } };
 }
 
+/** git の値を重ねる。届いたセッションと作業ツリーだけを置き換え、ほかは残す。 */
+export function applyGit(store: Store, g: GitDto): Store {
+  return { ...store, git: { sessions: { ...store.git.sessions, ...g.sessions }, trees: { ...store.git.trees, ...g.trees } } };
+}
+
+/** 差分と編集の覚えの鍵。セッションとファイルの組。 */
+export const gitFileKey = (sessionId: string, file: string): string => `${sessionId}\n${file}`;
+
 export function applySessionFiles(store: Store, sessionId: string, files: SessionFilesDto['files']): Store {
   return { ...store, sessionFiles: { ...store.sessionFiles, [sessionId]: files } };
 }
@@ -281,7 +327,7 @@ export function runningSessionIds(store: Store): Set<string> {
  * alive を渡せば、何件も数えるときに run の集合を作り直さずに済む。
  */
 export function liveFilterOfSession(store: Store, session: SessionDto, alive: Set<string> = runningSessionIds(store)): LiveFilter {
-  return liveFilterOf(quietLive(session.live, session.state?.status), alive.has(session.id), session.parked);
+  return liveFilterOf(quietLive(liveWithLimit(session.live, session.limit), session.state?.status), alive.has(session.id), session.parked);
 }
 
 /**
@@ -290,7 +336,18 @@ export function liveFilterOfSession(store: Store, session: SessionDto, alive: Se
  * セッション画面は本当の動き（session.live）を出すので、これを使わない。
  */
 export function shownLive(session: SessionDto): LiveStatus | null {
-  return session.parked ? null : quietLive(session.live, session.state?.status);
+  return session.parked ? null : quietLive(liveWithLimit(session.live, session.limit), session.state?.status);
+}
+
+/**
+ * 一覧で見せる止まっている理由（shared の stopReasonOf）。shown は一覧で見せる動き（shownLive など）である。
+ * Done と Archived にした入力待ち（quietLive で休みに見せるもの）には付けない。
+ * 許可待ちとリセット済みは入力待ちに、使用制限は休みに見えているときだけ付ける。
+ */
+export function shownReason(s: SessionDto, shown: LiveStatus | null): StopReason | null {
+  const reason = stopReasonOf(s);
+  if (reason === 'permission' || reason === 'reset') return shown === 'waiting' ? reason : null;
+  return reason === 'limit' && shown === 'idle' ? reason : null;
 }
 
 /** 本体は入力を受け付けていて、裏の作業だけが動いているか（lib/aside.ts の asideOf）。一覧の見せ方は shownLive にそろえる。 */
@@ -339,7 +396,7 @@ export function liveSessionIds(store: Store): string[] {
  * Paused は戻ってくるものなので外さない。
  */
 export function awaitsAnswer(s: SessionDto): boolean {
-  return liveFilterOf(quietLive(s.live, s.state?.status), false) === 'waiting';
+  return liveFilterOf(quietLive(liveWithLimit(s.live, s.limit), s.state?.status), false) === 'waiting';
 }
 
 /**

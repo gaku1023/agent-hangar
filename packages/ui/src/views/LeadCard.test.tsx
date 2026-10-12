@@ -18,7 +18,7 @@ const session = (p: Partial<SessionDto> = {}): SessionDto => ({
   summary: { title: 't', oneLiner: 'o', body: '商品一覧の画像を遅延読み込みにした。', state: 'done', nextSteps: ['詳細の頁の画像にも同じ部品を使う'], source: 'post_hoc', sourceId: null, sourceModel: null, basedOnTurns: 11, updatedAt: NOW - 3 * DAY },
   stats: { turns: 11, model: null, effort: null, filesChanged: 3, prUrl: 'https://github.com/o/r/pull/88', inputTokens: 12_000, outputTokens: 8_000, contextPercent: null, costUsd: 0.42 },
   fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null,
-  state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 3 * DAY, candidate: null }, parked: false, stoppedByStatus: false, liveAside: null, ...p,
+  state: { status: 'done', note: null, returnOn: null, returnTime: null, setBy: 'user', setAt: NOW - 3 * DAY, candidate: null }, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...p,
 });
 const art = (id: string, p: Partial<ArtifactCardProps> = {}): ArtifactCardProps => ({ id, title: `成果 ${id}`, description: null, favicon: '📄', url: 'https://x', lastPublished: '3 日前', versionCount: 1, canOpenEditor: false, ...p });
 const input = (p: Partial<LeadInput> = {}): LeadInput => ({
@@ -89,7 +89,7 @@ describe('LeadCard の要約', () => {
 
 describe('LeadCard の札', () => {
   it('変更したファイルの札は、件数の名前で、押すとこの 1 枚の中へ一覧が開く。もう一度押すと閉じる', () => {
-    mount();
+    const m = mount();
     const chip = within(card()).getByRole('button', { name: '変更したファイル 3' });
     expect(chip).toHaveAttribute('aria-expanded', 'false');
     expect(within(card()).queryByRole('region', { name: '変更したファイル' })).toBeNull();
@@ -97,7 +97,10 @@ describe('LeadCard の札', () => {
     expect(chip).toHaveAttribute('aria-expanded', 'true');
     const panel = within(card()).getByRole('region', { name: '変更したファイル' });
     expect(chip).toHaveAttribute('aria-controls', panel.id);
-    expect(within(panel).getAllByRole('button')).toHaveLength(3);
+    // ファイルの 3 行と、差分のダイアログの入口（git の表示）。
+    expect(within(panel).getAllByRole('button')).toHaveLength(4);
+    fireEvent.click(within(panel).getByRole('button', { name: '差分を表示' }));
+    expect(m.onAction).toHaveBeenLastCalledWith({ type: 'diff.open', sessionId: 's1' });
     fireEvent.click(chip);
     expect(within(card()).queryByRole('region', { name: '変更したファイル' })).toBeNull();
   });

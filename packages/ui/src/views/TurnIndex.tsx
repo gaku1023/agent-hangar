@@ -37,6 +37,9 @@ export type TurnIndexProps = {
 /** 跳ばした結果の言い方の鍵。着いたときと待っている間は何も言わない。 */
 const JUMP_NOTE = { notFound: 'session.toc.jump.notFound', mode: 'session.toc.jump.mode', failed: 'session.toc.jump.failed' } as const;
 
+/** 末尾にいるとみなす残りの高さ（px）。小数の丸めと、滑らかに追う動きの終わりの端数を末尾と読む。 */
+const END_SLACK_PX = 4;
+
 /** 1 行目だけを行に出す。全文は title で読める。 */
 const firstLine = (s: string) => s.split('\n').find((l) => l.trim() !== '') ?? '';
 
@@ -103,6 +106,36 @@ export function TurnIndex(props: TurnIndexProps) {
     else el.scrollTop = el.scrollHeight;
     if (props.rows.length > 0) followed.current = true;
   }, [lastSeq, openSeq, scope]);
+
+  // 一覧が末尾（いちばん新しい指示）まで見えているか。スクロールと大きさの変化のたびに測る。
+  // 末尾にいて、ターンを開いておらず、左のターミナルも跳ばしていなければ、「最新へ移動」は何もしないので出さない。
+  // 一覧の高さが変わったとき（上の現在の札が伸びた、窓を縮めた）、末尾にいて何も開いていなければ、末尾に留める。
+  const [atEnd, setAtEnd] = useState(true);
+  const stick = useRef(true);
+  // 大きさの見張りは最初の描画の関数を持ち続けるので、開いているターンは ref で読む。
+  const openNow = useRef(openSeq);
+  openNow.current = openSeq;
+  const measureEnd = () => {
+    const el = listRef.current;
+    if (!el) return;
+    const end = el.scrollHeight - el.scrollTop - el.clientHeight <= END_SLACK_PX;
+    stick.current = end && openNow.current === null;
+    setAtEnd(end);
+  };
+  useLayoutEffect(measureEnd);
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+      measureEnd();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+    // 一覧の箱は作り直さないので、付けるのは 1 度でよい。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const showLatest = !atEnd || openSeq !== null || props.turnJump !== null;
 
   // 閉じたターンの中身の控え。畳んで出る動きの間だけ描く。
   // 控えは毎回の描画の後で更新する（中身は開いたあとに読み込まれて届くので、開いた瞬間の値では足りない）。
@@ -192,7 +225,7 @@ export function TurnIndex(props: TurnIndexProps) {
         {props.agentId && <><span className="faint">{t('session.toc.subagent', { id: props.agentId })}</span><button className="btn btn-sm" onClick={() => emit({ type: 'transcript.selectAgent', sessionId: props.sessionId, agentId: null })}>{t('session.toc.backToMain')}</button></>}
         {props.trail && <><span className="spacer" />{props.trail}</>}
       </div>
-      <div ref={listRef} className="turns-list">
+      <div ref={listRef} className="turns-list" onScroll={measureEnd}>
         {props.hasMore && <button className="btn turns-more" disabled={props.loading} onClick={() => emit({ type: 'transcript.loadMore', sessionId: props.sessionId })}><span ref={moreRef} className="turns-more-label">{moreLabel}</span></button>}
         {props.rows.length === 0 && props.pending && Array.from({ length: 6 }, (_, i) => <div key={`skel${i}`} className="turn-skel" style={{ width: `${70 + ((i * 37) % 30)}%` }} aria-hidden="true" />)}
         {props.rows.length === 0 && !props.pending && <div className="empty">{t('session.toc.empty')}</div>}
@@ -223,9 +256,11 @@ export function TurnIndex(props: TurnIndexProps) {
           );
         })}
       </div>
-      <div className="turns-foot">
-        <button className="btn" onClick={() => { emit({ type: 'turn.latest', sessionId: props.sessionId, runId: props.runId }); const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }}><Icon name="latest" />{t('session.toc.latest')}</button>
-      </div>
+      {showLatest && (
+        <div className="turns-foot">
+          <button className="btn" onClick={() => { emit({ type: 'turn.latest', sessionId: props.sessionId, runId: props.runId }); const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }}><Icon name="latest" />{t('session.toc.latest')}</button>
+        </div>
+      )}
     </div>
   );
 }

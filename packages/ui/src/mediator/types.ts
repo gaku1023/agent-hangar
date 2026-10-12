@@ -13,7 +13,7 @@ export type SearchQuery = Omit<SearchParamsDto, 'since'> & { days?: number };
 export type RuntimeEvent =
   // ws.close は時刻を運ぶ。Mediator は純粋な遷移なので、いつ切れたかを自分では測れない。
   | { type: 'ws.open' } | { type: 'ws.close'; at: number } | { type: 'hash.changed'; route: Route; moved?: number }
-  | { type: 'api.failed'; message: string } | { type: 'search.done'; params: SearchParamsDto }
+  | { type: 'api.failed'; message: string; holdMs?: number } | { type: 'search.done'; params: SearchParamsDto }
   | { type: 'launch.done'; sessionId: string; runId: string } | { type: 'launch.failed'; message: string }
   | { type: 'promote.done'; projectId: string; moved: boolean; reason: string | null }
   | { type: 'promote.failed'; message: string }
@@ -43,14 +43,18 @@ export type RuntimeEvent =
   // psmux（tmux）の再確認の答え。found は、答えの準備の確かめで tmux の行が動かせるか。答えは Runtime が先に Store へ入れてある。
   | { type: 'mux.checked'; found: boolean }
   // 連携の書き込みを殻に頼んだ返事が来た（書いた、取り消した、失敗した、のどれでも）。
-  | { type: 'setup.done'; target: SetupTarget };
+  | { type: 'setup.done'; target: SetupTarget }
+  // まとめて再開（中断の群）の 1 本が起きた、または断られた。
+  | { type: 'resumeQueue.done'; sessionId: string } | { type: 'resumeQueue.failed'; sessionId: string; message: string };
 
 /**
  * Mediator が裁定する UiAction。
  * API を 1 回呼ぶだけの UiAction は Runtime が表で引いて実行する（runtime/actionTable.ts）ので、ここには入らない。
  * 表にある kind を領域の switch に書くと、型が合わなくなる（二重に扱わない）。
  */
-export type MediatedAction = Exclude<UiAction, TableAction>;
+/** Runtime が自分で受ける UiAction。git.watch は取り直しの周期を持つので、表にも Mediator にも置かない（runtime/gitWatch.ts）。 */
+export type RuntimeAction = Extract<UiAction, { type: 'git.watch' }>;
+export type MediatedAction = Exclude<UiAction, TableAction | RuntimeAction>;
 
 export type Input =
   | { kind: 'action'; action: MediatedAction }
@@ -78,6 +82,10 @@ export type Effect =
   | { kind: 'api.rebuildIndex' }
   | { kind: 'api.launch'; params: LaunchParams } | { kind: 'api.resume'; sessionId: string } | { kind: 'api.fork'; sessionId: string }
   | { kind: 'api.attach'; sessionId: string } | { kind: 'api.adopt'; sessionId: string }
+  // まとめて再開（中断の群）の 1 本。起きても画面は移さず、結果は resumeQueue.done か resumeQueue.failed で返る。
+  | { kind: 'api.resumeQueued'; sessionId: string }
+  // 中断の群の「再開しない」と、その取り消し。返った群を Store に入れる。
+  | { kind: 'api.dismissInterrupted'; runIds: string[]; dismissed: boolean }
   | { kind: 'api.killRun'; runId: string } | { kind: 'api.openTab'; sessionId: string } | { kind: 'api.closeTab'; tabId: string }
   | { kind: 'api.jumpToPrompt'; sessionId: string; runId: string; seq: number; heads: string[]; index: number; from: 'top' | 'bottom' }
   | { kind: 'api.leaveTranscript'; runId: string }
@@ -153,7 +161,8 @@ export type ConfirmRequest =
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' }
   | { kind: 'shortcuts' }
-  | { kind: 'newSession'; projectId: string | null; scratch: boolean }
+  // worktree は、worktree の札をオンにして開くこと（同じファイルの編集の警告から開いたとき）。名前はダイアログが付ける。
+  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean }
   | { kind: 'promote'; sessionId: string }
   | { kind: 'newProject' }
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
@@ -163,11 +172,13 @@ export type Overlay =
   | { kind: 'retention'; days: number; from: RetentionFrom; reloaded: boolean; writing: boolean; previewError: string | null }
   // Paused の入力（B1）。from は開いた入口（「⋯」か提案の「日を変える」）。
   | { kind: 'pause'; sessionId: string; from: 'menu' | 'candidate' }
+  // 差分のダイアログ（git の表示）。file は選んだファイルで、null なら画面が最初の未コミットを選ぶ。source は差分の出どころで、null なら画面が決める（git でなければこのセッションの編集）。
+  | { kind: 'diff'; sessionId: string; file: string | null; source: 'git' | 'session' | null }
   // psmux（tmux）が無いときに、セッションを始める操作を止めて出す案内（段 6 の B2）。
   // pending は止めた操作で、見つかったあとの「開始」でそのまま進める。back は止めたときに開いていた新しいセッションのダイアログで、閉じたらそこへ戻る。
   | { kind: 'muxGuide'; pending: MuxPending; back: Extract<Overlay, { kind: 'newSession' }> | null };
 /** psmux（tmux）が無いときに止める、セッションを始める操作。 */
-export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' | 'session.adopt' | 'session.attach' }>;
+export type MuxPending = Extract<UiAction, { type: 'session.new.submit' | 'session.resume' | 'session.fork' | 'session.resumeHere' | 'session.adopt' | 'session.attach' | 'interrupted.resume' }>;
 /** psmux（tmux）の再確認の進み。missing は、再確認しても見つからなかったこと。 */
 export type MuxCheck = 'idle' | 'checking' | 'missing';
 /**
@@ -197,8 +208,13 @@ export type SessionViewState = {
   /** 検索の結果から開いたときの跳び先。無ければ null。 */
   jump: JumpState | null;
 };
-/** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ（INFO_TOAST_MS）。 */
-export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number };
+/** holdMs は info の出している長さ（ミリ秒）。省くと既定の長さ（INFO_TOAST_MS）。action はトーストの中のボタン（「元に戻す」）で、押すとその UiAction を出してトーストを閉じる。 */
+export type Toast = { id: string; level: 'info' | 'error'; message: string; holdMs?: number; action?: { label: string; send: UiAction } };
+/**
+ * まとめて再開（中断の群）の進み。queued は順番待ち、active は再開を頼んで返事を待っているもの、failed は断られた理由（セッションの id から）。
+ * 同時に頼むのは RESUME_CONCURRENCY 本までである。
+ */
+export type ResumeQueue = { queued: string[]; active: string[]; failed: Record<string, string> };
 /**
  * 欄ごとの保存の知らせ。
  * saved の n は同じ欄を保存するたびに進み、画面は変わるたびに「✓ 保存しました」を出し直す。
@@ -321,5 +337,7 @@ export type State = {
    * removed は、その操作で消した TODO の ID（消した場所の帯の「元に戻す」が引く）。端末には残さない。
    */
   todoUndo: TodoUndoEntry[];
+  /** まとめて再開（中断の群）の進み（mediator/interrupted.ts）。端末には残さない。 */
+  resumeQueue: ResumeQueue;
 };
 export type Step = { state: State; effects: Effect[] };

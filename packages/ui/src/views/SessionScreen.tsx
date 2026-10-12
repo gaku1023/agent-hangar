@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { useEmit } from '../action/chain.tsx';
+import { useBackgroundEmit, useEmit } from '../action/chain.tsx';
 import type { SessionAction, SessionActionId, SessionProps } from '../presenters/session.ts';
 import { LeadCard } from './LeadCard.tsx';
 import { NowCard } from './NowCard.tsx';
@@ -47,6 +47,16 @@ export function SessionScreen(props: SessionProps) {
   // フックなので、下の早い return より前に置く。
   const narrow = useNarrow();
   const [drawer, setDrawer] = useState(false);
+  // 開いているセッションの git を取ってもらい（git の表示）、(i) の「このセッションの変更」のために差分の一覧も読む。
+  // 作業ツリーの件数が替わったら、一覧も読み直す。
+  const gitCount = props.git?.chip?.count ?? null;
+  const bg = useBackgroundEmit();
+  useEffect(() => {
+    bg({ type: 'git.watch', key: 'session', sessionIds: [props.id] });
+    return () => bg({ type: 'git.watch', key: 'session', sessionIds: [] });
+  }, [bg, props.id]);
+  const hasGit = props.git != null;
+  useEffect(() => { if (hasGit) bg({ type: 'git.changes.load', sessionId: props.id }); }, [bg, props.id, gitCount, hasGit]);
   const tocOpen = narrow ? drawer : props.transcriptOpen;
   // 現在の札は生きた run があるときだけ。札は目次と同じ右の列に入っていて、列ごと畳まれる。
   const hasCard = props.strip !== null && props.run?.alive === true;
@@ -101,7 +111,13 @@ export function SessionScreen(props: SessionProps) {
   const primary = props.actions.primary;
   const detailRows: PopoverRow[] = props.details.map((d) => ({
     name: d.name,
-    value: d.dot ? <><span className="st-dot" style={{ color: d.dot }} aria-hidden="true" />{d.value}</> : d.value,
+    value: (
+      <>
+        {d.dot && <span className="st-dot" style={{ color: d.dot }} aria-hidden="true" />}{d.value}
+        {d.note && <span className="faint detail-note"> {d.note}</span>}
+        {d.link && <> <button type="button" className="btn-link" onClick={() => emit(d.link!.send)}>{d.link.label}</button></>}
+      </>
+    ),
     mono: d.mono,
   }));
 
@@ -111,7 +127,7 @@ export function SessionScreen(props: SessionProps) {
     // 名前は見出しにだけ出し、要約の題は出さない（C1）。
     // 名前の横に、他の PC で実行中の札（操作できない理由なので隠さない）。右端の (i) に、毎回は見ない属性を入れる。
     // 操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。
-    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
+    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
       {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}
@@ -147,7 +163,7 @@ export function SessionScreen(props: SessionProps) {
         <div ref={(el) => { pane.ref.current = el; }} className="toc-slot-inner">
           {withStrip && <div className="toc-slot-head">{!narrow && <kbd className="mono">{keyLabel('⌘J')}</kbd>}{toggle}</div>}
           {/* 現在の札はタブにもターミナルにもくっつけず、右の列の上に置く（中身はセッションのもので、タブを替えても変わらない）。 */}
-          {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} />}
+          {hasCard && props.strip && <NowCard sessionId={id} {...props.strip} overlap={props.overlap ?? null} git={props.git} />}
           <TocPane>
             <TurnIndex sessionId={id} runId={run?.alive ? run.id : null} rows={props.turnRows} complete={props.turnsComplete} openItems={props.openTurnItems} turnJump={props.turnJump} hasMore={props.hasMore} loading={props.loadingOlder} count={props.turnCount} pending={props.turnsPending} agentId={props.agentId} trail={withStrip ? undefined : toggle} />
           </TocPane>
@@ -168,7 +184,7 @@ export function SessionScreen(props: SessionProps) {
             {props.gone.note}
             {props.gone.canExtend && <> <button type="button" className="btn-link" onClick={() => emit({ type: 'retention.edit', days: props.gone!.extendTo, from: 'session' })}>{t('session.screen.extendRetention')}</button></>}
           </div>
-          {props.lead && <LeadCard sessionId={id} {...props.lead} />}
+          {props.lead && <LeadCard sessionId={id} {...props.lead} git={props.git} />}
         </div>
       </div>
     );
@@ -181,7 +197,7 @@ export function SessionScreen(props: SessionProps) {
       const agentTab = tabId === run.id;
       const hint = agentTab && props.trustHint ? t('session.screen.trustHint') : agentTab && !run.alive ? t('session.screen.endedHint') : null;
       const transcript = agentTab && run.alive && props.transcriptBand ? { when: props.transcriptBand.when, onLatest: () => emit({ type: 'turn.latest', sessionId: id, runId: run.id }) } : null;
-      return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} aside={props.aside} agent={agentTab} transcript={transcript} />;
+      return <TerminalPane key={tabId} tabId={tabId} hint={hint} live={props.live} aside={props.aside} reason={props.reason ?? null} agent={agentTab} transcript={transcript} />;
     };
     // 分割は .c-main の中でさらに 2 列に割る。高さは .c-main から 100% で伝わる。
     const terminals = props.split ? <SplitPane left={terminal(props.split.left)} right={terminal(props.split.right)} /> : terminal(props.selectedTab);
@@ -219,7 +235,7 @@ export function SessionScreen(props: SessionProps) {
     </div>
   );
   // 冒頭の 1 枚は、トランスクリプトの先頭（スクロールの内側）に置く。
-  const head: ReactNode = props.lead ? <LeadCard sessionId={id} {...props.lead} /> : null;
+  const head: ReactNode = props.lead ? <LeadCard sessionId={id} {...props.lead} git={props.git} /> : null;
   const transcript = <Transcript sessionId={id} items={props.items} hasMore={props.hasMore} loading={props.loading} follow={props.follow} live={props.live !== null} remaining={Math.max(props.total - props.loaded, 0)} jump={props.jump} hasNewer={props.hasNewer} head={head} />;
 
   // 終わった画面。

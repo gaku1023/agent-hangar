@@ -1,0 +1,81 @@
+/* 中断の再開（ホームの帯の「前回実行中」）と、同じファイルの編集の警告（2026-10-12 の試作の推す組み合わせ）。
+   琥珀は、まもなく削除の札と同じく Paused の色のトークン（--st-paused、--st-paused-soft）で描く。 */
+
+/* 中断の印。中身の無い輪で、再開を頼んでいる間は回る。 */
+.int-ring { flex: none; display: inline-block; box-sizing: border-box; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--ended); vertical-align: middle; }
+.int-ring[data-spin='true'] { width: 10px; height: 10px; border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: int-spin calc(var(--dur) * 2) linear infinite; }
+@keyframes int-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .int-ring[data-spin='true'] { animation: none; } }
+
+/* 引き出しの見出しの右のボタン（すべて再開、閉じる）。折りたたむの前に置く。 */
+.drawer-acts { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.drawer-acts + .drawer-close { margin-left: 0; }
+.drawer-acts .btn-sm { height: 22px; }
+
+/* 中断の群のアカウントの小見出し。 */
+.crow-sec { display: flex; align-items: center; gap: calc(var(--u) * 2); height: 24px; margin-top: calc(var(--u) * 1); padding: 0 calc(var(--u) * 2) 0 calc(var(--u) * 2.5); font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.crow-sec b { font-weight: 600; color: var(--ink-2); }
+.crow-sec .sec-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.crow-sec .sec-meter { display: inline-flex; align-items: center; gap: calc(var(--u) * 1); }
+.crow-sec .sec-bar { display: inline-block; width: 40px; height: 4px; border-radius: 2px; background: var(--line-strong); overflow: hidden; }
+.crow-sec .sec-bar > span { display: block; height: 100%; background: var(--accent); }
+.crow-sec .sec-meter[data-high='true'] { color: var(--waiting); font-weight: 600; }
+.crow-sec .sec-meter[data-high='true'] .sec-bar > span { background: var(--waiting); }
+.crow-sec .sec-note[data-tone='warn'] { color: var(--waiting); font-weight: 600; }
+.crow-sec .btn-sm { height: 22px; }
+
+/* 行の本文の頭の色の語（作業中だった、再開中、失敗）。 */
+.crow .c-head { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-3); }
+.crow .c-head[data-tone='busy'] { color: var(--busy); }
+.crow .c-head[data-tone='wait'] { color: var(--waiting); }
+.crow .c-head[data-tone='error'] { color: var(--error); }
+.crow .btn-icon.btn-sm { width: 24px; padding: 0; justify-content: center; }
+.crow .btn-sm:disabled { opacity: 0.45; cursor: default; }
+
+/* 錠剤の右肩の琥珀の点。件数には入れない。 */
+.count-chip { position: relative; }
+.count-chip .chip-mark { position: absolute; top: 2px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--st-paused); box-shadow: 0 0 0 2px var(--surface); }
+
+/* 同じファイルの編集の札（ホームの実行中の行の右端）。 */
+.ov-chip { flex: none; display: inline-flex; align-items: center; gap: calc(var(--u) * 1); height: 22px; padding: 0 calc(var(--u) * 2); border: 0; border-radius: var(--r-pill); background: var(--st-paused-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 30%, transparent); font: inherit; font-size: var(--fs-xs); font-weight: 600; color: var(--st-paused); cursor: pointer; white-space: nowrap; }
+.ov-chip .icon { width: 13px; height: 13px; }
+.ov-chip:hover { background: color-mix(in srgb, var(--st-paused) 16%, var(--surface)); }
+.ov-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* サイドバーの行末の印。語は出さず、乗せると相手の名前。 */
+.side-live-overlap { flex: none; display: inline-flex; color: var(--st-paused); }
+.side-live-overlap .icon { width: 13px; height: 13px; }
+
+/* 一覧の行の右端の「中断」。 */
+.row-interrupted { flex: none; display: inline-flex; align-items: center; padding: 0 7px; border-radius: var(--r-pill); font-size: var(--fs-xs); line-height: 1.4; font-weight: 600; color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-strong); white-space: nowrap; }
+
+/* 冒頭の 1 枚の「PC の再起動で中断 · 時刻」。 */
+.lead-interrupted { display: inline-flex; align-items: center; gap: calc(var(--u) * 1.5); }
+
+/* 現在の札の 1 節。 */
+.ov-block { margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 1.75) calc(var(--u) * 2.25); border-radius: var(--r); background: var(--st-paused-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--st-paused) 30%, transparent); font-size: var(--fs-sm); color: var(--ink-2); }
+.ov-block-h { display: flex; align-items: center; gap: calc(var(--u) * 1.25); font-weight: 700; color: var(--st-paused); }
+.ov-block-h .icon { width: 13px; height: 13px; }
+.ov-block-text { margin: calc(var(--u) * 0.75) 0 0; line-height: 1.5; }
+.ov-block .ov-more { margin-top: calc(var(--u) * 0.75); font-size: var(--fs-xs); }
+
+/* 押したときの中身。 */
+.ov-title { display: flex; align-items: center; gap: calc(var(--u) * 1.5); }
+.ov-title .icon { width: 14px; height: 14px; color: var(--st-paused); }
+.ov-partners { margin: 0; padding: 0; list-style: none; }
+.ov-partner { display: flex; align-items: center; gap: calc(var(--u) * 2); padding: calc(var(--u) * 1.5) 0; border-bottom: 1px solid var(--line); }
+.ov-partner .ov-name { font-weight: 600; }
+.ov-partner .ov-ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--ink-3); }
+.ov-files { width: 100%; margin-top: calc(var(--u) * 1.5); border-collapse: collapse; font-size: var(--fs-xs); }
+.ov-files th { padding: calc(var(--u) * 0.75) calc(var(--u) * 1); text-align: left; font-weight: 500; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.ov-files td { padding: calc(var(--u) * 0.75) calc(var(--u) * 1); border-bottom: 1px solid var(--line); vertical-align: top; }
+.ov-files td.num { color: var(--ink-3); white-space: nowrap; }
+.ov-path { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink); overflow-wrap: anywhere; }
+.ov-alt { margin-left: calc(var(--u) * 1.5); font-weight: 600; color: var(--st-paused); }
+.ov-note { margin: calc(var(--u) * 2) 0 0; font-size: var(--fs-xs); color: var(--ink-3); }
+.ov-wt { margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 2) calc(var(--u) * 2.5); border-radius: var(--r); background: var(--accent-soft); }
+.ov-wt p { margin: 0 0 calc(var(--u) * 1.5); }
+.ov-foot { display: flex; justify-content: flex-end; gap: calc(var(--u) * 1.5); margin-top: calc(var(--u) * 2); }
+
+/* トーストの中のボタン（元に戻す）。 */
+.notice-action { margin-top: calc(var(--u) * 1.5); }

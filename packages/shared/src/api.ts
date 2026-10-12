@@ -28,7 +28,37 @@ export type SessionSummaryDto = { title: string; oneLiner: string; body: string;
  * aside は、本体は入力を受け付けていて、裏の作業だけが動いていることの印（LiveAsideDto）。無ければ付かない。
  * statusAt は動きが最後に変わった時刻（登録の statusUpdatedAt、ミリ秒）。裏だけかを決めるのに使う（server の live/aside.ts）。古い Claude は書かない。
  */
-export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number };
+export type LiveSessionDto = { sessionId: string; status: LiveStatus; name: string | null; nameSource: string | null; cwd: string; pid: number; background?: { jobId: string }; procStart?: string; entrypoint?: string; aside?: LiveAsideDto; statusAt?: number; waitingFor?: WaitKind; permission?: PermissionAskDto };
+/**
+ * 入力待ちが何を待っているか（登録の waitingFor を shared の waitKindOf で読み替えたもの）。
+ * permission はツールの許可（Bash の確認など）、question は入力（MCP の入力など）、other はダイアログや知らない値である。
+ * 入力待ちの間だけ付く。古い Claude は書かないので、無いこともある。
+ */
+export type WaitKind = 'permission' | 'question' | 'other';
+/**
+ * Claude が求めている許可の中身。hangar が起こした claude の PermissionRequest の hook から届く（server の hooks/permission.ts）。
+ * tool は道具の名前、input は命令やファイルなどの短い形（Bash は命令の全文）、description は Claude が書いた説明（Bash の description）である。
+ * hook を持たない run（外のターミナル）では届かない。
+ */
+export type PermissionAskDto = { tool: string; input: string; description: string | null };
+/**
+ * 使用制限で止まっていること（本文の合成の assistant 行、error が rate_limit）。
+ * kind は枠（5 時間、週、そのほか）、resetsAt はリセットの時刻（ミリ秒）。
+ * auto は、Claude Code が自動の続きを予約したと本文に書いたこと。
+ * reset は、リセットの時刻から猶予（LIMIT_RESET_GRACE_MS）を過ぎても続きが始まっていないこと。真なら要対応に数える。
+ */
+export type LimitKind = 'five_hour' | 'weekly' | 'other';
+export type SessionLimitDto = { kind: LimitKind; resetsAt: number; auto: boolean; reset: boolean };
+/**
+ * サーバが組むデスクトップ通知 1 件（`GET /api/notify/feed`、server の sessions/stopNotices.ts）。
+ * 殻（デスクトップ）が読み、窓が背面にあるときだけ OS に渡す。頁の JS が背面で止まっていても通知が出るように、きっかけをサーバに置く。
+ * kind は通知の枠で、waiting は入力待ち（許可待ちとリセット済みも含む）、limit は使用制限（アカウントごとに 1 通）である。
+ * sessionId は押したときに開くセッション（hangar の id）。bare は、問いの文がまだ無い入力待ちで、殻が問いの文を少し待つ印である。
+ */
+export type OsNoticeKind = 'waiting' | 'limit';
+export type OsNoticeDto = { seq: number; kind: OsNoticeKind; sessionId: string; title: string; body: string; bare: boolean };
+/** boot はサーバの起動ごとに変わる値。殻はこれが変わったら、seq を今の値に合わせ直し、前の分は出さない。 */
+export type OsNoticeFeedDto = { boot: string; seq: number; items: OsNoticeDto[] };
 /**
  * 本体（指揮役）は入力を受け付けていて、裏の作業だけが動いていること。
  * status は busy のままにする。Claude も、裏でサブエージェントが動く間は本体が空いていても busy と書く。
@@ -45,9 +75,39 @@ export type SessionActivityDto = { tool: string; summary: string; question: stri
  * stoppedByStatus は、区切りを付けたので hangar が Claude を止め、その印がまだ残っていること。
  * liveAside は登録の aside を写したもの（LiveSessionDto）で、無ければ null である。
  * activity は実行中のときだけ値を持ち、実行中でなければ null である。
+ * waitingFor と permission は登録の同じ欄を写したもので、入力待ちの間だけ付く（LiveSessionDto）。
+ * limit は使用制限で止まっていることで、実行中のときだけ値を持つ（SessionLimitDto）。
  */
-export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null };
-export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; codePath: string | null; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
+export type SessionDto = { id: string; provider: 'claude-code'; providerSessionId: string; projectId: string | null; name: string | null; cwd: string; firstPrompt: string | null; aiTitle: string | null; startedAt: number | null; lastActivityAt: number | null; hasTranscript: boolean; live: LiveStatus | null; summary: SessionSummaryDto | null; stats: SessionStatsDto; fromScratch: boolean; lock: SessionLockDto | null; remoteOnly: boolean; transcriptMtime: number | null; activity: SessionActivityDto | null; state: SessionStateDto | null; parked: boolean; stoppedByStatus: boolean; liveAside: LiveAsideDto | null; waitingFor: WaitKind | null; permission: PermissionAskDto | null; limit: SessionLimitDto | null;
+  /** 中断（SessionInterruptDto）。ステータスの無いセッションで、最後の run が lost で終わったときだけ値を持つ。 */
+  interrupted: SessionInterruptDto | null;
+  /** 同じファイルを別のセッションと編集していること（SessionOverlapDto）。実行中のときだけ値を持つ。 */
+  overlap: SessionOverlapDto | null };
+/**
+ * 中断の原因。
+ * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。
+ * mux は、hangar が動いている間に tmux のサーバごと消えて、生きた run がまとめて終わったものである。
+ */
+export type InterruptCause = 'restart' | 'mux';
+/** セッションの中断。at は run が閉じた時刻、cause はこの PC で中断を記録していれば原因で、分からなければ null（他の PC の run など）。 */
+export type SessionInterruptDto = { at: number; cause: InterruptCause | null };
+/**
+ * 中断の群の 1 件。lastLive は止まる前の最後の状態で、分からなければ null。endedAt は run が閉じた時刻、account は run を起こしたアカウント（記録が無ければ null）。
+ */
+export type InterruptedItemDto = { sessionId: string; runId: string; lastLive: LiveStatus | null; endedAt: number; account: string | null };
+/**
+ * ホームの帯の「前回実行中」の群。この PC で最後に記録した中断の束で、再開しないと決めた行（dismissed）と、その後に起こし直した行は含まない。
+ * 群が無ければ null である。
+ */
+export type InterruptedDto = { at: number; cause: InterruptCause; items: InterruptedItemDto[] };
+/**
+ * 同じファイルを別のセッションが編集していること（止めない警告）。
+ * files の 1 件は、相手（with）と重なったパス、このセッションと相手が最後にそのパスを編集した時刻である。
+ * alternating は、交互に書いたこと（このセッション、相手、このセッションの順など）。偽なら、後から書いた側の編集の時点で先の側が作業中だった。
+ */
+export type OverlapFileDto = { path: string; with: string; mineAt: number; theirsAt: number; alternating: boolean };
+export type SessionOverlapDto = { with: string[]; files: OverlapFileDto[] };
+export type SettingsDto = { workspaceRoot: string; claudeDir: string; tmuxPath: string | null; terminalApp: TerminalApp; /** エディタの選択（editor.ts）。0.4.0 までの codePath は、サーバが読むときに editor へ読み替える。 */ editor: import('./editor.ts').EditorSetting; lmStudioUrl: string; lmStudioModel: string | null; summaryFallback: boolean; summaryHourlyCap: number; allowExternalSummarizer: boolean; /** 他の PC から届いた skills、commands、agents の承諾の仕方。この項目を知らない古いサーバは返さないので、読む側は 'each' に寄せる。 */ configApproval?: ConfigApproval; /** 設定の同期（作り直した実装）のスイッチ。切が既定。この項目を知らない古いサーバは返さないので、読む側は ConfigSyncDto.enabled を見る。 */ configBundleSync?: boolean; nodePath: string | null; claudePath: string | null; /** 画面とサーバの文の言語。この項目を知らない古いサーバは返さないので、読む側は `languageOf` で既定の日本語に寄せる。 */ language?: import('./i18n/language.ts').Language };
 /**
  * Claude Code の会話の保持期間。
  * source は値がどこで決まったかで、default はユーザー設定にキーが無い（既定の 30 日）ことを表す。
@@ -62,7 +122,7 @@ export type RetentionPreviewDto = { days: number; path: string; lines: Retention
 /** 確認をどこから開いたか。帯から開いたときだけ「ほかの期間…」を出す。 */
 export type RetentionFrom = 'banner' | 'session' | 'settings';
 export type IndexProgressDto = { phase: 'idle' | 'scanning' | 'indexing' | 'rebuilding'; done: number; total: number };
-export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string };
+export type BootstrapDto = { device: { id: string; name: string }; settings: SettingsDto; projects: ProjectDto[]; sessions: SessionDto[]; live: LiveSessionDto[]; runs: RunDto[]; tabs: TabDto[]; todos: TodoDto[]; artifacts: ArtifactDto[]; summaryPending: string[]; index: IndexProgressDto; version: string; sync: SyncStatusBody; devices: DeviceDto[]; retention: RetentionDto | null; cloudUsage: CloudUsageDto | null; accounts: AccountsDto; /** 設定の同期（新しい実装）の状態。この項目を知らない古いサーバは返さない。 */ configSync?: ConfigSyncDto; /** サーバのホーム（os.homedir()）。画面はホームの下の置き場を ~ に縮めるときにだけ使う。 */ home: string; /** 中断の群（InterruptedDto）。 */ interrupted: InterruptedDto | null };
 export type EventsPageDto = { sessionId: string; events: TranscriptEvent[]; total: number; nextSeq: number | null };
 /**
  * 実行中のセッションの右ペインに出すライブの要約。サーバが主線とサブエージェントを読んで作る。
@@ -77,7 +137,7 @@ export type LiveDigestDto = { sessionId: string; turnStartSeq: number | null; in
  * status はセッションの状態で絞る（session_states を見る）。hideArchived は「すべて」のタブで条件を入れたときに Archived を除く印である。
  * どちらも Home の一覧だけが送り、MCP の search_sessions は送らない。
  */
-export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'active' | 'proposed'; hideArchived?: boolean };
+export type SearchParamsDto = { q: string; projectId?: string; since?: number; until?: number; live?: LiveFilter; stop?: import('./action.ts').StopFilter; file?: string; limit?: number; offset?: number; status?: SessionStatus | 'active' | 'proposed'; hideArchived?: boolean };
 /**
  * 検索の 1 件。
  * 抜粋の seq は主線とサブエージェントで別々に振るので、agentId でどの線の行かを表す（主線は null）。
@@ -161,7 +221,9 @@ export type NodeCheckDto = ToolCheckDto & { auto: boolean; found?: NodeBuildDto;
  * compat は Claude Code との互換の要約で、設定の互換の節と、始める前の確認の互換の行が読む。ずれの中身は GET /api/compat で取る。
  */
 export type ReadinessDto = {
-  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; code: ToolCheckDto; node: NodeCheckDto };
+  tools: { tmux: ToolCheckDto; claude: ToolCheckDto; node: NodeCheckDto; /** git。設定の欄は無く、PATH と既知の置き場（Windows は Git for Windows の場所）から探す。この項目を知らない古いサーバは返さない。 */ git?: ToolCheckDto };
+  /** 選んだエディタで開けるか。この項目を知らない古いサーバは返さない。 */
+  editor?: { id: import('./editor.ts').EditorId; name: string | null; state: import('./editor.ts').EditorDetectState; path: string | null };
   workspace: { path: string; exists: boolean; projectCount: number };
   mcp: { registered: boolean; file: string };
   statusline: StatuslineStatusDto;

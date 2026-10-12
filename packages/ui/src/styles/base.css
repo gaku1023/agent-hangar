@@ -163,6 +163,7 @@ a:hover { text-decoration: underline; }
 /* 入力待ちは行を動かさず、太字と待った時間で知らせる。 */
 .side-live-row[data-live='waiting'] .side-live-name { font-weight: 600; }
 .side-live-wait { flex: none; font-size: var(--fs-xs); font-weight: 600; color: var(--waiting); }
+.side-live-wait[data-reason='limit'] { color: var(--limit); }
 .side-live-row[data-dragging='true'] { opacity: 0.4; }
 .side-live-row[data-over='before'] { box-shadow: inset 0 2px 0 var(--accent); border-radius: 0; }
 .side-live-row[data-over='after'] { box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
@@ -247,6 +248,12 @@ a:hover { text-decoration: underline; }
 .dot[data-status='idle'] { background: var(--ink-3); }
 .dot[data-status='waiting'] { background: var(--waiting); }
 .dot[data-aside='true'] { background: var(--aside); }
+/* 止まっている理由の印。点と同じ 8px の箱の中央に 13px の形を描き、行の高さと並びを変えない。リセット済みは入力待ちの点のまま。 */
+.dot[data-reason='permission'], .dot[data-reason='limit'] { position: relative; background: transparent; overflow: visible; }
+.dot[data-reason] > svg { position: absolute; left: 50%; top: 50%; width: 13px; height: 13px; transform: translate(-50%, -50%); }
+.dot[data-reason='permission'] { color: var(--waiting); }
+.dot[data-reason='limit'] { color: var(--limit); }
+.dot[data-reason='reset'] { background: var(--waiting); }
 
 /* 見出しと区画 */
 /* 頁の見出し（views/PageHeading.tsx）。今いる場所はヘッダではなくここで示す。
@@ -391,6 +398,9 @@ a:hover { text-decoration: underline; }
 .notice-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; letter-spacing: 0; color: var(--ink-2); }
 .notice-end { flex: none; margin-left: auto; padding-left: calc(var(--u) * 1.5); font-weight: 500; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .notice-dot { flex: none; position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--k); }
+/* 許可待ちの札の道具と命令（試作 stop-reason-proto の K1）。命令は等幅で、長ければ 2 行までで切る（.notice-title の決まり）。 */
+.notice-tool { display: inline-block; margin-right: calc(var(--u) * 1.5); padding: 0 calc(var(--u) * 1.5); border-radius: 4px; background: color-mix(in srgb, var(--busy) 12%, var(--surface)); color: color-mix(in srgb, var(--busy) 70%, var(--ink)); font-size: var(--fs-xs); font-weight: 600; }
+.notice-cmd { padding: 0 calc(var(--u) * 1.25); border-radius: 4px; background: var(--surface-2); color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-xs); }
 /* 入力待ちの点は、答えを待っている間ゆっくり脈を打つ。押せない間は止める。 */
 .notice[data-kind='waiting']:not(:disabled) .notice-dot::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 1.5px solid var(--k); opacity: 0; animation: notice-ping var(--breathe-period) var(--ease-out) infinite; }
 @keyframes notice-ping { 0% { transform: scale(0.6); opacity: 0.7; } 70%, 100% { transform: scale(1.5); opacity: 0; } }
@@ -538,6 +548,8 @@ a:hover { text-decoration: underline; }
 /* 裏だけ動いているときは、入力できるので呼吸させず、薄いオレンジの輪だけを静かに灯す。 */
 .term-pane[data-live='aside'] { box-shadow: 0 0 0 1.5px var(--aside), var(--term-lift); }
 .term-pane[data-live='waiting'] { box-shadow: 0 0 0 1.5px var(--waiting), 0 0 22px -2px color-mix(in srgb, var(--waiting) 45%, transparent), var(--term-lift); }
+/* 使用制限でリセットを待っている間は、灰の輪だけを静かに置く（光らせない）。 */
+.term-pane[data-live='limit'] { box-shadow: 0 0 0 1.5px var(--limit), var(--term-lift); }
 @keyframes rim-breathe { 50% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--busy) 55%, transparent), 0 0 12px -4px color-mix(in srgb, var(--busy) 25%, transparent), var(--term-lift); } }
 @media (prefers-reduced-motion: reduce) { .term-pane[data-live='busy'] { animation: none; } }
 /* 耳の下の板は、左上だけを角張らせて耳とつなぐ。タブの列は本体（.c-body）の 1 行目にあり、耳の直下はターミナルで、分割しているときは左の板をつなぐ（現在の札は右の列にあり、耳にはつながない）。 */
@@ -557,6 +569,12 @@ a:hover { text-decoration: underline; }
 .live-dot[data-tone='busy'], .live-dot[data-tone='running'] { background: var(--busy); animation: live-pulse var(--breathe-period) ease-in-out infinite; }
 .live-dot[data-tone='wait'] { background: var(--waiting); }
 .live-dot[data-tone='aside'] { background: var(--aside); }
+.live-dot[data-tone='limit'] { background: var(--limit); }
+/* 止まっている理由の形（現在の札の状態の行。点の代わりに置く）。 */
+.reason-glyph { display: inline-flex; flex: none; width: 13px; height: 13px; }
+.reason-glyph > svg { width: 13px; height: 13px; }
+.reason-glyph[data-reason='permission'] { color: var(--waiting); }
+.reason-glyph[data-reason='limit'] { color: var(--limit); }
 .live-dot[data-tone='done'] { background: var(--idle); }
 .live-dot[data-tone='error'] { background: var(--error); }
 @keyframes live-pulse { 50% { opacity: 0.3; } }

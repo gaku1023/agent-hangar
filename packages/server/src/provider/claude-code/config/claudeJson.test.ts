@@ -152,6 +152,11 @@ describe('upsertUserMcpServer の安全（同時書き込み、リンク、控�
 });
 
 describe('removeUserMcpServer', () => {
+  it('最後の 1 つを消しても mcpServers の鍵は空のまま残す（claude mcp remove -s user と同じ形）', () => {
+    fs.writeFileSync(file, JSON.stringify({ userID: 'u1', mcpServers: { hangar: { type: 'http' } } }), { mode: 0o600 });
+    expect(removeUserMcpServer(file, 'hangar', { backupDir: backups }).changed).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ userID: 'u1', mcpServers: {} });
+  });
   it('mcpServers の hangar だけを消し、ほかの項目とサーバと mode を残し、控えを取る', () => {
     fs.writeFileSync(file, JSON.stringify({ userID: 'u1', mcpServers: { other: { type: 'stdio' }, hangar: { type: 'http' } } }), { mode: 0o600 });
     const r = removeUserMcpServer(file, 'hangar', { backupDir: backups, now: new Date(2026, 9, 12, 10, 31, 5) });

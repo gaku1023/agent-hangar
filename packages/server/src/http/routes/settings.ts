@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Hono } from 'hono';
-import { isLanguage, languageOf, LANGUAGES, terminalAppsFor, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
+import { EDITOR_TERMINALS, isEditorId, isLanguage, languageOf, LANGUAGES, terminalAppsFor, type EditorSetting, type EditorTerminal, type MessageKey, type SettingsDto, type TerminalApp } from '@agent-hangar/shared';
 import { isLoopbackSummarizerUrl, type Settings } from '../../config/paths.ts';
 import { createNodeCheck, isFullPath, nodeBuildIssue } from '../../config/node.ts';
 import { checkToolPath, expandHome, isCommandName, toolPathIssue } from '../../config/readiness.ts';
@@ -16,7 +16,7 @@ export type SettingsRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'settings' | '
 /** 空にできない文字列の設定。 */
 const TEXT_SETTING_KEYS = ['workspaceRoot', 'claudeDir'] as const;
 /** 未設定を null で表すパスの設定。空文字は null と同じに扱う。 */
-const PATH_SETTING_KEYS = ['tmuxPath', 'codePath', 'nodePath', 'claudePath'] as const;
+const PATH_SETTING_KEYS = ['tmuxPath', 'nodePath', 'claudePath'] as const;
 /** 外部ターミナルは、動いている OS で開けるものだけを受ける。別の OS の値を保存させない。 */
 const TERMINAL_APPS = new Set<string>(terminalAppsFor(process.platform));
 const TERMINAL_APP_INVALID = process.platform === 'win32' ? ('settings.terminalApp.invalidWindows' as const) : ('settings.terminalApp.invalid' as const);
@@ -32,10 +32,10 @@ const SUMMARY_HOURLY_CAP_MAX = 200;
  */
 type LabeledSetting = (typeof TEXT_SETTING_KEYS)[number] | (typeof PATH_SETTING_KEYS)[number];
 const SETTING_LABEL = {
-  workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', codePath: 'settings.label.codePath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
+  workspaceRoot: 'settings.label.workspaceRoot', claudeDir: 'settings.label.claudeDir', tmuxPath: 'settings.label.tmuxPath', nodePath: 'settings.label.nodePath', claudePath: 'settings.label.claudePath',
 } as const satisfies Record<LabeledSetting, MessageKey>;
 
-export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, codePath: s.codePath, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
+export const toSettingsDto = (s: Settings): SettingsDto => ({ workspaceRoot: s.workspaceRoot, claudeDir: s.claudeDir, tmuxPath: s.tmuxPath, terminalApp: s.terminalApp, editor: s.editor, lmStudioUrl: s.lmStudioUrl, lmStudioModel: s.lmStudioModel, summaryFallback: s.summaryFallback, summaryHourlyCap: s.summaryHourlyCap, allowExternalSummarizer: s.allowExternalSummarizer, configApproval: s.configApproval === 'auto' ? 'auto' : 'each', configBundleSync: s.configBundleSync === true, nodePath: s.nodePath ?? null, claudePath: s.claudePath ?? null, language: languageOf(s.language) });
 
 /** http か https で、host のある URL だけを通す。`http://` のような繋ぎ先にならない文字列を弾く。 */
 function parseHttpUrl(v: string): URL | null {
@@ -103,6 +103,38 @@ export function settingsRoutes(api: Hono, deps: SettingsRouteDeps): void {
       }
       // パスは ~ を直した値で保存する（起動するときに ~ は直されない）。名前は打たれたまま残す。
       patch[key] = name ? raw : t.path;
+    }
+    // エディタ。足りない項目は今の値で埋める。表のエディタのパスは、ほかのパスの欄と同じく保存する前に確かめる。
+    // 任意のコマンドは {path} が要る（どのファイルを開くかが渡らない）。フォルダのコマンドは空なら、ファイルのコマンドから作る。
+    if ('editor' in body) {
+      const v = body.editor;
+      const bad = () => c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.editor') }) }, 400);
+      if (typeof v !== 'object' || v === null || Array.isArray(v)) return bad();
+      const o = v as Record<string, unknown>;
+      if ('id' in o && !isEditorId(o.id)) return bad();
+      if ('terminal' in o && !(EDITOR_TERMINALS as readonly unknown[]).includes(o.terminal)) return bad();
+      for (const k of ['fileCmd', 'dirCmd'] as const) if (k in o && typeof o[k] !== 'string') return bad();
+      if ('path' in o && o.path !== null && typeof o.path !== 'string') return c.json({ error: tr('settings.error.badValue', { label: tr('settings.label.editorPath') }) }, 400);
+      const cur = deps.settings().editor;
+      const next: EditorSetting = {
+        id: isEditorId(o.id) ? o.id : cur.id,
+        path: 'path' in o ? (typeof o.path === 'string' && o.path.trim() !== '' ? o.path.trim() : null) : cur.path,
+        fileCmd: typeof o.fileCmd === 'string' ? o.fileCmd.trim() : cur.fileCmd,
+        dirCmd: typeof o.dirCmd === 'string' ? o.dirCmd.trim() : cur.dirCmd,
+        terminal: 'terminal' in o ? (o.terminal as EditorTerminal) : cur.terminal,
+      };
+      if (next.path !== null) {
+        const raw = next.path;
+        const name = isCommandName(raw);
+        if (!name && !path.isAbsolute(expandHome(raw))) return c.json({ error: tr('settings.path.badForm', { label: tr('settings.label.editorPath') }) }, 400);
+        const issue = toolPathIssue(raw);
+        if (issue) return c.json({ error: issue.key === 'settings.path.notOnPath' ? tr(issue.key, { label: tr('settings.label.editorPath'), name: issue.name }) : tr(issue.key, { label: tr('settings.label.editorPath'), path: issue.path }) }, 400);
+        next.path = name ? raw : checkToolPath(raw).path;
+      }
+      // 選んだばかりの任意のコマンドは空のまま保存できる（欄を出してから書いてもらう）。空のうちは開くと断る。
+      if (next.id === 'custom' && next.fileCmd !== '' && !next.fileCmd.includes('{path}')) return c.json({ error: tr('settings.editor.needPath', { label: tr('settings.label.editorFileCmd'), token: '{path}' }) }, 400);
+      if (next.id === 'custom' && next.dirCmd !== '' && !next.dirCmd.includes('{path}')) return c.json({ error: tr('settings.editor.needPath', { label: tr('settings.label.editorDirCmd'), token: '{path}' }) }, 400);
+      patch.editor = next;
     }
     if ('terminalApp' in body) {
       const v = body.terminalApp;

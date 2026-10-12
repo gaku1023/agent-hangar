@@ -1,8 +1,8 @@
-import { type LiveFilter, type SearchFilter, type StatusFilter, type Translate } from '@agent-hangar/shared';
+import { matchesStopFilter, type LiveFilter, type SearchFilter, type StatusFilter, type Translate } from '@agent-hangar/shared';
 import { badTokens, queryTokens, type QueryToken } from '../lib/searchTokens.ts';
 import { periodStart, usesServerSearch } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
-import { liveFilterOfSession, runningSessionIds, type Store } from '../store/store.ts';
+import { liveFilterOfSession, runningSessionIds, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime } from './format.ts';
 import { markTerms } from './highlight.ts';
 import { translatorOf } from './i18n.ts';
@@ -42,13 +42,14 @@ const tabLabel = (t: Translate, tab: StatusTab): string => (tab === 'all' ? t('l
 
 /**
  * いま効いている条件を、条件の行に並べる語にする（D1）。
- * 語、状態、動き、期間、プロジェクト、操作したファイルの順で、欄のチップの並び（queryTokens）に合わせる。
+ * 語、状態、動き、止まっている理由、期間、プロジェクト、操作したファイルの順で、欄のチップの並び（queryTokens）に合わせる。
  */
 function conditionsOf(t: Translate, text: string, f: SearchFilter, store: Store): string[] {
   const out: string[] = [];
   if (text) out.push(t('list.cond.keyword', { text }));
   if (f.status) out.push(tabLabel(t, f.status));
   if (f.live) out.push(liveWord(t, f.live));
+  if (f.stop) out.push(t(f.stop === 'permission' ? 'stop.state.permission' : 'stop.state.limit'));
   if (f.days) out.push(periodWord(t, f.days));
   if (f.until !== undefined) out.push(t('list.cond.until', { date: absoluteTime(t, f.until).slice(0, 10) }));
   if (f.projectId) out.push(store.projects[f.projectId] ? projectDisplayName(store.projects[f.projectId]!, t) : t('list.cond.missingProject'));
@@ -105,6 +106,8 @@ export function presentSessionList(state: State, store: Store, now: number, inPr
     let list = all;
     if (f.projectId) list = list.filter(({ s }) => s.projectId === f.projectId);
     if (f.live !== undefined) { const alive = runningSessionIds(store); list = list.filter(({ s }) => liveFilterOfSession(store, s, alive) === f.live); }
+    // 止まっている理由（is:permission、is:limited）。数え方は一覧の印と同じ（store.ts の shownReason）。
+    if (f.stop !== undefined) { const stop = f.stop; list = list.filter(({ s }) => matchesStopFilter(shownReason(s, shownLive(s)), stop)); }
     const { days, until } = f;
     if (days) { const since = periodStart(days, now); list = list.filter(({ s }) => (s.lastActivityAt ?? 0) >= since); }
     if (until !== undefined) list = list.filter(({ s }) => (s.lastActivityAt ?? 0) < until);

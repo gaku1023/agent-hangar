@@ -34,6 +34,8 @@ const optionsOf = (p: LaunchPrefs | undefined): Options => ({ model: p?.model ??
 const dirsOf = (text: string): string[] => text.split('\n').map((d) => d.trim()).filter(Boolean);
 const sameOptions = (a: Options, b: Options): boolean => a.model.trim() === b.model.trim() && a.effort === b.effort && a.permissionMode === b.permissionMode && a.worktree.trim() === b.worktree.trim() && dirsOf(a.addDirs).join('\n') === dirsOf(b.addDirs).join('\n');
 /** 既定でない値が 1 つでもあるか。「前回と同じ」は、既定だけの前回値には出さない。 */
+/** 同じファイルの編集の警告から開いたときの worktree の名前。時刻から作り、開くたびに替える。 */
+const freshWorktreeName = (): string => `parallel-${Date.now().toString(36).slice(-6)}`;
 const hasNonDefault = (o: Options): boolean => !!(o.model.trim() || o.effort || o.permissionMode || o.worktree.trim() || dirsOf(o.addDirs).length);
 
 /**
@@ -85,8 +87,9 @@ export function NewSessionDialog(props: NewSessionProps) {
   const [restored, setRestored] = useState(props.draft !== null);
   // 札の値の初期値は、選んだプロジェクトの前回値にする（D1）。
   // 利用者が札に触れる前にプロジェクトを選び直したら、そのプロジェクトの前回値に入れ替える。触れた後は、自分で選んだ値を残す。
-  const [detail, setDetail] = useState(() => optionsOf(props.prefs[choice]));
-  const [touched, setTouched] = useState(false);
+  // 同じファイルの編集の警告から開いたときは、worktree の札に新しい名前を入れておく。前の worktree の中で起動しないよう、開くたびに名前を替える。
+  const [detail, setDetail] = useState(() => (props.worktree ? { ...optionsOf(props.prefs[choice]), worktree: freshWorktreeName() } : optionsOf(props.prefs[choice])));
+  const [touched, setTouched] = useState(props.worktree === true);
   // 失敗の文言は、その送信の結果である。プロジェクトを選び直したら古い文言は出さず、送り直したらまた出す。
   // 同じ文言が続けて返ることがあるので、文言ではなく「選び直した時点の文言」を覚えて比べる。
   const [staleError, setStaleError] = useState<string | null>(null);

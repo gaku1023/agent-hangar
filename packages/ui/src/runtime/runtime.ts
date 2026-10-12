@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -20,10 +20,11 @@ import { translatorOf } from '../presenters/i18n.ts';
 import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending } from '../presenters/readiness.ts';
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
-import { aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
+import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, type ConfigDetailPart, type Store } from '../store/store.ts';
 import { ApiConflictError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
+import { createGitWatch } from './gitWatch.ts';
 import type { Notifier } from './notifier.ts';
 import { createUpdateRunner } from './updater.ts';
 import { createCloudMemberRunner } from './cloudMember.ts';
@@ -65,6 +66,8 @@ export type RuntimeDeps = {
    * 画面はこの有無で、「ログを開く」「再起動」を出すか、ログの場所のコピーと文の案内に落とすかを決める。
    */
   desktop?: DesktopBridge | null;
+  /** 窓が前にあるか。git の表示の周期が見る。無ければ document.visibilityState を読む。テストが差し替える口である。 */
+  visible?: () => boolean;
   /** クリップボードに書く。無ければ navigator.clipboard を使う。テストが差し替える口である。 */
   clipboard?: (text: string) => Promise<void>;
 };
@@ -124,7 +127,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
   // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); syncFeed(); } };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
@@ -169,6 +172,19 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     if (key === pruneKey) return;
     pruneKey = key;
     notifier.prune(keep);
+  }
+  /**
+   * 通知を受け取るか（store.notify.on）を、変わったときだけ殻へ伝える（notifier.feed）。
+   * デスクトップでは入力待ちと使用制限の通知をサーバが決めて殻が出すので、殻はこの値で出すかを決める（runtime/notifier.ts の serverFed）。
+   * 頁が伝えるまで殻は出さない。受け取ると決まった時点で伝わる。
+   */
+  let feedOn: boolean | null = null;
+  function syncFeed(): void {
+    if (!notifier?.feed) return;
+    const on = store.notify.on;
+    if (on === feedOn) return;
+    feedOn = on;
+    notifier.feed(on);
   }
   const notifier = deps.notifier;
   /**
@@ -538,6 +554,17 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'api.resume': deps.api.resume(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.fork': deps.api.fork(e.sessionId).then(launched).catch(launchFailed); return;
+      // まとめて再開の 1 本。画面は移さない。起きた run は Store に入れ、順番待ちを進めるのは Mediator である。
+      case 'api.resumeQueued': {
+        const id = e.sessionId;
+        deps.api.resume(id)
+          .then((r) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'resumeQueue.done', sessionId: id } }); })
+          .catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'resumeQueue.failed', sessionId: id, message: errMsg(err) } }));
+        return;
+      }
+      case 'api.dismissInterrupted':
+        deps.api.dismissInterrupted(e.runIds, e.dismissed).then((r) => setStore(applyServerEvent(store, { type: 'interrupted.update', interrupted: r.interrupted }))).catch(fail);
+        return;
       case 'api.attach': deps.api.attach(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.adopt': deps.api.adopt(e.sessionId).then(launched).catch(launchFailed); return;
       case 'api.killRun': deps.api.killRun(e.runId).then((run) => setStore(applyServerEvent(store, { type: 'run.ended', run }))).catch(fail); return;
@@ -581,10 +608,16 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         return;
       case 'toast': dispatch({ kind: 'server', event: { type: 'toast', level: e.level, message: e.message } }); return;
       case 'notify.waiting': {
+        // デスクトップでは、入力待ちの通知はサーバが決めて殻が出す。頁が呼ぶと 2 回出る（runtime/notifier.ts の serverFed）。
         // 窓が前にあるときは右下のカードで足りる。
-        if (!notifier || !store.notify.on || !notifier.background()) return;
+        if (!notifier || notifier.serverFed || !store.notify.on || !notifier.background()) return;
         const s = store.sessions[e.sessionId];
         if (!s) return;
+        // 許可待ちは、何の許可かを本文にする。問いの文を待たない。
+        if (stopReasonOf(s) === 'permission') {
+          notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: permissionNoticeText(tr(), s.permission ?? null), kind: 'waiting' });
+          return;
+        }
         // 問いの文が無ければ印（bare）を付ける。殻が問いの文を少し待ち、届けば 1 回にまとめて出す。
         const question = s.activity?.question;
         notifier.show({ sessionId: s.id, title: s.name ?? tr()('common.label.noName'), body: question ?? noQuestionText(tr()), kind: 'waiting', ...(question ? {} : { bare: true }) });
@@ -740,6 +773,18 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   }
 
   /**
+   * git の表示の取り方（runtime/gitWatch.ts）。見えている行と実行中のセッションを、まとめて取り、窓が前にある間は周期で取り直す。
+   */
+  const gitWatch = createGitWatch({
+    fetch: (ids) => deps.api.gitSessions(ids),
+    apply: (g) => setStore(applyGit(store, g)),
+    live: () => Object.values(store.sessions).filter((s) => shownLive(s) !== null).map((s) => s.id),
+    visible: deps.visible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+    setTimeout: (fn, ms) => deps.setTimeout(fn, ms),
+    now: deps.now ?? Date.now,
+  });
+
+  /**
    * 表で引いた呼び出しを実行する（runtime/actionTable.ts）。
    * 応答は着いた時点の Store に当て、知らせはトーストにする。失敗は、failed を持つ行だけ Store に書き、ほかの行はトーストにする。
    */
@@ -748,7 +793,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     c.run(deps.api).then((done) => {
       if (done.apply) setStore(done.apply(store));
       if (done.toast !== undefined) toast(tr()(done.toast), done.toastHoldMs);
-    }).catch((e: unknown) => { if (c.failed) setStore(c.failed(store, e)); else fail(e); });
+    }).catch((e: unknown) => {
+      const next = c.failed?.(store, e) ?? null;
+      if (next) setStore(next);
+      else if (c.failHoldMs !== undefined) dispatch({ kind: 'runtime', event: { type: 'api.failed', message: errMsg(e), holdMs: c.failHoldMs } });
+      else fail(e);
+    });
   }
 
   /**
@@ -756,6 +806,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
    * 表にあれば、Mediator を通さずに API を呼ぶ。無ければ、今までどおり Mediator へ渡す。
    */
   function emit(action: UiAction): void {
+    // 見えている行の git（0.5.0）。場所ごとに覚え、まとめて取る。
+    if (action.type === 'git.watch') { gitWatch.watch(action.key, action.sessionIds); return; }
     if (!isTableAction(action)) { dispatch({ kind: 'action', action }); return; }
     const c = actionCall(action, store);
     if (c) runCall(c);
@@ -763,7 +815,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
   function dispatch(input: Input): void {
     // 型では表の UiAction を渡せないが、型を外して渡されても Mediator へは入れない。
-    if (input.kind === 'action' && isTableAction(input.action)) { emit(input.action); return; }
+    if (input.kind === 'action' && (isTableAction(input.action) || (input.action as UiAction).type === 'git.watch')) { emit(input.action); return; }
     // 索引の走査がこの知らせで終わるかは、当てる前の Store でしか分からない。
     const indexDone = input.kind === 'server' && indexFinishedBy(store, input.event);
     // 同期で降りた、この PC に場所を持ったことが無いプロジェクトか。これも、当てる前の Store でしか分からない（初めて見る id かどうか）。
@@ -867,7 +919,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
       unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
-      unsubVisible = deps.onWindowVisible?.(recheckNotify) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { recheckNotify(); gitWatch.wake(); }) ?? null;
       ws.connect();
     },
     stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },

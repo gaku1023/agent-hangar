@@ -29,7 +29,7 @@ const inEnglish = (ui: React.ReactNode) => render(<LanguageRoot language="en"><A
 const noJapanese = (value: string = document.body.textContent ?? '') => expect(value).not.toMatch(JAPANESE);
 const jsonOf = (value: unknown) => JSON.stringify(value);
 
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 5 * MIN, startedAt: NOW - 10 * MIN, hasTranscript: true, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, ...over } as unknown as SessionDto);
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: `u-${id}`, projectId: null, name: `name-${id}`, cwd: '/w', firstPrompt: null, aiTitle: null, live: 'busy', lastActivityAt: NOW - 5 * MIN, startedAt: NOW - 10 * MIN, hasTranscript: true, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over } as unknown as SessionDto);
 const storeIn = (list: SessionDto[]): Store => ({ ...initialStore(), bootstrapped: true, settings: { language: 'en' } as SettingsDto, sessions: Object.fromEntries(list.map((s) => [s.id, s])) });
 
 const row = (over: Partial<SessionRowProps> = {}): SessionRowProps => ({ id: 'a', name: 'alpha work', oneLiner: 'one', projectName: null, live: 'waiting', aside: false, stateLabel: '', summaryState: null, model: '', effort: '', when: '3 min ago', whenAbs: '2026-09-01 10:00', filesChanged: 0, prUrl: null, hasTranscript: true, cost: '', runId: null, transcript: 'expiring', state: null, returnOn: null, returnTime: null, overdueDays: null, returnDue: false, returnPastMin: null, candidate: null, setBy: null, ...over });
@@ -69,9 +69,9 @@ describe('ホーム、一覧、ヘッダー、サイドバー（英語）', () =
   it('パレット：群の名前、操作、右端の語、ホームへ渡す行', () => {
     const store = storeIn([session('w', { live: 'waiting', name: 'fix login' }), session('e', { live: null, name: 'old run', lastActivityAt: NOW - 3 * 3_600_000 })]);
     const closed = presentPalette({ ...initialState(), overlay: { kind: 'palette' } }, store, '', NOW)!;
-    expect(closed.sections.map((s) => s.title)).toEqual(['Needs input', 'Recent', 'Actions', 'Settings']);
+    expect(closed.sections.map((s) => s.title)).toEqual(['Needs attention', 'Recent', 'Actions', 'Settings']);
     expect(closed.sections[0]!.items[0]!.meta).toBe('Waiting 5 min');
-    expect(closed.sections[2]!.items.map((i) => i.label)).toContain('Go to next session needing input');
+    expect(closed.sections[2]!.items.map((i) => i.label)).toContain('Go to next session needing attention');
     noJapanese(jsonOf(closed));
     const typed = presentPalette({ ...initialState(), overlay: { kind: 'palette' } }, store, 'log', NOW, { q: 'log', total: 1 })!;
     expect(typed.sections.at(-1)).toMatchObject({ title: 'Home', items: [{ label: 'Search transcripts for “log” in Home', meta: '1 result' }] });

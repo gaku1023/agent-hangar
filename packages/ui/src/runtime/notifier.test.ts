@@ -38,11 +38,21 @@ describe('デスクトップの通知', () => {
   });
   it('残してよい知らせの顔ぶれを殻へ渡し、ほかを通知センターから外させる', async () => {
     const { e, invoke } = env();
-    createDesktopNotifier(e).prune({ waiting: ['s1'], returning: ['s2'] });
-    expect(invoke).toHaveBeenCalledWith('notify_prune', { waiting: ['s1'], returning: ['s2'] });
+    createDesktopNotifier(e).prune({ waiting: ['s1'], returning: ['s2'], limited: ['s3'] });
+    expect(invoke).toHaveBeenCalledWith('notify_prune', { waiting: ['s1'], returning: ['s2'], limited: ['s3'] });
     const failing = createDesktopNotifier({ __TAURI_INTERNALS__: { invoke: vi.fn(async () => { throw new Error('not allowed'); }) }, document: doc(true, true) });
-    expect(() => failing.prune({ waiting: [], returning: [] })).not.toThrow();
+    expect(() => failing.prune({ waiting: [], returning: [], limited: [] })).not.toThrow();
     await Promise.resolve();
+  });
+  // 入力待ちと使用制限の通知は、サーバが決めて殻が読みに行く。頁が背面で止まっていても出るようにするためである。
+  it('入力待ちの通知はサーバから殻へ届くので、頁は受け取るかどうかだけを殻に伝える', () => {
+    const { e, invoke } = env();
+    const n = createDesktopNotifier(e);
+    expect(n.serverFed).toBe(true);
+    n.feed?.(true);
+    expect(invoke).toHaveBeenCalledWith('notify_feed', { on: true });
+    n.feed?.(false);
+    expect(invoke).toHaveBeenLastCalledWith('notify_feed', { on: false });
   });
   it('許可を求めると殻が OS に尋ね、その答えを返す', async () => {
     const { e, invoke } = env();

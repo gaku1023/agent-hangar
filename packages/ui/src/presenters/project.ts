@@ -1,4 +1,5 @@
 import type { ArtifactDto, InstructionFileDto, InstructionFileKind, ProjectRailSection, ProjectStatus, TodoDto, Translate } from '@agent-hangar/shared';
+import { presentProjectGit, type ProjectGitProps } from './git.ts';
 import { SEARCH_STEP } from '../mediator/screen.ts';
 import type { State } from '../mediator/types.ts';
 import { artifactsOf, todosOf, type Store } from '../store/store.ts';
@@ -31,8 +32,10 @@ export type ProjectProps = {
   todos: TodoItemProps[]; doneTodos: TodoItemProps[]; suggestions: TodoSuggestionProps[]; pendingTodos: number; instructions: InstructionsProps; artifacts: ArtifactCardProps[];
   /** 手で足した URL が断られたときの理由と、入れた URL。このプロジェクトのものだけ。 */
   artifactAddError: { url: string; message: string } | null;
-  /** 右パネルで折りたたんでいる節。プロジェクトごとに覚えたもので、無ければ 3 つとも開く。 */
+  /** 右パネルで折りたたんでいる節。プロジェクトごとに覚えたもので、無ければどれも開く。 */
   railFolded: ProjectRailSection[];
+  /** git の表示（0.5.0）。パスの行の札と、右パネルの「ブランチと worktree」の行。 */
+  git?: ProjectGitProps;
 };
 
 /**
@@ -116,7 +119,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
   const PARENT = parentOf(t);
   // 一覧はホームと同じ部品で、このプロジェクトのセッションだけを出す。見つからないプロジェクトは行が 0 になる。
   const list = presentSessionList(state, store, now, id);
-  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [], artifactAddError: null, railFolded: [] };
+  if (!p) return { id, name: id, parent: PARENT, path: null, resolved: false, status: 'active', notFound: true, isScratch: false, list, loadMore: null, info: { sessionsText: '', lastActivity: '' }, todos: [], doneTodos: [], suggestions: [], pendingTodos: 0, instructions: { state: 'loading', rows: [], legacyNote: null }, artifacts: [], artifactAddError: null, railFolded: [], git: { state: 'nogit', root: null, rows: [] } };
   const remaining = list.total - list.rows.length;
   const all = todosOf(store, id);
   const item = (x: TodoDto): TodoItemProps => ({ id: x.id, text: x.text, done: x.done, position: x.position, candidate: presentTodoCandidate(x, store, now) });
@@ -136,5 +139,6 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     artifacts: artifactsOf(store, { projectId: id }).map((a) => presentArtifactCard(t, a, now)),
     artifactAddError: store.artifactAddError?.projectId === id ? { url: store.artifactAddError.url, message: store.artifactAddError.message } : null,
     railFolded: state.projectRailFolded[id] ?? [],
+    git: presentProjectGit(t, store.projectGit[id], Object.values(store.sessions).filter((s) => s.projectId === id), store.git),
   };
 }

@@ -1,0 +1,87 @@
+/* git の表示（0.5.0）。札、変更したファイルの一覧、差分のダイアログ、プロジェクトの「ブランチと worktree」。
+   色は既存の変数に載せる。未コミットは作業中と同じ琥珀（--busy）、共有はしおりの色（Paused）、ほかは墨の 3 番目。 */
+
+/* 札。ブランチの名前は 150px で切り、全文は title。 */
+.gitchip { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; font-size: var(--fs-xs); color: var(--ink-2); white-space: nowrap; }
+.gitchip[data-fresh='true'] { animation: gitchip-in var(--dur-fast) var(--ease-out); }
+@keyframes gitchip-in { from { opacity: 0; } }
+.gitchip-face { display: inline-flex; align-items: center; gap: calc(var(--u) * 1); min-width: 0; }
+.gitchip-face > .icon { flex: none; width: 13px; height: 13px; color: var(--ink-3); }
+.gitchip-br { font-size: 11px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.gitchip-wt { flex: none; font-size: 10px; line-height: 1.4; padding: 0 4px; border-radius: 4px; box-shadow: 0 0 0 1px var(--line-strong); color: var(--ink-2); }
+.gitchip-sep { color: var(--ink-3); }
+.gitchip-val { flex: none; font-weight: 600; color: var(--busy); }
+.gitchip-val.gitchip-quiet { font-weight: 400; color: var(--ink-3); }
+.gitchip-share { flex: none; font-size: 10px; font-weight: 600; line-height: 1.4; padding: 0 4px; border-radius: 4px; background: var(--st-paused-soft); color: var(--st-paused); }
+.gitchip[data-kind='remote'], .gitchip[data-kind='gone'] { color: var(--ink-3); }
+
+/* 一覧の行の 2 段目の右端。要約が先に縮み、札は右に残る。PR の番号はその右に続ける。 */
+.row-sub > .row-git { flex: 0 1 auto; margin-left: auto; }
+.row-sub > .row-git + .row-marks { margin-left: 0; }
+
+/* 現在の札の git の札（押すと変更したファイルの一覧）。数の札と同じ器に載せる。 */
+.count-chip.gitchip-btn { gap: calc(var(--u) * 1); max-width: 100%; }
+.count-chip.gitchip-btn > .gitchip { min-width: 0; }
+
+/* 冒頭の 1 枚の git の札（読むだけ）と、変更したファイルの一覧の下の差分の入口。 */
+.chip.lead-git { cursor: default; }
+.lead-panel-foot { display: flex; justify-content: flex-end; margin-top: calc(var(--u) * 1.5); }
+
+/* 変更したファイルの一覧。 */
+.gitf { display: flex; flex-direction: column; gap: var(--u); font-size: var(--fs-sm); }
+.gitf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.gitf-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: calc(var(--u) * 2); width: 100%; padding: calc(var(--u) * 1.25) calc(var(--u) * 2); border: 0; border-radius: 7px; background: none; color: var(--ink); font: inherit; text-align: left; }
+button.gitf-row { cursor: pointer; }
+button.gitf-row:hover { background: var(--surface-2); }
+.gitf-row[aria-current='true'] { background: var(--accent-soft); }
+.gitf-row[data-static='true'] { opacity: 0.8; }
+.gitf-path { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.gitf-path bdi { direction: ltr; }
+.gitf-counts { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.gitf-mark { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; font: 700 10px var(--font-mono); background: var(--surface-2); color: var(--ink-3); }
+.gitf-mark[data-s='M'] { background: var(--st-paused-soft); color: var(--st-paused); }
+.gitf-mark[data-s='A'], .gitf-mark[data-s='U'] { background: var(--st-done-soft); color: var(--st-done); }
+.gitf-mark[data-s='D'] { background: color-mix(in srgb, var(--error) 10%, #ffffff); color: var(--error); }
+.gitf-mark[data-s='R'] { background: var(--accent-soft); color: var(--accent); }
+.gitf-others { border-top: 1px dashed var(--line-strong); padding-top: var(--u); }
+.gitf-others-head { display: flex; align-items: center; gap: var(--u); width: 100%; padding: calc(var(--u) * 1) calc(var(--u) * 2); border: 0; border-radius: 7px; background: none; color: var(--ink-3); font: inherit; font-size: var(--fs-xs); text-align: left; cursor: pointer; }
+.gitf-others-head:hover { background: var(--surface-2); }
+.gitf-note { display: flex; align-items: flex-start; gap: var(--u); padding: var(--u) calc(var(--u) * 2); font-size: var(--fs-xs); line-height: 1.5; }
+.gitf-note > .icon { flex: none; width: 13px; height: 13px; margin-top: 2px; }
+.gitf-foot { display: flex; justify-content: flex-end; margin-top: calc(var(--u) * 2); }
+
+/* 差分のダイアログ。左に一覧、右に統合の差分。 */
+.dialog.dialog-diff { width: 920px; }
+.diff-aside { display: inline-flex; align-items: center; gap: calc(var(--u) * 2); min-width: 0; margin-left: calc(var(--u) * 1); overflow: hidden; }
+.diff-name { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-bar { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-xs); }
+.diff-grid { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: calc(var(--u) * 3); min-height: 300px; }
+.diff-files { border-right: 1px solid var(--line); padding-right: calc(var(--u) * 2); min-width: 0; }
+.diff-main { min-width: 0; display: flex; flex-direction: column; gap: calc(var(--u) * 2); }
+.diff-file-head { display: flex; align-items: center; gap: calc(var(--u) * 2); font-size: var(--fs-sm); min-width: 0; }
+.diff-file-path { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-main .tdiff { overflow-x: auto; }
+.diff-note { display: flex; align-items: flex-start; gap: var(--u); font-size: var(--fs-xs); line-height: 1.5; }
+.diff-note > .icon { flex: none; width: 13px; height: 13px; margin-top: 2px; }
+.diff-edit { display: flex; flex-direction: column; gap: var(--u); }
+.diff-edit-head { font-size: var(--fs-xs); }
+.diff-keys kbd { margin-right: 2px; }
+@media (max-width: 760px) {
+  .diff-grid { grid-template-columns: 1fr; }
+  .diff-files { border-right: 0; padding-right: 0; border-bottom: 1px solid var(--line); padding-bottom: calc(var(--u) * 2); }
+}
+
+/* (i) の詳細の行の添え。 */
+.detail-note { font-size: var(--fs-xs); }
+
+/* プロジェクトの右パネルの「ブランチと worktree」。 */
+.git-rail { display: flex; flex-direction: column; gap: calc(var(--u) * 2); font-size: var(--fs-sm); }
+.git-rail-list { list-style: none; margin: 0; padding: 0; }
+.git-rail-row { display: flex; flex-direction: column; gap: 2px; padding: calc(var(--u) * 1.5) 0; border-top: 1px solid var(--line); }
+.git-rail-row:first-child { border-top: 0; }
+.git-rail-1 { display: flex; align-items: center; gap: calc(var(--u) * 1.5); min-width: 0; font-weight: 600; }
+.git-rail-1 > .icon { flex: none; width: 14px; height: 14px; color: var(--ink-3); }
+.git-rail-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-rail-2 { font-size: var(--fs-xs); margin-left: calc(14px + var(--u) * 1.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-rail-note { display: flex; align-items: flex-start; gap: var(--u); font-size: var(--fs-xs); line-height: 1.5; }
+.git-rail-note > .icon { flex: none; width: 13px; height: 13px; margin-top: 2px; }

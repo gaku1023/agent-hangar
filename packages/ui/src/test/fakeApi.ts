@@ -4,14 +4,15 @@ import { accountsFixture } from './accounts.ts';
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs'
+  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'joinToken' | 'cloudDevices'
   | 'configSyncState' | 'configOutgoing' | 'configInbox' | 'configConflicts' | 'configUnsent' | 'configBackups' | 'configSendUnsent' | 'configPutOrder' | 'configDeleteOrder'
   | 'retention' | 'retentionPreview' | 'writeRetention'
-  | 'renameProject' | 'live' | 'sessionFiles' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
+  | 'renameProject' | 'live' | 'sessionFiles' | 'gitSessions' | 'sessionChanges' | 'sessionDiff' | 'sessionEdits' | 'projectGit' | 'promptCommands' | 'promptFiles' | 'uploadDrop' | 'existingDrops'
   | 'accounts' | 'setCurrentAccount' | 'switchAccount' | 'addAccount' | 'updateAccount' | 'removeAccount' | 'loginAccount' | 'cancelAccountLogin' | 'refreshAccount'
+  | 'dismissInterrupted' | 'dismissOverlap'
 >;
 
 /** フェーズ 2 からフェーズ 4 で増えた API の偽物。
@@ -22,6 +23,12 @@ export function fakeApiExtras(): Extras {
   const unused = (): never => { throw new Error('not used in this test'); };
   return {
     renameProject: vi.fn(async () => unused()),
+    // git の表示。一覧と画面を開くたびに取りに行くので、どのテストでも空の答えを返す。
+    gitSessions: vi.fn(async () => ({ sessions: {}, trees: {} })),
+    sessionChanges: vi.fn(async () => ({ state: 'nogit' as const, root: null, tree: null, files: [], others: [], othersCapped: false })),
+    sessionDiff: vi.fn(async () => unused()),
+    sessionEdits: vi.fn(async () => unused()),
+    projectGit: vi.fn(async () => ({ root: null, worktrees: [] })),
     launch: vi.fn(async () => unused()),
     resume: vi.fn(async () => unused()),
     fork: vi.fn(async () => unused()),
@@ -35,6 +42,8 @@ export function fakeApiExtras(): Extras {
     leaveTranscript: vi.fn(async () => ({ left: true })),
     openEditor: vi.fn(async () => {}),
     projectOpenEditor: vi.fn(async () => {}),
+    editors: vi.fn(async () => ({ candidates: [], current: { id: 'vscode' as const, state: 'found' as const, path: '/usr/local/bin/code' } })),
+    testEditor: vi.fn(async () => ({ ok: true, via: 'cli' as const, file: '/Users/me/.agent-hangar/hangar-editor-test.md', message: null })),
     projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
     createProject: vi.fn(async () => unused()),
     // 未登録の一覧は、新しいセッションのダイアログを開くたびに取りに行くので、どのテストでも空を返す。
@@ -48,7 +57,7 @@ export function fakeApiExtras(): Extras {
     shellHook: vi.fn(async () => ({ state: 'off' as const, zshrc: '/Users/me/.zshrc', line: 'x  # agent-hangar', command: 'hangar shell install' })),
     // 準備の確かめは、起動のたびに取りに行くので、どのテストでも答えを返す。
     readiness: vi.fn(async () => ({
-      tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, code: { path: null, ok: false, problem: 'unset' as const, version: null }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
+      tools: { tmux: { path: '/opt/homebrew/bin/tmux', ok: true, problem: null, version: '3.4' }, claude: { path: '/Users/me/.local/bin/claude', ok: true, problem: null, version: '2.3.1' }, git: { path: '/usr/bin/git', ok: true, problem: null, version: '2.51.0' }, node: { path: '/opt/homebrew/bin/node', ok: true, problem: null, version: 'v22.9.0', auto: true } },
       workspace: { path: '/w', exists: true, projectCount: 1 }, mcp: { registered: false, file: '/Users/me/.claude.json' }, statusline: { command: null, scriptPath: null, installed: false },
       commands: { mcp: 'hangar mcp install', statusline: 'hangar statusline install', shell: 'hangar shell install', join: 'hangar join <token>' },
       compat: { verifiedVersion: '2.1.292', localVersion: '2.1.292', driftCount: 0 },
@@ -68,6 +77,8 @@ export function fakeApiExtras(): Extras {
     setSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
     confirmSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
     rejectSessionState: vi.fn(async () => ({ state: { status: null, note: null, returnOn: null, returnTime: null, setBy: null, setAt: null, candidate: null } })),
+    dismissInterrupted: vi.fn(async () => ({ interrupted: null })),
+    dismissOverlap: vi.fn(async () => {}),
     memo: vi.fn(async (projectId: string) => ({ projectId, markdown: '', updatedAt: 0 })),
     saveMemo: vi.fn(async (projectId: string, markdown: string) => ({ projectId, markdown, updatedAt: 2 })),
     instructions: vi.fn(async (projectId: string) => ({ projectId, available: true, files: [] })),

@@ -1,5 +1,5 @@
 import type { NodeCheck } from '../config/node.ts';
-import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -7,10 +7,13 @@ import type { Message } from '../i18n/message.ts';
 import type { NoticeEvent } from '../events/publisher.ts';
 import type { LiveDigester } from '../live/digest.ts';
 import type { MemoStore } from '../projects/memo.ts';
+import type { PermissionAsks } from '../sessions/permissionAsks.ts';
+import type { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import type { RunManager } from '../runs/manager.ts';
 import type { ConfigSyncService } from '../sync/config/service.ts';
 import type { SyncEngine } from '../sync/engine.ts';
 import type { AccountsDeps } from './accounts.ts';
+import type { GitService } from '../git/service.ts';
 
 /**
  * HTTP の層が外から受け取る依存の一覧。
@@ -20,12 +23,22 @@ import type { AccountsDeps } from './accounts.ts';
 
 /** RunManager のうち HTTP から触る部分だけ。テストは偽物を渡せる。 */
 export type RunsApi = Pick<RunManager, 'start' | 'startFromTerminal' | 'resume' | 'fork' | 'attach' | 'adopt' | 'kill' | 'openTab' | 'closeTab' | 'listAlive' | 'getRun' | 'getTab' | 'attachTarget' | 'jumpToPrompt' | 'leaveTranscript'>;
+/** git の表示（git/service.ts）のうち HTTP から触る部分だけ。 */
+export type GitApi = Pick<GitService, 'sessions' | 'changes' | 'diff' | 'edits' | 'project'>;
 /** ターミナルとエディタへの受け渡し。設定を読むのは呼び手の役目にして、ここでは結果だけを扱う。 */
 export type ExternalApi = {
   /** title は Windows のタブや窓の題名（セッション名）。省くと tmux の名前になる。 */
   openTerminal(o: { tmuxName: string; title?: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
   openDirTerminal(o: { dir: string }): Promise<{ app: TerminalApp; fellBack: boolean }>;
-  openEditor(o: { target: string }): Promise<void>;
+  /**
+   * 設定のエディタで開く。line はファイルの行（変更したファイルと差分から）。once は「今回は <名前> で開く」で、設定を変えずにそのエディタで開く。
+   * sessionId は、ターミナルの中のエディタをそのセッションのシェルタブで開くのに使う。
+   */
+  openEditor(o: { target: string; line?: number | null; once?: KnownEditorId; sessionId?: string }): Promise<void>;
+  /** この PC で見つけたエディタと、選んでいるエディタの状態。 */
+  editors(): Promise<EditorsDto>;
+  /** 見本のファイルを書いて 3 行目を開く（設定の「テスト」）。 */
+  testEditor(): Promise<EditorTestDto>;
   /** 既定のブラウザで URL を開く。アーティファクトの「開く」で使う。 */
   openUrl(url: string): Promise<void>;
 };
@@ -68,10 +81,16 @@ export type AppDeps = {
    * 渡さなければ、ここで作る。
    */
   digester?: Pick<LiveDigester, 'digest'>;
+  /** hook から届いた許可の確認の預け先（sessions/permissionAsks.ts）。登録の読み直しが許可待ちの札の中身として足す。無ければ預けない。 */
+  permissionAsks?: Pick<PermissionAsks, 'put'>;
+  /** デスクトップ通知の並び（sessions/stopNotices.ts）。殻が `GET /api/notify/feed` で読む。無ければ経路を持たない。 */
+  osNotices?: Pick<OsNoticeFeed, 'wait'>;
   /** 表の変化に対応しない知らせ（トースト）を渡す先。行のイベントは渡さない。行を書けば、配る層（events/publisher.ts）が配る。 */
   hub: { broadcast(ev: NoticeEvent): void };
   runs: RunsApi;
   external: ExternalApi;
+  /** git の表示。渡さなければ、ここで作る（試験は実物の git を使う）。組み立てる側は、本文の伸びで読み直す同じものを渡す。 */
+  git?: GitApi;
   usage: { current(): UsageDto; ingest(raw: unknown): { usage: UsageDto; usageChanged: boolean; providerSessionId: string | null; accountId: string } | null };
   memos: MemoStore;
   summary: SummaryApi;
@@ -131,6 +150,11 @@ export type AppDeps = {
    * Claude Code との互換（確かめた版、手元の版、記録したずれの一覧）。準備の確かめでずれがあるとき、画面が続けて読む。
    */
   compat: () => Promise<CompatDto>;
+  /**
+   * 同じファイルの編集の見張り（sessions/overlap.ts）に、すぐ読み直させる。「このファイルでは表示しない」の後に呼ぶ。
+   * 渡さなければ、次の周期（数秒）で消える。
+   */
+  overlapRefresh?: () => void;
   /** UI の dist。null なら UI を配らない（試験と、dist を持たない組み立て）。 */
   uiDist: string | null;
 };

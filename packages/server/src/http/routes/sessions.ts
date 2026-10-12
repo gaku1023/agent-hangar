@@ -1,23 +1,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Context, Hono } from 'hono';
-import { liveFilterOf, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
+import { liveFilterOf, liveWithLimit, quietLive, type PromoteResultDto, type SearchParamsDto, type SessionStateDto, type SessionStatus } from '@agent-hangar/shared';
 import { touchRow } from '../../db/notify.ts';
 import { getProject, listSessions } from '../../db/queries.ts';
 import { EDIT_TOOLS } from '../../indexer/indexFile.ts';
 import { LiveDigester } from '../../live/digest.ts';
 import { PromoteError } from '../../projects/promote.ts';
 import { searchSessions } from '../../search/search.ts';
+import { dismissOverlap } from '../../sessions/overlap.ts';
 import { parkedSessionIds } from '../../sessions/park.ts';
+import { stopReasonsOf } from '../../sessions/stopReasons.ts';
 import { changedFilesOf } from '../../sessions/files.ts';
 import { confirmSessionState, rejectSessionState, setSessionState, StateInputError } from '../../sessions/states.ts';
 import { readEvents, subagentIds } from '../../transcript/read.ts';
 import { errorText, render, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
-import { BODY_LIMITS, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
+import { BODY_LIMITS, editorOptsOf, externalOf, isEnoent, numberOr, readJson, sessionOf, tooLargeResult } from './common.ts';
 
 /** セッションの経路が使う依存。 */
-export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester'> & LanguageDeps;
+export type SessionRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'live' | 'runs' | 'summary' | 'promote' | 'external' | 'token' | 'digester' | 'overlapRefresh'> & LanguageDeps;
 
 /** セッションの状態として受け付ける値。Active は null で表す。 */
 const SESSION_STATUSES = new Set(['paused', 'done', 'archived']);
@@ -83,6 +85,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
   api.get('/search', (c) => {
     const q = c.req.query();
     const live = q.live === 'running' || q.live === 'waiting' || q.live === 'ended' ? q.live : undefined;
+    const stop = q.stop === 'permission' || q.stop === 'limited' ? q.stop : undefined;
     const status = q.status && STATUS_FILTERS.has(q.status) ? (q.status as NonNullable<SearchParamsDto['status']>) : undefined;
     const hideArchived = q.hideArchived === 'true' || q.hideArchived === '1';
     // 数え方は UI と同じ liveFilterOf に任せる。
@@ -93,8 +96,10 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const parked = new Set(parkedSessionIds(db, deps.live(), deviceId));
     // 問いで待っている最中に Done や Archived にしたものは、入力待ちに数えない（shared の quietLive。UI の数え方と同じ）。
     const settled = new Map((db.prepare("select session_id id, status from session_states where status in ('done', 'archived') and deleted_at is null").all() as { id: string; status: SessionStatus }[]).map((r) => [r.id, r.status]));
-    const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveStatus.get(psid) ?? null, settled.get(sid)), alive.has(sid), parked.has(sid));
-    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf));
+    // 自動で続かずにリセットを過ぎたもの（リセット済み）は、入力待ちに数える（shared の liveWithLimit。UI の数え方と同じ）。
+    const stops = stopReasonsOf(db, deps.live(), Date.now());
+    const liveOf = (sid: string, psid: string) => liveFilterOf(quietLive(liveWithLimit(liveStatus.get(psid) ?? null, stops.limit(psid)), settled.get(sid)), alive.has(sid), parked.has(sid));
+    return c.json(searchSessions(db, { q: q.q ?? '', projectId: q.projectId || undefined, since: numberOr(q.since), until: numberOr(q.until), live, stop, file: q.file || undefined, limit: numberOr(q.limit), offset: numberOr(q.offset), status, hideArchived }, liveOf, (_sid, psid) => stops.reason(psid)));
   });
 
   // 本文を送らなければ作業ディレクトリを開く。
@@ -106,7 +111,9 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
     const file = (b.value as { file?: unknown } | undefined)?.file;
-    if (file === undefined) return external(c, () => deps.external.openEditor({ target: s.cwd }), true);
+    const opts = editorOptsOf(b.value, file !== undefined);
+    if (opts === null) return c.json({ error: tr('session.file.badOptions') }, 400);
+    if (file === undefined) return external(c, () => deps.external.openEditor({ target: s.cwd, sessionId: s.id, ...opts }), true);
     if (typeof file !== 'string' || !path.isAbsolute(file)) return c.json({ error: tr('session.file.mustBeAbsolute') }, 400);
     const marks = EDIT_TOOLS.map(() => '?').join(',');
     const known = db.prepare(`select 1 from event_index where session_id = ? and tool_name in (${marks}) and file_path = ? limit 1`).get(s.id, ...EDIT_TOOLS, file);
@@ -114,7 +121,7 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     // 変えた後に消えたり、ディレクトリに替わったりしていたら開かない。
     // ディレクトリを渡すと、code はファイルではなくその中身を開いてしまう。
     if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) return c.json({ error: tr('common.file.sourceMissing') }, 404);
-    return external(c, () => deps.external.openEditor({ target: file }), true);
+    return external(c, () => deps.external.openEditor({ target: file, sessionId: s.id, ...opts }), true);
   });
 
   // セッションのノート（PATCH /sessions/:id の memo）は 0.4.0 で外した。書く口は無い。
@@ -160,6 +167,19 @@ export function sessionRoutes(api: Hono, deps: SessionRouteDeps): void {
     const id = c.req.param('id');
     if (!liveSessionRow(id)) return c.json({ error: tr('session.error.notFound') }, 404);
     return stateResult(c, () => rejectSessionState(db, deviceId, id));
+  });
+  // 同じファイルの編集の警告の「このファイルでは表示しない」。相手（with）とパスの組で覚え、向きによらず効く。
+  api.post('/sessions/:id/overlap/dismiss', async (c) => {
+    const b = await readJson(c, BODY_LIMITS.default);
+    if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
+    const body = (b.value ?? {}) as { with?: unknown; paths?: unknown };
+    const paths = body.paths;
+    if (typeof body.with !== 'string' || body.with === '' || !Array.isArray(paths) || paths.length === 0 || !paths.every((x): x is string => typeof x === 'string')) {
+      return c.json({ error: tr('http.request.badShape') }, 400);
+    }
+    dismissOverlap(db, c.req.param('id'), body.with, paths, Date.now());
+    deps.overlapRefresh?.();
+    return c.body(null, 204);
   });
   api.post('/sessions/:id/promote', async (c) => {
     const id = c.req.param('id');

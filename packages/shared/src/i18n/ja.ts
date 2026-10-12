@@ -8,8 +8,13 @@ import { configSyncJa } from './ja/configSync.ts';
 import { configSyncUiJa } from './ja/configSyncUi.ts';
 import { confirmJa } from './ja/confirm.ts';
 import { externalJa } from './ja/external.ts';
+import { gitJa } from './ja/git.ts';
+import { gitUiJa } from './ja/gitUi.ts';
+import { editorJa } from './ja/editor.ts';
 import { headerJa } from './ja/header.ts';
 import { homeJa } from './ja/home.ts';
+import { interruptedJa } from './ja/interrupted.ts';
+import { overlapJa } from './ja/overlap.ts';
 import { httpJa } from './ja/http.ts';
 import { launchJa } from './ja/launch.ts';
 import { listJa } from './ja/list.ts';
@@ -57,6 +62,7 @@ import { readinessJa } from './ja/readiness.ts';
 import { compatJa } from './ja/compat.ts';
 import { dbJa } from './ja/db.ts';
 import { updateJa } from './ja/update.ts';
+import { stopJa } from './ja/stop.ts';
 
 /** 日本語の辞書。文は領域ごとのファイル（`ja/<領域>.ts`）にあり、ここは束ねるだけである。 */
 export const ja: Dictionary = {
@@ -68,9 +74,14 @@ export const ja: Dictionary = {
   ...configSyncJa,
   ...configSyncUiJa,
   ...confirmJa,
+  ...gitJa,
+  ...gitUiJa,
+  ...editorJa,
   ...externalJa,
   ...headerJa,
   ...homeJa,
+  ...interruptedJa,
+  ...overlapJa,
   ...httpJa,
   ...launchJa,
   ...listJa,
@@ -118,4 +129,5 @@ export const ja: Dictionary = {
   ...compatJa,
   ...dbJa,
   ...updateJa,
+  ...stopJa,
 };

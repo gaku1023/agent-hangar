@@ -1,8 +1,15 @@
-import type { AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
+import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId } from '@agent-hangar/shared';
+import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
+import type { AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
   constructor(public readonly body: ResumeHereConflictDto) { super('local_smaller'); this.name = 'ApiConflictError'; }
+}
+
+/** エディタが見つからなかった（409）。UI は「<名前> が見つかりません」の面を出す。 */
+export class EditorMissingApiError extends Error {
+  constructor(public readonly body: EditorMissingDto) { super(body.error); this.name = 'EditorMissingApiError'; }
 }
 
 /** 保持期間の下見の後に、設定ファイルがほかで変わった。UI は下見を取り直す。 */
@@ -17,6 +24,9 @@ export class RetentionConflictApiError extends Error {
  */
 export type EventsQuery = { agentId: string | null; latest?: boolean; beforeSeq?: number; fromSeq?: number };
 
+/** エディタで開くときの添え。line はファイルの行、once は「今回は <名前> で開く」のエディタ。 */
+export type EditorOpenOpts = { line?: number; once?: KnownEditorId };
+
 export type ApiClient = {
   bootstrap(): Promise<BootstrapDto>;
   events(sessionId: string, q: EventsQuery): Promise<EventsPageDto>;
@@ -25,6 +35,16 @@ export type ApiClient = {
   live(sessionId: string): Promise<LiveDigestDto>;
   /** そのセッションが編集系のツールで変えたファイル（索引から。読み込んだ本文の窓には依らない）。冒頭の 1 枚の「変更したファイル」が使う。 */
   sessionFiles(sessionId: string): Promise<SessionFilesDto>;
+  /** git の表示（0.5.0）。見えている行のセッションの git（POST /api/git/sessions）。 */
+  gitSessions(ids: string[]): Promise<GitDto>;
+  /** 「変更したファイル」の差分の一覧（git の状態つき）。 */
+  sessionChanges(sessionId: string): Promise<SessionChangesDto>;
+  /** 1 つのファイルの作業ツリーとの差。 */
+  sessionDiff(sessionId: string, file: string): Promise<GitDiffDto>;
+  /** そのファイルへのセッションの編集（トランスクリプトから）。 */
+  sessionEdits(sessionId: string, file: string): Promise<SessionEditsDto>;
+  /** プロジェクトのブランチと worktree。 */
+  projectGit(projectId: string): Promise<ProjectGitDto>;
   search(params: SearchParamsDto): Promise<SearchResultDto>;
   setProjectStatus(id: string, status: ProjectStatus): Promise<ProjectDto>;
   renameProject(id: string, name: string): Promise<ProjectDto>;
@@ -54,8 +74,12 @@ export type ApiClient = {
    * file を渡すと、作業ディレクトリではなくそのファイルを開く。
    * サーバはそのセッションが変えたファイルかを確かめる。
    */
-  openEditor(sessionId: string, file?: string): Promise<void>;
-  projectOpenEditor(projectId: string): Promise<void>;
+  openEditor(sessionId: string, file?: string, opts?: EditorOpenOpts): Promise<void>;
+  projectOpenEditor(projectId: string, once?: KnownEditorId): Promise<void>;
+  /** この PC で見つけたエディタと、選んでいるエディタの状態（設定のエディタの欄）。 */
+  editors(): Promise<EditorsDto>;
+  /** 見本のファイルを書いて 3 行目を開く（設定の「テスト」）。 */
+  testEditor(): Promise<EditorTestDto>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
   createProject(place: ProjectPlace): Promise<ProjectDto>;
   workspaceDirs(): Promise<WorkspaceDirDto[]>;
@@ -82,15 +106,19 @@ export type ApiClient = {
   /** 提案を確定する。日を変えたときだけ returnOn を渡す。提案が無ければ 409 の一文で投げる。 */
   confirmSessionState(id: string, body: { returnOn?: string; returnTime?: string }): Promise<{ state: SessionStateDto }>;
   rejectSessionState(id: string): Promise<{ state: SessionStateDto }>;
+  /** 中断の群の「再開しない」（dismissed が真）と、その取り消し。新しい群を返す。 */
+  dismissInterrupted(runIds: string[], dismissed: boolean): Promise<{ interrupted: InterruptedDto | null }>;
+  /** 同じファイルの編集の「このファイルでは表示しない」。 */
+  dismissOverlap(sessionId: string, other: string, paths: string[]): Promise<void>;
   memo(projectId: string): Promise<MemoDto>;
   saveMemo(projectId: string, markdown: string): Promise<MemoDto>;
   /** プロジェクトの指示とメモリ。あるファイルだけが来る。 */
   instructions(projectId: string): Promise<InstructionsDto>;
   /** 指示とメモリのファイルをエディタで開く。無いファイルは作らず、404 の一文で投げる。 */
-  openInstruction(projectId: string, kind: InstructionFileKind): Promise<void>;
+  openInstruction(projectId: string, kind: InstructionFileKind, once?: KnownEditorId): Promise<void>;
   addArtifact(projectId: string, url: string): Promise<ArtifactDto>;
   openArtifact(id: string): Promise<void>;
-  openArtifactEditor(id: string): Promise<void>;
+  openArtifactEditor(id: string, once?: KnownEditorId): Promise<void>;
   promote(sessionId: string, body: { name: string; gitInit: boolean; moveFiles: boolean }): Promise<PromoteResultDto>;
   /** 202 と { accepted } が返るが、本文は使わない。結果は summary.pending と summary.updated で届く。 */
   regenerateSummary(sessionId: string): Promise<void>;
@@ -151,6 +179,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       // 「この PC で再開」の 409 だけは、確認ダイアログを出すために型の付いた失敗にする。
       if (r.status === 409 && body?.error === 'local_smaller') throw new ApiConflictError(body as ResumeHereConflictDto);
       if (r.status === 409 && body?.error === 'retention_conflict') throw new RetentionConflictApiError();
+      if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'editor_missing') throw new EditorMissingApiError(body as unknown as EditorMissingDto);
       throw new Error(body?.error ?? `${r.status} ${path}`);
     }
     if (r.status === 202 || r.status === 204) return undefined as T;
@@ -164,6 +193,11 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     subagents: (sessionId) => call(`/api/sessions/${sessionId}/subagents`),
     live: (sessionId) => call(`/api/sessions/${sessionId}/live`),
     sessionFiles: (sessionId) => call(`/api/sessions/${sessionId}/files`),
+    gitSessions: (ids) => post('/api/git/sessions', { ids }),
+    sessionChanges: (sessionId) => call(`/api/sessions/${sessionId}/changes`),
+    sessionDiff: (sessionId, file) => call(`/api/sessions/${sessionId}/diff${qs({ file })}`),
+    sessionEdits: (sessionId, file) => call(`/api/sessions/${sessionId}/edits${qs({ file })}`),
+    projectGit: (projectId) => call(`/api/projects/${projectId}/git`),
     search: (params) => call(`/api/search${qs(params)}`),
     setProjectStatus: (id, status) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
     renameProject: (id, name) => call(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
@@ -188,8 +222,10 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     openTerminalApp: (runId, tabId) => post(`/api/runs/${runId}/open-terminal`, tabId ? { tabId } : {}),
     jumpToPrompt: (runId, body) => post(`/api/runs/${runId}/jump`, body),
     leaveTranscript: (runId) => post(`/api/runs/${runId}/leave-transcript`),
-    openEditor: (sessionId, file) => post(`/api/sessions/${sessionId}/open-editor`, file === undefined ? undefined : { file }),
-    projectOpenEditor: (projectId) => post(`/api/projects/${projectId}/open-editor`),
+    openEditor: (sessionId, file, opts) => post(`/api/sessions/${sessionId}/open-editor`, file === undefined && !opts?.once ? undefined : { ...(file !== undefined ? { file } : {}), ...(opts?.line !== undefined ? { line: opts.line } : {}), ...(opts?.once ? { once: opts.once } : {}) }),
+    projectOpenEditor: (projectId, once) => post(`/api/projects/${projectId}/open-editor`, once ? { once } : undefined),
+    editors: () => call('/api/editors'),
+    testEditor: () => post('/api/editor/test'),
     projectOpenTerminal: (projectId) => post(`/api/projects/${projectId}/open-terminal`),
     createProject: (place) => post('/api/projects', place),
     workspaceDirs: () => call('/api/workspace/dirs'),
@@ -211,13 +247,15 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     setSessionState: (id, body) => call(`/api/sessions/${id}/state`, { method: 'PUT', body: JSON.stringify(body) }),
     confirmSessionState: (id, body) => post(`/api/sessions/${id}/state/confirm`, body),
     rejectSessionState: (id) => post(`/api/sessions/${id}/state/reject`),
+    dismissInterrupted: (runIds, dismissed) => post('/api/interrupted/dismiss', { runIds, dismissed }),
+    dismissOverlap: (sessionId, other, paths) => post(`/api/sessions/${sessionId}/overlap/dismiss`, { with: other, paths }),
     memo: (projectId) => call(`/api/projects/${projectId}/memo`),
     saveMemo: (projectId, markdown) => call(`/api/projects/${projectId}/memo`, { method: 'PUT', body: JSON.stringify({ markdown }) }),
     instructions: (projectId) => call(`/api/projects/${projectId}/instructions`),
-    openInstruction: (projectId, kind) => post(`/api/projects/${projectId}/instructions/open`, { kind }),
+    openInstruction: (projectId, kind, once) => post(`/api/projects/${projectId}/instructions/open`, { kind, ...(once ? { once } : {}) }),
     addArtifact: (projectId, url) => post(`/api/projects/${projectId}/artifacts`, { url }),
     openArtifact: (id) => post(`/api/artifacts/${id}/open`),
-    openArtifactEditor: (id) => post(`/api/artifacts/${id}/open-editor`),
+    openArtifactEditor: (id, once) => post(`/api/artifacts/${id}/open-editor`, once ? { once } : undefined),
     promote: (sessionId, body) => post(`/api/sessions/${sessionId}/promote`, body),
     regenerateSummary: (sessionId) => post(`/api/sessions/${sessionId}/summarize`),
     summarizerModels: () => call('/api/summarizer/models'),

@@ -19,6 +19,35 @@ const input = (p: Partial<CardInput> = {}): CardInput => ({
 });
 const present = (p: Partial<CardInput> = {}, t = ja) => presentNowCard(input(p), t);
 
+describe('現在の札の止まっている理由（試作 stop-reason-proto の N1）', () => {
+  it('許可待ちは状態の行を「許可待ち」にし、道具と命令の全文と説明の欄を出す', () => {
+    const s = present({ live: 'waiting', reason: 'permission', permission: { tool: 'Bash', input: 'rm -rf ./build/cache', description: '古いキャッシュを消す' } });
+    expect(s).toMatchObject({ tone: 'wait', state: '許可待ち', sub: '4 分', detail: null, question: false });
+    expect(s.stop).toEqual({ kind: 'permission', head: 'Claude が求めている許可 · Bash', command: 'rm -rf ./build/cache', why: '古いキャッシュを消す', hint: 'ターミナルで許可するか拒否してください' });
+  });
+  it('許可の中身が届いていなければ、ターミナルに出ていると言う', () => {
+    expect(present({ live: 'waiting', reason: 'permission', permission: null }).stop).toEqual({ kind: 'permission', head: 'Claude が求めている許可', command: null, why: null, hint: '何の許可かはターミナルに出ています。hangar の外で起動したセッションは中身を受け取れません。' });
+  });
+  it('使用制限は灰の札にし、リセットの時刻、残りの棒、自動で続くかを出す', () => {
+    const now = new Date(2026, 9, 12, 16, 42).getTime();
+    const resetsAt = new Date(2026, 9, 12, 16, 50).getTime();
+    const s = present({ now, live: 'idle', reason: 'limit', limit: { kind: 'five_hour', resetsAt, auto: true, reset: false } });
+    expect(s).toMatchObject({ tone: 'limit', state: '使用制限', sub: 'あと 8 分' });
+    expect(s.stop).toEqual({ kind: 'limit', head: '5 時間の使用制限', at: '16:50 にリセット（あと 8 分）', meter: 97, hint: 'リセットされると Claude Code が自動で続きを始めます。' });
+    const no = present({ now, live: 'idle', reason: 'limit', limit: { kind: 'other', resetsAt, auto: false, reset: false } });
+    expect(no.stop).toMatchObject({ head: '使用制限', meter: null, hint: '自動で続く予約はありません。リセットの後にターミナルで続きを指示してください。' });
+  });
+  it('リセット済みは入力待ちの色で、続きを指示するよう言う', () => {
+    const s = present({ live: 'idle', reason: 'reset', limit: { kind: 'five_hour', resetsAt: 0, auto: false, reset: true } });
+    expect(s).toMatchObject({ tone: 'wait', state: 'リセット済み' });
+    expect(s.stop).toEqual({ kind: 'reset', head: '使用制限がリセットされました', body: '自動の続きは始まっていません。ターミナルで続きを指示してください。' });
+  });
+  it('理由が無ければ stop は null', () => {
+    expect(present({ live: 'waiting' }).stop).toBeNull();
+    expect(present({}).stop).toBeNull();
+  });
+});
+
 describe('現在の札の状態の行', () => {
   it('入力待ちは、状態の語と待機の経過と、問いを出す（経過に「入力待ち」を重ねない）', () => {
     const s = present({ live: 'waiting', activity: { tool: 'AskUserQuestion', summary: 'q', question: '既存のテストを書き換えてよいですか？' } });

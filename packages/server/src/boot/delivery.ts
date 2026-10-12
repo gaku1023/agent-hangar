@@ -4,6 +4,8 @@ import { AsideReader } from '../live/aside.ts';
 import { LiveDigester } from '../live/digest.ts';
 import { CompatLog, compatPath } from '../provider/claude-code/compat/log.ts';
 import { RegistryWatcher } from '../provider/claude-code/registry.ts';
+import { PermissionAsks } from '../sessions/permissionAsks.ts';
+import { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import { toastVia, type Toast } from '../sync/notices.ts';
 import { EventHub } from '../ws/hub.ts';
 import type { HomeParts } from './home.ts';
@@ -27,6 +29,10 @@ export type DeliveryParts = {
   digester: LiveDigester;
   /** 実行中の一覧（Claude の登録の見張り）。作るだけで、読み始めるのは起動の手続きの中である。 */
   registry: RegistryWatcher;
+  /** hook から届いた許可の確認（sessions/permissionAsks.ts）。登録の読み直しのたびに、入力待ちの登録へ中身を足す。 */
+  permissionAsks: PermissionAsks;
+  /** デスクトップ通知の並び（sessions/stopNotices.ts）。書くのは知らせの見張り（boot/runs.ts）、読むのは殻（GET /api/notify/feed）。 */
+  osNotices: OsNoticeFeed;
   /** 溜まっている知らせを出し切ってから配る層を止め、WebSocket を畳む。止めた後は DB を読みに行かない。 */
   stopPublishing(): Promise<void>;
 };
@@ -49,10 +55,15 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   // 右ペインの要約は、裏の印と HTTP（UI の取り直し）で 1 つの覚えを共有する。別々に持つと、長いセッションの同じ要約を二度作る。
   const digester = new LiveDigester(db);
   const aside = new AsideReader(db, digester);
-  const registry = new RegistryWatcher(home.claudeDir, undefined, opts.registryIsGone, (live) => aside.apply(live, Date.now()), compatLog);
+  // 許可待ちの中身（道具と命令）は hook から届く。読み直しのたびに、入力待ちの登録へ足す。
+  const permissionAsks = new PermissionAsks();
+  const osNotices = new OsNoticeFeed();
+  const registry = new RegistryWatcher(home.claudeDir, undefined, opts.registryIsGone, (live) => { const now = Date.now(); return permissionAsks.apply(aside.apply(live, now), now); }, compatLog);
   return {
-    sockets, publisher, hub: publisher, toast: toastVia(publisher), compatLog, claudeVersion, registry, digester,
+    sockets, publisher, hub: publisher, toast: toastVia(publisher), compatLog, claudeVersion, registry, digester, permissionAsks, osNotices,
     stopPublishing: async () => {
+      // 殻の長いポーリングを先に返す。開いたままの要求が、待ち受けを閉じるのを遅らせないためである。
+      osNotices.close();
       publisher.flush();
       publisher.stop();
       await sockets.close();

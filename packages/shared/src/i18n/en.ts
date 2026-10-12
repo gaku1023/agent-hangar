@@ -8,8 +8,13 @@ import { configSyncEn } from './en/configSync.ts';
 import { configSyncUiEn } from './en/configSyncUi.ts';
 import { confirmEn } from './en/confirm.ts';
 import { externalEn } from './en/external.ts';
+import { gitEn } from './en/git.ts';
+import { gitUiEn } from './en/gitUi.ts';
+import { editorEn } from './en/editor.ts';
 import { headerEn } from './en/header.ts';
 import { homeEn } from './en/home.ts';
+import { interruptedEn } from './en/interrupted.ts';
+import { overlapEn } from './en/overlap.ts';
 import { httpEn } from './en/http.ts';
 import { launchEn } from './en/launch.ts';
 import { listEn } from './en/list.ts';
@@ -57,6 +62,7 @@ import { readinessEn } from './en/readiness.ts';
 import { compatEn } from './en/compat.ts';
 import { dbEn } from './en/db.ts';
 import { updateEn } from './en/update.ts';
+import { stopEn } from './en/stop.ts';
 
 /** 英語の辞書。文は領域ごとのファイル（`en/<領域>.ts`）にあり、ここは束ねるだけである。 */
 export const en: Dictionary = {
@@ -68,9 +74,14 @@ export const en: Dictionary = {
   ...configSyncEn,
   ...configSyncUiEn,
   ...confirmEn,
+  ...gitEn,
+  ...gitUiEn,
+  ...editorEn,
   ...externalEn,
   ...headerEn,
   ...homeEn,
+  ...interruptedEn,
+  ...overlapEn,
   ...httpEn,
   ...launchEn,
   ...listEn,
@@ -118,4 +129,5 @@ export const en: Dictionary = {
   ...compatEn,
   ...dbEn,
   ...updateEn,
+  ...stopEn,
 };
