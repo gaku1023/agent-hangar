@@ -45,7 +45,7 @@ export type PermissionAskDto = { tool: string; input: string; description: strin
  * 使用制限で止まっていること（本文の合成の assistant 行、error が rate_limit）。
  * kind は枠（5 時間、週、そのほか）、resetsAt はリセットの時刻（ミリ秒）。
  * auto は、Claude Code が自動の続きを予約したと本文に書いたこと。
- * reset は、リセットの時刻から猶予（LIMIT_RESET_GRACE_MS）を過ぎても続きが始まっていないこと。真なら要対応に数える。
+ * reset は、リセットの時刻から猶予（LIMIT_RESET_GRACE_MS、auto なら LIMIT_RESET_AUTO_GRACE_MS）を過ぎても続きが始まっていないこと。真なら要対応に数える。
  */
 export type LimitKind = 'five_hour' | 'weekly' | 'other';
 export type SessionLimitDto = { kind: LimitKind; resetsAt: number; auto: boolean; reset: boolean };

@@ -21,7 +21,8 @@ export type GitTreeDto = {
  * state の ok はこの PC の作業ツリー（root）がある、nogit は git のリポジトリではない、remote は他の PC で動いている（またはこの PC に場所が無い）、
  * gone は作業していた worktree が消えた（ブランチは残っていることがある）。
  * unsafe は、フォルダの持ち主が今のユーザーと違うので git が読むのを断った（dubious ownership）。root は git が名指した場所で、safe.directory に足すものである。
- * branch はトランスクリプトの最後の gitBranch で、セッションがどのブランチで作業したかを言う。読めなければ作業ツリーの今のブランチを使う。
+ * branch はトランスクリプトの最後の gitBranch で、セッションがどのブランチで作業したかを言う。読めなければ null で、作業ツリーの今のブランチでは埋めない。
+ * 実行中のセッションの画面は、null のとき作業ツリーの今のブランチ（GitTreeDto の branch）を出し、終わったセッションの札は出さない。
  * worktree はトランスクリプトの worktree-state の名前で、セッションが worktree に入っていたときだけ持つ。
  */
 export type GitSessionState = 'ok' | 'nogit' | 'unsafe' | 'remote' | 'gone';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIMIT_RESET_GRACE_MS, type LiveSessionDto } from '@agent-hangar/shared';
+import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, type LiveSessionDto } from '@agent-hangar/shared';
 import { openDb } from '../db/open.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { stopReasonsOf } from './stopReasons.ts';
@@ -17,7 +17,9 @@ describe('stopReasonsOf', () => {
     const live = [entry('u1', 'waiting', { waitingFor: 'permission' }), entry('u2', 'idle'), entry('u3', 'busy')];
     const before = stopReasonsOf(db, live, 500);
     expect([before.reason('u1'), before.reason('u2'), before.reason('u3'), before.reason('u9')]).toEqual(['permission', 'limit', null, null]);
-    const after = stopReasonsOf(db, live, 1000 + LIMIT_RESET_GRACE_MS);
+    // 自動で続く予約があるので、ふだんの猶予ではまだ使用制限のまま。
+    expect(stopReasonsOf(db, live, 1000 + LIMIT_RESET_GRACE_MS).reason('u2')).toBe('limit');
+    const after = stopReasonsOf(db, live, 1000 + LIMIT_RESET_AUTO_GRACE_MS);
     expect(after.reason('u2')).toBe('reset');
     expect(after.limit('u2')).toEqual({ kind: 'five_hour', resetsAt: 1000, auto: true, reset: true });
     // 実行中でなければ使用制限は載せない。

@@ -88,6 +88,7 @@ export function ProjectScreen(props: ProjectProps) {
   const editorLabels = useEditorLabels();
   const [railOpen, setRailOpen] = useState(true);
   // ブランチと worktree は、画面を開いたときとプロジェクトを替えたときに読む（git の表示）。
+  // 開いたままの間は、ランタイムが git の表示の周期と窓が前に戻ったときに読み直す（runtime の reloadProjectGit）。
   // この PC にパスの無いプロジェクト（他の PC から同期したもの）は読まない。読む先が無く、右パネルは presenter が「この PC にパスが無い」にする。
   const bg = useBackgroundEmit();
   const hasPath = props.path !== null;

@@ -21,6 +21,11 @@ describe('presentGitChip', () => {
     expect(presentGitChip(ja, g, 's1', { s1: session('s1') })).toEqual({ kind: 'ok', worktree: false, name: 'feature/old', title: 'feature/old', value: '', count: null, dirty: false, shared: null, sharedTitle: null, label: 'ブランチ feature/old' });
     expect(presentGitChip(en, g, 's1', { s1: session('s1') })?.label).toBe('Branch feature/old');
   });
+  it('本文に gitBranch が無い（branch が null）なら、終わったセッションには札を出さず、実行中のセッションは今のブランチを出す', () => {
+    const g = git({ sessions: { s1: { state: 'ok', root: '/w/alpha', branch: null, worktree: null } }, trees: { '/w/alpha': tree({ branch: 'feature/after', dirty: 3 }) } });
+    expect(presentGitChip(ja, g, 's1', { s1: session('s1') })).toBeNull();
+    expect(presentGitChip(ja, g, 's1', { s1: session('s1', { live: 'busy' }) })).toMatchObject({ name: 'feature/after', value: '未コミット 3' });
+  });
   it('変更なし、件数なし（時間切れ）、1,000+', () => {
     expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: 0 }) } }), 's1', {})).toMatchObject({ value: '変更なし', dirty: false, count: 0 });
     expect(presentGitChip(ja, git({ trees: { '/w/alpha': tree({ dirty: null, slow: true }) } }), 's1', {})).toMatchObject({ value: '件数なし', dirty: false, count: null, title: 'fix-login\ngit が 3 秒で応答しなかったので、件数を省きました' });

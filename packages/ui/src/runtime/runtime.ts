@@ -782,7 +782,21 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     visible: deps.visible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden'),
     setTimeout: (fn, ms) => deps.setTimeout(fn, ms),
     now: deps.now ?? Date.now,
+    also: reloadProjectGit,
   });
+
+  /**
+   * 開いているプロジェクト画面のブランチと worktree を読み直す（git の表示の周期と、窓が前に戻ったとき）。
+   * 画面が開いたときに読むのは ProjectScreen で、ここは開いたままの画面が古くならないようにする役である。
+   * この PC にパスの無いプロジェクトとスクラッチは読まない（ProjectScreen と同じ）。
+   */
+  function reloadProjectGit(): void {
+    if (state.screen.name !== 'project') return;
+    const p = store.projects[state.screen.id];
+    if (!p || p.isScratch || p.path === null) return;
+    const c = actionCall({ type: 'project.git.load', projectId: p.id }, store);
+    if (c) runCall(c);
+  }
 
   /**
    * 表で引いた呼び出しを実行する（runtime/actionTable.ts）。
@@ -808,6 +822,8 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   function emit(action: UiAction): void {
     // 見えている行の git（0.5.0）。場所ごとに覚え、まとめて取る。
     if (action.type === 'git.watch') { gitWatch.watch(action.key, action.sessionIds); return; }
+    // プロジェクト画面のブランチと worktree は、git の表示の周期で読み直すので、周期を始めておく（セッションの行が無い画面でも回す）。
+    if (action.type === 'project.git.load') gitWatch.start();
     if (!isTableAction(action)) { dispatch({ kind: 'action', action }); return; }
     const c = actionCall(action, store);
     if (c) runCall(c);

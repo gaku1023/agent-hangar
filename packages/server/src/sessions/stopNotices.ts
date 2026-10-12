@@ -1,4 +1,4 @@
-import { LIMIT_RESET_GRACE_MS, limitKindText, limitReset, newId, permissionNoticeText, quietLive, resetAtText, stopReasonOf, type LimitKind, type LiveSessionDto, type OsNoticeDto, type OsNoticeFeedDto, type SessionDto, type Translate } from '@agent-hangar/shared';
+import { limitKindText, limitReset, limitResetGrace, newId, permissionNoticeText, quietLive, resetAtText, stopReasonOf, type LimitKind, type LiveSessionDto, type OsNoticeDto, type OsNoticeFeedDto, type SessionDto, type Translate } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
@@ -94,7 +94,7 @@ const BARE_SETTLE_MS = 5000;
  */
 type Episode = { since: number; phase: 'new' | 'bare' | 'done' };
 
-type LimitRow = { session_id: string; provider_session_id: string; kind: LimitKind; resets_at: number; hit_at: number };
+type LimitRow = { session_id: string; provider_session_id: string; kind: LimitKind; resets_at: number; auto: number; hit_at: number };
 
 /** 使用制限の覚えを捨てるまでの長さ。リセットから 1 日経ったものは、もう同じ時刻では当たらない。 */
 const LIMIT_KEY_TTL_MS = 86_400_000;
@@ -182,7 +182,7 @@ export class StopNoticeWatch {
   private watchLimits(live: LiveSessionDto[], now: number, primed: boolean): void {
     for (const m of [this.limitKeys, this.resetKeys]) for (const [k, at] of m) if (now - at > LIMIT_KEY_TTL_MS) m.delete(k);
     const liveOf = new Map(live.map((l) => [l.sessionId, l]));
-    const rows = this.deps.db.prepare(`select l.session_id, s.provider_session_id, l.kind, l.resets_at, l.hit_at from session_limits l
+    const rows = this.deps.db.prepare(`select l.session_id, s.provider_session_id, l.kind, l.resets_at, l.auto, l.hit_at from session_limits l
       join sessions s on s.id = l.session_id and s.deleted_at is null order by l.hit_at, l.session_id`).all() as LimitRow[];
     const hits = new Map<string, LimitRow[]>();
     for (const r of rows) {
@@ -191,12 +191,12 @@ export class StopNoticeWatch {
       const key = `${this.deps.accountOf(r.provider_session_id)}|${r.resets_at}`;
       if (!this.limitKeys.has(key)) hits.set(key, [...(hits.get(key) ?? []), r]);
       const resetKey = `${r.session_id}|${r.resets_at}`;
-      if (!limitReset(r.resets_at, now) || this.resetKeys.has(resetKey)) continue;
+      if (!limitReset(r.resets_at, now, r.auto === 1) || this.resetKeys.has(resetKey)) continue;
       this.resetKeys.set(resetKey, r.resets_at);
       if (!primed) continue;
       // 猶予を過ぎたので、limit.reset を真にして配り直す（要対応に上がる）。
       touchRow(this.deps.db, 'sessions', r.session_id);
-      if (l.status !== 'idle' || now - (r.resets_at + LIMIT_RESET_GRACE_MS) > LIMIT_FRESH_MS) continue;
+      if (l.status !== 'idle' || now - (r.resets_at + limitResetGrace(r.auto === 1)) > LIMIT_FRESH_MS) continue;
       const s = this.session(live, r.session_id, now);
       // 区切りを付けたものは、この後に自動の停止が止める。知らせるのは Active のものだけである。
       if (s && s.state?.status == null) this.deps.feed.push({ kind: 'waiting', sessionId: s.id, title: this.titleOf(s), body: this.tr('stop.notify.reset'), bare: false });
