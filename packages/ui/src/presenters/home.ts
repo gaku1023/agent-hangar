@@ -13,7 +13,7 @@ import { projectDisplayName } from './projectName.ts';
 import { liveReadiness, presentReadiness } from './readiness.ts';
 import { presentInterrupted } from './interrupted.ts';
 import { withOverlaps } from './overlap.ts';
-import { presentUnresolved } from './unresolved.ts';
+import { presentSameFolder, presentUnresolved } from './unresolved.ts';
 import { candidateLabel, returnHasCome, returnKey, returnOnLabel, sortSessions } from './row.ts';
 import { presentSessionList, type SessionListProps } from './sessions.ts';
 
@@ -406,8 +406,8 @@ export function presentHomeScreen(state: State, store: Store, now: number): Home
   const band0 = presentHomeBand(presentHome(state, store, now), t);
   // 実行中の行に、同じファイルの編集の札を重ねる（presenters/overlap.ts）。
   const base = { ...band0, groups: band0.groups.map((g) => withOverlaps(g, store, now)) };
-  // 3 つの群の後ろに足す群は、前回実行中（中断の群）、場所の不明なプロジェクト、始める前の確認の順に並べる。0 件の群は足さない。
-  const extra = [presentInterrupted(state, store, now), presentUnresolved(store, t), ready?.group ?? null].filter((g): g is BandGroup => g !== null);
+  // 3 つの群の後ろに足す群は、前回実行中（中断の群）、場所の不明なプロジェクト、同じフォルダのプロジェクト、始める前の確認の順に並べる。0 件の群は足さない。
+  const extra = [presentInterrupted(state, store, now), presentUnresolved(store, t), presentSameFolder(store, t), ready?.group ?? null].filter((g): g is BandGroup => g !== null);
   // 静かな日は、3 つの群がどれも 0 件のこと。足す群があれば、薄い 3 つの錠剤は出さず、足す群だけを帯に置く。
   const quiet = base.groups.every((g) => g.count === 0);
   const groups = quiet ? extra : [...base.groups, ...extra];

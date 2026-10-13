@@ -51,6 +51,25 @@ export function presentUnresolved(store: Store, t: Translate): BandGroup | null 
 }
 
 /**
+ * ホームの帯の、同じフォルダのプロジェクトの群。0 件なら null で、足さない。
+ * 直す前の版の「場所を再指定」は重複を見なかったので、他の PC から届いた方にも、この PC で登録済みのフォルダを結び付けられた。
+ * そうなると、新しいセッションがどちらに入るかが決まらない。サーバはまとめる方に sameFolder を付けて配るので、その行を出す。
+ * 行の「1 つにまとめる」は、同じパスで「場所を再指定」を送る。サーバは 409 でまとめた後の姿を返し、Mediator がまとめる確認を開く（確認の形は 1 つだけにする）。
+ * Archived にしたものも数える。セッションの入り先が決まらないことは、脇へ置いても変わらないからである。朝に開く群にはしない。
+ */
+export function presentSameFolder(store: Store, t: Translate): BandGroup | null {
+  const dups = Object.values(store.projects)
+    .filter((p): p is ProjectDto & { path: string; sameFolder: NonNullable<ProjectDto['sameFolder']> } => !p.isScratch && p.path !== null && p.sameFolder != null)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  if (dups.length === 0) return null;
+  const row = (p: (typeof dups)[number]): BandRow => ({
+    key: `sameFolder:${p.id}`, lead: { kind: 'place' }, name: p.name, context: t('home.band.sameFolderWith', { name: p.sameFolder.name }), text: '', detail: p.path, tone: null, trail: [], open: { type: 'project.open', id: p.id },
+    actions: [action(t, 'merge', t('home.band.merge'), p.name, { type: 'project.resolve', id: p.id, action: { kind: 'repoint', path: p.path } }, 'primary')],
+  });
+  return { id: 'sameFolder', label: t('home.band.sameFolder'), icon: 'folder', tone: 'warn', count: dups.length, summary: t('home.band.sameFolderSummary'), morning: false, rows: dups.map(row) };
+}
+
+/**
  * 他の PC から届いたトースト（Mediator の arrivedProjects）の件数。
  * 覚えてある id のうち、いまも他の PC から届いたままのもの（決めたり消えたりしたものは外す）を数える。
  */

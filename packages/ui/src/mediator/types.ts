@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ProjectSameFolderDto, ResolveAction, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
@@ -35,6 +35,10 @@ export type RuntimeEvent =
   | { type: 'turnJump.done'; sessionId: string; seq: number; status: TurnJumpStatus }
   // サーバが 409 で断ったときに、ランタイムがこの形に直して返す。
   | { type: 'api.conflict'; kind: 'resumeHere'; sessionId: string; localSize: number; remoteSize: number }
+  // 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所だった。まとめる確認を出す。
+  | { type: 'api.conflict'; kind: 'sameFolder'; conflict: ProjectSameFolderDto }
+  // 同じフォルダのプロジェクトを、from から into へまとめ終えた。from の画面を開いていれば into へ移る。
+  | { type: 'project.merged'; fromId: string; intoId: string }
   // 保持期間を書き込んだ結果。409 は下見の後にファイルが変わったことを表す。
   | { type: 'retention.written'; days: number } | { type: 'retention.conflict'; days: number } | { type: 'retention.failed'; message: string }
   | { type: 'retention.previewFailed'; days: number; message: string }
@@ -167,7 +171,10 @@ export type ConfirmRequest =
   | { kind: 'unlinkProject'; projectId: string; fromDialog?: true }
   // 別のアカウントで再開する場面と、アカウントを一覧から外す場面。
   | { kind: 'switchAccount'; sessionId: string; accountId: string; working: boolean }
-  | { kind: 'removeAccount'; accountId: string };
+  | { kind: 'removeAccount'; accountId: string }
+  // 同じフォルダのプロジェクトをまとめる（サーバの 409 の ProjectSameFolderDto から組む）。
+  // projectId はまとめる方で、承諾するとそのプロジェクトへ path と merge: true を送り直す。into は残す方、roots と件数はまとめた後の姿である。
+  | { kind: 'mergeProject'; projectId: string; path: string; into: { projectId: string; name: string }; roots: { deviceName: string | null; path: string; here: boolean }[]; sessions: number; fromSessions: number };
 export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' }
   | { kind: 'shortcuts' }

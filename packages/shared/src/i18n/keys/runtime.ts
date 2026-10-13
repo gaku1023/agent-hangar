@@ -7,6 +7,7 @@ export const runtimeKeys = {
   'runtime.notify.returnBody': ['time'],
   'runtime.notify.returnBodyNote': ['time', 'note'],
   'runtime.copy.failed': ['keys'],
+  'runtime.project.merged': ['name'],
   'runtime.shell.openLogFailed': [],
   'runtime.shell.restartFailed': [],
   'runtime.shell.pickFolderFailed': [],

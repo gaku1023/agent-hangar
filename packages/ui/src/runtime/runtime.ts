@@ -21,7 +21,7 @@ import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending }
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
-import { ApiConflictError, ApiNotFoundError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import { createGitWatch } from './gitWatch.ts';
@@ -464,7 +464,20 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           .catch((err) => { if (seq === searchSeq) setStore(applySearch(store, store.search.params ?? params, store.search.result, false)); fail(err); });
         return;
       }
-      case 'api.resolveProject': deps.api.resolveProject(e.projectId, e.action).catch(fail); return;
+      // 選んだフォルダが別のプロジェクトの場所だった 409 は、まとめる確認にする。ほかの失敗はトーストである。
+      // まとめ終えたら、まとめた方を外し、残した方（答えのプロジェクト）を入れ直す。サーバは消したプロジェクトを配らないので、画面の側で外す。
+      case 'api.resolveProject': deps.api.resolveProject(e.projectId, e.action).then((r) => {
+        if (e.action.kind !== 'repoint' || e.action.merge !== true) return;
+        const into = r as ProjectDto | null;
+        if (!into || typeof into.id !== 'string' || into.id === e.projectId) return;
+        const rest = withoutProject(store, e.projectId);
+        setStore({ ...rest, projects: { ...rest.projects, [into.id]: into } });
+        toast(tr()('runtime.project.merged', { name: into.name }));
+        dispatch({ kind: 'runtime', event: { type: 'project.merged', fromId: e.projectId, intoId: into.id } });
+      }).catch((err: unknown) => {
+        if (err instanceof ProjectSameFolderApiError) dispatch({ kind: 'runtime', event: { type: 'api.conflict', kind: 'sameFolder', conflict: err.body } });
+        else fail(err);
+      }); return;
       case 'api.updateSettings': {
         const field = e.field;
         deps.api.updateSettings(e.patch).then((s) => {

@@ -8,6 +8,7 @@ export const runtimeJa: AreaDictionary<typeof runtimeKeys> = {
   'runtime.notify.returnBody': 'リマインダーの時刻 {time} を過ぎました',
   'runtime.notify.returnBodyNote': 'リマインダーの時刻 {time} を過ぎました · {note}',
   'runtime.copy.failed': 'コピーできませんでした。文字を選択して {keys} でコピーしてください',
+  'runtime.project.merged': '{name} と 1 つにまとめました',
   'runtime.shell.openLogFailed': 'ログを開けませんでした',
   'runtime.shell.restartFailed': '再起動できませんでした',
   'runtime.shell.pickFolderFailed': 'フォルダを選べませんでした',
