@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { createProjectDir, ProjectCreateError, registerProjectDir } from './create.ts';
+import { createProjectDir, ProjectCreateError, ProjectNestedError, registerProjectDir } from './create.ts';
 
 let ws: string;
 let db: Db;
@@ -183,5 +183,85 @@ describe('registerProjectDir', () => {
     upsertShared(db, 'project_roots', { id: 'r-arch', project_id: 'p-arch', device_id: 'd', path: path.join(ws, 'arch'), resolved: 1 }, 'd');
     expect(registerProjectDir({ db, deviceId: 'd', workspaceRoot: ws }, { path: path.join(ws, 'arch') })).toEqual({ projectId: 'p-arch', created: false });
     expect(projectOf('p-arch')).toMatchObject({ status: 'active' });
+  });
+});
+
+// 0.6.2：登録済みのプロジェクトの下のフォルダと、ほかの PC から届いたプロジェクトへの結び付け。
+describe('registerProjectDir の入れ子と結び付け', () => {
+  const reg = (o: Parameters<typeof registerProjectDir>[1]) => registerProjectDir({ db, deviceId: 'd', workspaceRoot: '' }, o);
+  const caught = (fn: () => unknown): unknown => { try { fn(); } catch (e) { return e; } throw new Error('投げなかった'); };
+  const count = () => (db.prepare('select count(*) c from projects where deleted_at is null').get() as { c: number }).c;
+  /** ほかの PC だけに場所を持つプロジェクト。 */
+  function elsewhere(id: string, name: string, extra: Record<string, unknown> = {}) {
+    upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0, ...extra }, 'other');
+    upsertShared(db, 'project_roots', { id: `r-${id}`, project_id: id, device_id: 'other', path: `/Users/other/${name}`, resolved: 1 }, 'other');
+  }
+
+  it('登録済みのプロジェクトの下のフォルダは、allowNested が無ければ 409 で包むプロジェクトを返し、何も作らない', () => {
+    const top = path.join(ws, 'hangar');
+    fs.mkdirSync(path.join(top, 'packages', 'ui'), { recursive: true });
+    const outer = reg({ path: top }).projectId;
+    const e = caught(() => reg({ path: path.join(top, 'packages', 'ui') }));
+    expect(e).toBeInstanceOf(ProjectNestedError);
+    expect(e).toMatchObject({ status: 409, enclosing: { projectId: outer, name: 'hangar', path: top } });
+    expect((e as Error).message).toBe('このフォルダはプロジェクト hangar の中にあります');
+    expect(count()).toBe(1);
+  });
+  it('allowNested を明示すれば、中のフォルダを別のプロジェクトにする', () => {
+    const top = path.join(ws, 'hangar');
+    fs.mkdirSync(path.join(top, 'packages', 'ui'), { recursive: true });
+    reg({ path: top });
+    const r = reg({ path: path.join(top, 'packages', 'ui'), allowNested: true });
+    expect(r.created).toBe(true);
+    expect(projectOf(r.projectId)).toMatchObject({ name: 'ui' });
+    expect(count()).toBe(2);
+  });
+  it('git のリポジトリなら、remote を正規化して入れる', () => {
+    const dir = path.join(ws, 'repo');
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), '[remote "origin"]\n\turl = https://user:token@github.com/me/repo.git\n');
+    const r = reg({ path: dir });
+    expect(db.prepare('select git_remote from projects where id = ?').get(r.projectId)).toEqual({ git_remote: 'github.com/me/repo' });
+  });
+  it('linkTo を渡すと、新しく作らずにそのプロジェクトのこの PC の場所にし、remote の空きを埋める', () => {
+    const dir = path.join(ws, 'notes-app');
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:me/notes-app.git\n');
+    elsewhere('far', 'notes-app');
+    expect(reg({ path: dir, linkTo: 'far', name: '無視する名前' })).toEqual({ projectId: 'far', created: false, linked: true });
+    expect(rootOf('far')).toEqual({ path: dir, resolved: 1 });
+    expect(db.prepare("select name, git_remote from projects where id = 'far'").get()).toEqual({ name: 'notes-app', git_remote: 'github.com/me/notes-app' });
+    expect(count()).toBe(1);
+    // もう一度同じものを送っても、同じ結果になる。
+    expect(reg({ path: dir, linkTo: 'far' })).toEqual({ projectId: 'far', created: false });
+  });
+  it('linkTo の先が無い、消した、スクラッチなら 404、この PC に場所があれば 409', () => {
+    const dir = path.join(ws, 'x');
+    fs.mkdirSync(dir);
+    elsewhere('gone', 'gone', { deleted_at: 1 });
+    upsertShared(db, 'projects', { id: 'scr', name: 'scratch', status: 'active', is_scratch: 1 }, 'd');
+    for (const id of ['nope', 'gone', 'scr']) expect(caught(() => reg({ path: dir, linkTo: id }))).toMatchObject({ status: 404 });
+    const placed = path.join(ws, 'placed');
+    fs.mkdirSync(placed);
+    const here = reg({ path: placed }).projectId;
+    const e = caught(() => reg({ path: dir, linkTo: here }));
+    expect(e).toMatchObject({ status: 409, message: 'プロジェクト placed は、この PC で既に場所があります' });
+    expect(rootOf(here)).toEqual({ path: placed, resolved: 1 });
+  });
+  it('linkTo のフォルダが別のプロジェクトの場所なら 409 で断る', () => {
+    const dir = path.join(ws, 'taken');
+    fs.mkdirSync(dir);
+    reg({ path: dir });
+    elsewhere('far', 'far');
+    expect(caught(() => reg({ path: dir, linkTo: 'far' }))).toMatchObject({ status: 409, message: 'このフォルダは、プロジェクト taken の場所として登録済みです' });
+    expect(rootOf('far')).toBeUndefined();
+  });
+  it('linkTo でも、登録済みのプロジェクトの下のフォルダは allowNested が無ければ 409', () => {
+    const top = path.join(ws, 'mono');
+    fs.mkdirSync(path.join(top, 'pkg'), { recursive: true });
+    reg({ path: top });
+    elsewhere('far', 'pkg');
+    expect(caught(() => reg({ path: path.join(top, 'pkg'), linkTo: 'far' }))).toBeInstanceOf(ProjectNestedError);
+    expect(reg({ path: path.join(top, 'pkg'), linkTo: 'far', allowNested: true })).toMatchObject({ projectId: 'far', linked: true });
   });
 });

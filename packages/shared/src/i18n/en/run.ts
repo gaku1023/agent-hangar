@@ -10,6 +10,7 @@ export const runEn: AreaDictionary<typeof runKeys> = {
   'run.launch.tmuxFailed': 'Failed to start tmux: {reason}',
   'run.launch.projectDirMissing': 'The project directory was not found on this computer',
   'run.launch.projectRequired': 'Select a project',
+  'run.launch.cwdOutside': 'The working folder must be inside the project folder: {path}',
   'run.tab.notFound': 'Tab not found',
   'run.tab.shell': 'Shell',
   'run.tab.shellFailed': 'Failed to start the shell: {reason}',

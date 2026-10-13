@@ -6,6 +6,7 @@ import { spawnGit } from '../git/status.ts';
 import { MemoStore } from '../projects/memo.ts';
 import { createSessionChangeHandler } from '../projects/onSessionChanged.ts';
 import { assignSessions, syncProjectsFromWorkspace } from '../projects/registry.ts';
+import { fillProjectRemotes } from '../projects/link.ts';
 import { checkRoots } from '../projects/rootCheck.ts';
 import { ensureScratchProject } from '../projects/scratch.ts';
 import { VERIFIED_CLAUDE_VERSION } from '../provider/claude-code/compat/version.ts';
@@ -23,7 +24,7 @@ export type IndexingParts = {
   git: GitService;
   /**
    * 最初の索引づけと、プロジェクトへの紐づけを済ませる。
-   * 全走査、ワークスペースからのプロジェクトの登録、紐づけ、スクラッチの用意、メモの突き合わせと監視、ルートの確かめ、の順である。
+   * 全走査、プロジェクトの git の remote の空きを埋める、ワークスペースからのプロジェクトの登録、紐づけ、スクラッチの用意、メモの突き合わせと監視、ルートの確かめ、の順である。
    */
   start(): Promise<void>;
   /** ルートの確かめの周期を止める。 */
@@ -82,6 +83,8 @@ export function bootIndexing(
     indexer, memos, git,
     async start() {
       await indexer.start();
+      // この PC に場所のあるプロジェクトの git の remote の空きを埋める。ほかの PC が同じリポジトリを見分けるのに使う（projects/link.ts）。
+      fillProjectRemotes(db, deviceId);
       syncProjectsFromWorkspace(db, deviceId, settings.current.workspaceRoot);
       assignSessions(db, deviceId);
       ensureScratchProject(db, deviceId, home.home);

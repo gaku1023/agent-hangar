@@ -6,7 +6,8 @@ import { expandHome } from '../config/readiness.ts';
 import type { Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { isStrictlyUnder, samePath } from '../platform/paths.ts';
-import { hasWorkspaceRoot, insertProject, normalizeDir } from './registry.ts';
+import { hasWorkspaceRoot, insertProject, linkProjectHere, normalizeDir } from './registry.ts';
+import { enclosingProject, type EnclosingProject } from './link.ts';
 import { causeOf, MessageError, msg, type Message } from '../i18n/message.ts';
 
 /** 作れなかった理由。status はそのまま HTTP の状態にする。 */
@@ -14,6 +15,17 @@ export class ProjectCreateError extends MessageError {
   constructor(readonly status: 400 | 404 | 409, text: Message | string) {
     super(text);
     this.name = 'ProjectCreateError';
+  }
+}
+
+/**
+ * 登録しようとしたフォルダが、この PC で登録済みのプロジェクトの下にあるときの断り（409）。
+ * enclosing は包むプロジェクト（いちばん深いもの）で、画面はそれを添えて「別のプロジェクトにする」を選ばせる。
+ */
+export class ProjectNestedError extends ProjectCreateError {
+  constructor(readonly enclosing: EnclosingProject) {
+    super(409, msg('project.create.nested', { name: enclosing.name }));
+    this.name = 'ProjectNestedError';
   }
 }
 
@@ -118,8 +130,18 @@ export function createProjectDir(deps: CreateDeps, o: { name: string; gitInit: b
 /**
  * 既存のディレクトリをプロジェクトにする。
  * 同じパスが登録済みなら既存を返し、アーカイブなら Active に戻す（登録し直すのは、使うという意思の表れなので）。
+ *
+ * 0.6.2 から、次の 2 つを足した。
+ * - 登録済みのプロジェクトの下のフォルダは、allowNested を明示したときだけ別のプロジェクトにする。
+ *   明示が無ければ ProjectNestedError（409）で包むプロジェクトを返す。古い画面からの登録で、黙ってプロジェクトが分かれないためである。
+ *   分けても、いまある会話は包む方に残る（assignSessions は未分類の会話しか動かさない）。分かれるのはこれからの会話である。
+ * - linkTo を渡すと、新しく作らずに、そのプロジェクト（ほかの PC から届いた、この PC に場所の無いもの）のこの PC の場所にする。
+ *   書き込みは「場所を再指定」と同じである（registry.ts の linkProjectHere）。名前は変えない。
  */
-export function registerProjectDir(deps: { db: Db; deviceId: string; workspaceRoot: string }, o: { path: string; name?: string }): { projectId: string; created: boolean } {
+export function registerProjectDir(
+  deps: { db: Db; deviceId: string; workspaceRoot: string },
+  o: { path: string; name?: string; allowNested?: boolean; linkTo?: string },
+): { projectId: string; created: boolean; linked?: true } {
   const name = o.name === undefined ? undefined : o.name.trim();
   if (name === '') throw new ProjectCreateError(400, msg('project.create.nameEmpty'));
   const raw = expandHome(o.path.trim());
@@ -137,12 +159,25 @@ export function registerProjectDir(deps: { db: Db; deviceId: string; workspaceRo
   if (dir === path.parse(dir).root || samePath(home, dir) || (root !== null && (samePath(root, dir) || isStrictlyUnder(root, dir)))) throw new ProjectCreateError(400, msg('project.create.rootNotAllowed'));
   if (!fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) throw new ProjectCreateError(400, msg('project.create.pathNotDir'));
   // SQL の文字列比較は大文字小文字と NFC・NFD を区別する。Windows では綴り違いも同じフォルダなので、JS で比べる。
-  const known = (deps.db.prepare(`select r.project_id id, r.path from project_roots r join projects p on p.id = r.project_id
-    where r.device_id = ? and r.deleted_at is null and p.deleted_at is null`).all(deps.deviceId) as { id: string; path: string }[]).find((r) => samePath(r.path.normalize('NFC'), dir));
+  const known = (deps.db.prepare(`select r.project_id id, p.name, r.path from project_roots r join projects p on p.id = r.project_id
+    where r.device_id = ? and r.deleted_at is null and p.deleted_at is null`).all(deps.deviceId) as { id: string; name: string; path: string }[]).find((r) => samePath(r.path.normalize('NFC'), dir));
   if (known) {
+    // 結び付け先と違うプロジェクトの場所なら、同じフォルダを指すプロジェクトが 2 つになるので断る（まとめるのは「場所を再指定」の確認から）。
+    if (o.linkTo !== undefined && known.id !== o.linkTo) throw new ProjectCreateError(409, msg('project.resolve.sameFolder', { name: known.name }));
     const row = deps.db.prepare('select * from projects where id = ?').get(known.id) as Record<string, unknown>;
     if (row.status === 'archived') upsertShared(deps.db, 'projects', { ...row, status: 'active' }, deps.deviceId);
     return { projectId: known.id, created: false };
+  }
+  const enclosing = enclosingProject(deps.db, deps.deviceId, dir);
+  if (enclosing && o.allowNested !== true) throw new ProjectNestedError(enclosing);
+  if (o.linkTo !== undefined) {
+    const target = deps.db.prepare('select id, name from projects where id = ? and deleted_at is null and is_scratch = 0').get(o.linkTo) as { id: string; name: string } | undefined;
+    if (!target) throw new ProjectCreateError(404, msg('project.error.notFound'));
+    // この PC に場所のあるプロジェクトを結び付けると、その場所を黙って動かしてしまう。動かすのは「場所を再指定」から行う。
+    const placed = deps.db.prepare('select 1 from project_roots where project_id = ? and device_id = ? and resolved = 1 and deleted_at is null').get(target.id, deps.deviceId);
+    if (placed) throw new ProjectCreateError(409, msg('project.link.hasPlace', { name: target.name }));
+    linkProjectHere(deps.db, deps.deviceId, target.id, dir);
+    return { projectId: target.id, created: false, linked: true };
   }
   return { projectId: insertProject(deps.db, deps.deviceId, name ?? path.basename(dir), dir), created: true };
 }

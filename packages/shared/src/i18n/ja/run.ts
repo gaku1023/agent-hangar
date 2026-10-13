@@ -10,6 +10,7 @@ export const runJa: AreaDictionary<typeof runKeys> = {
   'run.launch.tmuxFailed': 'tmux の起動に失敗しました: {reason}',
   'run.launch.projectDirMissing': 'プロジェクトのディレクトリがこの PC で見つかりません',
   'run.launch.projectRequired': 'プロジェクトを選んでください',
+  'run.launch.cwdOutside': '作業の場所は、プロジェクトの場所の下のフォルダにしてください: {path}',
   'run.tab.notFound': 'タブが見つかりません',
   'run.tab.shell': 'シェル',
   'run.tab.shellFailed': 'シェルの起動に失敗しました: {reason}',

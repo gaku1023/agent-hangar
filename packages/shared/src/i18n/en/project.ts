@@ -19,6 +19,8 @@ export const projectEn: AreaDictionary<typeof projectKeys> = {
   'project.create.pathMustBeAbsolute': 'path must be an absolute path starting with / or ~',
   'project.create.rootNotAllowed': 'The folder for new folders, the folders above it, and your home folder cannot be projects',
   'project.create.noParent': 'No place to create the new folder is set. Choose a location',
+  'project.create.nested': 'This folder is inside the project {name}',
+  'project.link.hasPlace': 'The project {name} already has a location on this computer',
   'project.name.uncategorized': 'Uncategorized',
   'project.name.quick': 'Quick sessions',
   'project.promote.scratchUnverified': 'The quick session folder could not be verified, so the files were not moved ({reason})',

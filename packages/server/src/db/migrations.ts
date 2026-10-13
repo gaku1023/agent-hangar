@@ -445,6 +445,19 @@ create table session_limits (
 `;
 
 /**
+ * 版 24。projects に git の remote（git_remote）を足す（0.6.2）。
+ *
+ * 値は正規化した形（`github.com/owner/repo`。ssh と https を同じに読み、資格情報とトークンは入れない。git/remote.ts の normalizeRemote）。
+ * ほかの PC から届いたプロジェクトと、この PC のフォルダを同じものと見分けるのに使う（projects/link.ts）。
+ * 場所を持つ PC が、登録と結び付けと索引の起動のときに、空のものだけを埋める。git でないフォルダのプロジェクトは null のままである。
+ * 同期は行を JSON の payload のまま運ぶので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない（版 20 の TODO の提案の列と同じ）。
+ * 列を持たない古い PC は、適用のときに自分の表に無い列を捨てる。古い PC が送る payload はこの列を持たず、適用は payload に無い列を上書きしないので、埋めた値は消えない。
+ */
+const V24_PROJECT_REMOTE_SQL = `
+alter table projects add column git_remote text;
+`;
+
+/**
  * スキーマのマイグレーション一覧。version の昇順で一度だけ適用する。
  * 先頭は起点である。スキーマを変えるときは、起点を書き換えずに、次の版を末尾に足す。
  * 起点の SQL に残る sessions.name と sessions.memo は、版 17 が落とす。
@@ -458,4 +471,5 @@ export const MIGRATIONS: Migration[] = [
   { version: 21, sql: V21_DROP_SESSION_MEMO_SQL },
   { version: 22, sql: V22_RESUME_CONFLICT_SQL },
   { version: 23, sql: V23_SESSION_LIMITS_SQL },
+  { version: 24, sql: V24_PROJECT_REMOTE_SQL },
 ];

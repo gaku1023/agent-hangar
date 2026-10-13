@@ -9,6 +9,7 @@ export const runKeys = {
   'run.launch.tmuxFailed': ['reason'],
   'run.launch.projectDirMissing': [],
   'run.launch.projectRequired': [],
+  'run.launch.cwdOutside': ['path'],
   'run.tab.notFound': [],
   'run.tab.shell': [],
   'run.tab.shellFailed': ['reason'],
