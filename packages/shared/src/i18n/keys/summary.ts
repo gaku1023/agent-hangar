@@ -20,4 +20,5 @@ export const summaryKeys = {
   'summary.input.running': [],
   'summary.canned.text': [],
   'summary.prompt.system': [],
+  'summary.prompt.jsonObject': ['schema'],
 } as const satisfies MessageSpec;

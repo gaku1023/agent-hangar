@@ -71,8 +71,12 @@ const TONE_ORDER = { error: 0, running: 1, done: 2 } as const;
 export type CardStep = { key: string; name: string; arg: string; mark: 'done' | 'now' | 'fail' | 'wait' };
 /** サブエージェント 1 本。stateLabel は状態の語（実行中、完了、失敗）。 */
 export type CardLane = LaneProps & { stateLabel: string };
-/** 意図。said は Claude がこのターンに書いたもので、label は「Claude の意図 · 時刻」の小見出し。 */
-export type CardIntent = { kind: 'said'; text: string; label: string; title: string; stale: boolean } | { kind: 'none'; text: string };
+/**
+ * 意図。said は Claude がこのターンに書いたもので、label は「Claude の意図 · 時刻」の小見出し。
+ * request は意図を送らない設定（liveHints が切）のときの、このターンの利用者の発言の冒頭で、label は「依頼 · 時刻」（試作 2 節の推す案 A）。
+ * none の text が空なら、何も出さない。
+ */
+export type CardIntent = { kind: 'said'; text: string; label: string; title: string; stale: boolean } | { kind: 'request'; text: string; label: string } | { kind: 'none'; text: string };
 /**
  * 止まっている理由の欄（試作 stop-reason-proto の N1）。問いと同じ場所に置く。
  * permission は許可待ちで、command は命令の全文（折り返す）、why は Claude の説明、hint は答え方。中身が届いていなければ command と why は null で、hint がその旨を言う。
@@ -115,6 +119,8 @@ export type CardInput = LiveInput & {
   limit?: SessionLimitDto | null;
   /** 入力待ちが何を待っているか（登録の waitingFor）。無ければ省ける。 */
   waitingFor?: WaitKind | null;
+  /** 設定の「ターンの意図と操作の短い説明を送る」。切なら、意図の代わりに依頼の冒頭を出す。省けば入り。 */
+  liveHints?: boolean;
 };
 
 /** 使用制限の枠の長さ。残りの棒は、この長さのうち過ぎた割合で描く。 */
@@ -237,8 +243,45 @@ function plainState(i: CardInput, t: Translate, results: ResultMap): Pick<NowCar
   return { tone: 'idle', state: t('session.strip.state.idle'), sub: t('session.strip.idleFor', { time: i.idleFor }), detail: null, question: false };
 }
 
-function stripIntent(i: LiveInput, t: Translate): CardIntent {
+/** 依頼の冒頭の長さ。札では 3 行で切るので、それより長い分は持たない。 */
+const REQUEST_MAX = 300;
+const tagText = (text: string, tag: string): string | null => {
+  const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return m ? m[1]!.trim() : null;
+};
+
+/**
+ * このターンの利用者の発言の冒頭。ターンの頭（turnFrom）から後の、最初の利用者の発言かスラッシュコマンドを読む。
+ * スラッシュコマンドは「/review 12」の形に、画像だけの発言は「（画像）」にする。読み込めていなければ null。
+ */
+function turnRequest(i: LiveInput, t: Translate): { text: string; ts: number | undefined } | null {
+  for (const e of i.events) {
+    if (e.seq < i.turnFrom) continue;
+    if (e.kind === 'user') {
+      const text = e.text.trim();
+      if (text) return { text: [...text].slice(0, REQUEST_MAX).join(''), ts: e.ts };
+      if (e.attachments?.length) return { text: t('session.strip.requestImage'), ts: e.ts };
+      continue;
+    }
+    if (e.kind === 'system') {
+      const name = tagText(e.text, 'command-name');
+      if (name === null) continue;
+      const args = tagText(e.text, 'command-args') ?? '';
+      return { text: args ? `${name} ${args}` : name, ts: e.ts };
+    }
+  }
+  return null;
+}
+
+function stripIntent(i: CardInput, t: Translate): CardIntent {
   const it = i.digest?.intent;
+  // 意図を送らない設定では、Claude は意図を書かない。「まだ意図が届いていません」は出さず、利用者の依頼の冒頭を出す（1f）。
+  // 切る前に起こした run がこのターンの意図を書いていれば、そちらを先に出す。
+  if (i.liveHints === false && !it?.inThisTurn) {
+    const r = turnRequest(i, t);
+    if (!r) return { kind: 'none', text: '' };
+    return { kind: 'request', text: r.text, label: r.ts === undefined ? t('session.strip.request') : t('session.strip.requestLabel', { time: i.clock(r.ts) }) };
+  }
   if (!it) return { kind: 'none', text: t('session.strip.intentNone') };
   if (!it.inThisTurn) return { kind: 'none', text: t('session.strip.intentOldTurn') };
   const time = i.clock(it.at);

@@ -68,7 +68,7 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/old', claudeDir: '/c' }));
     const s = loadSettings(tmp, 'darwin');
-    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, nodePath: null, language: 'ja' });
+    expect(s).toEqual({ workspaceRoot: '/old', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, defaultModel: null, nodePath: null, language: 'ja' });
   });
   it('0.4.0 までの codePath は、VS Code とその場所のエディタに読み替え、古い鍵は持たない', () => {
     ensureHome(tmp);
@@ -139,6 +139,18 @@ describe('paths', () => {
     saveSettings(tmp, { ...loadSettings(tmp), askStatusAtEnd: false, liveHints: false });
     expect(loadSettings(tmp)).toMatchObject({ askStatusAtEnd: false, liveHints: false });
   });
+  it('要約エンジンの鍵が無い設定（0.5.0 まで）は「使わない」で読み、URL とモデルと切り替えの鍵は残す', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', lmStudioUrl: 'http://127.0.0.1:5555', lmStudioModel: 'gemma', summaryFallback: true }));
+    expect(loadSettings(tmp)).toMatchObject({ summaryEngine: 'off', lmStudioUrl: 'http://127.0.0.1:5555', lmStudioModel: 'gemma', summaryFallback: true });
+    saveSettings(tmp, { ...loadSettings(tmp), summaryEngine: 'openai', summaryClaudeModel: 'sonnet', summaryApiKey: 'sk-local', defaultModel: 'opus' });
+    expect(loadSettings(tmp)).toMatchObject({ summaryEngine: 'openai', summaryClaudeModel: 'sonnet', summaryApiKey: 'sk-local', defaultModel: 'opus' });
+  });
+  it('手で書き換えた要約エンジンとモデルの値は、既定に寄せる', () => {
+    ensureHome(tmp);
+    fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w', summaryEngine: 'lmstudio', summaryClaudeModel: '--tools', summaryApiKey: 3, defaultModel: '' }));
+    expect(loadSettings(tmp)).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryApiKey: null, defaultModel: null });
+  });
   it('hangar が自分で行うこと（自動の Done と自動の停止）のスイッチは、鍵が無ければ入り（今までと同じ）で、保存した切りを読める', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
@@ -153,7 +165,7 @@ describe('paths', () => {
     ensureHome(tmp);
     fs.writeFileSync(path.join(tmp, 'settings.json'), JSON.stringify({ workspaceRoot: '/w' }));
     const s = loadSettings(tmp);
-    expect(s).toMatchObject({ workspaceRoot: '/w', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect(s).toMatchObject({ workspaceRoot: '/w', summaryEngine: 'off', summaryClaudeModel: 'haiku', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20 });
   });
   it('許しの無い外部の要約器は、読み込みのときに既定へ戻す', () => {
     // 手で書き換えた settings.json や、この制限より前に保存された設定から本文が外へ出ていかないようにする。

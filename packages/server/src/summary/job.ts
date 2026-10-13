@@ -88,10 +88,13 @@ export class SummaryJob {
    * run を止めた直後は、レジストリの読み取りが 500 ミリ秒周期のキャッシュなので必ず「生きている」と出る。
    * 呼び手が run の終了を知っている場面では `ignoreLive` を使う。
    * 土台かどうかと 5 ターンの判定はそのまま残る。
+   * 要約器が 1 つも無い（設定の要約エンジンが「使わない」）ときは、force でも受け付けない。
+   * 受け付けると、試す要約器が無いまま失敗を配り、先頭のカードに「失敗」が出てしまう。
    */
   enqueue(sessionId: string, opts: { force?: boolean; ignoreLive?: boolean } = {}): boolean {
     const force = opts.force === true;
     const ignoreLive = force || opts.ignoreLive === true;
+    if (this.deps.summarizers().length === 0) return false;
     if (this.running === sessionId || this.queue.includes(sessionId)) return false;
     const hasBody = this.deps.db.prepare('select 1 from event_index where session_id = ? and parent_agent is null limit 1').get(sessionId);
     if (!hasBody) return false;

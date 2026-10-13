@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_EDITOR, defaultTerminalApp, editorSettingOf, isLanguage, newId, terminalAppFor, type ConfigApproval, type EditorSetting, type Language, type TerminalApp } from '@agent-hangar/shared';
+import { DEFAULT_EDITOR, DEFAULT_SUMMARY_CLAUDE_MODEL, defaultTerminalApp, editorSettingOf, isLanguage, isModelName, isSummaryEngine, newId, terminalAppFor, type ConfigApproval, type EditorSetting, type Language, type SummaryEngine, type TerminalApp } from '@agent-hangar/shared';
 import { isLoose } from '../platform/secure.ts';
 import { decideLanguage, osDisplayLanguage } from '../i18n/osLanguage.ts';
 
@@ -26,11 +26,22 @@ export type Settings = {
    * この項目が無い古い settings.json は、まだ探していないものとして扱う。
    */
   toolsResolved?: boolean;
-  /** 事後要約に使う LM Studio の入口。末尾の / は付けない。 */
+  /**
+   * 事後の要約を作るもの（0.6.0）。off は作らない、claude は claude -p、openai は OpenAI 互換の URL（lmStudioUrl）である。
+   * 鍵の無い設定（0.5.0 まで）は off として読む。0.5.0 までの既定（LM Studio、無ければ Claude）は、使っていない人にも常に警告を出していたためである。
+   * URL とモデルと切り替えの鍵（lmStudio*、summaryFallback）は残すので、openai を選び直せば前の宛先で動く。
+   * `loadSettings` が必ず埋めるが、試験や古い呼び手が組んだ設定には無いことがあるので、読む側は無ければ off として読む（下の 2 つも同じく既定で読む）。
+   */
+  summaryEngine?: SummaryEngine;
+  /** 要約に claude -p を使うときのモデル（--model）。既定は haiku。 */
+  summaryClaudeModel?: string;
+  /** OpenAI 互換の要約器の入口。末尾の / は付けない。鍵の名前は LM Studio だけだった頃のまま残す（保存済みの設定を読み替えずに済む）。 */
   lmStudioUrl: string;
-  /** 使うモデルの id。null なら LM Studio が読み込んでいる先頭のモデルに任せる。 */
+  /** 使うモデルの id。null なら /v1/models の先頭のモデルに任せる。 */
   lmStudioModel: string | null;
-  /** LM Studio が使えないときに Claude のヘッドレスへ落とすかどうか。 */
+  /** OpenAI 互換の要約器へ Authorization: Bearer で渡す API キー。要らないサーバでは null。settings.json（0600）にだけ置き、画面へは有無だけを返す。 */
+  summaryApiKey?: string | null;
+  /** OpenAI 互換の要約器が使えないときに Claude のヘッドレスへ落とすかどうか。既定は切（使用枠を黙って使わない）。 */
   summaryFallback: boolean;
   /** Claude のヘッドレスを 1 時間に何件まで呼ぶか。 */
   summaryHourlyCap: number;
@@ -58,6 +69,11 @@ export type Settings = {
   askStatusAtEnd?: boolean;
   /** 同じく、ターンの意図（set_turn_intent）と短い手の説明（Bash と Agent の description）を求める段を足すか。既定は入り。 */
   liveHints?: boolean;
+  /**
+   * 新しいセッションのモデルの札の初めの値（0.6.0）。プロジェクトに前回の値があれば、画面はそちらを先に使う。
+   * null は Claude Code の既定（--model を渡さない）である。
+   */
+  defaultModel?: string | null;
   /**
    * hangar が自分で行うことのうち、止まった会話を自動で Done にするか（sessions/autoDone.ts）。既定は入り。
    * 切ると、Done にすることも、そのための事後要約（外で起こした長い会話の要約）を入れることもしない。
@@ -134,7 +150,7 @@ export function readOrCreateDevice(home: string): DeviceInfo {
 }
 
 function defaultSettings(platform: NodeJS.Platform = process.platform): Settings {
-  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, nodePath: null };
+  return { workspaceRoot: path.join(os.homedir(), 'workspace'), claudeDir: defaultClaudeDir(), tmuxPath: null, terminalApp: defaultTerminalApp(platform), editor: { ...DEFAULT_EDITOR }, toolsResolved: false, summaryEngine: 'off', summaryClaudeModel: DEFAULT_SUMMARY_CLAUDE_MODEL, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryApiKey: null, summaryFallback: false, summaryHourlyCap: 20, allowExternalSummarizer: false, askStatusAtEnd: true, liveHints: true, autoDone: true, autoPark: true, defaultModel: null, nodePath: null };
 }
 
 /**
@@ -164,6 +180,11 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 足す段のスイッチは真偽値だけを受ける。手で書き換えた値は既定（入り）に寄せる。
   if (typeof s.askStatusAtEnd !== 'boolean') s.askStatusAtEnd = true;
   if (typeof s.liveHints !== 'boolean') s.liveHints = true;
+  // 要約エンジンとモデルの名前も、手で書き換えた値を既定に寄せる。モデルの名前は claude の引数へそのまま渡るので、形を確かめる。
+  if (!isSummaryEngine(s.summaryEngine)) s.summaryEngine = 'off';
+  if (!isModelName(s.summaryClaudeModel)) s.summaryClaudeModel = DEFAULT_SUMMARY_CLAUDE_MODEL;
+  if (typeof s.summaryApiKey !== 'string' || s.summaryApiKey.trim() === '') s.summaryApiKey = null;
+  if (!isModelName(s.defaultModel)) s.defaultModel = null;
   // hangar が自分で行うことのスイッチも同じ。
   if (typeof s.autoDone !== 'boolean') s.autoDone = true;
   if (typeof s.autoPark !== 'boolean') s.autoPark = true;

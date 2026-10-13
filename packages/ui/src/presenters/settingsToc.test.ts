@@ -73,12 +73,22 @@ describe('設定の目次（S1）', () => {
     expect(row(present(store({ notify: { available: true, on: false, blocked: false } })).toc, 'general').state).toBe('通知オフ');
     expect(row(present(store({ notify: { available: false, on: false, blocked: false } })).toc, 'general').state).toBe('通知は使えません');
   });
-  it('要約エンジンは、モデルの一覧が取れたか、接続テストの結果で言う', () => {
-    expect(row(present(store()).toc, 'summary')).toMatchObject({ state: '確認中', tone: 'default' });
-    expect(row(present(store({ summarizerModels: ['a'] })).toc, 'summary')).toMatchObject({ state: 'LM Studio、接続済み', tone: 'default' });
-    expect(row(present(store({ summarizerModels: [] })).toc, 'summary')).toMatchObject({ state: 'LM Studio に接続できません', tone: 'warn' });
+  it('要約エンジンは、使わないなら淡く「オフ」と言い、LM Studio に繋がらない警告を出さない', () => {
+    expect(row(present(store()).toc, 'summary')).toMatchObject({ state: 'オフ', tone: 'default', label: '要約エンジン、オフ' });
+    expect(row(present(store({ summarizerModels: [] })).toc, 'summary')).toMatchObject({ state: 'オフ', tone: 'default' });
+    // 鍵を知らない古いサーバの設定も「使わない」として読む。
+    expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: undefined } })).toc, 'summary').state).toBe('オフ');
+  });
+  it('要約エンジンが Claude なら、使用枠を使うことを言う', () => {
+    expect(row(present(store({ settings: { ...SETTINGS, summaryEngine: 'claude' } })).toc, 'summary')).toMatchObject({ state: 'Claude（枠を使う）', tone: 'default' });
+  });
+  it('要約エンジンが OpenAI 互換なら、モデルの一覧が取れたか、接続テストの結果で言う', () => {
+    const openai = (over: Partial<Store> = {}) => store({ settings: { ...SETTINGS, summaryEngine: 'openai' }, ...over });
+    expect(row(present(openai()).toc, 'summary')).toMatchObject({ state: '確認中', tone: 'default' });
+    expect(row(present(openai({ summarizerModels: ['a'] })).toc, 'summary')).toMatchObject({ state: 'OpenAI 互換、接続済み', tone: 'default' });
+    expect(row(present(openai({ summarizerModels: [] })).toc, 'summary')).toMatchObject({ state: 'OpenAI 互換に接続できません', tone: 'warn' });
     const failed: SummarizerTestDto = { ok: false, tried: [{ id: 'lmstudio', message: 'x' }] };
-    expect(row(present(store({ summarizerModels: ['a'], summarizerTest: failed })).toc, 'summary')).toMatchObject({ state: '接続テストに失敗', tone: 'warn' });
+    expect(row(present(openai({ summarizerModels: ['a'], summarizerTest: failed })).toc, 'summary')).toMatchObject({ state: '接続テストに失敗', tone: 'warn' });
   });
   it('情報は、セッションの数を言う', () => {
     const s = store();

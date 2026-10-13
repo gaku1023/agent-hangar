@@ -96,6 +96,16 @@ describe('LeadCard の要約', () => {
   });
 });
 
+describe('LeadCard の要約を使わないとき', () => {
+  it('空の文の「設定」を押すと、設定の要約エンジンへ跳ぶ', () => {
+    const m = mount({ session: session({ summary: null }), summaryOff: true });
+    expect(card()).toHaveTextContent('要約は設定で有効にできます');
+    fireEvent.click(within(card()).getByRole('button', { name: '設定' }));
+    expect(m.onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'settings', at: 'summary' } });
+    expect(within(card()).queryByRole('button', { name: '要約を再生成' })).toBeNull();
+  });
+});
+
 describe('LeadCard の札', () => {
   it('変更したファイルの札は、件数の名前で、押すとこの 1 枚の中へ一覧が開く。もう一度押すと閉じる', () => {
     const m = mount();

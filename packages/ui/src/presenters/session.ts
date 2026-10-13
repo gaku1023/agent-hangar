@@ -42,7 +42,8 @@ export type TurnRowProps = { seq: number; when: string; text: string; head: stri
  */
 export function summarizerLabel(sourceId: string | null, sourceModel: string | null, t: Translate): string | null {
   if (!sourceId) return sourceModel ? t('session.lead.summarizerUnknown', { model: sourceModel }) : null;
-  const kind = SUMMARIZER_LABEL[sourceId] ?? sourceId;
+  // lmstudio は LM Studio だけだった頃の id のまま残した OpenAI 互換の要約器なので、画面の言語で「OpenAI 互換」と言う（0.6.0）。
+  const kind = sourceId === 'lmstudio' ? t('session.lead.summarizerOpenai') : SUMMARIZER_LABEL[sourceId] ?? sourceId;
   return sourceModel && sourceModel !== kind ? `${kind} / ${sourceModel}` : kind;
 }
 
@@ -309,6 +310,8 @@ export type LeadCardProps = {
   summary: { body: string; nextSteps: string[]; nextStepsLabel: string; progress: string; sourceLine: string } | null;
   /** 要約が無いときの文。 */
   empty: string | null;
+  /** 要約エンジンを使わない設定で要約が無いときの文（「要約は設定で有効にできます」）。link は押すと設定の要約エンジンへ跳ぶ語。 */
+  enable: { before: string; link: string; after: string } | null;
   /** 要約の上の注記（作成中、作成できなかった）。失敗の理由は title で読める。 */
   notice: { kind: 'pending' | 'failed'; text: string; title: string | null } | null;
   canRegenerate: boolean; regenerate: string;
@@ -325,6 +328,8 @@ export type LeadInput = {
   editor?: Pick<SettingsDto, 'editor'> | null;
   summaryPending: boolean;
   summaryError: string | null;
+  /** 設定の要約エンジンが「使わない」か。事後の要約を作らないので、空の文で設定へ誘い、作り直しを出さない。省けば偽。 */
+  summaryOff?: boolean;
   artifacts: ArtifactCardProps[];
   /** サーバの変更したファイルの一覧（`GET /api/sessions/:id/files`）。届く前は null。 */
   files: SessionFilesDto['files'] | null;
@@ -389,10 +394,12 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
       progress: t('session.lead.progress', { state: t(SUMMARY_STATE_KEY[sum.state]), turns: sum.basedOnTurns }),
       sourceLine: t('session.lead.sourceLine', { parts: sourceParts.join(t('common.list.separator')), when: absoluteTime(t, sum.updatedAt) }),
     } : null,
-    empty: sum ? null : t('session.lead.noSummary'),
+    empty: sum || i.summaryOff ? null : t('session.lead.noSummary'),
+    enable: !sum && i.summaryOff ? { before: t('session.lead.summaryOff.before'), link: t('session.lead.summaryOff.link'), after: t('session.lead.summaryOff.after') } : null,
     notice: i.summaryPending ? { kind: 'pending', text: t('session.lead.pending'), title: null } : i.summaryError !== null ? { kind: 'failed', text: t('session.lead.failed'), title: i.summaryError } : null,
     // 本文が無いと作り直しは必ず失敗するので、消えた会話では出さない。
-    canRegenerate: !i.gone, regenerate: t('session.lead.regenerate'),
+    // 要約エンジンを使わないときも出さない（サーバが受け付けない）。
+    canRegenerate: !i.gone && !i.summaryOff, regenerate: t('session.lead.regenerate'),
     files: leadFiles(i, t),
     artifacts: { label: t('session.lead.artifacts'), count: i.artifacts.length, items: i.artifacts },
     pr: stats.prUrl ? { label: prLabel(stats.prUrl, t), url: stats.prUrl } : null,
@@ -523,9 +530,10 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     idleFor: durationLabel(t, now - (s.lastActivityAt ?? now)), results,
     waited: durationLabel(t, now - (s.lastActivityAt ?? now)), artifacts: artifactCards,
     reason, permission: s.permission, limit: s.limit, waitingFor: s.waitingFor,
+    liveHints: store.settings?.liveHints !== false,
   }, t) : null;
   // 終わったセッションの冒頭の 1 枚。ターミナルが出る間（run がある間）は出さない。
-  const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, artifacts: artifactCards, editor: store.settings, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
+  const lead = run === null ? presentLeadCard({ session: s, now, gone: gone !== null, summaryPending: store.summaryPending[id] === true, summaryError: store.summaryFailed[id] ?? null, summaryOff: (store.settings?.summaryEngine ?? 'off') === 'off', artifacts: artifactCards, editor: store.settings, files: store.sessionFiles[id] ?? null, windowFiles: changedFiles }, t) : null;
   const props: SessionProps = {
     ...base, account, name: s.name ?? t('common.label.noName'), live: s.live, aside: asideOf(s.live, s.liveAside) !== null, reason,
     // 見出しの上には、属するプロジェクトへ戻るリンクを出す。プロジェクトに属さない（まだ知らない）セッションでは出さない。

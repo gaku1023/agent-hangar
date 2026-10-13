@@ -57,7 +57,15 @@ export function NowCard(props: NowCardProps & { sessionId: string; overlap?: Ove
               <p className="nc-intent-text">{props.intent.text}</p>
             </div>
           )
-          : <p className="nc-intent-none">{props.intent.text}</p>}
+          // 意図を送らない設定では、同じ場所と形で、利用者の依頼の冒頭を灰色の見出しで出す（試作 2 節の推す案 A）。
+          : props.intent.kind === 'request'
+            ? (
+              <div className="nc-intent" data-kind="request" key={props.intent.text}>
+                <span className="nc-request-label">{props.intent.label}</span>
+                <p className="nc-request-text">{props.intent.text}</p>
+              </div>
+            )
+            : props.intent.text && <p className="nc-intent-none">{props.intent.text}</p>}
         {props.steps.length > 0 && (
           <ul className="nc-steps" aria-label={t('session.strip.steps.label')}>
             {props.steps.map((s) => <StepItem key={s.key} step={s} fresh={fresh.has(s.key)} />)}

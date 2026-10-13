@@ -1898,6 +1898,22 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(readiness).toHaveBeenCalled();
     expect(rt.getStore().readiness).toEqual(READY);
   });
+  it('要約エンジンや宛先を変えて保存したら、モデルの一覧を取り直す（目次の接続済み／接続できませんが古いまま残らない）', async () => {
+    const summarizerModels = vi.fn(async () => ({ models: ['gemma'] }));
+    const { rt } = harness({ summarizerModels });
+    rt.start();
+    rt.emit({ type: 'settings.update', patch: { summaryEngine: 'openai' } });
+    await flush();
+    expect(summarizerModels).toHaveBeenCalledTimes(1);
+    expect(rt.getStore().summarizerModels).toEqual(['gemma']);
+    rt.emit({ type: 'settings.update', patch: { lmStudioUrl: 'http://127.0.0.1:9', lmStudioModel: null, summaryHourlyCap: 20 }, field: 'summarizer' });
+    await flush();
+    expect(summarizerModels).toHaveBeenCalledTimes(2);
+    // 関わらない欄では取り直さない。
+    rt.emit({ type: 'settings.update', patch: { liveHints: false } });
+    await flush();
+    expect(summarizerModels).toHaveBeenCalledTimes(2);
+  });
   it('保存を断られたら、理由を欄に返し、トーストにしない', async () => {
     const { rt } = harness({ updateSettings: vi.fn(async () => { throw new Error('「tmux のパス」に /x が見つかりません'); }) });
     rt.start();

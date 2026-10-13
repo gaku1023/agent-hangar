@@ -14,10 +14,13 @@ export const SCRATCH_PREFS = ':scratch';
 // worktree は残さない。同じ名前が毎回初期値に入ると、前の worktree の中で起動してしまうからである。
 const PREF_TEXT = ['model', 'effort', 'permissionMode'] as const;
 
-/** 起動の params から、前回値として残す詳細だけを取り出す。空欄と既定は params に入らないので、入っているものだけが残る。 */
-export function launchPrefsOf(params: LaunchParams): LaunchPrefs {
+/**
+ * 起動の params から、前回値として残す詳細だけを取り出す。空欄と既定は params に入らないので、入っているものだけが残る。
+ * 設定の既定のモデル（defaultModel）と同じモデルは残さない。残すと、既定のモデルを変えてもそのプロジェクトだけ古い既定に留まる。
+ */
+export function launchPrefsOf(params: LaunchParams, defaultModel: string | null = null): LaunchPrefs {
   const out: LaunchPrefs = {};
-  for (const k of PREF_TEXT) if (params[k]) out[k] = params[k];
+  for (const k of PREF_TEXT) if (params[k] && !(k === 'model' && params[k] === defaultModel)) out[k] = params[k];
   if (params.addDirs?.length) out.addDirs = [...params.addDirs];
   return out;
 }
@@ -56,10 +59,10 @@ export function readLaunchPrefs(v: unknown): Record<string, LaunchPrefs> {
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /** 起動を送ったときに、そのプロジェクトの前回値を書き換える。変わらなければ何もしない。 */
-function rememberPrefs(state: State, params: LaunchParams): Step {
+function rememberPrefs(state: State, params: LaunchParams, defaultModel: string | null): Step {
   const key = params.scratch ? SCRATCH_PREFS : params.projectId;
   if (!key) return { state, effects: [] };
-  const prefs = launchPrefsOf(params);
+  const prefs = launchPrefsOf(params, defaultModel);
   const { [key]: before, ...rest } = state.launchPrefs;
   const next = Object.keys(prefs).length ? { ...rest, [key]: prefs } : rest;
   if (sameJson(before ?? null, Object.keys(prefs).length ? prefs : null)) return { state, effects: [] };
@@ -81,7 +84,7 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       // 作ってから起動する送信の途中で、プロジェクトができた。起動だけが失敗しても押し直しで二重に作らないよう印を持ち、
       // 送った詳細をそのプロジェクトの前回値にする（送った時点ではプロジェクトの id が無かったため）。
       if (state.launch.kind !== 'submitting') return { state, effects: [] };
-      const r = rememberPrefs(state, ev.params);
+      const r = rememberPrefs(state, ev.params, store.settings?.defaultModel ?? null);
       return { state: { ...r.state, launch: { kind: 'submitting', createdProjectId: ev.projectId } }, effects: r.effects };
     }
     if (ev.type === 'launch.done') {
@@ -118,7 +121,7 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       if (!i.params.projectId && !i.params.scratch) return { state: { ...state, launch: { kind: 'failed', message: translatorOf(store)('mediator.launch.pickProject') } }, effects: [] };
       {
         // 詳細は、送った時点でそのプロジェクトの前回値にする。起動に失敗しても、選んだ詳細は利用者の意図なので残す。
-        const r = rememberPrefs(state, i.params);
+        const r = rememberPrefs(state, i.params, store.settings?.defaultModel ?? null);
         return { state: { ...r.state, launch: { kind: 'submitting' }, newSessionSent: true }, effects: [{ kind: 'api.launch', params: i.params }, ...r.effects] };
       }
     case 'session.new.draft': return setDraft(state, { name: i.name, prompt: i.prompt, attachments: i.attachments ?? [] });

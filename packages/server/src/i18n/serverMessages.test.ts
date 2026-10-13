@@ -56,8 +56,8 @@ describe('プロジェクト', () => {
 
   it('入れ子の理由も、外側の文と同じ言語で出る', () => {
     const e = caught(() => makeProjectDir(dir, 'fresh', true, () => { throw new SummarizerError('lmstudio', msg('summary.lmstudio.noModel')); }));
-    expect(errorText('ja', e)).toBe('git init に失敗しました: LM Studio にモデルがありません');
-    expect(errorText('en', e)).toBe('git init failed: LM Studio has no model');
+    expect(errorText('ja', e)).toBe('git init に失敗しました: 要約エンジンの URL にモデルがありません');
+    expect(errorText('en', e)).toBe('git init failed: The summary engine URL has no model');
   });
 });
 

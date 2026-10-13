@@ -172,7 +172,7 @@ describe('要約と、run の出来事の受け手の組み立て', () => {
   it('言語を en にすると、要約の失敗の文が英語になる', async () => {
     const h = homeParts();
     // 手元の LM Studio を呼ばないよう、閉じたポートへ向ける。claude も無いので、どの要約エンジンも使えない。
-    h.settings.current = { ...h.settings.current, language: 'en', lmStudioUrl: 'http://127.0.0.1:9' };
+    h.settings.current = { ...h.settings.current, language: 'en', summaryEngine: 'openai', summaryFallback: true, lmStudioUrl: 'http://127.0.0.1:9' };
     const d = bootDelivery(h);
     cleanups.push(async () => { await d.stopPublishing(); d.compatLog.stop(); });
     const runs = { runs: { on: () => () => {} }, usage: { current: () => ({ fiveHour: null, sevenDay: null, updatedAt: null }) }, claudeBin: () => null, accounts: { primaryDir: '/c', store: { get: () => null } } } as unknown as Pick<RunsParts, 'runs' | 'usage' | 'claudeBin' | 'accounts'>;

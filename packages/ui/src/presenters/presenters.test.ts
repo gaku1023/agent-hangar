@@ -444,12 +444,14 @@ describe('presentSession', () => {
   });
   it('要約の作成元に出す要約器とモデルを作る（冒頭の 1 枚の作成元の行になる）', () => {
     // 種類は source_id が決める。モデル名から推測しない。
-    expect(summarizerLabel('lmstudio', 'gemma-4-26b-a4b-it-heretic', ja)).toBe('LM Studio / gemma-4-26b-a4b-it-heretic');
+    // source_id の lmstudio は、LM Studio だけだった頃の名前のまま残した OpenAI 互換の要約器である（0.6.0）。
+    expect(summarizerLabel('lmstudio', 'gemma-4-26b-a4b-it-heretic', ja)).toBe('OpenAI 互換 / gemma-4-26b-a4b-it-heretic');
+    expect(summarizerLabel('lmstudio', 'gemma-4-26b-a4b-it-heretic', translator('en'))).toBe('OpenAI-compatible / gemma-4-26b-a4b-it-heretic');
     expect(summarizerLabel('claude-headless', 'haiku', ja)).toBe('claude / haiku');
-    // claude を名に含むモデルを LM Studio で使っても、LM Studio のままである。
-    expect(summarizerLabel('lmstudio', 'claude-ish-7b', ja)).toBe('LM Studio / claude-ish-7b');
+    // claude を名に含むモデルを OpenAI 互換の口で使っても、OpenAI 互換のままである。
+    expect(summarizerLabel('lmstudio', 'claude-ish-7b', ja)).toBe('OpenAI 互換 / claude-ish-7b');
     // モデル名を言えなかったときは種類だけを出す。
-    expect(summarizerLabel('lmstudio', null, ja)).toBe('LM Studio');
+    expect(summarizerLabel('lmstudio', null, ja)).toBe('OpenAI 互換');
     // source_id を持たない古い行は、種類が分からないので不明と出す。
     expect(summarizerLabel(null, 'gemma-4-26b-a4b-it-heretic', ja)).toBe('不明 / gemma-4-26b-a4b-it-heretic');
     // 土台の要約は要約器を通していないので、種類もモデルも無い。
@@ -460,7 +462,7 @@ describe('presentSession', () => {
     const at = NOW - 3_600_000;
     store.sessions.s1 = session('s1', { live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'post_hoc', sourceId: 'lmstudio', sourceModel: 'gemma', basedOnTurns: 5, updatedAt: at } });
     const line = presentSession(initialState(), store, NOW, 's1').lead!.summary!.sourceLine;
-    expect(line).toContain('LM Studio / gemma');
+    expect(line).toContain('OpenAI 互換 / gemma');
     expect(line).toContain(absoluteTime(ja, at));
   });
   it('真ん中の頁から開いた本文は、新しい行がまだあることと跳び先を持ち、遡り終えたら古い行のボタンを出さない', () => {
@@ -854,6 +856,12 @@ describe('presentNewSession', () => {
     expect(p.projects.map((x) => x.id)).toEqual(['alpha', 'beta']);
     expect(p).toMatchObject({ projectId: 'beta', submitting: false, error: 'x' });
     expect(presentNewSession({ ...state, launch: { kind: 'submitting' } }, store, NOW)!.submitting).toBe(true);
+  });
+  it('設定の既定のモデルを渡す。届く前と未設定は null', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
+    expect(presentNewSession(state, storeWith(), NOW)!.defaultModel).toBeNull();
+    const store = { ...storeWith(), settings: fullSettings({ defaultModel: 'sonnet' }) };
+    expect(presentNewSession(state, store, NOW)!.defaultModel).toBe('sonnet');
   });
   it('ステータスと最後に使った時期を添え、最近は最後に使った順の上位 5 件', () => {
     const store = storeWith();
@@ -1343,7 +1351,8 @@ describe('presentProject の右レール（端）', () => {
 describe('presentSettings の既定値', () => {
   it('設定がまだ届いていないときの要約器の既定と null の項目', () => {
     const p = presentSettings(initialState(), initialStore());
-    expect(p).toMatchObject({ lmStudioUrl: '', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20 });
+    expect(p).toMatchObject({ summaryEngine: 'off', summaryClaudeModel: 'haiku', summaryApiKeySet: false, lmStudioUrl: '', lmStudioModel: null, summaryFallback: false, summaryHourlyCap: 20 });
+    expect(p.injection).toMatchObject({ askStatusAtEnd: true, liveHints: true, defaultModel: null });
     expect(p.statusline).toBeNull();
     expect(p.summarizerModels).toBeNull();
     expect(p.usageAggregate).toBeNull();
