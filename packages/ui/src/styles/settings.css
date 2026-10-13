@@ -261,6 +261,7 @@
 .inject-full { margin-top: calc(var(--u) * 1.5); padding: calc(var(--u) * 2.5) calc(var(--u) * 3); border-radius: var(--r); background: var(--surface-2); font: 11.5px/1.65 var(--font-mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 .inject-part-k { display: block; margin: 8px 0 2px; font-family: var(--font-sans); font-size: 10.5px; font-weight: 700; color: var(--ink-3); white-space: normal; }
 .inject-part:first-child .inject-part-k { margin-top: 0; }
+.inject-mark { margin-left: 6px; padding: 0 5px; border-radius: 4px; font-weight: 600; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); }
 .inject-off { color: var(--ink-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink-3) 60%, transparent); }
 .inject-token { padding: 0 4px; border-radius: 4px; color: var(--accent); background: var(--accent-soft); border: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); }
 .inject-note { margin-top: calc(var(--u) * 2); }

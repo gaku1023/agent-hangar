@@ -417,6 +417,18 @@ export type ConfigSyncDto = {
   lastSentAt: number | null;
 };
 export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number; remoteSize: number };
+/**
+ * 「この PC で再開」の確認に出すもの（GET /api/sessions/:id/resume-here）。
+ * from は会話を最後に動かした PC（run が無ければ作った PC）と、その作業ディレクトリと、最後に使った日時である。
+ * to はこの PC と、再開するときの作業ディレクトリ（前の PC のプロジェクトの場所からの相対を、この PC の場所に継いだもの）。
+ * この PC でプロジェクトの場所が決まらなければ to.path は null で、再開はできない。
+ * platform は devices.platform（darwin、win32 など）で、画面が辞書で OS の名前にする。
+ */
+export type ResumeHerePlanDto = {
+  sessionId: string;
+  from: { deviceName: string | null; platform: string | null; path: string; lastAt: number | null };
+  to: { deviceName: string | null; platform: string | null; path: string | null };
+};
 
 /**
  * 設定の「使用量と費用」に出す形。端末のサーバが Worker の /usage から作る。

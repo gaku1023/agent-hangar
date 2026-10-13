@@ -6,6 +6,11 @@ import { msg } from '../i18n/message.ts';
 
 export type ResumeHereDeps = {
   db: Db; home: string; claudeDir: string;
+  /**
+   * 写す前の確かめ。RunManager.resumeCwdOf を渡す。この PC で起こせない会話（この PC にプロジェクトの場所が無い）なら投げる。
+   * 写してから再開で断ると、~/.claude に本文だけが残り、利用者には 400 しか見えない。
+   */
+  check?: (sessionId: string) => void;
   /** 写し終えたあとの再開。RunManager.resume を渡す。 */
   resume: (sessionId: string) => LaunchResultDto;
   /** 本文の控えの世代を刈る。 */
@@ -16,6 +21,7 @@ export type ResumeHereDeps = {
 
 /** 他端末の本文を手元に写してから再開する。~/.claude への本文の書き込みはここだけを通る。 */
 export function resumeHere(deps: ResumeHereDeps, sessionId: string, overwrite: boolean): LaunchResultDto | ResumeHereConflictDto {
+  deps.check?.(sessionId);
   const r = (deps.copy ?? copyTranscriptForResume)({ db: deps.db, home: deps.home, claudeDir: deps.claudeDir, sessionId, overwrite });
   if (r.kind === 'ask') return { error: 'local_smaller', localSize: r.localSize, remoteSize: r.remoteSize };
   if (r.kind === 'none') throw new RunError(400, msg('sync.resume.noTranscript'));

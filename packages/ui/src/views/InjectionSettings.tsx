@@ -52,7 +52,7 @@ export function InjectionSettings(props: { injection: InjectionSettingsProps }) 
             <div className="inject-full">
               {i.full.map((part) => (
                 <div key={part.label} className="inject-part">
-                  <span className="inject-part-k">{part.label}</span>
+                  <span className="inject-part-k">{part.label}{part.mark && <span className="inject-mark">{part.mark}</span>}</span>
                   <span className={part.off ? 'inject-off' : undefined}>
                     {part.pieces.map((p, n) => (p.kind === 'token' ? <span key={n} className="inject-token">{p.text}</span> : <span key={n}>{p.text}</span>))}
                   </span>

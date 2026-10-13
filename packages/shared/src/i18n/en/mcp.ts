@@ -35,7 +35,7 @@ export const mcpEn: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.getProject': 'Project details: to-dos, recent sessions, and artifacts.',
   'mcp.tool.updateProject': 'Changes the project status, adds to-dos, and suggests finished to-dos for completion. Only the user marks a to-do as done. Pass propose_done the to-do ID and a one-sentence reason (up to 200 characters). toggle_todos reopens a done to-do, or turns an open one into a suggestion without a reason. To-dos added with add_todos are held as your suggestions, outside the list, until the user accepts them. Pass { text, note } to add a reason.',
   'mcp.tool.listSessions': 'Lists sessions. Filter with project_id, running, and limit.',
-  'mcp.tool.searchSessions': 'Full-text search over past sessions. Returns the title, the one-sentence summary, excerpts of the matches, and the resume command.',
+  'mcp.tool.searchSessions': 'Full-text search over past sessions. Returns the title, the one-sentence summary, excerpts of the matches, the resume command, and the computer that last ran it (device; here tells whether it is this computer).',
   'mcp.tool.getTranscript': "Returns a session's transcript as normalized events. On a per-session URL, session_id can be omitted.",
   'mcp.tool.createSession': 'Starts a new Claude Code session for the project in tmux.',
   'mcp.tool.setSessionSummary': "Updates this session's summary. Call it when a request is completed, when the approach changes, or when work is interrupted.",

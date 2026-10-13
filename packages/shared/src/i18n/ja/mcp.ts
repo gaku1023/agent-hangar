@@ -35,7 +35,7 @@ export const mcpJa: AreaDictionary<typeof mcpKeys> = {
   'mcp.tool.getProject': 'プロジェクトの詳細。TODO、直近のセッション、アーティファクト。',
   'mcp.tool.updateProject': 'プロジェクトのステータスを変え、TODO を足し、片付いた TODO を完了の候補として出す。完了にするのは利用者である。propose_done には TODO の ID と根拠の一文（200 字まで）を渡す。toggle_todos は完了を開き直すか、未完を根拠なしの候補にする。add_todos で足した TODO は、利用者が受け入れるまで提案として置かれる。{ text, note } で理由を添えられる。',
   'mcp.tool.listSessions': 'セッションの一覧。project_id、running、limit で絞る。',
-  'mcp.tool.searchSessions': '過去のセッションを全文検索する。題名、要約の 1 文、一致箇所の抜粋、再開コマンドを返す。',
+  'mcp.tool.searchSessions': '過去のセッションを全文検索する。題名、要約の 1 文、一致箇所の抜粋、再開コマンド、最後に動かした PC（device。here はこの PC か）を返す。',
   'mcp.tool.getTranscript': 'セッションのトランスクリプトを正規化イベントで返す。セッション別 URL では session_id を省ける。',
   'mcp.tool.createSession': 'プロジェクトで新しい Claude Code セッションを tmux 上に起動する。',
   'mcp.tool.setSessionSummary': 'このセッションの要約を更新する。依頼の完了、方針の変更、中断のときに呼ぶ。',

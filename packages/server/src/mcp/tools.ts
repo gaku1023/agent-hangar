@@ -12,6 +12,7 @@ import type { LaunchResult } from '../runs/manager.ts';
 import { searchSessions } from '../search/search.ts';
 import { getSessionState, proposeSessionState, setSessionState, StateInputError, validateStateInput, type ProposeStateOutcome } from '../sessions/states.ts';
 import { readEvents } from '../transcript/read.ts';
+import { deviceOfSession } from '../runs/handover.ts';
 
 export type ToolDeps = {
   db: Db;
@@ -109,10 +110,19 @@ function projectIdOf(deps: ToolDeps, ctx: ToolContext, args: Record<string, unkn
 }
 
 /**
+ * 会話を最後に動かした PC（run が無ければ作った PC）。here はこの PC か。
+ * ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、検索の結果と一覧に添える。
+ */
+function deviceBrief(deps: ToolDeps, sessionId: string): { name: string | null; platform: string | null; here: boolean } | null {
+  const d = deviceOfSession(deps.db, sessionId);
+  return d ? { name: d.name, platform: d.platform, here: d.id === deps.deviceId } : null;
+}
+
+/**
  * セッション 1 件の要点。
  * resume_command だけは Claude の UUID を使う。ほかの項目の id は hangar の sessions.id である。
  */
-function sessionBrief(s: SessionDto) {
+function sessionBrief(deps: ToolDeps, s: SessionDto) {
   return {
     id: s.id,
     name: s.name,
@@ -123,6 +133,7 @@ function sessionBrief(s: SessionDto) {
     last_activity_at: s.lastActivityAt,
     summary: s.summary ? { title: s.summary.title, one_liner: s.summary.oneLiner, state: s.summary.state, source: s.summary.source } : null,
     resume_command: `claude -r ${s.providerSessionId}`,
+    device: deviceBrief(deps, s.id),
   };
 }
 
@@ -198,7 +209,7 @@ export function getProjectTool(deps: ToolDeps, ctx: ToolContext, args: Record<st
   const id = projectIdOf(deps, ctx, args);
   const p = requireProject(deps, id);
   const todos = todoBriefs(deps, id);
-  const recent = listSessions(deps.db, deps.live(), { projectId: id, deviceId: deps.deviceId }).slice(0, RECENT_SESSIONS).map(sessionBrief);
+  const recent = listSessions(deps.db, deps.live(), { projectId: id, deviceId: deps.deviceId }).slice(0, RECENT_SESSIONS).map((s) => sessionBrief(deps, s));
   const artifacts = listArtifacts(deps.db, { projectId: id })
     .map((a) => ({ id: a.id, url: a.url, title: a.title, favicon: a.favicon, last_published_at: a.lastPublishedAt, version_count: a.versionCount }));
   return { id: p.id, name: p.name, status: p.status, path: p.path, resolved: p.resolved, last_activity_at: p.lastActivityAt, open_todo_count: p.openTodoCount, todos, recent_sessions: recent, artifacts };
@@ -270,7 +281,7 @@ export function listSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<
   if (running !== undefined) list = list.filter((s) => (s.live !== null) === running);
   // 負数の limit を slice にそのまま渡すと末尾から削る意味になるので、下限を 0 で押さえる。
   const limit = Math.max(num(args.limit) ?? DEFAULT_LIST_LIMIT, 0);
-  return list.slice(0, limit).map(sessionBrief);
+  return list.slice(0, limit).map((s) => sessionBrief(deps, s));
 }
 
 export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Record<string, unknown>) {
@@ -291,6 +302,7 @@ export function searchSessionsTool(deps: ToolDeps, ctx: ToolContext, args: Recor
       match_count: h.matchCount,
       snippets: h.snippets,
       resume_command: s ? `claude -r ${s.providerSessionId}` : null,
+      device: deviceBrief(deps, h.sessionId),
     };
   });
   return { total: r.total, hits };

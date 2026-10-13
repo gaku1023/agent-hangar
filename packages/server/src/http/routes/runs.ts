@@ -4,6 +4,7 @@ import { RunError } from '../../runs/manager.ts';
 import type { JumpFrom } from '../../provider/claude-code/screen/promptJump.ts';
 import { decodeTerminalRequest } from '../../runs/terminal.ts';
 import { interruptedGroup, setInterruptedDismissed } from '../../runs/interrupted.ts';
+import { resumeHerePlan } from '../../runs/handover.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
 import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { beforeLaunchOf, BODY_LIMITS, externalOf, readJson, runResult, runResultAsync, sessionOf, tooLargeResult } from './common.ts';
@@ -21,6 +22,12 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
   const external = externalOf(deps);
   const beforeLaunch = beforeLaunchOf(deps);
   const session = sessionOf(deps);
+
+  // 「この PC で再開」の確認に出すもの。前の PC と最後に使った日時、この PC と読み替えた作業ディレクトリを返す（runs/handover.ts）。
+  api.get('/sessions/:id/resume-here', (c) => {
+    const plan = resumeHerePlan(deps.db, deps.deviceId, c.req.param('id'));
+    return plan ? c.json(plan) : c.json({ error: tr('session.error.notFound') }, 404);
+  });
 
   // 他端末の本文を手元に写してから再開する。手元の方が小さいときだけ 409 で確認を求める。
   api.post('/sessions/:id/resume-here', async (c) => {

@@ -114,3 +114,57 @@ describe('renderInjection', () => {
     expect(en).toContain('Open to-dos: (none)');
   });
 });
+
+/** 引き継ぎの段に渡す事実の例。架空の PC 名とパスである。 */
+const FACTS = {
+  prevDevice: 'work-pc', prevPlatform: 'win32', prevPath: 'D:\\src\\app',
+  device: 'this-mac', platform: 'darwin', path: '/Users/me/src/app',
+  lastAt: new Date(2026, 9, 12, 18, 5).getTime(), branch: 'feature/x',
+  editedCount: 3, missing: ['src/new.ts'], missingCount: 1,
+};
+const BASE = { projectName: 'alpha', projectPath: '/Users/me/src/app', todos: [] };
+
+describe('renderInjection の PC をまたぐ段', () => {
+  it('引き継ぎの段は、前と今の PC、時刻、パス、ブランチ、無いファイルを埋め、基本の段の直後に置く', () => {
+    const t = renderInjection({ ...BASE, handover: FACTS });
+    expect(t).toContain('この会話は work-pc（Windows）で 2026-10-12 18:05 まで進め、作業ディレクトリは D:\\src\\app でした。いまは this-mac（macOS）の /Users/me/src/app で続けています。\n');
+    expect(t).toContain('同期されたのは会話のトランスクリプトと hangar の記録だけです。ファイル、git の作業ツリー、未コミットの変更、環境（インストール、環境変数、秘密）は同期されていません。\n');
+    expect(t).toContain('この PC では /Users/me/src/app からの相対パスで読み替え、前の PC の絶対パスをそのまま打たないでください。\n');
+    expect(t).toContain('会話の終わりのブランチは feature/x でした。この会話で編集したファイル 3 件のうち、この PC に無いもの：1 件\n- src/new.ts\n');
+    expect(t).toContain('git status と git log -1 と現在のブランチを見て');
+    expect(t).toContain('AskUserQuestion で聞いてください。選択肢は「この PC で環境をそろえて続ける（足りないものを一緒に用意する）」「前の PC からファイルを持ってくる（手順を示す。実行するのは利用者）」「前の PC で続ける（この PC では何もしない）」「差を承知でこのまま進める」です。');
+    expect(t).toContain('ssh、scp、rsync は自分で打たないでください。1 度合っていると確認したものは、その後は疑わないでください。\n');
+    const at = (s: string) => t.indexOf(s);
+    expect(at('あなたは agent-hangar')).toBeLessThan(at('この会話は work-pc'));
+    expect(at('この会話は work-pc')).toBeLessThan(at('頼まれたことが明確に終わったとき'));
+  });
+  it('分からない値は（なし）にし、無いファイルが 10 件を越えたら件数を言って末尾を省く', () => {
+    const t = renderInjection({ ...BASE, handover: { ...FACTS, prevDevice: null, prevPlatform: null, lastAt: null, branch: null, missing: [], missingCount: 0 } });
+    expect(t).toContain('この会話は （なし）（（なし））で （なし） まで進め');
+    expect(t).toContain('会話の終わりのブランチは （なし） でした。この会話で編集したファイル 3 件のうち、この PC に無いもの：（なし）\n');
+    const many = Array.from({ length: 10 }, (_, i) => `f${i}.ts`);
+    const m = renderInjection({ ...BASE, handover: { ...FACTS, editedCount: 14, missing: many, missingCount: 12 } });
+    expect(m).toContain('この PC に無いもの：12 件\n' + many.map((f) => `- ${f}`).join('\n') + '\n- …\n');
+  });
+  it('引き継ぎが無ければ段を足さない', () => {
+    expect(renderInjection({ ...BASE, handover: null })).not.toContain('この会話は');
+    expect(renderInjection(BASE)).not.toContain('同期されたのは');
+  });
+  it('プロジェクトを 2 台以上で使っていれば弱い 1 文を足し、1 台なら足さない', () => {
+    const two = renderInjection({ ...BASE, deviceCount: 2 });
+    expect(two).toContain('このプロジェクトは 2 台の PC で使っています。過去の会話のパスやファイルの状態は、この PC と違うことがあります。\n');
+    expect(two.indexOf('このプロジェクトは')).toBeLessThan(two.indexOf('頼まれたことが'));
+    expect(renderInjection({ ...BASE, deviceCount: 1 })).not.toContain('台の PC');
+    expect(renderInjection(BASE)).not.toContain('台の PC');
+  });
+  it('英語でも、条件と禁止を 1 つも落とさず、行の数も日本語と同じにする', () => {
+    const input = { ...BASE, handover: FACTS, deviceCount: 2 };
+    const en = renderInjection(input, 'en');
+    expect(en).not.toMatch(/[぀-ヿ一-鿿＀-￯]/);
+    expect(en.split('\n').length).toBe(renderInjection(input, 'ja').split('\n').length);
+    expect(en).toContain('work-pc (Windows)');
+    expect(en).toContain('this-mac (macOS)');
+    expect(en).toContain('2026-10-12 18:05');
+    for (const s of ['git status', 'git log -1', 'AskUserQuestion', 'ssh, scp, or rsync', 'feature/x', '- src/new.ts', 'This project is used on 2 computers']) expect(en, s).toContain(s);
+  });
+});

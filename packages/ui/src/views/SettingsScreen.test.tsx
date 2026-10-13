@@ -762,7 +762,10 @@ describe('設定の連携の「足すもの」（1e）', () => {
     expect(within(details).getByText('ターンの意図と操作の短い説明を送る（オフ・足しません）')).toBeInTheDocument();
     expect(details.querySelectorAll('.inject-off')).toHaveLength(1);
     expect(details.querySelector('.inject-off')).toHaveTextContent('set_turn_intent');
-    expect([...details.querySelectorAll('.inject-token')].map((e) => e.textContent)).toEqual(['プロジェクト名', 'パス', 'TODO の一覧']);
+    expect([...details.querySelectorAll('.inject-part')[0]!.querySelectorAll('.inject-token')].map((e) => e.textContent)).toEqual(['プロジェクト名', 'パス', 'TODO の一覧']);
+    // PC をまたぐ 2 段は、同期を使っているときだけ足すことを名前の横の印で言う。
+    expect(within(details).getByText('ほかの PC で進めた会話を再開したとき')).toBeInTheDocument();
+    expect([...details.querySelectorAll('.inject-mark')].map((e) => e.textContent)).toEqual(['同期を使っているときだけ', '同期を使っているときだけ']);
   });
 });
 

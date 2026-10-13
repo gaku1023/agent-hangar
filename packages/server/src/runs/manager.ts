@@ -35,6 +35,7 @@ import { jumpToPrompt, leaveTranscript, type JumpFrom, type JumpResult, type Pan
 import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
 import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
+import { handoverFacts, projectDeviceCount, resumeCwd } from './handover.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
 const HEARTBEAT_MS = 30_000;
@@ -220,11 +221,39 @@ export class RunManager {
     return this.startPanes();
   }
 
-  /** 注入する指示。プロジェクトが無ければ「未分類」として cwd だけを書く。TODO には、利用者がまだ受け入れていない Claude の提案を入れない。 */
-  private injectionFor(projectId: string | null, cwd: string): string {
+  /**
+   * 注入する指示。プロジェクトが無ければ「未分類」として cwd だけを書く。TODO には、利用者がまだ受け入れていない Claude の提案を入れない。
+   * handoverFrom は、引き継ぎを判定する会話（再開ならその会話、フォークなら元の会話）。新しい会話では渡さない。
+   * 直前の run がほかの PC なら引き継ぎの段を、プロジェクトを 2 台以上の PC で使っていれば弱い 1 文を足す（runs/handover.ts）。
+   */
+  private injectionFor(projectId: string | null, cwd: string, handoverFrom?: string): string {
     const p = projectId ? this.project(projectId) : null;
     const todos = projectId ? (this.db.prepare('select id, text from todos where project_id = ? and done = 0 and suggested_at is null and deleted_at is null order by position limit 10').all(projectId) as { id: string; text: string }[]) : [];
-    return renderInjection({ projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos }, this.language(), this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS);
+    const handover = handoverFrom ? handoverFacts(this.db, { sessionId: handoverFrom, selfDeviceId: this.deps.deviceId, cwd }) : null;
+    const deviceCount = projectId ? projectDeviceCount(this.db, projectId) : 0;
+    return renderInjection({ projectName: p?.name ?? this.tr('project.name.uncategorized'), projectPath: cwd, todos, handover, deviceCount }, this.language(), this.deps.injection?.() ?? DEFAULT_INJECTION_PARTS);
+  }
+
+  /**
+   * 再開とフォークの作業ディレクトリ（runs/handover.ts の resumeCwd）。
+   * 前の PC のパスは、この PC のプロジェクトの場所に読み替える。共有の行の sessions.cwd は書き換えない。
+   * プロジェクトに属する会話で、この PC に場所が無いときは、起こす前に場所が無いと断る。
+   * プロジェクトに属さない会話は今までどおり sessions.cwd を使い、無ければ precheck が断る。
+   */
+  private cwdFor(s: SessionRow): string {
+    const local = resumeCwd(this.db, this.deps.deviceId, s);
+    if (local) return local;
+    if (s.project_id) throw new RunError(400, msg('run.launch.projectDirMissing'));
+    return s.cwd;
+  }
+
+  /**
+   * 「この PC で再開」が本文を写す前に呼ぶ。この PC で起こせない会話なら、写す前に断る。
+   * 無いセッションはここでは断らずに null を返す。写しの側が「トランスクリプトがありません」で断る。
+   */
+  resumeCwdOf(sessionId: string): string | null {
+    const s = this.db.prepare('select * from sessions where id = ? and deleted_at is null').get(sessionId) as SessionRow | undefined;
+    return s ? this.cwdFor(s) : null;
   }
 
   /**
@@ -238,14 +267,14 @@ export class RunManager {
     return dirs;
   }
 
-  private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams): Omit<LaunchInput, 'mode'> {
+  private baseInput(sessionId: string, projectId: string | null, cwd: string, params: LaunchParams, handoverFrom?: string): Omit<LaunchInput, 'mode'> {
     const s = (v: string | undefined) => (v && v.trim() ? v.trim() : undefined);
     // claude に渡すのは本体のトークンではなく、この run 専用の秘密である。
     // 本体のトークンを渡すと、claude は自分の設定ファイルを読んで共通の /mcp と /api に回れる。
     // 秘密を argv に載せないため、MCP の設定は 0600 のファイルに置き、パスだけを claude に渡す。
     const mcpConfigPath = writeMcpConfig(this.deps.home, sessionId, this.mcpUrl(sessionId), issueMcpSecret(this.db, sessionId, this.now()));
     return {
-      systemPrompt: this.injectionFor(projectId, cwd),
+      systemPrompt: this.injectionFor(projectId, cwd, handoverFrom),
       mcpConfigPath,
       settingsPath: this.hookSettings(sessionId, mcpConfigPath),
       name: s(params.name),
@@ -414,12 +443,14 @@ export class RunManager {
   resume(sessionId: string, extra: { args?: string[]; env?: Record<string, string>; account?: string } = {}): LaunchResult {
     const s = this.session(sessionId);
     this.assertResumable(s);
+    const cwd = this.cwdFor(s);
     const account = extra.account !== undefined ? this.accounts.resolve(extra.account) : this.accounts.lastUsed(s.id);
     const bin = this.claudeBin();
     const job = this.procs().listJobs(bin)?.find((j) => j.sessionId === s.provider_session_id) ?? null;
-    if (job) return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
-    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(s.id, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, false);
-    return this.launch({ sessionId: s.id, cwd: s.cwd, kind: 'resume', command: [...command, ...(extra.args ?? [])], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
+    if (job) return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [bin, 'attach', job.id], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
+    // claude -r <uuid> は、cwd が前と違っても、どのプロジェクトの置き場にある本文でも見つけて、その本文に書き足す（Claude Code 2.1 で確かめた）。
+    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(s.id, s.project_id, cwd, {}, s.id), { providerSessionId: s.provider_session_id }, false);
+    return this.launch({ sessionId: s.id, cwd, kind: 'resume', command: [...command, ...(extra.args ?? [])], params: { projectId: s.project_id ?? undefined }, env: extra.env, account });
   }
 
   /**
@@ -469,14 +500,16 @@ export class RunManager {
     // リンクの確かめも行を作る前に済ませる。壊れていると、本文の無い行が残る。
     this.accounts.envFor(account);
     // 新しい行を作る前に起動できるかを確かめる。失敗しても本文の無いセッションが残らないようにするため。
-    this.precheck(s.cwd);
+    // フォークした本文はこの PC の cwd の置き場に生まれるので、新しい行の cwd は読み替えた方にする。
+    const cwd = this.cwdFor(s);
+    this.precheck(cwd);
     const newUuid = crypto.randomUUID();
-    const newSessionId = ensureSession(this.db, newUuid, s.cwd, this.deps.deviceId);
+    const newSessionId = ensureSession(this.db, newUuid, cwd, this.deps.deviceId);
     const now = this.now();
     const cur = this.db.prepare('select * from sessions where id = ?').get(newSessionId) as Record<string, unknown>;
     upsertShared(this.db, 'sessions', { ...cur, project_id: s.project_id, started_at: now, last_activity_at: now }, this.deps.deviceId);
-    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(newSessionId, s.project_id, s.cwd, {}), { providerSessionId: s.provider_session_id }, true, newUuid);
-    return this.launch({ sessionId: newSessionId, cwd: s.cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined }, account });
+    const command = claudeCodeProvider.resumeCommand(this.claudeBin(), this.baseInput(newSessionId, s.project_id, cwd, {}, s.id), { providerSessionId: s.provider_session_id }, true, newUuid);
+    return this.launch({ sessionId: newSessionId, cwd, kind: 'fork', command, params: { projectId: s.project_id ?? undefined }, account });
   }
 
   /** 開いているセッションを、別のアカウントで再開し直す。手順と断る理由は runs/accounts.ts にある。ここは run の寿命の側の手を渡すだけである。 */

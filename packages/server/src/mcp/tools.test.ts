@@ -234,6 +234,16 @@ describe('MCP tools', () => {
     expect(hit).toMatchObject({ session_id: alphaId, title: '動画チャンネルの整理', resume_command: `claude -r ${SESSION_ALPHA}` });
     expect((hit.snippets as unknown[]).length).toBeGreaterThan(0);
   });
+  it('list_sessions と search_sessions は、会話を最後に動かした PC を添え、この PC かどうかを言う', () => {
+    upsertShared(db, 'devices', { id: 'd', name: 'this-mac', platform: 'darwin', last_seen_at: 1 }, 'd');
+    upsertShared(db, 'devices', { id: 'win', name: 'work-pc', platform: 'win32', last_seen_at: 1 }, 'win');
+    const brief = () => (call('list_sessions') as unknown as { id: string; device: unknown }[]).find((s) => s.id === alphaId)!;
+    expect(brief().device).toEqual({ name: 'this-mac', platform: 'darwin', here: true });
+    upsertShared(db, 'runs', { id: 'rw', session_id: alphaId, device_id: 'win', kind: 'resume', tmux_name: 'x', pid: null, launch_params: '{}', started_at: 9, ended_at: 10, end_reason: 'exited', heartbeat_at: 10 }, 'win');
+    expect(brief().device).toEqual({ name: 'work-pc', platform: 'win32', here: false });
+    const hit = ((call('search_sessions', { query: 'チャンネル' }).hits) as Record<string, unknown>[])[0]!;
+    expect(hit.device).toEqual({ name: 'work-pc', platform: 'win32', here: false });
+  });
   it('get_transcript はセッション別 URL では session_id を省け、既定でツールを落とす', () => {
     const plain = call('get_transcript', {}, { sessionId: alphaId });
     const kinds = (plain.events as { kind: string }[]).map((e) => e.kind);
