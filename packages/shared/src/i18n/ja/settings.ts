@@ -90,7 +90,7 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.general.terminal.windowsDefault': '既定のターミナル',
   'settings.general.retention.title': 'トランスクリプトの保持',
   'settings.general.retention.desc': 'Claude Code の cleanupPeriodDays。変更の前に差分を確認します。',
-  'settings.general.retention.syncNote': '値は設定の同期で他の PC にも届きます。',
+  'settings.general.retention.syncNote': '値は設定の同期でほかの PC にも届きます。',
   'settings.general.retention.period': '保持期間',
   'settings.general.self.title': 'hangar が自分で行うこと',
   'settings.general.autoDone.title': '止まった会話を自動で Done にする',

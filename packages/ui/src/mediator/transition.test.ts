@@ -1393,7 +1393,7 @@ describe('この PC で再開', () => {
     expect(r.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
   });
   it('押したら確認に出すものを取りに行き、届いたら確認の 1 枚を出し、承諾で写して再開する', () => {
-    const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' } };
+    const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null };
     const a = run([action({ type: 'session.resumeHere.open', id: 's1' })]);
     expect(a.effects).toEqual([{ kind: 'api.resumeHerePlan', sessionId: 's1' }]);
     expect(a.state.overlay).toEqual({ kind: 'none' });
@@ -1406,7 +1406,7 @@ describe('この PC で再開', () => {
     expect(c.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: false }]);
   });
   it('確認の 1 枚は閉じれば何も送らず、送信中は取りに行かない', () => {
-    const plan = { sessionId: 's1', from: { deviceName: null, platform: null, path: '/x', lastAt: null }, to: { deviceName: null, platform: null, path: null } };
+    const plan = { sessionId: 's1', from: { deviceName: null, platform: null, path: '/x', lastAt: null }, to: { deviceName: null, platform: null, path: null }, replace: null };
     const open = run([runtime({ type: 'resumeHere.plan', plan })]);
     const closed = run([action({ type: 'overlay.close' })], open.state);
     expect(closed.state.overlay).toEqual({ kind: 'none' });

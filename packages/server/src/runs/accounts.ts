@@ -12,7 +12,11 @@ import { msg } from '../i18n/message.ts';
  * store を持たないときは、アカウントを使わない構成として、どの問いにも「無い」と答える。
  */
 export class RunAccounts {
-  constructor(private readonly deps: { db: Db; claudeDir: string; store?: AccountStore }) {}
+  /**
+   * deviceId はこの PC。渡せば、セッションのアカウントをこの PC の run だけから引く（accountFor）。
+   * アカウントの id と名前は PC ごとの設定なので、ほかの PC の run のアカウントをこの PC で引くと、別のアカウントで起きる。
+   */
+  constructor(private readonly deps: { db: Db; claudeDir: string; store?: AccountStore; deviceId?: string }) {}
 
   /**
    * 起動に使うアカウントを解く。id が無ければいまのアカウントで、store を持たなければ null を返す。
@@ -27,10 +31,15 @@ export class RunAccounts {
     return a;
   }
 
-  /** そのセッションを最後に動かしたアカウント。記録が無い、またはアカウントが消えていれば最初のアカウント。 */
+  /**
+   * そのセッションを最後に動かしたアカウント。記録が無い、またはアカウントが消えていれば最初のアカウント。
+   * PC を持てば、この PC の最後の run のアカウントにする（A → B → A と戻ったときに、この PC で前に使ったアカウントで起こす）。
+   * この PC に run が無ければ、この PC でいま選んでいるアカウントにする。ほかの PC の run のアカウントは引かない。
+   */
   accountFor(sessionId: string): string {
-    const id = accountOfSession(this.deps.db, sessionId);
-    return id && this.deps.store?.get(id) ? id : PRIMARY_ACCOUNT_ID;
+    const id = accountOfSession(this.deps.db, sessionId, this.deps.deviceId);
+    if (id) return this.deps.store?.get(id) ? id : PRIMARY_ACCOUNT_ID;
+    return (this.deps.deviceId !== undefined ? this.deps.store?.current().id : undefined) ?? PRIMARY_ACCOUNT_ID;
   }
 
   /** accountFor のアカウントそのもの。再開、フォーク、attach が、前と同じアカウントで起こすのに使う。 */

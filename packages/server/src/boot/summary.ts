@@ -56,7 +56,7 @@ export function bootSummary(
   sync: Pick<SyncParts, 'uploader'>,
 ): SummaryParts {
   const { db } = home;
-  const accountOf = summaryAccountOf(new RunAccounts({ db, claudeDir: runs.accounts.primaryDir, store: runs.accounts.store }));
+  const accountOf = summaryAccountOf(new RunAccounts({ db, claudeDir: runs.accounts.primaryDir, store: runs.accounts.store, deviceId: home.device.id }));
   const summarizers = new SummarizerSet({ settings: () => home.settings.current, claudeBin: runs.claudeBin, usage: (accountId) => runs.usage.of(accountId), accountOf, compat: delivery.compatLog });
   const summary = new SummaryJob({ db, deviceId: home.device.id, summarizers: summarizers.list, live: () => delivery.registry.current(), hub: delivery.hub, language: home.language });
   runs.runs.on(runAnnouncer({ db, hub: delivery.hub, onEnded: (run) => { summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); } }));

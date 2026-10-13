@@ -8,7 +8,7 @@ const ja = translator('ja');
 const en = translator('en');
 
 const tree = (p: Partial<GitTreeDto> = {}): GitTreeDto => ({ root: '/w/alpha', branch: 'fix-login', head: 'a1b2c3d', worktree: null, mainRoot: null, dirty: 7, capped: false, slow: false, ahead: null, behind: null, at: 1, ...p });
-const session = (id: string, p: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'p1', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...p });
+const session = (id: string, p: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'p1', name: id, cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats: { turns: 1, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...p });
 const git = (p: Partial<GitDto> = {}): GitDto => ({ sessions: { s1: { state: 'ok', root: '/w/alpha', branch: 'fix-login', worktree: null } }, trees: { '/w/alpha': tree() }, ...p });
 
 describe('presentGitChip', () => {
@@ -42,8 +42,8 @@ describe('presentGitChip', () => {
     // 終わった行には添えない。
     expect(presentGitChip(ja, g, 's3', sessions)?.shared).toBeNull();
   });
-  it('他の PC は本文の gitBranch、git でないものと未取得は出さない、消えた worktree は削除済み', () => {
-    expect(presentGitChip(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'feature-x', worktree: null } } }), 's1', {})).toMatchObject({ kind: 'remote', name: 'feature-x', value: '他の PC', dirty: false });
+  it('ほかの PC は本文の gitBranch、git でないものと未取得は出さない、消えた worktree は削除済み', () => {
+    expect(presentGitChip(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'feature-x', worktree: null } } }), 's1', {})).toMatchObject({ kind: 'remote', name: 'feature-x', value: 'ほかの PC', dirty: false });
     expect(presentGitChip(ja, git({ sessions: { s1: { state: 'nogit', root: null, branch: null, worktree: null } } }), 's1', {})).toBeNull();
     expect(presentGitChip(ja, git(), 'nope', {})).toBeNull();
     expect(presentGitChip(ja, git({ sessions: { s1: { state: 'gone', root: null, branch: 'worktree-old', worktree: 'old' } } }), 's1', {})).toMatchObject({ kind: 'gone', worktree: true, name: 'old', value: '削除済み' });
@@ -71,9 +71,9 @@ describe('gitDetailRows', () => {
     ]);
     expect(rows[2]!.link).toEqual({ label: '一覧', send: { type: 'diff.open', sessionId: 's1' } });
   });
-  it('git でない、他の PC、時間切れ、消えた worktree', () => {
+  it('git でない、ほかの PC、時間切れ、消えた worktree', () => {
     expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'nogit', root: null, branch: null, worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['git のリポジトリではありません']);
-    expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'x', worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['x', '他の PC で実行中なので、この PC では読みません']);
+    expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'remote', root: null, branch: 'x', worktree: null } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['x', 'ほかの PC で実行中なので、この PC では読みません']);
     expect(gitDetailRows(ja, git({ trees: { '/w/alpha': tree({ slow: true, dirty: null }) } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['fix-login', 'git が 3 秒で応答しませんでした']);
     expect(gitDetailRows(ja, git({ sessions: { s1: { state: 'gone', root: null, branch: 'worktree-old', worktree: 'old' } } }), 's1', {}, undefined).map((r) => r.value)).toEqual(['old', '削除済み（ブランチ worktree-old は残っていることがあります）']);
     expect(gitDetailRows(ja, git(), 'nope', {}, undefined)).toEqual([]);
@@ -99,10 +99,10 @@ describe('presentGitFiles', () => {
     expect(v.others.map((f) => f.counts)).toEqual(['バイナリ']);
     expect(v.uncommitted).toBe(2);
   });
-  it('取得中、git でない、他の PC、時間切れの注記', () => {
+  it('取得中、git でない、ほかの PC、時間切れの注記', () => {
     expect(presentGitFiles(ja, undefined).state).toBe('loading');
     expect(presentGitFiles(ja, changes({ state: 'nogit', root: null, tree: null, others: [] })).note).toBe('Bash などのコマンドで書き換えたファイルは、この一覧に載りません。');
-    expect(presentGitFiles(ja, changes({ state: 'remote', others: [] })).note).toBe('他の PC で実行中です。この PC の作業ツリーは読みません。');
+    expect(presentGitFiles(ja, changes({ state: 'remote', others: [] })).note).toBe('ほかの PC で実行中です。この PC の作業ツリーは読みません。');
     expect(presentGitFiles(ja, changes({ state: 'slow', others: [] })).note).toBe('git が 3 秒で応答しませんでした。');
     expect(presentGitFiles(ja, changes({ state: 'unsafe', root: null, tree: null, others: [] })).note).toBe('フォルダの持ち主が違うので、git が読むのを断りました。このセッションの編集だけを表示します。');
     expect(presentGitFiles(ja, changes({ othersCapped: true })).othersLabel).toBe('ほかに作業ツリーで変わったファイル 1 件以上');

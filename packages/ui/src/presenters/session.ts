@@ -56,6 +56,8 @@ export type SessionProps = { id: string; name: string; parent: ParentLink | null
   hasTranscript: boolean; items: TranscriptItem[]; total: number; loaded: number; loading: boolean; hasMore: boolean; showThinking: boolean; showRaw: boolean; follow: boolean; agentId: string | null; subagents: string[]; notFound: boolean; loadingSession: boolean; run: { id: string; kind: RunKind; alive: boolean; started: string } | null; tabs: TabItemProps[]; selectedTab: string | null; transcriptOpen: boolean; trustHint: boolean; canResume: boolean; canFork: boolean; summaryPending: boolean; summaryError: string | null; fromScratch: boolean; canPromote: boolean; split: { left: string; right: string } | null; canSplit: boolean; lock: SessionLockProps | null; remoteOnly: boolean; canResumeHere: boolean; outsideOpen: 'attach' | 'adopt' | null;
   /** この PC にプロジェクトのフォルダが無いほかの PC の会話の、押せない理由と場所を指定する先（presenters/resumeHere.ts）。省けば null として読む。 */
   noRoot?: { reason: string; projectId: string } | null;
+  /** ほかの PC の続きの方が新しい（SessionDto.newerElsewhere）。「この PC で再開」を主にし、素の再開は名前を替えて「…」に残す。省けば偽として読む。 */
+  newerElsewhere?: boolean;
   /** 保持期間で本文が消えたとみられる会話の注記。そうでなければ null。 */
   gone: { note: string; canExtend: boolean; extendTo: number } | null;
   /** ターンの目次。古い順。turnsComplete は会話の最初の指示まで読み込んでいるか。 */
@@ -225,7 +227,7 @@ export function buildItems(events: TranscriptEvent[], opts: { showThinking: bool
 const openEditor = (label: string): SessionAction => ({ id: 'openEditor', label, disabled: null, note: null });
 
 /** 見出しの行の操作を決めるのに要る事実。 */
-export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch' | 'noRoot'> & {
+export type ActionFacts = Pick<SessionProps, 'run' | 'live' | 'lock' | 'remoteOnly' | 'hasTranscript' | 'canResume' | 'canFork' | 'canResumeHere' | 'outsideOpen' | 'canPromote' | 'gone' | 'summaryPending' | 'summaryError' | 'fromScratch' | 'noRoot' | 'newerElsewhere'> & {
   /** 要約エンジンが「使わない」。作り直しをサーバが受け付けないので、項目を出さない（冒頭の 1 枚の canRegenerate と同じ）。省けば使うものとして扱う。 */
   summaryOff?: boolean;
 };
@@ -248,7 +250,9 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
     if (!f.hasTranscript) return t('session.action.reason.noTranscript');
     return t('session.action.reason.starting');
   };
-  const resume: SessionAction = { id: 'resume', label: t('session.action.resume'), disabled: f.canResume ? null : why('resume'), note: f.fromScratch ? t('session.action.resumeQuickNote') : null };
+  // ほかの PC の続きの方が新しいときの素の再開は、手元の古いトランスクリプトで起きる。そう分かる名前と注記にする。
+  const stale = f.newerElsewhere === true && f.canResume;
+  const resume: SessionAction = { id: 'resume', label: t(stale ? 'session.action.resumeLocal' : 'session.action.resume'), disabled: f.canResume ? null : why('resume'), note: stale ? t('session.action.resumeLocalNote') : f.fromScratch ? t('session.action.resumeQuickNote') : null };
   const fork: SessionAction = { id: 'fork', label: t('session.action.fork'), disabled: f.canFork ? null : why('fork'), note: f.canFork ? t('session.action.forkNote') : null };
   const regenerate: SessionAction[] = f.gone || f.summaryOff ? [] : [{ id: 'regenerate', label: t('session.action.regenerate'), disabled: null, note: f.summaryPending ? t('session.action.regenerateBusy') : f.summaryError ? t('session.action.regenerateFailed') : null }];
   const promote: SessionAction[] = f.canPromote ? [{ id: 'promote', label: t('session.action.promote'), disabled: null, note: null }] : [];
@@ -263,7 +267,7 @@ export function sessionActions(f: ActionFacts, t: Translate, editorLabel: string
       ...(alive ? [{ id: 'stop', label: t('session.action.stop'), disabled: null, note: null, danger: true } satisfies SessionAction] : []),
     ] };
   }
-  if (f.lock || f.remoteOnly) {
+  if (f.lock || f.remoteOnly || f.newerElsewhere) {
     // 押せても、この PC にプロジェクトのフォルダが無ければ閉じる（理由は見出しの下にも出す、resumeHere.ts）。
     const blocked = f.canResumeHere ? f.noRoot?.reason ?? null : t('session.action.resumeHereBlocked', { device: dev ?? t('session.action.otherComputer') });
     const here: SessionAction = { id: 'resumeHere', label: t('session.action.resumeHere'), disabled: blocked, note: null };
@@ -565,7 +569,7 @@ export function presentSession(state: State, store: Store, now: number, id: stri
     canResume: s.hasTranscript && idle && s.lock === null && !s.remoteOnly, canFork: s.hasTranscript && idle && s.lock === null && !s.remoteOnly,
     // Ruling 14。heartbeat が途絶えたロック（stale）は行き止まりにせず、「この PC で再開」だけを開ける。
     // 相手の run は止めに行かないので、同じ run の続きである再開とフォークは閉じたままにする。
-    lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly : s.lock.stale,
+    lock: lockProps(s.lock, now, t), remoteOnly: s.remoteOnly, canResumeHere: s.lock === null ? s.remoteOnly || s.newerElsewhere === true : s.lock.stale, newerElsewhere: s.newerElsewhere === true,
     // この PC にプロジェクトのフォルダが無いほかの PC の会話。「この PC で再開」を閉じ、見出しの下に理由と場所の指定を出す（1a）。
     noRoot: resumeHereOf(store, s, t)?.noRoot ?? null,
     // hangar の run が無いまま外で動いているとき、本文しか見せられない。hangar の端末で開く手を出す（store の outsideOpenOf）。

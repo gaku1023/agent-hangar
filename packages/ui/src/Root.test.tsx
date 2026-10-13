@@ -17,7 +17,7 @@ const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { works
 // ターミナルの接続はこのテストの対象ではないので、何もしない偽物を渡す。
 const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: vi.fn(), status: () => null, fit: vi.fn(), focus: vi.fn(), paste: vi.fn(), zoom: vi.fn(), fontSize: () => 13, painted: () => true, subscribe: () => () => {}, dispose: vi.fn(), link: () => ({ retryAt: null, dropped: false, gaveUp: false, detached: false }), reconnect: vi.fn() };
 
-const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null };
+const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false };
 
 function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost; desktop?: RuntimeDeps['desktop'] } = {}) {
   const b = over.boot ?? boot;
@@ -122,7 +122,7 @@ describe('Root', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
 
-    it('他の PC から届いただけのプロジェクトは、帯に数えず、プロジェクトの一覧に「この PC にパスがありません」の札で出る。札から「場所を再指定」が開く', async () => {
+    it('ほかの PC から届いただけのプロジェクトは、帯に数えず、プロジェクトの一覧に「この PC にパスがありません」の札で出る。札から「場所を再指定」が開く', async () => {
       const { setHash } = await mounted({ boot: bootWith([arrived('x1'), arrived('x2')]) });
       expect(screen.queryByRole('button', { name: /^場所の不明なプロジェクト/ })).toBeNull();
       act(() => setHash('#/projects'));
@@ -134,12 +134,12 @@ describe('Root', () => {
       expect(screen.getByRole('dialog', { name: 'x1 はこの PC にパスがありません' })).toHaveTextContent('Mac mini でのパス');
     });
 
-    it('同期で他の PC のプロジェクトが降りたら、札を 1 枚だけ出す。「あとで決める」で下がる', async () => {
+    it('同期でほかの PC のプロジェクトが降りたら、札を 1 枚だけ出す。「あとで決める」で下がる', async () => {
       const { handlers } = await mounted();
       act(() => { for (const id of ['x1', 'x2', 'x3']) handlers[0]!.onEvent({ type: 'project.upsert', project: arrived(id) }); });
       await flush();
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(screen.getAllByText('他の PC のプロジェクト 3 件が届きました。この PC にはフォルダがありません')).toHaveLength(1);
+      expect(screen.getAllByText('ほかの PC のプロジェクト 3 件が届きました。この PC にはフォルダがありません')).toHaveLength(1);
       fireEvent.click(screen.getByRole('button', { name: 'あとで決める' }));
       expect(screen.queryByText(/件が届きました/)).toBeNull();
     });

@@ -32,7 +32,7 @@ describe('ConfirmDialog', () => {
 });
 
 describe('この PC で再開の確認', () => {
-  const plan: ResumeHerePlanDto = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: new Date(2026, 9, 12, 18, 42).getTime() }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/src/notes-app' } };
+  const plan: ResumeHerePlanDto = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: new Date(2026, 9, 12, 18, 42).getTime() }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/src/notes-app' }, replace: null };
   const mountIt = (p = plan, onAction = vi.fn()) => {
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'resumeHere', sessionId: 's1', plan: p }} resumeHere={presentResumeHere(translator('ja'), p, '/Users/me')} /></ActionRoot>);
     return onAction;
@@ -56,6 +56,12 @@ describe('この PC で再開の確認', () => {
     expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+  });
+  it('手元のトランスクリプトを置き換えるときは、同じ 1 枚に 1 行で言い、承諾は上書きつきで送る（A → B → A）', () => {
+    const onAction = mountIt({ ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } });
+    expect(screen.getByRole('dialog')).toHaveTextContent('この PC で進めた続きはバックアップに残し、ほかの PC の続きで再開します。');
+    fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1', overwrite: true });
   });
   it('この PC で場所が決まらなければ、再開を押せなくして理由を言う', () => {
     const onAction = mountIt({ ...plan, to: { ...plan.to, path: null } });
@@ -136,7 +142,7 @@ describe('ConfirmDialog（一覧から削除）', () => {
     const dialog = screen.getByRole('dialog', { name: '一覧から削除しますか' });
     expect(dialog.querySelector('.dialog-disc [data-icon="unlink"]')).not.toBeNull();
     expect(dialog).toHaveTextContent('プロジェクト alpha を一覧から削除し、3 件のセッションを未分類に戻します。');
-    expect(dialog).toHaveTextContent('同期している他の PC からも削除されます。');
+    expect(dialog).toHaveTextContent('同期しているほかの PC からも削除されます。');
     const remove = screen.getByRole('button', { name: '一覧から削除' });
     expect(remove).toHaveClass('btn-danger-fill');
     fireEvent.click(remove);
@@ -159,12 +165,12 @@ describe('ConfirmDialog（同じフォルダのプロジェクトをまとめる
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={merge} /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: 'shop と 1 つにまとめますか' });
-    expect(dialog).toHaveTextContent('選んだフォルダは、この PC のプロジェクト shop の場所として登録済みです。同じフォルダなので、他の PC から届いた方をこちらへまとめます。');
+    expect(dialog).toHaveTextContent('選んだフォルダは、この PC のプロジェクト shop の場所として登録済みです。同じフォルダなので、ほかの PC から届いた方をこちらへまとめます。');
     const after = within(dialog).getByRole('group', { name: 'まとめた後の shop' });
     const rows = within(after).getAllByRole('listitem').map((li) => li.textContent);
     expect(rows).toEqual(['この PC/Users/me/workspace/shop', 'DESKTOP-01D:\\workspace\\shop', '別の PC/home/me/shop']);
     expect(after).toHaveTextContent('セッション 98 件 ＋ 届いた 1 件');
-    expect(dialog).toHaveTextContent('同期している他の PC でも 1 つになります。元には戻せません。');
+    expect(dialog).toHaveTextContent('同期しているほかの PC でも 1 つになります。元には戻せません。');
     const ok = screen.getByRole('button', { name: '1 つにまとめる' });
     expect(ok).toHaveClass('btn-primary');
     fireEvent.click(ok);

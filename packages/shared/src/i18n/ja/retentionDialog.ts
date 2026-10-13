@@ -14,7 +14,7 @@ export const retentionDialogJa: AreaDictionary<typeof retentionDialogKeys> = {
   'retentionDialog.diff.loading': '差分を読み込んでいます',
   'retentionDialog.notice.shrink': '次に Claude Code を使い始めたとき、セッションのトランスクリプト {n} 件が削除されます。',
   'retentionDialog.info.backup': 'バックアップ',
-  'retentionDialog.info.otherPcs': '他の PC',
+  'retentionDialog.info.otherPcs': 'ほかの PC',
   'retentionDialog.info.otherPcsNote': '設定の同期で、次の適用時に届きます',
   'retentionDialog.info.deleted': '削除済みのトランスクリプト',
   'retentionDialog.info.deletedNote': '復元できません。これから先のトランスクリプトが残ります',

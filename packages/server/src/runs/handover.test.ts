@@ -134,6 +134,40 @@ describe('handoverFacts（引き継ぎの事実）', () => {
   });
 });
 
+describe('前の PC の作業ディレクトリ（A → B → A）', () => {
+  it('この PC で作った会話をほかの PC で進めて戻ったとき、前の PC のパスはその PC のプロジェクトの場所にする（sessions.cwd はこの PC のもの）', () => {
+    const id = session({ cwd: here, home: 'me', lastAt: 50 });
+    run(id, 'me', 1);
+    run(id, 'win', 2);
+    expect(handoverFacts(db, { sessionId: id, selfDeviceId: 'me', cwd: here })?.prevPath).toBe('D:\\src\\notes-app');
+    expect(resumeHerePlan(db, 'me', id)?.from.path).toBe('D:\\src\\notes-app');
+  });
+  it('前の PC の写しの末尾の cwd が、その PC のプロジェクトの場所の下にあれば、それを使う（worktree も）', () => {
+    const id = session({ cwd: here, home: 'me' });
+    run(id, 'me', 1);
+    run(id, 'win', 2);
+    const wt = 'D:\\src\\notes-app\\.claude\\worktrees\\fix';
+    const file = path.join(here, 'win-copy.jsonl');
+    fs.writeFileSync(file, [JSON.stringify({ type: 'user', cwd: here }), JSON.stringify({ type: 'assistant', cwd: wt })].join('\n') + '\n');
+    db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, device_id) values (?,?,?,?,?,?,?,?)').run(file, id, null, 1, 1, 1, 1, 'win');
+    expect(handoverFacts(db, { sessionId: id, selfDeviceId: 'me', cwd: here })?.prevPath).toBe(wt);
+    expect(resumeHerePlan(db, 'me', id)?.from.path).toBe(wt);
+    // 末尾の cwd がその PC の場所の外（ほかの PC のパス）なら、使わずに場所に倒す。
+    fs.writeFileSync(file, JSON.stringify({ type: 'user', cwd: here }) + '\n');
+    expect(handoverFacts(db, { sessionId: id, selfDeviceId: 'me', cwd: here })?.prevPath).toBe('D:\\src\\notes-app');
+  });
+  it('前の PC が会話を作った PC なら、run が作業ディレクトリを持たなくても sessions.cwd を使う', () => {
+    const id = session({ cwd: 'D:\\src\\notes-app\\sub', home: 'win' });
+    run(id, 'win', 1);
+    expect(handoverFacts(db, { sessionId: id, selfDeviceId: 'me', cwd: here })?.prevPath).toBe('D:\\src\\notes-app\\sub');
+  });
+  it('前の PC の場所も run の作業ディレクトリも分からなければ、sessions.cwd に倒す', () => {
+    const id = session({ cwd: here, home: 'me' });
+    run(id, 'mac2', 2);
+    expect(handoverFacts(db, { sessionId: id, selfDeviceId: 'me', cwd: here })?.prevPath).toBe(here);
+  });
+});
+
 describe('projectDeviceCount（プロジェクトを使っている PC の数）', () => {
   it('消していない場所の行を PC ごとに数え、抜けた PC は数えない', () => {
     expect(projectDeviceCount(db, 'p1')).toBe(2);
@@ -154,7 +188,14 @@ describe('resumeHerePlan（この PC で再開の確認に出すもの）', () =
       sessionId: id,
       from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: 99 },
       to: { deviceName: 'this-mac', platform: 'darwin', path: here },
+      replace: null,
     });
+  });
+  it('手元のトランスクリプトを置き換えるときは、その種類と大きさを添える', () => {
+    const id = session({ cwd: 'D:\\src\\notes-app', lastAt: 99 });
+    run(id, 'win', 3);
+    const replace = { kind: 'diverged' as const, localSize: 5, remoteSize: 9 };
+    expect(resumeHerePlan(db, 'me', id, { replace: () => replace })?.replace).toEqual(replace);
   });
   it('この PC で場所が決まらなければ、この PC のパスは null', () => {
     db.prepare("update project_roots set deleted_at = 5 where id = 'r-me'").run();
