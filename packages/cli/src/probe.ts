@@ -99,6 +99,24 @@ export function oneLineError(e: unknown): string {
 }
 
 /**
+ * 複数行のまま見せる例外。
+ * wrangler の失敗のように、本当の理由が 2 行目より後ろにあるものに使う。
+ * 文は呼び手が整えたもの（行数の上限、伏せ字）で、生のスタックは載せない。
+ */
+export class DetailedError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'DetailedError';
+  }
+}
+
+/** 最上位で端末に出す文。DetailedError は全文を、それ以外は 1 行を出す。 */
+export function cliErrorText(e: unknown): string {
+  if (e instanceof DetailedError) return e.message.trimEnd() || '原因の分からない失敗です';
+  return oneLineError(e);
+}
+
+/**
  * 起動に失敗したときの 1 行。
  * よくある失敗は理由と次の一手を日本語で言い、それ以外も 1 行にたたむ。
  */

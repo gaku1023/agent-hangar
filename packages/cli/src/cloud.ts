@@ -10,7 +10,8 @@ import { backfillTranscripts, type CloudClient, cloudConfigPath, type CloudConfi
 // 同期の本体（暗号、置き場の組み立て、Worker の叩き方）はサーバ側の実装を借りる。
 // ここで写しを作ると、鍵の導出やパスの検査が片方だけ直されて食い違う。
 import { COMPAT_VERSION, compatHeaders, configKey, decodeJoinToken, encodeJoinToken, isSafeKeyId, isSafeRelPath, parseCompat, PULL_LIMIT, readCompatRefusal, type FileEntry, type JoinResponse, type SyncStatusDto } from '@agent-hangar/shared';
-import { parseAccountId, parseDatabaseId, parseWorkerUrl, WranglerRunner } from './wrangler.ts';
+import { DetailedError } from './probe.ts';
+import { type CfAccount, type ExecResult, isAccountId, parseDatabaseId, parseWhoamiJson, parseWhoamiTable, parseWorkerUrl, type WhoamiResult, WranglerRunner } from './wrangler.ts';
 
 export type DeviceLike = { id: string; name: string; platform: string };
 
@@ -31,7 +32,56 @@ export type SetupCloudOptions = {
   confirm?: ConfirmWord;
   /** 使用量のトークンの問いを出さない。 */
   skipUsageToken?: boolean;
+  /** --account-id。作る先の Cloudflare のアカウント ID。 */
+  accountId?: string;
+  /** CLOUDFLARE_ACCOUNT_ID を読む先。既定は process.env（wrangler に渡す環境は WranglerRunner が作る）。 */
+  env?: NodeJS.ProcessEnv;
+  /** アカウントを一覧から選ばせてよいか。既定は標準入力が端末かどうか。 */
+  interactive?: boolean;
+  /** アカウントが複数あるときに選ばせる。null は選ばなかった（中止）。 */
+  chooseAccount?: ChooseAccount;
 };
+
+/** 複数のアカウントから 1 つを選ばせる。null は選ばなかった。 */
+export type ChooseAccount = (accounts: CfAccount[]) => Promise<CfAccount | null>;
+
+/**
+ * setup cloud の wrangler の失敗。
+ * wrangler の 1 行目は見出し（A request to the Cloudflare API ... failed.）で、本当の理由は後ろの行にあるので、
+ * 整えた出力（cleanWranglerError、12 行まで）と案内を複数行のまま見せる（DetailedError）。
+ */
+export class WranglerStepError extends DetailedError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WranglerStepError';
+  }
+}
+
+/**
+ * setup の wrangler の失敗に添える一行の案内。当てはまらなければ null。
+ * 10042 は R2 が有効でないアカウント、register a workers.dev subdomain は workers.dev のサブドメインが無いアカウントである。
+ * wrangler は対話が無いと登録の問いを「いいえ」で抜け、onboarding の URL を添えて止まる（wrangler 4.135 で確かめた）。
+ */
+export function wranglerHint(text: string): string | null {
+  if (/\[code: 10042\]/.test(text)) {
+    return '案内: このアカウントでは R2 がまだ有効になっていません。Cloudflare のダッシュボードの R2 の画面で有効にしてから（支払い方法の登録が要ります）、hangar setup cloud をもう一度実行してください。作成済みの D1 はそのまま使います。';
+  }
+  if (/register a workers\.dev subdomain/i.test(text)) {
+    return '案内: このアカウントには workers.dev のサブドメインがまだありません。ダッシュボードの Workers & Pages でサブドメインを決めてから（Worker の URL に出るので、メールアドレスや本名とつながらない名前にしてください）、hangar setup cloud をもう一度実行してください。作成済みの D1 と R2 はそのまま使います。';
+  }
+  return null;
+}
+
+/** wrangler の失敗を、見出しと整えた出力と案内の複数行にする。 */
+function wranglerFailure(what: string, r: ExecResult): WranglerStepError {
+  const raw = `${r.stderr}\n${r.stdout}`;
+  const reason = cleanWranglerError(raw);
+  const lines = [`${what}に失敗しました（wrangler の出力）:`];
+  if (reason.length > 0) for (const l of reason) lines.push(`  ${l}`);
+  else lines.push(`  （出力がありません。終了コード ${r.code}）`);
+  lines.push(wranglerHint(raw) ?? '直してから hangar setup cloud をもう一度実行してください。作成済みの D1 と R2 はそのまま使います。');
+  return new WranglerStepError(lines.join('\n'));
+}
 
 const HEALTH_TIMEOUT_MS = 120_000;
 const HEALTH_INTERVAL_MS = 5000;
@@ -412,6 +462,103 @@ function openFloorFirst(home: string, nothingMade: string, retry: string): Retur
 }
 
 /**
+ * いまのログインで使える Cloudflare のアカウントを全部読む。
+ * `wrangler whoami --json` を先に使い、JSON が返らなければ（--json を知らない版）表を読む。
+ * whoami は CLOUDFLARE_ACCOUNT_ID が立っていても全アカウントを並べる。
+ */
+async function readAccounts(wr: WranglerRunner): Promise<WhoamiResult> {
+  const j = await wr.run(['whoami', '--json']);
+  const fromJson = parseWhoamiJson(j.stdout);
+  if (fromJson) return fromJson;
+  const t = await wr.run(['whoami']);
+  return t.code === 0 ? parseWhoamiTable(t.stdout + t.stderr) : { loggedIn: false, accounts: [] };
+}
+
+const accountLabel = (a: CfAccount): string => `${a.name || '（名前なし）'}（${a.id}）`;
+
+/** 他人も入るアカウントを選ぶと何が起きるか。一覧を見せるときに添える。 */
+const SHARED_ACCOUNT_NOTE = '他の人も入っているアカウントに作ると、その人たちにも同期のメタデータ（平文）が読めます。自分だけが使うアカウントを選んでください。';
+
+/**
+ * 端末で、番号を打ってアカウントを選ばせる。
+ * 空（EOF も）は選ばなかった扱いにする。範囲の外は聞き直し、3 回で諦める。
+ */
+export async function chooseAccountByNumber(accounts: CfAccount[], ask: (question: string) => Promise<string>, log: (l: string) => void): Promise<CfAccount | null> {
+  log('');
+  log('このログインでは Cloudflare のアカウントが複数あります。同期の資源（Worker、D1、R2）を作るアカウントを選んでください。');
+  log(SHARED_ACCOUNT_NOTE);
+  log('');
+  accounts.forEach((a, i) => log(`  ${i + 1}. ${accountLabel(a)}`));
+  log('');
+  for (let tries = 0; tries < 3; tries++) {
+    const a = (await ask(`番号を入力してください（1-${accounts.length}、空で中止）: `)).trim();
+    if (a === '') return null;
+    const n = Number(a);
+    if (Number.isInteger(n) && n >= 1 && n <= accounts.length) return accounts[n - 1]!;
+    log(`1 から ${accounts.length} の番号を入力してください。`);
+  }
+  return null;
+}
+
+/**
+ * 作る先のアカウントを決める。
+ * 指定（--account-id、無ければ CLOUDFLARE_ACCOUNT_ID）があればそれを使い、ログインの一覧に無ければ止める。
+ * 指定が無ければ、cloud.json に前回のアカウントがあって一覧にあればそれを、1 つだけならそれを使う。
+ * 複数なら、端末では一覧から選ばせ、対話できなければ止めて --account-id を案内する。
+ * どの道でも、ここで止まるときは Cloudflare にまだ何も作っていない。
+ */
+async function pickAccount(o: {
+  accounts: CfAccount[];
+  requested: { id: string; from: string } | null;
+  prevId: string | null;
+  interactive: boolean;
+  choose: ChooseAccount;
+  log: (l: string) => void;
+}): Promise<CfAccount> {
+  const list = o.accounts.map((a) => `  ${accountLabel(a)}`);
+  if (o.requested) {
+    const { id, from } = o.requested;
+    const hit = isAccountId(id) ? o.accounts.find((a) => a.id === id.toLowerCase()) : undefined;
+    if (hit) return hit;
+    const why = isAccountId(id) ? `${from} のアカウント（${id}）は、いまのログインで使えるアカウントにありません。` : `${from} の値（${id}）はアカウント ID の形（32 桁の 16 進）ではありません。`;
+    throw new DetailedError([why, 'いまのログインで使えるアカウント:', ...list, `${from} を直してから、もう一度実行してください。Cloudflare にはまだ何も作っていません。`].join('\n'));
+  }
+  const prev = o.prevId ? o.accounts.find((a) => a.id === o.prevId!.toLowerCase()) : undefined;
+  if (prev) {
+    o.log(`cloud.json と同じアカウントを使います: ${accountLabel(prev)}`);
+    return prev;
+  }
+  if (o.accounts.length === 1) return o.accounts[0]!;
+  if (!o.interactive) {
+    throw new DetailedError(
+      [
+        `このログインでは Cloudflare のアカウントが ${o.accounts.length} 個あり、標準入力が端末ではないので、どれに作るかを選べません。`,
+        ...list,
+        '--account-id <ID> か環境変数 CLOUDFLARE_ACCOUNT_ID で作る先を指定して、もう一度実行してください。',
+        SHARED_ACCOUNT_NOTE,
+        'Cloudflare にはまだ何も作っていません。',
+      ].join('\n'),
+    );
+  }
+  const chosen = await o.choose(o.accounts);
+  if (!chosen) throw new Error('アカウントの選択を取りやめました。Cloudflare にはまだ何も作っていません');
+  return chosen;
+}
+
+/**
+ * 前回と違うアカウントに作るときの警告と確認。
+ * teardown は cloud.json のアカウントしか見ないので、前のアカウントの資源はこの端末から片付けられなくなる。
+ */
+async function confirmAccountChange(log: (l: string) => void, prev: CloudConfig, next: CfAccount, confirm: ConfirmWord): Promise<void> {
+  log('');
+  log(`警告: この端末は別のアカウント（${prev.accountId}）に Worker ${prev.workerName} を作っています。`);
+  log(`これから作るアカウント: ${accountLabel(next)}`);
+  log(`作り直すと、cloud.json の宛先が新しいアカウントへ移ります。teardown は cloud.json に書いてあるアカウントしか見ないので、前のアカウントの資源（Worker ${prev.workerName}、D1 ${prev.dbName ?? '?'}、R2 ${prev.bucketName ?? '?'}）は、この端末からは片付けられなくなります。`);
+  log('先に片付けるなら、ここで中止して hangar cloud teardown を実行してください。');
+  if (!(await confirm('本当に別のアカウントに作って cloud.json を移しますか。', RENAME_WORD))) throw new Error('別のアカウントへの乗り換えを取りやめました');
+}
+
+/**
  * 利用者の Cloudflare アカウントに Worker と D1 と R2 を作ってデプロイし、自端末を参加させ、参加トークンを返す。
  * 二度目以降は既存の資源と秘密を再利用する。
  */
@@ -444,16 +591,30 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
   const floor = openFloorFirst(o.home, 'Cloudflare にはまだ何も作っていません', 'hangar setup cloud');
   try {
     // 1. アカウント
-    let who = await wr.run(['whoami']);
-    let accountId = who.code === 0 ? parseAccountId(who.stdout + who.stderr) : null;
-    if (!accountId) {
+    // 一覧の 1 つ目で決めない。アカウントが複数ある人の作り先が並び順で決まり、他人も入るアカウントに作ってしまう。
+    let who = await readAccounts(wr);
+    if (!who.loggedIn) {
       log('Cloudflare にログインします。ブラウザが開きます。');
       const code = await wr.runInteractive(['login']);
       if (code !== 0) throw new Error('wrangler login に失敗しました');
-      who = await wr.run(['whoami']);
-      accountId = who.code === 0 ? parseAccountId(who.stdout + who.stderr) : null;
-      if (!accountId) throw new Error('アカウント ID を読めませんでした。wrangler whoami の出力を確かめてください');
+      who = await readAccounts(wr);
+      if (!who.loggedIn) throw new Error('アカウントを読めませんでした。wrangler whoami の出力を確かめてください');
     }
+    if (who.accounts.length === 0) throw new Error('このログインで使える Cloudflare のアカウントがありません。wrangler whoami の出力を確かめてください。Cloudflare にはまだ何も作っていません');
+    const envAccount = (o.env ?? process.env).CLOUDFLARE_ACCOUNT_ID?.trim();
+    const requested = o.accountId !== undefined ? { id: o.accountId.trim(), from: '--account-id' } : envAccount ? { id: envAccount, from: 'CLOUDFLARE_ACCOUNT_ID' } : null;
+    const interactive = o.interactive ?? process.stdin.isTTY === true;
+    const account = await pickAccount({
+      accounts: who.accounts,
+      requested,
+      prevId: prev?.workerName ? prev.accountId : null,
+      interactive,
+      choose: o.chooseAccount ?? ((list) => chooseAccountByNumber(list, askLine, log)),
+      log,
+    });
+    if (prev?.workerName && prev.accountId && prev.accountId.toLowerCase() !== account.id) await confirmAccountChange(log, prev, account, o.confirm ?? promptWord);
+    const accountId = account.id;
+    log(`作る先の Cloudflare アカウント: ${accountLabel(account)}`);
     wr = wr.withAccount(accountId);
 
     // 2. D1 と R2
@@ -462,25 +623,25 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
     if (!dbId) {
       const created = await wr.run(['d1', 'create', dbName]);
       dbId = parseDatabaseId(created.stdout + created.stderr);
-      if (created.code !== 0 || !dbId) throw new Error(`D1 の作成に失敗しました: ${created.stderr || created.stdout}`);
+      if (created.code !== 0 || !dbId) throw wranglerFailure('D1 の作成', created);
       log(`D1 ${dbName} を作りました`);
     } else {
       log(`D1 ${dbName} は既にあります`);
     }
     const bucket = await wr.run(['r2', 'bucket', 'create', bucketName]);
-    if (bucket.code !== 0 && !/already exists/i.test(bucket.stderr + bucket.stdout)) throw new Error(`R2 の作成に失敗しました: ${bucket.stderr || bucket.stdout}`);
+    if (bucket.code !== 0 && !/already exists/i.test(bucket.stderr + bucket.stdout)) throw wranglerFailure('R2 の作成', bucket);
     log(bucket.code === 0 ? `R2 ${bucketName} を作りました` : `R2 ${bucketName} は既にあります`);
 
     // 3. 設定と 4. デプロイ
     const cfg = writeWranglerConfig(o.home, { name, main: path.join(cloudDir, 'src', 'index.ts'), dbName, dbId, bucketName });
     const dep = await wr.run(['deploy', '--config', cfg]);
     const url = parseWorkerUrl(dep.stdout + dep.stderr);
-    if (dep.code !== 0 || !url) throw new Error(`デプロイに失敗しました: ${dep.stderr || dep.stdout}`);
+    if (dep.code !== 0 || !url) throw wranglerFailure('デプロイ', dep);
     log(`デプロイしました: ${url}`);
 
     // 5. 参加用の秘密を Worker へ。平文は標準入力から渡し、argv には載せない。
     const put = await wr.run(['secret', 'put', 'JOIN_SECRET_HASH', '--config', cfg], sha256Hex(secret) + '\n');
-    if (put.code !== 0) throw new Error(`secret の登録に失敗しました: ${put.stderr || put.stdout}`);
+    if (put.code !== 0) throw wranglerFailure('secret の登録', put);
 
     // 6. health と 7. 参加
     log('Worker の反映を待っています（最大 2 分）');
@@ -779,6 +940,8 @@ export async function cloudStatus(o: CloudStatusOptions): Promise<string> {
     lines.push(
       `同期: ${s.state}${s.error ? `（${s.error}）` : ''}${limited}、未送信 ${s.pending} 件、最終 pull ${relative(s.lastPullAt, t)}、最終 push ${relative(s.lastPushAt, t)}、端末 ${s.deviceCount} 台`,
     );
+    // cloud.json はあるのに off なのは、サーバが cloud.json を書く前に起動していたときである（サーバは起動したときにだけ読む）。
+    if (s.state === 'off') lines.push('サーバはクラウド同期の設定を起動したときにだけ読みます。アプリを終了して開き直すと同期が始まります（hangar start で動かしているなら、止めて起動し直してください）。');
   } catch {
     lines.push('同期: サーバは停止中（hangar start で起動すると同期が始まります）');
   }

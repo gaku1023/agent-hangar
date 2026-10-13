@@ -4565,8 +4565,38 @@ reduced motion では静止した原図を出す。
 ### 構成と setup
 
 同期の基盤は利用者自身の Cloudflare アカウントに置く。
-`hangar setup cloud` が wrangler の対話ログインでアカウントを選び、`packages/cloud` の Worker と D1 データベースと R2 バケットを作ってデプロイする。
+`hangar setup cloud` が wrangler の対話ログインのあとで作る先のアカウントを決め、`packages/cloud` の Worker と D1 データベースと R2 バケットを作ってデプロイする。
 資源の名前は既定で Worker と D1 が `hangar`、R2 が `hangar-files` で、`--name` で変えられる（`--name x` なら Worker と D1 が `x`、R2 が `x-files`）。
+
+作る先のアカウントは、`wrangler whoami --json` で読んだ全アカウントから決める（`--json` を知らない版では whoami の表を全行読む）。
+whoami は `CLOUDFLARE_ACCOUNT_ID` が立っていても全アカウントを並べるので、一覧の 1 つ目で決めると、アカウントが複数ある人の作り先が並び順で決まってしまう。
+他の人も入っているアカウントに作ると、同期のメタデータ（平文）がその人たちにも読める。
+決め方は次の順である（`packages/cli/src/cloud.ts` の `pickAccount`）。
+1. `--account-id` か、無ければ環境変数 `CLOUDFLARE_ACCOUNT_ID` があれば、それを使う。ログインの一覧に無いか、ID の形でなければ止める。
+2. 指定が無く、`cloud.json` に前回作ったアカウントがあって一覧にあれば、それを使う。
+3. 1 つだけなら、それを使う。
+4. 複数なら、標準入力が端末のときは名前と ID の一覧を番号で選ばせる（空で中止）。端末でなければ、一覧と `--account-id` の案内を出して止める。
+
+どの道でも、資源を作る前に「作る先の Cloudflare アカウント」として名前と ID を出す。
+止まるときは、Cloudflare にまだ何も作っていない。
+`cloud.json` の前回と違うアカウントを指定したときは、前のアカウントの資源が teardown で届かなくなることを見せて、名前を変えるときと同じ合言葉（`replace`）で確かめる。
+
+wrangler に渡す環境からは、wrangler がエージェントの判定に使う印を外す（`packages/cli/src/wrangler.ts` の `wranglerEnv`）。
+wrangler 4.135 は am-i-vibing の一覧を環境変数だけで見て、Claude Code なら `CLAUDECODE` で判定する。
+エージェントと判定すると、`wrangler deploy` は workers.dev のサブドメインが無いアカウントで、問わずに `package.json` の名前（`packages/cloud` なら `@agent-hangar/cloud` から作った名前）で登録しに行く。
+サブドメインは Worker の URL に出て、あとで変えると URL と参加トークンが変わるので、利用者がダッシュボードで決める。
+外すのは `CLAUDECODE` と `CLAUDE_CODE_` で始まるものと、ほかの道具が専用に立てる印（`AGENT_MARKER_ENV`）である。
+`TERM_PROGRAM` や `PAGER` のように他の用途がある変数との組み合わせで見るものは外さない。
+
+setup の wrangler の失敗（D1 の作成、R2 の作成、デプロイ、`secret put`）は、wrangler の出力を `cleanWranglerError` で 12 行まで整え、複数行のまま見せる（`WranglerStepError`）。
+wrangler の 1 行目は見出しで、本当の理由（`[code: 10042]` など）は後ろの行にあるからである。
+CLI の最上位はふだん 1 行だけを出すが、`DetailedError`（`WranglerStepError` はその一種）だけは全文を出す（`packages/cli/src/probe.ts` の `cliErrorText`）。
+R2 が有効でない（`[code: 10042]`）ときと、workers.dev のサブドメインが無い（`register a workers.dev subdomain`）ときは、日本語の一行の案内を添える。
+直したあとは、もう一度 `hangar setup cloud` を走らせればよい。
+作成済みの D1 は `d1 info` で見つけてそのまま使い、R2 の `already exists` も通す。
+
+`hangar cloud status` は、`cloud.json` があるのにサーバの同期が `off` なら、アプリを終了して開き直すと同期が始まると添える。
+サーバは `cloud.json` を起動したときにだけ読むので、setup や join のあとに開き直すまでは `off` のままだからである。
 実物の設定は `~/.agent-hangar/cloud/wrangler.jsonc`（権限 0600）に書き出し、そこへ D1 の ID と R2 のバケット名を埋める。
 アカウント ID はこのファイルにもコードにも書かず、wrangler を呼ぶたびに環境変数で渡す。
 デプロイ直後の数秒は `workers.dev` の反映待ちで `error code: 1042` が返るので、setup は `/health` が通るまで最大 2 分試してから先へ進む。

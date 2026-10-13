@@ -4,7 +4,7 @@ import { runConfigApply, runConfigRestore } from './config.ts';
 import { cloudBackfill, cloudStatus, installUsageToken, promptWord, readJoinToken, readUsageToken, runJoin, runSetupCloud, runTeardown, USAGE_TOKEN_HELP } from './cloud.ts';
 import { devicesCommand, joinCommand, leaveCommand, revokeCommand } from './membership.ts';
 import { runMcpInstall, runMcpUninstall } from './mcp.ts';
-import { oneLineError, probeHealth, serverDownMessage } from './probe.ts';
+import { cliErrorText, probeHealth, serverDownMessage } from './probe.ts';
 import { formatSetupReport, runSetup, whichMuxCmd } from './setup.ts';
 import { runShellInstall, runShellUninstall, shellStatusLine } from './shell.ts';
 import { runStart } from './start.ts';
@@ -47,7 +47,8 @@ setup
   .option('--name <name>', 'Worker の名前（D1 は同名、R2 は <name>-files）', 'hangar')
   .option('--rotate-secret', '参加用の秘密を作り直す（既存の暗号化ファイルが復号できなくなる。確認を求める）')
   .option('--usage-token', '使用量と費用を出す読み取り専用のトークンを Worker に入れる（標準入力から受け取る）')
-  .action(async (o: { name: string; rotateSecret?: boolean; usageToken?: boolean }) => {
+  .option('--account-id <id>', '作る先の Cloudflare のアカウント ID（アカウントが複数あるとき。CLOUDFLARE_ACCOUNT_ID でも指定できる）')
+  .action(async (o: { name: string; rotateSecret?: boolean; usageToken?: boolean; accountId?: string }) => {
     const home = hangarHome();
     if (o.usageToken) {
       for (const l of USAGE_TOKEN_HELP) console.log(l);
@@ -55,7 +56,7 @@ setup
       return;
     }
     const device = readOrCreateDevice(home);
-    await runSetupCloud({ home, device, name: o.name, rotateSecret: o.rotateSecret });
+    await runSetupCloud({ home, device, name: o.name, rotateSecret: o.rotateSecret, accountId: o.accountId });
   });
 
 program
@@ -343,7 +344,8 @@ setupFlags(statusline
   });
 
 // どのコマンドの失敗でも、端末には 1 行だけ出す。生のスタックは読み手の役に立たない。
+// ただし wrangler の失敗のように理由が後ろの行にあるもの（DetailedError）は、整えた複数行をそのまま出す。
 program.parseAsync(process.argv).catch((e) => {
-  console.error(oneLineError(e));
+  console.error(cliErrorText(e));
   process.exit(1);
 });
