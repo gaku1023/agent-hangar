@@ -4771,6 +4771,20 @@ R2 が有効でない（`[code: 10042]`）ときと、workers.dev のサブド�
 直したあとは、もう一度 `hangar setup cloud` を走らせればよい。
 作成済みの D1 は `d1 info` で見つけてそのまま使い、R2 の `already exists` も通す。
 
+`hangar setup cloud` は、アカウントを決めたあと、D1 を作る前に `wrangler r2 bucket list` が通るかを確かめる。
+`[code: 10042]`（R2 が有効でない）なら、何も作らずに止め、ダッシュボードの R2 で有効にする（支払い方法の登録が要る）よう案内する。
+10042 以外の失敗はここでは決めつけず、あとの手順がそれぞれの理由を出す。
+workers.dev のサブドメインは、事前に確かめる安い手が wrangler に無いので、`deploy` の失敗のときに案内する今の形のままにしている。
+
+Worker の源（`packages/cloud`）は配布版に入っていない（同梱するのは束ねた `worker.mjs` だけである）。
+配布版の `hangar setup cloud` と `hangar cloud teardown` は、源が無ければ存在しないパスを見せず、clone して `git checkout v<アプリの版>`、`npm ci`、`npm run hangar -- setup cloud` と進む手順を案内して止まる（`cloudDirMissingMessage`）。
+アプリの版は `cli.mjs` の隣の `manifest.json` から読み、読めなければ checkout の行を省く。
+`HANGAR_CLOUD_DIR` で指した場所に源が無いときだけ、指した場所を挙げて直させる。
+設定画面の「クラウドを用意する」の注記と `hangar setup cloud` のヘルプにも、clone した場所で実行することを添える。
+
+使用量のトークン（`--usage-token`）の案内は、ダッシュボードでの作り方（Account API tokens から Create Token）、権限二つ（Account Analytics: Read と Billing: Read）、渡し方（端末なら伏せ字で貼り付ける）を日本語で述べる。
+`op read` で流し込む手は、1Password を使っている人向けの例として最後に添える。
+
 `hangar cloud status` は、`cloud.json` があるのにサーバの同期が `off` なら、アプリを終了して開き直すと同期が始まると添える。
 サーバは `cloud.json` を起動したときにだけ読むので、setup や join のあとに開き直すまでは `off` のままだからである。
 実物の設定は `~/.agent-hangar/cloud/wrangler.jsonc`（権限 0600）に書き出し、そこへ D1 の ID と R2 のバケット名を埋める。
