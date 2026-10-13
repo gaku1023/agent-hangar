@@ -38,26 +38,33 @@ Apple の Developer ID では署名せず、公証もしません。
 
 Hangar を動かすには、次の 3 つが先に要ります。
 
-- Node 22。同梱サーバは Node 22 で動きます。23 以降の版では代わりになりません。アプリは Node を同梱していません。
+- Node 22.14 以上。
+  Hangar のデータベースと端末の部品は Node-API 10 を使うため、それを持つ版が要ります（23 の系列では 23.6 以上）。
+  Node 24 など新しい版でも動きます。
+  アプリは Node を同梱していません。
 - tmux。セッションは tmux の中で起こします。
 - `claude`（Claude Code 本体）。セッションを起こすのは Claude Code です。
 
-Homebrew なら、Node 22 と tmux はまとめて入ります。
+Homebrew なら、Node と tmux はまとめて入ります。
 
 ```sh
-brew install node@22 tmux
+brew install node tmux
 ```
 
 これだけで足ります。
-アプリと `hangar` コマンドは PATH を見ずに、決まった場所から Node を探し、同梱サーバと同じメジャー版で同じアーキテクチャのものだけを使います。
-探す場所には Homebrew の `node@22` の入れ先（`/opt/homebrew/opt/node@22`）が入っているので、`brew link` は要りません。
+アプリと `hangar` コマンドは PATH を見ずに、決まった場所から Node を探し、Node-API 10 以上で同じアーキテクチャのものを使います。
 
-nvm、fnm、Volta、mise、asdf、nodenv で入れた Node 22 も、そのまま見つけます。
+すでに 22.14 より古い Node を使っていて、それを置き換えたくないときは、`brew install node@22` で入れます。
+`node@22` は既定の `node` を置き換えません。
+探す場所には Homebrew の `node@` の入れ先（`/opt/homebrew/opt/node@22`）が入っているので、`brew link` は要りません。
+
+nvm、fnm、Volta、mise、asdf、nodenv で入れた Node も、そのまま見つけます。
 探す順は、Settings で指定したパス、`/opt/homebrew/bin/node`、`/usr/local/bin/node`、Homebrew の `node@` の入れ先、nvm、fnm、Volta、mise、asdf、nodenv（それぞれ新しい版から）です。
 
 これら以外の場所に入れたときは、Settings 画面の「Node のパス」か `~/.agent-hangar/settings.json` の `nodePath` に、その `node` の実行ファイルのフルパスを指定します。
+読み込み画面が合う Node を見つけられないと告げたときは、その画面の「node を選ぶ…」で選んでも指定できます。
 `node` のような名前だけや相対のパス、`~` で始まるパスは使えません（`~` は展開しないので、`/Users/名前/...` のように書きます）。
-Settings 画面は保存する前に、その Node が同梱サーバと同じメジャー版とアーキテクチャかを確かめ、合わなければ理由を出して保存しません。
+Settings 画面と「node を選ぶ…」は、保存する前にその Node が Node-API 10 以上で同じアーキテクチャかを確かめ、合わなければ理由を出して保存しません。
 `hangar` コマンドは、環境変数 `HANGAR_NODE` に `node` のフルパスを入れておけば、それを先に使います。
 アプリは `HANGAR_NODE` を見ません。Finder から開いたアプリには端末の環境変数が届かないので、アプリに指すときは `nodePath` を使います。
 `/opt/homebrew/bin/node` へリンクして見つけさせる手もあります（`brew link --overwrite --force node@22`。別の `node` を入れていれば置き換わります）。
@@ -128,8 +135,8 @@ echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> ~/.zshrc
    ただし 4177 で既に動いているサーバを見つけた回は、サーバを起こさないのでこの処理も走りません。
    どちらにしても、これが効くのは `/Applications` へ移した後だけです。
 
-   Node 22 がまだ無ければ、読み込み画面が Node を見つけられないと告げます。
-   その場合は「[前提](#前提)」の手順で入れてから、開き直してください。
+   合う Node（22.14 以上）がまだ無ければ、読み込み画面がそう告げます。
+   その場合は「[前提](#前提)」の手順で入れてから開き直すか、画面の「node を選ぶ…」で入れた Node を選んでください。
 
 4. `hangar` コマンドを使えるようにして、初期設定を走らせます。
 
@@ -207,9 +214,14 @@ Finder でダブルクリックして展開すると伝わり、端末から `un
 
 Hangar を動かすには、次の 3 つが先に要ります。
 
-- Node 22。同梱サーバは Node 22 で動きます。アプリは Node を同梱していません。
-  PowerShell で `winget install -e --id OpenJS.NodeJS.22` を打つのがいちばん手早い入れ方です（公式のインストーラが入ります）。
-  nvm-windows の `nvm install 22` で入れた版も、fnm、Volta、scoop で入れた Node 22 も見つけます。
+- Node 22.14 以上。
+  Hangar のデータベースと端末の部品は Node-API 10 を使うため、それを持つ版が要ります。
+  Node 24 など新しい版でも動きます。
+  アプリは Node を同梱していません。
+  Node がまだ無ければ、PowerShell で `winget install -e --id OpenJS.NodeJS.LTS` を打つのがいちばん手早い入れ方です（公式のインストーラが入ります）。
+  すでに 22.14 より古い Node を使っていて、それを置き換えたくないときは、winget は使いません（公式のインストーラは `C:\Program Files\nodejs` の Node を置き換えます）。
+  代わりに nodejs.org から Node 22 の Windows 用 zip を取り、別のフォルダ（例 `%LOCALAPPDATA%\Programs\node22`）に展開して、読み込み画面の「node.exe を選ぶ…」か Settings 画面の「Node のパス」でその `node.exe` を指します。
+  nvm-windows の `nvm install 22` で入れた版も、fnm、Volta、scoop で入れた Node も見つけます。
 - psmux。セッションは tmux の代わりに psmux の中で起こします。入れ方は下の「[psmux を入れる](#psmux-を入れる)」にあります。
 - `claude`（Claude Code 本体）。入れ方は Claude Code の案内に従ってください。
 
@@ -220,11 +232,11 @@ winget で入れたものは、入れたあとに新しく開いた PowerShell �
 
 ### Node の探し方
 
-Node は同梱していないので、同梱の `manifest.json` と同じメジャー版とアーキテクチャの Node を探します。
+Node は同梱していないので、Node-API が同梱の `manifest.json` の `nodeApi`（10）以上で、アーキテクチャが同じ Node を探します。
 アプリは、`~\.agent-hangar\settings.json` の `nodePath`、公式のインストーラの入れ先、nvm-windows、fnm、Volta、scoop、PATH にあるすべての `node.exe` の順に探します。
 `hangar` コマンドは、その前に環境変数 `HANGAR_NODE` を見ます（アプリは `HANGAR_NODE` を見ません）。
 `nodePath` と `HANGAR_NODE` は `node.exe` のフルパスで指します。
-fnm などが別の版を PATH の先頭に置いていても、PATH の後ろや版の管理ツールの置き場に Node 22 があればそれを使います。
+fnm などが古い版を PATH の先頭に置いていても、PATH の後ろや版の管理ツールの置き場に合う Node があればそれを使います。
 見つからないときは、調べた場所と、それぞれが合わなかった理由を順に出します。
 
 ### インストーラで入れる
@@ -237,7 +249,7 @@ fnm などが別の版を PATH の先頭に置いていても、PATH の後ろ�
    そのときは「詳細情報」を押して「実行」を選びます。
    管理者権限は要らず、`%LOCALAPPDATA%\Hangar` に入ります。
 4. スタートメニューの Hangar から開きます。
-   Node 22 が見つからないときは、起動の画面がそう告げます。入れてから開き直してください。
+   合う Node が見つからないときは、起動の画面がそう告げます。入れてから「もう一度試す」を押すか、「node.exe を選ぶ…」で入れた Node を選んでください。
    psmux や `claude` が欠けているときは、ホームの「セットアップの確認」に出ます。入れたあとに「再確認」を押すと、開き直さずに見つけます。
 
 インストーラは同梱の `hangar` コマンドの置き場を利用者の PATH に足すので、入れたあとに新しく開いたターミナルで `hangar url` のように打てます。
@@ -488,7 +500,7 @@ hangar は git に書きません（`--no-optional-locks` で読むだけ）。�
 ## クラウド同期（上級者向けのベータ）
 
 **これは上級者向けのベータです。**
-始めるのに、このリポジトリの clone（アプリと同じ版のタグ）、ターミナルで打つ CLI（clone した場所で `npm ci` してから `npm run hangar -- setup cloud`）、自分の Cloudflare アカウントが要ります。
+始めるのに、このリポジトリの clone（アプリと同じ版のタグ）、ターミナルで打つ CLI（clone した場所で `npm ci` してから `npm run hangar -- setup cloud`。Node 22.14 以上が要ります）、自分の Cloudflare アカウントが要ります。
 配布版のアプリだけでは、クラウドを作れません（同梱の `hangar` は、wrangler が 205MB あるので wrangler を持たず、`setup cloud` と `teardown` は、Worker の源が無いことを告げて止まります）。
 アプリでできるのは、すでにあるクラウドへの参加（設定の「参加トークンで参加」）と、同期の状態を見ることです。
 同期を使わなくても、ほかの機能はそのまま使えます。
@@ -793,8 +805,8 @@ hangar は、利用状況やクラッシュを集めて送る仕組みを持た�
 
 - **アプリが起動しない。**
   起動の記録 `~/.agent-hangar/desktop.log` の末尾を見てください。
-- **読み込み画面が「Node を見つけられない」と告げる。**
-  Node 22 を入れてから、開き直してください（macOS は「[前提](#前提)」、Windows は「[Windows の前提](#windows-の前提)」と「[Node の探し方](#node-の探し方)」）。
+- **読み込み画面が、Node が見つからない、または版が合わないと告げる。**
+  Node 22.14 以上を入れてから開き直すか、画面の「node を選ぶ…」（Windows は「node.exe を選ぶ…」）で入れた Node を選んでください（macOS は「[前提](#前提)」、Windows は「[Windows の前提](#windows-の前提)」と「[Node の探し方](#node-の探し方)」）。
 - **初めて開くときに「"Hangar" は開いていません」と出る（macOS）。**
   手順の 3 段目の順で開きます（「[手順](#手順)」）。
 - **ローカルネットワークや、ファイルとフォルダの許可をもう一度求められる（macOS）。**

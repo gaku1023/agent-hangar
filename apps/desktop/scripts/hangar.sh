@@ -1,7 +1,7 @@
 #!/bin/sh
 # agent-hangar の CLI を、配布版の .app に同梱したバンドルから起動する。
 # Node は PATH に頼らず、HANGAR_NODE、settings.json の nodePath のあと、アプリ本体と同じ場所（下の node-places の印の間）を同じ順で探し、
-# manifest.json と同じメジャー版とアーキテクチャのものだけを使う。
+# Node-API が manifest.json の nodeApi 以上で、アーキテクチャが同じものを使う（規則は packages/server/src/config/nodeRule.ts）。
 # 候補は空白区切りの一本の文字列ではなく、改行区切りで持ち回る。
 # 一本の文字列にすると、空白を含むパス（利用者名の入ったホームや Application Support の下）で語分割され、
 # settings.json の nodePath による指定がそのまま効かなくなる。
@@ -31,11 +31,14 @@ if [ ! -f "$dist/manifest.json" ]; then
   echo "$dist/manifest.json がありません。アプリの中身が壊れています。agent-hangar を入れ直してください。" >&2
   exit 1
 fi
-want="$(sed -n 's/.*"nodeMajor": *\([0-9]*\).*/\1/p' "$dist/manifest.json")"
+want_api="$(sed -n 's/.*"nodeApi": *\([0-9][0-9]*\).*/\1/p' "$dist/manifest.json")"
+want_min="$(sed -n 's/.*"nodeMin": *"\([0-9.]*\)".*/\1/p' "$dist/manifest.json")"
 want_arch="$(sed -n 's/.*"arch": *"\([^"]*\)".*/\1/p' "$dist/manifest.json")"
+# 案内で入れる Node のメジャー版（brew install node@22）。nodeMin の先頭の数である。
+lts="${want_min%%.*}"
 # 読めないまま先へ進むと、空の版と突き合わせて全部の候補を外し、
 # 「Node  が見つかりません」という意味を成さない案内で終わる。
-if [ -z "$want" ] || [ -z "$want_arch" ]; then
+if [ -z "$want_api" ] || [ -z "$want_min" ] || [ -z "$want_arch" ]; then
   echo "$dist/manifest.json から Node の版とアーキテクチャを読めません。アプリの中身が壊れています。agent-hangar を入れ直してください。" >&2
   exit 1
 fi
@@ -115,37 +118,48 @@ $n
 "
     continue
   fi
-  # 版だけでなくアーキテクチャも見る。
-  # 同梱したネイティブモジュールは ABI に縛られるので、版が合っても別のアーキでは読めない。
+  # Node-API の版だけでなくアーキテクチャも見る。
+  # 同梱したネイティブモジュールは Node-API で作られていて、Node-API が足りても別のアーキでは読めない。
   # Rosetta の x64 Node が先に当たると、hangar コマンドだけが起動の途中で落ちる。
-  # 前置きや後置きの行を出す候補（NODE_OPTIONS の警告、包みの script）があるので、1 行ずつ見る。
-  # 求める答えがどこかの行にあれば、その候補を採る。
-  # アプリ本体（node.rs の parse_probe）も全行から v<版> <アーキ> の行を探すので、扱いを揃えてある。
-  probe="$("$n" -p 'process.versions.node.split(".")[0] + " " + process.arch' 2>/dev/null)" || probe=""
-  if printf '%s\n' "$probe" | grep -qxF -- "$want $want_arch"; then
-    # 同梱した UI の場所を、バンドルの中から渡す。
-    # 単一ファイルにまとめた時点で、コードの置き場からの相対では探せなくなる。
-    # hangar start が子として起こす server.mjs も、この値を継ぐ。
-    export HANGAR_UI_DIST="$dist/ui"
-    exec "$n" "$dist/cli.mjs" "$@"
-  fi
-  answer="$(printf '%s\n' "$probe" | grep -E '^[0-9]+ [a-z0-9]+$' | tail -n 1)" || answer=""
-  if [ -n "$answer" ]; then
-    tried="${tried}  ${n}: v${answer}（要る版は ${want} ${want_arch}）
-"
-  else
+  # 訊く式と読み方はアプリ本体（node.rs）と同じで、出力は v<版> <アーキ> <Node-API の版> の 1 行である。
+  # 前置きや後置きの行を出す候補（NODE_OPTIONS の警告、包みの script）があるので、その形の最後の行を読む（node.rs の parse_probe と同じ）。
+  probe="$("$n" -p 'process.version+" "+process.arch+" "+(process.versions.napi||0)' 2>/dev/null)" || probe=""
+  answer="$(printf '%s\n' "$probe" | tr -d '\r' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+ [a-z0-9]+ [0-9]+$' | tail -n 1)" || answer=""
+  if [ -z "$answer" ]; then
     tried="${tried}  ${n}: Node ではありません（別の実行ファイルのようです）
 "
+    continue
   fi
+  a_ver="${answer%% *}"
+  a_rest="${answer#* }"
+  a_arch="${a_rest%% *}"
+  a_api="${a_rest#* }"
+  # 上限は付けない。Node-API が要る版以上で、アーキが同じなら採る。両方が合わなければ版を言う（node.rs の fit と同じ順）。
+  if [ "$a_api" -lt "$want_api" ]; then
+    tried="${tried}  ${n}: ${a_ver} ${a_arch}（Node-API ${a_api}。Node ${want_min} 以上が要ります）
+"
+    continue
+  fi
+  if [ "$a_arch" != "$want_arch" ]; then
+    tried="${tried}  ${n}: ${a_ver} ${a_arch}（${want_arch} 用が要ります）
+"
+    continue
+  fi
+  # 同梱した UI の場所を、バンドルの中から渡す。
+  # 単一ファイルにまとめた時点で、コードの置き場からの相対では探せなくなる。
+  # hangar start が子として起こす server.mjs も、この値を継ぐ。
+  export HANGAR_UI_DIST="$dist/ui"
+  exec "$n" "$dist/cli.mjs" "$@"
 done <<CANDIDATES
 $candidates
 CANDIDATES
 # 変数は波括弧で括る。
-# bash 3.2 は UTF-8 のロケールのとき、$want の直後の「（」の先頭バイトを変数名の一部として食い、
+# bash 3.2 は UTF-8 のロケールのとき、$want_min の直後の「（」の先頭バイトを変数名の一部として食い、
 # 版もアーキも消えた不正な UTF-8 を出す。
 {
-  echo "Node ${want}（${want_arch}）が見つかりません。"
-  echo "brew install node@${want} で入れれば見つかります（nvm、fnm、Volta、mise、asdf、nodenv で入れた版も探します）。"
+  echo "Node ${want_min} 以上（${want_arch}）が見つかりません。"
+  echo "Hangar のデータベースと端末の部品は Node-API ${want_api} を使うため、Node ${want_min} 以上が要ります。"
+  echo "今の Node を置き換えずに入れるなら、brew install node@${lts}（既定の node を置き換えません）か nvm install ${lts} で入れれば見つかります（fnm、Volta、mise、asdf、nodenv で入れた版も探します）。"
   echo "ほかの場所に入れたなら、環境変数 HANGAR_NODE か ${home}/settings.json の nodePath で場所を指定してください。"
   echo "調べた場所:"
   printf '%s' "$tried"

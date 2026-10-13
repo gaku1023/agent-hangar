@@ -1,5 +1,5 @@
 import { BEAT_S, FINISH_MS, detailText, dots, finishOf, finishSvg, frameSvg, nearestBoundary, slowSuffix, waitText } from './boot-frames.js';
-import { failView, updateView } from './boot-fail.js';
+import { failView, pickText, updateView } from './boot-fail.js';
 
 // 起動画面の描画。動きの時計は頁の load から数える。
 // 合図の口（__hangarBootFinish）は、読み込みが終わった合図を打ち、UI の背景の光を画面いっぱいに満たす。
@@ -157,6 +157,8 @@ const copyCommand = $('fail-command-copy');
 const copyAll = $('fail-copy-all');
 const foot = retry.parentElement;
 const primary = $('fail-primary');
+const pickNode = $('boot-pick-node');
+const pickNote = $('fail-pick-note');
 const toggle = $('fail-detail-toggle');
 const detailBox = $('fail-detail-box');
 // 畳んだ詳細の開閉。開いているときだけ、詳細の枠を見せる。
@@ -244,10 +246,10 @@ window.__hangarBootFail = (info) => {
   document.documentElement.lang = v.lang;
   $('fail-title').textContent = v.title;
   $('fail-what').textContent = v.what;
-  // Node が無いときの札は、次にすることの列の代わりに、命令の前の 1 文を出す。
+  // Node の札は、次にすることの列の代わりに、命令（または手順の列）の前の 1 文を出す。前置きの文があれば、列の見出しは出さない。
   $('fail-lead').hidden = v.lead === null;
   $('fail-lead').textContent = v.lead ?? '';
-  $('fail-next').hidden = v.steps.length === 0;
+  $('fail-next').hidden = v.steps.length === 0 || v.lead !== null;
   $('fail-steps').hidden = v.steps.length === 0;
   $('fail-next').textContent = v.labels.whatNext;
   $('fail-steps').replaceChildren(...v.steps.map((step) => Object.assign(document.createElement('li'), { textContent: step })));
@@ -262,9 +264,20 @@ window.__hangarBootFail = (info) => {
   openLog.textContent = v.labels.openLog;
   retry.textContent = v.labels.tryAgain;
   retry.disabled = false;
-  // 前置きの文のある札（Node が無いとき）は、主の釦を命令のすぐ下へ移す。ほかの札では下端に戻す。
-  (v.lead !== null ? primary : foot).append(retry);
+  // 前置きの文のある札（Node の札）は、主の釦を命令のすぐ下へ移し、「node を選ぶ…」と並べる。ほかの札では下端に戻す。
+  // コマンドの無い札（古い Node がある Windows）は、選ぶ釦を主にして先に置く。
+  if (v.lead !== null) {
+    if (v.pick?.primary) primary.append(pickNode, retry);
+    else primary.append(retry, pickNode);
+  } else {
+    foot.append(retry);
+  }
   primary.hidden = v.lead === null;
+  pickNode.hidden = v.pick === null;
+  pickNode.textContent = v.pick?.label ?? '';
+  pickNode.disabled = false;
+  pickNote.hidden = true;
+  pickNote.textContent = '';
   // 詳細を畳む札は、開く 1 行を出して畳んだ状態から始める。ほかの札は開いたまま。
   $('fail-detail-toggle-label').textContent = v.labels.detailsToggle;
   toggle.hidden = !v.collapsed;
@@ -278,8 +291,8 @@ window.__hangarBootFail = (info) => {
   card.hidden = false;
   // 札の中の更新も、この札の言語で描き直す。
   drawUpdate();
-  // Enter で「もう一度試す」を押せるよう、焦点をここに置く。
-  retry.focus({ preventScroll: true });
+  // Enter で主の釦（ふつうは「もう一度試す」）を押せるよう、焦点をここに置く。
+  (v.pick?.primary ? pickNode : retry).focus({ preventScroll: true });
   report();
   tellCardShown();
 };
@@ -320,7 +333,10 @@ function drawUpdate() {
   updateNote.hidden = u.note === null;
   updateNote.textContent = u.note ?? '';
   // 帯が主の釦（ダウンロードしてインストール）を持つ間は、主の釦を 2 つにしない。
-  retry.classList.toggle('btn-primary', !u.demote);
+  // 「node を選ぶ…」が主の札では、そちらを主の見た目にし、「もう一度試す」は並の釦にする。
+  const pickFirst = view.pick?.primary === true;
+  retry.classList.toggle('btn-primary', !u.demote && !pickFirst);
+  pickNode.classList.toggle('btn-primary', !u.demote && pickFirst);
   // ダウンロードとインストールの途中は、起動のやり直しで頁を読み込み直させない。済まずに失敗したら戻す。
   const busy = upd.phase === 'downloading' || upd.phase === 'installing';
   if (busy) retry.disabled = true;
@@ -394,10 +410,31 @@ updateGo.addEventListener('click', () => {
     });
 });
 
-retry.addEventListener('click', () => {
-  if (retry.disabled) return;
+function retryBoot() {
   retry.disabled = true;
   Promise.resolve(invoke('retry_boot')).catch(() => { retry.disabled = false; });
+}
+retry.addEventListener('click', () => {
+  if (retry.disabled) return;
+  retryBoot();
+});
+// 「node を選ぶ…」（lib.rs の pick_node）。殻がファイルの選択を開き、選んだ Node を設定の欄と同じ条件で確かめる。
+// 合えば殻が nodePath に書くので、起動をやり直す。合わなければ理由を札に添え、もう一度選べるようにする。取り消しなら何もしない。
+pickNode.addEventListener('click', () => {
+  if (pickNode.disabled) return;
+  pickNode.disabled = true;
+  pickNote.hidden = true;
+  Promise.resolve(invoke('pick_node')).then(
+    (r) => {
+      if (r?.result === 'ok') { retryBoot(); return; }
+      pickNode.disabled = false;
+      const note = view ? pickText(view.lang, r) : null;
+      pickNote.textContent = note ?? '';
+      pickNote.hidden = note === null;
+      placeCard();
+    },
+    () => { pickNode.disabled = false; },
+  );
 });
 openLog.addEventListener('click', () => { Promise.resolve(invoke('open_log')).catch(() => {}); });
 copyCommand.addEventListener('click', () => { if (view?.command) copy(view.command, copyCommand, () => view.labels.copyCommand); });

@@ -366,7 +366,7 @@ describe('読み込み画面', () => {
     expect(written).toHaveLength(4);
     for (const k of written) expect(page.FAIL_KINDS).toContain(k);
     // サーバが書かない 3 種類は、殻が決める。
-    expect(page.FAIL_KINDS.filter((k) => !written.includes(k)).sort()).toEqual(['compat-mismatch', 'node-missing', 'other']);
+    expect(page.FAIL_KINDS.filter((k) => !written.includes(k)).sort()).toEqual(['compat-mismatch', 'node-arch-mismatch', 'node-missing', 'node-version-mismatch', 'other']);
     // 殻が読むファイルの名前は、サーバが書く名前と同じ。
     const file = serverSource.match(/export const BOOT_ERROR_FILE = '([^']+)'/)?.[1];
     expect(file).toBeDefined();
@@ -465,11 +465,14 @@ describe('capabilities', () => {
   // 試験のための書き出し（boot_probe）も起動画面だけに与える。殻は試験用の build で HANGAR_BOOT_PROBE を持って起きたときだけ書き、ふだんは何もしない。
   // 更新の 4 つも起動画面に与える。起動に失敗する版を入れた人が、UI まで届かなくても札から新しい版を受け取れるようにするためである。
   // 札を描いたことの知らせ（boot_card_shown）も起動画面だけに与える。殻はこれを受けてから 1 度だけ更新を確かめる。
-  it('起動画面には、起動の様子の問い合わせ、札を描いた知らせ、試験のための書き出し、もう一度試す、ログを開く、更新の 4 つだけを与える', () => {
+  // Node の札の「node を選ぶ…」（pick_node）も起動画面だけに与える。選んだ Node は殻が確かめ、合えば設定の nodePath に書く。
+  it('起動画面には、起動の様子の問い合わせ、札を描いた知らせ、試験のための書き出し、もう一度試す、ログを開く、Node を選ぶ、更新の 4 つだけを与える', () => {
     const c = cap('boot-screen.json');
     expect(c.windows).toEqual(['main']);
     expect(c.remote).toBeUndefined();
-    expect(c.permissions).toEqual(['allow-boot-state', 'allow-boot-card-shown', 'allow-boot-probe', 'allow-retry-boot', 'allow-open-log', 'allow-update-status', 'allow-update-check', 'allow-update-download', 'allow-update-install']);
+    expect(c.permissions).toEqual(['allow-boot-state', 'allow-boot-card-shown', 'allow-boot-probe', 'allow-retry-boot', 'allow-open-log', 'allow-pick-node', 'allow-update-status', 'allow-update-check', 'allow-update-download', 'allow-update-install']);
+    // UI の出どころには与えない。nodePath は次の起動で殻が起こす実行ファイルなので、書く口を増やさない。
+    for (const f of fs.readdirSync(path.join(app, 'src-tauri/capabilities')).filter((x) => x !== 'boot-screen.json')) expect(JSON.stringify(cap(f)), f).not.toContain('allow-pick-node');
   });
   // 起動に失敗したとき、殻は札を出す前に更新を確かめ始めない。札の最初の描画と、目録の取得や証明書の検証を重ねないためである。
   // 確かめるのは、起動画面が札を描いたと知らせてから（boot_card_shown）で、1 度だけである（Ui::card_shown）。
@@ -550,7 +553,7 @@ describe('capabilities', () => {
   // 入力待ちの知らせの 4 つは、上の notifier.ts との突き合わせでも確かめる。
   it('殻の命令の名前は、build.rs と lib.rs と UI と起動画面でそろっている', () => {
     const listed = [...(read('src-tauri/build.rs').match(/const COMMANDS: &\[&str\] = &\[([^\]]*)\]/)?.[1] ?? '').matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
-    expect(listed).toEqual(['apply_config_sync', 'approve_answer', 'approve_view', 'boot_card_shown', 'boot_probe', 'boot_state', 'cloud_join', 'cloud_join_plan', 'cloud_leave', 'cloud_revoke', 'notify_feed', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'restart_app', 'restore_config_sync', 'retry_boot', 'setup_integration', 'update_check', 'update_download', 'update_install', 'update_status']);
+    expect(listed).toEqual(['apply_config_sync', 'approve_answer', 'approve_view', 'boot_card_shown', 'boot_probe', 'boot_state', 'cloud_join', 'cloud_join_plan', 'cloud_leave', 'cloud_revoke', 'notify_feed', 'notify_prune', 'notify_request', 'notify_status', 'notify_waiting', 'open_log', 'pick_folder', 'pick_node', 'restart_app', 'restore_config_sync', 'retry_boot', 'setup_integration', 'update_check', 'update_download', 'update_install', 'update_status']);
     const defined = [...read('src-tauri/src/lib.rs').matchAll(/#\[tauri::command\]\s*(?:pub )?(?:async )?fn ([a-z_]+)/g)].map((m) => m[1]).sort();
     expect(defined).toEqual(listed);
     const ui = fs.readFileSync(path.resolve(app, '../../packages/ui/src/runtime/desktop.ts'), 'utf8');
@@ -569,6 +572,7 @@ describe('capabilities', () => {
     expect(boot).toContain("'boot_state'");
     expect(boot).toContain("'boot_probe'");
     expect(boot).toContain("'boot_card_shown'");
+    expect(boot).toContain("'pick_node'");
     for (const cmd of ['update_status', 'update_check', 'update_download', 'update_install']) expect(boot).toContain(`'${cmd}'`);
   });
   // invoke_handler を 2 度呼ぶと、後のものだけが残り、先に並べた命令が黙って呼べなくなる。

@@ -8,7 +8,7 @@ import type { TerminalHost } from './runtime/terminals.ts';
 import { accountsFixture } from './test/accounts.ts';
 import { fakeApiExtras } from './test/fakeApi.ts';
 import { FOCUS_IDS, focusSoon } from './runtime/focusSoon.ts';
-import { SWIPE_STALE_HIDE_MS } from './swipe.ts';
+import { SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { fakeMotionTokens } from './test/motion.ts';
 import { setClientUserAgent, WINDOWS_UA } from './test/client.ts';
 
@@ -19,7 +19,7 @@ const terminals: TerminalHost = { connect: vi.fn(), disconnect: vi.fn(), mount: 
 
 const session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p1', name: 'せっしょん', cwd: '/w/alpha', firstPrompt: null, aiTitle: null, startedAt: Date.now(), lastActivityAt: Date.now(), hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null };
 
-function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost } = {}) {
+function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost; desktop?: RuntimeDeps['desktop'] } = {}) {
   const b = over.boot ?? boot;
   let hash = '#/';
   const hashListeners = new Set<() => void>();
@@ -35,6 +35,7 @@ function make(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?:
     terminals: over.terminals ?? terminals,
     // main.tsx と同じく、フォーカスの対象を id で探して当てる。
     focus: (t) => focusSoon(() => document.getElementById(FOCUS_IDS[t]), (cb) => { requestAnimationFrame(cb); }),
+    ...(over.desktop ? { desktop: over.desktop } : {}),
   };
   const rt = createRuntime(deps);
   return { rt, deps, handlers, go, setHash: deps.location.setHash, terminals: deps.terminals };
@@ -45,7 +46,7 @@ const rootRun = (id: string, sessionId: string): RunDto => ({ id, sessionId, dev
 const rootTab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '')), closedAt: null });
 
 /** 起動が終わったところまで進めた Root。ショートカットのテストの出発点である。 */
-async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost } = {}) {
+async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; terminals?: TerminalHost; desktop?: RuntimeDeps['desktop'] } = {}) {
   const m = make({ boot: { ...boot, sessions: [session] }, ...over });
   m.rt.start();
   render(<Root runtime={m.rt} api={m.deps.api} terminals={m.terminals} />);
@@ -53,6 +54,12 @@ async function mounted(over: { boot?: BootstrapDto; api?: Partial<ApiClient>; te
   await flush();
   return { ...m, wsHandlers: m.handlers };
 }
+
+/** デスクトップの殻の偽物。殻の中かどうかだけを見る試験に使い、どの命令も呼ばれない前提で置く。 */
+const fakeShell = (): NonNullable<RuntimeDeps['desktop']> => ({
+  openLog: vi.fn(), restart: vi.fn(), pickFolder: vi.fn(async () => null), applyConfigSync: vi.fn(), restoreConfigSync: vi.fn(), setupIntegration: vi.fn(),
+  update: { status: vi.fn(async () => { throw new Error('not allowed'); }), check: vi.fn(), download: vi.fn(), install: vi.fn() },
+});
 
 /** 入力欄の打鍵を確かめるための、画面の外に置く欄。ヘッダーには打つ欄が無い（押す錠剤である）。 */
 const fields: HTMLElement[] = [];
@@ -1072,6 +1079,228 @@ describe('キーの見直し', () => {
     endGesture();
     expect(go).toHaveBeenCalledWith(-1);
     box.remove();
+  });
+
+  describe('Windows の殻のスワイプ', () => {
+    // Windows の殻は指の位相を送らない。打鍵が短く途切れたことを「指が離れた」の合図にする。
+    const windowsShell = async () => {
+      setClientUserAgent(WINDOWS_UA);
+      const m = await mounted({ desktop: fakeShell() });
+      act(() => m.setHash('#/projects'));
+      return m;
+    };
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('引いている間は動かず、打鍵が途切れたら動く', async () => {
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      const hint = screen.getByTestId('swipe-hint');
+      for (let i = 0; i < 3; i++) wheel(-20);
+      expect(hint.dataset.dir).toBe('back');
+      expect(hint.dataset.armed).toBeUndefined();
+      for (let i = 0; i < 3; i++) wheel(-20);
+      expect(hint.dataset.armed).toBe('true');
+      // 途切れの幅に満たないうちは、まだ指が付いているとみなす。
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS - 1); });
+      expect(go).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(go).toHaveBeenCalledWith(-1);
+      expect(hint.dataset.done).toBe('true');
+    });
+
+    it('打鍵が続いている間は、どれだけ長く引いても動かない', async () => {
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      // ゆっくり引くと打鍵の間は開く。途切れの幅より短い間で続く限り、同じ手勢である。
+      for (let i = 0; i < 20; i++) { wheel(-10); act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS - 20); }); }
+      expect(go).not.toHaveBeenCalled();
+      expect(screen.getByTestId('swipe-hint').dataset.armed).toBe('true');
+      act(() => { vi.advanceTimersByTime(20); });
+      expect(go).toHaveBeenCalledTimes(1);
+    });
+
+    it('引き切らずに途切れたら動かず、矢印も片付く', async () => {
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      for (let i = 0; i < 3; i++) wheel(-20);
+      expect(screen.getByTestId('swipe-hint').dataset.dir).toBe('back');
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).not.toHaveBeenCalled();
+      expect(screen.getByTestId('swipe-hint').dataset.dir).toBeUndefined();
+    });
+
+    it('引き切ってから引き戻せば、途切れても動かない', async () => {
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      for (let i = 0; i < 6; i++) wheel(-20);
+      for (let i = 0; i < 4; i++) wheel(20);
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).not.toHaveBeenCalled();
+    });
+
+    it('縦に流しているだけでは履歴が動かない', async () => {
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      for (let i = 0; i < 20; i++) wheel(-5, -30);
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).not.toHaveBeenCalled();
+    });
+
+    it('途切れた後の打鍵は新しい手勢で、続けて引けばまた動く', async () => {
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      for (let i = 0; i < 6; i++) wheel(-20);
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).toHaveBeenCalledTimes(1);
+      // 前の手勢の積みは残らない。半分だけ引いて途切れても動かない。
+      for (let i = 0; i < 3; i++) wheel(-20);
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 6; i++) wheel(-20);
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).toHaveBeenCalledTimes(2);
+    });
+
+    it('Shift を押したホイールは手勢にしない', async () => {
+      // Windows の Chromium は Shift+ホイールを横の打鍵（deltaX）にして渡す。マウスで横へ流しただけで戻ってはいけない。
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      for (let i = 0; i < 6; i++) act(() => { window.dispatchEvent(new WheelEvent('wheel', { deltaX: -100, shiftKey: true, bubbles: true })); });
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).not.toHaveBeenCalled();
+      expect(screen.getByTestId('swipe-hint').dataset.dir).toBeUndefined();
+    });
+
+    it('横に流せる箱は、端に着くまで手勢を取る', async () => {
+      const { go } = await windowsShell();
+      vi.useFakeTimers();
+      const box = document.createElement('div');
+      box.style.overflowX = 'auto';
+      Object.defineProperty(box, 'scrollWidth', { value: 900, configurable: true });
+      Object.defineProperty(box, 'clientWidth', { value: 300, configurable: true });
+      Object.defineProperty(box, 'scrollLeft', { value: 150, writable: true, configurable: true });
+      document.body.appendChild(box);
+      const pull = () => { for (let i = 0; i < 6; i++) wheel(-30, 0, box); };
+      pull();
+      box.scrollLeft = 0;
+      pull();
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).not.toHaveBeenCalled();
+      // 引き直せば、左端なので箱は取らない。
+      pull();
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).toHaveBeenCalledWith(-1);
+      box.remove();
+    });
+
+    it('確認や入力のあるダイアログの裏では、矢印も出さず画面も移さない', async () => {
+      const { go, rt } = await windowsShell();
+      act(() => rt.emit({ type: 'session.new.open', scratch: true }));
+      await flush();
+      vi.useFakeTimers();
+      for (let i = 0; i < 6; i++) wheel(-20);
+      expect(screen.getByTestId('swipe-hint').dataset.dir).toBeUndefined();
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).not.toHaveBeenCalled();
+    });
+
+    it('アプリの最初の頁からは戻らない', async () => {
+      setClientUserAgent(WINDOWS_UA);
+      const { go } = await mounted({ desktop: fakeShell() });
+      vi.useFakeTimers();
+      for (let i = 0; i < 6; i++) wheel(-30);
+      act(() => { vi.advanceTimersByTime(SWIPE_RELEASE_GAP_MS); });
+      expect(go).not.toHaveBeenCalled();
+    });
+
+    it('Windows でもブラウザでは自前のスワイプを使わない', async () => {
+      setClientUserAgent(WINDOWS_UA);
+      const { go, setHash } = await mounted();
+      act(() => setHash('#/projects'));
+      vi.useFakeTimers();
+      for (let i = 0; i < 8; i++) wheel(-30);
+      act(() => { vi.advanceTimersByTime(SWIPE_STALE_HIDE_MS); });
+      expect(go).not.toHaveBeenCalled();
+      expect(screen.getByTestId('swipe-hint').dataset.dir).toBeUndefined();
+    });
+  });
+
+  it('macOS の殻で位相が届いていなければ、時間では動かない', async () => {
+    const { go, setHash } = await mounted({ desktop: fakeShell() });
+    act(() => setHash('#/projects'));
+    for (let i = 0; i < 8; i++) wheel(-30);
+    await act(() => new Promise((r) => setTimeout(r, 300)));
+    expect(go).not.toHaveBeenCalled();
+  });
+
+  describe('マウスの戻ると進むのボタン', () => {
+    // 既定の動作を止めたかどうかを見たいので、イベントは自分で作って投げる。
+    const mouseUp = (button: number, target: EventTarget = window) => {
+      const ev = new MouseEvent('mouseup', { button, bubbles: true, cancelable: true });
+      act(() => { target.dispatchEvent(ev); });
+      return ev;
+    };
+
+    it('殻の中では、戻るボタンで戻り、進むボタンで進む', async () => {
+      const { go, setHash } = await mounted({ desktop: fakeShell() });
+      act(() => setHash('#/projects'));
+      // WebView2 の既定（mouseup の既定の動作で履歴を動かす）は、最初の頁の手前の起動の頁まで戻ってしまうので止める。
+      expect(mouseUp(3).defaultPrevented).toBe(true);
+      expect(go).toHaveBeenLastCalledWith(-1);
+      expect(mouseUp(4).defaultPrevented).toBe(true);
+      expect(go).toHaveBeenLastCalledWith(1);
+    });
+
+    it('Windows の殻でも同じに効く', async () => {
+      setClientUserAgent(WINDOWS_UA);
+      const { go, setHash } = await mounted({ desktop: fakeShell() });
+      act(() => setHash('#/projects'));
+      mouseUp(3);
+      expect(go).toHaveBeenLastCalledWith(-1);
+    });
+
+    it('入力欄やターミナルの中でも効く（⌘[ と同じ）', async () => {
+      const { go, setHash } = await mounted({ desktop: fakeShell() });
+      act(() => setHash('#/projects'));
+      mouseUp(3, textField());
+      expect(go).toHaveBeenCalledTimes(1);
+      const term = document.createElement('div');
+      term.className = 'term-host';
+      document.body.append(term);
+      mouseUp(3, term);
+      expect(go).toHaveBeenCalledTimes(2);
+      term.remove();
+    });
+
+    it('ほかのボタンには触らない', async () => {
+      const { go, setHash } = await mounted({ desktop: fakeShell() });
+      act(() => setHash('#/projects'));
+      for (const b of [0, 1, 2]) expect(mouseUp(b).defaultPrevented).toBe(false);
+      expect(go).not.toHaveBeenCalled();
+    });
+
+    it('確認や入力のあるダイアログの裏では画面を移さない', async () => {
+      const { go, setHash, rt } = await mounted({ desktop: fakeShell() });
+      act(() => setHash('#/projects'));
+      act(() => rt.emit({ type: 'session.new.open', scratch: true }));
+      await flush();
+      mouseUp(3);
+      expect(go).not.toHaveBeenCalled();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    it('アプリの最初の頁からは戻らない', async () => {
+      const { go } = await mounted({ desktop: fakeShell() });
+      mouseUp(3);
+      expect(go).not.toHaveBeenCalled();
+    });
+
+    it('ブラウザでは、ブラウザの戻ると進むに任せる', async () => {
+      const { go, setHash } = await mounted();
+      act(() => setHash('#/projects'));
+      expect(mouseUp(3).defaultPrevented).toBe(false);
+      expect(go).not.toHaveBeenCalled();
+    });
   });
 
   it('パレットからもキーの一覧を開ける', async () => {

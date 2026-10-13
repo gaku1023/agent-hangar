@@ -207,7 +207,7 @@ export async function testDeps(overrides: Partial<AppDeps> = {}): Promise<TestWo
     retention: fakeRetention(),
     readiness: async () => READY,
     // 「Node のパス」の確かめ。既定ではどのファイルも同梱のサーバと同じ Node と答える（偽の道具を Node として保存できるように）。
-    nodeCheck: { need: () => ({ major: 22, arch: 'x64' }), probe: async () => ({ major: 22, arch: 'x64' }) },
+    nodeCheck: { need: () => ({ napi: 10, min: '22.14', arch: 'x64' }), probe: async () => ({ version: '22.14.0', napi: 10, arch: 'x64' }) },
     findMux: () => null,
     compat: async () => ({ verifiedVersion: VERIFIED_CLAUDE_VERSION, localVersion: null, drifts: [] }),
     uiDist: null,
