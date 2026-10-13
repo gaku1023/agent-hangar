@@ -2691,6 +2691,36 @@ describe('中断の群（ランタイム）', () => {
   });
 });
 
+// 窓が隠れている間は、配信を Store に当てるだけで画面へは出さない（2026-10-14、0.6.1）。
+// 見えたときに 1 回だけ描かせる。入力待ちの知らせ（Mediator）は今までどおり Store の変化で動く。
+describe('隠れている間の配信', () => {
+  it('隠れている間の配信は Store に当てるが購読者へは知らせず、見えたときに 1 回だけ知らせる', async () => {
+    let shown = true;
+    const visible = new Set<() => void>();
+    const h = harness({}, { visible: () => shown, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    let notified = 0;
+    h.rt.subscribe(() => { notified++; });
+    shown = false;
+    const base: SessionDto = { id: 's9', provider: 'claude-code', providerSessionId: 'u9', projectId: null, name: 'x', cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null };
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: base });
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: { ...base, name: 'y' } });
+    expect(h.rt.getStore().sessions.s9?.name).toBe('y');
+    expect(notified).toBe(0);
+    shown = true;
+    for (const cb of visible) cb();
+    expect(notified).toBe(1);
+    // 見えている間は今までどおりその場で知らせる。
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: { ...base, name: 'z' } });
+    expect(notified).toBe(2);
+    // 隠れている間に何も届かなければ、見えても知らせない。
+    for (const cb of visible) cb();
+    expect(notified).toBe(2);
+  });
+});
+
 describe('git の表示（ランタイム）', () => {
   it('開いたままのプロジェクト画面のブランチと worktree は、周期と、窓が前に戻ったときに読み直す', async () => {
     const projectGit = vi.fn(async () => ({ root: null, worktrees: [] }));

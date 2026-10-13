@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { copyFixtureClaudeDir, FIXTURE_CLAUDE_DIR, SESSION_ALPHA } from '../../../test/fixtures.ts';
 import { REGISTRY_STATUS_GRACE_MS } from './compat/registry.ts';
 import type { Drift } from './compat/types.ts';
-import { goneOn, readRegistry, RegistryWatcher } from './registry.ts';
+import { goneOn, readRegistry, RegistryWatcher, UNREADABLE_CARRY_MS, WATCH_SETTLE_MS, watchDir, type WatchDir } from './registry.ts';
 
 /** 見本の登録の pid は実在しない。Windows の既定は動いていない pid の項目を読まないので、試験では全部読ませる。 */
 const ALL_ALIVE = (): boolean => false;
@@ -396,6 +396,192 @@ describe('RegistryWatcher', () => {
     expect(seen.map((d) => d.value)).toEqual(['status=thinking']);
     w.stop();
   });
+
+  it('読めないままの登録は、読み直しの回数ではなく時間（UNREADABLE_CARRY_MS）で見切る', () => {
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, NO_SINK, { idleMs: 5000, watch: fakeWatch().watch });
+    const seen: unknown[] = [];
+    w.onChange((l) => seen.push(l));
+    w.start();
+    fs.writeFileSync(path.join(dir, 'sessions/12345.json'), '{"pid":');
+    // 見張りの知らせが続けて来て、短い間に何度読み直しても、見切るのは時間が過ぎてからである。
+    for (let i = 0; i < 10; i++) { w.kick(0); vi.advanceTimersByTime(0); }
+    expect(seen).toEqual([]);
+    vi.advanceTimersByTime(UNREADABLE_CARRY_MS + 500);
+    w.kick(0);
+    vi.advanceTimersByTime(0);
+    expect(seen).toEqual([[]]);
+    w.stop();
+  });
+});
+
+/** 見張りの代わり。fire で「ディレクトリが変わった」を、fail で見張りの故障を起こす。 */
+function fakeWatch(o: { unavailable?: boolean } = {}) {
+  const handlers: { event: () => void; error: () => void }[] = [];
+  let attaches = 0;
+  let closes = 0;
+  const watch: WatchDir = (_dir, event, error) => {
+    attaches++;
+    if (o.unavailable) return null;
+    const h = { event, error };
+    handlers.push(h);
+    return { close: () => { closes++; handlers.splice(handlers.indexOf(h), 1); } };
+  };
+  return {
+    watch,
+    fire: () => { for (const h of [...handlers]) h.event(); },
+    fail: () => { for (const h of [...handlers]) h.error(); },
+    get attaches() { return attaches; },
+    get closes() { return closes; },
+  };
+}
+
+const NO_SINK = { note: () => {} };
+
+/**
+ * 待機中に読み直しを減らす（2026-10-14、0.6.1）。
+ * 登録のディレクトリを見張れている間は、全部が休みか入力待ちなら idleMs ごとにしか読まない。
+ * 変化は見張りの知らせで WATCH_SETTLE_MS のうちに拾う。作業中が 1 つでもあれば、裏だけの印のために intervalMs ごとに読む。
+ */
+describe('RegistryWatcher（見張りと周期）', () => {
+  let dir: string;
+  const file = () => path.join(dir, 'sessions/12345.json');
+  const setStatus = (status: string) => {
+    const rec = JSON.parse(fs.readFileSync(file(), 'utf8'));
+    fs.writeFileSync(file(), JSON.stringify({ ...rec, status }));
+  };
+  /** 読み直しの回数。足し付け（enrich）は読み直しのたびに 1 回通る。 */
+  const counting = () => {
+    const c = { reads: 0 };
+    return { c, enrich: (l: ReturnType<typeof readRegistry>) => { c.reads++; return l; } };
+  };
+  beforeEach(() => { dir = copyFixtureClaudeDir(); vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it('見張れていて全部が休みなら、idleMs ごとにしか読まない', () => {
+    setStatus('idle');
+    const { c, enrich } = counting();
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, enrich, NO_SINK, { idleMs: 2000, watch: fakeWatch().watch });
+    w.start();
+    expect(c.reads).toBe(1);
+    vi.advanceTimersByTime(1999);
+    expect(c.reads).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(c.reads).toBe(2);
+    vi.advanceTimersByTime(10_000);
+    expect(c.reads).toBe(7);
+    w.stop();
+  });
+
+  it('入力待ちだけでも idleMs ごとにしか読まない。許可の中身は kick で拾う', () => {
+    setStatus('waiting');
+    const { c, enrich } = counting();
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, enrich, NO_SINK, { idleMs: 2000, watch: fakeWatch().watch });
+    w.start();
+    vi.advanceTimersByTime(2000);
+    expect(c.reads).toBe(2);
+    w.kick(0);
+    vi.advanceTimersByTime(0);
+    expect(c.reads).toBe(3);
+    w.stop();
+  });
+
+  it('作業中が 1 つでもあれば intervalMs ごとに読む（裏だけの印は本文の索引で変わる）', () => {
+    setStatus('busy');
+    const { c, enrich } = counting();
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, enrich, NO_SINK, { idleMs: 2000, watch: fakeWatch().watch });
+    w.start();
+    vi.advanceTimersByTime(2000);
+    expect(c.reads).toBe(5);
+    w.stop();
+  });
+
+  it('休みから入力待ちへの変化は、見張りの知らせから WATCH_SETTLE_MS のうちに知らせる（入力待ちの知らせの遅れの上限）', () => {
+    setStatus('idle');
+    const fw = fakeWatch();
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, NO_SINK, { idleMs: 2000, watch: fw.watch });
+    const seen: { status: string }[][] = [];
+    w.onChange((l) => seen.push(l));
+    w.start();
+    vi.advanceTimersByTime(300);
+    setStatus('waiting');
+    fw.fire();
+    fw.fire();
+    vi.advanceTimersByTime(WATCH_SETTLE_MS);
+    expect(seen.map((l) => l[0]!.status)).toEqual(['waiting']);
+    expect(WATCH_SETTLE_MS).toBeLessThanOrEqual(100);
+    w.stop();
+  });
+
+  it('見張りの知らせが来なくても、作業中からの変化は intervalMs、休みからの変化は idleMs のうちに拾う', () => {
+    setStatus('busy');
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, undefined, NO_SINK, { idleMs: 2000, watch: fakeWatch().watch });
+    const seen: { status: string }[][] = [];
+    w.onChange((l) => seen.push(l));
+    w.start();
+    setStatus('waiting');
+    vi.advanceTimersByTime(500);
+    expect(seen.map((l) => l[0]!.status)).toEqual(['waiting']);
+    setStatus('idle');
+    vi.advanceTimersByTime(2000);
+    expect(seen.map((l) => l[0]!.status)).toEqual(['waiting', 'idle']);
+    setStatus('busy');
+    vi.advanceTimersByTime(2000);
+    expect(seen.map((l) => l[0]!.status)).toEqual(['waiting', 'idle', 'busy']);
+    w.stop();
+  });
+
+  it('見張れないあいだは intervalMs ごとに読み、見張りを付け直し続ける', () => {
+    setStatus('idle');
+    const fw = fakeWatch({ unavailable: true });
+    const { c, enrich } = counting();
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, enrich, NO_SINK, { idleMs: 2000, watch: fw.watch });
+    w.start();
+    vi.advanceTimersByTime(2000);
+    expect(c.reads).toBe(5);
+    expect(fw.attaches).toBe(5);
+    w.stop();
+  });
+
+  it('見張りが壊れたら閉じて、速い周期に戻し、次の読み直しで付け直す', () => {
+    setStatus('idle');
+    const fw = fakeWatch();
+    const { c, enrich } = counting();
+    const w = new RegistryWatcher(dir, 500, ALL_ALIVE, enrich, NO_SINK, { idleMs: 2000, watch: fw.watch });
+    w.start();
+    expect(fw.attaches).toBe(1);
+    fw.fail();
+    expect(fw.closes).toBe(1);
+    vi.advanceTimersByTime(500);
+    expect(c.reads).toBe(2);
+    expect(fw.attaches).toBe(2);
+    // 付け直せたので、また idleMs ごとに戻る。
+    vi.advanceTimersByTime(1999);
+    expect(c.reads).toBe(2);
+    vi.advanceTimersByTime(1);
+    expect(c.reads).toBe(3);
+    w.stop();
+    expect(fw.closes).toBe(2);
+  });
+
+  it('本物の見張り（watchDir）は、登録のディレクトリへの書き込みを知らせる', async () => {
+    vi.useRealTimers();
+    const sessions = path.join(dir, 'sessions');
+    let events = 0;
+    const h = watchDir(sessions, () => { events++; }, () => {});
+    expect(h).not.toBeNull();
+    try {
+      // 見張りが付くまでの間に書いた分を取りこぼす OS がある（macOS の FSEvents）。届くまで書き直す。
+      // 試験を並べて走らせると知らせが遅れることがあるので、長めに待つ。
+      for (let i = 0; i < 200 && events === 0; i++) {
+        if (i % 20 === 0) fs.writeFileSync(path.join(sessions, `${777 + i}.json`), '{}');
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(events).toBeGreaterThan(0);
+    } finally {
+      h?.close();
+    }
+    expect(watchDir(path.join(dir, 'no-such-dir'), () => {}, () => {})).toBeNull();
+  }, 20_000);
 });
 
 // Windows では claude を穏やかに止める手段が無く、止めた claude は自分の登録を消せない。

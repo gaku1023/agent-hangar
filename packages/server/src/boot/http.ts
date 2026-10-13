@@ -79,7 +79,8 @@ export function bootHttp(p: {
   const { db, settings, device } = home;
   const { server, port } = listening;
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
-  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
+  // attach が終わったら、画面が閉じたかもしれないので run の見張りを急がせる（待機中の見張りは間が空く）。
+  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn, onExit: () => runs.runs.stir() });
   // 配布版（Tauri のバンドル）では UI の置き場所を環境変数 HANGAR_UI_DIST で受ける。
   // 入口（main.ts）が読んで消してから opts.uiDist で渡す。無ければリポジトリ内の packages/ui/dist を使う。
   const uiDist = p.opts.uiDist ?? path.resolve(p.serverDir, '../../ui/dist');

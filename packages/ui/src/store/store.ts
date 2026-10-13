@@ -1,5 +1,6 @@
 import { liveFilterOf, liveWithLimit, quietLive, stopReasonOf, type LiveFilter, type PermissionAskDto, type StopReason } from '@agent-hangar/shared';
 import { asideOf } from '../lib/aside.ts';
+import { sameValue } from '../lib/same.ts';
 import { initialCloudMember, type CloudMemberState } from './cloudMember.ts';
 import { initialUpdate, type UpdateState } from './update.ts';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
@@ -190,16 +191,21 @@ function relive(sessions: Record<string, SessionDto>, live: LiveSessionDto[]): R
   return out;
 }
 
+/**
+ * サーバの知らせを Store に当てる。
+ * 行や状態をまるごと運ぶ知らせは、中身が今の Store と同じなら同じ Store を返す（2026-10-14、0.6.1）。
+ * サーバは変化が無くても配り直すことがある（登録が変わると全プロジェクトを配り直す、など）。そのたびに作り直すと、待機中も画面全体が描き直される。
+ */
 export function applyServerEvent(store: Store, ev: ServerEvent): Store {
   switch (ev.type) {
     case 'ready': return { ...store, version: ev.version };
-    case 'project.upsert': return { ...store, projects: { ...store.projects, [ev.project.id]: ev.project } };
-    case 'session.upsert': return { ...store, sessions: { ...store.sessions, [ev.session.id]: ev.session } };
-    case 'live.update': return { ...store, live: ev.live, sessions: relive(store.sessions, ev.live) };
-    case 'index.progress': return { ...store, index: ev.progress };
+    case 'project.upsert': return sameValue(store.projects[ev.project.id], ev.project) ? store : { ...store, projects: { ...store.projects, [ev.project.id]: ev.project } };
+    case 'session.upsert': return sameValue(store.sessions[ev.session.id], ev.session) ? store : { ...store, sessions: { ...store.sessions, [ev.session.id]: ev.session } };
+    case 'live.update': return sameValue(store.live, ev.live) ? store : { ...store, live: ev.live, sessions: relive(store.sessions, ev.live) };
+    case 'index.progress': return sameValue(store.index, ev.progress) ? store : { ...store, index: ev.progress };
     case 'run.started': return applyLaunch(store, { run: ev.run, sessionId: ev.run.sessionId, tabs: ev.tabs });
-    case 'run.upsert': case 'run.ended': return { ...store, runs: { ...store.runs, [ev.run.id]: ev.run } };
-    case 'tab.upsert': return { ...store, tabs: { ...store.tabs, [ev.tab.id]: ev.tab } };
+    case 'run.upsert': case 'run.ended': return sameValue(store.runs[ev.run.id], ev.run) ? store : { ...store, runs: { ...store.runs, [ev.run.id]: ev.run } };
+    case 'tab.upsert': return sameValue(store.tabs[ev.tab.id], ev.tab) ? store : { ...store, tabs: { ...store.tabs, [ev.tab.id]: ev.tab } };
     case 'transcript.appended': {
       const out = { ...store.events };
       let touched = false;
@@ -214,17 +220,17 @@ export function applyServerEvent(store: Store, ev: ServerEvent): Store {
       for (const t of ev.todos) todos[t.id] = t;
       return { ...store, todos };
     }
-    case 'memo.update': return { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
-    case 'artifact.upsert': return { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
-    case 'sync.status': return { ...store, sync: ev.status };
-    case 'config.update': return { ...store, configSync: ev.configSync };
-    case 'accounts.update': return { ...store, accounts: ev.accounts };
-    case 'sync.usage': return { ...store, cloudUsage: ev.usage };
-    case 'devices.update': return { ...store, devices: ev.devices };
-    case 'retention.changed': return { ...store, retention: ev.retention };
-    case 'interrupted.update': return { ...store, interrupted: ev.interrupted };
+    case 'memo.update': return sameValue(store.memos[ev.memo.projectId], ev.memo) ? store : { ...store, memos: { ...store.memos, [ev.memo.projectId]: ev.memo } };
+    case 'artifact.upsert': return sameValue(store.artifacts[ev.artifact.id], ev.artifact) ? store : { ...store, artifacts: { ...store.artifacts, [ev.artifact.id]: ev.artifact } };
+    case 'sync.status': return sameValue(store.sync, ev.status) ? store : { ...store, sync: ev.status };
+    case 'config.update': return sameValue(store.configSync, ev.configSync) ? store : { ...store, configSync: ev.configSync };
+    case 'accounts.update': return sameValue(store.accounts, ev.accounts) ? store : { ...store, accounts: ev.accounts };
+    case 'sync.usage': return sameValue(store.cloudUsage, ev.usage) ? store : { ...store, cloudUsage: ev.usage };
+    case 'devices.update': return sameValue(store.devices, ev.devices) ? store : { ...store, devices: ev.devices };
+    case 'retention.changed': return sameValue(store.retention, ev.retention) ? store : { ...store, retention: ev.retention };
+    case 'interrupted.update': return sameValue(store.interrupted, ev.interrupted) ? store : { ...store, interrupted: ev.interrupted };
     case 'git.upsert': return applyGit(store, ev.git);
-    case 'settings.changed': return { ...store, settings: ev.settings };
+    case 'settings.changed': return sameValue(store.settings, ev.settings) ? store : { ...store, settings: ev.settings };
     case 'summary.pending': return { ...store, summaryPending: { ...store.summaryPending, [ev.sessionId]: true }, summaryFailed: without(store.summaryFailed, ev.sessionId) };
     // 本文の差し替えは session.upsert が行う。ここは待ちの印を消し、失敗の理由を入れ替えるだけである。
     case 'summary.updated': {
@@ -305,6 +311,9 @@ export function applySubagents(store: Store, sessionId: string, ids: string[]): 
 
 /** git の値を重ねる。届いたセッションと作業ツリーだけを置き換え、ほかは残す。 */
 export function applyGit(store: Store, g: GitDto): Store {
+  // 周期の読み直し（30 秒ごと）は、ふつう前と同じ中身で返る。同じなら Store を作り直さない。
+  const same = Object.entries(g.sessions).every(([k, v]) => sameValue(store.git.sessions[k], v)) && Object.entries(g.trees).every(([k, v]) => sameValue(store.git.trees[k], v));
+  if (same) return store;
   return { ...store, git: { sessions: { ...store.git.sessions, ...g.sessions }, trees: { ...store.git.trees, ...g.trees } } };
 }
 

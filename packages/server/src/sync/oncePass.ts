@@ -57,8 +57,11 @@ export function createOncePass(deps: OncePassDeps): { pass: PausedPass; syncNow(
    * 1 巡の最中に、進みを画面へ配るタイマー。
    * そのあいだも状態は paused のままで、エンジンは送信中や受信中を名乗らない。
    * 始まったこと（oncePass）と、減っていく未送信の件数を、ここから配る。
+   * 配るのは進みが変わったときだけである。
    */
   let passTicker: ReturnType<typeof setInterval> | null = null;
+  /** 周期で最後に配った進み。変わらない間は配り直さない（画面を同じ中身で描き直させない）。 */
+  let lastSent = '';
   const stopTicker = (): void => { if (passTicker) { clearInterval(passTicker); passTicker = null; } };
   const pass = new PausedPass({
     metadata: () => engine.syncNow({ evenIfPaused: true }),
@@ -101,8 +104,16 @@ export function createOncePass(deps: OncePassDeps): { pass: PausedPass; syncNow(
     const done = pass.run();
     if (pass.active() && !passTicker) {
       // 押した直後に 1 度配る。応答が返るのはメタデータの送受信の後なので、待たせるとボタンが効いていないように見える。
-      deps.broadcastSync(engine.status());
-      passTicker = setInterval(() => { deps.broadcastSync(engine.status()); }, deps.tickMs ?? PASS_TICK_MS);
+      const first = engine.status();
+      lastSent = JSON.stringify(first);
+      deps.broadcastSync(first);
+      passTicker = setInterval(() => {
+        const now = engine.status();
+        const key = JSON.stringify(now);
+        if (key === lastSent) return;
+        lastSent = key;
+        deps.broadcastSync(now);
+      }, deps.tickMs ?? PASS_TICK_MS);
       passTicker.unref();
     }
     return done;

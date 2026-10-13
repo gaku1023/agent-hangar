@@ -28,6 +28,7 @@ import { UpdateSection } from './UpdateSection.tsx';
 import { SetRow } from './primitives/SetRow.tsx';
 import { Stepper } from './primitives/Stepper.tsx';
 import { Switch } from './primitives/Switch.tsx';
+import { useNow } from './primitives/useNow.ts';
 
 /** 「✓ 保存しました」を出しておく長さ（設定の C1）。 */
 export const SAVED_TICK_MS = 2000;
@@ -171,11 +172,7 @@ function IntegrationWrite(props: { card: IntegrationCard; desktop: boolean; extr
 /** 参加トークン（設定の E2）。トークンとコピー、減る棒と「あと N 秒で消えます」。 */
 function JoinToken(props: { token: string; expiresAt: number | null }) {
   const t = useT();
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow(1000);
   const leftMs = props.expiresAt === null ? JOIN_TOKEN_TTL_MS : Math.max(0, props.expiresAt - now);
   const left = Math.ceil(leftMs / 1000);
   return (
