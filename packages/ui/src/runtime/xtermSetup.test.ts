@@ -54,6 +54,42 @@ describe('createKeyHandler', () => {
   });
 });
 
+describe('createKeyHandler（macOS の ⌘⌫）', () => {
+  // xterm は ⌘⌫ を素の Backspace（DEL）として送り、1 文字しか消えない。
+  // Terminal.app と iTerm2 は ⌘⌫ を Ctrl+U（行の頭まで消す）として送るので、それにそろえる。
+  it('macOS では、⌘⌫ で Ctrl+U を送り、xterm には渡さない', () => {
+    const input = vi.fn();
+    const handle = createKeyHandler(input, true);
+    const e = key({ key: 'Backspace', metaKey: true, keyCode: 8 });
+    expect(handle(e)).toBe(false);
+    expect(input).toHaveBeenCalledWith('\x15');
+    expect(e.preventDefault).toHaveBeenCalled();
+  });
+  it('⌘⌫ の keypress と keyup は何も送らない', () => {
+    const input = vi.fn();
+    const handle = createKeyHandler(input, true);
+    expect(handle(key({ type: 'keypress', key: 'Backspace', metaKey: true, keyCode: 8 }))).toBe(false);
+    expect(handle(key({ type: 'keyup', key: 'Backspace', metaKey: true, keyCode: 8 }))).toBe(true);
+    expect(input).not.toHaveBeenCalled();
+  });
+  it('素の ⌫、Option+⌫、Ctrl+⌫、ほかの修飾の付いた ⌘⌫ は xterm に任せる', () => {
+    const input = vi.fn();
+    const handle = createKeyHandler(input, true);
+    expect(handle(key({ key: 'Backspace', keyCode: 8 }))).toBe(true);
+    expect(handle(key({ key: 'Backspace', altKey: true, keyCode: 8 }))).toBe(true);
+    expect(handle(key({ key: 'Backspace', ctrlKey: true, keyCode: 8 }))).toBe(true);
+    expect(handle(key({ key: 'Backspace', metaKey: true, shiftKey: true, keyCode: 8 }))).toBe(true);
+    expect(handle(key({ key: 'Backspace', metaKey: true, altKey: true, keyCode: 8 }))).toBe(true);
+    expect(input).not.toHaveBeenCalled();
+  });
+  it('macOS の外では、⌘（Windows キー）の付いた ⌫ を横取りしない', () => {
+    const input = vi.fn();
+    const handle = createKeyHandler(input, false);
+    expect(handle(key({ key: 'Backspace', metaKey: true, keyCode: 8 }))).toBe(true);
+    expect(input).not.toHaveBeenCalled();
+  });
+});
+
 describe('createKeyHandler（Windows と Linux の貼り付け）', () => {
   // xterm は Ctrl+V を ^V（0x16）として中のアプリへ送り、ブラウザの貼り付けを止める。
   // macOS の貼り付けは ⌘V なので困らないが、Windows と Linux では Ctrl+V で貼り付けられなくなる。

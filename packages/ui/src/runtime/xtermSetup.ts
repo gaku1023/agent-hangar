@@ -16,6 +16,9 @@ import { isMacClient, matchKey } from '../keys.ts';
  */
 export const NEWLINE_SEQ = '\x1b\r';
 
+/** ⌘⌫ で送る Ctrl+U。Claude Code もシェルも、行の頭まで消す打鍵として読む。 */
+export const KILL_LINE_SEQ = '\x15';
+
 type KeyEventLike = Pick<KeyboardEvent, 'type' | 'key' | 'code' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey' | 'isComposing' | 'keyCode' | 'preventDefault'>;
 
 // 画面を開いている PC が macOS かは、キーの表と同じ判定を使う。
@@ -35,6 +38,16 @@ export function createKeyHandler(input: (data: string) => void, mac: boolean = i
     // macOS の貼り付けは ⌘V なので困らないが、Windows と Linux では Ctrl+V で貼り付けられなくなる。
     // xterm に渡さなければブラウザが paste のイベントを起こし、xterm がそれを貼り付けとして受ける。既定の動きは止めない。
     if (!mac && e.type === 'keydown' && (e.key === 'v' || e.key === 'V') && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) return false;
+    // xterm は ⌘⌫ を素の Backspace（DEL）として送り、1 文字しか消えない。
+    // Terminal.app と iTerm2 は ⌘⌫ を Ctrl+U（行の頭まで消す）として送るので、それにそろえる。
+    if (mac && e.key === 'Backspace' && e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+      if (e.type === 'keyup') return true;
+      if (e.type === 'keydown') {
+        e.preventDefault();
+        input(KILL_LINE_SEQ);
+      }
+      return false;
+    }
     if (e.key !== 'Enter' || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return true;
     // 変換中の Enter は IME の確定である。keyCode 229 は IME が打鍵を受け取っている印。
     if (e.isComposing || e.keyCode === 229) return true;
