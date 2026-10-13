@@ -310,4 +310,5 @@ export const settingsKeys = {
   'settings.tools.register.title': [],
   'settings.tools.register.desc': [],
   'settings.tools.register.action': [],
+  'settings.tools.register.folder': [],
 } as const satisfies MessageSpec;

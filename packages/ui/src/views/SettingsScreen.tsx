@@ -646,7 +646,11 @@ export function SettingsScreen(props: SettingsProps) {
         <PathField field="workspaceRoot" label={t('settings.tools.parent.title')} hideLabel value={props.workspaceRoot} nullable={false} placeholder={t('settings.tools.parent.placeholder')} quiet={props.workspaceRoot === ''} pick={props.workspacePick} line={props.verify.workspace} mark={props.save.workspaceRoot} />
         <div className="faint" style={{ marginTop: 4 }}>{t('settings.tools.parent.desc')}</div>
         <SetRow title={t('settings.tools.register.title')} desc={t('settings.tools.register.desc')}
-          control={<button type="button" className="btn" aria-label={t('home.band.actionFor', { action: t('settings.tools.register.action'), name: t('settings.tools.register.title') })} onClick={() => emit({ type: 'project.candidates.open' })}>{t('settings.tools.register.action')}</button>} />
+          control={<>
+            <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open' })}>{t('settings.tools.register.action')}</button>
+            {/* まとめて登録の「フォルダの中から」（0.6.2）。 */}
+            <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open', source: 'folder' })}>{t('settings.tools.register.folder')}</button>
+          </>} />
       </section>
       <section>
         <h3 className="h2">{t('settings.tools.paths.title')}</h3>

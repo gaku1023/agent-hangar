@@ -139,6 +139,8 @@ export function NewProjectDialog(props: NewProjectProps) {
               {props.desktop && <><button type="button" className="btn" onClick={() => emit({ type: 'folder.pick' })}><Icon name="folderOpen" />{t('newProject.folder.pick')}</button><span className="faint">{t('newProject.folder.or')}</span></>}
               <input className="input mono" style={{ flex: 1 }} aria-label={t('newProject.path.aria')} placeholder={t(clientPlatform() === 'win32' ? 'newProject.path.placeholderWindows' : 'newProject.path.placeholder')} value={path} onChange={(e) => choosePath(e.target.value)} onKeyDown={onEnter} />
             </div>
+            {/* まとめて登録のダイアログの「フォルダの中から」へ送る（0.6.2）。このダイアログとは入れ替わる。 */}
+            <div><button type="button" className="linkish" onClick={() => emit({ type: 'project.candidates.open', source: 'folder' })}>{t('newProject.folder.bulk')}</button></div>
           </div>
           <label className="field" htmlFor="new-project-reg-name">{t('newProject.field.name')}
             <input id="new-project-reg-name" className="input" value={name} onChange={(e) => { setNameTouched(true); setName(e.target.value); }} onKeyDown={onEnter} />

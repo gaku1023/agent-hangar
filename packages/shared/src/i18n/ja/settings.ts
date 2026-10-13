@@ -308,7 +308,8 @@ export const settingsJa: AreaDictionary<typeof settingsKeys> = {
   'settings.tools.gitDesc': 'ブランチと未コミットの件数を読むのに使います。設定の欄は無く、PATH と決まった場所から探します。',
   'settings.tools.parent.placeholder': '空のときは、作るたびに場所を選びます',
   'settings.tools.parent.pick': '選ぶ…',
-  'settings.tools.register.title': 'Claude Code と会話したフォルダから登録',
-  'settings.tools.register.desc': 'これまでに Claude Code と会話したフォルダを並べ、プロジェクトにするものを選びます。',
-  'settings.tools.register.action': '選ぶ…',
+  'settings.tools.register.title': 'プロジェクトの登録',
+  'settings.tools.register.desc': 'フォルダをまとめてプロジェクトにします。',
+  'settings.tools.register.action': 'Claude Code と会話したフォルダから…',
+  'settings.tools.register.folder': 'フォルダの中から…',
 };

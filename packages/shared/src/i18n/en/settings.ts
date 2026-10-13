@@ -308,7 +308,8 @@ export const settingsEn: AreaDictionary<typeof settingsKeys> = {
   'settings.tools.gitDesc': 'Used to read branches and uncommitted counts. There is no field for it; it is looked up on PATH and in the usual places.',
   'settings.tools.parent.placeholder': 'If empty, you choose a location each time',
   'settings.tools.parent.pick': 'Choose…',
-  'settings.tools.register.title': 'Register folders you have used with Claude Code',
-  'settings.tools.register.desc': 'Lists the folders where you have talked with Claude Code so you can choose which become projects.',
-  'settings.tools.register.action': 'Choose…',
+  'settings.tools.register.title': 'Register projects',
+  'settings.tools.register.desc': 'Turns several folders into projects at once.',
+  'settings.tools.register.action': 'From folders used with Claude Code…',
+  'settings.tools.register.folder': 'From inside a folder…',
 };
