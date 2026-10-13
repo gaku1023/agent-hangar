@@ -2,11 +2,12 @@ import type http from 'node:http';
 import os from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { originAllowed, tokenFromRequest } from '../auth/request.ts';
+import { muxServersOf, type MuxServers } from '../tmux/servers.ts';
 import type { Tmux } from '../tmux/tmux.ts';
 
 export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void; write(d: string): void; resize(cols: number, rows: number): void; kill(): void };
 export type PtySpawn = (file: string, args: string[], opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }) => PtyProcess;
-type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; tmux: Tmux | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn };
+type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn };
 
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切り、pty を落とす。 */
 const CLOSE_GRACE_MS = 500;
@@ -23,7 +24,7 @@ export class PtyRelay {
   constructor(private readonly deps: Deps) {}
 
   /** Settings で tmuxPath が変わったときに差し替える。既に attach している接続はそのまま残る。 */
-  setTmux(tmux: Tmux | null): void {
+  setTmux(tmux: Tmux | MuxServers | null): void {
     this.deps.tmux = tmux;
   }
 
@@ -48,10 +49,15 @@ export class PtyRelay {
   }
 
   private serve(ws: WebSocket, tmuxName: string): void {
-    const tmux = this.deps.tmux!;
+    const mux = muxServersOf(this.deps.tmux!);
+    // 前の版が利用者の既定のサーバに作ったセッションは、そのサーバへつなぐ。
+    const tmux = mux.serverOf(tmuxName);
     // 中のアプリの OSC 52 を UI の xterm まで通させる。サーバ全体の設定なので、tmux サーバが起き直した後にも効くよう attach のたびに確かめる。
-    tmux.enableClipboard();
-    tmux.ensureTerminalOptions();
+    // どちらもサーバ全体の設定なので、hangar の専用のサーバにだけ入れる。利用者の既定のサーバには入れない。
+    if (tmux === mux.own) {
+      tmux.enableClipboard();
+      tmux.ensureTerminalOptions();
+    }
     let p: PtyProcess;
     try {
       p = this.deps.spawn(tmux.tmuxPath, tmux.attachArgs(tmuxName), { name: 'xterm-256color', cols: 120, rows: 40, cwd: os.homedir(), env: { ...process.env, TERM: 'xterm-256color', LANG: process.env.LANG ?? 'ja_JP.UTF-8' } });

@@ -6,7 +6,8 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { TMUX, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
-import { Tmux } from '../tmux/tmux.ts';
+import { hangarMux } from '../tmux/servers.ts';
+import { Tmux, type TmuxExec } from '../tmux/tmux.ts';
 import { PtyRelay, type PtyProcess, type PtySpawn } from './relay.ts';
 
 type Msg = { t: string; d?: string; message?: string };
@@ -140,6 +141,33 @@ describe('PtyRelay（偽の spawn）', () => {
     expect(opts.mock.invocationCallOrder[0]!).toBeLessThan(spawn.mock.invocationCallOrder[0]!);
     opts.mockRestore();
     ws.close();
+  });
+  it('専用のサーバの画面は -L hangar で、前の版が既定のサーバに作った画面はそのサーバで attach し、既定のサーバには設定を入れない', async () => {
+    const f = fakeSpawn();
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    // 既定のサーバにだけ前の版の画面 hangar-0a0a が居る。
+    const execCalls: string[][] = [];
+    const exec: TmuxExec = (_file, args) => {
+      execCalls.push(args);
+      const own = args[0] === '-L';
+      if ((own ? args[2] : args[0]) === 'list-sessions') return own ? { status: 0, stdout: 'hangar-1b1b\n', stderr: '' } : { status: 0, stdout: 'hangar-0a0a\nwork\n', stderr: '' };
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    const mux = hangarMux('/x/tmux', { exec, platform: 'darwin' });
+    const spawn = vi.fn(f.spawn);
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux: mux, resolveTab: (t) => (t === 'old' ? 'hangar-0a0a' : 'hangar-1b1b'), spawn });
+    await listen(relay);
+    const a = await connect('tab=old');
+    await waitFor(() => f.procs.length === 1);
+    expect(spawn.mock.calls[0]!.slice(0, 2)).toEqual(['/x/tmux', ['attach', '-t', '=hangar-0a0a']]);
+    // サーバ全体のオプション（show-options、set-option、bind-key）を既定のサーバへ出していない。
+    expect(execCalls.filter((c) => c[0] !== '-L' && c[0] !== 'list-sessions')).toEqual([]);
+    const b = await connect('tab=new');
+    await waitFor(() => f.procs.length === 2);
+    expect(spawn.mock.calls[1]!.slice(0, 2)).toEqual(['/x/tmux', ['-L', 'hangar', 'attach', '-t', '=hangar-1b1b']]);
+    expect(execCalls.some((c) => c[0] === '-L' && c[2] === 'show-options')).toBe(true);
+    a.ws.close();
+    b.ws.close();
   });
   it('プロセスの終了で接続を閉じる', async () => {
     const f = fakeSpawn();

@@ -1179,10 +1179,27 @@ tmux を使うのは、hangar を再起動してもセッションが生き続�
 Claude Code の `--tmux` フラグは使わず、hangar が自分で tmux セッションを組む。
 iTerm2 のネイティブペインに変わるのを避けるためである。
 
+hangar の tmux は、利用者の既定のサーバと分けた専用のサーバ（`tmux -L hangar`）で動かす。Windows の psmux も同じく `-L hangar` の名前空間を使う（2026-10-13 の利用者の決定）。
+サーバの名前は `tmux/servers.ts` の `HANGAR_SOCKET` の 1 か所で決め、run とシェルタブの作成、見張り、止める、画面の読み取りと打鍵、UI の端末の attach、外のターミナルの attach、シェル連携の `claude.zsh` が、どれもこの名前を付けて tmux を呼ぶ。
+利用者は `tmux -L hangar ls` で hangar のセッションを見られる。利用者の `~/.tmux.conf` は、専用のサーバが起きるときにも読まれる。
+分けるのは、hangar がサーバ全体に入れる設定（`set-clipboard`、`copy-command`、`extended-keys`、`terminal-features`、`S-Enter` の割り当て）を、利用者自身の tmux に及ぼさないためである。
+サーバの全体の環境も、利用者が先に起こした既定のサーバのもの（Claude Code のセッションの印など）を継がなくなる。
+
+0.6.0 より前の版は、利用者の既定のサーバに run を作っていた。
+更新の時点でそこで動いていた run とシェルタブは、中断にせず、終わるまで既定のサーバで扱う。
+どの画面が既定のサーバに居るかは、既定のサーバの一覧のうち hangar の名前（`hangar-<16 進>` と、その `-t<n>`）に当たるものから覚える（`MuxServers`）。
+覚えるのはサーバのプロセスの中だけで、DB には列を足さない。`runs` は端末をまたいで同期する表なので、端末の中の事情を載せないためである。
+hangar を再起動しても、同じ一覧から同じように覚え直せる。
+一覧（生きているかの確かめ、起動の見回り、「前回実行中」の判定）は、専用のサーバのセッションに、既定のサーバに残った hangar の画面を合わせたものにする。利用者自身のセッションは入れない。
+既定のサーバを読めなかったときは、古い run の生死が分からないので、一覧ごと「観測できない」として何も閉じない。
+閉じる、画面を読む、打鍵を送る、attach は、その画面が居るサーバで行う。新しい run とシェルタブ（古い run に足すシェルタブも）は、必ず専用のサーバに作る。
+既定のサーバに hangar の画面が 1 つも無いと分かったら、それからは既定のサーバを読まない。新しい画面は既定のサーバに作らないので、一度居なくなれば戻らない。
+サーバ全体の設定は専用のサーバにだけ入れ、既定のサーバの古い画面へ attach するときも入れない（前の版が入れた値は残っている）。
+
 起動コマンドの形は次のとおりである。
 
 ```sh
-tmux new-session -d -s hangar-<runShort> -c <cwd> -- \
+tmux -L hangar new-session -d -s hangar-<runShort> -c <cwd> -- \
   env [-u <外す名前>]... HANGAR_RUN_ID=<runId> \
   bash ~/.agent-hangar/bin/hangar-run.sh ~/.agent-hangar/logs/run-<runId>.log \
   <claude の絶対パス> \
@@ -1423,7 +1440,7 @@ OS を再起動するとソケットの置き場（`/tmp/tmux-<uid>/`）ごと�
 psmux はサーバが無いときに何も出さず exit 0 で終わるので、空の一覧になる。
 hangar は生きた run ごとに、Claude の登録の最後の状態（busy、waiting、idle）を `run_last_live` に覚える。登録が変わるたびと起動のときに書き、run が終われば捨てる。
 
-UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux attach -t <tmux_name>` を実行して入出力を中継する。
+UI のターミナルは xterm.js で、サーバ側の node-pty が `tmux -L hangar attach -t =<tmux_name>`（前の版が既定のサーバに作ったものは `-L` なし）を実行して入出力を中継する。
 リサイズは xterm.js の寸法を PTY に伝える。
 Windows で pty を閉じるとき、node-pty は子のコンソールの一覧を取る補助のプロセスを起こしてから pseudoconsole を閉じるので、補助が「AttachConsole failed」を標準エラー（サーバのログ）へ出すことがある。
 そこで Windows では pty の kill を直には呼ばず、子の `tmux attach` のプロセスだけを終わらせて、node-pty が終了を見て後始末をするのを待つ（`pty/close.ts`）。
@@ -1442,7 +1459,7 @@ Windows で pty を閉じるとき、node-pty は子のコンソールの一覧�
 - 端末の中のアプリが OSC 52 で写したものは、`@xterm/addon-clipboard` で受けてクリップボードへ書く。
   読み出しの要求には空で答える（端末の中のどのプログラムでもクリップボードを読めてしまうため）。
   tmux が OSC 52 を外へ通すように、サーバは attach の前に `set-clipboard` が on でも off でもなければ `set-option -s set-clipboard on` にする。
-  この設定は利用者の既定の tmux サーバ全体に効くが、利用者の決定（2026-10-01）でそのままにした。
+  この設定はサーバ全体に効くので、hangar の専用のサーバ（`-L hangar`）にだけ入れる。0.6.0 より前は利用者の既定のサーバ全体に入れていた（2026-10-01 の利用者の決定）。
   WKWebView ではクリップボードへの書き込みに利用者の操作から 5 秒の枠があり、その外で届いた写しは捨てられる。
 - 写すものが無い ⌘C は黙って捨てる。
   Claude Code（fullscreen）と tmux はドラッグを離した時点で自分で写し、xterm の選択は空のまま残る。
@@ -1529,7 +1546,7 @@ Claude Code の自動の続きはリセットから 70 秒から 90 秒ほど遅
 tmux の window ではなく別セッションにするのは、同じ tmux セッションに複数のクライアントが attach すると「現在の window」を共有してしまい、ブラウザの 2 つのタブが互いに切り替わってしまうからである。
 シェルタブは Claude が終了しても残り、明示的に閉じるか run を片付けるときに閉じる。
 「ターミナルで開く」はタブ単位である。
-既定は `tmux attach` を書いた `.command` ファイルを `open -a Terminal` で開く経路で、AppleEvent を使わないため macOS の自動化許可が要らない。
+既定は `tmux -L hangar attach` を書いた `.command` ファイルを `open -a Terminal` で開く経路で、AppleEvent を使わないため macOS の自動化許可が要らない。
 ディレクトリを開くときは、`cd <dir> && exec "${SHELL:-/bin/zsh}" -l` を書いた `.command` を作り、Terminal.app にも iTerm2 にもその `.command` を実行させる（`open-<パスのハッシュ>.command`）。
 iTerm2 を使う設定にしたときは AppleScript で新規ウィンドウを開く。初回に macOS の自動化許可ダイアログが出るので、Settings で有効化したときに一度だけ案内し、Tauri の Info.plist に `NSAppleEventsUsageDescription` を入れる。AppleScript には 10 秒のタイムアウトを付け、失敗したら Terminal.app の経路に落とす。
 iTerm2 の `create window with default profile command` は、渡した文字列を語に割って起こすだけで、シェルを通さない。
@@ -1538,10 +1555,10 @@ iTerm2 の `create window with default profile command` は、渡した文字列
 Windows では、選べるターミナルが「Windows Terminal」と「既定のターミナル」の 2 つになる（`TerminalApp` の `windowsTerminal` と `windowsDefault`）。
 設定画面は、画面を開いている OS の選択肢だけを同じ切り替えの部品に並べ、サーバも動いている OS の値だけを保存する。
 別の OS で保存した値（macOS の iTerm2 を Windows で読んだときなど）は、読み込むときにその OS の既定（macOS は Terminal.app、Windows は Windows Terminal）に読み替える。
-Windows Terminal は `wt.exe -w 0 new-tab --title <題名> --suppressApplicationTitle -- <psmux> attach -t =<名前>` で、直近の窓の新しいタブ（窓が無ければ新しい窓）に開く。
+Windows Terminal は `wt.exe -w 0 new-tab --title <題名> --suppressApplicationTitle -- <psmux> -L hangar attach -t =<名前>` で、直近の窓の新しいタブ（窓が無ければ新しい窓）に開く。
 wt は `;` を次のコマンドの区切りに読むので、引数の `;` は `\;` にして渡す。
 `wt.exe` を起こせなければ、既定のターミナルに落とし、落ちたことを知らせる。
-既定のターミナルは `cmd.exe /d /v:off /s /c "start "<題名>" "<psmux>" attach -t "=<名前>""` で、Windows の設定の「既定のターミナル アプリ」の新しい窓に開く。
+既定のターミナルは `cmd.exe /d /v:off /s /c "start "<題名>" "<psmux>" "-L" "hangar" attach -t "=<名前>""` で、Windows の設定の「既定のターミナル アプリ」の新しい窓に開く。
 この 1 行は Node に引用させずにそのまま渡す（Node の `\"` は cmd.exe に通じない）。
 cmd.exe は引用符の中でも `%name%` を置き換えるので、`%` だけは引用の外へ出して `^%` にする。
 `"` と改行を含む名前とパスは、どちらの経路でも引用を破るので、開かずに断る。
@@ -4052,13 +4069,16 @@ Claude Code は、利用上限に当たったセッションを上限が戻っ�
 hangar の tmux の中の claude は、上限を模した中継で、予約が入り、戻った後に自分で続くことを確かめた。
 
 - **包み方（`hangar shell install`）**：`~/.zshrc` から `~/.agent-hangar/shell/claude.zsh` を読む。
-  対話で起動した `claude` は、hangar に起動を頼み（`POST /api/runs/terminal`）、返ってきた tmux のセッションにこのターミナルからつなぐ（`tmux attach`）。
+  対話で起動した `claude` は、hangar に起動を頼み（`POST /api/runs/terminal`）、返ってきた tmux のセッションにこのターミナルからつなぐ（`tmux -L hangar attach`）。
   頼むときに、作業ディレクトリ、引数、環境変数を渡す。tmux の新しいセッションはシェルの環境変数を継がないので、hangar が `tmux new-session -e` で渡す。
   渡す前に、端末に固有の変数、`HANGAR_` で始まる変数、Claude Code が子に立てる印（run の起こし方と同じ一覧）を落とす。端末が Claude Code のセッションの中から起きていると、そのセッションの印を持っているためである。
   プロジェクトは、作業ディレクトリを含むルートのうち最も深いものにする。無ければ未分類にする。
   `-r <id>` は、その会話の run がもう動いていれば、その tmux につなぐだけにする。動いていなければ hangar に再開を頼む。
   hangar が応答しない、または断ったとき（tmux が無い、hangar が組み立てる引数と重なる引数を付けた、同じ会話が hangar の外で動いている）は、素の claude を起動する。
-  すでに tmux の中にいるときは、hangar の tmux サーバなら入れ子にせず `switch-client` で移り、ほかの tmux の中なら素の claude を起動する。
+  すでに tmux の中にいるときは、hangar の専用のサーバ（`$TMUX` のソケットが `${TMUX_TMPDIR:-/tmp}/tmux-$UID/hangar`）なら入れ子にせず `switch-client` で移り、ほかの tmux の中なら素の claude を起動する。
+  利用者の既定のサーバ（`…/default`）も「ほかの tmux」である（2026-10-13 の決定）。`switch-client` ではサーバをまたげず、入れ子で attach すると Ctrl+B が二重になるからである。
+  前の版の hangar が既定のサーバに作ったシェルタブの中で打った `claude` も、素の claude になる。
+  更新の前から開いているターミナルは、古い本体を読み込んだままなので、既定のサーバへ attach しようとして失敗する。run は hangar の一覧に残るので、hangar から開くか、新しいターミナルで `claude -r <id>` を打つ。
   サブコマンド、`-p`、`-c`、`--bg`、id の無い `-r` などは包まない。
   サブコマンドの一覧は、サーバが起動のたびと claude のパスを変えたときに `claude --help` の Commands の節から作り直し、本体に書き込む。
   出力が無い（claude が無い、時間切れ、0 以外で終わった）ときは組み込みの一覧（2.1.295 の Commands）を使い、ずれは記録しない。
@@ -4084,7 +4104,7 @@ hangar は、run とシェルタブの tmux のセッションに `LC_CTYPE=UTF-
 tmux の新しいセッションはサーバの環境を継ぎ、.app から起こした hangar が立てたサーバには `LANG` が無い。ロケールが無いと、claude が選んだ範囲を写すときに日本語を読めず、Mac のクリップボードを空にする。
 hangar の画面は OSC 52 を受けて書き直すが、アプリの WebKit では書けないことがあるので、claude 自身の書き込みが正しくなければならない（2026-10-02 に確かめた）。
 
-hangar は、tmux サーバに端末のための設定を入れる。どれもサーバ全体に効くので、利用者の値を上書きしない形で入れる。
+hangar は、専用の tmux サーバ（`-L hangar`）に端末のための設定を入れる。どれもサーバ全体に効くので、利用者の既定のサーバには入れない。利用者が `~/.tmux.conf` で決めた値は上書きしない。
 - `copy-command` を `LC_CTYPE=UTF-8 pbcopy` にする（空か、前の版が入れた素の `pbcopy` のときだけ）。iTerm2 は既定で端末のアプリからのクリップボードへの書き込み（OSC 52）を許さないので、マウスで選んだ範囲を直接クリップボードへ渡す。
   pbcopy はロケールで文字コードを決める。tmux サーバの環境には `LANG` が無いことが多く、素の `pbcopy` では日本語を写すとクリップボードが空になる（2026-10-02 に hangar の画面で起きた）。
 - `extended-keys` を `on` にし（`off` のときだけ）、`extended-keys-format` を `csi-u` にし、`terminal-features` に `xterm*:extkeys` を足す。外の端末から Shift+Enter を区別して受けるためである。

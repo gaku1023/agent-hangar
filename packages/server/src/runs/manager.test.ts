@@ -17,6 +17,7 @@ import { readArgs, writeFakeClaude } from '../../test/fake-claude.ts';
 import { writeFakeTool } from '../../test/fake-bin.ts';
 import { TMUX, removeDirsWhenIdle, removeTestSocket, testSocketPath, waitFor } from '../../test/tmux.ts';
 import { tmuxPaneOps, type PaneOps } from '../tmux/pane.ts';
+import { MuxServers } from '../tmux/servers.ts';
 import { Tmux } from '../tmux/tmux.ts';
 import { RUN_DROPPED_ENV } from '../launch/env.ts';
 import { MAX_RUN_LOGS } from '../launch/wrapper.ts';
@@ -530,6 +531,57 @@ describe.skipIf(!TMUX)('RunManager の寿命（tmux 上）', () => {
     const rm2 = make();
     expect(rm2.recoverAtStartup()).toEqual([]);
     expect(rm2.getRun(r.run.id)?.endedAt).toBeNull();
+  });
+});
+
+/**
+ * 前の版は、利用者の既定の tmux サーバに run を作っていた。更新の後は hangar の専用のサーバ（-L hangar）に作る。
+ * 既定のサーバはファイル共通の試験用ソケット（tmux）で、専用のサーバは別の試験用ソケットで模す。どちらも利用者の tmux には触れない。
+ */
+describe.skipIf(!TMUX)('専用の tmux サーバへの移行（tmux 上）', () => {
+  const ownSock = testSocketPath();
+  let own: Tmux;
+  beforeEach(() => { own = new Tmux({ tmuxPath: TMUX!, socketPath: ownSock }); });
+  // 専用のサーバは名指しで止める。最後のセッションが消えればサーバも降りる。
+  afterEach(() => { for (const n of own.listSessions() ?? []) own.killSession(n); });
+  afterAll(() => removeTestSocket(ownSock));
+  /** 更新の後のサーバ。新しい画面は専用のサーバに作り、既定のサーバに残った画面はそこで扱う。 */
+  const updated = () => make({ tmux: null, panes: tmuxPaneOps(new MuxServers(own, tmux!)) });
+
+  it('更新の前に既定のサーバで動き出した run は、中断にせず、終わるまでそこで扱う。新しい画面は専用のサーバに作る', async () => {
+    const before = make();
+    const r = before.start({ projectId: 'p1' });
+    const t1 = before.openTab(r.run.id);
+    await launchedArgs(r.run.id);
+    const rm = updated();
+    // 起動の見回りで「前回実行中」にしない。
+    expect(rm.recoverAtStartup()).toEqual([]);
+    expect(interruptedGroup(db)).toBeNull();
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+    expect(rm.getRun(r.run.id)?.endedAt).toBeNull();
+    expect(rm.getTab(t1.id)?.closedAt).toBeNull();
+    // 古い run に足すシェルタブも、新しい run も、専用のサーバに作る。
+    const t2 = rm.openTab(r.run.id);
+    expect(own.hasSession(t2.tmuxName)).toBe(true);
+    expect(tmux!.hasSession(t2.tmuxName)).toBe(false);
+    const r2 = rm.start({ projectId: 'p1' });
+    expect(own.hasSession(r2.run.tmuxName)).toBe(true);
+    expect(tmux!.hasSession(r2.run.tmuxName)).toBe(false);
+    await launchedArgs(r2.run.id);
+    // 止めるのは、それぞれが居るサーバのセッションである。
+    rm.kill(r.run.id);
+    await waitFor(() => !tmux!.hasSession(r.run.tmuxName) && !tmux!.hasSession(t1.tmuxName) && !own.hasSession(t2.tmuxName));
+    expect(rm.getRun(r.run.id)?.endReason).toBe('killed');
+    expect(own.hasSession(r2.run.tmuxName)).toBe(true);
+    rm.kill(r2.run.id);
+  });
+
+  it('既定のサーバの run が自分で終われば、exited で閉じる', async () => {
+    fake = writeFakeClaude(home, { sleepSec: 0 });
+    const r = make().start({ projectId: 'p1' });
+    const rm = updated();
+    await waitFor(() => !tmux!.hasSession(r.run.tmuxName));
+    expect(rm.tick().ended.map((x) => [x.id, x.endReason])).toEqual([[r.run.id, 'exited']]);
   });
 });
 
