@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "workspaces": ["packages/*", "apps/*"],
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22.14" },
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",

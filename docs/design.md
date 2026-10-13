@@ -5521,7 +5521,8 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   ネイティブモジュールは Node-API の prebuild なので作る Node の版に縛られないが、CI と配布の build の道筋を 1 つに固めておくためである。版を上げるときは CI の setup-node と一緒に上げる。
   CI は Node 24 でも確かめる。`node24` ジョブがサーバの試験を Node 24 で回し、desktop ジョブが build した `.app` を `nodePath` で Node 24 を指して起こす（`ci-boot-normal-macos.sh --node`）。
   開発機の Node は、リポジトリの根の `.nvmrc`（22）で合わせる。`bundle-server.ts` の試験は `buildNodeMajor` に `BUNDLE_NODE_MAJOR` を渡し、開発機の既定の Node が 22 でなくても落ちない（違う版で止まる試験だけは違う版を渡す）。
-  リポジトリの `engines`（`>=22`）は、ソースから動かすときのもので、そのときのネイティブモジュールは動かしている Node に合わせて入る。
+  リポジトリの `engines`（`>=22.14`）は、ソースから動かすときのもので、規則の版にそろえる（`nodeRule.test.ts` が縛る）。
+  ソースから動かすときのネイティブモジュールも Node-API 10 を使うためである。
   Node 本体の同梱は見送る（入れ物が 6MB から 40〜50MB に増え、Node の更新の責任も負う。2026-10-13 の決定）。Node を持たない人の報告が続いたら考え直す。
 - `nodePath` の重さ：Settings の `nodePath` は、次の起動で `.app` がそのまま起こす実行ファイルの場所なので、設定への書き込みが次回起動時のコード実行になる。
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。

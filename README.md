@@ -500,7 +500,7 @@ hangar は git に書きません（`--no-optional-locks` で読むだけ）。�
 ## クラウド同期（上級者向けのベータ）
 
 **これは上級者向けのベータです。**
-始めるのに、このリポジトリの clone、ターミナルで打つ CLI（clone した場所で `npm install` してから `npm run hangar -- setup cloud`）、自分の Cloudflare アカウントが要ります。
+始めるのに、このリポジトリの clone、ターミナルで打つ CLI（clone した場所で `npm install` してから `npm run hangar -- setup cloud`。Node 22.14 以上が要ります）、自分の Cloudflare アカウントが要ります。
 配布版のアプリだけでは、クラウドを作れません（同梱の `hangar` は、wrangler が 205MB あるので wrangler を持たず、`setup cloud` と `teardown` は、Worker の源が無いことを告げて止まります）。
 アプリでできるのは、すでにあるクラウドへの参加（設定の「参加トークンで参加」）と、同期の状態を見ることです。
 同期を使わなくても、ほかの機能はそのまま使えます。

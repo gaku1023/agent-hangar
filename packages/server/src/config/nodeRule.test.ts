@@ -34,6 +34,12 @@ describe('Node を採る規則', () => {
     expect(nodeFit(got!, table.need)).toBe(c.fit);
   });
 
+  // ソースから動かすときも、同じネイティブモジュール（Node-API 10）を読むので、リポジトリの engines を同じ版にそろえる。
+  it('リポジトリの engines は、規則の版以上（>=22.14）', () => {
+    const root = JSON.parse(fs.readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8')) as { engines?: { node?: string } };
+    expect(root.engines?.node).toBe(`>=${NODE_MIN_LABEL}`);
+  });
+
   it('上限は付けない。新しい Node-API の版でも採る', () => {
     expect(nodeFit({ version: '30.0.0', napi: 20, arch: 'x64' }, { napi: 10, min: '22.14', arch: 'x64' })).toBe('ok');
   });
