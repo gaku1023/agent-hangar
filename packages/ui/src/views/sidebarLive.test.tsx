@@ -180,10 +180,18 @@ const row = (id: string, over: Partial<SideLiveRow> = {}): SideLiveRow => ({ id,
 const liveProps = (over: Partial<SideLiveProps> = {}): SideLiveProps => ({ count: 3, ids: ['a', 'b', 'c'], rows: [row('a'), row('b', { live: 'waiting', waited: '入力待ち 4 分' }), row('c', { current: true })], more: 0, ...over });
 const mount = (live: SideLiveProps, onAction = vi.fn()) => ({ ...render(<ActionRoot onAction={onAction}><Sidebar nav={[]} foot={[]} collapsed={false} live={live} /></ActionRoot>), onAction });
 
-// jsdom はドラッグのイベントにポインタの位置を載せないので、作ったイベントに clientY を足してから送る。
-const dragAt = (kind: 'dragOver' | 'drop', el: HTMLElement, clientY: number) => {
+// 行の縦の位置。a・b・c を 30px ずつ上から並べる。jsdom は配置を測らないので、ここで与える。
+const placeRows = () => {
+  ['a', 'b', 'c'].forEach((id, i) => {
+    const top = 100 + i * 30;
+    screen.getByRole('link', { name: new RegExp(`name-${id}`) }).getBoundingClientRect = () => ({ top, height: 30, bottom: top + 30, left: 0, right: 200, width: 200, x: 0, y: top, toJSON: () => ({}) });
+  });
+};
+// jsdom はポインタのイベントに位置やボタンを載せないことがあるので、作ったイベントに足してから送る。
+type PointerKind = 'pointerDown' | 'pointerMove' | 'pointerUp' | 'pointerCancel';
+const pointerAt = (kind: PointerKind, el: HTMLElement, clientY: number, over: { button?: number; ctrlKey?: boolean; clientX?: number } = {}) => {
   const ev = createEvent[kind](el);
-  Object.defineProperty(ev, 'clientY', { value: clientY });
+  for (const [k, v] of Object.entries({ clientX: over.clientX ?? 20, clientY, pointerId: 1, button: over.button ?? 0, ctrlKey: over.ctrlKey ?? false, isPrimary: true })) Object.defineProperty(ev, k, { value: v });
   fireEvent(el, ev);
 };
 
@@ -220,29 +228,99 @@ describe('サイドバーの「実行中」の節（Sidebar）', () => {
     fireEvent.click(screen.getByText('ほか 8 件'));
     expect(onAction).toHaveBeenCalledWith({ type: 'nav.go', to: { name: 'home' } });
   });
-  it('行を掴んで別の行の上半分に落とすと、その前へ入る並びを出す', () => {
+  it('行を掴んで別の行の上半分まで動かして離すと、その前へ入る並びを出す。離したあとの click では行を開かない', () => {
     const { onAction } = mount(liveProps());
+    placeRows();
     const c = screen.getByRole('link', { name: /name-c/ });
     const a = screen.getByRole('link', { name: /name-a/ });
-    a.getBoundingClientRect = () => ({ top: 100, height: 30, bottom: 130, left: 0, right: 200, width: 200, x: 0, y: 100, toJSON: () => ({}) });
-    const dataTransfer = { effectAllowed: '', setData: vi.fn() };
-    fireEvent.dragStart(c, { dataTransfer });
-    dragAt('dragOver', a, 104);
+    pointerAt('pointerDown', c, 175);
+    pointerAt('pointerMove', c, 104);
+    expect(c).toHaveAttribute('data-dragging', 'true');
     expect(a).toHaveAttribute('data-over', 'before');
-    dragAt('drop', a, 104);
+    pointerAt('pointerUp', c, 104);
     expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['c', 'a', 'b'] });
+    expect(c).not.toHaveAttribute('data-dragging');
+    expect(a).not.toHaveAttribute('data-over');
+    fireEvent.click(c);
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'session.open' }));
   });
-  it('下半分に落とすと、その後ろへ入る', () => {
+  it('下半分まで動かして離すと、その後ろへ入る', () => {
     const { onAction } = mount(liveProps());
+    placeRows();
     const a = screen.getByRole('link', { name: /name-a/ });
     const b = screen.getByRole('link', { name: /name-b/ });
-    b.getBoundingClientRect = () => ({ top: 130, height: 30, bottom: 160, left: 0, right: 200, width: 200, x: 0, y: 130, toJSON: () => ({}) });
-    const dataTransfer = { effectAllowed: '', setData: vi.fn() };
-    fireEvent.dragStart(a, { dataTransfer });
-    dragAt('dragOver', b, 155);
+    pointerAt('pointerDown', a, 115);
+    pointerAt('pointerMove', a, 155);
     expect(b).toHaveAttribute('data-over', 'after');
-    dragAt('drop', b, 155);
+    pointerAt('pointerUp', a, 155);
     expect(onAction).toHaveBeenCalledWith({ type: 'sidebar.order', ids: ['b', 'a', 'c'] });
+  });
+  it('押しただけ、または少しだけ動いて離したときは、並べ替えずに行を開く', () => {
+    const { onAction } = mount(liveProps());
+    placeRows();
+    const a = screen.getByRole('link', { name: /name-a/ });
+    pointerAt('pointerDown', a, 115);
+    pointerAt('pointerMove', a, 117);
+    expect(a).not.toHaveAttribute('data-dragging');
+    pointerAt('pointerUp', a, 117);
+    fireEvent.click(a);
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.open', id: 'a' });
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'sidebar.order' }));
+  });
+  it('自分の上や行の外で離したときは並びを出さない。そのあとの click でも行を開かない', () => {
+    const { onAction } = mount(liveProps());
+    placeRows();
+    const a = screen.getByRole('link', { name: /name-a/ });
+    pointerAt('pointerDown', a, 115);
+    pointerAt('pointerMove', a, 300);
+    expect(a).toHaveAttribute('data-dragging', 'true');
+    expect(document.querySelector('[data-over]')).toBeNull();
+    pointerAt('pointerUp', a, 300);
+    fireEvent.click(a);
+    expect(onAction).not.toHaveBeenCalled();
+  });
+  it('ドラッグが取り消されたら（pointercancel）、印を消して並びを出さない', () => {
+    const { onAction } = mount(liveProps());
+    placeRows();
+    const c = screen.getByRole('link', { name: /name-c/ });
+    const a = screen.getByRole('link', { name: /name-a/ });
+    pointerAt('pointerDown', c, 175);
+    pointerAt('pointerMove', c, 104);
+    pointerAt('pointerCancel', c, 104);
+    expect(c).not.toHaveAttribute('data-dragging');
+    expect(a).not.toHaveAttribute('data-over');
+    expect(onAction).not.toHaveBeenCalled();
+  });
+  it('右ボタンや control を押しながらの押し下げでは、ドラッグを始めない', () => {
+    const { onAction } = mount(liveProps());
+    placeRows();
+    const c = screen.getByRole('link', { name: /name-c/ });
+    pointerAt('pointerDown', c, 175, { button: 2 });
+    pointerAt('pointerMove', c, 104);
+    expect(c).not.toHaveAttribute('data-dragging');
+    pointerAt('pointerUp', c, 104);
+    pointerAt('pointerDown', c, 175, { ctrlKey: true });
+    pointerAt('pointerMove', c, 104);
+    expect(c).not.toHaveAttribute('data-dragging');
+    pointerAt('pointerUp', c, 104);
+    expect(onAction).not.toHaveBeenCalled();
+  });
+  it('ドラッグの途中で Esc を押すと、印を消して並びを出さない。離したあとの click でも行を開かない', () => {
+    const { onAction } = mount(liveProps());
+    placeRows();
+    const c = screen.getByRole('link', { name: /name-c/ });
+    pointerAt('pointerDown', c, 175);
+    pointerAt('pointerMove', c, 104);
+    fireEvent.keyDown(c, { key: 'Escape' });
+    expect(c).not.toHaveAttribute('data-dragging');
+    expect(document.querySelector('[data-over]')).toBeNull();
+    pointerAt('pointerUp', c, 104);
+    fireEvent.click(c);
+    expect(onAction).not.toHaveBeenCalled();
+  });
+  it('行は HTML のドラッグを使わない（デスクトップのアプリでは窓の中の dragover と drop が届かないため）', () => {
+    mount(liveProps());
+    for (const link of screen.getAllByRole('link')) expect(link).toHaveAttribute('draggable', 'false');
   });
   it('キーボードでは ⌥↑ と ⌥↓ で 1 つずつ動かす。⌥ が無ければ動かさない', () => {
     const { onAction } = mount(liveProps());
