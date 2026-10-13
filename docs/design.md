@@ -5500,6 +5500,16 @@ heartbeat の書き直しはこの PC の画面へは配らない（`run.upsert`
 控えが取れなければ `~/.claude` を触らずに戻る。
 手元の方が大きいか同じときは、黙って上書きしない。
 
+**A → B → A と戻ったとき（0.6.1）。**
+この PC で始めた会話をほかの PC で進めて戻ると、手元には古い本文が残っている。
+素の「再開」はその古い本文で起きるので、次のようにした。
+
+- 最後の run がほかの PC のもので、手元に降ろしたその PC の主線の写しが手元の主線より大きいとき、`SessionDto.newerElsewhere` を真にする（`db/queries.ts`）。大きさだけで決め、本文は読まない。
+- 真のときは、手元に本文があっても「この PC で再開」を主にする（見出しと一覧の行の「⋯」、`presenters/resumeHere.ts` と `presenters/session.ts`）。素の再開は「この PC のトランスクリプトのまま再開」と名前を替え、注記を添えて「…」に残す。
+- 確認の 1 枚を出すときに、手元と写しの本文を読み比べる（`sync/copy.ts` の `compareForResume`、`ResumeHerePlanDto.replace`）。手元が写しの先頭部分なら `ahead`、そうでなければ `diverged`（この PC でも別の続きを進めた）である。どちらも同じ 1 枚に、控えに残して置き換えることを 1 行で言い、承諾を上書きつきで送る。上書きの確認をもう 1 枚は出さない。
+- 前の PC の作業ディレクトリ（確認の 1 枚の前の PC のパスと、引き継ぎの段の `prevPath`）は、会話を作った PC の `sessions.cwd` ではなく、前の PC の最後の run から取る（`runs/handover.ts` の `prevPathOf`）。`runs` は cwd を持たないので、その PC から降ろした写しの末尾の cwd を使い、その PC の `project_roots` の場所の下にあるときだけ採る。採れなければ、前の PC が会話を作った PC なら `sessions.cwd`、そうでなければその PC の `project_roots` の場所にする。
+- 再開に使うアカウントは、この PC の run だけから引く（`RunAccounts.accountFor`、`accountOfSession` と `sessionAccounts` の `deviceId`）。アカウントの id と名前は PC ごとの設定なので、ほかの PC の run のアカウントは引かない。この PC に run が無ければ、この PC でいま選んでいるアカウントにする。
+
 **引き継ぎは作らない。**
 2026-09-19 の判断で、ロックの表示と「この PC で再開」までに絞った。
 段 1（2026-10-07）で、型、UiAction、ServerEvent を消し、`takeover_requests` を共有テーブルの一覧からも外した。

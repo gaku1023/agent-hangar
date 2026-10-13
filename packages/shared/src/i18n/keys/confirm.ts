@@ -44,6 +44,8 @@ export const confirmKeys = {
   'confirm.resumeHere.notSynced': [],
   'confirm.resumeHere.synced': [],
   'confirm.resumeHere.action': [],
+  'confirm.resumeHere.replaceAhead': [],
+  'confirm.resumeHere.replaceDiverged': [],
   'confirm.replaceTranscript.lead': [],
   'confirm.replaceTranscript.local': ['size'],
   'confirm.replaceTranscript.remote': ['size'],

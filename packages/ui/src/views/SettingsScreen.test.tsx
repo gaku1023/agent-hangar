@@ -298,7 +298,7 @@ describe('設定の一般', () => {
       render(ui(at('general', { retention }), onAction));
       expect(screen.getByText('トランスクリプトの保持')).toBeInTheDocument();
       expect(screen.getByText('10 年たつと約 178 GB')).toBeInTheDocument();
-      expect(screen.getByText(/値は設定の同期で他の PC にも届きます/)).toBeInTheDocument();
+      expect(screen.getByText(/値は設定の同期でほかの PC にも届きます/)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('radio', { name: '1 年' }));
       expect(onAction).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
       onAction.mockClear();

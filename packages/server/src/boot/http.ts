@@ -10,6 +10,7 @@ import { nodePtySpawn } from '../pty/nodePty.ts';
 import { PtyRelay } from '../pty/relay.ts';
 import { sessionRunsAnywhere } from '../runs/announce.ts';
 import { resumeHere } from '../sync/resumeHere.ts';
+import { compareForResume } from '../sync/copy.ts';
 import { guardUpgrades } from '../ws/guard.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
@@ -123,6 +124,7 @@ export function bootHttp(p: {
     syncSkipped: sync.feed.skipped,
     syncSweep: sync.feed.sweep,
     syncOncePass: sync.feed.oncePass,
+    resumeHereReplace: (sessionId) => compareForResume({ db, home: home.home, claudeDir: home.claudeDir, sessionId }),
     resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
     configBundle: sync.configBundle,
     joinToken: sync.joinToken,

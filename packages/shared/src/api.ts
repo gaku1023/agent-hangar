@@ -87,7 +87,13 @@ export type SessionDto = { id: string; provider: 'claude-code'; providerSessionI
   /** 中断（SessionInterruptDto）。ステータスの無いセッションで、最後の run が lost で終わったときだけ値を持つ。 */
   interrupted: SessionInterruptDto | null;
   /** 同じファイルを別のセッションと編集していること（SessionOverlapDto）。実行中のときだけ値を持つ。 */
-  overlap: SessionOverlapDto | null };
+  overlap: SessionOverlapDto | null;
+  /**
+   * ほかの PC に、この PC のトランスクリプトより新しい続きがあること（A → B → A と戻ったとき）。
+   * 最後の run がほかの PC のもので、手元に降ろしたその写しが手元のトランスクリプトより大きいときだけ真。
+   * 真のとき、画面は手元にトランスクリプトがあっても「この PC で再開」を主にする。
+   */
+  newerElsewhere: boolean };
 /**
  * 中断の原因。
  * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。
@@ -509,7 +515,15 @@ export type ResumeHerePlanDto = {
   sessionId: string;
   from: { deviceName: string | null; platform: string | null; path: string; lastAt: number | null };
   to: { deviceName: string | null; platform: string | null; path: string | null };
+  /** この PC のトランスクリプトをほかの PC の写しで置き換えるとき（ResumeHereReplaceDto）。手元に無いか、手元の方が大きいか同じなら null。 */
+  replace: ResumeHereReplaceDto | null;
 };
+/**
+ * 「この PC で再開」で、手元のトランスクリプトを置き換えること（A → B → A と戻ったとき）。
+ * ahead は手元がほかの PC の写しの先頭部分（ほかの PC がこの続きを進めた）、diverged は先頭部分でない（この PC でも別の続きを進めた）。
+ * どちらも置き換える前に控えを取る。確認の 1 枚が 1 行で言い、承諾は上書きつきで送る。
+ */
+export type ResumeHereReplaceDto = { kind: 'ahead' | 'diverged'; localSize: number; remoteSize: number };
 
 /**
  * 設定の「使用量と費用」に出す形。端末のサーバが Worker の /usage から作る。

@@ -9,14 +9,15 @@ import { unresolvedKind } from './unresolved.ts';
  * disabled は押せない理由で、ほかの PC で実行中（生きたロック）を先に言い、次にこの PC にプロジェクトのフォルダが無いことを言う。
  * noRoot は、この PC にプロジェクトのフォルダが無いときの理由と、場所を指定する先のプロジェクト。セッション画面は見出しの下に常に出す（1a）。
  * プロジェクトに属さない会話とスクラッチは、場所では止めない（サーバは前の cwd で起こす）。
- * ほかの PC の会話（写しだけか、ほかの PC のロックがある）でなければ null。
+ * ほかの PC の会話（写しだけか、ほかの PC のロックがあるか、ほかの PC の続きの方が新しい）でなければ null。
  */
 export type ResumeHereFacts = { disabled: string | null; noRoot: { reason: string; projectId: string } | null };
 
 export function resumeHereOf(store: Store, s: SessionDto, t: Translate): ResumeHereFacts | null {
   // 古いサーバの行や試験の行は lock を持たないことがあるので、無いものとして読む。
   const lock = s.lock ?? null;
-  if (!s.remoteOnly && lock === null) return null;
+  // ほかの PC の続きの方が新しい会話（A → B → A）は、手元にトランスクリプトがあっても「この PC で再開」に回す。
+  if (!s.remoteOnly && lock === null && s.newerElsewhere !== true) return null;
   const p = s.projectId ? store.projects[s.projectId] : undefined;
   const lost = p !== undefined && unresolvedKind(p) !== null;
   const reason = t('session.action.resumeHereNoRoot');
@@ -30,12 +31,14 @@ export type ResumeHereCard = { label: string; name: string; os: string | null; p
 /**
  * 「この PC で再開」の確認（2 枚のカードと黄の帯、試作の 2a の A、2b の Y、2c の P）。
  * blocked は、この PC で場所が決まらないときの理由で、そのときは再開のボタンを押せなくする。
+ * replace は、この PC のトランスクリプトを置き換えるときの 1 行（バックアップに残すこと）で、そのとき承諾は上書きつき（overwrite）で送る。
  */
 export type ResumeHereProps = {
   sessionId: string; title: string; lead: string;
   from: ResumeHereCard; to: ResumeHereCard;
   band: { strong: string; text: string };
   action: string; blocked: string | null;
+  replace: string | null; overwrite: boolean;
 };
 
 /**
@@ -54,5 +57,7 @@ export function presentResumeHere(t: Translate, plan: ResumeHerePlanDto, home: s
     band: { strong: t('confirm.resumeHere.notSynced'), text: t('confirm.resumeHere.synced') },
     action: t('confirm.resumeHere.action'),
     blocked: plan.to.path === null ? t('session.action.resumeHereNoRoot') : null,
+    replace: plan.replace === null ? null : t(plan.replace.kind === 'ahead' ? 'confirm.resumeHere.replaceAhead' : 'confirm.resumeHere.replaceDiverged'),
+    overwrite: plan.replace !== null,
   };
 }

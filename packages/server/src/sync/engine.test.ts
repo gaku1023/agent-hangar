@@ -598,7 +598,7 @@ describe('SyncEngine の 413（大きすぎる行）', () => {
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.level).toBe('error');
     expect(toasts[0]?.message).toContain('big');
-    expect(toasts[0]?.message).toMatch(/他の PC には届きません$/);
+    expect(toasts[0]?.message).toMatch(/ほかの PC には届きません$/);
     expect(e.status()).toMatchObject({ state: 'idle', error: null });
 
     // 同じ行がまた大きいまま書き直されても、知らせるのは 1 度だけである。

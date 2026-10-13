@@ -159,6 +159,8 @@ export const sessionJa: AreaDictionary<typeof sessionKeys> = {
   'session.action.resumeHereNoRoot': 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。',
   'session.action.setLocation': '場所を指定',
   'session.action.otherComputer': 'ほかの PC',
+  'session.action.resumeLocal': 'この PC のトランスクリプトのまま再開',
+  'session.action.resumeLocalNote': 'ほかの PC で進めた続きは入りません',
   'session.gone.note': 'トランスクリプトは、Claude Code の保持期間（{period}）を過ぎたため削除されたとみられます。残っているのは要約だけです。',
   'session.lead.summarizerUnknown': '不明 / {model}',
   'session.lead.summarizerOpenai': 'OpenAI 互換',

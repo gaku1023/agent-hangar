@@ -113,7 +113,7 @@ export class RunManager {
 
   constructor(private readonly deps: RunManagerDeps) {
     this.tr = translatorOf(deps.language);
-    this.accounts = deps.accounts ?? new RunAccounts({ db: deps.db, claudeDir: deps.claudeDir });
+    this.accounts = deps.accounts ?? new RunAccounts({ db: deps.db, claudeDir: deps.claudeDir, deviceId: deps.deviceId });
   }
 
   on(l: RunListener): () => void {

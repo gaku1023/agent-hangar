@@ -130,7 +130,7 @@ export function bootRuns(
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
     // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
     live: () => registry.current(),
-    accounts: new RunAccounts({ db, claudeDir, store: accountStore }),
+    accounts: new RunAccounts({ db, claudeDir, store: accountStore, deviceId: device.id }),
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
     language: home.language,
@@ -149,11 +149,11 @@ export function bootRuns(
   });
   setParkingSwitch(db, () => settings.current.autoPark !== false);
   const usage = new UsageTracker(db, {
-    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id) }, providerSessionId),
+    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
     compat: compatLog,
   });
   const accounts: AccountsDeps = {
-    db, store: accountStore, auth: accountAuth, usage, runs, primaryDir: claudeDir,
+    db, store: accountStore, auth: accountAuth, usage, runs, primaryDir: claudeDir, deviceId: device.id,
     broadcast: (dto) => hub.broadcast({ type: 'accounts.update', accounts: dto }),
   };
   // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
@@ -168,7 +168,7 @@ export function bootRuns(
   // デスクトップ通知のきっかけ（入力待ち、許可待ち、使用制限、リセット済み）。殻が GET /api/notify/feed で読む。
   const stopNotices = new StopNoticeWatch({
     db, deviceId: device.id, live: () => registry.current(), language: home.language, feed: delivery.osNotices,
-    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id) }, providerSessionId),
+    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
   });
   // 待っているもの（問いの文、許可の中身）がある間だけ短い周期で見る。登録が変わったときはその場で見る（paceNotices）。
   const notices = paceNotices(stopNotices);

@@ -45,6 +45,8 @@ export const confirmEn: AreaDictionary<typeof confirmKeys> = {
   'confirm.resumeHere.notSynced': 'Project files, uncommitted changes, and the development environment (tools, environment variables, secret values) are not synced.',
   'confirm.resumeHere.synced': "Only the conversation transcript and hangar's records are synced.",
   'confirm.resumeHere.action': 'Resume on this computer',
+  'confirm.resumeHere.replaceAhead': "This computer's older transcript is kept as a backup, and the conversation resumes from the work continued on another computer.",
+  'confirm.resumeHere.replaceDiverged': "The work continued on this computer is kept as a backup, and the conversation resumes from the other computer's version.",
   'confirm.replaceTranscript.lead': 'The transcript on this computer is still smaller. Replace it with the one from another computer?',
   'confirm.replaceTranscript.local': 'Transcript on this computer: {size}',
   'confirm.replaceTranscript.remote': 'Transcript on another computer: {size}',

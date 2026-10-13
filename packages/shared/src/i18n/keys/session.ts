@@ -158,6 +158,8 @@ export const sessionKeys = {
   'session.action.resumeHereNoRoot': [],
   'session.action.setLocation': [],
   'session.action.otherComputer': [],
+  'session.action.resumeLocal': [],
+  'session.action.resumeLocalNote': [],
   'session.gone.note': ['period'],
   'session.lead.summarizerUnknown': ['model'],
   'session.lead.summarizerOpenai': [],

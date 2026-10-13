@@ -7,8 +7,8 @@ import { ensureSession } from '../indexer/indexFile.ts';
 let db: Db;
 let s1: string;
 let s2: string;
-const run = (id: string, sessionId: string, startedAt: number, params: unknown) =>
-  upsertShared(db, 'runs', { id, session_id: sessionId, device_id: 'd', kind: 'start', tmux_name: `t-${id}`, pid: null, launch_params: typeof params === 'string' ? params : JSON.stringify(params), started_at: startedAt, ended_at: startedAt + 1, end_reason: 'exited', heartbeat_at: startedAt }, 'd');
+const run = (id: string, sessionId: string, startedAt: number, params: unknown, device = 'd') =>
+  upsertShared(db, 'runs', { id, session_id: sessionId, device_id: device, kind: 'start', tmux_name: `t-${id}`, pid: null, launch_params: typeof params === 'string' ? params : JSON.stringify(params), started_at: startedAt, ended_at: startedAt + 1, end_reason: 'exited', heartbeat_at: startedAt }, 'd');
 
 beforeEach(() => {
   db = openDb(':memory:');
@@ -32,7 +32,28 @@ describe('accountOfSession', () => {
   });
 });
 
+describe('accountOfSession の PC の絞り込み（A → B → A）', () => {
+  it('PC を渡すと、その PC の run だけから引く。ほかの PC の後の run のアカウントは引かない', () => {
+    run('r1', s1, 10, { account: 'a1' }, 'mac');
+    run('r2', s1, 20, { account: 'primary' }, 'win');
+    expect(accountOfSession(db, s1)).toBe('primary');
+    expect(accountOfSession(db, s1, 'mac')).toBe('a1');
+    expect(accountOfSession(db, s1, 'win')).toBe('primary');
+  });
+  it('その PC に run が無ければ null', () => {
+    run('r1', s1, 10, { account: 'a1' }, 'win');
+    expect(accountOfSession(db, s1, 'mac')).toBeNull();
+  });
+});
+
 describe('sessionAccounts', () => {
+  it('PC を渡すと、その PC の最後の run だけを見る', () => {
+    run('r1', s1, 10, { account: 'a1' }, 'mac');
+    run('r2', s1, 20, { account: 'primary' }, 'win');
+    run('r3', s2, 10, { account: 'a2' }, 'win');
+    expect(sessionAccounts(db)).toEqual({ [s2]: 'a2' });
+    expect(sessionAccounts(db, 'mac')).toEqual({ [s1]: 'a1' });
+  });
   it('最後の run が primary 以外のセッションだけを載せる', () => {
     run('r1', s1, 10, { account: 'a1' });
     run('r2', s2, 10, { account: 'a1' });

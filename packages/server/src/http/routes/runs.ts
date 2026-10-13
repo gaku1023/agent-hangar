@@ -10,7 +10,7 @@ import type { AppDeps, LanguageDeps } from '../deps.ts';
 import { beforeLaunchOf, BODY_LIMITS, externalOf, readJson, runResult, runResultAsync, sessionOf, tooLargeResult } from './common.ts';
 
 /** run の経路が使う依存。 */
-export type RunRouteDeps = Pick<AppDeps, 'runs' | 'sync' | 'resumeHere' | 'external' | 'token' | 'db' | 'deviceId' | 'live' | 'hub'> & LanguageDeps;
+export type RunRouteDeps = Pick<AppDeps, 'runs' | 'sync' | 'resumeHere' | 'resumeHereReplace' | 'external' | 'token' | 'db' | 'deviceId' | 'live' | 'hub'> & LanguageDeps;
 
 /**
  * run の経路。
@@ -23,9 +23,9 @@ export function runRoutes(api: Hono, deps: RunRouteDeps): void {
   const beforeLaunch = beforeLaunchOf(deps);
   const session = sessionOf(deps);
 
-  // 「この PC で再開」の確認に出すもの。前の PC と最後に使った日時、この PC と読み替えた作業ディレクトリを返す（runs/handover.ts）。
+  // 「この PC で再開」の確認に出すもの。前の PC と最後に使った日時、この PC と読み替えた作業ディレクトリ、手元のトランスクリプトを置き換えるかを返す（runs/handover.ts）。
   api.get('/sessions/:id/resume-here', (c) => {
-    const plan = resumeHerePlan(deps.db, deps.deviceId, c.req.param('id'));
+    const plan = resumeHerePlan(deps.db, deps.deviceId, c.req.param('id'), { replace: deps.resumeHereReplace });
     return plan ? c.json(plan) : c.json({ error: tr('session.error.notFound') }, 404);
   });
 

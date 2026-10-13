@@ -194,6 +194,13 @@ describe('同期の経路', () => {
     expect((await get('/api/sessions/nope/resume-here')).status).toBe(404);
   });
 
+  it('この PC で再開の確認に、手元のトランスクリプトを置き換えるかを添える（A → B → A）', async () => {
+    const id = (await json(await get('/api/sessions'))).body[0].id;
+    expect((await json(await get(`/api/sessions/${id}/resume-here`))).body.replace).toBeNull();
+    app = createApp({ ...deps, resumeHereReplace: (sid) => (sid === id ? { kind: 'ahead', localSize: 10, remoteSize: 99 } : null) });
+    expect((await json(await get(`/api/sessions/${id}/resume-here`))).body.replace).toEqual({ kind: 'ahead', localSize: 10, remoteSize: 99 });
+  });
+
   it('この PC で再開の RunError は status と理由を返す', async () => {
     app = createApp({ ...deps, resumeHere: () => { throw new RunError(400, 'このセッションの本文がありません'); } });
     const r = await json(await post('/api/sessions/s1/resume-here', { overwrite: true }));
