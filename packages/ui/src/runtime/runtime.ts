@@ -123,13 +123,27 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   // 殻の有無は起動の時に決まり、あとで変わらない。
   let store: Store = { ...initialStore(), desktop: deps.desktop != null };
   const listeners = new Set<() => void>();
-  const notify = () => { for (const l of listeners) l(); };
+  const notify = () => { heldStore = false; for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
+  /** 窓が前にあるか（document.visibilityState）。git の表示の周期と、配信を画面へ出すかが見る。 */
+  const visible = deps.visible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
+  /**
+   * 隠れている間に Store が変わったのに、画面へまだ知らせていないか（2026-10-14、0.6.1）。
+   * 隠れている間の配信は Store に当てる（Mediator の入力待ちの知らせは今までどおり動く）が、React へは知らせない。
+   * 見えたときに 1 回だけ知らせて、まとめて描かせる。最小化した窓や裏のタブで、配信のたびに画面全体を描き直さないためである。
+   * 画面の移り変わり（commit）は隠れていても知らせる。通知を押して開いた画面などを、見えた瞬間に出すためである。
+   * 溜めたものは、見えたとき（onWindowVisible）と前面に来たとき（onWindowFocus）に出す。
+   */
+  let heldStore = false;
+  // 前面にある窓は、visibilityState が hidden と言っても溜めない（当てにならない WebView があっても、見ている画面を止めない）。
+  const focused = (): boolean => typeof document !== 'undefined' && document.hasFocus();
+  const notifyStore = () => { if (visible() || focused()) notify(); else heldStore = true; };
+  const releaseStore = () => { if (heldStore) notify(); };
   const present = deps.present ?? ((c: () => void) => c());
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
   // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); syncFeed(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notifyStore(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); syncFeed(); } };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
@@ -836,7 +850,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     fetch: (ids) => deps.api.gitSessions(ids),
     apply: (g) => setStore(applyGit(store, g)),
     live: () => Object.values(store.sessions).filter((s) => shownLive(s) !== null).map((s) => s.id),
-    visible: deps.visible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+    visible,
     setTimeout: (fn, ms) => deps.setTimeout(fn, ms),
     now: deps.now ?? Date.now,
     also: reloadProjectGit,
@@ -997,8 +1011,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         wrote = null;
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
-      unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
-      unsubVisible = deps.onWindowVisible?.(() => { recheckNotify(); gitWatch.wake(); }) ?? null;
+      // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
+      unsubFocus = deps.onWindowFocus?.(() => { releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { releaseStore(); recheckNotify(); gitWatch.wake(); }) ?? null;
       ws.connect();
     },
     stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },

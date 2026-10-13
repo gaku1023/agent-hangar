@@ -25,7 +25,7 @@ import { createMcpApp } from '../mcp/app.ts';
 import type { Drift } from '../provider/claude-code/compat/types.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
 import { RunAccounts } from './accounts.ts';
-import { RunManager } from './manager.ts';
+import { RUN_STIR_MS, RunManager } from './manager.ts';
 import { realProcOps, type ProcOps } from '../provider/claude-code/process/procs.ts';
 import { issueMcpSecret, mcpSecretFor } from './secrets.ts';
 import { interruptedGroup } from './interrupted.ts';
@@ -464,6 +464,87 @@ describe('RunManager の回復と結びつけ（tmux 不要）', () => {
       boom.mockRestore();
       quiet.mockRestore();
     }
+  });
+});
+
+/**
+ * 待機中に tmux（Windows は psmux）を呼ぶ回数を減らす（2026-10-14、0.6.1）。
+ * 一覧の読み取りは子プロセスを 1 つ起こすので、Windows では 1 回ごとの負荷が重い。
+ */
+describe('RunManager の終了の見張りの周期（tmux 不要）', () => {
+  const countingPanes = (names: () => string[]) => {
+    const c = { lists: 0 };
+    const panes: PaneOps = { open: () => {}, close: () => {}, list: () => { c.lists++; return names(); }, capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+    return { c, panes };
+  };
+  const aliveRun = (id: string, heartbeatAt = 1) => {
+    upsertShared(db, 'sessions', { id: `s-${id}`, provider: 'claude-code', provider_session_id: `u-${id}`, cwd, home_device: 'd' }, 'd');
+    upsertShared(db, 'runs', { id, session_id: `s-${id}`, device_id: 'd', kind: 'start', tmux_name: `hangar-${id}`, pid: null, launch_params: '{}', started_at: 1, ended_at: null, end_reason: null, heartbeat_at: heartbeatAt }, 'd');
+  };
+
+  it('tick は、生きた run も開いたシェルタブも無ければ tmux を読まない', () => {
+    const { c, panes } = countingPanes(() => []);
+    const rm = make({ panes });
+    expect(rm.tick()).toEqual({ ended: [], closedTabs: [] });
+    expect(c.lists).toBe(0);
+    aliveRun('r1');
+    rm.tick();
+    expect(c.lists).toBe(1);
+  });
+
+  it('startPolling は、何も起きない間は idleMs ごと、stir の後 RUN_STIR_MS の間は intervalMs ごとに見る', () => {
+    vi.useFakeTimers();
+    try {
+      aliveRun('r1');
+      const { c, panes } = countingPanes(() => ['hangar-r1']);
+      const rm = make({ panes });
+      rm.startPolling(2000, 10_000);
+      vi.advanceTimersByTime(9_999);
+      expect(c.lists).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(c.lists).toBe(1);
+      rm.stir();
+      vi.advanceTimersByTime(2000);
+      expect(c.lists).toBe(2);
+      vi.advanceTimersByTime(RUN_STIR_MS - 2000);
+      expect(c.lists).toBe(1 + RUN_STIR_MS / 2000);
+      const before = c.lists;
+      vi.advanceTimersByTime(10_000);
+      expect(c.lists).toBe(before + 1);
+      rm.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('登録の変化（linkRegistry）は stir になり、終わった claude の画面をすぐに見に行く', () => {
+    vi.useFakeTimers();
+    try {
+      aliveRun('r1');
+      const { c, panes } = countingPanes(() => ['hangar-r1']);
+      const rm = make({ panes });
+      rm.startPolling(2000, 10_000);
+      vi.advanceTimersByTime(1000);
+      rm.linkRegistry([]);
+      vi.advanceTimersByTime(2000);
+      expect(c.lists).toBe(1);
+      rm.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('heartbeat の書き直しは画面へ配らない（同期で他の PC へ届けるための書き込みである）', () => {
+    let t = 1_000_000;
+    aliveRun('r1', t);
+    const { panes } = countingPanes(() => ['hangar-r1']);
+    const rm = make({ panes, now: () => t });
+    const updated: string[] = [];
+    rm.on({ runUpdated: (r) => updated.push(r.id) });
+    t += 31_000;
+    rm.tick();
+    expect(rm.getRun('r1')?.heartbeatAt).toBe(1_031_000);
+    expect(updated).toEqual([]);
   });
 });
 

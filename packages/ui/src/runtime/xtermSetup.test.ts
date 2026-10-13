@@ -154,9 +154,14 @@ describe('terminalOptions', () => {
     expect(terminalOptions(theme).macOptionIsMeta).toBe(false);
   });
 
+  it('カーソルは点滅させない。点滅の間は、見ていなくても 600 ミリ秒ごとに端末を描き直す', () => {
+    // tmux は attach のたびに点滅を切る（ESC [ ? 12 l）ので、macOS と Linux の見た目は今までと同じである。
+    expect(terminalOptions(theme).cursorBlink).toBe(false);
+  });
+
   it('今までの見た目の設定を保つ', () => {
     const o = terminalOptions(theme);
-    expect(o).toMatchObject({ fontSize: 13, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, allowProposedApi: true, theme });
+    expect(o).toMatchObject({ fontSize: 13, lineHeight: 1.2, scrollback: 5000, allowProposedApi: true, theme });
     expect(o.fontFamily).toContain('JetBrains Mono');
   });
 });

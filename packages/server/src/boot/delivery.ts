@@ -3,13 +3,21 @@ import { Publisher } from '../events/publisher.ts';
 import { AsideReader } from '../live/aside.ts';
 import { LiveDigester } from '../live/digest.ts';
 import { CompatLog, compatPath } from '../provider/claude-code/compat/log.ts';
-import { RegistryWatcher } from '../provider/claude-code/registry.ts';
+import { RegistryWatcher, watchDir } from '../provider/claude-code/registry.ts';
 import { PermissionAsks } from '../sessions/permissionAsks.ts';
 import { OsNoticeFeed } from '../sessions/stopNotices.ts';
 import { toastVia, type Toast } from '../sync/notices.ts';
 import { EventHub } from '../ws/hub.ts';
 import type { HomeParts } from './home.ts';
 import { VERSION, type StartOptions } from './options.ts';
+
+/** 作業中があるか、登録のディレクトリを見張れない間の、登録の読み直しの間隔。 */
+export const REGISTRY_POLL_MS = 500;
+/**
+ * 見張れていて作業中が 1 つも無い間の、登録の読み直しの間隔。
+ * 変化は見張りの知らせで拾うので、この周期が拾うのは、Windows で止められた claude の pid が消えたこと（登録が残る）と、見張りの取りこぼしである。
+ */
+export const REGISTRY_IDLE_MS = 2000;
 
 export type DeliveryParts = {
   /** WebSocket の束。ここへ直に配る箇所は無い。配るのは publisher である。 */
@@ -56,9 +64,11 @@ export function bootDelivery(home: Pick<HomeParts, 'home' | 'db' | 'device' | 'c
   const digester = new LiveDigester(db);
   const aside = new AsideReader(db, digester);
   // 許可待ちの中身（道具と命令）は hook から届く。読み直しのたびに、入力待ちの登録へ足す。
-  const permissionAsks = new PermissionAsks();
+  // 届いたら、登録の読み直しを待たずに足させる（待機中の読み直しは間が空く）。
+  const permissionAsks = new PermissionAsks(() => registry.kick(0));
   const osNotices = new OsNoticeFeed();
-  const registry = new RegistryWatcher(home.claudeDir, undefined, opts.registryIsGone, (live) => { const now = Date.now(); return permissionAsks.apply(aside.apply(live, now), now); }, compatLog);
+  // 登録のディレクトリを見張り、見張れていて作業中が無い間は REGISTRY_IDLE_MS ごとにしか読まない（provider/claude-code/registry.ts）。
+  const registry = new RegistryWatcher(home.claudeDir, REGISTRY_POLL_MS, opts.registryIsGone, (live) => { const now = Date.now(); return permissionAsks.apply(aside.apply(live, now), now); }, compatLog, { idleMs: REGISTRY_IDLE_MS, watch: watchDir });
   return {
     sockets, publisher, hub: publisher, toast: toastVia(publisher), compatLog, claudeVersion, registry, digester, permissionAsks, osNotices,
     stopPublishing: async () => {

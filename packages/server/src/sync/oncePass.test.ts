@@ -26,14 +26,14 @@ function setup(o: { paused: boolean; compatBlocked?: boolean; limited?: boolean;
     cloudUsage: { refresh: step('usage') },
     isPaused: () => o.haltedDuringPass ?? false,
     sweepPending: () => (o.sweepPending === undefined ? 0 : o.sweepPending),
-    broadcastSync: (s) => { sent.push(s); },
+    broadcastSync: (s) => { sent.push({ ...s }); },
     toast: (level, message) => { toasts.push({ level, message }); },
     language: () => 'ja',
     tickMs: 5,
     log: () => {},
   };
   const once = createOncePass(deps);
-  return { once, calls, toasts, sent };
+  return { once, calls, toasts, sent, status: status as { pending: number } };
 }
 
 describe('今すぐ同期', () => {
@@ -65,14 +65,18 @@ describe('今すぐ同期', () => {
     expect(t.toasts).toEqual([{ level: 'info', message: '1 回だけ同期しました。同期は一時停止のままです' }]);
   });
 
-  it('1 巡の最中は進みを配り続け、終われば止める', async () => {
+  it('1 巡の最中は進みを配り続け、終われば止める。進みが変わらない間は配り直さない', async () => {
     let release = (): void => {};
-    const t = setup({ paused: true, metadata: () => new Promise<void>((r) => { release = r; }) });
+    const t = setup({ paused: true, pending: 3, metadata: () => new Promise<void>((r) => { release = r; }) });
     stop = t.once.stopTicker;
     const done = t.once.syncNow();
     await new Promise((r) => setTimeout(r, 40));
+    // 押した直後の 1 度だけ。未送信の件数が変わらない間は、周期が来ても配らない。
+    expect(t.sent.length).toBe(1);
+    t.status.pending = 2;
+    await new Promise((r) => setTimeout(r, 40));
+    expect(t.sent.map((x) => x.pending)).toEqual([3, 2]);
     const during = t.sent.length;
-    expect(during).toBeGreaterThan(2);
     release();
     await done;
     await t.once.pass.idle();

@@ -69,6 +69,13 @@ describe('PermissionAsks', () => {
     a.put('u1', { tool: 'Write', input: '/w/a.ts', description: null }, 150);
     expect(a.apply([live('waiting')], 200)[0]?.permission?.tool).toBe('Write');
   });
+
+  it('預けたら onPut を呼ぶ。登録の読み直しを待たずに、許可の中身を足させるためである', () => {
+    let puts = 0;
+    const a = new PermissionAsks(() => { puts++; });
+    a.put('u1', ask, 0);
+    expect(puts).toBe(1);
+  });
 });
 
 describe('applyPermissionHook', () => {

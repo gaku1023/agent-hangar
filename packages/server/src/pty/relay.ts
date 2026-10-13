@@ -7,7 +7,7 @@ import type { Tmux } from '../tmux/tmux.ts';
 
 export type PtyProcess = { pid: number; onData(cb: (d: string) => void): void; onExit(cb: (e: { exitCode: number }) => void): void; write(d: string): void; resize(cols: number, rows: number): void; kill(): void };
 export type PtySpawn = (file: string, args: string[], opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }) => PtyProcess;
-type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn };
+type Deps = { token: string; /** 待ち受けているポート。許可する Origin をここから組み立てる。 */ port: number; /** hangar の tmux のサーバの組（tmux/servers.ts）。Tmux 1 つなら、そのサーバだけを使う。 */ tmux: Tmux | MuxServers | null; resolveTab: (tabId: string) => string | null; spawn: PtySpawn; /** attach が終わった（tmux の画面が閉じたかもしれない）。run の見張りを急がせる（RunManager.stir）。 */ onExit?: () => void };
 
 /** close フレームに応えない相手を待つ上限。これを過ぎたら接続を切り、pty を落とす。 */
 const CLOSE_GRACE_MS = 500;
@@ -69,7 +69,10 @@ export class PtyRelay {
     }
     this.clients.set(ws, p);
     p.onData((d) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ t: 'data', d })); });
-    p.onExit(() => { if (ws.readyState === ws.OPEN) ws.close(1000, 'exited'); });
+    p.onExit(() => {
+      if (ws.readyState === ws.OPEN) ws.close(1000, 'exited');
+      this.deps.onExit?.();
+    });
     ws.on('message', (raw) => {
       let m: { t?: string; d?: unknown; cols?: unknown; rows?: unknown };
       try { m = JSON.parse(raw.toString()) as typeof m; } catch { return; }

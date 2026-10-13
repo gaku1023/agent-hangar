@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LIMIT_RESET_AUTO_GRACE_MS, LIMIT_RESET_GRACE_MS, type LiveSessionDto, type OsNoticeDto } from '@agent-hangar/shared';
 import { onRowChange } from '../db/notify.ts';
 import { openDb, type Db } from '../db/open.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { setSessionName } from './notes.ts';
 import { setSessionState } from './states.ts';
-import { OsNoticeFeed, StopNoticeWatch } from './stopNotices.ts';
+import { NOTICE_IDLE_MS, NOTICE_POLL_MS, OsNoticeFeed, paceNotices, StopNoticeWatch } from './stopNotices.ts';
 
 let db: Db;
 let live: LiveSessionDto[];
@@ -123,6 +123,92 @@ describe('StopNoticeWatch：入力待ち', () => {
     live = [entry('u1', 'waiting')];
     w.tick();
     expect(pushed.map((p) => p.body)).toEqual(['一つ目？', '二つ目？']);
+  });
+});
+
+describe('StopNoticeWatch：待っているものがあるか（pending）', () => {
+  it('問いの文を待つ間と許可の中身を待つ間だけ真で、知らせ終えたら偽に戻る', () => {
+    const w = watch();
+    w.tick();
+    expect(w.pending()).toBe(false);
+    live = [entry('u1', 'waiting')];
+    w.tick();
+    expect(w.pending()).toBe(true);
+    ask('向きは？');
+    w.tick();
+    expect(w.pending()).toBe(false);
+    live = [entry('u1', 'busy'), entry('u2', 'waiting', { waitingFor: 'permission' })];
+    w.tick();
+    expect(w.pending()).toBe(true);
+    now += 900;
+    w.tick();
+    expect(w.pending()).toBe(false);
+  });
+
+  it('起動したときに入力待ちだったものは待たない', () => {
+    live = [entry('u1', 'waiting')];
+    const w = watch();
+    w.tick();
+    expect(w.pending()).toBe(false);
+  });
+});
+
+/**
+ * 知らせの見張りの周期（2026-10-14、0.6.1）。
+ * 待っているもの（問いの文、許可の中身）がある間だけ NOTICE_POLL_MS ごとに見て、無い間は NOTICE_IDLE_MS ごとに見る。
+ * 登録が変わったときは、その場で見る。入力待ちになってから知らせるまでの遅れは、登録の見張りの遅れだけで決まる。
+ */
+describe('paceNotices', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  const fake = () => {
+    const f = { ticks: 0, waiting: false, tick: () => { f.ticks++; }, pending: () => f.waiting };
+    return f;
+  };
+
+  it('待っているものが無ければ NOTICE_IDLE_MS ごとにしか見ない', () => {
+    const f = fake();
+    const p = paceNotices(f);
+    p.start();
+    vi.advanceTimersByTime(NOTICE_IDLE_MS - 1);
+    expect(f.ticks).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(f.ticks).toBe(1);
+    p.stop();
+    expect(NOTICE_IDLE_MS).toBeLessThanOrEqual(5000);
+  });
+
+  it('登録が変わったらその場で見て、待つものができたら NOTICE_POLL_MS ごとに見る', () => {
+    const f = fake();
+    const p = paceNotices(f);
+    p.start();
+    vi.advanceTimersByTime(1000);
+    f.tick = () => { f.ticks++; if (f.ticks === 1) f.waiting = true; };
+    p.onLiveChange();
+    expect(f.ticks).toBe(1);
+    vi.advanceTimersByTime(NOTICE_POLL_MS);
+    expect(f.ticks).toBe(2);
+    vi.advanceTimersByTime(NOTICE_POLL_MS * 3);
+    expect(f.ticks).toBe(5);
+    f.waiting = false;
+    vi.advanceTimersByTime(NOTICE_POLL_MS);
+    expect(f.ticks).toBe(6);
+    vi.advanceTimersByTime(NOTICE_IDLE_MS - 1);
+    expect(f.ticks).toBe(6);
+    p.stop();
+  });
+
+  it('tick が投げても周期は止めない', () => {
+    const f = fake();
+    f.tick = () => { f.ticks++; throw new Error('boom'); };
+    const errors: unknown[] = [];
+    const p = paceNotices(f, { onError: (e) => errors.push(e) });
+    p.start();
+    expect(() => p.onLiveChange()).not.toThrow();
+    vi.advanceTimersByTime(NOTICE_IDLE_MS * 2);
+    expect(f.ticks).toBe(3);
+    expect(errors).toHaveLength(3);
+    p.stop();
   });
 });
 

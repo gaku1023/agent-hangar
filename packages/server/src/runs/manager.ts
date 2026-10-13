@@ -36,9 +36,15 @@ import { issueMcpSecret, pruneMcpSecrets, revokeMcpSecret } from './secrets.ts';
 import { interruptedGroup, noteLastLive, pruneLastLive, recordInterruption } from './interrupted.ts';
 import { splitTerminalArgs, terminalEnv, type TerminalRequest } from './terminal.ts';
 import { handoverFacts, projectDeviceCount, resumeCwd } from './handover.ts';
+import { Pacer } from '../platform/pacer.ts';
 
 /** 生きた run の heartbeat をこの間隔で更新する。 */
 const HEARTBEAT_MS = 30_000;
+/**
+ * stir（run の出入り、登録の変化、端末の中継の終わり）の後、終了の見張りを短い周期で回す長さ。
+ * claude は登録を消してから終わり、tmux の画面はその後に閉じるので、登録の変化の直後の 1 回では消えた画面を拾えないことがある。
+ */
+export const RUN_STIR_MS = 10_000;
 /** 応答に載せる外部コマンドの失敗の長さの上限。 */
 const MAX_ERROR_LEN = 200;
 /** 引き取るときに、元の claude が SIGTERM で終わるのを待つ長さ。 */
@@ -88,7 +94,9 @@ function isDirectory(p: string): boolean {
 /** run の寿命を管理する。起動、終了検知、heartbeat、停止、レジストリとの結びつけを持つ。 */
 export class RunManager {
   private listeners = new Set<RunListener>();
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private pacer: Pacer | null = null;
+  /** 最後に stir した時刻。 */
+  private stirredAt = -Infinity;
   /** 引き取りの途中のセッション。二度押しで元のプロセスを止めて移す手順が 2 本走らないようにする。 */
   private adopting = new Set<string>();
   /** 区切りを付けたので落としにいった run。tmux から消えたのを見たときに、終わり方を parked と書くために持つ。 */
@@ -113,6 +121,8 @@ export class RunManager {
   }
 
   private emit<K extends keyof RunListener>(k: K, arg: Parameters<NonNullable<RunListener[K]>>[0]): void {
+    // run とタブの出入りの後は、続けて画面が閉じることが多いので、しばらく短い周期で見る。
+    if (k !== 'runUpdated') this.stir();
     for (const l of this.listeners) (l[k] as ((a: typeof arg) => void) | undefined)?.(arg);
   }
 
@@ -610,6 +620,9 @@ export class RunManager {
     // tmux が無いのも、tmux を呼べなかったのも「観測できない」であって「動いていない」ではない。
     // ここで一覧を空と見なすと、設定から tmuxPath を外した瞬間や、
     // tmux のバイナリが一瞬消えた隙に、実際には動いている run が全部 exited になって二度と戻らない。
+    // 見張るものが無ければ tmux を呼ばない。一覧の読み取りは子プロセスを 1 つ起こす。
+    const shellTabs = this.openShellTabs();
+    if (shellTabs.length === 0 && listAliveRuns(this.db, this.deviceId).length === 0) return { ended: [], closedTabs: [] };
     const listed = this.deps.panes?.list() ?? null;
     if (listed === null) return { ended: [], closedTabs: [] };
     const names = new Set(listed);
@@ -618,7 +631,7 @@ export class RunManager {
     const now = this.now();
     // 消えたタブを先に閉じる。run を閉じるときの後始末が、既に死んだシェルタブを
     // 「まだ動いている」と読み違えないようにするため。
-    for (const t of this.openShellTabs()) {
+    for (const t of shellTabs) {
       if (!names.has(t.tmuxName)) {
         const c = this.closeTabRow(t.id);
         if (c) closedTabs.push(c);
@@ -639,10 +652,11 @@ export class RunManager {
       }
       // 落としにいったのに残っているなら、落とせていない。後で自分で終わったときに parked と書かないよう、印を外す。
       this.parking.delete(run.id);
+      // heartbeat は同期で他の PC へ届けるための書き込みで、この PC の画面は読まない（他の PC の run のロックだけが読む）。
+      // 画面へは配らない。配ると、待機中も 30 秒ごとに run の数だけ画面が描き直される。
       if (now - run.heartbeatAt >= HEARTBEAT_MS) {
         const row = this.db.prepare('select * from runs where id = ?').get(run.id) as Record<string, unknown>;
         upsertShared(this.db, 'runs', { ...row, heartbeat_at: now }, this.deviceId);
-        this.emit('runUpdated', getRun(this.db, run.id)!);
       }
     }
     if (lost.length) this.interrupted(lost, 'mux', now);
@@ -717,6 +731,8 @@ export class RunManager {
 
   /** レジストリ（~/.claude/sessions）の項目を Claude の UUID で run に結びつけ、pid を書く。 */
   linkRegistry(live: LiveSessionDto[]): void {
+    // 登録が変わった（claude が終わった、動き出した）。終わった claude の画面が閉じるのを、しばらく短い周期で見る。
+    this.stir();
     this.noteLastLive(live);
     const byUuid = new Map(live.map((l) => [l.sessionId, l]));
     for (const run of listAliveRuns(this.db, this.deviceId)) {
@@ -775,22 +791,34 @@ export class RunManager {
     return true;
   }
 
-  /** 終了検知の周期起動。tick の失敗でサーバが落ちないよう、必ず捕まえる。 */
-  startPolling(intervalMs = 2000): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => {
-      try {
-        this.tick();
-      } catch (e) {
-        console.error('[runs]', e instanceof Error ? e.message : e);
-      }
-    }, intervalMs);
-    this.timer.unref?.();
+  /**
+   * 終了検知の周期起動。tick の失敗でサーバが落ちないよう、必ず捕まえる。
+   * stir の後 RUN_STIR_MS の間は intervalMs ごとに、それ以外は idleMs ごとに見る（2026-10-14、0.6.1）。
+   * tmux の一覧の読み取りは子プロセスを 1 つ起こすので、待機中（何も出入りしない間）は間を空ける。
+   * claude が終わると登録が変わり（linkRegistry）、そこで stir するので、claude の終わりは今までどおり数秒で拾う。
+   * idleMs が拾うのは、見ていないシェルタブで exit したことと、tmux のサーバごと落ちたことである。
+   */
+  startPolling(intervalMs = 2000, idleMs = intervalMs): void {
+    if (this.pacer) return;
+    this.pacer = new Pacer({
+      run: () => this.tick(),
+      fastMs: intervalMs,
+      slowMs: idleMs,
+      fast: () => this.now() - this.stirredAt < RUN_STIR_MS,
+      onError: (e) => console.error('[runs]', e instanceof Error ? e.message : e),
+    });
+    this.pacer.start();
+  }
+
+  /** 画面が閉じそうなことが起きた（run の出入り、登録の変化、端末の中継の終わり）。しばらく短い周期で見る。 */
+  stir(): void {
+    this.stirredAt = this.now();
+    this.pacer?.kick();
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    this.pacer?.stop();
+    this.pacer = null;
   }
 
   /** 開いているシェルタブ。Claude が終了した run のタブも含める。 */

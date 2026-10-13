@@ -16,13 +16,32 @@ import type { LiveSession } from '../provider/claude-code/types.ts';
 export function parkedSessionIds(db: Db, live: readonly LiveSession[], deviceId?: string): string[] {
   const entries = new Map<string, number>();
   for (const l of live) entries.set(l.sessionId, (entries.get(l.sessionId) ?? 0) + 1);
+  const marked = markedIdle(db, live);
   const out: string[] = [];
   for (const l of live) {
-    if (l.status !== 'idle' || entries.get(l.sessionId) !== 1) continue;
+    // 区切りの無いものは、セッションの行を組まずに外す。待機中に休みの会話が多くても軽くする。
+    if (l.status !== 'idle' || entries.get(l.sessionId) !== 1 || !marked.has(l.sessionId)) continue;
     const row = db.prepare("select id from sessions where provider = 'claude-code' and provider_session_id = ? and deleted_at is null").get(l.sessionId) as { id: string } | undefined;
     if (row && getSession(db, [l], row.id, deviceId ? { deviceId } : {})?.parked) out.push(row.id);
   }
   return out;
+}
+
+/** 休みの会話のうち、Done か Archived の付いたものの Claude の UUID。1 回の問い合わせで引く。 */
+function markedIdle(db: Db, live: readonly LiveSession[]): Set<string> {
+  const idle = [...new Set(live.filter((l) => l.status === 'idle').map((l) => l.sessionId))];
+  if (idle.length === 0) return new Set();
+  const rows = db.prepare(`select s.provider_session_id p from sessions s join session_states ss on ss.session_id = s.id and ss.deleted_at is null
+    where s.provider = 'claude-code' and s.deleted_at is null and ss.status in ('done', 'archived') and s.provider_session_id in (${idle.map(() => '?').join(',')})`).all(...idle) as { p: string }[];
+  return new Set(rows.map((r) => r.p));
+}
+
+/**
+ * 止める候補になりうる会話（Done か Archived の付いた休みの会話）があるか。
+ * 休みの見張りは、これが偽の間は登録を読み直さない（boot/runs.ts）。待機中に 2 秒ごとに登録とセッションの行を読まないためである。
+ */
+export function hasMarkedIdle(db: Db, live: readonly LiveSession[]): boolean {
+  return markedIdle(db, live).size > 0;
 }
 
 /** 動き（作業中・休み・入力待ち）が変わった会話の id（Claude の UUID）。出入りしたものは含めない。 */

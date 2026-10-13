@@ -68,7 +68,9 @@ export function terminalOptions(theme: { background: string; foreground: string 
     fontFamily: "'JetBrains Mono Variable', Menlo, monospace",
     fontSize: FONT_SIZE.default,
     lineHeight: 1.2,
-    cursorBlink: true,
+    // 点滅させない。点滅の間、xterm は窓が前にあるだけで 600 ミリ秒ごとに端末を描き直す（WebGL の描画と合成が走り続ける）。
+    // tmux は attach のたびに点滅を切る（ESC [ ? 12 l）ので、macOS と Linux の見た目は変わらない。
+    cursorBlink: false,
     scrollback: 5000,
     // unicode の切り替えは proposed API の扱いなので allowProposedApi が要る。
     allowProposedApi: true,
