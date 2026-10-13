@@ -1,5 +1,5 @@
 import { formatRoute, type Translate } from '@agent-hangar/shared';
-import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { useEmit } from '../action/chain.tsx';
 import type { NavItem, SideLiveProps, SideLiveRow } from '../presenters/shell.ts';
 import { Icon, type IconName } from './primitives/Icon.tsx';
@@ -42,8 +42,20 @@ export function nudgeId(ids: string[], id: string, delta: -1 | 1): string[] {
 }
 
 /**
+ * 押してからこれだけ（px）動いたら、押したのではなく並べ替えとみなす。
+ * これより手前で離せば、ただのクリックとして行を開く。
+ */
+const DRAG_SLOP = 4;
+
+/** 押し下げてから離すまでの、ポインタの記録。active はしきいを越えて並べ替えに入ったかどうか。 */
+type Press = { id: string; pointer: number; x: number; y: number; active: boolean; cancelled: boolean };
+
+/**
  * 「実行中」の節。
  * 行を押すとそのセッションへ移る。行を掴んで上下に動かすと並べ替えられ、並びは端末が覚える（sidebar.order）。
+ * 掴んで動かすのは、HTML のドラッグ（draggable と dragover と drop）ではなく、ポインタのイベントで作る。
+ * デスクトップのアプリ（Tauri）は、Finder からファイルを落とすために窓のドラッグを殻で受けており、窓の中のドラッグでも dragover と drop が画面へ届かないからである。
+ * 押してから DRAG_SLOP を越えて動いたら並べ替えに入り、離したあとの click では行を開かない。
  * キーボードでは、行に焦点があるときに ⌥↑ と ⌥↓ で 1 つずつ動かす。
  * 動かすのは行だけで、見出しは動かない。ドラッグの途中の印（入る場所の線）は、ここだけで持つ。
  * 畳んだ帯では点だけを縦に並べ、名前は title に持つ（base.css）。
@@ -58,6 +70,11 @@ function LiveSection(props: { live: SideLiveProps }) {
   // 開いているメニュー。at は吊るす相手で、右クリックなら押した点、打鍵なら行の矩形。
   const [menu, setMenu] = useState<{ id: string; at: MenuAnchor } | null>(null);
   const list = useRef<HTMLUListElement>(null);
+  // 押し下げの記録と、いまの入る場所の写し。ポインタのイベントの間で、描き直しを待たずに読むため ref にも持つ。
+  const press = useRef<Press | null>(null);
+  const overNow = useRef<{ id: string; before: boolean } | null>(null);
+  // 並べ替えで離した直後の click を 1 回だけ飲み込む。
+  const swallowClick = useRef(false);
   const anchor = useCallback(() => menu?.at ?? null, [menu]);
   // 開いている間に行が消えたら（ほかの場所で止めた、Claude が自分で終わった）、開いていたことも忘れる。同じ行がまた現れたときに、勝手に開き直さないためである。
   const gone = menu !== null && !props.live.rows.some((r) => r.id === menu.id);
@@ -71,22 +88,67 @@ function LiveSection(props: { live: SideLiveProps }) {
     // 外を押したときは、押した先にフォーカスを任せる。ほかは行へ戻す（止めて行が消えたら、戻す先は無い）。
     if (how !== 'outside' && id) list.current?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)?.focus();
   };
-  const end = () => { setDrag(null); setOver(null); };
-  const onDragOver = (e: DragEvent, r: SideLiveRow) => {
-    if (drag === null || drag === r.id) return;
-    e.preventDefault();
-    const box = e.currentTarget.getBoundingClientRect();
-    const before = e.clientY < box.top + box.height / 2;
-    if (over?.id !== r.id || over.before !== before) setOver({ id: r.id, before });
+  const end = () => { setDrag(null); setOver(null); overNow.current = null; };
+  const onPointerDown = (e: PointerEvent, r: SideLiveRow) => {
+    // 右ボタンと control を押しながらの押し下げは、メニューを出すためのものなので掴まない。
+    if (e.button !== 0 || e.ctrlKey || e.isPrimary === false) return;
+    press.current = { id: r.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, active: false, cancelled: false };
   };
-  const onDrop = (e: DragEvent, r: SideLiveRow) => {
-    if (drag === null || drag === r.id) return;
-    e.preventDefault();
-    const ids = moveId(live.ids, drag, r.id, over?.id === r.id ? over.before : true);
+  const onPointerMove = (e: PointerEvent) => {
+    const p = press.current;
+    if (!p || p.cancelled || e.pointerId !== p.pointer) return;
+    if (!p.active) {
+      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_SLOP) return;
+      p.active = true;
+      // 掴んだ行の外へ出ても動きと離したことを受け取れるよう、ポインタをこの行に捕まえる。
+      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* 捕まえられなくても、行の上にいる間は動く */ }
+      setDrag(p.id);
+    }
+    // ポインタの高さにある行を探し、上半分なら前、下半分なら後ろに入る線を出す。自分の上と行の外では線を出さない。
+    let next: { id: string; before: boolean } | null = null;
+    for (const el of list.current?.querySelectorAll<HTMLElement>('.side-live-row') ?? []) {
+      const id = el.dataset.id;
+      if (!id || id === p.id) continue;
+      const box = el.getBoundingClientRect();
+      if (e.clientY >= box.top && e.clientY < box.bottom) { next = { id, before: e.clientY < box.top + box.height / 2 }; break; }
+    }
+    const cur = overNow.current;
+    if (cur?.id === next?.id && cur?.before === next?.before) return;
+    overNow.current = next;
+    setOver(next);
+  };
+  const onPointerUp = (e: PointerEvent) => {
+    const p = press.current;
+    if (!p || e.pointerId !== p.pointer) return;
+    press.current = null;
+    if (!p.active) return;
+    swallowClick.current = true;
+    // click が来なかったとき（行の外で離した、など）に、次の押し下げまで飲み込みを残さない。
+    setTimeout(() => { swallowClick.current = false; }, 0);
+    const o = overNow.current;
     end();
+    if (p.cancelled || !o) return;
+    const ids = moveId(live.ids, p.id, o.id, o.before);
     if (ids !== live.ids) emit({ type: 'sidebar.order', ids });
   };
+  const onPointerCancel = (e: PointerEvent) => {
+    if (press.current?.pointer !== e.pointerId) return;
+    press.current = null;
+    end();
+  };
+  const onClick = (e: MouseEvent, r: SideLiveRow) => {
+    e.preventDefault();
+    if (swallowClick.current) { swallowClick.current = false; return; }
+    emit({ type: 'session.open', id: r.id });
+  };
   const onKeyDown = (e: KeyboardEvent, r: SideLiveRow) => {
+    // 並べ替えの途中の Esc は、並べ替えをやめる。離すまでの記録は残し、離したあとの click を飲み込む。
+    if (e.key === 'Escape' && press.current?.active) {
+      e.preventDefault();
+      press.current.cancelled = true;
+      end();
+      return;
+    }
     // . は一覧の行の「⋯」と同じ打鍵。修飾の付いたものはアプリ全体の打鍵なので取らない。
     if (e.key === '.' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
@@ -105,13 +167,12 @@ function LiveSection(props: { live: SideLiveProps }) {
       <ul className="side-live-list" ref={list}>
         {live.rows.map((r) => (
           <li key={r.id}>
-            <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={menu?.id === r.id ? 'true' : undefined}
+            <a className="side-live-row" href={formatRoute({ name: 'session', id: r.id })} draggable={false} aria-current={r.current ? 'page' : undefined} data-id={r.id} data-menu={menu?.id === r.id ? 'true' : undefined}
               data-live={r.live ?? undefined} data-dragging={drag === r.id ? 'true' : undefined} data-over={over?.id === r.id ? (over.before ? 'before' : 'after') : undefined}
               title={r.overlap ?? (r.waited ? t('sidebar.live.rowTitle', { name: r.name, waited: r.waited }) : r.name)}
-              onClick={(e) => { e.preventDefault(); emit({ type: 'session.open', id: r.id }); }} onKeyDown={(e) => onKeyDown(e, r)}
+              onClick={(e) => onClick(e, r)} onKeyDown={(e) => onKeyDown(e, r)}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: { top: e.clientY, bottom: e.clientY, left: e.clientX, width: 0 } }); }}
-              onDragStart={(e) => { setDrag(r.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.id); }}
-              onDragOver={(e) => onDragOver(e, r)} onDragLeave={() => { if (over?.id === r.id) setOver(null); }} onDrop={(e) => onDrop(e, r)} onDragEnd={end}>
+              onPointerDown={(e) => onPointerDown(e, r)} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel}>
               <StatusDot status={r.live} aside={r.aside} reason={r.reason} /><span className="side-live-name">{r.name}</span>{r.overlap && <span className="side-live-overlap" role="img" aria-label={r.overlap} title={r.overlap}><Icon name="warning" /></span>}{r.waited && <span className="side-live-wait num" data-reason={r.reason ?? undefined}>{r.waited}</span>}
             </a>
           </li>
