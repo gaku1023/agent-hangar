@@ -124,6 +124,20 @@ runs:
         $out = & $cmd.FullName --help 2>&1 | Out-String
         $out
         if ($LASTEXITCODE -ne 0 -or $out -notmatch 'setup') { throw "hangar.cmd --help が動かない（終了コード ${LASTEXITCODE}）" }
+        # Git Bash（Claude Code の ! もこれを使う）で、拡張子の無い bin/hangar が PATH から見つかって動くこと。
+        # System32 の bash.exe は WSL なので、Git for Windows の bash.exe を名指しする。引数と終了コードも通ることを、存在しない命令の終了コードで見る。
+        $bash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+        if (-not (Test-Path $bash)) { throw "Git Bash が無い: $bash" }
+        $savedPath = $env:PATH
+        $env:PATH = "$bin;$env:PATH"
+        try {
+          $gb = & $bash -c 'hangar --help' 2>&1 | Out-String
+          $gbCode = $LASTEXITCODE
+          $gb
+          if ($gbCode -ne 0 -or $gb -notmatch 'setup') { throw "Git Bash の hangar --help が動かない（終了コード ${gbCode}）" }
+          $null = & $bash -c 'hangar no-such-command-for-ci' 2>&1
+          if ($LASTEXITCODE -eq 0) { throw 'Git Bash の hangar が、知らない命令の終了コードを 0 にした' }
+        } finally { $env:PATH = $savedPath }
         # 入れた殻を起こし、殻が同梱のサーバを Node で起こして 127.0.0.1:4177 の /health が応えるまで待つ。
         # 殻は resource_dir（Windows では \\?\ 付きの verbatim の形）から server.mjs のパスを作って Node に渡す。
         # この経路は hangar.cmd では通らず、rc.1 は Node 22.20 以降でここが落ちて起動しなかった。

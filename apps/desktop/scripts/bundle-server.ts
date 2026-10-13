@@ -199,6 +199,8 @@ export async function bundleServer(opts: BundleOptions): Promise<{ files: string
     // cmd は LF だけの行だと label の読みを誤ることがあるので、CRLF にして置く。repo では .gitattributes で LF にそろえてある。
     const cmd = fs.readFileSync(fileURLToPath(new URL('./hangar.cmd', import.meta.url)), 'utf8').replace(/\r?\n/g, '\r\n');
     fs.writeFileSync(path.join(opts.outDir, 'bin', 'hangar.cmd'), cmd);
+    // Git Bash は拡張子の無い sh の起動を探すので、hangar.cmd の隣に置く。LF のまま（CRLF だと shebang が読めない）。
+    fs.copyFileSync(fileURLToPath(new URL('./hangar-gitbash.sh', import.meta.url)), path.join(opts.outDir, 'bin', 'hangar'));
     await buildLauncher(path.join(opts.outDir, 'launch-cli.mjs'));
   } else {
     fs.copyFileSync(fileURLToPath(new URL('./hangar.sh', import.meta.url)), path.join(opts.outDir, 'bin', 'hangar'));
