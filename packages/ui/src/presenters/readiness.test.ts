@@ -43,7 +43,7 @@ describe('欄の下の検証（設定の B1）', () => {
   });
   it('ワークスペースは、登録したプロジェクトの数を出し、0 件なら理由を言う', () => {
     expect(workspaceLine(ja, { ...READY.workspace, projectCount: 12 })).toEqual({ ok: true, soft: false, text: '/Users/me/workspace', note: 'プロジェクト 12 件', fix: null, fixCommand: null });
-    expect(workspaceLine(ja, { ...READY.workspace, exists: false })).toMatchObject({ ok: false, text: '/Users/me/workspace が見つかりません' });
+    expect(workspaceLine(ja, { ...READY.workspace, exists: false })).toMatchObject({ ok: false, soft: true, text: 'この場所が見つかりません' });
   });
 });
 
@@ -399,6 +399,8 @@ describe('作成場所の欄の下の検証', () => {
   it('空なら行を出さず、無い場所は直し方、ある場所はプロジェクトの数（0 件でも ✓）', () => {
     expect(workspaceLine(ja, { path: '', exists: false, projectCount: 0 })).toBeNull();
     expect(workspaceLine(ja, { path: '/Users/me/src', exists: true, projectCount: 0 })).toEqual({ ok: true, soft: false, text: '/Users/me/src', note: 'プロジェクト 0 件', fix: null, fixCommand: null });
-    expect(workspaceLine(ja, { path: '/x', exists: false, projectCount: 0 })).toMatchObject({ ok: false, soft: false, text: '/x が見つかりません' });
+    // 作成場所は任意なので、決めた場所が無くても注意（soft）にとどめる。古い設定の ~/workspace がその PC に無い今の利用者で起きる（0.6.0-rc.1 の Windows の確かめ）。
+    expect(workspaceLine(ja, { path: '/x', exists: false, projectCount: 0 })).toEqual({ ok: false, soft: true, text: 'この場所が見つかりません', note: null, fix: '空にするか、別の場所を選んでください', fixCommand: null });
+    expect(workspaceLine(en, { path: '/x', exists: false, projectCount: 0 })).toMatchObject({ text: 'This location was not found', fix: 'Leave it empty or choose another location' });
   });
 });
