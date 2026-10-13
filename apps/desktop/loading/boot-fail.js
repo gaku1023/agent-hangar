@@ -4,17 +4,21 @@
 // 殻は種類と数だけを渡し（lib.rs の fail_js と bootfail.rs）、文はここで作る。殻は札の文を書かない（詳細だけを頁の言語で書く）。
 
 /** 札を出せる失敗の種類。bootfail.rs の KINDS と同じ並びにする（config.test.ts が突き合わせる）。 */
-export const FAIL_KINDS = ['server-exited', 'port-in-use', 'db-too-old', 'db-backup-failed', 'compat-mismatch', 'node-missing', 'other'];
+export const FAIL_KINDS = ['server-exited', 'port-in-use', 'db-too-old', 'db-backup-failed', 'compat-mismatch', 'node-missing', 'node-version-mismatch', 'node-arch-mismatch', 'other'];
+
+/** Node の札の種類。見つからない、版が古い（Node-API が足りない）、アーキテクチャが違う（node.rs の failure_kind）。 */
+export const NODE_KINDS = ['node-missing', 'node-version-mismatch', 'node-arch-mismatch'];
 
 /** 札の言語。packages/shared の LANGUAGES と同じ（config.test.ts が突き合わせる）。先頭が既定である。 */
 export const LANGS = ['ja', 'en'];
 
 const DEFAULT_PORT = 4177;
 /**
- * 同梱のサーバが使う Node のメジャー版。殻が渡さなかったときだけ使う（殻は server-dist/manifest.json の nodeMajor を渡す）。
- * 束の版（bundle-server.ts の BUNDLE_NODE_MAJOR）と同じ値にする（bundle-server.test.ts が突き合わせる）。
+ * 同梱のサーバが要る Node（Node-API の版と、それを持つ最初の Node の版）。殻が渡さなかったときだけ使う（殻は server-dist/manifest.json の nodeApi と nodeMin を渡す）。
+ * 規則の値（packages/server/src/config/nodeRule.ts の NODE_API_MIN と NODE_MIN_LABEL）と同じにする（bundle-server.test.ts が突き合わせる）。
  */
-export const DEFAULT_NODE_MAJOR = 22;
+export const DEFAULT_NODE_MIN = '22.14';
+export const DEFAULT_NODE_API = 10;
 
 const text = (v, fallback = '') => (typeof v === 'string' || typeof v === 'number' ? String(v) : fallback);
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : null);
@@ -59,34 +63,83 @@ const POWERSHELL = {
   list: (dir) => `Get-ChildItem -Force -LiteralPath ${psQuote(dir)}`,
 };
 
-// Node を入れるコマンド。macOS は Homebrew で Node と tmux を一度に入れる。
-// Windows は winget で Node だけを入れる（psmux はホームの帯と始める前の案内が別に出す）。node.rs の winget_command と同じ形にする。
-// ほか（Linux）は nvm で入れる。
+// Node を入れるコマンド。
+// 何も入っていないとき（fresh）は一般の入れ方にする。macOS は Homebrew で Node と tmux を一度に入れ、Windows は winget の LTS（psmux はホームの帯と始める前の案内が別に出す）、ほか（Linux）は nvm の LTS。
+// 合わない Node がすでにあるとき（beside）は、今の Node を置き換えない入れ方にする。
+// macOS は Homebrew の node@<版>（版つきの formula は既定の node を置き換えない。殻は opt/node@N も探す）、Linux は nvm。
+// Windows の winget の Node は C:\Program Files\nodejs に入り、今の Node を置き換えるので出さない。代わりに公式の zip を別のフォルダに展開して選ぶ手順を出す。
+// node.rs の詳細の文と同じ命令にする。
 const NODE_INSTALL = {
-  mac: (n) => `brew install node@${n} tmux`,
-  windows: (n) => `winget install -e --id OpenJS.NodeJS.${n}`,
-  other: (n) => `nvm install ${n}`,
+  mac: { fresh: () => 'brew install node tmux', beside: (lts) => `brew install node@${lts}` },
+  windows: { fresh: () => 'winget install -e --id OpenJS.NodeJS.LTS', beside: () => null },
+  other: { fresh: () => 'nvm install --lts', beside: (lts) => `nvm install ${lts}` },
 };
 
-/** Node が無いときの札の文（日本語）。理由は、入っていない（missing）、版が違う（version）、アーキテクチャが違う（arch）の 3 つ。 */
+/** Node の札の文（日本語）。理由は、見つからない（missing）、版が古い（version）、アーキテクチャが違う（arch）の 3 つ。 */
 function nodeJa(c) {
-  const { major, arch, reason, found, foundArch } = c.node;
-  const lead = c.windows ? 'PowerShell で次を実行してください：' : 'ターミナルで次を実行してください：';
-  const base = { lead, steps: [], command: c.node.install, tryAgain: '入れたのでもう一度試す' };
-  if (reason === 'version') return { ...base, title: `Node.js ${major} が見つかりません`, what: `見つかった Node.js は ${found} です。Hangar の動作には Node.js ${major} が要ります。` };
-  if (reason === 'arch') return { ...base, title: `${arch} 用の Node.js ${major} が見つかりません`, what: `見つかった Node.js ${major} は ${foundArch} 用です。${c.mac ? 'この Mac' : 'この PC'} で Hangar を動かすには ${arch} 用の Node.js ${major} が要ります。` };
-  return { ...base, title: `Node.js ${major} が入っていません`, what: `Hangar の動作には Node.js ${major} が要ります。` };
+  const { min, napi, lts, arch, reason, found, foundArch } = c.node;
+  const tryAgain = '入れたのでもう一度試す';
+  if (reason === 'missing') {
+    return {
+      title: 'Node.js が見つかりません',
+      what: `Hangar のデータベースと端末の部品は Node-API ${napi} を使うため、Node.js ${min} 以上が要ります。`,
+      lead: c.windows ? 'PowerShell で次を実行してください：' : 'ターミナルで次を実行してください：',
+      steps: [],
+      command: c.node.install.fresh(lts),
+      tryAgain,
+    };
+  }
+  const title = reason === 'version' ? `Node.js ${found} は見つかりましたが、Hangar は Node.js ${min} 以上が要ります` : `${foundArch} 用の Node.js は見つかりましたが、Hangar は ${arch} 用が要ります`;
+  const keep = '今の Node.js は置き換えずに、別の場所に入れられます。';
+  const what = reason === 'version' ? `Hangar のデータベースと端末の部品が Node-API ${napi} を使うためです。${keep}` : `${c.mac ? 'この Mac' : 'この PC'} で Hangar を動かすには、${arch} 用の Node.js ${min} 以上が要ります。${keep}`;
+  if (c.windows) {
+    return {
+      title,
+      what,
+      lead: '今の Node.js を置き換えずに入れるには：',
+      steps: [`nodejs.org から Node.js ${lts} の Windows 用 zip（${arch}）を取得します`, `今の Node.js とは別のフォルダ（例 %LOCALAPPDATA%\\Programs\\node${lts}）に展開します`, `「${c.node.pickLabel}」を押して、展開したフォルダの node.exe を選びます`],
+      command: null,
+      tryAgain: 'もう一度試す',
+    };
+  }
+  return { title, what, lead: '今の Node.js を置き換えずに入れるには、ターミナルで次を実行してください：', steps: [], command: c.node.install.beside(lts), tryAgain };
 }
 
 /** 同上（英語）。 */
 function nodeEn(c) {
-  const { major, arch, reason, found, foundArch } = c.node;
-  const lead = c.windows ? 'Run this in PowerShell:' : 'Run this in Terminal:';
-  const base = { lead, steps: [], command: c.node.install, tryAgain: 'I installed it, try again' };
-  if (reason === 'version') return { ...base, title: `Node.js ${major} was not found`, what: `The Node.js found is version ${found}. Hangar needs Node.js ${major} to run.` };
-  if (reason === 'arch') return { ...base, title: `Node.js ${major} for ${arch} was not found`, what: `The Node.js ${major} found is for ${foundArch}. Hangar on ${c.mac ? 'this Mac' : 'this PC'} needs Node.js ${major} for ${arch}.` };
-  return { ...base, title: `Node.js ${major} is not installed`, what: `Hangar needs Node.js ${major} to run.` };
+  const { min, napi, lts, arch, reason, found, foundArch } = c.node;
+  const tryAgain = 'I installed it, try again';
+  if (reason === 'missing') {
+    return {
+      title: 'Node.js was not found',
+      what: `Hangar's database and terminal parts use Node-API ${napi}, so Hangar needs Node.js ${min} or later.`,
+      lead: c.windows ? 'Run this in PowerShell:' : 'Run this in Terminal:',
+      steps: [],
+      command: c.node.install.fresh(lts),
+      tryAgain,
+    };
+  }
+  const title = reason === 'version' ? `Node.js ${found} was found, but Hangar needs Node.js ${min} or later` : `Node.js for ${foundArch} was found, but Hangar needs one for ${arch}`;
+  const keep = 'You can install it in another place without replacing your current Node.js.';
+  const what = reason === 'version' ? `Hangar's database and terminal parts use Node-API ${napi}. ${keep}` : `Hangar on ${c.mac ? 'this Mac' : 'this PC'} needs Node.js ${min} or later for ${arch}. ${keep}`;
+  if (c.windows) {
+    return {
+      title,
+      what,
+      lead: 'To install it without replacing your current Node.js:',
+      steps: [`Get the Windows zip of Node.js ${lts} (${arch}) from nodejs.org`, `Extract it to a folder separate from your current Node.js (for example %LOCALAPPDATA%\\Programs\\node${lts})`, `Press "${c.node.pickLabel}" and choose node.exe in that folder`],
+      command: null,
+      tryAgain: 'Try again',
+    };
+  }
+  return { title, what, lead: 'To install it without replacing your current Node.js, run this in Terminal:', steps: [], command: c.node.install.beside(lts), tryAgain };
 }
+
+/** 「node を選ぶ…」の釦の名前。Windows では実行ファイルの名前どおり node.exe と言う。 */
+const PICK_LABEL = {
+  ja: (windows) => (windows ? 'node.exe を選ぶ…' : 'node を選ぶ…'),
+  en: (windows) => (windows ? 'Choose node.exe…' : 'Choose node…'),
+};
 
 // 種類ごとの文。c は params から作った値（port、theirs、ours、found、baseline、file、dir）と、置き場の名前（home）と、パスの区切り（sep）と、OS の命令の組（cmd）と、
 // アプリの呼び名（app）と、macOS かどうか（mac）。Hangar.app は macOS の呼び名なので、Windows と Linux では Hangar と呼ぶ。
@@ -95,8 +148,8 @@ const TABLE = {
     'server-exited': (c) => ({
       title: 'サーバを起動できませんでした',
       what: `同梱のサーバが起動の途中で終了しました。Node が見つからないか、${c.home} に書けないときに多く起きます。`,
-      // 殻と hangar コマンドは、同梱のサーバと同じメジャー版の Node だけを使う。新しい版では代わりにならないので「以上」とは書かない。
-      steps: ['「もう一度試す」を押します', '直らなければ、ログを開いて最後の数行を読みます', `Node ${c.node.major} が入っているか確認します`, '直らないときは、ログの全文を添えて報告してください'],
+      // 殻と hangar コマンドは、Node-API が要る版以上の Node を使う（上限は無い）。
+      steps: ['「もう一度試す」を押します', '直らなければ、ログを開いて最後の数行を読みます', `Node ${c.node.min} 以上が入っているか確認します`, '直らないときは、ログの全文を添えて報告してください'],
       command: 'node --version',
     }),
     'port-in-use': (c) => ({
@@ -133,6 +186,8 @@ const TABLE = {
       command: c.cmd.list(c.dir),
     }),
     'node-missing': nodeJa,
+    'node-version-mismatch': nodeJa,
+    'node-arch-mismatch': nodeJa,
     other: () => ({
       title: 'Hangar を起動できませんでした',
       what: '起動の途中で止まりました。理由は下の詳細にあります。',
@@ -144,7 +199,7 @@ const TABLE = {
     'server-exited': (c) => ({
       title: 'The server could not start',
       what: `The bundled server exited during startup. This usually happens when Node is missing or ${c.home} is not writable.`,
-      steps: ['Press "Try again"', 'If that does not help, open the log and read the last lines', `Check that Node ${c.node.major} is installed`, 'If it still fails, report it with the full log'],
+      steps: ['Press "Try again"', 'If that does not help, open the log and read the last lines', `Check that Node ${c.node.min} or later is installed`, 'If it still fails, report it with the full log'],
       command: 'node --version',
     }),
     'port-in-use': (c) => ({
@@ -179,6 +234,8 @@ const TABLE = {
       command: c.cmd.list(c.dir),
     }),
     'node-missing': nodeEn,
+    'node-version-mismatch': nodeEn,
+    'node-arch-mismatch': nodeEn,
     other: () => ({
       title: 'Hangar could not start',
       what: 'Startup stopped partway. The reason is in the details below.',
@@ -195,16 +252,20 @@ const LABELS = {
 };
 
 /**
- * Node が無いときの札の材料。殻（node.rs の failure_params）が渡す major、arch、reason、found、foundArch を読む。
- * 版が違うのに見つかった版が無い、アーキテクチャが違うのに見つかったものが無い、知らない理由は、入っていない札に落とす。
+ * Node の札の材料。殻（node.rs の failure_params）が渡す min、napi、arch、found、foundArch を読む。
+ * 理由は種類から決める。版が古いのに見つかった版が無い、アーキテクチャが違うのに見つかった作りが無いときは、見つからない札に落とす。
+ * 版は数と点だけ、作りは英小文字と数字だけを採る（文に埋めるので、ほかの字が混じったら捨てる）。
  */
-function nodeOf(p, install) {
-  const major = num(p.major) ?? DEFAULT_NODE_MAJOR;
-  const arch = text(p.arch);
-  const found = num(p.found);
-  const foundArch = text(p.foundArch);
-  const reason = p.reason === 'version' && found !== null ? 'version' : p.reason === 'arch' && foundArch !== '' && arch !== '' ? 'arch' : 'missing';
-  return { major, arch, reason, found, foundArch, install: install(major) };
+function nodeOf(kind, p, install, pickLabel) {
+  const minText = text(p.min);
+  const min = /^\d+(\.\d+){0,2}$/.test(minText) ? minText : DEFAULT_NODE_MIN;
+  const napi = num(p.napi) ?? DEFAULT_NODE_API;
+  const word = (v) => (/^[a-z0-9]+$/.test(text(v)) ? text(v) : '');
+  const arch = word(p.arch);
+  const found = /^\d+\.\d+\.\d+$/.test(text(p.found)) ? text(p.found) : '';
+  const foundArch = word(p.foundArch);
+  const reason = kind === 'node-version-mismatch' && found !== '' ? 'version' : kind === 'node-arch-mismatch' && foundArch !== '' && arch !== '' ? 'arch' : 'missing';
+  return { min, napi, lts: Number(min.split('.')[0]), arch, reason, found, foundArch, install, pickLabel };
 }
 
 /**
@@ -231,7 +292,7 @@ export function failView(info) {
     app: mac ? 'Hangar.app' : 'Hangar',
     // Windows には lsof も mv も無い。PowerShell で動く形の命令を出す。
     cmd: windows ? POWERSHELL : POSIX,
-    node: nodeOf(p, mac ? NODE_INSTALL.mac : windows ? NODE_INSTALL.windows : NODE_INSTALL.other),
+    node: nodeOf(kind, p, mac ? NODE_INSTALL.mac : windows ? NODE_INSTALL.windows : NODE_INSTALL.other, PICK_LABEL[lang](windows)),
     port: num(p.port) ?? DEFAULT_PORT,
     theirs: num(p.theirs),
     ours: num(p.ours),
@@ -242,6 +303,7 @@ export function failView(info) {
   };
   const row = TABLE[lang][kind](c);
   const L = LABELS[lang];
+  const isNode = NODE_KINDS.includes(kind);
   const version = text(info?.version);
   const command = row.command;
   const detail = text(info?.detail);
@@ -256,8 +318,10 @@ export function failView(info) {
     lead: row.lead ?? null,
     command,
     detail,
-    // 詳細を畳んでおくか。Node が無いときの札は、入れるコマンドを主にし、調べた場所は畳む。
-    collapsed: kind === 'node-missing',
+    // 詳細を畳んでおくか。Node の札は、入れ方を主にし、調べた場所は畳む。
+    collapsed: isNode,
+    // 「node を選ぶ…」の釦（Node の札だけ）。コマンドの無い札（Windows で古い Node があるとき）は、これを主の釦にする。
+    pick: isNode ? { label: PICK_LABEL[lang](windows), primary: row.command === null } : null,
     footer,
     // 報告にそのまま貼れる形。版と OS、種類、詳細の順に置く。
     copyText: [...(footer ? [footer] : []), kind, ...(detail ? ['', detail] : [])].join('\n'),
@@ -316,7 +380,7 @@ const UPDATE = {
  * downloading（version、done、total）、installing（version）、failed（step は check、download、install のどれか。reason は殻の分けた 4 つ）。
  * 返すのは、下端の「更新を確認」の釦（check）、版の横の添え書き（note）、札の中の帯（band）、「もう一度試す」を主の釦から外すか（demote）。
  * 帯が主の釦を持つ間（ダウンロードしてインストール）は、主の釦を 2 つにしないよう「もう一度試す」を外す。
- * kind は札の種類。Node が無いときは新しいバージョンを入れても Node は入らないので、直るとは言わない。
+ * kind は札の種類。Node の札では新しいバージョンを入れても Node は入らないので、直るとは言わない。
  */
 export function updateView(lang, u, current, kind) {
   const L = UPDATE[LANGS.includes(lang) ? lang : LANGS[0]];
@@ -331,7 +395,7 @@ export function updateView(lang, u, current, kind) {
     case 'latest':
       return { check: away, note: L.latest, band: null, demote: false };
     case 'available':
-      return { check: away, note: null, band: band({ title: L.availableTitle(u.version), detail: L.availableDetail(cur) + (kind === 'node-missing' ? '' : L.mayFix), action: L.download }), demote: true };
+      return { check: away, note: null, band: band({ title: L.availableTitle(u.version), detail: L.availableDetail(cur) + (NODE_KINDS.includes(kind) ? '' : L.mayFix), action: L.download }), demote: true };
     case 'downloading': {
       const known = typeof u.total === 'number' && u.total > 0;
       const ratio = known ? Math.min(1, Math.max(0, u.done / u.total)) : null;
@@ -345,4 +409,33 @@ export function updateView(lang, u, current, kind) {
     default:
       return { check: idle, note: null, band: null, demote: false };
   }
+}
+
+// 「node を選ぶ…」で選んだ Node が合わなかったときの文。殻（lib.rs の pick_node）の答えから作る。
+const PICK = {
+  ja: {
+    notNode: (r) => `${r.path} は Node.js として答えませんでした。node の実行ファイルを選んでください。`,
+    version: (r) => `選んだ Node.js は ${r.found} です。Node.js ${r.min} 以上を選んでください。`,
+    arch: (r) => `選んだ Node.js は ${r.foundArch} 用です。${r.arch} 用を選んでください。`,
+    saveFailed: (r) => `設定に保存できませんでした（${r.error}）。`,
+    other: () => '選んだ Node.js を確かめられませんでした。',
+  },
+  en: {
+    notNode: (r) => `${r.path} did not answer as Node.js. Choose the node executable.`,
+    version: (r) => `The Node.js you chose is ${r.found}. Choose Node.js ${r.min} or later.`,
+    arch: (r) => `The Node.js you chose is for ${r.foundArch}. Choose one for ${r.arch}.`,
+    saveFailed: (r) => `Couldn't save the setting (${r.error}).`,
+    other: () => "Couldn't check the Node.js you chose.",
+  },
+};
+
+/**
+ * 選んだ Node の答え r（{ result, path, found, foundArch, min, arch, error }）から、札に添える文を作る。
+ * 取り消した（cancel）、合って保存した（ok）、答えが無いときは null（何も添えない）。知らない答えは確かめられなかったと言う。
+ */
+export function pickText(lang, r) {
+  if (!r || typeof r !== 'object' || r.result === 'cancel' || r.result === 'ok') return null;
+  const t = PICK[LANGS.includes(lang) ? lang : LANGS[0]];
+  const v = { path: text(r.path, '?'), found: text(r.found, '?'), foundArch: text(r.foundArch, '?'), min: text(r.min, DEFAULT_NODE_MIN), arch: text(r.arch, '?'), error: text(r.error, '?') };
+  return Object.hasOwn(t, r.result) && r.result !== 'other' ? t[r.result](v) : t.other();
 }

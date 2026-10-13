@@ -1,7 +1,7 @@
 /**
  * Windows の `bin\hangar.cmd` が呼ぶ入口。hangar.sh の Windows 版にあたる。
  * 配布版に同梱した cli.mjs は、better-sqlite3 などのネイティブモジュールを隣から読む。
- * ネイティブモジュールは Node の ABI に縛られるので、manifest.json と同じメジャー版とアーキテクチャの Node だけで動かす。
+ * ネイティブモジュールは Node-API で作られているので、Node-API が manifest.json の nodeApi 以上で、アーキテクチャが同じ Node で動かす（規則は nodeRule.ts）。
  * cmd は batch で JSON を読めないので、PATH などで見つけた Node でこの入口だけを動かし、残りはここで決める。
  * この入口は依存を持たない。同梱の束の中で単独の 1 ファイルとして動く。
  */
@@ -10,10 +10,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { NODE_PROBE_EXPR, nodeFit, nodeLtsMajor, parseNodeProbe, type NodeBuild, type NodeNeed } from '../../../packages/server/src/config/nodeRule.ts';
 import { decideLanguage, osDisplayLanguage } from '../../../packages/server/src/i18n/osLanguage.ts';
 
-export type Want = { nodeMajor: number; arch: string };
-export type Probed = { major: number; arch: string };
+/** 要る Node（manifest.json の nodeApi、nodeMin、arch）。 */
+export type Want = NodeNeed;
+/** 候補の Node の答え（版、Node-API の版、アーキ）。 */
+export type Probed = NodeBuild;
 /**
  * 候補を 1 つ調べた答え。
  * 版とアーキが読めたとき（Probed）のほか、ファイルが無い（missing）、起動できないか Node として答えない（failed）、時間内に答えない（timeout）に分ける。
@@ -23,9 +26,9 @@ export type ProbeResult = Probed | 'missing' | 'failed' | 'timeout';
 /** 調べた候補とその答え。 */
 export type Tried = { node: string; result: ProbeResult };
 
-/** 候補を 1 つ起動して版とアーキテクチャを訊く。 */
+/** 候補を 1 つ起動して版、Node-API の版、アーキテクチャを訊く。 */
 export function probeNode(node: string): ProbeResult {
-  const r = spawnSync(node, ['-p', 'process.versions.node.split(".")[0] + " " + process.arch'], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+  const r = spawnSync(node, ['-p', NODE_PROBE_EXPR], { encoding: 'utf8', timeout: 5000, windowsHide: true });
   if (r.error) {
     const code = (r.error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return 'missing';
@@ -34,17 +37,13 @@ export function probeNode(node: string): ProbeResult {
   }
   if (r.status !== 0) return 'failed';
   // 前置きや後置きの行が混ざっても拾えるように、全行から探す。
-  for (const line of r.stdout.split(/\r?\n/).reverse()) {
-    const m = /^(\d+) ([a-z0-9]+)$/.exec(line.trim());
-    if (m) return { major: Number(m[1]), arch: m[2]! };
-  }
-  return 'failed';
+  return parseNodeProbe(r.stdout) ?? 'failed';
 }
 
 const isProbed = (r: ProbeResult): r is Probed => typeof r === 'object';
 
 /**
- * 候補を先頭から見て、版もアーキも合う最初の 1 つを返す。
+ * 候補を先頭から見て、Node-API もアーキも合う最初の 1 つを返す（nodeRule.ts の nodeFit）。
  * 合うものを見つけるまでに調べた候補と、その答えも返す。見つからないときの文に使う。
  * 同じ場所は 1 度しか探らない。Windows のパスは大文字小文字を区別しない。
  */
@@ -57,7 +56,7 @@ export function chooseNode(candidates: string[], want: Want, probe: (node: strin
     seen.add(key);
     const result = probe(c);
     tried.push({ node: c, result });
-    if (isProbed(result) && result.major === want.nodeMajor && result.arch === want.arch) return { node: c, tried };
+    if (isProbed(result) && nodeFit(result, want) === 'ok') return { node: c, tried };
   }
   return { node: undefined, tried };
 }
@@ -74,45 +73,49 @@ export function cliLanguage(settingsText: string | undefined, os: () => Lang | u
   return decideLanguage(settingsText, os).language;
 }
 
-/** Windows で Node を入れる命令。README の Windows の前提と、殻の札（node.rs の winget_command）と同じ形にする。 */
-export const WINGET_NODE = (major: number): string => `winget install -e --id OpenJS.NodeJS.${major}`;
+/** Windows で Node を入れる命令（いまの LTS）。殻の札（node.rs の WINGET_LTS）と hangar.cmd と同じ形にする。公式のインストーラで入れた今の Node は置き換わる。 */
+export const WINGET_NODE_LTS = 'winget install -e --id OpenJS.NodeJS.LTS';
 
 const TEXT = {
   ja: {
-    notFound: (w: Want) => `Node ${w.nodeMajor}（${w.arch}）が見つかりません。`,
+    notFound: (w: Want) => `Node ${w.min} 以上（${w.arch}）が見つかりません。`,
+    why: (w: Want) => `Hangar のデータベースと端末の部品は Node-API ${w.napi} を使うため、Node ${w.min} 以上が要ります。`,
     running: (what: string, at: string) => `いま動いている Node：${what}、${at}`,
-    runningOf: (p: Probed) => `${p.major}（${p.arch}）`,
+    runningOf: (p: Probed) => `${p.version}（${p.arch}）`,
     unknownVersion: '版は不明',
     noPlaces: '調べた場所はありません。',
-    places: '調べた場所（この順に探し、版とアーキテクチャが合う最初の 1 つを使います）：',
+    places: '調べた場所（この順に探し、Node-API とアーキテクチャが合う最初の 1 つを使います）：',
     place: (i: number, node: string, what: string) => `  ${i}. ${node}：${what}`,
     missing: 'ファイルが無い',
     failed: '起動できないか、Node として答えない',
     timeout: '時間内に答えない',
-    probed: (p: Probed) => `Node ${p.major}（${p.arch}）`,
-    wrongVersion: (what: string) => `${what}。版が違う`,
+    probed: (p: Probed) => `Node ${p.version}（${p.arch}）`,
+    tooOld: (what: string) => `${what}。版が古い`,
     wrongArch: (what: string) => `${what}。アーキテクチャが違う`,
-    winget: (w: Want) => `PowerShell で ${WINGET_NODE(w.nodeMajor)} を実行して入れれば、次から見つけます。`,
-    nvm: (w: Want) => `nvm-windows を使うなら、nvm install ${w.nodeMajor} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。`,
-    elsewhere: (settings: string) => `ほかの場所に入れたなら、環境変数 HANGAR_NODE か ${settings} の nodePath で場所を指定してください。`,
+    zip: (w: Want) => `今の Node を置き換えずに入れるなら、nodejs.org から Node ${nodeLtsMajor(w.min)} の Windows 用 zip（${w.arch}）を取得して、別のフォルダ（例 %LOCALAPPDATA%\\Programs\\node${nodeLtsMajor(w.min)}）に展開してください。`,
+    nvm: (w: Want) => `nvm-windows を使うなら、nvm install ${nodeLtsMajor(w.min)} で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。`,
+    elsewhere: (settings: string) => `ほかの場所に入れたなら、環境変数 HANGAR_NODE か ${settings} の nodePath で、その node.exe を指定してください。`,
+    winget: () => `PowerShell で ${WINGET_NODE_LTS} を実行しても入れられます（公式のインストーラで入れた今の Node は置き換わります）。`,
   },
   en: {
-    notFound: (w: Want) => `Node ${w.nodeMajor} (${w.arch}) was not found.`,
+    notFound: (w: Want) => `Node ${w.min} or later (${w.arch}) was not found.`,
+    why: (w: Want) => `Hangar's database and terminal parts use Node-API ${w.napi}, so Node ${w.min} or later is needed.`,
     running: (what: string, at: string) => `Node running now: ${what}, ${at}`,
-    runningOf: (p: Probed) => `${p.major} (${p.arch})`,
+    runningOf: (p: Probed) => `${p.version} (${p.arch})`,
     unknownVersion: 'unknown version',
     noPlaces: 'No places to check.',
-    places: 'Places checked (in this order; the first one whose version and architecture match is used):',
+    places: 'Places checked (in this order; the first one whose Node-API and architecture fit is used):',
     place: (i: number, node: string, what: string) => `  ${i}. ${node}: ${what}`,
     missing: 'no such file',
     failed: 'cannot start it, or it does not answer as Node',
     timeout: 'no answer in time',
-    probed: (p: Probed) => `Node ${p.major} (${p.arch})`,
-    wrongVersion: (what: string) => `${what}, wrong version`,
+    probed: (p: Probed) => `Node ${p.version} (${p.arch})`,
+    tooOld: (what: string) => `${what}, too old`,
     wrongArch: (what: string) => `${what}, wrong architecture`,
-    winget: (w: Want) => `Install it with ${WINGET_NODE(w.nodeMajor)} in PowerShell and it is found from then on.`,
-    nvm: (w: Want) => `With nvm-windows, a version installed with nvm install ${w.nodeMajor} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).`,
-    elsewhere: (settings: string) => `If it is installed somewhere else, set the HANGAR_NODE environment variable or nodePath in ${settings} to its location.`,
+    zip: (w: Want) => `To keep your current Node, get the Windows zip of Node ${nodeLtsMajor(w.min)} (${w.arch}) from nodejs.org and extract it to a separate folder (for example %LOCALAPPDATA%\\Programs\\node${nodeLtsMajor(w.min)}).`,
+    nvm: (w: Want) => `With nvm-windows, a version installed with nvm install ${nodeLtsMajor(w.min)} is found too (Hangar also looks in fnm, Volta, scoop, and PATH).`,
+    elsewhere: (settings: string) => `If it is installed somewhere else, set the HANGAR_NODE environment variable or nodePath in ${settings} to that node.exe.`,
+    winget: () => `You can also install it with ${WINGET_NODE_LTS} in PowerShell (this replaces a Node installed with the official installer).`,
   },
 } as const;
 
@@ -122,26 +125,29 @@ const describeResult = (want: Want, r: ProbeResult, lang: Lang): string => {
   if (r === 'failed') return t.failed;
   if (r === 'timeout') return t.timeout;
   const what = t.probed(r);
-  if (r.major !== want.nodeMajor) return t.wrongVersion(what);
-  if (r.arch !== want.arch) return t.wrongArch(what);
+  const fit = nodeFit(r, want);
+  if (fit === 'version') return t.tooOld(what);
+  if (fit === 'arch') return t.wrongArch(what);
   return what;
 };
 
 /**
  * 合う Node が見つからなかったときの文。
- * 何を探したか、いま動いている Node が何か、どの場所をどの順に調べて、それぞれがなぜ合わなかったかを並べ、最後に次の一手を書く。
- * 次の一手は、winget の 1 行を先に案内し、nvm-windows はほかの入れ方として添える（殻の札と同じ）。
+ * 何を探したか、なぜその版が要るか、いま動いている Node が何か、どの場所をどの順に調べて、それぞれがなぜ合わなかったかを並べ、最後に次の一手を書く。
+ * この入口は hangar.cmd が見つけた Node で動いているので、合わない Node がすでにある。
+ * 次の一手は、今の Node を置き換えない入れ方（公式の zip を別のフォルダに展開する、nvm-windows）を先に、指し方を続け、
+ * 今の Node を置き換える winget の LTS は最後に添える（殻の札と同じ順）。
  */
 export function describeNotFound(want: Want, mine: { path: string; result: ProbeResult }, tried: Tried[], settingsFile: string, lang: Lang = 'ja'): string {
   const t = TEXT[lang];
-  const lines = [t.notFound(want), t.running(isProbed(mine.result) ? t.runningOf(mine.result) : t.unknownVersion, mine.path)];
+  const lines = [t.notFound(want), t.why(want), t.running(isProbed(mine.result) ? t.runningOf(mine.result) : t.unknownVersion, mine.path)];
   if (tried.length === 0) {
     lines.push(t.noPlaces);
   } else {
     lines.push(t.places);
     tried.forEach((x, i) => lines.push(t.place(i + 1, x.node, describeResult(want, x.result, lang))));
   }
-  lines.push(t.winget(want), t.nvm(want), t.elsewhere(settingsFile));
+  lines.push(t.zip(want), t.nvm(want), t.elsewhere(settingsFile), t.winget());
   return lines.join('\n') + '\n';
 }
 
@@ -265,8 +271,8 @@ function readWant(dist: string): Want | string {
     return `${file} がありません。アプリの中身が壊れています。agent-hangar を入れ直してください。`;
   }
   try {
-    const m = JSON.parse(text) as { nodeMajor?: unknown; arch?: unknown };
-    if (typeof m.nodeMajor === 'number' && typeof m.arch === 'string') return { nodeMajor: m.nodeMajor, arch: m.arch };
+    const m = JSON.parse(text) as { nodeApi?: unknown; nodeMin?: unknown; arch?: unknown };
+    if (typeof m.nodeApi === 'number' && typeof m.nodeMin === 'string' && typeof m.arch === 'string') return { napi: m.nodeApi, min: m.nodeMin, arch: m.arch };
   } catch {
     // 下の案内へ進む。
   }
@@ -285,14 +291,14 @@ export async function run(dist: string, argv: string[] = process.argv.slice(2), 
     process.exitCode = 1;
     return;
   }
-  const mine: Probed = { major: Number(process.versions.node.split('.')[0]), arch: process.arch };
+  const mine: Probed = { version: process.versions.node, napi: Number(process.versions.napi ?? 0), arch: process.arch };
   // 渡し直された側は、探した側が確かめた Node なので、もう一度は確かめない。輪になるのを避けるためでもある。
   // 印は読んだらすぐ消す。残すと cli.mjs から、hangar start が起こすサーバ、tmux、ペインの中の hangar まで届き、
   // ペインの中の hangar が版の確かめを飛ばして、PATH の先頭の Node で cli.mjs を直に読む。
   const launched = env.HANGAR_LAUNCHED === '1';
   delete env.HANGAR_LAUNCHED;
   delete process.env.HANGAR_LAUNCHED;
-  if (launched || (mine.major === want.nodeMajor && mine.arch === want.arch)) {
+  if (launched || nodeFit(mine, want) === 'ok') {
     // 同梱した UI の場所を、束の中から渡す。hangar start が子として起こす server.mjs もこの値を継ぐ。
     process.env.HANGAR_UI_DIST = path.join(dist, 'ui');
     await import(pathToFileURL(path.join(dist, 'cli.mjs')).href);

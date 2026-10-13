@@ -27,8 +27,8 @@ import { presentToasts } from './presenters/toasts.ts';
 import { createApi, type ApiClient } from './runtime/api.ts';
 import type { Runtime } from './runtime/runtime.ts';
 import type { TerminalHost } from './runtime/terminals.ts';
-import { isMacClient, matchKey } from './keys.ts';
-import { createSwipeDetector, SWIPE_IDLE_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
+import { clientPlatform, isMacClient, matchKey } from './keys.ts';
+import { createSwipeDetector, swipeModeOf, SWIPE_IDLE_MS, SWIPE_RELEASE_GAP_MS, SWIPE_STALE_HIDE_MS } from './swipe.ts';
 import { currentRunOf, tabsOf } from './store/store.ts';
 import { CommandPalette } from './views/CommandPalette.tsx';
 import { usePaletteFound } from './views/usePaletteFound.ts';
@@ -66,8 +66,9 @@ import { ToastStack } from './views/ToastStack.tsx';
 
 /**
  * 指の位相の受け口。
- * デスクトップの殻（Rust）が、NSEvent の位相から「指が離れた」を `__hangarSwipeEnd` で叩き、
+ * macOS のデスクトップの殻（Rust）が、NSEvent の位相から「指が離れた」を `__hangarSwipeEnd` で叩き、
  * 位相を読める環境であることを `__hangarPhaseAware` で知らせてくる。
+ * Windows の殻は位相を送らないので、打鍵の途切れを離した合図にする（swipe.ts の swipeModeOf）。
  */
 type PhaseWindow = Window & { __hangarPhaseAware?: boolean; __hangarSwipeBegin?: () => void; __hangarSwipeEnd?: () => void };
 const phaseWindow = (): PhaseWindow => window as PhaseWindow;
@@ -263,12 +264,36 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
   // スワイプの効果は rt だけで組み直さないので、いまの値は ref で読む。
   const swipeBlocked = useRef(false);
   swipeBlocked.current = !canMoveBehind(state);
+  // デスクトップの殻の中か。スワイプの決め方とマウスの戻る進むのボタンは、殻の中だけで自前で持つ。
+  // 殻は起動の時に決まり、途中で変わらないが、効果を rt だけで組むために ref で読む。
+  const inShell = useRef(false);
+  inShell.current = store.desktop;
+
+  // マウスの戻ると進むのボタン（button 3 と 4）。
+  // ⌘[ と ⌘] と同じく、入力欄やターミナルの中でも効く。ダイアログの裏で移さないのは Mediator（canMoveBehind）が、
+  // 最初の頁より前へ戻らないのは runtime の history.go が受け持つ。
+  // WebView2 は mouseup の既定の動作で履歴を動かすので、それを止めて自前の nav.back に替える。
+  // 既定のままだと、最初の頁の手前の起動を待つ頁まで戻って詰む。
+  // ブラウザでは、ブラウザの戻る進むに任せる。前の頁が hangar の外にあることもあるからである。
+  // xterm などが伝搬を止めても取りこぼさないよう、捕捉の段で受ける。
+  useEffect(() => {
+    const onMouseUp = (e: MouseEvent) => {
+      if ((e.button !== 3 && e.button !== 4) || !inShell.current) return;
+      e.preventDefault();
+      rt.emit({ type: e.button === 3 ? 'nav.back' : 'nav.forward' });
+    };
+    window.addEventListener('mouseup', onMouseUp, true);
+    return () => window.removeEventListener('mouseup', onMouseUp, true);
+  }, [rt]);
 
   // トラックパッドの横スワイプ。
   // ネイティブの手勢はスナップショットを滑らせる演出まで付いてくるので使わず、横方向のホイールを自分で積む。
   useEffect(() => {
     const swipe = createSwipeDetector();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // 打鍵の途切れで離したとみなす決め方（Windows の殻）の時計。打鍵のたびに張り直す。
+    let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+    const mode = () => swipeModeOf({ phaseAware: phaseAware(), desktop: inShell.current, platform: clientPlatform() });
     // 矢印は DOM を直に触って動かす。毎打鍵で React を回すと、画面ごと 60 回／秒で描き直すことになる。
     const hide = () => {
       const n = swipeHintRef.current;
@@ -308,10 +333,29 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       // 少しの余りは、タイマーが遷移の最後のコマより先に走り、消え際が一瞬で切れて見えるのを防ぐためである。
       timer = setTimeout(hide, motionMs('--dur-exit') + 10);
     };
+    // 新しい手勢の始まり。前の手勢の名残をすべて捨てて、矢印も 0 に戻す。
+    const begin = () => {
+      ended = false;
+      owner = 'none';
+      swipe.begin();
+      clearTimeout(timer);
+      hide();
+    };
     const onWheel = (e: WheelEvent) => {
       // ブラウザには元から手勢がある。二重に持たず、標準の戻る進むに任せる。
-      // この機能はデスクトップの殻の中だけのもので、指の位相が届くことが前提になっている。
-      if (!phaseAware()) return;
+      // この機能はデスクトップの殻の中だけのものである。
+      const m = mode();
+      if (m === 'off') return;
+      if (m === 'gap') {
+        // Windows の Chromium は Shift+ホイールを横の打鍵にして渡す。マウスで横へ流す操作なので、手勢にしない。
+        if (e.shiftKey) return;
+        // 位相の無い殻では、途切れた後の最初の打鍵が新しい手勢の始まりである。
+        if (ended) begin();
+        // 打鍵が途切れたら、そこで指が離れたとみなす。
+        // 指が動いている間の打鍵は途切れない。惰性が流れている間も途切れないので、勢いよく離した回は惰性が尽きてから動く。
+        clearTimeout(releaseTimer);
+        releaseTimer = setTimeout(onRelease, SWIPE_RELEASE_GAP_MS);
+      }
       // 指が離れた後の惰性は、終わった手勢の残りである。次の手勢が始まるまで何もしない。
       if (ended) return;
       if (swipeBlocked.current) { swipe.begin(); clearTimeout(timer); hide(); return; }
@@ -330,26 +374,19 @@ export function Root(props: { runtime: Runtime; api?: ApiClient; terminals: Term
       clearTimeout(timer);
       if (p.dir === 0 || (p.dir < 0 && !rt.canGoBack())) { hide(); return; }
       show(p.dir < 0 ? 'back' : 'forward', p.ratio, p.armed, false);
-      // 指が離れたことは、デスクトップでは OS の位相が教えてくれる（__hangarSwipeEnd）。
-      // それが無いブラウザでは、打鍵が途切れたことを離した合図にする。
-      // 位相が届く環境でも、位相を持たないマウスホイールのために長めの保険を置く。
-      // 手勢の終わりは合図が決める。時間で画面を動かすことはしない。
+      // 指が離れたことは、macOS の殻では OS の位相が教えてくれる（__hangarSwipeEnd）。
+      // 手勢の終わりは合図が決める。位相の届く環境では、時間で画面を動かすことはしない。
       // 時間で打ち切る経路を残すと、合図が遅れた回に、指を置いたまま画面が動く。
+      // 位相の無い Windows の殻だけは、上の途切れの時計が合図の代わりになる。
       // ただし身構えていない手勢は、合図を取りこぼしても矢印が居残らないように、消すだけの保険を置く。
       if (!p.armed) timer = setTimeout(hide, SWIPE_STALE_HIDE_MS);
     };
     window.addEventListener('wheel', onWheel, { passive: true });
-    // 新しい手勢の始まり。前の手勢の名残をすべて捨てて、矢印も 0 に戻す。
-    phaseWindow().__hangarSwipeBegin = () => {
-      ended = false;
-      owner = 'none';
-      swipe.begin();
-      clearTimeout(timer);
-      hide();
-    };
+    phaseWindow().__hangarSwipeBegin = begin;
     phaseWindow().__hangarSwipeEnd = onRelease;
     return () => {
       clearTimeout(timer);
+      clearTimeout(releaseTimer);
       window.removeEventListener('wheel', onWheel);
       delete phaseWindow().__hangarSwipeBegin;
       delete phaseWindow().__hangarSwipeEnd;

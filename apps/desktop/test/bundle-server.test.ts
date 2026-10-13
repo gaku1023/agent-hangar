@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BUNDLE_NODE_MAJOR, BUNDLE_TARGETS, buildLauncher, bundleServer, hostBundleTarget, LAUNCHER_MIN_NODE, NATIVE_MODULES, type BundleTarget } from '../scripts/bundle-server.ts';
-import { chooseNode, cliLanguage, describeNotFound, type ProbeResult, WINGET_NODE, windowsNodeCandidates } from '../scripts/launch-cli.ts';
+import { chooseNode, cliLanguage, describeNotFound, type ProbeResult, WINGET_NODE_LTS, windowsNodeCandidates } from '../scripts/launch-cli.ts';
+import { NODE_API_MIN, NODE_MIN_LABEL, NODE_PROBE_EXPR } from '../../../packages/server/src/config/nodeRule.ts';
 import { bundleWorker, workerMetadata } from '../../../packages/cloud/scripts/build-worker.ts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -125,7 +126,9 @@ describe.skipIf(!host)('bundleServer', () => {
     const m = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
     // 版は apps/desktop/package.json のもの。版を上げるたびにここを直さなくて済むよう、決め打ちしない。
     const desktopVersion = JSON.parse(fs.readFileSync(path.join(repoRoot, 'apps/desktop/package.json'), 'utf8')).version;
-    expect(m).toMatchObject({ version: desktopVersion, nodeMajor: BUNDLE_NODE_MAJOR, arch: process.arch });
+    // 要る Node は、Node-API の版（nodeApi）と、それを持つ最初の Node の版（nodeMin）で書く。規則の値は nodeRule.ts の 1 か所にある。
+    expect(m).toMatchObject({ version: desktopVersion, nodeApi: NODE_API_MIN, nodeMin: NODE_MIN_LABEL, arch: process.arch });
+    expect(m).not.toHaveProperty('nodeMajor');
     expect(host).toBe(`${process.platform}-${process.arch}`);
     expect(typeof m.builtAt).toBe('string');
     const js = fs.readFileSync(path.join(out, 'server.mjs'), 'utf8');
@@ -279,14 +282,17 @@ describe.skipIf(!host)('bundleServer', () => {
  * この環境には存在しない Node のメジャー版。
  * 実物の Node が偶然に当たらないので、探索の道筋を作り物の node だけで決められる。
  */
-const UNREACHABLE_MAJOR = 99;
+const UNREACHABLE_API = 99;
+
+/** 作り物の Node の版を、同じ数の Node-API の版と名乗らせる。99 なら v99.0.0、Node-API 99。 */
+const fakeVersion = (napi: number): string => `${napi}.0.0`;
 
 /**
  * hangar.sh だけを試すための最小の dist。
  * バンドルを作らずに済むので、Apple silicon 以外でも走る。
  * 置き場の名前に空白を入れてあるのは、空白で語分割される壊れ方を常に踏むためである。
  */
-function fakeDist(o: { nodeMajor?: number | null; arch?: string; manifest?: string } = {}): string {
+function fakeDist(o: { nodeApi?: number | null; arch?: string; manifest?: string } = {}): string {
   const dist = tmp('hangar dist-');
   dirs.push(dist);
   fs.mkdirSync(path.join(dist, 'bin'));
@@ -297,21 +303,21 @@ function fakeDist(o: { nodeMajor?: number | null; arch?: string; manifest?: stri
     path.join(dist, 'cli.mjs'),
     'console.log(JSON.stringify({ ui: process.env.HANGAR_UI_DIST, cloud: process.env.HANGAR_CLOUD_DIR ?? null, node: process.env.HANGAR_TEST_SHIM ?? null, args: process.argv.slice(2) }));\n',
   );
-  const major = o.nodeMajor === undefined ? UNREACHABLE_MAJOR : o.nodeMajor;
+  const api = o.nodeApi === undefined ? UNREACHABLE_API : o.nodeApi;
   if (o.manifest !== undefined) fs.writeFileSync(path.join(dist, 'manifest.json'), o.manifest);
-  else if (major !== null) fs.writeFileSync(path.join(dist, 'manifest.json'), JSON.stringify({ version: '0.0.0', nodeMajor: major, arch: o.arch ?? process.arch }) + '\n');
+  else if (api !== null) fs.writeFileSync(path.join(dist, 'manifest.json'), JSON.stringify({ version: '0.0.0', nodeApi: api, nodeMin: `${api}.0`, arch: o.arch ?? process.arch }) + '\n');
   return dist;
 }
 
 /**
- * 指定した場所に、作り物のメジャー版を名乗る node を置く。
- * 探索の probe（node -p）には作り物の版を返し、実際の起動だけ実物の node へ渡す。
+ * 指定した場所に、作り物の Node-API の版を名乗る node を置く。
+ * 探索の probe（node -p）には作り物の答え（answer を渡せばそのまま）を返し、実際の起動だけ実物の node へ渡す。
  * どの候補が選ばれたかを知るために、自分の場所を HANGAR_TEST_SHIM で渡す。
  */
-function fakeNode(at: string, major = UNREACHABLE_MAJOR, arch = process.arch): string {
+function fakeNode(at: string, napi = UNREACHABLE_API, arch = process.arch, answer = `v${fakeVersion(napi)} ${arch} ${napi}`): string {
   fs.mkdirSync(path.dirname(at), { recursive: true });
   const real = JSON.stringify(process.execPath);
-  fs.writeFileSync(at, `#!/bin/sh\nif [ "$1" = "-p" ]; then echo "${major} ${arch}"; exit 0; fi\nHANGAR_TEST_SHIM=${JSON.stringify(at)}\nexport HANGAR_TEST_SHIM\nexec ${real} "$@"\n`);
+  fs.writeFileSync(at, `#!/bin/sh\nif [ "$1" = "-p" ]; then printf '%s\\n' ${JSON.stringify(answer)}; exit 0; fi\nHANGAR_TEST_SHIM=${JSON.stringify(at)}\nexport HANGAR_TEST_SHIM\nexec ${real} "$@"\n`);
   fs.chmodSync(at, 0o755);
   return at;
 }
@@ -436,7 +442,50 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     expect(JSON.parse(r.stdout).node).toBe(nvm);
   });
 
-  it('どの候補も版が合わなければ、brew install で足りることと、調べた場所とその理由を述べて exit 1 になる', async () => {
+  // 上限は付けない。要る Node-API の版より新しい Node も採る（0.6.0 までは、メジャー版が違えば新しい版でも採らなかった）。
+  it('Node-API が要る版より新しい Node も採る', async () => {
+    const dist = fakeDist();
+    const newer = fakeNode(path.join(emptyDirFor('hangar nodes-'), 'newer', 'node'), UNREACHABLE_API + 1);
+    const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_NODE: newer, HANGAR_HOME: emptyDirFor('hangar home-'), HOME: emptyDirFor('hangar userhome-') });
+    expect(r.code, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout).node).toBe(newer);
+  });
+
+  // 殻（node.rs）、launch-cli.ts、設定の確かめ（nodeRule.ts）と同じ見本の表で、採るかどうかと理由が同じになる。
+  it('候補に訊く式と、採る規則は、見本の表（node-rule-cases.json）のとおり', async () => {
+    const sh = fs.readFileSync(path.join(repoRoot, 'apps/desktop/scripts/hangar.sh'), 'utf8');
+    expect(sh).toContain(`-p '${NODE_PROBE_EXPR}'`);
+    const table = JSON.parse(fs.readFileSync(path.join(repoRoot, 'packages/server/src/config/node-rule-cases.json'), 'utf8')) as {
+      need: { napi: number; min: string; arch: string };
+      cases: { answer: string; fit: 'ok' | 'version' | 'arch' | null }[];
+    };
+    // この機械の実物の Node（Homebrew など）が後ろの候補で当たらないよう、表の arm64 を、どの実物も名乗らないアーキに読み替える。
+    const arch = 'zz64';
+    const dist = fakeDist({ manifest: JSON.stringify({ version: '0.0.0', nodeApi: table.need.napi, nodeMin: table.need.min, arch }, null, 2) + '\n' });
+    expect(table.need.arch).toBe('arm64');
+    for (const c of table.cases) {
+      const at = path.join(emptyDirFor('hangar nodes-'), 'n', 'node');
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      // 答えは改行を含むことがあるので、そのまま書き出す。
+      fs.writeFileSync(path.join(path.dirname(at), 'answer.txt'), c.answer.replaceAll('arm64', arch));
+      fs.writeFileSync(at, `#!/bin/sh\nif [ "$1" = "-p" ]; then cat ${JSON.stringify(path.join(path.dirname(at), 'answer.txt'))}; exit 0; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+      fs.chmodSync(at, 0o755);
+      const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_NODE: at, HANGAR_HOME: emptyDirFor('hangar home-'), HOME: emptyDirFor('hangar userhome-') });
+      const label = JSON.stringify(c.answer);
+      if (c.fit === 'ok') {
+        expect(r.code, `${label} ${r.stderr}`).toBe(0);
+        continue;
+      }
+      expect(r.code, label).toBe(1);
+      const line = r.stderr.split('\n').find((l) => l.startsWith(`  ${at}: `));
+      expect(line, `${label} ${r.stderr}`).toBeDefined();
+      if (c.fit === null) expect(line, label).toContain('Node ではありません');
+      if (c.fit === 'version') expect(line, label).toContain(`Node ${table.need.min} 以上が要ります`);
+      if (c.fit === 'arch') expect(line, label).toContain(`${arch} 用が要ります`);
+    }
+  });
+
+  it('どの候補も合わなければ、理由と、今の Node を置き換えない入れ方と、調べた場所とその理由を述べて exit 1 になる', async () => {
     const dist = fakeDist();
     const home = emptyDirFor('hangar home-');
     const userHome = emptyDirFor('hangar user home-');
@@ -447,9 +496,10 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     fs.chmodSync(broken, 0o755);
     const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: home, HOME: userHome });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(`Node ${UNREACHABLE_MAJOR}（${process.arch}）が見つかりません`);
-    expect(r.stderr).toContain(`brew install node@${UNREACHABLE_MAJOR}`);
-    expect(r.stderr).not.toContain('nvm install');
+    expect(r.stderr).toContain(`Node ${UNREACHABLE_API}.0 以上（${process.arch}）が見つかりません`);
+    expect(r.stderr).toContain(`Node-API ${UNREACHABLE_API} を使うため、Node ${UNREACHABLE_API}.0 以上が要ります`);
+    expect(r.stderr).toContain(`brew install node@${UNREACHABLE_API}`);
+    expect(r.stderr).toContain(`nvm install ${UNREACHABLE_API}`);
     expect(r.stderr).toContain(path.join(home, 'settings.json'));
     const lines = r.stderr.split('\n');
     const checked = lines.indexOf('調べた場所:');
@@ -458,13 +508,13 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     // 固定の場所は、無くても挙げる。この機械に実物があるかどうかで理由は変わるので、場所だけを見る。
     expect(listed.some((l) => l.startsWith('  /opt/homebrew/bin/node: ')), r.stderr).toBe(true);
     expect(listed.some((l) => l.startsWith('  /usr/local/bin/node: ')), r.stderr).toBe(true);
-    expect(listed).toContain(`  ${older}: v98 ${process.arch}（要る版は ${UNREACHABLE_MAJOR} ${process.arch}）`);
+    expect(listed).toContain(`  ${older}: v98.0.0 ${process.arch}（Node-API 98。Node ${UNREACHABLE_API}.0 以上が要ります）`);
     expect(listed).toContain(`  ${broken}: Node ではありません（別の実行ファイルのようです）`);
     expect(listed.findIndex((l) => l.includes(older))).toBeLessThan(listed.findIndex((l) => l.includes(broken)));
   });
 
   it('manifest.json が無ければ、sed の生のエラーではなく何が起きたかを述べて止まる', async () => {
-    const dist = fakeDist({ nodeMajor: null });
+    const dist = fakeDist({ nodeApi: null });
     const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: emptyDirFor('hangar home-'), HOME: emptyDirFor('hangar userhome-') });
     expect(r.code).toBe(1);
     expect(r.stderr).not.toContain('sed:');
@@ -504,12 +554,13 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     // 「別のアーキ」は走っている機械によって変わる。arm64 の Mac では x64 が、x64 の Linux では arm64 が相手になる。
     // ここを x64 に決め打ちすると、x64 の機械では「合っている Node」を作ってしまい、試験が主張を失う。
     const otherArch = process.arch === 'x64' ? 'arm64' : 'x64';
-    const wrong = fakeNode(path.join(nodes, otherArch, 'node'), UNREACHABLE_MAJOR, otherArch);
+    const wrong = fakeNode(path.join(nodes, otherArch, 'node'), UNREACHABLE_API, otherArch);
     const home = emptyDirFor('hangar home-');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: wrong }));
     const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_HOME: home, HOME: emptyDirFor('hangar userhome-') });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(`Node ${UNREACHABLE_MAJOR}（${process.arch}）が見つかりません`);
+    expect(r.stderr).toContain(`Node ${UNREACHABLE_API}.0 以上（${process.arch}）が見つかりません`);
+    expect(r.stderr).toContain(`  ${wrong}: v${fakeVersion(UNREACHABLE_API)} ${otherArch}（${process.arch} 用が要ります）`);
 
     // 同じ並びに正しいアーキの Node があれば、そちらを採る。
     const right = fakeNode(path.join(nodes, 'ok', 'node'));
@@ -524,6 +575,7 @@ describe.skipIf(process.platform === 'win32')('bin/hangar の Node 探索', () =
     const at = path.join(emptyDirFor('hangar nodes-'), 'noisy', 'node');
     fakeNode(at);
     const body = fs.readFileSync(at, 'utf8').replace('if [ "$1" = "-p" ]; then', 'if [ "$1" = "-p" ]; then echo "(node:1) Warning: x";');
+    expect(body).not.toBe(fs.readFileSync(at, 'utf8'));
     fs.writeFileSync(at, body);
     const r = await runHangar(path.join(dist, 'bin/hangar'), [], { HANGAR_NODE: at, HANGAR_HOME: emptyDirFor('hangar home-'), HOME: emptyDirFor('hangar userhome-') });
     expect(r.code, r.stderr).toBe(0);
@@ -605,9 +657,9 @@ describe('bundleServer の target 別の同梱物', () => {
     return out;
   };
 
-  // manifest の nodeMajor は、殻、hangar.sh、launch-cli.mjs が完全一致で比べる値である。build した機械の Node から取ると、
-  // 別の版の Node で build した束が、その版を要ると名乗って配られる。版は 22 に固定し、違う Node での build は止める。
-  it('manifest の nodeMajor は 22 に固定し、別のメジャー版の Node で作ろうとしたら、何も書かずに止まる', async () => {
+  // 束は CI と同じ Node 22 で作る。manifest に書くのは規則の値（nodeApi、nodeMin）で、作る Node の版ではない。
+  // ネイティブモジュールは Node-API で作られていて、作る Node の版に縛られないが、作る道筋は 1 つに固めておく。
+  it('束を作る Node は 22 に固定し、別のメジャー版の Node で作ろうとしたら、何も書かずに止まる', async () => {
     expect(BUNDLE_NODE_MAJOR).toBe(22);
     const out = tmp('hangar-dist-');
     dirs.push(out);
@@ -616,10 +668,17 @@ describe('bundleServer の target 別の同梱物', () => {
     expect(fs.readdirSync(out)).toEqual(['keep.txt']);
   });
 
-  // 起動の失敗の札は、殻が版を渡さなかったときに同じ版を書く。
-  it('起動の失敗の札（boot-fail.js）が既定に使う版は、束の版と同じ', async () => {
-    const bootFail = (await import(pathToFileURL(path.join(repoRoot, 'apps/desktop/loading/boot-fail.js')).href)) as { DEFAULT_NODE_MAJOR: number };
-    expect(bootFail.DEFAULT_NODE_MAJOR).toBe(BUNDLE_NODE_MAJOR);
+  // 起動の失敗の札は、殻が版を渡さなかったときに同じ値を書く。
+  it('起動の失敗の札（boot-fail.js）が既定に使う値は、規則の値（nodeRule.ts）と同じ', async () => {
+    const bootFail = (await import(pathToFileURL(path.join(repoRoot, 'apps/desktop/loading/boot-fail.js')).href)) as { DEFAULT_NODE_MIN: string; DEFAULT_NODE_API: number };
+    expect(bootFail.DEFAULT_NODE_MIN).toBe(NODE_MIN_LABEL);
+    expect(bootFail.DEFAULT_NODE_API).toBe(NODE_API_MIN);
+  });
+
+  // hangar.cmd は JSON を読めないので、Node が 1 つも無いときの文に版を書いておく。規則の値と同じにする。
+  it('hangar.cmd の、Node が無いときの文の版は、規則の値と同じ', () => {
+    const cmd = fs.readFileSync(path.join(repoRoot, 'apps/desktop/scripts/hangar.cmd'), 'utf8');
+    expect(cmd).toContain(`Node.js ${NODE_MIN_LABEL} or later`);
   });
 
   // hangar.cmd は、launch-cli.mjs を読めない古い Node を飛ばす。飛ばす境目は、launch-cli.mjs を作るときの target と同じ版である。
@@ -682,7 +741,12 @@ describe('bundleServer の target 別の同梱物', () => {
 });
 
 describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
-  const major = Number(process.versions.node.split('.')[0]);
+  const napi = Number(process.versions.napi);
+  const version = process.versions.node;
+  /** 走っている Node に合う manifest。 */
+  const fits = (arch: string = process.arch) => ({ version: '0.0.0', nodeApi: napi, nodeMin: '22.14', arch });
+  /** どの実物の Node も合わない manifest。 */
+  const unreachable = { version: '0.0.0', nodeApi: 99, nodeMin: '99.0', arch: process.arch };
 
   /** 作り物の dist。launch-cli.mjs は実物と同じ作り方で作り、cli.mjs は受け取った引数と環境を印字するだけの物に替える。 */
   async function fakeLaunchDist(manifest: object | null): Promise<string> {
@@ -712,7 +776,7 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
   };
 
   it('走っている Node が manifest と合えば、そのまま cli.mjs を動かし、UI の置き場を渡す', async () => {
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: major, arch: process.arch });
+    const dist = await fakeLaunchDist(fits());
     const r = run(dist, ['status', '--port', '4231']);
     expect(r.code, r.stderr).toBe(0);
     const out = JSON.parse(r.stdout) as { ui?: string; args: string[]; node: string };
@@ -722,48 +786,49 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
   });
 
   it('どの候補も合わなければ、探した Node と次の一手を述べて exit 1 になる', async () => {
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const dist = await fakeLaunchDist(unreachable);
     const home = emptyDirFor('hangar home-');
     // 文の言語は設定か OS の言語で決まる。この機械の言語に左右されないよう、設定で日本語に決める。
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ language: 'ja' }));
     const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(`Node 99（${process.arch}）が見つかりません`);
-    expect(r.stderr).toContain('winget install -e --id OpenJS.NodeJS.99');
+    expect(r.stderr).toContain(`Node 99.0 以上（${process.arch}）が見つかりません`);
+    expect(r.stderr).toContain('Node-API 99 を使うため');
+    expect(r.stderr).toContain('winget install -e --id OpenJS.NodeJS.LTS');
     expect(r.stderr).toContain('HANGAR_NODE');
     expect(r.stderr).toContain(path.join(home, 'settings.json'));
   });
 
   it('設定の言語が英語なら、見つからないときの文も英語で述べる', async () => {
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const dist = await fakeLaunchDist(unreachable);
     const home = emptyDirFor('hangar home-');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ language: 'en' }));
     const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(`Node 99 (${process.arch}) was not found.`);
-    expect(r.stderr).toContain('winget install -e --id OpenJS.NodeJS.99');
+    expect(r.stderr).toContain(`Node 99.0 or later (${process.arch}) was not found.`);
+    expect(r.stderr).toContain('winget install -e --id OpenJS.NodeJS.LTS');
     expect(r.stderr).toContain('nvm install 99');
     expect(r.stderr).not.toContain('見つかりません');
   });
 
   // 英語の OS で入れたばかりの状態（設定が無い）。殻の札、サーバ、UI と同じく、OS の表示言語で英語になる。
   it('設定が無ければ OS の表示言語で述べ、設定は書かない（書くのは殻かサーバ）', async () => {
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const dist = await fakeLaunchDist(unreachable);
     const home = emptyDirFor('hangar home-');
     const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath, HANGAR_OS_LANGUAGE: 'en' });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(`Node 99 (${process.arch}) was not found.`);
+    expect(r.stderr).toContain(`Node 99.0 or later (${process.arch}) was not found.`);
     expect(r.stderr).not.toContain('見つかりません');
     expect(fs.existsSync(path.join(home, 'settings.json'))).toBe(false);
   });
 
   it('設定はあるが言語が無い（OS に合わせる前からの利用者）なら、英語の OS でも日本語で述べる', async () => {
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const dist = await fakeLaunchDist(unreachable);
     const home = emptyDirFor('hangar home-');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: null }));
     const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath, HANGAR_OS_LANGUAGE: 'en' });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(`Node 99（${process.arch}）が見つかりません`);
+    expect(r.stderr).toContain(`Node 99.0 以上（${process.arch}）が見つかりません`);
   });
 
   it('manifest.json が無ければ、何が起きたかを述べて止まる', async () => {
@@ -781,15 +846,22 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
     expect(r.stderr).toContain('manifest.json');
   });
 
+  it('0.6.0 までの manifest（メジャー版だけ）も、版を読めないと述べて止まる', async () => {
+    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 22, arch: process.arch });
+    const r = run(dist, []);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('manifest.json');
+  });
+
   // 偽の node は sh で書くので、Windows では作らない。選び方そのものは下の chooseNode の試験が縛る。
   it.skipIf(onWindows)('走っている Node が合わないとき、settings.json の nodePath の Node へ引数ごと渡し直す', async () => {
     const otherArch = process.arch === 'x64' ? 'arm64' : 'x64';
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: major, arch: otherArch });
+    const dist = await fakeLaunchDist(fits(otherArch));
     const nodes = emptyDirFor('hangar nodes-');
     const fake = path.join(nodes, 'n d', 'node');
     fs.mkdirSync(path.dirname(fake));
-    // 探り（-p）にだけ、manifest と同じ版を名乗る。それ以外は実物の node へ渡す。
-    fs.writeFileSync(fake, `#!/bin/sh\nif [ "$1" = "-p" ]; then echo "${major} ${otherArch}"; exit 0; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+    // 探り（-p）にだけ、manifest に合う答えを名乗る。それ以外は実物の node へ渡す。
+    fs.writeFileSync(fake, `#!/bin/sh\nif [ "$1" = "-p" ]; then echo "v${version} ${otherArch} ${napi}"; exit 0; fi\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
     fs.chmodSync(fake, 0o755);
     const home = emptyDirFor('hangar home-');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: fake }));
@@ -802,7 +874,7 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
 
   // 渡し直しの印は、渡された側が読んだらすぐ消す。cli.mjs と、hangar start が起こすサーバ、tmux、ペインへ持ち込まない。
   it('渡し直しの印 HANGAR_LAUNCHED は、cli.mjs を読む前に環境から消す', async () => {
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: major, arch: process.arch });
+    const dist = await fakeLaunchDist(fits());
     const r = run(dist, ['url'], { HANGAR_LAUNCHED: '1' });
     expect(r.code, r.stderr).toBe(0);
     expect((JSON.parse(r.stdout) as { launched: string | null }).launched).toBeNull();
@@ -810,7 +882,7 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
 
   // 殻（node.rs）は nodePath を絶対パスとしてしか読まない。名前だけの nodePath を PATH から引くと、アプリと CLI で使う Node が食い違う。
   it('設定の nodePath が絶対パスでなければ、PATH から引かずに「ファイルが無い」と扱う', async () => {
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const dist = await fakeLaunchDist(unreachable);
     const home = emptyDirFor('hangar home-');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: 'node', language: 'ja' }));
     const r = run(dist, [], { HANGAR_HOME: home });
@@ -820,43 +892,43 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
   });
 
   it('どの候補も合わなければ、調べた場所を探した順に挙げ、それぞれが合わなかった理由を述べる', async () => {
-    const dist = await fakeLaunchDist({ version: '0.0.0', nodeMajor: 99, arch: process.arch });
+    const dist = await fakeLaunchDist(unreachable);
     const home = emptyDirFor('hangar home-');
     const missing = path.join(emptyDirFor('hangar nodes-'), 'none', 'node.exe');
     fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ nodePath: missing, language: 'ja' }));
     const r = run(dist, [], { HANGAR_HOME: home, HANGAR_NODE: process.execPath });
     expect(r.code).toBe(1);
-    expect(r.stderr).toContain(`いま動いている Node：${major}（${process.arch}）`);
+    expect(r.stderr).toContain(`いま動いている Node：${version}（${process.arch}）`);
     expect(r.stderr).toContain('調べた場所');
     const lines = r.stderr.split(/\r?\n/);
     // 調べた場所の行（番号付き）の中で探す。
     const at = (p: string) => lines.findIndex((l) => /^\s+\d+\. /.test(l) && l.includes(p));
     expect(at(process.execPath)).toBeGreaterThan(-1);
     expect(at(missing)).toBeGreaterThan(at(process.execPath));
-    expect(lines[at(process.execPath)]).toContain(`Node ${major}（${process.arch}）`);
-    expect(lines[at(process.execPath)]).toContain('版が違う');
+    expect(lines[at(process.execPath)]).toContain(`Node ${version}（${process.arch}）`);
+    expect(lines[at(process.execPath)]).toContain('版が古い');
     expect(lines[at(missing)]).toContain('ファイルが無い');
   });
 
   describe('chooseNode', () => {
-    const want = { nodeMajor: 22, arch: 'x64' };
+    const want = { napi: 10, min: '22.14', arch: 'x64' };
     const answers: Record<string, ProbeResult> = {
       'C:\\a\\node.exe': 'failed',
-      'C:\\b\\node.exe': { major: 20, arch: 'x64' },
-      'C:\\c\\node.exe': { major: 22, arch: 'arm64' },
-      'C:\\d\\node.exe': { major: 22, arch: 'x64' },
-      'C:\\e\\node.exe': { major: 22, arch: 'x64' },
+      'C:\\b\\node.exe': { version: '20.18.0', napi: 9, arch: 'x64' },
+      'C:\\c\\node.exe': { version: '22.14.0', napi: 10, arch: 'arm64' },
+      'C:\\d\\node.exe': { version: '24.18.0', napi: 10, arch: 'x64' },
+      'C:\\e\\node.exe': { version: '22.14.0', napi: 10, arch: 'x64' },
       'C:\\m\\node.exe': 'missing',
     };
-    it('先頭から見て、版もアーキも合う最初の 1 つを採る。起動できない候補や版違いは飛ばす', () => {
+    it('先頭から見て、Node-API もアーキも合う最初の 1 つを採る。新しい版も採り、起動できない候補や古い版は飛ばす', () => {
       expect(chooseNode(Object.keys(answers), want, (p) => answers[p]!).node).toBe('C:\\d\\node.exe');
     });
     it('採るまでに調べた候補と、その答えを順に返す', () => {
       expect(chooseNode(Object.keys(answers), want, (p) => answers[p]!).tried).toEqual([
         { node: 'C:\\a\\node.exe', result: 'failed' },
-        { node: 'C:\\b\\node.exe', result: { major: 20, arch: 'x64' } },
-        { node: 'C:\\c\\node.exe', result: { major: 22, arch: 'arm64' } },
-        { node: 'C:\\d\\node.exe', result: { major: 22, arch: 'x64' } },
+        { node: 'C:\\b\\node.exe', result: { version: '20.18.0', napi: 9, arch: 'x64' } },
+        { node: 'C:\\c\\node.exe', result: { version: '22.14.0', napi: 10, arch: 'arm64' } },
+        { node: 'C:\\d\\node.exe', result: { version: '24.18.0', napi: 10, arch: 'x64' } },
       ]);
     });
     it('1 つも合わなければ node は undefined で、調べた候補を全部返す', () => {
@@ -869,83 +941,86 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
       chooseNode(['C:\\a\\node.exe', 'C:\\a\\node.exe', 'c:\\A\\NODE.EXE', 'C:\\b\\node.exe'], want, (p) => (seen.push(p), 'failed'));
       expect(seen).toEqual(['C:\\a\\node.exe', 'C:\\b\\node.exe']);
     });
+    // 殻（node.rs）と設定の確かめ（nodeRule.ts）と同じ見本の表で、同じ答えになる。
+    it('見本の表（node-rule-cases.json）のとおりに採る', () => {
+      const table = JSON.parse(fs.readFileSync(path.join(repoRoot, 'packages/server/src/config/node-rule-cases.json'), 'utf8')) as {
+        need: { napi: number; min: string; arch: string };
+        cases: { answer: string; version?: string; napi?: number; arch?: string; fit: 'ok' | 'version' | 'arch' | null }[];
+      };
+      for (const c of table.cases) {
+        if (c.fit === null) continue;
+        const r: ProbeResult = { version: c.version!, napi: c.napi!, arch: c.arch! };
+        expect(chooseNode(['C:\\n\\node.exe'], table.need, () => r).node, c.answer).toBe(c.fit === 'ok' ? 'C:\\n\\node.exe' : undefined);
+      }
+    });
   });
 
   describe('describeNotFound', () => {
-    it('探した順に番号を振り、ファイルが無い、答えない、時間切れ、版やアーキが違う、を分けて書く', () => {
-      const text = describeNotFound(
-        { nodeMajor: 22, arch: 'x64' },
-        { path: 'C:\\fnm\\node.exe', result: { major: 24, arch: 'x64' } },
-        [
-          { node: 'C:\\Program Files\\nodejs\\node.exe', result: 'missing' },
-          { node: 'C:\\fnm\\node.exe', result: { major: 24, arch: 'x64' } },
-          { node: 'C:\\x\\node.exe', result: 'failed' },
-          { node: 'C:\\y\\node.exe', result: 'timeout' },
-          { node: 'C:\\z\\node.exe', result: { major: 22, arch: 'arm64' } },
-        ],
-        'C:\\Users\\me\\.agent-hangar\\settings.json',
-      );
-      expect(text).toContain('Node 22（x64）が見つかりません。');
-      expect(text).toContain('いま動いている Node：24（x64）、C:\\fnm\\node.exe');
+    const want = { napi: 10, min: '22.14', arch: 'x64' };
+    const v24 = { version: '24.18.0', napi: 10, arch: 'ia32' };
+    const tried = [
+      { node: 'C:\\Program Files\\nodejs\\node.exe', result: 'missing' as const },
+      { node: 'C:\\fnm\\node.exe', result: { version: '20.18.0', napi: 9, arch: 'x64' } },
+      { node: 'C:\\x\\node.exe', result: 'failed' as const },
+      { node: 'C:\\y\\node.exe', result: 'timeout' as const },
+      { node: 'C:\\z\\node.exe', result: { version: '22.14.0', napi: 10, arch: 'arm64' } },
+    ];
+    it('探した順に番号を振り、ファイルが無い、答えない、時間切れ、版が古い、アーキが違う、を分けて書く', () => {
+      const text = describeNotFound(want, { path: 'C:\\fnm\\node.exe', result: { version: '20.18.0', napi: 9, arch: 'x64' } }, tried, 'C:\\Users\\me\\.agent-hangar\\settings.json');
+      expect(text).toContain('Node 22.14 以上（x64）が見つかりません。');
+      expect(text).toContain('Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node 22.14 以上が要ります。');
+      expect(text).toContain('いま動いている Node：20.18.0（x64）、C:\\fnm\\node.exe');
       const lines = text.split('\n');
       expect(lines).toContain('  1. C:\\Program Files\\nodejs\\node.exe：ファイルが無い');
-      expect(lines).toContain('  2. C:\\fnm\\node.exe：Node 24（x64）。版が違う');
+      expect(lines).toContain('  2. C:\\fnm\\node.exe：Node 20.18.0（x64）。版が古い');
       expect(lines).toContain('  3. C:\\x\\node.exe：起動できないか、Node として答えない');
       expect(lines).toContain('  4. C:\\y\\node.exe：時間内に答えない');
-      expect(lines).toContain('  5. C:\\z\\node.exe：Node 22（arm64）。アーキテクチャが違う');
+      expect(lines).toContain('  5. C:\\z\\node.exe：Node 22.14.0（arm64）。アーキテクチャが違う');
       expect(text).toContain('HANGAR_NODE');
       expect(text).toContain('C:\\Users\\me\\.agent-hangar\\settings.json');
     });
     it('候補が 1 つも無ければ、そう述べる', () => {
-      const text = describeNotFound({ nodeMajor: 22, arch: 'x64' }, { path: 'node', result: { major: 24, arch: 'x64' } }, [], 'settings.json');
+      const text = describeNotFound(want, { path: 'node', result: v24 }, [], 'settings.json');
       expect(text).toContain('調べた場所はありません');
     });
-    // 次の一手は、winget の 1 行を先に案内し、nvm-windows はほかの入れ方として添える。殻の札（node.rs の not_found_winget_*）と同じ命令である。
-    it('入れ方は winget を先に、nvm-windows を添えて案内し、ほかの場所なら HANGAR_NODE か nodePath を指す', () => {
-      const text = describeNotFound({ nodeMajor: 22, arch: 'x64' }, { path: 'node', result: { major: 24, arch: 'x64' } }, [], 'C:\\s\\settings.json');
+    // 今の Node（hangar.cmd が見つけて、この入口を動かしている Node）は合わないので、置き換えない入れ方を先に案内する。
+    // 公式の zip を別のフォルダに展開する道、nvm-windows、指し方、最後に winget の LTS（今の Node を置き換える）の順である。
+    it('入れ方は、今の Node を置き換えない zip を先に、nvm-windows、指し方、置き換える winget の順に案内する', () => {
+      const text = describeNotFound(want, { path: 'node', result: v24 }, [], 'C:\\s\\settings.json');
       const lines = text.trimEnd().split('\n');
-      const winget = lines.findIndex((l) => l.includes('winget install -e --id OpenJS.NodeJS.22'));
+      const zip = lines.findIndex((l) => l.includes('zip') && l.includes('Node 22') && l.includes('%LOCALAPPDATA%\\Programs\\node22'));
       const nvm = lines.findIndex((l) => l.includes('nvm-windows') && l.includes('nvm install 22'));
       const elsewhere = lines.findIndex((l) => l.includes('HANGAR_NODE') && l.includes('C:\\s\\settings.json'));
-      expect(winget).toBeGreaterThan(-1);
-      expect(nvm).toBeGreaterThan(winget);
+      const winget = lines.findIndex((l) => l.includes('winget install -e --id OpenJS.NodeJS.LTS'));
+      expect(zip).toBeGreaterThan(-1);
+      expect(nvm).toBeGreaterThan(zip);
       expect(elsewhere).toBeGreaterThan(nvm);
-      expect(WINGET_NODE(22)).toBe('winget install -e --id OpenJS.NodeJS.22');
+      expect(winget).toBeGreaterThan(elsewhere);
+      expect(lines[winget]).toContain('置き換わります');
+      expect(WINGET_NODE_LTS).toBe('winget install -e --id OpenJS.NodeJS.LTS');
     });
-    // 探す場所は殻と README に合わせる（fnm、Volta、scoop、PATH）。殻の文（node.rs の not_found_winget_ja と not_found_winget_en）と同じ中身である。
+    // 探す場所は殻と README に合わせる（fnm、Volta、scoop、PATH）。殻の文（node.rs の詳細）と同じ中身である。
     it('nvm-windows の行は、fnm、Volta、scoop と PATH も探すと言い、殻の札と同じ文にする', () => {
-      const w = { nodeMajor: 22, arch: 'x64' };
       const me = { path: 'node', result: 'failed' as const };
-      expect(describeNotFound(w, me, [], 's.json').split('\n')).toContain('nvm-windows を使うなら、nvm install 22 で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。');
-      expect(describeNotFound(w, me, [], 's.json', 'en').split('\n')).toContain('With nvm-windows, a version installed with nvm install 22 is found too (Hangar also looks in fnm, Volta, scoop, and PATH).');
+      expect(describeNotFound(want, me, [], 's.json').split('\n')).toContain('nvm-windows を使うなら、nvm install 22 で入れた版も見つけます（fnm、Volta、scoop で入れた版と、PATH にある版も探します）。');
+      expect(describeNotFound(want, me, [], 's.json', 'en').split('\n')).toContain('With nvm-windows, a version installed with nvm install 22 is found too (Hangar also looks in fnm, Volta, scoop, and PATH).');
     });
     it('英語でも、同じ並びで、日本語を混ぜずに書く', () => {
-      const text = describeNotFound(
-        { nodeMajor: 22, arch: 'x64' },
-        { path: 'C:\\fnm\\node.exe', result: { major: 24, arch: 'x64' } },
-        [
-          { node: 'C:\\Program Files\\nodejs\\node.exe', result: 'missing' },
-          { node: 'C:\\fnm\\node.exe', result: { major: 24, arch: 'x64' } },
-          { node: 'C:\\x\\node.exe', result: 'failed' },
-          { node: 'C:\\y\\node.exe', result: 'timeout' },
-          { node: 'C:\\z\\node.exe', result: { major: 22, arch: 'arm64' } },
-        ],
-        'C:\\Users\\me\\.agent-hangar\\settings.json',
-        'en',
-      );
-      expect(text.startsWith('Node 22 (x64) was not found.\n')).toBe(true);
-      expect(text).toContain('Node running now: 24 (x64), C:\\fnm\\node.exe');
+      const text = describeNotFound(want, { path: 'C:\\fnm\\node.exe', result: { version: '20.18.0', napi: 9, arch: 'x64' } }, tried, 'C:\\Users\\me\\.agent-hangar\\settings.json', 'en');
+      expect(text.startsWith('Node 22.14 or later (x64) was not found.\n')).toBe(true);
+      expect(text).toContain("Hangar's database and terminal parts use Node-API 10, so Node 22.14 or later is needed.");
+      expect(text).toContain('Node running now: 20.18.0 (x64), C:\\fnm\\node.exe');
       const lines = text.split('\n');
       expect(lines).toContain('  1. C:\\Program Files\\nodejs\\node.exe: no such file');
-      expect(lines).toContain('  2. C:\\fnm\\node.exe: Node 24 (x64), wrong version');
+      expect(lines).toContain('  2. C:\\fnm\\node.exe: Node 20.18.0 (x64), too old');
       expect(lines).toContain('  3. C:\\x\\node.exe: cannot start it, or it does not answer as Node');
       expect(lines).toContain('  4. C:\\y\\node.exe: no answer in time');
-      expect(lines).toContain('  5. C:\\z\\node.exe: Node 22 (arm64), wrong architecture');
-      expect(text).toContain('winget install -e --id OpenJS.NodeJS.22');
+      expect(lines).toContain('  5. C:\\z\\node.exe: Node 22.14.0 (arm64), wrong architecture');
+      expect(text).toContain('winget install -e --id OpenJS.NodeJS.LTS');
       expect(text).toContain('nvm install 22');
       expect(text).toContain('HANGAR_NODE');
       expect(text).not.toMatch(/[\u3040-\u30ff\u3400-\u9fff\uff08\uff09\uff1a\u3001\u3002]/);
-      const none = describeNotFound({ nodeMajor: 22, arch: 'x64' }, { path: 'node', result: 'failed' }, [], 'settings.json', 'en');
+      const none = describeNotFound(want, { path: 'node', result: 'failed' }, [], 'settings.json', 'en');
       expect(none).toContain('No places to check.');
       expect(none).toContain('Node running now: unknown version, node');
     });
@@ -1003,19 +1078,21 @@ describe('launch-cli（Windows の bin/hangar.cmd が呼ぶ入口）', () => {
       const got = windowsNodeCandidates(env, undefined, () => [], exists([`${fnm}\\node.exe`, `${winget}\\node.exe`, 'rel\\node.exe']));
       expect(got).toEqual([`${fnm}\\node.exe`, `${winget}\\node.exe`]);
     });
-    it('PATH に v24 と v22 が並ぶと、前の v24 を飛ばして後ろの v22 を採る（A19）', () => {
+    it('PATH に v20 と v22 が並ぶと、前の v20 を飛ばして後ろの v22 を採る（A19）', () => {
       const fnm = 'C:\\Users\\me\\AppData\\Local\\fnm_multishells\\1234_5678';
       const winget = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links';
       const env = { Path: `${fnm};${winget}`, ProgramFiles: 'C:\\Program Files', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' };
       const candidates = windowsNodeCandidates(env, undefined, () => [], exists([`${fnm}\\node.exe`, `${winget}\\node.exe`]));
-      const answers: Record<string, ProbeResult> = { [`${fnm}\\node.exe`]: { major: 24, arch: 'x64' }, [`${winget}\\node.exe`]: { major: 22, arch: 'x64' } };
-      const got = chooseNode(candidates, { nodeMajor: 22, arch: 'x64' }, (p) => answers[p] ?? 'missing');
+      const v20 = { version: '20.18.0', napi: 9, arch: 'x64' };
+      const v22 = { version: '22.20.0', napi: 10, arch: 'x64' };
+      const answers: Record<string, ProbeResult> = { [`${fnm}\\node.exe`]: v20, [`${winget}\\node.exe`]: v22 };
+      const got = chooseNode(candidates, { napi: 10, min: '22.14', arch: 'x64' }, (p) => answers[p] ?? 'missing');
       expect(got.node).toBe(`${winget}\\node.exe`);
       expect(got.tried.map((t) => [t.node, t.result])).toEqual([
         ['C:\\Program Files\\nodejs\\node.exe', 'missing'],
         ['C:\\Users\\me\\AppData\\Local\\Programs\\nodejs\\node.exe', 'missing'],
-        [`${fnm}\\node.exe`, { major: 24, arch: 'x64' }],
-        [`${winget}\\node.exe`, { major: 22, arch: 'x64' }],
+        [`${fnm}\\node.exe`, v20],
+        [`${winget}\\node.exe`, v22],
       ]);
     });
     // 殻の node.rs の windows_node_paths と同じ並び。fnm、Volta、scoop は版ごとの実体の場所を、新しい版から並べる。

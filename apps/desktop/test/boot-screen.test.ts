@@ -357,28 +357,36 @@ describe('起動の失敗の札', () => {
     later.forEach((fn) => fn());
     expect($('fail-copy-all').textContent).toBe('全文をコピー');
   });
-  // Node が無いときの札（利用者が選んだ形）。入れるコマンドを主にし、主の釦をその下に、調べた場所は畳んだ詳細に置く。
-  describe('Node が無いときの札', () => {
-    const nodeFail = (extra: Record<string, unknown> = {}) => fail({ kind: 'node-missing', params: { major: 22, arch: 'arm64', reason: 'missing' }, detail: 'Node 22（arm64）が見つかりません。\n調べた場所:\n  /opt/homebrew/bin/node: ありません', ...extra });
+  // Node の札（利用者が選んだ形）。入れるコマンドを主にし、主の釦をその下に、調べた場所は畳んだ詳細に置く。
+  // どの Node の札にも「node を選ぶ…」を置き、選んだ Node を殻が確かめて nodePath に書く（lib.rs の pick_node）。
+  describe('Node の札', () => {
+    const params = { min: '22.14', napi: 10, arch: 'arm64' };
+    const nodeFail = (extra: Record<string, unknown> = {}) => fail({ kind: 'node-missing', params, detail: 'Node 22.14 以上（arm64）が見つかりません。\n調べた場所:\n  /opt/homebrew/bin/node: ありません', ...extra });
+    const winOld = { kind: 'node-version-mismatch', params: { ...params, arch: 'x64', found: '20.18.0' }, os: 'Windows 11 24H2 (build 26100)', sep: '\\', home: '~\\.agent-hangar' };
     it('見出し、本文、前置きの文、入れるコマンドを出し、次にすることの列は出さない', async () => {
       await boot();
       await nodeFail();
       expect(document.body.dataset.fail).toBe('node-missing');
-      expect($('fail-title').textContent).toBe('Node.js 22 が入っていません');
-      expect($('fail-what').textContent).toBe('Hangar の動作には Node.js 22 が要ります。');
+      expect($('fail-title').textContent).toBe('Node.js が見つかりません');
+      expect($('fail-what').textContent).toBe('Hangar のデータベースと端末の部品は Node-API 10 を使うため、Node.js 22.14 以上が要ります。');
       expect($('fail-lead').hidden).toBe(false);
       expect($('fail-lead').textContent).toBe('ターミナルで次を実行してください：');
       expect($('fail-next').hidden).toBe(true);
       expect($('fail-steps').hidden).toBe(true);
       expect($('fail-command-box').hidden).toBe(false);
-      expect($('fail-command').textContent).toBe('brew install node@22 tmux');
+      expect($('fail-command').textContent).toBe('brew install node tmux');
     });
-    it('主の釦は「入れたのでもう一度試す」で、コマンドのすぐ下に置き、焦点もそこに置く', async () => {
+    it('主の釦は「入れたのでもう一度試す」で、コマンドのすぐ下に置き、その隣に「node を選ぶ…」を置く。焦点は主の釦', async () => {
       await boot();
       await nodeFail();
       expect($('boot-retry').textContent).toBe('入れたのでもう一度試す');
       expect($('boot-retry').parentElement).toBe($('fail-primary'));
       expect($('fail-primary').hidden).toBe(false);
+      expect($('boot-pick-node').hidden).toBe(false);
+      expect($('boot-pick-node').textContent).toBe('node を選ぶ…');
+      expect([...$('fail-primary').children].map((e) => e.id)).toEqual(['boot-retry', 'boot-pick-node']);
+      expect($('boot-retry').classList.contains('btn-primary')).toBe(true);
+      expect($('boot-pick-node').classList.contains('btn-primary')).toBe(false);
       expect(document.activeElement).toBe($('boot-retry'));
     });
     it('詳細は畳んで出し、押すと開き、もう一度押すと畳む', async () => {
@@ -389,23 +397,41 @@ describe('起動の失敗の札', () => {
       expect(toggle.textContent).toBe('詳細（調べた場所、別の入れ方）');
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
       expect($('fail-detail-box').hidden).toBe(true);
-      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'fail-detail-toggle', 'boot-update', 'boot-log']);
+      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'boot-pick-node', 'fail-detail-toggle', 'boot-update', 'boot-log']);
       click('fail-detail-toggle');
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
       expect($('fail-detail-box').hidden).toBe(false);
       expect($('fail-detail').textContent).toContain('調べた場所');
-      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'fail-detail-toggle', 'fail-detail', 'fail-copy-all', 'boot-update', 'boot-log']);
+      expect(tabOrder()).toEqual(['fail-command-copy', 'boot-retry', 'boot-pick-node', 'fail-detail-toggle', 'fail-detail', 'fail-copy-all', 'boot-update', 'boot-log']);
       click('fail-detail-toggle');
       expect($('fail-detail-box').hidden).toBe(true);
     });
-    it('Windows では PowerShell で winget のコマンドを、英語ではその文を出す', async () => {
+    it('Windows では PowerShell で winget の LTS のコマンドを、英語ではその文を出す', async () => {
       await boot();
       await nodeFail({ os: 'Windows 11 24H2 (build 26100)', lang: 'en', sep: '\\', home: '~\\.agent-hangar' });
-      expect($('fail-title').textContent).toBe('Node.js 22 is not installed');
+      expect($('fail-title').textContent).toBe('Node.js was not found');
       expect($('fail-lead').textContent).toBe('Run this in PowerShell:');
-      expect($('fail-command').textContent).toBe('winget install -e --id OpenJS.NodeJS.22');
+      expect($('fail-command').textContent).toBe('winget install -e --id OpenJS.NodeJS.LTS');
       expect($('boot-retry').textContent).toBe('I installed it, try again');
+      expect($('boot-pick-node').textContent).toBe('Choose node.exe…');
       expect($('fail-detail-toggle').textContent).toBe('Details (places checked, other ways to install)');
+    });
+    // 古い Node がある Windows では、winget（今の Node を置き換える）を出さず、zip を別のフォルダに展開して選ぶ手順を出す。
+    it('古い Node がある Windows では、手順の列を見出し無しで出し、「node.exe を選ぶ…」を主の釦にして焦点を置く', async () => {
+      await boot();
+      await fail(winOld);
+      expect(document.body.dataset.fail).toBe('node-version-mismatch');
+      expect($('fail-title').textContent).toBe('Node.js 20.18.0 は見つかりましたが、Hangar は Node.js 22.14 以上が要ります');
+      expect($('fail-lead').textContent).toBe('今の Node.js を置き換えずに入れるには：');
+      expect($('fail-next').hidden).toBe(true);
+      expect($('fail-steps').hidden).toBe(false);
+      expect([...$('fail-steps').children].map((li) => li.textContent)).toHaveLength(3);
+      expect($('fail-command-box').hidden).toBe(true);
+      expect([...$('fail-primary').children].map((e) => e.id)).toEqual(['boot-pick-node', 'boot-retry']);
+      expect($('boot-pick-node').classList.contains('btn-primary')).toBe(true);
+      expect($('boot-retry').classList.contains('btn-primary')).toBe(false);
+      expect($('boot-retry').textContent).toBe('もう一度試す');
+      expect(document.activeElement).toBe($('boot-pick-node'));
     });
     it('コマンドのコピーは、入れるコマンドを写す', async () => {
       const writeText = vi.fn(async () => undefined);
@@ -413,7 +439,7 @@ describe('起動の失敗の札', () => {
       await boot();
       await nodeFail();
       click('fail-command-copy');
-      expect(writeText).toHaveBeenCalledWith('brew install node@22 tmux');
+      expect(writeText).toHaveBeenCalledWith('brew install node tmux');
     });
     it('主の釦は、ほかの札と同じく起動のやり直しを頼む', async () => {
       const invoke = vi.fn(async () => null);
@@ -423,17 +449,62 @@ describe('起動の失敗の札', () => {
       click('boot-retry');
       expect(invoke.mock.calls).toEqual([['boot_state'], ['retry_boot']]);
     });
-    it('続けて別の種類が届いたら、元の並び（次にすること、開いた詳細、下端の釦）に戻す', async () => {
+    it('「node を選ぶ…」で選んだ Node が合えば、殻が保存したあと起動をやり直す', async () => {
+      const invoke = vi.fn(async (cmd: string) => (cmd === 'pick_node' ? { result: 'ok', path: '/opt/node22/bin/node' } : null));
+      tauri.__TAURI_INTERNALS__ = { invoke };
       await boot();
       await nodeFail();
+      click('boot-pick-node');
+      expect(($('boot-pick-node') as HTMLButtonElement).disabled).toBe(true);
+      await flush();
+      expect(invoke.mock.calls).toEqual([['boot_state'], ['pick_node'], ['retry_boot']]);
+      expect($('fail-pick-note').hidden).toBe(true);
+    });
+    it('選んだ Node が合わなければ、理由を札に添えて、もう一度選べるように戻す。取り消しなら何も添えない', async () => {
+      let answer: unknown = { result: 'version', path: '/x/node', found: '20.18.0', min: '22.14' };
+      const invoke = vi.fn(async (cmd: string) => (cmd === 'pick_node' ? answer : null));
+      tauri.__TAURI_INTERNALS__ = { invoke };
+      await boot();
+      await nodeFail();
+      click('boot-pick-node');
+      await flush();
+      expect($('fail-pick-note').hidden).toBe(false);
+      expect($('fail-pick-note').textContent).toBe('選んだ Node.js は 20.18.0 です。Node.js 22.14 以上を選んでください。');
+      expect(($('boot-pick-node') as HTMLButtonElement).disabled).toBe(false);
+      expect(invoke.mock.calls.map((c) => c[0])).not.toContain('retry_boot');
+      answer = { result: 'cancel' };
+      click('boot-pick-node');
+      await flush();
+      expect($('fail-pick-note').hidden).toBe(true);
+      expect(invoke.mock.calls.map((c) => c[0])).not.toContain('retry_boot');
+    });
+    it('殻が断ったら、もう一度選べるように戻す', async () => {
+      const invoke = vi.fn(async (cmd: string) => { if (cmd === 'pick_node') throw new Error('no'); return null; });
+      tauri.__TAURI_INTERNALS__ = { invoke };
+      await boot();
+      await nodeFail();
+      click('boot-pick-node');
+      await flush();
+      expect(($('boot-pick-node') as HTMLButtonElement).disabled).toBe(false);
+    });
+    it('続けて別の種類が届いたら、元の並び（次にすること、開いた詳細、下端の釦）に戻し、選ぶ釦と添えた文を退ける', async () => {
+      const invoke = vi.fn(async (cmd: string) => (cmd === 'pick_node' ? { result: 'notNode', path: '/x' } : null));
+      tauri.__TAURI_INTERNALS__ = { invoke };
+      await boot();
+      await nodeFail();
+      click('boot-pick-node');
+      await flush();
+      expect($('fail-pick-note').hidden).toBe(false);
       await fail();
       expect($('fail-lead').hidden).toBe(true);
       expect($('fail-next').hidden).toBe(false);
       expect($('fail-steps').hidden).toBe(false);
       expect($('fail-primary').hidden).toBe(true);
+      expect($('fail-pick-note').hidden).toBe(true);
       expect($('fail-detail-toggle').hidden).toBe(true);
       expect($('fail-detail-box').hidden).toBe(false);
       expect($('boot-retry').textContent).toBe('もう一度試す');
+      expect($('boot-retry').classList.contains('btn-primary')).toBe(true);
       expect(tabOrder()).toEqual(['fail-command-copy', 'fail-detail', 'fail-copy-all', 'boot-update', 'boot-log', 'boot-retry']);
     });
     it('二度目の Node の札は、開いていた詳細を畳み直す', async () => {
@@ -845,7 +916,7 @@ describe('札は更新の確認を待たずに出し、描いた後に確かめ�
   type Invoke = (cmd: string, args?: unknown) => Promise<unknown>;
   const tauri = window as unknown as { __TAURI_INTERNALS__?: { invoke: Invoke } };
   const w = win as unknown as { __hangarBootFail?: (info: unknown) => void; __hangarBootUpdate?: (u: unknown) => void };
-  const failure = { kind: 'node-missing', params: { arch: 'arm64', os: 'macos' }, detail: 'Node 22（arm64）が見つかりません。', lang: 'ja', version: '0.2.0-rc.6', os: 'macOS 15.5', home: '~/.agent-hangar', sep: '/' };
+  const failure = { kind: 'node-missing', params: { arch: 'arm64', os: 'macos' }, detail: 'Node 22.14 以上（arm64）が見つかりません。', lang: 'ja', version: '0.2.0-rc.6', os: 'macOS 15.5', home: '~/.agent-hangar', sep: '/' };
   let state: unknown;
   const invoke = vi.fn<Invoke>();
   const calls = () => invoke.mock.calls.map(([cmd]) => cmd);
@@ -864,7 +935,7 @@ describe('札は更新の確認を待たずに出し、描いた後に確かめ�
     await flush();
     expect($('fail').hidden).toBe(false);
     expect($('status').dataset.level).toBe('error');
-    expect($('fail-title').textContent).toBe('Node.js 22 が入っていません');
+    expect($('fail-title').textContent).toBe('Node.js が見つかりません');
     expect(calls()).toEqual(['boot_state']);
   });
   it('札を描いたコマの後で、殻に札を描いたと 1 度だけ知らせる。知らせの答えは待たない', async () => {
@@ -889,7 +960,7 @@ describe('札は更新の確認を待たずに出し、描いた後に確かめ�
     w.__hangarBootFail!({ ...failure, lang: 'en', detail: 'Node 22 (arm64) was not found.' });
     expect($('fail').hidden).toBe(false);
     expect(document.documentElement.lang).toBe('en');
-    expect($('fail-title').textContent).toBe('Node.js 22 is not installed');
+    expect($('fail-title').textContent).toBe('Node.js was not found');
   });
   it('札が出た後に殻が見つけた版は、後から帯に足す', async () => {
     await boot();

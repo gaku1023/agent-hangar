@@ -35,6 +35,32 @@ export const SWIPE_VERTICAL_CANCEL = 40;
  */
 export const SWIPE_STALE_HIDE_MS = 2000;
 
+/**
+ * Windows の殻で、打鍵がこれだけ途切れたら指が離れたとみなす。
+ * Windows の殻は指の位相を送らない（WebView2 にも、頁へ位相を渡す口が無い）ので、途切れを離した合図の代わりにする。
+ * 指が動いている間の打鍵は 1 コマごと（60Hz で約 17ms）に来る。負荷でコマが数枚落ちても途切れと読まない幅として 150ms を取る。
+ * 長く取るほど、離してから動くまでが遅れて鈍く感じる（0.2 秒を超えると目立つ）。
+ * 引き切ったまま指を止めた回もここで動く。それは位相の無い環境の引き換えである。
+ */
+export const SWIPE_RELEASE_GAP_MS = 150;
+
+/**
+ * 手勢の終わりの決め方。
+ * phase は殻が送る指の位相（macOS）、gap は打鍵の途切れ（Windows の殻）、off は自前の手勢を持たない（ブラウザ）。
+ */
+export type SwipeMode = 'phase' | 'gap' | 'off';
+
+/**
+ * いまの環境での手勢の終わりの決め方。
+ * 位相が届けばそれを使う。Windows の殻では途切れで決める。
+ * ブラウザには元から戻る進むの手勢があるので、二重に持たない。
+ * macOS の殻で位相の印がまだ立っていないときも、時間では決めない（指を置いたまま動く経路を作らない）。
+ */
+export function swipeModeOf(env: { phaseAware: boolean; desktop: boolean; platform: 'darwin' | 'win32' | 'linux' }): SwipeMode {
+  if (env.phaseAware) return 'phase';
+  return env.desktop && env.platform === 'win32' ? 'gap' : 'off';
+}
+
 export type SwipeSample = { deltaX: number; deltaY: number; at: number };
 export type SwipeResult = 'back' | 'forward' | null;
 export type SwipeProgress = { dir: -1 | 0 | 1; ratio: number; armed: boolean };

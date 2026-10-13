@@ -37,6 +37,28 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+  # 殻と同梱の CLI は、Node-API 10 以上（Node 22.14 以上）の Node を採る。上限は付けない（0.6.1 から）。
+  # 新しい Node（24）でもサーバが動くことを、サーバの試験で確かめる。
+  # CI の時間を延ばさないよう、ここで回すのはサーバの試験だけにする（殻が Node 24 で同梱のサーバを起こす試験は desktop ジョブにある）。
+  node24:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      # check と同じく、tmux を入れないと tmux に依存する試験が黙って飛ぶ。
+      - name: tmux を入れる
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          tmux -V
+      - run: npm ci
+      - run: node --version
+      - name: サーバの試験（Node 24）
+        run: npm test -- --project server
   windows:
     runs-on: windows-latest
     # 試験が固まったときの上限。npm test に約 9 分、Rust のビルドがキャッシュ外れで数分、
@@ -203,6 +225,31 @@ jobs:
           path: ${{ runner.temp }}/boot-normal-macos
           if-no-files-found: warn
           retention-days: 7
+      # 同じ .app を、nodePath で Node 24 を指して起こす。
+      # 0.6.1 から、殻は Node-API 10 以上の Node を採る。Node 22 で作った束のネイティブモジュール（Node-API の prebuild）が、Node 24 でも読めることを確かめる。
+      # setup-node は PATH の先頭に置くので、後の段（Node 22 で build し直す更新の経路）のために、終わったら Node 22 に戻す。
+      - uses: actions/setup-node@v7
+        id: node24
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        with:
+          node-version: 24
+      - name: Node 24 を指した Mac で、殻が同梱のサーバを起こし、本当の画面へ移る
+        if: ${{ !cancelled() && steps.node24.outcome == 'success' }}
+        timeout-minutes: 4
+        run: |
+          node --version
+          bash apps/desktop/scripts/ci-boot-normal-macos.sh --node "$(command -v node)" apps/desktop/src-tauri/target/release/bundle/macos/Hangar.app "$RUNNER_TEMP/boot-normal-macos-node24"
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.node24.outcome == 'success' }}
+        with:
+          name: boot-normal-macos-node24
+          path: ${{ runner.temp }}/boot-normal-macos-node24
+          if-no-files-found: warn
+          retention-days: 7
+      - uses: actions/setup-node@v7
+        if: ${{ !cancelled() }}
+        with:
+          node-version: 22
       # 本当の更新の経路を 1 回通す（apps/desktop/scripts/ci-update-macos.sh）。
       # 台本は bundle の置き場で版 A と版 B を build し直すので、build した .app を使う段の後に置く。
       # 版 A の .app を一時の場所へ写して起こし、殻の updater が版 B の .app.tar.gz を取って .app を入れ替え、起き直した殻のサーバが /health で版 B を名乗るまでを見る。

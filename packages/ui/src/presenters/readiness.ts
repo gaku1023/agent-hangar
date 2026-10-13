@@ -70,7 +70,7 @@ const FIX = {
 
 /**
  * 動かせない理由の文。パスがあればパスを主語にする。
- * フルパスでない、Node でない、版かアーキが違う、の 3 つは Node の設定だけのもの（殻が使える Node かを見た結果）。
+ * フルパスでない、Node でない、版が古いかアーキが違う、の 3 つは Node の設定だけのもの（殻が使える Node かを見た結果）。
  */
 function problemText(t: Translate, c: ToolCheckDto & Partial<Pick<NodeCheckDto, 'found' | 'need'>>): string {
   if (c.path === null || c.problem === 'unset') return t('readiness.problem.unset');
@@ -78,7 +78,9 @@ function problemText(t: Translate, c: ToolCheckDto & Partial<Pick<NodeCheckDto, 
   if (c.problem === 'notExecutable') return t('readiness.problem.notExecutable', { path: c.path });
   if (c.problem === 'notAbsolute') return t('readiness.problem.notAbsolute', { path: c.path });
   if (c.problem === 'notNode') return t('readiness.problem.notNode', { path: c.path });
-  if (c.problem === 'wrongNode' && c.found && c.need) return t('readiness.problem.wrongNode', { path: c.path, found: c.found.major, foundArch: c.found.arch, major: c.need.major, arch: c.need.arch });
+  // 版が古い（Node-API が足りない）のか、アーキが違うのかを分けて言う。両方なら版を言う（サーバの nodeFit と同じ順）。
+  if (c.problem === 'wrongNode' && c.found && c.need && c.found.napi < c.need.napi) return t('readiness.problem.nodeTooOld', { path: c.path, found: c.found.version, min: c.need.min, napi: c.need.napi });
+  if (c.problem === 'wrongNode' && c.found && c.need) return t('readiness.problem.nodeWrongArch', { path: c.path, foundArch: c.found.arch, arch: c.need.arch });
   if (c.problem === 'wrongNode') return t('readiness.problem.notNode', { path: c.path });
   return t('readiness.problem.missing', { path: c.path });
 }
