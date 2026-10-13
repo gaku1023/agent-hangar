@@ -16,7 +16,12 @@ export type SummarySource = 'baseline' | 'in_session' | 'post_hoc';
  * 前のパスと PC の名前は、分からなければ null である。
  */
 export type ProjectUnresolvedDto = { kind: 'missing' | 'elsewhere'; previousPath: string | null; deviceName: string | null };
-export type ProjectDto = { id: string; name: string; status: ProjectStatus; isScratch: boolean; path: string | null; resolved: boolean; lastActivityAt: number | null; runningCount: number; openTodoCount: number; memoHead: string | null; updatedAt: number; unresolved?: ProjectUnresolvedDto | null };
+/**
+ * sameFolder は、この PC で同じフォルダを場所にしている別のプロジェクト（残す方）。このプロジェクトはそちらへまとめる方である。
+ * 直す前の版の「場所を再指定」が重複を見なかった残りで、ホームの帯とプロジェクトの画面から、まとめる確認を開く。無ければ null で、古いサーバは付けない。
+ */
+export type ProjectSameFolderRef = { projectId: string; name: string };
+export type ProjectDto = { id: string; name: string; status: ProjectStatus; isScratch: boolean; path: string | null; resolved: boolean; lastActivityAt: number | null; runningCount: number; openTodoCount: number; memoHead: string | null; updatedAt: number; unresolved?: ProjectUnresolvedDto | null; sameFolder?: ProjectSameFolderRef | null };
 export type SessionStatsDto = { turns: number; model: string | null; effort: string | null; filesChanged: number; prUrl: string | null; inputTokens: number; outputTokens: number; contextPercent: number | null; costUsd: number | null };
 /** sourceId は書いた要約器の id。source_id を持たない古い行と、要約器を通さない要約では null になる。 */
 export type SessionSummaryDto = { title: string; oneLiner: string; body: string; state: SummaryState; nextSteps: string[]; source: SummarySource; sourceId: string | null; sourceModel: string | null; basedOnTurns: number; updatedAt: number };
@@ -148,7 +153,12 @@ export type SearchParamsDto = { q: string; projectId?: string; since?: number; u
  */
 export type SearchHitDto = { sessionId: string; matchCount: number; snippets: { seq: number; role: string; text: string; agentId: string | null }[]; matched?: ('name' | 'summary' | 'transcript')[] };
 export type SearchResultDto = { hits: SearchHitDto[]; total: number };
-export type ResolveAction = { kind: 'repoint'; path: string } | { kind: 'archive' } | { kind: 'unlink' };
+/**
+ * 場所の無いプロジェクトの扱い。
+ * repoint の merge は、選んだフォルダがこの PC で別のプロジェクトの置き場になっているときに、そのプロジェクトへまとめること。
+ * 付けずに送ると、サーバは 409（ProjectSameFolderDto）で相手を返す。
+ */
+export type ResolveAction = { kind: 'repoint'; path: string; merge?: boolean } | { kind: 'archive' } | { kind: 'unlink' };
 export type RunKind = 'start' | 'resume' | 'fork';
 /** parked は、区切り（Done・Archived。0.5.0 までは Paused も）を付けたセッションが休みになったので hangar が止めたもの。 */
 export type EndReason = 'exited' | 'killed' | 'lost' | 'parked';
@@ -415,6 +425,19 @@ export type ConfigSyncDto = {
   backups: number;
   applyOrder: { count: number; createdAt: number } | null;
   lastSentAt: number | null;
+};
+/**
+ * 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所になっているときの 409。
+ * from はまとめる方、conflict は残す方で、path は正規化したフォルダである。
+ * まとめるときは、from のプロジェクトへ同じ path と merge: true を送り直す（既に両方の場所になっているときは、選んだ方が残す方のこともある）。
+ * merged はまとめた後の姿で、roots は PC ごとの場所（here はこの PC、deviceName は分からなければ null）、sessions は残す方の、fromSessions はまとめる方のセッションの数である。
+ */
+export type ProjectSameFolderDto = {
+  error: string;
+  code: 'project_same_folder';
+  from: ProjectSameFolderRef;
+  conflict: ProjectSameFolderRef & { path: string };
+  merged: { roots: { deviceName: string | null; path: string; here: boolean }[]; sessions: number; fromSessions: number };
 };
 export type ResumeHereConflictDto = { error: 'local_smaller'; localSize: number; remoteSize: number };
 /**

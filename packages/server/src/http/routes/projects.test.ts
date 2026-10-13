@@ -159,6 +159,71 @@ describe('routes', () => {
     expect(db.prepare('select path from project_roots where project_id = ? and deleted_at is null').get(id)).toEqual({ path: moved });
     expect((await json(await get(`/api/sessions/${other}`))).body.projectId).toBe(id);
   });
+  // 他の PC が同じフォルダを別の ID で登録していると、同名のプロジェクトが 2 つ届く。
+  // 届いた方の場所に、この PC で登録済みのフォルダを選んだら、黙って二重にせず、確かめてから 1 つにまとめる。
+  it('repoint の先が別のプロジェクトの置き場なら 409 で相手を返し、merge を付けたら 1 つにまとめる', async () => {
+    const id = list0ProjectId();
+    upsertShared(db, 'projects', { id: 'p-win', name: 'alpha', status: 'active', is_scratch: 0 }, 'dev-win');
+    upsertShared(db, 'project_roots', { id: 'r-win', project_id: 'p-win', device_id: 'dev-win', path: 'D:\\workspace\\alpha', resolved: 1 }, 'dev-win');
+    upsertShared(db, 'sessions', { id: 's-win', provider: 'claude-code', provider_session_id: 's-win', cwd: 'D:\\workspace\\alpha', home_device: 'dev-win', project_id: 'p-win' }, 'dev-win');
+    const r = await post('/api/projects/p-win/resolve', { kind: 'repoint', path: `${path.join(ws, 'alpha')}/` });
+    expect(r.status).toBe(409);
+    upsertShared(db, 'devices', { id: 'dev-win', name: 'DESKTOP-01', platform: 'win32', last_seen_at: 1 }, 'dev-win');
+    const r409 = await post('/api/projects/p-win/resolve', { kind: 'repoint', path: `${path.join(ws, 'alpha')}/` });
+    expect(await r409.json()).toMatchObject({
+      code: 'project_same_folder',
+      from: { projectId: 'p-win', name: 'alpha' },
+      conflict: { projectId: id, name: 'alpha', path: path.join(ws, 'alpha') },
+      // まとめた後の姿。この PC の場所と、届いた方の PC の場所を並べる。
+      merged: { roots: [{ deviceName: null, path: path.join(ws, 'alpha'), here: true }, { deviceName: 'DESKTOP-01', path: 'D:\\workspace\\alpha', here: false }], fromSessions: 1 },
+    });
+    expect((await r.json()).error).toBe('このフォルダは、プロジェクト alpha の場所として登録済みです');
+    // 断っただけで、何も書いていない。
+    expect(db.prepare('select count(*) c from project_roots where project_id = ? and deleted_at is null').get('p-win')).toEqual({ c: 1 });
+    const merged = await post('/api/projects/p-win/resolve', { kind: 'repoint', path: path.join(ws, 'alpha'), merge: true });
+    expect(merged.status).toBe(200);
+    expect(await merged.json()).toMatchObject({ id, name: 'alpha', path: path.join(ws, 'alpha') });
+    expect((await json(await get('/api/sessions/s-win'))).body.projectId).toBe(id);
+    expect((await json(await get('/api/projects'))).body.map((p: { id: string }) => p.id)).toEqual([id]);
+    // 自分の今の置き場を選び直すのは、重複ではない。
+    expect((await post(`/api/projects/${id}/resolve`, { kind: 'repoint', path: path.join(ws, 'alpha') })).status).toBe(200);
+  });
+  // 直す前の版では「場所を再指定」が重複を見なかったので、同じフォルダが既に 2 つのプロジェクトの場所になっていることがある。
+  // 一覧はまとめる方に印（sameFolder）を付け、同じ確認を経てまとめられる。
+  it('既に同じフォルダを場所にしている 2 つは、一覧で印を付け、同じ確認でまとめる', async () => {
+    const id = list0ProjectId();
+    const dir = path.join(ws, 'alpha');
+    upsertShared(db, 'projects', { id: 'p-win', name: 'alpha', status: 'active', is_scratch: 0 }, 'dev-win');
+    upsertShared(db, 'project_roots', { id: 'r-win', project_id: 'p-win', device_id: 'dev-win', path: 'D:\\workspace\\alpha', resolved: 1 }, 'dev-win');
+    upsertShared(db, 'project_roots', { id: 'r-dup', project_id: 'p-win', device_id: 'd', path: dir, resolved: 1 }, 'd');
+    const list = (await json(await get('/api/projects'))).body as { id: string; sameFolder?: unknown }[];
+    expect(list.find((p) => p.id === 'p-win')?.sameFolder).toEqual({ projectId: id, name: 'alpha' });
+    expect(list.find((p) => p.id === id)?.sameFolder).toBeNull();
+    expect((await json(await get('/api/projects/p-win'))).body.sameFolder).toEqual({ projectId: id, name: 'alpha' });
+    // 残す方から自分の場所を選び直しても、まとめる向きは変わらない。
+    const r = await post(`/api/projects/${id}/resolve`, { kind: 'repoint', path: dir });
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ from: { projectId: 'p-win' }, conflict: { projectId: id } });
+    const merged = await post('/api/projects/p-win/resolve', { kind: 'repoint', path: dir, merge: true });
+    expect(merged.status).toBe(200);
+    expect(await merged.json()).toMatchObject({ id, sameFolder: null });
+    expect(db.prepare('select device_id, path from project_roots where project_id = ? and deleted_at is null order by device_id').all(id)).toEqual([{ device_id: 'd', path: dir }, { device_id: 'dev-win', path: 'D:\\workspace\\alpha' }]);
+  });
+  it('スクラッチの場所と同じフォルダは、まとめずに断る', async () => {
+    const id = list0ProjectId();
+    const dir = path.join(ws, 'scratch');
+    fs.mkdirSync(dir);
+    upsertShared(db, 'projects', { id: 'p-s', name: 'scratch', status: 'active', is_scratch: 1 }, 'd');
+    upsertShared(db, 'project_roots', { id: 'r-s', project_id: 'p-s', device_id: 'd', path: dir, resolved: 1 }, 'd');
+    for (const merge of [false, true]) {
+      const r = await post(`/api/projects/${id}/resolve`, { kind: 'repoint', path: dir, merge });
+      expect(r.status).toBe(409);
+      const body = await r.json();
+      expect(body.code).toBeUndefined();
+      expect(body.error).toBe('このフォルダは、プロジェクト scratch の場所として登録済みです');
+    }
+    expect(db.prepare('select deleted_at from projects where id = ?').get(id)).toEqual({ deleted_at: null });
+  });
   // Windows のファイルシステムは大文字小文字を区別しない。綴り違いで同じフォルダを二重に登録しない。
   it.runIf(process.platform === 'win32')('Windows では、綴りの大文字小文字が違う同じフォルダを二重に登録しない', async () => {
     const post = (p: string) => app.request('/api/projects', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'dir', name: 'gamma', path: p }) });

@@ -5,6 +5,7 @@ export const projectKeys = {
   'project.status.invalid': [],
   'project.resolve.badKind': [],
   'project.resolve.dirMissing': [],
+  'project.resolve.sameFolder': ['name'],
   'project.instructions.badKind': [],
   'project.instructions.fileMissing': [],
   'project.create.pathNotDir': [],

@@ -45,6 +45,31 @@ export function ConfirmDialog(props: { confirm: ConfirmRequest; project?: Confir
       </Dialog>
     );
   }
+  if (c.kind === 'mergeProject') {
+    const name = c.into.name;
+    const after = t('confirm.mergeProject.after', { name });
+    // まとめた後の姿を見せる（試作の B）。見出しを問いにし、1 つのプロジェクトが PC ごとの場所を持つことを枠の中に並べる。
+    // 中身は消えずに移るだけなので、危険の赤にはせず、hangar への移動の確認と同じ青いボタンにする。
+    return (
+      <Dialog
+        title={t('confirm.mergeProject.title', { name })}
+        onClose={close}
+        footer={<>{cancel}<span className="spacer" /><button type="button" className="btn btn-primary" onClick={() => emit({ type: 'project.resolve', id: c.projectId, action: { kind: 'repoint', path: c.path, merge: true }, confirmed: true })}>{t('confirm.mergeProject.action')}</button></>}
+      >
+        <div className="muted">{slot(t('confirm.mergeProject.lead', { name: SLOT }), <b>{name}</b>)}</div>
+        <div className="merge-preview" role="group" aria-label={after}>
+          <div className="muted">{after}</div>
+          <ul className="merge-roots">
+            {c.roots.map((r, i) => (
+              <li key={i}><span className="faint">{r.here ? t('confirm.mergeProject.thisPc') : r.deviceName ?? t('confirm.mergeProject.otherPc')}</span><span className="mono">{r.path}</span></li>
+            ))}
+          </ul>
+          <div className="faint">{t('confirm.mergeProject.sessions', { n: c.sessions, m: c.fromSessions })}</div>
+        </div>
+        <div className="faint">{t('confirm.mergeProject.otherPcs')}</div>
+      </Dialog>
+    );
+  }
   if (c.kind === 'killRun') {
     return (
       <Dialog

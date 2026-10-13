@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { accountsFixture } from '../test/accounts.ts';
-import { ApiConflictError, ApiNotFoundError, createApi, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, createApi, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
 
 function harness(status = 200, body: unknown = { ok: true }) {
   const calls: { url: string; method: string; body: string | undefined }[] = [];
@@ -154,6 +154,16 @@ describe('保持期間の API', () => {
   it('409 の retention_conflict は RetentionConflictApiError にする', async () => {
     const { api } = harness(409, { error: 'retention_conflict' });
     await expect(api.writeRetention(365, 'abc')).rejects.toBeInstanceOf(RetentionConflictApiError);
+  });
+  it('409 の project_same_folder は ProjectSameFolderApiError にする。文はサーバの理由のまま', async () => {
+    const body = { error: 'このフォルダは、プロジェクト shop の場所として登録済みです', code: 'project_same_folder', from: { projectId: 'p2', name: 'shop' }, conflict: { projectId: 'p1', name: 'shop', path: '/w/shop' }, merged: { roots: [], sessions: 1, fromSessions: 1 } };
+    const e = await harness(409, body).api.resolveProject('p2', { kind: 'repoint', path: '/w/shop' }).catch((err: unknown) => err);
+    expect(e).toBeInstanceOf(ProjectSameFolderApiError);
+    expect((e as ProjectSameFolderApiError).body).toEqual(body);
+    expect((e as Error).message).toBe(body.error);
+    // まとめられない 409（スクラッチの場所）は、型を付けずに理由だけを投げる。
+    const plain = await harness(409, { error: 'あります' }).api.resolveProject('p2', { kind: 'repoint', path: '/w/x' }).catch((err: unknown) => err);
+    expect(plain).not.toBeInstanceOf(ProjectSameFolderApiError);
   });
   it('404 は ApiNotFoundError にする。文はサーバの理由のまま', async () => {
     const { api } = harness(404, { error: 'プロジェクトが見つかりません' });

@@ -78,6 +78,8 @@ export function transition(state: State, store: Store, input: Input): Step {
   }
   if (input.kind === 'runtime') {
     if (input.event.type === 'api.failed') return { state: pushToast(state, 'error', input.event.message, input.event.holdMs), effects: [] };
+    // まとめる確認を出せなかった（決めるまで閉じないダイアログが開いていた）。断られた理由だけを知らせる。
+    if (input.event.type === 'api.conflict' && input.event.kind === 'sameFolder') return { state: pushToast(state, 'error', input.event.conflict.error), effects: [] };
     return { state, effects: [] };
   }
   const i = input.action;

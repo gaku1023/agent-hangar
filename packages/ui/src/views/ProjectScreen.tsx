@@ -131,6 +131,10 @@ export function ProjectScreen(props: ProjectProps) {
           {!props.resolved && props.path !== null && (
             <button type="button" className="project-path-warn" onClick={() => emit({ type: 'project.resolve.open', id: props.id })}><Icon name="warning" />{t('projectScreen.path.missing')}</button>
           )}
+          {/* この PC で同じフォルダを場所にしている別のプロジェクトがある（直す前の版の残り）。同じパスで再指定を送ると、サーバの 409 からまとめる確認が開く。 */}
+          {props.sameFolder && props.path !== null && (
+            <button type="button" className="project-path-warn" onClick={() => emit({ type: 'project.resolve', id: props.id, action: { kind: 'repoint', path: props.path! } })}><Icon name="warning" />{t('projectScreen.path.sameFolder', { name: props.sameFolder.name })}</button>
+          )}
         </div>
         <SessionList {...props.list} projectFixed loadMore={loadMore} empty={props.list.allCount === 0 && props.list.total === 0 && props.list.mode === 'all' ? <div className="empty">{t('projectScreen.list.empty')}</div> : undefined} />
       </div>

@@ -135,6 +135,12 @@ describe('ProjectScreen の見出し', () => {
     fireEvent.click(screen.getByRole('button', { name: '見つかりません。場所を再指定' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'alpha' });
   });
+  it('同じフォルダを場所にしている別のプロジェクトがあれば押せる札を出し、同じパスで再指定を送る（まとめる確認へ進む）', () => {
+    const onAction = vi.fn();
+    mount(props({ path: '/w/alpha', sameFolder: { name: 'alpha' } }), onAction);
+    fireEvent.click(screen.getByRole('button', { name: 'alpha と同じフォルダです。1 つにまとめる' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'alpha', action: { kind: 'repoint', path: '/w/alpha' } });
+  });
   it('クイックセッションの置き場は、状態と外で開く操作を出さず、始める操作を出す', () => {
     const onAction = vi.fn();
     mount(props({ isScratch: true }), onAction);

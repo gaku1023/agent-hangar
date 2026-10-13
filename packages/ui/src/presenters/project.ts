@@ -36,6 +36,8 @@ export type ProjectProps = {
   railFolded: ProjectRailSection[];
   /** git の表示（0.5.0）。パスの行の札と、右パネルの「ブランチと worktree」の行。 */
   git?: ProjectGitProps;
+  /** この PC で同じフォルダを場所にしている、残す方のプロジェクト（ProjectDto の sameFolder）。あればパスの行に、まとめる確認へ進む札を出す。 */
+  sameFolder?: { name: string } | null;
 };
 
 /**
@@ -132,6 +134,7 @@ export function presentProject(state: State, store: Store, now: number, id: stri
     .map((x): TodoSuggestionProps => ({ id: x.id, text: x.text, note: x.suggestion!.note, ...sessionLabel(store, x.sessionId), ago: relativeTime(t, x.suggestion!.at, now) }));
   return {
     id, name: projectDisplayName(p, translatorOf(store)), parent: PARENT, path: p.path, resolved: p.resolved, status: p.status, notFound: false, isScratch: p.isScratch,
+    sameFolder: p.sameFolder ? { name: p.sameFolder.name } : null,
     list,
     loadMore: list.mode === 'search' && remaining > 0 ? { remaining, step: SEARCH_STEP, loading: list.loading } : null,
     // セッションの数は、Archived も含めた全部（タブの「すべて」は Archived を除く）。

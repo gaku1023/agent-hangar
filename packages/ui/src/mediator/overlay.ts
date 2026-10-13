@@ -1,3 +1,4 @@
+import type { ProjectSameFolderDto } from '@agent-hangar/shared';
 import type { Input, Overlay, State, Step } from './types.ts';
 
 /**
@@ -32,8 +33,25 @@ function closeOverlay(state: State): State {
   return { ...state, overlay: { kind: 'none' } };
 }
 
+/**
+ * 同じフォルダのプロジェクトをまとめる確認（サーバの 409）を開く。
+ * 「場所を再指定」のダイアログは送るときに閉じているので、ふつうは差し替えてよい状態で届く。
+ * 決めるまで閉じないダイアログが開いていれば差し替えず、null を返す（transition の残りが理由をトーストで出す）。
+ */
+function openMerge(state: State, c: ProjectSameFolderDto): Step | null {
+  if (!overlayReplaceable(state.overlay)) return null;
+  const confirm = { kind: 'mergeProject' as const, projectId: c.from.projectId, path: c.conflict.path, into: { projectId: c.conflict.projectId, name: c.conflict.name }, roots: c.merged.roots, sessions: c.merged.sessions, fromSessions: c.merged.fromSessions };
+  return { state: { ...state, overlay: { kind: 'confirm', confirm } }, effects: [] };
+}
+
 /** overlay 領域：ダイアログとパレット。未解決のプロジェクトのダイアログは、押したときだけ開く。 */
 export function overlayStep(state: State, input: Input): Step | null {
+  if (input.kind === 'runtime' && input.event.type === 'api.conflict' && input.event.kind === 'sameFolder') return openMerge(state, input.event.conflict);
+  // まとめた方は一覧から消えるので、その画面を開いていたら、残した方の画面へ移る。
+  if (input.kind === 'runtime' && input.event.type === 'project.merged') {
+    const e = input.event;
+    return { state, effects: state.screen.name === 'project' && state.screen.id === e.fromId ? [{ kind: 'navigate', route: { name: 'project', id: e.intoId } }] : [] };
+  }
   if (input.kind !== 'action') return null;
   const i = input.action;
   switch (i.type) {
@@ -46,7 +64,8 @@ export function overlayStep(state: State, input: Input): Step | null {
         return { state: { ...state, overlay: { kind: 'confirm', confirm: { kind: 'unlinkProject', projectId: i.id, ...(fromDialog ? { fromDialog: true } : {}) } } }, effects: [] };
       }
       // 確認から承諾したときも、ダイアログから決めたときも、閉じてから送る。帯の行から直に決めたときは、開いているものに触らない。
-      const closes = state.overlay.kind === 'resolveProject' || (state.overlay.kind === 'confirm' && state.overlay.confirm.kind === 'unlinkProject');
+      // まとめる確認から承諾したときも同じく閉じる。
+      const closes = state.overlay.kind === 'resolveProject' || (state.overlay.kind === 'confirm' && (state.overlay.confirm.kind === 'unlinkProject' || state.overlay.confirm.kind === 'mergeProject'));
       return { state: closes ? { ...state, overlay: { kind: 'none' } } : state, effects: [{ kind: 'api.resolveProject', projectId: i.id, action: i.action }] };
     }
     case 'overlay.close': return { state: closeOverlay(state), effects: [] };

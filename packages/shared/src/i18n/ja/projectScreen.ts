@@ -15,6 +15,7 @@ export const projectScreenJa: AreaDictionary<typeof projectScreenKeys> = {
   'projectScreen.rail.open': '右パネルを開く',
   'projectScreen.path.none': 'この PC にパスがありません',
   'projectScreen.path.missing': '見つかりません。場所を再指定',
+  'projectScreen.path.sameFolder': '{name} と同じフォルダです。1 つにまとめる',
   'projectScreen.list.empty': 'このプロジェクトのセッションはまだありません',
   'projectScreen.info.place': '場所',
   'projectScreen.info.sessions': 'セッション',

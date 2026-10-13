@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
@@ -149,6 +149,30 @@ describe('ConfirmDialog（一覧から削除）', () => {
     expect(cancel).toHaveFocus();
     fireEvent.click(cancel);
     expect(onAction).toHaveBeenCalledWith({ type: 'overlay.close' });
+  });
+});
+
+describe('ConfirmDialog（同じフォルダのプロジェクトをまとめる）', () => {
+  const merge = { kind: 'mergeProject' as const, projectId: 'p-win', path: '/Users/me/workspace/shop', into: { projectId: 'p-mac', name: 'shop' },
+    roots: [{ deviceName: null, path: '/Users/me/workspace/shop', here: true }, { deviceName: 'DESKTOP-01', path: 'D:\\workspace\\shop', here: false }, { deviceName: null, path: '/home/me/shop', here: false }], sessions: 98, fromSessions: 1 };
+  it('見出しを問いにし、まとめた後の PC ごとの場所と件数を並べ、承諾で merge を付けて送る', () => {
+    const onAction = vi.fn();
+    render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={merge} /></ActionRoot>);
+    const dialog = screen.getByRole('dialog', { name: 'shop と 1 つにまとめますか' });
+    expect(dialog).toHaveTextContent('選んだフォルダは、この PC のプロジェクト shop の場所として登録済みです。同じフォルダなので、他の PC から届いた方をこちらへまとめます。');
+    const after = within(dialog).getByRole('group', { name: 'まとめた後の shop' });
+    const rows = within(after).getAllByRole('listitem').map((li) => li.textContent);
+    expect(rows).toEqual(['この PC/Users/me/workspace/shop', 'DESKTOP-01D:\\workspace\\shop', '別の PC/home/me/shop']);
+    expect(after).toHaveTextContent('セッション 98 件 ＋ 届いた 1 件');
+    expect(dialog).toHaveTextContent('同期している他の PC でも 1 つになります。元には戻せません。');
+    const ok = screen.getByRole('button', { name: '1 つにまとめる' });
+    expect(ok).toHaveClass('btn-primary');
+    fireEvent.click(ok);
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve', id: 'p-win', action: { kind: 'repoint', path: '/Users/me/workspace/shop', merge: true }, confirmed: true });
+  });
+  it('既定のフォーカスはキャンセル側に置く', () => {
+    render(<ActionRoot onAction={vi.fn()}><ConfirmDialog confirm={merge} /></ActionRoot>);
+    expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
   });
 });
 
