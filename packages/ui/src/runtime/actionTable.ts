@@ -1,6 +1,7 @@
 import type { AccountsDto, UiAction, SyncStatusBody, TerminalApp } from '@agent-hangar/shared';
 import { applyConfigDetail, gitFileKey, type EditorOpenAction, type Store } from '../store/store.ts';
 import { EditorMissingApiError, type ApiClient } from './api.ts';
+import { sameInspect } from '../store/folderInspect.ts';
 
 /** iTerm2 で開けず、Terminal.app に落ちたときの知らせ。文そのものではなく辞書の鍵で、Runtime が現在の言語で引いて出す。 */
 export const FELL_BACK = 'runtime.openTerminal.fellBack' as const;
@@ -143,6 +144,16 @@ export const actionTable = {
   // Claude Code のアカウント。一覧を返すものは、応答をそのまま Store に入れる（サーバの accounts.update と同じ形）。
   'accounts.load': () => call((api) => api.accounts(), { apply: withAccounts }),
   // アカウントを足す前の確かめ。打つたびに読み、答えは問いの写しごと Store に置く（画面は今の欄と合う答えだけを使う）。読めない場所（相対パスなど）はトーストにせず答えを消し、理由は登録を押したときにダイアログで言う。
+  // 選んだ 1 つのフォルダの事前の問い合わせ（0.6.1）。後から頼んだ問いがあれば、古い問いの答えは捨てる。
+  // 読めなくてもトーストにしない。ダイアログは今までどおり、選んだフォルダを登録して始める。
+  'folder.inspect': (i) => {
+    const name = i.name ?? null;
+    return call((api) => api.inspectFolder(i.path, i.name), {
+      before: (store) => ({ ...store, folderInspect: { path: i.path, name, status: 'loading' } }),
+      apply: (store, data) => (sameInspect(store.folderInspect, i.path, name) ? { ...store, folderInspect: { path: i.path, name, status: 'ready', data } } : store),
+      failed: (store) => (sameInspect(store.folderInspect, i.path, name) ? { ...store, folderInspect: { path: i.path, name, status: 'failed' } } : store),
+    });
+  },
   'account.add.preview': (i) => call((api) => api.previewAccountDir(i.name, i.dir), { apply: (store, accountPreview) => ({ ...store, accountPreview }), failed: (store) => ({ ...store, accountPreview: null }) }),
   'account.choose': (i) => call((api) => api.setCurrentAccount(i.accountId), { apply: withAccounts }),
   'account.update': (i) => {

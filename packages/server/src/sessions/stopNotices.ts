@@ -4,6 +4,7 @@ import type { Db } from '../db/open.ts';
 import { getSession } from '../db/queries.ts';
 import type { GetLanguage } from '../i18n/language.ts';
 import { translatorOf } from '../i18n/message.ts';
+import { Pacer } from '../platform/pacer.ts';
 
 /**
  * デスクトップ通知のきっかけをサーバに置く（2026-10-12、0.5.0）。
@@ -124,6 +125,15 @@ export class StopNoticeWatch {
     this.tr = translatorOf(deps.language);
   }
 
+  /**
+   * 知らせる前の入力待ち（許可の中身を待っている）か、問いの文を待っている入力待ちがあるか。
+   * これがある間だけ、短い周期で見る（paceNotices）。
+   */
+  pending(): boolean {
+    for (const ep of this.episodes.values()) if (ep.phase !== 'done') return true;
+    return false;
+  }
+
   tick(): void {
     const now = this.deps.now?.() ?? Date.now();
     const live = this.deps.live();
@@ -214,4 +224,31 @@ export class StopNoticeWatch {
       this.deps.feed.push({ kind: 'limit', sessionId: first.id, title, body, bare: false });
     }
   }
+}
+
+/** 待っているもの（StopNoticeWatch.pending）がある間の、知らせの見張りの間隔。 */
+export const NOTICE_POLL_MS = 500;
+/**
+ * 待っているものが無い間の間隔。
+ * この周期が拾うのは、使用制限の行が索引から届いたことと、リセットの時刻を過ぎたことだけである。どちらも数秒の遅れは差し支えない。
+ * 入力待ちになったことは、登録が変わったとき（onLiveChange）にその場で見る。
+ */
+export const NOTICE_IDLE_MS = 5000;
+
+/**
+ * 知らせの見張り（StopNoticeWatch）の回し方（2026-10-14、0.6.1）。
+ * 0.6.0 までは 500 ミリ秒ごとに見ていて、待機中も使用制限の表を毎回読んでいた。
+ * 待っているものがある間だけ NOTICE_POLL_MS ごとに見て、無い間は NOTICE_IDLE_MS ごとに見る。
+ * 登録が変わったら onLiveChange でその場で見て、待つものができたら次の回を短い周期に繰り上げる。
+ * tick が投げても周期は止めない。
+ */
+export function paceNotices(watch: Pick<StopNoticeWatch, 'tick' | 'pending'>, o: { onError?: (e: unknown) => void } = {}): { start(): void; stop(): void; onLiveChange(): void } {
+  const onError = o.onError ?? ((e: unknown) => console.error('[notify]', e instanceof Error ? e.message : e));
+  const tick = (): void => { try { watch.tick(); } catch (e) { onError(e); } };
+  const pacer = new Pacer({ run: tick, fastMs: NOTICE_POLL_MS, slowMs: NOTICE_IDLE_MS, fast: () => watch.pending(), onError });
+  return {
+    start: () => pacer.start(),
+    stop: () => pacer.stop(),
+    onLiveChange: () => { tick(); pacer.kick(); },
+  };
 }

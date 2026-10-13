@@ -21,8 +21,15 @@ export const PERMISSION_ASK_TTL_MS = 30_000;
 export class PermissionAsks {
   private asks = new Map<string, { ask: PermissionAskDto; at: number; seen: boolean }>();
 
+  /**
+   * onPut は預けたときに呼ぶ。登録の見張り（RegistryWatcher.kick）に、次の読み直しを繰り上げさせる。
+   * 待機中の読み直しは間が空くので、hook が登録の後に届いたとき、許可の中身を札と通知に載せるのが遅れないようにする。
+   */
+  constructor(private readonly onPut: () => void = () => {}) {}
+
   put(providerSessionId: string, ask: PermissionAskDto, now: number): void {
     this.asks.set(providerSessionId, { ask, at: now, seen: false });
+    this.onPut();
   }
 
   apply(live: LiveSessionDto[], now: number): LiveSessionDto[] {

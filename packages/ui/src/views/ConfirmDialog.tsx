@@ -165,6 +165,7 @@ function Card(props: { card: ResumeHereCard; here: boolean }) {
  * 「この PC で再開」の確認（試作の 2a の A、2b の Y、2c の P）。
  * 前の PC とこの PC の 2 枚のカードを矢印でつなぎ、下に同期されないものの黄の帯を置く。毎回出す。
  * この PC で場所が決まらないときは、再開のボタンを押せなくして理由を添える。
+ * この PC のトランスクリプトを置き換えるとき（A → B → A）は、バックアップに残すことを 1 行で言い、承諾を上書きつきで送る。
  */
 function ResumeHereConfirm(props: { p: ResumeHereProps; cancel: ReactNode; close: () => void }) {
   const emit = useEmit();
@@ -175,7 +176,7 @@ function ResumeHereConfirm(props: { p: ResumeHereProps; cancel: ReactNode; close
       icon="warning"
       onClose={props.close}
       className="rh-dialog"
-      footer={<>{props.cancel}<span className="spacer" /><button type="button" className="btn btn-primary" aria-disabled={p.blocked ? 'true' : undefined} title={p.blocked ?? undefined} onClick={() => { if (!p.blocked) emit({ type: 'session.resumeHere', id: p.sessionId }); }}><Icon name="resumeHere" />{p.action}</button></>}
+      footer={<>{props.cancel}<span className="spacer" /><button type="button" className="btn btn-primary" aria-disabled={p.blocked ? 'true' : undefined} title={p.blocked ?? undefined} onClick={() => { if (!p.blocked) emit({ type: 'session.resumeHere', id: p.sessionId, ...(p.overwrite ? { overwrite: true } : {}) }); }}><Icon name="resumeHere" />{p.action}</button></>}
     >
       <div className="muted">{p.lead}</div>
       <div className="rh-cards">
@@ -187,6 +188,7 @@ function ResumeHereConfirm(props: { p: ResumeHereProps; cancel: ReactNode; close
         <Icon name="warning" />
         <div><b>{p.band.strong}</b><span>{p.band.text}</span></div>
       </div>
+      {p.replace && <div className="rh-blocked">{p.replace}</div>}
       {p.blocked && <div className="rh-blocked">{p.blocked}</div>}
     </Dialog>
   );

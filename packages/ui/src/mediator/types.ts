@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, ConfigSyncPart, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, ResumeHerePlanDto, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { ConfigApplyOrderEntryIn, ConfigSyncPart, FolderRegisterItem, UiAction, LaunchParams, ProjectPlace, ProjectRailSection, ResolveAction, ResumeHerePlanDto, RetentionFrom, Route, SearchFilter, SearchParamsDto, ServerEvent, SessionStatus, SettingsDto, SetupTarget, TodoDto, ProjectSameFolderDto } from '@agent-hangar/shared';
 import type { TableAction } from '../runtime/actionTable.ts';
 import type { CloudMemberCommand } from '../runtime/cloudMember.ts';
 import type { UpdateCommand } from '../runtime/updater.ts';
@@ -23,8 +23,8 @@ export type RuntimeEvent =
   | { type: 'project.create.done'; projectId: string; startSession: boolean } | { type: 'project.create.failed'; message: string }
   // アカウントを足すダイアログの結果（登録が通ったか）。ログインは続けて裏で始まる。
   | { type: 'account.add.done' } | { type: 'account.add.failed'; message: string }
-  // 候補からまとめて登録した結果（初日のプロジェクト）。registered は登録できた数、failed は登録できなかったものの理由である。
-  | { type: 'project.candidates.done'; registered: number; failed: string[] } | { type: 'project.candidates.failed'; message: string }
+  // 候補からまとめて登録した結果（初日のプロジェクト）。registered は登録できた数、linked はそのうちほかの PC のプロジェクトに結び付けた数、failed は登録できなかったものの理由である。
+  | { type: 'project.candidates.done'; registered: number; linked: number; failed: string[] } | { type: 'project.candidates.failed'; message: string }
   // 時刻つきの Paused のうち、今日その時刻を過ぎたものの鍵（mediator/returnDue.ts の dueReturnKeys）。
   | { type: 'return.due'; keys: string[] }
   // 同期で、この PC に場所を持ったことが無いプロジェクトが降りてきた（Runtime が project.upsert から見分ける）。ids は降りたプロジェクト。起動の読み込みで入るものは届けない。
@@ -137,8 +137,10 @@ export type Effect =
   | { kind: 'api.workspaceDirs' }
   // Claude Code と会話したフォルダの候補を取る。答えは Store の folderCandidates に入る。
   | { kind: 'api.folderCandidates' }
+  // 「フォルダの中から」の親フォルダの直下を取る。答えは Store の workspaceChildren に入り、後から頼んだ親の答えだけを採る。
+  | { kind: 'api.workspaceChildren'; parent: string }
   // 候補からまとめて登録する。workspaceRoot があれば、先に新しいフォルダの作成場所として保存する。
-  | { kind: 'api.registerFolders'; paths: string[]; workspaceRoot: string | null }
+  | { kind: 'api.registerFolders'; items: FolderRegisterItem[]; workspaceRoot: string | null }
   // Finder でフォルダを選ぶ。defaultPath を省けば、ワークスペースのルートから開く（プロジェクトの作成）。
   | { kind: 'desktop.pickFolder'; defaultPath?: string | null }
   // 連携の書き込みを殻に頼む（setup_integration）。殻が承諾の窓を出す。ブラウザでは殻が無いので、すぐ setup.done を返す。
@@ -184,13 +186,15 @@ export type Overlay =
   | { kind: 'none' } | { kind: 'resolveProject'; projectId: string } | { kind: 'palette' }
   | { kind: 'shortcuts' }
   // worktree は、worktree の札をオンにして開くこと（同じファイルの編集の警告から開いたとき）。名前はダイアログが付ける。
-  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean }
+  // dir は、はじめに選んでおくフォルダ（作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるとき。0.6.1）。
+  | { kind: 'newSession'; projectId: string | null; scratch: boolean; worktree?: boolean; dir?: string }
   | { kind: 'promote'; sessionId: string }
   | { kind: 'newProject' }
   // 設定の「アカウントを足す…」。入力はダイアログが持ち、送信の進みは accountAdd が持つ。
   | { kind: 'addAccount' }
-  // Claude Code と会話したフォルダの候補のダイアログ（初日のプロジェクト）。submitting は登録の返事を待っているあいだ、error は登録の失敗の理由。
-  | { kind: 'projectCandidates'; submitting: boolean; error: string | null }
+  // まとめて登録のダイアログ（初日のプロジェクト）。source は開いた時点の見方（talked は Claude Code と会話したフォルダ、folder はフォルダの中から）。
+  // submitting は登録の返事を待っているあいだ、error は登録の失敗の理由。
+  | { kind: 'projectCandidates'; source: 'talked' | 'folder'; submitting: boolean; error: string | null }
   | { kind: 'promoted'; projectId: string; moved: boolean; reason: string | null }
   | { kind: 'confirm'; confirm: ConfirmRequest }
   // 設定の同期（作り直した実装）。part が顔を決める。working は、適用の返事（指示書を書き、ネイティブの確認を経る）を待っているあいだ。

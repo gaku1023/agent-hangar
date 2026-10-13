@@ -1,4 +1,4 @@
-import { formatRoute, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ServerEvent } from '@agent-hangar/shared';
+import { formatRoute, parseRoute, permissionNoticeText, stopReasonOf, type ReadinessDto, type AccountsDto, type ConfigApplyOrderEntryIn, type UiAction, type LaunchResultDto, type ProjectDto, type ProjectPlace, type ServerEvent } from '@agent-hangar/shared';
 import { initialState, transition, type Effect, type Input, type State } from '../mediator/transition.ts';
 import { defaultSessionView } from '../mediator/sessionView.ts';
 import { LAUNCH_PREFS_KEY, NEW_SESSION_DRAFT_KEY, readDraft, readLaunchPrefs } from '../mediator/launch.ts';
@@ -21,7 +21,8 @@ import { clientPlatform, notifyBlockedKey, readinessComplete, readinessPending }
 import { unresolvedKind } from '../presenters/unresolved.ts';
 import type { FocusTarget, SessionViewState, TodoCall, TurnJumpStatus } from '../mediator/types.ts';
 import { applyGit, shownLive, aliveRunOf, appendSearchResult, configPartsToLoad, applyBootstrap, applyConfigDetail, applyEventsPage, applyJoinToken, applyLaunch, applyLiveDigest, applyNotify, applyPickedFolder, applySearch, applySessionFiles, applyServerEvent, applySubagents, applyWorkspaceDirs, currentRunOf, eventsKey, indexFinishedBy, initialStore, pruneEvents, pruneRuns, setEventsLoading, tabsOf, vanishedOnBootstrap, withoutProject, type ConfigDetailPart, type Store } from '../store/store.ts';
-import { ApiConflictError, ApiNotFoundError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient, type EventsQuery } from './api.ts';
+import { nestedInspect } from '../store/folderInspect.ts';
 import type { DesktopBridge } from './desktop.ts';
 import { actionCall, isTableAction, type ApiCall } from './actionTable.ts';
 import { createGitWatch } from './gitWatch.ts';
@@ -123,13 +124,27 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   // 殻の有無は起動の時に決まり、あとで変わらない。
   let store: Store = { ...initialStore(), desktop: deps.desktop != null };
   const listeners = new Set<() => void>();
-  const notify = () => { for (const l of listeners) l(); };
+  const notify = () => { heldStore = false; for (const l of listeners) l(); };
   const commit = () => { if (shown !== state) { shown = state; notify(); } };
+  /** 窓が前にあるか（document.visibilityState）。git の表示の周期と、配信を画面へ出すかが見る。 */
+  const visible = deps.visible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
+  /**
+   * 隠れている間に Store が変わったのに、画面へまだ知らせていないか（2026-10-14、0.6.1）。
+   * 隠れている間の配信は Store に当てる（Mediator の入力待ちの知らせは今までどおり動く）が、React へは知らせない。
+   * 見えたときに 1 回だけ知らせて、まとめて描かせる。最小化した窓や裏のタブで、配信のたびに画面全体を描き直さないためである。
+   * 画面の移り変わり（commit）は隠れていても知らせる。通知を押して開いた画面などを、見えた瞬間に出すためである。
+   * 溜めたものは、見えたとき（onWindowVisible）と前面に来たとき（onWindowFocus）に出す。
+   */
+  let heldStore = false;
+  // 前面にある窓は、visibilityState が hidden と言っても溜めない（当てにならない WebView があっても、見ている画面を止めない）。
+  const focused = (): boolean => typeof document !== 'undefined' && document.hasFocus();
+  const notifyStore = () => { if (visible() || focused()) notify(); else heldStore = true; };
+  const releaseStore = () => { if (heldStore) notify(); };
   const present = deps.present ?? ((c: () => void) => c());
   // ストアが変わったら、そのことだけを Mediator へ知らせる。
   // ストアから決まる状態（入力待ちの知らせ、サイドバーの「動いている」の並び）は、Mediator がストアを読んで合わせる。
   // 戻る時刻だけは時計が要るので、ここで見て届ける（syncReturns）。
-  const setStore = (next: Store) => { if (next !== store) { store = next; notify(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); syncFeed(); } };
+  const setStore = (next: Store) => { if (next !== store) { store = next; notifyStore(); dispatch({ kind: 'store' }); syncReturns(); syncPrune(); syncFeed(); } };
   /**
    * 時刻つきの Paused が、その時刻を過ぎたら Mediator へ届ける（mediator/returnDue.ts）。
    * ストアが変わるたびと、次の戻る時点に入れた予約と、窓が前面に戻ったときに見直す。
@@ -262,6 +277,11 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
   const toast = (message: string, holdMs?: number) => dispatch({ kind: 'server', event: { type: 'toast', level: 'info', message, ...(holdMs !== undefined ? { holdMs } : {}) } });
   const launched = (r: LaunchResultDto) => { setStore(applyLaunch(store, r)); dispatch({ kind: 'runtime', event: { type: 'launch.done', sessionId: r.sessionId, runId: r.run.id } }); };
   const launchFailed = (e: unknown) => dispatch({ kind: 'runtime', event: { type: 'launch.failed', message: errMsg(e) } });
+  // 登録が 409（入れ子）で断られたら、事前の問い合わせの答えの代わりに包むプロジェクトを持つ（0.6.1）。
+  // 問い合わせより先に送られたときでも、ダイアログがその場の 1 行と「別のプロジェクトにする」を出せるようにする。
+  const keepNested = (place: ProjectPlace, err: unknown) => {
+    if (place.kind === 'dir' && err instanceof ProjectNestedApiError) setStore({ ...store, folderInspect: nestedInspect(place.path, err.body) });
+  };
   /**
    * 通知を出せるか、受け取るかを Store に入れる。Runtime しか知らない事実なので、Mediator を通さない。
    * blocked は OS（デスクトップならシステム設定）で通知が切られていること。省けば切られていない。
@@ -539,7 +559,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
             dispatch({ kind: 'runtime', event: { type: 'project.created', projectId: p.id, params } });
             return deps.api.launch(params).then(launched);
           })
-          .catch(launchFailed);
+          .catch((err: unknown) => { keepNested(e.place, err); launchFailed(err); });
         return;
       case 'api.createProject':
         deps.api.createProject(e.place)
@@ -547,15 +567,26 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
             setStore({ ...store, projects: { ...store.projects, [p.id]: p } });
             dispatch({ kind: 'runtime', event: { type: 'project.create.done', projectId: p.id, startSession: e.startSession } });
           })
-          .catch((err) => dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }));
+          .catch((err: unknown) => { keepNested(e.place, err); dispatch({ kind: 'runtime', event: { type: 'project.create.failed', message: errMsg(err) } }); });
         return;
       // 候補のダイアログ（初日のプロジェクト）。取っている間と取れなかったことは、面が Store の folderCandidates から読む。
+      // ダイアログを開くたびに来るので、前に開いたときの「フォルダの中から」の一覧もここで捨てる。
       case 'api.folderCandidates':
-        setStore({ ...store, folderCandidates: { status: 'loading' } });
+        setStore({ ...store, folderCandidates: { status: 'loading' }, workspaceChildren: null });
         deps.api.folderCandidates()
           .then((data) => setStore({ ...store, folderCandidates: { status: 'ready', data } }))
           .catch(() => setStore({ ...store, folderCandidates: { status: 'failed' } }));
         return;
+      // 「フォルダの中から」の親の直下。後から頼んだ親の答えだけを採る（打ち直しや Finder で親を変えたとき、前の答えが遅れて届いても入れ替えない）。
+      case 'api.workspaceChildren': {
+        const parent = e.parent;
+        const latest = () => store.workspaceChildren?.status === 'loading' && store.workspaceChildren.parent === parent;
+        setStore({ ...store, workspaceChildren: { status: 'loading', parent } });
+        deps.api.workspaceChildren(parent)
+          .then((data) => { if (latest()) setStore({ ...store, workspaceChildren: { status: 'ready', parent, data } }); })
+          .catch((err: unknown) => { if (latest()) setStore({ ...store, workspaceChildren: { status: 'failed', parent, message: errMsg(err) } }); });
+        return;
+      }
       // 作成場所を決めてから登録する。先に決めると、その直下は保存のときにサーバが登録するので、登録の側は既にあるものとして返す。
       // 作成場所の保存に失敗したら、登録はせずに面へ理由を返す。
       case 'api.registerFolders': {
@@ -563,12 +594,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           ? deps.api.updateSettings({ workspaceRoot: e.workspaceRoot }).then((s) => setStore({ ...store, settings: s }))
           : Promise.resolve();
         save
-          .then(() => (e.paths.length ? deps.api.registerFolders(e.paths) : { projects: [], failed: [] }))
+          .then(() => (e.items.length ? deps.api.registerFolders(e.items) : { projects: [], failed: [] }))
           .then((r) => {
             const projects = { ...store.projects };
             for (const p of r.projects) projects[p.id] = p;
             setStore({ ...store, projects });
-            dispatch({ kind: 'runtime', event: { type: 'project.candidates.done', registered: r.projects.length, failed: r.failed.map((f) => f.error) } });
+            dispatch({ kind: 'runtime', event: { type: 'project.candidates.done', registered: r.projects.length, linked: r.linked?.length ?? 0, failed: r.failed.map((f) => f.error) } });
           })
           .catch((err: unknown) => dispatch({ kind: 'runtime', event: { type: 'project.candidates.failed', message: errMsg(err) } }));
         return;
@@ -836,7 +867,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     fetch: (ids) => deps.api.gitSessions(ids),
     apply: (g) => setStore(applyGit(store, g)),
     live: () => Object.values(store.sessions).filter((s) => shownLive(s) !== null).map((s) => s.id),
-    visible: deps.visible ?? (() => typeof document === 'undefined' || document.visibilityState !== 'hidden'),
+    visible,
     setTimeout: (fn, ms) => deps.setTimeout(fn, ms),
     now: deps.now ?? Date.now,
     also: reloadProjectGit,
@@ -997,8 +1028,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
         wrote = null;
         dispatch({ kind: 'runtime', event: { type: 'hash.changed', route: parseRoute(h), moved } });
       });
-      unsubFocus = deps.onWindowFocus?.(() => { dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
-      unsubVisible = deps.onWindowVisible?.(() => { recheckNotify(); gitWatch.wake(); }) ?? null;
+      // 前面に来たときも、隠れている間に溜めた Store の変化を出す。visibilitychange を出し損ねる WebView があっても、画面が古いまま残らないようにする。
+      unsubFocus = deps.onWindowFocus?.(() => { releaseStore(); dispatch({ kind: 'runtime', event: { type: 'window.focus' } }); recheckNotify(); returnTimerAt = null; syncReturns(); }) ?? null;
+      unsubVisible = deps.onWindowVisible?.(() => { releaseStore(); recheckNotify(); gitWatch.wake(); }) ?? null;
       ws.connect();
     },
     stop() { ws?.close(); unsubHash?.(); unsubFocus?.(); unsubFocus = null; unsubVisible?.(); unsubVisible = null; unsubNotify?.(); unsubNotify = null; deps.terminals.dispose(); },

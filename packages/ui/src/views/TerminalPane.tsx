@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef } from 'react';
 import type { LiveStatus, StopReason } from '@agent-hangar/shared';
 import type { TerminalHost } from '../runtime/terminals.ts';
 import { Icon } from './primitives/Icon.tsx';
@@ -6,6 +6,7 @@ import { useT } from './primitives/language.tsx';
 import { LAYOUT_MOVING_ATTR, LAYOUT_SETTLED, beginLayoutMotion, endLayoutMotion } from './primitives/layoutMotion.ts';
 import { collapseOut, growIn, motionOn } from './primitives/motionKit.ts';
 import { usePresence } from './primitives/usePresence.ts';
+import { useNow } from './primitives/useNow.ts';
 
 export const TerminalHostContext = createContext<TerminalHost | null>(null);
 
@@ -14,13 +15,8 @@ export const TerminalHostContext = createContext<TerminalHost | null>(null);
  * 待っていない間は時計を止める。
  */
 function useSecondsUntil(at: number | null): number | null {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (at === null) return;
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [at]);
+  // 隠れている間は数え直さない（useNow）。
+  const now = useNow(1000, { active: at !== null, sync: at });
   return at === null ? null : Math.max(1, Math.ceil((at - now) / 1000));
 }
 

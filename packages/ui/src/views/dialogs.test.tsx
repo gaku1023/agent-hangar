@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
@@ -32,7 +32,7 @@ describe('ConfirmDialog', () => {
 });
 
 describe('この PC で再開の確認', () => {
-  const plan: ResumeHerePlanDto = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: new Date(2026, 9, 12, 18, 42).getTime() }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/src/notes-app' } };
+  const plan: ResumeHerePlanDto = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: new Date(2026, 9, 12, 18, 42).getTime() }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/src/notes-app' }, replace: null };
   const mountIt = (p = plan, onAction = vi.fn()) => {
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'resumeHere', sessionId: 's1', plan: p }} resumeHere={presentResumeHere(translator('ja'), p, '/Users/me')} /></ActionRoot>);
     return onAction;
@@ -56,6 +56,12 @@ describe('この PC で再開の確認', () => {
     expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+  });
+  it('手元のトランスクリプトを置き換えるときは、同じ 1 枚に 1 行で言い、承諾は上書きつきで送る（A → B → A）', () => {
+    const onAction = mountIt({ ...plan, replace: { kind: 'diverged', localSize: 10, remoteSize: 99 } });
+    expect(screen.getByRole('dialog')).toHaveTextContent('この PC で進めた続きはバックアップに残し、ほかの PC の続きで再開します。');
+    fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1', overwrite: true });
   });
   it('この PC で場所が決まらなければ、再開を押せなくして理由を言う', () => {
     const onAction = mountIt({ ...plan, to: { ...plan.to, path: null } });
@@ -136,7 +142,7 @@ describe('ConfirmDialog（一覧から削除）', () => {
     const dialog = screen.getByRole('dialog', { name: '一覧から削除しますか' });
     expect(dialog.querySelector('.dialog-disc [data-icon="unlink"]')).not.toBeNull();
     expect(dialog).toHaveTextContent('プロジェクト alpha を一覧から削除し、3 件のセッションを未分類に戻します。');
-    expect(dialog).toHaveTextContent('同期している他の PC からも削除されます。');
+    expect(dialog).toHaveTextContent('同期しているほかの PC からも削除されます。');
     const remove = screen.getByRole('button', { name: '一覧から削除' });
     expect(remove).toHaveClass('btn-danger-fill');
     fireEvent.click(remove);
@@ -159,12 +165,12 @@ describe('ConfirmDialog（同じフォルダのプロジェクトをまとめる
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={merge} /></ActionRoot>);
     const dialog = screen.getByRole('dialog', { name: 'shop と 1 つにまとめますか' });
-    expect(dialog).toHaveTextContent('選んだフォルダは、この PC のプロジェクト shop の場所として登録済みです。同じフォルダなので、他の PC から届いた方をこちらへまとめます。');
+    expect(dialog).toHaveTextContent('選んだフォルダは、この PC のプロジェクト shop の場所として登録済みです。同じフォルダなので、ほかの PC から届いた方をこちらへまとめます。');
     const after = within(dialog).getByRole('group', { name: 'まとめた後の shop' });
     const rows = within(after).getAllByRole('listitem').map((li) => li.textContent);
     expect(rows).toEqual(['この PC/Users/me/workspace/shop', 'DESKTOP-01D:\\workspace\\shop', '別の PC/home/me/shop']);
     expect(after).toHaveTextContent('セッション 98 件 ＋ 届いた 1 件');
-    expect(dialog).toHaveTextContent('同期している他の PC でも 1 つになります。元には戻せません。');
+    expect(dialog).toHaveTextContent('同期しているほかの PC でも 1 つになります。元には戻せません。');
     const ok = screen.getByRole('button', { name: '1 つにまとめる' });
     expect(ok).toHaveClass('btn-primary');
     fireEvent.click(ok);
@@ -423,6 +429,14 @@ describe('NewProjectDialog', () => {
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
     expect(screen.queryByRole('button', { name: 'ほかの場所を選択…' })).toBeNull();
   });
+  // まとめて登録（0.6.1）。1 件ずつの登録のダイアログから、フォルダの中からまとめて選ぶダイアログへ送る。
+  it('既存のフォルダを登録の下の「フォルダの中からまとめて選ぶ…」で、まとめて登録のダイアログを開く', () => {
+    const { out } = collect({ desktop: false });
+    expect(screen.queryByRole('button', { name: 'フォルダの中からまとめて選ぶ…' })).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+    fireEvent.click(screen.getByRole('button', { name: 'フォルダの中からまとめて選ぶ…' }));
+    expect(out.at(-1)).toEqual({ type: 'project.candidates.open', source: 'folder' });
+  });
   it('パスの欄の例は、画面の OS の形で出す', () => {
     const { view } = collect();
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
@@ -444,6 +458,92 @@ describe('NewProjectDialog', () => {
     view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewProjectDialog {...base} picked={{ path: 'C:\\Users\\me\\論文\\', n: 1 }} /></ActionRoot>);
     expect(screen.getByLabelText('フォルダのパス')).toHaveValue('C:\\Users\\me\\論文\\');
     expect(screen.getByLabelText('プロジェクト名')).toHaveValue('論文');
+  });
+  // 0.6.1：既存のフォルダの登録で、登録済みのプロジェクトの下（入れ子）と、ほかの PC から届いた同じプロジェクト（結び付け）。
+  describe('既存のフォルダの入れ子と結び付け', () => {
+    const ui = '/w/alpha/packages/ui';
+    type Inspect = NonNullable<NewProjectProps['inspect']>;
+    const ready = (path: string, over: Partial<Extract<Inspect, { status: 'ready' }>['data']>): Inspect => ({ path, name: null, status: 'ready', data: { path, git: false, worktree: false, remote: null, registered: null, enclosing: null, link: null, ...over } });
+    const nested = ready(ui, { enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'packages/ui' } });
+    const link = ready('/w/notes-app', { link: { projectId: 'p7', name: 'notes-app', match: 'remote', remote: 'github.com/me/notes-app', deviceName: 'work-pc', previousPath: null } });
+    const note = () => document.querySelector('.dir-note');
+    /** パスを打ち、問い合わせの答えを重ねて描き直す。 */
+    function typed(path: string, inspect: Inspect | null, over: Partial<NewProjectProps> = {}) {
+      const { out, view } = collect(over);
+      fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+      fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: path } });
+      const again = (p: Partial<NewProjectProps>) => view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewProjectDialog {...base} {...over} {...p} /></ActionRoot>);
+      again({ inspect });
+      return { out, again };
+    }
+    it('パスが決まると、少し待ってから事前の問い合わせを頼む。名前を直したら名前も添える', () => {
+      vi.useFakeTimers();
+      try {
+        const { out } = collect();
+        fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+        fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: '/w/al' } });
+        fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: ui } });
+        expect(out.filter((i) => i.type === 'folder.inspect')).toEqual([]);
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(out.filter((i) => i.type === 'folder.inspect')).toEqual([{ type: 'folder.inspect', path: ui }]);
+        fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'ui-kit' } });
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(out.filter((i) => i.type === 'folder.inspect').at(-1)).toEqual({ type: 'folder.inspect', path: ui, name: 'ui-kit' });
+      } finally { vi.useRealTimers(); }
+    });
+    it('登録済みのプロジェクトの下なら、その場の 1 行で言い、ボタンは包むプロジェクトを開くか、そこで始めるかになる', () => {
+      const { out } = typed(ui, nested);
+      expect(note()).toHaveTextContent('alpha の中のフォルダです。別のプロジェクトにしないときは、alpha を開きます。');
+      expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'alpha を開く' }));
+      fireEvent.click(screen.getByRole('button', { name: 'alpha で開始' }));
+      expect(out.filter((i) => i.type === 'project.new.enclosing')).toEqual([
+        { type: 'project.new.enclosing', projectId: 'p1', dir: ui, startSession: false },
+        { type: 'project.new.enclosing', projectId: 'p1', dir: ui, startSession: true },
+      ]);
+      expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([]);
+    });
+    it('「別のプロジェクトにする」を押すと、分けて登録する旨を言い、allowNested を付けて送る。戻すこともできる', () => {
+      const { out } = typed(ui, nested);
+      fireEvent.click(screen.getByRole('button', { name: '別のプロジェクトにする' }));
+      expect(note()).toHaveTextContent('alpha から分けて、別のプロジェクトとして登録します。いまある会話は alpha に残り、これからの会話が分かれます。');
+      expect(screen.getByLabelText('プロジェクト名')).toHaveValue('ui');
+      fireEvent.click(screen.getByRole('button', { name: '作成' }));
+      expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([{ type: 'project.new.submit', place: { kind: 'dir', path: ui, name: 'ui', allowNested: true }, startSession: false }]);
+      fireEvent.click(screen.getByRole('button', { name: 'alpha のままにする' }));
+      expect(screen.getByRole('button', { name: 'alpha を開く' })).toBeInTheDocument();
+    });
+    it('登録が 409（入れ子）で断られたら、失敗の文言ではなく、その場の 1 行と「別のプロジェクトにする」を出す', () => {
+      typed(ui, nested, { error: 'このフォルダはプロジェクト alpha の中にあります' });
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(note()).toHaveTextContent('alpha の中のフォルダです。');
+      expect(screen.getByRole('button', { name: '別のプロジェクトにする' })).toBeInTheDocument();
+    });
+    it('ほかの PC から届いた同じプロジェクトがあれば、理由と行き先を 1 行で言い、既定で結び付ける。「新しく作る」に切り替えられる', () => {
+      const { out } = typed('/w/notes-app', link);
+      expect(note()).toHaveTextContent('work-pc の notes-app と同じリポジトリです。この PC の場所として結び付けます。');
+      expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '結び付ける' }));
+      fireEvent.click(screen.getByRole('button', { name: '結び付けて開始' }));
+      expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([
+        { type: 'project.new.submit', place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' }, startSession: false },
+        { type: 'project.new.submit', place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' }, startSession: true },
+      ]);
+      fireEvent.click(screen.getByRole('button', { name: '新しく作る' }));
+      expect(note()).toHaveTextContent('work-pc の notes-app には結び付けず、新しいプロジェクトとして登録します。');
+      expect(screen.getByLabelText('プロジェクト名')).toHaveValue('notes-app');
+      fireEvent.click(screen.getByRole('button', { name: '作成' }));
+      expect(out.filter((i) => i.type === 'project.new.submit').at(-1)).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/notes-app', name: 'notes-app' }, startSession: false });
+      fireEvent.click(screen.getByRole('button', { name: 'notes-app に結び付ける' }));
+      expect(screen.getByRole('button', { name: '結び付ける' })).toBeInTheDocument();
+    });
+    it('問い合わせの答えを待つ間は送れない。ほかのパスの答えは使わない', () => {
+      const { again } = typed(ui, { path: ui, name: null, status: 'loading' });
+      expect(screen.getByRole('button', { name: '作成' })).toBeDisabled();
+      again({ inspect: ready('/w/other', { enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'x' } }) });
+      expect(screen.getByRole('button', { name: '作成' })).toBeEnabled();
+      expect(note()).toBeNull();
+    });
   });
   it('送信中は両方のボタンを押せず、失敗の文言を出し、背景では閉じない', () => {
     const { out, view } = collect({ submitting: true, error: '/w/price-watcher は既にあります' });

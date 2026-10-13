@@ -1,5 +1,5 @@
 import type { NodeCheck } from '../config/node.ts';
-import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
+import type { CloudDevicesDto, CloudUsageDto, CompatDto, DeviceDto, EditorsDto, EditorTestDto, KnownEditorId, IndexProgressDto, LaunchResultDto, LiveSessionDto, ReadinessDto, ResumeHereConflictDto, ResumeHereReplaceDto, RetentionDto, RetentionPreviewDto, SettingsDto, ShellHookDto, SummarizerTestDto, SyncSkippedDto, TerminalApp, UsageDto } from '@agent-hangar/shared';
 import type { Settings } from '../config/paths.ts';
 import type { Db } from '../db/open.ts';
 import type { GetLanguage } from '../i18n/language.ts';
@@ -120,6 +120,11 @@ export type AppDeps = {
   syncOncePass: () => boolean;
   /** 他端末の本文を手元に写してから再開する。写しより手元が小さいときだけ 409 の本体を返す。 */
   resumeHere: (sessionId: string, overwrite: boolean) => LaunchResultDto | ResumeHereConflictDto;
+  /**
+   * 「この PC で再開」の確認に出す、手元のトランスクリプトを置き換えるか（sync/copy.ts の compareForResume）。
+   * 渡さなければ置き換えないものとして null を返す（試験の世界）。
+   */
+  resumeHereReplace?: (sessionId: string) => ResumeHereReplaceDto | null;
   /** 設定の同期。同期を設定していない端末では null で、/config-sync/* は 404 を返す。既定は切。 */
   configBundle: ConfigBundleApi | null;
   /** 参加トークン。setup を走らせていない端末では null。全セッションの読み書き権を持つので、ログには出さない。 */

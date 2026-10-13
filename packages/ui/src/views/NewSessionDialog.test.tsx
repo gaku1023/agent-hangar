@@ -982,3 +982,102 @@ describe('NewSessionDialog のアカウントの札', () => {
     expect(params()).toEqual([{ projectId: 'p1', account: 'primary' }]);
   });
 });
+
+// 0.6.1：登録済みのプロジェクトの下のフォルダと、ほかの PC から届いた同じプロジェクト（試作の 6 と 7 の A）。
+describe('NewSessionDialog の選んだフォルダとプロジェクトの結び付き', () => {
+  const ui = '/w/alpha/packages/ui';
+  type Inspect = NonNullable<NewSessionProps['inspect']>;
+  const ready = (path: string, over: Partial<Extract<Inspect, { status: 'ready' }>['data']>): Inspect => ({ path, name: null, status: 'ready', data: { path, git: false, worktree: false, remote: null, registered: null, enclosing: null, link: null, ...over } });
+  const nested = ready(ui, { enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'packages/ui' } });
+  const note = () => document.querySelector('.dir-note');
+  /** Finder で選んだ結果を渡し、問い合わせの答えを重ねて描き直す。 */
+  function pickWith(path: string, inspect: Inspect | null, over: Partial<NewSessionProps> = {}) {
+    const { out, view } = collect(over);
+    const again = (i: Inspect | null) => view.rerender(<ActionRoot onAction={(a) => out.push(a)}><NewSessionDialog {...base} {...over} picked={{ path, n: 1 }} inspect={i} /></ActionRoot>);
+    again(null);
+    if (inspect) again(inspect);
+    return { out, again };
+  }
+  const submits = (out: UiAction[]) => out.filter((i) => i.type === 'session.new.submit');
+
+  it('フォルダを選ぶと、そのフォルダの事前の問い合わせを頼む', () => {
+    const { out } = pickWith(ui, null);
+    expect(out).toContainEqual({ type: 'folder.inspect', path: ui });
+  });
+  it('登録済みのプロジェクトの下なら、札を包むプロジェクトにして下のフォルダを添え、その場の 1 行で言う。起動は包むプロジェクトの cwd で', () => {
+    const { out } = pickWith(ui, nested);
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいセッション');
+    expect(chip('プロジェクト')).toHaveTextContent('alpha');
+    expect(chip('プロジェクト')).toHaveTextContent('packages/ui');
+    expect(note()).toHaveTextContent('alpha の中のフォルダなので、alpha のセッションとして packages/ui で始めます。');
+    expect(screen.queryByText(/はまだプロジェクトではありません/)).toBeNull();
+    start();
+    expect(submits(out)).toEqual([{ type: 'session.new.submit', params: { projectId: 'p1', cwd: ui } }]);
+  });
+  it('「別のプロジェクトにする」を押すと、分けて登録する旨を言い、allowNested を付けて登録してから始める。戻すこともできる', () => {
+    const { out } = pickWith(ui, nested);
+    fireEvent.click(screen.getByRole('button', { name: '別のプロジェクトにする' }));
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(chip('プロジェクト')).toHaveTextContent('ui');
+    expect(chip('プロジェクト')).not.toHaveTextContent('alpha');
+    expect(note()).toHaveTextContent('alpha から分けて、別のプロジェクトとして登録します。いまある会話は alpha に残り、これからの会話が分かれます。');
+    start();
+    expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: ui, allowNested: true } });
+    fireEvent.click(screen.getByRole('button', { name: 'alpha のセッションにする' }));
+    start();
+    expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: { projectId: 'p1', cwd: ui } });
+  });
+  it('包むプロジェクトの前回値を札の値にする', () => {
+    pickWith(ui, nested, { prefs: { p1: { model: 'opus' } } });
+    expect(chip('モデル、opus')).toBeInTheDocument();
+  });
+  it('ほかの PC から届いた同じリポジトリのプロジェクトがあれば、札に「ほかの PC」を添え、理由と行き先を 1 行で言い、結び付けて始める', () => {
+    const link = ready('/w/notes-app', { link: { projectId: 'p7', name: 'notes-app', match: 'remote', remote: 'github.com/me/notes-app', deviceName: 'work-pc', previousPath: 'D:\\src\\notes-app' } });
+    const { out } = pickWith('/w/notes-app', link, { dirs: [{ name: 'notes-app', path: '/w/notes-app' }] });
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('新しいセッション');
+    expect(chip('プロジェクト')).toHaveTextContent('notes-app');
+    expect(chip('プロジェクト')).toHaveTextContent('ほかの PC');
+    expect(note()).toHaveTextContent('work-pc の notes-app と同じリポジトリです。この PC の場所（/w/notes-app）として結び付けて始めます。');
+    start();
+    expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' } });
+    fireEvent.click(screen.getByRole('button', { name: '新しく作る' }));
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('フォルダを登録して始める');
+    expect(note()).toHaveTextContent('work-pc の notes-app には結び付けず、新しいプロジェクトとして登録します。');
+    start();
+    expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/notes-app' } });
+    fireEvent.click(screen.getByRole('button', { name: 'notes-app に結び付ける' }));
+    start();
+    expect(submits(out).at(-1)).toEqual({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' } });
+  });
+  it('名前だけが同じときは「同じ名前です」と言う。場所を持つ PC が分からなければ名前だけで言い、札に「ほかの PC」を添えない', () => {
+    pickWith('/w/notes', ready('/w/notes', { link: { projectId: 'p7', name: 'notes', match: 'name', remote: null, deviceName: null, previousPath: null } }));
+    expect(note()).toHaveTextContent('notes と同じ名前です。この PC の場所（/w/notes）として結び付けて始めます。');
+    expect(chip('プロジェクト')).not.toHaveTextContent('ほかの PC');
+  });
+  it('問い合わせの答えを待つ間は起動できない。読めなかったら今までどおり登録して始める', () => {
+    const { out, again } = pickWith('/Users/me/thesis', { path: '/Users/me/thesis', name: null, status: 'loading' });
+    expect(screen.getByRole('button', { name: /起動$/ })).toBeDisabled();
+    again({ path: '/Users/me/thesis', name: null, status: 'failed' });
+    start();
+    expect(submits(out)).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/Users/me/thesis' } }]);
+  });
+  it('ほかのフォルダの答えは使わない', () => {
+    const { out } = pickWith('/Users/me/thesis', nested);
+    expect(note()).toBeNull();
+    start();
+    expect(submits(out)).toEqual([{ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/Users/me/thesis' } }]);
+  });
+  it('登録済みのフォルダだったら（綴りが違っても）、そのプロジェクトを選ぶ', () => {
+    const { out } = pickWith('/w/beta/', ready('/w/beta/', { registered: { projectId: 'p2', name: 'beta' } }));
+    expect(chip('プロジェクト')).toHaveTextContent('beta');
+    start();
+    expect(submits(out)).toEqual([{ type: 'session.new.submit', params: { projectId: 'p2' } }]);
+  });
+  it('作成のダイアログから渡されたフォルダを選んで開き、問い合わせを頼む', () => {
+    const { out } = collect({ projectId: 'p1', dir: ui, inspect: nested });
+    expect(out).toContainEqual({ type: 'folder.inspect', path: ui });
+    expect(chip('プロジェクト')).toHaveTextContent('packages/ui');
+    start();
+    expect(submits(out)).toEqual([{ type: 'session.new.submit', params: { projectId: 'p1', cwd: ui } }]);
+  });
+});

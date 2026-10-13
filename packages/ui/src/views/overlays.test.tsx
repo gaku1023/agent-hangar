@@ -316,7 +316,7 @@ describe('ResolveProjectDialog', () => {
     expect(screen.getByText('Mac mini でのパス')).toBeInTheDocument();
     expect(screen.getByText('/o/alpha')).toBeInTheDocument();
     // 移動や改名の説明ではなく、他の PC のものだという説明を出す。
-    expect(screen.getByText(/他の PC のプロジェクトです/)).toBeInTheDocument();
+    expect(screen.getByText(/ほかの PC のプロジェクトです/)).toBeInTheDocument();
     unmount();
     render(<ActionRoot onAction={vi.fn()}><ResolveProjectDialog projectId="p1" name="alpha" elsewhere deviceName={null} previousPath={null} candidates={[]} onQueryCandidates={() => {}} /></ActionRoot>);
     expect(screen.getByText('前のパス')).toBeInTheDocument();

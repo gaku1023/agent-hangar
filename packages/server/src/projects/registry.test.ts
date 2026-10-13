@@ -425,3 +425,50 @@ describe('resolvedProjectCount', () => {
     expect(resolvedProjectCount(db, DEV)).toBe(2);
   });
 });
+
+// 0.6.1：作成場所の直下の自動登録は、ほかの PC から届いた同じプロジェクトがあれば、新しく作らずに結び付ける。
+describe('自動登録の結び付け', () => {
+  const OTHER = 'dev-2';
+  /** ほかの PC だけに場所を持つプロジェクト。 */
+  function elsewhere(id: string, name: string, remote: string | null) {
+    upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0, git_remote: remote }, OTHER);
+    upsertShared(db, 'project_roots', { id: `r-${id}`, project_id: id, device_id: OTHER, path: `/Users/other/src/${name}`, resolved: 1 }, OTHER);
+  }
+  function origin(dir: string, url: string) {
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), `[remote "origin"]\n\turl = ${url}\n`);
+  }
+  const projectCount = () => (db.prepare('select count(*) c from projects where deleted_at is null').get() as { c: number }).c;
+
+  it('remote が同じ（強い一致）なら、新しく作らずにその場所として結び付け、会話を紐づける', () => {
+    origin(path.join(ws, 'alpha'), 'git@github.com:me/alpha.git');
+    elsewhere('far', 'alpha-renamed', 'github.com/me/alpha');
+    const r = syncProjectsFromWorkspace(db, DEV, ws);
+    expect(r).toEqual({ created: [], linked: ['far'] });
+    expect(root('far')).toMatchObject({ path: path.join(ws, 'alpha'), resolved: 1 });
+    expect(sessionProject('s-alpha')).toBe('far');
+    expect(projectCount()).toBe(1);
+  });
+  it('名前が同じで remote が食い違わない（弱い一致）なら結び付け、空の remote を埋める', () => {
+    origin(path.join(ws, 'alpha'), 'https://github.com/me/alpha.git');
+    elsewhere('far', 'alpha', null);
+    expect(syncProjectsFromWorkspace(db, DEV, ws)).toEqual({ created: [], linked: ['far'] });
+    expect(project('far').git_remote).toBe('github.com/me/alpha');
+  });
+  it('名前が同じでも remote が食い違えば、結び付けずに今までどおり作り、remote を入れる', () => {
+    origin(path.join(ws, 'alpha'), 'https://github.com/me/alpha.git');
+    elsewhere('far', 'alpha', 'github.com/someone/alpha');
+    const r = syncProjectsFromWorkspace(db, DEV, ws);
+    expect(r.linked).toEqual([]);
+    expect(r.created).toHaveLength(1);
+    expect(project(r.created[0]!)).toMatchObject({ name: 'alpha', git_remote: 'github.com/me/alpha' });
+    expect(root('far')).toBeUndefined();
+  });
+  it('その場の自動登録も、強い一致なら結び付けて、そのプロジェクトの id を返す', () => {
+    origin(path.join(ws, 'beta'), 'git@github.com:me/beta.git');
+    elsewhere('far', 'b', 'github.com/me/beta');
+    expect(registerWorkspaceChildOf(db, DEV, ws, path.join(ws, 'beta', 'src'))).toBe('far');
+    expect(root('far')).toMatchObject({ path: path.join(ws, 'beta'), resolved: 1 });
+    expect(projectCount()).toBe(1);
+  });
+});

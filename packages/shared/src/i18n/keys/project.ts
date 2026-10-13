@@ -18,6 +18,8 @@ export const projectKeys = {
   'project.create.pathMustBeAbsolute': [],
   'project.create.rootNotAllowed': [],
   'project.create.noParent': [],
+  'project.create.nested': ['name'],
+  'project.link.hasPlace': ['name'],
   'project.name.uncategorized': [],
   'project.name.quick': [],
   'project.promote.scratchUnverified': ['reason'],

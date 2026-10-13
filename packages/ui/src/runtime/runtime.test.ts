@@ -1,7 +1,7 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { ApiConflictError, ApiNotFoundError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import type { BootstrapDto, CloudUsageDto, EventsPageDto, FolderRegisterItem, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto, WorkspaceChildrenDto } from '@agent-hangar/shared';
+import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
@@ -672,16 +672,16 @@ describe('起動とターミナル', () => {
     const folderCandidates = vi.fn(async () => cands);
     const base: SettingsDto = { workspaceRoot: '', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode', path: null, fileCmd: '', dirCmd: '', terminal: 'none' }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null };
     const updateSettings = vi.fn(async (patch: Partial<SettingsDto>) => { order.push(`settings:${patch.workspaceRoot}`); return { ...base, ...patch }; });
-    const registerFolders = vi.fn(async (paths: string[]) => { order.push(`register:${paths.join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path が存在するディレクトリではありません' }] }; });
+    const registerFolders = vi.fn(async (items: FolderRegisterItem[]) => { order.push(`register:${items.map((i) => i.path).join(',')}`); return { projects: [{ ...created, id: 'p-a', path: '/Users/me/src/a' }], failed: [{ path: '/gone', error: 'path が存在するディレクトリではありません' }] }; });
     const { rt, api } = harness({ folderCandidates, updateSettings, registerFolders });
     rt.start();
     await flush();
     const readinessCalls = (api.readiness as ReturnType<typeof vi.fn>).mock.calls.length;
     rt.emit({ type: 'project.candidates.open' });
-    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: null });
+    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: false, error: null });
     await flush();
     expect(rt.getStore().folderCandidates).toEqual({ status: 'ready', data: cands });
-    rt.emit({ type: 'project.candidates.submit', paths: ['/Users/me/src/a', '/gone'], workspaceRoot: '/Users/me/src' });
+    rt.emit({ type: 'project.candidates.submit', items: [{ path: '/Users/me/src/a' }, { path: '/gone' }], workspaceRoot: '/Users/me/src' });
     expect(rt.getState().overlay).toMatchObject({ kind: 'projectCandidates', submitting: true });
     await flush();
     expect(order).toEqual(['settings:/Users/me/src', 'register:/Users/me/src/a,/gone']);
@@ -697,9 +697,48 @@ describe('起動とターミナル', () => {
     rt.emit({ type: 'project.candidates.open' });
     await flush();
     expect(rt.getStore().folderCandidates).toEqual({ status: 'failed' });
-    rt.emit({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null });
+    rt.emit({ type: 'project.candidates.submit', items: [{ path: '/a' }], workspaceRoot: null });
     await flush();
-    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: 'つながりません' });
+    expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: false, error: 'つながりません' });
+  });
+  // まとめて登録の「フォルダの中から」（0.6.1）。親の直下は Store の workspaceChildren に入り、後から頼んだ親の答えだけを採る。
+  it('親フォルダの直下を取り、後から頼んだ親の答えだけを入れる。開き直すと前の一覧を捨てる', async () => {
+    const data = (parent: string): WorkspaceChildrenDto => ({ parent, enclosing: null, children: [] });
+    const waits: Record<string, (v: WorkspaceChildrenDto) => void> = {};
+    const workspaceChildren = vi.fn((parent: string) => new Promise<WorkspaceChildrenDto>((res) => { waits[parent] = res; }));
+    const { rt } = harness({ workspaceChildren });
+    rt.start();
+    rt.emit({ type: 'project.candidates.open', source: 'folder' });
+    rt.emit({ type: 'project.folders.load', parent: '~/old' });
+    rt.emit({ type: 'project.folders.load', parent: '~/src' });
+    expect(rt.getStore().workspaceChildren).toEqual({ status: 'loading', parent: '~/src' });
+    waits['~/src']!(data('/Users/me/src'));
+    await flush();
+    waits['~/old']!(data('/Users/me/old'));
+    await flush();
+    expect(rt.getStore().workspaceChildren).toEqual({ status: 'ready', parent: '~/src', data: data('/Users/me/src') });
+    rt.emit({ type: 'overlay.close' });
+    rt.emit({ type: 'project.candidates.open', source: 'folder' });
+    expect(rt.getStore().workspaceChildren).toBeNull();
+  });
+  it('親フォルダを読めなければ、理由を添えて面に出す', async () => {
+    const { rt } = harness({ workspaceChildren: vi.fn(async () => { throw new Error('path が存在するディレクトリではありません'); }) });
+    rt.start();
+    rt.emit({ type: 'project.candidates.open', source: 'folder' });
+    rt.emit({ type: 'project.folders.load', parent: '~/nope' });
+    await flush();
+    expect(rt.getStore().workspaceChildren).toEqual({ status: 'failed', parent: '~/nope', message: 'path が存在するディレクトリではありません' });
+  });
+  it('行ごとの結び付け先と入れ子の明示をそのまま送り、結び付けた件数を知らせる', async () => {
+    const registerFolders = vi.fn(async () => ({ projects: [{ ...created, id: 'p-a' }, { ...created, id: 'p-b' }], failed: [], linked: ['p-b'] }));
+    const { rt } = harness({ registerFolders });
+    rt.start();
+    rt.emit({ type: 'project.candidates.open', source: 'folder' });
+    const items = [{ path: '/Users/me/src/a' }, { path: '/Users/me/src/b', linkTo: 'p-b' }, { path: '/Users/me/src/c', allowNested: true }];
+    rt.emit({ type: 'project.candidates.submit', items, workspaceRoot: null });
+    await flush();
+    expect(registerFolders).toHaveBeenCalledWith(items);
+    expect(rt.getState().toasts.map((t) => t.message)).toEqual(['プロジェクトを 2 件登録しました（うち 1 件は、ほかの PC のプロジェクトに結び付けました）']);
   });
   it('作成のダイアログの送信は、作ってから done を返す', async () => {
     const { rt } = harness({ createProject: vi.fn(async () => created) });
@@ -709,6 +748,64 @@ describe('起動とターミナル', () => {
     await flush();
     expect(rt.getStore().projects.p9).toEqual(created);
     expect(rt.getState()).toMatchObject({ overlay: { kind: 'none' }, projectCreate: { kind: 'idle' } });
+  });
+  // 0.6.1：選んだフォルダの事前の問い合わせ（入れ子とほかの PC のプロジェクト）。新しいセッションと作成のダイアログが Store から読む。
+  describe('選んだフォルダの事前の問い合わせ', () => {
+    const inspected = { path: '/w/alpha/packages/ui', git: false, worktree: false, remote: null, registered: null, enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'packages/ui' }, link: null };
+    it('folder.inspect は問い合わせを読み、読んでいる間と答えを Store に入れる', async () => {
+      const inspectFolder = vi.fn(async () => inspected);
+      const { rt } = harness({ inspectFolder });
+      rt.start();
+      rt.emit({ type: 'folder.inspect', path: '/w/alpha/packages/ui' });
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/alpha/packages/ui', name: null, status: 'loading' });
+      await flush();
+      expect(inspectFolder).toHaveBeenCalledWith('/w/alpha/packages/ui', undefined);
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/alpha/packages/ui', name: null, status: 'ready', data: inspected });
+    });
+    it('名前を添えた問い合わせは名前も渡し、後から頼んだ問い合わせの答えを古い答えで上書きしない', async () => {
+      let release: (() => void) | null = null;
+      const inspectFolder = vi.fn((path: string) => (path === '/w/old' ? new Promise<typeof inspected>((r) => { release = () => r({ ...inspected, path: '/w/old' }); }) : Promise.resolve({ ...inspected, path })));
+      const { rt } = harness({ inspectFolder });
+      rt.start();
+      rt.emit({ type: 'folder.inspect', path: '/w/old' });
+      rt.emit({ type: 'folder.inspect', path: '/w/notes', name: 'notes' });
+      await flush();
+      release!();
+      await flush();
+      expect(inspectFolder).toHaveBeenLastCalledWith('/w/notes', 'notes');
+      expect(rt.getStore().folderInspect).toMatchObject({ path: '/w/notes', name: 'notes', status: 'ready' });
+    });
+    it('読めなければ failed にし、トーストは出さない（ダイアログは今までどおり登録して始める）', async () => {
+      const { rt } = harness({ inspectFolder: vi.fn(async () => { throw new Error('500'); }) });
+      rt.start();
+      rt.emit({ type: 'folder.inspect', path: '/w/x' });
+      await flush();
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/x', name: null, status: 'failed' });
+      expect(rt.getState().toasts).toEqual([]);
+    });
+    const nested = { error: 'このフォルダはプロジェクト alpha の中にあります', code: 'project_nested' as const, enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha' } };
+    it('作成のダイアログの登録が 409（入れ子）なら、包むプロジェクトを問い合わせの答えとして Store に持つ', async () => {
+      const { rt } = harness({ createProject: vi.fn(async () => { throw new ProjectNestedApiError(nested); }) });
+      rt.start();
+      rt.emit({ type: 'project.new.open' });
+      rt.emit({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/alpha/packages/ui' }, startSession: false });
+      await flush();
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/alpha/packages/ui', name: null, status: 'ready', data: inspected });
+      expect(rt.getState().projectCreate).toEqual({ kind: 'failed', message: nested.error });
+      // 画面は Store から読む。
+      expect(presentNewProject(rt.getState(), rt.getStore())).toMatchObject({ inspect: { path: '/w/alpha/packages/ui', status: 'ready' } });
+    });
+    it('新しいセッションのダイアログの登録が 409（入れ子）でも同じく持ち、起動はしない', async () => {
+      const launch = vi.fn(async () => launched);
+      const { rt } = harness({ createProject: vi.fn(async () => { throw new ProjectNestedApiError(nested); }), launch });
+      rt.start();
+      rt.emit({ type: 'session.new.open' });
+      rt.emit({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/alpha/packages/ui' } });
+      await flush();
+      expect(launch).not.toHaveBeenCalled();
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/alpha/packages/ui', name: null, status: 'ready', data: inspected });
+      expect(rt.getState().launch).toEqual({ kind: 'failed', message: nested.error });
+    });
   });
   it('起動に成功するとストアに run が入り、セッション画面へ移ってターミナルに繋ぐ', async () => {
     const { rt, api, terminals, setHash } = harness({ launch: vi.fn(async () => launched) });
@@ -878,7 +975,7 @@ describe('起動とターミナル', () => {
 });
 
 const p3Project = (id: string): ProjectDto => ({ id, name: id, status: 'active', isScratch: false, path: '/w/' + id, resolved: true, lastActivityAt: 1, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null };
+const p3Session: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: 'p9', name: 's1', cwd: '/w/newp', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false };
 const p3Todo = (id: string, done: boolean): TodoDto => ({ id, projectId: 'p1', text: 'x', done, position: 1, sessionId: null, updatedAt: 1, candidate: null, suggestion: null });
 const p3Run = (id: string, sessionId: string): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: 1, startedAt: 1, endedAt: null, endReason: null, heartbeatAt: 1 });
 const p3Tab = (id: string, runId: string, kind: 'agent' | 'shell'): TabDto => ({ id, runId, sessionId: 's1', kind, title: id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt: null });
@@ -1312,7 +1409,7 @@ describe('同期とこの PC で再開', () => {
     expect(rt.getState().toasts).toEqual([]);
   });
   it('この PC で再開を押すと、確認に出すものを取りに行って確認の 1 枚を出す。取れなければトースト', async () => {
-    const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' } };
+    const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null };
     const { rt, api } = harness({ resumeHerePlan: vi.fn(async () => plan) });
     rt.start();
     rt.emit({ type: 'session.resumeHere.open', id: 's1' });
@@ -1372,7 +1469,7 @@ describe('保持期間（ランタイム）', () => {
   const R = { days: 30, source: 'default' as const, userValue: null, writable: true, unwritableReason: null, usage: null };
   const preview = { days: 365, path: '/c/settings.json', lines: [], baseSha256: 'abc', backupDir: '/h/backups/claude-config', projectedBytes: null };
   it('本文の無い会話を開いても、本文を読みに行かない', async () => {
-    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null };
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false };
     const { rt, api, wsHandlers, setHash } = harness({ bootstrap: vi.fn(async () => ({ ...boot, sessions: [s1] })) });
     rt.start();
     wsHandlers[0]!.onOpen();
@@ -1434,7 +1531,7 @@ describe('保持期間（ランタイム）', () => {
 
 describe('入力待ちの知らせ', () => {
   const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
-  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over });
+  const waitingSession = (over: Partial<SessionDto> = {}): SessionDto => ({ id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: '請求書の書き出し', cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...over });
   const live = (sessionId: string, status: 'busy' | 'waiting') => ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 1 });
   function fakeNotifier(o: { available?: boolean; defaultOn?: boolean; granted?: boolean; background?: boolean; grant?: boolean; status?: NotifyPermission } = {}) {
     let open: ((id: string) => void) | null = null;
@@ -1979,7 +2076,7 @@ describe('設定の欄ごとの保存と準備の確かめ（ランタイム）'
     expect(readiness).toHaveBeenCalledTimes(2);
   });
   it('起動のたびに、ホームの帯の確認のために準備の確かめを取る（セッションが 1 つも無いときに限らない）', async () => {
-    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null };
+    const s1: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: null, lastActivityAt: null, hasTranscript: false, live: null, summary: null, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false };
     for (const sessions of [[], [s1]]) {
       const readiness = vi.fn(async () => READY);
       const { rt, wsHandlers } = harness({ readiness, bootstrap: vi.fn(async () => ({ ...boot, sessions })) });
@@ -2526,7 +2623,7 @@ describe('ランタイムの文（英語）', () => {
   const JAPANESE = /[぀-ヿ㐀-鿿]/;
   const english = { ...boot, settings: { ...boot.settings, language: 'en' as const } };
   const stats = { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null };
-  const nameless: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null };
+  const nameless: SessionDto = { id: 's1', provider: 'claude-code', providerSessionId: 'u1', projectId: null, name: null, cwd: '/w', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, stats, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false };
   async function startedEnglish(overrides: Partial<ApiClient> = {}, extra: Partial<RuntimeDeps> = {}, sessions: SessionDto[] = []) {
     const h = harness({ bootstrap: vi.fn(async () => ({ ...english, sessions })), ...overrides }, extra);
     h.rt.start();
@@ -2688,6 +2785,36 @@ describe('中断の群（ランタイム）', () => {
     await flush();
     expect(dismissInterrupted).toHaveBeenCalledWith(['r1'], true);
     expect(rt.getStore().interrupted).toEqual(group);
+  });
+});
+
+// 窓が隠れている間は、配信を Store に当てるだけで画面へは出さない（2026-10-14、0.6.1）。
+// 見えたときに 1 回だけ描かせる。入力待ちの知らせ（Mediator）は今までどおり Store の変化で動く。
+describe('隠れている間の配信', () => {
+  it('隠れている間の配信は Store に当てるが購読者へは知らせず、見えたときに 1 回だけ知らせる', async () => {
+    let shown = true;
+    const visible = new Set<() => void>();
+    const h = harness({}, { visible: () => shown, onWindowVisible: (cb) => { visible.add(cb); return () => visible.delete(cb); } });
+    h.rt.start();
+    h.wsHandlers[0]!.onOpen();
+    await flush();
+    let notified = 0;
+    h.rt.subscribe(() => { notified++; });
+    shown = false;
+    const base: SessionDto = { id: 's9', provider: 'claude-code', providerSessionId: 'u9', projectId: null, name: 'x', cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false };
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: base });
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: { ...base, name: 'y' } });
+    expect(h.rt.getStore().sessions.s9?.name).toBe('y');
+    expect(notified).toBe(0);
+    shown = true;
+    for (const cb of visible) cb();
+    expect(notified).toBe(1);
+    // 見えている間は今までどおりその場で知らせる。
+    h.wsHandlers[0]!.onEvent({ type: 'session.upsert', session: { ...base, name: 'z' } });
+    expect(notified).toBe(2);
+    // 隠れている間に何も届かなければ、見えても知らせない。
+    for (const cb of visible) cb();
+    expect(notified).toBe(2);
   });
 });
 

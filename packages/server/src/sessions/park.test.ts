@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { openDb } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import type { LiveSession } from '../provider/claude-code/types.ts';
-import { ParkWatch, parkedSessionIds, statusChanged } from './park.ts';
+import { hasMarkedIdle, ParkWatch, parkedSessionIds, statusChanged } from './park.ts';
 import { setSessionState } from './states.ts';
 
 const T = (iso: string) => Date.parse(iso);
@@ -16,6 +16,23 @@ function seed() {
 }
 const live = (sessionId: string, status: LiveSession['status'] = 'idle', procStart: string | null = PROC_START): LiveSession =>
   ({ sessionId, status, name: null, nameSource: null, cwd: '/w', pid: 42, ...(procStart ? { procStart } : {}) });
+
+// 待機中の休みの見張りを軽くする（2026-10-14、0.6.1）。
+// 区切り（Done、Archived）の付いた休みの会話が 1 つも無ければ、登録を読み直さず、セッションの行も組まない。
+describe('hasMarkedIdle', () => {
+  it('Done か Archived の付いた休みの会話があるときだけ真', () => {
+    const db = seed();
+    expect(hasMarkedIdle(db, [live('u1'), live('u2'), live('u3')])).toBe(false);
+    setSessionState(db, 'd', 's1', { status: 'paused', note: 'あとで', setBy: 'user', now: SET_AT });
+    expect(hasMarkedIdle(db, [live('u1')])).toBe(false);
+    setSessionState(db, 'd', 's2', { status: 'done', setBy: 'user', now: SET_AT });
+    expect(hasMarkedIdle(db, [live('u1'), live('u2', 'busy')])).toBe(false);
+    expect(hasMarkedIdle(db, [live('u1'), live('u2')])).toBe(true);
+    setSessionState(db, 'd', 's3', { status: 'archived', setBy: 'conversation', now: SET_AT });
+    expect(hasMarkedIdle(db, [live('u3')])).toBe(true);
+    expect(hasMarkedIdle(db, [])).toBe(false);
+  });
+});
 
 describe('parkedSessionIds', () => {
   it('印が付いていて休みのまま残っている会話の、hangar のセッションの id を返す', () => {

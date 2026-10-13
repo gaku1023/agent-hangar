@@ -13,6 +13,7 @@ import { bootDelivery } from './delivery.ts';
 import { bootHome, type HomeParts } from './home.ts';
 import { bootListen } from './http.ts';
 import { bootIndexing } from './indexing.ts';
+import { upsertShared } from '../db/shared.ts';
 import type { RunsParts } from './runs.ts';
 import { bootSummary, summaryAccountOf } from './summary.ts';
 import { bootSync } from './sync.ts';
@@ -121,6 +122,17 @@ describe('索引とプロジェクトの組み立て', () => {
     expect(sent.filter((e) => e.type === 'toast')).toEqual([]);
     // 進みは配る。
     expect(sent.some((e) => e.type === 'index.progress')).toBe(true);
+  }, 20_000);
+
+  it('起動の手続きで、この PC に場所のあるプロジェクトの git の remote の空きを埋める', async () => {
+    const dir = path.join(ws, 'beta');
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:me/beta.git\n');
+    const { h, indexing } = boot();
+    upsertShared(h.db, 'projects', { id: 'pb', name: 'beta', status: 'active', is_scratch: 0 }, h.device.id);
+    upsertShared(h.db, 'project_roots', { id: 'rb', project_id: 'pb', device_id: h.device.id, path: dir, resolved: 1 }, h.device.id);
+    await indexing.start();
+    expect(h.db.prepare("select git_remote from projects where id = 'pb'").get()).toEqual({ git_remote: 'github.com/me/beta' });
   }, 20_000);
 
   it('メモの置き場は、置き場の下のプロジェクトごとのファイルである', () => {

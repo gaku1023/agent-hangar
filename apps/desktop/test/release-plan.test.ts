@@ -225,6 +225,20 @@ describe('リポジトリの版', () => {
     expect(VERSION_FILES).toContain('apps/desktop/package.json');
     expect(src).not.toMatch(/['"]\d+\.\d+\.\d+[^'"]*['"]/);
   });
+  // Worker の /health が名乗る版も同じで、packages/cloud/src/util.ts は決め打ちせず apps/desktop の package.json から読む。
+  // 決め打ちだと、版を上げても Worker だけ古い版を名乗り続ける（0.4.0 のまま残っていた）。
+  it('Worker の名乗る版も、版の在りかの 1 つから読み、決め打ちしない', () => {
+    const src = fs.readFileSync(path.join(root, 'packages/cloud/src/util.ts'), 'utf8');
+    const from = /from '((?:\.\.\/)+apps\/desktop\/package\.json)'/.exec(src);
+    expect(from, 'util.ts must import apps/desktop/package.json').not.toBeNull();
+    expect(path.relative(root, path.resolve(root, 'packages/cloud/src', from![1]!)).split(path.sep).join('/')).toBe('apps/desktop/package.json');
+    expect(src).not.toMatch(/VERSION\s*(?::\s*string\s*)?=\s*['"]\d+\.\d+\.\d+[^'"]*['"]/);
+  });
+  it('束ねた Worker は、今の版を名乗る', async () => {
+    const { bundleWorker } = await import('../../../packages/cloud/scripts/build-worker.ts');
+    const code = await bundleWorker(path.join(root, 'packages/cloud'));
+    expect(code).toContain(JSON.stringify(readVersions(root)['apps/desktop/package.json']));
+  });
   it('版を書き換えると、それぞれのファイルのその 1 か所だけが変わる', () => {
     for (const f of VERSION_FILES) {
       const before = fs.readFileSync(path.join(root, f), 'utf8');

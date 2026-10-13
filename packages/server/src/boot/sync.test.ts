@@ -77,11 +77,11 @@ const booted: Booted[] = [];
 afterEach(async () => { for (const b of booted.splice(0)) await b.close(); });
 
 /** 置き場と同期だけを組む。start を渡さなければ、組むだけで走らせない。 */
-function boot(o: { start?: boolean; index?: boolean } = {}): Booted {
+function boot(o: { start?: boolean; index?: boolean; cloudWatch?: Parameters<typeof bootSync>[2]['cloudWatch'] } = {}): Booted {
   const h = bootHome({ home, claudeDir });
   const sent: NoticeEvent[] = [];
   const hub = { broadcast: (ev: NoticeEvent) => { sent.push(ev); } };
-  const sync = bootSync(h, { hub, toast: toastVia(hub) }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
+  const sync = bootSync(h, { hub, toast: toastVia(hub) }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md'), ...(o.cloudWatch ? { cloudWatch: o.cloudWatch } : {}) });
   const status = (): SyncStatusBody => ({ ...sync.engine.status(), skipped: sync.feed.skipped(), sweepPending: sync.feed.sweep(), oncePass: sync.feed.oncePass() });
   let closed = false;
   const b: Booted = {
@@ -670,5 +670,126 @@ describe('設定の同期の組み立て', () => {
     expect((setConfigSync.mock.calls[0]![0] as () => unknown)()).toBeNull();
     sync.stopTimers();
     h.stop();
+  });
+});
+
+describe('cloud.json が後から現れる', () => {
+  it('参加していない端末で起動したあとに cloud.json が置かれたら、開き直さずに同期が始まる', async () => {
+    const rec = await recorder();
+    try {
+      const b = boot({ start: true });
+      expect(b.status().state).toBe('off');
+      expect(b.sync.uploader).toBeNull();
+      joinTo(rec.url);
+      // 起動のときと同じ組み立てで、往復が始まる。
+      await until(() => (rec.seen.length > 0 ? true : null), 3000);
+      expect(b.status().state).not.toBe('off');
+      expect(b.status().url).toBe(rec.url);
+      expect(b.sync.uploader).not.toBeNull();
+      expect(b.sync.configBundle).not.toBeNull();
+      expect(typeof b.sync.joinToken()).toBe('string');
+      // 画面へは、既存の配りで off でない状態が届く。
+      expect(b.sent.some((e) => e.type === 'sync.status' && e.status.state !== 'off' && e.status.url === rec.url)).toBe(true);
+      // 参加の瞬間に、本文の床も刻まれる。
+      expect(new SyncStateStore(b.h.db).get('transcriptsFrom')).not.toBeNull();
+    } finally {
+      await booted[0]?.close();
+      await rec.close();
+    }
+  });
+
+  it('壊れた cloud.json が直ったときも始まる。壊れているあいだは止めたまま', async () => {
+    const rec = await recorder();
+    const real = console.error;
+    console.error = () => {};
+    try {
+      fs.writeFileSync(path.join(home, 'cloud.json'), '{ not json');
+      const b = boot({ start: true });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(b.status().state).toBe('off');
+      expect(rec.seen).toEqual([]);
+      joinTo(rec.url);
+      await until(() => (rec.seen.length > 0 ? true : null), 3000);
+      expect(b.status().url).toBe(rec.url);
+    } finally {
+      console.error = real;
+      await booted[0]?.close();
+      await rec.close();
+    }
+  });
+
+  it('動いている同期の cloud.json を書き換えても、別のクラウドへは付け替えない', async () => {
+    const first = await recorder();
+    const second = await recorder();
+    try {
+      joinTo(first.url);
+      const b = boot({ start: true });
+      await until(() => (first.seen.length > 0 ? true : null), 3000);
+      joinTo(second.url);
+      await new Promise((r) => setTimeout(r, 400));
+      expect(second.seen).toEqual([]);
+      expect(b.status().url).toBe(first.url);
+    } finally {
+      await booted[0]?.close();
+      await first.close();
+      await second.close();
+    }
+  });
+
+  it('止めた後に cloud.json が置かれても、何も始めない', async () => {
+    const rec = await recorder();
+    try {
+      const b = boot({ start: true });
+      await b.close();
+      joinTo(rec.url);
+      await new Promise((r) => setTimeout(r, 400));
+      expect(rec.seen).toEqual([]);
+    } finally {
+      await rec.close();
+    }
+  });
+
+  it('fs.watch が使えないときは、間隔を置いて読み直して見つける', async () => {
+    const rec = await recorder();
+    try {
+      const watch = (() => { throw new Error('ENOSPC'); }) as unknown as typeof fs.watch;
+      const b = boot({ start: true, cloudWatch: { watch, pollMs: 50 } });
+      expect(b.status().state).toBe('off');
+      joinTo(rec.url);
+      await until(() => (rec.seen.length > 0 ? true : null), 3000);
+      expect(b.status().url).toBe(rec.url);
+    } finally {
+      await booted[0]?.close();
+      await rec.close();
+    }
+  });
+
+  it('参加済みで起動したときは、置き場を見張らない', () => {
+    joinTo(NOWHERE);
+    const watch = vi.fn() as unknown as typeof fs.watch;
+    boot({ start: true, cloudWatch: { watch } });
+    expect(watch).not.toHaveBeenCalled();
+  });
+
+  it('配る層へ渡した状態の組み方は、参加したあとの設定の同期を返す', async () => {
+    const rec = await recorder();
+    try {
+      const h = bootHome({ home, claudeDir });
+      const hub = { broadcast: () => {} };
+      const setConfigSync = vi.fn();
+      const sync = bootSync(h, { hub, toast: toastVia(hub), publisher: { setConfigSync } as never }, { memoPath: (id) => path.join(home, 'projects', id, 'memo.md') });
+      sync.start();
+      const read = setConfigSync.mock.calls[0]![0] as () => unknown;
+      expect(read()).toBeNull();
+      joinTo(rec.url);
+      await until(() => (rec.seen.length > 0 ? true : null), 3000);
+      expect(read()).toMatchObject({ enabled: false });
+      expect(setConfigSync).toHaveBeenCalledTimes(1);
+      sync.stopTimers();
+      await sync.drain(() => 2000);
+      h.stop();
+    } finally {
+      await rec.close();
+    }
   });
 });

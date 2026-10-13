@@ -3,7 +3,7 @@ import type { ArtifactDto, BootstrapDto, CloudUsageDto, MemoDto, RunDto, Session
 import { accountsFixture } from '../test/accounts.ts';
 import { accountList, accountOfSession, aliveRunOf, appendSearchResult, applyBootstrap, applyEventsPage, applyGit, gitFileKey, applyJoinToken, applyLaunch, applyPickedFolder, applySearch, applyServerEvent, applyWorkspaceDirs, artifactsOf, currentAccount, indexFinishedBy, currentRunOf, eventsKey, hasMultipleAccounts, initialStore, nextWaitingSession, pruneEvents, pruneRuns, tabAlive, tabsOf, todosOf } from './store.ts';
 
-const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null });
+const session = (id: string, psid: string): SessionDto => ({ id, provider: 'claude-code', providerSessionId: psid, projectId: null, name: id, cwd: '/x', firstPrompt: null, aiTitle: null, startedAt: 1, lastActivityAt: 1, hasTranscript: true, live: null, summary: null, fromScratch: false, stats: { turns: 0, model: null, effort: null, filesChanged: 0, prUrl: null, inputTokens: 0, outputTokens: 0, contextPercent: null, costUsd: null }, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false });
 const boot: BootstrapDto = { device: { id: 'd', name: 'mac' }, settings: { workspaceRoot: '/w', claudeDir: '/c', tmuxPath: null, terminalApp: 'terminal', editor: { id: 'vscode' as const, path: null, fileCmd: '', dirCmd: '', terminal: 'none' as const }, lmStudioUrl: 'http://127.0.0.1:1234', lmStudioModel: null, summaryFallback: true, summaryHourlyCap: 20, allowExternalSummarizer: false, nodePath: null, claudePath: null }, projects: [], sessions: [session('s1', 'u1')], live: [], runs: [], tabs: [], todos: [], artifacts: [], summaryPending: [], index: { phase: 'idle', done: 0, total: 0 }, version: '0', sync: { state: 'off', url: null, lastPushAt: null, lastPullAt: null, pending: 0, error: null, deviceCount: 0, limitedUntil: null, paused: false, skipped: [], sweepPending: null, oncePass: false }, devices: [], retention: null, cloudUsage: null, accounts: { currentId: 'primary', accounts: [], sessions: {} }, home: '/h', interrupted: null };
 
 describe('索引の段階', () => {
@@ -134,6 +134,35 @@ describe('store', () => {
 
 const run = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: Number(id.slice(1)), endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tab = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : id, tmuxName: `hangar-${runId}-${id}`, createdAt: Number(id.replace(/\D/g, '') || 0), closedAt });
+
+// 待機中の描き直しを減らす（2026-10-14、0.6.1）。同じ中身の配信では Store を作り直さない（React が描き直さない）。
+describe('同じ中身の配信', () => {
+  it('session.upsert、project.upsert、run.upsert、tab.upsert、live.update は、中身が同じなら同じ Store を返す', () => {
+    let s = applyBootstrap(initialStore(), boot);
+    s = applyServerEvent(s, { type: 'run.started', run: run('r1', 's1'), tabs: [tab('t1', 'r1', 'shell')] });
+    s = applyServerEvent(s, { type: 'live.update', live: [{ sessionId: 'u1', status: 'idle', name: null, nameSource: null, cwd: '/x', pid: 1 }] });
+    const p = { id: 'p1', name: 'p1', status: 'active' as const, isScratch: false, path: '/w/p1', resolved: true, lastActivityAt: null, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 0, unresolved: null };
+    s = applyServerEvent(s, { type: 'project.upsert', project: p });
+    const same = (ev: Parameters<typeof applyServerEvent>[1]) => expect(applyServerEvent(s, ev)).toBe(s);
+    same({ type: 'session.upsert', session: structuredClone(s.sessions.s1!) });
+    same({ type: 'project.upsert', project: { ...p } });
+    same({ type: 'run.upsert', run: run('r1', 's1') });
+    same({ type: 'tab.upsert', tab: tab('t1', 'r1', 'shell') });
+    same({ type: 'live.update', live: [{ sessionId: 'u1', status: 'idle', name: null, nameSource: null, cwd: '/x', pid: 1 }] });
+    same({ type: 'index.progress', progress: { phase: 'idle', done: 0, total: 0 } });
+    same({ type: 'sync.status', status: structuredClone(s.sync!) });
+    // 中身が違えば差し替える。
+    expect(applyServerEvent(s, { type: 'run.upsert', run: { ...run('r1', 's1'), pid: 9 } })).not.toBe(s);
+    expect(applyServerEvent(s, { type: 'live.update', live: [{ sessionId: 'u1', status: 'busy', name: null, nameSource: null, cwd: '/x', pid: 1 }] }).sessions.s1?.live).toBe('busy');
+  });
+
+  it('git の読み直しも、中身が同じなら同じ Store を返す', () => {
+    const g = { sessions: { s1: { branch: 'main', dirty: 0 } }, trees: {} } as unknown as Parameters<typeof applyGit>[1];
+    const s = applyGit(initialStore(), g);
+    expect(applyGit(s, structuredClone(g))).toBe(s);
+    expect(applyGit(s, { sessions: { s1: { branch: 'dev', dirty: 0 } }, trees: {} } as unknown as Parameters<typeof applyGit>[1])).not.toBe(s);
+  });
+});
 
 describe('runs と tabs', () => {
   it('run.started は run と tabs を入れ、tab.upsert と run.ended は差し替える', () => {

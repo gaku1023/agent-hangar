@@ -1,3 +1,4 @@
+import type { ResumeHereReplaceDto } from '@agent-hangar/shared';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -232,6 +233,54 @@ function backupBeforeOverwrite(target: string, home: string, sessionUuid: string
     return dest;
   }
   throw new RunError(409, msg('sync.copy.noFreeName'));
+}
+
+/** a の中身が b の先頭部分か。1MB ずつ読み比べ、本文を丸ごと溜め込まない。a が b より大きければ偽。 */
+function isPrefixOf(a: string, b: string): boolean {
+  const sizeA = fs.statSync(a).size;
+  if (sizeA > fs.statSync(b).size) return false;
+  const bufA = Buffer.allocUnsafe(HASH_BUF);
+  const bufB = Buffer.allocUnsafe(HASH_BUF);
+  const fa = fs.openSync(a, 'r');
+  try {
+    const fb = fs.openSync(b, 'r');
+    try {
+      for (let pos = 0; pos < sizeA;) {
+        const want = Math.min(HASH_BUF, sizeA - pos);
+        const na = fs.readSync(fa, bufA, 0, want, pos);
+        const nb = fs.readSync(fb, bufB, 0, want, pos);
+        if (na === 0 || na !== nb || !bufA.subarray(0, na).equals(bufB.subarray(0, nb))) return false;
+        pos += na;
+      }
+      return true;
+    } finally {
+      fs.closeSync(fb);
+    }
+  } finally {
+    fs.closeSync(fa);
+  }
+}
+
+/**
+ * 「この PC で再開」で手元のトランスクリプトを置き換えるかを、写す前に答える（確認の 1 枚に出す、A → B → A）。
+ * 写す先と写しの選び方は copyTranscriptForResume と同じにする。比べたものと置き換えるものが食い違わないためである。
+ * 手元が無い、写しが無い、手元の方が大きいか同じ（写しで置き換えない）ときは null。
+ * 手元が写しの先頭部分なら ahead、そうでなければ diverged。ここでは何も書かない。
+ */
+export function compareForResume(o: Omit<CopyOptions, 'overwrite'>): ResumeHereReplaceDto | null {
+  const s = o.db.prepare('select provider_session_id, cwd from sessions where id = ? and deleted_at is null')
+    .get(o.sessionId) as { provider_session_id: string; cwd: string } | undefined;
+  if (!s || !UUID_RE.test(s.provider_session_id)) return null;
+  let target: string;
+  try { target = resolveUnder(o.claudeDir, `projects/${mangleCwd(s.cwd)}/${s.provider_session_id}.jsonl`, '~/.claude'); } catch { return null; }
+  if (!fs.existsSync(target)) return null;
+  const best = chooseRemote({ ...o, overwrite: false }, s.provider_session_id);
+  if (!best) return null;
+  const localSize = fs.statSync(target).size;
+  if (localSize >= best.size) return null;
+  let ahead: boolean;
+  try { ahead = isPrefixOf(target, best.path); } catch { return null; }
+  return { kind: ahead ? 'ahead' : 'diverged', localSize, remoteSize: best.size };
 }
 
 /**

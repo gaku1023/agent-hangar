@@ -179,6 +179,19 @@ describe('PtyRelay（偽の spawn）', () => {
     f.procs[0]!.emitExit();
     expect(await closed).toBe(1000);
   });
+
+  it('attach が終わったら onExit で知らせる。tmux の画面が閉じたかもしれないので、run の見張りを急がせる', async () => {
+    const f = fakeSpawn();
+    let exits = 0;
+    relay.close(); await new Promise<void>((r) => server.close(() => r()));
+    relay = new PtyRelay({ token: TOKEN, port: 0, tmux, resolveTab: () => 'hangar-a', spawn: f.spawn, onExit: () => { exits++; } });
+    await listen(relay);
+    const { closed } = await connect(`tab=t1`);
+    await waitFor(() => f.procs.length === 1);
+    f.procs[0]!.emitExit();
+    await closed;
+    expect(exits).toBe(1);
+  });
 });
 
 describe.skipIf(!TMUX)('PtyRelay（実物の tmux と node-pty）', () => {

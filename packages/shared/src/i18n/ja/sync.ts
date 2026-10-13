@@ -21,7 +21,7 @@ export const syncJa: AreaDictionary<typeof syncKeys> = {
   'sync.limit.stopped': 'Cloudflare の無料枠の上限に達したので、{time} まで同期を停止します。枠がリセットされると自動で再開します',
   'sync.limit.stoppedPaused': 'Cloudflare の無料枠の上限に達したので、同期できませんでした。同期は一時停止のままです',
   'sync.resync.rebuilt': 'クラウドの変更ログが古くなっていたので、全体を再同期しました',
-  'sync.oversize.row': '{table} の 1 行（{id}）が大きすぎるので同期できません（{size} KiB、上限 {limit} KiB）。手元には残りますが、他の PC には届きません',
+  'sync.oversize.row': '{table} の 1 行（{id}）が大きすぎるので同期できません（{size} KiB、上限 {limit} KiB）。手元には残りますが、ほかの PC には届きません',
   'sync.crypto.badMagic': '暗号化ファイルの形式が違います',
   'sync.crypto.dataAfterFinal': '最終チャンクの後にデータがあります',
   'sync.crypto.frameTooLong': 'チャンクの長さの申告が上限を超えています',

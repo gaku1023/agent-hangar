@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ResumeHerePlanDto } from '@agent-hangar/shared';
+import type { ResumeHerePlanDto, ResumeHereReplaceDto } from '@agent-hangar/shared';
 import type { Db } from '../db/open.ts';
 import { readGitHint } from '../git/hint.ts';
 import { EDIT_TOOLS } from '../indexer/indexFile.ts';
@@ -117,6 +117,37 @@ export function deviceOfSession(db: Db, sessionId: string): DeviceRef | null {
   return s ? deviceRow(db, s.home_device) : null;
 }
 
+/** その PC のプロジェクトの場所（消していないもの）。行が無ければ null。フォルダの有無は見ない（ほかの PC のパスである）。 */
+function deviceRoot(db: Db, deviceId: string, projectId: string): string | null {
+  const r = db.prepare('select path from project_roots where project_id = ? and device_id = ? and deleted_at is null order by updated_at desc limit 1')
+    .get(projectId, deviceId) as { path: string } | undefined;
+  return r?.path ?? null;
+}
+
+/** その PC から降ろした主線の写しの末尾の cwd（Claude Code がその PC で動いた作業ディレクトリ）。写しが無いか読めなければ null。 */
+function lastCwdOn(db: Db, sessionId: string, deviceId: string): string | null {
+  const f = db.prepare('select path from transcript_files where session_id = ? and agent_id is null and device_id = ? order by mtime desc limit 1').get(sessionId, deviceId) as { path: string } | undefined;
+  if (!f) return null;
+  try { return readGitHint(f.path).cwd; } catch { return null; }
+}
+
+/**
+ * 前の PC の作業ディレクトリ（引き継ぎの段の prevPath と、確認の 1 枚の前の PC のパス）。
+ * sessions.cwd は会話を作った PC のパスなので、A → B → A と戻ったとき、前の PC（B）のパスにはならない。
+ * そこで、前の PC の最後の run が動いた作業ディレクトリを、その PC から降ろした写しの末尾の cwd から取る。
+ * runs は作業ディレクトリを持たないので、写しの末尾で代える。その run がターンを残さなかったときは、末尾が別の PC の cwd になりうるので、
+ * その PC のプロジェクトの場所の下にあるときだけ使う。
+ * 使えなければ、前の PC が会話を作った PC なら sessions.cwd、そうでなければその PC のプロジェクトの場所、どれも無ければ sessions.cwd に倒す。
+ */
+function prevPathOf(db: Db, sessionId: string, prev: DeviceRef | null, s: { cwd: string; project_id: string | null; home_device: string }): string {
+  if (!prev) return s.cwd;
+  const root = s.project_id ? deviceRoot(db, prev.id, s.project_id) : null;
+  const last = lastCwdOn(db, sessionId, prev.id);
+  if (last && root && relativeSegments(root, last)) return last;
+  if (prev.id === s.home_device) return s.cwd;
+  return root ?? s.cwd;
+}
+
 /** 本文の末尾のブランチ。本体の本文のうち、いちばん新しく書かれたものから読む。読めなければ null。 */
 function lastBranch(db: Db, sessionId: string): string | null {
   const f = db.prepare('select path from transcript_files where session_id = ? and agent_id is null order by mtime desc limit 1').get(sessionId) as { path: string } | undefined;
@@ -134,7 +165,7 @@ function lastBranch(db: Db, sessionId: string): string | null {
 export function handoverFacts(db: Db, o: { sessionId: string; selfDeviceId: string; cwd: string }): HandoverFacts | null {
   const prev = deviceOfSession(db, o.sessionId);
   if (!prev || prev.id === o.selfDeviceId) return null;
-  const s = db.prepare('select cwd, project_id, last_activity_at from sessions where id = ?').get(o.sessionId) as { cwd: string; project_id: string | null; last_activity_at: number | null } | undefined;
+  const s = db.prepare('select cwd, project_id, last_activity_at, home_device from sessions where id = ?').get(o.sessionId) as { cwd: string; project_id: string | null; last_activity_at: number | null; home_device: string } | undefined;
   if (!s) return null;
   const self = deviceRow(db, o.selfDeviceId);
   const marks = EDIT_TOOLS.map(() => '?').join(',');
@@ -151,7 +182,7 @@ export function handoverFacts(db: Db, o: { sessionId: string; selfDeviceId: stri
     }
   }
   return {
-    prevDevice: prev.name, prevPlatform: prev.platform, prevPath: s.cwd,
+    prevDevice: prev.name, prevPlatform: prev.platform, prevPath: prevPathOf(db, o.sessionId, prev, s),
     device: self.name, platform: self.platform, path: o.cwd,
     lastAt: s.last_activity_at, branch: lastBranch(db, o.sessionId),
     editedCount: files.length, missing: missing.slice(0, MISSING_MAX), missingCount: missing.length,
@@ -169,15 +200,19 @@ export function projectDeviceCount(db: Db, projectId: string): number {
   return r.c;
 }
 
-/** 「この PC で再開」の確認に出すもの（ResumeHerePlanDto）。無いセッションは null。 */
-export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string): ResumeHerePlanDto | null {
-  const s = db.prepare('select cwd, project_id, last_activity_at from sessions where id = ? and deleted_at is null').get(sessionId) as { cwd: string; project_id: string | null; last_activity_at: number | null } | undefined;
+/**
+ * 「この PC で再開」の確認に出すもの（ResumeHerePlanDto）。無いセッションは null。
+ * replace は、手元のトランスクリプトをほかの PC の写しで置き換えるかを答える（sync/copy.ts の compareForResume）。渡さなければ null。
+ */
+export function resumeHerePlan(db: Db, selfDeviceId: string, sessionId: string, o: { replace?: (sessionId: string) => ResumeHereReplaceDto | null } = {}): ResumeHerePlanDto | null {
+  const s = db.prepare('select cwd, project_id, last_activity_at, home_device from sessions where id = ? and deleted_at is null').get(sessionId) as { cwd: string; project_id: string | null; last_activity_at: number | null; home_device: string } | undefined;
   if (!s) return null;
   const prev = deviceOfSession(db, sessionId);
   const self = deviceRow(db, selfDeviceId);
   return {
     sessionId,
-    from: { deviceName: prev?.name ?? null, platform: prev?.platform ?? null, path: s.cwd, lastAt: s.last_activity_at },
+    from: { deviceName: prev?.name ?? null, platform: prev?.platform ?? null, path: prevPathOf(db, sessionId, prev, s), lastAt: s.last_activity_at },
     to: { deviceName: self.name, platform: self.platform, path: resumeCwd(db, selfDeviceId, s) },
+    replace: o.replace?.(sessionId) ?? null,
   };
 }

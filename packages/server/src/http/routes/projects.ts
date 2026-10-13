@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import type { Hono } from 'hono';
-import type { FolderRegisterResultDto, ProjectDto, ProjectSameFolderDto, ResolveAction } from '@agent-hangar/shared';
+import type { FolderRegisterItem, FolderRegisterResultDto, ProjectDto, ProjectNestedDto, ProjectSameFolderDto, ResolveAction } from '@agent-hangar/shared';
 import { getProject, listProjects } from '../../db/queries.ts';
 import { upsertShared } from '../../db/shared.ts';
-import { createProjectDir, ProjectCreateError, registerProjectDir } from '../../projects/create.ts';
+import { createProjectDir, ProjectCreateError, ProjectNestedError, registerProjectDir } from '../../projects/create.ts';
+import { inspectFolder, workspaceChildren } from '../../projects/folders.ts';
 import { folderCandidates } from '../../projects/candidates.ts';
 import { assignSessions, candidateDirs, listWorkspaceDirs, mergeDirection, mergePreview, mergeProjects, normalizeDir, resolveProject, rootConflict } from '../../projects/registry.ts';
 import { errorText, translatorOf } from '../../i18n/message.ts';
@@ -17,12 +18,19 @@ export type ProjectRouteDeps = Pick<AppDeps, 'db' | 'deviceId' | 'home' | 'live'
 const REGISTER_MAX = 500;
 
 const STATUSES = new Set(['active', 'paused', 'done', 'archived']);
+
+/** まとめて登録の 1 行の形か。path は文字列、linkTo は省くか文字列、allowNested は省くか真偽である。 */
+function isRegisterItem(v: unknown): v is FolderRegisterItem {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.path === 'string' && (o.linkTo === undefined || typeof o.linkTo === 'string') && (o.allowNested === undefined || typeof o.allowNested === 'boolean');
+}
 const RESOLVE_KINDS = new Set(['repoint', 'archive', 'unlink']);
 
 /**
  * プロジェクトの経路。
  * 一覧と 1 件、状態と名前の変更、置き場の候補と選び直し、作成と登録、未登録のフォルダの一覧、
- * Claude Code と会話したフォルダの候補とまとめての登録、エディタとターミナルで開く、を持つ。
+ * Claude Code と会話したフォルダの候補とまとめての登録、親フォルダの直下の一覧と 1 つのフォルダの事前の問い合わせ、エディタとターミナルで開く、を持つ。
  */
 export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
   const language = deps.language;
@@ -97,7 +105,7 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
   api.post('/projects', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
-    const body = (b.value ?? {}) as { kind?: unknown; name?: unknown; path?: unknown; gitInit?: unknown; parent?: unknown };
+    const body = (b.value ?? {}) as { kind?: unknown; name?: unknown; path?: unknown; gitInit?: unknown; parent?: unknown; allowNested?: unknown; linkTo?: unknown };
     try {
       let projectId: string;
       let created = true;
@@ -108,7 +116,13 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
         ({ projectId } = createProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot, gitInit: deps.gitInit }, { name: body.name, gitInit: body.gitInit === true, parent }));
       } else if (body.kind === 'dir') {
         if (typeof body.path !== 'string') return c.json({ error: tr('project.create.pathNotDir') }, 400);
-        ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: body.path, name: typeof body.name === 'string' ? body.name : undefined }));
+        if (body.linkTo !== undefined && typeof body.linkTo !== 'string') return c.json({ error: tr('common.field.required', { field: 'linkTo' }) }, 400);
+        // allowNested は登録済みのプロジェクトの下のフォルダを分けることの明示で、無ければ 409（ProjectNestedDto）で包むプロジェクトを返す。
+        // linkTo は、ほかの PC から届いたプロジェクトへ結び付けることの指定である（新しく作らない）。
+        ({ projectId, created } = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, {
+          path: body.path, name: typeof body.name === 'string' ? body.name : undefined,
+          allowNested: body.allowNested === true, linkTo: typeof body.linkTo === 'string' ? body.linkTo : undefined,
+        }));
         // その下で動いた未分類のセッションを、その場で紐づける。呼ばないと、次の起動まで未分類のまま残る。
         // 紐づけが変わったセッションと入った先のプロジェクトは、書いた行から配る層が配る。
         assignSessions(db, deviceId);
@@ -118,6 +132,10 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
       // 登録済みでも、アーカイブから戻したときは行が変わるので、配る層がほかの画面へ配る。
       return c.json(getProject(db, deviceId, deps.live(), projectId)!, created ? 201 : 200);
     } catch (e) {
+      if (e instanceof ProjectNestedError) {
+        const out: ProjectNestedDto = { error: errorText(language(), e), code: 'project_nested', enclosing: e.enclosing };
+        return c.json(out, 409);
+      }
       if (e instanceof ProjectCreateError) return c.json({ error: errorText(language(), e) }, e.status);
       throw e;
     }
@@ -125,26 +143,55 @@ export function projectRoutes(api: Hono, deps: ProjectRouteDeps): void {
   api.get('/workspace/dirs', (c) => c.json(listWorkspaceDirs(db, deviceId, deps.settings().workspaceRoot)));
   // Claude Code と会話したフォルダの候補（初日のプロジェクト）。git の根でまとめ、会話の多い順に返す（projects/candidates.ts）。
   api.get('/workspace/candidates', (c) => c.json(folderCandidates(db, deviceId, { hangarHome: deps.home, workspaceRoot: deps.settings().workspaceRoot, ...deps.candidateEnv })));
+  // 親フォルダの直下の一覧（まとめて登録の「フォルダの中から」）。行ごとに git、会話の数、登録済み、入れ子、結び付く候補を添える（projects/folders.ts）。
+  api.get('/workspace/children', (c) => {
+    try {
+      return c.json(workspaceChildren(db, deviceId, c.req.query('parent') ?? ''));
+    } catch (e) {
+      if (e instanceof ProjectCreateError) return c.json({ error: errorText(language(), e) }, e.status);
+      throw e;
+    }
+  });
+  // 選んだ 1 つのフォルダの事前の問い合わせ（新しいセッションと新しいプロジェクトのダイアログ）。入れ子か、結び付く候補があるかを返す。
+  api.get('/workspace/inspect', (c) => {
+    try {
+      return c.json(inspectFolder(db, deviceId, c.req.query('path') ?? '', c.req.query('name')));
+    } catch (e) {
+      if (e instanceof ProjectCreateError) return c.json({ error: errorText(language(), e) }, e.status);
+      throw e;
+    }
+  });
   // 候補からまとめて登録する。1 件ずつ POST /api/projects の dir と同じ規則で登録し、最後に未分類の会話をまとめて紐づけ直す。
+  // 本文は paths（パスの配列。どれも新しく作る）か items（行ごとに結び付け先 linkTo と入れ子の明示 allowNested を持つ）のどちらか一方である。
   // 登録できなかったものは、断らずに理由を添えて返す（ほかの登録は残す）。プロジェクトと紐づけ直した会話は、書いた行から配る層が配る。
   api.post('/workspace/register', async (c) => {
     const b = await readJson(c, BODY_LIMITS.default);
     if (b.tooLarge) return tooLargeResult(c, BODY_LIMITS.default, tr);
-    const paths = (b.value as { paths?: unknown } | null)?.paths;
-    if (!Array.isArray(paths) || paths.length > REGISTER_MAX || !paths.every((p): p is string => typeof p === 'string')) return c.json({ error: tr('common.field.required', { field: 'paths' }) }, 400);
+    const { paths, items: rawItems } = (b.value ?? {}) as { paths?: unknown; items?: unknown };
+    let items: FolderRegisterItem[];
+    if (rawItems !== undefined && paths === undefined) {
+      if (!Array.isArray(rawItems) || rawItems.length > REGISTER_MAX || !rawItems.every(isRegisterItem)) return c.json({ error: tr('common.field.required', { field: 'items' }) }, 400);
+      items = rawItems;
+    } else {
+      if (rawItems !== undefined || !Array.isArray(paths) || paths.length > REGISTER_MAX || !paths.every((p): p is string => typeof p === 'string')) return c.json({ error: tr('common.field.required', { field: 'paths' }) }, 400);
+      items = paths.map((p) => ({ path: p }));
+    }
     const ids: string[] = [];
+    const linked: string[] = [];
     const failed: FolderRegisterResultDto['failed'] = [];
-    for (const p of paths) {
+    for (const it of items) {
       try {
-        ids.push(registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: p }).projectId);
+        const r = registerProjectDir({ db, deviceId, workspaceRoot: deps.settings().workspaceRoot }, { path: it.path, allowNested: it.allowNested === true, linkTo: it.linkTo });
+        ids.push(r.projectId);
+        if (r.linked) linked.push(r.projectId);
       } catch (e) {
         if (!(e instanceof ProjectCreateError)) throw e;
-        failed.push({ path: p, error: errorText(language(), e) });
+        failed.push({ path: it.path, error: errorText(language(), e) });
       }
     }
     if (ids.length) assignSessions(db, deviceId);
     const projects = [...new Set(ids)].map((id) => getProject(db, deviceId, deps.live(), id)).filter((p): p is ProjectDto => p !== null && p !== undefined);
-    const out: FolderRegisterResultDto = { projects, failed };
+    const out: FolderRegisterResultDto = { projects, failed, linked };
     return c.json(out);
   });
   api.post('/projects/:id/open-editor', async (c) => {

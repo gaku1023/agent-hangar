@@ -56,7 +56,7 @@ export class AsideReader {
 
   /**
    * 主線の最後のターンが終わった時刻。終わっていない（終わりの後に本体が動いた）か、決められなければ null。
-   * 500 ミリ秒ごとに呼ばれるので、主線の最後の seq が変わらない間は読み直さない。
+   * 作業中の会話では 500 ミリ秒ごとに呼ばれるので、主線の最後の seq が変わらない間は読み直さない。
    * 主線は索引の式と同じ ifnull(parent_agent, '') = '' で絞る。parent_agent is null と書くと索引に乗らず、毎回セッションの全行を見に行く。
    */
   private turnEndedAt(sessionId: string): number | null {

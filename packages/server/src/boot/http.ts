@@ -10,6 +10,7 @@ import { nodePtySpawn } from '../pty/nodePty.ts';
 import { PtyRelay } from '../pty/relay.ts';
 import { sessionRunsAnywhere } from '../runs/announce.ts';
 import { resumeHere } from '../sync/resumeHere.ts';
+import { compareForResume } from '../sync/copy.ts';
 import { guardUpgrades } from '../ws/guard.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
@@ -79,12 +80,14 @@ export function bootHttp(p: {
   const { db, settings, device } = home;
   const { server, port } = listening;
   // 終了した run の Claude のタブには繋がせない。attachTarget がその判断を持つ。
-  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn });
+  // attach が終わったら、画面が閉じたかもしれないので run の見張りを急がせる（待機中の見張りは間が空く）。
+  const relay = new PtyRelay({ token: home.token, port, tmux: runs.mux(), resolveTab: (id) => runs.runs.attachTarget(id)?.tmuxName ?? null, spawn: nodePtySpawn, onExit: () => runs.runs.stir() });
   // 配布版（Tauri のバンドル）では UI の置き場所を環境変数 HANGAR_UI_DIST で受ける。
   // 入口（main.ts）が読んで消してから opts.uiDist で渡す。無ければリポジトリ内の packages/ui/dist を使う。
   const uiDist = p.opts.uiDist ?? path.resolve(p.serverDir, '../../ui/dist');
   const app = createApp({
-    cloudUsage: sync.cloudUsage,
+    // 同期は起動のあとに始まることがある（boot/sync.ts）。同期の部品は呼ぶたびに引く。
+    cloudUsage: { current: () => sync.cloudUsage.current(), refresh: () => sync.cloudUsage.refresh() },
     accounts: runs.accounts,
     db, deviceId: device.id, deviceName: device.name, token: home.token, home: home.home, port, version: VERSION,
     // 最初の索引づけと紐づけが済むまで偽。.app はこれを見て起動画面に残る。
@@ -119,11 +122,12 @@ export function bootHttp(p: {
       pullBeforeLaunch: (timeoutMs) => sync.engine.pullBeforeLaunch(timeoutMs),
     },
     // 降ろすのを諦めた項目。onError は 1 度しか鳴らないので、状態にも載せて後から見られるようにする。
-    syncSkipped: sync.feed.skipped,
-    syncSweep: sync.feed.sweep,
-    syncOncePass: sync.feed.oncePass,
+    syncSkipped: () => sync.feed.skipped(),
+    syncSweep: () => sync.feed.sweep(),
+    syncOncePass: () => sync.feed.oncePass(),
+    resumeHereReplace: (sessionId) => compareForResume({ db, home: home.home, claudeDir: home.claudeDir, sessionId }),
     resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
-    configBundle: sync.configBundle,
+    get configBundle() { return sync.configBundle; },
     joinToken: sync.joinToken,
     devices: () => listDevices(db, device.id),
     cloudDevices: sync.cloudDevices,

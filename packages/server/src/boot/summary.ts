@@ -56,12 +56,12 @@ export function bootSummary(
   sync: Pick<SyncParts, 'uploader'>,
 ): SummaryParts {
   const { db } = home;
-  const accountOf = summaryAccountOf(new RunAccounts({ db, claudeDir: runs.accounts.primaryDir, store: runs.accounts.store }));
+  const accountOf = summaryAccountOf(new RunAccounts({ db, claudeDir: runs.accounts.primaryDir, store: runs.accounts.store, deviceId: home.device.id }));
   const summarizers = new SummarizerSet({ settings: () => home.settings.current, claudeBin: runs.claudeBin, usage: (accountId) => runs.usage.of(accountId), accountOf, compat: delivery.compatLog });
   const summary = new SummaryJob({ db, deviceId: home.device.id, summarizers: summarizers.list, live: () => delivery.registry.current(), hub: delivery.hub, language: home.language });
   runs.runs.on(runAnnouncer({ db, hub: delivery.hub, onEnded: (run) => { summary.enqueue(run.sessionId, RUN_ENDED_SUMMARY_OPTS); } }));
   // RunManager.on は listener を足せるので、上の登録はそのまま残して 2 つ目として足す。
-  runs.runs.on({ runEnded: flushOnRunEnded({ db, uploader: sync.uploader }) });
+  runs.runs.on({ runEnded: flushOnRunEnded({ db, get uploader() { return sync.uploader; } }) });
   // 止まったセッションを自動で Done にする（sessions/autoDone.ts）。
   // 外で起こした長いものの事後要約は、このサーバが起きてから止まったものだけに回す。
   const bootedAt = Date.now();

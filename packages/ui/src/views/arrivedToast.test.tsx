@@ -18,7 +18,7 @@ function mount(p: ToastsProps, language: 'ja' | 'en' = 'ja') {
   return { onAction };
 }
 
-describe('presentToasts の他の PC から届いたプロジェクト（2.11.5）', () => {
+describe('presentToasts のほかの PC から届いたプロジェクト（2.11.5）', () => {
   it('覚えてある id のうち、いまも届いたままのものを数えて 1 枚にする', () => {
     const state = { ...initialState(), arrivedProjects: ['a', 'b', 'c'] };
     expect(presentToasts(state, storeOf([arrived('a'), arrived('b'), arrived('c')]), 0).arrived).toEqual({ count: 3 });
@@ -32,11 +32,11 @@ describe('presentToasts の他の PC から届いたプロジェクト（2.11.5�
   });
 });
 
-describe('他の PC から届いたプロジェクトの札', () => {
+describe('ほかの PC から届いたプロジェクトの札', () => {
   it('件数の入った 1 文と、「プロジェクトで見る」「あとで決める」の 2 つのボタンを出す', () => {
     mount(props({ arrived: { count: 3 } }));
     const card = screen.getByRole('status');
-    expect(card).toHaveTextContent('他の PC のプロジェクト 3 件が届きました。この PC にはフォルダがありません');
+    expect(card).toHaveTextContent('ほかの PC のプロジェクト 3 件が届きました。この PC にはフォルダがありません');
     expect(screen.getByRole('button', { name: 'プロジェクトで見る' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'あとで決める' })).toBeInTheDocument();
   });

@@ -16,7 +16,7 @@ export const cloudMemberJa: AreaDictionary<typeof cloudMemberKeys> = {
   'cloudMember.join.joined': '{host} に参加しました。Hangar を再起動して同期を始めます…',
   'cloudMember.join.nothingWritten': 'この PC の設定には何も書いていません。',
   'cloudMember.join.retry': 'もう一度試す',
-  'cloudMember.join.startNote': 'クラウドを用意するのは、ターミナルの hangar setup cloud です（Cloudflare へのログインと wrangler が要るため）。',
+  'cloudMember.join.startNote': 'クラウドを用意するのは、ターミナルの hangar setup cloud です（Cloudflare へのログインと wrangler が要るため）。\nこのリポジトリを clone した場所で実行します（アプリに入っている hangar では作れません）。',
   'cloudMember.dest.label': '参加しようとしている宛先',
   'cloudMember.dest.note': '参加トークンは、このクラウドの全セッションを読み書きできる秘密です。自分が hangar setup cloud で作った宛先か、上のホストを目で確認してください。心当たりのないホストなら、この PC のトランスクリプトが相手のサーバへ送信されます。',
   'cloudMember.dest.agree': '自分が hangar setup cloud で作ったクラウドです',

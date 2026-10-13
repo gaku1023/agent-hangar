@@ -1,4 +1,4 @@
-import type { ConfigApplyOrderEntryIn, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
+import type { ConfigApplyOrderEntryIn, FolderRegisterItem, InstructionFileKind, ProjectPlace, ProjectStatus, ResolveAction, RetentionFrom, SettingsDto } from './api.ts';
 import type { LiveFilter } from './liveFilter.ts';
 import type { Route } from './route.ts';
 import type { SessionStatus } from './sessionState.ts';
@@ -27,7 +27,11 @@ export type StopFilter = 'permission' | 'limited';
 export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; stop?: StopFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string };
+/**
+ * 起動の指定。cwd は作業の場所で、プロジェクトの場所の下のフォルダから始めるときに渡す（0.6.1）。
+ * 省けばプロジェクトの場所で起こす。プロジェクトの場所の外は断る。セッションは projectId のプロジェクトに入る。scratch では使わない。
+ */
+export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承諾、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };
@@ -53,11 +57,18 @@ export type UiAction =
   // プロジェクトの名前を変える。見出しの (i) のポップオーバーから出す。
   | { type: 'project.rename'; id: ProjectId; name: string }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
-  // Claude Code と会話したフォルダの候補のダイアログ（初日のプロジェクト。2026-10-13）。
-  // submit は選んだフォルダをまとめて登録し、workspaceRoot があれば先に新しいフォルダの作成場所にする。
-  | { type: 'project.candidates.open' } | { type: 'project.candidates.submit'; paths: string[]; workspaceRoot: string | null }
+  // まとめて登録のダイアログ（初日のプロジェクト。2026-10-13）。source は開いた時点の見方で、省けば Claude Code と会話したフォルダ、folder はフォルダの中から（0.6.1）。
+  // submit は選んだフォルダをまとめて登録し、workspaceRoot があれば先に新しいフォルダの作成場所にする。items は行ごとの結び付け先（linkTo）と入れ子の明示（allowNested）を持つ。
+  | { type: 'project.candidates.open'; source?: 'talked' | 'folder' } | { type: 'project.candidates.submit'; items: FolderRegisterItem[]; workspaceRoot: string | null }
+  // 「フォルダの中から」の親フォルダの直下を読む（GET /api/workspace/children）。parent は打たれたままのパスで、~ はサーバが直す。
+  | { type: 'project.folders.load'; parent: string }
   // 起動と作成のダイアログの「ほかの場所を選ぶ…」と、作成場所が空のときの「作成場所」の「選ぶ…」。殻の中だけで出す。
   | { type: 'folder.pick' }
+  // 選んだ 1 つのフォルダの事前の問い合わせ（0.6.1）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるかを読む。
+  // 答えは Store の folderInspect に入り、新しいセッションと作成のダイアログが読む。name は作成のダイアログで名前を直したときだけ添える（弱い一致をその名前で見る）。
+  | { type: 'folder.inspect'; path: string; name?: string }
+  // 作成のダイアログで、選んだフォルダが登録済みのプロジェクトの下だったとき、そのプロジェクトを開く（startSession が偽）か、そのフォルダで始める（真）。
+  | { type: 'project.new.enclosing'; projectId: ProjectId; dir: string; startSession: boolean }
   | { type: 'project.resolve.open'; id: ProjectId }
   // 一覧から削除（unlink）は同期で他の端末へも広がるので、confirmed が無ければ先に確認を出す。
   | { type: 'project.resolve'; id: ProjectId; action: ResolveAction; confirmed?: boolean }
@@ -91,7 +102,8 @@ export type UiAction =
   | { type: 'session.pause.open'; id: SessionId; from: 'menu' | 'candidate' } | { type: 'session.pause.close' }
   // 入力待ちのセッションを順に開き、端末にフォーカスする。どれへ移るかはストアを見たランタイムが決める。
   | { type: 'session.nextWaiting' }
-  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean } | { type: 'session.new.submit'; params: LaunchParams; place?: ProjectPlace }
+  // dir は、はじめに選んでおくフォルダ（作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるとき）。
+  | { type: 'session.new.open'; projectId?: ProjectId; scratch?: boolean; dir?: string } | { type: 'session.new.submit'; params: LaunchParams; place?: ProjectPlace }
   // place は、新しいフォルダと未登録のフォルダで始めるときだけ付ける。プロジェクトを作ってから起動する。
   // 新しいセッションのダイアログの書きかけ（名前と初期プロンプト）。ダイアログを閉じるときと「消す」で送る。両方空なら下書きを消す。
   | { type: 'session.new.draft'; name: string; prompt: string; attachments?: { path: string; name: string; size: number | null }[] }

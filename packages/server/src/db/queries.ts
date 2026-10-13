@@ -180,6 +180,26 @@ function lockMap(db: Db, selfDeviceId: string | undefined, now: number): Map<str
 }
 
 /**
+ * ほかの PC にこの PC より新しい続きがあるセッション（SessionDto.newerElsewhere、A → B → A）。
+ * 最後の run（started_at の降順、同じなら id の降順）がほかの PC のもので、手元に降ろしたほかの PC の主線の写しのどれかが、手元の主線より大きいもの。
+ * 大きさだけで決める。先頭部分か枝分かれかは、確認の 1 枚を出すときに本文を読んで決める（sync/copy.ts の compareForResume）。
+ * PC を渡さなければ空にする。
+ */
+function newerElsewhereSet(db: Db, selfDeviceId: string | undefined): Set<string> {
+  if (!selfDeviceId) return new Set();
+  const rows = db.prepare(`
+    select l.session_id from (
+      select r.session_id, r.device_id, row_number() over (partition by r.session_id order by r.started_at desc, r.id desc) n
+      from runs r where r.deleted_at is null
+    ) l
+    where l.n = 1 and l.device_id <> ?
+      and (select max(t.size) from transcript_files t where t.session_id = l.session_id and t.agent_id is null and t.device_id is not null and t.device_id <> ?)
+        > (select max(t.size) from transcript_files t where t.session_id = l.session_id and t.agent_id is null and t.device_id is null)`)
+    .all(selfDeviceId, selfDeviceId) as { session_id: string }[];
+  return new Set(rows.map((r) => r.session_id));
+}
+
+/**
  * いま動いている claude のプロセスが、いつ起動したか（epoch のミリ秒）。分からなければ null。
  * Claude の登録の procStart を先に見て、無ければ hangar の生きた run の始まりを使う。
  * run は claude より先に始まるので、run の始まりで代えても「印より後に起動した」の判定は変わらない。
@@ -209,7 +229,7 @@ function limitOf(r: SessionRow, live: LiveSessionDto | undefined, now: number): 
   return { kind: r.lim_kind, resetsAt: r.lim_resets_at, auto: r.lim_auto === 1, reset: limitReset(r.lim_resets_at, now, r.lim_auto === 1) };
 }
 
-function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean): SessionDto {
+function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks: Map<string, SessionLockDto>, runStarts: Map<string, number>, now: number, parking: boolean, newer: Set<string>): SessionDto {
   const live = liveMap.get(r.provider_session_id);
   const limit = limitOf(r, live, now);
   const summary: SessionSummaryDto | null = r.sum_title !== null
@@ -286,6 +306,8 @@ function toSessionDto(r: SessionRow, liveMap: Map<string, LiveSessionDto>, locks
     interrupted: r.ss_status === null && r.last_end_reason === 'lost' && r.last_ended_at !== null ? { at: r.last_ended_at, cause: r.last_interrupt_cause } : null,
     // 同じファイルの編集は、実行中の間だけの警告である。終わった後に古い写しが残っていても出さない。
     overlap: live ? overlapOf(r.overlap_payload) : null,
+    // ほかの PC の続きの方が新しい（A → B → A）。手元に本文が無いものは remoteOnly の側で扱う。
+    newerElsewhere: r.has_local === 1 && newer.has(r.id),
   };
 }
 
@@ -333,14 +355,15 @@ export function listSessions(db: Db, live: LiveSessionDto[], opts: SessionQueryO
   const locks = lockMap(db, opts.deviceId, now);
   const runStarts = aliveRunStarts(db, opts.deviceId);
   const parking = parkingOn(db);
-  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now, parking));
+  const newer = newerElsewhereSet(db, opts.deviceId);
+  return rows.map((r) => toSessionDto(r, lm, locks, runStarts, now, parking, newer));
 }
 
 export function getSession(db: Db, live: LiveSessionDto[], id: string, opts: { deviceId?: string; now?: () => number } = {}): SessionDto | null {
   const r = db.prepare(`${SESSION_SELECT} and s.id = ?`).get(id) as SessionRow | undefined;
   if (!r) return null;
   const now = opts.now ? opts.now() : Date.now();
-  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db));
+  return toSessionDto(r, liveMapOf(live), lockMap(db, opts.deviceId, now), aliveRunStarts(db, opts.deviceId), now, parkingOn(db), newerElsewhereSet(db, opts.deviceId));
 }
 
 /** Settings の端末一覧。最終確認の新しい順で、自端末に印を付ける。 */
@@ -440,15 +463,25 @@ const accountIn = (launchParams: string | null): string | null => {
   } catch { return null; }
 };
 
-/** そのセッションを最後に動かしたアカウント。run が無い、またはアカウントを記録する前の run なら null。 */
-export function accountOfSession(db: Db, sessionId: string): string | null {
-  const r = db.prepare('select launch_params from runs where session_id = ? and deleted_at is null order by started_at desc, id desc limit 1').get(sessionId) as { launch_params: string | null } | undefined;
+/**
+ * そのセッションを最後に動かしたアカウント。run が無い、またはアカウントを記録する前の run なら null。
+ * deviceId を渡すと、その PC の run だけから引く。アカウントの id と名前は PC ごとの設定なので、ほかの PC の run のアカウントをこの PC で引かない（A → B → A）。
+ */
+export function accountOfSession(db: Db, sessionId: string, deviceId?: string): string | null {
+  const r = (deviceId
+    ? db.prepare('select launch_params from runs where session_id = ? and device_id = ? and deleted_at is null order by started_at desc, id desc limit 1').get(sessionId, deviceId)
+    : db.prepare('select launch_params from runs where session_id = ? and deleted_at is null order by started_at desc, id desc limit 1').get(sessionId)) as { launch_params: string | null } | undefined;
   return accountIn(r?.launch_params ?? null);
 }
 
-/** 最初のアカウント以外で最後に動かしたセッションの一覧（セッションの id → アカウントの id）。run は 1 回だけ読み、セッションごとの最後の run を JS で選ぶ。 */
-export function sessionAccounts(db: Db): Record<string, string> {
-  const rows = db.prepare('select session_id, launch_params from runs where deleted_at is null order by started_at, id').all() as { session_id: string; launch_params: string | null }[];
+/**
+ * 最初のアカウント以外で最後に動かしたセッションの一覧（セッションの id → アカウントの id）。run は 1 回だけ読み、セッションごとの最後の run を JS で選ぶ。
+ * deviceId を渡すと、その PC の run だけを見る（accountOfSession と同じ）。
+ */
+export function sessionAccounts(db: Db, deviceId?: string): Record<string, string> {
+  const rows = (deviceId
+    ? db.prepare('select session_id, launch_params from runs where deleted_at is null and device_id = ? order by started_at, id').all(deviceId)
+    : db.prepare('select session_id, launch_params from runs where deleted_at is null order by started_at, id').all()) as { session_id: string; launch_params: string | null }[];
   const last = new Map<string, string | null>();
   for (const r of rows) last.set(r.session_id, r.launch_params);
   const out: Record<string, string> = {};

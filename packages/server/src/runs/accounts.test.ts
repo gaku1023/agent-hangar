@@ -30,9 +30,9 @@ afterEach(() => {
 
 const make = (withStore = true) => new RunAccounts({ db, claudeDir, store: withStore ? store : undefined });
 
-/** そのアカウントで動かした run の行を足す。 */
-function ranWith(account: string | undefined, startedAt: number): void {
-  upsertShared(db, 'runs', { id: `r${startedAt}`, session_id: 's1', device_id: 'd', kind: 'start', tmux_name: `hangar-r${startedAt}`, pid: null, launch_params: JSON.stringify(account ? { account } : {}), started_at: startedAt, ended_at: startedAt, end_reason: 'exited', heartbeat_at: startedAt }, 'd');
+/** そのアカウントで動かした run の行を足す。device を省けば 'd' の PC の run である。 */
+function ranWith(account: string | undefined, startedAt: number, device = 'd'): void {
+  upsertShared(db, 'runs', { id: `r${startedAt}`, session_id: 's1', device_id: device, kind: 'start', tmux_name: `hangar-r${startedAt}`, pid: null, launch_params: JSON.stringify(account ? { account } : {}), started_at: startedAt, ended_at: startedAt, end_reason: 'exited', heartbeat_at: startedAt }, 'd');
 }
 
 describe('RunAccounts', () => {
@@ -67,6 +67,26 @@ describe('RunAccounts', () => {
     store.remove(a.id);
     expect(ra.accountFor('s1')).toBe('primary');
     expect(ra.lastUsed('s1')?.id).toBe('primary');
+  });
+
+  it('accountFor：PC を持てば、その PC の最後の run のアカウント。ほかの PC の後の run は見ない（A → B → A）', () => {
+    const a = store.add({ name: '大学' });
+    const ra = new RunAccounts({ db, claudeDir, store, deviceId: 'mac' });
+    ranWith(a.id, 1, 'mac');
+    // ほかの PC の run の id（その PC の名前の付け方）は、この PC では引かない。
+    ranWith('primary', 2, 'win');
+    expect(ra.accountFor('s1')).toBe(a.id);
+    expect(ra.lastUsed('s1')?.id).toBe(a.id);
+  });
+
+  it('accountFor：この PC に run が無ければ、この PC でいま選んでいるアカウント。ほかの PC の run のアカウントは引かない', () => {
+    const a = store.add({ name: '大学' });
+    const ra = new RunAccounts({ db, claudeDir, store, deviceId: 'mac' });
+    ranWith(a.id, 1, 'win');
+    expect(ra.accountFor('s1')).toBe('primary');
+    store.setCurrent(a.id);
+    ranWith('primary', 2, 'win');
+    expect(ra.accountFor('s1')).toBe(a.id);
   });
 
   it('byDir：登録済みの置き場ならそのアカウント、未登録なら null', () => {

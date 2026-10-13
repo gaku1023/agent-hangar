@@ -87,7 +87,13 @@ export type SessionDto = { id: string; provider: 'claude-code'; providerSessionI
   /** 中断（SessionInterruptDto）。ステータスの無いセッションで、最後の run が lost で終わったときだけ値を持つ。 */
   interrupted: SessionInterruptDto | null;
   /** 同じファイルを別のセッションと編集していること（SessionOverlapDto）。実行中のときだけ値を持つ。 */
-  overlap: SessionOverlapDto | null };
+  overlap: SessionOverlapDto | null;
+  /**
+   * ほかの PC に、この PC のトランスクリプトより新しい続きがあること（A → B → A と戻ったとき）。
+   * 最後の run がほかの PC のもので、手元に降ろしたその写しが手元のトランスクリプトより大きいときだけ真。
+   * 真のとき、画面は手元にトランスクリプトがあっても「この PC で再開」を主にする。
+   */
+  newerElsewhere: boolean };
 /**
  * 中断の原因。
  * restart は、サーバの起動の見回りで tmux（Windows は psmux）のセッションが無かった run（PC の再起動など）である。
@@ -299,8 +305,10 @@ export type PromoteResultDto = { project: ProjectDto; session: SessionDto; moved
 /**
  * プロジェクトを作る場所。newDir は新しいフォルダを作り、dir は既存のディレクトリを登録する。
  * newDir の parent は作る場所で、省けば設定の作成場所（workspaceRoot）の下に作る。作成場所は任意なので、空のときは画面が Finder で選ばせて parent に入れる。
+ * dir の allowNested は、登録済みのプロジェクトの下のフォルダを別のプロジェクトにすることの明示で、無ければサーバは 409（ProjectNestedDto）で断る。
+ * dir の linkTo は、ほかの PC から届いたプロジェクトの id で、渡すと新しく作らずにそのプロジェクトのこの PC の場所にする（名前は変えない）。
  */
-export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean; parent?: string } | { kind: 'dir'; path: string; name?: string };
+export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean; parent?: string } | { kind: 'dir'; path: string; name?: string; allowNested?: boolean; linkTo?: string };
 /**
  * Claude Code と会話したフォルダの候補の 1 件（GET /api/workspace/candidates）。
  * path は git のリポジトリの根（worktree は元のリポジトリ）で、sessionCount はその下のまだプロジェクトに入っていない会話の数、
@@ -309,8 +317,59 @@ export type ProjectPlace = { kind: 'newDir'; name: string; gitInit: boolean; par
 export type FolderCandidateDto = { path: string; sessionCount: number; lastActivityAt: number | null; worktreeCount: number };
 /** 候補の一覧。suggestedRoot は、作成場所が空で、過半の候補が同じ親フォルダにあるときの、その親（無ければ null）。 */
 export type FolderCandidatesDto = { candidates: FolderCandidateDto[]; suggestedRoot: string | null };
-/** 候補からまとめて登録した結果（POST /api/workspace/register）。failed は登録できなかったパスと理由である。 */
-export type FolderRegisterResultDto = { projects: ProjectDto[]; failed: { path: string; error: string }[] };
+/**
+ * 候補からまとめて登録した結果（POST /api/workspace/register）。failed は登録できなかったパスと理由である。
+ * linked は、新しく作らずにほかの PC のプロジェクトへ結び付けたもののプロジェクトの id（projects にも入っている）。古いサーバは付けない。
+ */
+export type FolderRegisterResultDto = { projects: ProjectDto[]; failed: { path: string; error: string }[]; linked?: string[] };
+/**
+ * まとめて登録の 1 行（POST /api/workspace/register の items）。
+ * linkTo はほかの PC から届いたプロジェクトの id で、渡すと新しく作らずにそのプロジェクトのこの PC の場所にする。省けば新しく作る。
+ * allowNested は、登録済みのプロジェクトの下のフォルダを別のプロジェクトにすることを明示する。無ければ、その行は失敗に入る。
+ */
+export type FolderRegisterItem = { path: string; linkTo?: string; allowNested?: boolean };
+/** プロジェクトの参照。 */
+export type ProjectRefDto = { projectId: string; name: string };
+/** フォルダを下に持つ、この PC のプロジェクト（いちばん深いもの）。path はそのプロジェクトのこの PC の場所である。 */
+export type EnclosingProjectDto = ProjectRefDto & { path: string };
+/**
+ * フォルダと結び付く、この PC に場所の無いプロジェクト（ほかの PC から届いたもの、この PC で場所が見つからなくなったもの）。
+ * match は一致の強さで、remote は git の remote が同じ（強い一致）、name は名前が同じで remote が食い違わない（弱い一致）。
+ * remote はそのプロジェクトの remote（正規化した形、例 `github.com/owner/repo`）。
+ * deviceName と previousPath は、そのプロジェクトの場所を持つ PC の名前とそこでのパス。この PC で見つからなくなったものは、deviceName が null で previousPath がこの PC の前のパスである。分からなければ null。
+ */
+export type LinkCandidateDto = ProjectRefDto & { match: 'remote' | 'name'; remote: string | null; deviceName: string | null; previousPath: string | null };
+/**
+ * 親フォルダの直下の 1 行（GET /api/workspace/children）。
+ * git はフォルダの直下に .git があること（リポジトリの中の下のフォルダは数えない）、worktree はそれがほかのリポジトリの worktree であること。
+ * remote はそのリポジトリの remote（正規化した形）。sessionCount と lastActivityAt は、この PC の、作業フォルダがその下にある会話の数と最後の活動。
+ * registered はこのフォルダを場所にしているプロジェクト、enclosing はこのフォルダを下に持つプロジェクト（自分は含まない）。
+ * link は結び付く候補で、登録済みと worktree の行、同じプロジェクトに結び付くほかの行には付けない。
+ * children は、git でなく中に git のフォルダを持つときだけ、その直下の行（さらに下は開かない）。ほかは null。
+ */
+export type WorkspaceChildDto = {
+  name: string; path: string;
+  git: boolean; worktree: boolean; remote: string | null;
+  sessionCount: number; lastActivityAt: number | null;
+  registered: ProjectRefDto | null; enclosing: EnclosingProjectDto | null; link: LinkCandidateDto | null;
+  children: WorkspaceChildDto[] | null;
+};
+/** 親フォルダの直下の一覧。parent は正規化した親、enclosing は親そのものか親を下に持つプロジェクト（まとめて登録の黄の帯）。 */
+export type WorkspaceChildrenDto = { parent: string; enclosing: EnclosingProjectDto | null; children: WorkspaceChildDto[] };
+/**
+ * 選んだ 1 つのフォルダの事前の問い合わせ（GET /api/workspace/inspect）。新しいセッションと新しいプロジェクトのダイアログが使う。
+ * registered はそのフォルダを場所にしているプロジェクト。enclosing はそのフォルダを下に持つプロジェクトで、relative はその場所からの相対パスである。
+ * link は結び付く候補で、登録済みなら null。
+ */
+export type FolderInspectDto = {
+  path: string; git: boolean; worktree: boolean; remote: string | null;
+  registered: ProjectRefDto | null; enclosing: (EnclosingProjectDto & { relative: string }) | null; link: LinkCandidateDto | null;
+};
+/**
+ * 登録しようとしたフォルダが、登録済みのプロジェクトの下にあったときの 409 の本文（POST /api/projects の dir）。
+ * 画面は enclosing を添えて「別のプロジェクトにする」を選ばせ、選んだら allowNested を付けて送り直す。
+ */
+export type ProjectNestedDto = { error: string; code: 'project_nested'; enclosing: EnclosingProjectDto };
 /** ワークスペース直下の、まだプロジェクトになっていないディレクトリ。 */
 export type WorkspaceDirDto = { name: string; path: string };
 export type SummarizerId = 'lmstudio' | 'claude-headless';
@@ -456,7 +515,15 @@ export type ResumeHerePlanDto = {
   sessionId: string;
   from: { deviceName: string | null; platform: string | null; path: string; lastAt: number | null };
   to: { deviceName: string | null; platform: string | null; path: string | null };
+  /** この PC のトランスクリプトをほかの PC の写しで置き換えるとき（ResumeHereReplaceDto）。手元に無いか、手元の方が大きいか同じなら null。 */
+  replace: ResumeHereReplaceDto | null;
 };
+/**
+ * 「この PC で再開」で、手元のトランスクリプトを置き換えること（A → B → A と戻ったとき）。
+ * ahead は手元がほかの PC の写しの先頭部分（ほかの PC がこの続きを進めた）、diverged は先頭部分でない（この PC でも別の続きを進めた）。
+ * どちらも置き換える前に控えを取る。確認の 1 枚が 1 行で言い、承諾は上書きつきで送る。
+ */
+export type ResumeHereReplaceDto = { kind: 'ahead' | 'diverged'; localSize: number; remoteSize: number };
 
 /**
  * 設定の「使用量と費用」に出す形。端末のサーバが Worker の /usage から作る。

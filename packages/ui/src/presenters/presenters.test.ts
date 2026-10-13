@@ -25,7 +25,7 @@ const ja = translator('ja');
 
 const NOW = Date.parse('2026-09-02T12:00:00Z');
 const project = (id: string, status: ProjectDto['status'] = 'active'): ProjectDto => ({ id, name: id, status, isScratch: false, path: `/w/${id}`, resolved: true, lastActivityAt: NOW - 3_600_000, runningCount: 0, openTodoCount: 0, memoHead: null, updatedAt: 1 });
-const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, ...over });
+const session = (id: string, over: Partial<SessionDto> = {}): SessionDto => ({ id, provider: 'claude-code', providerSessionId: 'u' + id, projectId: 'alpha', name: 'name-' + id, cwd: '/w/alpha', firstPrompt: 'first', aiTitle: null, startedAt: NOW - 7_200_000, lastActivityAt: NOW - 60_000, hasTranscript: true, live: null, summary: { title: 't', oneLiner: 'one', body: 'b', state: 'done', nextSteps: [], source: 'baseline', sourceId: null, sourceModel: null, basedOnTurns: 2, updatedAt: 1 }, stats: { turns: 2, model: 'claude-fable-5-1', effort: 'high', filesChanged: 1, prUrl: null, inputTokens: 1234567, outputTokens: 10, contextPercent: null, costUsd: null }, fromScratch: false, lock: null, remoteOnly: false, transcriptMtime: null, activity: null, state: null, parked: false, stoppedByStatus: false, liveAside: null, waitingFor: null, permission: null, limit: null, interrupted: null, overlap: null, newerElsewhere: false, ...over });
 const runDto = (id: string, sessionId: string, endedAt: number | null = null): RunDto => ({ id, sessionId, deviceId: 'd', kind: 'start', tmuxName: `hangar-${id}`, pid: null, startedAt: NOW - 60_000, endedAt, endReason: endedAt ? 'exited' : null, heartbeatAt: 1 });
 const tabDto = (id: string, runId: string, kind: 'agent' | 'shell', closedAt: number | null = null): TabDto => ({ id, runId, sessionId: 's1', kind, title: kind === 'agent' ? 'Claude' : `シェル ${id}`, tmuxName: `hangar-${runId}-${id}`, createdAt: 2, closedAt });
 function storeWith(): Store {
@@ -909,6 +909,12 @@ describe('presentNewSession', () => {
     store.projects.p2 = { ...project('p2'), path: null, resolved: false };
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false } };
     expect(presentNewSession(state, store, NOW)!.takenNames).toEqual(['old-kadai']);
+  });
+  it('作成のダイアログから渡されたフォルダと、選んだフォルダの事前の問い合わせを渡す（0.6.1）', () => {
+    const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: 'p1', scratch: false, dir: '/w/alpha/ui' } };
+    const folderInspect = { path: '/w/alpha/ui', name: null, status: 'loading' as const };
+    expect(presentNewSession(state, { ...storeWithProjectAt('/w/alpha'), folderInspect }, NOW)).toMatchObject({ dir: '/w/alpha/ui', inspect: folderInspect });
+    expect(presentNewSession({ ...state, overlay: { kind: 'newSession', projectId: null, scratch: false } }, storeWithProjectAt('/w/alpha'), NOW)).toMatchObject({ dir: null, inspect: null });
   });
   it('作れた後に起動だけ失敗したら、作ったプロジェクトを渡す', () => {
     const state = { ...initialState(), overlay: { kind: 'newSession' as const, projectId: null, scratch: false }, launch: { kind: 'failed' as const, message: 'x', createdProjectId: 'p9' } };

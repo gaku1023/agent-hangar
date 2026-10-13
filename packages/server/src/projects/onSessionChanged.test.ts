@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@agent-hangar/shared';
 import { openDb, type Db } from '../db/open.ts';
-import { softDeleteShared } from '../db/shared.ts';
+import { softDeleteShared, upsertShared } from '../db/shared.ts';
 import { Publisher } from '../events/publisher.ts';
 import { ensureSession } from '../indexer/indexFile.ts';
 import { createSessionChangeHandler } from './onSessionChanged.ts';
@@ -152,5 +152,22 @@ describe('現れたセッションをプロジェクトに紐づける', () => {
     handler()(changed(s, { appended: 2 }));
     publisher.flush();
     expect(sent.filter((e) => e.type === 'toast' || e.type === 'transcript.appended')).toEqual([]);
+  });
+
+  it('ワークスペース直下の新しいフォルダが、ほかの PC から届いたプロジェクトと同じ remote なら、作らずに結び付けて配る', () => {
+    const dir = path.join(ws, 'notes-app');
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:me/notes-app.git\n');
+    upsertShared(db, 'projects', { id: 'far', name: 'notes', status: 'active', is_scratch: 0, git_remote: 'github.com/me/notes-app' }, 'other');
+    upsertShared(db, 'project_roots', { id: 'r-far', project_id: 'far', device_id: 'other', path: '/Users/other/notes', resolved: 1 }, 'other');
+    const s = ensureSession(db, '11111111-1111-4111-8111-111111111199', path.join(dir, 'src'), 'd');
+    publisher.flush();
+    sent.length = 0;
+    handler()(changed(s));
+    publisher.flush();
+    expect(projectOf(s)).toBe('far');
+    expect(db.prepare('select count(*) c from projects').get()).toEqual({ c: 1 });
+    expect(projectUpserts().map((e) => e.project.id)).toEqual(['far']);
+    expect(sent.some((e) => e.type === 'session.upsert' && e.session.id === s && e.session.projectId === 'far')).toBe(true);
   });
 });

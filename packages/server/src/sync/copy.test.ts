@@ -4,7 +4,7 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
-import { copyTranscriptForResume, safeDeviceLabel, timestampLabel } from './copy.ts';
+import { compareForResume, copyTranscriptForResume, safeDeviceLabel, timestampLabel } from './copy.ts';
 import { sha256Hex } from './crypto.ts';
 import { remoteTranscriptPath } from './puller.ts';
 
@@ -45,6 +45,46 @@ beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-home-'));
   claudeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-claude-'));
   upsertShared(db, 'sessions', { id: 's1', provider: 'claude-code', provider_session_id: UUID, cwd: '/w/alpha', home_device: 'dev-b' }, 'dev-b');
+});
+
+describe('compareForResume（手元とほかの PC の写しを比べる、A → B → A）', () => {
+  const compare = () => compareForResume({ db, home, claudeDir, sessionId: 's1' });
+  it('手元が無い、写しが無い、無いセッションは null', () => {
+    expect(compare()).toBeNull();
+    seedRemote('dev-b', 'abc\n', NOW);
+    expect(compare()).toBeNull();
+    expect(compareForResume({ db, home, claudeDir, sessionId: 'nope' })).toBeNull();
+  });
+  it('手元の方が大きいか同じなら null（写しで置き換えない）', () => {
+    seedRemote('dev-b', 'abc\n', NOW);
+    writeLocal('abc\n');
+    expect(compare()).toBeNull();
+    writeLocal('abc\ndef\n');
+    expect(compare()).toBeNull();
+  });
+  it('手元が写しの先頭部分なら ahead（ほかの PC がこの続きを進めた）', () => {
+    seedRemote('dev-b', 'turn-1\nturn-2\n', NOW);
+    writeLocal('turn-1\n');
+    expect(compare()).toEqual({ kind: 'ahead', localSize: 7, remoteSize: 14 });
+  });
+  it('手元が写しの先頭部分でなければ diverged（この PC でも別の続きを進めた）', () => {
+    seedRemote('dev-b', 'turn-1\nturn-2\n', NOW);
+    writeLocal('turn-1\nlocal\n');
+    expect(compare()).toEqual({ kind: 'diverged', localSize: 13, remoteSize: 14 });
+  });
+  it('台帳と食い違う写しは使わない', () => {
+    seedRemote('dev-b', 'turn-1\nturn-2\n', NOW, 'f'.repeat(64));
+    writeLocal('turn-1\n');
+    expect(compare()).toBeNull();
+  });
+  it('1MB を超える本文も先頭部分を比べる', () => {
+    const head = 'x'.repeat(1_500_000);
+    seedRemote('dev-b', `${head}tail\n`, NOW);
+    writeLocal(head);
+    expect(compare()?.kind).toBe('ahead');
+    writeLocal(`${'x'.repeat(1_200_000)}y${'x'.repeat(299_999)}`);
+    expect(compare()?.kind).toBe('diverged');
+  });
 });
 
 describe('copyTranscriptForResume', () => {

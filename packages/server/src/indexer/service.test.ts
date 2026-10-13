@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { upsertShared } from '../db/shared.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA, SESSION_BETA } from '../../test/fixtures.ts';
@@ -76,6 +76,19 @@ describe('IndexerService', () => {
     expect(count('select count(*) c from transcript_files where session_id = (select id from sessions where provider_session_id = ?)', SESSION_BETA)).toBe(1);
   });
 
+  it('本文なしのセッションの登録を繰り返しても、準備済みの文を使い回す', async () => {
+    const svc = make();
+    await svc.fullScan();
+    svc.syncHistoryOnly();
+    const prepare = vi.spyOn(db, 'prepare');
+    try {
+      svc.syncHistoryOnly();
+      expect(prepare).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+    }
+  });
+
   it('rebuild は全件を作り直し、行を重複させない', async () => {
     const svc = make();
     await svc.fullScan();
@@ -130,7 +143,7 @@ describe('IndexerService', () => {
   });
 
   it('start は全走査してから定期 tick で追記を拾い、stop で止まる', async () => {
-    const svc = make({ pollMs: 30 });
+    const svc = make({ sweepMs: 30 });
     cleanups.push(() => svc.stop());
     const appended: number[] = [];
     const seen = new Promise<void>((resolve) => svc.on({ sessionChanged: (e) => { appended.push(e.appended); if (e.appended === 1) resolve(); } }));
@@ -209,7 +222,7 @@ describe('他端末の本文の索引化', () => {
 
   it('start は remote の置き場を 0700 で作る', async () => {
     const root = path.join(remote, 'not-yet');
-    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: root, isRunning: () => false, pollMs: 10_000 });
+    const svc = new IndexerService({ db, deviceId: 'dev-a', claudeDir, remoteRoot: root, isRunning: () => false, sweepMs: 10_000 });
     cleanups.push(() => svc.stop());
     await svc.start();
     // 他端末の会話の本文を置くので、~/.agent-hangar/mcp と同じく本人だけが読める。

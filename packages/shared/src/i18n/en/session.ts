@@ -159,6 +159,8 @@ export const sessionEn: AreaDictionary<typeof sessionKeys> = {
   'session.action.resumeHereNoRoot': 'This computer has no folder for this project. Set its location first.',
   'session.action.setLocation': 'Set location',
   'session.action.otherComputer': 'Another computer',
+  'session.action.resumeLocal': "Resume with this computer's transcript",
+  'session.action.resumeLocalNote': 'Work continued on another computer is not included',
   'session.gone.note': 'The transcript appears to have been deleted because it passed the Claude Code retention period ({period}). Only the summary remains.',
   'session.lead.summarizerUnknown': 'Unknown / {model}',
   'session.lead.summarizerOpenai': 'OpenAI-compatible',

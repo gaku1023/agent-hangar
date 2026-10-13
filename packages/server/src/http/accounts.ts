@@ -11,6 +11,8 @@ import { RunError, type RunManager } from '../runs/manager.ts';
 import type { UsageTracker } from '../usage/statusline.ts';
 
 export type AccountsDeps = { db: Db; store: AccountStore; auth: AccountAuth; usage: UsageTracker; runs: Pick<RunManager, 'switchAccount'>; primaryDir: string; broadcast: (accounts: AccountsDto) => void;
+  /** この PC。渡せば、セッションのアカウントをこの PC の run だけから引く（db/queries.ts の sessionAccounts）。 */
+  deviceId?: string;
   /** 起動の前に待つこと（他端末の変更の取り込み）。resume と同じ扱いにするため、app.ts が渡す。 */
   beforeLaunch?: () => Promise<unknown>;
   /** 応答の文の言語。app.ts が渡す。渡さなければ日本語で出す。 */
@@ -48,7 +50,7 @@ export function buildAccountsDto(deps: AccountsDeps, opts: { checkLinks?: boolea
   const language = (deps.language ?? defaultLanguage)();
   const problemText = (p: LinkProblem): string | null => (p !== null && typeof p === 'object' ? render(language, p) : p);
   const sessions: Record<string, string> = {};
-  for (const [sid, aid] of Object.entries(sessionAccounts(deps.db))) if (known.has(aid)) sessions[sid] = aid;
+  for (const [sid, aid] of Object.entries(sessionAccounts(deps.db, deps.deviceId))) if (known.has(aid)) sessions[sid] = aid;
   return {
     currentId: deps.store.current().id,
     accounts: list.map((a) => ({

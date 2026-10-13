@@ -72,14 +72,17 @@ export function wranglerHint(text: string): string | null {
   return null;
 }
 
+/** setup の初めの R2 の確認で 10042 が返ったときの案内。まだ何も作っていないので、wranglerHint の文とは別にする。 */
+const R2_OFF_HINT = '案内: このアカウントでは R2 がまだ有効になっていません。Cloudflare のダッシュボードの R2 の画面で有効にしてください（有効にするには支払い方法の登録が要ります）。Cloudflare にはまだ何も作っていません。有効にしてから hangar setup cloud をもう一度実行してください。';
+
 /** wrangler の失敗を、見出しと整えた出力と案内の複数行にする。 */
-function wranglerFailure(what: string, r: ExecResult): WranglerStepError {
+function wranglerFailure(what: string, r: ExecResult, hint?: string): WranglerStepError {
   const raw = `${r.stderr}\n${r.stdout}`;
   const reason = cleanWranglerError(raw);
   const lines = [`${what}に失敗しました（wrangler の出力）:`];
   if (reason.length > 0) for (const l of reason) lines.push(`  ${l}`);
   else lines.push(`  （出力がありません。終了コード ${r.code}）`);
-  lines.push(wranglerHint(raw) ?? '直してから hangar setup cloud をもう一度実行してください。作成済みの D1 と R2 はそのまま使います。');
+  lines.push(hint ?? wranglerHint(raw) ?? '直してから hangar setup cloud をもう一度実行してください。作成済みの D1 と R2 はそのまま使います。');
   return new WranglerStepError(lines.join('\n'));
 }
 
@@ -124,6 +127,36 @@ const CLOUD_DEPS: [specifier: string, name: string][] = [
 ];
 
 /**
+ * 配布版の cli.mjs の隣にある manifest.json から、アプリの版を読む。
+ * 源（packages/cli/src）から動かしているときと、読めないときは null。
+ */
+export function readAppVersion(dir: string = path.dirname(fileURLToPath(import.meta.url))): string | null {
+  try {
+    const v = (JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as { version?: unknown }).version;
+    return typeof v === 'string' && v !== '' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 配布版には Worker の源（packages/cloud）が無い。
+ * 存在しないパスを見せても利用者にできることは無いので、パスは出さず、clone してから打つ手順を案内する。
+ * version が分かれば、アプリと同じ版を checkout する行を足す。
+ */
+export function cloudDirMissingMessage(version: string | null): string {
+  const lines = [
+    'クラウドを作るには、このリポジトリを clone した場所で実行します（アプリに入っている hangar には Worker のソースが入っていません）。',
+    '手順:',
+    '  git clone https://github.com/gaku1023/agent-hangar.git',
+    '  cd agent-hangar',
+  ];
+  if (version) lines.push(`  git checkout v${version}`);
+  lines.push('  npm ci', '  npm run hangar -- setup cloud');
+  return lines.join('\n');
+}
+
+/**
  * Worker のデプロイに要るものが揃っているかを確かめてから場所を返す。
  * 揃っていなければ、何がどこに無いのかを述べて止める。
  * 黙って wrangler を呼ぶと、意味の分からない終了コードだけが残る。
@@ -133,11 +166,14 @@ const CLOUD_DEPS: [specifier: string, name: string][] = [
  * 無関係な wrangler を拾って依存の検査が素通りし、実物のアカウントに資源を作ってしまう。
  * 配布版に同梱した cloud/ は束ねた worker.mjs だけで源を持たないので、依存を見る前にここで止まる。
  */
-export function requireCloudDir(): string {
-  const dir = defaultCloudDir();
-  const where = process.env.HANGAR_CLOUD_DIR ? 'HANGAR_CLOUD_DIR' : 'この CLI の置き場からの相対';
+export function requireCloudDir(o: { dir?: string; version?: string | null } = {}): string {
+  const explicit = o.dir === undefined && !!process.env.HANGAR_CLOUD_DIR;
+  const dir = o.dir ?? defaultCloudDir();
+  const where = explicit ? 'HANGAR_CLOUD_DIR' : 'この CLI の置き場からの相対';
   for (const rel of [['src', 'index.ts'], ['wrangler.jsonc'], ['package.json']]) {
     if (!fs.existsSync(path.join(dir, ...rel))) {
+      // 利用者が HANGAR_CLOUD_DIR で指した場所なら、そのパスを見せて直させる。そうでなければ clone の手順を案内する。
+      if (!explicit) throw new DetailedError(cloudDirMissingMessage(o.version === undefined ? readAppVersion() : o.version));
       throw new Error(`Worker のソース（${rel.join('/')}）が ${dir} にありません（${where}で決めました）。クラウド同期の設定と片付けは、リポジトリを clone して npm install した場所から実行するか、HANGAR_CLOUD_DIR に packages/cloud の場所を指定してください`);
     }
   }
@@ -617,7 +653,11 @@ export async function runSetupCloud(o: SetupCloudOptions): Promise<{ url: string
     log(`作る先の Cloudflare アカウント: ${accountLabel(account)}`);
     wr = wr.withAccount(accountId);
 
-    // 2. D1 と R2
+    // 2. R2 の確認と、D1 と R2
+    // R2 が有効でないアカウントは、D1 を作ったあとで R2 の作成が落ちて、作りかけが残る。作る前に、一覧が通るかで確かめる。
+    // 10042 だけを断る。ほかの失敗はここでは決めつけず、あとの手順がそれぞれの理由を出す。
+    const r2 = await wr.run(['r2', 'bucket', 'list']);
+    if (r2.code !== 0 && /\[code: 10042\]/.test(`${r2.stderr}\n${r2.stdout}`)) throw wranglerFailure('R2 の確認', r2, R2_OFF_HINT);
     const info = await wr.run(['d1', 'info', dbName, '--json']);
     let dbId = info.code === 0 ? parseDatabaseId(info.stdout) : null;
     if (!dbId) {
@@ -690,9 +730,11 @@ export async function offerUsageToken(install: () => Promise<void>, log: (l: str
 /** 作るトークンの案内。setup の問いと --usage-token の前に出す。 */
 export const USAGE_TOKEN_HELP = [
   '使用量と費用を設定画面に出すには、読み取り専用の API トークンを Worker に入れます（無くても同期は動きます）。',
-  '作り方: Cloudflare のダッシュボード → Manage account → Account API tokens → Create Token → Start from scratch',
-  '  権限は二つだけ: Account Analytics: Read と Billing: Read（Entire Account）',
-  '  1Password に保存し、リポジトリを clone して npm install した場所で op read "op://…" | npm run hangar -- setup cloud --usage-token と打つと流し込めます。',
+  '作り方:',
+  '  1. Cloudflare のダッシュボードを開き、Manage account → Account API tokens → Create Token → Start from scratch と進みます。',
+  '  2. 権限を二つ足します。Account Analytics: Read と Billing: Read です（範囲は Entire Account）。',
+  '  3. 作ったトークンは、その画面でしか読めません。コピーしてから、リポジトリを clone した場所で npm run hangar -- setup cloud --usage-token を打ち、聞かれたら貼り付けます（画面には出ません）。',
+  '  1Password を使っている人は、op read "op://…" | npm run hangar -- setup cloud --usage-token と打つと、貼り付けずに流し込めます。',
 ];
 
 const CF_API = 'https://api.cloudflare.com/client/v4';

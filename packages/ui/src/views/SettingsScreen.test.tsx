@@ -298,7 +298,7 @@ describe('設定の一般', () => {
       render(ui(at('general', { retention }), onAction));
       expect(screen.getByText('トランスクリプトの保持')).toBeInTheDocument();
       expect(screen.getByText('10 年たつと約 178 GB')).toBeInTheDocument();
-      expect(screen.getByText(/値は設定の同期で他の PC にも届きます/)).toBeInTheDocument();
+      expect(screen.getByText(/値は設定の同期でほかの PC にも届きます/)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('radio', { name: '1 年' }));
       expect(onAction).toHaveBeenCalledWith({ type: 'retention.edit', days: 365, from: 'settings' });
       onAction.mockClear();
@@ -1006,12 +1006,14 @@ describe('設定のツール', () => {
     typeAndLeave('新しいフォルダの作成場所（任意）', '');
     expect(onAction).toHaveBeenCalledWith({ type: 'settings.update', patch: { workspaceRoot: '' }, field: 'workspaceRoot' });
   });
-  it('「Claude Code と会話したフォルダから登録」の「選ぶ…」で候補のダイアログを開く', () => {
+  it('「プロジェクトの登録」から、まとめて登録のダイアログを 2 つの見方で開く', () => {
     const onAction = vi.fn();
     render(ui(at('tools'), onAction));
-    expect(screen.getByText('Claude Code と会話したフォルダから登録')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '選ぶ…、Claude Code と会話したフォルダから登録' }));
+    expect(screen.getByText('プロジェクトの登録')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code と会話したフォルダから…' }));
     expect(onAction).toHaveBeenLastCalledWith({ type: 'project.candidates.open' });
+    fireEvent.click(screen.getByRole('button', { name: 'フォルダの中から…' }));
+    expect(onAction).toHaveBeenLastCalledWith({ type: 'project.candidates.open', source: 'folder' });
   });
   it('デスクトップでは作成場所の「選ぶ…」で Finder を開き、選んだ場所を保存する。ブラウザでは出さない', () => {
     const onAction = vi.fn();

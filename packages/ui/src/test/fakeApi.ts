@@ -4,7 +4,7 @@ import { accountsFixture } from './accounts.ts';
 
 type Extras = Pick<
   ApiClient,
-  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'registerFolders'
+  | 'launch' | 'resume' | 'fork' | 'attach' | 'adopt' | 'killRun' | 'openTab' | 'closeTab' | 'openTerminalApp' | 'jumpToPrompt' | 'leaveTranscript' | 'openEditor' | 'projectOpenEditor' | 'editors' | 'testEditor' | 'projectOpenTerminal' | 'createProject' | 'workspaceDirs' | 'folderCandidates' | 'workspaceChildren' | 'inspectFolder' | 'registerFolders'
   | 'usageAggregate' | 'statusline' | 'shellHook' | 'readiness' | 'recheckMux' | 'compat' | 'addTodo' | 'setTodoDone' | 'removeTodo' | 'confirmTodo' | 'rejectTodo' | 'editTodo' | 'acceptTodo' | 'reorderTodos' | 'restoreTodos' | 'setSessionState' | 'confirmSessionState' | 'rejectSessionState' | 'memo' | 'saveMemo' | 'instructions' | 'openInstruction'
   | 'addArtifact' | 'openArtifact' | 'openArtifactEditor' | 'promote' | 'regenerateSummary' | 'summarizerModels' | 'testSummarizer'
   | 'syncUsage' | 'syncNow' | 'syncPause' | 'syncFocus' | 'resumeHere' | 'resumeHerePlan' | 'joinToken' | 'cloudDevices'
@@ -46,9 +46,12 @@ export function fakeApiExtras(): Extras {
     testEditor: vi.fn(async () => ({ ok: true, via: 'cli' as const, file: '/Users/me/.agent-hangar/hangar-editor-test.md', message: null })),
     projectOpenTerminal: vi.fn(async () => ({ app: 'terminal' as const, fellBack: false })),
     createProject: vi.fn(async () => unused()),
+    // 選んだフォルダの事前の問い合わせ。既定は、どのプロジェクトとも関わりの無いフォルダとして答える。
+    inspectFolder: vi.fn(async (path: string) => ({ path, git: false, worktree: false, remote: null, registered: null, enclosing: null, link: null })),
     // 未登録の一覧は、新しいセッションのダイアログを開くたびに取りに行くので、どのテストでも空を返す。
     workspaceDirs: vi.fn(async () => []),
     folderCandidates: vi.fn(async () => ({ candidates: [], suggestedRoot: null })),
+    workspaceChildren: vi.fn(async (parent: string) => ({ parent, enclosing: null, children: [] })),
     registerFolders: vi.fn(async () => ({ projects: [], failed: [] })),
     promptCommands: vi.fn(async () => []),
     promptFiles: vi.fn(async () => []),

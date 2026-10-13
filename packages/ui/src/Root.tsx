@@ -63,6 +63,7 @@ import { editorName, presentEditorMissing } from './presenters/editor.ts';
 import { EditorMissing } from './views/EditorMissing.tsx';
 import { PromptAssistContext, type PromptAssist } from './views/primitives/promptAssist.ts';
 import { ToastStack } from './views/ToastStack.tsx';
+import { useNow } from './views/primitives/useNow.ts';
 
 /**
  * 指の位相の受け口。
@@ -73,13 +74,6 @@ import { ToastStack } from './views/ToastStack.tsx';
 type PhaseWindow = Window & { __hangarPhaseAware?: boolean; __hangarSwipeBegin?: () => void; __hangarSwipeEnd?: () => void };
 const phaseWindow = (): PhaseWindow => window as PhaseWindow;
 const phaseAware = (): boolean => phaseWindow().__hangarPhaseAware === true;
-
-/** 相対時刻のために現在時刻を一定間隔で更新する。 */
-function useNow(intervalMs = 30_000): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), intervalMs); return () => clearInterval(t); }, [intervalMs]);
-  return now;
-}
 
 /** TerminalHost の状態が変わるたびに再描画する。接続の状態は React の外にあるからである。 */
 function useTerminalHost(host: TerminalHost): void {

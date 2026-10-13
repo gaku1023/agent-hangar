@@ -870,21 +870,42 @@ describe('設定', () => {
 describe('会話したフォルダの候補（初日のプロジェクト）', () => {
   it('開くと候補を取り、送ると登録を頼み、二重には送らない。閉じる手で閉じる', () => {
     const a = run([action({ type: 'project.candidates.open' })]);
-    expect(a.state.overlay).toEqual({ kind: 'projectCandidates', submitting: false, error: null });
+    expect(a.state.overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: false, error: null });
     expect(a.effects).toEqual([{ kind: 'api.folderCandidates' }]);
-    const b = run([action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })], a.state);
-    expect(b.state.overlay).toEqual({ kind: 'projectCandidates', submitting: true, error: null });
-    expect(b.effects).toEqual([{ kind: 'api.registerFolders', paths: ['/a'], workspaceRoot: null }]);
-    expect(run([action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })], b.state).effects).toEqual([]);
+    const b = run([action({ type: 'project.candidates.submit', items: [{ path: '/a' }], workspaceRoot: null })], a.state);
+    expect(b.state.overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: true, error: null });
+    expect(b.effects).toEqual([{ kind: 'api.registerFolders', items: [{ path: '/a' }], workspaceRoot: null }]);
+    expect(run([action({ type: 'project.candidates.submit', items: [{ path: '/a' }], workspaceRoot: null })], b.state).effects).toEqual([]);
     expect(run([action({ type: 'overlay.close' })], a.state).state.overlay).toEqual({ kind: 'none' });
   });
   it('登録が済めば閉じ、件数を知らせて準備の確かめを取り直す。ダイアログの上では開かない', () => {
-    const open = run([action({ type: 'project.candidates.open' }), action({ type: 'project.candidates.submit', paths: ['/a'], workspaceRoot: null })]).state;
-    const done = run([runtime({ type: 'project.candidates.done', registered: 2, failed: [] })], open);
+    const open = run([action({ type: 'project.candidates.open' }), action({ type: 'project.candidates.submit', items: [{ path: '/a' }], workspaceRoot: null })]).state;
+    const done = run([runtime({ type: 'project.candidates.done', registered: 2, linked: 0, failed: [] })], open);
     expect(done.state.overlay).toEqual({ kind: 'none' });
     expect(done.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトを 2 件登録しました' }, { kind: 'api.readiness' }]);
     const promote = run([action({ type: 'session.promote.open', id: 's1' })]).state;
     expect(run([action({ type: 'project.candidates.open' })], promote).state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+  });
+  // まとめて登録（0.6.1）。「フォルダの中から」で開く入口と、親フォルダの直下の読み込み、ほかの PC のプロジェクトに結び付けた件数。
+  it('「フォルダの中から」で開ける。新しいプロジェクトのダイアログのリンクからは、そのダイアログと入れ替える', () => {
+    expect(run([action({ type: 'project.candidates.open', source: 'folder' })]).state.overlay).toEqual({ kind: 'projectCandidates', source: 'folder', submitting: false, error: null });
+    const np = run([action({ type: 'project.new.open' })]).state;
+    const swapped = run([action({ type: 'project.candidates.open', source: 'folder' })], np);
+    expect(swapped.state.overlay).toEqual({ kind: 'projectCandidates', source: 'folder', submitting: false, error: null });
+    expect(swapped.state.projectCreate).toEqual({ kind: 'idle' });
+    expect(swapped.effects).toEqual([{ kind: 'api.folderCandidates' }]);
+    const promote = run([action({ type: 'session.promote.open', id: 's1' })]).state;
+    expect(run([action({ type: 'project.candidates.open', source: 'folder' })], promote).state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
+  });
+  it('親フォルダの直下を読むのは、ダイアログが開いている間だけ', () => {
+    const open = run([action({ type: 'project.candidates.open', source: 'folder' })]).state;
+    expect(run([action({ type: 'project.folders.load', parent: '~/src' })], open).effects).toEqual([{ kind: 'api.workspaceChildren', parent: '~/src' }]);
+    expect(run([action({ type: 'project.folders.load', parent: '~/src' })]).effects).toEqual([]);
+  });
+  it('ほかの PC のプロジェクトに結び付けたものがあれば、その件数も知らせる', () => {
+    const open = run([action({ type: 'project.candidates.open', source: 'folder' }), action({ type: 'project.candidates.submit', items: [{ path: '/a', linkTo: 'p1' }], workspaceRoot: null })]).state;
+    const done = run([runtime({ type: 'project.candidates.done', registered: 3, linked: 1, failed: [] })], open);
+    expect(done.effects).toEqual([{ kind: 'toast', level: 'info', message: 'プロジェクトを 3 件登録しました（うち 1 件は、ほかの PC のプロジェクトに結び付けました）' }, { kind: 'api.readiness' }]);
   });
 });
 
@@ -1393,7 +1414,7 @@ describe('この PC で再開', () => {
     expect(r.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: true }]);
   });
   it('押したら確認に出すものを取りに行き、届いたら確認の 1 枚を出し、承諾で写して再開する', () => {
-    const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' } };
+    const plan = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\a', lastAt: 1 }, to: { deviceName: 'mac', platform: 'darwin', path: '/w/a' }, replace: null };
     const a = run([action({ type: 'session.resumeHere.open', id: 's1' })]);
     expect(a.effects).toEqual([{ kind: 'api.resumeHerePlan', sessionId: 's1' }]);
     expect(a.state.overlay).toEqual({ kind: 'none' });
@@ -1406,7 +1427,7 @@ describe('この PC で再開', () => {
     expect(c.effects).toEqual([{ kind: 'api.resumeHere', sessionId: 's1', overwrite: false }]);
   });
   it('確認の 1 枚は閉じれば何も送らず、送信中は取りに行かない', () => {
-    const plan = { sessionId: 's1', from: { deviceName: null, platform: null, path: '/x', lastAt: null }, to: { deviceName: null, platform: null, path: null } };
+    const plan = { sessionId: 's1', from: { deviceName: null, platform: null, path: '/x', lastAt: null }, to: { deviceName: null, platform: null, path: null }, replace: null };
     const open = run([runtime({ type: 'resumeHere.plan', plan })]);
     const closed = run([action({ type: 'overlay.close' })], open.state);
     expect(closed.state.overlay).toEqual({ kind: 'none' });
@@ -1712,6 +1733,31 @@ describe('プロジェクトを作る', () => {
     const { state } = run([action({ type: 'project.new.open' }), action({ type: 'project.new.submit', place, startSession: false }), action({ type: 'overlay.close' })]);
     expect(state.overlay).toEqual({ kind: 'none' });
     expect(state.projectCreate).toEqual({ kind: 'idle' });
+  });
+  // 0.6.1：登録済みのプロジェクトの下のフォルダを選んだとき、作成のダイアログは包むプロジェクトを開くか、そこで始める。
+  it('包むプロジェクトで始めるなら、閉じて、そのフォルダを選んだ新しいセッションのダイアログを開く', () => {
+    const { state, effects } = run([action({ type: 'project.new.open' }), action({ type: 'project.new.enclosing', projectId: 'p1', dir: '/w/alpha/packages/ui', startSession: true })]);
+    expect(state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false, dir: '/w/alpha/packages/ui' });
+    expect(state.projectCreate).toEqual({ kind: 'idle' });
+    expect(state.launch).toEqual({ kind: 'idle' });
+    expect(effects).toContainEqual({ kind: 'api.workspaceDirs' });
+  });
+  it('包むプロジェクトを開くなら、閉じてそのプロジェクトの画面へ移る。送信中は何もしない', () => {
+    const { state, effects } = run([action({ type: 'project.new.open' }), action({ type: 'project.new.enclosing', projectId: 'p1', dir: '/w/alpha/packages/ui', startSession: false })]);
+    expect(state.overlay).toEqual({ kind: 'none' });
+    expect(state.projectCreate).toEqual({ kind: 'idle' });
+    expect(effects).toContainEqual({ kind: 'navigate', route: { name: 'project', id: 'p1' } });
+    const busy = run([action({ type: 'project.new.open' }), action({ type: 'project.new.submit', place, startSession: false }), action({ type: 'project.new.enclosing', projectId: 'p1', dir: '/w/a/b', startSession: false })]);
+    expect(busy.state.overlay).toEqual({ kind: 'newProject' });
+  });
+  it('新しいセッションのダイアログは、渡されたフォルダを overlay に持って開く', () => {
+    const { state } = run([action({ type: 'session.new.open', projectId: 'p1', dir: '/w/alpha/packages/ui' })]);
+    expect(state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false, dir: '/w/alpha/packages/ui' });
+  });
+  it('作業の場所（cwd）は前回値に残さない（worktree と同じ）。起動にはそのまま渡す', () => {
+    const a = run([action({ type: 'session.new.submit', params: { projectId: 'p1', model: 'opus', cwd: '/w/alpha/packages/ui' } })]);
+    expect(a.state.launchPrefs).toEqual({ p1: { model: 'opus' } });
+    expect(a.effects).toContainEqual({ kind: 'api.launch', params: { projectId: 'p1', model: 'opus', cwd: '/w/alpha/packages/ui' } });
   });
   it('パレットの「新しいプロジェクト」で作成のダイアログを開く', () => {
     const { state } = run([action({ type: 'palette.open' }), action({ type: 'palette.run', command: { id: 'cmd:new-project', label: '新しいプロジェクト' } })]);

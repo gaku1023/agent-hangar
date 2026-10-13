@@ -18,9 +18,9 @@ import { RunAccounts } from '../runs/accounts.ts';
 import { RunManager } from '../runs/manager.ts';
 import { createLiveChangeHandler } from '../sessions/liveChange.ts';
 import { OVERLAP_TICK_MS, OverlapWatch } from '../sessions/overlap.ts';
-import { ParkWatch, parkedSessionIds } from '../sessions/park.ts';
+import { hasMarkedIdle, ParkWatch, parkedSessionIds } from '../sessions/park.ts';
 import { setParkingSwitch } from '../db/queries.ts';
-import { StopNoticeWatch } from '../sessions/stopNotices.ts';
+import { paceNotices, StopNoticeWatch } from '../sessions/stopNotices.ts';
 import { paneOpsFor, type PaneOps } from '../tmux/pane.ts';
 import { HANGAR_SOCKET, hangarMux, type MuxServers } from '../tmux/servers.ts';
 import { accountOfProviderSession } from '../usage/accountOf.ts';
@@ -28,13 +28,15 @@ import { UsageTracker } from '../usage/statusline.ts';
 import type { DeliveryParts } from './delivery.ts';
 import type { HomeParts } from './home.ts';
 
-/** tmux の一覧を見て run の終了を拾う間隔。 */
+/** run の出入りや登録の変化の後（RunManager.stir）に、tmux の一覧を見て run の終了を拾う間隔。 */
 const RUN_POLL_MS = 2000;
 /**
- * デスクトップ通知の見張りの間隔。登録の読み直し（500 ミリ秒）と同じにする。
- * 登録が変わったときにも見るので、この周期が拾うのは、問いの文や許可の中身が後から届いたときと、リセットの時刻を過ぎたときである。
+ * 何も出入りしない間の、tmux の一覧を見る間隔（2026-10-14、0.6.1）。
+ * claude の終わりは登録の変化で stir されるので、この周期が拾うのは見ていないシェルタブの exit と、tmux のサーバごと落ちたことだけである。
  */
-const NOTICE_POLL_MS = 500;
+const RUN_IDLE_POLL_MS = 10_000;
+/** 休みの見張りの間隔。 */
+const PARK_POLL_MS = 2000;
 
 /**
  * 設定の tmux のパスから、tmux の口を作る。パスが無ければ null で、起動は使えない。
@@ -128,7 +130,7 @@ export function bootRuns(
     isLive: (providerSessionId) => registry.current().some((l) => l.sessionId === providerSessionId),
     // 引き取りと attach が、外で動く claude の pid とバックグラウンドの id を引く。
     live: () => registry.current(),
-    accounts: new RunAccounts({ db, claudeDir, store: accountStore }),
+    accounts: new RunAccounts({ db, claudeDir, store: accountStore, deviceId: device.id }),
     compat: compatLog,
     // Claude に渡す指示とシェルタブの名前を、設定の言語で出す。
     language: home.language,
@@ -136,21 +138,22 @@ export function bootRuns(
     injection: () => ({ askStatusAtEnd: settings.current.askStatusAtEnd !== false, liveHints: settings.current.liveHints !== false }),
   });
   // 区切り（Done、Archived）を付けたセッションが休みになったら、Claude を止める。Paused は戻ってくる会話なので止めない。
-  // 登録は 500 ミリ秒ごとの写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
+  // 止める候補があれば、登録は写しではなく、その場で読み直す。打ったばかりの発言で作業中に変わった会話を、古い写しのまま止めないためである。
   // 読めなかったときは、何も止めない。
   const parkWatch = new ParkWatch({
-    parkedIds: () => { try { return parkedSessionIds(db, readRegistry(claudeDir), device.id); } catch { return []; } },
+    // 写しに候補（Done か Archived の付いた休みの会話）が無ければ、登録を読み直さない。待機中に 2 秒ごとに読まないためである。
+    parkedIds: () => { try { return hasMarkedIdle(db, registry.current()) ? parkedSessionIds(db, readRegistry(claudeDir), device.id) : []; } catch { return []; } },
     stop: (id) => runs.park(id),
     // 設定の「Done と Archived にした会話を止める」。切っている間は止めず、一覧でも実行中として見せる（setParkingSwitch）。
     enabled: () => settings.current.autoPark !== false,
   });
   setParkingSwitch(db, () => settings.current.autoPark !== false);
   const usage = new UsageTracker(db, {
-    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id) }, providerSessionId),
+    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
     compat: compatLog,
   });
   const accounts: AccountsDeps = {
-    db, store: accountStore, auth: accountAuth, usage, runs, primaryDir: claudeDir,
+    db, store: accountStore, auth: accountAuth, usage, runs, primaryDir: claudeDir, deviceId: device.id,
     broadcast: (dto) => hub.broadcast({ type: 'accounts.update', accounts: dto }),
   };
   // 認証を読み終えたとき、ログインが始まって終わったときに、画面へ配る。
@@ -165,16 +168,14 @@ export function bootRuns(
   // デスクトップ通知のきっかけ（入力待ち、許可待ち、使用制限、リセット済み）。殻が GET /api/notify/feed で読む。
   const stopNotices = new StopNoticeWatch({
     db, deviceId: device.id, live: () => registry.current(), language: home.language, feed: delivery.osNotices,
-    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id) }, providerSessionId),
+    accountOf: (providerSessionId) => accountOfProviderSession({ db, hasAccount: (id) => !!accountStore.get(id), deviceId: device.id }, providerSessionId),
   });
-  const noticeTick = (): void => {
-    try { stopNotices.tick(); } catch (e) { console.error('[notify]', e instanceof Error ? e.message : e); }
-  };
-  registry.onChange(noticeTick);
+  // 待っているもの（問いの文、許可の中身）がある間だけ短い周期で見る。登録が変わったときはその場で見る（paceNotices）。
+  const notices = paceNotices(stopNotices);
+  registry.onChange(() => notices.onLiveChange());
   const touch = (): void => touchDevice({ db, device, shellHook: shell.hook });
   let parkTimer: ReturnType<typeof setInterval> | null = null;
   let overlapTimer: ReturnType<typeof setInterval> | null = null;
-  let noticeTimer: ReturnType<typeof setInterval> | null = null;
   let deviceTimer: ReturnType<typeof setInterval> | null = null;
   return {
     runs, usage, accounts, claudeBin, localClaude, overlaps,
@@ -218,13 +219,13 @@ export function bootRuns(
       // 最初の読み取りは onChange を通らないので、生きた run の最後の状態と、状態の移り変わりもここで覚える。
       runs.noteLastLive(registry.current());
       overlaps.noteLive(registry.current());
-      noticeTick();
+      notices.onLiveChange();
     },
     start() {
       // 前回の終了時に生きていた run のうち、tmux セッションが残っていないものを lost で閉じる。
       const lost = runs.recoverAtStartup();
       if (lost.length) console.log(`[runs] tmux セッションの無い run を ${lost.length} 件 lost で閉じました`);
-      runs.startPolling(RUN_POLL_MS);
+      runs.startPolling(RUN_POLL_MS, RUN_IDLE_POLL_MS);
       parkTimer = setInterval(() => {
         try {
           const stopped = parkWatch.tick();
@@ -232,7 +233,7 @@ export function bootRuns(
         } catch (e) {
           console.error('[park]', e instanceof Error ? e.message : e);
         }
-      }, RUN_POLL_MS);
+      }, PARK_POLL_MS);
       parkTimer.unref();
       overlapTimer = setInterval(() => {
         try {
@@ -242,8 +243,7 @@ export function bootRuns(
         }
       }, OVERLAP_TICK_MS);
       overlapTimer.unref();
-      noticeTimer = setInterval(noticeTick, NOTICE_POLL_MS);
-      noticeTimer.unref();
+      notices.start();
     },
     startPresence() {
       touch();
@@ -253,7 +253,7 @@ export function bootRuns(
     stopParkTimer() {
       if (parkTimer) clearInterval(parkTimer);
       if (overlapTimer) clearInterval(overlapTimer);
-      if (noticeTimer) clearInterval(noticeTimer);
+      notices.stop();
     },
     stopPresence() { if (deviceTimer) clearInterval(deviceTimer); },
   };
