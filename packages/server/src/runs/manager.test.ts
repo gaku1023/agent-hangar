@@ -94,6 +94,19 @@ describe('RunManager.start の入力検査（tmux 不要）', () => {
     expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
     expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
   });
+  it('作業の場所（cwd）がプロジェクトの場所の外か、相対パスなら、行を作る前に 400 で断る', () => {
+    const rm = make({ tmux: null });
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'hangar-rm-outside-'));
+    try {
+      for (const bad of [outside, 'sub', path.join(cwd, '..', path.basename(outside))]) {
+        expect(() => rm.start({ projectId: 'p1', cwd: bad })).toThrow(expect.objectContaining({ status: 400, message: expect.stringContaining('作業の場所は、プロジェクトの場所の下のフォルダにしてください') }));
+      }
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+    expect(db.prepare('select count(*) c from sessions').get()).toEqual({ c: 0 });
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 0 });
+  });
   it('失敗は鍵と引数で投げるので、境目は英語でも出せる', () => {
     const rm = make({ tmux: null });
     const caught = (fn: () => unknown): unknown => { try { fn(); } catch (e) { return e; } throw new Error('投げなかった'); };
@@ -285,6 +298,19 @@ describe.skipIf(!TMUX)('RunManager.start（tmux 上）', () => {
     expect(tmux!.run('show-environment', '-t', `=${tab.tmuxName}`, 'LC_CTYPE').stdout.trim()).toBe('LC_CTYPE=UTF-8');
   });
 
+  it('cwd にプロジェクトの場所の下のフォルダを渡すと、セッションはそのプロジェクトに入り、Claude Code はそのフォルダで起きる', async () => {
+    const sub = path.join(cwd, 'packages', 'ui');
+    fs.mkdirSync(sub, { recursive: true });
+    const r = make().start({ projectId: 'p1', cwd: sub + path.sep });
+    expect(db.prepare('select cwd, project_id from sessions where id = ?').get(r.sessionId)).toEqual({ cwd: sub, project_id: 'p1' });
+    expect(tmux!.run('display-message', '-p', '-t', `=${r.run.tmuxName}:`, '#{pane_current_path}').stdout.trim()).toBe(fs.realpathSync(sub));
+    const args = await launchedArgs(r.run.id);
+    expect(args[args.indexOf('--append-system-prompt') + 1]).toContain('プロジェクト：alpha（' + sub + '）');
+  });
+  it('cwd がプロジェクトの場所そのものなら、渡さないときと同じ', () => {
+    const r = make().start({ projectId: 'p1', cwd });
+    expect(db.prepare('select cwd, project_id from sessions where id = ?').get(r.sessionId)).toEqual({ cwd, project_id: 'p1' });
+  });
   it('scratch は新しいディレクトリを作り、スクラッチのプロジェクトに属するセッションを起動する', async () => {
     const rm = make();
     // projectId が一緒に来ても scratch を優先する。

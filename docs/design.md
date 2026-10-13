@@ -584,7 +584,8 @@ create table projects (
   id text primary key, name text not null,
   status text not null check (status in ('active','paused','done','archived')),
   is_scratch integer not null default 0,
-  updated_at integer not null, deleted_at integer, origin_device text not null
+  updated_at integer not null, deleted_at integer, origin_device text not null,
+  git_remote text                                 -- 正規化した git の remote（github.com/owner/repo）。版 24（0.6.2）
 );
 
 -- 端末ごとのパス。同じプロジェクトが端末ごとに別のパスにあってよい。
@@ -1379,6 +1380,7 @@ Bypass permissions を選ぶと、札が赤い縁と警告の印になり、起�
 | Finder で選んだフォルダ（ワークスペースの外か深い階層） | フォルダを登録して始める | 「ワークスペースの外のフォルダです。この PC でのパスだけを覚えます。ほかの PC では、開いたときに場所を聞きます」 |
 
 Finder で選んだパスが登録済みのプロジェクトのルートなら、そのプロジェクトを選んだ状態にする（見出しも「新しいセッション」）。
+登録済みのプロジェクトの下のフォルダなら、セッションはそのプロジェクトに入れ、Claude Code はそのフォルダで起こす（起動の引数の `cwd`、0.6.2。「フォルダとプロジェクトの結び付き」）。
 Finder を取り消したら、選択を変えない。
 新しいフォルダと未登録のフォルダでは、札の値（モデルなど）の初期値は前回値が無いので既定である。
 
@@ -2556,8 +2558,9 @@ N は UI の store に届いているセッションで数える。
 
 ### 同じフォルダのプロジェクトをまとめる
 
-PC をまたいで同じものと見なす仕組みは無く、どの PC もフォルダを登録するたびに新しい ID のプロジェクトを作る。
+0.6.1 までは PC をまたいで同じものと見なす仕組みが無く、どの PC もフォルダを登録するたびに新しい ID のプロジェクトを作っていた。
 そのため、2 台が同じリポジトリを別々に登録すると、同期で同じ名前のプロジェクトが 2 つ並ぶ。
+0.6.2 からは、登録のときに、ほかの PC から届いた同じプロジェクトへ結び付ける（下の「フォルダとプロジェクトの結び付き」）。それでも 2 つになったものは、この節のとおりまとめる。
 届いた方の「場所を再指定」で、この PC で登録済みのフォルダを選ぶと、同じフォルダを指すプロジェクトが 2 つになる。
 そうなると、新しいセッションの入り先が、DB の返す順で決まってしまう（同じ長さの場所の最長一致）。
 0.6.1 から、これを 1 つにまとめる（`projects/registry.ts`）。
@@ -2607,11 +2610,73 @@ PC をまたいで同じものと見なす仕組みは無く、どの PC もフ�
 作成場所の候補を選んだときは、先に作成場所として保存する（保存のときに直下が登録されるので、ダイアログではその行を外せないチェックにする）。
 
 作成場所を決めていれば、起動時に、その直下で cwd がそのディレクトリ以下の Claude セッションが 1 つ以上あるものを自動でプロジェクトにする。
+ただし、ほかの PC から届いた同じプロジェクト（下の節の強い一致と弱い一致）があれば、新しく作らずにそれへ結び付ける（0.6.2）。
 セッションのない直下ディレクトリは、新しいセッションのダイアログの検索と、作成のダイアログの未登録の一覧にだけ出す。
 起動した後に、直下の新しいディレクトリでセッションが現れたら、起動時と同じ規則でその場でプロジェクトにする。
 ルート外の cwd のセッションは「未分類」に入れ、後から手で紐づけられる。
 起動した後にワークスペースの外の cwd で未分類のセッションが現れても、知らせは流さない（2026-10-10 に外した。理由は「注意と知らせの出し分け」の節）。
 ディレクトリが戻ってルートが解決に戻ったら、その間に溜まった未分類のセッションを紐づけ直し、変わったセッションとプロジェクトを配る。
+
+### フォルダとプロジェクトの結び付き（0.6.2）
+
+フォルダをプロジェクトとして登録する流れを作り直した（2026-10-14 に利用者が決めた）。
+この節はサーバの側で、画面（まとめて登録のダイアログの「フォルダの中から」、新しいセッションと新しいプロジェクトのダイアログ）は後の PR で足す。
+穴は 2 つあった。
+
+- 穴 1：登録済みのプロジェクトの下のフォルダを登録すると、黙って別のプロジェクトに分かれていた。
+- 穴 2：ほかの PC で登録したプロジェクトが同期で届いていても、この PC で同じフォルダを登録すると、新しい ID のプロジェクトを作っていた。
+
+フォルダとプロジェクトの関係は 3 つに分ける（`projects/link.ts`）。どれもこの PC の場所の行との比べで、綴りの違い（NFC と NFD、Windows の大文字小文字）は同じフォルダとして比べる。
+
+- 登録済み（`registeredAt`）：フォルダがこの PC のプロジェクトの場所そのもの。
+- 別のプロジェクトの中（`enclosingProject`）：フォルダがこの PC のプロジェクトの場所の下にある。いちばん深いものを返す。数えるのは場所の見つかっているもので、スクラッチは数えない（セッションの紐づけの最長一致と同じ行である）。
+- 結び付く候補（`linkCandidateFor`）：この PC に場所の無いプロジェクト（場所の行が無いか、見つからないもの。消したもの、スクラッチ、アーカイブは入れない）のうち、git の remote が同じもの（強い一致）と、名前が同じで remote が食い違わないもの（弱い一致）。
+  強い一致を先に選び、同じ強さが複数あれば新しく書かれたものを選ぶ。
+  名前は NFC にそろえ、大文字小文字を無視して比べる。
+  名前だけの一致も既定で結び付ける（利用者の答え）。remote がどちらにもあって違うときは、名前が同じでも候補にしない。
+  アーカイブを入れないのは、使わないと決めたものを黙って起こさないためである。
+
+remote は `projects.git_remote`（版 24）に、正規化した形（`github.com/owner/repo`）で持つ（`git/remote.ts` の `normalizeRemote`）。
+ssh（`git@host:owner/repo.git`、`ssh://git@host:22/owner/repo`）と https を同じ形に読み、資格情報とトークン、ポート、問いと断片、末尾の `.git` は入れない。ホストは小文字にし、比べるときは大文字小文字を無視する。
+手元のパスの remote（`/srv/repo.git`、`file://`）は、ほかの PC と比べる意味が無いので null にする。
+読むのはフォルダの直下の `.git` の config だけで、子プロセスは起こさない。origin を先に、無ければ最初の remote を使う。worktree は元のリポジトリの config を読む。
+リポジトリの中の下のフォルダには remote を付けない。モノレポの下のフォルダを別のプロジェクトにしたとき、親のリポジトリの remote で強い一致にしないためである。
+埋めるのは、場所を持つ PC が、登録（`insertProject`）、結び付け、索引の起動（`fillProjectRemotes`）のときで、空のものだけである。
+埋まっている値は書き換えない。PC ごとに remote が違うと（フォークなど）、起動のたびに書き合いになるからである。
+同期は行を JSON の payload のまま運ぶので、クラウド（Worker）にマイグレーションは要らず、互換の版も変えない。列を持たない古い PC は、適用のときに自分の表に無い列を捨てる。
+
+結び付けは「場所を再指定」（`resolveProject` の `repoint`）と同じ書き込みで、その下の未分類の会話も紐づける（`registry.ts` の `linkProjectHere`）。プロジェクトの remote が空なら、そのフォルダの remote で埋める。名前は変えない。
+消えるものが無いので、確認の 1 枚は挟まない。
+
+`registerProjectDir`（`projects/create.ts`）は、次の順に見る。
+
+1. 同じフォルダが登録済みなら、そのプロジェクトを返す（アーカイブなら Active に戻す）。結び付け先（`linkTo`）を渡していて、それと違うプロジェクトの場所なら 409 で断る（まとめるのは「場所を再指定」の確認から）。
+2. 登録済みのプロジェクトの下なら、`allowNested` を明示したときだけ先へ進む。無ければ `ProjectNestedError`（409）で包むプロジェクトを返す。古い画面からの登録で、黙ってプロジェクトが分かれないためである。分けても、いまある会話は包む方に残る（`assignSessions` は未分類しか動かさない）。分かれるのはこれからの会話である。
+3. `linkTo` を渡していれば、新しく作らずにそのプロジェクトのこの PC の場所にする。先が無い、消した、スクラッチなら 404、この PC で既に場所が見つかっていれば 409（その場所を黙って動かさない。動かすのは「場所を再指定」から）。
+4. どれでもなければ新しく作る。
+
+作成場所の直下の自動登録（`syncProjectsFromWorkspace`、`registerWorkspaceChildOf`）は、結び付く候補（強い一致と弱い一致）があれば、新しく作らずに結び付ける。remote が食い違うときは結び付けず、今までどおり作る。
+`syncProjectsFromWorkspace` は、作った id（`created`）と結び付けた id（`linked`）を返す。
+
+画面が使う口は次のとおりである。DTO は `packages/shared/src/api.ts` にある。
+
+- `GET /api/workspace/children?parent=<パス>`：親の直下の隠しでないフォルダを、Finder と同じ並び（数字は数の順、大文字小文字は区別しない）で返す（`projects/folders.ts` の `workspaceChildren`、`WorkspaceChildrenDto`）。
+  会話の無いフォルダも並べる。行は名前、パス、git の印（直下に `.git` がある）、worktree の印、remote、この PC の会話の数と最後の活動、登録済み、別のプロジェクトの中、結び付く候補を持つ。
+  ほかの PC の会話は数えない（パスがその PC のものだからである）。
+  git でなく中に git のフォルダを持つもの（`~/src/clients` など）は、1 段下の子も返す（さらに下は開かない）。
+  結び付く候補は、登録済みと worktree の行には付けない。同じプロジェクトに結び付く行が 2 つ以上あれば、名前がプロジェクトと同じ行（無ければ先の行）にだけ付ける。1 つのプロジェクトがこの PC に持てる場所は 1 つだからである。
+  親そのものがプロジェクトの場所かその下なら、包むプロジェクトを `enclosing` に入れる（まとめて登録の黄の帯）。
+  親は `~` をホームに直す。相対パス、無いフォルダ、ファイルは 400 で断る。読めないフォルダ（macOS の保護されたフォルダなど）は子が無いものとして扱う。
+- `GET /api/workspace/inspect?path=<パス>&name=<名前>`：選んだ 1 つのフォルダの事前の問い合わせ（`inspectFolder`、`FolderInspectDto`）。新しいセッションと新しいプロジェクトのダイアログが使う。
+  登録済みか、別のプロジェクトの中か（その場所からの相対パスも）、結び付く候補があるかを返す。`name` を渡すと、弱い一致をフォルダの名前ではなくその名前で見る。
+- `POST /api/projects` の `{ kind: 'dir' }` は `allowNested` と `linkTo` を受ける。入れ子で `allowNested` が無ければ 409 で、本文は `ProjectNestedDto`（`code: 'project_nested'` と包むプロジェクト）である。
+- `POST /api/workspace/register` は、今までの `{ paths }`（どれも新しく作る）のほかに、`{ items: { path, linkTo?, allowNested? }[] }` を受ける。どちらか一方だけで、両方は 400 である。
+  結び付けたものの id を `linked` に返す。入れ子で `allowNested` の無い行、結び付けられない行は `failed` に理由を添えて入る。最後に `assignSessions` を呼ぶ。
+
+登録済みのプロジェクトの下のフォルダから始めるときは、セッションは親のプロジェクトに入れ、Claude Code はそのフォルダで起こす（利用者の答え）。
+起動の引数 `LaunchParams` に作業の場所 `cwd` を足した。省けばプロジェクトの場所で起こす。
+`cwd` はプロジェクトの場所の下（場所そのものを含む）に限り、相対パスと外は行を作る前に 400 で断る（`run.launch.cwdOutside`）。外を許すと、そのプロジェクトのセッションがプロジェクトの外で動き、場所の最長一致の紐づけとも食い違うためである。スクラッチでは使わない。
+`cwd` は run の `launch_params` に残る。画面は worktree と同じく、前回値に残さない。
 
 ## 画面
 
@@ -5522,10 +5587,12 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
 - スクラッチかどうかの判定は、スクラッチのルートの下にあるかで行い、ルート自身は含めない。`scratch_root` は `project_roots` を端末で絞って引く。
 - 昇格：`POST /api/sessions/:id/promote { name, gitInit, moveFiles, parent? }`。`name` は `/` を含まない 1 字以上で、`<parent か workspaceRoot>/<name>` が既にあれば 409。作成場所が空で `parent` も無ければ 400。移動は先に全件の衝突を調べてから `fs.renameSync` で行い、途中で失敗したら逆順に戻す。`moveFiles` が真でも run が生きていれば移動せず、`moved: false` と理由を返す。
 - プロジェクトの作成：`POST /api/projects` は本文を 2 つの形で受ける。`{ kind: 'newDir', name, gitInit, parent? }` は `<parent か workspaceRoot>/<name>` を作り（作成場所が空で `parent` も無ければ 400）（`git init` は選ばれたときだけ）、プロジェクト行とこの端末の `project_roots` を作って 201 を返す。名前の検証、既にあれば 409、`git init` に失敗したら作ったものを片付けることは、昇格と同じ `createProjectDir` を通る。`{ kind: 'dir', path, name? }` は既存のディレクトリを登録し（`registerProjectDir`）、新しければ 201、登録済みなら 200 で既存を返す。名前を省くと basename になり、アーカイブされたプロジェクトなら Active に戻す。先頭の `~/` はホームに直し、相対パスと、作成場所やその上のフォルダ、ファイルシステムの根、ホームフォルダは 400 で断る（作成場所が空でも根とホームは断る）。ルートを登録すると最も長い一致でワークスペースの下のセッションをすべて取り込み、直下のフォルダの自動の登録も止まるためである（Finder で何も選ばずに「開く」を押すとルートが返る）。`kind` の無い本文は 400 で断る。
+  `kind: 'dir'` は `allowNested` と `linkTo` も受ける（0.6.2）。登録済みのプロジェクトの下のフォルダで `allowNested` が無ければ 409（`ProjectNestedDto`）、`linkTo` はほかの PC から届いたプロジェクトへの結び付けである（「フォルダとプロジェクトの結び付き」）。
   `kind: 'dir'` で登録したら、その下で動いた未分類のセッションをその場で紐づける（`assignSessions`、2026-10-13）。
   以前は呼んでおらず、次の起動まで未分類のまま残っていた。
   すでにほかのプロジェクトに入っているセッションは動かさない。
-- 会話したフォルダの候補：`GET /api/workspace/candidates` は `{ candidates: { path, sessionCount, lastActivityAt, worktreeCount }[], suggestedRoot }` を返す（初日のプロジェクト。上の「プロジェクトの登録」の規則）。`POST /api/workspace/register { paths }` は 1 件ずつ `registerProjectDir` で登録し、最後に `assignSessions` で未分類の会話を紐づけ直して `{ projects, failed: { path, error }[] }` を返す（登録できないものがあっても断らない。500 件まで）。
+- 会話したフォルダの候補：`GET /api/workspace/candidates` は `{ candidates: { path, sessionCount, lastActivityAt, worktreeCount }[], suggestedRoot }` を返す（初日のプロジェクト。上の「プロジェクトの登録」の規則）。`POST /api/workspace/register { paths }` か `{ items: { path, linkTo?, allowNested? }[] }` は 1 件ずつ `registerProjectDir` で登録し、最後に `assignSessions` で未分類の会話を紐づけ直して `{ projects, failed: { path, error }[], linked }` を返す（登録できないものがあっても断らない。500 件まで）。
+- フォルダの中から：`GET /api/workspace/children?parent=` は親の直下の一覧（`WorkspaceChildrenDto`）を、`GET /api/workspace/inspect?path=&name=` は 1 つのフォルダの入れ子と結び付く候補（`FolderInspectDto`）を返す（「フォルダとプロジェクトの結び付き」）。
 - 未登録のフォルダの一覧：`GET /api/workspace/dirs` は、ワークスペース直下の隠しでなく、この端末で登録済みのルートに当たらないディレクトリを、名前順に `{ name, path }[]` で返す。比較は `normalizeDir`（NFC）でそろえる。一覧から削除したプロジェクトのフォルダは、ルートが論理削除されているので未登録に数える。
 - その場の登録：サーバの `sessionChanged` で、未分類のセッションを紐づけられなかったとき、cwd がワークスペース直下のディレクトリ（またはその下）で、実在し、隠しでなく、まだ登録されていなければ、起動時の `syncProjectsFromWorkspace` と同じ規則でプロジェクトにし（`registry.ts` の `registerWorkspaceChildOf`）、紐づけ直して `project.upsert` と `session.upsert` を配る。同じセッションで何度も試さない。起動の途中は行わない（起動時の全走査は `syncProjectsFromWorkspace` が受け持つ）。当たらなかった cwd だけが、これまでどおりトーストで知らされる。
 - フォルダ選択の殻の命令：`pick_folder(default_path)` は `blocking_pick_folder` で macOS のフォルダ選択を開き、選んだパスか、取り消しなら null を返す。頁に与える権限は `allow-pick-folder` の 1 つだけで（`capabilities/remote-pick-folder.json`）、プラグインの JS の権限は与えない。UI の `DesktopBridge.pickFolder` は殻の外では口が無く、Finder の操作を出さない。

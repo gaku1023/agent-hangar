@@ -4,7 +4,9 @@ import { newId, type ResolveAction } from '@agent-hangar/shared';
 import { touchRow } from '../db/notify.ts';
 import type { Db } from '../db/open.ts';
 import { softDeleteShared, upsertShared } from '../db/shared.ts';
+import { gitRemoteOf } from '../git/remote.ts';
 import { isStrictlyUnder, isUnder, pathKey, samePath } from '../platform/paths.ts';
+import { fillProjectRemote, linkCandidateFor, placelessProjects } from './link.ts';
 
 /**
  * パスを比べられる形にそろえる。`..` や末尾の `/` を除き、Unicode を NFC にする。
@@ -39,26 +41,59 @@ function childDirs(root: string): string[] {
     .sort();
 }
 
-/** プロジェクト行と、この端末のルート（解決済み）を作る。作ったプロジェクトの id を返す。 */
+/**
+ * プロジェクト行と、この端末のルート（解決済み）を作る。作ったプロジェクトの id を返す。
+ * フォルダが git のリポジトリなら、その remote（正規化した形）も入れる。ほかの PC がこのプロジェクトと同じフォルダを見分けるのに使う。
+ */
 export function insertProject(db: Db, deviceId: string, name: string, dir: string): string {
   const id = newId();
-  upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0 }, deviceId);
+  upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0, git_remote: gitRemoteOf(dir) }, deviceId);
   upsertShared(db, 'project_roots', { id: newId(), project_id: id, device_id: deviceId, path: dir, resolved: 1 }, deviceId);
   return id;
 }
 
-/** ワークスペース直下のディレクトリのうち、セッションを持つものをプロジェクトとして登録する。 */
-export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoot: string): { created: string[] } {
+/**
+ * この PC に場所の無いプロジェクトを、dir の場所として結び付ける（0.6.2）。
+ * 書き込みは「場所を再指定」（resolveProject の repoint）と同じで、その下の未分類の会話も紐づける。
+ * プロジェクトの remote が空なら、dir のリポジトリの remote で埋める。
+ * 結び付けてよいか（この PC に場所が無いか、ほかのプロジェクトの場所でないか）は呼び手が確かめる。
+ */
+export function linkProjectHere(db: Db, deviceId: string, projectId: string, dir: string): void {
+  resolveProject(db, deviceId, projectId, { kind: 'repoint', path: dir });
+  fillProjectRemote(db, deviceId, projectId, normalizeDir(dir));
+}
+
+/**
+ * 作成場所の直下の 1 つのフォルダを、自動の登録の規則でプロジェクトにする。
+ * ほかの PC から届いた同じプロジェクト（remote が同じもの、名前が同じで remote が食い違わないもの）があれば、新しく作らずに結び付ける。
+ * remote が食い違うときは結び付けず、今までどおり作る。
+ */
+function adoptWorkspaceChild(db: Db, deviceId: string, dir: string): { projectId: string; linked: boolean } {
+  const link = linkCandidateFor(placelessProjects(db, deviceId), { name: path.basename(dir), remote: gitRemoteOf(dir) });
+  if (link) {
+    linkProjectHere(db, deviceId, link.projectId, dir);
+    return { projectId: link.projectId, linked: true };
+  }
+  return { projectId: insertProject(db, deviceId, path.basename(dir), dir), linked: false };
+}
+
+/**
+ * ワークスペース直下のディレクトリのうち、セッションを持つものをプロジェクトとして登録する。
+ * ほかの PC から届いた同じプロジェクトがあれば、作らずに結び付ける（adoptWorkspaceChild）。created は作った id、linked は結び付けた id である。
+ */
+export function syncProjectsFromWorkspace(db: Db, deviceId: string, workspaceRoot: string): { created: string[]; linked: string[] } {
   const created: string[] = [];
+  const linked: string[] = [];
   // SQL の文字列比較では NFC と NFD が一致しないので、正規化してから JS で比べる。
   const cwds = (db.prepare('select distinct cwd from sessions where deleted_at is null').all() as { cwd: string }[]).map((r) => r.cwd.normalize('NFC'));
   const known = knownRoots(db, deviceId);
   for (const dir of childDirs(workspaceRoot)) {
     if (!cwds.some((c) => isUnder(c, dir))) continue;
     if (known.has(pathKey(dir))) continue;
-    created.push(insertProject(db, deviceId, path.basename(dir), dir));
+    const r = adoptWorkspaceChild(db, deviceId, dir);
+    (r.linked ? linked : created).push(r.projectId);
   }
-  return { created };
+  return { created, linked };
 }
 
 export type WorkspaceDir = { name: string; path: string };
@@ -81,7 +116,7 @@ export function listWorkspaceDirs(db: Db, deviceId: string, workspaceRoot: strin
 /**
  * 起動中に現れた未分類のセッションのための、その場の自動登録。
  * cwd がワークスペース直下のディレクトリ（またはその下）にあり、そのディレクトリが実在し、隠しでなく、未登録なら、
- * 起動時の syncProjectsFromWorkspace と同じ規則でプロジェクトにして id を返す。
+ * 起動時の syncProjectsFromWorkspace と同じ規則でプロジェクトにして id を返す（結び付けたときは、結び付けたプロジェクトの id）。
  * ワークスペースの外とワークスペースそのものは null（未分類に残し、利用者に知らせる）。
  */
 export function registerWorkspaceChildOf(db: Db, deviceId: string, workspaceRoot: string, cwd: string): string | null {
@@ -96,7 +131,7 @@ export function registerWorkspaceChildOf(db: Db, deviceId: string, workspaceRoot
   // ディスク上の名前が NFD のとき、正規化を区別するファイルシステム（Linux など）では NFC のパスでは開けない。
   if (!childDirs(root).some((d) => samePath(d, dir))) return null;
   if (knownRoots(db, deviceId).has(pathKey(dir))) return null;
-  return insertProject(db, deviceId, head, dir);
+  return adoptWorkspaceChild(db, deviceId, normalizeDir(dir)).projectId;
 }
 
 /**

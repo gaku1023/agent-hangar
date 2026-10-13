@@ -279,6 +279,90 @@ describe('会話したフォルダの候補', () => {
   });
 });
 
+// 0.6.2：フォルダの中から選んで登録する。入れ子と、ほかの PC から届いたプロジェクトへの結び付け。
+describe('フォルダの中から登録する', () => {
+  const send = (p: string, body: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  /** ほかの PC だけに場所を持つプロジェクト。 */
+  function elsewhere(id: string, name: string, remote: string | null) {
+    upsertShared(db, 'devices', { id: 'other', name: 'work-pc', platform: 'darwin' }, 'other');
+    upsertShared(db, 'projects', { id, name, status: 'active', is_scratch: 0, git_remote: remote }, 'other');
+    upsertShared(db, 'project_roots', { id: `r-${id}`, project_id: id, device_id: 'other', path: `/Users/other/${name}`, resolved: 1 }, 'other');
+  }
+  function origin(dir: string, url: string) {
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), `[remote "origin"]\n\turl = ${url}\n`);
+  }
+  const rootHere = (id: string) => db.prepare("select path, resolved from project_roots where project_id = ? and device_id = 'd' and deleted_at is null").get(id);
+
+  it('GET /api/workspace/children は親の直下を返し、parent が無いか読めなければ 400', async () => {
+    const src = path.join(ws, 'src');
+    origin(path.join(src, 'notes-app'), 'git@github.com:me/notes-app.git');
+    elsewhere('far', 'notes', 'github.com/me/notes-app');
+    const r = await json(await get(`/api/workspace/children?parent=${encodeURIComponent(src)}`));
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ parent: src, enclosing: null, children: [expect.objectContaining({ name: 'notes-app', git: true, remote: 'github.com/me/notes-app', link: expect.objectContaining({ projectId: 'far', match: 'remote', deviceName: 'work-pc' }) })] });
+    // 作成場所の直下には、登録済みの alpha が並ぶ。
+    expect((await json(await get(`/api/workspace/children?parent=${encodeURIComponent(ws)}`))).body.children.find((c: { name: string }) => c.name === 'alpha')).toMatchObject({ registered: { projectId: list0ProjectId(), name: 'alpha' } });
+    for (const q of ['', '?parent=', '?parent=relative', `?parent=${encodeURIComponent(path.join(ws, 'nope'))}`]) expect((await get(`/api/workspace/children${q}`)).status).toBe(400);
+  });
+  it('GET /api/workspace/inspect は、入れ子と結び付く候補を返す', async () => {
+    const ui = path.join(ws, 'alpha', 'packages', 'ui');
+    fs.mkdirSync(ui, { recursive: true });
+    const r = await json(await get(`/api/workspace/inspect?path=${encodeURIComponent(ui)}`));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ path: ui, registered: null, enclosing: { projectId: list0ProjectId(), name: 'alpha', path: path.join(ws, 'alpha'), relative: path.join('packages', 'ui') }, link: null });
+    const plain = path.join(ws, 'plain');
+    fs.mkdirSync(plain);
+    elsewhere('n', 'shop', null);
+    expect((await json(await get(`/api/workspace/inspect?path=${encodeURIComponent(plain)}&name=shop`))).body.link).toMatchObject({ projectId: 'n', match: 'name' });
+    expect((await get('/api/workspace/inspect')).status).toBe(400);
+  });
+  it('POST /api/projects の dir は、登録済みのプロジェクトの下なら 409 で包むプロジェクトを返し、allowNested で分ける', async () => {
+    const ui = path.join(ws, 'alpha', 'ui');
+    fs.mkdirSync(ui);
+    const r = await send('/api/projects', { kind: 'dir', path: ui });
+    expect(r.status).toBe(409);
+    expect(await r.json()).toEqual({ error: 'このフォルダはプロジェクト alpha の中にあります', code: 'project_nested', enclosing: { projectId: list0ProjectId(), name: 'alpha', path: path.join(ws, 'alpha') } });
+    const ok = await send('/api/projects', { kind: 'dir', path: ui, allowNested: true });
+    expect(ok.status).toBe(201);
+    expect(await ok.json()).toMatchObject({ name: 'ui', path: ui });
+  });
+  it('POST /api/projects の dir は、linkTo でほかの PC のプロジェクトをこの PC の場所に結び付ける', async () => {
+    const dir = path.join(ws, 'x', 'notes-app');
+    fs.mkdirSync(dir, { recursive: true });
+    elsewhere('far', 'notes-app', null);
+    const r = await send('/api/projects', { kind: 'dir', path: dir, linkTo: 'far' });
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ id: 'far', name: 'notes-app', path: dir, resolved: true });
+    expect(rootHere('far')).toEqual({ path: dir, resolved: 1 });
+    expect((await send('/api/projects', { kind: 'dir', path: path.join(ws, 'x'), linkTo: 3 })).status).toBe(400);
+  });
+  it('POST /api/workspace/register は、行ごとに結び付け先と入れ子の明示を受け、結び付けたものを linked に返す', async () => {
+    const a = path.join(ws, 'x', 'a');
+    const b = path.join(ws, 'x', 'b');
+    const nested = path.join(ws, 'alpha', 'sub');
+    for (const d of [a, b, nested]) fs.mkdirSync(d, { recursive: true });
+    upsertShared(db, 'sessions', { id: 'c-a', provider: 'claude-code', provider_session_id: 'c-a', cwd: a, home_device: 'd', last_activity_at: 50 }, 'd');
+    elsewhere('far', 'a-old', null);
+    const r = await send('/api/workspace/register', { items: [{ path: a, linkTo: 'far' }, { path: b }, { path: nested }] });
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.linked).toEqual(['far']);
+    expect(body.projects.map((p: { name: string }) => p.name).sort()).toEqual(['a-old', 'b']);
+    expect(body.failed).toEqual([{ path: nested, error: 'このフォルダはプロジェクト alpha の中にあります' }]);
+    expect(rootHere('far')).toEqual({ path: a, resolved: 1 });
+    // 結び付けた先へ、その下の未分類の会話が入る。
+    expect((db.prepare("select project_id from sessions where id = 'c-a'").get() as { project_id: string }).project_id).toBe('far');
+    const again = await send('/api/workspace/register', { items: [{ path: nested, allowNested: true }] });
+    expect((await again.json()).projects).toEqual([expect.objectContaining({ name: 'sub', path: nested })]);
+  });
+  it('POST /api/workspace/register の items の形が違えば 400', async () => {
+    for (const bad of [{ items: 'x' }, { items: [{}] }, { items: [{ path: 1 }] }, { items: [{ path: '/x', linkTo: 3 }] }, { items: [{ path: '/x', allowNested: 'yes' }] }, { paths: ['/x'], items: [] }]) {
+      expect((await send('/api/workspace/register', bad)).status, JSON.stringify(bad)).toBe(400);
+    }
+  });
+});
+
 describe('書いた行のイベントは配る層から届く', () => {
   const send = (p: string, body?: unknown, method = 'POST') => app.request(p, { method, headers: { ...H, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const of = <T extends ServerEvent['type']>(type: T) => sent.filter((e): e is Extract<ServerEvent, { type: T }> => e.type === type);

@@ -19,7 +19,8 @@ import { toolPathIssue } from '../config/readiness.ts';
 import { ensureHookScript } from '../launch/hookScript.ts';
 import { ensureWrapperScript, pruneRunLogs, runLogPath } from '../launch/wrapper.ts';
 import { promptMentionsDrops } from '../prompt/drops.ts';
-import { assignSession } from '../projects/registry.ts';
+import { assignSession, normalizeDir } from '../projects/registry.ts';
+import { isUnder } from '../platform/paths.ts';
 import { ensureScratchProject, newScratchDir } from '../projects/scratch.ts';
 import { hasTranscriptFile } from '../provider/claude-code/transcript/discover.ts';
 import { claudeCodeProvider } from '../provider/claude-code/index.ts';
@@ -396,8 +397,11 @@ export class RunManager {
     // projectId が一緒に来ていても scratch を優先する。
     const p = params.scratch ? this.scratchProject() : this.namedProject(params.projectId);
     if (!p.path || !p.resolved) throw new RunError(400, msg('run.launch.projectDirMissing'));
+    // 作業の場所（cwd）は、プロジェクトの場所の下のフォルダから始めるときに来る。スクラッチでは使わない。
+    // 外を許すと、そのプロジェクトのセッションがプロジェクトの外で動き、紐づけ（場所の最長一致）とも食い違うので断る。
+    const sub = params.scratch ? null : this.workDir(p.path, params.cwd);
     // スクラッチのディレクトリは precheck より先に作る。precheck は cwd が実在するかを見るためである。
-    const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : p.path;
+    const cwd = params.scratch ? newScratchDir(this.deps.home, new Date(this.now())) : sub ?? p.path;
     this.precheck(cwd);
     const sessionUuid = crypto.randomUUID();
     const sessionId = ensureSession(this.db, sessionUuid, cwd, this.deps.deviceId);
@@ -415,6 +419,17 @@ export class RunManager {
     const input: LaunchInput = { ...base, addDirs, mode: { kind: 'start', sessionUuid } };
     const command = claudeCodeProvider.launchCommand(this.claudeBin(), input);
     return this.launch({ sessionId, cwd, kind: 'start', command, params, account });
+  }
+
+  /**
+   * 起動の指定の作業の場所（cwd）を、プロジェクトの場所の下の正規化したパスにする。渡されなければ null（プロジェクトの場所で起こす）。
+   * 相対パスと、プロジェクトの場所の外は 400 で断る。実在は precheck が確かめる。
+   */
+  private workDir(projectPath: string, raw: string | undefined): string | null {
+    if (raw === undefined || raw.trim() === '') return null;
+    const dir = path.isAbsolute(raw.trim()) ? normalizeDir(raw.trim()) : null;
+    if (dir === null || !isUnder(dir, normalizeDir(projectPath))) throw new RunError(400, msg('run.launch.cwdOutside', { path: raw }));
+    return dir;
   }
 
   /** scratch ではないときの起動先。projectId は必須である。 */

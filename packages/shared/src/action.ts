@@ -27,7 +27,11 @@ export type StopFilter = 'permission' | 'limited';
 export type SearchFilter = { projectId?: string; days?: number; until?: number; live?: LiveFilter; stop?: StopFilter; file?: string; status?: SessionStatus | 'active' | 'proposed' };
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
-export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string };
+/**
+ * 起動の指定。cwd は作業の場所で、プロジェクトの場所の下のフォルダから始めるときに渡す（0.6.2）。
+ * 省けばプロジェクトの場所で起こす。プロジェクトの場所の外は断る。セッションは projectId のプロジェクトに入る。scratch では使わない。
+ */
+export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string };
 /** 設定の同期（作り直した実装）のダイアログ。send は送るものの一覧、review は適用内容の確認、approve は届いたスキルなどの承諾、conflicts は競合。 */
 export type ConfigSyncPart = 'send' | 'review' | 'approve' | 'conflicts';
 export type PaletteCommand = { id: string; label: string };

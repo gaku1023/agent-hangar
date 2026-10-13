@@ -19,6 +19,8 @@ export const projectJa: AreaDictionary<typeof projectKeys> = {
   'project.create.pathMustBeAbsolute': 'path は / か ~ で始まる絶対パスにしてください',
   'project.create.rootNotAllowed': '新しいフォルダの作成場所と、その上のフォルダ、ホームフォルダはプロジェクトにできません',
   'project.create.noParent': '新しいフォルダを作る場所が決まっていません。場所を選んでください',
+  'project.create.nested': 'このフォルダはプロジェクト {name} の中にあります',
+  'project.link.hasPlace': 'プロジェクト {name} は、この PC で既に場所があります',
   'project.name.uncategorized': '未分類',
   'project.name.quick': 'クイックセッション',
   'project.promote.scratchUnverified': 'クイックセッションの置き場を確認できなかったため、ファイルは移動しませんでした（{reason}）',
