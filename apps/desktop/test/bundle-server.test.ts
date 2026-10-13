@@ -717,7 +717,7 @@ describe('bundleServer の target 別の同梱物', () => {
     expect(JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8')).arch).toBe('arm64');
   });
 
-  it('win32-x64：win32 の prebuild と bin/hangar.cmd、launch-cli.mjs を置き、darwin 用と sh の起動を置かない', async () => {
+  it('win32-x64：win32 の prebuild と bin/hangar.cmd、Git Bash 用の bin/hangar、launch-cli.mjs を置き、darwin 用の物を置かない', async () => {
     const out = await make('win32-x64');
     const files = listAll(out);
     expect(files).toContain('bin/hangar.cmd');
@@ -729,7 +729,6 @@ describe('bundleServer の target 別の同梱物', () => {
       expect(files, f).toContain(`node_modules/node-pty/prebuilds/win32-x64/${f}`);
     }
     expect(files.filter((f) => f.includes('prebuilds/') && !f.includes('win32-x64'))).toEqual([]);
-    expect(files).not.toContain('bin/hangar');
     // デバッグの記号（.pdb）は実行に要らず、node-pty だけで 22MB ある。
     expect(files.filter((f) => f.endsWith('.pdb'))).toEqual([]);
     expect(dirSize(path.join(out, 'node_modules'))).toBeLessThan(15 * 1024 * 1024);
@@ -740,6 +739,93 @@ describe('bundleServer の target 別の同梱物', () => {
     const cmd = fs.readFileSync(path.join(out, 'bin/hangar.cmd'), 'utf8');
     expect(cmd).toContain('launch-cli.mjs');
     expect(cmd.split('\n').every((l) => l === '' || l.endsWith('\r'))).toBe(true);
+    // Git Bash 用の bin/hangar は、拡張子の無い sh で、LF だけで、束の根の launch-cli.mjs と hangar.cmd を呼ぶ（macOS の bin/hangar とは別物）。
+    const sh = fs.readFileSync(path.join(out, 'bin/hangar'), 'utf8');
+    expect(sh.startsWith('#!/bin/sh\n')).toBe(true);
+    expect(sh).not.toContain('\r');
+    expect(sh).toContain('launch-cli.mjs');
+    expect(sh).toContain('hangar.cmd');
+    expect(sh).toBe(fs.readFileSync(path.join(repoRoot, 'apps/desktop/scripts/hangar-gitbash.sh'), 'utf8'));
+  });
+
+  // bin/hangar（Git Bash 用）も、launch-cli.mjs を読めない古い Node を飛ばす。境目は hangar.cmd と同じく、launch-cli.mjs の target の版である。
+  it('bin/hangar（Git Bash 用）が飛ばす古い Node の境目は、launch-cli.mjs の target の版と同じ', () => {
+    const sh = fs.readFileSync(path.join(repoRoot, 'apps/desktop/scripts/hangar-gitbash.sh'), 'utf8');
+    const floors = [...sh.matchAll(/-ge (\d+)/g)].map((x) => Number(x[1]));
+    expect(floors.length).toBeGreaterThan(0);
+    for (const f of floors) expect(f).toBe(LAUNCHER_MIN_NODE);
+  });
+});
+
+// Git Bash 用の shim を、手元の sh で動かす。cygpath が無い機械では、パスの変換は何もしない形になる。
+// Windows の実機で Git Bash から動かすことは、CI の windows ジョブ（windows-installer の action）が見る。
+describe.skipIf(process.platform === 'win32')('bin/hangar（Git Bash 用の shim）', () => {
+  const shimSrc = path.join(repoRoot, 'apps/desktop/scripts/hangar-gitbash.sh');
+
+  /** 束の形の作り物。launch-cli.mjs は受け取った引数を JSON で印字し、HANGAR_EXIT があればその終了コードで終わる。空白を含むパスに置く。 */
+  function shimDist(): string {
+    const dist = path.join(tmp('hangar shim-'), 'Hangar app');
+    dirs.push(path.dirname(dist));
+    fs.mkdirSync(path.join(dist, 'bin'), { recursive: true });
+    fs.copyFileSync(shimSrc, path.join(dist, 'bin/hangar'));
+    fs.writeFileSync(
+      path.join(dist, 'launch-cli.mjs'),
+      "console.log(JSON.stringify(process.argv.slice(2)));\nprocess.exit(Number(process.env.HANGAR_EXIT ?? 0));\n",
+    );
+    return dist;
+  }
+
+  /** 実行できる小さなスクリプト（node や cmd.exe の身代わり）を置く。 */
+  function fakeBin(dir: string, name: string, body: string): string {
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, name);
+    fs.writeFileSync(f, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    return f;
+  }
+
+  const run = (dist: string, args: string[], env: Record<string, string>) =>
+    spawnSync('/bin/sh', [path.join(dist, 'bin/hangar'), ...args], { encoding: 'utf8', env: { HOME: os.tmpdir(), ...env } });
+
+  it('PATH の node で launch-cli.mjs を動かし、引数をそのまま渡し、終了コードを返す', () => {
+    const dist = shimDist();
+    const nodeDir = path.dirname(process.execPath);
+    const args = ['status', 'a b', '$HOME', '*', "it's", '"q"', '&', '%PATH%', ''];
+    const r = run(dist, args, { PATH: `${nodeDir}:/usr/bin:/bin`, HANGAR_EXIT: '7' });
+    expect(r.stderr).toBe('');
+    expect(JSON.parse(r.stdout)).toEqual(args);
+    expect(r.status).toBe(7);
+  });
+
+  it('HANGAR_NODE を PATH の node より先に使う。HANGAR_NODE が使えなければ PATH の node に進む', () => {
+    const dist = shimDist();
+    const nodeDir = tmp('hangar shimnode-');
+    dirs.push(nodeDir);
+    // 身代わりの node は `-p` に 22 と答えれば合い、ほかの呼ばれ方には引数を印字する。
+    const good = fakeBin(path.join(nodeDir, 'a b'), 'node', 'case "$1" in -p) echo 22;; *) echo "ran $@";; esac');
+    const r1 = run(dist, ['x'], { PATH: '/usr/bin:/bin', HANGAR_NODE: good });
+    expect(r1.stdout.trim()).toMatch(/^ran .*launch-cli\.mjs x$/);
+    const r2 = run(dist, ['x'], { PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, HANGAR_NODE: '/no/such/node' });
+    expect(JSON.parse(r2.stdout)).toEqual(['x']);
+  });
+
+  it('PATH の node が無い、または古い（Node 16 未満）ときは hangar.cmd に渡す。引数もそのまま渡す', () => {
+    const dist = shimDist();
+    fs.writeFileSync(path.join(dist, 'bin/hangar.cmd'), '');
+    const bin = tmp('hangar shimbin-');
+    dirs.push(bin);
+    fakeBin(bin, 'cmd.exe', 'printf "%s\\n" "$@"');
+    const want = ['//c', path.join(dist, 'bin/hangar.cmd'), 'status', 'a b'];
+    // node が PATH に無い。
+    const r1 = run(dist, ['status', 'a b'], { PATH: `${bin}:/usr/bin:/bin` });
+    if (!fs.existsSync('/usr/bin/node') && !fs.existsSync('/bin/node')) expect(r1.stdout.trimEnd().split('\n')).toEqual(want);
+    // node が古い。
+    fakeBin(bin, 'node', 'echo 14');
+    const r2 = run(dist, ['status', 'a b'], { PATH: `${bin}:/usr/bin:/bin` });
+    expect(r2.stdout.trimEnd().split('\n')).toEqual(want);
+    // node が壊れていて数を返さない。
+    fakeBin(bin, 'node', 'echo oops; exit 1');
+    const r3 = run(dist, ['status', 'a b'], { PATH: `${bin}:/usr/bin:/bin` });
+    expect(r3.stdout.trimEnd().split('\n')).toEqual(want);
   });
 });
 

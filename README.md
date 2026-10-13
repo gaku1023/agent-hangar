@@ -313,6 +313,7 @@ statusline への追記は Windows の実機で確かめていないので、使
 ## 使い方
 
 配布版の `hangar` コマンドの形で書きます（macOS は「[手順](#手順)」の 4 段目で入れます。Windows はインストーラが PATH に足します）。
+Windows の `hangar` は、PowerShell と cmd のほか、Git Bash（Claude Code の `!` もこれを使います）でも同じ名前で打てます。
 アプリを使うだけなら、ほとんどの操作は画面のボタンで足ります。
 
 ### 画面を開く

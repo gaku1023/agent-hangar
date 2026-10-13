@@ -5811,9 +5811,11 @@ Claude Code は、保持期間（`cleanupPeriodDays`、既定は 30 日）を過
   いま穴が開いているわけではないが、UI か API の側に穴が 1 つできたときの被害の上限がここまで上がることを、前提として書き留めておく。
 - 配布ターゲットは Apple silicon の macOS 13 以降と、x64 の Windows 11 である。同梱する prebuild は target（`<platform>-<arch>`）のものだけにする。全アーキを入れると `node-pty` の win32 だけで 58MB になる。Intel の Mac と ARM64 の Windows は作らない。
   束の作り方は `apps/desktop/scripts/bundle-server.ts` の `bundleServer` が target を引数に受け取り（省略すると、この機械の target。配布の対象でなければ止まる）、別の target の束も、どの機械でも作れる。`manifest.json` の `arch` は束の相手のものを書く。
-  win32-x64 の束は、`bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
+  win32-x64 の束は、macOS の `bin/hangar` の代わりに `bin/hangar.cmd` と、束の根の `launch-cli.mjs` を置き、`node-pty` のデバッグの記号（`.pdb`、22MB）を入れない。
   cmd は JSON を読めないので、`hangar.cmd` は HANGAR_NODE、PATH の各項目の `node.exe`（`where $PATH:node.exe`。作業ディレクトリは見ない）、公式の入れ先の順に Node を 1 つ見つけて `launch-cli.mjs` を動かすだけにして、版とアーキの確認と、合う Node への渡し直しは `launch-cli.mjs` が行う。
   cmd は、無いファイルと、`-p` に Node 16 以上と答えないもの（古い Node、Node でない実行ファイル）を飛ばして次の候補へ進む。
+  Git Bash（Claude Code の `!` もこれを使う）は `hangar.cmd` を拡張子なしの `hangar` として探さないので、Windows の束の `bin/` には拡張子の無い sh の起動 `bin/hangar`（源は `apps/desktop/scripts/hangar-gitbash.sh`、LF のまま）も置く。
+  これは HANGAR_NODE か PATH の先頭の node が Node 16 以上なら、引数を別のシェルに通さずに `launch-cli.mjs` を直接動かし、そうでなければ `cmd.exe //c hangar.cmd` に渡す。Node を探す規則は `hangar.cmd` と `launch-cli.mjs` の 1 か所に残る。
   `launch-cli.mjs` は Node 16 を target に作る（`bundle-server.ts` の `LAUNCHER_MIN_NODE`。cmd の境目との一致は試験で縛る）ので、PATH の先頭に古い Node があっても、構文の誤りで落ちずに後ろの Node へ届く。
   `launch-cli.mjs` が見る条件は、殻と同じ規則（`nodeRule.ts` の `nodeFit`。Node-API が `nodeApi` 以上で、アーキテクチャが同じ）である。
   利用者の HANGAR_NODE が無いファイルを指していれば、cmd はそれを使わずに次へ進む。値そのものは書き換えないので、`launch-cli.mjs` が調べた場所の 1 つとして「ファイルが無い」と挙げる。
