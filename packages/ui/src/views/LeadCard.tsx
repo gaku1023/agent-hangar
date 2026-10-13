@@ -43,23 +43,23 @@ export function LeadCard(props: LeadCardProps & { sessionId: string; /** git の
         </span>
       </div>
       {props.notice && <div className="lead-notice" data-kind={props.notice.kind} title={props.notice.title ?? undefined}>{props.notice.text}</div>}
-      {props.summary
-        ? (
-          <>
-            <p className="sum-body">{props.summary.body}</p>
-            {props.summary.nextSteps.length > 0 && (
-              <>
-                <div className="lead-sub">{props.summary.nextStepsLabel}</div>
-                <ul className="sum-next">{props.summary.nextSteps.map((n, i) => <li key={i}>{n}</li>)}</ul>
-              </>
-            )}
-            <div className="sum-src">{props.summary.sourceLine}</div>
-          </>
-        )
-        : props.enable
-          // 要約エンジンを使わないとき。「設定」は押せる語で、設定の要約エンジンへ跳ぶ（試作 3 節の 2c の推す案 B）。
-          ? <div className="faint">{props.enable.before}<button type="button" className="btn-link" onClick={() => emit({ type: 'nav.go', to: { name: 'settings', at: 'summary' } })}>{props.enable.link}</button>{props.enable.after}</div>
-          : props.empty && <div className="faint">{props.empty}</div>}
+      {props.summary && (
+        <>
+          <p className="sum-body">{props.summary.body}</p>
+          {props.summary.nextSteps.length > 0 && (
+            <>
+              <div className="lead-sub">{props.summary.nextStepsLabel}</div>
+              <ul className="sum-next">{props.summary.nextSteps.map((n, i) => <li key={i}>{n}</li>)}</ul>
+            </>
+          )}
+          <div className="sum-src">{props.summary.sourceLine}</div>
+        </>
+      )}
+      {props.enable
+        // 要約エンジンを使わないとき。「設定」は押せる語で、設定の要約エンジンへ跳ぶ（試作 3 節の 2c の推す案 B）。
+        // 土台の要約（索引が組んだ事実）があるときは、その下に添える。
+        ? <div className="faint lead-enable">{props.enable.before}<button type="button" className="btn-link" onClick={() => emit({ type: 'nav.go', to: { name: 'settings', at: 'summary' } })}>{props.enable.link}</button>{props.enable.after}</div>
+        : !props.summary && props.empty && <div className="faint">{props.empty}</div>}
       <div className="lead-chips">
         {files.count > 0 && <CountChip size="sm" label={files.label} count={files.count} icon="fileEdited" expanded={open === 'files'} aria-controls={open === 'files' ? panelId('files') : undefined} onClick={() => toggle('files')} />}
         {artifacts.count > 0 && <CountChip size="sm" label={artifacts.label} count={artifacts.count} icon="artifacts" expanded={open === 'artifacts'} aria-controls={open === 'artifacts' ? panelId('artifacts') : undefined} onClick={() => toggle('artifacts')} />}

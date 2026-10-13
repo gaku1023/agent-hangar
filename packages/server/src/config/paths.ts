@@ -162,9 +162,13 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   const file = path.join(home, 'settings.json');
   // 新しい利用者の作成場所は空（決めていない）にする。初日はホームの帯から、Claude Code と会話したフォルダを選んでもらう（2026-10-13）。
   // 項目の無い古い settings.json は、今までどおり ~/workspace として読む（既存の利用者の振る舞いを変えない）。
+  // ただし言語だけのファイル（殻が先に書いたもの）は新しい利用者として読む（isNewcomerFile）。
   if (!fs.existsSync(file)) return { ...defaultSettings(platform), workspaceRoot: '', language: decideLanguage(undefined, osLanguage).language };
   const text = fs.readFileSync(file, 'utf8');
   const s = { ...defaultSettings(platform), ...(JSON.parse(text) as Partial<Settings>) };
+  // 殻（bootfail.rs の ensure_language）は、初めての起動でサーバより先に言語だけのファイルを書く。
+  // 言語のほかに何も持たないファイルは利用者の選んだ値を含まないので、無いときと同じく新しい利用者として作成場所を空にする。
+  if (isNewcomerFile(text)) s.workspaceRoot = '';
   // 別の OS で保存した外部ターミナル（macOS の iTerm2 を Windows で読んだときなど）は、この OS の既定に読み替える。
   s.terminalApp = terminalAppFor(s.terminalApp, platform);
   // 0.4.0 までの codePath は、エディタの設定（VS Code、その場所）に読み替える。読み替えたら古い鍵は持たない（保存し直すと消える）。
@@ -191,6 +195,12 @@ export function loadSettings(home: string, platform: NodeJS.Platform = process.p
   // 項目が無い設定と知らない言語は、OS に合わせる前の日本語にする。手で書き換えた値を、画面とサーバの辞書引きへそのまま流さない。
   if (!isLanguage(s.language)) s.language = decideLanguage(text, osLanguage).language;
   return s;
+}
+
+/** 言語のほかに鍵を持たない settings.json か。殻が初めての起動で書いたもので、サーバはまだ一度も書き戻していない。 */
+function isNewcomerFile(text: string): boolean {
+  const raw = JSON.parse(text) as unknown;
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw) && Object.keys(raw).every((k) => k === 'language');
 }
 
 export function saveSettings(home: string, s: Settings): void {

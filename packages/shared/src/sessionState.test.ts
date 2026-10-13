@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, isReturnOn, isReturnTime, localDate, localTime, overdueDays, returnAtIso, returnAtMs, STATE_NOTE_MAX } from './sessionState.ts';
+import { addDays, candidateDaysLeft, CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, localDate, localTime, overdueDays, returnAtIso, returnAtMs, STATE_NOTE_MAX } from './sessionState.ts';
 
 /** 手元の暦の時刻。試験を走らせる機械のタイムゾーンによらず、同じ日付になる。 */
 const at = (y: number, m: number, d: number, h = 12, min = 0) => new Date(y, m - 1, d, h, min).getTime();
@@ -90,5 +90,18 @@ describe('returnAtIso', () => {
   });
   it('形が違えば null', () => {
     expect(returnAtIso('2026-10-05', '25:00')).toBeNull();
+  });
+});
+
+describe('candidateDaysLeft', () => {
+  const at = Date.UTC(2026, 9, 13, 8, 0);
+  it('提案から数えた残りの日数を切り上げ、期限を過ぎたら 0', () => {
+    expect(candidateDaysLeft(at, at + 60_000)).toBe(CANDIDATE_EXPIRE_DAYS);
+    expect(candidateDaysLeft(at, at + 86_400_000 + 1)).toBe(CANDIDATE_EXPIRE_DAYS - 1);
+    expect(candidateDaysLeft(at, at + CANDIDATE_EXPIRE_DAYS * 86_400_000)).toBe(0);
+  });
+  it('画面の時計が提案の時刻より古くても、期限の日数を超えない（0.6.0-rc.1 の VM、B83）', () => {
+    // 画面の now は 30 秒ごとに進むので、届いたばかりの提案の時刻より手前のことがある。
+    expect(candidateDaysLeft(at, at - 20_000)).toBe(CANDIDATE_EXPIRE_DAYS);
   });
 });

@@ -161,6 +161,7 @@ export class Tmux {
    * copy-command：iTerm2 は既定で OSC 52 の書き込みを許さないので、マウスで選んだ範囲を pbcopy で直接クリップボードへ渡す。
    * pbcopy はロケールで文字コードを決める。tmux サーバの環境には LANG が無いことが多く、そのままでは日本語を写すとクリップボードが空になる。
    * extended-keys と terminal-features：外の端末から Shift+Enter を区別して受ける。
+   * focus-events：中の Claude Code に、端末が前に来たか後ろへ回ったかを渡す。off のままだと Claude Code は画面の下に「tmux focus-events off」の注意を出す。
    * S-Enter：tmux は CSI u の Shift+Enter を素の CR に潰すので、hangar の run でだけ、Claude Code が改行と読む ESC CR に変える。
    * シェルタブ（hangar-<id>-t<n>）と利用者自身のセッションには Shift+Enter のまま送る。
    * サーバが動いていなければ何もしない。set-option だけではサーバを起こさない。
@@ -175,6 +176,8 @@ export class Tmux {
     const cur = copy.stdout.trim();
     // 素の pbcopy は前の版が入れた値なので、hangar のものとして置き換える。
     if ((cur === '' || cur === 'pbcopy') && this.platform === 'darwin') this.run('set-option', '-s', 'copy-command', COPY_COMMAND);
+    // focus-events の既定は off なので、extended-keys と同じく off のときだけ入れる。利用者が on にしていればそのままである。
+    if (show('focus-events').stdout.trim() === 'off') this.run('set-option', '-s', 'focus-events', 'on');
     // extended-keys-format は tmux 3.5 から在る。3.4 までは invalid option で断られるので、在るときだけ入れる。
     const modern = show('extended-keys-format').code === 0;
     if (show('extended-keys').stdout.trim() === 'off') {

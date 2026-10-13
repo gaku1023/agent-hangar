@@ -275,6 +275,7 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
       t.run('set-option', '-s', 'copy-command', '');
       t.run('set-option', '-s', 'extended-keys', 'off');
       t.run('set-option', '-s', 'extended-keys-format', 'xterm');
+      t.run('set-option', '-s', 'focus-events', 'off');
       t.run('set-option', '-su', 'terminal-features');
       t.run('unbind-key', '-n', 'S-Enter');
       return { t, cwd, done: () => { t.killServer(); removeTestSocket(p); fs.rmSync(cwd, { recursive: true, force: true }); } };
@@ -287,9 +288,11 @@ describe.skipIf(!TMUX)('Tmux（実物）', () => {
     // tmux が無い場所ではこの describe ごと飛ぶが、ここは集める段で走るので null を踏まないようにする。
     const HAS_FORMAT = Number(/(\d+\.\d+)/.exec(tmux?.run('-V').stdout ?? '')?.[1] ?? 0) >= 3.5;
 
-    it('copy-command、extended-keys、extended-keys-format、terminal-features、S-Enter を入れる', () => {
+    it('copy-command、extended-keys、extended-keys-format、focus-events、terminal-features、S-Enter を入れる', () => {
       const { t, done } = fresh();
       t.ensureTerminalOptions();
+      // Claude Code は focus-events が off の tmux の中で、画面の下に「tmux focus-events off」の注意を出す。
+      expect(show(t, 'focus-events')).toBe('on');
       // tmux サーバの環境には LANG が無いことが多い。素の pbcopy は UTF-8 を読めず、日本語を写すとクリップボードを空にする。
       expect(show(t, 'copy-command')).toBe(MAC ? 'LC_CTYPE=UTF-8 pbcopy' : '');
       expect(show(t, 'extended-keys')).toBe('on');

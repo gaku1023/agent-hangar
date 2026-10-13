@@ -395,7 +395,9 @@ export function presentLeadCard(i: LeadInput, t: Translate): LeadCardProps {
       sourceLine: t('session.lead.sourceLine', { parts: sourceParts.join(t('common.list.separator')), when: absoluteTime(t, sum.updatedAt) }),
     } : null,
     empty: sum || i.summaryOff ? null : t('session.lead.noSummary'),
-    enable: !sum && i.summaryOff ? { before: t('session.lead.summaryOff.before'), link: t('session.lead.summaryOff.link'), after: t('session.lead.summaryOff.after') } : null,
+    // 土台の要約（source baseline）は索引が最初と最後の依頼から組んだ事実で、要約ではない。どのセッションにも付くので、要約と数えると誘いの文がどこにも出ない（0.6.0-rc.1 の VM）。
+    // 事実はそのまま出し、その下に誘いの文を添える（LeadCard）。
+    enable: (!sum || sum.source === 'baseline') && i.summaryOff ? { before: t('session.lead.summaryOff.before'), link: t('session.lead.summaryOff.link'), after: t('session.lead.summaryOff.after') } : null,
     notice: i.summaryPending ? { kind: 'pending', text: t('session.lead.pending'), title: null } : i.summaryError !== null ? { kind: 'failed', text: t('session.lead.failed'), title: i.summaryError } : null,
     // 本文が無いと作り直しは必ず失敗するので、消えた会話では出さない。
     // 要約エンジンを使わないときも出さない（サーバが受け付けない）。

@@ -26,9 +26,13 @@ export function candidateExpired(at: number, now: number): boolean {
   return now - at >= CANDIDATE_EXPIRE_MS;
 }
 
-/** Done の提案が自動で確定するまでの残りの日数（切り上げ、0 以上）。 */
+/**
+ * Done の提案が自動で確定するまでの残りの日数（切り上げ、0 以上、CANDIDATE_EXPIRE_DAYS 以下）。
+ * 画面の now は 30 秒ごとにしか進まない（Root の useNow）ので、届いたばかりの提案では at より手前のことがある。
+ * そのまま切り上げると「あと 8 日」になるので、期限の日数で抑える。
+ */
 export function candidateDaysLeft(at: number, now: number): number {
-  return Math.max(0, Math.ceil((at + CANDIDATE_EXPIRE_MS - now) / 86_400_000));
+  return Math.min(CANDIDATE_EXPIRE_DAYS, Math.max(0, Math.ceil((at + CANDIDATE_EXPIRE_MS - now) / 86_400_000)));
 }
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;

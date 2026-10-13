@@ -3,7 +3,7 @@ import { Tmux, type TmuxExec } from './tmux.ts';
 /**
  * hangar の run とシェルタブが動く tmux（Windows は psmux）のサーバの名前。
  * 利用者の既定のサーバと分けるので、`tmux -L hangar ls` で hangar のセッションだけが見える。
- * サーバ全体のオプション（set-clipboard、copy-command、extended-keys、terminal-features）も、このサーバにだけ入れる。
+ * サーバ全体のオプション（set-clipboard、copy-command、extended-keys、focus-events、terminal-features）も、このサーバにだけ入れる。
  * 利用者の ~/.tmux.conf は、このサーバが起きるときにも読まれる。
  */
 export const HANGAR_SOCKET = 'hangar';
