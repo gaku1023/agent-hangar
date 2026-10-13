@@ -131,10 +131,16 @@ function longestMatch(roots: RootRow[], cwd: string): RootRow | undefined {
   return roots.filter((r) => isUnder(c, r.path.normalize('NFC'))).sort((a, b) => b.path.length - a.path.length)[0];
 }
 
-/** 未分類のセッションを、この端末の解決済みルートの最長一致で紐づける。 */
+/**
+ * 未分類のセッションを、この端末の解決済みルートの最長一致で紐づける。
+ * 一覧から削除したプロジェクトに紐づいたままのセッションも、未分類として拾う。
+ * まとめる（mergeProjects）前の行を持っていた PC の索引が、消えたプロジェクトへの紐づけを後から書き戻すことがあるからである。
+ * 場所の当たらないものは、そのままにする。
+ */
 export function assignSessions(db: Db, deviceId: string): number {
   const roots = resolvedRoots(db, deviceId);
-  const sessions = db.prepare('select * from sessions where project_id is null and deleted_at is null').all() as Record<string, unknown>[];
+  const sessions = db.prepare(`select * from sessions s where s.deleted_at is null
+    and (s.project_id is null or exists (select 1 from projects p where p.id = s.project_id and p.deleted_at is not null))`).all() as Record<string, unknown>[];
   let n = 0;
   for (const s of sessions) {
     const match = longestMatch(roots, s.cwd as string);
@@ -158,6 +164,138 @@ export function assignSession(db: Db, deviceId: string, sessionId: string): stri
   if (!match) return null;
   upsertShared(db, 'sessions', { ...s, project_id: match.project_id }, deviceId);
   return match.project_id;
+}
+
+/**
+ * この端末で、同じフォルダを置き場にしている別のプロジェクト。無ければ null。
+ * 他の PC が同じフォルダを別の ID で登録していると、同期で同名のプロジェクトが 2 つ並ぶ。
+ * 届いた方の場所にそのフォルダを選ぶと、同じフォルダを指すプロジェクトが 2 つになるので、置き場を書く前にここで見る。
+ * 綴りの違い（NFC と NFD、Windows の大文字小文字）は同じフォルダとして比べる。一覧から削除したものは数えない。
+ */
+export function rootConflict(db: Db, deviceId: string, projectId: string, dir: string): { projectId: string; name: string } | null {
+  const rows = db.prepare(`select p.id, p.name, r.path from project_roots r join projects p on p.id = r.project_id
+    where r.device_id = ? and r.deleted_at is null and p.deleted_at is null and p.id <> ? order by p.id`).all(deviceId, projectId) as { id: string; name: string; path: string }[];
+  const target = dir.normalize('NFC');
+  const hit = rows.find((r) => samePath(r.path.normalize('NFC'), target));
+  return hit ? { projectId: hit.id, name: hit.name } : null;
+}
+
+/** 論理削除していないセッションの数を、プロジェクトごとに返す。 */
+function sessionCounts(db: Db, ids: string[]): Map<string, number> {
+  const out = new Map<string, number>(ids.map((id) => [id, 0]));
+  if (ids.length === 0) return out;
+  const rows = db.prepare(`select project_id id, count(*) n from sessions where deleted_at is null and project_id in (${ids.map(() => '?').join(', ')}) group by project_id`).all(...ids) as { id: string; n: number }[];
+  for (const r of rows) out.set(r.id, r.n);
+  return out;
+}
+
+/**
+ * 同じフォルダを場所にしているプロジェクトのうち、残す方を先頭に並べる。
+ * セッションの多い方を残す。同じなら先に作った方（id は uuidv7 なので、文字列の小さい方）を残す。
+ * まとめる方はたいてい、他の PC から届いてこの PC の会話を持たない方である。
+ */
+function rankToKeep(db: Db, ids: string[]): string[] {
+  const n = sessionCounts(db, ids);
+  return [...ids].sort((a, b) => n.get(b)! - n.get(a)! || (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * 「場所を再指定」で選んだフォルダが別のプロジェクト（conflictId）の場所だったときの、まとめる向き。
+ * 選んだフォルダがまだ projectId の場所でなければ、選んだ方（projectId）を相手へまとめる。
+ * 既に両方の場所になっているとき（直す前の版で二重に結び付けたもの）は、どちらから選んでも同じ向きになるよう rankToKeep で決める。
+ */
+export function mergeDirection(db: Db, deviceId: string, projectId: string, conflictId: string, dir: string): { fromId: string; intoId: string } {
+  const own = db.prepare('select path from project_roots where project_id = ? and device_id = ? and deleted_at is null').get(projectId, deviceId) as { path: string } | undefined;
+  if (!own || !samePath(own.path.normalize('NFC'), dir.normalize('NFC'))) return { fromId: projectId, intoId: conflictId };
+  const [intoId, fromId] = rankToKeep(db, [projectId, conflictId]) as [string, string];
+  return { fromId, intoId };
+}
+
+/**
+ * この PC で同じフォルダを場所にしているプロジェクトの組。まとめる方の id から、残す方の id と名前を引く。
+ * 直す前の版では「場所を再指定」が重複を見なかったので、他の PC から届いた方にも同じフォルダを結び付けられた。その残りを見つけて、まとめる入口に出す。
+ * 3 つ以上が同じフォルダなら、残す方 1 つへ、ほかを全部向ける。スクラッチと、一覧から削除したものは数えない。
+ * ふつうは組が無く、そのときはセッションを数えない（プロジェクトを配るたびに呼ばれるので軽くしておく）。
+ */
+export function sameFolderPairs(db: Db, deviceId: string): Map<string, { projectId: string; name: string }> {
+  const rows = db.prepare(`select p.id, p.name, r.path from project_roots r join projects p on p.id = r.project_id
+    where r.device_id = ? and r.deleted_at is null and p.deleted_at is null and p.is_scratch = 0`).all(deviceId) as { id: string; name: string; path: string }[];
+  const groups = new Map<string, { id: string; name: string }[]>();
+  for (const r of rows) {
+    const key = pathKey(r.path.normalize('NFC'));
+    groups.set(key, [...(groups.get(key) ?? []), { id: r.id, name: r.name }]);
+  }
+  const out = new Map<string, { projectId: string; name: string }>();
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    const [keep, ...rest] = rankToKeep(db, g.map((p) => p.id));
+    const name = g.find((p) => p.id === keep)!.name;
+    for (const id of rest) out.set(id, { projectId: keep!, name });
+  }
+  return out;
+}
+
+/** まとめた後の 1 つの PC の場所。here はこの PC。deviceName は、分からなければ null。 */
+export type MergedRoot = { deviceName: string | null; path: string; here: boolean };
+
+/**
+ * from を into へまとめた後の姿（確認のダイアログに出す）。mergeProjects と同じ規則で PC ごとの場所を組む。
+ * 並びは、この PC、名前の分かる PC（名前順）、名前の分からない PC の順。
+ * sessions は残す方の、fromSessions はまとめる方の、論理削除していないセッションの数である。
+ */
+export function mergePreview(db: Db, deviceId: string, fromId: string, intoId: string): { roots: MergedRoot[]; sessions: number; fromSessions: number } {
+  const liveRoots = db.prepare(`select r.device_id, r.path, d.name from project_roots r left join devices d on d.id = r.device_id and d.deleted_at is null
+    where r.project_id = ? and r.deleted_at is null`);
+  type Row = { device_id: string; path: string; name: string | null };
+  const byDevice = new Map<string, Row>();
+  for (const r of liveRoots.all(intoId) as Row[]) byDevice.set(r.device_id, r);
+  for (const r of liveRoots.all(fromId) as Row[]) if (!byDevice.has(r.device_id)) byDevice.set(r.device_id, r);
+  const order = (r: Row) => (r.device_id === deviceId ? 0 : r.name !== null ? 1 : 2);
+  const roots = [...byDevice.values()]
+    .sort((a, b) => order(a) - order(b) || (a.name ?? '').localeCompare(b.name ?? '') || a.device_id.localeCompare(b.device_id))
+    .map((r) => ({ deviceName: r.device_id === deviceId ? null : r.name, path: r.path, here: r.device_id === deviceId }));
+  const n = sessionCounts(db, [fromId, intoId]);
+  return { roots, sessions: n.get(intoId)!, fromSessions: n.get(fromId)! };
+}
+
+/**
+ * プロジェクト from を into へまとめる。from は論理削除し、into の名前と状態は変えない。
+ * セッション、TODO、成果物は into へ移す。TODO は into の後ろに、元の順で並べる。
+ * メモは、into が空なら移し、両方にあれば into の後ろへ空行を挟んでつなぐ。
+ * 置き場は PC ごとに 1 つなので、into がその PC に置き場を持てば into のものを保ち、持たなければ from のものを引き継ぐ。
+ * 行の project_id は書き換えず、into の行を作る（消した行があれば戻す）。`(project_id, device_id)` が一意で、消した行もそれに数えるからである。
+ * 途中で失敗したら全部を巻き戻す。
+ */
+export function mergeProjects(db: Db, deviceId: string, fromId: string, intoId: string): void {
+  if (fromId === intoId) throw new Error('mergeProjects: from and into are the same project');
+  const live = db.prepare('select * from projects where id = ? and deleted_at is null and is_scratch = 0');
+  if (!live.get(fromId) || !live.get(intoId)) throw new Error('mergeProjects: both projects must be live and not scratch');
+  db.transaction(() => {
+    for (const s of db.prepare('select * from sessions where project_id = ?').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'sessions', { ...s, project_id: intoId }, deviceId);
+    let position = (db.prepare('select coalesce(max(position), -1) m from todos where project_id = ?').get(intoId) as { m: number }).m;
+    for (const t of db.prepare('select * from todos where project_id = ? order by position, id').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'todos', { ...t, project_id: intoId, position: ++position }, deviceId);
+    for (const a of db.prepare('select * from artifacts where project_id = ?').all(fromId) as Record<string, unknown>[]) upsertShared(db, 'artifacts', { ...a, project_id: intoId }, deviceId);
+
+    const memoOf = db.prepare('select markdown from project_memos where project_id = ? and deleted_at is null');
+    const fromMemo = (memoOf.get(fromId) as { markdown: string } | undefined)?.markdown ?? '';
+    if (fromMemo.trim() !== '') {
+      const intoMemo = (memoOf.get(intoId) as { markdown: string } | undefined)?.markdown ?? '';
+      const markdown = intoMemo.trim() === '' ? fromMemo : `${intoMemo.replace(/\s+$/, '')}\n\n${fromMemo}`;
+      upsertShared(db, 'project_memos', { project_id: intoId, markdown, deleted_at: null }, deviceId, 'project_id');
+    }
+    if (db.prepare('select 1 from project_memos where project_id = ? and deleted_at is null').get(fromId)) softDeleteShared(db, 'project_memos', fromId, deviceId, 'project_id');
+
+    const intoRoot = db.prepare('select * from project_roots where project_id = ? and device_id = ?');
+    for (const r of db.prepare('select * from project_roots where project_id = ? and deleted_at is null').all(fromId) as RootRow[]) {
+      const mine = intoRoot.get(intoId, r.device_id) as RootRow | undefined;
+      if (!mine) upsertShared(db, 'project_roots', { id: newId(), project_id: intoId, device_id: r.device_id, path: r.path, resolved: r.resolved }, deviceId);
+      else if (mine.deleted_at !== null) upsertShared(db, 'project_roots', { ...mine, path: r.path, resolved: r.resolved, deleted_at: null }, deviceId);
+      softDeleteShared(db, 'project_roots', r.id, deviceId);
+    }
+    softDeleteShared(db, 'projects', fromId, deviceId);
+    // 残した方は、行は変わらないが中身（セッション、最終の活動、TODO の数）が変わる。
+    touchRow(db, 'projects', intoId);
+  })();
 }
 
 /** この端末のルートの存在を確かめ、消えたものと戻ったものを報告する。 */
