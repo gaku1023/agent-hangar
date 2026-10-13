@@ -89,13 +89,13 @@ export type Store = {
    */
   folderCandidates: { status: 'loading' } | { status: 'ready'; data: FolderCandidatesDto } | { status: 'failed' } | null;
   /**
-   * まとめて登録の「フォルダの中から」の、親フォルダの直下（0.6.2）。ダイアログを開くたびに捨て、親を頼むたびに取り直す。
+   * まとめて登録の「フォルダの中から」の、親フォルダの直下（0.6.1）。ダイアログを開くたびに捨て、親を頼むたびに取り直す。
    * parent は頼んだときの打たれたままのパスで、後から頼んだ親の答えだけを採る（前の答えが遅れて届いても入れ替えない）。
    */
   workspaceChildren: { status: 'loading'; parent: string } | { status: 'ready'; parent: string; data: WorkspaceChildrenDto } | { status: 'failed'; parent: string; message: string } | null;
   /** Finder で選んだフォルダ。殻が返した値である。n は選んだ回数で、同じパスをもう一度選んでも気付けるようにする。 */
   pickedFolder: { path: string; n: number } | null;
-  /** 選んだ 1 つのフォルダの事前の問い合わせ（0.6.2）。最後に頼んだ 1 件だけを持つ。頼む前は null（store/folderInspect.ts）。 */
+  /** 選んだ 1 つのフォルダの事前の問い合わせ（0.6.1）。最後に頼んだ 1 件だけを持つ。頼む前は null（store/folderInspect.ts）。 */
   folderInspect: FolderInspectState | null;
   /** アカウントを足す前の確かめの、最後に届いた答え（runtime/actionTable.ts の account.add.preview）。 */
   accountPreview: AccountDirPreviewDto | null;

@@ -59,7 +59,7 @@ export function NewProjectDialog(props: NewProjectProps) {
     choosePath(p.path);
   }, [props.picked?.n]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 既存のフォルダの事前の問い合わせ（0.6.2）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるかを読む。
+  // 既存のフォルダの事前の問い合わせ（0.6.1）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるかを読む。
   // 名前を自分で直したときだけ名前を添える（弱い一致をその名前で見る）。
   const target = mode === 'dir' ? path.trim() : '';
   const askName = nameTouched ? name.trim() : '';
@@ -180,7 +180,7 @@ export function NewProjectDialog(props: NewProjectProps) {
                   : <><span>{boldFirst(t('newProject.dir.newNote', { who: linkWho }), linkWho)}</span><button type="button" className="linkish" onClick={() => setLinkNewAt(null)}>{t('newProject.dir.linkBack', { name: link.name })}</button></>}
               </div>
             )}
-            {/* まとめて登録のダイアログの「フォルダの中から」へ送る（0.6.2）。このダイアログとは入れ替わる。 */}
+            {/* まとめて登録のダイアログの「フォルダの中から」へ送る（0.6.1）。このダイアログとは入れ替わる。 */}
             <div><button type="button" className="linkish" onClick={() => emit({ type: 'project.candidates.open', source: 'folder' })}>{t('newProject.folder.bulk')}</button></div>
           </div>
           {/* 包むプロジェクトを開くときと、結び付けるときは、名前を使わない（結び付けた先の名前は変えない）ので欄を出さない。 */}

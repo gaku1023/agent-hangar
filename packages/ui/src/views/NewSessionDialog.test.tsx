@@ -983,7 +983,7 @@ describe('NewSessionDialog のアカウントの札', () => {
   });
 });
 
-// 0.6.2：登録済みのプロジェクトの下のフォルダと、ほかの PC から届いた同じプロジェクト（試作の 6 と 7 の A）。
+// 0.6.1：登録済みのプロジェクトの下のフォルダと、ほかの PC から届いた同じプロジェクト（試作の 6 と 7 の A）。
 describe('NewSessionDialog の選んだフォルダとプロジェクトの結び付き', () => {
   const ui = '/w/alpha/packages/ui';
   type Inspect = NonNullable<NewSessionProps['inspect']>;

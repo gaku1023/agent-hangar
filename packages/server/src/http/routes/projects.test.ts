@@ -279,7 +279,7 @@ describe('会話したフォルダの候補', () => {
   });
 });
 
-// 0.6.2：フォルダの中から選んで登録する。入れ子と、ほかの PC から届いたプロジェクトへの結び付け。
+// 0.6.1：フォルダの中から選んで登録する。入れ子と、ほかの PC から届いたプロジェクトへの結び付け。
 describe('フォルダの中から登録する', () => {
   const send = (p: string, body: unknown) => app.request(p, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   /** ほかの PC だけに場所を持つプロジェクト。 */

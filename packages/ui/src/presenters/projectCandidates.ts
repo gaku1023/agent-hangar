@@ -15,7 +15,7 @@ export const FREQUENT_MIN = 3;
 export type CandidateRow = { path: string; label: string; parent: string; count: number; countLabel: string; when: string; worktrees: string | null };
 
 /**
- * 「フォルダの中から」の 1 行（0.6.2、試作 proto-register の推す案）。
+ * 「フォルダの中から」の 1 行（0.6.1、試作 proto-register の推す案）。
  * count は会話の数（0 は「—」）、countLabel はその読み上げ、when は最後の活動（無ければ空）、sessions は会話の数そのもの（作成場所の自動の登録を見る）。
  * registered はこのフォルダを場所にしているプロジェクトがあること（外せない灰のチェック）、worktree はほかのリポジトリの worktree であること。
  * inside は、登録済みのプロジェクトの中のフォルダであること（分けるには allowNested を明示して送る）。
@@ -33,7 +33,7 @@ export type FolderRow = {
 };
 
 /**
- * 「フォルダの中から」の見方（0.6.2）。
+ * 「フォルダの中から」の見方（0.6.1）。
  * status は親の直下の読み込みの進み（idle はまだ頼んでいない）、failure は読めなかった理由である。
  * parent は読めた親（サーバが ~ を直した形と、~ に縮めた形）、band は親そのものを包むプロジェクトの名前（黄の帯）。
  * initialParent は開いた時点に入れる親（~ に縮めた形）で、作成場所があればそれ、無ければ会話の多い親である。null は決まらなかったこと、undefined は設定か候補を待っていること。
@@ -55,7 +55,7 @@ export type FolderBrowseProps = {
 
 /**
  * まとめて登録のダイアログ（初日のプロジェクト。2026-10-13）。
- * source は開いた時点の見方（talked は Claude Code と会話したフォルダ、folder はフォルダの中から。0.6.2）で、browse はフォルダの中からの中身である。
+ * source は開いた時点の見方（talked は Claude Code と会話したフォルダ、folder はフォルダの中から。0.6.1）で、browse はフォルダの中からの中身である。
  * 以下は Claude Code と会話したフォルダの見方の中身である。
  * frequent は会話が FREQUENT_MIN 件以上のもの（初めからチェック）、others はそのほか（畳む）である。
  * suggestedRoot は作成場所の候補（過半が同じ親にあるときだけ。label は ~ に縮めたもの）。

@@ -53,7 +53,7 @@ export function insertProject(db: Db, deviceId: string, name: string, dir: strin
 }
 
 /**
- * この PC に場所の無いプロジェクトを、dir の場所として結び付ける（0.6.2）。
+ * この PC に場所の無いプロジェクトを、dir の場所として結び付ける（0.6.1）。
  * 書き込みは「場所を再指定」（resolveProject の repoint）と同じで、その下の未分類の会話も紐づける。
  * プロジェクトの remote が空なら、dir のリポジトリの remote で埋める。
  * 結び付けてよいか（この PC に場所が無いか、ほかのプロジェクトの場所でないか）は呼び手が確かめる。

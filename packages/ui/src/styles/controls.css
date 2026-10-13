@@ -231,7 +231,7 @@ button.count-chip:focus-visible { outline: 2px solid var(--accent); outline-offs
 .set-chip[data-tone='danger'] { color: var(--error); box-shadow: inset 0 0 0 1.5px var(--error); }
 .set-chip[data-tone='danger'] > .icon { color: var(--error); }
 .set-chip-value { min-width: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; }
-/* 登録済みのプロジェクトの下のフォルダか、ほかの PC のプロジェクトに結び付けるときの札（0.6.2）。札の値が選んだフォルダと違うことを、淡い青で示す。 */
+/* 登録済みのプロジェクトの下のフォルダか、ほかの PC のプロジェクトに結び付けるときの札（0.6.1）。札の値が選んだフォルダと違うことを、淡い青で示す。 */
 .set-chip[data-tone='linked'] { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
 .set-chip-sub { min-width: 0; max-width: 14em; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 500; color: var(--ink-3); }
 /* 選んだフォルダとプロジェクトの関係を言う、その場の 1 行。文と切り替えのリンクを 1 段に並べ、狭ければ折り返す。 */
@@ -359,7 +359,7 @@ textarea.launch-input { height: auto; padding: calc(var(--u) * 2) calc(var(--u) 
 .cand-root .cand-check { margin-top: 1px; }
 .cand-root small { display: block; font-size: var(--fs-xs); color: var(--ink-3); }
 .cand-excl { font-size: var(--fs-xs); color: var(--ink-3); }
-/* まとめて登録の「フォルダの中から」（0.6.2、試作 proto-register の推す案）。列はチェック、名前（下に 1 行の説明）、git の印、会話の数、最後の活動。 */
+/* まとめて登録の「フォルダの中から」（0.6.1、試作 proto-register の推す案）。列はチェック、名前（下に 1 行の説明）、git の印、会話の数、最後の活動。 */
 .dialog.dialog-candidates { width: 640px; }
 /* 見方の切り替えは文が長いので、切り替えの既定の幅の上限（160px）で切らない。 */
 .dialog-candidates .seg > button { max-width: none; }

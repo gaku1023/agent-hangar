@@ -62,7 +62,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const emit = useEmit();
   const t = useT();
   const [choice, setChoice] = useState(() => {
-    // 作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるときは、そのフォルダを選んでおく（0.6.2）。
+    // 作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるときは、そのフォルダを選んでおく（0.6.1）。
     if (props.dir) return DIR + props.dir;
     // サーバも scratch を projectId より優先する。選んでいない（一覧に無い id を含む）ときはクイックセッションである。
     if (props.scratch) return SCRATCH;
@@ -78,7 +78,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const rootless = props.workspaceRoot === '';
   // 作る場所。作成場所が空なら選んだ場所で、設定が届く前は仮の場所にする。区切りは画面の OS に合わせる。
   const root = rootless ? parent.trim() : props.workspaceRoot ?? joinPath('~', 'workspace');
-  // 選んだフォルダの事前の問い合わせ（0.6.2、試作の 6 と 7 の A）。
+  // 選んだフォルダの事前の問い合わせ（0.6.1、試作の 6 と 7 の A）。
   // 登録済みのプロジェクトの下なら、既定は包むプロジェクトのセッションとしてそのフォルダで起こす（利用者の答え）。「別のプロジェクトにする」で分けて登録する。
   // ほかの PC から届いた同じプロジェクトがあれば、既定はそれに結び付けて始める。「新しく作る」で新しいプロジェクトにする。
   // 切り替えは選んだフォルダごとで、フォルダを選び直したら既定に戻る。

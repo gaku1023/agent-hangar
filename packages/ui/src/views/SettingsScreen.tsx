@@ -645,7 +645,7 @@ export function SettingsScreen(props: SettingsProps) {
         <SetRow title={t('settings.tools.register.title')} desc={t('settings.tools.register.desc')}
           control={<>
             <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open' })}>{t('settings.tools.register.action')}</button>
-            {/* まとめて登録の「フォルダの中から」（0.6.2）。 */}
+            {/* まとめて登録の「フォルダの中から」（0.6.1）。 */}
             <button type="button" className="btn" onClick={() => emit({ type: 'project.candidates.open', source: 'folder' })}>{t('settings.tools.register.folder')}</button>
           </>} />
       </section>

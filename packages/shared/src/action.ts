@@ -28,7 +28,7 @@ export type SearchFilter = { projectId?: string; days?: number; until?: number; 
 /** 状態のタブの値（「すべて」以外）。 */
 export type StatusFilter = NonNullable<SearchFilter['status']>;
 /**
- * 起動の指定。cwd は作業の場所で、プロジェクトの場所の下のフォルダから始めるときに渡す（0.6.2）。
+ * 起動の指定。cwd は作業の場所で、プロジェクトの場所の下のフォルダから始めるときに渡す（0.6.1）。
  * 省けばプロジェクトの場所で起こす。プロジェクトの場所の外は断る。セッションは projectId のプロジェクトに入る。scratch では使わない。
  */
 export type LaunchParams = { projectId?: string; scratch?: boolean; name?: string; prompt?: string; model?: string; effort?: string; permissionMode?: string; worktree?: string; addDirs?: string[]; account?: string; cwd?: string };
@@ -57,14 +57,14 @@ export type UiAction =
   // プロジェクトの名前を変える。見出しの (i) のポップオーバーから出す。
   | { type: 'project.rename'; id: ProjectId; name: string }
   | { type: 'project.new.open' } | { type: 'project.new.submit'; place: ProjectPlace; startSession: boolean }
-  // まとめて登録のダイアログ（初日のプロジェクト。2026-10-13）。source は開いた時点の見方で、省けば Claude Code と会話したフォルダ、folder はフォルダの中から（0.6.2）。
+  // まとめて登録のダイアログ（初日のプロジェクト。2026-10-13）。source は開いた時点の見方で、省けば Claude Code と会話したフォルダ、folder はフォルダの中から（0.6.1）。
   // submit は選んだフォルダをまとめて登録し、workspaceRoot があれば先に新しいフォルダの作成場所にする。items は行ごとの結び付け先（linkTo）と入れ子の明示（allowNested）を持つ。
   | { type: 'project.candidates.open'; source?: 'talked' | 'folder' } | { type: 'project.candidates.submit'; items: FolderRegisterItem[]; workspaceRoot: string | null }
   // 「フォルダの中から」の親フォルダの直下を読む（GET /api/workspace/children）。parent は打たれたままのパスで、~ はサーバが直す。
   | { type: 'project.folders.load'; parent: string }
   // 起動と作成のダイアログの「ほかの場所を選ぶ…」と、作成場所が空のときの「作成場所」の「選ぶ…」。殻の中だけで出す。
   | { type: 'folder.pick' }
-  // 選んだ 1 つのフォルダの事前の問い合わせ（0.6.2）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるかを読む。
+  // 選んだ 1 つのフォルダの事前の問い合わせ（0.6.1）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるかを読む。
   // 答えは Store の folderInspect に入り、新しいセッションと作成のダイアログが読む。name は作成のダイアログで名前を直したときだけ添える（弱い一致をその名前で見る）。
   | { type: 'folder.inspect'; path: string; name?: string }
   // 作成のダイアログで、選んだフォルダが登録済みのプロジェクトの下だったとき、そのプロジェクトを開く（startSession が偽）か、そのフォルダで始める（真）。

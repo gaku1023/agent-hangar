@@ -85,7 +85,7 @@ describe('ProjectCandidatesDialog', () => {
   });
 });
 
-// まとめて登録の「フォルダの中から」（0.6.2、試作 proto-register の推す案）。開いた時点では何もチェックしない（利用者の答え）。
+// まとめて登録の「フォルダの中から」（0.6.1、試作 proto-register の推す案）。開いた時点では何もチェックしない（利用者の答え）。
 const frow = (name: string, over: Partial<FolderRow> = {}): FolderRow => ({
   path: `/Users/me/src/${name}`, name, git: true, count: '—', countLabel: '会話 0 件', when: '', sessions: 0,
   registered: false, worktree: false, inside: false, note: null, link: null, children: null, ...over,

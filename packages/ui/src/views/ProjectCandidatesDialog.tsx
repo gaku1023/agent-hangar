@@ -10,7 +10,7 @@ import { Segmented } from './primitives/Segmented.tsx';
 type Source = 'talked' | 'folder';
 
 /**
- * まとめて登録のダイアログ。頭の切り替えで、Claude Code と会話したフォルダと、フォルダの中から（0.6.2、FolderBrowse.tsx）の 2 つの見方を持つ。
+ * まとめて登録のダイアログ。頭の切り替えで、Claude Code と会話したフォルダと、フォルダの中から（0.6.1、FolderBrowse.tsx）の 2 つの見方を持つ。
  * 選んだものは見方ごとに持ち、送るのは開いている見方のものだけである。
  *
  * Claude Code と会話したフォルダの候補（初日のプロジェクト。2026-10-13、試作の 4 節 3b の案 B）。

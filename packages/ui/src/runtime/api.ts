@@ -17,7 +17,7 @@ export class ProjectSameFolderApiError extends Error {
   constructor(public readonly body: ProjectSameFolderDto) { super(body.error); this.name = 'ProjectSameFolderApiError'; }
 }
 
-/** 登録しようとしたフォルダが、登録済みのプロジェクトの下だった（409、0.6.2）。UI はその場の 1 行と「別のプロジェクトにする」を出す。 */
+/** 登録しようとしたフォルダが、登録済みのプロジェクトの下だった（409、0.6.1）。UI はその場の 1 行と「別のプロジェクトにする」を出す。 */
 export class ProjectNestedApiError extends Error {
   constructor(public readonly body: ProjectNestedDto) { super(body.error); this.name = 'ProjectNestedApiError'; }
 }
@@ -100,7 +100,7 @@ export type ApiClient = {
   testEditor(): Promise<EditorTestDto>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
   createProject(place: ProjectPlace): Promise<ProjectDto>;
-  /** 選んだ 1 つのフォルダの事前の問い合わせ（0.6.2）。name を渡すと、弱い一致をその名前で見る。 */
+  /** 選んだ 1 つのフォルダの事前の問い合わせ（0.6.1）。name を渡すと、弱い一致をその名前で見る。 */
   inspectFolder(path: string, name?: string): Promise<FolderInspectDto>;
   workspaceDirs(): Promise<WorkspaceDirDto[]>;
   /** Claude Code と会話したフォルダの候補（初日のプロジェクト）。 */

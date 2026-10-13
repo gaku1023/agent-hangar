@@ -32,7 +32,7 @@ export function projectCreateStep(state: State, store: Store, input: Input): Ste
       if (state.projectCreate.kind === 'submitting') return { state, effects: [] };
       return { state: { ...state, projectCreate: { kind: 'submitting' } }, effects: [{ kind: 'api.createProject', place: i.place, startSession: i.startSession }] };
     case 'project.new.enclosing': {
-      // 選んだフォルダが登録済みのプロジェクトの下だった（0.6.2）。作らずに、そのプロジェクトを開くか、そのフォルダを選んだ新しいセッションのダイアログを開く。
+      // 選んだフォルダが登録済みのプロジェクトの下だった（0.6.1）。作らずに、そのプロジェクトを開くか、そのフォルダを選んだ新しいセッションのダイアログを開く。
       if (state.projectCreate.kind === 'submitting') return { state, effects: [] };
       const done = { ...state, projectCreate: { kind: 'idle' as const } };
       if (i.startSession) return { state: { ...done, overlay: { kind: 'newSession', projectId: i.projectId, scratch: false, dir: i.dir }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };

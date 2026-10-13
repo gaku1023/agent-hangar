@@ -886,7 +886,7 @@ describe('会話したフォルダの候補（初日のプロジェクト）', (
     const promote = run([action({ type: 'session.promote.open', id: 's1' })]).state;
     expect(run([action({ type: 'project.candidates.open' })], promote).state.overlay).toEqual({ kind: 'promote', sessionId: 's1' });
   });
-  // まとめて登録（0.6.2）。「フォルダの中から」で開く入口と、親フォルダの直下の読み込み、ほかの PC のプロジェクトに結び付けた件数。
+  // まとめて登録（0.6.1）。「フォルダの中から」で開く入口と、親フォルダの直下の読み込み、ほかの PC のプロジェクトに結び付けた件数。
   it('「フォルダの中から」で開ける。新しいプロジェクトのダイアログのリンクからは、そのダイアログと入れ替える', () => {
     expect(run([action({ type: 'project.candidates.open', source: 'folder' })]).state.overlay).toEqual({ kind: 'projectCandidates', source: 'folder', submitting: false, error: null });
     const np = run([action({ type: 'project.new.open' })]).state;
@@ -1734,7 +1734,7 @@ describe('プロジェクトを作る', () => {
     expect(state.overlay).toEqual({ kind: 'none' });
     expect(state.projectCreate).toEqual({ kind: 'idle' });
   });
-  // 0.6.2：登録済みのプロジェクトの下のフォルダを選んだとき、作成のダイアログは包むプロジェクトを開くか、そこで始める。
+  // 0.6.1：登録済みのプロジェクトの下のフォルダを選んだとき、作成のダイアログは包むプロジェクトを開くか、そこで始める。
   it('包むプロジェクトで始めるなら、閉じて、そのフォルダを選んだ新しいセッションのダイアログを開く', () => {
     const { state, effects } = run([action({ type: 'project.new.open' }), action({ type: 'project.new.enclosing', projectId: 'p1', dir: '/w/alpha/packages/ui', startSession: true })]);
     expect(state.overlay).toEqual({ kind: 'newSession', projectId: 'p1', scratch: false, dir: '/w/alpha/packages/ui' });

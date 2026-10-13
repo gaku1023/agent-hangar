@@ -7,7 +7,7 @@ import { upsertShared } from '../db/shared.ts';
 import { ProjectCreateError } from './create.ts';
 import { inspectFolder, workspaceChildren } from './folders.ts';
 
-// フォルダの中から選んで登録する（2026-10-14、0.6.2）。親の直下を並べる一覧と、1 つのフォルダの事前の問い合わせ。
+// フォルダの中から選んで登録する（2026-10-14、0.6.1）。親の直下を並べる一覧と、1 つのフォルダの事前の問い合わせ。
 
 let tmp: string;
 let src: string;

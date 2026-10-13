@@ -186,7 +186,7 @@ describe('registerProjectDir', () => {
   });
 });
 
-// 0.6.2：登録済みのプロジェクトの下のフォルダと、ほかの PC から届いたプロジェクトへの結び付け。
+// 0.6.1：登録済みのプロジェクトの下のフォルダと、ほかの PC から届いたプロジェクトへの結び付け。
 describe('registerProjectDir の入れ子と結び付け', () => {
   const reg = (o: Parameters<typeof registerProjectDir>[1]) => registerProjectDir({ db, deviceId: 'd', workspaceRoot: '' }, o);
   const caught = (fn: () => unknown): unknown => { try { fn(); } catch (e) { return e; } throw new Error('投げなかった'); };

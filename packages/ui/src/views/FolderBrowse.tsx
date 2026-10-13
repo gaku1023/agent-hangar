@@ -21,7 +21,7 @@ export function Check(props: { label: string; title?: string; checked: boolean |
 type Entry = { row: FolderRow; group: FolderRow | null };
 
 /**
- * まとめて登録の「フォルダの中から」の中身（0.6.2、試作 proto-register の推す案）。
+ * まとめて登録の「フォルダの中から」の中身（0.6.1、試作 proto-register の推す案）。
  * 頭に親フォルダの欄と「選ぶ…」、その直下を名前順に並べ、行ごとに押すと何が起きるかを名前の下の 1 行で言う。
  * 開いた時点では何もチェックしない（利用者の答え）。「すべて選択」は一覧の頭の 3 状態のチェックで、選べる行だけを入れる。
  * 選んだものは送るまで外へ出ないので、Mediator ではなくここに持つ。ダイアログの足元が件数と送る中身を使うので、フックで返す。

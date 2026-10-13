@@ -11,7 +11,7 @@ import { enclosingProject, linkCandidateFor, placelessProjects, registeredAt, ty
 import { normalizeDir } from './registry.ts';
 
 /**
- * フォルダの中から選んで登録する（2026-10-14、0.6.2）。
+ * フォルダの中から選んで登録する（2026-10-14、0.6.1）。
  * まとめて登録のダイアログの「フォルダの中から」が親の直下を並べる一覧（workspaceChildren）と、
  * 新しいセッションと新しいプロジェクトのダイアログが選んだ 1 つのフォルダを確かめる問い合わせ（inspectFolder）。
  * どちらも読むだけで、行は書かない。

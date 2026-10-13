@@ -1,7 +1,7 @@
 import type { FolderInspectDto, ProjectNestedDto } from '@agent-hangar/shared';
 
 /**
- * 選んだ 1 つのフォルダの事前の問い合わせ（GET /api/workspace/inspect、0.6.2）。
+ * 選んだ 1 つのフォルダの事前の問い合わせ（GET /api/workspace/inspect、0.6.1）。
  * 新しいセッションと作成のダイアログが、選んだフォルダが登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるかを読む。
  * 持つのは最後に頼んだ 1 件だけで、path と name はそのときの問い（name は添えなかったら null）である。
  * ダイアログは path が自分の選んだフォルダと同じときだけ使う。

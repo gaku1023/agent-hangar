@@ -423,7 +423,7 @@ describe('NewProjectDialog', () => {
     fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
     expect(screen.queryByRole('button', { name: 'ほかの場所を選択…' })).toBeNull();
   });
-  // まとめて登録（0.6.2）。1 件ずつの登録のダイアログから、フォルダの中からまとめて選ぶダイアログへ送る。
+  // まとめて登録（0.6.1）。1 件ずつの登録のダイアログから、フォルダの中からまとめて選ぶダイアログへ送る。
   it('既存のフォルダを登録の下の「フォルダの中からまとめて選ぶ…」で、まとめて登録のダイアログを開く', () => {
     const { out } = collect({ desktop: false });
     expect(screen.queryByRole('button', { name: 'フォルダの中からまとめて選ぶ…' })).toBeNull();
@@ -453,7 +453,7 @@ describe('NewProjectDialog', () => {
     expect(screen.getByLabelText('フォルダのパス')).toHaveValue('C:\\Users\\me\\論文\\');
     expect(screen.getByLabelText('プロジェクト名')).toHaveValue('論文');
   });
-  // 0.6.2：既存のフォルダの登録で、登録済みのプロジェクトの下（入れ子）と、ほかの PC から届いた同じプロジェクト（結び付け）。
+  // 0.6.1：既存のフォルダの登録で、登録済みのプロジェクトの下（入れ子）と、ほかの PC から届いた同じプロジェクト（結び付け）。
   describe('既存のフォルダの入れ子と結び付け', () => {
     const ui = '/w/alpha/packages/ui';
     type Inspect = NonNullable<NewProjectProps['inspect']>;

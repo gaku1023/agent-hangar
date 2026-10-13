@@ -4,7 +4,7 @@ import { gitRemoteOf, sameRemote } from '../git/remote.ts';
 import { isStrictlyUnder, isUnder, samePath } from '../platform/paths.ts';
 
 /**
- * フォルダとプロジェクトの関係（2026-10-14、0.6.2）。
+ * フォルダとプロジェクトの関係（2026-10-14、0.6.1）。
  *
  * - 登録済み（registeredAt）：フォルダがこの PC のプロジェクトの場所そのもの。
  * - 別のプロジェクトの中（enclosingProject）：フォルダがこの PC のプロジェクトの場所の下にある。

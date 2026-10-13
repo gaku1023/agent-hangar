@@ -165,7 +165,7 @@ describe('保持期間の API', () => {
     const plain = await harness(409, { error: 'あります' }).api.resolveProject('p2', { kind: 'repoint', path: '/w/x' }).catch((err: unknown) => err);
     expect(plain).not.toBeInstanceOf(ProjectSameFolderApiError);
   });
-  // 0.6.2：フォルダとプロジェクトの結び付き。選んだフォルダの事前の問い合わせと、入れ子の 409。
+  // 0.6.1：フォルダとプロジェクトの結び付き。選んだフォルダの事前の問い合わせと、入れ子の 409。
   it('選んだフォルダの事前の問い合わせは GET /api/workspace/inspect で、名前は渡したときだけ付ける', async () => {
     const { api, calls } = harness(200, { path: '/w/a' });
     await api.inspectFolder('/w/alpha/packages/ui');

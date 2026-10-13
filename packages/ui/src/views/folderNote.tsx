@@ -13,7 +13,7 @@ export function boldFirst(text: string, word: string): ReactNode {
 }
 
 /**
- * 選んだフォルダの事前の問い合わせのうち、そのフォルダについての答えだけを取り出す（0.6.2）。
+ * 選んだフォルダの事前の問い合わせのうち、そのフォルダについての答えだけを取り出す（0.6.1）。
  * ほかのフォルダの答え、読んでいる間、読めなかったときは data が null である。loading は読んでいる間か。
  */
 export function inspectOf(inspect: FolderInspectState | null | undefined, path: string | null): { data: FolderInspectDto | null; loading: boolean } {

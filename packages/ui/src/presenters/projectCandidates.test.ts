@@ -5,7 +5,7 @@ import type { State } from '../mediator/types.ts';
 import { initialStore, type Store } from '../store/store.ts';
 import { presentProjectCandidates } from './projectCandidates.ts';
 
-// まとめて登録の「フォルダの中から」（0.6.2）。親の直下の行に、押すと何が起きるかの 1 行を添える。
+// まとめて登録の「フォルダの中から」（0.6.1）。親の直下の行に、押すと何が起きるかの 1 行を添える。
 const NOW = 1_760_000_000_000;
 const settings = (workspaceRoot: string) => ({ workspaceRoot } as SettingsDto);
 const open = (source: 'talked' | 'folder' = 'folder'): State => ({ ...initialState(), overlay: { kind: 'projectCandidates', source, submitting: false, error: null } });

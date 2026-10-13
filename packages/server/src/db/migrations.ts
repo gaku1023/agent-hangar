@@ -445,7 +445,7 @@ create table session_limits (
 `;
 
 /**
- * 版 24。projects に git の remote（git_remote）を足す（0.6.2）。
+ * 版 24。projects に git の remote（git_remote）を足す（0.6.1）。
  *
  * 値は正規化した形（`github.com/owner/repo`。ssh と https を同じに読み、資格情報とトークンは入れない。git/remote.ts の normalizeRemote）。
  * ほかの PC から届いたプロジェクトと、この PC のフォルダを同じものと見分けるのに使う（projects/link.ts）。

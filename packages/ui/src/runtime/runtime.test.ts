@@ -701,7 +701,7 @@ describe('起動とターミナル', () => {
     await flush();
     expect(rt.getState().overlay).toEqual({ kind: 'projectCandidates', source: 'talked', submitting: false, error: 'つながりません' });
   });
-  // まとめて登録の「フォルダの中から」（0.6.2）。親の直下は Store の workspaceChildren に入り、後から頼んだ親の答えだけを採る。
+  // まとめて登録の「フォルダの中から」（0.6.1）。親の直下は Store の workspaceChildren に入り、後から頼んだ親の答えだけを採る。
   it('親フォルダの直下を取り、後から頼んだ親の答えだけを入れる。開き直すと前の一覧を捨てる', async () => {
     const data = (parent: string): WorkspaceChildrenDto => ({ parent, enclosing: null, children: [] });
     const waits: Record<string, (v: WorkspaceChildrenDto) => void> = {};
@@ -749,7 +749,7 @@ describe('起動とターミナル', () => {
     expect(rt.getStore().projects.p9).toEqual(created);
     expect(rt.getState()).toMatchObject({ overlay: { kind: 'none' }, projectCreate: { kind: 'idle' } });
   });
-  // 0.6.2：選んだフォルダの事前の問い合わせ（入れ子とほかの PC のプロジェクト）。新しいセッションと作成のダイアログが Store から読む。
+  // 0.6.1：選んだフォルダの事前の問い合わせ（入れ子とほかの PC のプロジェクト）。新しいセッションと作成のダイアログが Store から読む。
   describe('選んだフォルダの事前の問い合わせ', () => {
     const inspected = { path: '/w/alpha/packages/ui', git: false, worktree: false, remote: null, registered: null, enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'packages/ui' }, link: null };
     it('folder.inspect は問い合わせを読み、読んでいる間と答えを Store に入れる', async () => {
