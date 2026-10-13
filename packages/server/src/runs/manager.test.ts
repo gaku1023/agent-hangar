@@ -818,15 +818,16 @@ describe.skipIf(!TMUX)('resume と fork（tmux 上）', () => {
     expect(JSON.parse(fs.readFileSync(args[1]!, 'utf8')).mcpServers.hangar.url).toBe(`http://127.0.0.1:4177/mcp/s/${f.sessionId}`);
   });
 
+  // プロジェクトに属する会話は、cwd が無ければプロジェクトの場所に読み替える（runs/handover.ts）。読み替えられないのは、属さない会話である。
   it('cwd が無ければ 400', () => {
     const id = seedOldSession();
-    db.prepare('update sessions set cwd = ? where id = ?').run('/nonexistent/cwd', id);
+    db.prepare('update sessions set cwd = ?, project_id = null where id = ?').run('/nonexistent/cwd', id);
     expect(() => make().resume(id)).toThrow(expect.objectContaining({ status: 400 }));
   });
 
   it('cwd が無ければ fork も 400 で、セッションの行は増えない', () => {
     const id = seedOldSession();
-    db.prepare('update sessions set cwd = ? where id = ?').run('/nonexistent/cwd', id);
+    db.prepare('update sessions set cwd = ?, project_id = null where id = ?').run('/nonexistent/cwd', id);
     const before = db.prepare('select count(*) c from sessions').get() as { c: number };
     expect(() => make().fork(id)).toThrow(expect.objectContaining({ status: 400 }));
     expect(db.prepare('select count(*) c from sessions').get()).toEqual(before);
@@ -1967,5 +1968,82 @@ describe('tmux のパスの実物を起動の前に確かめる（tmux 不要）
     const mux = writeFakeTool(path.join(home, 'muxbin'), 'tmux', { sh: '', cmd: '' });
     const r = make({ panes: p.panes, muxPath: () => mux }).resume(id);
     expect(p.opened).toEqual([r.run.tmuxName]);
+  });
+});
+
+describe('ほかの PC で進めた会話の再開とフォーク（tmux 不要）', () => {
+  /** 開いたペインの作業ディレクトリとコマンドを覚える偽の画面。 */
+  const capturing = () => {
+    const opened: { cwd: string; command: string[] }[] = [];
+    const panes: PaneOps = { open: (o) => { opened.push({ cwd: o.cwd, command: o.command }); }, close: () => {}, list: () => [], capture: () => '', sendText: () => {}, sendKey: () => {}, prepareForOutsideTerminals: () => {} };
+    return { panes, opened };
+  };
+  const promptOf = (command: string[]) => command[command.indexOf('--append-system-prompt') + 1]!;
+  /** work-pc（Windows）で作って動かした会話。この PC（d）の場所は cwd である。 */
+  const seedRemote = () => {
+    upsertShared(db, 'devices', { id: 'd', name: 'this-mac', platform: 'darwin', last_seen_at: 1 }, 'd');
+    upsertShared(db, 'devices', { id: 'win', name: 'work-pc', platform: 'win32', last_seen_at: 1 }, 'win');
+    upsertShared(db, 'project_roots', { id: 'pr-win', project_id: 'p1', device_id: 'win', path: 'D:\\src\\alpha', resolved: 1 }, 'win');
+    upsertShared(db, 'sessions', { id: 'sw', provider: 'claude-code', provider_session_id: 'u-win', cwd: 'D:\\src\\alpha\\pkg', home_device: 'win', project_id: 'p1', last_activity_at: 5 }, 'win');
+    upsertShared(db, 'runs', { id: 'rw', session_id: 'sw', device_id: 'win', kind: 'start', tmux_name: 'x', pid: null, launch_params: '{}', started_at: 1, ended_at: 2, end_reason: 'exited', heartbeat_at: 2 }, 'win');
+    db.prepare('insert into transcript_files (path, session_id, agent_id, size, mtime, indexed_bytes, indexer_version, device_id) values (?,?,?,?,?,?,?,?)').run('/x/u-win.jsonl', 'sw', null, 10, 1, 10, 1, 'win');
+    fs.mkdirSync(path.join(cwd, 'pkg'));
+    return 'sw';
+  };
+
+  it('resume は前の PC のパスをこの PC の場所に読み替えて起こし、引き継ぎの段を足す。共有の行の cwd は書き換えない', () => {
+    const id = seedRemote();
+    const p = capturing();
+    make({ panes: p.panes }).resume(id);
+    expect(p.opened[0]!.cwd).toBe(path.join(cwd, 'pkg'));
+    const prompt = promptOf(p.opened[0]!.command);
+    expect(prompt).toContain(`この会話は work-pc（Windows）で`);
+    expect(prompt).toContain(`いまは this-mac（macOS）の ${path.join(cwd, 'pkg')} で続けています。`);
+    expect(prompt).toContain(`プロジェクト：alpha（${path.join(cwd, 'pkg')}）`);
+    expect(prompt).toContain('このプロジェクトは 2 台の PC で使っています。');
+    expect((db.prepare('select cwd from sessions where id = ?').get(id) as { cwd: string }).cwd).toBe('D:\\src\\alpha\\pkg');
+  });
+
+  it('この PC で 1 度動いた後の resume には、引き継ぎの段を足さない', () => {
+    const id = seedRemote();
+    const first = capturing();
+    const rm = make({ panes: first.panes, now: () => 10 });
+    const r = rm.resume(id);
+    rm.kill(r.run.id);
+    const again = capturing();
+    make({ panes: again.panes, now: () => 20 }).resume(id);
+    expect(promptOf(again.opened[0]!.command)).not.toContain('この会話は work-pc');
+    expect(promptOf(again.opened[0]!.command)).toContain('このプロジェクトは 2 台の PC で使っています。');
+  });
+
+  it('fork は読み替えた cwd で新しい行を作り、引き継ぎは元の会話で決める', () => {
+    const id = seedRemote();
+    const p = capturing();
+    const f = make({ panes: p.panes }).fork(id);
+    expect(p.opened[0]!.cwd).toBe(path.join(cwd, 'pkg'));
+    expect((db.prepare('select cwd from sessions where id = ?').get(f.sessionId) as { cwd: string }).cwd).toBe(path.join(cwd, 'pkg'));
+    expect(promptOf(p.opened[0]!.command)).toContain('この会話は work-pc（Windows）で');
+  });
+
+  it('この PC に場所が無ければ、行も run も作らずに場所が無いと断る', () => {
+    const id = seedRemote();
+    db.prepare("update project_roots set deleted_at = 9 where id = 'pr1'").run();
+    const p = capturing();
+    const rm = make({ panes: p.panes });
+    expect(() => rm.resume(id)).toThrow(expect.objectContaining({ status: 400, message: 'プロジェクトのディレクトリがこの PC で見つかりません' }));
+    expect(() => rm.resumeCwdOf(id)).toThrow(expect.objectContaining({ status: 400 }));
+    expect(rm.resumeCwdOf('nope')).toBeNull();
+    expect(() => rm.fork(id)).toThrow(expect.objectContaining({ status: 400 }));
+    expect(p.opened).toEqual([]);
+    expect(db.prepare('select count(*) c from runs').get()).toEqual({ c: 1 });
+  });
+
+  it('この PC で作った会話は、今までどおり sessions.cwd で起こし、段を足さない', () => {
+    const id = seedOldSession();
+    const p = capturing();
+    make({ panes: p.panes }).resume(id);
+    expect(p.opened[0]!.cwd).toBe(cwd);
+    expect(promptOf(p.opened[0]!.command)).not.toContain('この会話は');
+    expect(promptOf(p.opened[0]!.command)).not.toContain('台の PC');
   });
 });

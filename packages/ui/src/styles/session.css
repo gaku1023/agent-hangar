@@ -39,6 +39,12 @@ a.chip { color: var(--accent); text-decoration: none; }
    押せないときは aria-disabled にして、乗せると理由の吹き出しが出るようにする。 */
 .session-hero .btn[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 .session-hero .btn[aria-disabled='true']:hover { transform: none; filter: none; }
+/* 「この PC で再開」を押せない理由の行（見出しの下）。場所の指定のリンクを同じ行に置く。 */
+.session-reason { display: flex; align-items: flex-start; gap: calc(var(--u) * 2); margin-top: calc(var(--u) * 2.5); font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-2); }
+/* 狭い窓では理由の文だけを折り返し、印とリンクは行の頭と後ろに残す。 */
+.session-reason > span { min-width: 0; }
+.session-reason > svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.session-reason .btn-link { flex: none; font-weight: 600; }
 
 /* 本体（実行中も終わった後も同じ）。左に主役（実行中はターミナル、終わった後は冒頭の 1 枚つきのトランスクリプト）、右に 240px の列を置く。
    右の列（.toc-slot）は、実行中は現在の札と目次を縦に積み（.toc-slot-inner）、終わった後は目次だけである。

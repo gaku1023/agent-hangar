@@ -1,3 +1,4 @@
+import { resumeHereOf } from './resumeHere.ts';
 import { CANDIDATE_EXPIRE_DAYS, isReturnOn, isReturnTime, overdueDays, resetAtText, returnDue, returnPastMinutes, type CandidateSource, type LiveStatus, type StopReason, type SessionDto, type SessionStateDto, type SessionStatus, type SessionSummaryDto, type StateSetBy, type StatusFilter, type Translate } from '@agent-hangar/shared';
 import { aliveRunOf, shownAside, shownLive, shownReason, type Store } from '../store/store.ts';
 import { absoluteTime, costLabel, relativeTime, shortModel, stateLabel } from './format.ts';
@@ -42,6 +43,8 @@ export type SessionRowProps = { id: string; name: string; oneLiner: string; proj
   statusTitle?: string;
   /** hangar が自動で付けた Done（set_by が import）。札の頭に ✦ を置き、枠を点線にする（4a、試作の A）。 */
   autoDone?: boolean;
+  /** ほかの PC の会話の「この PC で再開」（行の「⋯」の項目）。disabled は押せない理由。ほかの PC の会話でなければ省く。 */
+  resumeHere?: { disabled: string | null };
   /** 中断の印（右端の「中断」）。ステータスの無いセッションで、最後の run が中断で終わり、いま終わっているものだけが持つ。title は原因と時刻。 */
   interrupted?: { label: string; title: string };
 
@@ -120,6 +123,8 @@ export function presentSessionRow(s: SessionDto, store: Store, now: number, exce
     git: presentGitChip(t, store.git, s.id, store.sessions),
   };
   if (excerpt) row.excerpt = excerpt;
+  const here = resumeHereOf(store, s, t);
+  if (here) row.resumeHere = { disabled: here.disabled };
   if (s.interrupted && row.live === null && row.runId === null && !status) row.interrupted = interruptMark(t, s.interrupted, now);
   return row;
 }

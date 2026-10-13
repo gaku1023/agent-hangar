@@ -185,6 +185,15 @@ describe('同期の経路', () => {
     expect(calls).toEqual([`resumeHere:${id}:false`, `resumeHere:${id}:false`]);
   });
 
+  it('この PC で再開の確認に出すもの（前の PC とこの PC、読み替えた作業ディレクトリ）を返し、無い会話は 404', async () => {
+    const id = (await json(await get('/api/sessions'))).body[0].id;
+    const r = await json(await get(`/api/sessions/${id}/resume-here`));
+    expect(r.status).toBe(200);
+    // 試験の世界の会話の cwd はこの PC に無く、プロジェクトの場所も無いので、この PC のパスは null になる。
+    expect(r.body).toMatchObject({ sessionId: id, from: { path: expect.any(String) }, to: { path: null } });
+    expect((await get('/api/sessions/nope/resume-here')).status).toBe(404);
+  });
+
   it('この PC で再開の RunError は status と理由を返す', async () => {
     app = createApp({ ...deps, resumeHere: () => { throw new RunError(400, 'このセッションの本文がありません'); } });
     const r = await json(await post('/api/sessions/s1/resume-here', { overwrite: true }));

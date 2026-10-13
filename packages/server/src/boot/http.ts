@@ -122,7 +122,7 @@ export function bootHttp(p: {
     syncSkipped: sync.feed.skipped,
     syncSweep: sync.feed.sweep,
     syncOncePass: sync.feed.oncePass,
-    resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
+    resumeHere: (sessionId, overwrite) => resumeHere({ db, home: home.home, claudeDir: home.claudeDir, check: (id) => { runs.runs.resumeCwdOf(id); }, resume: (id) => runs.runs.resume(id), pruneTranscripts: () => sync.pruneBackups('transcripts') }, sessionId, overwrite),
     configBundle: sync.configBundle,
     joinToken: sync.joinToken,
     devices: () => listDevices(db, device.id),

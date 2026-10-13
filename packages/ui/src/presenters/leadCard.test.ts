@@ -180,7 +180,7 @@ describe('見出しの名前の横の札（ロックと、トランスクリプ�
     expect(presentSessionBadges(session({ lock: lock(true) }), NOW, en)).toEqual([{ kind: 'stale', label: 'office-pc is not responding', title: 'Last seen 5 min ago' }]);
   });
   it('トランスクリプトが他の PC にあるときは、ロックと同じ扱いの札を出す。両方あれば、ロック、トランスクリプトの順', () => {
-    expect(presentSessionBadges(session({ remoteOnly: true }), NOW, ja)).toEqual([{ kind: 'remote', label: 'トランスクリプトは他の PC にあります', title: null }]);
+    expect(presentSessionBadges(session({ remoteOnly: true }), NOW, ja)).toEqual([{ kind: 'remote', label: 'トランスクリプトはほかの PC にあります', title: null }]);
     expect(presentSessionBadges(session({ remoteOnly: true, lock: lock(false) }), NOW, ja).map((b) => b.kind)).toEqual(['lock', 'remote']);
   });
   it('どちらも無ければ札は出さない', () => {

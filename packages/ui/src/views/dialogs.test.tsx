@@ -5,7 +5,8 @@ import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { NewProjectDialog } from './NewProjectDialog.tsx';
 import { RetentionDialog } from './RetentionDialog.tsx';
 import type { NewProjectProps } from '../presenters/newProject.ts';
-import type { UiAction } from '@agent-hangar/shared';
+import { translator, type ResumeHerePlanDto, type UiAction } from '@agent-hangar/shared';
+import { presentResumeHere } from '../presenters/resumeHere.ts';
 import { revealWithin } from './primitives/revealWithin.ts';
 import { setClientUserAgent, WINDOWS_UA } from '../test/client.ts';
 
@@ -17,7 +18,7 @@ describe('ConfirmDialog', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 1024, remoteSize: 4096 }} /></ActionRoot>);
     expect(screen.getByText('この PC のトランスクリプト 1.0 KB')).toBeInTheDocument();
-    expect(screen.getByText('他の PC のトランスクリプト 4.0 KB')).toBeInTheDocument();
+    expect(screen.getByText('ほかの PC のトランスクリプト 4.0 KB')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '上書きして再開' }));
     expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1', overwrite: true });
     fireEvent.click(screen.getByRole('button', { name: 'キャンセル' }));
@@ -27,6 +28,42 @@ describe('ConfirmDialog', () => {
     render(<ActionRoot onAction={() => {}}><ConfirmDialog confirm={{ kind: 'overwriteTranscript', sessionId: 's1', localSize: 3 * 1024 * 1024, remoteSize: 5 * 1024 * 1024 }} /></ActionRoot>);
     expect(screen.getByText('この PC のトランスクリプト 3.0 MB')).toBeInTheDocument();
     expect(screen.getByText(/~\/\.agent-hangar\/backups\/transcripts\//)).toBeInTheDocument();
+  });
+});
+
+describe('この PC で再開の確認', () => {
+  const plan: ResumeHerePlanDto = { sessionId: 's1', from: { deviceName: 'work-pc', platform: 'win32', path: 'D:\\src\\notes-app', lastAt: new Date(2026, 9, 12, 18, 42).getTime() }, to: { deviceName: 'this-mac', platform: 'darwin', path: '/Users/me/src/notes-app' } };
+  const mountIt = (p = plan, onAction = vi.fn()) => {
+    render(<ActionRoot onAction={onAction}><ConfirmDialog confirm={{ kind: 'resumeHere', sessionId: 's1', plan: p }} resumeHere={presentResumeHere(translator('ja'), p, '/Users/me')} /></ActionRoot>);
+    return onAction;
+  };
+  it('前の PC とこの PC の 2 枚のカード、最後に使った日時、同期されないものの帯を出し、承諾で再開を送る', () => {
+    const onAction = mountIt();
+    const dialog = screen.getByRole('dialog', { name: 'ほかの PC で進めた会話を、この PC で再開しますか' });
+    expect(dialog).toHaveTextContent('この会話は work-pc で進めたものです。');
+    const cards = [...dialog.querySelectorAll('.rh-card')];
+    expect(cards.map((c) => c.querySelector('.rh-card-k')?.textContent)).toEqual(['前の PC', 'この PC']);
+    expect(cards[0]).toHaveTextContent('work-pc');
+    expect(cards[0]).toHaveTextContent('Windows');
+    expect(cards[0]).toHaveTextContent('D:\\src\\notes-app');
+    expect(cards[0]).toHaveTextContent('最後に使った日時：2026-10-12 18:42');
+    expect(cards[1]).toHaveTextContent('this-mac');
+    expect(cards[1]).toHaveTextContent('macOS');
+    expect(cards[1]).toHaveTextContent('~/src/notes-app');
+    expect(cards[1]?.getAttribute('data-here')).toBe('true');
+    expect(dialog.querySelector('.rh-band')).toHaveTextContent('プロジェクトのファイル、未コミットの変更、開発環境（道具、環境変数、秘密の値）は同期されません。');
+    expect(dialog.querySelector('.rh-band')).toHaveTextContent('同期されるのは会話のトランスクリプトと hangar の記録だけです。');
+    expect(screen.getByRole('button', { name: 'キャンセル' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+  });
+  it('この PC で場所が決まらなければ、再開を押せなくして理由を言う', () => {
+    const onAction = mountIt({ ...plan, to: { ...plan.to, path: null } });
+    const button = screen.getByRole('button', { name: 'この PC で再開' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(button);
+    expect(onAction).not.toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+    expect(screen.getByRole('dialog')).toHaveTextContent('この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。');
   });
 });
 

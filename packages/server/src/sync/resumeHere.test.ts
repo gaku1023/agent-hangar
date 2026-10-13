@@ -50,4 +50,17 @@ describe('この PC で再開', () => {
     kept.run();
     expect(kept.calls).toEqual(['resume s1']);
   });
+
+  it('この PC で起こせない会話は、本文を写す前に断る', () => {
+    const calls: string[] = [];
+    const run = () => resumeHere({
+      db, home: '/nope/home', claudeDir: '/nope/claude',
+      check: (id) => { calls.push(`check ${id}`); throw new RunError(400, 'no root'); },
+      resume: (id) => { calls.push(`resume ${id}`); return launched; },
+      pruneTranscripts: () => { calls.push('prune'); },
+      copy: () => { calls.push('copy'); return { kind: 'kept', target: '/t' }; },
+    }, 's1', false);
+    expect(run).toThrow('no root');
+    expect(calls).toEqual(['check s1']);
+  });
 });

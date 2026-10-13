@@ -31,6 +31,9 @@ function stateItems(t: Translate, r: SessionRowProps, emit: Emit): MenuItem[] {
     { key: 'done', label: t('row.menu.done'), kbd: 'd', disabled: r.state === 'done' ? t('row.menu.alreadyDone') : null, onSelect: set('done') },
     { key: 'archived', label: t('row.menu.archived'), kbd: 'a', disabled: r.state === 'archived' ? t('row.menu.alreadyArchived') : null, onSelect: set('archived') },
     { key: 'active', label: t('row.menu.active'), kbd: 'u', disabled: r.state === null && r.candidate === null ? t('row.menu.alreadyActive') : null, onSelect: set(null) },
+    // ほかの PC の会話だけに、最後に「この PC で再開」を足す。押せないときは理由を項目の下に出す（試作の 1b）。
+    // 印は付けない。ほかの項目に印が無いので、付けると語の頭がずれる。
+    ...(r.resumeHere ? [{ key: 'resumeHere', label: t('session.action.resumeHere'), disabled: r.resumeHere.disabled, onSelect: () => emit({ type: 'session.resumeHere.open', id: r.id }) }] : []),
   ];
 }
 
@@ -272,7 +275,7 @@ export function SessionRows(props: RowsSource & { /** 一覧の高さ。省く�
         {/* 止まっている理由があれば、右端の語をそれに替える（「許可待ち」「使用制限 · 16:50」「リセット済み」、試作の L1）。 */}
         {r.live && <span className="row-live" data-live={r.reason === 'limit' ? 'limit' : r.live === 'waiting' ? 'waiting' : 'busy'} aria-hidden="true">{r.reasonWord ?? t(LIVE_WORD_KEY[r.live])}</span>}
         <span className="row-act row-more" onClick={stopClick}>
-          <MenuButton label={t('row.menu.stateLabel', { name: r.name })} items={stateItems(t, r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={220} onClose={(how) => menuClosed(r.id, how)} />
+          <MenuButton label={t('row.menu.stateLabel', { name: r.name })} items={stateItems(t, r, emit)} faceClassName="btn btn-icon row-more-btn" minWidth={r.resumeHere ? 300 : 220} onClose={(how) => menuClosed(r.id, how)} />
         </span>
         {time(r)}
       </span>

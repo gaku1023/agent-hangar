@@ -707,7 +707,7 @@ describe('フェーズ 4 のセッション画面', () => {
     const onAction = vi.fn();
     render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} canFork={false} remoteOnly canResumeHere badges={[{ kind: 'remote', label: 'トランスクリプトは他の PC にあります', title: null }]} /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 's1' });
     expect(screen.getByText('トランスクリプトは他の PC にあります')).toBeInTheDocument();
   });
   // Ruling 14。相手が落ちて heartbeat だけ残った状態を行き止まりにしない。
@@ -716,7 +716,24 @@ describe('フェーズ 4 のセッション画面', () => {
     const staleLock = { deviceName: 'mini', stale: true, heartbeat: '5 分前', label: 'mini から応答がありません' };
     render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} canFork={false} lock={staleLock} canResumeHere /></ActionRoot>);
     fireEvent.click(screen.getByRole('button', { name: 'この PC で再開' }));
-    expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere', id: 's1' });
+    expect(onAction).toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 's1' });
+  });
+  it('この PC にプロジェクトのフォルダが無ければ、この PC で再開を押せなくし、見出しの下に理由と場所の指定を常に出す', () => {
+    const onAction = vi.fn();
+    const reason = 'この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。';
+    render(<ActionRoot onAction={onAction}><SS {...base} canResume={false} canFork={false} remoteOnly canResumeHere noRoot={{ reason, projectId: 'p1' }} /></ActionRoot>);
+    const button = screen.getByRole('button', { name: 'この PC で再開' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(button);
+    expect(onAction).not.toHaveBeenCalledWith({ type: 'session.resumeHere.open', id: 's1' });
+    const line = document.querySelector('.session-reason')!;
+    expect(line).toHaveTextContent(reason);
+    fireEvent.click(screen.getByRole('button', { name: '場所を指定' }));
+    expect(onAction).toHaveBeenCalledWith({ type: 'project.resolve.open', id: 'p1' });
+  });
+  it('フォルダがあれば理由の行は出さない', () => {
+    render(<ActionRoot onAction={() => {}}><SS {...base} canResume={false} canFork={false} remoteOnly canResumeHere /></ActionRoot>);
+    expect(document.querySelector('.session-reason')).toBeNull();
   });
   it('ロックが無ければこの PC で再開は出ない', () => {
     render(<ActionRoot onAction={() => {}}><SS {...base} /></ActionRoot>);

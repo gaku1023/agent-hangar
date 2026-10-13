@@ -94,7 +94,8 @@ export function SessionScreen(props: SessionProps) {
     switch (a) {
       case 'openEditor': emit({ type: 'session.openEditor', sessionId: id }); return;
       case 'resume': emit({ type: 'session.resume', id }); return;
-      case 'resumeHere': emit({ type: 'session.resumeHere', id }); return;
+      // 確認の 1 枚（前の PC とこの PC）を出してから写す。確認に出すものは Mediator が取りに行く。
+      case 'resumeHere': emit({ type: 'session.resumeHere.open', id }); return;
       case 'fork': emit({ type: 'session.fork', id }); return;
       case 'openTerminal': if (run) emit({ type: 'session.openTerminalApp', runId: run.id, tabId: props.selectedTab ?? undefined }); return;
       // hangar の外で動いているあいだは本文しか見せられない。
@@ -123,13 +124,21 @@ export function SessionScreen(props: SessionProps) {
     mono: d.mono,
   }));
 
+  // この PC にプロジェクトのフォルダが無いほかの PC の会話。「この PC で再開」を押せない理由を見出しの下に常に出し、同じ行に場所の指定を置く（試作の 1a）。
+  const noRoot = props.noRoot ?? null;
+  const noRootLine = noRoot ? (
+    <div className="session-reason" role="note">
+      <Icon name="info" /><span>{noRoot.reason}</span>
+      <button type="button" className="btn-link" onClick={() => emit({ type: 'project.resolve.open', id: noRoot.projectId })}>{t('session.action.setLocation')}</button>
+    </div>
+  ) : null;
   const header = (
     // 見出しの行。
     // 一覧の行や Home の札から開くと、その行がここへ広がる（runtime/present.ts が data-morph-hero を探す）。
     // 名前は見出しにだけ出し、要約の題は出さない（C1）。
     // 名前の横に、他の PC で実行中の札（操作できない理由なので隠さない）。右端の (i) に、毎回は見ない属性を入れる。
     // 操作は状態に合う 1 つだけを主にし、残りは「…」に入れる（A1）。
-    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id}>
+    <PageHeading title={props.name} parent={props.parent} lead={<StatusDot status={props.live} aside={props.aside} reason={props.reason ?? null} />} titleClassName="session-name" rowClassName="session-hero" hero={id} below={noRootLine}>
       <SessionBadges badges={props.badges} />
       {props.oneLiner ? <span key={props.oneLiner} className="session-oneliner" title={props.oneLiner}>{props.oneLiner}</span> : <span className="spacer" />}
       {/* 押せない主の操作は、乗せても読み上げでも理由が分かるように、disabled ではなく aria-disabled にする。 */}

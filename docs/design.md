@@ -1634,6 +1634,36 @@ Bash と Agent の description は日本語で短く（20 字程度）書いて�
 手の説明は、字数の上限（以前は「20 字以内」）ではなく目安で言う（英語は about 40 characters）。
 2026-10-13 に緩めた。
 
+#### PC をまたぐ会話の段（0.6.1）
+
+同期を使って別の PC で進めた会話をこの PC で起こすとき、Claude は前の PC のパスとファイルの状態を前提に続けてしまう。
+同期されるのはトランスクリプトと hangar の記録だけで、ファイル、git の作業ツリー、未コミットの変更、環境は運ばれない。
+そこで、DB の事実だけで判定する 2 つの段を、常に足す段の直後に足す（`launch/injection.ts`、`runs/handover.ts`、2026-10-13 の決定）。
+どちらもスイッチを持たず、同期を使わない人には条件が当たらないので出ない。
+
+- 引き継ぎの段（`launch.injection.handover`）：起こす run の直前の run（`runs` を `started_at` の降順で 1 件）がほかの PC のもの、または run が無くて会話を作った PC（`home_device`）がほかの PC のとき。フォークは元の会話で判定する。この PC で 1 度動いた後は、直前の run がこの PC になるので出ない。
+- 複数の PC の 1 文（`launch.injection.multiDevice`）：プロジェクトの場所の行（`project_roots`、`deleted_at` が null）が 2 台以上の PC にあるとき。抜けた PC（`devices` の行を消したもの）は数えない。未分類の会話には出さない。
+
+引き継ぎの段に埋める事実は、前の PC の名前と OS、前の cwd（`sessions.cwd`）、この PC の名前と OS と起こす cwd、最後に動いた時刻（`last_activity_at`）、本文の末尾のブランチ（`git/hint.ts`）、その会話が編集したファイルのうちこの PC に無いものである。
+無いファイルは、`event_index` の編集系のツールのパスを前の PC のプロジェクトの場所からの相対にし、この PC の場所の下で有無を見る。並べるのは 10 件までで、件数は全部を数える。どの場所の下でもないファイルは件数にだけ入れる。
+前の PC の HEAD、未コミットの差分、ssh で届くかは hangar が知らないので、Claude に次の指示の前に 1 度だけ `git status` と `git log -1` と現在のブランチで確かめさせ、合わなければ推し量って作り直さずに AskUserQuestion で聞かせる。
+
+```
+この会話は <前の PC>（<OS>）で <最後に動いた時刻> まで進め、作業ディレクトリは <前の cwd> でした。いまは <この PC>（<OS>）の <cwd> で続けています。
+同期されたのは会話のトランスクリプトと hangar の記録だけです。ファイル、git の作業ツリー、未コミットの変更、環境（インストール、環境変数、秘密）は同期されていません。
+会話の中のパスは前の PC の形です。この PC では <cwd> からの相対パスで読み替え、前の PC の絶対パスをそのまま打たないでください。
+会話の終わりのブランチは <ブランチ> でした。この会話で編集したファイル <件数> 件のうち、この PC に無いもの：<N 件と一覧、または（なし）>
+次の指示を受けたら、作業に入る前に 1 度だけ、git status と git log -1 と現在のブランチを見て、会話の終わりの状態と合うかを短く報告してください。
+無いファイルがある、ブランチやコミットが違う、前の PC に未コミットの変更が残っていたらしい、のどれかなら、推し量って再生成したり続けたりせず、AskUserQuestion で聞いてください。選択肢は「この PC で環境をそろえて続ける（足りないものを一緒に用意する）」「前の PC からファイルを持ってくる（手順を示す。実行するのは利用者）」「前の PC で続ける（この PC では何もしない）」「差を承知でこのまま進める」です。
+ssh、scp、rsync は自分で打たないでください。1 度合っていると確認したものは、その後は疑わないでください。
+```
+
+```
+このプロジェクトは <台数> 台の PC で使っています。過去の会話のパスやファイルの状態は、この PC と違うことがあります。
+```
+
+設定の「足す指示の全文を見る」には、この 2 段を基本の段の後に、名前の横の印「同期を使っているときだけ」を添えて並べる（`presenters/injection.ts`）。差し込む値は印で見せる。
+
 MCP の URL はセッション別（`/mcp/s/<sessionId>`）なので、ツールは呼び出し元のセッションをサーバ側で確定できる。
 モデルにセッション ID を扱わせる必要はない。
 
@@ -1686,6 +1716,13 @@ hangar の外で起こした 4 ターン以上のものは、止まったとき�
 再開は同じ cwd で `claude -r <uuid>` を tmux 上で実行し、`kind = 'resume'` の run を作る。
 フォークは `claude -r <uuid> --fork-session --session-id <新 uuid>` で、新しいセッション行と `kind = 'fork'` の run を作る。
 同じセッションに生きた run があるときは、再開を無効にする。
+
+前の cwd（`sessions.cwd`）がこの PC に無いときは、この PC のプロジェクトの場所に読み替える（`runs/handover.ts` の `resumeCwd`、0.6.1）。
+前の PC のプロジェクトの場所（その PC の `project_roots` の行）からの相対パスを、この PC の場所に継ぐ。worktree や下位のフォルダも継ぎ、継いだ先が無ければいちばん近いある親（場所まで）に倒す。
+前の cwd がどの PC の場所の下にも無ければ、この PC の場所にする。Windows の形のパスは `/` と `\` のどちらの区切りでも読み、大文字と小文字を区別しない。
+共有の行の `sessions.cwd` は書き換えない。フォークは読み替えた cwd で新しい行を作る（フォークの本文はその cwd の置き場に生まれる）。
+プロジェクトに属する会話で、この PC に場所が無い（行が無い、見つからない、フォルダが無い）ときは、起こす前に「プロジェクトのディレクトリがこの PC で見つかりません」で断る。プロジェクトに属さない会話は今までどおり `sessions.cwd` で起こし、無ければ断る。
+Claude Code 2.1 の `claude -r <uuid>` は、cwd が前と違っても、どのプロジェクトの置き場（`projects/<変換名>/`）にある本文でも見つけ、その本文に書き足す（2026-10-13 に、偽の API と使い捨ての `CLAUDE_CONFIG_DIR` で、`-p` と対話の両方を確かめた。Windows の形の置き場の名前でも見つけた）。フォークの本文は新しい cwd の置き場にできる。そのため、本文の写しの置き場（`sync/copy.ts`）は前の cwd の変換名のままにしてある。
 
 #### 中断と再開
 
@@ -2005,6 +2042,7 @@ GET を開かなければ、止まっている間に呼ばなかった claude �
   ノートへの追記（`append_memo`）は 2026-10-11 にやめた。古い指示を覚えた Claude が渡したときは、書かずに、やめたことと CLAUDE.md などの指示ファイルに書くよう促す一文を、応答の `notice` で返す（エラーにはしない）。
 - `list_sessions({ project_id?, running?, limit? })`。
 - `search_sessions({ query, project_id?, since?, until?, file? })`：FTS と絞り込み。結果は題名、要約の 1 文、一致箇所の抜粋、再開コマンド。
+- `list_sessions`、`search_sessions`、`get_project` の直近のセッションには、会話を最後に動かした PC を `device: { name, platform, here }` で添える（0.6.1）。最後の run の PC で、run が無ければ作った PC（`home_device`）である。`here` はこの PC か。ほかの PC の会話は、パスやファイルの状態がこの PC と違うことがあるので、Claude が読み分けられるようにする（`runs/handover.ts` の `deviceOfSession`）。
 - `get_transcript(session_id, { from_seq?, limit?, include_tools? })`：正規化イベントを返す。
 - `create_session({ project_id, name?, prompt?, model?, effort?, permission_mode?, scratch? })`：tmux で起動して run を返す。
 - `set_session_summary({ session_id?, title, one_liner, body, state, next_steps })`。
@@ -5181,6 +5219,15 @@ UI は `stale` でないとき「<端末名> で実行中」、`stale` のとき
 `stale` のときだけは「この PC で再開」を押せるようにする。
 相手が落ちて heartbeat だけが残った状態を、行き止まりにしないためである。
 heartbeat は 30 秒ごとの push で更新する。
+
+「この PC で再開」は、本文を写す前に、この PC で起こせるか（再開の cwd の読み替えが決まるか）を確かめる（`RunManager.resumeCwdOf`）。決まらなければ写さずに断る。写してから再開で断ると、`~/.claude` に本文だけが残るためである。
+確認の 1 枚に出すもの（前の PC の名前と OS と cwd と最後に使った日時、この PC の名前と OS と読み替えた cwd）は `GET /api/sessions/:id/resume-here`（`ResumeHerePlanDto`）で返す。この PC で場所が決まらなければ、この PC のパスは null である。
+
+画面（0.6.1、試作 proto-crossdevice の推す案）：
+
+- 「この PC で再開」を押すと、確認に出すものを取りに行き（`session.resumeHere.open`、`api.resumeHerePlan`）、確認の 1 枚を毎回出す（`ConfirmRequest` の `resumeHere`、`views/ConfirmDialog.tsx`）。前の PC とこの PC の 2 枚のカード（名前、OS、作業フォルダ）を矢印でつなぎ、前の PC には最後に使った日時を添える。ブランチは出さない。下に黄の帯で「プロジェクトのファイル、未コミットの変更、開発環境（道具、環境変数、秘密の値）は同期されません。」「同期されるのは会話のトランスクリプトと hangar の記録だけです。」を出す。ボタンは「この PC で再開」で、承諾で `session.resumeHere` を送る。手元の本文の方が小さいときの上書きの確認は、その後に今までどおり出る。
+- この PC にプロジェクトのフォルダが無い（`ProjectDto.unresolved` がある）ほかの PC の会話は、「この PC で再開」を押せなくする（`presenters/resumeHere.ts` の `resumeHereOf`）。セッション画面では見出しの下に理由「この PC にこのプロジェクトのフォルダがありません。先に場所を指定してください。」を常に 1 行出し、同じ行に「場所を指定」（`project.resolve.open`）を置く。一覧の行の「⋯」では、ほかの PC の会話にだけ最後に「この PC で再開」を足し、押せないときは理由を項目の下に出す。ほかの PC で実行中（生きたロック）のときは、そちらを先に理由にする。プロジェクトに属さない会話とスクラッチは、場所では止めない。
+- この流れの文の「他の PC」は「ほかの PC」にそろえた。OS は `devices.platform` を辞書（`common.os.*`）で macOS、Windows、Linux にする（shared の `osName`）。
 
 「この PC で再開」は、手元に同じセッションの本文があり、それが降ろす本文より**小さいときだけ**確認を出す。
 承諾したら、上書きの前に `~/.agent-hangar/backups/transcripts/<sessionId>-<時刻>.jsonl` へ控えを取る。

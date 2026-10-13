@@ -746,6 +746,10 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
           else launchFailed(err);
         });
         return;
+      case 'api.resumeHerePlan':
+        // 取れなければトーストにする。送信中にはしていないので、解くものは無い。
+        deps.api.resumeHerePlan(e.sessionId).then((plan) => dispatch({ kind: 'runtime', event: { type: 'resumeHere.plan', plan } })).catch(fail);
+        return;
       case 'api.configSyncLoad': loadConfigDetail(e.parts); return;
       case 'api.configSyncApply': applyConfigSync(e.entries); return;
       case 'api.configSyncRestore': {

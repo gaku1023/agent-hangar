@@ -155,6 +155,8 @@ export const sessionKeys = {
   'session.action.stop': [],
   'session.action.resumeHere': [],
   'session.action.resumeHereBlocked': ['device'],
+  'session.action.resumeHereNoRoot': [],
+  'session.action.setLocation': [],
   'session.action.otherComputer': [],
   'session.gone.note': ['period'],
   'session.lead.summarizerUnknown': ['model'],
