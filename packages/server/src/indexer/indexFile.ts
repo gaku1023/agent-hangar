@@ -11,6 +11,7 @@ import { foldActivity, type Activity } from '../provider/claude-code/transcript/
 import { foldLimit, type Limit } from '../provider/claude-code/transcript/limit.ts';
 import { transcriptWatcher, type TranscriptCompat } from '../provider/claude-code/compat/transcript.ts';
 import { localDay } from '../usage/aggregate.ts';
+import { stmt } from './statements.ts';
 import type { DiscoveredFile } from '../provider/claude-code/types.ts';
 
 export const INDEXER_VERSION = 1;
@@ -25,8 +26,11 @@ export type ProcessStartOf = (q: { sessionId: string; providerSessionId: string;
 /**
  * remote が true なら他端末から降ろした写しである。sessions と session_summaries には書かない。
  * compat を渡すと、手元の本文の行を Claude Code との互換の契約で見張る（他端末の写しは見ない）。
+ * stat は呼び手が直前に取ったファイルの大きさと更新時刻である。渡せば、ここでもう一度 statSync しない。
  */
-export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string; remote?: boolean; processStartOf?: ProcessStartOf; compat?: TranscriptCompat };
+export type IndexFileOptions = { deviceId: string; indexerVersion?: number; cwdFallback?: string; remote?: boolean; processStartOf?: ProcessStartOf; compat?: TranscriptCompat; stat?: FileStat };
+/** ファイルの大きさと更新時刻。fs.Stats をそのまま渡してよい。 */
+export type FileStat = { size: number; mtimeMs: number };
 export type IndexFileResult = { sessionId: string; providerSessionId: string; appended: number; changed: boolean; badLines: number; artifactIds: string[]; skipped: boolean };
 
 type TfRow = { path: string; session_id: string; agent_id: string | null; size: number; mtime: number; indexed_bytes: number; indexer_version: number };
@@ -45,7 +49,7 @@ type SessionRow = { id: string; deleted_at: number | null };
 
 /** provider と provider_session_id の組で sessions の行を引く。論理削除された行も返す。 */
 function sessionRow(db: Db, providerSessionId: string): SessionRow | undefined {
-  return db.prepare("select id, deleted_at from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as SessionRow | undefined;
+  return stmt(db, "select id, deleted_at from sessions where provider = 'claude-code' and provider_session_id = ?").get(providerSessionId) as SessionRow | undefined;
 }
 
 /**
@@ -74,25 +78,33 @@ export function findSession(db: Db, providerSessionId: string): string | null {
 
 /** 索引化をやめたファイルの索引と行を消す。同じ位置のファイルは常に 1 つだけ索引化する前提に立つ。 */
 export function forgetTranscriptFile(db: Db, filePath: string): void {
-  const row = db.prepare('select session_id, agent_id from transcript_files where path = ?').get(filePath) as { session_id: string; agent_id: string | null } | undefined;
+  const row = stmt(db, 'select session_id, agent_id from transcript_files where path = ?').get(filePath) as { session_id: string; agent_id: string | null } | undefined;
   if (!row) return;
   const agentKey = row.agent_id ?? '';
   const run = db.transaction(() => {
-    db.prepare("delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(row.session_id, agentKey);
-    db.prepare("delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(row.session_id, agentKey);
+    stmt(db, "delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(row.session_id, agentKey);
+    stmt(db, "delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(row.session_id, agentKey);
     // 日別の集計はこのファイル由来のぶんを鍵に持っている。
     // 残すと、同じ会話を別のパス（写しから手元へ切り替わったとき）で積み直したぶんと足し合わさり、
     // event_index が正しいのに使用量のゲージだけが静かに倍になる。indexFile の reset 側と同じ 1 文である。
-    db.prepare('delete from usage_daily where session_id = ? and file_path = ?').run(row.session_id, filePath);
+    stmt(db, 'delete from usage_daily where session_id = ? and file_path = ?').run(row.session_id, filePath);
     // 「いま何をしているか」は主線の行だけが持つ。主線のファイルそのものを手放すときは、
     // 残すと後で息を吹き返したセッションに、答え済みの問いなど古い「いま」を見せてしまう。
     // サブエージェントのファイルを手放すだけなら、主線の行はそのまま正しいので触らない。
-    if (row.agent_id === null) db.prepare('delete from session_activity where session_id = ?').run(row.session_id);
+    if (row.agent_id === null) stmt(db, 'delete from session_activity where session_id = ?').run(row.session_id);
     // 使用制限の行も主線のものである。
-    if (row.agent_id === null) db.prepare('delete from session_limits where session_id = ?').run(row.session_id);
-    db.prepare('delete from transcript_files where path = ?').run(filePath);
+    if (row.agent_id === null) stmt(db, 'delete from session_limits where session_id = ?').run(row.session_id);
+    stmt(db, 'delete from transcript_files where path = ?').run(filePath);
   });
   run();
+}
+
+/**
+ * 前に索引化したときから、大きさも更新時刻も索引の版も変わっていないか。
+ * indexFile が何もせずに返す条件そのもので、呼び手が先に引いた行で同じ判定をして indexFile を呼ばずに済ませるのに使う。
+ */
+export function isUnchanged(tf: { size: number; mtime: number; indexer_version: number }, stat: FileStat, version = INDEXER_VERSION): boolean {
+  return tf.indexer_version === version && tf.size === stat.size && tf.mtime === Math.floor(stat.mtimeMs);
 }
 
 /**
@@ -103,9 +115,9 @@ export function forgetTranscriptFile(db: Db, filePath: string): void {
  */
 export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions): IndexFileResult {
   const version = opts.indexerVersion ?? INDEXER_VERSION;
-  const stat = fs.statSync(file.path);
+  const stat = opts.stat ?? fs.statSync(file.path);
   const mtime = Math.floor(stat.mtimeMs);
-  const tf = db.prepare('select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
+  const tf = stmt(db, 'select * from transcript_files where path = ?').get(file.path) as TfRow | undefined;
   const remote = opts.remote === true;
   // 論理削除したセッションは掘り起こさない。
   // 一覧にも検索にも出ないまま event_index と event_fts と usage_daily だけが太り、
@@ -113,7 +125,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
   // 消えたセッションのファイルが再び現れても、ここで見送るだけにする。
   // 既にある索引の行は消さない。行を消すかどうかは利用者の決めごとで、走査が勝手に決めてよいことではない。
   const known = tf
-    ? (db.prepare('select id, deleted_at from sessions where id = ?').get(tf.session_id) as SessionRow | undefined)
+    ? (stmt(db, 'select id, deleted_at from sessions where id = ?').get(tf.session_id) as SessionRow | undefined)
     : sessionRow(db, file.sessionId);
   if (known && known.deleted_at !== null) {
     return { sessionId: known.id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [], skipped: true };
@@ -123,7 +135,7 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     return { sessionId: '', providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [], skipped: true };
   }
   const sameVersion = tf?.indexer_version === version;
-  if (tf && sameVersion && tf.size === stat.size && tf.mtime === mtime) {
+  if (tf && isUnchanged(tf, stat, version)) {
     return { sessionId: tf.session_id, providerSessionId: file.sessionId, appended: 0, changed: false, badLines: 0, artifactIds: [], skipped: false };
   }
   const from = tf && sameVersion ? tf.indexed_bytes : 0;
@@ -141,8 +153,8 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     try { parsed.push({ offset: l.offset, length: l.length, rec: JSON.parse(l.text) }); } catch { badLines++; }
   }
 
-  const insEv = db.prepare('insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path) values (?,?,?,?,?,?,?,?,?,?)');
-  const insFts = db.prepare('insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
+  const insEv = stmt(db, 'insert into event_index (session_id, seq, kind, ts, byte_offset, byte_length, file_path_ref, parent_agent, tool_name, file_path) values (?,?,?,?,?,?,?,?,?,?)');
+  const insFts = stmt(db, 'insert into event_fts (session_id, agent_id, seq, role, text) values (?,?,?,?,?)');
 
   let appended = 0;
   let sessionId = '';
@@ -152,33 +164,33 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
     const cwd = facts.find((f) => f.cwd)?.cwd ?? opts.cwdFallback ?? '';
     sessionId = tf?.session_id ?? (remote ? findSession(db, file.sessionId)! : ensureSession(db, file.sessionId, cwd, opts.deviceId));
     if (reset) {
-      db.prepare("delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
-      db.prepare("delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
+      stmt(db, "delete from event_index where session_id = ? and ifnull(parent_agent, '') = ?").run(sessionId, agentKey);
+      stmt(db, "delete from event_fts where session_id = ? and ifnull(agent_id, '') = ?").run(sessionId, agentKey);
     }
     // 作り直しでも artifact_versions は消さない。
     // 同じ版を二重に積まない仕組みが recordArtifactPublish にあるので、積み直すだけで冪等になる。
     // 一度公開されたものが後から公開されなかったことにはならないので、残っていて正しい。
     // artifact_calls は結果が来るまでの端末ローカルの控えなので、主線の作り直しでは消してから積み直す。
-    if (reset && file.agentId === null) db.prepare('delete from artifact_calls where session_id = ?').run(sessionId);
+    if (reset && file.agentId === null) stmt(db, 'delete from artifact_calls where session_id = ?').run(sessionId);
     // 日別の集計は和を持つので、作り直しでは消してから積み直さないと二重に数える。
     // 鍵にファイルのパスを持たせてあるので、消すのはこのファイル由来のぶんだけでよい。
     // 主線を作り直しても、サブエージェントのファイル由来の日別はそのまま残る。
-    if (reset) db.prepare('delete from usage_daily where session_id = ? and file_path = ?').run(sessionId, file.path);
+    if (reset) stmt(db, 'delete from usage_daily where session_id = ? and file_path = ?').run(sessionId, file.path);
     const artifactIds = new Set<string>();
-    const insCall = db.prepare('insert into artifact_calls (tool_id, session_id, file_path, description, favicon) values (?,?,?,?,?) on conflict(tool_id) do update set file_path = excluded.file_path, description = excluded.description, favicon = excluded.favicon');
-    const getCall = db.prepare('select file_path, description, favicon from artifact_calls where tool_id = ? and session_id = ?');
+    const insCall = stmt(db, 'insert into artifact_calls (tool_id, session_id, file_path, description, favicon) values (?,?,?,?,?) on conflict(tool_id) do update set file_path = excluded.file_path, description = excluded.description, favicon = excluded.favicon');
+    const getCall = stmt(db, 'select file_path, description, favicon from artifact_calls where tool_id = ? and session_id = ?');
     // 同じ索引化の中でセッションのプロジェクトは変わらないので、一度引いたら覚えておく。
     let project: { id: string | null } | null = null;
-    const projectOf = () => (project ??= { id: (db.prepare('select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id }).id;
+    const projectOf = () => (project ??= { id: (stmt(db, 'select project_id from sessions where id = ?').get(sessionId) as { project_id: string | null }).project_id }).id;
     // seq は主線とサブエージェントで別々に振り、続きは既存の最大値の次から始める。
-    let seq = reset ? 0 : ((db.prepare("select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
+    let seq = reset ? 0 : ((stmt(db, "select max(seq) m from event_index where session_id = ? and ifnull(parent_agent, '') = ?").get(sessionId, agentKey) as { m: number | null }).m ?? -1) + 1;
     const acc: Acc = { userTurns: 0, input: 0, output: 0, daily: new Map() };
-    const loadActivity = db.prepare('select tool, summary, tool_id, question from session_activity where session_id = ?');
+    const loadActivity = stmt(db, 'select tool, summary, tool_id, question from session_activity where session_id = ?');
     const saved = mainLocal && !reset ? (loadActivity.get(sessionId) as { tool: string; summary: string; tool_id: string; question: string | null } | undefined) : undefined;
     const startActivity: Activity | null = saved ? { tool: saved.tool, summary: saved.summary, toolId: saved.tool_id, question: saved.question } : null;
     let activity = startActivity;
     // 使用制限で止まっているか。手元の主線だけが持つ。作り直しでは先頭から畳み直す。
-    const savedLimit = mainLocal && !reset ? (db.prepare('select kind, resets_at, auto, hit_at from session_limits where session_id = ?').get(sessionId) as { kind: Limit['kind']; resets_at: number; auto: number; hit_at: number } | undefined) : undefined;
+    const savedLimit = mainLocal && !reset ? (stmt(db, 'select kind, resets_at, auto, hit_at from session_limits where session_id = ?').get(sessionId) as { kind: Limit['kind']; resets_at: number; auto: number; hit_at: number } | undefined) : undefined;
     const startLimit: Limit | null = savedLimit ? { kind: savedLimit.kind, resetsAt: savedLimit.resets_at, auto: savedLimit.auto === 1, hitAt: savedLimit.hit_at } : null;
     let limit = startLimit;
     parsed.forEach((p, i) => {
@@ -228,23 +240,23 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
       }
     });
     if (mainLocal && (reset || activity !== startActivity)) {
-      if (activity === null) db.prepare('delete from session_activity where session_id = ?').run(sessionId);
-      else db.prepare(`insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)
+      if (activity === null) stmt(db, 'delete from session_activity where session_id = ?').run(sessionId);
+      else stmt(db, `insert into session_activity (session_id, tool, summary, tool_id, question, updated_at) values (?,?,?,?,?,?)
         on conflict(session_id) do update set tool = excluded.tool, summary = excluded.summary, tool_id = excluded.tool_id, question = excluded.question, updated_at = excluded.updated_at`)
         .run(sessionId, activity.tool, activity.summary, activity.toolId, activity.question, Date.now());
     }
     if (mainLocal && (reset || limit !== startLimit)) {
-      if (limit === null) db.prepare('delete from session_limits where session_id = ?').run(sessionId);
-      else db.prepare(`insert into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)
+      if (limit === null) stmt(db, 'delete from session_limits where session_id = ?').run(sessionId);
+      else stmt(db, `insert into session_limits (session_id, kind, resets_at, auto, hit_at) values (?,?,?,?,?)
         on conflict(session_id) do update set kind = excluded.kind, resets_at = excluded.resets_at, auto = excluded.auto, hit_at = excluded.hit_at`)
         .run(sessionId, limit.kind, limit.resetsAt, limit.auto ? 1 : 0, limit.hitAt);
       // 行は手元だけの表なので、SessionDto（limit）を配り直してもらう。
       touchRow(db, 'sessions', sessionId);
     }
-    db.prepare(`insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,?,null)
+    stmt(db, `insert into transcript_files (path, session_id, agent_id, device_id, size, mtime, indexed_bytes, indexer_version, last_error) values (?,?,?,?,?,?,?,?,null)
       on conflict(path) do update set session_id = excluded.session_id, agent_id = excluded.agent_id, device_id = excluded.device_id, size = excluded.size, mtime = excluded.mtime, indexed_bytes = excluded.indexed_bytes, indexer_version = excluded.indexer_version, last_error = null`)
       .run(file.path, sessionId, file.agentId, file.deviceId, stat.size, mtime, read.nextByte, version);
-    const upDaily = db.prepare('insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?) on conflict(session_id, file_path, day) do update set input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens');
+    const upDaily = stmt(db, 'insert into usage_daily (session_id, day, file_path, input_tokens, output_tokens) values (?,?,?,?,?) on conflict(session_id, file_path, day) do update set input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens');
     for (const [day, v] of acc.daily) upDaily.run(sessionId, day, file.path, v.input, v.output);
     if (file.agentId !== null) refreshFilesChanged(db, sessionId);
     else if (remote) writeSessionStats(db, sessionId, acc, reset);
@@ -266,8 +278,8 @@ export function indexFile(db: Db, file: DiscoveredFile, opts: IndexFileOptions):
 /** 編集系ツールが触ったファイル数を event_index から数え直す。サブエージェントの編集も含む。 */
 function refreshFilesChanged(db: Db, sessionId: string): void {
   const marks = EDIT_TOOLS.map(() => '?').join(',');
-  const n = (db.prepare(`select count(distinct file_path) c from event_index where session_id = ? and tool_name in (${marks}) and file_path is not null`).get(sessionId, ...EDIT_TOOLS) as { c: number }).c;
-  db.prepare('insert into session_stats (session_id, files_changed) values (?, ?) on conflict(session_id) do update set files_changed = excluded.files_changed').run(sessionId, n);
+  const n = (stmt(db, `select count(distinct file_path) c from event_index where session_id = ? and tool_name in (${marks}) and file_path is not null`).get(sessionId, ...EDIT_TOOLS) as { c: number }).c;
+  stmt(db, 'insert into session_stats (session_id, files_changed) values (?, ?) on conflict(session_id) do update set files_changed = excluded.files_changed').run(sessionId, n);
 }
 
 /**
@@ -275,7 +287,7 @@ function refreshFilesChanged(db: Db, sessionId: string): void {
  * 本文の題名（Claude Code の側で付けた名前）は sessions.custom_title に書く。hangar で付けた名前（session_notes）には触らない。
  */
 function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, deviceId: string): void {
-  const cur = db.prepare('select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
+  const cur = stmt(db, 'select * from sessions where id = ?').get(sessionId) as Record<string, unknown>;
   const next: Record<string, unknown> = { ...cur };
   if (acc.cwd && !cur.cwd) next.cwd = acc.cwd;
   if (acc.firstPrompt !== undefined && (reset || cur.first_prompt == null)) next.first_prompt = acc.firstPrompt;
@@ -293,9 +305,9 @@ function applySessionFacts(db: Db, sessionId: string, acc: Acc, reset: boolean, 
 
 /** 索引から導いた統計。session_stats は端末ローカルの表なので、他端末の写しから書いてよい。 */
 function writeSessionStats(db: Db, sessionId: string, acc: Acc, reset: boolean): void {
-  const st = db.prepare('select * from session_stats where session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
+  const st = stmt(db, 'select * from session_stats where session_id = ?').get(sessionId) as Record<string, unknown> | undefined;
   const base = reset || !st ? { turns: 0, input_tokens: 0, output_tokens: 0 } : { turns: st.turns as number, input_tokens: st.input_tokens as number, output_tokens: st.output_tokens as number };
-  db.prepare(`insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt) values (?,?,?,?,?,?,?,?,?,?)
+  stmt(db, `insert into session_stats (session_id, turns, model, effort, pr_url, input_tokens, output_tokens, first_ts, last_ts, last_prompt) values (?,?,?,?,?,?,?,?,?,?)
     on conflict(session_id) do update set turns = excluded.turns, model = excluded.model, effort = excluded.effort, pr_url = excluded.pr_url, input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens, first_ts = excluded.first_ts, last_ts = excluded.last_ts, last_prompt = excluded.last_prompt`)
     .run(sessionId, base.turns + acc.userTurns, acc.model ?? (reset ? null : st?.model ?? null), acc.effort ?? (reset ? null : st?.effort ?? null), acc.prUrl ?? (reset ? null : st?.pr_url ?? null),
       base.input_tokens + acc.input, base.output_tokens + acc.output,

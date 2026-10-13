@@ -65,6 +65,17 @@ describe('RemotePuller', () => {
     expect(fs.readdirSync(path.dirname(target)).filter((f) => f.endsWith('.part'))).toEqual([]);
   });
 
+  it('写しを置いた回だけ、置いた数を onDownloaded で知らせる', async () => {
+    await putRemote('dev-b', `projects/-w-alpha/${UUID}.jsonl`, '{"a":1}\n');
+    const seen: number[] = [];
+    const p = make({ onDownloaded: (n) => seen.push(n) });
+    await p.pullNow();
+    expect(seen).toEqual([1]);
+    // 何も置かなかった回は知らせない。
+    await p.pullNow();
+    expect(seen).toEqual([1]);
+  });
+
   it('自端末の分は降ろさず、設定（kind が config）も降ろさずに先へ進む', async () => {
     // 束の本体は、設定の同期が束の行を見て自分で取りに行く。ここでは降ろさず、filesSeq は通り過ぎる。
     await putRemote('dev-a', `projects/-w-alpha/${UUID}.jsonl`, 'mine\n');

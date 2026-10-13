@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openDb, type Db } from '../db/open.ts';
 import { listTranscriptFiles } from '../provider/claude-code/transcript/discover.ts';
 import { copyFixtureClaudeDir, SESSION_ALPHA } from '../../test/fixtures.ts';
@@ -631,5 +631,47 @@ describe('Claude Code との互換の見張り', () => {
     const seen: Drift[] = [];
     indexFile(db, { path: p, sessionId: NEW, agentId: null, deviceId: 'other' }, { deviceId: DEV, remote: true, compat: { sink: { note: (d) => seen.push(d) }, since: () => '2.1.292' } });
     expect(seen).toEqual([]);
+  });
+});
+
+describe('indexFile の重さ', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+  const assistantLine = (text: string, ts: string) => ({ type: 'assistant', message: { role: 'assistant', model: 'claude-fable-5-1', content: [{ type: 'text', text }] }, uuid: `a-${ts}`, timestamp: ts, cwd: '/Users/me/workspace/alpha', sessionId: SESSION_ALPHA });
+
+  it('呼び手が stat を渡せば、もう一度 statSync しない', () => {
+    const f = alphaMain();
+    indexFile(db, f, { deviceId: DEV });
+    const st = fs.statSync(f.path);
+    const statSync = vi.spyOn(fs, 'statSync');
+    expect(indexFile(db, f, { deviceId: DEV, stat: st })).toMatchObject({ changed: false });
+    expect(statSync).not.toHaveBeenCalled();
+    // 伸びたファイルでは、新しい行を読む側（readNewLines）が今の末尾を 1 度だけ確かめる。
+    appendJson(f.path, assistantLine('追記', '2026-09-01T11:00:00.000Z'));
+    const grown = fs.statSync(f.path);
+    statSync.mockClear();
+    expect(indexFile(db, f, { deviceId: DEV, stat: grown })).toMatchObject({ changed: true, appended: 1 });
+    expect(statSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('変わっていないファイルでは、準備済みの文を使い回して prepare しない', () => {
+    const f = alphaMain();
+    indexFile(db, f, { deviceId: DEV });
+    indexFile(db, f, { deviceId: DEV });
+    const prepare = vi.spyOn(db, 'prepare');
+    expect(indexFile(db, f, { deviceId: DEV })).toMatchObject({ changed: false });
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('追記を読むときも、索引の表の文は DB ごとに 1 度だけ準備する', () => {
+    const f = alphaMain();
+    indexFile(db, f, { deviceId: DEV });
+    appendJson(f.path, assistantLine('1 回目', '2026-09-01T11:00:00.000Z'));
+    indexFile(db, f, { deviceId: DEV });
+    const prepare = vi.spyOn(db, 'prepare');
+    appendJson(f.path, assistantLine('2 回目', '2026-09-01T11:01:00.000Z'));
+    expect(indexFile(db, f, { deviceId: DEV })).toMatchObject({ changed: true, appended: 1 });
+    // sessions と changes は共有の行の書き手（db/shared.ts）が扱うので、ここでは索引が自分で持つ表だけを見る。
+    const own = /\b(transcript_files|event_index|event_fts|usage_daily|session_stats|session_activity|session_limits|artifact_calls)\b/;
+    expect(prepare.mock.calls.map((c) => c[0]).filter((sql) => own.test(sql))).toEqual([]);
   });
 });

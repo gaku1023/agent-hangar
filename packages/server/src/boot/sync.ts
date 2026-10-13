@@ -55,6 +55,11 @@ export type SyncParts = {
   joinToken(): string | null;
   /** 設定のクラウド同期の節の PC の一覧（Worker の devices）。 */
   cloudDevices(): Promise<CloudDevicesDto>;
+  /**
+   * 他の PC から、索引の選び方に関わるものが届いたときの受け手を足す。
+   * sessions の行を当てたときと、本文の写しを置いたときに呼ぶ。索引が全件走査を 1 回予約する（boot/indexing.ts）。
+   */
+  onRemoteChange(cb: () => void): () => void;
   /** 最初の同期、使用量、ファイルの取り込み、保持期間、定期の押し出しと走査を始める。 */
   start(): void;
   /** 定期の仕事（タイマー、保持期間、使用量）を止める。走っている通信は待たない。 */
@@ -85,6 +90,8 @@ export function bootSync(
     console.error('[sync] ~/.agent-hangar/cloud.json を読めませんでした。同期は止めたままにします。hangar cloud status で確かめてください（参加し直すと既存の本文を復号できなくなります）');
   }
   const syncState = new SyncStateStore(db);
+  const remoteChangeListeners = new Set<() => void>();
+  const remoteChanged = (): void => { for (const cb of remoteChangeListeners) cb(); };
   // 本文をどこから上げるかの床が無ければ、ここで刻む。
   // 本筋は CLI の側で、setup cloud と join が cloud.json を書くのと同じ時点で刻んでいる。
   // ここは、cloud.json はあるのに DB に床の行が無い端末のための保険で、古い版のための分岐ではない。
@@ -137,11 +144,14 @@ export function bootSync(
         // 画面へは toast を流さない（トーストは操作の結果だけにした）。
         // 諦めた項目は同期の状態（skipped）に残り、画面のベルの一覧が事実からその行を組む。
         onError: (k, m) => { console.error('[pull]', k, m); },
+        onDownloaded: () => remoteChanged(),
       })
     : null;
   const feed = createSyncFeed({ hub, puller, uploader, oncePass: () => once.pass.active(), isPaused, cloudUsage, toast });
   const once = createOncePass({ engine, puller, configBundle, uploader, cloudUsage, isPaused, sweepPending: feed.sweep, broadcastSync: feed.broadcastSync, toast, language: home.language });
   engine.on(feed.listener());
+  // 他の PC の sessions の行は、索引がどの本文を採るか（写しの行が届いたか、消されたか）に関わる。
+  engine.on({ applied: (c) => { if (c.tableName === 'sessions') remoteChanged(); } });
 
   // 設定の同期のスイッチが切から入に変わった瞬間に、次の周期を待たず 1 回回す。
   // 送る一覧を承諾した人が、承諾したあとの 1 分近くを黙って待たないようにする。
@@ -169,6 +179,7 @@ export function bootSync(
     engine, syncState, uploader, cloudUsage, retention, feed, pruneBackups, configBundle,
     syncNow: once.syncNow,
     publishConfigSync,
+    onRemoteChange: (cb) => { remoteChangeListeners.add(cb); return () => { remoteChangeListeners.delete(cb); }; },
     joinToken: () => (cloud ? encodeJoinToken({ url: cloud.url, secret: cloud.joinSecret }) : null),
     cloudDevices: () => loadCloudDevices({ client, deviceId, creator: cloud?.workerName != null, language: home.language }),
     start() {
