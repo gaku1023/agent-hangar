@@ -1,7 +1,7 @@
 import type { NotifyPermission } from './notifier.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { BootstrapDto, CloudUsageDto, EventsPageDto, LaunchResultDto, MemoDto, ProjectDto, RunDto, ServerEvent, SessionDto, SettingsDto, SyncStatusBody, TabDto, TodoDto } from '@agent-hangar/shared';
-import { ApiConflictError, ApiNotFoundError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
+import { ApiConflictError, ApiNotFoundError, ProjectNestedApiError, ProjectSameFolderApiError, RetentionConflictApiError, type ApiClient } from './api.ts';
 import { LONG_TOAST_MS } from './actionTable.ts';
 import { GIT_POLL_MS } from './gitWatch.ts';
 import { createRuntime, type RuntimeDeps } from './runtime.ts';
@@ -709,6 +709,64 @@ describe('起動とターミナル', () => {
     await flush();
     expect(rt.getStore().projects.p9).toEqual(created);
     expect(rt.getState()).toMatchObject({ overlay: { kind: 'none' }, projectCreate: { kind: 'idle' } });
+  });
+  // 0.6.2：選んだフォルダの事前の問い合わせ（入れ子とほかの PC のプロジェクト）。新しいセッションと作成のダイアログが Store から読む。
+  describe('選んだフォルダの事前の問い合わせ', () => {
+    const inspected = { path: '/w/alpha/packages/ui', git: false, worktree: false, remote: null, registered: null, enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'packages/ui' }, link: null };
+    it('folder.inspect は問い合わせを読み、読んでいる間と答えを Store に入れる', async () => {
+      const inspectFolder = vi.fn(async () => inspected);
+      const { rt } = harness({ inspectFolder });
+      rt.start();
+      rt.emit({ type: 'folder.inspect', path: '/w/alpha/packages/ui' });
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/alpha/packages/ui', name: null, status: 'loading' });
+      await flush();
+      expect(inspectFolder).toHaveBeenCalledWith('/w/alpha/packages/ui', undefined);
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/alpha/packages/ui', name: null, status: 'ready', data: inspected });
+    });
+    it('名前を添えた問い合わせは名前も渡し、後から頼んだ問い合わせの答えを古い答えで上書きしない', async () => {
+      let release: (() => void) | null = null;
+      const inspectFolder = vi.fn((path: string) => (path === '/w/old' ? new Promise<typeof inspected>((r) => { release = () => r({ ...inspected, path: '/w/old' }); }) : Promise.resolve({ ...inspected, path })));
+      const { rt } = harness({ inspectFolder });
+      rt.start();
+      rt.emit({ type: 'folder.inspect', path: '/w/old' });
+      rt.emit({ type: 'folder.inspect', path: '/w/notes', name: 'notes' });
+      await flush();
+      release!();
+      await flush();
+      expect(inspectFolder).toHaveBeenLastCalledWith('/w/notes', 'notes');
+      expect(rt.getStore().folderInspect).toMatchObject({ path: '/w/notes', name: 'notes', status: 'ready' });
+    });
+    it('読めなければ failed にし、トーストは出さない（ダイアログは今までどおり登録して始める）', async () => {
+      const { rt } = harness({ inspectFolder: vi.fn(async () => { throw new Error('500'); }) });
+      rt.start();
+      rt.emit({ type: 'folder.inspect', path: '/w/x' });
+      await flush();
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/x', name: null, status: 'failed' });
+      expect(rt.getState().toasts).toEqual([]);
+    });
+    const nested = { error: 'このフォルダはプロジェクト alpha の中にあります', code: 'project_nested' as const, enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha' } };
+    it('作成のダイアログの登録が 409（入れ子）なら、包むプロジェクトを問い合わせの答えとして Store に持つ', async () => {
+      const { rt } = harness({ createProject: vi.fn(async () => { throw new ProjectNestedApiError(nested); }) });
+      rt.start();
+      rt.emit({ type: 'project.new.open' });
+      rt.emit({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/alpha/packages/ui' }, startSession: false });
+      await flush();
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/alpha/packages/ui', name: null, status: 'ready', data: inspected });
+      expect(rt.getState().projectCreate).toEqual({ kind: 'failed', message: nested.error });
+      // 画面は Store から読む。
+      expect(presentNewProject(rt.getState(), rt.getStore())).toMatchObject({ inspect: { path: '/w/alpha/packages/ui', status: 'ready' } });
+    });
+    it('新しいセッションのダイアログの登録が 409（入れ子）でも同じく持ち、起動はしない', async () => {
+      const launch = vi.fn(async () => launched);
+      const { rt } = harness({ createProject: vi.fn(async () => { throw new ProjectNestedApiError(nested); }), launch });
+      rt.start();
+      rt.emit({ type: 'session.new.open' });
+      rt.emit({ type: 'session.new.submit', params: {}, place: { kind: 'dir', path: '/w/alpha/packages/ui' } });
+      await flush();
+      expect(launch).not.toHaveBeenCalled();
+      expect(rt.getStore().folderInspect).toEqual({ path: '/w/alpha/packages/ui', name: null, status: 'ready', data: inspected });
+      expect(rt.getState().launch).toEqual({ kind: 'failed', message: nested.error });
+    });
   });
   it('起動に成功するとストアに run が入り、セッション画面へ移ってターミナルに繋ぐ', async () => {
     const { rt, api, terminals, setHash } = harness({ launch: vi.fn(async () => launched) });

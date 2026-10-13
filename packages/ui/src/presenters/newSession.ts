@@ -1,6 +1,7 @@
 import type { ProjectStatus, Translate } from '@agent-hangar/shared';
 import type { LaunchPrefs, NewSessionDraft, State } from '../mediator/types.ts';
 import { hasMultipleAccounts, type Store } from '../store/store.ts';
+import type { FolderInspectState } from '../store/folderInspect.ts';
 import { SCRATCH_PREFS } from '../mediator/launch.ts';
 import { approveText, isPickableAccount, loggedOutText, presentAccounts, type AccountView } from './accounts.ts';
 import { relativeTime } from './format.ts';
@@ -35,6 +36,13 @@ export type NewSessionProps = {
   defaultModel?: string | null;
   /** worktree の札をオンにして開くか（同じファイルの編集の警告の「worktree で新しいセッション」から開いたとき）。名前はダイアログが付ける。 */
   worktree?: boolean;
+  /** はじめに選んでおくフォルダ（作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるとき）。無ければ null。 */
+  dir?: string | null;
+  /**
+   * 選んだフォルダの事前の問い合わせ（0.6.2）。登録済みのプロジェクトの下か、ほかの PC から届いた同じプロジェクトがあるか。
+   * ダイアログは path が選んだフォルダと同じときだけ使う。無ければ null で、今までどおり登録して始める。
+   */
+  inspect?: FolderInspectState | null;
 };
 export type NewSessionAccounts = { list: AccountView[]; currentId: string };
 
@@ -113,6 +121,7 @@ export function presentNewSession(state: State, store: Store, now: number): NewS
     projects, recentIds, projectId: state.overlay.projectId, submitting: state.launch.kind === 'submitting', error: state.launch.kind === 'failed' ? state.launch.message : null, scratch: state.overlay.scratch, draft: state.newSessionDraft, prefs: state.launchPrefs,
     dirs, takenNames, workspaceRoot: store.settings?.workspaceRoot ?? null, desktop: store.desktop, picked: store.pickedFolder, createdProjectId, accounts: newSessionAccounts(store, now), defaultModel: store.settings?.defaultModel ?? null,
     ...(state.overlay.worktree ? { worktree: true } : {}),
+    dir: state.overlay.dir ?? null, inspect: store.folderInspect,
   };
 }
 

@@ -17,6 +17,7 @@ import { PERMISSION_BYPASS } from './primitives/permissionModel.ts';
 import { PromptComposer } from './primitives/PromptComposer.tsx';
 import { composePrompt, type Attachment } from './primitives/promptComposerModel.ts';
 import { ParentField, parentReady } from './ParentField.tsx';
+import { boldFirst, inspectOf } from './folderNote.tsx';
 
 /** プロジェクトの一覧の先頭に置くクイックセッションの行。値はプロジェクトの id と重ならず、クイックセッションの前回値の鍵と同じ綴りである。 */
 const SCRATCH = SCRATCH_CHOICE;
@@ -61,6 +62,8 @@ export function NewSessionDialog(props: NewSessionProps) {
   const emit = useEmit();
   const t = useT();
   const [choice, setChoice] = useState(() => {
+    // 作成のダイアログから、登録済みのプロジェクトの下のフォルダで始めるときは、そのフォルダを選んでおく（0.6.2）。
+    if (props.dir) return DIR + props.dir;
     // サーバも scratch を projectId より優先する。選んでいない（一覧に無い id を含む）ときはクイックセッションである。
     if (props.scratch) return SCRATCH;
     return props.projectId && props.projects.some((p) => p.id === props.projectId) ? props.projectId : SCRATCH;
@@ -75,18 +78,33 @@ export function NewSessionDialog(props: NewSessionProps) {
   const rootless = props.workspaceRoot === '';
   // 作る場所。作成場所が空なら選んだ場所で、設定が届く前は仮の場所にする。区切りは画面の OS に合わせる。
   const root = rootless ? parent.trim() : props.workspaceRoot ?? joinPath('~', 'workspace');
+  // 選んだフォルダの事前の問い合わせ（0.6.2、試作の 6 と 7 の A）。
+  // 登録済みのプロジェクトの下なら、既定は包むプロジェクトのセッションとしてそのフォルダで起こす（利用者の答え）。「別のプロジェクトにする」で分けて登録する。
+  // ほかの PC から届いた同じプロジェクトがあれば、既定はそれに結び付けて始める。「新しく作る」で新しいプロジェクトにする。
+  // 切り替えは選んだフォルダごとで、フォルダを選び直したら既定に戻る。
+  const { data: inspected, loading: inspecting } = inspectOf(props.inspect, dirPath);
+  const [splitAt, setSplitAt] = useState<string | null>(null);
+  const [linkNewAt, setLinkNewAt] = useState<string | null>(null);
+  const enclosing = inspected && !inspected.registered ? inspected.enclosing : null;
+  const nested = enclosing !== null && splitAt !== dirPath ? enclosing : null;
+  const link = !enclosing && inspected && !inspected.registered ? inspected.link : null;
+  const linking = link !== null && linkNewAt !== dirPath ? link : null;
+  const linkWho = link ? (link.deviceName ? t('newSession.dir.linkWho', { device: link.deviceName, name: link.name }) : link.name) : '';
+  // 札の値の前回値を引く鍵。包むプロジェクトで始めるときは、そのプロジェクトの前回値を使う。
+  const prefKey = nested ? nested.projectId : choice;
   // 作成場所が空で、新しいフォルダを作る場所をまだ選んでいなければ起動できない。
-  const blocked = newDir && !parentReady(props.workspaceRoot, parent);
-  const title = newDir ? t('newSession.title.newDir') : dirPath ? t('newSession.title.dir') : t('newSession.title.default');
+  // 選んだフォルダの事前の問い合わせを待つ間も起動できない（包むプロジェクトで起こすか、登録するかが決まらないため）。
+  const blocked = (newDir && !parentReady(props.workspaceRoot, parent)) || inspecting;
+  const title = newDir ? t('newSession.title.newDir') : dirPath && !nested && !linking ? t('newSession.title.dir') : t('newSession.title.default');
   // 新しいフォルダの名前と git init。名前は「『語』を新しいフォルダとして作る」で選んだときの語を入れる。
   const [newName, setNewName] = useState('');
   const [gitInit, setGitInit] = useState(true);
   // Finder で選んだ、未登録の一覧に無いフォルダ（親フォルダの外か深い階層）。行を持たないので、ここで覚えて行を足す。
-  const [extraDir, setExtraDir] = useState<string | null>(null);
+  const [extraDir, setExtraDir] = useState<string | null>(() => (props.dir && !props.dirs.some((d) => d.path === props.dir) ? props.dir : null));
   // 開いた時点の Finder の回数。これより新しい結果だけを使う。別のダイアログで選んだ結果が当たらないようにするためである。
   const pickedAtOpen = useRef(props.picked?.n ?? 0);
   // @ の候補はプロジェクトのフォルダを探すので、クイックセッションとパスの無いプロジェクトでは渡さない。/ の候補は自分のスキルだけになる。
-  const assistProject = scratch || !choice ? null : props.projects.find((p) => p.id === choice)?.path ? choice : null;
+  const assistProject = scratch || !choice ? null : props.projects.find((p) => p.id === prefKey)?.path ? prefKey : null;
   const [name, setName] = useState(props.draft?.name ?? '');
   const [prompt, setPrompt] = useState(props.draft?.prompt ?? '');
   const [attachments, setAttachments] = useState<Attachment[]>(props.draft?.attachments ?? []);
@@ -106,6 +124,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const [staleError, setStaleError] = useState<string | null>(null);
   const choose = (value: string) => {
     setChoice(value);
+    lastPrefKey.current = value;
     setStaleError(props.error);
     if (touched) return;
     setDetail(optionsOf(props.prefs[value], defaultModel));
@@ -121,6 +140,22 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (!props.dirs.some((d) => d.path === p.path)) setExtraDir(p.path);
     choose(DIR + p.path);
   }, [props.picked?.n]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // 既存のフォルダを選んだら、事前の問い合わせを頼む（答えは props.inspect に届く）。
+  useEffect(() => {
+    if (dirPath) emit({ type: 'folder.inspect', path: dirPath });
+  }, [dirPath]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // 登録済みのプロジェクトのフォルダだった（綴りの違いで一覧と当たらなかった）なら、そのプロジェクトを選ぶ。
+  const registeredId = inspected?.registered?.projectId ?? null;
+  useEffect(() => {
+    if (registeredId && props.projects.some((p) => p.id === registeredId)) choose(registeredId);
+  }, [registeredId]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // 前回値を引く鍵が変わったら（包むプロジェクトの答えが届いた、「別のプロジェクトにする」を押した）、札に触れる前ならその前回値に入れ替える。
+  const lastPrefKey = useRef(choice);
+  useEffect(() => {
+    if (lastPrefKey.current === prefKey) return;
+    lastPrefKey.current = prefKey;
+    if (!touched) setDetail(optionsOf(props.prefs[prefKey], defaultModel));
+  }, [prefKey]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     // 作れた後に起動だけが失敗した。押し直しで二重に作らないよう、作ったプロジェクトを選び直す。
     if (props.createdProjectId) setChoice(props.createdProjectId);
@@ -179,7 +214,10 @@ export function NewSessionDialog(props: NewSessionProps) {
     if (scratch) params.scratch = true;
     // 新しいフォルダと未登録のフォルダは、Mediator がプロジェクトを作ってから起動する。
     else if (newDir) place = { kind: 'newDir', name: newName.trim(), gitInit, ...(rootless ? { parent: parent.trim() } : {}) };
-    else if (dirPath) place = { kind: 'dir', path: dirPath };
+    // 登録済みのプロジェクトの下のフォルダは、包むプロジェクトのセッションとして、そのフォルダで起こす（cwd は前回値に残さない）。
+    else if (nested && dirPath) { params.projectId = nested.projectId; params.cwd = dirPath; }
+    // 分けると決めたら allowNested、ほかの PC のプロジェクトに結び付けるなら linkTo を添えて登録してから起動する。
+    else if (dirPath) place = { kind: 'dir', path: dirPath, ...(enclosing ? { allowNested: true } : {}), ...(linking ? { linkTo: linking.projectId } : {}) };
     else if (choice) params.projectId = choice;
     // 開いてから送るまでにいまのアカウントが変わっても、選んだとおりに起こすため、いまのアカウントと同じでも入れる。
     if (account !== null) params.account = account;
@@ -239,7 +277,7 @@ export function NewSessionDialog(props: NewSessionProps) {
   const chosen = options.find((o) => o.value === choice);
 
   // 前回値のままなら、札の下に「前回と同じ」と出どころを言い、「既定に戻す」を添える（D1）。
-  const prev = props.prefs[choice];
+  const prev = props.prefs[prefKey];
   const sameAsPrev = !!prev && hasNonDefault(detail) && sameOptions(detail, optionsOf(prev, defaultModel));
   const bypass = permissionMode === PERMISSION_BYPASS;
 
@@ -250,8 +288,13 @@ export function NewSessionDialog(props: NewSessionProps) {
   };
   const projectChip = (
     <Listbox id="new-session-project" label={t('newSession.project.label')} value={choice || null} options={options} groups={groups} onChange={choose} actions={actions} onAction={onAction}
-      searchPlaceholder={t('newSession.project.search')} minWidth={360} align="start" faceClassName="set-chip" faceProps={{ 'data-tone': 'default' }}
-      renderFace={(sel) => <><Icon name={sel?.icon ?? 'folder'} /><span className="set-chip-value">{sel?.label ?? ''}</span><Icon name="chevronDown" /></>} />
+      searchPlaceholder={t('newSession.project.search')} minWidth={360} align="start" faceClassName="set-chip" faceProps={{ 'data-tone': nested || linking ? 'linked' : 'default' }}
+      renderFace={(sel) => (
+        // 包むプロジェクトで始めるときは、札をそのプロジェクトにして下のフォルダを添える。結び付けるときは、結び付く先の名前にして「ほかの PC」を添える。
+        nested ? <><Icon name="folder" /><span className="set-chip-value">{nested.name}</span><small className="set-chip-sub">{nested.relative}</small><Icon name="chevronDown" /></>
+          : linking ? <><Icon name="folder" /><span className="set-chip-value">{linking.name}</span>{linking.deviceName && <span className="listbox-tag">{t('newSession.project.otherPc')}</span>}<Icon name="chevronDown" /></>
+            : <><Icon name={sel?.icon ?? 'folder'} /><span className="set-chip-value">{sel?.label ?? ''}</span><Icon name="chevronDown" /></>
+      )} />
   );
 
   const close = () => emit({ type: 'overlay.close' });
@@ -293,7 +336,7 @@ export function NewSessionDialog(props: NewSessionProps) {
       {sameAsPrev && (
         <div className="prev-line">
           <span className="prev-tag">{t('newSession.prev.tag')}</span>
-          <span className="faint">{t('newSession.prev.note', { name: chosen?.label ?? '' })}</span>
+          <span className="faint">{t('newSession.prev.note', { name: nested?.name ?? chosen?.label ?? '' })}</span>
           <button type="button" className="linkish prev-reset" onClick={resetDetail}><Icon name="reset" />{t('newSession.prev.reset')}</button>
         </div>
       )}
@@ -308,7 +351,21 @@ export function NewSessionDialog(props: NewSessionProps) {
           <CheckCard label={t('newSession.newDir.gitInit')} description={t('newSession.newDir.gitInitNote')} icon="gitInit" checked={gitInit} onChange={setGitInit} />
         </>
       )}
-      {dirPath && <div className="faint">{outside ? t('newSession.dir.outside') : t('newSession.dir.unregistered', { path: dirPath })}</div>}
+      {dirPath && enclosing && (
+        <div className="faint dir-note">
+          {nested
+            ? <><span>{boldFirst(t('newSession.dir.nested', { name: enclosing.name, relative: enclosing.relative }), enclosing.name)}</span><button type="button" className="linkish" onClick={() => setSplitAt(dirPath)}>{t('newSession.dir.split')}</button></>
+            : <><span>{boldFirst(t('newSession.dir.splitNote', { name: enclosing.name }), enclosing.name)}</span><button type="button" className="linkish" onClick={() => setSplitAt(null)}>{t('newSession.dir.keep', { name: enclosing.name })}</button></>}
+        </div>
+      )}
+      {dirPath && link && (
+        <div className="faint dir-note">
+          {linking
+            ? <><span>{boldFirst(t(link.match === 'remote' ? 'newSession.dir.linkRemote' : 'newSession.dir.linkName', { who: linkWho, path: dirPath }), linkWho)}</span><button type="button" className="linkish" onClick={() => setLinkNewAt(dirPath)}>{t('newSession.dir.linkNew')}</button></>
+            : <><span>{boldFirst(t('newSession.dir.newNote', { who: linkWho }), linkWho)}</span><button type="button" className="linkish" onClick={() => setLinkNewAt(null)}>{t('newSession.dir.linkBack', { name: link.name })}</button></>}
+        </div>
+      )}
+      {dirPath && !enclosing && !link && <div className="faint">{outside ? t('newSession.dir.outside') : t('newSession.dir.unregistered', { path: dirPath })}</div>}
       <div className="faint">{t('newSession.note.trust')}</div>
       {props.error && props.error !== staleError && <div className="error" role="alert">{props.error}</div>}
     </Dialog>

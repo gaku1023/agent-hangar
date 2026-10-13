@@ -113,7 +113,7 @@ export function launchStep(state: State, store: Store, input: Input): Step | nul
       // 確認や入力のあるダイアログが出ていれば、差し替えない（overlay.ts の overlayReplaceable）。
       if (!overlayReplaceable(state.overlay)) return { state, effects: [] };
       // スクラッチはプロジェクトを選ばずに開く。ダイアログ側でプロジェクトの選択欄を隠す。
-      return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
+      return { state: { ...state, overlay: { kind: 'newSession', projectId: i.projectId ?? null, scratch: i.scratch === true, ...(i.dir ? { dir: i.dir } : {}) }, launch: { kind: 'idle' } }, effects: [{ kind: 'focus', target: 'newSessionName' }] };
     case 'session.new.submit':
       if (state.launch.kind === 'submitting') return { state, effects: [] };
       // 新しいフォルダと未登録のフォルダは、プロジェクトを作ってから起動する（runtime が 2 つを順に行う）。

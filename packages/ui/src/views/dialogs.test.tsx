@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ActionRoot } from '../action/chain.tsx';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
@@ -444,6 +444,92 @@ describe('NewProjectDialog', () => {
     view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewProjectDialog {...base} picked={{ path: 'C:\\Users\\me\\論文\\', n: 1 }} /></ActionRoot>);
     expect(screen.getByLabelText('フォルダのパス')).toHaveValue('C:\\Users\\me\\論文\\');
     expect(screen.getByLabelText('プロジェクト名')).toHaveValue('論文');
+  });
+  // 0.6.2：既存のフォルダの登録で、登録済みのプロジェクトの下（入れ子）と、ほかの PC から届いた同じプロジェクト（結び付け）。
+  describe('既存のフォルダの入れ子と結び付け', () => {
+    const ui = '/w/alpha/packages/ui';
+    type Inspect = NonNullable<NewProjectProps['inspect']>;
+    const ready = (path: string, over: Partial<Extract<Inspect, { status: 'ready' }>['data']>): Inspect => ({ path, name: null, status: 'ready', data: { path, git: false, worktree: false, remote: null, registered: null, enclosing: null, link: null, ...over } });
+    const nested = ready(ui, { enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'packages/ui' } });
+    const link = ready('/w/notes-app', { link: { projectId: 'p7', name: 'notes-app', match: 'remote', remote: 'github.com/me/notes-app', deviceName: 'work-pc', previousPath: null } });
+    const note = () => document.querySelector('.dir-note');
+    /** パスを打ち、問い合わせの答えを重ねて描き直す。 */
+    function typed(path: string, inspect: Inspect | null, over: Partial<NewProjectProps> = {}) {
+      const { out, view } = collect(over);
+      fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+      fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: path } });
+      const again = (p: Partial<NewProjectProps>) => view.rerender(<ActionRoot onAction={(i) => out.push(i)}><NewProjectDialog {...base} {...over} {...p} /></ActionRoot>);
+      again({ inspect });
+      return { out, again };
+    }
+    it('パスが決まると、少し待ってから事前の問い合わせを頼む。名前を直したら名前も添える', () => {
+      vi.useFakeTimers();
+      try {
+        const { out } = collect();
+        fireEvent.click(screen.getByRole('radio', { name: '既存のフォルダを登録' }));
+        fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: '/w/al' } });
+        fireEvent.change(screen.getByLabelText('フォルダのパス'), { target: { value: ui } });
+        expect(out.filter((i) => i.type === 'folder.inspect')).toEqual([]);
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(out.filter((i) => i.type === 'folder.inspect')).toEqual([{ type: 'folder.inspect', path: ui }]);
+        fireEvent.change(screen.getByLabelText('プロジェクト名'), { target: { value: 'ui-kit' } });
+        act(() => { vi.advanceTimersByTime(400); });
+        expect(out.filter((i) => i.type === 'folder.inspect').at(-1)).toEqual({ type: 'folder.inspect', path: ui, name: 'ui-kit' });
+      } finally { vi.useRealTimers(); }
+    });
+    it('登録済みのプロジェクトの下なら、その場の 1 行で言い、ボタンは包むプロジェクトを開くか、そこで始めるかになる', () => {
+      const { out } = typed(ui, nested);
+      expect(note()).toHaveTextContent('alpha の中のフォルダです。別のプロジェクトにしないときは、alpha を開きます。');
+      expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'alpha を開く' }));
+      fireEvent.click(screen.getByRole('button', { name: 'alpha で開始' }));
+      expect(out.filter((i) => i.type === 'project.new.enclosing')).toEqual([
+        { type: 'project.new.enclosing', projectId: 'p1', dir: ui, startSession: false },
+        { type: 'project.new.enclosing', projectId: 'p1', dir: ui, startSession: true },
+      ]);
+      expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([]);
+    });
+    it('「別のプロジェクトにする」を押すと、分けて登録する旨を言い、allowNested を付けて送る。戻すこともできる', () => {
+      const { out } = typed(ui, nested);
+      fireEvent.click(screen.getByRole('button', { name: '別のプロジェクトにする' }));
+      expect(note()).toHaveTextContent('alpha から分けて、別のプロジェクトとして登録します。いまある会話は alpha に残り、これからの会話が分かれます。');
+      expect(screen.getByLabelText('プロジェクト名')).toHaveValue('ui');
+      fireEvent.click(screen.getByRole('button', { name: '作成' }));
+      expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([{ type: 'project.new.submit', place: { kind: 'dir', path: ui, name: 'ui', allowNested: true }, startSession: false }]);
+      fireEvent.click(screen.getByRole('button', { name: 'alpha のままにする' }));
+      expect(screen.getByRole('button', { name: 'alpha を開く' })).toBeInTheDocument();
+    });
+    it('登録が 409（入れ子）で断られたら、失敗の文言ではなく、その場の 1 行と「別のプロジェクトにする」を出す', () => {
+      typed(ui, nested, { error: 'このフォルダはプロジェクト alpha の中にあります' });
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(note()).toHaveTextContent('alpha の中のフォルダです。');
+      expect(screen.getByRole('button', { name: '別のプロジェクトにする' })).toBeInTheDocument();
+    });
+    it('ほかの PC から届いた同じプロジェクトがあれば、理由と行き先を 1 行で言い、既定で結び付ける。「新しく作る」に切り替えられる', () => {
+      const { out } = typed('/w/notes-app', link);
+      expect(note()).toHaveTextContent('work-pc の notes-app と同じリポジトリです。この PC の場所として結び付けます。');
+      expect(screen.queryByLabelText('プロジェクト名')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '結び付ける' }));
+      fireEvent.click(screen.getByRole('button', { name: '結び付けて開始' }));
+      expect(out.filter((i) => i.type === 'project.new.submit')).toEqual([
+        { type: 'project.new.submit', place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' }, startSession: false },
+        { type: 'project.new.submit', place: { kind: 'dir', path: '/w/notes-app', linkTo: 'p7' }, startSession: true },
+      ]);
+      fireEvent.click(screen.getByRole('button', { name: '新しく作る' }));
+      expect(note()).toHaveTextContent('work-pc の notes-app には結び付けず、新しいプロジェクトとして登録します。');
+      expect(screen.getByLabelText('プロジェクト名')).toHaveValue('notes-app');
+      fireEvent.click(screen.getByRole('button', { name: '作成' }));
+      expect(out.filter((i) => i.type === 'project.new.submit').at(-1)).toEqual({ type: 'project.new.submit', place: { kind: 'dir', path: '/w/notes-app', name: 'notes-app' }, startSession: false });
+      fireEvent.click(screen.getByRole('button', { name: 'notes-app に結び付ける' }));
+      expect(screen.getByRole('button', { name: '結び付ける' })).toBeInTheDocument();
+    });
+    it('問い合わせの答えを待つ間は送れない。ほかのパスの答えは使わない', () => {
+      const { again } = typed(ui, { path: ui, name: null, status: 'loading' });
+      expect(screen.getByRole('button', { name: '作成' })).toBeDisabled();
+      again({ inspect: ready('/w/other', { enclosing: { projectId: 'p1', name: 'alpha', path: '/w/alpha', relative: 'x' } }) });
+      expect(screen.getByRole('button', { name: '作成' })).toBeEnabled();
+      expect(note()).toBeNull();
+    });
   });
   it('送信中は両方のボタンを押せず、失敗の文言を出し、背景では閉じない', () => {
     const { out, view } = collect({ submitting: true, error: '/w/price-watcher は既にあります' });

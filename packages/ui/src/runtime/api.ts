@@ -1,6 +1,6 @@
 import type { EditorMissingDto, EditorsDto, EditorTestDto, KnownEditorId } from '@agent-hangar/shared';
 import type { GitDiffDto, GitDto, ProjectGitDto, SessionChangesDto, SessionEditsDto } from '@agent-hangar/shared';
-import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto, ProjectSameFolderDto } from '@agent-hangar/shared';
+import type { AccountDirPreviewDto, AccountsDto, ArtifactDto, BootstrapDto, CloudDevicesDto, CloudUsageDto, CompatDto, ConfigApplyOrderDto, ConfigApplyOrderEntryIn, ConfigBackupsDto, ConfigConflictDto, ConfigInboxDto, ConfigOutgoingDto, InstructionFileKind, InstructionsDto, InterruptedDto, ConfigSyncDto, ConfigUnsentDto, DropDto, EventsPageDto, FolderCandidatesDto, FolderRegisterResultDto, LaunchParams, LaunchResultDto, LiveDigestDto, MemoDto, MuxRecheckDto, ProjectDto, ProjectPlace, ProjectStatus, PromoteResultDto, PromptCommandDto, ReadinessDto, ResolveAction, ResumeHereConflictDto, ResumeHerePlanDto, RetentionDto, RetentionPreviewDto, RunDto, SearchParamsDto, SearchResultDto, SessionDto, SessionFilesDto, SessionStateDto, SessionStatus, SettingsDto, ShellHookDto, StatuslineStatusDto, SummarizerTestDto, SyncStatusBody, TabDto, TerminalApp, TodoDto, UsageAggregateDto, WorkspaceDirDto, ProjectSameFolderDto, FolderInspectDto, ProjectNestedDto } from '@agent-hangar/shared';
 
 /** 「この PC で再開」で手元の本文の方が小さいときの 409。UI は確認ダイアログにする。 */
 export class ApiConflictError extends Error {
@@ -15,6 +15,11 @@ export class EditorMissingApiError extends Error {
 /** 「場所を再指定」で選んだフォルダが、この PC で別のプロジェクトの場所だった（409）。UI はまとめる確認を出す。 */
 export class ProjectSameFolderApiError extends Error {
   constructor(public readonly body: ProjectSameFolderDto) { super(body.error); this.name = 'ProjectSameFolderApiError'; }
+}
+
+/** 登録しようとしたフォルダが、登録済みのプロジェクトの下だった（409、0.6.2）。UI はその場の 1 行と「別のプロジェクトにする」を出す。 */
+export class ProjectNestedApiError extends Error {
+  constructor(public readonly body: ProjectNestedDto) { super(body.error); this.name = 'ProjectNestedApiError'; }
 }
 
 /** 保持期間の下見の後に、設定ファイルがほかで変わった。UI は下見を取り直す。 */
@@ -95,6 +100,8 @@ export type ApiClient = {
   testEditor(): Promise<EditorTestDto>;
   projectOpenTerminal(projectId: string): Promise<{ app: TerminalApp; fellBack: boolean }>;
   createProject(place: ProjectPlace): Promise<ProjectDto>;
+  /** 選んだ 1 つのフォルダの事前の問い合わせ（0.6.2）。name を渡すと、弱い一致をその名前で見る。 */
+  inspectFolder(path: string, name?: string): Promise<FolderInspectDto>;
   workspaceDirs(): Promise<WorkspaceDirDto[]>;
   /** Claude Code と会話したフォルダの候補（初日のプロジェクト）。 */
   folderCandidates(): Promise<FolderCandidatesDto>;
@@ -203,6 +210,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
       if (r.status === 409 && body?.error === 'retention_conflict') throw new RetentionConflictApiError();
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'editor_missing') throw new EditorMissingApiError(body as unknown as EditorMissingDto);
       if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_same_folder') throw new ProjectSameFolderApiError(body as unknown as ProjectSameFolderDto);
+      if (r.status === 409 && (body as { code?: unknown } | null)?.code === 'project_nested') throw new ProjectNestedApiError(body as unknown as ProjectNestedDto);
       const message = body?.error ?? `${r.status} ${path}`;
       if (r.status === 404) throw new ApiNotFoundError(message);
       throw new Error(message);
@@ -253,6 +261,7 @@ export function createApi(fetchFn: typeof fetch = (...a) => fetch(...a)): ApiCli
     testEditor: () => post('/api/editor/test'),
     projectOpenTerminal: (projectId) => post(`/api/projects/${projectId}/open-terminal`),
     createProject: (place) => post('/api/projects', place),
+    inspectFolder: (path, name) => call(`/api/workspace/inspect${qs({ path, name })}`),
     workspaceDirs: () => call('/api/workspace/dirs'),
     folderCandidates: () => call('/api/workspace/candidates'),
     registerFolders: (paths) => post('/api/workspace/register', { paths }),
